@@ -2066,6 +2066,11 @@ async def test_remote_disc_session_reads_ffconcat_and_follows_worker_caps(manage
         "/source.ffconcat?token=source-grant"
     )
     assert args[args.index("-i") - 4 : args.index("-i")] == ["-f", "concat", "-safe", "0"]
+    # 面板任务卡片的海报：和源地址同一个令牌
+    assert payload["poster_url"] == (
+        f"http://192.168.1.10:3000/api/v1/transcode-worker/sessions/{session.id}"
+        "/poster?token=source-grant"
+    )
     assert args[args.index("-vf") + 1].startswith(
         "scale_vt=w=-2:h=1080:format=p010le,tonemap_videotoolbox="
     )

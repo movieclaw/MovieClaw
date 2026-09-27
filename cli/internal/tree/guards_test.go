@@ -69,6 +69,8 @@ var knownNonGenerated = []string{
 	// 原盘的远程取源：ffconcat 清单与各段剪辑，只给转码 Worker 用（remote-transcode.md §5.2）
 	"transcode.source.ffconcat",
 	"transcode.source.clip",
+	// 转码器面板任务卡片的海报，只给转码 Worker 用
+	"transcode.poster",
 	"transcode.artifact.put",
 	"playback.progress",
 	"playback.resume",

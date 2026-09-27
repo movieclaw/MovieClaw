@@ -936,14 +936,16 @@ class TranscodeSessionManager:
         *,
         base_override: str,
         start_number: int | None,
-    ) -> tuple[TranscodeCommand, str, str, str]:
-        """给接单的这台 Worker 拼一轮任务：源地址、产物回传地址与 ffmpeg 命令。
+    ) -> tuple[TranscodeCommand, str, str, str, str]:
+        """给接单的这台 Worker 拼一轮任务：源地址、产物回传地址、海报地址与 ffmpeg 命令。
 
         首次下发与 seek 重启共用。地址都用**这台** Worker 连上来的地址拼（理由见
         ``_spawn_remote``）。原盘的源是 ffconcat 清单：NAS 把主播放列表的各段剪辑
         按 HTTP 地址列给它（transcode_worker 路由）；命令按这台 Worker 申报的视频
         能力装——能硬解哪些编码、有没有 Metal 缩放与色调映射（WorkerVideoCaps）。
-        返回（命令, 源地址, 产物根地址, 产物令牌后缀）。
+        海报地址只给转码器面板的任务卡片显示用，和源地址同一个令牌：Worker 令牌
+        进不了业务接口，它只拿得到正在转的这一部片的海报。
+        返回（命令, 源地址, 产物根地址, 产物令牌后缀, 海报地址）。
         """
         base = (base_override or connection.observed_base_url).rstrip("/")
         if not base:
@@ -968,6 +970,7 @@ class TranscodeSessionManager:
         )
         artifact_base = f"{endpoint}/artifacts"
         token_suffix = f"?token={quote(artifact_token, safe='')}"
+        poster_url = f"{endpoint}/poster?token={quote(source_token, safe='')}"
         command = build_hls_command(
             session.plan,
             source_path=source_url,
@@ -980,7 +983,7 @@ class TranscodeSessionManager:
             input_format="concat" if disc else None,
             worker_caps=connection.capabilities.video_caps,
         )
-        return command, source_url, artifact_base, token_suffix
+        return command, source_url, artifact_base, token_suffix, poster_url
 
     async def _spawn_remote(
         self, session: TranscodeSession, base_url_override: str
@@ -1012,7 +1015,13 @@ class TranscodeSessionManager:
         # 占位之后到 start_job 之前的任何失败都必须归还槽位，否则这台 Worker
         # 的并发位会被一个从未下发的任务永久占住。
         try:
-            command, source_url, artifact_base, token_suffix = await self._remote_command(
+            (
+                command,
+                source_url,
+                artifact_base,
+                token_suffix,
+                poster_url,
+            ) = await self._remote_command(
                 session,
                 connection,
                 job_id,
@@ -1039,6 +1048,7 @@ class TranscodeSessionManager:
                     "ffmpeg_args": command.argv[1:],
                     # 只为 Worker 菜单栏显示用；旧版 Worker 忽略多余字段
                     "display_name": session.display_name,
+                    "poster_url": poster_url,
                 },
             )
             session.remote_worker_id = worker_id
@@ -1789,6 +1799,7 @@ class TranscodeSessionManager:
                         source_url,
                         artifact_base,
                         token_suffix,
+                        poster_url,
                     ) = await self._remote_command(
                         session,
                         connection,
@@ -1813,6 +1824,7 @@ class TranscodeSessionManager:
                         "start_ms": session.start_ms,
                         "ffmpeg_args": command.argv[1:],
                         "display_name": session.display_name,
+                        "poster_url": poster_url,
                     },
                 )
                 session.remote_worker_id = worker_id

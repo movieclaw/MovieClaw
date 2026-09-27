@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 /// 状态面板要显示的全部内容。纯数据：由 ``make(status:configured:nasAddress:today:recent:now:)``
 /// 从 Worker 状态与本地任务记录推出来，视图只管照着画，便于单测覆盖各种组合。
@@ -26,6 +26,8 @@ struct PanelModel: Equatable {
         var health: Health
         /// 卡片最下面那句人话。
         var explanation: String
+        /// 这部片的海报（NAS 下发、下载好了才有，见 ``JobPosterCache``）；没有时卡片显示占位图标。
+        var poster: NSImage? = nil
     }
 
     /// 看片的人现在播得顺不顺——任务卡片要回答的唯一问题。
@@ -207,6 +209,7 @@ struct PanelModel: Equatable {
         speeds: [String: Double] = [:],
         resources: ResourceHistory? = nil,
         recoveries: [CoreRecovery] = [],
+        posters: [String: NSImage] = [:],
         now: Date = Date()
     ) -> PanelModel {
         let presentation = WorkerStatePresentation.make(status?.state, configured: configured)
@@ -242,7 +245,11 @@ struct PanelModel: Equatable {
             body = idle
         case .busy, .paused, .draining:
             // draining 只在更新 ffmpeg 前出现（等手上的任务转完再换），照常显示任务
-            body = status.jobs.isEmpty ? idle : .jobs(status.jobs.map { jobCard($0, speed: speeds[$0.id]) })
+            body = status.jobs.isEmpty ? idle : .jobs(status.jobs.map { job in
+                var card = jobCard(job, speed: speeds[job.id])
+                card.poster = posters[job.id]
+                return card
+            })
             badge = status.jobs.isEmpty ? .none : .busy
         case .starting, .connecting:
             body = .notice(Notice(
@@ -548,12 +555,17 @@ struct PanelModel: Equatable {
 extension DisplayText {
     /// 去掉常见视频扩展名。片名本身可能带点（「Mr.Robot」），只认末尾那几种。
     static func withoutExtension(_ name: String) -> String {
-        let lower = name.lowercased()
+        // 媒体库目录名常带刮削用的标记（`[tmdbid=634649]`、`{tmdb-634649}`），给人看时去掉
+        let bare = name.replacingOccurrences(
+            of: #"\s*[\[{](tmdb|imdb|tvdb)(id)?[=-][^\]}]*[\]}]"#, with: "",
+            options: [.regularExpression, .caseInsensitive]
+        )
+        let lower = bare.lowercased()
         for ext in [".mkv", ".mp4", ".m4v", ".mov", ".ts", ".m2ts", ".avi", ".iso", ".webm"]
         where lower.hasSuffix(ext) {
-            return String(name.dropLast(ext.count))
+            return String(bare.dropLast(ext.count))
         }
-        return name
+        return bare
     }
 
     /// ffmpeg 编码器名 → 给人看的说法。

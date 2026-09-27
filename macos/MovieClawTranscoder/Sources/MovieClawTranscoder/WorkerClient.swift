@@ -583,7 +583,8 @@ actor WorkerClient {
         tracks[jobID] = JobTrack(
             startedAt: Date(),
             videoEncoder: Self.videoEncoder(in: arguments),
-            startOffsetMS: Self.seekOffsetMS(in: arguments)
+            startOffsetMS: Self.seekOffsetMS(in: arguments),
+            posterURL: (message["poster_url"] as? String).flatMap(URL.init(string:))
         )
         do {
             try await send(["type": "job.accepted", "job_id": jobID, "attempt_id": attemptID])
@@ -943,7 +944,8 @@ actor WorkerClient {
                 videoEncoder: tracks[jobID]?.videoEncoder,
                 startOffsetMS: tracks[jobID]?.startOffsetMS ?? 0,
                 paused: pausedJobs.contains(jobID),
-                playback: tracks[jobID]?.playback
+                playback: tracks[jobID]?.playback,
+                posterURL: tracks[jobID]?.posterURL
             )
         }
         statusContinuation.yield(
@@ -997,6 +999,8 @@ private struct JobTrack {
     let startedAt: Date
     let videoEncoder: String?
     let startOffsetMS: Int64
+    /// 这部片的海报地址（旧版服务端不下发，为 nil）。
+    let posterURL: URL?
     /// NAS 最近一次推来的观众播放位置。
     var playback: JobPlayback?
     /// 最近一次收到 ffmpeg 进度的时间（看门狗用，暂停恢复时重置）。
@@ -1006,10 +1010,11 @@ private struct JobTrack {
     private var firstOutMS: Int64?
     private var lastOutMS: Int64?
 
-    init(startedAt: Date, videoEncoder: String?, startOffsetMS: Int64) {
+    init(startedAt: Date, videoEncoder: String?, startOffsetMS: Int64, posterURL: URL? = nil) {
         self.startedAt = startedAt
         self.videoEncoder = videoEncoder
         self.startOffsetMS = startOffsetMS
+        self.posterURL = posterURL
     }
 
     mutating func observe(_ outTimeMS: Int64) {

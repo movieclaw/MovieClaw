@@ -294,6 +294,8 @@ struct RunningJob: Sendable, Equatable, Codable {
     let paused: Bool
     /// 观众看到哪儿了。旧版服务端不推，为 nil。
     var playback: JobPlayback? = nil
+    /// 这部片的海报（NAS 用这次任务的令牌签发的地址，见 ``JobPosterCache``）。旧版服务端为 nil。
+    var posterURL: URL? = nil
 }
 
 /// 需要让用户知道、面板要专门说明的故障（普通的断线重连不算）。

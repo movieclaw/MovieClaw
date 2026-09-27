@@ -190,7 +190,7 @@ private final class JobCardView: RoundedFillView {
         super.init(fill: .neutral)
         toolTip = card.tooltip
 
-        let poster = PosterTile(symbol: "film", tint: .controlAccentColor)
+        let poster = PosterTile(symbol: "film", tint: .controlAccentColor, image: card.poster)
         let title = PanelText.wrapping(card.title, size: 13, weight: .semibold, lines: 2,
                                        width: Self.textWidth)
         var texts: [NSView] = [title]
@@ -260,19 +260,27 @@ private final class JobCardView: RoundedFillView {
     }
 }
 
-/// 封面位：圆角方块里一个 SF Symbol（服务端下发海报后换成真图）。
+/// 封面位：有海报时是一张 2:3 的圆角海报，没有时是圆角方块里一个 SF Symbol。
 private final class PosterTile: NSView {
     static let side: CGFloat = 40
     private let tint: NSColor
+    /// 给图层 CGImage 而不是 NSImage：两者屏幕上都认，但 CALayer 的 render(in:) 只认前者。
+    private let poster: CGImage?
 
-    init(symbol: String, tint: NSColor) {
+    init(symbol: String, tint: NSColor, image poster: NSImage? = nil) {
         self.tint = tint
+        self.poster = poster?.cgImage(forProposedRect: nil, context: nil, hints: nil)
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
             widthAnchor.constraint(equalToConstant: Self.side),
-            heightAnchor.constraint(equalToConstant: Self.side),
+            heightAnchor.constraint(equalToConstant: poster == nil ? Self.side : Self.side * 1.5),
         ])
+        if self.poster != nil {
+            // 图层要等视图进了窗口才建出来，内容在 updateLayer() 里给
+            wantsLayer = true
+            return
+        }
         let image = NSImageView(image: Symbols.image(symbol, pointSize: 16, weight: .semibold) ?? NSImage())
         image.contentTintColor = tint
         image.translatesAutoresizingMaskIntoConstraints = false
@@ -285,6 +293,18 @@ private final class PosterTile: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override var wantsUpdateLayer: Bool { poster != nil }
+
+    /// 有海报时：铺满裁切（海报本来就是 2:3，个别比例不对的也不留黑边），圆角与占位方块一致。
+    override func updateLayer() {
+        guard let layer else { return }
+        layer.contents = poster
+        layer.contentsGravity = .resizeAspectFill
+        layer.cornerRadius = 6
+        layer.cornerCurve = .continuous
+        layer.masksToBounds = true
     }
 
     override func draw(_ dirtyRect: NSRect) {

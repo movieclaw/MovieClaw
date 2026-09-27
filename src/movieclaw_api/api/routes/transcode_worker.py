@@ -16,12 +16,13 @@ from urllib.parse import quote
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket
 from fastapi import Path as PathParam
-from fastapi.responses import Response
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import ClientDisconnect
 from starlette.websockets import WebSocketDisconnect
 
 from movieclaw_api.api.deps import require_admin, resolve_worker_principal
+from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import (
     InsufficientStorageException,
     NotFoundException,
@@ -32,6 +33,13 @@ from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.schemas.transcode_worker import (
     RemoteTranscodeConfigPayload,
     RemoteTranscodeConfigView,
+)
+from movieclaw_api.services import media_scrape
+from movieclaw_api.services.image_cache import get_image_cache
+from movieclaw_api.services.image_variants import (
+    ImageVariant,
+    get_image_variant_service,
+    source_version_of,
 )
 from movieclaw_api.services.playback import remote_config as remote_transcode_config
 from movieclaw_api.services.playback.disc_source import disc_source_for_file
@@ -48,7 +56,8 @@ from movieclaw_api.services.playback.remote_worker import (
 )
 from movieclaw_api.services.playback.session import get_session_manager
 from movieclaw_db.engine import get_session
-from movieclaw_db.models import LibraryFile
+from movieclaw_db.models import LibraryFile, MediaItem
+from movieclaw_db.repositories.media_repo import MediaItemRepository
 from movieclaw_events import new_ulid
 from movieclaw_playback.streaming import (
     DisconnectAwareFileResponse,
@@ -464,6 +473,48 @@ async def transcode_disc_clip(
         raise _missing_source(session_id, file, path)
     return DisconnectAwareFileResponse(
         path, media_type="video/MP2T", headers={"Cache-Control": "no-store"}
+    )
+
+
+@router.get(
+    "/sessions/{session_id}/poster",
+    response_class=FileResponse,
+    summary="远程转码任务的海报",
+    operation_id="transcode.poster",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def transcode_poster(
+    session_id: Annotated[str, PathParam()],
+    token: Annotated[str | None, Query()] = None,
+    session: AsyncSession = Depends(get_session),
+) -> FileResponse:
+    """转码器面板任务卡片上的海报（``poster-card`` 小尺寸 WebP）。
+
+    Worker 令牌进不了业务接口（图片资产要登录用户身份），这里用这次任务的取源
+    令牌鉴权：转码器只拿得到它正在转的那一部片的海报。取图规则与海报墙、分享页
+    同两层：本地刮削资产优先，没有再回落 TMDB 图床（经图片缓存代理）。剧集取的是
+    整部剧的海报。
+    """
+    file = await _remote_source_file(session_id, token, session)
+    item = await session.get(MediaItem, file.media_item_id) if file.media_item_id else None
+    if item is None or item.id is None:
+        raise NotFoundException("这个转码任务没有对应的条目")
+    meta = await MediaItemRepository(session).get_metadata(item.id)
+    poster_file = meta.poster_file if meta is not None else None
+    target = media_scrape.resolve_asset_path(poster_file) if poster_file else None
+    if target is not None and target.is_file():
+        source, key, version = target, f"asset:{poster_file}", source_version_of(target.stat())
+    elif item.poster_path:
+        url = f"{get_settings().tmdb_image_base_url.rstrip('/')}/w500{item.poster_path}"
+        cached = await get_image_cache().get_or_fetch(url)
+        source, key, version = cached.path, f"remote:{url}", cached.version
+    else:
+        raise NotFoundException("这部片还没有海报")
+    variant = await get_image_variant_service().get_or_create(
+        source, source_key=key, source_version=version, variant=ImageVariant.POSTER_CARD
+    )
+    return FileResponse(
+        variant.path, media_type=variant.content_type, headers={"Cache-Control": "no-store"}
     )
 
 

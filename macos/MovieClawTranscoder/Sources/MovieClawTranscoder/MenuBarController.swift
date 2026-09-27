@@ -35,6 +35,8 @@ final class MenuBarController: NSObject {
     private let history: JobHistory?
     /// CPU / 内存采样（面板里的小图表）。App 一启动就开始采，打开面板时已有曲线。
     private let resources = ResourceMonitor()
+    /// 正在转的任务的海报（任务结束即释放）。
+    private let posters = JobPosterCache()
     private var status: WorkerStatus?
     private var configured = false
     private var ffmpeg: FFmpegMenuState = .download
@@ -61,6 +63,7 @@ final class MenuBarController: NSObject {
         statusItem.button?.sendAction(on: [.leftMouseDown, .rightMouseDown])
 
         resources.onSample = { [weak self] in self?.refresh() }
+        posters.onChange = { [weak self] in self?.refresh() }
         resources.start()
         refresh()
     }
@@ -69,6 +72,7 @@ final class MenuBarController: NSObject {
         self.status = status
         self.configured = configured
         trackSpeeds(status)
+        posters.sync(status?.jobs ?? [])
         refresh()
     }
 
@@ -91,7 +95,8 @@ final class MenuBarController: NSObject {
                 physicalMemory: resources.physicalMemory,
                 cores: resources.cores
             ),
-            recoveries: recoveries
+            recoveries: recoveries,
+            posters: posters.images(for: status?.jobs ?? [])
         )
     }
 

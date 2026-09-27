@@ -978,6 +978,46 @@ def test_remote_disc_clip_supports_range_and_rejects_bad_requests(client, tmp_pa
     assert client.get(f"{base}/source?token={grants['source']}").status_code == 404
 
 
+def test_remote_poster_serves_the_small_card_of_this_jobs_item(client, tmp_path):
+    """转码器面板的任务卡片海报：用这次任务的取源令牌换海报墙同源的小图。"""
+    import io
+
+    from PIL import Image
+
+    from movieclaw_api.services import media_scrape
+    from movieclaw_db.models import MediaMetadata
+    from movieclaw_db.models.base import utcnow
+
+    file_id = seed(client, tmp_path, container="mkv")
+
+    async def _add_poster() -> None:
+        async with get_database().session() as session:
+            row = await session.get(LibraryFile, file_id)
+            rel = f"{row.media_item_id}/poster.jpg"
+            target = media_scrape.assets_root_resolved() / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (600, 900), "red").save(target, "JPEG")
+            session.add(
+                MediaMetadata(media_item_id=row.media_item_id, poster_file=rel, scraped_at=utcnow())
+            )
+            await session.commit()
+
+    grants = _install_remote_session(client, tmp_path, file_id)
+    base = f"/api/v1/transcode-worker/sessions/{grants['session_id']}"
+    # 还没有海报：404，面板保留占位图标
+    assert client.get(f"{base}/poster?token={grants['source']}").status_code == 404
+
+    client.portal.call(_add_poster)
+    response = client.get(f"{base}/poster?token={grants['source']}")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "image/webp"
+    image = Image.open(io.BytesIO(response.content))
+    assert image.width <= 328  # poster-card 预设，不把原图整张发给转码器
+    # 令牌不对（包括拿产物令牌冒充）：与取源接口同一个验签入口
+    assert client.get(f"{base}/poster?token=tampered").status_code == 401
+    assert client.get(f"{base}/poster?token={grants['artifact']}").status_code == 401
+
+
 def test_remote_artifact_upload_is_atomic_and_attempt_scoped(client, tmp_path):
     file_id = seed(client, tmp_path, container="mkv")
     grants = _install_remote_session(client, tmp_path, file_id)
