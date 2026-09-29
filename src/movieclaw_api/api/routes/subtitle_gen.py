@@ -127,10 +127,9 @@ async def gen_preview(
 ) -> ApiResponse[GenPreviewView]:
     """内封轨首次预检不在这里等 ffmpeg（issue #432）。
 
-    抽取要通读整个容器，16 GB 的 MKV 是 80 秒级，而 iPhone Safari 约 60 秒
-    就掐断请求、对话框显示浏览器原话 ``Load failed``——用户以为文件坏了，
-    服务端却照跑到底。``wait=False`` 让预检立刻返回 ``pending``，抽取转后台
-    单飞进行，前端按 ``retry_after_ms`` 轮询同一个接口拿最终结论。
+    预检只读取字幕轨元数据；未缓存的字幕内容留给用户确认后的持久化 Job，
+    因此关闭确认框不会留下无主的分钟级抽取任务。已有缓存时仍可直接展示对白
+    条数与成本估算。
     """
     pv = await gen_tasks.preview(
         session,

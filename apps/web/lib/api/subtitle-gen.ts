@@ -73,10 +73,10 @@ export interface SubtitleGenerationPreview {
   /** 规范化后的最终外挂字幕文件名。 */
   output_filename: string | null;
   /**
-   * 非空 = 这次还没有结论：内封轨正在后台抽取，按 retry_after_ms 重拉即可。
+   * 非空 = 这次还没有内容结论：确认后由 Job 后台读取内封轨。
    *
-   * 与 blocker 是两回事——blocker 说「这份片源做不了」，pending 说「再等
-   * 一会儿」。等待期间绝不能把 blocker 的文案显示出来。
+   * 与 blocker 是两回事——blocker 说「这份片源做不了」，pending 说「可以提交，
+   * 内容信息稍后补齐」。前端不再轮询等待。
    */
   pending: {
     message: string;
@@ -96,9 +96,9 @@ export interface CalibrateResult {
 /**
  * 生成预检：选源结果 + 成本估算（确认框素材，不动 LLM）。
  *
- * 后端保证这个接口**不会**在里面等 ffmpeg 通读大文件：内封轨没抽好就回
- * `pending`，抽取转后台（issue #432）。所以这里可以放心给一个短超时——
- * 超过它就是真的不对劲，而不是「文件大，再等等」。
+ * 后端保证这个接口**不会**在里面等 ffmpeg 通读大文件：未缓存内封轨只回
+ * `pending`，用户仍可直接提交生成任务。已有缓存时才展示对白条数和成本估算。
+ * 所以这里可以放心给一个短超时——超过它就是真的不对劲，而不是「文件大，再等等」。
  */
 const PREVIEW_TIMEOUT_MS = 20_000;
 

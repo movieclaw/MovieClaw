@@ -1149,13 +1149,13 @@ async def test_graphic_product_is_refused_as_reference_text(
         await extract.load_candidate_events(row, candidate)
 
 
-async def test_uncached_embedded_preview_defers_instead_of_blocking(
+async def test_uncached_embedded_preview_does_not_start_extraction(
     tmp_path: Path, monkeypatch
 ) -> None:
-    """预检不等 ffmpeg：没缓存就转后台抽取并抛 pending（issue #432）。
+    """预检不等 ffmpeg：没缓存只返回 pending，不提前消耗抽取资源。
 
-    同步等下去的代价是 iPhone Safari 约 60 秒掐断连接、对话框显示浏览器原话
-    ``Load failed``，而服务端照跑到底——用户看到失败，机器的活一点没省。
+    用户确认后由持久化字幕 Job 调用 ``wait=True`` 负责读取，关闭确认框不会
+    留下无主的后台抽取。
     """
     from movieclaw_api.services import media_extract
 
@@ -1163,6 +1163,7 @@ async def test_uncached_embedded_preview_defers_instead_of_blocking(
     video.write_bytes(b"fake")
     cache = tmp_path / "cache"
     monkeypatch.setattr(media_extract, "cache_dir", lambda: cache)
+    monkeypatch.setattr(extract, "ffmpeg_available", lambda: True)
 
     scheduled: list[int] = []
     monkeypatch.setattr(
@@ -1175,8 +1176,9 @@ async def test_uncached_embedded_preview_defers_instead_of_blocking(
         await extract.load_candidate_events(
             _embedded_file(video), _EMBEDDED_CANDIDATE, wait=False
         )
-    assert scheduled == [0], "没有把抽取转到后台，用户轮询也等不到结果"
+    assert scheduled == [], "未确认前不应启动后台抽取"
     assert caught.value.candidate_key == "embedded:0"
+    assert "确认后" in str(caught.value)
 
     # wait=True（发起生成、后台任务）仍然等到底：CLI 没有浏览器的 60 秒上限
     async def no_product(_file, _index):
@@ -1188,6 +1190,34 @@ async def test_uncached_embedded_preview_defers_instead_of_blocking(
         await extract.load_candidate_events(
             _embedded_file(video), _EMBEDDED_CANDIDATE, wait=True
         )
+
+
+async def test_library_subtitle_preview_still_starts_explicit_extraction(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """普通字幕预览仍会在用户主动点击后启动共享抽取。"""
+    from movieclaw_api.services import media_extract
+    from movieclaw_api.services.library import subtitle_preview
+
+    video = tmp_path / "Movie.mkv"
+    video.write_bytes(b"fake")
+    row = _embedded_file(video)
+    scheduled: list[tuple[LibraryFile, int]] = []
+
+    async def pending(_file, _candidate, **_kwargs):  # noqa: ANN001
+        raise extract.SourceExtractionPending("等待读取", candidate_key="embedded:0")
+
+    monkeypatch.setattr(subtitle_preview.extract, "load_candidate_events", pending)
+    monkeypatch.setattr(
+        media_extract,
+        "schedule_extraction",
+        lambda file, index: (scheduled.append((file, index)), True)[1],
+    )
+
+    result = await subtitle_preview.load_subtitle_preview(row, "embedded:0")
+
+    assert result.pending == "等待读取"
+    assert scheduled == [(row, 0)]
 
 
 async def test_preview_pending_does_not_masquerade_as_a_blocker(monkeypatch) -> None:
@@ -1215,6 +1245,52 @@ async def test_preview_pending_does_not_masquerade_as_a_blocker(monkeypatch) -> 
     assert pv.chosen is None and pv.event_count == 0
     # 输出文件名与「已生成过」这类不依赖抽取的信息仍要照常给出
     assert pv.output_filename
+
+
+async def test_generation_preflight_accepts_pending_embedded_source(monkeypatch) -> None:
+    """确认框拿到 pending 时也能立即创建 Job，不重新等待字幕抽取。"""
+    ranked = source.rank_candidates(
+        _file([{"codec": "subrip", "language": "eng"}], []),
+        original_language="eng",
+        target_language="chs",
+    )
+    preview = tasks.Preview(
+        candidates=ranked,
+        chosen=None,
+        event_count=0,
+        estimated_tokens=0,
+        already_generated=False,
+        warnings=[],
+        pgs_conversion=None,
+        blocker=None,
+        selected_source_key="embedded:0",
+        pending=tasks.PreviewPending(
+            message="参考字幕尚未读取，确认后将由后台任务读取",
+            candidate_key="embedded:0",
+        ),
+    )
+    preview_calls: list[dict[str, object]] = []
+
+    async def fake_preview(*_args, **kwargs):  # noqa: ANN002, ANN003
+        preview_calls.append(kwargs)
+        return preview
+
+    monkeypatch.setattr(tasks, "preview", fake_preview)
+
+    async def configured_router(_session):  # noqa: ANN001
+        return object()
+
+    from movieclaw_api.services import llm_config
+
+    monkeypatch.setattr(llm_config, "acquire_llm_router", configured_router)
+
+    result, initial = await tasks._prepare_generation(None, 7, "chs")  # type: ignore[arg-type]
+
+    assert result is preview
+    assert preview_calls[0]["wait"] is False
+    assert initial.phase == "preparing"
+    assert initial.source_candidate_key == "embedded:0"
+    assert initial.message == "任务已入队，等待后台读取参考字幕"
 
 
 async def test_subtitle_job_handler_allows_different_files_to_run_concurrently(

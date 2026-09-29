@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass
 from pathlib import Path
 
+from movieclaw_api.services import media_extract
 from movieclaw_api.services.subtitle_gen import extract
 from movieclaw_api.services.subtitle_gen.source import _TEXT_CODECS, SourceCandidate
 from movieclaw_db.models import LibraryFile
@@ -104,6 +105,11 @@ async def load_subtitle_preview(
             file, candidate, preserve_linebreaks=True, wait=wait
         )
     except extract.SourceExtractionPending as pending:
+        # 普通字幕预览是用户已经明确点击的读取动作，可以启动共享抽取任务；
+        # AI 生成预检则直接调用 extract.load_candidate_events(wait=False)，
+        # 不会走到这里，只有用户确认生成后的 Job 才负责读取。
+        if candidate.kind == "embedded":
+            media_extract.schedule_extraction(file, int(candidate.key))
         return SubtitlePreview(
             format=candidate.format, events=[], pending=pending.message
         )

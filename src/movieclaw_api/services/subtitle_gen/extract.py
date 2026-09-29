@@ -43,11 +43,11 @@ class SourceLoadError(Exception):
 
 
 class SourceExtractionPending(Exception):
-    """内封轨仍在抽取，本次还给不出结论——调用方稍后重试（issue #432）。
+    """内封轨尚未读取，本次还给不出内容结论——由已确认的 Job 后台读取。
 
-    这**不是失败**：大文件通读是分钟级，预检把请求挂在那里等，iPhone Safari
-    约 60 秒就掐断连接、对话框显示浏览器原话 ``Load failed``，而服务端照跑到
-    底。改成抛这个信号、接口立刻回「正在读取」，前端轮询等它落缓存。
+    这**不是失败**：大文件通读是分钟级，用户还没有确认时不应该为了展示预检
+    结果就启动抽取。接口先返回这个信号，用户确认后由持久化 Job 负责读取，
+    用户取消预检也不会留下无主的抽取任务。
     """
 
     def __init__(self, message: str, *, candidate_key: str) -> None:
@@ -162,10 +162,10 @@ async def load_candidate_events(
 ) -> list[SubEvent]:
     """加载候选事件；预览保留换行，字幕生成继续使用单行文本。
 
-    ``wait=False``（预检/详情页预览用）时，内封轨没有现成产物就**不等**：
-    转后台抽取并抛 ``SourceExtractionPending``，由调用方回一个「正在读取」
-    让前端轮询。``wait=True``（发起生成、任务执行）仍然等到底——CLI 与后台
-    任务没有浏览器的 60 秒上限，等一次比让用户自己重试合理。
+    ``wait=False``（预检/详情页预览用）时，内封轨没有现成产物就**不等也不启动
+    抽取**，抛 ``SourceExtractionPending`` 让调用方展示“确认后后台读取”。
+    ``wait=True``（发起生成、任务执行）仍然等到底——CLI 与后台任务没有浏览器
+    的 60 秒上限，抽取应由已确认的 Job 持有。
     """
     if candidate.kind == "external":
         path = Path(file.file_path).parent / candidate.key
@@ -186,17 +186,21 @@ async def load_candidate_events(
 
     track = media_extract.cached_track(file, index)
     if track is None and not wait:
-        # 轮询路径：上次已经失败过就直接报错。不拦的话，前端每隔两三秒就会
-        # 催起一个新的 ffmpeg 去读同一条读不出来的轨。
+        # 预检只负责告诉用户“这条轨可以提交”，不为了确认框提前启动 ffmpeg。
+        # 如果播放器此前记住了失败，仍然立即给出失败原因，避免确认后必然失败。
         if media_extract.extraction_failed(file, index):
             raise SourceLoadError(
                 f"内封字幕抽取失败：{file.file_path} 轨 {index}（具体原因见服务端日志）"
             )
-        if media_extract.schedule_extraction(file, index):
-            raise SourceExtractionPending(
-                "正在读取内封字幕，大文件可能需要一两分钟",
-                candidate_key=f"{candidate.kind}:{candidate.key}",
+        if not ffmpeg_available():
+            raise SourceLoadError(
+                "系统中未找到 ffmpeg，无法抽取内封字幕轨——请安装 ffmpeg，"
+                "或为该影片放置外挂字幕后重试（官方 Docker 镜像已内置 ffmpeg）"
             )
+        raise SourceExtractionPending(
+            "参考字幕尚未读取，确认后将由后台任务读取",
+            candidate_key=f"{candidate.kind}:{candidate.key}",
+        )
     if track is None:
         # 走到这里：要么 wait=True（发起生成/后台任务，等到底），要么这条轨
         # 压根没法调度（不支持的编码、没有事件循环）——都按原行为就地抽取。

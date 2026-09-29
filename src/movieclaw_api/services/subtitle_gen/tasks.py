@@ -282,7 +282,7 @@ def _pgs_sidecar_path(row: LibraryFile, source_language: str) -> Path:
 
 @dataclass
 class Preview:
-    """发起前的确认素材（§6：展示选源结果与成本估算）。"""
+    """发起前的确认素材；未缓存内封轨时允许先提交 Job 再补齐内容信息。"""
 
     candidates: list[source.RankedCandidate]
     chosen: source.RankedCandidate | None
@@ -299,10 +299,10 @@ class Preview:
 
 @dataclass(frozen=True)
 class PreviewPending:
-    """预检还没有结论：内封轨正在后台抽取，稍后重试即可（issue #432）。
+    """预检还没有内容结论：用户确认后由 Job 后台读取内封轨。
 
     与 ``blocker`` 是两回事——blocker 说「这份片源做不了」，pending 说
-    「再等一会儿」。混成一个会让用户在等待期间看到「这份片源没有参考字幕」。
+    「可以提交，内容信息稍后补齐」。混成一个会让用户误以为没有参考字幕。
     """
 
     message: str
@@ -599,11 +599,11 @@ async def preview(
     pgs_ocr_language: str | None = None,
     wait: bool = True,
 ) -> Preview:
-    """选源 + 加载最优候选做成本估算（不动 LLM）。
+    """选源 + 尝试加载最优候选做成本估算（不动 LLM）。
 
-    ``wait=False`` 供 HTTP 预检使用：内封轨没有现成产物就立刻返回 pending，
-    把分钟级的通读放到后台（issue #432）。发起生成与后台任务用默认的
-    ``wait=True``，等到底。
+    ``wait=False`` 供 HTTP 预检和 Job 入队使用：内封轨没有现成产物就立刻返回
+    pending，但不会启动分钟级抽取；用户确认后由 Job 以 ``wait=True`` 读取。
+    直接执行管线的调用方仍可使用默认的 ``wait=True`` 等到底。
     """
     target_language, secondary_language = ensure_output_languages(
         target_language, secondary_language
@@ -633,24 +633,29 @@ async def preview(
     )
     selected_key = candidate_key(selected) if selected is not None else None
 
-    try:
-        chosen, events = await _pick_loadable(row, selected_candidates, warnings, wait=wait)
-    except extract.SourceExtractionPending as exc:
-        # 还没有结论，但也不是「做不了」：blocker 必须留空，否则用户在等待
-        # 期间会看到「这份片源没有参考字幕」这种与事实相反的结论。
-        return Preview(
-            candidates=ranked,
-            chosen=None,
-            event_count=0,
-            estimated_tokens=0,
-            already_generated=already_generated,
-            warnings=warnings,
-            pgs_conversion=None,
-            blocker=None,
-            output_filename=output_filename,
-            selected_source_key=selected_key,
-            pending=PreviewPending(message=exc.message, candidate_key=exc.candidate_key),
-        )
+    if selected is not None and selected.exclusion_code == "pgs":
+        # PGS 的能力与语言检查只看轨道元数据，不需要先把整条图片轨抽出来。
+        # 这样图片字幕仍然能在确认框完成显式 OCR 语言确认。
+        chosen, events = None, []
+    else:
+        try:
+            chosen, events = await _pick_loadable(row, selected_candidates, warnings, wait=wait)
+        except extract.SourceExtractionPending as exc:
+            # 还没有内容结论，但也不是「做不了」：blocker 必须留空，否则用户
+            # 会看到「这份片源没有参考字幕」这种与事实相反的结论。
+            return Preview(
+                candidates=ranked,
+                chosen=None,
+                event_count=0,
+                estimated_tokens=0,
+                already_generated=already_generated,
+                warnings=warnings,
+                pgs_conversion=None,
+                blocker=None,
+                output_filename=output_filename,
+                selected_source_key=selected_key,
+                pending=PreviewPending(message=exc.message, candidate_key=exc.candidate_key),
+            )
 
     pgs_conversion = (
         await _pgs_plan(
@@ -733,7 +738,11 @@ async def _prepare_generation(
     convert_pgs: bool = False,
     pgs_ocr_language: str | None = None,
 ) -> tuple[Preview, GenState]:
-    """完成所有同步预检并生成首个进度快照，随后由 Job 原子入队。"""
+    """完成快速选源预检并生成首个进度快照，随后由 Job 原子入队。
+
+    未缓存的内封字幕不在 HTTP 请求里读取；内容完整度、同步度等依赖字幕事件
+    的检查交给 Job 执行，避免用户必须等待才能提交。
+    """
     target_language, secondary_language = ensure_output_languages(
         target_language, secondary_language
     )
@@ -744,8 +753,20 @@ async def _prepare_generation(
         secondary_language=secondary_language,
         source_candidate_key=source_candidate_key,
         pgs_ocr_language=pgs_ocr_language,
+        wait=False,
     )
-    if pv.chosen is None:
+    if pv.pending is not None:
+        if convert_pgs:
+            raise BadRequestException("参考字幕类型已变化，请重新预检后再试")
+        if pv.selected_source_key is None:
+            raise BadRequestException("没有可用的参考字幕，请重新预检")
+        initial = GenState(
+            message="任务已入队，等待后台读取参考字幕",
+            target_language=target_language,
+            secondary_language=secondary_language,
+            source_candidate_key=pv.selected_source_key,
+        )
+    elif pv.chosen is None:
         if source_candidate_key and pv.pgs_conversion is None:
             raise BadRequestException("用户确认的 PGS 轨道已变化，请重新预检后再试")
         language_ready = bool(
@@ -1113,7 +1134,7 @@ async def _run(
     selected_candidates = [selected] if selected is not None else []
     warnings: list[str] = []
     state.phase = "preparing"
-    state.message = "正在选择参考字幕"
+    state.message = "正在读取参考字幕；内封大文件可能需要几分钟"
     chosen, events = await _pick_loadable(row, selected_candidates, warnings)
     source_desc: str | None = None
     if chosen is None and convert_pgs:

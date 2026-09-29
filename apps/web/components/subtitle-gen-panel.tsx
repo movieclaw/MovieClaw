@@ -429,11 +429,10 @@ export function SubtitleGenPanel({
   const [stopping, setStopping] = useState(false);
   const [agentStarting, setAgentStarting] = useState(false);
   const [requestError, setRequestError] = useState<string | null>(null);
-  // 内封轨正在后台抽取时的等待文案；非空即「还没有结论，不是出错了」。
+  // 未缓存内封轨的提示；非空即“内容稍后由已确认的 Job 读取”。
   const [pendingNotice, setPendingNotice] = useState<string | null>(null);
   const previewRequestRef = useRef(0);
   const previewAbortRef = useRef<AbortController | null>(null);
-  const previewTimerRef = useRef<number | null>(null);
   const sharedJob = latestFor("library_file", file.id, "subtitle.generate");
   const sharedJobId = sharedJob?.id;
   const sharedJobStatus = sharedJob?.status;
@@ -461,21 +460,11 @@ export function SubtitleGenPanel({
     previousJobRef.current = { id: sharedJobId, status: sharedJobStatus };
   }, [onChanged, sharedJobId, sharedJobStatus]);
 
-  /**
-   * 收掉在途预检：作废所有未回来的响应、中断请求、清掉轮询定时器。
-   *
-   * 此前只用 requestId 丢弃旧响应，请求本身照发——用户在等待时拨一下「双语」
-   * 开关，后端就会对同一个 16 GB 的文件再起一个 ffmpeg（issue #432）。现在
-   * 换轨、改语言、关弹窗都真的把上一条掐掉。
-   */
-  const stopPreviewPolling = useCallback(() => {
+  /** 作废过期预检响应并中断当前 HTTP 请求；预检本身不启动字幕抽取。 */
+  const stopPreviewRequest = useCallback(() => {
     previewRequestRef.current += 1;
     previewAbortRef.current?.abort();
     previewAbortRef.current = null;
-    if (previewTimerRef.current !== null) {
-      window.clearTimeout(previewTimerRef.current);
-      previewTimerRef.current = null;
-    }
   }, []);
 
   const loadPreview = useCallback(async (
@@ -483,7 +472,7 @@ export function SubtitleGenPanel({
     secondary: string | null,
     sourceKey: string | null = null,
   ) => {
-    stopPreviewPolling();
+    stopPreviewRequest();
     const requestId = previewRequestRef.current;
     const controller = new AbortController();
     previewAbortRef.current = controller;
@@ -504,18 +493,7 @@ export function SubtitleGenPanel({
           file.id, target, secondary, sourceKey, controller.signal,
         );
         if (!isCurrent()) return;
-        if (result.pending) {
-          // 内封轨还在后台抽取：保持「正在检查」并按后端给的间隔重拉。
-          // 这里**不能** setPreview——那份快照里 chosen/blocker 都是空的，
-          // 渲染出来就成了「这份片源没有参考字幕」，与事实相反。
-          setPendingNotice(result.pending.message);
-          previewTimerRef.current = window.setTimeout(() => {
-            previewTimerRef.current = null;
-            if (isCurrent()) void run();
-          }, Math.max(1000, result.pending.retry_after_ms));
-          return;
-        }
-        setPendingNotice(null);
+        setPendingNotice(result.pending?.message ?? null);
         setPreview(result);
         setSourceCandidateKey(result.selected_source_key);
         setPgsOcrLanguage(result.pgs_conversion?.ocr_language ?? "");
@@ -530,19 +508,18 @@ export function SubtitleGenPanel({
     };
 
     await run();
-  }, [file.id, stopPreviewPolling]);
+  }, [file.id, stopPreviewRequest]);
 
-  // 弹窗关闭即收掉在途预检与轮询：否则用户关掉后徽章会一直卡在「正在检查」。
-  // 后端的抽取任务**不受影响**，会继续把产物抽完落缓存，下次秒开。
+  // 弹窗关闭只收掉预检请求；未确认前没有字幕抽取任务需要清理。
   useEffect(() => {
     if (dialogOpen) return;
-    stopPreviewPolling();
+    stopPreviewRequest();
     setPreviewing(false);
     setPendingNotice(null);
-  }, [dialogOpen, stopPreviewPolling]);
+  }, [dialogOpen, stopPreviewRequest]);
 
-  // 组件卸载（用户直接离开详情页）同样要清掉定时器与在途请求
-  useEffect(() => () => stopPreviewPolling(), [stopPreviewPolling]);
+  // 组件卸载（用户直接离开详情页）同样要中断在途请求
+  useEffect(() => () => stopPreviewRequest(), [stopPreviewRequest]);
 
   const openAction = useCallback(() => {
     if (running || hasTerminalIssue) {
@@ -697,6 +674,13 @@ export function SubtitleGenPanel({
   const pgsLanguageReady =
     !pgsConversion?.language_confirmation_required || Boolean(pgsOcrLanguage);
   const canConvertPgs = canPreparePgs && pgsLanguageReady;
+  const canStartGeneration = Boolean(
+    preview &&
+      selectedCandidate &&
+      !preview.blocker &&
+      preview.selected_source_key &&
+      (preview.chosen_key || preview.pending),
+  );
 
   let badgeClass = AI_BADGE_IDLE;
   // 已经生成过也不改口称「新建 AI 版本」：那是在讲实现（又加一个文件），
@@ -949,19 +933,16 @@ export function SubtitleGenPanel({
                 )}
               </div>
 
-              {previewing && (
+              {(previewing || pendingNotice) && (
                 <div className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-4">
                   <BrandLoader className="size-5" />
                   <div>
                     <p className="text-ui font-medium text-white">
                       {pendingNotice ?? "正在检查参考字幕，不会调用 AI…"}
                     </p>
-                    {/* 内封字幕要把整个视频通读一遍，大文件是分钟级。说清楚
-                        「在读什么、为什么慢」，用户才不会以为是卡住了。 */}
                     {pendingNotice && (
                       <p className="mt-1 text-caption leading-5 text-[var(--text-faint)]">
-                        首次读取内封字幕需要通读整个视频文件，读好后会自动继续；
-                        这一步不会调用 AI，也不产生费用。
+                        当前只完成了字幕轨识别；点击开始生成后才会读取字幕，关闭弹窗不会占用抽取资源。
                       </p>
                     )}
                   </div>
@@ -1097,18 +1078,20 @@ export function SubtitleGenPanel({
                 </div>
               )}
 
-              {!previewing && preview && !preview.blocker && chosen && (
+              {!previewing && preview && !preview.blocker && selectedCandidate && (chosen || preview.pending) && (
                 <div className="space-y-3.5">
                   <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-3.5">
                     <div className="flex flex-wrap items-center gap-2 text-ui font-semibold text-white">
-                      <span>{candidateLabel(chosen)}</span>
+                      <span>{candidateLabel(chosen ?? selectedCandidate)}</span>
                       <span className="text-[var(--text-faint)]">→</span>
                       <span className="text-[var(--info)]">
                         {outputLabel(targetLanguage, bilingual ? secondaryLanguage : null)}
                       </span>
                     </div>
                     <p className="tnum mt-1.5 text-sub text-[var(--text-muted)]">
-                      {preview.event_count.toLocaleString()} 条对白 · {tokenEstimate(preview.estimated_tokens)}
+                      {preview.pending
+                        ? "字幕条数和 Token 估算将在后台读取后确定"
+                        : `${preview.event_count.toLocaleString()} 条对白 · ${tokenEstimate(preview.estimated_tokens)}`}
                     </p>
                   </div>
 
@@ -1173,7 +1156,7 @@ export function SubtitleGenPanel({
                         : `开始生成${outputLabel(targetLanguage, bilingual ? secondaryLanguage : null)}`}
                     </button>
                   )}
-                  {preview && !preview.blocker && chosen && (
+                  {canStartGeneration && (
                     <button
                       type="button"
                       className={CONFIRM_BUTTON}
@@ -1182,7 +1165,9 @@ export function SubtitleGenPanel({
                     >
                       {starting
                         ? "正在启动…"
-                        : `确认生成${outputLabel(targetLanguage, bilingual ? secondaryLanguage : null)}`}
+                        : preview?.pending
+                          ? `开始后台生成${outputLabel(targetLanguage, bilingual ? secondaryLanguage : null)}`
+                          : `确认生成${outputLabel(targetLanguage, bilingual ? secondaryLanguage : null)}`}
                     </button>
                   )}
                 </div>

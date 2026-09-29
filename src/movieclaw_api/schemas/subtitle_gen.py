@@ -29,15 +29,19 @@ class GenPreviewBlockerView(BaseModel):
 
 
 class GenPreviewPendingView(BaseModel):
-    """预检还没有结论：内封轨正在后台抽取，稍后重试同一个接口即可。
+    """预检还没有内容结论：用户确认后由后台 Job 读取内封轨。
 
     与 ``blocker`` 互斥语义：blocker 说「这份片源做不了」，pending 说
-    「再等一会儿」。前端据此显示进度文案并轮询，而不是把用户挡在错误里。
+    「可以提交，内容信息稍后补齐」。前端据此允许确认，而不是把用户挡在等待里。
     """
 
-    message: str = Field(description="面向用户的等待文案")
-    candidate_key: str = Field(description="正在抽取的候选，如 embedded:0")
-    retry_after_ms: int = Field(default=2500, ge=0, description="建议的下次轮询间隔")
+    message: str = Field(description="面向用户的后台读取提示")
+    candidate_key: str = Field(description="确认后将读取的候选，如 embedded:0")
+    retry_after_ms: int = Field(
+        default=2500,
+        ge=0,
+        description="兼容旧客户端的字段；当前前端不再依赖轮询",
+    )
 
 
 class PgsOcrLanguageOptionView(BaseModel):
@@ -79,7 +83,7 @@ class GenPreviewView(BaseModel):
     pgs_conversion: PgsConversionView | None = None
     blocker: GenPreviewBlockerView | None = None
     output_filename: str | None = None
-    #: 非空 = 本次还没有结论，内封轨正在后台抽取，前端轮询等它落缓存。
+    #: 非空 = 本次还没有内容结论，确认后由 Job 读取内封轨。
     pending: GenPreviewPendingView | None = None
 
 
