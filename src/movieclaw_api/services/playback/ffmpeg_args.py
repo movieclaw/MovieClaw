@@ -767,8 +767,15 @@ def _videotoolbox_gpu_chain(plan: PlaybackPlan) -> str:
       不吃。要输出 BT.709 时再用 ``setparams`` 给帧打上标签：ffmpeg 8 的 ``-colorspace``
       会参与格式协商，帧上是 unknown（无标签的源）就自动插软件 scale 去转换，而软件
       scale 接不了硬件帧，整条链失败（实测）。HDR 那条不用：色调映射本身就输出 BT.709。
+    - 宽度写**表达式**，不能写 ``-2``：``-2``（保持宽高比 + 对齐到偶数）由
+      ``ff_scale_adjust_dimensions`` 实现，而 ``scale_vt`` 到 ffmpeg 8.0 才调用它。
+      jellyfin-ffmpeg 7.1 的机器上 -2 被原样写进 VideoToolbox 帧上下文，报
+      「Picture size 4294967294x720 is invalid」后整条命令失败（真机退出码 234）。
+      表达式从 6.1 起就受支持，``iw``/``ih`` 是输入宽高，trunc 到 2 的倍数就是 -2 的
+      对齐语义。
     """
-    size = f"w=-2:h={plan.video.height}:" if plan.video.height else ""
+    height = plan.video.height
+    size = f"w=trunc(iw*{height}/ih/2)*2:h={height}:" if height else ""
     if plan.video.tone_map:
         return f"scale_vt={size}format=p010le,{VIDEOTOOLBOX_TONEMAP}"
     chain = f"scale_vt={size}format=nv12"

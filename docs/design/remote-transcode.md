@@ -305,6 +305,10 @@ Worker。
 - `tonemap_videotoolbox` 只收 10-bit：8-bit HLG（广电 4K 节目）报
   「Unsupported input format depth: 8」。HDR 缩放时一律 `format=p010le`。
 - `h264_videotoolbox` 写 A53 隐藏字幕进 SEI 时出错（MPEG-2 源常带），一律 `-a53cc 0`。
+- `scale_vt` 到 ffmpeg 8.0 才认 `w=-2`：-2 的「按宽高比 + 对齐偶数」来自
+  `ff_scale_adjust_dimensions`，7.1 的滤镜不调用它，直接把 -2 写进 VideoToolbox 帧上下文，
+  报 「Picture size 4294967294x720 is invalid」后整条命令失败（真机退出码 234）。GPU 链路
+  改用表达式 `w=trunc(iw*H/ih/2)*2`，7.1 与 8.x 装出来的宽度一致。
 
 实测速度（M 系列 Mac，经 NAS HTTP 取源，1080p 输出，VOD 模式整条命令）：4K HDR10 原盘
 5.5×、多剪辑 4K HDR10 原盘 5.7×、杜比视界 P5 4.3×、8-bit HLG 5.8×、VP9 4K 6.0×、

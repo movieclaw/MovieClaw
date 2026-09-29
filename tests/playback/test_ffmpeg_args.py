@@ -1048,8 +1048,11 @@ def test_mac_keeps_4k_hdr_disc_entirely_on_the_gpu():
     )
     assert pair(argv, "-hwaccel") == "videotoolbox"
     assert pair(argv, "-hwaccel_output_format") == "videotoolbox_vld"
-    # 缩放时转 10-bit：tonemap_videotoolbox 只收 10-bit（8-bit HLG 实测报错）
-    assert pair(argv, "-vf") == f"scale_vt=w=-2:h=1080:format=p010le,{VIDEOTOOLBOX_TONEMAP}"
+    # 缩放时转 10-bit：tonemap_videotoolbox 只收 10-bit（8-bit HLG 实测报错）。
+    # 宽度必须是表达式：scale_vt 到 ffmpeg 8.0 才认 -2，7.1 的机器上整条命令失败
+    assert pair(argv, "-vf") == (
+        f"scale_vt=w=trunc(iw*1080/ih/2)*2:h=1080:format=p010le,{VIDEOTOOLBOX_TONEMAP}"
+    )
     # 硬件帧已是 8-bit NV12：再要 yuv420p 会插一个接不上硬件帧的软件转换
     assert "-pix_fmt" not in argv
     assert pair(argv, "-c:v") == "h264_videotoolbox"
@@ -1060,7 +1063,7 @@ def test_mac_converts_10bit_sdr_to_8bit_on_the_gpu():
         vt_transcode("hevc", bit_depth=10), hw_backend="videotoolbox", worker_caps=MAC_CAPS
     )
     assert pair(argv, "-hwaccel_output_format") == "videotoolbox_vld"
-    assert pair(argv, "-vf") == "scale_vt=w=-2:h=1080:format=nv12"
+    assert pair(argv, "-vf") == "scale_vt=w=trunc(iw*1080/ih/2)*2:h=1080:format=nv12"
     assert "-pix_fmt" not in argv
 
 
@@ -1073,7 +1076,7 @@ def test_mac_gpu_chain_labels_frames_bt709_before_the_encoder_asks_for_it():
         worker_caps=MAC_CAPS,
     )
     assert pair(argv, "-vf") == (
-        "scale_vt=w=-2:h=1080:format=nv12,"
+        "scale_vt=w=trunc(iw*1080/ih/2)*2:h=1080:format=nv12,"
         "setparams=colorspace=bt709:color_primaries=bt709:color_trc=bt709"
     )
     assert pair(argv, "-colorspace") == "bt709"
