@@ -191,20 +191,23 @@ enum SourceProbe {
     }()
 }
 
-/// 反复卡顿时的「换低画质」提示（只提示、从不自动切，2026-09-28 用户拍板）。
+/// 网速跟不上时的「换低画质」提示（只提示、从不自动切，2026-09-28 用户拍板）。
 ///
-/// 时机要严谨：卡一次就提示会误导——也许暂停攒一会缓冲就能接着看，换不换码率由用户决定。
-/// 条件全部满足才给，每个播放单元最多一次：
-/// 1. 只算正常观看：用户暂停、拖动期间不计；起播、跳转、从暂停恢复后 10 秒内的缓冲也不计（本来就要缓冲）；
-/// 2. 最近 5 分钟观看里卡了至少 3 次，或累计卡了 45 秒以上；
-/// 3. 卡的时候实测加载速度的中位数低于这条流码率的 90%——速度够还卡，不是线路问题，提示了也没用。
+/// 时机要严谨：换不换码率由用户决定，只在真有必要时打扰。条件全部满足才给，每个播放单元最多一次：
+/// 1. 只算用户想看的时候：暂停期间不计；
+/// 2. 触发（满足其一）：
+///    - **一次等太久**：等首帧、等跳转落点、播放中卡住，连续等满 8 秒（2026-09-30 用户拍板）。外网放 4K 原片时
+///      用户常常一上来就等十几秒，人早退出了，只数「开播后卡了几次」永远等不到提示；
+///    - **反复卡**：开播后最近 5 分钟里卡了 2 次（起播、跳转、从暂停恢复后 10 秒内的缓冲不计，跳转的等待也不计）；
+/// 3. 等待期间实测加载速度低于这条流码率的 90%（一次长等看这段里最快的一秒，反复卡看中位数）——
+///    速度够还卡，不是线路问题，提示了也没用。
 /// 缓冲攒满后引擎会暂停下载，平时的速度读数不可信（App 因此早先去掉了「速度低于码率」的预警）；
-/// 卡住时缓冲是空的、引擎在全力下载，这时的读数才代表线路。
+/// 等待时缓冲是空的、引擎在全力下载，这时的读数才代表线路。
 struct QualitySuggestion {
     static let graceSeconds = 10
     static let windowSeconds = 300
-    static let minStalls = 3
-    static let minStallSeconds = 45
+    static let minStalls = 2
+    static let longWaitSeconds = 8
     static let linkMargin = 0.9
 
     /// 给用户的提议：实测速度、这条流要的码率、推荐的画质上限
@@ -220,24 +223,37 @@ struct QualitySuggestion {
         var speeds: [Double]
     }
 
-    /// 观看秒数：只在用户想看（没暂停、没在拖动）的时候走
+    /// 观看秒数：只在用户想看（没暂停）的时候走
     private var clock = 0
     private var graceUntil = graceSeconds
     private var stalls: [Stall] = []
     private var stalling = false
+    /// 当前这一段连续等待（不管宽限、不管是不是跳转）的秒数与期间的速度读数
+    private(set) var waitSeconds = 0
+    private var waitSpeeds: [Double] = []
     private(set) var offered = false
 
-    /// 起播、跳转、从暂停恢复：接下来 10 秒的缓冲是正常的，不计
+    /// 起播、跳转、从暂停恢复：接下来 10 秒的缓冲不算「卡」；新的一段等待从这一刻算起
     mutating func restartGrace() {
         graceUntil = clock + Self.graceSeconds
         stalling = false
+        waitSeconds = 0
+        waitSpeeds = []
     }
 
-    /// 每秒一次，只在用户想看时调用。stalled：正卡着（缓冲中且不是跳转造成的）
-    mutating func tick(stalled: Bool, loadingBps: Double?) {
+    /// 每秒一次，只在用户想看时调用。stalled：正在等（缓冲中，含起播）；seeking：这段等待是跳转造成的
+    mutating func tick(stalled: Bool, seeking: Bool = false, loadingBps: Double?) {
         clock += 1
         stalls.removeAll { $0.start + $0.seconds < clock - Self.windowSeconds }
-        guard stalled, clock > graceUntil else {
+        let speed = loadingBps.flatMap { $0 > 0 ? $0 : nil }
+        if stalled {
+            waitSeconds += 1
+            if let speed { waitSpeeds.append(speed) }
+        } else {
+            waitSeconds = 0
+            waitSpeeds = []
+        }
+        guard stalled, !seeking, clock > graceUntil else {
             stalling = false
             return
         }
@@ -246,21 +262,29 @@ struct QualitySuggestion {
             stalling = true
         }
         stalls[stalls.count - 1].seconds += 1
-        if let loadingBps, loadingBps > 0 { stalls[stalls.count - 1].speeds.append(loadingBps) }
+        if let speed { stalls[stalls.count - 1].speeds.append(speed) }
     }
 
     /// 现在该不该提议；给出一次后本单元不再给
     mutating func offer(streamBitrate: Double?, currentHeight: Int?) -> Offer? {
         guard !offered, let streamBitrate, streamBitrate > 0 else { return nil }
-        let total = stalls.reduce(0) { $0 + $1.seconds }
-        guard stalls.count >= Self.minStalls || total >= Self.minStallSeconds else { return nil }
-        let speeds = stalls.flatMap(\.speeds).sorted()
-        guard !speeds.isEmpty else { return nil }
-        let median = speeds[speeds.count / 2]
-        guard median < streamBitrate * Self.linkMargin,
-              let height = Self.recommendedHeight(for: median, below: currentHeight) else { return nil }
+        let measured: Double
+        if waitSeconds >= Self.longWaitSeconds {
+            // 一次长等取这段里最快的一秒：冷起播时引擎一段一段地取（索引、文件头分头取），逐秒读数时有时无，
+            // 模拟器 6 Mbit/s 限速实测读数只有 0～2 Mbit/s；最快那秒最接近线路能力，它都跟不上码率才算线路问题
+            guard let fastest = waitSpeeds.max() else { return nil }
+            measured = fastest
+        } else if stalls.count >= Self.minStalls {
+            let speeds = stalls.flatMap(\.speeds).sorted()
+            guard !speeds.isEmpty else { return nil }
+            measured = speeds[speeds.count / 2]
+        } else {
+            return nil
+        }
+        guard measured < streamBitrate * Self.linkMargin,
+              let height = Self.recommendedHeight(for: measured, below: currentHeight) else { return nil }
         offered = true
-        return Offer(measuredBps: median, requiredBps: streamBitrate, maxHeight: height)
+        return Offer(measuredBps: measured, requiredBps: streamBitrate, maxHeight: height)
     }
 
     /// 推荐档位：比当前低、码率留两成余量装得下实测速度的最高一档；都装不下就给最低档；

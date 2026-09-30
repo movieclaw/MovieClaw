@@ -53,13 +53,20 @@ class FaultState:
 
     mode：pass / refuse（接了就断）/ status（回错误码 arg）/ hang（收了请求 arg 秒不回）/
     reset（发够 arg 字节后强断）/ truncate（发够 arg 字节后正常关，短于声明长度）/
-    throttle（限速 arg 字节每秒）
+    throttle（每条连接各限速 arg 字节每秒）/ link（所有连接共享 arg 字节每秒，模拟一条慢线路）
     """
 
     def __init__(self):
         self.mode, self.arg, self.until, self.count, self.arm_secs = "pass", None, None, None, None
         self.stall_until = 0.0
         self.cut_gen = 0
+        self.link_free_at = 0.0
+
+    async def pace_link(self, size, bps):
+        """共享线路：这块字节排在所有连接已占用的时间之后发出"""
+        now = time.monotonic()
+        self.link_free_at = max(now, self.link_free_at) + size / bps
+        await asyncio.sleep(self.link_free_at - now)
 
     def set(self, mode, arg=None, secs=None, count=None, armed=False):
         """armed=True：时长从下一个取流请求到达时才开始算（引擎何时开始取流不固定）"""
@@ -151,6 +158,7 @@ async def forward(writer, method, path, headers, mode, arg, short):
     sent, gen = 0, state.cut_gen
     limit = arg if mode in ("reset", "truncate") else None
     bps = arg if mode == "throttle" else None
+    link_bps = arg if mode == "link" else None
     try:
         while True:
             while time.monotonic() < state.stall_until and gen == state.cut_gen:
@@ -174,6 +182,8 @@ async def forward(writer, method, path, headers, mode, arg, short):
             sent += len(chunk)
             if bps:
                 await asyncio.sleep(len(chunk) / bps)
+            if link_bps:
+                await state.pace_link(len(chunk), link_bps)
     finally:
         up_w.close()
 
@@ -243,6 +253,16 @@ SCENARIOS = {
     "iso-mid-cut": scenario("iso", 80, "play", cut_then("refuse", None, 20)),
     # 限画质（会让服务端起转码）：切 720p 后服务端流由自研引擎直连放，再切回自动回到直出原文件
     "quality-switch": scenario("mkv", 80, "play", extra=["-mcAutoQuality", "15:720,50:0"]),
+    # 慢线路（外网放 4K 原片）：取流总共只有 6 Mbit/s，等首帧满 8 秒应弹换低画质提议（[QualityOffer]），
+    # 弹出即接受后改走服务端转码接着放。MC_FAULT_MKV 要选码率明显高于 6 Mbit/s 的片、从头播
+    # 每轮先清片源缓存：冷启动时起播取数是一段一段的（索引、文件头分头取），最考验速度读数
+    "slow-link": scenario("mkv", 75, "play", [(("start",), ("set", "link", 750_000, None, None))],
+                          extra=["-mcAcceptQualityOffer", "YES", "-mcPurgeByteCache", "YES"]),
+    # 慢线路下远跳：先按正常线路起播，播到第 15 秒线路掉到 6 Mbit/s，打开播放器 25 秒时往后跳 15 分钟，
+    # 等落点满 8 秒应弹提议
+    "slow-seek": scenario("mkv", 80, "play", [(("t", 15), ("set", "link", 750_000, None, None))],
+                          extra=["-mcAcceptQualityOffer", "YES", "-mcPurgeByteCache", "YES",
+                                 "-mcAutoSeek", "25:+900"]),
     "baseline": scenario("mkv", 35, "play"),
 }
 
@@ -267,6 +287,10 @@ async def run(name):
     # 上一轮的 App 进程要先退干净，否则这次可能起不来
     await quiet("xcrun", "simctl", "terminate", SIM, APP_ID)
     await asyncio.sleep(2)
+    # 场景都按默认画质设计：清掉按片记住的画质（slow-link 接受提议、quality-switch 中途失败都会留下）
+    await quiet("xcrun", "simctl", "spawn", SIM, "defaults", "delete",
+                (await app_tmp())[:-len("/tmp")] + f"/Library/Preferences/{APP_ID}",
+                "movieclaw.player.quality-by-title")
     if spec["tmp"]:
         # 量占用前清掉上一轮留下的缓存（分片、片源字节缓存都只是缓存），否则峰值里混着别的场景的
         await clear_caches()
@@ -406,6 +430,7 @@ def summarize(name, expect, fired):
     out += [f"  {note[:160]}" for note in notes[:4]]
     out += [f"  引擎报错 {a[:180]}" for a in re.findall(r"\[AetherFailure\] (.*)", text)[:3]]
     out += [f"  控制器 {f[:180]}" for f in re.findall(r"\[EngineFailed\] (.*)", text)[:4]]
+    out += [f"  提议 {f[:160]}" for f in re.findall(r"\[QualityOffer\] (.*)", text)[:2]]
     out += [f"  降级 {f[:150]}" for f in re.findall(r"\[EngineFallback\] (.*)", text)[:1]]
     out += [f"  错误页 {e[:150]}" for e in re.findall(r"\[PlayerError\] (.*)", text)[:1]]
     return "\n".join(out), passed

@@ -1577,14 +1577,15 @@ final class PlaybackController {
         request(startMs: positionMs, phase: .deciding)
     }
 
-    /// 每秒一次，只在用户正常观看时喂（暂停、拖动、后台都不算）；条件满足就给一次提议
+    /// 每秒一次，只在用户想看时喂（暂停、后台都不算；等首帧、等跳转落点也喂——一次等太久就该提示）；条件满足就给一次提议
     private func feedQualitySuggestion(engine: any PlayerEngine, stats: EngineStats) {
-        guard wantsPlay, !backgrounded, seekStartedAt == nil, [.buffering, .playing].contains(phase), session != nil else { return }
-        qualitySuggestion.tick(stalled: phase == .buffering, loadingBps: stats.loadingBps)
+        guard wantsPlay, !backgrounded, [.buffering, .playing].contains(phase), session != nil else { return }
+        let seeking = seekStartedAt != nil
+        qualitySuggestion.tick(stalled: phase == .buffering || seeking, seeking: seeking, loadingBps: stats.loadingBps)
         let bitrate = stats.bitrateBps ?? session?.source?.bitRate.map(Double.init)
         // 真卡住了、而且这一秒的加载速度确实比片子码率慢（线路跟不上，不是一时抖动）：放大自研引擎的前向缓冲，
         // 之后暂停就能一直攒（引擎补丁 P20）。线路够快时不放大，免得在蜂窝网上白白多下几个 G
-        if phase == .buffering, let native = engine as? NativeEngine, let bitrate,
+        if phase == .buffering, !seeking, let native = engine as? NativeEngine, let bitrate,
            let speed = stats.loadingBps, speed > 0, speed < bitrate * QualitySuggestion.linkMargin {
             native.growForwardBuffer()
         }
@@ -1597,6 +1598,15 @@ final class PlaybackController {
             "suggested_height": .int(offer.maxHeight), "engine": .string(engine.kind.rawValue),
         ])
         qualityOffer = offer
+        #if DEBUG
+        print("[QualityOffer] 提议已弹出：实测 \(Int(offer.measuredBps / 1000)) kbps、需要 \(Int(offer.requiredBps / 1000)) kbps，"
+            + "推荐 \(offer.maxHeight)p，当前这段已等 \(qualitySuggestion.waitSeconds) 秒")
+        // 实验台（faultlab 的 slow-link）：-mcAcceptQualityOffer YES 弹出即接受，验证点「改用」后切到服务端转码
+        if UserDefaults.standard.bool(forKey: "mcAcceptQualityOffer") {
+            acceptQualityOffer()
+            return
+        }
+        #endif
         // 20 秒没理会就收起（本单元不再提）：它只是个建议，不该一直挡着画面
         qualityOfferTask?.cancel()
         qualityOfferTask = Task { [weak self] in

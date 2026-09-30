@@ -118,17 +118,17 @@ struct PlaybackRoutingTests {
         }
     }
 
-    @Test func oneStallNeverSuggests() {
-        // 卡一次（哪怕 30 秒）不提示：也许暂停攒一会缓冲就能接着看
+    @Test func oneShortStallNeverSuggests() {
+        // 开播后卡一次、没卡满 8 秒不提示：也许暂停攒一会缓冲就能接着看
         var suggestion = QualitySuggestion()
-        feed(&suggestion, stallSeconds: 30, playSeconds: 60, times: 1, speed: 54 * mbps)
+        feed(&suggestion, stallSeconds: 7, playSeconds: 60, times: 1, speed: 5 * mbps)
         #expect(suggestion.offer(streamBitrate: 76 * mbps, currentHeight: 2160) == nil)
     }
 
     @Test func repeatedStallsOnASlowLinkSuggestOnce() {
-        // 《哪吒》：76 Mbit/s 的原片、实测 54 Mbit/s，5 分钟里卡了 3 次 → 提示一次，推荐 1080p
+        // 《哪吒》：76 Mbit/s 的原片、实测 54 Mbit/s，5 分钟里卡了 2 次（每次都不到 8 秒）→ 提示一次，推荐 1080p
         var suggestion = QualitySuggestion()
-        feed(&suggestion, stallSeconds: 8, playSeconds: 60, times: 3, speed: 54 * mbps)
+        feed(&suggestion, stallSeconds: 5, playSeconds: 60, times: 2, speed: 54 * mbps)
         let offer = suggestion.offer(streamBitrate: 76 * mbps, currentHeight: 2160)
         #expect(offer == .init(measuredBps: 54 * mbps, requiredBps: 76 * mbps, maxHeight: 1080))
         // 本单元不再提第二次
@@ -136,11 +136,54 @@ struct PlaybackRoutingTests {
         #expect(suggestion.offer(streamBitrate: 76 * mbps, currentHeight: 2160) == nil)
     }
 
-    @Test func longCumulativeStallSuggests() {
-        // 卡的次数不到 3 次，但累计 45 秒以上
+    @Test func longStartupWaitSuggestsAtEightSeconds() {
+        // 09-30 外网实测《爱情怎么翻译？》：20.7 Mbit/s 的 4K 原片、等首帧的速度约 6 Mbit/s，首帧等了 18.5 秒——
+        // 起播本身有 10 秒宽限，但一次等满 8 秒就该提示，不必等它开播后再卡
         var suggestion = QualitySuggestion()
-        feed(&suggestion, stallSeconds: 25, playSeconds: 30, times: 2, speed: 20 * mbps)
-        #expect(suggestion.offer(streamBitrate: 76 * mbps, currentHeight: 2160)?.maxHeight == 1080)
+        suggestion.restartGrace()
+        for _ in 0 ..< 7 { suggestion.tick(stalled: true, loadingBps: 6 * mbps) }
+        #expect(suggestion.offer(streamBitrate: 20.7 * mbps, currentHeight: 2160) == nil)
+        suggestion.tick(stalled: true, loadingBps: 6 * mbps)
+        #expect(suggestion.offer(streamBitrate: 20.7 * mbps, currentHeight: 2160)?.maxHeight == 720)
+    }
+
+    @Test func longWaitJudgesTheLinkByItsFastestSecond() {
+        // 冷起播时读数时有时无（开容器时没有、之后 0～2 Mbit/s）：按最快那秒估线路、推荐档位
+        var slow = QualitySuggestion()
+        slow.restartGrace()
+        for speed in [nil, nil, nil, nil, 2.0, 1.0, 0, 0.5] { slow.tick(stalled: true, loadingBps: speed.map { $0 * mbps }) }
+        #expect(slow.offer(streamBitrate: 19 * mbps, currentHeight: 2160) == .init(measuredBps: 2 * mbps, requiredBps: 19 * mbps, maxHeight: 480))
+        // 最快那秒已经够码率（等的是别的：服务端慢、引擎在做别的）：不是线路问题，不提示
+        var fast = QualitySuggestion()
+        fast.restartGrace()
+        for speed in [0.5, 1, 25, 0, 0, 1, 0.2, 0.1] { fast.tick(stalled: true, loadingBps: speed * mbps) }
+        #expect(fast.offer(streamBitrate: 19 * mbps, currentHeight: 2160) == nil)
+    }
+
+    @Test func longSeekWaitSuggestsButShortSeeksAreNotStalls() {
+        // 《我不是大师》：14.4 Mbit/s 原片，拖动后等了 16.6 秒才落地 → 第 8 秒提示
+        var suggestion = QualitySuggestion()
+        feed(&suggestion, stallSeconds: 0, playSeconds: 30, times: 1, speed: 0)
+        suggestion.restartGrace()
+        for _ in 0 ..< 8 { suggestion.tick(stalled: true, seeking: true, loadingBps: 4 * mbps) }
+        #expect(suggestion.offer(streamBitrate: 14.4 * mbps, currentHeight: 2160)?.maxHeight == 720)
+        // 跳转的等待不算「卡」：几次都没等满 8 秒的跳转（哪怕跳完已过了宽限期）不会凑成「反复卡」
+        var seeks = QualitySuggestion()
+        feed(&seeks, stallSeconds: 0, playSeconds: 30, times: 1, speed: 0)
+        for _ in 0 ..< 4 {
+            seeks.restartGrace()
+            for _ in 0 ..< 11 { seeks.tick(stalled: false, loadingBps: nil) }
+            for _ in 0 ..< 7 { seeks.tick(stalled: true, seeking: true, loadingBps: 4 * mbps) }
+            for _ in 0 ..< 30 { seeks.tick(stalled: false, loadingBps: nil) }
+        }
+        #expect(seeks.offer(streamBitrate: 14.4 * mbps, currentHeight: 2160) == nil)
+        // 拖动中连续换落点：等待从最后一次跳转重新算，每段都不满 8 秒就不提示
+        var scrub = QualitySuggestion()
+        for _ in 0 ..< 5 {
+            scrub.restartGrace()
+            for _ in 0 ..< 6 { scrub.tick(stalled: true, seeking: true, loadingBps: 4 * mbps) }
+        }
+        #expect(scrub.offer(streamBitrate: 14.4 * mbps, currentHeight: 2160) == nil)
     }
 
     @Test func stallsWithEnoughBandwidthDoNotSuggest() {
@@ -155,19 +198,19 @@ struct PlaybackRoutingTests {
     }
 
     @Test func graceAndOldStallsAreIgnored() {
-        // 起播 / 跳转后 10 秒内的缓冲不算：每次都在宽限期内卡，永远不提示
+        // 起播 / 跳转后 10 秒内的缓冲不算「卡」：每次都在宽限期内等、又没等满 8 秒，永远不提示
         var suggestion = QualitySuggestion()
         for _ in 0 ..< 6 {
             suggestion.restartGrace()
-            for _ in 0 ..< 8 { suggestion.tick(stalled: true, loadingBps: 5 * mbps) }
+            for _ in 0 ..< 7 { suggestion.tick(stalled: true, loadingBps: 5 * mbps) }
             for _ in 0 ..< 30 { suggestion.tick(stalled: false, loadingBps: nil) }
         }
         #expect(suggestion.offer(streamBitrate: 76 * mbps, currentHeight: 2160) == nil)
-        // 5 分钟之前的卡顿过期：卡两次、隔了 6 分钟再卡一次，窗口里只有 1 次
+        // 5 分钟之前的卡顿过期：卡一次、隔了 6 分钟再卡一次，窗口里只有 1 次
         var spread = QualitySuggestion()
-        feed(&spread, stallSeconds: 8, playSeconds: 30, times: 2, speed: 5 * mbps)
+        feed(&spread, stallSeconds: 5, playSeconds: 30, times: 1, speed: 5 * mbps)
         for _ in 0 ..< 360 { spread.tick(stalled: false, loadingBps: nil) }
-        feed(&spread, stallSeconds: 8, playSeconds: 30, times: 1, speed: 5 * mbps)
+        feed(&spread, stallSeconds: 5, playSeconds: 30, times: 1, speed: 5 * mbps)
         #expect(spread.offer(streamBitrate: 76 * mbps, currentHeight: 2160) == nil)
     }
 
