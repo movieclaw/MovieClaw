@@ -384,6 +384,11 @@ export function LibraryItemDetailView({
     };
   }, [isNfDesktop, hasDetail]);
   const immersiveUrl = detail ? imageUrl(detail.backdrop_url ?? detail.poster_url) : "";
+  // 片名 Logo（同 iOS 详情页）：只在银玻璃主题画，Netflix 主题保持文字片名；
+  // 加载失败记下那条地址回落文字，换条目（地址变了）自然重试
+  const [failedLogo, setFailedLogo] = useState<string | null>(null);
+  const logoSrc =
+    detail?.logo_url && !isNf && detail.logo_url !== failedLogo ? imageUrl(detail.logo_url) : "";
   // 手机也换全站背景，但页面本身不靠它显示：横版剧照铺满又高又窄的整屏只能按高度放大、
   // 从正中裁一条竖条，所以手机上看到的剧照是页内 Hero（mobileHeroSrc），滚动容器铺黑把
   // 全站背景整个挡住。仍然要换，是因为侧栏的液态玻璃折射的就是全站背景
@@ -796,9 +801,25 @@ export function LibraryItemDetailView({
         <div className="min-w-0 max-w-5xl pb-1">
           {/* break-words：未识别条目的标题就是文件名（Some.Movie.2023.2160p…），
               整串无空格，不允许断词就会横向撑开整页 */}
-          <h1 className="text-on-image break-words text-[42px] font-bold leading-[1.1] tracking-[-0.02em] text-white max-md:text-[28px]">
-            {detail.title}
-          </h1>
+          {logoSrc ? (
+            // 高度固定：Logo 加载前后下面的集名 / 事实行不跳；片名留给读屏
+            <h1 className="flex h-[120px] items-end max-md:h-24">
+              <span className="sr-only">{detail.title}</span>
+              <img
+                src={logoSrc}
+                alt=""
+                aria-hidden="true"
+                decoding="async"
+                referrerPolicy="no-referrer"
+                onError={() => setFailedLogo(detail.logo_url)}
+                className="max-h-full max-w-[420px] object-contain object-left-bottom drop-shadow-[0_4px_14px_rgba(0,0,0,0.45)] max-md:max-w-[260px]"
+              />
+            </h1>
+          ) : (
+            <h1 className="text-on-image break-words text-[42px] font-bold leading-[1.1] tracking-[-0.02em] text-white max-md:text-[28px]">
+              {detail.title}
+            </h1>
+          )}
           {!isMovie && selectedSeriesEpisode && (
             <p className="text-on-image mt-2 text-body text-white/65 max-md:mt-1.5 max-md:text-ui">
               {`第 ${selectedSeriesEpisode.seasonNumber} 季 第 ${selectedSeriesEpisode.episode.episode_number} 集${

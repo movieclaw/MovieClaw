@@ -1,3 +1,5 @@
+import Nuke
+import NukeUI
 import SwiftUI
 
 /// 媒体库条目详情（Web `library-item-detail-view.tsx`，路由 `/library/{id}/item/{mid}?season=&episode=`）。
@@ -282,10 +284,7 @@ struct LibraryItemDetailView: View {
     private func header(_ detail: API.LibraryItemDetailView) -> some View {
         let meta = detail.localMeta
         VStack(alignment: .leading, spacing: 8) {
-            Text(detail.title)
-                .font(.system(size: 28, weight: .bold))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.4), radius: 8)
+            titleArt(detail)
                 .accessibilityValue(String(detail.mediaItemId))
                 .accessibilityIdentifier("item-title")
             if !isMovie, let selectedEpisode {
@@ -359,6 +358,42 @@ struct LibraryItemDetailView: View {
     }
 
     /// 年份 · 片长 · 评分 · 画质 · HDR（电影看全部在位版本，剧集看选中的那个文件）
+    private func titleText(_ detail: API.LibraryItemDetailView) -> some View {
+        Text(detail.title)
+            .font(.system(size: 28, weight: .bold))
+            .foregroundStyle(.white)
+            .shadow(color: .black.opacity(0.4), radius: 8)
+    }
+
+    /// 片名：有片名 Logo（透明底 PNG，语言档同订阅首页 Hero）就画 Logo，没有或加载失败回落文字。
+    /// Logo 区高度固定，加载前后下面的集名 / 事实行不跳；整块合成一个静态文本读屏元素，
+    /// 读屏与 UI 测试（item-title）照旧拿到片名。
+    /// 本地 Logo 资产存的是 TMDB 原图（给电视端 clearlogo 用，常见 4000px 宽），按显示宽度降采样再解码
+    @ViewBuilder
+    private func titleArt(_ detail: API.LibraryItemDetailView) -> some View {
+        if let raw = detail.logoUrl, let url = api.image(raw) {
+            LazyImage(request: ImageRequest(url: url, processors: [.resize(width: 260)]),
+                      transaction: Transaction(animation: .easeOut(duration: 0.25))) { state in
+                if let image = state.image {
+                    image.resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: 260, maxHeight: 96, alignment: .bottomLeading)
+                        .shadow(color: .black.opacity(0.45), radius: 14, y: 4)
+                } else if state.error != nil {
+                    titleText(detail)
+                } else {
+                    Color.clear
+                }
+            }
+            .frame(maxWidth: .infinity, minHeight: 96, alignment: .bottomLeading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(detail.title)
+            .accessibilityAddTraits(.isStaticText)
+        } else {
+            titleText(detail)
+        }
+    }
+
     private func factsLine(_ detail: API.LibraryItemDetailView) -> [String] {
         let meta = detail.localMeta
         let runtime = meta?.runtimeMinutes ?? detail.files.first(where: { $0.durationSeconds != nil })?.durationSeconds.map { Int((Double($0) / 60).rounded()) }

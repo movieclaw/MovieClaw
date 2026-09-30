@@ -4028,6 +4028,8 @@ nonisolated extension API {
         var year: Int?
         var posterUrl: String?
         var backdropUrl: String?
+        /// 片名 Logo（透明底 PNG）；没有时前端显示文字片名
+        var logoUrl: String?
         /// 主图宽高比（同海报墙）
         var primaryAspect: Double
         /// NFO 本地刮削元数据；目录里没有可用 NFO 时为 null
@@ -4064,6 +4066,7 @@ nonisolated extension API {
             case year
             case posterUrl = "poster_url"
             case backdropUrl = "backdrop_url"
+            case logoUrl = "logo_url"
             case primaryAspect = "primary_aspect"
             case localMeta = "local_meta"
             case entryDirs = "entry_dirs"

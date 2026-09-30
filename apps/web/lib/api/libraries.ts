@@ -1448,6 +1448,8 @@ export interface LibraryItemDetail {
   year: number | null;
   poster_url: string | null;
   backdrop_url: string | null;
+  /** 片名 Logo（透明底 PNG）；没有时显示文字片名 */
+  logo_url: string | null;
   /** 主图宽高比（同海报墙） */
   primary_aspect: number;
   /** NFO 本地刮削元数据；目录里没有可用 NFO 时为 null */

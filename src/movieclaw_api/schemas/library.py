@@ -1018,6 +1018,9 @@ class LibraryItemDetailView(BaseModel):
     year: int | None
     poster_url: str | None
     backdrop_url: str | None
+    logo_url: str | None = Field(
+        default=None, description="片名 Logo（透明底 PNG）；没有时前端显示文字片名"
+    )
     primary_aspect: float = Field(default=0.6667, description="主图宽高比（同海报墙）")
     local_meta: LocalMetaView | None = Field(
         default=None, description="NFO 本地刮削元数据；目录里没有可用 NFO 时为 null"

@@ -2637,6 +2637,12 @@ async def get_library_item(
         # w1280 而非 original：作为全站沉浸背景铺视口足够清晰，体积小一个
         # 数量级——首次访问的背景切换等待从"原图下载"变成秒级
         backdrop_url = f"{base}/w1280{item.backdrop_path}" if item.backdrop_path else None
+    # 片名 Logo：本地资产 > TMDB 图床；logo_path 为空串表示刮过、确实没有合适语言的 Logo
+    if meta_row is not None and meta_row.logo_file:
+        logo_version = media_scrape.asset_version(meta_row.logo_file)
+        logo_url = f"/images/assets/{meta_row.logo_file}?v={logo_version}"
+    else:
+        logo_url = f"{base}/w500{item.logo_path}" if item.logo_path else None
     local_meta = None
     if bundle.local_meta is not None:
         # Web 与 Jellyfin 共用 person 关系表：导演头像和人物链接不能再从
@@ -2734,6 +2740,7 @@ async def get_library_item(
             year=item.year,
             poster_url=poster_url,
             backdrop_url=backdrop_url,
+            logo_url=logo_url,
             primary_aspect=primary_aspect(
                 item,
                 meta_row.poster_width if meta_row else None,

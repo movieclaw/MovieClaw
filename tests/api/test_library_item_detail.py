@@ -43,6 +43,7 @@ from movieclaw_db.models import (
     Library,
     LibraryFile,
     MediaItem,
+    MediaMetadata,
     RuleSet,
     Subscription,
     WantedItem,
@@ -633,6 +634,41 @@ async def test_item_detail_selfsufficient_after_scan(db, tmp_path) -> None:
     assert view.local_meta.actors[0].thumb_url and view.local_meta.actors[0].thumb_url.endswith(
         "/w300/a1.jpg"
     )
+
+
+async def test_item_detail_logo_url(db, tmp_path) -> None:
+    """详情页片名 Logo：本地资产 > TMDB 图床；logo_path 空串（刮过、没有合适语言
+    的 Logo）与从没刮过一样给 null，客户端回落文字片名。"""
+    root, _entry, _video = _make_movie_entry(tmp_path)
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="电影库", kind="movie", root_paths=[str(root)]
+        )
+    await scan_library(library.id)
+
+    async def detail_logo(logo_path: str | None, logo_file: str | None) -> str | None:
+        async with db.session() as session:
+            item = (await session.execute(select(MediaItem))).scalars().one()
+            item.logo_path = logo_path
+            session.add(item)
+            meta = (
+                await session.execute(
+                    select(MediaMetadata).where(MediaMetadata.media_item_id == item.id)
+                )
+            ).scalar_one_or_none()
+            if meta is None:
+                meta = MediaMetadata(media_item_id=item.id)
+            meta.logo_file = logo_file
+            session.add(meta)
+            await session.commit()
+            return (await get_library_item(library.id, item.id, _ADMIN, session)).data.logo_url
+
+    base = get_settings().tmdb_image_base_url.rstrip("/")
+    assert await detail_logo("/logo.png", None) == f"{base}/w500/logo.png"
+    local = await detail_logo("/logo.png", "1/logo.png")
+    assert local is not None and local.startswith("/images/assets/1/logo.png?v=")
+    assert await detail_logo("", None) is None
+    assert await detail_logo(None, None) is None
 
 
 async def test_item_detail_fills_missing_actor_thumbs_from_archive(db, tmp_path) -> None:
