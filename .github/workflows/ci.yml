@@ -14,23 +14,88 @@
 #     忘了同步会在这里红。
 #   - worker-macos 作业：macOS Worker 的 Swift 构建与单测。它只能在 macOS
 #     runner 上编译，本地 Linux 开发机和容器都跑不了，因此这里是它唯一的
-#     机器把关。刻意不加 paths 过滤：被设为必需检查的作业一旦因路径过滤
-#     不运行，PR 会永远等在「检查未完成」上；本仓库是公开仓库，macOS
-#     runner 分钟数不计费，多跑几次换一个稳定的门禁是划算的。
+#     机器把关。
+#
+# 按需运行：changes 作业先按 PR 改动的路径算出要跑哪几项，没改到的作业直接
+# 跳过（纯文档 PR 以前也要等 8 分钟 pytest）。用作业级 if 而不是工作流级
+# paths 过滤：被 if 跳过的作业在 GitHub 上记为 skipped、视同通过，将来给
+# main 开分支保护、把它们设为必需检查也不会让 PR 卡在「检查未完成」。
+# 两种情况全量跑：改了本文件（门禁自身变了），以及发版 PR（改了
+# src/movieclaw_api/__init__.py 的版本号——发版以发版 PR 的 CI 全绿为准）。
+# 各作业的路径清单要覆盖它**真正读到的文件**，不只是自己的目录：pytest
+# 会读 docker/ 的 entrypoint 与 nginx 模板、web 的路由目录、Worker 的
+# Swift 源码、现场编译 cli/；cli-go 要从服务端导出内嵌 spec。新增这类跨目录
+# 依赖时记得同步下面的 filters。
+#
+# 合并进 main 后不再重跑：改动在 PR 上已验过，重跑不挡合并，只会占 runner
+# 并发让别的 PR 排队。
 # =============================================================================
 name: ci
 
 on:
   pull_request:
-  push:
-    branches: [main]
+
+# 同一个 PR 连推几次时取消旧的运行，只验最新提交
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
 
 # NER 模型的 Release tag；模型发新版时同步改这里（发版流程见 .claude/skills/release）
 env:
   NER_MODEL_TAG: torrent-ner-v3
 
 jobs:
+  # 按改动路径决定下面各作业跑不跑。pull_request 事件下 paths-filter 通过
+  # GitHub API 取改动文件清单，不需要 checkout。
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      python: ${{ steps.filter.outputs.python }}
+      cli-go: ${{ steps.filter.outputs.cli-go }}
+      web: ${{ steps.filter.outputs.web }}
+      worker-macos: ${{ steps.filter.outputs.worker-macos }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            all: &all
+              - ".github/workflows/ci.yml"
+              - "src/movieclaw_api/__init__.py"
+            python:
+              - *all
+              - "src/**"
+              - "tests/**"
+              - "alembic/**"
+              - "alembic.ini"
+              - "pyproject.toml"
+              - "Dockerfile"
+              - "docker/**"
+              - "scripts/**"
+              - "cli/**"
+              - "apps/web/app/**"
+              - "macos/MovieClawTranscoder/Sources/MovieClawTranscoder/ArtifactUploadProxy.swift"
+            cli-go:
+              - *all
+              - "cli/**"
+              - "src/movieclaw_api/**"
+              - "scripts/export-spec.sh"
+              - "pyproject.toml"
+            web:
+              - *all
+              - "apps/web/**"
+              - "package.json"
+              - "pnpm-lock.yaml"
+              - "pnpm-workspace.yaml"
+            worker-macos:
+              - *all
+              - "macos/**"
+
   python:
+    needs: changes
+    if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -66,10 +131,13 @@ jobs:
       # --dist loadfile 让同一文件的用例固定在同一 worker 串行执行：
       # tests/docker/test_entrypoint_supervision.py 会绑定固定端口（8000/3001），
       # 跨 worker 并发跑同文件用例会端口冲突，loadfile 从分发层面杜绝。
+      # --durations=30：2026-09 已涨到 8 分钟，列出最慢的用例供定位
       - name: pytest
-        run: python -m pytest -q -m "not integration" -n auto --dist loadfile
+        run: python -m pytest -q -m "not integration" -n auto --dist loadfile --durations=30
 
   cli-go:
+    needs: changes
+    if: needs.changes.outputs.cli-go == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -121,6 +189,8 @@ jobs:
           done
 
   web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -151,6 +221,8 @@ jobs:
   # SDK 才编得进来。代码对旧工具链有 `#if compiler(>=6.2)` 兜底，换回旧 runner
   # 也能编过，只是产物会退回非玻璃样式——门禁要和发版用同一套工具链才有意义。
   worker-macos:
+    needs: changes
+    if: needs.changes.outputs.worker-macos == 'true'
     runs-on: macos-26
     steps:
       - uses: actions/checkout@v4

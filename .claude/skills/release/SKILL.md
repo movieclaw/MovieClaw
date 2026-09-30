@@ -32,7 +32,8 @@ description: 发布 movieclaw 新版本。当用户要求发版、发布新版�
 1. bump 两处版本号 → 提交 PR 合入 main（changelog 可同 PR 一起写，见下）。
    基线 spec（`spec.json`）是构建产物不入 git，镜像、发版脚本、goreleaser
    都在构建期现场导出，不需要也不能手动提交它
-2. 以发版 PR 的 CI 全绿为准（CI 会跑 ruff / pytest / web lint / typecheck），
+2. 以发版 PR 的 CI 全绿为准（平时 CI 按改动路径只跑相关作业，发版 PR 改了
+   `__init__.py` 的版本号会触发全量：ruff / pytest / cli / web / Worker 加 iOS 编译），
    无需在本地重跑全量测试——本地跑 pytest 还需先下载 NER 模型，且沙箱
    代理环境会造成与代码无关的误报
 3. git tag vX.Y.Z && git push origin vX.Y.Z

@@ -14,6 +14,9 @@ on:
     paths:
       - "apps/apple/**"
       - ".github/workflows/ios.yml"
+      # 发版 PR（bump 版本号）也编一遍：发版的 ios-ipa 作业用同一个脚本，
+      # 在发版 PR 上先红，比 tag 推出去后才发现缺 IPA 好补救
+      - "src/movieclaw_api/__init__.py"
   workflow_dispatch:
 
 concurrency:
@@ -31,6 +34,16 @@ jobs:
         run: |
           brew install xcodegen
           xcodebuild -version
+
+      # 缓存 Swift 包（远程包的检出与 FFmpegBuild 等二进制框架），省掉每次从头拉取。
+      # 仓库不提交 Package.resolved（工程由 XcodeGen 现场生成），键按两处包声明算；
+      # 版本范围内的新补丁版本仍会被解析拉取，缓存只是起点
+      - name: 恢复 Swift 包缓存
+        uses: actions/cache@v4
+        with:
+          path: ~/workspace/.mc-ios-spm
+          key: ios-spm-${{ hashFiles('apps/apple/project.yml', 'apps/apple/Vendor/AetherEngine/Package.swift') }}
+          restore-keys: ios-spm-
 
       - name: 编译（未签名 Release，与发版 IPA 同口径）
         run: apps/apple/scripts/build-unsigned-ipa.sh
