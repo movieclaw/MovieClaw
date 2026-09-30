@@ -253,12 +253,14 @@ SCENARIOS = {
     "iso-mid-cut": scenario("iso", 80, "play", cut_then("refuse", None, 20)),
     # 限画质（会让服务端起转码）：切 720p 后服务端流由自研引擎直连放，再切回自动回到直出原文件
     "quality-switch": scenario("mkv", 80, "play", extra=["-mcAutoQuality", "15:720,50:0"]),
-    # 慢线路（外网放 4K 原片）：取流总共只有 6 Mbit/s，等首帧满 8 秒应弹换低画质提议（[QualityOffer]），
+    # 慢线路（外网放 4K 原片）：取流总共只有 6 Mbit/s，等首帧满 8 秒应弹换低画质提议
+    # （[QualityOffer]），
     # 弹出即接受后改走服务端转码接着放。MC_FAULT_MKV 要选码率明显高于 6 Mbit/s 的片、从头播
     # 每轮先清片源缓存：冷启动时起播取数是一段一段的（索引、文件头分头取），最考验速度读数
     "slow-link": scenario("mkv", 75, "play", [(("start",), ("set", "link", 750_000, None, None))],
                           extra=["-mcAcceptQualityOffer", "YES", "-mcPurgeByteCache", "YES"]),
-    # 慢线路下远跳：先按正常线路起播，播到第 15 秒线路掉到 6 Mbit/s，打开播放器 25 秒时往后跳 15 分钟，
+    # 慢线路下远跳：先按正常线路起播，播到第 15 秒线路掉到 6 Mbit/s，
+    # 打开播放器 25 秒时往后跳 15 分钟，
     # 等落点满 8 秒应弹提议
     "slow-seek": scenario("mkv", 80, "play", [(("t", 15), ("set", "link", 750_000, None, None))],
                           extra=["-mcAcceptQualityOffer", "YES", "-mcPurgeByteCache", "YES",
@@ -287,7 +289,8 @@ async def run(name):
     # 上一轮的 App 进程要先退干净，否则这次可能起不来
     await quiet("xcrun", "simctl", "terminate", SIM, APP_ID)
     await asyncio.sleep(2)
-    # 场景都按默认画质设计：清掉按片记住的画质（slow-link 接受提议、quality-switch 中途失败都会留下）
+    # 场景都按默认画质设计：清掉按片记住的画质
+    # （slow-link 接受提议、quality-switch 中途失败都会留下）
     await quiet("xcrun", "simctl", "spawn", SIM, "defaults", "delete",
                 (await app_tmp())[:-len("/tmp")] + f"/Library/Preferences/{APP_ID}",
                 "movieclaw.player.quality-by-title")
