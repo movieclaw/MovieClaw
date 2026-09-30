@@ -94,15 +94,30 @@ TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple 
   HTTPS 的演示服务器（不要用自己的真实 NAS），只放开放授权的片源（Big Buck Bunny、
   Sintel、Tears of Steel 等），不接入任何资源站点和下载器；建一个普通成员账号给审核员。
   服务器地址与账号密码填在「App 审核信息 → 登录信息」与备注里。
-- **审核备注模板**：
+- **审核备注模板**（2026-09-29 首次 Beta 审核实际提交的版本；账号密码填在「登录信息」栏，不写进备注）：
 
-  > MovieClaw is a client for a self-hosted media server (open source: github.com/movieclaw/movieclaw),
-  > similar to Jellyfin / Plex / Infuse clients. Users connect to a server they deploy themselves on
-  > their NAS; the app itself hosts or provides no content.
-  > Demo server: https://… — account: … / …
-  > NSAllowsArbitraryLoads / local networking: most users run the server on their home LAN over
-  > plain HTTP (e.g. http://192.168.1.10:3000), so the app must reach LAN addresses without TLS.
-  > Background audio: continues playback and Picture in Picture.
+  > MovieClaw is a client for a self-hosted media server (source code: github.com/movieclaw/MovieClaw),
+  > similar to Jellyfin / Plex / Infuse clients. Users connect to a server they deploy themselves;
+  > the app itself hosts or provides no content.
+  >
+  > How to sign in: on first launch tap "连接服务器" (Connect to server), enter the server address
+  > https://…, then the username and password above.
+  >
+  > The demo server only contains open-licensed films (Big Buck Bunny, Sintel, Tears of Steel, Coffee Run).
+  >
+  > AI assistant: the "Agent" chat (Me tab → New conversation) answers questions about the user's own
+  > library and helps find titles. It uses a language model configured by the server owner; on the demo
+  > server it is already set up for the reviewer account.
+  >
+  > Local networking / arbitrary loads: most users run the server on their home LAN over plain HTTP
+  > (e.g. http://192.168.1.10:3000), so the app needs to reach LAN addresses without TLS.
+  > Background audio: used to continue playback and for Picture in Picture.
+
+  写备注的几条经验：
+  - 首屏是「连接服务器」而不是账号密码框，**不写明先填服务器地址，审核员会卡住**。
+  - 用「source code」而不是「open source」：本项目许可证带非商业条件，严格说是源码公开，
+    中文描述同理写「源码完全公开」。
+  - AI assistant 那段只在审核员账号确实能对话时保留；描述里提到的功能审核员都可能去点。
 
 - **截图**：6.9 英寸 iPhone（1320×2868 或 1290×2796）至少 3 张，用演示服务器的开放授权内容截，
   不要出现真实影片海报以外的版权敏感画面、种子名或站点名。
@@ -127,6 +142,11 @@ TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple 
 - **TMDB 署名**：关于页已注明「本产品使用 TMDB API，但未经 TMDB 认可或认证」。
 - **5.2.3**：见 §1。若被拒，审核意见会点名具体功能，据此扩大 App 内不提供的范围。
 - **最低系统 iOS 26**：只有 iOS 26 及以上的 iPhone 能在商店里看到它。
+- **CI 的 Xcode 比本机旧**：GitHub macos-26 runner 目前最高 Xcode 26.x，本机开发常用更新的版本。
+  新 Xcode 能推断通过的写法在旧版上会编译失败甚至让编译器崩溃（v0.28.0 发版因此缺过 IPA）。
+  规矩：以 PR 上的 `ios` 检查（`.github/workflows/ios.yml`）为准；不写 `Binding(get:set:)`，
+  用 `Binding(mcGet:set:)`（原因见 `Core/ClosureBinding.swift`）；给生成模型补协议一致性写
+  `nonisolated extension`；长的三元 / 字符串拼接拆成显式类型的局部量。
 
 ## 6. Mac 转码器
 
