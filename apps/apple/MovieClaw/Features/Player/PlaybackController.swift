@@ -143,6 +143,11 @@ final class PlaybackController {
         didSet { restartDiagnosticsPolling() }
     }
     var nextDismissed = false
+    /// 连续自动播了几集：跨集保留（换集不换控制器），用户点屏幕 / 播放暂停 / 换集等任何操作都清零（`noteUserActivity`），
+    /// 到 `SkipSegments.autoNextMaxStreak` 就不再自动播
+    private(set) var autoNextStreak = 0
+    /// 本次倒计时走了多少（0...1）；暂停时停住，关掉卡片 / 拖出片尾 / 换集归零
+    private(set) var autoNextProgress: Double = 0
 
     // MARK: 片段模式（刷片的「全屏观看」，见 `PlaybackClip`）
 
@@ -382,6 +387,7 @@ final class PlaybackController {
         durationMs = nil
         bufferedEndMs = nil
         nextDismissed = false
+        autoNextProgress = 0
         qualitySuggestion = QualitySuggestion()
         dismissQualityOffer()
         nativeFailed = false
@@ -472,12 +478,41 @@ final class PlaybackController {
     }
 
     func playPrevious() {
+        noteUserActivity()
         guard let previous = previousEpisode else { return }
         startUnit(PlaybackUnit(mediaItemId: unit.mediaItemId, season: unit.season, episode: previous.episodeNumber))
     }
 
-    /// 片尾 40 秒内（或已播完）显示「即将播放」卡片；不自动倒计时，换集由用户决定。
-    /// 服务端认出了一直放到结尾的片尾（docs/design/skip-intro.md）时，进了片尾就提前给，不必等到最后 40 秒
+    // MARK: - 自动播下一集（Netflix 同款，对照 Web video-player 的 autoNext）
+
+    /// 认出了片尾、卡片在显示、没到连播上限：卡片倒计时，走满自动换集
+    var autoNextArmed: Bool {
+        showsUpNext && SkipSegments.autoNextArmed(session?.segments, at: positionMs, streak: autoNextStreak)
+    }
+
+    /// 倒计时走一步：卡片显示期间由界面每 0.1 秒调一次（卡片收起，循环随之停）。
+    /// 暂停时不走；播完（`ended`）照走——片尾短于倒计时时不能卡在最后一帧
+    func advanceAutoNext(by seconds: Double) {
+        guard autoNextArmed else {
+            autoNextProgress = 0
+            return
+        }
+        guard !paused || phase == .ended else { return }
+        autoNextProgress = min(1, autoNextProgress + seconds * 1000 / Double(SkipSegments.autoNextMs))
+        guard autoNextProgress >= 1 else { return }
+        autoNextProgress = 0
+        autoNextStreak += 1
+        playNext()
+    }
+
+    /// 有人在操作：不算「没人管的连播」，连播计数清零
+    func noteUserActivity() {
+        if autoNextStreak != 0 { autoNextStreak = 0 }
+    }
+
+    /// 片尾 40 秒内（或已播完）显示「即将播放」卡片。
+    /// 服务端认出了一直放到结尾的片尾（docs/design/skip-intro.md）时，进了片尾就提前给，不必等到最后 40 秒，
+    /// 并倒计时自动播下一集（`autoNextArmed`）
     var showsUpNext: Bool {
         guard nextEpisode != nil, !nextDismissed else { return false }
         if phase == .ended { return true }
@@ -499,6 +534,7 @@ final class PlaybackController {
 
     /// 点「跳过」：直接跳到这一段结束处
     func skipCurrentSegment() {
+        noteUserActivity()
         guard let segment = skipSegment else { return }
         seek(toFileMs: segment.endMs, source: .button)
     }
@@ -1293,6 +1329,7 @@ final class PlaybackController {
     // MARK: - 播放控制
 
     func togglePlay() {
+        noteUserActivity()
         guard let engine else { return }
         if phase == .ended {
             seek(toFileMs: timelineStartMs, source: .restart)

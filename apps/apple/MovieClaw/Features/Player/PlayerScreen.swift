@@ -554,10 +554,26 @@ private struct PlayerContent: View {
                     HStack {
                         Spacer()
                         PlayerUpNextCard(
-                            label: controller.episodeLabel(next) ?? "",
-                            dismiss: { controller.nextDismissed = true },
-                            play: controller.playNext
+                            code: "第 \(next.episodeNumber) 集",
+                            name: next.name.flatMap { $0.isEmpty ? nil : $0 },
+                            still: controller.scope.api.image(next.stillUrl, .landscapeCard),
+                            countdown: controller.autoNextArmed ? controller.autoNextProgress : nil,
+                            dismiss: {
+                                controller.noteUserActivity()
+                                controller.nextDismissed = true
+                            },
+                            play: {
+                                controller.noteUserActivity()
+                                controller.playNext()
+                            }
                         )
+                        // 倒计时的钟：卡片在才走，卡片收起循环随之取消
+                        .task {
+                            while !Task.isCancelled {
+                                try? await Task.sleep(for: .milliseconds(100))
+                                controller.advanceAutoNext(by: 0.1)
+                            }
+                        }
                     }
                     .padding(.horizontal, PlayerLayout.edge)
                     .padding(.bottom, PlayerLayout.gap)
@@ -750,6 +766,7 @@ private struct PlayerContent: View {
     // MARK: 手势
 
     private func handleTap(_ xRatio: CGFloat, _ isDouble: Bool) {
+        controller.noteUserActivity()
         if menu != .none {
             menu = .none
             return

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { MediaController } from "media-chrome/react";
 
-import { ChevronLeftIcon, LockIcon } from "@/components/icons";
+import { ChevronLeftIcon, LockIcon, PlayIcon, XIcon } from "@/components/icons";
 
 import { ConsentDialog } from "@/components/player/consent-dialog";
 import { DiagnosticsPanel } from "@/components/player/diagnostics-panel";
@@ -147,7 +147,9 @@ import {
 import { nextSeekTarget, seekBatchWindowMs } from "@/lib/player/seek-batch";
 import { resolveTap } from "@/lib/player/tap";
 import {
+  AUTO_NEXT_MS,
   activeSkipSegment,
+  autoNextArmed,
   clampSeekTarget,
   formatClock,
   isInEndCredits,
@@ -185,8 +187,17 @@ export interface VideoPlayerProps {
    * undefined = 不覆盖：start_ms 不发，服务端接续播点（看完的从头播）。
    */
   startMsOverride?: number;
-  /** 下一集；没有（电影 / 本季最后一集）为 null */
-  next: { unit: PlaybackUnit; label: string } | null;
+  /**
+   * 下一集；没有（电影 / 本季最后一集）为 null。`label` 是一行的「S01E02 · 集名」（系统媒体控制用），
+   * 「即将播放」卡片用分开的 `code`（第 2 集）/ `name` / `stillUrl`（剧照，没有为 null）
+   */
+  next: {
+    unit: PlaybackUnit;
+    label: string;
+    code: string;
+    name: string | null;
+    stillUrl: string | null;
+  } | null;
   /** 上一集；没有（电影 / 本季第一集）为 null */
   prev: { unit: PlaybackUnit; label: string } | null;
   onPlayNext: () => void;
@@ -515,6 +526,15 @@ export function VideoPlayer(props: VideoPlayerProps) {
   }, []);
   /** 用户明确关掉过本集的「下一集」提示：关掉后不能因为还在片尾窗口里又弹回来 */
   const [nextDismissed, setNextDismissed] = useState(false);
+  /**
+   * 连续自动播了几集。组件跨集不重建（换集只换 unit），所以计数自然跨集保留；
+   * 用户的任何点按 / 按键都清零（见下面的全局监听），到 AUTO_NEXT_MAX_STREAK 就不再自动播
+   */
+  const [autoNextStreak, setAutoNextStreak] = useState(0);
+  /** 本次倒计时已走的毫秒（暂停时停住、恢复后接着走）；ref 给计时器续接用 */
+  const [autoNextElapsed, setAutoNextElapsed] = useState(0);
+  const autoNextElapsedRef = useRef(0);
+  autoNextElapsedRef.current = autoNextElapsed;
   /** 元数据里的时长（毫秒）。档 0 直出时它就是片长，服务端算不出时的兜底 */
   const [videoDurationMs, setVideoDurationMs] = useState<number | null>(null);
   // video 元素挂载后要触发依赖它的 effect，所以用 state 而不是纯 ref 持有
@@ -1177,6 +1197,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
     setBufferedEndMs(null);
     setResume(null);
     setNextDismissed(false);
+    setAutoNextElapsed(0);
     setVideoDurationMs(null);
     setSelectedSubtitle(null);
     setRequestedAudio(null);
@@ -3966,6 +3987,47 @@ export function VideoPlayer(props: VideoPlayerProps) {
       ? activeSkipSegment(segments, positionMs)
       : null;
 
+  /**
+   * 自动播下一集（Netflix 同款）：认出了片尾、卡片在显示、没到连播上限时倒计时 AUTO_NEXT_MS，
+   * 走满就换集。暂停时停住（播完 `ended` 也算在走——片尾短于倒计时时不能卡在最后一帧），
+   * 拖进度条时不走；关掉卡片 / 拖出片尾 / 换集都归零。点 ✕ 就是「继续看片尾」。
+   */
+  const autoNext =
+    showNextCard && !locked && autoNextArmed(segments, positionMs, autoNextStreak);
+  const autoNextRunning = autoNext && (!paused || state.phase === "ended") && !scrubbing;
+  useEffect(() => {
+    if (!autoNext) setAutoNextElapsed(0);
+  }, [autoNext]);
+  useEffect(() => {
+    if (!autoNextRunning) return;
+    // 从已走的进度接着计：暂停再继续不从头来
+    const startedAt = performance.now() - autoNextElapsedRef.current;
+    const timer = window.setInterval(() => {
+      const elapsed = performance.now() - startedAt;
+      if (elapsed < AUTO_NEXT_MS) {
+        setAutoNextElapsed(elapsed);
+        return;
+      }
+      window.clearInterval(timer);
+      setAutoNextElapsed(0);
+      setAutoNextStreak((n) => n + 1);
+      onPlayNext();
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [autoNextRunning, onPlayNext]);
+  // 有人在操作就不算「没人管的连播」：任何点按 / 按键都把计数清零（捕获阶段，
+  // 各控件自己 stopPropagation 也拦不住）。只是移动鼠标不算，鼠标放在桌上也会抖
+  useEffect(() => {
+    const reset = () => setAutoNextStreak(0);
+    window.addEventListener("pointerdown", reset, true);
+    window.addEventListener("keydown", reset, true);
+    return () => {
+      window.removeEventListener("pointerdown", reset, true);
+      window.removeEventListener("keydown", reset, true);
+    };
+  }, []);
+  const autoNextLeftS = Math.max(1, Math.ceil((AUTO_NEXT_MS - autoNextElapsed) / 1000));
+
   // 右下角浮层：「跳过片头」按钮与「即将播放」卡片（两者不同时出现）。交给 PlayerControls
   // 挂在时间行右端，跟着控制条展开 / 收起上下走（见 PlayerControlsProps.corner）
   const corner = skipSegment ? (
@@ -3981,24 +4043,60 @@ export function VideoPlayer(props: VideoPlayerProps) {
       {skipLabel(skipSegment)}
     </button>
   ) : showNextCard && next ? (
-    // 下一集卡片：片尾窗口内常驻，换集完全由用户决定
-    <div className="menu-surface w-[300px] p-4 max-md:w-[240px]">
-      <p className="text-[12px] uppercase tracking-wide text-white/50">即将播放</p>
-      <p className="mt-1.5 truncate text-[15px] font-semibold text-white">{next.label}</p>
-      <div className="mt-4 flex gap-2">
+    // 下一集卡片：左剧照、右「即将播放 / 集号 / 集名」三行，右上角 ✕（= 继续看片尾），
+    // 底下只有一颗「立即播放」。认出了片尾时这颗按钮本身就是倒计时进度条（Netflix 同款）：
+    // 白色从左往右填满就自动换集
+    <div className="menu-surface w-[340px] p-3 max-md:w-[252px] [@media(max-height:480px)]:w-[252px]">
+      <div className="flex gap-3">
+        {next.stillUrl ? (
+          // 手机（窄屏，或横屏的矮屏）地方小，不放剧照
+          <img
+            src={next.stillUrl}
+            alt=""
+            className="aspect-video w-32 shrink-0 rounded-[10px] object-cover max-md:hidden [@media(max-height:480px)]:hidden"
+          />
+        ) : null}
+        <div className="min-w-0 flex-1 self-center">
+          <p className="text-[11px] tracking-wide text-white/50">
+            即将播放{autoNext ? ` · ${autoNextLeftS} 秒` : ""}
+          </p>
+          <p className="mt-0.5 text-[13px] text-white/70">{next.code}</p>
+          {next.name ? (
+            <p className="line-clamp-2 text-[15px] font-semibold leading-snug text-white">
+              {next.name}
+            </p>
+          ) : null}
+        </div>
         <button
           type="button"
+          data-testid="upnext-dismiss"
           onClick={() => setNextDismissed(true)}
-          className="rounded-full bg-white/15 px-4 py-2 text-[13px] text-white/85 transition-colors hover:bg-white/25"
+          aria-label="不看下一集，继续看片尾"
+          className="grid size-7 shrink-0 place-items-center self-start rounded-full bg-white/12 text-white/80 transition-colors hover:bg-white/20 hover:text-white"
         >
-          关闭
+          <XIcon className="size-3.5" />
         </button>
+      </div>
+      <div className="mt-3 flex justify-end">
         <button
           type="button"
+          data-testid="upnext-play"
           onClick={onPlayNext}
-          className="flex-1 rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-black transition-colors hover:bg-white/85"
+          className={`relative h-8 min-w-[112px] overflow-hidden rounded-full px-4 text-[13px] font-semibold text-black transition-colors ${
+            autoNext ? "bg-white/35" : "bg-white hover:bg-white/85"
+          }`}
         >
-          立即播放
+          {autoNext ? (
+            <span
+              aria-hidden
+              className="absolute inset-0 origin-left bg-white transition-transform duration-100 ease-linear"
+              style={{ transform: `scaleX(${autoNextElapsed / AUTO_NEXT_MS})` }}
+            />
+          ) : null}
+          <span className="relative inline-flex items-center gap-1.5">
+            <PlayIcon className="size-3.5" />
+            立即播放
+          </span>
         </button>
       </div>
     </div>
@@ -4548,7 +4646,14 @@ export function VideoPlayer(props: VideoPlayerProps) {
             pt-24 也算），横屏时上沿会探进中央簇的区域——普通 div 即使全透明
             也拦命中，退十秒会看得见按不动。可点元素在 PlayerControls 里各自
             开回 auto。 */}
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20">
+        <div
+          // noautohide：media-chrome 自己那套显隐（autohide="-1" 关了计时器，但「用户不活跃」
+          // 的初始态照样会挂上）会把顶层子节点整个调成透明。这一层的显隐由 chromeVisible
+          // 在里面各自管，而右端的「即将播放」卡片 / 跳过按钮必须一直看得见——没人碰鼠标、
+          // 只是坐着看的时候正是自动连播要倒计时给人看的时候
+          {...{ noautohide: "" }}
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-20"
+        >
           {/* 暂停片名：Netflix 式大字，靠左下、落在控制条正上方（Disney+ /
               Apple TV+ 同款位置）：垂直中央是播放簇的地盘，左上顶栏已有片名。
               放进控制条的布局流而不是绝对定位 + 猜高度的 padding——控制条在

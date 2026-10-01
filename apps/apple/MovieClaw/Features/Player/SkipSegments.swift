@@ -28,6 +28,19 @@ enum SkipSegments {
         segments?.contains { $0.type == "outro" && $0.toEnd && positionMs >= $0.startMs } ?? false
     }
 
+    /// 「即将播放」卡片要不要倒计时自动播下一集（对照 Web `autoNextArmed`）。
+    ///
+    /// 只在服务端**认出了**一直放到结尾的片尾时才倒计时：按「最后 40 秒」猜片尾的话字幕还没放完画面就被抢走，
+    /// 只靠 40 秒兜底出来的卡片照旧不自动播。`streak` 是连续自动播了几集（中间有任何操作就清零）
+    static func autoNextArmed(_ segments: [API.PlaybackSegmentView]?, at positionMs: Int, streak: Int) -> Bool {
+        streak < autoNextMaxStreak && isInOutro(segments, at: positionMs)
+    }
+
+    /// 自动播下一集的倒计时（Netflix 同款 5 秒）；卡片上的「立即播放」按钮本身就是这条进度
+    static let autoNextMs = 5000
+    /// 连续自动播了这么多集、期间没人碰过播放器，就不再自动播（人多半睡着了，也别让 NAS 白转一晚上）
+    static let autoNextMaxStreak = 3
+
     /// 「跳过」按钮的文案
     static func label(_ segment: API.PlaybackSegmentView) -> String {
         segment.type == "outro" ? "跳过片尾" : "跳过片头"

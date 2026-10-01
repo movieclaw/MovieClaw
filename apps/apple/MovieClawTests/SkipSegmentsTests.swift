@@ -31,6 +31,16 @@ struct SkipSegmentsTests {
         #expect(SkipSegments.label(SkipSegments.active([midOutro], at: 2_450_000)!) == "跳过片尾")
     }
 
+    @Test func autoNextOnlyCountsDownInDetectedCreditsAndStopsAfterStreak() {
+        #expect(SkipSegments.autoNextMs == 5000)
+        #expect(!SkipSegments.autoNextArmed([credits], at: 2_549_999, streak: 0))
+        #expect(SkipSegments.autoNextArmed([credits], at: 2_560_000, streak: 0))
+        #expect(SkipSegments.autoNextArmed([credits], at: 2_560_000, streak: SkipSegments.autoNextMaxStreak - 1))
+        #expect(!SkipSegments.autoNextArmed([credits], at: 2_560_000, streak: SkipSegments.autoNextMaxStreak))
+        #expect(!SkipSegments.autoNextArmed([midOutro], at: 2_450_000, streak: 0))
+        #expect(!SkipSegments.autoNextArmed(nil, at: 2_690_000, streak: 0))
+    }
+
     @Test func creditsToEndGoToUpNextCardNotSkipButton() {
         #expect(SkipSegments.active([credits], at: 2_600_000) == nil)
         #expect(!SkipSegments.isInOutro([credits], at: 2_549_999))

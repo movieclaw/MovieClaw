@@ -209,65 +209,113 @@ struct PlayerConsentView: View {
     }
 }
 
-/// 片尾「即将播放」卡片：常驻到用户点它或关掉，不自动倒计时（倒计时会在片尾没看完时抢走画面）。
+/// 片尾「即将播放」卡片（Netflix 同款，对照 Web video-player 的下一集卡片）。
 ///
-/// 版式同 iOS 26 的通知 / 提示卡片：关闭收成右上角的 ✕，主操作「立即播放」通栏大按钮，片尾看字幕时一抬拇指就点中。
-/// 几何：大号玻璃按钮实测高 50（半径 25），离卡片边 12，卡片圆角 37，三者同心；✕ 圆（半径 15）离上、右边各 21，
-/// 也与卡片右上角同心，圆心和左边两行字的中线对齐（两行字高 36，上边距 18）。
-/// 宽 224：横屏时离右侧「前进 10 秒」留出 18pt，不挨着。
+/// 左剧照，右三行「即将播放 · N 秒 / 第 2 集 / 集名（最多两行）」，右上角 ✕ = 不看下一集、继续看片尾，
+/// 底下只有一颗「立即播放」。认出了片尾时这颗按钮本身就是倒计时进度条：白色从左往右填满就自动换集
+/// （`PlaybackController.advanceAutoNext`）；只按最后 40 秒兜底出来的卡片不倒计时，按钮是实心白。
+/// 横屏（高度紧）不放剧照、卡片收窄，免得碰到画面中央的播放簇；没有剧照也不占位
 struct PlayerUpNextCard: View {
-    let label: String
+    let code: String
+    let name: String?
+    let still: URL?
+    /// 倒计时进度 0...1；nil = 不倒计时
+    let countdown: Double?
     let dismiss: () -> Void
     let play: () -> Void
 
-    private static let radius: CGFloat = 37
-    private static let buttonInset: CGFloat = 12
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
+    private var compact: Bool { verticalSizeClass == .compact }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("即将播放")
-                        .font(.caption)
+        VStack(alignment: .trailing, spacing: 12) {
+            HStack(alignment: .top, spacing: 12) {
+                if let still, !compact {
+                    RemoteImage(url: still)
+                        .frame(width: 112, height: 63)
+                        .clipShape(.rect(cornerRadius: 10))
+                }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(eyebrow)
+                        .font(.caption2)
+                        .monospacedDigit()
                         .foregroundStyle(.white.opacity(0.5))
-                    Text(label)
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
+                    Text(code)
+                        .font(.footnote)
+                        .foregroundStyle(.white.opacity(0.7))
+                    if let name {
+                        Text(name)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+                            .lineLimit(2)
+                    }
                 }
-                Spacer(minLength: 0)
-                Button(action: dismiss) {
-                    Image(systemName: "xmark")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.white.opacity(0.8))
-                        .frame(width: 30, height: 30)
-                        .background(.white.opacity(0.14), in: .circle)
-                        // 看得见的圆 30pt，触控区 44pt
-                        .frame(width: 44, height: 44)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                // 触控区不撑高标题行
-                .padding(.vertical, -7)
-                .accessibilityLabel("不看下一集")
-                .accessibilityIdentifier("upnext-dismiss")
+                .frame(maxWidth: .infinity, alignment: .leading)
+                dismissButton
             }
-            .padding(.leading, 18)
-            .padding(.trailing, 14)
-            .padding(.top, 18)
-            Button(action: play) {
-                Label("立即播放", systemImage: "play.fill").frame(maxWidth: .infinity)
-            }
-            .discoverProminentButton()
-            .controlSize(.large)
-            .padding(Self.buttonInset)
-            .padding(.top, 2)
-            .accessibilityIdentifier("upnext-play")
+            playButton
         }
-        .frame(width: 224)
-        .glassEffect(PlayerGlass.panel, in: .rect(cornerRadius: Self.radius))
+        .padding(14)
+        .frame(width: compact ? 252 : 300)
+        .glassEffect(PlayerGlass.panel, in: .rect(cornerRadius: 26))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("player-upnext")
+    }
+
+    private var eyebrow: String {
+        guard let countdown else { return "即将播放" }
+        let left = Double(SkipSegments.autoNextMs) * (1 - countdown) / 1000
+        return "即将播放 · \(max(1, Int(left.rounded(.up)))) 秒"
+    }
+
+    private var dismissButton: some View {
+        Button(action: dismiss) {
+            Image(systemName: "xmark")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white.opacity(0.8))
+                .frame(width: 28, height: 28)
+                .background(.white.opacity(0.14), in: .circle)
+                // 看得见的圆 28pt，触控区 44pt
+                .frame(width: 44, height: 44)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        // 触控区不撑高、不挤开右边距
+        .padding(-8)
+        .accessibilityLabel("不看下一集，继续看片尾")
+        .accessibilityIdentifier("upnext-dismiss")
+    }
+
+    private var playButton: some View {
+        Button(action: play) {
+            Label("立即播放", systemImage: "play.fill")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 16)
+                .frame(height: 34)
+                .background {
+                    // 倒计时：浅底上白色从左往右填，填满即换集；不倒计时就是实心白
+                    GeometryReader { geo in
+                        ZStack(alignment: .leading) {
+                            Rectangle().fill(.white.opacity(countdown == nil ? 1 : 0.35))
+                            if let countdown {
+                                Rectangle()
+                                    .fill(.white)
+                                    .frame(width: geo.size.width * countdown)
+                                    .animation(.linear(duration: 0.1), value: countdown)
+                            }
+                        }
+                    }
+                    .clipShape(.capsule)
+                }
+                // 胶囊高 34，上下各扩 5 凑满 44pt 触控高度，外侧再收回去，不改变排版
+                .padding(.vertical, 5)
+                .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, -5)
+        .accessibilityIdentifier("upnext-play")
     }
 }
 

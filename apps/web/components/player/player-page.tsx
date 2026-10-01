@@ -125,6 +125,10 @@ export function PlayerPage({
       label: `${episodeCode(current.season, candidate.episode_number)}${
         candidate.name ? ` · ${candidate.name}` : ""
       }`,
+      // 「即将播放」卡片分行展示：集号一行、集名一行，左边配剧照
+      code: `第 ${candidate.episode_number} 集`,
+      name: candidate.name || null,
+      stillUrl: candidate.still_url ? imageUrl(candidate.still_url) : null,
     };
   }, [episodes, current, mediaItemId]);
 

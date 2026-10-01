@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { SKIP_TAIL_MS, activeSkipSegment, isInOutro, skipLabel } from "../lib/player/timeline.ts";
+import {
+  AUTO_NEXT_MAX_STREAK,
+  AUTO_NEXT_MS,
+  SKIP_TAIL_MS,
+  activeSkipSegment,
+  autoNextArmed,
+  isInOutro,
+  skipLabel,
+} from "../lib/player/timeline.ts";
 
 const ad = { type: "other", start_ms: 0, end_ms: 20_000, to_end: false };
 const intro = { type: "intro", start_ms: 60_000, end_ms: 150_000, to_end: false };
@@ -35,4 +43,15 @@ test("放到结尾的片尾不给跳过按钮，改由「即将播放」接手",
 test("没有片段（旧服务端、电影、还没识别）时什么都不给", () => {
   assert.equal(activeSkipSegment(undefined, 1000), null);
   assert.equal(isInOutro(undefined, 1000), false);
+});
+
+test("自动播下一集：只有认出了片尾才倒计时，连播 3 集后停", () => {
+  assert.equal(AUTO_NEXT_MS, 5000);
+  assert.equal(autoNextArmed([credits], 2_549_999, 0), false, "片尾之前不倒计时");
+  assert.equal(autoNextArmed([credits], 2_560_000, 0), true);
+  assert.equal(autoNextArmed([credits], 2_560_000, AUTO_NEXT_MAX_STREAK - 1), true);
+  assert.equal(autoNextArmed([credits], 2_560_000, AUTO_NEXT_MAX_STREAK), false, "连播到上限就停");
+  assert.equal(autoNextArmed([midOutro], 2_450_000, 0), false, "片尾后面还有内容的不算");
+  assert.equal(autoNextArmed([], 2_690_000, 0), false, "没认出片尾（只按 40 秒兜底）不自动播");
+  assert.equal(autoNextArmed(undefined, 2_690_000, 0), false);
 });
