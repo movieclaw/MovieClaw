@@ -32,7 +32,7 @@ struct SkipSegmentsTests {
     }
 
     @Test func autoNextOnlyCountsDownInDetectedCreditsAndStopsAfterStreak() {
-        #expect(SkipSegments.autoNextMs == 5000)
+        #expect(SkipSegments.autoNextMs == 8000)
         #expect(!SkipSegments.autoNextArmed([credits], at: 2_549_999, streak: 0))
         #expect(SkipSegments.autoNextArmed([credits], at: 2_560_000, streak: 0))
         #expect(SkipSegments.autoNextArmed([credits], at: 2_560_000, streak: SkipSegments.autoNextMaxStreak - 1))

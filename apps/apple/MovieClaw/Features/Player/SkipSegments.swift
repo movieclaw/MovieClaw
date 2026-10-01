@@ -36,8 +36,8 @@ enum SkipSegments {
         streak < autoNextMaxStreak && isInOutro(segments, at: positionMs)
     }
 
-    /// 自动播下一集的倒计时（Netflix 同款 5 秒）；卡片上的「立即播放」按钮本身就是这条进度
-    static let autoNextMs = 5000
+    /// 自动播下一集的倒计时 8 秒（5 秒来不及反应，用户反馈 2026-10-01）；卡片上的「立即播放」按钮本身就是这条进度
+    static let autoNextMs = 8000
     /// 连续自动播了这么多集、期间没人碰过播放器，就不再自动播（人多半睡着了，也别让 NAS 白转一晚上）
     static let autoNextMaxStreak = 3
 

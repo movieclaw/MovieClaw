@@ -46,7 +46,7 @@ test("没有片段（旧服务端、电影、还没识别）时什么都不给",
 });
 
 test("自动播下一集：只有认出了片尾才倒计时，连播 3 集后停", () => {
-  assert.equal(AUTO_NEXT_MS, 5000);
+  assert.equal(AUTO_NEXT_MS, 8000);
   assert.equal(autoNextArmed([credits], 2_549_999, 0), false, "片尾之前不倒计时");
   assert.equal(autoNextArmed([credits], 2_560_000, 0), true);
   assert.equal(autoNextArmed([credits], 2_560_000, AUTO_NEXT_MAX_STREAK - 1), true);

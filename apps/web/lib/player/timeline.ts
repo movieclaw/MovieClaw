@@ -238,8 +238,8 @@ export function isInOutro(
   );
 }
 
-/** 自动播下一集的倒计时（Netflix 同款 5 秒）。卡片上的「立即播放」按钮本身就是这条进度 */
-export const AUTO_NEXT_MS = 5000;
+/** 自动播下一集的倒计时 8 秒（5 秒来不及反应，用户反馈 2026-10-01）。卡片上的「立即播放」按钮本身就是这条进度 */
+export const AUTO_NEXT_MS = 8000;
 /** 连续自动播了这么多集、期间没人碰过播放器，就不再自动播（人多半睡着了，也别让 NAS 白转一晚上） */
 export const AUTO_NEXT_MAX_STREAK = 3;
 
