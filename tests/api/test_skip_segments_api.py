@@ -405,6 +405,9 @@ def test_library_backfill_pauses_while_someone_is_watching(
     assert paused_all_along, "有人在看片时不该读盘算指纹"
     assert outcome.fingerprinted == 5 and outcome.analyzed
     assert any("有人正在看片" in m for m in ctx.messages)
+    # 恢复读盘时要把「暂停」字样换掉，否则任务中心要等这一季做完才更新
+    paused_at = next(i for i, m in enumerate(ctx.messages) if "有人正在看片" in m)
+    assert any("继续识别" in m for m in ctx.messages[paused_at + 1 :])
 
 
 def test_item_job_and_ingest_never_wait_for_playback(client: TestClient, tmp_path: Path) -> None:

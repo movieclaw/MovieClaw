@@ -187,6 +187,15 @@ async def _wait_until_quiet(context: jobs.JobContext) -> None:
                 message="有人正在看片，片头片尾识别先暂停，看完后自动继续",
             )
         await asyncio.sleep(_QUIET_POLL_S)
+    if announced:
+        # 进度平时只在一季做完时刷新，一季可能要读好几分钟；不在这里改掉「暂停」字样，
+        # 任务中心会在已经恢复读盘后继续显示暂停，直到这一季做完
+        logger.info("没人在看片了，片头片尾识别继续")
+        await context.update_progress(
+            mode="indeterminate",
+            phase="analyzing",
+            message="没人在看片了，继续识别片头片尾",
+        )
 
 
 # ---------------------------------------------------------------------------

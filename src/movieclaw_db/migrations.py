@@ -36,6 +36,12 @@ def _build_config() -> Config:
     cfg.file_config  # noqa: B018 —— 刻意解引用以触发 memoized 构建
     cfg.__dict__["file_config"] = file_config
     cfg.set_main_option("script_location", str(_ALEMBIC_DIR))
+    # alembic.ini 的 prepend_sys_path = src 是相对路径，alembic 会原样插到 sys.path 最前面，
+    # 按当前工作目录解析。容器里工作目录是 /app，于是 /app/src（镜像里的旧代码）压过了
+    # 应用内更新的 overlay：服务进程之后才首次导入的模块、以及继承 sys.path 的子进程
+    # （片头片尾识别、video_cues）都会拿到旧代码甚至找不到模块。这里同样锁成绝对路径，
+    # 指向与本文件同版的 src（% 是 ConfigParser 插值符，要转义）
+    cfg.set_main_option("prepend_sys_path", str(_PROJECT_ROOT / "src").replace("%", "%%"))
     return cfg
 
 
