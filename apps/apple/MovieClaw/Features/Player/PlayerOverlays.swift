@@ -274,14 +274,14 @@ struct PlayerUpNextCard: View {
 /// 「跳过片头 / 跳过片尾」按钮（docs/design/skip-intro.md）：区间是服务端整季比对认出来的，
 /// 位置进了区间才出现、出了区间自动消失，点了跳到区间结束处。摆在「即将播放」卡片的位置（右下角、底栏上方），
 /// 与它不同时出现。玻璃胶囊：不自设底色，跟着系统液态玻璃走。
-/// 用常规尺寸、小一号字：它压在画面上，大号胶囊太抢眼（用户反馈 2026-10-01）
+/// 用常规尺寸、小一号字、只有文字不带图标：它压在画面上，越简单越不抢眼（用户反馈 2026-10-01）
 struct PlayerSkipButton: View {
     let segment: API.PlaybackSegmentView
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Label(SkipSegments.label(segment), systemImage: "forward.end.fill")
+            Text(SkipSegments.label(segment))
                 .font(.subheadline.weight(.semibold))
         }
         .buttonStyle(.glass)
