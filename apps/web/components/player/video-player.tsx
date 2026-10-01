@@ -3966,6 +3966,44 @@ export function VideoPlayer(props: VideoPlayerProps) {
       ? activeSkipSegment(segments, positionMs)
       : null;
 
+  // 右下角浮层：「跳过片头」按钮与「即将播放」卡片（两者不同时出现）。交给 PlayerControls
+  // 挂在时间行右端，跟着控制条展开 / 收起上下走（见 PlayerControlsProps.corner）
+  const corner = skipSegment ? (
+    // 点了直接跳到这一段结束处；片段里才出现、出了片段自动消失，不自动跳。
+    // 高度与左边的时间胶囊一样（h-7），看起来是控制条的一部分
+    <button
+      type="button"
+      data-testid="skip-segment"
+      data-segment-type={skipSegment.type}
+      onClick={() => commitSeek(skipSegment.end_ms)}
+      className="h-7 rounded-full bg-white/90 px-3 text-[13px] font-semibold text-black shadow-lg backdrop-blur transition-colors hover:bg-white max-md:text-[12px]"
+    >
+      {skipLabel(skipSegment)}
+    </button>
+  ) : showNextCard && next ? (
+    // 下一集卡片：片尾窗口内常驻，换集完全由用户决定
+    <div className="menu-surface w-[300px] p-4 max-md:w-[240px]">
+      <p className="text-[12px] uppercase tracking-wide text-white/50">即将播放</p>
+      <p className="mt-1.5 truncate text-[15px] font-semibold text-white">{next.label}</p>
+      <div className="mt-4 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setNextDismissed(true)}
+          className="rounded-full bg-white/15 px-4 py-2 text-[13px] text-white/85 transition-colors hover:bg-white/25"
+        >
+          关闭
+        </button>
+        <button
+          type="button"
+          onClick={onPlayNext}
+          className="flex-1 rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-black transition-colors hover:bg-white/85"
+        >
+          立即播放
+        </button>
+      </div>
+    </div>
+  ) : null;
+
   // 自动播放被彻底拦下时不能再转圈：状态机要等 `playing` 才离开 buffering，
   // 而那一刻永远不会来——转圈叠着中央播放键是最典型的「界面卡住了」观感。
   const busy = isBusy(state.phase) && autoplay !== "blocked";
@@ -4506,49 +4544,6 @@ export function VideoPlayer(props: VideoPlayerProps) {
           />
         ) : null}
 
-        {/* 跳过片头 / 跳过片尾：点了直接跳到这一段结束处。位置与下一集卡片同一个角落，
-            片段里才出现、出了片段自动消失；不自动跳，换不换由用户决定 */}
-        {skipSegment ? (
-          <button
-            type="button"
-            data-testid="skip-segment"
-            data-segment-type={skipSegment.type}
-            onClick={() => commitSeek(skipSegment.end_ms)}
-            className="absolute bottom-32 right-6 z-30 rounded-full bg-white/90 px-4 py-1.5 text-[13px] font-semibold text-black shadow-lg backdrop-blur transition-colors hover:bg-white max-md:bottom-28 max-md:right-3 max-md:px-3 max-md:py-1 max-md:text-[12px]"
-          >
-            {skipLabel(skipSegment)}
-          </button>
-        ) : null}
-
-        {/* 下一集卡片：片尾窗口内常驻，换集完全由用户决定 */}
-        {showNextCard && next ? (
-          <div
-            // 定位内联：.menu-surface 自带 position:relative（不在 @layer，
-            // className 的 absolute 压不过它）
-            style={{ position: "absolute" }}
-            className="menu-surface bottom-32 right-6 z-30 w-[300px] p-4 max-md:bottom-28 max-md:right-3 max-md:w-[240px]"
-          >
-            <p className="text-[12px] uppercase tracking-wide text-white/50">即将播放</p>
-            <p className="mt-1.5 truncate text-[15px] font-semibold text-white">{next.label}</p>
-            <div className="mt-4 flex gap-2">
-              <button
-                type="button"
-                onClick={() => setNextDismissed(true)}
-                className="rounded-full bg-white/15 px-4 py-2 text-[13px] text-white/85 transition-colors hover:bg-white/25"
-              >
-                关闭
-              </button>
-              <button
-                type="button"
-                onClick={onPlayNext}
-                className="flex-1 rounded-full bg-white px-4 py-2 text-[13px] font-semibold text-black transition-colors hover:bg-white/85"
-              >
-                立即播放
-              </button>
-            </div>
-          </div>
-        ) : null}
-
         {/* pointer-events-none 必须有：这层透明容器的高度由内容撑（时间行的
             pt-24 也算），横屏时上沿会探进中央簇的区域——普通 div 即使全透明
             也拦命中，退十秒会看得见按不动。可点元素在 PlayerControls 里各自
@@ -4583,6 +4578,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
             durationMs={durationMs}
             bufferedEndMs={bufferedEndMs}
             chromeVisible={chromeVisible}
+            corner={corner}
             onSeek={commitSeek}
             onScrub={scrubTo}
             onScrubCancel={cancelScrubFollow}

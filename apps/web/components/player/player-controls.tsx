@@ -1,6 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ActivityIcon, CheckIcon, ExpandIcon, MoreIcon, ShrinkIcon } from "@/components/icons";
 import type { PlaybackChapterMark } from "@/lib/api/playback";
 import type { AudioOption } from "@/lib/player/audio-tracks";
@@ -231,6 +239,15 @@ export interface PlayerControlsProps {
   bufferedEndMs: number | null;
   /** 控制条是否可见。进度条与其它控件一起淡入淡出（全出全收） */
   chromeVisible: boolean;
+  /**
+   * 挂在时间行右端的浮层：「跳过片头」按钮、「即将播放」卡片。
+   *
+   * 放进控制条的布局流而不是在外面绝对定位 + 猜高度：控制条展开 / 收起时高度会变
+   * （操作行 0fr↔1fr），外面写死 bottom 的话展开时压着控制条、收起时悬在半空
+   * （2026-10-01 用户反馈）。挂在这里就跟着进度条上下走，收起时落到底边。
+   * 它**不随控制层淡出**——控制条收着时按钮照样要看得见、点得到。
+   */
+  corner?: ReactNode;
   onSeek: (fileMs: number) => void;
   /**
    * 拖动过程中的实时跟随。父组件自己判断这次跳转值不值得做（跳转不要钱的
@@ -301,6 +318,7 @@ export function PlayerControls(props: PlayerControlsProps) {
     durationMs,
     bufferedEndMs,
     chromeVisible,
+    corner,
     onSeek,
     onScrub,
     onScrubCancel,
@@ -649,9 +667,9 @@ export function PlayerControls(props: PlayerControlsProps) {
         // 间距，挂上 auto 它就会吃掉底下的点击——横屏只有 320~390pt 高，这截
         // 正好罩在中央簇的退十秒按钮上，按钮看得见按不动（层级在下、命中被
         // 这行截胡）。现在这行只有读数，没有任何需要命中的东西。
-        className={`player-inset-x pointer-events-none relative flex items-center pt-24 pb-2 transition-opacity duration-300 max-md:pt-16 ${
-          chromeVisible ? "opacity-100" : "opacity-0"
-        }`}
+        //
+        // 淡出只作用在时间胶囊上，不在行上：右端的 corner 浮层不跟控制层一起消失
+        className="player-inset-x pointer-events-none relative flex items-center pt-24 pb-2 max-md:pt-16"
       >
         {/* 时间是**读数**，比进度条下方那排操作键明显矮一档（28 vs 44/52）：
             最不需要被点的东西不该看着最像能点的。也不跟着断点放大——那 44px
@@ -660,12 +678,23 @@ export function PlayerControls(props: PlayerControlsProps) {
 
             两段各自成元素、靠 gap 分开：药丸是 flex，写在文字里的前导空格会
             被折掉，变成「41:00/ 2:32:00」。 */}
-        <span className="player-glass inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[12px] font-medium tabular-nums text-white">
+        <span
+          className={`player-glass inline-flex h-7 items-center gap-1 rounded-full px-2.5 text-[12px] font-medium tabular-nums text-white transition-opacity duration-300 ${
+            chromeVisible ? "opacity-100" : "opacity-0"
+          }`}
+        >
           <span>{formatClock(shown)}</span>
           <span className="font-normal text-white/40">
             / {durationMs ? formatClock(durationMs) : "--:--"}
           </span>
         </span>
+        {/* 底边与时间胶囊对齐（行的 pb-2），左右沿用 .player-inset-x 的安全边距；
+            高的东西（即将播放卡片）往上长，不撑高这一行 */}
+        {corner ? (
+          <div className="player-inset-x pointer-events-none absolute inset-x-0 bottom-2 flex justify-end">
+            <div className="pointer-events-auto">{corner}</div>
+          </div>
+        ) : null}
       </div>
 
       {/* ---- 进度条 ----
