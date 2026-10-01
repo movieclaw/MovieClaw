@@ -238,9 +238,11 @@ export function isInOutro(
   );
 }
 
-/** 「跳过」按钮的文案 */
+/**
+ * 「跳过」按钮的文案。「其他」段只会出现在片头窗里（片头前的冠名广告、发行许可），
+ * 观众眼里也是片头的一部分，同样叫「跳过片头」——只写「跳过」看不出跳的是什么（用户反馈 2026-10-01）
+ */
 export function skipLabel(seg: SkipSegment): string {
-  if (seg.type === "intro") return "跳过片头";
   if (seg.type === "outro") return "跳过片尾";
-  return "跳过";
+  return "跳过片头";
 }

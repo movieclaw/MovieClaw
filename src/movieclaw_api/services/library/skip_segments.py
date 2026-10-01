@@ -41,6 +41,7 @@ import sys
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -53,7 +54,15 @@ from movieclaw_api.services import foreground, jobs
 from movieclaw_api.services.library.layout import STRM_EXT
 from movieclaw_api.services.playback.session import get_session_manager
 from movieclaw_db.engine import get_database
-from movieclaw_db.models import Library, LibraryFile, MediaItem, MediaSegmentState, utcnow
+from movieclaw_db.models import (
+    Library,
+    LibraryFile,
+    MediaItem,
+    MediaMetadata,
+    MediaSeason,
+    MediaSegmentState,
+    utcnow,
+)
 from movieclaw_db.models.library_file import DISC_CONTAINERS
 from movieclaw_db.models.playback_state import PlaybackState
 from movieclaw_playback import activity
@@ -87,6 +96,10 @@ _FRESH_S = 45.0
 #: 这类作业本身不让路——入库读的是刚下载好的本地文件、开播提队本来就是因为有人开播——
 #: 但整季可能有一大堆没算的旧集，不设上限就会为一集新片把整个积压从 NAS 上读一遍
 PRIORITY_BATCH = 6
+#: 第一段片头离文件开头不超过这么多毫秒时，下发给播放器的起点贴到 0（见 ``segments_for_file``）
+_HEAD_SNAP_MS = 15_000
+#: 多少天内看过的季算「正在追」，整库回填优先做（见 ``seasons_needing_work``）
+_WATCHING_WINDOW = timedelta(days=30)
 
 # ---------------------------------------------------------------------------
 # 能力探测与并发槽
@@ -245,17 +258,24 @@ async def seasons_needing_work(
     media_item_id: int | None = None,
     season_number: int | None = None,
 ) -> list[tuple[int, int]]:
-    """有活要干的季 (media_item_id, season_number)。
+    """有活要干的季 (media_item_id, season_number)，按「用户最可能先看到」排好序。
 
-    整库回填的顺序：最近有人在看的剧优先（开播提队之外的第二道保险），其余按最新
-    入库的在前——刚入库的最可能被点开看。
+    整库回填要跑好几个小时，顺序决定用户多久能在想看的剧里用上「跳过片头」
+    （docs/design/skip-intro.md §3.1）。分五档，档内从新到旧：
+
+    1. 正在追的季：``_WATCHING_WINDOW`` 内看过、还没看完——按最后观看时间；
+    2. 追剧的下一季：上一档那部剧最近在看的那季的下一季——看完这季马上要用；
+    3. 没看过的剧的第一季（库里最小的季号）：没看过的剧几乎都从头看起，
+       先让每部剧的开头都有片头，比把一部剧的所有季做完更有用——按首播日期；
+    4. 其余还没看完的季——按首播日期；
+    5. 已看完的季、很久没碰过的剧——最后做。
+
+    首播日期优先用季的首播日期，缺了用剧的首播日期。不用入库时间：重建库、批量拷入时
+    入库时间全挤在一起，排不出先后。观看记录不分成员，任何人在看都算。
+    作业每做完一季重新调用一次，新开始追的剧会被立刻提前。
     """
     query = (
-        select(
-            LibraryFile.media_item_id,
-            LibraryFile.season_number,
-            func.max(LibraryFile.created_at),
-        )
+        select(LibraryFile.media_item_id, LibraryFile.season_number)
         .join(Library, col(Library.id) == col(LibraryFile.library_id))
         .outerjoin(
             MediaSegmentState,
@@ -270,29 +290,85 @@ async def seasons_needing_work(
         query = query.where(LibraryFile.media_item_id == media_item_id)
     if season_number is not None:
         query = query.where(LibraryFile.season_number == season_number)
-    rows = (await session.execute(query)).all()
-    if not rows:
+    keys = [(int(i), int(s)) for i, s in (await session.execute(query)).all()]
+    if not keys:
         return []
-    item_ids = sorted({int(r[0]) for r in rows})
-    watched: dict[int, Any] = {}
+
+    item_ids = sorted({i for i, _ in keys})
+    season_eps: dict[tuple[int, int], set[int]] = {}  # 库里这一季有哪些集
+    played_eps: dict[tuple[int, int], set[int]] = {}  # 其中被看完的集
+    season_seen: dict[tuple[int, int], datetime] = {}  # 这一季最后一次被看的时间
+    item_seen: dict[int, tuple[datetime, int]] = {}  # 这部剧最后一次被看的时间与季号
+    season_air: dict[tuple[int, int], date] = {}
+    show_air: dict[int, date] = {}
     for chunk in (item_ids[i : i + 500] for i in range(0, len(item_ids), 500)):
-        result = await session.execute(
-            select(PlaybackState.media_item_id, func.max(PlaybackState.updated_at))
-            .where(col(PlaybackState.media_item_id).in_(chunk))
-            .group_by(PlaybackState.media_item_id)
+        files = await session.execute(
+            select(LibraryFile.media_item_id, LibraryFile.season_number, LibraryFile.episode_number)
+            .where(col(LibraryFile.media_item_id).in_(chunk), col(LibraryFile.season_number) > 0)
+            .distinct()
         )
-        watched.update({int(i): t for i, t in result.all()})
-    ordered = sorted(
-        rows,
-        key=lambda r: (
-            watched.get(int(r[0])) is None,
-            -(watched[int(r[0])].timestamp() if int(r[0]) in watched else 0),
-            -(r[2].timestamp() if r[2] else 0),
-            int(r[0]),
-            int(r[1]),
-        ),
-    )
-    return [(int(r[0]), int(r[1])) for r in ordered]
+        for i, s, e in files.all():
+            if e is not None:
+                season_eps.setdefault((int(i), int(s)), set()).add(int(e))
+        states = await session.execute(
+            select(
+                PlaybackState.media_item_id,
+                PlaybackState.season_number,
+                PlaybackState.episode_number,
+                PlaybackState.played,
+                PlaybackState.last_played_at,
+            ).where(
+                col(PlaybackState.media_item_id).in_(chunk),
+                col(PlaybackState.season_number) > 0,
+            )
+        )
+        for i, s, e, played, at in states.all():
+            key = (int(i), int(s))
+            if played:
+                played_eps.setdefault(key, set()).add(int(e))
+            if at is not None:
+                if key not in season_seen or at > season_seen[key]:
+                    season_seen[key] = at
+                if int(i) not in item_seen or at > item_seen[int(i)][0]:
+                    item_seen[int(i)] = (at, int(s))
+        seasons = await session.execute(
+            select(MediaSeason.media_item_id, MediaSeason.season_number, MediaSeason.air_date)
+            .where(col(MediaSeason.media_item_id).in_(chunk))
+            .where(col(MediaSeason.air_date).is_not(None))
+        )
+        season_air.update({(int(i), int(s)): d for i, s, d in seasons.all()})
+        shows = await session.execute(
+            select(MediaMetadata.media_item_id, MediaMetadata.release_date)
+            .where(col(MediaMetadata.media_item_id).in_(chunk))
+            .where(col(MediaMetadata.release_date).is_not(None))
+        )
+        show_air.update({int(i): d for i, d in shows.all()})
+
+    first_season: dict[int, int] = {}
+    for i, s in season_eps:
+        first_season[i] = min(s, first_season.get(i, s))
+    cutoff = utcnow() - _WATCHING_WINDOW
+
+    def rank(key: tuple[int, int]) -> tuple[int, float, int, int]:
+        item, season = key
+        aired = season_air.get(key) or show_air.get(item)
+        air_score = float(aired.toordinal()) if aired else 0.0
+        eps = season_eps.get(key, set())
+        if eps and eps <= played_eps.get(key, set()):
+            tier = 5  # 这季看完了
+        elif item not in item_seen:
+            tier = 3 if season == first_season.get(item, season) else 4
+        elif item_seen[item][0] < cutoff:
+            tier = 5  # 看过但很久没碰，多半弃了
+        elif key in season_seen and season_seen[key] >= cutoff:
+            return (1, -season_seen[key].timestamp(), item, season)
+        elif season == item_seen[item][1] + 1:
+            return (2, -item_seen[item][0].timestamp(), item, season)
+        else:
+            tier = 4
+        return (tier, -air_score, item, season)
+
+    return sorted(keys, key=rank)
 
 
 # ---------------------------------------------------------------------------
@@ -612,7 +688,14 @@ async def segments_for_file(session: AsyncSession, file: LibraryFile) -> list[di
     library = await session.get(Library, file.library_id)
     if library is None or library.kind != "tv" or not library.detect_media_segments:
         return []
-    return [dict(s) for s in state.segments]
+    segments = [dict(s) for s in state.segments]
+    # 片头前那几秒多是平台台标、片名卡，不值得单独看：第一段离开头不到 _HEAD_SNAP_MS 就从 0 算起，
+    # 开播就给「跳过」，不必等到冠名广告真正响起才冒出来（用户反馈 2026-10-01）。
+    # 只改下发的区间，库里存的仍是识别原值；跳到的终点不变
+    first = min(segments, key=lambda seg: seg["start_ms"], default=None)
+    if first is not None and 0 < first["start_ms"] <= _HEAD_SNAP_MS:
+        first["start_ms"] = 0
+    return segments
 
 
 _bump_pending: set[tuple[int, int]] = set()
@@ -815,7 +898,7 @@ async def apply_library_switch(
     await enqueue_after_library_change(library.id, origin=origin)
 
 
-#: 一个作业最多连查几轮「还有没有新活」：防止某个季反复出新活时作业永远收不了尾
+#: 同一季在一个作业里最多做几次：防止某个季反复出新活（或怎么做都还剩活）时作业永远收不了尾
 _MAX_ROUNDS = 5
 
 
@@ -832,48 +915,27 @@ async def _run_seasons(
 
     ``budget``：整个作业最多新算几个指纹（条目作业传 ``PRIORITY_BATCH``，整库回填不限）。
 
-    做完一轮后**再查一次**还有没有活：同库 / 同条目已有作业在跑时，后来的排队请求会被
-    ``return_existing`` 并进这一个作业——如果它只按开跑时那一刻的清单做，作业运行期间
-    新落位的集就会被漏到下一次触发。出错的季本轮不再重试（否则会原地打转）。
+    **每做完一季重新取一次清单**、做排在最前的那季：整库回填要跑几个小时，只在开头排一次序的话，
+    作业期间刚开始追的剧要等到最后（排序见 ``seasons_needing_work``）。这一查只读数据库，
+    比读一季的文件快几个数量级。同样也接住了运行期间新落位的集：同库 / 同条目已有作业在跑时，
+    后来的排队请求会被 ``return_existing`` 并进这一个作业。
+    同一季最多做 ``_MAX_ROUNDS`` 次（做完仍有活，比如期间又落了新集），出错的季本作业不再重试——
+    都是为了不原地打转。
     """
     stats = {"seasons": 0, "fingerprinted": 0, "failed": 0, "errors": 0}
-    errored: set[tuple[int, int]] = set()
-    for _ in range(_MAX_ROUNDS):
-        if budget is not None and stats["fingerprinted"] + stats["failed"] >= budget:
-            break
-        async with get_database().session() as session:
-            seasons = [key for key in await find(session) if key not in errored]
-        if not seasons:
-            break
-        await _run_round(
-            context,
-            seasons,
-            stats,
-            errored,
-            polite=polite,
-            budget=budget,
-            prefer_episode=prefer_episode,
-        )
-    logger.info("%s的片头片尾识别完成：%s", subject, stats)
-    return stats
-
-
-async def _run_round(
-    context: jobs.JobContext,
-    seasons: list[tuple[int, int]],
-    stats: dict[str, Any],
-    errored: set[tuple[int, int]],
-    *,
-    polite: bool,
-    budget: int | None,
-    prefer_episode: int | None,
-) -> None:
-    total = len(seasons)
-    for index, (item_id, season) in enumerate(seasons, start=1):
+    attempts: dict[tuple[int, int], int] = {}
+    done = 0
+    while True:
         await context.raise_if_cancelled()
         left = None if budget is None else budget - stats["fingerprinted"] - stats["failed"]
         if left is not None and left <= 0:
             break
+        async with get_database().session() as session:
+            todo = [key for key in await find(session) if attempts.get(key, 0) < _MAX_ROUNDS]
+        if not todo:
+            break
+        item_id, season = todo[0]
+        attempts[(item_id, season)] = attempts.get((item_id, season), 0) + 1
         try:
             outcome = await analyze_season(
                 item_id,
@@ -887,22 +949,26 @@ async def _run_round(
             raise
         except Exception:  # noqa: BLE001 —— 一季出错不打断整批
             stats["errors"] += 1
-            errored.add((item_id, season))
+            attempts[(item_id, season)] = _MAX_ROUNDS
             logger.exception("条目 #%s 第 %s 季的片头片尾识别出错", item_id, season)
         else:
             stats["seasons"] += 1
             stats["fingerprinted"] += outcome.fingerprinted
             stats["failed"] += outcome.failed
-        if index == total or context.progress_due():
+        done += 1
+        total = done + len(todo) - 1
+        if total == done or context.progress_due():
             await context.update_progress(
                 mode="determinate",
                 phase="analyzing",
-                message=f"正在识别片头片尾：第 {index}/{total} 季",
-                current=index,
+                message=f"正在识别片头片尾：第 {done}/{total} 季",
+                current=done,
                 total=total,
-                percent=round(index * 100 / total, 1) if total else 100.0,
+                percent=round(done * 100 / total, 1) if total else 100.0,
                 details=dict(stats),
             )
+    logger.info("%s的片头片尾识别完成：%s", subject, stats)
+    return stats
 
 
 def _summary(stats: dict[str, Any]) -> str:

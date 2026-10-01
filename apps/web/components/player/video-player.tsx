@@ -4514,7 +4514,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
             data-testid="skip-segment"
             data-segment-type={skipSegment.type}
             onClick={() => commitSeek(skipSegment.end_ms)}
-            className="absolute bottom-32 right-6 z-30 rounded-full bg-white/90 px-5 py-2.5 text-[14px] font-semibold text-black shadow-lg backdrop-blur transition-colors hover:bg-white max-md:bottom-28 max-md:right-3 max-md:px-4 max-md:py-2 max-md:text-[13px]"
+            className="absolute bottom-32 right-6 z-30 rounded-full bg-white/90 px-4 py-1.5 text-[13px] font-semibold text-black shadow-lg backdrop-blur transition-colors hover:bg-white max-md:bottom-28 max-md:right-3 max-md:px-3 max-md:py-1 max-md:text-[12px]"
           >
             {skipLabel(skipSegment)}
           </button>

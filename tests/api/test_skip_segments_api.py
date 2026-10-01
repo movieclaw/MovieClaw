@@ -744,3 +744,173 @@ def test_enqueue_after_scan_only_acts_when_files_were_imported(
     assert call(client, skip_segments.enqueue_after_scan, ids["tv"], Summary()) is True
     Summary.scanned, Summary.retried = 0, 1
     assert call(client, skip_segments.enqueue_after_scan, ids["tv"], Summary()) is True
+
+
+async def _seed_backfill_order(tmp_path: Path) -> dict[str, int]:
+    """五部剧，覆盖整库回填排序的每一档（见 seasons_needing_work）。"""
+    from datetime import date, timedelta
+
+    from movieclaw_db.models import MediaMetadata, MediaSeason, PlaybackState, utcnow
+
+    root = tmp_path / "tv"
+    async with get_database().session() as session:
+        tv = await LibraryRepository(session).create(name="剧集", kind="tv", root_paths=[str(root)])
+        shows = {
+            # 名字: (首播日期, 库里有的季)
+            "追剧中": (date(2023, 1, 1), [1, 2, 3]),
+            "新剧": (date(2024, 1, 1), [1, 2]),
+            "老剧": (date(2020, 1, 1), [1]),
+            "已看完": (date(2022, 1, 1), [1]),
+            "弃剧": (date(2021, 1, 1), [1]),
+        }
+        ids: dict[str, int] = {}
+        for n, (title, (aired, seasons)) in enumerate(shows.items(), start=10):
+            item = MediaItem(kind="tv", tmdb_id=n, title=title, original_title=title)
+            session.add(item)
+            await session.flush()
+            ids[title] = int(item.id)
+            session.add(MediaMetadata(media_item_id=item.id, release_date=aired))
+            for season in seasons:
+                for episode in (1, 2):
+                    path = root / title / f"S{season:02d}E{episode:02d}.mp4"
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(b"FAKE-MEDIA")
+                    session.add(
+                        LibraryFile(
+                            library_id=tv.id,
+                            media_item_id=item.id,
+                            season_number=season,
+                            episode_number=episode,
+                            file_path=str(path),
+                            size_bytes=path.stat().st_size,
+                            source=FileSource.SCANNED,
+                            state=FileState.IN_PLACE,
+                            container="mp4",
+                            video_codec="h264",
+                            resolution="1080p",
+                            duration_seconds=DURATION,
+                            audio_streams=[{"codec": "aac", "channels": 2, "default": True}],
+                        )
+                    )
+        # 「新剧」第 2 季是今年新出的一季：季首播日期压过剧的首播日期
+        session.add(
+            MediaSeason(media_item_id=ids["新剧"], season_number=2, air_date=date(2026, 5, 1))
+        )
+        now = utcnow()
+        watched = [
+            ("追剧中", 1, 1, True, now - timedelta(days=1)),  # 第 1 季看了一半
+            ("已看完", 1, 1, True, now - timedelta(days=2)),
+            ("已看完", 1, 2, True, now - timedelta(days=2)),
+            ("弃剧", 1, 1, False, now - timedelta(days=90)),
+        ]
+        for title, season, episode, played, at in watched:
+            session.add(
+                PlaybackState(
+                    media_item_id=ids[title],
+                    season_number=season,
+                    episode_number=episode,
+                    played=played,
+                    last_played_at=at,
+                )
+            )
+        await session.commit()
+        ids["tv"] = int(tv.id)
+        return ids
+
+
+def test_backfill_order_puts_what_the_user_will_watch_first(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """在追的季 → 下一季 → 没看过的剧的第一季（新上映在前）→ 其余 → 看完 / 弃了的剧。"""
+    ids = call(client, _seed_backfill_order, tmp_path)
+    order = call(client, _needing, library_id=ids["tv"])
+    assert order == [
+        (ids["追剧中"], 1),  # 正在追
+        (ids["追剧中"], 2),  # 追剧的下一季
+        (ids["新剧"], 1),  # 没看过的剧的第一季，2024 年的在前
+        (ids["老剧"], 1),
+        (ids["新剧"], 2),  # 其余季按季首播：2026 年的新一季
+        (ids["追剧中"], 3),  # 2023
+        (ids["已看完"], 1),  # 看完了（2022）
+        (ids["弃剧"], 1),  # 90 天没碰（2021）
+    ]
+
+
+def test_backfill_resorts_after_every_season(
+    client: TestClient, tmp_path: Path, monkeypatch
+) -> None:
+    """作业中途开始追的剧，下一季就被提到最前，不用等整轮做完。"""
+    from movieclaw_db.models import PlaybackState, utcnow
+
+    ids = call(client, _seed_backfill_order, tmp_path)
+    done: list[tuple[int, int]] = []
+
+    async def fake_analyze(item_id, season, **_kwargs):
+        done.append((item_id, season))
+        if len(done) == 1:
+            # 第一季做完时有人开始看「老剧」
+            async with get_database().session() as session:
+                session.add(
+                    PlaybackState(
+                        media_item_id=ids["老剧"],
+                        season_number=1,
+                        episode_number=1,
+                        last_played_at=utcnow(),
+                    )
+                )
+                await session.commit()
+        async with get_database().session() as session:
+            for f in (
+                await session.execute(
+                    select(LibraryFile).where(
+                        LibraryFile.media_item_id == item_id, LibraryFile.season_number == season
+                    )
+                )
+            ).scalars():
+                session.add(
+                    MediaSegmentState(
+                        library_file_id=f.id,
+                        fingerprint_status="ok",
+                        source_size=f.size_bytes,
+                        algo_version=skip_segments.ALGO_VERSION,
+                        analyzed_at=utcnow(),
+                    )
+                )
+            await session.commit()
+        return skip_segments.SeasonOutcome()
+
+    monkeypatch.setattr(skip_segments, "analyze_season", fake_analyze)
+
+    async def find(session):
+        return await skip_segments.seasons_needing_work(session, library_id=ids["tv"])
+
+    call(client, skip_segments._run_seasons, _Ctx(), find, subject="测试")
+    assert done[:2] == [(ids["追剧中"], 1), (ids["老剧"], 1)]
+    assert len(done) == 8
+
+
+def test_first_segment_near_file_start_is_served_from_zero(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """片头前只有几秒台标时，下发的第一段从 0 开始：开播就给「跳过」。库里存的原值不变。"""
+    ids = call(client, _seed, tmp_path)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    first, second = ids["files"][0], ids["files"][1]
+
+    async def set_segments(file_id: int, start_ms: int) -> None:
+        async with get_database().session() as session:
+            state = await session.get(MediaSegmentState, file_id)
+            state.segments = [
+                {"type": "other", "start_ms": start_ms, "end_ms": 33_000, "to_end": False},
+                {"type": "intro", "start_ms": 270_000, "end_ms": 370_000, "to_end": False},
+            ]
+            await session.commit()
+
+    call(client, set_segments, first, 7_678)
+    call(client, set_segments, second, 20_000)
+    near = start_session(client, first)["segments"]
+    assert [s["start_ms"] for s in near] == [0, 270_000]
+    assert near[0]["end_ms"] == 33_000
+    # 离开头超过 15 秒的不动
+    assert start_session(client, second)["segments"][0]["start_ms"] == 20_000
+    assert call(client, _states)[first].segments[0]["start_ms"] == 7_678

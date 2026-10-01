@@ -26,8 +26,8 @@ struct SkipSegmentsTests {
         #expect(SkipSegments.active([intro], at: 150_000 - SkipSegments.tailMs) == nil)
     }
 
-    @Test func sponsorAdIsPlainSkipAndMidOutroIsSkipOutro() {
-        #expect(SkipSegments.label(SkipSegments.active([ad, intro], at: 5_000)!) == "跳过")
+    @Test func sponsorAdIsSkipIntroAndMidOutroIsSkipOutro() {
+        #expect(SkipSegments.label(SkipSegments.active([ad, intro], at: 5_000)!) == "跳过片头")
         #expect(SkipSegments.label(SkipSegments.active([midOutro], at: 2_450_000)!) == "跳过片尾")
     }
 

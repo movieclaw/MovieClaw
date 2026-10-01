@@ -20,8 +20,8 @@ test("离段尾不足 3 秒就收起：只省一两秒，还会撞上画面切�
   assert.equal(activeSkipSegment([intro], 150_000 - SKIP_TAIL_MS), null);
 });
 
-test("片头前的冠名广告叫「跳过」，片尾后面还有预告叫「跳过片尾」", () => {
-  assert.equal(skipLabel(activeSkipSegment([ad, intro], 5_000)), "跳过");
+test("片头前的冠名广告也叫「跳过片头」，片尾后面还有预告叫「跳过片尾」", () => {
+  assert.equal(skipLabel(activeSkipSegment([ad, intro], 5_000)), "跳过片头");
   assert.equal(skipLabel(activeSkipSegment([midOutro], 2_450_000)), "跳过片尾");
 });
 
