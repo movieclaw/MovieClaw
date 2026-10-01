@@ -40,12 +40,39 @@ test("桌面 MSE：hls.js 吃媒体列表，自绘 + PiP 补丁轨", () => {
   assert.equal(mode.pipPatchTrack, true);
 });
 
-test("现代 iPhone + VOD：ManagedMediaSource 走 hls.js，避免原生 VOD 解码边界", () => {
+test("现代 iPhone + VOD（H.264）：ManagedMediaSource 走 hls.js", () => {
   const mode = resolvePlaybackMode(session(), CAP_IPHONE);
   assert.equal(mode.engine, "mse");
   assert.equal(mode.streamUrl, "/s/index.m3u8?token=t");
   assert.equal(mode.subtitleRenderer, "overlay");
   assert.equal(mode.pipPatchTrack, true);
+});
+
+const HEVC = { container: "hls-fmp4", video: { action: "copy", codec: "hevc" } };
+
+test("iPhone + HEVC + VOD：交给原生 HLS 吃媒体列表（不能吃 master），字幕自绘", () => {
+  const mode = resolvePlaybackMode(session({ decision: HEVC }), CAP_IPHONE);
+  assert.equal(mode.engine, "native-hls");
+  assert.equal(mode.streamUrl, "/s/index.m3u8?token=t");
+  assert.equal(mode.subtitleRenderer, "overlay");
+  assert.equal(mode.pipPatchTrack, true);
+  assert.equal(mode.originMs, 0);
+  assert.equal(mode.seekBeyondBufferedRestarts, false);
+});
+
+test("iPhone + HEVC 但原生已经失败过：改回 hls.js，不降档", () => {
+  const mode = resolvePlaybackMode(session({ decision: HEVC }), CAP_IPHONE, { allowNativeHevc: false });
+  assert.equal(mode.engine, "mse");
+});
+
+test("HEVC 走原生只限 iPhone / iPad 的 VOD：桌面、相对时间轴、H.264 都照旧 hls.js", () => {
+  assert.equal(resolvePlaybackMode(session({ decision: HEVC }), CAP_DESKTOP).engine, "mse");
+  assert.equal(
+    resolvePlaybackMode(session({ decision: HEVC, timeline: "session", master_url: null }), CAP_IPHONE).engine,
+    "mse",
+  );
+  const h264 = { container: "hls-fmp4", video: { action: "copy", codec: "h264" } };
+  assert.equal(resolvePlaybackMode(session({ decision: h264 }), CAP_IPHONE).engine, "mse");
 });
 
 test("没有 MSE 的老 iPhone + VOD：保留原生 HLS 字幕轨兜底", () => {

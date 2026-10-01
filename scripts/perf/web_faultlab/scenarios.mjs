@@ -7,6 +7,7 @@
 //   WEB_FAULTLAB_TRANSCODE  （可选）网页要整片转码的片子（4K HDR、HEVC 等），例如 /play/789?t=600
 //   WEB_FAULTLAB_MP4_REMUX  （可选）音轨浏览器不支持、要换封装的 MP4，量首播
 //   WEB_FAULTLAB_TS         （可选）要换封装的 TS，量首播
+//   WEB_FAULTLAB_SEEKS      （可选）有片头片尾识别结果的剧集，从头放，量「跳过片头」与远跳，例如 /play/123/s1e1
 //   WEB_FAULTLAB_AUDIO      （可选）多音轨条目：<条目 id>:<非默认音轨引用>:<播放页地址>，例如 123:embedded:7:/play/123?t=600
 //                           「非默认」要同时避开容器默认轨和默认轨策略会挑的那条（比如日本片的日语原声）：
 //                           选到策略本来就会挑的轨，服务端不当它是用户的选择、不记（playback/state.py）
@@ -41,7 +42,30 @@ function firstUiAt(r, pattern) {
 
 const all = (...checks) => (r) => checks.map((c) => c(r)).find((x) => x) ?? null;
 
+/** 唤出控制条后在进度条的 fraction 处点一下（触屏 tap / 桌面 click），即一次 scrub 跳转 */
+const scrubTo = (fraction) => async ({ page }) => {
+  const video = page.locator("video");
+  const tap = async (x, y) => ((await page.evaluate(() => "ontouchstart" in window)) ? page.touchscreen.tap(x, y) : page.mouse.click(x, y));
+  const box = await video.boundingBox();
+  await tap(box.x + box.width / 2, box.y + box.height / 3);
+  await page.waitForTimeout(400);
+  const bar = await page.locator('input[aria-label="播放进度"]').boundingBox();
+  await tap(bar.x + bar.width * fraction, bar.y + bar.height / 2);
+};
+
 export const scenarios = {
+  // —— 跳转耗时：「跳过片头」（缓冲内）→ 拖到片尾附近（缓冲外）→ 拖回中段，结果看服务端播放记录 ——
+  seeks: {
+    route: env("SEEKS"),
+    durationS: 45,
+    steps: [
+      { name: "跳过片头", afterPlayingS: 2, run: async ({ page }) => page.locator('[data-testid="skip-segment"]').click() },
+      { name: "拖到片尾附近", afterPlayingS: 10, run: scrubTo(0.93) },
+      { name: "拖回中段", afterPlayingS: 24, run: scrubTo(0.22) },
+    ],
+    expect: () => null,
+  },
+
   smoke: { route: env("HLS"), durationS: 30, expect: all(noStepDown, playingAtEnd) },
 
   // —— 线路慢：不降档，换不换画质由用户定（iOS QualitySuggestion） ——

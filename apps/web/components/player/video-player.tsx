@@ -928,6 +928,11 @@ export function VideoPlayer(props: VideoPlayerProps) {
   const activeSessionRef = useRef(state.session);
   activeSessionRef.current = state.session;
   const capabilityRef = useRef<ClientCapability | null>(null);
+  /**
+   * 原生 HLS 放 iPhone / iPad 的 HEVC 失败过（handleFailure 就地改回 hls.js）：本页之后
+   * 的会话都不再交给原生，免得每集都先失败一次
+   */
+  const nativeHevcFailedRef = useRef(false);
   /** 已发起的起播请求指纹：React 严格模式下 effect 会跑两遍，靠它去重 */
   const startedKeyRef = useRef<string | null>(null);
   /** 本轮要落到的文件位置（续播点 / seek 目标 / 降档前的位置） */
@@ -989,7 +994,9 @@ export function VideoPlayer(props: VideoPlayerProps) {
   const mode = useMemo(
     () =>
       state.session && capabilityRef.current
-        ? resolvePlaybackMode(state.session, capabilityRef.current)
+        ? resolvePlaybackMode(state.session, capabilityRef.current, {
+            allowNativeHevc: !nativeHevcFailedRef.current,
+          })
         : null,
     [state.session],
   );
@@ -1445,6 +1452,25 @@ export function VideoPlayer(props: VideoPlayerProps) {
       }
       const record = recordRef.current;
       record?.noteEngineFailure(reason, cause);
+      // iPhone / iPad 的 HEVC 是我们主动交给原生 HLS 的（playback-mode.ts）：原生放不了时同档
+      // 改回 hls.js 重开，不降档、不占「原位重开」的额度——这一档本身没有失败，只是引擎没选对。
+      // 只改一次，之后本页都走 hls.js；断线照旧按网络问题处理
+      if (
+        cause !== "network" &&
+        engineLabelRef.current === "native-hls" &&
+        capabilityRef.current?.mse === "managed" &&
+        !nativeHevcFailedRef.current
+      ) {
+        nativeHevcFailedRef.current = true;
+        reportPlaybackClientLog("native-hevc-fallback", { reason, cause }, apiRef.current);
+        record?.event("retry", `系统播放器放不了，改用 hls.js：${reason}`);
+        freezeFrame();
+        video.pause();
+        wantsPlayRef.current = true;
+        pendingFileMsRef.current = positionRef.current;
+        dispatch({ type: "restart", startMs: positionRef.current });
+        return;
+      }
       const { decision } = session;
       const playsOriginalFile = decision.tier === 0;
       const copyVideo = decision.video?.action === "copy";

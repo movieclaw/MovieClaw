@@ -715,10 +715,38 @@ iOS Safari 是整件事最难的一块：MSE 只有 `ManagedMediaSource` 子集�
 强制走系统控件（自定义 UI 在全屏时消失）、必须 `playsinline`、音量不可编程控制。
 
 **决策：现代 iOS 用 hls.js + ManagedMediaSource，只有完全没有 MSE 的老设备才走
-原生 HLS。** 这样内联播放可以继续使用自有皮肤；进入系统全屏、画中画时仍交给
+原生 HLS——HEVC 除外（见下）。** 这样内联播放可以继续使用自有皮肤；进入系统全屏、画中画时仍交给
 系统表面处理。不能把现代 iOS 一概按原生 HLS 处理：原生 AVPlayer 对服务端按需
 供片、从高位分片起播的 VOD 清单更严格，正是本项目曾经触发 `MEDIA_ERR_DECODE`
 的边界。
+
+**HEVC 例外（2026-10-01，用户反馈 iPhone Safari 播 4K 剧集跳转慢）：iPhone / iPad 拿到 HEVC
+视频流（典型是 4K HDR10 MKV 换封装直通）时交给原生 HLS，喂媒体列表，字幕自绘。**
+
+- 现象（用户手机真实播放记录）：点「跳过片头」（缓冲内）1.7 秒、远跳 3.3～7.5 秒，一次等 30 秒失败；
+  卡顿原因都是 decoder。服务端首个分片 85 毫秒，不是瓶颈。
+- 定位：ManagedMediaSource 喂这类 HEVC，每次跳转后都要停 1～2 秒才动——跳到关键帧上也停；去掉我们的
+  播放器、只留 hls.js（同版本同配置）也停；hls.js `stopLoad` 之后还停；同样的测法换 H.264 1080p 跳完
+  0.1 秒就走。是 WebKit MSE 管线自己的，跟关键帧间隔（这片子最长 10 秒）只占其中零点几秒。
+- 原生 HLS 吃**媒体列表**就正常、吃 **master** 一律在首片前 `MEDIA_ERR_DECODE`（服务端的 master，
+  或按规范补齐 `CODECS="hvc1.2.4.L153.B0,mp4a.40.2"` / `VIDEO-RANGE=PQ` / `RESOLUTION` /
+  `FRAME-RATE` 的都一样）。上面那条「原生会 DECODE」的边界多半就是 master 造成的。
+- 实测（同一集、同一条 tier 1 直通流）：
+
+  | 环境 | 指标 | hls.js + MMS | 原生 HLS（媒体列表） |
+  |---|---|---|---|
+  | 模拟器里的真 iOS 27 Safari，裸页面 | 首帧 / 缓冲内跳转 / 远跳 | 3.5 秒 / 1.2～2.2 秒 / 约 4 秒 | 1.1 秒 / 0.8～1.0 秒 / 1.9 秒 |
+  | 同上，真播放器 iframe 内嵌 | 「跳过片头」（播放器自己记的） / 掉帧 | 1844 毫秒 / 22% | 689 毫秒 / 4% |
+  | Playwright WebKit（模拟 iPhone），裸页面 | 缓冲内跳转 / 远跳 | 2.5～2.9 秒 / 3.1 秒 | 0.5～0.6 秒 / 0.9 秒 |
+
+  从续播点（第 566 秒）起播也正常（首帧 1.2 秒）。
+- 兜底：原生在本页第一次报解码类失败时，同档改回 hls.js 重开（不降档、不占原位重开的额度），
+  之后本页都走 hls.js。网络层注入坏 init 段验证过：375 毫秒报错 → 改回 hls.js → 同档 tier 1 出画。
+- 只改 HEVC：H.264 在 MSE 上跳转本来就快，还有分片字节数可算码率。字幕走自绘（master 的字幕组用不上），
+  与无 MSE 老设备的兜底同一套。模式矩阵与条件见 `lib/player/playback-mode.ts`。
+- 复测：`scripts/perf/web_faultlab` 的 `--browser webkit`（Safari 内核 + 模拟 iPhone）跑 `seeks` 场景，
+  结果看服务端播放记录（`rig:seeks`）。注意模拟器的能力探测会说不支持 HEVC / HDR（真机支持），
+  服务端会改判转码；要测这条路得把开会话请求里的能力快照换成真机的。
 
 原生 HLS 的 4K 也不直接交给 AVPlayer：移动端能力快照带上 `native_hls` 后，服务端
 对超过默认 1080p 上限的源强制走现有 H.264 转码档，输出固定为 `High@4.1`、
@@ -1323,7 +1351,7 @@ Linux CI 做不到、Mac mini 独有的能力：
 |---|---|
 | **`hvc1` 陷阱（§7-①）** | **Safari 是唯一能验的浏览器**。喂 `hev1` 应黑屏，喂 `hvc1` 应正常 |
 | HEVC 硬解直通 | Apple Silicon 原生支持，验证档 1 的真实出画 |
-| 原生 HLS 路径 | 仅无 MSE 的旧 Safari；ManagedMediaSource 走 hls.js |
+| 原生 HLS 路径 | 无 MSE 的旧 Safari（吃 master）；iPhone / iPad 的 HEVC（吃媒体列表，§6.4）；其余 ManagedMediaSource 走 hls.js |
 | **AirPlay** | 真机验证 |
 | Media Session | macOS 通知中心 / 媒体键 / 蓝牙耳机 |
 | **iOS**（§6.4） | 同局域网 iPhone/iPad 直连 Mac mini 上的实例 |
@@ -1428,7 +1456,7 @@ Mac mini 验证。做成发版前的人工清单，列进 `.claude/skills/releas
 - [x] Media Session、wakeLock、键盘快捷键
 - [x] **诊断面板**
 - [x] QoE 采集（`requestVideoFrameCallback` 等）；**CMCD 未做**（见 §12.13）
-- [x] iOS 按 MSE 形态分派：ManagedMediaSource 走 hls.js，无 MSE 才走原生 HLS
+- [x] iOS 按 MSE 形态分派：ManagedMediaSource 走 hls.js，无 MSE 才走原生 HLS；HEVC 例外走原生（§6.4）
 
 > 勾选说明：`[x]` 已完成并有测试覆盖，`[~]` 部分完成（同一行写清缺的是哪一块）。
 
@@ -1924,6 +1952,7 @@ h264+10bit 规则。
 | direct     | 档 0                          | stream_url | 0         | overlay |
 | mse        | 有 MSE（hls.js）              | stream_url | 按会话    | overlay + PiP 补丁轨 |
 | native-hls | 无 MSE 的原生 HLS 设备（或兜底）| master_url | 0         | system-track |
+| native-hls | iPhone / iPad 的 HEVC（§6.4）| stream_url | 0         | overlay      |
 
 字幕渲染器**整会话恒定**：
 

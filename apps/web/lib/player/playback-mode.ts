@@ -14,6 +14,21 @@
  * | direct     | 档 0（container != hls-fmp4）          | stream_url | 文件   | overlay |
  * | mse        | 有 MSE（full/managed），hls.js         | stream_url | 按会话 | overlay + PiP 补丁轨 |
  * | native-hls | 无 MSE 的原生 HLS 设备（或兜底）       | master_url | 文件   | system-track |
+ * | native-hls | iPhone / iPad 播 HEVC（见下）         | stream_url | 文件   | overlay + PiP 补丁轨 |
+ *
+ * ## iPhone / iPad 的 HEVC 交给系统原生 HLS（2026-10-01 实测改判）
+ *
+ * ManagedMediaSource 喂 HEVC（典型是 4K HDR10 MKV 换封装直通）每次跳转后都要停 1～2 秒才动：
+ * 跳到关键帧上也一样，去掉我们的播放器、只留 hls.js 也一样，hls.js 停止装载后还一样——是 WebKit
+ * MSE 管线自己的，H.264 1080p 同样的测法跳完 0.1 秒就走。同一条流交给系统原生 HLS（AVPlayer）
+ * 直接吃**媒体列表**：模拟器里真 iOS Safari 首帧 3.5 → 1.1 秒、缓冲内跳转 1.2～2.2 → 0.8～1.0 秒、
+ * 远跳约 4 → 1.9 秒，从续播点起播也正常。
+ *
+ * 只能吃媒体列表、不能吃 master：带 master（服务端的，或按规范补齐 CODECS / VIDEO-RANGE 的）
+ * 一律在首片前报 MEDIA_ERR_DECODE（早年实机上原生 HLS 首片报解码错误，多半也是这个原因）。字幕因此走
+ * 自绘（master 的字幕组用不上），与无 MSE 老设备的兜底同一套。万一某台设备原生放不了，组件会就地
+ * 改回 hls.js（`allowNativeHevc` = false），不降档。H.264 仍走 hls.js：它在 MSE 上跳转本来就快，
+ * 还有分片字节数可算码率。
  *
  * ## 字幕渲染器只有两种，且整会话恒定
  *
@@ -33,7 +48,7 @@ export type SubtitleRenderer = "overlay" | "system-track";
 
 export interface PlaybackMode {
   engine: PlaybackEngineKind;
-  /** 喂给引擎的地址（native-hls 用 master，其余用媒体列表/文件直出地址） */
+  /** 喂给引擎的地址（无 MSE 老设备的 native-hls 用 master；iPhone HEVC 的 native-hls 与其余用媒体列表 / 文件直出地址） */
   streamUrl: string;
   /** 时间轴参照点（毫秒）：文件时间 = originMs + currentTime*1000 */
   originMs: number;
@@ -73,6 +88,8 @@ export function resolvePlaybackMode(
     "stream_url" | "master_url" | "timeline" | "start_ms" | "decision"
   >,
   capability: Pick<ClientCapability, "mse" | "native_hls" | "is_mobile">,
+  /** iPhone / iPad 的 HEVC 交给原生 HLS；原生已经失败过（组件就地改回 hls.js）时传 false */
+  options: { allowNativeHevc?: boolean } = {},
 ): PlaybackMode | null {
   if (!session.stream_url) return null;
 
@@ -92,11 +109,9 @@ export function resolvePlaybackMode(
     };
   }
 
-  // 只有没有 MSE 的老设备才走系统原生 HLS。iOS 17+ 暴露的是
-  // ManagedMediaSource，应交给 hls.js；原生 AVPlayer 对「服务端按需供片、
-  // 从高位分片起播」的 VOD 清单更严格，实机会在 init/首片返回后报
-  // MEDIA_ERR_DECODE。无 MSE 时仍优先使用带字幕组的 master，保留原生字幕
-  // 与全屏/AirPlay 的兜底能力。
+  // 没有 MSE 的老设备走系统原生 HLS，优先使用带字幕组的 master，保留原生字幕
+  // 与全屏/AirPlay 的兜底能力。iOS 17+ 暴露的是 ManagedMediaSource，除了上面的
+  // HEVC，都交给 hls.js。
   const nativeEligible =
     capability.mse === "none" &&
     capability.native_hls &&
@@ -110,6 +125,24 @@ export function resolvePlaybackMode(
       originMs,
       subtitleRenderer: "system-track",
       pipPatchTrack: false,
+      seekBeyondBufferedRestarts: false,
+    };
+  }
+
+  const nativeHevc =
+    options.allowNativeHevc !== false &&
+    capability.mse === "managed" &&
+    capability.native_hls &&
+    capability.is_mobile &&
+    fileTimeline &&
+    session.decision.video?.codec === "hevc";
+  if (nativeHevc) {
+    return {
+      engine: "native-hls",
+      streamUrl: session.stream_url,
+      originMs,
+      subtitleRenderer: "overlay",
+      pipPatchTrack: true,
       seekBeyondBufferedRestarts: false,
     };
   }

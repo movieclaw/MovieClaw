@@ -125,7 +125,7 @@ export interface EngineOptions {
   hasMse: boolean;
   /** MSE 的具体形态，用于让 hls.js 在 iOS 明确选择 ManagedMediaSource */
   mse?: MseKind;
-  /** 走系统原生 HLS（仅无 MSE 的旧设备），streamUrl 应传 master 列表 */
+  /** 走系统原生 HLS：无 MSE 的旧设备传 master 列表，iPhone / iPad 的 HEVC 传媒体列表（playback-mode.ts） */
   preferNativeHls?: boolean;
   /**
    * 首帧起播位置（**列表时间轴**的秒数）。
@@ -772,10 +772,6 @@ class HlsEngine implements PlaybackEngine {
 }
 
 /**
- * 按计划挑引擎。支持 ManagedMediaSource 的 iOS 也走 hls.js；只有没有
- * MSE 的老设备才把 HLS 交给系统原生播放器。
- */
-/**
  * 起播热身：把 hls.js 的动态包在**会话请求在途时**就开始下载解析（§6.10）。
  * 不热身的话 import 要等会话响应回来才发起，弱网上白排一跳。完全没有
  * MSE 的原生 HLS 路径用不上它，不下。
@@ -789,11 +785,12 @@ export function preloadHlsEngine(): void {
   void import("hls.js").catch(() => undefined);
 }
 
+/**
+ * 按计划挑引擎。用不用系统原生 HLS（AVPlayer）由上层模式矩阵定（playback-mode.ts）：
+ * 没有 MSE 的老设备、以及 iPhone / iPad 播 HEVC 时交给原生；其余有 MSE 的都走 hls.js。
+ */
 export function createEngine(options: EngineOptions): PlaybackEngine {
   if (options.container !== "hls-fmp4") return new DirectEngine(options, "direct");
-  // 无 MSE 的设备才回归系统原生 HLS（AVPlayer）。现代 iOS 的
-  // ManagedMediaSource 由上层模式矩阵选 hls.js，避免原生 AVPlayer 对按需
-  // VOD 清单的严格限制。
   if (options.preferNativeHls) return new DirectEngine(options, "native-hls");
   if (options.hasMse) return new HlsEngine(options);
   return new DirectEngine(options, "native-hls");

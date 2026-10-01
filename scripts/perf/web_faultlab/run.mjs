@@ -11,6 +11,9 @@
 //   WEB_FAULTLAB_HLS='/play/123?t=600' WEB_FAULTLAB_DIRECT='/play/456?t=600' \
 //     node run.mjs slow-big cut-hls        # 指定场景；all = 全部；--list 列出
 // 选项：--port 3911（本机代理端口）--out <目录> --headed（有界面，看现场）
+//       --browser webkit：换成 Safari 的内核并模拟 iPhone（UA / 屏幕 / 触摸），走的是 iPhone Safari 同一条
+//       hls.js + ManagedMediaSource 路径；先 `npx playwright-core install webkit`。Mac 解 4K 比手机快，
+//       绝对数值偏乐观，拿来比「改前 / 改后」
 //
 // 两个坑：
 // - 无头 Chrome 没有真实显示，getVideoPlaybackQuality 的掉帧数虚报约 20%，会让播放器的掉帧看门狗在
@@ -20,7 +23,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { chromium } from "playwright-core";
+import { chromium, devices, webkit } from "playwright-core";
 
 import { createProxy } from "./proxy.mjs";
 import { itemOf, scenarios } from "./scenarios.mjs";
@@ -31,7 +34,7 @@ const opt = (key, fallback) => {
   return i >= 0 ? args[i + 1] : fallback;
 };
 const flag = (key) => args.includes(`--${key}`);
-const optionValues = new Set(["port", "out"].map((k) => opt(k, null)).filter(Boolean));
+const optionValues = new Set(["port", "out", "browser"].map((k) => opt(k, null)).filter(Boolean));
 const names = args.filter((a) => !a.startsWith("--") && !optionValues.has(a));
 
 if (flag("list") || names.length === 0) {
@@ -51,6 +54,7 @@ const upstream = new URL(server);
 const port = Number(opt("port", "3911"));
 const outRoot = opt("out", path.join(os.tmpdir(), "mc-web-faultlab"));
 const selected = names.includes("all") ? Object.keys(scenarios) : names;
+const useWebkit = opt("browser", "chrome") === "webkit";
 
 const results = [];
 for (const name of selected) {
@@ -98,13 +102,17 @@ async function runScenario(name, scenario) {
   });
   await proxy.listen();
   const base = `http://127.0.0.1:${port}`;
-  const browser = await chromium.launch({
-    channel: "chrome",
-    headless: !flag("headed"),
-    args: ["--autoplay-policy=no-user-gesture-required", "--disable-background-timer-throttling"],
-  });
+  const browser = useWebkit
+    ? await webkit.launch({ headless: !flag("headed") })
+    : await chromium.launch({
+        channel: "chrome",
+        headless: !flag("headed"),
+        args: ["--autoplay-policy=no-user-gesture-required", "--disable-background-timer-throttling"],
+      });
   try {
-    const context = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+    const context = await browser.newContext(
+      useWebkit ? { ...devices["iPhone 15 Pro"] } : { viewport: { width: 1280, height: 720 } },
+    );
     await context.addInitScript(() => {
       const orig = HTMLVideoElement.prototype.getVideoPlaybackQuality;
       if (!orig) return;
