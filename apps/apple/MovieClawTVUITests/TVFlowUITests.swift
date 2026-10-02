@@ -238,6 +238,66 @@ final class TVFlowUITests: XCTestCase {
         XCTAssertTrue(app.element("tv-home").waitForExistence(timeout: 20), "选人后没有进首页")
         snapshot("61-home-as-member")
     }
+
+    // MARK: T3：发现、订阅、片段
+
+    /// 发现：本周精选大图 → 作品详情 → 一键订阅（已经订过就看到「已订阅」）
+    @MainActor
+    func testDiscoverOneClickSubscribe() {
+        let app = launchSignedIn(["-mcTab", "discover"])
+        let detailButton = app.element("tv-discover-hero-detail")
+        XCTAssertTrue(detailButton.waitForExistence(timeout: 25), "发现页没有本周精选大图")
+        snapshot("70-discover")
+        TVRemote.select(detailButton, trying: [.right, .down, .up])
+        XCTAssertTrue(app.element("tv-discover-title").waitForExistence(timeout: 15), "没有进作品详情")
+        snapshot("71-discover-detail")
+        let subscribe = app.element("tv-discover-subscribe")
+        if subscribe.exists {
+            TVRemote.select(subscribe, trying: [.down, .right, .left])
+            let note = app.element("tv-discover-subscribe-note")
+            XCTAssertTrue(note.waitForExistence(timeout: 20), "按了订阅没有结果提示")
+            XCTAssertFalse(note.label.contains("失败"), "订阅失败：\(note.label)")
+            snapshot("72-discover-subscribed")
+        } else {
+            XCTAssertTrue(app.element("tv-discover-subscribed").exists || app.element("tv-discover-play").exists,
+                          "详情页既没有「订阅」也没有「已订阅」/「播放」")
+        }
+    }
+
+    /// 我的订阅：大图里刚入库的那部「播放」→ 出画 → 返回
+    @MainActor
+    func testSubscriptionsHeroPlays() {
+        let app = launchSignedIn(["-mcTab", "subscriptions"])
+        XCTAssertTrue(app.element("tv-subscriptions").waitForExistence(timeout: 25))
+        snapshot("80-subscriptions")
+        let play = app.element("tv-subscriptions-hero-play")
+        guard play.waitForExistence(timeout: 10) else {
+            // 大图挑的不是已入库的那一部：页面能打开、各行在就算过（刚刚入库在下面的行里）
+            XCTAssertTrue(app.staticTexts["刚刚入库"].exists || app.staticTexts["本周日程"].exists, "订阅页没有任何分区")
+            return
+        }
+        TVRemote.select(play, trying: [.right, .down])
+        waitForPlayback(app)
+        snapshot("81-playing-from-subscriptions")
+        TVRemote.press(.menu)
+    }
+
+    /// 片段：自动放第一段 → 点按右换下一段 → 按确认键接着看正片 → 返回回到片段
+    @MainActor
+    func testReelsPlayAndWatchFull() {
+        let app = launchSignedIn(["-mcTab", "reels"])
+        XCTAssertTrue(app.element("tv-reels-video").waitForExistence(timeout: 30), "片段没有出画")
+        sleep(3)
+        snapshot("90-reels-first")
+        TVRemote.press(.right)
+        sleep(3)
+        snapshot("91-reels-next")
+        TVRemote.press(.select)
+        waitForPlayback(app)
+        snapshot("92-reels-watch-full")
+        TVRemote.press(.menu)
+        XCTAssertTrue(app.element("tv-reels").waitForExistence(timeout: 10), "退出正片后没有回到片段")
+    }
 }
 
 /// 用例里需要「另一台设备」做的事（手机上批准配对）：直接调测试服务器的接口

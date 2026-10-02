@@ -1,8 +1,8 @@
 # =============================================================================
-# iOS App 编译检查
+# iOS / Apple TV App 编译检查
 #
 # 改到 apps/apple 的 PR 在 GitHub 的 macOS runner（默认 Xcode 26.x）上把 App 按发版方式
-# 完整编一遍（与 release.yml 的 ios-ipa 作业同一个脚本，只编不传）。
+# 完整编一遍（与 release.yml 的 ios-ipa 作业同一个脚本，只编不传），Apple TV 版随后也编一遍。
 # 为什么要有：本机开发用的是更新的 Xcode，它能推断通过的写法（隔离一致性、长表达式），
 # Xcode 26 会编译失败——v0.28.0 发版时 ios-ipa 作业就因此没产出 IPA（2026-09-29）。
 # 在 PR 阶段拦下，发版时就不会再缺 IPA。
@@ -48,6 +48,24 @@ jobs:
       - name: 编译（未签名 Release，与发版 IPA 同口径）
         run: apps/apple/scripts/build-unsigned-ipa.sh
 
+      # Apple TV 版（docs/design/tvos-app.md）：与 iPhone 版共用 Shared/ 与播放引擎，改到共享代码时两端都要能编过。
+      # 工程已由上一步的脚本生成；同样不签名、按 Release 编（整模块优化下才暴露的编译器问题也要拦住）
+      - name: 编译 Apple TV 版（未签名 Release）
+        working-directory: apps/apple
+        run: |
+          mkdir -p build-ipa
+          if ! xcodebuild -project MovieClaw.xcodeproj -scheme MovieClawTV -configuration Release \
+            -destination "generic/platform=tvOS" -derivedDataPath build-tv/DerivedData \
+            -clonedSourcePackagesDirPath "$HOME/workspace/.mc-ios-spm" -packageAuthorizationProvider netrc \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build > build-ipa/build-tv.log 2>&1; then
+            grep -nE "error:|Stack dump|failed with a nonzero exit code|ld: |The following build commands failed" build-ipa/build-tv.log | head -80
+            echo "----- 日志末尾 -----"
+            tail -60 build-ipa/build-tv.log
+            exit 1
+          fi
+          echo "✅ Apple TV 版编译通过"
+
       # 编译错误之外还有编译器崩溃（Stack dump）、链接失败、构建步骤失败（Command … failed），
       # 格式各不相同：关键行 + 日志末尾都打出来，完整日志另存为附件
       - name: 失败时输出编译错误
@@ -63,4 +81,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ios-build-log
-          path: apps/apple/build-ipa/build.log
+          path: |
+            apps/apple/build-ipa/build.log
+            apps/apple/build-ipa/build-tv.log
