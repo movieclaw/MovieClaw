@@ -33,7 +33,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/home.jpg" width="900" alt="The MovieClaw library: Continue Watching, favorites, and all your libraries">
+  <img src="docs/images/subscriptions.jpg" width="900" alt="The Subscriptions page in the MovieClaw web app: newly added titles in the carousel, with Just Added below">
 </p>
 
 <p align="center">

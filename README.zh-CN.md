@@ -33,7 +33,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/home.jpg" width="900" alt="MovieClaw 的媒体库：接下来继续看的影片、收藏，以及各个媒体库">
+  <img src="docs/images/subscriptions.jpg" width="900" alt="MovieClaw 网页版的「我的订阅」：轮播里是刚入库的影片，下面是「刚刚入库」一栏">
 </p>
 
 <p align="center">
