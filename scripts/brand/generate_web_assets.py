@@ -7,7 +7,8 @@
 产出：
     apps/web/public/brand/movieclaw-mark.png   标志（透明底，512），侧栏与加载指示用
     apps/web/app/favicon.ico                    浏览器标签页图标（16 / 32 / 48 三档合一）
-    apps/web/public/favicon.svg                 矢量标签页图标（拷自 docs/brand/favicon.svg，在 layout.tsx 的 metadata 里声明）
+    apps/web/public/favicon.svg                 矢量标签页图标（拷自 docs/brand/favicon.svg，
+                                                在 layout.tsx 的 metadata 里声明）
     apps/web/public/apple-touch-icon.png        添加到主屏幕（180，不透明，iOS 自己加圆角）
     apps/web/public/icons/icon-{192,512}.png    PWA 图标（不透明、全出血，同时兼作 maskable）
     apps/web/public/splash/splash-*.png         iOS PWA 启动图：纯黑底 + 居中标志
@@ -17,6 +18,7 @@
 
 母版图怎么来：docs/brand/README.md。
 """
+
 import re
 import shutil
 from pathlib import Path
@@ -37,14 +39,18 @@ def resized(im: Image.Image, size: int) -> Image.Image:
 
 
 def splash_devices() -> list[tuple[int, int, int, bool]]:
-    """解析 apple-splash.ts：返回 (逻辑宽, 逻辑高, DPR, 是否横屏)。iPhone 只要竖屏，iPad 竖横都要。"""
+    """解析 apple-splash.ts，返回 (逻辑宽, 逻辑高, DPR, 是否横屏)。
+
+    iPhone 只要竖屏，iPad 竖横都要。
+    """
     src = (WEB / "lib/apple-splash.ts").read_text(encoding="utf-8")
 
     def table(name: str) -> list[tuple[int, int, int]]:
         block = re.search(rf"const {name}[^=]*=\s*\[(.*?)\];", src, re.S)
         if not block:
             raise SystemExit(f"apple-splash.ts 里找不到 {name} 表，脚本需要同步更新")
-        return [tuple(map(int, m)) for m in re.findall(r"\[(\d+),\s*(\d+),\s*(\d+)\]", block.group(1))]
+        rows = re.findall(r"\[(\d+),\s*(\d+),\s*(\d+)\]", block.group(1))
+        return [tuple(map(int, m)) for m in rows]
 
     devices = [(w, h, r, False) for w, h, r in table("IPHONES")]
     for w, h, r in table("IPADS"):
