@@ -82,6 +82,9 @@ final class Router {
     @ObservationIgnored var clipReturn: ClipReturn?
     /// 全局弹层
     var sheet: AppSheet?
+    /// 批准设备登录：全屏呈现（星空 + 底部玻璃卡，见 DeviceApprovalFlow），不压栈——
+    /// 那是扫码后一气呵成的一件事，不该带着标签栏和迷你播放器
+    var deviceApproval: DeviceApprovalLaunch?
     /// 结果页点顶部搜索词胶囊回到搜索首页时要回填的内容；搜索首页出现时取走（见 `SearchHomeView`）
     var searchDraft: SearchDraft?
 
@@ -115,6 +118,7 @@ final class Router {
     /// 在当前标签内压栈
     func push(_ route: AppRoute) {
         let route = guarded(route)
+        if case let .deviceApproval(code, host) = route { return deviceApproval = DeviceApprovalLaunch(code: code, host: host) }
         if let sheet = sheetRoute(route) { return present(sheet) }
         if let root = Self.tabRoot(of: route) {
             selectedTab = root
@@ -128,6 +132,7 @@ final class Router {
     /// 切到路由归属的标签后压栈（通知、AI 卡片等「从别处跳过来」的场景）
     func open(_ route: AppRoute) {
         let route = guarded(route)
+        if case let .deviceApproval(code, host) = route { return deviceApproval = DeviceApprovalLaunch(code: code, host: host) }
         if let sheet = sheetRoute(route) {
             // 自定义首页盖在媒体库首页上：先切到媒体库标签
             if let target = route.tab, availableTabs.contains(target) { selectedTab = target }

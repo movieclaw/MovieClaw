@@ -54,7 +54,8 @@ extension AppRoute {
         case .my: MorePage()
         case .settings: SettingsIndexView()
         case let .settingsSection(section, query): SettingsSectionView(section: section).environment(\.routeQuery, query)
-        case let .deviceApproval(code, scannedHost): DeviceApprovalView(presetCode: code, scannedHost: scannedHost)
+        // Router 把它改成全屏呈现，不会真的压栈；这里只为穷举
+        case let .deviceApproval(code, scannedHost): DeviceApprovalFlow(launch: DeviceApprovalLaunch(code: code, host: scannedHost))
         // 分享
         case let .share(slug): SharePageView(slug: slug)
         }

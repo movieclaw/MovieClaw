@@ -165,6 +165,9 @@ struct MainTabView: View {
         .fullScreenCover(item: $router.player) { request in
             PlayerScreen(request: request)
         }
+        .fullScreenCover(item: $router.deviceApproval) { launch in
+            DeviceApprovalFlow(launch: launch)
+        }
         .onAppear {
             #if DEBUG
             // -mcNoEarlyStart YES：播放器视图出现才起播（提前起播之前的行为，真机新旧对照用）
@@ -504,7 +507,6 @@ struct AppTopBar: ViewModifier {
     let tab: MainTab
     @Environment(Router.self) private var router
     @Environment(\.searchAccess) private var searchAccess
-    @State private var scanning = false
 
     func body(content: Content) -> some View {
         content.toolbar {
@@ -514,7 +516,7 @@ struct AppTopBar: ViewModifier {
             if tab == .more {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        scanning = true
+                        router.deviceApproval = DeviceApprovalLaunch(scanFirst: true)
                     } label: {
                         Image(systemName: "qrcode.viewfinder")
                     }
@@ -534,18 +536,6 @@ struct AppTopBar: ViewModifier {
                     .accessibilityIdentifier("open-search")
                 }
             }
-        }
-        .fullScreenCover(isPresented: $scanning) {
-            PairingScannerScreen(
-                onScanned: { scanned in
-                    scanning = false
-                    router.push(.deviceApproval(code: scanned.code, scannedHost: scanned.host))
-                },
-                onManualEntry: {
-                    scanning = false
-                    router.push(.deviceApproval())
-                }
-            )
         }
     }
 }
