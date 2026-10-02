@@ -5,13 +5,15 @@
     .venv/bin/python scripts/brand/generate_tvos_assets.py
 
 产出：apps/apple/MovieClawTV/Assets.xcassets/App Icon & Top Shelf Image.brandassets/
-    App Icon.imagestack                 主屏图标 400×240（1x / 2x），两层：背景（纯黑 + 极淡的极光晕）、前景（标志）
+    App Icon.imagestack                 主屏图标 400×240（1x / 2x），两层：
+                                        背景（纯黑 + 极淡的极光晕）、前景（标志）
     App Icon - App Store.imagestack     App Store 图标 1280×768，同样两层
     Top Shelf Image.imageset            1920×720（1x / 2x）：纯黑底 + 横版组合（标志 + 字标）
     Top Shelf Image Wide.imageset       2320×720（1x / 2x）：同上
 
 tvOS 的图标是分层的：焦点落上去时系统按层做视差，所以标志单独一层、背景单独一层（背景必须不透明）。
-比例沿用品牌规范（docs/brand/README.md）：标志在图标里约占短边的 64%（「尺寸 B」）；纯黑底，与 iPhone 图标一致。
+比例沿用品牌规范（docs/brand/README.md）：标志在图标里约占短边的 64%（「尺寸 B」）；
+纯黑底，与 iPhone 图标一致。
 
 字标取自 docs/brand/lockup-horizontal-black.svg：系统的 Quick Look（qlmanage）把它栅格化在白底上，
 黑色字形的灰度正好就是不透明度，取出后再上深色底用的字标色 #F3F5F9。所以本脚本只能在 macOS 上跑。
@@ -47,9 +49,11 @@ def mark_glyph() -> Image.Image:
 def wordmark() -> Image.Image:
     """从黑色横版组合里取出字标（透明底、字标色）"""
     with tempfile.TemporaryDirectory() as tmp:
+        source = BRAND / "lockup-horizontal-black.svg"
         subprocess.run(
-            ["qlmanage", "-t", "-s", "3000", "-o", tmp, str(BRAND / "lockup-horizontal-black.svg")],
-            check=True, capture_output=True,
+            ["qlmanage", "-t", "-s", "3000", "-o", tmp, str(source)],
+            check=True,
+            capture_output=True,
         )
         raster = Image.open(next(Path(tmp).glob("*.png"))).convert("L")
     alpha = raster.point(lambda v: 255 - v)
@@ -57,7 +61,9 @@ def wordmark() -> Image.Image:
     alpha = alpha.crop(bbox)
     # 组合里左边是标志、右边是字标：按列找第一段空白，空白之后的是字标
     width, height = alpha.size
-    columns = [any(alpha.getpixel((x, y)) > 8 for y in range(0, height, 2)) for x in range(width)]
+    columns = [
+        any(alpha.getpixel((x, y)) > 8 for y in range(0, height, 2)) for x in range(width)
+    ]
     gap_start = next(x for x in range(width) if not columns[x])
     text_start = next(x for x in range(gap_start, width) if columns[x])
     text_alpha = alpha.crop((text_start, 0, width, height))
@@ -80,7 +86,7 @@ def background(size: tuple[int, int], glow: bool) -> Image.Image:
     w, h = size
     halo = Image.new("RGBA", size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(halo)
-    for color, (cx, cy) in zip(AURORA_GLOW, [(0.42, 0.55), (0.6, 0.45)]):
+    for color, (cx, cy) in zip(AURORA_GLOW, [(0.42, 0.55), (0.6, 0.45)], strict=True):
         r = h * 0.45
         draw.ellipse([w * cx - r, h * cy - r, w * cx + r, h * cy + r], fill=color + (40,))
     halo = halo.filter(ImageFilter.GaussianBlur(h * 0.18))
@@ -113,7 +119,8 @@ def top_shelf(size: tuple[int, int], glyph: Image.Image, word: Image.Image) -> I
 
 def write_json(path: Path, data: dict) -> None:
     path.mkdir(parents=True, exist_ok=True)
-    (path / "Contents.json").write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    text = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+    (path / "Contents.json").write_text(text, encoding="utf-8")
 
 
 INFO = {"author": "xcode", "version": 1}
@@ -130,13 +137,16 @@ def write_imageset(path: Path, images: list[tuple[Image.Image, str]]) -> None:
     write_json(path, {"images": entries, "info": INFO})
 
 
-def write_imagestack(path: Path, size: tuple[int, int], scales: list[int], glyph: Image.Image) -> None:
+def write_imagestack(
+    path: Path, size: tuple[int, int], scales: list[int], glyph: Image.Image
+) -> None:
     layers = {"Front": [], "Back": []}
     for factor in scales:
         back, front = icon_layers((size[0] * factor, size[1] * factor), glyph)
         layers["Back"].append((back, f"{factor}x"))
         layers["Front"].append((front, f"{factor}x"))
-    write_json(path, {"layers": [{"filename": "Front.imagestacklayer"}, {"filename": "Back.imagestacklayer"}], "info": INFO})
+    layer_files = [{"filename": "Front.imagestacklayer"}, {"filename": "Back.imagestacklayer"}]
+    write_json(path, {"layers": layer_files, "info": INFO})
     for name, images in layers.items():
         layer = path / f"{name}.imagestacklayer"
         write_json(layer, {"info": INFO})
@@ -150,16 +160,22 @@ def main() -> None:
         shutil.rmtree(OUT)
     write_imagestack(OUT / "App Icon.imagestack", (400, 240), [1, 2], glyph)
     write_imagestack(OUT / "App Icon - App Store.imagestack", (1280, 768), [1], glyph)
-    write_imageset(OUT / "Top Shelf Image.imageset",
-                   [(top_shelf((1920, 720), glyph, word), "1x"), (top_shelf((3840, 1440), glyph, word), "2x")])
-    write_imageset(OUT / "Top Shelf Image Wide.imageset",
-                   [(top_shelf((2320, 720), glyph, word), "1x"), (top_shelf((4640, 1440), glyph, word), "2x")])
+    for name, (w, h) in [("Top Shelf Image", (1920, 720)), ("Top Shelf Image Wide", (2320, 720))]:
+        images = [
+            (top_shelf((w, h), glyph, word), "1x"),
+            (top_shelf((w * 2, h * 2), glyph, word), "2x"),
+        ]
+        write_imageset(OUT / f"{name}.imageset", images)
+
+    def asset(filename: str, role: str, size: str) -> dict:
+        return {"filename": filename, "idiom": "tv", "role": role, "size": size}
+
     write_json(OUT, {
         "assets": [
-            {"filename": "App Icon - App Store.imagestack", "idiom": "tv", "role": "primary-app-icon", "size": "1280x768"},
-            {"filename": "App Icon.imagestack", "idiom": "tv", "role": "primary-app-icon", "size": "400x240"},
-            {"filename": "Top Shelf Image Wide.imageset", "idiom": "tv", "role": "top-shelf-image-wide", "size": "2320x720"},
-            {"filename": "Top Shelf Image.imageset", "idiom": "tv", "role": "top-shelf-image", "size": "1920x720"},
+            asset("App Icon - App Store.imagestack", "primary-app-icon", "1280x768"),
+            asset("App Icon.imagestack", "primary-app-icon", "400x240"),
+            asset("Top Shelf Image Wide.imageset", "top-shelf-image-wide", "2320x720"),
+            asset("Top Shelf Image.imageset", "top-shelf-image", "1920x720"),
         ],
         "info": INFO,
     })

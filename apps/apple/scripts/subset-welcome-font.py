@@ -22,7 +22,11 @@ from fontTools.ttLib import TTFont
 
 ROOT = Path(__file__).resolve().parent.parent
 # 欢迎页的源码：台词在共享的 Shared/Welcome，两端各自的欢迎页文案在各自目录
-WELCOME_SOURCES = [ROOT / "Shared/Welcome", ROOT / "MovieClaw/Features/Onboarding", ROOT / "MovieClawTV/Welcome"]
+WELCOME_SOURCES = [
+    ROOT / "Shared/Welcome",
+    ROOT / "MovieClaw/Features/Onboarding",
+    ROOT / "MovieClawTV/Welcome",
+]
 OUTPUT = ROOT / "Shared/Resources/Fonts/WelcomeSerif.otf"
 # 子集属于 OFL 所说的「修改版」，改个名字与原版区分，也免得和用户自装的同名字体冲突
 FAMILY = "MovieClaw Welcome Serif"

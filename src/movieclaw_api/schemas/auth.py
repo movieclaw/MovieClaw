@@ -144,7 +144,7 @@ class DeviceAuthorizeRequest(BaseModel):
     """
 
     client_type: str = Field(
-        description="客户端形态：worker（转码 Worker）、cli（命令行 / Agent）或 tvos（Apple TV App）"
+        description="客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）"
     )
     client_name: str = Field(
         min_length=1,

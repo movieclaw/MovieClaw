@@ -298,3 +298,44 @@ tvOS 系统播放器**，用户不需要重新学：
 
 设置页、活动页、AI 助手、待处理事项、站点资源搜索与下载、媒体库与条目管理、字幕生成、合集编辑、分享、
 网页同款的外观设置，以及照搬 iPhone 的所有表单类弹层。
+
+## 11. 实现记录（2026-10-02，分支 `feat/tvos-app`，PR #549）
+
+### 11.1 落点
+
+| 目录 / 目标 | 内容 |
+|---|---|
+| `apps/apple/Shared/` | 两个 App 共同编译：`App/`（AppModel、调试参数、首帧闸门）、`Core/`（生成的接口层、令牌、局域网发现）、`DesignSystem/`（主题、图片、三态加载、反馈）、`Player/`（播放逻辑全套 + 画面宿主）、`Library/`（首页行清单与数据、筛选）、`Discover/`、`Subscriptions/`、`Reels/`（数据层）、`Welcome/`（星空与台词）、`About/`、`Resources/`（许可全文、欢迎页宋体子集） |
+| `MovieClawTV`（tvOS 26 App） | 电视界面层：侧边栏外壳、首页、媒体库、详情、搜索、发现、订阅、片段、播放器、欢迎与登录、谁在看、账号页、关于 |
+| `MovieClawTVTopShelf`（扩展） | 只读 App Group 里的「接下来继续」交给系统（`TopShelfSnapshot`，App 写、扩展读） |
+| `MovieClawTVUITests` | 遥控器操作的端到端验收（`TVFlowUITests`，环境变量见文件头） |
+| `AetherCore` | 改成同一个框架目标同时面向 iOS 与 tvOS（`supportedDestinations`） |
+
+平台差异一律在共享代码里用 `#if os(tvOS)` 收口，清单见 §6.2；新增的两处：令牌与账号列表在 tvOS 上存全家共用的钥匙串
+（`KeychainScope`、`KeychainBlob`），片段播放器的字幕在 tvOS 上用全屏字号。共享层与 iPhone 层**不能有同名的 Swift 文件**
+（同一个目标里同名文件编不过，挪文件时注意）。
+
+### 11.2 验收
+
+- 端到端（模拟器 Apple TV 4K 第三代，tvOS 27）：`TVFlowUITests` 只用遥控器按键，对着隔离测试服务器（/tmp 下全新数据库、
+  生成的测试片：H.264 MP4、HEVC + AC3 5.1 + 双字幕 MKV、MPEG-2 TS、VP9 WebM、三集剧）走完：账号密码登录、扫码登录
+  （配对码由用例代替手机调批准接口）、首页大图续播（从 41% 处接着放）、媒体库 → 详情 → 播放、剧集选第 3 集、搜索、
+  播放器信息面板（字幕 / 音轨 / 画质三页）、谁在看（两个账号切换）、发现 → 详情 → 一键订阅、订阅页播放、
+  片段自动播放 → 换一段 → 接着看正片。
+- 编译：本机 iOS 模拟器、tvOS 模拟器、tvOS 未签名 Release 真机包；CI（Xcode 26）在 PR 上同时编两端。
+- 服务端：`tests/api/test_device_auth.py`（含 Apple TV 配对）、`tests/playback/test_warmup.py`。
+
+### 11.3 待真机确认（模拟器验不了）
+
+- §7 T0 那一组：HDR10 / 杜比视界原文件直出、24 帧切 24Hz、接功放时全景声与 TrueHD 7.1 不降混、A15 上软解 VP9 / AV1 /
+  隔行 MPEG-2 不掉帧、暂停后「正在播放」仍在、按主屏键离开再回来续播。
+- 扫码登录：手机扫码打开的是服务器的网页批准页，手机要能访问电视连的那个服务器地址（家里同一个局域网即可）。
+- 跟随系统用户：需要在 Apple TV 上建两个以上系统用户才生效；真机签名时 Xcode 自动签名会给 App ID 开
+  「User Management」与 App Group（`group.<前缀>.app`）。
+- 触控板滑动拖进度的灵敏度（现在满屏宽一划 = 片长的 1/5，夹在 1～15 分钟）。
+
+### 11.4 后续
+
+- 发版：发版 skill 增加 tvOS 的归档与 TestFlight 上传、App Store 截图（1920×1080）。
+- §4.3 的两个显示匹配缺口（系统播放器兜底、自研引擎直连服务端 SDR 流）、TrueHD / DTS 在电视上是否默认无损重编、
+  P36 / P39 的解码代价按 A15 重新标定。
