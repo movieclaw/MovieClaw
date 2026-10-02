@@ -3,8 +3,7 @@ import SwiftUI
 /// 主界面：顶栏导航（docs/design/tvos-app.md §3.3，排布同 Netflix、Disney+ 的新版电视界面）。
 ///
 /// 左上角是当前账号，正中的胶囊是 🔍 / 媒体库（首页）/ 订阅 / 发现；各个媒体库从首页的「我的媒体库」进，
-/// 片段从发现页进。系统 `TabView` 只负责每个页签各自的导航栈（切换不丢位置），它的标签栏藏起来，
-/// 换成自己画的 `TVTopBar`（原因见那里）。
+/// 片段从发现页进。顶栏是自己画的 `TVTopBar`（不用系统 `TabView` 的原因见那里），页签容器也自己管。
 /// 播放器全屏盖在主界面之上（`fullScreenCover`），返回键退出播放后回到原来的页面。
 struct TVMainView: View {
     @Environment(AppModel.self) private var model
@@ -12,7 +11,7 @@ struct TVMainView: View {
     @State private var router: TVRouter
     @State private var libraries = TVLibraryDirectory()
     /// 焦点在顶栏的哪一项（nil = 在页面内容里）
-    @FocusState private var barFocus: MainTab?
+    @FocusState private var barFocus: TVBarItem?
     /// 冷启动与切页时焦点优先给页面内容，不给顶栏（系统默认挑最左上角，会落到账号头像上）
     @Namespace private var focusNamespace
     /// 按返回键要回顶栏：这一刻首选焦点换成顶栏的当前页签，再请系统重挑一次焦点
@@ -33,6 +32,11 @@ struct TVMainView: View {
     private var session: API.SessionView? { model.session }
     private var permissions: Permissions { session.map(Permissions.init(session:)) ?? .none }
 
+    /// 当前页签在顶栏上对应的那一项
+    private var currentBarItem: TVBarItem {
+        router.selectedTab == .account ? .account : .tab(router.selectedTab)
+    }
+
     /// 顶栏露不露出来：只在根页面；页面滚离顶部就收走，焦点回到顶栏时再出来
     private var barVisible: Bool {
         router.atRoot && (barFocus != nil || !router.scrolledAway.contains(router.selectedTab))
@@ -40,25 +44,10 @@ struct TVMainView: View {
 
     var body: some View {
         @Bindable var router = router
-        TabView(selection: $router.selectedTab) {
-            Tab(value: MainTab.account) {
-                TVTabRoot(tab: .account) { TVAccountView() }
-            }
-            Tab(value: MainTab.search) {
-                TVTabRoot(tab: .search) { TVSearchView() }
-            }
-            Tab(value: MainTab.home) {
-                TVTabRoot(tab: .home) { TVHomeView() }
-            }
-            if permissions.canSubscribe {
-                Tab(value: MainTab.subscriptions) {
-                    TVTabRoot(tab: .subscriptions) { TVSubscriptionsView() }
-                }
-            }
-            Tab(value: MainTab.discover) {
-                TVTabRoot(tab: .discover) { TVDiscoverView() }
-            }
-        }
+        // 只渲染当前页签：每个页签的导航栈存在 router 里，切走再回来压过的页面都还在；页面数据有快照，秒开。
+        // 根页面的滚动位置不保留——切页只会发生在顶栏上，而顶栏只在根页面顶部露出来，切走时本来就在顶部
+        TVTabRoot(tab: router.selectedTab) { page(for: router.selectedTab) }
+            .id(router.selectedTab)
         .prefersDefaultFocus(!barPreferred, in: focusNamespace)
         // 根页面上按返回键：焦点在内容里就把页面滚回顶部、焦点回到顶栏的当前页签（同系统标签栏）；
         // 已经在顶栏（或在二级页）就交给系统（二级页出栈 / 退回主屏幕）
@@ -74,9 +63,19 @@ struct TVMainView: View {
             }
         } : nil)
         .overlay(alignment: .top) {
-            TVTopBar(focus: $barFocus, focusNamespace: focusNamespace, preferred: barPreferred) {
+            TVTopBar(focus: $barFocus, focusNamespace: focusNamespace, preferredItem: barPreferred ? currentBarItem : nil) { item in
                 barPreferred = false
-                resetFocus(in: focusNamespace)
+                switch item {
+                case .account:
+                    router.selectedTab = .account
+                case .search:
+                    // 搜索压栈成整页：顶栏随之收起，焦点整个进到搜索页，系统的屏幕键盘才会展开、接住焦点
+                    // （搜索页若在焦点还停在顶栏上时建出来，键盘是收着的）
+                    router.push(.search)
+                case .tab:
+                    // 在页签上按确认：焦点下到页面内容（同系统标签栏）
+                    resetFocus(in: focusNamespace)
+                }
             }
                 .opacity(barVisible ? 1 : 0)
                 .offset(y: barVisible ? 0 : -40)
@@ -85,15 +84,16 @@ struct TVMainView: View {
                 .animation(.easeOut(duration: 0.25), value: barVisible)
         }
         .focusScope(focusNamespace)
-        .onChange(of: barFocus) { previous, tab in
-            if tab != nil { barPreferred = false }
-            // 从页面内容往上进顶栏，系统按几何就近会落到左上角的账号头像；同系统标签栏，改落在当前页签上
-            if previous == nil, tab == .account, router.selectedTab != .account {
-                barFocus = router.selectedTab
+        .onChange(of: barFocus) { previous, item in
+            if item != nil { barPreferred = false }
+            // 从页面内容往上进顶栏，系统按几何就近会落到正上方那一项（账号、搜索、别的页签），落上页签就切了页；
+            // 同系统标签栏，一律改落在当前页签上
+            if previous == nil, let item, item != currentBarItem {
+                barFocus = currentBarItem
                 return
             }
-            // 焦点移到胶囊里哪一项就切到哪个页签（同系统标签栏）；账号头像要按确认才切
-            if let tab, tab != .account { router.selectedTab = tab }
+            // 焦点移到胶囊里哪一项就切到哪个页签（同系统标签栏）；账号与搜索要按确认
+            if case let .tab(tab)? = item { router.selectedTab = tab }
         }
         .environment(router)
         .environment(libraries)
@@ -152,7 +152,19 @@ struct TVMainView: View {
     }
 }
 
-/// 一个页签的根：自己的导航栈 + 电视上能压栈的页面。系统标签栏在这里藏掉（换成 `TVTopBar`），
+extension TVMainView {
+    @ViewBuilder
+    fileprivate func page(for tab: MainTab) -> some View {
+        switch tab {
+        case .account: TVAccountView()
+        case .home: TVHomeView()
+        case .subscriptions: TVSubscriptionsView()
+        case .discover: TVDiscoverView()
+        }
+    }
+}
+
+/// 一个页签的根：自己的导航栈 + 电视上能压栈的页面。
 /// 根页面顶部让出顶栏的高度（滚动视图里是内容边距，随内容滚走）
 struct TVTabRoot<Content: View>: View {
     let tab: MainTab
@@ -168,7 +180,6 @@ struct TVTabRoot<Content: View>: View {
                     TVDestination(route: route)
                 }
         }
-        .toolbarVisibility(.hidden, for: .tabBar)
     }
 }
 
@@ -183,6 +194,7 @@ struct TVDestination: View {
         case let .collection(id, name): TVCollectionView(collectionId: id, name: name)
         case let .discoverTitle(ref): TVDiscoverDetailView(titleRef: ref)
         case .reels: TVReelsView()
+        case .search: TVSearchView()
         case .about: TVAboutView()
         }
     }

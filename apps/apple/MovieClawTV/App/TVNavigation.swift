@@ -6,11 +6,10 @@ import Foundation
 /// 两个平台各自定义自己的页签。`rawValue` 给调试参数 `-mcTab` 与快照用：`home`、`discover`……
 ///
 /// 顶栏只放固定的几项：各个媒体库不再各占一格（数量不定、会把顶栏挤满），从首页的「我的媒体库」进；
-/// 「片段」是低频入口，收进发现页。
+/// 「片段」是低频入口，收进发现页；搜索是顶栏右上角的按钮，压栈成整页（`AppRoute.search`），不是页签。
 enum MainTab: Hashable {
     /// 顶栏左上角的当前账号（账号页：切换账号、添加账号、关于、退出登录）
     case account
-    case search
     /// 「媒体库」：即首页（顶部大图 + 接下来继续 + 自定义行），启动后的默认落点
     case home
     case subscriptions
@@ -21,7 +20,6 @@ extension MainTab: RawRepresentable {
     init?(rawValue: String) {
         switch rawValue {
         case "account": self = .account
-        case "search": self = .search
         case "home": self = .home
         case "subscriptions": self = .subscriptions
         case "discover": self = .discover
@@ -32,7 +30,6 @@ extension MainTab: RawRepresentable {
     var rawValue: String {
         switch self {
         case .account: "account"
-        case .search: "search"
         case .home: "home"
         case .subscriptions: "subscriptions"
         case .discover: "discover"
@@ -53,19 +50,22 @@ enum AppRoute: Hashable {
     case discoverTitle(String)
     /// 片段（竖屏短视频流）：从发现页进入
     case reels
+    /// 搜索：顶栏右上角的按钮打开，压在当前页签上
+    case search
     /// 关于（版本与开源许可）
     case about
 }
 
 #if DEBUG
 extension TVRouter {
-    /// 调试参数 `-mcTab` 的落点：顶栏页签名直接落过去；旧的侧边栏页签名（`library-3`、`libraries`、`reels`）
+    /// 调试参数 `-mcTab` 的落点：顶栏页签名直接落过去；旧的侧边栏页签名（`library-3`、`libraries`、`reels`、`search`）
     /// 换算成「所在页签 + 压栈页面」，UI 测试与截图脚本照旧可用
     static func debugLanding(_ raw: String) -> (tab: MainTab, path: [AppRoute])? {
         if let tab = MainTab(rawValue: raw) { return (tab, []) }
         switch raw {
         case "libraries": return (.home, [])
         case "reels": return (.discover, [.reels])
+        case "search": return (.home, [.search])
         default:
             guard raw.hasPrefix("library-"), let id = Int(raw.dropFirst("library-".count)) else { return nil }
             return (.home, [.library(id)])

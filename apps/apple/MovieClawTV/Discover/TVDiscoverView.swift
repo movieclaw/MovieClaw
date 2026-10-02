@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// 发现（docs/design/tvos-app.md §3.1，侧边栏「更多」里的二级入口）：用电视的方式浏览——顶部大图（本周精选），
+/// 发现（docs/design/tvos-app.md §3.1，顶栏的一项）：用电视的方式浏览——顶部大图（本周精选），
 /// 下面是服务端给的榜单横排（今日热榜、正在热映、高分……），选中进作品详情，在那里播放或一键订阅。
 ///
 /// 数据与 iPhone 版同一份：`DiscoverFeed`（版面 + Hero + 各行，快照秒开）。电视上只看 TMDB 视角
-/// （豆瓣没有 Hero，榜单也只适合手机上细翻），电影 / 剧集在页面顶部切换。
+/// （豆瓣没有 Hero，榜单也只适合手机上细翻），电影 / 剧集在页面顶部切换，旁边是「片段」的入口。
 struct TVDiscoverView: View {
     @Environment(\.api) private var api
     @Environment(\.permissions) private var permissions
@@ -84,15 +84,23 @@ struct TVDiscoverView: View {
 /// 电影 / 剧集切换
 struct TVDiscoverTypePicker: View {
     @Binding var mediaType: String
+    @Environment(TVRouter.self) private var router
 
     var body: some View {
-        Picker("类型", selection: $mediaType) {
-            Text("电影").tag("movie")
-            Text("剧集").tag("tv")
+        HStack(spacing: 30) {
+            Picker("类型", selection: $mediaType) {
+                Text("电影").tag("movie")
+                Text("剧集").tag("tv")
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 420)
+            .accessibilityIdentifier("tv-discover-type")
+            // 片段（自己片库里的随机片段连播）是低频入口，顶栏不单独占一格，放在这里
+            Button { router.push(.reels) } label: {
+                Label("片段", systemImage: "film.stack")
+            }
+            .accessibilityIdentifier("tv-discover-reels")
         }
-        .pickerStyle(.segmented)
-        .frame(width: 420)
-        .accessibilityIdentifier("tv-discover-type")
     }
 }
 

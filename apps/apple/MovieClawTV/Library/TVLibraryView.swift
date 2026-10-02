@@ -144,34 +144,6 @@ struct TVCollectionView: View {
     }
 }
 
-/// 「全部媒体库」：侧边栏放不下时，所有库的卡片
-struct TVAllLibrariesView: View {
-    @Environment(TVLibraryDirectory.self) private var directory
-    @Environment(TVRouter.self) private var router
-    @Environment(\.api) private var api
-
-    var body: some View {
-        ScrollView(.vertical) {
-            VStack(alignment: .leading, spacing: 40) {
-                Text("全部媒体库")
-                    .font(.title.weight(.bold))
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(TVMetrics.landscapeWidth), spacing: TVMetrics.cardSpacing), count: 3),
-                          alignment: .leading, spacing: 60) {
-                    ForEach(directory.browsable, id: \.id) { library in
-                        TVLandscapeCard(title: library.name, subtitle: "\(library.stats.itemCount) 部",
-                                        imageURL: api.image("/libraries/\(library.id)/cover")) {
-                            router.push(.library(library.id))
-                        }
-                    }
-                }
-            }
-            .padding(.horizontal, TVMetrics.edge)
-            .padding(.bottom, 80)
-        }
-        .scrollClipDisabled()
-    }
-}
-
 /// 一屏 6 列的海报网格
 struct TVPosterGrid<Cell: View>: View {
     let items: [API.LibraryItemView]

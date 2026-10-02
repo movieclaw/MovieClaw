@@ -8,16 +8,18 @@ import SwiftUI
 /// - 不自动轮播：画面只在用户移动焦点时才换，按确认键播放的一定是眼前这部（「继续观看」是要挑着看的，
 ///   自己会转的轮播一次只露一部，还会在焦点底下换片）；
 /// - 确认键直接续播（播放第一）；长按确认键弹菜单，可以进详情；
-/// - 焦点离开这一行（往下看别的行、展开侧边栏）时，大图停在最后看的那一部；
+/// - 焦点离开这一行（往下看别的行、上到顶栏）时，大图停在最后看的那一部；
 /// - 页面底色取大图主色（与 iPhone 订阅首页 / 发现页同一套取色），往下滚时剧照淡出、颜色退淡。
 ///
 /// 数据与 iPhone 版、网页同一份：`LibraryHomeStore`（快照秒开、静默刷新）按 `ui.preferences.home.rows`
 /// 合并出行清单（`HomeRows`）。「接下来继续」这一行在电视上就是首屏大图区（用户在网页隐藏了这一行就不画），
-/// 其余行按顺序接在下面；「我的媒体库」这一行不画：侧边栏已经列出了每个库。
+/// 其余行按顺序接在下面。「我的媒体库」是电视上进各个库的唯一入口（顶栏不再逐个列库），
+/// 所以网页上隐藏了这一行，电视上也照样画。
 struct TVHomeView: View {
     @Environment(\.api) private var api
     @Environment(AppModel.self) private var model
     @Environment(TVRouter.self) private var router
+    @Environment(TVLibraryDirectory.self) private var directory
 
     private var store: LibraryHomeStore { .shared }
     /// 焦点所在的「接下来继续」卡（条目 id）；焦点不在这一行时为 nil
@@ -28,7 +30,7 @@ struct TVHomeView: View {
     @State private var tint: Color?
     /// 列表滚动距离：只给背景层读，滚动时不重算整页
     @State private var scroll = TVHomeScroll()
-    /// 首页第一次有内容时把焦点放到第一张卡上（播放第一：开机按确认就续播）；之后不再抢，用户可能正在侧边栏里
+    /// 首页第一次有内容时把焦点放到第一张卡上（播放第一：开机按确认就续播）；之后不再抢，用户可能正在顶栏里
     @State private var focusedOnce = false
 
     /// 预载焦点左右两部的剧照：原图约 1MB，等焦点移过去才下载会闪一下空底
@@ -41,7 +43,7 @@ struct TVHomeView: View {
     private var rows: [HomeRows.Row] {
         guard let libraries = store.libraries else { return [] }
         return HomeRows.build(prefs: LibraryHomePrefs.shared.rows ?? store.snapshotRows ?? [], libraries: libraries, collections: store.collections)
-            .filter { !$0.hidden }
+            .filter { !$0.hidden || $0.kind == .libraries }
     }
 
     var body: some View {
@@ -78,7 +80,7 @@ struct TVHomeView: View {
                 if let stage {
                     stageSection(stage, items: upNext)
                 } else {
-                    // 没有大图区时第一行别和左上角侧边栏收起后的按钮挤在一起
+                    // 没有大图区时第一行别和顶栏贴在一起
                     Color.clear.frame(height: 30)
                 }
                 ForEach(visibleRows) { row in
@@ -128,7 +130,7 @@ struct TVHomeView: View {
     }
 
     /// 首屏文字区的高度。整个首屏的竖向尺寸是按 tvOS 的焦点滚动规则倒推的：列表静止在顶部时
-    /// （内容从侧边栏按钮下沿排起），获得焦点的卡片连同下面两行字要离屏幕底边一百来点，否则系统会
+    /// （内容从顶栏下沿排起，即屏幕顶 120 点），获得焦点的卡片连同下面两行字要离屏幕底边一百来点，否则系统会
     /// 自己把列表往上滚一截让出余量——启动时滚了、从下面的行回来时又滚回顶部，首屏就上下跳。
     /// 文字区 370 + 卡片行（剧照下面一行片名）刚好满足；下一行的标题从屏幕底边露出来，暗示下面还有
     private static let stageInfoHeight: CGFloat = 370
@@ -181,8 +183,17 @@ struct TVHomeView: View {
                 }
             }
         case .libraries:
-            // 侧边栏已经列出了每个库，首页不再重复
-            EmptyView()
+            // 各个库的入口：顶栏只放固定的几项，库从这里进各自的海报墙
+            if !directory.browsable.isEmpty {
+                TVShelf(title: row.title) {
+                    ForEach(directory.browsable, id: \.id) { library in
+                        TVLandscapeCard(title: library.name, subtitle: "\(library.stats.itemCount) 部",
+                                        imageURL: api.image("/libraries/\(library.id)/cover"), width: 360) {
+                            router.push(.library(library.id))
+                        }
+                    }
+                }
+            }
         case .library, .mediaKind, .collection:
             // 类型行（「全部电影」）是跨库的：每部片自带详情落点库（服务端给的 library_id）
             let items = store.itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []
@@ -272,7 +283,7 @@ struct TVHomeView: View {
         switch row.kind {
         case .upNext: (store.upNext ?? []).isEmpty
         case .favorites: (store.favorites?.items ?? []).isEmpty
-        case .libraries: true
+        case .libraries: directory.browsable.isEmpty
         case .library, .mediaKind, .collection: (store.itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []).isEmpty
         }
     }

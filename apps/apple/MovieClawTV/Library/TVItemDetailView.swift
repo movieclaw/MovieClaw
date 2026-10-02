@@ -27,7 +27,7 @@ struct TVItemDetailView: View {
 
     var body: some View {
         ZStack {
-            // 剧照铺满整屏（含侧边栏收起后的左缘），内容叠在上面
+            // 剧照铺满整屏，内容叠在上面
             backdrop
             if failed {
                 TVStateView(symbol: "questionmark.folder", title: "未能加载该条目",
