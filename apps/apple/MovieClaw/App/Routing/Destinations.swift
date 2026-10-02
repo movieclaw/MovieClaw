@@ -25,6 +25,7 @@ extension AppRoute {
         case let .discoveredPerson(tmdbId): DiscoveredPersonView(tmdbId: tmdbId)
         // 媒体库
         case .libraryHome: LibraryHomeView()
+        // Router 把它改成弹出表单（AppSheet.customizeHome），不会真的压栈到这里；页面自带导航栈，所以不能压栈
         case .libraryCustomize: LibraryCustomizeView()
         case .favorites: FavoritesView()
         case .allCollections: AllCollectionsView()
@@ -65,6 +66,7 @@ extension AppSheet {
         switch self {
         case let .subscribe(request): SubscribeSheet(request: request)
         case .accountSwitcher: AccountSwitcherSheet()
+        case .customizeHome: LibraryCustomizeView()
         }
     }
 }
