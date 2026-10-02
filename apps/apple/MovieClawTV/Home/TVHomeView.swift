@@ -106,7 +106,8 @@ struct TVHomeView: View {
         case .libraries:
             // 侧边栏已经列出了每个库，首页不再重复
             EmptyView()
-        case .library, .collection:
+        case .library, .mediaKind, .collection:
+            // 类型行（「全部电影」）是跨库的：每部片自带详情落点库（服务端给的 library_id）
             let items = store.itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []
             if !items.isEmpty {
                 TVShelf(title: row.title) {
@@ -168,7 +169,7 @@ struct TVHomeView: View {
         case .upNext: (store.upNext ?? []).isEmpty
         case .favorites: (store.favorites?.items ?? []).isEmpty
         case .libraries: true
-        case .library, .collection: (store.itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []).isEmpty
+        case .library, .mediaKind, .collection: (store.itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []).isEmpty
         }
     }
 
