@@ -57,6 +57,8 @@ enum AppRoute: Hashable {
     case library(Int)
     /// 合集：海报墙
     case collection(id: Int, name: String)
+    /// 发现里的一部作品（`tmdb:movie:550` / `douban:1292052`）：在库就能播，不在库可以一键订阅
+    case discoverTitle(String)
     /// 关于（版本与开源许可）
     case about
 }

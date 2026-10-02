@@ -24,6 +24,8 @@ struct TVPosterCard: View {
     var width: CGFloat = TVMetrics.posterWidth
     /// 0～1 的观看进度（有才画进度条）
     var progress: Double?
+    /// 图上角标（「已入库」「已订阅」「在追」）
+    var badge: String?
     let action: () -> Void
 
     var body: some View {
@@ -32,6 +34,16 @@ struct TVPosterCard: View {
                 RemoteImage(url: imageURL, placeholderText: title)
                     .frame(width: width, height: width * 1.5)
                     .overlay(alignment: .bottom) { progressBar }
+                    .overlay(alignment: .topLeading) {
+                        if let badge {
+                            Text(badge)
+                                .font(.caption2.weight(.bold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(.black.opacity(0.65), in: .capsule)
+                                .padding(10)
+                        }
+                    }
                     .clipShape(.rect(cornerRadius: 14))
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)

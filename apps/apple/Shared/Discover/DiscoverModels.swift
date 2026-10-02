@@ -125,8 +125,6 @@ struct CollectionRef {
         collectionId = id
     }
 
-    /// 「查看完整榜单」的路由
-    var route: AppRoute { .discoverCollection(kind: mediaType, provider: provider, collectionId: collectionId) }
 }
 
 /// 影视引用 `tmdb:movie:550` / `douban:1292052` 的拆解（详情页订阅状态查询与外链用）

@@ -85,8 +85,13 @@ final class ReelPlayer {
         NativeEngine.sweepStaleCachesOnce()
         self.item = item
         self.maxHeight = maxHeight
-        // 竖屏时画面只是一条横带，字幕按画面高度的比例算会很小：放大一些
+        // 字幕字号按画面高度的百分比：iPhone 竖屏刷片时画面只是屏幕中间一条横带，要放大才看得清；
+        // Apple TV 全屏播放，用正片播放器的默认字号（PlayerPreferences.SubtitleStyle 的 5.2%）
+        #if os(tvOS)
+        core.setTextStyle(.init(fontScale: 5.2, bottomPercent: 8, background: false))
+        #else
         core.setTextStyle(.init(fontScale: 8, bottomPercent: 6, background: false))
+        #endif
         core.onPhase = { [weak self] phase in self?.handle(phase) }
         core.onFailure = { [weak self] failure in self?.state = .failed(failure.message) }
         core.onTracksChanged = { [weak self] in self?.applySubtitle() }

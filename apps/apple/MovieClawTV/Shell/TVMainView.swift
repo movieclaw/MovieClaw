@@ -48,15 +48,15 @@ struct TVMainView: View {
             }
             TabSection("更多") {
                 Tab("发现", systemImage: "sparkles", value: MainTab.discover) {
-                    TVTabRoot(tab: .discover) { TVPlaceholderPage(title: "发现") }
+                    TVTabRoot(tab: .discover) { TVDiscoverView() }
                 }
                 if permissions.canSubscribe {
                     Tab("订阅", systemImage: "bookmark", value: MainTab.subscriptions) {
-                        TVTabRoot(tab: .subscriptions) { TVPlaceholderPage(title: "订阅") }
+                        TVTabRoot(tab: .subscriptions) { TVSubscriptionsView() }
                     }
                 }
                 Tab("片段", systemImage: "film.stack", value: MainTab.reels) {
-                    TVTabRoot(tab: .reels) { TVPlaceholderPage(title: "片段") }
+                    TVTabRoot(tab: .reels) { TVReelsView() }
                 }
             }
         }
@@ -84,6 +84,18 @@ struct TVMainView: View {
                 let controller = PlaybackController(request: request, api: model.api ?? EnvironmentValues().api, requestedAt: router.playRequestedAt)
                 router.activePlayback = controller
                 controller.start()
+            }
+        }
+        .onOpenURL { url in
+            // Top Shelf 的「播放」直接续播、「确认」打开详情（docs/design/tvos-app.md §3.1）
+            switch TVDeepLink(url: url) {
+            case let .play(itemId, season, episode)?:
+                router.play(PlayRequest(mediaItemId: itemId, season: season, episode: episode))
+            case let .item(libraryId, itemId)?:
+                router.selectedTab = .home
+                router.paths[.home] = [.item(libraryId: libraryId, itemId: itemId)]
+            case nil:
+                break
             }
         }
         .onChange(of: router.player?.id) { _, presented in
@@ -131,6 +143,7 @@ struct TVDestination: View {
         case let .item(libraryId, itemId): TVItemDetailView(libraryId: libraryId, itemId: itemId)
         case let .library(id): TVLibraryView(libraryId: id)
         case let .collection(id, name): TVCollectionView(collectionId: id, name: name)
+        case let .discoverTitle(ref): TVDiscoverDetailView(titleRef: ref)
         case .about: TVAboutView()
         }
     }
