@@ -32,6 +32,11 @@ export default async function SettingsSectionPage({
   if (section === "app" && (await searchParams).tab === "remote") {
     redirect("/settings/playback" as Route);
   }
+  // 批准设备登录已独立成 /activate：旧版服务端发给设备的链接是 /settings/devices?code=…，跟过去
+  if (section === "devices") {
+    const code = (await searchParams).code;
+    if (typeof code === "string" && code) redirect(`/activate?code=${encodeURIComponent(code)}` as Route);
+  }
   if (!settingsSections.some((s) => s.id === section)) notFound();
   return <SettingsPanel active={section} />;
 }

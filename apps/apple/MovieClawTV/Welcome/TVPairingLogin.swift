@@ -30,11 +30,15 @@ struct TVPairingLogin: View {
             VStack(alignment: .leading, spacing: 30) {
                 Text("用手机扫码登录")
                     .font(.welcomeSerif(size: 52))
-                Text("用手机相机扫右边的二维码，在打开的网页上批准；或者在 iPhone 上的 MovieClaw 里打开「设置 → 设备」，输入下面的配对码。谁批准，这台 Apple TV 就登录成谁。")
+                Text("用手机相机扫右边的二维码，在打开的网页上批准。不方便扫码的话，在任何已登录的电脑或手机浏览器里打开下面的地址，输入配对码。谁批准，这台 Apple TV 就登录成谁。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
                 if let challenge {
+                    // 同 Netflix 的「访问 netflix.com/tv8」：批准页地址直接写在屏幕上，不扫码也找得到
+                    Text(Self.displayAddress(challenge.verificationUri))
+                        .font(.title3.weight(.medium))
+                        .accessibilityIdentifier("tv-pairing-address")
                     Text(challenge.userCode)
                         .font(.system(size: 72, weight: .semibold, design: .monospaced))
                         .tracking(6)
@@ -147,6 +151,15 @@ struct TVPairingLogin: View {
     }
 
     /// 二维码：内容是带码的批准页地址（手机扫了直接打开、批准页预填好这个码）
+    /// 批准页地址给人看的写法：去掉 `http://`、末尾斜杠（「192.168.1.10:3000/activate」）
+    static func displayAddress(_ uri: String) -> String {
+        var text = uri
+        for scheme in ["https://", "http://"] where text.hasPrefix(scheme) {
+            text.removeFirst(scheme.count)
+        }
+        return text.hasSuffix("/") ? String(text.dropLast()) : text
+    }
+
     private static func qrImage(_ text: String) -> CGImage? {
         let filter = CIFilter.qrCodeGenerator()
         filter.message = Data(text.utf8)

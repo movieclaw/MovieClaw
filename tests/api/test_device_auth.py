@@ -115,7 +115,7 @@ def test_full_pairing_flow_grants_usable_token(client: TestClient) -> None:
     """发起 → 按码查看 → 批准 → 兑换 → 令牌能调业务接口，且令牌只交付这一次。"""
     grant = _authorize(client)
     assert grant["user_code"].startswith("MCLW-")
-    assert grant["verification_uri"].endswith("/settings/devices")
+    assert grant["verification_uri"].endswith("/activate")
     # 带码的链接：设备打开它，批准页只显示这一条请求
     assert grant["verification_uri_complete"] == (
         f"{grant['verification_uri']}?code={grant['user_code']}"

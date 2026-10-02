@@ -94,10 +94,10 @@ Jellyfin 播放器的凭证受协议约束多（令牌格式、同设备覆盖�
 1. **成员也能批准自己的命令行**，令牌的身份与权限就是这个成员；
    **转码器只能由超管批准**（转码是整台服务器的资源）。
 2. **按配对码批准，不再列出全部待批准请求**。`authorize` 响应多了
-   `verification_uri_complete`（`/settings/devices?code=MCLW-XXXX`），设备应
+   `verification_uri_complete`（`/activate?code=MCLW-XXXX`，独立的批准页；旧地址 `/settings/devices?code=` 会跳过去），设备应
    优先打开它；批准页只显示这一条（`GET /auth/devices/requests/{code}`）。成员
    之间看不到彼此的请求，管理员也不会误批一个成员的命令行、让它拿到超管权限。
-   打不开链接的无头机器，人在网页 / App 的「设备」页手动输入配对码。
+   打不开链接的无头机器，人在网页的批准页（`/activate`）或 App 的「设备」页手动输入配对码。
 3. `authorize` 可选上报 `installation_id` / `platform` / `client_version`：同一台
    机器重新配对时替换旧令牌，批准页与设备列表也能写清楚是哪台机器。
 4. 兑换响应的 `granted_by` 是批准者的用户名（「你现在是谁」）。

@@ -750,7 +750,7 @@ async def create_api_token(payload: ApiTokenCreateRequest) -> ApiResponse[ApiTok
 
 
 async def _verification_uri(request: Request) -> str:
-    """用户应当打开的网页地址（批准页）。
+    """用户应当打开的网页地址（批准页 /activate，独立于「设置 → 设备」）。
 
     优先用配置好的「外部访问地址」——那是用户平时访问 movieclaw 的地址，
     也是他浏览器里已经登录着的那个源。没配置时回落到本次请求的地址：
@@ -760,7 +760,7 @@ async def _verification_uri(request: Request) -> str:
     base = (setting.external_url or "").strip().rstrip("/")
     if not base:
         base = str(request.base_url).rstrip("/")
-    return f"{base}/settings/devices"
+    return f"{base}/activate"
 
 
 @router.post(
