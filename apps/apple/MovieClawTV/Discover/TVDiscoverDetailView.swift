@@ -89,7 +89,7 @@ struct TVDiscoverDetailView: View {
                         ForEach(detail.recommendations, id: \.titleRef) { dto in
                             let item = DiscoverPosterItem(dto)
                             TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                                         imageURL: api.image(item.posterUrl, .posterCard),
+                                         imageURL: api.image(item.posterUrl, .tvPoster),
                                          badge: item.libraryStatus != nil ? "已入库" : nil) {
                                 DiscoverMediaSeed.remember(item)
                                 router.push(.discoverTitle(item.resolvedTitleRef))

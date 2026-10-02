@@ -12,6 +12,9 @@ nonisolated enum ImageVariant: String {
     case photoScreen = "photo-screen"
     /// 刷片等画面时垫在横带里的剧照：720p（横带占满屏宽，横卡的 480 放大发虚）
     case reelStill = "reel-still"
+    /// Apple TV 的横卡 / 海报卡：电视画布 1920×1080 点、接 4K 时按 2 倍渲染，手机那两档在电视上会糊
+    case tvLandscape = "tv-landscape"
+    case tvPoster = "tv-poster"
 
     /// 海报墙按主图比例挑预设：横图取横卡，竖图取海报卡
     static func card(aspect: Double?) -> ImageVariant {

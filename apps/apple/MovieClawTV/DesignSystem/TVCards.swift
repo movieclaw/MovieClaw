@@ -45,6 +45,9 @@ struct TVPosterCard: View {
                         }
                     }
                     .clipShape(.rect(cornerRadius: 14))
+                    // 焦点效果要点名套在图上：图是 Nuke 的 LazyImage 包出来的，`.borderless` 自己找不到它，
+                    // 获得焦点时卡片纹丝不动、看不出焦点在哪
+                    .hoverEffect(.highlight)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(.callout.weight(.medium))
@@ -105,6 +108,9 @@ struct TVLandscapeCard: View {
                         }
                     }
                     .clipShape(.rect(cornerRadius: 14))
+                    // 焦点效果要点名套在图上：图是 Nuke 的 LazyImage 包出来的，`.borderless` 自己找不到它，
+                    // 获得焦点时卡片纹丝不动、看不出焦点在哪
+                    .hoverEffect(.highlight)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(.callout.weight(.medium))

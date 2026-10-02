@@ -25,7 +25,7 @@ struct TVSearchView: View {
                         TVShelf(title: group.libraryName, detail: "\(group.items.count) 部") {
                             ForEach(group.items, id: \.mediaItemId) { item in
                                 TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                                             imageURL: api.image(item.posterUrl, .posterCard)) {
+                                             imageURL: api.image(item.posterUrl, .tvPoster)) {
                                     router.push(.item(libraryId: item.libraryId ?? group.libraryId, itemId: item.mediaItemId))
                                 }
                             }

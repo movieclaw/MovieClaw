@@ -266,7 +266,7 @@ private struct TVPlayerContent: View {
                 } else if controller.showsUpNext, let next = controller.nextEpisode {
                     TVUpNextCard(
                         episode: next,
-                        still: controller.scope.api.image(next.stillUrl, .landscapeCard),
+                        still: controller.scope.api.image(next.stillUrl, .tvLandscape),
                         countdown: controller.autoNextArmed ? controller.autoNextProgress : nil
                     ) {
                         controller.noteUserActivity()

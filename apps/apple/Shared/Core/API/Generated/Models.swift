@@ -11114,6 +11114,14 @@ nonisolated extension API {
         var posterAspect: Double
         var backdropUrl: String?
         var episodeStillUrl: String?
+        /// 分集剧照的 TMDB 原图（电视等大屏用）
+        var episodeStillOriginalUrl: String?
+        /// 片名 Logo（透明底，本地资产优先）
+        var logoUrl: String?
+        /// 简介：剧集取卡片这一集的（没有则用整部剧的），电影取影片的
+        var overview: String?
+        /// 类型（如「剧情」「科幻」）
+        var genres: [String]?
         var seasonNumber: Int
         var episodeNumber: Int
         var episodeTitle: String?
@@ -11135,6 +11143,10 @@ nonisolated extension API {
             case posterAspect = "poster_aspect"
             case backdropUrl = "backdrop_url"
             case episodeStillUrl = "episode_still_url"
+            case episodeStillOriginalUrl = "episode_still_original_url"
+            case logoUrl = "logo_url"
+            case overview
+            case genres
             case seasonNumber = "season_number"
             case episodeNumber = "episode_number"
             case episodeTitle = "episode_title"

@@ -25,7 +25,7 @@ struct TVLibraryView: View {
                 header
                 TVPosterGrid(items: wall.items ?? []) { item in
                     TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                                 imageURL: api.image(item.posterUrl, .posterCard)) {
+                                 imageURL: api.image(item.posterUrl, .tvPoster)) {
                         router.push(.item(libraryId: item.libraryId ?? libraryId, itemId: item.mediaItemId))
                     }
                     .onAppear {
@@ -117,7 +117,7 @@ struct TVCollectionView: View {
                     .font(.title.weight(.bold))
                 TVPosterGrid(items: wall.items ?? []) { item in
                     TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                                 imageURL: api.image(item.posterUrl, .posterCard)) {
+                                 imageURL: api.image(item.posterUrl, .tvPoster)) {
                         if let libraryId = item.libraryId {
                             router.push(.item(libraryId: libraryId, itemId: item.mediaItemId))
                         }

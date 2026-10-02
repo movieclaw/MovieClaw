@@ -51,7 +51,7 @@ struct TVSubscriptionsView: View {
                             TVLandscapeCard(
                                 title: card.media.title,
                                 subtitle: SubscriptionsHome.recentDetail(card),
-                                imageURL: api.image(card.stillUrl ?? card.media.backdropUrl ?? card.media.posterUrl, .landscapeCard),
+                                imageURL: api.image(card.stillUrl ?? card.media.backdropUrl ?? card.media.posterUrl, .tvLandscape),
                                 progress: card.progressPercent.map { Double($0) / 100 },
                                 badge: "新"
                             ) {
@@ -82,7 +82,7 @@ struct TVSubscriptionsView: View {
             TVShelf(title: title, detail: "\(shelf.all.count) 部") {
                 ForEach(shelf.all) { entry in
                     TVPosterCard(title: entry.sub.media.title, subtitle: entry.chip?.text ?? entry.meta,
-                                 imageURL: api.image(entry.sub.media.posterUrl, .posterCard),
+                                 imageURL: api.image(entry.sub.media.posterUrl, .tvPoster),
                                  progress: entry.progress,
                                  badge: entry.resting ? SubscriptionStatusMeta.label(entry.sub.status) : nil) {
                         router.push(.discoverTitle("tmdb:\(entry.sub.media.kind):\(entry.sub.media.tmdbId)"))

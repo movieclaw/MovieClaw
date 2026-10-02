@@ -243,7 +243,7 @@ struct TVItemDetailView: View {
         TVLandscapeCard(
             title: "\(episode.episodeNumber). \(episode.name ?? "第 \(episode.episodeNumber) 集")",
             subtitle: episode.owned ? (episode.played ? "已看" : nil) : "缺集",
-            imageURL: api.image(episode.stillUrl, .landscapeCard),
+            imageURL: api.image(episode.stillUrl, .tvLandscape),
             width: 400,
             progress: episode.played ? nil : episode.progressPercent.map { Double($0) / 100 },
             badge: episode.played ? "已看" : nil

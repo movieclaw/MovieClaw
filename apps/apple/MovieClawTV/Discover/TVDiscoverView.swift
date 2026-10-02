@@ -62,7 +62,7 @@ struct TVDiscoverView: View {
         TVShelf(title: title) {
             ForEach(items) { item in
                 TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                             imageURL: api.image(item.posterUrl, .posterCard), badge: badge(for: item)) {
+                             imageURL: api.image(item.posterUrl, .tvPoster), badge: badge(for: item)) {
                     DiscoverMediaSeed.remember(item)
                     router.push(.discoverTitle(item.resolvedTitleRef))
                 }

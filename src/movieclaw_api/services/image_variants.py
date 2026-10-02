@@ -42,6 +42,11 @@ class ImageVariant(StrEnum):
     # 刷片等画面时垫在视频横带里的剧照（docs/design/reels.md）：横带占满手机屏宽，
     # 3x 屏约 1200px，480 的横卡放大 2.5 倍发虚
     REEL_STILL = "reel-still"
+    # Apple TV 的卡片（docs/design/tvos-app.md §2）：电视画布固定 1920×1080 点，接 4K
+    # 电视时按 2 倍渲染。手机那两档（480 横卡 / 328 海报）铺到电视卡片上要再放大约 2 倍，
+    # 三米外也看得出糊，所以电视单独两档
+    TV_LANDSCAPE = "tv-landscape"
+    TV_POSTER = "tv-poster"
 
 
 @dataclass(frozen=True)
@@ -69,6 +74,10 @@ _PRESETS = {
     # 刷片剧照：720p（1280×720），一张约 60～150KB；原图多是 4K，现压要 0.15～0.55 秒（NAS 实测），
     # 所以刷片接口返回一页时就在后台把前几张压好（services/reels/feed.py `_warm_stills`）
     ImageVariant.REEL_STILL: VariantPreset(width=1280, height=720, quality=78),
+    # 电视横卡最宽 460 点（4K 下 920px）：960×540，一张约 60～120KB
+    ImageVariant.TV_LANDSCAPE: VariantPreset(width=960, height=540, quality=80),
+    # 电视海报卡 240 点宽（4K 下 480px）：480×720
+    ImageVariant.TV_POSTER: VariantPreset(width=480, height=720, quality=80),
 }
 
 

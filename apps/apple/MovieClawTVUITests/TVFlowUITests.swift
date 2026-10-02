@@ -127,13 +127,13 @@ final class TVFlowUITests: XCTestCase {
 
     // MARK: 首页 → 续播
 
-    /// 首页大图「继续播放」→ 出画 → 播放暂停键暂停 → 返回键退出播放回到首页
+    /// 首页「接下来继续」第一张卡按确认 → 出画 → 播放暂停键暂停 → 返回键退出播放回到首页
     @MainActor
     func testHomeHeroResumesPlayback() {
         let app = launchSignedIn()
         XCTAssertTrue(app.element("tv-home").waitForExistence(timeout: 20))
         snapshot("10-home")
-        TVRemote.select(app.element("tv-home-hero-play"), trying: [.right, .down])
+        TVRemote.select(app.element("tv-home-continue-0"), trying: [.down, .left])
         waitForPlayback(app)
         snapshot("11-playing")
         TVRemote.press(.playPause)

@@ -1,19 +1,38 @@
+import Nuke
 import SwiftUI
 
-/// 首页（docs/design/tvos-app.md §3.1）：顶部大图 +「接下来继续」+ 用户在网页自定义的行。
+/// 首页（docs/design/tvos-app.md §3.1）：首屏是「接下来继续」的大图区，下面接用户在网页自定义的行。
+///
+/// 大图区是**焦点驱动**的（2026-10-02 用户选定，同 Netflix 新版电视首页、Infuse）：
+/// - 首屏底部一行「接下来继续」小卡；整页背景剧照、片名、简介永远讲焦点所在的那一部，左右移动时交叉淡入；
+/// - 不自动轮播：画面只在用户移动焦点时才换，按确认键播放的一定是眼前这部（「继续观看」是要挑着看的，
+///   自己会转的轮播一次只露一部，还会在焦点底下换片）；
+/// - 确认键直接续播（播放第一）；长按确认键弹菜单，可以进详情；
+/// - 焦点离开这一行（往下看别的行、展开侧边栏）时，大图停在最后看的那一部；
+/// - 页面底色取大图主色（与 iPhone 订阅首页 / 发现页同一套取色），往下滚时剧照淡出、颜色退淡。
 ///
 /// 数据与 iPhone 版、网页同一份：`LibraryHomeStore`（快照秒开、静默刷新）按 `ui.preferences.home.rows`
-/// 合并出行清单（`HomeRows`），这里只是换成电视的排布——第一屏就是「接下来继续」，按确认键直接续播。
-/// 「我的媒体库」这一行在电视上不画：侧边栏已经列出了每个库。
+/// 合并出行清单（`HomeRows`）。「接下来继续」这一行在电视上就是首屏大图区（用户在网页隐藏了这一行就不画），
+/// 其余行按顺序接在下面；「我的媒体库」这一行不画：侧边栏已经列出了每个库。
 struct TVHomeView: View {
     @Environment(\.api) private var api
     @Environment(AppModel.self) private var model
     @Environment(TVRouter.self) private var router
 
     private var store: LibraryHomeStore { .shared }
-    /// 首页第一次有内容时把焦点放到「继续播放」上（之后不再抢：用户可能正在侧边栏里）
-    @FocusState private var heroPlayFocused: Bool
+    /// 焦点所在的「接下来继续」卡（条目 id）；焦点不在这一行时为 nil
+    @FocusState private var focusedCard: Int?
+    /// 大图区正在讲的那一部（条目 id）：焦点停稳后才跟过去，按住方向键一路划过时不逐张闪
+    @State private var stageId: Int?
+    /// 大图剧照的主色（页面氛围底色）
+    @State private var tint: Color?
+    /// 列表滚动距离：只给背景层读，滚动时不重算整页
+    @State private var scroll = TVHomeScroll()
+    /// 首页第一次有内容时把焦点放到第一张卡上（播放第一：开机按确认就续播）；之后不再抢，用户可能正在侧边栏里
     @State private var focusedOnce = false
+
+    /// 预载焦点左右两部的剧照：原图约 1MB，等焦点移过去才下载会闪一下空底
+    private static let prefetcher = ImagePrefetcher()
 
     private var owner: String {
         PageSnapshots.owner(server: api.server, username: model.session?.username ?? "")
@@ -50,54 +69,111 @@ struct TVHomeView: View {
     }
 
     private var content: some View {
-        ScrollView(.vertical) {
+        let visibleRows = rows
+        let upNext = visibleRows.contains { $0.kind == .upNext } ? (store.upNext ?? []) : []
+        let stage = upNext.first { $0.mediaItemId == stageId } ?? upNext.first
+        let backdrop = stage.flatMap(stageImageURL)
+        return ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: TVMetrics.rowSpacing) {
-                if let hero = heroItem {
-                    TVHomeHero(item: hero, playFocused: $heroPlayFocused) { resume(hero) }
+                if let stage {
+                    stageSection(stage, items: upNext)
+                } else {
+                    // 没有大图区时第一行别和左上角侧边栏收起后的按钮挤在一起
+                    Color.clear.frame(height: 30)
                 }
-                ForEach(rows) { row in
+                ForEach(visibleRows) { row in
                     rowView(row)
                 }
             }
             .padding(.bottom, 80)
         }
         .scrollClipDisabled()
-        // 顶部大图铺到屏幕上沿
-        .ignoresSafeArea(edges: [.horizontal, .top])
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top
+        } action: { _, offset in
+            scroll.offset = offset
+        }
+        // 只横向铺满（横滑行自己补左边距）。顶部保留安全区：列表静止时内容从左上角侧边栏按钮的下沿排起，
+        // 首屏不必自己留白避让；大图背景在 background 里自己铺满全屏，不受影响
+        .ignoresSafeArea(edges: .horizontal)
+        .background {
+            TVHomeBackdrop(url: backdrop, tint: stage == nil ? nil : tint, scroll: scroll)
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-home")
-        .task(id: heroItem?.mediaItemId) {
-            guard !focusedOnce, heroItem != nil else { return }
+        .task(id: upNext.first?.mediaItemId) {
+            guard !focusedOnce, let first = upNext.first else { return }
             focusedOnce = true
-            // 等这一帧布局完再挪焦点，否则按钮还没进焦点系统
+            // 等这一帧布局完再挪焦点，否则卡片还没进焦点系统
             try? await Task.sleep(for: .milliseconds(150))
-            heroPlayFocused = true
+            focusedCard = first.mediaItemId
+        }
+        // 焦点停稳 0.16 秒再换大图：按住方向键一路划过去时，中间那些不逐张加载、逐张闪
+        .task(id: focusedCard) {
+            guard let id = focusedCard, id != stageId else { return }
+            try? await Task.sleep(for: .milliseconds(160))
+            guard !Task.isCancelled else { return }
+            withAnimation(.easeInOut(duration: 0.45)) { stageId = id }
+        }
+        // 换了一部：取主色铺底；预载左右两部的剧照，焦点移过去时直接从内存出图
+        .task(id: backdrop) {
+            if let stage, let index = upNext.firstIndex(where: { $0.mediaItemId == stage.mediaItemId }) {
+                let neighbours = [index - 1, index + 1].filter { upNext.indices.contains($0) }
+                Self.prefetcher.startPrefetching(with: neighbours.compactMap { stageImageURL(upNext[$0]) })
+            }
+            guard let backdrop, let color = await ImmersiveHeroAmbientColor.color(for: backdrop), !Task.isCancelled else { return }
+            tint = color
         }
     }
 
-    /// 顶部大图：接下来继续的第一部（打开 App 最想做的就是接着看）
-    private var heroItem: API.UpNextItemView? {
-        store.upNext?.first
+    /// 首屏文字区的高度。整个首屏的竖向尺寸是按 tvOS 的焦点滚动规则倒推的：列表静止在顶部时
+    /// （内容从侧边栏按钮下沿排起），获得焦点的卡片连同下面两行字要离屏幕底边一百来点，否则系统会
+    /// 自己把列表往上滚一截让出余量——启动时滚了、从下面的行回来时又滚回顶部，首屏就上下跳。
+    /// 文字区 368 + 卡片行刚好满足（实测 378 时启动会被系统滚动 7 点）；下一行的标题从屏幕底边露出来，暗示下面还有
+    private static let stageInfoHeight: CGFloat = 368
+
+    /// 首屏：上面讲焦点那一部，底部一行「接下来继续」。
+    /// - 文字区高度固定、文字贴底排：有没有 Logo、简介几行都只影响文字往上长多少，卡片行纹丝不动；
+    /// - 换一部时新旧两段文字在同一个框里叠着交叉淡入——不能让它们在 VStack 里上下并排，
+    ///   否则过渡那一下首屏会被撑高、整块往上跳
+    private func stageSection(_ stage: API.UpNextItemView, items: [API.UpNextItemView]) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            ZStack(alignment: .bottomLeading) {
+                TVHomeStageInfo(item: stage)
+                    .id(stage.mediaItemId)
+                    .transition(.opacity)
+            }
+            .frame(maxWidth: .infinity, alignment: .bottomLeading)
+            .frame(height: Self.stageInfoHeight, alignment: .bottomLeading)
+            .padding(.horizontal, TVMetrics.edge)
+            TVShelf(title: "接下来继续") {
+                ForEach(Array(items.enumerated()), id: \.element.mediaItemId) { index, item in
+                    upNextCard(item)
+                        .focused($focusedCard, equals: item.mediaItemId)
+                        .accessibilityIdentifier("tv-home-continue-\(index)")
+                }
+            }
+        }
+    }
+
+    /// 大图区的整页背景：条目的背景图原图（按 Plex / Emby 的规范应是无字高清图，取决于刮削的选图偏好）。
+    /// 剧集用整部剧的而不是这一集的剧照（后者最多 1080p，也容易剧透）；没有背景图退回分集剧照原图，再没有用海报
+    private func stageImageURL(_ item: API.UpNextItemView) -> URL? {
+        api.image(item.backdropUrl ?? item.episodeStillOriginalUrl ?? item.episodeStillUrl ?? item.posterUrl)
     }
 
     @ViewBuilder
     private func rowView(_ row: HomeRows.Row) -> some View {
         switch row.kind {
         case .upNext:
-            if let items = store.upNext, items.count > 1 {
-                TVShelf(title: row.title) {
-                    // 第一部已经在顶部大图里
-                    ForEach(items.dropFirst(), id: \.mediaItemId) { item in
-                        upNextCard(item)
-                    }
-                }
-            }
+            // 已经是首屏的大图区
+            EmptyView()
         case .favorites:
             if let items = store.favorites?.items, !items.isEmpty {
                 TVShelf(title: row.title) {
                     ForEach(items, id: \.mediaItemId) { item in
                         TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                                     imageURL: api.image(item.posterUrl, .posterCard)) {
+                                     imageURL: api.image(item.posterUrl, .tvPoster)) {
                             router.push(.item(libraryId: item.libraryId, itemId: item.mediaItemId))
                         }
                     }
@@ -113,7 +189,7 @@ struct TVHomeView: View {
                 TVShelf(title: row.title) {
                     ForEach(items, id: \.mediaItemId) { item in
                         TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                                     imageURL: api.image(item.posterUrl, .posterCard)) {
+                                     imageURL: api.image(item.posterUrl, .tvPoster)) {
                             if let libraryId = item.libraryId ?? Self.libraryId(of: row) {
                                 router.push(.item(libraryId: libraryId, itemId: item.mediaItemId))
                             }
@@ -124,17 +200,28 @@ struct TVHomeView: View {
         }
     }
 
+    /// 「接下来继续」的一张卡：剧集用这一集的剧照（TMDB 原图压成电视横卡，本地只有 300 宽的小图），
+    /// 电影用剧照。确认键续播；长按确认键出菜单（续播 / 详情）
     private func upNextCard(_ item: API.UpNextItemView) -> some View {
         let isEpisode = item.kind == "tv"
-        let still = isEpisode ? (item.episodeStillUrl ?? item.backdropUrl) : (item.backdropUrl ?? item.posterUrl)
+        let still = isEpisode
+            ? (item.episodeStillOriginalUrl ?? item.episodeStillUrl ?? item.backdropUrl)
+            : (item.backdropUrl ?? item.posterUrl)
         return TVLandscapeCard(
             title: item.title,
             subtitle: Self.upNextSubtitle(item),
-            imageURL: api.image(still, .landscapeCard),
+            imageURL: api.image(still, .tvLandscape),
+            width: 360,
             progress: item.progressPercent.map { Double($0) / 100 },
             badge: item.advanced ? "下一集" : nil
         ) {
             resume(item)
+        }
+        .contextMenu {
+            Button(item.positionMs > 0 ? "继续播放" : "播放", systemImage: "play.fill") { resume(item) }
+            Button("查看详情", systemImage: "info.circle") {
+                router.push(.item(libraryId: item.libraryId, itemId: item.mediaItemId))
+            }
         }
     }
 
@@ -175,69 +262,5 @@ struct TVHomeView: View {
 
     private func reload() async {
         await store.reload(api: api, owner: owner)
-    }
-}
-
-/// 首页顶部大图：背景剧照铺满上半屏，左下片名 + 进度说明 +「继续播放」「详情」两个按钮
-struct TVHomeHero: View {
-    let item: API.UpNextItemView
-    var playFocused: FocusState<Bool>.Binding
-    let play: () -> Void
-
-    @Environment(\.api) private var api
-    @Environment(TVRouter.self) private var router
-
-    var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            RemoteImage(url: api.image(item.backdropUrl ?? item.episodeStillUrl ?? item.posterUrl))
-                .frame(maxWidth: .infinity)
-                .frame(height: 760)
-                .clipped()
-                .overlay {
-                    LinearGradient(colors: [.clear, .black.opacity(0.35), .black], startPoint: .top, endPoint: .bottom)
-                }
-                .overlay {
-                    LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .leading, endPoint: .center)
-                }
-            VStack(alignment: .leading, spacing: 18) {
-                Text(item.advanced ? "下一集" : "继续观看")
-                    .font(.caption.weight(.semibold))
-                    .tracking(3)
-                    .foregroundStyle(.secondary)
-                Text(item.title)
-                    .font(.system(size: 64, weight: .bold))
-                    .lineLimit(2)
-                    .shadow(radius: 10)
-                if let subtitle = TVHomeView.upNextSubtitle(item) {
-                    Text(subtitle)
-                        .font(.title3)
-                        .foregroundStyle(.secondary)
-                }
-                if let percent = item.progressPercent, percent > 0 {
-                    TVProgressStrip(value: Double(percent) / 100)
-                        .frame(width: 420)
-                }
-                HStack(spacing: 28) {
-                    Button(action: play) {
-                        Label(item.positionMs > 0 ? "继续播放" : "播放", systemImage: "play.fill")
-                            .padding(.horizontal, 12)
-                    }
-                    .focused(playFocused)
-                    .accessibilityIdentifier("tv-home-hero-play")
-                    Button {
-                        router.push(.item(libraryId: item.libraryId, itemId: item.mediaItemId))
-                    } label: {
-                        Label("详情", systemImage: "info.circle")
-                            .padding(.horizontal, 12)
-                    }
-                }
-                .padding(.top, 8)
-            }
-            .padding(.horizontal, TVMetrics.edge)
-            .padding(.bottom, 40)
-            .focusSection()
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("tv-home-hero")
     }
 }
