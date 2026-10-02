@@ -33,9 +33,7 @@ struct TVMainView: View {
     private var permissions: Permissions { session.map(Permissions.init(session:)) ?? .none }
 
     /// 当前页签在顶栏上对应的那一项
-    private var currentBarItem: TVBarItem {
-        router.selectedTab == .account ? .account : .tab(router.selectedTab)
-    }
+    private var currentBarItem: TVBarItem { .tab(router.selectedTab) }
 
     /// 顶栏露不露出来：只在根页面；页面滚离顶部就收走，焦点回到顶栏时再出来
     private var barVisible: Bool {
@@ -48,6 +46,7 @@ struct TVMainView: View {
         // 根页面的滚动位置不保留——切页只会发生在顶栏上，而顶栏只在根页面顶部露出来，切走时本来就在顶部
         TVTabRoot(tab: router.selectedTab) { page(for: router.selectedTab) }
             .id(router.selectedTab)
+            .environment(\.tvTopBarFocused, barFocus != nil)
         .prefersDefaultFocus(!barPreferred, in: focusNamespace)
         // 根页面上按返回键：焦点在内容里就把页面滚回顶部、焦点回到顶栏的当前页签（同系统标签栏）；
         // 已经在顶栏（或在二级页）就交给系统（二级页出栈 / 退回主屏幕）
@@ -67,7 +66,7 @@ struct TVMainView: View {
                 barPreferred = false
                 switch item {
                 case .account:
-                    router.selectedTab = .account
+                    router.profilesPresented = true
                 case .search:
                     // 搜索压栈成整页：顶栏随之收起，焦点整个进到搜索页，系统的屏幕键盘才会展开、接住焦点
                     // （搜索页若在焦点还停在顶栏上时建出来，键盘是收着的）
@@ -77,9 +76,11 @@ struct TVMainView: View {
                     resetFocus(in: focusNamespace)
                 }
             }
+                // 收走时全透明，也就不参与焦点；在页面最上面的元素上按「上」，系统先把页面滚回顶部（顶栏随之露出），
+                // 再按一下进顶栏，与系统标签栏一致
                 .opacity(barVisible ? 1 : 0)
                 .offset(y: barVisible ? 0 : -40)
-                // 收走时仍可获得焦点（焦点一进来它就露出来）；二级页里整条不参与焦点，免得在详情页顶部往上按跳进看不见的顶栏
+                // 二级页里整条不参与焦点，免得在详情页顶部往上按跳进看不见的顶栏
                 .disabled(!router.atRoot)
                 .animation(.easeOut(duration: 0.25), value: barVisible)
         }
@@ -99,6 +100,13 @@ struct TVMainView: View {
         .environment(libraries)
         .environment(\.api, api)
         .environment(\.permissions, permissions)
+        // 点头像：「谁在看」盖在主界面上，关掉回到原来的页面（选别人则整棵主界面按新账号重建）
+        .fullScreenCover(isPresented: $router.profilesPresented) {
+            TVWhoIsWatchingView(onClose: { router.profilesPresented = false }, onAbout: {
+                router.profilesPresented = false
+                router.push(.about)
+            })
+        }
         .fullScreenCover(item: $router.player) { request in
             TVPlayerScreen(request: request)
                 .environment(router)
@@ -107,6 +115,7 @@ struct TVMainView: View {
         .task {
             await libraries.load(api: api)
         }
+
         .onAppear {
             // 点播放就开始起播（同 iPhone 版 Router.startPlaybackEarly）：API 客户端在点击那一刻取，换过账号用的是新的
             router.startPlaybackEarly = { [router, model] request in
@@ -141,6 +150,12 @@ struct TVMainView: View {
         }
         #if DEBUG
         .task {
+            // 开发期：-mcTab account 打开「谁在看」（旧的账号页签）。等主界面出现后再弹，首帧就要求弹全屏页时有时弹不出来
+            guard UserDefaults.standard.string(forKey: "mcTab") == "account" else { return }
+            try? await Task.sleep(for: .milliseconds(300))
+            router.profilesPresented = true
+        }
+        .task {
             // 开发期：-mcRoute 直接打开一个站内路径（目前支持 /play/{id}[/sXXeYY][?t=秒]，模拟器验收用）
             guard let path = DebugLaunch.route else { return }
             if let delay = DebugLaunch.routeDelay, delay > 0 {
@@ -156,7 +171,6 @@ extension TVMainView {
     @ViewBuilder
     fileprivate func page(for tab: MainTab) -> some View {
         switch tab {
-        case .account: TVAccountView()
         case .home: TVHomeView()
         case .subscriptions: TVSubscriptionsView()
         case .discover: TVDiscoverView()

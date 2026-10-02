@@ -16,7 +16,7 @@ enum TVBarItem: Hashable {
 /// 把系统标签栏藏起来也不行——藏了它照样给页面顶部留着自己的位置（实测内容被压低 97 点），
 /// 首页首屏的尺寸就对不上了。所以页签容器在 `TVMainView` 里自己管，这里按系统标签栏的规矩补齐交互：
 /// - 焦点移到胶囊里哪一项就切到哪个页签（与系统标签栏一致，不用再按确认）；
-/// - 账号与搜索是按钮：焦点路过不动，按确认才打开（账号页是一个页签，搜索压栈成整页）；
+/// - 账号与搜索是按钮：焦点路过不动，按确认才打开（账号打开全屏的「谁在看」，搜索压栈成整页）；
 /// - 只在根页面出现，压栈进详情、搜索等二级页就整条收起；
 /// - 根页面往下滚离顶部时收走（页面挂 `tvTopBarFollowsScroll()` 才会收，没挂的页面顶栏常驻）；
 /// - 根页面上按返回键，焦点先回到顶栏的当前页签，再按一次才退出 App（由 `TVMainView` 接）。
@@ -51,6 +51,11 @@ struct TVTopBar: View {
         .frame(height: Self.height)
         // 焦点区只框住顶栏这一条：框大了（比如框到整屏）系统按几何找上下邻居时会乱跳
         .focusSection()
+        // 往下按回到页面的首选焦点（同系统标签栏：大图的主按钮、首页第一张卡），不按几何就近找——
+        // 页签居中，正下方往往是某一行中间的卡片，会跳过左边大图里的「播放」
+        .onMoveCommand { direction in
+            if direction == .down { select(.tab(router.selectedTab)) }
+        }
         .padding(.top, Self.top)
         .frame(maxHeight: .infinity, alignment: .top)
         .ignoresSafeArea(edges: .top)
@@ -88,9 +93,8 @@ struct TVTopBar: View {
                 }
             }
         }
-        .buttonStyle(TVTopBarItemStyle(selected: router.selectedTab == .account, padding: 8))
+        .buttonStyle(TVTopBarItemStyle(selected: false, padding: 8))
         .focused(focus, equals: .account)
-        .prefersDefaultFocus(preferredItem == .account, in: focusNamespace)
         .accessibilityIdentifier("tv-topbar-account")
     }
 
@@ -109,7 +113,6 @@ struct TVTopBar: View {
 
     static func title(_ tab: MainTab) -> String {
         switch tab {
-        case .account: "账号"
         case .home: "媒体库"
         case .subscriptions: "订阅"
         case .discover: "发现"
@@ -152,6 +155,8 @@ private struct TVTopBarItemStyle: ButtonStyle {
 extension EnvironmentValues {
     /// 当前视图是哪个页签的根页面（压栈页面里是 nil）：顶栏随根页面滚动收起时用
     @Entry var tvRootTab: MainTab?
+    /// 焦点此刻在顶栏上：页面「首次有内容就把焦点放到某处」之前先看它，别把正在顶栏上切页签的人拽下来
+    @Entry var tvTopBarFocused = false
 }
 
 extension View {

@@ -20,6 +20,7 @@ struct TVHomeView: View {
     @Environment(AppModel.self) private var model
     @Environment(TVRouter.self) private var router
     @Environment(TVLibraryDirectory.self) private var directory
+    @Environment(\.tvTopBarFocused) private var topBarFocused
 
     private var store: LibraryHomeStore { .shared }
     /// 焦点所在的「接下来继续」卡（条目 id）；焦点不在这一行时为 nil
@@ -30,7 +31,8 @@ struct TVHomeView: View {
     @State private var tint: Color?
     /// 列表滚动距离：只给背景层读，滚动时不重算整页
     @State private var scroll = TVHomeScroll()
-    /// 首页第一次有内容时把焦点放到第一张卡上（播放第一：开机按确认就续播）；之后不再抢，用户可能正在顶栏里
+    /// 首页第一次有内容时把焦点放到第一张卡上（播放第一：开机按确认就续播）；之后不再抢。
+    /// 焦点在顶栏上时也不抢：切页签会重建页面，用户在顶栏上左右移动经过「媒体库」时不能被拽下来
     @State private var focusedOnce = false
 
     /// 预载焦点左右两部的剧照：原图约 1MB，等焦点移过去才下载会闪一下空底
@@ -109,6 +111,7 @@ struct TVHomeView: View {
             focusedOnce = true
             // 等这一帧布局完再挪焦点，否则卡片还没进焦点系统
             try? await Task.sleep(for: .milliseconds(150))
+            guard !topBarFocused else { return }
             focusedCard = first.mediaItemId
         }
         // 焦点停稳 0.16 秒再换大图：按住方向键一路划过去时，中间那些不逐张加载、逐张闪

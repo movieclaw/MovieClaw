@@ -415,18 +415,63 @@ struct TVProfileButton: View {
     var body: some View {
         Button(action: action) {
             VStack(spacing: 20) {
-                TVAvatar(url: server.imageURL(AvatarURL.tagged(account.avatarUrl, username: account.username)),
-                         name: account.nickname, size: 220)
+                TVProfileAvatarFocus {
+                    TVAvatar(url: server.imageURL(AvatarURL.tagged(account.avatarUrl, username: account.username)),
+                             name: account.nickname, size: 220)
+                }
                 VStack(spacing: 6) {
                     Text(account.nickname).font(.headline)
-                    Text(server.hostLabel)
+                    // 从顶栏打开时标出当前是谁
+                    Text(current ? "正在使用 · \(server.hostLabel)" : server.hostLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
             }
         }
-        .buttonStyle(.borderless)
+        .buttonStyle(TVProfileButtonStyle())
         .accessibilityIdentifier("tv-profile-\(account.username)")
+    }
+}
+
+/// 选人页大头像的按钮样式（同 Netflix 选人页）：获得焦点的那个整体提亮、头像放大套白边；其余压暗一点。
+/// 不用系统的 `.borderless`：它只给能找到的 `Image` 加抬起效果，首字母头像、网络图头像都没有反应
+struct TVProfileButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        StyleBody(configuration: configuration)
+    }
+
+    private struct StyleBody: View {
+        let configuration: Configuration
+        @Environment(\.isFocused) private var focused
+
+        var body: some View {
+            configuration.label
+                .environment(\.tvProfileFocused, focused)
+                .opacity(focused ? 1 : 0.65)
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
+                .animation(.easeOut(duration: 0.2), value: focused)
+        }
+    }
+}
+
+extension EnvironmentValues {
+    /// 所在的选人按钮获得了焦点（`TVProfileButtonStyle` 往下传，头像据此放大）
+    @Entry var tvProfileFocused = false
+}
+
+/// 套在选人按钮的头像外面：获得焦点时放大、白边、投影（只动头像，下面的字不跟着放大）
+struct TVProfileAvatarFocus<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+    @Environment(\.tvProfileFocused) private var focused
+
+    var body: some View {
+        content()
+            .overlay {
+                Circle().strokeBorder(.white, lineWidth: focused ? 6 : 0)
+            }
+            .scaleEffect(focused ? 1.12 : 1)
+            .shadow(color: .black.opacity(focused ? 0.55 : 0), radius: 28, y: 14)
+            .animation(.easeOut(duration: 0.2), value: focused)
     }
 }
 

@@ -19,6 +19,8 @@ final class TVRouter {
     }
     /// 全屏播放器
     var player: PlayRequest?
+    /// 「谁在看」盖在主界面上（点顶栏左上角的头像）
+    var profilesPresented = false
     /// 正在播放的控制器：播放器视图出现时接过去（同 iPhone 版 `Router.activePlayback`）
     var activePlayback: PlaybackController?
 

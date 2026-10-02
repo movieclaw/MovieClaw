@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// 「谁在看」的开关（docs/design/tvos-app.md §5.2）：电视上登录过不止一个账号时，启动先问一句「谁在看」；
-/// 账号页的「切换账号」也是重新打开它。放进环境，主界面任何地方都能唤起。
+/// 「谁在看」的开关（docs/design/tvos-app.md §5.2）：电视上登录过不止一个账号时，启动先问一句「谁在看」。
+/// 主界面里点顶栏的头像打开的是同一页，但那是盖在主界面上的（`TVMainView`），不经过这个开关。
 @Observable
 final class TVProfileGate {
     /// 本次启动已经选过人了（或已按 Apple TV 的系统用户自动选好，见 `TVUserProfiles`）
@@ -12,16 +12,25 @@ final class TVProfileGate {
     }
 
     func pickedProfile() { picked = true }
-    func show() { picked = false }
 }
 
-/// 谁在看：本机登录过的全部账号（跨服务器）大头像横排，焦点放大，按确认键进入。
-/// 选的就是当前账号直接进主界面；选别人就换一枚令牌（不联网、不用密码），主界面整棵重建
+/// 谁在看：本机登录过的全部账号（跨服务器）大头像横排，星空背景，焦点放大，按确认键进入
+/// （docs/design/tvos-app.md §5.2，同 Netflix 的选人页、tvOS 26 唤醒时的选人）。两种打开方式：
+/// - **启动时**（`onClose == nil`）：这台电视上登录过不止一个账号，先问一句，选好了才进主界面；
+/// - **点顶栏左上角的头像**（`onClose` 有值）：盖在主界面上，当前账号默认获得焦点。返回键或选自己就关掉，
+///   回到原来的页面、浏览位置不丢；选别人就换一枚令牌（不联网、不用密码），主界面整棵重建。
+///   底部多一行「关于」「退出登录」——电视上与账号有关的操作都在这一页，不再有单独的账号页。
 struct TVWhoIsWatchingView: View {
+    /// 从顶栏打开时的关闭动作；启动时的选人页为 nil（没有可以退回去的页面）
+    var onClose: (() -> Void)?
+    /// 从顶栏打开时「关于」：关掉本页、在当前页签里压栈打开关于页
+    var onAbout: (() -> Void)?
+
     @Environment(AppModel.self) private var model
     @Environment(TVProfileGate.self) private var gate
     @State private var error: String?
     @State private var addingAccount = false
+    @State private var confirmingLogout = false
 
     private var accounts: [SavedAccount] {
         model.savedServers.flatMap { saved in saved.accounts.map { SavedAccount(server: saved.address, account: $0) } }
@@ -44,10 +53,23 @@ struct TVWhoIsWatchingView: View {
                 if let error {
                     Text(error).foregroundStyle(Theme.danger)
                 }
+                if onClose != nil {
+                    actions
+                }
             }
         }
+        .onExitCommand(perform: onClose)
         .fullScreenCover(isPresented: $addingAccount) {
             TVAddAccountView()
+        }
+        .alert("退出登录？", isPresented: $confirmingLogout) {
+            Button("退出", role: .destructive) {
+                TVTopShelfPublisher.clear()
+                Task { await model.logout() }
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("「\(model.session?.nickname ?? "")」在这台 Apple TV 上的登录会在服务器上一并注销。同一台服务器上还有别的账号时会自动切过去。")
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-who-is-watching")
@@ -58,27 +80,45 @@ struct TVWhoIsWatchingView: View {
     private var profiles: some View {
         HStack(spacing: 70) {
             ForEach(accounts) { saved in
-                TVProfileButton(account: saved.account, server: saved.server) {
+                TVProfileButton(account: saved.account, server: saved.server, current: onClose != nil && saved.id == currentID) {
                     Task { await pick(saved) }
                 }
                 .focused($focusedAccount, equals: saved.id)
             }
             Button { addingAccount = true } label: {
                 VStack(spacing: 20) {
-                    ZStack {
-                        Circle().fill(.white.opacity(0.1))
-                        Image(systemName: "plus").font(.system(size: 64, weight: .light))
+                    TVProfileAvatarFocus {
+                        ZStack {
+                            Circle().fill(.white.opacity(0.1))
+                            Image(systemName: "plus").font(.system(size: 64, weight: .light))
+                        }
+                        .frame(width: 220, height: 220)
                     }
-                    .frame(width: 220, height: 220)
                     Text("添加账号").font(.headline)
                     Text(" ").font(.caption)
                 }
             }
-            .buttonStyle(.borderless)
+            .buttonStyle(TVProfileButtonStyle())
             .accessibilityIdentifier("tv-profile-add")
         }
         .padding(.horizontal, TVMetrics.edge)
         .padding(.vertical, 40)
+    }
+
+    /// 次要操作：小一号、靠下，不和选人抢视线
+    private var actions: some View {
+        HStack(spacing: 30) {
+            Button { onAbout?() } label: {
+                Label("关于", systemImage: "info.circle")
+            }
+            .accessibilityIdentifier("tv-profiles-about")
+            Button(role: .destructive) { confirmingLogout = true } label: {
+                Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
+            }
+            .accessibilityIdentifier("tv-profiles-logout")
+        }
+        .font(.callout)
+        .focusSection()
     }
 
     private var currentID: String? {
@@ -89,6 +129,7 @@ struct TVWhoIsWatchingView: View {
     private func pick(_ saved: SavedAccount) async {
         if saved.server == model.server, saved.account.username == model.session?.username {
             gate.pickedProfile()
+            onClose?()
             return
         }
         do {
@@ -100,66 +141,6 @@ struct TVWhoIsWatchingView: View {
         } catch {
             self.error = error.localizedDescription
         }
-    }
-}
-
-/// 顶栏左上角的账号页：当前是谁、在哪台服务器，以及切换账号 / 添加账号 / 关于 / 退出登录
-struct TVAccountView: View {
-    @Environment(AppModel.self) private var model
-    @Environment(TVProfileGate.self) private var gate
-    @Environment(TVRouter.self) private var router
-    @Environment(\.api) private var api
-    @State private var confirmingLogout = false
-    @State private var addingAccount = false
-
-    var body: some View {
-        VStack(spacing: 50) {
-            if let session = model.session, let server = model.server {
-                TVAvatar(url: server.imageURL(AvatarURL.tagged(session.avatarUrl, username: session.username)),
-                         name: session.nickname, size: 260)
-                VStack(spacing: 12) {
-                    Text(session.nickname)
-                        .font(.title.weight(.bold))
-                    Text("\(session.roleLabel) · \(server.hostLabel)")
-                        .font(.callout)
-                        .foregroundStyle(.secondary)
-                }
-            }
-            HStack(spacing: 30) {
-                Button { gate.show() } label: {
-                    Label("切换账号", systemImage: "person.2")
-                }
-                .accessibilityIdentifier("tv-account-switch")
-                Button { addingAccount = true } label: {
-                    Label("添加账号", systemImage: "person.badge.plus")
-                }
-                .accessibilityIdentifier("tv-account-add")
-                Button { router.push(.about) } label: {
-                    Label("关于", systemImage: "info.circle")
-                }
-                .accessibilityIdentifier("tv-account-about")
-                Button(role: .destructive) { confirmingLogout = true } label: {
-                    Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
-                }
-                .accessibilityIdentifier("tv-account-logout")
-            }
-            .focusSection()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .alert("退出登录？", isPresented: $confirmingLogout) {
-            Button("退出", role: .destructive) {
-                TVTopShelfPublisher.clear()
-                Task { await model.logout() }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("这台 Apple TV 上的登录会在服务器上一并注销。同一台服务器上还有别的账号时会自动切过去。")
-        }
-        .fullScreenCover(isPresented: $addingAccount) {
-            TVAddAccountView()
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("tv-account")
     }
 }
 

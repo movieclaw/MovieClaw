@@ -155,6 +155,9 @@ struct TVDiscoverHero: View {
                 }
                 .padding(.top, 8)
                 .accessibilityIdentifier("tv-discover-hero-detail")
+                // 「详情」这一行横贯整屏做成焦点区：从上面的「片段」（偏右）往下按也会先落到这里，不会越过大图直接进下面的海报行
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .focusSection()
             }
             .padding(.horizontal, TVMetrics.edge)
             .padding(.bottom, 40)
