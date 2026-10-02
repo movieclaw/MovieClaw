@@ -497,16 +497,33 @@ enum TabIcon {
 /// 外层注入的 `.topBarTrailing` 会排到页面按钮前面，所以放 `.primaryAction`（固定在最右），
 /// 再用固定间隔隔开：页面按钮在左边自成一组，搜索是独立圆钮。例外是媒体库：「▶ 片段」作为本页主操作
 /// 也放 `.primaryAction`，排在搜索右边（2026-09-30 用户拍板「⋯ · 搜索 · ▶ 片段」）。
+///
+/// 「我的」页在搜索左边多一个扫码钮，两者同在一个玻璃胶囊里（2026-10-02 用户要的「扫码 · 搜索」）：
+/// 扫电视 / 终端上的登录二维码 → 直达独立的批准页（DeviceApprovalView）。
 struct AppTopBar: ViewModifier {
     let tab: MainTab
     @Environment(Router.self) private var router
     @Environment(\.searchAccess) private var searchAccess
+    @State private var scanning = false
 
     func body(content: Content) -> some View {
         content.toolbar {
+            if tab == .more || searchAccess.canOpenSearch {
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+            }
+            if tab == .more {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        scanning = true
+                    } label: {
+                        Image(systemName: "qrcode.viewfinder")
+                    }
+                    .accessibilityLabel("扫码批准设备登录")
+                    .accessibilityIdentifier("open-scanner")
+                }
+            }
             // 任一搜索分区可用就给入口（影视 / 资源 / 媒体库，见 SearchAccess.canOpenSearch）
             if searchAccess.canOpenSearch {
-                ToolbarSpacer(.fixed, placement: .primaryAction)
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         router.push(.searchHome(mode: preferredSearchMode))
@@ -517,6 +534,18 @@ struct AppTopBar: ViewModifier {
                     .accessibilityIdentifier("open-search")
                 }
             }
+        }
+        .fullScreenCover(isPresented: $scanning) {
+            PairingScannerScreen(
+                onScanned: { scanned in
+                    scanning = false
+                    router.push(.deviceApproval(code: scanned.code, scannedHost: scanned.host))
+                },
+                onManualEntry: {
+                    scanning = false
+                    router.push(.deviceApproval())
+                }
+            )
         }
     }
 }

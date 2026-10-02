@@ -45,12 +45,12 @@ final class SettingsAUITests: XCTestCase {
     // MARK: 工具
 
     @MainActor
-    private func launch(route: String) throws -> XCUIApplication {
+    private func launch(route: String, extra: [String] = []) throws -> XCUIApplication {
         guard let password else { throw XCTSkip("未提供 MC_TEST_PASSWORD，跳过联调用例") }
         continueAfterFailure = false
         if probe == nil { probe = try SettingsTestAPI(server: server, username: username, password: password) }
         let app = XCUIApplication()
-        app.launchArguments = ["-mcServer", server, "-mcUser", username, "-mcPass", password, "-mcRoute", route]
+        app.launchArguments = ["-mcServer", server, "-mcUser", username, "-mcPass", password, "-mcRoute", route] + extra
         app.launch()
         return app
     }
@@ -269,12 +269,62 @@ final class SettingsAUITests: XCTestCase {
 
     // MARK: 设备
 
+    /// 「我的」页右上角扫码 → 独立批准页 → 批准 → 设备拿到的令牌就是批准者本人的。
+    /// 模拟器没有相机：用 -mcScanResult 注入「扫到的二维码」（电视上那张码的内容），其余全是真实路径。
+    @MainActor
+    func testScanQRCodeApprovesAppleTV() throws {
+        guard let password else { throw XCTSkip("未提供 MC_TEST_PASSWORD，跳过联调用例") }
+        let pairing = try SettingsTestAPI(server: server, username: username, password: password)
+        guard let grant = try pairing.request("POST", "/auth/device/authorize", body: [
+            "client_type": "tvos", "client_name": "ios-test 客厅 Apple TV", "platform": "tvOS 26.0",
+        ]) as? [String: Any],
+            let userCode = grant["user_code"] as? String, let deviceCode = grant["device_code"] as? String,
+            let qr = grant["verification_uri_complete"] as? String
+        else { return XCTFail("发起配对失败") }
+
+        let app = try launch(route: "/my", extra: ["-mcScanResult", qr])
+        XCTAssertTrue(app.buttons["open-scanner"].waitForExistence(timeout: 20), "「我的」页右上角应有扫码按钮")
+        snapshot("我的-扫码入口")
+        tapSafely(app, app.buttons["open-scanner"], "「我的」页的扫码按钮")
+        let approve = app.buttons["device-approve-\(userCode)"]
+        XCTAssertTrue(approve.waitForExistence(timeout: 20), "扫到后应进入批准页并显示这条请求")
+        XCTAssertTrue(app.staticTexts["ios-test 客厅 Apple TV"].exists)
+        snapshot("批准页-审批卡")
+        approve.tap()
+        XCTAssertTrue(app.otherElements["device-approval-result"].waitForExistence(timeout: 15), "批准后应显示结果页")
+        snapshot("批准页-已批准")
+
+        guard let token = try pairing.request("POST", "/auth/device/token", body: ["device_code": deviceCode]) as? [String: Any],
+              let value = token["token"] as? String
+        else { return XCTFail("批准后设备应拿到令牌") }
+        // 用这枚令牌问「我是谁」：就是批准者本人；问完注销，不留测试设备
+        try revoke(token: value, expectUser: username)
+        app.buttons["device-approval-done"].tap()
+    }
+
+    /// 用设备令牌确认身份后注销它
+    private func revoke(token: String, expectUser: String) throws {
+        func call(_ method: String, _ path: String) throws -> [String: Any] {
+            var request = URLRequest(url: URL(string: server)!.appending(path: "api/v1\(path)"))
+            request.httpMethod = method
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+            let semaphore = DispatchSemaphore(value: 0)
+            var body: Data?
+            URLSession.shared.dataTask(with: request) { data, _, _ in body = data; semaphore.signal() }.resume()
+            semaphore.wait()
+            return (body.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]) ?? [:]
+        }
+        let me = try call("GET", "/auth/me")
+        XCTAssertEqual((me["data"] as? [String: Any])?["username"] as? String, expectUser, "令牌应属于批准者")
+        _ = try call("DELETE", "/auth/devices/current")
+    }
+
     @MainActor
     func testCreateAndRevokeOwnToken() throws {
         let app = try launch(route: "/settings/devices")
         guard let probe else { return }
         let name = "ios-test-token-\(Int(Date().timeIntervalSince1970) % 1_000_000)"
-        XCTAssertTrue(app.textFields["pairing-code"].waitForExistence(timeout: 20), "设备页顶部应有配对码输入框")
+        XCTAssertTrue(app.buttons["devices-approve-entry"].waitForExistence(timeout: 20), "设备页顶部应有「批准新设备登录」入口")
 
         tapSafely(app, app.buttons["token-create-open"], "创建令牌入口")
         let field = app.textFields["token-name"]

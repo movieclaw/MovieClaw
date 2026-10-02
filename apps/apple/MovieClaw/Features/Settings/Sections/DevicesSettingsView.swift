@@ -3,9 +3,8 @@ import SwiftUI
 /// 设置 → 设备（Web devices-section.tsx，设计见 docs/design/login-devices.md）。
 ///
 /// 所有人都能进（成员看自己的设备），这一页承担四件事：
-/// 1. **按配对码批准**：命令行、转码器发起配对后显示一段 `MCLW-XXXX`，在这里输入（链接带 `?code=` 时预填）
-///    后只显示这一条请求。批准是防钓鱼的唯一一道人工闸：审批卡上的名称、类型、来源、配对码与「将获得」
-///    的大白话权限说明就是用户做决定的全部依据。谁批准，令牌就是谁的；转码器只有超管能批；
+/// 1. **「批准新设备登录」入口**：批准本身在独立的批准页（DeviceApprovalView，对应网页 /activate），
+///    「我的」页右上角扫码也直达那里。拿着配对码来批准是一次性的事，与管理已登录的设备是两件事；
 /// 2. **我的设备**：登录着这个账号的浏览器、App、命令行、转码器与播放器，当前这台置顶；可以改名、注销。
 ///    注销是唯一的事后止损手段，注销即断——它正在播的片、正在跑的转码一并停止；
 /// 3. **全部成员的设备**（超管）：多一列「属于谁」；
@@ -14,7 +13,7 @@ import SwiftUI
 struct DevicesSettingsView: View {
     @Environment(\.api) private var api
     @Environment(\.permissions) private var permissions
-    @Environment(\.routeQuery) private var routeQuery
+    @Environment(Router.self) private var router
     @Environment(Feedback.self) private var feedback
     @Environment(AppModel.self) private var model
 
@@ -22,11 +21,6 @@ struct DevicesSettingsView: View {
     @State private var showAll = false
     @State private var busy: String?
     @State private var error: String?
-
-    // 按配对码批准
-    @State private var code = ""
-    @State private var request: API.DeviceRequestView?
-    @State private var looking = false
 
     // 手工令牌
     @State private var tokenStage: TokenStage = .idle
@@ -44,7 +38,7 @@ struct DevicesSettingsView: View {
             if let error {
                 Section { SettingsNotice(text: error) }
             }
-            pairingSection
+            approvalEntry
             if permissions.isAdmin {
                 Section {
                     Picker("范围", selection: $showAll) {
@@ -64,10 +58,6 @@ struct DevicesSettingsView: View {
         // 在线状态会变（转码器连上 / 断开、别的设备刚用过）：页面开着时每 15 秒静默刷新一次
         .polling(every: 15) { await load() }
         .task {
-            if let preset = routeQuery["code"], !preset.isEmpty {
-                code = preset
-                await lookUp()
-            }
             // 对外访问地址：进入分区就先拉，等按下创建再拉会多等一个往返；拿不到就回落当前服务器地址
             if permissions.isAdmin, let config = try? await api.appShow() { externalUrl = config.externalUrl }
         }
@@ -83,91 +73,24 @@ struct DevicesSettingsView: View {
         }
     }
 
-    // MARK: 按配对码批准
+    // MARK: 批准新设备
 
-    @ViewBuilder
-    private var pairingSection: some View {
+    private var approvalEntry: some View {
         Section {
-            if let request {
-                ApprovalCard(
-                    request: request,
-                    canApprove: permissions.isAdmin || !request.requiresAdmin,
-                    isAdmin: permissions.isAdmin,
-                    busy: busy == request.userCode,
-                    onApprove: { Task { await approve(request) } },
-                    onDeny: { Task { await deny(request) } }
-                )
-            } else {
-                HStack(spacing: 10) {
-                    TextField("MCLW-XXXX", text: $code)
-                        .font(.body.monospaced())
-                        .textInputAutocapitalization(.characters)
-                        .autocorrectionDisabled()
-                        .submitLabel(.search)
-                        .onSubmit { Task { await lookUp() } }
-                        .accessibilityIdentifier("pairing-code")
-                    Button(looking ? "查询中…" : "查询") { Task { await lookUp() } }
-                        .buttonStyle(.glass)
-                        .disabled(looking || normalizedCode.isEmpty)
-                        .accessibilityIdentifier("pairing-lookup")
+            Button {
+                router.push(.deviceApproval())
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "qrcode.viewfinder").font(.title3).foregroundStyle(Theme.accent)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("批准新设备登录").foregroundStyle(Theme.text)
+                        Text("扫码或输入 Apple TV、命令行、转码器上的配对码").font(.caption).foregroundStyle(Theme.textMuted)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.textFaint)
                 }
             }
-        } header: {
-            Text("批准新设备")
-        } footer: {
-            if request == nil {
-                Text("在终端运行 mclaw login，或在 Mac 转码器里发起配对，设备会显示一段配对码。在这里输入它，核对无误后批准。")
-            }
-        }
-    }
-
-    /// 配对码规整：大写、补上 MCLW- 前缀（只输了后四位也认）
-    private var normalizedCode: String {
-        let raw = code.trimmingCharacters(in: .whitespaces).uppercased()
-        guard !raw.isEmpty else { return "" }
-        return raw.hasPrefix("MCLW-") ? raw : "MCLW-\(raw)"
-    }
-
-    private func lookUp() async {
-        let target = normalizedCode
-        guard !target.isEmpty else { return }
-        looking = true
-        error = nil
-        defer { looking = false }
-        do {
-            request = try await api.authDevicesRequest(userCode: target)
-        } catch let failure as APIError where failure.status == 404 {
-            error = "没有找到配对码 \(target) 的请求：请核对设备上显示的码，或让设备重新发起（配对码 5 分钟内有效）"
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    private func approve(_ request: API.DeviceRequestView) async {
-        busy = request.userCode
-        error = nil
-        defer { busy = nil }
-        do {
-            try await api.authDevicesApprove(userCode: request.userCode)
-            feedback.success("已批准「\(request.clientName)」接入，设备上稍等片刻就会显示配对成功")
-            self.request = nil
-            code = ""
-            await load()
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    private func deny(_ request: API.DeviceRequestView) async {
-        busy = request.userCode
-        error = nil
-        defer { busy = nil }
-        do {
-            try await api.authDevicesDeny(userCode: request.userCode)
-            self.request = nil
-            code = ""
-        } catch {
-            self.error = error.localizedDescription
+            .accessibilityIdentifier("devices-approve-entry")
         }
     }
 
@@ -471,81 +394,6 @@ struct DevicesSettingsView: View {
             confirmTitle: "我已保存"
         )
         if ok { created = nil }
-    }
-}
-
-// MARK: - 审批卡
-
-/// 用户做决定的全部依据都在这张卡上；配对码大号等宽字，便于和设备屏幕逐字比对
-private struct ApprovalCard: View {
-    let request: API.DeviceRequestView
-    let canApprove: Bool
-    let isAdmin: Bool
-    let busy: Bool
-    let onApprove: () -> Void
-    let onDeny: () -> Void
-
-    var body: some View {
-        let grant = DeviceText.grant(request.clientType, isAdmin: isAdmin)
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .firstTextBaseline) {
-                Text(request.clientName).font(.body.weight(.semibold))
-                Spacer()
-                Text(request.userCode)
-                    .font(.system(size: 22, weight: .semibold, design: .monospaced))
-                    .tracking(3.5)
-                    .foregroundStyle(Theme.accent)
-                    .accessibilityIdentifier("device-request-code")
-            }
-            Grid(alignment: .leading, horizontalSpacing: 18, verticalSpacing: 6) {
-                GridRow {
-                    Text("类型").foregroundStyle(Theme.textFaint)
-                    Text(DeviceText.clientType(request.clientType)).foregroundStyle(Theme.textMuted)
-                }
-                if let platform = request.platform {
-                    GridRow {
-                        Text("系统").foregroundStyle(Theme.textFaint)
-                        Text([platform, request.clientVersion.map { "版本 \($0)" }].compactMap { $0 }.joined(separator: " · "))
-                            .foregroundStyle(Theme.textMuted)
-                    }
-                }
-                GridRow {
-                    Text("来源").foregroundStyle(Theme.textFaint)
-                    if request.sourceIp.isEmpty {
-                        // 桥接网络的容器看到的是网桥网关，与其给个误导地址不如直说，把判断依据推回配对码
-                        Text("无法确定 \(Text("容器网络改写了源地址，请以配对码为准").font(.caption))").foregroundStyle(Theme.textFaint)
-                    } else {
-                        Text(request.sourceIp).font(.subheadline.monospaced()).foregroundStyle(Theme.textMuted)
-                    }
-                }
-            }
-            .font(.subheadline)
-            VStack(alignment: .leading, spacing: 4) {
-                Text(grant.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent)
-                Text(grant.body).font(.subheadline).foregroundStyle(Theme.textMuted)
-            }
-            .padding(12)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Theme.accentSoft, in: .rect(cornerRadius: 12))
-            if canApprove {
-                Text("请确认上面的配对码与设备上显示的完全一致。如果这不是你刚发起的操作，选择拒绝。")
-                    .font(.caption).foregroundStyle(Theme.textFaint)
-            } else {
-                SettingsNotice(text: "转码器只能由管理员批准：请让管理员在网页或 App 的「设置 → 设备」里输入这个配对码。", tone: .warn)
-            }
-            HStack(spacing: 10) {
-                Button("批准接入", systemImage: "checkmark", action: onApprove)
-                    .settingsProminentButton()
-                    .disabled(!canApprove)
-                    .accessibilityIdentifier("device-approve-\(request.userCode)")
-                Button("拒绝", systemImage: "xmark", action: onDeny)
-                    .buttonStyle(.glass)
-                    .tint(Theme.danger)
-                    .accessibilityIdentifier("device-deny-\(request.userCode)")
-            }
-            .disabled(busy)
-        }
-        .padding(.vertical, 6)
     }
 }
 

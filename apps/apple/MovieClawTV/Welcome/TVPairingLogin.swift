@@ -30,7 +30,7 @@ struct TVPairingLogin: View {
             VStack(alignment: .leading, spacing: 30) {
                 Text("用手机扫码登录")
                     .font(.welcomeSerif(size: 52))
-                Text("用手机相机扫右边的二维码，在打开的网页上批准。不方便扫码的话，在任何已登录的电脑或手机浏览器里打开下面的地址，输入配对码。谁批准，这台 Apple TV 就登录成谁。")
+                Text("用手机相机，或 iPhone 上 MovieClaw「我的」页右上角的扫码，扫右边的二维码后批准。不方便扫码的话，在任何已登录的电脑或手机浏览器里打开下面的地址，输入配对码。谁批准，这台 Apple TV 就登录成谁。")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

@@ -54,6 +54,7 @@ extension AppRoute {
         case .my: MorePage()
         case .settings: SettingsIndexView()
         case let .settingsSection(section, query): SettingsSectionView(section: section).environment(\.routeQuery, query)
+        case let .deviceApproval(code, scannedHost): DeviceApprovalView(presetCode: code, scannedHost: scannedHost)
         // 分享
         case let .share(slug): SharePageView(slug: slug)
         }

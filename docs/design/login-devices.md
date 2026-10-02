@@ -97,7 +97,8 @@ Jellyfin 播放器的凭证受协议约束多（令牌格式、同设备覆盖�
    `verification_uri_complete`（`/activate?code=MCLW-XXXX`，独立的批准页；旧地址 `/settings/devices?code=` 会跳过去），设备应
    优先打开它；批准页只显示这一条（`GET /auth/devices/requests/{code}`）。成员
    之间看不到彼此的请求，管理员也不会误批一个成员的命令行、让它拿到超管权限。
-   打不开链接的无头机器，人在网页的批准页（`/activate`）或 App 的「设备」页手动输入配对码。
+   打不开链接的无头机器，人在网页的批准页（`/activate`）或 App 的批准页手动输入配对码；
+   iPhone App 在「我的」页右上角（搜索左边）有扫码钮，扫设备上的二维码直达批准页。
 3. `authorize` 可选上报 `installation_id` / `platform` / `client_version`：同一台
    机器重新配对时替换旧令牌，批准页与设备列表也能写清楚是哪台机器。
 4. 兑换响应的 `granted_by` 是批准者的用户名（「你现在是谁」）。

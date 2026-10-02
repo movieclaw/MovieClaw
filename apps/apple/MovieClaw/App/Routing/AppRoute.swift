@@ -74,6 +74,9 @@ enum AppRoute: Hashable {
     /// /settings/{section}?…：query 原样透传给分区页（如 /settings/app?tab=storage、
     /// /settings/downloaders?limits=… 的预填与直达），分区页经 `@Environment(\.routeQuery)` 读取
     case settingsSection(SettingsSection, query: [String: String] = [:])
+    /// /activate?code=…：批准设备登录（独立页，「我的」页右上角扫码直达）。
+    /// scannedHost 是扫到的二维码里的服务器，查不到请求时用来提示「设备连的可能是另一台服务器」
+    case deviceApproval(code: String? = nil, scannedHost: String? = nil)
 
     // MARK: 分享（访客页）
     case share(slug: String)
@@ -284,12 +287,16 @@ extension AppRoute {
             self = .session(id: parts[1])
         case "my":
             self = .my
+        case "activate":
+            self = .deviceApproval(code: query["code"])
         case "settings":
             guard parts.count >= 2 else { self = .settings; return }
             switch parts[1] {
             case "search": self = .settingsSection(.sites)
             case "about": self = .settingsSection(.app)
             case "app" where query["tab"] == "remote": self = .settingsSection(.playback)
+            // 旧版服务端发给设备的批准链接：批准已独立成 /activate
+            case "devices" where !(query["code"] ?? "").isEmpty: self = .deviceApproval(code: query["code"])
             default:
                 guard let section = SettingsSection(rawValue: parts[1]) else { self = .settings; return }
                 self = .settingsSection(section, query: query)
@@ -311,7 +318,7 @@ extension AppRoute {
         case .subscriptions, .subscription, .subscriptionWall: .subscriptions
         case .activity, .activityPage: .activity
         case .my: .more
-        case .searchHome, .search, .newSession, .session, .settings, .settingsSection, .share: nil
+        case .searchHome, .search, .newSession, .session, .settings, .settingsSection, .deviceApproval, .share: nil
         }
     }
 }

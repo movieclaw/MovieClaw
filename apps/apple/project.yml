@@ -91,7 +91,7 @@ targets:
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: MovieClaw 需要访问局域网，用于自动发现并连接你自己部署的 MovieClaw 服务器。
         NSPhotoLibraryUsageDescription: 选择图片作为头像、媒体库封面或 AI 会话附件。
-        NSCameraUsageDescription: 拍照作为 AI 会话的图片附件。
+        NSCameraUsageDescription: 扫描电视、终端上的登录二维码，以及拍照作为 AI 会话的图片附件。
         # 后台继续播放音频、画中画
         UIBackgroundModes:
           - audio
