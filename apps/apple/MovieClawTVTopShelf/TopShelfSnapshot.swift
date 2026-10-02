@@ -50,6 +50,12 @@ nonisolated enum TopShelfStore {
         guard let directory, let data = try? JSONEncoder().encode(snapshot) else { return }
         try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         try? data.write(to: directory.appending(path: "snapshot.json"), options: .atomic)
+        // 只留这一份快照用到的剧照：换了账号、看完的片下架后，旧图不越积越多
+        let keep = Set(snapshot.items.compactMap(\.imageFile))
+        let files = (try? FileManager.default.contentsOfDirectory(atPath: directory.path)) ?? []
+        for file in files where file.hasSuffix(".jpg") && !keep.contains(file) {
+            try? FileManager.default.removeItem(at: directory.appending(path: file))
+        }
     }
 
     static func imageURL(_ file: String?) -> URL? {

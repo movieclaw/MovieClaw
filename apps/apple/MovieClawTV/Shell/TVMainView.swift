@@ -7,6 +7,7 @@ import SwiftUI
 /// 播放器全屏盖在主界面之上（`fullScreenCover`），返回键退出播放后回到原来的页面。
 struct TVMainView: View {
     @Environment(AppModel.self) private var model
+    @Environment(TVDeepLinkInbox.self) private var inbox
     @State private var router: TVRouter
     @State private var libraries = TVLibraryDirectory()
 
@@ -86,16 +87,16 @@ struct TVMainView: View {
                 controller.start()
             }
         }
-        .onOpenURL { url in
-            // Top Shelf 的「播放」直接续播、「确认」打开详情（docs/design/tvos-app.md §3.1）
-            switch TVDeepLink(url: url) {
-            case let .play(itemId, season, episode)?:
+        .onChange(of: inbox.pending, initial: true) { _, link in
+            // Top Shelf 的「播放」直接续播、「确认」打开详情（docs/design/tvos-app.md §3.1）；链接由根视图收下
+            guard let link else { return }
+            inbox.pending = nil
+            switch link {
+            case let .play(itemId, season, episode):
                 router.play(PlayRequest(mediaItemId: itemId, season: season, episode: episode))
-            case let .item(libraryId, itemId)?:
+            case let .item(libraryId, itemId):
                 router.selectedTab = .home
                 router.paths[.home] = [.item(libraryId: libraryId, itemId: itemId)]
-            case nil:
-                break
             }
         }
         .onChange(of: router.player?.id) { _, presented in

@@ -31,10 +31,17 @@ struct MovieClawTVApp: App {
     }
 }
 
+/// 还没来得及执行的 App 内部链接（见 `TVRootView.onOpenURL`）
+@Observable
+final class TVDeepLinkInbox {
+    var pending: TVDeepLink?
+}
+
 /// 按 `AppModel.phase` 切换顶层界面：欢迎（连接、登录、选人）或主界面。
 struct TVRootView: View {
     @Environment(AppModel.self) private var model
     @State private var gate = TVProfileGate(picked: MovieClawTVApp.profileApplied)
+    @State private var inbox = TVDeepLinkInbox()
 
     private var currentAccountKey: String {
         "\(model.server?.origin.absoluteString ?? "")#\(model.session?.username ?? "")"
@@ -60,6 +67,14 @@ struct TVRootView: View {
             }
         }
         .environment(gate)
+        .environment(inbox)
+        // App 内部链接（Top Shelf 的「播放」「确认」）：冷启动时主界面可能还没出现（「谁在看」、恢复会话中），
+        // 先收下，主界面出现后执行。Top Shelf 显示的就是当前账号在看的，所以从那里进来不再问「谁在看」
+        .onOpenURL { url in
+            guard let link = TVDeepLink(url: url) else { return }
+            inbox.pending = link
+            gate.pickedProfile()
+        }
         .animation(.default, value: model.phase)
         // 当前账号变了（登录、「谁在看」选人、切换、退出后自动切过去）：记成这位系统用户的偏好
         .onChange(of: currentAccountKey) { _, _ in

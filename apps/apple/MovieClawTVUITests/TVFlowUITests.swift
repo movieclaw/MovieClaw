@@ -282,6 +282,22 @@ final class TVFlowUITests: XCTestCase {
         TVRemote.press(.menu)
     }
 
+    // MARK: Top Shelf 的内部链接
+
+    /// Top Shelf「播放」用的 movieclaw://play/… 链接：直接起播（模拟器打开外部链接会先问一句，按「打开」）
+    @MainActor
+    func testTopShelfDeepLinkPlays() {
+        let app = launchSignedIn()
+        XCTAssertTrue(app.element("tv-home").waitForExistence(timeout: 20))
+        app.open(URL(string: "movieclaw://play/1")!)
+        // 系统确认框在系统界面（PineBoard）里：焦点默认在「打开」上，按确认即可
+        let confirm = XCUIApplication(bundleIdentifier: "com.apple.PineBoard").buttons["打开"]
+        if confirm.waitForExistence(timeout: 5) { TVRemote.press(.select) }
+        waitForPlayback(app)
+        snapshot("58-deeplink-playing")
+        TVRemote.press(.menu)
+    }
+
     // MARK: 账号页与关于
 
     @MainActor
