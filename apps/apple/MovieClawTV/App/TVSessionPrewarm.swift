@@ -8,6 +8,9 @@ enum SessionPrewarm {
         PlaybackNetwork.prewarm(server: server)
         // 暂停时要不要连下载也停按网络是否计费定：先开始监听，第一次播放时已经有结果
         _ = NetworkCost.shared
+        // 首页的快照：冷启动落在首页时当场读完，第一帧就是上次的完整首页，随后静默刷新
+        let owner = PageSnapshots.owner(server: server, username: session.username)
+        LibraryHomeStore.shared.adopt(owner: owner, synchronously: landing == .home)
     }
 
     /// 冷启动的落点：首页；调试参数可指定

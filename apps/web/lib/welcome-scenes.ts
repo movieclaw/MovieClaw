@@ -1,6 +1,6 @@
 /**
  * 欢迎页（登录 / 初始化）轮播的影史经典台词，与原生 App 同一份
- * （apps/apple/MovieClaw/Features/Onboarding/WelcomeScenes.swift，由脚本转出，改动两边同步）。
+ * （apps/apple/Shared/Welcome/WelcomeScenes.swift，由脚本转出，改动两边同步）。
  *
  * 选句口径：美国电影学会「百年百大电影台词」里最广为人知的那些，加上华语与世界影史的名句；
  * 只收能确认原话的句子，基调偏温暖与诗意。外语片附中文字幕，注明片名与年份。

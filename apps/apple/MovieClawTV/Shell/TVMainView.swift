@@ -27,6 +27,9 @@ struct TVMainView: View {
     var body: some View {
         @Bindable var router = router
         TabView(selection: $router.selectedTab) {
+            Tab(session?.nickname ?? "账号", systemImage: "person.crop.circle", value: MainTab.account) {
+                TVTabRoot(tab: .account) { TVAccountView() }
+            }
             Tab(value: MainTab.search, role: .search) {
                 TVTabRoot(tab: .search) { TVSearchView() }
             }
@@ -125,10 +128,10 @@ struct TVDestination: View {
 
     var body: some View {
         switch route {
-        case let .item(id): TVItemDetailView(itemId: id)
+        case let .item(libraryId, itemId): TVItemDetailView(libraryId: libraryId, itemId: itemId)
         case let .library(id): TVLibraryView(libraryId: id)
-        case let .collection(id): TVPlaceholderPage(title: "合集 \(id)")
-        case .about: TVPlaceholderPage(title: "关于")
+        case let .collection(id, name): TVCollectionView(collectionId: id, name: name)
+        case .about: TVAboutView()
         }
     }
 }

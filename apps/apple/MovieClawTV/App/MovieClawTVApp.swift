@@ -30,6 +30,7 @@ struct MovieClawTVApp: App {
 /// 按 `AppModel.phase` 切换顶层界面：欢迎（连接、登录、选人）或主界面。
 struct TVRootView: View {
     @Environment(AppModel.self) private var model
+    @State private var gate = TVProfileGate()
 
     var body: some View {
         Group {
@@ -40,11 +41,17 @@ struct TVRootView: View {
             case .needsServer, .needsSetup, .needsLogin, .chooseAccount, .unreachable:
                 TVWelcomeView()
             case let .ready(session):
-                TVMainView()
-                    // 换账号（含换到另一台服务器上的同名账号）时整棵树重建，避免残留上个账号的数据
-                    .id("\(model.server?.origin.absoluteString ?? "")#\(session.username)")
+                if !gate.picked, model.savedAccountCount > 1 {
+                    // 这台电视上登录过不止一个账号：先问「谁在看」（docs/design/tvos-app.md §5.2）
+                    TVWhoIsWatchingView()
+                } else {
+                    TVMainView()
+                        // 换账号（含换到另一台服务器上的同名账号）时整棵树重建，避免残留上个账号的数据
+                        .id("\(model.server?.origin.absoluteString ?? "")#\(session.username)")
+                }
             }
         }
+        .environment(gate)
         .animation(.default, value: model.phase)
         .task {
             await FirstFrameGate.wait()

@@ -130,7 +130,7 @@ TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple 
   FFmpeg 的 `AetherLib*` 二进制框架不带清单；若上传后收到 ITMS-91053 邮件点名缺少某类声明，
   按邮件补到对应清单里。新增代码用到这几类 API 时同步更新清单。
 - **开源许可**：「我的 → 关于 MovieClaw」列出随包分发的组件、许可与源码地址，全文随包
-  （`Features/About/Licenses/`）。升级 AetherEngine / FFmpegBuild / Nuke 等依赖时同步核对。
+  （`apps/apple/Shared/Resources/Licenses/`，iPhone 与 Apple TV 共用）。升级 AetherEngine / FFmpegBuild / Nuke 等依赖时同步核对。
   AetherEngine 是 LGPL-3.0 且带 App Store 例外；FFmpeg 为 LGPL-2.1（未启用 GPL 组件），
   以动态框架随包，满足可替换要求。
 - **播放质量记录**：App 会把每次播放的起播耗时、跳转、卡顿、失败原因（失败时附最近的播放器日志，

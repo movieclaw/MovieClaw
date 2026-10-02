@@ -5,6 +5,8 @@ import Foundation
 /// 名字与 iPhone 版的页签类型相同（都叫 `MainTab`）：共享的 `AppModel`、`DebugLaunch` 只认这个名字，
 /// 两个平台各自定义自己的页签。`rawValue` 给调试参数 `-mcTab` 与快照用：`home`、`library-3`、`discover`……
 enum MainTab: Hashable {
+    /// 侧边栏最上面的当前账号（账号页：切换账号、添加账号、关于、退出登录）
+    case account
     case search
     case home
     /// 某个媒体库（id）
@@ -19,6 +21,7 @@ enum MainTab: Hashable {
 extension MainTab: RawRepresentable {
     init?(rawValue: String) {
         switch rawValue {
+        case "account": self = .account
         case "search": self = .search
         case "home": self = .home
         case "libraries": self = .allLibraries
@@ -33,6 +36,7 @@ extension MainTab: RawRepresentable {
 
     var rawValue: String {
         switch self {
+        case .account: "account"
         case .search: "search"
         case .home: "home"
         case let .library(id): "library-\(id)"
@@ -47,12 +51,12 @@ extension MainTab: RawRepresentable {
 /// Apple TV 上可压栈的页面。与 iPhone 版的 `AppRoute` 同名不同义（共享的 `AppModel` 只用到这个名字，
 /// 记「登录过期前停在哪」）。电视上的页面少得多：没有任何管理与设置页。
 enum AppRoute: Hashable {
-    /// 条目详情（电影 / 剧集 / 其他）
-    case item(Int)
-    /// 某个媒体库的完整海报墙（从首页行标题、「全部媒体库」进入）
+    /// 条目详情（电影 / 剧集 / 其他）：详情接口按「库 + 条目」取
+    case item(libraryId: Int, itemId: Int)
+    /// 某个媒体库的完整海报墙（从「全部媒体库」进入）
     case library(Int)
-    /// 合集详情
-    case collection(Int)
+    /// 合集：海报墙
+    case collection(id: Int, name: String)
     /// 关于（版本与开源许可）
     case about
 }

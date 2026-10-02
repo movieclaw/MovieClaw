@@ -172,6 +172,24 @@ targets:
         GENERATE_INFOPLIST_FILE: NO
         # 同 AetherCore：LibDovi 的 tvOS 模拟器切片只有 arm64
         EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+  # Apple TV 版的端到端验收（遥控器操作的 XCUITest，docs/design/tvos-app.md §7）：对着隔离的测试服务器跑，
+  # 环境变量同 iPhone 版（MC_TEST_SERVER / MC_TEST_USERNAME / MC_TEST_PASSWORD……），见 MovieClawTVUITests/TVFlowUITests.swift
+  MovieClawTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    sources:
+      - path: MovieClawTVUITests
+        type: syncedFolder
+    dependencies:
+      - target: MovieClawTV
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).MovieClawTVUITests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: MovieClawTV
+        # XCTestCase 的初始化器是非隔离的，测试类不能继承工程级的默认主线程隔离（同 iPhone 版）
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
   MovieClawTests:
     type: bundle.unit-test
     platform: iOS
@@ -204,6 +222,9 @@ schemes:
     build:
       targets:
         MovieClawTV: all
+    test:
+      targets:
+        - MovieClawTVUITests
   MovieClaw:
     build:
       targets:
