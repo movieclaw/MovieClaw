@@ -4,8 +4,12 @@ import SwiftUI
 /// 账号页的「切换账号」也是重新打开它。放进环境，主界面任何地方都能唤起。
 @Observable
 final class TVProfileGate {
-    /// 本次启动已经选过人了
-    private(set) var picked = false
+    /// 本次启动已经选过人了（或已按 Apple TV 的系统用户自动选好，见 `TVUserProfiles`）
+    private(set) var picked: Bool
+
+    init(picked: Bool) {
+        self.picked = picked
+    }
 
     func pickedProfile() { picked = true }
     func show() { picked = false }
@@ -30,31 +34,12 @@ struct TVWhoIsWatchingView: View {
             VStack(spacing: 70) {
                 Text("谁在看？")
                     .font(.welcomeSerif(size: 72))
-                ScrollView(.horizontal) {
-                    HStack(spacing: 70) {
-                        ForEach(accounts) { saved in
-                            TVProfileButton(account: saved.account, server: saved.server) {
-                                Task { await pick(saved) }
-                            }
-                            .focused($focusedAccount, equals: saved.id)
-                        }
-                        Button { addingAccount = true } label: {
-                            VStack(spacing: 20) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 64, weight: .light))
-                                    .frame(width: 220, height: 220)
-                                    .background(.white.opacity(0.1), in: .circle)
-                                Text("添加账号").font(.headline)
-                                Text(" ").font(.caption)
-                            }
-                        }
-                        .buttonStyle(.borderless)
-                        .accessibilityIdentifier("tv-profile-add")
-                    }
-                    .padding(.horizontal, TVMetrics.edge)
-                    .padding(.vertical, 40)
+                // 放得下就居中摆一排；账号太多才横向滚动
+                ViewThatFits(in: .horizontal) {
+                    profiles
+                    ScrollView(.horizontal) { profiles }
+                        .scrollClipDisabled()
                 }
-                .scrollClipDisabled()
                 .defaultFocus($focusedAccount, currentID)
                 if let error {
                     Text(error).foregroundStyle(Theme.danger)
@@ -64,10 +49,37 @@ struct TVWhoIsWatchingView: View {
         .fullScreenCover(isPresented: $addingAccount) {
             TVAddAccountView()
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-who-is-watching")
     }
 
     @FocusState private var focusedAccount: String?
+
+    private var profiles: some View {
+        HStack(spacing: 70) {
+            ForEach(accounts) { saved in
+                TVProfileButton(account: saved.account, server: saved.server) {
+                    Task { await pick(saved) }
+                }
+                .focused($focusedAccount, equals: saved.id)
+            }
+            Button { addingAccount = true } label: {
+                VStack(spacing: 20) {
+                    ZStack {
+                        Circle().fill(.white.opacity(0.1))
+                        Image(systemName: "plus").font(.system(size: 64, weight: .light))
+                    }
+                    .frame(width: 220, height: 220)
+                    Text("添加账号").font(.headline)
+                    Text(" ").font(.caption)
+                }
+            }
+            .buttonStyle(.borderless)
+            .accessibilityIdentifier("tv-profile-add")
+        }
+        .padding(.horizontal, TVMetrics.edge)
+        .padding(.vertical, 40)
+    }
 
     private var currentID: String? {
         guard let server = model.server, let username = model.session?.username else { return nil }
@@ -135,7 +147,10 @@ struct TVAccountView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .alert("退出登录？", isPresented: $confirmingLogout) {
-            Button("退出", role: .destructive) { Task { await model.logout() } }
+            Button("退出", role: .destructive) {
+                TVTopShelfPublisher.clear()
+                Task { await model.logout() }
+            }
             Button("取消", role: .cancel) {}
         } message: {
             Text("这台 Apple TV 上的登录会在服务器上一并注销。同一台服务器上还有别的账号时会自动切过去。")
@@ -143,6 +158,7 @@ struct TVAccountView: View {
         .fullScreenCover(isPresented: $addingAccount) {
             TVAddAccountView()
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-account")
     }
 }
@@ -158,7 +174,7 @@ struct TVAddAccountView: View {
             CosmosBackdrop(lit: true, dimmed: true)
                 .ignoresSafeArea()
             if let server {
-                TVSignInForm(server: server, prefilledUsername: nil, expired: false) { self.server = nil }
+                TVSignInStep(server: server, prefilledUsername: nil, expired: false) { self.server = nil }
             } else {
                 TVServerPicker { self.server = $0 }
             }

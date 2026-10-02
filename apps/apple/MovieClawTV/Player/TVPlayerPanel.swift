@@ -76,6 +76,7 @@ struct TVPlayerPanel: View {
             if case .panelTab = focus.wrappedValue { return }
             focus.wrappedValue = .panelOption(activeOptionID)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-player-panel")
     }
 

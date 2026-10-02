@@ -50,6 +50,14 @@ enum TVRemote {
         }
     }
 
+    /// 焦点挪上去再按确认（依次试几个方向）
+    static func select(_ target: XCUIElement, trying directions: [XCUIRemote.Button], limit: Int = 12,
+                       file: StaticString = #filePath, line: UInt = #line) {
+        if focus(target, trying: directions, limit: limit, file: file, line: line) {
+            remote.press(.select)
+        }
+    }
+
     /// 文本框：焦点挪上去、按确认唤出键盘、输入、确认收起键盘
     static func type(_ text: String, into field: XCUIElement, app: XCUIApplication, by direction: XCUIRemote.Button,
                      file: StaticString = #filePath, line: UInt = #line) {
@@ -59,8 +67,9 @@ enum TVRemote {
         let keyboard = app.keyboards.firstMatch
         _ = keyboard.waitForExistence(timeout: 5)
         app.typeText(text)
-        // 键盘上的「完成」/ 返回：回到表单
+        // 返回键收起键盘、回到表单；等键盘真的退场再往下按，否则方向键会被正在淡出的键盘吃掉
         remote.press(.menu)
+        _ = keyboard.waitForNonExistence(timeout: 5)
     }
 }
 

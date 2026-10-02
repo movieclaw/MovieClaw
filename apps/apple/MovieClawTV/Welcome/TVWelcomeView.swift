@@ -35,6 +35,7 @@ struct TVWelcomeView: View {
         }
         .onAppear(perform: syncWithPhase)
         .onChange(of: model.phase) { _, _ in syncWithPhase() }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-welcome")
     }
 
@@ -66,7 +67,7 @@ struct TVWelcomeView: View {
             case .server:
                 TVServerPicker { address in step = .signIn(address) }
             case let .signIn(address):
-                TVSignInForm(server: address, prefilledUsername: model.expiredUsername, expired: model.expiredUsername != nil) {
+                TVSignInStep(server: address, prefilledUsername: model.expiredUsername, expired: model.expiredUsername != nil) {
                     step = .server
                 }
             }
@@ -253,11 +254,31 @@ struct TVServerPicker: View {
     }
 }
 
-/// 账号密码登录（兜底方式；扫码登录见 T2）
+/// 登录这一步：默认扫码（`TVPairingLogin`），可以改用账号密码（`TVSignInForm`）
+struct TVSignInStep: View {
+    let server: ServerAddress
+    let prefilledUsername: String?
+    let expired: Bool
+    let onChangeServer: () -> Void
+
+    @State private var usePassword = false
+
+    var body: some View {
+        if usePassword {
+            TVSignInForm(server: server, prefilledUsername: prefilledUsername, expired: expired,
+                         onUseQRCode: { usePassword = false }, onChangeServer: onChangeServer)
+        } else {
+            TVPairingLogin(server: server) { usePassword = true }
+        }
+    }
+}
+
+/// 账号密码登录（兜底方式）：输入框标注了类型，附近的 iPhone 会弹出「用 iPhone 键盘输入」并可自动填充
 struct TVSignInForm: View {
     let server: ServerAddress
     let prefilledUsername: String?
     let expired: Bool
+    let onUseQRCode: () -> Void
     let onChangeServer: () -> Void
 
     @Environment(AppModel.self) private var model
@@ -308,6 +329,7 @@ struct TVSignInForm: View {
                 }
                 .disabled(busy || username.isEmpty || password.isEmpty)
                 .accessibilityIdentifier("tv-signin-submit")
+                Button("改用扫码登录", action: onUseQRCode)
             }
         }
         .padding(60)

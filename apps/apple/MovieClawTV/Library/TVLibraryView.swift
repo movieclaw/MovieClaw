@@ -54,6 +54,7 @@ struct TVLibraryView: View {
             sort = WallSortState.load(sortKey, default: WallSortState(sort: "added_at"), allowed: Self.sorts)
             unwatched = UserDefaults.standard.bool(forKey: sortKey + ".unwatched")
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-library-\(libraryId)")
     }
 

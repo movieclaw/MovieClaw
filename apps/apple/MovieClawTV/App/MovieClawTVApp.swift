@@ -11,7 +11,11 @@ struct MovieClawTVApp: App {
     private let bootstrap: Void = {
         PerfTrace.markMain()
         ImagePipelineSetup.configure()
+        // 换了 Apple TV 的系统用户：先把这个人上次选的账号设为当前账号，AppModel 直接恢复成他
+        MovieClawTVApp.profileApplied = TVUserProfiles.applyPreferredAccount()
     }()
+    /// 启动时已经按系统用户选好了账号（不再问「谁在看」）
+    nonisolated(unsafe) static var profileApplied = false
     @State private var model = AppModel()
 
     init() {
@@ -30,7 +34,11 @@ struct MovieClawTVApp: App {
 /// 按 `AppModel.phase` 切换顶层界面：欢迎（连接、登录、选人）或主界面。
 struct TVRootView: View {
     @Environment(AppModel.self) private var model
-    @State private var gate = TVProfileGate()
+    @State private var gate = TVProfileGate(picked: MovieClawTVApp.profileApplied)
+
+    private var currentAccountKey: String {
+        "\(model.server?.origin.absoluteString ?? "")#\(model.session?.username ?? "")"
+    }
 
     var body: some View {
         Group {
@@ -53,6 +61,12 @@ struct TVRootView: View {
         }
         .environment(gate)
         .animation(.default, value: model.phase)
+        // 当前账号变了（登录、「谁在看」选人、切换、退出后自动切过去）：记成这位系统用户的偏好
+        .onChange(of: currentAccountKey) { _, _ in
+            if let server = model.server, let username = model.session?.username {
+                TVUserProfiles.remember(server: server, username: username)
+            }
+        }
         .task {
             await FirstFrameGate.wait()
             await model.revalidate()

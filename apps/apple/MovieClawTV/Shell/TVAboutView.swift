@@ -52,9 +52,11 @@ struct TVAboutView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, TVMetrics.edge)
             .padding(.vertical, 40)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-about")
     }
 

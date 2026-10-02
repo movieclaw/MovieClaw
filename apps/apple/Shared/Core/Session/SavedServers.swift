@@ -25,21 +25,34 @@ nonisolated struct SavedServer: Codable, Hashable, Sendable, Identifiable {
 nonisolated enum SavedServers {
     private static let key = "movieclaw.savedServers"
 
+    /// 存储：iPhone 上是 `UserDefaults`。Apple TV 上存进全家共用的钥匙串（`KeychainBlob`）——
+    /// `UserDefaults` 在电视上按系统用户分开，账号列表若跟着分开，「谁在看」就只能看到自己登录过的账号
+    /// （docs/design/tvos-app.md §5.2）
     static func load() -> [SavedServer] {
-        guard let data = UserDefaults.standard.data(forKey: key),
-              let list = try? JSONDecoder().decode([SavedServer].self, from: data)
-        else { return [] }
+        #if os(tvOS)
+        let stored = KeychainBlob.read(service: key)
+        #else
+        let stored = UserDefaults.standard.data(forKey: key)
+        #endif
+        guard let data = stored, let list = try? JSONDecoder().decode([SavedServer].self, from: data) else { return [] }
         return list
     }
 
     static func save(_ list: [SavedServer]) {
-        if let data = try? JSONEncoder().encode(list) {
-            UserDefaults.standard.set(data, forKey: key)
-        }
+        guard let data = try? JSONEncoder().encode(list) else { return }
+        #if os(tvOS)
+        KeychainBlob.write(data, service: key)
+        #else
+        UserDefaults.standard.set(data, forKey: key)
+        #endif
     }
 
     static func clearAll() {
+        #if os(tvOS)
+        KeychainBlob.remove(service: key)
+        #else
         UserDefaults.standard.removeObject(forKey: key)
+        #endif
     }
 
     /// 记一次使用：这台服务器置顶；给了账号列表就一并覆盖快照（`nil` 表示只更新时间）

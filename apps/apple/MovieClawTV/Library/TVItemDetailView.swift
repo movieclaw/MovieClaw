@@ -26,7 +26,9 @@ struct TVItemDetailView: View {
     private var isMovie: Bool { detail?.kind != "tv" }
 
     var body: some View {
-        Group {
+        ZStack {
+            // 剧照铺满整屏（含侧边栏收起后的左缘），内容叠在上面
+            backdrop
             if failed {
                 TVStateView(symbol: "questionmark.folder", title: "未能加载该条目",
                             message: "条目可能已被删除或重新识别为其他作品。", actionTitle: "返回") { router.pop() }
@@ -36,7 +38,6 @@ struct TVItemDetailView: View {
                 ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background { backdrop }
         .task { await reload() }
         .task { favorite = (try? await api.playbackMarksGet(mediaItemId: itemId))?.isFavorite }
         // 进了详情页多半要播：先把起播要用的连接连好（同 iPhone 版）
@@ -49,6 +50,7 @@ struct TVItemDetailView: View {
                 if let season { await loadEpisodes(season, keepSelection: true) }
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-item-\(itemId)")
     }
 
@@ -71,7 +73,7 @@ struct TVItemDetailView: View {
             VStack(alignment: .leading, spacing: 50) {
                 header(detail)
                     // 第一屏只有头部：剧照露出大半，往下滑才是分集
-                    .frame(minHeight: 820, alignment: .bottomLeading)
+                    .frame(maxWidth: .infinity, minHeight: 820, alignment: .bottomLeading)
                 if !isMovie, !detail.seasons.isEmpty {
                     seasonSection(detail)
                 }

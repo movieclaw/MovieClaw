@@ -9,7 +9,8 @@ import UIKit
 /// - 多账号完全在本机：切换账号就是换一枚令牌，不用联网、没有账号数上限，同一台主机不同端口也互不覆盖；
 /// - `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`：不进 iCloud 钥匙串、不随备份恢复到另一台手机——
 ///   令牌代表的是「这台设备」，服务端「我的设备」里那一行说的就是它；
-/// - 令牌失效（被注销、改了密码）时删掉这一条，账号快照保留，用户点它只需重新输密码。
+/// - 令牌失效（被注销、改了密码）时删掉这一条，账号快照保留，用户点它只需重新输密码；
+/// - Apple TV 上存进全家共用的那份钥匙串（`KeychainScope`）：一个人登录一次，「谁在看」里全家都能用。
 nonisolated enum TokenVault {
     private static let service = "io.movieclaw.app.tokens"
 
@@ -41,16 +42,16 @@ nonisolated enum TokenVault {
 
     /// 清空全部令牌（UI 测试重置、退出全部账号）
     static func clearAll() {
-        SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service] as CFDictionary)
+        SecItemDelete(KeychainScope.shared([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service]) as CFDictionary)
         AuthTokenRegistry.shared.forgetAll()
     }
 
     private static func baseQuery(_ server: ServerAddress, _ username: String) -> [String: Any] {
-        [
+        KeychainScope.shared([
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: "\(server.origin.absoluteString)#\(username.lowercased())",
-        ]
+        ])
     }
 
     /// 改用设备令牌之前的版本把会话 Cookie 备份在钥匙串里（`io.movieclaw.app.cookies`）并存在
@@ -67,11 +68,12 @@ nonisolated enum InstallationID {
     private static let service = "io.movieclaw.app.installation"
 
     static let value: String = {
-        let query: [String: Any] = [
+        // Apple TV 上全家共用一份：同一台电视换了系统用户还是同一台设备
+        let query = KeychainScope.shared([
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: "installation-id",
-        ]
+        ])
         var read = query
         read[kSecReturnData as String] = true
         read[kSecMatchLimit as String] = kSecMatchLimitOne

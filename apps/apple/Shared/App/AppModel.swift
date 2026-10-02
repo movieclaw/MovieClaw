@@ -250,6 +250,15 @@ final class AppModel {
         try await deviceLogin(api, username: username, password: password)
     }
 
+    /// 配对码登录：设备上显示配对码、人在手机或网页上批准，兑换到的令牌直接进入批准者的账号
+    /// （Apple TV 的默认登录方式，docs/design/tvos-app.md §5.1；协议见 device-auth.md §2）。
+    /// 令牌与账号密码换来的是同一种登录设备，存储、切换、退出都走同一套
+    func signIn(to address: ServerAddress, pairedToken token: String) async throws {
+        let session = try await APIClient(server: address, token: token).authMe()
+        TokenVault.save(token, server: address, username: session.username)
+        activate(address, session: session, token: token)
+    }
+
     /// 用账号密码换这台设备的令牌，存钥匙串并进入该账号
     private func deviceLogin(_ api: APIClient, username: String, password: String) async throws {
         let login: API.DeviceLoginView

@@ -159,6 +159,7 @@ struct TVQualityOfferCard: View {
         .frame(width: 640, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 32))
         .focusSection()
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-quality-offer")
     }
 

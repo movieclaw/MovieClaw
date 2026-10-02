@@ -11,6 +11,9 @@ struct TVHomeView: View {
     @Environment(TVRouter.self) private var router
 
     private var store: LibraryHomeStore { .shared }
+    /// 首页第一次有内容时把焦点放到「继续播放」上（之后不再抢：用户可能正在侧边栏里）
+    @FocusState private var heroPlayFocused: Bool
+    @State private var focusedOnce = false
 
     private var owner: String {
         PageSnapshots.owner(server: api.server, username: model.session?.username ?? "")
@@ -40,13 +43,17 @@ struct TVHomeView: View {
         }
         .task { await reload() }
         .polling(every: 60) { await reload() }
+        // 接下来继续变了就同步到 Top Shelf（主屏选中 MovieClaw 图标时上方那一行）
+        .task(id: store.upNext?.map(\.mediaItemId)) {
+            if let items = store.upNext { await TVTopShelfPublisher.publish(items, api: api) }
+        }
     }
 
     private var content: some View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: TVMetrics.rowSpacing) {
                 if let hero = heroItem {
-                    TVHomeHero(item: hero) { resume(hero) }
+                    TVHomeHero(item: hero, playFocused: $heroPlayFocused) { resume(hero) }
                 }
                 ForEach(rows) { row in
                     rowView(row)
@@ -55,8 +62,17 @@ struct TVHomeView: View {
             .padding(.bottom, 80)
         }
         .scrollClipDisabled()
-        .ignoresSafeArea(edges: .horizontal)
+        // 顶部大图铺到屏幕上沿
+        .ignoresSafeArea(edges: [.horizontal, .top])
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-home")
+        .task(id: heroItem?.mediaItemId) {
+            guard !focusedOnce, heroItem != nil else { return }
+            focusedOnce = true
+            // 等这一帧布局完再挪焦点，否则按钮还没进焦点系统
+            try? await Task.sleep(for: .milliseconds(150))
+            heroPlayFocused = true
+        }
     }
 
     /// 顶部大图：接下来继续的第一部（打开 App 最想做的就是接着看）
@@ -164,6 +180,7 @@ struct TVHomeView: View {
 /// 首页顶部大图：背景剧照铺满上半屏，左下片名 + 进度说明 +「继续播放」「详情」两个按钮
 struct TVHomeHero: View {
     let item: API.UpNextItemView
+    var playFocused: FocusState<Bool>.Binding
     let play: () -> Void
 
     @Environment(\.api) private var api
@@ -204,6 +221,7 @@ struct TVHomeHero: View {
                         Label(item.positionMs > 0 ? "继续播放" : "播放", systemImage: "play.fill")
                             .padding(.horizontal, 12)
                     }
+                    .focused(playFocused)
                     .accessibilityIdentifier("tv-home-hero-play")
                     Button {
                         router.push(.item(libraryId: item.libraryId, itemId: item.mediaItemId))
@@ -218,6 +236,7 @@ struct TVHomeHero: View {
             .padding(.bottom, 40)
             .focusSection()
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-home-hero")
     }
 }

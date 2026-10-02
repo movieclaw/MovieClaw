@@ -137,7 +137,10 @@ targets:
         type: syncedFolder
       - path: Shared
         type: syncedFolder
+      # Top Shelf 的数据格式与 App 内部链接：App 写、扩展读，同一份代码
+      - path: MovieClawTVTopShelf/TopShelfSnapshot.swift
     dependencies:
+      - target: MovieClawTVTopShelf
       - package: Nuke
         product: Nuke
       - package: Nuke
@@ -165,12 +168,64 @@ targets:
           NSAllowsArbitraryLoads: true
           NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: MovieClaw 需要访问局域网，用于自动发现并连接你自己部署的 MovieClaw 服务器。
+        # Top Shelf 与 App 共用的 App Group（TopShelfStore 读它），跟着 Bundle ID 前缀走
+        MCAppGroup: group.$(MC_BUNDLE_ID_PREFIX).app
+        # App 内部链接：Top Shelf 的「播放」「确认」打开 movieclaw://play/… 与 movieclaw://item/…
+        CFBundleURLTypes:
+          - CFBundleURLName: $(MC_BUNDLE_ID_PREFIX).app
+            CFBundleURLSchemes:
+              - movieclaw
+    # 以 Apple TV 的当前系统用户运行（docs/design/tvos-app.md §5.2）：UserDefaults 按家庭成员分开、各记各的账号偏好，
+    # 令牌与账号列表存进全家共用的钥匙串（KeychainScope）。真机签名时 Xcode 自动签名会给 App ID 开上「User Management」
+    entitlements:
+      path: MovieClawTV/MovieClawTV.entitlements
+      properties:
+        com.apple.developer.user-management:
+          - runs-as-current-user-with-user-independent-keychain
+        com.apple.security.application-groups:
+          - group.$(MC_BUNDLE_ID_PREFIX).app
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).app
         TARGETED_DEVICE_FAMILY: "3"
         GENERATE_INFOPLIST_FILE: NO
+        # 分层图标与 Top Shelf 图（scripts/brand/generate_tvos_assets.py 生成）
+        ASSETCATALOG_COMPILER_APPICON_NAME: App Icon & Top Shelf Image
         # 同 AetherCore：LibDovi 的 tvOS 模拟器切片只有 arm64
+        EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+  # Apple TV 主屏的 Top Shelf（docs/design/tvos-app.md §3.1）：只读 App 写进 App Group 的「接下来继续」，不联网、不碰令牌
+  MovieClawTVTopShelf:
+    type: app-extension
+    platform: tvOS
+    sources:
+      - path: MovieClawTVTopShelf
+        type: syncedFolder
+    info:
+      path: MovieClawTVTopShelf/Info.plist
+      properties:
+        CFBundleDisplayName: MovieClaw
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        MCAppGroup: group.$(MC_BUNDLE_ID_PREFIX).app
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).TopShelfProvider
+    entitlements:
+      path: MovieClawTVTopShelf/MovieClawTVTopShelf.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.$(MC_BUNDLE_ID_PREFIX).app
+        # 与 App 一样以当前系统用户运行：每位家庭成员的主屏显示自己的「接下来继续」
+        com.apple.developer.user-management:
+          - runs-as-current-user-with-user-independent-keychain
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).app.topshelf
+        TARGETED_DEVICE_FAMILY: "3"
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        # 系统回调扩展的方法不在主线程，扩展不继承工程级的默认主线程隔离
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
         EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
   # Apple TV 版的端到端验收（遥控器操作的 XCUITest，docs/design/tvos-app.md §7）：对着隔离的测试服务器跑，
   # 环境变量同 iPhone 版（MC_TEST_SERVER / MC_TEST_USERNAME / MC_TEST_PASSWORD……），见 MovieClawTVUITests/TVFlowUITests.swift
