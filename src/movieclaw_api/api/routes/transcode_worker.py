@@ -61,7 +61,7 @@ from movieclaw_api.services.playback.session import (
     TranscodeSession,
     get_session_manager,
 )
-from movieclaw_db.engine import get_session
+from movieclaw_db.engine import get_database, get_session
 from movieclaw_db.models import LibraryFile, MediaItem
 from movieclaw_db.repositories.media_repo import MediaItemRepository
 from movieclaw_events import new_ulid
@@ -321,6 +321,13 @@ async def transcode_worker_websocket(websocket: WebSocket) -> None:
             )
             await websocket.close(code=1008, reason=str(exc))
             return
+        if principal.device is not None and principal.device.kind == "worker":
+            # Mac 设置里的名称随 hello 更新；只同步已认证转码器自己的记录，
+            # 不改手工令牌名称，也不赋予 Worker 修改其他设备的权限。
+            async with get_database().session() as session:
+                device = await login_devices.get_device(session, principal.device.id)
+                if device is not None and device.name != connection.worker_id:
+                    await login_devices.rename(session, device, connection.worker_id)
         await connection.send(
             {
                 "type": "worker.accepted",

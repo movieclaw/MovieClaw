@@ -728,6 +728,11 @@ def _video_args(
     args = []
     if filters:
         args += ["-vf", filters]
+    if vt_mode == VT_GPU:
+        # GPU 链路由 scale_vt 控制输出尺寸。输入帧的尺寸、色彩范围或硬件帧上下文
+        # 变化时，ffmpeg 重建滤镜图会按上次输出尺寸插入软件 scaler_out；它接不了
+        # videotoolbox_vld，导致 -78 退出。关闭这层自动缩放，保持整条链使用硬件帧。
+        args += ["-noautoscale"]
     maxrate = maxrate_for_video(plan.video)
     bufsize = f"{float(maxrate[:-1]) * 2:g}M"
     if backend is not None:

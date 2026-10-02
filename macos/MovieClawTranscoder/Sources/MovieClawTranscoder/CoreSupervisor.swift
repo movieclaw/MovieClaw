@@ -45,11 +45,19 @@ final class CoreSupervisor {
     private var drainingForUpdate = false
     private var policy = CrashPolicy()
     private var restartTask: Task<Void, Never>?
+    /// 设置切换与主动断开共用一个过渡任务；新操作取消旧操作，旧内核完全退出才启动新内核。
+    private var transitionTask: Task<Void, Never>?
+    private let executableURL: URL
     private var watchdog: Timer?
     /// 这一次退出是我们自己要的（停止、重启），不算崩溃。
     private var intentionalExit = false
     /// 被判定卡死后强制结束的，退出时的原因写「无响应」而不是「信号 9」。
     private var killedAsHung = false
+
+    init(executableURL: URL = Bundle.main.executableURL
+        ?? URL(fileURLWithPath: CommandLine.arguments[0])) {
+        self.executableURL = executableURL
+    }
 
     // MARK: - 对外
 
@@ -59,35 +67,71 @@ final class CoreSupervisor {
         policy.reset()
         restartTask?.cancel()
         restartTask = nil
-        startWatchdog()
-        spawn()
+        transitionTask?.cancel()
+        watchdog?.invalidate()
+        watchdog = nil
+        intentionalExit = true
+        let previous = process
+        transitionTask = Task { [weak self] in
+            await self?.stopProcess(previous)
+            guard !Task.isCancelled, let self, self.isActive else { return }
+            self.transitionTask = nil
+            self.lastStatus = nil
+            self.startWatchdog()
+            self.spawn()
+        }
     }
 
     /// 优雅停下：先请内核跟 NAS 道别，最多等 5 秒，还没走就强制结束。
     func stop() async {
+        await disconnect().value
+    }
+
+    /// 同步撤销连接意图，再异步收尾。不能把撤销动作也放进 Task，否则迟到的 stop
+    /// 会停掉用户随后刚启动的新内核。返回任务供退出/清除配置时等待收尾。
+    @discardableResult
+    func disconnect() -> Task<Void, Never> {
         isActive = false
         restartTask?.cancel()
         restartTask = nil
         watchdog?.invalidate()
         watchdog = nil
-        guard let process, process.isRunning else {
-            self.process = nil
-            return
-        }
+        transitionTask?.cancel()
         intentionalExit = true
+        let previous = process
+        let task = Task { [weak self] in
+            guard let self else { return }
+            await self.stopProcess(previous)
+        }
+        transitionTask = task
+        return task
+    }
+
+    private func stopProcess(_ previous: Process?) async {
+        guard let previous, previous === process else { return }
         send(.shutdown)
         let deadline = Date().addingTimeInterval(5)
-        while process.isRunning, Date() < deadline {
-            try? await Task.sleep(nanoseconds: 100_000_000)
+        while previous.isRunning, Date() < deadline {
+            do { try await Task.sleep(nanoseconds: 100_000_000) }
+            catch { return }
         }
-        if process.isRunning {
-            kill(process.processIdentifier, SIGKILL)
+        if previous.isRunning {
+            kill(previous.processIdentifier, SIGKILL)
+            while previous.isRunning {
+                do { try await Task.sleep(nanoseconds: 100_000_000) }
+                catch { return }
+            }
+        }
+        if previous === process {
+            process = nil
+            input = nil
         }
     }
 
     /// App 退出时同步收尾：来不及等道别，直接结束内核（内核读到 EOF 也会自己退）。
     func terminateNow() {
         isActive = false
+        transitionTask?.cancel()
         restartTask?.cancel()
         watchdog?.invalidate()
         if let process, process.isRunning {
@@ -105,6 +149,7 @@ final class CoreSupervisor {
 
     /// 睡眠唤醒、网络恢复：请内核立刻确认连接；内核正等着重启的话，直接提前重启。
     func reconnectNow() {
+        guard isActive, transitionTask == nil else { return }
         if process?.isRunning == true {
             send(.reconnectNow)
         } else if isActive, restartTask != nil {
@@ -117,10 +162,9 @@ final class CoreSupervisor {
     // MARK: - 启动与消息
 
     private func spawn() {
-        guard isActive, let configuration else { return }
+        guard isActive, process?.isRunning != true, let configuration else { return }
         let process = Process()
-        process.executableURL = Bundle.main.executableURL
-            ?? URL(fileURLWithPath: CommandLine.arguments[0])
+        process.executableURL = executableURL
         process.arguments = ["--core"]
         let stdin = Pipe()
         let stdout = Pipe()
@@ -136,7 +180,7 @@ final class CoreSupervisor {
                 return
             }
             Task { @MainActor [weak self] in
-                self?.receive(data)
+                self?.receive(data, from: process)
             }
         }
         process.terminationHandler = { [weak self] finished in
@@ -172,14 +216,16 @@ final class CoreSupervisor {
         try? input.write(contentsOf: data)
     }
 
-    private func receive(_ data: Data) {
-        guard !data.isEmpty else { return }
+    private func receive(_ data: Data, from sender: Process) {
+        // 退出中的旧内核仍可能发出 stopped/旧名称，不能覆盖新配置的状态。
+        guard sender === process, !data.isEmpty else { return }
         outputBuffer.append(data)
         for line in CoreLine.takeLines(from: &outputBuffer) {
             lastMessageAt = Date()
             guard let event = try? CoreLine.decode(CoreEvent.self, from: line) else { continue }
             switch event {
             case let .status(status):
+                guard !intentionalExit else { continue }
                 lastStatus = status
                 // 连上 NAS 了：这次恢复算成功，崩溃计数不必清（10 分钟窗口自己会过期），
                 // 但面板上的「正在恢复」要撤掉——内核发来的状态本来就不带这个
@@ -286,7 +332,7 @@ final class CoreSupervisor {
     }
 
     private func checkHealth() {
-        guard isActive, let process, process.isRunning else { return }
+        guard isActive, !intentionalExit, let process, process.isRunning else { return }
         if Date().timeIntervalSince(lastMessageAt) > Self.hangTimeout {
             AppLogger.shared.warning("转码内核 \(Int(Self.hangTimeout)) 秒没有任何响应，判定卡死，强制结束后重启")
             killedAsHung = true
@@ -298,13 +344,7 @@ final class CoreSupervisor {
             AppLogger.shared.warning("转码内核占用内存 \(footprint >> 20) MB，超过上限，空闲时重启一次")
             recoveries.append(CoreRecovery(at: Date(), reason: "内存占用过高（\(footprint >> 20) MB）"))
             onRecoveriesChanged?()
-            intentionalExit = true
-            send(.shutdown)
-            Task { [weak self] in
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
-                if process.isRunning { kill(process.processIdentifier, SIGKILL) }
-                self?.spawn()
-            }
+            if let configuration { start(configuration) }
         }
     }
 

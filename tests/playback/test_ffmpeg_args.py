@@ -1085,6 +1085,22 @@ def test_mac_converts_10bit_sdr_to_8bit_on_the_gpu():
     assert "-pix_fmt" not in argv
 
 
+@pytest.mark.parametrize("hdr", [False, True])
+def test_mac_gpu_chain_disables_software_autoscale_on_filter_reinitialization(hdr):
+    """输入帧参数变化时重建滤镜图，不能让自动软件缩放接到 VideoToolbox 硬件帧。"""
+    argv = argv_of(
+        vt_transcode("hevc", bit_depth=10, hdr=hdr),
+        hw_backend="videotoolbox",
+        worker_caps=MAC_CAPS,
+    )
+    assert "-noautoscale" in argv
+    assert argv.index("-noautoscale") > argv.index("-i")
+    assert "-noautoscale" not in argv_of(
+        vt_transcode("vc1"), hw_backend="videotoolbox", worker_caps=MAC_CAPS
+    )
+    assert "-noautoscale" not in argv_of(plan(PlaybackTier.REMUX))
+
+
 def test_mac_gpu_chain_labels_frames_bt709_before_the_encoder_asks_for_it():
     """ffmpeg 8 的 -colorspace 参与格式协商：无标签的硬件帧会被插一个接不上的软件
     scale 去转换，整条链失败（实测）。输出 BT.709 时先用 setparams 给帧打上标签。"""
