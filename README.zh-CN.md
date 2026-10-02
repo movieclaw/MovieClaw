@@ -1,11 +1,6 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.png">
-    <img alt="MovieClaw" src="docs/images/logo-light.png" width="360">
-  </picture>
+  <img src="docs/images/banner.zh.jpg" width="900" alt="MovieClaw：下一代智能影音服务器">
 </p>
-
-<h3 align="center">下一代智能影音服务器</h3>
 
 <p align="center">
   一个 MovieClaw，替代一整套影音工具。<br>
@@ -130,7 +125,7 @@ MovieClaw 把一个自主的通用 Agent 装进了影音服务器。打理片库
 - 链路体检：逐站预演资源站点、下载器、媒体库，哪一步会卡住一眼看到。
 - 新站先养着：打开站点保护，订阅链路绕开这个站，手动搜索不受影响，配合刷流把分享率养起来再放开。
 
-## 装好之后，日子是这样的
+## 这才是私人影音库该有的样子
 
 <table>
   <tr>

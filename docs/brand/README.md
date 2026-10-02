@@ -37,7 +37,7 @@
 | iOS | `apps/apple/MovieClaw/Assets.xcassets/AppIcon.appiconset/`：默认（不透明）、深色（透明底）、着色（灰阶）三种外观 | 直接替换三张 1024 PNG |
 | macOS 转码器 | `macos/MovieClawTranscoder/Sources/MovieClawTranscoder/BrandMark.swift`（矢量轮廓）→ `Resources/AppIcon.icns` | 改 `BrandMark.swift` 后跑 `scripts/render-app-icon.sh` |
 | 浏览器扩展 | `apps/extension/public/icon/{16,32,48,128}.png`（WXT 自动写进 manifest） | 从 `masters/favicon-1024.png` 缩放 |
-| README | `docs/images/logo-dark.png` / `logo-light.png` | 横版组合，宽 720 |
+| README | 顶部横幅 `docs/images/banner.{zh,en}.jpg`（和官网分享卡片同一版式，2400×1260，自带深色底，GitHub 明暗主题都能用）；`docs/images/logo-dark.png` / `logo-light.png` 是横版组合（宽 720），README 已不再引用 | 换标志后照官网分享卡片的版式重出横幅 |
 
 完整的品牌资产包（含 Icon Composer 分层、各平台全套尺寸、社交头像、分享卡片）由仓库外的
 `movieclaw-logo-lab/build_brand_kit.py` 生成，本目录只放仓库里实际要用到的源文件和母版。

@@ -1,11 +1,6 @@
 <p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/images/logo-dark.png">
-    <img alt="MovieClaw" src="docs/images/logo-light.png" width="360">
-  </picture>
+  <img src="docs/images/banner.en.jpg" width="900" alt="MovieClaw: the next-gen AI media server">
 </p>
-
-<h3 align="center">The next-gen AI media server</h3>
 
 <p align="center">
   One server replaces your entire media stack.<br>
@@ -161,7 +156,7 @@ handful of services.
 - Health check: dry-runs every step of the chain (trackers, download client, library) so you can spot where it would get stuck.
 - Just joined a private tracker and need to protect your ratio? Turn on site protection: subscriptions steer around that site while manual search still works, so you can build up your ratio before opening it up.
 
-## Here's what your day looks like
+## This is what a personal media library should feel like
 
 <table>
   <tr>
