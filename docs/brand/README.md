@@ -3,6 +3,9 @@
 **A9 极光**：一笔写成的圆角播放三角，笔画是青绿 → 湖蓝 → 紫 → 粉的极光渐变。
 字标「MovieClaw」用 Inter 半粗、单色，颜色只由标志承担。
 
+**图标比例**（2026-10-02 定稿「尺寸 B」）：三角外框约占 App 图标 64%，笔画约 11%；视觉面积约 32%，
+与 App Store、音乐等同属线条图形的苹果图标一致。
+
 ## 颜色
 
 | 用途 | 色值 |
@@ -21,8 +24,8 @@
 | `mark-aurora-flat.svg` | 纯渐变、无滤镜：浅色底、印刷、设计软件用，兼容性最好 |
 | `mark-black.svg` / `mark-white.svg` | 单色 |
 | `lockup-{horizontal,stacked}-{on-dark,on-light,black,white}.svg` | 标志 + 字标组合，字标已转路径，不依赖字体 |
-| `app-icon-dark.svg` / `app-icon-light.svg` | App 图标（400×400，深色为默认） |
-| `favicon.svg` | 网页标签页图标（字形放大 1.18 倍，16px 下也认得出） |
+| `app-icon-dark.svg` / `app-icon-light.svg` | App 图标（400×400，深色为默认，字形外框约占 64%） |
+| `favicon.svg` | 网页标签页图标（字形放大到约占 70%，16px 下也认得出） |
 | `masters/mark-1024.png` | 标志母版（透明底，字形占 91%） |
 | `masters/app-icon-1024.png` | App 图标母版（纯黑底、不透明） |
 | `masters/favicon-1024.png` | 标签页图标母版 |
