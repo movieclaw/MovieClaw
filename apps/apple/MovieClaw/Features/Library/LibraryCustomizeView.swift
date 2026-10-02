@@ -350,7 +350,7 @@ private struct RowSettingsView: View {
             if nameEditable {
                 Section {
                     TextField(row.defaultTitle, text: Binding(
-                        get: { row.customName },
+                        mcGet: { row.customName },
                         set: { value in setName(String(value.prefix(40))) }
                     ))
                     .submitLabel(.done)
@@ -394,7 +394,7 @@ private struct RowSettingsView: View {
                 if let direction, let sort = row.sort {
                     // 自然方向在前：「新→旧」「高→低」「A→Z」
                     Picker("顺序", selection: Binding(
-                        get: { row.reversed },
+                        mcGet: { row.reversed },
                         set: { setSort(sort, reversed: $0) }
                     )) {
                         Text(direction.label(reversed: false)).tag(false)
@@ -407,7 +407,7 @@ private struct RowSettingsView: View {
 
             if let unwatched {
                 Section {
-                    Toggle("只显示我没看过的", isOn: Binding(get: { unwatched }, set: setUnwatched))
+                    Toggle("只显示我没看过的", isOn: Binding(mcGet: { unwatched }, set: setUnwatched))
                         .accessibilityIdentifier("row-unwatched")
                 }
             }
