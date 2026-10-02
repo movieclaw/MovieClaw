@@ -1,4 +1,4 @@
-# MovieClaw iOS 工程定义（XcodeGen）。
+# MovieClaw 苹果平台工程定义（XcodeGen）：iPhone 版（MovieClaw）与 Apple TV 版（MovieClawTV）。
 #
 # 为什么用 XcodeGen 而不是直接提交 .xcodeproj：
 # - .pbxproj 是机器生成的巨型文件，多人/多会话并行加文件时几乎必然冲突；
@@ -12,6 +12,7 @@ options:
   developmentLanguage: zh-Hans
   deploymentTarget:
     iOS: "26.0"
+    tvOS: "26.0"
   createIntermediateGroups: true
 packages:
   # 图片加载与缓存（MIT）：海报墙的解码降采样、内存/磁盘缓存、预取
@@ -108,9 +109,11 @@ targets:
   # 它的 FFmpeg 引用也在这个框架链接时就绑定到自带的 AetherLib* 框架——一个进程里有两份 FFmpeg 时
   # （2026-09-28 移除 MPV 之前，mpv 还静态打着一份），avcodec_* 绑到哪一份由链接顺序决定，
   # 绑错了症状像引擎 bug（上游文档「One FFmpeg」）。App 只 import AetherCore，不得直接依赖 AetherEngine。
+  # iPhone 与 Apple TV 共用同一个框架目标（同一个模块名 AetherCore），两个 App 各自嵌入对应平台的产物
   AetherCore:
     type: framework
-    platform: iOS
+    platform: auto
+    supportedDestinations: [iOS, tvOS]
     sources:
       - path: AetherCore
         type: syncedFolder
@@ -122,6 +125,53 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.movieclaw.aethercore
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES
+        # LibDovi 的 tvOS 模拟器切片只有 arm64：模拟器只编 arm64（Apple 芯片的 Mac），真机不受影响
+        EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+  # Apple TV 版（docs/design/tvos-app.md）：界面层在 MovieClawTV/，接口层、登录与账号、播放逻辑与 iPhone 版
+  # 共用 Shared/；播放引擎同一个 AetherCore。Bundle ID 与 iPhone 版相同（同一条 App Store 记录，一次购买两端通用）
+  MovieClawTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: MovieClawTV
+        type: syncedFolder
+      - path: Shared
+        type: syncedFolder
+    dependencies:
+      - package: Nuke
+        product: Nuke
+      - package: Nuke
+        product: NukeUI
+      - target: AetherCore
+      # 同 iPhone 版：AetherCore 运行时加载的 AetherLib* 动态框架由 App 嵌入
+      - package: FFmpegBuild
+        product: AetherFFmpegBuild
+    info:
+      path: MovieClawTV/Info.plist
+      properties:
+        CFBundleDisplayName: MovieClaw
+        CFBundleLocalizations:
+          - zh-Hans
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        # 底色纯黑，与 iPhone 版一致；系统界面（键盘、弹窗）也跟着是暗色
+        UIUserInterfaceStyle: Dark
+        ITSAppUsesNonExemptEncryption: false
+        UIRequiredDeviceCapabilities:
+          - arm64
+        # 自托管服务器多是局域网 http 直连，理由同 iPhone 版
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+          NSAllowsLocalNetworking: true
+        NSLocalNetworkUsageDescription: MovieClaw 需要访问局域网，用于自动发现并连接你自己部署的 MovieClaw 服务器。
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).app
+        TARGETED_DEVICE_FAMILY: "3"
+        GENERATE_INFOPLIST_FILE: NO
+        # 同 AetherCore：LibDovi 的 tvOS 模拟器切片只有 arm64
+        EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
   MovieClawTests:
     type: bundle.unit-test
     platform: iOS
@@ -150,6 +200,10 @@ targets:
         # XCTestCase 的初始化器是非隔离的，测试类不能继承工程级的默认主线程隔离
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
 schemes:
+  MovieClawTV:
+    build:
+      targets:
+        MovieClawTV: all
   MovieClaw:
     build:
       targets:
