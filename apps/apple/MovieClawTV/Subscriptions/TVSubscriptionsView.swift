@@ -73,6 +73,7 @@ struct TVSubscriptionsView: View {
             .padding(.bottom, 80)
         }
         .scrollClipDisabled()
+        .tvTopBarFollowsScroll()
         .ignoresSafeArea(edges: [.horizontal, .top])
     }
 

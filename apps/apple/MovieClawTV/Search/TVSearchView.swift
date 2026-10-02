@@ -39,6 +39,7 @@ struct TVSearchView: View {
             .padding(.vertical, 40)
         }
         .scrollClipDisabled()
+        .tvTopBarFollowsScroll()
         .ignoresSafeArea(edges: .horizontal)
         .searchable(text: $query, prompt: "片名、原名或拼音首字母")
         .task(id: trimmed) { await search() }

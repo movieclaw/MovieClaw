@@ -47,6 +47,7 @@ struct TVDiscoverView: View {
             .padding(.bottom, 80)
         }
         .scrollClipDisabled()
+        .tvTopBarFollowsScroll()
         .ignoresSafeArea(edges: [.horizontal, .top])
         .task(id: mediaType) {
             await feed.loadIfNeeded(api: api)

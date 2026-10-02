@@ -1,9 +1,9 @@
 import SwiftUI
 
-/// 片段（docs/design/tvos-app.md §3.1，侧边栏「更多」里的二级入口）：客厅版「随便看看」。
+/// 片段（docs/design/tvos-app.md §3.1，发现页里的二级入口）：客厅版「随便看看」。
 ///
 /// 全屏自动连播自己片库里的片段，一段放完自动接下一段；点按左 / 右换上一段 / 下一段，
-/// **按确认键接着看正片**（从当前位置进正片播放器），播放暂停键暂停，返回键回侧边栏。
+/// **按确认键接着看正片**（从当前位置进正片播放器），播放暂停键暂停，返回键回发现页。
 /// 数据、预取、预起下一段、片段事件全部沿用 iPhone 版的 `ReelsStore`（在 Shared/Reels），这里只是电视的控制层：
 /// 手机上的上下滑在电视上换成左右按键，竖屏横带换成全屏。
 struct TVReelsView: View {
@@ -28,7 +28,7 @@ struct TVReelsView: View {
             await created.start()
             surfaceFocused = true
         }
-        // 切走（换侧边栏、进正片播放器）就收掉播放器；回来接着放
+        // 切走（返回发现页、进正片播放器）就收掉播放器；回来接着放
         .onDisappear { store?.suspend() }
         .onAppear { store?.resume() }
         .accessibilityElement(children: .contain)

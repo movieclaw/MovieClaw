@@ -1,21 +1,20 @@
 import Foundation
 
-/// Apple TV 侧边栏的一项（docs/design/tvos-app.md §3.3）。
+/// Apple TV 顶栏的一项（docs/design/tvos-app.md §3.3）。
 ///
 /// 名字与 iPhone 版的页签类型相同（都叫 `MainTab`）：共享的 `AppModel`、`DebugLaunch` 只认这个名字，
-/// 两个平台各自定义自己的页签。`rawValue` 给调试参数 `-mcTab` 与快照用：`home`、`library-3`、`discover`……
+/// 两个平台各自定义自己的页签。`rawValue` 给调试参数 `-mcTab` 与快照用：`home`、`discover`……
+///
+/// 顶栏只放固定的几项：各个媒体库不再各占一格（数量不定、会把顶栏挤满），从首页的「我的媒体库」进；
+/// 「片段」是低频入口，收进发现页。
 enum MainTab: Hashable {
-    /// 侧边栏最上面的当前账号（账号页：切换账号、添加账号、关于、退出登录）
+    /// 顶栏左上角的当前账号（账号页：切换账号、添加账号、关于、退出登录）
     case account
     case search
+    /// 「媒体库」：即首页（顶部大图 + 接下来继续 + 自定义行），启动后的默认落点
     case home
-    /// 某个媒体库（id）
-    case library(Int)
-    /// 媒体库超过侧边栏能放的个数时，多出来的收进这一页
-    case allLibraries
-    case discover
     case subscriptions
-    case reels
+    case discover
 }
 
 extension MainTab: RawRepresentable {
@@ -24,13 +23,9 @@ extension MainTab: RawRepresentable {
         case "account": self = .account
         case "search": self = .search
         case "home": self = .home
-        case "libraries": self = .allLibraries
-        case "discover": self = .discover
         case "subscriptions": self = .subscriptions
-        case "reels": self = .reels
-        default:
-            guard rawValue.hasPrefix("library-"), let id = Int(rawValue.dropFirst("library-".count)) else { return nil }
-            self = .library(id)
+        case "discover": self = .discover
+        default: return nil
         }
     }
 
@@ -39,11 +34,8 @@ extension MainTab: RawRepresentable {
         case .account: "account"
         case .search: "search"
         case .home: "home"
-        case let .library(id): "library-\(id)"
-        case .allLibraries: "libraries"
-        case .discover: "discover"
         case .subscriptions: "subscriptions"
-        case .reels: "reels"
+        case .discover: "discover"
         }
     }
 }
@@ -53,12 +45,31 @@ extension MainTab: RawRepresentable {
 enum AppRoute: Hashable {
     /// 条目详情（电影 / 剧集 / 其他）：详情接口按「库 + 条目」取
     case item(libraryId: Int, itemId: Int)
-    /// 某个媒体库的完整海报墙（从「全部媒体库」进入）
+    /// 某个媒体库的完整海报墙（从首页的「我的媒体库」进入）
     case library(Int)
     /// 合集：海报墙
     case collection(id: Int, name: String)
     /// 发现里的一部作品（`tmdb:movie:550` / `douban:1292052`）：在库就能播，不在库可以一键订阅
     case discoverTitle(String)
+    /// 片段（竖屏短视频流）：从发现页进入
+    case reels
     /// 关于（版本与开源许可）
     case about
 }
+
+#if DEBUG
+extension TVRouter {
+    /// 调试参数 `-mcTab` 的落点：顶栏页签名直接落过去；旧的侧边栏页签名（`library-3`、`libraries`、`reels`）
+    /// 换算成「所在页签 + 压栈页面」，UI 测试与截图脚本照旧可用
+    static func debugLanding(_ raw: String) -> (tab: MainTab, path: [AppRoute])? {
+        if let tab = MainTab(rawValue: raw) { return (tab, []) }
+        switch raw {
+        case "libraries": return (.home, [])
+        case "reels": return (.discover, [.reels])
+        default:
+            guard raw.hasPrefix("library-"), let id = Int(raw.dropFirst("library-".count)) else { return nil }
+            return (.home, [.library(id)])
+        }
+    }
+}
+#endif

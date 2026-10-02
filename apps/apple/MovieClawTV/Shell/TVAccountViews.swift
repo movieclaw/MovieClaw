@@ -103,7 +103,7 @@ struct TVWhoIsWatchingView: View {
     }
 }
 
-/// 侧边栏最上面的账号页：当前是谁、在哪台服务器，以及切换账号 / 添加账号 / 关于 / 退出登录
+/// 顶栏左上角的账号页：当前是谁、在哪台服务器，以及切换账号 / 添加账号 / 关于 / 退出登录
 struct TVAccountView: View {
     @Environment(AppModel.self) private var model
     @Environment(TVProfileGate.self) private var gate

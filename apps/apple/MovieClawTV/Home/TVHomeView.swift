@@ -93,7 +93,8 @@ struct TVHomeView: View {
         } action: { _, offset in
             scroll.offset = offset
         }
-        // 只横向铺满（横滑行自己补左边距）。顶部保留安全区：列表静止时内容从左上角侧边栏按钮的下沿排起，
+        .tvTopBarFollowsScroll()
+        // 只横向铺满（横滑行自己补左边距）。顶部保留安全区：列表静止时内容从顶栏的下沿排起，
         // 首屏不必自己留白避让；大图背景在 background 里自己铺满全屏，不受影响
         .ignoresSafeArea(edges: .horizontal)
         .background {
