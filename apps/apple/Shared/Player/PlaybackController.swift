@@ -267,8 +267,12 @@ final class PlaybackController {
         // 上次没能收尾的播放（闪退、被系统杀掉）先转进上报队列：必须赶在这次写「正在播放」标记之前
         if scope.telemetry { PlaybackReportQueue.recoverAbnormalExit() }
         // 激活音频会话要和系统媒体服务打交道，真机上可能卡主线程几十毫秒：放到后台，
-        // 起播协商与引擎读文件头都比它慢，出声之前一定已经就绪
+        // 起播协商与引擎读文件头都比它慢，出声之前一定已经就绪。
+        // Apple TV 不在这里激活：起播前就激活会把 HDMI 按那一刻的状态锁成立体声，5.1 / 全景声被降混
+        // （上游 #24）。电视上由引擎声明类别、到出声时再激活（见 NativeEngine 的音频会话说明）
+        #if os(iOS)
         Task.detached { Self.activateAudioSession() }
+        #endif
         // 先发起播请求，锁屏信息、远程控制这些杂事放在后面：它们不挡出画，却会把请求往后推几十毫秒
         startUnit(unit)
         trace.mark("出现", at: appearedAt)
@@ -602,7 +606,7 @@ final class PlaybackController {
             startMs: startMs,
             // 播放记录的编号（分享访客不上报遥测，也不带）：服务端据此建「已开始」、写进取流令牌
             attemptId: scope.telemetry ? record?.id : nil,
-            client: scope.telemetry ? "ios" : nil
+            client: scope.telemetry ? ClientPlatform.kind : nil
         )
     }
 
@@ -2247,6 +2251,7 @@ final class PlaybackController {
         }
     }
 
+    #if os(iOS)
     nonisolated private static func activateAudioSession() {
         let audio = AVAudioSession.sharedInstance()
         try? audio.setCategory(.playback, mode: .moviePlayback, policy: .longFormVideo)
@@ -2254,6 +2259,7 @@ final class PlaybackController {
         try? audio.setSupportsMultichannelContent(true)
         try? audio.setActive(true)
     }
+    #endif
 }
 
 /// 诊断面板的实时读数（对应 Web `lib/player/qoe.ts` 的归约结果）与观看时长。

@@ -24,7 +24,12 @@ nonisolated enum PlaybackReportQueue {
     }
 
     private static var directory: URL {
+        #if os(tvOS)
+        // Apple TV 只保证 UserDefaults 持久，其余数据都得放在系统可清理的缓存目录；被清掉只是少补报一次
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        #else
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        #endif
         return base.appendingPathComponent("playback-reports", isDirectory: true)
     }
 

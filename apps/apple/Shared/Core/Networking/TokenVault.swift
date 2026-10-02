@@ -80,7 +80,7 @@ nonisolated enum InstallationID {
            let data = result as? Data, let existing = String(data: data, encoding: .utf8), !existing.isEmpty {
             return existing
         }
-        let fresh = "ios-" + UUID().uuidString.lowercased()
+        let fresh = "\(ClientPlatform.kind)-" + UUID().uuidString.lowercased()
         var add = query
         add[kSecValueData as String] = Data(fresh.utf8)
         add[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
@@ -92,15 +92,13 @@ nonisolated enum InstallationID {
 /// 登录时报给服务端的这台设备的信息（「我的设备」里显示）
 @MainActor
 enum DeviceInfo {
-    /// 默认设备名：机型的型号名（「iPhone」「iPad」）。iOS 16 起读不到用户起的设备名（要特殊权限），
+    /// 默认设备名：机型的型号名（「iPhone」「iPad」「Apple TV」）。iOS 16 起读不到用户起的设备名（要特殊权限），
     /// 用户可以在「设置 → 设备」里给它改名
     static var name: String { UIDevice.current.model }
 
-    /// 「iOS 26.0 · iPhone18,4」
+    /// 「iOS 26.0 · iPhone18,4」「tvOS 26.0 · AppleTV14,1」
     static var platform: String {
-        let os = ProcessInfo.processInfo.operatingSystemVersion
-        let system = os.patchVersion > 0 ? "\(os.majorVersion).\(os.minorVersion).\(os.patchVersion)" : "\(os.majorVersion).\(os.minorVersion)"
-        return "iOS \(system) · \(APIClient.machineModel)"
+        "\(ClientPlatform.osName) \(ClientPlatform.osVersion) · \(APIClient.machineModel)"
     }
 
     static var appVersion: String {
@@ -108,7 +106,7 @@ enum DeviceInfo {
     }
 
     static var client: API.DeviceClientInfo {
-        API.DeviceClientInfo(kind: "ios", installationId: InstallationID.value, name: name, platform: platform, clientVersion: appVersion)
+        API.DeviceClientInfo(kind: ClientPlatform.kind, installationId: InstallationID.value, name: name, platform: platform, clientVersion: appVersion)
     }
 }
 

@@ -85,7 +85,13 @@ enum PlayerCapability {
 
     /// 屏幕能不能显示 HDR（能力快照的 hdr_passthrough）；判 false 只是让服务端 tone-map
     private static var hdrDisplay: Bool {
+        #if os(tvOS)
+        // Apple TV 的 EDR 余量恒为 1（画面经 HDMI 交给电视，不在本机屏幕上做 EDR），按它判会把所有 HDR 都申报成
+        // 「不支持」。改问 AVPlayer：当前设备 + 所接电视能否放 HDR
+        return AVPlayer.eligibleForHDRPlayback
+        #else
         let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }.first
         return (screen?.potentialEDRHeadroom ?? 1) > 1
+        #endif
     }
 }

@@ -40,8 +40,13 @@ extension View {
     /// App 不做网页的背景图设定（用户决定，已接受的平台差异），所有页面都铺同一个黑底；
     /// 页内 List / Form 的系统底色隐藏，行与卡片直接落在黑底上。
     func appBackground() -> some View {
+        #if os(iOS)
         scrollContentBackground(.hidden)
             .background { Theme.background.ignoresSafeArea() }
+        #else
+        // tvOS 的列表没有可隐藏的系统底色
+        background { Theme.background.ignoresSafeArea() }
+        #endif
     }
 
     /// 卡片底：半透明抬升面 + 细描边

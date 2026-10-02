@@ -552,11 +552,13 @@ final class PlaybackRecord {
         }
         if thermalStart == nil { thermalStart = thermal }
         thermalMax = max(thermalMax, thermal)
+        #if os(iOS)
         let device = UIDevice.current
         device.isBatteryMonitoringEnabled = true
         let battery = device.batteryLevel < 0 ? nil : Int((device.batteryLevel * 100).rounded())
         if batteryStart == nil { batteryStart = battery }
         batteryEnd = battery ?? batteryEnd
+        #endif
         lowPower = lowPower || ProcessInfo.processInfo.isLowPowerModeEnabled
         memoryPeakMB = max(memoryPeakMB, Int(DeviceVitals.footprintMB()))
         let cpu = DeviceVitals.processCPU()
@@ -639,7 +641,7 @@ final class PlaybackRecord {
             seekCount: seeks.count, droppedFrames: droppedFrames, totalFrames: totalFrames, watchedMs: watchedMs,
             attemptId: id, outcome: outcome.rawValue, mediaItemId: unit.mediaItemId,
             seasonNumber: unit.isEpisode ? unit.season : nil, episodeNumber: unit.isEpisode ? unit.episode : nil,
-            origin: origin.rawValue, client: "ios", labScenario: lab, route: route, networkClass: network.rawValue,
+            origin: origin.rawValue, client: ClientPlatform.kind, labScenario: lab, route: route, networkClass: network.rawValue,
             interface: NetworkCost.shared.interface, appVersion: Self.appVersion,
             firstFrameMs: firstFrameMs, playingMs: playingMs, userWaitMs: userWaitMs,
             errorKind: errorKind, errorCategory: errorCategory, errorStage: errorStage,

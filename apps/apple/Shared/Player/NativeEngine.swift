@@ -164,9 +164,15 @@ final class NativeEngine: NSObject, PlayerEngine {
         #else
         AetherPlayback.installLogHandler(mirror: false)
         #endif
-        // 音频会话由 App 自己管：点播放时就以「长视频」策略设好类别、声明多声道并激活（`PlaybackController.activateAudioSession`），
-        // 引擎建实例时不再用默认策略重设一遍（引擎补丁 P47）
+        // 音频会话：iPhone 上由 App 自己管——点播放时就以「长视频」策略设好类别、声明多声道并激活
+        // （`PlaybackController.activateAudioSession`），引擎建实例时不再用默认策略重设一遍（引擎补丁 P47）。
+        // Apple TV 上交给引擎：它以 `.longFormAudio` 策略只声明不激活，到出声时才激活，HDMI 才能按片源协商出
+        // 5.1 / 全景声；提前激活会锁成立体声（上游 #24）
+        #if os(tvOS)
+        var hostManagesAudio = false
+        #else
         var hostManagesAudio = true
+        #endif
         #if DEBUG
         // -mcEngineAudioSession YES：照旧由引擎在建实例时设类别（P47 之前的行为，真机新旧对照用）
         if UserDefaults.standard.bool(forKey: "mcEngineAudioSession") { hostManagesAudio = false }
@@ -458,8 +464,13 @@ final class NativeEngine: NSObject, PlayerEngine {
     // MARK: - 画中画 / 前后台
 
     var supportsPictureInPicture: Bool {
+        #if os(tvOS)
+        // Apple TV 首版不做画中画：软解通路的画中画 tvOS 不接受，两条通路体验不一致（docs/design/tvos-app.md §4.3）
+        false
+        #else
         AVPictureInPictureController.isPictureInPictureSupported()
             && (core.pictureInPictureLayer != nil || core.softwarePictureInPicture != nil)
+        #endif
     }
 
     func togglePictureInPicture() {
@@ -493,7 +504,9 @@ final class NativeEngine: NSObject, PlayerEngine {
             return
         }
         pipController?.delegate = nil
+        #if os(iOS)
         controller?.canStartPictureInPictureAutomaticallyFromInline = true
+        #endif
         controller?.delegate = self
         pipController = controller
     }

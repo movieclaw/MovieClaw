@@ -27,6 +27,10 @@ import Observation
 /// 第一帧就是主界面（页面数据来自各自的快照，见 `SessionPrewarm`）；身份在后台校验（`revalidate`）。
 /// 以前要先等「测服务器 + 问身份」两个来回才出界面，期间只有一个转圈。校验遇到 401 照常回登录页；
 /// 服务器连不上时留在主界面，各页面挂自己的「与后端通信失败，显示的是最近一次加载的数据」提示。
+///
+/// **iPhone 与 Apple TV 共用**（在 Shared/）。它引用的几个界面相关的名字由各平台的界面层各自定义：
+/// `MainTab`（主界面的页签 / 侧边栏项）、`AppRoute`（可压栈的页面），以及 `SessionPrewarm`
+/// （账号就绪时预热哪些页面）。两个平台的这几个类型同名不同义，共享代码只用到它们的名字。
 @Observable
 final class AppModel {
     enum Phase: Equatable {
@@ -300,27 +304,10 @@ final class AppModel {
         }
     }
 
-    /// 双击头像页签：切回上一个账号（上一次从它切走的那个，跨服务器也算），在最近用的两个账号之间来回切
-    /// ——结果可预期，再双击一次就回来（同 Instagram）。上一个账号已不在本机、或就是当前账号时，改切本机
-    /// 另一个还能用的账号。本机只有当前这一个账号时返回 false、什么都不做；登录失效照样抛 `needsPassword`。
-    /// 切过去后新主界面会弹「已切换到「某某」」（见 `switchAccount`）。
-    func switchToPreviousAccount() async throws -> Bool {
-        let others = savedServers.flatMap { saved in
-            saved.accounts.map { SavedAccount(server: saved.address, account: $0) }
-        }.filter { !($0.server == server && $0.account.username == session?.username) }
-        let previous = Self.previousAccount
-        guard let target = others.first(where: {
-            $0.server.origin == previous?.origin && $0.account.username == previous?.username
-        }) ?? others.first(where: { hasToken(for: $0.account.username, on: $0.server) }) ?? others.first
-        else { return false }
-        try await switchAccount(to: target.account.username, on: target.server, landingOn: .more)
-        return true
-    }
-
     /// 上一个账号（换账号时记下切走的那个）：存本机，冷启动后照样能双击切回去
-    private static let previousAccountKey = "movieclaw.previousAccount"
+    static let previousAccountKey = "movieclaw.previousAccount"
 
-    private static var previousAccount: (origin: URL, username: String)? {
+    static var previousAccount: (origin: URL, username: String)? {
         guard let stored = UserDefaults.standard.dictionary(forKey: previousAccountKey),
               let origin = (stored["origin"] as? String).flatMap(URL.init(string:)),
               let username = stored["username"] as? String else { return nil }

@@ -55,12 +55,21 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
         player.automaticallyWaitsToMinimizeStalling = true
         // 字幕轨由我们按「画面内 / 画中画」显式挑，不让系统按辅助功能偏好自动选（否则画面内会出双字幕）
         player.appliesMediaSelectionCriteriaAutomatically = false
+        #if os(iOS)
         if AVPictureInPictureController.isPictureInPictureSupported() {
             let controller = AVPictureInPictureController(playerLayer: layerView.playerLayer)
             controller?.canStartPictureInPictureAutomaticallyFromInline = true
             controller?.delegate = self
             pipController = controller
         }
+        #else
+        // Apple TV 不做画中画（同 NativeEngine.supportsPictureInPicture）。系统播放器兜底这条路不经过自研引擎，
+        // 没人替它声明音频类别：按引擎在 tvOS 上的做法声明（长音频路由策略、多声道），只声明不激活，
+        // 由 AVPlayer 出声时激活——提前激活会把 HDMI 锁成立体声（上游 #24）
+        let audio = AVAudioSession.sharedInstance()
+        try? audio.setCategory(.playback, mode: .moviePlayback, policy: .longFormAudio)
+        try? audio.setSupportsMultichannelContent(true)
+        #endif
         observe()
     }
 

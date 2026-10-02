@@ -10,8 +10,6 @@ import UIKit
 /// 同一部片连播 30 分钟后的温度状态与掉电才是可比的结果。
 enum DeviceVitals {
     static func line() -> String {
-        let device = UIDevice.current
-        device.isBatteryMonitoringEnabled = true
         let thermal = switch ProcessInfo.processInfo.thermalState {
         case .nominal: "正常"
         case .fair: "偏热"
@@ -19,6 +17,10 @@ enum DeviceVitals {
         case .critical: "临界"
         @unknown default: "未知"
         }
+        let resources = "本进程CPU=\(String(format: "%.0f", processCPU()))% 内存=\(Int(footprintMB()))MB"
+        #if os(iOS)
+        let device = UIDevice.current
+        device.isBatteryMonitoringEnabled = true
         let battery = device.batteryLevel < 0 ? "?" : "\(Int((device.batteryLevel * 100).rounded()))%"
         let charging = switch device.batteryState {
         case .charging: "充电中"
@@ -27,7 +29,11 @@ enum DeviceVitals {
         default: "未知"
         }
         let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled ? " 低电量模式" : ""
-        return "温度=\(thermal) 电量=\(battery)(\(charging)) 本进程CPU=\(String(format: "%.0f", processCPU()))% 内存=\(Int(footprintMB()))MB\(lowPower)"
+        return "温度=\(thermal) 电量=\(battery)(\(charging)) \(resources)\(lowPower)"
+        #else
+        // Apple TV 插电运行、没有电池
+        return "温度=\(thermal) \(resources)"
+        #endif
     }
 
     /// 本进程所有线程的 CPU 占用之和（100 = 占满一个核）
