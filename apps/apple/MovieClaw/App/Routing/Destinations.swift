@@ -25,12 +25,14 @@ extension AppRoute {
         case let .discoveredPerson(tmdbId): DiscoveredPersonView(tmdbId: tmdbId)
         // 媒体库
         case .libraryHome: LibraryHomeView()
+        // Router 把它改成弹出表单（AppSheet.customizeHome），不会真的压栈到这里；页面自带导航栈，所以不能压栈
         case .libraryCustomize: LibraryCustomizeView()
         case .favorites: FavoritesView()
         case .allCollections: AllCollectionsView()
         case let .collection(libraryId, collectionId): CollectionDetailView(libraryId: libraryId, collectionId: collectionId)
         case let .library(id, view, pending):
             LibraryDetailView(libraryId: id, initialView: view.flatMap(LibraryDetailView.WallView.init(rawValue:)) ?? .items, openPending: pending)
+        case let .libraryKind(kind): LibraryKindWallView(kind: kind)
         case let .libraryItem(libraryId, itemId, season, episode):
             LibraryItemDetailView(libraryId: libraryId, itemId: itemId, season: season, episode: episode)
         case let .libraryManage(create, tab, item): LibraryManageView(openCreate: create, initialTab: tab, initialItemId: item)
@@ -64,6 +66,7 @@ extension AppSheet {
         switch self {
         case let .subscribe(request): SubscribeSheet(request: request)
         case .accountSwitcher: AccountSwitcherSheet()
+        case .customizeHome: LibraryCustomizeView()
         }
     }
 }

@@ -666,6 +666,40 @@ def test_transcoder_shows_connected_while_its_control_link_is_up(client: TestCli
     assert _paired_devices(client)[0]["connected"] is False
 
 
+@pytest.mark.parametrize("paired", [True, False])
+def test_worker_rename_updates_only_its_paired_device(client: TestClient, paired: bool) -> None:
+    """同一凭证改名重连后仍是原设备；手工令牌的管理名称保留。"""
+    from movieclaw_api.services.playback.remote_worker import REMOTE_WORKER_PROTOCOL_VERSION
+
+    token = (
+        _pair(client, client_type="worker", name="old-mac")
+        if paired
+        else client.post(f"{_AUTH}/tokens", json={"name": "manual", "scope": "transcode"})
+        .json()["data"]["token"]
+    )
+    assert client.put("/api/v1/transcode-worker/config", json={"enabled": True}).status_code == 200
+    listed = client.get(f"{_AUTH}/devices").json()["data"]
+    original = next(d for d in listed if d["name"] == ("old-mac" if paired else "manual"))
+    for name in ["new-mac", "final-mac"]:
+        with client.websocket_connect("/api/v1/transcode-worker/ws", headers=_bearer(token)) as ws:
+            ws.send_json(
+                {
+                    "type": "worker.hello",
+                    "protocol_version": REMOTE_WORKER_PROTOCOL_VERSION,
+                    "worker_id": name,
+                    "capabilities": {"platform": "macOS", "backends": ["videotoolbox"]},
+                }
+            )
+            assert ws.receive_json()["type"] == "worker.accepted"
+            devices = client.get(f"{_AUTH}/devices").json()["data"]
+            device = next(d for d in devices if d["id"] == original["id"])
+            assert device["name"] == (name if paired else "manual")
+            assert len(devices) == len(listed)
+            assert {d["id"]: d["name"] for d in devices if d["id"] != original["id"]} == {
+                d["id"]: d["name"] for d in listed if d["id"] != original["id"]
+            }
+
+
 def test_worker_messages_refresh_last_seen(client: TestClient) -> None:
     """心跳也算活跃：「最近活跃」跟得上转码器真实的在线时间，而不是停在握手那一刻。"""
     from datetime import timedelta

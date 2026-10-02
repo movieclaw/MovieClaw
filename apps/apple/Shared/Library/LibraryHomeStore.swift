@@ -183,7 +183,7 @@ final class LibraryHomeStore {
     // MARK: 首屏图片
 
     /// 首屏会显示的图（与 LibraryHomeView 的排版同一口径，交给 `FirstScreenImages` 提前解码进内存）：
-    /// 前四行里，接下来继续前 3 张、收藏前 4 张、库卡片封面前 2 张、库 / 合集行各前 4 张
+    /// 前四行里，接下来继续前 3 张、收藏前 4 张、库卡片封面前 2 张、库 / 类型 / 合集行各前 4 张
     func firstScreenImageURLs(api: APIClient) -> [URL] {
         guard let libraries else { return [] }
         let rows = HomeRows.build(prefs: LibraryHomePrefs.shared.rows ?? snapshotRows ?? [], libraries: libraries, collections: collections)
@@ -209,7 +209,7 @@ final class LibraryHomeStore {
                 where library.customCover || !(itemsByKey[Self.coverKey(library.id)] ?? []).isEmpty {
                     urls.append(api.image("/libraries/\(library.id)/cover"))
                 }
-            case .library, .collection:
+            case .library, .mediaKind, .collection:
                 urls += (itemsByKey[Self.fetchKey(row)] ?? []).prefix(4).map { api.image($0.posterUrl, .posterCard) }
             }
         }
@@ -222,6 +222,7 @@ final class LibraryHomeStore {
     static func fetchKey(_ row: HomeRows.Row) -> String {
         switch row.kind {
         case let .library(library, sort, reversed, unwatched, _, _): "lib:\(library.id):\(sort):\(reversed):\(unwatched)"
+        case let .mediaKind(kind, _, sort, reversed, unwatched, _, _): "kind:\(kind):\(sort):\(reversed):\(unwatched)"
         case let .collection(collection, sort, reversed, _): "col:\(collection.id):\(sort):\(reversed)"
         default: row.id
         }
@@ -291,6 +292,11 @@ final class LibraryHomeStore {
                 let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
                 let id = library.id
                 fetches[fetchKey(row)] = { try await api.libraryItemsList(libraryId: id, sort: sort, order: order, limit: limit, w: watch) }
+            case let .mediaKind(kind, _, sort, reversed, unwatched, _, _):
+                // 与库行同一套取数规则，只是来源换成按类型的跨库墙（同一部片跨库只出现一次）
+                let watch: String? = sort == "last_played" ? "seen" : unwatched ? "unwatched" : nil
+                let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
+                fetches[fetchKey(row)] = { try await api.uiLibraryKindItems(kind: kind, sort: sort, order: order, limit: limit, w: watch) }
             case let .collection(collection, sort, reversed, _):
                 let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
                 let id = collection.id

@@ -1,0 +1,84 @@
+import Foundation
+import Testing
+@testable import MovieClaw
+
+/// 首页行清单的合并规则（`HomeRows`），口径对照 Web `lib/home-rows.ts` 与 `test/home-rows.test.mjs`。
+/// 两端共用同一份 `home.rows` 偏好，这里重点守「按类型的跨库行」（§8，只在主动添加时出现）：iOS 不认识 `kind:` / `media_kind`
+/// 时，自定义页看不到「全部电影」，在 iOS 上存一次还会把网页加的类型行写丢。
+struct HomeRowsTests {
+    private func library(_ id: Int, _ kind: String, excluded: Bool = false, access: Bool = true) -> API.LibraryView {
+        let json: [String: Any] = [
+            "id": id, "name": "库\(id)", "kind": kind, "source": "local",
+            "capabilities": [
+                "scraped": true, "episodic": kind == "tv", "naming": true, "subscribable": true, "write_nfo": false,
+                "default_aspect": 0.667, "jellyfin_collection": "movies", "playable": true,
+            ],
+            "generate_thumbnails": false, "extract_chapter_images": false, "detect_media_segments": false,
+            "exclude_from_home": excluded, "auto_series_collections": false, "access_mode": "all", "admin_visible": true,
+            "member_ids": [Int](), "viewer_access": access, "root_paths": [String](), "primary_root": NSNull(), "is_default": false,
+            "match_rules": [[String: Any]](), "auto_clear_missing": false, "realtime_watch": false, "network_mount": false,
+            "custom_cover": false, "scrape_overrides": [String: Any](),
+            "stats": ["item_count": 0, "file_count": 0, "total_size_bytes": 0, "unidentified_count": 0, "missing_count": 0, "ignored_count": 0],
+            "scanning": false, "scan_progress": NSNull(), "last_scan": NSNull(), "organizing": false, "organize_progress": NSNull(),
+            "last_organize": NSNull(), "metadata_refresh": NSNull(), "chapter_job": NSNull(),
+            "created_at": "2026-10-01T00:00:00", "updated_at": "2026-10-01T00:00:00",
+        ]
+        return try! JSONDecoder().decode(API.LibraryView.self, from: JSONSerialization.data(withJSONObject: json))
+    }
+
+    private func pref(_ id: String, sort: String? = nil, unwatched: Bool? = nil, hidden: Bool? = nil, libraryId: Int? = nil, mediaKind: String? = nil) -> API.HomeRowPref {
+        API.HomeRowPref(id: id, sort: sort, unwatched: unwatched, hidden: hidden, libraryId: libraryId, mediaKind: mediaKind)
+    }
+
+
+    @Test func defaultsHaveNoKindRows() {
+        // 类型行要主动添加才出现：出厂布局与升级前存的清单都不补（同类型几个库都一样）
+        let libs = [library(1, "movie"), library(2, "movie"), library(3, "tv")]
+        #expect(HomeRows.build(prefs: [], libraries: libs, collections: []).map(\.id) == ["up-next", "favorites", "libraries", "lib:1", "lib:2", "lib:3"])
+        let saved = HomeRows.build(prefs: [pref("lib:2"), pref("up-next")], libraries: libs, collections: [])
+        #expect(!saved.contains { $0.id.hasPrefix("kind:") })
+    }
+
+    @Test func addedKindRowRoundTrip() {
+        // 被排除首页、不可见的库不算成员
+        let libs = [library(1, "movie"), library(2, "movie"), library(3, "movie", excluded: true), library(4, "movie", access: false), library(5, "tv")]
+        let rows = HomeRows.build(prefs: [pref("row:k1", sort: "random", mediaKind: "movie"), pref("lib:1")], libraries: libs, collections: [])
+        guard case let .mediaKind(kind, members, sort, _, _, _, _) = rows[0].kind else { Issue.record("row:k1 没解析成类型行"); return }
+        #expect(kind == "movie" && members.map(\.id) == [1, 2] && sort == "random")
+        #expect(rows[0].removable && rows[0].title == "全部电影 · 随便看看")
+        // 写回必须带 media_kind（丢了它，服务端会拒、网页加的行也就没了）
+        let saved = HomeRows.toPrefs(rows)
+        #expect(saved[0].mediaKind == "movie" && saved[0].libraryId == nil && saved[0].collectionId == nil)
+    }
+
+    @Test func legacyKindRows() {
+        // v0.30.0 存下的 kind: 行：隐藏的是当年默认塞进来的，丢掉；显示中的保留、能删，写回不带来源字段
+        let libs = [library(1, "movie"), library(2, "tv")]
+        let rows = HomeRows.build(prefs: [pref("kind:movie", sort: "rating", unwatched: true), pref("kind:tv", hidden: true)], libraries: libs, collections: [])
+        #expect(!rows.contains { $0.id == "kind:tv" })
+        guard let movie = rows.first(where: { $0.id == "kind:movie" }), case let .mediaKind(_, _, sort, _, unwatched, _, _) = movie.kind else {
+            Issue.record("显示中的 kind:movie 应保留"); return
+        }
+        #expect(sort == "rating" && unwatched && movie.removable)
+        let saved = HomeRows.toPrefs([movie])
+        #expect(saved[0].mediaKind == nil && saved[0].sort == "rating" && saved[0].unwatched == true)
+    }
+
+    @Test func kindRowDisappearsWithoutMembers() {
+        // 这一类型的库全被排除首页：行静默消失
+        let libs = [library(1, "movie", excluded: true), library(2, "tv")]
+        let rows = HomeRows.build(prefs: [pref("kind:movie"), pref("row:x", mediaKind: "movie")], libraries: libs, collections: [])
+        #expect(!rows.contains { $0.id == "kind:movie" || $0.id == "row:x" })
+    }
+
+    @Test func lastPlayedClearsUnwatched() {
+        let rows = HomeRows.build(prefs: [pref("row:k", sort: "last_played", unwatched: true, mediaKind: "movie")], libraries: [library(1, "movie")], collections: [])
+        guard case let .mediaKind(_, _, _, _, unwatched, _, _) = rows[0].kind else { Issue.record("不是类型行"); return }
+        #expect(!unwatched)
+    }
+
+    @Test func kindWallWebPathParses() {
+        #expect(AppRoute(webPath: "/library/kind/movie") == .libraryKind(kind: "movie"))
+        #expect(AppRoute(webPath: "/library/kind/photo") == nil)
+    }
+}

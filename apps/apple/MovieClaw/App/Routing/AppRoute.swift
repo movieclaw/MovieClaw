@@ -32,6 +32,8 @@ enum AppRoute: Hashable {
     case collection(libraryId: Int?, collectionId: Int)
     /// /library/{id}?view=collections&pending=1：view 为合集视图，pending 为进页即开待处理抽屉
     case library(id: Int, view: String? = nil, pending: Bool = false)
+    /// /library/kind/{movie|tv|video}：按类型的跨库海报墙（首页「全部电影」行的查看全部）
+    case libraryKind(kind: String)
     /// /library/{id}/item/{mediaItemId}?season=&episode=
     case libraryItem(libraryId: Int, itemId: Int, season: Int? = nil, episode: Int? = nil)
     /// /library/manage?create=1&tab=duplicates&item={mediaItemId}
@@ -241,6 +243,9 @@ extension AppRoute {
             case "favorites": self = .favorites
             case "reels": self = .reels
             case "collections": self = .allCollections
+            case "kind":
+                guard parts.count >= 3, HomeRows.mediaKinds.contains(parts[2]) else { return nil }
+                self = .libraryKind(kind: parts[2])
             case "manage": self = .libraryManage(create: query["create"] == "1", tab: query["tab"], item: int(query["item"]))
             case "c":
                 guard parts.count >= 3, let cid = int(parts[2]) else { return nil }
@@ -302,7 +307,7 @@ extension AppRoute {
     var tab: MainTab? {
         switch self {
         case .discover, .discoverCollection, .mediaDetail, .person, .discoveredPerson: .discover
-        case .libraryHome, .libraryCustomize, .favorites, .allCollections, .collection, .library, .libraryItem, .libraryManage, .reels: .library
+        case .libraryHome, .libraryCustomize, .favorites, .allCollections, .collection, .library, .libraryKind, .libraryItem, .libraryManage, .reels: .library
         case .subscriptions, .subscription, .subscriptionWall: .subscriptions
         case .activity, .activityPage: .activity
         case .my: .more

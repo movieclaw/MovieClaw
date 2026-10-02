@@ -37,11 +37,14 @@ enum AppSheet: Identifiable, Hashable {
     case subscribe(SubscribeRequest)
     /// 账号切换
     case accountSwitcher
+    /// 自定义首页（`/library/customize`）：编辑布局用弹出表单，不压栈，见 `Router.sheetRoute`
+    case customizeHome
 
     var id: String {
         switch self {
         case let .subscribe(request): "subscribe-\(request.hashValue)"
         case .accountSwitcher: "account-switcher"
+        case .customizeHome: "customize-home"
         }
     }
 }
@@ -104,9 +107,15 @@ final class Router {
         return .libraryHome
     }
 
+    /// 以弹出表单呈现的路由：压栈 / 打开它们时改成弹出（深链、Agent 页面链接也走这里）
+    private func sheetRoute(_ route: AppRoute) -> AppSheet? {
+        route == .libraryCustomize ? .customizeHome : nil
+    }
+
     /// 在当前标签内压栈
     func push(_ route: AppRoute) {
         let route = guarded(route)
+        if let sheet = sheetRoute(route) { return present(sheet) }
         if let root = Self.tabRoot(of: route) {
             selectedTab = root
             paths[root] = []
@@ -119,6 +128,11 @@ final class Router {
     /// 切到路由归属的标签后压栈（通知、AI 卡片等「从别处跳过来」的场景）
     func open(_ route: AppRoute) {
         let route = guarded(route)
+        if let sheet = sheetRoute(route) {
+            // 自定义首页盖在媒体库首页上：先切到媒体库标签
+            if let target = route.tab, availableTabs.contains(target) { selectedTab = target }
+            return present(sheet)
+        }
         if let root = Self.tabRoot(of: route) {
             selectedTab = root
             paths[root] = []

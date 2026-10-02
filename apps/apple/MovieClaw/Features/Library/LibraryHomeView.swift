@@ -91,6 +91,11 @@ struct LibraryHomeView: View {
             // 「继续观看」多半从这里点：先把起播要用的连接连好（见 PlaybackPreconnect）
             PlaybackPreconnect.warm(api: api)
         }
+        // 自定义首页是盖在上面的弹出表单，关掉时这里不会再触发 onAppear：行清单一变就刷新
+        // （store 按指纹只重拉变了的行；表单开着时首页在下面跟着变）
+        .onChange(of: prefs.rows) { old, _ in
+            if old != nil, !warmup { Task { await reload() } }
+        }
         .onChange(of: dataComplete) { _, complete in
             if complete, !warmup { PerfTrace.pageDataReady("library") }
         }
@@ -209,7 +214,7 @@ struct LibraryHomeView: View {
                         Text("首页空空如也").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
                         Text("所有行都被隐藏了。到「自定义首页」挑几行回来，或恢复默认。")
                             .font(.footnote).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
-                        NavigationLink(value: AppRoute.libraryCustomize) { Text("自定义首页") }
+                        Button("自定义首页") { router.push(.libraryCustomize) }
                             .buttonStyle(.glass)
                             .padding(.top, 10)
                     }
@@ -294,6 +299,13 @@ struct LibraryHomeView: View {
             let items = itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []
             if !items.isEmpty {
                 posterRow(title: row.title, moreTitle: "查看全部", more: .library(id: library.id), items: items.map { PosterRowItem($0, fallbackLibrary: library.id) })
+                    .accessibilityIdentifier("home-row-\(row.id)")
+            }
+        case let .mediaKind(kind, _, _, _, _, _, _):
+            // 「全部电影」：同类型的库合成一面墙，查看全部进跨库墙页；每格落回服务端给的落点库
+            let items = itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []
+            if !items.isEmpty {
+                posterRow(title: row.title, moreTitle: "查看全部", more: .libraryKind(kind: kind), items: items.map { PosterRowItem($0, fallbackLibrary: 0) })
                     .accessibilityIdentifier("home-row-\(row.id)")
             }
         case let .collection(collection, _, _, _):

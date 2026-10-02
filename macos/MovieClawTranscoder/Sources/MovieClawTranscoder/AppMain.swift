@@ -79,6 +79,8 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
     private var startupCheckTask: Task<Void, Never>?
     private var ffmpegPreparationTask: Task<Void, Never>?
     private var configuration: WorkerConfiguration?
+    /// 当前连接意图独立于内核是否存活；后台启动检查/ffmpeg 更新不得覆盖用户手动断开。
+    private var wantsConnection = false
     /// 最近一次 Worker 状态。设置窗打开时也要跟着变——它的「连接」页显示的是
     /// 现在通不通，不是钥匙串里有没有令牌。赋值点有好几处，用 didSet 统一推送，
     /// 免得新增一处就漏一处。
@@ -159,6 +161,7 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
             )
             // 「配没配过」只看 UserDefaults 里的标记，不读钥匙串
             isConfigured = !snapshot.nasURL.isEmpty && snapshot.tokenConfigured
+            wantsConnection = snapshot.autoConnect && isConfigured
             menuBar.nasAddress = isConfigured ? snapshot.nasURL : nil
             // 这里**刻意不去读令牌**。
             //
@@ -188,7 +191,7 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
             guard !Task.isCancelled else { return }
             if usable {
                 // ffmpeg 不可用时根本不会连，也就不必为此读一次钥匙串
-                if snapshot.autoConnect, self.ensureConfiguration() != nil {
+                if self.wantsConnection, !self.supervisor.isActive, self.ensureConfiguration() != nil {
                     self.startWorker()
                 }
                 return
@@ -377,7 +380,7 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
                     }
                     self.workerDrainedForFFmpeg = false
                     self.configuration = nil
-                    if self.isConfigured, snapshot.autoConnect,
+                    if self.isConfigured, self.wantsConnection,
                        self.ensureConfiguration() != nil {
                         self.startWorker()
                     }
@@ -457,6 +460,7 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func startWorker() {
+        wantsConnection = true
         guard let configuration = ensureConfiguration() else {
             // 用户在钥匙串说明上选了「暂不连接」：尊重他，不要转头又把设置窗甩出来
             if !awaitingKeychainApproval {
@@ -499,8 +503,8 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func stopWorker() {
-        let supervisor = supervisor
-        Task { await supervisor.stop() }
+        wantsConnection = false
+        supervisor.disconnect()
         latestStatus = WorkerStatus.offline(
             .stopped,
             message: "已停止",
@@ -546,14 +550,7 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func restartWorker() {
-        guard supervisor.isActive else {
-            startWorker()
-            return
-        }
-        Task { [weak self] in
-            await self?.supervisor.stop()
-            self?.startWorker()
-        }
+        startWorker()
     }
 
     private func openSettings(tab: SettingsTab?) {
@@ -589,6 +586,7 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
             }
             controller.onClear = { [weak self] in
                 guard let self else { return }
+                self.wantsConnection = false
                 // 先停内核、再去服务端注销：反过来的话，服务端注销时会当场用 1008
                 // 断开连接，内核把它当成「授权失效」报到面板上，像是出了故障
                 await self.stopWorkerAndWait()
@@ -596,6 +594,8 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
                 try self.configurationStore.clear()
                 self.configuration = nil
                 self.isConfigured = false
+                // 注销请求期间若又发生连接操作，清除配置仍必须停止当前内核。
+                self.stopWorker()
                 self.latestStatus = nil
                 let snapshot = try self.configurationStore.snapshot()
                 self.ffmpegSource = snapshot.ffmpegSource
@@ -645,6 +645,9 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
     /// 配置为 nil 表示还没配对完（地址填了但没授权）——此时不该去连，
     /// 也不该把菜单栏显示成已配置。
     private func applyConfiguration(_ newConfiguration: WorkerConfiguration?) {
+        // 配置保存沿用用户当前的连接意图：正在连接/重连就切换配置，手动断开后改名
+        // 则保持断开。首次配对仍立即连接。内核的先停后启由 supervisor 串行处理。
+        let shouldConnect = wantsConnection || !isConfigured
         configuration = newConfiguration
         isConfigured = newConfiguration != nil
         menuBar.nasAddress = newConfiguration?.nasURL.absoluteString
@@ -656,11 +659,13 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
             )
         }
         menuBar.update(ffmpeg: ffmpegManager.menuState)
-        stopWorker()
-        if newConfiguration != nil {
+        if newConfiguration != nil, shouldConnect {
             startWorker()
         } else {
-            menuBar.update(status: nil, configured: false)
+            stopWorker()
+            if newConfiguration == nil {
+                menuBar.update(status: nil, configured: false)
+            }
         }
     }
 
@@ -710,6 +715,7 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func quit() {
+        wantsConnection = false
         startupCheckTask?.cancel()
         ffmpegPreparationTask?.cancel()
         ffmpegManager?.cancel()
