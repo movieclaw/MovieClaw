@@ -129,8 +129,8 @@ struct TVHomeView: View {
     /// 首屏文字区的高度。整个首屏的竖向尺寸是按 tvOS 的焦点滚动规则倒推的：列表静止在顶部时
     /// （内容从侧边栏按钮下沿排起），获得焦点的卡片连同下面两行字要离屏幕底边一百来点，否则系统会
     /// 自己把列表往上滚一截让出余量——启动时滚了、从下面的行回来时又滚回顶部，首屏就上下跳。
-    /// 文字区 368 + 卡片行刚好满足（实测 378 时启动会被系统滚动 7 点）；下一行的标题从屏幕底边露出来，暗示下面还有
-    private static let stageInfoHeight: CGFloat = 368
+    /// 文字区 370 + 卡片行（剧照下面一行片名）刚好满足；下一行的标题从屏幕底边露出来，暗示下面还有
+    private static let stageInfoHeight: CGFloat = 370
 
     /// 首屏：上面讲焦点那一部，底部一行「接下来继续」。
     /// - 文字区高度固定、文字贴底排：有没有 Logo、简介几行都只影响文字往上长多少，卡片行纹丝不动；
@@ -209,11 +209,14 @@ struct TVHomeView: View {
             : (item.backdropUrl ?? item.posterUrl)
         return TVLandscapeCard(
             title: item.title,
-            subtitle: Self.upNextSubtitle(item),
+            subtitle: nil,
             imageURL: api.image(still, .tvLandscape),
-            width: 360,
+            width: 400,
             progress: item.progressPercent.map { Double($0) / 100 },
-            badge: item.advanced ? "下一集" : nil
+            badge: item.advanced ? "下一集" : nil,
+            // 第几集、剩多久压在图片底部；片名一直写在剧照下面——剧照上认不出是哪部
+            detail: Self.upNextBand(item),
+            caption: .always
         ) {
             resume(item)
         }
@@ -223,6 +226,19 @@ struct TVHomeView: View {
                 router.push(.item(libraryId: item.libraryId, itemId: item.mediaItemId))
             }
         }
+    }
+
+    /// 卡片底部暗带里的紧凑写法（卡片 400 点宽，放不下「第 2 季 第 6 集 · 剩 18 分钟」）：
+    /// 「S2 E6 · 剩 18 分钟」「剩 1 小时 5 分」；还没开始看的写全长：「S1 E2 · 41 分钟」「1 小时 58 分」
+    static func upNextBand(_ item: API.UpNextItemView) -> String? {
+        var parts: [String] = []
+        if item.kind == "tv" { parts.append("S\(item.seasonNumber) E\(item.episodeNumber)") }
+        if item.positionMs > 0, let remaining = Formatters.remaining(positionMs: item.positionMs, durationMs: item.durationMs) {
+            parts.append(remaining)
+        } else if let durationMs = item.durationMs, durationMs >= 60_000 {
+            parts.append(Formatters.duration(minutes: durationMs / 60_000))
+        }
+        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 
     /// 「第 1 季 第 3 集 · 剩 23 分钟」「剩 1 小时 5 分」
