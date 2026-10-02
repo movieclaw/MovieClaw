@@ -285,68 +285,45 @@ test("一条库行都没有时，新库的默认行插在「我的媒体库」�
 // 按类型的跨库行（设计文档 §8）
 // ---------------------------------------------------------------------------
 
-test("出厂布局：每种类型一条，排在库行前面；同类型 ≥2 个库才默认显示", () => {
+test("出厂布局不带类型行：「全部电影」要主动添加才出现", () => {
   const rows = buildHomeRows({ rows: [] }, LIBS, COLS);
-  assert.deepEqual(allIds(rows), [
-    "up-next",
-    "favorites",
-    "libraries",
-    "kind:movie",
-    "kind:tv",
-    "lib:1",
-    "lib:2",
-    "lib:3",
-  ]);
-  // 只有一个电影库：类型行与那个库的默认行一模一样，生成但隐藏
-  assert.equal(find(rows, "kind:movie").hidden, true);
-  // 两个剧集库（剧集 + 动漫）：默认显示
-  assert.equal(find(rows, "kind:tv").hidden, false);
-  assert.deepEqual(
-    find(rows, "kind:tv").libraries.map((library) => library.id),
-    [2, 3],
-  );
-  assert.equal(rowTitle(find(rows, "kind:tv")), "全部剧集 · 最近添加");
-  assert.equal(rowMeta(find(rows, "kind:tv")), "全部剧集（2 个库） · 最近添加");
+  assert.deepEqual(allIds(rows), ["up-next", "favorites", "libraries", "lib:1", "lib:2", "lib:3"]);
+  // 升级前存的清单也不补类型行
+  const saved = buildHomeRows({ rows: [{ id: "up-next" }, { id: "lib:2" }] }, LIBS, COLS);
+  assert.equal(saved.some((row) => row.kind === "media-kind"), false);
 });
 
-test("类型行只聚合可见、没被排除首页的库；一个都不剩的类型不出现；照片不做", () => {
+test("类型行只聚合可见、没被排除首页的库；一个都不剩的类型不出现", () => {
   const libs = [
     lib(1, "电影"),
     lib(2, "4K 电影"),
     lib(3, "少儿", "movie", { exclude_from_home: true }),
     lib(4, "仅管理", "movie", { viewer_access: false }),
     lib(5, "录像", "video", { exclude_from_home: true }),
-    lib(6, "照片", "photo"),
-    lib(7, "照片 2", "photo"),
   ];
-  const rows = buildHomeRows({ rows: [{ id: "kind:video" }] }, libs, []);
+  const rows = buildHomeRows(
+    { rows: [{ id: "row:m", media_kind: "movie" }, { id: "row:v", media_kind: "video" }] },
+    libs,
+    [],
+  );
   assert.deepEqual(
     rows.filter((row) => row.kind === "media-kind").map((row) => row.id),
-    ["kind:movie"],
+    ["row:m"],
   );
   assert.deepEqual(
-    find(rows, "kind:movie").libraries.map((library) => library.id),
+    find(rows, "row:m").libraries.map((library) => library.id),
     [1, 2],
   );
+  assert.equal(rowTitle(find(rows, "row:m")), "全部电影 · 最近添加");
+  assert.equal(rowMeta(find(rows, "row:m")), "全部电影（2 个库） · 最近添加");
 });
 
-test("升级前存的清单：类型行插在第一条库行之前，显隐沿用出厂规则", () => {
-  const rows = buildHomeRows(
-    { rows: [{ id: "up-next" }, { id: "row:c", collection_id: 7 }, { id: "lib:2" }, { id: "lib:1" }] },
-    LIBS,
-    COLS,
-  );
-  assert.deepEqual(allIds(rows).slice(0, 5), ["up-next", "row:c", "kind:movie", "kind:tv", "lib:2"]);
-  assert.equal(find(rows, "kind:movie").hidden, true);
-  assert.equal(find(rows, "kind:tv").hidden, false);
-});
-
-test("存过的类型行：按存的显隐与排序，可改名；自加类型行带 media_kind", () => {
+test("v0.30.0 存下的 kind: 行：隐藏的丢掉，显示中的保留且能删；自加类型行带 media_kind", () => {
   const rows = buildHomeRows(
     {
       rows: [
         { id: "kind:movie", sort: "rating", unwatched: true },
-        { id: "kind:tv", hidden: true },
+        { id: "kind:tv", hidden: true }, // 当年默认塞进来的隐藏行
         { id: "row:k", media_kind: "tv", sort: "random", name: "今晚追哪部" },
         { id: "row:gone", media_kind: "video" }, // 没有其他视频库：静默消失
       ],
@@ -354,17 +331,17 @@ test("存过的类型行：按存的显隐与排序，可改名；自加类型�
     LIBS,
     COLS,
   );
-  // 存过的不再套「单库默认隐藏」：用户打开过就是打开
   assert.equal(find(rows, "kind:movie").hidden, false);
+  assert.equal(find(rows, "kind:movie").builtin, false);
   assert.equal(rowTitle(find(rows, "kind:movie")), "全部电影 · 评分最高");
-  assert.equal(find(rows, "kind:tv").hidden, true);
+  assert.equal(find(rows, "kind:tv"), undefined);
   assert.equal(rowTitle(find(rows, "row:k")), "今晚追哪部");
   assert.equal(find(rows, "row:gone"), undefined);
+  // 写回：老的 kind: 行不带来源字段（类型在 id 里），自加行带 media_kind
   assert.deepEqual(
-    rowsToPrefs(["kind:movie", "kind:tv", "row:k"].map((id) => find(rows, id))),
+    rowsToPrefs(["kind:movie", "row:k"].map((id) => find(rows, id))),
     [
       { id: "kind:movie", sort: "rating", unwatched: true },
-      { id: "kind:tv", hidden: true, sort: "added_at" },
       { id: "row:k", media_kind: "tv", sort: "random", name: "今晚追哪部" },
     ],
   );

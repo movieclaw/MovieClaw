@@ -133,7 +133,7 @@ export type HomeRow =
       mediaKind: HomeMediaKind;
       /** 参与聚合的库（可见、没勾「从首页排除」），自定义页小字用；服务端按同一口径取数 */
       libraries: HomeLibraryLike[];
-      /** 每类一条的默认行（kind:<类型>）：能藏、能改，不能删 */
+      /** 恒为 false：类型行都是用户主动加的，都能删（老版本存下的 kind:<类型> 也一样，见 resolveRow） */
       builtin: boolean;
     }
   | {
@@ -421,11 +421,11 @@ export function mediaKindGroups(
 }
 
 /**
- * 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 每种类型一行「全部 X」→
- * 每个库一行「最近添加」。
+ * 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 每个库一行「最近添加」。
  *
- * 类型行只在该类型有 **两个及以上** 的库时默认显示：只有一个库时它与那个库的
- * 默认行内容完全相同，摆两行只是重复；仍然生成（隐藏），自定义页里打开即可。
+ * 不带类型行（「全部电影」）：它要用户在自定义页里主动添加才出现。默认生成的话，
+ * 同类型只有一个库时它与那个库的默认行一模一样，藏起来又会在自定义页里多出一排
+ * 用不上的隐藏项。
  */
 function defaultRows(libraries: HomeLibraryLike[]): HomeRow[] {
   return [
@@ -438,20 +438,6 @@ function defaultRows(libraries: HomeLibraryLike[]): HomeRow[] {
       reversed: false,
     },
     { id: "libraries", kind: "libraries", hidden: false },
-    ...[...mediaKindGroups(libraries)].map(
-      ([mediaKind, members]): HomeRow => ({
-        id: `kind:${mediaKind}`,
-        kind: "media-kind",
-        hidden: members.length < 2,
-        sort: "added_at",
-        reversed: false,
-        unwatched: false,
-        name: "",
-        mediaKind,
-        libraries: members,
-        builtin: true,
-      }),
-    ),
     ...libraries
       .filter((library) => !library.exclude_from_home)
       .map((library): HomeRow => ({
@@ -502,8 +488,7 @@ export function buildHomeRows(
 
   // 没存过的内置行追加在末尾（版本升级新增的入口不能消失）
   for (const row of defaults) {
-    if (row.kind === "library" || row.kind === "media-kind" || seen.has(row.id))
-      continue;
+    if (row.kind === "library" || seen.has(row.id)) continue;
     seen.add(row.id);
     rows.push(row);
   }
@@ -520,20 +505,6 @@ export function buildHomeRows(
     if (lastLibrary >= 0) at = lastLibrary + 1;
     else if (librariesRow >= 0) at = librariesRow + 1;
     rows.splice(at, 0, ...missing);
-  }
-  // 没存过的类型行（升级前存的清单、或新出现了一种类型的库）：与出厂布局一样
-  // 排在库行前面；一条库行都没有时跟在「我的媒体库」之后，再没有就放队尾。
-  // 显隐沿用出厂规则（同类型 ≥2 个库才默认显示）
-  const missingKinds = defaults.filter(
-    (row) => row.kind === "media-kind" && !seen.has(row.id),
-  );
-  if (missingKinds.length > 0) {
-    let at = rows.length;
-    const firstLibrary = rows.findIndex((row) => row.kind === "library");
-    const librariesRow = rows.findIndex((row) => row.kind === "libraries");
-    if (firstLibrary >= 0) at = firstLibrary;
-    else if (librariesRow >= 0) at = librariesRow + 1;
-    rows.splice(at, 0, ...missingKinds);
   }
   return rows;
 }
@@ -568,12 +539,14 @@ function resolveRow(
     return libraryRow(pref, library, true);
   }
   if (pref.id.startsWith("kind:")) {
-    // 这一类型一个可见库都没了（删光了、或都被排除出首页）：行静默消失，
-    // 下次再有这类库时按出厂规则回来
+    // v0.30.0 出厂布局里每种类型生成过一条 kind:<类型>（单库时隐藏），存一次就进了偏好。
+    // 现在类型行只能主动添加：隐藏的那些是当年默认塞进来的，丢掉；显示中的是用户在用的，
+    // 保留，并且与自加类型行一样能删。这一类型一个可见库都没了时同样静默消失
+    if (hidden) return null;
     const mediaKind = pref.id.slice(5) as HomeMediaKind;
     const members = kindGroups.get(mediaKind);
     if (!members) return null;
-    return mediaKindRow(pref, mediaKind, members, true);
+    return mediaKindRow(pref, mediaKind, members, false);
   }
   if (!pref.id.startsWith("row:")) return null;
   if (pref.media_kind != null) {
@@ -686,7 +659,8 @@ export function rowsToPrefs(rows: HomeRow[]): HomeRowPref[] {
         return base;
       }
       case "media-kind": {
-        if (!row.builtin) base.media_kind = row.mediaKind;
+        // 老的 kind:<类型> 行的类型写在 id 里，服务端不许它再带来源字段
+        if (row.id.startsWith("row:")) base.media_kind = row.mediaKind;
         base.sort = row.sort;
         const order = orderParamFor(
           SORT_PRESETS[row.sort].direction,
