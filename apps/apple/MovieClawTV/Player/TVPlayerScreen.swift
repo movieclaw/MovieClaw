@@ -95,6 +95,9 @@ private struct TVPlayerContent: View {
     let exit: () -> Void
 
     @FocusState private var focus: TVPlayerFocus?
+    /// 焦点范围：右下角的按钮出现时让焦点引擎重新挑一次默认焦点（`resetFocus`），它们声明了「优先」
+    @Namespace private var focusScope
+    @Environment(\.resetFocus) private var resetFocus
     @State private var chromeVisible = true
     @State private var chromeActivity = 0
     @State private var panel: TVPlayerPanelTab?
@@ -155,17 +158,22 @@ private struct TVPlayerContent: View {
         .animation(.easeInOut(duration: 0.2), value: controller.notice)
         .onPlayPauseCommand(perform: togglePlay)
         .onExitCommand(perform: back)
-        .defaultFocus($focus, .surface)
-        .onChange(of: contextualFocusTarget) { _, target in
-            // 跳过按钮、下一集卡片出现时焦点自动落上去（按一下就生效），消失时回到画面
-            if let target {
-                focus = target
-            } else if focus == .skip || focus == .upNext || focus == .qualityOffer {
-                focus = .surface
+        .focusScope(focusScope)
+        .task(id: contextualFocusTarget) {
+            // 跳过按钮、下一集卡片出现时焦点自动落上去（按一下就生效），消失时回到画面。
+            // 直接给 FocusState 赋值在 tvOS 上不可靠（按钮刚出现、还没进焦点系统时会被静默忽略）：
+            // 改用系统的做法——它们声明「优先默认焦点」，这里请焦点引擎在这个范围里重新挑一次
+            try? await Task.sleep(for: .milliseconds(150))
+            guard !Task.isCancelled else { return }
+            if contextualFocusTarget != nil || focus == nil || focus == .skip || focus == .upNext || focus == .qualityOffer {
+                resetFocus(in: focusScope)
             }
         }
-        .onChange(of: isModal) { _, modal in
-            focus = modal ? .dialog : .surface
+        .task(id: isModal) {
+            // 出错 / 要用户同意的对话框同理
+            try? await Task.sleep(for: .milliseconds(120))
+            guard !Task.isCancelled else { return }
+            focus = isModal ? .dialog : .surface
         }
         .task(id: autoHideKey) {
             // 控制层 4 秒无操作自动收起；暂停、拖动、面板打开、出错时一直显示
@@ -206,6 +214,7 @@ private struct TVPlayerContent: View {
         }
         .buttonStyle(TVInvisibleButtonStyle())
         .focused($focus, equals: .surface)
+        .prefersDefaultFocus(contextualFocusTarget == nil, in: focusScope)
         .disabled(panel != nil || isModal)
         .onMoveCommand(perform: handleMove)
         .ignoresSafeArea()
@@ -249,9 +258,11 @@ private struct TVPlayerContent: View {
                 if let offer = controller.qualityOffer {
                     TVQualityOfferCard(offer: offer, accept: controller.acceptQualityOffer, dismiss: controller.dismissQualityOffer)
                         .focused($focus, equals: .qualityOffer)
+                        .prefersDefaultFocus(true, in: focusScope)
                 } else if let segment = controller.skipSegment {
                     TVSkipButton(segment: segment, action: controller.skipCurrentSegment)
                         .focused($focus, equals: .skip)
+                        .prefersDefaultFocus(true, in: focusScope)
                 } else if controller.showsUpNext, let next = controller.nextEpisode {
                     TVUpNextCard(
                         episode: next,
@@ -262,6 +273,7 @@ private struct TVPlayerContent: View {
                         controller.playNext()
                     }
                     .focused($focus, equals: .upNext)
+                    .prefersDefaultFocus(true, in: focusScope)
                     // 倒计时的钟：卡片在才走（同 iPhone 版）
                     .task {
                         while !Task.isCancelled {

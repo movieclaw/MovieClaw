@@ -59,6 +59,17 @@ final class TVFlowUITests: XCTestCase {
         XCTAssertFalse(app.element("tv-player-dialog").exists, "播放出错：\(app.element("tv-player-dialog").label)", file: file, line: line)
     }
 
+    /// 等一个元素拿到焦点（焦点动画与程序挪焦点都要一点时间）
+    @MainActor
+    private func waitForFocus(_ element: XCUIElement, timeout: TimeInterval = 3) -> Bool {
+        let deadline = Date.now.addingTimeInterval(timeout)
+        while Date.now < deadline {
+            if element.hasFocus { return true }
+            usleep(200_000)
+        }
+        return element.hasFocus
+    }
+
     // MARK: 登录
 
     /// 第一次打开 → 连接服务器（手动输地址）→ 扫码页改用账号密码 → 登录 → 首页
@@ -239,9 +250,56 @@ final class TVFlowUITests: XCTestCase {
         snapshot("61-home-as-member")
     }
 
+    // MARK: 播放器：跳过片头、下一集
+
+    /// 剧集从头放：片头时段出现「跳过片头」并自动拿到焦点，按一下就跳过
+    @MainActor
+    func testSkipIntroButton() {
+        let app = launchSignedIn(["-mcRoute", "/play/\(showItem)/s01e03?t=0"])
+        waitForPlayback(app)
+        let skip = app.element("tv-player-skip")
+        XCTAssertTrue(skip.waitForExistence(timeout: 15), "片头时段没有出现「跳过片头」")
+        XCTAssertTrue(waitForFocus(skip), "「跳过片头」出现时没有自动拿到焦点")
+        snapshot("55-skip-intro")
+        TVRemote.press(.select)
+        XCTAssertTrue(skip.waitForNonExistence(timeout: 10), "按了「跳过片头」按钮没有消失（没跳过去）")
+        TVRemote.press(.menu)
+    }
+
+    /// 片尾：出现「下一集」卡片并拿到焦点，按一下直接放下一集
+    @MainActor
+    func testUpNextCardPlaysNextEpisode() {
+        let app = launchSignedIn(["-mcRoute", "/play/\(showItem)/s01e01?t=290"])
+        waitForPlayback(app)
+        let card = app.element("tv-player-upnext")
+        XCTAssertTrue(card.waitForExistence(timeout: 20), "片尾没有出现「下一集」卡片")
+        snapshot("56-up-next")
+        XCTAssertTrue(waitForFocus(card), "「下一集」卡片没有自动拿到焦点")
+        TVRemote.press(.select)
+        XCTAssertTrue(card.waitForNonExistence(timeout: 15), "按了「下一集」卡片还在")
+        waitForPlayback(app)
+        snapshot("57-next-episode")
+        TVRemote.press(.menu)
+    }
+
+    // MARK: 账号页与关于
+
+    @MainActor
+    func testAccountPageAndAbout() {
+        let app = launchSignedIn(["-mcTab", "account"])
+        XCTAssertTrue(app.element("tv-account").waitForExistence(timeout: 20))
+        snapshot("65-account")
+        TVRemote.select(app.element("tv-account-about"), trying: [.right, .down, .left])
+        XCTAssertTrue(app.element("tv-about").waitForExistence(timeout: 10), "关于页没有打开")
+        XCTAssertTrue(app.staticTexts["AetherEngine（MovieClaw 修改版）"].exists, "关于页没有列出播放引擎的开源许可")
+        snapshot("66-about")
+        TVRemote.press(.menu)
+        XCTAssertTrue(app.element("tv-account").waitForExistence(timeout: 10))
+    }
+
     // MARK: T3：发现、订阅、片段
 
-    /// 发现：本周精选大图 → 作品详情 → 一键订阅（已经订过就看到「已订阅」）
+    /// 发现：本周精选大图 → 作品详情 → 一键订阅。大图那部已经订过时，往下到「相似推荐」里挨个找一部还没订的
     @MainActor
     func testDiscoverOneClickSubscribe() {
         let app = launchSignedIn(["-mcTab", "discover"])
@@ -251,17 +309,26 @@ final class TVFlowUITests: XCTestCase {
         TVRemote.select(detailButton, trying: [.right, .down, .up])
         XCTAssertTrue(app.element("tv-discover-title").waitForExistence(timeout: 15), "没有进作品详情")
         snapshot("71-discover-detail")
-        let subscribe = app.element("tv-discover-subscribe")
-        if subscribe.exists {
-            TVRemote.select(subscribe, trying: [.down, .right, .left])
-            let note = app.element("tv-discover-subscribe-note")
-            XCTAssertTrue(note.waitForExistence(timeout: 20), "按了订阅没有结果提示")
-            XCTAssertFalse(note.label.contains("失败"), "订阅失败：\(note.label)")
-            snapshot("72-discover-subscribed")
-        } else {
-            XCTAssertTrue(app.element("tv-discover-subscribed").exists || app.element("tv-discover-play").exists,
-                          "详情页既没有「订阅」也没有「已订阅」/「播放」")
+
+        var subscribe = app.element("tv-discover-subscribe")
+        var attempt = 0
+        while !subscribe.waitForExistence(timeout: 3), attempt < 6 {
+            // 这一部已订阅 / 在库：从「相似推荐」进下一部（第 attempt 张海报）
+            attempt += 1
+            TVRemote.press(.down, times: 2)
+            TVRemote.press(.right, times: attempt - 1)
+            TVRemote.press(.select)
+            _ = app.element("tv-discover-title").waitForExistence(timeout: 10)
+            subscribe = app.element("tv-discover-subscribe")
         }
+        XCTAssertTrue(subscribe.exists, "找了 \(attempt) 部推荐都没有可订阅的")
+        snapshot("72-discover-before-subscribe")
+        TVRemote.select(subscribe, trying: [.down, .right, .left])
+        let note = app.element("tv-discover-subscribe-note")
+        XCTAssertTrue(note.waitForExistence(timeout: 20), "按了订阅没有结果提示")
+        XCTAssertTrue(note.label.hasPrefix("已订阅"), "订阅没成功：\(note.label)")
+        XCTAssertTrue(app.element("tv-discover-subscribed").waitForExistence(timeout: 10), "订阅后按钮没有变成「已订阅」")
+        snapshot("73-discover-subscribed")
     }
 
     /// 我的订阅：大图里刚入库的那部「播放」→ 出画 → 返回
