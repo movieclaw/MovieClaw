@@ -28,6 +28,9 @@ def _alive(pid: int) -> bool:
     # 可能恰好被 init 回收，读取就会抛 FileNotFoundError（CI 上真实出现过）
     try:
         return Path(f"/proc/{pid}/stat").read_text().split()[2] != "Z"
+    except ProcessLookupError:
+        # 打开文件后、读取前进程被回收，Linux 对 /proc/<pid>/stat 的读取返回 ESRCH
+        return False
     except FileNotFoundError:
         # Linux 上说明刚被回收；没有 /proc 的平台（macOS）只能以 kill 的结果为准
         return not Path("/proc/self").exists()
