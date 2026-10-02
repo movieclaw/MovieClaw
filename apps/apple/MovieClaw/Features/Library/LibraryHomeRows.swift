@@ -9,6 +9,9 @@ import Foundation
 /// - 指向已删库 / 不可见合集的行直接忽略；
 /// - 空清单 = 出厂布局，「恢复默认」就是存一个空列表。
 ///
+/// 行的来源有三种：一个库、一个合集、一种类型（「全部电影」：可见且没被排除首页的同类型库合成一面墙，
+/// 同一部片跨库只出现一次，见 docs/design/library-home-perspective.md §8）。
+///
 /// 与 Web 共用同一份偏好，两端合并逻辑必须一致，否则同一账号两端看到的首页不同。
 enum HomeRows {
     // MARK: 排序预设
@@ -57,6 +60,35 @@ enum HomeRows {
         }
     }
 
+    // MARK: 按类型的跨库行
+
+    /// 能做「按类型」跨库行的库类型。照片库不做：照片墙是时间线 + 瀑布流，另一种形态
+    static let mediaKinds = ["movie", "tv", "video"]
+
+    /// 类型行的叫法：「全部电影」「全部剧集」「全部其他视频」
+    static func mediaKindLabel(_ kind: String) -> String {
+        switch kind {
+        case "tv": "剧集"
+        case "video": "其他视频"
+        default: "电影"
+        }
+    }
+
+    /// 类型行的推荐名：「全部电影 · 最近添加」。
+    /// 不套库行的「最近添加的{库}」：很多人的电影库就叫「电影」，那样类型行与那个库的默认行会同名并排，分不清
+    static func mediaKindRowName(_ kind: String, sort: String, reversed: Bool) -> String {
+        "全部\(mediaKindLabel(kind)) · \(preset(sort).short(reversed))"
+    }
+
+    /// 每种类型由哪些库组成：可见 ∩ 该类型 ∩ 没勾「从首页排除」——与服务端 `kind_library_ids` 同一口径。
+    /// 一个库都没有的类型不在结果里，它的行也就不出现。传进来的应是已按可见过滤的库
+    static func mediaKindGroups(_ libraries: [API.LibraryView]) -> [(kind: String, libraries: [API.LibraryView])] {
+        mediaKinds.compactMap { kind in
+            let members = libraries.filter { $0.kind == kind && !$0.excludeFromHome }
+            return members.isEmpty ? nil : (kind, members)
+        }
+    }
+
     /// 「我的收藏」行的排序档
     static let favoritesSorts = ["unwatched_first", "favorited_at", "rating", "title"]
 
@@ -86,6 +118,9 @@ enum HomeRows {
         case favorites(sort: String, reversed: Bool)
         case libraries
         case library(library: API.LibraryView, sort: String, reversed: Bool, unwatched: Bool, name: String, builtin: Bool)
+        /// 按类型的跨库行（「全部电影」）：libraries 是参与聚合的库（自定义页小字用，服务端按同一口径取数）；
+        /// builtin = 每类一条的默认行（kind:<类型>），能藏、能改，不能删
+        case mediaKind(kind: String, libraries: [API.LibraryView], sort: String, reversed: Bool, unwatched: Bool, name: String, builtin: Bool)
         case collection(collection: API.CollectionView, sort: String, reversed: Bool, name: String)
     }
 
@@ -97,14 +132,14 @@ enum HomeRows {
 
         var sort: String? {
             switch kind {
-            case let .favorites(sort, _), let .library(_, sort, _, _, _, _), let .collection(_, sort, _, _): sort
+            case let .favorites(sort, _), let .library(_, sort, _, _, _, _), let .mediaKind(_, _, sort, _, _, _, _), let .collection(_, sort, _, _): sort
             default: nil
             }
         }
 
         var reversed: Bool {
             switch kind {
-            case let .favorites(_, r), let .library(_, _, r, _, _, _), let .collection(_, _, r, _): r
+            case let .favorites(_, r), let .library(_, _, r, _, _, _), let .mediaKind(_, _, _, r, _, _, _), let .collection(_, _, r, _): r
             default: false
             }
         }
@@ -117,6 +152,8 @@ enum HomeRows {
             case .libraries: "我的媒体库"
             case let .library(library, sort, reversed, _, name, _):
                 name.isEmpty ? HomeRows.preset(sort).name(library.name, reversed) : name
+            case let .mediaKind(kind, _, sort, reversed, _, name, _):
+                name.isEmpty ? HomeRows.mediaKindRowName(kind, sort: sort, reversed: reversed) : name
             case let .collection(collection, _, _, name):
                 name.isEmpty ? collection.name : name
             }
@@ -131,14 +168,18 @@ enum HomeRows {
             case let .library(library, sort, reversed, unwatched, _, _):
                 ["\(library.name)库", HomeRows.preset(sort).short(reversed), unwatched ? "只看没看过的" : nil]
                     .compactMap { $0 }.joined(separator: " · ")
+            case let .mediaKind(kind, libraries, sort, reversed, unwatched, _, _):
+                ["全部\(HomeRows.mediaKindLabel(kind))（\(libraries.count) 个库）", HomeRows.preset(sort).short(reversed), unwatched ? "只看没看过的" : nil]
+                    .compactMap { $0 }.joined(separator: " · ")
             case let .collection(_, sort, reversed, _): "合集 · \(HomeRows.preset(sort).short(reversed))"
             }
         }
 
-        /// 库行 / 合集行的默认名（改名输入框的占位）
+        /// 库行 / 类型行 / 合集行的默认名（改名输入框的占位）
         var defaultTitle: String {
             switch kind {
             case let .library(library, sort, reversed, _, _, _): HomeRows.preset(sort).name(library.name, reversed)
+            case let .mediaKind(kind, _, sort, reversed, _, _, _): HomeRows.mediaKindRowName(kind, sort: sort, reversed: reversed)
             case let .collection(collection, _, _, _): collection.name
             default: title
             }
@@ -146,24 +187,31 @@ enum HomeRows {
 
         var customName: String {
             switch kind {
-            case let .library(_, _, _, _, name, _), let .collection(_, _, _, name): name
+            case let .library(_, _, _, _, name, _), let .mediaKind(_, _, _, _, _, name, _), let .collection(_, _, _, name): name
             default: ""
             }
         }
 
-        /// 能否删除：只有自加的行（row:）能删，内置行与每库默认行只能藏
+        /// 能否删除：只有自加的行（row:）能删，内置行与每库 / 每类默认行只能藏
         var removable: Bool { id.hasPrefix("row:") }
     }
 
     // MARK: 合并
 
-    /// 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 每个库一行「最近添加」
+    /// 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 每种类型一行「全部 X」→ 每个库一行「最近添加」。
+    ///
+    /// 类型行只在该类型有 **两个及以上** 的库时默认显示：只有一个库时它与那个库的默认行内容完全相同，
+    /// 摆两行只是重复；仍然生成（隐藏），自定义页里打开即可
     private static func defaultRows(_ libraries: [API.LibraryView]) -> [Row] {
         [
             Row(id: "up-next", hidden: false, kind: .upNext),
             Row(id: "favorites", hidden: false, kind: .favorites(sort: "unwatched_first", reversed: false)),
             Row(id: "libraries", hidden: false, kind: .libraries),
-        ] + libraries.filter { !$0.excludeFromHome }.map {
+        ] + mediaKindGroups(libraries).map { group in
+            Row(id: "kind:\(group.kind)", hidden: group.libraries.count < 2, kind: .mediaKind(
+                kind: group.kind, libraries: group.libraries, sort: "added_at", reversed: false, unwatched: false, name: "", builtin: true
+            ))
+        } + libraries.filter { !$0.excludeFromHome }.map {
             Row(id: "lib:\($0.id)", hidden: false, kind: .library(library: $0, sort: "added_at", reversed: false, unwatched: false, name: "", builtin: true))
         }
     }
@@ -182,16 +230,20 @@ enum HomeRows {
         if prefs.isEmpty { return defaults }
         let libById = Dictionary(visible.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
         let colById = Dictionary(collections.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        let kindGroups = Dictionary(mediaKindGroups(visible).map { ($0.kind, $0.libraries) }, uniquingKeysWith: { a, _ in a })
         var seen = Set<String>()
         var rows: [Row] = []
         for pref in prefs where !seen.contains(pref.id) {
-            guard let row = resolve(pref, libById, colById) else { continue }
+            guard let row = resolve(pref, libById, colById, kindGroups) else { continue }
             seen.insert(pref.id)
             rows.append(row)
         }
         // 没存过的内置行追加在末尾（版本升级新增的入口不能消失）
         for row in defaults {
-            if case .library = row.kind { continue }
+            switch row.kind {
+            case .library, .mediaKind: continue
+            default: break
+            }
             if seen.contains(row.id) { continue }
             seen.insert(row.id)
             rows.append(row)
@@ -210,10 +262,27 @@ enum HomeRows {
             }
             rows.insert(contentsOf: missing, at: at)
         }
+        // 没存过的类型行（升级前存的清单、或新出现了一种类型的库）：与出厂布局一样排在库行前面；
+        // 一条库行都没有时跟在「我的媒体库」之后，再没有就放队尾。显隐沿用出厂规则（同类型 ≥2 个库才默认显示）
+        let missingKinds = defaults.filter { row in
+            if case .mediaKind = row.kind { return !seen.contains(row.id) }
+            return false
+        }
+        if !missingKinds.isEmpty {
+            var at = rows.count
+            if let first = rows.firstIndex(where: { if case .library = $0.kind { true } else { false } }) {
+                at = first
+            } else if let libs = rows.firstIndex(where: { $0.kind == .libraries }) {
+                at = libs + 1
+            }
+            rows.insert(contentsOf: missingKinds, at: at)
+        }
         return rows
     }
 
-    private static func resolve(_ pref: API.HomeRowPref, _ libById: [Int: API.LibraryView], _ colById: [Int: API.CollectionView]) -> Row? {
+    private static func resolve(
+        _ pref: API.HomeRowPref, _ libById: [Int: API.LibraryView], _ colById: [Int: API.CollectionView], _ kindGroups: [String: [API.LibraryView]]
+    ) -> Row? {
         let hidden = pref.hidden == true
         switch pref.id {
         case "up-next": return Row(id: "up-next", hidden: hidden, kind: .upNext)
@@ -229,7 +298,17 @@ enum HomeRows {
             guard let id = Int(pref.id.dropFirst(4)), let library = libById[id], !library.excludeFromHome else { return nil }
             return libraryRow(pref, library, builtin: true)
         }
+        if pref.id.hasPrefix("kind:") {
+            // 这一类型一个可见库都没了（删光了、或都被排除出首页）：行静默消失，下次再有这类库时按出厂规则回来
+            let kind = String(pref.id.dropFirst(5))
+            guard let members = kindGroups[kind] else { return nil }
+            return mediaKindRow(pref, kind, members, builtin: true)
+        }
         guard pref.id.hasPrefix("row:") else { return nil }
+        if let kind = pref.mediaKind {
+            guard let members = kindGroups[kind] else { return nil }
+            return mediaKindRow(pref, kind, members, builtin: false)
+        }
         if let cid = pref.collectionId {
             guard let collection = colById[cid] else { return nil }
             // 没存排序时沿用合集自己的序（含方向）
@@ -255,6 +334,16 @@ enum HomeRows {
         ))
     }
 
+    private static func mediaKindRow(_ pref: API.HomeRowPref, _ kind: String, _ libraries: [API.LibraryView], builtin: Bool) -> Row {
+        let (sort, reversed) = asRowSort(pref.sort, pref.order, allowed: sorts(for: kind))
+        // 与库行同一条互斥：「最近观看」只要播过的
+        return Row(id: pref.id, hidden: pref.hidden == true, kind: .mediaKind(
+            kind: kind, libraries: libraries, sort: sort, reversed: reversed,
+            unwatched: pref.unwatched == true && sort != "last_played",
+            name: (pref.name ?? "").trimmingCharacters(in: .whitespaces), builtin: builtin
+        ))
+    }
+
     /// 反向：把合并后的行写回可存的形状。只存与默认不同的字段，空即默认
     static func toPrefs(_ rows: [Row]) -> [API.HomeRowPrefInput] {
         rows.map { row in
@@ -266,6 +355,12 @@ enum HomeRows {
                 pref.order = favoritesPreset(sort).direction?.orderParam(reversed: reversed)
             case let .library(library, sort, reversed, unwatched, name, builtin):
                 if !builtin { pref.libraryId = library.id }
+                pref.sort = sort
+                pref.order = preset(sort).direction?.orderParam(reversed: reversed)
+                if unwatched { pref.unwatched = true }
+                if !name.isEmpty { pref.name = name }
+            case let .mediaKind(kind, _, sort, reversed, unwatched, name, builtin):
+                if !builtin { pref.mediaKind = kind }
                 pref.sort = sort
                 pref.order = preset(sort).direction?.orderParam(reversed: reversed)
                 if unwatched { pref.unwatched = true }
@@ -289,6 +384,11 @@ enum HomeRows {
 
     static func newLibraryRow(_ library: API.LibraryView) -> Row {
         Row(id: newRowId(), hidden: false, kind: .library(library: library, sort: "added_at", reversed: false, unwatched: false, name: "", builtin: false))
+    }
+
+    /// 新建一条类型行（排序取「最近添加」，名字留空跟随推荐）
+    static func newMediaKindRow(_ kind: String, libraries: [API.LibraryView]) -> Row {
+        Row(id: newRowId(), hidden: false, kind: .mediaKind(kind: kind, libraries: libraries, sort: "added_at", reversed: false, unwatched: false, name: "", builtin: false))
     }
 
     static func newCollectionRow(_ collection: API.CollectionView) -> Row {

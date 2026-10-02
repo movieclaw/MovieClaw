@@ -2,9 +2,9 @@ import SwiftUI
 
 /// 自定义首页（Web `library-customize-view.tsx`，路由 `/library/customize`）。
 ///
-/// 一张行清单：拖动把手换位、眼睛显隐；可设的行（收藏 / 库行 / 合集行）点名字展开设置——
+/// 一张行清单：拖动把手换位、眼睛显隐；可设的行（收藏 / 库行 / 类型行 / 合集行）点名字展开设置——
 /// 排序（一个菜单同时定档位与方向：「最近添加」「最早添加」各一条）、名字、「只显示我没看过的」、删除（仅自加行）。
-/// 底部「＋ 添加一行 · 从哪来？」选一个库或合集；「恢复默认」存空清单。
+/// 底部「＋ 添加一行 · 从哪来？」选一种类型（「全部电影」）、一个库或一个合集；「恢复默认」存空清单。
 ///
 /// 保存：每次改动先落本地草稿，400ms 防抖后整份 PUT `/ui/preferences`（后端是整体覆盖，
 /// 所以要带上主题、侧栏等其余偏好原值）。保存成功写回 `LibraryHomePrefs.shared`，回首页立即生效。
@@ -70,6 +70,8 @@ struct LibraryCustomizeView: View {
             if libraries != nil {
                 Section {
                     AddRowChips(
+                        // 按类型的来源与首页同一口径：可见、没被排除首页的同类型库
+                        kinds: HomeRows.mediaKindGroups((libraries ?? []).filter(\.viewerAccess)),
                         libraries: (libraries ?? []).filter(\.viewerAccess),
                         // 内置的「我的收藏」等自动合集不进候选（首页已有「我的收藏」这一行）
                         collections: collections.filter { $0.kind == "user" },
@@ -218,6 +220,8 @@ private struct RowItem: View {
             }
         case let .library(library, _, _, _, _, _):
             return options(HomeRows.sorts(for: library.kind))
+        case let .mediaKind(kind, _, _, _, _, _, _):
+            return options(HomeRows.sorts(for: kind))
         case .collection:
             return options(HomeRows.allSorts)
         default:
@@ -296,6 +300,10 @@ private struct RowItem: View {
                                 case let .library(library, _, _, unwatched, name, builtin):
                                     r.kind = .library(library: library, sort: option.key, reversed: option.reversed,
                                                       unwatched: option.key == "last_played" ? false : unwatched, name: name, builtin: builtin)
+                                case let .mediaKind(kind, libraries, _, _, unwatched, name, builtin):
+                                    // 「最近观看」只要播过的，与「只看没看过的」互斥
+                                    r.kind = .mediaKind(kind: kind, libraries: libraries, sort: option.key, reversed: option.reversed,
+                                                        unwatched: option.key == "last_played" ? false : unwatched, name: name, builtin: builtin)
                                 case let .collection(collection, _, _, name):
                                     r.kind = .collection(collection: collection, sort: option.key, reversed: option.reversed, name: name)
                                 default: break
@@ -315,20 +323,28 @@ private struct RowItem: View {
                 .accessibilityIdentifier("row-sort")
             }
             switch row.kind {
-            case .library, .collection: nameRow(hint: row.defaultTitle)
+            case .library, .mediaKind, .collection: nameRow(hint: row.defaultTitle)
             default: EmptyView()
             }
         }
-        let showUnwatched: Bool = { if case let .library(_, sort, _, _, _, _) = row.kind { sort != "last_played" } else { false } }()
-        if showUnwatched || row.removable {
+        // 「只显示我没看过的」只对库行与类型行有意义，且与「最近观看」互斥（那一行只要播过的）
+        let unwatchedState: Bool? = switch row.kind {
+        case let .library(_, sort, _, unwatched, _, _), let .mediaKind(_, _, sort, _, unwatched, _, _): sort == "last_played" ? nil : unwatched
+        default: nil
+        }
+        if unwatchedState != nil || row.removable {
             HStack {
-                if case let .library(_, _, _, unwatched, _, _) = row.kind, showUnwatched {
+                if let unwatched = unwatchedState {
                     Toggle("只显示我没看过的", isOn: Binding(
                         get: { unwatched },
                         set: { value in
                             onChange { r in
-                                if case let .library(library, sort, reversed, _, name, builtin) = r.kind {
+                                switch r.kind {
+                                case let .library(library, sort, reversed, _, name, builtin):
                                     r.kind = .library(library: library, sort: sort, reversed: reversed, unwatched: value, name: name, builtin: builtin)
+                                case let .mediaKind(kind, libraries, sort, reversed, _, name, builtin):
+                                    r.kind = .mediaKind(kind: kind, libraries: libraries, sort: sort, reversed: reversed, unwatched: value, name: name, builtin: builtin)
+                                default: break
                                 }
                             }
                         }
@@ -358,6 +374,9 @@ private struct RowItem: View {
             case let .library(library, sort, reversed, unwatched, name, builtin):
                 r.kind = .library(library: library, sort: sort, reversed: reversed, unwatched: unwatched,
                                   name: name.trimmingCharacters(in: .whitespacesAndNewlines), builtin: builtin)
+            case let .mediaKind(kind, libraries, sort, reversed, unwatched, name, builtin):
+                r.kind = .mediaKind(kind: kind, libraries: libraries, sort: sort, reversed: reversed, unwatched: unwatched,
+                                    name: name.trimmingCharacters(in: .whitespacesAndNewlines), builtin: builtin)
             case let .collection(collection, sort, reversed, name):
                 r.kind = .collection(collection: collection, sort: sort, reversed: reversed, name: name.trimmingCharacters(in: .whitespacesAndNewlines))
             default: break
@@ -376,6 +395,8 @@ private struct RowItem: View {
                         switch r.kind {
                         case let .library(library, sort, reversed, unwatched, _, builtin):
                             r.kind = .library(library: library, sort: sort, reversed: reversed, unwatched: unwatched, name: name, builtin: builtin)
+                        case let .mediaKind(kind, libraries, sort, reversed, unwatched, _, builtin):
+                            r.kind = .mediaKind(kind: kind, libraries: libraries, sort: sort, reversed: reversed, unwatched: unwatched, name: name, builtin: builtin)
                         case let .collection(collection, sort, reversed, _):
                             r.kind = .collection(collection: collection, sort: sort, reversed: reversed, name: name)
                         default: break
@@ -394,8 +415,9 @@ private struct RowItem: View {
     }
 }
 
-/// 「添加一行」的候选：库 +「最近添加」、合集本身；已在首页的合集置灰
+/// 「添加一行」的候选：类型 +「全部 X · 最近添加」、库 +「最近添加」、合集本身；已在首页的合集置灰
 private struct AddRowChips: View {
+    let kinds: [(kind: String, libraries: [API.LibraryView])]
     let libraries: [API.LibraryView]
     let collections: [API.CollectionView]
     let onHome: Set<Int>
@@ -403,6 +425,19 @@ private struct AddRowChips: View {
 
     var body: some View {
         TrackFlowLayout(spacing: 8, lineSpacing: 8) {
+            // 类型排最前：「全部电影」是比单个库更大的来源，同一部片跨库只出现一次
+            ForEach(kinds, id: \.kind) { group in
+                Button {
+                    add(HomeRows.newMediaKindRow(group.kind, libraries: group.libraries))
+                } label: {
+                    HStack(spacing: 6) {
+                        Text("全部\(HomeRows.mediaKindLabel(group.kind))")
+                        Text("\(group.libraries.count) 个库").font(.caption).foregroundStyle(Theme.textFaint)
+                    }
+                }
+                .buttonStyle(AddChipStyle())
+                .accessibilityIdentifier("add-row-kind-\(group.kind)")
+            }
             ForEach(libraries, id: \.id) { library in
                 Button("\(library.name)库") { add(HomeRows.newLibraryRow(library)) }
                     .buttonStyle(AddChipStyle())

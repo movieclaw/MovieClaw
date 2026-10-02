@@ -3092,12 +3092,15 @@ nonisolated extension API {
     /// - 内置行（``up-next`` / ``favorites`` / ``libraries``）只存 ``hidden``，收藏行多一个
     /// ``sort``；来源与名字由前端决定，这里不存；
     /// - 默认库行 ``lib:<library_id>`` 每库一条，能藏、能改排序和名字，不能删；
-    /// - 自加行 ``row:<slug>`` 必须且只能带 ``library_id`` 或 ``collection_id`` 之一。
+    /// - 默认类型行 ``kind:movie|tv|video`` 每类一条（跨库聚合同类型的全部可见库，
+    /// §8），能力与默认库行相同；
+    /// - 自加行 ``row:<slug>`` 必须且只能带 ``library_id`` / ``collection_id`` /
+    /// ``media_kind`` 之一。
     /// 除 ``id`` 外全部可空：空即默认（排序用预设、名字跟随推荐、不隐藏）。
     /// 坏形状在 PUT 时就拒掉，读取端不再兜底——与 ``NavUiPrefs`` 一样，存下来的
     /// 只是提示：指向已删库 / 不可见合集的行由前端合并时静默丢弃。
     struct HomeRowPref: Codable, Hashable, Sendable {
-        /// 行 id，见类注释的四种形状
+        /// 行 id，见类注释的几种形状
         var id: String
         /// 排序档；空 = 该行的默认排序
         var sort: String?
@@ -3105,7 +3108,7 @@ nonisolated extension API {
         var order: String?
         /// 用户起的名字；空 = 跟随推荐
         var name: String?
-        /// 只显示没看过的（仅库行）
+        /// 只显示没看过的（仅库行与类型行）
         var unwatched: Bool?
         /// 隐藏这一行，位置保留
         var hidden: Bool?
@@ -3113,6 +3116,8 @@ nonisolated extension API {
         var libraryId: Int?
         /// 合集行的来源合集
         var collectionId: Int?
+        /// 自加类型行的来源类型（跨库聚合该类型的全部可见库）
+        var mediaKind: String?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -3123,6 +3128,7 @@ nonisolated extension API {
             case hidden
             case libraryId = "library_id"
             case collectionId = "collection_id"
+            case mediaKind = "media_kind"
         }
     }
 
@@ -3130,12 +3136,15 @@ nonisolated extension API {
     /// - 内置行（``up-next`` / ``favorites`` / ``libraries``）只存 ``hidden``，收藏行多一个
     /// ``sort``；来源与名字由前端决定，这里不存；
     /// - 默认库行 ``lib:<library_id>`` 每库一条，能藏、能改排序和名字，不能删；
-    /// - 自加行 ``row:<slug>`` 必须且只能带 ``library_id`` 或 ``collection_id`` 之一。
+    /// - 默认类型行 ``kind:movie|tv|video`` 每类一条（跨库聚合同类型的全部可见库，
+    /// §8），能力与默认库行相同；
+    /// - 自加行 ``row:<slug>`` 必须且只能带 ``library_id`` / ``collection_id`` /
+    /// ``media_kind`` 之一。
     /// 除 ``id`` 外全部可空：空即默认（排序用预设、名字跟随推荐、不隐藏）。
     /// 坏形状在 PUT 时就拒掉，读取端不再兜底——与 ``NavUiPrefs`` 一样，存下来的
     /// 只是提示：指向已删库 / 不可见合集的行由前端合并时静默丢弃。
     struct HomeRowPrefInput: Codable, Hashable, Sendable {
-        /// 行 id，见类注释的四种形状
+        /// 行 id，见类注释的几种形状
         var id: String
         /// 排序档；空 = 该行的默认排序
         var sort: String?
@@ -3143,7 +3152,7 @@ nonisolated extension API {
         var order: String?
         /// 用户起的名字；空 = 跟随推荐
         var name: String?
-        /// 只显示没看过的（仅库行）
+        /// 只显示没看过的（仅库行与类型行）
         var unwatched: Bool?
         /// 隐藏这一行，位置保留
         var hidden: Bool?
@@ -3151,6 +3160,8 @@ nonisolated extension API {
         var libraryId: Int?
         /// 合集行的来源合集
         var collectionId: Int?
+        /// 自加类型行的来源类型（跨库聚合该类型的全部可见库）
+        var mediaKind: String?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -3161,6 +3172,7 @@ nonisolated extension API {
             case hidden
             case libraryId = "library_id"
             case collectionId = "collection_id"
+            case mediaKind = "media_kind"
         }
     }
 
@@ -4185,6 +4197,24 @@ nonisolated extension API {
             case recentAddition = "recent_addition"
             case inventorySummary = "inventory_summary"
             case probePendingCount = "probe_pending_count"
+        }
+    }
+
+    /// 按类型的跨库墙（「全部电影」等）的概况：由哪些库组成、共几部。
+    /// 口径见 ``services.library.items.kind_library_ids``：观看者可见 ∩ 该类型 ∩
+    /// 没勾「从首页排除」。同一部片在多个库里只算一部。
+    struct LibraryKindSummaryView: Codable, Hashable, Sendable {
+        /// 库类型：电影 / 剧集 / 其他视频
+        var kind: String
+        /// 参与聚合的库 id（升序）
+        var libraryIds: [Int]
+        /// 符合当前筛选的作品数（跨库去重）
+        var itemCount: Int
+
+        enum CodingKeys: String, CodingKey {
+            case kind
+            case libraryIds = "library_ids"
+            case itemCount = "item_count"
         }
     }
 

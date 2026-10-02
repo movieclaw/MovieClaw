@@ -951,6 +951,46 @@ nonisolated extension APIClient {
         return try await send("GET", "/libraries/identification/unidentified-files", query: query)
     }
 
+    /// 按类型的跨库墙概况（由哪些库组成、共几部）
+    /// `GET /libraries/kinds/{kind}`
+    func uiLibraryKindSummary(kind: String, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> API.LibraryKindSummaryView {
+        var query: [URLQueryItem] = []
+        if let g { query.append(URLQueryItem(name: "g", value: "\(g)")) }
+        if let c { query.append(URLQueryItem(name: "c", value: "\(c)")) }
+        if let d { query.append(URLQueryItem(name: "d", value: "\(d)")) }
+        if let w { query.append(URLQueryItem(name: "w", value: "\(w)")) }
+        if let ratingGte { query.append(URLQueryItem(name: "rating_gte", value: "\(ratingGte)")) }
+        if let rt { query.append(URLQueryItem(name: "rt", value: "\(rt)")) }
+        if let lang { query.append(URLQueryItem(name: "lang", value: "\(lang)")) }
+        if let res { query.append(URLQueryItem(name: "res", value: "\(res)")) }
+        if let hdr { query.append(URLQueryItem(name: "hdr", value: "\(hdr)")) }
+        if let stock { query.append(URLQueryItem(name: "stock", value: "\(stock)")) }
+        if let seriesKeys { query.append(URLQueryItem(name: "series_keys", value: "\(seriesKeys)")) }
+        return try await send("GET", "/libraries/kinds/\(kind)", query: query)
+    }
+
+    /// 按类型的跨库海报墙（同一部片跨库只出现一次）
+    /// `GET /libraries/kinds/{kind}/items`
+    func uiLibraryKindItems(kind: String, sort: String? = nil, order: String? = nil, limit: Int? = nil, offset: Int? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> [API.LibraryItemView] {
+        var query: [URLQueryItem] = []
+        if let sort { query.append(URLQueryItem(name: "sort", value: "\(sort)")) }
+        if let order { query.append(URLQueryItem(name: "order", value: "\(order)")) }
+        if let limit { query.append(URLQueryItem(name: "limit", value: "\(limit)")) }
+        if let offset { query.append(URLQueryItem(name: "offset", value: "\(offset)")) }
+        if let g { query.append(URLQueryItem(name: "g", value: "\(g)")) }
+        if let c { query.append(URLQueryItem(name: "c", value: "\(c)")) }
+        if let d { query.append(URLQueryItem(name: "d", value: "\(d)")) }
+        if let w { query.append(URLQueryItem(name: "w", value: "\(w)")) }
+        if let ratingGte { query.append(URLQueryItem(name: "rating_gte", value: "\(ratingGte)")) }
+        if let rt { query.append(URLQueryItem(name: "rt", value: "\(rt)")) }
+        if let lang { query.append(URLQueryItem(name: "lang", value: "\(lang)")) }
+        if let res { query.append(URLQueryItem(name: "res", value: "\(res)")) }
+        if let hdr { query.append(URLQueryItem(name: "hdr", value: "\(hdr)")) }
+        if let stock { query.append(URLQueryItem(name: "stock", value: "\(stock)")) }
+        if let seriesKeys { query.append(URLQueryItem(name: "series_keys", value: "\(seriesKeys)")) }
+        return try await send("GET", "/libraries/kinds/\(kind)/items", query: query)
+    }
+
     /// 整季人工标注片源：把「无法确认」的洗版单元变为可判定
     /// `POST /libraries/media-source-annotations`
     func libraryItemsAnnotateMediaSource(body: API.MediaSourceAnnotationPayload) async throws -> [String: API.JSONValue] {
