@@ -50,6 +50,9 @@ targets:
     sources:
       - path: MovieClaw
         type: syncedFolder
+      # 与 Apple TV 版共用的代码（接口层、登录与账号、播放逻辑、主题与图片加载），见 docs/design/tvos-app.md §6
+      - path: Shared
+        type: syncedFolder
     dependencies:
       - package: Nuke
         product: Nuke
