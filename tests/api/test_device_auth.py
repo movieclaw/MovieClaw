@@ -355,6 +355,27 @@ def test_member_can_pair_a_cli_that_acts_as_the_member(client: TestClient) -> No
     assert [d["owner_username"] for d in _paired_devices(client)] == ["family"]
 
 
+def test_apple_tv_pairs_by_code_and_signs_in_as_the_approver(client: TestClient) -> None:
+    """Apple TV 扫码登录（docs/design/tvos-app.md §5.1）：手机上批准，电视就以批准者的身份登录。
+
+    配出来的是 ``tvos`` 这一种登录设备——与在电视上输账号密码登录得到的是同一种（人直接操作的
+    App、随改密下线），不是命令行那种程序凭证。
+    """
+    _create_member_and_login(client)
+    grant = _authorize(client, client_type="tvos", name="客厅 Apple TV")
+    request = client.get(f"{_AUTH}/devices/requests/{grant['user_code']}").json()["data"]
+    assert (request["client_type"], request["requires_admin"]) == ("tvos", False)
+    assert client.post(f"{_AUTH}/devices/requests/{grant['user_code']}/approve").status_code == 200
+    data = _redeem(client, grant["device_code"]).json()["data"]
+    assert data["granted_by"] == "family"
+
+    tv = TestClient(client.app)
+    me = tv.get(f"{_AUTH}/me", headers=_bearer(data["token"])).json()["data"]
+    assert (me["username"], me["device"]["kind"]) == ("family", "tvos")
+    rows = [d for d in client.get(f"{_AUTH}/devices").json()["data"] if d["kind"] == "tvos"]
+    assert [(r["name"], r["family"]) for r in rows] == [("客厅 Apple TV", "login")]
+
+
 def test_member_cannot_approve_a_transcoder(client: TestClient) -> None:
     """转码是整台服务器的资源：转码器只能由超管批准。"""
     _create_member_and_login(client)

@@ -561,6 +561,7 @@ enum DeviceText {
         switch type {
         case "worker": "转码器"
         case "cli": "命令行 / Agent"
+        case "tvos": "Apple TV"
         case "manual": "手工令牌"
         default: "未知类型"
         }
@@ -570,6 +571,13 @@ enum DeviceText {
     static func grant(_ type: String, isAdmin: Bool) -> Grant {
         if type == "worker" {
             return Grant(title: "将获得：仅限转码", body: "这台机器不能查看或修改你的订阅、媒体库和设置。")
+        }
+        if type == "tvos" {
+            // Apple TV 扫码登录（docs/design/tvos-app.md §5.1，文案同 Web devices-display.ts）
+            return Grant(
+                title: isAdmin ? "将获得：这台 Apple TV 以你的超级管理员身份登录" : "将获得：这台 Apple TV 以你的身份登录",
+                body: "等同你在这台电视上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。只批准你面前这台电视上显示的配对码。"
+            )
         }
         if isAdmin {
             return Grant(

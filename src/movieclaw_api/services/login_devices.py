@@ -74,8 +74,11 @@ KINDS: dict[str, KindSpec] = {
 }
 #: 用账号密码登录的原生 App（``/auth/device/login`` 只接受这几种）
 APP_KINDS = ("ios", "tvos", "android")
-#: 走配对码的客户端（``/auth/device/authorize`` 只接受这几种）
-PAIRING_KINDS = ("cli", "worker")
+#: 走配对码的客户端（``/auth/device/authorize`` 只接受这几种）。Apple TV 也在其中：
+#: 电视上打字太痛苦，默认是「电视显示码、手机批准」（docs/design/tvos-app.md §5.1）。
+#: 它配出来的仍是 ``tvos`` 这一种登录设备：人直接操作的客户端、改密时随之下线，
+#: 与用账号密码登录的 Apple TV 完全同构——两种登录方式只是拿到同一种令牌的两条路
+PAIRING_KINDS = ("cli", "worker", "tvos")
 
 #: 令牌明文前缀：肉眼可辨认来源，误提交扫描器也好识别；也用来区分升级前
 #: 签发的签名 Cookie（没有这个前缀）与表内令牌。
