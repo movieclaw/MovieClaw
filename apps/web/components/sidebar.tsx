@@ -135,10 +135,10 @@ export function Sidebar({
         <div className="flex flex-col items-center gap-2 px-3 pb-3 pt-5">
           <BrandHome onSelect={onSelect} homeId={isMember ? "library" : "new"}>
             <Image
-              src="/movieclaw-logo-mark-rotor.png"
+              src="/brand/movieclaw-mark.png"
               alt="MovieClaw"
-              width={525}
-              height={525}
+              width={512}
+              height={512}
               priority
               className="size-7 object-contain"
             />
@@ -148,15 +148,19 @@ export function Sidebar({
         </div>
       ) : (
         <div className="flex items-center justify-between px-4 pb-3 pt-4">
+          {/* 标志 + 字标：字标用真实文字（Inter 半粗、单色，颜色只由标志承担），比烤进图片里的字更清晰 */}
           <BrandHome onSelect={onSelect} homeId={isMember ? "library" : "new"}>
-            <Image
-              src="/movieclaw-logo-rotor.png"
-              alt="MovieClaw"
-              width={1920}
-              height={525}
-              priority
-              className="h-8 w-auto max-w-[120px] object-contain"
-            />
+            <span className="flex items-center gap-2">
+              <Image
+                src="/brand/movieclaw-mark.png"
+                alt=""
+                width={512}
+                height={512}
+                priority
+                className="size-7 object-contain"
+              />
+              <span className="text-[17px] font-semibold tracking-[-0.022em] text-[var(--text)]">MovieClaw</span>
+            </span>
           </BrandHome>
           <div className="flex items-center gap-1">
             {!isMobile && canOpenSearch && <SearchCommand onSearch={onSearch} />}

@@ -50,8 +50,12 @@ export const metadata: Metadata = {
   formatDetection: {
     telephone: false,
   },
+  // 标签页图标：app/favicon.ico 由 Next 自动注入（16/32/48，兼容所有浏览器）；
+  // 这里再声明矢量版，支持 SVG 的浏览器优先用它，任意缩放都清晰。
+  // （显式写了 icons 后 Next 不再自动拾取 app/icon.*，所以矢量版放在 public/ 并在此声明。）
   // iOS 不读 manifest 里的 icons，主屏图标只认 apple-touch-icon
   icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
     apple: "/apple-touch-icon.png",
   },
   // Next 的 appleWebApp.capable 只输出新标准 mobile-web-app-capable；

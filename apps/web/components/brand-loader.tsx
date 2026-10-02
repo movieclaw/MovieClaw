@@ -12,14 +12,14 @@ import { MovieclawMark } from "@/components/brand";
  * prefers-reduced-motion（globals.css 里降级为静止）。
  *
  * 品牌随主题分叉（同一 DOM 双渲染 + CSS 显隐，组件保持无状态、可在服务端
- * 组件里使用）：银玻璃 = rotor 图片 logo；Netflix = 红色 SVG M 字标
- * （netflix 主题下再出现玻璃 rotor 是「半成品感」的主要来源之一）。
+ * 组件里使用）：银玻璃 = 极光播放标志（图片）；Netflix = 红色 SVG M 字标
+ * （netflix 主题下再出现极光标志是「半成品感」的来源之一）。
  */
 export function BrandLoader({ className = "size-5" }: { className?: string }) {
   return (
     <span aria-hidden="true" className={`brand-loader inline-block shrink-0 ${className}`}>
       <img
-        src="/movieclaw-logo-mark-rotor.png"
+        src="/brand/movieclaw-mark.png"
         alt=""
         draggable={false}
         className="brand-loader--silver size-full object-contain"
