@@ -30,7 +30,7 @@ import contextlib
 import logging
 import math
 import statistics
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -338,7 +338,7 @@ def apply_observation(
 
 
 def hand_over_if_claimed(
-    task: RatioBoostTask, claimed_hashes: set[str], now: datetime
+    task: RatioBoostTask, claims: Mapping[str, Collection[int | None]], now: datetime
 ) -> bool:
     """种子被订阅投递/手动下载认领时，把刷流任务转出管理。返回是否发生转出。
 
@@ -347,8 +347,21 @@ def hand_over_if_claimed(
     这份数据是订阅的依赖，刷流**绝不能再把它连数据汰换掉**。转出 = 置
     MISSING 让出预算、任务与数据原样保留，之后归订阅的所有权/H&R 状态机
     管辖（反方向「订阅先抢、刷流后到」由准入排除 + already_exists 双重拦截）。
+
+    ``claims`` 是 infohash → 认领方所在下载器 id 集合。只有认领落在**同一台**
+    下载器上才转出：刷流可以单独放一台下载器（站点 ``boost_downloader_id``），
+    订阅投到默认下载器是另起一份独立的副本，并不依赖刷流那份数据——此时把
+    刷流任务转出只会让它在刷流机上永久脱管、占着磁盘没人清。认领方下载器
+    未知（None，存量记录）时按同一台处理，宁可脱管也不误删订阅的数据。
     """
-    if task.state != BoostTaskState.ACTIVE or task.info_hash not in claimed_hashes:
+    if task.state != BoostTaskState.ACTIVE:
+        return False
+    claimed_on = claims.get(task.info_hash)
+    if not claimed_on:
+        return False
+    if task.downloader_id is not None and None not in claimed_on and (
+        task.downloader_id not in claimed_on
+    ):
         return False
     task.state = BoostTaskState.MISSING
     task.evicted_at = now
@@ -752,13 +765,32 @@ class _DownloaderPool:
                     await adapter.close()
 
 
-async def _claimed_hashes(session: AsyncSession) -> set[str]:
-    """被订阅投递或手动下载认领的全部 infohash（统一小写）。"""
-    attempt_rows = (
-        (await session.execute(select(SubscriptionDownloadAttempt.info_hash))).scalars().all()
-    )
-    intent_rows = (await session.execute(select(ManualDownloadIntent.info_hash))).scalars().all()
-    return {h.lower() for h in [*attempt_rows, *intent_rows] if h}
+async def _claimed_hashes(session: AsyncSession) -> dict[str, set[int | None]]:
+    """被订阅投递或手动下载认领的 infohash（统一小写）→ 认领方所在下载器 id 集合。
+
+    下载器 id 为 None 表示记录里没有（存量记录），由 hand_over_if_claimed 按
+    「可能是同一台」保守处理。
+    """
+    rows = [
+        *(
+            await session.execute(
+                select(
+                    SubscriptionDownloadAttempt.info_hash,
+                    SubscriptionDownloadAttempt.downloader_id,
+                )
+            )
+        ).all(),
+        *(
+            await session.execute(
+                select(ManualDownloadIntent.info_hash, ManualDownloadIntent.downloader_id)
+            )
+        ).all(),
+    ]
+    claims: dict[str, set[int | None]] = {}
+    for info_hash, downloader_id in rows:
+        if info_hash:
+            claims.setdefault(info_hash.lower(), set()).add(downloader_id)
+    return claims
 
 
 @dataclass

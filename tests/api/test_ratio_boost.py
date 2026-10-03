@@ -765,7 +765,7 @@ class TestHandOverIfClaimed:
     def test_claimed_task_leaves_pool_without_deletion(self) -> None:
         """被订阅认领的任务转出管理：让出预算、绝不删数据，之后归订阅状态机管。"""
         task = _task()
-        assert hand_over_if_claimed(task, {task.info_hash}, _NOW)
+        assert hand_over_if_claimed(task, {task.info_hash: {None}}, _NOW)
         assert task.state == BoostTaskState.MISSING
         assert task.evicted_at == _NOW
         assert "认领" in (task.evict_reason or "")
@@ -774,13 +774,29 @@ class TestHandOverIfClaimed:
 
     def test_unclaimed_task_stays(self) -> None:
         task = _task()
-        assert not hand_over_if_claimed(task, {"f" * 40}, _NOW)
+        assert not hand_over_if_claimed(task, {"f" * 40: {None}}, _NOW)
         assert task.state == BoostTaskState.ACTIVE
+
+    def test_claim_on_same_downloader_hands_over(self) -> None:
+        task = _task(downloader_id=1)
+        assert hand_over_if_claimed(task, {task.info_hash: {1}}, _NOW)
+
+    def test_claim_on_other_downloader_keeps_boost_management(self) -> None:
+        """刷流在专用下载器、订阅投到默认下载器：订阅那份是独立副本，刷流这份
+        继续受管（照常汰换），否则会在刷流机上永久脱管占盘。"""
+        task = _task(downloader_id=2)
+        assert not hand_over_if_claimed(task, {task.info_hash: {1}}, _NOW)
+        assert task.state == BoostTaskState.ACTIVE
+
+    def test_claim_with_unknown_downloader_hands_over(self) -> None:
+        """认领方下载器未知（存量记录）按同一台处理：宁可脱管，不误删订阅数据。"""
+        task = _task(downloader_id=2)
+        assert hand_over_if_claimed(task, {task.info_hash: {1, None}}, _NOW)
 
     def test_terminal_states_untouched(self) -> None:
         """已终态（evicted/missing）的任务不重复转出，保留原始结论。"""
         task = _task(state=BoostTaskState.EVICTED, evict_reason="原始原因")
-        assert not hand_over_if_claimed(task, {task.info_hash}, _NOW)
+        assert not hand_over_if_claimed(task, {task.info_hash: {None}}, _NOW)
         assert task.evict_reason == "原始原因"
 
 
