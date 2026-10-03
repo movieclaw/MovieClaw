@@ -110,8 +110,8 @@ final class NotificationSettingsModel {
     }
 
     /// `library_ids` 要能明确发 null（= 全部）：生成的 `PushPreferencesRequest` 遇到 nil 是不发这个字段（= 不改），
-    /// 所以这一个请求手写
-    struct LibrarySelection: Encodable, Sendable {
+    /// 所以这一个请求手写；编码在 APIClient 中执行，不继承界面模型的主线程隔离。
+    nonisolated struct LibrarySelection: Encodable, Sendable {
         let ids: [Int]?
         var events: [String: Bool]?
 
