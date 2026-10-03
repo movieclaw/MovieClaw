@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 
 import { BrandLoader } from "@/components/brand-loader";
 import { ContentEmptyState } from "@/components/content-empty-state";
+import { CollectionLibraryCard } from "@/components/collection-library-card";
 import { HScroller } from "@/components/h-scroller";
 import { LIBRARY_KIND_META } from "@/components/library-kind-meta";
 import {
@@ -43,6 +44,7 @@ import type { Subscription } from "@/lib/api/subscriptions";
 import { favoriteLevelLabel } from "@/lib/favorites";
 import {
   buildHomeRows,
+  homeCollectionIds,
   FAVORITES_SORT_PRESETS,
   type HomeRow,
   orderParamFor,
@@ -378,6 +380,13 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
     [homePrefs, libraries, collections],
   );
   const visibleRows = useMemo(() => rows.filter((row) => !row.hidden), [rows]);
+  const homeCollections = useMemo(() => {
+    const byId = new Map(collections.map((collection) => [collection.id, collection]));
+    return homeCollectionIds(rows).flatMap((id) => {
+      const collection = byId.get(id);
+      return collection ? [collection] : [];
+    });
+  }, [rows, collections]);
   const collectionCount = collections.length;
   // 「全部合集」入口默认挂在「我的媒体库」行的标题右侧。但那一行不是永远都在：
   // 用户可以在「自定义首页」里隐藏它，一个可见库都没有时整节也 return null。
@@ -385,7 +394,8 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
   // （合集页自己的 LibrarySectionSwitch 要先进得去才用得上），等于功能在 UI 上
   // 彻底不可达。这两种情况下把入口抬到页头动作区，保证始终有一条路进得去。
   const librariesRowVisible =
-    rows.some((row) => row.kind === "libraries" && !row.hidden) && visibleLibraries.length > 0;
+    rows.some((row) => row.kind === "libraries" && !row.hidden) &&
+    (visibleLibraries.length > 0 || homeCollections.length > 0);
   // 银玻璃手机上顶栏 ⋯ 菜单里常驻「全部合集」，页头不再需要这个兜底
   const collectionsEntryInHeader =
     collectionCount > 0 && !librariesRowVisible && !actionsInTopBar;
@@ -479,7 +489,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
         );
       case "libraries":
         // 库卡片横排：库多了不换行堆高，改为一行横滚（与库行同一交互）
-        if (visibleLibraries.length === 0) return null;
+        if (visibleLibraries.length === 0 && homeCollections.length === 0) return null;
         return (
           <section key={row.id} className="mt-8 max-md:mt-6" aria-labelledby="my-libraries-title">
             <div className={`flex items-center justify-between gap-4 page-inset`}>
@@ -512,6 +522,12 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
                     library={library}
                     items={itemsByKey.get(coverFetchKey(library.id)) ?? []}
                   />
+                </div>
+              ))}
+              {/* 合集与真实库同排；只读合并后的行清单，海报行继续在原位置展示。 */}
+              {homeCollections.map((collection) => (
+                <div key={`collection:${collection.id}`} className="w-[268px] shrink-0 rounded-2xl max-md:w-[230px]">
+                  <CollectionLibraryCard collection={collection} />
                 </div>
               ))}
             </HScroller>

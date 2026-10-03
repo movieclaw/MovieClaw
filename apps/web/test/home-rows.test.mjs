@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildHomeRows,
+  homeCollectionIds,
   moveRowTo,
   newCollectionRow,
   newLibraryRow,
@@ -32,6 +33,30 @@ const withoutKinds = (rows) => rows.filter((row) => row.kind !== "media-kind");
 const ids = (rows) => withoutKinds(rows).map((row) => row.id);
 const allIds = (rows) => rows.map((row) => row.id);
 const find = (rows, id) => rows.find((row) => row.id === id);
+
+test("虚拟库卡片与合集行同步显示，沿用行顺序并按合集去重", () => {
+  const prefs = { rows: [
+    { id: "row:hidden", collection_id: 7, hidden: true },
+    { id: "row:nolan", collection_id: 8, name: "今晚看点什么", sort: "random" },
+    { id: "row:miyazaki", collection_id: 7 },
+    { id: "row:duplicate", collection_id: 8, sort: "rating" },
+    { id: "row:deleted", collection_id: 99 },
+  ] };
+  const rows = buildHomeRows(prefs, LIBS, COLS);
+  assert.deepEqual(homeCollectionIds(rows), [8, 7]);
+  assert.equal(rows.find((row) => row.id === "row:nolan").collection.name, "诺兰");
+  assert.deepEqual(homeCollectionIds(buildHomeRows(prefs, LIBS, [COLS[0]])), [7]);
+  assert.deepEqual(homeCollectionIds(buildHomeRows({ rows: [] }, LIBS, COLS)), []);
+});
+
+test("隐藏或移除合集行同步移除虚拟库卡片，恢复显示后保留入口", () => {
+  const pref = { id: "row:nolan", collection_id: 8 };
+  const cards = (rows) => homeCollectionIds(buildHomeRows({ rows }, LIBS, COLS));
+  assert.deepEqual(cards([pref]), [8]);
+  assert.deepEqual(cards([{ ...pref, hidden: true }]), []);
+  assert.deepEqual(cards([]), []);
+  assert.deepEqual(cards([{ ...pref, hidden: false }]), [8]);
+});
 
 test("空清单 = 出厂布局：三个内置行 + 每库一行最近添加", () => {
   const rows = buildHomeRows({ rows: [] }, LIBS, COLS);

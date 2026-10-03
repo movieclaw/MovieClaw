@@ -4,7 +4,7 @@ import SwiftUI
 /// 媒体库首页（Web `library-view.tsx`，路由 `/library`）。
 ///
 /// 页面 = 标题统计 + 按 `ui.preferences.home.rows` 合并出的行清单：
-/// 接下来继续 / 我的收藏 / 我的媒体库（库卡片 + 扫描进度环）/ 每库一行 / 合集行。
+/// 接下来继续 / 我的收藏 / 我的媒体库（真实库 + 首页合集虚拟库卡片）/ 每库一行 / 合集行。
 /// 只负责「看」，排序与行的增删改全部收进自定义页。
 ///
 /// 刷新策略同 Web：有库在扫描/整理时 3 秒一轮（结束后再保持 12 秒快轮询，接住监控去抖触发的连环扫描），
@@ -143,6 +143,8 @@ struct LibraryHomeView: View {
         HomeRows.build(prefs: prefs.rows ?? store.snapshotRows ?? [], libraries: libraries ?? [], collections: collections)
     }
 
+    private var homeCollections: [API.CollectionView] { HomeRows.pinnedCollections(rows) }
+
     private var pollInterval: Double {
         let libs = libraries ?? []
         if libs.contains(where: { $0.scanning || $0.organizing }) || recentlyBusy { return 3 }
@@ -271,7 +273,7 @@ struct LibraryHomeView: View {
                 .accessibilityIdentifier("favorites-row")
             }
         case .libraries:
-            if !visibleLibraries.isEmpty {
+            if !visibleLibraries.isEmpty || !homeCollections.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     LibrarySectionHeader(title: row.title) {
                         if !collections.isEmpty {
@@ -280,13 +282,22 @@ struct LibraryHomeView: View {
                         }
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(spacing: 14) {
+                        LazyHStack(alignment: .top, spacing: 14) {
                             ForEach(visibleLibraries, id: \.id) { library in
                                 NavigationLink(value: AppRoute.library(id: library.id)) {
                                     LibraryHomeCard(library: library, hasPosters: !(itemsByKey[LibraryHomeStore.coverKey(library.id)] ?? []).isEmpty)
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityIdentifier("library-card-\(library.id)")
+                            }
+                            // 与真实库同排，合集之间沿用首页海报行的顺序；点卡片进原合集。
+                            ForEach(homeCollections, id: \.id) { collection in
+                                NavigationLink(value: AppRoute.collection(libraryId: collection.libraryId, collectionId: collection.id)) {
+                                    CollectionLibraryHomeCard(collection: collection)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("合集「\(collection.name)」，\(collection.itemCount) 部")
+                                .accessibilityIdentifier("collection-library-card-\(collection.id)")
                             }
                         }
                         .padding(.horizontal, Theme.pagePadding)
@@ -460,6 +471,56 @@ private struct LibraryHomeCard: View {
                 }
             }
             .padding(.horizontal, 8)
+        }
+        .frame(width: 230)
+        .contentShape(.rect)
+    }
+}
+
+// MARK: - 合集虚拟库卡片
+
+/// 首页合集的虚拟库卡片：列表随带的海报横向拼贴，不另拉成员，也不计入真实库统计。
+/// 卡片规格沿用 LibraryHomeCard，名字用合集原名，与可单独改名的海报行分开。
+private struct CollectionLibraryHomeCard: View {
+    let collection: API.CollectionView
+    @Environment(\.api) private var api
+
+    var body: some View {
+        let covers = Array(collection.covers.prefix(3))
+        VStack(spacing: 10) {
+            Color(red: 0.04, green: 0.05, blue: 0.07)
+                .aspectRatio(21 / 10, contentMode: .fit)
+                .overlay {
+                    if covers.isEmpty {
+                        Image(systemName: "rectangle.stack")
+                            .font(.system(size: 40))
+                            .foregroundStyle(.white.opacity(0.13))
+                    } else {
+                        GeometryReader { proxy in
+                            HStack(spacing: 2) {
+                                ForEach(Array(covers.enumerated()), id: \.offset) { _, cover in
+                                    RemoteImage(url: api.image(cover.url, .posterCard))
+                                        .frame(width: (proxy.size.width - CGFloat(covers.count - 1) * 2) / CGFloat(covers.count), height: proxy.size.height)
+                                        .clipped()
+                                }
+                            }
+                        }
+                    }
+                }
+                .clipShape(.rect(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.1)))
+            HStack(spacing: 8) {
+                Text(collection.name).font(.headline).foregroundStyle(.white).lineLimit(1)
+                Label("合集", systemImage: "rectangle.stack")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+                    .padding(.horizontal, 8).padding(.vertical, 2)
+                    .background(.white.opacity(0.1), in: .capsule)
+                    .overlay(Capsule().strokeBorder(.white.opacity(0.14)))
+                    .fixedSize()
+            }
+            .padding(.horizontal, 8)
+            Text("\(collection.itemCount) 部").font(.caption).foregroundStyle(Theme.textFaint)
         }
         .frame(width: 230)
         .contentShape(.rect)

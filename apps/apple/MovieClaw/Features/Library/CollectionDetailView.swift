@@ -485,7 +485,7 @@ struct CollectionDetailView: View {
                 rows = HomeRows.toPrefs(HomeRows.build(prefs: homePrefs.rows ?? [], libraries: l, collections: c) + [HomeRows.newCollectionRow(collection)])
             }
             try await homePrefs.save(rows, api: api)
-            feedback.success(wasOnHome ? "已从首页移除，播放器里的这个媒体库也会一并消失" : "已显示在首页，播放器里也会多出这个媒体库")
+            feedback.success(wasOnHome ? "已从首页移除，媒体库卡片和播放器入口也会一并移除" : "已显示在首页，媒体库卡片和播放器入口同步显示")
         } catch {
             feedback.error(error.localizedDescription.isEmpty ? "保存失败" : error.localizedDescription)
         }

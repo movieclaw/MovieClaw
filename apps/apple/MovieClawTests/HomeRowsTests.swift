@@ -26,8 +26,35 @@ struct HomeRowsTests {
         return try! JSONDecoder().decode(API.LibraryView.self, from: JSONSerialization.data(withJSONObject: json))
     }
 
-    private func pref(_ id: String, sort: String? = nil, unwatched: Bool? = nil, hidden: Bool? = nil, libraryId: Int? = nil, mediaKind: String? = nil) -> API.HomeRowPref {
-        API.HomeRowPref(id: id, sort: sort, unwatched: unwatched, hidden: hidden, libraryId: libraryId, mediaKind: mediaKind)
+    private func pref(_ id: String, sort: String? = nil, unwatched: Bool? = nil, hidden: Bool? = nil, libraryId: Int? = nil, collectionId: Int? = nil, mediaKind: String? = nil) -> API.HomeRowPref {
+        API.HomeRowPref(id: id, sort: sort, unwatched: unwatched, hidden: hidden, libraryId: libraryId, collectionId: collectionId, mediaKind: mediaKind)
+    }
+
+    private func collection(_ id: Int, name: String) -> API.CollectionView {
+        API.CollectionView(id: id, name: name, libraryId: 1, rules: [], sort: "title", visibility: "household", builtin: nil,
+                           editable: true, manageable: true, ruleDriven: false, itemCount: 12, coverItemId: nil, covers: [],
+                           kind: "user", hidden: false, position: 0)
+    }
+
+    @Test func collectionCardsFollowVisibleRowsAndDeduplicate() {
+        let collections = [collection(7, name: "宫崎骏"), collection(8, name: "诺兰")]
+        let prefs = [pref("row:hidden", hidden: true, collectionId: 7), pref("row:nolan", sort: "random", collectionId: 8),
+                     pref("row:miyazaki", collectionId: 7), pref("row:duplicate", sort: "rating", collectionId: 8),
+                     pref("row:deleted", collectionId: 99)]
+        let rows = HomeRows.build(prefs: prefs, libraries: [library(1, "movie")], collections: collections)
+        #expect(HomeRows.pinnedCollections(rows).map(\.id) == [8, 7])
+        #expect(HomeRows.pinnedCollections(rows).map(\.name) == ["诺兰", "宫崎骏"])
+        let lostAccess = HomeRows.build(prefs: prefs, libraries: [library(1, "movie")], collections: [collections[0]])
+        #expect(HomeRows.pinnedCollections(lostAccess).map(\.id) == [7])
+        #expect(HomeRows.pinnedCollections(HomeRows.build(prefs: [], libraries: [library(1, "movie")], collections: collections)).isEmpty)
+    }
+
+    @Test func hidingCollectionRowAlsoHidesCard() {
+        let collection = collection(8, name: "诺兰")
+        let hidden = HomeRows.build(prefs: [pref("row:nolan", hidden: true, collectionId: 8)], libraries: [library(1, "movie")], collections: [collection])
+        #expect(HomeRows.pinnedCollections(hidden).isEmpty)
+        let restored = HomeRows.build(prefs: [pref("row:nolan", hidden: false, collectionId: 8)], libraries: [library(1, "movie")], collections: [collection])
+        #expect(HomeRows.pinnedCollections(restored).map(\.id) == [8])
     }
 
 

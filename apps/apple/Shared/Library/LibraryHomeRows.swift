@@ -198,6 +198,17 @@ enum HomeRows {
 
     // MARK: 合并
 
+    /// 「我的媒体库」里的虚拟库入口：与合集海报行共用显示开关和顺序，同一合集只放一张卡片。
+    /// 输入是 build 合并后的行，不再另读偏好；已删或当前身份不可见的合集已经被摘掉。
+    static func pinnedCollections(_ rows: [Row]) -> [API.CollectionView] {
+        var seen = Set<Int>()
+        return rows.compactMap { row in
+            guard !row.hidden, case let .collection(collection, _, _, _) = row.kind,
+                  seen.insert(collection.id).inserted else { return nil }
+            return collection
+        }
+    }
+
     /// 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 每个库一行「最近添加」。
     ///
     /// 不带类型行（「全部电影」）：它要用户在自定义页里主动添加才出现。默认生成的话，同类型只有一个库时

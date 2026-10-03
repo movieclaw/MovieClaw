@@ -366,6 +366,19 @@ export function rowTitle(row: HomeRow): string {
   }
 }
 
+/** 「我的媒体库」里的虚拟库入口：与海报行共用显示开关和顺序，同一合集只放一张卡片。
+ * rows 已经由 buildHomeRows 按当前可见来源合并，失去权限或已删除的合集不会进来。 */
+export function homeCollectionIds(rows: HomeRow[]): number[] {
+  const seen = new Set<number>();
+  const ids: number[] = [];
+  for (const row of rows) {
+    if (row.kind !== "collection" || row.hidden || seen.has(row.collection.id)) continue;
+    seen.add(row.collection.id);
+    ids.push(row.collection.id);
+  }
+  return ids;
+}
+
 /** 自定义页里每行的小字：来源 · 排序 · 只看没看过的。行名是用户起的，来源和排序是它的真身。 */
 export function rowMeta(row: HomeRow): string {
   switch (row.kind) {
