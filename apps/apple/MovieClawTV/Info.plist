@@ -43,8 +43,6 @@
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>MovieClaw 需要访问局域网，用于自动发现并连接你自己部署的 MovieClaw 服务器。</string>

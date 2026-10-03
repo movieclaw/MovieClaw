@@ -272,15 +272,27 @@ final class AppModel {
         do {
             login = try await api.authDeviceLogin(body: .init(username: username, password: password, client: DeviceInfo.client))
         } catch let error as APIError where error.status == 404 || error.status == 405 {
-            // 服务器还没有设备登录接口：App 比服务器新
-            throw ConnectError.serverTooOld
+            // 服务器还没有设备登录接口：App 比服务器新。走到这里的是不报版本号的旧服务器
+            // （报了版本的已在 probe 里拦下），只知道它低于设备登录接口出现的版本
+            throw ConnectError.serverTooOld(version: nil)
         }
         TokenVault.save(login.token, server: api.server, username: login.session.username)
         activate(api.server, session: login.session, token: login.token)
         freshLogins += 1
     }
 
-    /// 测通服务器：确认地址上跑的是健康的 MovieClaw，返回它是否已完成初始化
+    /// App 正常工作要求的最低服务器版本：低于它就在登录前直接拦下，告诉用户先升级服务器。
+    /// App 开始依赖某个新版服务器才有的接口时，把它调到那个版本。
+    /// 当前取 0.28.0——设备令牌登录（`/auth/device/login`）从这个版本起才有，更旧的服务器根本登录不了。
+    nonisolated static let minimumServerVersion = "0.28.0"
+
+    /// 服务器版本是否低于 App 要求的最低版本。按数字逐段比较（0.9.0 < 0.28.0）
+    nonisolated static func isServerTooOld(_ version: String) -> Bool {
+        version.compare(minimumServerVersion, options: .numeric) == .orderedAscending
+    }
+
+    /// 测通服务器：确认地址上跑的是健康的 MovieClaw、版本够新，返回它是否已完成初始化。
+    /// v0.30.0 之后的服务器 `/health` 带版本号；更早的不报版本，放行后由登录接口 404 兜底识别
     private static func probe(_ api: APIClient) async throws -> Bool {
         let health: API.HealthResponse
         do {
@@ -291,6 +303,9 @@ final class AppModel {
             throw ConnectError.notMovieClaw
         }
         guard health.status == "ok" else { throw ConnectError.unhealthy(health.status) }
+        if let version = health.version, isServerTooOld(version) {
+            throw ConnectError.serverTooOld(version: version)
+        }
         return try await api.bootstrapStatus().initialized
     }
 
@@ -566,14 +581,17 @@ final class AppModel {
         case notMovieClaw
         case unhealthy(String)
         case alreadyInitialized
-        case serverTooOld
+        /// App 比服务器新、服务器缺 App 依赖的接口。`version` 是服务器报的版本，旧服务器不报时为 nil
+        case serverTooOld(version: String?)
 
         var errorDescription: String? {
             switch self {
             case .notMovieClaw: "该地址能访问，但不是 MovieClaw 服务器（请填写浏览器打开 MovieClaw 时地址栏里的地址）"
             case let .unhealthy(status): "服务器状态异常：\(status)"
             case .alreadyInitialized: "这台服务器刚刚已在别处完成初始化，请用已有的账号登录"
-            case .serverTooOld: "服务器版本太旧，还不支持 App 登录。请先在网页「设置 → 更新与维护」里把服务器升级到最新版"
+            case let .serverTooOld(version):
+                "服务器版本\(version.map { " v\($0) " } ?? "")太旧，App 需要 v\(AppModel.minimumServerVersion) 或更新版本。"
+                    + "请先在网页「设置 → 更新与维护」里把服务器升级到最新版"
             }
         }
     }

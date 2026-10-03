@@ -3228,12 +3228,14 @@ nonisolated extension API {
         var service: String
         var environment: String
         var specHash: String
+        var version: String?
 
         enum CodingKeys: String, CodingKey {
             case status
             case service
             case environment
             case specHash = "spec_hash"
+            case version
         }
     }
 

@@ -32,8 +32,6 @@
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
-		<key>NSAllowsLocalNetworking</key>
-		<true/>
 	</dict>
 	<key>NSCameraUsageDescription</key>
 	<string>扫描电视、终端上的登录二维码，以及拍照作为 AI 会话的图片附件。</string>

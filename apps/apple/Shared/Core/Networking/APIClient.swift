@@ -321,6 +321,10 @@ nonisolated struct APIClient: Sendable {
         case .cannotFindHost, .dnsLookupFailed: "找不到该服务器，请检查地址是否正确"
         case .cannotConnectToHost: "无法连接到服务器：地址或端口不对，或服务器未启动"
         case .networkConnectionLost: "网络连接中断，请重试"
+        case .timedOut: "连接服务器超时：请确认地址和端口正确、服务器在运行，且手机与服务器网络互通"
+        // ATS 拦截明文 http（Info.plist 已放开，正常不会出现；留着兜底，免得只剩一个错误码）
+        case .appTransportSecurityRequiresSecureConnection:
+            "系统拦截了不安全的 http 连接，请改用 https 地址，或使用局域网 IP 地址连接"
         case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate,
              .serverCertificateNotYetValid, .serverCertificateHasUnknownRoot:
             "HTTPS 证书校验失败，请检查服务器证书，或改用 http 地址"

@@ -91,9 +91,11 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         # 自托管服务器绝大多数是局域网 http 直连（如 http://192.168.1.10:3000），
         # 必须放开 ATS 才能访问；公网 https 部署不受影响。
+        # 只能有 NSAllowsArbitraryLoads 这一个键：同时出现 NSAllowsLocalNetworking 时
+        # 系统会忽略 NSAllowsArbitraryLoads，「http + 域名」（DDNS、内网穿透）会被拦成 -1022。
+        # 两个扩展与 Apple TV 版同理。
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-          NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: MovieClaw 需要访问局域网，用于自动发现并连接你自己部署的 MovieClaw 服务器。
         NSPhotoLibraryUsageDescription: 选择图片作为头像、媒体库封面或 AI 会话附件。
         NSCameraUsageDescription: 扫描电视、终端上的登录二维码，以及拍照作为 AI 会话的图片附件。
@@ -139,7 +141,6 @@ targets:
         # 配图从服务器下载：自托管服务器多是局域网 http 直连，理由同 App
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-          NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: MovieClaw 需要访问局域网，用于从你自己部署的 MovieClaw 服务器下载通知配图。
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
@@ -219,7 +220,6 @@ targets:
         # 自托管服务器多是局域网 http 直连，理由同 iPhone 版
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-          NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: MovieClaw 需要访问局域网，用于自动发现并连接你自己部署的 MovieClaw 服务器。
         # Top Shelf 与 App 共用的 App Group（TopShelfStore 读它），跟着 Bundle ID 前缀走
         MCAppGroup: group.$(MC_BUNDLE_ID_PREFIX).app
