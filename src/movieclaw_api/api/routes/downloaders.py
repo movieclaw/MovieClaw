@@ -752,6 +752,14 @@ async def delete_downloader_config(
     downloader_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[dict]:
+    """删除下载器配置。选它做刷流下载器的站点会一并关闭刷流（不删种），
+    ``data.boost_disabled_sites`` 返回这些站点的 site_id。"""
+    from movieclaw_api.services.ratio_boost import _site_display_name
+
     service = DownloaderConfigService(session)
-    await service.delete(downloader_id)
-    return ok({}, message="已删除")
+    boost_disabled = await service.delete(downloader_id)
+    message = "已删除"
+    if boost_disabled:
+        names = "、".join(_site_display_name(site_id) for site_id in boost_disabled)
+        message = f"已删除，并关闭了 {names} 的刷流（它们用这台下载器刷流）"
+    return ok({"boost_disabled_sites": boost_disabled}, message=message)

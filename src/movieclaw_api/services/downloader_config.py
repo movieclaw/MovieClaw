@@ -144,15 +144,48 @@ class DownloaderConfigService:
             raise NotFoundException(f"下载器不存在：id={downloader_id}")
         return await self.get(downloader_id)
 
-    async def delete(self, downloader_id: int) -> None:
-        """删除下载器配置；不存在抛 404，正在验证中抛 409。"""
+    async def delete(self, downloader_id: int) -> list[str]:
+        """删除下载器配置；不存在抛 404，正在验证中抛 409。
+
+        选它做刷流下载器的站点会先关闭刷流，返回这些站点的 site_id。用户为
+        站点单独选刷流下载器是为了与订阅/手动下载隔离，删掉后若让外键置空、
+        改投默认下载器，恰好破坏隔离（与「选定的下载器不可用就停、不改投」
+        同一原则，见 docs/design/site-protection-ratio-boost.md §2.10）。关闭刷流
+        不删种，想继续刷就重新开启并选一台。先关刷流再删配置：暂停中的站点
+        解除做种限速时还要连这台下载器。
+        """
+        from sqlmodel import select
+
+        from movieclaw_api.services.site_config import SiteConfigService
+        from movieclaw_db.models.site_credential import SiteCredential
+
         row = await self.get(downloader_id)
         self._assert_not_verifying(row)
+        boost_sites = (
+            (
+                await self._session.execute(
+                    select(SiteCredential.site_id).where(
+                        SiteCredential.boost_downloader_id == downloader_id,
+                        SiteCredential.boost_enabled == True,  # noqa: E712 -- SQL 表达式
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for site_id in boost_sites:
+            await SiteConfigService(self._session).set_ratio_boost(site_id, enabled=False)
+            logger.info(
+                "下载器「%s」将被删除，已关闭站点 %s 的刷流（它选的刷流下载器就是这台）",
+                row.name,
+                site_id,
+            )
         await self._repo.delete(downloader_id)
         # 配置已不存在，它的连接失败告警（若有）随之作废
         from movieclaw_api.services.system_notice import resolve_notices
 
         await resolve_notices(self._session, dedupe_key=f"downloader:{downloader_id}")
+        return list(boost_sites)
 
 
 # ---------------------------------------------------------------------------

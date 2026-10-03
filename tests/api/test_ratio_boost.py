@@ -1408,18 +1408,35 @@ async def test_boost_downloader_unavailable_never_falls_back_to_default(db) -> N
 
 
 @pytest.mark.asyncio
-async def test_deleting_boost_downloader_reverts_site_to_default(db) -> None:
-    """删除选定的下载器：外键置空，该站回到跟随默认下载器。"""
+async def test_deleting_boost_downloader_turns_site_boost_off(db) -> None:
+    """删除站点选定的刷流下载器：该站刷流关闭，不改投默认下载器（隔离不被悄悄破坏）。"""
     from movieclaw_api.services.downloader_config import DownloaderConfigService
     from movieclaw_db.models.site_credential import SiteCredential
 
     ids = await _seed_downloaders_and_site(db, boost_downloader="seedbox")
     async with db.session() as session:
-        await DownloaderConfigService(session).delete(ids["seedbox"])
+        disabled = await DownloaderConfigService(session).delete(ids["seedbox"])
+    assert disabled == ["demo"]
     async with db.session() as session:
         cred = (await session.execute(select(SiteCredential))).scalars().one()
+        assert not cred.boost_enabled
         assert cred.boost_downloader_id is None
-    assert await _resolve_boost_downloader(db) == ids["main"]
+
+
+@pytest.mark.asyncio
+async def test_deleting_other_downloader_leaves_boost_alone(db) -> None:
+    """删的不是刷流下载器：站点刷流不受影响。"""
+    from movieclaw_api.services.downloader_config import DownloaderConfigService
+    from movieclaw_db.models.site_credential import SiteCredential
+
+    ids = await _seed_downloaders_and_site(db, boost_downloader="seedbox")
+    async with db.session() as session:
+        assert await DownloaderConfigService(session).delete(ids["main"]) == []
+    async with db.session() as session:
+        cred = (await session.execute(select(SiteCredential))).scalars().one()
+        assert cred.boost_enabled
+        assert cred.boost_downloader_id == ids["seedbox"]
+    assert await _resolve_boost_downloader(db) == ids["seedbox"]
 
 
 @pytest.mark.asyncio
