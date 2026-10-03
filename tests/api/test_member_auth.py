@@ -587,6 +587,8 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/collections"),
     ("POST", "/api/v1/collections"),
     ("GET", "/api/v1/collections/{collection_id}"),
+    # 首页虚拟库封面属于成员浏览面，素材按合集归属、可见库与分级约束收窄。
+    ("GET", "/api/v1/collections/{collection_id}/cover"),
     ("PUT", "/api/v1/collections/{collection_id}"),
     ("DELETE", "/api/v1/collections/{collection_id}"),
     ("GET", "/api/v1/collections/{collection_id}/items"),
