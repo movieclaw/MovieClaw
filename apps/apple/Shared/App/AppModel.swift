@@ -301,6 +301,11 @@ final class AppModel {
             throw ConnectError.notMovieClaw
         } catch let error as APIError where error.status == 404 {
             throw ConnectError.notMovieClaw
+        } catch APIError.timeout {
+            // 测通阶段超时几乎都是地址不通（IP 填错、不在同一网络），不是「服务器响应慢」：
+            // 换成连接超时的说明，带上是哪台服务器
+            let timedOut = URLError(.timedOut, userInfo: [NSURLErrorFailingURLErrorKey: api.server.origin])
+            throw APIError.network(APIClient.networkMessage(timedOut))
         }
         guard health.status == "ok" else { throw ConnectError.unhealthy(health.status) }
         if let version = health.version, isServerTooOld(version) {

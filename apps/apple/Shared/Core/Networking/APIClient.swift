@@ -315,21 +315,54 @@ nonisolated struct APIClient: Sendable {
             || path.hasSuffix("/auth/bootstrap") || path.contains("/api/v1/share/")
     }
 
+    /// URLError → 给用户看的中文说明，格式统一为「发生了什么：该怎么办（错误码）」。
+    ///
+    /// 设计要点：
+    /// - 自托管用户多半不是开发者，只给错误码等于没说，每种常见原因都要说清楚、给出下一步；
+    /// - 文案里带上出问题的服务器（主机:端口），用户一眼能看出是不是自己填错了地址；
+    /// - 末尾保留错误码，用户截图反馈时开发者能精确对照。
     static func networkMessage(_ error: URLError) -> String {
-        switch error.code {
-        case .notConnectedToInternet: "设备未联网，请检查网络后重试"
-        case .cannotFindHost, .dnsLookupFailed: "找不到该服务器，请检查地址是否正确"
-        case .cannotConnectToHost: "无法连接到服务器：地址或端口不对，或服务器未启动"
-        case .networkConnectionLost: "网络连接中断，请重试"
-        case .timedOut: "连接服务器超时：请确认地址和端口正确、服务器在运行，且手机与服务器网络互通"
-        // ATS 拦截明文 http（Info.plist 已放开，正常不会出现；留着兜底，免得只剩一个错误码）
+        let host = error.failingURL.map { "「\(hostLabel($0))」" } ?? "服务器"
+        let reason = switch error.code {
+        case .notConnectedToInternet:
+            "手机没有联网：请检查 Wi-Fi 或蜂窝网络；如果其他 App 能上网，请到「设置 → MovieClaw」允许它使用无线局域网与蜂窝数据"
+        case .dataNotAllowed:
+            "蜂窝数据不可用：请连接 Wi-Fi，或到「设置 → 蜂窝网络」为 MovieClaw 打开蜂窝数据"
+        case .cannotFindHost, .dnsLookupFailed:
+            "找不到\(host)：域名无法解析，请检查地址拼写；内网域名需要手机与服务器在同一网络"
+        case .cannotConnectToHost:
+            "\(host)拒绝连接：端口不对或服务器没在运行。请确认地址与浏览器里打开 MovieClaw 时的完全一致（包括端口）"
+        case .timedOut:
+            "连接\(host)超时，服务器没有响应：请确认地址和端口正确、服务器在运行；局域网地址需要手机连着同一个 Wi-Fi"
+        case .networkConnectionLost:
+            "与\(host)的连接中途断开：请重试；反复出现时检查网络是否稳定"
+        // ATS 拦截明文 http。新版 Info.plist 已放开，正常不会出现；旧版 App 连「http + 域名」会走到这里
         case .appTransportSecurityRequiresSecureConnection:
-            "系统拦截了不安全的 http 连接，请改用 https 地址，或使用局域网 IP 地址连接"
-        case .secureConnectionFailed, .serverCertificateUntrusted, .serverCertificateHasBadDate,
-             .serverCertificateNotYetValid, .serverCertificateHasUnknownRoot:
-            "HTTPS 证书校验失败，请检查服务器证书，或改用 http 地址"
-        default: "网络中断或请求失败，请检查连接后重试（\(error.code.rawValue)）"
+            "系统拦截了 http 地址\(host)：请把 App 更新到最新版；暂时可以改用 https 地址或局域网 IP"
+        case .secureConnectionFailed:
+            "无法与\(host)建立 HTTPS 安全连接：服务器如果没有配置 https，请把地址开头改成 http://"
+        case .serverCertificateUntrusted, .serverCertificateHasUnknownRoot:
+            "\(host)的 HTTPS 证书不受信任（常见于自签名证书）：请换用正规证书（如 Let's Encrypt），或改用 http 地址"
+        case .serverCertificateHasBadDate, .serverCertificateNotYetValid:
+            "\(host)的 HTTPS 证书已过期或尚未生效：请续签证书，并确认手机的日期与时间正确"
+        case .clientCertificateRequired, .clientCertificateRejected:
+            "\(host)要求客户端证书，App 暂不支持：请在反向代理上关闭客户端证书校验"
+        case .httpTooManyRedirects:
+            "\(host)重定向次数过多：多半是反向代理的 http / https 跳转配置成了循环"
+        case .badServerResponse, .cannotParseResponse:
+            "\(host)返回了无法识别的响应：地址可能指向了别的服务，或反向代理配置有误"
+        case .badURL, .unsupportedURL:
+            "服务器地址无效：请填写形如 http://192.168.0.100:3000 的地址"
+        default:
+            "网络请求失败：请检查网络连接和服务器地址后重试"
         }
+        return "\(reason)（错误码 \(error.code.rawValue)）"
+    }
+
+    /// 错误文案里的服务器标识：主机加端口（`192.168.1.10:3000`），不带协议和路径
+    private static func hostLabel(_ url: URL) -> String {
+        guard let host = url.host() else { return "服务器" }
+        return url.port.map { "\(host):\($0)" } ?? host
     }
 
     static func describe(_ error: Error) -> String {

@@ -24,10 +24,33 @@ struct ServerCompatibilityTests {
         #expect(unknown.hasPrefix("服务器版本太旧"))
     }
 
-    /// ATS 拦截（-1022）要说清原因，不能只剩一个错误码
+    private func message(_ code: URLError.Code) -> String {
+        let url = URL(string: "http://movie.example.com:8080/api/v1/health")!
+        return APIClient.networkMessage(URLError(code, userInfo: [NSURLErrorFailingURLErrorKey: url]))
+    }
+
+    /// 每条连接错误都说清原因、点出是哪台服务器，并带错误码方便对照反馈
+    @Test(arguments: [
+        URLError.Code.cannotFindHost, .cannotConnectToHost, .timedOut, .networkConnectionLost,
+        .appTransportSecurityRequiresSecureConnection, .secureConnectionFailed, .serverCertificateUntrusted,
+        .serverCertificateHasBadDate, .httpTooManyRedirects, .badServerResponse,
+    ])
+    func namesServerAndCode(code: URLError.Code) {
+        let text = message(code)
+        #expect(text.contains("「movie.example.com:8080」"))
+        #expect(text.hasSuffix("（错误码 \(code.rawValue)）"))
+    }
+
+    /// ATS 拦截（-1022）要说清原因和出路，不能只剩一个错误码
     @Test func atsBlockIsExplained() {
-        let message = APIClient.networkMessage(URLError(.appTransportSecurityRequiresSecureConnection))
-        #expect(message.contains("https"))
-        #expect(!message.contains("-1022"))
+        let text = message(.appTransportSecurityRequiresSecureConnection)
+        #expect(text.contains("更新到最新版"))
+        #expect(text.contains("https"))
+    }
+
+    /// 没有出错地址时不出现空的主机名
+    @Test func fallsBackWithoutURL() {
+        let text = APIClient.networkMessage(URLError(.cannotConnectToHost))
+        #expect(text.hasPrefix("服务器拒绝连接"))
     }
 }
