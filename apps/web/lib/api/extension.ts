@@ -71,6 +71,8 @@ export interface ConfiguredSite {
   boost_budget_bytes: number;
   /** 刷流汰换最低保留天数（H&R 安全垫）；0=不保护，自由汰换 */
   boost_hold_days: number;
+  /** 刷流投递的下载器（开启刷流时为该站选定）；null = 跟随默认下载器 */
+  boost_downloader_id: number | null;
   last_verified_at: string | null;
   last_checked_at: string | null;
   last_error: string | null;

@@ -2329,7 +2329,7 @@ nonisolated extension APIClient {
         return try await send("PATCH", "/sites/\(siteId)/protection", body: body)
     }
 
-    /// 设置自动刷分享率（开关与存储预算）
+    /// 设置自动刷分享率（开关、存储预算与刷流下载器）
     /// `PATCH /sites/{site_id}/ratio-boost`
     func siteRatioBoostSet(siteId: String, body: API.SiteRatioBoostUpdate) async throws -> API.ConfiguredSite {
         return try await send("PATCH", "/sites/\(siteId)/ratio-boost", body: body)
@@ -2600,6 +2600,7 @@ nonisolated extension APIClient {
 // - GET /api/v1/appearance/backdrops/{backdrop_id}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/auth/avatar（无响应模型：文件流/SSE 等，需手写）
 // - POST /api/v1/auth/avatar（multipart 表单上传，需手写）
+// - GET /api/v1/collections/{collection_id}/cover（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/images/assets/{path:path}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/images/proxy（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/jobs/stream（无响应模型：文件流/SSE 等，需手写）

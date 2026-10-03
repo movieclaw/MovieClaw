@@ -276,7 +276,7 @@ async def set_site_protection(
 @router.patch(
     "/{site_id}/ratio-boost",
     response_model=ApiResponse[ConfiguredSite],
-    summary="设置自动刷分享率（开关与存储预算）",
+    summary="设置自动刷分享率（开关、存储预算与刷流下载器）",
     operation_id="site.ratio-boost.set",
 )
 async def set_site_ratio_boost(
@@ -292,6 +292,7 @@ async def set_site_ratio_boost(
         enabled=payload.enabled,
         budget_bytes=payload.budget_bytes,
         hold_days=payload.hold_days,
+        downloader_id=payload.downloader_id,
     )
     return ok(await _to_view(service, row))
 

@@ -981,8 +981,29 @@ async def apply_boost_pause(session: AsyncSession, site_id: str, paused: bool) -
         await pool.close()
 
 
-async def _default_downloader(session: AsyncSession) -> DownloaderClient | None:
-    """取默认且可用的下载器（与 torrent_submit 同判据），供准入提交。"""
+async def _boost_downloader(
+    session: AsyncSession, cred: SiteCredential
+) -> DownloaderClient | None:
+    """该站刷流准入投给哪台下载器；没有可用的返回 None（本轮不准入）。
+
+    站点开启刷流时选定了下载器（``boost_downloader_id``）就只用那台：它停用
+    或连接失败时返回 None 暂停准入，**不改投默认下载器**——单独指定就是为了
+    让刷流做种别挤占订阅/手动下载的队列，掉线时悄悄改投恰好破坏这一点。
+    下载器本身的连接失败已有系统告警，用户修好后下一个 tick 自动恢复。
+
+    未选定（引入该列前开启的站点，或选定的下载器被删除后外键置空）时沿用
+    默认且可用的下载器，「可用」判据与 ``torrent_submit`` 一致。
+    """
+    if cred.boost_downloader_id is not None:
+        row = await session.get(DownloaderClient, cred.boost_downloader_id)
+        if row is not None and row.enabled and row.status == ConfigStatus.ACTIVE:
+            return row
+        logger.debug(
+            "刷流：站点 %s 选定的下载器 #%s 不可用（停用或连接失败），本轮不准入",
+            cred.site_id,
+            cred.boost_downloader_id,
+        )
+        return None
     result = await session.execute(
         select(DownloaderClient).where(
             DownloaderClient.is_default.is_(True),  # type: ignore[attr-defined]
@@ -1085,9 +1106,9 @@ async def _admit_candidates(
     """第三步准入：扫描该站免费新种，评分排序后在预算内提交。"""
     from movieclaw_api.services.torrent_submit import submit_torrent
 
-    downloader = await _default_downloader(session)
+    downloader = await _boost_downloader(session, cred)
     if downloader is None:
-        logger.debug("刷流：没有可用的默认下载器，站点 %s 本轮不准入", cred.site_id)
+        logger.debug("刷流：站点 %s 没有可用的刷流下载器，本轮不准入", cred.site_id)
         return
     # 拥堵感知：目标下载器已有任务在排队（活动位满）时暂停准入——继续投放
     # 只会把新种压进队尾空转（排队吃免费窗口、48h 被止损删）。队列消化后

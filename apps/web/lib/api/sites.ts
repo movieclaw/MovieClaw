@@ -126,12 +126,13 @@ export function setSiteProtection(siteId: string, isProtected: boolean): Promise
   );
 }
 
-/** 设置自动刷分享率：开关 + 存储预算 + 汰换保留期（省略的字段不修改）。 */
+/** 设置自动刷分享率：开关 + 存储预算 + 汰换保留期 + 刷流下载器（省略的字段不修改）。 */
 export function setSiteRatioBoost(
   siteId: string,
   enabled: boolean,
   budgetBytes?: number,
   holdDays?: number,
+  downloaderId?: number,
 ): Promise<ConfiguredSite> {
   return unwrap(
     request<ApiEnvelope<ConfiguredSite>>(`/sites/${siteId}/ratio-boost`, {
@@ -140,6 +141,7 @@ export function setSiteRatioBoost(
         enabled,
         budget_bytes: budgetBytes ?? null,
         hold_days: holdDays ?? null,
+        downloader_id: downloaderId ?? null,
       }),
     }),
   );

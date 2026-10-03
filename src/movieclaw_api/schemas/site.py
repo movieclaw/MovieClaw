@@ -113,6 +113,9 @@ class ConfiguredSite(BaseModel):
     )
     boost_budget_bytes: int = Field(default=0, description="刷流存储预算（字节）")
     boost_hold_days: int = Field(default=3, description="刷流汰换最低保留天数；0=不保护")
+    boost_downloader_id: int | None = Field(
+        default=None, description="刷流投递的下载器 id；null=跟随默认下载器"
+    )
     last_verified_at: datetime | None = Field(default=None, description="最近验证成功时间")
     last_checked_at: datetime | None = Field(default=None, description="最近验证尝试时间")
     last_error: str | None = Field(default=None, description="最近验证失败原因（清晰中文）")
@@ -156,6 +159,7 @@ class ConfiguredSite(BaseModel):
             boost_paused=row.boost_paused,
             boost_budget_bytes=row.boost_budget_bytes,
             boost_hold_days=row.boost_hold_days,
+            boost_downloader_id=row.boost_downloader_id,
             last_verified_at=row.last_verified_at,
             last_checked_at=row.last_checked_at,
             last_error=row.last_error,
@@ -269,6 +273,13 @@ class SiteRatioBoostUpdate(BaseModel):
     hold_days: int | None = Field(
         default=None,
         description="汰换最低保留天数（0～30；0=站点无 H&R、不设保护）；None=不修改",
+    )
+    downloader_id: int | None = Field(
+        default=None,
+        description=(
+            "刷流投递的下载器 id（开启刷流时为该站选定，可与订阅用的默认下载器分开）；"
+            "None=不修改。改选后只影响新抢的种子，已在做种的任务留在原下载器直到汰换"
+        ),
     )
 
 

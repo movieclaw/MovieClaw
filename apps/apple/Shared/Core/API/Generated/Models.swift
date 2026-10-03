@@ -1174,6 +1174,8 @@ nonisolated extension API {
         var boostBudgetBytes: Int
         /// 刷流汰换最低保留天数；0=不保护
         var boostHoldDays: Int
+        /// 刷流投递的下载器 id；null=跟随默认下载器
+        var boostDownloaderId: Int?
         /// 最近验证成功时间
         var lastVerifiedAt: String?
         /// 最近验证尝试时间
@@ -1196,6 +1198,7 @@ nonisolated extension API {
             case boostPaused = "boost_paused"
             case boostBudgetBytes = "boost_budget_bytes"
             case boostHoldDays = "boost_hold_days"
+            case boostDownloaderId = "boost_downloader_id"
             case lastVerifiedAt = "last_verified_at"
             case lastCheckedAt = "last_checked_at"
             case lastError = "last_error"
@@ -9495,11 +9498,14 @@ nonisolated extension API {
         var budgetBytes: Int?
         /// 汰换最低保留天数（0～30；0=站点无 H&R、不设保护）；None=不修改
         var holdDays: Int?
+        /// 刷流投递的下载器 id（开启刷流时为该站选定，可与订阅用的默认下载器分开）；None=不修改。改选后只影响新抢的种子，已在做种的任务留在原下载器直到汰换
+        var downloaderId: Int?
 
         enum CodingKeys: String, CodingKey {
             case enabled
             case budgetBytes = "budget_bytes"
             case holdDays = "hold_days"
+            case downloaderId = "downloader_id"
         }
     }
 
