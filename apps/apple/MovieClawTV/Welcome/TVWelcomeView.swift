@@ -421,7 +421,7 @@ struct TVProfileButton: View {
                 }
                 VStack(spacing: 6) {
                     Text(account.nickname).font(.headline)
-                    // 从顶栏打开时标出当前是谁
+                    // 从左上角头像打开时标出当前是谁
                     Text(current ? "正在使用 · \(server.hostLabel)" : server.hostLabel)
                         .font(.caption)
                         .foregroundStyle(.secondary)

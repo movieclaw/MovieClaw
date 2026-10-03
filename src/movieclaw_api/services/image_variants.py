@@ -76,8 +76,8 @@ _PRESETS = {
     ImageVariant.REEL_STILL: VariantPreset(width=1280, height=720, quality=78),
     # 电视横卡最宽 460 点（4K 下 920px）：960×540，一张约 60～120KB
     ImageVariant.TV_LANDSCAPE: VariantPreset(width=960, height=540, quality=80),
-    # 电视海报卡 240 点宽（4K 下 480px）：480×720
-    ImageVariant.TV_POSTER: VariantPreset(width=480, height=720, quality=80),
+    # 电视海报卡 266 点宽（4K 下 532px）：540×810
+    ImageVariant.TV_POSTER: VariantPreset(width=540, height=810, quality=80),
 }
 
 

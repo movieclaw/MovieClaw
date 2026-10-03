@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 我的订阅（docs/design/tvos-app.md §3.1，顶栏的一项，没有订阅权限时不出现）：以看为主——
+/// 我的订阅（docs/design/tvos-app.md §3.1，标签栏的一项，没有订阅权限时不出现）：以看为主——
 /// 顶部「下一部到手的」、刚刚入库（按确认键直接播）、本周日程、在追的剧集与电影。
 ///
 /// 判定口径与 iPhone 版、网页完全一致（`SubscriptionsHome`：Hero 的挑选与排序、刚刚入库的播放入口、日程、
@@ -12,6 +12,9 @@ struct TVSubscriptionsView: View {
     @Environment(AppModel.self) private var model
     @Environment(TVRouter.self) private var router
 
+    /// 列表的滚动位置：焦点从下面的行回到大图的按钮时滚回顶部
+    @State private var position = ScrollPosition(edge: .top)
+
     private var index: SubscriptionIndex { .shared }
     private var feed: SubscriptionsHomeFeed { .shared }
 
@@ -20,7 +23,8 @@ struct TVSubscriptionsView: View {
             if let subscriptions = index.subscriptions {
                 if subscriptions.isEmpty {
                     TVStateView(symbol: "bookmark", title: "还没有订阅",
-                                message: "在「发现」里选一部作品按「订阅」，有新资源时会自动下载入库。")
+                                message: "在「发现」里选一部作品按「订阅」，有新资源时会自动下载入库。",
+                                actionTitle: "去发现") { router.selectedTab = .discoverMovies }
                 } else {
                     content(feed.state(for: subscriptions))
                 }
@@ -38,7 +42,9 @@ struct TVSubscriptionsView: View {
         ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: TVMetrics.rowSpacing) {
                 if let slide = state.slides.first {
-                    TVSubscriptionHero(slide: slide)
+                    TVSubscriptionHero(slide: slide) {
+                        withAnimation(.easeInOut(duration: 0.35)) { position.scrollTo(edge: .top) }
+                    }
                 } else {
                     Text("我的订阅")
                         .font(.title.weight(.bold))
@@ -73,7 +79,7 @@ struct TVSubscriptionsView: View {
             .padding(.bottom, 80)
         }
         .scrollClipDisabled()
-        .tvTopBarFollowsScroll()
+        .scrollPosition($position)
         .ignoresSafeArea(edges: [.horizontal, .top])
     }
 
@@ -105,9 +111,15 @@ struct TVSubscriptionsView: View {
 /// 已经入库的给「播放」
 struct TVSubscriptionHero: View {
     let slide: SubsHomeHeroSlide
+    /// 焦点进了按钮行：页面滚回顶部。从下面的行往上回来时系统只滚到按钮刚好露出为止，
+    /// 标签栏还在屏幕外，再按「上」就上不去了（tvOS 26 原生标签栏，2026-10-03 实测）
+    var onFocus: () -> Void = {}
 
     @Environment(\.api) private var api
     @Environment(TVRouter.self) private var router
+    @FocusState private var focused: HeroButton?
+
+    private enum HeroButton { case play, details }
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
@@ -144,6 +156,7 @@ struct TVSubscriptionHero: View {
                         Button { router.play(play) } label: {
                             Label("播放", systemImage: "play.fill").padding(.horizontal, 12)
                         }
+                        .focused($focused, equals: .play)
                         .accessibilityIdentifier("tv-subscriptions-hero-play")
                     }
                     Button {
@@ -151,12 +164,21 @@ struct TVSubscriptionHero: View {
                     } label: {
                         Label("详情", systemImage: "info.circle")
                     }
+                    .focused($focused, equals: .details)
                 }
                 .padding(.top, 8)
+                // 按钮这一行横贯整屏做成焦点区：标签栏上「我的订阅」往下会先落到这里，不会越过大图直接进下面的行；
+                // 进来时落在第一个按钮上，不按位置挑最近的
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .focusSection()
+                .defaultFocus($focused, slide.play == nil ? .details : .play, priority: .userInitiated)
             }
             .padding(.horizontal, TVMetrics.edge)
             .padding(.bottom, 40)
             .focusSection()
+        }
+        .onChange(of: focused) { old, new in
+            if old == nil, new != nil { onFocus() }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-subscriptions-hero")

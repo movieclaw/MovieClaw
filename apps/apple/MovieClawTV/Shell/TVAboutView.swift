@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 关于（docs/design/tvos-app.md §3.1，收在账号页里）：版本、开源组件与许可全文、数据来源声明。
+/// 关于（docs/design/tvos-app.md §3.1，收在「谁在看」里）：版本、开源组件与许可全文、数据来源声明。
 ///
 /// 与 iPhone 版同样承担上架义务（LGPL：组件、许可全文、修改后的源码地址；TMDB 使用条款的署名），
 /// 组件清单与许可全文两端共用一份（`OpenSourceComponent`、Shared/Resources/Licenses）。

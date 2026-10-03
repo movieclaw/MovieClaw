@@ -1,35 +1,49 @@
 import Foundation
 
-/// Apple TV 顶栏的一项（docs/design/tvos-app.md §3.3）。
+/// Apple TV 顶部标签栏的一项（docs/design/tvos-app.md §3.3，系统原生 `TabView` 标签栏）。
 ///
 /// 名字与 iPhone 版的页签类型相同（都叫 `MainTab`）：共享的 `AppModel`、`DebugLaunch` 只认这个名字，
-/// 两个平台各自定义自己的页签。`rawValue` 给调试参数 `-mcTab` 与快照用：`home`、`discover`……
+/// 两个平台各自定义自己的页签。`rawValue` 给调试参数 `-mcTab` 与快照用：`home`、`search`……
 ///
-/// 顶栏只放固定的几项：各个媒体库不再各占一格（数量不定、会把顶栏挤满），从首页的「我的媒体库」进；
-/// 「片段」是低频入口，收进发现页；搜索是顶栏右上角的按钮，压栈成整页（`AppRoute.search`）；
-/// 账号是左上角的头像，打开「谁在看」（`TVWhoIsWatchingView`）——它们都不是页签。
+/// 侧边栏从上到下：账号 / 搜索 / 首页 / 我的订阅 / 发现电影 / 发现剧集。当前账号不是页签，是标签栏左边单独的头像按钮
+/// （`TVAccountButton`）。各个媒体库不再各占一格（数量不定、会把标签栏挤满），从首页的「我的媒体库」进；
+/// 「片段」是低频入口，收进发现页。
 enum MainTab: Hashable {
-    /// 「媒体库」：即首页（顶部大图 + 接下来继续 + 自定义行），启动后的默认落点
+    /// 搜索（系统的搜索页签：屏幕键盘、Siri 听写、附近 iPhone 的键盘都能输入）
+    case search
+    /// 「首页」（顶部大图 + 接下来继续 + 自定义行），启动后的默认落点
     case home
+    /// 「我的订阅」
     case subscriptions
-    case discover
+    /// 「发现电影」「发现剧集」：同一个发现页，按页签固定看电影或剧集（2026-10-03 用户要求拆成两格）
+    case discoverMovies
+    case discoverShows
+    /// 当前账号（侧边栏第一项，同系统 Apple TV App）：内容是「谁在看」——切换 / 添加账号、关于、退出登录
+    case account
 }
 
 extension MainTab: RawRepresentable {
     init?(rawValue: String) {
         switch rawValue {
+        case "search": self = .search
         case "home": self = .home
         case "subscriptions": self = .subscriptions
-        case "discover": self = .discover
+        // "discover"：拆分前的旧名，调试参数与 UI 测试照旧可用
+        case "discover", "discover-movie": self = .discoverMovies
+        case "discover-tv": self = .discoverShows
+        case "account": self = .account
         default: return nil
         }
     }
 
     var rawValue: String {
         switch self {
+        case .search: "search"
         case .home: "home"
         case .subscriptions: "subscriptions"
-        case .discover: "discover"
+        case .discoverMovies: "discover-movie"
+        case .discoverShows: "discover-tv"
+        case .account: "account"
         }
     }
 }
@@ -43,27 +57,35 @@ enum AppRoute: Hashable {
     case library(Int)
     /// 合集：海报墙
     case collection(id: Int, name: String)
+    /// 影人页：这个人在我库里的作品（从条目详情的「演职员」进入）。姓名、头像随路由带过来，页面一打开头部就是全的，
+    /// 不等接口；`fromItem` 是从哪部片点进来的，那张海报标「本片」
+    case person(tmdbId: Int, name: String, avatar: String?, fromItem: Int?)
     /// 发现里的一部作品（`tmdb:movie:550` / `douban:1292052`）：在库就能播，不在库可以一键订阅
     case discoverTitle(String)
     /// 片段（竖屏短视频流）：从发现页进入
     case reels
-    /// 搜索：顶栏右上角的按钮打开，压在当前页签上
-    case search
-    /// 关于（版本与开源许可）
+    /// 首页一行的「查看全部」：行标题 + 与这一行同一套取数参数的海报墙
+    case rowWall(title: String, source: TVWallSource)
+    /// 关于（版本与开源许可）：从「账号」页签进入
     case about
 }
 
 #if DEBUG
 extension TVRouter {
-    /// 调试参数 `-mcTab` 的落点：顶栏页签名直接落过去；旧的侧边栏页签名（`library-3`、`libraries`、`reels`、`search`、`account`）
-    /// 换算成「所在页签 + 压栈页面」，UI 测试与截图脚本照旧可用
+    /// 调试参数 `-mcTab` 的落点：页签名直接落过去；`item-<库>-<条目>` 直接开条目详情；旧的侧边栏页签名（`library-3`、`libraries`、`reels`）
+    /// 换算成「所在页签 + 压栈页面」，UI 测试与截图脚本照旧可用。`account` 落在首页，再由主界面弹出「谁在看」
     static func debugLanding(_ raw: String) -> (tab: MainTab, path: [AppRoute])? {
         if let tab = MainTab(rawValue: raw) { return (tab, []) }
         switch raw {
-        case "libraries", "account": return (.home, [])  // account：另由 TVMainView 打开「谁在看」
-        case "reels": return (.discover, [.reels])
-        case "search": return (.home, [.search])
+        case "libraries": return (.home, [])
+        case "reels": return (.discoverMovies, [.reels])
         default:
+            // item-<库 id>-<条目 id>：直接打开条目详情（真机问题在模拟器里复现用）
+            if raw.hasPrefix("item-") {
+                let parts = raw.dropFirst("item-".count).split(separator: "-").compactMap { Int($0) }
+                guard parts.count == 2 else { return nil }
+                return (.home, [.item(libraryId: parts[0], itemId: parts[1])])
+            }
             guard raw.hasPrefix("library-"), let id = Int(raw.dropFirst("library-".count)) else { return nil }
             return (.home, [.library(id)])
         }

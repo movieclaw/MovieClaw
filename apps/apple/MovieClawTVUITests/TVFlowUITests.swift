@@ -19,6 +19,8 @@ final class TVFlowUITests: XCTestCase {
     private var showLibrary: String { env["MC_TEST_SHOW_LIBRARY"] ?? "2" }
     private var mkvItem: String { env["MC_TEST_MKV_ITEM"] ?? "2" }
     private var showItem: String { env["MC_TEST_SHOW_ITEM"] ?? "4" }
+    /// 演职员带 TMDB 影人 id 的电影（影人页验收）：夹具里的「一路向南」
+    private var personItem: String { env["MC_TEST_PERSON_ITEM"] ?? "7" }
 
     override func setUp() {
         continueAfterFailure = false
@@ -127,13 +129,13 @@ final class TVFlowUITests: XCTestCase {
 
     // MARK: 首页 → 续播
 
-    /// 首页「接下来继续」第一张卡按确认 → 出画 → 播放暂停键暂停 → 返回键退出播放回到首页
+    /// 首页大图「继续播放」→ 出画 → 播放暂停键暂停 → 返回键退出播放回到首页
     @MainActor
     func testHomeHeroResumesPlayback() {
         let app = launchSignedIn()
         XCTAssertTrue(app.element("tv-home").waitForExistence(timeout: 20))
         snapshot("10-home")
-        TVRemote.select(app.element("tv-home-continue-0"), trying: [.down, .left])
+        TVRemote.select(app.element("tv-home-hero-play"), trying: [.down, .left])
         waitForPlayback(app)
         snapshot("11-playing")
         TVRemote.press(.playPause)
@@ -144,6 +146,32 @@ final class TVFlowUITests: XCTestCase {
         XCTAssertFalse(app.element("tv-player").exists)
     }
 
+    // MARK: 首页行的「查看全部」
+
+    /// 首页「接下来继续」下面那一行：往右滑到底是「查看全部」，按确认进完整海报墙，返回键回到原来的位置
+    @MainActor
+    func testHomeRowSeeAll() {
+        let app = launchSignedIn()
+        XCTAssertTrue(app.element("tv-home-hero-play").waitForExistence(timeout: 20))
+        XCTAssertTrue(waitForFocus(app.element("tv-home-hero-play"), timeout: 10))
+        // 大图按钮 → 「接下来继续」→ 下一行
+        TVRemote.press(.down, times: 2)
+        let seeAll = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'tv-see-all-' AND hasFocus == true")).firstMatch
+        for _ in 0 ..< 30 where !seeAll.exists {
+            TVRemote.press(.right)
+        }
+        XCTAssertTrue(seeAll.exists, "行尾没有「查看全部」")
+        let identifier = seeAll.identifier
+        snapshot("15-home-see-all")
+        TVRemote.press(.select)
+        XCTAssertTrue(app.element("tv-row-wall").waitForExistence(timeout: 10), "没有进入「查看全部」海报墙")
+        let poster = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'tv-poster-'")).firstMatch
+        XCTAssertTrue(poster.waitForExistence(timeout: 15), "「查看全部」海报墙是空的")
+        snapshot("16-row-wall")
+        TVRemote.press(.menu)
+        XCTAssertTrue(waitForFocus(app.element(identifier), timeout: 10), "返回后焦点没有回到「查看全部」")
+    }
+
     // MARK: 媒体库 → 详情 → 播放
 
     @MainActor
@@ -151,9 +179,10 @@ final class TVFlowUITests: XCTestCase {
         let app = launchSignedIn(["-mcTab", "library-\(movieLibrary)"])
         XCTAssertTrue(app.element("tv-library-\(movieLibrary)").waitForExistence(timeout: 20))
         snapshot("20-library")
-        // 焦点进入海报墙，选第一张
-        TVRemote.press(.right)
-        TVRemote.press(.down)
+        // 冷启动直接落在海报墙：等第一张海报拿到焦点再按确认（页面刚出来就按，海报还没进焦点系统）
+        let poster = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'tv-poster-'")).firstMatch
+        XCTAssertTrue(poster.waitForExistence(timeout: 15), "海报墙是空的")
+        XCTAssertTrue(waitForFocus(poster, timeout: 10), "海报墙的第一张没有拿到焦点")
         TVRemote.press(.select)
         let play = app.element("tv-item-play")
         XCTAssertTrue(play.waitForExistence(timeout: 15), "没有进入详情页")
@@ -165,17 +194,41 @@ final class TVFlowUITests: XCTestCase {
         XCTAssertTrue(play.waitForExistence(timeout: 10), "退出播放后没有回到详情页")
     }
 
-    /// 剧集：详情页的分集横排里选第 3 集直接播
+    /// 详情页的演职员 → 影人页（库内作品，与海报墙同一套版式）→ 返回时焦点回到那位演职员
+    @MainActor
+    func testCastOpensPersonPage() {
+        let app = launchSignedIn(["-mcTab", "item-\(movieLibrary)-\(personItem)"])
+        let play = app.element("tv-item-play")
+        XCTAssertTrue(play.waitForExistence(timeout: 20), "没有进入详情页")
+        XCTAssertTrue(waitForFocus(play, timeout: 10), "详情页主按钮没有拿到焦点")
+        // 电影往下第一行就是演职员，落在第一位
+        TVRemote.press(.down)
+        let cast = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'tv-cast-' AND identifier != 'tv-cast-none'")).firstMatch
+        XCTAssertTrue(cast.waitForExistence(timeout: 10), "详情页没有能进影人页的演职员")
+        XCTAssertTrue(waitForFocus(cast, timeout: 5), "往下没有落到演职员第一位")
+        let personId = cast.identifier.dropFirst("tv-cast-".count)
+        TVRemote.press(.select)
+        XCTAssertTrue(app.element("tv-person-\(personId)").waitForExistence(timeout: 15), "没有进入影人页")
+        let credit = app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'tv-person-credit-'")).firstMatch
+        XCTAssertTrue(credit.waitForExistence(timeout: 15), "影人页没有作品")
+        XCTAssertTrue(waitForFocus(credit, timeout: 5), "影人页的第一部作品没有拿到焦点")
+        snapshot("25-person")
+        TVRemote.press(.menu)
+        XCTAssertTrue(waitForFocus(cast, timeout: 10), "返回后焦点没有回到那位演职员")
+    }
+
+    /// 剧集：详情页往下滑到分集横排，选第 3 集直接播
     @MainActor
     func testShowEpisodePlay() {
         let app = launchSignedIn(["-mcTab", "library-\(showLibrary)"])
         XCTAssertTrue(app.element("tv-library-\(showLibrary)").waitForExistence(timeout: 20))
-        TVRemote.press(.right)
-        TVRemote.press(.down)
-        TVRemote.press(.select)
+        // 焦点在标签栏的「首页」上：库里只有一部剧、摆在最左边，「首页」正下方是右上角的排序按钮——按条目找海报
+        TVRemote.select(app.element("tv-poster-\(showItem)"), trying: [.down, .left])
         let episode = app.element("tv-episode-3")
         XCTAssertTrue(episode.waitForExistence(timeout: 15), "剧集详情没有分集")
-        TVRemote.focus(episode, trying: [.down, .right])
+        // 往下滑到分集横排（落在接着看的那一集），再左右找到第 3 集
+        TVRemote.press(.down)
+        TVRemote.focus(episode, trying: [.right, .left])
         snapshot("30-show-detail-episode-3")
         TVRemote.press(.select)
         waitForPlayback(app)
@@ -190,11 +243,11 @@ final class TVFlowUITests: XCTestCase {
         let app = launchSignedIn(["-mcTab", "search"])
         let field = app.searchFields.firstMatch
         XCTAssertTrue(field.waitForExistence(timeout: 20), "没有搜索框")
-        // 冷启动直接打开搜索页（压在首页上）：焦点一般已经在键盘上，没在就往右挪进键盘
+        // 冷启动直接落在搜索页签：焦点在屏幕键盘上，文字发给键盘（同登录页的输入）
         let keyboard = app.keyboards.firstMatch
-        for _ in 0 ..< 4 where !(keyboard.exists && keyboard.hasFocus) && !field.hasFocus {
-            TVRemote.press(.right)
-        }
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 10), "没有出屏幕键盘")
+        // 键盘出来后过一会儿焦点才落进去（侧边栏收起的动画），落进去之前发文字系统会说没有输入焦点
+        XCTAssertTrue(waitForFocus(keyboard, timeout: 10), "屏幕键盘没有拿到焦点")
         snapshot("39-search-keyboard")
         field.typeText("星际")
         let result = app.buttons["星际回声"].firstMatch
@@ -227,7 +280,7 @@ final class TVFlowUITests: XCTestCase {
     /// 登录两个账号后重开 App：先问「谁在看」，选第二个账号进入
     @MainActor
     func testWhoIsWatchingSwitchesAccount() {
-        // 第一次：以管理员进入，点顶栏头像打开「谁在看」，用「添加账号」登录第二个账号
+        // 第一次：以管理员进入，落在侧边栏的「账号」页签（谁在看），用「添加账号」登录第二个账号
         var app = launchSignedIn(["-mcTab", "account"])
         XCTAssertTrue(app.element("tv-who-is-watching").waitForExistence(timeout: 20), "没有打开「谁在看」")
         TVRemote.select(app.element("tv-profile-add"), trying: [.right, .left])
@@ -299,34 +352,41 @@ final class TVFlowUITests: XCTestCase {
         TVRemote.press(.menu)
     }
 
-    // MARK: 顶栏头像（谁在看）与关于
+    // MARK: 侧边栏的账号页签（谁在看）与关于
 
-    /// 点顶栏头像打开的「谁在看」：返回键关掉回到首页；底部「关于」压栈打开关于页，返回回到首页
+    /// 侧边栏的「账号」页签就是「谁在看」：选自己回到首页；底部「关于」在本页签里压栈打开，返回回到「谁在看」
     @MainActor
     func testProfilesAndAbout() {
         var app = launchSignedIn(["-mcTab", "account"])
         XCTAssertTrue(app.element("tv-who-is-watching").waitForExistence(timeout: 20), "没有打开「谁在看」")
         snapshot("65-profiles")
-        TVRemote.press(.menu)
-        XCTAssertTrue(app.element("tv-who-is-watching").waitForNonExistence(timeout: 10), "返回键没有关掉「谁在看」")
-        XCTAssertTrue(app.element("tv-home").waitForExistence(timeout: 10))
+        XCTAssertTrue(waitForFocus(app.element("tv-profile-\(username)"), timeout: 10), "当前账号没有拿到焦点")
+        TVRemote.press(.select)
+        XCTAssertTrue(app.element("tv-home").waitForExistence(timeout: 10), "选自己没有回到首页")
         app.terminate()
 
         app = launchSignedIn(["-mcTab", "account"])
         XCTAssertTrue(app.element("tv-who-is-watching").waitForExistence(timeout: 20))
-        TVRemote.select(app.element("tv-profiles-about"), trying: [.down, .right, .left])
+        // 焦点先落在当前账号上（页面刚出来就按，焦点还没进来），往下就是「关于」
+        XCTAssertTrue(waitForFocus(app.element("tv-profile-\(username)"), timeout: 10), "当前账号没有拿到焦点")
+        TVRemote.select(app.element("tv-profiles-about"), by: .down)
         XCTAssertTrue(app.element("tv-about").waitForExistence(timeout: 10), "关于页没有打开")
         XCTAssertTrue(app.staticTexts["AetherEngine（MovieClaw 修改版）"].exists, "关于页没有列出播放引擎的开源许可")
         snapshot("66-about")
         TVRemote.press(.menu)
-        XCTAssertTrue(app.element("tv-home").waitForExistence(timeout: 10))
+        XCTAssertTrue(app.element("tv-about").waitForNonExistence(timeout: 10), "返回键没有退出关于页")
+        XCTAssertTrue(app.element("tv-who-is-watching").waitForExistence(timeout: 5), "关于页退回来应当回到「谁在看」")
     }
 
     // MARK: T3：发现、订阅、片段
+    // 2026-10-03 起这三项在 Apple TV 上暂时收起（TVMainView.showsDiscoverAndSubscriptions），测试先跳过，开关打开时一并恢复
+
+    private static let discoverHidden = "发现、订阅、片段在 Apple TV 上暂时收起（TVMainView.showsDiscoverAndSubscriptions）"
 
     /// 发现：本周精选大图 → 作品详情 → 一键订阅。大图那部已经订过时，往下到「相似推荐」里挨个找一部还没订的
     @MainActor
-    func testDiscoverOneClickSubscribe() {
+    func testDiscoverOneClickSubscribe() throws {
+        throw XCTSkip(Self.discoverHidden)
         let app = launchSignedIn(["-mcTab", "discover"])
         let detailButton = app.element("tv-discover-hero-detail")
         XCTAssertTrue(detailButton.waitForExistence(timeout: 25), "发现页没有本周精选大图")
@@ -359,7 +419,8 @@ final class TVFlowUITests: XCTestCase {
 
     /// 我的订阅：大图里刚入库的那部「播放」→ 出画 → 返回
     @MainActor
-    func testSubscriptionsHeroPlays() {
+    func testSubscriptionsHeroPlays() throws {
+        throw XCTSkip(Self.discoverHidden)
         let app = launchSignedIn(["-mcTab", "subscriptions"])
         XCTAssertTrue(app.element("tv-subscriptions").waitForExistence(timeout: 25))
         snapshot("80-subscriptions")
@@ -369,7 +430,7 @@ final class TVFlowUITests: XCTestCase {
             XCTAssertTrue(app.staticTexts["刚刚入库"].exists || app.staticTexts["本周日程"].exists, "订阅页没有任何分区")
             return
         }
-        // 冷启动直接落在订阅页时，页面还没加载完焦点可能先落在顶栏上：先往下进大图、再往左到「播放」
+        // 冷启动直接落在订阅页时，页面还没加载完焦点可能先落在标签栏上：先往下进大图、再往左到「播放」
         TVRemote.select(play, trying: [.down, .left])
         waitForPlayback(app)
         snapshot("81-playing-from-subscriptions")
@@ -378,7 +439,8 @@ final class TVFlowUITests: XCTestCase {
 
     /// 片段：自动放第一段 → 点按右换下一段 → 按确认键接着看正片 → 返回回到片段
     @MainActor
-    func testReelsPlayAndWatchFull() {
+    func testReelsPlayAndWatchFull() throws {
+        throw XCTSkip(Self.discoverHidden)
         let app = launchSignedIn(["-mcTab", "reels"])
         XCTAssertTrue(app.element("tv-reels-video").waitForExistence(timeout: 30), "片段没有出画")
         sleep(3)

@@ -168,12 +168,19 @@ private struct TVPlayerContent: View {
             if contextualFocusTarget != nil || focus == nil || focus == .skip || focus == .upNext || focus == .qualityOffer {
                 resetFocus(in: focusScope)
             }
+            // 兜底：重挑之后还没落上（与下面「回到画面」那一步挨得太近、主线程一忙先后就会颠倒，实测），
+            // 这时按钮早已进了焦点系统，直接赋值是可靠的
+            try? await Task.sleep(for: .milliseconds(250))
+            guard !Task.isCancelled, let target = contextualFocusTarget, focus != target,
+                  focus == nil || focus == .surface else { return }
+            focus = target
         }
         .task(id: isModal) {
-            // 出错 / 要用户同意的对话框同理
+            // 出错 / 要用户同意的对话框同理。没有对话框时回到画面——但跳过片头、下一集这类按钮正露着的话焦点给它，
+            // 不能把它刚拿到的焦点抢回画面
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
-            focus = isModal ? .dialog : .surface
+            focus = isModal ? .dialog : (contextualFocusTarget ?? .surface)
         }
         .task(id: autoHideKey) {
             // 控制层 4 秒无操作自动收起；暂停、拖动、面板打开、出错时一直显示

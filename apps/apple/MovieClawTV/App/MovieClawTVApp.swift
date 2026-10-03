@@ -19,6 +19,8 @@ struct MovieClawTVApp: App {
     @State private var model = AppModel()
 
     init() {
+        // 临时：返回键失灵查因（见 TVPressDiagnostics），查清后删掉
+        TVPressDiagnostics.install()
         PlayerCapability.prewarm()
     }
 

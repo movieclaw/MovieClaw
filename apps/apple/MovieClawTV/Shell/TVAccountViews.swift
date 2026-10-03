@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 「谁在看」的开关（docs/design/tvos-app.md §5.2）：电视上登录过不止一个账号时，启动先问一句「谁在看」。
-/// 主界面里点顶栏的头像打开的是同一页，但那是盖在主界面上的（`TVMainView`），不经过这个开关。
+/// 主界面侧边栏的「账号」页签放的是同一页（`TVMainView`），不经过这个开关。
 @Observable
 final class TVProfileGate {
     /// 本次启动已经选过人了（或已按 Apple TV 的系统用户自动选好，见 `TVUserProfiles`）
@@ -17,13 +17,13 @@ final class TVProfileGate {
 /// 谁在看：本机登录过的全部账号（跨服务器）大头像横排，星空背景，焦点放大，按确认键进入
 /// （docs/design/tvos-app.md §5.2，同 Netflix 的选人页、tvOS 26 唤醒时的选人）。两种打开方式：
 /// - **启动时**（`onClose == nil`）：这台电视上登录过不止一个账号，先问一句，选好了才进主界面；
-/// - **点顶栏左上角的头像**（`onClose` 有值）：盖在主界面上，当前账号默认获得焦点。返回键或选自己就关掉，
-///   回到原来的页面、浏览位置不丢；选别人就换一枚令牌（不联网、不用密码），主界面整棵重建。
+/// - **侧边栏的「账号」页签**（`onClose` 有值）：当前账号默认获得焦点。选自己回首页；选别人就换一枚令牌
+///   （不联网、不用密码），主界面整棵重建。返回键交给系统（焦点回侧边栏）。
 ///   底部多一行「关于」「退出登录」——电视上与账号有关的操作都在这一页，不再有单独的账号页。
 struct TVWhoIsWatchingView: View {
-    /// 从顶栏打开时的关闭动作；启动时的选人页为 nil（没有可以退回去的页面）
+    /// 在「账号」页签里选了自己：回首页；启动时的选人页为 nil
     var onClose: (() -> Void)?
-    /// 从顶栏打开时「关于」：关掉本页、在当前页签里压栈打开关于页
+    /// 「账号」页签里的「关于」：在本页签里压栈打开关于页
     var onAbout: (() -> Void)?
 
     @Environment(AppModel.self) private var model
@@ -49,7 +49,10 @@ struct TVWhoIsWatchingView: View {
                     ScrollView(.horizontal) { profiles }
                         .scrollClipDisabled()
                 }
-                .defaultFocus($focusedAccount, currentID)
+                // 这一排横贯整屏做成焦点区，打开时、从下面一行往上回来时都落在当前账号上，不按位置挑最近的
+                .frame(maxWidth: .infinity)
+                .focusSection()
+                .defaultFocus($focusedAccount, currentID, priority: .userInitiated)
                 if let error {
                     Text(error).foregroundStyle(Theme.danger)
                 }
@@ -58,7 +61,6 @@ struct TVWhoIsWatchingView: View {
                 }
             }
         }
-        .onExitCommand(perform: onClose)
         .fullScreenCover(isPresented: $addingAccount) {
             TVAddAccountView()
         }
@@ -76,6 +78,7 @@ struct TVWhoIsWatchingView: View {
     }
 
     @FocusState private var focusedAccount: String?
+    @FocusState private var aboutFocused: Bool
 
     private var profiles: some View {
         HStack(spacing: 70) {
@@ -111,6 +114,7 @@ struct TVWhoIsWatchingView: View {
             Button { onAbout?() } label: {
                 Label("关于", systemImage: "info.circle")
             }
+            .focused($aboutFocused)
             .accessibilityIdentifier("tv-profiles-about")
             Button(role: .destructive) { confirmingLogout = true } label: {
                 Label("退出登录", systemImage: "rectangle.portrait.and.arrow.right")
@@ -119,6 +123,8 @@ struct TVWhoIsWatchingView: View {
         }
         .font(.callout)
         .focusSection()
+        // 从头像往下进这一行先落在「关于」上：系统按位置挑的常是「退出登录」，手一滑就点到了
+        .defaultFocus($aboutFocused, true, priority: .userInitiated)
     }
 
     private var currentID: String? {

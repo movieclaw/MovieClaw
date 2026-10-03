@@ -1,28 +1,24 @@
 import SwiftUI
 
-/// 主界面：顶栏导航（docs/design/tvos-app.md §3.3，排布同 Netflix、Disney+ 的新版电视界面）。
+/// 主界面：系统原生的可收起侧边栏（`sidebarAdaptable`，docs/design/tvos-app.md §3.3，同系统 Apple TV App）。
 ///
-/// 左上角是当前账号，正中的胶囊是 🔍 / 媒体库（首页）/ 订阅 / 发现；各个媒体库从首页的「我的媒体库」进，
-/// 片段从发现页进。顶栏是自己画的 `TVTopBar`（不用系统 `TabView` 的原因见那里），页签容器也自己管。
-/// 播放器全屏盖在主界面之上（`fullScreenCover`），返回键退出播放后回到原来的页面。
+/// 平时只在左上角收成一枚小胶囊（写着当前页），整屏留给内容；按「左」或返回键展开成左侧边栏，焦点移到哪一项就切到哪一页。
+/// 从上到下：账号 / 搜索 / 首页 / 我的订阅 / 发现电影 / 发现剧集。账号在最上面、搜索紧随其后，同系统 Apple TV App 的侧边栏。
+/// 「我的订阅」「发现电影」「发现剧集」暂时收起（`showsDiscoverAndSubscriptions`），见下。
+/// 2026-10-03 用户改定（此前是顶部标签栏 + 左上头像 + 右上标志）：顶部一排菜单在电视上压着大图，收进左上角主屏更干净。
+/// 各个媒体库从首页的「我的媒体库」进，片段从发现页进。播放器全屏盖在主界面之上（`fullScreenCover`）。
 struct TVMainView: View {
     @Environment(AppModel.self) private var model
     @Environment(TVDeepLinkInbox.self) private var inbox
     @State private var router: TVRouter
     @State private var libraries = TVLibraryDirectory()
-    /// 焦点在顶栏的哪一项（nil = 在页面内容里）
-    @FocusState private var barFocus: TVBarItem?
-    /// 冷启动与切页时焦点优先给页面内容，不给顶栏（系统默认挑最左上角，会落到账号头像上）
-    @Namespace private var focusNamespace
-    /// 按返回键要回顶栏：这一刻首选焦点换成顶栏的当前页签，再请系统重挑一次焦点
-    /// （直接给 `barFocus` 赋值在页面滚动时会被系统静默吞掉）
-    @State private var barPreferred = false
-    @Environment(\.resetFocus) private var resetFocus
 
     init() {
         #if DEBUG
-        let landing = UserDefaults.standard.string(forKey: "mcTab").flatMap(TVRouter.debugLanding) ?? (.home, [])
-        _router = State(initialValue: TVRouter(landing: landing.tab, path: landing.path))
+        // 调试落点只用一次：在「谁在看」里换了账号，主界面整棵重建，这时应当落回首页
+        let landing = Self.debugLandingUsed ? nil : UserDefaults.standard.string(forKey: "mcTab").flatMap(TVRouter.debugLanding)
+        Self.debugLandingUsed = true
+        _router = State(initialValue: TVRouter(landing: landing?.tab ?? .home, path: landing?.path ?? []))
         #else
         _router = State(initialValue: TVRouter(landing: .home))
         #endif
@@ -32,81 +28,57 @@ struct TVMainView: View {
     private var session: API.SessionView? { model.session }
     private var permissions: Permissions { session.map(Permissions.init(session:)) ?? .none }
 
-    /// 当前页签在顶栏上对应的那一项
-    private var currentBarItem: TVBarItem { .tab(router.selectedTab) }
+    #if DEBUG
+    nonisolated(unsafe) private static var debugLandingUsed = false
+    #endif
 
-    /// 顶栏露不露出来：只在根页面；页面滚离顶部就收走，焦点回到顶栏时再出来
-    private var barVisible: Bool {
-        router.atRoot && (barFocus != nil || !router.scrolledAway.contains(router.selectedTab))
-    }
+    /// 「我的订阅」「发现电影」「发现剧集」三个页签的总开关。2026-10-03 用户决定 Apple TV 先只打磨首页与播放，
+    /// 这三项连同从发现页进的「片段」暂时不在侧边栏出现；页面代码原样保留，打磨好后改回 true 即可
+    static let showsDiscoverAndSubscriptions = false
 
     var body: some View {
         @Bindable var router = router
-        // 只渲染当前页签：每个页签的导航栈存在 router 里，切走再回来压过的页面都还在；页面数据有快照，秒开。
-        // 根页面的滚动位置不保留——切页只会发生在顶栏上，而顶栏只在根页面顶部露出来，切走时本来就在顶部
-        TVTabRoot(tab: router.selectedTab) { page(for: router.selectedTab) }
-            .id(router.selectedTab)
-            .environment(\.tvTopBarFocused, barFocus != nil)
-        .prefersDefaultFocus(!barPreferred, in: focusNamespace)
-        // 根页面上按返回键：焦点在内容里就把页面滚回顶部、焦点回到顶栏的当前页签（同系统标签栏）；
-        // 已经在顶栏（或在二级页）就交给系统（二级页出栈 / 退回主屏幕）
-        .onExitCommand(perform: router.atRoot && barFocus == nil ? {
-            let tab = router.selectedTab
-            let scrolled = router.scrolledAway.contains(tab)
-            if scrolled { router.scrollToTop(tab) }
-            barPreferred = true
-            Task {
-                // 滚回顶部的动画（0.3 秒）走完再重挑焦点，否则焦点会追着滚动中的卡片走
-                if scrolled { try? await Task.sleep(for: .milliseconds(350)) }
-                resetFocus(in: focusNamespace)
-            }
-        } : nil)
-        .overlay(alignment: .top) {
-            TVTopBar(focus: $barFocus, focusNamespace: focusNamespace, preferredItem: barPreferred ? currentBarItem : nil) { item in
-                barPreferred = false
-                switch item {
-                case .account:
-                    router.profilesPresented = true
-                case .search:
-                    // 搜索压栈成整页：顶栏随之收起，焦点整个进到搜索页，系统的屏幕键盘才会展开、接住焦点
-                    // （搜索页若在焦点还停在顶栏上时建出来，键盘是收着的）
-                    router.push(.search)
-                case .tab:
-                    // 在页签上按确认：焦点下到页面内容（同系统标签栏）
-                    resetFocus(in: focusNamespace)
+        TabView(selection: Binding(mcGet: { router.selectedTab }, set: { tab in
+            // 再点一次当前页签：回到这个页签的最外层（同 iOS / tvOS 的通行做法）。详情这类二级页虽然收起了标签栏，
+            // 焦点往左越过页面左沿时系统照样会拉出侧边栏，这时点「首页」原先什么都不发生（2026-10-04 用户在真机上发现）
+            if tab == router.selectedTab { router.paths[tab] = [] }
+            router.selectedTab = tab
+        })) {
+            // 账号：选自己回首页，「关于」在本页签里压栈打开（选别人则整棵主界面按新账号重建）。
+            // 头像放进侧边栏顶部（`tabViewSidebarHeader`）要 tvOS 27，先做成第一项
+            Tab(session?.nickname ?? "账号", systemImage: "person.crop.circle", value: MainTab.account) {
+                TVTabRoot(tab: .account) {
+                    TVWhoIsWatchingView(onClose: { router.selectedTab = .home }, onAbout: { router.push(.about) })
                 }
             }
-                // 收走时全透明，也就不参与焦点；在页面最上面的元素上按「上」，系统先把页面滚回顶部（顶栏随之露出），
-                // 再按一下进顶栏，与系统标签栏一致
-                .opacity(barVisible ? 1 : 0)
-                .offset(y: barVisible ? 0 : -40)
-                // 二级页里整条不参与焦点，免得在详情页顶部往上按跳进看不见的顶栏
-                .disabled(!router.atRoot)
-                .animation(.easeOut(duration: 0.25), value: barVisible)
-        }
-        .focusScope(focusNamespace)
-        .onChange(of: barFocus) { previous, item in
-            if item != nil { barPreferred = false }
-            // 从页面内容往上进顶栏，系统按几何就近会落到正上方那一项（账号、搜索、别的页签），落上页签就切了页；
-            // 同系统标签栏，一律改落在当前页签上
-            if previous == nil, let item, item != currentBarItem {
-                barFocus = currentBarItem
-                return
+            Tab(value: MainTab.search, role: .search) {
+                TVTabRoot(tab: .search) { TVSearchView() }
             }
-            // 焦点移到胶囊里哪一项就切到哪个页签（同系统标签栏）；账号与搜索要按确认
-            if case let .tab(tab)? = item { router.selectedTab = tab }
+            Tab("首页", systemImage: "house", value: MainTab.home) {
+                TVTabRoot(tab: .home) { TVHomeView() }
+            }
+            if Self.showsDiscoverAndSubscriptions {
+                if permissions.canSubscribe {
+                    Tab("我的订阅", systemImage: "bookmark", value: MainTab.subscriptions) {
+                        TVTabRoot(tab: .subscriptions) { TVSubscriptionsView() }
+                    }
+                }
+                Tab("发现电影", systemImage: "film", value: MainTab.discoverMovies) {
+                    TVTabRoot(tab: .discoverMovies) { TVDiscoverView(mediaType: "movie") }
+                }
+                Tab("发现剧集", systemImage: "tv", value: MainTab.discoverShows) {
+                    TVTabRoot(tab: .discoverShows) { TVDiscoverView(mediaType: "tv") }
+                }
+            }
         }
+        .tabViewStyle(.sidebarAdaptable)
+        // 侧边栏被拉出来时页签里还压着页面：返回键先退一页。不接的话系统把这一下当成在页签根上按返回，
+        // 直接退出 App（2026-10-04 实测）。页签根上不接（nil），交给系统：展开侧边栏 / 退到主屏
+        .onExitCommand(perform: (router.paths[router.selectedTab] ?? []).isEmpty ? nil : { router.pop() })
         .environment(router)
         .environment(libraries)
         .environment(\.api, api)
         .environment(\.permissions, permissions)
-        // 点头像：「谁在看」盖在主界面上，关掉回到原来的页面（选别人则整棵主界面按新账号重建）
-        .fullScreenCover(isPresented: $router.profilesPresented) {
-            TVWhoIsWatchingView(onClose: { router.profilesPresented = false }, onAbout: {
-                router.profilesPresented = false
-                router.push(.about)
-            })
-        }
         .fullScreenCover(item: $router.player) { request in
             TVPlayerScreen(request: request)
                 .environment(router)
@@ -117,6 +89,11 @@ struct TVMainView: View {
         }
 
         .onAppear {
+            // 临时：返回键失灵查因，按键时把路由一起记下（见 TVPressDiagnostics）
+            TVPressDiagnostics.routerState = { [router] in
+                let paths = router.paths.filter { !$0.value.isEmpty }.map { "\($0.key.rawValue)=\($0.value.count)层" }
+                return "页签=\(router.selectedTab.rawValue) 栈[\(paths.joined(separator: ","))] 播放器=\(router.player == nil ? "无" : "有")"
+            }
             // 点播放就开始起播（同 iPhone 版 Router.startPlaybackEarly）：API 客户端在点击那一刻取，换过账号用的是新的
             router.startPlaybackEarly = { [router, model] request in
                 if let current = router.activePlayback, current.isClosed || (!current.viewAttached && current.request.id != request.id) {
@@ -150,12 +127,6 @@ struct TVMainView: View {
         }
         #if DEBUG
         .task {
-            // 开发期：-mcTab account 打开「谁在看」（旧的账号页签）。等主界面出现后再弹，首帧就要求弹全屏页时有时弹不出来
-            guard UserDefaults.standard.string(forKey: "mcTab") == "account" else { return }
-            try? await Task.sleep(for: .milliseconds(300))
-            router.profilesPresented = true
-        }
-        .task {
             // 开发期：-mcRoute 直接打开一个站内路径（目前支持 /play/{id}[/sXXeYY][?t=秒]，模拟器验收用）
             guard let path = DebugLaunch.route else { return }
             if let delay = DebugLaunch.routeDelay, delay > 0 {
@@ -167,19 +138,7 @@ struct TVMainView: View {
     }
 }
 
-extension TVMainView {
-    @ViewBuilder
-    fileprivate func page(for tab: MainTab) -> some View {
-        switch tab {
-        case .home: TVHomeView()
-        case .subscriptions: TVSubscriptionsView()
-        case .discover: TVDiscoverView()
-        }
-    }
-}
-
-/// 一个页签的根：自己的导航栈 + 电视上能压栈的页面。
-/// 根页面顶部让出顶栏的高度（滚动视图里是内容边距，随内容滚走）
+/// 一个页签的根：自己的导航栈 + 电视上能压栈的页面
 struct TVTabRoot<Content: View>: View {
     let tab: MainTab
     @ViewBuilder let content: () -> Content
@@ -188,8 +147,6 @@ struct TVTabRoot<Content: View>: View {
     var body: some View {
         NavigationStack(path: router.path(for: tab)) {
             content()
-                .safeAreaPadding(.top, TVTopBar.reservedHeight)
-                .environment(\.tvRootTab, tab)
                 .navigationDestination(for: AppRoute.self) { route in
                     TVDestination(route: route)
                 }
@@ -197,18 +154,27 @@ struct TVTabRoot<Content: View>: View {
     }
 }
 
-/// 压栈页面的路由表
+/// 压栈页面的路由表。二级页一律收起系统标签栏：进了详情就只剩这一部（同 Netflix、Apple TV App 的详情页，
+/// 2026-10-03 用户嫌详情页顶上还挂着导航菜单、没有沉浸感），返回键退回页签时标签栏再出来
 struct TVDestination: View {
     let route: AppRoute
 
     var body: some View {
+        page
+            .toolbar(.hidden, for: .tabBar)
+    }
+
+    @ViewBuilder
+    private var page: some View {
         switch route {
         case let .item(libraryId, itemId): TVItemDetailView(libraryId: libraryId, itemId: itemId)
         case let .library(id): TVLibraryView(libraryId: id)
         case let .collection(id, name): TVCollectionView(collectionId: id, name: name)
+        case let .person(tmdbId, name, avatar, fromItem):
+            TVPersonView(tmdbId: tmdbId, name: name, avatar: avatar, fromItem: fromItem)
         case let .discoverTitle(ref): TVDiscoverDetailView(titleRef: ref)
         case .reels: TVReelsView()
-        case .search: TVSearchView()
+        case let .rowWall(title, source): TVRowWallView(title: title, source: source)
         case .about: TVAboutView()
         }
     }
