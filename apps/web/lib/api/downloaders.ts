@@ -57,22 +57,6 @@ export interface ConfiguredDownloader {
   updated_at: string;
 }
 
-
-
-/** 两条链路各自使用的下载器（订阅 / 刷流分开指定）。 */
-export interface DownloaderUsage {
-  subscription_downloader_id: number | null;
-  subscription_downloader_name: string | null;
-  boost_downloader_id: number | null;
-  boost_downloader_name: string | null;
-}
-
-/** 设置按用途指定的下载器（null = 该用途跟随默认下载器）。 */
-export interface DownloaderUsagePayload {
-  subscription_downloader_id: number | null;
-  boost_downloader_id: number | null;
-}
-
 /** 一条路径映射在 movieclaw 侧的体检结论（见 services.downloader_paths） */
 export interface PathProbe {
   local: string;
@@ -345,25 +329,6 @@ export function setDownloaderEnabled(
 export function setDefaultDownloader(id: number): Promise<ConfiguredDownloader> {
   return unwrap(
     request<ApiEnvelope<ConfiguredDownloader>>(`/downloaders/${id}/default`, { method: "POST" }),
-  );
-}
-
-
-
-/** 查看按用途指定的下载器（订阅 / 刷流）。 */
-export function getDownloaderUsage(init?: RequestInit): Promise<DownloaderUsage> {
-  return unwrap(request<ApiEnvelope<DownloaderUsage>>(`/downloaders/usage`, init));
-}
-
-/** 设置按用途指定的下载器。传 null 让该用途回到跟随默认下载器。 */
-export function setDownloaderUsage(
-  payload: DownloaderUsagePayload,
-): Promise<DownloaderUsage> {
-  return unwrap(
-    request<ApiEnvelope<DownloaderUsage>>(`/downloaders/usage`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    }),
   );
 }
 

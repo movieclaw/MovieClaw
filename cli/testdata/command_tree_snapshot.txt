@@ -80,8 +80,6 @@ dl tasks
 dl torrent delete
 dl torrent replace
 dl update
-dl usage show
-dl usage update
 dl verify
 extension cookies push
 extension ping

@@ -40,8 +40,6 @@ from sqlmodel import select
 
 from movieclaw_api.schemas.site import BoostPoolSiteView, BoostPoolTaskView, BoostPoolView
 from movieclaw_api.services.boost_bandwidth import concurrent_download_cap, per_task_limit
-from movieclaw_api.settings.downloader_usage import DownloaderUsageSetting
-from movieclaw_api.settings.store import get_setting_store
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
     BoostTaskState,
@@ -984,22 +982,7 @@ async def apply_boost_pause(session: AsyncSession, site_id: str, paused: bool) -
 
 
 async def _default_downloader(session: AsyncSession) -> DownloaderClient | None:
-    """刷流准入提交用哪台下载器。
-
-    优先「设置 → 下载器」为刷流指定的那台（见 ``settings.downloader_usage``）——
-    刷流做种与用户前台下载挤同一台客户端时队列会互相拖慢，分开指定是刚需。
-    未指定、或指定那台已停用/连接失败时回落「默认且可用」，与未引入该配置时
-    行为一致；「可用」判据与 ``torrent_submit`` 保持一致，否则会出现
-    「预检说能用、投递时被拒」的割裂。
-    """
-    usage = await get_setting_store().get(DownloaderUsageSetting)
-    if usage.boost_downloader_id is not None:
-        row = await session.get(DownloaderClient, usage.boost_downloader_id)
-        if row is not None and row.enabled and row.status == ConfigStatus.ACTIVE:
-            return row
-        logger.debug(
-            "刷流：指定下载器 #%s 不可用，回落默认下载器", usage.boost_downloader_id
-        )
+    """取默认且可用的下载器（与 torrent_submit 同判据），供准入提交。"""
     result = await session.execute(
         select(DownloaderClient).where(
             DownloaderClient.is_default.is_(True),  # type: ignore[attr-defined]

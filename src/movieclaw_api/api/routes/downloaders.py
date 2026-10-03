@@ -12,8 +12,6 @@ from movieclaw_api.schemas.downloader import (
     DownloaderLimitsView,
     DownloaderPayload,
     DownloaderStatusUpdate,
-    DownloaderUsagePayload,
-    DownloaderUsageView,
     DownloaderView,
     DownloadSubmitPayload,
     DownloadSubmitView,
@@ -47,10 +45,7 @@ from movieclaw_api.services.torrent_submit import (
     submit_torrent,
     translate_save_path,
 )
-from movieclaw_api.settings.downloader_usage import DownloaderUsageSetting
-from movieclaw_api.settings.store import get_setting_store
 from movieclaw_db.engine import get_session
-from movieclaw_db.models import DownloaderClient
 from movieclaw_db.repositories.download_target_pref_repo import DownloadTargetPrefRepository
 
 logger = logging.getLogger("movieclaw_api.downloaders")
@@ -476,75 +471,6 @@ async def list_download_tasks(
             sources=[DownloadTaskSourceView(**source) for source in snapshot["sources"]],
         )
     )
-
-
-@router.get(
-    "/usage",
-    response_model=ApiResponse[DownloaderUsageView],
-    summary="查看按用途指定的下载器（订阅 / 刷流）",
-    operation_id="dl.usage.show",
-)
-async def get_downloader_usage(
-    session: AsyncSession = Depends(get_session),
-) -> ApiResponse[DownloaderUsageView]:
-    """两条链路各自使用哪台下载器。
-
-    订阅投递与刷流取种默认都跟随「默认下载器」；设置后分开。``*_name`` 是解析
-    后的名称，指定的下载器已被删除时为 null（运行时回落到默认下载器）。
-
-    路径放在 ``/{downloader_id}`` 之前：否则 ``/usage`` 会被当成 downloader_id
-    解析而报 422。
-    """
-    usage = await get_setting_store().get(DownloaderUsageSetting)
-    names: dict[int, str] = {}
-    for downloader_id in {
-        usage.subscription_downloader_id,
-        usage.boost_downloader_id,
-    } - {None}:
-        row = await session.get(DownloaderClient, downloader_id)
-        if row is not None:
-            names[downloader_id] = row.name
-    sid, bid = usage.subscription_downloader_id, usage.boost_downloader_id
-    return ok(
-        DownloaderUsageView(
-            subscription_downloader_id=sid,
-            subscription_downloader_name=None if sid is None else names.get(sid),
-            boost_downloader_id=bid,
-            boost_downloader_name=None if bid is None else names.get(bid),
-        )
-    )
-
-
-@router.put(
-    "/usage",
-    response_model=ApiResponse[DownloaderUsageView],
-    summary="设置按用途指定的下载器（订阅 / 刷流）",
-    operation_id="dl.usage.update",
-)
-async def update_downloader_usage(
-    payload: DownloaderUsagePayload,
-    session: AsyncSession = Depends(get_session),
-) -> ApiResponse[DownloaderUsageView]:
-    """传 id 则为该用途指定下载器，传 null 则该用途回到「跟随默认下载器」。
-
-    只校验下载器存在，不要求它当前可连：用户可能先配好、稍后再修那台下载器。
-    运行期取用时若它已停用或连接失败，会自动回落到默认下载器。
-    """
-    for downloader_id in (
-        payload.subscription_downloader_id,
-        payload.boost_downloader_id,
-    ):
-        if downloader_id is not None and await session.get(DownloaderClient, downloader_id) is None:
-            raise BadRequestException(f"下载器不存在：#{downloader_id}")
-
-    await get_setting_store().set(
-        DownloaderUsageSetting(
-            subscription_downloader_id=payload.subscription_downloader_id,
-            boost_downloader_id=payload.boost_downloader_id,
-        )
-    )
-    view = await get_downloader_usage(session=session)
-    return ok(view.data, message="下载器用途已保存")
 
 
 @router.get(

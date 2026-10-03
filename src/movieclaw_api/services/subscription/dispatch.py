@@ -20,12 +20,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
-from movieclaw_api.settings.downloader_usage import DownloaderUsageSetting
-from movieclaw_api.settings.store import get_setting_store
 from movieclaw_db.models import (
     ActivityType,
     DownloadAttemptStatus,
-    DownloaderClient,
     MediaItem,
     MediaSource,
     SiteTorrent,
@@ -36,7 +33,6 @@ from movieclaw_db.models import (
     WantedStatus,
     utcnow,
 )
-from movieclaw_db.models.site_credential import ConfigStatus
 from movieclaw_db.repositories import SubscriptionRepository
 from movieclaw_matcher import IdentityMatch, RuleVerdict, TorrentCandidate
 
@@ -50,24 +46,6 @@ def _utc_text(value: datetime | None) -> str | None:
     value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
     return value.isoformat()
 
-
-
-async def _subscription_downloader_id(session: AsyncSession) -> int | None:
-    """订阅投递指定了哪台下载器；未指定或指定那台不可用时返回 None。
-
-    返回 None 表示沿用 ``submit_torrent`` 的默认判据（默认下载器）。这里不抛错
-    而是回落：设置里残留一台已删除/停用的下载器，不该让订阅集体投递失败 ——
-    订阅是主链路，宁可降级到默认下载器，把问题留给「设置」页去修。
-    """
-    usage = await get_setting_store().get(DownloaderUsageSetting)
-    downloader_id = usage.subscription_downloader_id
-    if downloader_id is None:
-        return None
-    row = await session.get(DownloaderClient, downloader_id)
-    if row is not None and row.enabled and row.status == ConfigStatus.ACTIVE:
-        return row.id
-    logger.debug("订阅：指定下载器 #%s 不可用，回落默认下载器", downloader_id)
-    return None
 
 async def dispatch(
     session: AsyncSession,
@@ -188,7 +166,6 @@ async def dispatch(
                 subtitle=candidate.subtitle if entry_level else None,
                 select_units=selective_units,
                 known_seasons=subscription.selected_seasons or None,
-                downloader_id=await _subscription_downloader_id(session),
             )
             skipped_files = submit_result.skipped_file_count
         except Exception as exc:  # noqa: BLE001 -- 投递失败退回调度通道重试
@@ -771,7 +748,6 @@ async def _submit_real(
     subtitle: str | None = None,
     select_units: set[tuple[int, int]] | None = None,
     known_seasons: Collection[int] | None = None,
-    downloader_id: int | None = None,
 ):
     """真实投递：委托公共编排（站点取种 → 默认下载器提交，幂等判重）。
 
@@ -781,8 +757,6 @@ async def _submit_real(
     目录——锚到监听目录/默认目录会波及目录下全部内容）。
     select_units 非空时启用选择性下载（只下载缺口单元对应的文件），
     known_seasons 是订阅勾选的季号，供规划器做季号守卫。
-    downloader_id 非空时投到该下载器（见 ``settings.downloader_usage``）；
-    为空则沿用 ``submit_torrent`` 的默认下载器判据。
     """
     from movieclaw_api.services.torrent_submit import submit_torrent
 
@@ -791,7 +765,6 @@ async def _submit_real(
         site_id=candidate.site_id,
         download_url=candidate.download_url,
         tags=["movieclaw-sub"],
-        downloader_id=downloader_id,
         save_path=save_path,
         subtitle=subtitle,
         select_units=select_units,

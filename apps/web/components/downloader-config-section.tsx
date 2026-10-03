@@ -7,7 +7,6 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { DirectoryPicker } from "@/components/directory-picker";
 import { useConfirm } from "@/components/feedback";
 import {
-  CheckIcon,
   ChevronDownIcon,
   DownloadIcon,
   FolderIcon,
@@ -24,12 +23,9 @@ import {
   type DownloaderPayload,
   type DownloaderStatus,
   type PathMapping,
-  type DownloaderUsage,
   createDownloader,
   deleteDownloader,
   getDownloaderLimits,
-  getDownloaderUsage,
-  setDownloaderUsage,
   listDownloaders,
   reverifyDownloader,
   setDefaultDownloader,
@@ -82,15 +78,11 @@ export function DownloaderConfigSection() {
   const [expanded, setExpanded] = useState<number | null>(null);
   // 当前亮出编辑表单的下载器 id（表单嵌在详情里；菜单「编辑配置」会先展开详情）
   const [editing, setEditing] = useState<number | null>(null);
-  // 按用途指定的下载器（订阅 / 刷流）；未配置时为 null = 跟随默认下载器
-  const [usage, setUsage] = useState<DownloaderUsage | null>(null);
-  const [savingUsage, setSavingUsage] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
     try {
       setDownloaders(await listDownloaders());
-      setUsage(await getDownloaderUsage());
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -101,20 +93,6 @@ export function DownloaderConfigSection() {
   useEffect(() => {
     void load();
   }, [load]);
-
-  const saveUsage = useCallback(async (next: DownloaderUsage) => {
-    setSavingUsage(true);
-    try {
-      setUsage(await setDownloaderUsage({
-        subscription_downloader_id: next.subscription_downloader_id,
-        boost_downloader_id: next.boost_downloader_id,
-      }));
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setSavingUsage(false);
-    }
-  }, []);
 
   // 体检修复卡跳转带来的映射建议（?suggest_mapping=/xx）：自动展开默认
   // 下载器的编辑表单并预填一条映射的本机侧，用户只需补下载器视角的路径
@@ -219,33 +197,6 @@ export function DownloaderConfigSection() {
         </div>
       )}
 
-      {/* 下载器用途：订阅 / 刷流分开指定（默认都跟随「默认下载器」） */}
-      {!loading && downloaders.length > 0 && usage && (
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4">
-          <div className="border-b border-white/[0.06] py-3">
-            <p className="text-body font-medium text-[var(--text)]">下载器用途</p>
-            <p className="mt-0.5 text-caption text-[var(--text-faint)]">
-              订阅投递与刷流取种本是两条独立链路，可分别指定下载器，免得互相挤占队列。
-            </p>
-          </div>
-          <UsagePicker
-            label="订阅下载"
-            hint="订阅命中后投给哪台"
-            value={usage.subscription_downloader_id}
-            options={downloaders}
-            disabled={savingUsage}
-            onChange={(id) => void saveUsage({ ...usage, subscription_downloader_id: id })}
-          />
-          <UsagePicker
-            label="刷流下载"
-            hint="刷流取种用哪台"
-            value={usage.boost_downloader_id}
-            options={downloaders}
-            disabled={savingUsage}
-            onChange={(id) => void saveUsage({ ...usage, boost_downloader_id: id })}
-          />
-        </div>
-      )}
       {/* 已配置下载器列表：扁平面板容器，行式布局 */}
       {loading ? (
         <div className="space-y-px overflow-hidden rounded-xl border border-white/[0.08]">
@@ -1392,115 +1343,6 @@ function DownloaderForm({
           setPickerTarget(null);
         }}
       />
-    </div>
-  );
-}
-
-
-/** 用途菜单项共用样式（与 library-filter-bar 的排序 RadioItem 同款） */
-const USAGE_ITEM_CLASS =
-  "glass-row nav-item flex cursor-pointer items-center justify-between gap-3 px-3 py-2 " +
-  "text-sub outline-none data-[highlighted]:!bg-[var(--glass-fill-hover)] " +
-  "data-[highlighted]:!text-[var(--text)]";
-
-/** 「跟随默认下载器」在 Radix RadioGroup 里的哨兵值（RadioItem 只认字符串） */
-const USAGE_FOLLOW = "__default__";
-
-/**
- * 一条用途的下载器选择器。
- *
- * 不是原生 `<select>`：后者的下拉面板由操作系统绘制，样式跟不了液态玻璃这套皮，
- * 深色底上是一块突兀的系统面板。改用 Radix DropdownMenu 的 RadioGroup ——
- * 触发器是玻璃胶囊，菜单走 menu-surface，当前项右侧打勾，与站点/库页的
- * 排序控件同款交互。
- */
-function UsagePicker({
-  label,
-  hint,
-  value,
-  options,
-  disabled,
-  onChange,
-}: {
-  label: string;
-  hint: string;
-  value: number | null;
-  options: ConfiguredDownloader[];
-  disabled: boolean;
-  onChange: (id: number | null) => void;
-}) {
-  const followed = value === null;
-  const currentName = followed
-    ? "跟随默认下载器"
-    : (options.find((d) => d.id === value)?.name ?? `#${value}（已删除）`);
-
-  return (
-    <div className="flex items-center justify-between gap-4 border-b border-white/[0.06] py-2.5 last:border-b-0">
-      <div className="min-w-0">
-        <p className="text-sub font-medium text-[var(--text)]">{label}</p>
-        <p className="mt-0.5 text-caption text-[var(--text-faint)]">{hint}</p>
-      </div>
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
-          <button
-            type="button"
-            disabled={disabled}
-            aria-label={`${label}使用的下载器`}
-            title={currentName}
-            className="flex h-8 max-w-[13rem] shrink-0 items-center gap-1.5 rounded-full border border-white/[0.1] bg-white/[0.05] pl-3 pr-2 text-sub outline-none transition-colors hover:bg-white/[0.09] focus-visible:ring-1 focus-visible:ring-white/25 disabled:pointer-events-none disabled:opacity-50 data-[state=open]:bg-white/[0.1]"
-          >
-            <span className={`truncate ${followed ? "text-[var(--text-muted)]" : "font-medium text-[var(--text)]"}`}>
-              {currentName}
-            </span>
-            <ChevronDownIcon className="size-3.5 shrink-0 text-[var(--text-faint)]" />
-          </button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            align="end"
-            sideOffset={6}
-            collisionPadding={12}
-            className="menu-surface z-50 min-w-[13rem] p-1"
-          >
-            {/* 选中同值时不再回调（Radix 点当前项也会触发 onValueChange）；
-                哨兵值代表「跟随默认下载器」 */}
-            <DropdownMenu.RadioGroup
-              value={followed ? USAGE_FOLLOW : String(value)}
-              onValueChange={(next) => {
-                if (next === USAGE_FOLLOW) {
-                  if (!followed) onChange(null);
-                  return;
-                }
-                if (next !== String(value)) onChange(Number(next));
-              }}
-            >
-              <DropdownMenu.RadioItem value={USAGE_FOLLOW} className={USAGE_ITEM_CLASS}>
-                <span className="text-[var(--text-muted)]">跟随默认下载器</span>
-                <DropdownMenu.ItemIndicator>
-                  <CheckIcon className="size-3.5 text-[var(--info)]" />
-                </DropdownMenu.ItemIndicator>
-              </DropdownMenu.RadioItem>
-              {options.map((d) => (
-                <DropdownMenu.RadioItem
-                  key={d.id}
-                  value={String(d.id)}
-                  className={USAGE_ITEM_CLASS}
-                >
-                  <span className="truncate">
-                    {d.name}
-                    {d.is_default && (
-                      <span className="ml-1.5 text-caption text-[var(--text-faint)]">默认</span>
-                    )}
-                  </span>
-                  <DropdownMenu.ItemIndicator>
-                    <CheckIcon className="size-3.5 text-[var(--info)]" />
-                  </DropdownMenu.ItemIndicator>
-                </DropdownMenu.RadioItem>
-              ))}
-            </DropdownMenu.RadioGroup>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
     </div>
   );
 }

@@ -588,36 +588,3 @@ class DownloadTargetPrefView(BaseModel):
         default=None, description="下载器名称；空=用默认下载器，或指定的下载器已被删除"
     )
     updated_at: datetime = Field(description="这条记忆最后一次被改变的时间")
-
-
-class DownloaderUsagePayload(BaseModel):
-    """按用途指定下载器的请求体（None = 该用途跟随默认下载器）。"""
-
-    subscription_downloader_id: int | None = Field(
-        default=None, description="订阅投递使用的下载器 id；null = 跟随默认下载器"
-    )
-    boost_downloader_id: int | None = Field(
-        default=None, description="刷流取种使用的下载器 id；null = 跟随默认下载器"
-    )
-
-
-class DownloaderUsageView(BaseModel):
-    """两条链路各自使用的下载器（「设置 → 下载器」的数据来源）。
-
-    ``*_name`` 由服务端解析后回显 —— 设置页要直接显示「订阅下载：qb-mc」，
-    让它再拉一次下载器列表来翻译 id 没有必要。指定的下载器已被删除时为 None，
-    前端据此提示该配置已失效（运行时同样会回落到默认下载器）。
-    """
-
-    subscription_downloader_id: int | None = Field(
-        default=None, description="订阅投递使用的下载器 id；空 = 跟随默认下载器"
-    )
-    subscription_downloader_name: str | None = Field(
-        default=None, description="订阅投递使用的下载器名称；空 = 跟随默认或已被删除"
-    )
-    boost_downloader_id: int | None = Field(
-        default=None, description="刷流取种使用的下载器 id；空 = 跟随默认下载器"
-    )
-    boost_downloader_name: str | None = Field(
-        default=None, description="刷流取种使用的下载器名称；空 = 跟随默认或已被删除"
-    )

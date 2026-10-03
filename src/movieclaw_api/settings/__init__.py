@@ -34,7 +34,6 @@ from movieclaw_api.settings.channel_push import (
     ChannelPushSetting,
 )
 from movieclaw_api.settings.cloud import CloudSetting, PushChannelsSetting
-from movieclaw_api.settings.downloader_usage import DownloaderUsageSetting
 from movieclaw_api.settings.llm import LlmDefaultsSetting
 from movieclaw_api.settings.mcp import McpEndpoint, McpEndpointsSetting
 from movieclaw_api.settings.metadata import (
@@ -127,6 +126,4 @@ __all__ = [
     "WebhookEndpoint",
     "generate_webhook_secret",
     "mask_webhook_secret",
-    # 下载器用途（订阅 / 刷流分开指定）
-    "DownloaderUsageSetting",
 ]
