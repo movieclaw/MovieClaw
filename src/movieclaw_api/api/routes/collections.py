@@ -12,7 +12,8 @@ from collections.abc import Sequence
 from datetime import date
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
+from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -62,6 +63,7 @@ from movieclaw_db.models import (
     CollectionItem,
     LibraryFile,
     MediaItem,
+    MediaMetadata,
     Subscription,
 )
 from movieclaw_media.models import MediaKind
@@ -386,6 +388,63 @@ async def get_collection(
         session, row, member_id=member_id, visible=visible, content_limit=content_limit
     )
     return ok(view)
+
+
+@router.get(
+    "/{collection_id}/cover",
+    summary="合集虚拟库封面（与媒体库共用氛围光货架）",
+    operation_id="collection.cover",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def get_collection_cover(
+    collection_id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(require_login),
+) -> Response:
+    """先按当前观看者解析成员，再取四张海报；缓存命中也必须重新核对权限。"""
+    from movieclaw_api.services.library.cover import MAX_POSTERS, ensure_collection_cover
+
+    member_id, visible, content_limit = await _scope(session, principal)
+    row = await _get_or_404(session, collection_id)
+    _guard_visible(row, member_id, visible)
+    ids = await resolve_members(
+        session,
+        row,
+        member_id=member_id,
+        visible_library_ids=visible,
+        content_limit=content_limit,
+        limit=MAX_POSTERS,
+    )
+    # 指定封面可能不在前四部，单独核对这一部的可见性。
+    if row.cover_item_id is not None and row.cover_item_id not in ids:
+        chosen = await resolve_members(
+            session,
+            row,
+            member_id=member_id,
+            visible_library_ids=visible,
+            content_limit=content_limit,
+            only_item_id=row.cover_item_id,
+        )
+        ids = chosen + ids
+    head = cover_head(row, ids, count=MAX_POSTERS)
+    files = dict(
+        (
+            await session.execute(
+                select(MediaMetadata.media_item_id, MediaMetadata.poster_file).where(
+                    MediaMetadata.media_item_id.in_(head)
+                )
+            )
+        ).all()
+    )
+    result = await ensure_collection_cover(collection_id, [files[i] for i in head if files.get(i)])
+    if result is None:
+        raise NotFoundException("该合集还没有可用的封面素材")
+    path, key = result
+    headers = {"ETag": f'"{key}"', "Cache-Control": "private, no-cache"}
+    if request.headers.get("If-None-Match") == headers["ETag"]:
+        return Response(status_code=304, headers=headers)
+    return FileResponse(path, media_type="image/jpeg", headers=headers)
 
 
 @router.put(

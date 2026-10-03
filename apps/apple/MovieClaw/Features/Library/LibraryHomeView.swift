@@ -479,36 +479,26 @@ private struct LibraryHomeCard: View {
 
 // MARK: - 合集虚拟库卡片
 
-/// 首页合集的虚拟库卡片：列表随带的海报横向拼贴，不另拉成员，也不计入真实库统计。
+/// 首页合集的虚拟库卡片：复用真实媒体库的服务端货架封面，也不计入真实库统计。
 /// 卡片规格沿用 LibraryHomeCard，名字用合集原名，与可单独改名的海报行分开。
 private struct CollectionLibraryHomeCard: View {
     let collection: API.CollectionView
     @Environment(\.api) private var api
 
     var body: some View {
-        let covers = Array(collection.covers.prefix(3))
         VStack(spacing: 10) {
-            Color(red: 0.04, green: 0.05, blue: 0.07)
-                .aspectRatio(21 / 10, contentMode: .fit)
-                .overlay {
-                    if covers.isEmpty {
-                        Image(systemName: "rectangle.stack")
-                            .font(.system(size: 40))
-                            .foregroundStyle(.white.opacity(0.13))
-                    } else {
-                        GeometryReader { proxy in
-                            HStack(spacing: 2) {
-                                ForEach(Array(covers.enumerated()), id: \.offset) { _, cover in
-                                    RemoteImage(url: api.image(cover.url, .posterCard))
-                                        .frame(width: (proxy.size.width - CGFloat(covers.count - 1) * 2) / CGFloat(covers.count), height: proxy.size.height)
-                                        .clipped()
-                                }
-                            }
-                        }
-                    }
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.11, green: 0.13, blue: 0.19), Color(red: 0.06, green: 0.07, blue: 0.11)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                Image(systemName: "rectangle.stack")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.white.opacity(0.13))
+                if !collection.covers.isEmpty {
+                    RemoteImage(url: api.image("/collections/\(collection.id)/cover"), placeholderSymbol: "rectangle.stack")
                 }
-                .clipShape(.rect(cornerRadius: 16))
-                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.1)))
+            }
+            .aspectRatio(21 / 10, contentMode: .fit)
+            .clipShape(.rect(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.1)))
             HStack(spacing: 8) {
                 Text(collection.name).font(.headline).foregroundStyle(.white).lineLimit(1)
                 Label("合集", systemImage: "rectangle.stack")
