@@ -38,43 +38,18 @@ struct TVMainView: View {
 
     var body: some View {
         @Bindable var router = router
-        TabView(selection: Binding(mcGet: { router.selectedTab }, set: { tab in
-            // 再点一次当前页签：回到这个页签的最外层（同 iOS / tvOS 的通行做法）。详情这类二级页虽然收起了标签栏，
-            // 焦点往左越过页面左沿时系统照样会拉出侧边栏，这时点「首页」原先什么都不发生（2026-10-04 用户在真机上发现）
-            if tab == router.selectedTab { router.paths[tab] = [] }
-            router.selectedTab = tab
-        })) {
-            // 账号：选自己回首页，「关于」在本页签里压栈打开（选别人则整棵主界面按新账号重建）。
-            // 头像放进侧边栏顶部（`tabViewSidebarHeader`）要 tvOS 27，先做成第一项
-            Tab(session?.nickname ?? "账号", systemImage: "person.crop.circle", value: MainTab.account) {
-                TVTabRoot(tab: .account) {
-                    TVWhoIsWatchingView(onClose: { router.selectedTab = .home }, onAbout: { router.push(.about) })
+        // 一个导航栈套在整个侧边栏外面：二级页（详情、海报墙、影人页……）压在侧边栏之上，盖住整屏（2026-10-04 改定）。
+        // 原先每个页签各有一个导航栈、二级页压在页签里面，两个毛病：
+        // - 二级页上焦点往左越过页面左沿，系统照样拉出侧边栏（收起标签栏挡不住），点「首页」回不去、按返回直接退出 App；
+        // - 从二级页再压一层（详情 → 影人页 / 合集墙）时，系统把整个页签内容摆到 (160, 180)：按「标签栏显示」的内缩
+        //   再叠一次安全区，新页面左边、顶上各露一条底下的页面（真机发现，探针实测；页面内怎么忽略安全区都补不回来）。
+        // 代价是各页签不再各自记住浏览位置——现在只有账号 / 搜索 / 首页三项，影响很小
+        NavigationStack(path: $router.path) {
+            tabs
+                .navigationDestination(for: AppRoute.self) { route in
+                    TVDestination(route: route)
                 }
-            }
-            Tab(value: MainTab.search, role: .search) {
-                TVTabRoot(tab: .search) { TVSearchView() }
-            }
-            Tab("首页", systemImage: "house", value: MainTab.home) {
-                TVTabRoot(tab: .home) { TVHomeView() }
-            }
-            if Self.showsDiscoverAndSubscriptions {
-                if permissions.canSubscribe {
-                    Tab("我的订阅", systemImage: "bookmark", value: MainTab.subscriptions) {
-                        TVTabRoot(tab: .subscriptions) { TVSubscriptionsView() }
-                    }
-                }
-                Tab("发现电影", systemImage: "film", value: MainTab.discoverMovies) {
-                    TVTabRoot(tab: .discoverMovies) { TVDiscoverView(mediaType: "movie") }
-                }
-                Tab("发现剧集", systemImage: "tv", value: MainTab.discoverShows) {
-                    TVTabRoot(tab: .discoverShows) { TVDiscoverView(mediaType: "tv") }
-                }
-            }
         }
-        .tabViewStyle(.sidebarAdaptable)
-        // 侧边栏被拉出来时页签里还压着页面：返回键先退一页。不接的话系统把这一下当成在页签根上按返回，
-        // 直接退出 App（2026-10-04 实测）。页签根上不接（nil），交给系统：展开侧边栏 / 退到主屏
-        .onExitCommand(perform: (router.paths[router.selectedTab] ?? []).isEmpty ? nil : { router.pop() })
         .environment(router)
         .environment(libraries)
         .environment(\.api, api)
@@ -87,13 +62,7 @@ struct TVMainView: View {
         .task {
             await libraries.load(api: api)
         }
-
         .onAppear {
-            // 临时：返回键失灵查因，按键时把路由一起记下（见 TVPressDiagnostics）
-            TVPressDiagnostics.routerState = { [router] in
-                let paths = router.paths.filter { !$0.value.isEmpty }.map { "\($0.key.rawValue)=\($0.value.count)层" }
-                return "页签=\(router.selectedTab.rawValue) 栈[\(paths.joined(separator: ","))] 播放器=\(router.player == nil ? "无" : "有")"
-            }
             // 点播放就开始起播（同 iPhone 版 Router.startPlaybackEarly）：API 客户端在点击那一刻取，换过账号用的是新的
             router.startPlaybackEarly = { [router, model] request in
                 if let current = router.activePlayback, current.isClosed || (!current.viewAttached && current.request.id != request.id) {
@@ -115,7 +84,7 @@ struct TVMainView: View {
                 router.play(PlayRequest(mediaItemId: itemId, season: season, episode: episode))
             case let .item(libraryId, itemId):
                 router.selectedTab = .home
-                router.paths[.home] = [.item(libraryId: libraryId, itemId: itemId)]
+                router.path = [.item(libraryId: libraryId, itemId: itemId)]
             }
         }
         .onChange(of: router.player?.id) { _, presented in
@@ -136,32 +105,47 @@ struct TVMainView: View {
         }
         #endif
     }
-}
 
-/// 一个页签的根：自己的导航栈 + 电视上能压栈的页面
-struct TVTabRoot<Content: View>: View {
-    let tab: MainTab
-    @ViewBuilder let content: () -> Content
-    @Environment(TVRouter.self) private var router
-
-    var body: some View {
-        NavigationStack(path: router.path(for: tab)) {
-            content()
-                .navigationDestination(for: AppRoute.self) { route in
-                    TVDestination(route: route)
+    /// 侧边栏与各页签的根页面
+    private var tabs: some View {
+        @Bindable var router = router
+        return TabView(selection: $router.selectedTab) {
+            // 账号：选自己回首页，「关于」在本页签里压栈打开（选别人则整棵主界面按新账号重建）。
+            // 头像放进侧边栏顶部（`tabViewSidebarHeader`）要 tvOS 27，先做成第一项
+            Tab(session?.nickname ?? "账号", systemImage: "person.crop.circle", value: MainTab.account) {
+                TVWhoIsWatchingView(onClose: { router.selectedTab = .home }, onAbout: { router.push(.about) })
+            }
+            Tab(value: MainTab.search, role: .search) {
+                TVSearchView()
+            }
+            Tab("首页", systemImage: "house", value: MainTab.home) {
+                TVHomeView()
+            }
+            if Self.showsDiscoverAndSubscriptions {
+                if permissions.canSubscribe {
+                    Tab("我的订阅", systemImage: "bookmark", value: MainTab.subscriptions) {
+                        TVSubscriptionsView()
+                    }
                 }
+                Tab("发现电影", systemImage: "film", value: MainTab.discoverMovies) {
+                    TVDiscoverView(mediaType: "movie")
+                }
+                Tab("发现剧集", systemImage: "tv", value: MainTab.discoverShows) {
+                    TVDiscoverView(mediaType: "tv")
+                }
+            }
         }
+        .tabViewStyle(.sidebarAdaptable)
     }
 }
 
-/// 压栈页面的路由表。二级页一律收起系统标签栏：进了详情就只剩这一部（同 Netflix、Apple TV App 的详情页，
-/// 2026-10-03 用户嫌详情页顶上还挂着导航菜单、没有沉浸感），返回键退回页签时标签栏再出来
+/// 压栈页面的路由表。二级页压在侧边栏之上、盖住整屏：进了详情就只剩这一部（同 Netflix、Apple TV App 的详情页，
+/// 2026-10-03 用户嫌详情页顶上还挂着导航菜单、没有沉浸感），返回键退回页签时侧边栏再出来
 struct TVDestination: View {
     let route: AppRoute
 
     var body: some View {
         page
-            .toolbar(.hidden, for: .tabBar)
     }
 
     @ViewBuilder

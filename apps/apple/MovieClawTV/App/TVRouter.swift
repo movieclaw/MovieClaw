@@ -2,13 +2,15 @@ import SwiftUI
 
 /// Apple TV 的导航状态。页面通过 `@Environment(TVRouter.self)` 拿到它来跳转、起播。
 ///
-/// 每个页签有独立的导航栈（切换页签不丢各自的浏览位置，同 iPhone 版的标签）。
+/// 整个主界面一个导航栈，套在侧边栏外面：二级页压在侧边栏之上（见 `TVMainView`，2026-10-04 改定；
+/// 原先每个页签各有一个导航栈，二级页压在页签里，侧边栏会被拉出来、第二层页面还会被系统摆歪）。
 /// 播放器全屏呈现在主界面之上；与 iPhone 版一样，点下播放就建好控制器、发出起播请求，
 /// 不等播放器视图出现（见 `startPlaybackEarly`）。
 @Observable
 final class TVRouter {
     var selectedTab: MainTab
-    var paths: [MainTab: [AppRoute]] = [:]
+    /// 压在侧边栏之上的页面
+    var path: [AppRoute] = []
     /// 全屏播放器
     var player: PlayRequest?
     /// 正在播放的控制器：播放器视图出现时接过去（同 iPhone 版 `Router.activePlayback`）
@@ -20,7 +22,7 @@ final class TVRouter {
 
     init(landing: MainTab, path: [AppRoute] = []) {
         selectedTab = landing
-        if !path.isEmpty { paths[landing] = path }
+        self.path = path
         launchFocusPending = landing == .home && path.isEmpty
     }
 
@@ -30,18 +32,12 @@ final class TVRouter {
         return launchFocusPending
     }
 
-    /// 某个页签的导航栈（绑定给 NavigationStack）
-    func path(for tab: MainTab) -> Binding<[AppRoute]> {
-        Binding(mcGet: { self.paths[tab] ?? [] }, set: { self.paths[tab] = $0 })
-    }
-
-    /// 在当前页签内压栈
     func push(_ route: AppRoute) {
-        paths[selectedTab, default: []].append(route)
+        path.append(route)
     }
 
     func pop() {
-        _ = paths[selectedTab]?.popLast()
+        _ = path.popLast()
     }
 
     func play(_ request: PlayRequest) {

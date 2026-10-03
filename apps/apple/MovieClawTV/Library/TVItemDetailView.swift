@@ -33,8 +33,6 @@ struct TVItemDetailView: View {
     @State private var watched: API.PlaybackStateView?
     /// 电影所属的作品系列（《哈利·波特》这种）：整个系列按上映顺序，库里没有的也在（置灰）。没有系列为 nil
     @State private var series: API.CollectionSeriesView?
-    /// 「所属合集」卡片要的部数与封面（按合集 id）
-    @State private var collectionInfo: [Int: API.CollectionView] = [:]
     @State private var favorite: Bool?
     @State private var marking = false
     /// 列表滚动距离：只给背景层读
@@ -467,31 +465,21 @@ struct TVItemDetailView: View {
         .onAppear { scrollEpisodesToEntry() }
     }
 
-    /// 「所属合集」：一排合集小卡（同首页「我的媒体库」的库卡片，封面是服务端拼好的货架图），按下进那个合集的海报墙。
-    /// 只放入口、不把合集展开成海报行——自定义合集动辄上百部、和这一部没有先后关系（2026-10-04 与用户商定）
+    /// 「所属合集」：一排文字按钮，按下进那个合集的海报墙。试过做成与库卡片同样的封面卡（2026-10-04），
+    /// 用户嫌太重：一部片通常只在一两个合集里，一张孤零零的大卡不好看、各部之间也差不多，入口用文字就够
     private func collectionsRow(_ detail: API.LibraryItemDetailView) -> some View {
-        TVShelf(title: "所属合集") {
-            ForEach(otherCollections(detail), id: \.id) { row in
-                let info = collectionInfo[row.id]
-                TVLandscapeCard(title: row.name, subtitle: info.map { "\($0.itemCount) 部" },
-                                imageURL: info?.covers.isEmpty == false ? api.image("/collections/\(row.id)/cover") : nil,
-                                width: 360) {
-                    router.push(.collection(id: row.id, name: row.name))
+        VStack(alignment: .leading, spacing: 20) {
+            Text("所属合集")
+                .font(.system(size: 32, weight: .semibold))
+            HStack(spacing: 24) {
+                ForEach(otherCollections(detail), id: \.id) { row in
+                    Button(row.name) { router.push(.collection(id: row.id, name: row.name)) }
+                        .focused($lowerFocus, equals: .collection(row.id))
                 }
-                .focused($lowerFocus, equals: .collection(row.id))
             }
         }
-    }
-
-    /// 合集卡要的部数（与有没有封面素材）：首页加载过的合集列表里就有（`LibraryHomeStore`），没加载过（冷启动直接进详情）才自己取一次
-    private func loadCollectionInfo(_ detail: API.LibraryItemDetailView) async {
-        guard !detail.collections.isEmpty else { return }
-        var list = LibraryHomeStore.shared.collections
-        let wanted = Set(detail.collections.map(\.id))
-        if !wanted.isSubset(of: Set(list.map(\.id))) {
-            list = (try? await api.collectionList()) ?? list
-        }
-        collectionInfo = Dictionary(list.filter { wanted.contains($0.id) }.map { ($0.id, $0) }) { first, _ in first }
+        .padding(.horizontal, TVMetrics.edge)
+        .focusSection()
     }
 
     /// 作品系列一行（2026-10-04 用户要求）：电影往下滑的第一行，整个系列按上映顺序排，标题旁写「已有 7 / 共 8」。
@@ -699,10 +687,8 @@ struct TVItemDetailView: View {
                     browseEpisodes = episodes
                 }
             }
-            // 系列与合集卡的数据一起取（各一次请求），到齐再出页面：首屏要按有没有系列决定底下露不露
-            async let seriesLoaded: Void = loadSeries(fresh)
-            async let collectionsLoaded: Void = loadCollectionInfo(fresh)
-            _ = await (seriesLoaded, collectionsLoaded)
+            // 系列读完再出页面：首屏要按有没有系列决定底下露不露
+            await loadSeries(fresh)
             detail = fresh
             failed = false
         } catch is CancellationError {

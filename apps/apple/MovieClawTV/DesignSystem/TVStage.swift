@@ -475,9 +475,15 @@ struct TVBlurredBackdrop: View {
         ZStack {
             Color.tvPage
             if let url {
-                RemoteImage(url: url, placeholderText: "")
-                    .blur(radius: 50)
-                    .opacity(0.45)
+                // 图片铺在占满给定区域的底板上、不参与排版：直接放进 ZStack 时按「填满」铺开的图会按自己的比例撑大，
+                // 竖版海报（影人页）铺满宽度后比屏幕高一大截，把整个 ZStack 撑大、内容被挤到屏幕外
+                // （2026-10-04 真机：影人页左边、顶上各露一条底下的页面）
+                Color.clear
+                    .overlay {
+                        RemoteImage(url: url, placeholderText: "")
+                            .blur(radius: 50)
+                            .opacity(0.45)
+                    }
                     .id(url)
                     .transition(.opacity)
             }

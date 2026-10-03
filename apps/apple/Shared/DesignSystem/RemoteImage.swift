@@ -111,6 +111,10 @@ enum ImagePipelineSetup {
 /// 给图片请求补上设备令牌：海报、头像这些地址只是一个 URL，经 Nuke 直接加载、不经过 `APIClient`，
 /// 令牌按 URL 的主机从 `AuthTokenRegistry` 取（当前账号的；带 `mc_account` 标记的头像用那个账号的）。
 /// 非 MovieClaw 的主机（TMDB 直链等）取不到令牌，原样放行。
+///
+/// 尺寸预设兜底：服务器不认识请求里的 `variant`（App 比服务器新，如电视的 `tv-poster` 是后加的两档），
+/// 会按参数校验失败回 422，海报整张空着（2026-10-04 NAS 换回不含这两档的版本时，媒体库里一片空卡）。
+/// 这时去掉 `variant` 再取一次原图：大一点，但一定有图
 private nonisolated struct AuthorizedDataLoader: DataLoading {
     let base: DataLoader
 
@@ -124,6 +128,52 @@ private nonisolated struct AuthorizedDataLoader: DataLoading {
            let token = AuthTokenRegistry.shared.token(for: url) {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        return base.loadData(with: request, didReceiveData: didReceiveData, completion: completion)
+        guard let fallback = Self.withoutVariant(request) else {
+            return base.loadData(with: request, didReceiveData: didReceiveData, completion: completion)
+        }
+        let task = RetryingTask()
+        task.current = base.loadData(with: request, didReceiveData: didReceiveData) { [base] error in
+            if case let DataLoader.Error.statusCodeUnacceptable(code)? = error as? DataLoader.Error, code == 422,
+               !task.isCancelled {
+                task.current = base.loadData(with: fallback, didReceiveData: didReceiveData, completion: completion)
+            } else {
+                completion(error)
+            }
+        }
+        return task
+    }
+
+    /// 带 `variant` 的请求去掉这个参数；不带的返回 nil（不需要兜底）
+    private static func withoutVariant(_ request: URLRequest) -> URLRequest? {
+        guard let url = request.url, var components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let items = components.queryItems, items.contains(where: { $0.name == "variant" }) else { return nil }
+        let rest = items.filter { $0.name != "variant" }
+        components.queryItems = rest.isEmpty ? nil : rest
+        guard let plain = components.url else { return nil }
+        var copy = request
+        copy.url = plain
+        return copy
+    }
+
+    /// 可能换过一次请求的加载任务：取消时取消眼下这一个
+    private final class RetryingTask: Cancellable, @unchecked Sendable {
+        private let lock = NSLock()
+        private var _current: (any Cancellable)?
+        private var _cancelled = false
+
+        var current: (any Cancellable)? {
+            get { lock.withLock { _current } }
+            set { lock.withLock { _current = newValue } }
+        }
+
+        var isCancelled: Bool { lock.withLock { _cancelled } }
+
+        func cancel() {
+            let task = lock.withLock { () -> (any Cancellable)? in
+                _cancelled = true
+                return _current
+            }
+            task?.cancel()
+        }
     }
 }
