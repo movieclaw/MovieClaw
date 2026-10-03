@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -323,10 +323,20 @@ def build_lifespan(settings: Settings):
         from movieclaw_api.services.subtitle_gen import pgs
 
         asyncio.create_task(_warm_pgs_capability(pgs.warm_capability))
+        # 算法升级后旧识别结果须主动重算；后台只排持久化任务，不在启动期间读 NAS。
+        from movieclaw_api.services.library.skip_segments import enqueue_pending_libraries
+
+        segment_recovery = asyncio.create_task(
+            enqueue_pending_libraries(), name="skip-segments-startup-recovery"
+        )
         logger.info("应用启动完成，数据库就绪")
         try:
             yield
         finally:
+            # 先停止排队任务，避免关闭 Job 执行器和数据库时仍在创建任务。
+            segment_recovery.cancel()
+            with suppress(asyncio.CancelledError):
+                await segment_recovery
             from movieclaw_jellyfin.udp import stop_discovery
 
             stop_discovery()

@@ -519,16 +519,14 @@ final class PlaybackController {
     /// 并倒计时自动播下一集（`autoNextArmed`）
     var showsUpNext: Bool {
         guard nextEpisode != nil, !nextDismissed else { return false }
-        if phase == .ended { return true }
-        if SkipSegments.isInOutro(session?.segments, at: positionMs) { return true }
-        guard let durationMs, durationMs > 0 else { return false }
-        let remaining = Double(durationMs - positionMs) / 1000
-        return remaining > 0 && remaining <= 40
+        return SkipSegments.shouldShowUpNext(
+            session?.segments, at: positionMs, durationMs: durationMs, ended: phase == .ended
+        )
     }
 
     // MARK: - 跳过片头 / 片尾
 
-    /// 当前位置该给的「跳过」按钮：片头、片头前的冠名广告、后面还有内容的片尾。区间是服务端整季比对认出来的、
+    /// 当前位置该给的「跳过」按钮：片头、广告、预告、其他段、非结尾片尾。区间是服务端整季比对认出来的、
     /// 随会话下发，这里只管按位置用。与「即将播放」卡片不同时出现（占同一个角落）；片段模式、已播完、
     /// 报错 / 要用户同意时都不给
     var skipSegment: API.PlaybackSegmentView? {

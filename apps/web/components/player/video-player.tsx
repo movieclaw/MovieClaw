@@ -154,10 +154,9 @@ import {
   autoNextArmed,
   clampSeekTarget,
   formatClock,
-  isInEndCredits,
-  isInOutro,
   isWithinRanges,
   planSeek,
+  shouldShowUpNext,
   skipLabel,
   toFileMs,
   toSessionSeconds,
@@ -4069,26 +4068,14 @@ export function VideoPlayer(props: VideoPlayerProps) {
     // chromeActivity：用户的每次操作都重排这个倒计时（声明见 state 注释）
   }, [locked, paused, menuOpen, awaitingUser, scrubbing, chromeVisible, chromeActivity]);
 
-  /**
-   * 片尾「下一集」卡片该不该显示。
-   *
-   * 纯派生、**不带任何计时器**：卡片进了片尾窗口就一直挂着，直到用户点它或
-   * 点关闭。曾经这里是一个 10 秒倒计时，数到 0 自动换集——片尾还没看完画面
-   * 就被抢走，而用户以为「按钮自己消失了」。要连播由用户自己点。
-   *
-   * 往回拖出片尾窗口会收起来（那时它已经不是「即将播放」了），再放到片尾还
-   * 会回来；只有明确关掉的那次才对本集永久生效。
-   */
+  // 当前手动跳过段优先于最后 40 秒的下一集提示；用户关闭卡片后，本集不再显示。
   const showNextCard =
     next !== null &&
     !nextDismissed &&
-    (isInEndCredits(positionMs, durationMs) ||
-      // 服务端认出了一直放到结尾的片尾：进了片尾就提前给，不必等到最后 40 秒
-      isInOutro(segments, positionMs) ||
-      state.phase === "ended");
+    shouldShowUpNext(segments, positionMs, durationMs, state.phase === "ended");
 
   /**
-   * 「跳过片头」一类的按钮：位置在片头 / 冠名广告 / 后面还有内容的片尾里才出现。
+   * 「跳过片头」一类的按钮：位置在片头 / 广告 / 预告 / 其他段 / 非结尾片尾里才出现。
    * 与「即将播放」卡片不同时出现（两者占同一个角落），锁屏、报错、同意弹窗时也不给。
    */
   const skipSegment =

@@ -1,0 +1,104 @@
+{
+  "duration": 960,
+  "sample_rate": 22050,
+  "scenario": "unique",
+  "fingerprinter": "ffmpeg version 5.1.9-0+deb12u1 Copyright (c) 2000-2026 the FFmpeg developers",
+  "episodes": [
+    {
+      "file": "episode-1.mp4",
+      "sha256": "336bc65b24920e979db593f933cb9ae873525c99dd5bb53f3f91fba7ea89aec5",
+      "episode": 1,
+      "segments": [
+        {
+          "name": "ad",
+          "start": 5,
+          "end": 30
+        },
+        {
+          "name": "intro",
+          "start": 65,
+          "end": 135
+        },
+        {
+          "name": "early_ad",
+          "start": 180,
+          "end": 188
+        },
+        {
+          "name": "reused_scene",
+          "start": 755,
+          "end": 825
+        },
+        {
+          "name": "outro",
+          "start": 920,
+          "end": 960
+        }
+      ]
+    },
+    {
+      "file": "episode-2.mp4",
+      "sha256": "3aa5cff2a09260fa15580b5eb75096d607ab8510b43350384ae43d6afe827de1",
+      "episode": 2,
+      "segments": [
+        {
+          "name": "ad",
+          "start": 5,
+          "end": 30
+        },
+        {
+          "name": "intro",
+          "start": 65,
+          "end": 135
+        },
+        {
+          "name": "early_ad",
+          "start": 180,
+          "end": 188
+        },
+        {
+          "name": "reused_scene",
+          "start": 755,
+          "end": 825
+        },
+        {
+          "name": "outro",
+          "start": 920,
+          "end": 960
+        }
+      ]
+    },
+    {
+      "file": "episode-3.mp4",
+      "sha256": "8e627440b95bfe235a254d9ef271132b5c3dcc9afd0086ceec88255870d31af7",
+      "episode": 3,
+      "segments": [
+        {
+          "name": "ad",
+          "start": 5,
+          "end": 30
+        },
+        {
+          "name": "intro",
+          "start": 65,
+          "end": 135
+        },
+        {
+          "name": "early_ad",
+          "start": 180,
+          "end": 188
+        },
+        {
+          "name": "reused_scene",
+          "start": 755,
+          "end": 825
+        },
+        {
+          "name": "outro",
+          "start": 920,
+          "end": 960
+        }
+      ]
+    }
+  ]
+}

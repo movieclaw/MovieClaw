@@ -35,6 +35,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 import os
 import shutil
 import sys
@@ -45,7 +46,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -384,12 +385,107 @@ class FingerprintError(Exception):
     """算不了指纹（中文原因直接给用户看）。"""
 
 
-async def _chromaprint_window(path: str, start: float, length: float) -> bytes:
-    """ffmpeg 读一个窗口的第一条音轨，输出原始哈希字节。"""
+def _complete_audio_index(streams: list[dict], duration: float) -> int:
+    """第一条音轨明显短缺时，选同语言、完整的普通音轨；信息不足则维持第一条。
+
+    NAS《开端》E03 第一条音轨误封了 E02 的完整音频，比本集短约 249 秒；第二条
+    才覆盖本集。不能只凭 codec/默认标记选择（这两条都标了默认），也不能把解说轨
+    或其他语言的音轨当作修复。5 秒容差保留正常的收尾静音、容器时长舍入差异。
+    """
+
+    def length(stream: dict) -> float | None:
+        for value in (stream.get("duration"), (stream.get("tags") or {}).get("DURATION")):
+            try:
+                parts = [float(x) for x in str(value).split(":")]
+                seconds = (
+                    parts[0]
+                    if len(parts) == 1
+                    else sum(x * weight for x, weight in zip(parts, (3600, 60, 1), strict=True))
+                )
+                if math.isfinite(seconds) and seconds > 0:
+                    return seconds
+            except (ValueError, TypeError):
+                continue
+        return None
+
+    if not streams or duration <= 0:
+        return 0
+    first_length = length(streams[0])
+    if first_length is None or first_length >= duration - 5:
+        return 0
+    language = (streams[0].get("tags") or {}).get("language")
+    for index, stream in enumerate(streams[1:], 1):
+        disposition = stream.get("disposition") or {}
+        other_language = (stream.get("tags") or {}).get("language")
+        if disposition.get("comment") or disposition.get("visual_impaired"):
+            continue
+        if language not in (None, "und") and other_language not in (None, "und", language):
+            continue
+        track_length = length(stream)
+        if track_length is not None and abs(track_length - duration) <= 5:
+            return index
+    return 0
+
+
+async def _fingerprint_audio_index(file: LibraryFile) -> int:
+    """只对多音轨或尚无轨信息的文件探测时长，避免给普通单音轨增加一次 NAS 访问。"""
+    if file.audio_streams is not None and len(file.audio_streams) <= 1:
+        return 0
+    args = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "a",
+        "-show_entries",
+        "stream=duration:stream_tags=DURATION,language:stream_disposition=comment,visual_impaired",
+        "-of",
+        "json",
+        file.file_path,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *_niced(args), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+    except OSError as exc:
+        raise FingerprintError("无法启动音轨探测工具，请检查 ffprobe 是否可用") from exc
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        raise FingerprintError("读取音轨信息超时，请检查磁盘或网络") from None
+    except asyncio.CancelledError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        raise
+    if proc.returncode != 0:
+        raise FingerprintError("无法核对多音轨时长，请检查片源是否可读")
+    try:
+        payload = json.loads(out)
+        streams = payload["streams"]
+        if not isinstance(streams, list):
+            raise ValueError
+    except (ValueError, KeyError, TypeError) as exc:
+        raise FingerprintError("音轨探测结果无效，无法选择完整音轨") from exc
+    index = _complete_audio_index(streams, float(file.duration_seconds or 0))
+    if index:
+        logger.warning(
+            "文件 #%s 的第一条音轨时长不足，改用第 %s 条完整音轨识别片头片尾", file.id, index + 1
+        )
+    return index
+
+
+async def _chromaprint_window(
+    path: str, start: float, length: float, audio_index: int = 0
+) -> bytes:
+    """ffmpeg 读一个窗口的指定音轨，输出原始哈希字节。"""
     args = ["ffmpeg", "-nostdin", "-v", "error"]
     if start > 0:
         args += ["-ss", f"{start:.3f}"]
-    args += ["-i", path, "-t", f"{length:.3f}", "-map", "0:a:0", "-ac", "2"]
+    args += ["-i", path, "-t", f"{length:.3f}", "-map", f"0:a:{audio_index}", "-ac", "2"]
     args += ["-f", "chromaprint", "-fp_format", "raw", "-"]
     proc = await asyncio.create_subprocess_exec(
         *_niced(args), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -428,13 +524,19 @@ async def compute_fingerprint(file: LibraryFile) -> None:
     assert file.id is not None
     duration = float(file.duration_seconds or 0)
     bounds = window_bounds(duration)
+    audio_index = await _fingerprint_audio_index(file)
     windows: dict[str, bytes] = {}
     for name, (start, length) in bounds.items():
-        windows[name] = await _chromaprint_window(file.file_path, start, length)
+        if audio_index:
+            windows[name] = await _chromaprint_window(file.file_path, start, length, audio_index)
+        else:
+            windows[name] = await _chromaprint_window(file.file_path, start, length)
     meta = {
         "file_id": file.id,
         "size": file.size_bytes,
         "duration": duration,
+        "audio_selection_version": 1,
+        "audio_index": audio_index,
         "windows": {name: {"start": s, "length": n} for name, (s, n) in bounds.items()},
     }
     path = fingerprint_path(file.id)
@@ -448,8 +550,8 @@ async def compute_fingerprint(file: LibraryFile) -> None:
     await asyncio.to_thread(_write)
 
 
-def _fingerprint_readable(file_id: int) -> bool:
-    """缓存文件还在且是当前格式（用户可能在缓存管理里清空过）。"""
+def _fingerprint_readable(file_id: int, *, check_audio_selection: bool = False) -> bool:
+    """快速核对缓存头与版本；正文完整性由识别子进程校验，损坏时会重新排队提取。"""
     path = fingerprint_path(file_id)
     try:
         with path.open("rb") as f:
@@ -457,7 +559,11 @@ def _fingerprint_readable(file_id: int) -> bool:
         meta = json.loads(head)
     except (OSError, ValueError):
         return False
-    return isinstance(meta, dict) and meta.get("v") == FINGERPRINT_VERSION
+    return (
+        isinstance(meta, dict)
+        and meta.get("v") == FINGERPRINT_VERSION
+        and (not check_audio_selection or meta.get("audio_selection_version") == 1)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +608,10 @@ def _fingerprint_due(file: LibraryFile, state: MediaSegmentState | None) -> bool
         return True
     if state.source_size != file.size_bytes:
         return True  # 片源变了（洗版原地替换），失败的也重试一次
-    return state.fingerprint_status == "ok" and not _fingerprint_readable(int(file.id or 0))
+    return state.fingerprint_status == "ok" and not _fingerprint_readable(
+        int(file.id or 0),
+        check_audio_selection=file.audio_streams is None or len(file.audio_streams) > 1,
+    )
 
 
 async def _run_detection(episodes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -565,6 +674,9 @@ async def _fingerprint_one(file: LibraryFile) -> str:
             row = await session.get(MediaSegmentState, file.id)
             if row is None:
                 row = MediaSegmentState(library_file_id=file.id)
+            # 新指纹可能来自洗版，也可能因为换用了完整音轨；后一种文件大小并没变。
+            # 两者都必须撤下旧区间，等新指纹完成整季比对，不能在中间阶段继续误跳。
+            row.segments = None
             row.fingerprint_status = "failed" if error else "ok"
             row.error = error
             row.source_size = file.size_bytes
@@ -619,9 +731,17 @@ async def analyze_season(
         elif result == "ok":
             outcome.fingerprinted += 1
 
+    # 用取得本轮输入的时间排序结果，不能用结束时间：旧任务可能晚于新任务返回。
+    analysis_started_at = utcnow()
     async with db.session() as session:
         rows = await _season_files(session, media_item_id, season_number)
-        ready = [(f, s) for f, s in rows if s is not None and s.fingerprint_status == "ok"]
+        # 有读取预算时，洗版或音轨选择过期的指纹可能还没轮到重算；不能参与比对，
+        # 否则会污染其他集，还会被盖上新版已完成标记，从待办清单中永久漏掉。
+        ready = [
+            (f, s)
+            for f, s in rows
+            if s is not None and s.fingerprint_status == "ok" and not _fingerprint_due(f, s)
+        ]
         stale = any(
             s.analyzed_at is None or s.algo_version != ALGO_VERSION or s.segments is None
             for _, s in ready
@@ -644,22 +764,42 @@ async def analyze_season(
     unreadable = {int(i) for i in response.get("unreadable", [])}
     now = utcnow()
     async with db.session() as session:
-        for f, _ in ready:
-            row = await session.get(MediaSegmentState, f.id)
-            if row is None:
-                continue
-            if int(f.id or 0) in unreadable:
-                # 指纹文件在比对前被清掉 / 读不了（缓存管理里清空过，本次又没轮到重算它）：
-                # 不动它现有的结果——播放照常给原来的片头；它在下次这一季重算指纹时补回
-                continue
+        for f, snapshot in ready:
+            needs_rebuild = int(f.id or 0) in unreadable
             segments = results.get(str(f.id), [])
-            row.segments = segments
-            row.algo_version = int(response.get("algo_version") or ALGO_VERSION)
-            row.analyzed_at = now
-            outcome.with_intro += any(s.get("type") == "intro" for s in segments)
-            outcome.with_outro += any(s.get("type") == "outro" for s in segments)
-            row.updated_at = now
-            session.add(row)
+            if needs_rebuild:
+                # JSON 头完好但正文截断也会到这里。留在待办中，让下一轮真正重建，
+                # 不能永久沿用坏缓存，或误把“读不了”记成“本集没有片头”。
+                values = dict(fingerprint_status="pending", analyzed_at=None, updated_at=now)
+            else:
+                values = dict(
+                    segments=segments,
+                    algo_version=int(response.get("algo_version") or ALGO_VERSION),
+                    analyzed_at=analysis_started_at,
+                    updated_at=now,
+                )
+            # 本集指纹没变也不代表共识没变：伙伴换轨会改变整季结果。以输入时间排序，
+            # 旧任务无论先写还是后写，都不能覆盖较新输入算出的结果；条件与写入原子执行。
+            written = await session.execute(
+                update(MediaSegmentState)
+                .where(
+                    MediaSegmentState.library_file_id == f.id,
+                    MediaSegmentState.fingerprint_status == "ok",
+                    MediaSegmentState.source_size == snapshot.source_size,
+                    MediaSegmentState.fingerprinted_at == snapshot.fingerprinted_at,
+                    or_(
+                        col(MediaSegmentState.analyzed_at).is_(None),
+                        col(MediaSegmentState.analyzed_at) <= analysis_started_at,
+                    ),
+                )
+                .values(**values)
+            )
+            if written.rowcount:
+                if needs_rebuild:
+                    logger.warning("文件 #%s 的音频指纹缓存无法读取，已排入重建", f.id)
+                else:
+                    outcome.with_intro += any(s.get("type") == "intro" for s in segments)
+                    outcome.with_outro += any(s.get("type") == "outro" for s in segments)
         await session.commit()
     outcome.analyzed = True
     logger.info(
@@ -683,7 +823,14 @@ async def segments_for_file(session: AsyncSession, file: LibraryFile) -> list[di
     if file.id is None or file.library_id is None:
         return []
     state = await session.get(MediaSegmentState, file.id)
-    if state is None or not state.segments or state.fingerprint_status != "ok":
+    if (
+        state is None
+        or not state.segments
+        or state.fingerprint_status != "ok"
+        or state.source_size != file.size_bytes
+        or state.algo_version != ALGO_VERSION
+    ):
+        # 新算法可能正是修复旧区间误跳剧情；重算前暂不下发旧结果，开播路径会优先排队。
         return []
     library = await session.get(Library, file.library_id)
     if library is None or library.kind != "tv" or not library.detect_media_segments:
@@ -834,6 +981,41 @@ async def enqueue_after_library_change(library_id: int, *, origin: str = "system
             return False
         await enqueue_library_job(session, library_id, library.name, origin=origin)
     return True
+
+
+async def enqueue_pending_libraries() -> None:
+    """启动后恢复存量识别：只查数据库并排持久化任务，不扫描 NAS，不阻塞启动。
+
+    算法版本变化本身就会产生待办，无须等扫描、入库或用户开播。已在队列里的库由
+    原有 dedupe_key 合并；完成后再次启动不会重复排空任务。一个库失败不影响其他库。
+    """
+    try:
+        async with get_database().session() as session:
+            library_ids = (
+                (
+                    await session.execute(
+                        select(LibraryFile.library_id)
+                        .join(Library, col(Library.id) == col(LibraryFile.library_id))
+                        .outerjoin(
+                            MediaSegmentState,
+                            col(MediaSegmentState.library_file_id) == col(LibraryFile.id),
+                        )
+                        .where(*eligible_conditions(), _needs_work_condition())
+                        .distinct()
+                    )
+                )
+                .scalars()
+                .all()
+            )
+    except Exception:  # noqa: BLE001 —— 后台补齐失败不能阻断应用启动
+        logger.exception("启动后检查片头片尾待办失败，后续媒体库扫描会再次尝试")
+        return
+    for library_id in library_ids:
+        try:
+            await foreground.yield_to_foreground()
+            await enqueue_after_library_change(int(library_id))
+        except Exception:  # noqa: BLE001 —— 一个库排队失败不影响其他库
+            logger.exception("媒体库 #%s 的片头片尾更新排队失败，后续扫描会再次尝试", library_id)
 
 
 async def enqueue_after_scan(library_id: int, summary: object) -> bool:

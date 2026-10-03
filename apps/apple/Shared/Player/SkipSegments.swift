@@ -8,8 +8,8 @@ import Foundation
 /// - `intro` 片头：位置在区间里显示「跳过片头」，点了跳到区间结束处；
 /// - `outro` 片尾：到起点就提前显示「即将播放下一集」（`toEnd` 为真，片尾一直放到文件结尾）；
 ///   `toEnd` 为假时片尾后面还有内容（下集预告、彩蛋），按钮是「跳过片尾」；
-/// - `other` 其他重复段（片头前的冠名广告、发行许可）：只会出现在片头窗里，观众眼里也是片头，
-///   同样显示「跳过片头」（只写「跳过」看不出跳的是什么，用户反馈 2026-10-01）。
+/// - `ad` 已确认的广告、`preview` 已确认的预告：分别显示「跳过广告」「跳过预告」，仅手动跳过；
+/// - `other` 尚未明确分类的重复段：显示「跳过此段」，客户端不猜测内容类型。
 enum SkipSegments {
     /// 离区间尾不足这么多毫秒就不再给「跳过」：按下去只省一两秒，还会撞上区间尾的画面切换
     static let tailMs = 3000
@@ -41,8 +41,27 @@ enum SkipSegments {
     /// 连续自动播了这么多集、期间没人碰过播放器，就不再自动播（人多半睡着了，也别让 NAS 白转一晚上）
     static let autoNextMaxStreak = 3
 
-    /// 「跳过」按钮的文案
+    /// 文案只依赖服务端类型；其他或未来类型不猜成片头或广告。
     static func label(_ segment: API.PlaybackSegmentView) -> String {
-        segment.type == "outro" ? "跳过片尾" : "跳过片头"
+        switch segment.type {
+        case "intro": "跳过片头"
+        case "outro": "跳过片尾"
+        case "ad": "跳过广告"
+        case "preview": "跳过预告"
+        default: "跳过此段"
+        }
+    }
+
+    /// 手动跳过段优先于最后 40 秒的兜底卡片，不能让「下一集」盖住「跳过预告」。
+    /// 是否有下一集、用户是否已关闭卡片，由播放器判断。
+    static func shouldShowUpNext(
+        _ segments: [API.PlaybackSegmentView]?, at positionMs: Int, durationMs: Int?, ended: Bool = false
+    ) -> Bool {
+        if ended { return true }
+        if active(segments, at: positionMs) != nil { return false }
+        if isInOutro(segments, at: positionMs) { return true }
+        guard let durationMs, durationMs > 0 else { return false }
+        let remaining = durationMs - positionMs
+        return remaining > 0 && remaining <= 40_000
     }
 }

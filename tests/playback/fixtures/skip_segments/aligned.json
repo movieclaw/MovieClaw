@@ -1,0 +1,104 @@
+{
+  "duration": 960,
+  "sample_rate": 22050,
+  "scenario": "aligned",
+  "fingerprinter": "ffmpeg version 5.1.9-0+deb12u1 Copyright (c) 2000-2026 the FFmpeg developers",
+  "episodes": [
+    {
+      "file": "episode-1.mp4",
+      "sha256": "6cfd1d9766d9e8ae0ce48a9b20f4b332147978f02d09ee7a605f2ede23e5b404",
+      "episode": 1,
+      "segments": [
+        {
+          "name": "ad",
+          "start": 5,
+          "end": 30
+        },
+        {
+          "name": "intro",
+          "start": 65,
+          "end": 135
+        },
+        {
+          "name": "early_ad",
+          "start": 180,
+          "end": 210
+        },
+        {
+          "name": "reused_scene",
+          "start": 755,
+          "end": 825
+        },
+        {
+          "name": "outro",
+          "start": 920,
+          "end": 960
+        }
+      ]
+    },
+    {
+      "file": "episode-2.mp4",
+      "sha256": "38e78983abe6307af803d2dd4d28b2fd9644006b6af5cc541df3bd684de04616",
+      "episode": 2,
+      "segments": [
+        {
+          "name": "ad",
+          "start": 5,
+          "end": 30
+        },
+        {
+          "name": "intro",
+          "start": 65,
+          "end": 135
+        },
+        {
+          "name": "early_ad",
+          "start": 180,
+          "end": 210
+        },
+        {
+          "name": "reused_scene",
+          "start": 755,
+          "end": 825
+        },
+        {
+          "name": "outro",
+          "start": 920,
+          "end": 960
+        }
+      ]
+    },
+    {
+      "file": "episode-3.mp4",
+      "sha256": "fe958f10cf33db7f5d1b89c372338de4e047399852d5d355bb3ffd44d44af435",
+      "episode": 3,
+      "segments": [
+        {
+          "name": "ad",
+          "start": 5,
+          "end": 30
+        },
+        {
+          "name": "intro",
+          "start": 65,
+          "end": 135
+        },
+        {
+          "name": "early_ad",
+          "start": 180,
+          "end": 210
+        },
+        {
+          "name": "reused_scene",
+          "start": 755,
+          "end": 825
+        },
+        {
+          "name": "outro",
+          "start": 920,
+          "end": 960
+        }
+      ]
+    }
+  ]
+}

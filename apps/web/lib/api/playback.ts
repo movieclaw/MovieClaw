@@ -660,10 +660,11 @@ export interface PlaybackChapterMark {
 /**
  * 可跳过的一段（docs/design/skip-intro.md）：服务端整季比对认出来的，客户端只管用。
  * intro 片头（显示「跳过片头」）、outro 片尾（提前显示「即将播放」；to_end 为假时后面
- * 还有内容，按钮是「跳过片尾」）、other 片头前的冠名广告 / 发行许可（显示「跳过」）。
+ * 还有内容，按钮是「跳过片尾」）、ad 广告、preview 预告（均手动跳过）、
+ * other 未明确分类的重复段（显示「跳过此段」）。类型由服务端确认，客户端不猜测。
  */
 export interface PlaybackSegment {
-  type: "intro" | "outro" | "other";
+  type: "intro" | "outro" | "ad" | "preview" | "other";
   start_ms: number;
   end_ms: number;
   to_end: boolean;

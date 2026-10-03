@@ -1,0 +1,25 @@
+{
+  "programs": [],
+  "stream_groups": [],
+  "streams": [
+    {
+      "disposition": {
+        "comment": 0,
+        "visual_impaired": 0
+      },
+      "tags": {
+        "DURATION": "00:40:22.368000000"
+      }
+    },
+    {
+      "disposition": {
+        "comment": 0,
+        "visual_impaired": 0
+      },
+      "tags": {
+        "DURATION": "00:44:31.701000000"
+      }
+    }
+  ],
+  "duration": 2671.701
+}

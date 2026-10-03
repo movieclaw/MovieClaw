@@ -12,8 +12,9 @@
 2. **整季比，不是只比相邻几集**：同一部剧的片头可能有好几个配乐版本交替出现
    （《三体》第 17 集的片头只和第 10、11、13、18、23、24 集对得上），所以每集与
    前后各 ``NEIGHBORS`` 集比。比的是缓存好的指纹，不读媒体文件，一季一两秒。
-3. **对齐质量过滤**：整季比会把片中复用的配乐也认出来。真片头片尾两集对齐后几乎
-   逐帧一致（≤6 位的帧占 72%～97%），配乐复用有对白盖着只是「像」（30%～64%）。
+3. **对齐质量过滤**：整季比会把片中复用的配乐也认出来。早期样本中，真片头片尾
+   对齐质量为 72%～97%，有对白的配乐复用为 30%～64%；这不是普遍成立的分界。
+   《我的大叔》的剧情配乐也可达 77%～81%，音乐延续进剧情时更无法只凭音频找边界。
    候选段被接受的两条路，满足任一即可：
    - 「对得很像」（占比 ≥ ``GOOD_MATCH``）的伙伴 ≥2 个——救下片头有多个版本、
      每个版本只出现在少数几集的季；
@@ -62,7 +63,7 @@ MERGE_GAP_S = 3.0
 #: 片尾终点离文件结尾多近算「到结尾」（秒）
 TO_END_S = 5.0
 #: 算法版本：改了上面任何规则就加一，服务端据此把旧结果全部重算一遍
-ALGO_VERSION = 1
+ALGO_VERSION = 5
 
 _POPCOUNT8 = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
 
@@ -126,27 +127,31 @@ class Segment:
 # ---------------------------------------------------------------------------
 
 
-def _contiguous(lhs: np.ndarray, rhs: np.ndarray, shift: int) -> tuple[int, int, int, int] | None:
-    """在给定位移下找最长的连续相似区间，返回 (lhs 起, lhs 止, rhs 起, rhs 止) 帧号。
+def _contiguous(lhs: np.ndarray, rhs: np.ndarray, shift: int) -> list[tuple[int, int, int, int]]:
+    """在给定位移下找全部连续相似区间，返回 (lhs 起, lhs 止, rhs 起, rhs 止) 帧号。
 
     ``shift`` = rhs 帧号 - lhs 帧号。相似 = 汉明距离 ≤ MAX_BIT_DIFF；断点 ≤ MAX_GAP_S 不打断。
+    广告和片头在各集里的位置经常完全相同（或整体平移），共享同一个位移；只取最长段
+    会丢掉短广告，片尾窗里还会让较长的配乐剧情挤掉真正的片尾。这里保留所有够长的段，
+    跨位移去重、跨集共识和片尾只取最后一段仍由后面的步骤负责。
     """
     lo = -shift if shift < 0 else 0
     ro = shift if shift > 0 else 0
     n = min(len(lhs) - lo, len(rhs) - ro)
     if n <= 0:
-        return None
+        return []
     idx = np.nonzero(_popcount(lhs[lo : lo + n] ^ rhs[ro : ro + n]) <= MAX_BIT_DIFF)[0]
     if len(idx) == 0:
-        return None
+        return []
     breaks = np.nonzero(np.diff(idx) * HASH_SECONDS > MAX_GAP_S)[0]
     starts = np.concatenate(([0], breaks + 1))
     ends = np.concatenate((breaks, [len(idx) - 1]))
-    k = int(np.argmax(idx[ends] - idx[starts]))
-    a, b = int(idx[starts[k]]) + lo, int(idx[ends[k]]) + lo
-    if (b - a) * HASH_SECONDS < MIN_SEGMENT_S:
-        return None
-    return a, b, a + shift, b + shift
+    regions = []
+    for first, last in zip(starts, ends, strict=True):
+        a, b = int(idx[first]) + lo, int(idx[last]) + lo
+        if (b - a) * HASH_SECONDS >= MIN_SEGMENT_S:
+            regions.append((a, b, a + shift, b + shift))
+    return regions
 
 
 def _candidate_shifts(lhs: np.ndarray, rhs: np.ndarray) -> set[int]:
@@ -165,7 +170,7 @@ def _candidate_shifts(lhs: np.ndarray, rhs: np.ndarray) -> set[int]:
 
 def shared_regions(lhs: np.ndarray, rhs: np.ndarray) -> list[tuple[int, int, int, int]]:
     """两段指纹之间互不重叠的全部共享段（帧号），长的优先。"""
-    found = [r for s in _candidate_shifts(lhs, rhs) if (r := _contiguous(lhs, rhs, s))]
+    found = [r for s in _candidate_shifts(lhs, rhs) for r in _contiguous(lhs, rhs, s)]
     found.sort(key=lambda r: -(r[1] - r[0]))
     kept: list[tuple[int, int, int, int]] = []
     for r in found:
@@ -222,6 +227,12 @@ class _Season:
             back = (region[2], region[3], region[0], region[1])
             q_back = _match_quality(wb.hashes, wa.hashes, back)
             theirs.append(((sb + wb.start, eb + wb.start), q_back))
+        if mode == "outro":
+            # 片尾先选每对里最后的共享段，再验证跨集共识。不能先淘汰弱匹配再往前找：
+            # 《三体》E01 后段未过共识时，会退回 2368–2385 秒的重复配乐剧情并误标片尾。
+            # 两侧分别按自己的时间线选；片头窗仍保留全部段，以识别分开的广告和片头。
+            mine = sorted(mine, key=lambda item: item[0][0])[-1:]
+            theirs = sorted(theirs, key=lambda item: item[0][0])[-1:]
         self._pairs[key] = mine
         self._pairs[(b.file_id, a.file_id, mode)] = theirs
         return mine
@@ -238,7 +249,20 @@ class _Season:
 
     def raw_segments(self, episode: Episode, mode: str) -> list[tuple[float, float, int]]:
         """episode 上被接受的重复段（起, 止, 支持数），未整理。"""
-        partners = self.partners(episode)
+        # 不同集号也可能装了同一份音轨。《开端》E02/E03 的十分钟开头指纹完全
+        # 相同，重复投票会把 E01 的剧情配乐当成“多数集共有”。超过最大可跳长度
+        # 的完整窗口才去重：短窗可能正好只覆盖正常片头，不能把真片头的票也合掉。
+        partners: list[Episode] = []
+        seen: set[bytes] = set()
+        for item in [episode, *self.partners(episode)]:
+            window = item.windows.get(mode)
+            if window is not None and len(window.hashes) * HASH_SECONDS > MAX_SEGMENT_S[mode]:
+                key = window.hashes.tobytes()
+                if key in seen:
+                    continue
+                seen.add(key)
+            if item is not episode:
+                partners.append(item)
         per = [self.pair(episode, q, mode) for q in partners]
         candidates = sorted({r for regs in per for r, _ in regs}, key=lambda r: -(r[1] - r[0]))
         accepted: list[tuple[float, float, int]] = []
@@ -255,6 +279,10 @@ class _Season:
                 used = [x for x, _ in support]
             else:
                 continue
+            # 长匹配只能为当前候选的重叠部分投票，不能借用它在候选外的边界。
+            # 例如候选 125–144 秒得到 0–154 秒和 125–144 秒两个伙伴支持，直接取
+            # 中位数会凭空扩成 62–149 秒，跨过未匹配内容，或被其他候选的去重误删。
+            used = [(max(r[0], a), min(r[1], b)) for a, b in used]
             s = float(np.median([x[0] for x in used]))
             e = float(np.median([x[1] for x in used]))
             if any(_overlap((s, e), (a, b)) > 0.5 * min(e - s, b - a) for a, b, _ in accepted):
@@ -343,13 +371,17 @@ def decode_fingerprint(raw: bytes) -> tuple[dict, dict[str, Window]] | None:
     try:
         for item in meta["layout"]:
             size = int(item["bytes"])
+            # 长度必须与头部登记完全一致；截断数据不能被当作“没有匹配”的有效指纹。
+            if size < 0 or size % 4 or offset + size > len(body):
+                return None
             chunk = body[offset : offset + size]
             offset += size
-            usable = len(chunk) - len(chunk) % 4
             windows[str(item["name"])] = Window(
-                np.frombuffer(chunk[:usable], dtype="<u4").copy(), float(item["start"])
+                np.frombuffer(chunk, dtype="<u4").copy(), float(item["start"])
             )
     except (KeyError, TypeError, ValueError):
+        return None
+    if offset != len(body):
         return None
     return meta, windows
 

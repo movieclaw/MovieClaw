@@ -6856,7 +6856,9 @@ nonisolated extension API {
     /// - ``intro`` 片头：在区间里显示「跳过片头」，点了跳到 ``end_ms``；
     /// - ``outro`` 片尾：到 ``start_ms`` 就提前显示「即将播放下一集」；``to_end`` 为假时
     /// 片尾后面还有内容（下集预告、彩蛋），按钮是「跳过片尾」；
-    /// - ``other`` 其他重复段（片头前的冠名广告、发行许可）：显示「跳过」。
+    /// - ``ad`` 已确认的广告、``preview`` 已确认的预告：分别显示「跳过广告」「跳过预告」，
+    /// 手动跳到段尾；
+    /// - ``other`` 尚未明确分类的重复段：显示「跳过此段」，不猜测为广告或片头。
     struct PlaybackSegmentView: Codable, Hashable, Sendable {
         var type: String
         var startMs: Int
