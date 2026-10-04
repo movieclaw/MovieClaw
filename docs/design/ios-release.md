@@ -53,6 +53,7 @@ App 里**不提供**「资源与下载」这组配置（订阅规则、资源站
 cd apps/apple
 export MC_ASC_KEY_ID=… MC_ASC_ISSUER_ID=…   # 建议放本机 ~/.appstoreconnect/ 下的 env 文件里 source，不入库
 scripts/release.sh --upload                 # 上传：同一个构建可用于内部 / 对外 TestFlight 与提审
+scripts/release.sh --tv --upload            # Apple TV 版：同一条 App 记录，构建单独上传
 ```
 
 - **版本号与服务器各自独立**（2026-09-29 用户决定：App 和服务器不是一回事）：

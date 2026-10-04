@@ -166,6 +166,7 @@ ffmpeg 版本，发版前按下表逐项过一遍。
    （`security set-key-partition-list …`，要输 Mac 登录密码），否则会弹出几十个授权框。
 2. 从 main 打包上传：`source <本机 env> && apps/apple/scripts/release.sh --upload`
    （不带 `--upload` 只导出，用于先验证签名）。构建号取 UTC 时间自动递增。
+   Apple TV 版加 `--tv`（同一条 App 记录、各自一条构建序列），两端都要发就各跑一次。
 3. 上传后 5～30 分钟处理完；可用 ASC API 查 `processingState` / `buildAudienceType`。
    开了自动分发的内部测试组会自动收到；对外测试组按 checklist §5 加构建、提审。
 4. 看 Apple 邮件：ITMS-91053 等警告按邮件补隐私清单。
