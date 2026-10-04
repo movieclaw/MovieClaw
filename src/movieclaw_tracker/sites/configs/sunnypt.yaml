@@ -1,0 +1,24 @@
+site_id: sunnypt            # 唯一标识，小写下划线
+display_name: Sunny          # 显示名称
+base_url: https://api.sunnypt.top   # API 根地址（程序发请求用的地址）
+web_base_url: https://sunnypt.top   # 网页域名（给用户展示种子详情链接用，与 API 域名不同）
+
+# 纯 API 站点：无静态种子 HTML，必须用自定义类解析 JSON。
+# framework 值任意（registry 仅注册 nexusphp，custom_class 存在时用它加载站点类，
+# framework 不匹配默认框架时 selectors=None，由自定义类自行管理）。
+framework: api
+
+# 支持的授权类型：纯 API 站只走 API-Key（X-API-Key 头，复用 ApiKeyAuthProvider 默认行为）
+auth:
+  supported: [apikey]
+
+# 自定义站点类路径（MovieClaw 内可 import 的模块）
+custom_class: movieclaw_tracker.sites.custom.sunnypt.SunnyPTSite
+
+# 站点分类 ID → 应用级分类映射（动态 /categories 接口失败时的静态兜底；
+# movie/tv 走 media_type 过滤，documentary/music 归入其余或全量）
+categories:
+  movie: [Movies]
+  tv: [TV Series]
+  documentary: [Documentaries]
+  music: [Music Videos]
