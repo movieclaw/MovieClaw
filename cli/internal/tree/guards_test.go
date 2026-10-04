@@ -56,6 +56,8 @@ var knownNonGenerated = []string{
 	// 命令行查库走 search / libraries 命令
 	"ui.library.kind.summary",
 	"ui.library.kind.items",
+	// 海报行选中展开用的批量展示信息（Apple TV 首页）：纯呈现层数据
+	"ui.library.showcase",
 	"playback.decide",
 	"playback.item.info",
 	"playback.item.episodes",
