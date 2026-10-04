@@ -12,12 +12,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.api.deps import require_login
-from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import NotFoundException
 from movieclaw_api.schemas.person import PersonCreditView, PersonView
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import visible_library_ids
+from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import MediaMetadata
 from movieclaw_db.repositories import PersonRepository
@@ -59,7 +59,7 @@ async def get_person(
         # 同一个 404：不泄露「有这个人、但你不能看」
         raise NotFoundException("库内没有这位影人的作品")
 
-    base = get_settings().tmdb_image_base_url.rstrip("/")
+    base = effective_tmdb_image_base_url().rstrip("/")
 
     # 海报优先本地资产：一次查完再配对，不逐条目查（N+1）
     item_ids = [c.media_item.id for c in credits if c.media_item.id is not None]

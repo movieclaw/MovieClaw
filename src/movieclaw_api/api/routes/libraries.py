@@ -24,7 +24,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.api.deps import require_admin, require_login
-from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
 from movieclaw_api.schemas.library import (
     ActorView,
@@ -207,6 +206,7 @@ from movieclaw_api.services.library.transfer import (
 from movieclaw_api.services.media_discover import get_tmdb_client
 from movieclaw_api.services.media_library import MediaLibraryService
 from movieclaw_api.services.media_server_notify import notify_media_server_refresh
+from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_api.services.playback import warmup as playback_warmup
 from movieclaw_api.services.playback.track_context import library_track_context
 from movieclaw_api.services.playback.track_defaults import FileTrackDefaults, file_track_defaults
@@ -896,7 +896,7 @@ async def list_identity_review(
     同目录同分歧的几十集聚成一条，一次拍板整组生效。
     """
 
-    base = get_settings().tmdb_image_base_url.rstrip("/")
+    base = effective_tmdb_image_base_url().rstrip("/")
     repo = LibraryFileRepository(session)
     rows = await repo.list_review(library_id=library_id)
     libraries = {lib.id: lib for lib in await LibraryConfigService(session).list_all()}
@@ -2638,7 +2638,7 @@ async def get_library_item(
         content_limit=content_limit,
     )
 
-    base = get_settings().tmdb_image_base_url.rstrip("/")
+    base = effective_tmdb_image_base_url().rstrip("/")
     art_base = f"/libraries/{library_id}/items/{media_item_id}/artwork"
     # 图片优先级与元数据同构：条目目录美术图 > 本地刮削资产 > TMDB 图床。
     # 本地两层的 URL 都带 ?v=<mtime> 版本戳：换图是**原地覆盖同一路径**，
@@ -3196,7 +3196,7 @@ async def preview_reidentify_item(
     item, rows = await _item_rows(session, library_id, media_item_id)
     preview = await preview_reidentify(session, library, media_item_id, rows)
 
-    base = get_settings().tmdb_image_base_url.rstrip("/")
+    base = effective_tmdb_image_base_url().rstrip("/")
 
     def poster(path: str | None) -> str | None:
         return f"{base}/w185{path}" if path else None
@@ -3975,7 +3975,7 @@ async def list_missing(
     )
     sub_by_item = {s.media_item_id: s.id for s in subs.scalars().all()}
 
-    base = get_settings().tmdb_image_base_url.rstrip("/")
+    base = effective_tmdb_image_base_url().rstrip("/")
     views = [
         MissingItemView(
             media_item_id=item.id,  # type: ignore[arg-type]

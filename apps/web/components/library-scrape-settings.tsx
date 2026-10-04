@@ -216,6 +216,7 @@ export function LibraryScrapeSettings({
           patch={patch}
           extraImageLangs={chipOptions.imageLangs}
           effective={config?.effective ?? null}
+          inheritsGlobal
           shellFor={shellFor}
         />
       </ScrapeSection>

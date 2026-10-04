@@ -101,6 +101,13 @@ _KNOWN_QUERY_KEYS = [
     "subtitleStreamIndex",
     "videoBitrate",
     "maxHeight",
+    # 图片缩放参数（routes/images.py 的 _SCALE_PARAMS）：漏登记的话 Infuse 这类
+    # 发 PascalCase 的客户端（MaxWidth=…）取不到缩放图，每次都拉原图
+    "maxWidth",
+    "width",
+    "height",
+    "fillWidth",
+    "fillHeight",
     "deviceId",
     # 字幕接口的 route 段同名覆盖参数（jellyfin-subtitle.md §4.4；
     # mediaSourceId/format 已在列）——漏登记 PascalCase 客户端就取不到

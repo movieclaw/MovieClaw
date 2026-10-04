@@ -225,8 +225,10 @@ function progressAmount(job: JobView): string | null {
       ? "个分块"
       : job.job_type === "library.scan"
         ? "个文件"
-        : job.job_type.includes("metadata.refresh")
-          ? "个条目"
+        : job.job_type === "media.metadata.refresh"
+          ? "张图片"
+          : job.job_type === "library.metadata.refresh"
+            ? "个条目"
           : job.job_type === "library.organize"
             ? "个文件"
             : job.job_type === "library.transfer"
@@ -235,7 +237,20 @@ function progressAmount(job: JobView): string | null {
   return `${current} / ${total} ${unit}`;
 }
 
-function jobDetailItems(job: JobView): Array<{ label: string; alert?: boolean }> {
+/** 元数据刷新的图片记账（details.images）：新下载 / 沿用 / 失败 / 抓帧 / 字节数 */
+function imageTally(details: Record<string, unknown>) {
+  const raw = details.images;
+  const value = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  return {
+    downloaded: detailNumber(value, "downloaded") ?? 0,
+    reused: detailNumber(value, "reused") ?? 0,
+    failed: detailNumber(value, "failed") ?? 0,
+    grabbed: detailNumber(value, "grabbed") ?? 0,
+    bytes: detailNumber(value, "bytes") ?? 0,
+  };
+}
+
+export function jobDetailItems(job: JobView): Array<{ label: string; alert?: boolean }> {
   const details = job.progress.details;
   const items: Array<{ label: string; alert?: boolean }> = [];
 
@@ -265,8 +280,17 @@ function jobDetailItems(job: JobView): Array<{ label: string; alert?: boolean }>
     if (missing) items.push({ label: `缺失 ${missing} 个`, alert: true });
     if (errors) items.push({ label: `${errors} 个问题`, alert: true });
   } else if (job.job_type.includes("metadata.refresh")) {
+    // 正在刷新哪部、到哪一步已写在摘要文案里（「正在刷新「XX」：下载图片 120 / 480」），
+    // 这里只补失败与图片记账。失败排在前面：标签最多显示 4 个
     const failed = detailNumber(details, "failed");
-    if (failed) items.push({ label: `${failed} 个未完成`, alert: true });
+    if (failed) items.push({ label: `${failed} 个条目未完成`, alert: true });
+    const images = imageTally(details);
+    if (images.failed) items.push({ label: `${images.failed} 张图片未下载`, alert: true });
+    if (images.downloaded) {
+      items.push({ label: `新下载 ${images.downloaded} 张 · ${formatBytes(images.bytes)}` });
+    }
+    if (images.reused) items.push({ label: `沿用 ${images.reused} 张` });
+    if (images.grabbed) items.push({ label: `截取 ${images.grabbed} 张剧照` });
   } else if (job.job_type === "library.organize") {
     const errors = detailCount(details, "errors");
     if (errors) items.push({ label: `${errors} 个问题`, alert: true });

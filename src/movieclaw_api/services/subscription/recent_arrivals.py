@@ -26,8 +26,8 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.media_scrape import asset_version
+from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
 # 「看完了吗 / 文件在不在位」与接下来继续同一套判定，直接复用那边的批量查询，
 # 不另写第二份口径
@@ -200,7 +200,7 @@ async def _hydrate(
         ).all()
     }
 
-    image_base = get_settings().tmdb_image_base_url.rstrip("/")
+    image_base = effective_tmdb_image_base_url().rstrip("/")
     result: list[RecentArrival] = []
     for subscription, media, units, imported_at in picks:
         assert media.id is not None

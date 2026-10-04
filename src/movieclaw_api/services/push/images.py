@@ -23,9 +23,9 @@ IMAGE_PATH_PREFIX = "/api/v1/push/images/"
 
 
 def _tmdb_base() -> str:
-    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
-    return get_settings().tmdb_image_base_url.rstrip("/") + "/"
+    return effective_tmdb_image_base_url().rstrip("/") + "/"
 
 
 async def image_path(url: str | None) -> str | None:

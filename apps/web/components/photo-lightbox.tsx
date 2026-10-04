@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DownloadIcon, InfoIcon, XIcon } from "@/components/icons";
+import { DENSITY, usePhotoWallDensity } from "@/components/photo-wall";
 import {
   LIGHTBOX_ACTION_CLASS,
   LIGHTBOX_ACTION_ICON_CLASS,
@@ -69,6 +70,10 @@ export function PhotoLightbox({
   const [downloadNote, setDownloadNote] = useState<string | null>(null);
   const detailCache = useRef(new Map<number, LibraryItemDetail>());
 
+  // 缩略图取与墙上同一个地址（同一密度档的派生图）：墙已经加载过，灯箱打开、
+  // 底部胶片条直接命中浏览器缓存，不再为同一张照片多下一份
+  const [density] = usePhotoWallDensity();
+  const thumbVariant = DENSITY[density].variant;
   const slides = useMemo<ZoomLightboxSlide[]>(
     () =>
       items.map((entry) => {
@@ -76,13 +81,13 @@ export function PhotoLightbox({
         return {
           key: entry.media_item_id,
           title: entry.title,
-          thumbUrl: imageUrl(entry.poster_url),
+          thumbUrl: imageUrl(entry.poster_url, thumbVariant),
           screenUrl: fileId != null ? libraryFileOriginalUrl(fileId, { size: "screen" }) : "",
           fullUrl: fileId != null ? libraryFileOriginalUrl(fileId) : undefined,
           aspect: entry.primary_aspect,
         };
       }),
-    [items],
+    [items, thumbVariant],
   );
 
   const fileId = item?.primary_file_id ?? null;

@@ -1,5 +1,6 @@
 import Nuke
 import TVServices
+import UIKit
 
 /// 把「接下来继续」发布到 Top Shelf（数据流见 `TopShelfSnapshot`）：首页拿到最新的这一行时调一次，
 /// 下载前 8 部的剧照（带当前账号的令牌，经 Nuke 的磁盘缓存，多半不重新下载）、写进 App Group、通知系统重读。
@@ -29,7 +30,10 @@ enum TVTopShelfPublisher {
             var imageFile: String?
             if let url = api.image(raw, .reelStill),
                let (data, _) = try? await ImagePipeline.shared.data(for: ImageRequest(url: url)) {
-                imageFile = TopShelfStore.writeImage(data, named: "\(item.mediaItemId)-\(item.seasonNumber)-\(item.episodeNumber)")
+                // 派生图是 WebP，而快照里的文件名是 .jpg：转成真 JPEG 再写，扩展名与内容一致，
+                // 系统读图不必靠嗅探兜底（解不开就原样写，与改动前一致）
+                let jpeg = UIImage(data: data)?.jpegData(compressionQuality: 0.9) ?? data
+                imageFile = TopShelfStore.writeImage(jpeg, named: "\(item.mediaItemId)-\(item.seasonNumber)-\(item.episodeNumber)")
             }
             entries.append(TopShelfSnapshot.Item(
                 id: "\(item.mediaItemId)-\(item.seasonNumber)-\(item.episodeNumber)",

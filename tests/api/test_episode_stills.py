@@ -160,7 +160,7 @@ async def test_grabs_frame_only_for_episodes_without_tmdb_still(db, tmp_path, mo
         await session.commit()
 
     class _Proxy:
-        async def fetch(self, url: str):
+        async def fetch(self, url: str, *, accept: str | None = None):
             return b"tmdb-still", "image/jpeg"
 
     monkeypatch.setattr("movieclaw_api.services.image_proxy.get_image_proxy", lambda: _Proxy())
@@ -218,7 +218,7 @@ async def test_select_artwork_touches_only_the_picked_image(db, tmp_path, monkey
     fetched: list[str] = []
 
     class _Proxy:
-        async def fetch(self, url: str):
+        async def fetch(self, url: str, *, accept: str | None = None):
             fetched.append(url)
             return url.encode(), "image/jpeg"
 

@@ -79,6 +79,7 @@ from movieclaw_api.services.library.access import (
 )
 from movieclaw_api.services.library.items import build_season_episodes, episode_view
 from movieclaw_api.services.media_probe import probe_keyframe_before
+from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_api.services.playback import marks as playback_marks
 from movieclaw_api.services.playback import metrics, qoe, track_memory, trickplay, video_cues
 from movieclaw_api.services.playback import plan as playback_plan
@@ -2549,7 +2550,7 @@ async def get_playback_item(
         version = media_scrape.asset_version(meta_row.poster_file)
         poster_url = f"/images/assets/{meta_row.poster_file}?v={version}"
     elif item.poster_path:
-        base = get_settings().tmdb_image_base_url.rstrip("/")
+        base = effective_tmdb_image_base_url().rstrip("/")
         poster_url = f"{base}/w500{item.poster_path}"
     else:
         poster_url = None

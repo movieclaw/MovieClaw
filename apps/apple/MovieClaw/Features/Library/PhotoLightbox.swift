@@ -96,7 +96,8 @@ extension PhotoWallView {
                 return LibraryZoomableImage.Slide(
                     id: i,
                     title: item.title,
-                    thumbURL: api.image(item.posterUrl),
+                    // 与墙上瓦片同一个地址（同一密度档的派生图）：墙已经加载过，打开灯箱直接命中缓存
+                    thumbURL: api.image(item.posterUrl, GalleryPrefs.shared.density.variant),
                     screenURL: original.map { api.url($0, query: [URLQueryItem(name: "size", value: "screen")]) },
                     fullURL: original.map { api.url($0) },
                     aspect: item.primaryAspect

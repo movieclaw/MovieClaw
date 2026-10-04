@@ -26,7 +26,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.api.deps import require_admin
-from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException
 from movieclaw_api.schemas.library import (
     TrashedBatchFailureView,
@@ -45,6 +44,7 @@ from movieclaw_api.schemas.library import (
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.library.recycle import purge_file, restore_file
 from movieclaw_api.services.media_server_notify import notify_media_server_refresh
+from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import FileState, LibraryFile, MediaEpisode, MediaItem, utcnow
 from movieclaw_db.models.library import Library
@@ -244,7 +244,7 @@ def _item_view(
                 year=item.year,
                 kind=MediaKind(item.kind),
                 poster_url=(
-                    f"{get_settings().tmdb_image_base_url.rstrip('/')}/w185{item.poster_path}"
+                    f"{effective_tmdb_image_base_url().rstrip('/')}/w185{item.poster_path}"
                     if item.poster_path
                     else None
                 ),

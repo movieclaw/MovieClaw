@@ -107,20 +107,13 @@ class ImageVariantService:
         source_version: str,
         variant: ImageVariant,
     ) -> CachedImage:
-        preset = _PRESETS[variant]
         cache_key = (
             f"image-variant:{_ENCODER_VERSION}:{variant.value}:"
             f"{source_key}:{source_version}"
         )
 
         async def produce() -> tuple[bytes, str]:
-            async with self._slots:
-                try:
-                    data = await asyncio.to_thread(_render_webp, source_path, preset)
-                except (OSError, ValueError, UnidentifiedImageError) as exc:
-                    logger.warning("图片派生失败：%s（%s）", source_path, exc)
-                    raise UpstreamServiceException("图片缩略图生成失败") from exc
-                return data, "image/webp"
+            return await self._render(source_path, variant)
 
         return await self._cache.get_or_create(
             cache_key,
@@ -131,6 +124,35 @@ class ImageVariantService:
                 "variant": variant.value,
             },
         )
+
+    async def get_or_create_remote(self, url: str, *, variant: ImageVariant) -> CachedImage:
+        """远程图（图床 URL）的派生：缓存键只认 URL，命中就不碰原图。
+
+        图床 URL 的内容不可变（换图就是换地址，代理也据此给一年 immutable），
+        所以派生图不必跟着原图的缓存版本走。原先键里带原图版本，取派生图得先
+        把原图读出来：原图被 LRU 淘汰后，哪怕派生图还在，断网时也只能 502。
+        现在只有派生图也不在时才回源取原图。
+        """
+        cache_key = f"image-variant:{_ENCODER_VERSION}:{variant.value}:remote:{url}"
+
+        async def produce() -> tuple[bytes, str]:
+            original = await self._cache.get_or_fetch(url)
+            return await self._render(original.path, variant)
+
+        return await self._cache.get_or_create(
+            cache_key,
+            produce,
+            metadata={"source_key": f"remote:{url}", "variant": variant.value},
+        )
+
+    async def _render(self, source_path: Path, variant: ImageVariant) -> tuple[bytes, str]:
+        async with self._slots:
+            try:
+                data = await asyncio.to_thread(_render_webp, source_path, _PRESETS[variant])
+            except (OSError, ValueError, UnidentifiedImageError) as exc:
+                logger.warning("图片派生失败：%s（%s）", source_path, exc)
+                raise UpstreamServiceException("图片缩略图生成失败") from exc
+            return data, "image/webp"
 
 
 def _render_webp(source_path: Path, preset: VariantPreset) -> bytes:

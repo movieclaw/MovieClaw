@@ -45,10 +45,10 @@ from sqlalchemy import func, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api.core.config import get_settings
 from movieclaw_api.schemas.playback import UpNextItemView
 from movieclaw_api.services.library.thumbs import primary_aspect
 from movieclaw_api.services.media_scrape import asset_version
+from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_db.models import (
     Library,
     LibraryFile,
@@ -405,7 +405,7 @@ async def _hydrate(
         ).all()
     }
 
-    image_base = get_settings().tmdb_image_base_url.rstrip("/")
+    image_base = effective_tmdb_image_base_url().rstrip("/")
     result: list[UpNextItemView] = []
     for anchor, unit, library_id, ahead in picks:
         row = archive.get(anchor.media_item_id)

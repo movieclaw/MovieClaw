@@ -30,6 +30,7 @@ import contextlib
 import functools
 import logging
 import shutil
+import time
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import timedelta
@@ -46,6 +47,7 @@ from movieclaw_api.services.library.series import (
     ensure_series_collections_for_item,
     rename_series_collections,
 )
+from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_api.services.scrape_config import (
     effective_asset_sizes,
     effective_image_prefs,
@@ -96,6 +98,129 @@ _asset_semaphore = asyncio.Semaphore(2)
 # 下载图片/写媒体目录）。单条目刮削不传，零开销
 PhaseHook = Callable[[str], None] | None
 
+# 刮削的阶段顺序（进度里的「第几步 / 共几步」按它算）
+_TMDB_STEPS = ("拉取 TMDB 档案", "写入元数据", "读取本地 NFO", "下载图片", "写入媒体目录")
+_LOCAL_STEPS = ("读取 NFO", "生成封面")
+_IMAGE_STEP = "下载图片"
+
+
+def _format_bytes(size: int) -> str:
+    value = float(size)
+    for unit in ("B", "KB"):
+        if value < 1024:
+            return f"{value:.0f} {unit}"
+        value /= 1024
+    if value < 1024:
+        return f"{value:.1f} MB"
+    return f"{value / 1024:.1f} GB"
+
+
+@dataclass
+class AssetTally:
+    """一次图片同步的逐张记账：刷新任务据此显示「下载图片 120 / 480」与完成摘要。
+
+    ``planned`` 是这一轮要过一遍的图床图片张数（有 TMDB 路径的海报/背景/Logo/
+    季海报/分集剧照）；每张结算成三种结果之一——**新下载**、**沿用**（档位与来源
+    都没变、文件完好，不重下）、**失败**（保留旧图，下次刷新自愈）。TMDB 没有剧照、
+    从视频抓帧补的另记 ``grabbed``，不算进 planned（抓不抓要逐集看文件才知道）。
+
+    只在内存里累加；``on_change`` 每结算一张调一次，写库节流交给任务处理器——
+    长剧几百张图逐张写任务表会把事件时间线刷爆。
+    """
+
+    planned: int = 0
+    downloaded: int = 0
+    reused: int = 0
+    failed: int = 0
+    grabbed: int = 0
+    bytes: int = 0
+    grabbing: bool = False
+    on_change: Callable[[], None] | None = field(default=None, repr=False, compare=False)
+
+    @property
+    def settled(self) -> int:
+        return self.downloaded + self.reused + self.failed
+
+    def changed(self) -> None:
+        if self.on_change is not None:
+            self.on_change()
+
+    def record(self, outcome: str, size: int = 0) -> None:
+        """结算一张：outcome 是 downloaded / reused / failed / grabbed 之一。"""
+        setattr(self, outcome, getattr(self, outcome) + 1)
+        self.bytes += size
+        self.changed()
+
+    def add(self, other: AssetTally) -> None:
+        for name in ("planned", "downloaded", "reused", "failed", "grabbed", "bytes"):
+            setattr(self, name, getattr(self, name) + getattr(other, name))
+
+    def label(self) -> str:
+        """进行中的一句话：「下载图片 120 / 480 · 已下 230 MB」。"""
+        if self.grabbing:
+            return f"从视频截取分集剧照 · 已截 {self.grabbed} 张"
+        text = f"{_IMAGE_STEP} {self.settled} / {self.planned}"
+        return f"{text} · 已下 {_format_bytes(self.bytes)}" if self.bytes else text
+
+    def summary(self) -> str:
+        """完成摘要：「新下载 312 张（1.2 GB）、沿用 168 张、3 张失败」，零项不写。"""
+        parts = []
+        if self.downloaded:
+            parts.append(f"新下载 {self.downloaded} 张（{_format_bytes(self.bytes)}）")
+        if self.reused:
+            parts.append(f"沿用 {self.reused} 张")
+        if self.grabbed:
+            parts.append(f"从视频截取 {self.grabbed} 张")
+        if self.failed:
+            parts.append(f"{self.failed} 张失败，下次刷新自动补下")
+        return "、".join(parts)
+
+    def as_dict(self) -> dict[str, int]:
+        return {
+            "planned": self.planned,
+            "downloaded": self.downloaded,
+            "reused": self.reused,
+            "failed": self.failed,
+            "grabbed": self.grabbed,
+            "bytes": self.bytes,
+        }
+
+    @classmethod
+    def from_dict(cls, raw: object) -> AssetTally:
+        tally = cls()
+        if isinstance(raw, dict):
+            for name in ("planned", "downloaded", "reused", "failed", "grabbed", "bytes"):
+                value = raw.get(name)
+                if isinstance(value, int):
+                    setattr(tally, name, value)
+        return tally
+
+
+@dataclass
+class ScrapeProgress:
+    """一个条目刮削的结构化进度：第几步 / 共几步 + 图片逐张记账。
+
+    阶段回调（``PhaseHook``）只传一句文案，供详情页和媒体库卡片沿用；任务中心要的
+    步骤序号、图片计数从这里读。
+    """
+
+    phase: str = "排队中"
+    step: int = 0
+    steps: int = 0
+    images: AssetTally = field(default_factory=AssetTally)
+
+    def label(self) -> str:
+        return self.images.label() if self.phase == _IMAGE_STEP else self.phase
+
+    def fraction(self) -> float:
+        """这个条目大约完成了几成（整库进度条用）：按步骤算，下载图片那一步按张数细分。"""
+        if not self.steps or not self.step:
+            return 0.0
+        inside = 0.0
+        if self.phase == _IMAGE_STEP and self.images.planned:
+            inside = min(1.0, self.images.settled / self.images.planned)
+        return min(1.0, (self.step - 1 + inside) / self.steps)
+
 
 def is_scraping(media_item_id: int) -> bool:
     return media_item_id in _scraping
@@ -112,25 +237,34 @@ def scraping_phase(media_item_id: int) -> str | None:
 
 
 async def scrape_media_item(
-    media_item_id: int, *, force: bool = False, on_phase: PhaseHook = None
+    media_item_id: int,
+    *,
+    force: bool = False,
+    on_phase: PhaseHook = None,
+    progress: ScrapeProgress | None = None,
 ) -> bool:
     """对一个条目执行完整刮削（自开会话，不向外抛异常；返回是否成功）。
 
     ``force``：图片资产已存在也重新下载（文本档案本就每次全量拉取覆盖）。
     ``on_phase``：额外的阶段回调（整库刷新用它汇总"哪几部在跑"）；无论有没有
     传，阶段都会写进 ``_scraping``，详情页据此展示与整库刷新一致的状态。
+    下载图片那一步每结算一张就回调一次，文案带上张数（「下载图片 120 / 480」）。
+    ``progress``：调用方要结构化进度（步骤序号、图片记账）时传入，刮削中持续更新。
     """
     if media_item_id in _scraping:
         return False
     _scraping[media_item_id] = "排队中"
+    progress = progress if progress is not None else ScrapeProgress()
 
-    def _record(phase: str) -> None:
-        _scraping[media_item_id] = phase
+    def _record() -> None:
+        label = progress.label()
+        _scraping[media_item_id] = label
         if on_phase is not None:
-            on_phase(phase)
+            on_phase(label)
 
+    progress.images.on_change = _record
     try:
-        return await _scrape(media_item_id, force=force, on_phase=_record)
+        return await _scrape(media_item_id, force=force, progress=progress, report=_record)
     except TmdbNotConfiguredError:
         logger.warning("未配置 TMDB API Key，条目 #%s 刮削跳过", media_item_id)
         return False
@@ -141,7 +275,13 @@ async def scrape_media_item(
         _scraping.pop(media_item_id, None)
 
 
-async def _scrape(media_item_id: int, *, force: bool, on_phase: PhaseHook = None) -> bool:
+async def _scrape(
+    media_item_id: int,
+    *,
+    force: bool,
+    progress: ScrapeProgress,
+    report: Callable[[], None],
+) -> bool:
     from movieclaw_api.services.media_discover import get_tmdb_client
     from movieclaw_api.services.subscription import (
         expected_units,
@@ -150,8 +290,11 @@ async def _scrape(media_item_id: int, *, force: bool, on_phase: PhaseHook = None
     )
 
     def _phase(text: str) -> None:
-        if on_phase is not None:
-            on_phase(text)
+        steps = _LOCAL_STEPS if text in _LOCAL_STEPS else _TMDB_STEPS
+        progress.phase = text
+        progress.step = steps.index(text) + 1
+        progress.steps = len(steps)
+        report()
 
     db = get_database()
     async with db.session() as session:
@@ -235,8 +378,8 @@ async def _scrape(media_item_id: int, *, force: bool, on_phase: PhaseHook = None
             # 工单的搜索调度对齐最新上映信息（对应剧集 _grow_and_sync 的档期同步）
             await _sync_movie_schedule(session, subscription, item, profile.release_date)
 
-    _phase("下载图片")
-    await download_item_assets(media_item_id, force=force)
+    _phase(_IMAGE_STEP)
+    await download_item_assets(media_item_id, force=force, tally=progress.images)
     _phase("写入媒体目录")
     await mirror_media_dir_assets(media_item_id, force=force)
     return True
@@ -514,6 +657,34 @@ async def enqueue_item_metadata_refresh_job(
     )
 
 
+# 任务进度写库的最短间隔：进度是最高频的写路径，每写一次都是一次任务行更新外加一条
+# 事件时间线；长剧几百张图逐张写会把任务表刷爆，1 秒一跳对人眼已经足够「在动」
+_PROGRESS_WRITE_INTERVAL = 1.0
+# 处理器轮询内存进度的间隔（只读内存，不碰数据库）
+_PROGRESS_POLL_INTERVAL = 0.5
+
+
+class _ProgressWriter:
+    """节流写任务进度：内容没变不写，变了也至少隔 ``_PROGRESS_WRITE_INTERVAL``；
+    ``force`` 无视间隔立即写（检查点、收尾）。被节流掉的那一版由下一次轮询补上。"""
+
+    def __init__(self, context: jobs.JobContext) -> None:
+        self._context = context
+        self._lock = asyncio.Lock()
+        self._last: dict[str, object] | None = None
+        self._last_at = 0.0
+
+    async def write(self, payload: dict[str, object], *, force: bool = False) -> None:
+        async with self._lock:
+            if payload == self._last:
+                return
+            now = time.monotonic()
+            if not force and now - self._last_at < _PROGRESS_WRITE_INTERVAL:
+                return
+            await self._context.update_progress(**payload)
+            self._last, self._last_at = payload, now
+
+
 @jobs.register_job_handler("library.metadata.refresh")
 async def _run_library_metadata_refresh_job(
     context: jobs.JobContext, input_data: dict[str, object]
@@ -522,67 +693,140 @@ async def _run_library_metadata_refresh_job(
 
     单条目刮削本身幂等；检查点只在一批完整收口后前移，因此服务更新发生
     在任意网络请求或图片写入阶段都不会越过尚未完成的条目。
+
+    展示与检查点分开存：``current`` 是已刷完的条目数（逐部推进，不等整批），
+    ``details.checkpoint`` 才是续跑位置；``details.active`` 列出正在处理的几部和各自
+    的阶段（「下载图片 120 / 480」），``details.images`` 是全库图片记账。进度每秒
+    最多写一次库（``_ProgressWriter``）。
     """
     library_id = int(input_data["library_id"])
     raw_targets = input_data.get("targets")
     targets = list(raw_targets) if isinstance(raw_targets, list) else []
+    total = len(targets)
     persisted = await context.current_progress()
-    resume_at = min(max(int(persisted.get("current") or 0), 0), len(targets))
     details = persisted.get("details") if isinstance(persisted.get("details"), dict) else {}
-    failed = int(details.get("failed") or 0)
-    state = RefreshState(total=len(targets), processed=resume_at, failed=failed)
+    saved = details.get("checkpoint") if isinstance(details.get("checkpoint"), dict) else {}
+    # 旧版本落的进度没有 checkpoint：那时 current 本身就是整批收口的位置
+    resume_at = min(max(int(saved.get("resume_at", persisted.get("current") or 0) or 0), 0), total)
+    failed = int(saved.get("failed", details.get("failed") or 0) or 0)
+    images = AssetTally.from_dict(saved.get("images"))
+    done = resume_at
+    checkpoint = {"resume_at": resume_at, "failed": failed, "images": images.as_dict()}
+    state = RefreshState(total=total, processed=resume_at, failed=failed)
     if not _refresh_tasks.try_start(library_id, state):
         raise jobs.JobRetry("该媒体库已有元数据刷新正在收尾", delay_seconds=5)
 
+    # 正在处理的条目：media_item_id -> (标题, 结构化进度)；字典保持开始顺序
+    running: dict[int, tuple[str, ScrapeProgress]] = {}
+    writer = _ProgressWriter(context)
+
+    def _payload() -> dict[str, object]:
+        live = AssetTally()
+        live.add(images)
+        for _title, progress in running.values():
+            live.add(progress.images)
+        moving = sum(progress.fraction() for _title, progress in running.values())
+        percent = (done + moving) / total * 100 if total else 100.0
+        # 摘要一句话写「正在刷新哪部、到哪一步」：活动页时间线只显示这一句，件数另有
+        # current / total。片名用「」——时间线会把摘要里《》括起来的当成任务标题
+        message = f"已刷新 {done} / {total} 个条目"
+        if running:
+            title, progress = next(iter(running.values()))
+            message = f"正在刷新「{title}」：{progress.label()}"
+            if len(running) > 1:
+                message += f"（另有 {len(running) - 1} 部同时进行）"
+        return {
+            "mode": "determinate",
+            "phase": "refreshing",
+            "message": message,
+            "current": done,
+            "total": total,
+            "percent": round(min(percent, 100.0), 1),
+            "details": {
+                "failed": failed,
+                "active": [
+                    {
+                        "media_item_id": item_id,
+                        "title": title,
+                        "phase": progress.label(),
+                        "step": progress.step,
+                        "steps": progress.steps,
+                    }
+                    for item_id, (title, progress) in running.items()
+                ],
+                "images": live.as_dict(),
+                "checkpoint": dict(checkpoint),
+            },
+        }
+
+    async def _tick() -> None:
+        while True:
+            await asyncio.sleep(_PROGRESS_POLL_INTERVAL)
+            try:
+                await writer.write(_payload())
+            except Exception:  # noqa: BLE001 -- 进度只是展示，写失败不能拖垮刷新
+                logger.debug("整库刷新进度写入失败", exc_info=True)
+
+    async def _refresh_one(raw: object) -> None:
+        nonlocal done, failed
+        if not isinstance(raw, dict):
+            return
+        item_id = int(raw["media_item_id"])
+        title = str(raw.get("title") or f"条目 #{item_id}")
+        progress = ScrapeProgress()
+        running[item_id] = (title, progress)
+        state.active[item_id] = (title, "排队中")
+        ok = False
+        try:
+            ok = await scrape_media_item(
+                item_id,
+                force=True,
+                progress=progress,
+                on_phase=lambda phase, _id=item_id, _title=title: state.active.__setitem__(
+                    _id, (_title, phase)
+                ),
+            )
+        finally:
+            state.active.pop(item_id, None)
+            running.pop(item_id, None)
+        done += 1
+        failed += not ok
+        images.add(progress.images)
+        state.processed, state.failed = done, failed
+
+    ticker = asyncio.create_task(_tick(), name=f"library-refresh-progress-{library_id}")
     try:
-        for start in range(resume_at, len(targets), _REFRESH_CONCURRENCY):
+        for start in range(resume_at, total, _REFRESH_CONCURRENCY):
             await context.raise_if_cancelled()
             batch = targets[start : start + _REFRESH_CONCURRENCY]
+            await asyncio.gather(*(_refresh_one(raw) for raw in batch))
+            checkpoint = {
+                "resume_at": start + len(batch),
+                "failed": failed,
+                "images": images.as_dict(),
+            }
+            await writer.write(_payload(), force=True)
 
-            async def _refresh_one(raw: object) -> bool:
-                if not isinstance(raw, dict):
-                    return False
-                item_id = int(raw["media_item_id"])
-                title = str(raw.get("title") or f"条目 #{item_id}")
-                state.active[item_id] = (title, "排队中")
-                try:
-                    return await scrape_media_item(
-                        item_id,
-                        force=True,
-                        on_phase=lambda phase, _id=item_id, _title=title: state.active.__setitem__(
-                            _id, (_title, phase)
-                        ),
-                    )
-                finally:
-                    state.active.pop(item_id, None)
-
-            outcomes = await asyncio.gather(*(_refresh_one(raw) for raw in batch))
-            failed += sum(not ok for ok in outcomes)
-            state.failed = failed
-            state.processed = start + len(batch)
-            percent = state.processed / len(targets) * 100 if targets else 100.0
-            await context.update_progress(
-                mode="determinate",
-                phase="refreshing",
-                message=f"已刷新 {state.processed} / {len(targets)} 个条目",
-                current=state.processed,
-                total=len(targets),
-                percent=round(percent, 1),
-                details={"failed": failed, "active": []},
-            )
-
-        message = f"元数据刷新完成，共 {len(targets)} 个条目"
+        message = f"元数据刷新完成，共 {total} 个条目"
         if failed:
             message += f"，其中 {failed} 个未完成"
+        if summary := images.summary():
+            message += f"；图片：{summary}"
+        # 收尾再写一版：完成后 details 原样保留，任务卡据此显示图片明细
+        await writer.write(_payload(), force=True)
         logger.info("媒体库 #%s %s", library_id, message)
         return {
             "message": message,
             "library_id": library_id,
-            "processed": len(targets),
-            "total": len(targets),
+            "processed": total,
+            "total": total,
             "failed": failed,
+            "images": images.as_dict(),
         }
     finally:
+        ticker.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await ticker
         _refresh_tasks.finish(library_id)
 
 
@@ -590,36 +834,47 @@ async def _run_library_metadata_refresh_job(
 async def _run_item_metadata_refresh_job(
     context: jobs.JobContext, input_data: dict[str, object]
 ) -> dict[str, object]:
-    """单条目刷新处理器；阶段写入公共进度，取消与重启都可安全重跑。"""
+    """单条目刷新处理器；阶段（第几步 / 共几步）与图片逐张记账写入公共进度，
+    取消与重启都可安全重跑。下载图片那一步是确定进度（120 / 480 张）。"""
     media_item_id = int(input_data["media_item_id"])
     title = str(input_data.get("title") or f"条目 #{media_item_id}")
     if is_scraping(media_item_id):
         raise jobs.JobRetry(f"《{title}》已有一次刮削正在收尾", delay_seconds=5)
 
-    phase = "准备刷新"
+    progress = ScrapeProgress()
+    writer = _ProgressWriter(context)
 
-    def _phase(value: str) -> None:
-        nonlocal phase
-        phase = value
+    def _payload(*, final: bool = False) -> dict[str, object]:
+        tally = progress.images
+        counting = bool(tally.planned) and (
+            final or (progress.phase == _IMAGE_STEP and not tally.grabbing)
+        )
+        return {
+            "mode": "determinate" if counting else "indeterminate",
+            "phase": "refreshing",
+            "message": progress.label(),
+            "current": tally.settled if counting else None,
+            "total": tally.planned if counting else None,
+            "percent": round(tally.settled / tally.planned * 100, 1) if counting else None,
+            "phase_index": progress.step or None,
+            "phase_count": progress.steps or None,
+            "details": {
+                "media_item_id": media_item_id,
+                "title": title,
+                "images": tally.as_dict(),
+            },
+        }
 
     runner = asyncio.create_task(
-        scrape_media_item(media_item_id, force=True, on_phase=_phase),
+        scrape_media_item(media_item_id, force=True, progress=progress),
         name=f"metadata-refresh-{media_item_id}",
     )
-    last_phase = ""
     try:
         while not runner.done():
             await context.raise_if_cancelled()
-            if phase != last_phase:
-                await context.update_progress(
-                    mode="indeterminate",
-                    phase="refreshing",
-                    message=phase,
-                    details={"media_item_id": media_item_id, "title": title},
-                )
-                last_phase = phase
+            await writer.write(_payload())
             with contextlib.suppress(TimeoutError):
-                await asyncio.wait_for(asyncio.shield(runner), timeout=0.5)
+                await asyncio.wait_for(asyncio.shield(runner), timeout=_PROGRESS_POLL_INTERVAL)
         if not await runner:
             raise jobs.JobFailed(
                 f"《{title}》元数据刷新未完成，请检查 TMDB 配置或后端日志",
@@ -629,10 +884,16 @@ async def _run_item_metadata_refresh_job(
                     {"type": "open_settings", "label": "检查设置", "target": "metadata"},
                 ],
             )
+        # 收尾再写一版：完成后 details 原样保留，任务卡据此显示图片明细
+        await writer.write(_payload(final=True), force=True)
+        message = f"《{title}》元数据刷新完成"
+        if summary := progress.images.summary():
+            message += f"；图片：{summary}"
         return {
-            "message": f"《{title}》元数据刷新完成",
+            "message": message,
             "library_id": int(input_data["library_id"]),
             "media_item_id": media_item_id,
+            "images": progress.images.as_dict(),
         }
     finally:
         if not runner.done():
@@ -1532,8 +1793,11 @@ async def download_item_assets(
     force: bool = False,
     ignore_locks: bool = False,
     only: str | None = None,
+    tally: AssetTally | None = None,
 ) -> None:
     """下载条目的全部图片资产（缺失才下，force 覆盖重下）。
+
+    ``tally``：逐张记账（刷新任务显示「下载图片 120 / 480」用）；不传就记在一次性对象上。
 
     分集剧照只给**在库条目**下（订阅了几百集但一集未入库的剧，几百张
     剧照没有消费方，白占磁盘与请求量）；TMDB 没有剧照的在库分集从视频
@@ -1569,12 +1833,24 @@ async def download_item_assets(
         ).scalar_one_or_none() is not None
 
         item_dir = assets_root() / str(media_item_id)
-        base = get_settings().tmdb_image_base_url.rstrip("/")
+        # 设置页配的图床镜像优先（与发现页同一口径），没配才是环境变量
+        base = effective_tmdb_image_base_url().rstrip("/")
         poster_size, backdrop_size, still_size = _asset_sizes(
             await scrape_setting_for_item(session, item)
         )
         sources = await asyncio.to_thread(_load_asset_sources, item_dir)
         saved_sources = dict(sources)
+        tally = tally if tally is not None else AssetTally()
+        # 先数清这一轮要过的图床图片（与下面逐张 _sync_asset 的口径一致：有 TMDB 路径才算）
+        planned_paths = [
+            item.poster_path if only in (None, "poster") else None,
+            item.backdrop_path if only in (None, "backdrop") else None,
+            item.logo_path if only in (None, "logo") else None,
+            *(season.poster_path for season in seasons),
+            *(episode.still_path for episode in episodes if has_files),
+        ]
+        tally.planned += sum(1 for path in planned_paths if path)
+        tally.changed()
 
         async with _asset_semaphore:
             if only in (None, "poster"):
@@ -1587,7 +1863,7 @@ async def download_item_assets(
                     force and (ignore_locks or not meta.poster_locked),
                     sources,
                     "poster",
-                    locked=meta.poster_locked and not ignore_locks,
+                    tally=tally,
                 )
             if only in (None, "backdrop"):
                 meta.backdrop_file = await _sync_asset(
@@ -1599,7 +1875,7 @@ async def download_item_assets(
                     force and (ignore_locks or not meta.backdrop_locked),
                     sources,
                     "backdrop",
-                    locked=meta.backdrop_locked and not ignore_locks,
+                    tally=tally,
                 )
             if only in (None, "logo"):
                 if item.logo_path == "":
@@ -1621,7 +1897,7 @@ async def download_item_assets(
                         force and (ignore_locks or not meta.logo_locked),
                         sources,
                         "logo",
-                        locked=meta.logo_locked and not ignore_locks,
+                        tally=tally,
                         png=True,
                     )
             session.add(meta)
@@ -1635,6 +1911,7 @@ async def download_item_assets(
                     force,
                     sources,
                     f"season-{season.season_number}",
+                    tally=tally,
                 )
                 session.add(season)
             if has_files:
@@ -1649,12 +1926,13 @@ async def download_item_assets(
                         force,
                         sources,
                         key,
+                        tally=tally,
                     )
                     session.add(episode)
         if has_files and episodes:
             # TMDB 没给剧照的在库分集：从视频抓一帧顶上（在图床闸外做，抓帧
             # 走自己的 FRAME_GRAB_GATE，别占着下载并发位解码视频）
-            await _grab_missing_stills(session, item, episodes, item_dir, sources, force)
+            await _grab_missing_stills(session, item, episodes, item_dir, sources, force, tally)
         if sources != saved_sources:
             await asyncio.to_thread(_save_asset_sources, item_dir, sources)
         await session.commit()
@@ -1667,6 +1945,7 @@ async def _grab_missing_stills(
     item_dir: Path,
     sources: dict[str, str],
     force: bool,
+    tally: AssetTally,
 ) -> None:
     """给 TMDB 没有剧照的在库分集抓帧补图（thumbs.build_episode_still）。
 
@@ -1713,6 +1992,9 @@ async def _grab_missing_stills(
         video = Path(file.file_path)
         if await asyncio.to_thread(find_episode_thumb, video) is not None:
             continue
+        if not tally.grabbing:
+            tally.grabbing = True
+            tally.changed()
         async with FRAME_GRAB_GATE:
             size = await asyncio.to_thread(
                 build_episode_still,
@@ -1728,6 +2010,8 @@ async def _grab_missing_stills(
         episode.updated_at = utcnow()
         sources[key] = f"frame:{video}"
         session.add(episode)
+        tally.record("grabbed")
+    tally.grabbing = False
 
 
 _SOURCES_FILE = "sources.json"
@@ -1770,18 +2054,24 @@ async def _sync_asset(
     sources: dict[str, str],
     key: str,
     *,
-    locked: bool = False,
+    tally: AssetTally,
     png: bool = False,
 ) -> str | None:
     """下载单张图到资产目录，返回落库的相对路径（失败保留现值/None）。
 
-    跳过条件（普通刷新）：文件在**且溯源与当前来源一致**——TMDB 换图
-    （poster_path 变更）或档位配置调整都会触发重下，资产随刷新保持最新。
-    ``locked``（手动选定）：只要文件还在就不动，上游换图与它无关。
-    ``png``：资产必须是真 PNG（片名 Logo 要镜像成 clearlogo.png 给外部播放器
-    读）。图片代理默认的浏览器式 Accept 带着 webp，TMDB 的 CDN 会据此协商出
-    **有损** WebP（实测：原版透明 PNG 被换成 VP8 + ALPH），所以点名要 PNG；
-    图床镜像不认 Accept、照样回别的格式时转成 PNG 兜底（透明通道保留）。
+    跳过条件（普通刷新）：文件在、**格式与扩展名相符、且溯源与当前来源一致**——
+    TMDB 换图（poster_path 变更）或档位配置调整都会触发重下，资产随刷新保持最新。
+    手动选定（locked）的图同样按溯源比对：锁保护的是「用哪张图」——选定后
+    ``poster_path`` 等不再被刮削覆盖、``force`` 也不重下——而不是「用什么分辨率」，
+    档位调了照样按选定的那张重下（docs/design/metadata.md 6.1）。
+
+    **按扩展名点名要格式**：图片代理默认的浏览器式 Accept 带着 webp，TMDB 的 CDN
+    会据此协商出**有损** WebP（实测：原版透明 PNG 被换成 VP8 + ALPH，original 档
+    剧照 185KB 的原版 JPEG 被换成 75KB 的 WebP）。资产既是本地事实源、又会镜像成
+    poster.jpg / -thumb.jpg / clearlogo.png 给 Kodi、Emby 读，所以点名要扩展名
+    对应的格式（``png`` = 片名 Logo 要真 PNG，其余要 JPEG），拿到的才是原版字节；
+    图床镜像不认 Accept、照样回别的格式时就地转换兜底（PNG 保留透明通道）。
+    早先按浏览器 Accept 落下的 WebP-in-.jpg 文件，格式对不上会在下次刷新时重下。
     """
     if not tmdb_path:
         return current
@@ -1791,12 +2081,14 @@ async def _sync_asset(
     # 属跨平台无操作。
     rel = dest.relative_to(assets_root()).as_posix()
     want = f"{size}{tmdb_path}"
+    expected = "png" if png else "jpeg"
     if (
         not force
         and current == rel
-        and (locked or sources.get(key) == want)
-        and await asyncio.to_thread(dest.is_file)
+        and sources.get(key) == want
+        and await asyncio.to_thread(_asset_file_ok, dest, expected)
     ):
+        tally.record("reused")
         return current
     from movieclaw_api.services.image_proxy import get_image_proxy
 
@@ -1807,20 +2099,53 @@ async def _sync_asset(
             if not data.startswith(_PNG_SIGNATURE):
                 data = await asyncio.to_thread(_to_png, data)
         else:
-            data, _content_type = await get_image_proxy().fetch(url)
+            data, _content_type = await get_image_proxy().fetch(url, accept="image/jpeg")
+            if _image_kind(data) not in ("jpeg", None):
+                data = await asyncio.to_thread(_to_jpeg, data)
     except Exception as exc:  # noqa: BLE001 -- 单张失败不阻断
         logger.warning("图片资产下载失败（保持缺失，下次刷新自愈）：%s（%s）", tmdb_path, exc)
+        tally.record("failed")
         return current
     try:
         await asyncio.to_thread(_atomic_write, dest, data)
     except OSError as exc:
         logger.warning("图片资产写盘失败：%s（%s）", dest, exc)
+        tally.record("failed")
         return current
     sources[key] = want
+    tally.record("downloaded", len(data))
     return rel
 
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+
+
+def _image_kind(head: bytes) -> str | None:
+    """按文件头认图片格式：jpeg / png / webp / gif / avif；认不出返回 None。"""
+    if head.startswith(b"\xff\xd8\xff"):
+        return "jpeg"
+    if head.startswith(_PNG_SIGNATURE):
+        return "png"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    if head[4:8] == b"ftyp" and head[8:12] in (b"avif", b"avis"):
+        return "avif"
+    return None
+
+
+def _asset_file_ok(dest: Path, expected: str) -> bool:
+    """资产文件在、且不是**认得出的别种格式**（WebP 冒充 .jpg 这类）。
+
+    认不出的字节不判错：只纠正确定错了的文件，不因为格式识别的盲区反复重下。
+    """
+    try:
+        with dest.open("rb") as handle:
+            head = handle.read(16)
+    except OSError:
+        return False
+    return _image_kind(head) in (expected, None)
 
 
 def _to_png(data: bytes) -> bytes:
@@ -1832,6 +2157,18 @@ def _to_png(data: bytes) -> bytes:
     with Image.open(io.BytesIO(data)) as image:
         buffer = io.BytesIO()
         image.convert("RGBA").save(buffer, "PNG")
+    return buffer.getvalue()
+
+
+def _to_jpeg(data: bytes) -> bytes:
+    """Pillow 能解的任意图片 → JPEG（q95，只在图床不认 Accept 时兜底一次）。"""
+    import io
+
+    from PIL import Image
+
+    with Image.open(io.BytesIO(data)) as image:
+        buffer = io.BytesIO()
+        image.convert("RGB").save(buffer, "JPEG", quality=95)
     return buffer.getvalue()
 
 
@@ -1890,7 +2227,6 @@ async def list_artwork_candidates(media_item_id: int) -> ArtworkCandidates:
         original_language = meta.original_language if meta else None
         # 候选图的排序规则必须与自动选图完全同源，所以同样按归属库解析
         scrape_setting = await scrape_setting_for_item(session, item)
-    settings = get_settings()
     prefs = effective_image_prefs(scrape_setting)
     language = effective_language(scrape_setting)
     # 候选语言集由选图偏好推导；「原始语言」此处已知（档案落库过），直接并入
@@ -1919,7 +2255,7 @@ async def list_artwork_candidates(media_item_id: int) -> ArtworkCandidates:
     logos = list_logo_candidates(
         {"images": data}, primary_language=language, original_language=original_language
     )
-    base = settings.tmdb_image_base_url.rstrip("/")
+    base = effective_tmdb_image_base_url().rstrip("/")
 
     def _view(image: dict, preview_size: str) -> dict:
         return {

@@ -966,7 +966,7 @@ async def test_asset_size_config_changes_download_url(db, tmp_path, monkeypatch)
     urls: list[str] = []
 
     class _FakeProxy:
-        async def fetch(self, url: str):
+        async def fetch(self, url: str, *, accept: str | None = None):
             urls.append(url)
             return b"img", "image/jpeg"
 
@@ -1001,6 +1001,202 @@ async def test_asset_sizes_follow_env_when_unset(db, tmp_path, monkeypatch):
     _apply_setting(poster_size="w342")
     assert effective_asset_sizes()[0] == "w342"
     get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_locked_asset_follows_size_change(db, tmp_path, monkeypatch):
+    """手动选定（加锁）的海报：锁住的是「哪一张」，档位调了照样按选定的那张重下。"""
+    from movieclaw_api.services.media_scrape import download_item_assets
+    from movieclaw_db.models import MediaMetadata
+
+    _apply_setting(poster_size="w500")
+    async with db.session() as session:
+        item = await _make_item(session, kind=MediaKind.MOVIE, tmdb_id=7, title="片", year=2020)
+        item.poster_path = "/chosen.jpg"
+        session.add(item)
+        session.add(MediaMetadata(media_item_id=item.id, poster_locked=True))
+        await session.commit()
+        item_id = item.id
+
+    urls: list[str] = []
+
+    class _FakeProxy:
+        async def fetch(self, url: str, *, accept: str | None = None):
+            urls.append(url)
+            return b"img", "image/jpeg"
+
+    monkeypatch.setattr("movieclaw_api.services.image_proxy.get_image_proxy", lambda: _FakeProxy())
+    # force=True 即媒体库「刷新元数据」的口径
+    await download_item_assets(item_id, force=True)
+    assert urls == [f"{get_settings().tmdb_image_base_url}/w500/chosen.jpg"]
+
+    # 档位没变：锁定的图 force 也不重下
+    urls.clear()
+    await download_item_assets(item_id, force=True)
+    assert urls == []
+
+    # 档位变了：按选定的那张、新档位重下
+    _apply_setting(poster_size="original")
+    await download_item_assets(item_id, force=True)
+    assert urls == [f"{get_settings().tmdb_image_base_url}/original/chosen.jpg"]
+
+
+def _image_bytes(fmt: str) -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buffer = BytesIO()
+    Image.new("RGB", (32, 18), "#336699").save(buffer, fmt)
+    return buffer.getvalue()
+
+
+@pytest.mark.asyncio
+async def test_assets_request_original_jpeg_and_replace_webp(db, tmp_path, monkeypatch):
+    """资产点名要 JPEG：拿 TMDB 原版字节，而不是 CDN 按浏览器 Accept 协商的有损 WebP。
+
+    镜像站不认 Accept、硬回 WebP 时就地转成 JPEG；早先按旧口径落下的
+    WebP-in-.jpg 文件，普通刷新就会认出来重下，格式没问题的不碰。
+    """
+    from movieclaw_api.services.media_scrape import assets_root, download_item_assets
+    from movieclaw_db.models import MediaMetadata
+
+    _apply_setting()
+    async with db.session() as session:
+        item = await _make_item(session, kind=MediaKind.MOVIE, tmdb_id=8, title="片", year=2021)
+        item.poster_path = "/p.jpg"
+        item.backdrop_path = "/b.jpg"
+        session.add(item)
+        session.add(MediaMetadata(media_item_id=item.id))
+        await session.commit()
+        item_id = item.id
+
+    calls: list[tuple[str, str | None]] = []
+    reply = {"bytes": _image_bytes("WEBP")}
+
+    class _FakeProxy:
+        async def fetch(self, url: str, *, accept: str | None = None):
+            calls.append((url, accept))
+            return reply["bytes"], "image/webp"
+
+    monkeypatch.setattr("movieclaw_api.services.image_proxy.get_image_proxy", lambda: _FakeProxy())
+    await download_item_assets(item_id)
+    item_dir = assets_root() / str(item_id)
+    assert {accept for _url, accept in calls} == {"image/jpeg"}
+    # 镜像站硬回 WebP：落盘前转成真 JPEG，扩展名与内容一致
+    assert (item_dir / "poster.jpg").read_bytes()[:3] == b"\xff\xd8\xff"
+    assert (item_dir / "backdrop.jpg").read_bytes()[:3] == b"\xff\xd8\xff"
+
+    # 旧口径留下的 WebP-in-.jpg：普通刷新（非强制）认出格式不符而重下
+    (item_dir / "poster.jpg").write_bytes(_image_bytes("WEBP"))
+    reply["bytes"] = _image_bytes("JPEG")
+    calls.clear()
+    await download_item_assets(item_id)
+    assert [url.rsplit("/", 1)[-1] for url, _accept in calls] == ["p.jpg"]
+    assert (item_dir / "poster.jpg").read_bytes()[:3] == b"\xff\xd8\xff"
+
+
+@pytest.mark.asyncio
+async def test_asset_tally_counts_each_image_outcome(db, tmp_path, monkeypatch):
+    """逐张记账：要过的张数先数清，每张结算成新下载 / 沿用 / 失败之一（任务进度据此显示）。"""
+    from movieclaw_api.services.media_scrape import AssetTally, download_item_assets
+    from movieclaw_db.models import MediaMetadata
+
+    _apply_setting()
+    async with db.session() as session:
+        item = await _make_item(session, kind=MediaKind.MOVIE, tmdb_id=10, title="片", year=2023)
+        item.poster_path = "/p.jpg"
+        item.backdrop_path = "/b.jpg"
+        session.add(item)
+        session.add(MediaMetadata(media_item_id=item.id))
+        await session.commit()
+        item_id = item.id
+
+    broken = {"/b.jpg"}
+
+    class _FakeProxy:
+        async def fetch(self, url: str, *, accept: str | None = None):
+            if any(url.endswith(path) for path in broken):
+                raise RuntimeError("图床超时")
+            return _image_bytes("JPEG"), "image/jpeg"
+
+    monkeypatch.setattr("movieclaw_api.services.image_proxy.get_image_proxy", lambda: _FakeProxy())
+    first = AssetTally()
+    await download_item_assets(item_id, tally=first)
+    assert (first.planned, first.downloaded, first.failed, first.reused) == (2, 1, 1, 0)
+    assert first.bytes > 0
+
+    # 图床恢复：海报档位与来源没变 → 沿用；背景上次失败 → 这次补下
+    broken.clear()
+    second = AssetTally()
+    await download_item_assets(item_id, tally=second)
+    assert (second.planned, second.downloaded, second.failed, second.reused) == (2, 1, 0, 1)
+    assert second.summary().startswith("新下载 1 张")
+
+
+@pytest.mark.asyncio
+async def test_asset_download_uses_mirror_base(db, tmp_path, monkeypatch):
+    """设置页配了图床镜像：刮削下载走镜像（与发现页同一口径），不再硬走环境变量。"""
+    import movieclaw_api.services.network_egress as egress
+    from movieclaw_api.services.media_scrape import download_item_assets
+    from movieclaw_api.settings import NetworkEgressSetting
+    from movieclaw_db.models import MediaMetadata
+
+    _apply_setting()
+    monkeypatch.setattr(
+        egress, "_current", NetworkEgressSetting(tmdb_image_base_url="https://mirror.example/t/p")
+    )
+    async with db.session() as session:
+        item = await _make_item(session, kind=MediaKind.MOVIE, tmdb_id=9, title="片", year=2022)
+        item.poster_path = "/p.jpg"
+        session.add(item)
+        session.add(MediaMetadata(media_item_id=item.id))
+        await session.commit()
+        item_id = item.id
+
+    urls: list[str] = []
+
+    class _FakeProxy:
+        async def fetch(self, url: str, *, accept: str | None = None):
+            urls.append(url)
+            return b"img", "image/jpeg"
+
+    monkeypatch.setattr("movieclaw_api.services.image_proxy.get_image_proxy", lambda: _FakeProxy())
+    await download_item_assets(item_id)
+    assert urls == ["https://mirror.example/t/p/w780/p.jpg"]
+
+
+@pytest.mark.asyncio
+async def test_library_empty_override_follows_global(db, tmp_path):
+    """库级覆盖里的空值 = 跟随全局，而不是穿透到环境变量 / 内置默认。"""
+    from movieclaw_api.services.scrape_config import (
+        effective_asset_sizes,
+        effective_naming_templates,
+        merge_for_library,
+        sanitize_overrides,
+    )
+
+    _apply_setting(still_size="original", naming_entry_dir="{original_title} ({year})")
+    async with db.session() as session:
+        library = await _make_library(
+            session,
+            kind=MediaKind.TV,
+            root=tmp_path / "tv",
+            name="库",
+            scrape_overrides={
+                "still_size": "",
+                "naming_entry_dir": "  ",
+                "language_priority": [],
+                "poster_size": "w500",
+            },
+        )
+
+    sizes = effective_asset_sizes(merge_for_library(library))
+    assert sizes[2] == "original"  # 跟随全局，不是环境变量的 w300
+    assert sizes[0] == "w500"  # 显式覆盖照常生效
+    assert effective_naming_templates(library).entry_dir == "{original_title} ({year})"
+    # 保存入口同一道清洗：空值不落库
+    assert sanitize_overrides({"still_size": "", "poster_size": "w500"}) == {"poster_size": "w500"}
 
 
 # ===========================================================================

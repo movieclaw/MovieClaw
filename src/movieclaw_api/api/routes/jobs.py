@@ -213,7 +213,9 @@ async def stream_jobs(
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        # no-transform 阻止中间层 gzip：压缩器会攒块，经 Next 代理时事件一条都到不了
+        # 浏览器，任务进度只能等 60 秒一次的兜底轮询（同 agent / search 的 SSE）
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
     )
 
 

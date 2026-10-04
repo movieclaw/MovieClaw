@@ -121,7 +121,8 @@ class Settings(BaseSettings):
     # - 海报详情页 186px、墙 148px，2 倍屏下 w780 足够锐利（典型 200~400KB）；
     # - 分集剧照是小卡片且一部剧动辄几百集，保持 w300（典型 20~40KB）。
     # 磁盘吃紧可整体调低（如 w500/w1280/w185）；改动后**整库刷新会自动
-    # 按新档位重下**存量图片（见 media_scrape 的 asset_profile 机制）。
+    # 按新档位重下**存量图片，定时刷新轮到的条目也会按溯源记录发现档位变了
+    # 而重下（见 media_scrape 的 sources.json 溯源机制）。
     # 合法档位见 TMDB configuration 接口：海报 w92~w780/original，
     # 背景 w300/w780/w1280/original，剧照 w92/w185/w300/original。
     tmdb_poster_size: str = Field(default="w780", alias="TMDB_POSTER_SIZE")

@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.api.deps import require_login
-from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from movieclaw_api.schemas.library import (
     CollectionCover,
@@ -57,6 +56,7 @@ from movieclaw_api.services.library.series import (
     is_series_collection,
     load_series_parts,
 )
+from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import (
     Collection,
@@ -880,7 +880,7 @@ async def get_collection_series(
         if t is not None
     }
 
-    base = get_settings().tmdb_image_base_url.rstrip("/")
+    base = effective_tmdb_image_base_url().rstrip("/")
     views = [
         SeriesPartView(
             tmdb_id=part["tmdb_id"],

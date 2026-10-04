@@ -191,10 +191,22 @@ def sanitize_overrides(raw: object, *, fields: frozenset[str] = LIBRARY_OVERRIDA
     写入的字段（字段被移出可覆盖集合后），静默忽略比报错合适。
     ``fields`` 让两条解析路径各取自己那一半——目录态的读取点不该看见
     条目态的覆盖，反之亦然。
+
+    **空值（空串 / 空列表）= 没覆盖、跟随全局**：这些字段在全局层的空值意思是
+    「跟随环境变量 / 内置默认」，到了库这一层，「空」只能是「跟随上一级」（界面
+    写的也是「留空即跟随全局」）。不剔掉的话，合并时空值会盖掉全局值，库实际
+    跟的是环境变量或内置默认——例：库设置里剧照档位选「跟随」存成空串，全局
+    改成 original 后，这个库照样按环境变量下 w300。
     """
     if not isinstance(raw, dict):
         return {}
-    return {k: v for k, v in raw.items() if k in fields}
+    return {k: v for k, v in raw.items() if k in fields and not _is_empty_override(v)}
+
+
+def _is_empty_override(value: object) -> bool:
+    if isinstance(value, str):
+        return not value.strip()
+    return isinstance(value, list) and not value
 
 
 def merge_for_library(

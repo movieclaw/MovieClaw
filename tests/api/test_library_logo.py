@@ -25,6 +25,7 @@ from movieclaw_api.services.media_scrape import (
     assets_root,
     mirror_media_dir_assets,
     scrape_media_item,
+    select_artwork,
 )
 from movieclaw_api.services.scrape_config import reset_scrape_config
 from movieclaw_db.engine import dispose_db, get_database, init_db
@@ -255,22 +256,21 @@ async def test_logo_asset_dropped_when_tmdb_has_no_logo(env, tmp_path) -> None:
 
 
 async def test_locked_logo_survives_forced_refresh(env, tmp_path) -> None:
-    """手动锁定的 Logo：自动选图与 force 刷新都不覆盖，也不重下资产。"""
+    """手动锁定的 Logo：自动选图与 force 刷新都不覆盖，也不重下资产。
+
+    走真实的选图入口（选定即当场落盘）：锁不再无条件跳过下载，而是按溯源
+    比对——资产与选定的那张对得上、档位也没变，才不重下。
+    """
     _tmdb, proxy = env
     item_id, _entry = await _scan_movie(tmp_path)
-    async with get_database().session() as session:
-        item = await session.get(MediaItem, item_id)
-        meta = await MediaItemRepository(session).get_metadata(item_id)
-        item.logo_path = "/logo-en.png"
-        meta.logo_locked = True
-        session.add_all([item, meta])
-        await session.commit()
+    assert await select_artwork(item_id, kind="logo", file_path="/logo-en.png")
     proxy.fetched.clear()
 
     assert await scrape_media_item(item_id, force=True)
 
     item, meta = await _state(item_id)
     assert item.logo_path == "/logo-en.png"
+    assert meta.logo_locked
     # 锁定的资产 force 也不重下：档位与溯源都没变，那张图就是用户要的
     assert not any("logo" in url for url in proxy.fetched)
 

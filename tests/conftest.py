@@ -280,7 +280,7 @@ def _offline_image_proxy(monkeypatch):
     """
 
     class _Offline:
-        async def fetch(self, url: str):
+        async def fetch(self, url: str, *, accept: str | None = None):
             raise RuntimeError("测试环境不访问外网图床")
 
     monkeypatch.setattr(

@@ -68,9 +68,9 @@ class MediaBrief(BaseModel):
 
     @classmethod
     def from_model(cls, item: MediaItem) -> MediaBrief:
-        from movieclaw_api.core.config import get_settings
+        from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
-        base = get_settings().tmdb_image_base_url.rstrip("/")
+        base = effective_tmdb_image_base_url().rstrip("/")
         return cls(
             media_item_id=item.id,  # type: ignore[arg-type]  # 落库后必有主键
             kind=MediaKind(item.kind),
@@ -128,11 +128,11 @@ class ResolveCandidateView(BaseModel):
 
     @classmethod
     def from_model(cls, c: ResolveCandidate, *, kind: MediaKind) -> ResolveCandidateView:
-        from movieclaw_api.core.config import get_settings
+        from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
         poster_url = None
         if c.poster_path:
-            base = get_settings().tmdb_image_base_url.rstrip("/")
+            base = effective_tmdb_image_base_url().rstrip("/")
             poster_url = f"{base}/w342{c.poster_path}"
         return cls(
             tmdb_id=c.tmdb_id,

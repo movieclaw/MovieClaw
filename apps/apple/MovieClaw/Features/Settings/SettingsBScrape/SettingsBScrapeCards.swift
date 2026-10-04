@@ -120,8 +120,10 @@ struct SettingsBScrapePosterRows: View {
 
 struct SettingsBScrapeQualityRows: View {
     @Binding var setting: API.MetadataScrapeSetting
-    /// 「跟随环境（当前 xxx）」里的当前生效档位
+    /// 档位留空时的生效值（库覆盖页传全局生效值）
     let effective: API.ScrapeEffectiveView?
+    /// 库覆盖页：留空跟随的是全局设置（后端把库覆盖里的空值当「没覆盖」）
+    var inheritsGlobal = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -167,6 +169,13 @@ struct SettingsBScrapeQualityRows: View {
         }
     }
 
+    /// 留空选项的文案：库覆盖页是「跟随全局」；全局页是「跟随环境」，生效值只在确实留空时写出来
+    /// ——选了具体档位时 effective 就是那个档位，不是环境变量的值
+    private func inheritLabel(_ value: String, _ fallback: String) -> String {
+        if inheritsGlobal { return "跟随全局（\(fallback)）" }
+        return value.isEmpty ? "跟随环境（\(fallback)）" : "跟随环境"
+    }
+
     private func sizePicker(
         _ label: String,
         _ keyPath: WritableKeyPath<API.MetadataScrapeSetting, String>,
@@ -175,7 +184,7 @@ struct SettingsBScrapeQualityRows: View {
         id: String
     ) -> some View {
         Picker(label, selection: $setting[dynamicMember: keyPath]) {
-            Text("跟随环境（\(fallback ?? "")）").tag("")
+            Text(inheritLabel(setting[keyPath: keyPath], fallback ?? "")).tag("")
             ForEach(sizes, id: \.self) { Text($0).tag($0) }
         }
         .pickerStyle(.menu)

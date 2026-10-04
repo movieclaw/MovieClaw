@@ -175,7 +175,7 @@ struct ManageScrapeOverrides: View {
                         max: 4, primaryTag: "首选", identifier: "form-scrape-backdrop-lang"
                     )
                 case .quality:
-                    SettingsBScrapeQualityRows(setting: binding(card), effective: config?.effective)
+                    SettingsBScrapeQualityRows(setting: binding(card), effective: config?.effective, inheritsGlobal: true)
                 default:
                     EmptyView()
                 }

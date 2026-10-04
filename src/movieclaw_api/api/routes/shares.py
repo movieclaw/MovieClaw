@@ -65,6 +65,7 @@ from movieclaw_api.services.library.access import (
     assert_library_visible,
 )
 from movieclaw_api.services.library.collections import count_members, resolve_members
+from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_api.services.playback import watch as playback_watch
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import Collection, LibraryFile, MediaItem
@@ -92,7 +93,7 @@ async def _poster_url(session: AsyncSession, item: MediaItem) -> str | None:
         version = media_scrape.asset_version(meta_row.poster_file)
         return f"/images/assets/{meta_row.poster_file}?v={version}"
     if item.poster_path:
-        base = get_settings().tmdb_image_base_url.rstrip("/")
+        base = effective_tmdb_image_base_url().rstrip("/")
         return f"{base}/w500{item.poster_path}"
     return None
 

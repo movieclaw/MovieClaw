@@ -78,7 +78,8 @@ const COMMON_CERT_COUNTRIES: ChipOption[] = [
   { id: "GB", name: "英国" },
 ];
 
-/** TMDB 图床合法档位（与后端 settings/metadata.py 的集合一致；空 = 跟随环境变量）。 */
+/** 可选的 TMDB 图床档位：后端 settings/metadata.py 合法集合里实用的那部分（过小的档位不提供）；
+ *  空 = 跟随上一级（全局设置页是环境变量，库设置页是全局设置）。 */
 const POSTER_SIZES = ["w342", "w500", "w780", "original"];
 const BACKDROP_SIZES = ["w780", "w1280", "original"];
 const STILL_SIZES = ["w185", "w300", "original"];
@@ -1125,19 +1126,34 @@ export function ImagesTab({
   patch,
   extraImageLangs,
   effective,
+  inheritsGlobal = false,
   overriddenBy,
   shellFor,
 }: {
   setting: ScrapeSetting;
   patch: (changes: Partial<ScrapeSetting>) => void;
   extraImageLangs: ChipOption[];
-  /** 档位下拉的「跟随环境」提示值；库设置页传全局生效值 */
+  /** 档位下拉留空时的生效值；库设置页传全局生效值 */
   effective: Pick<ScrapeSetting, "poster_size" | "backdrop_size" | "still_size"> | null;
+  /** 库设置页：留空跟随的是全局设置（后端把库覆盖里的空值当「没覆盖」） */
+  inheritsGlobal?: boolean;
   overriddenBy?: (keys: (keyof ScrapeSetting)[]) => string[];
   shellFor?: (title: string, keys: (keyof ScrapeSetting)[]) => CardShell;
 }) {
+  // 留空选项的文案：库设置页是「跟随全局」；全局设置页是「跟随环境」，生效值
+  // 只在确实留空时写出来——选了具体档位时 effective 就是那个档位，不是环境变量的值
+  const inheritLabel = (value: string, fallback: string) =>
+    inheritsGlobal
+      ? `跟随全局（${fallback}）`
+      : value === ""
+        ? `跟随环境（${fallback}）`
+        : "跟随环境";
   const sizeHint = (value: string, fallback: string) =>
-    value === "" ? `跟随环境变量（当前 ${fallback}）` : value;
+    value === ""
+      ? inheritsGlobal
+        ? `跟随全局设置（当前 ${fallback}）`
+        : `跟随环境变量（当前 ${fallback}）`
+      : value;
 
   return (
     <>
@@ -1282,7 +1298,7 @@ export function ImagesTab({
                 onChange={(e) => patch({ [key]: e.target.value } as Partial<ScrapeSetting>)}
               >
                 <option value="">
-                  {label} · 跟随环境（{fallback}）
+                  {label} · {inheritLabel(setting[key], fallback ?? "")}
                 </option>
                 {sizes.map((size) => (
                   <option key={size} value={size}>

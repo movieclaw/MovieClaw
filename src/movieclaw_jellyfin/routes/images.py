@@ -49,15 +49,15 @@ async def _person_image(person_id: int, image_type: str) -> Response:
     离线/图床不可达时 404——播放器按无头像降级，不阻断详情页。"""
     if image_type.lower() != "primary":
         raise JellyfinError(404, text=f"Item does not have an image of type {image_type}")
-    from movieclaw_api.core.config import get_settings
     from movieclaw_api.services.image_cache import get_image_cache
+    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
     from movieclaw_db.models import Person
 
     async with get_database().session() as session:
         person = await session.get(Person, person_id)
     if person is None or not person.profile_path:
         raise JellyfinError(404, text="Item does not have an image of type Primary")
-    base = get_settings().tmdb_image_base_url.rstrip("/")
+    base = effective_tmdb_image_base_url().rstrip("/")
     try:
         cached = await get_image_cache().get_or_fetch(f"{base}/w300{person.profile_path}")
     except Exception:
@@ -232,10 +232,10 @@ async def _item_layer_fallbacks(
 
 async def _tmdb_image(tmdb_path: str, itype: str, request: Request) -> Response:
     """TMDB 图床兜底：经图片代理拉取缓存后直出（档位对齐 Web 的兜底展示）。"""
-    from movieclaw_api.core.config import get_settings
     from movieclaw_api.services.image_cache import get_image_cache
+    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
-    base = get_settings().tmdb_image_base_url.rstrip("/")
+    base = effective_tmdb_image_base_url().rstrip("/")
     size = _ITEM_IMAGE_LAYERS[itype][2]
     try:
         cached = await get_image_cache().get_or_fetch(f"{base}/{size}{tmdb_path}")
@@ -245,7 +245,7 @@ async def _tmdb_image(tmdb_path: str, itype: str, request: Request) -> Response:
         ) from None
     # 缓存文件无扩展名，原图类型以缓存元数据为准
     target, media_type = await _maybe_scaled(
-        cached.path, request, original_type=cached.content_type
+        cached.path, request, original_type=cached.content_type, source_version=cached.version
     )
     tag = hashlib.md5(f"tmdb:{tmdb_path}".encode()).hexdigest()
     return FileResponse(
@@ -406,22 +406,31 @@ def _render_scaled(src: Path, bounds: tuple[int, int]) -> tuple[bytes, str]:
 
 
 async def _maybe_scaled(
-    target: Path, request: Request, *, original_type: str | None = None
+    target: Path,
+    request: Request,
+    *,
+    original_type: str | None = None,
+    source_version: str | None = None,
 ) -> tuple[Path, str]:
     """按需生成缩放变体（经 ImageCache 复用），返回 (文件, Content-Type)；
-    无缩放参数或缩放失败时原图直出。``original_type`` 供无扩展名的缓存文件指定类型。"""
+    无缩放参数或缩放失败时原图直出。``original_type`` 供无扩展名的缓存文件指定类型。
+
+    ``source_version``：源文件本身就在图片缓存里（TMDB 兜底图）时传缓存条目的版本。
+    缓存命中会每小时 touch 一次文件 mtime（LRU 记访问时间），拿 mtime 当版本的话
+    每小时就多渲染一份同样的缩放图、旧的堆着等淘汰。"""
     original_type = original_type or mimetypes.guess_type(str(target))[0] or "image/jpeg"
     bounds = _scale_bounds(request)
     if bounds is None:
         return target, original_type
-    try:
-        stat = target.stat()
-    except OSError:
-        return target, original_type
+    if source_version is None:
+        try:
+            source_version = str(target.stat().st_mtime_ns)
+        except OSError:
+            return target, original_type
     from movieclaw_api.services.image_cache import get_image_cache
 
-    # 键里带源文件路径与 mtime：原图被重新刮削后旧变体自然失效，由 LRU 回收
-    key = f"jellyfin-scaled:{target}:{stat.st_mtime_ns}:{bounds[0]}x{bounds[1]}"
+    # 键里带源文件路径与版本：原图被重新刮削后旧变体自然失效，由 LRU 回收
+    key = f"jellyfin-scaled:{target}:{source_version}:{bounds[0]}x{bounds[1]}"
 
     async def produce() -> tuple[bytes, str]:
         return await asyncio.to_thread(_render_scaled, target, bounds)

@@ -36,14 +36,11 @@ async def proxy_image(
     域名安全（SSRF 防护）、类型和体积校验在 ImageProxy 服务层完成。
     图床 URL 对应的内容事实上不可变，浏览器侧直接给一年 immutable 缓存。
     """
-    cached = await get_image_cache().get_or_fetch(url)
     if variant is not None:
-        cached = await get_image_variant_service().get_or_create(
-            cached.path,
-            source_key=f"remote:{url}",
-            source_version=cached.version,
-            variant=variant,
-        )
+        # 派生图只认 URL：命中就不必先读原图（原图被淘汰后断网也能出图）
+        cached = await get_image_variant_service().get_or_create_remote(url, variant=variant)
+    else:
+        cached = await get_image_cache().get_or_fetch(url)
     return FileResponse(
         cached.path,
         media_type=cached.content_type,
@@ -118,8 +115,6 @@ async def get_metadata_asset(
             media_type=cached.content_type,
             headers={"Cache-Control": cache_control},
         )
-    return FileResponse(
-        target,
-        media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
+    # 类型按扩展名推断（poster.jpg → image/jpeg、logo.png → image/png），
+    # 不写死 JPEG：片名 Logo 是 PNG，严格的客户端按声明类型解码会出错
+    return FileResponse(target, headers={"Cache-Control": "public, max-age=86400"})

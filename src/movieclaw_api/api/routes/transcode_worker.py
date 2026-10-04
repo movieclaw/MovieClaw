@@ -23,7 +23,6 @@ from starlette.websockets import WebSocketDisconnect
 
 from movieclaw_api.api.client_address import client_address
 from movieclaw_api.api.deps import require_admin, resolve_worker_principal
-from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import (
     InsufficientStorageException,
     NotFoundException,
@@ -36,12 +35,12 @@ from movieclaw_api.schemas.transcode_worker import (
     RemoteTranscodeConfigView,
 )
 from movieclaw_api.services import login_devices, media_scrape
-from movieclaw_api.services.image_cache import get_image_cache
 from movieclaw_api.services.image_variants import (
     ImageVariant,
     get_image_variant_service,
     source_version_of,
 )
+from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_api.services.playback import remote_config as remote_transcode_config
 from movieclaw_api.services.playback.disc_source import disc_source_for_file
 from movieclaw_api.services.playback.ffmpeg_args import (
@@ -612,16 +611,19 @@ async def transcode_poster(
     poster_file = meta.poster_file if meta is not None else None
     target = media_scrape.resolve_asset_path(poster_file) if poster_file else None
     if target is not None and target.is_file():
-        source, key, version = target, f"asset:{poster_file}", source_version_of(target.stat())
+        variant = await get_image_variant_service().get_or_create(
+            target,
+            source_key=f"asset:{poster_file}",
+            source_version=source_version_of(target.stat()),
+            variant=ImageVariant.POSTER_CARD,
+        )
     elif item.poster_path:
-        url = f"{get_settings().tmdb_image_base_url.rstrip('/')}/w500{item.poster_path}"
-        cached = await get_image_cache().get_or_fetch(url)
-        source, key, version = cached.path, f"remote:{url}", cached.version
+        url = f"{effective_tmdb_image_base_url().rstrip('/')}/w500{item.poster_path}"
+        variant = await get_image_variant_service().get_or_create_remote(
+            url, variant=ImageVariant.POSTER_CARD
+        )
     else:
         raise NotFoundException("这部片还没有海报")
-    variant = await get_image_variant_service().get_or_create(
-        source, source_key=key, source_version=version, variant=ImageVariant.POSTER_CARD
-    )
     return FileResponse(
         variant.path, media_type=variant.content_type, headers={"Cache-Control": "no-store"}
     )

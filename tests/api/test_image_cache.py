@@ -215,6 +215,40 @@ async def test_variant_is_webp_cached_and_never_upscales(tmp_path: Path) -> None
         assert image.size == (300, 169), "小分集图不应为凑 480px 被强行放大"
 
 
+async def test_remote_variant_survives_original_eviction(tmp_path: Path) -> None:
+    """远程图的派生只认 URL：原图被淘汰、图床也不通时，派生图照样命中。"""
+    calls = 0
+    online = True
+    payload = BytesIO()
+    Image.new("RGB", (1600, 900), "#224466").save(payload, "JPEG", quality=95)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if not online:
+            return httpx.Response(503)
+        return httpx.Response(
+            200, headers={"Content-Type": "image/jpeg"}, content=payload.getvalue()
+        )
+
+    cache = _make_cache(tmp_path, handler)
+    service = ImageVariantService(cache)
+    url = "https://img.host-a.com/still.jpg"
+    first = await service.get_or_create_remote(url, variant=ImageVariant.LANDSCAPE_CARD)
+    assert calls == 1
+
+    # 原图被 LRU 淘汰（删掉它的缓存条目），图床也断了
+    digest = hashlib.sha256(url.encode()).hexdigest()
+    original = tmp_path / "images" / digest[:2] / digest
+    original.unlink()
+    original.with_suffix(".json").unlink()
+    online = False
+
+    second = await service.get_or_create_remote(url, variant=ImageVariant.LANDSCAPE_CARD)
+    assert second.path == first.path
+    assert calls == 1
+
+
 async def test_variant_keeps_source_aspect_without_cropping(tmp_path: Path) -> None:
     """其他库的横版封面（16:9）走竖海报预设时等比缩进外接框，不能裁成 2:3 竖条：
     前端卡片框按真实比例排版，服务端一裁就只剩画面正中一小块。"""
@@ -316,6 +350,20 @@ def test_proxy_route_serves_cached_image(client: TestClient, tmp_path: Path) -> 
     assert (tmp_path / "img-cache" / digest[:2] / digest).is_file()
     # 二次访问命中缓存，同样成功
     assert client.get("/api/v1/images/proxy", params={"url": url}).status_code == 200
+
+
+def test_asset_route_reports_type_by_extension(client: TestClient, tmp_path: Path) -> None:
+    """资产直出按扩展名报类型：片名 Logo 是 PNG，不能一律报成 image/jpeg。"""
+    item_dir = tmp_path / "metadata" / "images" / "14"
+    item_dir.mkdir(parents=True)
+    Image.new("RGBA", (40, 20), (0, 0, 0, 0)).save(item_dir / "logo.png", "PNG")
+    Image.new("RGB", (40, 60), "#335577").save(item_dir / "poster.jpg", "JPEG")
+
+    logo = client.get("/api/v1/images/assets/14/logo.png")
+    assert logo.status_code == 200
+    assert logo.headers["content-type"] == "image/png"
+    poster = client.get("/api/v1/images/assets/14/poster.jpg")
+    assert poster.headers["content-type"] == "image/jpeg"
 
 
 def test_remote_and_local_routes_share_landscape_variant(

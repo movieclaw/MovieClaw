@@ -22,7 +22,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.api.deps import require_admin
 from movieclaw_api.api.routes.library_recycle import PAGE_LIMIT_MAX, _audio_label, _summary
-from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException, NotFoundException
 from movieclaw_api.schemas.library import (
     DuplicateFilesData,
@@ -51,6 +50,7 @@ from movieclaw_api.services.library.duplicates import (
     resolve_unit,
 )
 from movieclaw_api.services.media_server_notify import notify_media_server_refresh
+from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_db.engine import get_session
 from movieclaw_db.repositories.library_repo import LibraryRepository
 from movieclaw_media.models import MediaKind
@@ -93,7 +93,7 @@ def _item_view(d: DupItem) -> DuplicateItemView:
             year=item.year,
             kind=MediaKind(item.kind),
             poster_url=(
-                f"{get_settings().tmdb_image_base_url.rstrip('/')}/w185{item.poster_path}"
+                f"{effective_tmdb_image_base_url().rstrip('/')}/w185{item.poster_path}"
                 if item.poster_path
                 else None
             ),

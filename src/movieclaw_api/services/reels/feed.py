@@ -667,7 +667,6 @@ def _warm_stills(urls: list[str | None]) -> None:
     """
 
     async def warm() -> None:
-        from movieclaw_api.services.image_cache import get_image_cache
         from movieclaw_api.services.image_variants import (
             ImageVariant,
             get_image_variant_service,
@@ -681,13 +680,7 @@ def _warm_stills(urls: list[str | None]) -> None:
                 continue
             try:
                 if url.startswith(("http://", "https://")):
-                    cached = await get_image_cache().get_or_fetch(url)
-                    await variants.get_or_create(
-                        cached.path,
-                        source_key=f"remote:{url}",
-                        source_version=cached.version,
-                        variant=ImageVariant.REEL_STILL,
-                    )
+                    await variants.get_or_create_remote(url, variant=ImageVariant.REEL_STILL)
                     continue
                 rel = url.removeprefix("/images/assets/").split("?", 1)[0]
                 target = resolve_asset_path(rel)
@@ -886,11 +879,11 @@ async def _directors_of(
     session: AsyncSession, item_ids: Sequence[int]
 ) -> dict[int, list[dict[str, Any]]]:
     """条目 → 导演（剧集为主创），取自与详情页同一张影人关系表，按署名顺序。"""
-    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
     if not item_ids:
         return {}
-    base = get_settings().tmdb_image_base_url.rstrip("/")
+    base = effective_tmdb_image_base_url().rstrip("/")
     rows = await session.execute(
         select(
             MediaItemPerson.media_item_id, Person.name, Person.profile_path, Person.tmdb_person_id

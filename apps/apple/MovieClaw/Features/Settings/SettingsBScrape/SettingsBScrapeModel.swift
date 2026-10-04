@@ -43,7 +43,8 @@ enum SettingsBScrapeCatalog {
         .init(id: "GB", name: "英国"),
     ]
 
-    /// TMDB 图床合法档位（与后端 settings/metadata.py 一致；空串 = 跟随环境变量）
+    /// 可选的 TMDB 图床档位：后端 settings/metadata.py 合法集合里实用的那部分（同 Web，过小的档位不提供）；
+    /// 空串 = 跟随上一级（全局页是环境变量，库覆盖页是全局设置）
     static let posterSizes = ["w342", "w500", "w780", "original"]
     static let backdropSizes = ["w780", "w1280", "original"]
     static let stillSizes = ["w185", "w300", "original"]
