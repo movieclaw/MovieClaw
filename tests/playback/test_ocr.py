@@ -59,3 +59,63 @@ def test_reads_credit_lines_on_black() -> None:
     texts = [line.text for line in engine.read(np.asarray(img))]
     assert any("Executive" in t for t in texts)
     assert any("SMITH" in t for t in texts)
+
+
+def _credits_frame() -> np.ndarray:
+    img = Image.new("RGB", (960, 540), (5, 5, 5))
+    draw = ImageDraw.Draw(img)
+    draw.text((300, 200), "Executive Producer", fill=(235, 235, 235), font=_font())
+    draw.text((20, 20), "AD", fill=(235, 235, 235), font=_font())
+    return np.asarray(img)
+
+
+@pytest.mark.skipif(_model_dir() is None or _font() is None, reason="本机没有 OCR 模型或字体")
+def test_worker_process_reads_the_same_as_in_process_engine() -> None:
+    """片头片尾识别把推理放进工作进程（skip_segments._OcrPool）：结果要和进程内逐字一致，
+    进程用完放回池里复用，不每帧重起。"""
+    import asyncio
+
+    from movieclaw_api.services.library.skip_segments import _OcrPool
+
+    img = _credits_frame()
+    engine = ocr.OcrEngine.load(_model_dir())
+    assert engine is not None
+    expected = [(x.text, *x.box) for x in engine.read(img)]
+
+    async def scenario():
+        pool = _OcrPool(str(_model_dir()))
+        try:
+            first = await pool.recognize(img, True)
+            pid = pool.idle[0].proc.pid
+            second = await pool.recognize(img, False)
+            return first, second, pid == pool.idle[0].proc.pid and len(pool.idle) == 1
+        finally:
+            await pool.close()
+
+    (luma, lines, corners), (_, again, no_corners), reused = asyncio.run(scenario())
+    assert lines == expected and any("Executive" in t for t, *_ in lines)
+    assert luma == pytest.approx(float(img.mean()))
+    assert corners == engine.read_corners(img)
+    assert again == expected and no_corners is None
+    assert reused, "第二帧应当复用同一个工作进程"
+
+
+def test_worker_without_usable_models_fails_only_that_frame(tmp_path) -> None:
+    """模型坏了：工作进程起不来，这一帧报错（调用方退回声音结果），池里不留坏进程。"""
+    import asyncio
+
+    from movieclaw_api.services.library.skip_segments import _OcrPool
+
+    (tmp_path / ocr.DET_MODEL).write_bytes(b"not a model")
+    (tmp_path / ocr.REC_MODEL).write_bytes(b"not a model")
+
+    async def scenario():
+        pool = _OcrPool(str(tmp_path))
+        try:
+            with pytest.raises(RuntimeError, match="文字识别进程退出了"):
+                await pool.recognize(np.zeros((8, 8, 3), dtype=np.uint8), False)
+            return len(pool.idle), len(pool.busy)
+        finally:
+            await pool.close()
+
+    assert asyncio.run(scenario()) == (0, 0)

@@ -450,42 +450,189 @@ class _Ctx:
         return True
 
 
-def test_library_backfill_pauses_while_someone_is_watching(
+def _track_parallel_reads(monkeypatch, delay: float = 0.05) -> dict[str, int]:
+    """替身指纹窗口：记录同时在读的文件数峰值（一个文件的两个窗口是顺序读的）。"""
+    state = {"now": 0, "peak": 0}
+
+    async def window(path: str, start: float, length: float) -> bytes:
+        state["now"] += 1
+        state["peak"] = max(state["peak"], state["now"])
+        try:
+            await asyncio.sleep(delay)
+            return await fake_window(path, start, length)
+        finally:
+            state["now"] -= 1
+
+    monkeypatch.setattr(skip_segments, "_chromaprint_window", window)
+    return state
+
+
+class _FakeTranscode:
+    """转码会话管理器里的一路会话（只带 ``playback_load`` 看的字段）。"""
+
+    def __init__(self, *, transcoding: bool = True, remote: bool = False) -> None:
+        self.is_transcoding = transcoding
+        self.remote = remote
+        self.last_ping = time.monotonic()
+
+
+def test_idle_backfill_reads_episodes_in_parallel_up_to_machine_limit(
     client: TestClient, tmp_path: Path, monkeypatch
 ) -> None:
-    """整库回填读的是和播放同一份磁盘：有人在看片（未暂停的会话）就先等，暂停 / 放完后继续。"""
-    ids = call(client, _seed, tmp_path)
-    monkeypatch.setattr(skip_segments, "_QUIET_POLL_S", 0.05)
+    """没人在看时按机器规格多路并行：同时读的文件数正好到上限，不多也不少。"""
+    ids = call(client, _seed, tmp_path, 8)
+    monkeypatch.setattr(skip_segments, "_work_limit", 3)
+    reads = _track_parallel_reads(monkeypatch)
+
+    async def scenario():
+        activity.reset()
+        return await skip_segments.analyze_season(ids["show"], 1, context=_Ctx(), polite=True)
+
+    outcome = call(client, scenario)
+    assert reads["peak"] == 3
+    assert outcome.fingerprinted == 8 and outcome.analyzed
+    states = call(client, _states)
+    assert all(states[f].segments for f in ids["files"]), "并行算出的指纹照样整季比对出片段"
+
+
+def test_backfill_narrows_to_one_lane_during_direct_play(
+    client: TestClient, tmp_path: Path, monkeypatch
+) -> None:
+    """有人在直接播放（未暂停的会话）：不再暂停，只留一路，读盘不和播放抢。"""
+    ids = call(client, _seed, tmp_path, 6)
+    monkeypatch.setattr(skip_segments, "_work_limit", 3)
+    reads = _track_parallel_reads(monkeypatch)
     device = ClientInfo(name="测试播放器", device_id="dev-1")
-    unit = (ids["show"], 1, 1)
-    ctx = _Ctx()
 
     async def scenario():
         activity.reset()
         activity.report_progress(
-            "dev-1", member_id=0, client=device, unit=unit, position_ms=1000, paused=False
+            "dev-1",
+            member_id=0,
+            client=device,
+            unit=(ids["show"], 1, 1),
+            position_ms=1000,
+            paused=False,
         )
-        assert skip_segments.playback_active()
+        assert skip_segments.playback_load() == skip_segments.PLAYING
+        try:
+            return await asyncio.wait_for(
+                skip_segments.analyze_season(ids["show"], 1, context=_Ctx(), polite=True), 60
+            )
+        finally:
+            activity.reset()
+
+    outcome = call(client, scenario)
+    assert reads["peak"] == 1
+    assert outcome.fingerprinted == 6 and outcome.analyzed
+
+
+def test_backfill_pauses_while_transcoding_and_resumes_after(
+    client: TestClient, tmp_path: Path, monkeypatch
+) -> None:
+    """本机在转码：一个文件都不读，任务中心说明暂停；转码结束后自动继续，并把「暂停」字样换掉。"""
+    ids = call(client, _seed, tmp_path)
+    monkeypatch.setattr(skip_segments, "_QUIET_POLL_S", 0.05)
+    sessions = [_FakeTranscode()]
+    monkeypatch.setattr(get_session_manager(), "active", lambda: list(sessions))
+    ctx = _Ctx()
+
+    async def scenario():
+        activity.reset()
+        assert skip_segments.playback_load() == skip_segments.TRANSCODING
         task = asyncio.create_task(
             skip_segments.analyze_season(ids["show"], 1, context=ctx, polite=True)
         )
         await asyncio.sleep(0.8)
         paused_all_along = not task.done() and not list((tmp_path / "fp").glob("*.fp"))
-        # 用户按了暂停：不再算「在看」，回填放行
-        activity.report_progress(
-            "dev-1", member_id=0, client=device, unit=unit, position_ms=1000, paused=True
-        )
-        outcome = await asyncio.wait_for(task, 60)
-        activity.reset()
-        return paused_all_along, outcome
+        sessions.clear()  # 转码播放结束
+        return paused_all_along, await asyncio.wait_for(task, 60)
 
     paused_all_along, outcome = call(client, scenario)
-    assert paused_all_along, "有人在看片时不该读盘算指纹"
+    assert paused_all_along, "转码时不该读盘算指纹"
     assert outcome.fingerprinted == 5 and outcome.analyzed
-    assert any("有人正在看片" in m for m in ctx.messages)
-    # 恢复读盘时要把「暂停」字样换掉，否则任务中心要等这一季做完才更新
-    paused_at = next(i for i, m in enumerate(ctx.messages) if "有人正在看片" in m)
-    assert any("继续识别" in m for m in ctx.messages[paused_at + 1 :])
+    paused_at = [i for i, m in enumerate(ctx.messages) if "正在转码播放" in m]
+    assert len(paused_at) == 1, f"多路同时在等也只说一次暂停：{ctx.messages}"
+    assert any("继续识别" in m for m in ctx.messages[paused_at[0] + 1 :])
+
+
+def test_playback_load_tiers() -> None:
+    """转码 > 在看 > 空闲；外置 Worker 上的转码、本机直通都不算本机转码；没心跳的会话不算。"""
+    manager = get_session_manager()
+    activity.reset()
+    cases = [
+        ([], skip_segments.IDLE),
+        ([_FakeTranscode(transcoding=False)], skip_segments.PLAYING),
+        ([_FakeTranscode(remote=True)], skip_segments.PLAYING),
+        ([_FakeTranscode(transcoding=False), _FakeTranscode()], skip_segments.TRANSCODING),
+    ]
+    stale = _FakeTranscode()
+    stale.last_ping -= 60
+    cases.append(([stale], skip_segments.IDLE))
+    original = manager.active
+    try:
+        for sessions, expected in cases:
+            manager.active = lambda sessions=sessions: sessions  # type: ignore[method-assign]
+            assert skip_segments.playback_load() == expected
+    finally:
+        manager.active = original  # type: ignore[method-assign]
+
+
+def test_item_jobs_take_free_slot_before_backfill(client: TestClient, monkeypatch) -> None:
+    """只剩一路时，后到的条目作业（入库、开播提队）也排在先到的整库回填前面。"""
+    monkeypatch.setattr(skip_segments, "_work_limit", 1)
+    monkeypatch.setattr(skip_segments, "_QUIET_POLL_S", 0.05)
+    order: list[str] = []
+
+    async def scenario():
+        activity.reset()
+        release = asyncio.Event()
+
+        async def take(name: str, polite: bool, hold: asyncio.Event | None = None):
+            async with skip_segments._work_slot(polite=polite):
+                order.append(name)
+                if hold is not None:
+                    await hold.wait()
+
+        first = asyncio.create_task(take("占着的回填", True, release))
+        await asyncio.sleep(0.05)
+        backfill = asyncio.create_task(take("回填", True))
+        await asyncio.sleep(0.05)
+        item = asyncio.create_task(take("条目", False))
+        await asyncio.sleep(0.05)
+        release.set()
+        await asyncio.gather(first, backfill, item)
+
+    client.portal.call(scenario)  # type: ignore[attr-defined]
+    assert order == ["占着的回填", "条目", "回填"]
+
+
+@pytest.mark.parametrize(("cores", "expected"), [(1, 1), (2, 1), (4, 3), (8, 4), (32, 4)])
+def test_work_limit_follows_physical_cores(monkeypatch, cores: int, expected: int) -> None:
+    """路数 = 物理核数减一（留一个核给接口与播放），至少 1、封顶 4。"""
+    monkeypatch.setattr(skip_segments, "_work_limit", None)
+    monkeypatch.setattr(skip_segments, "_physical_cores", lambda: cores)
+    assert skip_segments.work_limit() == expected
+
+
+def test_physical_cores_merges_hyperthreads_and_respects_container_quota(monkeypatch) -> None:
+    """NAS 的 V1500B：8 个逻辑核是 4 个物理核；容器限了 --cpus=2 就按 2 算；
+    读不到拓扑时退回逻辑核数。"""
+    monkeypatch.setattr(skip_segments.sys, "platform", "linux")
+    monkeypatch.setattr(os, "sched_getaffinity", lambda pid: set(range(8)), raising=False)
+    topology = {}
+    for cpu in range(8):
+        base = f"/sys/devices/system/cpu/cpu{cpu}/topology"
+        topology[f"{base}/core_id"] = cpu // 2
+        topology[f"{base}/physical_package_id"] = 0
+    monkeypatch.setattr(skip_segments, "_read_int", topology.get)
+    monkeypatch.setattr(skip_segments, "_cgroup_cpu_limit", lambda: None)
+    assert skip_segments._physical_cores() == 4
+    monkeypatch.setattr(skip_segments, "_cgroup_cpu_limit", lambda: 2.0)
+    assert skip_segments._physical_cores() == 2
+    monkeypatch.setattr(skip_segments, "_cgroup_cpu_limit", lambda: None)
+    monkeypatch.setattr(skip_segments, "_read_int", lambda path: None)
+    assert skip_segments._physical_cores() == 8
 
 
 def test_item_job_and_ingest_never_wait_for_playback(client: TestClient, tmp_path: Path) -> None:
@@ -549,7 +696,8 @@ def test_running_job_picks_up_episode_that_lands_mid_run(
 
     async def compute_then_land_new_episode(file) -> None:
         await real(file)
-        if "id" not in landed:
+        if "claimed" not in landed:  # 多路并行：先占位再 await，只落位一集
+            landed["claimed"] = 1
             landed["id"] = await _add_episode(tmp_path, ids, 5)
 
     monkeypatch.setattr(skip_segments, "compute_fingerprint", compute_then_land_new_episode)
@@ -1507,8 +1655,6 @@ def test_frame_probe_caches_observations(client, tmp_path, monkeypatch) -> None:
     """同一时间点不重复抽帧：关键帧 ±1.5 秒复用，要精确帧时不拿关键帧顶替；片源换了缓存作废。"""
     from types import SimpleNamespace
 
-    from movieclaw_playback.ocr import TextLine
-
     grabs: list[tuple[float, bool]] = []
 
     async def fake_grab(path, t, accurate, width=960):
@@ -1517,8 +1663,8 @@ def test_frame_probe_caches_observations(client, tmp_path, monkeypatch) -> None:
         return np.zeros((54, 96, 3), dtype=np.uint8), t if accurate else t + 0.8
 
     class Engine:
-        def read(self, img):
-            return [TextLine("Directed by", 0.95, (0.4, 0.4, 0.6, 0.45))]
+        async def recognize(self, img, corners):
+            return float(img.mean()), [("Directed by", 0.4, 0.4, 0.6, 0.45)], None
 
     monkeypatch.setattr(skip_segments, "_grab_frame", fake_grab)
     file = SimpleNamespace(id=7, file_path=str(tmp_path / "x.mkv"), size_bytes=123)
@@ -1546,17 +1692,12 @@ def test_frame_refinement_labels_ads_only_for_chinese_titles(client, tmp_path, m
     """中文内容按「广告」角标把开头的「其他」段改标广告；海外内容不看角标。片尾后的下集预告单独成段。"""
     from types import SimpleNamespace
 
-    from movieclaw_playback.ocr import TextLine
-
     async def fake_grab(path, t, accurate, width=960):
         return np.zeros((54, 96, 3), dtype=np.uint8), t
 
     class Engine:
-        def read(self, img):
-            return [TextLine("下集预告", 0.95, (0.4, 0.4, 0.6, 0.5))]
-
-        def read_corners(self, img):
-            return ["广告"]
+        async def recognize(self, img, corners):
+            return 0.0, [("下集预告", 0.4, 0.4, 0.6, 0.5)], ["广告"] if corners else None
 
     async def keep_outro(outro, duration, observe):
         return credits_logic.OutroDecision(outro, "演职员表确认")

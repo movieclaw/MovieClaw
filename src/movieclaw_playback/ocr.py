@@ -18,11 +18,19 @@ shapely 等一串二进制依赖，而我们只需要横排文字：
 ``OcrEngine.load`` 返回 None，调用方退回纯音频结果，不影响其他功能。
 
 NAS（Ryzen V1500B，单线程）实测：960 宽的一帧 0.8～1.5 秒；Mac M 系列约 0.4 秒。
+满屏演职员表（40～110 个文字框）一帧 2～11 秒，几乎全花在识别上。
+
+服务里不在服务进程内推理：``python -m movieclaw_playback.ocr <模型目录>`` 起常驻的低优先级
+工作进程（``_main``），片头片尾识别按并发路数起几个（``skip_segments._OcrPool``）。
+推理前后的 numpy / 纯 Python 处理会占 GIL，放在服务进程里会拖慢同时在跑的接口。
 """
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import sys
 from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -216,3 +224,38 @@ def _components(binary: np.ndarray, step: int = 4) -> Iterator[tuple[int, int, i
                 top + int(rows[-1]) + 1,
                 left + int(cols[-1]) + 1,
             )
+
+
+def _main() -> None:
+    """工作进程入口：一行 JSON 头（``h`` ``w`` ``corners``）+ h×w×3 字节的 RGB 帧进，一行 JSON 出。
+
+    出：``{"luma", "lines": [[文字, x0, y0, x1, y1], ...], "corners": [...] 或 null}``，
+    识别出错时 ``{"error": 原因}``，进程继续服务下一帧。模型加载失败直接退出（退出码 2）。
+    """
+    if hasattr(os, "nice"):
+        os.nice(10)  # 后台识别不抢播放与接口的 CPU
+    engine = OcrEngine.load(sys.argv[1])
+    if engine is None:
+        sys.exit(2)
+    stdin, stdout = sys.stdin.buffer, sys.stdout
+    while head := stdin.readline():
+        request = json.loads(head)
+        h, w = int(request["h"]), int(request["w"])
+        data = stdin.read(h * w * 3)
+        if len(data) != h * w * 3:
+            break  # 父进程走了
+        try:
+            img = np.frombuffer(data, dtype=np.uint8).reshape(h, w, 3)
+            reply = {
+                "luma": float(img.mean()),
+                "lines": [[x.text, *x.box] for x in engine.read(img)],
+                "corners": engine.read_corners(img) if request.get("corners") else None,
+            }
+        except Exception as exc:  # noqa: BLE001 —— 一帧出错只影响这一帧，由调用方退回声音结果
+            reply = {"error": f"{type(exc).__name__}: {exc}"}
+        stdout.write(json.dumps(reply, ensure_ascii=False) + "\n")
+        stdout.flush()
+
+
+if __name__ == "__main__":
+    _main()
