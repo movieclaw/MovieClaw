@@ -171,6 +171,10 @@ class Settings(BaseSettings):
     audio_fingerprint_dir: str = Field(
         default="./data/cache/audio-fingerprints", alias="MOVIECLAW_AUDIO_FINGERPRINT_DIR"
     )
+    # 画面文字识别（PP-OCR）模型目录：片头片尾识别用它读演职员表、广告角标。镜像内置在
+    # /app/models/ppocr（Dockerfile 的 ENV 指过去）；本地开发放 data/models/ppocr。缺失时
+    # 片头片尾识别只用声音（docs/design/skip-intro.md §2.12）
+    ocr_model_dir: str = Field(default="./data/models/ppocr", alias="MOVIECLAW_OCR_DIR")
     # AI 字幕生成的中间品：内封轨抽取、PGS 图片与翻译断点（断点删了任务从头翻）。
     subtitle_gen_cache_dir: str = Field(
         default="./data/cache/subtitle_gen", alias="MOVIECLAW_SUBTITLE_GEN_CACHE_DIR"

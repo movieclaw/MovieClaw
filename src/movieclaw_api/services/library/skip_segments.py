@@ -15,7 +15,11 @@
    放在**独立子进程**里跑（``python -m movieclaw_playback.skip_segments``）——放在服务
    进程里会抢 GIL、拖慢同时在跑的接口与取流（2026-09-30 实测：同进程纯 Python 计算让
    查库慢几百倍，独立进程零影响）。
-3. **什么时候做**（每个入口都先查「有没有待办」，没有就什么都不排）：
+3. **画面证据**（读少量关键帧，中等）：整季识别后，按需在片尾附近抽几帧做文字识别，
+   用演职员表修正片尾——补上音频找不到的黑底演职员表、截掉片尾后的剧情、否决不是片尾的
+   重复配乐（``movieclaw_playback.credits``）。每帧的识别结果缓存在指纹目录
+   （``{文件 id}.frames.json``），季里来新集重算时复用；OCR 模型缺失时跳过这一步。
+4. **什么时候做**（每个入口都先查「有没有待办」，没有就什么都不排）：
    - 入库（``enqueue_ingested_item``）：新集落位后排一份条目作业，读的是刚下载完的本地文件。
      不让路，但一次最多读 ``PRIORITY_BATCH`` 个文件，整季积压留给整库回填；
    - 扫描作业收尾、监听触发的增量扫描、暂缓文件的补扫、打开开关
@@ -37,6 +41,7 @@ import json
 import logging
 import math
 import os
+import re
 import shutil
 import sys
 import time
@@ -66,7 +71,9 @@ from movieclaw_db.models import (
 )
 from movieclaw_db.models.library_file import DISC_CONTAINERS
 from movieclaw_db.models.playback_state import PlaybackState
-from movieclaw_playback import activity
+from movieclaw_playback import activity, segment_labels
+from movieclaw_playback import credits as credits_logic
+from movieclaw_playback.ocr import OcrEngine
 from movieclaw_playback.skip_segments import (
     ALGO_VERSION,
     FINGERPRINT_VERSION,
@@ -99,6 +106,12 @@ _FRESH_S = 45.0
 PRIORITY_BATCH = 6
 #: 第一段片头离文件开头不超过这么多毫秒时，下发给播放器的起点贴到 0（见 ``segments_for_file``）
 _HEAD_SNAP_MS = 15_000
+#: 只对中文内容贴零（原始语言 zh / 粤语 cn，或出品地含中国大陆）。国内每集开头先放发行许可证，
+#: 许可证、厂标之前那几秒只会是每集不同的冠名广告（NAS 国产剧实测 142 个 ≤12 秒的空隙无一剧情）；
+#: 海外剧常有几秒的剧情冷开场（日剧 A海外纪录片 A），贴零会误跳剧情
+#: （docs/design/skip-intro.md §2.9）
+_HEAD_SNAP_LANGUAGES = frozenset({"zh", "cn"})
+_HEAD_SNAP_COUNTRIES = frozenset({"CN"})
 #: 多少天内看过的季算「正在追」，整库回填优先做（见 ``seasons_needing_work``）
 _WATCHING_WINDOW = timedelta(days=30)
 
@@ -385,29 +398,40 @@ class FingerprintError(Exception):
     """算不了指纹（中文原因直接给用户看）。"""
 
 
+def _stream_length(stream: dict) -> float | None:
+    """ffprobe 给的音轨时长（秒）：优先 duration，其次 MKV 的 DURATION 标签；拿不到返回 None。"""
+    for value in (stream.get("duration"), (stream.get("tags") or {}).get("DURATION")):
+        try:
+            parts = [float(x) for x in str(value).split(":")]
+            seconds = (
+                parts[0]
+                if len(parts) == 1
+                else sum(x * weight for x, weight in zip(parts, (3600, 60, 1), strict=True))
+            )
+            if math.isfinite(seconds) and seconds > 0:
+                return seconds
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _same_content_track(stream: dict, language: str | None) -> bool:
+    """能代替选中轨的同一份混音：同语言（或语言未知）、不是解说轨 / 口述影像轨。"""
+    disposition = stream.get("disposition") or {}
+    if disposition.get("comment") or disposition.get("visual_impaired"):
+        return False
+    other = (stream.get("tags") or {}).get("language")
+    return language in (None, "und") or other in (None, "und", language)
+
+
 def _complete_audio_index(streams: list[dict], duration: float) -> int:
     """第一条音轨明显短缺时，选同语言、完整的普通音轨；信息不足则维持第一条。
 
-    NAS《开端》E03 第一条音轨误封了 E02 的完整音频，比本集短约 249 秒；第二条
+    NAS华语剧 J E03 第一条音轨误封了 E02 的完整音频，比本集短约 249 秒；第二条
     才覆盖本集。不能只凭 codec/默认标记选择（这两条都标了默认），也不能把解说轨
     或其他语言的音轨当作修复。5 秒容差保留正常的收尾静音、容器时长舍入差异。
     """
-
-    def length(stream: dict) -> float | None:
-        for value in (stream.get("duration"), (stream.get("tags") or {}).get("DURATION")):
-            try:
-                parts = [float(x) for x in str(value).split(":")]
-                seconds = (
-                    parts[0]
-                    if len(parts) == 1
-                    else sum(x * weight for x, weight in zip(parts, (3600, 60, 1), strict=True))
-                )
-                if math.isfinite(seconds) and seconds > 0:
-                    return seconds
-            except (ValueError, TypeError):
-                continue
-        return None
-
+    length = _stream_length
     if not streams or duration <= 0:
         return 0
     first_length = length(streams[0])
@@ -415,16 +439,40 @@ def _complete_audio_index(streams: list[dict], duration: float) -> int:
         return 0
     language = (streams[0].get("tags") or {}).get("language")
     for index, stream in enumerate(streams[1:], 1):
-        disposition = stream.get("disposition") or {}
-        other_language = (stream.get("tags") or {}).get("language")
-        if disposition.get("comment") or disposition.get("visual_impaired"):
-            continue
-        if language not in (None, "und") and other_language not in (None, "und", language):
+        if not _same_content_track(stream, language):
             continue
         track_length = length(stream)
         if track_length is not None and abs(track_length - duration) <= 5:
             return index
     return 0
+
+
+#: 解码开销大的无损编码。NAS 实测解两分钟音频：TrueHD 7.1 要 2.6 秒，同片的 AC3 备选轨
+#: 0.63 秒；DTS / EAC3 / AAC / FLAC 都在 0.24～0.57 秒，不值得换
+_COSTLY_AUDIO_CODECS = frozenset({"truehd", "mlp"})
+
+
+def _cheaper_audio_index(streams: list[dict], index: int, duration: float) -> int:
+    """选中的轨是 TrueHD 时，换同语言、完整的有损轨，省四分之三的解码 CPU。
+
+    原盘 Remux 的 TrueHD 轨通常带一条同混音的 AC3 兼容轨，指纹照样和别的集对得上。
+    时长不明或差 5 秒以上的轨不换：宁可多花解码时间，也不能换到不完整的轨上。
+    """
+    if not 0 <= index < len(streams) or duration <= 0:
+        return index
+    chosen = streams[index]
+    if (chosen.get("codec_name") or "").lower() not in _COSTLY_AUDIO_CODECS:
+        return index
+    language = (chosen.get("tags") or {}).get("language")
+    for other, stream in enumerate(streams):
+        if other == index or (stream.get("codec_name") or "").lower() in _COSTLY_AUDIO_CODECS:
+            continue
+        if not _same_content_track(stream, language):
+            continue
+        track_length = _stream_length(stream)
+        if track_length is not None and abs(track_length - duration) <= 5:
+            return other
+    return index
 
 
 async def _fingerprint_audio_index(file: LibraryFile) -> int:
@@ -438,7 +486,7 @@ async def _fingerprint_audio_index(file: LibraryFile) -> int:
         "-select_streams",
         "a",
         "-show_entries",
-        "stream=duration:stream_tags=DURATION,language:stream_disposition=comment,visual_impaired",
+        "stream=codec_name,duration:stream_tags=DURATION,language:stream_disposition=comment,visual_impaired",
         "-of",
         "json",
         file.file_path,
@@ -470,12 +518,21 @@ async def _fingerprint_audio_index(file: LibraryFile) -> int:
             raise ValueError
     except (ValueError, KeyError, TypeError) as exc:
         raise FingerprintError("音轨探测结果无效，无法选择完整音轨") from exc
-    index = _complete_audio_index(streams, float(file.duration_seconds or 0))
+    duration = float(file.duration_seconds or 0)
+    index = _complete_audio_index(streams, duration)
     if index:
         logger.warning(
             "文件 #%s 的第一条音轨时长不足，改用第 %s 条完整音轨识别片头片尾", file.id, index + 1
         )
-    return index
+    cheaper = _cheaper_audio_index(streams, index, duration)
+    if cheaper != index:
+        logger.info(
+            "文件 #%s 的第 %s 条音轨是 TrueHD，改用同语言的第 %s 条有损音轨算指纹（解码快约 4 倍）",
+            file.id,
+            index + 1,
+            cheaper + 1,
+        )
+    return cheaper
 
 
 async def _chromaprint_window(
@@ -564,6 +621,249 @@ def _fingerprint_readable(file_id: int, *, check_audio_selection: bool = False) 
         and meta.get("v") == FINGERPRINT_VERSION
         and (not check_audio_selection or meta.get("audio_selection_version") == 1)
     )
+
+
+# ---------------------------------------------------------------------------
+# 画面证据：用片尾的演职员表修正片尾（movieclaw_playback.credits）
+# ---------------------------------------------------------------------------
+
+#: 帧观测缓存的格式版本：抽帧尺寸、OCR 模型或文字归一化变了就加一，旧缓存作废
+FRAMES_VERSION = 1
+#: 抽帧宽度：960 宽的画面上演职员表的小字仍可读，识别耗时约为 1920 宽的三分之一
+_FRAME_WIDTH = 960
+#: 找广告角标时的抽帧宽度：角标在 960 宽上只有约 20 像素、笔画一两个像素，放大也补不回细节
+#: （华语剧 D三帧只认出一帧）；1440 宽三帧全认出，每帧多约 0.25 秒
+_CORNER_FRAME_WIDTH = 1440
+#: 单帧 ffmpeg 超时：4K 精确定位要从关键帧解码过去，NAS 上约 3 秒
+_FRAME_TIMEOUT_S = 60.0
+#: 比这短的集不看画面（短动画、预告片）：片尾窗只有几十秒，演职员表规则不适用
+_MIN_FRAME_DURATION_S = 600.0
+
+_ocr_cached: tuple[str, OcrEngine | None] | None = None
+
+
+def _ocr_engine() -> OcrEngine | None:
+    """进程内只加载一次 OCR 模型；模型目录变了（测试换配置）才重载。缺失返回 None。"""
+    global _ocr_cached
+    model_dir = get_settings().ocr_model_dir
+    if _ocr_cached is None or _ocr_cached[0] != model_dir:
+        engine = OcrEngine.load(model_dir)
+        if engine is None:
+            logger.info("未找到画面文字识别模型（%s），片头片尾识别只用声音", model_dir)
+        _ocr_cached = (model_dir, engine)
+    return _ocr_cached[1]
+
+
+def frames_path(file_id: int) -> Path:
+    return Path(get_settings().audio_fingerprint_dir) / f"{file_id}.frames.json"
+
+
+_PTS_TIME = re.compile(rb"pts_time:\s*(-?[0-9.]+)")
+
+
+async def _grab_frame(
+    path: str, t: float, accurate: bool, width: int = _FRAME_WIDTH
+) -> tuple[Any, float] | None:
+    """抽一帧：返回（``width`` 宽的 RGB 数组，这一帧在文件里的实际秒数）；失败返回 None。
+
+    ``accurate`` 为假时只解关键帧（``-skip_frame nokey``），NAS 上 4K 一帧约 0.5 秒，但拿到的是
+    t **之后**的第一个关键帧，最多晚一个 GOP（几秒到十几秒）——必须用 showinfo 报的实际时间，
+    按请求时间标记会把晚几秒的演职员表当成更早出现（美剧 B片尾起点因此早了 13 秒）。
+    为真时从关键帧解码到 t，精确但 4K 要两三秒，只在找边界时用。
+    """
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    start = max(0.0, t)
+    args = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "info"]
+    if not accurate:
+        args += ["-skip_frame", "nokey"]
+    args += ["-ss", f"{start:.3f}", "-i", path, "-frames:v", "1", "-an", "-sn"]
+    args += ["-vf", f"scale={width}:-2,showinfo"]
+    args += ["-f", "image2pipe", "-vcodec", "bmp", "-"]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *_niced(args), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+    except OSError:
+        return None
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=_FRAME_TIMEOUT_S)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        return None
+    except asyncio.CancelledError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        raise
+    if proc.returncode != 0 or not out:
+        return None
+    # 输入端 -ss 之后输出时间轴从请求点归零：showinfo 的 pts_time 就是这一帧比请求点晚了多少
+    match = _PTS_TIME.search(err)
+    actual = start + (float(match.group(1)) if match else 0.0)
+    try:
+        return np.asarray(Image.open(io.BytesIO(out)).convert("RGB")), actual
+    except (OSError, ValueError):
+        return None
+
+
+class _FrameProbe:
+    """一个文件的抽帧 + 识别，带磁盘缓存。
+
+    缓存同时记请求时间和实际时间：关键帧请求按请求时间 ±1.5 秒复用（同一个请求点每次都拿到
+    同一个关键帧）；精确请求按实际时间 ±0.3 秒复用，不拿关键帧顶替。
+    """
+
+    def __init__(self, file: LibraryFile, engine: OcrEngine):
+        self.file = file
+        self.engine = engine
+        self.dirty = False
+        # (请求时间, 是否精确, 帧)
+        self.frames: list[tuple[float, bool, credits_logic.Frame]] = []
+        try:
+            data = json.loads(frames_path(int(file.id)).read_text())  # type: ignore[arg-type]
+            if data.get("v") == FRAMES_VERSION and data.get("size") == file.size_bytes:
+                for item in data.get("frames", []):
+                    frame = credits_logic.Frame(
+                        float(item["t"]),
+                        float(item["luma"]),
+                        [tuple(x) for x in item["lines"]],
+                        item.get("corners"),
+                    )
+                    self.frames.append((float(item["req"]), bool(item["accurate"]), frame))
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+
+    async def observe(
+        self, t: float, accurate: bool, corners: bool = False
+    ) -> credits_logic.Frame | None:
+        """抽 t 处的一帧并识别；``corners`` 为真时连四角一起识别（找广告角标，多 0.6 秒）。"""
+        for req, cached_accurate, frame in self.frames:
+            hit = (accurate and cached_accurate and abs(frame.t - t) <= 0.3) or (
+                not accurate and abs(req - t) <= 1.5
+            )
+            if hit and (not corners or frame.corners is not None):
+                return frame
+        width = _CORNER_FRAME_WIDTH if corners else _FRAME_WIDTH
+        grabbed = await _grab_frame(self.file.file_path, t, accurate, width)
+        if grabbed is None:
+            return None
+        img, actual = grabbed
+
+        def _read() -> credits_logic.Frame:
+            lines = [(x.text, *x.box) for x in self.engine.read(img)]
+            corner_texts = self.engine.read_corners(img) if corners else None
+            return credits_logic.Frame(actual, float(img.mean()), lines, corner_texts)
+
+        frame = await asyncio.to_thread(_read)
+        self.frames.append((t, accurate, frame))
+        self.dirty = True
+        return frame
+
+    async def observe_corners(self, t: float) -> credits_logic.Frame | None:
+        return await self.observe(t, False, corners=True)
+
+    def save(self) -> None:
+        if not self.dirty:
+            return
+        payload = {
+            "v": FRAMES_VERSION,
+            "size": self.file.size_bytes,
+            "frames": [
+                {
+                    "req": req,
+                    "t": f.t,
+                    "accurate": acc,
+                    "luma": round(f.luma, 1),
+                    "lines": [list(x) for x in f.lines],
+                    "corners": f.corners,
+                }
+                for req, acc, f in sorted(self.frames, key=lambda item: item[2].t)
+            ],
+        }
+        path = frames_path(int(self.file.id))  # type: ignore[arg-type]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        staging = path.with_name(f".{path.name}.part")
+        staging.write_text(json.dumps(payload, ensure_ascii=False))
+        os.replace(staging, path)
+
+
+async def _refine_with_frames(
+    files: list[LibraryFile],
+    results: dict[str, list[dict[str, Any]]],
+    *,
+    chinese: bool,
+    context: jobs.JobContext | None,
+    polite: bool,
+) -> dict[str, list[dict[str, Any]]]:
+    """逐集用画面文字修正声音识别的结果：片尾按演职员表修正；不到结尾的片尾之后找「下集预告」；
+    中文内容再按「广告」角标给开头的段定类型（``segment_labels``）。
+
+    任何一集出错都保留它的声音结果，不影响整季。
+    """
+    engine = _ocr_engine()
+    if engine is None:
+        return results
+    refined = dict(results)
+    for file in files:
+        duration = float(file.duration_seconds or 0)
+        key = str(file.id)
+        if key not in results or duration < _MIN_FRAME_DURATION_S:
+            continue
+        if context is not None:
+            await context.raise_if_cancelled()
+            if polite:
+                await _wait_until_quiet(context)
+        await foreground.yield_to_foreground()
+        segments = [dict(s) for s in results[key]]
+        outro = next((s for s in segments if s.get("type") == "outro"), None)
+        audio = (outro["start_ms"] / 1000, outro["end_ms"] / 1000) if outro else None
+        probe = _FrameProbe(file, engine)
+        notes: list[str] = []
+        try:
+            async with _slot("ffmpeg"):
+                decision = await credits_logic.refine_outro(audio, duration, probe.observe)
+                if decision.segment != audio:
+                    notes.append(f"片尾：{decision.reason}")
+                segments = [s for s in segments if s.get("type") != "outro"]
+                if decision.segment is not None:
+                    start, end = decision.segment
+                    segments.append(
+                        {
+                            "type": "outro",
+                            "start_ms": int(round(start * 1000)),
+                            "end_ms": int(round(end * 1000)),
+                            "support": int(outro.get("support", 0)) if outro else 0,
+                            "to_end": duration - end <= 5.0,
+                        }
+                    )
+                    if duration - end > 5.0:
+                        preview = await segment_labels.find_preview(end, duration, probe.observe)
+                        if preview is not None:
+                            segments.append(
+                                {
+                                    "type": "preview",
+                                    "start_ms": int(round(preview[0] * 1000)),
+                                    "end_ms": int(round(preview[1] * 1000)),
+                                    "support": 0,
+                                    "to_end": True,
+                                }
+                            )
+                            notes.append(f"片尾后 {preview[0]:.0f} 秒起是下集预告")
+                if chinese:
+                    notes += await segment_labels.label_head_ads(segments, probe.observe_corners)
+            await asyncio.to_thread(probe.save)
+        except Exception as exc:  # noqa: BLE001 —— 画面核对锦上添花：抽帧、OCR 出任何错都退回声音结果
+            logger.warning("文件 #%s 的画面核对失败，保留声音识别结果：%s", file.id, exc)
+            continue
+        if notes:
+            refined[key] = sorted(segments, key=lambda s: s["start_ms"])
+            logger.info("文件 #%s 按画面修正：%s", file.id, "；".join(notes))
+    return refined
 
 
 # ---------------------------------------------------------------------------
@@ -762,6 +1062,15 @@ async def analyze_season(
     response = await _run_detection(episodes)
     results: dict[str, list[dict[str, Any]]] = response.get("results", {})
     unreadable = {int(i) for i in response.get("unreadable", [])}
+    async with db.session() as session:
+        chinese = await _is_chinese_title(session, media_item_id)
+    results = await _refine_with_frames(
+        [f for f, _ in ready if int(f.id or 0) not in unreadable],
+        results,
+        chinese=chinese,
+        context=context,
+        polite=polite,
+    )
     now = utcnow()
     async with db.session() as session:
         for f, snapshot in ready:
@@ -819,7 +1128,7 @@ async def analyze_season(
 
 
 async def segments_for_file(session: AsyncSession, file: LibraryFile) -> list[dict[str, Any]]:
-    """播放器要的片段（毫秒）：库开着开关、识别过才有，否则空表。两次主键查询。"""
+    """播放器要的片段（毫秒）：库开着开关、识别过才有，否则空表。两次主键查询（要贴零时再查一次元数据）。"""
     if file.id is None or file.library_id is None:
         return []
     state = await session.get(MediaSegmentState, file.id)
@@ -836,13 +1145,43 @@ async def segments_for_file(session: AsyncSession, file: LibraryFile) -> list[di
     if library is None or library.kind != "tv" or not library.detect_media_segments:
         return []
     segments = [dict(s) for s in state.segments]
-    # 片头前那几秒多是平台台标、片名卡，不值得单独看：第一段离开头不到 _HEAD_SNAP_MS 就从 0 算起，
+    # 片头前那几秒多是平台台标、冠名广告，不值得单独看：第一段离开头不到 _HEAD_SNAP_MS 就从 0 算起，
     # 开播就给「跳过」，不必等到冠名广告真正响起才冒出来（用户反馈 2026-10-01）。
-    # 只改下发的区间，库里存的仍是识别原值；跳到的终点不变
-    first = min(segments, key=lambda seg: seg["start_ms"], default=None)
-    if first is not None and 0 < first["start_ms"] <= _HEAD_SNAP_MS:
-        first["start_ms"] = 0
+    # 只改下发的区间，库里存的仍是识别原值；跳到的终点不变。
+    # 只对中文内容（见 _HEAD_SNAP_LANGUAGES）。
+    # 起点都在 _HEAD_SNAP_MS 内的几段（许可证 0–6.6 秒、厂标、片头 10.4 秒起）并成一个按钮，
+    # 从 0 跳到其中最远的终点：v6 认出短段后，不并就会把 v5 的一个按钮拆成两个，中间几秒台标漏跳
+    heads = [s for s in segments if s["type"] != "outro" and s["start_ms"] <= _HEAD_SNAP_MS]
+    if (
+        heads
+        and (len(heads) > 1 or heads[0]["start_ms"] > 0)
+        and file.media_item_id is not None
+        and await _is_chinese_title(session, file.media_item_id)
+    ):
+        merged = {**max(heads, key=lambda s: s["end_ms"]), "start_ms": 0}
+        segments = [merged, *(s for s in segments if not any(s is h for h in heads))]
+        segments.sort(key=lambda s: s["start_ms"])
     return segments
+
+
+async def _is_chinese_title(session: AsyncSession, media_item_id: int) -> bool:
+    """是不是中文内容（原始语言 zh / 粤语 cn，或出品地含 CN）：开头贴零与广告角标都只对它做。
+
+    没刮到元数据的当作不是（宁可少跳）。
+    """
+    row = (
+        await session.execute(
+            select(MediaMetadata.original_language, MediaMetadata.origin_countries).where(
+                MediaMetadata.media_item_id == media_item_id
+            )
+        )
+    ).first()
+    if row is None:
+        return False
+    language, countries = row
+    return (language or "") in _HEAD_SNAP_LANGUAGES or bool(
+        set(countries or []) & _HEAD_SNAP_COUNTRIES
+    )
 
 
 _bump_pending: set[tuple[int, int]] = set()

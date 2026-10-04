@@ -217,6 +217,7 @@ DATA_DIRS: tuple[DataDir, ...] = (
             "（一集约 33 KB），同一季的指纹互相比对就能认出片头片尾。清空后已经认出的片头片尾"
             "不受影响，播放照常给「跳过片头」；但之后这一季再来新集时，要把旧集重新读一遍"
             "（每集约 6 秒、几百 MB 的读取），所以只建议在磁盘紧张时清理。"
+            "这里还存着片尾几帧画面的文字识别结果（用来核对演职员表），清掉后重新识别时补抽。"
         ),
         default="data/cache/audio-fingerprints",
         resolve=lambda s: Path(s.audio_fingerprint_dir),
@@ -379,8 +380,11 @@ DATA_DIRS: tuple[DataDir, ...] = (
     DataDir(
         key="models",
         title="模型文件",
-        summary="NER 模型与语音检测模型",
-        description="种子命名识别（NER）模型与字幕同步用的语音检测模型，由应用内更新维护。",
+        summary="NER 模型、语音检测与画面文字识别模型",
+        description=(
+            "种子命名识别（NER）模型与字幕同步用的语音检测模型，由应用内更新维护；"
+            "本地开发时片头片尾识别用的画面文字识别（PP-OCR）模型也放在这里（镜像里已内置）。"
+        ),
         default="data/models",
         resolve=lambda s: Path(s.data_dir) / "models",
     ),

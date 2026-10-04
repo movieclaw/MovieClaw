@@ -218,8 +218,14 @@ def _select_source(
 
 
 #: 片段类型 → Jellyfin MediaSegmentType（10.10 的枚举名）。「其他」是片头前的冠名广告、
-#: 发行许可这类，最接近 Commercial
-_SEGMENT_TYPES = {"intro": "Intro", "outro": "Outro", "other": "Commercial"}
+#: 发行许可这类，最接近 Commercial；画面角标确认的广告同样是 Commercial
+_SEGMENT_TYPES = {
+    "intro": "Intro",
+    "outro": "Outro",
+    "other": "Commercial",
+    "ad": "Commercial",
+    "preview": "Preview",
+}
 
 
 @router.get("/MediaSegments/{item_id}")

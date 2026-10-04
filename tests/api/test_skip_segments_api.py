@@ -29,10 +29,18 @@ from movieclaw_api.services.playback.session import get_session_manager, reset_s
 from movieclaw_api.settings.store import reset_setting_store
 from movieclaw_db.crypto import reset_secret_box
 from movieclaw_db.engine import get_database
-from movieclaw_db.models import FileSource, FileState, LibraryFile, MediaItem, MediaSegmentState
+from movieclaw_db.models import (
+    FileSource,
+    FileState,
+    LibraryFile,
+    MediaItem,
+    MediaMetadata,
+    MediaSegmentState,
+)
 from movieclaw_db.repositories.library_repo import LibraryRepository
 from movieclaw_jellyfin.ids import episode_guid
 from movieclaw_playback import activity
+from movieclaw_playback import credits as credits_logic
 from movieclaw_playback.events import ClientInfo
 from movieclaw_playback.skip_segments import HASH_SECONDS
 
@@ -40,7 +48,7 @@ _PB = "/api/v1/playback"
 
 
 def test_real_truncated_first_audio_selects_complete_track() -> None:
-    """NAS《开端》E03：第一轨 2422.368 秒，第二轨才覆盖完整的 2671.701 秒。"""
+    """NAS华语剧 J E03：第一轨 2422.368 秒，第二轨才覆盖完整的 2671.701 秒。"""
     fixture = Path(__file__).parents[1] / "playback/fixtures/skip_segments/nas-reset-audio.json"
     data = json.loads(fixture.read_text())
     assert skip_segments._complete_audio_index(data["streams"], data["duration"]) == 1
@@ -62,6 +70,46 @@ def test_incomplete_audio_does_not_switch_without_suitable_alternative(reason: s
     else:
         streams[0]["duration"] = "N/A"
     assert skip_segments._complete_audio_index(streams, 2700) == 0
+
+
+def _truehd_streams() -> list[dict]:
+    return [
+        {"codec_name": "truehd", "duration": "2700", "tags": {"language": "eng"}},
+        {"codec_name": "ac3", "duration": "2700", "tags": {"language": "eng"}},
+    ]
+
+
+def test_truehd_is_replaced_by_same_mix_lossy_track() -> None:
+    """美剧 E这类原盘 Remux：TrueHD 解码是同片 AC3 兼容轨的 4 倍，改用 AC3 算指纹。"""
+    assert skip_segments._cheaper_audio_index(_truehd_streams(), 0, 2700) == 1
+    # 第一轨短缺换到第二轨（TrueHD）后，同样再换到完整的有损轨
+    streams = [{"codec_name": "aac", "duration": "2400", "tags": {"language": "eng"}}]
+    streams += _truehd_streams()
+    assert skip_segments._complete_audio_index(streams, 2700) == 1
+    assert skip_segments._cheaper_audio_index(streams, 1, 2700) == 2
+
+
+@pytest.mark.parametrize("reason", ["commentary", "different_language", "short", "unknown_length"])
+def test_truehd_kept_without_equivalent_lossy_track(reason: str) -> None:
+    streams = _truehd_streams()
+    if reason == "commentary":
+        streams[1]["disposition"] = {"comment": 1}
+    elif reason == "different_language":
+        streams[1]["tags"]["language"] = "spa"
+    elif reason == "short":
+        streams[1]["duration"] = "2600"
+    else:
+        streams[1]["duration"] = "N/A"
+    assert skip_segments._cheaper_audio_index(streams, 0, 2700) == 0
+
+
+def test_cheap_codecs_are_never_switched() -> None:
+    """EAC3 / AAC / DTS / FLAC 解码都很快：选中的轨不是 TrueHD 就不动。"""
+    streams = [
+        {"codec_name": "eac3", "duration": "2700", "tags": {"language": "eng"}},
+        {"codec_name": "aac", "duration": "2700", "tags": {"language": "eng"}},
+    ]
+    assert skip_segments._cheaper_audio_index(streams, 0, 2700) == 0
 
 
 _ADMIN = {"username": "admin", "password": "Sup3rSecret!"}
@@ -111,6 +159,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
     monkeypatch.setenv("MOVIECLAW_TRANSCODE_DIR", str(tmp_path / "transcodes"))
     monkeypatch.setenv("MOVIECLAW_AUDIO_FINGERPRINT_DIR", str(tmp_path / "fp"))
+    # 默认不加载画面文字识别模型（开发机 data/models/ppocr 里有也不用），结果只来自声音
+    monkeypatch.setenv("MOVIECLAW_OCR_DIR", str(tmp_path / "no-ocr-models"))
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
     monkeypatch.setenv("TMDB_API_KEY", "test-key-not-used")
     get_settings.cache_clear()
@@ -924,11 +974,90 @@ def test_backfill_resorts_after_every_season(
     assert len(done) == 8
 
 
+async def _set_metadata(item_id: int, language: str | None, countries: list[str]) -> None:
+    async with get_database().session() as session:
+        session.add(
+            MediaMetadata(
+                media_item_id=item_id, original_language=language, origin_countries=countries
+            )
+        )
+        await session.commit()
+
+
+async def _set_head_segment(file_id: int, start_ms: int) -> None:
+    async with get_database().session() as session:
+        state = await session.get(MediaSegmentState, file_id)
+        state.segments = [
+            {"type": "other", "start_ms": start_ms, "end_ms": 13_000, "to_end": False},
+            {"type": "intro", "start_ms": 270_000, "end_ms": 370_000, "to_end": False},
+        ]
+        await session.commit()
+
+
+@pytest.mark.parametrize(
+    "language,countries,snapped",
+    [
+        ("cn", ["HK"], True),  # 粤语港剧
+        ("zh", ["TW"], True),
+        ("ja", ["JP"], False),  # 日剧 A开头几秒就是剧情
+        ("en", ["US"], False),
+        (None, [], False),  # 没刮到元数据：宁可少跳
+    ],
+)
+def test_head_snap_only_for_chinese_titles(
+    client: TestClient, tmp_path: Path, language, countries, snapped
+) -> None:
+    """下发贴零只对中文内容：国内每集先放发行许可证，许可证前只会是广告；海外剧有冷开场。"""
+    ids = call(client, _seed, tmp_path)
+    if language is not None:
+        call(client, _set_metadata, ids["show"], language, countries)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    first = ids["files"][0]
+    call(client, _set_head_segment, first, 4_600)
+    served = start_session(client, first)["segments"][0]["start_ms"]
+    assert served == (0 if snapped else 4_600)
+
+
+def test_head_segments_within_snap_window_merge_into_one_button(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """华语剧 C E02：许可证 0–6.6 秒 + 片头 10.4 秒起，中间是平台厂标。
+
+    v5 只认出片头，贴零后一个按钮跳完；v6 认出了许可证，不并就拆成两个按钮、厂标漏跳。
+    """
+    ids = call(client, _seed, tmp_path)
+    call(client, _set_metadata, ids["show"], "zh", ["CN"])
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    first = ids["files"][0]
+
+    async def set_segments() -> None:
+        async with get_database().session() as session:
+            state = await session.get(MediaSegmentState, first)
+            state.segments = [
+                {"type": "other", "start_ms": 0, "end_ms": 6_600, "to_end": False},
+                {"type": "intro", "start_ms": 10_400, "end_ms": 98_000, "to_end": False},
+                {"type": "outro", "start_ms": 2_500_000, "end_ms": 2_600_000, "to_end": True},
+            ]
+            await session.commit()
+
+    call(client, set_segments)
+    served = start_session(client, first)["segments"]
+    assert [(s["type"], s["start_ms"], s["end_ms"]) for s in served] == [
+        ("intro", 0, 98_000),
+        ("outro", 2_500_000, 2_600_000),
+    ]
+    assert len(call(client, _states)[first].segments) == 3  # 库里仍存识别原值
+
+
 def test_first_segment_near_file_start_is_served_from_zero(
     client: TestClient, tmp_path: Path
 ) -> None:
-    """片头前只有几秒台标时，下发的第一段从 0 开始：开播就给「跳过」。库里存的原值不变。"""
+    """中文剧片头前只有几秒台标、冠名广告时，下发的第一段从 0 开始：开播就给「跳过」。
+
+    库里存的原值不变。海外剧常有几秒的剧情冷开场，不贴（见下一个用例）。
+    """
     ids = call(client, _seed, tmp_path)
+    call(client, _set_metadata, ids["show"], "zh", ["CN"])
     call(client, skip_segments.analyze_season, ids["show"], 1)
     first, second = ids["files"][0], ids["files"][1]
 
@@ -1330,3 +1459,163 @@ def test_truncated_fingerprint_is_rebuilt_in_library_job(client, tmp_path, monke
     assert path.read_bytes() == good
     assert call(client, _states)[victim].segments
     assert call(client, _needing) == []
+
+
+# ---------------------------------------------------------------------------
+# 画面证据：用片尾演职员表修正片尾
+# ---------------------------------------------------------------------------
+
+
+def test_credits_refinement_rewrites_outro_in_database(client, tmp_path, monkeypatch) -> None:
+    """整季识别后按画面修正片尾：改写的区间落库，其余集保持声音结果。"""
+    ids = call(client, _seed, tmp_path)
+    first = ids["files"][0]
+    seen: list[tuple[float, float] | None] = []
+
+    async def fake_refine(outro, duration, observe):
+        seen.append(outro)
+        if len(seen) == 1:
+            return credits_logic.OutroDecision((2600.0, 2650.0), "测试：演职员表后回到剧情")
+        return credits_logic.OutroDecision(outro, "演职员表确认")
+
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: object())
+    monkeypatch.setattr(skip_segments.credits_logic, "refine_outro", fake_refine)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    states = call(client, _states)
+    outro = next(s for s in states[first].segments if s["type"] == "outro")
+    assert (outro["start_ms"], outro["end_ms"], outro["to_end"]) == (2_600_000, 2_650_000, False)
+    other = next(s for s in states[ids["files"][1]].segments if s["type"] == "outro")
+    assert other["to_end"] and other["end_ms"] > 2_690_000
+    assert len(seen) == len(ids["files"]) and all(o is not None for o in seen)
+
+
+def test_frame_check_failure_keeps_audio_result(client, tmp_path, monkeypatch) -> None:
+    """抽帧或 OCR 出错只影响这一集的画面核对，声音识别的片尾照常落库。"""
+    ids = call(client, _seed, tmp_path)
+
+    async def broken_refine(outro, duration, observe):
+        raise RuntimeError("onnxruntime 推理失败")
+
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: object())
+    monkeypatch.setattr(skip_segments.credits_logic, "refine_outro", broken_refine)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    states = call(client, _states)
+    assert all(any(s["type"] == "outro" for s in states[f].segments) for f in ids["files"])
+
+
+def test_frame_probe_caches_observations(client, tmp_path, monkeypatch) -> None:
+    """同一时间点不重复抽帧：关键帧 ±1.5 秒复用，要精确帧时不拿关键帧顶替；片源换了缓存作废。"""
+    from types import SimpleNamespace
+
+    from movieclaw_playback.ocr import TextLine
+
+    grabs: list[tuple[float, bool]] = []
+
+    async def fake_grab(path, t, accurate, width=960):
+        grabs.append((t, accurate))
+        # 只解关键帧时拿到的是请求点之后的关键帧：实际时间晚 0.8 秒
+        return np.zeros((54, 96, 3), dtype=np.uint8), t if accurate else t + 0.8
+
+    class Engine:
+        def read(self, img):
+            return [TextLine("Directed by", 0.95, (0.4, 0.4, 0.6, 0.45))]
+
+    monkeypatch.setattr(skip_segments, "_grab_frame", fake_grab)
+    file = SimpleNamespace(id=7, file_path=str(tmp_path / "x.mkv"), size_bytes=123)
+
+    async def scenario() -> None:
+        probe = skip_segments._FrameProbe(file, Engine())
+        frame = await probe.observe(100.0, False)
+        assert frame is not None and frame.keyword and frame.dark
+        assert frame.t == 100.8  # 帧按实际时间记，不按请求时间
+        await probe.observe(101.0, False)
+        await probe.observe(101.0, True)
+        probe.save()
+        again = skip_segments._FrameProbe(file, Engine())
+        await again.observe(100.4, False)
+        await again.observe(101.1, True)
+        file.size_bytes = 456
+        replaced = skip_segments._FrameProbe(file, Engine())
+        await replaced.observe(100.0, False)
+
+    client.portal.call(scenario)  # type: ignore[attr-defined]
+    assert grabs == [(100.0, False), (101.0, True), (100.0, False)]
+
+
+def test_frame_refinement_labels_ads_only_for_chinese_titles(client, tmp_path, monkeypatch) -> None:
+    """中文内容按「广告」角标把开头的「其他」段改标广告；海外内容不看角标。片尾后的下集预告单独成段。"""
+    from types import SimpleNamespace
+
+    from movieclaw_playback.ocr import TextLine
+
+    async def fake_grab(path, t, accurate, width=960):
+        return np.zeros((54, 96, 3), dtype=np.uint8), t
+
+    class Engine:
+        def read(self, img):
+            return [TextLine("下集预告", 0.95, (0.4, 0.4, 0.6, 0.5))]
+
+        def read_corners(self, img):
+            return ["广告"]
+
+    async def keep_outro(outro, duration, observe):
+        return credits_logic.OutroDecision(outro, "演职员表确认")
+
+    monkeypatch.setattr(skip_segments, "_grab_frame", fake_grab)
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: Engine())
+    monkeypatch.setattr(skip_segments.credits_logic, "refine_outro", keep_outro)
+    file = SimpleNamespace(
+        id=9, file_path=str(tmp_path / "e.mkv"), size_bytes=1, duration_seconds=3000
+    )
+    results = {
+        "9": [
+            {"type": "other", "start_ms": 4_000, "end_ms": 17_000, "support": 4, "to_end": False},
+            {
+                "type": "outro",
+                "start_ms": 2_800_000,
+                "end_ms": 2_900_000,
+                "support": 9,
+                "to_end": False,
+            },
+        ]
+    }
+
+    def refine(chinese: bool):
+        return client.portal.call(  # type: ignore[attr-defined]
+            partial(
+                skip_segments._refine_with_frames,
+                [file],
+                results,
+                chinese=chinese,
+                context=None,
+                polite=False,
+            )
+        )["9"]
+
+    zh = refine(True)
+    assert [s["type"] for s in zh] == ["ad", "outro", "preview"]
+    assert zh[2]["start_ms"] >= 2_900_000 and zh[2]["end_ms"] == 3_000_000
+    assert [s["type"] for s in refine(False)] == ["other", "outro", "preview"]
+
+
+def test_jellyfin_maps_ad_and_preview_segments(client, tmp_path) -> None:
+    """画面确认的广告给 Infuse 当 Commercial，下集预告当 Preview。"""
+    ids = call(client, _seed, tmp_path)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    third = ids["files"][2]
+
+    async def set_segments() -> None:
+        async with get_database().session() as session:
+            state = await session.get(MediaSegmentState, third)
+            state.segments = [
+                {"type": "ad", "start_ms": 30_000, "end_ms": 45_000, "to_end": False},
+                {"type": "outro", "start_ms": 2_500_000, "end_ms": 2_600_000, "to_end": False},
+                {"type": "preview", "start_ms": 2_600_000, "end_ms": 2_700_000, "to_end": True},
+            ]
+            await session.commit()
+
+    call(client, set_segments)
+    token = jf_token(client)
+    guid = episode_guid(ids["show"], 1, 3)
+    body = client.get(f"/MediaSegments/{guid}", params={"ApiKey": token}).json()
+    assert [i["Type"] for i in body["Items"]] == ["Commercial", "Outro", "Preview"]

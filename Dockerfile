@@ -8,7 +8,8 @@
 #   - 前端 standalone 输出：只带被引用的依赖，不装完整 node_modules
 #   - 后端只装运行依赖（从 pyproject 提取），源码按项目布局摆放（不 pip install
 #     打包——启动迁移按「源码根目录」定位 alembic.ini，见 movieclaw_db/migrations.py）
-#   - NER 模型从 GitHub Release 下载后烧进镜像，开箱即用，无需用户手动放置
+#   - NER 模型从 GitHub Release 下载后烧进镜像，开箱即用，无需用户手动放置；
+#     片头片尾识别用的画面文字识别模型（PP-OCRv4）同样在构建时烧进镜像
 #   - TMDB Key 通过构建参数烧进镜像（运行时可用环境变量覆盖）
 #   - 对外只暴露一个端口（默认 3000，可用 MOVIECLAW_WEB_PORT 环境变量或应用内
 #     「设置 → 应用设置」改），由容器内 nginx 前门接住：/api/v1 与 Jellyfin
@@ -22,6 +23,7 @@
 #   --build-arg PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 #   --build-arg NPM_REGISTRY=https://registry.npmmirror.com
 #   --build-arg NER_MODEL_BASE=<GitHub Release 的镜像加速地址>
+#   --build-arg PYPI_FILES_BASE=https://pypi.tuna.tsinghua.edu.cn/packages
 #   --build-arg SECONV_BASE=<Subtitle Edit Release 的镜像加速地址>
 # =============================================================================
 
@@ -135,6 +137,38 @@ RUN mkdir -p /model \
     # 以 / 结尾时写入空 tag），应用内模型更新据此比对版本
     && NER_BASE_TRIMMED="${NER_MODEL_BASE%/}" \
     && echo "${NER_BASE_TRIMMED##*/}" > /model/.release-tag
+
+# ---------------------------------------------------------------------------
+# 阶段 3b：画面文字识别模型（PP-OCRv4 ONNX，片头片尾识别读演职员表用）
+# ---------------------------------------------------------------------------
+# 取自 PyPI 上 RapidOCR 的 wheel（Apache-2.0；模型是 PaddleOCR 官方 PP-OCRv4 转的 ONNX，
+# 同为 Apache-2.0），只解出检测与识别两个模型，推理代码是我们自己的
+# （movieclaw_playback/ocr.py，只依赖已有的 onnxruntime / numpy / Pillow）。
+# wheel 与两个模型都锁 SHA256，防下载镜像或上游被替换。模型与架构无关。
+FROM --platform=$BUILDPLATFORM debian:bookworm-slim AS ppocr-model
+ARG PYPI_FILES_BASE=https://files.pythonhosted.org/packages
+ARG APT_MIRROR=""
+RUN if [ -n "$APT_MIRROR" ]; then \
+        sed -i "s|deb.debian.org|$APT_MIRROR|g" /etc/apt/sources.list.d/debian.sources; \
+    fi \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends curl ca-certificates unzip \
+    && rm -rf /var/lib/apt/lists/*
+RUN mkdir -p /model \
+    && cd /tmp \
+    && curl -fSL --retry 3 -o rapidocr.whl \
+        "$PYPI_FILES_BASE/ba/12/1e5497183bdbe782dbb91bad1d0d2297dba4d2831b2652657f7517bfc6df/rapidocr_onnxruntime-1.4.4-py3-none-any.whl" \
+    && echo "971d7d5f223a7a808662229df1ef69893809d8457d834e6373d3854bc1782cbf  rapidocr.whl" | sha256sum -c - \
+    && unzip -j rapidocr.whl \
+        rapidocr_onnxruntime/models/ch_PP-OCRv4_det_infer.onnx \
+        rapidocr_onnxruntime/models/ch_PP-OCRv4_rec_infer.onnx -d /model \
+    && printf '%s  %s\n' \
+        d2a7720d45a54257208b1e13e36a8479894cb74155a5efe29462512d42f49da9 /model/ch_PP-OCRv4_det_infer.onnx \
+        48fc40f24f6d2a207a2b1091d3437eb3cc3eb6b676dc3ef9c37384005483683b /model/ch_PP-OCRv4_rec_infer.onnx \
+        | sha256sum -c - \
+    && printf '%s\n' "PP-OCRv4 (PaddleOCR, Apache-2.0), ONNX conversion from rapidocr_onnxruntime 1.4.4 (Apache-2.0)." \
+        > /model/NOTICE \
+    && rm -f rapidocr.whl
 
 # ---------------------------------------------------------------------------
 # 阶段 4：PGS 转换器（按目标架构选 Subtitle Edit seconv 官方产物）
@@ -270,6 +304,8 @@ RUN rm -rf ./web/node_modules/.pnpm/@img* ./web/node_modules/.pnpm/sharp@* \
 
 # NER 模型：镜像内只读目录，不占用户的 data 卷；MOVIECLAW_NER_DIR 指过来
 COPY --from=ner-model /model ./models/torrent-ner
+# 画面文字识别模型（约 15 MB）：同样只读内置，MOVIECLAW_OCR_DIR 指过来
+COPY --from=ppocr-model /model ./models/ppocr
 
 COPY docker/entrypoint.sh /entrypoint.sh
 # 对外端口的解析脚本：entrypoint 与下面的 HEALTHCHECK 共用同一份逻辑，
@@ -311,6 +347,7 @@ ENV PATH="/venv/bin:${PATH}" \
     # 发布镜像默认真实投递订阅（代码默认 dry-run 是开发期的保护）
     SUBSCRIPTION_DISPATCH_DRY_RUN=false \
     MOVIECLAW_NER_DIR=/app/models/torrent-ner \
+    MOVIECLAW_OCR_DIR=/app/models/ppocr \
     MOVIECLAW_SECONV_PATH=/opt/movieclaw/seconv/seconv
 
 # 运行期数据（SQLite、日志、缓存、上传、密钥）全部落在这个目录
