@@ -444,31 +444,33 @@ struct LibrarySearchResultsView: View {
         .accessibilityIdentifier("library-results")
     }
 
-    /// 命中的人物：圆形头像 + 姓名 + 库内作品数；点按进库内影人页（旧服务端不返回 TMDB id 时不跳转）
+    /// 命中的人物：圆形头像 + 姓名 + 库内作品数；点按进库内影人页。
+    /// 旧服务端不返回 TMDB 影人 id，没有影人页可进：画成不可点的静态块，而不是点了没反应的按钮
+    @ViewBuilder
     private func personChip(_ person: API.LibrarySearchPerson) -> some View {
-        Button {
-            guard let tmdbId = person.tmdbPersonId else { return }
-            router.push(.person(tmdbId: tmdbId))
-        } label: {
-            VStack(spacing: 4) {
-                ZStack {
-                    LinearGradient(colors: [.white.opacity(0.07), .white.opacity(0.02)], startPoint: .top, endPoint: .bottom)
-                    Text(String(person.name.prefix(1))).font(.system(size: 22, weight: .semibold)).foregroundStyle(.white.opacity(0.35))
-                    if person.avatarUrl != nil {
-                        MeasuredRemoteImage(raw: person.avatarUrl, placeholderSymbol: "person.fill")
-                    }
+        let body = VStack(spacing: 4) {
+            ZStack {
+                LinearGradient(colors: [.white.opacity(0.07), .white.opacity(0.02)], startPoint: .top, endPoint: .bottom)
+                Text(String(person.name.prefix(1))).font(.system(size: 22, weight: .semibold)).foregroundStyle(.white.opacity(0.35))
+                if person.avatarUrl != nil {
+                    MeasuredRemoteImage(raw: person.avatarUrl, placeholderSymbol: "person.fill")
                 }
-                .frame(width: 72, height: 72)
-                .clipShape(.circle)
-                Text(person.name).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
-                Text("库内 \(person.itemCount) 部").font(.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
             }
-            .frame(width: 96)
-            .contentShape(.rect)
+            .frame(width: 72, height: 72)
+            .clipShape(.circle)
+            Text(person.name).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
+            Text("库内 \(person.itemCount) 部").font(.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("查看 \(person.name) 的影人页")
-        .accessibilityIdentifier("library-search-person-\(person.id)")
+        .frame(width: 96)
+        .contentShape(.rect)
+        if let tmdbId = person.tmdbPersonId {
+            Button { router.push(.person(tmdbId: tmdbId)) } label: { body }
+                .buttonStyle(.plain)
+                .accessibilityLabel("查看 \(person.name) 的影人页")
+                .accessibilityIdentifier("library-search-person-\(person.id)")
+        } else {
+            body
+        }
     }
 
     /// 命中原因：直接按片名的文字命中不必解释，别名/原名/拼音/人物带出的结果写明原因
@@ -495,15 +497,12 @@ struct LibrarySearchResultsView: View {
             parts.append(item.seasons.count == 1 ? "第 \(item.seasons[0]) 季 · \(item.episodeCount) 集" : "\(item.seasons.count) 季 · \(item.episodeCount) 集")
         }
         if !item.resolutions.isEmpty { parts.append(item.resolutions.joined(separator: "/")) }
-        // 与单库海报墙同口径：剧集按季集完整度给「自动续订 / 补齐缺集」
-        let action: DiscoverPosterAction = {
-            guard item.kind == "tv", let summary = item.inventorySummary else { return .none }
-            return summary.allSeasonsOwned && summary.allEpisodesOwned ? .follow : .backfill
-        }()
         return VStack(alignment: .leading, spacing: 2) {
+            // 不带「自动续订 / 补齐缺集」：带订阅类操作的卡片触屏首点只展开信息层，要点两下才进详情；
+            // 搜索结果就是为了找到片子点进去，一下直达（订阅操作在详情页里）
             DiscoverPosterCard(
                 item: visual,
-                action: action,
+                action: .none,
                 onOpen: { router.push(.libraryItem(libraryId: libraryId, itemId: item.mediaItemId)) },
                 footnote: parts.isEmpty ? nil : parts.joined(separator: " · ")
             )

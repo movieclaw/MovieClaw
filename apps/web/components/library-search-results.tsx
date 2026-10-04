@@ -7,7 +7,6 @@ import type { Route } from "next";
 import { HScroller } from "@/components/h-scroller";
 import { PosterCardVisual, type PosterVisualItem } from "@/components/poster-card";
 import { PosterImage } from "@/components/poster-image";
-import { libraryCardAction } from "@/components/library-view";
 import {
   searchLibrary,
   type LibrarySearchHit,
@@ -241,7 +240,9 @@ function LibraryResultCell({ hit }: { hit: LibrarySearchHit }) {
       <PosterCardVisual
         item={visual}
         href={`/library/${libraryId}/item/${item.media_item_id}` as Route}
-        action={libraryCardAction(item)}
+        // 不带「自动续订 / 补齐缺集」：带订阅类操作的卡片触屏首点只展开信息层，要点两下才进详情；
+        // 搜索结果就是为了找到片子点进去，一下直达（订阅操作在详情页里）
+        action="none"
       />
       {parts.length > 0 && (
         <p className="text-on-image mt-1.5 truncate text-caption text-[var(--text-muted)]">
