@@ -35,6 +35,7 @@ from movieclaw_api.services.library.search_matching import (
     normalized,
     query_tokens,
 )
+from movieclaw_api.services.people_images import avatar_url
 from movieclaw_db.models import LibraryFile, MediaItem
 from movieclaw_db.models.person import MediaItemPerson, Person
 
@@ -405,6 +406,7 @@ async def search_candidates(session, query, library_ids, member_id, content_limi
                     id=pid,
                     name=person.name,
                     profile_path=person.profile_path,
+                    avatar_url=avatar_url(person.profile_path),
                     item_count=len(counts[pid]),
                     match=matched["person"][pid].match.view(),
                 )

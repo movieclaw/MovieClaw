@@ -64,7 +64,7 @@ _DOMAIN_LINES = {
     "set 只更新给出的字段。改动只影响之后的刮削与整理：要让存量条目的元数据和图片跟上，"
     "执行 library metadata refresh；要让存量文件名和目录跟上，执行 library organize-files）",
     "search": "search   统一搜索（titles 搜 TMDB/豆瓣影视条目，torrents 跨 PT 站点搜种子并可把"
-    "结果行号交给 download，library-items 搜已入库内容；另可管理搜索预设和历史结果）",
+    "结果行号交给 download，library 按片名/拼音/人物搜已入库内容；另可管理搜索预设和历史结果）",
     "session": "session  用户与智能体的会话管理（发起新对话或继续已有对话，按指定用户消息"
     "重新提问，读取并分析完整 message/compaction 轨迹；也可重命名、压缩上下文、跟随或"
     "停止处理，以及删除会话）",

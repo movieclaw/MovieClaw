@@ -798,15 +798,6 @@ class LibraryItemView(BaseModel):
         return value.isoformat()
 
 
-class LibrarySearchGroupView(BaseModel):
-    """媒体库搜索结果的一组：一个库内命中关键词的条目（组内按标题拼音排序）。"""
-
-    library_id: int
-    library_name: str
-    kind: MediaKind
-    items: list[LibraryItemView]
-
-
 class AudioStreamView(BaseModel):
     """一条音轨（ffprobe 探测；字段 None=该项探不出）。"""
 

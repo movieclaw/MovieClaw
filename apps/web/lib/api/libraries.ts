@@ -684,14 +684,6 @@ export function getKindSummary(
   return unwrap(request<ApiEnvelope<LibraryKindSummary>>(`/libraries/kinds/${kind}${suffix}`));
 }
 
-/** 媒体库搜索结果的一组：一个库内命中关键词的条目（组内按标题拼音排序）。 */
-export interface LibrarySearchGroup {
-  library_id: number;
-  library_name: string;
-  kind: MediaType;
-  items: LibraryItem[];
-}
-
 /** 海报墙 A-Z 索引条的一档（按标题排序下的首字母分组）。 */
 export interface LibraryIndexEntry {
   /** 档名：按标题排序是首字母 A-Z（落不进的归 #）；按内容时间排序是月份 2026-08（缺日期归「未知」）；

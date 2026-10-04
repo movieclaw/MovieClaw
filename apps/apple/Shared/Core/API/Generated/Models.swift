@@ -4576,21 +4576,6 @@ nonisolated extension API {
         }
     }
 
-    /// 媒体库搜索结果的一组：一个库内命中关键词的条目（组内按标题拼音排序）。
-    struct LibrarySearchGroupView: Codable, Hashable, Sendable {
-        var libraryId: Int
-        var libraryName: String
-        var kind: API.MediaKind
-        var items: [API.LibraryItemView]
-
-        enum CodingKeys: String, CodingKey {
-            case libraryId = "library_id"
-            case libraryName = "library_name"
-            case kind
-            case items
-        }
-    }
-
     struct LibrarySearchHit: Codable, Hashable, Sendable {
         var item: API.LibraryItemView
         var libraryIds: [Int]
@@ -4624,6 +4609,8 @@ nonisolated extension API {
         var id: Int
         var name: String
         var profilePath: String?
+        /// 头像地址：本地已下载给本地，否则给 TMDB 图床；没有照片为空
+        var avatarUrl: String?
         var itemCount: Int
         var match: API.LibrarySearchMatch
 
@@ -4631,6 +4618,7 @@ nonisolated extension API {
             case id
             case name
             case profilePath = "profile_path"
+            case avatarUrl = "avatar_url"
             case itemCount = "item_count"
             case match
         }

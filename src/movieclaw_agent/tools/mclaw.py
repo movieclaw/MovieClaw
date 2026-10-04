@@ -79,7 +79,7 @@ movieclaw 的官方命令行工具。用于从 TMDB 和豆瓣发现实时热点�
 
 使用协议：
 - 常用链路：search titles 找片/找剧 → subscriptions create 订阅；search torrents 搜 PT 种子 → \
-download 投递；search library-items 查已有库存，discover 浏览榜单，library 管理已入库内容；\
+download 投递；search library 查已有库存，discover 浏览榜单，library 管理已入库内容；\
 订阅会持续追踪，并在出现符合规则的新资源后自动搜索、下载和整理入库。
 - 输出即数据：stdout 是 JSON（默认），stderr 是过程提示与错误原因。
 - 参数拿不准就先 --help（域级与命令级都有，含示例），不要凭记忆猜参数或取值。

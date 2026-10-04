@@ -125,12 +125,13 @@ def main() -> None:
             item = hit["item"]
             detail = get(f"libraries/{item['library_id']}/items/{item['media_item_id']}")
             check("搜索落点详情", detail["title"] == item["title"])
-            for query in ("xjcy", "诺兰"):
-                groups = get("search/library-items", {"keyword": query})
-                check(
-                    "旧客户端也能搜索",
-                    any(i["title"] == "星际穿越" for g in groups for i in g["items"]),
-                )
+            check(
+                "人物带出作品",
+                any(
+                    h["item"]["title"] == "星际穿越"
+                    for h in get("search/library", {"q": "诺兰"})["items"]
+                ),
+            )
             check(
                 "无匹配返回空列表",
                 get("search/library", {"q": "不存在的影片_xyz987654321"})["items"] == [],

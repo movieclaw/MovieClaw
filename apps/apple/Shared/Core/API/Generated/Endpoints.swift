@@ -2095,14 +2095,6 @@ nonisolated extension APIClient {
         return try await send("GET", "/search/library", query: query)
     }
 
-    /// 搜索已入库条目（名称、别名、拼音和人物匹配，按库分组）
-    /// `GET /search/library-items`
-    func searchLibraryItems(keyword: String) async throws -> [API.LibrarySearchGroupView] {
-        var query: [URLQueryItem] = []
-        query.append(URLQueryItem(name: "keyword", value: "\(keyword)"))
-        return try await send("GET", "/search/library-items", query: query)
-    }
-
     /// 列出资源搜索的内置分类与自定义站点组合预设
     /// `GET /search/presets`
     func searchPresetsList() async throws -> API.SearchPresetListView {

@@ -126,7 +126,7 @@ Jellyfin member_id=0 = 同超管会话
 | 人物页 `GET /people/{id}` | 跨库全量，不过滤 | 作品按可浏览集过滤：文件全在范围外的库里的条目整行不出，`library_id` 只取可浏览库；作品全在范围外 → 404 |
 | 首页最近添加、封面拼图 | 前端逐库拉 `/items` | 前端只拉 `viewer_access=true` 的库；后端浏览接口对范围外超管 404 |
 | 首页最近观看 `GET /playback/recent` | 成员按可见集，超管不限 | 超管也按可浏览集 |
-| 全局搜索 `GET /search/library-items` | 同上 | 同上 |
+| 全局搜索 `GET /search/library` | 同上 | 同上 |
 | 发现页「已入库」徽标、详情页入口 | 同上 | 同上 |
 | 活动页 `GET /playback/activity`（管理员） | 跨成员全量 | 默认口径（`scope=visible`）下正在播放 / 正在下载 / 最近观看统一把超管不可浏览的库内记录折叠为计数，不出片名与海报；`scope=all` 是管控视角的全量口径，范围外记录带 `browsable=false`、不渲染详情链接（activity.md「范围切换」） |
 | Jellyfin `/UserViews`、`/Items`、Latest、Resume、NextUp、搜索、人物 | 成员按可见集，超管设备不限 | 超管设备也按 `admin_visible`；`user_policy()` 对超管改为 `EnableAllFolders=false` + `EnabledFolders` |

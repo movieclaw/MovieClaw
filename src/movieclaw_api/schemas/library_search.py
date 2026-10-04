@@ -29,6 +29,9 @@ class LibrarySearchPerson(BaseModel):
     id: int
     name: str
     profile_path: str | None
+    avatar_url: str | None = Field(
+        default=None, description="头像地址：本地已下载给本地，否则给 TMDB 图床；没有照片为空"
+    )
     item_count: int
     match: LibrarySearchMatch
 

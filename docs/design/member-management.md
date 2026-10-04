@@ -418,7 +418,7 @@ class LibraryAccessService:
 全部消费面只调用这个入口，**不自行拼查询条件**：
 
 - `GET /libraries` 及全部 `/libraries/{id}/...` 读接口；
-- 全局搜索 `GET /search/library-items`：结果按可见库过滤；
+- 全局搜索 `GET /search/library`：结果按可见库过滤；
 - Jellyfin `/UserViews`、`/Items` 层级导航：按可见库投影（§3.7）；
 - 发现页/详情页的"已入库"徽标：按可见库计算，避免"显示已入库但点进去 404"。
 

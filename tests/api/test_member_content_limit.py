@@ -216,11 +216,11 @@ def test_search_cannot_find_it(stack) -> None:
     """搜得到就等于看得到（点进去是详情页）。"""
     client, become_child, become_admin = stack
     become_admin()
-    groups = client.get("/api/v1/search/library-items?keyword=成人").json()["data"]
-    assert groups and _titles(groups[0]["items"]) == {"成人片"}
+    hits = client.get("/api/v1/search/library?q=成人").json()["data"]["items"]
+    assert _titles([hit["item"] for hit in hits]) == {"成人片"}
 
     become_child(13)
-    assert client.get("/api/v1/search/library-items?keyword=成人").json()["data"] == []
+    assert client.get("/api/v1/search/library?q=成人").json()["data"]["items"] == []
 
 
 def test_collection_members_are_narrowed_too(stack) -> None:

@@ -1,7 +1,8 @@
-"""媒体库搜索接口（GET /search/library-items）的端到端测试。
+"""媒体库搜索接口（GET /search/library）的端到端测试。
 
-覆盖：标题/原名子串匹配（忽略英文大小写）、按库分组与组内拼音排序、
-未识别文件不参与搜索、无命中回空列表。搜索页「媒体库」垂直的数据源。
+三端（Web、iPhone、Apple TV）共用的唯一媒体库搜索契约。覆盖：标题/原名匹配
+（忽略英文大小写）、拼音与人物检索、相关度排序、跨库去重、未识别文件不参与搜索、
+权限/分级实时核验与稳定分页。
 """
 
 from __future__ import annotations
@@ -106,38 +107,78 @@ async def _seed(db) -> None:
         await session.commit()
 
 
-async def _search(client: AsyncClient, keyword: str) -> list[dict]:
-    resp = await client.get("/api/v1/search/library-items", params={"keyword": keyword})
+async def _titles(client: AsyncClient, keyword: str) -> list[str]:
+    resp = await client.get("/api/v1/search/library", params={"q": keyword})
     assert resp.status_code == 200
-    return resp.json()["data"]
+    return [hit["item"]["title"] for hit in resp.json()["data"]["items"]]
 
 
 @pytest.mark.asyncio
-async def test_search_groups_by_library(db, client) -> None:
+async def test_search_spans_libraries_with_inventory(db, client) -> None:
     await _seed(db)
-    groups = await _search(client, "沙丘")
-    assert [g["library_name"] for g in groups] == ["电影库", "剧集库"]
-    assert [i["title"] for i in groups[0]["items"]] == ["沙丘"]
-    assert [i["title"] for i in groups[1]["items"]] == ["沙丘：预言"]
-    # 组自带库信息，前端不必再对库列表
-    assert groups[0]["kind"] == "movie"
-    assert groups[0]["items"][0]["file_count"] == 1
-    assert groups[0]["items"][0]["total_size_bytes"] == 100
+    resp = await client.get("/api/v1/search/library", params={"q": "沙丘"})
+    hits = resp.json()["data"]["items"]
+    # 准确片名排在前缀命中之前；每条结果自带所在库，客户端不必再对库列表
+    assert [h["item"]["title"] for h in hits] == ["沙丘", "沙丘：预言"]
+    assert [h["library_ids"] for h in hits] == [[1], [2]]
+    assert hits[0]["item"]["file_count"] == 1
+    assert hits[0]["item"]["total_size_bytes"] == 100
 
 
 @pytest.mark.asyncio
 async def test_search_matches_original_title_case_insensitive(db, client) -> None:
     await _seed(db)
-    groups = await _search(client, "DUNE")
-    titles = [i["title"] for g in groups for i in g["items"]]
     # 原名 Dune / Dune: Prophecy 都命中；未识别文件（文件名含 dune）不出现
-    assert titles == ["沙丘", "沙丘：预言"]
+    assert await _titles(client, "DUNE") == ["沙丘", "沙丘：预言"]
 
 
 @pytest.mark.asyncio
 async def test_search_no_match_returns_empty(db, client) -> None:
     await _seed(db)
-    assert await _search(client, "星际穿越") == []
+    assert await _titles(client, "星际穿越") == []
+
+
+@pytest.mark.parametrize("indexed", [False, True])
+async def test_initials_title_ranks_before_cast_prefix(db, client, indexed) -> None:
+    """回归：搜「ST」想找三体，演员 Stephen Lang 带出的阿凡达不能排到前面。
+
+    旧的按库分组接口把相关度结果按标题拼音重排，「阿凡达」(a) 因此压过
+    「三体」(s)；统一到相关度接口后，片名首字母准确命中必须排第一。
+    """
+    from movieclaw_api.services.library.search_index import refresh_index_batch
+    from movieclaw_db.models.person import MediaItemPerson, Person
+
+    async with db.session() as session:
+        lib = await LibraryRepository(session).create(
+            name="电影库", kind="movie", root_paths=["/media/movies"]
+        )
+        avatar = MediaItem(
+            kind="movie", tmdb_id=19995, title="阿凡达", original_title="Avatar", aliases=[]
+        )
+        three_body = MediaItem(
+            kind="tv", tmdb_id=204541, title="三体", original_title="三体", aliases=[]
+        )
+        actor = Person(tmdb_person_id=32747, name="史蒂芬·朗", original_name="Stephen Lang")
+        session.add_all([avatar, three_body, actor])
+        await session.flush()
+        session.add_all(
+            [
+                LibraryFile(
+                    library_id=lib.id,
+                    media_item_id=item.id,
+                    file_path=f"/media/movies/{item.title}.mkv",
+                    size_bytes=1,
+                    source="scanned",
+                )
+                for item in (avatar, three_body)
+            ]
+            + [MediaItemPerson(media_item_id=avatar.id, person_id=actor.id, department="cast")]
+        )
+        await session.commit()
+    if indexed:
+        while await refresh_index_batch():
+            pass
+    assert await _titles(client, "ST") == ["三体", "阿凡达"]
 
 
 async def _seed_advanced(db):
@@ -484,7 +525,9 @@ async def test_no_cross_alias_match_and_nonexistent_inventory(db, client):
         await session.commit()
     assert (await _ranked(client, "xjcy"))["items"] == []
     assert (await _ranked(client, "诺兰"))["people"] == []
-    assert await _search(client, "%_") == []
+    # LIKE 通配符不当成「匹配一切」：归一化后为空，按无效输入拒绝
+    wildcard = await client.get("/api/v1/search/library", params={"q": "%_"})
+    assert wildcard.status_code == 400
 
 
 async def test_index_revision_preserves_concurrent_rename(db, client, monkeypatch):

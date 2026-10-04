@@ -58,7 +58,6 @@ from movieclaw_api.schemas.library import (
     LibraryPayload,
     LibraryRelaxView,
     LibraryReorderPayload,
-    LibrarySearchGroupView,
     LibraryView,
     LocalMetaView,
     MediaSourceAnnotationCandidateView,
@@ -152,9 +151,6 @@ from movieclaw_api.services.library.items import (
     kind_library_ids,
     local_item_artwork,
     purge_staged_deletions,
-)
-from movieclaw_api.services.library.items import (
-    search_library_items as search_visible_library_items,
 )
 from movieclaw_api.services.library.layout import IMAGE_EXTS, entry_dir_of
 from movieclaw_api.services.library.mounts import library_on_network_mount
@@ -1033,51 +1029,6 @@ async def search_library(
         limit=limit, cursor=cursor, person_id=person_id,
     )
     return ok(result)
-
-
-@search_router.get(
-    "/library-items",
-    response_model=ApiResponse[list[LibrarySearchGroupView]],
-    summary="搜索已入库条目（名称、别名、拼音和人物匹配，按库分组）",
-    operation_id="search.library-items",
-)
-async def search_library_items(
-    keyword: str = Query(
-        ..., min_length=1, max_length=100, description="片名、别名、拼音首字母或人物姓名"
-    ),
-    principal: Principal = Depends(require_login),
-    session: AsyncSession = Depends(get_session),
-) -> ApiResponse[list[LibrarySearchGroupView]]:
-    """搜索页「媒体库」垂直的数据源：回答「这部片我有没有」。
-
-    只搜已识别入库的条目（待识别文件没有可靠标题，去待识别清单处理）；
-    本地查询毫秒级返回。刻意不写入搜索历史——搜自己的库是翻家底，
-    不是一次对外搜索，历史里混进它只会淹没真正要回放的记录。
-    成员的结果按库可见性白名单过滤。
-    """
-    visible = await visible_library_ids(session, principal)
-    matched = await search_visible_library_items(
-        session,
-        keyword,
-        member_id=principal.member_id if principal.member_id is not None else 0,
-        content_limit=await content_limit_for(session, principal),
-        library_ids=visible,
-    )
-    libraries = await LibraryConfigService(session).list_all()
-    libraries = [lib for lib in libraries if lib.id in visible]
-    # 分组顺序沿用库列表的顺序（与媒体库首页一致），空组不出现
-    return ok(
-        [
-            LibrarySearchGroupView(
-                library_id=lib.id,  # type: ignore[arg-type]
-                library_name=lib.name,
-                kind=MediaKind(lib.kind),
-                items=matched[lib.id],
-            )
-            for lib in libraries
-            if lib.id in matched
-        ]
-    )
 
 
 @router.get(

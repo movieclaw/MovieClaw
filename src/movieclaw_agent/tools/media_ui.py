@@ -57,7 +57,7 @@ _DESCRIPTION = """\
 title_ref ← search titles / discover 结果的 title_ref（形如 tmdb:movie:123、\
 tmdb:tv:456、douban:789）；手头只有 TMDB 编号时改传 tmdb_id + media_type（movie/tv）。
 - library_item：库内条目播放卡片（剧照、一键播放、观看进度、片源规格）。\
-media_item_id ← library items list / search library-items 的 media_item_id；\
+media_item_id ← library items list / search library 结果的 media_item_id；\
 剧集可加 season_number + episode_number 指定播放哪一集。
 - subscription：订阅卡片（海报、追更范围、收录进度、自动续订/已收齐状态）。\
 subscription_id ← subscriptions list 的 id。

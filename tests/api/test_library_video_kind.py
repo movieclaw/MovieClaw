@@ -397,7 +397,10 @@ async def test_movie_library_unidentified_file_gets_provisional_item(
         assert [(v.title, v.source, v.tmdb_id) for v in wall] == [("zzqx", "local", None)]
         assert await items_mod.build_library_index(session, library.id) == []
         # 搜索也只搜正式条目
-        assert await items_mod.search_library_items(session, "zzqx") == {}
+        from movieclaw_api.services.library.search import search_candidates
+
+        candidates, _, _ = await search_candidates(session, "zzqx", {library.id}, 0, None)
+        assert candidates == []
         # 临时条目不算「已识别」，统计口径与待识别数一致
         fresh = await session.get(Library, library.id)
         assert fresh.stats_item_count == 0 and fresh.stats_unidentified_count == 1

@@ -51,7 +51,7 @@ def test_service_map_distinguishes_browsing_from_unified_search() -> None:
 
     for keyword in ("电影", "剧集", "TMDB", "豆瓣", "热门", "高分"):
         assert keyword in discover
-    for keyword in ("titles", "torrents", "library-items", "PT", "种子", "download"):
+    for keyword in ("titles", "torrents", "library 按片名", "PT", "种子", "download"):
         assert keyword in search
 
 

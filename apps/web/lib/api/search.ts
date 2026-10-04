@@ -7,7 +7,7 @@ import {
   type TitleSearchData,
   type TitleSearchDto,
 } from "@/lib/api/discover";
-import type { LibrarySearchGroup } from "@/lib/api/libraries";
+import type { LibraryItem } from "@/lib/api/libraries";
 import type { SearchScope, SearchTab, TorrentCategory } from "@/lib/categories";
 import type { MediaSource } from "@/lib/media-types";
 
@@ -286,10 +286,56 @@ export async function searchTitles(
   };
 }
 
-/** 搜索本地全部可见媒体库中的已入库条目。 */
-export function searchLibraryItems(keyword: string): Promise<LibrarySearchGroup[]> {
-  const query = new URLSearchParams({ keyword });
-  return unwrap(request<ApiEnvelope<LibrarySearchGroup[]>>(`/search/library-items?${query}`));
+/** 命中证据：为什么这条结果会出现（片名/别名/拼音/人物），label 可直接展示。 */
+export interface LibrarySearchMatch {
+  type: string;
+  /** title / original_title / english_title / alias / person_name … */
+  source_field: string;
+  matched_name: string;
+  label: string;
+  /** 经人物命中时为该人物的库内 id */
+  person_id: number | null;
+}
+
+export interface LibrarySearchHit {
+  item: LibraryItem;
+  /** 作品所在的全部可见库（同片跨库只出一条） */
+  library_ids: number[];
+  match: LibrarySearchMatch;
+}
+
+export interface LibrarySearchPerson {
+  /** 库内人物 id（传给 searchLibrary 的 personId） */
+  id: number;
+  name: string;
+  avatar_url: string | null;
+  /** 可见库内作品数 */
+  item_count: number;
+  match: LibrarySearchMatch;
+}
+
+export interface LibrarySearchPage {
+  items: LibrarySearchHit[];
+  /** 命中的人物（仅首页返回；翻页为空） */
+  people: LibrarySearchPerson[];
+  /** 非空表示还有下一页，原样传回 cursor */
+  next_cursor: string | null;
+}
+
+/**
+ * 媒体库搜索：与 iPhone、Apple TV 同一个接口（GET /search/library）。
+ * 结果按相关度排序（准确片名 > 前缀 > 人物带出的作品 > 包含），不按库分组；
+ * 传 personId 时列该人物的全部库内作品。
+ */
+export function searchLibrary(params: {
+  q?: string;
+  personId?: number;
+  cursor?: string;
+}): Promise<LibrarySearchPage> {
+  const query = new URLSearchParams({ q: params.q ?? "" });
+  if (params.personId !== undefined) query.set("person_id", String(params.personId));
+  if (params.cursor) query.set("cursor", params.cursor);
+  return unwrap(request<ApiEnvelope<LibrarySearchPage>>(`/search/library?${query}`));
 }
 
 export interface SearchParams {
