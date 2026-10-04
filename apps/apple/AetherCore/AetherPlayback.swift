@@ -1,7 +1,18 @@
 import AetherEngine
 import AVFoundation
 import Combine
+#if canImport(UIKit)
 import UIKit
+/// 画面宿主的视图类型：iPhone / Apple TV 是 UIView，Mac 是 NSView（引擎的 AetherPlayerView 同样两边都有）
+public typealias AetherPlatformView = UIView
+private typealias PlatformFont = UIFont
+private typealias PlatformColor = UIColor
+#else
+import AppKit
+public typealias AetherPlatformView = NSView
+private typealias PlatformFont = NSFont
+private typealias PlatformColor = NSColor
+#endif
 
 /// AetherEngine 的封装，是 App 与这个 LGPL 组件之间**唯一**的边界。
 ///
@@ -77,7 +88,7 @@ public final class AetherPlayback {
         public let details: [String]
     }
 
-    public let view: UIView
+    public let view: AetherPlatformView
     public var onPhase: ((Phase) -> Void)?
     public var onFailure: ((Failure) -> Void)?
     /// 轨道列表变化（装载完成、外挂轨注册）
@@ -935,7 +946,11 @@ public final class AetherPlayback {
         if engine.videoRoute != .software, let layer = engine.nativePlayerLayer {
             let rect = layer.videoRect
             if rect.width > 1, rect.height > 1 {
+                #if canImport(UIKit)
                 return view.layer.convert(rect, from: layer)
+                #else
+                if let host = view.layer { return host.convert(rect, from: layer) }
+                #endif
             }
         }
         let size = videoSize
@@ -1015,11 +1030,12 @@ nonisolated private final class WeakPlayback: @unchecked Sendable {
     init(_ value: AetherPlayback) { self.value = value }
 }
 
-private final class PlaybackContainerView: UIView {
+private final class PlaybackContainerView: AetherPlatformView {
     var onLayout: (() -> Void)?
 
-    init(playerView: UIView, subtitleView: UIView) {
+    init(playerView: AetherPlatformView, subtitleView: AetherPlatformView) {
         super.init(frame: .zero)
+        #if canImport(UIKit)
         backgroundColor = .black
         for child in [playerView, subtitleView] {
             child.frame = bounds
@@ -1027,15 +1043,34 @@ private final class PlaybackContainerView: UIView {
             addSubview(child)
         }
         subtitleView.isUserInteractionEnabled = false
+        #else
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        for child in [playerView, subtitleView] {
+            child.frame = bounds
+            child.autoresizingMask = [.width, .height]
+            addSubview(child)
+        }
+        #endif
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    #if canImport(UIKit)
     override func layoutSubviews() {
         super.layoutSubviews()
         onLayout?()
     }
+    #else
+    // 与 UIKit 一致用左上角为原点：字幕的摆放全按「y 从上往下」算
+    override var isFlipped: Bool { true }
+
+    override func layout() {
+        super.layout()
+        onLayout?()
+    }
+    #endif
 }
 
 /// 一条要画的字幕：图形字幕是位图 + 位置，文字字幕是纯文本（ASS 样式先按纯文本画，字号、位置、背景随用户设置）
@@ -1079,7 +1114,7 @@ struct OverlayCue {
 ///   位置是距画面底边的百分比，白字带柔和投影或半透明底框，横竖屏切换都不影响字幕相对画面的样子。
 ///   ASS 用 `\pos` 指定了位置的（招牌、注释、竖排说明这类特效字）画在它指定的位置，`\an7～9` 的画在顶部，
 ///   其余对白合成一块放在底部——不然特效字会叠进对白里（真机《如果历史是一群喵》实测）。
-final class SubtitleLayerView: UIView {
+final class SubtitleLayerView: AetherPlatformView {
     var cues: [OverlayCue] = []
     var textStyle = AetherPlayback.TextStyle()
     private var imageLayers: [Int: CALayer] = [:]
@@ -1091,9 +1126,18 @@ final class SubtitleLayerView: UIView {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        #if !canImport(UIKit)
+        wantsLayer = true
+        #endif
         addSubview(bottomBlock)
         addSubview(topBlock)
     }
+
+    #if !canImport(UIKit)
+    override var isFlipped: Bool { true }
+    /// 字幕层不接鼠标（同 UIKit 的 isUserInteractionEnabled = false）：点击、悬停都落到下面的播放器控制层
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    #endif
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -1181,7 +1225,11 @@ final class SubtitleLayerView: UIView {
                 layer.contents = image
                 layer.contentsGravity = .resize
                 layer.magnificationFilter = .linear
+                #if canImport(UIKit)
                 self.layer.addSublayer(layer)
+                #else
+                self.layer?.addSublayer(layer)
+                #endif
                 imageLayers[cue.id] = layer
             }
             layer.frame = Self.frame(position: position, canvas: canvas, in: videoRect)
@@ -1206,17 +1254,35 @@ final class SubtitleLayerView: UIView {
 
 /// 一块字幕文字：白字（柔和投影或半透明底框），按 ASS 小键盘方位把自己对齐到锚点（5 = 锚点在中心）。
 /// 文字、样式、位置都没变时不重排（字幕层约每秒刷新 10 次）
-final class TextBlockView: UIView {
+final class TextBlockView: AetherPlatformView {
+    #if canImport(UIKit)
     private let label = UILabel()
+    #else
+    private let label = NSTextField(labelWithString: "")
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    #endif
     private var last: (String, AetherPlayback.TextStyle, CGFloat, CGFloat, CGPoint, Int)?
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isHidden = true
+        #if canImport(UIKit)
         isUserInteractionEnabled = false
         layer.cornerCurve = .continuous
         label.numberOfLines = 0
+        #else
+        wantsLayer = true
+        layer?.cornerCurve = .continuous
+        label.maximumNumberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.drawsBackground = false
+        label.isBezeled = false
+        label.alignment = .center
+        #endif
+        #if canImport(UIKit)
         label.textAlignment = .center
+        #endif
         addSubview(label)
     }
 
@@ -1235,23 +1301,29 @@ final class TextBlockView: UIView {
         paragraph.alignment = .center
         paragraph.lineSpacing = fontSize * 0.1
         var attributes: [NSAttributedString.Key: Any] = [
-            .font: UIFont.systemFont(ofSize: fontSize, weight: .medium),
-            .foregroundColor: UIColor.white,
+            .font: PlatformFont.systemFont(ofSize: fontSize, weight: .medium),
+            .foregroundColor: PlatformColor.white,
             .paragraphStyle: paragraph,
         ]
         if !style.background {
             // 不开背景时靠一层柔和投影压住亮画面。不用文字描边（strokeWidth）：中文字形由互相重叠的
             // 笔画轮廓拼成，描边沿每个轮廓各描一圈，笔画交叉处全是黑缝（真机实测）
             let shadow = NSShadow()
-            shadow.shadowColor = UIColor.black.withAlphaComponent(0.6)
+            shadow.shadowColor = PlatformColor.black.withAlphaComponent(0.6)
             shadow.shadowBlurRadius = 3
             shadow.shadowOffset = .zero
             attributes[.shadow] = shadow
         }
-        label.attributedText = NSAttributedString(string: text, attributes: attributes)
         let padH = style.background ? fontSize * 0.35 : 0
         let padV = style.background ? fontSize * 0.12 : 0
+        #if canImport(UIKit)
+        label.attributedText = NSAttributedString(string: text, attributes: attributes)
         let fitted = label.sizeThatFits(CGSize(width: maxWidth - padH * 2, height: .greatestFiniteMagnitude))
+        #else
+        label.attributedStringValue = NSAttributedString(string: text, attributes: attributes)
+        label.preferredMaxLayoutWidth = maxWidth - padH * 2
+        let fitted = label.cell?.cellSize(forBounds: CGRect(x: 0, y: 0, width: maxWidth - padH * 2, height: .greatestFiniteMagnitude)) ?? .zero
+        #endif
         let size = CGSize(width: min(maxWidth, ceil(fitted.width) + padH * 2), height: ceil(fitted.height) + padV * 2)
         // 小键盘方位：列 1/4/7 左、2/5/8 中、3/6/9 右；行 1-3 底、4-6 中、7-9 顶
         let column = (alignment - 1) % 3, row = (alignment - 1) / 3
@@ -1259,8 +1331,13 @@ final class TextBlockView: UIView {
         let y = anchor.y - size.height * [1, 0.5, 0][max(0, min(2, row))]
         frame = CGRect(x: x, y: y, width: size.width, height: size.height)
         label.frame = bounds.insetBy(dx: padH, dy: padV)
+        #if canImport(UIKit)
         backgroundColor = style.background ? UIColor.black.withAlphaComponent(0.6) : .clear
         layer.cornerRadius = style.background ? fontSize * 0.2 : 0
+        #else
+        layer?.backgroundColor = style.background ? NSColor.black.withAlphaComponent(0.6).cgColor : NSColor.clear.cgColor
+        layer?.cornerRadius = style.background ? fontSize * 0.2 : 0
+        #endif
         isHidden = false
     }
 }

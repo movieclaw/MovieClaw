@@ -296,8 +296,12 @@ private struct PerfImageProbe: ViewModifier {
     }
 
     private static let screen: CGRect = {
+        #if canImport(UIKit)
         let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
         return scene?.screen.bounds ?? CGRect(x: 0, y: 0, width: 402, height: 874)
+        #else
+        return NSScreen.main?.frame ?? CGRect(x: 0, y: 0, width: 1440, height: 900)
+        #endif
     }()
 }
 

@@ -1,6 +1,10 @@
 import AVFoundation
 import AVKit
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// 系统播放器引擎：AVPlayer 放服务端给的 MP4 直出地址或 HLS（fMP4）播放列表。
 ///
@@ -44,14 +48,16 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
         didSet { applySystemSubtitle() }
     }
 
-    var view: UIView { layerView }
+    var view: NativeView { layerView }
 
     override init() {
         super.init()
         layerView.playerLayer.player = player
         layerView.playerLayer.videoGravity = .resizeAspect
         player.allowsExternalPlayback = true
+        #if !os(macOS)
         player.usesExternalPlaybackWhileExternalScreenIsActive = true
+        #endif
         player.automaticallyWaitsToMinimizeStalling = true
         // 字幕轨由我们按「画面内 / 画中画」显式挑，不让系统按辅助功能偏好自动选（否则画面内会出双字幕）
         player.appliesMediaSelectionCriteriaAutomatically = false
@@ -62,7 +68,7 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
             controller?.delegate = self
             pipController = controller
         }
-        #else
+        #elseif os(tvOS)
         // Apple TV 不做画中画（同 NativeEngine.supportsPictureInPicture）。系统播放器兜底这条路不经过自研引擎，
         // 没人替它声明音频类别：按引擎在 tvOS 上的做法声明（长音频路由策略、多声道），只声明不激活，
         // 由 AVPlayer 出声时激活——提前激活会把 HDMI 锁成立体声（上游 #24）
@@ -70,6 +76,7 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
         try? audio.setCategory(.playback, mode: .moviePlayback, policy: .longFormAudio)
         try? audio.setSupportsMultichannelContent(true)
         #endif
+        // Mac 没有音频会话，系统按输出设备自动协商；画中画用播放器窗口里的按钮（首版不做）
         observe()
     }
 
@@ -460,6 +467,7 @@ extension AVPlayerEngine: AVPictureInPictureControllerDelegate {
 }
 
 /// 以 AVPlayerLayer 为底层图层的视图（尺寸随布局自动跟随）
+#if canImport(UIKit)
 final class PlayerLayerView: UIView {
     override static var layerClass: AnyClass { AVPlayerLayer.self }
     var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
@@ -472,3 +480,20 @@ final class PlayerLayerView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 }
+#else
+/// Mac 版：NSView 以 AVPlayerLayer 作为自己的底层图层（makeBackingLayer），尺寸同样随布局跟随
+final class PlayerLayerView: NSView {
+    let playerLayer = AVPlayerLayer()
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        playerLayer.backgroundColor = NSColor.black.cgColor
+    }
+
+    override func makeBackingLayer() -> CALayer { playerLayer }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+#endif

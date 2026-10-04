@@ -84,7 +84,7 @@ struct DevicesSettingsView: View {
                     Image(systemName: "qrcode.viewfinder").font(.title3).foregroundStyle(Theme.accent)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("批准新设备登录").foregroundStyle(Theme.text)
-                        Text("扫码或输入 Apple TV、命令行、转码器上的配对码").font(.caption).foregroundStyle(Theme.textMuted)
+                        Text("扫码或输入 Apple TV、Mac、命令行、转码器上的配对码").font(.caption).foregroundStyle(Theme.textMuted)
                     }
                     Spacer()
                     Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.textFaint)
@@ -105,7 +105,7 @@ struct DevicesSettingsView: View {
     }
 
     private func groups(_ list: [API.LoginDeviceView]) -> [DeviceGroup] {
-        let apps = list.filter { ["web", "ios", "tvos", "android"].contains($0.kind) }
+        let apps = list.filter { ["web", "ios", "tvos", "macos", "android"].contains($0.kind) }
         let programs = list.filter { ["cli", "worker", "manual"].contains($0.kind) }
         let players = list.filter { $0.kind == "jellyfin" }
         return [
@@ -416,6 +416,7 @@ enum DeviceText {
         case "worker": "转码器"
         case "cli": "命令行 / Agent"
         case "tvos": "Apple TV"
+        case "macos": "Mac"
         case "manual": "手工令牌"
         default: "未知类型"
         }
@@ -431,6 +432,13 @@ enum DeviceText {
             return Grant(
                 title: isAdmin ? "将获得：这台 Apple TV 以你的超级管理员身份登录" : "将获得：这台 Apple TV 以你的身份登录",
                 body: "等同你在这台电视上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。只批准你面前这台电视上显示的配对码。"
+            )
+        }
+        if type == "macos" {
+            // Mac App 扫码登录：与 Apple TV 同一口径（文案同 Web devices-display.ts）
+            return Grant(
+                title: isAdmin ? "将获得：这台 Mac 以你的超级管理员身份登录" : "将获得：这台 Mac 以你的身份登录",
+                body: "等同你在这台 Mac 上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。只批准你面前这台 Mac 上显示的配对码。"
             )
         }
         if isAdmin {

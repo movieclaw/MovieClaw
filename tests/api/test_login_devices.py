@@ -118,6 +118,33 @@ def test_app_login_issues_a_long_lived_device_token(client: TestClient) -> None:
     assert listed[0]["id"] == device["id"] and listed[0]["current"] is True
 
 
+def test_mac_app_logs_in_as_a_login_device_without_push(client: TestClient) -> None:
+    """Mac App 与 iPhone / Apple TV 同一种登录设备（人直接操作、随改密下线）；
+    本期不接推送，「我的设备」里不给它挂推送状态（PUSH_KINDS 刻意不含 macos）。"""
+    resp = TestClient(client.app).post(
+        f"{_AUTH}/device/login",
+        json={
+            **_ADMIN,
+            "client": {
+                "kind": "macos",
+                "installation_id": "macos-install-0001",
+                "name": "书房的 MacBook",
+                "platform": "macOS 26.0 · arm64",
+            },
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    device = resp.json()["data"]["device"]
+    assert (device["kind"], device["kind_label"], device["family"]) == ("macos", "Mac App", "login")
+    listed = _as(client, resp.json()["data"]["token"]).get(f"{_AUTH}/devices").json()["data"]
+    mac = next(d for d in listed if d["kind"] == "macos")
+    assert mac["push"] is None
+    # 对照：iPhone 还没登记推送也会显示推送状态
+    _app_login(client, _ADMIN)
+    listed = _as(client, resp.json()["data"]["token"]).get(f"{_AUTH}/devices").json()["data"]
+    assert next(d for d in listed if d["kind"] == "ios")["push"] is not None
+
+
 def test_app_login_wrong_password_is_rejected_and_throttled(client: TestClient) -> None:
     anon = TestClient(client.app)
     body = {

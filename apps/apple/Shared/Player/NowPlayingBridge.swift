@@ -1,6 +1,10 @@
 import MediaPlayer
 import Nuke
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// 锁屏 / 控制中心（对应 Web 的 navigator.mediaSession）。
 ///
@@ -84,7 +88,7 @@ final class NowPlayingBridge {
     }
 
     /// 系统可能在任意线程回调取图闭包：必须在非隔离上下文里创建，免得闭包被推断成主线程隔离
-    nonisolated private static func makeArtwork(_ image: UIImage) -> MPMediaItemArtwork {
+    nonisolated private static func makeArtwork(_ image: NativeImage) -> MPMediaItemArtwork {
         MPMediaItemArtwork(boundsSize: image.size) { _ in image }
     }
 

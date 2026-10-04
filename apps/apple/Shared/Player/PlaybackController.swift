@@ -281,8 +281,13 @@ final class PlaybackController {
         nowPlaying.attach(to: self)
         // App 被结束（在后台播放时被划掉、被系统回收）：同步补发一次 stop（同网页 pagehide 的 sendBeacon），
         // 否则续播点停在最后一次心跳、活动页还挂着一个几分钟后才过期的「幽灵」会话
+        #if canImport(UIKit)
+        let willTerminate = UIApplication.willTerminateNotification
+        #else
+        let willTerminate = NSApplication.willTerminateNotification
+        #endif
         terminationObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.willTerminateNotification, object: nil, queue: .main
+            forName: willTerminate, object: nil, queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.reportTermination() }
         }
@@ -299,6 +304,7 @@ final class PlaybackController {
 
     /// 来电 / Siri 打断、耳机拔插：记进播放记录（不算我们的中断，看恢复得对不对）；输出变了规格快照跟着变
     private func observeAudioSessionForRecord() {
+        #if canImport(UIKit)
         let center = NotificationCenter.default
         audioSessionObservers.append(center.addObserver(
             forName: AVAudioSession.interruptionNotification, object: nil, queue: .main
@@ -314,6 +320,8 @@ final class PlaybackController {
                 self?.updateRecordDelivery()
             }
         })
+        #endif
+        // Mac 没有音频会话：没有来电打断，输出设备变化由系统自动跟随
     }
 
     /// 退出播放器：补一次停止上报与质量快照、释放服务端会话、销毁引擎
@@ -336,7 +344,9 @@ final class PlaybackController {
         audioSessionObservers.forEach { NotificationCenter.default.removeObserver($0) }
         audioSessionObservers = []
         terminationObserver = nil
+        #if canImport(UIKit)
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        #endif
     }
 
     private func loadInfo() async {

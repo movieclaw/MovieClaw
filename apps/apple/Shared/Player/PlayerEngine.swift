@@ -1,4 +1,4 @@
-import UIKit
+import SwiftUI
 
 /// 实际在跑的播放引擎。
 enum EngineKind: String {
@@ -209,7 +209,7 @@ struct BandwidthMeter {
 protocol PlayerEngine: AnyObject {
     var kind: EngineKind { get }
     /// 渲染表面（铺满播放区域）
-    var view: UIView { get }
+    var view: NativeView { get }
     var onEvent: ((EngineEvent) -> Void)? { get set }
 
     /// 装载并（按需）起播；start 为流时间秒数

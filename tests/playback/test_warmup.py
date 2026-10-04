@@ -242,6 +242,11 @@ def test_session_start_remembers_browser_capability_but_not_the_app(monkeypatch)
     tv = PlaybackSessionRequest(media_item_id=1, capability=capability, client="tvos")
     routes._remember_session_capability(tv, principal, tv_ua)
     assert warmup._known_capability("admin:yee", tv_ua) is None
+    # Mac 版也是同一个自研引擎，同样不记
+    mac_ua = "MovieClaw-macOS/0.3.0 (arm64; macOS 26.0; build 1)"
+    mac = PlaybackSessionRequest(media_item_id=1, capability=capability, client="macos")
+    routes._remember_session_capability(mac, principal, mac_ua)
+    assert warmup._known_capability("admin:yee", mac_ua) is None
     # 分享的访客（不带 client）照样记：同样是浏览器
     guest = PlaybackSessionRequest(media_item_id=1, capability=capability)
     routes._remember_session_capability(guest, SimpleNamespace(kind="share", name="x"), CHROME_UA)

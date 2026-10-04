@@ -112,7 +112,7 @@ class DeviceRef:
     """请求来自哪台登录设备（``login_device`` 行的快照）。"""
 
     id: int
-    #: 客户端类型：web / ios / tvos / android / cli / worker / manual
+    #: 客户端类型：web / ios / tvos / macos / android / cli / worker / manual
     kind: str
     #: full=等同本人；transcode=只能转码（转码器凭证的形态上限）
     scope: str

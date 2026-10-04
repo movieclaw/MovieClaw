@@ -47,12 +47,14 @@ WEB_CLIENT_NAME = "MovieClaw Web"
 _APP_CLIENTS: dict[str, tuple[str, str]] = {
     "iOS": ("MovieClaw iOS", "iPhone"),
     "tvOS": ("MovieClaw Apple TV", "Apple TV"),
+    # Mac 的机型位报的是 uname 的 arm64 / x86_64，认不出具体型号，设备名统一叫「Mac」
+    "macOS": ("MovieClaw Mac", "Mac"),
     "Android": ("MovieClaw Android", "Android"),
 }
 _APP_USER_AGENT = re.compile(
-    r"MovieClaw-(?P<platform>iOS|tvOS|Android)/(?P<version>[0-9A-Za-z._+-]+)"
+    r"MovieClaw-(?P<platform>iOS|tvOS|macOS|Android)/(?P<version>[0-9A-Za-z._+-]+)"
 )
-_APP_SYSTEM = re.compile(r"\b(?P<os>iOS|iPadOS|tvOS|Android) (?P<version>[0-9.]+)")
+_APP_SYSTEM = re.compile(r"\b(?P<os>iOS|iPadOS|tvOS|macOS|Android) (?P<version>[0-9.]+)")
 
 #: 网页端设备标识的命名空间前缀：与 Jellyfin 设备 id 同在一张注册表里，
 #: 加前缀避免两类标识意外撞车。
@@ -132,7 +134,7 @@ def web_device_id(
 def web_client_info(*, device_id: str, user_agent: str | None) -> ClientInfo:
     """网页播放器 / 原生 App 的客户端信息；``device_id`` 须已经过 :func:`web_device_id`。
 
-    原生 App（iOS / Apple TV / Android）按 User-Agent 认出来，记成
+    原生 App（iOS / Apple TV / Mac / Android）按 User-Agent 认出来，记成
     「MovieClaw iOS · iPhone · iOS 26.0」这样的客户端名与设备名并带上 App 版本，
     活动页与 webhook 不再把它当成「MovieClaw Web · 浏览器」。
     """

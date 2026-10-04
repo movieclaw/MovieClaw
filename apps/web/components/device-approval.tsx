@@ -174,7 +174,7 @@ export function DeviceApproval() {
   return (
     <WelcomeCard
       title="批准设备登录"
-      subtitle="输入 Apple TV、命令行（mclaw login）或转码器上显示的配对码。"
+      subtitle="输入 Apple TV、Mac、命令行（mclaw login）或转码器上显示的配对码。"
     >
       <form
         className="space-y-4"
