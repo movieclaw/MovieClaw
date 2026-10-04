@@ -137,6 +137,14 @@ jobs:
       - name: 导出内嵌基线 spec
         run: PYTHON=python scripts/export-spec.sh
 
+      # 预先编好一份交给夹具复用（MOVIECLAW_CLI_BIN）：否则每个 xdist worker
+      # 各自现场 go build，首个 Agent 用例的 setup 要多等十几秒
+      - name: 编译 mclaw
+        working-directory: cli
+        run: |
+          go build -o "$RUNNER_TEMP/mclaw" ./cmd/mclaw
+          echo "MOVIECLAW_CLI_BIN=$RUNNER_TEMP/mclaw" >> "$GITHUB_ENV"
+
       - name: 恢复 NER 模型缓存
         id: ner-cache
         uses: actions/cache@v4
