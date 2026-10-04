@@ -484,6 +484,14 @@ public final class AetherPlayback {
     /// 暂停下载 / 恢复（内置引擎补丁 P23）：计费网络上用户按了暂停时停，恢复播放时解除
     public func setPrefetchSuspended(_ suspended: Bool) { engine.setPrefetchSuspended(suspended) }
 
+    #if os(macOS)
+    /// 播放音量（0～1，Mac 版播放器的音量滑块用）：引擎只写给正在出声的那一路，换通路时自动带过去
+    public var volume: Float {
+        get { engine.volume }
+        set { engine.volume = newValue }
+    }
+    #endif
+
 
     // MARK: - 读数
 
