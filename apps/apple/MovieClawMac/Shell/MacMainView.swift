@@ -47,6 +47,11 @@ struct MacMainView: View {
                 .id(accountKey)
         }
         .searchable(text: $router.searchText, placement: .sidebar, prompt: "片名、演员、导演")
+        .searchSuggestions {
+            ForEach(router.searchSuggestions, id: \.self) { suggestion in
+                Text(suggestion).searchCompletion(suggestion)
+            }
+        }
         .searchFocused($searchFocused)
         .environment(router)
         .environment(libraries)

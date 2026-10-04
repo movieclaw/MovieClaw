@@ -15,6 +15,12 @@ enum MacStageLayout {
     static func height(for width: CGFloat, windowHeight: CGFloat) -> CGFloat {
         min(max(width * 9 / 16 * 0.78, 420), min(760, max(420, windowHeight * 0.82)))
     }
+
+    /// 片名 Logo 的最大宽高：跟着大图区宽度走（窄窗口 360×100，铺满 1920 的大窗口约 540×150），
+    /// 大窗口里 Logo 不至于缩在一角显得小气，窄窗口里也不压到简介
+    static func logoSize(for width: CGFloat) -> CGSize {
+        CGSize(width: min(560, max(360, width * 0.32)), height: min(150, max(100, width * 0.085)))
+    }
 }
 
 /// 大图区背景：剧照（换一部交叉淡入、40 秒慢推近）→ 下沿渐隐进边缘色 → 左下角托字的黑
