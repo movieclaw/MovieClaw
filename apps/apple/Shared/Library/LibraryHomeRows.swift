@@ -117,7 +117,7 @@ enum HomeRows {
         case upNext
         case favorites(sort: String, reversed: Bool)
         case libraries
-        /// 「电影类型 / 剧集类型」色块行（genres:movie|tv）：内置，只能藏，不能删、没有排序。
+        /// 「按类型找电影 / 剧集」色块行（genres:movie|tv）：内置，只能藏，不能删、没有排序。
         /// libraries 是参与聚合的库（自定义页小字用）
         case genres(kind: String, libraries: [API.LibraryView])
         case library(library: API.LibraryView, sort: String, reversed: Bool, unwatched: Bool, name: String, builtin: Bool)
@@ -153,7 +153,7 @@ enum HomeRows {
             case .upNext: "接下来继续"
             case .favorites: "我的收藏"
             case .libraries: "我的媒体库"
-            case let .genres(kind, _): "\(HomeRows.mediaKindLabel(kind))类型"
+            case let .genres(kind, _): "按类型找\(HomeRows.mediaKindLabel(kind))"
             case let .library(library, sort, reversed, _, name, _):
                 name.isEmpty ? HomeRows.preset(sort).name(library.name, reversed) : name
             case let .mediaKind(kind, _, sort, reversed, _, name, _):
@@ -169,7 +169,7 @@ enum HomeRows {
             case .upNext: "内置 · 我正在看的"
             case let .favorites(sort, reversed): "内置 · \(HomeRows.favoritesPreset(sort).name(reversed))"
             case .libraries: "内置 · 管理页的库顺序"
-            case let .genres(kind, libraries): "内置 · 按类型浏览全部\(HomeRows.mediaKindLabel(kind))（\(libraries.count) 个库）"
+            case let .genres(_, libraries): "内置 · 每个类型一格（\(libraries.count) 个库）"
             case let .library(library, sort, reversed, unwatched, _, _):
                 ["\(library.name)库", HomeRows.preset(sort).short(reversed), unwatched ? "只看没看过的" : nil]
                     .compactMap { $0 }.joined(separator: " · ")
@@ -226,7 +226,7 @@ enum HomeRows {
         }
     }
 
-    /// 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 电影类型 → 剧集类型 → 每个库一行「最近添加」。
+    /// 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 按类型找电影 → 按类型找剧集 → 每个库一行「最近添加」。
     ///
     /// 不带类型行（「全部电影」）：它要用户在自定义页里主动添加才出现。默认生成的话，同类型只有一个库时
     /// 它与那个库的默认行一模一样，藏起来又会在自定义页里多出一排用不上的隐藏项

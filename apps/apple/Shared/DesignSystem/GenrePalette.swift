@@ -2,7 +2,7 @@ import CoreImage
 import SwiftUI
 import UIKit
 
-/// 首页「电影类型 / 剧集类型」色块的配色：TMDB genre id → 一块网格渐变。
+/// 首页「按类型找电影 / 剧集」色块的配色：TMDB genre id → 一块网格渐变。
 ///
 /// 逐项移植自网页 `apps/web/lib/genre-palette.ts`（同一张表、同一套公式；那边的
 /// test/genre-palette.test.mjs 会解析本文件比对，两边改一处测试就红）。

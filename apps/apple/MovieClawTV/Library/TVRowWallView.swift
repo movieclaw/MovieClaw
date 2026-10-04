@@ -10,7 +10,7 @@ enum TVWallSource: Hashable {
     case collection(id: Int, sort: String, reversed: Bool)
     /// 我的收藏
     case favorites(sort: String, reversed: Bool)
-    /// 首页「电影类型 / 剧集类型」色块：按一个 TMDB 类型筛好的跨库墙（最近添加在前），count 是色块上的部数
+    /// 首页「按类型找电影 / 剧集」色块：按一个 TMDB 类型筛好的跨库墙（最近添加在前），count 是色块上的部数
     case genre(kind: String, genre: Int, count: Int)
 
     /// 首页这一行对应的来源；「接下来继续」「我的媒体库」两行没有「查看全部」

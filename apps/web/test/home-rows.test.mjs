@@ -396,9 +396,9 @@ test("类型色块行：出厂布局紧跟「我的媒体库」，只给有库�
     "genres:movie",
     "genres:tv",
   ]);
-  assert.equal(rowTitle(find(rows, "genres:movie")), "电影类型");
-  assert.equal(rowTitle(find(rows, "genres:tv")), "剧集类型");
-  assert.equal(rowMeta(find(rows, "genres:tv")), "内置 · 按类型浏览全部剧集（2 个库）");
+  assert.equal(rowTitle(find(rows, "genres:movie")), "按类型找电影");
+  assert.equal(rowTitle(find(rows, "genres:tv")), "按类型找剧集");
+  assert.equal(rowMeta(find(rows, "genres:tv")), "内置 · 每个类型一格（2 个库）");
   // 只有其他视频库：两条都不出现；剧集库全被排除出首页：剧集那条不出现
   const onlyVideo = buildHomeRows({ rows: [] }, [lib(9, "录像", "video")], []);
   assert.equal(onlyVideo.some((row) => row.kind === "genres"), false);

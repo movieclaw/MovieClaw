@@ -115,7 +115,7 @@ export type HomeRow =
     }
   | { id: "libraries"; kind: "libraries"; hidden: boolean }
   | {
-      /** 「电影类型 / 剧集类型」色块行：内置，只能藏，不能删、没有排序 */
+      /** 「按类型找电影 / 剧集」色块行：内置，只能藏，不能删、没有排序 */
       id: `genres:${GenreRowKind}`;
       kind: "genres";
       hidden: boolean;
@@ -374,7 +374,7 @@ export function rowTitle(row: HomeRow): string {
     case "libraries":
       return "我的媒体库";
     case "genres":
-      return `${MEDIA_KIND_LABELS[row.mediaKind]}类型`;
+      return `按类型找${MEDIA_KIND_LABELS[row.mediaKind]}`;
     case "library":
       return (
         row.name || SORT_PRESETS[row.sort].name(row.library.name, row.reversed)
@@ -409,7 +409,7 @@ export function rowMeta(row: HomeRow): string {
     case "libraries":
       return "内置 · 管理页的库顺序";
     case "genres":
-      return `内置 · 按类型浏览全部${MEDIA_KIND_LABELS[row.mediaKind]}（${row.libraries.length} 个库）`;
+      return `内置 · 每个类型一格（${row.libraries.length} 个库）`;
     case "library":
       return [
         `${row.library.name}库`,
@@ -466,7 +466,7 @@ function genreRows(kindGroups: Map<HomeMediaKind, HomeLibraryLike[]>): HomeRow[]
 }
 
 /**
- * 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 电影类型 → 剧集类型 → 每个库一行
+ * 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 按类型找电影 → 按类型找剧集 → 每个库一行
  * 「最近添加」。
  *
  * 不带类型行（「全部电影」）：它要用户在自定义页里主动添加才出现。默认生成的话，

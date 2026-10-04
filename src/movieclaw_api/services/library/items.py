@@ -1731,7 +1731,7 @@ async def build_kind_genres(
     member_id: int,
     content_limit: ContentLimit | None = None,
 ) -> list[FacetValueView]:
-    """首页「电影类型 / 剧集类型」色块：跨库口径下每个 TMDB 类型有几部。
+    """首页「按类型找电影 / 剧集」色块：跨库口径下每个 TMDB 类型有几部。
 
     与单库筛选面板的类型 facet 同一条 ``_json_facet``，库范围换成这一类型的
     一组库——点色块进去的那面墙（``/kinds/{kind}/items?g=``）走同一套

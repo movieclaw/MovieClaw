@@ -33,7 +33,7 @@ enum AppRoute: Hashable {
     /// /library/{id}?view=collections&pending=1：view 为合集视图，pending 为进页即开待处理抽屉
     case library(id: Int, view: String? = nil, pending: Bool = false)
     /// /library/kind/{movie|tv|video}?g={TMDB genre id}：按类型的跨库海报墙（首页「全部电影」行的查看全部）；
-    /// 带 genre 是首页「电影类型 / 剧集类型」色块的落点，墙按这个 TMDB 类型筛好
+    /// 带 genre 是首页「按类型找电影 / 剧集」色块的落点，墙按这个 TMDB 类型筛好
     case libraryKind(kind: String, genre: Int? = nil)
     /// /library/{id}/item/{mediaItemId}?season=&episode=
     case libraryItem(libraryId: Int, itemId: Int, season: Int? = nil, episode: Int? = nil)

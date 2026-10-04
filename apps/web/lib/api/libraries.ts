@@ -685,7 +685,7 @@ export function getKindSummary(
 }
 
 /**
- * 首页「电影类型 / 剧集类型」色块：这一类型跨库每个 TMDB 类型有几部（去重）。
+ * 首页「按类型找电影 / 剧集」色块：这一类型跨库每个 TMDB 类型有几部（去重）。
  * 只回有片的类型、按部数倒序；value 是 genre id，点进去带 `?g=value` 开墙。
  */
 export function listKindGenres(kind: "movie" | "tv"): Promise<FacetValue[]> {

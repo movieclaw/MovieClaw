@@ -313,7 +313,7 @@ struct TVHomeView: View {
                 }
             }
         case let .genres(kind, _):
-            // 「电影类型 / 剧集类型」：每个有片的类型一格（按部数倒序），确认键进按这个类型筛好的跨库墙
+            // 「按类型找电影 / 剧集」：每个有片的类型一格（按部数倒序），确认键进按这个类型筛好的跨库墙
             if let genres = store.genresByKind[kind], !genres.isEmpty {
                 TVShelf(title: row.title) {
                     ForEach(genres, id: \.value) { genre in

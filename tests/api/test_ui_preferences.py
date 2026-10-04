@@ -220,7 +220,7 @@ def test_home_rows_default_is_empty(client: TestClient) -> None:
 
 
 def test_home_genre_rows_store_only_hidden(client: TestClient) -> None:
-    """「电影类型 / 剧集类型」色块区是内置行：只存显隐，位置跟着清单走。"""
+    """「按类型找电影 / 剧集」色块区是内置行：只存显隐，位置跟着清单走。"""
     rows = [{"id": "up-next"}, {"id": "genres:movie"}, {"id": "genres:tv", "hidden": True}]
     resp = client.put("/api/v1/ui/preferences", json={"home": {"rows": rows}})
     assert resp.status_code == 200

@@ -218,7 +218,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
   const [itemsByKey, setItemsByKey] = useState<Map<string, LibraryItem[]>>(
     () => lastLoadedHome?.itemsByKey ?? new Map(),
   );
-  // 「电影类型 / 剧集类型」色块：每种类型的 TMDB 类型分布，与库行条目同一轮取、同一个快照闸
+  // 「按类型找电影 / 剧集」色块：每种类型的 TMDB 类型分布，与库行条目同一轮取、同一个快照闸
   const [genresByKind, setGenresByKind] = useState<Map<GenreRowKind, FacetValue[]>>(
     () => lastLoadedHome?.genresByKind ?? new Map(),
   );

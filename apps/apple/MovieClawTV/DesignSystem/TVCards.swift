@@ -261,7 +261,7 @@ struct TVLibraryCard: View {
     }
 }
 
-/// 首页「电影类型 / 剧集类型」的一格：网格渐变色块 + 类型名 + 部数（与网页、iPhone 同一块，`GenreTileFace`）。
+/// 首页「按类型找电影 / 剧集」的一格：网格渐变色块 + 类型名 + 部数（与网页、iPhone 同一块，`GenreTileFace`）。
 /// 一屏 4 张（与横版剧照卡同宽）；获得焦点时系统抬起放大，色团同时缓慢漂一点（同网页悬停）
 struct TVGenreCard: View {
     let genreId: Int

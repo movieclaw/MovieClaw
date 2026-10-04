@@ -907,7 +907,7 @@ async def test_kind_wall_merges_libraries_of_one_kind(db) -> None:
 
 
 async def test_kind_genres_count_across_libraries(db) -> None:
-    """首页「电影类型 / 剧集类型」色块：跨库去重计数，与点进去的那面墙同一口径。
+    """首页「按类型找电影 / 剧集」色块：跨库去重计数，与点进去的那面墙同一口径。
 
     - 同一部片在两个库里只算一次；被「从首页排除」的库不算；
     - 只回有片的类型、按部数倒序，名字取中文；两张类型表都不认的 id 丢掉；

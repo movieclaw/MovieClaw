@@ -119,8 +119,8 @@ struct HomeRowsTests {
         let libs = [library(1, "movie"), library(2, "tv"), library(3, "tv")]
         let rows = HomeRows.build(prefs: [], libraries: libs, collections: [])
         #expect(Array(rows.map(\.id).prefix(5)) == ["up-next", "favorites", "libraries", "genres:movie", "genres:tv"])
-        #expect(rows[3].title == "电影类型" && rows[4].title == "剧集类型")
-        #expect(rows[4].meta == "内置 · 按类型浏览全部剧集（2 个库）")
+        #expect(rows[3].title == "按类型找电影" && rows[4].title == "按类型找剧集")
+        #expect(rows[4].meta == "内置 · 每个类型一格（2 个库）")
         #expect(!rows[3].removable)
         // 只有其他视频库：两条都不出现；剧集库全被排除出首页：剧集那条不出现
         #expect(!HomeRows.build(prefs: [], libraries: [library(9, "video")], collections: []).contains { $0.id.hasPrefix("genres:") })

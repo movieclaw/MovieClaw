@@ -1011,7 +1011,7 @@ nonisolated extension APIClient {
         return try await send("GET", "/libraries/kinds/\(kind)", query: query)
     }
 
-    /// 按类型跨库的 TMDB 类型分布（首页「电影类型 / 剧集类型」色块）
+    /// 按类型跨库的 TMDB 类型分布（首页「按类型找电影 / 剧集」色块）
     /// `GET /libraries/kinds/{kind}/genres`
     func uiLibraryKindGenres(kind: String) async throws -> [API.FacetValueView] {
         return try await send("GET", "/libraries/kinds/\(kind)/genres")

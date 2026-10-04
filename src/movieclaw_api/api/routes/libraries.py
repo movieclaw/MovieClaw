@@ -4332,7 +4332,7 @@ async def get_library_kind_summary(
 @kinds_router.get(
     "/{kind}/genres",
     response_model=ApiResponse[list[FacetValueView]],
-    summary="按类型跨库的 TMDB 类型分布（首页「电影类型 / 剧集类型」色块）",
+    summary="按类型跨库的 TMDB 类型分布（首页「按类型找电影 / 剧集」色块）",
     operation_id="ui.library.kind.genres",
     openapi_extra={"x-cli-hidden": True},
 )

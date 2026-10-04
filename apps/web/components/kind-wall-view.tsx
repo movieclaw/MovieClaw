@@ -77,7 +77,7 @@ const snapshots = new Map<string, KindWallSnapshot>();
  * 刻意比单库页薄：没有筛选条（facet 统计按单库算，跨库版本留到下一期）、没有
  * 索引条与图床浏览，只有排序。
  *
- * 带 `genre`（`?g=878`）时是首页「电影类型」色块的落点：墙按这个 TMDB 类型筛好，
+ * 带 `genre`（`?g=878`）时是首页「按类型找电影」色块的落点：墙按这个 TMDB 类型筛好，
  * 页头换成与色块同一块网格渐变，标题是类型名。
  */
 export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: number }) {

@@ -19,7 +19,7 @@ final class LibraryHomeStore {
     private(set) var upNext: [API.UpNextItemView]?
     private(set) var favorites: API.FavoritesView?
     private(set) var itemsByKey: [String: [API.LibraryItemView]] = [:]
-    /// 「电影类型 / 剧集类型」色块：每种类型（movie / tv）的 TMDB 类型分布，与各行条目同一轮取、同一个指纹闸
+    /// 「按类型找电影 / 剧集」色块：每种类型（movie / tv）的 TMDB 类型分布，与各行条目同一轮取、同一个指纹闸
     private(set) var genresByKind: [String: [API.FacetValueView]] = [:]
     /// 各行条目至少到过一次（或来自快照）
     private(set) var rowsLoaded = false

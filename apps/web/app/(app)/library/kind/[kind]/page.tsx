@@ -13,7 +13,7 @@ const KINDS: readonly HomeMediaKind[] = ["movie", "tv", "video"];
  * 按类型的跨库海报墙（/library/kind/{movie|tv|video}）：首页「全部电影」行的
  * 「查看全部」落点。静态段 kind 优先于 /library/[id]，不会被当成库 id。
  *
- * `?g=<TMDB genre id>`：首页「电影类型 / 剧集类型」色块的落点，墙按该类型筛好。
+ * `?g=<TMDB genre id>`：首页「按类型找电影 / 剧集」色块的落点，墙按该类型筛好。
  * 只认一个正整数 id，别的形状当没带。
  */
 export default async function KindWallPage({
