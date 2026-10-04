@@ -67,6 +67,9 @@ _LABELS = {
     "words": "名称词组匹配",
 }
 _FIELD_ORDER = {"title": 0, "original_title": 1, "english_title": 2, "alias": 3}
+# 人物行最多展示几位：首字母这类短输入常命中一批同档人物，8 位时主演也可能被挤掉；
+# 只有这些人会读取姓名与头像，关系与排名仍覆盖全部候选
+_PEOPLE_LIMIT = 20
 # 演员表前 5 位（TMDB credit order 0～4）或导演算「主创」：人物排序与人物带出的作品排序都用它
 _LEAD_BILLING = 5
 _SHORT_MATCH_TYPES = (
@@ -405,14 +408,14 @@ async def search_candidates(session, query, library_ids, member_id, content_limi
                 best_billing[i],
                 matched["person"][i].order,
             ),
-        )[:8]
+        )[:_PEOPLE_LIMIT]
         people_info = {
             p.id: p
             for p in (
                 await session.execute(
-                    select(Person.id, Person.name, Person.profile_path).where(
-                        Person.id.in_(top_people)
-                    )
+                    select(
+                        Person.id, Person.tmdb_person_id, Person.name, Person.profile_path
+                    ).where(Person.id.in_(top_people))
                 )
             ).all()
         }
@@ -423,6 +426,7 @@ async def search_candidates(session, query, library_ids, member_id, content_limi
             people.append(
                 LibrarySearchPerson(
                     id=pid,
+                    tmdb_person_id=person.tmdb_person_id,
                     name=person.name,
                     profile_path=person.profile_path,
                     avatar_url=avatar_url(person.profile_path),

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import type { Route } from "next";
 
 import { HScroller } from "@/components/h-scroller";
@@ -16,6 +17,7 @@ import { imageUrl } from "@/lib/image-proxy";
 import { useTheme } from "@/lib/ui-prefs";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
+import { useTapGuard } from "@/lib/use-tap-guard";
 
 /**
  * 搜索结果页「媒体库」垂直：跨全部可见媒体库搜索已入库条目。
@@ -29,7 +31,8 @@ import { useScrollRestoration } from "@/lib/use-scroll-restoration";
  *   首字母正中的「三体」——分组本身就丢掉了相关度，所以整个去掉。
  * - **命中原因**：不是直接按片名命中的结果，格下注明原因（如「演员：史蒂芬·朗」），
  *   用户能看懂为什么它会出现。
- * - **人物入口**：命中的演员/导演单独一行，点进去列这个人的全部库内作品（同 TV）。
+ * - **人物入口**：命中的演员/导演单独一行，点头像进库内影人页（/people/{TMDB 影人 id}），
+ *   与条目详情「演职员」同一个入口、同一个页面，三端一致。
  * - **分页**：服务端游标分页，滚到底自动续页。
  *
  * 空态的出口指向「影视」垂直：库里没有 ≈ 想要但还没入手，下一步自然是
@@ -43,15 +46,7 @@ export function LibrarySearchResults({
   /** 切到「影视」垂直（空态时的出口：库里没有 → 去找来） */
   onSwitchToMedia?: () => void;
 }) {
-  // 选中的人物是某个关键词结果里的入口：记下来源关键词，换关键词自然回到关键词结果
-  const [picked, setPicked] = useState<{ keyword: string; person: LibrarySearchPerson } | null>(
-    null,
-  );
-  const person = picked?.keyword === keyword ? picked.person : null;
-  const setPerson = (next: LibrarySearchPerson | null) =>
-    setPicked(next ? { keyword, person: next } : null);
-  // 选中人物后看的是另一份结果：滚动位置按人物分开记
-  const scrollRef = useScrollRestoration(`search:library:${keyword}:${person?.id ?? ""}`);
+  const scrollRef = useScrollRestoration(`search:library:${keyword}`);
   // 银玻璃手机端不重复关键词大标题：结果页顶栏的关键词胶囊已写着（同原生 App）；
   // 页头留空作与垂直选项卡之间的间距
   const isNf = useTheme().structural;
@@ -62,7 +57,7 @@ export function LibrarySearchResults({
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 请求代次：关键词/人物切换后，旧请求（含翻页）的响应一律丢弃
+  // 请求代次：关键词切换后，旧请求（含翻页）的响应一律丢弃
   const generation = useRef(0);
 
   useEffect(() => {
@@ -72,7 +67,7 @@ export function LibrarySearchResults({
     setCursor(null);
     setError(null);
     setLoadingMore(false);
-    searchLibrary(person ? { personId: person.id } : { q: keyword })
+    searchLibrary({ q: keyword })
       .then((page) => {
         if (generation.current !== current) return;
         setHits(page.items);
@@ -84,13 +79,13 @@ export function LibrarySearchResults({
           setError(reason.message || "媒体库搜索失败，请稍后重试");
         }
       });
-  }, [keyword, person]);
+  }, [keyword]);
 
   const loadMore = useCallback(() => {
     if (!cursor || loadingMore) return;
     const current = generation.current;
     setLoadingMore(true);
-    searchLibrary(person ? { personId: person.id, cursor } : { q: keyword, cursor })
+    searchLibrary({ q: keyword, cursor })
       .then((page) => {
         if (generation.current !== current) return;
         // 翻页按作品去重：同一轮浏览不会重复，但防御性去重不花什么
@@ -111,7 +106,7 @@ export function LibrarySearchResults({
       .finally(() => {
         if (generation.current === current) setLoadingMore(false);
       });
-  }, [cursor, keyword, loadingMore, person]);
+  }, [cursor, keyword, loadingMore]);
 
   // 滚到底自动续页：哨兵进入视口（提前 600px）就取下一页
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -132,27 +127,12 @@ export function LibrarySearchResults({
 
   return (
     <div className="relative flex h-full flex-col">
-      {/* 状态行：与另外两个垂直的头部同构（关键词）；选中人物时换成人物标题 + 返回 */}
+      {/* 状态行：与另外两个垂直的头部同构（关键词） */}
       <header className={`shrink-0 pb-3 pt-4 page-inset max-md:pt-3`}>
-        {person ? (
-          <div className="flex items-center gap-3">
-            <h1 className="text-on-image min-w-0 truncate text-title-lg font-semibold tracking-[-0.01em] text-white">
-              {person.name} 的库内作品
-            </h1>
-            <button
-              type="button"
-              onClick={() => setPerson(null)}
-              className="shrink-0 rounded-full bg-white/10 px-3 py-1 text-sub text-white backdrop-blur-sm hover:bg-white/15"
-            >
-              返回搜索结果
-            </button>
-          </div>
-        ) : (
-          !hideKeyword && (
-            <h1 className="text-on-image text-title-lg font-semibold tracking-[-0.01em] text-white">
-              “{keyword}”
-            </h1>
-          )
+        {!hideKeyword && (
+          <h1 className="text-on-image text-title-lg font-semibold tracking-[-0.01em] text-white">
+            “{keyword}”
+          </h1>
         )}
       </header>
 
@@ -185,11 +165,7 @@ export function LibrarySearchResults({
             <h2 className="text-on-image mb-3 text-body-lg font-semibold text-white">人物</h2>
             <HScroller className="-mx-1 gap-3 px-1 pb-1">
               {people.map((candidate) => (
-                <PersonChip
-                  key={candidate.id}
-                  person={candidate}
-                  onSelect={() => setPerson(candidate)}
-                />
+                <PersonChip key={candidate.id} person={candidate} />
               ))}
             </HScroller>
           </section>
@@ -283,21 +259,15 @@ function LibraryResultCell({ hit }: { hit: LibrarySearchHit }) {
   );
 }
 
-/** 一个命中的人物：圆形头像 + 姓名 + 库内作品数；点击列其全部库内作品。 */
-function PersonChip({
-  person,
-  onSelect,
-}: {
-  person: LibrarySearchPerson;
-  onSelect: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onSelect}
-      aria-label={`查看 ${person.name} 的库内作品`}
-      className="group/person flex w-[96px] shrink-0 flex-col items-center rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
-    >
+/**
+ * 一个命中的人物：圆形头像 + 姓名 + 库内作品数；点击进库内影人页，
+ * 与条目详情「演职员」（CastRow）同一个页面。旧服务端不返回 TMDB 影人 id 时不可点。
+ */
+function PersonChip({ person }: { person: LibrarySearchPerson }) {
+  // tapGuard：人物卡在横滚行里，滑动/刹车手势派发的 click 拦下不跳转（同 CastRow）
+  const tapGuard = useTapGuard();
+  const body = (
+    <>
       <div className="size-[72px] overflow-hidden rounded-full bg-[var(--poster-placeholder)] ring-1 ring-white/[0.08] transition group-hover/person:ring-white/30">
         <PosterImage
           src={imageUrl(person.avatar_url) ?? ""}
@@ -318,7 +288,22 @@ function PersonChip({
       <p className="w-full truncate text-caption text-[var(--text-faint)]">
         库内 {person.item_count} 部
       </p>
-    </button>
+    </>
+  );
+  const className =
+    "group/person flex w-[96px] shrink-0 flex-col items-center rounded-xl text-center outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]";
+  if (person.tmdb_person_id == null) {
+    return <div className={className}>{body}</div>;
+  }
+  return (
+    <Link
+      href={`/people/${person.tmdb_person_id}` as Route}
+      {...tapGuard}
+      aria-label={`查看 ${person.name} 的影人页`}
+      className={className}
+    >
+      {body}
+    </Link>
   );
 }
 

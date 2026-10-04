@@ -364,7 +364,7 @@ struct MediaSearchResultsView: View {
 /// - 按相关度平铺、不按库分组：旧版按库分组再按拼音重排，搜「ST」时演员 Stephen Lang
 ///   带出的「阿凡达」会压过首字母正中的「三体」，分组本身就丢掉了相关度。
 /// - 不是直接按片名命中的结果，格下注明原因（如「演员：史蒂芬·朗」）。
-/// - 命中的演员/导演单独一行，点进去列这个人的全部库内作品（同 TV）。
+/// - 命中的演员/导演单独一行，点头像进库内影人页（与详情页演职员同一个入口，三端一致）。
 /// - 服务端游标分页，滚到底自动续页。空态出口指向「影视」。
 struct LibrarySearchResultsView: View {
     let keyword: String
@@ -378,16 +378,6 @@ struct LibrarySearchResultsView: View {
         ScrollView {
             // 外层懒加载：底部「更多结果」进入可视区才触发续页
             LazyVStack(alignment: .leading, spacing: 24) {
-                if let person = model.person {
-                    HStack(spacing: 12) {
-                        Text("\(person.name) 的库内作品")
-                            .font(.title3.weight(.semibold)).foregroundStyle(.white).lineLimit(1)
-                        Spacer(minLength: 0)
-                        Button("返回搜索结果") { Task { await model.select(nil, api: api) } }
-                            .font(.subheadline)
-                            .accessibilityIdentifier("library-search-back")
-                    }
-                }
                 if model.hits == nil, model.error == nil {
                     LazyVGrid(columns: DiscoverGrid.wideColumns, spacing: 28) {
                         ForEach(0 ..< 6, id: \.self) { _ in
@@ -454,10 +444,11 @@ struct LibrarySearchResultsView: View {
         .accessibilityIdentifier("library-results")
     }
 
-    /// 命中的人物：圆形头像 + 姓名 + 库内作品数；点按列其全部库内作品
+    /// 命中的人物：圆形头像 + 姓名 + 库内作品数；点按进库内影人页（旧服务端不返回 TMDB id 时不跳转）
     private func personChip(_ person: API.LibrarySearchPerson) -> some View {
         Button {
-            Task { await model.select(person, api: api) }
+            guard let tmdbId = person.tmdbPersonId else { return }
+            router.push(.person(tmdbId: tmdbId))
         } label: {
             VStack(spacing: 4) {
                 ZStack {
@@ -476,7 +467,7 @@ struct LibrarySearchResultsView: View {
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("查看 \(person.name) 的库内作品")
+        .accessibilityLabel("查看 \(person.name) 的影人页")
         .accessibilityIdentifier("library-search-person-\(person.id)")
     }
 
@@ -523,13 +514,11 @@ struct LibrarySearchResultsView: View {
     }
 }
 
-/// 媒体库搜索的一轮浏览状态（关键词结果或某个人物的库内作品）。
-/// 请求代次保护搜索与翻页：切换人物后，旧请求的响应一律丢弃；翻页按作品去重。
+/// 媒体库搜索的一轮浏览状态。请求代次保护搜索与翻页：旧请求的响应一律丢弃；翻页按作品去重。
 @Observable
 private final class LibrarySearchModel {
     var hits: [API.LibrarySearchHit]?
     var people: [API.LibrarySearchPerson] = []
-    var person: API.LibrarySearchPerson?
     var nextCursor: String?
     var loadingMore = false
     var error: String?
@@ -544,11 +533,6 @@ private final class LibrarySearchModel {
         guard !started else { return }
         started = true
         self.keyword = keyword
-        await search(api: api)
-    }
-
-    func select(_ person: API.LibrarySearchPerson?, api: APIClient) async {
-        self.person = person
         await search(api: api)
     }
 
@@ -592,9 +576,6 @@ private final class LibrarySearchModel {
     }
 
     private func fetch(api: APIClient, cursor: String?) async throws -> API.LibrarySearchView {
-        if let person {
-            return try await api.searchLibrary(personId: person.id, cursor: cursor)
-        }
-        return try await api.searchLibrary(q: keyword, cursor: cursor)
+        try await api.searchLibrary(q: keyword, cursor: cursor)
     }
 }

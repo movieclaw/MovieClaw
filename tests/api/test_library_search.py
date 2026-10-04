@@ -712,7 +712,7 @@ async def test_short_query_best_name_preserves_indexed_results(db, client, query
 
 @pytest.mark.asyncio
 async def test_broad_person_query_reads_display_info_only_for_top_people(db, client):
-    """关系/排名覆盖所有候选；人物头像只读取实际显示的八个人。"""
+    """关系/排名覆盖所有候选；人物头像只读取实际显示的前二十个人。"""
     from sqlalchemy import event
 
     from movieclaw_api.services.library.search_index import refresh_index_batch
@@ -744,8 +744,11 @@ async def test_broad_person_query_reads_display_info_only_for_top_people(db, cli
         data = await _ranked(client, "nl")
     finally:
         event.remove(db.engine.sync_engine, "before_cursor_execute", record)
-    assert len(data["people"]) == 8
-    assert len(queries) == 1 and len(queries[0]) == 8
+    assert len(data["people"]) == 20
+    assert len(queries) == 1 and len(queries[0]) == 20
+    # 客户端靠 tmdb_person_id 打开影人页：逐人核对与姓名对应
+    expected = {f"诺兰{i}": 1000 + i for i in range(40)} | {"克里斯托弗·诺兰": 525}
+    assert all(p["tmdb_person_id"] == expected[p["name"]] for p in data["people"])
     assert data["items"][0]["item"]["media_item_id"] == movie_id
 
 

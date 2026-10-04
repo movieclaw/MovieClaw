@@ -239,10 +239,10 @@ final class LibraryUITests: XCTestCase {
         snapshot("隐藏一行后")
     }
 
-    /// 媒体库搜索（统一接口 /search/library）：相关度结果 → 点人物看其库内作品 → 返回。
+    /// 媒体库搜索（统一接口 /search/library）：相关度结果 → 点命中的人物头像进库内影人页（与演职员同一页）→ 返回。
     /// 关键词用 MC_TEST_LIBRARY_QUERY 指定（默认 ST），服务器上要有能被它命中的作品和人物。
     @MainActor
-    func testLibrarySearchPeopleDrilldown() {
+    func testLibrarySearchOpensPersonPage() {
         let query = env["MC_TEST_LIBRARY_QUERY"] ?? "ST"
         let app = launch(route: "/search?q=\(query)&tab=library")
         let items = app.otherElements["library-items"].firstMatch
@@ -252,14 +252,13 @@ final class LibraryUITests: XCTestCase {
 
         let person = app.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'library-search-person-'")).firstMatch
         XCTAssertTrue(person.waitForExistence(timeout: 10), "关键词命中的人物应单独成行")
-        let name = person.label.replacingOccurrences(of: "查看 ", with: "").replacingOccurrences(of: " 的库内作品", with: "")
+        let name = person.label.replacingOccurrences(of: "查看 ", with: "").replacingOccurrences(of: " 的影人页", with: "")
         person.tap()
-        XCTAssertTrue(app.staticTexts["\(name) 的库内作品"].waitForExistence(timeout: 20), "点人物应列其库内作品")
-        XCTAssertTrue(app.otherElements["library-items"].firstMatch.waitForExistence(timeout: 20))
-        snapshot("人物库内作品")
+        XCTAssertTrue(app.navigationBars[name].waitForExistence(timeout: 20), "点人物应进入「\(name)」的影人页")
+        snapshot("影人页")
 
-        app.buttons["library-search-back"].tap()
-        XCTAssertTrue(person.waitForExistence(timeout: 20), "返回后应恢复关键词结果与人物行")
+        app.navigationBars[name].buttons.firstMatch.tap()
+        XCTAssertTrue(person.waitForExistence(timeout: 20), "返回后应回到搜索结果")
     }
 
     private func waitUntil(timeout: TimeInterval = 15, _ condition: @escaping () -> Bool) -> Bool {

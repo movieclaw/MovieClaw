@@ -305,8 +305,10 @@ export interface LibrarySearchHit {
 }
 
 export interface LibrarySearchPerson {
-  /** 库内人物 id（传给 searchLibrary 的 personId） */
+  /** 库内人物 id */
   id: number;
+  /** TMDB 影人 id：库内影人页 /people/{id} 的键（旧服务端不返回） */
+  tmdb_person_id: number | null;
   name: string;
   avatar_url: string | null;
   /** 可见库内作品数 */
@@ -324,16 +326,10 @@ export interface LibrarySearchPage {
 
 /**
  * 媒体库搜索：与 iPhone、Apple TV 同一个接口（GET /search/library）。
- * 结果按相关度排序（准确片名 > 前缀 > 人物带出的作品 > 包含），不按库分组；
- * 传 personId 时列该人物的全部库内作品。
+ * 结果按相关度排序（准确片名 > 前缀 > 人物带出的作品 > 包含），不按库分组。
  */
-export function searchLibrary(params: {
-  q?: string;
-  personId?: number;
-  cursor?: string;
-}): Promise<LibrarySearchPage> {
-  const query = new URLSearchParams({ q: params.q ?? "" });
-  if (params.personId !== undefined) query.set("person_id", String(params.personId));
+export function searchLibrary(params: { q: string; cursor?: string }): Promise<LibrarySearchPage> {
+  const query = new URLSearchParams({ q: params.q });
   if (params.cursor) query.set("cursor", params.cursor);
   return unwrap(request<ApiEnvelope<LibrarySearchPage>>(`/search/library?${query}`));
 }

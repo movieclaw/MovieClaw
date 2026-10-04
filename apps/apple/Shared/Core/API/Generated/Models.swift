@@ -4607,6 +4607,8 @@ nonisolated extension API {
 
     struct LibrarySearchPerson: Codable, Hashable, Sendable {
         var id: Int
+        /// TMDB 影人 ID：客户端据此打开库内影人页（与演职员入口同一页）
+        var tmdbPersonId: Int?
         var name: String
         var profilePath: String?
         /// 头像地址：本地已下载给本地，否则给 TMDB 图床；没有照片为空
@@ -4616,6 +4618,7 @@ nonisolated extension API {
 
         enum CodingKeys: String, CodingKey {
             case id
+            case tmdbPersonId = "tmdb_person_id"
             case name
             case profilePath = "profile_path"
             case avatarUrl = "avatar_url"
