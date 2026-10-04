@@ -583,11 +583,15 @@ async def search_library(
         next_cursor = f"{token}:{offset}"
     else:
         _sessions.pop(token, None)
+    # 联想不止补全片名：人物带出的作品（liyitong → 《我不是大师》）、包含类弱命中也列出，
+    # 但每条带上与结果卡片同一份命中原因（「演员：李一桐」「首字母匹配」），
+    # 用户一眼看懂为什么联想到它
     suggestions = (
         [
             LibrarySearchSuggestion(
                 type="title",
                 text=hit.item.title,
+                label=hit.match.label,
                 media_item_id=hit.item.media_item_id,
             )
             for hit in items[:5]
@@ -596,7 +600,8 @@ async def search_library(
         else []
     )
     suggestions.extend(
-        LibrarySearchSuggestion(type="person", text=p.name, person_id=p.id) for p in people[:3]
+        LibrarySearchSuggestion(type="person", text=p.name, label=p.match.label, person_id=p.id)
+        for p in people[:3]
     )
     return LibrarySearchView(
         query=query,

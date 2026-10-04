@@ -16,6 +16,7 @@ import SwiftUI
 /// - 输入了关键词，列表顶上给一行「搜索“…”」（下注当前范围），收起键盘后也能一点就搜；
 ///   **媒体库模式例外**：本地搜索毫秒级，输入即实时出结果（与结果页同一个 `LibrarySearchResultsView`），
 ///   不给「搜索“…”」行、也不必回车再跳一页；
+/// - 右上角 ✕（系统的取消搜索）直接关闭搜索页回到来处，不留一页空的搜索首页；
 /// - 最近搜索（`GET /search/history`）：只展示当前影视或资源类型，媒体库隐藏历史；同关键词的多条记录归成一组：
 ///   主行是最近一条（写它的范围与时间），其余范围列在下面、图标列换成「↳」连接符，组内不画分隔线、
 ///   只在组与组之间画，一眼看出是一组；始终展开、没有折叠箭头——
@@ -50,6 +51,8 @@ struct SearchHomeView: View {
     /// 恢复记住的模式与预选只在进页时做一次：看完结果返回（`.task` 重跑）时再来一遍，
     /// 会把用户在本页切过的模式又拨回页签预选的模式
     @State private var didRestoreState = false
+    /// 本页是否在栈顶可见：区分「点右上角 ✕ 取消搜索」与「压栈进结果页时搜索栏跟着失活」
+    @State private var visible = false
 
     private static let stateKey = "movieclaw.search-palette-state"
 
@@ -123,6 +126,11 @@ struct SearchHomeView: View {
                 clearedTabKey = nil
                 changeTab(key)
             }
+            // 右上角 ✕ 是系统的「取消搜索」：默认只清空关键词、留下一页空的搜索首页（真机反馈不符合预期）。
+            // 这里把它当成「关闭搜索页」，回到进来之前的页面；输入框里的 ✕ 仍只是清空内容。
+            if !presented {
+                Task { @MainActor in await closeAfterCancel() }
+            }
         }
         .onSubmit(of: .search) { submit() }
         .autocorrectionDisabled()
@@ -147,7 +155,9 @@ struct SearchHomeView: View {
             if tabKey != "all", !tabs.contains(where: { $0.key == tabKey }) { changeTab("all") }
         }
         .task(id: "\(mode.rawValue):\(historyRefresh)") { await loadHistory() }
+        .onDisappear { visible = false }
         .onAppear {
+            visible = true
             takeDraft()
             historyRefresh += 1
         }
@@ -180,6 +190,24 @@ struct SearchHomeView: View {
             .listSectionSpacing(20)
             .contentMargins(.top, 8, for: .scrollContent)
             .scrollDismissesKeyboard(.immediately)
+        }
+    }
+
+    /// 取消搜索后关闭本页。几处实测得来的约束：
+    /// - 压栈进结果页时搜索栏也可能跟着失活：先等一下，本页已离开栈顶（`visible` 为 false）就不是取消；
+    /// - 系统收起搜索栏的动画（约 0.4 秒）期间改导航路径会被 NavigationStack 吞掉——路径空了、页面却还在
+    ///   （模拟器实测 350ms 吞、500ms 成功）：等 600ms 再出栈，仍没退成就把路径补回原样再出一次；
+    /// - 搜索页由 Router 的路径压栈（`.searchHome`），环境里的 dismiss 弹不掉它；只在栈顶确实是本页时出栈
+    private func closeAfterCancel() async {
+        try? await Task.sleep(for: .milliseconds(600))
+        let tab = router.selectedTab
+        guard visible, !searchPresented, let top = router.paths[tab]?.last,
+              case .searchHome = top else { return }
+        router.pop()
+        try? await Task.sleep(for: .milliseconds(600))
+        if visible, router.selectedTab == tab, router.paths[tab]?.last != top {
+            router.paths[tab, default: []].append(top)
+            router.pop()
         }
     }
 

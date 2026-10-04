@@ -4630,12 +4630,15 @@ nonisolated extension API {
     struct LibrarySearchSuggestion: Codable, Hashable, Sendable {
         var type: String
         var text: String
+        /// 为什么联想到它，与结果卡片同一份命中原因（如「演员：李一桐」）
+        var label: String?
         var mediaItemId: Int?
         var personId: Int?
 
         enum CodingKeys: String, CodingKey {
             case type
             case text
+            case label
             case mediaItemId = "media_item_id"
             case personId = "person_id"
         }

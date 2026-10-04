@@ -1387,7 +1387,7 @@ function SectionTitle({ title, action }: { title: string; action?: React.ReactNo
  * 全屏搜索页的范围 / 动作行（同 iOS SearchHomeView.scopeRow）：图标 + 标题（+ 一行说明）
  * （+ 进入箭头），整行可点。「搜索“xx”」「浏览最新资源」「在其他范围搜索」共用。
  */
-/** 一条搜索联想：片名用胶片图标、人名用人像图标；键盘高亮与历史行同一套样式。 */
+/** 一条搜索联想：片名用胶片图标、人名用人像图标，下注命中原因；键盘高亮与历史行同一套样式。 */
 function SuggestionRow({
   suggestion,
   active,
@@ -1418,8 +1418,16 @@ function SuggestionRow({
             <FilmIcon className="size-[17px]" />
           )}
         </span>
-        <span className="min-w-0 flex-1 truncate text-ui leading-5 text-[var(--text)]">
-          {suggestion.text}
+        {/* 联想词下注明为什么联想到它（同结果卡片的命中原因），人物带出的作品写明是谁 */}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-ui leading-5 text-[var(--text)]">
+            {suggestion.text}
+          </span>
+          {suggestion.label && (
+            <span className="block truncate text-caption text-[var(--text-muted)]">
+              {suggestion.label}
+            </span>
+          )}
         </span>
         <span className="shrink-0 text-caption text-[var(--text-faint)]">
           {suggestion.type === "person" ? "人物" : "影片"}

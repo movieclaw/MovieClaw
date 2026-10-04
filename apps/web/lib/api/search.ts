@@ -316,10 +316,13 @@ export interface LibrarySearchPerson {
   match: LibrarySearchMatch;
 }
 
-/** 搜索联想：从本次结果里提取的片名与人名（不纠错、不按热度），选中即按这个词搜索。 */
+/** 搜索联想：从本次结果里提取的片名与人名（不纠错、不按热度），选中即按这个词搜索。
+ *  每条带命中原因，人物带出的作品也会列出（写明是谁）。 */
 export interface LibrarySearchSuggestion {
   type: "title" | "person";
   text: string;
+  /** 为什么联想到它（与结果卡片同一份命中原因，如「演员：李一桐」）；旧服务端不返回 */
+  label?: string | null;
 }
 
 export interface LibrarySearchPage {

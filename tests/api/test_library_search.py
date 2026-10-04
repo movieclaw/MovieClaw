@@ -850,3 +850,18 @@ async def test_initials_ties_rank_leads_before_bit_parts(db, client, indexed) ->
     data = await _ranked(client, "lyt")
     assert data["people"][0]["name"] == "李一桐"
     assert data["items"][0]["match"]["label"] == "演员：李一桐"
+
+
+async def test_suggestions_explain_why_they_match(db, client) -> None:
+    """每条联想带命中原因：人物带出的作品写明是谁（liyitong → 《我不是大师》「演员：李一桐」）。"""
+    movie_id, _ = await _seed_advanced(db)
+    data = await _ranked(client, "nolan")
+    assert data["items"][0]["item"]["media_item_id"] == movie_id  # 作品由诺兰带出
+    suggestions = [(s["type"], s["text"], s["label"]) for s in data["suggestions"]]
+    assert ("title", "星际穿越", "导演：克里斯托弗·诺兰") in suggestions
+    # 原名 Christopher Nolan 按空格拆出的 Nolan 直接文字命中
+    assert ("person", "克里斯托弗·诺兰", "名称匹配") in suggestions
+    data = await _ranked(client, "xjcy")
+    assert ("title", "星际穿越", "首字母匹配") in [
+        (s["type"], s["text"], s["label"]) for s in data["suggestions"]
+    ]

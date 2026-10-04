@@ -298,6 +298,35 @@ final class LibraryUITests: XCTestCase {
         snapshot("点联想后")
     }
 
+    /// 右上角 ✕（系统取消搜索）关闭整个搜索页回到来处；压栈进结果页不能被当成取消误关
+    @MainActor
+    func testSearchCancelClosesSearchPage() {
+        let app = launch(route: "/library")
+        let open = app.navigationBars.buttons["open-search"]
+        XCTAssertTrue(open.waitForExistence(timeout: 20))
+        open.tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        app.segmentedControls.buttons["媒体库"].tap()
+        field.typeText("ST")
+        XCTAssertTrue(app.otherElements["library-items"].firstMatch.waitForExistence(timeout: 15))
+        let cancel = app.buttons.matching(NSPredicate(format: "label IN %@", ["Cancel", "取消", "Close", "关闭"])).firstMatch
+        XCTAssertTrue(cancel.waitForExistence(timeout: 5), "搜索栏激活时右上角应有取消按钮")
+        cancel.tap()
+        XCTAssertTrue(open.waitForExistence(timeout: 10), "点右上角 ✕ 应关闭搜索页、回到媒体库")
+        XCTAssertFalse(app.otherElements["search-home"].exists || app.collectionViews["search-home"].exists, "不该留下空的搜索页")
+
+        // 回车压栈进结果页：搜索栏失活不能被当成取消
+        open.tap()
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        app.segmentedControls.buttons["影视"].tap()
+        field.typeText("沙丘\n")
+        let results = app.scrollViews["media-results"]
+        XCTAssertTrue(results.waitForExistence(timeout: 15), "回车应进入影视结果页")
+        sleep(2)
+        XCTAssertTrue(results.exists, "进入结果页后不该被自动关掉")
+    }
+
     private func waitUntil(timeout: TimeInterval = 15, _ condition: @escaping () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {

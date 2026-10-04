@@ -43,6 +43,10 @@ class LibrarySearchPerson(BaseModel):
 class LibrarySearchSuggestion(BaseModel):
     type: Literal["title", "person"]
     text: str
+    # 本服务端总会给出；声明可空是为了让新客户端连旧服务端（还没有这个字段）时整页照常解码
+    label: str | None = Field(
+        default=None, description="为什么联想到它，与结果卡片同一份命中原因（如「演员：李一桐」）"
+    )
     media_item_id: int | None = None
     person_id: int | None = None
 

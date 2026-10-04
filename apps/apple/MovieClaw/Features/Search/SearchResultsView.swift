@@ -468,7 +468,7 @@ struct LibrarySearchResultsView: View {
         }
     }
 
-    /// 一排横滑胶囊：片名带胶片图标、人名带人像图标，点一下把词填进搜索框（结果随之实时刷新）
+    /// 一排横滑胶囊：片名带胶片图标、人名带人像图标，下注命中原因；点一下把词填进搜索框（结果随之实时刷新）
     private func suggestionRow(_ items: [API.LibrarySearchSuggestion], onPick: @escaping (String) -> Void) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -478,14 +478,24 @@ struct LibrarySearchResultsView: View {
                             Image(systemName: suggestion.type == "person" ? "person.fill" : "film")
                                 .font(.caption)
                                 .foregroundStyle(Theme.textFaint)
-                            Text(suggestion.text)
-                                .font(.subheadline)
-                                .foregroundStyle(Theme.text)
-                                .lineLimit(1)
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(suggestion.text)
+                                    .font(.subheadline)
+                                    .foregroundStyle(Theme.text)
+                                    .lineLimit(1)
+                                // 为什么联想到它（同结果卡片的命中原因），人物带出的作品写明是谁
+                                if let label = suggestion.label {
+                                    Text(label)
+                                        .font(.caption2)
+                                        .foregroundStyle(Theme.textFaint)
+                                        .lineLimit(1)
+                                }
+                            }
                         }
                         .padding(.horizontal, 12)
-                        .padding(.vertical, 7)
-                        .background(.white.opacity(0.09), in: .capsule)
+                        .padding(.vertical, 6)
+                        // 两行字时胶囊太圆，改大圆角矩形
+                        .background(.white.opacity(0.09), in: .rect(cornerRadius: 14))
                     }
                     .buttonStyle(.plain)
                     .accessibilityLabel("搜索「\(suggestion.text)」")
