@@ -52,11 +52,16 @@ struct TVSearchView: View {
                     TVShelf(title: selectedPerson == nil ? "最相关的影片" : "库内作品") {
                         ForEach(model.items, id: \.item.mediaItemId) { hit in
                             let item = hit.item
+                            // 搜索结果与别处的海报行不同：要一眼确认「是不是我要找的那部」，
+                            // 片名、年份·类型、命中原因常显在卡片下面，不等获得焦点才浮出
                             TVPosterCard(title: item.title,
-                                         subtitle: [item.year.map(String.init), hit.match.label]
+                                         subtitle: [item.year.map(String.init), Self.kindName(item.kind)]
                                             .compactMap { $0 }.joined(separator: " · "),
                                          imageURL: api.image(item.posterUrl,
-                                                             width: ImageWidth.tvCard(TVMetrics.posterWidth))) {
+                                                             width: ImageWidth.tvCard(TVMetrics.posterWidth)),
+                                         caption: .always,
+                                         // 看某个人的库内作品时每张都是「人物作品」，不必再写
+                                         note: selectedPerson == nil ? Self.matchNote(hit.match) : nil) {
                                 guard let libraryId = item.libraryId ?? hit.libraryIds.first else { return }
                                 router.push(.item(libraryId: libraryId, itemId: item.mediaItemId))
                             }
@@ -103,6 +108,20 @@ struct TVSearchView: View {
         .onSubmit(of: .search) { Task { await model.search(api: api, input: input, immediately: true) } }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-search")
+    }
+
+    private static func kindName(_ kind: String) -> String? {
+        switch kind {
+        case "movie": "电影"
+        case "tv": "剧集"
+        case "video": "视频"
+        default: nil
+        }
+    }
+
+    /// 命中原因：人物带出的作品用人像图标（「演员：史蒂芬·朗」），名称类命中用放大镜（「首字母匹配」）
+    private static func matchNote(_ match: API.LibrarySearchMatch) -> TVCardNote {
+        TVCardNote(symbol: match.personId == nil ? "text.magnifyingglass" : "person.fill", text: match.label)
     }
 }
 
