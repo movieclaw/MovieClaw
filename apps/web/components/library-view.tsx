@@ -562,8 +562,8 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
             <h3 className="text-on-image page-inset text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
               {rowTitle(row)}
             </h3>
-            {/* 下边距给色块的外发光投影留位置：横滚容器会裁掉溢出 */}
-            <HScroller className="mt-3 gap-4 pb-6 pt-1 page-inset max-md:gap-3 max-md:pb-5">
+            {/* 下边距给色块的外发光投影留位置（横滚容器会裁掉溢出）；卡片下方的部数已占去大半 */}
+            <HScroller className="mt-3 gap-4 pb-2 pt-1 page-inset max-md:gap-3">
               {genres.map((genre) => (
                 <GenreTile
                   key={genre.value}

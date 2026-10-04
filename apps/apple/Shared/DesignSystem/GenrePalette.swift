@@ -267,6 +267,8 @@ struct GenreTileFace: View {
     var corner: CGFloat?
     /// 外发光投影画不画：电视的焦点效果（`.hoverEffect`）会按卡片形状裁切，投影要由外层加在焦点效果外面
     var shadows = true
+    /// 部数写在卡片里（名字下面）还是交给外层写在卡片下方：手机写在下方，与海报片名、媒体库卡片名对齐
+    var countInside = true
 
     var body: some View {
         let height = width / GenrePalette.tileAspect
@@ -292,7 +294,7 @@ struct GenreTileFace: View {
                     .tracking(font * 0.12)
                     // 字距加在每个字后面，最后一个字也有：往右挪半个字距才真正居中
                     .offset(x: font * 0.06)
-                if let count {
+                if let count, countInside {
                     Text("\(count) 部")
                         .font(.system(size: max(11, font * 0.5), weight: .medium).monospacedDigit())
                         .tracking(max(11, font * 0.5) * 0.08)

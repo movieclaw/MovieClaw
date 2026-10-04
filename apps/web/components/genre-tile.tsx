@@ -33,12 +33,18 @@ export function GenreArtwork({
 }) {
   const art = genreArt(genreId);
   return (
-    <span aria-hidden className="absolute inset-0 -z-10" style={{ background: baseCss(art) }}>
+    <span
+      aria-hidden
+      className="absolute inset-0 -z-10"
+      style={{ background: baseCss(art) }}
+    >
       {art.blobs.map((blob, index) => (
         <span
           key={index}
           className={`absolute aspect-square rounded-full transition-transform duration-[1600ms] ease-[cubic-bezier(.2,.8,.2,1)] motion-reduce:transition-none ${
-            drift ? "motion-safe:group-hover:[transform:var(--drift)] motion-safe:group-focus-visible:[transform:var(--drift)]" : ""
+            drift
+              ? "motion-safe:group-hover:[transform:var(--drift)] motion-safe:group-focus-visible:[transform:var(--drift)]"
+              : ""
           }`}
           style={
             {
@@ -68,7 +74,8 @@ export function GenreArtwork({
 }
 
 /** 内晕影：四周往里压暗一圈、中间透亮，卡片有了体积（像灯箱）。中心略偏上，字落在亮处 */
-const VIGNETTE = "radial-gradient(120% 120% at 50% 42%, transparent 52%, rgba(0,0,0,0.3) 100%)";
+const VIGNETTE =
+  "radial-gradient(120% 120% at 50% 42%, transparent 52%, rgba(0,0,0,0.3) 100%)";
 /** 顶部镜面光带：上 1/3 一层很淡的白，像玻璃反光 */
 const SHEEN =
   "linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.04) 30%, transparent 46%)";
@@ -77,14 +84,15 @@ const RIM: CSSProperties = {
   padding: 1,
   background:
     "linear-gradient(180deg, rgba(255,255,255,0.42), rgba(255,255,255,0.08) 45%, rgba(255,255,255,0.02))",
-  WebkitMask: "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+  WebkitMask:
+    "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
   WebkitMaskComposite: "xor",
   maskComposite: "exclude",
 };
 
 /**
- * 首页「按类型找电影 / 剧集」的一格：网格渐变底，类型名居中、部数在它下面，点进去是
- * 按这个类型筛好的跨库墙。
+ * 首页「按类型找电影 / 剧集」的一格：网格渐变底，类型名居中；部数写在卡片下方（与海报片名、
+ * 媒体库卡片名同一条线，整页各行的说明文字对齐）。点进去是按这个类型筛好的跨库墙。
  *
  * 边缘四层（设计稿 v7）：内晕影、顶部镜面光带、上亮下暗的渐变描边、同色系的外发光投影
  * （卡片像在发光，外加一层贴地的暗影）。外发光会溢出卡片，所在的横滚行要留出下边距。
@@ -109,30 +117,44 @@ export function GenreTile({
   return (
     <Link
       href={href}
-      className={`group relative block aspect-[16/10.5] outline-none [container-type:inline-size] ${className}`}
+      className={`group block outline-none [container-type:inline-size] ${className}`}
     >
-      <span
-        className="absolute inset-0 rounded-[10cqw] transition-transform duration-500 ease-[cubic-bezier(.2,.8,.2,1)] group-hover:-translate-y-0.5 group-hover:scale-[1.02] motion-reduce:transition-none"
-        style={{
-          boxShadow: `0 7cqw 16cqw -5cqw ${glow}, 0 2px 6px rgba(0,0,0,0.45)`,
-        }}
-      >
-        <span className="absolute inset-0 isolate overflow-hidden rounded-[inherit]">
-          <GenreArtwork genreId={genreId} drift scrim={false} />
-          <span aria-hidden className="absolute inset-0" style={{ background: VIGNETTE }} />
-          <span aria-hidden className="absolute inset-0" style={{ background: SHEEN }} />
-          <span className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center font-semibold leading-[1.15] tracking-[0.12em] [text-indent:0.12em] text-white [font-size:clamp(15px,13cqw,28px)] [text-shadow:0_1px_6cqw_rgba(0,0,0,0.28)]">
-            {label}
-            {count !== undefined && (
-              <span className="mt-[0.5em] block font-medium tracking-[0.08em] [text-indent:0.08em] tabular-nums opacity-80 [font-size:max(11px,0.5em)]">
-                {count} 部
-              </span>
-            )}
+      <span className="relative block aspect-[16/10.5]">
+        <span
+          className="absolute inset-0 rounded-[10cqw] transition-transform duration-500 ease-[cubic-bezier(.2,.8,.2,1)] group-hover:-translate-y-0.5 group-hover:scale-[1.02] motion-reduce:transition-none"
+          style={{
+            boxShadow: `0 7cqw 16cqw -5cqw ${glow}, 0 2px 6px rgba(0,0,0,0.45)`,
+          }}
+        >
+          <span className="absolute inset-0 isolate overflow-hidden rounded-[inherit]">
+            <GenreArtwork genreId={genreId} drift scrim={false} />
+            <span
+              aria-hidden
+              className="absolute inset-0"
+              style={{ background: VIGNETTE }}
+            />
+            <span
+              aria-hidden
+              className="absolute inset-0"
+              style={{ background: SHEEN }}
+            />
+            <span className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center font-semibold leading-[1.15] tracking-[0.12em] [text-indent:0.12em] text-white [font-size:clamp(15px,13cqw,28px)] [text-shadow:0_1px_6cqw_rgba(0,0,0,0.28)]">
+              {label}
+            </span>
           </span>
+          <span
+            aria-hidden
+            className="pointer-events-none absolute inset-0 rounded-[inherit]"
+            style={RIM}
+          />
+          <span className="pointer-events-none absolute inset-0 rounded-[inherit] group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.85)]" />
         </span>
-        <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[inherit]" style={RIM} />
-        <span className="pointer-events-none absolute inset-0 rounded-[inherit] group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.85)]" />
       </span>
+      {count !== undefined && (
+        <span className="mt-2.5 block text-center text-ui tabular-nums text-[var(--text-muted)]">
+          {count} 部
+        </span>
+      )}
     </Link>
   );
 }

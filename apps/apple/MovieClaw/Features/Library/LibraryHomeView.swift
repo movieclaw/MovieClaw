@@ -317,7 +317,14 @@ struct LibraryHomeView: View {
                             ForEach(genres, id: \.value) { genre in
                                 if let id = Int(genre.value) {
                                     NavigationLink(value: AppRoute.libraryKind(kind: kind, genre: id)) {
-                                        GenreTileFace(genreId: id, label: genre.label, count: genre.count, width: PhoneCardWidth.genreTile)
+                                        // 部数写在卡片下方，与海报片名、媒体库卡片名同一条线
+                                        VStack(spacing: 8) {
+                                            GenreTileFace(genreId: id, label: genre.label, count: genre.count,
+                                                          width: PhoneCardWidth.genreTile, countInside: false)
+                                            Text("\(genre.count) 部")
+                                                .font(.subheadline.monospacedDigit())
+                                                .foregroundStyle(Theme.textMuted)
+                                        }
                                     }
                                     .buttonStyle(GenreTileButtonStyle())
                                     .accessibilityIdentifier("genre-tile-\(kind)-\(id)")
@@ -325,8 +332,6 @@ struct LibraryHomeView: View {
                             }
                         }
                         .padding(.horizontal, Theme.pagePadding)
-                        // 给色块的外发光投影留出位置，不压到下一行的标题
-                        .padding(.bottom, 10)
                     }
                     .scrollClipDisabled()
                 }
