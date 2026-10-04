@@ -219,7 +219,7 @@ class SunnyPTSite(BaseSite):
         if isinstance(text, (int, float)):
             try:
                 return self._to_utc(
-                    datetime.datetime.fromtimestamp(float(text), tz=datetime.timezone.utc)
+                    datetime.datetime.fromtimestamp(float(text), tz=datetime.UTC)
                 )
             except (ValueError, OverflowError, OSError):
                 return None

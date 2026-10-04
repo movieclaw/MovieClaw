@@ -40,6 +40,10 @@ var knownNonGenerated = []string{
 	"members.sign-out",
 	"images.asset",
 	"images.proxy",
+	// 演职员本地头像（docs/design/image-sizing.md §4.2）：二进制出图，客户端展示用
+	"images.person",
+	// 本地图片画质的磁盘估算：设置页「约 X GB」的数据源，命令行无消费方
+	"scrape.storage-estimate",
 	"libraries.cover",
 	"collection.cover",
 	"ui.library.files.preview-subtitles",
@@ -140,6 +144,7 @@ var knownNonGenerated = []string{
 	"share.artwork",
 	"share.asset",
 	"share.image-proxy",
+	"share.person-avatar",
 	"share.thumb",
 	"share.playback.decide",
 	"share.playback.session.start",
