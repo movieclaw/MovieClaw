@@ -32,7 +32,7 @@ extension AppRoute {
         case let .collection(libraryId, collectionId): CollectionDetailView(libraryId: libraryId, collectionId: collectionId)
         case let .library(id, view, pending):
             LibraryDetailView(libraryId: id, initialView: view.flatMap(LibraryDetailView.WallView.init(rawValue:)) ?? .items, openPending: pending)
-        case let .libraryKind(kind): LibraryKindWallView(kind: kind)
+        case let .libraryKind(kind, genre): LibraryKindWallView(kind: kind, genre: genre)
         case let .libraryItem(libraryId, itemId, season, episode):
             LibraryItemDetailView(libraryId: libraryId, itemId: itemId, season: season, episode: episode)
         case let .libraryManage(create, tab, item): LibraryManageView(openCreate: create, initialTab: tab, initialItemId: item)

@@ -117,6 +117,9 @@ enum HomeRows {
         case upNext
         case favorites(sort: String, reversed: Bool)
         case libraries
+        /// 「电影类型 / 剧集类型」色块行（genres:movie|tv）：内置，只能藏，不能删、没有排序。
+        /// libraries 是参与聚合的库（自定义页小字用）
+        case genres(kind: String, libraries: [API.LibraryView])
         case library(library: API.LibraryView, sort: String, reversed: Bool, unwatched: Bool, name: String, builtin: Bool)
         /// 按类型的跨库行（「全部电影」）：libraries 是参与聚合的库（自定义页小字用，服务端按同一口径取数）。
         /// builtin 恒为 false：类型行都是用户主动加的，都能删（老版本存下的 kind:<类型> 也一样，见 resolve）
@@ -150,6 +153,7 @@ enum HomeRows {
             case .upNext: "接下来继续"
             case .favorites: "我的收藏"
             case .libraries: "我的媒体库"
+            case let .genres(kind, _): "\(HomeRows.mediaKindLabel(kind))类型"
             case let .library(library, sort, reversed, _, name, _):
                 name.isEmpty ? HomeRows.preset(sort).name(library.name, reversed) : name
             case let .mediaKind(kind, _, sort, reversed, _, name, _):
@@ -165,6 +169,7 @@ enum HomeRows {
             case .upNext: "内置 · 我正在看的"
             case let .favorites(sort, reversed): "内置 · \(HomeRows.favoritesPreset(sort).name(reversed))"
             case .libraries: "内置 · 管理页的库顺序"
+            case let .genres(kind, libraries): "内置 · 按类型浏览全部\(HomeRows.mediaKindLabel(kind))（\(libraries.count) 个库）"
             case let .library(library, sort, reversed, unwatched, _, _):
                 ["\(library.name)库", HomeRows.preset(sort).short(reversed), unwatched ? "只看没看过的" : nil]
                     .compactMap { $0 }.joined(separator: " · ")
@@ -209,7 +214,19 @@ enum HomeRows {
         }
     }
 
-    /// 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 每个库一行「最近添加」。
+    /// 有类型色块行的库类型：TMDB 的类型表只分电影与剧集
+    static let genreKinds = ["movie", "tv"]
+
+    /// 类型色块行（每种有库的类型一条），出厂布局里紧跟「我的媒体库」
+    private static func genreRows(_ libraries: [API.LibraryView]) -> [Row] {
+        mediaKindGroups(libraries).compactMap { group in
+            genreKinds.contains(group.kind)
+                ? Row(id: "genres:\(group.kind)", hidden: false, kind: .genres(kind: group.kind, libraries: group.libraries))
+                : nil
+        }
+    }
+
+    /// 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 电影类型 → 剧集类型 → 每个库一行「最近添加」。
     ///
     /// 不带类型行（「全部电影」）：它要用户在自定义页里主动添加才出现。默认生成的话，同类型只有一个库时
     /// 它与那个库的默认行一模一样，藏起来又会在自定义页里多出一排用不上的隐藏项
@@ -218,7 +235,7 @@ enum HomeRows {
             Row(id: "up-next", hidden: false, kind: .upNext),
             Row(id: "favorites", hidden: false, kind: .favorites(sort: "unwatched_first", reversed: false)),
             Row(id: "libraries", hidden: false, kind: .libraries),
-        ] + libraries.filter { !$0.excludeFromHome }.map {
+        ] + genreRows(libraries) + libraries.filter { !$0.excludeFromHome }.map {
             Row(id: "lib:\($0.id)", hidden: false, kind: .library(library: $0, sort: "added_at", reversed: false, unwatched: false, name: "", builtin: true))
         }
     }
@@ -248,9 +265,21 @@ enum HomeRows {
         // 没存过的内置行追加在末尾（版本升级新增的入口不能消失）
         for row in defaults {
             if case .library = row.kind { continue }
+            if case .genres = row.kind { continue }
             if seen.contains(row.id) { continue }
             seen.insert(row.id)
             rows.append(row)
+        }
+        // 没存过的类型色块行（版本升级新增）插在「我的媒体库」之后，与出厂布局同一位置
+        // ——追加到队尾会落在一长串库行、合集行后面，老用户几乎看不到
+        let missingGenres = defaults.filter { row in
+            if case .genres = row.kind { return !seen.contains(row.id) }
+            return false
+        }
+        if !missingGenres.isEmpty {
+            missingGenres.forEach { seen.insert($0.id) }
+            let at = rows.firstIndex(where: { $0.kind == .libraries }).map { $0 + 1 } ?? rows.count
+            rows.insert(contentsOf: missingGenres, at: at)
         }
         // 没存过的库补一条默认行，插在最后一条库行之后（没有库行时插在「我的媒体库」之后）
         let missing = defaults.filter { row in
@@ -263,6 +292,8 @@ enum HomeRows {
                 at = last + 1
             } else if let libs = rows.firstIndex(where: { $0.kind == .libraries }) {
                 at = libs + 1
+                // 出厂布局里类型色块行紧跟「我的媒体库」，库行在它们之后
+                while at < rows.count, case .genres = rows[at].kind { at += 1 }
             }
             rows.insert(contentsOf: missing, at: at)
         }
@@ -276,6 +307,10 @@ enum HomeRows {
         switch pref.id {
         case "up-next": return Row(id: "up-next", hidden: hidden, kind: .upNext)
         case "libraries": return Row(id: "libraries", hidden: hidden, kind: .libraries)
+        case "genres:movie", "genres:tv":
+            let kind = String(pref.id.dropFirst("genres:".count))
+            guard let members = kindGroups[kind] else { return nil }
+            return Row(id: pref.id, hidden: hidden, kind: .genres(kind: kind, libraries: members))
         case "favorites":
             let sort = favoritesSorts.contains(pref.sort ?? "") ? pref.sort! : "unwatched_first"
             let reversed = favoritesPreset(sort).direction?.isReversed(order: pref.order) ?? false

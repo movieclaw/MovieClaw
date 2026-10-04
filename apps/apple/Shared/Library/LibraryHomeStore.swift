@@ -19,6 +19,8 @@ final class LibraryHomeStore {
     private(set) var upNext: [API.UpNextItemView]?
     private(set) var favorites: API.FavoritesView?
     private(set) var itemsByKey: [String: [API.LibraryItemView]] = [:]
+    /// 「电影类型 / 剧集类型」色块：每种类型（movie / tv）的 TMDB 类型分布，与各行条目同一轮取、同一个指纹闸
+    private(set) var genresByKind: [String: [API.FacetValueView]] = [:]
     /// 各行条目至少到过一次（或来自快照）
     private(set) var rowsLoaded = false
     /// 最近一次刷新失败（页面据此挂提示条 / 整页报错）
@@ -55,6 +57,7 @@ final class LibraryHomeStore {
         upNext = nil
         favorites = nil
         itemsByKey = [:]
+        genresByKind = [:]
         rowsLoaded = false
         failed = false
         snapshotRows = nil
@@ -83,6 +86,7 @@ final class LibraryHomeStore {
         upNext = snapshot.upNext
         favorites = snapshot.favorites
         itemsByKey = snapshot.itemsByKey
+        genresByKind = snapshot.genresByKind ?? [:]
         snapshotRows = snapshot.rows
         rowsLoaded = true
         PerfTrace.record("snapshot.applied", ["page": "library"])
@@ -136,13 +140,19 @@ final class LibraryHomeStore {
             let rowPrefs = prefs.rows ?? snapshotRows ?? []
             let visibleRows = HomeRows.build(prefs: rowPrefs, libraries: libs, collections: cols).filter { !$0.hidden }
             let fetches = Self.rowFetches(visibleRows, libs, api: api)
+            let genreKinds = visibleRows.compactMap { row -> String? in
+                if case let .genres(kind, _) = row.kind { kind } else { nil }
+            }
             var hasher = Hasher()
             hasher.combine(libs)
             hasher.combine(fetches.keys.sorted())
+            // 库状态（含作品数）没变，类型分布也不会变：与条目共用同一个指纹闸
+            hasher.combine(genreKinds)
             hasher.combine(cols)
             let fingerprint = hasher.finalize()
             let rowsUnchanged = fingerprint == rowsFingerprint
             async let rowsTask = rowsUnchanged ? nil : Self.fetchRows(fetches)
+            async let genresTask = rowsUnchanged ? nil : Self.fetchGenres(api, genreKinds)
 
             // 刷新到的偏好若改了这两行的取法（极少见：别处刚改过自定义首页），按新的再取一次
             let actual = Self.plan(rowPrefs)
@@ -155,9 +165,11 @@ final class LibraryHomeStore {
             PerfTrace.pageStage("library", "upNext+favorites")
 
             if let next = await rowsTask {
+                let genres = await genresTask ?? [:]
                 guard owner == key else { return }
                 rowsFingerprint = fingerprint
                 itemsByKey = next
+                genresByKind = genres
                 rowsLoaded = true
             }
             refreshedAt = .now
@@ -172,7 +184,7 @@ final class LibraryHomeStore {
         guard let libraries, let upNext, let favorites else { return }
         let snapshot = LibraryHomeSnapshot(
             rows: rows ?? snapshotRows, libraries: libraries, collections: collections,
-            upNext: upNext, favorites: favorites, itemsByKey: itemsByKey
+            upNext: upNext, favorites: favorites, itemsByKey: itemsByKey, genresByKind: genresByKind
         )
         let fingerprint = snapshot.hashValue
         guard fingerprint != savedFingerprint else { return }
@@ -210,6 +222,9 @@ final class LibraryHomeStore {
                 where library.customCover || !(itemsByKey[Self.coverKey(library.id)] ?? []).isEmpty {
                     urls.append(api.image("/libraries/\(library.id)/cover", width: ImageWidth.points(PhoneCardWidth.libraryCover)))
                 }
+            case .genres:
+                // 色块是本地画的渐变，没有图
+                break
             case .library, .mediaKind, .collection:
                 urls += (itemsByKey[Self.fetchKey(row)] ?? []).prefix(4).map {
                     api.image($0.posterUrl, width: ImageWidth.points(PhoneCardWidth.homePoster))
@@ -283,6 +298,18 @@ final class LibraryHomeStore {
         }
     }
 
+    /// 类型色块：每种类型的 TMDB 类型分布并发取回；单种失败按空处理（那一区不画）
+    private nonisolated static func fetchGenres(_ api: APIClient, _ kinds: [String]) async -> [String: [API.FacetValueView]] {
+        await withTaskGroup(of: (String, [API.FacetValueView]).self) { group in
+            for kind in kinds {
+                group.addTask { (kind, (try? await api.uiLibraryKindGenres(kind: kind)) ?? []) }
+            }
+            var next: [String: [API.FacetValueView]] = [:]
+            for await (kind, genres) in group { next[kind] = genres }
+            return next
+        }
+    }
+
     /// 显示中的行各自要打的请求，按缓存键去重；排序与截断交给服务端
     private static func rowFetches(_ rows: [HomeRows.Row], _ libs: [API.LibraryView], api: APIClient) -> [String: @Sendable () async throws -> [API.LibraryItemView]] {
         var fetches: [String: @Sendable () async throws -> [API.LibraryItemView]] = [:]
@@ -327,4 +354,6 @@ nonisolated struct LibraryHomeSnapshot: Codable, Hashable, Sendable {
     var upNext: [API.UpNextItemView]
     var favorites: API.FavoritesView
     var itemsByKey: [String: [API.LibraryItemView]]
+    /// 可空：升级前写下的快照没有这一项，照常能读
+    var genresByKind: [String: [API.FacetValueView]]?
 }

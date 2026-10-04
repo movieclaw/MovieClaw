@@ -61,7 +61,8 @@ struct HomeRowsTests {
     @Test func defaultsHaveNoKindRows() {
         // 类型行要主动添加才出现：出厂布局与升级前存的清单都不补（同类型几个库都一样）
         let libs = [library(1, "movie"), library(2, "movie"), library(3, "tv")]
-        #expect(HomeRows.build(prefs: [], libraries: libs, collections: []).map(\.id) == ["up-next", "favorites", "libraries", "lib:1", "lib:2", "lib:3"])
+        // 类型色块行（genres:*）是另一回事，见 genreRows* 用例
+        #expect(HomeRows.build(prefs: [], libraries: libs, collections: []).map(\.id).filter { !$0.hasPrefix("genres:") } == ["up-next", "favorites", "libraries", "lib:1", "lib:2", "lib:3"])
         let saved = HomeRows.build(prefs: [pref("lib:2"), pref("up-next")], libraries: libs, collections: [])
         #expect(!saved.contains { $0.id.hasPrefix("kind:") })
     }
@@ -107,5 +108,56 @@ struct HomeRowsTests {
     @Test func kindWallWebPathParses() {
         #expect(AppRoute(webPath: "/library/kind/movie") == .libraryKind(kind: "movie"))
         #expect(AppRoute(webPath: "/library/kind/photo") == nil)
+        // 类型色块的落点：?g= 带 TMDB 类型 id，认不出的形状当没带
+        #expect(AppRoute(webPath: "/library/kind/movie?g=878") == .libraryKind(kind: "movie", genre: 878))
+        #expect(AppRoute(webPath: "/library/kind/tv?g=abc") == .libraryKind(kind: "tv"))
+    }
+
+    // MARK: 类型色块行（genres:movie / genres:tv），口径对照 test/home-rows.test.mjs 的同名用例
+
+    @Test func genreRowsFollowLibrariesInDefaults() {
+        let libs = [library(1, "movie"), library(2, "tv"), library(3, "tv")]
+        let rows = HomeRows.build(prefs: [], libraries: libs, collections: [])
+        #expect(Array(rows.map(\.id).prefix(5)) == ["up-next", "favorites", "libraries", "genres:movie", "genres:tv"])
+        #expect(rows[3].title == "电影类型" && rows[4].title == "剧集类型")
+        #expect(rows[4].meta == "内置 · 按类型浏览全部剧集（2 个库）")
+        #expect(!rows[3].removable)
+        // 只有其他视频库：两条都不出现；剧集库全被排除出首页：剧集那条不出现
+        #expect(!HomeRows.build(prefs: [], libraries: [library(9, "video")], collections: []).contains { $0.id.hasPrefix("genres:") })
+        let tvExcluded = HomeRows.build(prefs: [], libraries: [library(1, "movie"), library(2, "tv", excluded: true)], collections: [])
+        #expect(tvExcluded.map(\.id).filter { $0.hasPrefix("genres:") } == ["genres:movie"])
+    }
+
+    @Test func genreRowsInsertedAfterLibrariesOnUpgrade() {
+        let libs = [library(1, "movie"), library(2, "tv"), library(3, "tv")]
+        let rows = HomeRows.build(prefs: [pref("libraries"), pref("lib:2"), pref("up-next")], libraries: libs, collections: [])
+        #expect(Array(rows.map(\.id).prefix(4)) == ["libraries", "genres:movie", "genres:tv", "lib:2"])
+        // 一条库行都没存过时，新库的默认行排在类型色块行之后（与出厂布局同序）
+        let bare = HomeRows.build(prefs: [pref("libraries"), pref("up-next")], libraries: libs, collections: [])
+        #expect(Array(bare.map(\.id).prefix(6)) == ["libraries", "genres:movie", "genres:tv", "lib:1", "lib:2", "lib:3"])
+    }
+
+    @Test func genreRowsKeepSavedPlaceAndHidden() {
+        let libs = [library(1, "movie"), library(2, "tv")]
+        let prefs = [pref("genres:tv", hidden: true), pref("up-next"), pref("genres:movie")]
+        let rows = HomeRows.build(prefs: prefs, libraries: libs, collections: [])
+        #expect(Array(rows.map(\.id).prefix(3)) == ["genres:tv", "up-next", "genres:movie"])
+        #expect(rows[0].hidden)
+        // 写回只带 id 与 hidden（服务端不许内置行带排序或来源）
+        let saved = HomeRows.toPrefs(Array(rows.prefix(3)))
+        #expect(saved.map(\.id) == ["genres:tv", "up-next", "genres:movie"])
+        #expect(saved[0].hidden == true && saved[0].sort == nil && saved[0].mediaKind == nil && saved[2].hidden == nil)
+        // 这一类型的库都没了：存过的行静默消失
+        #expect(!HomeRows.build(prefs: prefs, libraries: [library(1, "movie")], collections: []).contains { $0.id == "genres:tv" })
+    }
+
+    @Test func genrePaletteCoversEveryTmdbGenre() {
+        // 与网页 genre-palette.ts 同一张表（那边的单测会逐项比对本文件）；这里守公式：色相中点走短弧、构图稳定
+        #expect(GenrePalette.tones.count == 27)
+        #expect(GenrePalette.midHue(345, 12) == 358.5)
+        #expect(GenrePalette.compositionIndex(878) == (8 + 7 + 8) % 3)
+        let art = GenrePalette.art(10402)
+        #expect(art.blobs.count == 3 && art.from.c == GenrePalette.tones[10402]!.k * GenrePalette.chromaScale)
+        #expect(GenrePalette.art(999_999).from.c < 0.06)
     }
 }

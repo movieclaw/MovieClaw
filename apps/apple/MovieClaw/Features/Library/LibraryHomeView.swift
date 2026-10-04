@@ -25,6 +25,7 @@ struct LibraryHomeView: View {
     private var upNext: [API.UpNextItemView]? { store.upNext }
     private var favorites: API.FavoritesView? { store.favorites }
     private var itemsByKey: [String: [API.LibraryItemView]] { store.itemsByKey }
+    private var genresByKind: [String: [API.FacetValueView]] { store.genresByKind }
     private var failed: Bool { store.failed }
     /// 扫描/整理结束后的 12 秒快轮询窗口还没过（同 Web recentlyBusy）。必须是状态而不是在 body 里
     /// 现算 `Date.now < busyUntil`：数据不变时 body 不会重算，间隔就会一直停在 3 秒
@@ -306,6 +307,30 @@ struct LibraryHomeView: View {
                 }
                 .padding(.top, 24)
             }
+        case let .genres(kind, _):
+            // 每个有片的类型一格，按部数倒序（服务端排好）；一格都没有时整段隐藏
+            if let genres = genresByKind[kind], !genres.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    LibrarySectionHeader(title: row.title)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(spacing: 10) {
+                            ForEach(genres, id: \.value) { genre in
+                                if let id = Int(genre.value) {
+                                    NavigationLink(value: AppRoute.libraryKind(kind: kind, genre: id)) {
+                                        GenreTileFace(genreId: id, label: genre.label, count: genre.count, width: PhoneCardWidth.genreTile)
+                                    }
+                                    .buttonStyle(GenreTileButtonStyle())
+                                    .accessibilityIdentifier("genre-tile-\(kind)-\(id)")
+                                }
+                            }
+                        }
+                        .padding(.horizontal, Theme.pagePadding)
+                    }
+                    .scrollClipDisabled()
+                }
+                .padding(.top, 24)
+                .accessibilityIdentifier("home-row-\(row.id)")
+            }
         case let .library(library, _, _, _, _, _):
             let items = itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []
             if !items.isEmpty {
@@ -360,6 +385,15 @@ struct LibraryHomeView: View {
 
     private func reload() async {
         await store.reload(api: api, owner: LibraryHomePrefs.ownerKey(api: api, username: model.session?.username))
+    }
+}
+
+/// 类型色块的按压反馈：轻微缩小（同系统卡片的按下手感），不叠系统的高亮蒙层
+private struct GenreTileButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.spring(duration: 0.25), value: configuration.isPressed)
     }
 }
 

@@ -1011,6 +1011,12 @@ nonisolated extension APIClient {
         return try await send("GET", "/libraries/kinds/\(kind)", query: query)
     }
 
+    /// 按类型跨库的 TMDB 类型分布（首页「电影类型 / 剧集类型」色块）
+    /// `GET /libraries/kinds/{kind}/genres`
+    func uiLibraryKindGenres(kind: String) async throws -> [API.FacetValueView] {
+        return try await send("GET", "/libraries/kinds/\(kind)/genres")
+    }
+
     /// 按类型的跨库海报墙（同一部片跨库只出现一次）
     /// `GET /libraries/kinds/{kind}/items`
     func uiLibraryKindItems(kind: String, sort: String? = nil, order: String? = nil, limit: Int? = nil, offset: Int? = nil, g: String? = nil, c: String? = nil, d: String? = nil, w: String? = nil, ratingGte: Double? = nil, rt: String? = nil, lang: String? = nil, res: String? = nil, hdr: Bool? = nil, stock: String? = nil, seriesKeys: String? = nil) async throws -> [API.LibraryItemView] {

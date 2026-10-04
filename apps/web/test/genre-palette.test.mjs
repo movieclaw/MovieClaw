@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   CHROMA_SCALE,
+  FEATHER_STOPS,
   GENRE_TONES,
   blobCss,
   compositionIndex,
@@ -75,4 +76,25 @@ test("羽化色团从圆心到边缘逐级透明，最外一圈完全透明", ()
   const css = blobCss({ l: 0.6, c: 0.1, h: 250, alpha: 0.9 });
   assert.match(css, /^radial-gradient\(closest-side, /);
   assert.match(css, /\/ 0\.000\) 100%\)$/);
+});
+
+test("iOS / tvOS 的 GenrePalette.swift 与本表逐项一致（色相、明度、彩度、倍率、羽化）", () => {
+  const swift = readFileSync(new URL("apps/apple/Shared/DesignSystem/GenrePalette.swift", repo), "utf8");
+  const tones = {};
+  const line =
+    /^\s*(\d+): Tone\(name: "([^"]+)", a: ([\d.]+), b: ([\d.]+), c: ([\d.]+), l: ([\d.]+), k: ([\d.]+)\),$/gm;
+  for (const m of swift.matchAll(line)) {
+    tones[Number(m[1])] = {
+      name: m[2],
+      a: Number(m[3]),
+      b: Number(m[4]),
+      c: Number(m[5]),
+      l: Number(m[6]),
+      k: Number(m[7]),
+    };
+  }
+  assert.deepEqual(tones, GENRE_TONES);
+  assert.match(swift, new RegExp(`static let chromaScale = ${CHROMA_SCALE}\\b`));
+  const feather = FEATHER_STOPS.map(([at, alpha]) => `(${at}, ${alpha})`).join(", ");
+  assert.ok(swift.includes(`featherStops: [(Double, Double)] = [${feather}]`), "羽化色标不一致");
 });

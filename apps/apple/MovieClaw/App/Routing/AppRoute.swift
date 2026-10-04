@@ -32,8 +32,9 @@ enum AppRoute: Hashable {
     case collection(libraryId: Int?, collectionId: Int)
     /// /library/{id}?view=collections&pending=1：view 为合集视图，pending 为进页即开待处理抽屉
     case library(id: Int, view: String? = nil, pending: Bool = false)
-    /// /library/kind/{movie|tv|video}：按类型的跨库海报墙（首页「全部电影」行的查看全部）
-    case libraryKind(kind: String)
+    /// /library/kind/{movie|tv|video}?g={TMDB genre id}：按类型的跨库海报墙（首页「全部电影」行的查看全部）；
+    /// 带 genre 是首页「电影类型 / 剧集类型」色块的落点，墙按这个 TMDB 类型筛好
+    case libraryKind(kind: String, genre: Int? = nil)
     /// /library/{id}/item/{mediaItemId}?season=&episode=
     case libraryItem(libraryId: Int, itemId: Int, season: Int? = nil, episode: Int? = nil)
     /// /library/manage?create=1&tab=duplicates&item={mediaItemId}
@@ -259,7 +260,7 @@ extension AppRoute {
             case "collections": self = .allCollections
             case "kind":
                 guard parts.count >= 3, HomeRows.mediaKinds.contains(parts[2]) else { return nil }
-                self = .libraryKind(kind: parts[2])
+                self = .libraryKind(kind: parts[2], genre: int(query["g"]))
             case "manage": self = .libraryManage(create: query["create"] == "1", tab: query["tab"], item: int(query["item"]))
             case "c":
                 guard parts.count >= 3, let cid = int(parts[2]) else { return nil }

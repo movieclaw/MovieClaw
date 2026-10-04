@@ -261,6 +261,40 @@ struct TVLibraryCard: View {
     }
 }
 
+/// 首页「电影类型 / 剧集类型」的一格：网格渐变色块 + 类型名 + 部数（与网页、iPhone 同一块，`GenreTileFace`）。
+/// 一屏 4 张（与横版剧照卡同宽）；获得焦点时系统抬起放大，色团同时缓慢漂一点（同网页悬停）
+struct TVGenreCard: View {
+    let genreId: Int
+    let label: String
+    let count: Int
+    var width: CGFloat = TVMetrics.landscapeWidth
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            Face(genreId: genreId, label: label, count: count, width: width)
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("\(label)，\(count) 部")
+    }
+
+    private struct Face: View {
+        let genreId: Int
+        let label: String
+        let count: Int
+        let width: CGFloat
+        @Environment(\.isFocused) private var isFocused
+
+        var body: some View {
+            GenreTileFace(genreId: genreId, label: label, count: count, width: width, drift: isFocused, maxFont: 46, corner: TVMetrics.cardCorner)
+                .contentShape(.hoverEffect, .rect(cornerRadius: TVMetrics.cardCorner))
+                .hoverEffect(.highlight)
+                // 行标题跟着亮起来
+                .preference(key: TVRowFocusKey.self, value: isFocused)
+        }
+    }
+}
+
 /// 一行末尾的「查看全部」（同 Infuse、Plex 电视版）：与这一行的海报同样大小的一块，往右滑到底就看到，按确认进完整的海报墙。
 /// 行里只有前 20 部，想看全部、更早入库的都从这里进（2026-10-03 用户要求）
 struct TVSeeAllCard: View {

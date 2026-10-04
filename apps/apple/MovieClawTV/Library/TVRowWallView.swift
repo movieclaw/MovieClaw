@@ -10,6 +10,8 @@ enum TVWallSource: Hashable {
     case collection(id: Int, sort: String, reversed: Bool)
     /// 我的收藏
     case favorites(sort: String, reversed: Bool)
+    /// 首页「电影类型 / 剧集类型」色块：按一个 TMDB 类型筛好的跨库墙（最近添加在前），count 是色块上的部数
+    case genre(kind: String, genre: Int, count: Int)
 
     /// 首页这一行对应的来源；「接下来继续」「我的媒体库」两行没有「查看全部」
     init?(_ kind: HomeRows.Kind) {
@@ -22,7 +24,8 @@ enum TVWallSource: Hashable {
             self = .collection(id: collection.id, sort: sort, reversed: reversed)
         case let .favorites(sort, reversed):
             self = .favorites(sort: sort, reversed: reversed)
-        case .upNext, .libraries:
+        case .upNext, .libraries, .genres:
+            // 类型色块行没有「查看全部」：每一格自己就是一面墙的入口
             return nil
         }
     }
@@ -55,6 +58,8 @@ struct TVRowWallView: View {
             return unwatched || sort == "last_played" ? nil : directory.library(id)?.stats.itemCount
         case .favorites:
             return LibraryHomeStore.shared.favorites?.total
+        case let .genre(_, _, count):
+            return count
         case .mediaKind, .collection:
             return nil
         }
@@ -86,6 +91,11 @@ struct TVRowWallView: View {
             let order = HomeRows.preset(sort).direction?.orderParam(reversed: reversed)
             await wall.reset { offset, limit in
                 try await api.collectionItemsList(collectionId: id, limit: limit, offset: offset, sort: sort, order: order)
+            }
+        case let .genre(kind, genre, _):
+            let g = String(genre)
+            await wall.reset { offset, limit in
+                try await api.uiLibraryKindItems(kind: kind, sort: "added_at", limit: limit, offset: offset, g: g)
             }
         case let .favorites(sort, reversed):
             // 「未看优先」是首页收藏行的一档：同首页取数，进来的顺序与行里一致

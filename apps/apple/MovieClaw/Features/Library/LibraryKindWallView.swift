@@ -9,15 +9,19 @@ import SwiftUI
 ///
 /// 刻意比单库页薄（同 Web）：没有筛选条（facet 统计按单库算，跨库版本留到下一期）、没有索引条与图床浏览，只有排序。
 /// 从详情页返回只整窗对账（`refresh`），不清空窗口、不动滚动位置；换排序才回墙首。
+///
+/// 带 `genre`（`?g=878`）时是首页「电影类型」色块的落点：墙按这个 TMDB 类型筛好，页头换成与色块同一块网格渐变。
 struct LibraryKindWallView: View {
     let kind: String
+    var genre: Int?
     @Environment(\.api) private var api
     @State private var pager = LibraryWallPager<API.LibraryItemView>(pageSize: 60)
     @State private var sort: WallSortState
     @State private var libraryCount: Int?
 
-    init(kind: String) {
+    init(kind: String, genre: Int? = nil) {
         self.kind = kind
+        self.genre = genre
         _sort = State(initialValue: WallSortState.load(
             Self.sortKey(kind), default: WallSortState(sort: "default"), allowed: Self.sortOptions(kind).map(\.value)
         ))
@@ -41,7 +45,10 @@ struct LibraryKindWallView: View {
         return kind == "video" ? all.filter { $0.value != "rating" && $0.value != "release_date" } : all
     }
 
-    private var label: String { "全部\(HomeRows.mediaKindLabel(kind))" }
+    private var genreName: String? { genre.map { GenrePalette.tones[$0]?.name ?? "类型 \($0)" } }
+    private var label: String { genreName ?? "全部\(HomeRows.mediaKindLabel(kind))" }
+    /// 筛选参数 g：只带预设的这一个类型
+    private var genreQuery: String? { genre.map(String.init) }
     private var effectiveSort: String { sort.sort == "default" ? "added_at" : sort.sort }
     private var order: String? { WallSortDirections.of(effectiveSort)?.orderParam(reversed: sort.reversed) }
     private var empty: Bool { pager.items?.isEmpty == true }
@@ -56,6 +63,8 @@ struct LibraryKindWallView: View {
         }
         .appBackground()
         .navigationTitle(label)
+        // 类型页的大字写在渐变页头里，导航栏只留小标题，不叠两遍
+        .navigationBarTitleDisplayMode(genre == nil ? .automatic : .inline)
         // 首载与换排序分开：`.task` 每次重新出现都会重跑，放在里面的 reset 会让从详情页返回时整面墙清空、跳回墙首
         .task {
             if pager.items == nil { await reload() }
@@ -71,13 +80,41 @@ struct LibraryKindWallView: View {
     @ViewBuilder
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            // 概况读失败时（libraryCount 为 nil）只说口径，不挂一句永远的「正在读取」
-            Text(pager.items == nil ? "正在读取…"
-                : libraryCount == 0 ? "还没有可浏览的\(HomeRows.mediaKindLabel(kind))库"
-                : libraryCount.map { "\(pager.total ?? 0) 部作品 · 来自 \($0) 个库，同一部片只算一次" } ?? "同一部片只算一次")
-                .font(.subheadline)
-                .foregroundStyle(Theme.textMuted)
-                .accessibilityIdentifier("kind-wall-summary")
+            if let genre {
+                // 色块的落点：页头就是那块色块放大，进来的人一眼知道自己在哪
+                GenreArtwork(genreId: genre)
+                    .frame(height: 116)
+                    .overlay(alignment: .bottomLeading) {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(label)
+                                .font(.system(size: 26, weight: .semibold))
+                                .tracking(1)
+                            if let total = pager.total, let libraryCount {
+                                Text("\(total) 部\(HomeRows.mediaKindLabel(kind)) · 来自 \(libraryCount) 个库")
+                                    .font(.subheadline.monospacedDigit())
+                                    .opacity(0.75)
+                            }
+                        }
+                        .foregroundStyle(.white)
+                        .padding(16)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.08)], startPoint: .top, endPoint: .center), lineWidth: 0.75)
+                    }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("kind-wall-genre-header")
+            }
+            // 概况读失败时（libraryCount 为 nil）只说口径，不挂一句永远的「正在读取」；类型页的数量写在页头里
+            if genre == nil {
+                Text(pager.items == nil ? "正在读取…"
+                    : libraryCount == 0 ? "还没有可浏览的\(HomeRows.mediaKindLabel(kind))库"
+                    : libraryCount.map { "\(pager.total ?? 0) 部作品 · 来自 \($0) 个库，同一部片只算一次" } ?? "同一部片只算一次")
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.textMuted)
+                    .accessibilityIdentifier("kind-wall-summary")
+            }
             if pager.items != nil, !empty {
                 WallSortMenu(options: Self.sortOptions(kind), state: $sort)
                     .glassEffect(.regular.interactive(), in: .capsule)
@@ -112,7 +149,7 @@ struct LibraryKindWallView: View {
 
     /// 总数与组成库只在墙首取一次：往下翻页时数量不变，不必每页多打一个请求
     private func loadSummary() async {
-        guard let summary = try? await api.uiLibraryKindSummary(kind: kind) else { return }
+        guard let summary = try? await api.uiLibraryKindSummary(kind: kind, g: genreQuery) else { return }
         pager.total = summary.itemCount
         libraryCount = summary.libraryIds.count
     }
@@ -122,9 +159,10 @@ struct LibraryKindWallView: View {
         let kind = self.kind
         let sort = effectiveSort
         let order = self.order
+        let genre = genreQuery
         await loadSummary()
         await pager.reset({ offset, limit in
-            try await api.uiLibraryKindItems(kind: kind, sort: sort, order: order, limit: limit, offset: offset)
+            try await api.uiLibraryKindItems(kind: kind, sort: sort, order: order, limit: limit, offset: offset, g: genre)
         })
     }
 

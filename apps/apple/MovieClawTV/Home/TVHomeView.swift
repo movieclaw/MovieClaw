@@ -312,6 +312,21 @@ struct TVHomeView: View {
                     }
                 }
             }
+        case let .genres(kind, _):
+            // 「电影类型 / 剧集类型」：每个有片的类型一格（按部数倒序），确认键进按这个类型筛好的跨库墙
+            if let genres = store.genresByKind[kind], !genres.isEmpty {
+                TVShelf(title: row.title) {
+                    ForEach(genres, id: \.value) { genre in
+                        if let id = Int(genre.value) {
+                            TVGenreCard(genreId: id, label: genre.label, count: genre.count) {
+                                router.push(.rowWall(title: genre.label, source: .genre(kind: kind, genre: id, count: genre.count)))
+                            }
+                            .accessibilityIdentifier("tv-genre-\(kind)-\(id)")
+                        }
+                    }
+                }
+                .id(row.id)
+            }
         case .library, .mediaKind, .collection:
             // 类型行（「全部电影」）是跨库的：每部片自带详情落点库（服务端给的 library_id）
             let items = store.itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []
@@ -430,6 +445,7 @@ struct TVHomeView: View {
         case .upNext: (store.upNext ?? []).isEmpty
         case .favorites: (store.favorites?.items ?? []).isEmpty
         case .libraries: directory.browsable.isEmpty && homeCollections.isEmpty
+        case let .genres(kind, _): (store.genresByKind[kind] ?? []).isEmpty
         case .library, .mediaKind, .collection: (store.itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []).isEmpty
         }
     }
