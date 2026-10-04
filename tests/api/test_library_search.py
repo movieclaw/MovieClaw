@@ -782,3 +782,68 @@ async def test_bulk_scalar_rows_preserves_types_order_and_empty_result(db):
         assert isinstance(actual[0][5], list)
         assert any(row[3] is None for row in actual)
         assert await scalar_rows(session, statement.where(LibraryFile.id < 0)) == []
+
+
+@pytest.mark.parametrize("indexed", [False, True])
+async def test_initials_ties_rank_leads_before_bit_parts(db, client, indexed) -> None:
+    """回归：搜「lyt」找不到李一桐。
+
+    片库里首字母同为 lyt 的人很多、作品数又都是 1，旧排序打平后按人物 id 取前 8 个，
+    主演李一桐（id 最大）被挤出人物行，她的作品也排在一串龙套作品后面。
+    同档人物改按「担任主创的作品数」等本地分量排序。
+    """
+    from movieclaw_api.services.library.search_index import refresh_index_batch
+    from movieclaw_db.models.person import MediaItemPerson, Person
+
+    bit_parts = [
+        "刘奕铁",
+        "郎月婷",
+        "李言廷",
+        "李英涛",
+        "梁雍婷",
+        "李元泰",
+        "吕艳婷",
+        "李祐汀",
+        "罗雨桐",
+        "林雅婷",
+    ]
+    async with db.session() as session:
+        lib = await LibraryRepository(session).create(
+            name="电影库", kind="movie", root_paths=["/media/movies"]
+        )
+        cast = [(name, 20) for name in bit_parts] + [("李一桐", 1)]
+        for index, (name, credit_order) in enumerate(cast, start=1):
+            person = Person(tmdb_person_id=50000 + index, name=name)
+            item = MediaItem(
+                kind="movie",
+                tmdb_id=60000 + index,
+                title=f"影片{index:02d}",
+                original_title=f"Film {index}",
+                aliases=[],
+            )
+            session.add_all([person, item])
+            await session.flush()
+            session.add_all(
+                [
+                    LibraryFile(
+                        library_id=lib.id,
+                        media_item_id=item.id,
+                        file_path=f"/media/movies/{index}.mkv",
+                        size_bytes=1,
+                        source="scanned",
+                    ),
+                    MediaItemPerson(
+                        media_item_id=item.id,
+                        person_id=person.id,
+                        department="cast",
+                        credit_order=credit_order,
+                    ),
+                ]
+            )
+        await session.commit()
+    if indexed:
+        while await refresh_index_batch():
+            pass
+    data = await _ranked(client, "lyt")
+    assert data["people"][0]["name"] == "李一桐"
+    assert data["items"][0]["match"]["label"] == "演员：李一桐"
