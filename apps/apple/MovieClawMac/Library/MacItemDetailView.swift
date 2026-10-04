@@ -87,7 +87,7 @@ struct MacItemDetailView: View {
             let heroHeight = MacStageLayout.height(for: window.size.width, windowHeight: window.size.height + window.safeAreaInsets.top) + 40
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: MacMetrics.rowSpacing) {
-                    hero(detail, height: heroHeight)
+                    hero(detail, height: heroHeight, width: window.size.width)
                     lower(detail)
                 }
                 .padding(.bottom, 56)
@@ -98,7 +98,7 @@ struct MacItemDetailView: View {
 
     // MARK: 头图
 
-    private func hero(_ detail: API.LibraryItemDetailView, height: CGFloat) -> some View {
+    private func hero(_ detail: API.LibraryItemDetailView, height: CGFloat, width: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             MacStageBackdrop(url: api.image(detail.backdropUrl ?? detail.posterUrl, width: ImageWidth.screen), tint: nil,
                              fadeFrom: 0.62, showsBase: false)
@@ -113,7 +113,8 @@ struct MacItemDetailView: View {
                         meta: metaLine(detail),
                         badges: MacMediaBadge.best(for: detail),
                         overview: isMovie ? detail.localMeta?.plot : (selectedEpisode?.overview ?? detail.localMeta?.plot),
-                        overviewLines: 3
+                        overviewLines: 3,
+                        logoSize: MacStageLayout.logoSize(for: width)
                     )
                     .accessibilityIdentifier("mac-item-stage")
                     actions(detail)

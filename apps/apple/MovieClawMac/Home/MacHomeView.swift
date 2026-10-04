@@ -77,7 +77,7 @@ struct MacHomeView: View {
             ScrollView(.vertical) {
                 VStack(alignment: .leading, spacing: MacMetrics.rowSpacing) {
                     if let stage {
-                        hero(stage, items: upNext, height: heroHeight, topInset: window.safeAreaInsets.top)
+                        hero(stage, items: upNext, height: heroHeight, width: window.size.width)
                         upNextShelf(upNext, stage: stage)
                             .padding(.top, -MacMetrics.rowSpacing * 0.8)
                     }
@@ -122,7 +122,7 @@ struct MacHomeView: View {
 
     // MARK: 大图区
 
-    private func hero(_ stage: API.UpNextItemView, items: [API.UpNextItemView], height: CGFloat, topInset: CGFloat) -> some View {
+    private func hero(_ stage: API.UpNextItemView, items: [API.UpNextItemView], height: CGFloat, width: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
             MacStageBackdrop(url: stageImageURL(stage), tint: tint, fadeFrom: 0.6)
                 .frame(height: height)
@@ -137,7 +137,8 @@ struct MacHomeView: View {
                         : nil,
                     meta: Self.stageMeta(stage),
                     overview: stage.overview,
-                    overviewLines: 2
+                    overviewLines: 2,
+                    logoSize: MacStageLayout.logoSize(for: width)
                 )
                 .id(stage.mediaItemId)
                 .transition(.opacity)

@@ -47,6 +47,11 @@ struct MacSearchView: View {
         }
         // 搜索词变了就退出「某人的库内作品」，回到按词搜
         .onChange(of: trimmed) { _, _ in selectedPerson = nil }
+        // 联想词交给侧边栏的搜索框下拉（与正在输入的完全一样的词不再列）
+        .onChange(of: model.suggestions) { _, suggestions in
+            router.searchSuggestions = suggestions.map(\.text).filter { $0 != trimmed }
+        }
+        .onDisappear { router.searchSuggestions = [] }
         .onAppear { recents = (UserDefaults.standard.stringArray(forKey: recentsKey) ?? []) }
         .accessibilityIdentifier("mac-search")
     }
@@ -284,6 +289,7 @@ struct MacSearchInput: Hashable {
 final class MacSearchModel {
     var items: [API.LibrarySearchHit] = []
     var people: [API.LibrarySearchPerson] = []
+    var suggestions: [API.LibrarySearchSuggestion] = []
     var nextCursor: String?
     var searching = false
     var loadingMore = false
@@ -302,6 +308,7 @@ final class MacSearchModel {
         guard !input.query.isEmpty || input.personId != nil else {
             items = []
             people = []
+            suggestions = []
             searching = false
             loadedInput = input
             return
@@ -315,6 +322,7 @@ final class MacSearchModel {
             guard generation == request, !Task.isCancelled else { return }
             items = result.items
             people = result.people
+            suggestions = result.suggestions
             nextCursor = result.nextCursor
             loadedInput = input
         } catch is CancellationError {

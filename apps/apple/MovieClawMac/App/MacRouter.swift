@@ -76,6 +76,8 @@ final class MacRouter {
     var paths: [MainTab: [AppRoute]] = [:]
     /// 侧边栏搜索框里的字
     var searchText = ""
+    /// 搜索框下拉的联想词（搜索页拿到结果时填，同 Apple TV 版键盘下方那排）
+    var searchSuggestions: [String] = []
     /// 全屏播放器
     var player: PlayRequest?
     /// 正在播放的控制器：播放器视图出现时接过去（同 iPhone 版 `Router.activePlayback`）
