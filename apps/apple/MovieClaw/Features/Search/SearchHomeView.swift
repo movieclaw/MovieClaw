@@ -14,6 +14,8 @@ import SwiftUI
 ///   - **搜索范围**：记住的分类以系统搜索标记（token）显示在输入框里，回车即在该范围搜索，删掉标记 = 全部分类；
 ///     输入关键词后列表给出「在其他范围搜索」，点一行就换到那个范围搜（并记住）；
 /// - 输入了关键词，列表顶上给一行「搜索“…”」（下注当前范围），收起键盘后也能一点就搜；
+///   **媒体库模式例外**：本地搜索毫秒级，输入即实时出结果（与结果页同一个 `LibrarySearchResultsView`），
+///   不给「搜索“…”」行、也不必回车再跳一页；
 /// - 最近搜索（`GET /search/history`）：只展示当前影视或资源类型，媒体库隐藏历史；同关键词的多条记录归成一组：
 ///   主行是最近一条（写它的范围与时间），其余范围列在下面、图标列换成「↳」连接符，组内不画分隔线、
 ///   只在组与组之间画，一眼看出是一组；始终展开、没有折叠箭头——
@@ -96,24 +98,13 @@ struct SearchHomeView: View {
     /// 资源模式且有权限：才出分类相关的内容与搜索标记
     private var torrentActive: Bool { mode == .torrent && access.available.contains(.torrent) }
 
+    /// 媒体库模式且输入了关键词：面板主体换成实时结果
+    private var liveLibrary: Bool {
+        mode == .library && access.available.contains(.library) && !trimmedKeyword.isEmpty
+    }
+
     var body: some View {
-        List {
-            if !trimmedKeyword.isEmpty, access.available.contains(mode) {
-                submitSection
-            }
-            history
-            if torrentActive {
-                if trimmedKeyword.isEmpty {
-                    browseSections
-                } else {
-                    otherScopesSection
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-        .listSectionSpacing(20)
-        .contentMargins(.top, 8, for: .scrollContent)
-        .scrollDismissesKeyboard(.immediately)
+        content
         .appBackground()
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
@@ -161,6 +152,34 @@ struct SearchHomeView: View {
             historyRefresh += 1
         }
         .accessibilityIdentifier("search-home")
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if liveLibrary {
+            LibrarySearchResultsView(keyword: trimmedKeyword, onSwitchToMedia: access.canMedia ? { changeMode(.media) } : nil, live: true)
+                // 与下面列表同样的顶部留白：「人物」段头别贴着范围栏
+                .contentMargins(.top, 8, for: .scrollContent)
+                .scrollDismissesKeyboard(.immediately)
+        } else {
+            List {
+                if !trimmedKeyword.isEmpty, access.available.contains(mode) {
+                    submitSection
+                }
+                history
+                if torrentActive {
+                    if trimmedKeyword.isEmpty {
+                        browseSections
+                    } else {
+                        otherScopesSection
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(20)
+            .contentMargins(.top, 8, for: .scrollContent)
+            .scrollDismissesKeyboard(.immediately)
+        }
     }
 
     private var prompt: String {
@@ -496,6 +515,11 @@ struct SearchHomeView: View {
         }
         // 影视 / 媒体库没有「浏览」语义：空词不提交
         guard !kw.isEmpty else { return }
+        // 媒体库已在本页实时出结果：回车只收键盘，不再压一页结果
+        if mode == .library {
+            focused = false
+            return
+        }
         router.push(.search(.init(q: kw, tab: mode.routeTab)))
     }
 

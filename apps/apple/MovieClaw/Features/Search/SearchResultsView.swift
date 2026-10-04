@@ -369,6 +369,9 @@ struct MediaSearchResultsView: View {
 struct LibrarySearchResultsView: View {
     let keyword: String
     let onSwitchToMedia: (() -> Void)?
+    /// 搜索面板里边输入边搜（`SearchHomeView` 的媒体库模式）：关键词停顿 300ms 再请求，
+    /// 换词时保留上一轮结果直到新结果到达，不每敲一个字闪一次骨架屏
+    var live = false
 
     @Environment(\.api) private var api
     @Environment(Router.self) private var router
@@ -440,7 +443,13 @@ struct LibrarySearchResultsView: View {
             .padding(.horizontal, Theme.pagePadding)
             .padding(.bottom, 40)
         }
-        .task { await model.start(keyword: keyword, api: api) }
+        .task(id: keyword) {
+            if live {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
+            }
+            await model.load(keyword: keyword, api: api)
+        }
         .accessibilityIdentifier("library-results")
     }
 
@@ -522,24 +531,24 @@ private final class LibrarySearchModel {
     var loadingMore = false
     var error: String?
     private var keyword = ""
-    private var started = false
+    /// 已搜过（或正在搜）的关键词
+    private var loadedKeyword: String?
     private var generation = 0
 
     var isEmpty: Bool { hits?.isEmpty == true && people.isEmpty }
 
-    /// 首次出现时搜一次；切走再切回垂直不重搜（结果页的关键词是固定的）
-    func start(keyword: String, api: APIClient) async {
-        guard !started else { return }
-        started = true
+    /// 关键词变了才搜：结果页的关键词固定，切走再切回垂直不重搜；搜索面板实时输入时每换一次词搜一次
+    func load(keyword: String, api: APIClient) async {
+        guard keyword != loadedKeyword else { return }
+        loadedKeyword = keyword
         self.keyword = keyword
         await search(api: api)
     }
 
+    /// 换词时不清空旧结果（实时输入不闪骨架屏），只丢掉旧游标：它绑定的是上一个关键词
     private func search(api: APIClient) async {
         generation += 1
         let request = generation
-        hits = nil
-        people = []
         nextCursor = nil
         loadingMore = false
         error = nil
@@ -550,8 +559,15 @@ private final class LibrarySearchModel {
             people = result.people
             nextCursor = result.nextCursor
         } catch is CancellationError {
+            // 视图消失或换词把请求取消了：下次出现时按同一关键词重搜，别卡在加载中
+            if generation == request { loadedKeyword = nil }
         } catch {
             guard generation == request else { return }
+            // 任务被取消时网络层抛的是 URLError.cancelled 而不是 CancellationError：同样不算失败
+            if Task.isCancelled {
+                loadedKeyword = nil
+                return
+            }
             self.error = error.localizedDescription.isEmpty ? "媒体库搜索失败，请稍后重试" : error.localizedDescription
         }
     }

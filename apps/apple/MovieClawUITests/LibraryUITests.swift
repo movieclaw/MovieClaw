@@ -261,6 +261,34 @@ final class LibraryUITests: XCTestCase {
         XCTAssertTrue(person.waitForExistence(timeout: 20), "返回后应回到搜索结果")
     }
 
+    /// 搜索面板的媒体库模式：输入即实时出结果（不出「搜索“…”」行、不必回车跳页），改词结果跟着变
+    @MainActor
+    func testLibrarySearchIsLiveInSearchPanel() {
+        let query = env["MC_TEST_LIBRARY_QUERY"] ?? "ST"
+        let app = launch(route: "/library")
+        let open = app.navigationBars.buttons["open-search"]
+        XCTAssertTrue(open.waitForExistence(timeout: 20), "页签根页右上角应有搜索")
+        open.tap()
+        let field = app.searchFields.firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 10))
+        let library = app.segmentedControls.buttons["媒体库"]
+        XCTAssertTrue(library.waitForExistence(timeout: 10), "搜索栏激活时应有媒体库模式")
+        library.tap()
+        field.typeText(query)
+        let items = app.otherElements["library-items"].firstMatch
+        XCTAssertTrue(items.waitForExistence(timeout: 15), "输入后不回车也应实时出结果")
+        XCTAssertFalse(app.buttons["search-submit"].exists, "媒体库模式不该再出「搜索“…”」行")
+        snapshot("搜索面板实时结果")
+        let first = items.buttons["poster-card"].firstMatch.label
+        // 再输入一个字：结果随关键词刷新
+        field.typeText("x")
+        XCTAssertTrue(waitUntil(timeout: 10) {
+            !items.exists || items.buttons["poster-card"].firstMatch.label != first
+                || app.otherElements["library-empty"].exists
+        }, "改词后结果应跟着刷新")
+        snapshot("改词后")
+    }
+
     private func waitUntil(timeout: TimeInterval = 15, _ condition: @escaping () -> Bool) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
