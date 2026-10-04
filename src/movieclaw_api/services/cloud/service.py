@@ -50,6 +50,10 @@ _RENEW_MIN_S = 300
 _RENEW_MAX_S = 24 * 3600
 _BACKOFF_FIRST_S = 30
 _BACKOFF_MAX_S = 3600
+#: 配对轮询间隔下限（秒）：云端给的 interval 再小也不低于它，免得把云端打爆
+_PAIRING_MIN_INTERVAL_S: float = 1
+#: 配对成功后首次续签（带上报）的延迟（秒）：马上发一次，让官网实例详情尽快有内容
+_FIRST_RENEW_DELAY_S: float = 1
 #: 令牌剩不到这么久还没续上，就在待处理事项里告诉管理员
 _EXPIRY_WARNING = timedelta(hours=6)
 #: 官方中继拒绝令牌时提前续签，最多这么久一次（中继一直拒绝时不把云端打爆）
@@ -76,7 +80,7 @@ class Pairing:
     verification_uri_complete: str
     qrcode_image: str
     expires_at: datetime
-    interval: int
+    interval: float
     instance_name: str
     status: str = "pending"  # pending / denied / expired / error
     message: str | None = None
@@ -284,7 +288,7 @@ class CloudService:
                 verification_uri_complete=complete,
                 qrcode_image=_qrcode_data_url(complete),
                 expires_at=utcnow() + timedelta(seconds=int(body.get("expires_in") or 600)),
-                interval=max(1, int(body.get("interval") or 5)),
+                interval=max(_PAIRING_MIN_INTERVAL_S, int(body.get("interval") or 5)),
                 instance_name=name,
             )
             self._pairing = pairing
@@ -400,7 +404,7 @@ class CloudService:
         logger.info("已连接到 MovieClaw Cloud：实例 %s", data["instance_id"])
         await _resolve_cloud_notices()
         # 马上续签一次，把上报发上去（官网实例详情才有内容）
-        self._ensure_renew_loop(first_delay=1)
+        self._ensure_renew_loop(first_delay=_FIRST_RENEW_DELAY_S)
         # 官方中继的能力快照（鉴权方式、能推的 App）也马上拉一次，不等半小时一轮的检查
         from movieclaw_api.services.push.channels import refresh_official_info
 

@@ -92,7 +92,7 @@ class FakeCloud:
                     "verification_uri": "https://movieclaw.test/activate",
                     "verification_uri_complete": "https://movieclaw.test/activate?code=WDJB-MJHT",
                     "expires_in": 600,
-                    "interval": 1,
+                    "interval": 0.05,
                 },
             )
         if path == "/v1/instance/token":
@@ -279,6 +279,11 @@ def world(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
     # 推送的几个等待（攒一攒再发）在测试里缩到零点几秒
     monkeypatch.setattr(events, "_ALERT_DELAY_S", 0.2)
     monkeypatch.setattr(events, "_MERGE_QUIET_S", 0.2)
+    # 配对轮询与配对后首次续签同理：生产下限是 1 秒，每个用例连接云端要白等两秒
+    from movieclaw_api.services.cloud import service as cloud_service
+
+    monkeypatch.setattr(cloud_service, "_PAIRING_MIN_INTERVAL_S", 0.05)
+    monkeypatch.setattr(cloud_service, "_FIRST_RENEW_DELAY_S", 0.05)
     yield w
     events.reset_state()
     reset_setting_store()

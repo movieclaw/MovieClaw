@@ -11,6 +11,7 @@ import os
 import shutil
 import sqlite3
 import subprocess
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -176,17 +177,122 @@ class _SQLiteMigrationTemplate:
 
 
 _migration_template: _SQLiteMigrationTemplate | None = None
+_rebound_modules: list = []
+
+
+class _AppReuse:
+    """同一 worker 进程内复用 FastAPI 应用实例（按「创建期就固化的配置」缓存）。
+
+    为什么：FastAPI 0.139 起路由状态改为懒构建——每个新应用实例第一次匹配请求时，
+    要把整棵路由树逐条建依赖与 Pydantic 字段（本机约 0.3 秒/实例，CI 翻倍）。生产
+    进程只付一次；测试却是每个用例 ``create_app()`` 一次，全量上千次，曾占到接口
+    类测试一半以上的耗时。
+
+    怎么复用：路由、异常处理器、OpenAPI 文档只取决于创建期配置，缓存起来；随用例
+    变化的部分每次换新——
+
+    - lifespan：按当次 settings 重建（每个用例的临时库、密钥文件都不同）；
+    - 中间件：按创建时的完整清单重建实例（含 Jellyfin 路径归一化），不串状态；
+    - ``dependency_overrides`` 与 ``app.state``：清空。
+
+    重置只在每个用例第一次 ``create_app()`` 时做：同一用例里后续的调用（例如
+    后端现算 spec 时内部又调了一次 create_app）拿到的是同一个正在用的实例，
+    清掉它的 dependency_overrides 会让用例中途变成未登录。
+
+    缓存键是 create_app 读进去、之后不再变的配置（APP_ENV 决定文档开关等）。
+    用例往应用上加了路由（路由数变化）时整份作废、下次重新创建。需要全新实例的
+    用例可直接调 ``_AppReuse.original()``。
+    """
+
+    original = None
+    _cache: dict = {}
+    #: 用例序号，由 pytest_runtest_setup 递增；实例记下自己最后一次重置时的序号
+    generation = 0
+
+    @classmethod
+    def install(cls) -> None:
+        import movieclaw_api.app as app_module
+
+        if cls.original is not None:
+            return
+        cls.original = app_module.create_app
+        app_module.create_app = cls.create_app
+
+    @classmethod
+    def uninstall(cls) -> None:
+        import movieclaw_api.app as app_module
+
+        if cls.original is not None:
+            app_module.create_app = cls.original
+            cls.original = None
+        cls._cache.clear()
+
+    @classmethod
+    def create_app(cls):  # type: ignore[no-untyped-def]
+        from starlette.datastructures import State
+
+        from movieclaw_api.core.config import get_settings
+        from movieclaw_api.core.logging import configure_logging
+        from movieclaw_api.lifespan import build_lifespan
+
+        settings = get_settings()
+        key = (
+            settings.app_env,
+            settings.api_v1_prefix,
+            settings.app_name,
+            settings.access_log_enabled,
+        )
+        cached = cls._cache.get(key)
+        if cached is None or len(cached[0].router.routes) != cached[1]:
+            app = cls.original()
+            routes, middleware = len(app.router.routes), list(app.user_middleware)
+            cls._cache[key] = [app, routes, middleware, cls.generation]
+            return app
+        app, _, middleware, reset_at = cached
+        configure_logging(settings.log_level, settings.log_dir, settings.log_retention_days)
+        app.router.lifespan_context = build_lifespan(settings)
+        if reset_at != cls.generation:
+            cached[3] = cls.generation
+            app.dependency_overrides.clear()
+            app.user_middleware = list(middleware)
+            app.middleware_stack = None
+            app.state = State()
+        return app
+
+
+def _rebind(original, replacement) -> list:  # type: ignore[no-untyped-def]
+    """把已导入模块里 from-import 进来的 ``original`` 一并换成 ``replacement``。
+
+    只改 ``migrations.run_migrations`` 不够：任何在会话开始前就导入了应用的代码
+    （插件、conftest 顶层 import）都会让 lifespan 模块先绑定生产入口，模板快路径
+    就此悄悄失效——每次起应用真跑一遍全部 Alembic 迁移，全量慢四成且没有任何
+    报错。这里扫一遍已加载模块补齐，替换不再依赖导入顺序。
+    """
+    rebound = []
+    for module in list(sys.modules.values()):
+        if module is not None and getattr(module, "run_migrations", None) is original:
+            module.run_migrations = replacement
+            rebound.append(module)
+    return rebound
 
 
 def pytest_sessionstart(session: pytest.Session) -> None:
-    """在收集测试模块前替换迁移入口，让 from-import 也取得快路径。"""
-    global _migration_template
+    """替换迁移入口（含已 from-import 的副本），再装上应用实例复用。"""
+    global _migration_template, _rebound_modules
     del session
 
     from movieclaw_db import migrations
 
     _migration_template = _SQLiteMigrationTemplate(migrations)
-    migrations.run_migrations = _migration_template.run
+    _rebound_modules = _rebind(_migration_template.original, _migration_template.run)
+    # 必须排在迁移替换之后：它会导入 lifespan，届时拿到的已是快路径
+    _AppReuse.install()
+
+
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """新用例开始：复用的应用实例在本用例第一次 create_app 时重置一次。"""
+    del item
+    _AppReuse.generation += 1
 
 
 def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
@@ -196,9 +302,54 @@ def pytest_sessionfinish(session: pytest.Session, exitstatus: int) -> None:
 
     if _migration_template is None:
         return
-    _migration_template._module.run_migrations = _migration_template.original
+    _AppReuse.uninstall()
+    for module in _rebound_modules:
+        module.run_migrations = _migration_template.original
     _migration_template.close()
     _migration_template = None
+
+
+_SHARD_DURATIONS = Path(__file__).with_name("shard-durations.json")
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """CI 分片：``PYTEST_SHARD=i/n`` 时只留第 i 片的测试文件（本地不设，不受影响）。
+
+    按文件整体分配（与 ``--dist loadfile`` 同粒度，同文件用例不会拆到两台机器），
+    权重取 ``tests/shard-durations.json`` 里各文件的历史耗时，按「最长的先放、
+    放进当前最轻的一片」贪心装箱，几片大致同时跑完。新文件没有记录时按中位数
+    估算；记录过时只会让几片略不均衡，不会漏跑——全部文件必然落在某一片里。
+    刷新记录：``python scripts/update-shard-durations.py <junit.xml>``。
+    排在其他插件之后执行（trylast），只给 ``-m`` 筛剩下的用例分片。
+    """
+    spec = os.environ.get("PYTEST_SHARD", "").strip()
+    if not spec:
+        return
+    index, total = (int(part) for part in spec.split("/"))
+    if not 1 <= index <= total:
+        raise pytest.UsageError(f"PYTEST_SHARD 取值无效：{spec}（应为 i/n 且 1 ≤ i ≤ n）")
+
+    import json
+    import statistics
+
+    by_file: dict[str, list[pytest.Item]] = {}
+    for item in items:
+        by_file.setdefault(item.nodeid.split("::", 1)[0], []).append(item)
+    known = json.loads(_SHARD_DURATIONS.read_text(encoding="utf-8"))
+    default = statistics.median(known.values()) if known else 1.0
+    loads = [0.0] * total
+    owner: dict[str, int] = {}
+    for path in sorted(by_file, key=lambda f: (-known.get(f, default), f)):
+        target = min(range(total), key=lambda k: (loads[k], k))
+        loads[target] += known.get(path, default)
+        owner[path] = target
+
+    keep = [item for item in items if owner[item.nodeid.split("::", 1)[0]] == index - 1]
+    dropped = [item for item in items if owner[item.nodeid.split("::", 1)[0]] != index - 1]
+    if dropped:
+        config.hook.pytest_deselected(items=dropped)
+    items[:] = keep
 
 
 @pytest.fixture(autouse=True)
