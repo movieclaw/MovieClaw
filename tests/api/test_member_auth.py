@@ -556,6 +556,8 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/images/proxy"),
     # 媒体库：浏览面（管理动作全部在库路由级挂 require_admin）
     ("GET", "/api/v1/libraries"),
+    # 相关度搜索同属库内浏览，接口逐页检查库白名单与内容分级，不依赖 PT 搜索开关。
+    ("GET", "/api/v1/search/library"),
     ("GET", "/api/v1/search/library-items"),
     ("GET", "/api/v1/libraries/files/{file_id}/thumb"),
     # 图片库的原图（灯箱全屏查看与下载）是成员的浏览面；路径由台账行推导、
