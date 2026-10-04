@@ -684,6 +684,14 @@ export function getKindSummary(
   return unwrap(request<ApiEnvelope<LibraryKindSummary>>(`/libraries/kinds/${kind}${suffix}`));
 }
 
+/**
+ * 首页「电影类型 / 剧集类型」色块：这一类型跨库每个 TMDB 类型有几部（去重）。
+ * 只回有片的类型、按部数倒序；value 是 genre id，点进去带 `?g=value` 开墙。
+ */
+export function listKindGenres(kind: "movie" | "tv"): Promise<FacetValue[]> {
+  return unwrap(request<ApiEnvelope<FacetValue[]>>(`/libraries/kinds/${kind}/genres`));
+}
+
 /** 海报墙 A-Z 索引条的一档（按标题排序下的首字母分组）。 */
 export interface LibraryIndexEntry {
   /** 档名：按标题排序是首字母 A-Z（落不进的归 #）；按内容时间排序是月份 2026-08（缺日期归「未知」）；

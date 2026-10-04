@@ -219,6 +219,19 @@ def test_home_rows_default_is_empty(client: TestClient) -> None:
     assert client.get("/api/v1/ui/preferences").json()["data"]["home"] == {"rows": []}
 
 
+def test_home_genre_rows_store_only_hidden(client: TestClient) -> None:
+    """「电影类型 / 剧集类型」色块区是内置行：只存显隐，位置跟着清单走。"""
+    rows = [{"id": "up-next"}, {"id": "genres:movie"}, {"id": "genres:tv", "hidden": True}]
+    resp = client.put("/api/v1/ui/preferences", json={"home": {"rows": rows}})
+    assert resp.status_code == 200
+    saved = client.get("/api/v1/ui/preferences").json()["data"]["home"]["rows"]
+    assert [(r["id"], r["hidden"]) for r in saved] == [
+        ("up-next", None),
+        ("genres:movie", None),
+        ("genres:tv", True),
+    ]
+
+
 def test_home_rows_persist_with_optional_fields_left_null(client: TestClient) -> None:
     rows = [
         {"id": "up-next"},
@@ -269,6 +282,9 @@ def test_home_rows_persist_with_optional_fields_left_null(client: TestClient) ->
         {"id": "row:x", "media_kind": "movie", "library_id": 1},  # 两个来源
         {"id": "row:x", "media_kind": "photo"},  # 类型只认 movie / tv / video
         {"id": "kind:tv", "sort": "size"},  # 类型行与库行同一组排序档
+        {"id": "genres:video"},  # 类型色块只分电影 / 剧集
+        {"id": "genres:movie", "sort": "rating"},  # 色块区没有排序档
+        {"id": "genres:tv", "media_kind": "tv"},  # 内置行不能带来源
     ],
 )
 def test_home_rows_bad_shape_rejected(client: TestClient, row: dict) -> None:

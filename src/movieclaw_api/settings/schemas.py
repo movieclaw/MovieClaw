@@ -386,17 +386,21 @@ HOME_ROW_SORTS = frozenset(
 )
 #: 「我的收藏」行的排序档：未看优先是首页那一行的默认（见 playback_favorites）。
 HOME_FAVORITES_SORTS = frozenset({"unwatched_first", "favorited_at", "rating", "title"})
-#: 行 id 只认四种形状：三个内置行、每库一条的默认库行、用户自己加的行。
+#: 行 id 只认这几种形状：内置行（含「电影类型 / 剧集类型」色块区）、每库一条的
+#: 默认库行、默认类型行、用户自己加的行。
 _HOME_ROW_ID = re.compile(
-    r"^(up-next|favorites|libraries|lib:\d+|kind:(movie|tv|video)|row:[A-Za-z0-9_-]{1,32})$"
+    r"^(up-next|favorites|libraries|genres:(movie|tv)|lib:\d+|kind:(movie|tv|video)"
+    r"|row:[A-Za-z0-9_-]{1,32})$"
 )
 
 
 class HomeRowPref(BaseModel):
     """媒体库首页的一「行」：来源 × 排序 × 名字（docs/design/library-home-perspective.md）。
 
-    - 内置行（``up-next`` / ``favorites`` / ``libraries``）只存 ``hidden``，收藏行多一个
-      ``sort``；来源与名字由前端决定，这里不存；
+    - 内置行（``up-next`` / ``favorites`` / ``libraries`` / ``genres:movie|tv``）只存
+      ``hidden``，收藏行多一个 ``sort``；来源与名字由前端决定，这里不存。
+      ``genres:*`` 是「电影类型 / 剧集类型」色块区：每个 TMDB 类型一格，点进去是
+      按该类型筛好的跨库墙；
     - 默认库行 ``lib:<library_id>`` 每库一条，能藏、能改排序和名字，不能删；
     - 默认类型行 ``kind:movie|tv|video`` 每类一条（跨库聚合同类型的全部可见库，
       §8），能力与默认库行相同；

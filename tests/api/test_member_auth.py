@@ -581,6 +581,7 @@ _MEMBER_ALLOWLIST = {
     # 可见的库），内容分级同样经 _narrow 强制收窄，与单库墙同一套口径
     ("GET", "/api/v1/libraries/kinds/{kind}"),
     ("GET", "/api/v1/libraries/kinds/{kind}/items"),
+    ("GET", "/api/v1/libraries/kinds/{kind}/genres"),
     # 首页海报行选中展开的批量展示信息：id 逐个按 visible_library_ids 与内容分级过滤，
     # 看不见的条目静默略过（见 services/library/showcase.py）
     ("GET", "/api/v1/libraries/showcase"),

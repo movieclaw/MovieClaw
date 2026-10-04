@@ -9,6 +9,7 @@ import { useRouter } from "next/navigation";
 import { BrandLoader } from "@/components/brand-loader";
 import { ContentEmptyState } from "@/components/content-empty-state";
 import { CollectionLibraryCard, ShelfCardCaption } from "@/components/collection-library-card";
+import { GenreTile } from "@/components/genre-tile";
 import { HScroller } from "@/components/h-scroller";
 import { LIBRARY_KIND_META } from "@/components/library-kind-meta";
 import {
@@ -23,10 +24,12 @@ import { TopBarMenu } from "@/components/top-bar-menu";
 import type { PosterCardAction } from "@/components/poster-card";
 import { UpNextRow } from "@/components/up-next-row";
 import {
+  type FacetValue,
   type LibraryItem,
   type MediaLibrary,
   libraryCoverUrl,
   listLibraries,
+  listKindGenres,
   listKindItems,
   listLibraryItems,
   SCAN_PHASE_LABELS,
@@ -46,6 +49,7 @@ import {
   buildHomeRows,
   homeCollectionIds,
   FAVORITES_SORT_PRESETS,
+  type GenreRowKind,
   type HomeRow,
   orderParamFor,
   rowTitle,
@@ -144,6 +148,7 @@ let lastLoadedHome: {
   upNext: UpNextItem[];
   favorites: FavoritesPage;
   itemsByKey: Map<string, LibraryItem[]>;
+  genresByKind: Map<GenreRowKind, FacetValue[]>;
 } | null = null;
 
 export function LibraryView({ hero }: { hero?: ReactNode }) {
@@ -212,6 +217,10 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
   // 一次（库卡片封面与默认的「最近添加」行共用 added_at 那一份）
   const [itemsByKey, setItemsByKey] = useState<Map<string, LibraryItem[]>>(
     () => lastLoadedHome?.itemsByKey ?? new Map(),
+  );
+  // 「电影类型 / 剧集类型」色块：每种类型的 TMDB 类型分布，与库行条目同一轮取、同一个快照闸
+  const [genresByKind, setGenresByKind] = useState<Map<GenreRowKind, FacetValue[]>>(
+    () => lastLoadedHome?.genresByKind ?? new Map(),
   );
   const [upNext, setUpNext] = useState<UpNextItem[] | null>(() => lastLoadedHome?.upNext ?? null);
   // 我的收藏：与接下来继续同一轮拉取、同一套失败策略（拉不到保留旧数据）
@@ -298,16 +307,26 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
         else setFavorites((previous) => previous ?? { items: [], total: 0 });
 
         const fetches = rowFetches(rows, libs);
-        const snapshot = `${libsSnapshot}|${[...fetches.keys()].join(",")}|${collectionsSnapshot}`;
+        const genreKinds = rows.flatMap((row) => (row.kind === "genres" ? [row.mediaKind] : []));
+        // 库状态（含作品数）没变，类型分布也不会变：与条目共用同一个快照闸
+        const snapshot = `${libsSnapshot}|${[...fetches.keys(), ...genreKinds.map((k) => `genres:${k}`)].join(",")}|${collectionsSnapshot}`;
         if (snapshot === lastSnapshot.current) return;
-        const entries = await Promise.all(
-          [...fetches].map(
-            async ([key, fetch]) => [key, await fetch().catch((): LibraryItem[] => [])] as const,
+        const [entries, genreEntries] = await Promise.all([
+          Promise.all(
+            [...fetches].map(
+              async ([key, fetch]) => [key, await fetch().catch((): LibraryItem[] => [])] as const,
+            ),
           ),
-        );
+          Promise.all(
+            genreKinds.map(
+              async (kind) => [kind, await listKindGenres(kind).catch((): FacetValue[] => [])] as const,
+            ),
+          ),
+        ]);
         if (seq !== reloadSeq.current) return;
         lastSnapshot.current = snapshot;
         setItemsByKey(new Map(entries));
+        setGenresByKind(new Map(genreEntries));
       })
       // 瞬时失败不清已有数据：failed 只决定提示条，卡片继续用上一份快照，
       // 下一轮轮询成功即自动恢复（整页错误屏只留给一次都没加载成功的情况）
@@ -331,8 +350,9 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
       upNext: upNext ?? [],
       favorites: favorites ?? { items: [], total: 0 },
       itemsByKey,
+      genresByKind,
     };
-  }, [libraries, collections, upNext, favorites, itemsByKey]);
+  }, [libraries, collections, upNext, favorites, itemsByKey, genresByKind]);
 
   // 有库在扫描/整理时轮询刷新，任务完成即看到最新库存与文件名
   const busyAny = (libraries ?? []).some((l) => l.scanning || l.organizing);
@@ -533,6 +553,30 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
             </HScroller>
           </section>
         );
+      case "genres": {
+        // 每个有片的类型一格，按部数倒序（服务端排好）；一格都没有时整段隐藏
+        const genres = genresByKind.get(row.mediaKind) ?? [];
+        if (genres.length === 0) return null;
+        return (
+          <section key={row.id} className="mt-8 max-md:mt-6" data-testid={`home-row-${row.id}`}>
+            <h3 className="text-on-image page-inset text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
+              {rowTitle(row)}
+            </h3>
+            <HScroller className="mt-3 gap-4 pb-1 pt-1 page-inset max-md:gap-2.5">
+              {genres.map((genre) => (
+                <GenreTile
+                  key={genre.value}
+                  genreId={Number(genre.value)}
+                  label={genre.label}
+                  count={genre.count}
+                  href={`/library/kind/${row.mediaKind}?g=${genre.value}` as Route}
+                  className="w-[208px] shrink-0 max-md:w-[140px]"
+                />
+              ))}
+            </HScroller>
+          </section>
+        );
+      }
       case "library":
         return contentRow(row, `/library/${row.library.id}` as Route);
       case "media-kind":

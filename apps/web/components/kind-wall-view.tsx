@@ -4,6 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 
 import type { Route } from "next";
 
+import { GenreArtwork } from "@/components/genre-tile";
 import { WallLoadMore } from "@/components/wall-chrome";
 import { WallSortControl } from "@/components/library-filter-bar";
 import { PosterWall } from "@/components/poster-wall";
@@ -15,7 +16,9 @@ import {
   getKindSummary,
   listKindItems,
 } from "@/lib/api/libraries";
+import { GENRE_TONES } from "@/lib/genre-palette";
 import { MEDIA_KIND_LABELS } from "@/lib/home-rows";
+import type { LibraryFilter } from "@/lib/library-filter";
 import {
   PREF_TO_SORT,
   SORT_DIRECTIONS,
@@ -60,7 +63,8 @@ interface KindWallSnapshot {
   sortKey: string;
 }
 
-const snapshots = new Map<HomeMediaKind, KindWallSnapshot>();
+/** 键 = 类型 + 预设的 genre（`movie` / `movie:878`）：同一类型不同 genre 的墙各存一份。 */
+const snapshots = new Map<string, KindWallSnapshot>();
 
 /**
  * 按类型的跨库海报墙（/library/kind/{类型}）：首页「全部电影」那一行点「查看全部」
@@ -72,11 +76,19 @@ const snapshots = new Map<HomeMediaKind, KindWallSnapshot>();
  *
  * 刻意比单库页薄：没有筛选条（facet 统计按单库算，跨库版本留到下一期）、没有
  * 索引条与图床浏览，只有排序。
+ *
+ * 带 `genre`（`?g=878`）时是首页「电影类型」色块的落点：墙按这个 TMDB 类型筛好，
+ * 页头换成与色块同一块网格渐变，标题是类型名。
  */
-export function KindWallView({ kind }: { kind: HomeMediaKind }) {
-  const label = `全部${MEDIA_KIND_LABELS[kind]}`;
-  usePageTitle(label);
-  const initialSnapshot = snapshots.get(kind) ?? null;
+export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: number }) {
+  const genreName = genre === undefined ? null : (GENRE_TONES[genre]?.name ?? `类型 ${genre}`);
+  const label = genreName ?? `全部${MEDIA_KIND_LABELS[kind]}`;
+  usePageTitle(genreName ? `${genreName} · ${MEDIA_KIND_LABELS[kind]}` : label);
+  const wallKey = genre === undefined ? kind : `${kind}:${genre}`;
+  const filter: LibraryFilter | undefined = genre === undefined ? undefined : { genres: [genre] };
+  // ref 版：load / reload 回调里读，不必为它重建回调链（genre 变了组件会整个重挂，见 page.tsx）
+  const filterRef = useRef(filter);
+  const initialSnapshot = snapshots.get(wallKey) ?? null;
   const [{ pref: sortPref, reversed: sortReversed }, setSortPref, toggleSortReversed, sortReady] =
     useWallSortPref(`movieclaw.library.kind-wall-sort.${kind}`);
   const effectiveSort: LibraryItemSort =
@@ -87,7 +99,7 @@ export function KindWallView({ kind }: { kind: HomeMediaKind }) {
   const sortRef = useRef({ sort: effectiveSort, order: orderParam(effectiveSort, sortReversed) });
   sortRef.current = { sort: effectiveSort, order: orderParam(effectiveSort, sortReversed) };
 
-  const restoreScrollRef = useScrollRestoration(`library:kind:${kind}`, {
+  const restoreScrollRef = useScrollRestoration(`library:kind:${wallKey}`, {
     anchorAttribute: "data-library-item-id",
     restore: initialSnapshot !== null,
   });
@@ -108,8 +120,13 @@ export function KindWallView({ kind }: { kind: HomeMediaKind }) {
       try {
         // 总数只在墙首取一次：往下翻页时数量不变，不必每页多打一个请求
         const [summary, page] = await Promise.all([
-          offset === 0 ? getKindSummary(kind) : null,
-          listKindItems(kind, { ...sortRef.current, limit: PAGE_SIZE, offset }),
+          offset === 0 ? getKindSummary(kind, filterRef.current) : null,
+          listKindItems(kind, {
+            ...sortRef.current,
+            limit: PAGE_SIZE,
+            offset,
+            filter: filterRef.current,
+          }),
         ]);
         if (summary) {
           setTotal(summary.item_count);
@@ -140,9 +157,14 @@ export function KindWallView({ kind }: { kind: HomeMediaKind }) {
       loading.current = true;
       try {
         const [summary, ...pages] = await Promise.all([
-          getKindSummary(kind),
+          getKindSummary(kind, filterRef.current),
           ...Array.from({ length: Math.ceil(loadedCount / PAGE_SIZE) }, (_, page) =>
-            listKindItems(kind, { ...sortRef.current, limit: PAGE_SIZE, offset: page * PAGE_SIZE }),
+            listKindItems(kind, {
+              ...sortRef.current,
+              limit: PAGE_SIZE,
+              offset: page * PAGE_SIZE,
+              filter: filterRef.current,
+            }),
           ),
         ]);
         setTotal(summary.item_count);
@@ -172,13 +194,13 @@ export function KindWallView({ kind }: { kind: HomeMediaKind }) {
   // 布局提交后就更新快照：新路由的首次 render 可能早于被动 effect 的 cleanup
   useLayoutEffect(() => {
     if (items === null) return;
-    snapshots.set(kind, {
+    snapshots.set(wallKey, {
       items,
       total,
       libraryCount,
       sortKey: windowSort.current ?? sortKey,
     });
-  }, [kind, items, total, libraryCount, sortKey]);
+  }, [wallKey, items, total, libraryCount, sortKey]);
 
   const loaded = items?.length ?? 0;
   const hasMore = items !== null && loaded < total;
@@ -191,16 +213,33 @@ export function KindWallView({ kind }: { kind: HomeMediaKind }) {
     <div ref={restoreScrollRef} className="scroll-thin scroll-safe flex-1 overflow-y-auto pb-10">
       <PageNav title={label} fallback={{ label: "媒体库", href: "/library" as Route }} />
       <div className="page-inset">
-        <h2 className="text-on-image truncate text-[26px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[20px]">
-          {label}
-        </h2>
-        <p className="text-on-image mt-1.5 truncate text-ui text-[var(--text-muted)] max-md:text-sub">
-          {items === null
-            ? "正在读取…"
-            : libraryCount === 0
-              ? `还没有可浏览的${MEDIA_KIND_LABELS[kind]}库`
-              : `${total} 部作品 · 来自 ${libraryCount} 个库，同一部片只算一次`}
-        </p>
+        {genre !== undefined ? (
+          // 色块的落点：页头就是那块色块放大，进来的人一眼知道自己在哪
+          <div className="relative isolate flex h-[148px] flex-col justify-end overflow-hidden rounded-[22px] px-6 pb-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_0_0_0.5px_rgba(255,255,255,0.1)] max-md:h-[116px] max-md:rounded-[18px] max-md:px-4 max-md:pb-4">
+            <GenreArtwork genreId={genre} />
+            <h2 className="truncate text-[30px] font-semibold leading-tight tracking-[0.04em] text-white max-md:text-[24px]">
+              {label}
+            </h2>
+            <p className="mt-1 truncate text-ui tabular-nums text-white/75 max-md:text-sub">
+              {items === null
+                ? "正在读取…"
+                : `${total} 部${MEDIA_KIND_LABELS[kind]} · 来自 ${libraryCount} 个库`}
+            </p>
+          </div>
+        ) : (
+          <>
+            <h2 className="text-on-image truncate text-[26px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[20px]">
+              {label}
+            </h2>
+            <p className="text-on-image mt-1.5 truncate text-ui text-[var(--text-muted)] max-md:text-sub">
+              {items === null
+                ? "正在读取…"
+                : libraryCount === 0
+                  ? `还没有可浏览的${MEDIA_KIND_LABELS[kind]}库`
+                  : `${total} 部作品 · 来自 ${libraryCount} 个库，同一部片只算一次`}
+            </p>
+          </>
+        )}
         {!empty && items !== null && (
           <div className="mt-3 flex items-center">
             <WallSortControl

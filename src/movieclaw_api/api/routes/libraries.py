@@ -41,6 +41,7 @@ from movieclaw_api.schemas.library import (
     ConsolidateRootsPreviewView,
     DetachPayload,
     DirectorView,
+    FacetValueView,
     FileOriginView,
     IdentityReviewDecision,
     ItemCollectionRef,
@@ -137,6 +138,7 @@ from movieclaw_api.services.library.items import (
     LibraryFilter,
     _wall_count,
     build_item_detail,
+    build_kind_genres,
     build_kind_wall,
     build_library_facets,
     build_library_gallery,
@@ -4325,6 +4327,34 @@ async def get_library_kind_summary(
         else 0
     )
     return ok(LibraryKindSummaryView(kind=kind, library_ids=sorted(library_ids), item_count=count))
+
+
+@kinds_router.get(
+    "/{kind}/genres",
+    response_model=ApiResponse[list[FacetValueView]],
+    summary="按类型跨库的 TMDB 类型分布（首页「电影类型 / 剧集类型」色块）",
+    operation_id="ui.library.kind.genres",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def list_library_kind_genres(
+    kind: Literal["movie", "tv"],
+    session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(require_login),
+) -> ApiResponse[list[FacetValueView]]:
+    """每个类型一格：``value`` 是 TMDB genre id（点进去带 ``g=value`` 开墙），
+    ``label`` 是中文名，``count`` 是跨库去重后的部数。只回有片的类型，按部数倒序；
+    这一类型一个可见库都没有时回空清单，前端据此不画这一区。
+
+    类型名在这里给而不是让客户端内置：唯一真相源在后端（movieclaw_media.genres），
+    成员也拿得到（``/libraries/routing-options`` 只给管理员）。
+    """
+
+    member_id, library_ids, content_limit = await _kind_scope(session, principal, kind)
+    return ok(
+        await build_kind_genres(
+            session, library_ids, kind, member_id=member_id, content_limit=content_limit
+        )
+    )
 
 
 @kinds_router.get(

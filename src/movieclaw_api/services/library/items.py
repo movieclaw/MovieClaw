@@ -104,7 +104,7 @@ from movieclaw_db.models import (
     utcnow,
 )
 from movieclaw_db.repositories.library_repo import LibraryRepository
-from movieclaw_media.genres import country_label, genre_label
+from movieclaw_media.genres import country_label, genre_label, genre_names
 from movieclaw_media.models import MediaKind
 
 logger = logging.getLogger("movieclaw_api.library_items")
@@ -823,7 +823,7 @@ _WATCH_LABELS: list[tuple[WatchFilter, str]] = [
 
 
 def _facet_scope(
-    library_id: int,
+    library_id: LibraryScope,
     filters: LibraryFilter | None,
     member_id: int | None,
     skip: str,
@@ -858,7 +858,7 @@ def _with_selected(rows, selected: tuple) -> list[FacetValueView]:
 async def _json_facet(
     session: AsyncSession,
     column,
-    library_id: int,
+    library_id: LibraryScope,
     filters: LibraryFilter | None,
     member_id: int | None,
     skip: str,
@@ -1721,6 +1721,47 @@ async def kind_library_ids(
         )
     )
     return frozenset(i for i in rows.scalars().all() if i is not None and i in visible)
+
+
+async def build_kind_genres(
+    session: AsyncSession,
+    library_ids: frozenset[int],
+    kind: HomeKind,
+    *,
+    member_id: int,
+    content_limit: ContentLimit | None = None,
+) -> list[FacetValueView]:
+    """首页「电影类型 / 剧集类型」色块：跨库口径下每个 TMDB 类型有几部。
+
+    与单库筛选面板的类型 facet 同一条 ``_json_facet``，库范围换成这一类型的
+    一组库——点色块进去的那面墙（``/kinds/{kind}/items?g=``）走同一套
+    ``_wall_scope`` + ``_narrow``，色块上的数与墙上的格数结构上一致。
+
+    只回有片的类型（色块不该把人带进空墙），按数量倒序。类型名先按本类型的
+    表取，取不到再查另一张（电视库里偶有按电影类型刮削的条目）；两张表都不认
+    的 id 丢掉——色块上印个裸数字没有意义。
+    """
+    if not library_ids:
+        return []
+    rows = await _json_facet(
+        session,
+        MediaMetadata.genre_ids,
+        library_ids,
+        None,
+        member_id,
+        "genres",
+        content_limit=content_limit,
+    )
+    own = genre_names(kind)
+    other = genre_names("tv" if kind == "movie" else "movie")
+    views: list[FacetValueView] = []
+    for value, count in sorted(rows, key=lambda r: (-r[1], r[0])):
+        if count <= 0 or not value.lstrip("-").isdigit():
+            continue
+        label = own.get(int(value)) or other.get(int(value))
+        if label:
+            views.append(FacetValueView(value=value, label=label, count=count))
+    return views
 
 
 async def build_kind_wall(

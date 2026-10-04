@@ -15,6 +15,10 @@
  * 行的来源有三种：一个库、一个合集、一种类型（「全部电影」：可见且没被排除首页的
  * 同类型库合成一面墙，同一部片跨库只出现一次，见设计文档 §8）。
  *
+ * 另有两条内置的「类型色块」行（`genres:movie` / `genres:tv`）：每个 TMDB 类型一格
+ * 网格渐变色块，点进去是按该类型筛好的跨库墙。默认显示、可隐藏，排在「我的媒体库」
+ * 之后；库范围与「全部电影」同一口径，这一类型一个库都没有时整行不出现。
+ *
  * 本模块刻意不 import 任何组件或 `@/` 别名：合并规则是这个功能里唯一会出事的
  * 地方，保持无依赖才能用 node --test 直接单测（见 test/home-rows.test.mjs）。
  */
@@ -65,6 +69,11 @@ export type HomeMediaKind = "movie" | "tv" | "video";
 
 export const HOME_MEDIA_KINDS: HomeMediaKind[] = ["movie", "tv", "video"];
 
+/** 有类型色块行的库类型：TMDB 的类型表只分电影与剧集。 */
+export type GenreRowKind = "movie" | "tv";
+
+export const GENRE_ROW_KINDS: GenreRowKind[] = ["movie", "tv"];
+
 /** 类型行的叫法：「全部电影」「全部剧集」「全部其他视频」。 */
 export const MEDIA_KIND_LABELS: Record<HomeMediaKind, string> = {
   movie: "电影",
@@ -105,6 +114,15 @@ export type HomeRow =
       reversed: boolean;
     }
   | { id: "libraries"; kind: "libraries"; hidden: boolean }
+  | {
+      /** 「电影类型 / 剧集类型」色块行：内置，只能藏，不能删、没有排序 */
+      id: `genres:${GenreRowKind}`;
+      kind: "genres";
+      hidden: boolean;
+      mediaKind: GenreRowKind;
+      /** 参与聚合的库（可见、没勾「从首页排除」），自定义页小字用 */
+      libraries: HomeLibraryLike[];
+    }
   | {
       id: string;
       kind: "library";
@@ -355,6 +373,8 @@ export function rowTitle(row: HomeRow): string {
       return "我的收藏";
     case "libraries":
       return "我的媒体库";
+    case "genres":
+      return `${MEDIA_KIND_LABELS[row.mediaKind]}类型`;
     case "library":
       return (
         row.name || SORT_PRESETS[row.sort].name(row.library.name, row.reversed)
@@ -388,6 +408,8 @@ export function rowMeta(row: HomeRow): string {
       return `内置 · ${FAVORITES_SORT_PRESETS[row.sort].name(row.reversed)}`;
     case "libraries":
       return "内置 · 管理页的库顺序";
+    case "genres":
+      return `内置 · 按类型浏览全部${MEDIA_KIND_LABELS[row.mediaKind]}（${row.libraries.length} 个库）`;
     case "library":
       return [
         `${row.library.name}库`,
@@ -433,8 +455,19 @@ export function mediaKindGroups(
   return groups;
 }
 
+/** 类型色块行（每种有库的类型一条），出厂布局里紧跟「我的媒体库」。 */
+function genreRows(kindGroups: Map<HomeMediaKind, HomeLibraryLike[]>): HomeRow[] {
+  return GENRE_ROW_KINDS.flatMap((mediaKind): HomeRow[] => {
+    const libraries = kindGroups.get(mediaKind);
+    return libraries
+      ? [{ id: `genres:${mediaKind}` as const, kind: "genres", hidden: false, mediaKind, libraries }]
+      : [];
+  });
+}
+
 /**
- * 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 每个库一行「最近添加」。
+ * 出厂布局：接下来继续 → 我的收藏 → 我的媒体库 → 电影类型 → 剧集类型 → 每个库一行
+ * 「最近添加」。
  *
  * 不带类型行（「全部电影」）：它要用户在自定义页里主动添加才出现。默认生成的话，
  * 同类型只有一个库时它与那个库的默认行一模一样，藏起来又会在自定义页里多出一排
@@ -451,6 +484,7 @@ function defaultRows(libraries: HomeLibraryLike[]): HomeRow[] {
       reversed: false,
     },
     { id: "libraries", kind: "libraries", hidden: false },
+    ...genreRows(mediaKindGroups(libraries)),
     ...libraries
       .filter((library) => !library.exclude_from_home)
       .map((library): HomeRow => ({
@@ -501,9 +535,17 @@ export function buildHomeRows(
 
   // 没存过的内置行追加在末尾（版本升级新增的入口不能消失）
   for (const row of defaults) {
-    if (row.kind === "library" || seen.has(row.id)) continue;
+    if (row.kind === "library" || row.kind === "genres" || seen.has(row.id)) continue;
     seen.add(row.id);
     rows.push(row);
+  }
+  // 没存过的类型色块行（版本升级新增）插在「我的媒体库」之后，与出厂布局同一位置
+  // ——追加到队尾会落在一长串库行、合集行后面，老用户几乎看不到
+  const missingGenres = defaults.filter((row) => row.kind === "genres" && !seen.has(row.id));
+  if (missingGenres.length > 0) {
+    for (const row of missingGenres) seen.add(row.id);
+    const librariesRow = rows.findIndex((row) => row.kind === "libraries");
+    rows.splice(librariesRow >= 0 ? librariesRow + 1 : rows.length, 0, ...missingGenres);
   }
   // 没存过的库（新建的、或存清单之后才可见的）补一条默认行，插在最后一条库行之后
   // ——放在队尾会落到合集行后面，"新库的最近添加"混在合集里不像是首页的默认行
@@ -516,7 +558,11 @@ export function buildHomeRows(
     const lastLibrary = rows.map((row) => row.kind).lastIndexOf("library");
     const librariesRow = rows.findIndex((row) => row.kind === "libraries");
     if (lastLibrary >= 0) at = lastLibrary + 1;
-    else if (librariesRow >= 0) at = librariesRow + 1;
+    else if (librariesRow >= 0) {
+      at = librariesRow + 1;
+      // 出厂布局里类型色块行紧跟「我的媒体库」，库行在它们之后
+      while (rows[at]?.kind === "genres") at++;
+    }
     rows.splice(at, 0, ...missing);
   }
   return rows;
@@ -532,6 +578,12 @@ function resolveRow(
   if (pref.id === "up-next") return { id: "up-next", kind: "up-next", hidden };
   if (pref.id === "libraries")
     return { id: "libraries", kind: "libraries", hidden };
+  if (pref.id === "genres:movie" || pref.id === "genres:tv") {
+    const mediaKind: GenreRowKind = pref.id === "genres:movie" ? "movie" : "tv";
+    const libraries = kindGroups.get(mediaKind);
+    if (!libraries) return null;
+    return { id: pref.id, kind: "genres", hidden, mediaKind, libraries };
+  }
   if (pref.id === "favorites") {
     const sort = FAVORITES_SORTS.has(pref.sort ?? "")
       ? (pref.sort as FavoritesSort)
