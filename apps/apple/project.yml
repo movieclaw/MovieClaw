@@ -260,6 +260,9 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         MCAppGroup: group.$(MC_BUNDLE_ID_PREFIX).app
+        # App Store Connect 校验要求：64 位扩展也得声明 arm64，缺了上传会被拒（Invalid Bundle）
+        UIRequiredDeviceCapabilities:
+          - arm64
         NSExtension:
           NSExtensionPointIdentifier: com.apple.tv-top-shelf
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).TopShelfProvider
