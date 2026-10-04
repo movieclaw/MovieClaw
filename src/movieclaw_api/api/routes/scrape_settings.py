@@ -13,6 +13,8 @@ Web 端总是整体提交（行为无差别），但 CLI 与 Agent 天然是"只
 - GET  /scrape/language-options —— 完整语种表（TMDB configuration/languages，
   进程内缓存；TMDB 不可用时回落内置常用表）；
 - GET  /scrape/country-options —— 完整地区表（configuration/countries，同上）。
+- GET  /scrape/fanart —— Fanart.tv 凭据状态（配没配、是否失效、末四位，不含明文）；
+- PUT  /scrape/fanart —— 验证并保存 Fanart.tv API Key（验证不过不保存）。
 
 配置的运行时装配见 ``services/scrape_config.py``。
 """
@@ -25,6 +27,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.exceptions import BadRequestException, UpstreamUnreachableException
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.media_discover import get_tmdb_client, reset_media_service
 from movieclaw_api.services.scrape_config import (
@@ -166,6 +169,68 @@ async def get_image_storage_estimate(
     from movieclaw_api.services.image_estimate import estimate_image_storage
 
     return ok(ImageStorageEstimateView.model_validate(await estimate_image_storage(session)))
+
+
+# ---------------------------------------------------------------------------
+# Fanart.tv 凭据（docs/design/image-sources.md §3）
+# ---------------------------------------------------------------------------
+
+
+class FanartStatusView(BaseModel):
+    configured: bool = Field(description="是否已保存过 Fanart.tv API Key")
+    key_invalid: bool = Field(
+        description="已保存的 Key 被 Fanart.tv 拒绝过（刮削时遇到 401），需要重新填写"
+    )
+    key_hint: str = Field(description="Key 的末四位（展示「••••abcd」用）；没配置为空串")
+
+
+class FanartKeyPayload(BaseModel):
+    api_key: str = Field(min_length=1, max_length=200, description="Fanart.tv API Key")
+
+
+@router.get(
+    "/fanart",
+    response_model=ApiResponse[FanartStatusView],
+    summary="Fanart.tv 图片来源的 Key 状态（不含明文）",
+    operation_id="scrape.fanart.show",
+)
+async def get_fanart_status() -> ApiResponse[FanartStatusView]:
+    """Fanart.tv 需要使用者自己的 API Key（fanart.tv 免费注册即可获得），本项目
+    不内置。这里只回配没配、是否已失效与末四位。"""
+    from movieclaw_api.services.fanart import fanart_status
+
+    return ok(FanartStatusView(**fanart_status()))
+
+
+@router.put(
+    "/fanart",
+    response_model=ApiResponse[FanartStatusView],
+    summary="验证并保存 Fanart.tv API Key（全站共用；验证不过不保存）",
+    operation_id="scrape.fanart.set-key",
+)
+async def save_fanart_key(payload: FanartKeyPayload) -> ApiResponse[FanartStatusView]:
+    """先用这把 Key 向 Fanart.tv 发一次真实请求，通过了才保存（原有 Key 不受
+    失败的尝试影响）。保存后自动选图是否使用 Fanart 由刮削配置里的
+    fanart_enabled 决定：mclaw scrape set --fanart-enabled true"""
+    from movieclaw_api.services.fanart import fanart_status, verify_and_save_key
+    from movieclaw_media.fanart import FanartAuthError, FanartError, FanartNetworkError
+
+    try:
+        await verify_and_save_key(payload.api_key)
+    except FanartAuthError as exc:
+        raise BadRequestException(
+            "Key 无效：Fanart.tv 返回「401 未授权」。请检查是否复制完整，"
+            "或到 fanart.tv 个人页重新生成"
+        ) from exc
+    except FanartNetworkError as exc:
+        raise UpstreamUnreachableException(
+            str(exc),
+            service="fanart",
+            hint="到「设置 → 网络与代理」为「Fanart.tv」开启代理后再试",
+        ) from exc
+    except FanartError as exc:
+        raise BadRequestException(str(exc)) from exc
+    return ok(FanartStatusView(**fanart_status()), message="Fanart.tv API Key 已验证并保存")
 
 
 # ---------------------------------------------------------------------------

@@ -31,6 +31,18 @@ export interface ScrapeSetting {
    * custom 或空串（没选过）时逐项「设置值 > 环境变量」。
    */
   image_quality: ImageQuality | "";
+  /** 片名 Logo 语言优先级（token 同海报/背景：meta / orig / null / 语言码） */
+  logo_language_priority: string[];
+  /**
+   * 自动选图是否使用 Fanart.tv（docs/design/image-sources.md）。需先配置 Key——
+   * Key 是凭据，不在这份配置里，走 getFanartStatus / saveFanartKey。
+   */
+  fanart_enabled: boolean;
+  /** 各类图的来源顺序：只在同一档语言两个来源都有图时起作用（语言先于来源） */
+  poster_source_order: ImageSource[];
+  backdrop_source_order: ImageSource[];
+  logo_source_order: ImageSource[];
+  season_poster_source_order: ImageSource[];
   /** 命名模板；空串 = 用内置默认（即模板化之前的行为） */
   naming_entry_dir: string;
   naming_movie_file: string;
@@ -62,6 +74,12 @@ export const ITEM_SCOPED_KEYS = [
   "still_size",
   "profile_size",
   "image_quality",
+  "logo_language_priority",
+  "fanart_enabled",
+  "poster_source_order",
+  "backdrop_source_order",
+  "logo_source_order",
+  "season_poster_source_order",
 ] as const;
 
 export const DIR_SCOPED_KEYS = [
@@ -89,6 +107,9 @@ export interface ScrapeEffective {
   /** 界面该选中的画质档：显式选过就是它；没选过时按四个档位反推（等于某个预设就是它，否则 custom） */
   image_quality: ImageQuality;
 }
+
+/** 图片来源：TMDB 始终在，Fanart.tv 可选。 */
+export type ImageSource = "tmdb" | "fanart";
 
 /** 本地图片画质的四个选项；custom = 四个档位逐项指定。 */
 export type ImageQuality = "original" | "standard" | "compact" | "custom";
@@ -174,6 +195,32 @@ export function listLanguageOptions(): Promise<LanguageOption[]> {
 
 export function listCountryOptions(): Promise<CountryOption[]> {
   return unwrap(request<ApiEnvelope<CountryOption[]>>("/scrape/country-options"));
+}
+
+/**
+ * Fanart.tv 的 Key 状态（不含明文）。Key 全站一份：用户在第一次用 Fanart 的地方
+ * 就地填一次（设置开关、库设置、换图弹层），之后到处可用。
+ */
+export interface FanartStatus {
+  configured: boolean;
+  /** 刮削时被 Fanart.tv 拒绝过（401）：已暂停使用，需要重新填写 */
+  key_invalid: boolean;
+  /** 末四位，展示「••••abcd」用 */
+  key_hint: string;
+}
+
+export function getFanartStatus(): Promise<FanartStatus> {
+  return unwrap(request<ApiEnvelope<FanartStatus>>("/scrape/fanart"));
+}
+
+/** 验证并保存 Key：后端先向 Fanart.tv 真发一次请求，通过才保存；不通过抛 HttpError（中文原因）。 */
+export function saveFanartKey(apiKey: string): Promise<FanartStatus> {
+  return unwrap(
+    request<ApiEnvelope<FanartStatus>>("/scrape/fanart", {
+      method: "PUT",
+      body: JSON.stringify({ api_key: apiKey }),
+    }),
+  );
 }
 
 /** 发现页院线地区（页脚就地设置）。 */

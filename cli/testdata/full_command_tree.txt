@@ -298,6 +298,9 @@ rules list
 rules update
 scrape
 scrape countries
+scrape fanart
+scrape fanart set-key
+scrape fanart show
 scrape languages
 scrape set
 scrape show

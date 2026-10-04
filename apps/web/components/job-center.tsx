@@ -237,13 +237,16 @@ function progressAmount(job: JobView): string | null {
   return `${current} / ${total} ${unit}`;
 }
 
-/** 元数据刷新的图片记账（details.images）：新下载 / 沿用 / 失败 / 抓帧 / 字节数 */
+/** 元数据刷新的图片记账（details.images）：新下载 / 沿用 / 收编 / 本地缩图 / 失败 / 抓帧 / 字节数 */
 function imageTally(details: Record<string, unknown>) {
   const raw = details.images;
   const value = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   return {
     downloaded: detailNumber(value, "downloaded") ?? 0,
     reused: detailNumber(value, "reused") ?? 0,
+    // 不联网取到的图：从媒体目录收编同一张图 / 从本地更大档位缩出来（services/asset_reuse.py）
+    adopted: detailNumber(value, "adopted") ?? 0,
+    derived: detailNumber(value, "derived") ?? 0,
     failed: detailNumber(value, "failed") ?? 0,
     grabbed: detailNumber(value, "grabbed") ?? 0,
     bytes: detailNumber(value, "bytes") ?? 0,
@@ -290,6 +293,8 @@ export function jobDetailItems(job: JobView): Array<{ label: string; alert?: boo
       items.push({ label: `新下载 ${images.downloaded} 张 · ${formatBytes(images.bytes)}` });
     }
     if (images.reused) items.push({ label: `沿用 ${images.reused} 张` });
+    if (images.adopted) items.push({ label: `从媒体目录收编 ${images.adopted} 张` });
+    if (images.derived) items.push({ label: `本地缩图 ${images.derived} 张` });
     if (images.grabbed) items.push({ label: `截取 ${images.grabbed} 张剧照` });
   } else if (job.job_type === "library.organize") {
     const errors = detailCount(details, "errors");

@@ -38,6 +38,7 @@ from movieclaw_api.settings.llm import LlmDefaultsSetting
 from movieclaw_api.settings.mcp import McpEndpoint, McpEndpointsSetting
 from movieclaw_api.settings.metadata import (
     DiscoverPreferencesSetting,
+    FanartSetting,
     MetadataScrapeSetting,
 )
 from movieclaw_api.settings.network import (
@@ -102,6 +103,7 @@ __all__ = [
     "AdminAccountSetting",
     "SessionSecretSetting",
     # 刮削与发现页偏好
+    "FanartSetting",
     "MetadataScrapeSetting",
     "DiscoverPreferencesSetting",
     # 网络与代理

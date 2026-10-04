@@ -240,11 +240,12 @@ async def _tmdb_image(tmdb_path: str, itype: str, request: Request) -> Response:
     """TMDB 图床兜底：经图片代理拉取缓存后直出（档位对齐 Web 的兜底展示）。"""
     from movieclaw_api.services.image_cache import get_image_cache
     from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
+    from movieclaw_api.services.tmdb_images import remote_image_url
 
     base = effective_tmdb_image_base_url().rstrip("/")
     size = _ITEM_IMAGE_LAYERS[itype][2]
     try:
-        cached = await get_image_cache().get_or_fetch(f"{base}/{size}{tmdb_path}")
+        cached = await get_image_cache().get_or_fetch(remote_image_url(base, size, tmdb_path))
     except Exception:
         raise JellyfinError(
             404, text=f"Item does not have an image of type {itype.capitalize()}"

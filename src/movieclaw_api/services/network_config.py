@@ -197,6 +197,13 @@ async def _probe_target(service: str, session: AsyncSession) -> tuple[str, dict[
         }
     if service == "image":
         return effective_tmdb_image_base_url(), {}
+    if service == "fanart":
+        # 与刮削同口径：配过 Key 就带上（请求头，不进 URL），一次请求同时测线路与 Key；
+        # 没配 Key 也能测线路（Fanart 回 401「缺少 Key」照样说明连得通）
+        from movieclaw_api.services.fanart import current_fanart_setting
+
+        key = current_fanart_setting().api_key
+        return "https://webservice.fanart.tv/v3/movies/550", ({"api-key": key} if key else {})
     if service == "llm":
         # 端点与密钥的解析复用 llm_config（唯一判据来源）；这里只做
         # 轻量连通性探测（/models），完整有效性验证仍归 verify_llm_provider
@@ -273,6 +280,18 @@ def _classify_probe(service: str, status_code: int) -> NetworkTestResult:
             message = "网络连通，API Key 有效"
         elif status_code in (401, 403):
             message = "网络连通，但 API Key 无效"
+        else:
+            message = f"网络连通（HTTP {status_code}）"
+        return NetworkTestResult(ok=True, message=message)
+    if service == "fanart":
+        from movieclaw_api.services.fanart import current_fanart_setting
+
+        if status_code == 200:
+            message = "网络连通，API Key 有效"
+        elif status_code == 401 and not current_fanart_setting().api_key:
+            message = "网络连通（尚未填写 Fanart.tv API Key）"
+        elif status_code == 401:
+            message = "网络连通，但 Fanart.tv API Key 无效"
         else:
             message = f"网络连通（HTTP {status_code}）"
         return NetworkTestResult(ok=True, message=message)

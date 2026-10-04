@@ -60,6 +60,7 @@ from movieclaw_api.services.playback.session import (
     TranscodeSession,
     get_session_manager,
 )
+from movieclaw_api.services.tmdb_images import remote_image_url
 from movieclaw_db.engine import get_database, get_session
 from movieclaw_db.models import LibraryFile, MediaItem
 from movieclaw_db.repositories.media_repo import MediaItemRepository
@@ -618,7 +619,9 @@ async def transcode_poster(
             variant=ImageVariant.POSTER_CARD,
         )
     elif item.poster_path:
-        url = f"{effective_tmdb_image_base_url().rstrip('/')}/w500{item.poster_path}"
+        url = remote_image_url(
+            effective_tmdb_image_base_url().rstrip("/"), "w500", item.poster_path
+        )
         variant = await get_image_variant_service().get_or_create_remote(
             url, variant=ImageVariant.POSTER_CARD
         )

@@ -20,6 +20,7 @@ from movieclaw_api.schemas.library import LibraryItemShowcaseView
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import content_limit_for, visible_library_ids
 from movieclaw_api.services.media_scrape import asset_version
+from movieclaw_api.services.tmdb_images import remote_image_url
 from movieclaw_db.models.library_file import LibraryFile
 from movieclaw_db.models.media_item import MediaItem
 from movieclaw_db.models.media_metadata import MediaMetadata
@@ -34,7 +35,7 @@ def _asset_or_tmdb(asset_file: str | None, tmdb_path: str | None, size: str) -> 
         return f"/images/assets/{asset_file}?v={asset_version(asset_file)}"
     if tmdb_path:
         base = get_settings().tmdb_image_base_url.rstrip("/")
-        return f"{base}/{size}{tmdb_path}"
+        return remote_image_url(base, size, tmdb_path)
     return None
 
 

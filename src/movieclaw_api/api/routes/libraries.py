@@ -218,7 +218,12 @@ from movieclaw_api.services.playback.track_defaults import FileTrackDefaults, fi
 from movieclaw_api.services.scrape_config import resolve_scrape_library
 from movieclaw_api.services.subscription import SubscriptionService
 from movieclaw_api.services.title_discovery import parse_title_ref
-from movieclaw_api.services.tmdb_images import item_poster_url, local_media_files, tmdb_image_url
+from movieclaw_api.services.tmdb_images import (
+    item_poster_url,
+    local_media_files,
+    remote_image_url,
+    tmdb_image_url,
+)
 from movieclaw_db.engine import get_database, get_session
 from movieclaw_db.models import (
     ACTIVE_JOB_STATUSES,
@@ -951,7 +956,7 @@ async def list_identity_review(
                     title=current_item.title,
                     year=current_item.year,
                     poster_url=(
-                        f"{base}/w185{current_item.poster_path}"
+                        remote_image_url(base, "w185", current_item.poster_path)
                         if current_item.poster_path
                         else None
                     ),
@@ -962,7 +967,7 @@ async def list_identity_review(
                     title=suggestion.get("title") or "?",
                     year=suggestion.get("year"),
                     poster_url=(
-                        f"{base}/w185{suggestion['poster_path']}"
+                        remote_image_url(base, "w185", suggestion["poster_path"])
                         if suggestion.get("poster_path")
                         else None
                     ),
@@ -1896,6 +1901,7 @@ async def list_artwork_candidates_route(
             poster_locked=bool(meta and meta.poster_locked),
             backdrop_locked=bool(meta and meta.backdrop_locked),
             logo_locked=bool(meta and meta.logo_locked),
+            fanart=candidates.fanart,
         )
     )
 
@@ -3257,7 +3263,7 @@ async def preview_reidentify_item(
     base = effective_tmdb_image_base_url().rstrip("/")
 
     def poster(path: str | None) -> str | None:
-        return f"{base}/w185{path}" if path else None
+        return remote_image_url(base, "w185", path) if path else None
 
     view = ReidentifyPreviewView(
         current=ReviewItemView(

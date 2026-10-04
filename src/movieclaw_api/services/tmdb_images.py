@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Literal
 
+from movieclaw_media.fanart import is_absolute_image
+
 ImageKind = Literal["poster", "backdrop", "still", "logo", "profile"]
 
 # 片名 Logo 的资产档位固定取原图（见 media_scrape.LOGO_ASSET_SIZE）
@@ -32,7 +34,18 @@ def tmdb_image_url(path: str | None, kind: ImageKind) -> str | None:
     else:
         poster, backdrop, still = effective_asset_sizes()
         size = {"poster": poster, "backdrop": backdrop, "still": still}[kind]
-    return f"{effective_tmdb_image_base_url().rstrip('/')}/{size}{path}"
+    return remote_image_url(effective_tmdb_image_base_url().rstrip("/"), size, path)
+
+
+def remote_image_url(base: str, size: str, path: str) -> str:
+    """条目图片路径 → 远程地址。
+
+    条目的 poster_path / backdrop_path / logo_path / 季 poster_path 有两种形态：
+    TMDB 的相对路径（``/abc.jpg``，拼图床地址 + 档位）与 Fanart 的绝对地址
+    （``https://assets.fanart.tv/...``，固定规格、原样使用，见
+    docs/design/image-sources.md）。所有用条目路径拼地址的地方都走这里。
+    """
+    return path if is_absolute_image(path) else f"{base}/{size}{path}"
 
 
 # 条目的本地图片资产：(海报, 背景, Logo) 的相对路径，没下好的是 None
