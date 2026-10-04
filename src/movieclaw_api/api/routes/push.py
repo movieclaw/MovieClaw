@@ -214,6 +214,7 @@ async def register(
             key_id=payload.key_id,
             key=payload.key,
             permission=payload.permission,
+            client_version=payload.client_version,
         )
     )
 

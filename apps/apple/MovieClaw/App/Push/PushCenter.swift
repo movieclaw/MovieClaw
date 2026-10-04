@@ -156,7 +156,9 @@ final class PushCenter: NSObject {
         var jobs: [Job] = []
         for login in Self.savedLogins() {
             let body = API.PushRegistrationRequest.make(permission: permission, apnsToken: apnsToken, topic: Self.topic,
-                                                        environment: Self.environment) { store.ensureKey(for: login.info) }
+                                                        environment: Self.environment, clientVersion: DeviceInfo.appVersion) {
+                store.ensureKey(for: login.info)
+            }
             var hasher = Hasher()
             hasher.combine(login.token)
             hasher.combine(body)

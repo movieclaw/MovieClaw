@@ -7606,6 +7606,8 @@ nonisolated extension API {
         var keyId: String?
         var key: String?
         var permission: String
+        /// App 当前版本（登录时记下的会过时，借登记刷新）
+        var clientVersion: String?
 
         enum CodingKeys: String, CodingKey {
             case token
@@ -7615,6 +7617,7 @@ nonisolated extension API {
             case keyId = "key_id"
             case key
             case permission
+            case clientVersion = "client_version"
         }
     }
 

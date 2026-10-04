@@ -133,8 +133,12 @@ async def register(
     key_id: str | None,
     key: str | None,
     permission: str,
+    client_version: str | None = None,
 ) -> PushRegistrationView:
     device = await _current_push_device(session, principal)
+    # 版本是登录时记下的，App 升级后不重新登录就一直是旧的；每次启动的登记顺手刷新
+    if client_version and client_version.strip():
+        device.client_version = client_version.strip()
     reg = registration.validate(
         permission=permission,
         token=token,

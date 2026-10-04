@@ -589,6 +589,61 @@ def test_registration_requires_app_credentials(client: TestClient, world: World)
     assert _data(resp)["status"] == "permission_denied"
 
 
+def test_registration_refreshes_app_version(client: TestClient, world: World) -> None:
+    """登录时记下的版本会过时：App 升级后不重新登录，靠每次启动的登记刷新。"""
+    _connect(client, world)
+    saved = dict(client.cookies)
+    client.cookies.clear()
+    resp = client.post(
+        f"{_AUTH}/device/login",
+        json={
+            **_ADMIN,
+            "client": {
+                "kind": "ios",
+                "installation_id": "inst-old-app",
+                "name": "iPhone",
+                "client_version": "0.1.0",
+            },
+        },
+    )
+    for name, value in saved.items():
+        client.cookies.set(name, value)
+    bearer = _data(resp)["token"]
+
+    def version() -> str | None:
+        listed = _data(client.get("/api/v1/auth/devices"))
+        return next(d for d in listed if d["name"] == "iPhone")["client_version"]
+
+    assert version() == "0.1.0"
+    key = crypto.b64url(secrets.token_bytes(32))
+    registration = {
+        "token": "a7" * 32,
+        "topic": _OFFICIAL_TOPIC,
+        "environment": "production",
+        "key_id": crypto.b64url(secrets.token_bytes(8)),
+        "key": key,
+        "permission": "authorized",
+    }
+    resp = _as_app(
+        client,
+        bearer,
+        "PUT",
+        "/api/v1/push/me/registration",
+        json={**registration, "client_version": "0.3.0"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert version() == "0.3.0"
+    # 上报给云端的设备汇总跟着变
+    _data(client.post("/api/v1/cloud/renew"))
+    assert world.cloud.reports[-1]["devices"] == [
+        {"platform": "ios", "app_version": "0.3.0", "count": 1}
+    ]
+    # 旧版 App 不带这个字段：不清掉已有的版本
+    resp = _as_app(client, bearer, "PUT", "/api/v1/push/me/registration", json=registration)
+    assert resp.status_code == 200, resp.text
+    assert version() == "0.3.0"
+
+
 def test_push_end_to_end_through_official_relay(client: TestClient, world: World) -> None:
     _connect(client, world)
     bearer = _app_login(client, _ADMIN, installation="inst-iphone-1", name="iPhone 16 Pro")

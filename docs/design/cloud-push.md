@@ -383,7 +383,8 @@ App 里：
   "types": ["alert"],
   "key_id": "k7Qm2xP9Hn4",
   "key": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8",
-  "permission": "authorized"
+  "permission": "authorized",
+  "client_version": "0.3.0"
 }
 ```
 
@@ -392,6 +393,8 @@ App 里：
   通知、App 拿不到 APNs 令牌）。只报权限时，`denied` / `not_determined` 清掉已有的令牌，
   别的权限保留（见第 4 节）。
 - `key` 是 32 字节密钥的 base64url（无填充）；`key_id` 是 11 个 base64url 字符。
+- `client_version`（可选）：App 当前版本，写回设备行的 `client_version`。登录时记下的版本
+  在 App 升级后不会变，靠每次启动的登记刷新；不带时保留原值。上报里的 `app_version` 取它。
 
 响应 `PushRegistrationView`：`{registered, status, status_text, channel_name}`，
 `status` 同设备的 `push.status`。

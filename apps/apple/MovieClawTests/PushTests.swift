@@ -413,18 +413,20 @@ struct PushRegistrationTests {
 
     @Test func authorizedWithTokenSendsKey() throws {
         let body = API.PushRegistrationRequest.make(permission: .authorized, apnsToken: "a1b2c3", topic: "io.movieclaw.app",
-                                             environment: "development") { key }
+                                             environment: "development", clientVersion: "0.3.0") { key }
         #expect(body == API.PushRegistrationRequest(token: "a1b2c3", topic: "io.movieclaw.app", environment: "development", types: ["alert"],
-                                                    keyId: "k7Qm2xP9Hn4", key: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", permission: "authorized"))
+                                                    keyId: "k7Qm2xP9Hn4", key: "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8", permission: "authorized",
+                                                    clientVersion: "0.3.0"))
         let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any]
         #expect(json?["key_id"] as? String == "k7Qm2xP9Hn4", "字段名同接口契约")
-        #expect(Set(json?.keys.map { $0 } ?? []) == ["token", "topic", "environment", "types", "key_id", "key", "permission"])
+        #expect(Set(json?.keys.map { $0 } ?? []) == ["token", "topic", "environment", "types", "key_id", "key", "permission", "client_version"])
     }
 
     /// 关掉了通知、或拿不到 APNs 令牌：只报权限，不带令牌，也不为它生成密钥
     @Test func deniedOrTokenlessReportsPermissionOnly() throws {
         var keyRequested = false
-        let denied = API.PushRegistrationRequest.make(permission: .denied, apnsToken: "a1b2c3", topic: "t", environment: "production") {
+        let denied = API.PushRegistrationRequest.make(permission: .denied, apnsToken: "a1b2c3", topic: "t", environment: "production",
+                                                      clientVersion: "0.3.0") {
             keyRequested = true
             return key
         }
@@ -433,8 +435,10 @@ struct PushRegistrationTests {
         #expect(denied.permission == "denied")
         let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(denied)) as? [String: Any]
         #expect(json?["token"] == nil, "没有的字段不发")
+        #expect(json?["client_version"] as? String == "0.3.0", "只报权限时也刷新版本")
 
-        let tokenless = API.PushRegistrationRequest.make(permission: .notDetermined, apnsToken: nil, topic: "t", environment: "production") { key }
+        let tokenless = API.PushRegistrationRequest.make(permission: .notDetermined, apnsToken: nil, topic: "t", environment: "production",
+                                                         clientVersion: nil) { key }
         #expect(tokenless.token == nil && tokenless.key == nil)
         #expect(tokenless.permission == "not_determined")
     }

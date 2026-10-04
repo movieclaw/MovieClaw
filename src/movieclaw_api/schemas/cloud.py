@@ -229,6 +229,9 @@ class PushRegistrationRequest(BaseModel):
     key_id: str | None = Field(default=None, max_length=16)
     key: str | None = Field(default=None, max_length=64)
     permission: str = Field(max_length=16)
+    client_version: str | None = Field(
+        default=None, max_length=64, description="App 当前版本（登录时记下的会过时，借登记刷新）"
+    )
 
 
 class PushRegistrationView(BaseModel):
