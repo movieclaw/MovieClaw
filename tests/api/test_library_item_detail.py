@@ -461,6 +461,8 @@ async def test_item_detail_assembles_local_scrape(db, tmp_path, monkeypatch) -> 
 
     # 扫描时 ffprobe 对假字节探测失败（audio_streams=NULL）→ 等扫描补探回填
     monkeypatch.setattr(items_mod, "probe_media", lambda _path: _FAKE_SPEC)
+    # 模拟探测失败后的退避已到期，补探才能实际调用恢复后的探测器。
+    monkeypatch.setattr(items_mod, "probe_retry_due", lambda _path: True)
 
     async with db.session() as session:
         item = (
@@ -536,6 +538,7 @@ async def test_wall_reports_probe_pending_count(db, tmp_path, monkeypatch) -> No
 
     # 补探回填成功后归零
     monkeypatch.setattr(items_mod, "probe_media", lambda _path: _FAKE_SPEC)
+    monkeypatch.setattr(items_mod, "probe_retry_due", lambda _path: True)
     async with db.session() as session:
         rows = list((await session.execute(select(LibraryFile))).scalars().all())
         await items_mod.backfill_streams(session, rows)

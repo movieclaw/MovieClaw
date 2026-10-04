@@ -2073,7 +2073,18 @@ nonisolated extension APIClient {
         return try await send("GET", "/search/history/\(historyId)/results")
     }
 
-    /// 按关键词搜索已入库条目（跨全部媒体库，标题/原名匹配，按库分组）
+    /// 媒体库名称、别名、拼音及人物搜索（相关度排序，稳定分页）
+    /// `GET /search/library`
+    func searchLibrary(q: String? = nil, personId: Int? = nil, limit: Int? = nil, cursor: String? = nil) async throws -> API.LibrarySearchView {
+        var query: [URLQueryItem] = []
+        if let q { query.append(URLQueryItem(name: "q", value: "\(q)")) }
+        if let personId { query.append(URLQueryItem(name: "person_id", value: "\(personId)")) }
+        if let limit { query.append(URLQueryItem(name: "limit", value: "\(limit)")) }
+        if let cursor { query.append(URLQueryItem(name: "cursor", value: "\(cursor)")) }
+        return try await send("GET", "/search/library", query: query)
+    }
+
+    /// 搜索已入库条目（名称、别名、拼音和人物匹配，按库分组）
     /// `GET /search/library-items`
     func searchLibraryItems(keyword: String) async throws -> [API.LibrarySearchGroupView] {
         var query: [URLQueryItem] = []

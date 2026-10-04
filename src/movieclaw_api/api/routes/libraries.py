@@ -103,6 +103,7 @@ from movieclaw_api.schemas.library import (
     UnidentifiedFileView,
     UnidentifiedGroupView,
 )
+from movieclaw_api.schemas.library_search import LibrarySearchView
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services import jobs, media_scrape
 from movieclaw_api.services.auth import Principal
@@ -1001,14 +1002,44 @@ async def resolve_identity_review(
 
 
 @search_router.get(
+    "/library",
+    response_model=ApiResponse[LibrarySearchView],
+    summary="媒体库名称、别名、拼音及人物搜索（相关度排序，稳定分页）",
+    operation_id="search.library",
+)
+async def search_library(
+    q: str = Query(default="", max_length=100, description="名称、全拼、首字母或混合输入"),
+    person_id: int | None = Query(default=None, ge=1, description="选定人物的库内作品"),
+    limit: int = Query(default=24, ge=1, le=100),
+    cursor: str | None = Query(default=None, max_length=200),
+    principal: Principal = Depends(require_login),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[LibrarySearchView]:
+    from movieclaw_api.services.library.search import search_library as ranked_search
+    from movieclaw_api.services.library.search_matching import compact
+
+    q = q.strip()
+    if not compact(q) and person_id is None:
+        raise BadRequestException("请输入片名、拼音或人物名称")
+    result = await ranked_search(
+        session, q, library_ids=await visible_library_ids(session, principal),
+        member_id=principal.member_id or 0,
+        content_limit=await content_limit_for(session, principal),
+        owner=f"{principal.kind}:{principal.member_id or principal.name}",
+        limit=limit, cursor=cursor, person_id=person_id,
+    )
+    return ok(result)
+
+
+@search_router.get(
     "/library-items",
     response_model=ApiResponse[list[LibrarySearchGroupView]],
-    summary="按关键词搜索已入库条目（跨全部媒体库，标题/原名匹配，按库分组）",
+    summary="搜索已入库条目（名称、别名、拼音和人物匹配，按库分组）",
     operation_id="search.library-items",
 )
 async def search_library_items(
     keyword: str = Query(
-        ..., min_length=1, max_length=100, description="搜索关键词（标题或原名的子串，忽略大小写）"
+        ..., min_length=1, max_length=100, description="片名、别名、拼音首字母或人物姓名"
     ),
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
@@ -1020,14 +1051,15 @@ async def search_library_items(
     不是一次对外搜索，历史里混进它只会淹没真正要回放的记录。
     成员的结果按库可见性白名单过滤。
     """
+    visible = await visible_library_ids(session, principal)
     matched = await search_visible_library_items(
         session,
         keyword,
         member_id=principal.member_id if principal.member_id is not None else 0,
         content_limit=await content_limit_for(session, principal),
+        library_ids=visible,
     )
     libraries = await LibraryConfigService(session).list_all()
-    visible = await visible_library_ids(session, principal)
     libraries = [lib for lib in libraries if lib.id in visible]
     # 分组顺序沿用库列表的顺序（与媒体库首页一致），空组不出现
     return ok(

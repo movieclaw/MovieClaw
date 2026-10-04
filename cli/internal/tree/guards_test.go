@@ -337,6 +337,7 @@ func TestDomainCommandSets(t *testing.T) {
 		"search": {
 			"search.titles",
 			"search.torrents",
+			"search.library",
 			"search.library-items",
 			"search.history.list",
 			"search.history.get-results",

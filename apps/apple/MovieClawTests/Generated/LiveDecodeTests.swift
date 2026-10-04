@@ -198,6 +198,9 @@ struct LiveDecodeTests {
     @Test func searchHistoryList() async throws {
         try await LiveServer.check { try await $0.searchHistoryList() }
     }
+    @Test func searchLibrary() async throws {
+        try await LiveServer.check { try await $0.searchLibrary(q: "xjcy") }
+    }
     @Test func searchPresetsList() async throws {
         try await LiveServer.check { try await $0.searchPresetsList() }
     }

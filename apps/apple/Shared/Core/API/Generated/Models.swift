@@ -4561,6 +4561,87 @@ nonisolated extension API {
         }
     }
 
+    struct LibrarySearchHit: Codable, Hashable, Sendable {
+        var item: API.LibraryItemView
+        var libraryIds: [Int]
+        var match: API.LibrarySearchMatch
+
+        enum CodingKeys: String, CodingKey {
+            case item
+            case libraryIds = "library_ids"
+            case match
+        }
+    }
+
+    /// 可解释的命中证据；原始名称保留，客户端无需知道拼音索引的实现。
+    struct LibrarySearchMatch: Codable, Hashable, Sendable {
+        var type: String
+        var sourceField: String
+        var matchedName: String
+        var label: String
+        var personId: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case type
+            case sourceField = "source_field"
+            case matchedName = "matched_name"
+            case label
+            case personId = "person_id"
+        }
+    }
+
+    struct LibrarySearchPerson: Codable, Hashable, Sendable {
+        var id: Int
+        var name: String
+        var profilePath: String?
+        var itemCount: Int
+        var match: API.LibrarySearchMatch
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case name
+            case profilePath = "profile_path"
+            case itemCount = "item_count"
+            case match
+        }
+    }
+
+    struct LibrarySearchSuggestion: Codable, Hashable, Sendable {
+        var type: String
+        var text: String
+        var mediaItemId: Int?
+        var personId: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case type
+            case text
+            case mediaItemId = "media_item_id"
+            case personId = "person_id"
+        }
+    }
+
+    /// 索引更新不改变同一次浏览的候选顺序；库存和权限在每一页实时核验。
+    struct LibrarySearchView: Codable, Hashable, Sendable {
+        var query: String
+        var personId: Int?
+        var items: [API.LibrarySearchHit]
+        var people: [API.LibrarySearchPerson]
+        var suggestions: [API.LibrarySearchSuggestion]
+        var nextCursor: String?
+        /// 名称索引尚有待更新实体；查询已合并最新名称
+        var indexPending: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case query
+            case personId = "person_id"
+            case items
+            case people
+            case suggestions
+            case nextCursor = "next_cursor"
+            case indexPending = "index_pending"
+        }
+    }
+
     /// 库存统计快照（台账变化时重算，查询时直接读取 library 表）。
     /// **扫描进行中读到的是中间态，不是结论**：扫描按事务分批落账，文件先入账、
     /// 随后才识别，所以 ``unidentified_count`` 在扫描途中会先冲高再回落（一次

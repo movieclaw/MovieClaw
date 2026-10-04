@@ -359,7 +359,7 @@ struct MediaSearchResultsView: View {
 // MARK: - 媒体库垂直
 
 /// 「媒体库」垂直（对应 Web `library-search-results.tsx`）：`GET /search/library-items`，
-/// 跨全部可见媒体库按标题/原名匹配，按库分组；格下标注库存概况。空态出口指向「影视」。
+/// 跨全部可见媒体库按名称、拼音和人物匹配，按库分组；格下标注库存概况。空态出口指向「影视」。
 struct LibrarySearchResultsView: View {
     let keyword: String
     let onSwitchToMedia: (() -> Void)?
@@ -382,7 +382,7 @@ struct LibrarySearchResultsView: View {
                 if error != nil || groups?.isEmpty == true {
                     VStack(spacing: 8) {
                         Text(error != nil ? "媒体库搜索出错" : "媒体库中没有找到相关影片").font(.headline).foregroundStyle(.white)
-                        Text(error ?? "已入库条目按标题和原名匹配；库里还没有的片子，去影视条目里找。")
+                        Text(error ?? "支持片名、别名、拼音首字母和人物姓名；库里还没有的片子，去影视条目里找。")
                             .font(.subheadline).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
                         if let onSwitchToMedia {
                             Button("搜索影视条目", action: onSwitchToMedia)

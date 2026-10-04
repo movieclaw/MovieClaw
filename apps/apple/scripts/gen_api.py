@@ -550,9 +550,11 @@ def main() -> int:
         if any(field.field_info.is_required() for kind, field, _ in params):
             continue
         name = op_func_name(route).strip("`")
+        # 媒体库搜索的 q 与 person_id 是二选一条件，静态签名均可选，实际不能全空。
+        args = 'q: "xjcy"' if name == "searchLibrary" else ""
         tests.append(f"    @Test func {name}() async throws {{")
         tests.append(
-            f"        try await LiveServer.check {{ try await $0.{op_func_name(route)}() }}"
+            f"        try await LiveServer.check {{ try await $0.{op_func_name(route)}({args}) }}"
         )
         tests.append("    }")
     tests.append("}")

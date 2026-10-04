@@ -16,8 +16,8 @@ import { useScrollRestoration } from "@/lib/use-scroll-restoration";
  * 搜索结果页「媒体库」垂直：跨全部媒体库搜索已入库条目，按库分区展示。
  *
  * 与影视（MediaSearchResults）、站点资源（SearchResults）并列挂在 /search
- * 页的选项卡下，回答的问题是「这部片我有没有」。数据全在本地（标题/原名
- * 子串匹配），毫秒级返回，没有快照与历史——搜自己的库是翻家底，不值得回放。
+ * 页的选项卡下，回答的问题是「这部片我有没有」。数据全在本地（名称、别名、拼音和人物
+ * 匹配），没有快照与历史——搜自己的库是翻家底，不值得回放。
  *
  * 空态的出口指向「影视」垂直：库里没有 ≈ 想要但还没入手，下一步自然是
  * 去影视条目搜索并订阅/下载。
@@ -79,7 +79,7 @@ export function LibrarySearchResults({
               {error ? "媒体库搜索出错" : "媒体库中没有找到相关影片"}
             </p>
             <p className="text-on-image mt-1.5 text-sub text-[rgba(243,245,249,0.7)]">
-              {error ?? "已入库条目按标题和原名匹配；库里还没有的片子，去影视条目里找。"}
+              {error ?? "支持片名、别名、拼音首字母和人物姓名；库里还没有的片子，去影视条目里找。"}
             </p>
             {onSwitchToMedia && (
               <button

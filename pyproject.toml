@@ -74,6 +74,8 @@ dependencies = [
   # 中文标题的拼音首字母（媒体库海报墙的排序与 A-Z 快速定位）：纯 Python、
   # 无二进制依赖，自带姓氏/多音字词库，比自维护一张码点表准。
   "pypinyin>=0.53.0,<1.0.0",
+  # 媒体库搜索的繁简归一化：只生成派生检索文本，不改写标题与身份别名。
+  "opencc-python-reimplemented>=0.1.7,<0.2.0",
   # 字幕服务（movieclaw_playback.subtitles，docs/design/jellyfin-subtitle.md §5）：
   # pysubs2 做格式解析与 srt↔vtt 转换（SubtitleEdit 的 Python 对应物）；
   # charset-normalizer 探测 GBK/BIG5 等中文编码后统一转 UTF-8 输出。

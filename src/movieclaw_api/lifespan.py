@@ -293,12 +293,16 @@ def build_lifespan(settings: Settings):
         from movieclaw_api.services.library import organize as organize_jobs  # noqa: F401
         from movieclaw_api.services.library import scan as scan_jobs  # noqa: F401
         from movieclaw_api.services.library import transfer as transfer_jobs  # noqa: F401
+
+        # 搜索更新复用持久化 Job；增量触发器在迁移中安装，启动不等待全库拼音转换。
+        from movieclaw_api.services.library.search_index import start_search_index
         from movieclaw_api.services.subscription import (  # noqa: F401  取消订阅联动清理
             cleanup as subscription_cleanup_jobs,
         )
         from movieclaw_api.services.subtitle_gen import tasks as subtitle_tasks  # noqa: F401
 
         await init_job_dispatcher()
+        start_search_index()
         # 网页播放器的转码会话：先清上次退出遗留的分片目录（会话状态只在内存，
         # 目录里的任何东西都是垃圾——不能假设上次是干净退出的），再起心跳巡检。
         from movieclaw_api.services.playback.session import get_session_manager
@@ -374,7 +378,9 @@ def build_lifespan(settings: Settings):
             # 持久化任务先在安全边界暂停并退回数据库队列，必须早于 LLM 与
             # 数据库释放；下次启动会由租约与领域检查点直接继续。
             from movieclaw_api.services.jobs import close_job_dispatcher
+            from movieclaw_api.services.library.search_index import close_search_index
 
+            await close_search_index()
             await close_job_dispatcher()
             # 先停止 Agent，避免它在下游 HTTP 客户端和数据库开始释放后继续工作。
             await close_agent_run_registry()

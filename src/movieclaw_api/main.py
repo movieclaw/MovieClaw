@@ -1,3 +1,4 @@
+import gc
 import sys
 from pathlib import Path
 
@@ -58,6 +59,16 @@ def run() -> None:
         )
         return
 
+    # 路由与响应字段也是整个进程常驻的静态结构，先完成应用装配再冻结；
+    # lifespan 尚未执行，此时没有创建事件循环、数据库连接或运行期任务。
+    application = app()
+    # 拼音等词库在模块导入时产生大量长期驻留对象；NAS 实测一次全量 GC 扫描
+    # 会暂停搜索约 323ms。先回收导入期垃圾，再将现存对象移入永久代，避免
+    # 每次全量回收反复扫描它们。必须在 Server/事件循环/数据库会话创建之前执行，
+    # 运行期新建对象仍由正常 GC 回收；开发热重载不冻结，避免保留旧模块对象。
+    gc.collect()
+    gc.freeze()
+
     # 生产：自持 Server 实例并注册给重启服务（services/app_config）。
     # 设置页重启由此直接置 should_exit 优雅停机（不经信号投递，绕开 uvloop 下
     # signal.signal 处理器可能长时间不执行的问题），停机后以约定退出码 42
@@ -65,8 +76,7 @@ def run() -> None:
     # 反代链路重新验证健康后恢复监督；
     # 其他退出码（含 docker stop 的信号路径）仍是整容器退出。
     config = uvicorn.Config(
-        "movieclaw_api.main:app",
-        factory=True,
+        application,
         host=settings.host,
         port=port,
         log_config=None,

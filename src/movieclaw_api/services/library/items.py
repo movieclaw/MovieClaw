@@ -41,6 +41,7 @@ from typing import Any, Literal, NamedTuple
 
 from sqlalchemy import BigInteger, Integer, and_, func, not_, nullslast, or_, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 from sqlmodel import select
 
 from movieclaw_api.schemas.library import (
@@ -71,6 +72,7 @@ from movieclaw_api.services.library.bluray import (
     read_main_playlist,
     streams_have_clpi_metadata,
 )
+from movieclaw_api.services.library.bulk import scalar_rows
 from movieclaw_api.services.library.content_rating import ratings_at_or_below
 from movieclaw_api.services.library.layout import STRM_EXT, entry_dir_of
 from movieclaw_api.services.library.nfo import (
@@ -1797,22 +1799,31 @@ async def poster_facts_many(
     if not ids:
         return {}
     out: dict[int, PosterFacts] = {}
-    for item_id, poster_path, poster_file, width, height, released, blur, rating in (
-        await session.execute(
-            select(
-                MediaItem.id,
-                MediaItem.poster_path,
-                MediaMetadata.poster_file,
-                MediaMetadata.poster_width,
-                MediaMetadata.poster_height,
-                MediaMetadata.release_date,
-                MediaMetadata.poster_blur,
-                MediaMetadata.vote_average,
-            )
-            .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)  # type: ignore[arg-type]
-            .where(MediaItem.id.in_(ids))  # type: ignore[attr-defined]
+    for (
+        item_id,
+        poster_path,
+        poster_file,
+        width,
+        height,
+        released,
+        blur,
+        rating,
+    ) in await scalar_rows(
+        session,
+        select(
+            MediaItem.id,
+            MediaItem.poster_path,
+            MediaMetadata.poster_file,
+            MediaMetadata.poster_width,
+            MediaMetadata.poster_height,
+            MediaMetadata.release_date,
+            MediaMetadata.poster_blur,
+            MediaMetadata.vote_average,
         )
-    ).all():
+        .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)  # type: ignore[arg-type]
+        .where(MediaItem.id.in_(ids)),  # type: ignore[attr-defined]
+        pack=len(ids) > 8,
+    ):
         if poster_file:
             # ?v=<mtime>：换图原地覆盖同一路径，不带版本海报墙会一直显示旧图
             url = f"/images/assets/{poster_file}?v={asset_version(poster_file)}"
@@ -1837,17 +1848,17 @@ async def backdrop_facts_many(
     ids = [i for i in item_ids if i is not None]
     if not ids:
         return {}
-    rows = (
-        await session.execute(
-            select(
-                MediaItem.id,
-                MediaItem.backdrop_path,
-                MediaMetadata.backdrop_file,
-            )
-            .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)  # type: ignore[arg-type]
-            .where(MediaItem.id.in_(ids))  # type: ignore[attr-defined]
+    rows = await scalar_rows(
+        session,
+        select(
+            MediaItem.id,
+            MediaItem.backdrop_path,
+            MediaMetadata.backdrop_file,
         )
-    ).all()
+        .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)  # type: ignore[arg-type]
+        .where(MediaItem.id.in_(ids)),  # type: ignore[attr-defined]
+        pack=len(ids) > 8,
+    )
     return {
         item_id: (
             f"/images/assets/{backdrop_file}?v={asset_version(backdrop_file)}"
@@ -1887,57 +1898,71 @@ async def _aggregate_wall_views(
     # 只取聚合真正用得上的六列，不整行取 ORM 对象：台账行有四十来列、其中
     # 三列是 JSON（音轨/字幕/候选），整行取意味着一部三万集的库要反序列化
     # 九万段 JSON——实测 2000 部剧的库因此要跑四秒多，而这些列一个都用不上
-    file_rows = (
-        await session.execute(
-            select(
-                LibraryFile.media_item_id,
-                LibraryFile.library_id,
-                LibraryFile.id,
-                LibraryFile.season_number,
-                LibraryFile.episode_number,
-                LibraryFile.size_bytes,
-                LibraryFile.resolution,
-                LibraryFile.state,
-                LibraryFile.created_at,
-                LibraryFile.added_batch_id,
-                # strm 占位文件永远探不出规格，不算「待补探」
-                and_(
-                    LibraryFile.audio_streams.is_(None),  # type: ignore[union-attr]
-                    LibraryFile.file_path.not_like(f"%{STRM_EXT}"),  # type: ignore[union-attr]
-                ),
-            ).where(
-                (
-                    LibraryFile.library_id == library_id
-                    if library_id is not None
+    file_rows = await scalar_rows(
+        session,
+        select(
+            LibraryFile.media_item_id,
+            LibraryFile.library_id,
+            LibraryFile.id,
+            LibraryFile.season_number,
+            LibraryFile.episode_number,
+            LibraryFile.size_bytes,
+            LibraryFile.resolution,
+            LibraryFile.state,
+            LibraryFile.created_at,
+            LibraryFile.added_batch_id,
+            # strm 占位文件永远探不出规格，不算「待补探」
+            and_(
+                LibraryFile.audio_streams.is_(None),  # type: ignore[union-attr]
+                LibraryFile.file_path.not_like(f"%{STRM_EXT}"),  # type: ignore[union-attr]
+            ),
+        ).where(
+            (
+                LibraryFile.library_id == library_id
+                if library_id is not None
+                else (
+                    tuple_(LibraryFile.media_item_id, LibraryFile.library_id).in_(landing_pairs)
+                    if landing_pairs is not None
                     else (
-                        tuple_(LibraryFile.media_item_id, LibraryFile.library_id).in_(
-                            landing_pairs
-                        )
-                        if landing_pairs is not None
-                        else (
-                            LibraryFile.library_id.in_(library_ids)  # type: ignore[union-attr]
-                            if library_ids is not None
-                            else true()
-                        )
+                        LibraryFile.library_id.in_(library_ids)  # type: ignore[union-attr]
+                        if library_ids is not None
+                        else true()
                     )
-                ),
-                LibraryFile.media_item_id.in_(in_page),  # type: ignore[union-attr]
-            )
-        )
-    ).all()
+                )
+            ),
+            LibraryFile.media_item_id.in_(in_page),  # type: ignore[union-attr]
+        ),
+    )
     files_by_item: dict[int, list[_FileFacts]] = {}
     for media_item_id, *facts in file_rows:
         files_by_item.setdefault(media_item_id, []).append(_FileFacts(*facts))
-    # 条目行整取——展示要用到标题/年份/状态等大部分列
+    # 海报卡只用这些展示列，不读取别名 JSON、身份来源等无关字段，减少并发解码。
     items = (
-        (await session.execute(select(MediaItem).where(MediaItem.id.in_(in_page))))  # type: ignore[attr-defined]
+        (
+            await session.execute(
+                select(MediaItem)
+                .options(
+                    load_only(
+                        MediaItem.id,
+                        MediaItem.kind,
+                        MediaItem.source,
+                        MediaItem.tmdb_id,
+                        MediaItem.title,
+                        MediaItem.year,
+                        MediaItem.status,
+                    )
+                )
+                .where(MediaItem.id.in_(in_page))
+            )
+        )
         .scalars()
         .all()
     )
     grouped: dict[int, tuple[MediaItem, list[_FileFacts]]] = {
         item.id: (item, files_by_item[item.id])  # type: ignore[index]
         for item in items
-        if item.id is not None
+        # 转移/清理可能在分页选出条目后提交，当前库已无文件的条目直接跳过。
+        if item.id in files_by_item
     }
 
     # 剧集的已播单元集合：海报悬浮操作（订阅追新/补齐缺集）的判断依据。
@@ -2328,17 +2353,34 @@ async def search_library_items(
     *,
     member_id: int | None = None,
     content_limit: ContentLimit | None = None,
+    library_ids: set[int] | None = None,
 ) -> dict[int, list[LibraryItemView]]:
     """按关键词搜索全部媒体库的已识别条目：library_id -> 命中条目视图。
 
-    搜索弹窗「媒体库」垂直的数据源。标题/原名子串匹配（忽略英文大小写），
+    兼容旧客户端的按库分组契约；匹配复用新版名称/别名/拼音/人物搜索，
     只搜已识别入库的条目——待识别文件没有可靠的标题可匹配，去待识别清单
     处理更合适。组内按标题拼音排序，与海报墙同一套排序规则。
 
     **观看者的分级约束在这里同样生效**：搜得到就等于看得到（点进去是详情页），
     墙上藏起来而搜索里搜得出来，那道约束只是障眼法。
     """
-    pattern = f"%{keyword.strip().lower()}%"
+    from movieclaw_api.services.library.search import search_candidates
+    from movieclaw_api.services.library.search_matching import compact
+
+    if not compact(keyword):
+        return {}
+    if library_ids is None:
+        library_ids = set((await session.execute(select(LibraryFile.library_id))).scalars())
+    candidates, _, _ = await search_candidates(
+        session,
+        keyword,
+        library_ids,
+        member_id or 0,
+        content_limit,
+    )
+    item_ids = [candidate.id for candidate in candidates]
+    if not item_ids:
+        return {}
     rows = (
         await session.execute(
             select(LibraryFile.library_id, LibraryFile.media_item_id, MediaItem.title)
@@ -2346,10 +2388,9 @@ async def search_library_items(
             .where(
                 LibraryFile.media_item_id.is_not(None),  # type: ignore[union-attr]
                 LibraryFile.unidentified_code.is_(None),  # type: ignore[union-attr]  # 临时条目不进搜索
-                or_(
-                    func.lower(MediaItem.title).like(pattern),
-                    func.lower(MediaItem.original_title).like(pattern),
-                ),
+                LibraryFile.state == FileState.IN_PLACE,
+                LibraryFile.library_id.in_(library_ids),
+                MediaItem.id.in_(item_ids),
                 *_narrow(None, member_id, content_limit=content_limit),
             )
             .distinct()
