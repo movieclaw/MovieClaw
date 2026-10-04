@@ -34,6 +34,8 @@ POSTER_SIZES = {"", "w92", "w154", "w185", "w342", "w500", "w780", "original"}
 BACKDROP_SIZES = {"", "w300", "w780", "w1280", "original"}
 STILL_SIZES = {"", "w92", "w185", "w300", "original"}
 PROFILE_SIZES = {"", "w45", "w185", "h632", "original"}
+# 图片来源（docs/design/image-sources.md）：TMDB 始终在，Fanart.tv 可选
+IMAGE_SOURCES = ("tmdb", "fanart")
 # 本地图片画质预设（docs/design/image-sizing.md §8.1）：空 = 没选过，逐项跟随档位字段 /
 # 环境变量（老部署零迁移）；custom = 用户在「自定义」里逐项指定
 IMAGE_QUALITIES = {"", "original", "standard", "compact", "custom"}
@@ -87,6 +89,35 @@ class MetadataScrapeSetting(SettingSchema):
         default="",
         description="本地图片画质：original=原图 / standard=标准 / compact=节省空间 / "
         "custom=自定义（逐项看四个档位）；空 = 没选过，逐项跟随档位与环境变量",
+    )
+    # 片名 Logo 的语言档（以前写死在代码里，默认值即历史行为）
+    logo_language_priority: list[str] = Field(
+        default_factory=lambda: ["meta", "en", "orig", "null"],
+        description="片名 Logo 语言优先级：逐档找第一张有图的语言，全部落空则不显示 Logo",
+    )
+
+    # —— 图片来源（docs/design/image-sources.md）——————————————
+    # Fanart.tv 默认关；API Key 不在这里（凭据单独存在 metadata.fanart 配置域，
+    # 加密落库、不随刮削配置下发），没填过 Key 时这个开关打不开
+    fanart_enabled: bool = Field(
+        default=False,
+        description="自动选图是否使用 Fanart.tv（需先配置 Fanart API Key）",
+    )
+    # 各类图的来源顺序：只在同一档语言两个来源都有图时才起作用（语言先于来源）
+    poster_source_order: list[str] = Field(
+        default_factory=lambda: ["tmdb", "fanart"], description="海报的来源顺序"
+    )
+    backdrop_source_order: list[str] = Field(
+        default_factory=lambda: ["tmdb", "fanart"],
+        description="背景图的来源顺序（TMDB 背景常有 4K，Fanart 固定 1920 宽）",
+    )
+    logo_source_order: list[str] = Field(
+        default_factory=lambda: ["fanart", "tmdb"],
+        description="片名 Logo 的来源顺序（Fanart 的中文 Logo 更多）",
+    )
+    season_poster_source_order: list[str] = Field(
+        default_factory=lambda: ["fanart", "tmdb"],
+        description="季海报的来源顺序（只对剧集生效；语言跟随海报语言优先级）",
     )
 
     # —— STEP 3 命名与整理 ————————————————————————————
@@ -148,7 +179,9 @@ class MetadataScrapeSetting(SettingSchema):
             raise ValueError("海报选择只能是 default（TMDB 默认）或 language（按语言优先级）")
         return value
 
-    @field_validator("poster_language_priority", "backdrop_language_priority")
+    @field_validator(
+        "poster_language_priority", "backdrop_language_priority", "logo_language_priority"
+    )
     @classmethod
     def _check_image_tokens(cls, value: list[str]) -> list[str]:
         value = _dedup([v.strip() for v in value if v.strip()])
@@ -159,6 +192,23 @@ class MetadataScrapeSetting(SettingSchema):
         for token in value:
             if not _IMAGE_TOKEN.match(token):
                 raise ValueError(f"图片语言项不合法：{token}（应为语言码或 meta/orig/null 特殊项）")
+        return value
+
+    @field_validator(
+        "poster_source_order",
+        "backdrop_source_order",
+        "logo_source_order",
+        "season_poster_source_order",
+    )
+    @classmethod
+    def _check_source_order(cls, value: list[str]) -> list[str]:
+        """来源顺序必须恰好是全部来源的一个排列：少一个来源它就永远不会被用到，
+        这种「悄悄关掉」应该走 fanart_enabled 开关，而不是靠顺序里删掉它。"""
+        value = _dedup([v.strip().lower() for v in value if v.strip()])
+        if sorted(value) != sorted(IMAGE_SOURCES):
+            raise ValueError(
+                f"来源顺序必须恰好包含 {' / '.join(IMAGE_SOURCES)} 各一次，当前为：{value}"
+            )
         return value
 
     @field_validator(
@@ -218,6 +268,26 @@ class MetadataScrapeSetting(SettingSchema):
                 f"图片画质不合法：{value}（可选 original / standard / compact / custom）"
             )
         return value
+
+
+@register_setting(
+    namespace="metadata.fanart", title="Fanart.tv 图片来源", secret_fields=["api_key"]
+)
+class FanartSetting(SettingSchema):
+    """Fanart.tv 的凭据（docs/design/image-sources.md §3）。
+
+    单独一个配置域而不是并进 ``MetadataScrapeSetting``：后者整份下发给前端、
+    可按库覆盖，凭据放进去要么泄漏、要么到处打码；这里加密落库，接口只回
+    「配没配、是否失效、末四位」。
+
+    本项目**不内置 Key**：用户在第一次用 Fanart 的地方（设置开关、库设置、
+    换图弹层）就地填一次，全站共用。
+    """
+
+    api_key: str = Field(default="", description="Fanart.tv API Key（加密落库）")
+    # 刮削时 Fanart 回 401 置 True：停用 Fanart 并在设置页提示「Key 已失效」，
+    # 用户重新填一次有效 Key 后清除
+    key_invalid: bool = Field(default=False, description="Key 是否已被 Fanart.tv 拒绝")
 
 
 @register_setting(namespace="discover.preferences", title="发现页偏好")

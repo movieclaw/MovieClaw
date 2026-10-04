@@ -87,11 +87,14 @@ struct TVPosterCard: View {
     var caption: TVCardCaption = .focused
     /// 只在获得焦点时浮现在海报底部暗带里的一行（影人页的「饰 某某」）：不占排版位置，海报墙的网格不变
     var focusDetail: String?
+    /// `.always` 时写在副标题下面的带图标说明行（搜索结果的命中原因「👤 演员：史蒂芬·朗」）
+    var note: TVCardNote?
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            TVCardLabel(title: title, subtitle: subtitle, width: width, caption: caption, badge: badge, focusDetail: focusDetail) {
+            TVCardLabel(title: title, subtitle: subtitle, width: width, caption: caption, badge: badge,
+                        focusDetail: focusDetail, note: note) {
                 RemoteImage(url: imageURL, placeholderText: title)
                     .frame(width: width, height: width * 1.5)
                     .overlay(alignment: .bottom) {
@@ -306,6 +309,12 @@ struct TVSeeAllCard: View {
     }
 }
 
+/// 卡片下方的带图标说明行（`.always` 时写在副标题下面）
+struct TVCardNote: Hashable {
+    let symbol: String
+    let text: String
+}
+
 /// 两种卡片共用的外观：大圆角 + 一圈很细的半透明亮边（让卡片在深色底上有边界）、焦点抬起、左上角标，
 /// 以及下面按 `caption` 决定显不显示的片名 / 副标题。
 /// 同时把「我拿到了焦点」报给所在的行（`TVRowFocusKey`），行标题据此变亮
@@ -316,6 +325,7 @@ private struct TVCardLabel<Art: View>: View {
     let caption: TVCardCaption
     let badge: String?
     var focusDetail: String?
+    var note: TVCardNote?
     @ViewBuilder let art: () -> Art
 
     /// 在按钮的标签里读到的是这张卡（按钮）的焦点
@@ -369,6 +379,17 @@ private struct TVCardLabel<Art: View>: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
+                    }
+                    if let note {
+                        // 图标与文字之间不用 Label：tvOS 上 Label 的默认间距过宽
+                        HStack(spacing: 8) {
+                            Image(systemName: note.symbol)
+                                .font(.caption2)
+                            Text(note.text)
+                                .font(.caption)
+                                .lineLimit(1)
+                        }
+                        .foregroundStyle(.secondary)
                     }
                 }
                 .frame(width: width, alignment: .leading)

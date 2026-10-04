@@ -19,7 +19,7 @@ movieclaw 的官方命令行工具。用于从 TMDB 和豆瓣发现实时热点�
 - playback 观看活动（activity 看此刻谁在看什么、用哪台设备、速度多快，history 翻每场播放的流水，stats watch 汇总一段时间的观看时长/场次/看完率/时段分布；activity end 掐断某台设备本次播放，device revoke 注销设备让它重新登录）
 - rules    订阅过滤规则组（管理分辨率、编码、HDR、字幕/音轨、免费/H&R、做种数、体积和制作组等条件及默认规则组）
 - scrape   刮削与整理配置（元数据语言优先级与缺失回落、海报/背景按语言优先级选图、分级地区与图片质量档位、目录与文件名的命名模板、写入媒体目录的 NFO/图片开关；set 只更新给出的字段。改动只影响之后的刮削与整理：要让存量条目的元数据和图片跟上，执行 library metadata refresh；要让存量文件名和目录跟上，执行 library organize-files）
-- search   统一搜索（titles 搜 TMDB/豆瓣影视条目，torrents 跨 PT 站点搜种子并可把结果行号交给 download，library-items 搜已入库内容；另可管理搜索预设和历史结果）
+- search   统一搜索（titles 搜 TMDB/豆瓣影视条目，torrents 跨 PT 站点搜种子并可把结果行号交给 download，library 按片名/拼音/人物搜已入库内容；另可管理搜索预设和历史结果）
 - session  用户与智能体的会话管理（发起新对话或继续已有对话，按指定用户消息重新提问，读取并分析完整 message/compaction 轨迹；也可重命名、压缩上下文、跟随或停止处理，以及删除会话）
 - shares   影片分享链接（列出目前分享出去的影片：链接、有没有密码、什么时候到期、被打开过多少次；也可按 id 撤回。给单部影片生成链接在 library items share）
 - site     PT 资源站点（查看支持目录/鉴权要求，配置、验证、启停站点，查看本地种子缓存统计；Cookie 可由 extension 同步）
@@ -33,7 +33,7 @@ movieclaw 的官方命令行工具。用于从 TMDB 和豆瓣发现实时热点�
 - activity 现在有什么事：需要处理与进行中的任务数、有几个人在看；口径与网页活动页一致（下载与它触发的入库算一件事）
 
 使用协议：
-- 常用链路：search titles 找片/找剧 → subscriptions create 订阅；search torrents 搜 PT 种子 → download 投递；search library-items 查已有库存，discover 浏览榜单，library 管理已入库内容；订阅会持续追踪，并在出现符合规则的新资源后自动搜索、下载和整理入库。
+- 常用链路：search titles 找片/找剧 → subscriptions create 订阅；search torrents 搜 PT 种子 → download 投递；search library 查已有库存，discover 浏览榜单，library 管理已入库内容；订阅会持续追踪，并在出现符合规则的新资源后自动搜索、下载和整理入库。
 - 输出即数据：stdout 是 JSON（默认），stderr 是过程提示与错误原因。
 - 参数拿不准就先 --help（域级与命令级都有，含示例），不要凭记忆猜参数或取值。
 - 列表默认有条数上限、长字段有截断；下结论前确认数据没有被截断（--limit 可调）。

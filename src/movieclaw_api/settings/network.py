@@ -30,6 +30,11 @@ BUILTIN_EGRESS_SERVICES: list[dict[str, str]] = [
         "label": "图片回源",
         "description": "海报/背景图代理回源（TMDB 图床及各站图床）",
     },
+    {
+        "id": "fanart",
+        "label": "Fanart.tv",
+        "description": "Fanart.tv 图片来源：接口 webservice.fanart.tv 与图床 assets.fanart.tv",
+    },
     {"id": "douban", "label": "豆瓣", "description": "豆瓣榜单与搜索（国内网络通常可直连）"},
     {"id": "llm", "label": "AI 模型", "description": "大语言模型供应商接口"},
     {
@@ -98,7 +103,7 @@ class NetworkEgressSetting(SettingSchema):
         description="手动模式的代理地址，支持 http:// 与 socks5://（如 socks5://192.168.1.2:7891）",
     )
     proxy_services: list[str] = Field(
-        default_factory=lambda: ["tmdb", "image", "github"],
+        default_factory=lambda: ["tmdb", "image", "fanart", "github"],
         description="走代理的服务标签列表；PT 站用 site:<站点id> 形式按站独立控制",
     )
     tmdb_api_base_url: str = Field(

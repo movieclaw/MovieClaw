@@ -4576,21 +4576,6 @@ nonisolated extension API {
         }
     }
 
-    /// 媒体库搜索结果的一组：一个库内命中关键词的条目（组内按标题拼音排序）。
-    struct LibrarySearchGroupView: Codable, Hashable, Sendable {
-        var libraryId: Int
-        var libraryName: String
-        var kind: API.MediaKind
-        var items: [API.LibraryItemView]
-
-        enum CodingKeys: String, CodingKey {
-            case libraryId = "library_id"
-            case libraryName = "library_name"
-            case kind
-            case items
-        }
-    }
-
     struct LibrarySearchHit: Codable, Hashable, Sendable {
         var item: API.LibraryItemView
         var libraryIds: [Int]
@@ -4622,15 +4607,21 @@ nonisolated extension API {
 
     struct LibrarySearchPerson: Codable, Hashable, Sendable {
         var id: Int
+        /// TMDB 影人 ID：客户端据此打开库内影人页（与演职员入口同一页）
+        var tmdbPersonId: Int?
         var name: String
         var profilePath: String?
+        /// 头像地址：本地已下载给本地，否则给 TMDB 图床；没有照片为空
+        var avatarUrl: String?
         var itemCount: Int
         var match: API.LibrarySearchMatch
 
         enum CodingKeys: String, CodingKey {
             case id
+            case tmdbPersonId = "tmdb_person_id"
             case name
             case profilePath = "profile_path"
+            case avatarUrl = "avatar_url"
             case itemCount = "item_count"
             case match
         }
@@ -4639,12 +4630,15 @@ nonisolated extension API {
     struct LibrarySearchSuggestion: Codable, Hashable, Sendable {
         var type: String
         var text: String
+        /// 为什么联想到它，与结果卡片同一份命中原因（如「演员：李一桐」）
+        var label: String?
         var mediaItemId: Int?
         var personId: Int?
 
         enum CodingKeys: String, CodingKey {
             case type
             case text
+            case label
             case mediaItemId = "media_item_id"
             case personId = "person_id"
         }

@@ -328,7 +328,7 @@ CLI 的第一消费者是产品自带的 AI 助手（movieclaw_agent，隔离工
 |---|---|
 | `mclaw search titles "关键词"` | 搜索 TMDB、豆瓣或全部影视来源；默认保存统一搜索历史 |
 | `mclaw search torrents "关键词"` | SSE 聚合 + 客户端侧筛选排序标志（--resolution/--sort…）+ 结果快照落本地供 `mclaw download` 引用；裸 `mclaw search "关键词"` 是等价简写 |
-| `mclaw search library-items "关键词"` | 搜索当前账号可见媒体库中的已入库条目 |
+| `mclaw search library "关键词"` | 按片名/拼音/人物搜索可见媒体库中的已入库条目（相关度排序，`--person-id` 列人物作品） |
 | `mclaw download <行号|site:url>` | 行号形态一步完成：读搜索快照 → `resolve-target` 识别/预演 → 唯一且可入库就带 `auto_route` 提交；只有歧义或不可路由时才中止并提示。`--library`/`--save-path` 显式覆盖，`--downloader-default` 明确选择下载器默认目录；显式 URL 因无媒体身份维持低级提交形态 |
 | `mclaw library organize-files <library_id>` | `--dry-run` 走 preview；正式执行强制先 preview 回显影响面再执行 |
 | `mclaw session start "任务"` | 不传 `--session-id` 时以首条用户消息新建会话，传入时自动继续已有会话 → SSE 渲染（工具调用逐行）→ 终态定退出码；`--detach` 后可用 `session follow`（Last-Event-ID 续传），停止用 `session stop` |

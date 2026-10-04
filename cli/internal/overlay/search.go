@@ -85,7 +85,7 @@ func NewSearchGroup() *cobra.Command {
 		"统一搜索影视条目、PT 种子和本地媒体库，并管理搜索预设与历史", "torrents")
 	group.AddCommand(newSearchTitlesCommand())
 	group.AddCommand(newSearchTorrentsCommand())
-	group.AddCommand(newSearchLibraryItemsCommand())
+	group.AddCommand(newSearchLibraryCommand())
 	return group
 }
 
@@ -139,29 +139,55 @@ TMDB 与豆瓣单边失败时仍会返回另一边结果；默认记录搜索历
 		})
 }
 
-func newSearchLibraryItemsCommand() *cobra.Command {
+// newSearchLibraryCommand 搜本地媒体库，与 Web、iPhone、Apple TV 同一个相关度接口：
+// 片名/别名/拼音首字母/人物都能搜，结果按命中程度排序（不按库分组），
+// 每条带 match 说明命中原因。生成层的同名命令只能用 --q 传关键词，这里改成位置参数。
+func newSearchLibraryCommand() *cobra.Command {
+	var personID, limit int
+	var cursor string
 	cmd := &cobra.Command{
-		Use:   "library-items <关键词>",
-		Short: "搜索全部可见媒体库中的已入库条目",
-		Long: `按标题或原名搜索本地媒体库。
+		Use:   "library [关键词]",
+		Short: "按片名、拼音或人物搜索已入库条目（相关度排序）",
+		Long: `搜索全部可见媒体库中的已入库条目。
 
-示例：
+关键词支持片名、别名、拼音全拼/首字母和演员/导演姓名；结果按相关度排序，
+每条的 match 说明命中原因，people 是命中的人物（用 --person-id 列其库内作品）：
 
-    mclaw search library-items "沙丘"`,
-		Args: cobra.ExactArgs(1),
+    mclaw search library "沙丘"
+    mclaw search library xjcy
+    mclaw search library --person-id 12
+
+结果较多时 next_cursor 非空，原样传 --cursor 取下一页。`,
+		Args: cobra.MaximumNArgs(1),
 	}
-	return withOverrides(cmd, nil, func(s *Settings, _ *cobra.Command, args []string) error {
-		client, err := s.NewAPI()
-		if err != nil {
-			return err
-		}
-		result, err := client.Request("GET", "/search/library-items",
-			url.Values{"keyword": {args[0]}}, nil)
-		if err != nil {
-			return err
-		}
-		return output.Emit(result, s.Output, s.Quiet)
-	})
+	cmd.Flags().IntVar(&personID, "person-id", 0, "只看该人物的库内作品（people[].id）")
+	cmd.Flags().IntVar(&limit, "limit", 24, "每页条数（1-100）")
+	cmd.Flags().StringVar(&cursor, "cursor", "", "翻页游标（上一页的 next_cursor）")
+	return withOverrides(cmd, []string{"person-id", "limit", "cursor"},
+		func(s *Settings, _ *cobra.Command, args []string) error {
+			query := url.Values{"limit": {strconv.Itoa(limit)}}
+			if len(args) == 1 {
+				query.Set("q", args[0])
+			}
+			if personID > 0 {
+				query.Set("person_id", strconv.Itoa(personID))
+			}
+			if query.Get("q") == "" && personID == 0 {
+				return clierr.Usagef("请给出关键词，或用 --person-id 指定人物")
+			}
+			if cursor != "" {
+				query.Set("cursor", cursor)
+			}
+			client, err := s.NewAPI()
+			if err != nil {
+				return err
+			}
+			result, err := client.Request("GET", "/search/library", query, nil)
+			if err != nil {
+				return err
+			}
+			return output.Emit(result, s.Output, s.Quiet)
+		})
 }
 
 func newSearchTorrentsCommand() *cobra.Command {

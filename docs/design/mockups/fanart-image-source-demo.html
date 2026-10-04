@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>图片来源：接入 Fanart.tv（v2）</title>
+<style>
+  :root{
+    --bg:#0a0b10;--raised:rgba(30,33,43,.74);
+    --text:#f3f5f9;--muted:rgba(243,245,249,.62);--faint:rgba(243,245,249,.36);
+    --line:rgba(255,255,255,.08);--line-strong:rgba(255,255,255,.15);
+    --accent:#cdd6e6;--accent-2:#9fb0c9;--accent-soft:rgba(205,214,230,.14);
+    --ok:#4ade80;--info:#7fb0ff;--warn:#f5c451;--danger:#ff6b6b;
+    --tmdb:#7fd3c6;--fanart:#f0a8d0;
+    --mono:ui-monospace,Menlo,"SF Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:#000;color:var(--text);font:14px/1.5 -apple-system,BlinkMacSystemFont,"PingFang SC","Noto Sans SC",sans-serif;-webkit-font-smoothing:antialiased}
+  button,input{font:inherit;color:inherit}
+  a.lnk{color:var(--accent);cursor:pointer;text-decoration:underline;text-underline-offset:2px}
+
+  /* ====== 样稿导航 ====== */
+  .nav{position:sticky;top:0;z-index:20;display:flex;gap:6px;align-items:center;overflow-x:auto;padding:10px 12px;background:rgba(10,11,16,.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+  .nav button{flex:none;border:1px solid var(--line-strong);background:transparent;color:var(--muted);border-radius:999px;padding:6px 12px;font-size:13px;cursor:pointer}
+  .nav button.on{background:var(--accent);color:#0a0b10;border-color:var(--accent)}
+  .nav .reset{margin-left:auto;font-size:11.5px;border-style:dashed;color:var(--faint)}
+  .screen{display:none;padding:18px 16px 70px}
+  .screen.on{display:block}
+  .note{max-width:1240px;margin:0 auto 14px;font-size:12px;color:var(--faint);border-left:2px solid var(--warn);padding:4px 10px;line-height:1.7}
+  .note b{color:var(--muted);font-weight:600}
+  code{font-family:var(--mono);font-size:11px;color:var(--accent-2)}
+
+  /* ====== 机框 ====== */
+  .stage{max-width:1240px;margin:0 auto;display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap}
+  .frame{position:relative;flex:1 1 640px;min-width:0;display:grid;grid-template-columns:168px 1fr;background:var(--bg);border:1px solid var(--line-strong);border-radius:18px;overflow:hidden}
+  .side{border-right:1px solid var(--line);padding:16px 10px;background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.01))}
+  .brand{font-weight:700;letter-spacing:.02em;padding:4px 10px 14px}
+  .side .grp{font-size:10px;letter-spacing:.12em;color:var(--faint);padding:10px 10px 4px}
+  .side a{display:block;padding:6px 10px;border-radius:9px;color:var(--muted);font-size:12.5px;text-decoration:none}
+  .side a.on{background:rgba(255,255,255,.1);color:var(--text)}
+  .main{padding:20px 22px 26px;min-width:0}
+  h1{font-size:20px;letter-spacing:-.02em;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:12.5px;margin:0 0 16px}
+  .sec-label{font-size:10px;letter-spacing:.14em;color:var(--faint);margin:18px 0 8px}
+
+  /* ====== 卡片（对齐 scrape-settings-section 的手风琴卡） ====== */
+  .card{border:1px solid var(--line);background:rgba(255,255,255,.04);border-radius:16px;margin-bottom:8px;overflow:hidden}
+  .card.new{border-color:rgba(240,168,208,.35);box-shadow:0 0 0 1px rgba(240,168,208,.08)}
+  .card-head{display:flex;align-items:center;gap:10px;padding:11px 14px;cursor:pointer}
+  .card-head .tt{font-size:13px;font-weight:600;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .card-head .st{font-size:11px;color:var(--faint);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .card-head .st.hi{color:var(--accent)}
+  .card-head .chev{margin-left:auto;color:var(--faint);transition:transform .2s;flex:none}
+  .card.open .chev{transform:rotate(180deg)}
+  .card-body{display:none;border-top:1px solid rgba(255,255,255,.06);padding:4px 14px 16px}
+  .card.open .card-body{display:block}
+  .desc{font-size:12px;color:var(--muted);margin:10px 0 14px;max-width:62ch;line-height:1.65}
+  .badge-new{font-size:10px;font-weight:500;border-radius:999px;padding:1px 7px;background:rgba(240,168,208,.16);color:var(--fanart)}
+
+  /* 来源行 */
+  .src{border:1px solid var(--line);border-radius:12px;background:rgba(255,255,255,.025);margin-bottom:8px}
+  .src-row{display:flex;align-items:center;gap:12px;padding:11px 12px}
+  .src-ico{flex:none;width:32px;height:32px;border-radius:9px;display:grid;place-items:center;font-size:11px;font-weight:800;letter-spacing:-.02em}
+  .src-ico.tmdb{background:rgba(127,211,198,.14);color:var(--tmdb)}
+  .src-ico.fanart{background:rgba(240,168,208,.14);color:var(--fanart)}
+  .src-name{font-size:13px;font-weight:600;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .src-desc{font-size:11.5px;color:var(--faint);margin-top:1px}
+  .src-tail{margin-left:auto;display:flex;align-items:center;gap:8px;flex:none}
+  .pill{font-size:10.5px;font-weight:400;border-radius:999px;padding:1px 8px;border:1px solid var(--line)}
+  .pill.ok{color:var(--ok);border-color:rgba(74,222,128,.3)}
+  .pill.fixed{color:var(--faint)}
+  .pill.need{color:var(--warn);border-color:rgba(245,196,81,.3)}
+  .toggle{width:36px;height:21px;border-radius:999px;background:rgba(255,255,255,.14);position:relative;border:none;cursor:pointer;flex:none;transition:background .15s}
+  .toggle::after{content:"";position:absolute;top:2.5px;left:2.5px;width:16px;height:16px;border-radius:50%;background:#fff;transition:transform .15s}
+  .toggle.on{background:var(--accent-2)}
+  .toggle.on::after{transform:translateX(15px)}
+
+  /* 首次填 Key 的就地表单（设置卡 / 库设置 / 换图弹层三处共用） */
+  .keyform{border-top:1px dashed rgba(240,168,208,.3);padding:12px 12px 13px 56px;background:rgba(240,168,208,.035)}
+  .keyform.inmodal{border:1px solid rgba(240,168,208,.3);border-radius:12px;padding:12px;margin-bottom:10px}
+  .keyform .h{font-size:12.5px;font-weight:600;margin-bottom:2px}
+  .keyform .p{font-size:11.5px;color:var(--muted);margin:0 0 9px;line-height:1.6}
+  .keyform .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .keyform .err{font-size:11.5px;color:var(--danger);margin-top:7px}
+  .keyform .fine{font-size:10.5px;color:var(--faint);margin-top:7px}
+  .input{border-radius:10px;border:1px solid var(--line);background:rgba(255,255,255,.04);padding:6px 10px;font-size:12px;outline:none;min-width:0;flex:1 1 220px;font-family:var(--mono)}
+  .input:focus{border-color:rgba(205,214,230,.5)}
+  .btn{border:1px solid var(--line-strong);background:rgba(255,255,255,.04);border-radius:999px;padding:5px 12px;font-size:12px;cursor:pointer;white-space:nowrap}
+  .btn:hover{background:rgba(255,255,255,.08)}
+  .btn.primary{background:var(--accent);color:#0a0b10;border-color:var(--accent);font-weight:600}
+  .btn.ghost{border-color:transparent;color:var(--faint)}
+  .keyline{border-top:1px solid var(--line);padding:8px 12px 9px 56px;font-size:11px;color:var(--faint);display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .keyline code{color:var(--muted)}
+
+  .banner{display:flex;gap:10px;align-items:flex-start;border:1px solid rgba(127,176,255,.3);background:rgba(127,176,255,.07);border-radius:12px;padding:9px 12px;font-size:11.5px;color:var(--muted);line-height:1.6;margin:0 0 10px}
+  .banner b{color:var(--text);font-weight:600}
+  .banner .x{margin-left:auto;cursor:pointer;color:var(--faint)}
+
+  /* 来源顺序 */
+  .sub-h{font-size:12px;font-weight:600;margin:16px 0 4px;display:flex;align-items:center;gap:8px}
+  .sub-h small{font-weight:400;color:var(--faint);font-size:11px}
+  .order{border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .order.off{opacity:.4}
+  .orow{display:grid;grid-template-columns:86px 1fr auto;align-items:center;gap:10px;padding:8px 12px;border-top:1px solid var(--line)}
+  .orow:first-child{border-top:none}
+  .orow .k{font-size:12.5px;color:var(--text)}
+  .orow .k small{display:block;font-size:10.5px;color:var(--faint)}
+  .seq{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+  .seq .s{display:flex;align-items:center;gap:5px;border-radius:999px;padding:3px 10px 3px 4px;font-size:12px;border:1px solid rgba(159,176,201,.4);background:var(--accent-soft)}
+  .seq .s i{font-style:normal;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;font-size:9.5px;font-weight:800;color:#0a0b10}
+  .seq .s.tmdb i{background:var(--tmdb)} .seq .s.fanart i{background:var(--fanart)}
+  .seq .s.off{opacity:.35;text-decoration:line-through}
+  .seq .arrow{color:var(--faint);font-size:11px}
+  .swap{border:none;background:rgba(255,255,255,.06);border-radius:8px;padding:4px 9px;font-size:12px;cursor:pointer;color:var(--muted)}
+  .swap:hover{background:rgba(255,255,255,.12);color:var(--text)}
+  .swap:disabled{opacity:.3;pointer-events:none}
+  .orow .why{grid-column:2/4;font-size:10.5px;color:var(--faint);margin-top:-2px}
+  .rec{font-size:10px;color:var(--fanart)}
+  .rulebox{margin-top:10px;border-radius:12px;padding:9px 12px;background:rgba(255,255,255,.03);border:1px solid var(--line);font-size:11.5px;color:var(--muted);line-height:1.65}
+  .rulebox b{color:var(--text);font-weight:600}
+
+  /* 排序芯片（镜像 OrderChips） */
+  .chips{display:flex;flex-wrap:wrap;gap:7px}
+  .chip{display:flex;align-items:center;gap:6px;border-radius:999px;border:1px solid var(--line);background:rgba(255,255,255,.04);color:var(--muted);padding:5px 12px 5px 5px;font-size:12px;cursor:pointer}
+  .chip i{font-style:normal;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:10px;font-weight:700;background:rgba(255,255,255,.1);color:var(--faint)}
+  .chip.on{border-color:var(--accent-2);background:var(--accent-soft);color:var(--text)}
+  .chip.on i{background:var(--accent);color:#12141c}
+  .chip.dis{opacity:.35;pointer-events:none}
+  .seqbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:10px}
+  .seqbar .it{display:flex;align-items:center;gap:4px;border-radius:999px;border:1px solid rgba(159,176,201,.4);background:var(--accent-soft);padding:3px 4px 3px 10px;font-size:12px}
+  .seqbar .it em{font-style:normal;font-size:10px;color:var(--accent)}
+  .seqbar .it button{border:none;background:none;width:20px;height:20px;border-radius:50%;cursor:pointer;color:var(--muted);font-size:11px}
+  .seqbar .it button:hover{background:rgba(255,255,255,.1)}
+  .seqbar .it button:disabled{opacity:.25;pointer-events:none}
+  .seqbar .hint{font-size:11px;color:var(--faint)}
+
+  .foot{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:16px;font-size:11px;color:var(--faint)}
+
+  /* ====== 预演面板 ====== */
+  .panel{flex:1 1 400px;min-width:0;max-width:520px;border:1px solid var(--line-strong);border-radius:18px;background:linear-gradient(180deg,rgba(255,255,255,.035),rgba(255,255,255,.01));padding:16px;position:sticky;top:64px}
+  .panel h3{margin:0;font-size:14px;display:flex;align-items:center;gap:8px}
+  .panel h3 small{font-weight:400;font-size:11px;color:var(--faint)}
+  .samples{display:flex;gap:5px;flex-wrap:wrap;margin:10px 0 4px}
+  .samples button,.seg button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:3px 10px;font-size:11.5px;color:var(--muted);cursor:pointer}
+  .samples button.on,.seg button.on{background:var(--accent-soft);border-color:var(--accent-2);color:var(--text)}
+  .seg{display:inline-flex;gap:4px}
+  .ids{font-size:10.5px;color:var(--faint);font-family:var(--mono);margin:6px 0 10px;line-height:1.6}
+  .ids .miss{color:var(--warn)}
+  .off-hint{font-size:11.5px;color:var(--warn);border:1px dashed rgba(245,196,81,.35);border-radius:10px;padding:7px 10px;margin-bottom:8px}
+  .res{display:grid;grid-template-columns:76px 1fr;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+  .res .thumb{border-radius:8px;overflow:hidden}
+  .res .k{font-size:12px;font-weight:600;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  .tag{font-size:10px;border-radius:5px;padding:0 5px;font-weight:600;line-height:16px}
+  .tag.tmdb{background:rgba(127,211,198,.16);color:var(--tmdb)}
+  .tag.fanart{background:rgba(240,168,208,.16);color:var(--fanart)}
+  .tag.lang{background:rgba(255,255,255,.07);color:var(--muted);font-weight:500}
+  .tag.gain{background:rgba(74,222,128,.13);color:var(--ok);font-weight:500}
+  .why2{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.6}
+  .pool{display:flex;gap:4px;flex-wrap:wrap;margin-top:6px}
+  .pool span{font-size:10px;border-radius:5px;padding:0 5px;line-height:17px;border:1px solid var(--line);color:var(--faint)}
+  .pool span.t{border-color:rgba(127,211,198,.3)} .pool span.f{border-color:rgba(240,168,208,.3)}
+  .pool span.pick{color:#0a0b10;background:var(--accent);border-color:var(--accent);font-weight:600}
+  .pool span.low{text-decoration:line-through}
+  .pool span.out{opacity:.35}
+
+  /* 占位图 */
+  .ph{width:100%;display:grid;place-items:center;color:rgba(255,255,255,.85);font-size:10px;font-weight:600;text-align:center;padding:4px;position:relative}
+  .ph.poster{aspect-ratio:2/3}
+  .ph.backdrop{aspect-ratio:16/9}
+  .ph.logo{aspect-ratio:16/7;background-color:#16181d;background-image:linear-gradient(45deg,rgba(255,255,255,.07) 25%,transparent 25%,transparent 75%,rgba(255,255,255,.07) 75%),linear-gradient(45deg,rgba(255,255,255,.07) 25%,transparent 25%,transparent 75%,rgba(255,255,255,.07) 75%);background-size:12px 12px;background-position:0 0,6px 6px}
+  .ph.logo .lt{font-size:13px;font-weight:900;letter-spacing:.02em;line-height:1.1;text-shadow:0 1px 4px rgba(0,0,0,.6)}
+  .ph.logo .lt.en{font-family:Georgia,"Times New Roman",serif;letter-spacing:.14em;font-size:10px}
+  .ph.empty{background:repeating-linear-gradient(135deg,rgba(255,255,255,.03) 0 6px,transparent 6px 12px);color:var(--faint);border:1px dashed var(--line-strong);font-weight:400}
+  .ph .wm{position:absolute;bottom:3px;right:4px;font-size:8.5px;opacity:.75;font-weight:500}
+
+  /* ====== 弹层 ====== */
+  .scrim{position:absolute;inset:0;background:rgba(6,7,11,.66);backdrop-filter:blur(2px);display:flex;align-items:center;justify-content:center;padding:18px}
+  .modal{width:100%;max-width:640px;background:var(--raised);border:1px solid var(--line-strong);border-radius:18px;box-shadow:0 18px 48px rgba(0,0,0,.55);backdrop-filter:blur(18px);padding:16px}
+  .m-tabs{display:flex;gap:4px;margin:10px 0}
+  .m-tabs button{border:none;background:transparent;color:var(--faint);border-radius:9px;padding:5px 12px;font-size:12.5px;cursor:pointer}
+  .m-tabs button.on{background:rgba(255,255,255,.1);color:var(--text)}
+  .filters{display:flex;gap:5px;margin-bottom:10px;flex-wrap:wrap}
+  .filters button{border:1px solid var(--line);background:transparent;border-radius:999px;padding:2px 10px;font-size:11px;color:var(--muted);cursor:pointer}
+  .filters button.on{background:var(--accent-soft);border-color:var(--accent-2);color:var(--text)}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-height:380px;overflow:auto}
+  .cell{border-radius:10px;overflow:hidden;border:1.5px solid transparent;cursor:pointer;background:rgba(255,255,255,.03)}
+  .cell.cur{border-color:var(--accent)}
+  .cell .cap2{display:flex;gap:4px;align-items:center;padding:5px 6px;font-size:10px;color:var(--faint);flex-wrap:wrap}
+  .cell .cap2 .auto{margin-left:auto;color:var(--accent);font-size:9.5px}
+  .more-tile{border-radius:10px;border:1.5px dashed rgba(240,168,208,.4);background:rgba(240,168,208,.04);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-align:center;padding:12px;cursor:pointer;min-height:110px}
+  .more-tile b{font-size:12px;color:var(--fanart)}
+  .more-tile span{font-size:10.5px;color:var(--faint);line-height:1.5}
+
+  /* ====== 决策页 ====== */
+  .qs{max-width:980px;margin:0 auto;display:grid;gap:10px}
+  .done{border:1px solid rgba(74,222,128,.25);border-radius:14px;padding:12px 16px;background:rgba(74,222,128,.04)}
+  .done h4{margin:0 0 6px;font-size:13px;color:var(--ok)}
+  .done ul{margin:0;padding-left:18px;font-size:12.5px;color:var(--muted);line-height:1.85}
+  .done li b{color:var(--text);font-weight:600}
+  .q{border:1px solid var(--line);border-radius:14px;padding:14px 16px;background:rgba(255,255,255,.03)}
+  .q h4{margin:0 0 6px;font-size:14px;display:flex;gap:10px;align-items:baseline}
+  .q h4 i{font-style:normal;font-family:var(--mono);color:var(--fanart);font-size:12px}
+  .q p{margin:0;font-size:12.5px;color:var(--muted);line-height:1.7}
+  .q .opts{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}
+  .q .opt{border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:12px;color:var(--muted);line-height:1.6}
+  .q .opt b{color:var(--text);display:block;font-size:12.5px}
+  .q .opt.me{border-color:rgba(240,168,208,.4)}
+  .q .opt.me b::after{content:"  建议";color:var(--fanart);font-size:10.5px;font-weight:500}
+
+  @media (max-width:760px){
+    .frame{grid-template-columns:1fr}.side{display:none}
+    .q .opts{grid-template-columns:1fr}.panel{position:static;max-width:none}
+    .keyform,.keyline{padding-left:12px}
+  }
+</style>
+</head>
+<body>
+
+<nav class="nav" id="nav">
+  <button class="on" data-s="s1">① 全局设置：图片来源</button>
+  <button data-s="s2">② 库设置：按库覆盖</button>
+  <button data-s="s3">③ 详情页：更换图片</button>
+  <button data-s="s4">④ 已定 / 待定</button>
+  <button class="reset" id="resetBtn" title="清掉已填的 Key，重新体验首次配置">↺ 重置为全新安装</button>
+</nav>
+
+<!-- ══════════════ 1. 全局设置 ══════════════ -->
+<section class="screen on" id="s1">
+  <p class="note">
+    <b>v2 按你的决定改过：</b>Fanart 默认关，<b>不内置 Key</b>。第一次打开 Fanart 开关时，Key 输入框就地展开，验证通过才算开启。Key 填一次、全站共用，之后在任何地方开关都不用再填，也没有单独的配置页。
+    规则写死成<b>语言优先</b>，不再让用户选。来源顺序按图片类型分开排，海报也算在内。另外新加了一张「片名 Logo」语言卡（粉色描边的都是新卡片）。
+    右侧预演可以点着试：先打开 Fanart（随便填 8 位以上就算验证通过），再调来源顺序和 Logo 语言，右边的结果会跟着变。所有数据都是虚构的。
+  </p>
+  <div class="stage">
+    <div class="frame">
+      <aside class="side">
+        <div class="brand">MovieClaw</div>
+        <div class="grp">媒体</div>
+        <a>订阅</a><a>站点</a><a>下载器</a><a>导入与监控</a>
+        <a class="on">刮削与整理</a><a>播放</a>
+        <div class="grp">系统</div>
+        <a>网络与代理</a><a>成员</a><a>缓存管理</a>
+      </aside>
+      <div class="main">
+        <h1>刮削与整理</h1>
+        <p class="sub">全站默认的刮削口味。<b style="font-weight:500;color:var(--text)">任意一项</b>都可以在媒体库的「编辑库 → 刮削设置」里单独覆盖，没被覆盖的库跟随这里。</p>
+
+        <div class="sec-label">元数据</div>
+        <div class="card"><div class="card-head"><div><div class="tt">元数据语言</div><div class="st">中文（简体） → English</div></div><span class="chev">⌄</span></div></div>
+        <div class="card"><div class="card-head"><div><div class="tt">内容分级</div><div class="st">中国 → 美国</div></div><span class="chev">⌄</span></div></div>
+
+        <div class="sec-label">图片</div>
+        <div class="card new open" id="srcCard">
+          <div class="card-head" data-toggle="srcCard">
+            <div style="min-width:0"><div class="tt">图片来源 <span class="badge-new">新</span></div><div class="st" id="srcStatus"></div></div>
+            <span class="chev">⌄</span>
+          </div>
+          <div class="card-body">
+            <p class="desc">海报、背景、片名 Logo、季海报可以从多个图库挑选。TMDB 是元数据的主来源，始终开启；Fanart.tv 是社区维护的高清图库，<b style="color:var(--text);font-weight:500">中文片名 Logo、季海报</b>往往比 TMDB 全。你在条目详情页手动选定的图始终优先，不受这里影响。</p>
+
+            <div id="enabledBanner"></div>
+
+            <div class="src">
+              <div class="src-row">
+                <div class="src-ico tmdb">TMDB</div>
+                <div style="min-width:0"><div class="src-name">TMDB</div><div class="src-desc">元数据与图片的主来源</div></div>
+                <div class="src-tail"><span class="pill fixed">始终开启</span></div>
+              </div>
+            </div>
+
+            <div class="src" id="fanartBox"></div>
+
+            <div class="sub-h">来源顺序 <small>每种图单独排，点 ⇄ 交换先后</small></div>
+            <div class="order" id="orderBox"></div>
+            <div class="rulebox"><b>先看语言，再看来源。</b>每种图按自己的语言优先级（海报、背景、片名 Logo 卡里配置）逐档找；同一档语言两个来源都有图时，才按上面的来源顺序挑。所以把中文排第一，就不会因为来源顺序拿到英文图。</div>
+          </div>
+        </div>
+
+        <div class="card" id="posterCard">
+          <div class="card-head" data-toggle="posterCard"><div style="min-width:0"><div class="tt">海报</div><div class="st" id="posterStatus"></div></div><span class="chev">⌄</span></div>
+        </div>
+        <div class="card"><div class="card-head"><div><div class="tt">背景图（fanart）</div><div class="st">无文字 → 跟随元数据主语言 → English</div></div><span class="chev">⌄</span></div></div>
+
+        <div class="card new open" id="logoCard">
+          <div class="card-head" data-toggle="logoCard">
+            <div style="min-width:0"><div class="tt">片名 Logo <span class="badge-new">新</span></div><div class="st" id="logoStatus"></div></div>
+            <span class="chev">⌄</span>
+          </div>
+          <div class="card-body">
+            <p class="desc">详情页、首页大图上叠在背景图上的片名字标（透明底）。按顺序逐档找第一张有图的语言；全部落空就不显示 Logo，改为显示文字标题。以前这个顺序写死在代码里，现在开放出来。</p>
+            <div class="chips" id="logoChips"></div>
+            <div class="seqbar" id="logoSeq"></div>
+          </div>
+        </div>
+
+        <div class="card"><div class="card-head"><div><div class="tt">最低分辨率门槛</div><div class="st">海报 ≥500 · 背景 ≥1920</div></div><span class="chev">⌄</span></div></div>
+        <div class="card"><div class="card-head"><div><div class="tt">本地图片画质</div><div class="st">原图</div></div><span class="chev">⌄</span></div></div>
+
+        <div class="foot"><span>保存后对新刮削立即生效；存量条目在媒体库页执行「刷新元数据」后按新配置更新。</span><button class="btn primary">保存</button></div>
+      </div>
+    </div>
+
+    <aside class="panel">
+      <h3>选图预演 <small>示意数据 · 随左侧设置实时变化</small></h3>
+      <div class="samples" id="samples"></div>
+      <div class="ids" id="ids"></div>
+      <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--faint);margin-bottom:8px">
+        海报模式（来自「海报」卡）：<span class="seg" id="pmode"><button data-m="default">TMDB 默认</button><button data-m="language">按语言优先级</button></span>
+      </div>
+      <div id="results"></div>
+    </aside>
+  </div>
+</section>
+
+<!-- ══════════════ 2. 库设置 ══════════════ -->
+<section class="screen" id="s2">
+  <p class="note">
+    <b>按库覆盖沿用现有的卡片三态</b>（跟随全局 / 自定义）。这里演示的是<b>全站还没填过 Key</b> 的情况：用户在「动画」库里第一次打开 Fanart，库设置里会就地弹出同一个 Key 表单。
+    填的 Key <b>存到全站</b>（凭据不跟着库走），之后全局设置和其他库都直接可用，不用再填。如果 Key 已经填过，这里就只有一个普通开关。
+    这个页面和第①页共用演示状态：在这里填了 Key，回到第①页会看到 Fanart 已经是「Key 已配置」。
+  </p>
+  <div class="stage">
+    <div class="frame" style="grid-template-columns:1fr;max-width:720px;margin:0 auto">
+      <div class="main">
+        <h1>编辑库 · 动画</h1>
+        <p class="sub">基本信息 · 路径 · <b style="color:var(--text);font-weight:500">刮削设置</b> · 目录写入</p>
+        <div class="sec-label">图片</div>
+        <div class="card new open">
+          <div class="card-head"><div><div class="tt">图片来源 <span style="width:6px;height:6px;border-radius:50%;background:var(--accent);display:inline-block"></span></div><div class="st hi" id="libStatus"></div></div><span class="chev">⌄</span></div>
+          <div class="card-body">
+            <div style="margin:12px 0 14px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;border:1px solid var(--line);background:rgba(255,255,255,.03);border-radius:12px;padding:8px 12px">
+              <span style="font-size:11px;color:var(--faint)" id="libGlobal"></span>
+              <span style="display:flex;gap:4px"><button class="swap">跟随全局</button><button class="swap" style="background:var(--accent-soft);color:var(--text)">自定义</button></span>
+            </div>
+            <div class="src"><div class="src-row"><div class="src-ico tmdb">TMDB</div><div><div class="src-name">TMDB</div><div class="src-desc">始终开启</div></div><div class="src-tail"><span class="pill fixed">始终开启</span></div></div></div>
+            <div class="src" id="libFanartBox"></div>
+            <div class="sub-h">来源顺序 <small>本库：海报也改为 Fanart 在前</small></div>
+            <div class="order" id="libOrder">
+              <div class="orow"><span class="k">海报<small>本库已调整</small></span><span class="seq"><span class="s fanart"><i>1</i>Fanart.tv</span><span class="arrow">→</span><span class="s tmdb"><i>2</i>TMDB</span></span><button class="swap">⇄</button></div>
+              <div class="orow"><span class="k">片名 Logo</span><span class="seq"><span class="s fanart"><i>1</i>Fanart.tv</span><span class="arrow">→</span><span class="s tmdb"><i>2</i>TMDB</span></span><button class="swap">⇄</button></div>
+            </div>
+          </div>
+        </div>
+        <div class="card"><div class="card-head"><div><div class="tt">片名 Logo</div><div class="st">跟随全局：跟随元数据主语言 → English → 原始语言 → 无文字</div></div><span class="chev">⌄</span></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 3. 更换图片 ══════════════ -->
+<section class="screen" id="s3">
+  <p class="note">
+    <b>换图弹层也算一个「使用 Fanart」的入口。</b>还没填 Key 时，候选网格最后多一格「从 Fanart.tv 找更多」，点开就地填 Key，验证通过后 Fanart 的候选马上出现。
+    填了 Key 之后，候选图标出来源、语言和热度（TMDB 是评分，Fanart 是点赞数），可以按来源筛选，第一张就是自动规则会选的那张。
+    示例是《流浪地球2》的徽标：TMDB 只有一张英文的，Fanart 有中文的。
+  </p>
+  <div class="stage">
+    <div class="frame" style="grid-template-columns:1fr;max-width:760px;margin:0 auto;min-height:600px">
+      <div class="main" style="filter:blur(1.5px);opacity:.5">
+        <h1>流浪地球2</h1><p class="sub">2023 · 科幻 · 173 分钟</p>
+        <div class="ph backdrop" style="background:linear-gradient(135deg,#1c2a3e,#3c2a1e);border-radius:12px"></div>
+      </div>
+      <div class="scrim">
+        <div class="modal">
+          <div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:14px">更换图片</b><span style="color:var(--faint);cursor:pointer">✕</span></div>
+          <div class="m-tabs" id="mtabs"><button data-k="backdrop">背景</button><button data-k="poster">海报</button><button class="on" data-k="logo">徽标</button></div>
+          <div id="mkey"></div>
+          <div class="filters" id="mfilters"></div>
+          <div class="grid" id="mgrid"></div>
+          <p style="margin:10px 0 0;font-size:11px;color:var(--faint)">选定后锁定，之后刷新元数据不再覆盖；徽标同时写入媒体目录 clearlogo.png。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ══════════════ 4. 已定 / 待定 ══════════════ -->
+<section class="screen" id="s4">
+  <div class="qs">
+    <div class="done">
+      <h4>✓ 已定（2026-10-04）</h4>
+      <ul>
+        <li>多个来源都有图时<b>语言优先</b>，写死，不给用户选</li>
+        <li>来源顺序<b>按图片类型分开排</b>（海报 / 背景 / 片名 Logo / 季海报）</li>
+        <li><b>海报也让 Fanart 参与</b>，不考虑订阅前后海报跳变的问题</li>
+        <li>Fanart <b>默认关</b></li>
+        <li><b>不内置 Key</b>：第一次用 Fanart 时就地填一次，全站共用，不单开配置页</li>
+        <li><b>「片名 Logo」语言档开放成卡片</b></li>
+        <li>Fanart 独有的图（clearart、碟面、横幅、角色图）<b>一期不做</b></li>
+        <li>开启后，存量条目<b>提醒用户自己去刷新元数据</b>，不刷新就不管</li>
+      </ul>
+    </div>
+
+    <div class="q"><h4><i>Q1</i>海报卡在「TMDB 默认」模式下，怎么和 Fanart 比？</h4>
+      <p>「TMDB 默认」的意思是直接用 TMDB 指定的那张海报，不按语言挑。现在 Fanart 也要参与海报，两者需要一个比较规则。</p>
+      <div class="opts"><div class="opt me"><b>TMDB 只拿出指定的那一张，和 Fanart 的海报按语言比</b>demo 里就是这么做的。Fanart 没有图或者被关掉时，结果和今天完全一样；Fanart 有更靠前语言的海报时才会换掉。比较用的是海报卡里的语言优先级，所以 Fanart 开着时，默认模式下那组语言芯片要能编辑（今天在默认模式下是灰的）。</div>
+      <div class="opt"><b>Fanart 开着时强制按语言模式</b>规则更简单，但用户在海报卡里选的「TMDB 默认」会悄悄失效，而且 TMDB 内部的选图结果也会跟着变。</div></div>
+    </div>
+    <div class="q"><h4><i>Q2</i>填了 Key，但 Fanart 开关关着时，换图弹层要不要显示 Fanart 的候选？</h4>
+      <div class="opts"><div class="opt me"><b>显示</b>开关管的是自动选图，手动换图本身就是用户明确想用。有 Key 就说明这个渠道可用。</div>
+      <div class="opt"><b>不显示</b>开关同时管自动和手动，概念最统一，但用户想手动挑一张中文 Logo 得先去设置里打开开关。</div></div>
+    </div>
+    <div class="q"><h4><i>Q3</i>季海报用哪套语言优先级？</h4>
+      <p>建议<b>跟随海报卡的语言优先级</b>，不再单开一张卡。季海报和海报长得一样，口味通常一致。</p>
+    </div>
+    <div class="q"><h4><i>Q4</i>Key 失效了（被撤销、填错）怎么办？</h4>
+      <p>建议：刮削时<b>跳过 Fanart、不影响 TMDB</b>，日志里写一条中文说明；图片来源卡上的状态变成红色的「Key 已失效」，点开就是同一个 Key 表单，可以重新填。不额外发通知。</p>
+    </div>
+    <div class="q"><h4><i>Q5</i>默认的来源顺序</h4>
+      <p>demo 里的默认顺序：海报 TMDB → Fanart，背景 TMDB → Fanart（TMDB 常有 4K，Fanart 背景固定 1920 宽），片名 Logo 和季海报 Fanart → TMDB（这两类 Fanart 的中文图更多）。</p>
+    </div>
+    <div class="q"><h4><i>Q6</i>iOS 设置页什么时候跟进？</h4>
+      <p>iOS 也有刮削设置页（<code>SettingsBScrapeModel.swift</code>）。建议一期只做 Web 和后端，iOS 第二步再跟进；在那之前 iOS 上看到的是设置结果，只是不能改。</p>
+    </div>
+  </div>
+</section>
+
+<script>
+/* ───────── 导航 ───────── */
+function show(id) {
+  document.querySelectorAll('#nav button[data-s]').forEach(x => x.classList.toggle('on', x.dataset.s === id));
+  document.querySelectorAll('.screen').forEach(s => s.classList.toggle('on', s.id === id));
+}
+document.getElementById('nav').addEventListener('click', e => {
+  const b = e.target.closest('button[data-s]'); if (!b) return;
+  show(b.dataset.s); history.replaceState(null, '', '#' + b.dataset.s); window.scrollTo(0, 0);
+});
+if (/^#s\d$/.test(location.hash)) show(location.hash.slice(1));
+document.querySelectorAll('[data-toggle]').forEach(h => h.addEventListener('click', () =>
+  document.getElementById(h.dataset.toggle).classList.toggle('open')));
+
+/* ───────── 演示状态 ─────────
+ * key：全站唯一的 Fanart Key（空 = 从没填过）；fanart：自动选图是否用 Fanart（默认关）
+ * keyForm：哪个入口正在展开 Key 表单（global / library / modal），同一时刻只展开一个 */
+const S = {
+  key: '', fanart: false, libFanart: false, keyForm: null, keyErr: '', keyDraft: '',
+  justEnabled: false, posterMode: 'default',
+  order: { poster: ['tmdb', 'fanart'], backdrop: ['tmdb', 'fanart'], logo: ['fanart', 'tmdb'], season: ['fanart', 'tmdb'] },
+  logoTiers: ['meta', 'en', 'orig', 'null'],
+};
+const KINDS = [
+  { k: 'poster', label: '海报', rec: 'TMDB 在前' },
+  { k: 'backdrop', label: '背景', rec: 'TMDB 在前（常有 4K）' },
+  { k: 'logo', label: '片名 Logo', rec: 'Fanart 在前（中文多）' },
+  { k: 'season', label: '季海报', rec: 'Fanart 在前' },
+];
+const DEFAULT_FIRST = { poster: 'tmdb', backdrop: 'tmdb', logo: 'fanart', season: 'fanart' };
+const SRC = { tmdb: 'TMDB', fanart: 'Fanart.tv' };
+const LANG = { zh: '中文', en: 'English', ja: '日本語', null: '无文字' };
+const LOGO_OPTS = [
+  { id: 'meta', name: '跟随元数据主语言' }, { id: 'orig', name: '原始语言' },
+  { id: 'en', name: 'English' }, { id: 'null', name: '无文字' }, { id: 'ja', name: '日本語' },
+];
+// 各类图的语言档（meta 解析为 zh）：海报/季海报 = 海报卡默认，背景 = 背景卡默认，Logo = 新卡
+const tiersFor = kind => ({ poster: ['meta', 'en', 'null'], season: ['meta', 'en', 'null'], backdrop: ['null', 'meta', 'en'], logo: S.logoTiers })[kind];
+const MINW = { poster: 500, backdrop: 1920, logo: 0, season: 500 };
+
+/* ───────── 示意数据 ─────────
+ * [来源, 语言, 热度, 宽度, 色相]；热度 TMDB=评分 / Fanart=点赞。海报第一条 TMDB 记录 = TMDB 指定的默认海报 */
+const SAMPLES = [
+  { id: 'we2', title: '流浪地球2', type: '电影', orig: 'zh', ids: 'TMDB 842675 · IMDb tt13539646', logoText: { zh: '流浪地球2', en: 'THE WANDERING EARTH II' },
+    poster: [['tmdb','zh',8.1,2000,210],['tmdb','zh',6.0,1500,200],['tmdb','en',7.2,2000,30],['tmdb','null',5.5,1400,260],['fanart','zh',9,1000,190],['fanart','en',5,1000,20]],
+    backdrop: [['tmdb','null',7.9,3840,215],['tmdb','zh',6.6,1920,195],['tmdb','en',6.1,1920,25],['fanart','null',6,1920,205]],
+    logo: [['tmdb','en',5.3,800,0],['fanart','zh',7,800,0],['fanart','zh',3,800,0],['fanart','en',4,800,0]] },
+  { id: 'dune2', title: '沙丘：第二部', type: '电影', orig: 'en', ids: 'TMDB 693134 · IMDb tt15239678', logoText: { zh: '沙丘2', en: 'DUNE PART TWO' },
+    poster: [['tmdb','en',8.4,2000,35],['tmdb','zh',6.9,1400,40],['tmdb','null',7.7,2000,30],['fanart','en',12,1000,28],['fanart','zh',2,1000,38],['fanart','null',8,1000,32]],
+    backdrop: [['tmdb','null',8.2,3840,33],['tmdb','en',7.0,3840,36],['fanart','null',9,1920,30]],
+    logo: [['tmdb','en',6.2,1200,0],['tmdb','en',5.1,1000,0],['fanart','en',12,800,0],['fanart','zh',2,800,0]] },
+  { id: 'tb', title: '三体', type: '剧集', orig: 'zh', ids: 'TMDB 204541 · TVDB 421477（经 TMDB 外部编号取得）', logoText: { zh: '三体', en: 'THREE-BODY' },
+    poster: [['tmdb','en',6.8,1000,230],['fanart','zh',6,1000,240],['fanart','en',3,1000,250]],
+    backdrop: [['tmdb','null',6.0,1920,235],['fanart','null',4,1920,245],['fanart','zh',2,1920,225]],
+    logo: [['fanart','zh',5,800,0]],
+    season: [['tmdb','en',5.0,680,220],['fanart','zh',4,1000,228]] },
+  { id: 'rtbf', title: '让子弹飞', type: '电影', orig: 'zh', ids: 'TMDB 51533 · IMDb tt1533117', logoText: { zh: '让子弹飞', en: 'LET THE BULLETS FLY' },
+    poster: [['tmdb','zh',7.0,1000,10],['tmdb','en',6.2,1000,40],['fanart','en',4,1000,35],['fanart','null',3,1000,0]],
+    backdrop: [['tmdb','null',6.4,1280,30],['tmdb','zh',5.8,1280,15],['fanart','null',5,1920,45]],
+    logo: [['tmdb','zh',5.0,600,0],['fanart','en',2,800,0]] },
+  { id: 'doc', title: '冷门纪录片', type: '电影', orig: 'zh', ids: 'TMDB 1180342 · <span class="miss">Fanart.tv 查无此片</span>', logoText: { zh: '山河之间', en: '' },
+    poster: [['tmdb','zh',0,1000,140]], backdrop: [['tmdb','null',0,1920,150]], logo: [] },
+];
+let cur = SAMPLES[0];
+
+/* ───────── 选图规则：语言优先（写死） ───────── */
+const resolve = (t, sample) => t === 'meta' ? 'zh' : t === 'orig' ? sample.orig : t;
+function tiersOf(sample, kind) {
+  return tiersFor(kind).map(t => resolve(t, sample)).filter((t, i, a) => a.indexOf(t) === i);
+}
+function cands(sample, kind, useFanart) {
+  let list = (sample[kind] || []).map(([src, lang, score, w, hue], i) => ({ src, lang, score, w, hue, i }));
+  if (!useFanart) list = list.filter(c => c.src === 'tmdb');
+  // 海报「TMDB 默认」：TMDB 只拿出它指定的那一张参与比较
+  if (kind === 'poster' && S.posterMode === 'default') {
+    const first = list.find(c => c.src === 'tmdb');
+    list = list.filter(c => c.src !== 'tmdb' || c === first);
+  }
+  return list;
+}
+function rank(pool, kind) {
+  const order = S.order[kind], minw = MINW[kind];
+  return [...pool].sort((a, b) =>
+    ((b.w >= minw) - (a.w >= minw)) || (order.indexOf(a.src) - order.indexOf(b.src)) || (b.score - a.score));
+}
+function pick(sample, kind, useFanart) {
+  const all = cands(sample, kind, useFanart);
+  const tiers = tiersOf(sample, kind);
+  if (!all.length) return { chosen: null, why: kind === 'logo' ? '没有任何候选 → 不显示 Logo，用文字标题' : '没有候选图' };
+  const n = (src, lang) => all.filter(c => c.src === src && c.lang === lang).length;
+  for (const [ti, t] of tiers.entries()) {
+    const pool = all.filter(c => c.lang === t);
+    if (!pool.length) continue;
+    const c = rank(pool, kind)[0];
+    const skipped = tiers.slice(0, ti).map(x => LANG[x]).join('、');
+    let why = `${skipped ? `「${skipped}」都没有 → ` : ''}第 ${ti + 1} 档「${LANG[t]}」：TMDB ${n('tmdb', t)} 张` + (useFanart ? `、Fanart ${n('fanart', t)} 张` : '');
+    const order = S.order[kind];
+    const lowFirst = pool.some(p => p.w < MINW[kind] && order.indexOf(p.src) < order.indexOf(c.src));
+    if (lowFirst) why += ` → ${SRC[order[0]]} 的低于 ${MINW[kind]} 宽门槛，取 ${SRC[c.src]}`;
+    else if (n('tmdb', t) && n('fanart', t) && useFanart) why += ` → 同一档按来源顺序取 ${SRC[c.src]}`;
+    if (kind === 'poster' && S.posterMode === 'default' && c.src === 'tmdb') why += '（TMDB 指定的那张）';
+    return { chosen: c, why };
+  }
+  if (kind === 'logo') return { chosen: null, why: `${tiers.map(t => LANG[t]).join('、')} 都没有 → 不显示 Logo，用文字标题` };
+  return { chosen: rank(all, kind)[0], why: '语言档全部落空，取综合最好的一张' };
+}
+
+/* ───────── 占位图 ───────── */
+function ph(kind, c, sample) {
+  const shape = kind === 'season' ? 'poster' : kind;
+  if (!c) return `<div class="ph ${shape} empty">${kind === 'logo' ? '文字标题' : '无'}</div>`;
+  if (kind === 'logo') {
+    const txt = c.lang === 'zh' ? sample.logoText.zh : sample.logoText.en;
+    return `<div class="ph logo"><span class="lt ${c.lang === 'zh' ? '' : 'en'}">${txt}</span></div>`;
+  }
+  const h = c.hue, h2 = (c.hue + 40) % 360;
+  const label = c.lang === 'null' ? '' : (c.lang === 'zh' ? sample.title : sample.logoText.en);
+  return `<div class="ph ${shape}" style="background:linear-gradient(160deg,hsl(${h} 35% 28%),hsl(${h2} 40% 12%))">${label}<span class="wm">${c.w}px</span></div>`;
+}
+
+/* ───────── Key 表单（三处入口共用） ───────── */
+function keyFormHTML(where) {
+  const copy = {
+    global: ['先填一次 Fanart.tv API Key', 'Fanart.tv 需要你自己的 API Key（免费注册即可获得）。只需填这一次，全站共用：之后在这里、媒体库设置、换图弹层都能直接用。'],
+    library: ['这个库要用 Fanart.tv，先填一次 API Key', 'Key 保存到全站，不只属于这个库：之后全局设置和其他库都能直接用，不用再填。'],
+    modal: ['从 Fanart.tv 找更多候选', '需要先填一次你自己的 Fanart.tv API Key（免费注册即可获得）。填好后马上能在这里挑图，自动选图要不要用 Fanart 仍由设置里的开关决定。'],
+  }[where];
+  return `<div class="keyform ${where === 'modal' ? 'inmodal' : ''}">
+    <div class="h">${copy[0]}</div><p class="p">${copy[1]}</p>
+    <div class="row">
+      <input class="input" data-keyinput placeholder="粘贴 API Key" value="${S.keyDraft}">
+      <button class="btn primary" data-verify="${where}">验证并${where === 'modal' ? '使用' : '启用'}</button>
+      <button class="btn ghost" data-cancel>取消</button>
+    </div>
+    ${S.keyErr ? `<div class="err">${S.keyErr}</div>` : ''}
+    <div class="fine">还没有 Key？<a class="lnk">去 fanart.tv 免费申请 ↗</a>　·　VIP 会员的 Key 能更快拿到刚上传的新图</div>
+  </div>`;
+}
+const mask = k => '••••' + k.slice(-4);
+
+/* ───────── 渲染：全局设置 ───────── */
+function renderFanartRow() {
+  const has = !!S.key;
+  const pill = has ? '<span class="pill ok">Key 已配置</span>' : '<span class="pill need">需要 API Key</span>';
+  const desc = has ? '社区高清图库 · 电影按 TMDB 编号、剧集按 TVDB 编号取图（TVDB 编号从 TMDB 自动获取）'
+                   : '社区高清图库 · 打开开关时填一次你自己的 API Key 即可';
+  document.getElementById('fanartBox').innerHTML = `
+    <div class="src-row">
+      <div class="src-ico fanart">FA</div>
+      <div style="min-width:0"><div class="src-name">Fanart.tv ${pill}</div><div class="src-desc">${desc}</div></div>
+      <div class="src-tail"><button class="toggle ${S.fanart ? 'on' : ''}" data-fanart-toggle="global" aria-label="启用 Fanart.tv"></button></div>
+    </div>
+    ${S.keyForm === 'global' ? keyFormHTML('global') : ''}
+    ${has && S.keyForm !== 'global' ? `<div class="keyline">API Key <code>${mask(S.key)}</code><a class="lnk" data-rekey="global">更换</a></div>` : ''}`;
+}
+function renderSettings() {
+  renderFanartRow();
+  document.getElementById('enabledBanner').innerHTML = S.justEnabled ? `<div class="banner">
+    <span>ℹ︎</span><span><b>Fanart.tv 已启用。</b>之后新入库的条目会自动用上；<b>已入库的条目需要你在媒体库执行「刷新元数据」</b>后才会按新来源重选图片，不刷新就保持原样。<a class="lnk">去媒体库</a></span>
+    <span class="x" data-close-banner>✕</span></div>` : '';
+
+  const box = document.getElementById('orderBox');
+  box.classList.toggle('off', !S.fanart);
+  box.innerHTML = KINDS.map(({ k, label, rec }) => {
+    const seq = S.order[k].map((s, i) =>
+      `<span class="s ${s} ${s === 'fanart' && !S.fanart ? 'off' : ''}"><i>${i + 1}</i>${SRC[s]}</span>`).join('<span class="arrow">→</span>');
+    const isDefault = S.order[k][0] === DEFAULT_FIRST[k];
+    const note = k === 'poster' && S.posterMode === 'default'
+      ? '<span class="why">海报卡是「TMDB 默认」：TMDB 只出它指定的那一张，和 Fanart 的海报按语言比</span>'
+      : k === 'season' ? '<span class="why">只对剧集生效；语言跟随海报卡</span>' : '';
+    return `<div class="orow"><span class="k">${label}<small>${isDefault ? `<span class="rec">默认 · ${rec}</span>` : '已调整'}</small></span>
+      <span class="seq">${seq}</span><button class="swap" data-swap="${k}" ${S.fanart ? '' : 'disabled'}>⇄</button>${note}</div>`;
+  }).join('');
+
+  document.getElementById('srcStatus').textContent = S.fanart
+    ? `TMDB + Fanart.tv · ${KINDS.filter(x => S.order[x.k][0] === 'fanart').map(x => x.label).join('、') || '全部'}优先 Fanart`
+    : (S.key ? '仅 TMDB（Fanart.tv 已配置 Key，未启用）' : '仅 TMDB');
+  document.getElementById('posterStatus').textContent = S.posterMode === 'default'
+    ? 'TMDB 默认' + (S.fanart ? ' · 与 Fanart 按 跟随元数据主语言 → English → 无文字 比较' : '')
+    : '按语言：跟随元数据主语言 → English → 无文字';
+  document.querySelectorAll('#pmode button').forEach(b => b.classList.toggle('on', b.dataset.m === S.posterMode));
+
+  // 片名 Logo 卡：排序芯片
+  const name = id => LOGO_OPTS.find(o => o.id === id)?.name ?? id;
+  document.getElementById('logoChips').innerHTML = LOGO_OPTS.map(o => {
+    const on = S.logoTiers.includes(o.id);
+    const dis = !on && S.logoTiers.length >= 4;
+    return `<button class="chip ${on ? 'on' : ''} ${dis ? 'dis' : ''}" data-logo="${o.id}"><i>${on ? '✓' : '+'}</i>${o.name}</button>`;
+  }).join('');
+  document.getElementById('logoSeq').innerHTML = S.logoTiers.map((id, i) => `<span class="it">
+      ${i === 0 ? '<em>首选</em>' : ''}<span>${name(id)}</span>
+      <button data-logo-up="${i}" ${i === 0 ? 'disabled' : ''} aria-label="上移">↑</button>
+      <button data-logo-rm="${id}" ${S.logoTiers.length <= 1 ? 'disabled' : ''} aria-label="移除">✕</button></span>`).join('') +
+    '<span class="hint">按此顺序回落（最多 4 项），全部落空则显示文字标题</span>';
+  document.getElementById('logoStatus').textContent = S.logoTiers.map(name).join(' → ');
+}
+
+/* ───────── 渲染：预演 ───────── */
+function renderPreview() {
+  document.getElementById('samples').innerHTML = SAMPLES.map(s =>
+    `<button data-id="${s.id}" class="${s.id === cur.id ? 'on' : ''}">${s.title}</button>`).join('');
+  document.getElementById('ids').innerHTML = `${cur.type} · 原声 ${LANG[cur.orig]} · ${cur.ids}`;
+  const kinds = KINDS.filter(k => k.k !== 'season' || cur.type === '剧集');
+  const offHint = S.fanart ? '' : '<div class="off-hint">Fanart.tv 未启用，下面是现状（仅 TMDB）。打开左侧开关看看差别。</div>';
+  document.getElementById('results').innerHTML = offHint + kinds.map(({ k, label }) => {
+    const r = pick(cur, k, S.fanart);
+    const c = r.chosen;
+    let gain = '';
+    if (S.fanart && c && c.src === 'fanart') {
+      const was = pick(cur, k, false).chosen;
+      gain = `<span class="tag gain">${was ? `原来：TMDB · ${LANG[was.lang]}` : (k === 'logo' ? '原来：没有 Logo' : '原来：没有这张图')}</span>`;
+    }
+    const inPool = new Set(cands(cur, k, S.fanart).map(p => p.i));
+    const tiers = tiersOf(cur, k);
+    const pool = (cur[k] || []).map(([src, lang, score, w], i) => {
+      if (src === 'fanart' && !S.fanart) return '';
+      const cls = [src === 'tmdb' ? 't' : 'f', c && c.i === i ? 'pick' : '', w < MINW[k] ? 'low' : '',
+        !inPool.has(i) || !tiers.includes(lang) ? 'out' : ''].join(' ');
+      return `<span class="${cls}" title="${w}px">${src === 'tmdb' ? 'T' : 'F'}·${LANG[lang]}${src === 'tmdb' ? ` ★${score}` : ` ♥${score}`}</span>`;
+    }).join('');
+    return `<div class="res">
+      <div class="thumb">${ph(k, c, cur)}</div>
+      <div style="min-width:0">
+        <div class="k">${label} ${c ? `<span class="tag ${c.src}">${SRC[c.src]}</span><span class="tag lang">${LANG[c.lang]}</span>` : '<span class="tag lang">留空</span>'} ${gain}</div>
+        <div class="why2">${r.why}</div>
+        <div class="pool">${pool || '<span>无候选</span>'}</div>
+      </div></div>`;
+  }).join('');
+}
+
+/* ───────── 渲染：库设置 ───────── */
+function renderLibrary() {
+  const has = !!S.key;
+  document.getElementById('libFanartBox').innerHTML = `
+    <div class="src-row">
+      <div class="src-ico fanart">FA</div>
+      <div style="min-width:0"><div class="src-name">Fanart.tv ${has ? '<span class="pill ok">Key 已配置</span>' : '<span class="pill need">需要 API Key</span>'}</div>
+        <div class="src-desc">${has ? 'Key 全站共用，在全局设置里可以更换' : '打开开关时填一次 Key，全站共用'}</div></div>
+      <div class="src-tail"><button class="toggle ${S.libFanart ? 'on' : ''}" data-fanart-toggle="library" aria-label="本库启用 Fanart.tv"></button></div>
+    </div>
+    ${S.keyForm === 'library' ? keyFormHTML('library') : ''}`;
+  document.getElementById('libOrder').classList.toggle('off', !S.libFanart);
+  document.getElementById('libStatus').textContent = S.libFanart ? '自定义：Fanart.tv 已启用 · 海报、Logo 优先 Fanart' : '自定义：仅 TMDB';
+  document.getElementById('libGlobal').textContent = '全局：' + document.getElementById('srcStatus').textContent;
+}
+
+/* ───────── 渲染：换图弹层 ───────── */
+let mKind = 'logo', mFilter = 'all';
+function renderModal() {
+  const s = SAMPLES[0];
+  const showFanart = !!S.key; // 有 Key 就能手动挑 Fanart 的图（见待定 Q2）
+  const all = cands(s, mKind, showFanart).concat(
+    mKind === 'poster' && S.posterMode === 'default' ? (s.poster.map(([src, lang, score, w, hue], i) => ({ src, lang, score, w, hue, i })).filter(c => c.src === 'tmdb').slice(1)) : []);
+  const autoPick = pick(s, mKind, S.fanart).chosen;
+  const isAuto = c => !!autoPick && c.i === autoPick.i;
+  const tiers = tiersOf(s, mKind);
+  const ti = l => (tiers.indexOf(l) + 99) % 99;
+  const sorted = [...all].sort((a, b) => isAuto(b) - isAuto(a) || ti(a.lang) - ti(b.lang) ||
+    S.order[mKind].indexOf(a.src) - S.order[mKind].indexOf(b.src) || b.score - a.score);
+  const cnt = src => all.filter(c => c.src === src).length;
+  document.getElementById('mkey').innerHTML = S.keyForm === 'modal' ? keyFormHTML('modal') : '';
+  document.getElementById('mfilters').innerHTML = showFanart
+    ? [['all', `全部 ${all.length}`], ['tmdb', `TMDB ${cnt('tmdb')}`], ['fanart', `Fanart.tv ${cnt('fanart')}`]]
+        .map(([k, t]) => `<button data-f="${k}" class="${mFilter === k ? 'on' : ''}">${t}</button>`).join('')
+    : '';
+  const noun = { logo: '徽标', poster: '海报', backdrop: '背景' }[mKind];
+  const more = !showFanart && S.keyForm !== 'modal'
+    ? `<div class="more-tile" data-open-modal-key><b>＋ 从 Fanart.tv 找更多${noun}</b><span>社区高清图库，中文${noun}往往更多<br>需要先填一次 API Key</span></div>` : '';
+  document.getElementById('mgrid').style.gridTemplateColumns = mKind === 'poster' ? 'repeat(4,1fr)' : 'repeat(3,1fr)';
+  document.getElementById('mgrid').innerHTML = sorted.filter(c => mFilter === 'all' || c.src === mFilter).map(c =>
+    `<div class="cell ${isAuto(c) ? 'cur' : ''}">${ph(mKind, c, s)}
+      <div class="cap2"><span class="tag ${c.src}">${c.src === 'tmdb' ? 'TMDB' : 'Fanart'}</span><span>${LANG[c.lang]}</span><span>${c.src === 'tmdb' ? '★' + c.score : '♥' + c.score}</span>${isAuto(c) ? '<span class="auto">自动 · 使用中</span>' : ''}</div></div>`).join('') + more;
+  document.querySelectorAll('#mtabs button').forEach(b => b.classList.toggle('on', b.dataset.k === mKind));
+}
+
+function render() { renderSettings(); renderPreview(); renderLibrary(); renderModal(); }
+
+/* ───────── 交互（事件委托） ───────── */
+document.body.addEventListener('click', e => {
+  const t = e.target;
+  const tog = t.closest('[data-fanart-toggle]');
+  if (tog) {
+    const where = tog.dataset.fanartToggle;
+    const field = where === 'global' ? 'fanart' : 'libFanart';
+    if (S[field]) { S[field] = false; S.justEnabled = false; }
+    else if (S.key) { S[field] = true; if (where === 'global') S.justEnabled = true; }
+    else { S.keyForm = S.keyForm === where ? null : where; S.keyErr = ''; } // 没有 Key：展开表单，开关保持关
+    return render();
+  }
+  const ver = t.closest('[data-verify]');
+  if (ver) {
+    const where = ver.dataset.verify;
+    const v = S.keyDraft.trim();
+    if (v.length < 8) { S.keyErr = v ? 'Key 无效：Fanart.tv 返回「401 未授权」。请检查是否复制完整，或到 fanart.tv 个人页重新生成。' : '请先粘贴 API Key'; return render(); }
+    S.key = v; S.keyForm = null; S.keyErr = ''; S.keyDraft = '';
+    if (where === 'global') { S.fanart = true; S.justEnabled = true; }
+    if (where === 'library') S.libFanart = true;
+    return render();
+  }
+  if (t.closest('[data-cancel]')) { S.keyForm = null; S.keyErr = ''; S.keyDraft = ''; return render(); }
+  if (t.closest('[data-rekey]')) { S.keyForm = 'global'; return render(); }
+  if (t.closest('[data-close-banner]')) { S.justEnabled = false; return render(); }
+  if (t.closest('[data-open-modal-key]')) { S.keyForm = 'modal'; S.keyErr = ''; return render(); }
+  const sw = t.closest('[data-swap]');
+  if (sw) { S.order[sw.dataset.swap].reverse(); return render(); }
+  const lg = t.closest('[data-logo]');
+  if (lg) {
+    const id = lg.dataset.logo, i = S.logoTiers.indexOf(id);
+    if (i >= 0) { if (S.logoTiers.length > 1) S.logoTiers.splice(i, 1); } else if (S.logoTiers.length < 4) S.logoTiers.push(id);
+    return render();
+  }
+  const up = t.closest('[data-logo-up]');
+  if (up) { const i = +up.dataset.logoUp; [S.logoTiers[i - 1], S.logoTiers[i]] = [S.logoTiers[i], S.logoTiers[i - 1]]; return render(); }
+  const rm = t.closest('[data-logo-rm]');
+  if (rm) { S.logoTiers = S.logoTiers.filter(x => x !== rm.dataset.logoRm); return render(); }
+  const pm = t.closest('#pmode button');
+  if (pm) { S.posterMode = pm.dataset.m; return render(); }
+  const sp = t.closest('#samples button');
+  if (sp) { cur = SAMPLES.find(s => s.id === sp.dataset.id); return renderPreview(); }
+  const mt = t.closest('#mtabs button');
+  if (mt) { mKind = mt.dataset.k; mFilter = 'all'; return renderModal(); }
+  const mf = t.closest('#mfilters button');
+  if (mf) { mFilter = mf.dataset.f; return renderModal(); }
+  if (t.closest('#resetBtn')) {
+    Object.assign(S, { key: '', fanart: false, libFanart: false, keyForm: null, keyErr: '', keyDraft: '', justEnabled: false });
+    return render();
+  }
+});
+document.body.addEventListener('input', e => { if (e.target.matches('[data-keyinput]')) S.keyDraft = e.target.value; });
+
+render();
+</script>
+</body>
+</html>

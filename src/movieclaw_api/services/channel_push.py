@@ -37,12 +37,13 @@ _push_tasks: set[asyncio.Task[None]] = set()
 def tmdb_push_image_url(backdrop_path: str | None, poster_path: str | None) -> str | None:
     """推送配图 URL:优先横版剧照(w780,渲染规格恒定),无剧照回落海报(w500)。"""
     from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
+    from movieclaw_api.services.tmdb_images import remote_image_url
 
     base = effective_tmdb_image_base_url().rstrip("/")
     if backdrop_path:
-        return f"{base}/w780{backdrop_path}"
+        return remote_image_url(base, "w780", backdrop_path)
     if poster_path:
-        return f"{base}/w500{poster_path}"
+        return remote_image_url(base, "w500", poster_path)
     return None
 
 

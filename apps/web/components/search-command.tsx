@@ -13,12 +13,15 @@ import {
   LayersIcon,
   SearchIcon,
   TvIcon,
+  UserIcon,
   XIcon,
 } from "@/components/icons";
 import {
   clearSearchHistory,
   deleteSearchHistoryEntry,
   listSearchHistory,
+  searchLibrary,
+  type LibrarySearchSuggestion,
   type SearchHistoryItem,
 } from "@/lib/api/search";
 import {
@@ -410,6 +413,45 @@ function SearchPalette({
 
   const trimmed = keyword.trim();
   const currentTab = visibleTabs.find((t) => tabKeyOf(t) === tabKey) ?? null;
+
+  // 媒体库模式的搜索联想（同 Apple TV 的系统联想）：输入停顿 200ms 请求一次相关度搜索，
+  // 取它从结果里提取的片名与人名；只是「按已搜出的结果补全」，不纠错、不按热度。
+  // 选中即按这个词搜索。与当前输入完全相同的词不列。
+  const [suggestions, setSuggestions] = useState<LibrarySearchSuggestion[]>([]);
+  const suggestKeyword = mode === "library" && availableModes.includes("library") ? trimmed : "";
+  useEffect(() => {
+    if (!suggestKeyword) {
+      setSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      searchLibrary({ q: suggestKeyword })
+        .then((page) => {
+          if (cancelled) return;
+          setSel(-1); // 换了一批联想词：旧高亮作废
+          const seen = new Set([suggestKeyword.toLowerCase()]);
+          setSuggestions(
+            page.suggestions.filter((suggestion) => {
+              const key = suggestion.text.trim().toLowerCase();
+              if (!key || seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            }),
+          );
+        })
+        // 联想失败不打扰：回车照常搜索，结果页会给出真正的错误
+        .catch(() => !cancelled && setSuggestions([]));
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [suggestKeyword]);
+  // ↑↓ 在当前列表里移动：媒体库模式是联想词，其他模式是历史分组
+  const navCount = mode === "library" ? suggestions.length : filteredGroups.length;
+  const pickSuggestion = (suggestion: LibrarySearchSuggestion) =>
+    onSearch(suggestion.text, SCOPE_ALL, { vertical: "library" });
   const torrentActive = mode === "torrent" && availableModes.includes("torrent");
 
   /** 按指定分类搜资源；空关键词 = 浏览该分类最新资源（Web 的「留空提交」）。 */
@@ -470,7 +512,7 @@ function SearchPalette({
         break;
       case "ArrowDown":
         event.preventDefault();
-        setSel((prev) => Math.min(prev + 1, filteredGroups.length - 1));
+        setSel((prev) => Math.min(prev + 1, navCount - 1));
         break;
       case "ArrowUp":
         event.preventDefault();
@@ -497,7 +539,8 @@ function SearchPalette({
       }
       case "Enter":
         event.preventDefault();
-        if (sel >= 0 && filteredGroups[sel]) pick(filteredGroups[sel].items[0]);
+        if (mode === "library" && sel >= 0 && suggestions[sel]) pickSuggestion(suggestions[sel]);
+        else if (mode !== "library" && sel >= 0 && filteredGroups[sel]) pick(filteredGroups[sel].items[0]);
         else submit();
         break;
     }
@@ -628,6 +671,20 @@ function SearchPalette({
     </button>
   );
 
+  const suggestionList = suggestions.length > 0 && (
+    <ul aria-label="搜索联想">
+      {suggestions.map((suggestion, index) => (
+        <SuggestionRow
+          key={`${suggestion.type}:${suggestion.text}`}
+          suggestion={suggestion}
+          active={index === sel}
+          onHover={() => setSel(index)}
+          onPick={() => pickSuggestion(suggestion)}
+        />
+      ))}
+    </ul>
+  );
+
   /* —— 手机全屏搜索页（银玻璃）：对齐 iOS SearchHomeView —— */
   if (fullPage) {
     return (
@@ -705,6 +762,12 @@ function SearchPalette({
                   onClick={submit}
                 />
               </ul>
+            )}
+            {suggestionList && (
+              <section>
+                <SectionTitle title="搜索联想" />
+                {suggestionList}
+              </section>
             )}
 
             {/* 最近搜索：资源模式下面还有浏览列表，不需要空态占位 */}
@@ -851,11 +914,12 @@ function SearchPalette({
             </p>
           )}
           {historyList}
-          {mode === "library" && (
-            <p className="px-2.5 py-6 text-center text-sub text-[var(--text-faint)]">
-              {MODE_HINT.library}，输入关键词回车开始搜索
-            </p>
-          )}
+          {mode === "library" &&
+            (suggestionList || (
+              <p className="px-2.5 py-6 text-center text-sub text-[var(--text-faint)]">
+                {MODE_HINT.library}，输入关键词回车开始搜索
+              </p>
+            ))}
         </div>
 
         {/* —— 页脚：左侧模式说明，右侧快捷键 —— */}
@@ -873,7 +937,7 @@ function SearchPalette({
               <Kbd>Tab</Kbd> 切换范围
             </span>
             <span className="flex items-center gap-1">
-              <Kbd>↑↓</Kbd> 历史
+              <Kbd>↑↓</Kbd> {mode === "library" ? "联想" : "历史"}
             </span>
             <span className="flex items-center gap-1">
               <Kbd>esc</Kbd> 关闭
@@ -1323,6 +1387,56 @@ function SectionTitle({ title, action }: { title: string; action?: React.ReactNo
  * 全屏搜索页的范围 / 动作行（同 iOS SearchHomeView.scopeRow）：图标 + 标题（+ 一行说明）
  * （+ 进入箭头），整行可点。「搜索“xx”」「浏览最新资源」「在其他范围搜索」共用。
  */
+/** 一条搜索联想：片名用胶片图标、人名用人像图标，下注命中原因；键盘高亮与历史行同一套样式。 */
+function SuggestionRow({
+  suggestion,
+  active,
+  onHover,
+  onPick,
+}: {
+  suggestion: LibrarySearchSuggestion;
+  active: boolean;
+  onHover: () => void;
+  onPick: () => void;
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        onMouseDown={(event) => event.preventDefault()}
+        onMouseEnter={onHover}
+        onClick={onPick}
+        aria-label={`搜索「${suggestion.text}」`}
+        className={`flex w-full items-center gap-3 rounded-[10px] px-2.5 py-2 text-left transition-colors hover:bg-white/[0.04] active:bg-white/[0.07] ${
+          active ? "bg-white/[0.06]" : ""
+        }`}
+      >
+        <span className="grid w-[18px] shrink-0 place-items-center text-[var(--text-faint)]">
+          {suggestion.type === "person" ? (
+            <UserIcon className="size-[17px]" />
+          ) : (
+            <FilmIcon className="size-[17px]" />
+          )}
+        </span>
+        {/* 联想词下注明为什么联想到它（同结果卡片的命中原因），人物带出的作品写明是谁 */}
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-ui leading-5 text-[var(--text)]">
+            {suggestion.text}
+          </span>
+          {suggestion.label && (
+            <span className="block truncate text-caption text-[var(--text-muted)]">
+              {suggestion.label}
+            </span>
+          )}
+        </span>
+        <span className="shrink-0 text-caption text-[var(--text-faint)]">
+          {suggestion.type === "person" ? "人物" : "影片"}
+        </span>
+      </button>
+    </li>
+  );
+}
+
 function ScopeRow({
   icon,
   title,

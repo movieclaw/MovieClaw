@@ -358,31 +358,42 @@ struct MediaSearchResultsView: View {
 
 // MARK: - 媒体库垂直
 
-/// 「媒体库」垂直（对应 Web `library-search-results.tsx`）：`GET /search/library-items`，
-/// 跨全部可见媒体库按名称、拼音和人物匹配，按库分组；格下标注库存概况。空态出口指向「影视」。
+/// 「媒体库」垂直（对应 Web `library-search-results.tsx`）：`GET /search/library`，
+/// 与 Web、Apple TV 同一个相关度接口。
+///
+/// - 按相关度平铺、不按库分组：旧版按库分组再按拼音重排，搜「ST」时演员 Stephen Lang
+///   带出的「阿凡达」会压过首字母正中的「三体」，分组本身就丢掉了相关度。
+/// - 不是直接按片名命中的结果，格下注明原因（如「演员：史蒂芬·朗」）。
+/// - 命中的演员/导演单独一行，点头像进库内影人页（与详情页演职员同一个入口，三端一致）。
+/// - 服务端游标分页，滚到底自动续页。空态出口指向「影视」。
 struct LibrarySearchResultsView: View {
     let keyword: String
     let onSwitchToMedia: (() -> Void)?
+    /// 搜索面板里边输入边搜（`SearchHomeView` 的媒体库模式）：关键词停顿 300ms 再请求，
+    /// 换词时保留上一轮结果直到新结果到达，不每敲一个字闪一次骨架屏
+    var live = false
+    /// 点了搜索联想（片名 / 人名）：搜索面板把这个词填进搜索框；结果页的关键词固定，不传就不显示联想
+    var onPickSuggestion: ((String) -> Void)?
 
     @Environment(\.api) private var api
     @Environment(Router.self) private var router
-    @State private var groups: [API.LibrarySearchGroupView]?
-    @State private var error: String?
+    @State private var model = LibrarySearchModel()
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                if groups == nil, error == nil {
+            // 外层懒加载：底部「更多结果」进入可视区才触发续页
+            LazyVStack(alignment: .leading, spacing: 24) {
+                if model.hits == nil, model.error == nil {
                     LazyVGrid(columns: DiscoverGrid.wideColumns, spacing: 28) {
                         ForEach(0 ..< 6, id: \.self) { _ in
                             DiscoverSkeletonBlock(cornerRadius: Theme.posterRadius).aspectRatio(2 / 3, contentMode: .fit)
                         }
                     }
                 }
-                if error != nil || groups?.isEmpty == true {
+                if model.error != nil || model.isEmpty {
                     VStack(spacing: 8) {
-                        Text(error != nil ? "媒体库搜索出错" : "媒体库中没有找到相关影片").font(.headline).foregroundStyle(.white)
-                        Text(error ?? "支持片名、别名、拼音首字母和人物姓名；库里还没有的片子，去影视条目里找。")
+                        Text(model.error != nil ? "媒体库搜索出错" : "媒体库中没有找到相关影片").font(.headline).foregroundStyle(.white)
+                        Text(model.error ?? "支持片名、别名、拼音首字母和人物姓名；库里还没有的片子，去影视条目里找。")
                             .font(.subheadline).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
                         if let onSwitchToMedia {
                             Button("搜索影视条目", action: onSwitchToMedia)
@@ -394,36 +405,156 @@ struct LibrarySearchResultsView: View {
                     .padding(.top, 60)
                     .discoverContainer("library-empty")
                 }
-                ForEach(groups ?? [], id: \.libraryId) { group in
+                if model.error == nil, let onPickSuggestion, !suggestions.isEmpty {
+                    suggestionRow(suggestions, onPick: onPickSuggestion)
+                }
+                if model.error == nil, !model.people.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
-                        HStack(spacing: 10) {
-                            DiscoverTag(text: group.libraryName, foreground: Theme.accent, background: .black.opacity(0.3))
-                            Text("共 \(group.items.count) 条结果").font(.subheadline).foregroundStyle(Theme.textMuted)
-                        }
-                        LazyVGrid(columns: DiscoverGrid.wideColumns, spacing: 28) {
-                            ForEach(group.items, id: \.mediaItemId) { item in
-                                cell(item, libraryId: group.libraryId)
+                        Text("人物").font(.headline).foregroundStyle(.white)
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            LazyHStack(alignment: .top, spacing: 12) {
+                                ForEach(model.people, id: \.id) { person in
+                                    personChip(person)
+                                }
                             }
                         }
                     }
-                    .discoverContainer("library-group")
+                    .discoverContainer("library-people")
+                }
+                if model.error == nil, let hits = model.hits, !hits.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        if !model.people.isEmpty {
+                            Text("影片").font(.headline).foregroundStyle(.white)
+                        }
+                        LazyVGrid(columns: DiscoverGrid.wideColumns, spacing: 28) {
+                            ForEach(hits, id: \.item.mediaItemId) { hit in
+                                cell(hit)
+                            }
+                        }
+                    }
+                    .discoverContainer("library-items")
+                    if model.nextCursor != nil {
+                        Button(model.loadingMore ? "正在加载…" : "更多结果") {
+                            Task { await model.loadMore(api: api) }
+                        }
+                        .disabled(model.loadingMore)
+                        .frame(maxWidth: .infinity)
+                        // 续页任务不挂在 .task 上：懒加载行滚出屏会取消 .task，翻页就丢了
+                        .onAppear { Task { await model.loadMore(api: api) } }
+                        .accessibilityIdentifier("library-search-more")
+                    }
                 }
             }
             .padding(.horizontal, Theme.pagePadding)
             .padding(.bottom, 40)
         }
-        .task {
-            do {
-                groups = try await api.searchLibraryItems(keyword: keyword)
-            } catch is CancellationError {
-            } catch {
-                self.error = error.localizedDescription.isEmpty ? "媒体库搜索失败，请稍后重试" : error.localizedDescription
+        .task(id: keyword) {
+            if live {
+                try? await Task.sleep(for: .milliseconds(300))
+                guard !Task.isCancelled else { return }
             }
+            await model.load(keyword: keyword, api: api)
         }
         .accessibilityIdentifier("library-results")
     }
 
-    private func cell(_ item: API.LibraryItemView, libraryId: Int) -> some View {
+    /// 搜索联想（同 Apple TV 的系统联想）：从本次结果里提取的片名，不纠错、不按热度。
+    /// 人名联想不列：正下方就是带头像的人物行，同一个人出现两遍只会更挤。
+    /// 与当前输入完全相同的词不列，重复的去掉
+    private var suggestions: [API.LibrarySearchSuggestion] {
+        var seen: Set<String> = [keyword.lowercased()]
+        return model.suggestions.filter { suggestion in
+            let key = suggestion.text.trimmingCharacters(in: .whitespaces).lowercased()
+            return suggestion.type == "title" && !key.isEmpty && seen.insert(key).inserted
+        }
+    }
+
+    /// 联想的命中原因只在有信息量时写：直接按片名命中（「名称匹配」）就是用户在输入的那几个字，不必解释；
+    /// 人物带出（「演员：李一桐」）、拼音、首字母、别名才写
+    private func suggestionReason(_ suggestion: API.LibrarySearchSuggestion) -> String? {
+        guard let label = suggestion.label, label != "名称匹配" else { return nil }
+        return label
+    }
+
+    /// 一排横滑的液态玻璃胶囊（与发现页筛选胶囊同一套玻璃）：单行，片名在前，
+    /// 有信息量的命中原因以小一号的淡色字跟在后面；点一下把词填进搜索框（结果随之实时刷新）
+    private func suggestionRow(_ items: [API.LibrarySearchSuggestion], onPick: @escaping (String) -> Void) -> some View {
+        ScrollView(.horizontal) {
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(items, id: \.self) { suggestion in
+                        let reason = suggestionReason(suggestion)
+                        Button { onPick(suggestion.text) } label: {
+                            HStack(spacing: 6) {
+                                Text(suggestion.text)
+                                    .font(.subheadline)
+                                    .foregroundStyle(Theme.text)
+                                if let reason {
+                                    Text(reason)
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.textFaint)
+                                }
+                            }
+                            .lineLimit(1)
+                            .padding(.horizontal, 14)
+                            .frame(height: 34)
+                            .glassEffect(.regular.interactive(), in: .capsule)
+                            .contentShape(.capsule)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(reason.map { "搜索「\(suggestion.text)」，\($0)" } ?? "搜索「\(suggestion.text)」")
+                        .accessibilityIdentifier("library-search-suggestion")
+                    }
+                }
+                .padding(.horizontal, Theme.pagePadding)
+                .padding(.vertical, 4)
+            }
+        }
+        .scrollIndicators(.hidden)
+        // 横滑出页边距：胶囊能滑到屏幕边缘再消失，而不是在页边距处被一刀切掉
+        .padding(.horizontal, -Theme.pagePadding)
+        .discoverContainer("library-suggestions")
+    }
+
+    /// 命中的人物：圆形头像 + 姓名 + 库内作品数；点按进库内影人页。
+    /// 旧服务端不返回 TMDB 影人 id，没有影人页可进：画成不可点的静态块，而不是点了没反应的按钮
+    @ViewBuilder
+    private func personChip(_ person: API.LibrarySearchPerson) -> some View {
+        let body = VStack(spacing: 4) {
+            ZStack {
+                LinearGradient(colors: [.white.opacity(0.07), .white.opacity(0.02)], startPoint: .top, endPoint: .bottom)
+                Text(String(person.name.prefix(1))).font(.system(size: 22, weight: .semibold)).foregroundStyle(.white.opacity(0.35))
+                if person.avatarUrl != nil {
+                    MeasuredRemoteImage(raw: person.avatarUrl, placeholderSymbol: "person.fill")
+                }
+            }
+            .frame(width: 72, height: 72)
+            .clipShape(.circle)
+            Text(person.name).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
+            Text("库内 \(person.itemCount) 部").font(.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
+        }
+        .frame(width: 96)
+        .contentShape(.rect)
+        if let tmdbId = person.tmdbPersonId {
+            Button { router.push(.person(tmdbId: tmdbId)) } label: { body }
+                .buttonStyle(.plain)
+                .accessibilityLabel("查看 \(person.name) 的影人页")
+                .accessibilityIdentifier("library-search-person-\(person.id)")
+        } else {
+            body
+        }
+    }
+
+    /// 命中原因：直接按片名的文字命中不必解释，别名/原名/拼音/人物带出的结果写明原因
+    private func matchHint(_ match: API.LibrarySearchMatch) -> String? {
+        if match.personId == nil, match.sourceField == "title", match.type.hasPrefix("text") { return nil }
+        return match.label
+    }
+
+    private func cell(_ hit: API.LibrarySearchHit) -> some View {
+        let item = hit.item
+        // 落点库：服务端给的详情落点库优先，其次取所在库里的第一个
+        let libraryId = item.libraryId ?? hit.libraryIds.first ?? 0
         let visual = DiscoverPosterItem(
             externalId: item.tmdbId.map(String.init) ?? "local:\(item.mediaItemId)",
             source: "tmdb",
@@ -438,16 +569,93 @@ struct LibrarySearchResultsView: View {
             parts.append(item.seasons.count == 1 ? "第 \(item.seasons[0]) 季 · \(item.episodeCount) 集" : "\(item.seasons.count) 季 · \(item.episodeCount) 集")
         }
         if !item.resolutions.isEmpty { parts.append(item.resolutions.joined(separator: "/")) }
-        // 与单库海报墙同口径：剧集按季集完整度给「自动续订 / 补齐缺集」
-        let action: DiscoverPosterAction = {
-            guard item.kind == "tv", let summary = item.inventorySummary else { return .none }
-            return summary.allSeasonsOwned && summary.allEpisodesOwned ? .follow : .backfill
-        }()
-        return DiscoverPosterCard(
-            item: visual,
-            action: action,
-            onOpen: { router.push(.libraryItem(libraryId: libraryId, itemId: item.mediaItemId)) },
-            footnote: parts.isEmpty ? nil : parts.joined(separator: " · ")
-        )
+        return VStack(alignment: .leading, spacing: 2) {
+            // 不带「自动续订 / 补齐缺集」：带订阅类操作的卡片触屏首点只展开信息层，要点两下才进详情；
+            // 搜索结果就是为了找到片子点进去，一下直达（订阅操作在详情页里）
+            DiscoverPosterCard(
+                item: visual,
+                action: .none,
+                onOpen: { router.push(.libraryItem(libraryId: libraryId, itemId: item.mediaItemId)) },
+                footnote: parts.isEmpty ? nil : parts.joined(separator: " · ")
+            )
+            if let hint = matchHint(hit.match) {
+                Text(hint).font(.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
+            }
+        }
+    }
+}
+
+/// 媒体库搜索的一轮浏览状态。请求代次保护搜索与翻页：旧请求的响应一律丢弃；翻页按作品去重。
+@Observable
+private final class LibrarySearchModel {
+    var hits: [API.LibrarySearchHit]?
+    var people: [API.LibrarySearchPerson] = []
+    var suggestions: [API.LibrarySearchSuggestion] = []
+    var nextCursor: String?
+    var loadingMore = false
+    var error: String?
+    private var keyword = ""
+    /// 已搜过（或正在搜）的关键词
+    private var loadedKeyword: String?
+    private var generation = 0
+
+    var isEmpty: Bool { hits?.isEmpty == true && people.isEmpty }
+
+    /// 关键词变了才搜：结果页的关键词固定，切走再切回垂直不重搜；搜索面板实时输入时每换一次词搜一次
+    func load(keyword: String, api: APIClient) async {
+        guard keyword != loadedKeyword else { return }
+        loadedKeyword = keyword
+        self.keyword = keyword
+        await search(api: api)
+    }
+
+    /// 换词时不清空旧结果（实时输入不闪骨架屏），只丢掉旧游标：它绑定的是上一个关键词
+    private func search(api: APIClient) async {
+        generation += 1
+        let request = generation
+        nextCursor = nil
+        loadingMore = false
+        error = nil
+        do {
+            let result = try await fetch(api: api, cursor: nil)
+            guard generation == request else { return }
+            hits = result.items
+            people = result.people
+            suggestions = result.suggestions
+            nextCursor = result.nextCursor
+        } catch is CancellationError {
+            // 视图消失或换词把请求取消了：下次出现时按同一关键词重搜，别卡在加载中
+            if generation == request { loadedKeyword = nil }
+        } catch {
+            guard generation == request else { return }
+            // 任务被取消时网络层抛的是 URLError.cancelled 而不是 CancellationError：同样不算失败
+            if Task.isCancelled {
+                loadedKeyword = nil
+                return
+            }
+            self.error = error.localizedDescription.isEmpty ? "媒体库搜索失败，请稍后重试" : error.localizedDescription
+        }
+    }
+
+    func loadMore(api: APIClient) async {
+        guard let cursor = nextCursor, !loadingMore, hits != nil else { return }
+        let request = generation
+        loadingMore = true
+        defer { if generation == request { loadingMore = false } }
+        do {
+            let result = try await fetch(api: api, cursor: cursor)
+            guard generation == request else { return }
+            let existing = Set((hits ?? []).map(\.item.mediaItemId))
+            hits = (hits ?? []) + result.items.filter { !existing.contains($0.item.mediaItemId) }
+            nextCursor = result.nextCursor
+        } catch is CancellationError {
+        } catch {
+            guard generation == request else { return }
+            self.error = error.localizedDescription.isEmpty ? "媒体库搜索失败，请稍后重试" : error.localizedDescription
+        }
+    }
+
+    private func fetch(api: APIClient, cursor: String?) async throws -> API.LibrarySearchView {
+        try await api.searchLibrary(q: keyword, cursor: cursor)
     }
 }

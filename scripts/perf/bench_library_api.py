@@ -118,7 +118,7 @@ async def main() -> None:
              f"/libraries/{big_tv['id']}/item-index"),
             ("已入库 id 集合(电影大库)", "GET",
              f"/libraries/{big_movie['id']}/item-ids"),
-            ("媒体库搜索(关键词)", "GET", "/search/library-items?keyword=长安"),
+            ("媒体库搜索(关键词)", "GET", "/search/library?q=长安"),
             ("待识别清单(全部库)", "GET",
              "/libraries/identification/unidentified-files"),
             ("已忽略清单(全部库)", "GET",

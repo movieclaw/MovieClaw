@@ -84,6 +84,28 @@ class DailyFileHandler(logging.Handler):
         super().close()
 
 
+class RedactingFormatter(logging.Formatter):
+    """格式化后把 URL 查询参数里的密钥替换成 ``***``（消息正文与异常堆栈都覆盖）。
+
+    第三方库会把完整请求地址写进日志：httpx 每次请求都有一条
+    ``HTTP Request: GET https://api.themoviedb.org/...?api_key=...``，请求失败的异常
+    文本里也带着同一个地址；PT 站的种子链接带 passkey。日志会落盘、会在设置页
+    「系统日志」里查看、也常被用户贴出来求助，密钥不能留在里面。
+
+    不直接调高 httpx 的日志级别：请求地址与状态码是排查网络问题的关键线索，
+    只遮住密钥本身即可。放在 Formatter 而不是 Filter：格式化在 Handler 的异常保护内
+    执行，消息参数不匹配之类的问题不会抛回业务代码；格式化后的整段文本也包含堆栈。
+    """
+
+    _SECRET_PARAM = re.compile(
+        r"([?&](?:api_?key|access_?token|token|passkey|secret|sign|auth)=)[^&\s\"'#]+",
+        re.IGNORECASE,
+    )
+
+    def format(self, record: logging.LogRecord) -> str:
+        return self._SECRET_PARAM.sub(r"\1***", super().format(record))
+
+
 def configure_logging(
     log_level: str = "INFO",
     log_dir: str | Path | None = None,
@@ -93,7 +115,7 @@ def configure_logging(
     root_logger = logging.getLogger()
     root_logger.setLevel(log_level.upper())
 
-    formatter = logging.Formatter(
+    formatter = RedactingFormatter(
         fmt="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
     )

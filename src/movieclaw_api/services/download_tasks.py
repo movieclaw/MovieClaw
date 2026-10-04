@@ -73,8 +73,10 @@ def _poster_url(item: MediaItem) -> str | None:
     """把已识别条目的海报收口为可直接展示的 TMDB 地址。"""
     if not item.poster_path:
         return None
+    from movieclaw_api.services.tmdb_images import remote_image_url
+
     base = effective_tmdb_image_base_url().rstrip("/")
-    return f"{base}/w342{item.poster_path}"
+    return remote_image_url(base, "w342", item.poster_path)
 
 
 def _unit_replaced(

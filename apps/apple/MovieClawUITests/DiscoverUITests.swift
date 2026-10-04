@@ -270,9 +270,9 @@ final class DiscoverUITests: XCTestCase {
         XCTAssertTrue(app.buttons["poster-card"].waitForExistence(timeout: 40), "影视搜索应有结果")
         snapshot("影视搜索结果")
         app.segmentedControls["search-vertical"].buttons["媒体库"].tap()
-        let group = app.otherElements["library-group"].firstMatch
+        let items = app.otherElements["library-items"].firstMatch
         let empty = app.otherElements["library-empty"]
-        XCTAssertTrue(group.waitForExistence(timeout: 20) || empty.exists, "媒体库垂直应出分组或空态")
+        XCTAssertTrue(items.waitForExistence(timeout: 20) || empty.exists, "媒体库垂直应出相关度结果或空态")
         snapshot("媒体库搜索结果")
     }
 

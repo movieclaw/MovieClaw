@@ -33,6 +33,10 @@ async def load_scrape_runtime() -> None:
     store = get_setting_store()
     _current_scrape = await store.get(MetadataScrapeSetting)
     _current_discover = await store.get(DiscoverPreferencesSetting)
+    # Fanart 凭据与刮削偏好同生命周期：刮削管线首次使用前就要知道 Key 能不能用
+    from movieclaw_api.services.fanart import load_fanart_runtime
+
+    await load_fanart_runtime()
 
 
 async def save_scrape_setting(setting: MetadataScrapeSetting) -> MetadataScrapeSetting:
@@ -65,6 +69,9 @@ def reset_scrape_config() -> None:
     global _current_scrape, _current_discover
     _current_scrape = None
     _current_discover = None
+    from movieclaw_api.services.fanart import reset_fanart_runtime
+
+    reset_fanart_runtime()
 
 
 # ---------------------------------------------------------------------------
@@ -164,6 +171,11 @@ def effective_image_prefs(setting: MetadataScrapeSetting | None = None) -> Image
         backdrop_langs=tuple(setting.backdrop_language_priority),
         poster_min_width=setting.poster_min_width,
         backdrop_min_width=setting.backdrop_min_width,
+        logo_langs=tuple(setting.logo_language_priority),
+        poster_sources=tuple(setting.poster_source_order),
+        backdrop_sources=tuple(setting.backdrop_source_order),
+        logo_sources=tuple(setting.logo_source_order),
+        season_sources=tuple(setting.season_poster_source_order),
     )
 
 
@@ -203,6 +215,14 @@ ITEM_SCOPED_OVERRIDABLE = frozenset(
         "still_size",
         "profile_size",
         "image_quality",
+        "logo_language_priority",
+        # 图片来源（产物同样是 poster_path/backdrop_path/logo_path 与条目资产）。
+        # Fanart 的 API Key 不在此列：凭据全站一份，不跟库走
+        "fanart_enabled",
+        "poster_source_order",
+        "backdrop_source_order",
+        "logo_source_order",
+        "season_poster_source_order",
     }
 )
 
@@ -295,11 +315,19 @@ def effective_mirror_flags(library: object | None) -> tuple[bool, bool, bool]:
 
 
 def profile_fetch_kwargs(setting: MetadataScrapeSetting | None = None) -> dict:
-    """``fetch_media_profile`` 的偏好参数包（建档与刷新共用，口径一致）。"""
+    """``fetch_media_profile`` 的偏好参数包（建档与刷新共用，口径一致）。
+
+    ``fanart``：该条目（按归属库合并后的设置）启用了 Fanart、且全站 Key 可用时
+    才给客户端；Key 没配或已失效时为 None，刮削只用 TMDB。
+    """
+    from movieclaw_api.services.fanart import get_fanart_client
+
+    resolved = setting or current_scrape_setting()
     return {
         "languages": effective_languages(setting),
         "image_prefs": effective_image_prefs(setting),
         "cert_countries": effective_cert_countries(setting),
+        "fanart": get_fanart_client() if resolved.fanart_enabled else None,
     }
 
 

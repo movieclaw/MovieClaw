@@ -29,6 +29,7 @@ import asyncio
 import contextlib
 import functools
 import logging
+import os
 import shutil
 import time
 from collections.abc import Callable, Iterable
@@ -59,6 +60,7 @@ from movieclaw_api.services.scrape_config import (
     scrape_setting_for_item,
 )
 from movieclaw_api.services.task_state import TaskState
+from movieclaw_api.services.tmdb_images import remote_image_url
 from movieclaw_api.settings import MetadataScrapeSetting
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
@@ -79,6 +81,7 @@ from movieclaw_db.models import (
     utcnow,
 )
 from movieclaw_db.repositories import MediaItemRepository, SubscriptionRepository
+from movieclaw_media.fanart import is_absolute_image
 from movieclaw_media.library import MediaProfile, fetch_media_profile
 from movieclaw_media.models import MediaKind
 from movieclaw_media.tmdb import TmdbNotConfiguredError
@@ -116,14 +119,28 @@ def _format_bytes(size: int) -> str:
     return f"{value / 1024:.1f} GB"
 
 
+_TALLY_FIELDS = (
+    "planned",
+    "downloaded",
+    "reused",
+    "adopted",
+    "derived",
+    "failed",
+    "grabbed",
+    "bytes",
+)
+
+
 @dataclass
 class AssetTally:
     """一次图片同步的逐张记账：刷新任务据此显示「下载图片 120 / 480」与完成摘要。
 
     ``planned`` 是这一轮要过一遍的图床图片张数（有 TMDB 路径的海报/背景/Logo/
-    季海报/分集剧照）；每张结算成三种结果之一——**新下载**、**沿用**（档位与来源
-    都没变、文件完好，不重下）、**失败**（保留旧图，下次刷新自愈）。TMDB 没有剧照、
-    从视频抓帧补的另记 ``grabbed``，不算进 planned（抓不抓要逐集看文件才知道）。
+    季海报/分集剧照）；每张结算成五种结果之一——**新下载**、**沿用**（档位与来源
+    都没变、文件完好，不重下）、**收编**（媒体目录里已有同一张图，复制过来不联网）、
+    **本地缩图**（本地有同一张图的更大档位，缩出来不联网）、**失败**（保留旧图，
+    下次刷新自愈）。后三种之外的不联网取图法见 services/asset_reuse.py。TMDB 没有
+    剧照、从视频抓帧补的另记 ``grabbed``，不算进 planned（抓不抓要逐集看文件才知道）。
 
     只在内存里累加；``on_change`` 每结算一张调一次，写库节流交给任务处理器——
     长剧几百张图逐张写任务表会把事件时间线刷爆。
@@ -132,6 +149,8 @@ class AssetTally:
     planned: int = 0
     downloaded: int = 0
     reused: int = 0
+    adopted: int = 0
+    derived: int = 0
     failed: int = 0
     grabbed: int = 0
     bytes: int = 0
@@ -140,20 +159,20 @@ class AssetTally:
 
     @property
     def settled(self) -> int:
-        return self.downloaded + self.reused + self.failed
+        return self.downloaded + self.reused + self.adopted + self.derived + self.failed
 
     def changed(self) -> None:
         if self.on_change is not None:
             self.on_change()
 
     def record(self, outcome: str, size: int = 0) -> None:
-        """结算一张：outcome 是 downloaded / reused / failed / grabbed 之一。"""
+        """结算一张：outcome 是 downloaded / reused / adopted / derived / failed / grabbed 之一。"""
         setattr(self, outcome, getattr(self, outcome) + 1)
         self.bytes += size
         self.changed()
 
     def add(self, other: AssetTally) -> None:
-        for name in ("planned", "downloaded", "reused", "failed", "grabbed", "bytes"):
+        for name in _TALLY_FIELDS:
             setattr(self, name, getattr(self, name) + getattr(other, name))
 
     def label(self) -> str:
@@ -172,6 +191,10 @@ class AssetTally:
             parts.append(f"新下载 {self.downloaded} 张（{_format_bytes(self.bytes)}）")
         if self.reused:
             parts.append(f"沿用 {self.reused} 张")
+        if self.adopted:
+            parts.append(f"从媒体目录收编 {self.adopted} 张")
+        if self.derived:
+            parts.append(f"本地缩图 {self.derived} 张")
         if self.grabbed:
             parts.append(f"从视频截取 {self.grabbed} 张")
         if self.failed:
@@ -179,20 +202,13 @@ class AssetTally:
         return "、".join(parts)
 
     def as_dict(self) -> dict[str, int]:
-        return {
-            "planned": self.planned,
-            "downloaded": self.downloaded,
-            "reused": self.reused,
-            "failed": self.failed,
-            "grabbed": self.grabbed,
-            "bytes": self.bytes,
-        }
+        return {name: getattr(self, name) for name in _TALLY_FIELDS}
 
     @classmethod
     def from_dict(cls, raw: object) -> AssetTally:
         tally = cls()
         if isinstance(raw, dict):
-            for name in ("planned", "downloaded", "reused", "failed", "grabbed", "bytes"):
+            for name in _TALLY_FIELDS:
                 value = raw.get(name)
                 if isinstance(value, int):
                     setattr(tally, name, value)
@@ -930,13 +946,24 @@ def _merge_identity(
     item.english_title = profile.english_title or item.english_title
     item.year = profile.year or item.year
     item.status = profile.status or item.status
-    if meta is None or not meta.poster_locked:
+    # Fanart 这次没取到（网络/限流）时，条目现用的 Fanart 图原样保留：选图结果
+    # 不该随一次偶发失败在两个来源间来回跳（每跳一次就重下资产、重写媒体目录）
+    keep_fanart = profile.fanart_failed
+    if (meta is None or not meta.poster_locked) and not (
+        keep_fanart and is_absolute_image(item.poster_path)
+    ):
         item.poster_path = profile.poster_path or item.poster_path
-    if meta is None or not meta.backdrop_locked:
+    if (meta is None or not meta.backdrop_locked) and not (
+        keep_fanart and is_absolute_image(item.backdrop_path)
+    ):
         item.backdrop_path = profile.backdrop_path or item.backdrop_path
     # 片名 Logo 同受选图锁保护；存量条目同样靠刷新自然回填。
     # None=本次档案没带图片集（未知），保留旧值；空串=确实没有，照写
-    if profile.logo_path is not None and (meta is None or not meta.logo_locked):
+    if (
+        profile.logo_path is not None
+        and (meta is None or not meta.logo_locked)
+        and not (keep_fanart and is_absolute_image(item.logo_path))
+    ):
         item.logo_path = profile.logo_path
     item.aliases = merged_aliases
     item.imdb_id = item.imdb_id or profile.imdb_id
@@ -1105,7 +1132,9 @@ async def apply_display_profile(
         row.air_date = season_profile.air_date
         row.episode_count = season_profile.episode_count
         row.overview = season_profile.overview
-        row.poster_path = season_profile.poster_path
+        # 同 _merge_identity：Fanart 偶发失败时保留现用的 Fanart 季海报
+        if not (profile.fanart_failed and is_absolute_image(row.poster_path)):
+            row.poster_path = season_profile.poster_path
         row.updated_at = now
         session.add(row)
 
@@ -1798,19 +1827,22 @@ async def download_item_assets(
     only: str | None = None,
     tally: AssetTally | None = None,
 ) -> None:
-    """下载条目的全部图片资产（缺失才下，force 覆盖重下）。
+    """同步条目的全部图片资产：沿用 / 本地缩图 / 收编媒体目录 / 下载（见 _sync_asset）。
 
-    ``tally``：逐张记账（刷新任务显示「下载图片 120 / 480」用）；不传就记在一次性对象上。
+    ``force``（手动「刷新元数据」）**不再重下图片**：图床的图片地址一图一址，地址与
+    档位没变的图重下拿回来的是同一份字节，白耗流量（整部剧几百张剧照）。它只影响
+    TMDB 没剧照的分集是否重新抓帧。``tally``：逐张记账（刷新任务显示
+    「下载图片 120 / 480」用）；不传就记在一次性对象上。
 
     分集剧照只给**在库条目**下（订阅了几百集但一集未入库的剧，几百张
     剧照没有消费方，白占磁盘与请求量）；TMDB 没有剧照的在库分集从视频
     抓一帧顶上（``_grab_missing_stills``）。单张失败保持 NULL 不阻断，
-    任一后续刷新入口自愈。手动选定（locked）的海报/背景/Logo force 也不重下
-    ——那张图就是用户要的（docs/design/metadata.md 6.3）；``ignore_locks``
-    是选图动作自己的通道：刚选的图必须落盘，此时锁就是它自己加的。
+    任一后续刷新入口自愈。``ignore_locks`` 是选图动作自己的通道：刚选的图要当场
+    落盘（新路径溯源对不上自然会下），也不去媒体目录找候选——用户刚点的那张几乎
+    不可能已在媒体目录里，查了只是多一次读盘和 HEAD。
 
     ``only``（poster/backdrop/logo）：只同步这一张条目图，同样是选图动作的通道。
-    用户换一张海报，不该连带 force 重下整季海报、全部分集剧照、再对没有
+    用户换一张海报，不该连带同步整季海报、全部分集剧照、再对没有
     TMDB 剧照的集重新解码视频抓帧——长剧动辄几百集，同步的选图接口要等
     几十秒以上。不传即全量（刷新与入库补齐的常态）。
     """
@@ -1834,6 +1866,11 @@ async def download_item_assets(
                 select(LibraryFile.id).where(LibraryFile.media_item_id == media_item_id).limit(1)
             )
         ).scalar_one_or_none() is not None
+        media_dir = (
+            None
+            if ignore_locks
+            else await _media_dir_lookup(session, item, seasons if only is None else [])
+        )
 
         item_dir = assets_root() / str(media_item_id)
         # 设置页配的图床镜像优先（与发现页同一口径），没配才是环境变量
@@ -1869,10 +1906,10 @@ async def download_item_assets(
                     item.poster_path,
                     item_dir / "poster.jpg",
                     meta.poster_file,
-                    force and (ignore_locks or not meta.poster_locked),
                     sources,
                     "poster",
                     tally=tally,
+                    media_dir=media_dir,
                 )
             if only in (None, "backdrop"):
                 meta.backdrop_file = await _sync_asset(
@@ -1881,10 +1918,10 @@ async def download_item_assets(
                     item.backdrop_path,
                     item_dir / "backdrop.jpg",
                     meta.backdrop_file,
-                    force and (ignore_locks or not meta.backdrop_locked),
                     sources,
                     "backdrop",
                     tally=tally,
+                    media_dir=media_dir,
                 )
             if only in (None, "logo"):
                 if item.logo_path == "":
@@ -1903,11 +1940,11 @@ async def download_item_assets(
                         item.logo_path,
                         item_dir / "logo.png",
                         meta.logo_file,
-                        force and (ignore_locks or not meta.logo_locked),
                         sources,
                         "logo",
                         tally=tally,
                         png=True,
+                        media_dir=media_dir,
                     )
             session.add(meta)
             for season in seasons:
@@ -1917,10 +1954,10 @@ async def download_item_assets(
                     season.poster_path,
                     item_dir / f"season-{season.season_number}.jpg",
                     season.poster_file,
-                    force,
                     sources,
                     f"season-{season.season_number}",
                     tally=tally,
+                    media_dir=media_dir,
                 )
                 session.add(season)
             if has_files:
@@ -1932,10 +1969,10 @@ async def download_item_assets(
                         episode.still_path,
                         item_dir / f"{key}.jpg",
                         episode.still_file,
-                        force,
                         sources,
                         key,
                         tally=tally,
+                        media_dir=media_dir,
                     )
                     session.add(episode)
             if profile_paths:
@@ -1954,6 +1991,44 @@ async def download_item_assets(
         if sources != saved_sources:
             await asyncio.to_thread(_save_asset_sources, item_dir, sources)
         await session.commit()
+
+
+async def _media_dir_lookup(session: AsyncSession, item: MediaItem, seasons) -> _MediaDirLookup:  # noqa: ANN001
+    """条目在媒体目录里的位置（条目目录、视频、各集文件），供按需找已有图片。
+
+    不看库的「写入媒体目录」开关：那个开关管的是写，这里只读——媒体目录里别的
+    刮削软件刮好的图同样能收编。类型对不上的库（身份判错的信号）不算。
+    """
+    from movieclaw_api.services.library.layout import entry_dir_of
+
+    rows = (
+        await session.execute(
+            select(LibraryFile, Library)
+            .join(Library, Library.id == LibraryFile.library_id)  # type: ignore[arg-type]
+            .where(LibraryFile.media_item_id == item.id, LibraryFile.in_place())
+        )
+    ).all()
+    entries: list[Path] = []
+    videos: list[Path] = []
+    episode_videos: dict[str, list[Path]] = {}
+    for file, library in rows:
+        if library.kind != item.kind:
+            continue
+        video = Path(file.file_path)
+        videos.append(video)
+        entry = entry_dir_of([Path(p) for p in library.root_paths], video)
+        if entry is not None and entry not in entries:
+            entries.append(entry)
+        if (
+            file.season_number is not None
+            and file.episode_number is not None
+            and file.container not in ("bluray", "dvd")
+        ):
+            key = f"s{file.season_number:02d}e{file.episode_number:02d}"
+            episode_videos.setdefault(key, []).append(video)
+    return _MediaDirLookup(
+        entries, videos, [season.season_number for season in seasons], episode_videos
+    )
 
 
 async def _grab_missing_stills(
@@ -2067,6 +2142,11 @@ async def _sync_avatar(base: str, tier: str, profile_path: str, tally: AssetTall
     if await asyncio.to_thread(_asset_file_ok, dest, expected):
         tally.record("reused")
         return
+    # 换了更小的头像档位（画质改成「标准」「节省空间」）：别的档位层里已有这个人的
+    # 更大头像，就地缩一张，不重新下载（头像是数量最多的一类图）
+    if await _derive_avatar(profile_path, tier, dest, png=expected == "png"):
+        tally.record("derived")
+        return
     try:
         data, _content_type = await get_image_proxy().fetch(
             f"{base}/{tier}{profile_path}", accept=f"image/{expected}"
@@ -2079,6 +2159,30 @@ async def _sync_avatar(base: str, tier: str, profile_path: str, tally: AssetTall
         tally.record("failed")
         return
     tally.record("downloaded", len(data))
+
+
+async def _derive_avatar(profile_path: str, tier: str, dest: Path, *, png: bool) -> bool:
+    """从别的档位层里同一个人的更大头像缩出 ``tier``；成功返回 True。"""
+    from movieclaw_api.services.asset_reuse import derivable, derive
+    from movieclaw_api.services.people_images import _TIERS, avatar_file
+
+    for source_tier in _TIERS:  # 从大到小：original 优先，缩出来最清楚
+        if not derivable(source_tier, tier):
+            continue
+        source = avatar_file(profile_path, source_tier)
+        if not await asyncio.to_thread(_asset_file_ok, source, "png" if png else "jpeg"):
+            continue
+
+        def _work(source: Path = source) -> None:
+            _atomic_write(dest, derive(source.read_bytes(), tier, png=png))
+
+        try:
+            await asyncio.to_thread(_work)
+        except Exception as exc:  # noqa: BLE001 -- 缩不了就退回下载
+            logger.debug("头像本地缩图失败（改为下载）：%s（%s）", source, exc)
+            continue
+        return True
+    return False
 
 
 _SOURCES_FILE = "sources.json"
@@ -2111,26 +2215,69 @@ def _save_asset_sources(item_dir: Path, sources: dict[str, str]) -> None:
         logger.warning("资产溯源记录写盘失败（不阻断）：%s（%s）", item_dir, exc)
 
 
+class _MediaDirLookup:
+    """条目在媒体目录里已有的图，**按需**查（docs/design/image-dedup.md）。
+
+    只有某张图真要联网下载时才去媒体目录找候选——日常刷新绝大多数图直接沿用，
+    不该为它们去媒体盘（NAS 上常是网络挂载）列目录、读 NFO。条目级（海报/背景/
+    Logo/季海报）第一次用到时一次查完；分集剧照按集现查。
+    """
+
+    def __init__(
+        self,
+        entries: list[Path],
+        videos: list[Path],
+        season_numbers: list[int],
+        episode_videos: dict[str, list[Path]],
+    ) -> None:
+        self._entries = entries
+        self._videos = videos
+        self._season_numbers = season_numbers
+        self._episode_videos = episode_videos
+        self._entry_art = None
+        self._lock = asyncio.Lock()
+
+    async def art_for(self, key: str):  # noqa: ANN201 -- MediaDirArt（延迟导入）
+        from movieclaw_api.services.asset_reuse import scan_entry_art, scan_episode_art
+
+        if key in self._episode_videos:
+            return await asyncio.to_thread(scan_episode_art, key, self._episode_videos[key])
+        async with self._lock:
+            if self._entry_art is None:
+                self._entry_art = await asyncio.to_thread(
+                    scan_entry_art, self._entries, self._videos, self._season_numbers
+                )
+        return self._entry_art
+
+
 async def _sync_asset(
     base: str,
     size: str,
     tmdb_path: str | None,
     dest: Path,
     current: str | None,
-    force: bool,
     sources: dict[str, str],
     key: str,
     *,
     tally: AssetTally,
     png: bool = False,
+    media_dir: _MediaDirLookup | None = None,
 ) -> str | None:
-    """下载单张图到资产目录，返回落库的相对路径（失败保留现值/None）。
+    """把单张图同步到资产目录，返回落库的相对路径（失败保留现值/None）。
 
-    跳过条件（普通刷新）：文件在、**格式与扩展名相符、且溯源与当前来源一致**——
-    TMDB 换图（poster_path 变更）或档位配置调整都会触发重下，资产随刷新保持最新。
-    手动选定（locked）的图同样按溯源比对：锁保护的是「用哪张图」——选定后
-    ``poster_path`` 等不再被刮削覆盖、``force`` 也不重下——而不是「用什么分辨率」，
-    档位调了照样按选定的那张重下（docs/design/metadata.md 6.1）。
+    **能不联网就不联网**（docs/design/image-dedup.md），按顺序：
+
+    1. **沿用**：文件在、格式与扩展名相符、且溯源（档位+路径 / Fanart 地址）一致——
+       连请求都不发。图床的图片地址一图一址，地址不变内容就不变，所以手动「刷新
+       元数据」也走这一条，不再无条件重下（以前带 force 会把整部剧的剧照重下一遍）；
+    2. **本地缩图**：要的是同一张图的更小档位、资产里正好有更大的一档（画质从
+       「原图」改成「标准」）——就地缩，不重下；
+    3. **收编媒体目录里的同一张图**：数据目录重建、或别的刮削软件已刮好时，媒体
+       目录里的那张经 NFO 记录或 HEAD 字节数确认是同一张，就复制过来；
+    4. 以上都不成才下载。
+
+    手动选定（locked）的图同样按溯源比对：锁保护的是「用哪张图」，不是「用什么
+    分辨率」，档位调了照样按选定的那张更新（docs/design/metadata.md 6.1）。
 
     **按扩展名点名要格式**：图片代理默认的浏览器式 Accept 带着 webp，TMDB 的 CDN
     会据此协商出**有损** WebP（实测：原版透明 PNG 被换成 VP8 + ALPH，original 档
@@ -2147,19 +2294,33 @@ async def _sync_asset(
     # 按字面找文件同样找不到；Linux 上 as_posix 与 str(Path) 逐字符相同，
     # 属跨平台无操作。
     rel = dest.relative_to(assets_root()).as_posix()
-    want = f"{size}{tmdb_path}"
+    # Fanart 的图是绝对地址、固定规格（没有 TMDB 那样的档位），溯源就记地址本身
+    absolute = is_absolute_image(tmdb_path)
+    want = tmdb_path if absolute else f"{size}{tmdb_path}"
     expected = "png" if png else "jpeg"
-    if (
-        not force
-        and current == rel
-        and sources.get(key) == want
-        and await asyncio.to_thread(_asset_file_ok, dest, expected)
-    ):
+    file_ok = current == rel and await asyncio.to_thread(_asset_file_ok, dest, expected)
+    if file_ok and sources.get(key) == want:
         tally.record("reused")
         return current
+    url = remote_image_url(base, size, tmdb_path)
+
+    # 2) 本地缩图：资产里已是同一张图的更大档位
+    if file_ok and not absolute and await _derive_in_place(dest, sources.get(key), want, png=png):
+        sources[key] = want
+        tally.record("derived")
+        return rel
+
+    # 3) 收编媒体目录里的同一张图
+    if media_dir is not None and await _adopt_from_media_dir(
+        media_dir, key, want, url, dest, png=png
+    ):
+        sources[key] = want
+        tally.record("adopted")
+        return rel
+
+    # 4) 下载
     from movieclaw_api.services.image_proxy import get_image_proxy
 
-    url = f"{base}/{size}{tmdb_path}"
     try:
         if png:
             data, _content_type = await get_image_proxy().fetch(url, accept="image/png")
@@ -2182,6 +2343,93 @@ async def _sync_asset(
     sources[key] = want
     tally.record("downloaded", len(data))
     return rel
+
+
+async def _derive_in_place(dest: Path, old_want: str | None, want: str, *, png: bool) -> bool:
+    """资产里的旧图是同一张图的更大档位时，就地缩成新档位；成功返回 True。"""
+    from movieclaw_api.services.asset_reuse import derivable, derive, split_want
+
+    old, new = split_want(old_want or ""), split_want(want)
+    if not old or not new or old[1] != new[1] or not derivable(old[0], new[0]):
+        return False
+
+    def _work() -> None:
+        _atomic_write(dest, derive(dest.read_bytes(), new[0], png=png))
+
+    try:
+        await asyncio.to_thread(_work)
+    except Exception as exc:  # noqa: BLE001 -- 缩不了就退回下载
+        logger.warning("本地缩图失败，改为下载：%s（%s）", dest, exc)
+        return False
+    return True
+
+
+async def _adopt_from_media_dir(
+    media_dir: _MediaDirLookup, key: str, want: str, url: str, dest: Path, *, png: bool
+) -> bool:
+    """媒体目录里有同一张图就复制进资产目录（必要时缩到要的档位）；成功返回 True。
+
+    判定同一张（services/asset_reuse.py）：HEAD 问远端字节数，与候选文件长度一致才
+    收编；要的不是原图时，再问一次同一张图原图档位的字节数——别的刮削软件多半存的
+    是原图，对上了就收编后本地缩图。HEAD 只在有候选文件时才发，结果在本次调用内
+    复用。收编后资产沿用媒体目录文件的修改时间——镜像时「资产比镜像新才覆盖」，
+    同一份字节不会再被写回媒体目录。
+    """
+    from movieclaw_api.services.asset_reuse import derive, split_want
+    from movieclaw_api.services.image_proxy import get_image_proxy
+
+    try:
+        art = await media_dir.art_for(key)
+    except Exception as exc:  # noqa: BLE001 -- 媒体盘读不了就退回下载
+        logger.debug("查找媒体目录已有图片失败（改为下载）：%s（%s）", key, exc)
+        return False
+    candidates = art.candidates.get(key, [])
+    if not candidates:
+        return False
+    expected = "png" if png else "jpeg"
+    accept = f"image/{expected}"
+    target = split_want(want)
+    original_url = (
+        url.replace(f"/{target[0]}/", "/original/", 1)
+        if target is not None and target[0] != "original"
+        else None
+    )
+    lengths: dict[str, int | None] = {}
+
+    async def _remote_length(probe_url: str) -> int | None:
+        if probe_url not in lengths:
+            lengths[probe_url] = await get_image_proxy().content_length(probe_url, accept=accept)
+        return lengths[probe_url]
+
+    for candidate in candidates:
+        if await asyncio.to_thread(_image_kind_of, candidate) != expected:
+            continue
+        try:
+            size = (await asyncio.to_thread(candidate.stat)).st_size
+            shrink = False
+            if await _remote_length(url) != size:
+                if original_url is None or await _remote_length(original_url) != size:
+                    continue
+                shrink = True  # 候选是同一张图的原图，收编后缩到要的档位
+            data = await asyncio.to_thread(candidate.read_bytes)
+            if shrink and target is not None:
+                data = await asyncio.to_thread(derive, data, target[0], png=png)
+            stat = await asyncio.to_thread(candidate.stat)
+            await asyncio.to_thread(_atomic_write, dest, data)
+            await asyncio.to_thread(os.utime, dest, (stat.st_atime, stat.st_mtime))
+        except Exception as exc:  # noqa: BLE001 -- 收编失败退回下载
+            logger.debug("收编媒体目录图片失败（改为下载）：%s（%s）", candidate, exc)
+            continue
+        return True
+    return False
+
+
+def _image_kind_of(path: Path) -> str | None:
+    try:
+        with path.open("rb") as handle:
+            return _image_kind(handle.read(16))
+    except OSError:
+        return None
 
 
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -2253,7 +2501,12 @@ def _atomic_write(dest: Path, data: bytes) -> None:
 
 @dataclass(frozen=True)
 class ArtworkCandidates:
-    """「更换图片」弹层的数据：三种图的候选（排序同自动选图）与各自在用的路径。"""
+    """「更换图片」弹层的数据：三种图的候选（排序同自动选图）与各自在用的路径。
+
+    ``fanart``：Fanart 候选的状态——``ok`` 已混入候选；``not_configured`` 还没填过
+    Key（弹层据此露出「从 Fanart.tv 找更多」入口）；``invalid`` Key 已失效；
+    ``error`` 这次没取到（网络等）；``none`` 本地来源条目等不适用的情况。
+    """
 
     posters: list[dict]
     backdrops: list[dict]
@@ -2261,6 +2514,7 @@ class ArtworkCandidates:
     current_poster: str | None
     current_backdrop: str | None
     current_logo: str | None
+    fanart: str = "none"
 
 
 async def list_artwork_candidates(media_item_id: int) -> ArtworkCandidates:
@@ -2271,6 +2525,7 @@ async def list_artwork_candidates(media_item_id: int) -> ArtworkCandidates:
     三种情况下"第一张"都不等于在用的那张（实测：星际穿越的背景对不上）。
     """
     from movieclaw_api.services.media_discover import get_tmdb_client
+    from movieclaw_media.fanart import fanart_preview_url
     from movieclaw_media.library import (
         image_language_param,
         list_image_candidates,
@@ -2302,9 +2557,16 @@ async def list_artwork_candidates(media_item_id: int) -> ArtworkCandidates:
         tokens = (*prefs.poster_langs, *prefs.backdrop_langs)
         if "orig" in tokens:
             include_param = f"{include_param},{original_language}"
-    data = await get_tmdb_client().get(
-        f"{kind.value}/{item.tmdb_id}/images",
-        {"include_image_language": include_param},
+    client = get_tmdb_client()
+    # Fanart 候选：有可用 Key 就展示，**不看自动选图的开关**——手动换图本身就是
+    # 用户明确想用这个来源（开关只管自动选图，见 docs/design/image-sources.md）。
+    # 与 TMDB 候选互不依赖，并发拉，弹层首屏只等较慢的那一路
+    data, (fanart_images, fanart_state) = await asyncio.gather(
+        client.get(
+            f"{kind.value}/{item.tmdb_id}/images",
+            {"include_image_language": include_param},
+        ),
+        _artwork_fanart(client, kind, item.tmdb_id),
     )
     poster_langs = resolve_image_languages(
         prefs.poster_langs, primary_language=language, original_language=original_language
@@ -2318,22 +2580,34 @@ async def list_artwork_candidates(media_item_id: int) -> ArtworkCandidates:
         backdrop_langs,
         poster_min_width=prefs.poster_min_width,
         backdrop_min_width=prefs.backdrop_min_width,
+        fanart=fanart_images,
+        poster_sources=prefs.poster_sources,
+        backdrop_sources=prefs.backdrop_sources,
     )
     logos = list_logo_candidates(
-        {"images": data}, primary_language=language, original_language=original_language
+        {"images": data},
+        primary_language=language,
+        original_language=original_language,
+        langs=prefs.logo_langs,
+        extra=fanart_images.logos if fanart_images is not None else (),
+        sources=prefs.logo_sources,
     )
     base = effective_tmdb_image_base_url().rstrip("/")
 
     def _view(image: dict, preview_size: str) -> dict:
+        path = image.get("file_path")
+        fanart = is_absolute_image(path)
         return {
-            "file_path": image.get("file_path"),
-            # 预览走小图档位：一屏几十张候选，用原图会把弹层拖垮
-            "preview_url": f"{base}/{preview_size}{image.get('file_path')}",
+            "file_path": path,
+            # 预览走小图：一屏几十张候选，用原图会把弹层拖垮。Fanart 用官方缩略图
+            "preview_url": fanart_preview_url(path) if fanart else f"{base}/{preview_size}{path}",
             "width": image.get("width"),
             "height": image.get("height"),
             "language": image.get("iso_639_1"),
             "vote_average": image.get("vote_average"),
             "vote_count": image.get("vote_count"),
+            "source": "fanart" if fanart else "tmdb",
+            "likes": image.get("likes"),
         }
 
     def _with_current(images: list[dict], current: str | None, size: str) -> list[dict]:
@@ -2341,7 +2615,8 @@ async def list_artwork_candidates(media_item_id: int) -> ArtworkCandidates:
         补进列表首位——否则弹层里一张都标不出"当前"，用户照样对不上。"""
         views = [_view(i, size) for i in images if i.get("file_path")]
         if current and all(v["file_path"] != current for v in views):
-            views.insert(0, _view({"file_path": current}, size))
+            # 只知道路径、不知道语言与热度：标 unlisted，前端别把「语言未知」显示成「无文字」
+            views.insert(0, {**_view({"file_path": current}, size), "unlisted": True})
         return views
 
     return ArtworkCandidates(
@@ -2351,7 +2626,37 @@ async def list_artwork_candidates(media_item_id: int) -> ArtworkCandidates:
         current_poster=current_poster,
         current_backdrop=current_backdrop,
         current_logo=current_logo,
+        fanart=fanart_state,
     )
+
+
+async def _artwork_fanart(client, kind: MediaKind, tmdb_id: int):  # noqa: ANN001, ANN202
+    """换图弹层的 Fanart 候选：返回 (图集或 None, 状态)。状态含义见 ArtworkCandidates。
+
+    **任何异常都不外抛**：Fanart 是补充来源，它（或剧集现查 TVDB 编号的那次 TMDB
+    请求）出错只把状态置为 error，TMDB 候选照常展示，不能拖垮整个弹层。
+    """
+    from movieclaw_api.services.fanart import current_fanart_setting, get_fanart_client
+
+    setting = current_fanart_setting()
+    if not setting.api_key:
+        return None, "not_configured"
+    fanart = get_fanart_client()
+    if fanart is None:
+        return None, "invalid"
+    try:
+        if kind is MediaKind.MOVIE:
+            images = await fanart.movie_images(tmdb_id)
+        else:
+            # Fanart 的剧集只认 TVDB 编号（条目不存它，现查一次 TMDB 外部编号）
+            external = await client.get(f"tv/{tmdb_id}/external_ids", {})
+            tvdb_id = external.get("tvdb_id")
+            images = await fanart.tv_images(int(tvdb_id)) if tvdb_id else None
+    except Exception as exc:  # noqa: BLE001 -- 补充来源出错不影响 TMDB 候选
+        logger.warning("换图弹层取 Fanart 候选失败：%s/%s（%s）", kind.value, tmdb_id, exc)
+        state = "invalid" if current_fanart_setting().key_invalid else "error"
+        return None, state
+    return images, "ok"
 
 
 async def select_artwork(media_item_id: int, *, kind: str, file_path: str | None) -> bool:

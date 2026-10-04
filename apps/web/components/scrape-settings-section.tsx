@@ -17,12 +17,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandLoader } from "@/components/brand-loader";
+import { FanartKeyForm, fanartUsable, useFanartStatus } from "@/components/fanart-key-form";
 import { useToast } from "@/components/feedback";
 import { ChevronDownIcon } from "@/components/icons";
 import {
   type CountryOption,
   IMAGE_QUALITY_PRESETS,
   type ImageQuality,
+  type ImageSource,
   type ImageStorageEstimate,
   type LanguageOption,
   type ScrapeConfigView,
@@ -116,6 +118,43 @@ const IMAGE_QUALITY_KEYS: (keyof ScrapeSetting)[] = [
   "profile_size",
 ];
 
+/* ------------------------------------------------------------------ */
+/* 图片来源（docs/design/image-sources.md）                              */
+/* ------------------------------------------------------------------ */
+
+const SOURCE_LABEL: Record<ImageSource, string> = { tmdb: "TMDB", fanart: "Fanart.tv" };
+
+/** 「图片来源」卡管的字段：Fanart 开关 + 四类图的来源顺序（库设置页按这一组整体跟随/覆盖） */
+const SOURCE_KEYS: (keyof ScrapeSetting)[] = [
+  "fanart_enabled",
+  "poster_source_order",
+  "backdrop_source_order",
+  "logo_source_order",
+  "season_poster_source_order",
+];
+
+/** 来源顺序的四行：字段、名字、默认谁在前、默认值的理由（行下小字） */
+const SOURCE_ROWS = [
+  { key: "poster_source_order", label: "海报", first: "tmdb", why: "TMDB 在前" },
+  { key: "backdrop_source_order", label: "背景", first: "tmdb", why: "TMDB 在前（常有 4K）" },
+  { key: "logo_source_order", label: "片名 Logo", first: "fanart", why: "Fanart 在前（中文多）" },
+  { key: "season_poster_source_order", label: "季海报", first: "fanart", why: "Fanart 在前" },
+] as const;
+
+/** 来源卡的人话摘要：「TMDB + Fanart.tv · 片名 Logo、季海报优先 Fanart」/「仅 TMDB」 */
+function describeSources(setting: ScrapeSetting): string {
+  if (!setting.fanart_enabled) return "仅 TMDB";
+  const fanartFirst = SOURCE_ROWS.filter((row) => setting[row.key][0] === "fanart").map(
+    (row) => row.label,
+  );
+  const lead = fanartFirst.length
+    ? fanartFirst.length === SOURCE_ROWS.length
+      ? "全部优先 Fanart"
+      : `${fanartFirst.join("、")}优先 Fanart`
+    : "全部优先 TMDB";
+  return `TMDB + Fanart.tv · ${lead}`;
+}
+
 /** 估算字节数 → 「约 2.6 GB」；不足 1 GB 用 MB（取整），量级参考不需要更多精度 */
 function formatEstimate(bytes: number): string {
   const gb = bytes / 1024 ** 3;
@@ -169,12 +208,30 @@ export function describeScrapeValues(
         break;
       case "poster_mode":
         // 海报卡把「模式 + 语言优先级」并成一句：默认模式下语言优先级不生效，
-        // 摘要里再列它只会误导
+        // 摘要里再列它只会误导——启用 Fanart 时例外：TMDB 默认的那张要和 Fanart
+        // 的海报按语言优先级比，这时语言优先级是生效的
         parts.push(
           setting.poster_mode === "default"
-            ? "TMDB 默认"
+            ? setting.fanart_enabled
+              ? `TMDB 默认 · 与 Fanart 按 ${joinPriority(COMMON_IMAGE_LANGS, setting.poster_language_priority)} 比较`
+              : "TMDB 默认"
             : `按语言：${joinPriority(COMMON_IMAGE_LANGS, setting.poster_language_priority)}`,
         );
+        break;
+      case "fanart_enabled":
+        parts.push(describeSources(setting));
+        break;
+      case "poster_source_order":
+      case "backdrop_source_order":
+      case "logo_source_order":
+      case "season_poster_source_order":
+        // 并进 fanart_enabled 那一句（来源卡的四行顺序不逐条列）
+        if (!keys.includes("fanart_enabled")) {
+          parts.push(setting[key].map((source) => SOURCE_LABEL[source]).join(" → "));
+        }
+        break;
+      case "logo_language_priority":
+        parts.push(joinPriority(COMMON_IMAGE_LANGS, setting.logo_language_priority));
         break;
       case "poster_language_priority":
         if (!keys.includes("poster_mode")) {
@@ -1177,6 +1234,253 @@ export function MetaTab({
   );
 }
 
+/**
+ * 「图片来源」卡（docs/design/image-sources.md）：TMDB 始终开启，Fanart.tv 可选。
+ *
+ * - **Fanart 开关**：Key 没配过时，点开关不会直接打开，而是就地展开 Key 表单
+ *   （FanartKeyForm），验证通过才打开——不内置 Key、不单开配置页；
+ * - **来源顺序**按图片类型分开排（⇄ 交换先后），只在同一档语言两边都有图时
+ *   起作用：规则写死成「先看语言，再看来源」，不给用户选；
+ * - 打开后在卡片里提示「已入库的条目需要手动刷新元数据」，不自动重刮。
+ *
+ * 全局页与库设置页共用；库设置页里 Key 一行改成「全站共用」的说明（凭据不跟库走）。
+ */
+function ImageSourcesCard({
+  setting,
+  patch,
+  library,
+  overriddenBy,
+  shellFor,
+}: {
+  setting: ScrapeSetting;
+  patch: (changes: Partial<ScrapeSetting>) => void;
+  library: boolean;
+  overriddenBy?: (keys: (keyof ScrapeSetting)[]) => string[];
+  shellFor?: (title: string, keys: (keyof ScrapeSetting)[]) => CardShell;
+}) {
+  const { status, setStatus } = useFanartStatus();
+  const [keyForm, setKeyForm] = useState(false);
+  // 刚打开 Fanart：卡片里提示存量条目要手动刷新（关掉、或关闭提示即消失）
+  const [justEnabled, setJustEnabled] = useState(false);
+  const enabled = setting.fanart_enabled;
+  const usable = fanartUsable(status);
+
+  const toggle = () => {
+    if (enabled) {
+      patch({ fanart_enabled: false });
+      setJustEnabled(false);
+    } else if (usable) {
+      patch({ fanart_enabled: true });
+      setJustEnabled(true);
+    } else {
+      // 没有可用的 Key：开关保持关，先就地填一次
+      setKeyForm((current) => !current);
+    }
+  };
+
+  const pill = !status?.configured ? (
+    <span className="rounded-full border border-[var(--warn)]/30 px-2 py-px text-micro font-normal text-[var(--warn)]">
+      需要 API Key
+    </span>
+  ) : status.key_invalid ? (
+    <span className="rounded-full border border-[var(--danger)]/35 px-2 py-px text-micro font-normal text-[var(--danger)]">
+      Key 已失效
+    </span>
+  ) : (
+    <span className="rounded-full border border-[var(--ok)]/30 px-2 py-px text-micro font-normal text-[var(--ok)]">
+      Key 已配置
+    </span>
+  );
+
+  return (
+    <Card
+      title="图片来源"
+      overriddenBy={overriddenBy?.(SOURCE_KEYS)}
+      shell={shellFor?.("图片来源", SOURCE_KEYS)}
+      desc="海报、背景、片名 Logo、季海报可以从多个图库挑选。TMDB 是元数据的主来源，始终开启；Fanart.tv 是社区维护的高清图库，中文片名 Logo、季海报往往比 TMDB 全。你在条目详情页手动选定的图始终优先，不受这里影响。"
+    >
+      {justEnabled && enabled && (
+        <div className="mb-2.5 flex items-start gap-2.5 rounded-xl border border-[var(--info)]/30 bg-[var(--info)]/[0.07] px-3 py-2.5 text-caption leading-relaxed text-[var(--text-muted)]">
+          <span className="text-[var(--info)]">ℹ︎</span>
+          <span className="min-w-0 flex-1">
+            <strong className="font-semibold text-[var(--text)]">Fanart.tv 已启用。</strong>
+            保存后，之后新入库的条目会自动用上；
+            <strong className="font-semibold text-[var(--text)]">
+              已入库的条目需要你在媒体库执行「刷新元数据」
+            </strong>
+            后才会按新来源重选图片，不刷新就保持原样。
+          </span>
+          <button
+            type="button"
+            aria-label="关闭提示"
+            onClick={() => setJustEnabled(false)}
+            className="shrink-0 text-[var(--text-faint)] hover:text-[var(--text)]"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      <div className="mb-2 flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.025] px-3 py-2.5">
+        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[var(--src-tmdb)]/[0.14] text-micro font-extrabold tracking-tight text-[var(--src-tmdb)]">
+          TMDB
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-ui font-semibold">TMDB</span>
+          <span className="block text-caption text-[var(--text-faint)]">元数据与图片的主来源</span>
+        </span>
+        <span className="shrink-0 rounded-full border border-white/[0.08] px-2 py-px text-micro text-[var(--text-faint)]">
+          始终开启
+        </span>
+      </div>
+
+      <div className="overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.025]">
+        <div className="flex items-center gap-3 px-3 py-2.5">
+          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-[var(--src-fanart)]/[0.14] text-micro font-extrabold text-[var(--src-fanart)]">
+            FA
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-center gap-2 text-ui font-semibold">
+              Fanart.tv {pill}
+            </span>
+            <span className="block text-caption text-[var(--text-faint)]">
+              {status?.configured
+                ? library
+                  ? "Key 全站共用，在「设置 → 刮削与整理」里可以更换"
+                  : "社区高清图库 · 电影按 TMDB 编号、剧集按 TVDB 编号取图（TVDB 编号从 TMDB 自动获取）"
+                : "社区高清图库 · 打开开关时填一次你自己的 API Key 即可"}
+            </span>
+          </span>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={enabled}
+            aria-label="启用 Fanart.tv"
+            onClick={toggle}
+            className={`relative h-[21px] w-9 shrink-0 rounded-full transition-colors ${
+              enabled ? "bg-[var(--accent-2)]" : "bg-white/[0.14]"
+            }`}
+          >
+            <span
+              className={`absolute left-[2.5px] top-[2.5px] size-4 rounded-full bg-white transition-transform ${
+                enabled ? "translate-x-[15px]" : ""
+              }`}
+            />
+          </button>
+        </div>
+        {keyForm && (
+          <FanartKeyForm
+            variant={library ? "library" : "global"}
+            className="mx-3 mb-3"
+            onVerified={(next) => {
+              setStatus(next);
+              setKeyForm(false);
+              patch({ fanart_enabled: true });
+              setJustEnabled(true);
+            }}
+            onCancel={() => setKeyForm(false)}
+          />
+        )}
+        {!keyForm && status?.configured && (
+          <div className="flex flex-wrap items-center gap-2.5 border-t border-white/[0.06] px-3 py-2 pl-14 text-caption text-[var(--text-faint)] max-sm:pl-3">
+            {status.key_invalid ? (
+              <span className="text-[var(--danger)]">
+                Fanart.tv 拒绝了这个 Key（可能已撤销或填错），已暂停使用 Fanart 选图
+              </span>
+            ) : (
+              <span>
+                API Key <code className="font-mono text-[var(--text-muted)]">••••{status.key_hint}</code>
+              </span>
+            )}
+            {(!library || status.key_invalid) && (
+              <button
+                type="button"
+                onClick={() => setKeyForm(true)}
+                className="text-[var(--accent)] underline underline-offset-2"
+              >
+                {status.key_invalid ? "重新填写" : "更换"}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <p className="mb-1.5 mt-4 flex flex-wrap items-baseline gap-2 text-sub font-semibold">
+        来源顺序
+        <span className="text-caption font-normal text-[var(--text-faint)]">
+          每种图单独排，点 ⇄ 交换先后
+        </span>
+      </p>
+      <div
+        className={`overflow-hidden rounded-xl border border-white/[0.08] ${enabled ? "" : "opacity-40"}`}
+      >
+        {SOURCE_ROWS.map((row) => {
+          const order = setting[row.key];
+          const isDefault = order[0] === row.first;
+          const note =
+            row.key === "poster_source_order" && setting.poster_mode === "default"
+              ? "海报卡是「TMDB 默认」：TMDB 只出它指定的那一张，和 Fanart 的海报按语言比"
+              : row.key === "season_poster_source_order"
+                ? "只对剧集生效；语言跟随海报卡"
+                : null;
+          return (
+            <div
+              key={row.key}
+              className="grid grid-cols-[86px_1fr_auto] items-center gap-x-2.5 gap-y-1 border-t border-white/[0.06] px-3 py-2 first:border-t-0"
+            >
+              <span className="text-sub text-[var(--text)]">
+                {row.label}
+                <span
+                  className={`block text-micro ${isDefault ? "text-[var(--src-fanart)]" : "text-[var(--text-faint)]"}`}
+                >
+                  {isDefault ? `默认 · ${row.why}` : "已调整"}
+                </span>
+              </span>
+              <span className="flex flex-wrap items-center gap-1.5">
+                {order.map((source, index) => (
+                  <span key={source} className="flex items-center gap-1.5">
+                    {index > 0 && <span className="text-caption text-[var(--text-faint)]">→</span>}
+                    <span
+                      className={`flex items-center gap-1.5 rounded-full border border-[var(--accent-2)]/40 bg-[var(--accent-soft)] py-0.5 pl-1 pr-2.5 text-sub ${
+                        source === "fanart" && !enabled ? "line-through opacity-50" : ""
+                      }`}
+                    >
+                      <span
+                        className={`grid size-4 place-items-center rounded-full text-[9.5px] font-extrabold text-[#0a0b10] ${
+                          source === "tmdb" ? "bg-[var(--src-tmdb)]" : "bg-[var(--src-fanart)]"
+                        }`}
+                      >
+                        {index + 1}
+                      </span>
+                      {SOURCE_LABEL[source]}
+                    </span>
+                  </span>
+                ))}
+              </span>
+              <button
+                type="button"
+                disabled={!enabled}
+                aria-label={`交换${row.label}的来源先后`}
+                onClick={() => patch({ [row.key]: [...order].reverse() } as Partial<ScrapeSetting>)}
+                className="rounded-lg bg-white/[0.06] px-2.5 py-1 text-sub text-[var(--text-muted)] transition-colors hover:bg-white/[0.12] hover:text-[var(--text)] disabled:pointer-events-none disabled:opacity-30"
+              >
+                ⇄
+              </button>
+              {note && (
+                <span className="col-start-2 col-end-4 text-micro text-[var(--text-faint)]">{note}</span>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <p className="mt-2.5 rounded-xl border border-white/[0.08] bg-white/[0.03] px-3 py-2.5 text-caption leading-relaxed text-[var(--text-muted)]">
+        <strong className="font-semibold text-[var(--text)]">先看语言，再看来源。</strong>
+        每种图按自己的语言优先级（海报、背景、片名 Logo 卡里配置）逐档找；同一档语言两个来源都有图时，才按上面的来源顺序挑。所以把中文排第一，就不会因为来源顺序拿到英文图。
+      </p>
+    </Card>
+  );
+}
+
 export function ImagesTab({
   setting,
   patch,
@@ -1243,6 +1547,13 @@ export function ImagesTab({
 
   return (
     <>
+      <ImageSourcesCard
+        setting={setting}
+        patch={patch}
+        library={inheritsGlobal}
+        overriddenBy={overriddenBy}
+        shellFor={shellFor}
+      />
       <Card
         title="海报"
         overriddenBy={overriddenBy?.(["poster_mode", "poster_language_priority"])}
@@ -1286,8 +1597,14 @@ export function ImagesTab({
             </label>
           ))}
         </div>
+        {/* 默认模式下语言优先级本不生效（置灰）；启用 Fanart 时 TMDB 默认的那张要和
+            Fanart 的海报按它比较，所以要能编辑 */}
         <div
-          className={`mt-4 ${setting.poster_mode === "language" ? "" : "pointer-events-none opacity-40"}`}
+          className={`mt-4 ${
+            setting.poster_mode === "language" || setting.fanart_enabled
+              ? ""
+              : "pointer-events-none opacity-40"
+          }`}
         >
           <OrderChips
             options={COMMON_IMAGE_LANGS}
@@ -1298,6 +1615,12 @@ export function ImagesTab({
             primaryTag="首选"
             onChange={(next) => patch({ poster_language_priority: next })}
           />
+          {setting.poster_mode === "default" && setting.fanart_enabled && (
+            <p className="mt-2 text-caption leading-relaxed text-[var(--text-faint)]">
+              已启用 Fanart.tv：TMDB 默认的那张海报会和 Fanart 的海报按上面的语言优先级比较，Fanart
+              有更靠前语言的海报时才会换掉它。季海报同样按这个语言优先级挑。
+            </p>
+          )}
         </div>
       </Card>
       <Card
@@ -1314,6 +1637,22 @@ export function ImagesTab({
           max={4}
           primaryTag="首选"
           onChange={(next) => patch({ backdrop_language_priority: next })}
+        />
+      </Card>
+      <Card
+        title="片名 Logo"
+        overriddenBy={overriddenBy?.(["logo_language_priority"])}
+        shell={shellFor?.("片名 Logo", ["logo_language_priority"])}
+        desc="详情页、首页大图上叠在背景图上的片名字标（透明底）。按顺序逐档找第一张有图的语言；全部落空就不显示 Logo，改为显示文字标题。"
+      >
+        <OrderChips
+          options={COMMON_IMAGE_LANGS}
+          extraOptions={extraImageLangs}
+          moreLabel="语言"
+          value={setting.logo_language_priority}
+          max={4}
+          primaryTag="首选"
+          onChange={(next) => patch({ logo_language_priority: next })}
         />
       </Card>
       <Card

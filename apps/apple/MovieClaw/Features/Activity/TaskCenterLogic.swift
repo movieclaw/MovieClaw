@@ -497,6 +497,8 @@ extension TaskCenter {
                 items.append(DetailItem(label: "新下载 \(image("downloaded")) 张 · \(size)"))
             }
             if image("reused") != 0 { items.append(DetailItem(label: "沿用 \(image("reused")) 张")) }
+            if image("adopted") != 0 { items.append(DetailItem(label: "从媒体目录收编 \(image("adopted")) 张")) }
+            if image("derived") != 0 { items.append(DetailItem(label: "本地缩图 \(image("derived")) 张")) }
             if image("grabbed") != 0 { items.append(DetailItem(label: "截取 \(image("grabbed")) 张剧照")) }
         default:
             break

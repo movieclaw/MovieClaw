@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import re
 from collections.abc import Sequence
@@ -25,8 +26,11 @@ from typing import NamedTuple
 
 from pydantic import BaseModel, Field
 
+from movieclaw_media.fanart import FanartClient, FanartError, FanartImages
 from movieclaw_media.models import MediaKind
 from movieclaw_media.tmdb import TmdbClient, TmdbError
+
+logger = logging.getLogger("movieclaw_media.library")
 
 # 别名收集范围：中文圈 + 英语圈的地区别名，加 zh/en 两种语言的译名。
 # 种子命名以英文为主、副标题以中文为主，这两组覆盖了匹配内核的需要。
@@ -65,6 +69,10 @@ class SeasonProfile(BaseModel):
     overview: str | None = None
     poster_path: str | None = None
     episodes: list[EpisodeInfo] = Field(default_factory=list)
+    # 该季在 TMDB 上的全部候选海报（带语言）。只在启用了 Fanart 时随季详情
+    # 一起拉（append_to_response=images，零额外请求），供跨来源按语言比较；
+    # 不落库、不进序列化
+    poster_candidates: list[dict] = Field(default_factory=list, exclude=True)
 
 
 class CastMember(BaseModel):
@@ -147,6 +155,10 @@ class MediaProfile(BaseModel):
     # 剧集没有这个字段，恒为 None（TMDB 不给剧集系列，我们也不猜）
     series_tmdb_id: int | None = None
     series_name: str | None = None
+    # 启用了 Fanart 但这次没取到（网络/限流/Key 失效）。落库时据此保留条目
+    # 现有的 Fanart 图，不让一次偶发失败把图换回 TMDB、下次成功又换回来
+    # （来回重下 + 媒体目录镜像抖动）
+    fanart_failed: bool = Field(default=False, exclude=True)
 
 
 def extract_genre_ids(data: dict) -> list[int]:
@@ -174,6 +186,7 @@ async def fetch_media_profile(
     languages: Sequence[str] = ("zh-CN", "en-US"),
     image_prefs: ImagePrefs | None = None,
     cert_countries: Sequence[str] = ("CN", "US"),
+    fanart: FanartClient | None = None,
 ) -> MediaProfile:
     """拉取条目的完整档案（一次详情请求 + 剧集逐季并发拉集列表）。
 
@@ -185,6 +198,11 @@ async def fetch_media_profile(
 
     ``image_prefs`` 是选图偏好（§2.2）；``cert_countries`` 是分级地区优先级。
     默认参数即历史行为（zh-CN + en 兜底、TMDB 默认海报、无文字背景优先）。
+
+    ``fanart``：启用了 Fanart.tv 图片来源时传入（docs/design/image-sources.md）。
+    Fanart 的候选与 TMDB 的放进同一套语言分档规则：**先看语言，再看来源**——
+    同一档语言两边都有图时才按 ``image_prefs`` 里各类图的来源顺序挑。
+    Fanart 请求失败不阻断档案（只打日志、标记 ``fanart_failed``），按 TMDB 选图。
     """
     languages = list(languages) or ["zh-CN"]
     primary = languages[0]
@@ -240,17 +258,40 @@ async def fetch_media_profile(
             title = fallback_title
 
     seasons: list[SeasonProfile] = []
-    if kind is MediaKind.TV:
-        numbers = [
-            s["season_number"]
-            for s in data.get("seasons", [])
-            if s.get("season_number") is not None
-        ]
-        seasons = list(
-            await asyncio.gather(*(_fetch_season(client, tmdb_id, n, primary) for n in numbers))
-        )
-        if len(languages) > 1:
-            await _fallback_poor_seasons(client, tmdb_id, seasons, languages[1])
+    # 季详情顺带拉季海报候选：只在启用 Fanart 时需要（跨来源按语言比较要知道
+    # TMDB 那几张季海报各是什么语言），不启用时请求与历史完全一致
+    season_images = image_languages if fanart is not None else None
+    fanart_task = (
+        asyncio.ensure_future(_fetch_fanart(fanart, kind, tmdb_id, data))
+        if fanart is not None
+        else None
+    )
+    try:
+        if kind is MediaKind.TV:
+            numbers = [
+                s["season_number"]
+                for s in data.get("seasons", [])
+                if s.get("season_number") is not None
+            ]
+            seasons = list(
+                await asyncio.gather(
+                    *(
+                        _fetch_season(client, tmdb_id, n, primary, image_languages=season_images)
+                        for n in numbers
+                    )
+                )
+            )
+            if len(languages) > 1:
+                await _fallback_poor_seasons(client, tmdb_id, seasons, languages[1])
+    except BaseException:
+        # 季详情失败整份档案作废：并发中的 Fanart 请求一并取消，别留无人等待的任务
+        # （它照样占限流配额、遇 401 照样会去标记 Key 失效）
+        if fanart_task is not None:
+            fanart_task.cancel()
+        raise
+    fanart_images, fanart_failed = (None, False)
+    if fanart_task is not None:
+        fanart_images, fanart_failed = await fanart_task
 
     overview = (data.get("overview") or "").strip() or None
     tagline = (data.get("tagline") or "").strip() or None
@@ -266,7 +307,24 @@ async def fetch_media_profile(
     backdrop_langs = resolve_image_languages(
         prefs.backdrop_langs, primary_language=primary, original_language=original_language
     )
-    if prefs.poster_mode == "language":
+    tmdb_images = data.get("images") or {}
+    if fanart_images is not None and fanart_images.posters:
+        # 有 Fanart 海报：两个来源按语言比。TMDB 一侧出哪些候选随海报模式——
+        # 「TMDB 默认」只拿它指定的那一张，「按语言」拿全部
+        poster_path = _pick_multi(
+            _tmdb_poster_pool(
+                tmdb_images.get("posters") or [],
+                data.get("poster_path"),
+                prefs.poster_mode,
+                poster_langs,
+                prefs.poster_min_width,
+            )
+            + fanart_images.posters,
+            poster_langs,
+            prefs.poster_min_width,
+            prefs.poster_sources,
+        ) or data.get("poster_path")
+    elif prefs.poster_mode == "language":
         # 用户显式要按语言优先级挑：策略结果优先，候选全空才回 TMDB 默认
         poster_path = pick_poster(data, poster_langs, min_width=prefs.poster_min_width) or data.get(
             "poster_path"
@@ -277,6 +335,46 @@ async def fetch_media_profile(
         poster_path = data.get("poster_path") or pick_poster(
             data, poster_langs, min_width=prefs.poster_min_width
         )
+    if fanart_images is not None and fanart_images.backdrops:
+        backdrop_path = _pick_multi(
+            (tmdb_images.get("backdrops") or []) + fanart_images.backdrops,
+            backdrop_langs,
+            prefs.backdrop_min_width,
+            prefs.backdrop_sources,
+        ) or data.get("backdrop_path")
+    else:
+        backdrop_path = pick_backdrop(
+            data, backdrop_langs, min_width=prefs.backdrop_min_width
+        ) or data.get("backdrop_path")
+    logo_path = pick_logo(
+        data,
+        primary_language=primary,
+        original_language=original_language,
+        langs=prefs.logo_langs,
+        extra=fanart_images.logos if fanart_images is not None else (),
+        sources=prefs.logo_sources,
+    )
+    if fanart_images is not None and fanart_images.season_posters:
+        for season in seasons:
+            extra = fanart_images.season_posters.get(season.season_number)
+            if not extra:
+                continue
+            season.poster_path = (
+                _pick_multi(
+                    _tmdb_poster_pool(
+                        season.poster_candidates,
+                        season.poster_path,
+                        prefs.poster_mode,
+                        poster_langs,
+                        prefs.poster_min_width,
+                    )
+                    + extra,
+                    poster_langs,
+                    prefs.poster_min_width,
+                    prefs.season_sources,
+                )
+                or season.poster_path
+            )
 
     return MediaProfile(
         kind=kind,
@@ -289,11 +387,8 @@ async def fetch_media_profile(
         aliases=_build_aliases(data, title, original_title),
         status=data.get("status") or None,
         poster_path=poster_path,
-        backdrop_path=(
-            pick_backdrop(data, backdrop_langs, min_width=prefs.backdrop_min_width)
-            or data.get("backdrop_path")
-        ),
-        logo_path=pick_logo(data, primary_language=primary, original_language=original_language),
+        backdrop_path=backdrop_path,
+        logo_path=logo_path,
         seasons=seasons,
         overview=overview,
         tagline=tagline,
@@ -312,7 +407,36 @@ async def fetch_media_profile(
         people=_parse_people(kind, data),
         series_tmdb_id=(data.get("belongs_to_collection") or {}).get("id"),
         series_name=(data.get("belongs_to_collection") or {}).get("name") or None,
+        fanart_failed=fanart_failed,
     )
+
+
+async def _fetch_fanart(
+    fanart: FanartClient, kind: MediaKind, tmdb_id: int, data: dict
+) -> tuple[FanartImages | None, bool]:
+    """拉 Fanart 图集：返回 (图集或 None, 是否失败)。
+
+    电影按 TMDB 编号查；剧集 Fanart 只认 TVDB 编号，从 TMDB 详情的
+    external_ids 取——TMDB 没登记 TVDB 编号的剧（多为冷门国产剧）就查不了，
+    这不算失败。Fanart 上没有这部作品（404）同样不算失败。
+    """
+    try:
+        if kind is MediaKind.MOVIE:
+            return await fanart.movie_images(tmdb_id), False
+        tvdb_id = (data.get("external_ids") or {}).get("tvdb_id")
+        if not tvdb_id:
+            return None, False
+        return await fanart.tv_images(int(tvdb_id)), False
+    except FanartError as exc:
+        logger.warning(
+            "Fanart.tv 取图失败，本次只用 TMDB 的图：%s/%s（%s）", kind.value, tmdb_id, exc
+        )
+        return None, True
+    except Exception:  # noqa: BLE001 -- 补充来源的任何意外都不能拖垮档案主体
+        logger.exception(
+            "Fanart.tv 取图出现意外错误，本次只用 TMDB 的图：%s/%s", kind.value, tmdb_id
+        )
+        return None, True
 
 
 # ---------------------------------------------------------------------------
@@ -419,6 +543,10 @@ _MIN_BACKDROP_WIDTH = 1920
 _MIN_POSTER_WIDTH = 500
 
 
+# 片名 Logo 的默认语言档：元数据主语言 → 英文 → 原声语言 → 无文字（历史写死行为）
+DEFAULT_LOGO_LANGS: tuple[str, ...] = ("meta", "en", "orig", "null")
+
+
 @dataclass(frozen=True)
 class ImagePrefs:
     """选图偏好（「设置 → 刮削与整理 → 图片」）。
@@ -426,6 +554,10 @@ class ImagePrefs:
     语言项是 token：具体语言码（zh/en/ja…）或三个特殊项——``meta`` 跟随
     元数据主语言、``orig`` 条目的原声语言（original_language，随条目解析）、
     ``null`` 无文字。默认值 = 历史写死行为。
+
+    ``*_sources`` 是各类图的来源顺序（docs/design/image-sources.md）：只在
+    **同一档语言**两个来源都有候选时才起作用——语言永远先于来源。没启用
+    Fanart 时这些字段不影响任何结果。
     """
 
     poster_mode: str = "default"  # default=TMDB 默认；language=按语言优先级挑选
@@ -433,6 +565,11 @@ class ImagePrefs:
     backdrop_langs: tuple[str, ...] = ("null", "meta", "en")
     poster_min_width: int = _MIN_POSTER_WIDTH
     backdrop_min_width: int = _MIN_BACKDROP_WIDTH
+    logo_langs: tuple[str, ...] = DEFAULT_LOGO_LANGS
+    poster_sources: tuple[str, ...] = ("tmdb", "fanart")
+    backdrop_sources: tuple[str, ...] = ("tmdb", "fanart")
+    logo_sources: tuple[str, ...] = ("fanart", "tmdb")
+    season_sources: tuple[str, ...] = ("fanart", "tmdb")
 
 
 def resolve_image_languages(
@@ -471,7 +608,7 @@ def image_language_param(prefs: ImagePrefs, primary_language: str) -> str:
     详情回来才知道），由 ``_ensure_original_language_images`` 补拉兜底。
     """
     codes = ["null", primary_language.split("-")[0], "en"]
-    for token in (*prefs.poster_langs, *prefs.backdrop_langs):
+    for token in (*prefs.poster_langs, *prefs.backdrop_langs, *prefs.logo_langs):
         if token not in {"meta", "orig", "null"} and token not in codes:
             codes.append(token)
     return ",".join(dict.fromkeys(codes))
@@ -488,6 +625,11 @@ async def _ensure_original_language_images(
     """偏好含「原始语言」而详情请求未覆盖该语言时，补拉一次候选图并合并。
 
     失败静默——选图会按后续档位回落，不阻断档案主体。
+
+    片名 Logo 的「原始语言」档**不触发**补拉（历史行为）：Logo 必须和页面
+    上的片名同语言，默认档里的「原始语言」只是给原声恰好是中/英文的片子
+    用的，不为它多打一次请求去拿用户读不懂的字标。Fanart 的 Logo 本来就
+    带全部语言，启用 Fanart 时这一档自然有候选。
     """
     if "orig" not in (*prefs.poster_langs, *prefs.backdrop_langs):
         return
@@ -517,22 +659,96 @@ def _weighted_score(image: dict) -> float:
     return average * math.log(count + 1)
 
 
-def _sorted_candidates(images: list[dict], min_width: int) -> list[dict]:
-    """达到分辨率门槛的候选按加权分降序；门槛过滤掉全部时不设门槛重来
-    （宁可给一张小图，也不要没有图）。"""
+def image_source(image: dict) -> str:
+    """候选图的来源：Fanart 归一化时带 ``source="fanart"``，TMDB 原始数据不带。"""
+    return str(image.get("source") or "tmdb")
+
+
+def _score(image: dict) -> float:
+    """来源内的热度分：TMDB 用加权票数，Fanart 用点赞数。
+
+    两种分数口径不同、不可直接比较——跨来源的先后由来源顺序决定，分数
+    只在同一来源内部排序（见 ``_sorted_candidates``）。
+    """
+    if image_source(image) == "fanart":
+        return float(image.get("likes") or 0)
+    return _weighted_score(image)
+
+
+def _sorted_candidates(
+    images: list[dict], min_width: int, sources: Sequence[str] = ()
+) -> list[dict]:
+    """达到分辨率门槛的候选排序；门槛过滤掉全部时不设门槛重来（宁可给
+    一张小图，也不要没有图）。
+
+    排序键：来源顺序（``sources`` 里越靠前越优先；只有 TMDB 时恒等）→
+    来源内热度分降序。只有 TMDB 候选时与历史行为逐张一致。
+    """
     pool = [i for i in images if int(i.get("width") or 0) >= min_width] or list(images)
-    return sorted(pool, key=_weighted_score, reverse=True)
+    order = {name: index for index, name in enumerate(sources)}
+    return sorted(pool, key=lambda i: (order.get(image_source(i), len(order)), -_score(i)))
 
 
-def _pick_by_tiers(images: list[dict], langs: Sequence[str | None], min_width: int) -> str | None:
-    """逐语言档取第一个有候选的档位的最优图；全部档位落空退回全量最优。"""
+def _pick_by_tiers(
+    images: list[dict],
+    langs: Sequence[str | None],
+    min_width: int,
+    sources: Sequence[str] = (),
+) -> str | None:
+    """逐语言档取第一个有候选的档位的最优图；全部档位落空退回全量最优。
+
+    **语言先于来源**：先找到第一个有图的语言档，来源顺序只在这一档内部
+    决定先后——把中文排第一，就不会因为来源顺序拿到英文图。
+    """
     for lang in langs:
         pool = [i for i in images if i.get("iso_639_1") == lang]
         if pool:
-            ranked = _sorted_candidates(pool, min_width)
+            ranked = _sorted_candidates(pool, min_width, sources)
             return ranked[0].get("file_path")
-    ranked = _sorted_candidates(list(images), min_width)
+    ranked = _sorted_candidates(list(images), min_width, sources)
     return ranked[0].get("file_path") if ranked else None
+
+
+def _pick_multi(
+    images: list[dict],
+    langs: Sequence[str | None],
+    min_width: int,
+    sources: Sequence[str],
+) -> str | None:
+    """多来源（TMDB + Fanart）候选的选图入口，规则同 ``_pick_by_tiers``。"""
+    if not images:
+        return None
+    return _pick_by_tiers(images, langs, min_width, sources)
+
+
+def _tmdb_poster_pool(
+    posters: list[dict],
+    designated: str | None,
+    mode: str,
+    langs: Sequence[str | None],
+    min_width: int,
+) -> list[dict]:
+    """跨来源比较海报时，TMDB 一侧出哪些候选。
+
+    - ``language`` 模式：TMDB 全部候选，与 Fanart 逐档比；
+    - ``default``（TMDB 默认）模式：**只出 TMDB 指定的那一张**。这样 Fanart
+      没有更靠前语言的图时结果与只用 TMDB 完全一样，有才会换掉它。指定的
+      那张若不在候选集里（其语言不在请求的图片语言里），视作首档语言——
+      TMDB 本就是按请求语言挑的它；宽度未知，按刚好达标处理。
+      TMDB 没有指定海报时退回全部候选（同只用 TMDB 时的兜底）。
+    """
+    if mode == "language" or not designated:
+        return list(posters)
+    for poster in posters:
+        if poster.get("file_path") == designated:
+            return [poster]
+    return [
+        {
+            "file_path": designated,
+            "iso_639_1": langs[0] if langs else None,
+            "width": min_width,
+        }
+    ]
 
 
 def pick_backdrop(
@@ -569,14 +785,24 @@ def pick_poster(
 
 
 def pick_logo(
-    data: dict, *, primary_language: str, original_language: str | None
+    data: dict,
+    *,
+    primary_language: str,
+    original_language: str | None,
+    langs: Sequence[str] = DEFAULT_LOGO_LANGS,
+    extra: Sequence[dict] = (),
+    sources: Sequence[str] = (),
 ) -> str | None:
     """挑一张片名 Logo（订阅首页 Hero 用它代替文字片名）。
 
-    语言档固定为「元数据主语言 → 英文 → 原声语言 → 无文字」：Logo 就是片名
-    字标，语言必须跟页面上的片名对得上——宁可回落文字片名，也不拿一张用户
-    读不懂的日文/韩文字标兜底，所以档位全落空时返回空串而不是退回全量最优。
-    只收 PNG：TMDB 也有 SVG 版，客户端图片管线（含后端缩略图代理）不认 SVG。
+    语言档来自「片名 Logo」设置卡（默认「元数据主语言 → 英文 → 原声语言 →
+    无文字」）：Logo 就是片名字标，语言必须跟页面上的片名对得上——宁可回落
+    文字片名，也不拿一张档外语言的字标兜底，所以档位全落空时返回空串而不是
+    退回全量最优。只收 PNG：TMDB 也有 SVG 版，客户端图片管线（含后端缩略图
+    代理）不认 SVG。
+
+    ``extra`` 是其他来源（Fanart）的 Logo，与 TMDB 的同档比较，同档内按
+    ``sources`` 的来源顺序。
 
     返回 None 表示档案里根本没有图片集（未知，调用方保留旧值）；空串表示
     看过了、这部片确实没有合适的 Logo。
@@ -584,28 +810,34 @@ def pick_logo(
     images = data.get("images")
     if images is None:
         return None
-    logos = _png_logos(images)
-    for lang in _logo_tiers(primary_language, original_language):
+    logos = _png_logos(images) + list(extra)
+    for lang in _logo_tiers(primary_language, original_language, langs):
         pool = [logo for logo in logos if logo.get("iso_639_1") == lang]
         if pool:
-            # Logo 的像素宽度与清晰度关系不大（多为横向长条），只按加权票数挑
-            return _sorted_candidates(pool, 0)[0].get("file_path") or ""
+            # Logo 的像素宽度与清晰度关系不大（多为横向长条），只按来源顺序与热度挑
+            return _sorted_candidates(pool, 0, sources)[0].get("file_path") or ""
     return ""
 
 
 def list_logo_candidates(
-    data: dict, *, primary_language: str, original_language: str | None
+    data: dict,
+    *,
+    primary_language: str,
+    original_language: str | None,
+    langs: Sequence[str] = DEFAULT_LOGO_LANGS,
+    extra: Sequence[dict] = (),
+    sources: Sequence[str] = (),
 ) -> list[dict]:
     """「更换图片」徽标页的候选：只收 PNG，按 ``pick_logo`` 的语言档排序（档内
-    按加权票数），列表第一张就是自动策略会选的那张。
+    按来源顺序与热度），列表第一张就是自动策略会选的那张。
 
     档外语言排在最后——自动策略宁可不给也不拿它们兜底，但用户看得懂、想用，
     手动选就是它的通道。
     """
-    logos = _png_logos(data.get("images") or {})
+    logos = _png_logos(data.get("images") or {}) + list(extra)
     if not logos:
         return []
-    return _tier_ordered(logos, _logo_tiers(primary_language, original_language), 0)
+    return _tier_ordered(logos, _logo_tiers(primary_language, original_language, langs), 0, sources)
 
 
 def _png_logos(images: dict) -> list[dict]:
@@ -616,27 +848,36 @@ def _png_logos(images: dict) -> list[dict]:
     ]
 
 
-def _logo_tiers(primary_language: str, original_language: str | None) -> list[str | None]:
+def _logo_tiers(
+    primary_language: str,
+    original_language: str | None,
+    langs: Sequence[str] = DEFAULT_LOGO_LANGS,
+) -> list[str | None]:
     return resolve_image_languages(
-        ("meta", "en", "orig", "null"),
+        langs or DEFAULT_LOGO_LANGS,
         primary_language=primary_language,
         original_language=original_language,
     )
 
 
-def _tier_ordered(images: list[dict], langs: Sequence[str | None], min_width: int) -> list[dict]:
-    """候选全量按语言档拼接排序：各档内部按加权分，档间按优先级。"""
+def _tier_ordered(
+    images: list[dict],
+    langs: Sequence[str | None],
+    min_width: int,
+    sources: Sequence[str] = (),
+) -> list[dict]:
+    """候选全量按语言档拼接排序：各档内部按来源顺序与热度，档间按优先级。"""
     ordered: list[dict] = []
     used: set[int] = set()
     for lang in langs:
         pool = [i for i in images if i.get("iso_639_1") == lang and id(i) not in used]
         if pool:
-            for image in _sorted_candidates(pool, min_width):
+            for image in _sorted_candidates(pool, min_width, sources):
                 ordered.append(image)
                 used.add(id(image))
     rest = [i for i in images if id(i) not in used]
     if rest:
-        ordered.extend(_sorted_candidates(rest, min_width))
+        ordered.extend(_sorted_candidates(rest, min_width, sources))
     return ordered
 
 
@@ -647,18 +888,26 @@ def list_image_candidates(
     *,
     poster_min_width: int = _MIN_POSTER_WIDTH,
     backdrop_min_width: int = _MIN_BACKDROP_WIDTH,
+    fanart: FanartImages | None = None,
+    poster_sources: Sequence[str] = (),
+    backdrop_sources: Sequence[str] = (),
 ) -> tuple[list[dict], list[dict]]:
     """条目的全部候选图 (海报, 背景)，按各自偏好的档位排序返回。
 
     供"更换图片"弹层展示——排序与自动选图（``_pick_by_tiers``）同一套
     规则，列表第一张就是自动策略会选的那张，用户一眼看出"默认给的是哪张"。
+    ``fanart`` 非空时 Fanart 的候选混入同一列表（同档按来源顺序）。
     """
     images = data.get("images") or {}
-    posters = images.get("posters") or []
-    backdrops = images.get("backdrops") or []
-    poster_list = _tier_ordered(posters, poster_langs, poster_min_width) if posters else []
+    posters = list(images.get("posters") or []) + (fanart.posters if fanart else [])
+    backdrops = list(images.get("backdrops") or []) + (fanart.backdrops if fanart else [])
+    poster_list = (
+        _tier_ordered(posters, poster_langs, poster_min_width, poster_sources) if posters else []
+    )
     backdrop_list = (
-        _tier_ordered(backdrops, backdrop_langs, backdrop_min_width) if backdrops else []
+        _tier_ordered(backdrops, backdrop_langs, backdrop_min_width, backdrop_sources)
+        if backdrops
+        else []
     )
     return poster_list, backdrop_list
 
@@ -783,9 +1032,19 @@ def _parse_people(kind: MediaKind, data: dict) -> list[PersonCredit]:
 
 
 async def _fetch_season(
-    client: TmdbClient, tmdb_id: int, season_number: int, language: str
+    client: TmdbClient,
+    tmdb_id: int,
+    season_number: int,
+    language: str,
+    *,
+    image_languages: str | None = None,
 ) -> SeasonProfile:
-    data = await client.get(f"tv/{tmdb_id}/season/{season_number}", {"language": language})
+    """拉一季的集列表。``image_languages`` 非空时顺带拉季海报候选（同一请求）。"""
+    params: dict = {"language": language}
+    if image_languages:
+        params["append_to_response"] = "images"
+        params["include_image_language"] = image_languages
+    data = await client.get(f"tv/{tmdb_id}/season/{season_number}", params)
     episodes = [
         EpisodeInfo(
             episode_number=e["episode_number"],
@@ -808,6 +1067,7 @@ async def _fetch_season(
         overview=(data.get("overview") or "").strip() or None,
         poster_path=data.get("poster_path"),
         episodes=episodes,
+        poster_candidates=list((data.get("images") or {}).get("posters") or []),
     )
 
 

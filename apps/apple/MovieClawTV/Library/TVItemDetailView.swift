@@ -322,7 +322,7 @@ struct TVItemDetailView: View {
             if !people.isEmpty {
                 TVShelf(title: "演职员") {
                     ForEach(Array(people.enumerated()), id: \.offset) { index, person in
-                        TVPersonCard(name: person.name, role: person.role, avatarURL: api.image(person.avatar, width: TVPersonCard.imageWidth)) {
+                        TVPersonCard(name: person.name, role: person.role, avatarURL: api.image(person.avatar, width: TVPersonCard.imageWidth())) {
                             // 没有 TMDB 影人 id 的（NFO 里只有姓名的导演）没有影人页，按确认不跳转
                             guard let id = person.personId else { return }
                             router.push(.person(tmdbId: id, name: person.name, avatar: person.avatar, fromItem: itemId))
@@ -935,23 +935,29 @@ private struct TVEpisodeCard: View {
 }
 
 /// 演职员一格：圆头像 + 姓名 + 身份（导演 / 饰 X），按确认进影人页（`TVPersonView`，2026-10-04）。
-/// 获得焦点时只有头像放大、套白边（同「谁在看」）：系统 `.borderless` 的焦点效果不认圆形，头像外面会浮起一块方形底板
-private struct TVPersonCard: View {
+/// 获得焦点时只有头像放大、套白边（同「谁在看」）：系统 `.borderless` 的焦点效果不认圆形，头像外面会浮起一块方形底板。
+/// 搜索页的人物行也用它（小一档的 `searchAvatarSize`），点头像进同一个影人页，交互与演职员一致
+struct TVPersonCard: View {
     let name: String
     let role: String?
     let avatarURL: URL?
+    var avatarSize: CGFloat = TVPersonCard.avatarSize
     let action: () -> Void
 
     /// 头像 210（原 150，2026-10-03 用户嫌小）：一排约七个半，和上面分集卡的高度（234）接近，两行比例协调
     static let avatarSize: CGFloat = 210
+    /// 搜索页人物行的头像：人物只是辅助入口，主角是下面的影片结果，小一档（2026-10-04 用户要求）
+    static let searchAvatarSize: CGFloat = 150
     /// 头像的取图宽度：头像图是竖版（2:3）铺满圆框，有效宽就是框宽；获得焦点放大 1.12 倍
-    static var imageWidth: Int { ImageWidth.points(avatarSize, zoom: TVMetrics.avatarFocusZoom) }
+    static func imageWidth(_ size: CGFloat = avatarSize) -> Int {
+        ImageWidth.points(size, zoom: TVMetrics.avatarFocusZoom)
+    }
 
     var body: some View {
         Button(action: action) {
             VStack(spacing: 14) {
                 TVProfileAvatarFocus {
-                    TVAvatar(url: avatarURL, name: name, size: Self.avatarSize)
+                    TVAvatar(url: avatarURL, name: name, size: avatarSize)
                 }
                 VStack(spacing: 4) {
                     Text(name)
@@ -965,7 +971,8 @@ private struct TVPersonCard: View {
                     }
                 }
             }
-            .frame(width: 236)
+            // 姓名比头像略宽（头像 210 → 236），长名少截断
+            .frame(width: avatarSize + 26)
         }
         .buttonStyle(TVPersonButtonStyle())
         .accessibilityLabel([name, role].compactMap { $0 }.joined(separator: "，"))

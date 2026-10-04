@@ -684,14 +684,6 @@ export function getKindSummary(
   return unwrap(request<ApiEnvelope<LibraryKindSummary>>(`/libraries/kinds/${kind}${suffix}`));
 }
 
-/** 媒体库搜索结果的一组：一个库内命中关键词的条目（组内按标题拼音排序）。 */
-export interface LibrarySearchGroup {
-  library_id: number;
-  library_name: string;
-  kind: MediaType;
-  items: LibraryItem[];
-}
-
 /** 海报墙 A-Z 索引条的一档（按标题排序下的首字母分组）。 */
 export interface LibraryIndexEntry {
   /** 档名：按标题排序是首字母 A-Z（落不进的归 #）；按内容时间排序是月份 2026-08（缺日期归「未知」）；
@@ -1025,9 +1017,9 @@ export function refreshItemMetadata(
 
 /** 「更换图片」弹层里的一张候选图。 */
 export interface ArtworkCandidate {
-  /** TMDB 图片路径（选定时原样回传） */
+  /** 图片路径（选定时原样回传）：TMDB 为相对路径，Fanart.tv 为图床绝对地址 */
   file_path: string;
-  /** 缩略预览地址（TMDB 图床绝对地址，展示前需 cachedImageUrl） */
+  /** 缩略预览地址（图床绝对地址，展示前需 cachedImageUrl） */
   preview_url: string;
   width: number | null;
   height: number | null;
@@ -1035,6 +1027,12 @@ export interface ArtworkCandidate {
   language: string | null;
   vote_average: number | null;
   vote_count: number | null;
+  /** 图片来源 */
+  source: "tmdb" | "fanart";
+  /** Fanart.tv 的点赞数（仅 Fanart 图） */
+  likes: number | null;
+  /** 在用但不在本次候选里：只知道路径，语言与热度未知（别显示成「无文字」） */
+  unlisted?: boolean;
 }
 
 /** 「更换图片」能换的三种图：海报 / 背景 / 片名徽标（透明底 PNG）。 */
@@ -1054,6 +1052,11 @@ export interface ArtworkCandidates {
   poster_locked: boolean;
   backdrop_locked: boolean;
   logo_locked: boolean;
+  /**
+   * Fanart.tv 候选的状态：ok=已混入候选 / not_configured=还没填 Key（弹层露出
+   * 「从 Fanart.tv 找更多」入口）/ invalid=Key 已失效 / error=这次没取到 / none=不适用
+   */
+  fanart: "ok" | "not_configured" | "invalid" | "error" | "none";
 }
 
 /** 条目的候选海报/背景/徽标（「更换图片」弹层数据源）。 */

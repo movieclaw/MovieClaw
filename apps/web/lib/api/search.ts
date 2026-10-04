@@ -7,7 +7,7 @@ import {
   type TitleSearchData,
   type TitleSearchDto,
 } from "@/lib/api/discover";
-import type { LibrarySearchGroup } from "@/lib/api/libraries";
+import type { LibraryItem } from "@/lib/api/libraries";
 import type { SearchScope, SearchTab, TorrentCategory } from "@/lib/categories";
 import type { MediaSource } from "@/lib/media-types";
 
@@ -286,10 +286,63 @@ export async function searchTitles(
   };
 }
 
-/** 搜索本地全部可见媒体库中的已入库条目。 */
-export function searchLibraryItems(keyword: string): Promise<LibrarySearchGroup[]> {
-  const query = new URLSearchParams({ keyword });
-  return unwrap(request<ApiEnvelope<LibrarySearchGroup[]>>(`/search/library-items?${query}`));
+/** 命中证据：为什么这条结果会出现（片名/别名/拼音/人物），label 可直接展示。 */
+export interface LibrarySearchMatch {
+  type: string;
+  /** title / original_title / english_title / alias / person_name … */
+  source_field: string;
+  matched_name: string;
+  label: string;
+  /** 经人物命中时为该人物的库内 id */
+  person_id: number | null;
+}
+
+export interface LibrarySearchHit {
+  item: LibraryItem;
+  /** 作品所在的全部可见库（同片跨库只出一条） */
+  library_ids: number[];
+  match: LibrarySearchMatch;
+}
+
+export interface LibrarySearchPerson {
+  /** 库内人物 id */
+  id: number;
+  /** TMDB 影人 id：库内影人页 /people/{id} 的键（旧服务端不返回） */
+  tmdb_person_id: number | null;
+  name: string;
+  avatar_url: string | null;
+  /** 可见库内作品数 */
+  item_count: number;
+  match: LibrarySearchMatch;
+}
+
+/** 搜索联想：从本次结果里提取的片名与人名（不纠错、不按热度），选中即按这个词搜索。
+ *  每条带命中原因，人物带出的作品也会列出（写明是谁）。 */
+export interface LibrarySearchSuggestion {
+  type: "title" | "person";
+  text: string;
+  /** 为什么联想到它（与结果卡片同一份命中原因，如「演员：李一桐」）；旧服务端不返回 */
+  label?: string | null;
+}
+
+export interface LibrarySearchPage {
+  items: LibrarySearchHit[];
+  /** 联想词（仅首页返回） */
+  suggestions: LibrarySearchSuggestion[];
+  /** 命中的人物（仅首页返回；翻页为空） */
+  people: LibrarySearchPerson[];
+  /** 非空表示还有下一页，原样传回 cursor */
+  next_cursor: string | null;
+}
+
+/**
+ * 媒体库搜索：与 iPhone、Apple TV 同一个接口（GET /search/library）。
+ * 结果按相关度排序（准确片名 > 前缀 > 人物带出的作品 > 包含），不按库分组。
+ */
+export function searchLibrary(params: { q: string; cursor?: string }): Promise<LibrarySearchPage> {
+  const query = new URLSearchParams({ q: params.q });
+  if (params.cursor) query.set("cursor", params.cursor);
+  return unwrap(request<ApiEnvelope<LibrarySearchPage>>(`/search/library?${query}`));
 }
 
 export interface SearchParams {

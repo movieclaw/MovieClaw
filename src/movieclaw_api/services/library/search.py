@@ -35,6 +35,7 @@ from movieclaw_api.services.library.search_matching import (
     normalized,
     query_tokens,
 )
+from movieclaw_api.services.people_images import avatar_url
 from movieclaw_db.models import LibraryFile, MediaItem
 from movieclaw_db.models.person import MediaItemPerson, Person
 
@@ -66,6 +67,11 @@ _LABELS = {
     "words": "名称词组匹配",
 }
 _FIELD_ORDER = {"title": 0, "original_title": 1, "english_title": 2, "alias": 3}
+# 人物行最多展示几位：首字母这类短输入常命中一批同档人物，8 位时主演也可能被挤掉；
+# 只有这些人会读取姓名与头像，关系与排名仍覆盖全部候选
+_PEOPLE_LIMIT = 20
+# 演员表前 5 位（TMDB credit order 0～4）或导演算「主创」：人物排序与人物带出的作品排序都用它
+_LEAD_BILLING = 5
 _SHORT_MATCH_TYPES = (
     "text_exact",
     "pinyin_exact",
@@ -77,6 +83,11 @@ _SHORT_MATCH_TYPES = (
     "pinyin_contains",
     "initials_contains",
 )
+
+
+def _billing(department: str, credit_order: int) -> int:
+    """此人在一部片里的排位：导演记作最靠前，演员取剧组给的主次顺序。"""
+    return 0 if department == "director" else credit_order
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,6 +364,7 @@ async def search_candidates(session, query, library_ids, member_id, content_limi
                 MediaItemPerson.media_item_id,
                 MediaItemPerson.person_id,
                 MediaItemPerson.department,
+                MediaItemPerson.credit_order,
             )
             .where(
                 MediaItemPerson.person_id.in_(people_ids),
@@ -366,33 +378,44 @@ async def search_candidates(session, query, library_ids, member_id, content_limi
             pack=len(people_ids) > 8,
         )
         counts = defaultdict(set)
-        for item_id, pid, _ in relations:
+        leads = defaultdict(set)
+        best_billing: dict[int, int] = {}
+        for item_id, pid, department, credit_order in relations:
+            billing = _billing(department, credit_order)
             counts[pid].add(item_id)
-        for item_id, pid, department in relations:
+            if billing < _LEAD_BILLING:
+                leads[pid].add(item_id)
+            best_billing[pid] = min(best_billing.get(pid, billing), billing)
+        for item_id, pid, department, credit_order in relations:
             source = matched["person"][pid]
-            order = (3 + source.order[0], 100, -len(counts[pid]), item_id)
+            # 人物准确命中优先于片名的弱包含，但不能压过准确片名（档位 + 3）。
+            # 同档内按此人在这部片里的排位：主演、导演的作品排在龙套作品前面。
+            order = (3 + source.order[0], 100, _billing(department, credit_order), item_id)
             previous = matched["media"].get(item_id)
             if previous is not None and previous.order <= order:
                 continue
             evidence = replace(source.match, person_id=pid, department=department)
-            # 人物准确命中优先于片名的弱包含，但不能压过准确片名。
-            # 同档人物按可见作品数排序，不依赖隐藏库存或远端热度。
             matched["media"][item_id] = Candidate(item_id, order, evidence)
+        # 首字母这类短输入常有一批同档人物（lyt：李一桐、刘奕铁、郎月婷……），作品数又多半相同。
+        # 同档按「在本库里的分量」排：担任主创的作品数 > 可见作品数 > 最靠前的一次排位。
+        # 全部来自本地关系表，不依赖隐藏库存或远端热度。
         top_people = sorted(
             counts,
             key=lambda i: (
                 matched["person"][i].order[0],
+                -len(leads[i]),
                 -len(counts[i]),
+                best_billing[i],
                 matched["person"][i].order,
             ),
-        )[:8]
+        )[:_PEOPLE_LIMIT]
         people_info = {
             p.id: p
             for p in (
                 await session.execute(
-                    select(Person.id, Person.name, Person.profile_path).where(
-                        Person.id.in_(top_people)
-                    )
+                    select(
+                        Person.id, Person.tmdb_person_id, Person.name, Person.profile_path
+                    ).where(Person.id.in_(top_people))
                 )
             ).all()
         }
@@ -403,8 +426,10 @@ async def search_candidates(session, query, library_ids, member_id, content_limi
             people.append(
                 LibrarySearchPerson(
                     id=pid,
+                    tmdb_person_id=person.tmdb_person_id,
                     name=person.name,
                     profile_path=person.profile_path,
+                    avatar_url=avatar_url(person.profile_path),
                     item_count=len(counts[pid]),
                     match=matched["person"][pid].match.view(),
                 )
@@ -558,11 +583,15 @@ async def search_library(
         next_cursor = f"{token}:{offset}"
     else:
         _sessions.pop(token, None)
+    # 联想不止补全片名：人物带出的作品（liyitong → 《我不是大师》）、包含类弱命中也列出，
+    # 但每条带上与结果卡片同一份命中原因（「演员：李一桐」「首字母匹配」），
+    # 用户一眼看懂为什么联想到它
     suggestions = (
         [
             LibrarySearchSuggestion(
                 type="title",
                 text=hit.item.title,
+                label=hit.match.label,
                 media_item_id=hit.item.media_item_id,
             )
             for hit in items[:5]
@@ -571,7 +600,8 @@ async def search_library(
         else []
     )
     suggestions.extend(
-        LibrarySearchSuggestion(type="person", text=p.name, person_id=p.id) for p in people[:3]
+        LibrarySearchSuggestion(type="person", text=p.name, label=p.match.label, person_id=p.id)
+        for p in people[:3]
     )
     return LibrarySearchView(
         query=query,

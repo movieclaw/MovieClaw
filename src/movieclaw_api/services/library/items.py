@@ -2347,67 +2347,6 @@ async def build_gallery_groups(
     return groups
 
 
-async def search_library_items(
-    session: AsyncSession,
-    keyword: str,
-    *,
-    member_id: int | None = None,
-    content_limit: ContentLimit | None = None,
-    library_ids: set[int] | None = None,
-) -> dict[int, list[LibraryItemView]]:
-    """按关键词搜索全部媒体库的已识别条目：library_id -> 命中条目视图。
-
-    兼容旧客户端的按库分组契约；匹配复用新版名称/别名/拼音/人物搜索，
-    只搜已识别入库的条目——待识别文件没有可靠的标题可匹配，去待识别清单
-    处理更合适。组内按标题拼音排序，与海报墙同一套排序规则。
-
-    **观看者的分级约束在这里同样生效**：搜得到就等于看得到（点进去是详情页），
-    墙上藏起来而搜索里搜得出来，那道约束只是障眼法。
-    """
-    from movieclaw_api.services.library.search import search_candidates
-    from movieclaw_api.services.library.search_matching import compact
-
-    if not compact(keyword):
-        return {}
-    if library_ids is None:
-        library_ids = set((await session.execute(select(LibraryFile.library_id))).scalars())
-    candidates, _, _ = await search_candidates(
-        session,
-        keyword,
-        library_ids,
-        member_id or 0,
-        content_limit,
-    )
-    item_ids = [candidate.id for candidate in candidates]
-    if not item_ids:
-        return {}
-    rows = (
-        await session.execute(
-            select(LibraryFile.library_id, LibraryFile.media_item_id, MediaItem.title)
-            .join(MediaItem, MediaItem.id == LibraryFile.media_item_id)  # type: ignore[arg-type]
-            .where(
-                LibraryFile.media_item_id.is_not(None),  # type: ignore[union-attr]
-                LibraryFile.unidentified_code.is_(None),  # type: ignore[union-attr]  # 临时条目不进搜索
-                LibraryFile.state == FileState.IN_PLACE,
-                LibraryFile.library_id.in_(library_ids),
-                MediaItem.id.in_(item_ids),
-                *_narrow(None, member_id, content_limit=content_limit),
-            )
-            .distinct()
-        )
-    ).all()
-    matched: dict[int, list[tuple[int, str]]] = {}
-    for library_id, item_id, title in rows:
-        if item_id is not None:
-            matched.setdefault(library_id, []).append((item_id, title))
-
-    result: dict[int, list[LibraryItemView]] = {}
-    for library_id, pairs in matched.items():
-        ordered = [i for i, _ in sorted(pairs, key=lambda p: (title_sort_key(p[1]), p[0]))]
-        result[library_id] = await _aggregate_wall_views(session, library_id, ordered, ordered)
-    return result
-
-
 @dataclass
 class ItemDetailBundle:
     """详情页所需的全部原料（路由层映射为响应 schema）。"""

@@ -27,8 +27,15 @@ class LibrarySearchHit(BaseModel):
 
 class LibrarySearchPerson(BaseModel):
     id: int
+    # 本服务端总会给出；声明可空是为了让新客户端连旧服务端（还没有这个字段）时整页照常解码
+    tmdb_person_id: int | None = Field(
+        default=None, description="TMDB 影人 ID：客户端据此打开库内影人页（与演职员入口同一页）"
+    )
     name: str
     profile_path: str | None
+    avatar_url: str | None = Field(
+        default=None, description="头像地址：本地已下载给本地，否则给 TMDB 图床；没有照片为空"
+    )
     item_count: int
     match: LibrarySearchMatch
 
@@ -36,6 +43,10 @@ class LibrarySearchPerson(BaseModel):
 class LibrarySearchSuggestion(BaseModel):
     type: Literal["title", "person"]
     text: str
+    # 本服务端总会给出；声明可空是为了让新客户端连旧服务端（还没有这个字段）时整页照常解码
+    label: str | None = Field(
+        default=None, description="为什么联想到它，与结果卡片同一份命中原因（如「演员：李一桐」）"
+    )
     media_item_id: int | None = None
     person_id: int | None = None
 
