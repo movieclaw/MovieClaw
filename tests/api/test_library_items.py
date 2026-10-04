@@ -931,21 +931,37 @@ async def test_kind_genres_count_across_libraries(db) -> None:
         shows = await repo.create(name="剧集", kind="tv", root_paths=["/tv"])
         assert hd.id and uhd.id and kids.id and shows.id
 
-        async def add(kind: str, tmdb_id: int, genres: list[int], *libs: int) -> int:
-            item = MediaItem(kind=kind, tmdb_id=tmdb_id, title=str(tmdb_id), original_title="x")
+        now = utcnow()
+
+        async def add(
+            kind: str,
+            tmdb_id: int,
+            genres: list[int],
+            *libs: int,
+            ago: int = 0,
+            backdrop: bool = True,
+        ) -> int:
+            item = MediaItem(
+                kind=kind,
+                tmdb_id=tmdb_id,
+                title=f"片{tmdb_id}",
+                original_title="x",
+                backdrop_path=f"/b{tmdb_id}.jpg" if backdrop else None,
+            )
             session.add(item)
             await session.flush()
             assert item.id
             session.add(MediaMetadata(media_item_id=item.id, genre_ids=genres, scraped_at=utcnow()))
+            at = now - timedelta(minutes=ago)
+            season, episode = (0, 0) if kind == "movie" else (1, 1)
             for lib in libs:
-                session.add(
-                    _file(lib, item.id, 0, 0) if kind == "movie" else _file(lib, item.id, 1, 1)
-                )
+                session.add(_file(lib, item.id, season, episode, created_at=at))
             return item.id
 
-        await add("movie", 1, [878, 28], hd.id, uhd.id)  # 两个库各一份：只算一部
-        await add("movie", 2, [878], uhd.id)
-        await add("movie", 3, [18, 99999], hd.id)  # 99999 两张表都不认
+        m1 = await add("movie", 1, [878, 28], hd.id, uhd.id, ago=30)  # 两个库各一份：只算一部
+        m2 = await add("movie", 2, [878], uhd.id, ago=10)  # 最近入库
+        # 99999 两张表都不认；这部没有剧照
+        await add("movie", 3, [18, 99999], hd.id, ago=5, backdrop=False)
         await add("movie", 4, [16], kids.id)  # 少儿库被排除出首页
         await add("tv", 5, [10765, 18], shows.id)
         await add("tv", 6, [878], shows.id)  # 电视条目挂了电影类型 id
@@ -957,6 +973,12 @@ async def test_kind_genres_count_across_libraries(db) -> None:
             ("18", "剧情", 1),
             ("28", "动作", 1),
         ]
+        # 封面：每个类型最近入库、有剧照的那部；部数多的类型先挑，同一部片不贴两次
+        covers = {g.label: (g.cover_item_id, g.cover_title) for g in movie}
+        assert covers["科幻"] == (m2, "片2"), "科幻里最近入库的是片 2"
+        assert covers["动作"] == (m1, "片1"), "片 2 不属于动作，动作取片 1"
+        assert covers["剧情"] == (None, None), "剧情只有一部且没有剧照：不贴图，前端回落渐变"
+        assert next(g for g in movie if g.label == "科幻").cover_url
 
         for genre in movie:
             filters = LibraryFilter(genres=(int(genre.value),))

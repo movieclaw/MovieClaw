@@ -24,7 +24,7 @@ import { TopBarMenu } from "@/components/top-bar-menu";
 import type { PosterCardAction } from "@/components/poster-card";
 import { UpNextRow } from "@/components/up-next-row";
 import {
-  type FacetValue,
+  type KindGenre,
   type LibraryItem,
   type MediaLibrary,
   libraryCoverUrl,
@@ -148,7 +148,7 @@ let lastLoadedHome: {
   upNext: UpNextItem[];
   favorites: FavoritesPage;
   itemsByKey: Map<string, LibraryItem[]>;
-  genresByKind: Map<GenreRowKind, FacetValue[]>;
+  genresByKind: Map<GenreRowKind, KindGenre[]>;
 } | null = null;
 
 export function LibraryView({ hero }: { hero?: ReactNode }) {
@@ -219,7 +219,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
     () => lastLoadedHome?.itemsByKey ?? new Map(),
   );
   // 「按类型找电影 / 剧集」色块：每种类型的 TMDB 类型分布，与库行条目同一轮取、同一个快照闸
-  const [genresByKind, setGenresByKind] = useState<Map<GenreRowKind, FacetValue[]>>(
+  const [genresByKind, setGenresByKind] = useState<Map<GenreRowKind, KindGenre[]>>(
     () => lastLoadedHome?.genresByKind ?? new Map(),
   );
   const [upNext, setUpNext] = useState<UpNextItem[] | null>(() => lastLoadedHome?.upNext ?? null);
@@ -319,7 +319,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
           ),
           Promise.all(
             genreKinds.map(
-              async (kind) => [kind, await listKindGenres(kind).catch((): FacetValue[] => [])] as const,
+              async (kind) => [kind, await listKindGenres(kind).catch((): KindGenre[] => [])] as const,
             ),
           ),
         ]);
@@ -562,16 +562,17 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
             <h3 className="text-on-image page-inset text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
               {rowTitle(row)}
             </h3>
-            {/* 下边距给色块的外发光投影留位置（横滚容器会裁掉溢出）；卡片下方的部数已占去大半 */}
-            <HScroller className="mt-3 gap-4 pb-2 pt-1 page-inset max-md:gap-3">
+            <HScroller className="mt-3 gap-4 pb-1 pt-1 page-inset max-md:gap-3">
               {genres.map((genre) => (
                 <GenreTile
                   key={genre.value}
                   genreId={Number(genre.value)}
                   label={genre.label}
                   count={genre.count}
+                  coverUrl={genre.cover_url}
+                  coverTitle={genre.cover_title}
                   href={`/library/kind/${row.mediaKind}?g=${genre.value}` as Route}
-                  className="w-[208px] shrink-0 max-md:w-[140px]"
+                  className="w-[200px] shrink-0 max-md:w-[150px]"
                 />
               ))}
             </HScroller>

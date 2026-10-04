@@ -148,10 +148,6 @@ export interface GenreArt {
   from: Oklch;
   to: Oklch;
   blobs: GenreBlob[];
-  /** 左下角文字区的局部压暗（0-1）：类型墙页头的字在左下，亮色块上白字也要够清楚 */
-  scrim: number;
-  /** 外发光投影的颜色：主色与偏移色之间的同色系，让卡片像在发光 */
-  glow: Oklch;
 }
 
 export function genreArt(id: number): GenreArt {
@@ -175,8 +171,6 @@ export function genreArt(id: number): GenreArt {
     from: oklch(t.l + 0.03, t.k, t.a),
     to: oklch(t.l - 0.1, t.k, t.b),
     blobs,
-    scrim: Math.max(0.06, (t.l - 0.5) * 0.9),
-    glow: oklch(t.l - 0.02, t.k, midHue(t.a, t.b), 0.55),
   };
 }
 
@@ -186,6 +180,36 @@ export function blobCss(color: Oklch): string {
     ([at, alpha]) => `${oklchCss({ ...color, alpha: color.alpha * alpha })} ${Math.round(at * 100)}%`,
   );
   return `radial-gradient(closest-side, ${stops.join(", ")})`;
+}
+
+/**
+ * 贴图卡（首页色块，设计稿 v10 B）的纯色底与字色：类型主色相的浅色底 + 同色相深色字。
+ * 惊悚、悬疑反过来用深色底 + 浅色字（用户定的：这两个类型要有暗调）。
+ * 彩度直接给定，不乘 CHROMA_SCALE——底色本来就是压低彩度的浅色。
+ */
+export const DARK_CARD_GENRES: readonly number[] = [53, 9648];
+
+export interface GenreCardColors {
+  background: Oklch;
+  ink: Oklch;
+  dark: boolean;
+}
+
+export function genreCardColors(id: number): GenreCardColors {
+  const t = genreTone(id);
+  const h = ((t.a % 360) + 360) % 360;
+  if (DARK_CARD_GENRES.includes(id)) {
+    return {
+      background: { l: 0.3, c: t.k * 0.55, h, alpha: 1 },
+      ink: { l: 0.93, c: t.k * 0.25, h, alpha: 1 },
+      dark: true,
+    };
+  }
+  return {
+    background: { l: 0.82, c: t.k * 0.42, h, alpha: 1 },
+    ink: { l: 0.24, c: t.k * 0.55, h, alpha: 1 },
+    dark: false,
+  };
 }
 
 /** 斜向底的 CSS：在 OKLCH 里插值，中段不发灰。 */

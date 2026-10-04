@@ -84,8 +84,8 @@ enum PhoneCardWidth {
     static let upNext: CGFloat = 200
     /// 首页「我的媒体库」库 / 合集封面卡（21:10）
     static let libraryCover: CGFloat = 230
-    /// 首页「按类型找电影 / 剧集」色块（16:10.5，同网页手机宽度）
-    static let genreTile: CGFloat = 140
+    /// 首页「按类型找电影 / 剧集」方卡（同网页手机宽度）
+    static let genreTile: CGFloat = 150
     /// 订阅首页「刚刚入库」横卡（16:9）
     static let recent: CGFloat = 264
     /// 「刚刚入库」卡左下角的小号片名 Logo 最宽

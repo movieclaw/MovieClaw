@@ -648,6 +648,25 @@ class LibraryKindSummaryView(BaseModel):
     item_count: int = Field(description="符合当前筛选的作品数（跨库去重）")
 
 
+class LibraryKindGenreView(BaseModel):
+    """首页「按类型找电影 / 剧集」的一格：一个 TMDB 类型、跨库部数，以及贴在卡片上的封面。
+
+    封面是这个类型**最近入库**、有剧照的那部片——色块同时是「这个类型新来了什么」
+    的提示。部数多的类型先挑，同一部片不会贴在两个类型上。
+    """
+
+    value: str = Field(description="TMDB genre id；点进去带 g=value 开墙")
+    label: str = Field(description="类型中文名")
+    count: int = Field(description="跨库去重后的部数")
+    cover_item_id: int | None = Field(
+        default=None, description="封面那部片的条目 id；没有可用剧照时为空"
+    )
+    cover_title: str | None = Field(default=None, description="封面那部片的片名")
+    cover_url: str | None = Field(
+        default=None, description="封面剧照（横版）；本地资产优先，回落 TMDB 图床"
+    )
+
+
 class LibraryGalleryImageView(BaseModel):
     """图廊里的一张图：条目的海报 / 剧照 / 分集剧照 / 章节场景图之一。
 

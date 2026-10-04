@@ -4420,6 +4420,33 @@ nonisolated extension API {
         }
     }
 
+    /// 首页「按类型找电影 / 剧集」的一格：一个 TMDB 类型、跨库部数，以及贴在卡片上的封面。
+    /// 封面是这个类型**最近入库**、有剧照的那部片——色块同时是「这个类型新来了什么」
+    /// 的提示。部数多的类型先挑，同一部片不会贴在两个类型上。
+    struct LibraryKindGenreView: Codable, Hashable, Sendable {
+        /// TMDB genre id；点进去带 g=value 开墙
+        var value: String
+        /// 类型中文名
+        var label: String
+        /// 跨库去重后的部数
+        var count: Int
+        /// 封面那部片的条目 id；没有可用剧照时为空
+        var coverItemId: Int?
+        /// 封面那部片的片名
+        var coverTitle: String?
+        /// 封面剧照（横版）；本地资产优先，回落 TMDB 图床
+        var coverUrl: String?
+
+        enum CodingKeys: String, CodingKey {
+            case value
+            case label
+            case count
+            case coverItemId = "cover_item_id"
+            case coverTitle = "cover_title"
+            case coverUrl = "cover_url"
+        }
+    }
+
     /// 按类型的跨库墙（「全部电影」等）的概况：由哪些库组成、共几部。
     /// 口径见 ``services.library.items.kind_library_ids``：观看者可见 ∩ 该类型 ∩
     /// 没勾「从首页排除」。同一部片在多个库里只算一部。

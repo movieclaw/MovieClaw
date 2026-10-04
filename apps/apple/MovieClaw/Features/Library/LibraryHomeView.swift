@@ -25,7 +25,7 @@ struct LibraryHomeView: View {
     private var upNext: [API.UpNextItemView]? { store.upNext }
     private var favorites: API.FavoritesView? { store.favorites }
     private var itemsByKey: [String: [API.LibraryItemView]] { store.itemsByKey }
-    private var genresByKind: [String: [API.FacetValueView]] { store.genresByKind }
+    private var genresByKind: [String: [API.LibraryKindGenreView]] { store.genresByKind }
     private var failed: Bool { store.failed }
     /// 扫描/整理结束后的 12 秒快轮询窗口还没过（同 Web recentlyBusy）。必须是状态而不是在 body 里
     /// 现算 `Date.now < busyUntil`：数据不变时 body 不会重算，间隔就会一直停在 3 秒
@@ -313,17 +313,27 @@ struct LibraryHomeView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     LibrarySectionHeader(title: row.title)
                     ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(spacing: 12) {
+                        LazyHStack(alignment: .top, spacing: 12) {
                             ForEach(genres, id: \.value) { genre in
                                 if let id = Int(genre.value) {
                                     NavigationLink(value: AppRoute.libraryKind(kind: kind, genre: id)) {
-                                        // 部数写在卡片下方，与海报片名、媒体库卡片名同一条线
-                                        VStack(spacing: 8) {
-                                            GenreTileFace(genreId: id, label: genre.label, count: genre.count,
-                                                          width: PhoneCardWidth.genreTile, countInside: false)
-                                            Text("\(genre.count) 部")
-                                                .font(.subheadline.monospacedDigit())
-                                                .foregroundStyle(Theme.textMuted)
+                                        // 卡片下方写最近入库那部片的片名（与海报行「片名 + 年份」同一个格式）
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            GenreCardFace(
+                                                genreId: id, label: genre.label, count: genre.count,
+                                                coverURL: api.image(genre.coverUrl, width: ImageWidth.points(PhoneCardWidth.genreTile)),
+                                                width: PhoneCardWidth.genreTile
+                                            )
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(genre.coverTitle ?? genre.label)
+                                                    .font(.subheadline.weight(.medium))
+                                                    .foregroundStyle(Theme.text)
+                                                Text(genre.coverTitle != nil ? "最近入库" : "\(genre.count) 部")
+                                                    .font(.caption)
+                                                    .foregroundStyle(Theme.textMuted)
+                                            }
+                                            .lineLimit(1)
+                                            .frame(width: PhoneCardWidth.genreTile, alignment: .leading)
                                         }
                                     }
                                     .buttonStyle(GenreTileButtonStyle())

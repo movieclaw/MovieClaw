@@ -52,6 +52,7 @@ from movieclaw_api.schemas.library import (
     LibraryGalleryImageView,
     LibraryInventorySummaryView,
     LibraryItemView,
+    LibraryKindGenreView,
     LibraryRecentAdditionView,
     LibraryRelaxView,
     RelaxSuggestionView,
@@ -1730,8 +1731,8 @@ async def build_kind_genres(
     *,
     member_id: int,
     content_limit: ContentLimit | None = None,
-) -> list[FacetValueView]:
-    """首页「按类型找电影 / 剧集」色块：跨库口径下每个 TMDB 类型有几部。
+) -> list[LibraryKindGenreView]:
+    """首页「按类型找电影 / 剧集」色块：跨库口径下每个 TMDB 类型有几部，外加一张封面。
 
     与单库筛选面板的类型 facet 同一条 ``_json_facet``，库范围换成这一类型的
     一组库——点色块进去的那面墙（``/kinds/{kind}/items?g=``）走同一套
@@ -1754,14 +1755,120 @@ async def build_kind_genres(
     )
     own = genre_names(kind)
     other = genre_names("tv" if kind == "movie" else "movie")
-    views: list[FacetValueView] = []
+    views: list[LibraryKindGenreView] = []
     for value, count in sorted(rows, key=lambda r: (-r[1], r[0])):
         if count <= 0 or not value.lstrip("-").isdigit():
             continue
         label = own.get(int(value)) or other.get(int(value))
         if label:
-            views.append(FacetValueView(value=value, label=label, count=count))
+            views.append(LibraryKindGenreView(value=value, label=label, count=count))
+    await _assign_genre_covers(session, library_ids, views, member_id, content_limit)
     return views
+
+
+#: 挑封面时先看最近入库的这么多部：常见类型都能在里面找到，冷门类型再单独查
+_GENRE_COVER_RECENT = 400
+#: 冷门类型单独查时往前看的部数（前面的可能没剧照或已被别的类型占用）
+_GENRE_COVER_FALLBACK = 30
+
+
+async def _assign_genre_covers(
+    session: AsyncSession,
+    library_ids: frozenset[int],
+    views: list[LibraryKindGenreView],
+    member_id: int,
+    content_limit: ContentLimit | None,
+) -> None:
+    """给每个类型挑封面：这个类型最近入库、有剧照、还没被别的类型用掉的那部。
+
+    ``views`` 已按部数倒序，大类型先挑——它们的候选最多，让一让也不缺图；同一部片
+    只贴一次，一排色块不会出现两张一样的剧照。「最近入库」与墙的「最近添加」同一个
+    排序（``_wall_page_ids``），可见范围与内容分级也同一份收窄。
+
+    先一次取最近 ``_GENRE_COVER_RECENT`` 部的类型与剧照在内存里分配（一般一次就够）；
+    分不到的冷门类型再按类型各查一次。
+    """
+    if not views:
+        return
+    recent = await _wall_page_ids(
+        session,
+        library_ids,
+        "added_at",
+        _GENRE_COVER_RECENT,
+        0,
+        "confirmed",
+        None,
+        member_id,
+        content_limit,
+    )
+    genres_of = await _genre_ids_of(session, recent)
+    backdrops = await backdrop_facts_many(session, recent)
+    used: set[int] = set()
+    picks: dict[str, int] = {}
+    for view in views:
+        genre = int(view.value)
+        for item_id in recent:
+            if (
+                item_id not in used
+                and backdrops.get(item_id)
+                and genre in genres_of.get(item_id, ())
+            ):
+                picks[view.value] = item_id
+                used.add(item_id)
+                break
+    for view in views:
+        if view.value in picks:
+            continue
+        candidates = await _wall_page_ids(
+            session,
+            library_ids,
+            "added_at",
+            _GENRE_COVER_FALLBACK,
+            0,
+            "confirmed",
+            LibraryFilter(genres=(int(view.value),)),
+            member_id,
+            content_limit,
+        )
+        fresh = [i for i in candidates if i not in used]
+        more = await backdrop_facts_many(session, fresh)
+        backdrops.update(more)
+        pick = next((i for i in fresh if more.get(i)), None)
+        if pick is not None:
+            picks[view.value] = pick
+            used.add(pick)
+    titles = await _titles_of(session, list(picks.values()))
+    for view in views:
+        item_id = picks.get(view.value)
+        if item_id is not None:
+            view.cover_item_id = item_id
+            view.cover_title = titles.get(item_id)
+            view.cover_url = backdrops.get(item_id)
+
+
+async def _genre_ids_of(session: AsyncSession, item_ids: list[int]) -> dict[int, set[int]]:
+    """一批条目的 TMDB 类型 id。"""
+    if not item_ids:
+        return {}
+    # JSON 列不走 scalar_rows 的打包读取：嵌进 json_array 会被当成字符串再编码一层
+    rows = await session.execute(
+        select(MediaMetadata.media_item_id, MediaMetadata.genre_ids).where(
+            MediaMetadata.media_item_id.in_(item_ids)  # type: ignore[attr-defined]
+        )
+    )
+    return {
+        item_id: {int(g) for g in genres or [] if str(g).lstrip("-").isdigit()}
+        for item_id, genres in rows.all()
+    }
+
+
+async def _titles_of(session: AsyncSession, item_ids: list[int]) -> dict[int, str]:
+    if not item_ids:
+        return {}
+    rows = await session.execute(
+        select(MediaItem.id, MediaItem.title).where(MediaItem.id.in_(item_ids))  # type: ignore[attr-defined]
+    )
+    return {item_id: title for item_id, title in rows.all()}
 
 
 async def build_kind_wall(

@@ -4,6 +4,7 @@ import test from "node:test";
 
 import {
   CHROMA_SCALE,
+  DARK_CARD_GENRES,
   FEATHER_STOPS,
   GENRE_TONES,
   blobCss,
@@ -60,7 +61,6 @@ test("每块的颜色都在合法范围：彩度统一乘 80%，明度不出 0-1
       assert.ok(color.h >= 0 && color.h < 360, `${tone.name} 色相越界`);
     }
     assert.equal(art.blobs.length, 3);
-    assert.ok(art.scrim >= 0.06 && art.scrim < 0.3);
   }
   // 「音乐」的小亮斑：主色 345° 与高光 12° 的中点，是玫红而不是青色
   assert.equal(genreArt(10402).blobs.find((b) => b.color.alpha < 0.9).color.h, 358.5);
@@ -95,6 +95,11 @@ test("iOS / tvOS 的 GenrePalette.swift 与本表逐项一致（色相、明度�
   }
   assert.deepEqual(tones, GENRE_TONES);
   assert.match(swift, new RegExp(`static let chromaScale = ${CHROMA_SCALE}\\b`));
+  // 贴图卡的深色类型
+  assert.ok(
+    swift.includes(`static let darkCardGenres: Set<Int> = [${DARK_CARD_GENRES.join(", ")}]`),
+    "深色卡类型不一致",
+  );
   const feather = FEATHER_STOPS.map(([at, alpha]) => `(${at}, ${alpha})`).join(", ");
   assert.ok(swift.includes(`featherStops: [(Double, Double)] = [${feather}]`), "羽化色标不一致");
 });

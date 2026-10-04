@@ -81,29 +81,23 @@ struct LibraryKindWallView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             if let genre {
-                // 色块的落点：页头就是那块色块放大，进来的人一眼知道自己在哪
-                GenreArtwork(genreId: genre)
-                    .frame(height: 116)
-                    .overlay(alignment: .bottomLeading) {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(label)
-                                .font(.system(size: 26, weight: .semibold))
-                                .tracking(1)
-                            if let total = pager.total, let libraryCount {
-                                Text("\(total) 部\(HomeRows.mediaKindLabel(kind)) · 来自 \(libraryCount) 个库")
-                                    .font(.subheadline.monospacedDigit())
-                                    .opacity(0.75)
-                            }
-                        }
-                        .foregroundStyle(.white)
-                        .padding(16)
+                // 色块的落点：页头与首页那块卡片同一个底色、字色，进来的人一眼知道自己在哪
+                let colors = GenrePalette.cardColors(genre)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(label)
+                        .font(.system(size: 26, weight: .bold))
+                        .tracking(0.5)
+                    if let total = pager.total, let libraryCount {
+                        Text("\(total) 部\(HomeRows.mediaKindLabel(kind)) · 来自 \(libraryCount) 个库")
+                            .font(.subheadline.monospacedDigit())
+                            .opacity(0.75)
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.08)], startPoint: .top, endPoint: .center), lineWidth: 0.75)
-                    }
-                    .accessibilityElement(children: .combine)
+                }
+                .foregroundStyle(GenrePalette.color(colors.ink))
+                .padding(16)
+                .frame(maxWidth: .infinity, minHeight: 108, alignment: .bottomLeading)
+                .background(GenrePalette.color(colors.background), in: .rect(cornerRadius: 14, style: .continuous))
+                .accessibilityElement(children: .combine)
                     .accessibilityIdentifier("kind-wall-genre-header")
             }
             // 概况读失败时（libraryCount 为 nil）只说口径，不挂一句永远的「正在读取」；类型页的数量写在页头里

@@ -4,7 +4,6 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 
 import type { Route } from "next";
 
-import { GenreArtwork } from "@/components/genre-tile";
 import { WallLoadMore } from "@/components/wall-chrome";
 import { WallSortControl } from "@/components/library-filter-bar";
 import { PosterWall } from "@/components/poster-wall";
@@ -16,7 +15,7 @@ import {
   getKindSummary,
   listKindItems,
 } from "@/lib/api/libraries";
-import { GENRE_TONES } from "@/lib/genre-palette";
+import { GENRE_TONES, genreCardColors, oklchCss } from "@/lib/genre-palette";
 import { MEDIA_KIND_LABELS } from "@/lib/home-rows";
 import type { LibraryFilter } from "@/lib/library-filter";
 import {
@@ -85,6 +84,7 @@ export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: num
   const label = genreName ?? `全部${MEDIA_KIND_LABELS[kind]}`;
   usePageTitle(genreName ? `${genreName} · ${MEDIA_KIND_LABELS[kind]}` : label);
   const wallKey = genre === undefined ? kind : `${kind}:${genre}`;
+  const genreCard = genreCardColors(genre ?? 0);
   const filter: LibraryFilter | undefined = genre === undefined ? undefined : { genres: [genre] };
   // ref 版：load / reload 回调里读，不必为它重建回调链（genre 变了组件会整个重挂，见 page.tsx）
   const filterRef = useRef(filter);
@@ -214,13 +214,15 @@ export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: num
       <PageNav title={label} fallback={{ label: "媒体库", href: "/library" as Route }} />
       <div className="page-inset">
         {genre !== undefined ? (
-          // 色块的落点：页头就是那块色块放大，进来的人一眼知道自己在哪
-          <div className="relative isolate flex h-[148px] flex-col justify-end overflow-hidden rounded-[22px] px-6 pb-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_0_0_0.5px_rgba(255,255,255,0.1)] max-md:h-[116px] max-md:rounded-[18px] max-md:px-4 max-md:pb-4">
-            <GenreArtwork genreId={genre} />
-            <h2 className="truncate text-[30px] font-semibold leading-tight tracking-[0.04em] text-white max-md:text-[24px]">
+          // 色块的落点：页头与首页那块卡片同一个底色、字色，进来的人一眼知道自己在哪
+          <div
+            className="flex h-[132px] flex-col justify-end rounded-[18px] px-6 pb-5 max-md:h-[108px] max-md:rounded-[14px] max-md:px-4 max-md:pb-4"
+            style={{ background: oklchCss(genreCard.background), color: oklchCss(genreCard.ink) }}
+          >
+            <h2 className="truncate text-[30px] font-bold leading-tight tracking-[0.02em] max-md:text-[24px]">
               {label}
             </h2>
-            <p className="mt-1 truncate text-ui tabular-nums text-white/75 max-md:text-sub">
+            <p className="mt-1 truncate text-ui tabular-nums opacity-75 max-md:text-sub">
               {items === null
                 ? "正在读取…"
                 : `${total} 部${MEDIA_KIND_LABELS[kind]} · 来自 ${libraryCount} 个库`}

@@ -20,7 +20,7 @@ final class LibraryHomeStore {
     private(set) var favorites: API.FavoritesView?
     private(set) var itemsByKey: [String: [API.LibraryItemView]] = [:]
     /// 「按类型找电影 / 剧集」色块：每种类型（movie / tv）的 TMDB 类型分布，与各行条目同一轮取、同一个指纹闸
-    private(set) var genresByKind: [String: [API.FacetValueView]] = [:]
+    private(set) var genresByKind: [String: [API.LibraryKindGenreView]] = [:]
     /// 各行条目至少到过一次（或来自快照）
     private(set) var rowsLoaded = false
     /// 最近一次刷新失败（页面据此挂提示条 / 整页报错）
@@ -299,12 +299,12 @@ final class LibraryHomeStore {
     }
 
     /// 类型色块：每种类型的 TMDB 类型分布并发取回；单种失败按空处理（那一区不画）
-    private nonisolated static func fetchGenres(_ api: APIClient, _ kinds: [String]) async -> [String: [API.FacetValueView]] {
-        await withTaskGroup(of: (String, [API.FacetValueView]).self) { group in
+    private nonisolated static func fetchGenres(_ api: APIClient, _ kinds: [String]) async -> [String: [API.LibraryKindGenreView]] {
+        await withTaskGroup(of: (String, [API.LibraryKindGenreView]).self) { group in
             for kind in kinds {
                 group.addTask { (kind, (try? await api.uiLibraryKindGenres(kind: kind)) ?? []) }
             }
-            var next: [String: [API.FacetValueView]] = [:]
+            var next: [String: [API.LibraryKindGenreView]] = [:]
             for await (kind, genres) in group { next[kind] = genres }
             return next
         }
@@ -355,5 +355,5 @@ nonisolated struct LibraryHomeSnapshot: Codable, Hashable, Sendable {
     var favorites: API.FavoritesView
     var itemsByKey: [String: [API.LibraryItemView]]
     /// 可空：升级前写下的快照没有这一项，照常能读
-    var genresByKind: [String: [API.FacetValueView]]?
+    var genresByKind: [String: [API.LibraryKindGenreView]]?
 }

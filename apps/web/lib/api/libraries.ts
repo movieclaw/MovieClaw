@@ -685,11 +685,19 @@ export function getKindSummary(
 }
 
 /**
- * 首页「按类型找电影 / 剧集」色块：这一类型跨库每个 TMDB 类型有几部（去重）。
+ * 首页「按类型找电影 / 剧集」色块：这一类型跨库每个 TMDB 类型有几部（去重），
+ * 外加一张封面（这个类型最近入库那部片的剧照，部数多的类型先挑、不重复）。
  * 只回有片的类型、按部数倒序；value 是 genre id，点进去带 `?g=value` 开墙。
  */
-export function listKindGenres(kind: "movie" | "tv"): Promise<FacetValue[]> {
-  return unwrap(request<ApiEnvelope<FacetValue[]>>(`/libraries/kinds/${kind}/genres`));
+export function listKindGenres(kind: "movie" | "tv"): Promise<KindGenre[]> {
+  return unwrap(request<ApiEnvelope<KindGenre[]>>(`/libraries/kinds/${kind}/genres`));
+}
+
+/** 首页类型色块的一格：类型、部数，以及贴在卡片上的最近入库那部片的剧照（没有可用剧照时为空）。 */
+export interface KindGenre extends FacetValue {
+  cover_item_id: number | null;
+  cover_title: string | null;
+  cover_url: string | null;
 }
 
 /** 海报墙 A-Z 索引条的一档（按标题排序下的首字母分组）。 */

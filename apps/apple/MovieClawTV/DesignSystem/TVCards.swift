@@ -22,6 +22,8 @@ enum TVMetrics {
     /// 首页「我的媒体库」库卡宽（16:9，高 318）：3 张 + 2 个间距 ≈ 1760（HIG 三列网格是 560 + 间距 40），
     /// 库一般就三五个，卡片放大一档，库名在三米外也一眼认得出
     static let libraryWidth: CGFloat = 565
+    /// 首页「按类型找」方卡宽：5 张 + 4 个间距 = 1760
+    static let genreWidth: CGFloat = 326
     /// 行与行之间：海报的选中片名不再预留位置、改为浮在这段空隙里（`TVCardCaption.focused`），
     /// 52 时片名离下一行标题只剩约 14，放到 56；卡片底到下一行标题约 80，在系统 Apple TV App 实测的 70～83 之间
     static let rowSpacing: CGFloat = 56
@@ -261,18 +263,20 @@ struct TVLibraryCard: View {
     }
 }
 
-/// 首页「按类型找电影 / 剧集」的一格：网格渐变色块 + 类型名 + 部数（与网页、iPhone 同一块，`GenreTileFace`）。
-/// 一屏 4 张（与横版剧照卡同宽）；获得焦点时系统抬起放大，色团同时缓慢漂一点（同网页悬停）
+/// 首页「按类型找电影 / 剧集」的一格：方卡（与网页、iPhone 同一块，`GenreCardFace`），左上类型名、右上部数、
+/// 下半部贴这个类型最近入库那部片的剧照。电视卡片下面不挂字（同其他卡片），片名不写。
+/// 一屏 5 张：5 张 + 4 个间距 = 1760
 struct TVGenreCard: View {
     let genreId: Int
     let label: String
     let count: Int
-    var width: CGFloat = TVMetrics.landscapeWidth
+    let coverURL: URL?
+    var width: CGFloat = TVMetrics.genreWidth
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Face(genreId: genreId, label: label, count: count, width: width)
+            Face(genreId: genreId, label: label, count: count, coverURL: coverURL, width: width)
         }
         .buttonStyle(.borderless)
         .accessibilityLabel("\(label)，\(count) 部")
@@ -282,16 +286,14 @@ struct TVGenreCard: View {
         let genreId: Int
         let label: String
         let count: Int
+        let coverURL: URL?
         let width: CGFloat
         @Environment(\.isFocused) private var isFocused
 
         var body: some View {
-            GenreTileFace(genreId: genreId, label: label, count: count, width: width, drift: isFocused, maxFont: 52,
-                          corner: TVMetrics.cardCorner, shadows: false)
-                .contentShape(.hoverEffect, .rect(cornerRadius: TVMetrics.cardCorner))
+            GenreCardFace(genreId: genreId, label: label, count: count, coverURL: coverURL, width: width)
+                .contentShape(.hoverEffect, .rect(cornerRadius: width * 0.045, style: .continuous))
                 .hoverEffect(.highlight)
-                // 外发光加在焦点效果外面：焦点效果按卡片形状裁切，投影放在里面会被裁掉
-                .modifier(GenreTileShadow(genreId: genreId, width: width))
                 // 行标题跟着亮起来
                 .preference(key: TVRowFocusKey.self, value: isFocused)
         }
