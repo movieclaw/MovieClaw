@@ -316,8 +316,16 @@ export interface LibrarySearchPerson {
   match: LibrarySearchMatch;
 }
 
+/** 搜索联想：从本次结果里提取的片名与人名（不纠错、不按热度），选中即按这个词搜索。 */
+export interface LibrarySearchSuggestion {
+  type: "title" | "person";
+  text: string;
+}
+
 export interface LibrarySearchPage {
   items: LibrarySearchHit[];
+  /** 联想词（仅首页返回） */
+  suggestions: LibrarySearchSuggestion[];
   /** 命中的人物（仅首页返回；翻页为空） */
   people: LibrarySearchPerson[];
   /** 非空表示还有下一页，原样传回 cursor */

@@ -157,7 +157,8 @@ struct SearchHomeView: View {
     @ViewBuilder
     private var content: some View {
         if liveLibrary {
-            LibrarySearchResultsView(keyword: trimmedKeyword, onSwitchToMedia: access.canMedia ? { changeMode(.media) } : nil, live: true)
+            LibrarySearchResultsView(keyword: trimmedKeyword, onSwitchToMedia: access.canMedia ? { changeMode(.media) } : nil,
+                                     live: true, onPickSuggestion: { keyword = $0 })
                 // 与下面列表同样的顶部留白：「人物」段头别贴着范围栏
                 .contentMargins(.top, 8, for: .scrollContent)
                 .scrollDismissesKeyboard(.immediately)

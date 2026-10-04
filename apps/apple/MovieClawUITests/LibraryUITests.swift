@@ -287,6 +287,15 @@ final class LibraryUITests: XCTestCase {
                 || app.otherElements["library-empty"].exists
         }, "改词后结果应跟着刷新")
         snapshot("改词后")
+
+        // 搜索联想：删回原关键词，点第一个联想词 → 填进搜索框
+        field.typeText(XCUIKeyboardKey.delete.rawValue)
+        let suggestion = app.buttons["library-search-suggestion"].firstMatch
+        XCTAssertTrue(suggestion.waitForExistence(timeout: 10), "实时结果上方应有搜索联想")
+        let picked = suggestion.label.replacingOccurrences(of: "搜索「", with: "").replacingOccurrences(of: "」", with: "")
+        suggestion.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (field.value as? String) == picked }, "点联想词应填进搜索框：\(picked)")
+        snapshot("点联想后")
     }
 
     private func waitUntil(timeout: TimeInterval = 15, _ condition: @escaping () -> Bool) -> Bool {

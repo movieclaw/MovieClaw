@@ -372,6 +372,8 @@ struct LibrarySearchResultsView: View {
     /// 搜索面板里边输入边搜（`SearchHomeView` 的媒体库模式）：关键词停顿 300ms 再请求，
     /// 换词时保留上一轮结果直到新结果到达，不每敲一个字闪一次骨架屏
     var live = false
+    /// 点了搜索联想（片名 / 人名）：搜索面板把这个词填进搜索框；结果页的关键词固定，不传就不显示联想
+    var onPickSuggestion: ((String) -> Void)?
 
     @Environment(\.api) private var api
     @Environment(Router.self) private var router
@@ -402,6 +404,9 @@ struct LibrarySearchResultsView: View {
                     .frame(maxWidth: .infinity)
                     .padding(.top, 60)
                     .discoverContainer("library-empty")
+                }
+                if model.error == nil, let onPickSuggestion, !suggestions.isEmpty {
+                    suggestionRow(suggestions, onPick: onPickSuggestion)
                 }
                 if model.error == nil, !model.people.isEmpty {
                     VStack(alignment: .leading, spacing: 12) {
@@ -451,6 +456,44 @@ struct LibrarySearchResultsView: View {
             await model.load(keyword: keyword, api: api)
         }
         .accessibilityIdentifier("library-results")
+    }
+
+    /// 搜索联想（同 Apple TV 的系统联想）：从本次结果里提取的片名与人名，不纠错、不按热度。
+    /// 与当前输入完全相同的词不列，重复的去掉
+    private var suggestions: [API.LibrarySearchSuggestion] {
+        var seen: Set<String> = [keyword.lowercased()]
+        return model.suggestions.filter { suggestion in
+            let key = suggestion.text.trimmingCharacters(in: .whitespaces).lowercased()
+            return !key.isEmpty && seen.insert(key).inserted
+        }
+    }
+
+    /// 一排横滑胶囊：片名带胶片图标、人名带人像图标，点一下把词填进搜索框（结果随之实时刷新）
+    private func suggestionRow(_ items: [API.LibrarySearchSuggestion], onPick: @escaping (String) -> Void) -> some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(items, id: \.self) { suggestion in
+                    Button { onPick(suggestion.text) } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: suggestion.type == "person" ? "person.fill" : "film")
+                                .font(.caption)
+                                .foregroundStyle(Theme.textFaint)
+                            Text(suggestion.text)
+                                .font(.subheadline)
+                                .foregroundStyle(Theme.text)
+                                .lineLimit(1)
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
+                        .background(.white.opacity(0.09), in: .capsule)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("搜索「\(suggestion.text)」")
+                    .accessibilityIdentifier("library-search-suggestion")
+                }
+            }
+        }
+        .discoverContainer("library-suggestions")
     }
 
     /// 命中的人物：圆形头像 + 姓名 + 库内作品数；点按进库内影人页。
@@ -527,6 +570,7 @@ struct LibrarySearchResultsView: View {
 private final class LibrarySearchModel {
     var hits: [API.LibrarySearchHit]?
     var people: [API.LibrarySearchPerson] = []
+    var suggestions: [API.LibrarySearchSuggestion] = []
     var nextCursor: String?
     var loadingMore = false
     var error: String?
@@ -557,6 +601,7 @@ private final class LibrarySearchModel {
             guard generation == request else { return }
             hits = result.items
             people = result.people
+            suggestions = result.suggestions
             nextCursor = result.nextCursor
         } catch is CancellationError {
             // 视图消失或换词把请求取消了：下次出现时按同一关键词重搜，别卡在加载中
