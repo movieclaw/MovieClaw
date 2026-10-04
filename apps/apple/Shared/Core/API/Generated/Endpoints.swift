@@ -1066,6 +1066,14 @@ nonisolated extension APIClient {
         return try await send("GET", "/libraries/routing-options")
     }
 
+    /// 海报行选中展开用的展示信息（批量：剧照 / Logo / 类型 / 片长 / 分级 / 简介）
+    /// `GET /libraries/showcase`
+    func uiLibraryShowcase(ids: [Int]) async throws -> [API.LibraryItemShowcaseView] {
+        var query: [URLQueryItem] = []
+        for value in ids { query.append(URLQueryItem(name: "ids", value: "\(value)")) }
+        return try await send("GET", "/libraries/showcase", query: query)
+    }
+
     /// 回收站：全部待回收文件，按条目分组分页（含摘要与分面计数）
     /// `GET /libraries/trashed-files`
     func libraryRecycleList(q: String? = nil, libraryId: Int? = nil, reason: String? = nil, limit: Int? = nil, offset: Int? = nil) async throws -> API.TrashedFilesData {

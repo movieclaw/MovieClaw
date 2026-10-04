@@ -16,6 +16,8 @@ import SwiftUI
 /// 其余行按顺序接在下面。「我的媒体库」是电视上进各个库的唯一入口（标签栏不再逐个列库），
 /// 所以网页上隐藏了这一行，电视上也照样画。
 struct TVHomeView: View {
+    /// 主界面的焦点范围（`TVMainView`）：「继续播放」在里面声明优先默认焦点
+    var mainScope: Namespace.ID
     @Environment(\.api) private var api
     @Environment(AppModel.self) private var model
     @Environment(TVRouter.self) private var router
@@ -113,15 +115,37 @@ struct TVHomeView: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-home")
         // 开机落在首页：第一次有内容就把焦点放到「继续播放」上（播放第一：开机按确认就续播）。只这一次——
-        // 之后用户在标签栏上左右移动、经过首页时不把焦点拽下来（见 TVRouter.consumeLaunchFocus）
+        // 之后用户在侧边栏上移动、经过首页时不把焦点拽下来（见 TVRouter.launchFocusPending）
         .task(id: upNext.first?.mediaItemId) {
-            guard upNext.first != nil, router.consumeLaunchFocus() else { return }
-            // 等这一帧布局完再挪焦点，否则按钮还没进焦点系统
-            try? await Task.sleep(for: .milliseconds(150))
-            // 开机直接起播（Top Shelf 的「播放」、调试参数 -mcRoute）时播放器盖在上面：不去抢焦点，
-            // 否则会和播放器里「跳过片头」「下一集」自动拿焦点撞上（UI 测试偶发失败）
-            guard router.player == nil else { return }
-            focus = .play
+            guard upNext.first != nil, router.launchFocusPending else { return }
+            // 主界面出现时系统先把初始焦点给侧边栏（首页导航栈挪进页签之后的系统行为），侧边栏会整个展开
+            // （2026-10-04 用户反馈）。任务一启动就把焦点要到「继续播放」上，赶在侧边栏展开动画之前（实测 0.3 秒内落定、
+            // 拍不到展开的一帧）；头一两下赋值可能被忽略，紧接着补几次。用户已经自己把焦点挪进首页别处的不抢（focus 非空）。
+            // 这段任务在主界面出现时会被系统取消、重启一次：开机名额等焦点真落上了才用掉，被取消的那一遍不算
+            for delay in [0, 50, 100, 200, 400, 800] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                // 开机直接起播（Top Shelf 的「播放」、调试参数 -mcRoute）时播放器盖在上面：不去抢焦点，
+                // 否则会和播放器里「跳过片头」「下一集」自动拿焦点撞上（UI 测试偶发失败）
+                // 被取消（这段任务在主界面出现时会被系统重启一次）不算数，名额留给下一遍
+                guard !Task.isCancelled else { return }
+                // 焦点已经在首页里（落上了、或用户自己挪进来了）、或播放器盖在上面：这次开机的事办完了
+                guard router.player == nil, focus == nil else {
+                    router.launchFocusPending = false
+                    return
+                }
+                focus = .play
+            }
+            router.launchFocusPending = false
+        }
+        // 从后台回来时焦点停在侧边栏上（见 TVMainView.refocusPageAfterResume）：交回「继续播放」——
+        // 用返回键退出时第一下返回已经回到了顶部，回来看到的正是退出前那一屏。赋值可能被忽略，同开机那样隔一会儿补一次
+        .task(id: router.reclaimHomeFocus) {
+            guard router.reclaimHomeFocus > 0, upNext.first != nil else { return }
+            for delay in [0, 150, 300, 500] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                guard !Task.isCancelled, router.player == nil, focus == nil else { return }
+                focus = .play
+            }
         }
         .onChange(of: focus) { old, new in
             switch (old, new) {
@@ -207,6 +231,7 @@ struct TVHomeView: View {
                     .padding(.horizontal, 8)
             }
             .focused($focus, equals: .play)
+            .prefersDefaultFocus(true, in: mainScope)
             .accessibilityIdentifier("tv-home-hero-play")
             Button {
                 router.push(.item(libraryId: stage.libraryId, itemId: stage.mediaItemId))
@@ -252,15 +277,19 @@ struct TVHomeView: View {
             EmptyView()
         case .favorites:
             if let items = store.favorites?.items, !items.isEmpty {
-                TVShelf(title: row.title) {
-                    ForEach(items, id: \.mediaItemId) { item in
-                        TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                                     imageURL: api.image(item.posterUrl, width: ImageWidth.tvCard(TVMetrics.posterWidth))) {
-                            router.push(.item(libraryId: item.libraryId, itemId: item.mediaItemId))
-                        }
+                let entries = items.map {
+                    TVShowcaseEntry(id: $0.mediaItemId, title: $0.title, kind: $0.kind, year: $0.year, posterURL: $0.posterUrl,
+                                    backdropURL: $0.backdropUrl, seasonCount: $0.seasons.filter { $0 > 0 }.count)
+                }
+                let libraryIds = Dictionary(items.map { ($0.mediaItemId, $0.libraryId) }, uniquingKeysWith: { first, _ in first })
+                TVShowcaseShelf(title: row.title, entries: entries, onRowFocus: { scrollToRow(row, focused: $0) }) { entry in
+                    if let libraryId = libraryIds[entry.id] {
+                        router.push(.item(libraryId: libraryId, itemId: entry.id))
                     }
+                } trailing: {
                     seeAll(row, total: store.favorites?.total)
                 }
+                .id(row.id)
             }
         case .libraries:
             // 各个库的入口：标签栏只放固定的几项，库从这里进各自的海报墙。
@@ -270,16 +299,14 @@ struct TVHomeView: View {
             if !directory.browsable.isEmpty || !collections.isEmpty {
                 TVShelf(title: row.title) {
                     ForEach(directory.browsable, id: \.id) { library in
-                        TVLandscapeCard(title: library.name, subtitle: "\(library.stats.itemCount) 部",
-                                        imageURL: api.image("/libraries/\(library.id)/cover", width: ImageWidth.tvCard(360)), width: 360) {
+                        TVLibraryCard(name: library.name, count: library.stats.itemCount,
+                                      imageURL: api.image("/libraries/\(library.id)/cover", width: ImageWidth.tvCard(TVMetrics.libraryWidth))) {
                             router.push(.library(library.id))
                         }
                     }
                     ForEach(collections, id: \.id) { collection in
-                        TVLandscapeCard(title: collection.name, subtitle: "合集 · \(collection.itemCount) 部",
-                                        imageURL: collection.covers.isEmpty
-                                            ? nil : api.image("/collections/\(collection.id)/cover", width: ImageWidth.tvCard(360)),
-                                        width: 360) {
+                        TVLibraryCard(name: collection.name, count: collection.itemCount, collection: true,
+                                      imageURL: collection.covers.isEmpty ? nil : api.image("/collections/\(collection.id)/cover", width: ImageWidth.tvCard(TVMetrics.libraryWidth))) {
                             router.push(.collection(id: collection.id, name: collection.name))
                         }
                     }
@@ -289,26 +316,35 @@ struct TVHomeView: View {
             // 类型行（「全部电影」）是跨库的：每部片自带详情落点库（服务端给的 library_id）
             let items = store.itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []
             if !items.isEmpty {
-                TVShelf(title: row.title) {
-                    ForEach(items, id: \.mediaItemId) { item in
-                        TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                                     imageURL: api.image(item.posterUrl, width: ImageWidth.tvCard(TVMetrics.posterWidth))) {
-                            if let libraryId = item.libraryId ?? Self.libraryId(of: row) {
-                                router.push(.item(libraryId: libraryId, itemId: item.mediaItemId))
-                            }
-                        }
+                let entries = items.map {
+                    TVShowcaseEntry(id: $0.mediaItemId, title: $0.title, kind: $0.kind, year: $0.year, posterURL: $0.posterUrl,
+                                    backdropURL: $0.backdropUrl, seasonCount: $0.seasons.filter { $0 > 0 }.count)
+                }
+                let libraryIds = Dictionary(items.map { ($0.mediaItemId, $0.libraryId) }, uniquingKeysWith: { first, _ in first })
+                TVShowcaseShelf(title: row.title, entries: entries, onRowFocus: { scrollToRow(row, focused: $0) }) { entry in
+                    if let libraryId = libraryIds[entry.id] ?? Self.libraryId(of: row) {
+                        router.push(.item(libraryId: libraryId, itemId: entry.id))
                     }
+                } trailing: {
                     seeAll(row, total: Self.rowTotal(row))
                 }
+                .id(row.id)
             }
         }
     }
 
-    /// 行末尾的「查看全部」：进与这一行同一套取数参数的完整海报墙（每行只取前 20 部）
+    /// 焦点进了一行选中展开的海报行：把这一行滚到屏幕上方，行下面的类型、简介才露得全
+    /// （系统自己只滚到卡片刚好露出为止，说明会落在屏幕外）
+    private func scrollToRow(_ row: HomeRows.Row, focused: Bool) {
+        guard focused else { return }
+        withAnimation(.easeInOut(duration: 0.35)) { position.scrollTo(id: row.id, anchor: .top) }
+    }
+
+    /// 行末尾的「查看全部」：进与这一行同一套取数参数的完整海报墙（每行只取前 20 部），与这一行的海报同大
     @ViewBuilder
     private func seeAll(_ row: HomeRows.Row, total: Int?) -> some View {
         if let source = TVWallSource(row.kind) {
-            TVSeeAllCard(total: total) {
+            TVSeeAllCard(total: total, width: TVMetrics.showcasePosterWidth) {
                 router.push(.rowWall(title: row.title, source: source))
             }
             .accessibilityIdentifier("tv-see-all-\(row.id)")

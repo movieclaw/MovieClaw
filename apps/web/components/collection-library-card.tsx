@@ -27,21 +27,27 @@ export function CollectionLibraryCard({ collection }: { collection: Collection }
       className="group/lib block rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
       data-testid={`collection-library-card-${collection.id}`}
     >
-      <div className="relative aspect-[21/10] overflow-hidden rounded-2xl bg-[#0a0c12] ring-1 ring-white/10 transition duration-300 group-hover/collection:ring-white/35">
+      <div className="relative aspect-[21/10] overflow-hidden rounded-2xl bg-[#0a0c12] ring-1 ring-white/10 transition duration-300 group-hover/lib:ring-white/35">
         {collection.covers.length === 0 ? placeholder : (
           <>
             <PosterImage src={imageUrl(`/collections/${collection.id}/cover`)} width={268} zoom={1.02} alt="" className="absolute inset-0 size-full object-cover transition duration-300 group-hover/lib:scale-[1.02]" fallback={placeholder} />
             <div className="pointer-events-none absolute -left-[45%] bottom-0 h-[25%] w-[45%] -skew-x-12 bg-gradient-to-r from-transparent via-white/[0.14] to-transparent transition-transform duration-700 ease-out group-hover/lib:translate-x-[350%]" />
           </>
         )}
-      </div>
-      <div className="mt-2.5 flex min-w-0 items-center justify-center gap-2 px-2">
-        <h3 className="truncate text-body-lg font-semibold text-white">{collection.name}</h3>
-        <span className="flex shrink-0 items-center gap-1 rounded-full border border-white/[0.14] bg-white/[0.1] px-2 py-0.5 text-micro font-semibold text-white/80">
+        {/* 合集标记放在封面左下的倒影暗区：与库卡「N 个新文件入库中」同位置、同一套玻璃胶囊
+            （合集没有扫描状态，不会撞车），名称行因此只有名字，长合集名不被图标挤短 */}
+        <span className="absolute bottom-2 left-2.5 flex items-center gap-1 rounded-full border border-white/[0.16] bg-black/50 px-2 py-0.5 text-micro font-semibold text-white/90 backdrop-blur-md">
           <LayersIcon className="size-3" />合集
         </span>
       </div>
-      <p className="mt-1 text-center text-sub text-[var(--text-faint)]">{collection.item_count} 部</p>
+      <ShelfCardCaption name={collection.name} />
     </Link>
   );
+}
+
+/** 「我的媒体库」行的卡片名：库卡与合集卡共用，封面下方居中、只占一行（Emby / Jellyfin「我的媒体」同款）。
+ * 不写部数（页头已有总数，入口卡只负责认出是哪个）；「默认」是订阅 / 下载的落库设置，只在库管理页标注；
+ * 合集的区分放在封面左下角标上，不占名称行。iPhone 端同名组件 ShelfCardCaption 与此一致。 */
+export function ShelfCardCaption({ name }: { name: string }) {
+  return <h3 className="mt-2.5 truncate px-2 text-center text-body-lg font-semibold text-white">{name}</h3>;
 }

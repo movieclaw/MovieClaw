@@ -264,7 +264,7 @@ final class TVFlowUITests: XCTestCase {
         waitForPlayback(app)
         TVRemote.press(.down)
         XCTAssertTrue(app.element("tv-player-panel").waitForExistence(timeout: 10), "下滑没有出信息面板")
-        XCTAssertTrue(app.element("tv-panel-tab-audio").exists, "多音轨片源的面板里没有音轨页")
+        XCTAssertTrue(app.element("tv-panel-column-audio").exists, "多音轨片源的面板里没有音轨栏")
         snapshot("50-panel-subtitles")
         TVRemote.press(.right)
         TVRemote.press(.select)
@@ -277,7 +277,7 @@ final class TVFlowUITests: XCTestCase {
 
     // MARK: 谁在看
 
-    /// 登录两个账号后重开 App：先问「谁在看」，选第二个账号进入
+    /// 登录两个账号后重开 App：不再问「谁在看」，直接以上次用的账号（第二个）进首页（2026-10-04 用户要求）
     @MainActor
     func testWhoIsWatchingSwitchesAccount() {
         // 第一次：以管理员进入，落在侧边栏的「账号」页签（谁在看），用「添加账号」登录第二个账号
@@ -297,10 +297,8 @@ final class TVFlowUITests: XCTestCase {
         app = XCUIApplication()
         app.launchArguments = ["--ui-testing"]
         app.launch()
-        XCTAssertTrue(app.element("tv-who-is-watching").waitForExistence(timeout: 20), "登录过两个账号却没问「谁在看」")
-        snapshot("60-who-is-watching")
-        TVRemote.select(app.element("tv-profile-\(member)"), trying: [.right, .left])
-        XCTAssertTrue(app.element("tv-home").waitForExistence(timeout: 20), "选人后没有进首页")
+        XCTAssertTrue(app.element("tv-home").waitForExistence(timeout: 20), "重开后没有直接进首页")
+        XCTAssertFalse(app.element("tv-who-is-watching").exists, "启动时不该再问「谁在看」")
         snapshot("61-home-as-member")
     }
 

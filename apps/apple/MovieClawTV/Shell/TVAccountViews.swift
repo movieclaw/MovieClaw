@@ -1,33 +1,18 @@
 import SwiftUI
 
-/// 「谁在看」的开关（docs/design/tvos-app.md §5.2）：电视上登录过不止一个账号时，启动先问一句「谁在看」。
-/// 主界面侧边栏的「账号」页签放的是同一页（`TVMainView`），不经过这个开关。
-@Observable
-final class TVProfileGate {
-    /// 本次启动已经选过人了（或已按 Apple TV 的系统用户自动选好，见 `TVUserProfiles`）
-    private(set) var picked: Bool
-
-    init(picked: Bool) {
-        self.picked = picked
-    }
-
-    func pickedProfile() { picked = true }
-}
-
 /// 谁在看：本机登录过的全部账号（跨服务器）大头像横排，星空背景，焦点放大，按确认键进入
-/// （docs/design/tvos-app.md §5.2，同 Netflix 的选人页、tvOS 26 唤醒时的选人）。两种打开方式：
-/// - **启动时**（`onClose == nil`）：这台电视上登录过不止一个账号，先问一句，选好了才进主界面；
-/// - **侧边栏的「账号」页签**（`onClose` 有值）：当前账号默认获得焦点。选自己回首页；选别人就换一枚令牌
-///   （不联网、不用密码），主界面整棵重建。返回键交给系统（焦点回侧边栏）。
-///   底部多一行「关于」「退出登录」——电视上与账号有关的操作都在这一页，不再有单独的账号页。
+/// （docs/design/tvos-app.md §5.2，同 Netflix 的选人页、tvOS 26 唤醒时的选人）。
+/// 放在侧边栏的「账号」页签里：当前账号默认获得焦点。选自己回首页；选别人就换一枚令牌
+/// （不联网、不用密码），主界面整棵重建。返回键交给系统（焦点回侧边栏）。
+/// 底部一行「关于」「退出登录」——电视上与账号有关的操作都在这一页，不再有单独的账号页。
+/// 启动时不再弹这一页，直接以上次用的账号进入（2026-10-04 用户要求）
 struct TVWhoIsWatchingView: View {
-    /// 在「账号」页签里选了自己：回首页；启动时的选人页为 nil
-    var onClose: (() -> Void)?
+    /// 选了自己：回首页
+    let onClose: () -> Void
     /// 「账号」页签里的「关于」：在本页签里压栈打开关于页
     var onAbout: (() -> Void)?
 
     @Environment(AppModel.self) private var model
-    @Environment(TVProfileGate.self) private var gate
     @State private var error: String?
     @State private var addingAccount = false
     @State private var confirmingLogout = false
@@ -56,9 +41,7 @@ struct TVWhoIsWatchingView: View {
                 if let error {
                     Text(error).foregroundStyle(Theme.danger)
                 }
-                if onClose != nil {
-                    actions
-                }
+                actions
             }
         }
         .fullScreenCover(isPresented: $addingAccount) {
@@ -83,7 +66,7 @@ struct TVWhoIsWatchingView: View {
     private var profiles: some View {
         HStack(spacing: 70) {
             ForEach(accounts) { saved in
-                TVProfileButton(account: saved.account, server: saved.server, current: onClose != nil && saved.id == currentID) {
+                TVProfileButton(account: saved.account, server: saved.server, current: saved.id == currentID) {
                     Task { await pick(saved) }
                 }
                 .focused($focusedAccount, equals: saved.id)
@@ -134,13 +117,11 @@ struct TVWhoIsWatchingView: View {
 
     private func pick(_ saved: SavedAccount) async {
         if saved.server == model.server, saved.account.username == model.session?.username {
-            gate.pickedProfile()
-            onClose?()
+            onClose()
             return
         }
         do {
             try await model.switchAccount(to: saved.account.username, on: saved.server)
-            gate.pickedProfile()
         } catch AppModel.AccountError.needsPassword {
             // 这个账号的登录失效了：打开登录（服务器与用户名预填）
             error = "「\(saved.account.nickname)」的登录已失效，请在「添加账号」里重新登录"

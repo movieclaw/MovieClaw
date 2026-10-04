@@ -49,6 +49,7 @@ from movieclaw_api.api.routes.jobs import router as jobs_router
 from movieclaw_api.api.routes.libraries import kinds_router as library_kinds_router
 from movieclaw_api.api.routes.libraries import router as libraries_router
 from movieclaw_api.api.routes.libraries import search_router as library_search_router
+from movieclaw_api.api.routes.libraries import showcase_router as library_showcase_router
 from movieclaw_api.api.routes.library_duplicates import router as library_duplicates_router
 from movieclaw_api.api.routes.library_recycle import router as library_recycle_router
 from movieclaw_api.api.routes.llm import router as llm_router
@@ -119,6 +120,8 @@ _MEMBER_ROUTERS = [
     library_duplicates_router,
     # 同理：/libraries/kinds/{kind} 也要排在 /libraries/{library_id} 之前
     library_kinds_router,
+    # 同理：/libraries/showcase（海报行选中展开的批量展示信息）
+    library_showcase_router,
     libraries_router,
     collections_router,
     people_router,

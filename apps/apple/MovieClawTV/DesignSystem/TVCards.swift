@@ -3,8 +3,8 @@ import SwiftUI
 /// Apple TV 的尺寸令牌（三米观看距离，docs/design/tvos-app.md §2）。
 /// 画布固定 1920×1080 点；系统已经留出安全边距（上下 60、左右 80），横滑行要贴满屏宽时自己补回左边距。
 ///
-/// 间距是一套黄金比例的阶梯：20（图与片名）→ 32（卡片之间）→ 52（行与行）→ 84（≈ 安全边距 80），
-/// 每级约 ×1.618，层级之间拉得开又不跳。卡片宽度按 Apple HIG 的 tvOS 网格思路倒推：整数张卡加间距
+/// 间距原是一套黄金比例的阶梯：20（图与片名）→ 32（卡片之间）→ 52（行与行）→ 84（≈ 安全边距 80）；
+/// 2026-10-04 行距按系统 Apple TV App 实测收紧（行标题贴近卡片、海报片名不再预留位置），行距改为 56。卡片宽度按 Apple HIG 的 tvOS 网格思路倒推：整数张卡加间距
 /// 刚好铺满安全区内的 1760 点（HIG 固定间距 40，我们收到 32，卡片相应放大），下一张从右边缘露出约 50 点，
 /// 提示还能往右划（2026-10-03 用户嫌间距过大后调整）
 enum TVMetrics {
@@ -14,8 +14,17 @@ enum TVMetrics {
     static let posterWidth: CGFloat = 266
     /// 横版剧照卡宽（16:9）：4 张 + 3 个间距 = 1760
     static let landscapeWidth: CGFloat = 416
-    /// 行与行之间
-    static let rowSpacing: CGFloat = 52
+    /// 首页海报行（选中展开，`TVShowcaseShelf`）：海报 300×450，比别处的 266 大一档（2026-10-04 用户要求
+    /// 整行放大以适应展开样式）；展开成同高 16:9 的 800 宽剧照卡——展开那张 + 三张海报约等于一屏
+    static let showcasePosterWidth: CGFloat = 300
+    static let showcaseHeight: CGFloat = 450
+    static let showcaseExpandedWidth: CGFloat = 800
+    /// 首页「我的媒体库」库卡宽（16:9，高 318）：3 张 + 2 个间距 ≈ 1760（HIG 三列网格是 560 + 间距 40），
+    /// 库一般就三五个，卡片放大一档，库名在三米外也一眼认得出
+    static let libraryWidth: CGFloat = 565
+    /// 行与行之间：海报的选中片名不再预留位置、改为浮在这段空隙里（`TVCardCaption.focused`），
+    /// 52 时片名离下一行标题只剩约 14，放到 56；卡片底到下一行标题约 80，在系统 Apple TV App 实测的 70～83 之间
+    static let rowSpacing: CGFloat = 56
     /// 同一行卡片之间
     static let cardSpacing: CGFloat = 32
     /// 卡片图与下面片名之间：阶梯里是 20，放宽到 24——海报 400 高，获得焦点放大约 1.1 倍时下沿往下长 20 点，
@@ -56,7 +65,9 @@ extension Color {
 enum TVCardCaption {
     /// 一直显示：剧照（横版）上认不出是哪一部 / 哪一集，「接下来继续」、分集、刚入库都用它
     case always
-    /// 只有焦点所在的那张显示（位置预留，出现时不挤动排版）：海报自带片名，平时不必再写一遍
+    /// 只有焦点所在的那张显示：海报自带片名，平时不必再写一遍。
+    /// 不预留位置——「片名 · 年份」合成一行，浮在卡片下方的行间空隙里（同系统 Apple TV App 的紧凑行距；
+    /// 预留时每排海报底下常年空着一截，2026-10-04 用户嫌行与行之间空出一块）
     case focused
     /// 不显示
     case hidden
@@ -156,6 +167,97 @@ struct TVLandscapeCard: View {
     }
 }
 
+/// 首页「我的媒体库」行的库卡 / 合集卡：卡片 16:9（与「接下来继续」、海报行展开卡同一比例，2026-10-04 用户要求拉高），
+/// 里面的 21:10 货架封面贴顶完整显示、下面延伸一截模糊底（`extendedBackdrop`）；
+/// 库名写在卡片底部的暗区里，卡片下面不挂字——与上下的海报行同一节奏（海报卡平时也不挂字）。
+///
+/// 为什么不学海报卡「获焦才显示名字」：海报自带片名，货架拼图不带库名，没焦点的库卡必须也认得出是哪个库。
+/// 倒影区本就没信息、又够暗，再垫一层渐隐暗带保证字的对比度；字是封面的一部分，获焦放大时跟着一起放大。
+/// 合集在同一行右侧挂「⧉ 合集」标签，与左侧库名对称（Web / iPhone 是封面左下的「合集」玻璃标签）。
+/// 尺寸：一屏 3 张（`TVMetrics.libraryWidth`），见 HIG tvOS 三列网格
+struct TVLibraryCard: View {
+    let name: String
+    let count: Int
+    var collection = false
+    let imageURL: URL?
+    var width: CGFloat = TVMetrics.libraryWidth
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            TVCardLabel(title: name, subtitle: nil, width: width, caption: .hidden, badge: nil) {
+                RemoteImage(url: imageURL, placeholderSymbol: collection ? "rectangle.stack" : "film")
+                    .frame(width: width, height: width * 10 / 21)
+                    // 封面下沿渐隐，接进下面延伸出来的模糊底，看不出接缝
+                    .mask {
+                        LinearGradient(stops: [.init(color: .black, location: 0.8), .init(color: .clear, location: 1)],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
+                    .frame(width: width, height: width * 9 / 16, alignment: .top)
+                    .background { extendedBackdrop }
+                    .overlay(alignment: .bottomLeading) { nameBand }
+            }
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel(collection ? "合集「\(name)」，\(count) 部" : "\(name)，\(count) 部")
+    }
+
+    /// 卡片 16:9、封面 21:10：封面贴顶完整显示（服务端按 21:10 拼图，4 张海报几乎铺满左右，撑满 16:9 会把两边的海报
+    /// 各裁掉约四分之一），多出来的下半截用同一张封面放大模糊铺底——拼图底部本来就是暗色倒影，延伸下去颜色是连着的
+    @ViewBuilder
+    private var extendedBackdrop: some View {
+        if imageURL != nil {
+            RemoteImage(url: imageURL)
+                .blur(radius: 40)
+                .overlay(Color.black.opacity(0.3))
+        } else {
+            Theme.surfaceRaised
+        }
+    }
+
+    /// 名称与合集标签同一行：库名靠左，「合集」标签靠右，左右对称，都在倒影暗区里，不压上面的海报。
+    /// 长名称时标签不让位（固定尺寸、布局优先级更高），库名先最多缩到 0.75 倍字号尽量放全，
+    /// 还放不下才截断加省略号——两块信息始终在一行
+    private var nameBand: some View {
+        HStack(alignment: .center, spacing: 16) {
+            Text(name)
+                .font(.system(size: 38, weight: .semibold))
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .shadow(color: .black.opacity(0.5), radius: 6, y: 1)
+            if collection {
+                Spacer(minLength: 0)
+                collectionTag
+            }
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 56)
+        .padding(.bottom, 20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            LinearGradient(colors: [.clear, .black.opacity(0.82)], startPoint: .top, endPoint: .bottom)
+        }
+    }
+
+    /// 「⧉ 合集」玻璃标签（与 Web / iPhone 封面上的合集标签同一语言）。
+    /// 不用 Label：tvOS 上图标与文字之间的默认间距过宽，显得松散
+    private var collectionTag: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "rectangle.stack")
+            Text("合集")
+        }
+        .font(.system(size: 20, weight: .semibold))
+        .foregroundStyle(.white.opacity(0.88))
+        .padding(.horizontal, 12)
+        .padding(.vertical, 5)
+        .background(.white.opacity(0.12), in: .capsule)
+        .overlay(Capsule().strokeBorder(.white.opacity(0.18)))
+        .fixedSize()
+        .layoutPriority(1)
+    }
+}
+
 /// 一行末尾的「查看全部」（同 Infuse、Plex 电视版）：与这一行的海报同样大小的一块，往右滑到底就看到，按确认进完整的海报墙。
 /// 行里只有前 20 部，想看全部、更早入库的都从这里进（2026-10-03 用户要求）
 struct TVSeeAllCard: View {
@@ -220,7 +322,7 @@ private struct TVCardLabel<Art: View>: View {
     @Environment(\.isFocused) private var isFocused
 
     var body: some View {
-        VStack(alignment: .leading, spacing: TVMetrics.captionSpacing) {
+        VStack(alignment: .leading, spacing: caption == .always ? TVMetrics.captionSpacing : 0) {
             art()
                 .overlay(alignment: .topLeading) {
                     if let badge {
@@ -257,7 +359,7 @@ private struct TVCardLabel<Art: View>: View {
                 // 焦点效果要点名套在图上：图是 Nuke 的 LazyImage 包出来的，`.borderless` 自己找不到它，
                 // 获得焦点时卡片纹丝不动、看不出焦点在哪
                 .hoverEffect(.highlight)
-            if caption != .hidden {
+            if caption == .always {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(.callout.weight(.medium))
@@ -270,11 +372,29 @@ private struct TVCardLabel<Art: View>: View {
                     }
                 }
                 .frame(width: width, alignment: .leading)
-                .opacity(caption == .always || isFocused ? 1 : 0)
-                .animation(.easeOut(duration: 0.2), value: isFocused)
+            }
+            if caption == .focused {
+                // 零高度的框：不占排版，片名从框顶往下溢出画在行间空隙里
+                floatingCaption
+                    .frame(width: width, height: 0, alignment: .top)
             }
         }
         .preference(key: TVRowFocusKey.self, value: isFocused)
+    }
+
+    /// `.focused` 的片名：不占排版，从图的底边再往下让出焦点放大的余量（放大约 1.1 倍，
+    /// 400 高的海报下沿往下长约 20），落在行间空隙里。空隙（行底留白 20 + 行距 56）只够一行，
+    /// 所以片名与副标题合成一行、放不下就截断
+    private var floatingCaption: some View {
+        Text("\(Text(title))\(Text(subtitle.map { " · \($0)" } ?? "").foregroundStyle(.secondary))")
+            .font(.callout.weight(.medium))
+            .lineLimit(1)
+            .frame(width: width, alignment: .leading)
+            .padding(.top, TVMetrics.captionSpacing)
+            .fixedSize(horizontal: false, vertical: true)
+            .opacity(isFocused ? 1 : 0)
+            .animation(.easeOut(duration: 0.2), value: isFocused)
+            .allowsHitTesting(false)
     }
 }
 
@@ -316,7 +436,9 @@ struct TVShelf<Content: View>: View {
     @State private var rowFocused = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 24) {
+        // 标题与卡片之间只留 8：卡片区上沿还有 20 的焦点余量，标题字底到卡片顶约 32
+        // （量自系统 Apple TV App 首页，2026-10-04；原先 24 时约 49，显得标题飘在行外）
+        VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .firstTextBaseline, spacing: 16) {
                 // 32 点半粗（同系统 Apple TV App 的行标题）：38 点的 title3 压过了首屏大图的文字，显得重
                 Text(title)

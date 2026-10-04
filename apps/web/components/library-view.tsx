@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 
 import { BrandLoader } from "@/components/brand-loader";
 import { ContentEmptyState } from "@/components/content-empty-state";
-import { CollectionLibraryCard } from "@/components/collection-library-card";
+import { CollectionLibraryCard, ShelfCardCaption } from "@/components/collection-library-card";
 import { HScroller } from "@/components/h-scroller";
 import { LIBRARY_KIND_META } from "@/components/library-kind-meta";
 import {
@@ -820,7 +820,7 @@ function favoriteItemToMediaItem(item: FavoriteItem): MediaItem {
   };
 }
 
-/* —— 库卡片：海报货架封面 + 库名/徽标/计数，Emby「我的媒体」磁贴风 —— */
+/* —— 库卡片：海报货架封面 + 库名（ShelfCardCaption），Emby「我的媒体」磁贴风 —— */
 
 function LibraryCard({ library, items }: { library: MediaLibrary; items: LibraryItem[] }) {
   const meta = LIBRARY_KIND_META[library.kind];
@@ -897,15 +897,7 @@ function LibraryCard({ library, items }: { library: MediaLibrary; items: Library
         </div>
       </Link>
 
-      {/* 库名：Emby 式放在封面下方居中，只与「默认」共处一行 */}
-      <div className="mt-2.5 flex items-center justify-center gap-2 px-2">
-        <h3 className="truncate text-body-lg font-semibold text-white">{library.name}</h3>
-        {library.is_default && (
-          <span className="shrink-0 rounded-full border border-white/[0.14] bg-white/[0.1] px-2 py-0.5 text-micro font-semibold text-white/80">
-            默认
-          </span>
-        )}
-      </div>
+      <ShelfCardCaption name={library.name} />
     </div>
   );
 }

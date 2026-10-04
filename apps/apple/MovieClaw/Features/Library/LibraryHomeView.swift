@@ -395,7 +395,7 @@ private struct PosterRowItem: Identifiable {
 
 // MARK: - 库卡片
 
-/// 库卡片（Web `LibraryCard`）：服务端拼好的「氛围光货架」封面 + 库名 +「默认」；
+/// 库卡片（Web `LibraryCard`）：服务端拼好的「氛围光货架」封面 + 库名（`ShelfCardCaption`）；
 /// 扫描 / 整理 / 元数据刷新进行中时封面归进度环并写出阶段，其余时间有待入账文件就挂「N 个新文件入库中」。
 private struct LibraryHomeCard: View {
     let library: API.LibraryView
@@ -459,21 +459,7 @@ private struct LibraryHomeCard: View {
             .aspectRatio(21 / 10, contentMode: .fit)
             .clipShape(.rect(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.1)))
-            HStack(spacing: 8) {
-                Text(library.name)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                if library.isDefault {
-                    Text("默认")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.8))
-                        .padding(.horizontal, 8).padding(.vertical, 2)
-                        .background(.white.opacity(0.1), in: .capsule)
-                        .overlay(Capsule().strokeBorder(.white.opacity(0.14)))
-                }
-            }
-            .padding(.horizontal, 8)
+            ShelfCardCaption(name: library.name)
         }
         .frame(width: PhoneCardWidth.libraryCover)
         .contentShape(.rect)
@@ -483,7 +469,7 @@ private struct LibraryHomeCard: View {
 // MARK: - 合集虚拟库卡片
 
 /// 首页合集的虚拟库卡片：复用真实媒体库的服务端货架封面，也不计入真实库统计。
-/// 卡片规格沿用 LibraryHomeCard，名字用合集原名，与可单独改名的海报行分开。
+/// 卡片规格沿用 LibraryHomeCard（名称同为 `ShelfCardCaption`，封面左下挂「合集」标签），名字用合集原名，与可单独改名的海报行分开。
 private struct CollectionLibraryHomeCard: View {
     let collection: API.CollectionView
     @Environment(\.api) private var api
@@ -503,18 +489,8 @@ private struct CollectionLibraryHomeCard: View {
             .aspectRatio(21 / 10, contentMode: .fit)
             .clipShape(.rect(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.1)))
-            HStack(spacing: 8) {
-                Text(collection.name).font(.headline).foregroundStyle(.white).lineLimit(1)
-                Label("合集", systemImage: "rectangle.stack")
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.8))
-                    .padding(.horizontal, 8).padding(.vertical, 2)
-                    .background(.white.opacity(0.1), in: .capsule)
-                    .overlay(Capsule().strokeBorder(.white.opacity(0.14)))
-                    .fixedSize()
-            }
-            .padding(.horizontal, 8)
-            Text("\(collection.itemCount) 部").font(.caption).foregroundStyle(Theme.textFaint)
+            .overlay(alignment: .bottomLeading) { CollectionCoverTag() }
+            ShelfCardCaption(name: collection.name)
         }
         .frame(width: PhoneCardWidth.libraryCover)
         .contentShape(.rect)
@@ -793,5 +769,39 @@ private struct ClearLibraryHistorySheet: View {
                 feedback.error(error)
             }
         }
+    }
+}
+
+// MARK: - 库卡 / 合集卡共用的名称与合集标签
+
+/// 「我的媒体库」行的卡片名：库卡与合集卡共用，封面下方居中、只占一行（Web `ShelfCardCaption`，
+/// Emby / Jellyfin「我的媒体」同款）。不写部数（页头已有总数，入口卡只负责认出是哪个）；
+/// 「默认」是订阅 / 下载的落库设置，只在库管理页标注；合集的区分是封面左下的 `CollectionCoverTag`，不占名称行
+private struct ShelfCardCaption: View {
+    let name: String
+
+    var body: some View {
+        Text(name)
+            .font(.headline)
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 8)
+    }
+}
+
+/// 合集卡封面左下的「合集」玻璃标签：落在货架封面的倒影暗区（本就没信息、压得住字），
+/// 与库卡「N 个新文件入库中」同位置、同一套胶囊——合集没有扫描状态，两者不会撞车
+private struct CollectionCoverTag: View {
+    var body: some View {
+        Label("合集", systemImage: "rectangle.stack")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.9))
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(.black.opacity(0.5), in: .capsule)
+            .background(.ultraThinMaterial, in: .capsule)
+            .overlay(Capsule().strokeBorder(.white.opacity(0.16)))
+            .fixedSize()
+            .padding(8)
     }
 }

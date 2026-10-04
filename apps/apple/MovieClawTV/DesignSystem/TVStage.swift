@@ -304,8 +304,9 @@ struct TVStageInfo: View {
     var overview: String?
     /// 简介最多几行：首页两行（下面还压着一行卡片），详情页三行
     var overviewLines = 2
-    /// 片名 Logo 的最大宽高：首页 620×120；详情页这一部就是主体，放大到 860×200
-    var logoSize = CGSize(width: 620, height: 120)
+    /// 片名 Logo 的最大宽高：首页与详情页一致 860×200（2026-10-04 用户要求统一成详情页的大小——
+    /// 从首页点进详情，同一个 Logo 不再突然变大一圈）
+    var logoSize = CGSize(width: 860, height: 200)
 
     // 排法（首页、详情页同一套，2026-10-03 用户定）：片名 → 年份、类型、片长（加粗主文字，后面跟规格小标签）
     // → 第几集（降一级）→ 简介。段距照系统 Apple TV App 详情页量出来的节奏：组内紧、组间松约 2～3 倍——
@@ -313,7 +314,7 @@ struct TVStageInfo: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            // 片名 Logo 是首屏的视觉主角之一（同 Disney+ / Apple TV App），给足尺寸：首页最高 120、最宽 620。
+            // 片名 Logo 是首屏的视觉主角之一（同 Disney+ / Apple TV App），给足尺寸：最高 200、最宽 860（`logoSize`）。
             // 64 点高时横长的中文字标只剩一条细线（2026-10-03 用户在真机上嫌小）
             TVTitleArt(title: title, logoURL: logoURL, size: logoSize)
                 .padding(.bottom, 28)
@@ -327,12 +328,7 @@ struct TVStageInfo: View {
                     .padding(.bottom, 20)
             }
             if let overview = overview?.trimmingCharacters(in: .whitespacesAndNewlines), !overview.isEmpty {
-                Text(overview)
-                    .font(.system(size: 25))
-                    .lineSpacing(7)
-                    .foregroundStyle(.white.opacity(0.82))
-                    .lineLimit(overviewLines)
-                    .frame(maxWidth: 720, alignment: .leading)
+                TVInfoText.overview(overview, lines: overviewLines)
             }
         }
         // 剧照的左侧压暗减弱了，靠字自己的阴影托住
@@ -347,9 +343,7 @@ struct TVStageInfo: View {
             if (meta?.isEmpty == false) || !badges.isEmpty {
                 HStack(spacing: 12) {
                     if let meta, !meta.isEmpty {
-                        Text(meta)
-                            .font(.system(size: 27, weight: .semibold))
-                            .lineLimit(1)
+                        TVInfoText.meta(meta)
                             .padding(.trailing, 4)
                     }
                     ForEach(badges, id: \.self) { badge in
@@ -366,6 +360,28 @@ struct TVStageInfo: View {
               name.range(of: #"^(第\s*\d+\s*集|Episode\s*\d+)$"#, options: [.regularExpression, .caseInsensitive]) == nil
         else { return number }
         return "\(number) · \(name)"
+    }
+}
+
+/// 年份类型那一行与简介的字：大图区（首页首屏、详情页）和首页海报行下方的说明共用这一套。
+/// 海报行原先另写了一套（65% 亮度的灰字、铺 1100 宽、行距更紧），和详情页放在一起看不是一套字
+/// （2026-10-04 用户要求统一成详情页的大字）；以后调字号只改这里
+enum TVInfoText {
+    /// 年份、类型、片长那一行：27 号半粗白字
+    static func meta(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 27, weight: .semibold))
+            .lineLimit(1)
+    }
+
+    /// 简介：25 号，行距 +7（中文字面满，比 Apple 的英文再松一点），82% 亮度，最宽 720
+    static func overview(_ text: String, lines: Int) -> some View {
+        Text(text)
+            .font(.system(size: 25))
+            .lineSpacing(7)
+            .foregroundStyle(.white.opacity(0.82))
+            .lineLimit(lines)
+            .frame(maxWidth: 720, alignment: .leading)
     }
 }
 

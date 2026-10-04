@@ -282,7 +282,6 @@ struct TVSignInForm: View {
     let onChangeServer: () -> Void
 
     @Environment(AppModel.self) private var model
-    @Environment(TVProfileGate.self) private var gate
     @State private var username = ""
     @State private var password = ""
     @State private var busy = false
@@ -349,8 +348,6 @@ struct TVSignInForm: View {
             defer { busy = false }
             do {
                 let result = try await model.signIn(to: server, username: username.trimmingCharacters(in: .whitespaces), password: password)
-                // 刚登录的就是要用的人：不再问「谁在看」
-                if result == .signedIn { gate.pickedProfile() }
                 if result == .needsSetup {
                     error = "这台服务器还没初始化：请先在浏览器里打开 \(server.displayString) 创建管理员账号。"
                 }

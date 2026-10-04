@@ -12,7 +12,6 @@ struct TVPairingLogin: View {
     let onUsePassword: () -> Void
 
     @Environment(AppModel.self) private var model
-    @Environment(TVProfileGate.self) private var gate
     @State private var challenge: API.DeviceAuthorizeView?
     @State private var status: Status = .requesting
     /// 加一就重新发起一次（「换一个码」）
@@ -132,7 +131,6 @@ struct TVPairingLogin: View {
                 guard let granted = try await api.authDeviceToken(body: .init(deviceCode: started.deviceCode)) else { continue }
                 status = .signingIn
                 try await model.signIn(to: server, pairedToken: granted.token)
-                gate.pickedProfile()
                 return
             } catch let error as APIError where error.status == 429 {
                 // 轮询过快：退避，不重置配对

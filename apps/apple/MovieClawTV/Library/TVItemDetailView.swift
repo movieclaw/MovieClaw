@@ -2,7 +2,7 @@ import SwiftUI
 
 /// 条目详情（docs/design/tvos-app.md §3.4），两截，照系统 Apple TV App 的详情页：
 /// - **首屏**沿用首页大图区的组件（`TVStageBackdrop` + `TVStageBlock` + `TVStageInfo`）：剧照原图铺满，
-///   片名 Logo 比首页大、整块更靠上，下面不露任何一行——这一部就是主体（2026-10-03 用户要求与首页拉开差别）。
+///   整块更靠上，下面不露任何一行——这一部就是主体（2026-10-03 用户要求与首页拉开差别）；片名 Logo 与首页同大（2026-10-04 统一）。
 ///   剧集讲接着看的那一集；从「接下来继续」进来（首页大图的「详情」、卡片的长按菜单）直接是那一季那一集。
 /// - **往下按整页滑到下半截**：顶部居中的片名 → 季（焦点移到哪一季，下面就换成哪一季）→ 分集横排（剧照 + 第几集、集名、
 ///   简介、日期）→ 演职员 → 所属合集。剧照跟着滚走，露出由剧照边缘色往下渐暗的底色。
@@ -133,7 +133,7 @@ struct TVItemDetailView: View {
     private func content(_ detail: API.LibraryItemDetailView) -> some View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
-                // 首屏：Logo 放大到最高 200，文字与按钮贴底排，下沿与首页一样在 y=918。剧集底下露出分集剧照的上沿——
+                // 首屏：Logo 最高 200（与首页同大），文字与按钮贴底排，下沿与首页一样在 y=918。剧集底下露出分集剧照的上沿——
                 // 整屏都是大图的话，用户不知道往下还有东西（2026-10-03 用户指出，同 Apple TV）；电影不露（见 lowerGap）
                 TVScrollGate(scroll: scroll, showsWhenLower: false, threshold: lowerScroll) {
                 TVStageBlock(topInset: topInset, bottom: 918) {
@@ -144,8 +144,7 @@ struct TVItemDetailView: View {
                         meta: metaLine(detail),
                         badges: Self.mediaBadges(detail),
                         overview: isMovie ? detail.localMeta?.plot : (selectedEpisode?.overview ?? detail.localMeta?.plot),
-                        overviewLines: 3,
-                        logoSize: CGSize(width: 860, height: 200)
+                        overviewLines: 3
                     )
                     .accessibilityIdentifier("tv-item-stage")
                 } actions: {

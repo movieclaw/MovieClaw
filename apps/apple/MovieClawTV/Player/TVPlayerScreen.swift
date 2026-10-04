@@ -84,7 +84,6 @@ enum TVPlayerFocus: Hashable {
     case skip
     case upNext
     case qualityOffer
-    case panelTab(TVPlayerPanelTab)
     case panelOption(String)
     case dialog
 }
@@ -117,7 +116,8 @@ private struct TVPlayerContent: View {
 
             surface
 
-            if chromeVisible || panel != nil {
+            // 面板打开时进度条让位：面板底部是字幕预览，两者都在屏幕下方
+            if chromeVisible, panel == nil {
                 chrome
                     .transition(.opacity)
             }
@@ -138,13 +138,8 @@ private struct TVPlayerContent: View {
             }
 
             if let panel {
-                VStack {
-                    TVPlayerPanel(controller: controller, tab: panel, focus: $focus) { next in
-                        self.panel = next
-                    }
-                    Spacer()
-                }
-                .transition(.move(edge: .top).combined(with: .opacity))
+                TVPlayerPanel(controller: controller, initial: panel, focus: $focus)
+                    .transition(.opacity)
             }
 
             dialogs
@@ -158,6 +153,8 @@ private struct TVPlayerContent: View {
         .animation(.easeInOut(duration: 0.2), value: controller.notice)
         .onPlayPauseCommand(perform: togglePlay)
         .onExitCommand(perform: back)
+        // 面板开着时不许系统拿返回键直接关掉播放器：焦点万一悬空，返回键也只该收起面板（由 back 处理），不能退出播放
+        .interactiveDismissDisabled(panel != nil)
         .focusScope(focusScope)
         .task(id: contextualFocusTarget) {
             // 跳过按钮、下一集卡片出现时焦点自动落上去（按一下就生效），消失时回到画面。
@@ -296,6 +293,9 @@ private struct TVPlayerContent: View {
         .padding(.horizontal, 80)
         .ignoresSafeArea()
         .opacity(isModal || panel != nil ? 0 : 1)
+        // 面板打开时这些按钮只是看不见、还能拿焦点（且声明了「优先默认焦点」）：面板里的焦点一旦落空，
+        // 系统会把它落到看不见的按钮上。面板开着时整块禁用
+        .disabled(panel != nil)
         .animation(.easeInOut(duration: 0.25), value: contextualFocusTarget)
     }
 

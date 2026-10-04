@@ -12,10 +12,8 @@ struct MovieClawTVApp: App {
         PerfTrace.markMain()
         ImagePipelineSetup.configure()
         // 换了 Apple TV 的系统用户：先把这个人上次选的账号设为当前账号，AppModel 直接恢复成他
-        MovieClawTVApp.profileApplied = TVUserProfiles.applyPreferredAccount()
+        TVUserProfiles.applyPreferredAccount()
     }()
-    /// 启动时已经按系统用户选好了账号（不再问「谁在看」）
-    nonisolated(unsafe) static var profileApplied = false
     @State private var model = AppModel()
 
     init() {
@@ -40,7 +38,6 @@ final class TVDeepLinkInbox {
 /// 按 `AppModel.phase` 切换顶层界面：欢迎（连接、登录、选人）或主界面。
 struct TVRootView: View {
     @Environment(AppModel.self) private var model
-    @State private var gate = TVProfileGate(picked: MovieClawTVApp.profileApplied)
     @State private var inbox = TVDeepLinkInbox()
 
     private var currentAccountKey: String {
@@ -56,27 +53,22 @@ struct TVRootView: View {
             case .needsServer, .needsSetup, .needsLogin, .chooseAccount, .unreachable:
                 TVWelcomeView()
             case let .ready(session):
-                if !gate.picked, model.savedAccountCount > 1 {
-                    // 这台电视上登录过不止一个账号：先问「谁在看」（docs/design/tvos-app.md §5.2）
-                    TVWhoIsWatchingView()
-                } else {
-                    TVMainView()
-                        // 换账号（含换到另一台服务器上的同名账号）时整棵树重建，避免残留上个账号的数据
-                        .id("\(model.server?.origin.absoluteString ?? "")#\(session.username)")
-                }
+                // 启动直接以上次用的账号进主界面，不问「谁在看」（2026-10-04 用户要求：每次打开都问太烦）；
+                // 要换人从侧边栏的「账号」页签换（docs/design/tvos-app.md §5.2）
+                TVMainView()
+                    // 换账号（含换到另一台服务器上的同名账号）时整棵树重建，避免残留上个账号的数据
+                    .id("\(model.server?.origin.absoluteString ?? "")#\(session.username)")
             }
         }
-        .environment(gate)
         .environment(inbox)
-        // App 内部链接（Top Shelf 的「播放」「确认」）：冷启动时主界面可能还没出现（「谁在看」、恢复会话中），
-        // 先收下，主界面出现后执行。Top Shelf 显示的就是当前账号在看的，所以从那里进来不再问「谁在看」
+        // App 内部链接（Top Shelf 的「播放」「确认」）：冷启动时主界面可能还没出现（恢复会话中），
+        // 先收下，主界面出现后执行
         .onOpenURL { url in
             guard let link = TVDeepLink(url: url) else { return }
             inbox.pending = link
-            gate.pickedProfile()
         }
         .animation(.default, value: model.phase)
-        // 当前账号变了（登录、「谁在看」选人、切换、退出后自动切过去）：记成这位系统用户的偏好
+        // 当前账号变了（登录、在「账号」页签切换、退出后自动切过去）：记成这位系统用户的偏好
         .onChange(of: currentAccountKey) { _, _ in
             if let server = model.server, let username = model.session?.username {
                 TVUserProfiles.remember(server: server, username: username)

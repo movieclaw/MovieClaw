@@ -1031,6 +1031,33 @@ class LocalMetaView(BaseModel):
     )
 
 
+class LibraryItemShowcaseView(BaseModel):
+    """海报行「选中展开」要的展示信息（电视首页，同 Netflix 电视版的焦点卡）。
+
+    海报墙列表（``LibraryItemView``）只带画格子要的字段；焦点停在某张海报上时，
+    它展开成横版剧照卡、下面写类型 / 时长 / 分级与两行简介——这些字段一行二十部
+    整批取一次，不逐张拉详情（详情带全部文件清单，一部剧上百集）。
+    """
+
+    media_item_id: int
+    backdrop_url: str | None = Field(
+        default=None,
+        description=(
+            "横版剧照：本地资产优先，回落 TMDB w1280"
+            "（展开卡约 800 点宽，4K 下 1600px，列表那张 w780 发虚）"
+        ),
+    )
+    logo_url: str | None = Field(
+        default=None, description="片名 Logo（透明底 PNG）；没有时前端写文字片名"
+    )
+    overview: str | None = Field(default=None, description="简介（前端最多显示两行）")
+    genres: list[str] = Field(default_factory=list, description="类型（前端取前两个）")
+    runtime_minutes: int | None = Field(
+        default=None, description="片长（电影用；剧集为单集时长，前端不显示）"
+    )
+    content_rating: str | None = Field(default=None, description="分级（优先 CN，无则 US）")
+
+
 class LibraryItemDetailView(BaseModel):
     """条目详情页的完整数据：基本信息 + 本地刮削元数据 + 逐文件真实规格。
 

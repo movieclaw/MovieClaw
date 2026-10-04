@@ -52,6 +52,7 @@ from movieclaw_api.schemas.library import (
     LibraryGalleryGroupView,
     LibraryIndexEntryView,
     LibraryItemDetailView,
+    LibraryItemShowcaseView,
     LibraryItemView,
     LibraryKindSummaryView,
     LibraryPayload,
@@ -186,6 +187,7 @@ from movieclaw_api.services.library.series import (
     ensure_series_collections_for_library,
     series_collection_id_for,
 )
+from movieclaw_api.services.library.showcase import MAX_SHOWCASE_IDS, load_showcase
 from movieclaw_api.services.library.subtitle_preview import (
     SubtitlePreviewError,
     SubtitleTrackNotFound,
@@ -246,6 +248,8 @@ search_router = APIRouter(prefix="/search", tags=["search"])
 # 在 api/router.py 里挂在 ``router`` 之前——否则 "kinds" 会先撞上 /{library_id}
 # 系列路由的 int 校验（422），与回收站 /libraries/trashed-files 同一个处理
 kinds_router = APIRouter(prefix="/libraries/kinds", tags=["libraries"])
+# 海报行「选中展开」的批量展示信息；与 kinds_router 同理要排在 /libraries/{library_id} 之前
+showcase_router = APIRouter(prefix="/libraries/showcase", tags=["libraries"])
 
 
 def _assignment_target(title_ref: str) -> tuple[MediaKind, int]:
@@ -4404,3 +4408,25 @@ async def list_library_kind_items(
             order=order,
         )
     )
+
+
+@showcase_router.get(
+    "",
+    response_model=ApiResponse[list[LibraryItemShowcaseView]],
+    summary="海报行选中展开用的展示信息（批量：剧照 / Logo / 类型 / 片长 / 分级 / 简介）",
+    operation_id="ui.library.showcase",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def list_library_showcase(
+    ids: Annotated[
+        list[int],
+        Query(description=f"条目 id，一次最多 {MAX_SHOWCASE_IDS} 个；看不见的静默略过"),
+    ],
+    session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(require_login),
+) -> ApiResponse[list[LibraryItemShowcaseView]]:
+    """电视首页的海报行：焦点停在哪张海报上，它就展开成横版剧照卡，行下面写类型、
+    片长、分级与两行简介（同 Netflix 电视版）。客户端拿一行的条目 id 整批取一次，
+    不逐张拉详情。按传入顺序返回。"""
+
+    return ok(await load_showcase(session, principal, ids))

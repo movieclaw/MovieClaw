@@ -4313,6 +4313,36 @@ nonisolated extension API {
         }
     }
 
+    /// 海报行「选中展开」要的展示信息（电视首页，同 Netflix 电视版的焦点卡）。
+    /// 海报墙列表（``LibraryItemView``）只带画格子要的字段；焦点停在某张海报上时，
+    /// 它展开成横版剧照卡、下面写类型 / 时长 / 分级与两行简介——这些字段一行二十部
+    /// 整批取一次，不逐张拉详情（详情带全部文件清单，一部剧上百集）。
+    struct LibraryItemShowcaseView: Codable, Hashable, Sendable {
+        var mediaItemId: Int
+        /// 横版剧照：本地资产优先，回落 TMDB w1280（展开卡约 800 点宽，4K 下 1600px，列表那张 w780 发虚）
+        var backdropUrl: String?
+        /// 片名 Logo（透明底 PNG）；没有时前端写文字片名
+        var logoUrl: String?
+        /// 简介（前端最多显示两行）
+        var overview: String?
+        /// 类型（前端取前两个）
+        var genres: [String]
+        /// 片长（电影用；剧集为单集时长，前端不显示）
+        var runtimeMinutes: Int?
+        /// 分级（优先 CN，无则 US）
+        var contentRating: String?
+
+        enum CodingKeys: String, CodingKey {
+            case mediaItemId = "media_item_id"
+            case backdropUrl = "backdrop_url"
+            case logoUrl = "logo_url"
+            case overview
+            case genres
+            case runtimeMinutes = "runtime_minutes"
+            case contentRating = "content_rating"
+        }
+    }
+
     /// 库内一个媒体条目的库存聚合（单库海报墙的一格）。
     struct LibraryItemView: Codable, Hashable, Sendable {
         var mediaItemId: Int
