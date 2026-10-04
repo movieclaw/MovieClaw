@@ -292,7 +292,8 @@ final class LibraryUITests: XCTestCase {
         field.typeText(XCUIKeyboardKey.delete.rawValue)
         let suggestion = app.buttons["library-search-suggestion"].firstMatch
         XCTAssertTrue(suggestion.waitForExistence(timeout: 10), "实时结果上方应有搜索联想")
-        let picked = suggestion.label.replacingOccurrences(of: "搜索「", with: "").replacingOccurrences(of: "」", with: "")
+        // 无障碍标签形如「搜索「三体」」或「搜索「三体」，首字母匹配」
+        let picked = suggestion.label.components(separatedBy: "「").dropFirst().first?.components(separatedBy: "」").first ?? ""
         suggestion.tap()
         XCTAssertTrue(waitUntil(timeout: 10) { (field.value as? String) == picked }, "点联想词应填进搜索框：\(picked)")
         snapshot("点联想后")

@@ -458,51 +458,61 @@ struct LibrarySearchResultsView: View {
         .accessibilityIdentifier("library-results")
     }
 
-    /// 搜索联想（同 Apple TV 的系统联想）：从本次结果里提取的片名与人名，不纠错、不按热度。
+    /// 搜索联想（同 Apple TV 的系统联想）：从本次结果里提取的片名，不纠错、不按热度。
+    /// 人名联想不列：正下方就是带头像的人物行，同一个人出现两遍只会更挤。
     /// 与当前输入完全相同的词不列，重复的去掉
     private var suggestions: [API.LibrarySearchSuggestion] {
         var seen: Set<String> = [keyword.lowercased()]
         return model.suggestions.filter { suggestion in
             let key = suggestion.text.trimmingCharacters(in: .whitespaces).lowercased()
-            return !key.isEmpty && seen.insert(key).inserted
+            return suggestion.type == "title" && !key.isEmpty && seen.insert(key).inserted
         }
     }
 
-    /// 一排横滑胶囊：片名带胶片图标、人名带人像图标，下注命中原因；点一下把词填进搜索框（结果随之实时刷新）
+    /// 联想的命中原因只在有信息量时写：直接按片名命中（「名称匹配」）就是用户在输入的那几个字，不必解释；
+    /// 人物带出（「演员：李一桐」）、拼音、首字母、别名才写
+    private func suggestionReason(_ suggestion: API.LibrarySearchSuggestion) -> String? {
+        guard let label = suggestion.label, label != "名称匹配" else { return nil }
+        return label
+    }
+
+    /// 一排横滑的液态玻璃胶囊（与发现页筛选胶囊同一套玻璃）：单行，片名在前，
+    /// 有信息量的命中原因以小一号的淡色字跟在后面；点一下把词填进搜索框（结果随之实时刷新）
     private func suggestionRow(_ items: [API.LibrarySearchSuggestion], onPick: @escaping (String) -> Void) -> some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(items, id: \.self) { suggestion in
-                    Button { onPick(suggestion.text) } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: suggestion.type == "person" ? "person.fill" : "film")
-                                .font(.caption)
-                                .foregroundStyle(Theme.textFaint)
-                            VStack(alignment: .leading, spacing: 1) {
+        ScrollView(.horizontal) {
+            GlassEffectContainer(spacing: 8) {
+                HStack(spacing: 8) {
+                    ForEach(items, id: \.self) { suggestion in
+                        let reason = suggestionReason(suggestion)
+                        Button { onPick(suggestion.text) } label: {
+                            HStack(spacing: 6) {
                                 Text(suggestion.text)
                                     .font(.subheadline)
                                     .foregroundStyle(Theme.text)
-                                    .lineLimit(1)
-                                // 为什么联想到它（同结果卡片的命中原因），人物带出的作品写明是谁
-                                if let label = suggestion.label {
-                                    Text(label)
-                                        .font(.caption2)
+                                if let reason {
+                                    Text(reason)
+                                        .font(.caption)
                                         .foregroundStyle(Theme.textFaint)
-                                        .lineLimit(1)
                                 }
                             }
+                            .lineLimit(1)
+                            .padding(.horizontal, 14)
+                            .frame(height: 34)
+                            .glassEffect(.regular.interactive(), in: .capsule)
+                            .contentShape(.capsule)
                         }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        // 两行字时胶囊太圆，改大圆角矩形
-                        .background(.white.opacity(0.09), in: .rect(cornerRadius: 14))
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(reason.map { "搜索「\(suggestion.text)」，\($0)" } ?? "搜索「\(suggestion.text)」")
+                        .accessibilityIdentifier("library-search-suggestion")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("搜索「\(suggestion.text)」")
-                    .accessibilityIdentifier("library-search-suggestion")
                 }
+                .padding(.horizontal, Theme.pagePadding)
+                .padding(.vertical, 4)
             }
         }
+        .scrollIndicators(.hidden)
+        // 横滑出页边距：胶囊能滑到屏幕边缘再消失，而不是在页边距处被一刀切掉
+        .padding(.horizontal, -Theme.pagePadding)
         .discoverContainer("library-suggestions")
     }
 
