@@ -236,6 +236,26 @@ async def test_search_history_isolated_per_member(db) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("vertical", ["media", "torrent"])
+async def test_search_history_vertical_filter_preserves_member_scope(db, vertical) -> None:
+    """按分类查询与清空仍限定本人，不能混入或删除其他成员的同词记录。"""
+    from movieclaw_db.repositories.search_history_repo import SearchHistoryRepository
+
+    async with db.session() as session:
+        repo = SearchHistoryRepository(session)
+        other_vertical = "torrent" if vertical == "media" else "media"
+        admin_row = await repo.record("沙丘", member_id=0, vertical=vertical)
+        member_row = await repo.record("沙丘", member_id=7, vertical=vertical)
+        other_row = await repo.record("沙丘", member_id=7, vertical=other_vertical)
+
+        rows = await repo.list_recent_groups(limit=1, member_id=7, vertical=vertical)
+        assert [row.id for row in rows] == [member_row]
+        assert await repo.clear(member_id=7, vertical=vertical) == 1
+        assert [row.id for row in await repo.list_recent_groups(member_id=7)] == [other_row]
+        assert [row.id for row in await repo.list_recent_groups(member_id=0)] == [admin_row]
+
+
+@pytest.mark.asyncio
 async def test_usable_site_ids_semantics(db) -> None:
     """站点白名单判定（P2）：None=不受限；白名单成员返回集合。"""
     from movieclaw_api.services.auth import Principal

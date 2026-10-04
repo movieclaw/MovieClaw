@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { useConfirm } from "@/components/feedback";
+import { useConfirm, useToast } from "@/components/feedback";
 import {
   BookmarkIcon,
   ChevronRightIcon,
@@ -46,7 +46,7 @@ import { useIsMobile } from "@/lib/use-media-query";
  * 纯 CSS 面板（不再用 WebGL 液态玻璃：弹窗是高频工具，要的是安静、快、可读，
  * 折射效果在这里只会增加视觉噪音），结构自上而下三段：
  *   输入行   放大镜 + 关键词输入 + 「影视 | 资源 | 媒体库」分段（右侧，Tab 键可切）
- *   主体     资源模式先出一行分类 chips；下方是最近搜索（媒体/资源混排，
+ *   主体     资源模式先出一行分类 chips；下方是当前模式的最近搜索（媒体库不展示，
  *            图标 + 类型徽标区分，↑↓ 可选、输入即过滤、hover 可删）
  *   页脚     左侧当前模式说明，右侧快捷键提示
  *
@@ -293,6 +293,7 @@ function SearchPalette({
   const { visibleTabs, loading: tabsLoading } = useSearchPrefs();
   const searchAccess = useSearchAccess();
   const confirm = useConfirm();
+  const toast = useToast();
   // 银玻璃：最近搜索用 iOS 式分组行；手机上面板改成全屏搜索页（SearchHomeView 的版式）。
   // Netflix 主题沿用原来的浮层与可折叠分组，展示不动。
   const silver = !useTheme().structural;
@@ -310,6 +311,8 @@ function SearchPalette({
   );
   // null = 加载中；[] = 无历史
   const [items, setItems] = useState<SearchHistoryItem[] | null>(null);
+  // 删除完成后重读当前类型，同时让旧的读取请求作废；失败时也恢复后端真实状态。
+  const [historyRefresh, setHistoryRefresh] = useState(0);
   // （Netflix 主题的可折叠分组）关键词组默认全部展开；这里只记录用户在本次弹窗里主动收起的组。
   // 输入过滤时匹配组会临时强制展开，但不会抹掉用户的收起选择。
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
@@ -317,6 +320,7 @@ function SearchPalette({
   const [sel, setSel] = useState(-1);
   const inputRef = useRef<HTMLInputElement>(null);
   const availableModes = searchAccess.available;
+  const historyVertical = mode === "media" ? "titles" : mode === "torrent" ? "torrents" : undefined;
 
   // 挂载即聚焦输入框：effect 执行时 DOM 已提交，直接同步 focus（不要用 rAF，
   // 后台标签页里 rAF 会被挂起导致聚焦丢失）。草稿预填了关键词时光标放到末尾，接着改词。
@@ -364,25 +368,32 @@ function SearchPalette({
     writeSearchPaletteState({ mode, tabKey: nextTabKey });
   };
 
-  // 历史存在后端（search_history 表）；limit 按关键词组计算，组内范围会完整返回。
+  // 先在后端按类型筛选再取最近 8 组；切换模式时丢弃旧响应，媒体库不请求历史。
   useEffect(() => {
     let cancelled = false;
-    listSearchHistory(8)
+    setItems(null);
+    setSel(-1);
+    if (!historyVertical) {
+      setItems([]);
+      return;
+    }
+    listSearchHistory(8, historyVertical)
       .then((list) => !cancelled && setItems(list))
       .catch(() => !cancelled && setItems([]));
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [historyVertical, historyRefresh]);
 
   const groups = useMemo(
     () =>
       groupHistory(
         (items ?? []).filter((item) =>
-          item.vertical === "titles" ? searchAccess.canMedia : searchAccess.canTorrent,
+          item.vertical === historyVertical &&
+          (item.vertical === "titles" ? searchAccess.canMedia : searchAccess.canTorrent),
         ),
       ),
-    [items, searchAccess.canMedia, searchAccess.canTorrent],
+    [items, historyVertical, searchAccess.canMedia, searchAccess.canTorrent],
   );
 
   // 输入即过滤关键词组（子串匹配）；匹配后 UI 自动展开该组的所有具体范围。
@@ -494,10 +505,16 @@ function SearchPalette({
 
   const removeOne = (id: number) => {
     setItems((prev) => (prev ? prev.filter((i) => i.id !== id) : prev));
-    deleteSearchHistoryEntry(id).catch(() => undefined);
+    deleteSearchHistoryEntry(id)
+      .catch(() => toast.error("删除搜索历史失败，请重试"))
+      .finally(() => setHistoryRefresh((prev) => prev + 1));
   };
 
   const removeGroup = async (group: HistoryGroup) => {
+    if (group.items.length === 1) {
+      removeOne(group.items[0].id);
+      return;
+    }
     if (
       group.items.length > 1 &&
       !(await confirm({
@@ -510,7 +527,14 @@ function SearchPalette({
     }
     const ids = new Set(group.items.map((item) => item.id));
     setItems((prev) => (prev ? prev.filter((item) => !ids.has(item.id)) : prev));
-    Promise.all(group.items.map((item) => deleteSearchHistoryEntry(item.id))).catch(() => undefined);
+    // 等组内所有删除落定后再刷新，避免首个失败提前触发读取，剩余删除还在进行。
+    Promise.allSettled(group.items.map((item) => deleteSearchHistoryEntry(item.id)))
+      .then((results) => {
+        if (results.some((result) => result.status === "rejected")) {
+          toast.error("部分搜索历史删除失败，请重试");
+        }
+      })
+      .finally(() => setHistoryRefresh((prev) => prev + 1));
   };
 
   const toggleGroup = (groupKey: string) => {
@@ -523,8 +547,11 @@ function SearchPalette({
   };
 
   const removeAll = () => {
+    if (!historyVertical) return;
     setItems([]);
-    clearSearchHistory().catch(() => undefined);
+    clearSearchHistory(historyVertical)
+      .catch(() => toast.error("清空搜索历史失败，请重试"))
+      .finally(() => setHistoryRefresh((prev) => prev + 1));
   };
 
   const input = (
@@ -594,6 +621,7 @@ function SearchPalette({
     <button
       type="button"
       onClick={removeAll}
+      aria-label={`清空${mode === "media" ? "影视" : "资源"}搜索历史`}
       className="touch-target rounded-md px-1.5 py-0.5 text-caption text-[var(--text-faint)] transition-colors hover:bg-white/[0.08] hover:text-[var(--text-muted)]"
     >
       清空
@@ -680,7 +708,7 @@ function SearchPalette({
             )}
 
             {/* 最近搜索：资源模式下面还有浏览列表，不需要空态占位 */}
-            {items !== null && items.length === 0 && !torrentActive && (
+            {historyVertical && items !== null && items.length === 0 && !torrentActive && (
               <p className="px-2.5 py-10 text-center text-sub text-[var(--text-faint)]">
                 还没有搜索记录。{MODE_HINT[mode]}。
               </p>
@@ -802,9 +830,9 @@ function SearchPalette({
 
         <div className="h-px bg-white/[0.06]" />
 
-        {/* —— 主体：最近搜索（媒体/资源混排）—— */}
+        {/* —— 主体：当前类型的最近搜索；媒体库只展示搜索引导 —— */}
         <div className="scroll-thin max-h-[336px] min-h-[96px] overflow-y-auto p-2 max-md:max-h-none max-md:min-h-0 max-md:flex-1">
-          {items !== null && items.length > 0 && (
+          {historyVertical && items !== null && items.length > 0 && (
             <div className="flex items-center justify-between px-2.5 pb-1 pt-1">
               <span className="text-caption font-medium tracking-wide text-[var(--text-faint)]">
                 最近搜索
@@ -812,17 +840,22 @@ function SearchPalette({
               {clearHistoryButton}
             </div>
           )}
-          {items !== null && items.length === 0 && (
+          {historyVertical && items !== null && items.length === 0 && (
             <p className="px-2.5 py-6 text-center text-sub text-[var(--text-faint)]">
               还没有搜索记录，输入关键词回车开始搜索
             </p>
           )}
-          {items !== null && items.length > 0 && filteredGroups.length === 0 && (
+          {historyVertical && items !== null && items.length > 0 && filteredGroups.length === 0 && (
             <p className="px-2.5 py-6 text-center text-sub text-[var(--text-faint)]">
               没有匹配「{trimmed}」的搜索记录，回车直接搜索
             </p>
           )}
           {historyList}
+          {mode === "library" && (
+            <p className="px-2.5 py-6 text-center text-sub text-[var(--text-faint)]">
+              {MODE_HINT.library}，输入关键词回车开始搜索
+            </p>
+          )}
         </div>
 
         {/* —— 页脚：左侧模式说明，右侧快捷键 —— */}

@@ -145,10 +145,16 @@ export interface SearchHistoryItem {
   poster_mode: boolean;
 }
 
-/** 获取最近的统一搜索历史（按最近搜索时间倒序，同关键词+范围已合并）。 */
-export function listSearchHistory(limit = 10, init?: RequestInit): Promise<SearchHistoryItem[]> {
+/** 获取指定搜索类型的最近关键词组；不指定类型时兼容混合历史。 */
+export function listSearchHistory(
+  limit = 10,
+  vertical?: SearchHistoryItem["vertical"],
+  init?: RequestInit,
+): Promise<SearchHistoryItem[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (vertical) params.set("vertical", vertical);
   return unwrap(
-    request<ApiEnvelope<SearchHistoryItem[]>>(`/search/history?limit=${limit}`, init),
+    request<ApiEnvelope<SearchHistoryItem[]>>(`/search/history?${params}`, init),
   );
 }
 
@@ -220,9 +226,10 @@ export function deleteSearchHistoryEntry(id: number): Promise<null> {
   return unwrap(request<ApiEnvelope<null>>(`/search/history/${id}`, { method: "DELETE" }));
 }
 
-/** 清空全部搜索历史。 */
-export function clearSearchHistory(): Promise<null> {
-  return unwrap(request<ApiEnvelope<null>>(`/search/history`, { method: "DELETE" }));
+/** 清空指定搜索类型的历史；不指定类型时清空全部。 */
+export function clearSearchHistory(vertical?: SearchHistoryItem["vertical"]): Promise<null> {
+  const query = vertical ? `?vertical=${vertical}` : "";
+  return unwrap(request<ApiEnvelope<null>>(`/search/history${query}`, { method: "DELETE" }));
 }
 
 /** 资源搜索预设视图：内置分类与自定义站点组合的完整有序列表。 */

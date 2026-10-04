@@ -2057,15 +2057,18 @@ nonisolated extension APIClient {
 
     /// 清空搜索历史
     /// `DELETE /search/history`
-    func searchHistoryClear() async throws -> Void {
-        let _: API.JSONValue? = try await send("DELETE", "/search/history")
+    func searchHistoryClear(vertical: String? = nil) async throws -> Void {
+        var query: [URLQueryItem] = []
+        if let vertical { query.append(URLQueryItem(name: "vertical", value: "\(vertical)")) }
+        let _: API.JSONValue? = try await send("DELETE", "/search/history", query: query)
     }
 
     /// 获取最近的搜索历史
     /// `GET /search/history`
-    func searchHistoryList(limit: Int? = nil) async throws -> [API.SearchHistoryItem] {
+    func searchHistoryList(limit: Int? = nil, vertical: String? = nil) async throws -> [API.SearchHistoryItem] {
         var query: [URLQueryItem] = []
         if let limit { query.append(URLQueryItem(name: "limit", value: "\(limit)")) }
+        if let vertical { query.append(URLQueryItem(name: "vertical", value: "\(vertical)")) }
         return try await send("GET", "/search/history", query: query)
     }
 

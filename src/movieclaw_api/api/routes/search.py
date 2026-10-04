@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -392,12 +393,17 @@ async def update_search_presets(
 )
 async def list_search_history(
     limit: int = Query(10, ge=1, le=50, description="返回关键词组数上限"),
+    vertical: Literal["titles", "torrents"] | None = Query(
+        None, description="搜索类型；指定后仅在该类型内获取最近关键词组"
+    ),
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[list[SearchHistoryItem]]:
-    """返回**本人**最近的关键词组；组内保留媒体及各资源分类的独立记录与快照。"""
+    """返回本人指定类型的最近关键词组；省略类型时兼容原有混合列表。"""
     rows = await SearchHistoryRepository(session).list_recent_groups(
-        limit, member_id=_history_owner(principal)
+        limit,
+        member_id=_history_owner(principal),
+        vertical={"titles": "media", "torrents": "torrent"}.get(vertical),
     )
     return ok([SearchHistoryItem.from_model(r) for r in rows])
 
@@ -486,8 +492,14 @@ async def delete_search_history(
     openapi_extra={"x-cli-dangerous": "confirm"},
 )
 async def clear_search_history(
+    vertical: Literal["titles", "torrents"] | None = Query(
+        None, description="仅清空指定搜索类型；省略时清空本人全部搜索历史"
+    ),
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[None]:
-    count = await SearchHistoryRepository(session).clear(member_id=_history_owner(principal))
+    count = await SearchHistoryRepository(session).clear(
+        member_id=_history_owner(principal),
+        vertical={"titles": "media", "torrents": "torrent"}.get(vertical),
+    )
     return ok(None, message=f"已清空 {count} 条搜索历史")

@@ -133,7 +133,7 @@ class SearchHistoryRepository:
         await self._session.commit()
 
     async def list_recent_groups(
-        self, limit: int = 10, *, member_id: int = 0
+        self, limit: int = 10, *, member_id: int = 0, vertical: str | None = None
     ) -> list[SearchHistory]:
         """返回最近 ``limit`` 个关键词组及各组的全部范围记录。
 
@@ -141,14 +141,18 @@ class SearchHistoryRepository:
         必须保留；但接口若先按行 ``LIMIT``，一个高频关键词会挤掉其他关键词。
         因此先按去空格、忽略大小写后的关键词选出最近 N 组，再回表取组内全部行。
         返回顺序为组的最近时间倒序，组内仍按各范围的最近搜索时间倒序。
+        指定搜索类型时，选组与回表都在该类型内进行，避免其他类型挤占组数或混入。
         """
+        conditions = [SearchHistory.member_id == member_id]
+        if vertical is not None:
+            conditions.append(SearchHistory.vertical == vertical)
         keyword_key = func.lower(func.trim(SearchHistory.keyword))
         recent_groups = (
             select(
                 keyword_key.label("keyword_key"),
                 func.max(SearchHistory.updated_at).label("group_updated_at"),
             )
-            .where(SearchHistory.member_id == member_id)
+            .where(*conditions)
             .group_by(keyword_key)
             .order_by(func.max(SearchHistory.updated_at).desc())
             .limit(limit)
@@ -157,7 +161,7 @@ class SearchHistoryRepository:
         result = await self._session.execute(
             select(SearchHistory)
             .join(recent_groups, keyword_key == recent_groups.c.keyword_key)
-            .where(SearchHistory.member_id == member_id)
+            .where(*conditions)
             .order_by(
                 recent_groups.c.group_updated_at.desc(),
                 SearchHistory.updated_at.desc(),
@@ -175,10 +179,11 @@ class SearchHistoryRepository:
         await self._session.commit()
         return True
 
-    async def clear(self, *, member_id: int = 0) -> int:
-        """清空该搜索者的全部历史记录，返回删除条数。"""
-        result = await self._session.execute(
-            sa_delete(SearchHistory).where(SearchHistory.member_id == member_id)
-        )
+    async def clear(self, *, member_id: int = 0, vertical: str | None = None) -> int:
+        """清空本人的指定类型历史；不指定类型时保留原有全量清空语义。"""
+        statement = sa_delete(SearchHistory).where(SearchHistory.member_id == member_id)
+        if vertical is not None:
+            statement = statement.where(SearchHistory.vertical == vertical)
+        result = await self._session.execute(statement)
         await self._session.commit()
         return result.rowcount or 0
