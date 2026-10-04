@@ -17,10 +17,20 @@ const BLOB_DRIFT = [
 ];
 
 /**
- * 一个类型的网格渐变底（色块与类型墙页头共用）：斜向底 + 三团羽化色团 + 颗粒 +
- * 左下压暗。只画底，不管尺寸与圆角——由外层容器决定（overflow-hidden）。
+ * 一个类型的网格渐变底（色块与类型墙页头共用）：斜向底 + 三团羽化色团 + 颗粒。
+ * 只画底，不管尺寸与圆角——由外层容器决定（overflow-hidden）。
+ *
+ * `scrim`：左下角压暗，给写在左下的字托底（类型墙页头）；色块的字居中，不要它。
  */
-export function GenreArtwork({ genreId, drift = false }: { genreId: number; drift?: boolean }) {
+export function GenreArtwork({
+  genreId,
+  drift = false,
+  scrim = true,
+}: {
+  genreId: number;
+  drift?: boolean;
+  scrim?: boolean;
+}) {
   const art = genreArt(genreId);
   return (
     <span aria-hidden className="absolute inset-0 -z-10" style={{ background: baseCss(art) }}>
@@ -45,24 +55,42 @@ export function GenreArtwork({ genreId, drift = false }: { genreId: number; drif
         className="absolute inset-0 opacity-[0.09] mix-blend-soft-light"
         style={{ backgroundImage: GRAIN }}
       />
-      <span
-        className="absolute inset-0"
-        style={{
-          background: `radial-gradient(80% 70% at 0% 100%, ${oklchCss({ l: 0, c: 0, h: 0, alpha: art.scrim })}, transparent 70%)`,
-        }}
-      />
+      {scrim && (
+        <span
+          className="absolute inset-0"
+          style={{
+            background: `radial-gradient(80% 70% at 0% 100%, ${oklchCss({ l: 0, c: 0, h: 0, alpha: art.scrim })}, transparent 70%)`,
+          }}
+        />
+      )}
     </span>
   );
 }
 
+/** 内晕影：四周往里压暗一圈、中间透亮，卡片有了体积（像灯箱）。中心略偏上，字落在亮处 */
+const VIGNETTE = "radial-gradient(120% 120% at 50% 42%, transparent 52%, rgba(0,0,0,0.3) 100%)";
+/** 顶部镜面光带：上 1/3 一层很淡的白，像玻璃反光 */
+const SHEEN =
+  "linear-gradient(180deg, rgba(255,255,255,0.16) 0%, rgba(255,255,255,0.04) 30%, transparent 46%)";
+/** 渐变描边：上沿亮、往下几乎消失（1px 环，靠遮罩挖空中间） */
+const RIM: CSSProperties = {
+  padding: 1,
+  background:
+    "linear-gradient(180deg, rgba(255,255,255,0.42), rgba(255,255,255,0.08) 45%, rgba(255,255,255,0.02))",
+  WebkitMask: "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
+  WebkitMaskComposite: "xor",
+  maskComposite: "exclude",
+};
+
 /**
- * 首页「按类型找电影 / 剧集」的一格：网格渐变底 + 中文类型名 + 部数，点进去是
+ * 首页「按类型找电影 / 剧集」的一格：网格渐变底，类型名居中、部数在它下面，点进去是
  * 按这个类型筛好的跨库墙。
  *
- * 外层链接是尺寸容器（cqw 以它的宽度为准）：字号、圆角、内边距都随卡片宽度
- * 等比缩放，手机窄卡与桌面宽卡同一比例。圆角与裁切放在内层——容器单位写在
- * 容器自己身上会按更外一层算。上沿 1px 镜面高光 + 四周极淡描边是一层盖在
- * 最上面的描边（inset 阴影画在底色层，会被渐变底盖住）。
+ * 边缘四层（设计稿 v7）：内晕影、顶部镜面光带、上亮下暗的渐变描边、同色系的外发光投影
+ * （卡片像在发光，外加一层贴地的暗影）。外发光会溢出卡片，所在的横滚行要留出下边距。
+ *
+ * 外层链接是尺寸容器（cqw 以它的宽度为准）：字号、圆角、投影都随卡片宽度等比缩放。
+ * 圆角与裁切放在内层——容器单位写在容器自己身上会按更外一层算。
  */
 export function GenreTile({
   genreId,
@@ -77,22 +105,33 @@ export function GenreTile({
   href: Route;
   className?: string;
 }) {
+  const glow = oklchCss(genreArt(genreId).glow);
   return (
     <Link
       href={href}
       className={`group relative block aspect-[16/10.5] outline-none [container-type:inline-size] ${className}`}
     >
-      <span className="absolute inset-0 isolate overflow-hidden rounded-[10cqw] transition-transform duration-500 ease-[cubic-bezier(.2,.8,.2,1)] group-hover:scale-[1.025] motion-reduce:transition-none">
-        <GenreArtwork genreId={genreId} drift />
-        <span className="absolute bottom-[7.5cqw] left-[8.5cqw] font-semibold leading-[1.1] tracking-[0.04em] text-white [font-size:clamp(13px,11.8cqw,24px)]">
-          {label}
-          {count !== undefined && (
-            <span className="mt-[0.35em] block text-[0.6em] font-medium tracking-[0.02em] tabular-nums opacity-70">
-              {count} 部
-            </span>
-          )}
+      <span
+        className="absolute inset-0 rounded-[10cqw] transition-transform duration-500 ease-[cubic-bezier(.2,.8,.2,1)] group-hover:-translate-y-0.5 group-hover:scale-[1.02] motion-reduce:transition-none"
+        style={{
+          boxShadow: `0 7cqw 16cqw -5cqw ${glow}, 0 2px 6px rgba(0,0,0,0.45)`,
+        }}
+      >
+        <span className="absolute inset-0 isolate overflow-hidden rounded-[inherit]">
+          <GenreArtwork genreId={genreId} drift scrim={false} />
+          <span aria-hidden className="absolute inset-0" style={{ background: VIGNETTE }} />
+          <span aria-hidden className="absolute inset-0" style={{ background: SHEEN }} />
+          <span className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center font-semibold leading-[1.15] tracking-[0.12em] [text-indent:0.12em] text-white [font-size:clamp(15px,13cqw,28px)] [text-shadow:0_1px_6cqw_rgba(0,0,0,0.28)]">
+            {label}
+            {count !== undefined && (
+              <span className="mt-[0.5em] block font-medium tracking-[0.08em] [text-indent:0.08em] tabular-nums opacity-80 [font-size:max(11px,0.5em)]">
+                {count} 部
+              </span>
+            )}
+          </span>
         </span>
-        <span className="pointer-events-none absolute inset-0 rounded-[inherit] shadow-[inset_0_1px_0_rgba(255,255,255,0.22),inset_0_0_0_0.5px_rgba(255,255,255,0.1)] group-focus-visible:shadow-[inset_0_0_0_2px_rgba(255,255,255,0.85)]" />
+        <span aria-hidden className="pointer-events-none absolute inset-0 rounded-[inherit]" style={RIM} />
+        <span className="pointer-events-none absolute inset-0 rounded-[inherit] group-focus-visible:shadow-[0_0_0_2px_rgba(255,255,255,0.85)]" />
       </span>
     </Link>
   );

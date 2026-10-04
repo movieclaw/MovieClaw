@@ -148,8 +148,10 @@ export interface GenreArt {
   from: Oklch;
   to: Oklch;
   blobs: GenreBlob[];
-  /** 左下角文字区的局部压暗（0-1）：亮色块上白字也要够清楚 */
+  /** 左下角文字区的局部压暗（0-1）：类型墙页头的字在左下，亮色块上白字也要够清楚 */
   scrim: number;
+  /** 外发光投影的颜色：主色与偏移色之间的同色系，让卡片像在发光 */
+  glow: Oklch;
 }
 
 export function genreArt(id: number): GenreArt {
@@ -174,6 +176,7 @@ export function genreArt(id: number): GenreArt {
     to: oklch(t.l - 0.1, t.k, t.b),
     blobs,
     scrim: Math.max(0.06, (t.l - 0.5) * 0.9),
+    glow: oklch(t.l - 0.02, t.k, midHue(t.a, t.b), 0.55),
   };
 }
 

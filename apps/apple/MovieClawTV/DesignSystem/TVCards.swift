@@ -286,9 +286,12 @@ struct TVGenreCard: View {
         @Environment(\.isFocused) private var isFocused
 
         var body: some View {
-            GenreTileFace(genreId: genreId, label: label, count: count, width: width, drift: isFocused, maxFont: 46, corner: TVMetrics.cardCorner)
+            GenreTileFace(genreId: genreId, label: label, count: count, width: width, drift: isFocused, maxFont: 52,
+                          corner: TVMetrics.cardCorner, shadows: false)
                 .contentShape(.hoverEffect, .rect(cornerRadius: TVMetrics.cardCorner))
                 .hoverEffect(.highlight)
+                // 外发光加在焦点效果外面：焦点效果按卡片形状裁切，投影放在里面会被裁掉
+                .modifier(GenreTileShadow(genreId: genreId, width: width))
                 // 行标题跟着亮起来
                 .preference(key: TVRowFocusKey.self, value: isFocused)
         }

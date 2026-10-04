@@ -120,8 +120,10 @@ enum GenrePalette {
         var from: Oklch
         var to: Oklch
         var blobs: [Blob]
-        /// 左下角文字区的局部压暗：亮色块上白字也要够清楚
+        /// 左下角文字区的局部压暗：类型墙页头的字在左下，亮色块上白字也要够清楚
         var scrim: Double
+        /// 外发光投影的颜色：主色与偏移色之间的同色系，让卡片像在发光
+        var glow: Oklch
     }
 
     /// 羽化：按缓动曲线逐级降透明度，边缘像颜料晕开而没有硬边（位置 0-1, 透明度倍率）
@@ -162,7 +164,8 @@ enum GenrePalette {
             from: oklch(t.l + 0.03, t.k, t.a),
             to: oklch(t.l - 0.1, t.k, t.b),
             blobs: blobs,
-            scrim: max(0.06, (t.l - 0.5) * 0.9)
+            scrim: max(0.06, (t.l - 0.5) * 0.9),
+            glow: oklch(t.l - 0.02, t.k, midHue(t.a, t.b), 0.55)
         )
     }
 
@@ -198,10 +201,12 @@ enum GenrePalette {
 }
 
 /// 一个类型的网格渐变底（色块与类型墙页头共用）：只画底，尺寸与圆角由外层决定（外层负责裁切）。
-/// `drift`：获得焦点 / 按下时三团色团各自缓慢漂一点（同网页悬停）
+/// `drift`：获得焦点 / 按下时三团色团各自缓慢漂一点（同网页悬停）。
+/// `scrim`：左下角压暗，给写在左下的字托底（类型墙页头）；色块的字居中，不要它
 struct GenreArtwork: View {
     let genreId: Int
     var drift = false
+    var scrim = true
 
     private static let driftOffsets: [(CGFloat, CGFloat, CGFloat)] = [(0.08, 0.06, 1.08), (-0.10, -0.04, 1.1), (0.06, -0.08, 1)]
 
@@ -230,10 +235,12 @@ struct GenreArtwork: View {
                         .blendMode(.softLight)
                         .opacity(0.09)
                 }
-                EllipticalGradient(
-                    colors: [.black.opacity(art.scrim), .clear],
-                    center: .bottomLeading, startRadiusFraction: 0, endRadiusFraction: 0.53
-                )
+                if scrim {
+                    EllipticalGradient(
+                        colors: [.black.opacity(art.scrim), .clear],
+                        center: .bottomLeading, startRadiusFraction: 0, endRadiusFraction: 0.53
+                    )
+                }
             }
             .frame(width: width, height: height, alignment: .topLeading)
             .animation(.timingCurve(0.2, 0.8, 0.2, 1, duration: 1.6), value: drift)
@@ -243,50 +250,91 @@ struct GenreArtwork: View {
     }
 }
 
-/// 色块本体：网格渐变底 + 中文类型名 + 部数，16:10.5，字号与圆角随宽度等比缩放。
-/// 上沿 1px 镜面高光 + 四周极淡描边，像一块有厚度的玻璃。交互（点按 / 焦点）由外层包。
+/// 色块本体：网格渐变底，类型名居中、部数在它下面，16:10.5，字号、圆角、投影随宽度等比缩放。
+///
+/// 边缘四层（同网页 `GenreTile`，设计稿 v7）：内晕影（四周往里压暗、中间透亮）、顶部镜面光带、
+/// 上亮下暗的渐变描边、同色系的外发光投影（外加一层贴地的暗影）。外发光会溢出卡片，所在的横滑行不能裁切。
+/// 交互（点按 / 焦点）由外层包
 struct GenreTileFace: View {
     let genreId: Int
     let label: String
     let count: Int?
     let width: CGFloat
     var drift = false
-    /// 字号上限：手机 24、电视更大
-    var maxFont: CGFloat = 24
+    /// 字号上限：手机 28、电视更大
+    var maxFont: CGFloat = 28
     /// 圆角；空 = 随宽度等比（宽的 10%，同网页）。电视与其他卡片统一用 `TVMetrics.cardCorner`
     var corner: CGFloat?
+    /// 外发光投影画不画：电视的焦点效果（`.hoverEffect`）会按卡片形状裁切，投影要由外层加在焦点效果外面
+    var shadows = true
 
     var body: some View {
         let height = width / GenrePalette.tileAspect
-        let font = min(maxFont, max(13, width * 0.118))
+        let font = min(maxFont, max(15, width * 0.13))
         let shape = RoundedRectangle(cornerRadius: corner ?? width * 0.1, style: .continuous)
-        GenreArtwork(genreId: genreId, drift: drift)
-            .frame(width: width, height: height)
-            .overlay(alignment: .bottomLeading) {
-                VStack(alignment: .leading, spacing: font * 0.35) {
-                    Text(label)
-                        .font(.system(size: font, weight: .semibold))
-                        .tracking(font * 0.04)
-                    if let count {
-                        Text("\(count) 部")
-                            .font(.system(size: font * 0.6, weight: .medium).monospacedDigit())
-                            .tracking(font * 0.012)
-                            .opacity(0.7)
-                    }
+        ZStack {
+            GenreArtwork(genreId: genreId, drift: drift, scrim: false)
+            // 内晕影：中心略偏上，字落在亮处
+            EllipticalGradient(
+                stops: [.init(color: .clear, location: 0.52), .init(color: .black.opacity(0.3), location: 1)],
+                center: UnitPoint(x: 0.5, y: 0.42), startRadiusFraction: 0, endRadiusFraction: 1.2
+            )
+            // 顶部镜面光带
+            LinearGradient(
+                stops: [.init(color: .white.opacity(0.16), location: 0), .init(color: .white.opacity(0.04), location: 0.3),
+                        .init(color: .clear, location: 0.46)],
+                startPoint: .top, endPoint: .bottom
+            )
+            // 间距同网页：片数字号的半个字高（≈ 名字字号的 1/4）
+            VStack(spacing: max(11, font * 0.5) * 0.5) {
+                Text(label)
+                    .font(.system(size: font, weight: .semibold))
+                    .tracking(font * 0.12)
+                    // 字距加在每个字后面，最后一个字也有：往右挪半个字距才真正居中
+                    .offset(x: font * 0.06)
+                if let count {
+                    Text("\(count) 部")
+                        .font(.system(size: max(11, font * 0.5), weight: .medium).monospacedDigit())
+                        .tracking(max(11, font * 0.5) * 0.08)
+                        .opacity(0.8)
                 }
-                .foregroundStyle(.white)
-                .lineLimit(1)
-                .padding(.leading, width * 0.085)
-                .padding(.bottom, width * 0.075)
             }
-            .clipShape(shape)
-            .overlay {
-                shape.strokeBorder(
-                    LinearGradient(colors: [.white.opacity(0.22), .white.opacity(0.08)], startPoint: .top, endPoint: .center),
-                    lineWidth: 0.75
-                )
-            }
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(count.map { "\(label)，\($0) 部" } ?? label)
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .shadow(color: .black.opacity(0.28), radius: width * 0.03, y: 1)
+        }
+        .frame(width: width, height: height)
+        .clipShape(shape)
+        .overlay {
+            // 渐变描边：上沿亮、往下几乎消失
+            shape.strokeBorder(
+                LinearGradient(
+                    stops: [.init(color: .white.opacity(0.42), location: 0), .init(color: .white.opacity(0.08), location: 0.45),
+                            .init(color: .white.opacity(0.02), location: 1)],
+                    startPoint: .top, endPoint: .bottom
+                ),
+                lineWidth: 1
+            )
+        }
+        .modifier(GenreTileShadow(genreId: genreId, width: width, enabled: shadows))
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(count.map { "\(label)，\($0) 部" } ?? label)
+    }
+}
+
+/// 色块的投影：同色系外发光 + 一层贴地的暗影（卡片像在发光）
+struct GenreTileShadow: ViewModifier {
+    let genreId: Int
+    let width: CGFloat
+    var enabled = true
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .shadow(color: GenrePalette.color(GenrePalette.art(genreId).glow), radius: width * 0.07, y: width * 0.07)
+                .shadow(color: .black.opacity(0.45), radius: 3, y: 2)
+        } else {
+            content
+        }
     }
 }
