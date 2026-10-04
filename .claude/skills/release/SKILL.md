@@ -54,6 +54,9 @@ description: 发布 movieclaw 新版本。当用户要求发版、发布新版�
    install-cli.sh 都不可见。**任何作业失败时 Release 停在 draft，
    修复后到 Actions 重跑整个 release 工作流即可**（上传均带 --clobber，
    安全重入）；仅 Worker / IPA 挂了不拦转正，重跑 worker-macos / ios-ipa 作业补传即可。
+   Worker 与 IPA 按改动判断：自上一版以来对应代码没变时不重编，`carry-assets` 作业直接
+   沿用上一个 Release 的同名附件（规则见 `scripts/release-asset-plan.sh`）。证书、公证配置
+   或打包流程变了而代码没变时，到 Actions → release 手动 Run workflow 勾选 `force_rebuild`
 5. changelog：写 docs/changelog/vX.Y.Z.md 合入 main。changelog 先于发版
    合入（推荐，可与发版 PR 同 PR）时，release.yml 建 Release 会直接用它
    当 body；后合入也没关系，release-notes.yml 会自动同步为 Release body
@@ -171,7 +174,7 @@ ffmpeg 版本，发版前按下表逐项过一遍。
    开了自动分发的内部测试组会自动收到；对外测试组按 checklist §5 加构建、提审。
 4. 看 Apple 邮件：ITMS-91053 等警告按邮件补隐私清单。
 
-## 七、可选附件失败的补救（worker-macos / ios-ipa）
+## 七、可选附件失败的补救（worker-macos / ios-ipa / carry-assets）
 
 publish 作业不等它们，Release 会照常转正——但 changelog 若写了这些附件就必须补上。
 GitHub 只允许整次运行结束后再单独重跑某个作业（`gh run rerun --job <id>`）。
@@ -202,7 +205,8 @@ GitHub 只允许整次运行结束后再单独重跑某个作业（`gh run rerun
       `mclaw_windows_{amd64,arm64}.zip`、`checksums.txt`，启用签名时含
       `.sig`），人工只需确认 release 工作流全绿、Release 已从 draft 转正；
       worker-macos 作业红了 → Worker zip 缺失，重跑该作业补传；
-      ios-ipa 作业红了 → `MovieClaw-iOS-unsigned.ipa` 缺失，重跑该作业补传
+      ios-ipa 作业红了 → `MovieClaw-iOS-unsigned.ipa` 缺失，重跑该作业补传；
+      carry-assets 作业红了 → 沿用的附件缺失，重跑该作业补传
 - [ ] changelog 已写入 `docs/changelog/vX.Y.Z.md` 并合入 main（release-notes.yml
       自动同步为 Release body，应用内更新界面会原文展示给用户），并按
       `changelog-guide.md` 自检过第一屏

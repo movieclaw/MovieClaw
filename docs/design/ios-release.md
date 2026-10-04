@@ -62,7 +62,7 @@ scripts/release.sh --tv --upload            # Apple TV 版：同一条 App 记�
   - 什么时候改：准备**提审**一个新版本时手动递增（App Store 要求新版本号大于已上架的）；
     同一版本号下反复传 TestFlight 不用改，靠构建号区分。
   - 构建号默认取 UTC 时间 `yyyyMMddHHmm`，天然递增，不用管。
-  - 随服务器 Release 附带的侧载 IPA 是那次发版提交上的 App，版本号就是当时的 `MARKETING_VERSION`，
+  - 随服务器 Release 附带的侧载 IPA 是最近一次改动 App 时编的那个包，版本号就是当时的 `MARKETING_VERSION`，
     所以服务器 v0.28.0 里的 IPA 可能是 App 0.1.0，这是正常的。
 - 产物与日志在 `apps/apple/build-release/`（已被 git 忽略），归档约 5 分钟，DerivedData 约 0.7 GB，
   磁盘紧时打包完可删。
@@ -73,8 +73,10 @@ scripts/release.sh --tv --upload            # Apple TV 版：同一条 App 记�
 
 ### 侧载用的未签名 IPA
 
-每次发版 release.yml 的 `ios-ipa` 作业在 macOS runner 上跑 `apps/apple/scripts/build-unsigned-ipa.sh`，
-把 `MovieClaw-iOS-unsigned.ipa` 附到 GitHub Release（可选附件，失败不拦转正）。给不走 App Store /
+发版时 release.yml 的 `ios-ipa` 作业在 macOS runner 上跑 `apps/apple/scripts/build-unsigned-ipa.sh`，
+把 `MovieClaw-iOS-unsigned.ipa` 附到 GitHub Release（可选附件，失败不拦转正）。自上一版以来 iPhone 版
+用到的代码（`apps/apple` 除 Apple TV 专属目录与测试）没改动时不重编，由 `carry-assets` 作业直接沿用
+上一个 Release 里的 IPA（判断规则见 `scripts/release-asset-plan.sh`）。Apple TV 版不出侧载包，只走 TestFlight。给不走 App Store /
 TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple ID 重签安装——免费 Apple ID
 签的包 7 天过期（AltStore / SideStore 可后台自动续签），付费开发者账号 1 年。
 
