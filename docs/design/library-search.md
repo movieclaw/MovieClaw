@@ -72,7 +72,7 @@ revision。后台复用持久化 JobDispatcher，分批读取、在线程中转�
 名称执行相同规则，不依赖旧索引。
 
 部署时迁移先执行，首次构建不阻塞应用启动。数据全部随已有 SQLite 落在 data/。
-新增 OpenCC 纯 Python 依赖用于繁简转换，`docker/runtime-version` 已由 17 增至 18；
+新增 OpenCC 纯 Python 依赖用于繁简转换，`docker/runtime-version` 已由 18 增至 19；
 合并后需要构建并发布对应运行时镜像。
 
 ## Apple TV
