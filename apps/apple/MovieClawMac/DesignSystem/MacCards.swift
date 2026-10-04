@@ -1,0 +1,587 @@
+import Nuke
+import NukeUI
+import SwiftUI
+
+// Mac 版的卡片与行（docs/design/macos-app.md §4）。版式参照 macOS 上的 Apple Music：
+// - 卡片平时安静：圆角图 + 一圈很细的亮边，片名、副标题写在图下面（鼠标不像遥控器那样有「焦点」，
+//   认不出是哪一部的东西不能只在悬停时才出现）；
+// - 鼠标移上去：图微微压暗，左下角浮出一枚玻璃播放键（能播的才有），右下角浮出「⋯」菜单——同 Apple Music 专辑封面；
+// - 横滑行：标题可点（「最近添加的电影 ›」进完整的海报墙），鼠标移到行上时左右两端浮出翻页键，一次翻一屏；
+// - 右键菜单与悬停的「⋯」是同一份菜单。
+
+/// 尺寸与间距（点）。按 Apple Music 的 Mac 版量的节奏：页边 32，卡片间 18，行与行 40
+enum MacMetrics {
+    /// 页面左右边距
+    static let edge: CGFloat = 32
+    /// 海报（竖版 2:3）宽
+    static let posterWidth: CGFloat = 168
+    /// 剧照（横版 16:9）宽：「接下来继续」、分集
+    static let landscapeWidth: CGFloat = 296
+    /// 「我的媒体库」库卡宽（16:9）
+    static let libraryWidth: CGFloat = 296
+    /// 卡片之间
+    static let cardSpacing: CGFloat = 18
+    /// 行与行之间
+    static let rowSpacing: CGFloat = 40
+    /// 卡片圆角（同 Apple Music 的封面，macOS 26 的圆角更圆）
+    static let cardCorner: CGFloat = 10
+    /// 模糊垫底的剧照按这么宽取：模糊之后看不出清晰度
+    static let blurredBackdropWidth: CGFloat = 480
+    /// 演职员圆头像
+    static let avatarSize: CGFloat = 92
+}
+
+extension ImageWidth {
+    /// 卡片的取图宽度：按屏幕倍率换成像素（视网膜屏 2 倍）。悬停不放大，不加余量
+    static func macCard(_ points: CGFloat) -> Int {
+        ImageWidth.points(points)
+    }
+}
+
+extension Color {
+    /// 大图区以下的底色：偏冷的深炭灰（同 Apple TV 版的 `tvPage`，量自系统 Apple TV App），把偏暖的海报衬得更鲜亮
+    static let macPage = Color(red: 22 / 255, green: 23 / 255, blue: 28 / 255)
+}
+
+// MARK: - 卡片
+
+/// 卡片右下角「⋯」与右键菜单里的一项
+struct MacCardAction: Identifiable {
+    let id = UUID()
+    let title: String
+    let symbol: String
+    var role: ButtonRole?
+    let perform: () -> Void
+}
+
+/// 海报卡（竖版 2:3）：图 + 片名 + 副标题（年份）。悬停时浮出播放键与菜单（同 Apple Music 的专辑封面）
+struct MacPosterCard: View {
+    let title: String
+    let subtitle: String?
+    let imageURL: URL?
+    var width: CGFloat = MacMetrics.posterWidth
+    /// 0～1 的观看进度（有才画进度条）
+    var progress: Double?
+    /// 图上角标（「本片」「未入库」）
+    var badge: String?
+    /// 悬停时左下角的播放键（能直接播的才给）
+    var play: (() -> Void)?
+    /// 悬停「⋯」与右键菜单
+    var menu: [MacCardAction] = []
+    /// 片名下面挂不挂字：影人页等需要
+    var showsCaption = true
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            MacCardLabel(title: title, subtitle: subtitle, width: width, showsCaption: showsCaption, play: play, menu: menu, badge: badge) {
+                RemoteImage(url: imageURL, placeholderText: title)
+                    .frame(width: width, height: width * 1.5)
+                    .overlay(alignment: .bottom) {
+                        if let progress, progress > 0 {
+                            MacProgressStrip(value: progress)
+                                .padding(8)
+                        }
+                    }
+            }
+        }
+        .buttonStyle(MacCardButtonStyle())
+        .accessibilityLabel(title)
+        .contextMenu { MacCardMenu(actions: menu) }
+    }
+}
+
+/// 横版剧照卡（16:9）：「接下来继续」。`detail`（「S2 E6 · 剩 18 分钟」）与进度条收进图片底部的暗带里，
+/// 片名、副标题写在下面（剧照上认不出是哪一部）
+struct MacLandscapeCard: View {
+    let title: String
+    let subtitle: String?
+    let imageURL: URL?
+    var width: CGFloat = MacMetrics.landscapeWidth
+    var progress: Double?
+    var badge: String?
+    var detail: String?
+    var play: (() -> Void)?
+    var menu: [MacCardAction] = []
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            MacCardLabel(title: title, subtitle: subtitle, width: width, showsCaption: true, play: play, menu: menu, badge: badge) {
+                RemoteImage(url: imageURL, placeholderText: title)
+                    .frame(width: width, height: width * 9 / 16)
+                    .overlay(alignment: .bottom) {
+                        if let detail {
+                            detailBand(detail)
+                        } else if let progress, progress > 0 {
+                            MacProgressStrip(value: progress)
+                                .padding(10)
+                        }
+                    }
+            }
+        }
+        .buttonStyle(MacCardButtonStyle())
+        .accessibilityLabel(title)
+        .contextMenu { MacCardMenu(actions: menu) }
+    }
+
+    /// 图片底部的暗带：进度条 + 第几集 · 剩多久（同系统 Apple TV App 的「继续观看」卡）
+    private func detailBand(_ detail: String) -> some View {
+        HStack(spacing: 8) {
+            if let progress, progress > 0 {
+                MacProgressStrip(value: progress, track: .white.opacity(0.3))
+                    .frame(width: 44)
+            }
+            Text(detail)
+                .font(.system(size: 11, weight: .semibold))
+                .lineLimit(1)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10)
+        .padding(.top, 26)
+        .padding(.bottom, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom)
+        }
+    }
+}
+
+/// 「我的媒体库」的库卡 / 合集卡（16:9）：服务端拼好的货架封面（21:10）贴顶完整显示，下面用同一张封面放大模糊延伸
+/// （同 Apple TV 版的库卡），库名写在底部暗区里，合集在右侧挂「合集」标签
+struct MacLibraryCard: View {
+    let name: String
+    let count: Int
+    var collection = false
+    let imageURL: URL?
+    var width: CGFloat = MacMetrics.libraryWidth
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            MacCardLabel(title: name, subtitle: nil, width: width, showsCaption: false, play: nil, menu: [], badge: nil) {
+                RemoteImage(url: imageURL, placeholderSymbol: collection ? "rectangle.stack" : "film")
+                    .frame(width: width, height: width * 10 / 21)
+                    .mask {
+                        LinearGradient(stops: [.init(color: .black, location: 0.8), .init(color: .clear, location: 1)],
+                                       startPoint: .top, endPoint: .bottom)
+                    }
+                    .frame(width: width, height: width * 9 / 16, alignment: .top)
+                    .background {
+                        if imageURL != nil {
+                            RemoteImage(url: imageURL).blur(radius: 30).overlay(Color.black.opacity(0.3))
+                        } else {
+                            Theme.surfaceRaised
+                        }
+                    }
+                    .overlay(alignment: .bottomLeading) { nameBand }
+            }
+        }
+        .buttonStyle(MacCardButtonStyle())
+        .accessibilityLabel(collection ? "合集「\(name)」，\(count) 部" : "\(name)，\(count) 部")
+    }
+
+    private var nameBand: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(name)
+                .font(.system(size: 17, weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+            Text("\(count) 部")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(.white.opacity(0.65))
+            if collection {
+                Spacer(minLength: 0)
+                Label("合集", systemImage: "rectangle.stack")
+                    .labelStyle(.titleAndIcon)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.88))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(.white.opacity(0.12), in: .capsule)
+                    .overlay(Capsule().strokeBorder(.white.opacity(0.18)))
+                    .fixedSize()
+            }
+        }
+        .foregroundStyle(.white)
+        .shadow(color: .black.opacity(0.5), radius: 4, y: 1)
+        .padding(.horizontal, 14)
+        .padding(.top, 30)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background {
+            LinearGradient(colors: [.clear, .black.opacity(0.8)], startPoint: .top, endPoint: .bottom)
+        }
+    }
+}
+
+/// 一行末尾的「查看全部」：与这一行的海报同大，点进完整的海报墙（行里只取前 20 部）
+struct MacSeeAllCard: View {
+    var total: Int?
+    var width: CGFloat = MacMetrics.posterWidth
+    var aspect: CGFloat = 1.5
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: "square.grid.2x2")
+                    .font(.system(size: 26, weight: .regular))
+                Text("查看全部")
+                    .font(.system(size: 14, weight: .semibold))
+                if let total {
+                    Text("\(total) 部")
+                        .font(.system(size: 12))
+                        .opacity(0.7)
+                }
+            }
+            .foregroundStyle(.white)
+            .frame(width: width, height: width * aspect)
+            .background(.white.opacity(0.06), in: .rect(cornerRadius: MacMetrics.cardCorner))
+            .overlay {
+                RoundedRectangle(cornerRadius: MacMetrics.cardCorner)
+                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+            }
+            .modifier(MacHoverLift())
+        }
+        .buttonStyle(MacCardButtonStyle())
+        .accessibilityLabel(total.map { "查看全部 \($0) 部" } ?? "查看全部")
+    }
+}
+
+/// 卡片共用的外观：圆角图 + 细亮边 + 左上角标 + 悬停浮层（压暗、播放键、⋯ 菜单）+ 图下的片名
+private struct MacCardLabel<Art: View>: View {
+    let title: String
+    let subtitle: String?
+    let width: CGFloat
+    let showsCaption: Bool
+    let play: (() -> Void)?
+    let menu: [MacCardAction]
+    let badge: String?
+    @ViewBuilder let art: () -> Art
+
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            art()
+                .overlay {
+                    // 悬停压暗一层：同 Apple Music，告诉人「这张可以点」
+                    Color.black.opacity(hovering ? 0.18 : 0)
+                }
+                .overlay(alignment: .topLeading) {
+                    if let badge {
+                        Text(badge)
+                            .font(.system(size: 10, weight: .bold))
+                            .padding(.horizontal, 7)
+                            .padding(.vertical, 3)
+                            .background(.black.opacity(0.62), in: .capsule)
+                            .padding(7)
+                    }
+                }
+                .overlay(alignment: .bottom) {
+                    if hovering, play != nil || !menu.isEmpty {
+                        hoverControls
+                            .transition(.opacity)
+                    }
+                }
+                .clipShape(.rect(cornerRadius: MacMetrics.cardCorner))
+                .overlay {
+                    RoundedRectangle(cornerRadius: MacMetrics.cardCorner)
+                        .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+                }
+                .shadow(color: .black.opacity(hovering ? 0.35 : 0.2), radius: hovering ? 10 : 4, y: hovering ? 5 : 2)
+            if showsCaption {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(width: width, alignment: .leading)
+            }
+        }
+        .contentShape(.rect)
+        .onHover { inside in
+            withAnimation(.easeOut(duration: 0.15)) { hovering = inside }
+        }
+    }
+
+    /// 左下播放键、右下「⋯」：小号玻璃圆钮，同 Apple Music 封面上的那两枚
+    private var hoverControls: some View {
+        HStack {
+            if let play {
+                Button(action: play) {
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .help("播放")
+                .accessibilityLabel("播放\(title)")
+            }
+            Spacer(minLength: 0)
+            if !menu.isEmpty {
+                Menu {
+                    MacCardMenu(actions: menu)
+                } label: {
+                    Image(systemName: "ellipsis")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 32, height: 32)
+                        .contentShape(.circle)
+                }
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .glassEffect(.regular.interactive(), in: .circle)
+                .help("更多")
+            }
+        }
+        .foregroundStyle(.white)
+        .padding(8)
+    }
+}
+
+/// 右键菜单与悬停「⋯」共用的菜单内容
+struct MacCardMenu: View {
+    let actions: [MacCardAction]
+
+    var body: some View {
+        ForEach(actions) { action in
+            Button(role: action.role, action: action.perform) {
+                Label(action.title, systemImage: action.symbol)
+            }
+        }
+    }
+}
+
+/// 卡片按钮：按下时微微缩小，不画系统按钮的底
+struct MacCardButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+}
+
+/// 悬停时提亮一点（「查看全部」这类没有图的块）
+struct MacHoverLift: ViewModifier {
+    @State private var hovering = false
+
+    func body(content: Content) -> some View {
+        content
+            .brightness(hovering ? 0.06 : 0)
+            .onHover { inside in withAnimation(.easeOut(duration: 0.15)) { hovering = inside } }
+    }
+}
+
+/// 图片底部的观看进度条
+struct MacProgressStrip: View {
+    let value: Double
+    var track: Color = .black.opacity(0.45)
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(track)
+                Capsule().fill(.white)
+                    .frame(width: proxy.size.width * min(1, max(0, value)))
+            }
+        }
+        .frame(height: 4)
+    }
+}
+
+// MARK: - 行
+
+/// 一行横滑内容（Apple Music 的「架子」）：标题（可点，进完整的海报墙）+ 横向滚动的卡片。
+/// 鼠标移到行上时左右两端浮出玻璃翻页键，一次翻约一屏；滚到头那一侧的键自动隐去。触控板横扫照常滚动
+struct MacShelf<Content: View>: View {
+    let title: String
+    /// 标题右侧的说明（如「已有 7 / 共 8」）
+    var detail: String?
+    /// 点标题进「查看全部」；nil = 标题不可点
+    var seeAll: (() -> Void)?
+    /// 卡片区的高度（翻页键竖直居中对齐在图上，而不是连同下面的字一起居中）
+    var artHeight: CGFloat?
+    @ViewBuilder let content: () -> Content
+
+    @State private var position = ScrollPosition(idType: Int.self)
+    @State private var offset: CGFloat = 0
+    @State private var contentWidth: CGFloat = 0
+    @State private var viewport: CGFloat = 0
+    @State private var hovering = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            header
+                .padding(.horizontal, MacMetrics.edge)
+            ScrollView(.horizontal) {
+                LazyHStack(alignment: .top, spacing: MacMetrics.cardSpacing) {
+                    content()
+                }
+                .padding(.horizontal, MacMetrics.edge)
+                .padding(.vertical, 6)
+            }
+            .scrollIndicators(.never)
+            .scrollPosition($position)
+            .scrollClipDisabled()
+            .onScrollGeometryChange(for: [CGFloat].self) { geometry in
+                [geometry.contentOffset.x, geometry.contentSize.width, geometry.containerSize.width]
+            } action: { _, values in
+                offset = values[0]
+                contentWidth = values[1]
+                viewport = values[2]
+            }
+            .overlay(alignment: artHeight == nil ? .center : .top) {
+                pager
+                    .frame(height: artHeight.map { $0 + 12 })
+            }
+        }
+        .onHover { inside in withAnimation(.easeOut(duration: 0.18)) { hovering = inside } }
+    }
+
+    @ViewBuilder
+    private var header: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            if let seeAll {
+                Button(action: seeAll) {
+                    HStack(alignment: .firstTextBaseline, spacing: 4) {
+                        Text(title)
+                        Image(systemName: "chevron.forward")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .buttonStyle(.plain)
+                .help("查看全部")
+            } else {
+                Text(title)
+            }
+            if let detail {
+                Text(detail)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .font(.system(size: 20, weight: .bold))
+    }
+
+    private var canBack: Bool { offset > 4 }
+    private var canForward: Bool { offset + viewport < contentWidth - 4 }
+
+    private var pager: some View {
+        HStack {
+            pageButton("chevron.backward", visible: canBack) { page(-1) }
+                .padding(.leading, 8)
+            Spacer()
+            pageButton("chevron.forward", visible: canForward) { page(1) }
+                .padding(.trailing, 8)
+        }
+        .allowsHitTesting(hovering)
+    }
+
+    private func pageButton(_ symbol: String, visible: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .bold))
+                .frame(width: 36, height: 36)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .opacity(hovering && visible ? 1 : 0)
+        .disabled(!visible)
+        .accessibilityLabel(symbol.hasSuffix("backward") ? "上一页" : "下一页")
+    }
+
+    /// 翻一屏：留一张卡的宽度不翻过去，人知道接上的是哪里
+    private func page(_ direction: CGFloat) {
+        let step = max(200, viewport - MacMetrics.edge * 2 - 80)
+        let target = min(max(0, offset + direction * step), max(0, contentWidth - viewport))
+        withAnimation(.smooth(duration: 0.45)) { position.scrollTo(x: target) }
+    }
+}
+
+// MARK: - 状态
+
+/// 页面级的空态 / 错误态
+struct MacStateView: View {
+    let symbol: String
+    let title: String
+    var message: String?
+    var actionTitle: String?
+    var action: (() -> Void)?
+
+    var body: some View {
+        ContentUnavailableView {
+            Label(title, systemImage: symbol)
+        } description: {
+            if let message { Text(message) }
+        } actions: {
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.glass)
+                    .controlSize(.large)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+// MARK: - 头像
+
+/// 圆头像：有图画图，没图画首字母（中文取第一个字）
+struct MacAvatar: View {
+    let url: URL?
+    let name: String
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Circle().fill(LinearGradient(colors: [Color(white: 0.36), Color(white: 0.2)], startPoint: .top, endPoint: .bottom))
+            Text(Self.initials(name))
+                .font(.system(size: size * 0.4, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.9))
+            if let url {
+                RemoteImage(url: url, placeholderText: "")
+                    .clipShape(.circle)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(.circle)
+    }
+
+    static func initials(_ name: String) -> String {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard let first = trimmed.first else { return "?" }
+        if first.unicodeScalars.first.map({ (0x4E00 ... 0x9FFF).contains($0.value) }) == true {
+            return String(first)
+        }
+        return String(trimmed.prefix(2)).uppercased()
+    }
+}
+
+extension Formatters {
+    /// 「剩 23 分钟」「剩 1 小时 5 分」：继续观看卡片的副标题
+    static func remaining(positionMs: Int, durationMs: Int?) -> String? {
+        guard let durationMs, durationMs > 0 else { return nil }
+        let minutes = max(1, (durationMs - positionMs) / 60_000)
+        if minutes >= 60 { return "剩 \(minutes / 60) 小时 \(minutes % 60) 分" }
+        return "剩 \(minutes) 分钟"
+    }
+
+    /// 片长：「48 分钟」「2 小时 12 分钟」
+    static func runtime(_ minutes: Int) -> String {
+        if minutes < 60 { return "\(minutes) 分钟" }
+        let h = minutes / 60, m = minutes % 60
+        return m > 0 ? "\(h) 小时 \(m) 分钟" : "\(h) 小时"
+    }
+}

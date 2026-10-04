@@ -51,7 +51,7 @@ export interface DeviceRequestView {
  * Jellyfin 播放器（docs/design/login-devices.md）。
  *
  * - id：登录设备为 `ld-<n>`，Jellyfin 播放器为 `jf-<n>`；
- * - kind：web / ios / tvos / android / cli / worker / manual / jellyfin；
+ * - kind：web / ios / tvos / macos / android / cli / worker / manual / jellyfin；
  * - family：login = 用密码登录的（改密即下线）；paired = 配对或手工创建的
  *   （改密默认保留）；
  * - scope：full = 与主人相同的权限；transcode = 只能转码。

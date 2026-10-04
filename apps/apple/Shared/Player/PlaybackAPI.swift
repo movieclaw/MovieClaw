@@ -1,6 +1,8 @@
 import AVFoundation
 import Foundation
+#if canImport(UIKit)
 import UIKit
+#endif
 
 /// 通知：一场播放的「停止」已被服务端收下（续播点、已看标记已更新）。userInfo["mediaItemId"] 是条目 id。
 /// 详情页据此重拉续播点——关掉播放器回来，播放键从「播放」变「继续」、时间跟上刚才看到的位置。
@@ -192,8 +194,10 @@ struct PlaybackAPI {
         #endif
         let body = progressBody(unit, event: event, positionMs: positionMs, paused: paused, audio: audio, subtitle: subtitle,
                                 fileId: fileId)
+        #if canImport(UIKit)
         let background = UIApplication.shared.beginBackgroundTask(withName: "playback-progress")
         defer { if background != .invalid { UIApplication.shared.endBackgroundTask(background) } }
+        #endif
         if let shareSlug {
             ShareLocalProgress.write(shareSlug, unit, positionMs: Self.localResume(positionMs, durationMs: durationMs), audio: audio, subtitle: subtitle)
             return try? await api.sharePlaybackProgress(slug: shareSlug, body: body)

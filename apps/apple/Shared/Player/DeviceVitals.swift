@@ -1,5 +1,8 @@
+import Foundation
 import Darwin
+#if canImport(UIKit)
 import UIKit
+#endif
 
 /// 设备体征读数：开发期的引擎能耗对比（docs/design/player-engine.md 第 6 节），以及播放记录的资源读数
 /// （docs/design/playback-qoe.md §3.4，Release 包也用，10 秒采一次，开销可以忽略）。
@@ -31,7 +34,7 @@ enum DeviceVitals {
         let lowPower = ProcessInfo.processInfo.isLowPowerModeEnabled ? " 低电量模式" : ""
         return "温度=\(thermal) 电量=\(battery)(\(charging)) \(resources)\(lowPower)"
         #else
-        // Apple TV 插电运行、没有电池
+        // Apple TV 插电运行、没有电池；Mac 的电量不影响播放策略，不读
         return "温度=\(thermal) \(resources)"
         #endif
     }

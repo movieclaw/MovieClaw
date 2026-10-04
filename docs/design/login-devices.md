@@ -36,7 +36,7 @@
 | 字段 | 说明 |
 |---|---|
 | `member_id` | 主人：成员 id，0 = 超管（成员级表的哨兵约定；删除成员时统一清理） |
-| `kind` | 客户端类型：`web` / `ios` / `tvos` / `android` / `cli` / `worker` / `manual` |
+| `kind` | 客户端类型：`web` / `ios` / `tvos` / `macos` / `android` / `cli` / `worker` / `manual` |
 | `name` | 给人看的设备名，可改名 |
 | `token_hash` | 令牌明文（`mclaw_` 前缀）的 sha256，唯一索引；明文只在签发时交付一次 |
 | `scope` | `full` = 等同本人；`transcode` = 只能转码（转码器凭证的形态上限） |
@@ -50,8 +50,8 @@
 | 签发方式 | 客户端 | 入口 |
 |---|---|---|
 | 账号密码 | 网页 | `POST /auth/login`（令牌进 HttpOnly Cookie） |
-| 账号密码 | iOS / Apple TV / Android App | `POST /auth/device/login`（令牌进系统钥匙串） |
-| 配对码批准 | 命令行、转码器 | `POST /auth/device/authorize` → 人批准 → `POST /auth/device/token` |
+| 账号密码 | iOS / Apple TV / Mac / Android App | `POST /auth/device/login`（令牌进系统钥匙串） |
+| 配对码批准 | 命令行、转码器、Apple TV、Mac App | `POST /auth/device/authorize` → 人批准 → `POST /auth/device/token` |
 | 手工创建 | 无人值守的脚本、命令行模式的转码器 | `POST /auth/tokens`（超管） |
 
 Jellyfin 播放器的凭证受协议约束多（令牌格式、同设备覆盖语义），暂时仍在

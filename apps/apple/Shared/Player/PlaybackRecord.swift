@@ -1,6 +1,8 @@
 import AVFoundation
 import Foundation
+#if canImport(UIKit)
 import UIKit
+#endif
 
 /// 引擎给出的规格事实（`NativeEngine` 从 AetherCore 映射过来：控制器不直接碰 AetherCore 的类型）
 struct EngineDeliveryFacts: Equatable {
@@ -602,7 +604,7 @@ final class PlaybackRecord {
             seeks: seeks, switches: switches, interruptions: interruptions, delivery: delivery,
             behaviors: behaviors,
             context: Context(
-                appVersion: Self.appVersion, os: UIDevice.current.systemVersion, model: Self.model,
+                appVersion: Self.appVersion, os: Self.osVersion, model: Self.model,
                 network: network.rawValue, interface: NetworkCost.shared.interface,
                 metered: NetworkCost.shared.isMetered,
                 downlinkMbps: downlinkPeakBps.map { ($0 / 10_000).rounded() / 100 },
@@ -721,7 +723,19 @@ final class PlaybackRecord {
         return "\(version)(\(build))"
     }()
 
+    /// 系统版本号（iOS / tvOS 取 UIDevice，与历史记录同一写法；Mac 取进程信息）
+    static var osVersion: String {
+        #if canImport(UIKit)
+        UIDevice.current.systemVersion
+        #else
+        ClientPlatform.osVersion
+        #endif
+    }
+
     static let model: String = {
+        #if os(macOS)
+        return APIClient.machineModel
+        #endif
         var system = utsname()
         uname(&system)
         return withUnsafeBytes(of: &system.machine) { raw in
@@ -816,6 +830,10 @@ extension PlaybackRecord {
 
     /// 当前音频输出：speaker / bluetooth / wired / airplay / hdmi / other
     static func audioRoute() -> String {
+        #if os(macOS)
+        // Mac 没有音频会话可问输出口，统一记 other
+        return "other"
+        #else
         guard let port = AVAudioSession.sharedInstance().currentRoute.outputs.first?.portType else { return "other" }
         switch port {
         case .builtInSpeaker, .builtInReceiver: return "speaker"
@@ -825,6 +843,7 @@ extension PlaybackRecord {
         case .HDMI: return "hdmi"
         default: return "other"
         }
+        #endif
     }
 
     /// streamCopy → stream_copy（与服务端、其余字段同一写法）

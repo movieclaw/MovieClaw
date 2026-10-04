@@ -284,7 +284,18 @@ final class AppModel {
     /// App 正常工作要求的最低服务器版本：低于它就在登录前直接拦下，告诉用户先升级服务器。
     /// App 开始依赖某个新版服务器才有的接口时，把它调到那个版本。
     /// 当前取 0.28.0——设备令牌登录（`/auth/device/login`）从这个版本起才有，更旧的服务器根本登录不了。
-    nonisolated static let minimumServerVersion = "0.28.0"
+    /// Mac 版取 0.31.0：它以 `macos` 设备类型登录，服务端从这一版起才认（更旧的会以参数校验失败拒绝登录）
+    nonisolated static let minimumServerVersion: String = {
+        #if os(macOS)
+        #if DEBUG
+        // 开发期以别的设备类型冒充（-mcClientKind，见 ClientPlatform）时，按那个类型的门槛放行
+        if UserDefaults.standard.string(forKey: "mcClientKind")?.isEmpty == false { return "0.28.0" }
+        #endif
+        return "0.31.0"
+        #else
+        return "0.28.0"
+        #endif
+    }()
 
     /// 服务器版本是否低于 App 要求的最低版本。按数字逐段比较（0.9.0 < 0.28.0）
     nonisolated static func isServerTooOld(_ version: String) -> Bool {

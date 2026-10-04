@@ -1,6 +1,8 @@
 import Foundation
 import Security
+#if canImport(UIKit)
 import UIKit
+#endif
 
 /// 设备令牌的钥匙串存储（docs/design/login-devices.md §8）。
 ///
@@ -102,9 +104,16 @@ nonisolated enum InstallationID {
 /// 登录时报给服务端的这台设备的信息（「我的设备」里显示）
 @MainActor
 enum DeviceInfo {
-    /// 默认设备名：机型的型号名（「iPhone」「iPad」「Apple TV」）。iOS 16 起读不到用户起的设备名（要特殊权限），
+    /// 默认设备名：机型的型号名（「iPhone」「iPad」「Apple TV」），Mac 上是电脑名。iOS 16 起读不到用户起的设备名（要特殊权限），
     /// 用户可以在「设置 → 设备」里给它改名
-    static var name: String { UIDevice.current.model }
+    static var name: String {
+        #if canImport(UIKit)
+        UIDevice.current.model
+        #else
+        // Mac 读得到用户起的电脑名（「小明的 MacBook Air」），比型号更好认
+        Host.current().localizedName ?? "Mac"
+        #endif
+    }
 
     /// 「iOS 26.0 · iPhone18,4」「tvOS 26.0 · AppleTV14,1」
     static var platform: String {

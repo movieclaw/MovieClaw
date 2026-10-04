@@ -126,9 +126,19 @@ nonisolated struct APIClient: Sendable {
         return "\(ClientPlatform.product)/\(version) (\(machineModel); \(ClientPlatform.osName) \(ClientPlatform.osVersion); build \(build))"
     }()
 
-    /// 机型标识（iPhone18,4）；模拟器上取它模拟的机型
+    /// 机型标识（iPhone18,4、Mac16,10）；模拟器上取它模拟的机型
     static var machineModel: String {
         if let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] { return simulated }
+        #if os(macOS)
+        // Mac 上 uname 的 machine 只是 CPU 架构（arm64），型号在 hw.model
+        var size = 0
+        sysctlbyname("hw.model", nil, &size, nil, 0)
+        var model = [CChar](repeating: 0, count: max(size, 1))
+        sysctlbyname("hw.model", &model, &size, nil, 0)
+        if let name = String(validating: model.prefix { $0 != 0 }.map(UInt8.init(bitPattern:)), as: UTF8.self), !name.isEmpty {
+            return name
+        }
+        #endif
         var system = utsname()
         uname(&system)
         return withUnsafeBytes(of: &system.machine) { raw in

@@ -81,7 +81,7 @@ class DeviceBrief(BaseModel):
     """当前请求所用的登录设备（「当前设备」标记、``mclaw status`` 回显用）。"""
 
     id: str
-    kind: str = Field(description="web / ios / tvos / android / cli / worker / manual")
+    kind: str = Field(description="web / ios / tvos / macos / android / cli / worker / manual")
     name: str
 
 
@@ -144,7 +144,10 @@ class DeviceAuthorizeRequest(BaseModel):
     """
 
     client_type: str = Field(
-        description="客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）"
+        description=(
+            "客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）、"
+            "macos（Mac App）"
+        )
     )
     client_name: str = Field(
         min_length=1,
@@ -218,7 +221,7 @@ class DeviceRequestView(BaseModel):
 class DeviceClientInfo(BaseModel):
     """原生 App 登录时自报的设备信息。"""
 
-    kind: Literal["ios", "tvos", "android"] = Field(description="App 平台")
+    kind: Literal["ios", "tvos", "macos", "android"] = Field(description="App 平台")
     installation_id: str = Field(
         min_length=8,
         max_length=128,
@@ -255,7 +258,7 @@ class LoginDeviceView(BaseModel):
 
     id: str = Field(description="设备 id：登录设备为 ld-<n>，Jellyfin 播放器为 jf-<n>")
     kind: str = Field(
-        description="web / ios / tvos / android / cli / worker / manual / jellyfin"
+        description="web / ios / tvos / macos / android / cli / worker / manual / jellyfin"
     )
     kind_label: str = Field(description="给人看的类型名：浏览器、iOS App、命令行、Infuse……")
     family: str = Field(
