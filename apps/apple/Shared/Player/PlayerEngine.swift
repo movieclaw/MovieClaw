@@ -251,6 +251,12 @@ protocol PlayerEngine: AnyObject {
     /// 暂停下载 / 恢复：计费网络（蜂窝、个人热点、低数据模式）上用户按了暂停时控制器调，恢复播放时各引擎自己解除
     func setPrefetchSuspended(_ suspended: Bool)
     func destroy()
+
+    #if os(macOS)
+    /// 播放音量（0～1）。只有 Mac 版用：Mac 上没有 iPhone 那样可借的系统音量条，播放器自带音量滑块与静音，
+    /// 换引擎（降档、换集）后由播放器界面重新设一次（见 MacPlayerVolume）
+    var volume: Float { get set }
+    #endif
 }
 
 extension PlayerEngine {

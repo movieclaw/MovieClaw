@@ -22,15 +22,19 @@ struct MacStageBackdrop: View {
     let url: URL?
     /// 剧照边缘色；取到之前用深炭灰
     let tint: Color?
-    /// 渐隐从大图区高度的哪儿开始：首页 0.55（下面接卡片行）；详情页 0.7
+    /// 渐隐从大图区高度的哪儿开始：首页 0.6（下面接卡片行）；详情页 0.62
     var fadeFrom: CGFloat = 0.55
+    /// 剧照下面垫不垫底色：首页垫边缘色；详情页不垫，剧照直接淡进页面底下那层模糊剧照
+    var showsBase = true
 
     @State private var scrim = 0.45
 
     var body: some View {
         ZStack(alignment: .top) {
-            (tint ?? Color.macPage)
-                .animation(.easeInOut(duration: 0.8), value: tint?.description)
+            if showsBase {
+                (tint ?? Color.macPage)
+                    .animation(.easeInOut(duration: 0.8), value: tint?.description)
+            }
             if let url {
                 MacStageImage(url: url, fadeFrom: fadeFrom, scrim: scrim)
                     .id(url)

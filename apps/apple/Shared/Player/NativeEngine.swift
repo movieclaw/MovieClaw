@@ -472,6 +472,13 @@ final class NativeEngine: NSObject, PlayerEngine {
         ))
     }
 
+    #if os(macOS)
+    var volume: Float {
+        get { core.volume }
+        set { core.volume = newValue }
+    }
+    #endif
+
     // MARK: - 画中画 / 前后台
 
     var supportsPictureInPicture: Bool {
@@ -573,7 +580,7 @@ final class NativeEngine: NSObject, PlayerEngine {
     private func handle(_ failure: AetherPlayback.Failure) {
         // 引擎的报错是英文；用户看得懂的几种先翻成中文
         let message = failure.message.hasPrefix("Device storage is full")
-            ? "手机存储空间不足，视频分片写不进缓存，请清理存储后重试"
+            ? "\(ClientPlatform.deviceNoun)存储空间不足，视频分片写不进缓存，请清理存储后重试"
             : failure.message
         lastFailureKind = failure.kind
         let cause: EngineFailureCause = switch failure.category {

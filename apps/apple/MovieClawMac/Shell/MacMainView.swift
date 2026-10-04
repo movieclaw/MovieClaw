@@ -13,6 +13,8 @@ struct MacMainView: View {
     @State private var libraries = MacLibraryDirectory()
     @State private var columns: NavigationSplitViewVisibility = .all
     @FocusState private var searchFocused: Bool
+    /// 窗口顶上的一行提示（「已切换到「张三」」这类）：几秒后自己收起
+    @State private var notice: String?
 
     init() {
         #if DEBUG
@@ -56,6 +58,27 @@ struct MacMainView: View {
                     .transition(.opacity)
             }
         }
+        .overlay(alignment: .top) {
+            if let notice {
+                Text(notice)
+                    .font(.system(size: 13, weight: .medium))
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 9)
+                    .glassEffect(.regular, in: .capsule)
+                    .padding(.top, 12)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .accessibilityIdentifier("mac-notice")
+            }
+        }
+        .task {
+            // 切换账号、退出后自动切到别的账号时 AppModel 留了一句话：主界面出来后亮几秒
+            guard let text = model.takeNotice() else { return }
+            withAnimation(.spring(duration: 0.35)) { notice = text }
+            try? await Task.sleep(for: .seconds(3.5))
+            withAnimation(.easeOut(duration: 0.3)) { notice = nil }
+        }
+        // 登录过期被送回登录页：记下停在哪，重新登录后回到这一页（AppModel.captureResume 只在过期时才真的记）
+        .onDisappear { model.captureResume(tab: router.selection, path: router.path) }
         .toolbarVisibility(router.player == nil ? .automatic : .hidden, for: .windowToolbar)
         .animation(.easeInOut(duration: 0.25), value: router.player?.id)
         .task { await libraries.load(api: api) }
@@ -69,6 +92,10 @@ struct MacMainView: View {
             #if DEBUG
             MacDebugDriver.shared.router = router
             #endif
+            if let resume = model.takeResume() {
+                router.selection = resume.tab
+                router.path = resume.path
+            }
             // 点播放就开始起播（同 iPhone 版 Router.startPlaybackEarly）：API 客户端在点击那一刻取，换过账号用的是新的
             router.startPlaybackEarly = { [router, model] request in
                 if let current = router.activePlayback, current.isClosed || (!current.viewAttached && current.request.id != request.id) {

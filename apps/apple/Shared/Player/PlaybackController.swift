@@ -1262,7 +1262,7 @@ final class PlaybackController {
             log("native-retry", ["reason": .string(reason), "low_storage": .bool(true)])
             record?.event("native_retry", "存储不足，收小缓存重开：\(reason)")
             forceMinimalStorage = true
-            flash("手机存储空间不足，已减小缓存后继续播放")
+            flash("\(ClientPlatform.deviceNoun)存储空间不足，已减小缓存后继续播放")
             request(startMs: positionMs, phase: .sessionStarting)
         case .failSourceMissing:
             log("source-missing", ["reason": .string(reason)])

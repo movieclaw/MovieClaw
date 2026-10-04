@@ -111,6 +111,10 @@ final class MacDebugDriver {
         case "clickid", "hoverid", "rclickid":
             guard let frame = frame(of: arg) else { return log("找不到控件 \(arg)") }
             mouse(String(verb.dropLast(2)), at: CGPoint(x: frame.midX, y: frame.midY))
+        case "scroll":
+            // scroll <x> <y> <dy>：鼠标在 (x, y) 处滚动 dy 点（正数往下看）
+            guard numbers.count == 3 else { return log("scroll 参数不对") }
+            scroll(at: CGPoint(x: numbers[0], y: numbers[1]), by: numbers[2])
         case "key":
             key(arg)
         case "type":
@@ -128,6 +132,12 @@ final class MacDebugDriver {
             } catch {
                 log("net 失败 \(error)")
             }
+        case "libs":
+            // 列出媒体库与首页「接下来继续」的条目 id（tab / push 命令要用）
+            let libs = (LibraryHomeStore.shared.libraries ?? []).map { "\($0.id)=\($0.name)(\($0.kind))" }.joined(separator: " ")
+            let next = (LibraryHomeStore.shared.upNext ?? []).map { "\($0.libraryId)/\($0.mediaItemId)=\($0.title)" }.joined(separator: " ")
+            log("库：\(libs)")
+            log("接下来继续：\(next)")
         case "dump":
             dumpTree()
         case "wait":
@@ -197,18 +207,36 @@ final class MacDebugDriver {
         case "click", "dclick":
             let clicks = verb == "dclick" ? 2 : 1
             if let down = event(.leftMouseDown, clicks: clicks), let up = event(.leftMouseUp, clicks: clicks) {
+                // 列表、滑块这类控件按下后会自己开一个跟踪循环、从事件队列里等「抬起」：先把抬起放进队列再发按下，
+                // 否则跟踪循环拿不到抬起（SwiftUI 按钮不走跟踪循环，抬起随后由事件循环照常派发）
+                NSApp.postEvent(up, atStart: false)
                 window.sendEvent(down)
-                window.sendEvent(up)
             }
         case "rclick":
             if let down = event(.rightMouseDown), let up = event(.rightMouseUp) {
+                NSApp.postEvent(up, atStart: false)
                 window.sendEvent(down)
-                window.sendEvent(up)
             }
         default:
             break
         }
         log("\(verb) (\(Int(point.x)), \(Int(point.y)))")
+    }
+
+    /// 合成滚轮（像素单位，按触控板的精确滚动处理）：分几下发，SwiftUI 的滚动视图才跟得上
+    private func scroll(at point: CGPoint, by delta: Double) {
+        guard let window, let content = window.contentView else { return }
+        let local = CGPoint(x: point.x, y: content.bounds.height - point.y)
+        let screen = window.convertPoint(toScreen: local)
+        let mainHeight = NSScreen.screens.first?.frame.height ?? 0
+        let steps = max(1, Int(abs(delta) / 40))
+        for _ in 0 ..< steps {
+            guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
+                                   wheel1: Int32(-delta / Double(steps)), wheel2: 0, wheel3: 0) else { continue }
+            cg.location = CGPoint(x: screen.x, y: mainHeight - screen.y)
+            if let event = NSEvent(cgEvent: cg) { window.sendEvent(event) }
+        }
+        log("scroll (\(Int(point.x)), \(Int(point.y))) \(Int(delta))")
     }
 
     private func key(_ spec: String) {
@@ -253,28 +281,33 @@ final class MacDebugDriver {
 
     /// 按无障碍标识找控件，返回窗口坐标（左上角为原点）里的框
     private func frame(of identifier: String) -> CGRect? {
+        enableAccessibilityTree()
         guard let window else { return nil }
         var found: CGRect?
-        walk(window) { element, _ in
-            guard found == nil, (element.accessibilityIdentifier() ?? "") == identifier else { return }
-            found = self.windowRect(element.accessibilityFrame(), in: window)
+        walk(window) { node, _ in
+            guard found == nil, node.identifier == identifier else { return }
+            found = self.windowRect(node.frame, in: window)
         }
         return found
     }
 
+    /// 告诉 AppKit「有辅助技术在用」：没人连着时 SwiftUI 不建无障碍树（Electron 等也用这两个属性做同样的事）
+    private func enableAccessibilityTree() {
+        for name in ["AXEnhancedUserInterface", "AXManualAccessibility"] {
+            NSApp.accessibilitySetValue(true, forAttribute: NSAccessibility.Attribute(rawValue: name))
+        }
+    }
+
     private func dumpTree() {
+        enableAccessibilityTree()
         guard let window else { return }
         var lines: [String] = []
-        walk(window) { element, depth in
-            let id = element.accessibilityIdentifier() ?? ""
-            let label = element.accessibilityLabel() ?? ""
-            let value = (element.accessibilityValue() as? String) ?? ""
-            let title = element.accessibilityTitle() ?? ""
-            guard !id.isEmpty || !label.isEmpty || !title.isEmpty || !value.isEmpty else { return }
-            let rect = self.windowRect(element.accessibilityFrame(), in: window)
-            let role = element.accessibilityRole()?.rawValue ?? ""
+        walk(window) { node, depth in
+            guard ProcessInfo.processInfo.environment["MC_DUMP_ALL"] != nil || !node.identifier.isEmpty || !node.label.isEmpty
+                    || !node.title.isEmpty || !node.value.isEmpty else { return }
+            let rect = self.windowRect(node.frame, in: window)
             lines.append(String(repeating: "  ", count: min(depth, 30))
-                + "[\(role)] id=\(id) label=\(label) title=\(title) value=\(value.prefix(60)) "
+                + "[\(node.role)|\(node.className)|\(node.children.count)] id=\(node.identifier) label=\(node.label) title=\(node.title) value=\(node.value.prefix(60)) "
                 + "frame=(\(Int(rect.minX)),\(Int(rect.minY)),\(Int(rect.width)),\(Int(rect.height)))")
         }
         let url = shots.appendingPathComponent("tree.txt")
@@ -282,15 +315,52 @@ final class MacDebugDriver {
         log("控件树 \(lines.count) 项 → \(url.path)")
     }
 
-    private func walk(_ root: NSAccessibilityProtocol, visit: (NSAccessibilityElementProtocol & NSAccessibilityProtocol, Int) -> Void) {
+    /// 一个无障碍节点的读数。SwiftUI 的元素是各种私有类，统一按 NSObject 的无障碍属性读（新旧两套接口都试）
+    private struct AXNode {
+        let identifier: String
+        let label: String
+        let title: String
+        let value: String
+        let role: String
+        let frame: CGRect
+        let children: [Any]
+        let className: String
+    }
+
+    private func read(_ object: Any) -> AXNode? {
+        guard let node = object as? NSObject else { return nil }
+        func attr(_ name: NSAccessibility.Attribute) -> Any? { node.accessibilityAttributeValue(name) }
+        let element = node as? NSAccessibilityProtocol
+        let identifier = element?.accessibilityIdentifier() ?? (attr(.identifier) as? String) ?? ""
+        let label = element?.accessibilityLabel() ?? (attr(.description) as? String) ?? ""
+        let title = element?.accessibilityTitle() ?? (attr(.title) as? String) ?? ""
+        let value = (element?.accessibilityValue() as? String) ?? (attr(.value) as? String) ?? ""
+        let role = element?.accessibilityRole()?.rawValue ?? (attr(.role) as? String) ?? ""
+        var frame = element?.accessibilityFrame() ?? .zero
+        if frame == .zero, let position = attr(.position) as? NSValue, let size = attr(.size) as? NSValue {
+            frame = CGRect(origin: position.pointValue, size: size.sizeValue)
+        }
+        var children = element?.accessibilityChildren() ?? []
+        if children.isEmpty { children = (attr(.children) as? [Any]) ?? [] }
+        if children.isEmpty { children = element?.accessibilityVisibleChildren() ?? [] }
+        // 没有辅助技术连着时 AppKit 不一定给出子元素：视图的话沿子视图往下找（SwiftUI 的宿主视图会在被问到时现建无障碍树）
+        if children.isEmpty, let view = node as? NSView {
+            children = view.subviews
+        } else if children.isEmpty, let window = node as? NSWindow, let content = window.contentView {
+            children = [content]
+        }
+        return AXNode(identifier: identifier, label: label, title: title, value: value, role: role, frame: frame, children: children,
+                      className: String(describing: type(of: node)))
+    }
+
+    private func walk(_ root: Any, visit: (AXNode, Int) -> Void) {
         var stack: [(Any, Int)] = [(root, 0)]
         var seen = 0
-        while let (node, depth) = stack.popLast(), seen < 20000 {
+        while let (object, depth) = stack.popLast(), seen < 30000 {
             seen += 1
-            guard let element = node as? (NSAccessibilityElementProtocol & NSAccessibilityProtocol) else { continue }
-            visit(element, depth)
-            let children = element.accessibilityChildren() ?? []
-            for child in children.reversed() { stack.append((child, depth + 1)) }
+            guard let node = read(object) else { continue }
+            visit(node, depth)
+            for child in node.children.reversed() { stack.append((child, depth + 1)) }
         }
     }
 

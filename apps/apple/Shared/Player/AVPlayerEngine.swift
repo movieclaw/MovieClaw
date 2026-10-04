@@ -283,6 +283,13 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
     func selectSubtitle(_ option: SubtitleOption?, url: URL?) {}
     func applySubtitleStyle(_ style: SubtitleStyle) {}
 
+    #if os(macOS)
+    var volume: Float {
+        get { player.volume }
+        set { player.volume = newValue }
+    }
+    #endif
+
     // MARK: - 画中画
 
     var supportsPictureInPicture: Bool { pipController != nil }
