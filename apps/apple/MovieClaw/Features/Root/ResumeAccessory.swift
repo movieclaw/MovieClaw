@@ -9,6 +9,10 @@ import SwiftUI
 /// 内容取「继续观看」的第一条（`/playback/up-next`，最近播放的作品：看了一半的接着放，看完一集的放下一集），
 /// 与媒体库首页那一行同源。整条点一下就起播（同一条的「继续观看」卡片的播放键）；长按可以看详情或先隐藏。
 ///
+/// 右边的 ✕ 把这条叉掉（2026-10-04 用户要求）：叉掉后一直不显示，直到这台设备再播一次——
+/// 记下的是「作品 + 季集 + 最近播放时刻」，再播任何一部（包括同一部）最近播放时刻都会变，条就自己回来。
+/// 叉掉的记录存本机，App 重启也不会冒出来。
+///
 /// 只认**这台设备**播过的（`this_device`）：附件说的是「你刚才在这台手机上看到哪了」，在 Infuse、电视上放的
 /// 不该顶上来；媒体库首页那一行照旧跨设备。进度仍按人合并——别处把这一集看完了，这里接下一集。
 ///
@@ -18,8 +22,10 @@ import SwiftUI
 @MainActor
 final class ResumeBarStore {
     private(set) var item: API.UpNextItemView?
-    /// 长按「隐藏」掉的那一条（作品 + 季集 + 最近播放时刻）：再看过别的、或这部又往后看了，才重新出现
-    private var hiddenKey: String?
+    /// 叉掉 / 长按「隐藏」掉的那一条（作品 + 季集 + 最近播放时刻）：再看过别的、或这部又往后看了，才重新出现。
+    /// 存 UserDefaults：只是本机的显示偏好，重启后仍然有效
+    private var hiddenKey: String? = UserDefaults.standard.string(forKey: ResumeBarStore.hiddenKeyDefaultsKey)
+    private static let hiddenKeyDefaultsKey = "movieclaw.resumeBar.hiddenKey"
 
     var visibleItem: API.UpNextItemView? {
         guard let item, Self.key(item) != hiddenKey else { return nil }
@@ -32,7 +38,9 @@ final class ResumeBarStore {
     }
 
     func hide() {
-        if let item { hiddenKey = Self.key(item) }
+        guard let item else { return }
+        hiddenKey = Self.key(item)
+        UserDefaults.standard.set(hiddenKey, forKey: Self.hiddenKeyDefaultsKey)
     }
 
     private static func key(_ item: API.UpNextItemView) -> String {
@@ -57,7 +65,7 @@ struct ResumeAccessoryModifier: ViewModifier {
     }
 }
 
-/// 条本身：剧照缩略图 + 片名 + 看到哪 + 播放键。标签栏下滑收起时（`.inline`）附件挤进标签栏那一行，
+/// 条本身：剧照缩略图 + 片名 + 看到哪 + 播放键 + ✕。标签栏下滑收起时（`.inline`）附件挤进标签栏那一行，
 /// 小图缩小照留（收起就没图，看着像条目丢了，2026-09-30 用户反馈），第二行放不下才省掉
 private struct ResumeBar: View {
     let item: API.UpNextItemView
@@ -87,32 +95,51 @@ private struct ResumeBar: View {
     }
 
     var body: some View {
-        Button(action: play) {
-            HStack(spacing: 10) {
-                RemoteImage(url: api.image(item.episodeStillUrl ?? item.backdropUrl ?? item.posterUrl, .landscapeCard))
-                    .frame(width: placement == .inline ? 40 : 52, height: placement == .inline ? 23 : 30)
-                    .clipShape(.rect(cornerRadius: placement == .inline ? 5 : 6))
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(item.title)
-                        .font(.subheadline.weight(.semibold))
-                        .lineLimit(1)
-                    if placement != .inline, !detail.isEmpty {
-                        Text(detail)
-                            .font(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
+        // 播放与 ✕ 是并排的两个按钮（按钮里套按钮点击会串），左边整块点了起播
+        HStack(spacing: 0) {
+            Button(action: play) {
+                HStack(spacing: 10) {
+                    RemoteImage(url: api.image(item.episodeStillUrl ?? item.backdropUrl ?? item.posterUrl, .landscapeCard))
+                        .frame(width: placement == .inline ? 40 : 52, height: placement == .inline ? 23 : 30)
+                        .clipShape(.rect(cornerRadius: placement == .inline ? 5 : 6))
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(item.title)
+                            .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
+                        if placement != .inline, !detail.isEmpty {
+                            Text(detail)
+                                .font(.caption)
+                                .monospacedDigit()
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
+                    Spacer(minLength: 8)
+                    Image(systemName: "play.fill")
+                        .font(.system(size: 18))
+                        .frame(width: 32, height: 32)
                 }
-                Spacer(minLength: 8)
-                Image(systemName: "play.fill")
-                    .font(.system(size: 18))
-                    .frame(width: 32, height: 32)
+                .padding(.leading, 12)
+                .contentShape(.rect)
             }
-            .padding(.horizontal, 12)
-            .contentShape(.rect)
+            .buttonStyle(.plain)
+            .accessibilityLabel("\(playVerb)《\(item.title)》\(detail.isEmpty ? "" : " \(detail)")")
+            .accessibilityIdentifier("resume-accessory")
+
+            Button {
+                withAnimation { onHide() }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 36, height: 32)
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .padding(.trailing, 6)
+            .accessibilityLabel("不再显示")
+            .accessibilityIdentifier("resume-accessory-dismiss")
         }
-        .buttonStyle(.plain)
         .contextMenu {
             Button("查看详情", systemImage: "film") {
                 router.open(.libraryItem(libraryId: item.libraryId, itemId: item.mediaItemId,
@@ -121,8 +148,6 @@ private struct ResumeBar: View {
             }
             Button("先隐藏", systemImage: "eye.slash", action: onHide)
         }
-        .accessibilityLabel("\(playVerb)《\(item.title)》\(detail.isEmpty ? "" : " \(detail)")")
-        .accessibilityIdentifier("resume-accessory")
     }
 
     private func play() {
