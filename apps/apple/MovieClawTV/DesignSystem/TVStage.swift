@@ -28,7 +28,8 @@ struct TVStageBackdrop: View {
     var fadeDistance: CGFloat = 700
     /// 边缘色在屏幕下沿之外再延伸这么高，在里面渐变到深炭灰
     static let tailHeight: CGFloat = 600
-    /// 剧照地址（换一部就交叉淡入）；nil = 没有剧照（首页没有「接下来继续」、详情还没加载），只铺底色
+    /// 剧照地址（换一部就交叉淡入），按屏宽像素取（`ImageWidth.screen`：4K → 3840，1080p → 1920）；
+    /// nil = 没有剧照（首页没有「接下来继续」、详情还没加载），只铺底色
     let url: URL?
     /// 剧照边缘色；取到之前只有电视底色
     let tint: Color?
@@ -39,7 +40,7 @@ struct TVStageBackdrop: View {
     /// 和中间的原图看得出色差（2026-10-03 用户在详情页指出）；首页下面要落卡片行，仍渐隐进边缘色。
     /// 这时最底下垫的是同一张剧照的模糊版（`TVBlurredBackdrop`，与海报墙同一套），剧照滚走后露出来
     var fullImage = false
-    /// 原图铺满时垫底的模糊剧照：给轻量的电视横版派生图就够，模糊之后看不出清晰度
+    /// 原图铺满时垫底的模糊剧照：按 `TVMetrics.blurredBackdropWidth` 取的小图就够，模糊之后看不出清晰度
     var ambientURL: URL?
 
     /// 左下角压暗的深浅（0～1）：量出来之前按中等处理。首页、详情页一样：原先首页左侧是一层边缘色（0.9 → 0.55 → 透明），
@@ -152,7 +153,7 @@ private struct TVStageImage: View {
                 LinearGradient(stops: TVEasedFade.stops(color: .black, from: fadeFrom, to: 1), startPoint: .top, endPoint: .bottom)
             }
             .onAppear {
-                withAnimation(.linear(duration: 40)) { zoom = 1.06 }
+                withAnimation(.linear(duration: 40)) { zoom = TVMetrics.stageZoom }
             }
     }
 }
@@ -168,7 +169,8 @@ enum TVStageScrimShape {
 
 /// 托字那层黑的深浅：量剧照上文字会落的那一块的亮度，取偏亮的那一档（第 80 百分位）——
 /// 窗户、白墙这类亮斑才是压字的，平均值会被大片暗部拉低。暗的（≤0.3）只罩 0.15 的一层，越亮罩得越深，封顶 0.65。
-/// 同系统 Apple TV App：它的海报图左下本来就是留给文字的暗区，几乎看不出压暗；我们的剧照是刮来的，按图来定。结果按地址缓存
+/// 同系统 Apple TV App：它的海报图左下本来就是留给文字的暗区，几乎看不出压暗；我们的剧照是刮来的，按图来定。结果按地址缓存。
+/// 量的是同一张图的 240 宽小图（`ImageWidth.analysis`）：最后只缩成 24×24 求亮度，用不着解码整张 4K 图
 @MainActor
 enum TVStageCornerScrim {
     private static var cache: [String: Double] = [:]
@@ -177,7 +179,7 @@ enum TVStageCornerScrim {
     static func strength(for url: URL, shape: TVStageScrimShape) async -> Double? {
         let key = "\(shape)|\(url.absoluteString)"
         if let hit = cache[key] { return hit }
-        guard let image = try? await ImagePipeline.shared.image(for: url) else { return nil }
+        guard let image = try? await ImagePipeline.shared.image(for: url.imageWidth(ImageWidth.analysis)) else { return nil }
         let top: CGFloat = shape == .corner ? 0.35 : 0
         guard let luma = await Task.detached(priority: .utility, operation: { regionLuma(of: image, top: top) }).value else { return nil }
         // 首页的文字会落在剧照不同的高度上（焦点进卡片行时滚到左上角），起码罩 0.3；详情页只在左下角，暗图几乎不加
@@ -218,8 +220,8 @@ enum TVStageEdgeColor {
 
     static func color(for url: URL) async -> Color? {
         if let hit = cache[url] { return hit }
-        // 与剧照显示同一个地址：命中 Nuke 的内存 / 磁盘缓存，不会重复下载
-        guard let image = try? await ImagePipeline.shared.image(for: url) else { return nil }
+        // 取同一张图的 240 宽小图：边缘色只是缩到 16×16 求平均，不必解码整张 4K 图；与亮度分析同一个地址，只下载一次
+        guard let image = try? await ImagePipeline.shared.image(for: url.imageWidth(ImageWidth.analysis)) else { return nil }
         guard let color = await Task.detached(priority: .utility, operation: { edgeColor(of: image) }).value
         else { return nil }
         cache[url] = color
@@ -408,7 +410,8 @@ struct TVMediaBadgeView: View {
     }
 }
 
-/// 片名：有片名 Logo 就画 Logo（本地 Logo 常见 4000px 宽，按显示宽度降采样再解码），没有或加载失败回落文字。
+/// 片名：有片名 Logo 就画 Logo（按 Logo 框宽取 `w`；本地 Logo 常见 4000px 宽，旧服务器不认 `w` 会回原图，
+/// 所以仍按显示宽度降采样再解码），没有或加载失败回落文字。
 /// 大图区左下角（贴左下对齐）与详情页往下滑到选集时的顶部（居中）共用
 struct TVTitleArt: View {
     let title: String
@@ -421,7 +424,9 @@ struct TVTitleArt: View {
 
     var body: some View {
         if let logoURL {
-            LazyImage(request: ImageRequest(url: logoURL, processors: [.resize(width: size.width * 1.8)])) { state in
+            // Logo 等比装进框里，有效宽最多就是框宽
+            LazyImage(request: ImageRequest(url: logoURL.imageWidth(ImageWidth.points(size.width)),
+                                            processors: [.resize(width: size.width * 1.8)])) { state in
                 if let image = state.image {
                     image.resizable()
                         .aspectRatio(contentMode: .fit)
@@ -468,7 +473,7 @@ enum TVEasedFade {
 /// 模糊剧照背景：剧照放大模糊、压到 45%，再从上到下压一层渐暗的黑（上 20% → 下 75%），换图时交叉淡入。
 /// 海报墙（焦点那一部）与详情页往下滑之后（这一部自己）共用：同一个底色语言，往哪页走都是一个调子
 struct TVBlurredBackdrop: View {
-    /// 剧照地址（电视横版派生图）；nil 只铺电视底色与渐暗
+    /// 剧照地址（按 `TVMetrics.blurredBackdropWidth` 取的小图）；nil 只铺电视底色与渐暗
     let url: URL?
 
     var body: some View {

@@ -23,6 +23,8 @@ struct ManageScrapeOverrides: View {
     @State private var open: String?
     @State private var languages: [API.LanguageOption] = []
     @State private var countries: [API.CountryOption] = []
+    /// 本地图片画质各档的磁盘估算（全站口径，拿不到不写）
+    @State private var estimate: API.ImageStorageEstimateView?
 
     /// 卡片级三态的五张卡
     private static let followCards: [SettingsBScrapeCard] = [.metaLanguage, .certCountry, .poster, .backdrop, .quality]
@@ -175,7 +177,7 @@ struct ManageScrapeOverrides: View {
                         max: 4, primaryTag: "首选", identifier: "form-scrape-backdrop-lang"
                     )
                 case .quality:
-                    SettingsBScrapeQualityRows(setting: binding(card), effective: config?.effective, inheritsGlobal: true)
+                    SettingsBScrapeQualityRows(setting: binding(card), effective: config?.effective, estimate: estimate, inheritsGlobal: true)
                 default:
                     EmptyView()
                 }
@@ -306,13 +308,14 @@ struct ManageScrapeOverrides: View {
         // 语种 / 地区全量表拉不到不阻断（「更多」面板回落只显示常用项）
         languages = (try? await api.scrapeLanguages()) ?? []
         countries = (try? await api.scrapeCountries()) ?? []
+        estimate = try? await api.scrapeStorageEstimate()
     }
 
     /// 仅作绑定兜底（加载成功前不会渲染卡片）
     private static let emptySetting = API.MetadataScrapeSetting(
         languagePriority: [], certCountryPriority: [], posterMode: "default",
         posterLanguagePriority: [], backdropLanguagePriority: [], posterMinWidth: 0, backdropMinWidth: 0,
-        posterSize: "", backdropSize: "", stillSize: "",
+        posterSize: "", backdropSize: "", stillSize: "", profileSize: "", imageQuality: "",
         namingEntryDir: "", namingMovieFile: "", namingSeasonDir: "", namingEpisodeFile: "",
         mirrorImages: true, mirrorNfo: true, mirrorEpisodeThumbs: true
     )

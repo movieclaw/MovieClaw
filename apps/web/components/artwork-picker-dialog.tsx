@@ -11,7 +11,7 @@ import {
   listArtworkCandidates,
   selectArtwork,
 } from "@/lib/api/libraries";
-import { cachedImageUrl } from "@/lib/image-proxy";
+import { cachedImageUrl, responsiveImage } from "@/lib/image-proxy";
 
 /** tab 顺序与文案：label 用在 tab 与锁定提示，noun 用在"没有候选"的句子里 */
 const TABS: { key: ArtworkKind; label: string; noun: string }[] = [
@@ -202,7 +202,11 @@ export function ArtworkPickerDialog({
                 }`}
               >
                 <img
-                  src={cachedImageUrl(c.preview_url)}
+                  // 格子宽：海报 minmax(116px) 约 160、徽标 minmax(200px) 约 240、背景 minmax(220px) 约 300
+                  {...responsiveImage(
+                    cachedImageUrl(c.preview_url),
+                    tab === "poster" ? 160 : tab === "logo" ? 240 : 300,
+                  )}
                   alt=""
                   loading="lazy"
                   referrerPolicy="no-referrer"

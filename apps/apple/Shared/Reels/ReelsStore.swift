@@ -328,10 +328,15 @@ final class ReelsStore {
         }
     }
 
-    /// 等画面时垫的图：这部片的横版剧照，没有剧照是服务端抓的起点帧。720p 小图（`reel-still`）；
-    /// 页面与预取用同一个 URL 才命中同一条图片缓存
+    /// 等画面时垫的图：这部片的横版剧照，没有剧照是服务端抓的起点帧。按画面宽取：电视整屏（屏宽像素），
+    /// iPhone 是占满屏宽的横带（竖屏屏宽 × 倍率，3 倍屏约 1280 档）；页面与预取用同一个 URL 才命中同一条图片缓存
     func stillURL(for item: API.ReelItemView) -> URL? {
-        api.image(item.title.backdropUrl ?? item.coverUrl, .reelStill)
+        #if os(tvOS)
+        let width = ImageWidth.screen
+        #else
+        let width = ImageWidth.points(ImageWidth.screenSize.width)
+        #endif
+        return api.image(item.title.backdropUrl ?? item.coverUrl, width: width)
     }
 
     /// 左上角标题跟的那一条：在播的这一条（滑过去、换了播放器才换）；还没有播放器时（刚进来、挂起中）按滚动位置

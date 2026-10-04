@@ -30,7 +30,7 @@ export function CollectionLibraryCard({ collection }: { collection: Collection }
       <div className="relative aspect-[21/10] overflow-hidden rounded-2xl bg-[#0a0c12] ring-1 ring-white/10 transition duration-300 group-hover/collection:ring-white/35">
         {collection.covers.length === 0 ? placeholder : (
           <>
-            <PosterImage src={imageUrl(`/collections/${collection.id}/cover`)} alt="" className="absolute inset-0 size-full object-cover transition duration-300 group-hover/lib:scale-[1.02]" fallback={placeholder} />
+            <PosterImage src={imageUrl(`/collections/${collection.id}/cover`)} width={268} zoom={1.02} alt="" className="absolute inset-0 size-full object-cover transition duration-300 group-hover/lib:scale-[1.02]" fallback={placeholder} />
             <div className="pointer-events-none absolute -left-[45%] bottom-0 h-[25%] w-[45%] -skew-x-12 bg-gradient-to-r from-transparent via-white/[0.14] to-transparent transition-transform duration-700 ease-out group-hover/lib:translate-x-[350%]" />
           </>
         )}

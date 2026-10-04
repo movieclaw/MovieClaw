@@ -75,6 +75,7 @@ from movieclaw_api.services.library.items import (
 from movieclaw_api.services.library.profile import profile_for
 from movieclaw_api.services.media_extract import window_format
 from movieclaw_api.services.media_scrape import asset_version
+from movieclaw_api.services.people_images import avatar_url
 from movieclaw_api.services.playback import marks as playback_marks
 from movieclaw_api.services.playback.signing import issue_stream_token
 from movieclaw_api.services.playback_up_next import _progress_percent, _runtime_ms
@@ -879,11 +880,9 @@ async def _directors_of(
     session: AsyncSession, item_ids: Sequence[int]
 ) -> dict[int, list[dict[str, Any]]]:
     """条目 → 导演（剧集为主创），取自与详情页同一张影人关系表，按署名顺序。"""
-    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
     if not item_ids:
         return {}
-    base = effective_tmdb_image_base_url().rstrip("/")
     rows = await session.execute(
         select(
             MediaItemPerson.media_item_id, Person.name, Person.profile_path, Person.tmdb_person_id
@@ -903,7 +902,7 @@ async def _directors_of(
                 {
                     "name": name,
                     "tmdb_person_id": tmdb_id,
-                    "avatar_url": f"{base}/w185{profile}" if profile else None,
+                    "avatar_url": avatar_url(profile),
                 }
             )
     return out

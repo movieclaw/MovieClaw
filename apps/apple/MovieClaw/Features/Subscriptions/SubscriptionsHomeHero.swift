@@ -64,10 +64,10 @@ struct SubsHomeHero: View {
         .immersiveHeroRotation(index: $index, count: slides.count, fill: $fill, interval: Self.interval)
         .onChange(of: index, initial: true) { _, current in
             guard slides.count > 1 else { return }
-            let next = slides[(current + 1) % slides.count].media
+            let next = slides[(current + 1) % slides.count]
             let urls = [
-                api.server.originalTMDBImageURL(next.backdropUrl) ?? api.image(next.posterUrl),
-                api.image(next.logoUrl),
+                SubsHomeHeroImage.url(next, api: api),
+                SubsHomeHeroImage.logoURL(next, api: api),
             ].compactMap { $0 }
             Self.prefetcher.startPrefetching(with: urls)
         }
@@ -116,10 +116,9 @@ private struct SubsHomeHeroSlideView: View {
         .accessibilityLabel(accessibilityText)
     }
 
-    /// 剧照换 TMDB 原图（Hero 把 16:9 横图放大裁切铺满竖向大区域，w1280 会糊，同发现页）；
-    /// 没有剧照（老条目还没刷新到）退回海报铺满
+    /// 剧照口径见 `SubsHomeHeroImage`（TMDB 换原图再按 Hero 需要的宽度缩；没有剧照退回海报铺满）
     private var imageURL: URL? {
-        api.server.originalTMDBImageURL(slide.media.backdropUrl) ?? api.image(slide.media.posterUrl)
+        SubsHomeHeroImage.url(slide, api: api)
     }
 
     private var backdrop: some View {
@@ -202,11 +201,11 @@ private struct SubsHomeHeroSlideView: View {
         }
     }
 
-    /// 片名：有 Logo 用 Logo（透明底 PNG，不带派生预设请求以保住透明通道），没有或加载失败退回文字片名。
+    /// 片名：有 Logo 用 Logo（按框宽取 `w`，宽度派生输出带透明通道的 WebP），没有或加载失败退回文字片名。
     /// 固定占一块 240×88 的框：各张高度一致，轮播时下面的文字不上下跳
     @ViewBuilder
     private var titleArt: some View {
-        if let logo = slide.media.logoUrl, let url = api.image(logo) {
+        if let url = SubsHomeHeroImage.logoURL(slide, api: api) {
             LazyImage(url: url, transaction: Transaction(animation: .easeOut(duration: 0.25))) { state in
                 Group {
                     if let image = state.image {
@@ -221,7 +220,7 @@ private struct SubsHomeHeroSlideView: View {
                 }
                 .perfImage(url, state)
             }
-            .frame(maxWidth: 240, maxHeight: 88)
+            .frame(maxWidth: SubsHomeHeroImage.logoWidth, maxHeight: 88)
             .accessibilityHidden(true)
         } else {
             titleText

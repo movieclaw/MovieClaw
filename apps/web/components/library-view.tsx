@@ -52,7 +52,7 @@ import {
   SORT_PRESETS,
 } from "@/lib/home-rows";
 import { formatBytes } from "@/lib/format";
-import { cardVariantFor, imageUrl } from "@/lib/image-proxy";
+import { imageUrl, responsiveImage } from "@/lib/image-proxy";
 import { libraryInventoryAction } from "@/lib/library-inventory-summary";
 import type { MediaItem } from "@/lib/media-types";
 import { usePageChrome } from "@/lib/page-chrome";
@@ -801,11 +801,9 @@ function libraryItemToMediaItem(item: LibraryItem): MediaItem {
     overlayDetails,
     // 海报可能是本地刮削资产的相对路径（/images/assets/...），也可能是
     // TMDB 图床绝对地址——统一经 imageUrl 解析（补 API base / 走缓存代理）。
-    // 取 poster-card 派生图而非原图：格子实测渲染 150~170 CSS px，328px 的
-    // 预设覆盖 2x 屏绰绰有余，而原图是 500px 宽的刮削资产——一屏 60 格直出
-    // 原图要 4.9 MB，取派生图只要 1.7 MB（实测单张 82KB → 29KB）。
-    // 其他库的横版封面按比例取横卡预设，竖框会把它缩得太小
-    posterUrl: imageUrl(item.poster_url, cardVariantFor(item.primary_aspect)),
+    // 不取原图：宽度由 PosterCard 按格子尺寸生成 srcset 再带上（服务端宽度阶梯），
+    // 一屏 60 格直出原图要几十 MB
+    posterUrl: imageUrl(item.poster_url),
   };
 }
 
@@ -953,6 +951,11 @@ function ScanProgressRing({ progress }: { progress: { processed: number; total: 
   );
 }
 
+/** 首页库卡的显示宽（CSS px，桌面 268 / 手机 230，取大者） */
+const LIBRARY_CARD_WIDTH = 268;
+/** 回退货架上单张海报的显示宽：卡宽 × 22.5% */
+const SHELF_POSTER_WIDTH = 60;
+
 function LibraryCover({
   libraryId,
   posters,
@@ -969,6 +972,8 @@ function LibraryCover({
   // 一次 <img> 请求替代 9+ 张图的客户端合成，ETag 协商缓存，渲染显著更快。
   // 拼贴尚未生成/加载失败时回退到原客户端 CSS 货架（素材同源，观感一致）。
   // 设了自定义封面的库走同一个地址，后端在那一层就短路了。
+  // 回退货架里的海报约占卡宽 22.5%（60 CSS px）；背后两层模糊光用同一张首图、
+  // 同一个宽度，地址一致浏览器只取一次
   const [collageFailed, setCollageFailed] = useState(false);
   const placeholder = (
     <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#1c2230] to-[#10131c]">
@@ -980,7 +985,8 @@ function LibraryCover({
     return (
       <div className="absolute inset-0 overflow-hidden">
         <img
-          src={libraryCoverUrl(libraryId)}
+          // 库卡 268 宽（21:10），悬停放大 1.02；服务端拼贴同样认 w
+          {...responsiveImage(libraryCoverUrl(libraryId), LIBRARY_CARD_WIDTH, 1.02)}
           alt=""
           loading="lazy"
           className="absolute inset-0 size-full object-cover transition duration-300 group-hover/lib:scale-[1.02]"
@@ -997,7 +1003,7 @@ function LibraryCover({
     <div className="absolute inset-0 overflow-hidden">
       {/* 氛围光：首图放大重模糊 + 提饱和，再整体压暗保证前景对比度 */}
       <img
-        src={imageUrl(posters[0])}
+        {...responsiveImage(imageUrl(posters[0]), SHELF_POSTER_WIDTH)}
         alt=""
         loading="lazy"
         referrerPolicy="no-referrer"
@@ -1007,7 +1013,7 @@ function LibraryCover({
       {/* 灯箱底光：首图模糊后以 screen 混合从底边向上发光，颜色天然
           取自海报主色；再叠一个中性地面光斑，像射灯打在舞台地面上 */}
       <img
-        src={imageUrl(posters[0])}
+        {...responsiveImage(imageUrl(posters[0]), SHELF_POSTER_WIDTH)}
         alt=""
         aria-hidden
         loading="lazy"
@@ -1023,7 +1029,7 @@ function LibraryCover({
             className="w-[22.5%] shrink-0 transition duration-300 group-hover/lib:-translate-y-1"
           >
             <img
-              src={imageUrl(url)}
+              {...responsiveImage(imageUrl(url), SHELF_POSTER_WIDTH)}
               alt=""
               loading="lazy"
               referrerPolicy="no-referrer"
@@ -1033,7 +1039,7 @@ function LibraryCover({
                 坐标系生效、会跟着 scaleY(-1) 一起翻转，所以这里写 to top，
                 翻转后在屏幕上才是「贴近海报处最实、向下淡出」 */}
             <img
-              src={imageUrl(url)}
+              {...responsiveImage(imageUrl(url), SHELF_POSTER_WIDTH)}
               alt=""
               aria-hidden
               loading="lazy"

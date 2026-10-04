@@ -26,7 +26,8 @@ import {
 } from "@/lib/api/playback";
 import { publicEnv } from "@/lib/env";
 import { formatBytes, formatRuntimeMinutes, formatVideoResolution } from "@/lib/format";
-import { imageUrl } from "@/lib/image-proxy";
+import { IMAGE_ASPECT, imageUrl } from "@/lib/image-proxy";
+import { useViewportCoverWidth } from "@/lib/image-resolution";
 import { HttpError } from "@/lib/http";
 import { expiryHint, sharePlayPath } from "@/lib/share";
 import { usePageTitle } from "@/lib/use-page-title";
@@ -133,6 +134,12 @@ export function SharedItemView({
     [item, isMovie, router, selected, slug],
   );
 
+  // 剧照铺底是 fixed 整屏的 bg-cover：按视口铺满算宽度（竖屏手机要按高算）。
+  // hook 必须在下面的提前返回之前调用
+  const backdropWidth = useViewportCoverWidth(
+    item?.backdrop_url ? IMAGE_ASPECT.backdrop : IMAGE_ASPECT.poster,
+  );
+
   if (failed) {
     return (
       <div className="flex min-h-dvh items-center justify-center px-6 text-center">
@@ -195,7 +202,9 @@ export function SharedItemView({
         })),
       ]
     : [];
-  const backdrop = imageUrl(item.backdrop_url ?? item.poster_url);
+  const backdrop = backdropWidth
+    ? imageUrl(item.backdrop_url ?? item.poster_url, { width: backdropWidth })
+    : "";
   const canPlay = availableFiles.length > 0 && (isMovie || selected !== null);
 
   return (

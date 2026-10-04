@@ -99,7 +99,7 @@ private struct ResumeBar: View {
         HStack(spacing: 0) {
             Button(action: play) {
                 HStack(spacing: 10) {
-                    RemoteImage(url: api.image(item.episodeStillUrl ?? item.backdropUrl ?? item.posterUrl, .landscapeCard))
+                    RemoteImage(url: api.image(item.episodeStillUrl ?? item.backdropUrl ?? item.posterUrl, width: ImageWidth.points(52)))
                         .frame(width: placement == .inline ? 40 : 52, height: placement == .inline ? 23 : 30)
                         .clipShape(.rect(cornerRadius: placement == .inline ? 5 : 6))
                     VStack(alignment: .leading, spacing: 1) {

@@ -727,7 +727,7 @@ private struct ManageDupSeasonBlock: View {
         let media = item.mediaItem
         let headline = ManageDupText.seasonHeadline(season, kind: media.kind)
         return HStack(spacing: 10) {
-            RemoteImage(url: api.image(media.posterUrl, .posterCard))
+            RemoteImage(url: api.image(media.posterUrl, width: ImageWidth.points(26)))
                 .frame(width: 26, height: 38)
                 .clipShape(.rect(cornerRadius: 4))
                 .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Theme.line))

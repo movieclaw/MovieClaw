@@ -57,7 +57,8 @@ struct TVSubscriptionsView: View {
                             TVLandscapeCard(
                                 title: card.media.title,
                                 subtitle: SubscriptionsHome.recentDetail(card),
-                                imageURL: api.image(card.stillUrl ?? card.media.backdropUrl ?? card.media.posterUrl, .tvLandscape),
+                                imageURL: api.image(card.stillUrl ?? card.media.backdropUrl ?? card.media.posterUrl,
+                                                    width: ImageWidth.tvCard(TVMetrics.landscapeWidth)),
                                 progress: card.progressPercent.map { Double($0) / 100 },
                                 badge: "新"
                             ) {
@@ -89,7 +90,7 @@ struct TVSubscriptionsView: View {
             TVShelf(title: title, detail: "\(shelf.all.count) 部") {
                 ForEach(shelf.all) { entry in
                     TVPosterCard(title: entry.sub.media.title, subtitle: entry.chip?.text ?? entry.meta,
-                                 imageURL: api.image(entry.sub.media.posterUrl, .tvPoster),
+                                 imageURL: api.image(entry.sub.media.posterUrl, width: ImageWidth.tvCard(TVMetrics.posterWidth)),
                                  progress: entry.progress,
                                  badge: entry.resting ? SubscriptionStatusMeta.label(entry.sub.status) : nil) {
                         router.push(.discoverTitle("tmdb:\(entry.sub.media.kind):\(entry.sub.media.tmdbId)"))
@@ -123,7 +124,7 @@ struct TVSubscriptionHero: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            RemoteImage(url: api.server.originalTMDBImageURL(slide.media.backdropUrl) ?? api.image(slide.media.posterUrl))
+            RemoteImage(url: SubsHomeHeroImage.url(slide, api: api))
                 .frame(maxWidth: .infinity)
                 .frame(height: 760)
                 .clipped()

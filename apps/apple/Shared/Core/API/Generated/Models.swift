@@ -3465,6 +3465,42 @@ nonisolated extension API {
         }
     }
 
+    struct ImageStorageCountsView: Codable, Hashable, Sendable {
+        /// 条目海报 + 季海报张数
+        var posters: Int
+        var backdrops: Int
+        var logos: Int
+        /// 有文件的剧集的分集剧照张数
+        var stills: Int
+        /// 演职员头像张数（按人去重）
+        var people: Int
+
+        enum CodingKeys: String, CodingKey {
+            case posters
+            case backdrops
+            case logos
+            case stills
+            case people
+        }
+    }
+
+    struct ImageStorageEstimateView: Codable, Hashable, Sendable {
+        var counts: API.ImageStorageCountsView
+        /// 各画质档的估算字节数：original / standard / compact
+        var presets: [String: Int]
+        /// 当前生效的画质档（自定义为 custom）
+        var currentQuality: String
+        /// 按当前生效档位的估算字节数
+        var currentBytes: Int
+
+        enum CodingKeys: String, CodingKey {
+            case counts
+            case presets
+            case currentQuality = "current_quality"
+            case currentBytes = "current_bytes"
+        }
+    }
+
     /// 创建/更新监听导入规则的请求体。
     /// 目标三态：``library_id`` 指定库；``target_path`` 自定义目录（movie/tv
     /// 识别改名、video 原样搬运后落该目录，不进任何媒体库——整理结果需外部
@@ -5468,6 +5504,10 @@ nonisolated extension API {
         var backdropSize: String
         /// 分集剧照档位；空 = 跟随环境变量
         var stillSize: String
+        /// 演职员头像档位；空 = 跟随环境变量
+        var profileSize: String
+        /// 本地图片画质：original=原图 / standard=标准 / compact=节省空间 / custom=自定义（逐项看四个档位）；空 = 没选过，逐项跟随档位与环境变量
+        var imageQuality: String
         /// 条目目录模板；空 = 默认 {title} ({year})
         var namingEntryDir: String
         /// 电影文件名模板；空 = 默认 {title} ({year})
@@ -5494,6 +5534,8 @@ nonisolated extension API {
             case posterSize = "poster_size"
             case backdropSize = "backdrop_size"
             case stillSize = "still_size"
+            case profileSize = "profile_size"
+            case imageQuality = "image_quality"
             case namingEntryDir = "naming_entry_dir"
             case namingMovieFile = "naming_movie_file"
             case namingSeasonDir = "naming_season_dir"
@@ -5526,6 +5568,10 @@ nonisolated extension API {
         var backdropSize: String?
         /// 分集剧照档位；空 = 跟随环境变量
         var stillSize: String?
+        /// 演职员头像档位；空 = 跟随环境变量
+        var profileSize: String?
+        /// 本地图片画质：original=原图 / standard=标准 / compact=节省空间 / custom=自定义（逐项看四个档位）；空 = 没选过，逐项跟随档位与环境变量
+        var imageQuality: String?
         /// 条目目录模板；空 = 默认 {title} ({year})
         var namingEntryDir: String?
         /// 电影文件名模板；空 = 默认 {title} ({year})
@@ -5552,6 +5598,8 @@ nonisolated extension API {
             case posterSize = "poster_size"
             case backdropSize = "backdrop_size"
             case stillSize = "still_size"
+            case profileSize = "profile_size"
+            case imageQuality = "image_quality"
             case namingEntryDir = "naming_entry_dir"
             case namingMovieFile = "naming_movie_file"
             case namingSeasonDir = "naming_season_dir"
@@ -8589,6 +8637,10 @@ nonisolated extension API {
         var posterSize: String
         var backdropSize: String
         var stillSize: String
+        /// 演职员头像的生效档位
+        var profileSize: String
+        /// 界面该选中的本地图片画质：original / standard / compact / custom（没选过时按四个档位反推，等于某个预设就是它，否则 custom）
+        var imageQuality: String
 
         enum CodingKeys: String, CodingKey {
             case languagePriority = "language_priority"
@@ -8596,6 +8648,8 @@ nonisolated extension API {
             case posterSize = "poster_size"
             case backdropSize = "backdrop_size"
             case stillSize = "still_size"
+            case profileSize = "profile_size"
+            case imageQuality = "image_quality"
         }
     }
 

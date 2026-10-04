@@ -167,7 +167,7 @@ async def test_grabs_frame_only_for_episodes_without_tmdb_still(db, tmp_path, mo
     await download_item_assets(item_id)
     assert (item_dir / "s01e02.jpg").read_bytes() == b"tmdb-still"
     sources = json.loads((item_dir / "sources.json").read_text(encoding="utf-8"))
-    assert sources["s01e02"] == "w300/s1e2.jpg"
+    assert sources["s01e02"] == "original/s1e2.jpg"
     assert len(grab.calls) == 1  # 有 TMDB 剧照的集不再抓帧
     # E1 的剧照这轮也下到了（图床恢复即自愈）
     async with db.session() as session:
@@ -271,5 +271,6 @@ def test_build_episode_still_grabs_frame(tmp_path) -> None:
     )
     Image.new("RGB", (200, 300), "gray").save(tmp_path / "poster.jpg")
     dest = tmp_path / "assets" / "1" / "s01e01.jpg"
-    assert thumbs.build_episode_still(video, dest, duration_seconds=3) == (640, 360)
+    # 抓帧剧照上限 1920（与 TMDB 原图剧照对齐），1280 宽的片源按原尺寸抓
+    assert thumbs.build_episode_still(video, dest, duration_seconds=3) == (1280, 720)
     assert dest.is_file() and dest.stat().st_size > 0

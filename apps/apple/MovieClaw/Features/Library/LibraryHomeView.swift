@@ -338,8 +338,10 @@ struct LibraryHomeView: View {
                 LazyHStack(alignment: .top, spacing: 12) {
                     ForEach(items) { item in
                         NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId, itemId: item.id)) {
-                            LibraryPosterCell(title: item.title, year: item.year, url: api.image(item.posterUrl, .posterCard), imageAspect: item.aspect)
-                                .frame(width: 124)
+                            LibraryPosterCell(title: item.title, year: item.year,
+                                              url: api.image(item.posterUrl, width: ImageWidth.points(PhoneCardWidth.homePoster)),
+                                              imageAspect: item.aspect)
+                                .frame(width: PhoneCardWidth.homePoster)
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
@@ -412,7 +414,8 @@ private struct LibraryHomeCard: View {
                     .font(.system(size: 40))
                     .foregroundStyle(.white.opacity(0.13))
                 if hasPosters || library.customCover {
-                    RemoteImage(url: api.image("/libraries/\(library.id)/cover"), placeholderSymbol: LibraryKindMeta.symbol(library.kind))
+                    RemoteImage(url: api.image("/libraries/\(library.id)/cover", width: ImageWidth.points(PhoneCardWidth.libraryCover)),
+                                placeholderSymbol: LibraryKindMeta.symbol(library.kind))
                 }
                 if busy {
                     ZStack {
@@ -472,7 +475,7 @@ private struct LibraryHomeCard: View {
             }
             .padding(.horizontal, 8)
         }
-        .frame(width: 230)
+        .frame(width: PhoneCardWidth.libraryCover)
         .contentShape(.rect)
     }
 }
@@ -493,7 +496,8 @@ private struct CollectionLibraryHomeCard: View {
                     .font(.system(size: 40))
                     .foregroundStyle(.white.opacity(0.13))
                 if !collection.covers.isEmpty {
-                    RemoteImage(url: api.image("/collections/\(collection.id)/cover"), placeholderSymbol: "rectangle.stack")
+                    RemoteImage(url: api.image("/collections/\(collection.id)/cover", width: ImageWidth.points(PhoneCardWidth.libraryCover)),
+                                placeholderSymbol: "rectangle.stack")
                 }
             }
             .aspectRatio(21 / 10, contentMode: .fit)
@@ -512,7 +516,7 @@ private struct CollectionLibraryHomeCard: View {
             .padding(.horizontal, 8)
             Text("\(collection.itemCount) 部").font(.caption).foregroundStyle(Theme.textFaint)
         }
-        .frame(width: 230)
+        .frame(width: PhoneCardWidth.libraryCover)
         .contentShape(.rect)
     }
 }
@@ -598,7 +602,7 @@ private struct UpNextCard: View {
             }
             .buttonStyle(.plain)
         }
-        .frame(width: 200)
+        .frame(width: PhoneCardWidth.upNext)
     }
 
     /// 剧照加载失败时的兜底（与「没有剧照」同一套画法）
@@ -607,7 +611,7 @@ private struct UpNextCard: View {
         if isEpisode {
             LibraryArtwork(url: nil, frameAspect: 16 / 9, fallbackText: code)
         } else {
-            LibraryArtwork(url: api.image(item.posterUrl, ImageVariant.card(aspect: item.posterAspect)), imageAspect: item.posterAspect,
+            LibraryArtwork(url: api.image(item.posterUrl, width: ImageWidth.points(PhoneCardWidth.upNext)), imageAspect: item.posterAspect,
                            frameAspect: 16 / 9, fallbackText: item.posterUrl == nil ? item.title : nil)
         }
     }
@@ -620,7 +624,7 @@ private struct UpNextCard: View {
                 Color.clear
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .overlay {
-                        LazyImage(url: api.image(url, .landscapeCard)) { state in
+                        LazyImage(url: api.image(url, width: ImageWidth.points(PhoneCardWidth.upNext))) { state in
                             Group {
                                 if let image = state.image {
                                     image.resizable().aspectRatio(contentMode: .fill)
@@ -630,7 +634,7 @@ private struct UpNextCard: View {
                                     Theme.surfaceRaised
                                 }
                             }
-                            .perfImage(api.image(url, .landscapeCard), state)
+                            .perfImage(api.image(url, width: ImageWidth.points(PhoneCardWidth.upNext)), state)
                         }
                     }
                     .clipped()
@@ -638,7 +642,7 @@ private struct UpNextCard: View {
                 LibraryArtwork(url: nil, frameAspect: 16 / 9, fallbackText: code)
             } else {
                 // 缺横向剧照：用海报按真实比例模糊铺底兜底
-                LibraryArtwork(url: api.image(item.posterUrl, ImageVariant.card(aspect: item.posterAspect)), imageAspect: item.posterAspect,
+                LibraryArtwork(url: api.image(item.posterUrl, width: ImageWidth.points(PhoneCardWidth.upNext)), imageAspect: item.posterAspect,
                                frameAspect: 16 / 9, fallbackText: item.posterUrl == nil ? item.title : nil)
             }
             LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .bottom, endPoint: .top).frame(height: 56)

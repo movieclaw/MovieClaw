@@ -16,7 +16,7 @@ enum SettingsBScrapeCard: String, CaseIterable, Identifiable {
         case .certCountry: "内容分级"
         case .poster: "海报"
         case .backdrop: "背景图（fanart）"
-        case .quality: "质量与门槛"
+        case .quality: "画质与门槛"
         case .naming: "命名模板"
         case .mirror: "媒体目录写入"
         }
@@ -33,7 +33,7 @@ enum SettingsBScrapeCard: String, CaseIterable, Identifiable {
         case .backdrop:
             "铺在详情页全屏的沉浸底图。「无文字」是没有烧录任何片名文字的干净图——排第 1 位即无文字优先；想要带片名 logo 的横图，把语言排到前面。"
         case .quality:
-            "分辨率门槛过滤模糊候选图；质量档位决定下载到本地的图片尺寸，调低可显著节省磁盘，改动后整库刷新会按新档位自动重下。"
+            "本地图片画质决定刮削时下载到本地的图片多大（默认存原图，各设备都最清楚；调低可显著节省磁盘），改动后在媒体库执行「刷新元数据」会按新画质重下；分辨率门槛过滤模糊候选图。"
         case .naming:
             "整理与入库的目录/文件命名。留空即使用默认模板；字段缺失时会连同相邻括号自动收缩。目录层级固定为「条目目录 / 季目录 / 文件」，不可自定义。"
         case .mirror:
@@ -48,7 +48,7 @@ enum SettingsBScrapeCard: String, CaseIterable, Identifiable {
         case .certCountry: ["cert_country_priority"]
         case .poster: ["poster_mode", "poster_language_priority"]
         case .backdrop: ["backdrop_language_priority"]
-        case .quality: ["poster_min_width", "backdrop_min_width", "poster_size", "backdrop_size", "still_size"]
+        case .quality: ["poster_min_width", "backdrop_min_width", "poster_size", "backdrop_size", "still_size", "profile_size", "image_quality"]
         case .naming: SettingsBScrapeNaming.fields.map(\.key)
         case .mirror: SettingsBScrapeMirrorRow.all.map(\.key)
         }
@@ -116,34 +116,125 @@ struct SettingsBScrapePosterRows: View {
     }
 }
 
-// MARK: - 质量与门槛
+// MARK: - 画质与门槛
 
+/// 「本地图片画质」四档单选 + 「最低分辨率门槛」（docs/design/image-sizing.md §8.1）。
+///
+/// 画质管的是**存多大**：刮削时下载到本地的图片尺寸，看图时各设备再按需从本地图缩出合适的宽度；
+/// 门槛管的是**选哪张**（过滤模糊候选图），两件事分开摆。
+/// - 选中哪一档：设置里 `imageQuality` 非空就用它；没选过（老配置、新装）看后端反推的 `effective.imageQuality`
+///   ——四个档位都空是新默认「原图」，显式保存过档位的落在某个预设上就是那一档，否则是「自定义」；
+/// - 选了预设时后端忽略四个档位字段，所以只有「自定义」才展开四个下拉；
+/// - 每档旁边是按当前媒体库估算的磁盘占用（`scrapeStorageEstimate`），自定义只在它就是当前生效档时给得出数。
 struct SettingsBScrapeQualityRows: View {
     @Binding var setting: API.MetadataScrapeSetting
-    /// 档位留空时的生效值（库覆盖页传全局生效值）
+    /// 档位留空时的生效值（库覆盖页传全局生效值）；`imageQuality` 是没选过档时界面该选中的那一档
     let effective: API.ScrapeEffectiveView?
+    /// 各档的磁盘估算；拿不到就不写
+    var estimate: API.ImageStorageEstimateView?
     /// 库覆盖页：留空跟随的是全局设置（后端把库覆盖里的空值当「没覆盖」）
     var inheritsGlobal = false
 
+    /// 界面上选中的档
+    private var selected: String {
+        if !setting.imageQuality.isEmpty { return setting.imageQuality }
+        if let inferred = effective?.imageQuality, !inferred.isEmpty { return inferred }
+        return "original"
+    }
+
     var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("本地图片画质").font(.body.weight(.medium))
+            Text("刮削时下载到本地的图片多大；看图时各设备再按需从本地图缩出合适的尺寸")
+                .font(.caption).foregroundStyle(Theme.textFaint)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.top, 4)
+
+        ForEach(SettingsBScrapeCatalog.imageQualities) { quality in
+            qualityRow(quality)
+        }
+
+        if selected == "custom" {
+            VStack(alignment: .leading, spacing: 4) {
+                sizePicker("海报", \.posterSize, SettingsBScrapeCatalog.posterSizes, effective?.posterSize, id: "scrape-poster-size")
+                sizePicker("背景", \.backdropSize, SettingsBScrapeCatalog.backdropSizes, effective?.backdropSize, id: "scrape-backdrop-size")
+                sizePicker("剧照", \.stillSize, SettingsBScrapeCatalog.stillSizes, effective?.stillSize, id: "scrape-still-size")
+                sizePicker("头像", \.profileSize, SettingsBScrapeCatalog.profileSizes, effective?.profileSize, id: "scrape-profile-size")
+            }
+            .padding(.vertical, 4)
+        }
+
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("最低分辨率门槛").font(.body.weight(.medium))
-                Text("低于门槛的候选图不选；候选全部不达标时自动放宽")
+                Text("低于门槛的候选图不选；候选全部不达标时自动放宽。它管选哪张图，与上面存多大无关")
                     .font(.caption).foregroundStyle(Theme.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             widthField("海报", \.posterMinWidth, id: "scrape-poster-min-width")
             widthField("背景", \.backdropMinWidth, id: "scrape-backdrop-min-width")
         }
         .padding(.vertical, 4)
+    }
 
-        VStack(alignment: .leading, spacing: 4) {
-            Text("图片质量档位").font(.body.weight(.medium))
-            sizePicker("海报", \.posterSize, SettingsBScrapeCatalog.posterSizes, effective?.posterSize, id: "scrape-poster-size")
-            sizePicker("背景", \.backdropSize, SettingsBScrapeCatalog.backdropSizes, effective?.backdropSize, id: "scrape-backdrop-size")
-            sizePicker("剧照", \.stillSize, SettingsBScrapeCatalog.stillSizes, effective?.stillSize, id: "scrape-still-size")
+    /// 一档：名称 + 估算，下面一句说明，右边单选圈
+    private func qualityRow(_ quality: SettingsBScrapeCatalog.ImageQuality) -> some View {
+        let isSelected = selected == quality.id
+        return Button {
+            select(quality.id)
+        } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                        Text(quality.title).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
+                        if let bytes = estimatedBytes(quality.id) {
+                            Text("\(inheritsGlobal ? "全站" : "")约 \(Self.gigabytes(bytes))")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(Theme.textMuted)
+                        }
+                    }
+                    Text(quality.desc).font(.caption).foregroundStyle(Theme.textFaint)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? Theme.accent : Theme.textFaint)
+                    .font(.title3)
+            }
+            .contentShape(.rect)
         }
-        .padding(.vertical, 4)
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("scrape-image-quality-\(quality.id)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// 切档。切到「自定义」时把还空着的档位填成当前生效值：否则四个下拉都是「跟随」，
+    /// 看不出刚才那一档具体是多大，保存后的行为也跟着环境变量变
+    private func select(_ id: String) {
+        var next = setting
+        next.imageQuality = id
+        if id == "custom", let effective {
+            if next.posterSize.isEmpty { next.posterSize = effective.posterSize }
+            if next.backdropSize.isEmpty { next.backdropSize = effective.backdropSize }
+            if next.stillSize.isEmpty { next.stillSize = effective.stillSize }
+            if next.profileSize.isEmpty { next.profileSize = effective.profileSize }
+        }
+        setting = next
+    }
+
+    /// 某一档的估算字节数：预设直接查表；自定义只在它就是当前生效档时有数（档位改了要保存后才重算）
+    private func estimatedBytes(_ id: String) -> Int? {
+        guard let estimate else { return nil }
+        if let bytes = estimate.presets[id] { return bytes }
+        return id == "custom" && estimate.currentQuality == "custom" ? estimate.currentBytes : nil
+    }
+
+    /// 「2.6 GB」「850 MB」：估算只是量级参考，GB 保留一位小数、MB 取整
+    static func gigabytes(_ bytes: Int) -> String {
+        let gb = Double(bytes) / 1_073_741_824
+        if gb >= 1 { return String(format: "%.1f GB", gb) }
+        return "\(max(1, Int((Double(bytes) / 1_048_576).rounded()))) MB"
     }
 
     /// 宽度门槛输入：直接绑字符串代理，边打字边写回（空 / 非数字 = 0 = 不限制）

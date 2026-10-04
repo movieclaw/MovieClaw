@@ -50,7 +50,7 @@ from movieclaw_api.services.library.duplicates import (
     resolve_unit,
 )
 from movieclaw_api.services.media_server_notify import notify_media_server_refresh
-from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
+from movieclaw_api.services.tmdb_images import item_poster_url, local_media_files
 from movieclaw_db.engine import get_session
 from movieclaw_db.repositories.library_repo import LibraryRepository
 from movieclaw_media.models import MediaKind
@@ -83,7 +83,7 @@ def _file_view(f: DupFile) -> DuplicateFileView:
     )
 
 
-def _item_view(d: DupItem) -> DuplicateItemView:
+def _item_view(d: DupItem, poster_file: str | None = None) -> DuplicateItemView:
     item = d.item
     return DuplicateItemView(
         library=TrashedLibraryRefView(id=d.library.id, name=d.library.name),  # type: ignore[arg-type]
@@ -92,11 +92,7 @@ def _item_view(d: DupItem) -> DuplicateItemView:
             title=item.title,
             year=item.year,
             kind=MediaKind(item.kind),
-            poster_url=(
-                f"{effective_tmdb_image_base_url().rstrip('/')}/w185{item.poster_path}"
-                if item.poster_path
-                else None
-            ),
+            poster_url=item_poster_url(item.poster_path, poster_file),
         ),
         seasons=[
             DuplicateSeasonView(
@@ -205,6 +201,7 @@ async def list_duplicate_files(
         limit=limit,
         offset=offset,
     )
+    files = await local_media_files(session, [d.item.id for d in items])
     return ok(
         DuplicateFilesData(
             scan=_scan_view(state),
@@ -214,7 +211,9 @@ async def list_duplicate_files(
             total_files=summary.total_files,
             total_bytes=summary.total_bytes,
             total_items=total_items,
-            items=[_item_view(d) for d in items],
+            items=[
+                _item_view(d, files.get(d.item.id or -1, (None, None, None))[0]) for d in items
+            ],
         )
     )
 

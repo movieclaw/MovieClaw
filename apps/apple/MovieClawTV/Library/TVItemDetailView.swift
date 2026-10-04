@@ -71,7 +71,8 @@ struct TVItemDetailView: View {
             // 剧照原图按 16:9 铺满整屏，只在左下角罩一团中性的黑托字（见 TVStageBackdrop.fullImage）；
             // 往下滑时剧照跟着内容滚走，露出同一张剧照的模糊版（与海报墙同一套背景）
             TVStageBackdrop(pinnedScroll: 0, fadeDistance: 900, url: backdropURL, tint: nil, scroll: scroll, fullImage: true,
-                            ambientURL: api.image(detail?.backdropUrl ?? detail?.posterUrl, .tvLandscape))
+                            ambientURL: api.image(detail?.backdropUrl ?? detail?.posterUrl,
+                                                  width: ImageWidth.points(TVMetrics.blurredBackdropWidth)))
             if failed {
                 TVStateView(symbol: "questionmark.folder", title: "未能加载该条目",
                             message: "条目可能已被删除或重新识别为其他作品。", actionTitle: "返回") { router.pop() }
@@ -126,8 +127,8 @@ struct TVItemDetailView: View {
 
     // MARK: 页面
 
-    /// 整页背景：条目的背景图原图（与首页大图同一个地址，从首页进来直接从缓存出图），没有用海报
-    private var backdropURL: URL? { api.image(detail?.backdropUrl ?? detail?.posterUrl) }
+    /// 整页背景：条目的背景图按屏宽像素取（与首页大图同一个地址、同一档，从首页进来直接从缓存出图），没有用海报
+    private var backdropURL: URL? { api.image(detail?.backdropUrl ?? detail?.posterUrl, width: ImageWidth.screen) }
 
     private func content(_ detail: API.LibraryItemDetailView) -> some View {
         ScrollView(.vertical) {
@@ -322,7 +323,7 @@ struct TVItemDetailView: View {
             if !people.isEmpty {
                 TVShelf(title: "演职员") {
                     ForEach(Array(people.enumerated()), id: \.offset) { index, person in
-                        TVPersonCard(name: person.name, role: person.role, avatarURL: api.image(person.avatar)) {
+                        TVPersonCard(name: person.name, role: person.role, avatarURL: api.image(person.avatar, width: TVPersonCard.imageWidth)) {
                             // 没有 TMDB 影人 id 的（NFO 里只有姓名的导演）没有影人页，按确认不跳转
                             guard let id = person.personId else { return }
                             router.push(.person(tmdbId: id, name: person.name, avatar: person.avatar, fromItem: itemId))
@@ -435,7 +436,7 @@ struct TVItemDetailView: View {
                 ForEach(browseEpisodes, id: \.episodeNumber) { episode in
                     TVEpisodeCard(
                         episode: episode,
-                        imageURL: api.image(episode.stillUrl, .tvLandscape),
+                        imageURL: api.image(episode.stillUrl, width: ImageWidth.tvCard(TVMetrics.landscapeWidth)),
                         runtimeMinutes: detail?.localMeta?.runtimeMinutes
                     ) {
                         guard episode.owned, let browseSeason else { return }
@@ -494,7 +495,7 @@ struct TVItemDetailView: View {
                 TVPosterCard(
                     title: part.title,
                     subtitle: part.releaseDate.map { String($0.prefix(4)) },
-                    imageURL: api.image(part.posterUrl, .tvPoster),
+                    imageURL: api.image(part.posterUrl, width: ImageWidth.tvCard(TVMetrics.posterWidth)),
                     badge: current ? "本片" : missing ? "未入库" : nil
                 ) {
                     if current {
@@ -942,12 +943,16 @@ private struct TVPersonCard: View {
     let avatarURL: URL?
     let action: () -> Void
 
+    /// 头像 210（原 150，2026-10-03 用户嫌小）：一排约七个半，和上面分集卡的高度（234）接近，两行比例协调
+    static let avatarSize: CGFloat = 210
+    /// 头像的取图宽度：头像图是竖版（2:3）铺满圆框，有效宽就是框宽；获得焦点放大 1.12 倍
+    static var imageWidth: Int { ImageWidth.points(avatarSize, zoom: TVMetrics.avatarFocusZoom) }
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 14) {
-                // 头像 210（原 150，2026-10-03 用户嫌小）：一排约七个半，和上面分集卡的高度（234）接近，两行比例协调
                 TVProfileAvatarFocus {
-                    TVAvatar(url: avatarURL, name: name, size: 210)
+                    TVAvatar(url: avatarURL, name: name, size: Self.avatarSize)
                 }
                 VStack(spacing: 4) {
                     Text(name)

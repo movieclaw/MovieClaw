@@ -13,7 +13,7 @@ import {
   getPlaybackItemEpisodes,
 } from "@/lib/api/playback";
 import type { LibraryEpisode } from "@/lib/api/libraries";
-import { imageUrl } from "@/lib/image-proxy";
+import { imageUrl, screenImageWidth } from "@/lib/image-proxy";
 import { playerReturnPath } from "@/lib/player/play-links";
 
 /**
@@ -128,7 +128,8 @@ export function PlayerPage({
       // 「即将播放」卡片分行展示：集号一行、集名一行，左边配剧照
       code: `第 ${candidate.episode_number} 集`,
       name: candidate.name || null,
-      stillUrl: candidate.still_url ? imageUrl(candidate.still_url) : null,
+      // 「即将播放」卡左侧剧照 w-32（128 CSS px）
+      stillUrl: candidate.still_url ? imageUrl(candidate.still_url, { width: screenImageWidth(128) }) : null,
     };
   }, [episodes, current, mediaItemId]);
 
@@ -209,7 +210,8 @@ export function PlayerPage({
             }`
           : null
       }
-      posterUrl={info?.poster_url ? imageUrl(info.poster_url) : null}
+      // 海报用作系统媒体控件封面（512×512）与起播前的 <video poster>，480 CSS px × 倍率足够
+      posterUrl={info?.poster_url ? imageUrl(info.poster_url, { width: screenImageWidth(480) }) : null}
       startMsOverride={startMsOverride}
       next={next}
       prev={prev}

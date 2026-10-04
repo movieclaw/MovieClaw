@@ -86,7 +86,7 @@ struct PersonDetailView: View {
         let body = VStack(alignment: .leading, spacing: 2) {
             Color.clear
                 .aspectRatio(2 / 3, contentMode: .fit)
-                .overlay { RemoteImage(url: api.image(credit.posterUrl, .posterCard)) }
+                .overlay { MeasuredRemoteImage(raw: credit.posterUrl) }
                 .clipShape(.rect(cornerRadius: Theme.posterRadius))
                 .padding(.bottom, 4)
             Text(credit.title).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
@@ -143,7 +143,7 @@ struct PersonHeader: View {
                     .font(.system(size: 34, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.3))
                 if avatarUrl != nil {
-                    RemoteImage(url: api.image(avatarUrl), placeholderSymbol: "person.fill")
+                    RemoteImage(url: api.image(avatarUrl, width: ImageWidth.points(92)), placeholderSymbol: "person.fill")
                 }
             }
             .frame(width: 92, height: 138)

@@ -60,6 +60,8 @@ import { usePermissions } from "@/lib/permissions";
 import { useTheme } from "@/lib/ui-prefs";
 import { useScrollRestoration } from "@/lib/use-scroll-restoration";
 import { useIsMobile } from "@/lib/use-media-query";
+import { IMAGE_ASPECT } from "@/lib/image-proxy";
+import { useElementCoverWidth } from "@/lib/image-resolution";
 import { useTapGuard } from "@/lib/use-tap-guard";
 import type {
   MediaItem,
@@ -989,13 +991,17 @@ function HeroSlide({
   useEffect(() => {
     if (preload) setRevealed(true);
   }, [preload]);
-  // reveal 后升清：w1280 先显示，original 解码就位后无感替换（不闪）
-  const backdropSrc = useUpgradedBackdrop(revealed, item.backdropUrl);
+  // 按横幅实测尺寸 × 推镜 1.06 算取图宽度；reveal 后列表档（w1280）先显示，
+  // 需要更大时 original 派生图解码就位后无感替换（不闪）
+  const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
+  const backdropWidth = useElementCoverWidth(frameEl, IMAGE_ASPECT.backdrop, 1.06);
+  const backdropSrc = useUpgradedBackdrop(revealed, item.backdropUrl, backdropWidth);
   // 整块 Hero 就是进详情的入口（与海报卡片「点海报进详情」一致，不再另设「更多信息」键）。
   // Hero 占满首屏，手机上「向下滑看海报墙」几乎必然从这块起手，所以点击要过一遍误触判定。
   const tapGuard = useTapGuard(() => open(item));
   return (
     <div
+      ref={setFrameEl}
       aria-hidden={!active}
       // 非当前帧虽然透明但仍占满同一块区域，必须关掉命中测试，否则点击可能落到它身上
       role={active ? "button" : undefined}

@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.api.deps import require_admin, require_login
+from movieclaw_api.api.routes.images import WIDTH_QUERY, requested_width, sized_file
 from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
 from movieclaw_api.schemas.library import (
     ActorView,
@@ -207,12 +208,14 @@ from movieclaw_api.services.media_discover import get_tmdb_client
 from movieclaw_api.services.media_library import MediaLibraryService
 from movieclaw_api.services.media_server_notify import notify_media_server_refresh
 from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
+from movieclaw_api.services.people_images import avatar_url
 from movieclaw_api.services.playback import warmup as playback_warmup
 from movieclaw_api.services.playback.track_context import library_track_context
 from movieclaw_api.services.playback.track_defaults import FileTrackDefaults, file_track_defaults
 from movieclaw_api.services.scrape_config import resolve_scrape_library
 from movieclaw_api.services.subscription import SubscriptionService
 from movieclaw_api.services.title_discovery import parse_title_ref
+from movieclaw_api.services.tmdb_images import item_poster_url, local_media_files, tmdb_image_url
 from movieclaw_db.engine import get_database, get_session
 from movieclaw_db.models import (
     ACTIVE_JOB_STATUSES,
@@ -310,7 +313,9 @@ async def _member_ids_by_library(session: AsyncSession) -> dict[int, list[int]]:
     dependencies=[Depends(require_library_visible)],
     openapi_extra={"x-cli-hidden": True},
 )
-async def get_library_cover(library_id: int, request: Request) -> Response:
+async def get_library_cover(
+    library_id: int, request: Request, w: int | None = WIDTH_QUERY
+) -> Response:
     """服务端渲染的库封面（与 Jellyfin 兼容层同一张图，docs/design/jellyfin-compat.md 5.6）。
 
     ETag=素材指纹：库内容不变时浏览器 304 秒回；变了自动重渲。前端直接
@@ -322,11 +327,14 @@ async def get_library_cover(library_id: int, request: Request) -> Response:
     if result is None:
         raise NotFoundException("该库还没有可用的封面素材（无海报资产）")
     path, key = result
-    etag = f'"{key}"'
+    w = requested_width(w)
+    etag = f'"{key}-w{w}"' if w else f'"{key}"'
     if request.headers.get("If-None-Match") == etag:
         return Response(status_code=304, headers={"ETag": etag})
-    return FileResponse(
+    return await sized_file(
         path,
+        source_key=f"library-cover:{key}",
+        w=w,
         media_type="image/jpeg",
         headers={"ETag": etag, "Cache-Control": "no-cache"},
     )
@@ -2638,7 +2646,6 @@ async def get_library_item(
         content_limit=content_limit,
     )
 
-    base = effective_tmdb_image_base_url().rstrip("/")
     art_base = f"/libraries/{library_id}/items/{media_item_id}/artwork"
     # 图片优先级与元数据同构：条目目录美术图 > 本地刮削资产 > TMDB 图床。
     # 本地两层的 URL 都带 ?v=<mtime> 版本戳：换图是**原地覆盖同一路径**，
@@ -2649,7 +2656,7 @@ async def get_library_item(
         poster_version = media_scrape.asset_version(meta_row.poster_file)
         poster_url = f"/images/assets/{meta_row.poster_file}?v={poster_version}"
     else:
-        poster_url = f"{base}/w500{item.poster_path}" if item.poster_path else None
+        poster_url = tmdb_image_url(item.poster_path, "poster")
     if bundle.has_local_fanart:
         backdrop_url = f"{art_base}?kind=fanart&v={bundle.local_fanart_version}"
     elif meta_row is not None and meta_row.backdrop_file:
@@ -2658,13 +2665,13 @@ async def get_library_item(
     else:
         # w1280 而非 original：作为全站沉浸背景铺视口足够清晰，体积小一个
         # 数量级——首次访问的背景切换等待从"原图下载"变成秒级
-        backdrop_url = f"{base}/w1280{item.backdrop_path}" if item.backdrop_path else None
+        backdrop_url = tmdb_image_url(item.backdrop_path, "backdrop")
     # 片名 Logo：本地资产 > TMDB 图床；logo_path 为空串表示刮过、确实没有合适语言的 Logo
     if meta_row is not None and meta_row.logo_file:
         logo_version = media_scrape.asset_version(meta_row.logo_file)
         logo_url = f"/images/assets/{meta_row.logo_file}?v={logo_version}"
     else:
-        logo_url = f"{base}/w500{item.logo_path}" if item.logo_path else None
+        logo_url = tmdb_image_url(item.logo_path, "logo")
     local_meta = None
     if bundle.local_meta is not None:
         # Web 与 Jellyfin 共用 person 关系表：导演头像和人物链接不能再从
@@ -2689,9 +2696,7 @@ async def get_library_item(
             director_credits=[
                 DirectorView(
                     name=person.name,
-                    thumb_url=(
-                        f"{base}/w300{person.profile_path}" if person.profile_path else None
-                    ),
+                    thumb_url=avatar_url(person.profile_path),
                     tmdb_person_id=person.tmdb_person_id,
                 )
                 for _link, person in director_rows
@@ -2835,6 +2840,7 @@ async def get_file_thumb(
     file_id: int,
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
+    w: int | None = WIDTH_QUERY,
 ) -> FileResponse:
     """路径由台账行推导（客户端只给 id），不存在路径注入面。"""
     row = await session.get(LibraryFile, file_id)
@@ -2848,7 +2854,12 @@ async def get_file_thumb(
     thumb = await asyncio.to_thread(find_episode_thumb, Path(row.file_path))
     if thumb is None:
         raise NotFoundException("该文件没有本地缩略图")
-    return FileResponse(thumb, headers={"Cache-Control": "private, max-age=3600"})
+    return await sized_file(
+        thumb,
+        source_key=f"file-thumb:{thumb}",
+        w=w,
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.get(
@@ -2867,6 +2878,7 @@ async def get_file_original(
     ),
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
+    w: int | None = WIDTH_QUERY,
 ) -> FileResponse:
     """只服务图片文件（docs/design/library-photo-kind.md 2.7）：视频走播放器与直连，
     不从这里出。路径由台账行推导（客户端只给 id），不存在路径注入面；
@@ -2885,18 +2897,22 @@ async def get_file_original(
     path = Path(row.file_path)
     if not await asyncio.to_thread(path.is_file):
         raise NotFoundException("图片文件不在磁盘上（可能已被移动或删除）")
-    if size == "screen" and not download:
+    w = requested_width(w)
+    if (size == "screen" or w) and not download:
         from movieclaw_api.services.image_variants import (
             ImageVariant,
             get_image_variant_service,
             local_source_version,
         )
 
+        # w（宽度阶梯）优先于旧的 size=screen
         cached = await get_image_variant_service().get_or_create(
             path,
             source_key=f"library-file:{file_id}",
             source_version=await asyncio.to_thread(local_source_version, path),
-            variant=ImageVariant.PHOTO_SCREEN,
+            variant=None if w else ImageVariant.PHOTO_SCREEN,
+            width=w,
+            content_type=mimetypes.guess_type(path.name)[0],
         )
         return FileResponse(
             cached.path,
@@ -3000,6 +3016,7 @@ async def get_item_artwork(
         default="poster", description="poster=海报 / fanart=背景图"
     ),
     session: AsyncSession = Depends(get_session),
+    w: int | None = WIDTH_QUERY,
 ) -> FileResponse:
     """路径完全由服务端从台账推导（客户端只给 id），不存在路径注入面。"""
     service = LibraryConfigService(session)
@@ -3009,7 +3026,12 @@ async def get_item_artwork(
     art = await asyncio.to_thread(local_item_artwork, roots, rows, kind)
     if art is not None:
         # 本地文件可能被用户替换，给短缓存而非 immutable
-        return FileResponse(art, headers={"Cache-Control": "private, max-age=3600"})
+        return await sized_file(
+            art,
+            source_key=f"artwork:{art}",
+            w=w,
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
     raise NotFoundException("条目目录里没有本地美术图")
 
 
@@ -3975,7 +3997,7 @@ async def list_missing(
     )
     sub_by_item = {s.media_item_id: s.id for s in subs.scalars().all()}
 
-    base = effective_tmdb_image_base_url().rstrip("/")
+    poster_files = await local_media_files(session, [item.id for item, _files in grouped.values()])
     views = [
         MissingItemView(
             media_item_id=item.id,  # type: ignore[arg-type]
@@ -3983,7 +4005,9 @@ async def list_missing(
             tmdb_id=item.tmdb_id,
             title=item.title,
             year=item.year,
-            poster_url=f"{base}/w500{item.poster_path}" if item.poster_path else None,
+            poster_url=item_poster_url(
+                item.poster_path, poster_files.get(item.id or -1, (None, None, None))[0]
+            ),
             subscription_id=sub_by_item.get(item.id),
             files=[
                 MissingFileView(

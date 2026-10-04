@@ -71,7 +71,8 @@ final class DiscoverFeed {
         var urls: [URL?] = []
         if let first = hero?.first { urls.append(DiscoverHeroImage.url(first, api: api)) }
         if let section = rowSections.first, case let .loaded(items) = rows[section.collectionRef] {
-            urls += items.prefix(4).map { api.image($0.posterUrl, .card(aspect: Double($0.aspect))) }
+            // 与 DiscoverPosterRow 里的卡同宽同档（卡片按自己排出来的宽取图，见 MeasuredRemoteImage）
+            urls += items.prefix(4).map { api.image($0.posterUrl, width: ImageWidth.points(PhoneCardWidth.discoverPoster)) }
         }
         return urls.compactMap { $0 }
     }
@@ -173,8 +174,17 @@ enum DiscoverHeroImage {
         raw?.replacingOccurrences(of: "image.tmdb.org/t/p/w1280/", with: "image.tmdb.org/t/p/original/")
     }
 
-    /// Hero 显示与取色、预载共用的剧照地址（剧照原图；没有剧照退回海报）
+    /// Hero 显示与取色、预载共用的剧照地址（TMDB 剧照换原图再经代理按 Hero 需要的宽度缩；没有剧照退回海报）
     static func url(_ item: DiscoverPosterItem, api: APIClient) -> URL? {
-        api.image(fullResolution(item.backdropUrl) ?? item.posterUrl)
+        api.image(fullResolution(item.backdropUrl) ?? item.posterUrl, width: width)
+    }
+
+    /// 电视 Hero 铺满整屏宽（1920×780 点，按宽算）→ 屏宽像素；iPhone 是屏宽 × 520 的竖框，铺满 16:9 要按高算
+    static var width: Int {
+        #if os(tvOS)
+        ImageWidth.screen
+        #else
+        ImageWidth.phoneHero(height: DiscoverHero.height)
+        #endif
     }
 }

@@ -4,7 +4,7 @@
  * 「刮削与整理」设置分区（docs/design/scrape-customization.md §3）。
  *
  * 按"配置的是什么"分四个**并列** tab：元数据（语言优先级、分级地区）、
- * 图片（海报/背景语言优先级、门槛、质量档位）、命名与整理（模板 + 实时
+ * 图片（海报/背景语言优先级、门槛、本地图片画质）、命名与整理（模板 + 实时
  * 预览）、目录写入（图片/NFO/分集剧照三项细分开关）。排列顺序沿用刮削
  * 管线的先后，只为读起来顺；**四组之间没有依赖，可任意顺序配置**——
  * 所以不编号：编号会把并列关系伪装成"必须按序完成"的向导。
@@ -21,9 +21,14 @@ import { useToast } from "@/components/feedback";
 import { ChevronDownIcon } from "@/components/icons";
 import {
   type CountryOption,
+  IMAGE_QUALITY_PRESETS,
+  type ImageQuality,
+  type ImageStorageEstimate,
   type LanguageOption,
   type ScrapeConfigView,
+  type ScrapeEffective,
   type ScrapeSetting,
+  getImageStorageEstimate,
   getScrapeConfig,
   listCountryOptions,
   listLanguageOptions,
@@ -83,6 +88,52 @@ const COMMON_CERT_COUNTRIES: ChipOption[] = [
 const POSTER_SIZES = ["w342", "w500", "w780", "original"];
 const BACKDROP_SIZES = ["w780", "w1280", "original"];
 const STILL_SIZES = ["w185", "w300", "original"];
+/** 演职员头像：w185 手机网页够用，h632 电视也清楚，original 是 TMDB 原图 */
+const PROFILE_SIZES = ["w185", "h632", "original"];
+
+/** 「本地图片画质」四档的名字与一句话说明（docs/design/image-sizing.md §8.1）。 */
+const IMAGE_QUALITY_OPTIONS: { id: ImageQuality; title: string; desc: string }[] = [
+  { id: "original", title: "原图（默认）", desc: "所有图存 TMDB 原图，各设备都最清楚" },
+  { id: "standard", title: "标准", desc: "各设备都清楚，头像与海报不存原图，省约四成空间" },
+  { id: "compact", title: "节省空间", desc: "手机和网页够用；电视上剧照、头像会发虚" },
+  { id: "custom", title: "自定义", desc: "海报、背景、剧照、头像逐项指定 TMDB 档位" },
+];
+
+/** 自定义画质的四个档位下拉：字段、名字、可选档位 */
+const IMAGE_SIZE_FIELDS = [
+  { key: "poster_size", label: "海报", sizes: POSTER_SIZES },
+  { key: "backdrop_size", label: "背景", sizes: BACKDROP_SIZES },
+  { key: "still_size", label: "剧照", sizes: STILL_SIZES },
+  { key: "profile_size", label: "头像", sizes: PROFILE_SIZES },
+] as const;
+
+/** 画质卡管的字段：选档本身 + 自定义时的四个档位（库设置页按这一组整体跟随 / 覆盖） */
+const IMAGE_QUALITY_KEYS: (keyof ScrapeSetting)[] = [
+  "image_quality",
+  "poster_size",
+  "backdrop_size",
+  "still_size",
+  "profile_size",
+];
+
+/** 估算字节数 → 「约 2.6 GB」；不足 1 GB 用 MB（取整），量级参考不需要更多精度 */
+function formatEstimate(bytes: number): string {
+  const gb = bytes / 1024 ** 3;
+  if (gb >= 10) return `约 ${Math.round(gb)} GB`;
+  if (gb >= 1) return `约 ${gb.toFixed(1)} GB`;
+  return `约 ${Math.max(1, Math.round(bytes / 1024 ** 2))} MB`;
+}
+
+/** 画质档的人话摘要（折叠头用）：预设只说名字，自定义把四个档位列出来 */
+function describeImageQuality(setting: ScrapeSetting): string {
+  const option = IMAGE_QUALITY_OPTIONS.find((o) => o.id === setting.image_quality);
+  if (!option) return "按档位逐项跟随";
+  if (option.id !== "custom") return option.title.replace("（默认）", "");
+  const sizes = IMAGE_SIZE_FIELDS.map(
+    (field) => `${field.label} ${setting[field.key] || "跟随"}`,
+  ).join(" / ");
+  return `自定义（${sizes}）`;
+}
 
 /* ------------------------------------------------------------------ */
 /* 值的人话摘要（库设置页的折叠头与对照行用）                            */
@@ -143,11 +194,16 @@ export function describeScrapeValues(
           setting.backdrop_min_width > 0 ? `背景 ≥${setting.backdrop_min_width}` : "背景不限宽",
         );
         break;
+      case "image_quality":
+        parts.push(describeImageQuality(setting));
+        break;
       case "poster_size":
       case "backdrop_size":
-      case "still_size": {
+      case "still_size":
+      case "profile_size": {
+        // 和画质一起出现时由画质那一句表达（自定义会列出四个档位）；单独出现时
         // 三个档位并成一句「档位 …」，空串统一说成"跟随环境"
-        if (key !== "poster_size") break;
+        if (key !== "poster_size" || keys.includes("image_quality")) break;
         const sizes = [setting.poster_size, setting.backdrop_size, setting.still_size];
         parts.push(sizes.every((v) => !v) ? "档位跟随环境" : `档位 ${sizes.map((v) => v || "环境").join("/")}`);
         break;
@@ -1126,6 +1182,7 @@ export function ImagesTab({
   patch,
   extraImageLangs,
   effective,
+  estimate = null,
   inheritsGlobal = false,
   overriddenBy,
   shellFor,
@@ -1133,27 +1190,56 @@ export function ImagesTab({
   setting: ScrapeSetting;
   patch: (changes: Partial<ScrapeSetting>) => void;
   extraImageLangs: ChipOption[];
-  /** 档位下拉留空时的生效值；库设置页传全局生效值 */
-  effective: Pick<ScrapeSetting, "poster_size" | "backdrop_size" | "still_size"> | null;
+  /** 已保存配置的生效值（画质档、四个档位）；库设置页传全局生效值 */
+  effective: ScrapeEffective | null;
+  /**
+   * 各画质档的磁盘估算（全局设置页传）。库设置页不传：估算按全站的图片张数算，
+   * 放在单个库的覆盖里会让人以为是这个库的量
+   */
+  estimate?: ImageStorageEstimate | null;
   /** 库设置页：留空跟随的是全局设置（后端把库覆盖里的空值当「没覆盖」） */
   inheritsGlobal?: boolean;
   overriddenBy?: (keys: (keyof ScrapeSetting)[]) => string[];
   shellFor?: (title: string, keys: (keyof ScrapeSetting)[]) => CardShell;
 }) {
-  // 留空选项的文案：库设置页是「跟随全局」；全局设置页是「跟随环境」，生效值
-  // 只在确实留空时写出来——选了具体档位时 effective 就是那个档位，不是环境变量的值
-  const inheritLabel = (value: string, fallback: string) =>
-    inheritsGlobal
-      ? `跟随全局（${fallback}）`
-      : value === ""
-        ? `跟随环境（${fallback}）`
-        : "跟随环境";
-  const sizeHint = (value: string, fallback: string) =>
-    value === ""
-      ? inheritsGlobal
-        ? `跟随全局设置（当前 ${fallback}）`
-        : `跟随环境变量（当前 ${fallback}）`
-      : value;
+  // 界面选中的画质档：显式选过就是它，没选过按已保存配置反推（后端 effective 给）
+  const quality: ImageQuality = setting.image_quality || effective?.image_quality || "original";
+  // 档位下拉留空的含义：全局页是环境变量，库页是全局设置。留空的实际档位只有在
+  // 已保存配置本身就是「自定义」时才等于 effective 里的值（选了预设时 effective
+  // 是预设的档位，不是留空会落到的值），其它时候不写数字，免得说错
+  const fallbackKnown = effective?.image_quality === "custom";
+  const inheritLabel = (fallback: string) => {
+    const base = inheritsGlobal ? "跟随全局" : "跟随环境变量";
+    return fallbackKnown && fallback ? `${base}（${fallback}）` : base;
+  };
+  const chooseQuality = (next: ImageQuality) => {
+    if (next !== "custom") {
+      patch({ image_quality: next });
+      return;
+    }
+    // 切到自定义：把刚才那一档的四个档位填进下拉，从用户看到的效果起步微调
+    patch(
+      quality === "custom"
+        ? { image_quality: "custom" }
+        : { image_quality: "custom", ...IMAGE_QUALITY_PRESETS[quality] },
+    );
+  };
+  // 自定义档的估算只有在「已保存的就是自定义、且四个档位没改过」时才准
+  // （估算按已保存配置算）；改了下拉就提示保存后再看
+  const customEstimateFresh =
+    estimate?.current_quality === "custom" &&
+    effective?.image_quality === "custom" &&
+    IMAGE_SIZE_FIELDS.every(
+      (field) => (setting[field.key] || effective[field.key]) === effective[field.key],
+    );
+  const estimateText = (id: ImageQuality): string | null => {
+    if (!estimate) return null;
+    if (id !== "custom") return `按当前媒体库估算${formatEstimate(estimate.presets[id])}`;
+    if (quality !== "custom") return null;
+    return customEstimateFresh
+      ? `按当前媒体库估算${formatEstimate(estimate.current_bytes)}`
+      : "保存后按所选档位估算";
+  };
 
   return (
     <>
@@ -1231,84 +1317,97 @@ export function ImagesTab({
         />
       </Card>
       <Card
-        title="质量与门槛"
-        overriddenBy={overriddenBy?.([
-          "poster_min_width",
-          "backdrop_min_width",
-          "poster_size",
-          "backdrop_size",
-          "still_size",
-        ])}
-        shell={shellFor?.("质量与门槛", [
-          "poster_min_width",
-          "backdrop_min_width",
-          "poster_size",
-          "backdrop_size",
-          "still_size",
-        ])}
-        desc="分辨率门槛过滤模糊候选图；质量档位决定下载到本地的图片尺寸，调低可显著节省磁盘，改动后整库刷新会按新档位自动重下。"
+        title="最低分辨率门槛"
+        overriddenBy={overriddenBy?.(["poster_min_width", "backdrop_min_width"])}
+        shell={shellFor?.("最低分辨率门槛", ["poster_min_width", "backdrop_min_width"])}
+        desc="管的是「选哪张图」：低于门槛的候选图不选，候选全部不达标时自动放宽。图片存多大由下面的「本地图片画质」决定。"
       >
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
-          <div>
-            <span className="text-ui font-medium">最低分辨率门槛</span>
-            <span className="mt-0.5 block text-caption text-[var(--text-faint)]">
-              低于门槛的候选图不选；候选全部不达标时自动放宽
-            </span>
-          </div>
-          <div className="flex items-center gap-2.5 text-sub text-[var(--text-muted)]">
-            {(
-              [
-                ["poster_min_width", "海报"],
-                ["backdrop_min_width", "背景"],
-              ] as const
-            ).map(([key, label]) => (
-              <span key={key} className="flex items-center gap-1.5">
-                {label} ≥
-                <input
-                  type="number"
-                  min={0}
-                  step={100}
-                  className={`${INPUT_CLASS} w-24 tabular-nums`}
-                  value={setting[key]}
-                  onChange={(e) => patch({ [key]: Number(e.target.value) || 0 })}
-                />
-                {/* 0 在输入框里看不出是"不限制"还是"没填"，补一句 */}
-                {setting[key] === 0 && (
-                  <span className="text-caption text-[var(--text-faint)]">不限制</span>
-                )}
-              </span>
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 pt-3">
-          <span className="text-ui font-medium">图片质量档位</span>
-          <div className="flex flex-wrap gap-2">
-            {(
-              [
-                ["poster_size", "海报", POSTER_SIZES, effective?.poster_size],
-                ["backdrop_size", "背景", BACKDROP_SIZES, effective?.backdrop_size],
-                ["still_size", "剧照", STILL_SIZES, effective?.still_size],
-              ] as const
-            ).map(([key, label, sizes, fallback]) => (
-              <select
-                key={key}
-                className={INPUT_CLASS}
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2.5 text-sub text-[var(--text-muted)]">
+          {(
+            [
+              ["poster_min_width", "海报"],
+              ["backdrop_min_width", "背景"],
+            ] as const
+          ).map(([key, label]) => (
+            <span key={key} className="flex items-center gap-1.5">
+              {label} ≥
+              <input
+                type="number"
+                min={0}
+                step={100}
+                className={`${INPUT_CLASS} w-24 tabular-nums`}
                 value={setting[key]}
-                title={sizeHint(setting[key], fallback ?? "")}
-                onChange={(e) => patch({ [key]: e.target.value } as Partial<ScrapeSetting>)}
+                onChange={(e) => patch({ [key]: Number(e.target.value) || 0 })}
+              />
+              {/* 0 在输入框里看不出是"不限制"还是"没填"，补一句 */}
+              {setting[key] === 0 && (
+                <span className="text-caption text-[var(--text-faint)]">不限制</span>
+              )}
+            </span>
+          ))}
+        </div>
+      </Card>
+      <Card
+        title="本地图片画质"
+        overriddenBy={overriddenBy?.(IMAGE_QUALITY_KEYS)}
+        shell={shellFor?.("本地图片画质", IMAGE_QUALITY_KEYS)}
+        desc="刮削时存到本地的图片有多大。各设备看图时由服务端从这份本地图按需缩小，所以这里只决定「最清楚能到多清楚」。改了画质，存量图片在媒体库「刷新元数据」后按新画质更新。"
+      >
+        <div className="grid gap-2 md:grid-cols-2">
+          {IMAGE_QUALITY_OPTIONS.map((option) => {
+            const hint = estimateText(option.id);
+            return (
+              <label
+                key={option.id}
+                className={`cursor-pointer rounded-xl border p-3 transition-colors ${
+                  quality === option.id
+                    ? "border-[var(--accent-2)] bg-[var(--accent-soft)]"
+                    : "border-white/[0.08] bg-white/[0.04] hover:bg-white/[0.07]"
+                }`}
               >
-                <option value="">
-                  {label} · {inheritLabel(setting[key], fallback ?? "")}
-                </option>
-                {sizes.map((size) => (
-                  <option key={size} value={size}>
-                    {label} · {size}
-                  </option>
-                ))}
-              </select>
+                <input
+                  type="radio"
+                  // 库设置页与全局页不会同屏，但同页多实例时 name 也不该串组
+                  name={inheritsGlobal ? "image-quality-library" : "image-quality"}
+                  className="sr-only"
+                  checked={quality === option.id}
+                  onChange={() => chooseQuality(option.id)}
+                />
+                <span className="flex flex-wrap items-baseline justify-between gap-x-2">
+                  <span className="text-ui font-semibold">{option.title}</span>
+                  {hint && (
+                    <span className="tnum text-caption text-[var(--text-muted)]">{hint}</span>
+                  )}
+                </span>
+                <span className="mt-0.5 block text-caption text-[var(--text-faint)]">
+                  {option.desc}
+                </span>
+              </label>
+            );
+          })}
+        </div>
+        {/* 自定义才展开四个档位；预设下档位字段被后端忽略，摆出来只会让人以为还能改 */}
+        {quality === "custom" && (
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {IMAGE_SIZE_FIELDS.map((field) => (
+              <label key={field.key} className="flex flex-col gap-1">
+                <span className="text-caption text-[var(--text-muted)]">{field.label}</span>
+                <select
+                  className={INPUT_CLASS}
+                  value={setting[field.key]}
+                  onChange={(e) => patch({ [field.key]: e.target.value } as Partial<ScrapeSetting>)}
+                >
+                  <option value="">{inheritLabel(effective?.[field.key] ?? "")}</option>
+                  {field.sizes.map((size) => (
+                    <option key={size} value={size}>
+                      {size === "original" ? "original（原图）" : size}
+                    </option>
+                  ))}
+                </select>
+              </label>
             ))}
           </div>
-        </div>
+        )}
       </Card>
     </>
   );
@@ -1329,6 +1428,16 @@ export function ScrapeSettingsSection() {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // 「本地图片画质」各档的磁盘估算；拉不到（非管理员、网络）就不显示数字，设置照常可用
+  const [estimate, setEstimate] = useState<ImageStorageEstimate | null>(null);
+  const loadEstimate = useCallback(() => {
+    getImageStorageEstimate()
+      .then(setEstimate)
+      .catch(() => setEstimate(null));
+  }, []);
+  useEffect(() => {
+    loadEstimate();
+  }, [loadEstimate]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -1376,9 +1485,15 @@ export function ScrapeSettingsSection() {
       // 全局页没有"跟随/覆盖"这个静默态（它就是被跟随的那一层），折叠头只报
       // 当前值；点亮与否交给「N 个库已覆盖」徽标表达
       customized: false,
-      status: setting ? describeScrapeValues(keys, setting) : "",
+      // 画质没选过（空串）时按已保存配置反推的那一档来说，与卡片里选中的一致
+      status: setting
+        ? describeScrapeValues(keys, {
+            ...setting,
+            image_quality: setting.image_quality || view?.effective.image_quality || "",
+          })
+        : "",
     }),
-    [open, setting],
+    [open, setting, view],
   );
 
   const overriddenBy = useCallback(
@@ -1402,13 +1517,15 @@ export function ScrapeSettingsSection() {
       setView(config);
       setSetting(config.setting);
       setDirty(false);
+      // 估算里「自定义」那一档按已保存配置算，保存后重取
+      loadEstimate();
       toast.success("已保存。语言与图片对存量条目生效需在媒体库执行整库刷新");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "保存失败，请重试");
     } finally {
       setSaving(false);
     }
-  }, [setting, toast]);
+  }, [setting, toast, loadEstimate]);
 
   if (error) {
     return (
@@ -1459,6 +1576,7 @@ export function ScrapeSettingsSection() {
           patch={patch}
           extraImageLangs={chipOptions.imageLangs}
           effective={view?.effective ?? null}
+          estimate={estimate}
           overriddenBy={overriddenBy}
           shellFor={shellFor}
         />

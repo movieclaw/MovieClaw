@@ -37,7 +37,7 @@ import {
   type Subscription,
 } from "@/lib/api/subscriptions";
 import { useHeroAmbientColor } from "@/lib/hero-ambient-color";
-import { cachedImageUrl } from "@/lib/image-proxy";
+import { imageUrl } from "@/lib/image-proxy";
 import { usePageChrome } from "@/lib/page-chrome";
 import { usePermissions } from "@/lib/permissions";
 import type { SubscriptionFilter } from "@/lib/subscription-overview";
@@ -402,7 +402,9 @@ function toVisualItem(
     title: sub.media.title,
     year: sub.media.year ?? undefined,
     rating: 0,
-    posterUrl: sub.media.poster_url ? cachedImageUrl(sub.media.poster_url) : "",
+    // imageUrl 而非 cachedImageUrl：订阅对象已入库时海报是本地资产的相对路径；
+    // 宽度由 PosterCard 按卡宽生成 srcset
+    posterUrl: sub.media.poster_url ? imageUrl(sub.media.poster_url) : "",
     genres: scope ? [scope] : undefined,
     overlayMeta: configFlow || undefined,
     ribbon: ribbon?.label,

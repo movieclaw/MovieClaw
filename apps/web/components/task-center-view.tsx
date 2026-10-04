@@ -1651,6 +1651,7 @@ function DownloadTaskGroupCard({
           <div className="aspect-[2/3] overflow-hidden rounded-lg bg-[var(--poster-placeholder)] ring-1 ring-white/10">
             <PosterImage
               src={imageUrl(group.posterUrl)}
+              width={40}
               alt={`${group.title}海报`}
               className="size-full"
               fallback={

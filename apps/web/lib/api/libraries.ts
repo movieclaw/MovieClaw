@@ -1,5 +1,6 @@
 import { publicEnv } from "@/lib/env";
 import { request, resolveRequestUrl } from "@/lib/http";
+import { snapWidth } from "@/lib/image-width";
 import type { ItemSource, LibraryKind, MediaType } from "@/lib/media-types";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
@@ -846,16 +847,17 @@ export function listLibraryGallery(
 
 /**
  * 图片库原图地址（按台账文件 id，服务端按库可见性鉴权）。
- * - `size: "screen"`：长边 ≤2048 的屏幕适配 WebP，灯箱先看它（几百 KB），放大才拉原图；
+ * - `width`：需要的像素宽（取到服务端宽度阶梯，见 lib/image-width.ts），灯箱舞台按
+ *   屏宽像素取（几百 KB），放大到 1:1 才拉原图；取代旧的 `size=screen`；
  * - `download`：原图作为附件下载。
  */
 export function libraryFileOriginalUrl(
   fileId: number,
-  options: { download?: boolean; size?: "screen" } = {},
+  options: { download?: boolean; width?: number } = {},
 ): string {
   const query = new URLSearchParams();
   if (options.download) query.set("download", "1");
-  else if (options.size) query.set("size", options.size);
+  else if (options.width) query.set("w", String(snapWidth(options.width)));
   const suffix = query.size > 0 ? `?${query}` : "";
   return resolveRequestUrl(`/libraries/files/${fileId}/original${suffix}`);
 }

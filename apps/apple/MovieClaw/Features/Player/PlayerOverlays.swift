@@ -224,6 +224,9 @@ struct PlayerUpNextCard: View {
     let dismiss: () -> Void
     let play: () -> Void
 
+    /// 剧照宽（点），取图按它算
+    static let stillWidth: CGFloat = 112
+
     @Environment(\.verticalSizeClass) private var verticalSizeClass
 
     private var compact: Bool { verticalSizeClass == .compact }
@@ -233,7 +236,7 @@ struct PlayerUpNextCard: View {
             HStack(alignment: .top, spacing: 12) {
                 if let still, !compact {
                     RemoteImage(url: still)
-                        .frame(width: 112, height: 63)
+                        .frame(width: Self.stillWidth, height: 63)
                         .clipShape(.rect(cornerRadius: 10))
                 }
                 VStack(alignment: .leading, spacing: 2) {

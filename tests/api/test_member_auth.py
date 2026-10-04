@@ -525,6 +525,7 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/share/{slug}/artwork"),
     ("GET", "/api/v1/share/{slug}/images/assets/{path}"),
     ("GET", "/api/v1/share/{slug}/images/proxy"),
+    ("GET", "/api/v1/share/{slug}/images/people/{path}"),
     ("GET", "/api/v1/share/{slug}/files/{file_id}/thumb"),
     ("POST", "/api/v1/share/{slug}/playback/decide"),
     ("POST", "/api/v1/share/{slug}/playback/sessions"),
@@ -550,6 +551,8 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/discover/region"),
     ("GET", "/api/v1/people/{tmdb_person_id}"),
     ("GET", "/api/v1/images/assets/{path}"),
+    # 演职员头像是公开资料（TMDB 头像），成员看详情页就要用到
+    ("GET", "/api/v1/images/people/{path}"),
     ("GET", "/api/v1/images/proxy"),
     # 媒体库：浏览面（管理动作全部在库路由级挂 require_admin）
     ("GET", "/api/v1/libraries"),

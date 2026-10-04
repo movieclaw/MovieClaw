@@ -10,9 +10,9 @@ import {
 } from "react";
 
 import { useBackdrop } from "@/lib/backdrop";
-import { upgradedTmdbOriginalUrl } from "@/lib/image-proxy";
+import { IMAGE_ASPECT, tmdbImageForWidth, withImageWidth } from "@/lib/image-proxy";
 import type { AmbientRgb } from "@/lib/hero-ambient-color";
-import { useWantsOriginalImage } from "@/lib/image-resolution";
+import { useElementCoverWidth, useViewportCoverWidth } from "@/lib/image-resolution";
 import { useTapGuard } from "@/lib/use-tap-guard";
 
 /**
@@ -26,7 +26,8 @@ import { useTapGuard } from "@/lib/use-tap-guard";
  *   手动切换（点圆点 / 触屏横滑）重新计时，页面不可见时不推进；
  * - 指示器：居中底部，当前格是 26×5 的胶囊，其余是 5×5 可点的小圆点；
  * - 文字随滚动淡出（滚过 260px 全透明）并轻微下沉；
- * - 预载：帧壳常驻、交叉淡入，大图只在轮到（当前 / 下一张）时才写 src，大屏再升 original 原图。
+ * - 预载：帧壳常驻、交叉淡入，大图只在轮到（当前 / 下一张）时才写 src；取图宽度按剧照框
+ *   实测尺寸 × 屏幕倍率 × 推近 1.1 算（lib/image-resolution.ts），远程 TMDB 图不够时升 original。
  *
  * 滚动联动不走 React 状态：调用方用 useHeroScrollVar 把滚动距离写成祖先元素上的 CSS 变量
  * --hero-scroll（px 数值、不带单位），视差 / 淡出 / 氛围底退淡都由 CSS calc 读它，
@@ -68,10 +69,14 @@ export const DESKTOP_CARD_FRAME =
  */
 export function useHeroWindowBackdrop(url: string | null | undefined) {
   const { setOverrideBackdrop } = useBackdrop();
+  // 窗口背景铺满整窗，按整窗算宽度；放大系数取 Hero 推近的 1.1——Hero 在桌面也是整窗宽，
+  // 两边算出来几乎总落在同一档，同一张图浏览器只下载一次（窗口背景是重模糊，略大无妨）
+  const width = useViewportCoverWidth(IMAGE_ASPECT.backdrop, HERO_ZOOM);
+  const sized = url && width ? tmdbImageForWidth(url, width) : null;
   useEffect(() => {
-    setOverrideBackdrop(url ?? null);
-    document.documentElement.classList.toggle("hero-window", Boolean(url));
-  }, [url, setOverrideBackdrop]);
+    setOverrideBackdrop(sized);
+    document.documentElement.classList.toggle("hero-window", Boolean(sized));
+  }, [sized, setOverrideBackdrop]);
   useEffect(
     () => () => {
       setOverrideBackdrop(null);
@@ -80,6 +85,9 @@ export function useHeroWindowBackdrop(url: string | null | undefined) {
     [setOverrideBackdrop],
   );
 }
+
+/** 剧照推近的终点倍数（12 秒 1 → 1.1），取图宽度要把它算进去，推到底也不糊 */
+const HERO_ZOOM = 1.1;
 
 /** 默认每张停留时长（毫秒），同 iOS SubsHomeHero.interval */
 const DEFAULT_INTERVAL = 8000;
@@ -289,7 +297,10 @@ function HeroFrame({
   useEffect(() => {
     if (preload) setRevealed(true);
   }, [preload]);
-  const src = useUpgradedBackdrop(revealed, image);
+  // 剧照层的框（整张 Hero 的大小）：量出来按铺满 + 推近算取图宽度
+  const [frameEl, setFrameEl] = useState<HTMLDivElement | null>(null);
+  const width = useElementCoverWidth(frameEl, IMAGE_ASPECT.backdrop, HERO_ZOOM);
+  const src = useUpgradedBackdrop(revealed, image, width);
   // 首帧挂载时就是 active 的那张要从 1 起推：挂载完成后再认推近标记，否则一出生就是终态
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
@@ -318,7 +329,7 @@ function HeroFrame({
     >
       {/* 剧照层：渐隐遮罩固定在 Hero 框上（底边永远化开，视差不会把硬边带出来），
           画面在框里做视差与推近 */}
-      <div className="absolute inset-0 overflow-hidden [-webkit-mask-image:linear-gradient(to_bottom,#000_0%,#000_56%,rgba(0,0,0,0.6)_80%,transparent_100%)] [mask-image:linear-gradient(to_bottom,#000_0%,#000_56%,rgba(0,0,0,0.6)_80%,transparent_100%)]">
+      <div ref={setFrameEl} className="absolute inset-0 overflow-hidden [-webkit-mask-image:linear-gradient(to_bottom,#000_0%,#000_56%,rgba(0,0,0,0.6)_80%,transparent_100%)] [mask-image:linear-gradient(to_bottom,#000_0%,#000_56%,rgba(0,0,0,0.6)_80%,transparent_100%)]">
         <div
           className="absolute inset-0"
           style={{ transform: `translate3d(0, calc(${SCROLL} * 0.4px), 0)` }}
@@ -331,7 +342,7 @@ function HeroFrame({
               referrerPolicy="no-referrer"
               className="size-full object-cover"
               style={{
-                transform: `scale(${zooming ? 1.1 : 1})`,
+                transform: `scale(${zooming ? HERO_ZOOM : 1})`,
                 // 推近 12 秒线性；离场时等淡出走完（0.8 秒）再无动画归位，看不到回缩
                 transition: zooming ? "transform 12s linear" : "transform 0s linear 0.8s",
               }}
@@ -361,15 +372,22 @@ function HeroFrame({
 }
 
 /**
- * 剧照「同图升清」：列表数据只有 w1280（首屏快），轮到这张后预加载 original 原图，
- * 加载并解码完成才替换——大屏整幅拉伸 w1280 会发虚；手机等小物理宽屏 w1280 已够，
- * 按 useWantsOriginalImage 的门槛不多拉原图。非 TMDB 图没有更高档，原样返回。
+ * 剧照按需要的宽度取图，必要时「同图升清」。``width`` 是需要的物理像素宽（已取阶梯档，
+ * 0 = 框还没量到，先不取图）：
+ *   - 库内 / 本地图：直接在地址上带 ``w``，服务端从本地母版派生；
+ *   - 发现页的远程 TMDB 图：列表只给 w1280 这类固定尺寸段（首屏快）。需要的宽度超过它时，
+ *     先显示列表档（带 w），后台预加载 original + w（服务端从原图派生到那一档），
+ *     加载并解码完成才替换——大屏整幅拉伸 w1280 会发虚；手机等小物理宽屏列表档已够，不多拉。
  * 全站 Hero 共用这一份（Netflix 主题发现页的横幅也用它）。
  */
-export function useUpgradedBackdrop(revealed: boolean, src: string | undefined): string | undefined {
-  const original = src ? upgradedTmdbOriginalUrl(src) : undefined;
-  const wantsOriginal = useWantsOriginalImage();
-  const upgradable = wantsOriginal && Boolean(original && original !== src);
+export function useUpgradedBackdrop(
+  revealed: boolean,
+  src: string | undefined,
+  width: number,
+): string | undefined {
+  const base = src && width ? withImageWidth(src, width) : undefined;
+  const original = src && width ? tmdbImageForWidth(src, width) : undefined;
+  const upgradable = Boolean(original && original !== base);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     if (!revealed || !upgradable || !original) {
@@ -391,7 +409,7 @@ export function useUpgradedBackdrop(revealed: boolean, src: string | undefined):
       cancelled = true;
     };
   }, [revealed, upgradable, original]);
-  return revealed ? (ready ? original : src) : undefined;
+  return revealed ? (ready ? original : base) : undefined;
 }
 
 /**

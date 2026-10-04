@@ -188,7 +188,7 @@ private struct ReidentifyCurrentCard: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            RemoteImage(url: api.image(current.posterUrl, .posterCard))
+            RemoteImage(url: api.image(current.posterUrl, width: ImageWidth.points(44)))
                 .frame(width: 44, height: 64)
                 .clipShape(.rect(cornerRadius: 8))
             VStack(alignment: .leading, spacing: 2) {
@@ -330,7 +330,7 @@ private struct ReidentifyGroupRow: View {
     private var outcomeView: some View {
         if outcome.mediaItemId != nil {
             HStack(spacing: 12) {
-                RemoteImage(url: api.image(outcome.posterUrl, .posterCard))
+                RemoteImage(url: api.image(outcome.posterUrl, width: ImageWidth.points(40)))
                     .frame(width: 40, height: 56)
                     .clipShape(.rect(cornerRadius: 4))
                 VStack(alignment: .leading, spacing: 2) {

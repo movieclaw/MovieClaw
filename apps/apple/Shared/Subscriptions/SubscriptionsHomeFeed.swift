@@ -180,13 +180,39 @@ extension SubscriptionsHomeFeed {
     func firstScreenImageURLs(subscriptions: [API.SubscriptionView], api: APIClient) -> [URL] {
         var urls: [URL?] = []
         if let slide = state(for: subscriptions).slides.first {
-            urls.append(api.server.originalTMDBImageURL(slide.media.backdropUrl) ?? api.image(slide.media.posterUrl))
-            urls.append(api.image(slide.media.logoUrl))
+            urls.append(SubsHomeHeroImage.url(slide, api: api))
+            urls.append(SubsHomeHeroImage.logoURL(slide, api: api))
         }
         for card in recent.prefix(2) {
-            urls.append(api.image(card.stillUrl ?? card.media.backdropUrl ?? card.media.posterUrl, .landscapeCard))
-            urls.append(api.image(card.media.logoUrl))
+            urls.append(api.image(card.stillUrl ?? card.media.backdropUrl ?? card.media.posterUrl,
+                                  width: ImageWidth.points(PhoneCardWidth.recent)))
+            urls.append(api.image(card.media.logoUrl, width: ImageWidth.points(PhoneCardWidth.recentLogo)))
         }
         return urls.compactMap { $0 }
+    }
+}
+
+/// 订阅首页 Hero 的取图口径（iPhone 与 Apple TV 同一套；页面显示、氛围取色、轮播预载与首屏预载共用同一个地址）
+enum SubsHomeHeroImage {
+    /// 剧照：TMDB 图先换成 original 档再经代理按 Hero 需要的宽度缩（Hero 把 16:9 横图放大裁切铺满大区域，
+    /// 发现接口给的 w1280 会糊）；没有剧照（老条目还没刷新到）退回海报铺满
+    static func url(_ slide: SubsHomeHeroSlide, api: APIClient) -> URL? {
+        api.server.originalTMDBImageURL(slide.media.backdropUrl, width: width) ?? api.image(slide.media.posterUrl, width: width)
+    }
+
+    /// 片名 Logo：iPhone Hero 里等比装进 240×88 的框
+    static func logoURL(_ slide: SubsHomeHeroSlide, api: APIClient) -> URL? {
+        api.image(slide.media.logoUrl, width: ImageWidth.points(logoWidth))
+    }
+
+    static let logoWidth: CGFloat = 240
+
+    /// 电视 Hero 铺满整屏宽（1920×760 点，按宽算）→ 屏宽像素；iPhone 是屏宽 × 500 的竖框，铺满 16:9 要按高算
+    private static var width: Int {
+        #if os(tvOS)
+        ImageWidth.screen
+        #else
+        ImageWidth.phoneHero(height: SubsHomeHero.height)
+        #endif
     }
 }

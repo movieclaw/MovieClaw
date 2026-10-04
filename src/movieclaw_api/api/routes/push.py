@@ -246,11 +246,22 @@ async def unregister(
     openapi_extra=_HIDDEN,
 )
 async def push_image(token: str) -> FileResponse:
+    from movieclaw_api.api.routes.images import sized_file
+    from movieclaw_api.services.channel_push import PUSH_IMAGE_WIDTH, local_push_image
     from movieclaw_api.services.image_cache import get_image_cache
 
     url = await resolve_image(token)
     if url is None:
         raise NotFoundException("图片不存在")
+    # 条目图已落本地就用本地母版缩到推送宽度（图床被墙也带得出图），否则回源
+    local = await local_push_image(url)
+    if local is not None:
+        return await sized_file(
+            local,
+            source_key=f"push:{local}",
+            w=PUSH_IMAGE_WIDTH,
+            headers={"Cache-Control": "private, max-age=604800"},
+        )
     try:
         cached = await get_image_cache().get_or_fetch(url)
     except Exception as exc:  # noqa: BLE001 -- 取不到图对通知扩展来说就是「不带图」

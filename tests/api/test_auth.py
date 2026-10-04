@@ -323,6 +323,7 @@ _PUBLIC_ALLOWLIST = {
     ("GET", "/api/v1/share/{slug}/artwork"),
     ("GET", "/api/v1/share/{slug}/images/assets/{path}"),
     ("GET", "/api/v1/share/{slug}/images/proxy"),
+    ("GET", "/api/v1/share/{slug}/images/people/{path}"),
     ("GET", "/api/v1/share/{slug}/files/{file_id}/thumb"),
     ("POST", "/api/v1/share/{slug}/playback/decide"),
     ("POST", "/api/v1/share/{slug}/playback/sessions"),

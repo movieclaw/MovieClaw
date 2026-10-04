@@ -97,15 +97,52 @@ def effective_cert_countries(setting: MetadataScrapeSetting | None = None) -> li
     return list((setting or current_scrape_setting()).cert_country_priority)
 
 
-def effective_asset_sizes(setting: MetadataScrapeSetting | None = None) -> tuple[str, str, str]:
-    """(海报, 背景, 剧照) 档位：设置页的值优先，空则跟随环境变量。"""
-    setting = setting or current_scrape_setting()
+# 本地图片画质预设 → (海报, 背景, 剧照, 头像) 档位（docs/design/image-sizing.md §8.1）。
+# 原图：体验优先的默认；标准：各设备都清楚，海报和头像不存原图（头像原图对显示几乎没有
+# 增益，却占头像磁盘的大头）；节省空间：手机和网页够用，电视上剧照、头像会发虚
+IMAGE_QUALITY_PRESETS: dict[str, tuple[str, str, str, str]] = {
+    "original": ("original", "original", "original", "original"),
+    "standard": ("w780", "original", "original", "h632"),
+    "compact": ("w500", "w1280", "w300", "w185"),
+}
+
+
+def _image_sizes(setting: MetadataScrapeSetting) -> tuple[str, str, str, str]:
+    """生效的四个档位：选了画质预设就按预设；自定义或没选过则逐项「设置值 > 环境变量」。"""
+    preset = IMAGE_QUALITY_PRESETS.get(setting.image_quality)
+    if preset is not None:
+        return preset
     env = get_settings()
     return (
         setting.poster_size or env.tmdb_poster_size,
         setting.backdrop_size or env.tmdb_backdrop_size,
         setting.still_size or env.tmdb_still_size,
+        setting.profile_size or env.tmdb_profile_size,
     )
+
+
+def effective_asset_sizes(setting: MetadataScrapeSetting | None = None) -> tuple[str, str, str]:
+    """(海报, 背景, 剧照) 档位：画质预设优先；自定义 / 没选过则设置值优先、空则跟随环境变量。"""
+    poster, backdrop, still, _profile = _image_sizes(setting or current_scrape_setting())
+    return poster, backdrop, still
+
+
+def effective_profile_size(setting: MetadataScrapeSetting | None = None) -> str:
+    """演职员头像档位（口径同 ``effective_asset_sizes``）。"""
+    return _image_sizes(setting or current_scrape_setting())[3]
+
+
+def effective_image_quality(setting: MetadataScrapeSetting | None = None) -> str:
+    """界面上该选中的画质档：显式选过就是它；没选过时四个档位都没设、且等于原图预设
+    （环境变量也没改）就算「原图」，否则算「自定义」。"""
+    setting = setting or current_scrape_setting()
+    if setting.image_quality:
+        return setting.image_quality
+    sizes = _image_sizes(setting)
+    for name, preset in IMAGE_QUALITY_PRESETS.items():
+        if sizes == preset:
+            return name
+    return "custom"
 
 
 def effective_region() -> str:
@@ -164,6 +201,8 @@ ITEM_SCOPED_OVERRIDABLE = frozenset(
         "poster_size",
         "backdrop_size",
         "still_size",
+        "profile_size",
+        "image_quality",
     }
 )
 

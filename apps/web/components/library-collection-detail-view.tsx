@@ -1022,7 +1022,8 @@ function MissingPartCell({
     genres: [],
     badges: [],
     overview: "",
-    posterUrl: imageUrl(part.poster_url, "poster-card"),
+    // 宽度由 PosterCard 按卡宽生成 srcset
+    posterUrl: imageUrl(part.poster_url),
     extent: tracked ? "追踪中" : "未入库",
   };
   return (

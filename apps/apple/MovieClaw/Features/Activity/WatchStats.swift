@@ -688,7 +688,8 @@ private struct FavoritePodium: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background {
                 ZStack {
-                    RemoteImage(url: api.image(favorites[0].media.posterUrl, .posterCard))
+                    // 放大模糊铺底，看不出清晰度：取一张小图就够
+                    RemoteImage(url: api.image(favorites[0].media.posterUrl, width: ImageWidth.points(120)))
                         .scaleEffect(1.5)
                         .blur(radius: 40)
                         .saturation(1.5)

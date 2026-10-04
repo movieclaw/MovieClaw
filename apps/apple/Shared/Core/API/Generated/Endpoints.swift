@@ -2041,6 +2041,12 @@ nonisolated extension APIClient {
         return try await send("GET", "/scrape/language-options")
     }
 
+    /// 本地图片画质的磁盘估算（按当前媒体库的图片张数）
+    /// `GET /scrape/storage-estimate`
+    func scrapeStorageEstimate() async throws -> API.ImageStorageEstimateView {
+        return try await send("GET", "/scrape/storage-estimate")
+    }
+
     /// 清空搜索历史
     /// `DELETE /search/history`
     func searchHistoryClear() async throws -> Void {
@@ -2602,6 +2608,7 @@ nonisolated extension APIClient {
 // - POST /api/v1/auth/avatar（multipart 表单上传，需手写）
 // - GET /api/v1/collections/{collection_id}/cover（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/images/assets/{path:path}（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/images/people/{path:path}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/images/proxy（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/jobs/stream（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/libraries/files/{file_id}/original（无响应模型：文件流/SSE 等，需手写）
@@ -2627,6 +2634,7 @@ nonisolated extension APIClient {
 // - GET /api/v1/share/{slug}/artwork（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/share/{slug}/files/{file_id}/thumb（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/share/{slug}/images/assets/{path:path}（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/share/{slug}/images/people/{path:path}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/share/{slug}/images/proxy（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/spec（无响应模型：文件流/SSE 等，需手写）
 // - PUT /api/v1/transcode-worker/sessions/{session_id}/artifacts/{name}（无响应模型：文件流/SSE 等，需手写）

@@ -21,8 +21,9 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.media_discover import get_tmdb_client, reset_media_service
@@ -30,10 +31,13 @@ from movieclaw_api.services.scrape_config import (
     current_scrape_setting,
     effective_asset_sizes,
     effective_cert_countries,
+    effective_image_quality,
     effective_languages,
+    effective_profile_size,
     save_scrape_setting,
 )
 from movieclaw_api.settings import MetadataScrapeSetting
+from movieclaw_db.engine import get_session
 
 logger = logging.getLogger("movieclaw_api.scrape_settings")
 
@@ -48,6 +52,11 @@ class ScrapeEffectiveView(BaseModel):
     poster_size: str
     backdrop_size: str
     still_size: str
+    profile_size: str = Field(description="演职员头像的生效档位")
+    image_quality: str = Field(
+        description="界面该选中的本地图片画质：original / standard / compact / custom"
+        "（没选过时按四个档位反推，等于某个预设就是它，否则 custom）"
+    )
 
 
 class ScrapeConfigView(BaseModel):
@@ -75,6 +84,8 @@ def _config_view() -> ScrapeConfigView:
             poster_size=effective_asset_sizes()[0],
             backdrop_size=effective_asset_sizes()[1],
             still_size=effective_asset_sizes()[2],
+            profile_size=effective_profile_size(),
+            image_quality=effective_image_quality(),
         ),
     )
 
@@ -122,6 +133,39 @@ async def save_scrape_config(payload: MetadataScrapeSetting) -> ApiResponse[Scra
     # 主语言也喂给发现页服务（构造期绑定），重建单例让新语言下次请求生效
     reset_media_service()
     return ok(_config_view())
+
+
+class ImageStorageCountsView(BaseModel):
+    posters: int = Field(description="条目海报 + 季海报张数")
+    backdrops: int
+    logos: int
+    stills: int = Field(description="有文件的剧集的分集剧照张数")
+    people: int = Field(description="演职员头像张数（按人去重）")
+
+
+class ImageStorageEstimateView(BaseModel):
+    counts: ImageStorageCountsView
+    presets: dict[str, int] = Field(
+        description="各画质档的估算字节数：original / standard / compact"
+    )
+    current_quality: str = Field(description="当前生效的画质档（自定义为 custom）")
+    current_bytes: int = Field(description="按当前生效档位的估算字节数")
+
+
+@router.get(
+    "/storage-estimate",
+    response_model=ApiResponse[ImageStorageEstimateView],
+    summary="本地图片画质的磁盘估算（按当前媒体库的图片张数）",
+    operation_id="scrape.storage-estimate",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def get_image_storage_estimate(
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[ImageStorageEstimateView]:
+    """设置页「本地图片画质」旁的「约 X GB」：张数 × 各档位单张均值，只是量级参考。"""
+    from movieclaw_api.services.image_estimate import estimate_image_storage
+
+    return ok(ImageStorageEstimateView.model_validate(await estimate_image_storage(session)))
 
 
 # ---------------------------------------------------------------------------

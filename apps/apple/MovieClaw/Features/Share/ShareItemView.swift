@@ -128,9 +128,10 @@ struct ShareItemView: View {
             }
         }
         .background {
-            // 剧照铺底：固定在视口，内容从下方的渐变板上浮出
+            // 剧照铺底：固定在视口，内容从下方的渐变板上浮出。铺满整屏的竖框要按高算宽
             ZStack {
-                RemoteImage(url: api.image(item.backdropUrl ?? item.posterUrl))
+                RemoteImage(url: api.image(item.backdropUrl ?? item.posterUrl,
+                                           width: ImageWidth.cover(ImageWidth.screenSize, aspect: ImageAspect.backdrop)))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
                 LinearGradient(stops: [
@@ -403,7 +404,7 @@ private struct ShareSeasonEpisodes: View {
             report()
         } label: {
             VStack(alignment: .leading, spacing: 6) {
-                LibraryArtwork(url: api.image(episode.stillUrl, .landscapeCard), frameAspect: 16 / 9,
+                LibraryArtwork(url: api.image(episode.stillUrl, width: ImageWidth.points(200)), frameAspect: 16 / 9,
                                fallbackText: episode.stillUrl == nil ? "\(episode.episodeNumber)" : nil)
                     .clipShape(.rect(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(isSelected ? .white.opacity(0.85) : .white.opacity(0.08), lineWidth: isSelected ? 2 : 1))

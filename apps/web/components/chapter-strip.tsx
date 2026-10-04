@@ -7,7 +7,7 @@ import { PlayIcon } from "@/components/icons";
 import { PosterImage } from "@/components/poster-image";
 import { ZoomLightbox, type ZoomLightboxSlide } from "@/components/zoom-lightbox";
 import type { LibraryChapter } from "@/lib/api/libraries";
-import { imageUrl } from "@/lib/image-proxy";
+import { fullScreenImageWidth, imageUrl, screenImageWidth } from "@/lib/image-proxy";
 import { formatClock } from "@/lib/player/timeline";
 
 /**
@@ -74,11 +74,13 @@ export function ChapterStrip({
   // 灯箱只放有图的章节；下标映射回章节
   const withImages = chapters.filter((c) => c.image_url);
   // 章节图统一 16:9（抓帧本身就是画面比例），缩略条按它排宽度
+  // 缩略条与卡片同一个地址（命中缓存），舞台按屏宽像素取（等比装下整屏）
+  const stageWidth = fullScreenImageWidth();
   const slides: ZoomLightboxSlide[] = withImages.map((c) => ({
     key: c.index,
     title: chapterCaption(c),
-    thumbUrl: imageUrl(c.image_url, "landscape-card"),
-    screenUrl: imageUrl(c.image_url),
+    thumbUrl: imageUrl(c.image_url, { width: chapterCardImageWidth() }),
+    screenUrl: imageUrl(c.image_url, { width: stageWidth }),
     aspect: 16 / 9,
   }));
 
@@ -150,6 +152,14 @@ function chapterCaption(chapter: LibraryChapter): string {
   return chapter.title ? `${chapter.title} · ${clock}` : clock;
 }
 
+/**
+ * 章节卡取图的像素宽：卡宽 240（手机 200）× 屏幕倍率。不用 srcset 而是拼固定 w，
+ * 是为了让灯箱缩略条能算出同一个地址、直接命中浏览器缓存。
+ */
+function chapterCardImageWidth(): number {
+  return screenImageWidth(240);
+}
+
 function ChapterCard({
   chapter,
   resumeHere,
@@ -174,7 +184,7 @@ function ChapterCard({
           className="relative block size-full overflow-hidden rounded-xl bg-[var(--poster-placeholder)] text-left outline-none ring-1 ring-white/[0.08] transition duration-200 hover:ring-white/35 focus-visible:ring-2 focus-visible:ring-white/70"
         >
           <PosterImage
-            src={imageUrl(chapter.image_url, "landscape-card")}
+            src={imageUrl(chapter.image_url, { width: chapterCardImageWidth() })}
             alt={`${label} 章节图`}
             className="size-full object-cover"
             fallback={

@@ -170,7 +170,7 @@ async def test_finishing_an_episode_moves_the_card_to_the_next_one(db) -> None:
         assert (card.season_number, card.episode_number) == (1, 2)
         # 标题、剧照、简介、时长都要跟着换成**卡片这一集**的，不能还留在上一集上
         assert card.episode_title == "第二集"
-        assert card.episode_still_url == "https://image.tmdb.org/t/p/w500/e2.jpg"
+        assert card.episode_still_url == "https://image.tmdb.org/t/p/original/e2.jpg"
         assert card.episode_still_original_url == "https://image.tmdb.org/t/p/original/e2.jpg"
         assert card.overview == "第二集的简介"
         assert card.advanced is True
@@ -520,12 +520,12 @@ async def test_a_movie_with_metadata_carries_its_runtime_and_aspect(db) -> None:
         assert card.duration_ms == 7_200_000, "真实文件时长优先于档案里的 130 分钟"
         assert card.progress_percent == 50
         assert card.poster_aspect == 1.7778
-        assert card.backdrop_url == "https://image.tmdb.org/t/p/w780/backdrop.jpg"
+        assert card.backdrop_url == "https://image.tmdb.org/t/p/original/backdrop.jpg"
         assert card.episode_still_url is None
         assert card.episode_still_original_url is None
         assert card.unwatched_ahead_count == 0
         # 电视首页大图区：Logo 没下载到本地时退回 TMDB，简介与类型取影片档案
-        assert card.logo_url == "https://image.tmdb.org/t/p/w500/logo.png"
+        assert card.logo_url == "https://image.tmdb.org/t/p/original/logo.png"
         assert card.overview == "电影简介"
         assert card.genres == ["剧情", "科幻"]
 

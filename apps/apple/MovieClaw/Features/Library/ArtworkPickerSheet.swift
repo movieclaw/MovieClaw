@@ -142,7 +142,7 @@ struct ArtworkPickerSheet: View {
         } label: {
             Color.clear
                 .aspectRatio(tab == .poster ? 2.0 / 3.0 : 16.0 / 9.0, contentMode: .fit)
-                .overlay { RemoteImage(url: api.image(c.previewUrl)) }
+                .overlay { MeasuredRemoteImage(raw: c.previewUrl, aspect: tab == .poster ? ImageAspect.poster : ImageAspect.backdrop) }
                 .overlay(alignment: .topLeading) {
                     // 标出正在用的那张，消除「我现在用的是哪张」的疑问
                     if isCurrent {

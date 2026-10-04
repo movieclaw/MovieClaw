@@ -266,7 +266,7 @@ struct DownloadTaskGroupCard: View {
             let subscription = group.tasks.flatMap(\.subscriptions).first
             VStack(spacing: 0) {
                 HStack(spacing: 12) {
-                    RemoteImage(url: api.image(group.posterUrl, .posterCard), placeholderSymbol: group.kind == "tv" ? "tv" : "film")
+                    RemoteImage(url: api.image(group.posterUrl, width: ImageWidth.points(36)), placeholderSymbol: group.kind == "tv" ? "tv" : "film")
                         .frame(width: 36, height: 54)
                         .clipShape(.rect(cornerRadius: 7))
                         .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.white.opacity(0.1)))

@@ -44,7 +44,7 @@ from movieclaw_api.schemas.library import (
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.library.recycle import purge_file, restore_file
 from movieclaw_api.services.media_server_notify import notify_media_server_refresh
-from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
+from movieclaw_api.services.tmdb_images import item_poster_url, local_media_files
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import FileState, LibraryFile, MediaEpisode, MediaItem, utcnow
 from movieclaw_db.models.library import Library
@@ -190,6 +190,7 @@ def _item_view(
     library: Library,
     item: MediaItem | None,
     episode_titles: dict[tuple[int, int, int], str],
+    poster_file: str | None = None,
 ) -> TrashedItemView:
     """一组待回收文件 → 条目行：剧集按季集、电影多版本按大小降序；组内汇总去重。"""
     if item is not None and item.kind == MediaKind.TV.value:
@@ -243,11 +244,7 @@ def _item_view(
                 title=item.title,
                 year=item.year,
                 kind=MediaKind(item.kind),
-                poster_url=(
-                    f"{effective_tmdb_image_base_url().rstrip('/')}/w185{item.poster_path}"
-                    if item.poster_path
-                    else None
-                ),
+                poster_url=item_poster_url(item.poster_path, poster_file),
             )
         ),
         seasons=sorted({r.season_number for r in rows if r.season_number > 0})
@@ -430,13 +427,21 @@ async def list_trashed_files(
                 if name:
                     episode_titles[(mid, season, episode)] = name
 
+        files = await local_media_files(session, [k for k in keys if k > 0])
         for k in keys:
             rows = grouped.get(k)
             if not rows:
                 continue  # 分页与取行之间被清理掉了：跳过即可，下一次轮询自然消失
             library = libraries[rows[0].library_id]
             items.append(
-                _item_view(k, rows, library, media_items.get(k) if k > 0 else None, episode_titles)
+                _item_view(
+                    k,
+                    rows,
+                    library,
+                    media_items.get(k) if k > 0 else None,
+                    episode_titles,
+                    files.get(k, (None, None, None))[0],
+                )
             )
 
     return ok(

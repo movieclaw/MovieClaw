@@ -40,7 +40,7 @@ import {
   type SubscriptionRemovalOptions,
   type UpgradeRunReport,
 } from "@/lib/api/subscriptions";
-import { cachedImageUrl } from "@/lib/image-proxy";
+import { imageUrl } from "@/lib/image-proxy";
 import type { MediaType } from "@/lib/media-types";
 import { usePermissions } from "@/lib/permissions";
 
@@ -447,7 +447,8 @@ export function SubscribeDialog({
             <div className="flex items-center gap-3.5 px-1">
               <div className="h-[84px] w-14 shrink-0 overflow-hidden rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10">
                 <PosterImage
-                  src={poster ? cachedImageUrl(poster) : undefined}
+                  src={poster ? imageUrl(poster) : undefined}
+                  width={56}
                   alt={media?.title ?? target.title}
                   className="size-full object-cover"
                 />
@@ -509,7 +510,9 @@ export function SubscribeDialog({
                   >
                     <div className="aspect-[2/3] overflow-hidden rounded-lg bg-[var(--poster-placeholder)] ring-1 ring-white/10">
                       <PosterImage
-                        src={c.poster_url ? cachedImageUrl(c.poster_url) : undefined}
+                        src={c.poster_url ? imageUrl(c.poster_url) : undefined}
+                        // 三列候选，弹窗内约 140 宽
+                        width={140}
                         alt={c.title}
                         className="size-full"
                       />
@@ -751,7 +754,9 @@ export function SubscribeDialog({
                   >
                     <div className="aspect-[2/3] overflow-hidden rounded-lg bg-[var(--poster-placeholder)] ring-1 ring-white/10 transition group-hover:ring-white/40">
                       <PosterImage
-                        src={c.poster_url ? cachedImageUrl(c.poster_url) : undefined}
+                        src={c.poster_url ? imageUrl(c.poster_url) : undefined}
+                        // 三列候选，弹窗内约 140 宽
+                        width={140}
                         alt={c.title}
                         className="size-full"
                       />

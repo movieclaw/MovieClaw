@@ -124,7 +124,7 @@ async def test_person_page_lists_library_credits(db, tmp_path) -> None:
         view = (await get_person(901, session, _ADMIN)).data  # 张国立
 
     assert view.name == "张国立"
-    assert view.avatar_url and view.avatar_url.endswith("/w300/z.jpg")
+    assert view.avatar_url and view.avatar_url.endswith("/original/z.jpg")
     # 两部片都在，且都带着可跳转的库 id 与饰演角色
     assert {(c.title, c.character, c.department) for c in view.credits} == {
         ("一九四二", "老东家", "cast"),

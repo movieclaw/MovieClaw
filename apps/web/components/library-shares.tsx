@@ -109,7 +109,7 @@ export function LibraryShares({ onCountChange }: { onCountChange?: (total: numbe
               href={`/library/${share.library_id}/item/${share.media_item_id}` as Route}
               className="relative h-[66px] w-11 shrink-0 overflow-hidden rounded-lg bg-white/[0.06]"
             >
-              <PosterImage src={imageUrl(share.poster_url)} alt="" className="size-full object-cover" />
+              <PosterImage src={imageUrl(share.poster_url)} width={44} alt="" className="size-full object-cover" />
             </Link>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2">

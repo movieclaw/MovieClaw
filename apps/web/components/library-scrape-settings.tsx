@@ -87,6 +87,9 @@ export function LibraryScrapeSettings({
       language_priority: config.setting.language_priority.length
         ? config.setting.language_priority
         : config.effective.language_priority,
+      // 全局画质没选过（空串）时按生效值反推的那一档：「跟随全局：原图」才说得出来，
+      // 切到自定义时也从这一档起步
+      image_quality: config.setting.image_quality || config.effective.image_quality,
     };
   }, [config]);
 

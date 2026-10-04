@@ -40,6 +40,7 @@ from movieclaw_api.api.deps import (
     require_interactive,
     require_login,
 )
+from movieclaw_api.api.routes.images import WIDTH_QUERY, sized_file
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import (
     BadRequestException,
@@ -467,6 +468,7 @@ async def read_avatar(
     request: Request,
     principal: Principal = Depends(require_login),
     account: str | None = Query(default=None, description="读取账号袋里某个账号的头像"),
+    w: int | None = WIDTH_QUERY,
 ) -> FileResponse:
     """直接返回当前主体的头像本体，供 <img> 加载；地址由会话视图的 avatar_url 给出。
 
@@ -482,8 +484,10 @@ async def read_avatar(
     path = avatar_media.find_avatar(stem) if stem else avatar_media.find_avatar()
     if path is None:
         raise NotFoundException("尚未上传头像")
-    return FileResponse(
+    return await sized_file(
         path,
+        source_key=f"account-avatar:{path.name}",
+        w=w,
         media_type=avatar_media.content_type_for(path),
         # URL 带版本号做缓存键，这里可放心让浏览器长期缓存，换头像时 URL 会变。
         headers={"Cache-Control": "private, max-age=31536000"},

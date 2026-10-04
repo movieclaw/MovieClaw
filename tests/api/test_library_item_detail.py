@@ -607,13 +607,13 @@ async def test_item_detail_selfsufficient_after_scan(db, tmp_path) -> None:
     assert view.local_meta.director_credits[0].tmdb_person_id == 9001
     assert view.local_meta.director_credits[0].thumb_url and view.local_meta.director_credits[
         0
-    ].thumb_url.endswith("/w300/d1.jpg")
+    ].thumb_url.endswith("/original/d1.jpg")
     assert [(a.name, a.role) for a in view.local_meta.actors] == [
         ("线上演员甲", "主角"),
         ("线上演员乙", None),
     ]
     assert view.local_meta.actors[0].thumb_url and view.local_meta.actors[0].thumb_url.endswith(
-        "/w300/a1.jpg"
+        "/original/a1.jpg"
     )
 
     # 删掉 NFO：读路径本就只读库内刮削档案（media_metadata），断网可用
@@ -632,7 +632,7 @@ async def test_item_detail_selfsufficient_after_scan(db, tmp_path) -> None:
     assert view.local_meta.rating == 7.2 and view.local_meta.runtime_minutes == 118
     assert view.local_meta.directors == ["线上导演"]
     assert view.local_meta.actors[0].thumb_url and view.local_meta.actors[0].thumb_url.endswith(
-        "/w300/a1.jpg"
+        "/original/a1.jpg"
     )
 
 
@@ -664,7 +664,7 @@ async def test_item_detail_logo_url(db, tmp_path) -> None:
             return (await get_library_item(library.id, item.id, _ADMIN, session)).data.logo_url
 
     base = get_settings().tmdb_image_base_url.rstrip("/")
-    assert await detail_logo("/logo.png", None) == f"{base}/w500/logo.png"
+    assert await detail_logo("/logo.png", None) == f"{base}/original/logo.png"
     local = await detail_logo("/logo.png", "1/logo.png")
     assert local is not None and local.startswith("/images/assets/1/logo.png?v=")
     assert await detail_logo("", None) is None
@@ -716,7 +716,7 @@ async def test_item_detail_fills_missing_actor_thumbs_from_archive(db, tmp_path)
     assert view.local_meta is not None and view.local_meta.source == "nfo"
     actors = view.local_meta.actors
     assert [(a.name, a.role) for a in actors] == [("线上演员甲", "主角"), ("查无此人", None)]
-    assert actors[0].thumb_url and actors[0].thumb_url.endswith("/w300/a1.jpg")
+    assert actors[0].thumb_url and actors[0].thumb_url.endswith("/original/a1.jpg")
     assert actors[1].thumb_url is None
 
 
@@ -765,7 +765,7 @@ async def test_item_detail_fills_person_ids_even_when_thumbs_complete(db, tmp_pa
     actors = view.local_meta.actors
     assert [a.tmdb_person_id for a in actors] == [9101, 9102]
     # 头像以 NFO 为准，不被回填覆盖
-    assert actors[0].thumb_url and actors[0].thumb_url.endswith("/w300/a1.jpg")
+    assert actors[0].thumb_url and actors[0].thumb_url.endswith("/original/a1.jpg")
 
 
 async def test_manual_artwork_selection_locks_against_refresh(db, tmp_path) -> None:
@@ -1429,7 +1429,7 @@ async def test_tv_episodes_merge_local_and_tmdb(db, tmp_path) -> None:
     assert ep1.owned and len(ep1.file_ids) == 1
     assert ep1.still_url == f"/libraries/files/{ep1.file_ids[0]}/thumb"  # 本地缩略图
     assert ep2.name == "E2" and ep2.overview == "线上第二集简介"  # TMDB 兜底
-    assert ep2.still_url and ep2.still_url.endswith("/w300/s1e2.jpg")
+    assert ep2.still_url and ep2.still_url.endswith("/original/s1e2.jpg")
 
     # 本地缩略图接口按台账行回吐文件
     async with db.session() as session:
@@ -2040,7 +2040,7 @@ async def test_library_gallery_flattens_posters_stills_and_chapters(db, tmp_path
             ("chapter", 1, 1),
             ("still", 1, 2),
         ]
-        assert images[0].url.endswith("/w1280/s1e1.jpg") and images[0].label == "第 1 集 · E1"
+        assert images[0].url.endswith("/original/s1e1.jpg") and images[0].label == "第 1 集 · E1"
         chapter = images[1]
         assert chapter.label == "开场" and chapter.t_seconds == 15.0
         assert chapter.url.startswith("/images/assets/chapters/1/1/0.jpg?v=")

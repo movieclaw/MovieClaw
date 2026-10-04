@@ -50,10 +50,13 @@ enum GalleryDensity: String, CaseIterable, Identifiable {
         }
     }
 
-    /// 瓦片取哪个规格的图：列窄的两档用 480px 的 photo-tile 派生图；宽松档列宽更大，
-    /// 相册墙直接用 720px 的缩略图本体（nil），图廊没有那层缩略图，自己要 gallery-tile
-    var variant: ImageVariant? {
-        self == .loose ? nil : .photoTile
+    /// 瓦片的取图宽度：按本机屏宽估这一档的列宽（同 `layout` 的列数算法），× 屏幕倍率取到阶梯。
+    /// iPhone 3 倍屏上紧凑约 118 点 → 360 档、标准约 178 点 → 720 档、宽松单列约 361 点 → 1280 档。
+    /// 墙上瓦片与灯箱缩略条用同一个宽度：地址一致，打开灯箱直接命中缓存
+    var tileImageWidth: Int {
+        let width = ImageWidth.screenSize.width - Theme.pagePadding * 2
+        let columns = max(minColumns, Int(((width + gap) / (column + gap)).rounded(.down)))
+        return ImageWidth.points((width - gap * CGFloat(columns - 1)) / CGFloat(columns))
     }
 }
 
@@ -378,7 +381,7 @@ struct LibraryGalleryWall: View {
             Button {
                 lightbox = LightboxSession(index: index)
             } label: {
-                RemoteImage(url: api.image(image.url, prefs.density.variant ?? .galleryTile), placeholderSymbol: "photo")
+                RemoteImage(url: api.image(image.url, width: prefs.density.tileImageWidth), placeholderSymbol: "photo")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .clipped()
                     .overlay(alignment: .topTrailing) {
@@ -651,12 +654,12 @@ private struct GalleryLightbox: View {
         feed.entries.enumerated().map { i, entry in
             let group = feed.groups[entry.group]
             let image = group.images[entry.image]
-            // 墙上的派生图先铺底，主图走屏幕适配派生（长边 2048、转 WebP，翻页跟手）
+            // 墙上的派生图（同一个地址，命中缓存）先铺底，主图按屏宽像素取（翻页跟手）
             return LibraryZoomableImage.Slide(
                 id: i,
                 title: "\(LibraryGalleryWall.groupTitle(group)) · \(image.label)",
-                thumbURL: api.image(image.url, .photoTile),
-                screenURL: api.image(image.url, .photoScreen),
+                thumbURL: api.image(image.url, width: GalleryPrefs.shared.density.tileImageWidth),
+                screenURL: api.image(image.url, width: ImageWidth.screen),
                 aspect: image.aspect
             )
         }

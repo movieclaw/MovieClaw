@@ -23,6 +23,25 @@ enum TVMetrics {
     static let captionSpacing: CGFloat = 24
     /// 卡片圆角（与系统 Apple TV App 的海报 / 横卡一致的大圆角）
     static let cardCorner: CGFloat = 20
+
+    // 取图时的放大系数（docs/design/image-sizing.md §6）：图在屏幕上会被放大多少，就多要多少像素，否则放大那一下发虚
+    /// 卡片获得焦点时系统 `.highlight` 放大约 1.1 倍
+    static let focusZoom: CGFloat = 1.1
+    /// 演员头像获得焦点时放大 1.12 倍（`TVAvatar` 所在的按钮样式）
+    static let avatarFocusZoom: CGFloat = 1.12
+    /// 首屏大图 Ken Burns 慢推到 1.06 倍（`TVStageImage`）。取图不乘它：整屏大图按屏宽像素取（4K → 3840 已是阶梯顶，
+    /// 1080p 乘上去会跳到 2560 档、多一倍多的像素换 6% 的推近，不值）
+    static let stageZoom: CGFloat = 1.06
+    /// 模糊垫底的剧照（`TVBlurredBackdrop`）按这么宽（点）取：模糊 50 点之后看不出清晰度，半屏宽足够
+    static let blurredBackdropWidth: CGFloat = 480
+}
+
+@MainActor
+extension ImageWidth {
+    /// 电视卡片的取图宽度：显示宽（点）× 屏幕倍率 × 焦点放大。卡片框与图同比例（海报 2:3、横卡 16:9），有效宽就是框宽
+    static func tvCard(_ points: CGFloat) -> Int {
+        Self.points(points, zoom: TVMetrics.focusZoom)
+    }
 }
 
 extension Color {

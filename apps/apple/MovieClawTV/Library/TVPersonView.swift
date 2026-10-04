@@ -56,7 +56,7 @@ struct TVPersonView: View {
         .scrollClipDisabled()
         .ignoresSafeArea(edges: .horizontal)
         .background {
-            TVBlurredBackdrop(url: api.image(backdropCredit?.posterUrl, .tvPoster))
+            TVBlurredBackdrop(url: api.image(backdropCredit?.posterUrl, width: ImageWidth.points(TVMetrics.blurredBackdropWidth)))
                 .ignoresSafeArea()
         }
         .task { if person == nil { await load() } }
@@ -82,7 +82,8 @@ struct TVPersonView: View {
     private var header: some View {
         let displayName = person?.name ?? name
         return HStack(alignment: .center, spacing: 36) {
-            TVAvatar(url: api.image(person?.avatarUrl ?? avatar), name: displayName, size: 168)
+            // 头部头像不可聚焦、不放大：按 168 点框宽取
+            TVAvatar(url: api.image(person?.avatarUrl ?? avatar, width: ImageWidth.points(168)), name: displayName, size: 168)
                 .shadow(color: .black.opacity(0.45), radius: 24, y: 12)
             VStack(alignment: .leading, spacing: 10) {
                 HStack(alignment: .firstTextBaseline, spacing: 20) {
@@ -175,7 +176,7 @@ struct TVPersonView: View {
         return TVPosterCard(
             title: credit.title,
             subtitle: credit.year.map(String.init),
-            imageURL: api.image(credit.posterUrl, .tvPoster),
+            imageURL: api.image(credit.posterUrl, width: ImageWidth.tvCard(TVWallLayout.posterWidth)),
             width: TVWallLayout.posterWidth,
             badge: credit.mediaItemId == fromItem ? "本片" : nil,
             caption: .hidden,

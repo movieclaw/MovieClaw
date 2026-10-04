@@ -33,6 +33,10 @@ _COUNTRY = re.compile(r"^[A-Z]{2}$")
 POSTER_SIZES = {"", "w92", "w154", "w185", "w342", "w500", "w780", "original"}
 BACKDROP_SIZES = {"", "w300", "w780", "w1280", "original"}
 STILL_SIZES = {"", "w92", "w185", "w300", "original"}
+PROFILE_SIZES = {"", "w45", "w185", "h632", "original"}
+# 本地图片画质预设（docs/design/image-sizing.md §8.1）：空 = 没选过，逐项跟随档位字段 /
+# 环境变量（老部署零迁移）；custom = 用户在「自定义」里逐项指定
+IMAGE_QUALITIES = {"", "original", "standard", "compact", "custom"}
 
 
 def _dedup(values: list[str]) -> list[str]:
@@ -78,6 +82,12 @@ class MetadataScrapeSetting(SettingSchema):
     poster_size: str = Field(default="", description="海报档位；空 = 跟随环境变量")
     backdrop_size: str = Field(default="", description="背景档位；空 = 跟随环境变量")
     still_size: str = Field(default="", description="分集剧照档位；空 = 跟随环境变量")
+    profile_size: str = Field(default="", description="演职员头像档位；空 = 跟随环境变量")
+    image_quality: str = Field(
+        default="",
+        description="本地图片画质：original=原图 / standard=标准 / compact=节省空间 / "
+        "custom=自定义（逐项看四个档位）；空 = 没选过，逐项跟随档位与环境变量",
+    )
 
     # —— STEP 3 命名与整理 ————————————————————————————
     # 空串 = 用内置默认模板（即模板化之前的写死行为）。模板语法与校验见
@@ -191,6 +201,22 @@ class MetadataScrapeSetting(SettingSchema):
     def _check_still_size(cls, value: str) -> str:
         if value not in STILL_SIZES:
             raise ValueError(f"剧照档位不合法：{value}（可选 {sorted(STILL_SIZES - {''})}）")
+        return value
+
+    @field_validator("profile_size")
+    @classmethod
+    def _check_profile_size(cls, value: str) -> str:
+        if value not in PROFILE_SIZES:
+            raise ValueError(f"头像档位不合法：{value}（可选 {sorted(PROFILE_SIZES - {''})}）")
+        return value
+
+    @field_validator("image_quality")
+    @classmethod
+    def _check_image_quality(cls, value: str) -> str:
+        if value not in IMAGE_QUALITIES:
+            raise ValueError(
+                f"图片画质不合法：{value}（可选 original / standard / compact / custom）"
+            )
         return value
 
 

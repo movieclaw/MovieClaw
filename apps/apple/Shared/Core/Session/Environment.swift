@@ -15,9 +15,10 @@ extension EnvironmentValues {
 }
 
 extension APIClient {
-    /// 图片地址解析的便捷入口：`api.image(item.posterUrl, .posterCard)`
-    nonisolated func image(_ raw: String?, _ variant: ImageVariant? = nil) -> URL? {
-        server.imageURL(raw, variant: variant)
+    /// 图片地址解析的便捷入口：`api.image(item.posterUrl, width: ImageWidth.points(124))`。
+    /// 展示用的图一律带 `width`（需要的像素宽，见 `ImageWidth`）；不带 = 原图，只给灯箱放大到 1:1 这类场景
+    nonisolated func image(_ raw: String?, width: Int? = nil) -> URL? {
+        server.imageURL(raw, width: width)
     }
 }
 

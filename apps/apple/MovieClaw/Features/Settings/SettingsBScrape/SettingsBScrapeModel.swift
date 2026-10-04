@@ -48,6 +48,33 @@ enum SettingsBScrapeCatalog {
     static let posterSizes = ["w342", "w500", "w780", "original"]
     static let backdropSizes = ["w780", "w1280", "original"]
     static let stillSizes = ["w185", "w300", "original"]
+    /// 演职员头像档位（TMDB 头像档位本身就这几档，h632 是按高 632 的那一档）
+    static let profileSizes = ["w185", "h632", "original"]
+
+    /// 本地图片画质的四档（docs/design/image-sizing.md §8.1）：前三档是后端的预设，选了预设时四个档位字段被忽略；
+    /// 「自定义」才看四个档位。文案说的是「在哪些设备上够不够清楚」，不是 TMDB 档位名
+    struct ImageQuality: Identifiable {
+        let id: String
+        let title: String
+        let desc: String
+    }
+
+    static let imageQualities: [ImageQuality] = [
+        .init(id: "original", title: "原图（默认）", desc: "所有图存 TMDB 原图，各设备都最清楚"),
+        .init(id: "standard", title: "标准", desc: "各设备都清楚，头像与海报不存原图，省约四成空间"),
+        .init(id: "compact", title: "节省空间", desc: "手机和网页够用；电视上剧照、头像会发虚"),
+        .init(id: "custom", title: "自定义", desc: "分别指定海报、背景、剧照、头像下载到本地的档位"),
+    ]
+
+    /// 画质档的简称（折叠头摘要用）
+    static func imageQualityName(_ id: String) -> String {
+        switch id {
+        case "original": "原图"
+        case "standard": "标准"
+        case "compact": "节省空间"
+        default: "自定义"
+        }
+    }
 
     /// 「更多」面板的完整候选：从后端全量表派生，剔除已在常用行里的项（同 Web useScrapeChipOptions）
     static func extraMetaLangs(_ languages: [API.LanguageOption]) -> [SettingsBScrapeChipOption] {
@@ -109,12 +136,22 @@ enum SettingsBScrapeSummary {
         join(SettingsBScrapeCatalog.commonImageLangs, s.backdropLanguagePriority)
     }
 
+    /// 画质一句话：选过档就写档名；没选过时四个档位都空 = 新默认「原图」，否则是老配置留下的档位，按自定义列出
+    /// （后端按档位反推时，恰好等于某个预设会显示成那一档——这里只看设置本身，不做反推）
     static func quality(_ s: API.MetadataScrapeSetting) -> String {
-        let sizes = [s.posterSize, s.backdropSize, s.stillSize]
+        let sizes = [s.posterSize, s.backdropSize, s.stillSize, s.profileSize]
+        let quality: String
+        if !s.imageQuality.isEmpty, s.imageQuality != "custom" {
+            quality = "画质 \(SettingsBScrapeCatalog.imageQualityName(s.imageQuality))"
+        } else if s.imageQuality.isEmpty, sizes.allSatisfy(\.isEmpty) {
+            quality = "画质 原图"
+        } else {
+            quality = "画质自定义 \(sizes.map { $0.isEmpty ? "环境" : $0 }.joined(separator: "/"))"
+        }
         return [
+            quality,
             s.posterMinWidth > 0 ? "海报 ≥\(s.posterMinWidth)" : "海报不限宽",
             s.backdropMinWidth > 0 ? "背景 ≥\(s.backdropMinWidth)" : "背景不限宽",
-            sizes.allSatisfy(\.isEmpty) ? "档位跟随环境" : "档位 \(sizes.map { $0.isEmpty ? "环境" : $0 }.joined(separator: "/"))",
         ].joined(separator: " · ")
     }
 

@@ -34,7 +34,8 @@ struct TVDiscoverDetailView: View {
 
     private var backdrop: some View {
         let raw = detail?.backdropOriginalUrl ?? DiscoverHeroImage.fullResolution(detail?.title.backdropUrl) ?? detail?.title.posterUrl
-        return RemoteImage(url: api.image(raw))
+        // 整屏背景：按屏宽像素取（4K → 3840，1080p → 1920）
+        return RemoteImage(url: api.image(raw, width: ImageWidth.screen))
             .overlay { LinearGradient(colors: [.black.opacity(0.9), .black.opacity(0.55), .clear], startPoint: .leading, endPoint: .trailing) }
             .overlay { LinearGradient(colors: [.clear, .black.opacity(0.4), .black], startPoint: .top, endPoint: .bottom) }
             .ignoresSafeArea()
@@ -89,7 +90,7 @@ struct TVDiscoverDetailView: View {
                         ForEach(detail.recommendations, id: \.titleRef) { dto in
                             let item = DiscoverPosterItem(dto)
                             TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                                         imageURL: api.image(item.posterUrl, .tvPoster),
+                                         imageURL: api.image(item.posterUrl, width: ImageWidth.tvCard(TVMetrics.posterWidth)),
                                          badge: item.libraryStatus != nil ? "已入库" : nil) {
                                 DiscoverMediaSeed.remember(item)
                                 router.push(.discoverTitle(item.resolvedTitleRef))

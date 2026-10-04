@@ -56,7 +56,7 @@ import {
   downloadSelectedTorrentForSubscription,
   getSubscription,
 } from "@/lib/api/subscriptions";
-import { cachedImageUrl } from "@/lib/image-proxy";
+import { cachedImageUrl, coverWidth, fullScreenImageWidth, screenImageWidth } from "@/lib/image-proxy";
 import { layoutPosterGrid } from "@/lib/wall-window";
 import { usePermissions } from "@/lib/permissions";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
@@ -2990,6 +2990,8 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
 }) {
   // 灯箱当前看的是第几张；null = 没打开（灯箱受控翻页，与媒体库那套一致）
   const [viewerIndex, setViewerIndex] = useState<number | null>(null);
+  // 取图用的卡宽（CSS px）；量高度的探针没有宽度，按格子常见上沿 185 估
+  const cardWidth = width ?? 185;
   const open = viewerIndex !== null;
   useEffect(() => {
     if (index === undefined || !onViewerChange) return;
@@ -3000,8 +3002,8 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
   const name = parsedName(hit);
   const seChip = seasonEpisodeChip(hit.attrs);
   // 灯箱图集：海报 + 全部图片（poster_url 通常是 image_urls 第一张，去重兜底）。
-  // 三级地址与媒体库灯箱同一口径：缩略条取 photo-tile，舞台取 photo-screen
-  // （长边 2048 的 WebP，比图床原图少几倍字节、翻页跟手），只有放大到 1:1
+  // 三级地址与媒体库灯箱同一口径：缩略条取小图（格子 48 高，宽不过 96），舞台按
+  // 屏宽像素取（WebP，比图床原图少几倍字节、翻页跟手），只有放大到 1:1
   // 时才拉图床原图。PT 图床本来就慢，这一层派生由后端缓存后人人受益。
   const slides = useMemo<ZoomLightboxSlide[]>(
     () =>
@@ -3010,8 +3012,8 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
       ).map((url, i) => ({
         key: `${i}:${url}`,
         title: hit.title,
-        thumbUrl: cachedImageUrl(url, "photo-tile"),
-        screenUrl: cachedImageUrl(url, "photo-screen"),
+        thumbUrl: cachedImageUrl(url, { width: screenImageWidth(96) }),
+        screenUrl: cachedImageUrl(url, { width: fullScreenImageWidth() }),
         fullUrl: cachedImageUrl(url),
       })),
     [hit.poster_url, hit.image_urls, hit.title],
@@ -3045,18 +3047,17 @@ const TorrentPosterCard = memo(function TorrentPosterCard({
           // 一屏就是几百 MB 解码位图；派生还顺带解决动图——后端只取首帧
           // （见 image_variants._render_webp），一墙缩略图不必各自播各自的动画。
           //
-          // 用 720 外接框那一档（gallery-tile）而不是媒体库墙用的 poster-card（328）。
-          // 两个原因，都在这张卡上成立而在媒体库的墙上不成立：
+          // 宽度按「铺满 2:3 卡」算，但图片比例未知，按 4:3 折中估（卡宽的 2 倍）：
           //   1. 这个网格是 minmax(150px,1fr)，窄屏列数少、卡反而更宽（414 视口
-          //      175 CSS px、834 视口 185），dpr3 手机需要 525 设备像素，328 只
-          //      覆盖 62%——肉眼就是糊；
+          //      175 CSS px、834 视口 185），卡宽本身就要按实际宽取；
           //   2. **PT 的 poster_url 是种子图集的第一张**（见 tracker/models.py），
-          //      很可能是宽幅截图而不是 2:3 海报。派生是等比装进外接框、不裁切，
-          //      16:9 的源装进 328×492 只剩 328×185，再被这张卡的 aspect-[2/3]
-          //      + object-cover 撑开，要放大 2.8~4.3 倍。换 720 框后同一张源是
-          //      720×405，放大降到 1.3~1.9 倍。
-          // 预设名里的「gallery」说的是它的来历，这里取的是它的尺寸档位。
-          src={hit.poster_url ? cachedImageUrl(hit.poster_url, "gallery-tile") : undefined}
+          //      很可能是宽幅截图而不是 2:3 海报。16:9 的源被这张卡的 aspect-[2/3]
+          //      + object-cover 按高撑开，有效宽是卡宽的 2.7 倍；按 2:3 取就要放大
+          //      2.7 倍（糊），按 16:9 取则真海报白拿 2.7 倍像素。折中按 2 倍：
+          //      截图只放大约 1.3 倍，海报富余一档。
+          src={hit.poster_url ? cachedImageUrl(hit.poster_url) : undefined}
+          width={coverWidth(cardWidth, cardWidth * 1.5, 4 / 3)}
+          zoom={1.04}
           // 挂上来的卡必然在窗口内（虚拟化就是按这个切的），直接取图，不必再让
           // PosterImage 自己等那个 400px 的观察器——那点提前量比窗口窄，滑快了
           // 会露出一小截占位。探针没有海报地址，这里对它无影响

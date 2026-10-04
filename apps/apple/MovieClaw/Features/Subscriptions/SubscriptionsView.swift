@@ -174,7 +174,7 @@ struct SubscriptionsView: View {
     private func tintSource(_ slides: [SubsHomeHeroSlide]) -> URL? {
         guard !slides.isEmpty else { return nil }
         let slide = slides[min(heroIndex, slides.count - 1)]
-        return api.server.originalTMDBImageURL(slide.media.backdropUrl) ?? api.image(slide.media.posterUrl)
+        return SubsHomeHeroImage.url(slide, api: api)
     }
 
     private func updateTint(_ slides: [SubsHomeHeroSlide]) async {

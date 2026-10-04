@@ -43,7 +43,7 @@ _ITEM_IMAGE_LAYERS: dict[str, tuple[str, str, str]] = {
 }
 
 
-async def _person_image(person_id: int, image_type: str) -> Response:
+async def _person_image(person_id: int, image_type: str, request: Request) -> Response:
     """影人头像：TMDB profile 经图片代理（SSRF 防护 + 本地缓存）落盘直出。
 
     离线/图床不可达时 404——播放器按无头像降级，不阻断详情页。"""
@@ -57,22 +57,28 @@ async def _person_image(person_id: int, image_type: str) -> Response:
         person = await session.get(Person, person_id)
     if person is None or not person.profile_path:
         raise JellyfinError(404, text="Item does not have an image of type Primary")
-    base = effective_tmdb_image_base_url().rstrip("/")
-    try:
-        cached = await get_image_cache().get_or_fetch(f"{base}/w300{person.profile_path}")
-    except Exception:
-        raise not_found() from None
     import hashlib
 
+    from movieclaw_api.services.people_images import avatar_file
+    from movieclaw_api.services.scrape_config import effective_profile_size
+
     tag = hashlib.md5(person.profile_path.encode()).hexdigest()
-    return FileResponse(
-        cached.path,
-        media_type=cached.content_type,
-        headers={
-            "Cache-Control": "public, max-age=31536000, immutable",
-            "ETag": f'"{tag}"',
-        },
+    headers = {"Cache-Control": "public, max-age=31536000, immutable", "ETag": f'"{tag}"'}
+    # 刮削时已落本地的头像优先（断网可用，见 docs/design/image-sizing.md §4.2），按 maxWidth 缩放
+    tier = effective_profile_size()
+    local = avatar_file(person.profile_path, tier)
+    if local.is_file():
+        target, media_type = await _maybe_scaled(local, request)
+        return FileResponse(target, media_type=media_type, headers=headers)
+    base = effective_tmdb_image_base_url().rstrip("/")
+    try:
+        cached = await get_image_cache().get_or_fetch(f"{base}/{tier}{person.profile_path}")
+    except Exception:
+        raise not_found() from None
+    target, media_type = await _maybe_scaled(
+        cached.path, request, original_type=cached.content_type, source_version=cached.version
     )
+    return FileResponse(target, media_type=media_type, headers=headers)
 
 
 async def _chapter_asset(
@@ -286,7 +292,7 @@ async def get_item_image(
             },
         )
     if ref is not None and ref.kind == EntityKind.PERSON:
-        return await _person_image(ref.entity_id, image_type)
+        return await _person_image(ref.entity_id, image_type, request)
     # 条目 Primary/Backdrop/Logo 走与 Web 相同的三层解析（docs/design/metadata.md 5）：
     # 条目目录美术图（用户/第三方刮削器放的图，最优先；规则见 services/library/
     # artwork.py：文件自己的 <主干>-poster 精确匹配，目录级 poster.jpg 只在目录归

@@ -8,7 +8,7 @@ import { useTileWindow } from "@/components/photo-wall";
 import { PosterCardVisual, type PosterVisualItem } from "@/components/poster-card";
 import { libraryCardAction } from "@/components/library-view";
 import type { LibraryItem } from "@/lib/api/libraries";
-import { cardVariantFor, imageUrl } from "@/lib/image-proxy";
+import { imageUrl } from "@/lib/image-proxy";
 import { formatLibraryInventorySummary } from "@/lib/library-inventory-summary";
 import {
   layoutPosterGrid,
@@ -154,10 +154,9 @@ export const InventoryCell = memo(function InventoryCell({
     extent: showRating ? (ratingText ?? undefined) : undefined,
     favorite: item.is_favorite,
     // 海报可能是本地刮削资产的相对路径（断网可用），也可能是 TMDB 图床地址。
-    // 与首页海报墙同样取派生图（竖版 poster-card / 横版 landscape-card）：海报墙
-    // 是全站最大的一张图片网格，直出原图等于每屏多拉三倍字节（见 library-view.tsx
-    // 同名字段的注释）
-    posterUrl: imageUrl(item.poster_url, cardVariantFor(item.primary_aspect)),
+    // 这里只解析地址，宽度由 PosterCard 按格子尺寸生成 srcset 再带上：海报墙是
+    // 全站最大的一张图片网格，直出原图（TMDB original 可达 2000×3000）不可接受
+    posterUrl: imageUrl(item.poster_url),
   };
   // 文件全部缺失的"死条目"：海报置灰，一眼与在位内容区分
   const dead = item.file_count > 0 && item.missing_count >= item.file_count;

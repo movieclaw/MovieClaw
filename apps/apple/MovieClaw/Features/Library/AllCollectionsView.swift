@@ -224,7 +224,7 @@ struct LibraryCollectionCover: View {
                         let frontWidth = w - step * CGFloat(shown.count - 1)
                         ZStack(alignment: .topLeading) {
                             ForEach(Array(shown.enumerated().reversed()), id: \.offset) { index, cover in
-                                RemoteImage(url: api.image(cover.url, .posterCard))
+                                RemoteImage(url: api.image(cover.url, width: ImageWidth.points(frontWidth)))
                                     .frame(width: frontWidth, height: h - inset * CGFloat(index) * 2)
                                     .clipShape(.rect(cornerRadius: 12))
                                     .brightness(index == 0 ? 0 : -0.3)

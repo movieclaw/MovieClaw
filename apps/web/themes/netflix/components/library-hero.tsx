@@ -2,14 +2,20 @@
 
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { InfoIcon, PlayIcon, SparkIcon } from "@/components/icons";
 import { PosterImage } from "@/components/poster-image";
 import { type LibraryItem, listLibraries, listLibraryItems } from "@/lib/api/libraries";
 import { listUpNext, type UpNextItem } from "@/lib/api/playback";
-import { imageUrl, upgradedTmdbOriginalUrl, cardVariantFor } from "@/lib/image-proxy";
-import { useWantsOriginalImage } from "@/lib/image-resolution";
+import {
+  IMAGE_ASPECT,
+  imageUrl,
+  responsiveImage,
+  tmdbImageForWidth,
+  withImageWidth,
+} from "@/lib/image-proxy";
+import { useElementCoverWidth } from "@/lib/image-resolution";
 import { usePermissions } from "@/lib/permissions";
 import { formatRelativeTime } from "@/lib/time";
 
@@ -151,18 +157,16 @@ function NetflixBillboard({
   const addedLabel =
     !upNextItem && libraryItem?.added_at ? `${formatRelativeTime(libraryItem.added_at)}入库` : null;
 
-  // 沉浸画面只走高清（与发现详情页同一条「宁黑勿糊」决策）：TMDB 图升 original
-  // 尺寸档，本地资产直取原图；加载并解码完成才显示，不存在「先低清后高清」的
-  // 换图过程。landscape-card（480×270）只作兜底：无更高清档或高清加载失败时用。
-  // 小物理宽屏（≤1280）跳过升清但不落 landscape-card——480×270 在 3 倍屏上
-  // 拉不满，直接用基础档（TMDB=w1280 / 资产=档位原图）作高清目标。
-  const wantsOriginal = useWantsOriginalImage();
-  const fallbackSrc = artworkUrl ? imageUrl(artworkUrl, "landscape-card") : "";
-  const hdUrl = !artworkUrl
-    ? ""
-    : wantsOriginal
-      ? upgradedTmdbOriginalUrl(imageUrl(artworkUrl))
-      : imageUrl(artworkUrl);
+  // 沉浸画面只走高清（与发现详情页同一条「宁黑勿糊」决策）：取图宽度按画面框
+  // 实测尺寸铺满算（lib/image-resolution.ts），本地资产直接带 w 由服务端从母版派生，
+  // TMDB 远程图需要的宽度超过列表档时升 original 再带 w；加载并解码完成才显示，
+  // 不存在「先低清后高清」的换图过程。原地址带同一档 w 只作兜底（高清加载失败时用）。
+  // 框还没量到（宽度为 0）时先不取图。
+  const [sectionEl, setSectionEl] = useState<HTMLElement | null>(null);
+  const artWidth = useElementCoverWidth(sectionEl, IMAGE_ASPECT.backdrop);
+  const baseArt = artworkUrl ? imageUrl(artworkUrl) : "";
+  const fallbackSrc = baseArt && artWidth ? withImageWidth(baseArt, artWidth) : "";
+  const hdUrl = baseArt && artWidth ? tmdbImageForWidth(baseArt, artWidth) : "";
   const [artState, setArtState] = useState<"pending" | "ok" | "failed">("pending");
   useEffect(() => {
     if (!hdUrl) {
@@ -195,7 +199,12 @@ function NetflixBillboard({
   // 页的滚动容器滚走，下滚时画面渐暗 + 模糊。进度写在 section 元素上，只有
   // 本组件的子树消费它（.nf-billboard-art，见 globals.css），不挂
   // html.nf-hero-live——那会牵连全站沉浸覆盖层的规则。
-  const sectionRef = useRef<HTMLElement>(null);
+  const sectionRef = useRef<HTMLElement | null>(null);
+  // 同一个元素既给滚动退场用（ref），也要量尺寸算取图宽度（state，量到后重渲染）
+  const attachSection = useCallback((el: HTMLElement | null) => {
+    sectionRef.current = el;
+    setSectionEl(el);
+  }, []);
   useEffect(() => {
     const section = sectionRef.current;
     if (!section) return;
@@ -234,7 +243,7 @@ function NetflixBillboard({
 
   return (
     <section
-      ref={sectionRef}
+      ref={attachSection}
       aria-label={`正在展示《${title}》`}
       className="relative h-[40vh] min-h-[320px] w-full max-md:min-h-[300px] md:h-[clamp(480px,56.25vw,80vh)]"
     >
@@ -312,18 +321,27 @@ function NetflixBillboard({
   );
 }
 
+/** 兜底海报的取图显示宽（CSS px） */
+const POSTER_FILL_WIDTH = 400;
+
 /** 无横版剧照时的 billboard 兜底：海报放大模糊铺底 + 中央完整显示 */
 function PosterFallbackFill({ url, aspect }: { url: string; aspect: number }) {
-  const src = imageUrl(url, cardVariantFor(aspect));
+  // 中央海报高为画面的 86%（画面高 480～80vh），竖版海报宽约 400；模糊铺底用同一宽度，
+  // 地址一致只取一次
+  const src = imageUrl(url);
   return (
     <>
-      <img src={src} alt="" className="absolute inset-0 size-full scale-110 object-cover opacity-40 blur-2xl" />
+      <img
+        {...responsiveImage(src, POSTER_FILL_WIDTH)}
+        alt=""
+        className="absolute inset-0 size-full scale-110 object-cover opacity-40 blur-2xl"
+      />
       <div className="absolute inset-0 flex items-center justify-center">
         <div
           style={{ aspectRatio: aspect, height: "86%" }}
           className="overflow-hidden rounded-[4px] shadow-[0_0_40px_rgba(0,0,0,0.6)]"
         >
-          <PosterImage src={src} alt="" className="size-full" />
+          <PosterImage src={src} width={POSTER_FILL_WIDTH} alt="" className="size-full" />
         </div>
       </div>
     </>

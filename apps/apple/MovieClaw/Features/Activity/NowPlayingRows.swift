@@ -169,7 +169,7 @@ struct ActivityPoster: View {
         Button {
             if let route { router.open(route) }
         } label: {
-            RemoteImage(url: api.image(media?.posterUrl, .posterCard), placeholderSymbol: "film")
+            RemoteImage(url: api.image(media?.posterUrl, width: ImageWidth.points(width)), placeholderSymbol: "film")
                 .frame(width: width, height: height)
                 .clipShape(.rect(cornerRadius: radius))
                 .overlay(RoundedRectangle(cornerRadius: radius).strokeBorder(Color.white.opacity(0.1)))

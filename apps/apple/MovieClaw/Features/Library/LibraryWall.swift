@@ -319,6 +319,16 @@ struct LibraryPosterGrid<Item: Identifiable, Cell: View>: View {
     }
 }
 
+/// 海报墙一列有多宽（点），取图用：同 SwiftUI 自适应列的算法，列数 = ⌊(可用宽 + 列距) ÷ (最小列宽 + 列距)⌋。
+/// iPhone 竖屏两列约 174.5 点（3 倍屏 523 像素 → 720 档）。格子量到自己的实际宽度之前先按它估
+enum LibraryGridColumn {
+    static func width(minimum: CGFloat, spacing: CGFloat = 12) -> CGFloat {
+        let available = ImageWidth.screenSize.width - Theme.pagePadding * 2
+        let count = max(1, ((available + spacing) / (minimum + spacing)).rounded(.down))
+        return (available - (count - 1) * spacing) / count
+    }
+}
+
 /// 库存条目 → 海报格（Web `InventoryCell`）：缺失提示、死条目置灰、后台处理中点亮、剧集长按看库存概况与订阅动作
 struct LibraryInventoryCell: View {
     let item: API.LibraryItemView
@@ -330,15 +340,18 @@ struct LibraryInventoryCell: View {
     @Environment(\.api) private var api
     @Environment(\.permissions) private var permissions
     @Environment(Router.self) private var router
+    /// 格子实际排出来的宽：各面墙的最小列宽不一样（140 / 160 / 200），取图按量出来的宽算
+    @State private var cellWidth: CGFloat?
 
     var body: some View {
         let dead = item.fileCount > 0 && item.missingCount >= item.fileCount
         let rating = (item.rating ?? 0) > 0 ? "★ " + String(format: "%.1f", item.rating ?? 0) : nil
         let aspect = frameAspect ?? (item.primaryAspect >= 1 ? 16 / 9 : Theme.posterAspect)
+        let width = cellWidth ?? LibraryGridColumn.width(minimum: aspect >= 1 ? 160 : 140)
         NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId ?? libraryId, itemId: item.mediaItemId)) {
             LibraryPosterCell(
                 title: item.title, year: item.year, extent: showRating ? rating : nil,
-                url: api.image(item.posterUrl, ImageVariant.card(aspect: item.primaryAspect)),
+                url: api.image(item.posterUrl, width: ImageWidth.points(width)),
                 imageAspect: item.primaryAspect, frameAspect: aspect,
                 favorite: item.isFavorite, dead: dead,
                 abnormal: dead ? "文件已全部缺失" : item.missingCount > 0 ? "\(item.missingCount) 个文件缺失" : nil,
@@ -361,6 +374,7 @@ struct LibraryInventoryCell: View {
                 }
             }
         }
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { cellWidth = $0 }
         .id(item.mediaItemId)
     }
 }

@@ -88,7 +88,9 @@ from movieclaw_api.services.media_probe import (
     probe_retry_due,
 )
 from movieclaw_api.services.media_scrape import asset_version, file_version
+from movieclaw_api.services.people_images import avatar_url, profile_path_of
 from movieclaw_api.services.scrape_config import effective_language, scrape_setting_for_item
+from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_db.models import (
     FileState,
     Library,
@@ -1790,12 +1792,10 @@ async def poster_facts_many(
     靠它把封面代价从「每个合集一次完整墙聚合」压成**整页一条查询**——
     否则一个库自动生成几十个系列合集之后，打开合集页就是几百条查询。
     """
-    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
     ids = [i for i in item_ids if i is not None]
     if not ids:
         return {}
-    base = effective_tmdb_image_base_url().rstrip("/")
     out: dict[int, PosterFacts] = {}
     for item_id, poster_path, poster_file, width, height, released, blur, rating in (
         await session.execute(
@@ -1818,7 +1818,7 @@ async def poster_facts_many(
             url = f"/images/assets/{poster_file}?v={asset_version(poster_file)}"
             out[item_id] = PosterFacts(url, blur or None, (width, height), released, rating)
         else:
-            url = f"{base}/w500{poster_path}" if poster_path else None
+            url = tmdb_image_url(poster_path, "poster")
             out[item_id] = PosterFacts(url, None, None, released, rating)
     return out
 
@@ -1833,12 +1833,10 @@ async def backdrop_facts_many(
     模糊铺底只是前端在 URL 为空时的最后兜底）。剧照没有模糊占位/尺寸的展示
     需求，返回纯 URL 映射即可。
     """
-    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
     ids = [i for i in item_ids if i is not None]
     if not ids:
         return {}
-    base = effective_tmdb_image_base_url().rstrip("/")
     rows = (
         await session.execute(
             select(
@@ -1854,9 +1852,7 @@ async def backdrop_facts_many(
         item_id: (
             f"/images/assets/{backdrop_file}?v={asset_version(backdrop_file)}"
             if backdrop_file
-            else f"{base}/w1280{backdrop_path}"
-            if backdrop_path
-            else None
+            else tmdb_image_url(backdrop_path, "backdrop")
         )
         for item_id, backdrop_path, backdrop_file in rows
     }
@@ -2143,7 +2139,6 @@ async def build_gallery_groups(
     几十部太贵），与海报墙一致。
     """
     from movieclaw_api.services.library import chapters as chapters_mod
-    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
     from movieclaw_db.models import MediaEpisode
 
     if not page:
@@ -2229,12 +2224,11 @@ async def build_gallery_groups(
             if still_file:
                 url = f"/images/assets/{still_file}?v={asset_version(still_file)}"
             elif still_path:
-                url = f"{effective_tmdb_image_base_url().rstrip('/')}/w1280{still_path}"
+                url = tmdb_image_url(still_path, "still")
             else:
                 continue
             stills_by_unit[(item_id, season, episode)] = (url, (name or "").strip())
 
-    base = effective_tmdb_image_base_url().rstrip("/")
     groups: list[LibraryGalleryGroupView] = []
     for item_id in page_ids:
         item = items_by_id.get(item_id)
@@ -2247,7 +2241,7 @@ async def build_gallery_groups(
         if poster_file:
             poster_url: str | None = f"/images/assets/{poster_file}?v={asset_version(poster_file)}"
         else:
-            poster_url = f"{base}/w780{item.poster_path}" if item.poster_path else None
+            poster_url = tmdb_image_url(item.poster_path, "poster")
         if poster_url:
             images.append(
                 LibraryGalleryImageView(
@@ -2262,7 +2256,7 @@ async def build_gallery_groups(
                 f"/images/assets/{backdrop_file}?v={asset_version(backdrop_file)}"
             )
         else:
-            backdrop_url = f"{base}/w1280{item.backdrop_path}" if item.backdrop_path else None
+            backdrop_url = tmdb_image_url(item.backdrop_path, "backdrop")
         if backdrop_url:
             images.append(
                 LibraryGalleryImageView(
@@ -2659,7 +2653,7 @@ async def build_season_episodes(
                     from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
                     image_base = effective_tmdb_image_base_url().rstrip("/")
-                info.still_url = f"{image_base}/w300{meta.still_path}"
+                info.still_url = tmdb_image_url(meta.still_path, "still")
         # 本地优先：分集 NFO 的标题/简介、同名 -thumb 缩略图（取首个在位文件）
         owned_file = season_videos.get(number)
         if owned_file is not None:
@@ -2713,7 +2707,6 @@ async def _fill_from_tmdb_season(
     """TMDB 分季详情兜底：只填空缺字段，绝不覆盖本地刮削成果。失败静默
     （分集区退化为无剧照/无简介，不阻断）。"""
     from movieclaw_api.services.media_discover import get_tmdb_client
-    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
     # 语言按条目的刮削归属库（设计文档 §14）——缓存键必须带上它，否则动漫库
     # 与剧集库的条目会互相串味（同一 tmdb_id 缓存一份，先访问的语言说了算）
@@ -2737,7 +2730,6 @@ async def _fill_from_tmdb_season(
             exc,
         )
         return
-    image_base = effective_tmdb_image_base_url().rstrip("/")
     remote = {e.get("episode_number"): e for e in data.get("episodes", [])}
     for info in infos:
         episode = remote.get(info.episode_number)
@@ -2748,7 +2740,7 @@ async def _fill_from_tmdb_season(
         info.air_date = info.air_date or episode.get("air_date") or None
         still = episode.get("still_path")
         if info.still_url is None and still:
-            info.still_url = f"{image_base}/w300{still}"
+            info.still_url = tmdb_image_url(still, "still")
 
 
 async def _db_meta(session: AsyncSession, item: MediaItem) -> EntryMetadata | None:
@@ -2760,22 +2752,19 @@ async def _db_meta(session: AsyncSession, item: MediaItem) -> EntryMetadata | No
     """
     if item.id is None:
         return None
-    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
     from movieclaw_db.repositories import MediaItemRepository
 
     row = await MediaItemRepository(session).get_metadata(item.id)
     if row is None or row.scraped_at is None:
         return None
-    image_base = effective_tmdb_image_base_url().rstrip("/")
 
     def _thumb(actor: dict) -> str | None:
-        # NFO 自带的绝对地址优先（吸收时原样存下，见 nfo_absorb._merge_cast），
-        # 否则用 TMDB 图床（经前端缓存代理）
-        if actor.get("nfo_thumb"):
-            return str(actor["nfo_thumb"])
-        if actor.get("profile_path"):
-            return f"{image_base}/w300{actor['profile_path']}"
-        return None
+        # NFO 自带的非 TMDB 头像地址原样给（吸收时存下，见 nfo_absorb._merge_cast）；
+        # TMDB 头像（含 NFO 里的 TMDB 地址）本地有就给本地，断网可用，否则图床兜底
+        nfo = actor.get("nfo_thumb")
+        if nfo and profile_path_of(nfo) is None:
+            return str(nfo)
+        return avatar_url(profile_path_of(nfo) or actor.get("profile_path"))
 
     meta = EntryMetadata(
         plot=row.overview,
@@ -2809,7 +2798,6 @@ async def _tmdb_fallback_meta(session: AsyncSession, item: MediaItem) -> EntryMe
     注明信息来自 TMDB 而非本地刮削。
     """
     from movieclaw_api.services.media_discover import get_tmdb_client
-    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
     from movieclaw_media.models import MediaKind as _Kind
 
     kind = _Kind(item.kind)
@@ -2838,12 +2826,11 @@ async def _tmdb_fallback_meta(session: AsyncSession, item: MediaItem) -> EntryMe
         directors = [c["name"] for c in data.get("created_by", []) if c.get("name")]
         run_times = data.get("episode_run_time") or []
         runtime = run_times[0] if run_times else None
-    image_base = effective_tmdb_image_base_url().rstrip("/")
     actors = [
         NfoActor(
             name=c["name"],
             role=(c.get("character") or "").strip() or None,
-            thumb=f"{image_base}/w300{c['profile_path']}" if c.get("profile_path") else None,
+            thumb=avatar_url(c.get("profile_path")),
             tmdb_person_id=c.get("id"),
         )
         for c in credits.get("cast", [])[:40]

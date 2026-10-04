@@ -246,7 +246,9 @@ struct ManageLibraryThumb: View {
             LinearGradient(colors: [Color(red: 0.11, green: 0.13, blue: 0.19), Color(red: 0.06, green: 0.07, blue: 0.11)],
                            startPoint: .topLeading, endPoint: .bottomTrailing)
             if library.viewerAccess, hasCover {
-                RemoteImage(url: api.image("/libraries/\(library.id)/cover?v=\(library.updatedAt)"),
+                RemoteImage(url: api.image("/libraries/\(library.id)/cover?v=\(library.updatedAt)",
+                                           // 72×44 的框比封面（21:10）瘦，铺满按高算
+                                           width: ImageWidth.cover(CGSize(width: 72, height: 44), aspect: 21 / 10)),
                             placeholderSymbol: LibraryKindMeta.symbol(library.kind))
             } else {
                 Image(systemName: library.viewerAccess ? LibraryKindMeta.symbol(library.kind) : "lock.fill")

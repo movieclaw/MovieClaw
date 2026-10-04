@@ -79,7 +79,6 @@ from movieclaw_api.services.library.access import (
 )
 from movieclaw_api.services.library.items import build_season_episodes, episode_view
 from movieclaw_api.services.media_probe import probe_keyframe_before
-from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_api.services.playback import marks as playback_marks
 from movieclaw_api.services.playback import metrics, qoe, track_memory, trickplay, video_cues
 from movieclaw_api.services.playback import plan as playback_plan
@@ -146,6 +145,7 @@ from movieclaw_api.services.playback_favorites import (
 )
 from movieclaw_api.services.playback_stats import playback_history, playback_stats
 from movieclaw_api.services.playback_up_next import up_next_items
+from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_api.settings import PlaybackPolicySetting
 from movieclaw_api.settings.store import get_setting_store
 from movieclaw_db.engine import get_database, get_session
@@ -2550,8 +2550,7 @@ async def get_playback_item(
         version = media_scrape.asset_version(meta_row.poster_file)
         poster_url = f"/images/assets/{meta_row.poster_file}?v={version}"
     elif item.poster_path:
-        base = effective_tmdb_image_base_url().rstrip("/")
-        poster_url = f"{base}/w500{item.poster_path}"
+        poster_url = tmdb_image_url(item.poster_path, "poster")
     else:
         poster_url = None
     return ok(

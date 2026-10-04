@@ -53,6 +53,7 @@ from movieclaw_api.services.scrape_config import (
     effective_image_prefs,
     effective_language,
     effective_mirror_flags,
+    effective_profile_size,
     profile_fetch_kwargs,
     resolve_scrape_library,
     scrape_setting_for_item,
@@ -159,6 +160,8 @@ class AssetTally:
         """进行中的一句话：「下载图片 120 / 480 · 已下 230 MB」。"""
         if self.grabbing:
             return f"从视频截取分集剧照 · 已截 {self.grabbed} 张"
+        if not self.planned:
+            return _IMAGE_STEP  # 刚进这一步、还没数清张数（或这部片没有图床图片）
         text = f"{_IMAGE_STEP} {self.settled} / {self.planned}"
         return f"{text} · 已下 {_format_bytes(self.bytes)}" if self.bytes else text
 
@@ -1841,8 +1844,14 @@ async def download_item_assets(
         sources = await asyncio.to_thread(_load_asset_sources, item_dir)
         saved_sources = dict(sources)
         tally = tally if tally is not None else AssetTally()
+        # 演职员头像（详情页能看到的全部：演员表 + 导演）；选图通道（only）不碰头像
+        profile_paths = (
+            await _item_profile_paths(session, media_item_id, meta) if only is None else []
+        )
+        profile_tier = effective_profile_size(await scrape_setting_for_item(session, item))
         # 先数清这一轮要过的图床图片（与下面逐张 _sync_asset 的口径一致：有 TMDB 路径才算）
         planned_paths = [
+            *profile_paths,
             item.poster_path if only in (None, "poster") else None,
             item.backdrop_path if only in (None, "backdrop") else None,
             item.logo_path if only in (None, "logo") else None,
@@ -1929,6 +1938,15 @@ async def download_item_assets(
                         tally=tally,
                     )
                     session.add(episode)
+            if profile_paths:
+                # 头像量大（一部片几十位），4 路并发；同一个人跨条目只存一份，下过的直接沿用
+                gate = asyncio.Semaphore(4)
+
+                async def _one(path: str) -> None:
+                    async with gate:
+                        await _sync_avatar(base, profile_tier, path, tally)
+
+                await asyncio.gather(*(_one(path) for path in profile_paths))
         if has_files and episodes:
             # TMDB 没给剧照的在库分集：从视频抓一帧顶上（在图床闸外做，抓帧
             # 走自己的 FRAME_GRAB_GATE，别占着下载并发位解码视频）
@@ -2012,6 +2030,55 @@ async def _grab_missing_stills(
         session.add(episode)
         tally.record("grabbed")
     tally.grabbing = False
+
+
+async def _item_profile_paths(
+    session: AsyncSession, media_item_id: int, meta: MediaMetadata | None
+) -> list[str]:
+    """条目详情页展示的演职员头像路径（去重保序）：演员表（最多 40 位，含 NFO 里的 TMDB
+    头像地址）+ 导演 / 主创。"""
+    from movieclaw_api.services.people_images import profile_path_of
+
+    paths: list[str] = []
+    for actor in (meta.cast if meta is not None else None) or []:
+        path = profile_path_of(actor.get("profile_path")) or profile_path_of(actor.get("nfo_thumb"))
+        if path:
+            paths.append(path)
+    rows = await session.execute(
+        select(Person.profile_path)
+        .join(MediaItemPerson, MediaItemPerson.person_id == Person.id)  # type: ignore[arg-type]
+        .where(MediaItemPerson.media_item_id == media_item_id)
+    )
+    paths.extend(path for path in rows.scalars().all() if path)
+    return list(dict.fromkeys(paths))
+
+
+async def _sync_avatar(base: str, tier: str, profile_path: str, tally: AssetTally) -> None:
+    """下载一张演职员头像到共享头像目录（按 TMDB 路径命名，文件在且格式对就沿用）。
+
+    头像文件名即内容身份（换图就是换路径），所以 force 刷新也不必重下；格式规则同
+    条目资产：点名要扩展名对应的格式，拿原版字节。失败只记账，详情页回落到图床地址。
+    """
+    from movieclaw_api.services.image_proxy import get_image_proxy
+    from movieclaw_api.services.people_images import avatar_file
+
+    dest = avatar_file(profile_path, tier)
+    expected = "png" if dest.suffix.lower() == ".png" else "jpeg"
+    if await asyncio.to_thread(_asset_file_ok, dest, expected):
+        tally.record("reused")
+        return
+    try:
+        data, _content_type = await get_image_proxy().fetch(
+            f"{base}/{tier}{profile_path}", accept=f"image/{expected}"
+        )
+        if _image_kind(data) not in (expected, None):
+            data = await asyncio.to_thread(_to_png if expected == "png" else _to_jpeg, data)
+        await asyncio.to_thread(_atomic_write, dest, data)
+    except Exception as exc:  # noqa: BLE001 -- 单张失败不阻断
+        logger.warning("演职员头像下载失败（详情页回落到图床地址）：%s（%s）", profile_path, exc)
+        tally.record("failed")
+        return
+    tally.record("downloaded", len(data))
 
 
 _SOURCES_FILE = "sources.json"

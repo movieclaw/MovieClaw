@@ -119,6 +119,22 @@ def _orphans_by_id(model_name: str) -> EntryProbe:
     return probe
 
 
+async def _unused_profile_tiers(entries: list[Path]) -> set[Path]:
+    """头像目录第一层是档位（original / h632 / …）：全局与各库覆盖都不用的档位整层算孤儿。"""
+    from sqlmodel import select
+
+    from movieclaw_api.services.scrape_config import effective_profile_size, merge_for_library
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import Library
+
+    async with get_database().session() as session:
+        libraries = (await session.execute(select(Library))).scalars().all()
+    in_use = {effective_profile_size()} | {
+        effective_profile_size(merge_for_library(library)) for library in libraries
+    }
+    return {e for e in entries if e.is_dir() and e.name not in in_use}
+
+
 async def _staging_dirs(entries: list[Path]) -> set[Path]:
     """生成到一半的 staging（``.<name>.<uuid>.part``）：正在写，不能碰。"""
     return {e for e in entries if e.name.endswith(".part")}
@@ -335,6 +351,22 @@ DATA_DIRS: tuple[DataDir, ...] = (
         rebuild_cost=RebuildCost.EXPENSIVE,
         clearable=False,
         orphans=_orphans_by_id("MediaItem"),
+    ),
+    DataDir(
+        key="metadata.people",
+        title="演职员头像",
+        summary="刮削下载的演员与导演头像（同一个人只存一份）",
+        description=(
+            "详情页、影人页、Jellyfin 人物图用的演职员头像，按 TMDB 头像路径去重，同一个人在"
+            "多少部片里出现都只存一份；断网时头像照样显示。按画质档位分层存放，换了头像档位后"
+            "旧档位那一层不再使用，可作为孤儿清理。整体重建要重新从外网下载，因此不提供清空。"
+        ),
+        default="data/metadata/people",
+        resolve=lambda s: Path(s.people_images_dir),
+        group=Group.CACHE,
+        rebuild_cost=RebuildCost.EXPENSIVE,
+        clearable=False,
+        orphans=_unused_profile_tiers,
     ),
     # ---- 用户数据与系统状态：只展示占用，面板不提供删除 -----------------------
     DataDir(

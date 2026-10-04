@@ -72,6 +72,16 @@ const SUBSCRIBE_ACTION_META = {
 } as const;
 
 /**
+ * 海报卡取图的显示宽（CSS px）。卡片自己不知道所在布局，取各布局里偏大的那一档：
+ * 220 × 悬停 1.06 → 2 倍屏 480 档、3 倍屏 720 档，覆盖桌面 164（2x 需 348）与
+ * 手机两列 175（3x 需 557）。宽框卡对应 minmax(220px,1fr) 的横版墙。
+ */
+const POSTER_CARD_IMAGE_WIDTH = 220;
+const WIDE_CARD_IMAGE_WIDTH = 360;
+/** 悬停时海报放大系数（与 group-hover/card:scale-[1.06] 一致） */
+const HOVER_ZOOM = 1.06;
+
+/**
  * 海报卡片的最小视觉契约。搜索结果不含年份和类型，缺失字段保持不显示，
  * 但仍复用与发现页完全相同的海报、评分、悬浮信息层和来源标识。
  */
@@ -324,6 +334,10 @@ function PosterCardContent({
   // 像素取整）仍直接铺满，避免海报四周多出一圈模糊底
   const letterbox =
     item.imageAspect !== undefined && Math.abs(item.imageAspect - frameAspect) > 0.05;
+  // 取图宽度（CSS px，生成 srcset 用）：竖框海报卡在横滚行里 126~164、海报墙格子
+  // minmax(148px,1fr) 实际 150~220；横框（其他库的 16:9 墙，minmax(220px,1fr)）要宽得多。
+  // 竖框里的横图贴齐框宽、横框里的竖图只占框高，宽度都不超过框宽，所以按框宽取
+  const imageWidth = frameAspect >= 1 ? WIDE_CARD_IMAGE_WIDTH : POSTER_CARD_IMAGE_WIDTH;
   return (
     <>
       {/* 海报区（自身 relative：徽章与 hover 信息层都绝对定位在它内部） */}
@@ -337,6 +351,9 @@ function PosterCardContent({
             {/* 与 recent-watch-row 的 MoviePosterFill 同一手法：同一张图放大模糊做底 */}
             <PosterImage
               src={item.posterUrl}
+              // 模糊铺底与中央主图同一宽度：地址一致，浏览器只取一次
+              width={imageWidth}
+              zoom={HOVER_ZOOM}
               alt=""
               className="absolute inset-0 size-full scale-125 blur-xl opacity-45"
             />
@@ -347,13 +364,21 @@ function PosterCardContent({
                 style={{ aspectRatio: item.imageAspect }}
                 className={`${item.imageAspect! > frameAspect ? "w-full" : "h-full"} shadow-[0_0_28px_rgba(0,0,0,0.55)]`}
               >
-                <PosterImage src={item.posterUrl} alt={`${item.title} 海报`} className="size-full" />
+                <PosterImage
+                  src={item.posterUrl}
+                  width={imageWidth}
+                  zoom={HOVER_ZOOM}
+                  alt={`${item.title} 海报`}
+                  className="size-full"
+                />
               </div>
             </div>
           </>
         ) : (
           <PosterImage
             src={item.posterUrl}
+            width={imageWidth}
+            zoom={HOVER_ZOOM}
             alt={`${item.title} 海报`}
             className="absolute inset-0 size-full transition-transform duration-500 ease-out group-hover/card:scale-[1.06]"
           />

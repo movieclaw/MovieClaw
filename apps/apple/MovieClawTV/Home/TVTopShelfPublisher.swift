@@ -3,7 +3,7 @@ import TVServices
 import UIKit
 
 /// 把「接下来继续」发布到 Top Shelf（数据流见 `TopShelfSnapshot`）：首页拿到最新的这一行时调一次，
-/// 下载前 8 部的剧照（带当前账号的令牌，经 Nuke 的磁盘缓存，多半不重新下载）、写进 App Group、通知系统重读。
+/// 下载前 8 部的背景图（带当前账号的令牌，经 Nuke 的磁盘缓存，多半不重新下载）、写进 App Group、通知系统重读。
 /// 内容没变就不重写，免得系统反复刷新主屏。
 enum TVTopShelfPublisher {
     private static let limit = 8
@@ -26,9 +26,11 @@ enum TVTopShelfPublisher {
         var entries: [TopShelfSnapshot.Item] = []
         for item in picked {
             let isEpisode = item.kind == "tv"
-            let raw = isEpisode ? (item.episodeStillUrl ?? item.backdropUrl) : (item.backdropUrl ?? item.posterUrl)
+            // 统一取条目的背景图（剧集也用整部剧的）：Top Shelf 横幅约 1920 宽，单集剧照常常没那么大，也容易剧透；
+            // 没有背景图再退回分集剧照、海报。固定取 1920 档（docs/design/image-sizing.md §6）
+            let raw = item.backdropUrl ?? (isEpisode ? item.episodeStillUrl : nil) ?? item.posterUrl
             var imageFile: String?
-            if let url = api.image(raw, .reelStill),
+            if let url = api.image(raw, width: 1920),
                let (data, _) = try? await ImagePipeline.shared.data(for: ImageRequest(url: url)) {
                 // 派生图是 WebP，而快照里的文件名是 .jpg：转成真 JPEG 再写，扩展名与内容一致，
                 // 系统读图不必靠嗅探兜底（解不开就原样写，与改动前一致）

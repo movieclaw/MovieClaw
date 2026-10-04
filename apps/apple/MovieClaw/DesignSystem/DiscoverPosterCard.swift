@@ -148,7 +148,8 @@ struct DiscoverPosterCard: View {
         Color.clear
             .aspectRatio(item.aspect, contentMode: .fit)
             .overlay {
-                RemoteImage(url: api.image(item.posterUrl, .card(aspect: Double(item.aspect))))
+                // 同一张卡出现在横滑行与各种网格里，按自己排出来的宽取图
+                MeasuredRemoteImage(raw: item.posterUrl, aspect: item.aspect)
             }
             .overlay(alignment: .topLeading) {
                 if let ribbon {
@@ -387,7 +388,7 @@ struct DiscoverPosterInfoPreview: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 14) {
-            RemoteImage(url: api.image(item.posterUrl, .posterCard))
+            RemoteImage(url: api.image(item.posterUrl, width: ImageWidth.points(96)))
                 .frame(width: 96, height: 144)
                 .clipShape(.rect(cornerRadius: 10))
             VStack(alignment: .leading, spacing: 6) {
@@ -480,7 +481,7 @@ struct DiscoverPosterRow: View {
     var moreTitle = "查看完整榜单"
     var onMore: (() -> Void)?
     var action: DiscoverPosterAction = .subscribe
-    var cardWidth: CGFloat = 126
+    var cardWidth: CGFloat = PhoneCardWidth.discoverPoster
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {

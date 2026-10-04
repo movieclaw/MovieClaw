@@ -30,7 +30,7 @@ import {
 } from "@/lib/api/playback";
 import { getSubscription, type Subscription } from "@/lib/api/subscriptions";
 import { formatBytes } from "@/lib/format";
-import { cachedImageUrl, imageUrl } from "@/lib/image-proxy";
+import { imageUrl, responsiveImage } from "@/lib/image-proxy";
 import type { LibraryKind, MediaItem } from "@/lib/media-types";
 import { playHref, rememberPlayerReturnPath } from "@/lib/player/play-links";
 import { useTapGuard } from "@/lib/use-tap-guard";
@@ -153,7 +153,8 @@ function LibraryMiniCardBody({ library }: { library: MediaLibrary }) {
           </div>
         ) : (
           <img
-            src={libraryCoverUrl(library.id)}
+            // 库卡 248 宽（21:10），悬停放大 1.02
+            {...responsiveImage(libraryCoverUrl(library.id), 248, 1.02)}
             alt=""
             loading="lazy"
             className="absolute inset-0 size-full object-cover transition duration-300 group-hover/lib:scale-[1.02]"
@@ -333,7 +334,10 @@ function LibraryItemPlayCardBody({
         <div className="relative aspect-video overflow-hidden rounded-2xl bg-[var(--poster-placeholder)] shadow-[0_10px_28px_rgba(0,0,0,0.38)] ring-1 ring-white/[0.08] transition duration-300 group-hover/play:-translate-y-1 group-hover/play:shadow-[0_18px_42px_rgba(0,0,0,0.55)] group-hover/play:ring-white/25 group-focus-visible/card:ring-2 group-focus-visible/card:ring-white/80">
           {backdrop ? (
             <PosterImage
-              src={imageUrl(backdrop, "landscape-card")}
+              src={imageUrl(backdrop)}
+              // 卡宽 248（手机 212）、16:9，悬停放大 1.03
+              width={248}
+              zoom={1.03}
               alt={`${info.title} 剧照`}
               className="size-full transition duration-500 group-hover/play:scale-[1.03]"
               fallback={<PosterFill title={info.title} posterUrl={poster} />}
@@ -384,12 +388,14 @@ function PosterFill({ title, posterUrl }: { title: string; posterUrl: string | n
       </span>
     );
   }
-  const src = imageUrl(posterUrl, "poster-card");
+  // 2:3 海报贴齐 16:9 卡高（140）居中，宽约 93；模糊铺底与它同一宽度，地址一致只取一次
+  const src = imageUrl(posterUrl);
   return (
     <div className="relative size-full overflow-hidden bg-[#10131c]">
-      <PosterImage src={src} alt="" className="absolute inset-0 size-full scale-125 opacity-45 blur-xl" />
+      <PosterImage src={src} width={96} alt="" className="absolute inset-0 size-full scale-125 opacity-45 blur-xl" />
       <PosterImage
         src={src}
+        width={96}
         alt={`${title} 海报`}
         className="absolute inset-y-0 left-1/2 aspect-[2/3] h-full -translate-x-1/2 object-cover"
       />
@@ -434,7 +440,9 @@ function SubscriptionPosterCardBody({ sub }: { sub: Subscription }) {
     title: sub.media.title,
     year: sub.media.year ?? undefined,
     rating: 0,
-    posterUrl: sub.media.poster_url ? cachedImageUrl(sub.media.poster_url) : "",
+    // imageUrl 而非 cachedImageUrl：订阅对象已入库时海报是本地资产的相对路径；
+    // 宽度由 PosterCard 按卡宽生成 srcset
+    posterUrl: sub.media.poster_url ? imageUrl(sub.media.poster_url) : "",
     ribbon: ribbon?.label,
     ribbonTone: ribbon?.tone,
     ribbonVariant: "compact-left",

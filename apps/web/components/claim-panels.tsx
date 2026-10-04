@@ -9,6 +9,7 @@ import {
   type MediaSearchItem,
 } from "@/lib/api/discover";
 import { searchTitles } from "@/lib/api/search";
+import { responsiveImage } from "@/lib/image-proxy";
 
 /* —— 人工认领的两块共享面板（库页「待识别」与监听导入清单共用）——
    认领一律走「详情确认面板」：点候选/搜索结果先看海报、简介、季数再
@@ -100,7 +101,7 @@ export function ClaimConfirmPanel({
       <div className="flex gap-3">
         {posterUrl ? (
           <img
-            src={posterUrl}
+            {...responsiveImage(posterUrl, 70)}
             alt={title}
             loading="lazy"
             decoding="async"
@@ -293,7 +294,7 @@ export function ClaimSearchPanel({
               >
                 {it.posterUrl ? (
                   <img
-                    src={it.posterUrl}
+                    {...responsiveImage(it.posterUrl, 32)}
                     alt={it.title}
                     loading="lazy"
                     decoding="async"

@@ -48,7 +48,7 @@ from sqlmodel import select
 from movieclaw_api.schemas.playback import UpNextItemView
 from movieclaw_api.services.library.thumbs import primary_aspect
 from movieclaw_api.services.media_scrape import asset_version
-from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
+from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_db.models import (
     Library,
     LibraryFile,
@@ -405,7 +405,6 @@ async def _hydrate(
         ).all()
     }
 
-    image_base = effective_tmdb_image_base_url().rstrip("/")
     result: list[UpNextItemView] = []
     for anchor, unit, library_id, ahead in picks:
         row = archive.get(anchor.media_item_id)
@@ -427,18 +426,18 @@ async def _hydrate(
         if poster_file:
             poster_url = f"/images/assets/{poster_file}?v={asset_version(poster_file)}"
         else:
-            poster_url = f"{image_base}/w500{item.poster_path}" if item.poster_path else None
+            poster_url = tmdb_image_url(item.poster_path, "poster")
         if backdrop_file:
             backdrop_url = f"/images/assets/{backdrop_file}?v={asset_version(backdrop_file)}"
         else:
-            backdrop_url = f"{image_base}/w780{item.backdrop_path}" if item.backdrop_path else None
+            backdrop_url = tmdb_image_url(item.backdrop_path, "backdrop")
 
         # 同条目详情页：本地 Logo 资产优先，没下载到就退回 TMDB（logo_path 为空串 =
         # TMDB 确认没有合适的 Logo）
         if logo_file:
             logo_url = f"/images/assets/{logo_file}?v={asset_version(logo_file)}"
         else:
-            logo_url = f"{image_base}/w500{item.logo_path}" if item.logo_path else None
+            logo_url = tmdb_image_url(item.logo_path, "logo")
 
         is_tv = item.kind == MediaKind.TV.value
         episode_name, episode_runtime, still_file, still_path, episode_overview = episodes.get(
@@ -450,9 +449,13 @@ async def _hydrate(
             if still_file:
                 episode_still_url = f"/images/assets/{still_file}?v={asset_version(still_file)}"
             elif still_path:
-                episode_still_url = f"{image_base}/w500{still_path}"
-            if still_path:
-                episode_still_original_url = f"{image_base}/original{still_path}"
+                episode_still_url = tmdb_image_url(still_path, "still")
+            # 旧电视客户端用它做大图：剧照母版默认已是原图，本地有就给本地（断网可用），
+            # 否则才是图床原图。新客户端只用 episode_still_url + w（docs/design/image-sizing.md §7）
+            if still_file:
+                episode_still_original_url = episode_still_url
+            elif still_path:
+                episode_still_original_url = tmdb_image_url(still_path, "still")
         duration_ms = _runtime_ms(
             durations.get((item.id, unit)),
             episode_runtime if is_tv else None,

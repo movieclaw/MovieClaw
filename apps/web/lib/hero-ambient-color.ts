@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { withImageWidth } from "./image-width.ts";
+
 /**
  * 沉浸 Hero 的「氛围底色」取色：从当前那张剧照里取一个能当页面底色的主色。
  *
@@ -107,7 +109,8 @@ export async function heroAmbientColor(url: string): Promise<AmbientRgb | null> 
       }
     };
     img.onerror = () => resolve(null);
-    img.src = url;
+    // 缩到 24×24 取样，取 240 档小图就够（设计稿 image-sizing.md §6），不解整张大图
+    img.src = withImageWidth(url, 240);
   });
   cache.set(url, color);
   return color;

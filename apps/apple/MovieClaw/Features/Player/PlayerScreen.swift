@@ -556,7 +556,7 @@ private struct PlayerContent: View {
                         PlayerUpNextCard(
                             code: "第 \(next.episodeNumber) 集",
                             name: next.name.flatMap { $0.isEmpty ? nil : $0 },
-                            still: controller.scope.api.image(next.stillUrl, .landscapeCard),
+                            still: controller.scope.api.image(next.stillUrl, width: ImageWidth.points(PlayerUpNextCard.stillWidth)),
                             countdown: controller.autoNextArmed ? controller.autoNextProgress : nil,
                             dismiss: {
                                 controller.noteUserActivity()

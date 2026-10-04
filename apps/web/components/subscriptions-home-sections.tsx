@@ -17,7 +17,7 @@ import {
   SubsHomeSeeAllCard,
 } from "@/components/subscriptions-home-kit";
 import type { RecentSubscriptionArrival } from "@/lib/api/subscriptions";
-import { imageUrl } from "@/lib/image-proxy";
+import { imageUrl, screenImageWidth } from "@/lib/image-proxy";
 import { markPlayIntent, playHref, rememberPlayerReturnPath } from "@/lib/player/play-links";
 import {
   SHELF_ROW_LIMIT,
@@ -81,7 +81,8 @@ function RecentCard({ card, now }: { card: RecentSubscriptionArrival; now: Date 
   const { mediaItemId, season, episode } = playRequest(card);
   // 剧集用这一集的剧照；电影和缺剧照的集用作品剧照，再没有退回海报
   const artwork = card.still_url ?? card.media.backdrop_url ?? card.media.poster_url;
-  const logo = card.media.logo_url ? imageUrl(card.media.logo_url) : null;
+  // Logo 靠固有尺寸撑开（max-w 118），不用 srcset，按显示宽 × 倍率拼固定 w
+  const logo = card.media.logo_url ? imageUrl(card.media.logo_url, { width: screenImageWidth(118) }) : null;
   return (
     <Link
       href={playHref(mediaItemId, { season, episode }) as Route}
@@ -91,7 +92,9 @@ function RecentCard({ card, now }: { card: RecentSubscriptionArrival; now: Date 
     >
       <div className="relative aspect-video overflow-hidden rounded-[14px] bg-[var(--poster-placeholder)] shadow-[0_6px_12px_rgba(0,0,0,0.35)] ring-1 ring-white/[0.08] transition duration-300 group-hover/recent:-translate-y-0.5 group-hover/recent:ring-white/25 group-focus-visible/recent:ring-2 group-focus-visible/recent:ring-white/80 group-active/recent:scale-[0.97]">
         <PosterImage
-          src={artwork ? imageUrl(artwork, "landscape-card") : null}
+          src={artwork ? imageUrl(artwork) : null}
+          // 卡宽 264（桌面 300）、16:9；退回海报时竖图铺横框也是贴宽，同样按卡宽取
+          width={300}
           alt=""
           className="absolute inset-0 size-full object-cover"
         />
@@ -272,7 +275,8 @@ function AgendaRow({ entry }: { entry: SubsHomeScheduleEntry }) {
       </div>
       <div className="relative h-[52px] w-[92px] shrink-0 overflow-hidden rounded-[9px] bg-[var(--poster-placeholder)] ring-1 ring-inset ring-white/[0.08]">
         <PosterImage
-          src={artwork ? imageUrl(artwork, "landscape-card") : null}
+          src={artwork ? imageUrl(artwork) : null}
+          width={92}
           alt=""
           className="absolute inset-0 size-full object-cover"
         />

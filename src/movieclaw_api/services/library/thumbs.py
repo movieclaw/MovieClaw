@@ -58,7 +58,9 @@ from movieclaw_db.repositories.media_repo import MediaItemRepository
 logger = logging.getLogger("movieclaw_api.library.thumbs")
 
 _MAX_WIDTH = 1280  # 主图（海报/缩略图）
-_MAX_STILL_WIDTH = 640  # 分集剧照抓帧：分集卡 200px 宽，一部剧几百集，不必到 1280
+# 分集剧照抓帧：与 TMDB 原图剧照常见的 1920 宽对齐——电视横卡选中要约 920 像素，
+# 各端要多大由服务端按宽度阶梯现缩（docs/design/image-sizing.md §4.2）
+_MAX_STILL_WIDTH = 1920
 _MAX_PHOTO_EDGE = 720  # 图片库缩略图的长边上限
 _PHOTO_JPEG_QUALITY = 85
 _CARD_BACKGROUND = (0x14, 0x18, 0x24)  # 透明图的合成底色 = 前端卡片底色 bg-[#141824]

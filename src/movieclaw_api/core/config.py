@@ -115,19 +115,21 @@ class Settings(BaseSettings):
     # 刮削管线下载的海报/剧照等图片资产目录（事实源，前端经 /images/assets
     # 直读）。与 SQLite 同在 data/ 下，Docker 挂载 data 一个卷即可整体持久化。
     metadata_dir: str = Field(default="./data/metadata", alias="METADATA_DIR")
-    # 图片资产的 TMDB 尺寸档位（画质 ↔ 磁盘的取舍，自足媒体库偏画质）：
-    # - 背景做全屏沉浸底图，是最显眼的一张，w1280 在 2K/4K 屏上是放大糊图，
-    #   故取 original（典型 1~3MB/张）；
-    # - 海报详情页 186px、墙 148px，2 倍屏下 w780 足够锐利（典型 200~400KB）；
-    # - 分集剧照是小卡片且一部剧动辄几百集，保持 w300（典型 20~40KB）。
-    # 磁盘吃紧可整体调低（如 w500/w1280/w185）；改动后**整库刷新会自动
-    # 按新档位重下**存量图片，定时刷新轮到的条目也会按溯源记录发现档位变了
-    # 而重下（见 media_scrape 的 sources.json 溯源机制）。
+    # 演职员头像（按 TMDB 头像路径去重，跨条目共用一份；docs/design/image-sizing.md §4.2）。
+    # 与条目资产分开放：条目资产按条目 id 分目录、按条目做孤儿清理，头像不属于任何一个条目
+    people_images_dir: str = Field(default="./data/metadata/people", alias="PEOPLE_IMAGES_DIR")
+    # 图片资产的 TMDB 尺寸档位（画质 ↔ 磁盘的取舍）：默认全部原图，体验优先
+    # （docs/design/image-sizing.md，2026-10-04 用户决策）。本地存一份足够大的母版，
+    # 各端要多大由服务端按宽度阶梯现缩（w 参数），所以哪一端都清楚、断网也能出图。
+    # 这里只是部署级初始值：设置页「本地图片画质」（原图 / 标准 / 节省空间 / 自定义）
+    # 优先；选「自定义」或从未保存过设置时才逐项跟随这里。改动后整库刷新会按新档位
+    # 重下，定时刷新轮到的条目也会按溯源记录（sources.json）发现档位变了而重下。
     # 合法档位见 TMDB configuration 接口：海报 w92~w780/original，
-    # 背景 w300/w780/w1280/original，剧照 w92/w185/w300/original。
-    tmdb_poster_size: str = Field(default="w780", alias="TMDB_POSTER_SIZE")
+    # 背景 w300/w780/w1280/original，剧照 w92/w185/w300/original，头像 w45/w185/h632/original。
+    tmdb_poster_size: str = Field(default="original", alias="TMDB_POSTER_SIZE")
     tmdb_backdrop_size: str = Field(default="original", alias="TMDB_BACKDROP_SIZE")
-    tmdb_still_size: str = Field(default="w300", alias="TMDB_STILL_SIZE")
+    tmdb_still_size: str = Field(default="original", alias="TMDB_STILL_SIZE")
+    tmdb_profile_size: str = Field(default="original", alias="TMDB_PROFILE_SIZE")
 
     # ------------------------------------------------------------------
     # 入库后通知媒体服务器刷新（可选，媒体库 L4）

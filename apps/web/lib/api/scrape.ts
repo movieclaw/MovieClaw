@@ -24,6 +24,13 @@ export interface ScrapeSetting {
   poster_size: string;
   backdrop_size: string;
   still_size: string;
+  /** 演职员头像档位；空 = 跟随环境变量 */
+  profile_size: string;
+  /**
+   * 本地图片画质（docs/design/image-sizing.md §8.1）。选了预设时上面四个档位字段被忽略；
+   * custom 或空串（没选过）时逐项「设置值 > 环境变量」。
+   */
+  image_quality: ImageQuality | "";
   /** 命名模板；空串 = 用内置默认（即模板化之前的行为） */
   naming_entry_dir: string;
   naming_movie_file: string;
@@ -53,6 +60,8 @@ export const ITEM_SCOPED_KEYS = [
   "poster_size",
   "backdrop_size",
   "still_size",
+  "profile_size",
+  "image_quality",
 ] as const;
 
 export const DIR_SCOPED_KEYS = [
@@ -76,6 +85,53 @@ export interface ScrapeEffective {
   poster_size: string;
   backdrop_size: string;
   still_size: string;
+  profile_size: string;
+  /** 界面该选中的画质档：显式选过就是它；没选过时按四个档位反推（等于某个预设就是它，否则 custom） */
+  image_quality: ImageQuality;
+}
+
+/** 本地图片画质的四个选项；custom = 四个档位逐项指定。 */
+export type ImageQuality = "original" | "standard" | "compact" | "custom";
+export type ImageQualityPreset = Exclude<ImageQuality, "custom">;
+
+/**
+ * 画质预设 → (海报, 背景, 剧照, 头像) 档位，与后端 services/scrape_config.py 的
+ * IMAGE_QUALITY_PRESETS 一致。前端用它在「切到自定义」时把当前预设的档位填进下拉，
+ * 自定义从用户刚才看到的那一档起步，而不是一排空值。
+ */
+export const IMAGE_QUALITY_PRESETS: Record<
+  ImageQualityPreset,
+  { poster_size: string; backdrop_size: string; still_size: string; profile_size: string }
+> = {
+  original: {
+    poster_size: "original",
+    backdrop_size: "original",
+    still_size: "original",
+    profile_size: "original",
+  },
+  standard: {
+    poster_size: "w780",
+    backdrop_size: "original",
+    still_size: "original",
+    profile_size: "h632",
+  },
+  compact: {
+    poster_size: "w500",
+    backdrop_size: "w1280",
+    still_size: "w300",
+    profile_size: "w185",
+  },
+};
+
+/** 本地图片画质的磁盘估算（按当前媒体库的图片张数 × 各档位单张均值，只是量级参考）。 */
+export interface ImageStorageEstimate {
+  counts: { posters: number; backdrops: number; logos: number; stills: number; people: number };
+  /** 各预设档的估算字节数 */
+  presets: Record<ImageQualityPreset, number>;
+  /** 已保存配置的生效画质档 */
+  current_quality: ImageQuality;
+  /** 按已保存配置生效档位的估算字节数（自定义也算得出来） */
+  current_bytes: number;
 }
 
 export interface ScrapeConfigView {
@@ -105,6 +161,11 @@ export function saveScrapeConfig(payload: ScrapeSetting): Promise<ScrapeConfigVi
       body: JSON.stringify(payload),
     }),
   );
+}
+
+/** 本地图片画质估算（管理员）；设置页每一档旁的「约 X GB」。 */
+export function getImageStorageEstimate(): Promise<ImageStorageEstimate> {
+  return unwrap(request<ApiEnvelope<ImageStorageEstimate>>("/scrape/storage-estimate"));
 }
 
 export function listLanguageOptions(): Promise<LanguageOption[]> {

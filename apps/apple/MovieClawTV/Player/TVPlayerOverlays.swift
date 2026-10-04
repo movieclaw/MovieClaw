@@ -96,11 +96,14 @@ struct TVUpNextCard: View {
     let countdown: Double?
     let play: () -> Void
 
+    /// 剧照宽（点）：取图按它 × 屏幕倍率 × 焦点放大
+    static let stillWidth: CGFloat = 256
+
     var body: some View {
         Button(action: play) {
             HStack(spacing: 24) {
                 RemoteImage(url: still)
-                    .frame(width: 256, height: 144)
+                    .frame(width: Self.stillWidth, height: Self.stillWidth * 9 / 16)
                     .clipShape(.rect(cornerRadius: 12))
                 VStack(alignment: .leading, spacing: 8) {
                     Text(countdown == nil ? "下一集" : "即将播放")

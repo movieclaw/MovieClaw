@@ -45,6 +45,7 @@ import { formatRelativeTime } from "@/lib/time";
 import { Modal } from "@/components/modal";
 import { listLibraries, type MediaLibrary } from "@/lib/api/libraries";
 import { usePermissions } from "@/lib/permissions";
+import { imageUrl, responsiveImage } from "@/lib/image-proxy";
 import {
   listDownloaders,
   submitTorrentDownload,
@@ -930,7 +931,7 @@ function CandidatePicker({
               >
                 {candidate.poster_url ? (
                   <img
-                    src={candidate.poster_url}
+                    {...responsiveImage(imageUrl(candidate.poster_url), 24)}
                     alt=""
                     loading="lazy"
                     decoding="async"

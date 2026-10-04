@@ -154,7 +154,7 @@ async def test_one_card_per_show_pointing_at_the_first_unwatched_episode(db) -> 
     assert card.display == (1, 2)
     assert card.units == [(1, 2), (1, 3)]
     assert card.episode_name == "第二集"
-    assert card.still_url is not None and card.still_url.endswith("/w780/still-e2.jpg")
+    assert card.still_url is not None and card.still_url.endswith("/original/still-e2.jpg")
     assert card.progress_percent is None
 
 

@@ -753,7 +753,7 @@ struct TorrentPosterCard: View {
                         ZStack {
                             LinearGradient(colors: [.white.opacity(0.05), .black.opacity(0.4)], startPoint: .top, endPoint: .bottom)
                             Text(hit.siteName).font(.caption).foregroundStyle(Theme.textFaint)
-                            RemoteImage(url: api.image(hit.posterUrl, .galleryTile), placeholderSymbol: "photo")
+                            MeasuredRemoteImage(raw: hit.posterUrl, placeholderSymbol: "photo")
                         }
                     }
                     .overlay(alignment: .topLeading) {

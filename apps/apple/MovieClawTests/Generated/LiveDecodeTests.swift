@@ -192,6 +192,9 @@ struct LiveDecodeTests {
     @Test func scrapeLanguages() async throws {
         try await LiveServer.check { try await $0.scrapeLanguages() }
     }
+    @Test func scrapeStorageEstimate() async throws {
+        try await LiveServer.check { try await $0.scrapeStorageEstimate() }
+    }
     @Test func searchHistoryList() async throws {
         try await LiveServer.check { try await $0.searchHistoryList() }
     }

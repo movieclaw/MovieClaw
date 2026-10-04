@@ -992,7 +992,7 @@ async def test_asset_sizes_follow_env_when_unset(db, tmp_path, monkeypatch):
     from movieclaw_api.services.scrape_config import effective_asset_sizes
 
     _apply_setting()  # 全默认（三个档位都是空串）
-    assert effective_asset_sizes() == ("w780", "original", "w300")
+    assert effective_asset_sizes() == ("original", "original", "original")
 
     monkeypatch.setenv("TMDB_POSTER_SIZE", "w500")
     get_settings.cache_clear()
@@ -1163,7 +1163,7 @@ async def test_asset_download_uses_mirror_base(db, tmp_path, monkeypatch):
 
     monkeypatch.setattr("movieclaw_api.services.image_proxy.get_image_proxy", lambda: _FakeProxy())
     await download_item_assets(item_id)
-    assert urls == ["https://mirror.example/t/p/w780/p.jpg"]
+    assert urls == ["https://mirror.example/t/p/original/p.jpg"]
 
 
 @pytest.mark.asyncio

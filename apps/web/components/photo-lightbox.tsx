@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { DownloadIcon, InfoIcon, XIcon } from "@/components/icons";
-import { DENSITY, usePhotoWallDensity } from "@/components/photo-wall";
+import { DENSITY, tileImageWidth, usePhotoWallDensity } from "@/components/photo-wall";
 import {
   LIGHTBOX_ACTION_CLASS,
   LIGHTBOX_ACTION_ICON_CLASS,
@@ -17,7 +17,7 @@ import {
   libraryFileOriginalUrl,
 } from "@/lib/api/libraries";
 import { formatBytes } from "@/lib/format";
-import { imageUrl } from "@/lib/image-proxy";
+import { fullScreenImageWidth, imageUrl } from "@/lib/image-proxy";
 
 /**
  * 图片库的全屏灯箱（docs/design/library-photo-kind.md 3.3）。
@@ -26,8 +26,8 @@ import { imageUrl } from "@/lib/image-proxy";
  * **分页加载的条目列表**，每张有缩略图、屏幕适配图与原图三级、有台账信息。
  * 舞台交互（缩放、手势、翻页、缩略条）全在 ZoomLightbox 里，与影视库图廊的
  * 灯箱共用；本组件只负责图片库特有的两件事：
- *   - 三级地址：墙上的缩略图 → 长边 2048 的屏幕适配图（几百 KB，服务端按原图
- *     惰性派生并缓存）→ 只有放大到 1:1 时才拉几 MB 的原图；下载永远给原图；
+ *   - 三级地址：墙上的缩略图 → 按屏宽像素取的屏幕适配图（w=屏宽 × 倍率，几百 KB，
+ *     服务端按原图惰性派生并缓存）→ 只有放大到 1:1 时才拉几 MB 的原图；下载永远给原图；
  *   - 信息面板（`i`）：文件名、拍摄日期、原图尺寸、大小、格式、路径，按需从
  *     条目详情接口拉，同一张只拉一次。外观照播放器的诊断面板——一块压在画面
  *     左上角的半透明黑，桌面与手机同一套（手机上横向铺满）；
@@ -72,8 +72,10 @@ export function PhotoLightbox({
 
   // 缩略图取与墙上同一个地址（同一密度档的派生图）：墙已经加载过，灯箱打开、
   // 底部胶片条直接命中浏览器缓存，不再为同一张照片多下一份
+  // 舞台图按屏宽像素取（等比装下整屏，屏宽是上限），打开时定格
   const [density] = usePhotoWallDensity();
-  const thumbVariant = DENSITY[density].variant;
+  const thumbWidth = tileImageWidth(DENSITY[density].imageWidth);
+  const [stageWidth] = useState(fullScreenImageWidth);
   const slides = useMemo<ZoomLightboxSlide[]>(
     () =>
       items.map((entry) => {
@@ -81,13 +83,13 @@ export function PhotoLightbox({
         return {
           key: entry.media_item_id,
           title: entry.title,
-          thumbUrl: imageUrl(entry.poster_url, thumbVariant),
-          screenUrl: fileId != null ? libraryFileOriginalUrl(fileId, { size: "screen" }) : "",
+          thumbUrl: imageUrl(entry.poster_url, { width: thumbWidth }),
+          screenUrl: fileId != null ? libraryFileOriginalUrl(fileId, { width: stageWidth }) : "",
           fullUrl: fileId != null ? libraryFileOriginalUrl(fileId) : undefined,
           aspect: entry.primary_aspect,
         };
       }),
-    [items, thumbVariant],
+    [items, thumbWidth, stageWidth],
   );
 
   const fileId = item?.primary_file_id ?? null;

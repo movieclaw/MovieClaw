@@ -24,6 +24,8 @@ struct ScrapeSettingsView: View {
     @State private var countries: [API.CountryOption] = []
     /// 各库的覆盖情况（库名 + 覆盖了哪些字段）
     @State private var overrides: [SettingsBScrapeOverride] = []
+    /// 本地图片画质各档的磁盘估算（拿不到不写）
+    @State private var estimate: API.ImageStorageEstimateView?
 
     var body: some View {
         Group {
@@ -101,7 +103,7 @@ struct ScrapeSettingsView: View {
                     )
                 }
                 card(.quality) {
-                    SettingsBScrapeQualityRows(setting: settingBinding, effective: view.effective)
+                    SettingsBScrapeQualityRows(setting: settingBinding, effective: view.effective, estimate: estimate)
                 }
             }
 
@@ -214,7 +216,7 @@ struct ScrapeSettingsView: View {
     private static let emptySetting = API.MetadataScrapeSetting(
         languagePriority: [], certCountryPriority: [], posterMode: "default",
         posterLanguagePriority: [], backdropLanguagePriority: [], posterMinWidth: 0, backdropMinWidth: 0,
-        posterSize: "", backdropSize: "", stillSize: "",
+        posterSize: "", backdropSize: "", stillSize: "", profileSize: "", imageQuality: "",
         namingEntryDir: "", namingMovieFile: "", namingSeasonDir: "", namingEpisodeFile: "",
         mirrorImages: true, mirrorNfo: true, mirrorEpisodeThumbs: true
     )
@@ -238,13 +240,15 @@ struct ScrapeSettingsView: View {
         }
     }
 
-    /// 语种/地区全量表与库覆盖情况：拉不到都不阻断（面板回落只显示常用项、不标覆盖徽标）
+    /// 语种/地区全量表、库覆盖情况与画质估算：拉不到都不阻断（面板回落只显示常用项、不标覆盖徽标、不写估算）
     private func loadAuxiliary() async {
         async let langs = try? api.scrapeLanguages()
         async let ctrs = try? api.scrapeCountries()
         async let libs = try? api.libraryList(scope: "all")
+        async let sizes = try? api.scrapeStorageEstimate()
         languages = await langs ?? []
         countries = await ctrs ?? []
+        estimate = await sizes
         overrides = (await libs ?? [])
             .map { SettingsBScrapeOverride(name: $0.name, keys: Set($0.scrapeOverrides.keys)) }
             .filter { !$0.keys.isEmpty }
@@ -266,6 +270,8 @@ struct ScrapeSettingsView: View {
                 posterSize: s.posterSize,
                 backdropSize: s.backdropSize,
                 stillSize: s.stillSize,
+                profileSize: s.profileSize,
+                imageQuality: s.imageQuality,
                 namingEntryDir: s.namingEntryDir,
                 namingMovieFile: s.namingMovieFile,
                 namingSeasonDir: s.namingSeasonDir,
@@ -277,6 +283,8 @@ struct ScrapeSettingsView: View {
             state = .loaded(config)
             draft = config.setting
             dirty = false
+            // 画质换了，「自定义」那一档的估算跟着当前生效档位重算
+            estimate = (try? await api.scrapeStorageEstimate()) ?? estimate
             feedback.success("已保存。语言与图片对存量条目生效需在媒体库执行整库刷新")
         } catch {
             feedback.error(error.localizedDescription.isEmpty ? "保存失败，请重试" : error.localizedDescription)

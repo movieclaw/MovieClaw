@@ -416,7 +416,9 @@ struct TVProfileButton: View {
         Button(action: action) {
             VStack(spacing: 20) {
                 TVProfileAvatarFocus {
-                    TVAvatar(url: server.imageURL(AvatarURL.tagged(account.avatarUrl, username: account.username)),
+                    // 获得焦点时头像放大 1.12 倍，按放大后的宽取图
+                    TVAvatar(url: server.imageURL(AvatarURL.tagged(account.avatarUrl, username: account.username),
+                                                  width: ImageWidth.points(220, zoom: TVMetrics.avatarFocusZoom)),
                              name: account.nickname, size: 220)
                 }
                 VStack(spacing: 6) {
@@ -469,7 +471,7 @@ struct TVProfileAvatarFocus<Content: View>: View {
             .overlay {
                 Circle().strokeBorder(.white, lineWidth: focused ? 6 : 0)
             }
-            .scaleEffect(focused ? 1.12 : 1)
+            .scaleEffect(focused ? TVMetrics.avatarFocusZoom : 1)
             .shadow(color: .black.opacity(focused ? 0.55 : 0), radius: 28, y: 14)
             .animation(.easeOut(duration: 0.2), value: focused)
     }

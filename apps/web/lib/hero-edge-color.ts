@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 
+import { withImageWidth } from "./image-width.ts";
+
 /**
  * 详情页底色：取大图**露出部分**底边的颜色，整页铺它，大图底部渐变到同一个颜色，
  * 图与页面之间没有接缝（银玻璃手机的影片详情 / 媒体库条目详情）。
@@ -61,6 +63,8 @@ export function pageColorFromEdge(r: number, g: number, b: number): string {
 }
 
 const BAND_COLUMNS = 24;
+/** 取色用的小图宽度（阶梯档） */
+const SAMPLE_WIDTH = 240;
 const BAND_ROWS = 4;
 const cache = new Map<string, string>();
 
@@ -72,8 +76,9 @@ function loadImage(url: string): Promise<HTMLImageElement> {
     img.decoding = "async";
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error("大图加载失败"));
-    // 与页面上显示的大图同一个地址：命中浏览器缓存，不会重复下载
-    img.src = url;
+    // 取色只看 24×4 的底边条带，取 240 档小图就够（设计稿 image-sizing.md §6）：
+    // 不必为一个颜色去解一整张 2560 宽的大图
+    img.src = withImageWidth(url, SAMPLE_WIDTH);
   });
 }
 

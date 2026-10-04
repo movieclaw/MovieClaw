@@ -156,7 +156,7 @@ struct MainTabView: View {
             // 冷启动先让第一帧上屏（这时页签先用 SF Symbol 顶着），再画头像（见 FirstFrameGate）
             await FirstFrameGate.wait()
             avatarIcon = AvatarTabIcon.render(nickname: session?.nickname, photo: nil, scale: displayScale)
-            guard let url = api.image(session?.avatarUrl) else { return }
+            guard let url = api.image(session?.avatarUrl, width: ImageWidth.points(AvatarTabIcon.size)) else { return }
             let request = ImageRequest(url: url, processors: [.resize(size: CGSize(width: AvatarTabIcon.size, height: AvatarTabIcon.size), contentMode: .aspectFill)])
             guard let photo = try? await ImagePipeline.shared.image(for: request) else { return }
             avatarIcon = AvatarTabIcon.render(nickname: session?.nickname, photo: photo, scale: displayScale)
@@ -607,7 +607,7 @@ struct AvatarBadge: View {
     @Environment(\.api) private var api
 
     var body: some View {
-        let url = api.image(avatarUrl ?? session?.avatarUrl)
+        let url = api.image(avatarUrl ?? session?.avatarUrl, width: ImageWidth.points(size))
         ZStack {
             Circle().fill(LinearGradient(colors: [Theme.accentStrong, Theme.accent2], startPoint: .top, endPoint: .bottom))
             Text(initials)

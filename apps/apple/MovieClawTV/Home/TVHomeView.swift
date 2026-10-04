@@ -35,7 +35,7 @@ struct TVHomeView: View {
     /// 列表内容的上沿离屏幕顶多远（系统标签栏下方，实测 157）：首屏上半块按它定高（`TVStageBlock`）
     @State private var topInset: CGFloat = 157
 
-    /// 预载焦点左右两部的剧照：原图约 1MB，等焦点移过去才下载会闪一下空底
+    /// 预载焦点左右两部的剧照（与大图区显示同一个地址、同一档宽度）：整屏大图几百 KB 起，等焦点移过去才下载会闪一下空底
     private static let prefetcher = ImagePrefetcher()
 
     private var owner: String {
@@ -237,10 +237,11 @@ struct TVHomeView: View {
         return parts.joined(separator: " · ")
     }
 
-    /// 大图区的整页背景：条目的背景图原图（按 Plex / Emby 的规范应是无字高清图，取决于刮削的选图偏好）。
-    /// 剧集用整部剧的而不是这一集的剧照（后者最多 1080p，也容易剧透）；没有背景图退回分集剧照原图，再没有用海报
+    /// 大图区的整页背景：条目的背景图（按 Plex / Emby 的规范应是无字高清图，取决于刮削的选图偏好），按屏宽像素取
+    /// （4K → 3840，1080p → 1920）。剧集用整部剧的而不是这一集的剧照（后者最多 1080p，也容易剧透）；
+    /// 没有背景图退回本地分集剧照（母版现在默认存原图），再没有用海报
     private func stageImageURL(_ item: API.UpNextItemView) -> URL? {
-        api.image(item.backdropUrl ?? item.episodeStillOriginalUrl ?? item.episodeStillUrl ?? item.posterUrl)
+        api.image(item.backdropUrl ?? item.episodeStillUrl ?? item.posterUrl, width: ImageWidth.screen)
     }
 
     @ViewBuilder
@@ -254,7 +255,7 @@ struct TVHomeView: View {
                 TVShelf(title: row.title) {
                     ForEach(items, id: \.mediaItemId) { item in
                         TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                                     imageURL: api.image(item.posterUrl, .tvPoster)) {
+                                     imageURL: api.image(item.posterUrl, width: ImageWidth.tvCard(TVMetrics.posterWidth))) {
                             router.push(.item(libraryId: item.libraryId, itemId: item.mediaItemId))
                         }
                     }
@@ -270,13 +271,14 @@ struct TVHomeView: View {
                 TVShelf(title: row.title) {
                     ForEach(directory.browsable, id: \.id) { library in
                         TVLandscapeCard(title: library.name, subtitle: "\(library.stats.itemCount) 部",
-                                        imageURL: api.image("/libraries/\(library.id)/cover"), width: 360) {
+                                        imageURL: api.image("/libraries/\(library.id)/cover", width: ImageWidth.tvCard(360)), width: 360) {
                             router.push(.library(library.id))
                         }
                     }
                     ForEach(collections, id: \.id) { collection in
                         TVLandscapeCard(title: collection.name, subtitle: "合集 · \(collection.itemCount) 部",
-                                        imageURL: collection.covers.isEmpty ? nil : api.image("/collections/\(collection.id)/cover"),
+                                        imageURL: collection.covers.isEmpty
+                                            ? nil : api.image("/collections/\(collection.id)/cover", width: ImageWidth.tvCard(360)),
                                         width: 360) {
                             router.push(.collection(id: collection.id, name: collection.name))
                         }
@@ -290,7 +292,7 @@ struct TVHomeView: View {
                 TVShelf(title: row.title) {
                     ForEach(items, id: \.mediaItemId) { item in
                         TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                                     imageURL: api.image(item.posterUrl, .tvPoster)) {
+                                     imageURL: api.image(item.posterUrl, width: ImageWidth.tvCard(TVMetrics.posterWidth))) {
                             if let libraryId = item.libraryId ?? Self.libraryId(of: row) {
                                 router.push(.item(libraryId: libraryId, itemId: item.mediaItemId))
                             }
@@ -321,17 +323,17 @@ struct TVHomeView: View {
         return nil
     }
 
-    /// 「接下来继续」的一张卡：剧集用这一集的剧照（TMDB 原图压成电视横卡，本地只有 300 宽的小图），
-    /// 电影用剧照。确认键续播；长按确认键出菜单（续播 / 详情）
+    /// 「接下来继续」的一张卡：剧集用这一集的本地剧照（母版现在默认存原图，按卡宽取 `w`；不再用 TMDB 远程原图
+    /// `episodeStillOriginalUrl`，断网也有图），电影用剧照。确认键续播；长按确认键出菜单（续播 / 详情）
     private func upNextCard(_ item: API.UpNextItemView) -> some View {
         let isEpisode = item.kind == "tv"
         let still = isEpisode
-            ? (item.episodeStillOriginalUrl ?? item.episodeStillUrl ?? item.backdropUrl)
+            ? (item.episodeStillUrl ?? item.backdropUrl)
             : (item.backdropUrl ?? item.posterUrl)
         return TVLandscapeCard(
             title: item.title,
             subtitle: nil,
-            imageURL: api.image(still, .tvLandscape),
+            imageURL: api.image(still, width: ImageWidth.tvCard(TVMetrics.landscapeWidth)),
             progress: item.progressPercent.map { Double($0) / 100 },
             badge: item.advanced ? "下一集" : nil,
             // 第几集、剩多久压在图片底部；片名一直写在剧照下面——剧照上认不出是哪部

@@ -127,16 +127,17 @@ final class TorrentActionsState {
         return ([hit.posterUrl].compactMap { $0 } + hit.imageUrls).filter { seen.insert($0).inserted }
     }
 
-    /// 图览灯箱（同 Web 图览卡片的 ZoomLightbox）：三级地址——缩略条 photo-tile、舞台 photo-screen、
-    /// 放大后才取图床原图；顶栏右侧放 详情 / 投给订阅 / 下载，看完截图当场就能下，不必退出灯箱再找
+    /// 图览灯箱（同 Web 图览卡片的 ZoomLightbox）：三级地址——缩略条小图、舞台按屏宽像素、
+    /// 放大后才取图床原图（不带 `w`）；顶栏右侧放 详情 / 投给订阅 / 下载，看完截图当场就能下，不必退出灯箱再找
     func openImages(_ hit: API.TorrentHit, api: APIClient) {
         let urls = slides(for: hit, api: api)
         guard !urls.isEmpty else { return }
         let content = DiscoverLightboxContent(
-            urls: urls.map { api.image($0, .photoScreen) },
+            urls: urls.map { api.image($0, width: ImageWidth.screen) },
             title: hit.title,
             brokenHint: "图床可能已失效或拒绝外链访问",
-            thumbnails: urls.map { api.image($0, .photoTile) },
+            // 缩略条 56 点高，竖图横图都按 56 点宽取够用
+            thumbnails: urls.map { api.image($0, width: ImageWidth.points(56)) },
             originals: urls.map { api.image($0) },
             accessory: AnyView(TorrentLightboxActions(hit: hit, actions: self))
         )

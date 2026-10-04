@@ -88,7 +88,8 @@ final class NowPlayingBridge {
     }
 
     private func loadArtwork(_ controller: PlaybackController) {
-        guard let url = controller.scope.api.image(controller.info?.posterUrl), url != artworkURL else { return }
+        // 锁屏 / 控制中心的封面最大约一个手机屏宽：按 400 点取，不下整张原图
+        guard let url = controller.scope.api.image(controller.info?.posterUrl, width: ImageWidth.points(400)), url != artworkURL else { return }
         artworkURL = url
         let session = controller.scope.api.session
         Task { [weak self, weak controller] in

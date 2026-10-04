@@ -188,7 +188,7 @@ struct LibraryItemDetailView: View {
 
     @ViewBuilder
     private func content(_ detail: API.LibraryItemDetailView) -> some View {
-        let heroURL = api.image(detail.backdropUrl ?? detail.posterUrl)
+        let heroURL = api.image(detail.backdropUrl ?? detail.posterUrl, width: Self.heroImageWidth)
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 if let heroURL {
@@ -253,10 +253,21 @@ struct LibraryItemDetailView: View {
         return "\(url.absoluteString)#\(Int((heroSize.width / heroSize.height * 100).rounded()))"
     }
 
+    /// Hero 的显示高度：屏宽 × 1.15，最高屏高 62%
+    private static var heroHeight: CGFloat {
+        min(ImageWidth.screenSize.width * 1.15, ImageWidth.screenSize.height * 0.62)
+    }
+
+    /// Hero 的取图宽度：屏宽 × `heroHeight` 的竖框（393×452 点）铺满 16:9 背景要按高算——按宽只要 1179 像素，
+    /// 按高约 804 点 × 3 ≈ 2411 像素 → 2560 档（docs/design/image-sizing.md §6），不再取 4K 原图
+    private static var heroImageWidth: Int {
+        ImageWidth.cover(CGSize(width: ImageWidth.screenSize.width, height: heroHeight), aspect: ImageAspect.backdrop)
+    }
+
     /// 手机 Hero：剧照撑满宽度从状态栏底下铺起，顶部一抹暗托住返回键，底部渐变进页面底色
     /// （剧照底边的颜色，见 `HeroEdgeColor`），与下方整页无缝接上
     private func hero(_ url: URL) -> some View {
-        let height = min(UIScreen.main.bounds.width * 1.15, UIScreen.main.bounds.height * 0.62)
+        let height = Self.heroHeight
         let pageTint = edgeTint ?? Theme.background
         return Color.clear
             .frame(maxWidth: .infinity)
@@ -368,10 +379,11 @@ struct LibraryItemDetailView: View {
     /// 片名：有片名 Logo（透明底 PNG，语言档同订阅首页 Hero）就画 Logo，没有或加载失败回落文字。
     /// Logo 区高度固定，加载前后下面的集名 / 事实行不跳；整块合成一个静态文本读屏元素，
     /// 读屏与 UI 测试（item-title）照旧拿到片名。
-    /// 本地 Logo 资产存的是 TMDB 原图（给电视端 clearlogo 用，常见 4000px 宽），按显示宽度降采样再解码
+    /// 本地 Logo 资产存的是 TMDB 原图（给电视端 clearlogo 用，常见 4000px 宽）：按 Logo 框宽（260 点）取 `w`；
+    /// 旧服务器不认 `w` 会回原图，所以仍按显示宽度降采样再解码
     @ViewBuilder
     private func titleArt(_ detail: API.LibraryItemDetailView) -> some View {
-        if let raw = detail.logoUrl, let url = api.image(raw) {
+        if let raw = detail.logoUrl, let url = api.image(raw, width: ImageWidth.points(260)) {
             LazyImage(request: ImageRequest(url: url, processors: [.resize(width: 260)]),
                       transaction: Transaction(animation: .easeOut(duration: 0.25))) { state in
                 if let image = state.image {
@@ -572,7 +584,7 @@ struct LibraryItemDetailView: View {
                 Theme.surfaceRaised
                 Text(Self.initials(of: person.name)).font(.title2.weight(.bold)).foregroundStyle(.white.opacity(0.3))
                 if person.avatar != nil {
-                    RemoteImage(url: api.image(person.avatar, .posterCard), placeholderSymbol: "person.fill")
+                    RemoteImage(url: api.image(person.avatar, width: ImageWidth.points(96)), placeholderSymbol: "person.fill")
                 }
             }
             .aspectRatio(Theme.posterAspect, contentMode: .fit)
@@ -1078,7 +1090,7 @@ private struct EpisodeCard: View {
     var body: some View {
         Button(action: onSelect) {
             VStack(alignment: .leading, spacing: 6) {
-                LibraryArtwork(url: api.image(episode.stillUrl, .landscapeCard), frameAspect: 16 / 9,
+                LibraryArtwork(url: api.image(episode.stillUrl, width: ImageWidth.points(200)), frameAspect: 16 / 9,
                                fallbackText: episode.stillUrl == nil ? "\(episode.episodeNumber)" : nil)
                     .clipShape(.rect(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? .white.opacity(0.85) : .white.opacity(0.08), lineWidth: selected ? 2 : 1))

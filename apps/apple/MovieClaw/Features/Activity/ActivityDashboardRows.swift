@@ -178,7 +178,7 @@ struct ActivityRecentPlayRow: View {
     var body: some View {
         let playing = entry.endedAt == nil
         HStack(spacing: 12) {
-            RemoteImage(url: api.image(entry.media.posterUrl, .posterCard), placeholderSymbol: "film")
+            RemoteImage(url: api.image(entry.media.posterUrl, width: ImageWidth.points(34)), placeholderSymbol: "film")
                 .frame(width: 34, height: 50)
                 .clipShape(.rect(cornerRadius: 6))
                 .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.white.opacity(0.1)))

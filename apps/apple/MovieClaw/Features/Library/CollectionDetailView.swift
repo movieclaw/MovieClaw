@@ -605,7 +605,7 @@ private struct MissingPartCell: View {
                 title: part.title,
                 year: part.releaseDate.flatMap { Int($0.prefix(4)) },
                 extent: tracked ? "追踪中" : "未入库",
-                url: api.image(part.posterUrl, .posterCard),
+                url: api.image(part.posterUrl, width: ImageWidth.points(LibraryGridColumn.width(minimum: 140))),
                 artworkOpacity: 0.4
             )
         }

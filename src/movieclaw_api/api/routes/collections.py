@@ -13,11 +13,12 @@ from datetime import date
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Query, Request
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.api.deps import require_login
+from movieclaw_api.api.routes.images import WIDTH_QUERY, requested_width, sized_file
 from movieclaw_api.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from movieclaw_api.schemas.library import (
     CollectionCover,
@@ -57,6 +58,7 @@ from movieclaw_api.services.library.series import (
     load_series_parts,
 )
 from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
+from movieclaw_api.services.tmdb_images import asset_url, local_media_files
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import (
     Collection,
@@ -401,6 +403,7 @@ async def get_collection_cover(
     request: Request,
     session: AsyncSession = Depends(get_session),
     principal: Principal = Depends(require_login),
+    w: int | None = WIDTH_QUERY,
 ) -> Response:
     """先按当前观看者解析成员，再取四张海报；缓存命中也必须重新核对权限。"""
     from movieclaw_api.services.library.cover import MAX_POSTERS, ensure_collection_cover
@@ -441,10 +444,14 @@ async def get_collection_cover(
     if result is None:
         raise NotFoundException("该合集还没有可用的封面素材")
     path, key = result
-    headers = {"ETag": f'"{key}"', "Cache-Control": "private, no-cache"}
+    w = requested_width(w)
+    etag = f'"{key}-w{w}"' if w else f'"{key}"'
+    headers = {"ETag": etag, "Cache-Control": "private, no-cache"}
     if request.headers.get("If-None-Match") == headers["ETag"]:
         return Response(status_code=304, headers=headers)
-    return FileResponse(path, media_type="image/jpeg", headers=headers)
+    return await sized_file(
+        path, source_key=f"collection-cover:{key}", w=w, media_type="image/jpeg", headers=headers
+    )
 
 
 @router.put(
@@ -881,13 +888,23 @@ async def get_collection_series(
     }
 
     base = effective_tmdb_image_base_url().rstrip("/")
+    # 已入库的部分用本地海报（断网可用、与海报墙同一张）；缺的那几部只有图床预览
+    owned_files = await local_media_files(session, owned.values())
+
+    def _part_poster(part: dict) -> str | None:
+        item_id = owned.get(part["tmdb_id"])
+        poster_file = owned_files.get(item_id, (None, None, None))[0] if item_id else None
+        if poster_file:
+            return asset_url(poster_file)
+        # 缺片画进海报墙、与库存海报同一规格，w200 放大到卡片尺寸会糊
+        return f"{base}/w500{part['poster_path']}" if part.get("poster_path") else None
+
     views = [
         SeriesPartView(
             tmdb_id=part["tmdb_id"],
             title=part["title"],
             release_date=_iso_date(part.get("release_date")),
-            # 缺片画进海报墙、与库存海报同一规格，w200 放大到卡片尺寸会糊
-            poster_url=(f"{base}/w500{part['poster_path']}" if part.get("poster_path") else None),
+            poster_url=_part_poster(part),
             media_item_id=owned.get(part["tmdb_id"]),
             subscribed=part["tmdb_id"] in tracked,
         )

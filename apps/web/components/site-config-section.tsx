@@ -1392,7 +1392,8 @@ function SiteBadge({ item }: { item: CatalogItem }) {
     <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.04]">
       {/* 经统一图片代理的外站 favicon，不经 next/image 优化管道 */}
       <img
-        src={cachedImageUrl(`${origin}/favicon.ico`)}
+        // 20 CSS px 的小图标也带宽度（落在最小档）：个别站点的 .ico 里塞着 256px 大图
+        src={cachedImageUrl(`${origin}/favicon.ico`, { width: 40 })}
         alt=""
         loading="lazy"
         className="size-5"

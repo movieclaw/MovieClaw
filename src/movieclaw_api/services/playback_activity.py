@@ -32,6 +32,7 @@ from movieclaw_api.services.playback.session import get_session_manager
 
 # 与首页"最近观看"共用同一套时长回退与进度换算口径，避免两处各算各的
 from movieclaw_api.services.playback_up_next import _progress_percent, _runtime_ms
+from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_db.models import (
     JellyfinDevice,
     LibraryFile,
@@ -64,7 +65,7 @@ def _poster_url(item: MediaItem, poster_file: str | None, image_base: str) -> st
     if poster_file:
         return f"/images/assets/{poster_file}?v={asset_version(poster_file)}"
     if item.poster_path:
-        return f"{image_base}/w500{item.poster_path}"
+        return tmdb_image_url(item.poster_path, "poster")
     return None
 
 

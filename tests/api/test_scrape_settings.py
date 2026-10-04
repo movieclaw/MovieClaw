@@ -52,9 +52,12 @@ def test_scrape_config_defaults_follow_env(client: TestClient) -> None:
     assert data["setting"]["language_priority"] == []
     assert data["setting"]["poster_mode"] == "default"
     assert data["effective"]["language_priority"] == ["zh-CN", "en-US"]
-    assert data["effective"]["poster_size"] == "w780"
+    # 默认画质是原图（docs/design/image-sizing.md §8.1，2026-10-04）
+    assert data["effective"]["poster_size"] == "original"
     assert data["effective"]["backdrop_size"] == "original"
-    assert data["effective"]["still_size"] == "w300"
+    assert data["effective"]["still_size"] == "original"
+    assert data["effective"]["profile_size"] == "original"
+    assert data["effective"]["image_quality"] == "original"
 
 
 def test_scrape_config_save_and_effective(client: TestClient) -> None:
@@ -77,7 +80,8 @@ def test_scrape_config_save_and_effective(client: TestClient) -> None:
     assert data["setting"]["language_priority"] == ["ja-JP", "en-US"]
     assert data["effective"]["language_priority"] == ["ja-JP", "en-US"]
     assert data["effective"]["poster_size"] == "w500"
-    assert data["effective"]["still_size"] == "w300"  # 空 = 继续跟随 env
+    assert data["effective"]["still_size"] == "original"  # 空 = 继续跟随 env
+    assert data["effective"]["image_quality"] == "custom"  # 显式配了档位 → 界面落在「自定义」
 
     from movieclaw_api.services.scrape_config import (
         effective_image_prefs,

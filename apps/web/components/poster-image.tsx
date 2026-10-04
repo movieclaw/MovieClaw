@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { responsiveImage } from "@/lib/image-width";
+
 /**
  * 海报图片底座：全站所有海报/封面 <img> 的统一实现。
  *
@@ -11,7 +13,9 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
  *   3. 加载失败回退 —— 防盗链 / 图床失效时渲染深色占位（或调用方自定义的 fallback），
  *      卡片不塌陷、不出裂图图标；
  *   4. 等待态占位（``pulseWhileLoading``，按需开）—— 图没到之前盖一层脉冲，
- *      大图墙上滑到哪儿黑一块的观感由它兜住。
+ *      大图墙上滑到哪儿黑一块的观感由它兜住；
+ *   5. 按显示宽取图（``width`` / ``zoom``）—— 传了显示宽就由 src 生成 srcset + sizes
+ *      （服务端宽度阶梯，见 lib/image-width.ts），浏览器按屏幕倍率自己挑一档。
  *
  * 定位、圆角、hover 缩放等布局差异全部通过 className 由调用方传入；
  * 占位符会套用同一份 className，保证与图片占据完全相同的盒子。
@@ -71,6 +75,8 @@ export function PosterImage({
   fallback,
   pulseWhileLoading = false,
   preload,
+  width,
+  zoom = 1,
 }: {
   /** 图片地址；为空时直接渲染占位 */
   src?: string | null;
@@ -96,6 +102,14 @@ export function PosterImage({
    * 的 IntersectionObserver：快进视口就翻 eager。
    */
   preload?: boolean;
+  /**
+   * 显示宽（CSS px）。铺满的框要传有效宽：max(框宽, 框高 × 图片宽高比)，
+   * 见 lib/image-width.ts 的 coverWidth。传了就把 src 当服务端图片地址生成
+   * srcset（1x/2x/3x 对应的阶梯档）；不传则原样用 src（非服务端图、已带 w 的地址）。
+   */
+  width?: number;
+  /** 悬停 / 推镜放大系数（海报卡 1.06 等），乘进需要的像素宽，放大后也不糊 */
+  zoom?: number;
 }) {
   const [broken, setBroken] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -126,11 +140,14 @@ export function PosterImage({
       )
     );
   }
+  const sources = width ? responsiveImage(src, width, zoom) : { src };
   return (
     <>
       <img
         ref={imgRef}
-        src={src}
+        src={sources.src}
+        srcSet={sources.srcSet}
+        sizes={sources.sizes}
         alt={alt}
         loading={eager || preload ? "eager" : "lazy"}
         // 必须同步解码：async 解码的「完成→重绘」通知在 content-visibility 格子里

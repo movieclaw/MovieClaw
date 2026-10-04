@@ -245,6 +245,8 @@ function ActivityPoster({
   const image = (
     <PosterImage
       src={media?.poster_url ? imageUrl(media.poster_url) : null}
+      // 海报位最大 64×96（w-16）
+      width={64}
       alt={media?.title ?? "未知内容"}
       className={`${className} rounded-lg object-cover ring-1 ring-white/10`}
     />

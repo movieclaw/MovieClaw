@@ -196,21 +196,24 @@ final class LibraryHomeStore {
                 for item in (upNext ?? []).prefix(3) {
                     // 同 UpNextCard.artwork：剧集用分集剧照、电影用背景图；电影缺背景图退回海报
                     let isEpisode = item.kind == "tv"
+                    let width = ImageWidth.points(PhoneCardWidth.upNext)
                     if let still = isEpisode ? item.episodeStillUrl : item.backdropUrl {
-                        urls.append(api.image(still, .landscapeCard))
+                        urls.append(api.image(still, width: width))
                     } else if !isEpisode {
-                        urls.append(api.image(item.posterUrl, ImageVariant.card(aspect: item.posterAspect)))
+                        urls.append(api.image(item.posterUrl, width: width))
                     }
                 }
             case .favorites:
-                urls += (favorites?.items ?? []).prefix(4).map { api.image($0.posterUrl, .posterCard) }
+                urls += (favorites?.items ?? []).prefix(4).map { api.image($0.posterUrl, width: ImageWidth.points(PhoneCardWidth.homePoster)) }
             case .libraries:
                 for library in libraries.filter(\.viewerAccess).prefix(2)
                 where library.customCover || !(itemsByKey[Self.coverKey(library.id)] ?? []).isEmpty {
-                    urls.append(api.image("/libraries/\(library.id)/cover"))
+                    urls.append(api.image("/libraries/\(library.id)/cover", width: ImageWidth.points(PhoneCardWidth.libraryCover)))
                 }
             case .library, .mediaKind, .collection:
-                urls += (itemsByKey[Self.fetchKey(row)] ?? []).prefix(4).map { api.image($0.posterUrl, .posterCard) }
+                urls += (itemsByKey[Self.fetchKey(row)] ?? []).prefix(4).map {
+                    api.image($0.posterUrl, width: ImageWidth.points(PhoneCardWidth.homePoster))
+                }
             }
         }
         return urls.compactMap { $0 }

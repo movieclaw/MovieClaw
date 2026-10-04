@@ -188,22 +188,25 @@ struct MediaDetailView: View {
         .accessibilityIdentifier("media-detail")
     }
 
-    /// 沉浸大图：剧照（w1280），没有剧照时用海报兜底（豆瓣条目没有横版剧照）。
-    /// 只有物理宽度超过 1280 像素的屏幕才换后端给的原图（同 Web `useWantsOriginalImage`：
-    /// 手机 393pt × 3 = 1179 像素，w1280 已 1:1 覆盖，原图只是白白多下 1–3 MB）。
-    /// 底边取色的任务标识：大图地址或显示比例变了才重算（首屏先用 w1280、宽屏换原图时会变）
+    /// 底边取色的任务标识：大图地址或显示比例变了才重算
     private func edgeKey(_ url: URL?) -> String {
         guard let url, heroSize.height > 0 else { return "" }
         return "\(url.absoluteString)#\(Int((heroSize.width / heroSize.height * 100).rounded()))"
     }
 
+    /// 沉浸大图：剧照，没有剧照时用海报兜底（豆瓣条目没有横版剧照）。按公式取宽（docs/design/image-sizing.md §6）：
+    /// 页宽 × 大图高（屏高 62%，最高 460 点）的竖框铺满 16:9 剧照要按高算——393×460 点按宽只要 1179 像素，
+    /// 按高要 818 点 × 3 ≈ 2454 像素 → 2560 档。要的比 1280 大时换后端给的 TMDB 原图当源（经代理按 `w` 缩），
+    /// 发现接口给的 w1280 不够；高度用屏高估而不用量出来的值，免得排版前后地址变一次、重下一张大图
     private func heroImage(_ detail: API.DiscoveredTitleDetailsView) -> URL? {
-        let wantsOriginal = pageWidth * displayScale > 1280
-        if wantsOriginal, detail.title.provider != "douban", let original = detail.backdropOriginalUrl {
-            return api.image(original)
+        let screen = ImageWidth.screenSize
+        let frame = CGSize(width: pageWidth > 0 ? pageWidth : screen.width, height: min(screen.height * 0.62, 460))
+        let width = ImageWidth.pixels(ImageWidth.coverPoints(frame, aspect: ImageAspect.backdrop), scale: displayScale)
+        if width > 1280, detail.title.provider != "douban", let original = detail.backdropOriginalUrl {
+            return api.image(original, width: width)
         }
         let fallback = detail.title.backdropUrl ?? (detail.title.posterUrl.isEmpty ? nil : detail.title.posterUrl)
-        return api.image(fallback)
+        return api.image(fallback, width: width)
     }
 
     private func header(_ detail: API.DiscoveredTitleDetailsView) -> some View {
@@ -406,7 +409,7 @@ struct MediaDetailView: View {
                             VStack(alignment: .leading, spacing: 6) {
                                 Color.clear
                                     .aspectRatio(16 / 9, contentMode: .fit)
-                                    .overlay { RemoteImage(url: api.image(video.thumbnailUrl)) }
+                                    .overlay { MeasuredRemoteImage(raw: video.thumbnailUrl, aspect: ImageAspect.backdrop) }
                                     .overlay {
                                         Group {
                                             if probingTrailer == video.key {
@@ -551,7 +554,7 @@ struct DetailCastRow: View {
                         LinearGradient(colors: [.white.opacity(0.07), .white.opacity(0.02)], startPoint: .top, endPoint: .bottom)
                         Text(String(person.name.prefix(1))).font(.system(size: 26, weight: .semibold)).foregroundStyle(.white.opacity(0.3))
                         if person.avatarUrl != nil {
-                            RemoteImage(url: api.image(person.avatarUrl), placeholderSymbol: "person.fill")
+                            MeasuredRemoteImage(raw: person.avatarUrl, placeholderSymbol: "person.fill")
                         }
                     }
                 }
@@ -609,7 +612,7 @@ struct DetailPhotoWall: View {
                         Button {
                             open(active: active, index: index)
                         } label: {
-                            RemoteImage(url: api.image(image.previewUrl), placeholderSymbol: "photo")
+                            RemoteImage(url: api.image(image.previewUrl, width: ImageWidth.points(landscape ? 185 : 84)), placeholderSymbol: "photo")
                                 .frame(width: landscape ? 185 : 84, height: landscape ? 104 : 126)
                                 .clipShape(.rect(cornerRadius: 10))
                         }
@@ -626,11 +629,13 @@ struct DetailPhotoWall: View {
 
     private func open(active: (id: String, label: String, images: [API.MediaImage]), index: Int) {
         let images = active.images
+        let landscape = active.id == "backdrops"
+        // 舞台按屏宽像素取；缩略条与上面那一排同一个地址（命中同一条缓存）
         lightbox = DiscoverLightboxContent(
-            urls: images.map { api.image($0.fullUrl) },
+            urls: images.map { api.image($0.fullUrl, width: ImageWidth.screen) },
             initialIndex: index,
             title: "\(title) · \(active.label)",
-            thumbnails: images.map { api.image($0.previewUrl) },
+            thumbnails: images.map { api.image($0.previewUrl, width: ImageWidth.points(landscape ? 185 : 84)) },
             thumbAspect: active.id == "backdrops" ? 16.0 / 9.0 : 2.0 / 3.0
         )
     }

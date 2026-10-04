@@ -118,7 +118,8 @@ struct TVPosterWall<Accessory: View>: View {
                 LazyVGrid(columns: TVWallLayout.columns, alignment: .leading, spacing: TVWallLayout.rowSpacing) {
                     ForEach(wall.items ?? [], id: \.mediaItemId) { item in
                         TVPosterCard(title: item.title, subtitle: item.year.map(String.init),
-                                     imageURL: api.image(item.posterUrl, .tvPoster), width: TVWallLayout.posterWidth,
+                                     imageURL: api.image(item.posterUrl, width: ImageWidth.tvCard(TVWallLayout.posterWidth)),
+                                     width: TVWallLayout.posterWidth,
                                      caption: .hidden) {
                             if let libraryId = item.libraryId ?? fallbackLibrary {
                                 router.push(.item(libraryId: libraryId, itemId: item.mediaItemId))
@@ -186,9 +187,11 @@ struct TVPosterWall<Accessory: View>: View {
         }
     }
 
-    /// 焦点那一部的剧照（电视横版派生图，够用且轻）：放大模糊、压暗，交叉淡入
+    /// 焦点那一部的剧照（按模糊垫底的小图取，够用且轻）：放大模糊、压暗，交叉淡入
     private var backdrop: some View {
-        TVBlurredBackdrop(url: backdropItem.flatMap { api.image($0.backdropUrl ?? $0.posterUrl, .tvLandscape) })
+        TVBlurredBackdrop(url: backdropItem.flatMap {
+            api.image($0.backdropUrl ?? $0.posterUrl, width: ImageWidth.points(TVMetrics.blurredBackdropWidth))
+        })
             .ignoresSafeArea()
     }
 }
