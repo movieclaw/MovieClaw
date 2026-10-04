@@ -79,7 +79,7 @@ struct MacHomeView: View {
                     if let stage {
                         hero(stage, items: upNext, height: heroHeight, topInset: window.safeAreaInsets.top)
                         upNextShelf(upNext, stage: stage)
-                            .padding(.top, -MacMetrics.rowSpacing * 0.4)
+                            .padding(.top, -MacMetrics.rowSpacing * 0.8)
                     }
                     ForEach(visibleRows) { row in
                         rowView(row)
@@ -145,7 +145,7 @@ struct MacHomeView: View {
                 heroActions(stage)
             }
             .padding(.horizontal, MacMetrics.edge + 8)
-            .padding(.bottom, 64)
+            .padding(.bottom, 44)
             .frame(maxWidth: 720, alignment: .leading)
         }
         .frame(height: height)
@@ -154,7 +154,7 @@ struct MacHomeView: View {
             if items.count > 1 {
                 stagePager(items, current: stage.mediaItemId)
                     .padding(.trailing, MacMetrics.edge + 8)
-                    .padding(.bottom, 70)
+                    .padding(.bottom, 50)
             }
         }
         .clipped()
@@ -167,11 +167,7 @@ struct MacHomeView: View {
                 Label(stage.positionMs > 0 ? "继续播放" : "播放", systemImage: "play.fill")
                     .padding(.horizontal, 6)
             }
-            .buttonStyle(.glassProminent)
-            .tint(.white.opacity(0.9))
-            .foregroundStyle(.black)
-            .controlSize(.extraLarge)
-            .keyboardShortcut(.defaultAction)
+            .buttonStyle(MacPrimaryButtonStyle())
             .accessibilityIdentifier("mac-home-hero-play")
             Button {
                 router.push(.item(libraryId: stage.libraryId, itemId: stage.mediaItemId))

@@ -107,7 +107,8 @@ struct MacLandscapeCard: View {
 
     var body: some View {
         Button(action: action) {
-            MacCardLabel(title: title, subtitle: subtitle, width: width, showsCaption: true, play: play, menu: menu, badge: badge) {
+            MacCardLabel(title: title, subtitle: subtitle, width: width, showsCaption: true, play: play, menu: menu, badge: badge,
+                         centeredControls: true) {
                 RemoteImage(url: imageURL, placeholderText: title)
                     .frame(width: width, height: width * 9 / 16)
                     .overlay(alignment: .bottom) {
@@ -258,9 +259,11 @@ private struct MacCardLabel<Art: View>: View {
     let play: (() -> Void)?
     let menu: [MacCardAction]
     let badge: String?
+    /// 横版剧照卡：底部暗带里写着第几集、剩多久，悬停的播放键放正中、「⋯」放右上，不压住那行字
+    var centeredControls = false
     @ViewBuilder let art: () -> Art
 
-    @State private var hovering = false
+    @State private var hovering = MacCardDebug.forceHover
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -280,8 +283,21 @@ private struct MacCardLabel<Art: View>: View {
                     }
                 }
                 .overlay(alignment: .bottom) {
-                    if hovering, play != nil || !menu.isEmpty {
+                    if hovering, !centeredControls, play != nil || !menu.isEmpty {
                         hoverControls
+                            .transition(.opacity)
+                    }
+                }
+                .overlay {
+                    if hovering, centeredControls, let play {
+                        playButton(play, size: 44)
+                            .transition(.opacity)
+                    }
+                }
+                .overlay(alignment: .topTrailing) {
+                    if hovering, centeredControls, !menu.isEmpty {
+                        menuButton
+                            .padding(8)
                             .transition(.opacity)
                     }
                 }
@@ -309,45 +325,59 @@ private struct MacCardLabel<Art: View>: View {
         }
         .contentShape(.rect)
         .onHover { inside in
-            withAnimation(.easeOut(duration: 0.15)) { hovering = inside }
+            withAnimation(.easeOut(duration: 0.15)) { hovering = inside || MacCardDebug.forceHover }
         }
     }
 
     /// 左下播放键、右下「⋯」：小号玻璃圆钮，同 Apple Music 封面上的那两枚
     private var hoverControls: some View {
         HStack {
-            if let play {
-                Button(action: play) {
-                    Image(systemName: "play.fill")
-                        .font(.system(size: 13, weight: .bold))
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .help("播放")
-                .accessibilityLabel("播放\(title)")
-            }
+            if let play { playButton(play, size: 32) }
             Spacer(minLength: 0)
-            if !menu.isEmpty {
-                Menu {
-                    MacCardMenu(actions: menu)
-                } label: {
-                    Image(systemName: "ellipsis")
-                        .font(.system(size: 13, weight: .bold))
-                        .frame(width: 32, height: 32)
-                        .contentShape(.circle)
-                }
-                .menuStyle(.button)
-                .buttonStyle(.plain)
-                .menuIndicator(.hidden)
-                .fixedSize()
-                .glassEffect(.regular.interactive(), in: .circle)
-                .help("更多")
-            }
+            if !menu.isEmpty { menuButton }
         }
-        .foregroundStyle(.white)
         .padding(8)
     }
+
+    private func playButton(_ play: @escaping () -> Void, size: CGFloat) -> some View {
+        Button(action: play) {
+            Image(systemName: "play.fill")
+                .font(.system(size: size * 0.4, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: size, height: size)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .help("播放")
+        .accessibilityLabel("播放\(title)")
+    }
+
+    private var menuButton: some View {
+        Menu {
+            MacCardMenu(actions: menu)
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 32, height: 32)
+                .contentShape(.circle)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .glassEffect(.regular.interactive(), in: .circle)
+        .help("更多")
+    }
+}
+
+/// 开发期出图用：环境变量 MC_FORCE_HOVER=1 让所有卡片一出来就是悬停的样子（合成的鼠标事件触发不了系统的悬停追踪）
+enum MacCardDebug {
+    #if DEBUG
+    static let forceHover = ProcessInfo.processInfo.environment["MC_FORCE_HOVER"] != nil
+    #else
+    static let forceHover = false
+    #endif
 }
 
 /// 右键菜单与悬停「⋯」共用的菜单内容
@@ -359,6 +389,35 @@ struct MacCardMenu: View {
             Button(role: action.role, action: action.perform) {
                 Label(action.title, systemImage: action.symbol)
             }
+        }
+    }
+}
+
+/// 大图区的主按钮（「继续播放」「播放 第 1 季第 1 集」）：白底黑字的胶囊，同 Apple TV App 的「播放」。
+/// 不用系统的 `.glassProminent`：它的强调色在窗口不在前台时被系统画成灰色，压在剧照上看不清是什么按钮
+struct MacPrimaryButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        StyledBody(configuration: configuration)
+    }
+
+    private struct StyledBody: View {
+        let configuration: Configuration
+        @State private var hovering = false
+        @Environment(\.isEnabled) private var enabled
+
+        var body: some View {
+            configuration.label
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.black)
+                .padding(.horizontal, 20)
+                .frame(height: 38)
+                .background(Capsule().fill(.white.opacity(configuration.isPressed ? 0.75 : hovering ? 1 : 0.92)))
+                .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
+                .scaleEffect(configuration.isPressed ? 0.97 : 1)
+                .opacity(enabled ? 1 : 0.5)
+                .contentShape(.capsule)
+                .onHover { hovering = $0 }
+                .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
         }
     }
 }
@@ -412,6 +471,8 @@ struct MacShelf<Content: View>: View {
     var seeAll: (() -> Void)?
     /// 卡片区的高度（翻页键竖直居中对齐在图上，而不是连同下面的字一起居中）
     var artHeight: CGFloat?
+    /// 出现时（以及这个值变了时）滚到哪一张：卡片用 `.id(_:)` 标上同一个整数（分集横排滚到正在看的那一集）
+    var scrollTo: Int?
     @ViewBuilder let content: () -> Content
 
     @State private var position = ScrollPosition(idType: Int.self)
@@ -428,6 +489,7 @@ struct MacShelf<Content: View>: View {
                 LazyHStack(alignment: .top, spacing: MacMetrics.cardSpacing) {
                     content()
                 }
+                .scrollTargetLayout()
                 .padding(.horizontal, MacMetrics.edge)
                 .padding(.vertical, 6)
             }
@@ -447,6 +509,12 @@ struct MacShelf<Content: View>: View {
             }
         }
         .onHover { inside in withAnimation(.easeOut(duration: 0.18)) { hovering = inside } }
+        .task(id: scrollTo) {
+            guard let scrollTo else { return }
+            // 等横排建好、量出宽度再滚；目标卡停在左边距处，前面露一点上一张，看得出前面还有
+            try? await Task.sleep(for: .milliseconds(60))
+            position.scrollTo(id: scrollTo, anchor: UnitPoint(x: 0.04, y: 0.5))
+        }
     }
 
     @ViewBuilder
@@ -545,14 +613,17 @@ struct MacAvatar: View {
     let size: CGFloat
 
     var body: some View {
-        ZStack {
-            Circle().fill(LinearGradient(colors: [Color(white: 0.36), Color(white: 0.2)], startPoint: .top, endPoint: .bottom))
-            Text(Self.initials(name))
-                .font(.system(size: size * 0.4, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.9))
-            if let url {
-                RemoteImage(url: url, placeholderText: "")
-                    .clipShape(.circle)
+        // 首字母垫底，图片加载成功才盖上、且盖上后不再画首字母：头像图常带透明边，叠着画会透出字（Apple TV 版走查发现）
+        LazyImage(url: url) { state in
+            if let image = state.image {
+                image.resizable().aspectRatio(contentMode: .fill)
+            } else {
+                ZStack {
+                    Circle().fill(LinearGradient(colors: [Color(white: 0.36), Color(white: 0.2)], startPoint: .top, endPoint: .bottom))
+                    Text(Self.initials(name))
+                        .font(.system(size: size * 0.4, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.9))
+                }
             }
         }
         .frame(width: size, height: size)

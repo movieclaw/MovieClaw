@@ -52,6 +52,8 @@ struct MacPosterWall<Accessory: View>: View {
         }
         .background(Color.macPage)
         .navigationTitle(title)
+        // 大标题已经写在内容顶上（同 Apple Music 的资料库），工具栏里不再重复
+        .toolbar(removing: .title)
         .accessibilityElement(children: .contain)
     }
 
@@ -60,7 +62,7 @@ struct MacPosterWall<Accessory: View>: View {
             Text(title)
                 .font(.system(size: 28, weight: .bold))
                 .lineLimit(1)
-            if let subtitle {
+            if let subtitle, wall.items?.isEmpty != true {
                 Text(subtitle)
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.secondary)

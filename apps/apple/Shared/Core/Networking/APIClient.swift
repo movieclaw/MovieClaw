@@ -335,15 +335,19 @@ nonisolated struct APIClient: Sendable {
         let host = error.failingURL.map { "「\(hostLabel($0))」" } ?? "服务器"
         let reason = switch error.code {
         case .notConnectedToInternet:
+            #if os(iOS)
             "手机没有联网：请检查 Wi-Fi 或蜂窝网络；如果其他 App 能上网，请到「设置 → MovieClaw」允许它使用无线局域网与蜂窝数据"
+            #else
+            "\(ClientPlatform.deviceNoun)没有联网：请检查 Wi-Fi 或有线网络；连的是局域网地址时，还要在「系统设置 → 隐私与安全性 → 本地网络」里允许 MovieClaw"
+            #endif
         case .dataNotAllowed:
             "蜂窝数据不可用：请连接 Wi-Fi，或到「设置 → 蜂窝网络」为 MovieClaw 打开蜂窝数据"
         case .cannotFindHost, .dnsLookupFailed:
-            "找不到\(host)：域名无法解析，请检查地址拼写；内网域名需要手机与服务器在同一网络"
+            "找不到\(host)：域名无法解析，请检查地址拼写；内网域名需要\(ClientPlatform.deviceNoun)与服务器在同一网络"
         case .cannotConnectToHost:
             "\(host)拒绝连接：端口不对或服务器没在运行。请确认地址与浏览器里打开 MovieClaw 时的完全一致（包括端口）"
         case .timedOut:
-            "连接\(host)超时，服务器没有响应：请确认地址和端口正确、服务器在运行；局域网地址需要手机连着同一个 Wi-Fi"
+            "连接\(host)超时，服务器没有响应：请确认地址和端口正确、服务器在运行；局域网地址需要\(ClientPlatform.deviceNoun)连着同一个网络"
         case .networkConnectionLost:
             "与\(host)的连接中途断开：请重试；反复出现时检查网络是否稳定"
         // ATS 拦截明文 http。新版 Info.plist 已放开，正常不会出现；旧版 App 连「http + 域名」会走到这里
@@ -354,7 +358,7 @@ nonisolated struct APIClient: Sendable {
         case .serverCertificateUntrusted, .serverCertificateHasUnknownRoot:
             "\(host)的 HTTPS 证书不受信任（常见于自签名证书）：请换用正规证书（如 Let's Encrypt），或改用 http 地址"
         case .serverCertificateHasBadDate, .serverCertificateNotYetValid:
-            "\(host)的 HTTPS 证书已过期或尚未生效：请续签证书，并确认手机的日期与时间正确"
+            "\(host)的 HTTPS 证书已过期或尚未生效：请续签证书，并确认\(ClientPlatform.deviceNoun)的日期与时间正确"
         case .clientCertificateRequired, .clientCertificateRejected:
             "\(host)要求客户端证书，App 暂不支持：请在反向代理上关闭客户端证书校验"
         case .httpTooManyRedirects:
