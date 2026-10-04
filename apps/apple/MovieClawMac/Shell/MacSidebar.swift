@@ -24,12 +24,16 @@ struct MacSidebar: View {
     var body: some View {
         List(selection: Binding<MainTab?>(get: { router.isSearching ? nil : router.selection },
                                           set: { if let tab = $0 { router.searchText = ""; router.select(tab) } })) {
-            Label("首页", systemImage: "house")
-                .tag(MainTab.home)
-                .accessibilityIdentifier("mac-sidebar-home")
-            Label("我的收藏", systemImage: "heart")
-                .tag(MainTab.favorites)
-                .accessibilityIdentifier("mac-sidebar-favorites")
+            // 顶上两项也放进一个（无标题）分组：列表里只有散行、没有任何分组时（新服务器还没建库），
+            // 侧边栏的内容会顶到标题栏里、搜索框压住红绿灯（实测）；有分组就排得正常
+            Section {
+                Label("首页", systemImage: "house")
+                    .tag(MainTab.home)
+                    .accessibilityIdentifier("mac-sidebar-home")
+                Label("我的收藏", systemImage: "heart")
+                    .tag(MainTab.favorites)
+                    .accessibilityIdentifier("mac-sidebar-favorites")
+            }
             if !directory.browsable.isEmpty {
                 Section("媒体库") {
                     ForEach(directory.browsable, id: \.id) { library in

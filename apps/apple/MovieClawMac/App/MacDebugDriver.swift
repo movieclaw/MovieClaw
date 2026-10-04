@@ -83,6 +83,14 @@ final class MacDebugDriver {
         switch verb {
         case "shot":
             shot(arg.isEmpty ? "shot" : arg)
+        case "shotall":
+            // 浮层（popover）、sheet、关于窗口都是独立的窗口：逐个截下来，文件名带序号与窗口标题
+            for (index, window) in NSApp.windows.enumerated() where window.isVisible {
+                capture(window, name: "\(arg.isEmpty ? "all" : arg)-\(index)")
+                for (sheetIndex, sheet) in window.sheets.enumerated() {
+                    capture(sheet, name: "\(arg.isEmpty ? "all" : arg)-\(index)-sheet\(sheetIndex)")
+                }
+            }
         case "size":
             guard numbers.count == 2, let window else { return log("size 参数不对") }
             var frame = window.frame
@@ -108,6 +116,16 @@ final class MacDebugDriver {
         case "click", "rclick", "hover", "dclick":
             guard numbers.count == 2 else { return log("\(verb) 参数不对") }
             mouse(verb, at: CGPoint(x: numbers[0], y: numbers[1]))
+        case "wclick":
+            // wclick <窗口序号> <x> <y>：点浮层、sheet、关于窗口（序号同 shotall 的文件名）
+            guard numbers.count == 3, NSApp.windows.indices.contains(Int(numbers[0])) else { return log("wclick 参数不对") }
+            mouse("click", at: CGPoint(x: numbers[1], y: numbers[2]), in: NSApp.windows[Int(numbers[0])])
+        case "wtype":
+            // wtype <窗口序号> <文字>：往那个窗口的当前输入焦点打字
+            let fields = arg.split(separator: " ", maxSplits: 1).map(String.init)
+            guard fields.count == 2, let index = Int(fields[0]), NSApp.windows.indices.contains(index) else { return log("wtype 参数不对") }
+            for character in fields[1] { post(keyDown: String(character), keyCode: 0, flags: [], to: NSApp.windows[index]) }
+            log("输入「\(fields[1])」→ 窗口 \(index)")
         case "clickid", "hoverid", "rclickid":
             guard let frame = frame(of: arg) else { return log("找不到控件 \(arg)") }
             mouse(String(verb.dropLast(2)), at: CGPoint(x: frame.midX, y: frame.midY))
@@ -131,6 +149,24 @@ final class MacDebugDriver {
                 log("net \((response as? HTTPURLResponse)?.statusCode ?? -1) \(String(decoding: data.prefix(200), as: UTF8.self))")
             } catch {
                 log("net 失败 \(error)")
+            }
+        case "windows":
+            for (index, window) in NSApp.windows.enumerated() {
+                log("窗口 \(index) \(type(of: window)) 「\(window.title)」 可见=\(window.isVisible) \(Int(window.frame.width))×\(Int(window.frame.height)) sheets=\(window.sheets.count) 子窗口=\(window.childWindows?.count ?? 0)")
+            }
+        case "press":
+            // press <标题>：在所有窗口里找这个标题的原生按钮（提醒框、sheet 里的 NSButton）直接触发。
+            // 不在前台的 App 里，合成的点击会被原生按钮当成「激活窗口」吞掉
+            func find(in view: NSView) -> NSButton? {
+                if let button = view as? NSButton, button.title == arg { return button }
+                for child in view.subviews { if let hit = find(in: child) { return hit } }
+                return nil
+            }
+            if let button = NSApp.windows.lazy.compactMap({ $0.contentView.flatMap(find) }).first {
+                button.performClick(nil)
+                log("按下「\(arg)」")
+            } else {
+                log("找不到按钮「\(arg)」")
             }
         case "libs":
             // 列出媒体库与首页「接下来继续」的条目 id（tab / push 命令要用）
@@ -172,6 +208,10 @@ final class MacDebugDriver {
     /// 截自己的主窗口（带标题栏与圆角）。截进程自己的窗口不需要录屏权限
     private func shot(_ name: String) {
         guard let window else { return log("没有可截的窗口") }
+        capture(window, name: name)
+    }
+
+    private func capture(_ window: NSWindow, name: String) {
         let id = CGWindowID(window.windowNumber)
         // 新 SDK 把 CGWindowListCreateImage 标成不可用（让用 ScreenCaptureKit，那要录屏权限），系统里这个函数仍在：
         // 按符号名取来调用。只在 Debug 构建里，正式包不含这段
@@ -187,14 +227,14 @@ final class MacDebugDriver {
         let rep = NSBitmapImageRep(cgImage: image)
         let url = shots.appendingPathComponent("\(name).png")
         try? rep.representation(using: .png, properties: [:])?.write(to: url)
-        log("截图 \(url.path) \(image.width)×\(image.height)")
+        log("截图 \(url.path) \(image.width)×\(image.height) 「\(window.title)」\(type(of: window))")
     }
 
     // MARK: 鼠标与键盘
 
     /// 在窗口里合成鼠标事件（窗口坐标：左上角为原点，点）。悬停先发 mouseMoved，点击再补按下与抬起
-    private func mouse(_ verb: String, at point: CGPoint) {
-        guard let window, let content = window.contentView else { return }
+    private func mouse(_ verb: String, at point: CGPoint, in target: NSWindow? = nil) {
+        guard let window = target ?? self.window, let content = window.contentView else { return }
         let location = CGPoint(x: point.x, y: content.bounds.height - point.y)
         func event(_ type: NSEvent.EventType, clicks: Int = 1) -> NSEvent? {
             NSEvent.mouseEvent(with: type, location: location, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
