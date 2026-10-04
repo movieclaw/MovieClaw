@@ -42,6 +42,7 @@ struct MovieClawMacApp: App {
 /// 按 `AppModel.phase` 切换顶层界面：欢迎（连接、登录、选人）或主界面。
 struct MacRootView: View {
     @Environment(AppModel.self) private var model
+    @State private var windowState = MacWindowState()
 
     var body: some View {
         Group {
@@ -53,10 +54,20 @@ struct MacRootView: View {
             case .needsServer, .needsSetup, .needsLogin, .chooseAccount, .unreachable:
                 MacWelcomeView()
             case let .ready(session):
-                MacMainView()
-                    // 换账号（含换到另一台服务器上的同名账号）时整棵树重建，避免残留上个账号的数据
-                    .id("\(model.server?.origin.absoluteString ?? "")#\(session.username)")
+                // 换账号（含换到另一台服务器上的同名账号）：主界面里按账号重建（见 MacMainView.accountKey），
+                // 分栏视图本身不重建——在同一个窗口里拆掉重建 NavigationSplitView，系统不恢复标题栏区域的布局，
+                // 侧边栏整体顶到标题栏里、搜索框压住红绿灯（从有大图的首页切到另一个账号时实测）
+                MacMainView(accountKey: "\(model.server?.origin.absoluteString ?? "")#\(session.username)")
             }
+        }
+        .environment(windowState)
+        .focusedSceneValue(\.macWindowState, windowState)
+        .sheet(isPresented: Binding(get: { windowState.addingAccount }, set: { windowState.addingAccount = $0 })) {
+            MacAddAccountView()
+        }
+        // 换了账号（含在「添加账号」里登录成功）：sheet 收起
+        .onChange(of: "\(model.server?.origin.absoluteString ?? "")#\(model.session?.username ?? "")") { _, _ in
+            windowState.addingAccount = false
         }
         .frame(minWidth: 960, minHeight: 600)
         .background(Theme.background)

@@ -48,9 +48,9 @@ struct MacAccountPanel: View {
     let close: () -> Void
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
+    @Environment(MacRouter.self) private var router
+    @Environment(MacWindowState.self) private var windowState
     @State private var error: String?
-    @State private var addingAccount = false
-    @State private var confirmingLogout = false
     @State private var switching: String?
 
     private var others: [SavedAccount] {
@@ -89,32 +89,24 @@ struct MacAccountPanel: View {
             }
             Divider()
             VStack(spacing: 2) {
-                MacPanelAction(title: "添加账号…", symbol: "person.badge.plus") { addingAccount = true }
+                MacPanelAction(title: "添加账号…", symbol: "person.badge.plus") {
+                    close()
+                    windowState.addingAccount = true
+                }
                     .accessibilityIdentifier("mac-account-add")
                 MacPanelAction(title: "关于 MovieClaw", symbol: "info.circle") {
                     close()
                     openWindow(id: "about")
                 }
                 MacPanelAction(title: "退出登录…", symbol: "rectangle.portrait.and.arrow.right", destructive: true) {
-                    confirmingLogout = true
+                    close()
+                    router.confirmingLogout = true
                 }
                 .accessibilityIdentifier("mac-account-logout")
             }
             .padding(6)
         }
         .frame(width: 300)
-        .sheet(isPresented: $addingAccount) {
-            MacAddAccountView()
-        }
-        .alert("退出登录？", isPresented: $confirmingLogout) {
-            Button("退出", role: .destructive) {
-                close()
-                Task { await model.logout() }
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("「\(model.session?.nickname ?? "")」在这台 Mac 上的登录会在服务器上一并注销。同一台服务器上还有别的账号时会自动切过去。")
-        }
         .accessibilityIdentifier("mac-account-panel")
     }
 
