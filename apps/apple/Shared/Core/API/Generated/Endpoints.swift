@@ -198,6 +198,12 @@ nonisolated extension APIClient {
         return try await send("GET", "/auth/devices", query: query)
     }
 
+    /// 清理长期没用的设备：一次注销多少天没用过的设备
+    /// `POST /auth/devices/cleanup`
+    func authDevicesCleanup(body: API.DeviceCleanupRequest) async throws -> API.DeviceCleanupView {
+        return try await send("POST", "/auth/devices/cleanup", body: body)
+    }
+
     /// 注销当前这台设备（退出登录 / 断开配对）
     /// `DELETE /auth/devices/current`
     func authDevicesRevokeCurrent() async throws -> Void {

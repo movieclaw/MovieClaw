@@ -28,8 +28,10 @@ from movieclaw_db.models import LoginDevice, utcnow
 
 logger = logging.getLogger("movieclaw_api.push.registration")
 
-#: 能登记推送的设备类型
-PUSH_KINDS = ("ios", "tvos", "android")
+#: 能登记推送的设备类型。Apple TV（``tvos``）刻意不在其中：它本期不接推送、不会来登记
+#: （cloud-push.md §11），放进来反而让「我的设备」给它挂上「还没有开启通知，打开 App 后会
+#: 自动开启」这种兑现不了的提示。等它真接了 APNs 再加
+PUSH_KINDS = ("ios", "android")
 PERMISSIONS = ("authorized", "provisional", "ephemeral", "denied", "not_determined")
 ENVIRONMENTS = ("production", "development")
 #: 实例会发的推送类型（中继还支持别的，但实例目前只用这两种）

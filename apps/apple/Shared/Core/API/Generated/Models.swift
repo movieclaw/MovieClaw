@@ -1409,6 +1409,45 @@ nonisolated extension API {
         }
     }
 
+    struct DeviceCleanupItem: Codable, Hashable, Sendable {
+        /// 设备 ID（与设备列表同一套）
+        var id: String
+        /// 设备名
+        var name: String
+        /// 主人的昵称
+        var ownerNickname: String
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case name
+            case ownerNickname = "owner_nickname"
+        }
+    }
+
+    struct DeviceCleanupRequest: Codable, Hashable, Sendable {
+        /// 注销多少天没用过的设备
+        var inactiveDays: Int
+        /// 超管：清理全部成员的设备（否则只清自己的）
+        var all: Bool?
+        /// 只列出会被注销的设备，不真的注销
+        var dryRun: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case inactiveDays = "inactive_days"
+            case all
+            case dryRun = "dry_run"
+        }
+    }
+
+    struct DeviceCleanupView: Codable, Hashable, Sendable {
+        /// 会被（或已被）注销的设备
+        var devices: [API.DeviceCleanupItem]
+
+        enum CodingKeys: String, CodingKey {
+            case devices
+        }
+    }
+
     /// 原生 App 登录时自报的设备信息。
     struct DeviceClientInfo: Codable, Hashable, Sendable {
         /// App 平台

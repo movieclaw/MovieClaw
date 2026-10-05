@@ -21,6 +21,7 @@ struct DevicesSettingsView: View {
     @State private var showAll = false
     @State private var busy: String?
     @State private var error: String?
+    @State private var cleaning = false
 
     // 手工令牌
     @State private var tokenStage: TokenStage = .idle
@@ -50,6 +51,7 @@ struct DevicesSettingsView: View {
                 }
             }
             devicesSections
+            cleanupEntry
             if permissions.isAdmin { manualTokenSection }
         }
         .scrollDismissesKeyboard(.immediately)
@@ -62,6 +64,14 @@ struct DevicesSettingsView: View {
             if permissions.isAdmin, let config = try? await api.appShow() { externalUrl = config.externalUrl }
         }
         .refreshable { await load() }
+        .sheet(isPresented: $cleaning) {
+            DeviceCleanupSheet(all: showAll) { message in
+                cleaning = false
+                feedback.success(message)
+                Task { await load() }
+            }
+            .sheetFeedback()
+        }
     }
 
     private func load() async {
@@ -91,6 +101,29 @@ struct DevicesSettingsView: View {
                 }
             }
             .accessibilityIdentifier("devices-approve-entry")
+        }
+    }
+
+    // MARK: 清理
+
+    /// 「清理长期没用的设备」：一次注销 N 天没用过的设备（本机、连着的转码器不清）。
+    /// 只有本机一台时没东西可清，不出现
+    @ViewBuilder
+    private var cleanupEntry: some View {
+        if let list = devices.value, list.contains(where: { !$0.current }) {
+            Section {
+                Button {
+                    cleaning = true
+                } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: "sparkles").font(.body).foregroundStyle(Theme.textMuted).frame(width: 36)
+                        Text(showAll ? "清理全部成员长期没用的设备" : "清理长期没用的设备").foregroundStyle(Theme.text)
+                        Spacer()
+                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.textFaint)
+                    }
+                }
+                .accessibilityIdentifier("devices-cleanup-entry")
+            }
         }
     }
 
@@ -137,35 +170,40 @@ struct DevicesSettingsView: View {
         }
     }
 
+    /// 一行设备：图标（在线时右下角亮绿点）+ 名字 + 系统与版本 + 最近活跃 + 提示，⋯ 菜单贴右上角。
+    /// 说明文字只在整段之间换行（见 DeviceText.metaLine）；分隔线统一从文字列开始，不随提示行左右跳
     private func deviceRow(_ device: API.LoginDeviceView) -> some View {
-        let live = DeviceText.isLive(device)
-        return HStack(spacing: 12) {
-            SettingsStatusDot(color: live ? Theme.success : Color.white.opacity(0.25), glow: live)
+        HStack(alignment: .top, spacing: 12) {
+            DeviceBadge(symbol: DeviceText.symbol(device), live: DeviceText.isLive(device))
             VStack(alignment: .leading, spacing: 3) {
-                HStack(spacing: 6) {
-                    Text(device.name).font(.body.weight(.medium)).lineLimit(1)
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(device.name).font(.body.weight(.medium)).lineLimit(2)
                     if device.current {
                         Text("本机")
                             .font(.caption2.weight(.semibold))
                             .foregroundStyle(Theme.accent)
                             .padding(.horizontal, 6).padding(.vertical, 2)
                             .background(Theme.accentSoft, in: .capsule)
+                            .fixedSize()
                     }
                 }
-                Text(DeviceText.summary(device, showOwner: showAll))
-                    .font(.caption).foregroundStyle(Theme.textFaint).lineLimit(2)
-                // App 收不到推送时说一句为什么（能收到就不提，docs/design/cloud-push.md §7.3）
-                if let push = device.push, push.status != "ok" {
-                    Label(push.statusText, systemImage: "bell.slash")
-                        .font(.caption).foregroundStyle(Theme.warning)
-                        .accessibilityIdentifier("device-push-\(device.name)")
+                ForEach([DeviceText.identityParts(device, showOwner: showAll), DeviceText.activityParts(device)], id: \.self) { parts in
+                    if !parts.isEmpty {
+                        Text(DeviceText.metaLine(parts)).font(.caption).foregroundStyle(Theme.textFaint)
+                    }
                 }
                 if DeviceText.isDormant(device) {
-                    Text("超过 90 天没有用过，不认识或不再用的设备可以注销")
-                        .font(.caption).foregroundStyle(Theme.warning)
+                    rowNote("clock", "超过 90 天没有用过，不认识或不再用的设备可以注销", color: Theme.warning)
+                }
+                // App 收不到推送时说一句为什么（能收到就不提，docs/design/cloud-push.md §7.3）
+                if let push = device.push, push.status != "ok" {
+                    rowNote("bell.slash", push.statusText, color: push.status == "not_registered" ? Theme.textMuted : Theme.warning)
+                        .accessibilityIdentifier("device-push-\(device.name)")
                 }
             }
-            Spacer(minLength: 8)
+            .padding(.top, 1)
+            .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
+            Spacer(minLength: 4)
             Menu {
                 if device.renamable {
                     Button("改名", systemImage: "pencil") { Task { await rename(device) } }
@@ -174,10 +212,10 @@ struct DevicesSettingsView: View {
                     Task { await revoke(device) }
                 }
             } label: {
-                Image(systemName: "ellipsis.circle")
-                    .font(.title3)
+                Image(systemName: "ellipsis")
+                    .font(.body.weight(.semibold))
                     .foregroundStyle(Theme.textMuted)
-                    .frame(width: 36, height: 36)
+                    .frame(width: 32, height: 28)
                     .contentShape(Rectangle())
             }
             .disabled(busy == device.id)
@@ -186,6 +224,16 @@ struct DevicesSettingsView: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("device-row-\(device.name)")
+    }
+
+    private func rowNote(_ symbol: String, _ text: String, color: Color) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 5) {
+            Image(systemName: symbol).font(.caption2)
+            Text(text)
+        }
+        .font(.caption)
+        .foregroundStyle(color)
+        .padding(.top, 2)
     }
 
     private func rename(_ device: API.LoginDeviceView) async {
@@ -455,17 +503,48 @@ enum DeviceText {
         body: "给命令行模式（Headless）的转码器用：只能连转码链路，不能查看或修改你的订阅、媒体库和设置。令牌不会自动过期，只能在这里注销。"
     )
 
-    /// 设备行的说明：「iOS App · iOS 26.0 · iPhone18,4 · 版本 0.28 · 3 分钟前 · 192.168.1.20」，全部成员视图前面带上主人
-    static func summary(_ device: API.LoginDeviceView, showOwner: Bool) -> String {
+    /// 行首图标：形态一眼可辨，说明行里就不再重复「iOS App」「浏览器」
+    static func symbol(_ device: API.LoginDeviceView) -> String {
+        if device.kind == "worker" || device.scope == "transcode" { return "cpu" }
+        switch device.kind {
+        case "ios", "android": return "iphone"
+        case "tvos": return "appletv"
+        case "macos": return "laptopcomputer"
+        case "web": return "globe"
+        case "jellyfin": return "play.rectangle"
+        default: return "terminal"
+        }
+    }
+
+    /// 第一行说明：系统、型号、版本（全部成员视图前面带上主人）。浏览器、带系统信息的 App 由图标说明形态，
+    /// 不再写类型名；命令行、令牌、播放器这类图标说不清的照写（同 Web devices-display.ts identityParts）
+    static func identityParts(_ device: API.LoginDeviceView, showOwner: Bool) -> [String] {
         var parts: [String] = []
         if showOwner { parts.append(device.ownerNickname) }
-        parts.append(device.kindLabel)
+        let platform = (device.platform ?? "").components(separatedBy: " · ")
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let isApp = ["ios", "tvos", "macos", "android"].contains(device.kind)
+        if device.kind != "web", !(isApp && !platform.isEmpty) { parts.append(device.kindLabel) }
         if device.scope == "transcode", device.kind != "worker" { parts.append("仅转码") }
-        if let platform = device.platform { parts.append(platform) }
+        parts += platform
         if let version = device.clientVersion { parts.append("版本 \(version)") }
-        parts.append(device.current ? "正在使用" : activity(device))
+        return parts
+    }
+
+    /// 第二行说明：正在使用 / 最近活跃、来源 IP
+    static func activityParts(_ device: API.LoginDeviceView) -> [String] {
+        var parts = [device.current ? "正在使用" : activity(device)]
         if let ip = device.lastSeenIp { parts.append(ip) }
-        return parts.joined(separator: " · ")
+        return parts
+    }
+
+    /// 把几段说明拼成一行：段内字符用 U+2060（不断行）连住，分隔点用不换行空格贴在前一段末尾，
+    /// 窄屏只会在「· 」之后换行——不会把「2026/10/05」拆开，也不会出现以点开头的行
+    static func metaLine(_ parts: [String]) -> String {
+        parts.map { part in
+            part.map { $0 == " " ? "\u{00A0}" : String($0) }.joined(separator: "\u{2060}")
+        }
+        .joined(separator: "\u{00A0}· ")
     }
 
     /// 靠长连接在线的转码器（配对来的 worker，或「仅限转码」的手工令牌）
@@ -492,5 +571,113 @@ enum DeviceText {
     static func isDormant(_ device: API.LoginDeviceView, now: Date = .now) -> Bool {
         guard !device.current, let seen = Formatters.date(device.lastSeenAt ?? device.createdAt) else { return false }
         return now.timeIntervalSince(seen) > 90 * 24 * 3600
+    }
+}
+
+// MARK: - 行首图标
+
+/// 设备图标；在线时右下角亮一个绿点（不在线不画，灰点只是噪音）
+private struct DeviceBadge: View {
+    let symbol: String
+    let live: Bool
+
+    var body: some View {
+        Image(systemName: symbol)
+            .font(.system(size: 17, weight: .regular))
+            .foregroundStyle(Theme.textMuted)
+            .frame(width: 36, height: 36)
+            .background(Color.white.opacity(0.07), in: .rect(cornerRadius: 10))
+            .overlay(alignment: .bottomTrailing) {
+                if live {
+                    Circle()
+                        .fill(Theme.success)
+                        .frame(width: 9, height: 9)
+                        .overlay(Circle().strokeBorder(Color.black.opacity(0.85), lineWidth: 2).padding(-2))
+                        .shadow(color: Theme.success.opacity(0.6), radius: 4)
+                        .offset(x: 2, y: 2)
+                        .accessibilityLabel("在线")
+                }
+            }
+    }
+}
+
+// MARK: - 清理长期没用的设备
+
+/// 选多少天没用过，先让服务端列出会注销哪几台（dry_run），看清了再一次注销。清理就是注销——
+/// 被清掉的要重新登录或配对，所以名单摆在确认按钮前面。本机与连着的转码器服务端永远不清
+/// （同 Web devices-section.tsx CleanupDialog）
+private struct DeviceCleanupSheet: View {
+    let all: Bool
+    let onDone: (String) -> Void
+    @Environment(\.api) private var api
+    @Environment(Feedback.self) private var feedback
+    @State private var days = 30
+    @State private var preview: Loadable<[API.DeviceCleanupItem]> = .loading
+    @State private var busy = false
+
+    var body: some View {
+        let count = preview.value?.count ?? 0
+        SettingsSheetScaffold(
+            title: "清理设备",
+            confirmTitle: count > 0 ? "注销 \(count) 台" : "注销",
+            confirmDisabled: count == 0,
+            busy: busy,
+            confirmIdentifier: "devices-cleanup-submit",
+            onConfirm: { Task { await submit() } }
+        ) {
+            Section {
+                Picker("多久没用过", selection: $days) {
+                    ForEach([7, 30, 90], id: \.self) { Text("\($0) 天").tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .accessibilityIdentifier("devices-cleanup-days")
+            } header: {
+                Text("多久没用过")
+            } footer: {
+                Text(all ? "清理全部成员的设备。被注销的要重新登录或配对才能再用；正在用的这台、连着的转码器不会被清理。"
+                    : "被注销的要重新登录或配对才能再用；正在用的这台、连着的转码器不会被清理。")
+            }
+            Section {
+                switch preview {
+                case .loading:
+                    SettingsLoadingRow()
+                case let .failed(message):
+                    Text(message).font(.subheadline).foregroundStyle(Theme.danger)
+                case let .loaded(items) where items.isEmpty:
+                    Text("没有超过 \(days) 天没用过的设备").foregroundStyle(Theme.textMuted)
+                case let .loaded(items):
+                    ForEach(items, id: \.id) { item in
+                        HStack {
+                            Text(item.name).lineLimit(1)
+                            Spacer()
+                            if all { Text(item.ownerNickname).font(.caption).foregroundStyle(Theme.textFaint) }
+                        }
+                    }
+                }
+            } header: {
+                if let items = preview.value, !items.isEmpty { Text("将注销 \(items.count) 台") }
+            }
+        }
+        .task(id: days) { await load() }
+    }
+
+    private func load() async {
+        preview = .loading
+        do {
+            preview = .loaded(try await api.authDevicesCleanup(body: .init(inactiveDays: days, all: all, dryRun: true)).devices)
+        } catch {
+            preview = .failed(error.localizedDescription)
+        }
+    }
+
+    private func submit() async {
+        busy = true
+        defer { busy = false }
+        do {
+            let result = try await api.authDevicesCleanup(body: .init(inactiveDays: days, all: all, dryRun: false))
+            onDone("已注销 \(result.devices.count) 台设备")
+        } catch {
+            feedback.error(error)
+        }
     }
 }

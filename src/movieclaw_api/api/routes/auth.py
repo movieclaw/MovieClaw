@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import timedelta
 
 from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
 from fastapi.responses import FileResponse
@@ -58,6 +59,9 @@ from movieclaw_api.schemas.auth import (
     DeviceAuthorizeRequest,
     DeviceAuthorizeView,
     DeviceBrief,
+    DeviceCleanupItem,
+    DeviceCleanupRequest,
+    DeviceCleanupView,
     DeviceLoginRequest,
     DeviceLoginView,
     DevicePushView,
@@ -89,6 +93,7 @@ from movieclaw_api.settings import (
 )
 from movieclaw_db.engine import get_database, get_session
 from movieclaw_db.models import JellyfinDevice
+from movieclaw_db.models.base import utcnow
 from movieclaw_db.models.login_device import LoginDevice
 from movieclaw_db.models.member import Member
 
@@ -1058,6 +1063,10 @@ async def list_devices(
     from movieclaw_api.services.push.channels import load_channels
 
     push_channels = await load_channels()
+    # 服务器自己没开推送（没连 MovieClaw Cloud、也没有自建中继）是整台服务器的事，「通知」页
+    # 已经说了；不在每台手机下面重复挂一行「没有可用的推送通道」
+    if not any(channel.usable for channel in push_channels):
+        push_channels = None
     views = [
         _device_view(
             row,
@@ -1076,6 +1085,80 @@ async def list_devices(
     )
     views.sort(key=_sort_key)
     return ok(views)
+
+
+@router.post(
+    "/devices/cleanup",
+    response_model=ApiResponse[DeviceCleanupView],
+    summary="清理长期没用的设备：一次注销多少天没用过的设备",
+    operation_id="auth.devices.cleanup",
+    openapi_extra={"x-cli-dangerous": "confirm", "x-cli-hidden": True},
+)
+async def cleanup_devices(
+    payload: DeviceCleanupRequest,
+    principal: Principal = Depends(require_interactive),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[DeviceCleanupView]:
+    """按最近活跃（没有就按签发时间）挑出超过 ``inactive_days`` 天没用过的设备并注销。
+
+    正在用的这台、此刻连着的转码器永远不清。``dry_run`` 只列出来，给界面的确认框用——
+    清理就是注销，被清掉的设备要重新登录，确认前得让人看清是哪几台。
+    """
+    from sqlalchemy import select
+
+    from movieclaw_api.services.playback_activity import revoke_device as revoke_player
+
+    if payload.all and not principal.is_admin:
+        raise ForbiddenException("只有管理员能清理全部成员的设备")
+    owner_filter = None if payload.all else principal.owner_id
+    cutoff = utcnow() - timedelta(days=payload.inactive_days)
+    owners = await _owner_labels(session)
+    connected = _connected_device_ids()
+    current_id = principal.device.id if principal.device is not None else None
+    logins = [
+        row
+        for row in await login_devices.list_devices(session, member_id=owner_filter)
+        if row.id != current_id
+        and row.id not in connected
+        and (row.last_seen_at or row.created_at) < cutoff
+    ]
+    stmt = select(JellyfinDevice)
+    if owner_filter is not None:
+        stmt = stmt.where(JellyfinDevice.member_id == owner_filter)
+    players = [
+        row
+        for row in (await session.execute(stmt)).scalars()
+        if (row.last_seen_at or row.created_at) < cutoff
+    ]
+    items = [
+        DeviceCleanupItem(
+            id=login_devices.playback_device_id(row.id or 0),
+            name=row.name,
+            owner_nickname=owners.get(row.member_id, ("", "已删除的成员"))[1],
+        )
+        for row in logins
+    ] + [
+        DeviceCleanupItem(
+            id=f"jf-{row.id}",
+            name=row.device_name or row.client or "播放器",
+            owner_nickname=owners.get(row.member_id, ("", "已删除的成员"))[1],
+        )
+        for row in players
+    ]
+    if payload.dry_run:
+        return ok(DeviceCleanupView(devices=items))
+    for row in logins:
+        await login_devices.revoke(session, row)
+    for row in players:
+        await revoke_player(session, row.device_id)
+    if items:
+        logger.info("清理了 %d 台 %d 天没用过的设备", len(items), payload.inactive_days)
+    message = (
+        f"已注销 {len(items)} 台设备"
+        if items
+        else f"没有超过 {payload.inactive_days} 天没用过的设备"
+    )
+    return ok(DeviceCleanupView(devices=items), message=message)
 
 
 @router.get(

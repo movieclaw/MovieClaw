@@ -1,36 +1,52 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 
 import { CopyButton } from "@/components/copy-button";
 import { useConfirm, usePrompt, useToast } from "@/components/feedback";
 import {
+  BellIcon,
   CheckIcon,
   ChevronRightIcon,
+  ClockIcon,
   DeviceIcon,
+  GlobeIcon,
   InfoIcon,
-  PencilIcon,
+  MoreIcon,
+  PhoneIcon,
+  PlayIcon,
   PlusIcon,
+  ServerIcon,
   TerminalIcon,
+  TvIcon,
 } from "@/components/icons";
+import { Modal } from "@/components/modal";
 import { reloadAfterAccountChange } from "@/lib/account-reload";
 import { getAppConfig } from "@/lib/api/app";
 import { logout } from "@/lib/api/auth";
 import {
+  type DeviceCleanupItem,
   type LoginDeviceView,
+  cleanupLoginDevices,
   createDeviceToken,
   listLoginDevices,
   renameLoginDevice,
   revokeLoginDevice,
 } from "@/lib/api/devices";
 import {
+  CLEANUP_DAY_OPTIONS,
+  DEFAULT_CLEANUP_DAYS,
+  type DeviceGlyph,
   STALE_AFTER_DAYS,
+  deviceGlyph,
   envSnippet,
   grantBadge,
   groupDevices,
   headlessArgs,
+  identityParts,
   activityLabel,
   deviceLive,
   isStale,
@@ -72,6 +88,7 @@ export function DevicesSection() {
   const [devices, setDevices] = useState<LoginDeviceView[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [cleaning, setCleaning] = useState(false);
   // 写操作后递增它来重拉列表；拉取放在 effect 里并丢弃过期响应——快速来回切
   // 「只看我的 / 全部成员」时，晚到的旧响应不能盖掉新视图
   const [reloadTick, setReloadTick] = useState(0);
@@ -199,16 +216,26 @@ export function DevicesSection() {
           <h2 className="text-caption font-semibold uppercase tracking-wider text-[var(--text-faint)]">
             {scope === "all" ? "全部成员的设备" : "我的设备"}
           </h2>
-          {isAdmin && (
-            <ScopeToggle
-              value={scope}
-              onChange={(next) => {
-                if (next === scope) return;
-                setDevices(null);
-                setScope(next);
-              }}
-            />
-          )}
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setCleaning(true)}
+              disabled={!devices?.some((device) => !device.current)}
+              className="rounded-full px-3 py-1 text-sub font-medium text-[var(--text-muted)] transition-colors hover:bg-white/[0.07] hover:text-[var(--text)] disabled:opacity-40"
+            >
+              清理…
+            </button>
+            {isAdmin && (
+              <ScopeToggle
+                value={scope}
+                onChange={(next) => {
+                  if (next === scope) return;
+                  setDevices(null);
+                  setScope(next);
+                }}
+              />
+            )}
+          </div>
         </div>
 
         {loadError ? (
@@ -244,6 +271,9 @@ export function DevicesSection() {
       </section>
 
       {isAdmin && <ManualTokenSection onCreated={reload} />}
+      {cleaning && (
+        <CleanupDialog all={scope === "all"} onClose={() => setCleaning(false)} onCleaned={reload} />
+      )}
     </div>
   );
 }
@@ -282,9 +312,84 @@ function ScopeToggle({
   );
 }
 
+/** 行首图标：形态一眼可辨；在线时右下角亮一个绿点（不在线不画，灰点只是噪音）。 */
+const GLYPH_ICON: Record<
+  DeviceGlyph,
+  (props: { className?: string }) => ReactNode
+> = {
+  phone: PhoneIcon,
+  tv: TvIcon,
+  computer: DeviceIcon,
+  browser: GlobeIcon,
+  terminal: TerminalIcon,
+  transcoder: ServerIcon,
+  player: PlayIcon,
+};
+
+function DeviceBadge({ glyph, live }: { glyph: DeviceGlyph; live: boolean }) {
+  const Icon = GLYPH_ICON[glyph];
+  return (
+    <span className="relative flex size-10 shrink-0 items-center justify-center rounded-xl bg-white/[0.06] text-[var(--text-muted)] max-sm:size-9">
+      <Icon className="size-[18px]" />
+      {live && (
+        <span
+          role="img"
+          aria-label="在线"
+          className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-[var(--ok,#4ade80)] shadow-[0_0_0_2px_rgba(14,15,18,0.95),0_0_8px_rgba(74,222,128,0.55)]"
+        />
+      )}
+    </span>
+  );
+}
+
 /**
- * 设备列表的一行：在线点 + 名字（当前设备 / 权限标注）+ 类型与系统 + 最近活跃、
- * 来源与签发时间 + 改名 / 注销。
+ * 一行说明：每段是一个不折断的整块，窄屏只在块与块之间换行。分隔点画在每块左边，
+ * 整行左移一个点的宽度再裁掉——每一行行首那个点正好落在裁掉的区域里，不会出现
+ * 「· 2026/10/05」这种以点开头的行。
+ */
+function MetaLine({ parts }: { parts: string[] }) {
+  if (parts.length === 0) return null;
+  return (
+    <p className="mt-0.5 overflow-hidden text-caption text-[var(--text-faint)]">
+      <span className="-ml-3 flex flex-wrap">
+        {parts.map((part, index) => (
+          <span
+            key={index}
+            className="relative whitespace-nowrap pl-3 before:absolute before:left-0 before:w-3 before:text-center before:content-['·']"
+          >
+            {part}
+          </span>
+        ))}
+      </span>
+    </p>
+  );
+}
+
+/** 行内提示（长期没用、收不到通知）：小图标 + 一句话，与说明文字同一列对齐。 */
+function RowNote({
+  icon: Icon,
+  color,
+  children,
+}: {
+  icon: (props: { className?: string }) => ReactNode;
+  color: string;
+  children: ReactNode;
+}) {
+  return (
+    <p
+      className="mt-1.5 flex items-start gap-1.5 text-caption"
+      style={{ color }}
+    >
+      <Icon className="mt-[3px] size-3 shrink-0" />
+      <span className="min-w-0">{children}</span>
+    </p>
+  );
+}
+
+/**
+ * 设备列表的一行：图标（带在线点）+ 名字（当前设备 / 权限标注）+ 系统与版本 +
+ * 最近活跃、来源与签发时间 + 提示，操作收在右上角的 ⋯ 菜单里——两颗按钮常驻
+ * 会在手机上吃掉三成宽度，把说明挤成一字一行。
  */
 function DeviceRow({
   device,
@@ -300,34 +405,24 @@ function DeviceRow({
   onRename: () => void;
   onRevoke: () => void;
 }) {
-  const live = deviceLive(device);
   const pushNote = devicePushNote(device.push);
-  const identity = [
-    device.kind_label,
-    device.platform,
-    device.client_version ? `版本 ${device.client_version}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
   const activity = [
-    activityLabel(device),
+    device.current ? "正在使用" : activityLabel(device),
     device.last_seen_ip ? `来自 ${device.last_seen_ip}` : null,
     `${issuedVerb(device.kind, device.family)} ${formatDateTime(device.created_at)}`,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  ].filter((part): part is string => Boolean(part));
 
   return (
-    <div className="flex items-start gap-4 px-5 py-4 first:rounded-t-2xl last:rounded-b-2xl max-sm:gap-3 max-sm:px-4">
-      <span
-        aria-hidden
-        className={`mt-[9px] size-2 shrink-0 rounded-full ${
-          live ? "bg-[var(--ok,#4ade80)] shadow-[0_0_8px_rgba(74,222,128,0.55)]" : "bg-white/25"
-        }`}
+    <div className="flex items-start gap-3.5 px-5 py-4 first:rounded-t-2xl last:rounded-b-2xl max-sm:gap-3 max-sm:px-4">
+      <DeviceBadge
+        glyph={deviceGlyph(device.kind, device.scope)}
+        live={deviceLive(device)}
       />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <p className="min-w-0 truncate text-body font-medium text-[var(--text)]">{device.name}</p>
+          <p className="min-w-0 break-words text-body font-medium text-[var(--text)]">
+            {device.name}
+          </p>
           {device.current && (
             <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-caption font-semibold text-[var(--accent)]">
               当前设备
@@ -342,49 +437,212 @@ function DeviceRow({
         </div>
         {showOwner && (
           <p className="mt-0.5 text-caption text-[var(--text-muted)]">
-            属于 {device.owner_id === 0 ? "我" : `${device.owner_nickname}（@${device.owner_username}）`}
+            属于{" "}
+            {device.owner_id === 0
+              ? "我"
+              : `${device.owner_nickname}（@${device.owner_username}）`}
           </p>
         )}
-        <p className="mt-0.5 text-caption text-[var(--text-faint)]">{identity}</p>
-        <p className="mt-0.5 text-caption text-[var(--text-faint)]">{activity}</p>
+        <MetaLine parts={identityParts(device)} />
+        <MetaLine parts={activity} />
         {isStale(device.last_seen_at, device.created_at) && (
-          <p className="mt-1 text-caption text-[var(--warn)]">
-            已超过 {STALE_AFTER_DAYS} 天没有活跃（不会自动失效），不再使用的话建议注销。
-          </p>
+          <RowNote icon={ClockIcon} color="var(--warn)">
+            已超过 {STALE_AFTER_DAYS}{" "}
+            天没有活跃（不会自动失效），不再使用的话建议注销。
+          </RowNote>
         )}
         {/* App 收不到通知时写一行原因；能收到就什么都不写（docs/design/cloud-push.md §8） */}
         {pushNote && (
-          <p
-            className="mt-1 text-caption"
-            style={{ color: pushNote.tone === "neutral" ? "var(--text-faint)" : TONE_COLOR[pushNote.tone] }}
+          <RowNote
+            icon={BellIcon}
+            color={
+              pushNote.tone === "neutral"
+                ? "var(--text-faint)"
+                : TONE_COLOR[pushNote.tone]
+            }
           >
             {pushNote.text}
-          </p>
+          </RowNote>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-1.5">
-        {device.renamable && (
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
           <button
             type="button"
             disabled={busy}
-            onClick={onRename}
-            aria-label={`给「${device.name}」改名`}
-            title="改名"
-            className="btn-glass !size-8 justify-center !p-0 text-[var(--text-muted)] disabled:opacity-40"
+            aria-label={`管理「${device.name}」`}
+            className="-mr-1.5 -mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] outline-none transition hover:bg-white/[0.08] hover:text-[var(--text)] focus-visible:ring-2 focus-visible:ring-white/60 disabled:opacity-40 data-[state=open]:bg-white/[0.1] data-[state=open]:text-[var(--text)]"
           >
-            <PencilIcon className="size-3.5" />
+            <MoreIcon className="size-[18px]" />
           </button>
-        )}
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onRevoke}
-          className="btn-glass px-3 py-1.5 text-sub font-medium text-[var(--text-muted)] hover:text-[var(--danger)] disabled:opacity-40"
-        >
-          注销
-        </button>
-      </div>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          <DropdownMenu.Content
+            align="end"
+            sideOffset={6}
+            collisionPadding={12}
+            className="menu-surface z-50 min-w-[10rem] p-1"
+          >
+            {device.renamable && (
+              <DropdownMenu.Item
+                onSelect={onRename}
+                className={MENU_ITEM_CLASS}
+              >
+                改名…
+              </DropdownMenu.Item>
+            )}
+            <DropdownMenu.Item
+              onSelect={onRevoke}
+              className={`${MENU_ITEM_CLASS} !text-[var(--danger)] data-[highlighted]:!bg-[rgba(255,107,107,0.12)]`}
+            >
+              {device.current ? "注销并退出登录…" : "注销…"}
+            </DropdownMenu.Item>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
     </div>
+  );
+}
+
+const MENU_ITEM_CLASS =
+  "glass-row nav-item cursor-pointer px-3 py-2 text-ui font-medium outline-none " +
+  "data-[highlighted]:!bg-[var(--glass-fill-hover)] data-[highlighted]:!text-[var(--text)]";
+
+/**
+ * 「清理长期没用的设备」：选多少天没用过，先让服务端列出会注销哪几台（dry_run），
+ * 看清了再一次注销。清理就是注销——被清掉的要重新登录或配对，所以名单必须摆在
+ * 确认按钮上面。本机与此刻连着的转码器服务端永远不清。
+ */
+function CleanupDialog({
+  all,
+  onClose,
+  onCleaned,
+}: {
+  /** 超管在「全部成员」视图里打开：清的是所有人的设备 */
+  all: boolean;
+  onClose: () => void;
+  onCleaned: () => void;
+}) {
+  const toast = useToast();
+  const [days, setDays] = useState<number>(DEFAULT_CLEANUP_DAYS);
+  const [preview, setPreview] = useState<DeviceCleanupItem[] | null>(null);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    setPreview(null);
+    setPreviewError(null);
+    cleanupLoginDevices(days, { all, dryRun: true }).then(
+      ({ devices }) => alive && setPreview(devices),
+      (e: Error) => alive && setPreviewError(e.message),
+    );
+    return () => {
+      alive = false;
+    };
+  }, [days, all]);
+
+  const submit = () => {
+    if (!preview?.length || busy) return;
+    setBusy(true);
+    cleanupLoginDevices(days, { all })
+      .then(({ message }) => {
+        toast.success(message);
+        onCleaned();
+        onClose();
+      })
+      .catch((e: Error) => toast.error(e.message))
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <Modal open onClose={onClose} label="清理长期没用的设备">
+      <div className="p-6 max-md:p-5">
+        <h2 className="text-title-sm font-bold text-white">
+          {all ? "清理全部成员长期没用的设备" : "清理长期没用的设备"}
+        </h2>
+        <p className="mt-2 text-sub leading-6 text-[var(--text-muted)]">
+          一次注销一段时间没用过的设备，被注销的要重新登录或配对才能再用。正在用的这台、连着的转码器不会被清理。
+        </p>
+        <div
+          role="radiogroup"
+          aria-label="多久没用过"
+          className="mt-4 flex flex-wrap gap-1.5"
+        >
+          {CLEANUP_DAY_OPTIONS.map((option) => (
+            <button
+              key={option}
+              type="button"
+              role="radio"
+              aria-checked={option === days}
+              onClick={() => setDays(option)}
+              className={`rounded-full px-3.5 py-1.5 text-sub font-medium transition-colors ${
+                option === days
+                  ? "bg-white/[0.14] text-white"
+                  : "text-[var(--text-muted)] hover:bg-white/[0.07] hover:text-[var(--text)]"
+              }`}
+            >
+              {option} 天没用过
+            </button>
+          ))}
+        </div>
+        <div className="mt-4 max-h-60 overflow-y-auto rounded-xl border border-white/[0.07] bg-white/[0.03] px-4 py-3">
+          {previewError ? (
+            <p className="text-sub text-[var(--danger)]">{previewError}</p>
+          ) : preview === null ? (
+            <p className="text-sub text-[var(--text-faint)]">正在查找…</p>
+          ) : preview.length === 0 ? (
+            <p className="text-sub text-[var(--text-muted)]">
+              没有超过 {days} 天没用过的设备。
+            </p>
+          ) : (
+            <>
+              <p className="text-caption text-[var(--text-faint)]">
+                将注销 {preview.length} 台：
+              </p>
+              <ul className="mt-1.5 space-y-1">
+                {preview.map((item) => (
+                  <li
+                    key={item.id}
+                    className="flex items-baseline justify-between gap-3 text-sub"
+                  >
+                    <span className="min-w-0 truncate text-[var(--text)]">
+                      {item.name}
+                    </span>
+                    {all && (
+                      <span className="shrink-0 text-caption text-[var(--text-faint)]">
+                        {item.owner_nickname}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+        <div className="mt-5 flex justify-end gap-2.5">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-lg border border-white/10 bg-white/[0.06] px-4 py-2 text-ui text-white/80 transition hover:bg-white/[0.1]"
+          >
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!preview?.length || busy}
+            className="rounded-lg bg-red-500/85 px-4 py-2 text-ui font-medium text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {busy
+              ? "注销中…"
+              : preview?.length
+                ? `注销 ${preview.length} 台`
+                : "注销"}
+          </button>
+        </div>
+      </div>
+    </Modal>
   );
 }
 

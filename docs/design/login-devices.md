@@ -113,7 +113,7 @@ Jellyfin 播放器的凭证受协议约束多（令牌格式、同设备覆盖�
 | 成员被停用 / 删除 | 全部下线（行删除，重新启用不复活） | 全部下线 |
 | 成员管理页「全部下线」 | 全部下线 | 全部下线 |
 | 注销某台设备 | 立即失效，并停掉它在播的流与转码会话、断开转码器连接 | 同左 |
-| 长期不用 | 不自动失效（界面可提示） | 同左 |
+| 长期不用 | 不自动失效（界面可提示）；设备页「清理…」可一次注销 N 天没用过的 | 同左（连着的转码器不清） |
 
 - 配对的默认保留：转码器常年无人值守，改个密码就停转码很难排查；怀疑密码泄露时
   应勾选一并注销。
@@ -132,6 +132,7 @@ Jellyfin 播放器的凭证受协议约束多（令牌格式、同设备覆盖�
 | `DELETE /auth/devices/current` | 任何设备凭证 | 注销自己（`mclaw logout`、App 退出、转码器断开配对） |
 | `PATCH /auth/devices/{id}` | 人在操作 | 改名（Jellyfin 播放器不可改名） |
 | `DELETE /auth/devices/{id}` | 人在操作 | 注销（自己的；超管可注销任何人的） |
+| `POST /auth/devices/cleanup` | 人在操作（`all` 仅超管） | 清理：`{inactive_days, all?, dry_run?}`，注销最近活跃（没有就按签发时间）早于 N 天的设备与 Jellyfin 播放器；本机、此刻连着的转码器不清。`dry_run` 只列名单给确认框用 |
 | `GET /auth/devices/requests/{code}` | 人在操作 | 按配对码查看一条待批准请求（含 `requires_admin`） |
 | `POST /auth/devices/requests/{code}/approve\|deny` | 人在操作（转码器需超管） | 批准 / 拒绝 |
 | `POST /auth/tokens` | 超管 + 人在操作 | 手工令牌：`{name, scope: full\|transcode}` |

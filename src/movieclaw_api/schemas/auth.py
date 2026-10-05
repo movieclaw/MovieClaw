@@ -296,3 +296,19 @@ class DeviceLoginView(BaseModel):
 
 class RenameDeviceRequest(BaseModel):
     name: str = Field(min_length=1, max_length=64, description="新的设备名")
+
+
+class DeviceCleanupRequest(BaseModel):
+    inactive_days: int = Field(ge=1, le=3650, description="注销多少天没用过的设备")
+    all: bool = Field(default=False, description="超管：清理全部成员的设备（否则只清自己的）")
+    dry_run: bool = Field(default=False, description="只列出会被注销的设备，不真的注销")
+
+
+class DeviceCleanupItem(BaseModel):
+    id: str = Field(description="设备 ID（与设备列表同一套）")
+    name: str = Field(description="设备名")
+    owner_nickname: str = Field(description="主人的昵称")
+
+
+class DeviceCleanupView(BaseModel):
+    devices: list[DeviceCleanupItem] = Field(description="会被（或已被）注销的设备")

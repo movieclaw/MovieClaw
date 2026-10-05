@@ -175,6 +175,55 @@ export function groupDevices<T extends { kind: string }>(devices: T[]): DeviceGr
   })).filter((group) => group.devices.length > 0);
 }
 
+/** 设备行首的图标。图标已经说明了形态，说明行里就不再重复「iOS App」「浏览器」。 */
+export type DeviceGlyph =
+  | "phone"
+  | "tv"
+  | "computer"
+  | "browser"
+  | "terminal"
+  | "transcoder"
+  | "player";
+
+export function deviceGlyph(kind: string, scope: string): DeviceGlyph {
+  if (kind === "worker" || scope === "transcode") return "transcoder";
+  if (kind === "ios" || kind === "android") return "phone";
+  if (kind === "tvos") return "tv";
+  if (kind === "macos") return "computer";
+  if (kind === "web") return "browser";
+  if (kind === "jellyfin") return "player";
+  return "terminal";
+}
+
+/**
+ * 设备行的第一行说明：系统、型号、版本，每段单独成块（换行只发生在块与块之间）。
+ * 浏览器、带系统信息的 App 由图标说明形态，不再写类型名；命令行、手工令牌、
+ * 播放器这类图标说不清的，类型名照写。
+ */
+export function identityParts(device: {
+  kind: string;
+  kind_label: string;
+  platform: string | null;
+  client_version: string | null;
+}): string[] {
+  const platform = (device.platform ?? "")
+    .split(" · ")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const isApp = deviceGroupKey(device.kind) === "app";
+  const parts =
+    device.kind === "web" || (isApp && platform.length > 0)
+      ? []
+      : [device.kind_label];
+  parts.push(...platform);
+  if (device.client_version) parts.push(`版本 ${device.client_version}`);
+  return parts;
+}
+
+/** 「清理长期没用的设备」可选的天数，默认 30 天。 */
+export const CLEANUP_DAY_OPTIONS = [7, 30, 90] as const;
+export const DEFAULT_CLEANUP_DAYS = 30;
+
 /**
  * 多久没活跃算「可能已经不用了」。只是界面上的一行轻提示——服务端不会因此让
  * 凭证失效（login-devices.md §5「长期不用」），要不要注销由人决定。

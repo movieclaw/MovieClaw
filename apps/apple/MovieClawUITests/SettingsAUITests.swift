@@ -355,6 +355,39 @@ final class SettingsAUITests: XCTestCase {
         snapshot("设备-已吊销")
     }
 
+    /// 清理长期没用的设备：先列名单再注销。默认只看名单、取消退出；真注销只在一次性测试服务器上
+    /// 开（MC_TEST_DESTRUCTIVE_CLEANUP=1），免得把联调服务器上别人的设备清掉
+    @MainActor
+    func testCleanupSheetPreviewsBeforeRevoking() throws {
+        let app = try launch(route: "/settings/devices")
+        guard let probe else { return }
+        XCTAssertTrue(app.buttons["devices-approve-entry"].waitForExistence(timeout: 20))
+        snapshot("设备-列表")
+        tapSafely(app, app.buttons["devices-cleanup-entry"], "清理入口")
+        snapshot("设备-列表底部")
+        let days = app.segmentedControls["devices-cleanup-days"]
+        XCTAssertTrue(days.waitForExistence(timeout: 10), "应打开清理面板")
+        let submit = app.buttons["devices-cleanup-submit"]
+        XCTAssertTrue(submit.waitForExistence(timeout: 10))
+        sleep(2) // 等名单（dry_run）回来
+        snapshot("设备-清理-30天")
+        days.buttons["7 天"].tap()
+        sleep(2)
+        snapshot("设备-清理-7天")
+        days.buttons["30 天"].tap()
+        sleep(2)
+        let before = ((try? probe.getArray("/auth/devices")) ?? []).count
+        if env["MC_TEST_DESTRUCTIVE_CLEANUP"] == "1", submit.isEnabled {
+            submit.tap()
+            XCTAssertTrue(waitUntil(15) { ((try? probe.getArray("/auth/devices")) ?? []).count < before }, "应已注销名单里的设备")
+            XCTAssertFalse(days.waitForExistence(timeout: 3), "注销后面板应关闭")
+            snapshot("设备-清理后")
+        } else {
+            app.buttons["sheet-cancel"].tap()
+            XCTAssertEqual(((try? probe.getArray("/auth/devices")) ?? []).count, before, "取消不应注销任何设备")
+        }
+    }
+
     // MARK: 播放
 
     @MainActor
