@@ -175,7 +175,11 @@ enum DiscReader {
                             clipTimeline: cached.clipTimeline, seekTable: cached.seekTable,
                             dvdTimeMap: cached.dvdTimeMap)
         }
-        guard looksLikeISO9660(reader) else { return try wrapBluRay(reader, selectTitleID: selectTitleID, cacheKey: cacheKey) }
+        guard looksLikeISO9660(reader) else {
+            // [MovieClaw P61] 只有 UDF、没有 ISO9660 桥接卷的 DVD 镜像：按 UDF 读 VIDEO_TS
+            if let dvd = wrapUDFDVD(reader, selectTitleID: selectTitleID, cacheKey: cacheKey) { return dvd }
+            return try wrapBluRay(reader, selectTitleID: selectTitleID, cacheKey: cacheKey)
+        }
         let iso: ISO9660Reader
         do {
             iso = try ISO9660Reader(reader: reader)
@@ -188,15 +192,49 @@ enum DiscReader {
         } catch DiscError.directoryNotFound {
             return try wrapBluRay(reader, selectTitleID: selectTitleID, cacheKey: cacheKey)  // ISO9660 but not a DVD-Video disc (Blu-ray / data disc)
         }
+        if let dvd = wrapDVD(reader, files: files, sectorSize: iso.sectorSize, selectTitleID: selectTitleID, cacheKey: cacheKey) {
+            return dvd
+        }
+        return try wrapBluRay(reader, selectTitleID: selectTitleID, cacheKey: cacheKey)
+    }
+
+    /// [MovieClaw P61] UDF-only DVD-Video 镜像（没有 ISO9660 桥接卷，第 16 扇区直接是 UDF 的 BEA01）：原来只认
+    /// ISO9660 的 DVD，这种盘落到蓝光分支、找不到 BDMV，退回把整个镜像当裸文件解复用，放出来是菜单那几秒。
+    /// VIDEO_TS 改经 UDF 列出（DVD 的 VOB / IFO 在盘上都是连续的一段；分成多段的文件跳过），其余与 ISO9660 同一套
+    static func wrapUDFDVD(_ reader: IOReader, selectTitleID: Int?, cacheKey: String?) -> DiscInfo? {
+        guard looksLikeUDF(reader), let udf = try? UDFReader(reader: reader),
+              let root = try? udf.list(path: []),
+              let dir = root.first(where: { $0.isDir && $0.name.uppercased() == "VIDEO_TS" }),
+              let entries = try? udf.list(path: [dir.name]) else { return nil }
+        let sector = 2048
+        let files: [DiscFile] = entries.compactMap { entry in
+            guard !entry.isDir, let exts = try? udf.extents(of: entry), let first = exts.first,
+                  first.offset % Int64(sector) == 0 else { return nil }
+            // 各段首尾相接才当成一段（录制工具偶尔把一个文件记成几段相邻的区间）
+            var end = first.offset
+            for ext in exts {
+                guard ext.offset == end else { return nil }
+                end += ext.length
+            }
+            return DiscFile(name: entry.name, startSector: Int(first.offset / Int64(sector)), length: Int(end - first.offset))
+        }
+        guard !files.isEmpty else { return nil }
+        EngineLog.emit("[disc] UDF-only DVD-Video image (\(files.count) VIDEO_TS entries)", category: .demux)
+        return wrapDVD(reader, files: files, sectorSize: sector, selectTitleID: selectTitleID, cacheKey: cacheKey)
+    }
+
+    /// DVD 镜像（ISO9660 或 UDF 列出的 VIDEO_TS）：选标题、拼 VOB、cell 折叠表与时间表，存识别缓存
+    private static func wrapDVD(_ reader: IOReader, files: [DiscFile], sectorSize: Int, selectTitleID: Int?,
+                                cacheKey: String?) -> DiscInfo? {
         let readFile: (DiscFile) -> [UInt8] = { file in
-            readAll(reader, [(offset: Int64(file.startSector * iso.sectorSize), length: Int64(file.length))])
+            readAll(reader, [(offset: Int64(file.startSector * sectorSize), length: Int64(file.length))])
         }
         guard let set = dvdTitleSet(files: files, selectTitleID: selectTitleID, readFile: readFile) else {
-            return try wrapBluRay(reader, selectTitleID: selectTitleID, cacheKey: cacheKey)
+            return nil
         }
         let (titles, selectedIndex) = (set.titles, set.selectedIndex)
         let extents = set.vobs.map {
-            (offset: Int64($0.startSector * iso.sectorSize), length: Int64($0.length))
+            (offset: Int64($0.startSector * sectorSize), length: Int64($0.length))
         }
         let (cellTimeline, timeMap) = set.selectedIFO.map(dvdCellTimeline) ?? ([], nil)
         storeRecognition(cacheKey: cacheKey, selectTitleID: selectTitleID,

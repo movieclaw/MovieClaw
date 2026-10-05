@@ -12,7 +12,9 @@
 
 放法与刷片完全一样（``mode=seek``：自研引擎从原片中间起播），返回同一个 ``ReelItemView``，
 App 用同一个播放器放。预告不开字幕：大图左下角压着片名与简介，底部再出一行字幕就乱了。
-挑不出来（原盘、strm、读不出索引）返回 None，App 保持剧照。
+各种片源都能放：Matroska / MP4 读容器索引，原盘目录与光盘镜像读盘上结构，其余（TS、AVI、
+网盘 strm……）按台账片长挑、起点交给引擎定位（segments.index_for）。连片长都没有才返回 None，
+App 保持剧照。
 """
 
 from __future__ import annotations
@@ -118,14 +120,13 @@ async def _recap(
     chosen = choose_file(unit_files, "movie")
     if chosen is None:
         return None
-    index = await _index_of(chosen)
-    if index is None or not index.keyframes:
-        return None
+    index = await _index_of(_file_ref(chosen, kind))
     end_ms = state.position_ms
-    if index.duration_s:
+    if index is not None and index.duration_s:
         end_ms = min(end_ms, int(index.duration_s * 1000))
     target_s = max(0.0, (end_ms - RECAP_MS) / 1000)
-    times = [k.time_s for k in index.keyframes]
+    # 有关键帧表就往前对齐到关键帧（引擎从关键帧起播不用先解前面的帧）；没有就原样交给引擎定位
+    times = [k.time_s for k in index.keyframes] if index is not None else []
     i = bisect_right(times, target_s + 1e-3) - 1
     start_s = times[i] if i >= 0 and target_s - times[i] <= KEYFRAME_SNAP_S else target_s
     start_ms = int(round(start_s * 1000))
@@ -137,21 +138,21 @@ async def _recap(
         end_ms=end_ms,
         method="resume",
         score=0.0,
-        prefetch=prefetch_for(index, start_s),
+        prefetch=prefetch_for(index, start_s) if index is not None else (),
         cover=None,
     )
     return ReelCandidate(media_item_id, kind, chosen, segment)
 
 
-async def _index_of(file: LibraryFile) -> ContainerIndex | None:
-    key = (file.file_path, file.size_bytes, file.file_mtime_ns)
+async def _index_of(ref: segments.FileRef) -> ContainerIndex | None:
+    key = (ref.path, ref.size_bytes, ref.mtime_ns)
     if key in _index_cache:
         _index_cache.move_to_end(key)
         return _index_cache[key]
     try:
-        index = await asyncio.to_thread(segments.read_container_index, file.file_path)
-    except Exception:  # noqa: BLE001 —— 读坏了只是这部没有回忆，退回挑点
-        logger.warning("大图预告读容器索引失败：%s", file.file_path, exc_info=True)
+        index = await asyncio.to_thread(segments.index_for, ref)
+    except Exception:  # noqa: BLE001 —— 读坏了只是起点不对齐关键帧，照样放回忆
+        logger.warning("大图预告读索引失败：%s", ref.path, exc_info=True)
         return None
     _index_cache[key] = index
     while len(_index_cache) > INDEX_CACHE_SIZE:

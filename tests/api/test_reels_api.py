@@ -213,8 +213,8 @@ def test_feed_draws_one_item_per_title_from_movie_and_tv_libraries(client, tmp_p
     ids = seed(client, tmp_path)
     data = feed(client, limit=10)
     got = {item["title"]["media_item_id"] for item in data["items"]}
-    # 原盘（一期不支持）、读不出索引的片、非电影 / 剧集库的条目都不出现；剧只出一条
-    assert got == {*ids["movies"], ids["show"]}
+    # 各种片源都能刷（原盘、读不出索引的片按台账片长挑）；非电影 / 剧集库的条目不出现；剧只出一条
+    assert got == {*ids["movies"], ids["show"], ids["disc"], ids["broken"]}
     assert data["has_more"] is False
     assert isinstance(data["seed"], int)
 
@@ -361,12 +361,60 @@ def test_dark_first_frame_moves_start_to_a_later_keyframe(client, tmp_path):
     assert start_ms >= 1785_000 + 4_000
 
 
+def test_sources_without_an_index_are_picked_by_ledger_duration(client, tmp_path):
+    ids = seed(client, tmp_path, movies=0, episodes=0)
+    items = {i["title"]["media_item_id"]: i for i in feed(client)["items"]}
+    assert set(items) == {ids["disc"], ids["broken"]}
+
+    # 原盘目录：按台账片长挑（这里的「原盘」读不出盘上结构），交给引擎按目录清单读
+    disc = items[ids["disc"]]
+    assert disc["segment"]["method"] == "position"
+    assert disc["play"]["disc"] == "folder"
+    assert disc["play"]["prefetch"] == []
+    # 光盘的字幕清单与盘内轨对不上序号，不开字幕；封面抓不了，用剧照（这里没有剧照）
+    assert disc["play"]["subtitle"] is None
+    assert disc["cover_url"] is None
+
+    # 读不出容器索引的普通文件：同样按片长挑，起点交给引擎定位，封面照样从起点抓
+    broken = items[ids["broken"]]
+    assert broken["segment"]["method"] == "position"
+    assert broken["play"]["disc"] is None
+    assert broken["play"]["prefetch"] == []
+    assert "/reels/" in broken["cover_url"]
+    lo, hi = 3600 * 0.05, 3600 * 0.75 - 45
+    assert broken["segment"]["start_ms"] == round((lo + (hi - lo) / 3) * 1000)
+
+
 def test_unsupported_file_is_remembered(client, tmp_path):
     ids = seed(client, tmp_path, movies=0, episodes=0)
-    assert feed(client)["items"] == []
+    client.portal.call(partial(_clear_duration, ids["broken"]))  # type: ignore[attr-defined]
+    got = {i["title"]["media_item_id"] for i in feed(client)["items"]}
+    assert ids["broken"] not in got
     records = [json.loads(p.read_text()) for p in (tmp_path / "reels-cache").glob("*.json")]
-    assert any("unsupported" in r for r in records)
-    assert ids["broken"]
+    assert any(r.get("uv") == segments.UNSUPPORTED_VERSION for r in records if "unsupported" in r)
+
+
+def test_old_unsupported_records_are_recomputed(client, tmp_path):
+    """放宽能挑的片源后，以前判成「挑不了」的记录（没有 uv）作废重算；挑好的不动。"""
+    ids = seed(client, tmp_path, movies=0, episodes=0)
+    feed(client)
+    cache = tmp_path / "reels-cache"
+    for path in cache.glob("*.json"):
+        record = json.loads(path.read_text())
+        record.pop("segment", None)
+        record["unsupported"] = "旧规则：容器不支持"
+        path.write_text(json.dumps(record))
+    got = {i["title"]["media_item_id"] for i in feed(client)["items"]}
+    assert got == {ids["disc"], ids["broken"]}
+
+
+async def _clear_duration(item_id: int) -> None:
+    async with get_database().session() as session:
+        for row in (
+            await session.execute(select(LibraryFile).where(LibraryFile.media_item_id == item_id))
+        ).scalars():
+            row.duration_seconds = None
+        await session.commit()
 
 
 def test_member_only_sees_visible_libraries(client, tmp_path):
@@ -843,13 +891,28 @@ def test_preview_for_a_series_resumes_that_episode_or_falls_back_to_episode_two(
     assert preview(client, show)["title"]["episode"]["episode"] == 2  # type: ignore[index]
 
 
+def test_preview_plays_any_source(client, tmp_path):
+    ids = seed(client, tmp_path, movies=0, episodes=0)
+    disc = preview(client, ids["disc"])
+    assert disc is not None and disc["play"]["disc"] == "folder"
+    assert disc["play"]["subtitle"] is None
+    # 读不出索引的片：回忆照样从续播点往前倒 30 秒，不对齐关键帧（交给引擎定位）
+    client.portal.call(partial(_set_positions, [(ids["broken"], 0, 0, 600_000, False)]))  # type: ignore[attr-defined]
+    recap = preview(client, ids["broken"], source="resume")
+    assert recap is not None
+    assert recap["segment"]["method"] == "resume"
+    assert (recap["segment"]["start_ms"], recap["segment"]["end_ms"]) == (570_000, 600_000)
+    assert recap["play"]["prefetch"] == []
+
+
 def test_preview_is_null_when_nothing_can_be_played(client, tmp_path):
     ids = seed(client, tmp_path, movies=0, episodes=0)
-    # 原盘（一期不支持的容器）与读不出索引的片：保持剧照
-    assert preview(client, ids["disc"]) is None
+    # 读不出索引、台账也没有片长：保持剧照（回忆照样能放——它只要续播点）
+    client.portal.call(partial(_clear_duration, ids["broken"]))  # type: ignore[attr-defined]
     assert preview(client, ids["broken"]) is None
     client.portal.call(partial(_set_positions, [(ids["broken"], 0, 0, 600_000, False)]))  # type: ignore[attr-defined]
-    assert preview(client, ids["broken"], source="resume") is None
+    recap = preview(client, ids["broken"], source="resume")
+    assert recap is not None and recap["segment"]["start_ms"] == 570_000
 
 
 def test_preview_respects_member_visibility(client, tmp_path):

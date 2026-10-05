@@ -8120,6 +8120,8 @@ nonisolated extension API {
         var streamUrl: String?
         /// seek：原片大小（片源字节缓存的键要用）
         var sizeBytes: Int?
+        /// seek：光盘的交付方式（同正片会话 decision.disc）——image=光盘镜像，stream_url 是镜像原字节；folder=原盘目录（BDMV / VIDEO_TS），按 GET /playback/files/{file_id}/disc 的清单（含主播放列表）逐个文件取；None=普通文件
+        var disc: String?
         /// seek：起播音轨的同类型序号
         var audioOrdinal: Int?
         /// seek：要显示的中文字幕；None 不开
@@ -8131,6 +8133,7 @@ nonisolated extension API {
             case mode
             case streamUrl = "stream_url"
             case sizeBytes = "size_bytes"
+            case disc
             case audioOrdinal = "audio_ordinal"
             case subtitle
             case prefetch

@@ -51,6 +51,9 @@ CHAPTER_SNAP_S = 20.0
 #: 一条字幕按最多占多久估算（只知道事件时间、不知道每句多长时的保守估计）
 SPEECH_HOLD_S = 3.0
 
+#: 关键帧字节位置就是取流地址上的位置、能给 App 预取范围的索引（``ContainerIndex.container``）
+INDEXED_CONTAINERS = ("matroska", "mp4")
+
 #: 预取：起点后多少秒的数据；文件头 / 索引 / 起点段各自的上限
 PREFETCH_START_SECONDS = 4.0
 HEAD_CAP_BYTES = 32 << 20
@@ -75,7 +78,7 @@ class ByteRange:
 class SegmentPick:
     """挑出来的一段。时间都在原片时间轴上（秒）。"""
 
-    start_s: float  # 落在关键帧上，引擎从这里起播不需要先解前面的帧
+    start_s: float  # 有关键帧表时落在关键帧上，引擎从这里起播不需要先解前面的帧
     end_s: float
     method: str  # bitrate / chapter / position
     #: method=bitrate 时是所选窗口码率 ÷ 窗口码率中位数；其余为 0
@@ -98,10 +101,11 @@ def pick_segment(
     片子太短（放不下最短片段）或没有关键帧时返回 None。
     """
     duration = index.duration_s or (duration_s or 0.0)
-    keyframes = index.keyframes
-    if duration < MIN_S + 5 or len(keyframes) < 2:
+    if duration < MIN_S + 5:
         return None
-    times = [k.time_s for k in keyframes]
+    # 没有关键帧表（TS / AVI / DVD 这类读不出索引的片源）：按时间挑，起点交给 App 引擎
+    # 定位到最近的关键帧——码率信号与「落在关键帧上」都没有，章节与固定位置照用
+    times = [k.time_s for k in index.keyframes] if len(index.keyframes) >= 2 else []
     speech = sorted(speech_events) if speech_events else []
 
     lo_ratio, hi_ratio = REGION.get(kind, REGION["movie"])
@@ -112,7 +116,9 @@ def pick_segment(
     latest_start = max(lo, hi - TARGET_S) if hi - lo >= TARGET_S else lo
 
     method, score, target = _choose_target(index, times, lo, latest_start)
-    start = _snap_start(index, times, speech, target, lo, max(latest_start, lo))
+    start = target
+    if times:
+        start = _snap_start(index, times, speech, target, lo, max(latest_start, lo))
     end = _choose_end(speech, start, duration)
     return SegmentPick(
         start_s=round(start, 3),
@@ -277,7 +283,13 @@ def _choose_end(speech: list[float], start: float, duration: float) -> float:
 def _prefetch_ranges(
     index: ContainerIndex, times: list[float], start: float
 ) -> tuple[ByteRange, ...]:
-    """App 要预取的三段：文件头、索引、起点后约 4 秒。"""
+    """App 要预取的三段：文件头、索引、起点后约 4 秒。
+
+    只有 Matroska / MP4：光盘的关键帧字节位置是拼出来的（各剪辑首尾相接），只能估码率，
+    不是 App 取流地址上的位置；没有关键帧表的片源不知道起点在哪个字节。
+    """
+    if index.container not in INDEXED_CONTAINERS or not times:
+        return ()
     ranges: list[ByteRange] = []
     head = min(index.head_end, HEAD_CAP_BYTES, index.file_size)
     if head > 0:

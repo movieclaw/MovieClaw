@@ -132,7 +132,7 @@ final class ReelPlayer {
                 await startTranscode(api: api, maxHeight: maxHeight, autoplay: autoplay, from: from)
             }
         } else {
-            loadOriginal(server: api.server, autoplay: autoplay, from: from)
+            loadOriginal(api: api, autoplay: autoplay, from: from)
         }
         // 到终点就停：引擎没有「放到某处停」的接口，四分之一秒看一次位置足够（片段 30～60 秒）；
         // 顺带给转码会话续命（15 秒一次，服务端 3 分钟没动静就回收：暂停久了也不断）
@@ -153,17 +153,55 @@ final class ReelPlayer {
         }
     }
 
-    private func loadOriginal(server: ServerAddress, autoplay: Bool, from: Double?) {
-        guard let raw = item.play.streamUrl, let url = server.resolve(raw) else {
+    /// 原画：引擎直接读 NAS 上的原片，按交付方式装载（与正片同一套，docs/design/disc-direct-play.md）——
+    /// 普通文件与光盘镜像给取流地址；原盘目录先取目录清单，引擎按服务端选的主播放列表逐个剪辑取字节
+    private func loadOriginal(api: APIClient, autoplay: Bool, from: Double?) {
+        guard let raw = item.play.streamUrl, let url = api.server.resolve(raw) else {
             state = .failed("这一条缺少取流地址")
             return
         }
         transcoding = false
         timeOrigin = 0
-        core.load(source: .file(url), start: from ?? startSeconds, autoplay: autoplay,
+        switch item.play.disc {
+        case "image":
+            load(.discImage(url), autoplay: autoplay, from: from)
+        case "folder":
+            loadTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let disc = try await self.discFolder(api: api, listing: url)
+                    guard !self.destroyed, !Task.isCancelled else { return }
+                    self.load(disc, autoplay: autoplay, from: from)
+                } catch {
+                    guard !self.destroyed, !Task.isCancelled else { return }
+                    self.state = .failed("原盘目录清单读取失败：\(error.localizedDescription)")
+                }
+            }
+        default:
+            load(.file(url), autoplay: autoplay, from: from)
+        }
+    }
+
+    private func load(_ source: AetherPlayback.Source, autoplay: Bool, from: Double?) {
+        core.load(source: source, start: from ?? startSeconds, autoplay: autoplay,
                   headers: ["User-Agent": APIClient.userAgent],
                   audioOrdinal: item.play.audioOrdinal,
                   sourceCacheKey: Self.cacheKey(for: item), switchesDisplayMode: !stagePreview)
+    }
+
+    /// 原盘目录清单（`/playback/files/{id}/disc?token=`，令牌与取流地址同一个）→ 引擎要的文件列表与主播放列表。
+    /// 主播放列表由服务端选（诱饵判定与挑点同一口径），片段的时间轴才对得上
+    private func discFolder(api: APIClient, listing: URL) async throws -> AetherPlayback.Source {
+        guard let token = PlaybackAPI.token(in: listing.absoluteString) else {
+            throw APIError.decoding("取流地址缺少令牌")
+        }
+        // 走播放专用的连接池，不排在页面请求后面（同转码会话）
+        let client = APIClient(server: api.server, token: api.token, session: APIClient.playbackSession)
+        let view = try await client.playbackFileDiscList(fileId: item.segment.fileId, token: token)
+        let files = view.files.compactMap { file in
+            api.server.resolve(file.url).map { AetherPlayback.DiscFile(path: file.path, size: Int64(file.size), url: $0) }
+        }
+        return .discFolder(files: files, playlist: view.playlist)
     }
 
     /// 限了画质：开服务端转码会话，从片段起点（或接着的位置）转
@@ -224,7 +262,7 @@ final class ReelPlayer {
             // 源本来就不超所选档（视频直通）：不必转码，释放会话、直出原文件
             if decision.tier == 0 || decision.video?.action == "copy" {
                 if let sid = session.sessionId { Task { await scope.stop(sid) } }
-                loadOriginal(server: api.server, autoplay: autoplay, from: from)
+                loadOriginal(api: api, autoplay: autoplay, from: from)
                 return
             }
             guard let url = scope.streamURL(session.streamUrl) else {
@@ -248,7 +286,7 @@ final class ReelPlayer {
 
     private func fallBackToOriginal(api: APIClient, autoplay: Bool, from: Double?, reason: String) {
         onNotice?("\(reason)，这一条先放原画")
-        loadOriginal(server: api.server, autoplay: autoplay, from: from)
+        loadOriginal(api: api, autoplay: autoplay, from: from)
     }
 
     func play() {

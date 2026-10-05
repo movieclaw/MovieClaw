@@ -571,7 +571,8 @@ final class ReelsStore {
             // 已经下过的文件头与索引由引擎按缓存覆盖跳过，不会重下
             let full = position == 0
             let taskKey = "\(item.id)#\(full ? "full" : "light")"
-            guard prefetchTasks[taskKey] == nil, prefetchTasks["\(item.id)#full"] == nil,
+            // 没有预取范围（光盘、读不出索引的片源：起点在哪个字节只有引擎定位时才知道）就不预取
+            guard prefetchTasks[taskKey] == nil, prefetchTasks["\(item.id)#full"] == nil, !item.play.prefetch.isEmpty,
                   let raw = item.play.streamUrl, let url = api.server.resolve(raw),
                   let key = ReelPlayer.cacheKey(for: item) else { continue }
             let ranges = item.play.prefetch

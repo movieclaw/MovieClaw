@@ -203,8 +203,16 @@ final class TVStagePreview {
             self?.framed = true
             self?.refresh()
         }
-        player.onPrerolled = { [weak self] in
+        player.onPrerolled = { [weak self, weak player] in
             guard let self, !self.loaded else { return }
+            #if DEBUG
+            // 开发期：量预起耗时（装载发出 → 停在起点）与引擎各阶段，模拟器 / 真机日志里核对各种片源起播快不快
+            if let player {
+                let stages = player.stageMs.sorted { $0.value < $1.value }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
+                NSLog("[TVStagePreview] 预起完成 %@ disc=%@ start=%.1fs 引擎位置=%.1fs 引擎片长=%.0fs｜%@", item.title.name,
+                      item.play.disc ?? "file", Double(item.segment.startMs) / 1000, player.core.currentTime, player.core.duration ?? -1, stages)
+            }
+            #endif
             self.loaded = true
             self.startIfReady()
         }
