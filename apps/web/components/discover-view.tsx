@@ -1150,11 +1150,13 @@ function HeroCopy({ item, fullBleed }: { item: MediaItem; fullBleed: boolean }) 
  * 文字按发现页自己的版式排：左对齐的编辑推荐（HeroCopy）。同 iOS 两页共用 ImmersiveHero、
  * 各排各的文字（DiscoverView.swift 的 DiscoverHero 与 SubscriptionsHomeHero.swift）。
  *
- * 手机是从屏幕物理顶边算起的通栏大图（iOS 520pt，矮屏按视口收，下一行标题从底栏上方露出来）；
- * 桌面铺满主区卡片的顶边（整页是一张随剧照变色的圆角卡片，同订阅首页）。点剧照（订阅键以外）进详情。
+ * 框按标准比例随宽度走（写死高度时比例随机型漂，桌面宽窗只剩 2.6:1、剧照纵向裁掉三成）：
+ * 手机是从屏幕物理顶边算起的 3:4 通栏大图（矮屏按视口收，下一行标题从底栏上方露出来）；
+ * 桌面 21:9 铺满主区顶边（高屏封顶 70vh，整页是一张随剧照变色的圆角卡片，同订阅首页）。
+ * 点剧照（订阅键以外）进详情。
  */
 const SILVER_DISCOVER_HERO_HEIGHT =
-  "h-[min(560px,58vh)] min-h-[380px] max-md:h-[min(520px,74svh)] max-md:min-h-[440px]";
+  "aspect-[21/9] max-h-[70vh] min-h-[380px] max-md:aspect-[3/4] max-md:max-h-[74svh] max-md:min-h-[440px]";
 
 function heroBackdropOf(item: MediaItem): string | undefined {
   return item.backdropUrl || item.posterUrl || undefined;

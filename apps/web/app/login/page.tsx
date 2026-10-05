@@ -290,7 +290,7 @@ function DemoLoginInfo({
             <div>
               <h2 className="text-title font-semibold">App 登录信息</h2>
               <p id="demo-login-info-description" className="mt-1 text-sub leading-relaxed text-[var(--text-muted)]">
-                演示账号也可用于 iPhone 和 Apple TV 上的 MovieClaw 应用。选择身份后可复制登录信息，或填入网页登录。
+                演示账号也可用于 iPhone、Apple TV 和 Mac 上的 MovieClaw 应用。选择身份后可复制登录信息，或填入网页登录。
               </p>
             </div>
             <button

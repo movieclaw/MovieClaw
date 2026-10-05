@@ -62,10 +62,12 @@ import {
   type ResourceTiming,
   type WantedItem,
 } from "@/lib/api/subscriptions";
+import { scopeOfMediaKind } from "@/lib/categories";
 import { formatBytes, formatDuration } from "@/lib/format";
 import { imageUrl } from "@/lib/image-proxy";
 import { seasonsWithIndeterminate } from "@/lib/media-source-annotation";
 import { shouldShowResourceTiming } from "@/lib/resource-timing";
+import { buildSearchPath } from "@/lib/search-url";
 import { subscriptionStatusMeta } from "@/lib/subscription-ui";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
@@ -535,8 +537,12 @@ export function SubscriptionInspectorView({
                 canTune &&
                 (detail.progress.wanted > 0 || detail.wanted.some((w) => w.upgrade)) && (
                 <Link
+                  // 按订阅类型收窄到剧集/电影分类（同详情页「搜索资源」），结果页可一键放宽
                   href={
-                    `/search?q=${encodeURIComponent(detail.media.title)}&for_sub=${detail.id}` as Route
+                    `${buildSearchPath({
+                      keyword: detail.media.title,
+                      scope: scopeOfMediaKind(detail.media.kind),
+                    })}&for_sub=${detail.id}` as Route
                   }
                   className="btn-glass inline-flex h-10 min-w-0 items-center justify-center gap-1.5 border border-white/10 bg-white/[0.05] px-4 text-sub font-medium backdrop-blur-md max-md:h-11 max-md:px-2"
                   title="到站点资源搜索里挑一条种子，直接投给本订阅（跳过规则组限制；替换已入库版本时按入库实测裁决，证明更优才替换）"

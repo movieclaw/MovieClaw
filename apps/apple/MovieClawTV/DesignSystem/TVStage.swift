@@ -42,12 +42,19 @@ struct TVStageBackdrop: View {
     var fullImage = false
     /// 原图铺满时垫底的模糊剧照：按 `TVMetrics.blurredBackdropWidth` 取的小图就够，模糊之后看不出清晰度
     var ambientURL: URL?
+    /// 大图预告（`TVStagePreview`）讲的是哪一部：停留一会儿后剧照原地换成片段；nil = 只有剧照
+    var previewKey: Int?
 
     /// 左下角压暗的深浅（0～1）：量出来之前按中等处理。首页、详情页一样：原先首页左侧是一层边缘色（0.9 → 0.55 → 透明），
     /// 褐色剧照左边就是一片褐、和中间原图看得出色差（用户在详情页指出），2026-10-03 一并换成中性的黑
     @State private var cornerScrim = 0.4
 
     private var scrollOffset: CGFloat { max(0, scroll.offset) }
+    /// 剧照还在原位（列表没滚得让它跟着走开）：预告只在这时放，滚走就暂停
+    private var stageInPlace: Bool { scrollOffset <= pinnedScroll + 120 }
+    /// 剧照从屏高的哪儿开始渐隐到下沿：首页 0.4（露出底下的边缘色，卡片行落在上面）；详情页静止时 1（原图不渐隐），
+    /// 往下滑、剧照跟着往上走时逐渐提到 0.6，不在屏幕中间露出一道硬边
+    private var fadeFrom: CGFloat { fullImage ? 1 - min(1, scrollOffset / 500) * 0.4 : 0.4 }
 
     var body: some View {
         ZStack {
@@ -74,14 +81,23 @@ struct TVStageBackdrop: View {
                         .id(tint.description)
                         .transition(.opacity)
                 }
-                if let url, fullImage {
-                    // 静止时原图不渐隐；往下滑、剧照跟着往上走时下沿慢慢渐隐进底色，不在屏幕中间露出一道硬边
-                    TVStageImage(url: url, fadeFrom: 1 - min(1, scrollOffset / 500) * 0.4, scrim: cornerScrim, scrimShape: .corner)
+                if let url {
+                    TVStageImage(url: url, fadeFrom: fadeFrom)
                         .id(url)
                         .transition(.opacity)
-                } else if let url {
-                    TVStageImage(url: url, fadeFrom: 0.4, scrim: cornerScrim, scrimShape: .leading)
-                        .id(url)
+                }
+                if url != nil {
+                    // 大图预告盖在剧照上（不跟着推近）。与剧照分开放、不随换图重建：剧照每换一部整个换掉一次，
+                    // 嵌在里面的 UIKit 画面在旧剧照开始淡出的那一刻就不画了（录屏逐帧看是硬切），没法自己淡出
+                    if let previewKey {
+                        TVStagePreviewLayer(key: previewKey, visible: stageInPlace)
+                            .frame(width: 1920, height: 1080)
+                            .mask { TVStageImage.fadeMask(from: fadeFrom) }
+                    }
+                    // 托字的黑压在剧照与预告之上（两者同一层黑：换图交叉淡入时与各自带一层黑的效果相同）
+                    TVStageScrim(strength: cornerScrim, shape: fullImage ? .corner : .leading)
+                        .frame(width: 1920, height: 1080)
+                        .mask { TVStageImage.fadeMask(from: fadeFrom) }
                         .transition(.opacity)
                 }
             }
@@ -111,15 +127,11 @@ struct TVStageBackdrop: View {
 
 /// 一张铺满整屏的剧照：出现后 40 秒慢慢推近到 1.06 倍（Ken Burns，裁在屏幕框里），下半部分渐隐进边缘色。
 /// 每换一部是一个新视图（外面 `.id(url)`），推近从头开始，不会和上一部没走完的动画叠在一起。
+/// 托字的黑（`TVStageScrim`）不在这里：它要同时压住盖在剧照上的大图预告
 private struct TVStageImage: View {
     let url: URL
-    /// 从屏高的哪儿开始渐隐到下沿：首页 0.4（露出底下的边缘色，卡片行落在上面）；详情页静止时 1（原图不渐隐），
-    /// 往下滑时逐渐提到 0.6
+    /// 从屏高的哪儿开始渐隐到下沿（见 `TVStageBackdrop.fadeFrom`）
     let fadeFrom: CGFloat
-    /// 左下角压暗的深浅（`TVStageCornerScrim`）：同系统 Apple TV App 的详情页，只在文字和按钮所在的左下角罩一团黑、
-    /// 往右上散开，不是左边整条的暗带；黑色只压暗不改色相，本来就暗的剧照几乎不加。画在渐隐之内，首页随剧照一起淡进边缘色
-    let scrim: Double
-    let scrimShape: TVStageScrimShape
     @State private var zoom: CGFloat = 1
 
     var body: some View {
@@ -137,24 +149,35 @@ private struct TVStageImage: View {
                 }
                 .scaleEffect(zoom)
             }
-            .overlay {
-                switch scrimShape {
-                case .corner:
-                    RadialGradient(stops: TVEasedFade.stops(color: .black.opacity(scrim), from: 0, to: 1),
-                                   center: .bottomLeading, startRadius: 0, endRadius: 1500)
-                case .leading:
-                    LinearGradient(stops: TVEasedFade.stops(color: .black.opacity(scrim), from: 0.1, to: 0.65),
-                                   startPoint: .leading, endPoint: .trailing)
-                }
-            }
             .clipped()
             // 下半部分渐隐进边缘色：屏高 40% 以上保持原样，一路平滑淡到屏幕下沿，卡片行落在渐隐的部分上
-            .mask {
-                LinearGradient(stops: TVEasedFade.stops(color: .black, from: fadeFrom, to: 1), startPoint: .top, endPoint: .bottom)
-            }
+            .mask { Self.fadeMask(from: fadeFrom) }
             .onAppear {
                 withAnimation(.linear(duration: 40)) { zoom = TVMetrics.stageZoom }
             }
+    }
+
+    /// 剧照、预告、托字的黑共用的下沿渐隐
+    static func fadeMask(from: CGFloat) -> some View {
+        LinearGradient(stops: TVEasedFade.stops(color: .black, from: from, to: 1), startPoint: .top, endPoint: .bottom)
+    }
+}
+
+/// 剧照左下角托字的黑：同系统 Apple TV App 的详情页，只在文字和按钮所在的左下角罩一团黑、往右上散开，
+/// 不是左边整条的暗带；黑色只压暗不改色相，本来就暗的剧照几乎不加（深浅见 `TVStageCornerScrim`）
+private struct TVStageScrim: View {
+    let strength: Double
+    let shape: TVStageScrimShape
+
+    var body: some View {
+        switch shape {
+        case .corner:
+            RadialGradient(stops: TVEasedFade.stops(color: .black.opacity(strength), from: 0, to: 1),
+                           center: .bottomLeading, startRadius: 0, endRadius: 1500)
+        case .leading:
+            LinearGradient(stops: TVEasedFade.stops(color: .black.opacity(strength), from: 0.1, to: 0.65),
+                           startPoint: .leading, endPoint: .trailing)
+        }
     }
 }
 

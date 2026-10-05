@@ -15,7 +15,7 @@ import {
   getKindSummary,
   listKindItems,
 } from "@/lib/api/libraries";
-import { GENRE_TONES } from "@/lib/genre-palette";
+import { GENRE_LABELS } from "@/lib/genre-labels";
 import { MEDIA_KIND_LABELS } from "@/lib/home-rows";
 import type { LibraryFilter } from "@/lib/library-filter";
 import {
@@ -80,7 +80,7 @@ const snapshots = new Map<string, KindWallSnapshot>();
  * 标题是类型名。
  */
 export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: number }) {
-  const genreName = genre === undefined ? null : (GENRE_TONES[genre]?.name ?? `类型 ${genre}`);
+  const genreName = genre === undefined ? null : (GENRE_LABELS[genre] ?? `类型 ${genre}`);
   const label = genreName ?? `全部${MEDIA_KIND_LABELS[kind]}`;
   usePageTitle(genreName ? `${genreName} · ${MEDIA_KIND_LABELS[kind]}` : label);
   const wallKey = genre === undefined ? kind : `${kind}:${genre}`;

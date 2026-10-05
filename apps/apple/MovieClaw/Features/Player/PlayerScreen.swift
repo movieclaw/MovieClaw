@@ -99,7 +99,7 @@ struct PlayerScreen: View {
                     for (at, height) in autoQuality {
                         try? await Task.sleep(for: .seconds(max(0, at - elapsed)))
                         elapsed = at
-                        Self.autoTestLog("切画质 \(height == 0 ? "自动" : "\(height)p")")
+                        Self.autoTestLog("切画质 \(height == 0 ? "原画" : "\(height)p")")
                         created.selectQuality(height == 0 ? nil : height)
                     }
                 }

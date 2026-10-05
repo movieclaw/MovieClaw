@@ -74,6 +74,8 @@ import { type ShareView, getItemShare } from "@/lib/api/shares";
 import { useSubscribeEntry } from "@/components/subscribe-entry";
 import { LIBRARY_KIND_LABELS } from "@/lib/media-types";
 import { getDiscoveryReturnPath } from "@/lib/discovery-return-path";
+import { scopeOfMediaKind } from "@/lib/categories";
+import { buildSearchPath } from "@/lib/search-url";
 import { formatBytes, formatRuntimeMinutes, formatVideoResolution } from "@/lib/format";
 import { formatClock } from "@/lib/player/timeline";
 import { USER_LOWEST_SOURCE, mediaSourceDisplayLabel } from "@/lib/media-source-annotation";
@@ -682,7 +684,9 @@ export function LibraryItemDetailView({
       scraping={scrapingNow}
       // 公开演示站不接资源站点：不给「搜索资源」（canSearchTorrents 为 false）
       searchHref={
-        canSearchTorrents ? (`/search?q=${encodeURIComponent(detail.title)}` as Route) : undefined
+        canSearchTorrents
+          ? (buildSearchPath({ keyword: detail.title, scope: scopeOfMediaKind(detail.kind) }) as Route)
+          : undefined
       }
       // 加入合集：任何能看到这部片的人都能把它扔进自己的单子
       onAddToCollection={() => setAddToCollectionOpen(true)}
@@ -1020,7 +1024,7 @@ export function LibraryItemDetailView({
           <ChapterStrip
             chapters={selectedTrackFile.chapters}
             pending={Boolean(detail.chapters_pending)}
-            resumeMs={watched && !watched.played ? watched.position_ms : null}
+            resumeMs={watched ? watched.position_ms : null}
             onPlay={(chapter: LibraryChapter) => {
               rememberPlayerReturnPath(window.location.pathname + window.location.search);
               markPlayIntent();
@@ -1275,9 +1279,9 @@ export function PlayAction({
   const positionMs = watched?.position_ms ?? 0;
   const durationMs = watched?.duration_ms ?? null;
   const finished = watched?.played ?? false;
-  // 「能续播」以服务端结论为准：已看完的重播从头开始（播放器同一套判定），
-  // 所以看完之后不再展示续播点，否则点进去的位置和文案对不上。
-  const resumable = !finished && positionMs > 0;
+  // 「能续播」与服务端起播同一口径：有续播点就接着播。看完后重看到一半的也算
+  // （已看标记保留），否则点进去从头放，这次的进度就丢了。
+  const resumable = positionMs > 0;
   // 进度条至少留 2%：真按比例画，刚开头几分钟的记录在条上是看不见的一根线。
   const percent =
     resumable && durationMs && durationMs > 0
@@ -1287,7 +1291,7 @@ export function PlayAction({
     resumable && durationMs && durationMs > positionMs
       ? Math.round((durationMs - positionMs) / 60000)
       : null;
-  const label = finished ? "重新播放" : resumable ? "继续观看" : "播放";
+  const label = resumable ? "继续观看" : finished ? "重新播放" : "播放";
   // 窄屏禁用两枚标记钮的 Tooltip：按钮自己已带文字（下方 md:hidden 标签），
   // 且实测 Tooltip 在窄屏未交互即自开、悬停叠压白色主按钮文案（视觉验收
   // 实测，双主题复现）；桌面悬停提示保留
@@ -1387,7 +1391,7 @@ export function PlayAction({
       )}
 
       {/* 已看态已由对勾变绿表达；只有看过不止一次才值得多说一句 */}
-      {finished && watched && watched.play_count > 1 && (
+      {finished && !resumable && watched && watched.play_count > 1 && (
         <p className="tnum text-caption text-white/55">看过 {watched.play_count} 次</p>
       )}
     </div>
@@ -1924,8 +1928,10 @@ function EpisodeCard({
   onSelect: () => void;
 }) {
   // 看完 = 满条绿；看一半 = 百分比蓝；有记录但算不出百分比（无时长）给
-  // 一根 60% 透明的整条兜底——三种形态与 RecentWatchCard 逐一对应
-  const progress = episode.played ? 100 : episode.progress_percent;
+  // 一根 60% 透明的整条兜底——三种形态与 RecentWatchCard 逐一对应。
+  // 看完后重看到一半：对勾保留，进度条按这次看到哪画蓝条
+  const resuming = episode.position_ms > 0;
+  const progress = resuming ? episode.progress_percent : episode.played ? 100 : null;
   return (
     <button
       type="button"
@@ -1976,7 +1982,7 @@ function EpisodeCard({
         {progress != null ? (
           <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 h-[3px] overflow-hidden rounded-full bg-white/25">
             <div
-              className={`h-full rounded-full ${episode.played ? "bg-[var(--ok)]" : "bg-[var(--accent-2)]"}`}
+              className={`h-full rounded-full ${resuming ? "bg-[var(--accent-2)]" : "bg-[var(--ok)]"}`}
               style={{ width: `${progress}%` }}
             />
           </div>

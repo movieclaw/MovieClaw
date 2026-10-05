@@ -37,6 +37,9 @@ struct TVHomeView: View {
     /// 列表内容的上沿离屏幕顶多远（系统标签栏下方，实测 157）：首屏上半块按它定高（`TVStageBlock`）
     @State private var topInset: CGFloat = 157
 
+    /// 大图预告里认这一页的牌子（`TVStagePreview` 按它判断还有没有页面在用）
+    @State private var previewOwner = UUID()
+
     /// 预载焦点左右两部的剧照（与大图区显示同一个地址、同一档宽度）：整屏大图几百 KB 起，等焦点移过去才下载会闪一下空底
     private static let prefetcher = ImagePrefetcher()
 
@@ -110,8 +113,18 @@ struct TVHomeView: View {
         // 首屏不必自己留白避让；大图背景在 background 里自己铺满全屏，不受影响
         .ignoresSafeArea(edges: [.horizontal, .bottom])
         .background {
-            TVStageBackdrop(url: backdrop, tint: stage == nil ? nil : tint, scroll: scroll)
+            TVStageBackdrop(url: backdrop, tint: stage == nil ? nil : tint, scroll: scroll, previewKey: stage?.mediaItemId)
         }
+        // 大图停留一会儿就原地放这一部的回忆：从上次停下的地方往前倒 30 秒，放到停下的地方（大图跟着焦点停稳才换，
+        // 一路划过去不会逐张起播）
+        .task(id: stage.map { TVStagePreview.Request(mediaItemId: $0.mediaItemId, source: .resume,
+                                                     season: $0.seasonNumber, episode: $0.episodeNumber) }) {
+            guard let stage else { return }
+            TVStagePreview.shared.show(.init(mediaItemId: stage.mediaItemId, source: .resume,
+                                             season: stage.seasonNumber, episode: stage.episodeNumber),
+                                       owner: previewOwner, api: api)
+        }
+        .onDisappear { TVStagePreview.shared.leave(owner: previewOwner) }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-home")
         // 开机落在首页：第一次有内容就把焦点放到「继续播放」上（播放第一：开机按确认就续播）。只这一次——
@@ -318,7 +331,7 @@ struct TVHomeView: View {
                 TVShelf(title: row.title) {
                     ForEach(genres, id: \.value) { genre in
                         if let id = Int(genre.value) {
-                            TVGenreCard(genreId: id, label: genre.label, count: genre.count,
+                            TVGenreCard(label: genre.label, count: genre.count, mediaKind: kind,
                                         coverURL: api.image(genre.coverUrl, width: ImageWidth.tvCard(TVMetrics.genreWidth))) {
                                 router.push(.rowWall(title: genre.label, source: .genre(kind: kind, genre: id, count: genre.count)))
                             }

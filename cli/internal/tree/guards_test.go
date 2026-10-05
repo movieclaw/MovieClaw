@@ -33,6 +33,7 @@ var knownNonGenerated = []string{
 	"auth.devices.revoke-current",
 	"auth.devices.rename",
 	"auth.devices.revoke",
+	"auth.devices.cleanup",
 	"auth.devices.request",
 	"auth.devices.approve",
 	"auth.devices.deny",
@@ -162,6 +163,8 @@ var knownNonGenerated = []string{
 	"reels.feed",
 	"reels.facets",
 	"reels.events",
+	// Apple TV 大图停留后原地放的那一段，只有电视首页 / 详情页用
+	"reels.preview",
 	// MovieClaw Cloud 与 App 推送（docs/design/cloud-push.md）：连接要在官网批准、看配对码，
 	// 推送通道、通知开关、App 登记都是设置页和 App 的事，命令行没有对应形态
 	"cloud.status",

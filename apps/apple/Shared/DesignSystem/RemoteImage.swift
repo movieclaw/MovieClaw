@@ -1,7 +1,11 @@
 import Nuke
 import NukeUI
 import SwiftUI
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// 图片宽度阶梯（docs/design/image-sizing.md §5、§6）：客户端只说「这个位置要多少像素宽」，
 /// 服务端把 `w` 向上取到同一张阶梯表、等比缩放（不裁切），原图不比那一档大就直接回原图。
@@ -48,6 +52,7 @@ nonisolated enum ImageAspect {
 extension ImageWidth {
     /// 本机屏幕。`UIScreen.main` 在 26 系 SDK 标了弃用，但它在窗口场景连上之前就能读——冷启动的首屏预载
     /// （`SessionPrewarm`）比场景早，要和页面算出同一个地址，所以集中在这一处读，别处一律走 `screenScale` / `screenSize`
+    #if canImport(UIKit)
     private static var device: UIScreen { UIScreen.main }
 
     /// 当前屏幕的真实倍率：iPhone 3 倍屏是 3；Apple TV 接 1080p 电视是 1、接 4K 是 2（tvOS 画布始终 1920×1080 点）
@@ -55,6 +60,14 @@ extension ImageWidth {
 
     /// 屏幕尺寸（点，跟着当前朝向）
     static var screenSize: CGSize { device.bounds.size }
+    #else
+    /// Mac：主屏的倍率（视网膜屏 2，外接 1080p 显示器 1）。窗口可以拖到别的屏，按主屏取已足够——
+    /// 取图宽度本来就向上吸到档位
+    static var screenScale: CGFloat { max(1, NSScreen.main?.backingScaleFactor ?? 2) }
+
+    /// 主屏尺寸（点）
+    static var screenSize: CGSize { NSScreen.main?.frame.size ?? CGSize(width: 1440, height: 900) }
+    #endif
 
     /// 在本机屏幕上显示这么宽（点）要请求的 `w`
     static func points(_ points: CGFloat, zoom: CGFloat = 1) -> Int {
@@ -84,8 +97,8 @@ enum PhoneCardWidth {
     static let upNext: CGFloat = 200
     /// 首页「我的媒体库」库 / 合集封面卡（21:10）
     static let libraryCover: CGFloat = 230
-    /// 首页「按类型找电影 / 剧集」方卡（同网页手机宽度）
-    static let genreTile: CGFloat = 150
+    /// 首页「按类型找电影 / 剧集」全幅剧照卡（同手机网页，196 × 124.6，保持 236:150）
+    static let genreTile: CGFloat = 196
     /// 订阅首页「刚刚入库」横卡（16:9）
     static let recent: CGFloat = 264
     /// 「刚刚入库」卡左下角的小号片名 Logo 最宽

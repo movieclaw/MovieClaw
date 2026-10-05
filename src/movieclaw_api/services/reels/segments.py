@@ -22,7 +22,7 @@ import logging
 import os
 import subprocess
 import weakref
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -30,14 +30,20 @@ from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.library.thumbs import FRAME_GRAB_GATE, build_filter_chains
 from movieclaw_api.services.media_probe import VideoColor, video_color_for
 from movieclaw_api.services.media_scrape import assets_root
+from movieclaw_api.services.reels import disc_index
 from movieclaw_api.services.reels.picker import ByteRange, SegmentPick, pick_segment, reanchor
 from movieclaw_api.services.reels.tracks import choose_subtitle
+from movieclaw_db.models.library_file import DISC_CONTAINERS
 from movieclaw_playback.container_index import KIND_SUBTITLE, ContainerIndex, read_container_index
+from movieclaw_playback.streaming import is_strm
 
 logger = logging.getLogger("movieclaw_api.reels")
 
 #: 挑点规则或记录格式变了就 +1，已有记录全部作废重算
 ALGO_VERSION = 1
+#: 「这个文件挑不了」的判定规则版本：放宽了能挑的片源（如读不出索引改按台账片长挑）就 +1，
+#: 只让以前判成挑不了的重算，挑好的片段与封面不动
+UNSUPPORTED_VERSION = 2
 #: 封面平均亮度（0～255）低于它算黑场
 DARK_LUMA = 16.0
 #: 黑场时起点往后挪的次数与每次至少挪多远（秒）
@@ -77,6 +83,17 @@ class FileRef:
     duration_s: float | None = None
     hdr: str | None = None
     subtitle_streams: list[dict[str, Any]] | None = None
+    #: 台账容器（mkv / mp4 / ts / bluray / iso / dvd ……），决定从哪里读索引
+    container: str | None = None
+    #: 原盘目录的主播放列表（台账 ``disc_playlist``）
+    disc_playlist: dict[str, Any] | None = None
+    #: 台账章节 [{"start_ms": …}]：读不出索引的片源按它挑场景开头
+    chapters: list[dict[str, Any]] | None = None
+
+    @property
+    def local_file(self) -> bool:
+        """是 NAS 本机上的一个普通视频文件（ffmpeg 能直接从中间抓帧；不是光盘、不是网盘 strm）。"""
+        return (self.container or "") not in DISC_CONTAINERS and not is_strm(self.path)
 
 
 @dataclass(frozen=True)
@@ -122,7 +139,7 @@ def _read_cache(ref: FileRef) -> ReelSegment | None | object:
     ):
         return _MISS
     if "unsupported" in record:
-        return None
+        return None if record.get("uv") == UNSUPPORTED_VERSION else _MISS
     seg = record.get("segment") or {}
     try:
         return ReelSegment(
@@ -206,23 +223,67 @@ async def _compute(ref: FileRef) -> ReelSegment | None:
             return None
 
 
+def index_for(ref: FileRef) -> ContainerIndex | None:
+    """一个文件的片段索引（阻塞 IO，放线程里调）。
+
+    Matroska / MP4 读容器索引；光盘读盘上结构（disc_index.py）；其余片源（TS、AVI、WMV、
+    网盘 strm……）以及前两类读不出的，按台账片长与章节给一份没有关键帧的索引——挑点按时间，
+    起点交给 App 引擎定位。连片长都没有返回 None（这个文件挑不了）。
+    """
+    container = (ref.container or "").lower()
+    index: ContainerIndex | None = None
+    if container == "bluray":
+        index = disc_index.bluray_folder_index(ref.path, ref.disc_playlist)
+    elif container == "iso":
+        index = disc_index.iso_index(ref.path)
+    elif container == "dvd":
+        index = disc_index.dvd_folder_index(ref.path)
+    elif ref.local_file:
+        index = read_container_index(ref.path)
+    if index is not None and index.duration_s > 0:
+        if index.chapters or not ref.chapters:
+            return index
+        return replace(index, chapters=_ledger_chapters(ref.chapters))
+    if not ref.duration_s:
+        return None
+    return ContainerIndex(
+        container=container or "unknown",
+        file_size=ref.size_bytes or 0,
+        duration_s=ref.duration_s,
+        keyframes=(),
+        tracks=(),
+        chapters=_ledger_chapters(ref.chapters),
+    )
+
+
+def _ledger_chapters(chapters: list[dict[str, Any]] | None) -> tuple[tuple[float, str | None], ...]:
+    out = []
+    for chapter in chapters or []:
+        start = chapter.get("start_ms") if isinstance(chapter, dict) else None
+        if isinstance(start, (int, float)) and start >= 0:
+            out.append((start / 1000, chapter.get("title")))
+    return tuple(sorted(out, key=lambda c: c[0]))
+
+
 async def _compute_locked(ref: FileRef) -> ReelSegment | None:
-    index = await asyncio.to_thread(read_container_index, ref.path)
+    index = await asyncio.to_thread(index_for, ref)
     if index is None:
-        _write_cache(ref, {"unsupported": "读不出容器索引（容器不支持或文件缺索引）"})
+        _write_cache(ref, {"unsupported": "读不出索引，台账也没有片长", "uv": UNSUPPORTED_VERSION})
         return None
     speech = _speech_events(index, choose_subtitle(ref.subtitle_streams))
     pick = pick_segment(index, kind=ref.kind, speech_events=speech, duration_s=ref.duration_s)
     if pick is None:
-        _write_cache(ref, {"unsupported": "片子太短或没有关键帧"})
+        _write_cache(ref, {"unsupported": "片子太短", "uv": UNSUPPORTED_VERSION})
         return None
 
     cover: str | None = None
-    try:
-        color = await asyncio.to_thread(video_color_for, ref.path, fallback_hdr=ref.hdr)
-        pick, cover = await _cover_with_dark_guard(ref, index, pick, speech, color)
-    except (OSError, subprocess.SubprocessError) as exc:
-        logger.warning("刷片封面抓取失败：文件 %s（%s）", ref.id, exc)
+    # 封面靠 ffmpeg 从起点抓一帧：光盘（目录或镜像）、网盘 strm 抓不了，用剧照
+    if ref.local_file:
+        try:
+            color = await asyncio.to_thread(video_color_for, ref.path, fallback_hdr=ref.hdr)
+            pick, cover = await _cover_with_dark_guard(ref, index, pick, speech, color)
+        except (OSError, subprocess.SubprocessError) as exc:
+            logger.warning("刷片封面抓取失败：文件 %s（%s）", ref.id, exc)
 
     segment = ReelSegment(
         file_id=ref.id,

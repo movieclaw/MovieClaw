@@ -215,6 +215,10 @@ async def test_watch_states_partition_the_library(db) -> None:
                     played=False,
                     position_ms=90_000,
                 ),
+                # 看完后重看到一半（已看标记保留、带续播点）→ 也归「在看」
+                PlaybackState(
+                    member_id=_ME, media_item_id=ids["你的名字"], played=True, position_ms=300_000
+                ),
             ]
         )
         await session.flush()
@@ -224,8 +228,8 @@ async def test_watch_states_partition_the_library(db) -> None:
         unwatched = await _titles(session, library_id, filters=LibraryFilter(watch="unwatched"))
 
         assert played == {"千与千寻"}
-        assert watching == {"寄生虫", "盗梦空间"}
-        assert unwatched == {"你的名字", "霸王别姬"}
+        assert watching == {"寄生虫", "盗梦空间", "你的名字"}
+        assert unwatched == {"霸王别姬"}
         assert played | watching | unwatched == set(ids)
         assert not (played & watching) and not (played & unwatched) and not (watching & unwatched)
 

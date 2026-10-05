@@ -99,11 +99,10 @@ from movieclaw_db.models import (
     ReelEvent,
 )
 from movieclaw_playback import state as playback_state
+from movieclaw_playback.streaming import is_strm
 
 logger = logging.getLogger("movieclaw_api.reels")
 
-#: 一期能从中间起播并读得出索引的容器（原盘、镜像、TS 一期跳过）
-SUPPORTED_CONTAINERS = ("mkv", "webm", "mp4", "m4v", "mov")
 #: 一页最多等多久（秒）：超时没算完的这一页先跳过
 PAGE_BUDGET_S = 3.0
 #: 一页最多往后看多少部（很多部挑不出片段时不至于无限往后翻）
@@ -163,8 +162,6 @@ def _playable_file_filter(library_ids: Sequence[int]) -> list[Any]:
         LibraryFile.library_id.in_(list(library_ids)),  # type: ignore[attr-defined]
         LibraryFile.in_place(),
         LibraryFile.media_item_id.is_not(None),  # type: ignore[union-attr]
-        LibraryFile.container.in_(SUPPORTED_CONTAINERS),  # type: ignore[union-attr]
-        ~LibraryFile.file_path.ilike("%.strm"),  # type: ignore[attr-defined]
     ]
 
 
@@ -362,6 +359,9 @@ def _file_ref(file: LibraryFile, kind: str) -> FileRef:
         duration_s=float(file.duration_seconds) if file.duration_seconds else None,
         hdr=file.hdr,
         subtitle_streams=list(file.subtitle_streams or []),
+        container=file.container,
+        disc_playlist=file.disc_playlist if isinstance(file.disc_playlist, dict) else None,
+        chapters=list(file.chapters or []),
     )
 
 
@@ -782,7 +782,11 @@ async def _assemble(
             else await playback_marks.get_state(session, played_target, member_id=member_id)
         )
         token = await issue_stream_token(member_id=member_id, file_id=int(file.id or 0))
-        subtitle_ordinal = choose_subtitle(file.subtitle_streams)
+        disc = disc_delivery(file)
+        # 光盘的字幕清单是服务端按整盘探测的，与引擎读到的盘内轨对不上序号；strm 抽不了字幕窗口
+        subtitle_ordinal = (
+            None if disc or is_strm(file.file_path) else choose_subtitle(file.subtitle_streams)
+        )
         subtitle = None
         if subtitle_ordinal is not None:
             stream = (file.subtitle_streams or [])[subtitle_ordinal]
@@ -835,7 +839,9 @@ async def _assemble(
                     "mode": MODE_SEEK,
                     "stream_url": f"/api/v1/playback/files/{file.id}/stream?token={token}",
                     "size_bytes": file.size_bytes,
-                    "audio_ordinal": choose_audio(file.audio_streams),
+                    "disc": disc,
+                    # 镜像的音轨清单服务端读不出盘内结构、不可信：交给引擎按盘上的默认音轨起播
+                    "audio_ordinal": None if disc == "image" else choose_audio(file.audio_streams),
                     "subtitle": subtitle,
                     "prefetch": [
                         {"offset": r.offset, "length": r.length, "purpose": r.purpose}
@@ -845,6 +851,17 @@ async def _assemble(
             }
         )
     return out
+
+
+def disc_delivery(file: LibraryFile) -> str | None:
+    """光盘怎么交给 App 引擎（与正片同一套，docs/design/disc-direct-play.md §2.2）：
+    镜像给原字节地址（image），原盘目录按目录清单逐个文件取（folder），其余是普通文件（None）。"""
+    container = (file.container or "").lower()
+    if container == "iso":
+        return "image"
+    if container in ("bluray", "dvd"):
+        return "folder"
+    return None
 
 
 #: 片段字幕窗口：起点前多留几秒（接住起点前开始、还没说完的那句），终点后多留几秒

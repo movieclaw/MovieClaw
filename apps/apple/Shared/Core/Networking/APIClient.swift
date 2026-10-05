@@ -44,9 +44,64 @@ nonisolated struct APIEnvelope<T: Decodable & Sendable>: Decodable, Sendable {
 nonisolated struct Empty: Codable, Sendable {}
 
 /// 错误响应体：`success / code / message / details`
-private nonisolated struct APIErrorBody: Decodable {
+nonisolated struct APIErrorBody: Decodable, Sendable {
     let message: String?
     let code: String?
+    /// 请求校验失败（422 `VALIDATION_ERROR`）时逐条说是哪个字段、为什么
+    let details: [Detail]?
+
+    struct Detail: Decodable, Sendable {
+        /// 字段路径，如 `["body", "client", "kind"]`（列表下标也转成字符串）
+        let location: [String]
+        let message: String?
+
+        private enum CodingKeys: String, CodingKey { case location, message }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            message = try? container.decode(String.self, forKey: .message)
+            var path: [String] = []
+            if var list = try? container.nestedUnkeyedContainer(forKey: .location) {
+                while !list.isAtEnd {
+                    if let key = try? list.decode(String.self) {
+                        path.append(key)
+                    } else if let index = try? list.decode(Int.self) {
+                        path.append(String(index))
+                    } else {
+                        break
+                    }
+                }
+            }
+            location = path
+        }
+    }
+
+    init(message: String?, code: String?, details: [Detail]?) {
+        self.message = message
+        self.code = code
+        self.details = details
+    }
+
+    /// 给用户看的一句话。请求校验失败时服务端的 message 只是一句英文的「request validation failed」，
+    /// 这里按 details 说清楚是哪个字段、该怎么办：最常见的原因是 App 比服务器新、多带了服务器不认识的值
+    /// （2026-10-05：服务器还不认识 Mac 版这个设备类型，账号密码与扫码登录都只报了那句英文）
+    func userMessage(status: Int) -> String {
+        guard code == "VALIDATION_ERROR" || status == 422 else {
+            return message ?? "请求失败（HTTP \(status)）"
+        }
+        let fields = (details ?? []).map { detail in
+            (path: detail.location.drop { ["body", "query", "path", "header"].contains($0) }, message: detail.message)
+        }
+        if fields.contains(where: { $0.path.last == "kind" && $0.path.dropLast().last == "client" }) {
+            return "这台服务器还不认识\(ClientPlatform.appName)：服务器版本太旧，请把服务器升级到最新版本后再登录（错误码 422）"
+        }
+        guard let first = fields.first, !first.path.isEmpty else {
+            return "服务器拒绝了这次请求：App 与服务器的版本可能不一致，请把两边都升级到最新版本后再试（错误码 422）"
+        }
+        let reason = first.message.map { "：\($0)" } ?? ""
+        return "服务器拒绝了这次请求（字段 \(first.path.joined(separator: "."))\(reason)）。如果填写没有问题，"
+            + "多半是 App 与服务器的版本不一致，请把两边都升级到最新版本后再试（错误码 422）"
+    }
 }
 
 /// 通知：任何业务接口返回 401（令牌被注销、密码被改、账号停用）。`object` 是出事的那台服务器（`ServerAddress`），
@@ -126,9 +181,19 @@ nonisolated struct APIClient: Sendable {
         return "\(ClientPlatform.product)/\(version) (\(machineModel); \(ClientPlatform.osName) \(ClientPlatform.osVersion); build \(build))"
     }()
 
-    /// 机型标识（iPhone18,4）；模拟器上取它模拟的机型
+    /// 机型标识（iPhone18,4、Mac16,10）；模拟器上取它模拟的机型
     static var machineModel: String {
         if let simulated = ProcessInfo.processInfo.environment["SIMULATOR_MODEL_IDENTIFIER"] { return simulated }
+        #if os(macOS)
+        // Mac 上 uname 的 machine 只是 CPU 架构（arm64），型号在 hw.model
+        var size = 0
+        sysctlbyname("hw.model", nil, &size, nil, 0)
+        var model = [CChar](repeating: 0, count: max(size, 1))
+        sysctlbyname("hw.model", &model, &size, nil, 0)
+        if let name = String(validating: model.prefix { $0 != 0 }.map(UInt8.init(bitPattern:)), as: UTF8.self), !name.isEmpty {
+            return name
+        }
+        #endif
         var system = utsname()
         uname(&system)
         return withUnsafeBytes(of: &system.machine) { raw in
@@ -291,7 +356,7 @@ nonisolated struct APIClient: Sendable {
         }
         guard (200 ..< 300).contains(http.statusCode) else {
             let body = try? Self.decoder.decode(APIErrorBody.self, from: data)
-            let message = body?.message ?? "请求失败（HTTP \(http.statusCode)）"
+            let message = (body ?? APIErrorBody(message: nil, code: nil, details: nil)).userMessage(status: http.statusCode)
             if http.statusCode == 401, !Self.isAuthEndpoint(request.url) {
                 // 带上是哪台服务器、用的哪枚令牌：切换账号时会去问别的服务器 / 别的账号，刚退出的旧令牌
                 // 也可能还有请求在路上——它们的 401 不能把当前会话踢下线
@@ -325,15 +390,19 @@ nonisolated struct APIClient: Sendable {
         let host = error.failingURL.map { "「\(hostLabel($0))」" } ?? "服务器"
         let reason = switch error.code {
         case .notConnectedToInternet:
+            #if os(iOS)
             "手机没有联网：请检查 Wi-Fi 或蜂窝网络；如果其他 App 能上网，请到「设置 → MovieClaw」允许它使用无线局域网与蜂窝数据"
+            #else
+            "\(ClientPlatform.deviceNoun)没有联网：请检查 Wi-Fi 或有线网络；连的是局域网地址时，还要在「系统设置 → 隐私与安全性 → 本地网络」里允许 MovieClaw"
+            #endif
         case .dataNotAllowed:
             "蜂窝数据不可用：请连接 Wi-Fi，或到「设置 → 蜂窝网络」为 MovieClaw 打开蜂窝数据"
         case .cannotFindHost, .dnsLookupFailed:
-            "找不到\(host)：域名无法解析，请检查地址拼写；内网域名需要手机与服务器在同一网络"
+            "找不到\(host)：域名无法解析，请检查地址拼写；内网域名需要\(ClientPlatform.deviceNoun)与服务器在同一网络"
         case .cannotConnectToHost:
             "\(host)拒绝连接：端口不对或服务器没在运行。请确认地址与浏览器里打开 MovieClaw 时的完全一致（包括端口）"
         case .timedOut:
-            "连接\(host)超时，服务器没有响应：请确认地址和端口正确、服务器在运行；局域网地址需要手机连着同一个 Wi-Fi"
+            "连接\(host)超时，服务器没有响应：请确认地址和端口正确、服务器在运行；局域网地址需要\(ClientPlatform.deviceNoun)连着同一个网络"
         case .networkConnectionLost:
             "与\(host)的连接中途断开：请重试；反复出现时检查网络是否稳定"
         // ATS 拦截明文 http。新版 Info.plist 已放开，正常不会出现；旧版 App 连「http + 域名」会走到这里
@@ -344,7 +413,7 @@ nonisolated struct APIClient: Sendable {
         case .serverCertificateUntrusted, .serverCertificateHasUnknownRoot:
             "\(host)的 HTTPS 证书不受信任（常见于自签名证书）：请换用正规证书（如 Let's Encrypt），或改用 http 地址"
         case .serverCertificateHasBadDate, .serverCertificateNotYetValid:
-            "\(host)的 HTTPS 证书已过期或尚未生效：请续签证书，并确认手机的日期与时间正确"
+            "\(host)的 HTTPS 证书已过期或尚未生效：请续签证书，并确认\(ClientPlatform.deviceNoun)的日期与时间正确"
         case .clientCertificateRequired, .clientCertificateRejected:
             "\(host)要求客户端证书，App 暂不支持：请在反向代理上关闭客户端证书校验"
         case .httpTooManyRedirects:

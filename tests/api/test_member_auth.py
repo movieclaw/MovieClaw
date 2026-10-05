@@ -506,6 +506,8 @@ _MEMBER_ALLOWLIST = {
     ("DELETE", "/api/v1/auth/devices/current"),
     ("PATCH", "/api/v1/auth/devices/{device_id}"),
     ("DELETE", "/api/v1/auth/devices/{device_id}"),
+    # 清理长期没用的设备：成员只清自己的，all=true（清全员）在路由里对非超管 403
+    ("POST", "/api/v1/auth/devices/cleanup"),
     ("GET", "/api/v1/auth/devices/requests/{user_code}"),
     ("POST", "/api/v1/auth/devices/requests/{user_code}/approve"),
     ("POST", "/api/v1/auth/devices/requests/{user_code}/deny"),
@@ -666,6 +668,8 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/reels"),
     ("GET", "/api/v1/reels/facets"),
     ("POST", "/api/v1/reels/events"),
+    # 大图预告（Apple TV 首页 / 详情页）：条目可见性与分级照详情页校验，回忆按本人的续播点
+    ("GET", "/api/v1/reels/preview/{media_item_id}"),
     # 搜索历史：个人数据；统一结果端点再按记录类型检查对应能力。
     ("GET", "/api/v1/search/history"),
     ("GET", "/api/v1/search/history/{history_id}/results"),

@@ -347,13 +347,15 @@ def _as_app(client: TestClient, bearer: str, method: str, url: str, **kwargs) ->
             client.cookies.set(name, value)
 
 
-def _app_login(client: TestClient, who: dict, *, installation: str, name: str) -> str:
+def _app_login(
+    client: TestClient, who: dict, *, installation: str, name: str, kind: str = "ios"
+) -> str:
     saved = dict(client.cookies)
     client.cookies.clear()
     try:
         resp = client.post(
             f"{_AUTH}/device/login",
-            json={**who, "client": {"kind": "ios", "installation_id": installation, "name": name}},
+            json={**who, "client": {"kind": kind, "installation_id": installation, "name": name}},
         )
     finally:
         for cookie, value in saved.items():
@@ -642,6 +644,21 @@ def test_registration_refreshes_app_version(client: TestClient, world: World) ->
     resp = _as_app(client, bearer, "PUT", "/api/v1/push/me/registration", json=registration)
     assert resp.status_code == 200, resp.text
     assert version() == "0.3.0"
+
+
+@pytest.mark.parametrize("kind", ["tvos", "macos"])
+def test_apps_without_push_get_no_push_hint(client: TestClient, world: World, kind: str) -> None:
+    """Apple TV 与 Mac 版本期不接推送：设备页不挂「还没有开启通知」，也不能登记。"""
+    _connect(client, world)
+    bearer = _app_login(client, _ADMIN, installation=f"inst-{kind}", name=f"{kind} 设备", kind=kind)
+    listed = _data(client.get("/api/v1/auth/devices"))
+    device = next(d for d in listed if d["name"] == f"{kind} 设备")
+    assert device["push"] is None
+    assert _data(client.get("/api/v1/push/me"))["attention"] == []
+    resp = _as_app(
+        client, bearer, "PUT", "/api/v1/push/me/registration", json={"permission": "authorized"}
+    )
+    assert resp.status_code == 403
 
 
 def test_push_end_to_end_through_official_relay(client: TestClient, world: World) -> None:

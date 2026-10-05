@@ -31,7 +31,7 @@ class LoginDevice(MemberScopedMixin, TimestampMixin, table=True):
 
     id: int | None = Field(default=None, primary_key=True)
 
-    # 客户端类型：web（浏览器）/ ios / tvos / android（原生 App）/
+    # 客户端类型：web（浏览器）/ ios / tvos / macos / android（原生 App）/
     # cli（命令行）/ worker（转码器）/ manual（网页手工创建的令牌）。
     # 决定两件事：能不能签发新凭证（人直接操作的客户端才能），以及改密时
     # 属于哪一类（密码换来的随改密下线；配对换来的默认保留）。

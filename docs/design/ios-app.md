@@ -23,8 +23,8 @@
 原生 App 按平台生态放在 `apps/` 下，与 `apps/web`、`apps/extension` 并列：`apps/apple/` 是一个 Xcode 工程，
 iPhone 目标之外还有 Apple TV（tvOS）目标 `MovieClawTV`：两者共用 `Shared/` 里的接口层、登录与账号、播放器逻辑
 （见 [tvos-app.md](tvos-app.md) §6）；将来的 Android 版放 `apps/android/`（一个 Gradle 工程，手机与
-Android TV 两个模块）。各平台共用 Bundle ID / 包名 `io.movieclaw.app`，请求标识为 `MovieClaw-<iOS|tvOS|Android>/<版本>`，
-活动页据此显示「MovieClaw iOS / Apple TV / Android」。`pnpm-workspace.yaml` 因此只列 JS 项目、不用 `apps/*` 通配。
+Android TV 两个模块）。各平台共用 Bundle ID / 包名 `io.movieclaw.app`，请求标识为 `MovieClaw-<iOS|tvOS|macOS|Android>/<版本>`，
+活动页据此显示「MovieClaw iOS / Apple TV / Mac / Android」。`pnpm-workspace.yaml` 因此只列 JS 项目、不用 `apps/*` 通配。
 
 ```
 apps/apple/

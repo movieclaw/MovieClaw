@@ -19,6 +19,7 @@ PID 关联两边的轨道，绝不按数组下标猜测——播放列表裁剪�
 from __future__ import annotations
 
 import logging
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -241,7 +242,6 @@ def read_main_playlist(disc_dir: Path) -> MplsPlaylist | None:
     stream_dir = disc_dir / "BDMV" / "STREAM"
     if not playlist_dir.is_dir() or not stream_dir.is_dir():
         return None
-    by_sequence: dict[tuple[str, ...], MplsPlaylist] = {}
     try:
         paths = sorted(
             path
@@ -255,13 +255,22 @@ def read_main_playlist(disc_dir: Path) -> MplsPlaylist | None:
         }
     except OSError:
         return None
+    playlists = []
     for path in paths:
         try:
-            playlist = parse_mpls_playlist(path.read_bytes(), path=path)
+            playlists.append(parse_mpls_playlist(path.read_bytes(), path=path))
         except (OSError, MplsParseError) as exc:
             logger.warning("蓝光 MPLS 解析失败，跳过候选：%s（%s）", path, exc)
-            continue
-        if not all(clip_id in streams for clip_id in playlist.clip_ids):
+    return select_main_playlist(playlists, set(streams))
+
+
+def select_main_playlist(
+    playlists: Iterable[MplsPlaylist], stream_ids: Collection[str]
+) -> MplsPlaylist | None:
+    """在已解析的候选里选主播放列表（原盘目录与光盘镜像共用的规则，见 ``read_main_playlist``）。"""
+    by_sequence: dict[tuple[str, ...], MplsPlaylist] = {}
+    for playlist in playlists:
+        if not all(clip_id in stream_ids for clip_id in playlist.clip_ids):
             continue
         if playlist.has_loops:
             continue
@@ -439,6 +448,26 @@ def read_clpi_keyframes(stream_path: Path) -> list[int] | None:
 def parse_clpi_keyframes(data: bytes) -> list[int]:
     """解析 CLPI 的 CPI/EP_map，返回主视频流每个入口点的 PTS（45 kHz，升序去重）。
 
+    结构说明见 ``parse_clpi_entry_points``；这里只取 PTS。
+    """
+    return sorted({pts for pts, _ in parse_clpi_entry_points(data)})
+
+
+def read_clpi_entry_points(clpi_data: bytes) -> list[tuple[int, int]] | None:
+    """``parse_clpi_entry_points`` 的容错版：解析失败返回 None（可选元数据缺失）。"""
+    try:
+        return parse_clpi_entry_points(clpi_data) or None
+    except ClpiParseError as exc:
+        logger.warning("蓝光 CLPI 入口点表解析失败：%s", exc)
+        return None
+
+
+def parse_clpi_entry_points(data: bytes) -> list[tuple[int, int]]:
+    """解析 CLPI 的 CPI/EP_map，返回主视频流每个入口点的 (PTS, 源包号)，按 PTS 升序。
+
+    源包号（SPN）× 192 是入口点在 m2ts 里的字节位置——刷片挑点用相邻入口点的字节差
+    估码率（与 Matroska / MP4 的关键帧字节位置同一用法）。
+
     文件头 ``0x10`` 是 CPI 的绝对偏移。CPI 先给长度（0 = 没有 EP_map，返回空表）
     与类型，随后是 EP_map：每路流一条 12 字节索引（PID、类型、粗/细表条目数、
     该流表的相对起址），流表以粗表（8 字节：ref_to_EP_fine_id 18 位、
@@ -491,22 +520,26 @@ def parse_clpi_keyframes(data: bytes) -> list[int]:
     fine_start = int.from_bytes(data[stream_pos : stream_pos + 4], "big")
     coarse_pos = stream_pos + 4
     _require(coarse_pos, coarse_count * 8, cpi_end, "EP_map coarse table")
-    coarse: list[tuple[int, int]] = []  # (ref_to_EP_fine_id, PTS_EP_coarse)
+    # (ref_to_EP_fine_id, PTS_EP_coarse, SPN_EP_coarse)
+    coarse: list[tuple[int, int, int]] = []
     for i in range(coarse_count):
         raw = int.from_bytes(data[coarse_pos + i * 8 : coarse_pos + i * 8 + 8], "big")
-        coarse.append((raw >> 46, (raw >> 32) & 0x3FFF))
+        coarse.append((raw >> 46, (raw >> 32) & 0x3FFF, raw & 0xFFFFFFFF))
     fine_pos = stream_pos + fine_start
     _require(fine_pos, fine_count * 4, cpi_end, "EP_map fine table")
-    fine_pts: list[int] = []
+    fine: list[tuple[int, int]] = []  # (PTS_EP_fine, SPN_EP_fine)
     for i in range(fine_count):
         raw = int.from_bytes(data[fine_pos + i * 4 : fine_pos + i * 4 + 4], "big")
-        fine_pts.append((raw >> 17) & 0x7FF)
-    keyframes: set[int] = set()
-    for i, (fine_from, pts_coarse) in enumerate(coarse):
+        fine.append(((raw >> 17) & 0x7FF, raw & 0x1FFFF))
+    points: dict[int, int] = {}
+    for i, (fine_from, pts_coarse, spn_coarse) in enumerate(coarse):
         fine_to = coarse[i + 1][0] if i + 1 < len(coarse) else fine_count
         for j in range(fine_from, min(fine_to, fine_count)):
-            keyframes.add(((pts_coarse & ~1) << 18) + (fine_pts[j] << 8))
-    return sorted(keyframes)
+            pts_fine, spn_fine = fine[j]
+            # SPN 拼法同 libbluray：粗表 SPN 去掉低 17 位，再加细表的低 17 位
+            pts = ((pts_coarse & ~1) << 18) + (pts_fine << 8)
+            points.setdefault(pts, (spn_coarse & ~0x1FFFF) + spn_fine)
+    return sorted(points.items())
 
 
 def enrich_spec_with_clpi(spec: MediaSpec, languages: ClpiLanguages) -> MediaSpec:

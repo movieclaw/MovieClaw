@@ -18,6 +18,7 @@
 - 剧集当前集没看完 → 锚点本身，继续看（**不跳下一集**）；
 - 剧集当前集看完了 → 往后第一个没看完的，通常就是下一集；
 - 整部剧看完 → 消失；之后新入库一集，它自己回来——这正是「接下来」该有的语义。
+- 看完后又重看到一半（``played`` 仍为真、带续播点）→ 同「没看完」，停在这一单元接着看。
 
 **"看完"只认 ``played``**，不认"碰过"。旧版判"看过"用的是
 ``played OR last_played_at 非空``，那条口径放在这里会出错：先看了 E04 一半、
@@ -265,6 +266,11 @@ async def _states(
     }
 
 
+def _unfinished(state: tuple[bool, int] | None) -> bool:
+    """没看完，或看完后重看到一半（有续播点，已看标记保留）——都还能接着看。"""
+    return state is None or not state[0] or state[1] > 0
+
+
 async def up_next_items(
     session: AsyncSession,
     *,
@@ -303,8 +309,7 @@ async def up_next_items(
             pending = sorted(
                 unit
                 for unit in available
-                if unit >= anchor.unit
-                and not states.get((anchor.media_item_id, unit), (False, 0))[0]
+                if unit >= anchor.unit and _unfinished(states.get((anchor.media_item_id, unit)))
             )
             if not pending:
                 continue

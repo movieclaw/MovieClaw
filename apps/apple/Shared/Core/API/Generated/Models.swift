@@ -1409,6 +1409,45 @@ nonisolated extension API {
         }
     }
 
+    struct DeviceCleanupItem: Codable, Hashable, Sendable {
+        /// 设备 ID（与设备列表同一套）
+        var id: String
+        /// 设备名
+        var name: String
+        /// 主人的昵称
+        var ownerNickname: String
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case name
+            case ownerNickname = "owner_nickname"
+        }
+    }
+
+    struct DeviceCleanupRequest: Codable, Hashable, Sendable {
+        /// 注销多少天没用过的设备
+        var inactiveDays: Int
+        /// 超管：清理全部成员的设备（否则只清自己的）
+        var all: Bool?
+        /// 只列出会被注销的设备，不真的注销
+        var dryRun: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case inactiveDays = "inactive_days"
+            case all
+            case dryRun = "dry_run"
+        }
+    }
+
+    struct DeviceCleanupView: Codable, Hashable, Sendable {
+        /// 会被（或已被）注销的设备
+        var devices: [API.DeviceCleanupItem]
+
+        enum CodingKeys: String, CodingKey {
+            case devices
+        }
+    }
+
     /// 原生 App 登录时自报的设备信息。
     struct DeviceClientInfo: Codable, Hashable, Sendable {
         /// App 平台
@@ -8081,6 +8120,8 @@ nonisolated extension API {
         var streamUrl: String?
         /// seek：原片大小（片源字节缓存的键要用）
         var sizeBytes: Int?
+        /// seek：光盘的交付方式（同正片会话 decision.disc）——image=光盘镜像，stream_url 是镜像原字节；folder=原盘目录（BDMV / VIDEO_TS），按 GET /playback/files/{file_id}/disc 的清单（含主播放列表）逐个文件取；None=普通文件
+        var disc: String?
         /// seek：起播音轨的同类型序号
         var audioOrdinal: Int?
         /// seek：要显示的中文字幕；None 不开
@@ -8092,6 +8133,7 @@ nonisolated extension API {
             case mode
             case streamUrl = "stream_url"
             case sizeBytes = "size_bytes"
+            case disc
             case audioOrdinal = "audio_ordinal"
             case subtitle
             case prefetch

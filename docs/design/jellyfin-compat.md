@@ -580,7 +580,7 @@ Backdrop 数组下标即 index，本设计每条目至多 1 张背景，只需�
 
 | Jellyfin 图 | movieclaw 资产 |
 |---|---|
-| 库视图 `Primary` | 用户上传过**自定义封面**就用它（docs/design/library-custom-cover.md），否则是**服务端渲染的「氛围光货架」拼贴**（`services/library/cover.py`：该库最近入库 4 部作品海报，复刻控制台 LibraryCover 构图——21:10 画布、首图重模糊氛围光、圆角海报排 + 倒影 + 地面光斑；素材指纹做 key，内容变化自动重渲；控制台 `/api/v1/libraries/{id}/cover` 与本接口吐**同一张图**，前端媒体库页也直接 `<img>` 引用替代客户端 CSS 合成） |
+| 库视图 `Primary` | 用户上传过**自定义封面**就用它（docs/design/library-custom-cover.md），否则是**服务端渲染的「氛围光货架」拼贴**（`services/library/cover.py`：该库今天零点前最近入库的 4 部作品海报（不足再拿今天入库的补位，先到先占），复刻控制台 LibraryCover 构图——21:10 画布、首图重模糊氛围光、圆角海报排 + 倒影 + 地面光斑；素材指纹做 key；**满一架（4 张）的封面一天最多换一次**：选定结果登记在进程内存当天有效、带库内容版本（`stats_refreshed_at`），请求零查询；库内容变了重选一次（今天的新片不参与，选择没变不重渲；选中的片被移走、库空了当场跟上）；只有过零点与进程重启先给上一版、后台再渲；空库与不满一架的新库不冻结，新片入库后的第一次请求就当场重渲；删库时拼贴与登记一并清掉（库 id 会被复用）；控制台 `/api/v1/libraries/{id}/cover` 与本接口吐**同一张图**，前端媒体库页也直接 `<img>` 引用替代客户端 CSS 合成） |
 | Movie/Series `Primary` | `media_metadata.poster_file` |
 | Movie/Series `Backdrop/0` | `media_metadata.backdrop_file` |
 | Movie/Series `Logo` | 与 Primary/Backdrop 同一套三层解析：条目目录 `logo.png`/`clearlogo.png`（及 `<主干>-logo`/`-clearlogo` sidecar）→ `media_metadata.logo_file` → TMDB `logo_path` 原图兜底（issue #472）。透明底 PNG，**缩放变体保持 PNG**（带透明通道的图不转 JPEG，否则透明区成黑底；调色板 PNG 先转 RGBA 再缩放）。`logo_path` 空串 = TMDB 确认没有，不出 tag |

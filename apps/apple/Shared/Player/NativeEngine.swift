@@ -1,6 +1,10 @@
 import AetherCore
 import AVKit
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 
 /// 自研引擎：「FFmpeg 负责拆，Apple 负责播」（内核是 AetherEngine，经 AetherCore 动态框架引入）。
 ///
@@ -105,7 +109,7 @@ final class NativeEngine: NSObject, PlayerEngine {
         core.onSoftwareFrameGeneration = { [weak self] in self?.softwareFrameGeneration() }
     }
 
-    var view: UIView { core.view }
+    var view: NativeView { core.view }
 
     /// 建自研引擎前的全局准备：接管引擎日志、读开发期开关。刷片页（Features/Reels）自己管引擎实例，
     /// 建之前也调它，与播放器页同一口径
@@ -168,7 +172,8 @@ final class NativeEngine: NSObject, PlayerEngine {
         // （`PlaybackController.activateAudioSession`），引擎建实例时不再用默认策略重设一遍（引擎补丁 P47）。
         // Apple TV 上交给引擎：它以 `.longFormAudio` 策略只声明不激活，到出声时才激活，HDMI 才能按片源协商出
         // 5.1 / 全景声；提前激活会锁成立体声（上游 #24）
-        #if os(tvOS)
+        // Mac 没有音频会话（引擎在 macOS 上也不碰它），按引擎默认即可
+        #if os(tvOS) || os(macOS)
         var hostManagesAudio = false
         #else
         var hostManagesAudio = true
@@ -189,8 +194,14 @@ final class NativeEngine: NSObject, PlayerEngine {
         guard !sweptStaleCaches else { return }
         sweptStaleCaches = true
         DispatchQueue.global(qos: .utility).async { AetherPlayback.sweepStaleCaches() }
+        #if canImport(UIKit)
+        let background = UIApplication.didEnterBackgroundNotification
+        #else
+        // Mac 不会被挂起，退出前落一次盘即可
+        let background = NSApplication.willTerminateNotification
+        #endif
         backgroundObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: nil
+            forName: background, object: nil, queue: nil
         ) { _ in AetherPlayback.flushSourceCacheIndexes() }
     }
 
@@ -461,6 +472,13 @@ final class NativeEngine: NSObject, PlayerEngine {
         ))
     }
 
+    #if os(macOS)
+    var volume: Float {
+        get { core.volume }
+        set { core.volume = newValue }
+    }
+    #endif
+
     // MARK: - 画中画 / 前后台
 
     var supportsPictureInPicture: Bool {
@@ -562,7 +580,7 @@ final class NativeEngine: NSObject, PlayerEngine {
     private func handle(_ failure: AetherPlayback.Failure) {
         // 引擎的报错是英文；用户看得懂的几种先翻成中文
         let message = failure.message.hasPrefix("Device storage is full")
-            ? "手机存储空间不足，视频分片写不进缓存，请清理存储后重试"
+            ? "\(ClientPlatform.deviceNoun)存储空间不足，视频分片写不进缓存，请清理存储后重试"
             : failure.message
         lastFailureKind = failure.kind
         let cause: EngineFailureCause = switch failure.category {

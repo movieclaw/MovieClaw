@@ -38,6 +38,8 @@ final class ReelPlayer {
     }
     var onStateChange: ((State) -> Void)?
     var onFirstFrame: (() -> Void)?
+    /// 预起装载好、停在起点了（`start(autoplay: false)`）：这时再 `play()` 立刻起播
+    var onPrerolled: (() -> Void)?
     private(set) var hasFirstFrame = false
     /// 预起中：装载到起点停着，等 `play()`（见 `start(server:autoplay:)`）
     private var prerolling = false
@@ -56,6 +58,8 @@ final class ReelPlayer {
     private var timeOrigin: Double = 0
     /// 转码没开成、退回原画这类要让用户知道的事
     var onNotice: ((String) -> Void)?
+    /// Apple TV 大图预告（`TVStagePreview`）：画面铺满裁切、不切换电视的显示模式
+    let stagePreview: Bool
 
     var startSeconds: Double { Double(item.segment.startMs) / 1000 }
     var endSeconds: Double { Double(item.segment.endMs) / 1000 }
@@ -79,12 +83,14 @@ final class ReelPlayer {
         return min(1, max(0, (position - startSeconds) / span))
     }
 
-    init(item: API.ReelItemView, maxHeight: Int? = nil) throws {
+    init(item: API.ReelItemView, maxHeight: Int? = nil, stagePreview: Bool = false) throws {
         NativeEngine.prepareEngineEnvironment()
         core = try AetherPlayback()
         NativeEngine.sweepStaleCachesOnce()
         self.item = item
         self.maxHeight = maxHeight
+        self.stagePreview = stagePreview
+        core.fillsFrame = stagePreview
         // 字幕字号按画面高度的百分比：iPhone 竖屏刷片时画面只是屏幕中间一条横带，要放大才看得清；
         // Apple TV 全屏播放，用正片播放器的默认字号（PlayerPreferences.SubtitleStyle 的 5.2%）
         #if os(tvOS)
@@ -126,7 +132,7 @@ final class ReelPlayer {
                 await startTranscode(api: api, maxHeight: maxHeight, autoplay: autoplay, from: from)
             }
         } else {
-            loadOriginal(server: api.server, autoplay: autoplay, from: from)
+            loadOriginal(api: api, autoplay: autoplay, from: from)
         }
         // 到终点就停：引擎没有「放到某处停」的接口，四分之一秒看一次位置足够（片段 30～60 秒）；
         // 顺带给转码会话续命（15 秒一次，服务端 3 分钟没动静就回收：暂停久了也不断）
@@ -147,17 +153,55 @@ final class ReelPlayer {
         }
     }
 
-    private func loadOriginal(server: ServerAddress, autoplay: Bool, from: Double?) {
-        guard let raw = item.play.streamUrl, let url = server.resolve(raw) else {
+    /// 原画：引擎直接读 NAS 上的原片，按交付方式装载（与正片同一套，docs/design/disc-direct-play.md）——
+    /// 普通文件与光盘镜像给取流地址；原盘目录先取目录清单，引擎按服务端选的主播放列表逐个剪辑取字节
+    private func loadOriginal(api: APIClient, autoplay: Bool, from: Double?) {
+        guard let raw = item.play.streamUrl, let url = api.server.resolve(raw) else {
             state = .failed("这一条缺少取流地址")
             return
         }
         transcoding = false
         timeOrigin = 0
-        core.load(source: .file(url), start: from ?? startSeconds, autoplay: autoplay,
+        switch item.play.disc {
+        case "image":
+            load(.discImage(url), autoplay: autoplay, from: from)
+        case "folder":
+            loadTask = Task { [weak self] in
+                guard let self else { return }
+                do {
+                    let disc = try await self.discFolder(api: api, listing: url)
+                    guard !self.destroyed, !Task.isCancelled else { return }
+                    self.load(disc, autoplay: autoplay, from: from)
+                } catch {
+                    guard !self.destroyed, !Task.isCancelled else { return }
+                    self.state = .failed("原盘目录清单读取失败：\(error.localizedDescription)")
+                }
+            }
+        default:
+            load(.file(url), autoplay: autoplay, from: from)
+        }
+    }
+
+    private func load(_ source: AetherPlayback.Source, autoplay: Bool, from: Double?) {
+        core.load(source: source, start: from ?? startSeconds, autoplay: autoplay,
                   headers: ["User-Agent": APIClient.userAgent],
                   audioOrdinal: item.play.audioOrdinal,
-                  sourceCacheKey: Self.cacheKey(for: item))
+                  sourceCacheKey: Self.cacheKey(for: item), switchesDisplayMode: !stagePreview)
+    }
+
+    /// 原盘目录清单（`/playback/files/{id}/disc?token=`，令牌与取流地址同一个）→ 引擎要的文件列表与主播放列表。
+    /// 主播放列表由服务端选（诱饵判定与挑点同一口径），片段的时间轴才对得上
+    private func discFolder(api: APIClient, listing: URL) async throws -> AetherPlayback.Source {
+        guard let token = PlaybackAPI.token(in: listing.absoluteString) else {
+            throw APIError.decoding("取流地址缺少令牌")
+        }
+        // 走播放专用的连接池，不排在页面请求后面（同转码会话）
+        let client = APIClient(server: api.server, token: api.token, session: APIClient.playbackSession)
+        let view = try await client.playbackFileDiscList(fileId: item.segment.fileId, token: token)
+        let files = view.files.compactMap { file in
+            api.server.resolve(file.url).map { AetherPlayback.DiscFile(path: file.path, size: Int64(file.size), url: $0) }
+        }
+        return .discFolder(files: files, playlist: view.playlist)
     }
 
     /// 限了画质：开服务端转码会话，从片段起点（或接着的位置）转
@@ -218,7 +262,7 @@ final class ReelPlayer {
             // 源本来就不超所选档（视频直通）：不必转码，释放会话、直出原文件
             if decision.tier == 0 || decision.video?.action == "copy" {
                 if let sid = session.sessionId { Task { await scope.stop(sid) } }
-                loadOriginal(server: api.server, autoplay: autoplay, from: from)
+                loadOriginal(api: api, autoplay: autoplay, from: from)
                 return
             }
             guard let url = scope.streamURL(session.streamUrl) else {
@@ -242,7 +286,7 @@ final class ReelPlayer {
 
     private func fallBackToOriginal(api: APIClient, autoplay: Bool, from: Double?, reason: String) {
         onNotice?("\(reason)，这一条先放原画")
-        loadOriginal(server: api.server, autoplay: autoplay, from: from)
+        loadOriginal(api: api, autoplay: autoplay, from: from)
     }
 
     func play() {
@@ -336,6 +380,7 @@ final class ReelPlayer {
         onNotice = nil
         onStateChange = nil
         onFirstFrame = nil
+        onPrerolled = nil
         core.destroy()
     }
 
@@ -346,7 +391,10 @@ final class ReelPlayer {
         case .paused:
             if state == .playing || state == .buffering { state = .paused }
             // 预起的那条装载好了就停止往前下：滑不滑过去还不知道，别占着当前这条的带宽
-            if prerolling { core.setPrefetchSuspended(true) }
+            if prerolling {
+                core.setPrefetchSuspended(true)
+                onPrerolled?()
+            }
         case .ended:
             state = .ended
         case .loading, .buffering:

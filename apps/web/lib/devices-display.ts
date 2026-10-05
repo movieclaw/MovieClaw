@@ -13,6 +13,7 @@ const CLIENT_TYPE_LABEL: Record<string, string> = {
   worker: "转码器",
   cli: "命令行 / Agent",
   tvos: "Apple TV",
+  macos: "Mac",
   manual: "手工令牌",
 };
 
@@ -52,6 +53,15 @@ export function grantSummary(type: string, role: ViewerRole = "admin"): GrantSum
       body:
         "等同你在这台电视上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。" +
         "只批准你面前这台电视上显示的配对码。",
+    };
+  }
+  if (type === "macos") {
+    // Mac App 扫码登录：与 Apple TV 同一口径，等同在这台 Mac 上用你的账号密码登录
+    return {
+      title: role === "member" ? "将获得：这台 Mac 以你的身份登录" : "将获得：这台 Mac 以你的超级管理员身份登录",
+      body:
+        "等同你在这台 Mac 上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。" +
+        "只批准你面前这台 Mac 上显示的配对码。",
     };
   }
   if (role === "member") {
@@ -162,7 +172,7 @@ const DEVICE_GROUPS: { key: string; label: string }[] = [
  */
 export function deviceGroupKey(kind: string): string {
   if (kind === "web") return "browser";
-  if (kind === "ios" || kind === "tvos" || kind === "android") return "app";
+  if (kind === "ios" || kind === "tvos" || kind === "macos" || kind === "android") return "app";
   if (kind === "jellyfin") return "player";
   return "paired";
 }
@@ -174,6 +184,55 @@ export function groupDevices<T extends { kind: string }>(devices: T[]): DeviceGr
     devices: devices.filter((device) => deviceGroupKey(device.kind) === group.key),
   })).filter((group) => group.devices.length > 0);
 }
+
+/** 设备行首的图标。图标已经说明了形态，说明行里就不再重复「iOS App」「浏览器」。 */
+export type DeviceGlyph =
+  | "phone"
+  | "tv"
+  | "computer"
+  | "browser"
+  | "terminal"
+  | "transcoder"
+  | "player";
+
+export function deviceGlyph(kind: string, scope: string): DeviceGlyph {
+  if (kind === "worker" || scope === "transcode") return "transcoder";
+  if (kind === "ios" || kind === "android") return "phone";
+  if (kind === "tvos") return "tv";
+  if (kind === "macos") return "computer";
+  if (kind === "web") return "browser";
+  if (kind === "jellyfin") return "player";
+  return "terminal";
+}
+
+/**
+ * 设备行的第一行说明：系统、型号、版本，每段单独成块（换行只发生在块与块之间）。
+ * 浏览器、带系统信息的 App 由图标说明形态，不再写类型名；命令行、手工令牌、
+ * 播放器这类图标说不清的，类型名照写。
+ */
+export function identityParts(device: {
+  kind: string;
+  kind_label: string;
+  platform: string | null;
+  client_version: string | null;
+}): string[] {
+  const platform = (device.platform ?? "")
+    .split(" · ")
+    .map((part) => part.trim())
+    .filter(Boolean);
+  const isApp = deviceGroupKey(device.kind) === "app";
+  const parts =
+    device.kind === "web" || (isApp && platform.length > 0)
+      ? []
+      : [device.kind_label];
+  parts.push(...platform);
+  if (device.client_version) parts.push(`版本 ${device.client_version}`);
+  return parts;
+}
+
+/** 「清理长期没用的设备」可选的天数，默认 30 天。 */
+export const CLEANUP_DAY_OPTIONS = [7, 30, 90] as const;
+export const DEFAULT_CLEANUP_DAYS = 30;
 
 /**
  * 多久没活跃算「可能已经不用了」。只是界面上的一行轻提示——服务端不会因此让

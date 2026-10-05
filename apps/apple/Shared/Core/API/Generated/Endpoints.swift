@@ -198,6 +198,12 @@ nonisolated extension APIClient {
         return try await send("GET", "/auth/devices", query: query)
     }
 
+    /// 清理长期没用的设备：一次注销多少天没用过的设备
+    /// `POST /auth/devices/cleanup`
+    func authDevicesCleanup(body: API.DeviceCleanupRequest) async throws -> API.DeviceCleanupView {
+        return try await send("POST", "/auth/devices/cleanup", body: body)
+    }
+
     /// 注销当前这台设备（退出登录 / 断开配对）
     /// `DELETE /auth/devices/current`
     func authDevicesRevokeCurrent() async throws -> Void {
@@ -1987,6 +1993,16 @@ nonisolated extension APIClient {
         if let stock { query.append(URLQueryItem(name: "stock", value: "\(stock)")) }
         if let seriesKeys { query.append(URLQueryItem(name: "series_keys", value: "\(seriesKeys)")) }
         return try await send("GET", "/reels/facets", query: query)
+    }
+
+    /// 大图预告：一部片停留后原地播放的那一段
+    /// `GET /reels/preview/{media_item_id}`
+    func reelsPreview(mediaItemId: Int, source: String? = nil, season: Int? = nil, episode: Int? = nil) async throws -> API.ReelItemView? {
+        var query: [URLQueryItem] = []
+        if let source { query.append(URLQueryItem(name: "source", value: "\(source)")) }
+        if let season { query.append(URLQueryItem(name: "season", value: "\(season)")) }
+        if let episode { query.append(URLQueryItem(name: "episode", value: "\(episode)")) }
+        return try await send("GET", "/reels/preview/\(mediaItemId)", query: query)
     }
 
     /// 规则组列表（首次访问自动创建默认组）

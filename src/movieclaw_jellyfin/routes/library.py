@@ -23,7 +23,6 @@ from movieclaw_api.services.library.access import (
 from movieclaw_api.services.library.collections import (
     cached_membership,
     count_members,
-    has_any_member,
     resolve_members,
     visible_collections,
 )
@@ -275,12 +274,123 @@ async def _virtual_libraries(
     return out
 
 
-async def _cover_tag(library_id: int) -> str | None:
-    """库封面拼贴的版本 key（惰性渲染，素材不变零成本）。"""
+async def _visible_cover_item(
+    session: AsyncSession, collection: Collection, scope: ViewerScope
+) -> int | None:
+    """合集对这个观看者的封面条目；对他是空合集返回 None。
+
+    内容型合集读行上的缓存（零查询，同 ``_virtual_libraries``）；其余实时取：
+    指定的封面先核对这个人看得见，看不见就用他看得见的第一个成员。"""
+    cached = cached_membership(collection) if scope.content_limit.unrestricted else None
+    if cached is not None:
+        count, head = cached
+        if not count:
+            return None
+        return collection.cover_item_id or (head[0] if head else None)
+    kw = {
+        "member_id": scope.member_id,
+        "visible_library_ids": scope.visible,
+        "content_limit": scope.content_limit,
+    }
+    if collection.cover_item_id is not None and await resolve_members(
+        session, collection, only_item_id=collection.cover_item_id, **kw
+    ):
+        return collection.cover_item_id
+    first = await resolve_members(session, collection, limit=1, **kw)
+    return first[0] if first else None
+
+
+# 「合集」视图凑封面时，找到第一个非空合集之后最多再探几个
+_COVER_EXTRA_PROBES = 12
+
+
+async def _collections_view(session: AsyncSession, scope: ViewerScope) -> tuple[bool, str | None]:
+    """「合集」视图要不要下发，及其封面 tag。
+
+    封面是前几个可见合集各出一张封面海报拼成的货架（与库封面同一构图，
+    issue #587）。素材必须按观看者选——取图请求不带凭据，所以在这里渲染好、
+    把素材指纹当 tag 下发，取图接口凭 tag 找回产物。
+
+    封面按观看范围登记一天（与库封面同一条「一天最多换一次」）：今天登记过就
+    只探到第一个非空合集为止（判断视图还要不要下发），不再选素材。
+    """
+    from sqlalchemy import select as sa_select
+
+    from movieclaw_api.services.library.cover import (
+        MAX_POSTERS,
+        ensure_collections_view_cover,
+        memo_get,
+    )
+    from movieclaw_db.models import MediaMetadata
+
+    memo_key = (
+        "collections-view",
+        scope.member_id,
+        frozenset(scope.visible) if scope.visible is not None else None,
+        scope.content_limit,
+    )
+    rows = await visible_collections(
+        session, member_id=scope.member_id, visible_library_ids=scope.visible
+    )
+    visible_ids = {row.id for row in rows}
+    # 当天登记过、且组成封面的合集都还看得见才沿用：删掉或藏起来的合集不能
+    # 在封面上挂到零点
+    cached = memo_get(
+        memo_key,
+        still_valid=lambda used: isinstance(used, frozenset) and used <= visible_ids,
+    )
+    covers: list[int] = []
+    used: set[int] = set()
+    has_collections = False
+    probes_left = _COVER_EXTRA_PROBES
+    for row in rows:
+        if has_collections:
+            # 找到第一个之后，凑封面只再探有限几个：分级受限的观看者可能只看得见
+            # 一两个合集，不设上限的话每次 /UserViews 都要把几百个合集挨个实时判定
+            if probes_left <= 0:
+                break
+            probes_left -= 1
+        cover = await _visible_cover_item(session, row, scope)
+        if cover is None:
+            continue
+        has_collections = True
+        if cached is not None:
+            return True, cached[1]
+        if cover not in covers:
+            covers.append(cover)
+            used.add(row.id or 0)
+        if len(covers) >= MAX_POSTERS:
+            break
+    if not covers:
+        return has_collections, None
+    files = dict(
+        (
+            await session.execute(
+                sa_select(MediaMetadata.media_item_id, MediaMetadata.poster_file).where(
+                    MediaMetadata.media_item_id.in_(covers)  # type: ignore[union-attr]
+                )
+            )
+        ).all()
+    )
+    result = await ensure_collections_view_cover(
+        [files[i] for i in covers if files.get(i)], memo_key=memo_key, version=frozenset(used)
+    )
+    return has_collections, result[1] if result else None
+
+
+async def _cover_tag(library: Library) -> str | None:
+    """库封面拼贴的版本 key（惰性渲染，素材不变零成本）。库行已在手，内容版本
+    直接带过去，不再为它查一次库。"""
     from movieclaw_api.services.library.cover import ensure_library_cover
 
-    result = await ensure_library_cover(library_id)
+    result = await ensure_library_cover(library.id or 0, library.stats_refreshed_at)
     return result[1] if result else None
+
+
+async def _cover_tags(libraries: list[Library]) -> list[str | None]:
+    """各库封面 tag，并发准备：库内容一变下一次 /UserViews 就要重渲拼贴（NAS 上
+    一张约 1 秒），串行的话变了几个库就卡几秒（issue #587）。"""
+    return list(await asyncio.gather(*(_cover_tag(lib) for lib in libraries)))
 
 
 # ---------------------------------------------------------------------------
@@ -297,38 +407,28 @@ async def user_views(
     ctx = await dto_context()
     async with get_database().session() as session:
         libraries = await list_libraries(session, visible_ids=scope.visible)
-    dtos = [library_view_dto(ctx, lib, await _cover_tag(lib.id)) for lib in libraries]
+    tags = await _cover_tags(libraries)
+    dtos = [library_view_dto(ctx, lib, tag) for lib, tag in zip(libraries, tags, strict=True)]
     # 「合集」视图只在**真有东西可看**时下发：一个空视图在电视端是纯粹的死路。
     #
     # 设计文档 2.4 原本写的是"只判元数据存在、不解析成员"，理由是别让高频接口
     # 背 N 次解析。把「我的收藏」登记为内置合集之后那个前提没了：每个库都常驻
     # 一行空合集，只判元数据存在等于**永远**下发这个视图，新用户点进去一片空白。
-    # 改成逐个探一下"有没有第一个成员"（LIMIT 1，命中即停），通常第一个就命中。
+    # 改成逐个探一下"有没有第一个成员"（LIMIT 1）；封面要用前几个非空合集的
+    # 封面海报，探够货架张数即停。内容型合集读行上缓存，不花查询。
     #
     # 已知代价：不少客户端会缓存 /UserViews，用户建了第一个合集后可能要手动
     # 刷新一次才看得到入口。这是"不给空视图"的代价，不做额外补偿——补偿手段
     # 只有常驻一个空视图，那更糟。
     async with get_database().session() as session:
-        has_collections = False
-        for row in await visible_collections(
-            session, member_id=scope.member_id, visible_library_ids=scope.visible
-        ):
-            if await has_any_member(
-                session,
-                row,
-                member_id=scope.member_id,
-                visible_library_ids=scope.visible,
-                content_limit=scope.content_limit,
-            ):
-                has_collections = True
-                break
+        has_collections, collections_cover = await _collections_view(session, scope)
         # 钉了首页的合集额外伪装成一个顶层媒体库，排在真库与「合集」视图之后
         # （docs/design/library-collections.md 4.11）。合集在协议侧同时有两个身份：
         # 这里的 CollectionFolder，与「合集」视图下的 BoxSet——两者 GUID 不同、
         # 各自稳定，已配对客户端指向 BoxSet 的深链与收藏不会因此指空。
         virtual = await _virtual_libraries(session, scope)
     if has_collections:
-        dtos.append(collections_view_dto(ctx))
+        dtos.append(collections_view_dto(ctx, collections_cover))
     dtos.extend(
         collection_library_view_dto(
             ctx,
@@ -789,7 +889,11 @@ async def _query_items(request: Request, scope: ViewerScope) -> JSONResponse:
             if entries is None:
                 # 根级：返回视图列表
                 libraries = await list_libraries(session, visible_ids=scope.visible)
-                dtos = [library_view_dto(ctx, lib, await _cover_tag(lib.id)) for lib in libraries]
+                tags = await _cover_tags(libraries)
+                dtos = [
+                    library_view_dto(ctx, lib, tag)
+                    for lib, tag in zip(libraries, tags, strict=True)
+                ]
                 return JSONResponse(query_result(dtos, len(dtos)))
 
         if not simple_movie_page and person_ids_raw:
@@ -1763,9 +1867,10 @@ async def get_item(
             library = await session.get(Library, ref.entity_id)
             if library is None:
                 raise not_found()
-            return JSONResponse(library_view_dto(ctx, library, await _cover_tag(library.id)))
+            return JSONResponse(library_view_dto(ctx, library, await _cover_tag(library)))
         if ref.kind == EntityKind.FIXED and ref.entity_id == FIXED_COLLECTIONS:
-            return JSONResponse(collections_view_dto(ctx))
+            _, cover = await _collections_view(session, scope)
+            return JSONResponse(collections_view_dto(ctx, cover))
         if ref.kind == EntityKind.COLLECTION:
             return JSONResponse(await _boxset_or_404(session, ref.entity_id, scope, ctx))
         if ref.kind == EntityKind.COLLECTION_VIEW:
@@ -1892,7 +1997,8 @@ async def shows_next_up(
         anchor_unit, anchor_state = max(
             watched, key=lambda pair: pair[1].last_played_at or fallback_stamp
         )
-        if anchor_state.position_ms > 0 and not anchor_state.played:
+        # 有续播点（含看完后重看到一半的）就停在锚点，与续播位置同一口径
+        if anchor_state.position_ms > 0:
             next_unit = anchor_unit
         else:
             following = [u for u in bundle.units if u[0] != 0 and u > anchor_unit]

@@ -1,5 +1,9 @@
 import AVFoundation
+#if canImport(UIKit)
 import UIKit
+#else
+import AppKit
+#endif
 import VideoToolbox
 
 /// 客户端解码能力快照（字段与后端 ClientCapabilityIn 严格对应，参考 Web `lib/player/capability.ts`）。
@@ -35,7 +39,7 @@ enum PlayerCapability {
             containers: ["mp4", "hls-fmp4"],
             hdrPassthrough: hdrDisplay,
             mse: "none",
-            isMobile: UIDevice.current.userInterfaceIdiom == .phone,
+            isMobile: isPhone,
             nativeHls: true
         )
     }
@@ -83,12 +87,24 @@ enum PlayerCapability {
         }
     }
 
+    /// 是不是手机（服务端对移动端有码率、分辨率上的保守限制）
+    private static var isPhone: Bool {
+        #if canImport(UIKit)
+        UIDevice.current.userInterfaceIdiom == .phone
+        #else
+        false
+        #endif
+    }
+
     /// 屏幕能不能显示 HDR（能力快照的 hdr_passthrough）；判 false 只是让服务端 tone-map
     private static var hdrDisplay: Bool {
         #if os(tvOS)
         // Apple TV 的 EDR 余量恒为 1（画面经 HDMI 交给电视，不在本机屏幕上做 EDR），按它判会把所有 HDR 都申报成
         // 「不支持」。改问 AVPlayer：当前设备 + 所接电视能否放 HDR
         return AVPlayer.eligibleForHDRPlayback
+        #elseif os(macOS)
+        // Mac：主屏的 EDR 潜在余量（XDR / 支持 HDR 的外接屏 > 1）
+        return (NSScreen.main?.maximumPotentialExtendedDynamicRangeColorComponentValue ?? 1) > 1
         #else
         let screen = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.screen }.first
         return (screen?.potentialEDRHeadroom ?? 1) > 1

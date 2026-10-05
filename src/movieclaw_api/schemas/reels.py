@@ -105,6 +105,15 @@ class ReelPlayView(BaseModel):
     size_bytes: int | None = Field(
         default=None, description="seek：原片大小（片源字节缓存的键要用）"
     )
+    disc: str | None = Field(
+        default=None,
+        description=(
+            "seek：光盘的交付方式（同正片会话 decision.disc）——"
+            "image=光盘镜像，stream_url 是镜像原字节；"
+            "folder=原盘目录（BDMV / VIDEO_TS），"
+            "按 GET /playback/files/{file_id}/disc 的清单（含主播放列表）逐个文件取；None=普通文件"
+        ),
+    )
     audio_ordinal: int | None = Field(default=None, description="seek：起播音轨的同类型序号")
     subtitle: ReelSubtitleView | None = Field(
         default=None, description="seek：要显示的中文字幕；None 不开"

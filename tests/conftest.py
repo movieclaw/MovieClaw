@@ -453,3 +453,14 @@ def _fresh_pgs_capability(monkeypatch):
     monkeypatch.setattr(pgs, "warm_capability", lambda: None)
     yield
     pgs.reset_capability_cache()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_cover_memos(monkeypatch):
+    """库封面「按天登记」是进程级字典（services/library/cover.py），按用例清空。
+
+    各用例的库 id 会重复，登记串到下一个用例就会拿到别人的封面。"""
+    from movieclaw_api.services.library import cover
+
+    monkeypatch.setattr(cover, "_memos", {})
+    monkeypatch.setattr(cover, "_render_tasks", {})

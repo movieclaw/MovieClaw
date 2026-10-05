@@ -7,10 +7,22 @@
 - 至多 4 张海报（各占画布宽 22.5%，2:3 竖版，圆角 + 白描边 + 落影）立排；
 - 每张海报下方带向下渐隐的倒影；底部一枚中性地面光斑像射灯打在舞台上。
 
-素材选择：库内**最近入库**且有本地海报资产的 4 部作品（与控制台货架同一
-口径）。产物落 data/metadata/library-covers/{库id}-{key}.jpg，key 由海报
-路径+mtime 派生——库内容变化自动重渲，旧文件顺手清理。渲染是 CPU 活，
-统一走 asyncio.to_thread，不堵事件循环。
+素材选择：库内有本地海报资产、**今天零点之前**最近入库的 4 部作品（不足 4 部
+才拿今天入库的补位，补位先到先占）。产物落 data/metadata/library-covers/{库id}-{key}.jpg，
+key 由海报路径+mtime 派生，旧文件顺手清理。渲染是 CPU 活，统一走
+asyncio.to_thread，不堵事件循环。
+
+**一天最多换一次图**：以前按"最近入库的 4 部"选，订阅一天进十部片就重渲十次
+（NAS 上一张约 1 秒），每次请求还要重扫全库入库记录。现在：
+- 素材以零点为界，当天新入库的片不影响选择，过了零点统一换一次；
+- 选好的封面登记在进程内存里，当天有效，请求只做一次字典查找加一次 stat；
+- **只冻结满一架的封面**：空库、不满 4 张的新库每次请求都重选，新片当场补上
+  （库小，查询便宜；选择真变了才重渲，从空到满至多渲 4 次）；
+- 登记带着库内容版本（``stats_refreshed_at``）：入库、删除、回收、扫描对账后
+  重选一次——今天的新片不参与选择，满架库选出来还是那几部，不重渲；选中的片被
+  移走、库空了，封面当场跟上；
+- 只有过零点与进程重启（内容没变、只是日子换了，一批库同时换图）先给上一版、
+  后台再渲，请求不等 Pillow。
 
 用户上传的**自定义封面**优先于拼贴（issue #427）：本模块是三端封面的唯一
 入口（控制台卡片、管理页缩略图、Jellyfin 库 Primary 图），自定义封面在
@@ -23,9 +35,15 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
+import time
+from collections.abc import Callable, Hashable
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import func, select
 
@@ -45,6 +63,110 @@ MAX_POSTERS = 4
 # 同一库的封面选择、素材指纹计算和 Pillow 渲染必须作为一个整体去重。根级
 # Items 与库图片接口会并发调用本服务；仅锁渲染仍会让每个请求重复扫描候选素材。
 _cover_tasks: dict[int, asyncio.Task[tuple[Path, str] | None]] = {}
+# 后台渲染中的拼贴（按产物路径去重），供「先给旧图」的路径用
+_render_tasks: dict[Path, asyncio.Task[None]] = {}
+
+
+# ---------------------------------------------------------------------------
+# 按天登记：今天选定的封面记在内存里，零点作废
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _Memo:
+    cutoff: datetime
+    path: Path
+    key: str
+    #: 满一架（MAX_POSTERS 张）才冻结到零点；不满的每次请求都重选——空库/新库
+    #: 进了新片要当场上封面，不能等到明天
+    full: bool
+    #: 登记时的库内容版本（``library.stats_refreshed_at``）；对不上就重选
+    version: object = None
+
+
+_memos: dict[Hashable, _Memo] = {}
+
+
+def _now() -> datetime:
+    """当前时刻（带时区，按定时任务那个时区）。单独一个函数，测试可以拨钟。"""
+    try:
+        tz = ZoneInfo(get_settings().scheduler_timezone)
+    except Exception:  # 时区配错时退回本机时区，不让封面挂掉
+        return datetime.now().astimezone()
+    return datetime.now(tz)
+
+
+def day_cutoff() -> datetime:
+    """今天零点（naive UTC，与 created_at 同一口径）。"""
+    midnight = _now().replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight.astimezone(UTC).replace(tzinfo=None)
+
+
+def _memo_usable(memo: _Memo | None) -> bool:
+    # 产物得还在、且在当前的封面目录里（数据目录换过就不认旧登记）
+    return memo is not None and memo.path.parent == covers_dir() and memo.path.is_file()
+
+
+def memo_get(
+    key: Hashable,
+    version: object = None,
+    *,
+    still_valid: Callable[[object], bool] | None = None,
+) -> tuple[Path, str] | None:
+    """今天登记过、满一架、内容版本没变、产物还在的封面；否则返回 None（调用方重选）。
+
+    ``still_valid`` 代替「版本相等」的判定：拿登记时的版本自己核对（「合集」视图
+    用它核对组成封面的合集是否都还在）。"""
+    memo = _memos.get(key)
+    if memo is None or not memo.full or memo.cutoff != day_cutoff():
+        return None
+    valid = still_valid(memo.version) if still_valid is not None else memo.version == version
+    if not valid:
+        return None
+    return (memo.path, memo.key) if _memo_usable(memo) else None
+
+
+def _memo_stale(key: Hashable, *, full_only: bool = False) -> tuple[Path, str] | None:
+    """登记过的上一版（不论哪天），产物还在就能先顶上。
+
+    ``full_only``：只认满一架的上一版。不满一架的库在长新片，换图要当场渲——
+    先给旧图的话，客户端缓存了旧 tag，新片就迟迟上不了封面。"""
+    memo = _memos.get(key)
+    if memo is None or (full_only and not memo.full) or not _memo_usable(memo):
+        return None
+    return memo.path, memo.key
+
+
+def _memo_put(
+    key: Hashable,
+    result: tuple[Path, str],
+    poster_count: int,
+    *,
+    cutoff: datetime | None = None,
+    version: object = None,
+) -> None:
+    """登记今天的封面。``cutoff`` 传选素材那一刻的分界：查询期间跨过零点时，
+    昨天口径的结果只能算昨天的，不能冻结一整天。``version`` 是选素材前读到的
+    库内容版本。"""
+    stamp = cutoff if cutoff is not None else day_cutoff()
+    _memos[key] = _Memo(stamp, result[0], result[1], poster_count >= MAX_POSTERS, version)
+
+
+# 「合集」视图换下来的旧图留多久：客户端会缓存 /UserViews，拿着旧 tag 来取图时
+# 不能 404（#587 的空白格子）；Infuse 启动就会刷新视图，一周绰绰有余
+_VIEW_COVER_GRACE_SECONDS = 7 * 86400
+
+
+def _sweep_view_covers() -> None:
+    """清掉没有观看范围在用、且超过宽限期的「合集」视图旧图。"""
+    in_use = {memo.path for memo in _memos.values()}
+    horizon = time.time() - _VIEW_COVER_GRACE_SECONDS
+    for path in covers_dir().glob(f"{_COLLECTIONS_VIEW_STEM}-*.jpg"):
+        try:
+            if path not in in_use and path.stat().st_mtime < horizon:
+                path.unlink(missing_ok=True)
+        except OSError:
+            continue
 
 
 # ---------------------------------------------------------------------------
@@ -220,9 +342,20 @@ def _assets_root() -> Path:
     return Path(assets_root())
 
 
-async def select_cover_posters(library_id: int) -> list[Path]:
-    """选出该库最近入库、有本地海报资产的至多 4 部作品的海报绝对路径。"""
+async def select_cover_posters(library_id: int, cutoff: datetime | None = None) -> list[Path]:
+    """选出该库至多 4 部作品的海报绝对路径：有本地海报资产、今天零点之前最近入库的
+    优先，不足 4 部再拿今天入库的补位（新库当天也有封面）。
+
+    补位按**入库先后**取，先到先占：今天陆续进的片只会往后排，凑满一架后当天
+    不会被后来的挤掉（新库当天全是今天的片，按最新优先的话每进一部都要换图）。
+    过了零点它们成了「之前入库的」，再按最新优先轮换。
+
+    同一入库时间按作品 id 定序——批量扫描入库的时间戳可能挨得很近，没有第二
+    排序键的话选出哪几部取决于数据库内部顺序，封面会无故来回换。
+    """
     root = _assets_root()
+    if cutoff is None:
+        cutoff = day_cutoff()
     async with get_database().session() as session:
         # 只需要海报路径与入库时间：整行读取会反序列化每部作品的简介、演员等
         # 大字段；VidHub 的根级 Items 每次启动都会走这里，大库上代价不可接受。
@@ -242,11 +375,16 @@ async def select_cover_posters(library_id: int) -> list[Path]:
                     MediaMetadata.poster_file.is_not(None),
                 )
                 .group_by(MediaMetadata.media_item_id, MediaMetadata.poster_file)
-                .order_by(func.max(LibraryFile.created_at).desc())
+                .order_by(
+                    func.max(LibraryFile.created_at).desc(),
+                    MediaMetadata.media_item_id.desc(),
+                )
             )
         ).all()
+    ordered = [rel for rel, latest in rows if latest < cutoff]
+    ordered += [rel for rel, latest in reversed(rows) if latest >= cutoff]
     result: list[Path] = []
-    for rel, _created_at in rows:
+    for rel in ordered:
         path = root / rel
         if path.is_file():
             result.append(path)
@@ -268,53 +406,141 @@ def _cover_key(paths: list[Path]) -> str:
 def _clear_cover_task(
     library_id: int, task: asyncio.Task[tuple[Path, str] | None]
 ) -> None:
-    """仅移除当前任务，避免完成回调误删后续同库任务。"""
+    """仅移除当前任务，避免完成回调误删后续同库任务。
+
+    后台刷新（先给了旧图）没有人 await，异常在这里取走记一笔，免得事件循环
+    报 "Task exception was never retrieved"。"""
     if _cover_tasks.get(library_id) is task:
         _cover_tasks.pop(library_id, None)
+    if not task.cancelled() and (exc := task.exception()) is not None:
+        logger.warning("库封面刷新失败（library_id=%d）：%s", library_id, exc)
 
 
-async def ensure_library_cover(library_id: int) -> tuple[Path, str] | None:
+def _newest_collage(library_id: int) -> tuple[Path, str] | None:
+    """盘上该库最新的一张拼贴（进程重启后内存登记没了，靠它先顶上）。"""
+    out_dir = covers_dir()
+    if not out_dir.is_dir():
+        return None
+    found: list[tuple[float, Path]] = []
+    for path in out_dir.glob(f"{library_id}-*.jpg"):
+        try:
+            found.append((path.stat().st_mtime, path))
+        except OSError:
+            continue
+    if not found:
+        return None
+    path = max(found)[1]
+    return path, path.stem.split("-", 1)[1]
+
+
+_UNSET: object = object()
+
+
+async def library_content_version(library_id: int) -> object:
+    """库内容版本：``stats_refreshed_at``。入库、回收、扫描对账、转移……所有改变
+    库内容的写路径收尾都会重算统计并刷新它，正好拿来判断当天登记还作不作数。"""
+    from movieclaw_db.models import Library
+
+    async with get_database().session() as session:
+        query = select(Library.stats_refreshed_at).where(Library.id == library_id)
+        return (await session.execute(query)).scalar_one_or_none()
+
+
+async def ensure_library_cover(
+    library_id: int, content_version: object = _UNSET
+) -> tuple[Path, str] | None:
     """返回该库封面的 (文件路径, 版本 key)；没有可用封面返回 None。
 
     **自定义封面优先**：用户上传过就直接给他的图，一次 stat 的成本，连拼贴
     的候选素材都不用扫（issue #427）。
 
-    没有自定义封面才走拼贴，幂等：key 命中直接返回；素材变化重渲并清理该库
-    旧产物。同一库的并发调用复用同一任务，避免重复扫描海报或重复执行 Pillow
-    渲染。
+    没有自定义封面才走拼贴：今天登记过（满一架、库内容没变）就直接给；否则起一个
+    刷新任务（选素材 → 指纹命中直接用，否则重渲并清理旧产物）。只有**过零点**与
+    **进程重启**这两种「内容没变、只是日子换了」的情况先给上一版、后台刷新——
+    那是一批库同时换图的时刻；库内容变了（新片补位、选中的片被移走、库空了）或
+    一张都没有时等刷新完成，封面当场跟上。同一库的并发调用复用同一任务，避免
+    重复扫描海报或重复执行 Pillow 渲染。
+
+    ``content_version``：调用方手上有库行时传 ``library.stats_refreshed_at``，
+    省一次查询；不传就现查。
     """
     custom = _custom_cover_entry(library_id)
     if custom is not None:
         return custom
+    if content_version is _UNSET:
+        content_version = await library_content_version(library_id)
+    memo_key = ("library", library_id)
+    hit = memo_get(memo_key, content_version)
+    if hit is not None:
+        return hit
     task = _cover_tasks.get(library_id)
     if task is None:
-        task = asyncio.create_task(_ensure_library_cover_once(library_id))
+        task = asyncio.create_task(_ensure_library_cover_once(library_id, content_version))
         _cover_tasks[library_id] = task
         task.add_done_callback(lambda done: _clear_cover_task(library_id, done))
+    if not task.done():
+        memo = _memos.get(memo_key)
+        if memo is None:
+            # 内存登记没了（进程刚重启）：盘上那张先顶上
+            stale = _newest_collage(library_id)
+        elif memo.version == content_version:
+            # 只是过了零点：满一架的上一版先顶上
+            stale = _memo_stale(memo_key, full_only=True)
+        else:
+            stale = None
+        if stale is not None:
+            return stale
     # 单个 HTTP 请求断开时，不应取消其他请求正在等待的共享封面生成。
     return await asyncio.shield(task)
 
 
-async def _ensure_library_cover_once(library_id: int) -> tuple[Path, str] | None:
-    """执行一次完整的封面选择、缓存检查和渲染流程。"""
-    posters = await select_cover_posters(library_id)
+async def _ensure_library_cover_once(
+    library_id: int, content_version: object = None
+) -> tuple[Path, str] | None:
+    """执行一次完整的封面选择、缓存检查和渲染流程，结果登记到今天。"""
+    memo_key = ("library", library_id)
+    cutoff = day_cutoff()
+    posters = await select_cover_posters(library_id, cutoff=cutoff)
     if not posters:
+        # 库空了（片全移走 / 海报都没了）：旧图一并清掉——留在盘上的话，重启后
+        # 「盘上那张先顶上」会让一个空库永远挂着旧封面
+        _memos.pop(memo_key, None)
+        _drop_collage(library_id)
         return None
     key = _cover_key(posters)
     out_dir = covers_dir()
     target = out_dir / f"{library_id}-{key}.jpg"
-    if target.is_file():
-        return target, key
-    out_dir.mkdir(parents=True, exist_ok=True)
-    try:
-        await asyncio.to_thread(render_shelf_collage, posters, target)
-    except Exception:
-        logger.exception("库封面拼贴渲染失败（library_id=%d），本次退化为无封面", library_id)
-        return None
-    for stale in out_dir.glob(f"{library_id}-*.jpg"):
-        if stale != target:
-            stale.unlink(missing_ok=True)
+    if not target.is_file():
+        out_dir.mkdir(parents=True, exist_ok=True)
+        # 原子替换：刷新期间别的请求正拿着上一版，半张图不能露出去
+        temp = target.with_name(f"{target.stem}-{uuid4().hex}.tmp")
+        try:
+            await asyncio.to_thread(render_shelf_collage, posters, temp)
+            os.replace(temp, target)
+        except Exception:
+            logger.exception("库封面拼贴渲染失败（library_id=%d）", library_id)
+            # 有上一版就接着用到明天，不让每个请求都重试一次 1 秒的渲染
+            stale = _memo_stale(memo_key) or _newest_collage(library_id)
+            if stale is not None:
+                _memo_put(memo_key, stale, MAX_POSTERS, cutoff=cutoff, version=content_version)
+            return stale
+        finally:
+            temp.unlink(missing_ok=True)
+        for stale_file in out_dir.glob(f"{library_id}-*.jpg"):
+            if stale_file != target:
+                stale_file.unlink(missing_ok=True)
+    _memo_put(memo_key, (target, key), len(posters), cutoff=cutoff, version=content_version)
     return target, key
+
+
+def forget_library_cover(library_id: int) -> None:
+    """删库时把封面全部带走：自定义封面、拼贴产物、当天登记。
+
+    SQLite 的主键不带 AUTOINCREMENT，被删的最大 id 会复用给下一个新建的库——
+    留下任何一样，新库都会顶着旧库的封面。"""
+    remove_custom_cover(library_id)
+    _drop_collage(library_id)
+    _memos.pop(("library", library_id), None)
 
 
 async def ensure_collection_cover(
@@ -325,6 +551,47 @@ async def ensure_collection_cover(
     缓存指纹包含素材路径和版本，不同权限范围的封面不会串用；产物沿用已登记的
     library-covers 缓存目录。不同观看者的产物可并存，不能按合集 id 清理彼此的缓存。
     """
+    return await _ensure_poster_collage(f"collection-{collection_id}", poster_files)
+
+
+_COLLECTIONS_VIEW_STEM = "collections"
+_KEY_RE = re.compile(r"[0-9a-f]{32}")
+
+
+async def ensure_collections_view_cover(
+    poster_files: list[str], *, memo_key: Hashable, version: object = None
+) -> tuple[Path, str] | None:
+    """Jellyfin 顶层「合集」视图的封面：每个可见合集出一张封面海报，同一种货架构图。
+
+    素材由调用方按观看者权限选好（取图请求不带凭据，只能凭 tag 找回这里的产物）。
+    ``memo_key`` 标识观看范围：结果登记到今天，调用方先 ``memo_get`` 命中就不必
+    再选素材；换图时先给这个范围的上一版、后台再渲。``version`` 记组成封面的合集，
+    供调用方核对它们是否都还在。
+    """
+    return await _ensure_poster_collage(
+        _COLLECTIONS_VIEW_STEM, poster_files, memo_key=memo_key, version=version
+    )
+
+
+def collections_view_cover(key: str) -> Path | None:
+    """按 tag（即素材指纹）找回已渲染的「合集」视图封面；没有或 tag 不合法返回 None。"""
+    if not _KEY_RE.fullmatch(key):
+        return None
+    path = covers_dir() / f"{_COLLECTIONS_VIEW_STEM}-{key}.jpg"
+    return path if path.is_file() else None
+
+
+async def _ensure_poster_collage(
+    stem: str,
+    poster_files: list[str],
+    *,
+    memo_key: Hashable | None = None,
+    version: object = None,
+) -> tuple[Path, str] | None:
+    """把资产相对路径列表渲染成 ``{stem}-{素材指纹}.jpg``，返回 (文件, 指纹)。
+
+    给了 ``memo_key``：结果登记到今天；要重渲而这个 key 有满一架、构成相同的上一版
+    时先返回上一版，渲染丢到后台（不满一架或构成变了的当场渲，同库封面）。"""
     root = _assets_root().resolve()
     posters = []
     for rel in poster_files:
@@ -336,20 +603,45 @@ async def ensure_collection_cover(
     if not posters:
         return None
     key = _cover_key(posters)
-    target = covers_dir() / f"collection-{collection_id}-{key}.jpg"
+    target = covers_dir() / f"{stem}-{key}.jpg"
     if not target.is_file():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        # 原子替换：Web 与 App 同时请求时也不会读到尚未写完的 JPEG。
-        temp = target.with_name(f"{target.stem}-{uuid4().hex}.tmp")
-        try:
-            await asyncio.to_thread(render_shelf_collage, posters, temp)
-            os.replace(temp, target)
-        except Exception:
-            logger.exception("合集封面拼贴渲染失败（collection_id=%d）", collection_id)
+        # 只有构成没变（同一批素材来源，只是过了零点或海报换了版本）才先给上一版；
+        # 构成变了（新合集补位、合集被删）当场渲，同库封面
+        memo = _memos.get(memo_key) if memo_key is not None else None
+        stale = (
+            _memo_stale(memo_key, full_only=True)
+            if memo is not None and memo.version == version
+            else None
+        )
+        task = _render_tasks.get(target)
+        if task is None:
+            task = asyncio.create_task(_render_collage(stem, posters, target))
+            _render_tasks[target] = task
+            task.add_done_callback(lambda _done: _render_tasks.pop(target, None))
+        if stale is not None:
+            return stale
+        await asyncio.shield(task)
+        if not target.is_file():
             return None
-        finally:
-            temp.unlink(missing_ok=True)
+    if memo_key is not None:
+        _memo_put(memo_key, (target, key), len(posters), version=version)
     return target, key
+
+
+async def _render_collage(stem: str, posters: list[Path], target: Path) -> None:
+    """渲染一张拼贴；失败只记日志（调用方按产物在不在判断）。"""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # 原子替换：Web 与 App 同时请求时也不会读到尚未写完的 JPEG。
+    temp = target.with_name(f"{target.stem}-{uuid4().hex}.tmp")
+    try:
+        await asyncio.to_thread(render_shelf_collage, posters, temp)
+        os.replace(temp, target)
+    except Exception:
+        logger.exception("合集封面拼贴渲染失败（%s）", stem)
+    finally:
+        temp.unlink(missing_ok=True)
+    if stem == _COLLECTIONS_VIEW_STEM:
+        _sweep_view_covers()
 
 
 def render_shelf_collage(poster_paths: list[Path], out: Path) -> None:

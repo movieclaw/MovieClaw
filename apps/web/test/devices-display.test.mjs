@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   activityLabel,
   deviceLive,
+  deviceGlyph,
+  identityParts,
   STALE_AFTER_DAYS,
   clientTypeLabel,
   deviceGroupKey,
@@ -254,4 +256,62 @@ test("没有长连接的设备仍按最近 5 分钟有没有用过", () => {
   assert.equal(activityLabel(phone, now), "3 分钟前");
   const cli = { kind: "cli", scope: "full", connected: false, last_seen_at: "2026-09-27T10:00:00Z" };
   assert.equal(deviceLive(cli, now), false);
+});
+
+test("设备图标按形态挑，转码凭证一律是转码器", () => {
+  assert.equal(deviceGlyph("ios", "full"), "phone");
+  assert.equal(deviceGlyph("tvos", "full"), "tv");
+  assert.equal(deviceGlyph("web", "full"), "browser");
+  assert.equal(deviceGlyph("worker", "transcode"), "transcoder");
+  assert.equal(deviceGlyph("manual", "transcode"), "transcoder");
+  assert.equal(deviceGlyph("manual", "full"), "terminal");
+  assert.equal(deviceGlyph("jellyfin", "full"), "player");
+  assert.equal(deviceGlyph("something-new", "full"), "terminal");
+});
+
+test("设备说明：图标说得清的不再写类型名，系统信息拆成整块", () => {
+  const app = {
+    kind: "ios",
+    kind_label: "iOS App",
+    platform: "iOS 26.6.2 · iPhone18,4",
+    client_version: "0.4.0",
+  };
+  assert.deepEqual(identityParts(app), [
+    "iOS 26.6.2",
+    "iPhone18,4",
+    "版本 0.4.0",
+  ]);
+  // 没报系统信息的 App：类型名留着，否则这一行什么都不剩
+  assert.deepEqual(
+    identityParts({ ...app, platform: null, client_version: null }),
+    ["iOS App"],
+  );
+  // 浏览器的名字就是「Safari · iPhone」，再写「浏览器」是重复
+  assert.deepEqual(
+    identityParts({
+      kind: "web",
+      kind_label: "浏览器",
+      platform: null,
+      client_version: null,
+    }),
+    [],
+  );
+  assert.deepEqual(
+    identityParts({
+      kind: "manual",
+      kind_label: "手工令牌",
+      platform: null,
+      client_version: null,
+    }),
+    ["手工令牌"],
+  );
+  assert.deepEqual(
+    identityParts({
+      kind: "jellyfin",
+      kind_label: "Infuse",
+      platform: null,
+      client_version: "8.1",
+    }),
+    ["Infuse", "版本 8.1"],
+  );
 });

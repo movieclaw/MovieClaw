@@ -100,10 +100,13 @@ export default function SearchPage() {
 
   /**
    * 站点资源页切换搜索分类：关键词不变，按目标分类生成一条新的实时搜索 URL。
-   * buildSearchPath 会带上预设的站点、图览和无痕设置，并自然移除旧快照。
+   * buildSearchPath 会带上预设的站点、图览和无痕设置，并自然移除旧快照；
+   * 手动选种模式（for_sub）要留着——从收窄的分类放宽到「全部」不能丢了投递目标。
    */
   const switchScope = (scope: SearchScope) => {
-    router.push(buildSearchPath({ keyword: query.keyword, scope }) as Route);
+    const path = buildSearchPath({ keyword: query.keyword, scope });
+    const forSub = grabForSubscriptionId != null ? `&for_sub=${grabForSubscriptionId}` : "";
+    router.push(`${path}${forSub}` as Route);
   };
 
   return (

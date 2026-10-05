@@ -13,6 +13,7 @@ options:
   deploymentTarget:
     iOS: "26.0"
     tvOS: "26.0"
+    macOS: "26.0"
   createIntermediateGroups: true
 packages:
   # 图片加载与缓存（MIT）：海报墙的解码降采样、内存/磁盘缓存、预取
@@ -41,7 +42,8 @@ settings:
     # Swift 6.2 起的「易上手并发」：默认主线程隔离，UI 代码不必处处标 @MainActor
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
     SWIFT_APPROACHABLE_CONCURRENCY: YES
-    MARKETING_VERSION: "0.4.0"
+    # App 自己的版本号，iPhone、Apple TV、Mac 三端共用（docs/design/ios-release.md §3），与服务器版本无关
+    MARKETING_VERSION: "0.5.0"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
 targets:
@@ -163,11 +165,11 @@ targets:
   # 它的 FFmpeg 引用也在这个框架链接时就绑定到自带的 AetherLib* 框架——一个进程里有两份 FFmpeg 时
   # （2026-09-28 移除 MPV 之前，mpv 还静态打着一份），avcodec_* 绑到哪一份由链接顺序决定，
   # 绑错了症状像引擎 bug（上游文档「One FFmpeg」）。App 只 import AetherCore，不得直接依赖 AetherEngine。
-  # iPhone 与 Apple TV 共用同一个框架目标（同一个模块名 AetherCore），两个 App 各自嵌入对应平台的产物
+  # iPhone、Apple TV 与 Mac 共用同一个框架目标（同一个模块名 AetherCore），各个 App 嵌入对应平台的产物
   AetherCore:
     type: framework
     platform: auto
-    supportedDestinations: [iOS, tvOS]
+    supportedDestinations: [iOS, tvOS, macOS]
     sources:
       - path: AetherCore
         type: syncedFolder
@@ -181,6 +183,57 @@ targets:
         SKIP_INSTALL: YES
         # LibDovi 的 tvOS 模拟器切片只有 arm64：模拟器只编 arm64（Apple 芯片的 Mac），真机不受影响
         EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+  # Mac 版（docs/design/macos-app.md）：界面层在 MovieClawMac/，接口层、登录与账号、播放逻辑与 iPhone / Apple TV 版
+  # 共用 Shared/；播放引擎同一个 AetherCore。版式参照 macOS 上的 Apple Music（侧边栏 + 内容区 + 液态玻璃工具栏）
+  MovieClawMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: MovieClawMac
+        type: syncedFolder
+      - path: Shared
+        type: syncedFolder
+    dependencies:
+      - package: Nuke
+        product: Nuke
+      - package: Nuke
+        product: NukeUI
+      - target: AetherCore
+      # 同 iPhone 版：AetherCore 运行时加载的 AetherLib* 动态框架由 App 嵌入
+      - package: FFmpegBuild
+        product: AetherFFmpegBuild
+    info:
+      path: MovieClawMac/Info.plist
+      properties:
+        CFBundleDisplayName: MovieClaw
+        CFBundleLocalizations:
+          - zh-Hans
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        LSApplicationCategoryType: public.app-category.entertainment
+        LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        ITSAppUsesNonExemptEncryption: false
+        # 自托管服务器多是局域网 http 直连，理由同 iPhone 版
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: MovieClaw 需要访问局域网，用于自动发现并连接你自己部署的 MovieClaw 服务器。
+    settings:
+      base:
+        # 沙盒 + 网络：自托管服务器的接口、图片与片源都是 App 主动连出去；局域网自动发现要向网段逐个发 UDP 询问、
+        # 在同一个端口上收应答（ServerDiscovery），所以进出两个方向都开。用构建设置而不是写死在权限文件里：
+        # Debug 构建关掉沙盒，开发期的调试驱动（MacDebugDriver）才能和外面的脚本交换命令与截图
+        # （其他进程读不了 App 的沙盒容器）；Release 构建照常在沙盒里
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
+        ENABLE_INCOMING_NETWORK_CONNECTIONS: YES
+        PRODUCT_NAME: MovieClaw
+        PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).app
+        GENERATE_INFOPLIST_FILE: NO
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ENABLE_HARDENED_RUNTIME: YES
+      configs:
+        Debug:
+          ENABLE_APP_SANDBOX: NO
   # Apple TV 版（docs/design/tvos-app.md）：界面层在 MovieClawTV/，接口层、登录与账号、播放逻辑与 iPhone 版
   # 共用 Shared/；播放引擎同一个 AetherCore。Bundle ID 与 iPhone 版相同（同一条 App Store 记录，一次购买两端通用）
   MovieClawTV:
@@ -301,6 +354,20 @@ targets:
         # XCTestCase 的初始化器是非隔离的，测试类不能继承工程级的默认主线程隔离（同 iPhone 版）
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
         EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+  MovieClawMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: MovieClawMacTests
+        type: syncedFolder
+    dependencies:
+      - target: MovieClawMac
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).MovieClawMacTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/MovieClaw.app/Contents/MacOS/MovieClaw
+        BUNDLE_LOADER: $(TEST_HOST)
   MovieClawTests:
     type: bundle.unit-test
     platform: iOS
@@ -329,6 +396,13 @@ targets:
         # XCTestCase 的初始化器是非隔离的，测试类不能继承工程级的默认主线程隔离
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
 schemes:
+  MovieClawMac:
+    build:
+      targets:
+        MovieClawMac: all
+    test:
+      targets:
+        - MovieClawMacTests
   MovieClawTV:
     build:
       targets:

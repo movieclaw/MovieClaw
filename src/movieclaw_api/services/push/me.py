@@ -37,7 +37,7 @@ def device_status(device: LoginDevice, channels: list[Channel]) -> tuple[str, st
     if device.push_permission == "denied":
         return "permission_denied", "系统通知已关闭，在这台设备的设置里打开", None
     if not device.push_token or not device.push_topic:
-        return "not_registered", "还没有开启通知，打开 App 后会自动开启", None
+        return "not_registered", "还没有开启通知，打开最新版 App 后会自动开启", None
     if device.push_problem == "bad_token":
         return "bad_token", "推送令牌无效，重新打开 App 后会自动更新", None
     candidates = channel_registry.route(channels, device.push_topic)

@@ -181,7 +181,7 @@ enum DiscoverHeroImage {
 
     /// 电视 Hero 铺满整屏宽（1920×780 点，按宽算）→ 屏宽像素；iPhone 是屏宽 × 520 的竖框，铺满 16:9 要按高算
     static var width: Int {
-        #if os(tvOS)
+        #if os(tvOS) || os(macOS)
         ImageWidth.screen
         #else
         ImageWidth.phoneHero(height: DiscoverHero.height)

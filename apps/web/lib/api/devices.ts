@@ -51,7 +51,7 @@ export interface DeviceRequestView {
  * Jellyfin 播放器（docs/design/login-devices.md）。
  *
  * - id：登录设备为 `ld-<n>`，Jellyfin 播放器为 `jf-<n>`；
- * - kind：web / ios / tvos / android / cli / worker / manual / jellyfin；
+ * - kind：web / ios / tvos / macos / android / cli / worker / manual / jellyfin；
  * - family：login = 用密码登录的（改密即下线）；paired = 配对或手工创建的
  *   （改密默认保留）；
  * - scope：full = 与主人相同的权限；transcode = 只能转码。
@@ -84,7 +84,7 @@ export interface LoginDeviceView {
   owner_id: number;
   owner_username: string;
   owner_nickname: string;
-  /** App 类设备（ios / tvos / android）的推送状态，其他设备为 null（docs/design/cloud-push.md §7.3） */
+  /** 能收推送的 App（ios / android）的推送状态，其他设备为 null（docs/design/cloud-push.md §7.3） */
   push: DevicePushState | null;
 }
 
@@ -190,4 +190,33 @@ export function revokeLoginDevice(deviceId: string): Promise<string> {
       method: "DELETE",
     }),
   );
+}
+
+/** 「清理长期没用的设备」里的一台（见 schemas.auth.DeviceCleanupItem）。 */
+export interface DeviceCleanupItem {
+  id: string;
+  name: string;
+  owner_nickname: string;
+}
+
+/**
+ * 清理 inactiveDays 天没用过的设备：本机与此刻连着的转码器服务端永远不清。
+ * dryRun 只列出会注销哪些（给确认框用）；真清理时 message 是「已注销 N 台设备」。
+ */
+export async function cleanupLoginDevices(
+  inactiveDays: number,
+  { all = false, dryRun = false }: { all?: boolean; dryRun?: boolean } = {},
+): Promise<{ devices: DeviceCleanupItem[]; message: string }> {
+  const envelope = await request<ApiEnvelope<{ devices: DeviceCleanupItem[] }>>(
+    "/auth/devices/cleanup",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        inactive_days: inactiveDays,
+        all,
+        dry_run: dryRun,
+      }),
+    },
+  );
+  return { devices: envelope.data.devices, message: envelope.message };
 }

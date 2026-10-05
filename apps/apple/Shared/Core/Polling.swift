@@ -30,7 +30,7 @@ struct PollingModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
-            .task(id: PollingKey(active: scenePhase == .active, seconds: seconds)) {
+            .task(id: PollingKey(active: scenePhase == .active && !warmup, seconds: seconds)) {
                 guard !warmup else { return }
                 guard scenePhase == .active else {
                     if wasActive { missedWhileInactive = true }

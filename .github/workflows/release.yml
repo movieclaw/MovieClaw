@@ -9,7 +9,9 @@
 #     面向 NAS 用户的开源项目来说等同于劝退。
 #   - iOS 未签名 IPA（MovieClaw-iOS-unsigned.ipa）：给不走 App Store / TestFlight 的
 #     用户用 AltStore / SideStore / Sideloadly 以自己的 Apple ID 重签后侧载。
-#   后两个是可选附件，各自按改动判断：自上一版以来对应代码没变时不重编，
+#   - Mac 版 App（MovieClaw-macos-arm64.zip）：与转码器同一套 Developer ID 签名与公证，
+#     下载解压后双击即可打开。
+#   后三个是可选附件，各自按改动判断：自上一版以来对应代码没变时不重编，
 #   直接沿用上一个 Release 里的同名文件（asset-plan / carry-assets 作业）。
 # 产物上传成功后自动调用 docker-image.yml，同步发布同版本号的
 # Docker 镜像（多架构，标签策略见该工作流头注释）。
@@ -207,7 +209,7 @@ jobs:
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             cli/dist/mclaw_*.tar.gz cli/dist/mclaw_*.zip cli/dist/checksums.txt
 
-  # 可选附件（Mac 转码器、iOS IPA）这次重编还是沿用上一版，判断规则见脚本头注释。
+  # 可选附件（Mac 转码器、iOS IPA、Mac 版 App）这次重编还是沿用上一版，判断规则见脚本头注释。
   # 单独一个 ubuntu 作业先判断，沿用时 macOS runner 一台都不用起。
   asset-plan:
     needs: release-artifacts
@@ -222,6 +224,8 @@ jobs:
       worker_from: ${{ steps.plan.outputs.worker_from }}
       ipa_mode: ${{ steps.plan.outputs.ipa_mode }}
       ipa_from: ${{ steps.plan.outputs.ipa_from }}
+      mac_mode: ${{ steps.plan.outputs.mac_mode }}
+      mac_from: ${{ steps.plan.outputs.mac_from }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -243,12 +247,24 @@ jobs:
             ':(exclude)apps/apple/MovieClawTVUITests' \
             ':(exclude)apps/apple/MovieClawTests' \
             ':(exclude)apps/apple/MovieClawUITests' | sed 's/^/ipa_/' >> "$GITHUB_OUTPUT"
+          # Mac 版用到的是 apps/apple 下除 iPhone、Apple TV 专属目录与测试以外的全部
+          # （目录名带斜杠：只排除 MovieClaw/ 本身，不连带 MovieClawMac/）
+          scripts/release-asset-plan.sh MovieClaw-macos-arm64.zip \
+            apps/apple \
+            ':(exclude)apps/apple/MovieClaw/' \
+            ':(exclude)apps/apple/MovieClawNotificationService/' \
+            ':(exclude)apps/apple/MovieClawTV/' \
+            ':(exclude)apps/apple/MovieClawTVTopShelf/' \
+            ':(exclude)apps/apple/MovieClawTVUITests/' \
+            ':(exclude)apps/apple/MovieClawTests/' \
+            ':(exclude)apps/apple/MovieClawUITests/' \
+            ':(exclude)apps/apple/MovieClawMacTests/' | sed 's/^/mac_/' >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
   # 沿用上一版的附件：从上一个 Release 下载同名文件，原样传到本次 Release。
   carry-assets:
     needs: asset-plan
-    if: ${{ needs.asset-plan.outputs.worker_mode == 'carry' || needs.asset-plan.outputs.ipa_mode == 'carry' }}
+    if: ${{ needs.asset-plan.outputs.worker_mode == 'carry' || needs.asset-plan.outputs.ipa_mode == 'carry' || needs.asset-plan.outputs.mac_mode == 'carry' }}
     runs-on: ubuntu-latest
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
@@ -257,6 +273,8 @@ jobs:
       WORKER_FROM: ${{ needs.asset-plan.outputs.worker_from }}
       IPA_MODE: ${{ needs.asset-plan.outputs.ipa_mode }}
       IPA_FROM: ${{ needs.asset-plan.outputs.ipa_from }}
+      MAC_MODE: ${{ needs.asset-plan.outputs.mac_mode }}
+      MAC_FROM: ${{ needs.asset-plan.outputs.mac_from }}
     steps:
       - name: 复制附件
         run: |
@@ -267,6 +285,7 @@ jobs:
           }
           if [ "$WORKER_MODE" = carry ]; then carry MovieClawTranscoder-macos-arm64.zip "$WORKER_FROM"; fi
           if [ "$IPA_MODE" = carry ]; then carry MovieClaw-iOS-unsigned.ipa "$IPA_FROM"; fi
+          if [ "$MAC_MODE" = carry ]; then carry MovieClaw-macos-arm64.zip "$MAC_FROM"; fi
 
   # macOS 远程转码 Worker（自上一版以来有改动才编，否则由 carry-assets 沿用）。
   # 与 docker-image 并行。它构建失败不拦发布——publish 作业不看它的结果，
@@ -402,6 +421,88 @@ jobs:
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             apps/apple/build-ipa/MovieClaw-iOS-unsigned.ipa
 
+  # Mac 版 App（docs/design/macos-app.md）：与 worker-macos 同一套 Developer ID 签名与公证密钥，
+  # 打包、签名、公证都在 apps/apple/scripts/package-mac-app.sh（本机手工发版同用）。
+  # 可选附件：失败不拦转正，重跑本作业即可补传；有改动才编，否则由 carry-assets 沿用。
+  # 没配证书（如 fork 出去的仓库）时 ad-hoc 签名，照常产出，只是别人下载后首次打开会被系统拦下。
+  mac-app:
+    needs: asset-plan
+    if: ${{ needs.asset-plan.outputs.mac_mode == 'build' }}
+    # 液态玻璃与 SwiftUI 新接口要 macOS 26 SDK（Xcode 26 起），同 worker-macos / ios-ipa
+    runs-on: macos-26
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 同 worker-macos：显式取触发时的提交，保证打包的就是发版那份代码
+          ref: ${{ github.sha }}
+
+      - name: 准备工具链
+        run: |
+          brew install xcodegen
+          xcodebuild -version
+
+      # 同 worker-macos 的同名步骤：证书导入临时钥匙串，作业结束即删
+      - name: 准备 Developer ID 签名与公证凭证
+        env:
+          P12: ${{ secrets.MACOS_DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          if [ -z "$P12" ]; then
+            echo "::warning::未配置 MACOS_DEVELOPER_ID_P12，Mac 版沿用 ad-hoc 签名（用户首次打开会被系统拦下）"
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | awk -F'"' '/Developer ID Application/ { print $2; exit }')"
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::MACOS_DEVELOPER_ID_P12 里没有「Developer ID Application」证书（导出的是不是 Apple Development / Distribution？）"
+            exit 1
+          fi
+          echo "MOVIECLAW_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          if [ -n "$API_KEY_P8" ]; then
+            printf '%s\n' "$API_KEY_P8" > "$RUNNER_TEMP/notary-key.p8"
+            {
+              echo "MOVIECLAW_NOTARY_KEY_PATH=$RUNNER_TEMP/notary-key.p8"
+              echo "MOVIECLAW_NOTARY_KEY_ID=$API_KEY_ID"
+              echo "MOVIECLAW_NOTARY_ISSUER=$API_ISSUER_ID"
+            } >> "$GITHUB_ENV"
+          else
+            echo "::warning::已配置签名证书但未配置 APPLE_API_KEY_P8，Mac 版不会公证（用户首次打开仍会被系统拦下）"
+          fi
+
+      - name: 编译、签名、公证并打包
+        run: apps/apple/scripts/package-mac-app.sh
+
+      - name: 清理签名钥匙串与密钥
+        if: always()
+        run: |
+          if [ -n "${SIGNING_KEYCHAIN:-}" ]; then security delete-keychain "$SIGNING_KEYCHAIN" || true; fi
+          rm -f "$RUNNER_TEMP/notary-key.p8"
+
+      - name: 上传到 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            apps/apple/build-macapp/MovieClaw-macos-arm64.zip
+
   # 产物发布成功后同步发布 Docker 镜像。串在产物之后而非并行，
   # 是为了避免产物构建失败（版本校验不过等）时 latest 镜像已被推走。
   docker-image:
@@ -414,10 +515,10 @@ jobs:
   # 终审：产物齐全 + 镜像发布成功后才把 draft Release 转正。
   # 这是发布原子性的落点——转正之前，应用内更新、install-cli.sh 的
   # latest/download、Release 页对用户都不可见，不存在「半成品 Release」。
-  # worker-macos / ios-ipa / carry-assets 失败不拦转正（可选附件），但 cli 或镜像失败时 Release
+  # worker-macos / ios-ipa / mac-app / carry-assets 失败不拦转正（可选附件），但 cli 或镜像失败时 Release
   # 停在 draft：修复后重跑本工作流即可，全链路可安全重入。
   publish:
-    needs: [cli, worker-macos, ios-ipa, carry-assets, docker-image]
+    needs: [cli, worker-macos, ios-ipa, mac-app, carry-assets, docker-image]
     if: ${{ !cancelled() && needs.cli.result == 'success' && needs.docker-image.result == 'success' }}
     runs-on: ubuntu-latest
     env:
@@ -451,6 +552,9 @@ jobs:
           fi
           if ! echo "$assets" | grep -qx "MovieClaw-iOS-unsigned.ipa"; then
             echo "::warning::缺少 iOS 未签名 IPA（可选产物），Release 照常发布；重跑 ios-ipa 或 carry-assets 作业可补传"
+          fi
+          if ! echo "$assets" | grep -qx "MovieClaw-macos-arm64.zip"; then
+            echo "::warning::缺少 Mac 版 App（可选产物），Release 照常发布；重跑 mac-app 或 carry-assets 作业可补传"
           fi
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
           echo "Release $RELEASE_TAG 已发布"

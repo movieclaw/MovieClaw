@@ -33,7 +33,21 @@ Disney+ Verts（2026-03）、Netflix Clips（2026-04，横过手机直接看）�
   字节位置，mkvmerge 还默认给**每条字幕事件**（包括 PGS 图形字幕）写索引点。
 - MP4：只读 moov 的样本表（stts / stss / stsz / stsc / stco）。**不能用 ffprobe 列包**——它会
   顺带读出每个包的数据，等于通读 mdat（NAS 实测 15.7 GB 的 MP4 读了 60 秒、5.7 GB 仍未完）。
-- 其余容器（TS、原盘目录、镜像）一期跳过。
+- 原盘目录与蓝光镜像（2026-10-05 放开）：主播放列表（MPLS）给剪辑序列与章节，各剪辑 CLPI 的 EP_map
+  是天然的关键帧表（PTS + 源包号 × 192 当字节位置，只用来估码率），挑点规则与 MKV / MP4 完全一样。
+  镜像里的这些小文件经服务端的 UDF 读取器读（`services/library/udf.py`，照搬 App 引擎的实现，
+  NAS 49 个蓝光镜像全部读得出，冷读首个 11 秒、之后每个 0.05～0.1 秒）。实现：`services/reels/disc_index.py`。
+- DVD（目录或镜像）：按与引擎相同的规则选主标题（VIDEO_TS.IFO 标题表列出的标题集里内容 VOB 最大的），
+  片长取它 IFO 里最长的节目链（ffprobe 对整个镜像猜出的片长不可信），按时间挑。
+- 其余读不出索引的片源（TS、AVI、WMV、MPG、网盘 strm……，以及读不出索引的 MKV / MP4）：按台账片长与
+  章节挑（区间前三分之一处的章节起点或固定位置），没有码率信号、不对齐关键帧，起点交给 App 引擎定位。
+  连台账片长都没有才算挑不了。
+- 光盘与读不出索引的片源不给预取范围（光盘的字节位置是拼出来的，不是取流地址上的位置），
+  不抽封面（ffmpeg 读不了光盘目录 / 镜像，用剧照），光盘也不开字幕（服务端的字幕清单与盘内轨对不上序号）。
+- App 按交付方式装载（`play.disc`，与正片同一套，docs/design/disc-direct-play.md）：镜像给原字节地址，
+  原盘目录先取目录清单（含服务端选的主播放列表），时间轴与挑点同一条。模拟器实测各格式引擎落点与服务端
+  起点一致、引擎读到的片长与服务端相同；预起（装载到停在起点）原盘目录 1.8 秒、蓝光镜像 0.9～1.6 秒、
+  DVD 0.2～0.8 秒、AVI 0.1～0.4 秒、TS 2.2～2.7 秒（按字节二分定位，最慢）。
 
 NAS 实测（17 个文件）：MKV 每部读 0.2～2 MB、0.04～1 秒；MP4 每部读 2.5～16.5 MB（moov）、
 0.14～1 秒；挑点本身几毫秒。
@@ -171,6 +185,10 @@ NAS 实测（17 个文件）：MKV 每部读 0.2～2 MB、0.04～1 秒；MP4 每
   没人刷它的部署零成本。挑点、封面、取流、进度沿用电影的一套（`video` 按单本、放 `(item, 0, 0)` 单元，
   区间沿用电影口径；短于 35 秒的挑不出片段，自然跳过）。
 
+**大图预告**（2026-10-05，Apple TV 首页与详情页，docs/design/tvos-app.md §3.5）：`GET /api/v1/reels/preview/{id}?source=&season=&episode=`
+返回一条同样的 `ReelItemView`（放不了为 null）。`highlight` 就是刷片这一段（剧集第二集）；`resume` 是这个人续播点往前 30 秒到续播点
+（`segment.method = "resume"`，起点对齐关键帧、预取按这个起点现算），没有可用的续播点退回 `highlight`。预告不开字幕。
+
 `POST /api/v1/reels/events`：`{"events": [{"reel_id", "kind", "mode", "media_item_id",
 "file_id", "position_ms", "watched_ms", "wait_ms", "detail"}]}`，kind 为
 impression / first_frame / leave / complete / continue / open / fullscreen / detail / fail（continue、open
@@ -299,5 +317,5 @@ impression / first_frame / leave / complete / continue / open / fullscreen / det
 
 - 让大模型读带时间戳的字幕挑「不剧透、单独成立的名场面」，补对白片的短板（索引已给出每条
   字幕的位置，按位置读几百个小块就能拿到台词，不用通读文件）。
-- 片头片尾识别（音频指纹）；原盘 / 镜像支持；外挂字幕；按事件数据调长度与规则。
+- 片头片尾识别（音频指纹）；外挂字幕；按事件数据调长度与规则。
 - 预剪模式（`mode=clip`）：离线渲染 720p 小文件（NAS 实测 4K HDR 源一段 105 秒、约 9 MB）。

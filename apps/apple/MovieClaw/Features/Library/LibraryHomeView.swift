@@ -308,24 +308,11 @@ struct LibraryHomeView: View {
                             ForEach(genres, id: \.value) { genre in
                                 if let id = Int(genre.value) {
                                     NavigationLink(value: AppRoute.libraryKind(kind: kind, genre: id)) {
-                                        // 卡片下方写最近入库那部片的片名（与海报行「片名 + 年份」同一个格式）
-                                        VStack(alignment: .leading, spacing: 8) {
-                                            GenreCardFace(
-                                                genreId: id, label: genre.label, count: genre.count,
-                                                coverURL: api.image(genre.coverUrl, width: ImageWidth.points(PhoneCardWidth.genreTile)),
-                                                width: PhoneCardWidth.genreTile
-                                            )
-                                            VStack(alignment: .leading, spacing: 2) {
-                                                Text(genre.coverTitle ?? genre.label)
-                                                    .font(.subheadline.weight(.medium))
-                                                    .foregroundStyle(Theme.text)
-                                                Text(genre.coverTitle != nil ? "最近入库" : "\(genre.count) 部")
-                                                    .font(.caption)
-                                                    .foregroundStyle(Theme.textMuted)
-                                            }
-                                            .lineLimit(1)
-                                            .frame(width: PhoneCardWidth.genreTile, alignment: .leading)
-                                        }
+                                        GenreCardFace(
+                                            label: genre.label, count: genre.count, mediaKind: kind,
+                                            coverURL: api.image(genre.coverUrl, width: ImageWidth.points(PhoneCardWidth.genreTile)),
+                                            width: PhoneCardWidth.genreTile
+                                        )
                                     }
                                     .buttonStyle(GenreTileButtonStyle())
                                     .accessibilityIdentifier("genre-tile-\(kind)-\(id)")
@@ -396,7 +383,7 @@ struct LibraryHomeView: View {
     }
 }
 
-/// 类型色块的按压反馈：轻微缩小（同系统卡片的按下手感），不叠系统的高亮蒙层
+/// 类型剧照卡的按压反馈：轻微缩小（同系统卡片的按下手感），不叠系统的高亮蒙层
 private struct GenreTileButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label

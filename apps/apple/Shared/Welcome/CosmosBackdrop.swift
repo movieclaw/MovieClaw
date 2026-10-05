@@ -66,6 +66,7 @@ struct CosmosBackdrop: View {
 ///
 /// 不用 SwiftUI 的 `rotationEffect` + `repeatForever`：那是 SwiftUI 在主线程逐帧推进动画，
 /// 实测首页因此多吃约 45% 的 CPU（模拟器上从 26% 涨到 71%）。
+#if canImport(UIKit)
 private struct RotatingStarfield: UIViewRepresentable {
     let image: CGImage
     let scale: CGFloat
@@ -78,18 +79,36 @@ private struct RotatingStarfield: UIViewRepresentable {
 
     func updateUIView(_ view: StarfieldView, context: Context) {}
 }
+#else
+private struct RotatingStarfield: NSViewRepresentable {
+    let image: CGImage
+    let scale: CGFloat
+    let revolution: TimeInterval?
+
+    func makeNSView(context: Context) -> StarfieldView {
+        StarfieldView(image: image, scale: scale, revolution: revolution)
+    }
+
+    func updateNSView(_ view: StarfieldView, context: Context) {}
+}
+#endif
 
 /// 承载星空图层的 UIView：图层居中摆放（位图边长是屏幕对角线，转到任何角度都铺满四角）
-final class StarfieldView: UIView {
+final class StarfieldView: NativeView {
     private let starLayer = CALayer()
 
     init(image: CGImage, scale: CGFloat, revolution: TimeInterval?) {
         super.init(frame: .zero)
-        isUserInteractionEnabled = false
         starLayer.contents = image
         starLayer.contentsScale = scale
         starLayer.bounds = CGRect(x: 0, y: 0, width: CGFloat(image.width) / scale, height: CGFloat(image.height) / scale)
+        #if canImport(UIKit)
+        isUserInteractionEnabled = false
         layer.addSublayer(starLayer)
+        #else
+        wantsLayer = true
+        layer?.addSublayer(starLayer)
+        #endif
         if let revolution {
             let spin = CABasicAnimation(keyPath: "transform.rotation.z")
             spin.fromValue = 0
@@ -105,8 +124,22 @@ final class StarfieldView: UIView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    #if canImport(UIKit)
     override func layoutSubviews() {
         super.layoutSubviews()
+        centerStars()
+    }
+    #else
+    override func layout() {
+        super.layout()
+        centerStars()
+    }
+
+    /// 星空只是背景，不接鼠标
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    #endif
+
+    private func centerStars() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         starLayer.position = CGPoint(x: bounds.midX, y: bounds.midY)

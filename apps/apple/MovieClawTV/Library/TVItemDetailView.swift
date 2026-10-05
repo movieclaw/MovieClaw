@@ -53,6 +53,8 @@ struct TVItemDetailView: View {
     @FocusState private var lowerFocus: LowerFocus?
     /// 在下半截点播的那一集：播完退回详情时首屏改讲它，而不是进来时那一集
     @State private var playedElsewhere: (season: Int, episode: Int)?
+    /// 大图预告里认这一页的牌子（见 `TVStagePreview`）
+    @State private var previewOwner = UUID()
 
     private enum DetailAction { case play, restart, favorite, played }
     private enum LowerFocus: Hashable {
@@ -72,7 +74,8 @@ struct TVItemDetailView: View {
             // 往下滑时剧照跟着内容滚走，露出同一张剧照的模糊版（与海报墙同一套背景）
             TVStageBackdrop(pinnedScroll: 0, fadeDistance: 900, url: backdropURL, tint: nil, scroll: scroll, fullImage: true,
                             ambientURL: api.image(detail?.backdropUrl ?? detail?.posterUrl,
-                                                  width: ImageWidth.points(TVMetrics.blurredBackdropWidth)))
+                                                  width: ImageWidth.points(TVMetrics.blurredBackdropWidth)),
+                            previewKey: itemId)
             if failed {
                 TVStateView(symbol: "questionmark.folder", title: "未能加载该条目",
                             message: "条目可能已被删除或重新识别为其他作品。", actionTitle: "返回") { router.pop() }
@@ -83,6 +86,9 @@ struct TVItemDetailView: View {
             }
         }
         .task { await reload() }
+        // 大图停留一会儿就原地放刷片挑好的那一段（剧集固定第二集）；从首页进来、那边正放着这一部的就接着放
+        .task { TVStagePreview.shared.show(.init(mediaItemId: itemId, source: .highlight), owner: previewOwner, api: api) }
+        .onDisappear { TVStagePreview.shared.leave(owner: previewOwner) }
         .task { favorite = (try? await api.playbackMarksGet(mediaItemId: itemId))?.isFavorite }
         // 进了详情页多半要播：先把起播要用的连接连好（同 iPhone 版）
         .task { PlaybackPreconnect.warm(api: api) }
@@ -229,8 +235,9 @@ struct TVItemDetailView: View {
     private func actions(_ detail: API.LibraryItemDetailView) -> some View {
         let position = watched?.positionMs ?? 0
         let finished = watched?.played ?? false
-        let resumable = canPlay && !finished && position > 0
-        let verb = finished ? "重新播放" : resumable ? "继续" : "播放"
+        // 有续播点就接着播（与服务端起播同一口径）：看完后重看到一半的也算，已看标记保留
+        let resumable = canPlay && position > 0
+        let verb = resumable ? "继续" : finished ? "重新播放" : "播放"
         // 剧集在按钮上写明是哪一集（同 Netflix、系统 Apple TV App 的「继续 第 1 季第 3 集」）：只写「继续 46:56」
         // 看不出续的是第几集（2026-10-04 用户要求）。时间点跟在后面
         let parts = [verb, unitLabel, resumable ? Formatters.clock(Double(position) / 1000) : nil].compactMap { $0 }
@@ -244,7 +251,7 @@ struct TVItemDetailView: View {
             }
             HStack(spacing: 28) {
                 if canPlay {
-                    Button { play(start: finished ? 0 : nil) } label: {
+                    Button { play(start: nil) } label: {
                         Label(label, systemImage: "play.fill")
                             .padding(.horizontal, 16)
                     }
@@ -900,7 +907,7 @@ private struct TVEpisodeCard: View {
     /// 剧照左下：▶ 片长（看了一半的写剩多久、压进度条）
     @ViewBuilder
     private var stillBand: some View {
-        let inProgress = !episode.played && episode.positionMs > 0
+        let inProgress = episode.positionMs > 0  // 含看完后重看到一半的
         let text: String? = inProgress ? "看到 \(Formatters.clock(Double(episode.positionMs) / 1000))"
             : runtimeMinutes.flatMap { $0 > 0 ? TVItemDetailView.runtimeText($0) : nil }
         if text != nil || inProgress {

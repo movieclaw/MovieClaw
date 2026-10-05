@@ -77,6 +77,13 @@ nonisolated struct SearchScope: Hashable, Sendable {
 
     static let all = SearchScope()
 
+    /// 详情页「搜索资源」的范围（同 Web scopeOfMediaKind）：剧集只搜剧集分类、电影只搜电影分类，
+    /// 等同点了内置分类标签；其余形态（库里的「其他」/图片）不收窄
+    static func ofMediaKind(_ kind: String?) -> SearchScope {
+        guard let kind, kind == "movie" || kind == "tv" else { return .all }
+        return SearchScope(label: TorrentCategories.label(kind), categories: [kind])
+    }
+
     /// 编码进路由 `SearchQuery.scope`（查询串格式，与 Web URL 参数同名：label / cats / sites / poster / private）。
     /// 「全部」编码为 nil。
     var encoded: String? {

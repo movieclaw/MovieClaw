@@ -118,6 +118,31 @@ def test_app_login_issues_a_long_lived_device_token(client: TestClient) -> None:
     assert listed[0]["id"] == device["id"] and listed[0]["current"] is True
 
 
+def test_mac_app_logs_in_as_a_login_device_without_push(client: TestClient) -> None:
+    """Mac App 与 iPhone / Apple TV 同一种登录设备（人直接操作、随改密下线）；
+    本期不接推送，「我的设备」里不给它挂推送状态（PUSH_KINDS 刻意不含 macos）。"""
+    resp = TestClient(client.app).post(
+        f"{_AUTH}/device/login",
+        json={
+            **_ADMIN,
+            "client": {
+                "kind": "macos",
+                "installation_id": "macos-install-0001",
+                "name": "书房的 MacBook",
+                "platform": "macOS 26.0 · arm64",
+            },
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    device = resp.json()["data"]["device"]
+    assert (device["kind"], device["kind_label"], device["family"]) == ("macos", "Mac App", "login")
+    listed = _as(client, resp.json()["data"]["token"]).get(f"{_AUTH}/devices").json()["data"]
+    mac = next(d for d in listed if d["kind"] == "macos")
+    # 服务器开着推送时也不挂推送状态、不能登记：
+    # 见 test_cloud_push.test_apps_without_push_get_no_push_hint
+    assert mac["push"] is None
+
+
 def test_app_login_wrong_password_is_rejected_and_throttled(client: TestClient) -> None:
     anon = TestClient(client.app)
     body = {
@@ -373,6 +398,81 @@ def test_jellyfin_players_are_listed_and_revocable(client: TestClient) -> None:
     assert client.delete(f"{_AUTH}/devices/{players[0]['id']}").status_code == 200
     remaining = client.get(f"{_AUTH}/devices").json()["data"]
     assert [d for d in remaining if d["kind"] == "jellyfin"] == []
+
+
+def test_cleaning_up_devices_unused_for_days(client: TestClient) -> None:
+    """一次注销 N 天没用过的设备：本机永远不清，dry_run 只列不注销，范围跟着视图走。"""
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import JellyfinDevice, LoginDevice
+    from movieclaw_db.models.base import utcnow
+
+    client.post(f"{_AUTH}/login", json=_ADMIN)
+    _create_member(client)
+    old_phone = _app_login(client, _ADMIN, installation="install-old-1", name="旧 iPhone")
+    fresh_phone = _app_login(client, _ADMIN, installation="install-new-1", name="新 iPhone")
+    member_phone = _app_login(client, _MEMBER, installation="install-fam-1", name="家人 iPhone")
+    long_ago = utcnow() - timedelta(days=40)
+
+    async def age() -> None:
+        async with get_database().session() as session:
+            await session.execute(
+                update(LoginDevice)
+                .where(LoginDevice.name.in_(["旧 iPhone", "家人 iPhone"]))  # type: ignore[attr-defined]
+                .values(last_seen_at=long_ago)
+            )
+            # 本机（这个浏览器）也很久没记过活跃：照样不能被清
+            await session.execute(
+                update(LoginDevice)
+                .where(LoginDevice.kind == "web")
+                .values(last_seen_at=long_ago, created_at=long_ago)
+            )
+            session.add(
+                JellyfinDevice(
+                    member_id=0,
+                    token="e" * 32,
+                    device_id="infuse-old",
+                    client="Infuse",
+                    device_name="旧播放器",
+                    last_seen_at=long_ago,
+                )
+            )
+            await session.commit()
+
+    client.portal.call(age)
+
+    def names(resp) -> set[str]:  # type: ignore[no-untyped-def]
+        assert resp.status_code == 200, resp.text
+        return {d["name"] for d in resp.json()["data"]["devices"]}
+
+    url = f"{_AUTH}/devices/cleanup"
+    assert names(client.post(url, json={"inactive_days": 30, "dry_run": True})) == {
+        "旧 iPhone",
+        "旧播放器",
+    }
+    assert names(client.post(url, json={"inactive_days": 60, "dry_run": True})) == set()
+    assert names(
+        client.post(url, json={"inactive_days": 30, "all": True, "dry_run": True})
+    ) == {"旧 iPhone", "旧播放器", "家人 iPhone"}
+    # dry_run 什么都没动（不能拿旧手机的令牌去验：一用就刷新了它的最近活跃）
+    listed = {d["name"] for d in client.get(f"{_AUTH}/devices").json()["data"]}
+    assert {"旧 iPhone", "旧播放器"} <= listed
+
+    member = _as(client, member_phone["token"])
+    assert member.post(url, json={"inactive_days": 30, "all": True}).status_code == 403
+
+    resp = client.post(url, json={"inactive_days": 30})
+    assert names(resp) == {"旧 iPhone", "旧播放器"}
+    assert resp.json()["message"] == "已注销 2 台设备"
+    assert _as(client, old_phone["token"]).get(f"{_AUTH}/me").status_code == 401
+    assert _as(client, fresh_phone["token"]).get(f"{_AUTH}/me").status_code == 200
+    assert member.get(f"{_AUTH}/me").status_code == 200  # 只清了自己的
+    assert client.get(f"{_AUTH}/me").status_code == 200  # 本机还在
+    left = {d["name"] for d in client.get(f"{_AUTH}/devices").json()["data"]}
+    assert "旧 iPhone" not in left and "旧播放器" not in left and "新 iPhone" in left
 
 
 # ---------------------------------------------------------------------------

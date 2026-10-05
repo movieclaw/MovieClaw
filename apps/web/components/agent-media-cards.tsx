@@ -318,7 +318,8 @@ function LibraryItemPlayCardBody({
     watch && watch.position_ms > 0 && watch.duration_ms
       ? Math.min(100, Math.round((watch.position_ms / watch.duration_ms) * 100))
       : null;
-  const playVerb = watch?.played ? "重新播放" : watch && watch.position_ms > 0 ? "继续播放" : "播放";
+  // 有续播点优先「继续播放」：看完后重看到一半的也接着播（与服务端起播同一口径）
+  const playVerb = watch && watch.position_ms > 0 ? "继续播放" : watch?.played ? "重新播放" : "播放";
 
   return (
     // 两个入口叠在一起：整卡进条目页、中央播放键直接起播。播放键是卡片链接的

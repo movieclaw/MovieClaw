@@ -452,6 +452,12 @@ async def _seed_movie_in_library(
             "Apple TV · tvOS 26.0",
         ),
         (
+            # Mac 的机型位是 uname 的 arm64，认不出型号：设备名统一叫「Mac」
+            "MovieClaw-macOS/0.1.0 (arm64; macOS 26.0; build 7) CFNetwork/3860 Darwin/26.0.0",
+            "MovieClaw Mac",
+            "Mac · macOS 26.0",
+        ),
+        (
             "MovieClaw-Android/0.1.0 (Pixel 9; Android 16; build 7)",
             "MovieClaw Android",
             "Android 16",
@@ -462,7 +468,8 @@ async def test_native_app_progress_is_labelled_by_platform(
     client: TestClient, user_agent: str, client_name: str, device_name: str
 ) -> None:
     """原生 App 与网页共用上报接口：按 User-Agent 认出平台，活动页记成对应的客户端名
-    （「MovieClaw iOS / Apple TV / Android」）并带 App 版本，而不是「MovieClaw Web · 浏览器」。"""
+    （「MovieClaw iOS / Apple TV / Mac / Android」）并带 App 版本，
+    而不是「MovieClaw Web · 浏览器」。"""
     movie_id, _ = await _seed_movie_in_library(title="盗梦空间", tmdb_id=27205, library_name="电影")
     resp = client.post(
         "/api/v1/playback/progress",

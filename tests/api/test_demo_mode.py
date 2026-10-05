@@ -188,14 +188,15 @@ def test_demo_allows_browsing_login_and_account_switching(client: TestClient, mo
 
 
 @pytest.mark.parametrize("account", [_ADMIN, _MEMBER])
-def test_demo_tv_pairing_full_flow(client: TestClient, monkeypatch, account) -> None:
-    """模拟电视出码、手机批准、电视兑换并访问媒体库，权限跟随批准者。"""
+@pytest.mark.parametrize("client_type", ["tvos", "macos"])
+def test_demo_app_pairing_full_flow(client: TestClient, monkeypatch, account, client_type) -> None:
+    """模拟 App 出码、手机批准、App 兑换并访问媒体库，权限跟随批准者。"""
     _provision(client)
     _enable_demo(monkeypatch)
     _login(client, account)
     response = client.post(
         f"{_AUTH}/device/authorize",
-        json={"client_type": "tvos", "client_name": "客厅 Apple TV"},
+        json={"client_type": client_type, "client_name": "演示 App"},
     )
     assert response.status_code == 200, response.text
     grant = response.json()["data"]
@@ -214,17 +215,22 @@ def test_demo_tv_pairing_full_flow(client: TestClient, monkeypatch, account) -> 
     headers = {"Authorization": f"Bearer {token}"}
     me = client.get(f"{_AUTH}/me", headers=headers).json()["data"]
     assert (me["username"], me["demo"], me["device"]["kind"]) == (
-        account["username"], True, "tvos"
+        account["username"], True, client_type
     )
     assert client.get("/api/v1/libraries", headers=headers).status_code == 200
     _assert_demo_denied(client.post("/api/v1/members", json={}, headers=headers))
+    _assert_demo_denied(client.post(
+        f"{_AUTH}/devices/cleanup",
+        json={"inactive_days": 1, "all": True, "dry_run": False},
+        headers=headers,
+    ))
     assert client.post(
         f"{_AUTH}/device/token", json={"device_code": grant["device_code"]}
     ).status_code == 400
 
 
 @pytest.mark.parametrize("client_type", ["cli", "worker"])
-def test_demo_rejects_non_tv_pairing(client: TestClient, monkeypatch, client_type) -> None:
+def test_demo_rejects_non_app_pairing(client: TestClient, monkeypatch, client_type) -> None:
     _provision(client)
     # 普通模式遗留的配对挑战：切入演示模式后同样不能批准或兑换。
     grant = client.post(
