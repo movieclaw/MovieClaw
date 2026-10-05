@@ -31,7 +31,8 @@ final class MP4SegmentMuxer {
 
     /// Force color signaling on the output codecpar before avformat_write_header.
     /// Used for DV P5: SPS VUI omits transfer, no colr atom; without an explicit
-    /// colr nclx the DV decoder won't engage on a dvh1 sample entry.
+    /// colr nclx the DV decoder won't engage on a dvh1 sample entry. Also SDR retagged
+    /// as sRGB on Mac / iPhone ([MovieClaw P60], see `ColorAttachments.presentsSDRAsSRGB`).
     struct ColorOverride {
         let primaries: AVColorPrimaries
         let trc: AVColorTransferCharacteristic
