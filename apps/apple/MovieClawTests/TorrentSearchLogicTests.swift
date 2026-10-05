@@ -157,6 +157,15 @@ struct TorrentSearchLogicTests {
         #expect(items.contains(URLQueryItem(name: "page", value: "2")))
     }
 
+    @Test func testDetailSearchScopeFollowsMediaKind() {
+        let tv = SearchScope.ofMediaKind("tv")
+        #expect(tv == SearchTab.category(id: "tv", visible: true).scope, "剧集 = 点了内置「剧集」标签")
+        #expect(SearchScope(encoded: tv.encoded) == tv)
+        #expect(SearchScope.ofMediaKind("movie").categories == ["movie"])
+        #expect(SearchScope.ofMediaKind("video") == .all)
+        #expect(SearchScope.ofMediaKind(nil) == .all)
+    }
+
     @Test func testParseStreamEvents() throws {
         let start = ServerEvent(id: nil, event: "start", data: #"{"keyword":"k","label":null,"categories":[],"page":1,"sites":[{"site_id":"a","site_name":"A"}]}"#)
         guard case let .start(sites) = try APIClient.parseTorrentEvent(start) else { Issue.record("应解析为 start"); return }

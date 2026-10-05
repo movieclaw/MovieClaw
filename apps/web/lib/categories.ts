@@ -118,6 +118,16 @@ export function scopeOfTab(tab: SearchTab): SearchScope {
 }
 
 /**
+ * 详情页「搜索资源」的范围：剧集只搜剧集分类、电影只搜电影分类（等同点了内置分类标签，
+ * 结果页对应胶囊会高亮），其余形态（库里的「其他」/图片）不收窄。
+ */
+export function scopeOfMediaKind(kind: string): SearchScope {
+  return kind === "movie" || kind === "tv"
+    ? scopeOfTab({ type: "category", id: kind, visible: true })
+    : SCOPE_ALL;
+}
+
+/**
  * 默认标签列表：常用四类可见，其余（音乐/游戏/成人/其他）隐藏，无预设。
  * 与后端 settings.schemas.default_search_tabs 保持一致——
  * 后端拉取失败时前端以此兜底，行为与历史版本硬编码的标签相同。
