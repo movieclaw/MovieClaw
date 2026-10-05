@@ -77,6 +77,7 @@ struct MacRootView: View {
             await model.revalidate()
         }
         .onAppear {
+            MacPerformance.start()
             FirstFrameGate.observeNextCommit()
             #if DEBUG
             MacDebugDriver.shared.start()

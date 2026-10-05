@@ -353,6 +353,20 @@ targets:
         # XCTestCase 的初始化器是非隔离的，测试类不能继承工程级的默认主线程隔离（同 iPhone 版）
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
         EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+  MovieClawMacTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: MovieClawMacTests
+        type: syncedFolder
+    dependencies:
+      - target: MovieClawMac
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).MovieClawMacTests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/MovieClaw.app/Contents/MacOS/MovieClaw
+        BUNDLE_LOADER: $(TEST_HOST)
   MovieClawTests:
     type: bundle.unit-test
     platform: iOS
@@ -385,6 +399,9 @@ schemes:
     build:
       targets:
         MovieClawMac: all
+    test:
+      targets:
+        - MovieClawMacTests
   MovieClawTV:
     build:
       targets:

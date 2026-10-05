@@ -8,9 +8,9 @@ enum SessionPrewarm {
         // 播放器按网络环境记画质：服务器配的是域名时先在后台查好地址，第一次播放就判得出在家还是在外面
         PlaybackNetwork.prewarm(server: server)
         _ = NetworkCost.shared
-        // 首页的快照：冷启动落在首页时当场读完，第一帧就是上次的完整首页，随后静默刷新
+        // 首页快照在后台读；窗口先提交可操作的外壳，再显示缓存内容并静默刷新。
         let owner = PageSnapshots.owner(server: server, username: session.username)
-        LibraryHomeStore.shared.adopt(owner: owner, synchronously: landing == .home)
+        LibraryHomeStore.shared.adopt(owner: owner)
     }
 
     /// 冷启动的落点：首页；调试参数可指定

@@ -27,6 +27,8 @@ struct MacHomeView: View {
     @State private var heroHovering = MacCardDebug.forceHover
     /// 剧照边缘色（大图区以下的底色从它过渡到页面底色）
     @State private var tint: Color?
+    @State private var scrolling = false
+    @State private var upNextScrolling = false
 
     /// 预载相邻两部的剧照：整张大图几百 KB 起，等鼠标移过去才下载会闪一下空底
     private static let prefetcher = ImagePrefetcher()
@@ -45,7 +47,9 @@ struct MacHomeView: View {
 
     var body: some View {
         Group {
-            if store.libraries == nil {
+            if !FirstFrameGate.state.opened {
+                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if store.libraries == nil {
                 if store.failed {
                     MacStateView(symbol: "wifi.exclamationmark", title: "连不上服务器", message: "首页加载失败，请检查网络后重试。",
                                  actionTitle: "重试") { Task { await reload() } }
@@ -62,7 +66,10 @@ struct MacHomeView: View {
         .background(Color.macPage)
         .navigationTitle("首页")
         .toolbar(removing: .title)
-        .task { await reload() }
+        .task {
+            await FirstFrameGate.wait()
+            await reload()
+        }
         .polling(every: 60) { await reload() }
         // 播放器关掉、服务端收下「停止」后刷新：「接下来继续」立刻跟上刚才看到的位置
         .onReceive(NotificationCenter.default.publisher(for: .playbackStopReported)) { _ in
@@ -78,7 +85,7 @@ struct MacHomeView: View {
         return GeometryReader { window in
             let heroHeight = MacStageLayout.height(for: window.size.width, windowHeight: window.size.height + window.safeAreaInsets.top)
             ScrollView(.vertical) {
-                VStack(alignment: .leading, spacing: MacMetrics.rowSpacing) {
+                LazyVStack(alignment: .leading, spacing: MacMetrics.rowSpacing) {
                     if let stage {
                         hero(stage, items: upNext, height: heroHeight, width: window.size.width)
                         upNextShelf(upNext, stage: stage)
@@ -90,6 +97,11 @@ struct MacHomeView: View {
                 }
                 .padding(.top, stage == nil ? 16 : 0)
                 .padding(.bottom, 48)
+                .environment(\.macScrollInProgress, scrolling)
+            }
+            .onScrollPhaseChange { _, phase in
+                PerfTrace.record("scroll.phase", ["axis": "vertical", "phase": String(describing: phase)])
+                if scrolling != phase.isScrolling { scrolling = phase.isScrolling }
             }
             .ignoresSafeArea(edges: stage == nil ? [] : .top)
             .background(alignment: .top) {
@@ -106,10 +118,11 @@ struct MacHomeView: View {
             }
         }
         // 鼠标停稳 0.3 秒才换大图：一路划过一排卡片时不逐张闪
-        .task(id: hoveredId) {
-            guard let id = hoveredId, id != stageId else { return }
+        .task(id: scrolling || upNextScrolling ? nil : hoveredId) {
+            guard !scrolling, !upNextScrolling, let id = hoveredId, id != stageId else { return }
             try? await Task.sleep(for: .milliseconds(300))
             guard !Task.isCancelled else { return }
+            PerfTrace.record("home.stage.hover", ["item": id])
             withAnimation(.easeInOut(duration: 0.45)) { stageId = id }
         }
         .task(id: stage.map { stageImageURL($0) } ?? nil) {
@@ -127,7 +140,7 @@ struct MacHomeView: View {
 
     private func hero(_ stage: API.UpNextItemView, items: [API.UpNextItemView], height: CGFloat, width: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
-            MacStageBackdrop(url: stageImageURL(stage), tint: tint, fadeFrom: 0.6)
+            MacStageBackdrop(url: stageImageURL(stage), tint: tint, fadeFrom: 0.6, animatesZoom: false)
                 .frame(height: height)
                 // 剧照延伸到侧边栏底下（同 Apple Music 专辑页的头图）
                 .backgroundExtensionEffect()
@@ -256,7 +269,8 @@ struct MacHomeView: View {
 
     /// 「接下来继续」一行：剧照卡，点一下直接续播；鼠标停在哪张，大图就讲哪一部
     private func upNextShelf(_ items: [API.UpNextItemView], stage: API.UpNextItemView) -> some View {
-        MacShelf(title: "接下来继续", artHeight: MacMetrics.landscapeWidth * 9 / 16) {
+        MacShelf(title: "接下来继续", artHeight: MacMetrics.landscapeWidth * 9 / 16,
+                 scrollingChanged: { upNextScrolling = $0 }) {
             ForEach(Array(items.enumerated()), id: \.element.mediaItemId) { index, item in
                 upNextCard(item)
                     // 大图正讲的这一部描一圈亮边，看得出上面讲的是哪张（卡片自己画，聚焦放大时跟着走）
@@ -298,7 +312,7 @@ struct MacHomeView: View {
     @ViewBuilder
     private func rowView(_ row: HomeRows.Row) -> some View {
         switch row.kind {
-        case .upNext:
+        case .upNext, .genres:
             EmptyView()
         case .favorites:
             if let items = store.favorites?.items, !items.isEmpty {
@@ -409,6 +423,7 @@ struct MacHomeView: View {
     private func isEmpty(_ row: HomeRows.Row) -> Bool {
         switch row.kind {
         case .upNext: (store.upNext ?? []).isEmpty
+        case .genres: true
         case .favorites: (store.favorites?.items ?? []).isEmpty
         case .libraries: directory.browsable.isEmpty && homeCollections.isEmpty
         case .library, .mediaKind, .collection: (store.itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []).isEmpty

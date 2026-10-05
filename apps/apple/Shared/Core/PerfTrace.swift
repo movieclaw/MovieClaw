@@ -4,7 +4,7 @@ import os
 import QuartzCore
 import SwiftUI
 
-/// 页面打开速度打点：开发期的测量工具，只在 Debug 构建里记录，并且要以 `-mcPerf YES` 启动。
+/// 页面打开速度打点：以 `-mcPerf YES` 启动时记录（Debug 与 macOS Release 均可测量）。
 ///
 /// **口径**（对齐业界：Apple 的首帧 400ms / Hang、Android 的 TTID / TTFD、Web 的 LCP、国内 APM 的「页面秒开」）：
 /// - 起点 `t0`：冷启动 = 内核记录的进程创建时刻（含 dyld 与 main 之前）；切页签 = 选中页签的那一刻。
@@ -18,9 +18,9 @@ import SwiftUI
 ///
 /// 事件逐行写入 App 容器 `Library/Caches/perf/trace-<进程号>.jsonl`，时间 `t` 都是距进程创建的毫秒数；
 /// 同时打一份 os_log（subsystem `io.movieclaw.perf`）。汇总脚本见 `scripts/perf/ios_open_report.py`。
-/// Release 构建里这些函数都是空的。
+/// 其他平台的 Release 构建里这些函数都是空的；macOS 缺省关闭，供发布配置性能验收。
 enum PerfTrace {
-    #if DEBUG
+    #if DEBUG || os(macOS)
     nonisolated static let enabled = UserDefaults.standard.bool(forKey: "mcPerf")
     #else
     nonisolated static let enabled = false
@@ -91,8 +91,8 @@ enum PerfTrace {
         }
     }
 
-    /// 记下「这一轮界面更新提交出去」的时刻：挂一个一次性的 RunLoop 观察者，排在 Core Animation
-    /// 提交事务（beforeWaiting，order 2000000）之后
+    /// 用主 RunLoop 下一次空闲近似本轮提交完成：它包含事件排队和布局，但不代表像素已经显示。
+    /// 连续事件可能让这个回调晚于实际提交，显示延迟需要与 Instruments 的呈现时间核对。
     static func afterCommit(_ event: String, _ fields: [String: any Sendable] = [:], then: (@MainActor (Double) -> Void)? = nil) {
         guard enabled else { return }
         let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, false, Int.max) { _, _ in

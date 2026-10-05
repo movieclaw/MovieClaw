@@ -55,14 +55,14 @@ struct MacSearchView: View {
         .navigationTitle("搜索")
         .toolbar(removing: .title)
         .task(id: input) {
-            guard model.loadedInput != input else { return }
             await model.search(api: api, input: input)
         }
         // 搜索词变了就退出「某人的库内作品」，回到按词搜
         .onChange(of: trimmed) { _, _ in selectedPerson = nil }
         // 联想词交给侧边栏的搜索框下拉（与正在输入的完全一样的词不再列）
         .onChange(of: model.suggestions) { _, suggestions in
-            router.searchSuggestions = suggestions.map(\.text).filter { $0 != trimmed }
+            let words = suggestions.map(\.text).filter { $0 != trimmed }
+            if router.searchSuggestions != words { router.searchSuggestions = words }
         }
         .onDisappear { router.searchSuggestions = [] }
         .onAppear { recents = (UserDefaults.standard.stringArray(forKey: recentsKey) ?? []) }
@@ -86,7 +86,7 @@ struct MacSearchView: View {
 
     /// 第一次搜、手上还没有任何结果：先铺一层海报骨架占位
     private var showsSkeleton: Bool {
-        model.searching && model.items.isEmpty && model.people.isEmpty && model.failed == nil
+        model.requesting && model.items.isEmpty && model.people.isEmpty && model.failed == nil
     }
 
     private func personBanner(_ person: API.LibrarySearchPerson) -> some View {
@@ -338,6 +338,7 @@ final class MacSearchModel {
     var suggestions: [API.LibrarySearchSuggestion] = []
     var nextCursor: String?
     var searching = false
+    var requesting = false
     var loadingMore = false
     var failed: String?
     private(set) var loadedInput: MacSearchInput?
@@ -345,25 +346,39 @@ final class MacSearchModel {
     private var input = MacSearchInput(query: "", personId: nil)
 
     func search(api: APIClient, input: MacSearchInput, immediately: Bool = false) async {
+        if loadedInput == input, failed == nil, !immediately {
+            if searching { generation += 1 }
+            self.input = input
+            searching = false
+            requesting = false
+            return
+        }
         generation += 1
         let request = generation
         self.input = input
         failed = nil
-        nextCursor = nil
         loadingMore = false
+        requesting = false
         guard !input.query.isEmpty || input.personId != nil else {
             items = []
             people = []
             suggestions = []
+            nextCursor = nil
             searching = false
             loadedInput = input
             return
         }
         searching = true
-        defer { if generation == request { searching = false } }
+        defer {
+            if generation == request, !Task.isCancelled {
+                searching = false
+                requesting = false
+            }
+        }
         do {
             if !immediately { try await Task.sleep(for: .milliseconds(350)) }
             try Task.checkCancellation()
+            requesting = true
             let result = try await api.searchLibrary(q: input.query.isEmpty ? nil : input.query, personId: input.personId)
             guard generation == request, !Task.isCancelled else { return }
             items = result.items
@@ -374,8 +389,8 @@ final class MacSearchModel {
         } catch is CancellationError {
         } catch {
             guard generation == request, !Task.isCancelled else { return }
+            nextCursor = nil
             failed = error.localizedDescription
-            loadedInput = input
         }
     }
 

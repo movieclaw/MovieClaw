@@ -268,19 +268,21 @@ private struct MacCardLabel<Art: View>: View {
     @Environment(\.macCardFocusEffect) private var focusEffect
     @Environment(\.macCardSelected) private var selected
     @Environment(\.macCardControlsInFocus) private var controlsInFocus
+    @Environment(\.macScrollInProgress) private var scrolling
     /// 聚焦时指针在图上的位置（0～1），图外为 nil
     @State private var pointer: UnitPoint?
     @State private var artSize: CGSize = .zero
 
-    private var focused: Bool { focusEffect && hovering }
-    private var controlsOnHover: Bool { hovering && (!focusEffect || controlsInFocus) }
+    private var hovered: Bool { hovering && !scrolling }
+    private var focused: Bool { focusEffect && hovered }
+    private var controlsOnHover: Bool { hovered && (!focusEffect || controlsInFocus) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             art()
                 .overlay {
                     // 悬停压暗一层：同 Apple Music，告诉人「这张可以点」
-                    if !focusEffect { Color.black.opacity(hovering ? 0.18 : 0) }
+                    if !focusEffect { Color.black.opacity(hovered ? 0.18 : 0) }
                 }
                 .overlay(alignment: .topLeading) {
                     if let badge {
@@ -329,23 +331,13 @@ private struct MacCardLabel<Art: View>: View {
                                       lineWidth: selected ? 2 : focused ? 1 : 0.5)
                 }
                 .onGeometryChange(for: CGSize.self) { $0.size } action: { artSize = $0 }
-                .onContinuousHover { phase in
-                    guard focusEffect else { return }
-                    switch phase {
-                    case .active(let location) where artSize.width > 0 && artSize.height > 0:
-                        pointer = UnitPoint(x: location.x / artSize.width, y: location.y / artSize.height)
-                    default:
-                        pointer = nil
-                    }
-                }
                 // 随指针微倾（最多 4°）：指针在哪一侧，哪一侧往里压
                 .rotation3DEffect(.degrees(focused ? tilt.y : 0), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
                 .rotation3DEffect(.degrees(focused ? tilt.x : 0), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
                 .scaleEffect(focused ? 1.05 : 1)
-                .shadow(color: .black.opacity(focused ? 0.5 : hovering ? 0.35 : 0.2),
-                        radius: focused ? 18 : hovering ? 10 : 4, y: focused ? 12 : hovering ? 5 : 2)
-                .animation(.spring(response: 0.34, dampingFraction: 0.72), value: focused)
-                .animation(.easeOut(duration: 0.12), value: pointer)
+                .shadow(color: .black.opacity(focused ? 0.5 : hovered ? 0.35 : 0.2),
+                        radius: focused ? 18 : hovered ? 10 : 4, y: focused ? 12 : hovered ? 5 : 2)
+                .animation(scrolling ? nil : .spring(response: 0.34, dampingFraction: 0.72), value: focused)
             if showsCaption {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
@@ -362,12 +354,30 @@ private struct MacCardLabel<Art: View>: View {
                 .frame(width: width, alignment: .leading)
                 // 封面放大后片名往下让一点
                 .offset(y: focused ? 6 : 0)
-                .animation(.spring(response: 0.34, dampingFraction: 0.72), value: focused)
+                .animation(scrolling ? nil : .spring(response: 0.34, dampingFraction: 0.72), value: focused)
             }
         }
         .contentShape(.rect)
+        // 在未变换的卡片区域读坐标：图片的倾斜、缩放不能反过来改变下一次悬停位置。
+        .onContinuousHover { phase in
+            guard focusEffect, !scrolling else { return }
+            switch phase {
+            case .active(let location) where artSize.width > 0 && artSize.height > 0 && location.y <= artSize.height:
+                pointer = UnitPoint(x: min(1, max(0, location.x / artSize.width)),
+                                    y: min(1, max(0, location.y / artSize.height)))
+            default:
+                pointer = nil
+            }
+        }
         .onHover { inside in
-            withAnimation(.easeOut(duration: 0.15)) { hovering = inside || MacCardDebug.forceHover }
+            if scrolling {
+                hovering = inside || MacCardDebug.forceHover
+            } else {
+                withAnimation(.easeOut(duration: 0.15)) { hovering = inside || MacCardDebug.forceHover }
+            }
+        }
+        .onChange(of: scrolling) { _, active in
+            if active, pointer != nil { pointer = nil }
         }
     }
 
@@ -426,6 +436,8 @@ extension EnvironmentValues {
     @Entry var macCardSelected = false
     /// 聚焦时仍浮出播放键与「⋯」（首页「接下来继续」：点卡片只换大图，点播放键才起播）
     @Entry var macCardControlsInFocus = false
+    /// 滚动及惯性期间暂停卡片悬停效果，停稳后再恢复。
+    @Entry var macScrollInProgress = false
 }
 
 /// 开发期出图用：环境变量 MC_FORCE_HOVER=1 让所有卡片一出来就是悬停的样子（合成的鼠标事件触发不了系统的悬停追踪）
@@ -530,13 +542,16 @@ struct MacShelf<Content: View>: View {
     var artHeight: CGFloat?
     /// 出现时（以及这个值变了时）滚到哪一张：卡片用 `.id(_:)` 标上同一个整数（分集横排滚到正在看的那一集）
     var scrollTo: Int?
+    var scrollingChanged: ((Bool) -> Void)?
     @ViewBuilder let content: () -> Content
 
     @State private var position = ScrollPosition(idType: Int.self)
-    @State private var offset: CGFloat = 0
-    @State private var contentWidth: CGFloat = 0
-    @State private var viewport: CGFloat = 0
+    @State private var scrollMetrics = MacShelfScrollMetrics()
+    @State private var canBack = false
+    @State private var canForward = false
     @State private var hovering = false
+    @State private var scrolling = false
+    @Environment(\.macScrollInProgress) private var parentScrolling
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -545,6 +560,7 @@ struct MacShelf<Content: View>: View {
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: MacMetrics.cardSpacing) {
                     content()
+                        .environment(\.macScrollInProgress, parentScrolling || scrolling)
                 }
                 .scrollTargetLayout()
                 .padding(.horizontal, MacMetrics.edge)
@@ -553,12 +569,24 @@ struct MacShelf<Content: View>: View {
             .scrollIndicators(.never)
             .scrollPosition($position)
             .scrollClipDisabled()
+            .onScrollPhaseChange { _, phase in
+                PerfTrace.record("scroll.phase", ["axis": "horizontal", "shelf": title, "phase": String(describing: phase)])
+                if scrolling != phase.isScrolling {
+                    scrolling = phase.isScrolling
+                    scrollingChanged?(scrolling)
+                }
+            }
             .onScrollGeometryChange(for: [CGFloat].self) { geometry in
                 [geometry.contentOffset.x, geometry.contentSize.width, geometry.containerSize.width]
             } action: { _, values in
-                offset = values[0]
-                contentWidth = values[1]
-                viewport = values[2]
+                scrollMetrics.offset = values[0]
+                scrollMetrics.contentWidth = values[1]
+                scrollMetrics.viewport = values[2]
+                // 逐像素的位移只供下一次翻页计算；只有箭头可用性变了才更新视图。
+                let back = scrollMetrics.offset > 4
+                let forward = scrollMetrics.offset + scrollMetrics.viewport < scrollMetrics.contentWidth - 4
+                if canBack != back { canBack = back }
+                if canForward != forward { canForward = forward }
             }
             .overlay(alignment: artHeight == nil ? .center : .top) {
                 pager
@@ -600,9 +628,6 @@ struct MacShelf<Content: View>: View {
         .font(.system(size: 20, weight: .bold))
     }
 
-    private var canBack: Bool { offset > 4 }
-    private var canForward: Bool { offset + viewport < contentWidth - 4 }
-
     private var pager: some View {
         HStack {
             pageButton("chevron.backward", visible: canBack) { page(-1) }
@@ -629,9 +654,20 @@ struct MacShelf<Content: View>: View {
 
     /// 翻一屏：留一张卡的宽度不翻过去，人知道接上的是哪里
     private func page(_ direction: CGFloat) {
-        let step = max(200, viewport - MacMetrics.edge * 2 - 80)
-        let target = min(max(0, offset + direction * step), max(0, contentWidth - viewport))
+        let target = scrollMetrics.target(direction: direction)
         withAnimation(.smooth(duration: 0.45)) { position.scrollTo(x: target) }
+    }
+}
+
+/// 不参与 SwiftUI 观察的滚动位置，避免每个滚动事件重建整行卡片。
+final class MacShelfScrollMetrics {
+    var offset: CGFloat = 0
+    var contentWidth: CGFloat = 0
+    var viewport: CGFloat = 0
+
+    func target(direction: CGFloat) -> CGFloat {
+        let step = max(200, viewport - MacMetrics.edge * 2 - 80)
+        return min(max(0, offset + direction * step), max(0, contentWidth - viewport))
     }
 }
 

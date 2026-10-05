@@ -32,6 +32,8 @@ struct MacStageBackdrop: View {
     var fadeFrom: CGFloat = 0.55
     /// 剧照下面垫不垫底色：首页垫边缘色；详情页不垫，剧照直接淡进页面底下那层模糊剧照
     var showsBase = true
+    /// 首页频繁换图，只做淡入淡出，避免慢推近持续与滚动争用绘制时间。
+    var animatesZoom = true
 
     @State private var scrim = 0.45
 
@@ -42,7 +44,7 @@ struct MacStageBackdrop: View {
                     .animation(.easeInOut(duration: 0.8), value: tint?.description)
             }
             if let url {
-                MacStageImage(url: url, fadeFrom: fadeFrom, scrim: scrim)
+                MacStageImage(url: url, fadeFrom: fadeFrom, scrim: scrim, animatesZoom: animatesZoom)
                     .id(url)
                     .transition(.opacity)
             }
@@ -62,6 +64,7 @@ private struct MacStageImage: View {
     let url: URL
     let fadeFrom: CGFloat
     let scrim: Double
+    let animatesZoom: Bool
     @State private var zoom: CGFloat = 1
 
     var body: some View {
@@ -90,6 +93,7 @@ private struct MacStageImage: View {
                 LinearGradient(stops: MacEasedFade.stops(color: .black, from: fadeFrom, to: 1), startPoint: .top, endPoint: .bottom)
             }
             .onAppear {
+                guard animatesZoom else { return }
                 withAnimation(.linear(duration: 40)) { zoom = 1.05 }
             }
     }

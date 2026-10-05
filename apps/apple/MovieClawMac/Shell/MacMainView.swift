@@ -40,19 +40,19 @@ struct MacMainView: View {
         @Bindable var router = router
         NavigationSplitView(columnVisibility: $columns) {
             MacSidebar()
+                .searchable(text: $router.searchText, placement: .sidebar, prompt: "片名、演员、导演")
+                .searchSuggestions {
+                    ForEach(router.searchSuggestions, id: \.self) { suggestion in
+                        Text(suggestion).searchCompletion(suggestion)
+                    }
+                }
+                .searchFocused($searchFocused)
                 .id(accountKey)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 236, max: 320)
         } detail: {
             detail
                 .id(accountKey)
         }
-        .searchable(text: $router.searchText, placement: .sidebar, prompt: "片名、演员、导演")
-        .searchSuggestions {
-            ForEach(router.searchSuggestions, id: \.self) { suggestion in
-                Text(suggestion).searchCompletion(suggestion)
-            }
-        }
-        .searchFocused($searchFocused)
         .environment(router)
         .environment(libraries)
         .environment(\.api, api)
@@ -102,6 +102,7 @@ struct MacMainView: View {
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .animation(.easeInOut(duration: 0.25), value: router.player?.id)
         .task {
+            await FirstFrameGate.wait()
             // 第一次拿不到（刚启动网络还没就绪、局域网权限刚放行）隔几秒再试，别让侧边栏的「媒体库」一直空着
             while !Task.isCancelled, !(await libraries.load(api: api)) {
                 try? await Task.sleep(for: .seconds(3))
@@ -178,12 +179,35 @@ struct MacMainView: View {
     private var detail: some View {
         let tab = router.visibleTab
         NavigationStack(path: Binding(get: { router.paths[tab] ?? [] }, set: { router.paths[tab] = $0 })) {
-            root(tab)
-                .navigationDestination(for: AppRoute.self) { route in
-                    MacDestination(route: route)
+            ZStack {
+                root(router.selection)
+                    .opacity(router.isSearching ? 0 : 1)
+                    .allowsHitTesting(!router.isSearching)
+                    .accessibilityHidden(router.isSearching)
+                    .environment(\.pageWarmup, router.isSearching || router.player != nil)
+                if FirstFrameGate.state.opened {
+                    MacSearchView()
+                        .opacity(router.isSearching ? 1 : 0)
+                        .allowsHitTesting(router.isSearching)
+                        .accessibilityHidden(!router.isSearching)
                 }
+            }
+            .navigationTitle(router.isSearching ? "搜索" : rootTitle)
+            .navigationDestination(for: AppRoute.self) { route in
+                MacDestination(route: route)
+            }
         }
-        .id(tab)
+        .id(router.selection)
+    }
+
+    private var rootTitle: String {
+        switch router.selection {
+        case .home: "首页"
+        case .search: "搜索"
+        case .favorites: "我的收藏"
+        case let .library(id): libraries.library(id)?.name ?? "媒体库"
+        case let .collection(id): libraries.collectionName(id) ?? "合集"
+        }
     }
 
     @ViewBuilder

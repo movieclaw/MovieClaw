@@ -323,7 +323,7 @@ enum MacWallSource: Hashable {
             self = .collection(id: collection.id, sort: sort, reversed: reversed)
         case let .favorites(sort, reversed):
             self = .favorites(sort: sort, reversed: reversed)
-        case .upNext, .libraries:
+        case .upNext, .libraries, .genres:
             return nil
         }
     }

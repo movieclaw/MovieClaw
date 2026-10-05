@@ -76,7 +76,11 @@ final class MacRouter {
     var paths: [MainTab: [AppRoute]] = [:]
     /// 侧边栏搜索框里的字。改了词就回到结果列表（点进去的详情是上一个词的）
     var searchText = "" {
-        didSet { if searchText != oldValue { paths[.search] = nil } }
+        didSet {
+            let searching = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if isSearching != searching { isSearching = searching }
+            if searchText != oldValue, paths[.search]?.isEmpty == false { paths[.search] = nil }
+        }
     }
     /// 搜索框下拉的联想词（搜索页拿到结果时填，同 Apple TV 版键盘下方那排）
     var searchSuggestions: [String] = []
@@ -102,7 +106,7 @@ final class MacRouter {
     var visibleTab: MainTab { isSearching ? .search : selection }
 
     /// 搜索框有字：内容区显示搜索结果
-    var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private(set) var isSearching = false
 
     func push(_ route: AppRoute) {
         // 在搜索结果里点了一部：压进「搜索」自己的栈，搜索框里的字保留，返回还是那一屏结果
