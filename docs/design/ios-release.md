@@ -149,7 +149,7 @@ TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple 
 - **最低系统 iOS 26**：只有 iOS 26 及以上的 iPhone 能在商店里看到它。
 - **CI 的 Xcode 比本机旧**：GitHub macos-26 runner 目前最高 Xcode 26.x，本机开发常用更新的版本。
   新 Xcode 能推断通过的写法在旧版上会编译失败甚至让编译器崩溃（v0.28.0 发版因此缺过 IPA）。
-  规矩：以 PR 上的 `ios` 检查（`.github/workflows/ios.yml`）为准；不写 `Binding(get:set:)`，
+  规矩：以 PR 上的 `ios` 检查（`.github/workflows/ios.yml`，普通 PR 编 Debug，发版 PR 编 Release）为准；不写 `Binding(get:set:)`，
   用 `Binding(mcGet:set:)`（原因见 `Core/ClosureBinding.swift`）；给生成模型补协议一致性写
   `nonisolated extension`；长的三元 / 字符串拼接拆成显式类型的局部量。
 

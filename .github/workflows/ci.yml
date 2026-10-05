@@ -280,3 +280,19 @@ jobs:
 
       - name: 单测
         run: swift test --package-path macos/MovieClawTranscoder
+
+  # 分支保护的必需检查设这一个（加上 ios 工作流的 iphone、tv）：上面的作业按改动路径跳过，
+  # python 还是矩阵作业，跳过时检查名不展开，直接设成必需检查会让没改 Python 的 PR 一直等。
+  # 新增作业时加进 needs，规则集不用跟着改。
+  ci-ok:
+    needs: [changes, python, cli-go, web, worker-macos]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总各作业结果
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if ${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then
+            echo "有作业失败或被取消"
+            exit 1
+          fi
