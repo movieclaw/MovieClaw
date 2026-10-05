@@ -103,7 +103,6 @@ struct MacItemDetailView: View {
             MacStageBackdrop(url: api.image(detail.backdropUrl ?? detail.posterUrl, width: ImageWidth.screen), tint: nil,
                              fadeFrom: 0.62, showsBase: false)
                 .frame(height: height)
-                .backgroundExtensionEffect()
             HStack(alignment: .bottom, spacing: 32) {
                 VStack(alignment: .leading, spacing: 20) {
                     MacStageInfo(

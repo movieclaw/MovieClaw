@@ -87,7 +87,7 @@ struct MacHomeView: View {
         return GeometryReader { window in
             let heroHeight = MacStageLayout.height(for: window.size.width, windowHeight: window.size.height + window.safeAreaInsets.top)
             ScrollView(.vertical) {
-                LazyVStack(alignment: .leading, spacing: MacMetrics.rowSpacing) {
+                VStack(alignment: .leading, spacing: MacMetrics.rowSpacing) {
                     if let stage {
                         hero(stage, items: upNext, height: heroHeight, width: window.size.width)
                         upNextShelf(upNext, stage: stage)
@@ -100,6 +100,8 @@ struct MacHomeView: View {
                 .padding(.top, stage == nil ? 16 : 0)
                 .padding(.bottom, 48)
                 .environment(\.macScrollInProgress, scrolling)
+                // 滚动中不做命中测试：内容在静止的指针下移动时，SwiftUI 每帧都要重算悬停、光标与窗口拖拽区域
+                .allowsHitTesting(!scrolling)
             }
             .onScrollPhaseChange { _, phase in
                 PerfTrace.record("scroll.phase", ["axis": "vertical", "phase": String(describing: phase)])
@@ -144,8 +146,6 @@ struct MacHomeView: View {
         ZStack(alignment: .bottomLeading) {
             MacStageBackdrop(url: stageImageURL(stage), tint: tint, fadeFrom: 0.6, animatesZoom: false)
                 .frame(height: height)
-                // 剧照延伸到侧边栏底下（同 Apple Music 专辑页的头图）
-                .backgroundExtensionEffect()
             VStack(alignment: .leading, spacing: 20) {
                 MacStageInfo(
                     title: stage.title,

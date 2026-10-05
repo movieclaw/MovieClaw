@@ -8,6 +8,8 @@ enum MacPerformance {
     static func start() {
         guard PerfTrace.enabled, monitor == nil else { return }
         PerfTrace.afterCommit("app.firstCommit")
+        MacFrameMonitor.shared.start()
+        MacScrollBench.shared.startIfRequested()
         monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .keyDown]) { event in
             let start = (event.timestamp - PerfTrace.processStart) * 1000
             let kind = event.type == .keyDown ? "key" : "click"

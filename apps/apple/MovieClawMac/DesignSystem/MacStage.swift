@@ -6,7 +6,8 @@ import SwiftUI
 // 大图区（docs/design/macos-app.md §4.2）：首页首屏与条目详情共用。思路同 Apple TV 版（docs/design/tvos-app.md §3.4），
 // 尺寸按 Mac 窗口重排：
 // - `MacStageBackdrop`：剧照铺满大图区（窗口多宽铺多宽，按 16:9 顶对齐裁剪），往下渐隐进剧照的边缘色、
-//   左下角罩一团中性的黑托字；剧照延伸到侧边栏底下（`backgroundExtensionEffect`，同 Apple Music 的专辑页头图）；
+//   左下角罩一团中性的黑托字。不用系统的 `backgroundExtensionEffect`：侧边栏是不透明的，延伸出去的部分看不见
+//   （截屏逐像素比对无差别），它却要在内容移动时每帧重新取样，滚动时占掉大半主线程（docs/perf/macos-scroll-smoothness.md）；
 // - `MacStageInfo`：左下角的文字——片名（有 Logo 画 Logo）、年份类型片长 + 画质小标签、第几集、简介；
 // - `MacTitleArt`、`MacMediaBadge`、`MacBlurredBackdrop`：共用的小件。
 

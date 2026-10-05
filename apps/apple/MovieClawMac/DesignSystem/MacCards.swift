@@ -73,20 +73,18 @@ struct MacPosterCard: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            MacCardLabel(title: title, subtitle: subtitle, width: width, showsCaption: showsCaption, play: play, menu: menu, badge: badge) {
-                RemoteImage(url: imageURL, placeholderText: title)
-                    .frame(width: width, height: width * 1.5)
-                    .overlay(alignment: .bottom) {
-                        if let progress, progress > 0 {
-                            MacProgressStrip(value: progress)
-                                .padding(8)
-                        }
+        MacCardLabel(title: title, subtitle: subtitle, width: width, artHeight: width * 1.5, showsCaption: showsCaption, play: play,
+                     menu: menu, badge: badge) {
+            RemoteImage(url: imageURL, placeholderText: title)
+                .frame(width: width, height: width * 1.5)
+                .overlay(alignment: .bottom) {
+                    if let progress, progress > 0 {
+                        MacProgressStrip(value: progress)
+                            .padding(8)
                     }
-            }
+                }
         }
-        .buttonStyle(MacCardButtonStyle())
-        .accessibilityLabel(title)
+        .macCardTap(title, action: action)
         .contextMenu { MacCardMenu(actions: menu) }
     }
 }
@@ -106,23 +104,20 @@ struct MacLandscapeCard: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            MacCardLabel(title: title, subtitle: subtitle, width: width, showsCaption: true, play: play, menu: menu, badge: badge,
-                         centeredControls: true) {
-                RemoteImage(url: imageURL, placeholderText: title)
-                    .frame(width: width, height: width * 9 / 16)
-                    .overlay(alignment: .bottom) {
-                        if let detail {
-                            detailBand(detail)
-                        } else if let progress, progress > 0 {
-                            MacProgressStrip(value: progress)
-                                .padding(10)
-                        }
+        MacCardLabel(title: title, subtitle: subtitle, width: width, artHeight: width * 9 / 16, showsCaption: true, play: play,
+                     menu: menu, badge: badge, centeredControls: true) {
+            RemoteImage(url: imageURL, placeholderText: title)
+                .frame(width: width, height: width * 9 / 16)
+                .overlay(alignment: .bottom) {
+                    if let detail {
+                        detailBand(detail)
+                    } else if let progress, progress > 0 {
+                        MacProgressStrip(value: progress)
+                            .padding(10)
                     }
-            }
+                }
         }
-        .buttonStyle(MacCardButtonStyle())
-        .accessibilityLabel(title)
+        .macCardTap(title, action: action)
         .contextMenu { MacCardMenu(actions: menu) }
     }
 
@@ -159,27 +154,25 @@ struct MacLibraryCard: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            MacCardLabel(title: name, subtitle: nil, width: width, showsCaption: false, play: nil, menu: [], badge: nil) {
-                RemoteImage(url: imageURL, placeholderSymbol: collection ? "rectangle.stack" : "film")
-                    .frame(width: width, height: width * 10 / 21)
-                    .mask {
-                        LinearGradient(stops: [.init(color: .black, location: 0.8), .init(color: .clear, location: 1)],
-                                       startPoint: .top, endPoint: .bottom)
+        MacCardLabel(title: name, subtitle: nil, width: width, artHeight: width * 9 / 16, showsCaption: false, play: nil, menu: [],
+                     badge: nil) {
+            RemoteImage(url: imageURL, placeholderSymbol: collection ? "rectangle.stack" : "film")
+                .frame(width: width, height: width * 10 / 21)
+                .mask {
+                    LinearGradient(stops: [.init(color: .black, location: 0.8), .init(color: .clear, location: 1)],
+                                   startPoint: .top, endPoint: .bottom)
+                }
+                .frame(width: width, height: width * 9 / 16, alignment: .top)
+                .background {
+                    if imageURL != nil {
+                        RemoteImage(url: imageURL).blur(radius: 30).overlay(Color.black.opacity(0.3))
+                    } else {
+                        Theme.surfaceRaised
                     }
-                    .frame(width: width, height: width * 9 / 16, alignment: .top)
-                    .background {
-                        if imageURL != nil {
-                            RemoteImage(url: imageURL).blur(radius: 30).overlay(Color.black.opacity(0.3))
-                        } else {
-                            Theme.surfaceRaised
-                        }
-                    }
-                    .overlay(alignment: .bottomLeading) { nameBand }
-            }
+                }
+                .overlay(alignment: .bottomLeading) { nameBand }
         }
-        .buttonStyle(MacCardButtonStyle())
-        .accessibilityLabel(collection ? "合集「\(name)」，\(count) 部" : "\(name)，\(count) 部")
+        .macCardTap(collection ? "合集「\(name)」，\(count) 部" : "\(name)，\(count) 部", action: action)
     }
 
     private var nameBand: some View {
@@ -224,29 +217,26 @@ struct MacSeeAllCard: View {
     let action: () -> Void
 
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 8) {
-                Image(systemName: "square.grid.2x2")
-                    .font(.system(size: 26, weight: .regular))
-                Text("查看全部")
-                    .font(.system(size: 14, weight: .semibold))
-                if let total {
-                    Text("\(total) 部")
-                        .font(.system(size: 12))
-                        .opacity(0.7)
-                }
+        VStack(spacing: 8) {
+            Image(systemName: "square.grid.2x2")
+                .font(.system(size: 26, weight: .regular))
+            Text("查看全部")
+                .font(.system(size: 14, weight: .semibold))
+            if let total {
+                Text("\(total) 部")
+                    .font(.system(size: 12))
+                    .opacity(0.7)
             }
-            .foregroundStyle(.white)
-            .frame(width: width, height: width * aspect)
-            .background(.white.opacity(0.06), in: .rect(cornerRadius: MacMetrics.cardCorner))
-            .overlay {
-                RoundedRectangle(cornerRadius: MacMetrics.cardCorner)
-                    .strokeBorder(.white.opacity(0.12), lineWidth: 1)
-            }
-            .modifier(MacHoverLift())
         }
-        .buttonStyle(MacCardButtonStyle())
-        .accessibilityLabel(total.map { "查看全部 \($0) 部" } ?? "查看全部")
+        .foregroundStyle(.white)
+        .frame(width: width, height: width * aspect)
+        .background(.white.opacity(0.06), in: .rect(cornerRadius: MacMetrics.cardCorner))
+        .overlay {
+            RoundedRectangle(cornerRadius: MacMetrics.cardCorner)
+                .strokeBorder(.white.opacity(0.12), lineWidth: 1)
+        }
+        .modifier(MacHoverLift())
+        .macCardTap(total.map { "查看全部 \($0) 部" } ?? "查看全部", action: action)
     }
 }
 
@@ -256,6 +246,8 @@ private struct MacCardLabel<Art: View>: View {
     let title: String
     let subtitle: String?
     let width: CGFloat
+    /// 图的高度（各卡片类型的比例固定，直接给出，不逐帧量）
+    let artHeight: CGFloat
     let showsCaption: Bool
     let play: (() -> Void)?
     let menu: [MacCardAction]
@@ -271,7 +263,6 @@ private struct MacCardLabel<Art: View>: View {
     @Environment(\.macScrollInProgress) private var scrolling
     /// 聚焦时指针在图上的位置（0～1），图外为 nil
     @State private var pointer: UnitPoint?
-    @State private var artSize: CGSize = .zero
 
     private var hovered: Bool { hovering && !scrolling }
     private var focused: Bool { focusEffect && hovered }
@@ -319,7 +310,7 @@ private struct MacCardLabel<Art: View>: View {
                     if focused {
                         RadialGradient(colors: [.white.opacity(0.22), .white.opacity(0.06), .clear],
                                        center: pointer ?? UnitPoint(x: 0.5, y: 0.2),
-                                       startRadius: 0, endRadius: max(artSize.width, artSize.height) * 0.75)
+                                       startRadius: 0, endRadius: max(width, artHeight) * 0.75)
                             .blendMode(.plusLighter)
                             .allowsHitTesting(false)
                             .transition(.opacity)
@@ -331,7 +322,6 @@ private struct MacCardLabel<Art: View>: View {
                         .strokeBorder(.white.opacity(selected ? 0.75 : focused ? 0.32 : 0.12),
                                       lineWidth: selected ? 2 : focused ? 1 : 0.5)
                 }
-                .onGeometryChange(for: CGSize.self) { $0.size } action: { artSize = $0 }
                 // 随指针微倾（最多 4°）：指针在哪一侧，哪一侧往里压
                 .rotation3DEffect(.degrees(focused ? tilt.y : 0), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
                 .rotation3DEffect(.degrees(focused ? tilt.x : 0), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
@@ -353,32 +343,41 @@ private struct MacCardLabel<Art: View>: View {
                     }
                 }
                 .frame(width: width, alignment: .leading)
+                // 字不单独参与命中测试（点字照样落在整张卡的 contentShape 上）：滚动时每帧要重算的响应者少一批
+                .allowsHitTesting(false)
                 // 封面放大后片名往下让一点
                 .offset(y: focused ? 6 : 0)
                 .animation(scrolling ? nil : .spring(response: 0.34, dampingFraction: 0.72), value: focused)
             }
         }
         .contentShape(.rect)
-        // 在未变换的卡片区域读坐标：图片的倾斜、缩放不能反过来改变下一次悬停位置。
-        .onContinuousHover { phase in
-            guard focusEffect, !scrolling else { return }
-            switch phase {
-            case .active(let location) where artSize.width > 0 && artSize.height > 0 && location.y <= artSize.height:
-                pointer = UnitPoint(x: min(1, max(0, location.x / artSize.width)),
-                                    y: min(1, max(0, location.y / artSize.height)))
-            default:
-                pointer = nil
-            }
-        }
-        .onHover { inside in
-            if scrolling {
-                hovering = inside || MacCardDebug.forceHover
-            } else {
-                withAnimation(.easeOut(duration: 0.15)) { hovering = inside || MacCardDebug.forceHover }
-            }
-        }
+        // 悬停进出与指针位置用同一个悬停处理（少一个悬停响应者）。在未变换的卡片区域读坐标：图片的倾斜、缩放不能反过来改变下一次悬停位置
+        .onContinuousHover { phase in hover(phase) }
         .onChange(of: scrolling) { _, active in
             if active, pointer != nil { pointer = nil }
+        }
+    }
+
+    private func hover(_ phase: HoverPhase) {
+        let inside: Bool
+        switch phase {
+        case .active(let location):
+            inside = true
+            if focusEffect, !scrolling {
+                pointer = location.y <= artHeight
+                    ? UnitPoint(x: min(1, max(0, location.x / width)), y: min(1, max(0, location.y / artHeight)))
+                    : nil
+            }
+        case .ended:
+            inside = false
+            if pointer != nil { pointer = nil }
+        }
+        let value = inside || MacCardDebug.forceHover
+        guard hovering != value else { return }
+        if scrolling {
+            hovering = value
+        } else {
+            withAnimation(.easeOut(duration: 0.15)) { hovering = value }
         }
     }
 
@@ -492,7 +491,44 @@ struct MacPrimaryButtonStyle: ButtonStyle {
     }
 }
 
-/// 卡片按钮：按下时微微缩小，不画系统按钮的底
+/// 卡片的点击：一个按下手势同时管「按下微微缩小」与点击，不用 `Button`。
+///
+/// 滚动时每帧要为窗口拖拽区域、光标、悬停遍历整页的响应者；`Button` 自带焦点与手势两套响应者，
+/// 一页几十上百张卡片累起来是滚动掉帧的大头（docs/perf/macos-scroll-smoothness.md）。换成一个手势后，
+/// 无障碍仍按按钮读出、可执行；代价是全键盘导航（Tab）不再停在卡片上
+struct MacCardTap: ViewModifier {
+    let label: String
+    let action: () -> Void
+    @State private var pressed = false
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(pressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.12), value: pressed)
+            .contentShape(.rect)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onChanged { _ in if !pressed { pressed = true } }
+                    .onEnded { value in
+                        pressed = false
+                        // 按下后拖开一段（手滑开了）不算点击
+                        if hypot(value.translation.width, value.translation.height) < 10 { action() }
+                    }
+            )
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(label)
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { action() }
+    }
+}
+
+extension View {
+    func macCardTap(_ label: String, action: @escaping () -> Void) -> some View {
+        modifier(MacCardTap(label: label, action: action))
+    }
+}
+
+/// 卡片按钮：按下时微微缩小，不画系统按钮的底（分集、演职员这类一页只有一排的卡片）
 struct MacCardButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
@@ -568,6 +604,7 @@ struct MacShelf<Content: View>: View {
                 .scrollTargetLayout()
                 .padding(.horizontal, MacMetrics.edge)
                 .padding(.vertical, 6)
+                .allowsHitTesting(!scrolling)
             }
             .scrollIndicators(.never)
             .scrollPosition($position)
@@ -592,8 +629,12 @@ struct MacShelf<Content: View>: View {
                 if canForward != forward { canForward = forward }
             }
             .overlay(alignment: artHeight == nil ? .center : .top) {
-                pager
-                    .frame(height: artHeight.map { $0 + 12 })
+                // 翻页键（交互式玻璃）只在指针停在这一行上时才建：常驻的话每行两枚，滚动时每帧都要跟着重算
+                if hovering {
+                    pager
+                        .frame(height: artHeight.map { $0 + 12 })
+                        .transition(.opacity)
+                }
             }
         }
         .onHover { inside in withAnimation(.easeOut(duration: 0.18)) { hovering = inside } }
@@ -643,7 +684,6 @@ struct MacShelf<Content: View>: View {
             pageButton("chevron.forward", visible: canForward) { page(1) }
                 .padding(.trailing, 8)
         }
-        .allowsHitTesting(hovering)
     }
 
     private func pageButton(_ symbol: String, visible: Bool, action: @escaping () -> Void) -> some View {
@@ -654,7 +694,7 @@ struct MacShelf<Content: View>: View {
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .circle)
-        .opacity(hovering && visible ? 1 : 0)
+        .opacity(visible ? 1 : 0)
         .disabled(!visible)
         .accessibilityLabel(symbol.hasSuffix("backward") ? "上一页" : "下一页")
     }
