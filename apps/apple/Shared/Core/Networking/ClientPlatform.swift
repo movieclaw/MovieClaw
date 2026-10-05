@@ -29,6 +29,17 @@ nonisolated enum ClientPlatform {
     static let osName = "iOS"
     #endif
 
+    /// 给用户看的文案里怎么称呼这个 App：「Mac 版 App」「Apple TV 版 App」「iPhone 版 App」
+    static var appName: String {
+        #if os(tvOS)
+        "Apple TV 版 App"
+        #elseif os(macOS)
+        "Mac 版 App"
+        #else
+        "iPhone 版 App"
+        #endif
+    }
+
     /// 给用户看的文案里怎么称呼这台设备：「手机没有联网」「Apple TV 存储空间不足」「电脑没有联网」
     static var deviceNoun: String {
         #if os(tvOS)
