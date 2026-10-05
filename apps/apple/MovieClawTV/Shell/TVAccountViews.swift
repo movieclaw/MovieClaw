@@ -11,6 +11,8 @@ struct TVWhoIsWatchingView: View {
     let onClose: () -> Void
     /// 「账号」页签里的「关于」：在本页签里压栈打开关于页
     var onAbout: (() -> Void)?
+    /// 主界面每加一要一次焦点：从后台回来时焦点停在侧边栏上，交回当前账号（侧边栏随之收起，见 TVMainView.reclaimFocus）
+    var reclaimFocus = 0
 
     @Environment(AppModel.self) private var model
     @State private var error: String?
@@ -55,6 +57,15 @@ struct TVWhoIsWatchingView: View {
             Button("取消", role: .cancel) {}
         } message: {
             Text("「\(model.session?.nickname ?? "")」在这台 Apple TV 上的登录会在服务器上一并注销。同一台服务器上还有别的账号时会自动切过去。")
+        }
+        .task(id: reclaimFocus) {
+            guard reclaimFocus > 0 else { return }
+            // 赋值在焦点系统还没恢复好时可能被忽略：同首页，隔一会儿再补几次
+            for delay in [0, 150, 300, 500] {
+                try? await Task.sleep(for: .milliseconds(delay))
+                guard !Task.isCancelled, focusedAccount == nil, !aboutFocused else { return }
+                focusedAccount = currentID
+            }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-who-is-watching")
