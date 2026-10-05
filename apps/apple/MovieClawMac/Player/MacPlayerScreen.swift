@@ -12,6 +12,7 @@ import SwiftUI
 /// | 移动鼠标 | 控制层浮现；静止 3 秒（且没停在控件上、没暂停）淡出，指针一起藏起来 |
 /// | 单击画面 / 空格 | 播放 / 暂停（画面正中闪一下状态） |
 /// | 双击画面 / F / ⌃⌘F | 全屏进出 |
+/// | 按住画面拖动 | 移动窗口（同 Infuse） |
 /// | ← → / ⌥← ⌥→ | 后退 / 前进 10 秒；⌘← ⌘→ 上一集 / 下一集 |
 /// | ↑ ↓ / M | 音量 ±10% / 静音 |
 /// | Esc | 依次：收起面板 → 退出全屏 → 关闭播放器 |
@@ -87,6 +88,7 @@ private struct MacPlayerHost: View {
     private func finish() {
         controller?.close()
         if let controller, router.activePlayback === controller { router.activePlayback = nil }
+        window.restoreFrameOnExit()
         window.restoreFullScreenOnExit()
         window.detach()
         NSCursor.setHiddenUntilMouseMoves(false)
@@ -185,7 +187,11 @@ private struct MacPlayerContent: View {
             if !Task.isCancelled { flash = nil }
         }
         .onChange(of: controller.phase, initial: true) { _, phase in
-            if phase == .playing, startedUnit != controller.unit { startedUnit = controller.unit }
+            if phase == .playing, startedUnit != controller.unit {
+                startedUnit = controller.unit
+                // 每个单元出画面时窗口贴合它的比例（换集、降档换了片源比例也跟着变）
+                if let video = controller.engine?.videoSize { window.fit(to: video) }
+            }
             debugLog("状态 \(phase) 位置 \(controller.positionMs / 1000) 秒")
         }
         .onChange(of: controller.paused, initial: true) { _, paused in
@@ -244,6 +250,8 @@ private struct MacPlayerContent: View {
     private var surface: some View {
         Color.clear
             .contentShape(.rect)
+            // 按住画面任意处拖动就是拖窗口（同 Infuse）；单击、双击照旧
+            .gesture(WindowDragGesture())
             .onTapGesture {
                 if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
                     pendingClick?.cancel()

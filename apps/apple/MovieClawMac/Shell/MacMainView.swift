@@ -88,7 +88,7 @@ struct MacMainView: View {
             withAnimation(.easeOut(duration: 0.3)) { notice = nil }
         }
         // 登录过期被送回登录页：记下停在哪，重新登录后回到这一页（AppModel.captureResume 只在过期时才真的记）
-        .onDisappear { model.captureResume(tab: router.selection, path: router.path) }
+        .onDisappear { model.captureResume(tab: router.selection, path: router.paths[router.selection] ?? []) }
         .alert("退出登录？", isPresented: $router.confirmingLogout) {
             Button("退出", role: .destructive) {
                 Task { await model.logout() }
@@ -98,8 +98,17 @@ struct MacMainView: View {
             Text("「\(model.session?.nickname ?? "")」在这台 Mac 上的登录会在服务器上一并注销。同一台服务器上还有别的账号时会自动切过去。")
         }
         .toolbarVisibility(router.player == nil ? .automatic : .hidden, for: .windowToolbar)
+        // 内容区顶上不垫工具栏底色（那一条灰带只是拖窗口用的空白，没有控件）；拖窗口照样在这一带
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .animation(.easeInOut(duration: 0.25), value: router.player?.id)
-        .task { await libraries.load(api: api) }
+        .task {
+            // 第一次拿不到（刚启动网络还没就绪、局域网权限刚放行）隔几秒再试，别让侧边栏的「媒体库」一直空着
+            while !Task.isCancelled, !(await libraries.load(api: api)) {
+                try? await Task.sleep(for: .seconds(3))
+            }
+        }
+        // 网页上增删、改名了库：侧边栏跟着变（同首页一分钟刷一次）
+        .polling(every: 60) { await libraries.load(api: api) }
         .onChange(of: accountKey) { _, _ in
             // 换账号：上个账号的浏览位置、搜索词、库清单一律不留；正在播的（理论上切换前已关掉）也关掉
             router.activePlayback?.close()
@@ -167,7 +176,7 @@ struct MacMainView: View {
     /// 内容区：有搜索词时是搜索结果（它自己的栈），否则是侧边栏选中项的栈
     @ViewBuilder
     private var detail: some View {
-        let tab: MainTab = router.isSearching ? .search : router.selection
+        let tab = router.visibleTab
         NavigationStack(path: Binding(get: { router.paths[tab] ?? [] }, set: { router.paths[tab] = $0 })) {
             root(tab)
                 .navigationDestination(for: AppRoute.self) { route in
@@ -227,14 +236,17 @@ final class MacLibraryDirectory {
         libraries.filter { $0.viewerAccess && $0.kind != "photo" }
     }
 
-    func load(api: APIClient) async {
+    /// 拿到了返回 true；拿不到保持原样（首页会挂自己的错误提示）
+    @discardableResult
+    func load(api: APIClient) async -> Bool {
+        defer { loaded = true }
         do {
             let fresh = try await api.libraryList(scope: "all")
             if fresh != libraries { libraries = fresh }
+            return true
         } catch {
-            // 拿不到就保持原样（首页会挂自己的错误提示）
+            return false
         }
-        loaded = true
     }
 
     /// 换账号：清空，等重新加载

@@ -1,3 +1,4 @@
+import AppKit
 import Nuke
 import SwiftUI
 
@@ -22,6 +23,8 @@ struct MacHomeView: View {
     @State private var stageId: Int?
     /// 鼠标正停在哪张「接下来继续」卡上（停稳才换大图）
     @State private var hoveredId: Int?
+    /// 指针在大图上：左右箭头只在这时浮出
+    @State private var heroHovering = MacCardDebug.forceHover
     /// 剧照边缘色（大图区以下的底色从它过渡到页面底色）
     @State private var tint: Color?
 
@@ -158,7 +161,47 @@ struct MacHomeView: View {
                     .padding(.bottom, 50)
             }
         }
+        .overlay { stageArrows(items, current: stage.mediaItemId) }
         .clipped()
+        .onHover { inside in withAnimation(.easeOut(duration: 0.2)) { heroHovering = inside } }
+        // 触控板在大图上左右轻扫：换前一部 / 后一部
+        .modifier(MacHorizontalSwipe { step in moveStage(by: step, in: items, current: stage.mediaItemId) })
+    }
+
+    /// 大图两侧的箭头：指针在大图上、那一侧还有片子时浮出，点一下换过去（到头不绕回）
+    private func stageArrows(_ items: [API.UpNextItemView], current: Int) -> some View {
+        let index = items.firstIndex { $0.mediaItemId == current } ?? 0
+        return HStack {
+            if heroHovering, index > 0 {
+                stageArrow("chevron.left", help: "上一部") { moveStage(by: -1, in: items, current: current) }
+                    .transition(.opacity)
+            }
+            Spacer(minLength: 0)
+            if heroHovering, index < items.count - 1 {
+                stageArrow("chevron.right", help: "下一部") { moveStage(by: 1, in: items, current: current) }
+                    .transition(.opacity)
+            }
+        }
+        .padding(.horizontal, 16)
+    }
+
+    private func stageArrow(_ symbol: String, help: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: symbol)
+                .font(.system(size: 17, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 44, height: 44)
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+
+    private func moveStage(by step: Int, in items: [API.UpNextItemView], current: Int) {
+        guard let index = items.firstIndex(where: { $0.mediaItemId == current }), items.indices.contains(index + step) else { return }
+        withAnimation(.easeInOut(duration: 0.45)) { stageId = items[index + step].mediaItemId }
     }
 
     /// 「继续播放」「详情」：主按钮是醒目的玻璃（同 Apple Music 的「播放」），次按钮普通玻璃
@@ -216,16 +259,9 @@ struct MacHomeView: View {
         MacShelf(title: "接下来继续", artHeight: MacMetrics.landscapeWidth * 9 / 16) {
             ForEach(Array(items.enumerated()), id: \.element.mediaItemId) { index, item in
                 upNextCard(item)
-                    .overlay {
-                        // 大图正讲的这一部描一圈亮边，看得出上面讲的是哪张
-                        if item.mediaItemId == stage.mediaItemId, items.count > 1 {
-                            RoundedRectangle(cornerRadius: MacMetrics.cardCorner)
-                                .strokeBorder(.white.opacity(0.7), lineWidth: 2)
-                                .frame(height: MacMetrics.landscapeWidth * 9 / 16)
-                                .frame(maxHeight: .infinity, alignment: .top)
-                                .allowsHitTesting(false)
-                        }
-                    }
+                    // 大图正讲的这一部描一圈亮边，看得出上面讲的是哪张（卡片自己画，聚焦放大时跟着走）
+                    .environment(\.macCardSelected, item.mediaItemId == stage.mediaItemId && items.count > 1)
+                    .environment(\.macCardControlsInFocus, true)
                     .onHover { inside in
                         if inside { hoveredId = item.mediaItemId } else if hoveredId == item.mediaItemId { hoveredId = nil }
                     }
@@ -252,7 +288,8 @@ struct MacHomeView: View {
                 },
             ]
         ) {
-            resume(item)
+            // 点封面进详情（悬停停稳已把大图换成这一部）；起播走悬停时浮出的播放键、右键菜单或大图的「继续播放」
+            router.push(.item(libraryId: item.libraryId, itemId: item.mediaItemId))
         }
     }
 
@@ -380,5 +417,49 @@ struct MacHomeView: View {
 
     private func reload() async {
         await store.reload(api: api, owner: owner)
+    }
+}
+
+/// 触控板左右轻扫（一次手势只算一下）：指针在这块上时才接，横向为主的滚动吞掉，竖向的照常交给页面滚动。
+/// 方向同内容跟手：手指往左划 = 看后一个（+1）
+private struct MacHorizontalSwipe: ViewModifier {
+    let onSwipe: (Int) -> Void
+    @State private var tracker = Tracker()
+
+    func body(content: Content) -> some View {
+        content
+            .onHover { tracker.hovering = $0 }
+            .onAppear { tracker.install(onSwipe) }
+            .onDisappear { tracker.remove() }
+    }
+
+    @MainActor
+    private final class Tracker {
+        var hovering = false
+        private var monitor: Any?
+        private var travelled: CGFloat = 0
+        private var fired = false
+
+        func install(_ onSwipe: @escaping (Int) -> Void) {
+            remove()
+            monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
+                guard let self, hovering, event.hasPreciseScrollingDeltas else { return event }
+                if event.phase == .began { travelled = 0; fired = false }
+                // 松手后的惯性：这一下已经算过就一并吞掉，免得带着页面晃
+                if !event.momentumPhase.isEmpty { return fired ? nil : event }
+                guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return event }
+                travelled += event.scrollingDeltaX
+                if !fired, abs(travelled) > 60 {
+                    fired = true
+                    onSwipe(travelled < 0 ? 1 : -1)
+                }
+                return nil
+            }
+        }
+
+        func remove() {
+            if let monitor { NSEvent.removeMonitor(monitor) }
+            monitor = nil
+        }
     }
 }

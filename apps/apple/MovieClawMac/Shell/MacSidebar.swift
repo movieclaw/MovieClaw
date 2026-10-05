@@ -55,7 +55,8 @@ struct MacSidebar: View {
             }
         }
         .listStyle(.sidebar)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
+        // 账号钉在底下，列表从它底下滚过去时带滚动边缘的玻璃虚化（同 Apple Music 侧边栏底部的账号）
+        .safeAreaBar(edge: .bottom, spacing: 0) {
             MacAccountButton()
                 .padding(.horizontal, 10)
                 .padding(.bottom, 10)

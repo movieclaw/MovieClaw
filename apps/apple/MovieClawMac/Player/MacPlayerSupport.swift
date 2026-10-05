@@ -18,6 +18,9 @@ final class MacPlayerWindow {
     /// 打开播放器那一刻窗口是不是已经全屏
     private var wasFullScreenBeforePlayer = false
     private var restored = false
+    /// 贴合画面之前窗口的样子（关掉播放器时还原）与当前画面尺寸（退出全屏后重新贴合）
+    private var frameBeforePlayer: NSRect?
+    private var fittedVideo: CGSize?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
     func attach(_ window: NSWindow?) {
@@ -29,7 +32,12 @@ final class MacPlayerWindow {
         let center = NotificationCenter.default
         for (name, value) in [(NSWindow.didEnterFullScreenNotification, true), (NSWindow.didExitFullScreenNotification, false)] {
             observers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.isFullScreen = value }
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    self.isFullScreen = value
+                    // 播放中退出全屏：回到的是进全屏前的窗口，重新贴合画面
+                    if !value, let video = self.fittedVideo { self.fit(to: video) }
+                }
             })
         }
     }
@@ -45,6 +53,60 @@ final class MacPlayerWindow {
         restored = true
         guard let window, window.styleMask.contains(.fullScreen), !wasFullScreenBeforePlayer else { return }
         window.toggleFullScreen(nil)
+    }
+
+    /// 窗口贴合画面（同 Infuse：上下左右不留黑边）。宽度不变按比例定高；高度低于窗口最小高度时加宽，
+    /// 超出屏幕时按屏幕反推；左上角不动。之后拖窗口边缘也锁着这个比例。全屏时不动，退出全屏再贴合
+    func fit(to video: CGSize) {
+        guard let window, video.width > 0, video.height > 0 else { return }
+        fittedVideo = video
+        guard !window.styleMask.contains(.fullScreen) else { return }
+        let aspect = video.width / video.height
+        let minimum = NSSize(width: max(window.contentMinSize.width, window.minSize.width),
+                             height: max(window.contentMinSize.height, window.minSize.height))
+        let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame
+        let current = window.contentRect(forFrameRect: window.frame).size
+        var size = NSSize(width: max(current.width, minimum.width, minimum.height * aspect), height: 0)
+        size.height = size.width / aspect
+        let maximum = window.contentRect(forFrameRect: visible).size
+        if size.width > maximum.width { size = NSSize(width: maximum.width, height: maximum.width / aspect) }
+        if size.height > maximum.height { size = NSSize(width: maximum.height * aspect, height: maximum.height) }
+        // 屏幕放不下最小尺寸的这个比例：留黑边，不硬撑
+        guard size.width >= minimum.width - 1, size.height >= minimum.height - 1 else { return }
+        if frameBeforePlayer == nil { frameBeforePlayer = window.frame }
+        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        frame.origin = NSPoint(x: window.frame.minX, y: window.frame.maxY - frame.height)
+        window.setFrame(Self.constrained(frame, to: visible), display: true, animate: true)
+        window.contentAspectRatio = size
+    }
+
+    /// 关闭播放器时调：解除比例锁，窗口回到打开播放器前的大小（左上角留在现在的位置）。
+    /// 还在全屏（正在退出播放期间进的全屏）时等退出完成再还原
+    func restoreFrameOnExit() {
+        fittedVideo = nil
+        guard let window, let before = frameBeforePlayer else { return }
+        frameBeforePlayer = nil
+        window.contentResizeIncrements = NSSize(width: 1, height: 1)
+        guard window.styleMask.contains(.fullScreen) else { return Self.restore(window, to: before) }
+        Task { @MainActor [weak window] in
+            for await _ in NotificationCenter.default.notifications(named: NSWindow.didExitFullScreenNotification, object: window) {
+                if let window { Self.restore(window, to: before) }
+                break
+            }
+        }
+    }
+
+    private static func restore(_ window: NSWindow, to before: NSRect) {
+        let visible = (window.screen ?? NSScreen.main)?.visibleFrame ?? window.frame
+        let frame = NSRect(x: window.frame.minX, y: window.frame.maxY - before.height, width: before.width, height: before.height)
+        window.setFrame(constrained(frame, to: visible), display: true, animate: true)
+    }
+
+    private static func constrained(_ frame: NSRect, to visible: NSRect) -> NSRect {
+        var frame = frame
+        frame.origin.x = min(max(frame.minX, visible.minX), visible.maxX - frame.width)
+        frame.origin.y = min(max(frame.minY, visible.minY), visible.maxY - frame.height)
+        return frame
     }
 
     /// 离开播放器：停止观察

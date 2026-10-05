@@ -74,8 +74,10 @@ final class MacRouter {
     var selection: MainTab
     /// 各侧边栏项自己的导航栈
     var paths: [MainTab: [AppRoute]] = [:]
-    /// 侧边栏搜索框里的字
-    var searchText = ""
+    /// 侧边栏搜索框里的字。改了词就回到结果列表（点进去的详情是上一个词的）
+    var searchText = "" {
+        didSet { if searchText != oldValue { paths[.search] = nil } }
+    }
     /// 搜索框下拉的联想词（搜索页拿到结果时填，同 Apple TV 版键盘下方那排）
     var searchSuggestions: [String] = []
     /// 全屏播放器
@@ -90,11 +92,14 @@ final class MacRouter {
         paths[selection] = path
     }
 
-    /// 当前侧边栏项的导航栈（页面里 push / pop 都只碰当前这一项）
+    /// 眼前这一栈：有搜索词时是「搜索」自己的栈，否则是当前侧边栏项的（页面里 push / pop 都只碰这一栈）
     var path: [AppRoute] {
-        get { paths[selection] ?? [] }
-        set { paths[selection] = newValue }
+        get { paths[visibleTab] ?? [] }
+        set { paths[visibleTab] = newValue }
     }
+
+    /// 内容区正显示的那一栈对应的项
+    var visibleTab: MainTab { isSearching ? .search : selection }
 
     /// 搜索框有字：内容区显示搜索结果
     var isSearching: Bool { !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
