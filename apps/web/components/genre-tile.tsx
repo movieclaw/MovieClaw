@@ -5,6 +5,7 @@ import {
   baseCss,
   blobCss,
   genreArt,
+  genreCardBackground,
   genreCardColors,
   oklchCss,
 } from "@/lib/genre-palette";
@@ -49,7 +50,8 @@ export function GenreArtwork({ genreId }: { genreId: number }) {
 /**
  * 首页「按类型找电影 / 剧集」的一格（设计稿 v10，学苹果音乐「视频播放列表」）：
  *
- *   - 方卡，类型固定色的浅色纯底（惊悚、悬疑是深色底），左上角粗体类型名、右上角部数；
+ *   - 方卡，类型固定的底色（配色依据见 genre-palette.ts：负面类型是深色卡，科幻 / 奇幻 /
+ *     科幻奇幻是金属银、极光等特殊材质），左上角粗体类型名、右上角部数；
  *   - 下半部贴一张这个类型**最近入库**那部片的剧照（原色、自带圆角）；没有剧照时贴这个
  *     类型的网格渐变；
  *   - 卡片下方写那部片的片名 + 「最近入库」，和海报行「片名 + 年份」同一个格式。
@@ -80,7 +82,7 @@ export function GenreTile({
       <span className="block [container-type:inline-size]">
         <span
           className="relative flex aspect-square flex-col overflow-hidden rounded-[4.5cqw] p-[4.5cqw] transition-transform duration-300 ease-out group-hover:scale-[1.02] group-focus-visible:ring-2 group-focus-visible:ring-white/80 motion-reduce:transition-none"
-          style={{ background: oklchCss(colors.background) }}
+          style={{ background: genreCardBackground(colors) }}
         >
           <span
             className="block truncate pr-[18cqw] pt-[3.5cqw] font-bold leading-[1.1] tracking-[0.02em] [font-size:max(15px,11.8cqw)]"

@@ -183,33 +183,107 @@ export function blobCss(color: Oklch): string {
 }
 
 /**
- * 贴图卡（首页色块，设计稿 v10 B）的纯色底与字色：类型主色相的浅色底 + 同色相深色字。
- * 惊悚、悬疑反过来用深色底 + 浅色字（用户定的：这两个类型要有暗调）。
- * 彩度直接给定，不乘 CHROMA_SCALE——底色本来就是压低彩度的浅色。
+ * 贴图卡（首页色块）的底色与字色——定稿 v14 + v16 ①，按「证据从强到弱」定：
+ *
+ *   - 明暗跟类型情绪的效价走：轻松愉快的更亮，负面沉重的用深色卡 + 浅色字
+ *     （Valdez & Mehrabian 1994：亮度越高越愉悦）；
+ *   - 饱和度跟唤起走：刺激强的更浓，平静的更淡（同上：饱和度越高越兴奋）；
+ *   - 色相只在有依据时表意：黄↔快乐、粉↔爱、红↔兴奋、深色↔恐惧（Jonauskaite 等 2020，
+ *     30 国调查），科幻银、奇幻极光、军绿、旧照片褐是电影惯例；其余色相只为与同排拉开距离。
+ *
+ * 三种特殊材质：科幻 = 科技银（金属），奇幻 = 极光（青→紫流光），剧集的科幻奇幻 = 银→星云紫。
+ * 其余全是纯色——材质少才有意义。
+ *
+ * 两条硬指标由 test/genre-palette.test.mjs 守着：文字对比度 ≥ 4.5:1（WCAG 正文），
+ * 同一行（电影 / 剧集）任意两色 OKLab 色差 ≥ 0.06。iOS / tvOS 的 GenrePalette.swift 逐项同表。
  */
-export const DARK_CARD_GENRES: readonly number[] = [53, 9648];
+export type GenreCardKind = "light" | "dark" | "silver" | "aurora" | "silverNebula";
+
+/**
+ * [明度, 彩度, 色相, 种类]。特殊材质的 l/c/h 是它几个色标在 OKLab 里的（按位置加权）平均色，
+ * 只用来测与同排的色差；真正的底色见 MATERIALS。
+ */
+export const GENRE_CARDS: Record<number, readonly [number, number, number, GenreCardKind]> = {
+  // 电影
+  35: [0.86, 0.14, 95, "light"], // 喜剧 · 阳光黄
+  10749: [0.86, 0.09, 0, "light"], // 爱情 · 玫瑰粉
+  28: [0.76, 0.14, 33, "light"], // 动作 · 朱红
+  27: [0.27, 0.1, 25, "dark"], // 恐怖 · 血红暗调
+  53: [0.33, 0.09, 350, "dark"], // 惊悚 · 深酒红
+  10751: [0.86, 0.075, 55, "light"], // 家庭 · 蜜桃
+  18: [0.74, 0.06, 330, "light"], // 剧情 · 藕荷
+  99: [0.74, 0.055, 165, "light"], // 纪录 · 苔绿
+  36: [0.76, 0.05, 75, "light"], // 历史 · 赭石
+  878: [0.79, 0.014, 250, "silver"], // 科幻 · 科技银
+  14: [0.77, 0.076, 270, "aurora"], // 奇幻 · 极光
+  12: [0.86, 0.09, 200, "light"], // 冒险 · 湖青
+  16: [0.86, 0.09, 152, "light"], // 动画 · 薄荷绿
+  10402: [0.76, 0.14, 335, "light"], // 音乐 · 品红
+  80: [0.3, 0.025, 260, "dark"], // 犯罪 · 黑色电影灰
+  10752: [0.38, 0.07, 120, "dark"], // 战争 · 暗军绿
+  37: [0.68, 0.11, 48, "light"], // 西部 · 陶土橙
+  10770: [0.68, 0.035, 20, "light"], // 电视电影 · 岩灰
+  9648: [0.38, 0.07, 215, "dark"], // 悬疑 · 夜雾青
+  // 剧集独有
+  10759: [0.86, 0.14, 62, "light"], // 动作冒险 · 琥珀橙
+  10762: [0.88, 0.08, 225, "light"], // 儿童 · 天空蓝
+  10763: [0.68, 0.07, 232, "light"], // 新闻 · 信赖蓝
+  10764: [0.86, 0.14, 18, "light"], // 真人秀 · 珊瑚
+  10765: [0.74, 0.068, 271, "silverNebula"], // 科幻奇幻 · 银→星云紫
+  10766: [0.84, 0.075, 345, "light"], // 肥皂剧 · 兰花粉
+  10767: [0.88, 0.12, 125, "light"], // 脱口秀 · 青柠
+  10768: [0.36, 0.06, 155, "dark"], // 战争政治 · 墨绿
+};
+
+/** 特殊材质的 135° 斜向色标：[位置 0-1, 明度, 彩度, 色相] */
+export const MATERIALS: Record<
+  "silver" | "aurora" | "silverNebula",
+  readonly (readonly [number, number, number, number])[]
+> = {
+  silver: [
+    [0, 0.87, 0.012, 250],
+    [0.55, 0.73, 0.016, 250],
+    [1, 0.81, 0.012, 250],
+  ],
+  aurora: [
+    [0, 0.82, 0.1, 185],
+    [0.58, 0.72, 0.12, 280],
+    [1, 0.8, 0.11, 322],
+  ],
+  silverNebula: [
+    [0, 0.84, 0.014, 250],
+    [0.45, 0.74, 0.06, 262],
+    [1, 0.66, 0.13, 280],
+  ],
+};
 
 export interface GenreCardColors {
-  background: Oklch;
+  /** 底色色标：一个 = 纯色，多个 = 135° 斜向渐变 */
+  stops: { at: number; color: Oklch }[];
   ink: Oklch;
-  dark: boolean;
 }
 
+const color = (l: number, c: number, h: number): Oklch => ({ l, c, h: ((h % 360) + 360) % 360, alpha: 1 });
+
 export function genreCardColors(id: number): GenreCardColors {
-  const t = genreTone(id);
-  const h = ((t.a % 360) + 360) % 360;
-  if (DARK_CARD_GENRES.includes(id)) {
+  const [l, c, h, kind] = GENRE_CARDS[id] ?? [0.76, 0.03, 250, "light"];
+  if (kind === "silver" || kind === "aurora" || kind === "silverNebula") {
     return {
-      background: { l: 0.3, c: t.k * 0.55, h, alpha: 1 },
-      ink: { l: 0.93, c: t.k * 0.25, h, alpha: 1 },
-      dark: true,
+      stops: MATERIALS[kind].map(([at, sl, sc, sh]) => ({ at, color: color(sl, sc, sh) })),
+      ink: kind === "silver" ? color(0.24, 0.02, 250) : color(0.22, 0.06, 280),
     };
   }
   return {
-    background: { l: 0.82, c: t.k * 0.42, h, alpha: 1 },
-    ink: { l: 0.24, c: t.k * 0.55, h, alpha: 1 },
-    dark: false,
+    stops: [{ at: 0, color: color(l, c, h) }],
+    ink: kind === "dark" ? color(0.94, 0.03, h) : color(0.22, Math.min(c * 0.6, 0.06), h),
   };
+}
+
+/** 卡片底色的 CSS：纯色或 135° 斜向渐变（在 OKLCH 里插值）。 */
+export function genreCardBackground(card: GenreCardColors): string {
+  if (card.stops.length === 1) return oklchCss(card.stops[0].color);
+  const stops = card.stops.map(({ at, color: c }) => `${oklchCss(c)} ${Math.round(at * 100)}%`);
+  return `linear-gradient(in oklch 135deg, ${stops.join(", ")})`;
 }
 
 /** 斜向底的 CSS：在 OKLCH 里插值，中段不发灰。 */

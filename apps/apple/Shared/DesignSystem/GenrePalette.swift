@@ -180,23 +180,88 @@ enum GenrePalette {
 
     // MARK: 贴图卡
 
-    /// 贴图卡（首页色块，设计稿 v10 B）的纯色底与字色：类型主色相的浅色底 + 同色相深色字。
-    /// 惊悚、悬疑反过来用深色底 + 浅色字。彩度直接给定，不乘 chromaScale（同网页 genreCardColors）
-    static let darkCardGenres: Set<Int> = [53, 9648]
+    /// 贴图卡（首页色块）的底色与字色——与网页 genre-palette.ts 的 GENRE_CARDS / MATERIALS 逐项同表
+    /// （那边的单测解析本文件比对，并守着对比度 ≥ 4.5:1、同排色差 ≥ 0.06 两条硬指标）。
+    /// 明暗跟类型情绪的效价、饱和度跟唤起，色相只在有依据时表意；负面类型是深色卡，
+    /// 科幻 = 科技银、奇幻 = 极光、剧集的科幻奇幻 = 银→星云紫三种特殊材质，其余纯色
+    enum CardKind { case light, dark, silver, aurora, silverNebula }
+
+    /// 特殊材质的 l/c/h 是几个色标的平均色（只用来测色差），真正的底色见 materials
+    struct CardTone {
+        var l: Double
+        var c: Double
+        var h: Double
+        var kind: CardKind
+    }
+
+    static let cards: [Int: CardTone] = [
+        // 电影
+        35: CardTone(l: 0.86, c: 0.14, h: 95, kind: .light), // 喜剧 · 阳光黄
+        10749: CardTone(l: 0.86, c: 0.09, h: 0, kind: .light), // 爱情 · 玫瑰粉
+        28: CardTone(l: 0.76, c: 0.14, h: 33, kind: .light), // 动作 · 朱红
+        27: CardTone(l: 0.27, c: 0.1, h: 25, kind: .dark), // 恐怖 · 血红暗调
+        53: CardTone(l: 0.33, c: 0.09, h: 350, kind: .dark), // 惊悚 · 深酒红
+        10751: CardTone(l: 0.86, c: 0.075, h: 55, kind: .light), // 家庭 · 蜜桃
+        18: CardTone(l: 0.74, c: 0.06, h: 330, kind: .light), // 剧情 · 藕荷
+        99: CardTone(l: 0.74, c: 0.055, h: 165, kind: .light), // 纪录 · 苔绿
+        36: CardTone(l: 0.76, c: 0.05, h: 75, kind: .light), // 历史 · 赭石
+        878: CardTone(l: 0.79, c: 0.014, h: 250, kind: .silver), // 科幻 · 科技银
+        14: CardTone(l: 0.77, c: 0.076, h: 270, kind: .aurora), // 奇幻 · 极光
+        12: CardTone(l: 0.86, c: 0.09, h: 200, kind: .light), // 冒险 · 湖青
+        16: CardTone(l: 0.86, c: 0.09, h: 152, kind: .light), // 动画 · 薄荷绿
+        10402: CardTone(l: 0.76, c: 0.14, h: 335, kind: .light), // 音乐 · 品红
+        80: CardTone(l: 0.3, c: 0.025, h: 260, kind: .dark), // 犯罪 · 黑色电影灰
+        10752: CardTone(l: 0.38, c: 0.07, h: 120, kind: .dark), // 战争 · 暗军绿
+        37: CardTone(l: 0.68, c: 0.11, h: 48, kind: .light), // 西部 · 陶土橙
+        10770: CardTone(l: 0.68, c: 0.035, h: 20, kind: .light), // 电视电影 · 岩灰
+        9648: CardTone(l: 0.38, c: 0.07, h: 215, kind: .dark), // 悬疑 · 夜雾青
+        // 剧集独有
+        10759: CardTone(l: 0.86, c: 0.14, h: 62, kind: .light), // 动作冒险 · 琥珀橙
+        10762: CardTone(l: 0.88, c: 0.08, h: 225, kind: .light), // 儿童 · 天空蓝
+        10763: CardTone(l: 0.68, c: 0.07, h: 232, kind: .light), // 新闻 · 信赖蓝
+        10764: CardTone(l: 0.86, c: 0.14, h: 18, kind: .light), // 真人秀 · 珊瑚
+        10765: CardTone(l: 0.74, c: 0.068, h: 271, kind: .silverNebula), // 科幻奇幻 · 银→星云紫
+        10766: CardTone(l: 0.84, c: 0.075, h: 345, kind: .light), // 肥皂剧 · 兰花粉
+        10767: CardTone(l: 0.88, c: 0.12, h: 125, kind: .light), // 脱口秀 · 青柠
+        10768: CardTone(l: 0.36, c: 0.06, h: 155, kind: .dark), // 战争政治 · 墨绿
+    ]
+
+    /// 特殊材质的 135° 斜向色标：(位置 0-1, 明度, 彩度, 色相)
+    static let materials: [CardKind: [(Double, Double, Double, Double)]] = [
+        .silver: [(0, 0.87, 0.012, 250), (0.55, 0.73, 0.016, 250), (1, 0.81, 0.012, 250)],
+        .aurora: [(0, 0.82, 0.1, 185), (0.58, 0.72, 0.12, 280), (1, 0.8, 0.11, 322)],
+        .silverNebula: [(0, 0.84, 0.014, 250), (0.45, 0.74, 0.06, 262), (1, 0.66, 0.13, 280)],
+    ]
 
     struct CardColors {
-        var background: Oklch
+        /// 底色色标：一个 = 纯色，多个 = 135° 斜向渐变
+        var stops: [(Double, Oklch)]
         var ink: Oklch
-        var dark: Bool
+
+        /// 底色：纯色或左上→右下的渐变（色标在 OKLCH 里定好，相邻色标间按 sRGB 插值，色标够密不发灰）
+        var background: AnyShapeStyle {
+            if stops.count == 1 { return AnyShapeStyle(GenrePalette.color(stops[0].1)) }
+            return AnyShapeStyle(LinearGradient(
+                stops: stops.map { Gradient.Stop(color: GenrePalette.color($0.1), location: $0.0) },
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            ))
+        }
     }
 
     static func cardColors(_ id: Int) -> CardColors {
-        let t = tone(id)
-        let h = (t.a.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
-        if darkCardGenres.contains(id) {
-            return CardColors(background: Oklch(l: 0.3, c: t.k * 0.55, h: h, alpha: 1), ink: Oklch(l: 0.93, c: t.k * 0.25, h: h, alpha: 1), dark: true)
+        let tone = cards[id] ?? CardTone(l: 0.76, c: 0.03, h: 250, kind: .light)
+        let hue = (tone.h.truncatingRemainder(dividingBy: 360) + 360).truncatingRemainder(dividingBy: 360)
+        switch tone.kind {
+        case .silver, .aurora, .silverNebula:
+            let stops = (materials[tone.kind] ?? []).map { ($0.0, Oklch(l: $0.1, c: $0.2, h: $0.3, alpha: 1)) }
+            let ink = tone.kind == .silver ? Oklch(l: 0.24, c: 0.02, h: 250, alpha: 1) : Oklch(l: 0.22, c: 0.06, h: 280, alpha: 1)
+            return CardColors(stops: stops, ink: ink)
+        case .dark:
+            return CardColors(stops: [(0, Oklch(l: tone.l, c: tone.c, h: hue, alpha: 1))], ink: Oklch(l: 0.94, c: 0.03, h: hue, alpha: 1))
+        case .light:
+            return CardColors(stops: [(0, Oklch(l: tone.l, c: tone.c, h: hue, alpha: 1))],
+                              ink: Oklch(l: 0.22, c: min(tone.c * 0.6, 0.06), h: hue, alpha: 1))
         }
-        return CardColors(background: Oklch(l: 0.82, c: t.k * 0.42, h: h, alpha: 1), ink: Oklch(l: 0.24, c: t.k * 0.55, h: h, alpha: 1), dark: false)
     }
 
     static func blobStops(_ value: Oklch) -> [Gradient.Stop] {
@@ -248,8 +313,8 @@ struct GenreArtwork: View {
     }
 }
 
-/// 首页「按类型找电影 / 剧集」的一格（设计稿 v10，同网页 `GenreTile`）：方卡，类型固定色的浅色纯底
-/// （惊悚、悬疑是深色底），左上角粗体类型名、右上角部数；下半部贴一张这个类型**最近入库**那部片的
+/// 首页「按类型找电影 / 剧集」的一格（同网页 `GenreTile`）：方卡，类型固定的底色（负面类型是深色卡，
+/// 科幻 / 奇幻 / 科幻奇幻是金属银、极光等特殊材质），左上角粗体类型名、右上角部数；下半部贴一张这个类型**最近入库**那部片的
 /// 剧照（原色、自带圆角），没有剧照时贴这个类型的网格渐变。字号、圆角、内边距都按宽度等比缩放。
 /// 卡片下方的片名、交互（点按 / 焦点）由外层决定
 struct GenreCardFace: View {
@@ -286,7 +351,7 @@ struct GenreCardFace: View {
         }
         .padding(pad)
         .frame(width: width, height: width)
-        .background(GenrePalette.color(colors.background))
+        .background(colors.background)
         .clipShape(RoundedRectangle(cornerRadius: width * 0.045, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(label)，\(count) 部")
