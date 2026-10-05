@@ -530,27 +530,14 @@ Web 控制台 `http://127.0.0.1:3000`，API 文档 `http://127.0.0.1:8000/docs`�
 
 部署遇到问题、想提需求、或者只是想晒一下自己的片库，都欢迎进群聊：
 
-<table>
-  <tr>
-    <td align="center" width="50%" valign="top">
-      <img src="docs/images/wechat-group.jpg" width="240" alt="微信交流群二维码">
-      <br>
-      <b>微信群</b><br>
-      用微信扫码进群。
-    </td>
-    <td align="center" width="50%" valign="top">
-      <a href="https://t.me/movieclawio"><img src="https://img.shields.io/badge/Telegram-%40movieclawio-26A5E4?logo=telegram&logoColor=white&style=for-the-badge" alt="Telegram 群"></a>
-      <br><br>
-      <b>Telegram</b><br>
-      <a href="https://t.me/movieclawio">t.me/movieclawio</a>
-      <br><br>
-      公开群，直接点链接进。
-    </td>
-  </tr>
-</table>
-
-微信群二维码 7 天失效。如果上面的码已经扫不进去了，可以先进 Telegram 群，
-或者开个 [Issue](https://github.com/movieclaw/movieclaw/issues) 提醒我们换新码。
+<p align="center">
+  <a href="https://t.me/movieclawio"><img src="https://img.shields.io/badge/Telegram-%40movieclawio-26A5E4?logo=telegram&logoColor=white&style=for-the-badge" alt="Telegram 群"></a>
+  <br><br>
+  <b>Telegram</b><br>
+  <a href="https://t.me/movieclawio">t.me/movieclawio</a>
+  <br><br>
+  公开群，直接点链接进。
+</p>
 
 ## 文档与支持
 

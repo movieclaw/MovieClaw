@@ -632,28 +632,14 @@ up as well). After a hard crash on bare metal, a quick `ps` check for leftovers 
 Deployment questions, setup tips, feature ideas, or just showing off your library —
 come say hello:
 
-<table>
-  <tr>
-    <td align="center" width="50%" valign="top">
-      <a href="https://t.me/movieclawio"><img src="https://img.shields.io/badge/Telegram-%40movieclawio-26A5E4?logo=telegram&logoColor=white&style=for-the-badge" alt="Telegram group"></a>
-      <br><br>
-      <b>Telegram</b><br>
-      <a href="https://t.me/movieclawio">t.me/movieclawio</a>
-      <br><br>
-      Open to everyone, no invite needed.
-    </td>
-    <td align="center" width="50%" valign="top">
-      <img src="docs/images/wechat-group.jpg" width="240" alt="WeChat group QR code">
-      <br>
-      <b>WeChat group</b><br>
-      Scan with WeChat to join.
-    </td>
-  </tr>
-</table>
-
-WeChat group QR codes expire after a week. If the one above no longer works, the Telegram
-group always does — or [open an issue](https://github.com/movieclaw/movieclaw/issues) and
-we'll refresh it.
+<p align="center">
+  <a href="https://t.me/movieclawio"><img src="https://img.shields.io/badge/Telegram-%40movieclawio-26A5E4?logo=telegram&logoColor=white&style=for-the-badge" alt="Telegram group"></a>
+  <br><br>
+  <b>Telegram</b><br>
+  <a href="https://t.me/movieclawio">t.me/movieclawio</a>
+  <br><br>
+  Open to everyone, no invite needed.
+</p>
 
 ## Docs & Support
 
