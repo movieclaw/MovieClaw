@@ -399,9 +399,12 @@ final class HardwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
         if let primaries = colorPrimaries {
             CVBufferSetAttachment(imageBuffer, kCVImageBufferColorPrimariesKey, primaries, .shouldPropagate)
         }
-        if let transfer = colorTransfer {
-            CVBufferSetAttachment(imageBuffer, kCVImageBufferTransferFunctionKey, transfer, .shouldPropagate)
-        }
+        // [MovieClaw P60] SDR goes out as sRGB on Mac / iPhone. An undeclared transfer is judged on the tag
+        // VideoToolbox read off the SPS VUI, so an HDR stream the container never labelled stays HDR.
+        let decodedTransfer = colorTransfer
+            ?? (CVBufferCopyAttachment(imageBuffer, kCVImageBufferTransferFunctionKey, nil) as? String).map { $0 as CFString }
+        CVBufferSetAttachment(imageBuffer, kCVImageBufferTransferFunctionKey,
+                              ColorAttachments.shownTransfer(decodedTransfer), .shouldPropagate)
         if let matrix = colorMatrix {
             CVBufferSetAttachment(imageBuffer, kCVImageBufferYCbCrMatrixKey, matrix, .shouldPropagate)
         }

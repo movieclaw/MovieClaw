@@ -1616,10 +1616,10 @@ public final class HLSVideoEngine: @unchecked Sendable {
         // bitstream in two containers, Dolby's P5 asset with and without its `dvcC`: with the record
         // `init.mp4` is 883 B carrying `colr nclx` 9 / 16 / 9 full range, without it and without this
         // override 864 B and no `colr` at all, which would be two deliveries of one picture.
-        let p5ColorOverride: MP4SegmentMuxer.ColorOverride?
+        let colorOverride: MP4SegmentMuxer.ColorOverride?
         if codecTagOverride == "dvh1" {
             let sourceRange = codecpar.pointee.color_range
-            p5ColorOverride = MP4SegmentMuxer.ColorOverride(
+            colorOverride = MP4SegmentMuxer.ColorOverride(
                 primaries: AVCOL_PRI_BT2020,
                 trc: AVCOL_TRC_SMPTE2084,
                 space: AVCOL_SPC_BT2020_NCL,
@@ -1627,8 +1627,21 @@ public final class HLSVideoEngine: @unchecked Sendable {
                     ? AVCOL_RANGE_MPEG
                     : sourceRange
             )
+        } else if videoRange == .sdr, ColorAttachments.presentsSDRAsSRGB,
+                  let declared = Self.bt709CurveColor(codecpar) {
+            // [MovieClaw P60] SDR shown as sRGB, see `ColorAttachments.presentsSDRAsSRGB`. AVPlayer reads
+            // `colr nclx` over the SPS VUI (measured: VUI 1/1/1 + colr 1/13/1 comes out IEC_sRGB), so this
+            // retags a BT.709-tagged source as well as an untagged one. Gaps filled as VideoToolbox does.
+            let filled = ColorAttachments.filled(declared)
+            let sourceRange = codecpar.pointee.color_range
+            colorOverride = MP4SegmentMuxer.ColorOverride(
+                primaries: filled.primaries,
+                trc: AVCOL_TRC_IEC61966_2_1,
+                space: filled.matrix,
+                range: sourceRange == AVCOL_RANGE_UNSPECIFIED ? AVCOL_RANGE_MPEG : sourceRange
+            )
         } else {
-            p5ColorOverride = nil
+            colorOverride = nil
         }
         // Deep-copy codecpar so configs outlive the demuxer (live reopen closes it; see OwnedCodecParameters).
         guard let ownedVideoParams = OwnedCodecParameters(copying: codecpar) else {
@@ -1666,7 +1679,7 @@ public final class HLSVideoEngine: @unchecked Sendable {
             codecTagOverride: codecTagOverride,
             doviConfig: doviConfig,
             convertP7ToProfile81: convertP7ToProfile81,
-            colorOverride: p5ColorOverride,
+            colorOverride: colorOverride,
             extradataOverride: hevcExtradataOverride,
             nalFramingOverride: measuredVideoNALFraming,
             annexBSamplesKeepParameterSets: framingNormalization.annexBSamplesKeepParameterSets
@@ -4173,4 +4186,30 @@ public final class HLSVideoEngine: @unchecked Sendable {
         )
     }
 
+}
+
+extension HLSVideoEngine {
+    /// [MovieClaw P60] The colour of a stream the display would show with the BT.709 curve, nil for any
+    /// other. The container's description, gaps filled from the SPS: `colr` outranks the VUI, so an HDR
+    /// stream whose container never named the transfer must not be written out as sRGB. Declaring no
+    /// transfer anywhere counts for HEVC once its SPS was read and for H.264 (no HDR in the wild); any
+    /// other codec keeps its tags as they are.
+    static func bt709CurveColor(_ codecpar: UnsafePointer<AVCodecParameters>) -> ColorDescription? {
+        var declared = ColorDescription(codecpar: codecpar)
+        if declared.transfer == AVCOL_TRC_UNSPECIFIED {
+            switch codecpar.pointee.codec_id {
+            case AV_CODEC_ID_HEVC:
+                guard codecpar.pointee.extradata_size > 0,
+                      let sps = ColorDescription.parameterSets(codecpar: codecpar) else { return nil }
+                declared = ColorDescription.resolved(bitstream: sps, container: declared)
+            case AV_CODEC_ID_H264:
+                break
+            default:
+                return nil
+            }
+        }
+        let tag = ColorAttachments.transfer(declared.transfer)
+        guard tag == nil || tag == kCVImageBufferTransferFunction_ITU_R_709_2 else { return nil }
+        return declared
+    }
 }
