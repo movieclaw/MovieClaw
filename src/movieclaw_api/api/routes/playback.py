@@ -1047,8 +1047,9 @@ async def start_playback_session(
         )
     resolved_start_ms = payload.start_ms
     if resolved_start_ms is None:
-        # 看完的重播从头开始——续播到最后三十秒等于点开就是片尾
-        resolved_start_ms = 0 if (watch_row is None or watch_row.played) else watch_row.position_ms
+        # 有续播点就接着播，不看「已看」：看过 90% 时续播点已清零，看完的片子还带着
+        # 续播点只能是重看到一半（已看标记保留），这时从头放会丢掉这次的进度
+        resolved_start_ms = watch_row.position_ms if watch_row is not None else 0
 
     decision = await _decide(payload, principal, session)
     decide_ms = int((time.perf_counter() - started_at) * 1000)

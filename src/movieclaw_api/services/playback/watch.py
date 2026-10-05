@@ -399,7 +399,7 @@ async def record_start(
             files=_played_files(files, file_id),
             contexts=contexts,
         )
-    # 起点记续播位置：看完的从头播（position 已被清零），没看完的接着播
+    # 起点记续播位置：有续播点就接着播（含看完后重看到一半的），没有就从头
     await _log_start(session, unit, member_id=member_id, client=client, position_ms=row.position_ms)
     await session.commit()
     event = await build_playback_event(session, "playback.started", unit, row, client=client)

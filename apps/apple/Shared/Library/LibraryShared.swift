@@ -28,10 +28,10 @@ enum LibraryKindMeta {
 }
 
 extension [API.EpisodeView] {
-    /// 一季里「接着看的那一集」（Apple TV 与 iPhone 详情页共用）：看了一半的 → 第一集没看过的 → 第一集（有片源的优先）
+    /// 一季里「接着看的那一集」（Apple TV 与 iPhone 详情页共用）：看了一半的（含看完后重看到一半的）→ 第一集没看过的 → 第一集（有片源的优先）
     var resumeEpisode: API.EpisodeView? {
         let owned = filter(\.owned)
-        return owned.first { $0.positionMs > 0 && !$0.played }
+        return owned.first { $0.positionMs > 0 }
             ?? owned.first { !$0.played }
             ?? owned.first
             ?? first

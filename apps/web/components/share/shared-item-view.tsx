@@ -323,7 +323,7 @@ export function SharedItemView({
               <ChapterStrip
                 chapters={currentFile.chapters}
                 pending={false}
-                resumeMs={watched && !watched.played ? watched.position_ms : null}
+                resumeMs={watched ? watched.position_ms : null}
                 onPlay={(chapter) => play((chapter.frame_ms ?? chapter.start_ms) / 1000)}
               />
             )}

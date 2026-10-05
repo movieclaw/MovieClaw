@@ -484,7 +484,8 @@ def _watch_clause(watch: WatchFilter, member_id: int):
     def _exists(*conds):
         return select(1).select_from(PlaybackState).where(*mine, *conds).exists()
 
-    watching = _exists(PlaybackState.position_ms > 0, PlaybackState.played.is_(False))
+    # 有续播点就是「在看」：看完后重看到一半的（已看标记保留）也算，与详情页「继续观看」一致
+    watching = _exists(PlaybackState.position_ms > 0)
     played = _exists(PlaybackState.played.is_(True))
     if watch == "watching":
         return watching

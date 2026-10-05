@@ -698,8 +698,8 @@ class PlaybackSessionView(BaseModel):
 class PlaybackSessionRequest(PlaybackDecideRequest):
     """开会话请求：在决策请求上多一个起播位置。"""
 
-    #: 从文件的哪个位置开始。**None = 服务端按观看状态定**：看完的从头播，
-    #: 没看完的接续播点——分享出去的链接因此天然「各看各的进度」。显式给值
+    #: 从文件的哪个位置开始。**None = 服务端按观看状态定**：有续播点就接着播
+    #: （含看完后重看到一半的），没有就从头——分享出去的链接因此天然「各看各的进度」。显式给值
     #: （含 0）原样照办：seek 重开、「从头开始」都走这条路。
     start_ms: int | None = None
     #: 播放编号（docs/design/playback-qoe.md §2）：App 在用户点下时生成，断线重连、原位重开、

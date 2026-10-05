@@ -229,8 +229,9 @@ struct TVItemDetailView: View {
     private func actions(_ detail: API.LibraryItemDetailView) -> some View {
         let position = watched?.positionMs ?? 0
         let finished = watched?.played ?? false
-        let resumable = canPlay && !finished && position > 0
-        let verb = finished ? "重新播放" : resumable ? "继续" : "播放"
+        // 有续播点就接着播（与服务端起播同一口径）：看完后重看到一半的也算，已看标记保留
+        let resumable = canPlay && position > 0
+        let verb = resumable ? "继续" : finished ? "重新播放" : "播放"
         // 剧集在按钮上写明是哪一集（同 Netflix、系统 Apple TV App 的「继续 第 1 季第 3 集」）：只写「继续 46:56」
         // 看不出续的是第几集（2026-10-04 用户要求）。时间点跟在后面
         let parts = [verb, unitLabel, resumable ? Formatters.clock(Double(position) / 1000) : nil].compactMap { $0 }
@@ -244,7 +245,7 @@ struct TVItemDetailView: View {
             }
             HStack(spacing: 28) {
                 if canPlay {
-                    Button { play(start: finished ? 0 : nil) } label: {
+                    Button { play(start: nil) } label: {
                         Label(label, systemImage: "play.fill")
                             .padding(.horizontal, 16)
                     }
@@ -900,7 +901,7 @@ private struct TVEpisodeCard: View {
     /// 剧照左下：▶ 片长（看了一半的写剩多久、压进度条）
     @ViewBuilder
     private var stillBand: some View {
-        let inProgress = !episode.played && episode.positionMs > 0
+        let inProgress = episode.positionMs > 0  // 含看完后重看到一半的
         let text: String? = inProgress ? "看到 \(Formatters.clock(Double(episode.positionMs) / 1000))"
             : runtimeMinutes.flatMap { $0 > 0 ? TVItemDetailView.runtimeText($0) : nil }
         if text != nil || inProgress {

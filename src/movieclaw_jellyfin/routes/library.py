@@ -1892,7 +1892,8 @@ async def shows_next_up(
         anchor_unit, anchor_state = max(
             watched, key=lambda pair: pair[1].last_played_at or fallback_stamp
         )
-        if anchor_state.position_ms > 0 and not anchor_state.played:
+        # 有续播点（含看完后重看到一半的）就停在锚点，与续播位置同一口径
+        if anchor_state.position_ms > 0:
             next_unit = anchor_unit
         else:
             following = [u for u in bundle.units if u[0] != 0 and u > anchor_unit]

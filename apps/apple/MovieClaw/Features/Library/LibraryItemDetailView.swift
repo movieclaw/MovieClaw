@@ -221,7 +221,7 @@ struct LibraryItemDetailView: View {
                             chapters: chapters,
                             onPlayFrom: { seconds in play(start: seconds) },
                             pending: detail.chaptersPending,
-                            resumeMs: watched.flatMap { $0.played ? nil : $0.positionMs }
+                            resumeMs: watched?.positionMs
                         )
                     }
                     castRow(detail)
@@ -462,12 +462,13 @@ struct LibraryItemDetailView: View {
         let position = watched?.positionMs ?? 0
         let duration = watched?.durationMs
         let finished = watched?.played ?? false
-        let resumable = !finished && position > 0
+        // 有续播点就接着播（与服务端起播同一口径）：看完后重看到一半的也算，已看标记保留
+        let resumable = position > 0
         let percent: Int? = resumable && (duration ?? 0) > 0 ? min(100, max(2, Int((Double(position) / Double(duration!) * 100).rounded()))) : nil
         let remaining: Int? = resumable && (duration ?? 0) > position ? Int((Double(duration! - position) / 60000).rounded()) : nil
         // 看过一段：按钮直接写从哪里起播（点它就从这里接着放），下方进度条只说还剩多少。
         // 剧集写明是哪一集（同 Apple TV 版「继续 第 1 季第 3 集 · 46:56」）：只写「继续 46:56」看不出续的是第几集
-        let verb = finished ? "重新播放" : resumable ? "继续" : "播放"
+        let verb = resumable ? "继续" : finished ? "重新播放" : "播放"
         let parts = [verb, unitLabel, resumable ? Formatters.clock(Double(position) / 1000) : nil].compactMap { $0 }
         let label = parts.count > 2 ? "\(parts[0]) \(parts[1]) · \(parts[2])" : parts.joined(separator: " ")
         let progressText: String? = resumable
@@ -522,7 +523,7 @@ struct LibraryItemDetailView: View {
                 }
                 .accessibilityIdentifier("item-progress")
             }
-            if finished, let watched, watched.playCount > 1 {
+            if finished, !resumable, let watched, watched.playCount > 1 {
                 Text("看过 \(watched.playCount) 次").font(.caption).monospacedDigit().foregroundStyle(.white.opacity(0.55))
             }
         }
@@ -1134,12 +1135,14 @@ private struct EpisodeCard: View {
                         .padding(6)
                     }
                     .overlay(alignment: .bottom) {
-                        let progress = episode.played ? 100 : episode.progressPercent
+                        // 看完后重看到一半：对勾保留，进度条按这次看到哪画
+                        let resuming = episode.positionMs > 0
+                        let progress = resuming ? episode.progressPercent : episode.played ? 100 : nil
                         if let progress {
                             GeometryReader { proxy in
                                 ZStack(alignment: .leading) {
                                     Capsule().fill(.white.opacity(0.25))
-                                    Capsule().fill(episode.played ? Theme.success : Theme.accent2).frame(width: proxy.size.width * CGFloat(progress) / 100)
+                                    Capsule().fill(resuming ? Theme.accent2 : Theme.success).frame(width: proxy.size.width * CGFloat(progress) / 100)
                                 }
                             }
                             .frame(height: 3).padding(6)

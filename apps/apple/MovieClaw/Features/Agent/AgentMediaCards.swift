@@ -346,7 +346,8 @@ private struct AgentLibraryItemCard: View {
             guard let watch, watch.positionMs > 0, let duration = watch.durationMs, duration > 0 else { return nil }
             return min(1, Double(watch.positionMs) / Double(duration))
         }()
-        let verb = watch?.played == true ? "重新播放" : (watch?.positionMs ?? 0) > 0 ? "继续播放" : "播放"
+        // 有续播点优先「继续播放」：看完后重看到一半的也接着播（与服务端起播同一口径）
+        let verb = (watch?.positionMs ?? 0) > 0 ? "继续播放" : watch?.played == true ? "重新播放" : "播放"
         let backdrop = data.detail?.backdropUrl
         let poster = data.detail?.posterUrl ?? info.posterUrl
 

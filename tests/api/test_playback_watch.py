@@ -477,6 +477,28 @@ def test_session_replays_finished_unit_from_zero(client, tmp_path):
     assert data["watch"]["played"] is True
 
 
+def test_rewatching_finished_unit_resumes_where_the_rewatch_stopped(client, tmp_path):
+    """看完后重看到一半就强退（只发过心跳、没发停止），再点开要接着这次重看的位置。
+
+    已看标记保留（不因重看被悄悄改成未看），但续播点不能因为「已看」被丢掉。
+    """
+    _, item_id = seed(client, tmp_path)
+    report(client, item_id, event="start")
+    report(client, item_id, event="stop", position_ms=570_000)  # 95% → 已看
+
+    data = start_session(client, item_id)
+    assert data["start_ms"] == 0  # 重看从头开始
+    report(client, item_id, event="start")
+    report(client, item_id, event="progress", position_ms=240_000)  # 40%，随后强退
+
+    state = resume(client, item_id)
+    assert state["played"] is True
+    assert state["position_ms"] == 240_000
+    data = start_session(client, item_id)
+    assert data["start_ms"] == 240_000
+    assert data["watch"]["played"] is True
+
+
 def test_session_carries_remembered_tracks(client, tmp_path):
     """开会话把观看记忆整份带回（前端据此恢复字幕选择，省掉一次 /resume 往返）。
 

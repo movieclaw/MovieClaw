@@ -135,6 +135,37 @@ async def test_a_finished_movie_disappears_and_an_unfinished_one_stays(db) -> No
         assert rows[0].advanced is False
 
 
+async def test_rewatching_a_finished_title_halfway_keeps_the_card(db) -> None:
+    """看完后重看到一半：已看标记保留，但带着续播点——卡片要留着、停在这一单元接着看。"""
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="电影库", kind="movie", root_paths=["/m"]
+        )
+        movie = MediaItem(kind="movie", tmdb_id=1, title="重看电影", original_title="Again")
+        show = MediaItem(kind="tv", tmdb_id=2, title="重看剧集", original_title="Again TV")
+        session.add_all([movie, show])
+        await session.flush()
+        assert library.id and movie.id and show.id
+        session.add_all(
+            [
+                _file(library.id, movie.id, 0, 0),
+                _file(library.id, show.id, 1, 1),
+                _file(library.id, show.id, 1, 2),
+                _state(movie.id, 0, 0, played=True, position_ms=600_000, at=datetime(2026, 8, 16)),
+                _state(show.id, 1, 1, played=True, position_ms=600_000, at=datetime(2026, 8, 15)),
+                _state(show.id, 1, 2, played=True, at=datetime(2026, 8, 14)),
+            ]
+        )
+        await session.commit()
+
+        rows = await _cards(session, {library.id})
+        assert [row.media_item_id for row in rows] == [movie.id, show.id]
+        # 停在重看的这一集，不跳下一集
+        assert (rows[1].season_number, rows[1].episode_number) == (1, 1)
+        assert rows[0].progress_percent == 25
+        assert all(row.advanced is False for row in rows)
+
+
 async def test_finishing_an_episode_moves_the_card_to_the_next_one(db) -> None:
     """看完一集，卡片换成下一集——这正是旧版要点三步才能做到的事。"""
     async with db.session() as session:
