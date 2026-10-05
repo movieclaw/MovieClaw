@@ -191,6 +191,144 @@ def test_collections_view_cover_follows_viewer_scope(
     assert resp.status_code == 200
 
 
+def _seed_movies_with_posters(tmp_path: Path, library_id: int, count: int) -> list[int]:
+    """往电影库直接塞几部带本地海报的作品（夹具里只有两部有海报，凑不满一架）。"""
+    import sqlite3
+
+    from movieclaw_api.core.config import get_settings
+
+    db = get_settings().database_url.removeprefix("sqlite+aiosqlite:///")
+    now = "2026-01-01 00:00:00"
+    ids: list[int] = []
+    with sqlite3.connect(db) as conn:
+        for n in range(count):
+            cur = conn.execute(
+                "INSERT INTO media_item (created_at, updated_at, kind, source, external_id,"
+                " tmdb_id, title, original_title, aliases)"
+                " VALUES (?, ?, 'movie', 'tmdb', ?, ?, ?, ?, '[]')",
+                (now, now, f"tmdb:{8800 + n}", 8800 + n, f"片{n}", f"Film {n}"),
+            )
+            item_id = int(cur.lastrowid or 0)
+            rel = f"{item_id}/poster.jpg"
+            poster = tmp_path / "metadata" / "images" / rel
+            poster.parent.mkdir(parents=True, exist_ok=True)
+            Image.new("RGB", (100, 150), (40 * n, 90, 160)).save(poster, "JPEG")
+            conn.execute(
+                "INSERT INTO media_metadata (created_at, updated_at, media_item_id, genres,"
+                ' origin_countries, studios, directors, "cast", scrape_language, poster_file)'
+                " VALUES (?, ?, ?, '[]', '[]', '[]', '[]', '[]', 'zh-CN', ?)",
+                (now, now, item_id, rel),
+            )
+            conn.execute(
+                "INSERT INTO library_file (created_at, updated_at, library_id, media_item_id,"
+                " season_number, episode_number, file_path, size_bytes, source)"
+                " VALUES (?, ?, ?, ?, 0, 0, ?, 1, 'scanned')",
+                (now, now, library_id, item_id, str(tmp_path / f"film{n}.mkv")),
+            )
+            ids.append(item_id)
+    return ids
+
+
+def test_collections_view_cover_partial_then_frozen(
+    client: TestClient, token: str, tmp_path: Path, seeded: dict, monkeypatch
+) -> None:
+    """「合集」视图封面：不满一架时新合集当场补进去；满一架后当天不再换，过零点才换。"""
+    import time
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    from movieclaw_api.services.library import cover
+
+    now = [datetime(2026, 10, 5, 15, tzinfo=ZoneInfo("Asia/Shanghai"))]
+    monkeypatch.setattr(cover, "_now", lambda: now[0])
+    films = _seed_movies_with_posters(tmp_path, seeded["movie_lib"], 5)
+
+    def settled_tag() -> str:
+        """取一次（可能先拿到旧图），等后台渲完，再取一次。"""
+        for _ in range(2):
+            view = next(v for v in _views(client, token) if v["Id"] == collections_view_guid())
+            for _ in range(100):
+                if not cover._render_tasks:
+                    break
+                time.sleep(0.02)
+        return view["ImageTags"]["Primary"]
+
+    def add(n: int) -> int:
+        resp = client.post(
+            "/api/v1/collections",
+            json={"name": f"片单{n}", "library_id": seeded["movie_lib"], "item_ids": [films[n]]},
+        )
+        assert resp.status_code == 200, resp.text
+        return int(resp.json()["data"]["id"])
+
+    def tag_now() -> str:
+        view = next(v for v in _views(client, token) if v["Id"] == collections_view_guid())
+        return view["ImageTags"]["Primary"]
+
+    first = add(0)
+    tags = [tag_now()]
+    for n in (1, 2, 3):
+        add(n)
+        tags.append(tag_now())  # 建好后的第一次请求就是新封面
+    # 不满一架时每建一个合集都当场补进封面
+    assert len(set(tags)) == 4
+    for tag in tags:  # 换下来的旧图留着：缓存了旧 /UserViews 的客户端还会拿旧 tag 来取
+        resp = client.get(f"/Items/{collections_view_guid()}/Images/Primary?tag={tag}")
+        assert resp.status_code == 200
+    full = tags[-1]
+
+    # 满一架后当天：再建的合集排在后面，封面不变（当天登记直接命中）
+    add(4)
+    assert tag_now() == full
+
+    # 封面里的合集被删掉：第一次请求就换，不让删掉的合集挂到零点
+    assert client.delete(f"/api/v1/collections/{first}").status_code == 200
+    replaced = tag_now()
+    assert replaced != full
+    for tag in (replaced, full):  # 换下来的旧图仍在宽限期内可取
+        got = client.get(f"/Items/{collections_view_guid()}/Images/Primary?tag={tag}")
+        assert got.status_code == 200
+
+    # 过了零点构成没变：沿用同一张，不重渲
+    now[0] += timedelta(days=1)
+    assert settled_tag() == replaced
+
+
+def test_old_collections_view_tag_stays_fetchable(
+    client: TestClient, token: str, tmp_path: Path, seeded: dict, monkeypatch
+) -> None:
+    """客户端会缓存 /UserViews：封面换了之后，拿着旧 tag 来取图也不能 404（#587 的空白格子）。"""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from movieclaw_api.services.library import cover
+
+    now = [datetime(2026, 10, 5, 15, tzinfo=ZoneInfo("Asia/Shanghai"))]
+    monkeypatch.setattr(cover, "_now", lambda: now[0])
+    films = _seed_movies_with_posters(tmp_path, seeded["movie_lib"], 2)
+
+    def tag_now() -> str:
+        view = next(v for v in _views(client, token) if v["Id"] == collections_view_guid())
+        return view["ImageTags"]["Primary"]
+
+    resp = client.post(
+        "/api/v1/collections",
+        json={"name": "片单", "library_id": seeded["movie_lib"], "item_ids": [films[0]]},
+    )
+    assert resp.status_code == 200
+    old = tag_now()
+    resp = client.post(
+        "/api/v1/collections",
+        json={"name": "片单2", "library_id": seeded["movie_lib"], "item_ids": [films[1]]},
+    )
+    assert resp.status_code == 200
+    new = tag_now()
+    assert new != old
+    for tag in (old, new):
+        got = client.get(f"/Items/{collections_view_guid()}/Images/Primary?tag={tag}")
+        assert got.status_code == 200, tag
+
+
 async def test_collections_view_cover_probe_budget(monkeypatch) -> None:
     """找到第一个非空合集之后，凑封面只再探有限几个（分级受限的观看者可能只看得见一两个）。"""
     from types import SimpleNamespace

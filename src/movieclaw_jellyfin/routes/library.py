@@ -310,18 +310,40 @@ async def _collections_view(session: AsyncSession, scope: ViewerScope) -> tuple[
     封面是前几个可见合集各出一张封面海报拼成的货架（与库封面同一构图，
     issue #587）。素材必须按观看者选——取图请求不带凭据，所以在这里渲染好、
     把素材指纹当 tag 下发，取图接口凭 tag 找回产物。
+
+    封面按观看范围登记一天（与库封面同一条「一天最多换一次」）：今天登记过就
+    只探到第一个非空合集为止（判断视图还要不要下发），不再选素材。
     """
     from sqlalchemy import select as sa_select
 
-    from movieclaw_api.services.library.cover import MAX_POSTERS, ensure_collections_view_cover
+    from movieclaw_api.services.library.cover import (
+        MAX_POSTERS,
+        ensure_collections_view_cover,
+        memo_get,
+    )
     from movieclaw_db.models import MediaMetadata
 
+    memo_key = (
+        "collections-view",
+        scope.member_id,
+        frozenset(scope.visible) if scope.visible is not None else None,
+        scope.content_limit,
+    )
+    rows = await visible_collections(
+        session, member_id=scope.member_id, visible_library_ids=scope.visible
+    )
+    visible_ids = {row.id for row in rows}
+    # 当天登记过、且组成封面的合集都还看得见才沿用：删掉或藏起来的合集不能
+    # 在封面上挂到零点
+    cached = memo_get(
+        memo_key,
+        still_valid=lambda used: isinstance(used, frozenset) and used <= visible_ids,
+    )
     covers: list[int] = []
+    used: set[int] = set()
     has_collections = False
     probes_left = _COVER_EXTRA_PROBES
-    for row in await visible_collections(
-        session, member_id=scope.member_id, visible_library_ids=scope.visible
-    ):
+    for row in rows:
         if has_collections:
             # 找到第一个之后，凑封面只再探有限几个：分级受限的观看者可能只看得见
             # 一两个合集，不设上限的话每次 /UserViews 都要把几百个合集挨个实时判定
@@ -332,8 +354,11 @@ async def _collections_view(session: AsyncSession, scope: ViewerScope) -> tuple[
         if cover is None:
             continue
         has_collections = True
+        if cached is not None:
+            return True, cached[1]
         if cover not in covers:
             covers.append(cover)
+            used.add(row.id or 0)
         if len(covers) >= MAX_POSTERS:
             break
     if not covers:
@@ -347,22 +372,25 @@ async def _collections_view(session: AsyncSession, scope: ViewerScope) -> tuple[
             )
         ).all()
     )
-    result = await ensure_collections_view_cover([files[i] for i in covers if files.get(i)])
+    result = await ensure_collections_view_cover(
+        [files[i] for i in covers if files.get(i)], memo_key=memo_key, version=frozenset(used)
+    )
     return has_collections, result[1] if result else None
 
 
-async def _cover_tag(library_id: int) -> str | None:
-    """库封面拼贴的版本 key（惰性渲染，素材不变零成本）。"""
+async def _cover_tag(library: Library) -> str | None:
+    """库封面拼贴的版本 key（惰性渲染，素材不变零成本）。库行已在手，内容版本
+    直接带过去，不再为它查一次库。"""
     from movieclaw_api.services.library.cover import ensure_library_cover
 
-    result = await ensure_library_cover(library_id)
+    result = await ensure_library_cover(library.id or 0, library.stats_refreshed_at)
     return result[1] if result else None
 
 
 async def _cover_tags(libraries: list[Library]) -> list[str | None]:
     """各库封面 tag，并发准备：库内容一变下一次 /UserViews 就要重渲拼贴（NAS 上
     一张约 1 秒），串行的话变了几个库就卡几秒（issue #587）。"""
-    return list(await asyncio.gather(*(_cover_tag(lib.id) for lib in libraries)))
+    return list(await asyncio.gather(*(_cover_tag(lib) for lib in libraries)))
 
 
 # ---------------------------------------------------------------------------
@@ -1839,7 +1867,7 @@ async def get_item(
             library = await session.get(Library, ref.entity_id)
             if library is None:
                 raise not_found()
-            return JSONResponse(library_view_dto(ctx, library, await _cover_tag(library.id)))
+            return JSONResponse(library_view_dto(ctx, library, await _cover_tag(library)))
         if ref.kind == EntityKind.FIXED and ref.entity_id == FIXED_COLLECTIONS:
             _, cover = await _collections_view(session, scope)
             return JSONResponse(collections_view_dto(ctx, cover))
