@@ -318,7 +318,7 @@ struct TVHomeView: View {
                 TVShelf(title: row.title) {
                     ForEach(genres, id: \.value) { genre in
                         if let id = Int(genre.value) {
-                            TVGenreCard(genreId: id, label: genre.label, count: genre.count,
+                            TVGenreCard(label: genre.label, count: genre.count, mediaKind: kind,
                                         coverURL: api.image(genre.coverUrl, width: ImageWidth.tvCard(TVMetrics.genreWidth))) {
                                 router.push(.rowWall(title: genre.label, source: .genre(kind: kind, genre: id, count: genre.count)))
                             }

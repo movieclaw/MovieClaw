@@ -45,7 +45,7 @@ struct LibraryKindWallView: View {
         return kind == "video" ? all.filter { $0.value != "rating" && $0.value != "release_date" } : all
     }
 
-    private var genreName: String? { genre.map { GenrePalette.tones[$0]?.name ?? "类型 \($0)" } }
+    private var genreName: String? { genre.map { GenreLabels.names[$0] ?? "类型 \($0)" } }
     private var label: String { genreName ?? "全部\(HomeRows.mediaKindLabel(kind))" }
     /// 筛选参数 g：只带预设的这一个类型
     private var genreQuery: String? { genre.map(String.init) }

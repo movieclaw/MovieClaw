@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MovieClaw · 类型卡片设计研究</title>
+<link rel="icon" href="../../../../apps/web/public/brand/movieclaw-mark-ui.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="lab-header"><a class="brand" href="?design=cinema&device=web"><img src="../../../../apps/web/public/brand/movieclaw-mark-ui.png" alt="">MovieClaw <span>DESIGN STUDY / 01</span></a><span class="draft">交互设计稿 · 示例片库</span></header>
+<main class="lab">
+<div class="intro"><div><div class="eyebrow">BROWSE BY GENRE</div><h1>让类型，回到电影里。</h1><p>同一个首页，三种新的浏览方式。保留黑与银，让影视内容决定画面的颜色。</p></div><span class="edition">OCT 2026<br>WEB · iPHONE · APPLE TV</span></div>
+<div class="toolbar"><div class="seg designs" role="group" aria-label="设计方案"><button data-design="cinema">A <span>全幅剧照</span><i>推荐</i></button><button data-design="shelf">B <span>海报片架</span></button><button data-design="index">C <span>暗色索引</span></button><button data-design="current">现版对照</button></div><div class="seg devices" role="group" aria-label="设备"><button data-device="web">Web</button><button data-device="phone">iPhone</button><button data-device="tv">Apple TV</button></div></div>
+<div class="caption"><span id="summary"></span><div class="checks"><label><input type="checkbox" id="missing"> 缺图测试</label><label><input type="checkbox" id="long"> 长名称测试</label></div></div>
+<div class="workspace"><div id="stage-wrap"><div id="stage" class="web cinema"></div></div><aside class="phone-note" id="phone-note"><div class="eyebrow">IN YOUR HAND</div><h2>少一点装饰，<br>多一点想看的冲动。</h2><p>真实 393 pt 手机画布。横滑看更多类型，点击进入分类预览。</p><div class="phone-line"></div><p id="phone-copy"></p><span>原生 iPhone 的网页视觉模拟</span></aside></div>
+<div class="review"><div><span class="review-label">设计判断</span><h2 id="decision"></h2><p id="reason"></p></div><div><span class="review-label">取舍与落地</span><p id="tradeoff"></p><div class="spec" id="spec"></div></div><div><span class="review-label">试一试</span><p id="try"></p><p class="small">图片与数量均为演示数据。网页模拟三端视觉与焦点，不代表已接入原生 App。</p></div></div>
+<details class="research"><summary>为什么现在的卡片显得不协调？<span>研究依据与设计边界 ↗</span></summary><div class="research-grid"><p><b>① 颜色权重太高</b><br>现版黑银界面中突然出现粉、黄、银、绿方块，分类导航与电影海报竞争视觉注意力。新方案把色彩主要交还给封面。</p><p><b>② 入口语义混合</b><br>类别标题下面又挂单片片名与“最近入库”，同时表达分类和推荐。三套新稿都让“类型名 + 部数”成为稳定主信息。</p><p><b>③ 空间占用偏大</b><br>现版方卡加两行说明占高较多。横向卡在保留可点面积的同时，把下一行影片更早带入视野。</p></div><p class="sources">依据：主干 <code>8fe2d9ab</code> 的 GenreTile、GenreCardFace、TVGenreCard 及三端尺寸与主题令牌。电视焦点参考 <a href="https://developer.apple.com/design/human-interface-guidelines/focus-and-selection/" target="_blank" rel="noreferrer">Apple · Focus and selection</a>。以上风格判断属于本次设计建议。</p></details>
+<footer>MovieClaw / Genre directions <span>以同一组内容比较形式，不用“更好的封面”掩盖设计差异。</span></footer>
+</main>
+<dialog id="wall"><form method="dialog"><button class="close" aria-label="关闭分类预览">×</button></form><div class="eyebrow">你的媒体库</div><h2 id="wall-title"></h2><p id="wall-meta"></p><div id="wall-posters"></div><p class="small">静态分类预览 · 这里只展示示例影片，正式版进入现有类型海报墙。</p></dialog>
+<script src="app.js"></script>
+</body></html>

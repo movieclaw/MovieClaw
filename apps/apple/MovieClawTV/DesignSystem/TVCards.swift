@@ -22,8 +22,8 @@ enum TVMetrics {
     /// 首页「我的媒体库」库卡宽（16:9，高 318）：3 张 + 2 个间距 ≈ 1760（HIG 三列网格是 560 + 间距 40），
     /// 库一般就三五个，卡片放大一档，库名在三米外也一眼认得出
     static let libraryWidth: CGFloat = 565
-    /// 首页「按类型找」方卡宽：5 张 + 4 个间距 = 1760
-    static let genreWidth: CGFloat = 326
+    /// 首页「按类型找」全幅剧照卡宽：4 张 + 3 个间距 = 1760
+    static let genreWidth: CGFloat = 416
     /// 行与行之间：海报的选中片名不再预留位置、改为浮在这段空隙里（`TVCardCaption.focused`），
     /// 52 时片名离下一行标题只剩约 14，放到 56；卡片底到下一行标题约 80，在系统 Apple TV App 实测的 70～83 之间
     static let rowSpacing: CGFloat = 56
@@ -263,38 +263,49 @@ struct TVLibraryCard: View {
     }
 }
 
-/// 首页「按类型找电影 / 剧集」的一格：方卡（与网页、iPhone 同一块，`GenreCardFace`），左上类型名、右上部数、
-/// 下半部贴这个类型最近入库那部片的剧照。电视卡片下面不挂字（同其他卡片），片名不写。
-/// 一屏 5 张：5 张 + 4 个间距 = 1760
+/// 全幅剧照类型入口：416 × 234，焦点放大与白色轮廓对应设计稿 A。
 struct TVGenreCard: View {
-    let genreId: Int
     let label: String
     let count: Int
+    let mediaKind: String
     let coverURL: URL?
     var width: CGFloat = TVMetrics.genreWidth
     let action: () -> Void
 
     var body: some View {
         Button(action: action) {
-            Face(genreId: genreId, label: label, count: count, coverURL: coverURL, width: width)
+            Face(label: label, count: count, mediaKind: mediaKind, coverURL: coverURL, width: width)
         }
-        .buttonStyle(.borderless)
-        .accessibilityLabel("\(label)，\(count) 部")
+        .buttonStyle(GenreButtonStyle())
+        .accessibilityLabel("浏览\(label)，\(count) 部\(mediaKind == "tv" ? "剧集" : "电影")")
+    }
+
+    // tvOS 的 plain 仍带系统焦点玻璃；只使用上面的细描边与 1.07× 放大。
+    private struct GenreButtonStyle: ButtonStyle {
+        func makeBody(configuration: Configuration) -> some View {
+            configuration.label
+        }
     }
 
     private struct Face: View {
-        let genreId: Int
         let label: String
         let count: Int
+        let mediaKind: String
         let coverURL: URL?
         let width: CGFloat
         @Environment(\.isFocused) private var isFocused
+        @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
         var body: some View {
-            GenreCardFace(genreId: genreId, label: label, count: count, coverURL: coverURL, width: width)
-                .contentShape(.hoverEffect, .rect(cornerRadius: width * 0.045, style: .continuous))
-                .hoverEffect(.highlight)
-                // 行标题跟着亮起来
+            GenreCardFace(label: label, count: count, mediaKind: mediaKind, coverURL: coverURL, width: width,
+                          imageSaturation: isFocused ? 1 : 0.76)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(.white.opacity(isFocused ? 0.88 : 0), lineWidth: 3)
+                }
+                .scaleEffect(isFocused ? 1.07 : 1)
+                .shadow(color: .black.opacity(isFocused ? 0.4 : 0), radius: 18, y: 12)
+                .animation(reduceMotion ? nil : .easeOut(duration: 0.23), value: isFocused)
                 .preference(key: TVRowFocusKey.self, value: isFocused)
         }
     }

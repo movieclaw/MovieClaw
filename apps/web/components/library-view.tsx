@@ -566,13 +566,12 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
               {genres.map((genre) => (
                 <GenreTile
                   key={genre.value}
-                  genreId={Number(genre.value)}
                   label={genre.label}
                   count={genre.count}
                   coverUrl={genre.cover_url}
-                  coverTitle={genre.cover_title}
+                  mediaKind={row.mediaKind}
                   href={`/library/kind/${row.mediaKind}?g=${genre.value}` as Route}
-                  className="w-[200px] shrink-0 max-md:w-[150px]"
+                  className="w-[236px] shrink-0"
                 />
               ))}
             </HScroller>

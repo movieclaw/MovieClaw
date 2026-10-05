@@ -151,13 +151,10 @@ struct HomeRowsTests {
         #expect(!HomeRows.build(prefs: prefs, libraries: [library(1, "movie")], collections: []).contains { $0.id == "genres:tv" })
     }
 
-    @Test func genrePaletteCoversEveryTmdbGenre() {
-        // 与网页 genre-palette.ts 同一张表（那边的单测会逐项比对本文件）；这里守公式：色相中点走短弧、构图稳定
-        #expect(GenrePalette.tones.count == 27)
-        #expect(GenrePalette.midHue(345, 12) == 358.5)
-        #expect(GenrePalette.compositionIndex(878) == (8 + 7 + 8) % 3)
-        let art = GenrePalette.art(10402)
-        #expect(art.blobs.count == 3 && art.from.c == GenrePalette.tones[10402]!.k * GenrePalette.chromaScale)
-        #expect(GenrePalette.art(999_999).from.c < 0.06)
+    @Test func genreLabelsCoverEveryTmdbGenre() {
+        #expect(GenreLabels.names.count == 27)
+        #expect(GenreLabels.names[878] == "科幻")
+        #expect(GenreLabels.names[10765] == "科幻奇幻")
+        #expect(GenreLabels.names[999_999] == nil)
     }
 }
