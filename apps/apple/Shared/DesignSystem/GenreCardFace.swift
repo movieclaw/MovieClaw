@@ -34,7 +34,7 @@ enum GenreLabels {
     ]
 }
 
-/// 设计稿 A：手机 236 × 150、电视 416 × 234。两端共用剧照、遮罩与分类语义。
+/// 全幅剧照类型卡：各端共用自然通透的剧照、文字保护与分类语义。
 struct GenreCardFace: View {
     let label: String
     let count: Int
@@ -46,23 +46,26 @@ struct GenreCardFace: View {
     var imageScale: CGFloat = 1
 
     #if os(tvOS)
-    private let height: CGFloat = 234
-    private let corner: CGFloat = 20
-    private let titleSize: CGFloat = 40
-    private let countSize: CGFloat = 24
-    private let titleLeft: CGFloat = 30
-    private let titleBottom: CGFloat = 66
-    private let countLeft: CGFloat = 32
-    private let countBottom: CGFloat = 29
+    private var scale: CGFloat { width / 416 }
+    private var height: CGFloat { width * 9 / 16 }
+    private var corner: CGFloat { 20 * scale }
+    private var titleSize: CGFloat { 40 * scale }
+    private var countSize: CGFloat { 24 * scale }
+    private var titleLeft: CGFloat { 30 * scale }
+    private var titleBottom: CGFloat { 66 * scale }
+    private var countLeft: CGFloat { 30 * scale }
+    private var countBottom: CGFloat { 29 * scale }
     #else
-    private let height: CGFloat = 150
-    private let corner: CGFloat = 12
-    private let titleSize: CGFloat = 24
+    private var scale: CGFloat { width / 236 }
+    private var height: CGFloat { 150 * scale }
+    private var corner: CGFloat { 12 * scale }
+    private var titleSize: CGFloat { 24 * scale }
+    // 部数保持 11 pt，缩小卡片后仍易读。
     private let countSize: CGFloat = 11
-    private let titleLeft: CGFloat = 18
-    private let titleBottom: CGFloat = 38
-    private let countLeft: CGFloat = 19
-    private let countBottom: CGFloat = 17
+    private var titleLeft: CGFloat { 18 * scale }
+    private var titleBottom: CGFloat { 38 * scale }
+    private var countLeft: CGFloat { 18 * scale }
+    private var countBottom: CGFloat { 17 * scale }
     #endif
 
     private var countLabel: String { "\(count) 部\(mediaKind == "tv" ? "剧集" : "电影")" }
@@ -75,7 +78,7 @@ struct GenreCardFace: View {
                         .overlay {
                             // 压暗区提饱和：黑色渐变压低的那一截颜色更浓，读起来是「暗」而不是「灰」
                             image.resizable().scaledToFill()
-                                .saturation(imageSaturation * 1.45).brightness(-0.03)
+                                .saturation(imageSaturation * 1.2)
                                 .mask(LinearGradient(stops: [
                                     .init(color: .black, location: 0),
                                     .init(color: .black, location: 0.25),
@@ -99,19 +102,18 @@ struct GenreCardFace: View {
 
             // 文字保护只压该压的地方：全宽一层很轻的底，再在文字所在的左下叠一团椭圆暗区；
             // 两层都走缓动曲线，没有可见的渐变边界，右上角保持剧照原本的亮度
-            LinearGradient(stops: Self.easedStops(maxOpacity: 0.42, span: 0.58), startPoint: .bottom, endPoint: .top)
-            EllipticalGradient(stops: Self.easedStops(maxOpacity: 0.55, span: 1), center: .center)
-                .frame(width: width * 1.9, height: height * 1.5)
+            LinearGradient(stops: Self.easedStops(maxOpacity: 0.28, span: 0.54), startPoint: .bottom, endPoint: .top)
+            EllipticalGradient(stops: Self.easedStops(maxOpacity: 0.5, span: 1), center: .center)
+                .frame(width: width * 1.56, height: height * 1.44)
                 .position(x: width * 0.12, y: height)
 
             Text(label)
                 .font(.system(size: titleSize, weight: .semibold))
-                .tracking(0.6)
+                .tracking(0.2)
                 .lineLimit(1)
                 .minimumScaleFactor(0.8)
                 .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.35), radius: 1.5, y: 1)
-                .shadow(color: .black.opacity(0.4), radius: 8, y: 1)
+                .shadow(color: .black.opacity(0.32), radius: 4, y: 1)
                 .padding(.leading, titleLeft)
                 .padding(.trailing, titleLeft * 2)
                 .padding(.bottom, titleBottom)
@@ -126,8 +128,8 @@ struct GenreCardFace: View {
         .overlay {
             RoundedRectangle(cornerRadius: corner, style: .continuous)
                 // 顶边一道内高光往下淡出，卡片有厚度、不像贴在黑底上的平图
-                .strokeBorder(LinearGradient(colors: [.white.opacity(0.16), .white.opacity(0.05)],
-                                             startPoint: .top, endPoint: .center), lineWidth: 1)
+                .strokeBorder(LinearGradient(colors: [.white.opacity(0.12), .white.opacity(0.025)],
+                                             startPoint: .top, endPoint: .center), lineWidth: 0.5)
         }
         .contentShape(Rectangle())
         .accessibilityElement(children: .ignore)

@@ -22,7 +22,7 @@ enum TVMetrics {
     /// 首页「我的媒体库」库卡宽（16:9，高 318）：3 张 + 2 个间距 ≈ 1760（HIG 三列网格是 560 + 间距 40），
     /// 库一般就三五个，卡片放大一档，库名在三米外也一眼认得出
     static let libraryWidth: CGFloat = 565
-    /// 首页「按类型找」全幅剧照卡宽：4 张 + 3 个间距 = 1760
+    /// 首页「按类型找」全幅剧照卡宽（16:9）：4 张 + 3 个间距 = 1760
     static let genreWidth: CGFloat = 416
     /// 行与行之间：海报的选中片名不再预留位置、改为浮在这段空隙里（`TVCardCaption.focused`），
     /// 52 时片名离下一行标题只剩约 14，放到 56；卡片底到下一行标题约 80，在系统 Apple TV App 实测的 70～83 之间
@@ -263,7 +263,7 @@ struct TVLibraryCard: View {
     }
 }
 
-/// 全幅剧照类型入口：416 × 234，焦点放大与白色轮廓对应设计稿 A。
+/// 全幅剧照类型入口：416 × 234，自然通透剧照与焦点白色轮廓。
 struct TVGenreCard: View {
     let label: String
     let count: Int
@@ -300,7 +300,7 @@ struct TVGenreCard: View {
             GenreCardFace(label: label, count: count, mediaKind: mediaKind, coverURL: coverURL, width: width,
                           imageSaturation: isFocused ? 1 : 0.76)
                 .overlay {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    RoundedRectangle(cornerRadius: 20 * width / 416, style: .continuous)
                         .strokeBorder(.white.opacity(isFocused ? 0.88 : 0), lineWidth: 3)
                 }
                 .scaleEffect(isFocused ? 1.07 : 1)

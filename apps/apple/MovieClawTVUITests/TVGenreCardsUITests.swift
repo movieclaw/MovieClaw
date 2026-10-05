@@ -23,7 +23,12 @@ final class TVGenreCardsUITests: XCTestCase {
         let first = cards.firstMatch
         for _ in 0 ..< 24 {
             if first.exists && first.hasFocus { break }
-            XCUIRemote.shared.press(.down)
+            if cards.allElementsBoundByIndex.contains(where: { $0.hasFocus }) {
+                // 从上行下移时焦点可能落到同一横坐标的第二张，先回到首张。
+                XCUIRemote.shared.press(.left)
+            } else {
+                XCUIRemote.shared.press(.down)
+            }
         }
         XCTAssertTrue(first.exists && first.hasFocus, "遥控器能抵达类型行")
         capture(first, name: "appletv-\(kind)-geometry", directory: env["MC_SHOT_DIR"])

@@ -571,7 +571,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
                   coverUrl={genre.cover_url}
                   mediaKind={row.mediaKind}
                   href={`/library/kind/${row.mediaKind}?g=${genre.value}` as Route}
-                  className="w-[236px] shrink-0"
+                  className="w-[240px] shrink-0 max-md:w-[196px]"
                 />
               ))}
             </HScroller>

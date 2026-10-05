@@ -19,9 +19,9 @@ enum MacMetrics {
     static let landscapeWidth: CGFloat = 296
     /// 「我的媒体库」库卡宽（16:9）
     static let libraryWidth: CGFloat = 296
-    /// 「按类型找电影 / 剧集」类型卡：同网页 236 × 150（docs/design/genre-cinematic-cards.md）
-    static let genreWidth: CGFloat = 236
-    static let genreHeight: CGFloat = 150
+    /// 「按类型找电影 / 剧集」类型卡：同网页 196 × 124.6（docs/design/genre-cinematic-cards.md）
+    static let genreWidth: CGFloat = 196
+    static let genreHeight: CGFloat = genreWidth * 150 / 236
     /// 卡片之间
     static let cardSpacing: CGFloat = 18
     /// 行与行之间
@@ -164,7 +164,7 @@ struct MacGenreCard: View {
         GenreCardFace(label: label, count: count, mediaKind: mediaKind, coverURL: coverURL, width: MacMetrics.genreWidth,
                       imageScale: active ? 1.045 : 1)
             .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                RoundedRectangle(cornerRadius: 12 * MacMetrics.genreWidth / 236, style: .continuous)
                     .strokeBorder(.white.opacity(active ? 0.25 : 0), lineWidth: 1)
             }
             .animation(scrolling ? nil : .easeOut(duration: 0.2), value: active)

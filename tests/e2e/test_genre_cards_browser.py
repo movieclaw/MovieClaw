@@ -43,7 +43,7 @@ def session(browser):
     context.close()
 
 
-@pytest.mark.parametrize("width", [1440, 393])
+@pytest.mark.parametrize("width", [1440, 768, 767, 393, 320])
 @pytest.mark.parametrize("kind", ["movie", "tv"])
 def test_real_genre_card_and_filtered_wall(session, width, kind):
     page = session.new_page()
@@ -62,8 +62,14 @@ def test_real_genre_card_and_filtered_wall(session, width, kind):
         "el => el.complete && el.naturalWidth > 0", arg=card.locator("img").element_handle()
     )
     box = card.bounding_box()
-    assert box and box["width"] == pytest.approx(236, abs=1)
-    assert box["height"] == pytest.approx(150, abs=1)
+    expected_width = 196 if width < 768 else 240
+    assert box and box["width"] == pytest.approx(expected_width, abs=1)
+    assert box["height"] == pytest.approx(expected_width * 150 / 236, abs=1)
+    assert box["width"] / box["height"] == pytest.approx(236 / 150, abs=0.01)
+    assert (
+        card.locator("span").filter(has_text="部").evaluate("el => getComputedStyle(el).fontSize")
+        == ("11px" if width < 768 else "12px")
+    )
     assert (
         card.get_attribute("aria-label")
         == f"浏览{first['label']}，{first['count']} 部{'电影' if kind == 'movie' else '剧集'}"
@@ -113,11 +119,11 @@ def test_missing_failed_art_and_long_tv_label(session):
     first.scroll_into_view_if_needed()
     assert first.locator("img").count() == 0
     assert "科幻奇幻" in first.inner_text() and "999999 部剧集" in first.inner_text()
-    assert first.bounding_box()["height"] == pytest.approx(150, abs=1)
+    assert first.bounding_box()["height"] == pytest.approx(196 * 150 / 236, abs=1)
     first.screenshot(path=str(SHOTS / "web-missing-long-card.png"))
     second = row.locator("a").nth(1)
     second.scroll_into_view_if_needed()
     pw.expect(second.locator("img")).to_have_count(0, timeout=15000)
-    assert second.bounding_box()["height"] == pytest.approx(150, abs=1)
+    assert second.bounding_box()["height"] == pytest.approx(196 * 150 / 236, abs=1)
     second.screenshot(path=str(SHOTS / "web-failed-image-card.png"))
     page.close()
