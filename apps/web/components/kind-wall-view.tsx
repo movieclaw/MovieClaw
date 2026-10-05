@@ -15,7 +15,7 @@ import {
   getKindSummary,
   listKindItems,
 } from "@/lib/api/libraries";
-import { GENRE_TONES, genreCardColors, oklchCss } from "@/lib/genre-palette";
+import { GENRE_TONES } from "@/lib/genre-palette";
 import { MEDIA_KIND_LABELS } from "@/lib/home-rows";
 import type { LibraryFilter } from "@/lib/library-filter";
 import {
@@ -77,14 +77,13 @@ const snapshots = new Map<string, KindWallSnapshot>();
  * 索引条与图床浏览，只有排序。
  *
  * 带 `genre`（`?g=878`）时是首页「按类型找电影」色块的落点：墙按这个 TMDB 类型筛好，
- * 页头换成与色块同一块网格渐变，标题是类型名。
+ * 标题是类型名。
  */
 export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: number }) {
   const genreName = genre === undefined ? null : (GENRE_TONES[genre]?.name ?? `类型 ${genre}`);
   const label = genreName ?? `全部${MEDIA_KIND_LABELS[kind]}`;
   usePageTitle(genreName ? `${genreName} · ${MEDIA_KIND_LABELS[kind]}` : label);
   const wallKey = genre === undefined ? kind : `${kind}:${genre}`;
-  const genreCard = genreCardColors(genre ?? 0);
   const filter: LibraryFilter | undefined = genre === undefined ? undefined : { genres: [genre] };
   // ref 版：load / reload 回调里读，不必为它重建回调链（genre 变了组件会整个重挂，见 page.tsx）
   const filterRef = useRef(filter);
@@ -213,35 +212,18 @@ export function KindWallView({ kind, genre }: { kind: HomeMediaKind; genre?: num
     <div ref={restoreScrollRef} className="scroll-thin scroll-safe flex-1 overflow-y-auto pb-10">
       <PageNav title={label} fallback={{ label: "媒体库", href: "/library" as Route }} />
       <div className="page-inset">
-        {genre !== undefined ? (
-          // 色块的落点：页头与首页那块卡片同一个底色、字色，进来的人一眼知道自己在哪
-          <div
-            className="flex h-[132px] flex-col justify-end rounded-[18px] px-6 pb-5 max-md:h-[108px] max-md:rounded-[14px] max-md:px-4 max-md:pb-4"
-            style={{ background: oklchCss(genreCard.background), color: oklchCss(genreCard.ink) }}
-          >
-            <h2 className="truncate text-[30px] font-bold leading-tight tracking-[0.02em] max-md:text-[24px]">
-              {label}
-            </h2>
-            <p className="mt-1 truncate text-ui tabular-nums opacity-75 max-md:text-sub">
-              {items === null
-                ? "正在读取…"
+        <h2 className="text-on-image truncate text-[26px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[20px]">
+          {label}
+        </h2>
+        <p className="text-on-image mt-1.5 truncate text-ui text-[var(--text-muted)] max-md:text-sub">
+          {items === null
+            ? "正在读取…"
+            : libraryCount === 0
+              ? `还没有可浏览的${MEDIA_KIND_LABELS[kind]}库`
+              : genre === undefined
+                ? `${total} 部作品 · 来自 ${libraryCount} 个库，同一部片只算一次`
                 : `${total} 部${MEDIA_KIND_LABELS[kind]} · 来自 ${libraryCount} 个库`}
-            </p>
-          </div>
-        ) : (
-          <>
-            <h2 className="text-on-image truncate text-[26px] font-bold leading-tight tracking-[-0.02em] text-white max-md:text-[20px]">
-              {label}
-            </h2>
-            <p className="text-on-image mt-1.5 truncate text-ui text-[var(--text-muted)] max-md:text-sub">
-              {items === null
-                ? "正在读取…"
-                : libraryCount === 0
-                  ? `还没有可浏览的${MEDIA_KIND_LABELS[kind]}库`
-                  : `${total} 部作品 · 来自 ${libraryCount} 个库，同一部片只算一次`}
-            </p>
-          </>
-        )}
+        </p>
         {!empty && items !== null && (
           <div className="mt-3 flex items-center">
             <WallSortControl

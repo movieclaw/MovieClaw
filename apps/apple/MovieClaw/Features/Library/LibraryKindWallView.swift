@@ -10,7 +10,7 @@ import SwiftUI
 /// 刻意比单库页薄（同 Web）：没有筛选条（facet 统计按单库算，跨库版本留到下一期）、没有索引条与图床浏览，只有排序。
 /// 从详情页返回只整窗对账（`refresh`），不清空窗口、不动滚动位置；换排序才回墙首。
 ///
-/// 带 `genre`（`?g=878`）时是首页「按类型找电影」色块的落点：墙按这个 TMDB 类型筛好，页头换成与色块同一块网格渐变。
+/// 带 `genre`（`?g=878`）时是首页「按类型找电影」色块的落点：墙按这个 TMDB 类型筛好，标题是类型名。
 struct LibraryKindWallView: View {
     let kind: String
     var genre: Int?
@@ -49,6 +49,13 @@ struct LibraryKindWallView: View {
     private var label: String { genreName ?? "全部\(HomeRows.mediaKindLabel(kind))" }
     /// 筛选参数 g：只带预设的这一个类型
     private var genreQuery: String? { genre.map(String.init) }
+    /// 页头小字：类型页写「168 部剧集」（标题已是类型名），全部墙写「N 部作品」并说明去重口径
+    private func summary(total: Int, libraries: Int) -> String {
+        genre == nil
+            ? "\(total) 部作品 · 来自 \(libraries) 个库，同一部片只算一次"
+            : "\(total) 部\(HomeRows.mediaKindLabel(kind)) · 来自 \(libraries) 个库"
+    }
+
     private var effectiveSort: String { sort.sort == "default" ? "added_at" : sort.sort }
     private var order: String? { WallSortDirections.of(effectiveSort)?.orderParam(reversed: sort.reversed) }
     private var empty: Bool { pager.items?.isEmpty == true }
@@ -63,8 +70,6 @@ struct LibraryKindWallView: View {
         }
         .appBackground()
         .navigationTitle(label)
-        // 类型页的大字写在渐变页头里，导航栏只留小标题，不叠两遍
-        .navigationBarTitleDisplayMode(genre == nil ? .automatic : .inline)
         // 首载与换排序分开：`.task` 每次重新出现都会重跑，放在里面的 reset 会让从详情页返回时整面墙清空、跳回墙首
         .task {
             if pager.items == nil { await reload() }
@@ -80,35 +85,13 @@ struct LibraryKindWallView: View {
     @ViewBuilder
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let genre {
-                // 色块的落点：页头与首页那块卡片同一个底色、字色，进来的人一眼知道自己在哪
-                let colors = GenrePalette.cardColors(genre)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(label)
-                        .font(.system(size: 26, weight: .bold))
-                        .tracking(0.5)
-                    if let total = pager.total, let libraryCount {
-                        Text("\(total) 部\(HomeRows.mediaKindLabel(kind)) · 来自 \(libraryCount) 个库")
-                            .font(.subheadline.monospacedDigit())
-                            .opacity(0.75)
-                    }
-                }
-                .foregroundStyle(GenrePalette.color(colors.ink))
-                .padding(16)
-                .frame(maxWidth: .infinity, minHeight: 108, alignment: .bottomLeading)
-                .background(GenrePalette.color(colors.background), in: .rect(cornerRadius: 14, style: .continuous))
-                .accessibilityElement(children: .combine)
-                    .accessibilityIdentifier("kind-wall-genre-header")
-            }
-            // 概况读失败时（libraryCount 为 nil）只说口径，不挂一句永远的「正在读取」；类型页的数量写在页头里
-            if genre == nil {
-                Text(pager.items == nil ? "正在读取…"
-                    : libraryCount == 0 ? "还没有可浏览的\(HomeRows.mediaKindLabel(kind))库"
-                    : libraryCount.map { "\(pager.total ?? 0) 部作品 · 来自 \($0) 个库，同一部片只算一次" } ?? "同一部片只算一次")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.textMuted)
-                    .accessibilityIdentifier("kind-wall-summary")
-            }
+            // 概况读失败时（libraryCount 为 nil）只说口径，不挂一句永远的「正在读取」
+            Text(pager.items == nil ? "正在读取…"
+                : libraryCount == 0 ? "还没有可浏览的\(HomeRows.mediaKindLabel(kind))库"
+                : libraryCount.map { summary(total: pager.total ?? 0, libraries: $0) } ?? "同一部片只算一次")
+                .font(.subheadline)
+                .foregroundStyle(Theme.textMuted)
+                .accessibilityIdentifier("kind-wall-summary")
             if pager.items != nil, !empty {
                 WallSortMenu(options: Self.sortOptions(kind), state: $sort)
                     .glassEffect(.regular.interactive(), in: .capsule)
