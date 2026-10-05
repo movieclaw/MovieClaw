@@ -144,6 +144,11 @@ def reanchor(
     )
 
 
+def prefetch_for(index: ContainerIndex, start_s: float) -> tuple[ByteRange, ...]:
+    """从任意起点起播要预取的三段（大图预告从续播点往前倒着放时用，起点不是挑出来的）。"""
+    return _prefetch_ranges(index, [k.time_s for k in index.keyframes], start_s)
+
+
 def _window_rate(index: ContainerIndex, times: list[float], start: float, length: float) -> float:
     """[start, start+length) 这一段的平均字节率：用两端最近的关键帧位置相减。"""
     i = bisect_left(times, start)

@@ -53,6 +53,8 @@ struct TVItemDetailView: View {
     @FocusState private var lowerFocus: LowerFocus?
     /// 在下半截点播的那一集：播完退回详情时首屏改讲它，而不是进来时那一集
     @State private var playedElsewhere: (season: Int, episode: Int)?
+    /// 大图预告里认这一页的牌子（见 `TVStagePreview`）
+    @State private var previewOwner = UUID()
 
     private enum DetailAction { case play, restart, favorite, played }
     private enum LowerFocus: Hashable {
@@ -72,7 +74,8 @@ struct TVItemDetailView: View {
             // 往下滑时剧照跟着内容滚走，露出同一张剧照的模糊版（与海报墙同一套背景）
             TVStageBackdrop(pinnedScroll: 0, fadeDistance: 900, url: backdropURL, tint: nil, scroll: scroll, fullImage: true,
                             ambientURL: api.image(detail?.backdropUrl ?? detail?.posterUrl,
-                                                  width: ImageWidth.points(TVMetrics.blurredBackdropWidth)))
+                                                  width: ImageWidth.points(TVMetrics.blurredBackdropWidth)),
+                            previewKey: itemId)
             if failed {
                 TVStateView(symbol: "questionmark.folder", title: "未能加载该条目",
                             message: "条目可能已被删除或重新识别为其他作品。", actionTitle: "返回") { router.pop() }
@@ -83,6 +86,9 @@ struct TVItemDetailView: View {
             }
         }
         .task { await reload() }
+        // 大图停留一会儿就原地放刷片挑好的那一段（剧集固定第二集）；从首页进来、那边正放着这一部的就接着放
+        .task { TVStagePreview.shared.show(.init(mediaItemId: itemId, source: .highlight), owner: previewOwner, api: api) }
+        .onDisappear { TVStagePreview.shared.leave(owner: previewOwner) }
         .task { favorite = (try? await api.playbackMarksGet(mediaItemId: itemId))?.isFavorite }
         // 进了详情页多半要播：先把起播要用的连接连好（同 iPhone 版）
         .task { PlaybackPreconnect.warm(api: api) }

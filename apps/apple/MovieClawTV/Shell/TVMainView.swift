@@ -65,6 +65,9 @@ struct TVMainView: View {
             await libraries.load(api: api)
         }
         .onChange(of: scenePhase) { old, new in
+            // 退到后台拆掉大图预告，回来重新计停留（不在后台留一个引擎）
+            if new == .background { TVStagePreview.shared.interrupt(.background) }
+            if new == .active { TVStagePreview.shared.endInterruption(.background) }
             if new != .active, old == .active, pageFocused != true {
                 // 用返回键退到主屏幕：最后一下返回把焦点交给了侧边栏。系统在后台存下的快照就是「侧边栏展开」，
                 // 再打开时先放这张快照、再切实时界面——先看到侧边栏、再缩回去（2026-10-04 用户反馈，逐帧截图确认是快照）。
@@ -104,6 +107,8 @@ struct TVMainView: View {
             }
         }
         .onChange(of: router.player?.id) { _, presented in
+            // 播放器关掉：大图预告重新开始（进播放器时已在 TVRouter.play 里拆掉）
+            if presented == nil { TVStagePreview.shared.playerClosed() }
             // 提前起播了、播放器却没弹出来就被撤掉：这里关掉，免得会话与引擎空跑
             if let early = router.activePlayback, !early.viewAttached, early.request.id != presented {
                 early.close()

@@ -171,6 +171,10 @@ NAS 实测（17 个文件）：MKV 每部读 0.2～2 MB、0.04～1 秒；MP4 每
   没人刷它的部署零成本。挑点、封面、取流、进度沿用电影的一套（`video` 按单本、放 `(item, 0, 0)` 单元，
   区间沿用电影口径；短于 35 秒的挑不出片段，自然跳过）。
 
+**大图预告**（2026-10-05，Apple TV 首页与详情页，docs/design/tvos-app.md §3.5）：`GET /api/v1/reels/preview/{id}?source=&season=&episode=`
+返回一条同样的 `ReelItemView`（放不了为 null）。`highlight` 就是刷片这一段（剧集第二集）；`resume` 是这个人续播点往前 30 秒到续播点
+（`segment.method = "resume"`，起点对齐关键帧、预取按这个起点现算），没有可用的续播点退回 `highlight`。预告不开字幕。
+
 `POST /api/v1/reels/events`：`{"events": [{"reel_id", "kind", "mode", "media_item_id",
 "file_id", "position_ms", "watched_ms", "wait_ms", "detail"}]}`，kind 为
 impression / first_frame / leave / complete / continue / open / fullscreen / detail / fail（continue、open

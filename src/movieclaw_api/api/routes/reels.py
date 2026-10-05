@@ -6,6 +6,8 @@
   ``rating_gte`` 评分 / ``rt`` 片长 / ``w`` 观看状态，维内 OR、维间 AND）外加 ``kind``
   （电影 / 剧集 / 其他，``video`` 只认观看状态）；``GET /reels/facets`` 同参，给筛选菜单的
   候选值与计数。
+- ``GET /reels/preview/{media_item_id}``：Apple TV 大图预告——首页从续播点往前倒 30 秒
+  （``source=resume``），详情页放挑好的那一段（``source=highlight``），放不了返回 null。
 - ``POST /reels/events``：App 攒一批刷片事件报上来，只落 ``reel_event`` 表，
   不写观看记录。
 """
@@ -14,7 +16,7 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.api.deps import require_login
@@ -24,12 +26,14 @@ from movieclaw_api.schemas.reels import (
     ReelEventResult,
     ReelFacetsView,
     ReelFeedView,
+    ReelItemView,
 )
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.items import LibraryFilter
 from movieclaw_api.services.reels.facets import build_reel_facets
 from movieclaw_api.services.reels.feed import build_feed, record_events
+from movieclaw_api.services.reels.preview import build_preview
 from movieclaw_db.engine import get_session
 
 router = APIRouter(prefix="/reels", tags=["reels"])
@@ -95,6 +99,33 @@ async def get_reel_facets(
 ) -> ApiResponse[ReelFacetsView]:
     """与 ``GET /reels`` 同参：菜单上写几部，点下去刷的就是这几部。"""
     return ok(await build_reel_facets(session, principal, filters, kind))
+
+
+@router.get(
+    "/preview/{media_item_id}",
+    response_model=ApiResponse[ReelItemView | None],
+    summary="大图预告：一部片停留后原地播放的那一段",
+    operation_id="reels.preview",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def get_reel_preview(
+    media_item_id: Annotated[int, Path(description="条目 id")],
+    source: Annotated[
+        Literal["resume", "highlight"],
+        Query(
+            description="resume：续播点往前 30 秒放到续播点（没有续播点退回 highlight）；"
+            "highlight：挑好的片段"
+        ),
+    ] = "highlight",
+    season: Annotated[int, Query(ge=0, description="resume 的季号（电影 0）")] = 0,
+    episode: Annotated[int, Query(ge=0, description="resume 的集号（电影 0）")] = 0,
+    principal: Principal = Depends(require_login),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[ReelItemView | None]:
+    item = await build_preview(
+        session, principal, media_item_id, source=source, season=season, episode=episode
+    )
+    return ok(item)  # type: ignore[arg-type]
 
 
 @router.post(

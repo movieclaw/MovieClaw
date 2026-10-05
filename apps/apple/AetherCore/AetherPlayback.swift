@@ -346,12 +346,14 @@ public final class AetherPlayback {
     /// 换音轨、回前台的整场重建与往回跳都从本机拿已下过的字节。取流地址每次带新令牌，所以要给稳定的键
     /// forwardSegments / backwardSegments：分片缓存的前后窗口（段数，nil = 引擎默认 10 / 20）。存储紧张时由宿主
     /// 按剩余空间收小，自研引擎照样能放（内置引擎补丁 P25）
+    /// switchesDisplayMode：HDR 片按电视的「匹配动态范围」切换显示模式（默认）。大图预告关掉：首页翻着翻着电视黑屏
+    /// 一两秒重新握手不可接受，HDR 由系统映射成当前模式显示
     /// matroskaCues：服务端给的 MKV 精简索引（原 Cues 在文件里的位置 + 只含视频轨索引点的整个 Cues 元素，内置引擎
     /// 补丁 P58）。主播放的解复用器读索引时直接用它，原索引不用下载；数据不完整或位置对不上时引擎当没给
     public func load(source: Source, start: Double?, autoplay: Bool, headers: [String: String] = [:],
                      audioOrdinal: Int? = nil, externalSubtitles: [ExternalSubtitle] = [],
                      sourceCacheKey: String? = nil, forwardSegments: Int? = nil, backwardSegments: Int? = nil,
-                     matroskaCues: (offset: Int64, data: Data)? = nil) {
+                     matroskaCues: (offset: Int64, data: Data)? = nil, switchesDisplayMode: Bool = true) {
         loadTask?.cancel()
         lastPhase = nil
         subtitleView.cues = []
@@ -362,6 +364,11 @@ public final class AetherPlayback {
         options.backwardBufferSegments = backwardSegments
         options.matroskaCues = matroskaCues.flatMap { MatroskaHostCues(offset: $0.offset, data: $0.data) }
         options.autoplay = autoplay
+        if !switchesDisplayMode {
+            options.suppressDisplayCriteria = true
+            // 告诉引擎电视不会切模式：HDR 走系统自动映射的那条路，不按「面板会切到 HDR」去组播放列表
+            options.matchContentEnabled = false
+        }
         options.httpHeaders = headers
         // 点播起播时缓冲已够 1.5 秒就不再等 AVPlayer 的码率估计，一次性提前开播（内置引擎补丁 P2）
         options.vodStartsImmediately = true
@@ -472,6 +479,18 @@ public final class AetherPlayback {
 
     /// 暂停下载 / 恢复（内置引擎补丁 P23）：计费网络上用户按了暂停时停，恢复播放时解除
     public func setPrefetchSuspended(_ suspended: Bool) { engine.setPrefetchSuspended(suspended) }
+
+    /// 音量（0～1）。大图预告起播时从 0 渐入，免得原片中间突然一声对白或爆炸
+    public var volume: Float {
+        get { engine.volume }
+        set { engine.volume = newValue }
+    }
+
+    /// 画面铺满裁切：大图预告铺满整屏（宽银幕片裁掉两边、不留黑边）；默认完整显示
+    public var fillsFrame: Bool {
+        get { engine.videoGravity == .resizeAspectFill }
+        set { engine.videoGravity = newValue ? .resizeAspectFill : .resizeAspect }
+    }
 
 
     // MARK: - 读数

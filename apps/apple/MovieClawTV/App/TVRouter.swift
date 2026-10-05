@@ -54,6 +54,8 @@ final class TVRouter {
     }
 
     func play(_ request: PlayRequest) {
+        // 大图预告先拆掉：同一时刻只留正片一个引擎（播放器关掉后由主界面让预告重新开始）
+        TVStagePreview.shared.interrupt(.player)
         playRequestedAt = .now
         player = request
         startPlaybackEarly?(request)

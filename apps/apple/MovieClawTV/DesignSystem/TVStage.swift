@@ -42,12 +42,16 @@ struct TVStageBackdrop: View {
     var fullImage = false
     /// 原图铺满时垫底的模糊剧照：按 `TVMetrics.blurredBackdropWidth` 取的小图就够，模糊之后看不出清晰度
     var ambientURL: URL?
+    /// 大图预告（`TVStagePreview`）讲的是哪一部：停留一会儿后剧照原地换成片段；nil = 只有剧照
+    var previewKey: Int?
 
     /// 左下角压暗的深浅（0～1）：量出来之前按中等处理。首页、详情页一样：原先首页左侧是一层边缘色（0.9 → 0.55 → 透明），
     /// 褐色剧照左边就是一片褐、和中间原图看得出色差（用户在详情页指出），2026-10-03 一并换成中性的黑
     @State private var cornerScrim = 0.4
 
     private var scrollOffset: CGFloat { max(0, scroll.offset) }
+    /// 剧照还在原位（列表没滚得让它跟着走开）：预告只在这时放，滚走就暂停
+    private var stageInPlace: Bool { scrollOffset <= pinnedScroll + 120 }
 
     var body: some View {
         ZStack {
@@ -76,11 +80,13 @@ struct TVStageBackdrop: View {
                 }
                 if let url, fullImage {
                     // 静止时原图不渐隐；往下滑、剧照跟着往上走时下沿慢慢渐隐进底色，不在屏幕中间露出一道硬边
-                    TVStageImage(url: url, fadeFrom: 1 - min(1, scrollOffset / 500) * 0.4, scrim: cornerScrim, scrimShape: .corner)
+                    TVStageImage(url: url, fadeFrom: 1 - min(1, scrollOffset / 500) * 0.4, scrim: cornerScrim, scrimShape: .corner,
+                                 previewKey: previewKey, previewVisible: stageInPlace)
                         .id(url)
                         .transition(.opacity)
                 } else if let url {
-                    TVStageImage(url: url, fadeFrom: 0.4, scrim: cornerScrim, scrimShape: .leading)
+                    TVStageImage(url: url, fadeFrom: 0.4, scrim: cornerScrim, scrimShape: .leading,
+                                 previewKey: previewKey, previewVisible: stageInPlace)
                         .id(url)
                         .transition(.opacity)
                 }
@@ -120,6 +126,9 @@ private struct TVStageImage: View {
     /// 往右上散开，不是左边整条的暗带；黑色只压暗不改色相，本来就暗的剧照几乎不加。画在渐隐之内，首页随剧照一起淡进边缘色
     let scrim: Double
     let scrimShape: TVStageScrimShape
+    /// 大图预告：片段盖在剧照上（不跟着推近）、压在托字的黑之下
+    var previewKey: Int?
+    var previewVisible = true
     @State private var zoom: CGFloat = 1
 
     var body: some View {
@@ -136,6 +145,11 @@ private struct TVStageImage: View {
                     }
                 }
                 .scaleEffect(zoom)
+            }
+            .overlay {
+                if let previewKey {
+                    TVStagePreviewLayer(key: previewKey, visible: previewVisible)
+                }
             }
             .overlay {
                 switch scrimShape {
