@@ -147,7 +147,7 @@ struct MacLandscapeCard: View {
 }
 
 /// 「按类型找电影 / 剧集」的一格：全幅剧照类型卡（三端共用 `GenreCardFace`）。
-/// 悬停时剧照恢复饱和、微微放大（同网页的 1.045 倍、Apple TV 的焦点），滚动中不响应悬停
+/// 悬停同网页：剧照放大 1.045 倍、卡片描一圈淡白细边；滚动中不响应悬停
 struct MacGenreCard: View {
     let label: String
     let count: Int
@@ -162,8 +162,11 @@ struct MacGenreCard: View {
 
     var body: some View {
         GenreCardFace(label: label, count: count, mediaKind: mediaKind, coverURL: coverURL, width: MacMetrics.genreWidth,
-                      imageSaturation: active ? 1 : 0.76, imageScale: active ? 1.045 : 1)
-            .shadow(color: .black.opacity(active ? 0.35 : 0.2), radius: active ? 10 : 4, y: active ? 5 : 2)
+                      imageScale: active ? 1.045 : 1)
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(.white.opacity(active ? 0.25 : 0), lineWidth: 1)
+            }
             .animation(scrolling ? nil : .easeOut(duration: 0.2), value: active)
             .onHover { hovering = $0 || MacCardDebug.forceHover }
             .macCardTap("浏览\(label)，\(count) 部\(mediaKind == "tv" ? "剧集" : "电影")", action: action)
