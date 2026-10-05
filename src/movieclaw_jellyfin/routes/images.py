@@ -450,7 +450,9 @@ async def _maybe_scaled(
     类型按文件头认，不信扩展名（issue #587）：旧版本从图床落下的 poster.jpg 有
     一部分其实是 WebP，按扩展名报 image/jpeg 会让播放器解码失败。WebP/AVIF
     即使不缩放也转一份 JPEG/PNG 给出去——第三方播放器对它们的支持参差。"""
-    kind = image_kind_of(target)
+    # 读文件头走线程池：目录美术图在片库目录里，片库可能是 NFS 挂载，同步读一卡
+    # 就是整个事件循环一起卡
+    kind = await asyncio.to_thread(image_kind_of, target)
     original_type = (
         (f"image/{kind}" if kind else None)
         or original_type

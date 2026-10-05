@@ -300,6 +300,10 @@ async def _visible_cover_item(
     return first[0] if first else None
 
 
+# 「合集」视图凑封面时，找到第一个非空合集之后最多再探几个
+_COVER_EXTRA_PROBES = 12
+
+
 async def _collections_view(session: AsyncSession, scope: ViewerScope) -> tuple[bool, str | None]:
     """「合集」视图要不要下发，及其封面 tag。
 
@@ -314,9 +318,16 @@ async def _collections_view(session: AsyncSession, scope: ViewerScope) -> tuple[
 
     covers: list[int] = []
     has_collections = False
+    probes_left = _COVER_EXTRA_PROBES
     for row in await visible_collections(
         session, member_id=scope.member_id, visible_library_ids=scope.visible
     ):
+        if has_collections:
+            # 找到第一个之后，凑封面只再探有限几个：分级受限的观看者可能只看得见
+            # 一两个合集，不设上限的话每次 /UserViews 都要把几百个合集挨个实时判定
+            if probes_left <= 0:
+                break
+            probes_left -= 1
         cover = await _visible_cover_item(session, row, scope)
         if cover is None:
             continue

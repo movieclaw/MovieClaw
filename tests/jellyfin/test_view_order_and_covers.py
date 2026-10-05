@@ -189,3 +189,33 @@ def test_collections_view_cover_follows_viewer_scope(
     assert scoped == _cover_key([(images / "2" / "poster.jpg").resolve()])
     resp = client.get(f"/Items/{collections_view_guid()}/Images/Primary?tag={scoped}")
     assert resp.status_code == 200
+
+
+async def test_collections_view_cover_probe_budget(monkeypatch) -> None:
+    """找到第一个非空合集之后，凑封面只再探有限几个（分级受限的观看者可能只看得见一两个）。"""
+    from types import SimpleNamespace
+
+    from movieclaw_api.services.library.access import NO_CONTENT_LIMIT
+    from movieclaw_jellyfin.routes import library as routes
+
+    rows = [SimpleNamespace(id=i) for i in range(300)]
+    probed: list[int] = []
+
+    async def fake_visible(_session, **_kw):
+        return rows
+
+    async def fake_cover(_session, row, _scope):
+        probed.append(row.id)
+        return 1000 if row.id == 5 else None  # 300 个里只有一个非空
+
+    monkeypatch.setattr(routes, "visible_collections", fake_visible)
+    monkeypatch.setattr(routes, "_visible_cover_item", fake_cover)
+
+    class _NoFiles:
+        async def execute(self, _query):
+            return SimpleNamespace(all=lambda: [])
+
+    scope = routes.ViewerScope(3, {1}, NO_CONTENT_LIMIT)
+    has, tag = await routes._collections_view(_NoFiles(), scope)  # type: ignore[arg-type]
+    assert has is True and tag is None
+    assert len(probed) == 6 + routes._COVER_EXTRA_PROBES
