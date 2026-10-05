@@ -152,8 +152,9 @@ struct MacItemDetailView: View {
     private func actions(_ detail: API.LibraryItemDetailView) -> some View {
         let position = watched?.positionMs ?? 0
         let finished = watched?.played ?? false
-        let resumable = canPlay && !finished && position > 0
-        let verb = finished ? "重新播放" : resumable ? "继续" : "播放"
+        // 有续播点就接着播（与服务端起播同一口径）：看完后重看到一半的也算，已看标记保留
+        let resumable = canPlay && position > 0
+        let verb = resumable ? "继续" : finished ? "重新播放" : "播放"
         let parts = [verb, unitLabel, resumable ? Formatters.clock(Double(position) / 1000) : nil].compactMap { $0 }
         let label = parts.count > 2 ? "\(parts[0]) \(parts[1]) · \(parts[2])" : parts.joined(separator: " ")
         return VStack(alignment: .leading, spacing: 10) {
@@ -168,7 +169,7 @@ struct MacItemDetailView: View {
             }
             HStack(spacing: 10) {
                 if canPlay {
-                    Button { play(start: finished ? 0 : nil) } label: {
+                    Button { play(start: nil) } label: {
                         Label(label, systemImage: "play.fill")
                             .padding(.horizontal, 6)
                             .monospacedDigit()
@@ -454,10 +455,10 @@ struct MacItemDetailView: View {
         return facts.joined(separator: " · ")
     }
 
-    /// 一季里「接着看的那一集」：看了一半的 → 第一集没看过的 → 第一集（有片源的优先）
+    /// 一季里「接着看的那一集」：看了一半的（含看完后重看到一半的）→ 第一集没看过的 → 第一集（有片源的优先）
     static func resumeEpisode(in episodes: [API.EpisodeView]) -> API.EpisodeView? {
         let owned = episodes.filter(\.owned)
-        return owned.first { $0.positionMs > 0 && !$0.played }
+        return owned.first { $0.positionMs > 0 }
             ?? owned.first { !$0.played }
             ?? owned.first
             ?? episodes.first
@@ -698,7 +699,7 @@ private struct MacEpisodeCard: View {
     /// 剧照左下：▶ 片长（看了一半的写看到哪、压进度条）
     @ViewBuilder
     private var stillBand: some View {
-        let inProgress = !episode.played && episode.positionMs > 0
+        let inProgress = episode.positionMs > 0  // 含看完后重看到一半的
         let text: String? = inProgress ? "看到 \(Formatters.clock(Double(episode.positionMs) / 1000))"
             : runtimeMinutes.flatMap { $0 > 0 ? Formatters.runtime($0) : nil }
         if text != nil || inProgress {
