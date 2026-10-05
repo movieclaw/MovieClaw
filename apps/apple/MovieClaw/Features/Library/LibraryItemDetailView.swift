@@ -8,7 +8,7 @@ import SwiftUI
 /// 类型 / 系列与合集 → 媒体轨道（先挑版本与音轨字幕）→ 播放键（落点）+ 收藏 / 已看 → 简介 →
 /// 分集（剧集）→ 章节条 → 演职员 → 文件（管理员可删除 / 恢复 / 立即清理）→ 外部词条。
 ///
-/// - 播放键三态：播放 / 继续 mm:ss（下方进度条 + 剩余 X）/ 重新播放；续播点来自 `GET /playback/resume`，
+/// - 播放键三态：播放 / 继续 mm:ss（下方进度条 + 剩余 X）/ 重新播放，剧集写明哪一集（「继续 第 1 季第 3 集 · mm:ss」）；续播点来自 `GET /playback/resume`，
 ///   关掉播放器、服务端收下「停止」后重拉（`.playbackStopReported`），按钮立即跟上刚才看到的位置；
 /// - 收藏针对整部作品，已看针对当前单元（电影本身 / 选中的那一集），都走 `POST /playback/marks`；
 /// - 刮削进行中每 2 秒、章节图生成中每 3 秒（最多 20 次）重拉详情；
@@ -450,6 +450,13 @@ struct LibraryItemDetailView: View {
 
     // MARK: 播放键
 
+    /// 播放键上的「第 1 季第 3 集」：选中的那一集；电影没有。特别篇（第 0 季）写「特别篇第 2 集」
+    private var unitLabel: String? {
+        guard !isMovie, let selectedEpisode else { return nil }
+        let season = selectedEpisode.season, episode = selectedEpisode.episode.episodeNumber
+        return season == 0 ? "特别篇第 \(episode) 集" : "第 \(season) 季第 \(episode) 集"
+    }
+
     @ViewBuilder
     private func playAction(favoriteLabel: String) -> some View {
         let position = watched?.positionMs ?? 0
@@ -458,8 +465,11 @@ struct LibraryItemDetailView: View {
         let resumable = !finished && position > 0
         let percent: Int? = resumable && (duration ?? 0) > 0 ? min(100, max(2, Int((Double(position) / Double(duration!) * 100).rounded()))) : nil
         let remaining: Int? = resumable && (duration ?? 0) > position ? Int((Double(duration! - position) / 60000).rounded()) : nil
-        // 看过一段：按钮直接写从哪里起播（点它就从这里接着放），下方进度条只说还剩多少
-        let label = finished ? "重新播放" : resumable ? "继续 \(Formatters.clock(Double(position) / 1000))" : "播放"
+        // 看过一段：按钮直接写从哪里起播（点它就从这里接着放），下方进度条只说还剩多少。
+        // 剧集写明是哪一集（同 Apple TV 版「继续 第 1 季第 3 集 · 46:56」）：只写「继续 46:56」看不出续的是第几集
+        let verb = finished ? "重新播放" : resumable ? "继续" : "播放"
+        let parts = [verb, unitLabel, resumable ? Formatters.clock(Double(position) / 1000) : nil].compactMap { $0 }
+        let label = parts.count > 2 ? "\(parts[0]) \(parts[1]) · \(parts[2])" : parts.joined(separator: " ")
         let progressText: String? = resumable
             ? remaining.map { $0 >= 1 ? "剩余 \(Self.runtimeText($0))" : "即将看完" } ?? (duration != nil ? "即将看完" : nil)
             : nil
@@ -957,7 +967,8 @@ struct ExpandablePlot: View {
 // MARK: - 分集
 
 /// 剧集分集区（Web `SeasonEpisodesSection`）：季选择 + 分集横滚卡；缺集置灰、看完绿勾、看了一半底部进度条。
-/// 默认落在第一个在库的季与集；路由带了 season/episode 时定位到那一集并滚到可见处。
+/// 默认落在接着看的那一集（同 Apple TV 版）：路由带了 season/episode 时是那一集；首页「接下来继续」里有这部剧时是它给的
+/// 那一季那一集；否则第一个在库的正片季里看了一半的 → 第一集没看过的 → 第一集。落点不在第一集时滚到可见处。
 struct SeasonEpisodesSection: View {
     let libraryId: Int
     let detail: API.LibraryItemDetailView
@@ -973,8 +984,20 @@ struct SeasonEpisodesSection: View {
     @State private var selected: Int?
 
     private var ownedSeasons: Set<Int> { Set(detail.files.map(\.seasonNumber)) }
-    private var requestedSeason: Int? { initialSeason.flatMap { ownedSeasons.contains($0) ? $0 : nil } }
-    private var currentSeason: Int { season ?? requestedSeason ?? detail.seasons.first { ownedSeasons.contains($0) } ?? detail.seasons.first ?? 1 }
+    /// 打开时落在哪一季哪一集：路由指定的 → 首页「接下来继续」里这部剧接着看的那一集
+    private var entry: (season: Int, episode: Int?)? {
+        if let initialSeason, ownedSeasons.contains(initialSeason) { return (initialSeason, initialEpisode) }
+        guard let next = LibraryHomeStore.shared.upNext?.first(where: { $0.mediaItemId == detail.mediaItemId && $0.kind == "tv" }),
+              ownedSeasons.contains(next.seasonNumber) else { return nil }
+        return (next.seasonNumber, next.episodeNumber)
+    }
+    /// 没有落点时打开第一个有片源的正片季（特别篇排在最前，但不该先开它）
+    private var currentSeason: Int {
+        season ?? entry?.season
+            ?? detail.seasons.first { $0 > 0 && ownedSeasons.contains($0) }
+            ?? detail.seasons.first { ownedSeasons.contains($0) }
+            ?? detail.seasons.first { $0 > 0 } ?? detail.seasons.first ?? 1
+    }
 
     private func seasonLabel(_ s: Int) -> String {
         let name = s == 0 ? "特别篇" : "第 \(s) 季"
@@ -1029,7 +1052,7 @@ struct SeasonEpisodesSection: View {
                     }
                     .scrollClipDisabled()
                     .task(id: data.seasonNumber) {
-                        if currentSeason == requestedSeason, let target = initialEpisode, selected == target {
+                        if let target = selected, target != data.episodes.first?.episodeNumber {
                             try? await Task.sleep(for: .milliseconds(200))
                             withAnimation { proxy.scrollTo(target, anchor: .center) }
                         }
@@ -1060,9 +1083,11 @@ struct SeasonEpisodesSection: View {
             guard s == currentSeason else { return }
             data = result
             if reset {
-                let requested = s == requestedSeason && initialEpisode != nil
-                    ? result.episodes.first { $0.episodeNumber == initialEpisode && $0.owned } : nil
-                selected = (requested ?? result.episodes.first(where: \.owned) ?? result.episodes.first)?.episodeNumber
+                let target = s == entry?.season ? entry?.episode : nil
+                let requested = target.flatMap { t in result.episodes.first { $0.episodeNumber == t && $0.owned } }
+                selected = (requested ?? result.episodes.resumeEpisode)?.episodeNumber
+                // 定住打开的这一季：「接下来继续」之后刷新（比如刚看完一季）不把分集区跳到别的季
+                if season == nil { season = s }
             }
             report()
         } catch is CancellationError {

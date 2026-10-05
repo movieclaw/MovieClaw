@@ -27,6 +27,17 @@ enum LibraryKindMeta {
     }
 }
 
+extension [API.EpisodeView] {
+    /// 一季里「接着看的那一集」（Apple TV 与 iPhone 详情页共用）：看了一半的 → 第一集没看过的 → 第一集（有片源的优先）
+    var resumeEpisode: API.EpisodeView? {
+        let owned = filter(\.owned)
+        return owned.first { $0.positionMs > 0 && !$0.played }
+            ?? owned.first { !$0.played }
+            ?? owned.first
+            ?? first
+    }
+}
+
 /// 扫描阶段 → 状态词（Web `SCAN_PHASE_LABELS`）。扫描内部分阶段，阶段变了进度文案必须跟着变，
 /// 否则文件扫完后还在补图，环停在 100% 配「扫描中」看起来就是卡死了。
 enum ScanPhase {

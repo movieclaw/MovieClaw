@@ -532,7 +532,7 @@ struct TVItemDetailView: View {
     /// 下半截分集横排进来时落在哪一集：首屏讲的那一季是首屏那一集，别的季是那一季接着看的那一集
     private var entryEpisode: Int? {
         if browseSeason == season, let selectedEpisode { return selectedEpisode.episodeNumber }
-        return Self.resumeEpisode(in: browseEpisodes)?.episodeNumber
+        return browseEpisodes.resumeEpisode?.episodeNumber
     }
 
     /// 分集横排滚到要落焦点的那一集，排在行首边距处。打开页面时行还没建出来，出现时再滚一次
@@ -656,15 +656,6 @@ struct TVItemDetailView: View {
         return m > 0 ? "\(h) 小时 \(m) 分钟" : "\(h) 小时"
     }
 
-    /// 一季里「接着看的那一集」：看了一半的 → 第一集没看过的 → 第一集（有片源的优先）
-    static func resumeEpisode(in episodes: [API.EpisodeView]) -> API.EpisodeView? {
-        let owned = episodes.filter(\.owned)
-        return owned.first { $0.positionMs > 0 && !$0.played }
-            ?? owned.first { !$0.played }
-            ?? owned.first
-            ?? episodes.first
-    }
-
     // MARK: 加载与动作
 
     private func reload() async {
@@ -708,7 +699,7 @@ struct TVItemDetailView: View {
             return
         }
         selectedEpisode = preferred.flatMap { number in result.episodes.first { $0.episodeNumber == number } }
-            ?? Self.resumeEpisode(in: result.episodes)
+            ?? result.episodes.resumeEpisode
     }
 
     /// 下半截换一季：分集横排换成那一季，滚到那一季接着看的那一集
