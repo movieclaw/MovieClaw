@@ -1,0 +1,93 @@
+# UBits（ubits.club）站点配置
+# 适配依据：2026-10-04 用登录 cookie 实测抓取 torrents.php / userdetails.php 校准。
+# 站点为标准 NexusPHP（标题页脚 "Powered by NexusPHP"），前端有 Cloudflare 防护，
+# 必须携带浏览器登录 cookie（含 cf_clearance）才能穿过 challenge 拿到真实页面。
+
+site_id: ubits
+display_name: UBits
+base_url: https://ubits.club
+framework: nexusphp
+
+# 授权方式：仅 cookie。
+# 原因：站点有 Cloudflare challenge，账号密码模拟登录（credential）大概率拿不到
+# 浏览器式 cf_clearance，且登录态 cookie 已含 cf_clearance，直接粘 cookie 最稳。
+auth:
+  supported: [cookie]
+
+# HTTP：CF 站保持保守，请求间隔用全局默认 3.0s，不再单独放宽。
+# min_request_interval: 3.0
+
+# 站点页面 naive 时间为 Asia/Shanghai（默认，无需覆盖）
+
+selectors:
+  # ── 种子列表 ─────────────────────────────────────────────────────
+  # 行结构为标准 NexusPHP：table.torrents 首行为表头(colhead)，其后为数据行。
+  # torrent_row_css 用默认 "table.torrents > tr:not(:first-child)" 即可。
+
+  # 分类 ID：分类图标 class 是 c_movies / c_tvseries 等（无数字），默认
+  # "td:nth-child(1) img::attr(class)" 提取不到 ID。改为从 ?cat=XXX 链接提取。
+  torrent_category_css: "a[href*='cat=']::attr(href)"
+
+  # 副标题：与 tags 链接、促销图标混排在同一个 embedded td 内，无干净选择器，
+  # 留空跳过解析（宁缺勿错，避免把 "UBits/官方/中字" 等 tag 当副标题）。
+  torrent_subtitle_css: ""
+
+  # 发布者列：UBits 比标准 NexusPHP 多一列"盒子"(seed-box-policy)，位于完成数与
+  # 发布者之间，因此发布者在 td:nth-child(10)，默认 td:nth-child(9) 会取到盒子列。
+  # 发布者常为 "<i>匿名</i>"（无链接），故用整列而非 td a。
+  torrent_uploader_css: "td:nth-child(10)"
+
+  # 分页从 0 开始：page=0 与无参数首页完全一致（实测验证），发送时需减 1。
+  page_offset: -1
+
+  # 其余列表字段（大小/做种/下载/完成/发布时间/详情/下载链接）均为标准列位置：
+  # td1分类 td2标题(torrentname) td3评论 td4时间 td5大小 td6种子 td7下载 td8完成，
+  # 与框架默认选择器一致，无需覆盖。
+  #   时间 td:nth-child(4) > span::attr(title) 存精确时间戳 "2026-10-04 10:10:34"
+
+  # ── 促销 ────────────────────────────────────────────────────────
+  # UBits 用标准 img.pro_free / img.pro_2up 等 sprites 图标（实测列表页 100 个
+  # pro_free），默认促销规则表可直接命中，无需覆盖。
+
+  # ── H&R ──────────────────────────────────────────────────────────
+  # 规则页(rules.php)明示：官方发布种子需从下载完成起累计做种 72 小时；
+  # 达标标准为每月做种>=360小时 或 上传量>=2倍体积；VIP 及以上免疫。
+  # 列表页未见行内 H&R 标记图标（grep 无 hitandrun 类），故 torrent_hr_css 留空，
+  # 该字段保持"未知"，不会误报成"无考核"。
+
+  # ── 用户资料 ─────────────────────────────────────────────────────
+  # 用户名/UID 取自顶部导航栏用户链接（class 以 _Name 结尾，如 User_Name）。
+  # 上传量/下载量/分享率/做种/下载数：UBits 不在资料页 rowhead 表中展示这些值，
+  # 而是放在顶部 info_block 的 font.color_* 与 img.arrowup/arrowdown 之后，
+  # 用 ::next_sibling_text 取其后紧跟的文本节点。
+  profile_uid_css: "a[class*='_Name']::attr(href)"
+  profile_username_css: "a[class*='_Name'] b"
+  profile_uploaded_css: "font.color_uploaded::next_sibling_text"
+  profile_downloaded_css: "font.color_downloaded::next_sibling_text"
+  profile_ratio_css: "font.color_ratio::next_sibling_text"
+  profile_seeding_css: "img.arrowup::next_sibling_text"
+  profile_leeching_css: "img.arrowdown::next_sibling_text"
+  # 等级：资料页 rowhead 表中等级值以 <img alt="User" title="User"> 图标表示，
+  # 文本在 img 的 alt 属性（无跟随文本），故从 alt 提取。
+  profile_class_css: "td.rowhead:contains('等级') + td img::attr(alt)"
+  # 魔力(U币)显示在导航栏 info_block 的 font.color_bonus，无干净文本节点可提取，
+  # bonus 保持 None，不影响其余字段。
+
+# ── 分类映射 ──────────────────────────────────────────────────────
+# 实测分类菜单（?cat=XXX → 标题）：
+#   401 电影 / 402 电视剧 / 403 综艺 / 404 纪录片 / 405 动漫 /
+#   406 音乐CD / 407 体育节目 / 408 Other / 409 演唱会(MV) / 415 有声书
+categories:
+  movie:       [401]
+  # 电视剧/综艺/体育归入 tv，与项目其他站点（hdsky 等）惯例一致
+  tv:          [402, 403, 407]
+  documentary: [404]
+  anime:       [405]
+  # 音乐CD + 演唱会(MV) 归音乐
+  music:       [406, 409]
+  other:       [408, 415]  # Other / 有声书
+
+# ── H&R 政策（站点规则页明示）──
+# 官方种子下载完成后需累计做种 72 小时。配了它，刷流引擎才敢准入明确标注 H&R
+# 的免费种，并按 72 小时保底保留（覆盖站点保留期设置）。
+hr_seed_hours: 72

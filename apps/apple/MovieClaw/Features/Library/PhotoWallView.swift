@@ -199,7 +199,7 @@ struct PhotoWallView: View {
             Button {
                 lightbox = PhotoLightboxSession(index: index)
             } label: {
-                PhotoTile(item: item, url: api.image(item.posterUrl, density.variant), working: working(item))
+                PhotoTile(item: item, url: api.image(item.posterUrl, width: density.tileImageWidth), working: working(item))
             }
             .buttonStyle(.plain)
             .accessibilityLabel("查看 \(item.title)")

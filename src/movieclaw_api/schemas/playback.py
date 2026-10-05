@@ -32,6 +32,18 @@ class UpNextItemView(BaseModel):
     )
     backdrop_url: str | None
     episode_still_url: str | None
+    # 以下几项给电视首页的大图区用（docs/design/tvos-app.md §3.1）。都可为空：
+    # 新版客户端连旧版服务端时缺这几个键也能照常解析。
+    # 分集剧照的本地资产只存 w300 小图（一部剧几百集，存原图太占盘），手机卡片够用；
+    # 电视卡片在 4K 下有 920px 宽，另给 TMDB 原图，由图片代理按需抓取并缓存
+    episode_still_original_url: str | None = Field(
+        default=None, description="分集剧照的 TMDB 原图（电视等大屏用）"
+    )
+    logo_url: str | None = Field(default=None, description="片名 Logo（透明底，本地资产优先）")
+    overview: str | None = Field(
+        default=None, description="简介：剧集取卡片这一集的（没有则用整部剧的），电影取影片的"
+    )
+    genres: list[str] | None = Field(default=None, description="类型（如「剧情」「科幻」）")
     # 季集是**卡片这一集**的，不是最近播放那一集的：卡片指向下一集时，
     # 标题、剧照、时长、详情落点都跟着走
     season_number: int
@@ -587,10 +599,12 @@ class PlaybackSegmentView(BaseModel):
     - ``intro`` 片头：在区间里显示「跳过片头」，点了跳到 ``end_ms``；
     - ``outro`` 片尾：到 ``start_ms`` 就提前显示「即将播放下一集」；``to_end`` 为假时
       片尾后面还有内容（下集预告、彩蛋），按钮是「跳过片尾」；
-    - ``other`` 其他重复段（片头前的冠名广告、发行许可）：显示「跳过」。
+    - ``ad`` 已确认的广告、``preview`` 已确认的预告：分别显示「跳过广告」「跳过预告」，
+      手动跳到段尾；
+    - ``other`` 尚未明确分类的重复段：显示「跳过此段」，不猜测为广告或片头。
     """
 
-    type: Literal["intro", "outro", "other"]
+    type: Literal["intro", "outro", "ad", "preview", "other"]
     start_ms: int
     end_ms: int
     #: 片尾一直放到文件结尾（只有 outro 有意义）

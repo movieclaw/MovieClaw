@@ -115,7 +115,7 @@ def test_full_pairing_flow_grants_usable_token(client: TestClient) -> None:
     """发起 → 按码查看 → 批准 → 兑换 → 令牌能调业务接口，且令牌只交付这一次。"""
     grant = _authorize(client)
     assert grant["user_code"].startswith("MCLW-")
-    assert grant["verification_uri"].endswith("/settings/devices")
+    assert grant["verification_uri"].endswith("/activate")
     # 带码的链接：设备打开它，批准页只显示这一条请求
     assert grant["verification_uri_complete"] == (
         f"{grant['verification_uri']}?code={grant['user_code']}"
@@ -353,6 +353,27 @@ def test_member_can_pair_a_cli_that_acts_as_the_member(client: TestClient) -> No
     assert holder.get("/api/v1/members", headers=_bearer(data["token"])).status_code == 403
     # 设备记在成员名下
     assert [d["owner_username"] for d in _paired_devices(client)] == ["family"]
+
+
+def test_apple_tv_pairs_by_code_and_signs_in_as_the_approver(client: TestClient) -> None:
+    """Apple TV 扫码登录（docs/design/tvos-app.md §5.1）：手机上批准，电视就以批准者的身份登录。
+
+    配出来的是 ``tvos`` 这一种登录设备——与在电视上输账号密码登录得到的是同一种（人直接操作的
+    App、随改密下线），不是命令行那种程序凭证。
+    """
+    _create_member_and_login(client)
+    grant = _authorize(client, client_type="tvos", name="客厅 Apple TV")
+    request = client.get(f"{_AUTH}/devices/requests/{grant['user_code']}").json()["data"]
+    assert (request["client_type"], request["requires_admin"]) == ("tvos", False)
+    assert client.post(f"{_AUTH}/devices/requests/{grant['user_code']}/approve").status_code == 200
+    data = _redeem(client, grant["device_code"]).json()["data"]
+    assert data["granted_by"] == "family"
+
+    tv = TestClient(client.app)
+    me = tv.get(f"{_AUTH}/me", headers=_bearer(data["token"])).json()["data"]
+    assert (me["username"], me["device"]["kind"]) == ("family", "tvos")
+    rows = [d for d in client.get(f"{_AUTH}/devices").json()["data"] if d["kind"] == "tvos"]
+    assert [(r["name"], r["family"]) for r in rows] == [("客厅 Apple TV", "login")]
 
 
 def test_member_cannot_approve_a_transcoder(client: TestClient) -> None:
@@ -643,6 +664,40 @@ def test_transcoder_shows_connected_while_its_control_link_is_up(client: TestCli
             break
         time.sleep(0.1)
     assert _paired_devices(client)[0]["connected"] is False
+
+
+@pytest.mark.parametrize("paired", [True, False])
+def test_worker_rename_updates_only_its_paired_device(client: TestClient, paired: bool) -> None:
+    """同一凭证改名重连后仍是原设备；手工令牌的管理名称保留。"""
+    from movieclaw_api.services.playback.remote_worker import REMOTE_WORKER_PROTOCOL_VERSION
+
+    token = (
+        _pair(client, client_type="worker", name="old-mac")
+        if paired
+        else client.post(f"{_AUTH}/tokens", json={"name": "manual", "scope": "transcode"})
+        .json()["data"]["token"]
+    )
+    assert client.put("/api/v1/transcode-worker/config", json={"enabled": True}).status_code == 200
+    listed = client.get(f"{_AUTH}/devices").json()["data"]
+    original = next(d for d in listed if d["name"] == ("old-mac" if paired else "manual"))
+    for name in ["new-mac", "final-mac"]:
+        with client.websocket_connect("/api/v1/transcode-worker/ws", headers=_bearer(token)) as ws:
+            ws.send_json(
+                {
+                    "type": "worker.hello",
+                    "protocol_version": REMOTE_WORKER_PROTOCOL_VERSION,
+                    "worker_id": name,
+                    "capabilities": {"platform": "macOS", "backends": ["videotoolbox"]},
+                }
+            )
+            assert ws.receive_json()["type"] == "worker.accepted"
+            devices = client.get(f"{_AUTH}/devices").json()["data"]
+            device = next(d for d in devices if d["id"] == original["id"])
+            assert device["name"] == (name if paired else "manual")
+            assert len(devices) == len(listed)
+            assert {d["id"]: d["name"] for d in devices if d["id"] != original["id"]} == {
+                d["id"]: d["name"] for d in listed if d["id"] != original["id"]
+            }
 
 
 def test_worker_messages_refresh_last_seen(client: TestClient) -> None:

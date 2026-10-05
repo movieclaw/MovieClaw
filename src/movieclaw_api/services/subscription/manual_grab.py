@@ -75,8 +75,11 @@ async def grab_manual(
     imdb_id: str | None = None,
     douban_id: str | None = None,
     publish_time: datetime | None = None,
+    actor_member_id: int | None = None,
 ) -> list[WantedItem]:
     """把一条种子手动投给订阅，返回它满足的工单列表。
+
+    ``actor_member_id``：点下载的人（超管为 0）。「开始下载」不推给他自己——是他刚点的。
 
     交互式搜索的结果现算现返、不落种子索引，因此种子字段由前端原样回传
     （与 dl.submit 拿 download_url 的信任模型一致——调用方本就是管理员）。
@@ -229,6 +232,7 @@ async def grab_manual(
         upgrade_labels=upgrade_labels,
         manual=True,
         match=match,
+        actor_member_id=actor_member_id,
     )
     if not done:
         raise ConflictException(

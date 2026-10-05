@@ -45,6 +45,8 @@ struct MainTabView: View {
     @State private var switchingAccount = false
     /// 标签栏上方的「接着看」条（见 ResumeAccessory）
     @State private var resume = ResumeBarStore()
+    /// 点开的推送通知（见 openPushTarget）
+    @Environment(PushCenter.self) private var push
 
     /// 当前停在「片段」页（媒体库页签栈顶）
     private var onReels: Bool {
@@ -154,7 +156,7 @@ struct MainTabView: View {
             // 冷启动先让第一帧上屏（这时页签先用 SF Symbol 顶着），再画头像（见 FirstFrameGate）
             await FirstFrameGate.wait()
             avatarIcon = AvatarTabIcon.render(nickname: session?.nickname, photo: nil, scale: displayScale)
-            guard let url = api.image(session?.avatarUrl) else { return }
+            guard let url = api.image(session?.avatarUrl, width: ImageWidth.points(AvatarTabIcon.size)) else { return }
             let request = ImageRequest(url: url, processors: [.resize(size: CGSize(width: AvatarTabIcon.size, height: AvatarTabIcon.size), contentMode: .aspectFill)])
             guard let photo = try? await ImagePipeline.shared.image(for: request) else { return }
             avatarIcon = AvatarTabIcon.render(nickname: session?.nickname, photo: photo, scale: displayScale)
@@ -164,6 +166,9 @@ struct MainTabView: View {
         }
         .fullScreenCover(item: $router.player) { request in
             PlayerScreen(request: request)
+        }
+        .fullScreenCover(item: $router.deviceApproval) { launch in
+            DeviceApprovalFlow(launch: launch)
         }
         .onAppear {
             #if DEBUG
@@ -248,6 +253,13 @@ struct MainTabView: View {
             land(permissions: value)
             // 退出 / 移除当前账号后自动换到了下一个账号：这里才弹得出提示（见 AppModel.pendingNotice）
             if let notice = model.takeNotice() { feedback.success(notice) }
+        }
+        .onChange(of: push.pendingTap, initial: true) { _, target in
+            openPushTarget(target, permissions: permissions)
+        }
+        .onChange(of: router.player == nil) { _, closed in
+            // 播放时点开了别的账号的通知：播放器关掉后接着处理
+            if closed { openPushTarget(push.pendingTap, permissions: permissions) }
         }
         .onAppear { if scenePhase == .active { wasActive = true } }
         .onDisappear {
@@ -360,6 +372,39 @@ extension MainTabView {
             router.present(.accountSwitcher)
         } catch {
             feedback.error(error)
+        }
+    }
+
+    /// 点开推送通知（docs/design/cloud-push.md §9）：来自当前账号就按 `open` 打开站内路径；来自本机别的账号
+    /// 先切过去——主界面按账号整棵重建，新的主界面接着处理同一条（`pendingTap` 这时还留着）
+    private func openPushTarget(_ target: PushTapTarget?, permissions: Permissions) {
+        guard let target, let server = model.server, let session = model.session else { return }
+        if target.login.login == PushLogin(server: server, username: session.username) {
+            push.pendingTap = nil
+            guard let path = target.openPath else { return }
+            router.permissions = permissions // 冷启动时可能抢在 onChange 同步权限之前
+            router.open(webPath: path)
+            return
+        }
+        guard let address = target.login.server else {
+            push.pendingTap = nil
+            return
+        }
+        // 正在播放时不切账号（切账号会把主界面连同播放器整个重建）：留着，关掉播放器后再切
+        guard router.player == nil, !switchingAccount else { return }
+        switchingAccount = true
+        Task {
+            defer { switchingAccount = false }
+            do {
+                try await model.switchAccount(to: target.login.username, on: address)
+            } catch AppModel.AccountError.needsPassword {
+                push.pendingTap = nil
+                feedback.error("「\(target.login.accountName)」的登录已失效，点它重新输入密码")
+                router.present(.accountSwitcher)
+            } catch {
+                push.pendingTap = nil
+                feedback.error(error)
+            }
         }
     }
 
@@ -495,8 +540,10 @@ enum TabIcon {
 ///
 /// 页面自己的按钮用 `.toolbar` 追加（发现页的筛选、媒体库的 ⋯ 菜单）。
 /// 外层注入的 `.topBarTrailing` 会排到页面按钮前面，所以放 `.primaryAction`（固定在最右），
-/// 再用固定间隔隔开：页面按钮在左边自成一组，搜索是独立圆钮。例外是媒体库：「▶ 片段」作为本页主操作
-/// 也放 `.primaryAction`，排在搜索右边（2026-09-30 用户拍板「⋯ · 搜索 · ▶ 片段」）。
+/// 再用固定间隔隔开：页面按钮在左边自成一组，搜索是独立圆钮（媒体库是「▶ ⋯ · 搜索」）。
+///
+/// 「我的」页在搜索左边多一个扫码钮，两者同在一个玻璃胶囊里（2026-10-02 用户要的「扫码 · 搜索」）：
+/// 扫电视 / 终端上的登录二维码 → 直达独立的批准页（DeviceApprovalView）。
 struct AppTopBar: ViewModifier {
     let tab: MainTab
     @Environment(Router.self) private var router
@@ -504,9 +551,22 @@ struct AppTopBar: ViewModifier {
 
     func body(content: Content) -> some View {
         content.toolbar {
+            if tab == .more || searchAccess.canOpenSearch {
+                ToolbarSpacer(.fixed, placement: .primaryAction)
+            }
+            if tab == .more {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        router.deviceApproval = DeviceApprovalLaunch(scanFirst: true)
+                    } label: {
+                        Image(systemName: "qrcode.viewfinder")
+                    }
+                    .accessibilityLabel("扫码批准设备登录")
+                    .accessibilityIdentifier("open-scanner")
+                }
+            }
             // 任一搜索分区可用就给入口（影视 / 资源 / 媒体库，见 SearchAccess.canOpenSearch）
             if searchAccess.canOpenSearch {
-                ToolbarSpacer(.fixed, placement: .primaryAction)
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         router.push(.searchHome(mode: preferredSearchMode))
@@ -546,7 +606,7 @@ struct AvatarBadge: View {
     @Environment(\.api) private var api
 
     var body: some View {
-        let url = api.image(avatarUrl ?? session?.avatarUrl)
+        let url = api.image(avatarUrl ?? session?.avatarUrl, width: ImageWidth.points(size))
         ZStack {
             Circle().fill(LinearGradient(colors: [Theme.accentStrong, Theme.accent2], startPoint: .top, endPoint: .bottom))
             Text(initials)

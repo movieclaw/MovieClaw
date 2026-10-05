@@ -33,6 +33,10 @@ async def load_scrape_runtime() -> None:
     store = get_setting_store()
     _current_scrape = await store.get(MetadataScrapeSetting)
     _current_discover = await store.get(DiscoverPreferencesSetting)
+    # Fanart 凭据与刮削偏好同生命周期：刮削管线首次使用前就要知道 Key 能不能用
+    from movieclaw_api.services.fanart import load_fanart_runtime
+
+    await load_fanart_runtime()
 
 
 async def save_scrape_setting(setting: MetadataScrapeSetting) -> MetadataScrapeSetting:
@@ -65,6 +69,9 @@ def reset_scrape_config() -> None:
     global _current_scrape, _current_discover
     _current_scrape = None
     _current_discover = None
+    from movieclaw_api.services.fanart import reset_fanart_runtime
+
+    reset_fanart_runtime()
 
 
 # ---------------------------------------------------------------------------
@@ -97,15 +104,52 @@ def effective_cert_countries(setting: MetadataScrapeSetting | None = None) -> li
     return list((setting or current_scrape_setting()).cert_country_priority)
 
 
-def effective_asset_sizes(setting: MetadataScrapeSetting | None = None) -> tuple[str, str, str]:
-    """(海报, 背景, 剧照) 档位：设置页的值优先，空则跟随环境变量。"""
-    setting = setting or current_scrape_setting()
+# 本地图片画质预设 → (海报, 背景, 剧照, 头像) 档位（docs/design/image-sizing.md §8.1）。
+# 原图：体验优先的默认；标准：各设备都清楚，海报和头像不存原图（头像原图对显示几乎没有
+# 增益，却占头像磁盘的大头）；节省空间：手机和网页够用，电视上剧照、头像会发虚
+IMAGE_QUALITY_PRESETS: dict[str, tuple[str, str, str, str]] = {
+    "original": ("original", "original", "original", "original"),
+    "standard": ("w780", "original", "original", "h632"),
+    "compact": ("w500", "w1280", "w300", "w185"),
+}
+
+
+def _image_sizes(setting: MetadataScrapeSetting) -> tuple[str, str, str, str]:
+    """生效的四个档位：选了画质预设就按预设；自定义或没选过则逐项「设置值 > 环境变量」。"""
+    preset = IMAGE_QUALITY_PRESETS.get(setting.image_quality)
+    if preset is not None:
+        return preset
     env = get_settings()
     return (
         setting.poster_size or env.tmdb_poster_size,
         setting.backdrop_size or env.tmdb_backdrop_size,
         setting.still_size or env.tmdb_still_size,
+        setting.profile_size or env.tmdb_profile_size,
     )
+
+
+def effective_asset_sizes(setting: MetadataScrapeSetting | None = None) -> tuple[str, str, str]:
+    """(海报, 背景, 剧照) 档位：画质预设优先；自定义 / 没选过则设置值优先、空则跟随环境变量。"""
+    poster, backdrop, still, _profile = _image_sizes(setting or current_scrape_setting())
+    return poster, backdrop, still
+
+
+def effective_profile_size(setting: MetadataScrapeSetting | None = None) -> str:
+    """演职员头像档位（口径同 ``effective_asset_sizes``）。"""
+    return _image_sizes(setting or current_scrape_setting())[3]
+
+
+def effective_image_quality(setting: MetadataScrapeSetting | None = None) -> str:
+    """界面上该选中的画质档：显式选过就是它；没选过时四个档位都没设、且等于原图预设
+    （环境变量也没改）就算「原图」，否则算「自定义」。"""
+    setting = setting or current_scrape_setting()
+    if setting.image_quality:
+        return setting.image_quality
+    sizes = _image_sizes(setting)
+    for name, preset in IMAGE_QUALITY_PRESETS.items():
+        if sizes == preset:
+            return name
+    return "custom"
 
 
 def effective_region() -> str:
@@ -127,6 +171,11 @@ def effective_image_prefs(setting: MetadataScrapeSetting | None = None) -> Image
         backdrop_langs=tuple(setting.backdrop_language_priority),
         poster_min_width=setting.poster_min_width,
         backdrop_min_width=setting.backdrop_min_width,
+        logo_langs=tuple(setting.logo_language_priority),
+        poster_sources=tuple(setting.poster_source_order),
+        backdrop_sources=tuple(setting.backdrop_source_order),
+        logo_sources=tuple(setting.logo_source_order),
+        season_sources=tuple(setting.season_poster_source_order),
     )
 
 
@@ -164,6 +213,16 @@ ITEM_SCOPED_OVERRIDABLE = frozenset(
         "poster_size",
         "backdrop_size",
         "still_size",
+        "profile_size",
+        "image_quality",
+        "logo_language_priority",
+        # 图片来源（产物同样是 poster_path/backdrop_path/logo_path 与条目资产）。
+        # Fanart 的 API Key 不在此列：凭据全站一份，不跟库走
+        "fanart_enabled",
+        "poster_source_order",
+        "backdrop_source_order",
+        "logo_source_order",
+        "season_poster_source_order",
     }
 )
 
@@ -191,10 +250,22 @@ def sanitize_overrides(raw: object, *, fields: frozenset[str] = LIBRARY_OVERRIDA
     写入的字段（字段被移出可覆盖集合后），静默忽略比报错合适。
     ``fields`` 让两条解析路径各取自己那一半——目录态的读取点不该看见
     条目态的覆盖，反之亦然。
+
+    **空值（空串 / 空列表）= 没覆盖、跟随全局**：这些字段在全局层的空值意思是
+    「跟随环境变量 / 内置默认」，到了库这一层，「空」只能是「跟随上一级」（界面
+    写的也是「留空即跟随全局」）。不剔掉的话，合并时空值会盖掉全局值，库实际
+    跟的是环境变量或内置默认——例：库设置里剧照档位选「跟随」存成空串，全局
+    改成 original 后，这个库照样按环境变量下 w300。
     """
     if not isinstance(raw, dict):
         return {}
-    return {k: v for k, v in raw.items() if k in fields}
+    return {k: v for k, v in raw.items() if k in fields and not _is_empty_override(v)}
+
+
+def _is_empty_override(value: object) -> bool:
+    if isinstance(value, str):
+        return not value.strip()
+    return isinstance(value, list) and not value
 
 
 def merge_for_library(
@@ -244,11 +315,19 @@ def effective_mirror_flags(library: object | None) -> tuple[bool, bool, bool]:
 
 
 def profile_fetch_kwargs(setting: MetadataScrapeSetting | None = None) -> dict:
-    """``fetch_media_profile`` 的偏好参数包（建档与刷新共用，口径一致）。"""
+    """``fetch_media_profile`` 的偏好参数包（建档与刷新共用，口径一致）。
+
+    ``fanart``：该条目（按归属库合并后的设置）启用了 Fanart、且全站 Key 可用时
+    才给客户端；Key 没配或已失效时为 None，刮削只用 TMDB。
+    """
+    from movieclaw_api.services.fanart import get_fanart_client
+
+    resolved = setting or current_scrape_setting()
     return {
         "languages": effective_languages(setting),
         "image_prefs": effective_image_prefs(setting),
         "cert_countries": effective_cert_countries(setting),
+        "fanart": get_fanart_client() if resolved.fanart_enabled else None,
     }
 
 

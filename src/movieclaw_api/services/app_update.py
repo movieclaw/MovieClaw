@@ -1357,7 +1357,15 @@ async def _record_app_check(view: UpdateCheckView) -> None:
     state.app_compatible = view.compatible if available else False
     state.app_changelog = view.changelog if available else ""
     state.app_published_at = view.published_at if available else ""
+    # 「有新版本」推给管理员的手机：每个版本只推一次（每小时的检查不会反复推）
+    push_version = available and state.app_pushed_version != view.latest_version
+    if push_version:
+        state.app_pushed_version = view.latest_version
     await save_app_update_state(state)
+    if push_version:
+        from movieclaw_api.services.push import events as push_events
+
+        push_events.new_version(version=view.latest_version, compatible=view.compatible)
 
 
 async def _record_model_check(view: ModelUpdateCheckView) -> None:

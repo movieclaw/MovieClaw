@@ -458,7 +458,8 @@ function RecentPlayRow({ entry }: { entry: PlaybackLogEntry }) {
   return (
     <GroupLinkRow href={href}>
       <PosterImage
-        src={media.poster_url ? imageUrl(media.poster_url, "poster-card") : null}
+        src={media.poster_url ? imageUrl(media.poster_url) : null}
+        width={34}
         alt={media.title}
         className="h-[50px] w-[34px] shrink-0 rounded-md object-cover ring-1 ring-white/10"
       />

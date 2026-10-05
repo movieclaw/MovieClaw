@@ -8,6 +8,7 @@ ffmpeg 的 chromaprint 用替身（按文件路径生成可复现的合成指纹
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 import time
@@ -28,14 +29,89 @@ from movieclaw_api.services.playback.session import get_session_manager, reset_s
 from movieclaw_api.settings.store import reset_setting_store
 from movieclaw_db.crypto import reset_secret_box
 from movieclaw_db.engine import get_database
-from movieclaw_db.models import FileSource, FileState, LibraryFile, MediaItem, MediaSegmentState
+from movieclaw_db.models import (
+    FileSource,
+    FileState,
+    LibraryFile,
+    MediaItem,
+    MediaMetadata,
+    MediaSegmentState,
+)
 from movieclaw_db.repositories.library_repo import LibraryRepository
 from movieclaw_jellyfin.ids import episode_guid
 from movieclaw_playback import activity
+from movieclaw_playback import credits as credits_logic
 from movieclaw_playback.events import ClientInfo
 from movieclaw_playback.skip_segments import HASH_SECONDS
 
 _PB = "/api/v1/playback"
+
+
+def test_real_truncated_first_audio_selects_complete_track() -> None:
+    """NAS华语剧 J E03：第一轨 2422.368 秒，第二轨才覆盖完整的 2671.701 秒。"""
+    fixture = Path(__file__).parents[1] / "playback/fixtures/skip_segments/nas-reset-audio.json"
+    data = json.loads(fixture.read_text())
+    assert skip_segments._complete_audio_index(data["streams"], data["duration"]) == 1
+    # 正常的第一轨仍有优先权，不因多一条音轨就任意换轨。
+    data["streams"][0]["tags"]["DURATION"] = "00:44:31.701000000"
+    assert skip_segments._complete_audio_index(data["streams"], data["duration"]) == 0
+
+
+@pytest.mark.parametrize("reason", ["commentary", "different_language", "unknown_length"])
+def test_incomplete_audio_does_not_switch_without_suitable_alternative(reason: str) -> None:
+    streams = [
+        {"duration": "2400", "tags": {"language": "chi"}},
+        {"duration": "2700", "tags": {"language": "chi"}},
+    ]
+    if reason == "commentary":
+        streams[1]["disposition"] = {"comment": 1}
+    elif reason == "different_language":
+        streams[1]["tags"]["language"] = "eng"
+    else:
+        streams[0]["duration"] = "N/A"
+    assert skip_segments._complete_audio_index(streams, 2700) == 0
+
+
+def _truehd_streams() -> list[dict]:
+    return [
+        {"codec_name": "truehd", "duration": "2700", "tags": {"language": "eng"}},
+        {"codec_name": "ac3", "duration": "2700", "tags": {"language": "eng"}},
+    ]
+
+
+def test_truehd_is_replaced_by_same_mix_lossy_track() -> None:
+    """美剧 E这类原盘 Remux：TrueHD 解码是同片 AC3 兼容轨的 4 倍，改用 AC3 算指纹。"""
+    assert skip_segments._cheaper_audio_index(_truehd_streams(), 0, 2700) == 1
+    # 第一轨短缺换到第二轨（TrueHD）后，同样再换到完整的有损轨
+    streams = [{"codec_name": "aac", "duration": "2400", "tags": {"language": "eng"}}]
+    streams += _truehd_streams()
+    assert skip_segments._complete_audio_index(streams, 2700) == 1
+    assert skip_segments._cheaper_audio_index(streams, 1, 2700) == 2
+
+
+@pytest.mark.parametrize("reason", ["commentary", "different_language", "short", "unknown_length"])
+def test_truehd_kept_without_equivalent_lossy_track(reason: str) -> None:
+    streams = _truehd_streams()
+    if reason == "commentary":
+        streams[1]["disposition"] = {"comment": 1}
+    elif reason == "different_language":
+        streams[1]["tags"]["language"] = "spa"
+    elif reason == "short":
+        streams[1]["duration"] = "2600"
+    else:
+        streams[1]["duration"] = "N/A"
+    assert skip_segments._cheaper_audio_index(streams, 0, 2700) == 0
+
+
+def test_cheap_codecs_are_never_switched() -> None:
+    """EAC3 / AAC / DTS / FLAC 解码都很快：选中的轨不是 TrueHD 就不动。"""
+    streams = [
+        {"codec_name": "eac3", "duration": "2700", "tags": {"language": "eng"}},
+        {"codec_name": "aac", "duration": "2700", "tags": {"language": "eng"}},
+    ]
+    assert skip_segments._cheaper_audio_index(streams, 0, 2700) == 0
+
+
 _ADMIN = {"username": "admin", "password": "Sup3rSecret!"}
 CAPABILITY = {
     "video": [{"codec": "h264"}],
@@ -83,6 +159,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
     monkeypatch.setenv("MOVIECLAW_TRANSCODE_DIR", str(tmp_path / "transcodes"))
     monkeypatch.setenv("MOVIECLAW_AUDIO_FINGERPRINT_DIR", str(tmp_path / "fp"))
+    # 默认不加载画面文字识别模型（开发机 data/models/ppocr 里有也不用），结果只来自声音
+    monkeypatch.setenv("MOVIECLAW_OCR_DIR", str(tmp_path / "no-ocr-models"))
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
     monkeypatch.setenv("TMDB_API_KEY", "test-key-not-used")
     get_settings.cache_clear()
@@ -372,42 +450,189 @@ class _Ctx:
         return True
 
 
-def test_library_backfill_pauses_while_someone_is_watching(
+def _track_parallel_reads(monkeypatch, delay: float = 0.05) -> dict[str, int]:
+    """替身指纹窗口：记录同时在读的文件数峰值（一个文件的两个窗口是顺序读的）。"""
+    state = {"now": 0, "peak": 0}
+
+    async def window(path: str, start: float, length: float) -> bytes:
+        state["now"] += 1
+        state["peak"] = max(state["peak"], state["now"])
+        try:
+            await asyncio.sleep(delay)
+            return await fake_window(path, start, length)
+        finally:
+            state["now"] -= 1
+
+    monkeypatch.setattr(skip_segments, "_chromaprint_window", window)
+    return state
+
+
+class _FakeTranscode:
+    """转码会话管理器里的一路会话（只带 ``playback_load`` 看的字段）。"""
+
+    def __init__(self, *, transcoding: bool = True, remote: bool = False) -> None:
+        self.is_transcoding = transcoding
+        self.remote = remote
+        self.last_ping = time.monotonic()
+
+
+def test_idle_backfill_reads_episodes_in_parallel_up_to_machine_limit(
     client: TestClient, tmp_path: Path, monkeypatch
 ) -> None:
-    """整库回填读的是和播放同一份磁盘：有人在看片（未暂停的会话）就先等，暂停 / 放完后继续。"""
-    ids = call(client, _seed, tmp_path)
-    monkeypatch.setattr(skip_segments, "_QUIET_POLL_S", 0.05)
+    """没人在看时按机器规格多路并行：同时读的文件数正好到上限，不多也不少。"""
+    ids = call(client, _seed, tmp_path, 8)
+    monkeypatch.setattr(skip_segments, "_work_limit", 3)
+    reads = _track_parallel_reads(monkeypatch)
+
+    async def scenario():
+        activity.reset()
+        return await skip_segments.analyze_season(ids["show"], 1, context=_Ctx(), polite=True)
+
+    outcome = call(client, scenario)
+    assert reads["peak"] == 3
+    assert outcome.fingerprinted == 8 and outcome.analyzed
+    states = call(client, _states)
+    assert all(states[f].segments for f in ids["files"]), "并行算出的指纹照样整季比对出片段"
+
+
+def test_backfill_narrows_to_one_lane_during_direct_play(
+    client: TestClient, tmp_path: Path, monkeypatch
+) -> None:
+    """有人在直接播放（未暂停的会话）：不再暂停，只留一路，读盘不和播放抢。"""
+    ids = call(client, _seed, tmp_path, 6)
+    monkeypatch.setattr(skip_segments, "_work_limit", 3)
+    reads = _track_parallel_reads(monkeypatch)
     device = ClientInfo(name="测试播放器", device_id="dev-1")
-    unit = (ids["show"], 1, 1)
-    ctx = _Ctx()
 
     async def scenario():
         activity.reset()
         activity.report_progress(
-            "dev-1", member_id=0, client=device, unit=unit, position_ms=1000, paused=False
+            "dev-1",
+            member_id=0,
+            client=device,
+            unit=(ids["show"], 1, 1),
+            position_ms=1000,
+            paused=False,
         )
-        assert skip_segments.playback_active()
+        assert skip_segments.playback_load() == skip_segments.PLAYING
+        try:
+            return await asyncio.wait_for(
+                skip_segments.analyze_season(ids["show"], 1, context=_Ctx(), polite=True), 60
+            )
+        finally:
+            activity.reset()
+
+    outcome = call(client, scenario)
+    assert reads["peak"] == 1
+    assert outcome.fingerprinted == 6 and outcome.analyzed
+
+
+def test_backfill_pauses_while_transcoding_and_resumes_after(
+    client: TestClient, tmp_path: Path, monkeypatch
+) -> None:
+    """本机在转码：一个文件都不读，任务中心说明暂停；转码结束后自动继续，并把「暂停」字样换掉。"""
+    ids = call(client, _seed, tmp_path)
+    monkeypatch.setattr(skip_segments, "_QUIET_POLL_S", 0.05)
+    sessions = [_FakeTranscode()]
+    monkeypatch.setattr(get_session_manager(), "active", lambda: list(sessions))
+    ctx = _Ctx()
+
+    async def scenario():
+        activity.reset()
+        assert skip_segments.playback_load() == skip_segments.TRANSCODING
         task = asyncio.create_task(
             skip_segments.analyze_season(ids["show"], 1, context=ctx, polite=True)
         )
         await asyncio.sleep(0.8)
         paused_all_along = not task.done() and not list((tmp_path / "fp").glob("*.fp"))
-        # 用户按了暂停：不再算「在看」，回填放行
-        activity.report_progress(
-            "dev-1", member_id=0, client=device, unit=unit, position_ms=1000, paused=True
-        )
-        outcome = await asyncio.wait_for(task, 60)
-        activity.reset()
-        return paused_all_along, outcome
+        sessions.clear()  # 转码播放结束
+        return paused_all_along, await asyncio.wait_for(task, 60)
 
     paused_all_along, outcome = call(client, scenario)
-    assert paused_all_along, "有人在看片时不该读盘算指纹"
+    assert paused_all_along, "转码时不该读盘算指纹"
     assert outcome.fingerprinted == 5 and outcome.analyzed
-    assert any("有人正在看片" in m for m in ctx.messages)
-    # 恢复读盘时要把「暂停」字样换掉，否则任务中心要等这一季做完才更新
-    paused_at = next(i for i, m in enumerate(ctx.messages) if "有人正在看片" in m)
-    assert any("继续识别" in m for m in ctx.messages[paused_at + 1 :])
+    paused_at = [i for i, m in enumerate(ctx.messages) if "正在转码播放" in m]
+    assert len(paused_at) == 1, f"多路同时在等也只说一次暂停：{ctx.messages}"
+    assert any("继续识别" in m for m in ctx.messages[paused_at[0] + 1 :])
+
+
+def test_playback_load_tiers() -> None:
+    """转码 > 在看 > 空闲；外置 Worker 上的转码、本机直通都不算本机转码；没心跳的会话不算。"""
+    manager = get_session_manager()
+    activity.reset()
+    cases = [
+        ([], skip_segments.IDLE),
+        ([_FakeTranscode(transcoding=False)], skip_segments.PLAYING),
+        ([_FakeTranscode(remote=True)], skip_segments.PLAYING),
+        ([_FakeTranscode(transcoding=False), _FakeTranscode()], skip_segments.TRANSCODING),
+    ]
+    stale = _FakeTranscode()
+    stale.last_ping -= 60
+    cases.append(([stale], skip_segments.IDLE))
+    original = manager.active
+    try:
+        for sessions, expected in cases:
+            manager.active = lambda sessions=sessions: sessions  # type: ignore[method-assign]
+            assert skip_segments.playback_load() == expected
+    finally:
+        manager.active = original  # type: ignore[method-assign]
+
+
+def test_item_jobs_take_free_slot_before_backfill(client: TestClient, monkeypatch) -> None:
+    """只剩一路时，后到的条目作业（入库、开播提队）也排在先到的整库回填前面。"""
+    monkeypatch.setattr(skip_segments, "_work_limit", 1)
+    monkeypatch.setattr(skip_segments, "_QUIET_POLL_S", 0.05)
+    order: list[str] = []
+
+    async def scenario():
+        activity.reset()
+        release = asyncio.Event()
+
+        async def take(name: str, polite: bool, hold: asyncio.Event | None = None):
+            async with skip_segments._work_slot(polite=polite):
+                order.append(name)
+                if hold is not None:
+                    await hold.wait()
+
+        first = asyncio.create_task(take("占着的回填", True, release))
+        await asyncio.sleep(0.05)
+        backfill = asyncio.create_task(take("回填", True))
+        await asyncio.sleep(0.05)
+        item = asyncio.create_task(take("条目", False))
+        await asyncio.sleep(0.05)
+        release.set()
+        await asyncio.gather(first, backfill, item)
+
+    client.portal.call(scenario)  # type: ignore[attr-defined]
+    assert order == ["占着的回填", "条目", "回填"]
+
+
+@pytest.mark.parametrize(("cores", "expected"), [(1, 1), (2, 1), (4, 3), (8, 4), (32, 4)])
+def test_work_limit_follows_physical_cores(monkeypatch, cores: int, expected: int) -> None:
+    """路数 = 物理核数减一（留一个核给接口与播放），至少 1、封顶 4。"""
+    monkeypatch.setattr(skip_segments, "_work_limit", None)
+    monkeypatch.setattr(skip_segments, "_physical_cores", lambda: cores)
+    assert skip_segments.work_limit() == expected
+
+
+def test_physical_cores_merges_hyperthreads_and_respects_container_quota(monkeypatch) -> None:
+    """NAS 的 V1500B：8 个逻辑核是 4 个物理核；容器限了 --cpus=2 就按 2 算；
+    读不到拓扑时退回逻辑核数。"""
+    monkeypatch.setattr(skip_segments.sys, "platform", "linux")
+    monkeypatch.setattr(os, "sched_getaffinity", lambda pid: set(range(8)), raising=False)
+    topology = {}
+    for cpu in range(8):
+        base = f"/sys/devices/system/cpu/cpu{cpu}/topology"
+        topology[f"{base}/core_id"] = cpu // 2
+        topology[f"{base}/physical_package_id"] = 0
+    monkeypatch.setattr(skip_segments, "_read_int", topology.get)
+    monkeypatch.setattr(skip_segments, "_cgroup_cpu_limit", lambda: None)
+    assert skip_segments._physical_cores() == 4
+    monkeypatch.setattr(skip_segments, "_cgroup_cpu_limit", lambda: 2.0)
+    assert skip_segments._physical_cores() == 2
+    monkeypatch.setattr(skip_segments, "_cgroup_cpu_limit", lambda: None)
+    monkeypatch.setattr(skip_segments, "_read_int", lambda path: None)
+    assert skip_segments._physical_cores() == 8
 
 
 def test_item_job_and_ingest_never_wait_for_playback(client: TestClient, tmp_path: Path) -> None:
@@ -471,7 +696,8 @@ def test_running_job_picks_up_episode_that_lands_mid_run(
 
     async def compute_then_land_new_episode(file) -> None:
         await real(file)
-        if "id" not in landed:
+        if "claimed" not in landed:  # 多路并行：先占位再 await，只落位一集
+            landed["claimed"] = 1
             landed["id"] = await _add_episode(tmp_path, ids, 5)
 
     monkeypatch.setattr(skip_segments, "compute_fingerprint", compute_then_land_new_episode)
@@ -694,15 +920,17 @@ def test_concurrent_analyses_never_fingerprint_the_same_file_twice(
     assert all(s.analyzed_at is not None for s in call(client, _states).values())
 
 
-def test_unreadable_fingerprint_keeps_the_episodes_existing_result(
+def test_unreadable_fingerprint_is_requeued_without_losing_stored_result(
     client: TestClient, tmp_path: Path, monkeypatch
 ) -> None:
-    """比对时某集的指纹读不了（缓存刚被清、又没轮到重算它）：不能把它已经在用的片段抹掉。"""
+    """指纹在比对时读不了：保留存储结果，暂不下发，并排队重建而不是永久忽略。"""
     ids = call(client, _seed, tmp_path)
     call(client, skip_segments.analyze_season, ids["show"], 1)
     victim = ids["files"][1]
     before = start_session(client, victim)["segments"]
     assert len(before) == 2
+    stored_before = call(client, _states)[victim].segments
+    monkeypatch.setattr(skip_segments, "schedule_playback_bump", lambda _: None)
     real = skip_segments._run_detection
 
     async def detection_that_cannot_read_one(episodes):
@@ -723,8 +951,13 @@ def test_unreadable_fingerprint_keeps_the_episodes_existing_result(
 
     call(client, force_reanalysis)
     call(client, skip_segments.analyze_season, ids["show"], 1)
-    assert start_session(client, victim)["segments"] == before, "读不了的那一集仍给原来的片头片尾"
+    state = call(client, _states)[victim]
+    assert state.fingerprint_status == "pending" and state.segments == stored_before
+    assert start_session(client, victim)["segments"] == []
     assert len(start_session(client, ids["files"][0])["segments"]) == 2
+    monkeypatch.setattr(skip_segments, "_run_detection", real)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    assert start_session(client, victim)["segments"] == before
 
 
 def test_enqueue_after_scan_only_acts_when_files_were_imported(
@@ -889,11 +1122,90 @@ def test_backfill_resorts_after_every_season(
     assert len(done) == 8
 
 
+async def _set_metadata(item_id: int, language: str | None, countries: list[str]) -> None:
+    async with get_database().session() as session:
+        session.add(
+            MediaMetadata(
+                media_item_id=item_id, original_language=language, origin_countries=countries
+            )
+        )
+        await session.commit()
+
+
+async def _set_head_segment(file_id: int, start_ms: int) -> None:
+    async with get_database().session() as session:
+        state = await session.get(MediaSegmentState, file_id)
+        state.segments = [
+            {"type": "other", "start_ms": start_ms, "end_ms": 13_000, "to_end": False},
+            {"type": "intro", "start_ms": 270_000, "end_ms": 370_000, "to_end": False},
+        ]
+        await session.commit()
+
+
+@pytest.mark.parametrize(
+    "language,countries,snapped",
+    [
+        ("cn", ["HK"], True),  # 粤语港剧
+        ("zh", ["TW"], True),
+        ("ja", ["JP"], False),  # 日剧 A开头几秒就是剧情
+        ("en", ["US"], False),
+        (None, [], False),  # 没刮到元数据：宁可少跳
+    ],
+)
+def test_head_snap_only_for_chinese_titles(
+    client: TestClient, tmp_path: Path, language, countries, snapped
+) -> None:
+    """下发贴零只对中文内容：国内每集先放发行许可证，许可证前只会是广告；海外剧有冷开场。"""
+    ids = call(client, _seed, tmp_path)
+    if language is not None:
+        call(client, _set_metadata, ids["show"], language, countries)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    first = ids["files"][0]
+    call(client, _set_head_segment, first, 4_600)
+    served = start_session(client, first)["segments"][0]["start_ms"]
+    assert served == (0 if snapped else 4_600)
+
+
+def test_head_segments_within_snap_window_merge_into_one_button(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """华语剧 C E02：许可证 0–6.6 秒 + 片头 10.4 秒起，中间是平台厂标。
+
+    v5 只认出片头，贴零后一个按钮跳完；v6 认出了许可证，不并就拆成两个按钮、厂标漏跳。
+    """
+    ids = call(client, _seed, tmp_path)
+    call(client, _set_metadata, ids["show"], "zh", ["CN"])
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    first = ids["files"][0]
+
+    async def set_segments() -> None:
+        async with get_database().session() as session:
+            state = await session.get(MediaSegmentState, first)
+            state.segments = [
+                {"type": "other", "start_ms": 0, "end_ms": 6_600, "to_end": False},
+                {"type": "intro", "start_ms": 10_400, "end_ms": 98_000, "to_end": False},
+                {"type": "outro", "start_ms": 2_500_000, "end_ms": 2_600_000, "to_end": True},
+            ]
+            await session.commit()
+
+    call(client, set_segments)
+    served = start_session(client, first)["segments"]
+    assert [(s["type"], s["start_ms"], s["end_ms"]) for s in served] == [
+        ("intro", 0, 98_000),
+        ("outro", 2_500_000, 2_600_000),
+    ]
+    assert len(call(client, _states)[first].segments) == 3  # 库里仍存识别原值
+
+
 def test_first_segment_near_file_start_is_served_from_zero(
     client: TestClient, tmp_path: Path
 ) -> None:
-    """片头前只有几秒台标时，下发的第一段从 0 开始：开播就给「跳过」。库里存的原值不变。"""
+    """中文剧片头前只有几秒台标、冠名广告时，下发的第一段从 0 开始：开播就给「跳过」。
+
+    库里存的原值不变。海外剧常有几秒的剧情冷开场，不贴（见下一个用例）。
+    """
     ids = call(client, _seed, tmp_path)
+    call(client, _set_metadata, ids["show"], "zh", ["CN"])
     call(client, skip_segments.analyze_season, ids["show"], 1)
     first, second = ids["files"][0], ids["files"][1]
 
@@ -914,3 +1226,537 @@ def test_first_segment_near_file_start_is_served_from_zero(
     # 离开头超过 15 秒的不动
     assert start_session(client, second)["segments"][0]["start_ms"] == 20_000
     assert call(client, _states)[first].segments[0]["start_ms"] == 7_678
+
+
+def test_replaced_source_hides_old_segments_until_reanalysis(client, tmp_path) -> None:
+    """洗版已被扫描入账：重算前、新指纹写完但还没比对时，都不能沿用旧时间点。"""
+    ids = call(client, _seed, tmp_path, 3)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    victim = ids["files"][0]
+
+    async def replace_source():
+        async with get_database().session() as session:
+            file = await session.get(LibraryFile, victim)
+            with Path(file.file_path).open("ab") as out:
+                out.write(b"REPLACED-SOURCE")
+            file.size_bytes = Path(file.file_path).stat().st_size
+            await session.commit()
+
+    async def served():
+        async with get_database().session() as session:
+            file = await session.get(LibraryFile, victim)
+            return await skip_segments.segments_for_file(session, file)
+
+    async def fingerprint():
+        async with get_database().session() as session:
+            file = await session.get(LibraryFile, victim)
+        return await skip_segments._fingerprint_one(file)
+
+    assert call(client, served)
+    call(client, replace_source)
+    assert call(client, served) == [], "新片源不能使用旧时间点"
+    assert call(client, fingerprint) == "ok"
+    assert call(client, served) == [], "只更新指纹不代表旧时间点已经适用于新片源"
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    assert call(client, served), "重算完成后恢复下发"
+
+
+def test_limited_analysis_excludes_fingerprints_from_replaced_sources(
+    client, tmp_path, monkeypatch
+) -> None:
+    """有读取预算时，尚未轮到重算的旧片源指纹不能混进本轮整季比对。"""
+    ids = call(client, _seed, tmp_path, 4)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    victim = ids["files"][0]
+
+    async def expire():
+        async with get_database().session() as session:
+            file = await session.get(LibraryFile, victim)
+            file.size_bytes += 1
+            for file_id in ids["files"]:
+                state = await session.get(MediaSegmentState, file_id)
+                state.algo_version = skip_segments.ALGO_VERSION - 1
+            await session.commit()
+
+    call(client, expire)
+    included = []
+    real = skip_segments._run_detection
+
+    async def capture(episodes):
+        included.extend(e["file_id"] for e in episodes)
+        return await real(episodes)
+
+    monkeypatch.setattr(skip_segments, "_run_detection", capture)
+    call(client, skip_segments.analyze_season, ids["show"], 1, max_new=0)
+    assert included == ids["files"][1:]
+    assert call(client, _states)[victim].algo_version == skip_segments.ALGO_VERSION - 1
+
+
+def test_algorithm_upgrade_reuses_existing_fingerprints(client, tmp_path, monkeypatch) -> None:
+    """算法升级只重做比对，不为这次修复重新读取整库媒体。"""
+    ids = call(client, _seed, tmp_path, 3)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+
+    async def expire():
+        async with get_database().session() as session:
+            for file_id in ids["files"]:
+                state = await session.get(MediaSegmentState, file_id)
+                state.algo_version = skip_segments.ALGO_VERSION - 1
+            await session.commit()
+
+    async def unexpected_read(*_args):
+        pytest.fail("算法升级不应重新提取已有指纹")
+
+    call(client, expire)
+    assert call(client, _needing) == [(ids["show"], 1)]
+    bumped = []
+    monkeypatch.setattr(
+        skip_segments, "schedule_playback_bump", lambda file: bumped.append(file.id)
+    )
+    assert start_session(client, ids["files"][0])["segments"] == [], "重算前不下发旧算法区间"
+    assert bumped == [ids["files"][0]], "旧结果撤下后开播应触发优先重算"
+    monkeypatch.setattr(skip_segments, "_chromaprint_window", unexpected_read)
+    result = call(client, skip_segments.analyze_season, ids["show"], 1)
+    assert result.analyzed and result.fingerprinted == 0
+    assert call(client, _needing) == []
+    assert all(s.algo_version == skip_segments.ALGO_VERSION for s in call(client, _states).values())
+
+
+def test_old_detection_cannot_overwrite_new_fingerprint(client, tmp_path, monkeypatch) -> None:
+    """整季比对在子进程里跑；返回前别的作业已重算洗版文件，旧结果不能覆盖新状态。"""
+    ids = call(client, _seed, tmp_path, 3)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    victim = ids["files"][0]
+    real = skip_segments._run_detection
+
+    async def expire():
+        async with get_database().session() as session:
+            state = await session.get(MediaSegmentState, victim)
+            state.analyzed_at = None
+            await session.commit()
+
+    async def delayed(episodes):
+        result = await real(episodes)
+        async with get_database().session() as session:
+            file = await session.get(LibraryFile, victim)
+            file.size_bytes += 1
+            await session.commit()
+        await skip_segments._fingerprint_one(file)
+        return result
+
+    call(client, expire)
+    monkeypatch.setattr(skip_segments, "_run_detection", delayed)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    state = call(client, _states)[victim]
+    assert state.segments is None and state.analyzed_at is None
+    assert call(client, _needing) == [(ids["show"], 1)]
+    monkeypatch.setattr(skip_segments, "_run_detection", real)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    assert call(client, _states)[victim].segments
+    assert call(client, _needing) == []
+
+
+def test_audio_reselection_rebuilds_cache_and_withdraws_old_segments(
+    client: TestClient, tmp_path: Path, monkeypatch
+) -> None:
+    """相同文件换用完整音轨也会改变时间点，不能继续下发旧轨识别的区间。"""
+    ids = call(client, _seed, tmp_path)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    file_id = ids["files"][0]
+
+    async def load_file():
+        async with get_database().session() as session:
+            file = await session.get(LibraryFile, file_id)
+            file.audio_streams = [{"codec": "eac3"}, {"codec": "aac"}]
+            session.add(file)
+            await session.commit()
+            return file
+
+    file = call(client, load_file)
+    path = skip_segments.fingerprint_path(file_id)
+    head, _, body = path.read_bytes().partition(b"\n")
+    meta = json.loads(head)
+    meta.pop("audio_selection_version")
+    path.write_bytes(json.dumps(meta).encode() + b"\n" + body)
+    state = call(client, _states)[file_id]
+    assert state.segments and skip_segments._fingerprint_due(file, state)
+
+    async def select_audio(_file):
+        return 1
+
+    calls = []
+
+    async def alternate_window(path, start, length, audio_index=0):
+        calls.append(audio_index)
+        return await fake_window(path, start, length)
+
+    monkeypatch.setattr(skip_segments, "_fingerprint_audio_index", select_audio)
+    monkeypatch.setattr(skip_segments, "_chromaprint_window", alternate_window)
+    assert call(client, skip_segments._fingerprint_one, file) == "ok"
+    assert calls == [1, 1]
+    state = call(client, _states)[file_id]
+    assert state.segments is None and state.analyzed_at is None
+    assert not skip_segments._fingerprint_due(file, state)
+    refreshed = json.loads(path.read_bytes().split(b"\n", 1)[0])
+    assert refreshed["audio_index"] == 1
+
+
+@pytest.mark.parametrize("kind", ["ad", "preview", "other"])
+def test_playback_session_preserves_explicit_segment_types(client, tmp_path, kind) -> None:
+    """类型由服务端下发，客户端不可将广告/预告/未知段重新猜成片头。"""
+    ids = call(client, _seed, tmp_path, 3)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    file_id = ids["files"][0]
+    segment = {"type": kind, "start_ms": 30_000, "end_ms": 50_000, "to_end": False}
+
+    async def save():
+        async with get_database().session() as session:
+            state = await session.get(MediaSegmentState, file_id)
+            state.segments = [segment]
+            await session.commit()
+
+    call(client, save)
+    assert start_session(client, file_id)["segments"] == [segment]
+
+
+@pytest.fixture
+def startup_recovery_probe(monkeypatch):
+    calls = []
+
+    async def recover():
+        calls.append(True)
+
+    monkeypatch.setattr(skip_segments, "enqueue_pending_libraries", recover, raising=False)
+    return calls
+
+
+@pytest.fixture
+def startup_client(startup_recovery_probe, client):
+    return client, startup_recovery_probe
+
+
+def test_application_start_enqueues_segment_recovery(startup_client) -> None:
+    """真正进入应用 lifespan；无须库扫描或开播就检查存量识别任务。"""
+    client, calls = startup_client
+    # 在应用自己的事件循环让出一轮，允许非阻塞启动任务完成。
+    call(client, asyncio.sleep, 0)
+    assert calls == [True]
+
+
+def test_limited_upgrade_does_not_mark_old_audio_cache_current(client, tmp_path, monkeypatch):
+    """读盘预算不足时旧多音轨缓存不能参与比对并被盖上新版已完成的标记。"""
+    ids = call(client, _seed, tmp_path, 4)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    victim = ids["files"][0]
+
+    async def expire():
+        async with get_database().session() as session:
+            file = await session.get(LibraryFile, victim)
+            file.audio_streams = [{"codec": "eac3"}, {"codec": "aac"}]
+            for file_id in ids["files"]:
+                state = await session.get(MediaSegmentState, file_id)
+                state.algo_version = skip_segments.ALGO_VERSION - 1
+            await session.commit()
+
+    call(client, expire)
+    path = skip_segments.fingerprint_path(victim)
+    head, _, body = path.read_bytes().partition(b"\n")
+    meta = json.loads(head)
+    meta.pop("audio_selection_version")
+    path.write_bytes(json.dumps(meta).encode() + b"\n" + body)
+    included = []
+    real = skip_segments._run_detection
+
+    async def capture(episodes):
+        included.extend(e["file_id"] for e in episodes)
+        return await real(episodes)
+
+    monkeypatch.setattr(skip_segments, "_run_detection", capture)
+    call(client, skip_segments.analyze_season, ids["show"], 1, max_new=0)
+    assert victim not in included
+    assert call(client, _states)[victim].algo_version != skip_segments.ALGO_VERSION
+    assert call(client, _needing) == [(ids["show"], 1)], "必须留在待重算清单中"
+
+
+def test_startup_recovery_only_queues_stale_enabled_library_once(client, tmp_path, monkeypatch):
+    """真实数据库 + 持久化任务：当前版本/关闭的库不排队，旧版本同库只排一份。"""
+    # 先停自动派发，精确检查启动恢复产生的持久化队列，再调用真实库处理器验证完成。
+    call(client, jobs.close_job_dispatcher)
+    ids = call(client, _seed, tmp_path, 3)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+
+    async def queued():
+        async with get_database().session() as session:
+            return await jobs.list_jobs(session, job_type=skip_segments.LIBRARY_JOB_TYPE)
+
+    async def set_version_and_switch(version, enabled):
+        async with get_database().session() as session:
+            repo = LibraryRepository(session)
+            library = await repo.get(ids["tv"])
+            library.detect_media_segments = enabled
+            for file_id in ids["files"]:
+                state = await session.get(MediaSegmentState, file_id)
+                state.algo_version = version
+            await session.commit()
+
+    call(client, skip_segments.enqueue_pending_libraries)
+    assert call(client, queued) == []
+    call(client, set_version_and_switch, skip_segments.ALGO_VERSION - 1, False)
+    call(client, skip_segments.enqueue_pending_libraries)
+    assert call(client, queued) == []
+    call(client, set_version_and_switch, skip_segments.ALGO_VERSION - 1, True)
+    call(client, skip_segments.enqueue_pending_libraries)
+    call(client, skip_segments.enqueue_pending_libraries)
+    queued_jobs = call(client, queued)
+    assert len(queued_jobs) == 1
+    assert queued_jobs[0].priority == -10
+    assert queued_jobs[0].input_data == {"library_id": ids["tv"]}
+
+    async def unexpected_read(*_args):
+        pytest.fail("单音轨算法升级只比较已有指纹，不应读原片")
+
+    monkeypatch.setattr(skip_segments, "_chromaprint_window", unexpected_read)
+    outcome = call(client, skip_segments._run_library_job, _Ctx(), {"library_id": ids["tv"]})
+    assert outcome["fingerprinted"] == 0
+    assert call(client, _needing) == []
+    assert start_session(client, ids["files"][0])["segments"], "新算法完成后恢复跳过提示"
+
+
+@pytest.mark.parametrize("newer_finishes_first", [True, False])
+def test_older_season_result_cannot_overwrite_newer_consensus(
+    client, tmp_path, monkeypatch, newer_finishes_first
+):
+    """旧任务返回前另一集换音轨并完成重算：其他集的旧共识也不能覆盖新共识。"""
+    ids = call(client, _seed, tmp_path, 3)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    victim = ids["files"][0]
+    real = skip_segments._run_detection
+    nested = False
+    newer_input_ready = asyncio.Event()
+    release_newer = asyncio.Event()
+    newer_task = None
+
+    async def expire():
+        async with get_database().session() as session:
+            state = await session.get(MediaSegmentState, victim)
+            state.analyzed_at = None
+            await session.commit()
+
+    async def unique_audio(path, start, length):
+        rng = np.random.default_rng(314159 + int(start))
+        return rng.integers(0, 2**32, int(length / HASH_SECONDS), dtype=np.uint32).tobytes()
+
+    async def delayed(episodes):
+        nonlocal nested, newer_task
+        response = await real(episodes)
+        if nested:
+            newer_input_ready.set()
+            if not newer_finishes_first:
+                await release_newer.wait()
+        else:
+            nested = True
+            async with get_database().session() as session:
+                file = await session.get(LibraryFile, victim)
+                with Path(file.file_path).open("ab") as stream:
+                    stream.write(b"replacement")
+                file.size_bytes = Path(file.file_path).stat().st_size
+                await session.commit()
+            monkeypatch.setattr(skip_segments, "_chromaprint_window", unique_audio)
+            await skip_segments._fingerprint_one(file)
+            if newer_finishes_first:
+                await skip_segments.analyze_season(ids["show"], 1)
+            else:
+                newer_task = asyncio.create_task(skip_segments.analyze_season(ids["show"], 1))
+                await newer_input_ready.wait()
+        return response
+
+    call(client, expire)
+    monkeypatch.setattr(skip_segments, "_run_detection", delayed)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+
+    async def finish_newer():
+        if newer_task is not None:
+            release_newer.set()
+            await newer_task
+
+    call(client, finish_newer)
+    assert all(s.segments == [] for s in call(client, _states).values()), (
+        "三集中一集换成独有音轨，不再有两票支持；无论完成顺序如何，都应保留新共识"
+    )
+    assert call(client, _needing) == []
+
+
+def test_truncated_fingerprint_is_rebuilt_in_library_job(client, tmp_path, monkeypatch):
+    """实际截断 .fp，保留正确 JSON 头：不能把缺失的音频数据当成“本集没有片头”。"""
+    ids = call(client, _seed, tmp_path, 4)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    victim = ids["files"][0]
+    path = skip_segments.fingerprint_path(victim)
+    good = path.read_bytes()
+    path.write_bytes(good.split(b"\n", 1)[0] + b"\n")
+
+    async def expire():
+        async with get_database().session() as session:
+            state = await session.get(MediaSegmentState, victim)
+            state.algo_version = skip_segments.ALGO_VERSION - 1
+            await session.commit()
+
+    call(client, expire)
+    outcome = call(client, skip_segments._run_library_job, _Ctx(), {"library_id": ids["tv"]})
+    assert outcome["fingerprinted"] == 1
+    assert path.read_bytes() == good
+    assert call(client, _states)[victim].segments
+    assert call(client, _needing) == []
+
+
+# ---------------------------------------------------------------------------
+# 画面证据：用片尾演职员表修正片尾
+# ---------------------------------------------------------------------------
+
+
+def test_credits_refinement_rewrites_outro_in_database(client, tmp_path, monkeypatch) -> None:
+    """整季识别后按画面修正片尾：改写的区间落库，其余集保持声音结果。"""
+    ids = call(client, _seed, tmp_path)
+    first = ids["files"][0]
+    seen: list[tuple[float, float] | None] = []
+
+    async def fake_refine(outro, duration, observe):
+        seen.append(outro)
+        if len(seen) == 1:
+            return credits_logic.OutroDecision((2600.0, 2650.0), "测试：演职员表后回到剧情")
+        return credits_logic.OutroDecision(outro, "演职员表确认")
+
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: object())
+    monkeypatch.setattr(skip_segments.credits_logic, "refine_outro", fake_refine)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    states = call(client, _states)
+    outro = next(s for s in states[first].segments if s["type"] == "outro")
+    assert (outro["start_ms"], outro["end_ms"], outro["to_end"]) == (2_600_000, 2_650_000, False)
+    other = next(s for s in states[ids["files"][1]].segments if s["type"] == "outro")
+    assert other["to_end"] and other["end_ms"] > 2_690_000
+    assert len(seen) == len(ids["files"]) and all(o is not None for o in seen)
+
+
+def test_frame_check_failure_keeps_audio_result(client, tmp_path, monkeypatch) -> None:
+    """抽帧或 OCR 出错只影响这一集的画面核对，声音识别的片尾照常落库。"""
+    ids = call(client, _seed, tmp_path)
+
+    async def broken_refine(outro, duration, observe):
+        raise RuntimeError("onnxruntime 推理失败")
+
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: object())
+    monkeypatch.setattr(skip_segments.credits_logic, "refine_outro", broken_refine)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    states = call(client, _states)
+    assert all(any(s["type"] == "outro" for s in states[f].segments) for f in ids["files"])
+
+
+def test_frame_probe_caches_observations(client, tmp_path, monkeypatch) -> None:
+    """同一时间点不重复抽帧：关键帧 ±1.5 秒复用，要精确帧时不拿关键帧顶替；片源换了缓存作废。"""
+    from types import SimpleNamespace
+
+    grabs: list[tuple[float, bool]] = []
+
+    async def fake_grab(path, t, accurate, width=960):
+        grabs.append((t, accurate))
+        # 只解关键帧时拿到的是请求点之后的关键帧：实际时间晚 0.8 秒
+        return np.zeros((54, 96, 3), dtype=np.uint8), t if accurate else t + 0.8
+
+    class Engine:
+        async def recognize(self, img, corners):
+            return float(img.mean()), [("Directed by", 0.4, 0.4, 0.6, 0.45)], None
+
+    monkeypatch.setattr(skip_segments, "_grab_frame", fake_grab)
+    file = SimpleNamespace(id=7, file_path=str(tmp_path / "x.mkv"), size_bytes=123)
+
+    async def scenario() -> None:
+        probe = skip_segments._FrameProbe(file, Engine())
+        frame = await probe.observe(100.0, False)
+        assert frame is not None and frame.keyword and frame.dark
+        assert frame.t == 100.8  # 帧按实际时间记，不按请求时间
+        await probe.observe(101.0, False)
+        await probe.observe(101.0, True)
+        probe.save()
+        again = skip_segments._FrameProbe(file, Engine())
+        await again.observe(100.4, False)
+        await again.observe(101.1, True)
+        file.size_bytes = 456
+        replaced = skip_segments._FrameProbe(file, Engine())
+        await replaced.observe(100.0, False)
+
+    client.portal.call(scenario)  # type: ignore[attr-defined]
+    assert grabs == [(100.0, False), (101.0, True), (100.0, False)]
+
+
+def test_frame_refinement_labels_ads_only_for_chinese_titles(client, tmp_path, monkeypatch) -> None:
+    """中文内容按「广告」角标把开头的「其他」段改标广告；海外内容不看角标。片尾后的下集预告单独成段。"""
+    from types import SimpleNamespace
+
+    async def fake_grab(path, t, accurate, width=960):
+        return np.zeros((54, 96, 3), dtype=np.uint8), t
+
+    class Engine:
+        async def recognize(self, img, corners):
+            return 0.0, [("下集预告", 0.4, 0.4, 0.6, 0.5)], ["广告"] if corners else None
+
+    async def keep_outro(outro, duration, observe):
+        return credits_logic.OutroDecision(outro, "演职员表确认")
+
+    monkeypatch.setattr(skip_segments, "_grab_frame", fake_grab)
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: Engine())
+    monkeypatch.setattr(skip_segments.credits_logic, "refine_outro", keep_outro)
+    file = SimpleNamespace(
+        id=9, file_path=str(tmp_path / "e.mkv"), size_bytes=1, duration_seconds=3000
+    )
+    results = {
+        "9": [
+            {"type": "other", "start_ms": 4_000, "end_ms": 17_000, "support": 4, "to_end": False},
+            {
+                "type": "outro",
+                "start_ms": 2_800_000,
+                "end_ms": 2_900_000,
+                "support": 9,
+                "to_end": False,
+            },
+        ]
+    }
+
+    def refine(chinese: bool):
+        return client.portal.call(  # type: ignore[attr-defined]
+            partial(
+                skip_segments._refine_with_frames,
+                [file],
+                results,
+                chinese=chinese,
+                context=None,
+                polite=False,
+            )
+        )["9"]
+
+    zh = refine(True)
+    assert [s["type"] for s in zh] == ["ad", "outro", "preview"]
+    assert zh[2]["start_ms"] >= 2_900_000 and zh[2]["end_ms"] == 3_000_000
+    assert [s["type"] for s in refine(False)] == ["other", "outro", "preview"]
+
+
+def test_jellyfin_maps_ad_and_preview_segments(client, tmp_path) -> None:
+    """画面确认的广告给 Infuse 当 Commercial，下集预告当 Preview。"""
+    ids = call(client, _seed, tmp_path)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    third = ids["files"][2]
+
+    async def set_segments() -> None:
+        async with get_database().session() as session:
+            state = await session.get(MediaSegmentState, third)
+            state.segments = [
+                {"type": "ad", "start_ms": 30_000, "end_ms": 45_000, "to_end": False},
+                {"type": "outro", "start_ms": 2_500_000, "end_ms": 2_600_000, "to_end": False},
+                {"type": "preview", "start_ms": 2_600_000, "end_ms": 2_700_000, "to_end": True},
+            ]
+            await session.commit()
+
+    call(client, set_segments)
+    token = jf_token(client)
+    guid = episode_guid(ids["show"], 1, 3)
+    body = client.get(f"/MediaSegments/{guid}", params={"ApiKey": token}).json()
+    assert [i["Type"] for i in body["Items"]] == ["Commercial", "Outro", "Preview"]

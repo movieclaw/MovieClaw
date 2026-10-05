@@ -67,6 +67,8 @@ export function SharedCollectionView({
                 {item.poster_url ? (
                   <PosterImage
                     src={item.poster_url}
+                    // 格子 minmax(150px,1fr)，按 220 取
+                    width={220}
                     alt=""
                     className="absolute inset-0 size-full object-cover"
                   />

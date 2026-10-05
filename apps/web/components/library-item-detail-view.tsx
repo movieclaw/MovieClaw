@@ -81,8 +81,8 @@ import { useDoubanAppHref } from "@/lib/douban-app-link";
 import { useBackNavigation } from "@/lib/back-navigation";
 import { useBackdrop } from "@/lib/backdrop";
 import { useIsMobile } from "@/lib/use-media-query";
-import { resolveRequestUrl } from "@/lib/http";
-import { cachedImageUrl } from "@/lib/image-proxy";
+import { IMAGE_ASPECT, imageUrl, screenImageWidth } from "@/lib/image-proxy";
+import { useDetailHeroImageWidth } from "@/lib/image-resolution";
 import { languageLabel } from "@/lib/language-labels";
 import { invalidateLibraryDetailSnapshot } from "@/lib/library-detail-snapshot";
 import { refreshItemConfirm, rereadItemNfoConfirm } from "@/lib/library-confirm";
@@ -383,12 +383,23 @@ export function LibraryItemDetailView({
       root.style.removeProperty("--nf-hero-recede");
     };
   }, [isNfDesktop, hasDetail]);
-  const immersiveUrl = detail ? imageUrl(detail.backdrop_url ?? detail.poster_url) : "";
+  // 大图宽度按公式算（桌面整窗铺满、手机按页内 Hero 框铺满，见 useDetailHeroImageWidth）；
+  // 量到之前先不取图，免得白拉一张错档的
+  const heroWidth = useDetailHeroImageWidth(
+    isMobile,
+    detail?.backdrop_url ? IMAGE_ASPECT.backdrop : IMAGE_ASPECT.poster,
+  );
+  const immersiveUrl =
+    detail && heroWidth ? imageUrl(detail.backdrop_url ?? detail.poster_url, { width: heroWidth }) : "";
   // 片名 Logo（同 iOS 详情页）：只在银玻璃主题画，Netflix 主题保持文字片名；
   // 加载失败记下那条地址回落文字，换条目（地址变了）自然重试
   const [failedLogo, setFailedLogo] = useState<string | null>(null);
+  // Logo 靠固有尺寸撑开（max-w 420 / 手机 260、高 120 / 96 封顶），不能用 srcset
+  // （w 描述符会改它的固有尺寸），按最大显示宽 × 屏幕倍率拼一个固定 w
   const logoSrc =
-    detail?.logo_url && !isNf && detail.logo_url !== failedLogo ? imageUrl(detail.logo_url) : "";
+    detail?.logo_url && !isNf && detail.logo_url !== failedLogo
+      ? imageUrl(detail.logo_url, { width: screenImageWidth(isMobile ? 260 : 420) })
+      : "";
   // 手机也换全站背景，但页面本身不靠它显示：横版剧照铺满又高又窄的整屏只能按高度放大、
   // 从正中裁一条竖条，所以手机上看到的剧照是页内 Hero（mobileHeroSrc），滚动容器铺黑把
   // 全站背景整个挡住。仍然要换，是因为侧栏的液态玻璃折射的就是全站背景
@@ -614,7 +625,7 @@ export function LibraryItemDetailView({
         ? meta.director_credits.map((director) => ({
             name: director.name,
             credit: "导演",
-            avatarUrl: director.thumb_url ? cachedImageUrl(director.thumb_url) : null,
+            avatarUrl: director.thumb_url ? imageUrl(director.thumb_url) : null,
             tmdbPersonId: director.tmdb_person_id,
           }))
         : [...new Set(meta.directors)].map((name) => ({ name, credit: "导演" }))
@@ -1041,7 +1052,7 @@ export function LibraryItemDetailView({
               ...meta.actors.map((actor) => ({
                 name: actor.name,
                 role: actor.role,
-                avatarUrl: actor.thumb_url ? cachedImageUrl(actor.thumb_url) : null,
+                avatarUrl: actor.thumb_url ? imageUrl(actor.thumb_url) : null,
                 tmdbPersonId: actor.tmdb_person_id,
               })),
             ]}
@@ -1574,19 +1585,6 @@ function ItemActionsMenu({
 /* 展示格式化：ffprobe 原始值 → 用户认知的规格语言                              */
 /* ------------------------------------------------------------------------ */
 
-/** 图片地址：本地美术图是 API 相对路径（补 base），TMDB 图床走缓存代理。 */
-function imageUrl(url: string | null): string {
-  if (!url) return "";
-  if (/^https?:\/\//i.test(url)) return cachedImageUrl(url);
-  // 本地美术图路径由扫描端落库，Windows 机器上会带 `\` 分隔符（如
-  // /images/assets/5\backdrop.jpg）。这条地址在本页的桌面消费方是沉浸覆盖层的
-  // CSS background-image——CSS 字符串里 `\b` 会被解析成十六进制转义（U+0BAC），
-  // 请求路径被打碎成 404，Netflix 桌面的整页沉浸背景只剩纯黑；而 <img> 消费方
-  // （手机 Hero）按 URL 规范把 `\` 宽容为 `/`，同一张图反而加载正常——这正是
-  // 「页面没图、图在磁盘上明明存在」的假象来源。归一化后两处消费同一张图。
-  return resolveRequestUrl(url.replace(/\\/g, "/"));
-}
-
 const VIDEO_CODEC_LABELS: Record<string, string> = {
   hevc: "HEVC",
   h264: "H.264",
@@ -1947,6 +1945,8 @@ function EpisodeCard({
       >
         <PosterImage
           src={imageUrl(episode.still_url)}
+          // 分集卡 200 宽、16:9 框
+          width={200}
           alt={`第 ${episode.episode_number} 集剧照`}
           className="size-full object-cover"
           fallback={

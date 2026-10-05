@@ -40,6 +40,7 @@ from movieclaw_api.api.deps import (
     require_interactive,
     require_login,
 )
+from movieclaw_api.api.routes.images import WIDTH_QUERY, sized_file
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import (
     BadRequestException,
@@ -61,6 +62,7 @@ from movieclaw_api.schemas.auth import (
     DeviceBrief,
     DeviceLoginRequest,
     DeviceLoginView,
+    DevicePushView,
     DeviceRequestView,
     DeviceTokenRequest,
     DeviceTokenView,
@@ -80,6 +82,8 @@ from movieclaw_api.services import demo as demo_service
 from movieclaw_api.services import login_devices
 from movieclaw_api.services import members as members_service
 from movieclaw_api.services.auth import Principal, SavedAccount
+from movieclaw_api.services.push import me as push_me
+from movieclaw_api.services.push import registration as push_registration
 from movieclaw_api.settings import (
     AdminAccountSetting,
     AppServerSetting,
@@ -481,6 +485,7 @@ async def read_avatar(
     request: Request,
     principal: Principal = Depends(require_login),
     account: str | None = Query(default=None, description="读取账号袋里某个账号的头像"),
+    w: int | None = WIDTH_QUERY,
 ) -> FileResponse:
     """直接返回当前主体的头像本体，供 <img> 加载；地址由会话视图的 avatar_url 给出。
 
@@ -496,8 +501,10 @@ async def read_avatar(
     path = avatar_media.find_avatar(stem) if stem else avatar_media.find_avatar()
     if path is None:
         raise NotFoundException("尚未上传头像")
-    return FileResponse(
+    return await sized_file(
         path,
+        source_key=f"account-avatar:{path.name}",
+        w=w,
         media_type=avatar_media.content_type_for(path),
         # URL 带版本号做缓存键，这里可放心让浏览器长期缓存，换头像时 URL 会变。
         headers={"Cache-Control": "private, max-age=31536000"},
@@ -768,7 +775,7 @@ async def create_api_token(payload: ApiTokenCreateRequest) -> ApiResponse[ApiTok
 
 
 async def _verification_uri(request: Request) -> str:
-    """用户应当打开的网页地址（批准页）。
+    """用户应当打开的网页地址（批准页 /activate，独立于「设置 → 设备」）。
 
     优先用配置好的「外部访问地址」——那是用户平时访问 movieclaw 的地址，
     也是他浏览器里已经登录着的那个源。没配置时回落到本次请求的地址：
@@ -778,7 +785,7 @@ async def _verification_uri(request: Request) -> str:
     base = (setting.external_url or "").strip().rstrip("/")
     if not base:
         base = str(request.base_url).rstrip("/")
-    return f"{base}/settings/devices"
+    return f"{base}/activate"
 
 
 @router.post(
@@ -877,7 +884,7 @@ async def get_device_request(user_code: str) -> ApiResponse[DeviceRequestView]:
             user_code=challenge.user_code,
             client_type=challenge.client_type,
             client_name=challenge.client_name,
-            source_ip=challenge.source_ip,
+            source_ip="" if demo_service.is_demo_mode() else challenge.source_ip,
             expires_in=max(0, int(challenge.expires_at - time.monotonic())),
             platform=challenge.platform,
             client_version=challenge.client_version,
@@ -952,9 +959,14 @@ def _device_view(
     principal: Principal,
     owners: dict[int, tuple[str, str]],
     connected: set[int] | None = None,
+    push_channels: list | None = None,
 ) -> LoginDeviceView:
     assert device.id is not None
     spec = login_devices.spec_of(device.kind)
+    push = None
+    if push_channels is not None and device.kind in push_registration.PUSH_KINDS:
+        status, text, _channel = push_me.device_status(device, push_channels)
+        push = DevicePushView(status=status, status_text=text)
     username, nickname = owners.get(device.member_id, (f"#{device.member_id}", "已删除的成员"))
     return LoginDeviceView(
         id=login_devices.playback_device_id(device.id),
@@ -975,6 +987,7 @@ def _device_view(
         owner_id=device.member_id,
         owner_username=username,
         owner_nickname=nickname,
+        push=push,
     )
 
 
@@ -1059,8 +1072,18 @@ async def list_devices(
     owner_filter = None if all_members else principal.owner_id
     owners = await _owner_labels(session)
     connected = _connected_device_ids()
+    # 推送状态挂在设备上：没问题时界面什么都不显示，只在收不到通知的设备下面写原因
+    from movieclaw_api.services.push.channels import load_channels
+
+    push_channels = await load_channels()
     views = [
-        _device_view(row, principal=principal, owners=owners, connected=connected)
+        _device_view(
+            row,
+            principal=principal,
+            owners=owners,
+            connected=connected,
+            push_channels=push_channels,
+        )
         for row in await login_devices.list_devices(session, member_id=owner_filter)
     ]
     stmt = select(JellyfinDevice)
@@ -1131,8 +1154,18 @@ async def revoke_current_device(
     device = await login_devices.get_device(session, principal.device.id)
     if device is None:
         raise NotFoundException("设备不存在或已被注销")
+    member_id, kind, installation_id, name = (
+        device.member_id,
+        device.kind,
+        device.installation_id,
+        device.name,
+    )
     await login_devices.revoke(session, device)
-    return ok(None, message=f"已注销「{device.name}」")
+    # 设备自己退出登录：之后同一台登录回来，不给本人的其他设备推「新设备登录」
+    from movieclaw_api.services.push import events as push_events
+
+    await push_events.remember_signed_out(member_id, kind, installation_id)
+    return ok(None, message=f"已注销「{name}」")
 
 
 @router.patch(

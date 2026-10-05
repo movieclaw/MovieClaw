@@ -236,7 +236,9 @@ export function SubsHomePosterCard({
         }`}
       >
         <PosterImage
-          src={sub.media.poster_url ? imageUrl(sub.media.poster_url, "poster-card") : null}
+          src={sub.media.poster_url ? imageUrl(sub.media.poster_url) : null}
+          // 首页横滑卡与订阅墙格子 minmax(140px,1fr)，按 180 取
+          width={180}
           alt=""
           className={`absolute inset-0 size-full object-cover ${dimmed ? "brightness-[0.88] saturate-[0.35]" : ""}`}
         />

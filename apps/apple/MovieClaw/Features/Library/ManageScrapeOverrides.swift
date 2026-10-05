@@ -23,6 +23,8 @@ struct ManageScrapeOverrides: View {
     @State private var open: String?
     @State private var languages: [API.LanguageOption] = []
     @State private var countries: [API.CountryOption] = []
+    /// 本地图片画质各档的磁盘估算（全站口径，拿不到不写）
+    @State private var estimate: API.ImageStorageEstimateView?
 
     /// 卡片级三态的五张卡
     private static let followCards: [SettingsBScrapeCard] = [.metaLanguage, .certCountry, .poster, .backdrop, .quality]
@@ -175,7 +177,7 @@ struct ManageScrapeOverrides: View {
                         max: 4, primaryTag: "首选", identifier: "form-scrape-backdrop-lang"
                     )
                 case .quality:
-                    SettingsBScrapeQualityRows(setting: binding(card), effective: config?.effective)
+                    SettingsBScrapeQualityRows(setting: binding(card), effective: config?.effective, estimate: estimate, inheritsGlobal: true)
                 default:
                     EmptyView()
                 }
@@ -206,7 +208,7 @@ struct ManageScrapeOverrides: View {
         cardHeader(id: "naming", title: "命名模板", customized: !hit.isEmpty,
                    status: hit.isEmpty ? "跟随全局" : "自定义：\(hit.map(\.label).joined(separator: "、"))")
         if open == "naming" {
-            Text("留空即跟随全局模板。命名的产物是本库目录树里的路径，所以每个库可以各用一套。")
+            Text("留空即跟随全局模板。命名的产物是本库目录树里的路径，所以每个库可以各用一套。全部占位符（原名、集名、视频编码、站点等）与实时预览见「设置 → 刮削与整理 → 命名模板」。")
                 .font(.footnote).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
             ForEach(Self.namingFields, id: \.key) { field in
                 let globalValue = baseDict[field.key]?.stringValue ?? ""
@@ -306,13 +308,14 @@ struct ManageScrapeOverrides: View {
         // 语种 / 地区全量表拉不到不阻断（「更多」面板回落只显示常用项）
         languages = (try? await api.scrapeLanguages()) ?? []
         countries = (try? await api.scrapeCountries()) ?? []
+        estimate = try? await api.scrapeStorageEstimate()
     }
 
     /// 仅作绑定兜底（加载成功前不会渲染卡片）
     private static let emptySetting = API.MetadataScrapeSetting(
         languagePriority: [], certCountryPriority: [], posterMode: "default",
         posterLanguagePriority: [], backdropLanguagePriority: [], posterMinWidth: 0, backdropMinWidth: 0,
-        posterSize: "", backdropSize: "", stillSize: "",
+        posterSize: "", backdropSize: "", stillSize: "", profileSize: "", imageQuality: "",
         namingEntryDir: "", namingMovieFile: "", namingSeasonDir: "", namingEpisodeFile: "",
         mirrorImages: true, mirrorNfo: true, mirrorEpisodeThumbs: true
     )

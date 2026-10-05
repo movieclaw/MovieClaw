@@ -14,7 +14,10 @@ import SwiftUI
 ///   - **搜索范围**：记住的分类以系统搜索标记（token）显示在输入框里，回车即在该范围搜索，删掉标记 = 全部分类；
 ///     输入关键词后列表给出「在其他范围搜索」，点一行就换到那个范围搜（并记住）；
 /// - 输入了关键词，列表顶上给一行「搜索“…”」（下注当前范围），收起键盘后也能一点就搜；
-/// - 最近搜索（`GET /search/history`）：系统列表行（主标题 + 一行说明），同关键词的多条记录归成一组：
+///   **媒体库模式例外**：本地搜索毫秒级，输入即实时出结果（与结果页同一个 `LibrarySearchResultsView`），
+///   不给「搜索“…”」行、也不必回车再跳一页；
+/// - 右上角 ✕（系统的取消搜索）直接关闭搜索页回到来处，不留一页空的搜索首页；
+/// - 最近搜索（`GET /search/history`）：只展示当前影视或资源类型，媒体库隐藏历史；同关键词的多条记录归成一组：
 ///   主行是最近一条（写它的范围与时间），其余范围列在下面、图标列换成「↳」连接符，组内不画分隔线、
 ///   只在组与组之间画，一眼看出是一组；始终展开、没有折叠箭头——
 ///   箭头（展开）和整行（打开）挤在同一行会误触（真机反馈），每行只做一件事：点哪行就回放哪条记录。
@@ -38,6 +41,8 @@ struct SearchHomeView: View {
     @State private var tabsLoaded = false
     @State private var access = SearchAccess()
     @State private var items: [API.SearchHistoryItem]?
+    /// 页面返回与历史变更都通过同一个 task 刷新，取消旧请求，避免乱序覆盖。
+    @State private var historyRefresh = 0
     @FocusState private var focused: Bool
     /// 搜索栏是否处于激活态（系统的 isPresented）：区分「用户删掉范围标记」与「点取消时系统顺手清空标记」
     @State private var searchPresented = false
@@ -46,6 +51,8 @@ struct SearchHomeView: View {
     /// 恢复记住的模式与预选只在进页时做一次：看完结果返回（`.task` 重跑）时再来一遍，
     /// 会把用户在本页切过的模式又拨回页签预选的模式
     @State private var didRestoreState = false
+    /// 本页是否在栈顶可见：区分「点右上角 ✕ 取消搜索」与「压栈进结果页时搜索栏跟着失活」
+    @State private var visible = false
 
     private static let stateKey = "movieclaw.search-palette-state"
 
@@ -64,8 +71,19 @@ struct SearchHomeView: View {
 
     private var trimmedKeyword: String { keyword.trimmingCharacters(in: .whitespaces) }
 
+    /// 接口类型与页面模式使用不同名称；媒体库没有历史，不能以 nil 调用清空全部。
+    private var historyVertical: String? {
+        switch mode {
+        case .media: "titles"
+        case .torrent: "torrents"
+        case .library: nil
+        }
+    }
+
     private var groups: [HistoryGroup] {
-        let visible = (items ?? []).filter { $0.vertical == "titles" ? access.canMedia : access.canTorrent }
+        let visible = (items ?? []).filter {
+            $0.vertical == historyVertical && ($0.vertical == "titles" ? access.canMedia : access.canTorrent)
+        }
         var order: [String] = []
         var map: [String: HistoryGroup] = [:]
         for item in visible {
@@ -83,24 +101,13 @@ struct SearchHomeView: View {
     /// 资源模式且有权限：才出分类相关的内容与搜索标记
     private var torrentActive: Bool { mode == .torrent && access.available.contains(.torrent) }
 
+    /// 媒体库模式且输入了关键词：面板主体换成实时结果
+    private var liveLibrary: Bool {
+        mode == .library && access.available.contains(.library) && !trimmedKeyword.isEmpty
+    }
+
     var body: some View {
-        List {
-            if !trimmedKeyword.isEmpty, access.available.contains(mode) {
-                submitSection
-            }
-            history
-            if torrentActive {
-                if trimmedKeyword.isEmpty {
-                    browseSections
-                } else {
-                    otherScopesSection
-                }
-            }
-        }
-        .listStyle(.insetGrouped)
-        .listSectionSpacing(20)
-        .contentMargins(.top, 8, for: .scrollContent)
-        .scrollDismissesKeyboard(.immediately)
+        content
         .appBackground()
         .navigationTitle("搜索")
         .navigationBarTitleDisplayMode(.inline)
@@ -118,6 +125,11 @@ struct SearchHomeView: View {
             if !presented, let key = clearedTabKey {
                 clearedTabKey = nil
                 changeTab(key)
+            }
+            // 右上角 ✕ 是系统的「取消搜索」：默认只清空关键词、留下一页空的搜索首页（真机反馈不符合预期）。
+            // 这里把它当成「关闭搜索页」，回到进来之前的页面；输入框里的 ✕ 仍只是清空内容。
+            if !presented {
+                Task { @MainActor in await closeAfterCancel() }
             }
         }
         .onSubmit(of: .search) { submit() }
@@ -142,12 +154,61 @@ struct SearchHomeView: View {
             // 上次选的分类已隐藏或删除：回退「全部」，避免没有选中项却悄悄按全部搜索
             if tabKey != "all", !tabs.contains(where: { $0.key == tabKey }) { changeTab("all") }
         }
-        .task { await loadHistory() }
+        .task(id: "\(mode.rawValue):\(historyRefresh)") { await loadHistory() }
+        .onDisappear { visible = false }
         .onAppear {
+            visible = true
             takeDraft()
-            Task { await loadHistory() }
+            historyRefresh += 1
         }
         .accessibilityIdentifier("search-home")
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if liveLibrary {
+            LibrarySearchResultsView(keyword: trimmedKeyword, onSwitchToMedia: access.canMedia ? { changeMode(.media) } : nil,
+                                     live: true, onPickSuggestion: { keyword = $0 })
+                // 与下面列表同样的顶部留白：「人物」段头别贴着范围栏
+                .contentMargins(.top, 8, for: .scrollContent)
+                .scrollDismissesKeyboard(.immediately)
+        } else {
+            List {
+                if !trimmedKeyword.isEmpty, access.available.contains(mode) {
+                    submitSection
+                }
+                history
+                if torrentActive {
+                    if trimmedKeyword.isEmpty {
+                        browseSections
+                    } else {
+                        otherScopesSection
+                    }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .listSectionSpacing(20)
+            .contentMargins(.top, 8, for: .scrollContent)
+            .scrollDismissesKeyboard(.immediately)
+        }
+    }
+
+    /// 取消搜索后关闭本页。几处实测得来的约束：
+    /// - 压栈进结果页时搜索栏也可能跟着失活：先等一下，本页已离开栈顶（`visible` 为 false）就不是取消；
+    /// - 系统收起搜索栏的动画（约 0.4 秒）期间改导航路径会被 NavigationStack 吞掉——路径空了、页面却还在
+    ///   （模拟器实测 350ms 吞、500ms 成功）：等 600ms 再出栈，仍没退成就把路径补回原样再出一次；
+    /// - 搜索页由 Router 的路径压栈（`.searchHome`），环境里的 dismiss 弹不掉它；只在栈顶确实是本页时出栈
+    private func closeAfterCancel() async {
+        try? await Task.sleep(for: .milliseconds(600))
+        let tab = router.selectedTab
+        guard visible, !searchPresented, let top = router.paths[tab]?.last,
+              case .searchHome = top else { return }
+        router.pop()
+        try? await Task.sleep(for: .milliseconds(600))
+        if visible, router.selectedTab == tab, router.paths[tab]?.last != top {
+            router.paths[tab, default: []].append(top)
+            router.pop()
+        }
     }
 
     private var prompt: String {
@@ -309,6 +370,8 @@ struct SearchHomeView: View {
                 .padding(.vertical, 40)
                 .listRowBackground(Color.clear)
                 .accessibilityIdentifier("search-no-access")
+        } else if mode == .library {
+            EmptyView()
         } else if let items {
             // 资源模式下面还有浏览列表，不需要空态占位；输入过滤没命中时顶上的「搜索“…”」就是出口
             if items.isEmpty, !torrentActive {
@@ -328,12 +391,18 @@ struct SearchHomeView: View {
                         sectionTitle("最近搜索")
                         Spacer()
                         Button("清空") {
+                            guard let vertical = historyVertical else { return }
                             self.items = []
-                            Task { try? await api.searchHistoryClear() }
+                            Task {
+                                do { try await api.searchHistoryClear(vertical: vertical) }
+                                catch { feedback.error(error) }
+                                historyRefresh += 1
+                            }
                         }
                         .font(.body)
                         .textCase(nil)
                         .accessibilityIdentifier("history-clear")
+                        .accessibilityLabel("清空\(mode.shortLabel)搜索历史")
                     }
                 }
             }
@@ -425,16 +494,29 @@ struct SearchHomeView: View {
     // MARK: 动作
 
     private func loadHistory() async {
-        if let list = try? await api.searchHistoryList(limit: 8) {
+        guard let vertical = historyVertical else {
+            items = []
+            return
+        }
+        let requestedMode = mode
+        items = nil
+        let list = try? await api.searchHistoryList(limit: 8, vertical: vertical)
+        // 分类、页面返回或删除后的刷新都会取消旧 task，旧响应不能覆盖当前列表。
+        guard !Task.isCancelled, mode == requestedMode else { return }
+        if let list {
             items = list
-        } else if items == nil {
+        } else {
             items = []
         }
     }
 
     private func removeOne(_ id: Int) {
         items?.removeAll { $0.id == id }
-        Task { try? await api.searchHistoryDelete(historyId: id) }
+        Task {
+            do { try await api.searchHistoryDelete(historyId: id) }
+            catch { feedback.error(error) }
+            historyRefresh += 1
+        }
     }
 
     private func removeGroup(_ group: HistoryGroup) async {
@@ -444,7 +526,12 @@ struct SearchHomeView: View {
         }
         let ids = Set(group.items.map(\.id))
         items?.removeAll { ids.contains($0.id) }
-        for id in ids { try? await api.searchHistoryDelete(historyId: id) }
+        do {
+            for id in ids { try await api.searchHistoryDelete(historyId: id) }
+        } catch {
+            feedback.error(error)
+        }
+        historyRefresh += 1
     }
 
     private func submit() {
@@ -457,6 +544,11 @@ struct SearchHomeView: View {
         }
         // 影视 / 媒体库没有「浏览」语义：空词不提交
         guard !kw.isEmpty else { return }
+        // 媒体库已在本页实时出结果：回车只收键盘，不再压一页结果
+        if mode == .library {
+            focused = false
+            return
+        }
         router.push(.search(.init(q: kw, tab: mode.routeTab)))
     }
 
@@ -506,6 +598,7 @@ struct SearchHomeView: View {
     }
 
     private func changeMode(_ next: SearchVertical) {
+        if mode != next { items = nil }
         mode = next
         saveState()
     }

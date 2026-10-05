@@ -20,20 +20,35 @@ struct MovieClawApp: App {
             RootView()
                 .environment(model)
                 .preferredColorScheme(.dark)
+                .toggleStyle(SystemSwitchStyle())
         }
     }
 }
 
-/// 应用代理：目前只负责界面方向锁（见 `OrientationLock`）。
+/// 应用代理：界面方向锁（见 `OrientationLock`），以及推送的系统回调（交给 `PushCenter`）。
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        PushCenter.shared.start()
+        return true
+    }
+
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         OrientationLock.mask
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        PushCenter.shared.didRegister(deviceToken: deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: any Error) {
+        PushCenter.shared.didFailToRegister(error)
     }
 }
 
 /// 按 AppModel.phase 切换顶层界面。
 struct RootView: View {
     @Environment(AppModel.self) private var model
+    @State private var push = PushCenter.shared
 
     var body: some View {
         Group {
@@ -63,6 +78,23 @@ struct RootView: View {
         }
         .onChange(of: model.session != nil) { _, ready in
             if ready { PerfTrace.record("session.ready") }
+        }
+        // 已经登录着（含冷启动直接进主界面）：还没问过通知权限就补问一次（升级前登录的人）
+        .onChange(of: model.session != nil, initial: true) { _, ready in
+            if ready { push.sessionReady() }
+        }
+        // 刚登录进一个账号：马上请求通知权限、登记推送（docs/design/cloud-push.md §9）
+        .onChange(of: model.freshLogins) { push.didLogIn() }
+        // 点开通知时人在欢迎页（本机没有能直接进的账号）：只是打开 App，不跳转。主界面里的由 MainTabView 处理
+        .onChange(of: push.pendingTap, initial: true) { dropPushTapIfSignedOut() }
+        .onChange(of: model.phase) { dropPushTapIfSignedOut() }
+        .environment(push)
+    }
+
+    private func dropPushTapIfSignedOut() {
+        switch model.phase {
+        case .needsServer, .needsSetup, .needsLogin, .chooseAccount, .unreachable: push.pendingTap = nil
+        case .launching, .ready: break
         }
     }
 }

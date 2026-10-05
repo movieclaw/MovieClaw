@@ -16,7 +16,7 @@ import {
   type Subscription,
 } from "@/lib/api/subscriptions";
 import { useDownloadTasks } from "@/lib/download-tasks";
-import { cachedImageUrl } from "@/lib/image-proxy";
+import { imageUrl } from "@/lib/image-proxy";
 import { usePageChrome } from "@/lib/page-chrome";
 import { usePermissions } from "@/lib/permissions";
 import type { SubscriptionFilter } from "@/lib/subscription-overview";
@@ -464,8 +464,11 @@ function ComingSoonCard({
       <div className="relative aspect-video overflow-hidden rounded-[4px] bg-[#181818] ring-1 ring-white/[0.06] transition-all duration-150 group-hover:ring-white/30">
         {posterUrl ? (
           <>
+            {/* 模糊铺底与中央海报同一宽度（海报约 72 宽 = 卡高 126 × 86% × 2/3），
+                地址一致只取一次；imageUrl 兼容已入库订阅的本地资产相对路径 */}
             <PosterImage
-              src={cachedImageUrl(posterUrl)}
+              src={imageUrl(posterUrl)}
+              width={72}
               alt=""
               className="absolute inset-0 size-full scale-125 object-cover opacity-45 blur-xl"
             />
@@ -473,7 +476,8 @@ function ComingSoonCard({
             <div className="absolute inset-0 flex items-center justify-center px-6">
               <div className="aspect-[2/3] h-[86%] overflow-hidden rounded-[2px] shadow-[0_0_24px_rgba(0,0,0,0.6)]">
                 <PosterImage
-                  src={cachedImageUrl(posterUrl)}
+                  src={imageUrl(posterUrl)}
+                  width={72}
                   alt={`${group.mediaTitle} 海报`}
                   className="size-full"
                 />

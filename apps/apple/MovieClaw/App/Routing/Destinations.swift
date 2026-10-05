@@ -25,12 +25,14 @@ extension AppRoute {
         case let .discoveredPerson(tmdbId): DiscoveredPersonView(tmdbId: tmdbId)
         // 媒体库
         case .libraryHome: LibraryHomeView()
+        // Router 把它改成弹出表单（AppSheet.customizeHome），不会真的压栈到这里；页面自带导航栈，所以不能压栈
         case .libraryCustomize: LibraryCustomizeView()
         case .favorites: FavoritesView()
         case .allCollections: AllCollectionsView()
         case let .collection(libraryId, collectionId): CollectionDetailView(libraryId: libraryId, collectionId: collectionId)
         case let .library(id, view, pending):
             LibraryDetailView(libraryId: id, initialView: view.flatMap(LibraryDetailView.WallView.init(rawValue:)) ?? .items, openPending: pending)
+        case let .libraryKind(kind, genre): LibraryKindWallView(kind: kind, genre: genre)
         case let .libraryItem(libraryId, itemId, season, episode):
             LibraryItemDetailView(libraryId: libraryId, itemId: itemId, season: season, episode: episode)
         case let .libraryManage(create, tab, item): LibraryManageView(openCreate: create, initialTab: tab, initialItemId: item)
@@ -52,6 +54,8 @@ extension AppRoute {
         case .my: MorePage()
         case .settings: SettingsIndexView()
         case let .settingsSection(section, query): SettingsSectionView(section: section).environment(\.routeQuery, query)
+        // Router 把它改成全屏呈现，不会真的压栈；这里只为穷举
+        case let .deviceApproval(code, scannedHost): DeviceApprovalFlow(launch: DeviceApprovalLaunch(code: code, host: scannedHost))
         // 分享
         case let .share(slug): SharePageView(slug: slug)
         }
@@ -64,6 +68,7 @@ extension AppSheet {
         switch self {
         case let .subscribe(request): SubscribeSheet(request: request)
         case .accountSwitcher: AccountSwitcherSheet()
+        case .customizeHome: LibraryCustomizeView()
         }
     }
 }

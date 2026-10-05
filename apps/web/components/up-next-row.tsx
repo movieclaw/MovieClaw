@@ -10,7 +10,7 @@ import { WatchHistoryMenu } from "@/components/watch-history-menu";
 import type { MediaLibrary } from "@/lib/api/libraries";
 import type { UpNextItem } from "@/lib/api/playback";
 import { playHref, rememberPlayerReturnPath } from "@/lib/player/play-links";
-import { cardVariantFor, imageUrl } from "@/lib/image-proxy";
+import { imageUrl } from "@/lib/image-proxy";
 import { formatRelativeTime } from "@/lib/time";
 import { useTapGuard } from "@/lib/use-tap-guard";
 
@@ -164,7 +164,9 @@ function UpNextCard({ item }: { item: UpNextItem }) {
         >
           {artworkUrl ? (
             <PosterImage
-              src={imageUrl(artworkUrl, "landscape-card")}
+              src={imageUrl(artworkUrl)}
+              width={CARD_WIDTH}
+              zoom={HOVER_ZOOM}
               alt={isEpisode ? `${item.title} ${code}分集剧照` : `${item.title}背景剧照`}
               className="size-full transition duration-500 group-hover/recent:scale-[1.03]"
               fallback={
@@ -269,6 +271,10 @@ function UpNextCard({ item }: { item: UpNextItem }) {
 
 /** 卡片是 16:9 的横卡 */
 const CARD_ASPECT = 16 / 9;
+/** 卡片显示宽（CSS px）：w-[224px]，手机 200、xl 240，取最大 */
+const CARD_WIDTH = 240;
+/** 悬停放大系数（group-hover/recent:scale-[1.03]） */
+const HOVER_ZOOM = 1.03;
 
 /**
  * 缺少横向剧照时用海报兜底，按海报真实比例处理（与首页海报墙的横版封面同一手法）：
@@ -292,11 +298,15 @@ function MoviePosterFill({
       </span>
     );
   }
-  const src = imageUrl(posterUrl, cardVariantFor(posterAspect));
+  // 三处 PosterImage 同一宽度：竖图只占卡高、横图贴齐卡宽，都不超过卡宽；
+  // 地址一致，模糊铺底与中央主图浏览器只取一次
+  const src = imageUrl(posterUrl);
   if (Math.abs(posterAspect - CARD_ASPECT) <= 0.05) {
     return (
       <PosterImage
         src={src}
+        width={CARD_WIDTH}
+        zoom={HOVER_ZOOM}
         alt={`${title}封面`}
         className="size-full transition duration-500 group-hover/recent:scale-[1.03]"
       />
@@ -306,6 +316,8 @@ function MoviePosterFill({
     <div className="relative size-full overflow-hidden bg-[#10131c]">
       <PosterImage
         src={src}
+        width={CARD_WIDTH}
+        zoom={HOVER_ZOOM}
         alt=""
         className="absolute inset-0 size-full scale-125 blur-xl opacity-45"
       />
@@ -316,7 +328,7 @@ function MoviePosterFill({
           style={{ aspectRatio: posterAspect }}
           className={`${posterAspect > CARD_ASPECT ? "w-full" : "h-full"} shadow-[0_0_28px_rgba(0,0,0,0.55)]`}
         >
-          <PosterImage src={src} alt={`${title}海报`} className="size-full" />
+          <PosterImage src={src} width={CARD_WIDTH} zoom={HOVER_ZOOM} alt={`${title}海报`} className="size-full" />
         </div>
       </div>
     </div>

@@ -153,7 +153,8 @@ struct MorePage: View {
         }
         .appBackground()
         .navigationTitle("我的")
-        .navigationBarTitleDisplayMode(.inline)
+        // 与媒体库、订阅、活动等标签根页同一种左对齐大标题（和右上角的扫码 · 搜索同一行）
+        .toolbarTitleDisplayMode(.inlineLarge)
         .task { await loadSessions() }
         // 待处理事项与 Web NoticeCenter 同频 30 秒轮询（首轮立即拉）
         .polling(every: 30, immediately: true) { await loadNotices() }

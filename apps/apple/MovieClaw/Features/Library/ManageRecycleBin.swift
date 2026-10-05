@@ -568,7 +568,7 @@ private struct ManageRecycleIdentity: View {
         let media = item.mediaItem
         let seasons = ManageRecycleText.seasonsLabel(item.seasons)
         HStack(spacing: 10) {
-            RemoteImage(url: api.image(media?.posterUrl, .posterCard))
+            RemoteImage(url: api.image(media?.posterUrl, width: ImageWidth.points(30)))
                 .frame(width: 30, height: 44)
                 .clipShape(.rect(cornerRadius: 5))
                 .overlay(RoundedRectangle(cornerRadius: 5).strokeBorder(Theme.line))

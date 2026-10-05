@@ -974,6 +974,8 @@ def authorize_device(
     """
     if client_type not in login_devices.PAIRING_KINDS:
         raise BadRequestException(f"未知的客户端类型：{client_type}")
+    demo_service.ensure_tv_pairing_allowed(client_type)
+    demo_service.ensure_login_allowed(source_ip)
     _purge_settled_challenges()
 
     pending = [ch for ch in _device_challenges.values() if ch.status == "pending"]
@@ -1028,6 +1030,7 @@ def _get_pending(user_code: str) -> DeviceAuthChallenge:
         raise NotFoundException("配对请求不存在或已过期，请让设备重新发起")
     if challenge.status != "pending":
         raise BadRequestException("这条配对请求已经处理过了，请让设备重新发起")
+    demo_service.ensure_tv_pairing_allowed(challenge.client_type)
     return challenge
 
 
@@ -1054,6 +1057,7 @@ async def approve_device_request(user_code: str, approver: Principal) -> DeviceA
                 client_version=challenge.client_version,
                 platform=challenge.platform,
                 ip=challenge.source_ip or None,
+                approver_device_id=approver.device.id if approver.device else None,
             )
     except Exception:
         challenge.status = "pending"
@@ -1097,6 +1101,7 @@ async def redeem_device_code(device_code: str) -> DeviceTokenResult:
         # 已过期被清理、或根本不存在——对客户端是同一件事：停止轮询，重新发起
         return DeviceTokenResult(status="expired")
 
+    demo_service.ensure_tv_pairing_allowed(challenge.client_type)
     now = time.monotonic()
     if challenge.status == "pending":
         # 轮询过快只让客户端退避，**不作废挑战**：正常用户的重试不该被当成攻击

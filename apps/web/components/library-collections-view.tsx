@@ -168,6 +168,8 @@ function CollectionCover({ collection }: { collection: Collection }) {
           >
             <PosterImage
               src={imageUrl(cover.url)}
+              // 卡片 minmax(168px,1fr)，最前那张略窄于框；按卡宽上沿取
+              width={220}
               alt=""
               className="absolute inset-0 size-full object-cover"
             />

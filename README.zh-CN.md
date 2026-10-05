@@ -18,6 +18,7 @@
   <a href="#说一句它全都搞定">AI 助手</a> ·
   <a href="#boundaries">边界</a> ·
   <a href="#在别的机器上操控它">命令行</a> ·
+  <a href="https://movieclaw.io/zh/docs">文档</a> ·
   <a href="docs/design/">设计文档</a> ·
   <a href="#交流群">交流群</a> ·
   <a href="https://github.com/movieclaw/movieclaw/issues">反馈</a>
@@ -33,7 +34,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/home.jpg" width="900" alt="MovieClaw 的媒体库：接下来继续看的影片、收藏，以及各个媒体库">
+  <img src="docs/images/subscriptions.jpg" width="900" alt="MovieClaw 网页版的「我的订阅」：轮播里是刚入库的影片，下面是「刚刚入库」一栏">
 </p>
 
 <p align="center">
@@ -74,7 +75,7 @@
 - 进度在网页、App 和 Infuse 之间同步，在哪看都接得上。
 - 「片段」：在片库里竖着滑，从自己的电影和剧集里刷精彩片段。
 
-**怎么装 App**：从 [Releases](https://github.com/movieclaw/movieclaw/releases) 下载 `MovieClaw-iOS-unsigned.ipa`，用 AltStore、SideStore 或 Sideloadly 以自己的 Apple ID 安装，需要 iOS 26 及以上；TestFlight 公开测试稍后开放。资源站点和下载器在网页端配置。
+**怎么装 App**：从 [Releases](https://github.com/movieclaw/movieclaw/releases) 下载 `MovieClaw-iOS-unsigned.ipa`，用 AltStore、SideStore 或 Sideloadly 以自己的 Apple ID 安装，需要 iOS 26 及以上（侧载版收不到推送通知）；TestFlight 公开测试稍后开放。资源站点和下载器在网页端配置。
 
 网页端是液态玻璃：侧栏、输入框、悬浮按钮会折射你设的背景图，边缘带一点色差。背景图在「设置 → 外观」里换，跨设备访问同一实例保持一致。
 
@@ -90,7 +91,7 @@ MovieClaw 把一个自主的通用 Agent 装进了影音服务器。打理片库
 
 在微信里说一句也行，还能发语音；Telegram、Discord 也能对话，飞书群可以接成只推送的通知出口。删除这类操作，它会先问你；每一步调用了什么工具都摊开给你看，规则写在[权限边界](#boundaries)里。
 
-助手需要接入一个大模型（「设置 → AI 模型」，OpenAI 兼容端点都行），不接不影响其他功能。还可以用纯 Markdown 给它加「技能」：在 `data/agent-skills/` 下放一个目录 + `SKILL.md`（frontmatter 写 `description`，正文写指令，可带脚本），网页会话里任务匹配时助手会自己加载执行，改完即生效不用重启。与产品内置技能同名时你的版本优先（日志会提示），细节见 [`docs/design/agent-skills.md`](docs/design/agent-skills.md)。
+助手需要接入一个大模型（「设置 → 模型接入」，OpenAI 兼容端点都行），不接不影响其他功能。还可以用纯 Markdown 给它加「技能」：在 `data/agent-skills/` 下放一个目录 + `SKILL.md`（frontmatter 写 `description`，正文写指令，可带脚本），网页会话里任务匹配时助手会自己加载执行，改完即生效不用重启。与产品内置技能同名时你的版本优先（日志会提示），细节见 [`docs/design/agent-skills.md`](docs/design/agent-skills.md)。
 
 ### 识别，又快又准
 
@@ -284,7 +285,7 @@ docker compose up -d
    看到这句就是路径填错了。
 2. **接下载器**："设置 → 下载器"接入 qBittorrent / Transmission；下载器与 MovieClaw 看到的路径不一致时，在这里配好路径映射。
 3. **接站点**："设置 → 资源站点"填 Cookie / API Key，或装浏览器扩展自动同步。
-4. 可选："设置 → AI 模型"接入大模型解锁 AI 助手；"设置 → 监听导入"加一条"源目录 → 目标库"规则，让任意来源的下载也自动入库。
+4. 可选："设置 → 模型接入"接入大模型、"设置 → AI 设定"选默认模型，解锁 AI 助手；"设置 → 自动入库"加一条"源目录 → 目标库"规则，让任意来源的下载也自动入库。
 
 > 只想试一条命令？
 > `docker run -d --name movieclaw --init -p 3000:3000 --restart unless-stopped -e TZ=Asia/Shanghai -v "$(pwd)/data:/app/data" -v /volume1/media:/media -v /volume1/downloads:/downloads movieclaw/movieclaw:latest`
@@ -292,7 +293,7 @@ docker compose up -d
 
 ### 日常升级：不用重拉镜像
 
-装完之后的日常升级在"设置 → 应用 → 版本与更新"里直接完成：下载的是 GitHub Release 上
+装完之后的日常升级在"设置 → 更新与维护"里直接完成：下载的是 GitHub Release 上
 几 MB 的产物包（可配加速镜像），更新落在 `data` 卷上，容器重建也不丢。更新出问题可在同一页面
 直接回退，坏更新还会被容器自动回落到可用版本。
 
@@ -348,7 +349,7 @@ irm https://raw.githubusercontent.com/movieclaw/movieclaw/main/scripts/install-c
 
 装完跑 `mclaw login` 配对：不带参数会先在局域网里找一遍，跨网段或走 VPN 就自己给地址
 （`mclaw login --server http://192.168.1.10:3000`）。命令会显示一段配对码，到网页
-「设置 → 成员与设备 → 设备」核对后批准就行。令牌直接回到这个进程，不上屏，
+「设置 → 设备」核对后批准就行。令牌直接回到这个进程，不上屏，
 也就不会进剪贴板和 shell 历史。
 
 没人能去浏览器点批准的环境（NAS 的定时任务、CI、无界面容器），在同一个设备页
@@ -407,7 +408,7 @@ python -m movieclaw_api.reset_password
 容器内端口不用动。
 
 只有用 `--network host` 时容器内端口就是宿主端口，这时才需要真正换监听端口：
-加 `-e MOVIECLAW_WEB_PORT=8096`，或装好后在"设置 → 应用 → 网络与维护"里改（保存后自动重启生效）。
+加 `-e MOVIECLAW_WEB_PORT=8096`，或装好后在"设置 → 网络"里改（保存后自动重启生效）。
 
 **但 host 网络还有个坑**：容器内部的前端（3001）和后端（8000）也会直接占用宿主的这两个端口，
 它们目前不可改，`MOVIECLAW_WEB_PORT` 管不到。任一个被别的服务占了，容器会启动失败并退出，
@@ -420,10 +421,10 @@ UDP 7359（Jellyfin 局域网自动发现），和已有的 Jellyfin / Emby 会�
 <details>
 <summary><b>刮削一直失败，日志说连不上 TMDB</b></summary>
 
-日志或"设置 → 网络与代理"的连通性测试里出现 `无法连通 TMDB`、`ConnectTimeout`、
+日志或"设置 → 网络"的连通性测试里出现 `无法连通 TMDB`、`ConnectTimeout`、
 `CircuitOpenError`、`CERTIFICATE_VERIFY_FAILED` 这类字样，都属于这一类。
 
-所在网络直连不到 `api.themoviedb.org` 时，到"设置 → 网络与代理"配置代理或镜像地址，
+所在网络直连不到 `api.themoviedb.org` 时，到"设置 → 网络"配置代理或镜像地址，
 并用页面上的连通性测试验证。默认走代理的服务是 TMDB、图片回源和 GitHub 更新，
 PT 站点保持直连（通常直连更快）。
 </details>

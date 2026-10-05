@@ -325,6 +325,7 @@ _PUBLIC_ALLOWLIST = {
     ("GET", "/api/v1/share/{slug}/artwork"),
     ("GET", "/api/v1/share/{slug}/images/assets/{path}"),
     ("GET", "/api/v1/share/{slug}/images/proxy"),
+    ("GET", "/api/v1/share/{slug}/images/people/{path}"),
     ("GET", "/api/v1/share/{slug}/files/{file_id}/thumb"),
     ("POST", "/api/v1/share/{slug}/playback/decide"),
     ("POST", "/api/v1/share/{slug}/playback/sessions"),
@@ -334,6 +335,9 @@ _PUBLIC_ALLOWLIST = {
     ("GET", "/api/v1/share/{slug}/playback/sessions/{session_id}/diagnostics"),
     ("GET", "/api/v1/share/{slug}/playback/items/{media_item_id}"),
     ("GET", "/api/v1/share/{slug}/playback/items/{media_item_id}/episodes"),
+    # App 推送的配图（docs/design/cloud-push.md §6）：通知扩展在锁屏时下载，拿不到
+    # 登录令牌；地址自带签名（只含一张 TMDB 图片地址和过期时间），签名不对一律 404
+    ("GET", "/api/v1/push/images/{token}"),
 }
 
 
@@ -390,6 +394,8 @@ def fill_path_params(path: str) -> str:
         .replace("{share_id}", "1")
         .replace("{key}", "cache.images")  # 缓存管理的登记目录 key
         .replace("{attempt_id}", "test-attempt")  # 播放体验记录的播放编号
+        .replace("{relay_id}", "r_test")  # App 推送的自建中继
+        .replace("{token}", "no-such-image")  # 推送配图的签名
     )
 
 

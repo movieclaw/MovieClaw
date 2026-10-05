@@ -33,6 +33,7 @@ from movieclaw_api.api.routes.appearance import router as appearance_router
 from movieclaw_api.api.routes.auth import router as auth_router
 from movieclaw_api.api.routes.channels import router as channels_router
 from movieclaw_api.api.routes.channels_im import router as channels_im_router
+from movieclaw_api.api.routes.cloud import router as cloud_router
 from movieclaw_api.api.routes.collections import router as collections_router
 from movieclaw_api.api.routes.discover import router as discover_router
 from movieclaw_api.api.routes.discover import search_router as title_search_router
@@ -48,6 +49,7 @@ from movieclaw_api.api.routes.jobs import router as jobs_router
 from movieclaw_api.api.routes.libraries import kinds_router as library_kinds_router
 from movieclaw_api.api.routes.libraries import router as libraries_router
 from movieclaw_api.api.routes.libraries import search_router as library_search_router
+from movieclaw_api.api.routes.libraries import showcase_router as library_showcase_router
 from movieclaw_api.api.routes.library_duplicates import router as library_duplicates_router
 from movieclaw_api.api.routes.library_recycle import router as library_recycle_router
 from movieclaw_api.api.routes.llm import router as llm_router
@@ -58,6 +60,9 @@ from movieclaw_api.api.routes.network import router as network_router
 from movieclaw_api.api.routes.people import router as people_router
 from movieclaw_api.api.routes.playback import router as playback_router
 from movieclaw_api.api.routes.playback import stream_router as playback_stream_router
+from movieclaw_api.api.routes.push import admin_router as push_admin_router
+from movieclaw_api.api.routes.push import member_router as push_member_router
+from movieclaw_api.api.routes.push import public_router as push_public_router
 from movieclaw_api.api.routes.reels import router as reels_router
 from movieclaw_api.api.routes.rule_sets import router as rule_sets_router
 from movieclaw_api.api.routes.scheduled_tasks import router as scheduled_tasks_router
@@ -84,6 +89,9 @@ api_router.include_router(auth_router)
 # require_share_access（分享有效 + 密码已解锁），产出的分享主体进不了
 # require_login，所以既有业务接口对分享凭据一律 401
 api_router.include_router(shares_public_router)
+# App 推送的配图（docs/design/cloud-push.md §6）：通知扩展在锁屏时下载，拿不到登录
+# 令牌，地址自带签名（只含一张 TMDB 图片地址和过期时间），签名不对一律 404
+api_router.include_router(push_public_router)
 
 # ---- 插件区（鉴权在各路由上自行声明：插件侧 sync token / 管理侧 login）----
 api_router.include_router(extension_router)
@@ -112,11 +120,16 @@ _MEMBER_ROUTERS = [
     library_duplicates_router,
     # 同理：/libraries/kinds/{kind} 也要排在 /libraries/{library_id} 之前
     library_kinds_router,
+    # 同理：/libraries/showcase（海报行选中展开的批量展示信息）
+    library_showcase_router,
     libraries_router,
     collections_router,
     people_router,
     playback_router,
     reels_router,
+    # 我的通知（docs/design/cloud-push.md §7.3）：每个人只管自己的开关和设备；
+    # App 登记只接受 App 类设备自己的凭证（服务层判定）
+    push_member_router,
 ]
 for _router in _MEMBER_ROUTERS:
     api_router.include_router(_router, dependencies=[Depends(require_login)])
@@ -173,6 +186,10 @@ _ADMIN_ROUTERS = [
     webhook_router,
     # 影片分享是把内容放到登录边界之外的动作，仅超管（media-share.md §2.1）
     shares_admin_router,
+    # MovieClaw Cloud 与 App 推送通道：以整台服务器的名义连接云端、管理推送中继
+    # 与令牌，与 IM 通道同属管理员（docs/design/cloud-push.md §1）
+    cloud_router,
+    push_admin_router,
 ]
 for _router in _ADMIN_ROUTERS:
     api_router.include_router(_router, dependencies=[Depends(require_admin)])

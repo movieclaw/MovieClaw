@@ -8,6 +8,8 @@ import { useRouter } from "next/navigation";
 
 import { BrandLoader } from "@/components/brand-loader";
 import { ContentEmptyState } from "@/components/content-empty-state";
+import { CollectionLibraryCard, ShelfCardCaption } from "@/components/collection-library-card";
+import { GenreTile } from "@/components/genre-tile";
 import { HScroller } from "@/components/h-scroller";
 import { LIBRARY_KIND_META } from "@/components/library-kind-meta";
 import {
@@ -22,10 +24,12 @@ import { TopBarMenu } from "@/components/top-bar-menu";
 import type { PosterCardAction } from "@/components/poster-card";
 import { UpNextRow } from "@/components/up-next-row";
 import {
+  type KindGenre,
   type LibraryItem,
   type MediaLibrary,
   libraryCoverUrl,
   listLibraries,
+  listKindGenres,
   listKindItems,
   listLibraryItems,
   SCAN_PHASE_LABELS,
@@ -43,14 +47,16 @@ import type { Subscription } from "@/lib/api/subscriptions";
 import { favoriteLevelLabel } from "@/lib/favorites";
 import {
   buildHomeRows,
+  homeCollectionIds,
   FAVORITES_SORT_PRESETS,
+  type GenreRowKind,
   type HomeRow,
   orderParamFor,
   rowTitle,
   SORT_PRESETS,
 } from "@/lib/home-rows";
 import { formatBytes } from "@/lib/format";
-import { cardVariantFor, imageUrl } from "@/lib/image-proxy";
+import { imageUrl, responsiveImage } from "@/lib/image-proxy";
 import { libraryInventoryAction } from "@/lib/library-inventory-summary";
 import type { MediaItem } from "@/lib/media-types";
 import { usePageChrome } from "@/lib/page-chrome";
@@ -142,6 +148,7 @@ let lastLoadedHome: {
   upNext: UpNextItem[];
   favorites: FavoritesPage;
   itemsByKey: Map<string, LibraryItem[]>;
+  genresByKind: Map<GenreRowKind, KindGenre[]>;
 } | null = null;
 
 export function LibraryView({ hero }: { hero?: ReactNode }) {
@@ -210,6 +217,10 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
   // 一次（库卡片封面与默认的「最近添加」行共用 added_at 那一份）
   const [itemsByKey, setItemsByKey] = useState<Map<string, LibraryItem[]>>(
     () => lastLoadedHome?.itemsByKey ?? new Map(),
+  );
+  // 「按类型找电影 / 剧集」色块：每种类型的 TMDB 类型分布，与库行条目同一轮取、同一个快照闸
+  const [genresByKind, setGenresByKind] = useState<Map<GenreRowKind, KindGenre[]>>(
+    () => lastLoadedHome?.genresByKind ?? new Map(),
   );
   const [upNext, setUpNext] = useState<UpNextItem[] | null>(() => lastLoadedHome?.upNext ?? null);
   // 我的收藏：与接下来继续同一轮拉取、同一套失败策略（拉不到保留旧数据）
@@ -296,16 +307,26 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
         else setFavorites((previous) => previous ?? { items: [], total: 0 });
 
         const fetches = rowFetches(rows, libs);
-        const snapshot = `${libsSnapshot}|${[...fetches.keys()].join(",")}|${collectionsSnapshot}`;
+        const genreKinds = rows.flatMap((row) => (row.kind === "genres" ? [row.mediaKind] : []));
+        // 库状态（含作品数）没变，类型分布也不会变：与条目共用同一个快照闸
+        const snapshot = `${libsSnapshot}|${[...fetches.keys(), ...genreKinds.map((k) => `genres:${k}`)].join(",")}|${collectionsSnapshot}`;
         if (snapshot === lastSnapshot.current) return;
-        const entries = await Promise.all(
-          [...fetches].map(
-            async ([key, fetch]) => [key, await fetch().catch((): LibraryItem[] => [])] as const,
+        const [entries, genreEntries] = await Promise.all([
+          Promise.all(
+            [...fetches].map(
+              async ([key, fetch]) => [key, await fetch().catch((): LibraryItem[] => [])] as const,
+            ),
           ),
-        );
+          Promise.all(
+            genreKinds.map(
+              async (kind) => [kind, await listKindGenres(kind).catch((): KindGenre[] => [])] as const,
+            ),
+          ),
+        ]);
         if (seq !== reloadSeq.current) return;
         lastSnapshot.current = snapshot;
         setItemsByKey(new Map(entries));
+        setGenresByKind(new Map(genreEntries));
       })
       // 瞬时失败不清已有数据：failed 只决定提示条，卡片继续用上一份快照，
       // 下一轮轮询成功即自动恢复（整页错误屏只留给一次都没加载成功的情况）
@@ -329,8 +350,9 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
       upNext: upNext ?? [],
       favorites: favorites ?? { items: [], total: 0 },
       itemsByKey,
+      genresByKind,
     };
-  }, [libraries, collections, upNext, favorites, itemsByKey]);
+  }, [libraries, collections, upNext, favorites, itemsByKey, genresByKind]);
 
   // 有库在扫描/整理时轮询刷新，任务完成即看到最新库存与文件名
   const busyAny = (libraries ?? []).some((l) => l.scanning || l.organizing);
@@ -378,6 +400,13 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
     [homePrefs, libraries, collections],
   );
   const visibleRows = useMemo(() => rows.filter((row) => !row.hidden), [rows]);
+  const homeCollections = useMemo(() => {
+    const byId = new Map(collections.map((collection) => [collection.id, collection]));
+    return homeCollectionIds(rows).flatMap((id) => {
+      const collection = byId.get(id);
+      return collection ? [collection] : [];
+    });
+  }, [rows, collections]);
   const collectionCount = collections.length;
   // 「全部合集」入口默认挂在「我的媒体库」行的标题右侧。但那一行不是永远都在：
   // 用户可以在「自定义首页」里隐藏它，一个可见库都没有时整节也 return null。
@@ -385,7 +414,8 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
   // （合集页自己的 LibrarySectionSwitch 要先进得去才用得上），等于功能在 UI 上
   // 彻底不可达。这两种情况下把入口抬到页头动作区，保证始终有一条路进得去。
   const librariesRowVisible =
-    rows.some((row) => row.kind === "libraries" && !row.hidden) && visibleLibraries.length > 0;
+    rows.some((row) => row.kind === "libraries" && !row.hidden) &&
+    (visibleLibraries.length > 0 || homeCollections.length > 0);
   // 银玻璃手机上顶栏 ⋯ 菜单里常驻「全部合集」，页头不再需要这个兜底
   const collectionsEntryInHeader =
     collectionCount > 0 && !librariesRowVisible && !actionsInTopBar;
@@ -479,7 +509,7 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
         );
       case "libraries":
         // 库卡片横排：库多了不换行堆高，改为一行横滚（与库行同一交互）
-        if (visibleLibraries.length === 0) return null;
+        if (visibleLibraries.length === 0 && homeCollections.length === 0) return null;
         return (
           <section key={row.id} className="mt-8 max-md:mt-6" aria-labelledby="my-libraries-title">
             <div className={`flex items-center justify-between gap-4 page-inset`}>
@@ -514,9 +544,41 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
                   />
                 </div>
               ))}
+              {/* 合集与真实库同排；只读合并后的行清单，海报行继续在原位置展示。 */}
+              {homeCollections.map((collection) => (
+                <div key={`collection:${collection.id}`} className="w-[268px] shrink-0 rounded-2xl max-md:w-[230px]">
+                  <CollectionLibraryCard collection={collection} />
+                </div>
+              ))}
             </HScroller>
           </section>
         );
+      case "genres": {
+        // 每个有片的类型一格，按部数倒序（服务端排好）；一格都没有时整段隐藏
+        const genres = genresByKind.get(row.mediaKind) ?? [];
+        if (genres.length === 0) return null;
+        return (
+          <section key={row.id} className="mt-8 max-md:mt-6" data-testid={`home-row-${row.id}`}>
+            <h3 className="text-on-image page-inset text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
+              {rowTitle(row)}
+            </h3>
+            <HScroller className="mt-3 gap-4 pb-1 pt-1 page-inset max-md:gap-3">
+              {genres.map((genre) => (
+                <GenreTile
+                  key={genre.value}
+                  genreId={Number(genre.value)}
+                  label={genre.label}
+                  count={genre.count}
+                  coverUrl={genre.cover_url}
+                  coverTitle={genre.cover_title}
+                  href={`/library/kind/${row.mediaKind}?g=${genre.value}` as Route}
+                  className="w-[200px] shrink-0 max-md:w-[150px]"
+                />
+              ))}
+            </HScroller>
+          </section>
+        );
+      }
       case "library":
         return contentRow(row, `/library/${row.library.id}` as Route);
       case "media-kind":
@@ -785,11 +847,9 @@ function libraryItemToMediaItem(item: LibraryItem): MediaItem {
     overlayDetails,
     // 海报可能是本地刮削资产的相对路径（/images/assets/...），也可能是
     // TMDB 图床绝对地址——统一经 imageUrl 解析（补 API base / 走缓存代理）。
-    // 取 poster-card 派生图而非原图：格子实测渲染 150~170 CSS px，328px 的
-    // 预设覆盖 2x 屏绰绰有余，而原图是 500px 宽的刮削资产——一屏 60 格直出
-    // 原图要 4.9 MB，取派生图只要 1.7 MB（实测单张 82KB → 29KB）。
-    // 其他库的横版封面按比例取横卡预设，竖框会把它缩得太小
-    posterUrl: imageUrl(item.poster_url, cardVariantFor(item.primary_aspect)),
+    // 不取原图：宽度由 PosterCard 按格子尺寸生成 srcset 再带上（服务端宽度阶梯），
+    // 一屏 60 格直出原图要几十 MB
+    posterUrl: imageUrl(item.poster_url),
   };
 }
 
@@ -806,7 +866,7 @@ function favoriteItemToMediaItem(item: FavoriteItem): MediaItem {
   };
 }
 
-/* —— 库卡片：海报货架封面 + 库名/徽标/计数，Emby「我的媒体」磁贴风 —— */
+/* —— 库卡片：海报货架封面 + 库名（ShelfCardCaption），Emby「我的媒体」磁贴风 —— */
 
 function LibraryCard({ library, items }: { library: MediaLibrary; items: LibraryItem[] }) {
   const meta = LIBRARY_KIND_META[library.kind];
@@ -883,15 +943,7 @@ function LibraryCard({ library, items }: { library: MediaLibrary; items: Library
         </div>
       </Link>
 
-      {/* 库名：Emby 式放在封面下方居中，只与「默认」共处一行 */}
-      <div className="mt-2.5 flex items-center justify-center gap-2 px-2">
-        <h3 className="truncate text-body-lg font-semibold text-white">{library.name}</h3>
-        {library.is_default && (
-          <span className="shrink-0 rounded-full border border-white/[0.14] bg-white/[0.1] px-2 py-0.5 text-micro font-semibold text-white/80">
-            默认
-          </span>
-        )}
-      </div>
+      <ShelfCardCaption name={library.name} />
     </div>
   );
 }
@@ -937,6 +989,11 @@ function ScanProgressRing({ progress }: { progress: { processed: number; total: 
   );
 }
 
+/** 首页库卡的显示宽（CSS px，桌面 268 / 手机 230，取大者） */
+const LIBRARY_CARD_WIDTH = 268;
+/** 回退货架上单张海报的显示宽：卡宽 × 22.5% */
+const SHELF_POSTER_WIDTH = 60;
+
 function LibraryCover({
   libraryId,
   posters,
@@ -953,6 +1010,8 @@ function LibraryCover({
   // 一次 <img> 请求替代 9+ 张图的客户端合成，ETag 协商缓存，渲染显著更快。
   // 拼贴尚未生成/加载失败时回退到原客户端 CSS 货架（素材同源，观感一致）。
   // 设了自定义封面的库走同一个地址，后端在那一层就短路了。
+  // 回退货架里的海报约占卡宽 22.5%（60 CSS px）；背后两层模糊光用同一张首图、
+  // 同一个宽度，地址一致浏览器只取一次
   const [collageFailed, setCollageFailed] = useState(false);
   const placeholder = (
     <div className="absolute inset-0 flex items-center justify-center bg-gradient-to-br from-[#1c2230] to-[#10131c]">
@@ -964,7 +1023,8 @@ function LibraryCover({
     return (
       <div className="absolute inset-0 overflow-hidden">
         <img
-          src={libraryCoverUrl(libraryId)}
+          // 库卡 268 宽（21:10），悬停放大 1.02；服务端拼贴同样认 w
+          {...responsiveImage(libraryCoverUrl(libraryId), LIBRARY_CARD_WIDTH, 1.02)}
           alt=""
           loading="lazy"
           className="absolute inset-0 size-full object-cover transition duration-300 group-hover/lib:scale-[1.02]"
@@ -981,7 +1041,7 @@ function LibraryCover({
     <div className="absolute inset-0 overflow-hidden">
       {/* 氛围光：首图放大重模糊 + 提饱和，再整体压暗保证前景对比度 */}
       <img
-        src={imageUrl(posters[0])}
+        {...responsiveImage(imageUrl(posters[0]), SHELF_POSTER_WIDTH)}
         alt=""
         loading="lazy"
         referrerPolicy="no-referrer"
@@ -991,7 +1051,7 @@ function LibraryCover({
       {/* 灯箱底光：首图模糊后以 screen 混合从底边向上发光，颜色天然
           取自海报主色；再叠一个中性地面光斑，像射灯打在舞台地面上 */}
       <img
-        src={imageUrl(posters[0])}
+        {...responsiveImage(imageUrl(posters[0]), SHELF_POSTER_WIDTH)}
         alt=""
         aria-hidden
         loading="lazy"
@@ -1007,7 +1067,7 @@ function LibraryCover({
             className="w-[22.5%] shrink-0 transition duration-300 group-hover/lib:-translate-y-1"
           >
             <img
-              src={imageUrl(url)}
+              {...responsiveImage(imageUrl(url), SHELF_POSTER_WIDTH)}
               alt=""
               loading="lazy"
               referrerPolicy="no-referrer"
@@ -1017,7 +1077,7 @@ function LibraryCover({
                 坐标系生效、会跟着 scaleY(-1) 一起翻转，所以这里写 to top，
                 翻转后在屏幕上才是「贴近海报处最实、向下淡出」 */}
             <img
-              src={imageUrl(url)}
+              {...responsiveImage(imageUrl(url), SHELF_POSTER_WIDTH)}
               alt=""
               aria-hidden
               loading="lazy"

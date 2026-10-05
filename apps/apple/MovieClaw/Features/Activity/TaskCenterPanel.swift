@@ -247,9 +247,10 @@ private struct TaskDeleteSheetModifier: ViewModifier {
 
 // MARK: - 时间线
 
-/// 时间线条目：左侧圆点轨道（进行中蓝、等待黄、完成绿勾、取消灰叉），内容与分组标题左对齐
+/// 时间线条目：左侧圆点轨道（进行中蓝、等待黄、完成绿勾、完成但有没办成的部分黄勾、取消灰叉），
+/// 内容与分组标题左对齐
 struct TaskTimelineItem<Content: View>: View {
-    enum Tone { case active, waiting, success, cancelled }
+    enum Tone { case active, waiting, success, partial, cancelled }
 
     var tone: Tone = .active
     var isLast = false
@@ -272,12 +273,12 @@ struct TaskTimelineItem<Content: View>: View {
 
     @ViewBuilder private var dot: some View {
         switch tone {
-        case .success:
+        case .success, .partial:
             Image(systemName: "checkmark")
                 .font(.system(size: 8, weight: .heavy))
                 .foregroundStyle(Color(red: 7 / 255, green: 18 / 255, blue: 11 / 255))
                 .frame(width: 16, height: 16)
-                .background(Theme.success, in: .circle)
+                .background(tone == .partial ? Theme.warning : Theme.success, in: .circle)
         case .cancelled:
             Image(systemName: "xmark")
                 .font(.system(size: 8, weight: .heavy))
@@ -332,6 +333,19 @@ struct ActiveJobFeedItem: View {
             }
             if !job.progress.message.isEmpty {
                 Text(job.progress.message).font(.caption).foregroundStyle(Theme.textFaint).lineLimit(2)
+            }
+            // 元数据刷新的图片记账（新下载 / 沿用 / 失败）；其余类型的过程信息已在摘要里
+            let details = job.jobType.contains("metadata.refresh") ? TaskCenter.jobDetailItems(job) : []
+            if !details.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(details, id: \.self) { item in
+                        Text(item.label)
+                            .font(.caption2).monospacedDigit().lineLimit(1)
+                            .foregroundStyle(item.alert ? Theme.warning : Theme.textMuted)
+                            .padding(.horizontal, 6).padding(.vertical, 2)
+                            .background((item.alert ? Theme.warning.opacity(0.12) : Color.white.opacity(0.06)), in: .rect(cornerRadius: 5))
+                    }
+                }
             }
             if percent != nil || job.status == "running" {
                 ActivityProgressBar(percent: percent, color: Theme.info).padding(.top, 3)
@@ -404,7 +418,7 @@ struct TaskHistorySection: View {
                     if open {
                         VStack(spacing: 0) {
                             ForEach(Array(group.jobs.enumerated()), id: \.element.id) { itemIndex, job in
-                                TaskTimelineItem(tone: job.status == "succeeded" ? .success : .cancelled, isLast: itemIndex == group.jobs.count - 1) {
+                                TaskTimelineItem(tone: job.status != "succeeded" ? .cancelled : TaskCenter.succeededWithProblems(job) ? .partial : .success, isLast: itemIndex == group.jobs.count - 1) {
                                     HistoricalJobFeedItem(
                                         job: job, retrying: retryingJobId == job.id, undismissing: undismissingJobId == job.id,
                                         onRetry: { onRetry(job) }, onUndismiss: { onUndismiss(job) }

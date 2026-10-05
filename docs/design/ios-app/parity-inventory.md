@@ -457,7 +457,7 @@ Components: `components/player/*`, `lib/player/*`. Shares use the same player wi
     - `GET /downloaders`, `POST /downloaders/resolve-target`, `POST /downloaders/submit`.
     - 记住本次选择 (remember this choice per category): stored preferences come from `GET /downloaders/target-prefs`; the confirm bar lets you forget one with `DELETE /downloaders/target-prefs/{category}`.
   - `for_sub=<id>` grab mode: loads `GET /subscriptions/{id}`; the button sends the torrent straight to that subscription with `POST /subscriptions/{id}/selected-torrent-downloads`.
-- **媒体库 (library):** `GET /search/library-items?keyword=…`, with results grouped by library.
+- **媒体库 (library):** `GET /search/library?q=…` (shared with Web and Apple TV): relevance-ordered results, matched people row, cursor paging.
 
 ---
 
@@ -817,7 +817,7 @@ Components: `components/player/*`, `lib/player/*`. Shares use the same player wi
   - Telemetry: `POST /playback/metrics` (plus a beacon)
 - **scheduled-tasks:** `GET /scheduled-tasks`, `PUT /scheduled-tasks/{key}`
 - **scrape:** `GET/PUT /scrape/config`, `GET /scrape/language-options`, `GET /scrape/country-options`, `GET/PUT /discover/region`
-- **search:** `GET /search/history`, `GET /search/history/{id}/results`, `DELETE /search/history/{id}`, `DELETE /search/history`, `GET/PUT /search/presets`, `POST /search/titles`, `GET /search/library-items`, `GET /search/torrents` (unused), `GET /search/torrents/stream` (SSE)
+- **search:** `GET /search/history`, `GET /search/history/{id}/results`, `DELETE /search/history/{id}`, `DELETE /search/history`, `GET/PUT /search/presets`, `POST /search/titles`, `GET /search/library`, `GET /search/torrents` (unused), `GET /search/torrents/stream` (SSE)
 - **shares:** `GET/POST/DELETE /libraries/{lib}/items/{id}/share`, `GET /shares`, `DELETE /shares/{id}`, `GET/POST/DELETE /collections/{id}/share`; guest: `GET /share/{slug}`, `POST /share/{slug}/unlock`, `GET /share/{slug}/collection`, `GET /share/{slug}/item[?item=]`, `GET /share/{slug}/episodes`
 - **sites:** `GET /sites/catalog`, `GET/POST /sites`, `GET /sites/sync-stats`, `GET/PUT/DELETE /sites/{id}`, `PATCH /sites/{id}/status`, `…/protection`, `…/ratio-boost`, `…/ratio-boost/pause`, `GET /sites/boost-stats`, `POST /sites/{id}/verify`
 - **storage:** `GET /app/storage[?refresh=1]`, `POST /app/storage/{key}/clean`

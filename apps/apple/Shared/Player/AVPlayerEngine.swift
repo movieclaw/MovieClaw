@@ -1,0 +1,474 @@
+import AVFoundation
+import AVKit
+import UIKit
+
+/// 系统播放器引擎：AVPlayer 放服务端给的 MP4 直出地址或 HLS（fMP4）播放列表。
+///
+/// 为什么还要它（原文件都交给自研引擎之后）：它是服务端流的播放器——限了画质要转码、本机存储不够放分片、
+/// 自研引擎解不了这个文件时，都由服务端转封装 / 转码成 HLS，再由它来放。
+///
+/// 字幕：画面内由 SwiftUI 叠加层渲染（`SubtitleOverlay`，样式可调）；图形字幕（PGS）走服务端烧录。
+/// 叠加层进不了画中画小窗和隔空播放的电视，所以放 VOD 转码流时吃服务端的 master 列表（带 WEBVTT 字幕组），
+/// 进画中画 / 隔空播放时把当前字幕切成系统字幕轨由系统渲染，回到画面内再关掉（避免与叠加层双字幕）。
+@MainActor
+final class AVPlayerEngine: NSObject, PlayerEngine {
+    let kind = EngineKind.avPlayer
+    var onEvent: ((EngineEvent) -> Void)?
+
+    private let player = AVPlayer()
+    private let layerView = PlayerLayerView()
+    private var pipController: AVPictureInPictureController?
+    private var observations: [NSKeyValueObservation] = []
+    private var timeObserver: Any?
+    private var notificationTokens: [NSObjectProtocol] = []
+
+    /// 起播目标（readyToPlay 之后才能 seek）
+    private var pendingStart: Double = 0
+    private var autoplay = true
+    private var didPrepare = false
+    private var ended = false
+    private var desiredRate: Float = 1
+    private(set) var isPictureInPictureActive = false
+    /// 顶栏「↓」的实时加载速度（每个播放项从头量）
+    private var loadingMeter = LoadingSpeedMeter()
+    /// 诊断面板「带宽」与申报给服务端的 downlink_bps（口径见 `BandwidthMeter`）
+    private var bandwidthMeter = BandwidthMeter()
+    /// 原文件直出没有分片事件：带宽样本就是加载速度读数，每秒记一个
+    private var lastLoadingSample: TimeInterval?
+    /// 收到过 HLS 分片请求事件：带宽只认它，不再用字节计数推算
+    private var segmentMetricsSeen = false
+    private var metricsTask: Task<Void, Never>?
+    /// master 列表字幕组里对应当前字幕的下标（nil = 不选字幕 / 没有 master 字幕组）。
+    /// 只在画中画、隔空播放时真正选中，画面内交给叠加层
+    var systemSubtitleIndex: Int? {
+        didSet { applySystemSubtitle() }
+    }
+
+    var view: UIView { layerView }
+
+    override init() {
+        super.init()
+        layerView.playerLayer.player = player
+        layerView.playerLayer.videoGravity = .resizeAspect
+        player.allowsExternalPlayback = true
+        player.usesExternalPlaybackWhileExternalScreenIsActive = true
+        player.automaticallyWaitsToMinimizeStalling = true
+        // 字幕轨由我们按「画面内 / 画中画」显式挑，不让系统按辅助功能偏好自动选（否则画面内会出双字幕）
+        player.appliesMediaSelectionCriteriaAutomatically = false
+        #if os(iOS)
+        if AVPictureInPictureController.isPictureInPictureSupported() {
+            let controller = AVPictureInPictureController(playerLayer: layerView.playerLayer)
+            controller?.canStartPictureInPictureAutomaticallyFromInline = true
+            controller?.delegate = self
+            pipController = controller
+        }
+        #else
+        // Apple TV 不做画中画（同 NativeEngine.supportsPictureInPicture）。系统播放器兜底这条路不经过自研引擎，
+        // 没人替它声明音频类别：按引擎在 tvOS 上的做法声明（长音频路由策略、多声道），只声明不激活，
+        // 由 AVPlayer 出声时激活——提前激活会把 HDMI 锁成立体声（上游 #24）
+        let audio = AVAudioSession.sharedInstance()
+        try? audio.setCategory(.playback, mode: .moviePlayback, policy: .longFormAudio)
+        try? audio.setSupportsMultichannelContent(true)
+        #endif
+        observe()
+    }
+
+    // MARK: - 播放控制
+
+    /// 起播协商时预先建好、已经在读文件头 / 播放列表的资源（地址相同才用）
+    private var preparedAsset: AVURLAsset?
+
+    func prepare(_ asset: AVURLAsset) {
+        preparedAsset = asset
+    }
+
+    func load(url: URL, start: Double, autoplay: Bool) {
+        let prepared = preparedAsset.flatMap { $0.url == url ? $0 : nil }
+        preparedAsset = nil
+        let item = prepared.map { AVPlayerItem(asset: $0) } ?? AVPlayerItem(url: url)
+        pendingStart = start
+        self.autoplay = autoplay
+        didPrepare = false
+        ended = false
+        loadingMeter.reset()
+        bandwidthMeter.reset()
+        lastLoadingSample = nil
+        segmentMetricsSeen = false
+        observeSegmentMetrics(item)
+        player.replaceCurrentItem(with: item)
+        observeItem(item)
+        onEvent?(.buffering)
+        // 流本身就从起播点开始（从头播，或服务端的 HLS 列表带了 EXT-X-START）：挂上就开播，不等 readyToPlay。
+        // 等就绪再调播放要走「就绪 → 回主线程 → 调播放 → 状态变更 → 再回主线程」一圈，模拟器实测约 200 毫秒；
+        // 首帧早已解出来了，画面却要多停这么久。只有原文件续播要先定位，照旧等就绪
+        startedEarly = autoplay && (start <= 0.5 || url.pathExtension == "m3u8")
+        // 起播这一段不等「预计不会卡」：第一帧一解出来就开始走。开着这个等待，AVPlayer 会先攒一截
+        // 缓冲才动（本机实测开始播放从 650~830 毫秒提前到 180~230 毫秒）；开始播放后再打开，播放中照旧防卡顿
+        player.automaticallyWaitsToMinimizeStalling = false
+        if startedEarly { player.playImmediately(atRate: desiredRate) }
+    }
+
+    /// 本次加载已在挂上时开播（见 `load`），就绪时不再重复调播放
+    private var startedEarly = false
+
+    func play() {
+        if ended { ended = false }
+        setPrefetchSuspended(false)
+        player.playImmediately(atRate: desiredRate)
+    }
+
+    /// 计费网络上暂停时把预读压到 1 秒：AVPlayer 停在已缓冲的地方，不再往前拉服务端分片；0 = 系统自适应（平时）
+    func setPrefetchSuspended(_ suspended: Bool) {
+        player.currentItem?.preferredForwardBufferDuration = suspended ? 1 : 0
+    }
+
+    func pause() { player.pause() }
+
+    func seek(to seconds: Double, exact: Bool) {
+        let time = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
+        let tolerance = exact ? CMTime.zero : CMTime(seconds: 2, preferredTimescale: 600)
+        ended = false
+        player.seek(to: time, toleranceBefore: tolerance, toleranceAfter: tolerance)
+    }
+
+    func setRate(_ rate: Float) {
+        desiredRate = rate
+        if player.rate > 0 { player.rate = rate }
+    }
+
+    // MARK: - 读数
+
+    var currentTime: Double {
+        let seconds = player.currentTime().seconds
+        return seconds.isFinite ? max(0, seconds) : 0
+    }
+
+    var duration: Double? {
+        guard let seconds = player.currentItem?.duration.seconds, seconds.isFinite, seconds > 0 else { return nil }
+        return seconds
+    }
+
+    var bufferedEnd: Double? {
+        let now = currentTime
+        let ranges = player.currentItem?.loadedTimeRanges.map(\.timeRangeValue) ?? []
+        let covering = ranges.first { $0.start.seconds <= now + 0.5 && $0.end.seconds >= now }
+        return covering?.end.seconds ?? ranges.map(\.end.seconds).max()
+    }
+
+    var isPaused: Bool { player.timeControlStatus == .paused }
+
+    var videoSize: CGSize { player.currentItem?.presentationSize ?? .zero }
+
+    func stats() -> EngineStats {
+        let events = player.currentItem?.accessLog()?.events ?? []
+        let event = events.last
+        // 访问日志的平均传输速率：只在起播头几秒、还没攒出带宽样本时顶一下（它会被慢读拖低，理由见 BandwidthMeter）
+        let observed = event.map(\.observedBitrate).flatMap { $0 > 0 ? $0 : nil }
+        let indicated = event.map(\.indicatedBitrate).flatMap { $0 > 0 ? $0 : nil }
+            ?? event.map(\.averageVideoBitrate).flatMap { $0 > 0 ? $0 : nil }
+        let now = ProcessInfo.processInfo.systemUptime
+        // 隔空播放时是电视自己去取流，这台手机的计数不涨，读数自然是 0——如实
+        let loading = loadingMeter.sample(
+            bytes: events.isEmpty ? nil : events.reduce(0) { $0 + max(0, $1.numberOfBytesTransferred) },
+            transferSeconds: events.reduce(0) { $0 + max(0, $1.transferDuration) },
+            at: now
+        )
+        sampleBandwidthFromLoading(loading, at: now)
+        var details: [String] = []
+        if player.isExternalPlaybackActive { details.append("隔空播放中") }
+        if isPictureInPictureActive { details.append("画中画中") }
+        return EngineStats(
+            engine: kind.rawValue,
+            downlinkBps: bandwidthMeter.bps ?? observed,
+            loadingBps: loading,
+            bitrateBps: indicated,
+            droppedFrames: events.isEmpty ? nil : events.reduce(0) { $0 + max(0, $1.numberOfDroppedVideoFrames) },
+            totalFrames: estimatedTotalFrames(events),
+            bufferedSeconds: max(0, (bufferedEnd ?? currentTime) - currentTime),
+            currentTimeSeconds: currentTime,
+            details: details
+        )
+    }
+
+    /// HLS 的带宽样本：每个分片请求一条「首字节到达 → 末字节到达」（AVMetrics，iOS 18 起）。
+    /// 原文件直出不产生这类事件（实测一条都没有），走 `sampleBandwidthFromCounter`
+    private func observeSegmentMetrics(_ item: AVPlayerItem) {
+        metricsTask?.cancel()
+        #if DEBUG
+        // 开发期：AVPlayer 自己的起播明细（从开始加载到「够播」，期间每个列表 / 分片请求的起止），
+        // 看慢在网络、服务端供片还是 AVPlayer 内部（控制台 [AVStartup]）
+        Task {
+            let loadedAt = Date()
+            for try await event in item.metrics(forType: AVMetricPlayerItemInitialLikelyToKeepUpEvent.self) {
+                func rel(_ date: Date?) -> String { date.map { String(Int($0.timeIntervalSince(loadedAt) * 1000)) } ?? "-" }
+                var lines = ["[AVStartup] 够播用时 \(Int(event.timeTaken * 1000)) 毫秒"]
+                for playlist in event.playlistRequestEvents {
+                    let request = playlist.mediaResourceRequestEvent
+                    lines.append("  列表 \(request?.url?.lastPathComponent ?? "?") \(rel(request?.requestStartTime))→\(rel(request?.responseEndTime))")
+                }
+                for segment in event.mediaSegmentRequestEvents {
+                    let request = segment.mediaResourceRequestEvent
+                    lines.append("  分片 \(request?.url?.lastPathComponent ?? "?") \(rel(request?.requestStartTime))→\(rel(request?.responseEndTime)) \(request?.byteRange.length ?? 0) 字节")
+                }
+                print(lines.joined(separator: "\n"))
+                break
+            }
+        }
+        #endif
+        metricsTask = Task { [weak self] in
+            do {
+                for try await event in item.metrics(forType: AVMetricHLSMediaSegmentRequestEvent.self) {
+                    guard let self, let request = event.mediaResourceRequestEvent else { continue }
+                    // 读自缓存的分片一个字节都没走网络，算进去等于拿内存速度冒充带宽
+                    if request.wasReadFromCache { continue }
+                    let body = request.networkTransactionMetrics?.transactionMetrics.last?.countOfResponseBodyBytesReceived
+                    let bytes = Double(body ?? Int64(request.byteRange.length))
+                    let transfer = request.responseEndTime.timeIntervalSince(request.responseStartTime)
+                    if !self.segmentMetricsSeen {
+                        // 分片事件到了就只认它：起播头几秒从字节计数推出来的样本不是逐片计时，清掉
+                        self.segmentMetricsSeen = true
+                        self.bandwidthMeter.reset()
+                    }
+                    self.bandwidthMeter.push(bytes: bytes, transfer: transfer, at: ProcessInfo.processInfo.systemUptime)
+                }
+            } catch {
+                // 播放项被换掉或引擎销毁时序列结束，照常退出
+            }
+        }
+    }
+
+    /// 原文件直出的带宽样本：加载速度读数。stats() 一秒可能被问两次（诊断面板开着），按时间每秒只记一个
+    private func sampleBandwidthFromLoading(_ loading: Double?, at now: TimeInterval) {
+        guard !segmentMetricsSeen, let loading, now - (lastLoadingSample ?? -.infinity) >= 0.9 else { return }
+        lastLoadingSample = now
+        bandwidthMeter.push(bps: loading, at: now)
+    }
+
+    /// AVPlayer 没有「已解码帧数」计数：按各段访问日志的观看时长 × 当前帧率估算，
+    /// 供掉帧看门狗算窗口掉帧率（对应 Web 在 iOS 上用 webkitDecodedFrameCount 的做法）
+    private func estimatedTotalFrames(_ events: [AVPlayerItemAccessLogEvent]) -> Int? {
+        let fps = player.currentItem?.tracks.compactMap { $0.currentVideoFrameRate > 0 ? Double($0.currentVideoFrameRate) : nil }.first
+        guard let fps, !events.isEmpty else { return nil }
+        let watched = events.reduce(0.0) { $0 + max(0, $1.durationWatched) }
+        return Int(watched * fps)
+    }
+
+    /// 画中画 / 隔空播放时选中 master 字幕组里的当前字幕，画面内一律不选
+    private func applySystemSubtitle() {
+        guard let item = player.currentItem else { return }
+        let wantSystem = isPictureInPictureActive || player.isExternalPlaybackActive
+        Task { @MainActor [weak self, weak item] in
+            guard let item, let group = try? await item.asset.loadMediaSelectionGroup(for: .legible) else { return }
+            guard let self, self.player.currentItem === item else { return }
+            let option = wantSystem ? self.systemSubtitleIndex.flatMap { $0 < group.options.count ? group.options[$0] : nil } : nil
+            item.select(option, in: group)
+        }
+    }
+
+    /// 系统正在渲染字幕（隔空播放中）：叠加层此时画在一块黑的本机画面上，应当收起
+    var systemSubtitlesActive: Bool { player.isExternalPlaybackActive && systemSubtitleIndex != nil }
+
+    // MARK: - 轨道与字幕（AVPlayer 模式下由控制器重开会话 / 叠加层渲染）
+
+    var canSwitchAudioInPlace: Bool { false }
+    func selectAudio(embeddedIndex: Int) {}
+    func rendersSubtitle(kind: String) -> Bool { false }
+    func selectSubtitle(_ option: SubtitleOption?, url: URL?) {}
+    func applySubtitleStyle(_ style: SubtitleStyle) {}
+
+    // MARK: - 画中画
+
+    var supportsPictureInPicture: Bool { pipController != nil }
+
+    func togglePictureInPicture() {
+        guard let pipController else { return }
+        if pipController.isPictureInPictureActive {
+            pipController.stopPictureInPicture()
+        } else {
+            pipController.startPictureInPicture()
+        }
+    }
+
+    /// 后台：不在画中画时把播放器从图层上摘下来，否则系统会连声音一起暂停
+    func setBackgrounded(_ background: Bool) {
+        guard !isPictureInPictureActive else { return }
+        layerView.playerLayer.player = background ? nil : player
+    }
+
+    func destroy() {
+        metricsTask?.cancel()
+        metricsTask = nil
+        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        timeObserver = nil
+        observations.removeAll()
+        notificationTokens.forEach(NotificationCenter.default.removeObserver)
+        notificationTokens.removeAll()
+        pipController?.stopPictureInPicture()
+        pipController = nil
+        player.pause()
+        player.replaceCurrentItem(with: nil)
+        onEvent = nil
+    }
+
+    // MARK: - 观察
+
+    private func observe() {
+        observations.append(player.observe(\.timeControlStatus, options: [.new]) { @Sendable [weak self] player, _ in
+            let status = player.timeControlStatus
+            let reason = player.reasonForWaitingToPlay
+            Task { @MainActor in self?.timeControlChanged(status, reason: reason) }
+        })
+        // 隔空播放进出：切换系统字幕轨（卡顿 / 缺粮由控制器的 StallWatch 统一判定）
+        observations.append(player.observe(\.isExternalPlaybackActive, options: [.new]) { @Sendable [weak self] _, _ in
+            Task { @MainActor in self?.applySystemSubtitle() }
+        })
+        // 第一帧真正可以上屏（起播分段计时的「首帧」）：timeControlStatus 变成 playing 时画面未必已经出来
+        observations.append(layerView.playerLayer.observe(\.isReadyForDisplay, options: [.new]) { @Sendable [weak self] layer, _ in
+            let ready = layer.isReadyForDisplay
+            Task { @MainActor in if ready { self?.onEvent?(.milestone(.firstFrame)) } }
+        })
+    }
+
+    private func observeItem(_ item: AVPlayerItem) {
+        observations.append(item.observe(\.status, options: [.new]) { @Sendable [weak self] item, _ in
+            let status = item.status
+            let error = item.error
+            Task { @MainActor in self?.itemStatusChanged(status, error: error) }
+        })
+        let center = NotificationCenter.default
+        notificationTokens.forEach(center.removeObserver)
+        notificationTokens = [
+            center.addObserver(forName: AVPlayerItem.didPlayToEndTimeNotification, object: item, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    self?.ended = true
+                    self?.onEvent?(.ended)
+                }
+            },
+            center.addObserver(forName: AVPlayerItem.failedToPlayToEndTimeNotification, object: item, queue: .main) { [weak self] note in
+                let error = note.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+                MainActor.assumeIsolated {
+                    self?.onEvent?(.failed(reason: Self.describe(error, fallback: "播放中断"), cause: Self.cause(of: error)))
+                }
+            },
+        ]
+    }
+
+    private func itemStatusChanged(_ status: AVPlayerItem.Status, error: Error?) {
+        switch status {
+        case .readyToPlay:
+            guard !didPrepare else { return }
+            didPrepare = true
+            onEvent?(.milestone(.ready))
+            applySystemSubtitle()
+            // HLS 列表带了 EXT-X-START（服务端按续播点写）：就绪时已经停在起播点，不用再跳——
+            // 再零容差 seek 一次，起播点压在分片边界上时会去要前一段、把刚起转的转码拉回去重启
+            let alreadyThere = abs(player.currentTime().seconds - pendingStart) < 0.25
+            if pendingStart > 0.5, !alreadyThere {
+                let target = CMTime(seconds: pendingStart, preferredTimescale: 600)
+                player.seek(to: target, toleranceBefore: .zero, toleranceAfter: .zero) { @Sendable [weak self] _ in
+                    Task { @MainActor in
+                        self?.onEvent?(.milestone(.seeked))
+                        self?.beginPlayback()
+                    }
+                }
+            } else if !startedEarly {
+                beginPlayback()
+            }
+        case .failed:
+            onEvent?(.failed(reason: Self.describe(error, fallback: "系统播放器无法播放这个流"), cause: Self.cause(of: error)))
+        default:
+            break
+        }
+    }
+
+    /// 起播位置已就位：按需开始播放
+    private func beginPlayback() {
+        if autoplay { player.playImmediately(atRate: desiredRate) } else { onEvent?(.paused) }
+    }
+
+    private func timeControlChanged(_ status: AVPlayer.TimeControlStatus, reason: AVPlayer.WaitingReason?) {
+        switch status {
+        case .playing:
+            // 起播时关掉的防卡顿等待在这里打开，只开一次：播放中重复设置会让 AVPlayer 重新评估、
+            // 在「等待 / 播放」之间来回跳
+            if !player.automaticallyWaitsToMinimizeStalling { player.automaticallyWaitsToMinimizeStalling = true }
+            onEvent?(.playing)
+        case .paused:
+            if !ended { onEvent?(.paused) }
+        case .waitingToPlayAtSpecifiedRate:
+            if reason == .noItemToPlay { return }
+            onEvent?(.buffering)
+        @unknown default:
+            break
+        }
+    }
+
+    /// 取流失败归因（对应 Web 的 onNetworkDead）：连接断开、超时、服务端中断这类「这一档没毛病、只是线没通」
+    /// 的错误走同档原地重开（新会话 = 新 token），不降档；其余按「这一档放不了」降档
+    static func cause(of error: Error?) -> EngineFailureCause {
+        guard let error = error as NSError? else { return .decode }
+        let chain = [error] + [error.userInfo[NSUnderlyingErrorKey] as? NSError].compactMap { $0 }
+        for item in chain {
+            if item.domain == NSURLErrorDomain { return .network }
+            // -11863 资源不可用 / -11800 且底层是网络错误 / -12938 HTTP 4xx / -12660 HTTP 403。
+            // 注意 -11828 是 AVErrorFileFormatNotRecognized（格式无法识别）：这一档本身放不了，必须走降档，
+            // 当成网络错误会同档无限重开（第二轮审计 N-05-1）
+            if item.domain == AVFoundationErrorDomain, item.code == -11863 { return .network }
+            if item.domain == "CoreMediaErrorDomain", [-12938, -12660, -12971, -12645, -12889].contains(item.code) { return .network }
+        }
+        return .decode
+    }
+
+    private static func describe(_ error: Error?, fallback: String) -> String {
+        guard let error = error as NSError? else { return fallback }
+        let detail = error.localizedFailureReason ?? error.localizedDescription
+        return "\(fallback)（\(detail)，代码 \(error.code)）"
+    }
+}
+
+extension AVPlayerEngine: AVPictureInPictureControllerDelegate {
+    /// 进画中画之前就切好系统字幕轨，小窗一出来就带着字幕
+    nonisolated func pictureInPictureControllerWillStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        Task { @MainActor in
+            self.isPictureInPictureActive = true
+            self.applySystemSubtitle()
+        }
+    }
+
+    nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ controller: AVPictureInPictureController) {
+        Task { @MainActor in
+            self.isPictureInPictureActive = true
+            self.onEvent?(.pictureInPicture(true))
+        }
+    }
+
+    nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ controller: AVPictureInPictureController) {
+        Task { @MainActor in
+            self.isPictureInPictureActive = false
+            self.applySystemSubtitle()
+            self.onEvent?(.pictureInPicture(false))
+        }
+    }
+
+    nonisolated func pictureInPictureController(
+        _ controller: AVPictureInPictureController,
+        restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void
+    ) {
+        // 播放器界面一直在（全屏覆盖层没有关），直接告诉系统可以还原
+        completionHandler(true)
+    }
+}
+
+/// 以 AVPlayerLayer 为底层图层的视图（尺寸随布局自动跟随）
+final class PlayerLayerView: UIView {
+    override static var layerClass: AnyClass { AVPlayerLayer.self }
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .black
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}

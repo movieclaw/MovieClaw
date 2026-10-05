@@ -43,10 +43,38 @@ enum SettingsBScrapeCatalog {
         .init(id: "GB", name: "英国"),
     ]
 
-    /// TMDB 图床合法档位（与后端 settings/metadata.py 一致；空串 = 跟随环境变量）
+    /// 可选的 TMDB 图床档位：后端 settings/metadata.py 合法集合里实用的那部分（同 Web，过小的档位不提供）；
+    /// 空串 = 跟随上一级（全局页是环境变量，库覆盖页是全局设置）
     static let posterSizes = ["w342", "w500", "w780", "original"]
     static let backdropSizes = ["w780", "w1280", "original"]
     static let stillSizes = ["w185", "w300", "original"]
+    /// 演职员头像档位（TMDB 头像档位本身就这几档，h632 是按高 632 的那一档）
+    static let profileSizes = ["w185", "h632", "original"]
+
+    /// 本地图片画质的四档（docs/design/image-sizing.md §8.1）：前三档是后端的预设，选了预设时四个档位字段被忽略；
+    /// 「自定义」才看四个档位。文案说的是「在哪些设备上够不够清楚」，不是 TMDB 档位名
+    struct ImageQuality: Identifiable {
+        let id: String
+        let title: String
+        let desc: String
+    }
+
+    static let imageQualities: [ImageQuality] = [
+        .init(id: "original", title: "原图（默认）", desc: "所有图存 TMDB 原图，各设备都最清楚"),
+        .init(id: "standard", title: "标准", desc: "各设备都清楚，头像与海报不存原图，省约四成空间"),
+        .init(id: "compact", title: "节省空间", desc: "手机和网页够用；电视上剧照、头像会发虚"),
+        .init(id: "custom", title: "自定义", desc: "分别指定海报、背景、剧照、头像下载到本地的档位"),
+    ]
+
+    /// 画质档的简称（折叠头摘要用）
+    static func imageQualityName(_ id: String) -> String {
+        switch id {
+        case "original": "原图"
+        case "standard": "标准"
+        case "compact": "节省空间"
+        default: "自定义"
+        }
+    }
 
     /// 「更多」面板的完整候选：从后端全量表派生，剔除已在常用行里的项（同 Web useScrapeChipOptions）
     static func extraMetaLangs(_ languages: [API.LanguageOption]) -> [SettingsBScrapeChipOption] {
@@ -108,12 +136,22 @@ enum SettingsBScrapeSummary {
         join(SettingsBScrapeCatalog.commonImageLangs, s.backdropLanguagePriority)
     }
 
+    /// 画质一句话：选过档就写档名；没选过时四个档位都空 = 新默认「原图」，否则是老配置留下的档位，按自定义列出
+    /// （后端按档位反推时，恰好等于某个预设会显示成那一档——这里只看设置本身，不做反推）
     static func quality(_ s: API.MetadataScrapeSetting) -> String {
-        let sizes = [s.posterSize, s.backdropSize, s.stillSize]
+        let sizes = [s.posterSize, s.backdropSize, s.stillSize, s.profileSize]
+        let quality: String
+        if !s.imageQuality.isEmpty, s.imageQuality != "custom" {
+            quality = "画质 \(SettingsBScrapeCatalog.imageQualityName(s.imageQuality))"
+        } else if s.imageQuality.isEmpty, sizes.allSatisfy(\.isEmpty) {
+            quality = "画质 原图"
+        } else {
+            quality = "画质自定义 \(sizes.map { $0.isEmpty ? "环境" : $0 }.joined(separator: "/"))"
+        }
         return [
+            quality,
             s.posterMinWidth > 0 ? "海报 ≥\(s.posterMinWidth)" : "海报不限宽",
             s.backdropMinWidth > 0 ? "背景 ≥\(s.backdropMinWidth)" : "背景不限宽",
-            sizes.allSatisfy(\.isEmpty) ? "档位跟随环境" : "档位 \(sizes.map { $0.isEmpty ? "环境" : $0 }.joined(separator: "/"))",
         ].joined(separator: " · ")
     }
 
@@ -161,8 +199,20 @@ enum SettingsBScrapeNaming {
         let keyPath: WritableKeyPath<API.MetadataScrapeSetting, String>
     }
 
-    static let commonTokens = ["title", "original_title", "year", "tmdb_id", "imdb_id"]
-    static let fileAttrTokens = ["resolution", "media_source", "release_group"]
+    static let commonTokens = ["title", "original_title", "english_title", "year", "tmdb_id", "imdb_id", "douban_id"]
+    static let fileAttrTokens = [
+        "resolution", "video_codec", "hdr", "bit_depth", "audio",
+        "media_source", "release_group", "site", "release_name",
+    ]
+
+    /// 占位符按类别分组展示，按钮上写中文名（与 Web TOKEN_GROUPS 同一份）
+    static let tokenGroups: [(label: String, tokens: [(key: String, name: String)])] = [
+        ("片名与编号", [("title", "片名"), ("original_title", "原名"), ("english_title", "英文名"), ("year", "年份"),
+                    ("tmdb_id", "TMDB ID"), ("imdb_id", "IMDb ID"), ("douban_id", "豆瓣 ID")]),
+        ("季集", [("season", "季号"), ("season_name", "季名"), ("episode", "集号"), ("episode_title", "集名")]),
+        ("文件规格", [("resolution", "分辨率"), ("video_codec", "视频编码"), ("hdr", "HDR"), ("bit_depth", "位深"), ("audio", "音轨")]),
+        ("来源", [("media_source", "片源"), ("release_group", "发布组"), ("site", "站点"), ("release_name", "原始文件名")]),
+    ]
 
     static let fields: [Field] = [
         .init(key: "naming_entry_dir", label: "条目目录", note: "电影与剧集共用",
@@ -170,36 +220,62 @@ enum SettingsBScrapeNaming {
         .init(key: "naming_movie_file", label: "电影文件名", note: "",
               fallback: "{title} ({year})", tokens: commonTokens + fileAttrTokens, keyPath: \.namingMovieFile),
         .init(key: "naming_season_dir", label: "季目录", note: "必须包含 {season}",
-              fallback: "Season {season:02d}", tokens: commonTokens + ["season"], keyPath: \.namingSeasonDir),
+              fallback: "Season {season:02d}", tokens: commonTokens + ["season", "season_name"], keyPath: \.namingSeasonDir),
         .init(key: "naming_episode_file", label: "剧集文件名", note: "必须包含 {season} 与 {episode}",
               fallback: "{title} ({year}) - S{season:02d}E{episode:02d}",
-              tokens: commonTokens + fileAttrTokens + ["season", "episode", "episode_title"], keyPath: \.namingEpisodeFile),
+              tokens: commonTokens + fileAttrTokens + ["season", "season_name", "episode", "episode_title"],
+              keyPath: \.namingEpisodeFile),
     ]
 
     /// 预览样例：一部电影 + 一集剧集，字段齐全便于看清每个占位符的效果（与 Web 同一组样例）
     static let sampleMovie: [String: String] = [
         "title": "沙丘：第二部",
         "original_title": "Dune: Part Two",
+        "english_title": "Dune: Part Two",
         "year": "2024",
         "tmdb_id": "693134",
         "imdb_id": "tt15239678",
+        "douban_id": "35575567",
         "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": "DV",
+        "bit_depth": "10bit",
+        "audio": "TrueHD Atmos 7.1",
         "media_source": "BluRay",
         "release_group": "FRDS",
+        "site": "hdsky",
+        "release_name": "Dune.Part.Two.2024.2160p.BluRay.DV.HEVC.TrueHD.7.1.Atmos-FRDS",
     ]
+    /// 剧集样例是 SDR：不给 hdr，演示 {hdr} 渲染为空后的收缩
     static let sampleEpisode: [String: String] = [
         "title": "风筝",
         "original_title": "风筝",
+        "english_title": "Kite",
         "year": "2017",
         "tmdb_id": "68035",
         "imdb_id": "tt6952510",
+        "douban_id": "26340419",
         "season": "1",
+        "season_name": "第 1 季",
         "episode": "3",
         "episode_title": "延安来的姑娘",
         "resolution": "1080p",
+        "video_codec": "H.264",
+        "bit_depth": "8bit",
+        "audio": "AAC 2.0",
         "media_source": "WEB-DL",
         "release_group": "CHDWEB",
+        "site": "chdbits",
+        "release_name": "Kite.2017.S01E03.1080p.WEB-DL.H264.AAC-CHDWEB",
     ]
+
+    /// 片名类占位符：同一模板里值相同的只保留第一次出现（「风筝 (风筝)」→「风筝」）
+    private static let titleTokens = ["title", "original_title", "english_title"]
+    /// 超长时可截短的自由文本占位符；编号、年份、规格不截
+    private static let shrinkableTokens = titleTokens + ["episode_title", "season_name", "release_name"]
+    /// 单段名字字节上限与截短保底，与后端 MAX_SEGMENT_BYTES / _SHRINK_FLOOR_BYTES 一致
+    private static let maxSegmentBytes = 200
+    private static let shrinkFloorBytes = 30
 
     // 与 Web 的正则逐字对应（JS 的 \w 只含 ASCII，这里显式写成 [A-Za-z0-9_]）
     private static let tokenRE = try! NSRegularExpression(pattern: #"\{([A-Za-z0-9_]+)(?::0(\d)d)?\}"#)
@@ -244,6 +320,42 @@ enum SettingsBScrapeNaming {
     }
 
     static func render(_ template: String, _ ctx: [String: String]) -> String {
+        // 片名去重 → 渲染 → 超长时逐个截短最长的自由文本（与后端 render 同序）
+        var context = ctx
+        var seen = Set<String>()
+        for name in tokens(in: template) where titleTokens.contains(name) {
+            let value = tokenValue(context, name, nil).lowercased()
+            if value.isEmpty { continue }
+            if seen.contains(value) { context[name] = nil }
+            seen.insert(value)
+        }
+        var text = renderOnce(template, context)
+        for _ in 0..<(shrinkableTokens.count * 2) {
+            let over = text.utf8.count - maxSegmentBytes
+            if over <= 0 { return text }
+            let sizes = shrinkableTokens.map { ($0, tokenValue(context, $0, nil).utf8.count) }
+            guard let best = sizes.max(by: { $0.1 < $1.1 }), best.1 > shrinkFloorBytes else { break }
+            let cut = cutBytes(tokenValue(context, best.0, nil), max(best.1 - over, shrinkFloorBytes))
+            context[best.0] = cut.trimmingCharacters(in: CharacterSet(charactersIn: " .-"))
+            text = renderOnce(template, context)
+        }
+        let result = sanitize(cutBytes(text, maxSegmentBytes))
+        return result.isEmpty ? "未命名" : result
+    }
+
+    /// 按 UTF-8 字节截断，不切坏多字节字符
+    private static func cutBytes(_ text: String, _ limit: Int) -> String {
+        var out = ""
+        var used = 0
+        for char in text {
+            used += String(char).utf8.count
+            if used > limit { break }
+            out.append(char)
+        }
+        return out
+    }
+
+    private static func renderOnce(_ template: String, _ ctx: [String: String]) -> String {
         // ① 占位符全空的括号组连同组内字面文本一起丢弃
         let dropped = replace(bracketGroupRE, in: template) { full, m in
             let group = substring(full, m.range) ?? ""

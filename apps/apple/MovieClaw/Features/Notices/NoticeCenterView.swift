@@ -79,6 +79,7 @@ struct NoticeCenterView: View {
         case "ingest": return "/settings/import-watch"
         case "downloader": return "/settings/downloaders"
         case "site": return "/settings/sites"
+        case "cloud": return "/settings/cloud"
         default: return "/settings"
         }
     }

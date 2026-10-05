@@ -51,6 +51,9 @@ struct LiveDecodeTests {
     @Test func channelsWeixinAccountsList() async throws {
         try await LiveServer.check { try await $0.channelsWeixinAccountsList() }
     }
+    @Test func cloudStatus() async throws {
+        try await LiveServer.check { try await $0.cloudStatus() }
+    }
     @Test func collectionList() async throws {
         try await LiveServer.check { try await $0.collectionList() }
     }
@@ -162,6 +165,12 @@ struct LiveDecodeTests {
     @Test func playbackUpNext() async throws {
         try await LiveServer.check { try await $0.playbackUpNext() }
     }
+    @Test func pushChannelsList() async throws {
+        try await LiveServer.check { try await $0.pushChannelsList() }
+    }
+    @Test func pushMeShow() async throws {
+        try await LiveServer.check { try await $0.pushMeShow() }
+    }
     @Test func reelsFeed() async throws {
         try await LiveServer.check { try await $0.reelsFeed() }
     }
@@ -183,8 +192,14 @@ struct LiveDecodeTests {
     @Test func scrapeLanguages() async throws {
         try await LiveServer.check { try await $0.scrapeLanguages() }
     }
+    @Test func scrapeStorageEstimate() async throws {
+        try await LiveServer.check { try await $0.scrapeStorageEstimate() }
+    }
     @Test func searchHistoryList() async throws {
         try await LiveServer.check { try await $0.searchHistoryList() }
+    }
+    @Test func searchLibrary() async throws {
+        try await LiveServer.check { try await $0.searchLibrary(q: "xjcy") }
     }
     @Test func searchPresetsList() async throws {
         try await LiveServer.check { try await $0.searchPresetsList() }

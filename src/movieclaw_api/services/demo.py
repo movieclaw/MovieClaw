@@ -58,6 +58,11 @@ ALLOWED_WRITE_OPERATIONS: frozenset[str] = frozenset(
         "auth.login",
         "auth.logout",
         "auth.device.login",  # 原生 App 用账号密码换设备令牌
+        # Apple TV 扫码登录；服务层另检查只接受 tvos，不能借此签发命令行或转码器凭据。
+        "auth.device.authorize",
+        "auth.device.token",
+        "auth.devices.approve",
+        "auth.devices.deny",
         "auth.devices.revoke-current",  # 原生 App 退出登录时注销自己这台
         "auth.accounts.switch",  # 网页多账号切换：体验不同角色的主要入口
         "auth.accounts.remove",  # 从本浏览器的账号列表移除：只作废本浏览器持有的令牌
@@ -170,6 +175,16 @@ _MEDIA_MESSAGE = "演示站的媒体库与合集是只读的"
 def is_demo_mode() -> bool:
     """当前进程是否以公开演示站模式运行（按请求实时读配置，测试可随时切换）。"""
     return get_settings().demo_mode
+
+
+def ensure_tv_pairing_allowed(client_type: str) -> None:
+    """公开演示站仅允许 Apple TV 扫码登录，其他配对凭据继续拒绝。"""
+    if is_demo_mode() and client_type != "tvos":
+        raise AppException(
+            code=DEMO_READ_ONLY_CODE,
+            message="演示站仅支持 Apple TV 扫码登录，不开放命令行或转码器配对",
+            status_code=403,
+        )
 
 
 def rejection_for(method: str, operation_id: str) -> str | None:

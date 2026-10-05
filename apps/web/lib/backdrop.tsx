@@ -76,7 +76,9 @@ function backdropPathOf(url: string): string {
   } catch {
     // 编码不完整就按原串参与比较，只会退回「不同图」的保守行为
   }
-  return raw.replace(/\/t\/p\/[^/]+\//, "/t/p/");
+  // 宽度参数（w=，旧的 variant=）同样只是同一张图的不同尺寸：窗口拖过一档、
+  // 列表档换高清档时不该被当成换图
+  return raw.replace(/\/t\/p\/[^/]+\//, "/t/p/").replace(/[?&](?:w|variant)=[^&]*/g, "");
 }
 
 /** 把 URL 同步到 <html> 的 CSS 变量，供 body::before 使用；传 null 则回退默认。

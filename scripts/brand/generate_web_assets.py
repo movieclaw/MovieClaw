@@ -5,7 +5,8 @@
     .venv/bin/python scripts/brand/generate_web_assets.py
 
 产出：
-    apps/web/public/brand/movieclaw-mark.png   标志（透明底，512），侧栏与加载指示用
+    apps/web/public/brand/movieclaw-mark.png   标志（透明底，512），加载指示与启动层用
+    apps/web/public/brand/movieclaw-mark-ui.png 细笔画标志（透明底，256），侧栏等界面小尺寸用
     apps/web/app/favicon.ico                    浏览器标签页图标（16 / 32 / 48 三档合一）
     apps/web/public/favicon.svg                 矢量标签页图标（拷自 docs/brand/favicon.svg，
                                                 在 layout.tsx 的 metadata 里声明）
@@ -65,6 +66,10 @@ def main() -> None:
 
     (WEB / "public/brand").mkdir(parents=True, exist_ok=True)
     resized(mark, 512).save(WEB / "public/brand/movieclaw-mark.png", optimize=True)
+    # 界面里的小尺寸（侧栏 20～28px）用细笔画版：标准版笔画约占字形 17%，20px 下有 4px 粗，
+    # 压在 17px 半粗字标（笔画约 1.8px）旁边显得又大又重
+    mark_ui = Image.open(MASTERS / "mark-ui-1024.png").convert("RGBA")
+    resized(mark_ui, 256).save(WEB / "public/brand/movieclaw-mark-ui.png", optimize=True)
 
     favicon.save(WEB / "app/favicon.ico", sizes=[(16, 16), (32, 32), (48, 48)])
     shutil.copyfile(ROOT / "docs/brand/favicon.svg", WEB / "public/favicon.svg")

@@ -137,6 +137,11 @@
   --info: #7fb0ff;
   --warn: #f5c451;
   --danger: #ff6b6b;
+  /* 图片来源标识（刮削设置「图片来源」、换图弹层的来源角标）：TMDB 青、Fanart.tv 粉 */
+  --src-tmdb: #7fd3c6;
+  --src-fanart: #f0a8d0;
+  --fanart-soft: rgba(240, 168, 208, 0.05);
+  --fanart-line: rgba(240, 168, 208, 0.3);
 
   /* 实心红底 + 白字专用（白字对比度 5.8:1）。只做底色，不要拿去写文字或圆点 */
   --danger-solid: #c73838;

@@ -2294,6 +2294,64 @@ async def test_manual_download_identity_claim_via_info_hash(db, tmp_path, monkey
 
 
 @pytest.mark.asyncio
+async def test_manual_download_import_notifies_submitter(db, tmp_path, monkeypatch):
+    """手动下载入库：按种子对上是谁点的，把「入库完成」推给他（cloud-push.md §5）。
+
+    成员选库下载没有手动下载锚（身份靠入库时识别），照样要推给他。
+    """
+    from movieclaw_api.services.push import downloads as push_downloads
+    from movieclaw_db.models import LibraryFile, PushDownloadWatch
+    from movieclaw_downloader import TorrentBrief
+
+    root, watch = tmp_path / "movies", tmp_path / "watch"
+    watch.mkdir()
+    library_id = await _make_library(db, kind=MediaKind.MOVIE, root=root)
+    item = await _make_item(db, kind=MediaKind.MOVIE, title="我下载的片", year=2024)
+    monkeypatch.setattr(ingest_mod, "probe_media", lambda p: _FAKE_SPEC)
+
+    async def identify(session, kind, watch_root, main, spec):
+        return item
+
+    monkeypatch.setattr(ingest_mod, "_identify", identify)
+    announced: list[push_downloads.Finished] = []
+    monkeypatch.setattr(push_downloads, "announce", lambda items: announced.extend(items))
+    async with db.session() as session:
+        # 成员 7 点的这个种子；另一个种子是别人点的，不相干
+        session.add(PushDownloadWatch(member_id=7, info_hash="mine", download_name="Mine"))
+        session.add(PushDownloadWatch(member_id=3, info_hash="other", download_name="Other"))
+        await session.commit()
+
+    async def briefs():
+        return [TorrentBrief(name="Mine", content_name="Mine", completed=True, info_hash="MINE")]
+
+    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    entry = watch / "Mine"
+    entry.mkdir()
+    (entry / "video.mkv").write_bytes(b"video")
+    rule = ImportWatch(source_path=str(watch), strategy="hardlink", library_id=None, kind="movie")
+    await ingest_mod._sweep_dir(rule, None, execute_inline=True)
+
+    assert len(announced) == 1
+    done = announced[0]
+    assert done.member_id == 7 and done.library_id == library_id
+    async with db.session() as session:
+        # 推的是这次入库的那一批台账行
+        rows = (
+            (
+                await session.execute(
+                    select(LibraryFile).where(LibraryFile.added_batch_id.in_(done.batch_ids))
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert [r.media_item_id for r in rows] == [item.id]
+        # 对上的那条用掉了，别人的还在
+        left = (await session.execute(select(PushDownloadWatch))).scalars().all()
+        assert [w.info_hash for w in left] == ["other"]
+
+
+@pytest.mark.asyncio
 async def test_probe_gate_applies_per_file(db, tmp_path, monkeypatch):
     """季包部分探测失败：完整集照常入库，但条目保留 failed 供自动重试。"""
     root, watch = tmp_path / "tv", tmp_path / "watch"

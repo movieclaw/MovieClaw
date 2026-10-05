@@ -1,31 +1,34 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 
 import { CopyButton } from "@/components/copy-button";
 import { useConfirm, usePrompt, useToast } from "@/components/feedback";
-import { CheckIcon, InfoIcon, PencilIcon, PlusIcon, TerminalIcon, XIcon } from "@/components/icons";
+import {
+  CheckIcon,
+  ChevronRightIcon,
+  DeviceIcon,
+  InfoIcon,
+  PencilIcon,
+  PlusIcon,
+  TerminalIcon,
+} from "@/components/icons";
 import { reloadAfterAccountChange } from "@/lib/account-reload";
 import { getAppConfig } from "@/lib/api/app";
 import { logout } from "@/lib/api/auth";
 import {
-  type DeviceRequestView,
   type LoginDeviceView,
-  approveDeviceRequest,
   createDeviceToken,
-  denyDeviceRequest,
-  getDeviceRequest,
   listLoginDevices,
   renameLoginDevice,
   revokeLoginDevice,
 } from "@/lib/api/devices";
 import {
   STALE_AFTER_DAYS,
-  type ViewerRole,
-  clientTypeLabel,
   envSnippet,
   grantBadge,
-  grantSummary,
   groupDevices,
   headlessArgs,
   activityLabel,
@@ -33,10 +36,10 @@ import {
   isStale,
   issuedVerb,
   manualGrantSummary,
-  normalizePairingCode,
   resolveServerAddress,
   revokeConsequence,
 } from "@/lib/devices-display";
+import { TONE_COLOR, devicePushNote } from "@/lib/cloud-push-display";
 import { accessiblePathFor } from "@/lib/permissions";
 import { useSession } from "@/lib/session";
 import { formatDateTime } from "@/lib/time";
@@ -49,11 +52,9 @@ import { useTheme } from "@/lib/ui-prefs";
  * 以及合并展示的 Jellyfin 播放器。对所有登录用户开放，各看各的；超管另有
  * 「全部成员」视图与手工令牌。这一页承担三件事：
  *
- * 1. **批准是防钓鱼的唯一一道人工闸**。批准按配对码来：设备打开的链接带
- *    `?code=`，页面直接显示这一条请求；打不开链接的无头机器，人在这里手输。
- *    服务端刻意不再列出全部待批准请求——成员之间看不到彼此的请求，管理员也
- *    不会误批一个成员的命令行、让它拿到超管权限。审批卡上「将获得」按批准者
- *    本人的身份写实话：谁批准，令牌就是谁的。
+ * 1. **只放「批准新设备」的入口**：批准本身在独立的 /activate 页（device-approval.tsx）。
+ *    那是拿着配对码来做的一次性的事，与管理已登录的设备是两件事，混在列表上方反而让人
+ *    分不清；设备的批准链接也直接指向 /activate（旧链接 /settings/devices?code= 会跳过去）。
  * 2. **注销是唯一的事后止损手段**：凭证长期有效，改密也默认不连坐配对设备。
  *    所以列表要好用——按类型分组、最近活跃要准、当前设备有标记、一键注销；
  *    长期不用的给一行轻提示，但不自动失效。
@@ -177,7 +178,21 @@ export function DevicesSection() {
 
   return (
     <div className="space-y-8">
-      <PairingApproval role={session.role} onApproved={reload} />
+      {/* 批准新设备在独立的 /activate 页（components/device-approval.tsx）；这里只留入口，
+          来设备页找「批准」的人不至于扑空 */}
+      <Link
+        href={"/activate" as Route}
+        className="css-glass group flex items-center gap-3.5 !rounded-2xl px-5 py-4 transition-colors hover:bg-white/[0.06]"
+      >
+        <DeviceIcon className="size-5 shrink-0 text-[var(--text-muted)]" />
+        <span className="min-w-0 flex-1">
+          <span className="block text-body font-semibold text-[var(--text)]">批准新设备登录</span>
+          <span className="block text-sub text-[var(--text-muted)]">
+            Apple TV、命令行或转码器显示配对码后，到批准页输入
+          </span>
+        </span>
+        <ChevronRightIcon className="size-4 shrink-0 text-[var(--text-faint)] transition-transform group-hover:translate-x-0.5" />
+      </Link>
 
       <section className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-3 px-1">
@@ -267,265 +282,6 @@ function ScopeToggle({
   );
 }
 
-/** 从地址栏抹掉 ?code=：replaceState 不触发 Next 重渲染、也不留历史记录（同 useTabParam）。 */
-function clearCodeParam() {
-  const url = new URL(window.location.href);
-  if (!url.searchParams.has("code")) return;
-  url.searchParams.delete("code");
-  window.history.replaceState(window.history.state, "", url);
-}
-
-/**
- * 按配对码批准（login-devices.md §4）。
- *
- * 命令行与转码器发起配对后会打开 `/settings/devices?code=MCLW-XXXX`：挂载时读出
- * code 直接查询并显示这一条请求；没打开链接的，人在输入框里手输。处理完（批准
- * 或拒绝）从地址栏抹掉 code——否则一刷新又去查那条已处理的请求，只会得到一句
- * 「已经处理过了」。
- */
-function PairingApproval({ role, onApproved }: { role: ViewerRole; onApproved: () => void }) {
-  const toast = useToast();
-  const [draft, setDraft] = useState("");
-  const [lookupError, setLookupError] = useState<string | null>(null);
-  const [looking, setLooking] = useState(false);
-  const [request, setRequest] = useState<DeviceRequestView | null>(null);
-  const [deciding, setDeciding] = useState(false);
-  const [decideError, setDecideError] = useState<string | null>(null);
-
-  const lookup = useCallback(async (raw: string) => {
-    const code = normalizePairingCode(raw);
-    if (!code) {
-      setLookupError("配对码形如 MCLW-7F3K，请对照设备上显示的重新输入。");
-      return;
-    }
-    setDraft(code);
-    setLooking(true);
-    setLookupError(null);
-    try {
-      setRequest(await getDeviceRequest(code));
-      setDecideError(null);
-    } catch (e) {
-      // 服务端的话就是能行动的中文：「不存在或已过期，请让设备重新发起」
-      setLookupError((e as Error).message);
-    } finally {
-      setLooking(false);
-    }
-  }, []);
-
-  // 读取放在 effect 而非 state 初值：服务端渲染阶段没有 window。先回填输入框：
-  // 链接里的码格式不对时，人得看得到它才能对照着改
-  useEffect(() => {
-    const code = new URLSearchParams(window.location.search).get("code");
-    if (!code) return;
-    setDraft(code);
-    void lookup(code);
-  }, [lookup]);
-
-  const reset = () => {
-    setRequest(null);
-    setDraft("");
-    setDecideError(null);
-    clearCodeParam();
-  };
-
-  const decide = async (approve: boolean) => {
-    if (!request) return;
-    setDeciding(true);
-    setDecideError(null);
-    try {
-      const message = approve
-        ? await approveDeviceRequest(request.user_code)
-        : await denyDeviceRequest(request.user_code);
-      toast.success(message);
-      reset();
-      if (approve) onApproved();
-    } catch (e) {
-      setDecideError((e as Error).message);
-    } finally {
-      setDeciding(false);
-    }
-  };
-
-  return (
-    <section className="space-y-3">
-      <h2 className="px-1 text-caption font-semibold uppercase tracking-wider text-[var(--text-faint)]">
-        按配对码批准
-      </h2>
-      {request ? (
-        <ApprovalCard
-          request={request}
-          role={role}
-          busy={deciding}
-          error={decideError}
-          onApprove={() => void decide(true)}
-          onDeny={() => void decide(false)}
-          onClose={reset}
-        />
-      ) : (
-        <div className="css-glass space-y-3 !rounded-2xl p-5">
-          <p className="text-sub leading-relaxed text-[var(--text-muted)]">
-            命令行（mclaw login）或转码器发起配对后会显示一段配对码，通常会直接打开这一页；没打开的话，把配对码输入到这里。
-          </p>
-          <form
-            className="flex gap-2.5"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void lookup(draft);
-            }}
-          >
-            <input
-              aria-label="配对码"
-              value={draft}
-              onChange={(e) => {
-                setDraft(e.target.value);
-                if (lookupError) setLookupError(null);
-              }}
-              placeholder="MCLW-XXXX"
-              maxLength={16}
-              autoComplete="off"
-              autoCapitalize="characters"
-              spellCheck={false}
-              className="min-w-0 flex-1 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 font-mono text-body uppercase tracking-[0.12em] text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[var(--accent)]/50"
-            />
-            <button
-              type="submit"
-              disabled={looking || !draft.trim()}
-              className="btn-accent shrink-0 rounded-full px-4.5 py-2 text-sub font-semibold disabled:opacity-40"
-            >
-              {looking ? "查询中…" : "查询"}
-            </button>
-          </form>
-          {lookupError && <p className="text-caption text-[var(--danger)]">{lookupError}</p>}
-        </div>
-      )}
-    </section>
-  );
-}
-
-/**
- * 审批卡：用户做决定的全部依据都在这张卡上。
- *
- * 配对码用大号等宽字并加字距——它要被拿去和设备屏幕上的字符逐个比对，
- * 这是防钓鱼的实际动作，字号小了就没人会真的比。
- */
-function ApprovalCard({
-  request,
-  role,
-  busy,
-  error,
-  onApprove,
-  onDeny,
-  onClose,
-}: {
-  request: DeviceRequestView;
-  role: ViewerRole;
-  busy: boolean;
-  error: string | null;
-  onApprove: () => void;
-  onDeny: () => void;
-  onClose: () => void;
-}) {
-  const grant = grantSummary(request.client_type, role);
-  // 转码器只能由超管批准（转码占用的是整台服务器的资源）：成员看到时说清原因、
-  // 禁用批准，而不是让他按下去再吃一个 403
-  const blocked = request.requires_admin && role !== "admin";
-  return (
-    <div className="css-glass space-y-4 !rounded-2xl border-[var(--accent)]/25 p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 flex-1 flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
-          <p className="min-w-0 break-all text-body font-semibold text-[var(--text)]">
-            {request.client_name}
-          </p>
-          <span className="font-mono text-[22px] font-semibold tracking-[0.16em] text-[var(--accent)]">
-            {request.user_code}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={busy}
-          aria-label="关闭，暂不处理这条请求"
-          title="暂不处理"
-          className="-mr-1.5 -mt-1 shrink-0 rounded-full p-1.5 text-[var(--text-faint)] transition-colors hover:bg-white/[0.07] hover:text-[var(--text)] disabled:opacity-40"
-        >
-          <XIcon className="size-4" />
-        </button>
-      </div>
-
-      <dl className="grid grid-cols-[auto_1fr] gap-x-5 gap-y-1.5 text-sub">
-        <dt className="text-[var(--text-faint)]">类型</dt>
-        <dd className="text-[var(--text-muted)]">{clientTypeLabel(request.client_type)}</dd>
-        {request.platform && (
-          <>
-            <dt className="text-[var(--text-faint)]">系统</dt>
-            <dd className="text-[var(--text-muted)]">{request.platform}</dd>
-          </>
-        )}
-        {request.client_version && (
-          <>
-            <dt className="text-[var(--text-faint)]">版本</dt>
-            <dd className="text-[var(--text-muted)]">{request.client_version}</dd>
-          </>
-        )}
-        <dt className="text-[var(--text-faint)]">来源</dt>
-        {request.source_ip ? (
-          <dd className="font-mono text-[var(--text-muted)]">{request.source_ip}</dd>
-        ) : (
-          /* 服务端判定这个地址认不出设备时会返回空串（api/client_address.py）：
-             桥接网络的容器看到的源地址是网桥网关，全网设备长得一模一样。
-             与其摆一个「172.17.0.1」让人以为那是对方的地址，不如直说看不到，
-             并把判断依据推回配对码——那本来就是这张卡真正的安全控制。 */
-          <dd className="text-[var(--text-faint)]">
-            无法确定
-            <span className="ml-1.5 text-caption">容器网络改写了源地址，请以配对码为准</span>
-          </dd>
-        )}
-      </dl>
-
-      {blocked ? (
-        <div className="flex gap-2.5 rounded-xl border border-[var(--warn)]/28 bg-[var(--warn)]/[0.09] px-3.5 py-3">
-          <InfoIcon className="mt-0.5 size-4 shrink-0 text-[var(--warn)]" />
-          <p className="text-sub leading-relaxed text-[var(--text-muted)]">
-            转码器只能由管理员批准——转码占用的是整台服务器的资源。请把这个配对码告诉管理员，让他在自己的网页或 App 上输入并批准。
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-xl border border-[var(--accent)]/20 bg-[var(--accent-soft)] px-4 py-3">
-          <p className="text-sub font-semibold text-[var(--accent)]">{grant.title}</p>
-          <p className="mt-1 text-sub leading-relaxed text-[var(--text-muted)]">{grant.body}</p>
-        </div>
-      )}
-
-      <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-        请确认上面的配对码与设备上显示的完全一致。如果这不是你刚发起的操作，选择拒绝。
-      </p>
-
-      {error && <p className="text-sub text-[var(--danger)]">{error}</p>}
-
-      <div className="flex items-center gap-2.5">
-        <button
-          type="button"
-          disabled={busy || blocked}
-          onClick={onApprove}
-          className="btn-accent flex items-center gap-1.5 rounded-full px-4.5 py-2 text-sub font-semibold disabled:opacity-40"
-        >
-          <CheckIcon className="size-4" />
-          批准接入
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onDeny}
-          className="btn-glass flex items-center gap-1.5 px-3.5 py-2 text-sub font-medium text-[var(--danger)] disabled:opacity-40"
-        >
-          <XIcon className="size-4" />
-          拒绝
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /**
  * 设备列表的一行：在线点 + 名字（当前设备 / 权限标注）+ 类型与系统 + 最近活跃、
  * 来源与签发时间 + 改名 / 注销。
@@ -545,6 +301,7 @@ function DeviceRow({
   onRevoke: () => void;
 }) {
   const live = deviceLive(device);
+  const pushNote = devicePushNote(device.push);
   const identity = [
     device.kind_label,
     device.platform,
@@ -593,6 +350,15 @@ function DeviceRow({
         {isStale(device.last_seen_at, device.created_at) && (
           <p className="mt-1 text-caption text-[var(--warn)]">
             已超过 {STALE_AFTER_DAYS} 天没有活跃（不会自动失效），不再使用的话建议注销。
+          </p>
+        )}
+        {/* App 收不到通知时写一行原因；能收到就什么都不写（docs/design/cloud-push.md §8） */}
+        {pushNote && (
+          <p
+            className="mt-1 text-caption"
+            style={{ color: pushNote.tone === "neutral" ? "var(--text-faint)" : TONE_COLOR[pushNote.tone] }}
+          >
+            {pushNote.text}
           </p>
         )}
       </div>

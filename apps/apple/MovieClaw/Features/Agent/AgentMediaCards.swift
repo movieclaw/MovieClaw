@@ -242,7 +242,8 @@ private struct AgentLibraryCard: View {
                                 Image(systemName: LibraryKindMeta.symbol(library.kind)).font(.system(size: 36)).foregroundStyle(.white.opacity(0.13))
                             }
                         } else {
-                            RemoteImage(url: api.image("/libraries/\(library.id)/cover"), placeholderSymbol: LibraryKindMeta.symbol(library.kind))
+                            RemoteImage(url: api.image("/libraries/\(library.id)/cover", width: ImageWidth.points(212)),
+                                        placeholderSymbol: LibraryKindMeta.symbol(library.kind))
                         }
                     }
                     .overlay(alignment: .bottom) {
@@ -358,9 +359,10 @@ private struct AgentLibraryItemCard: View {
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .overlay {
                         if let backdrop {
-                            RemoteImage(url: api.image(backdrop, .landscapeCard))
+                            RemoteImage(url: api.image(backdrop, width: ImageWidth.points(212)))
                         } else {
-                            AgentPosterFill(title: info.title, url: api.image(poster, .posterCard))
+                            // 海报等比装进 212 点宽的 16:9 框，只有约 80 点宽
+                            AgentPosterFill(title: info.title, url: api.image(poster, width: ImageWidth.points(80)))
                         }
                     }
                     .overlay(alignment: .bottom) {

@@ -82,7 +82,7 @@ struct LibraryShareSheet: View {
     private var header: some View {
         Section {
             HStack(spacing: 14) {
-                RemoteImage(url: api.image(posterUrl, .posterCard))
+                RemoteImage(url: api.image(posterUrl, width: ImageWidth.points(48)))
                     .frame(width: 48, height: 72)
                     .clipShape(.rect(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 3) {

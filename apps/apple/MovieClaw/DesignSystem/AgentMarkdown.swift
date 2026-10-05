@@ -582,7 +582,8 @@ struct AgentMarkdownImage: View {
     }
 
     private var image: some View {
-        LazyImage(url: api.image(url)) { state in
+        // 等比装进对话气泡（最宽约一个屏宽）：按屏宽取
+        LazyImage(url: api.image(url, width: ImageWidth.points(ImageWidth.screenSize.width))) { state in
             if let image = state.image {
                 image.resizable().scaledToFit()
             } else if state.error != nil {

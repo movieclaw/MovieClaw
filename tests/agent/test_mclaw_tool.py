@@ -115,7 +115,7 @@ def test_description_contains_service_map_and_protocol() -> None:
     assert "bash" in desc  # 排他性引导：不要经 bash 调用
     assert "discover 浏览榜单" in desc
     assert "search titles 找片/找剧" in desc
-    assert "search library-items 查已有库存" in desc
+    assert "search library 查已有库存" in desc
     assert "session 只用于管理" not in desc
 
 

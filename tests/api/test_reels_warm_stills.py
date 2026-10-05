@@ -2,7 +2,7 @@
 
 预压的缓存键必须与客户端请求 ``/images/assets/...?variant=reel-still`` 时完全一致，
 否则压了也白压——所以这里钉死本地资产走 ``asset:<相对路径>`` + 文件版本，
-远程图床走 ``remote:<url>``，且坏图、空值不会让整批中断。
+远程图床走与 ``/images/proxy`` 同一个只认 URL 的派生入口，且坏图、空值不会让整批中断。
 """
 
 from __future__ import annotations
@@ -35,12 +35,16 @@ def _isolated_assets(tmp_path: Path, monkeypatch):
 class _Recorder:
     def __init__(self, fail_on: str | None = None) -> None:
         self.calls: list[tuple[Path, str, str, ImageVariant]] = []
+        self.remote_calls: list[tuple[str, ImageVariant]] = []
         self.fail_on = fail_on
 
     async def get_or_create(self, path, *, source_key, source_version, variant):
         if self.fail_on and self.fail_on in source_key:
             raise OSError("坏图")
         self.calls.append((path, source_key, source_version, variant))
+
+    async def get_or_create_remote(self, url, *, variant):
+        self.remote_calls.append((url, variant))
 
 
 async def _drain() -> None:
@@ -70,23 +74,14 @@ async def test_local_assets_are_warmed_with_client_cache_key(_isolated_assets: P
     ]
 
 
-async def test_remote_backdrop_goes_through_image_cache(monkeypatch):
-    class _Cached:
-        path = Path("/cache/abc")
-        version = "etag-1"
-
-    class _Cache:
-        async def get_or_fetch(self, url):
-            return _Cached()
-
+async def test_remote_backdrop_uses_proxy_cache_key(monkeypatch):
+    """远程剧照走与 ``/images/proxy?variant=`` 同一个入口：派生只认 URL，预压的就是客户端要的。"""
     recorder = _Recorder()
     monkeypatch.setattr(image_variants, "get_image_variant_service", lambda: recorder)
-    monkeypatch.setattr("movieclaw_api.services.image_cache.get_image_cache", lambda: _Cache())
 
     url = "https://image.tmdb.org/t/p/original/x.jpg"
     feed._warm_stills([url])
     await _drain()
 
-    assert recorder.calls == [
-        (Path("/cache/abc"), f"remote:{url}", "etag-1", ImageVariant.REEL_STILL)
-    ]
+    assert recorder.remote_calls == [(url, ImageVariant.REEL_STILL)]
+    assert recorder.calls == []

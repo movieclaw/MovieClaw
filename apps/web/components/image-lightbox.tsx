@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, XIcon } from "@/components/icons";
+import { responsiveImage, screenImageWidth, withImageWidth } from "@/lib/image-width";
 
 /**
  * 多图灯箱：全屏浏览一组图片（海报 + 截图等）。
@@ -46,6 +47,11 @@ export interface ImageLightboxProps {
   action?: LightboxAction;
   /** 底部缩略图形状：竖版 2:3（海报/截图，默认）或宽幅 16:9（剧照） */
   thumbAspect?: "portrait" | "landscape";
+  /**
+   * 图片地址是服务端出图地址（认 ``w``，见 lib/image-width.ts）：大图按屏宽像素取、
+   * 缩略图按格子取，不再整张拉原图。外站直链、会话附件这类不认 w 的地址不要开。
+   */
+  sizeable?: boolean;
   onClose: () => void;
 }
 
@@ -56,8 +62,18 @@ export function ImageLightbox({
   captions,
   action,
   thumbAspect = "portrait",
+  sizeable = false,
   onClose,
 }: ImageLightboxProps) {
+  // 大图等比装下整屏：需要的宽度上限就是屏宽像素（竖图受高度限制只会更小）。
+  // 打开那一刻定格，翻图时不随窗口变化换地址
+  const [screenWidth] = useState(() =>
+    typeof window === "undefined" ? 0 : screenImageWidth(window.innerWidth),
+  );
+  const shown = useMemo(
+    () => (sizeable && screenWidth ? images.map((url) => withImageWidth(url, screenWidth)) : images),
+    [images, sizeable, screenWidth],
+  );
   const [index, setIndex] = useState(() =>
     Math.min(Math.max(initialIndex, 0), images.length - 1),
   );
@@ -119,14 +135,14 @@ export function ImageLightbox({
   // 预加载相邻图片：切换时不白屏
   useEffect(() => {
     for (const neighbor of [index - 1, index + 1]) {
-      const url = images[(neighbor + images.length) % images.length];
+      const url = shown[(neighbor + shown.length) % shown.length];
       if (url) {
         const img = new Image();
         img.referrerPolicy = "no-referrer";
         img.src = url;
       }
     }
-  }, [index, images]);
+  }, [index, shown]);
 
   const markBroken = (i: number) =>
     setBroken((prev) => (prev.has(i) ? prev : new Set(prev).add(i)));
@@ -228,8 +244,8 @@ export function ImageLightbox({
           </div>
         ) : (
           <img
-            key={images[index]}
-            src={images[index]}
+            key={shown[index]}
+            src={shown[index]}
             alt={`第 ${index + 1} 张图片`}
             referrerPolicy="no-referrer"
             onError={() => markBroken(index)}
@@ -292,7 +308,9 @@ export function ImageLightbox({
                 }`}
               >
                 <img
-                  src={url}
+                  {...(sizeable
+                    ? responsiveImage(url, thumbAspect === "landscape" ? 100 : 40)
+                    : { src: url })}
                   alt=""
                   loading="lazy"
                   referrerPolicy="no-referrer"

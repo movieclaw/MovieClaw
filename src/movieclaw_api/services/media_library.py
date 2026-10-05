@@ -382,7 +382,12 @@ class MediaLibraryService:
         return profile_fetch_kwargs(setting)
 
     def _primary_language(self, setting: MetadataScrapeSetting | None = None) -> str:
-        return self._fetch_kwargs(setting)["languages"][0]
+        # 只取主语言，不走 _fetch_kwargs：那个参数包会顺带构造 Fanart 客户端（有副作用）
+        if self._languages is not None:
+            return self._languages[0]
+        from movieclaw_api.services.scrape_config import effective_language
+
+        return effective_language(setting)
 
     async def _scrape_library(self, kind: MediaKind, library_id: int | None) -> Library | None:
         """归属库行；库不存在或类型不符时按"没有归属"处理（绝不拿类型不对的

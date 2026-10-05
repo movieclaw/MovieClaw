@@ -66,6 +66,7 @@ from movieclaw_api.services.library.access import (
 )
 from movieclaw_api.services.library.collections import count_members, resolve_members
 from movieclaw_api.services.playback import watch as playback_watch
+from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import Collection, LibraryFile, MediaItem
 from movieclaw_db.models.media_share import MediaShare
@@ -92,8 +93,7 @@ async def _poster_url(session: AsyncSession, item: MediaItem) -> str | None:
         version = media_scrape.asset_version(meta_row.poster_file)
         return f"/images/assets/{meta_row.poster_file}?v={version}"
     if item.poster_path:
-        base = get_settings().tmdb_image_base_url.rstrip("/")
-        return f"{base}/w500{item.poster_path}"
+        return tmdb_image_url(item.poster_path, "poster")
     return None
 
 
@@ -487,6 +487,9 @@ def _rewrite_url(url: str | None, slug: str, library_id: int, media_item_id: int
         return f"/share/{slug}/images/proxy?url={quote(url, safe='')}"
     if url.startswith("/images/assets/"):
         return f"/share/{slug}/images/assets/{url[len('/images/assets/') :]}"
+    if url.startswith("/images/people/"):
+        # 本地演职员头像（docs/design/image-sizing.md §4.2）：公开资料，分享通道照样给
+        return f"/share/{slug}/images/people/{url[len('/images/people/') :]}"
     art_prefix = f"/libraries/{library_id}/items/{media_item_id}/artwork"
     if url.startswith(art_prefix):
         return f"/share/{slug}/artwork{url[len(art_prefix) :]}"
@@ -723,6 +726,7 @@ async def get_shared_episodes(
 async def get_shared_artwork(
     kind: Literal["poster", "fanart"] = Query(default="poster"),
     item: Annotated[int | None, Query(description="合集分享时指定看哪一部")] = None,
+    w: int | None = images_routes.WIDTH_QUERY,
     principal: Principal = Depends(require_share_access),
     session: AsyncSession = Depends(get_session),
 ) -> FileResponse:
@@ -731,6 +735,7 @@ async def get_shared_artwork(
         await _shared_library(session, principal, media_item_id),
         media_item_id,
         kind=kind,
+        w=w,
         session=session,
     )
 
@@ -745,6 +750,7 @@ async def get_shared_artwork(
 async def get_shared_asset(
     path: str,
     variant: ImageVariant | None = Query(default=None),
+    w: int | None = images_routes.WIDTH_QUERY,
     v: str | None = Query(default=None, max_length=32),
     principal: Principal = Depends(require_share_access),
     session: AsyncSession = Depends(get_session),
@@ -758,8 +764,24 @@ async def get_shared_asset(
     # 走 access 的收口，不在这里另写一套
     await assert_item_visible(session, principal, int(head))
     return await images_routes.get_metadata_asset(
-        path, variant=variant, v=v, principal=principal, session=session
+        path, variant=variant, w=w, v=v, principal=principal, session=session
     )
+
+
+@public_router.get(
+    "/{slug}/images/people/{path:path}",
+    response_class=FileResponse,
+    summary="分享页的演职员头像（本地）",
+    operation_id="share.person-avatar",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def get_shared_person_avatar(
+    path: str,
+    w: int | None = images_routes.WIDTH_QUERY,
+    principal: Principal = Depends(require_share_access),
+) -> FileResponse:
+    """与成员区 /images/people 同一个实现：头像是公开资料，持分享链接即可读。"""
+    return await images_routes.get_person_avatar(path, w=w, _principal=principal)
 
 
 @public_router.get(
@@ -772,10 +794,11 @@ async def get_shared_asset(
 async def get_shared_proxy_image(
     url: str = Query(min_length=1, max_length=2048),
     variant: ImageVariant | None = Query(default=None),
+    w: int | None = images_routes.WIDTH_QUERY,
     _principal: Principal = Depends(require_share_access),
 ) -> FileResponse:
     """与成员区 /images/proxy 同一个实现：域名白名单（SSRF 防护）在服务层。"""
-    return await images_routes.proxy_image(url=url, variant=variant)
+    return await images_routes.proxy_image(url=url, variant=variant, w=w)
 
 
 @public_router.get(
@@ -787,11 +810,14 @@ async def get_shared_proxy_image(
 )
 async def get_shared_thumb(
     file_id: int,
+    w: int | None = images_routes.WIDTH_QUERY,
     principal: Principal = Depends(require_share_access),
     session: AsyncSession = Depends(get_session),
 ) -> FileResponse:
     await _assert_file_in_share(session, principal, file_id)
-    return await libraries_routes.get_file_thumb(file_id, principal=principal, session=session)
+    return await libraries_routes.get_file_thumb(
+        file_id, w=w, principal=principal, session=session
+    )
 
 
 # -- 播放 ---------------------------------------------------------------------

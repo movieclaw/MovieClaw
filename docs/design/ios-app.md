@@ -21,8 +21,8 @@
 ## 2. 目录
 
 原生 App 按平台生态放在 `apps/` 下，与 `apps/web`、`apps/extension` 并列：`apps/apple/` 是一个 Xcode 工程，
-现在只有 iPhone/iPad 目标，将来的 Apple TV（tvOS）版作为同一工程的另一个目标，共用接口层与播放器
-（届时工程内再拆 `Shared/`、`iOS/`、`tvOS/`）；将来的 Android 版放 `apps/android/`（一个 Gradle 工程，手机与
+iPhone 目标之外还有 Apple TV（tvOS）目标 `MovieClawTV`：两者共用 `Shared/` 里的接口层、登录与账号、播放器逻辑
+（见 [tvos-app.md](tvos-app.md) §6）；将来的 Android 版放 `apps/android/`（一个 Gradle 工程，手机与
 Android TV 两个模块）。各平台共用 Bundle ID / 包名 `io.movieclaw.app`，请求标识为 `MovieClaw-<iOS|tvOS|Android>/<版本>`，
 活动页据此显示「MovieClaw iOS / Apple TV / Android」。`pnpm-workspace.yaml` 因此只列 JS 项目、不用 `apps/*` 通配。
 
@@ -31,14 +31,19 @@ apps/apple/
   project.yml                 工程定义（xcodegen generate 生成 .xcodeproj，不入库）
   scripts/gen_api.py          生成接口层；后端改了接口就重跑
   scripts/test.sh             跑测试（兜住 xcodebuild 不退出）
-  MovieClaw/
-    App/                      入口、AppModel（连接/登录状态机）、Routing（路由/导航/全局弹层）
+  Shared/                     iPhone 与 Apple TV 共用（两个 App 目标都编译这里）
+    App/                      AppModel（连接/登录状态机）、调试启动参数、首帧闸门
     Core/API/Generated/       生成的模型（命名空间 API.*）与接口函数（APIClient 扩展）——勿手改
     Core/API/*.swift          少量手写补充（multipart 上传、SSE 等生成器跳过的接口）
     Core/Networking/          APIClient、设备令牌钥匙串（TokenVault）、SSE、服务器地址
     Core/Session/             权限、环境值
-    DesignSystem/             主题令牌、反馈中心、三态加载、远程图片、占位页、通用组件
+    DesignSystem/             主题令牌、反馈中心、三态加载、远程图片
+    Player/                   播放逻辑：会话控制器、两个引擎适配、兜底阶梯、上报（界面在各平台目录）
+  MovieClaw/                  iPhone 界面层
+    App/                      入口、Routing（路由/导航/全局弹层）
+    DesignSystem/             占位页与各模块的通用组件
     Features/<模块>/           各功能模块
+  MovieClawTV/                Apple TV 界面层（见 tvos-app.md）
   MovieClawTests/             单元测试 + Generated/LiveDecodeTests（对真实服务器的解码冒烟）
   MovieClawUITests/           UI 自动化（端到端验收）
 ```

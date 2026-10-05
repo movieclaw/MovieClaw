@@ -7,6 +7,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { useConfirm, useToast } from "@/components/feedback";
 import { Modal } from "@/components/modal";
 import {
+  CheckIcon,
   ChevronDownIcon,
   MoreIcon,
   PlusIcon,
@@ -17,6 +18,7 @@ import { ExtensionCard } from "@/components/extension-settings";
 import { SearchSection } from "@/components/search-settings";
 import { boostCleanupCheckbox, boostCleanupSummary } from "@/lib/boost-cleanup";
 import { useTabParam } from "@/lib/use-tab-param";
+import { type ConfiguredDownloader, listDownloaders } from "@/lib/api/downloaders";
 import type { ConfiguredSite, SiteAuthType, SiteStatus } from "@/lib/api/extension";
 import {
   type AuthTypeRequirement,
@@ -151,6 +153,8 @@ export function SiteConfigSection() {
   const [syncStats, setSyncStats] = useState<Record<string, SiteSyncStats>>({});
   // 各站点的刷流运行统计；从未刷流且未开启刷流的站点没有条目
   const [boostStats, setBoostStats] = useState<Record<string, SiteBoostStats>>({});
+  // 已接入的下载器：开启刷流时选投递目标、详情里显示刷流下载器名称与可用性
+  const [downloaders, setDownloaders] = useState<ConfiguredDownloader[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // 是否展开「添加站点」面板
@@ -175,16 +179,19 @@ export function SiteConfigSection() {
   const load = useCallback(async () => {
     setError(null);
     try {
-      const [cat, cfg, stats, boost] = await Promise.all([
+      const [cat, cfg, stats, boost, dls] = await Promise.all([
         listSiteCatalog(),
         listConfiguredSites(),
         listSiteSyncStats(),
         listSiteBoostStats(),
+        // 下载器列表只服务刷流下载器的选择与展示，拉取失败不拖垮站点页
+        listDownloaders().catch(() => [] as ConfiguredDownloader[]),
       ]);
       setCatalog(cat);
       setConfigured(cfg);
       setSyncStats(stats);
       setBoostStats(boost);
+      setDownloaders(dls);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -214,6 +221,11 @@ export function SiteConfigSection() {
   // （详情里的上次/下次同步）在页面停留期间自己长，不需要用户手动刷新。
   // 两个请求都是本地聚合查询，不触达任何站点。
   const anyBoosting = configured.some((s) => s.boost_enabled);
+  // 开启刷流时预选的下载器：多数用户只有一台专门刷流的机器，沿用其他站点
+  // 已在用的那台，第二个站点起一步确认即可（没有则由弹窗预选默认下载器）
+  const boostPeerDownloaderId =
+    configured.find((s) => s.boost_enabled && s.boost_downloader_id !== null)
+      ?.boost_downloader_id ?? null;
   useVisiblePolling(
     () => {
       void listSiteBoostStats()
@@ -350,6 +362,8 @@ export function SiteConfigSection() {
                   site={site}
                   stats={syncStats[site.site_id]}
                   boost={boostStats[site.site_id]}
+                  downloaders={downloaders}
+                  boostPeerDownloaderId={boostPeerDownloaderId}
                   expanded={expandedSite === site.site_id}
                   onToggle={() =>
                     setExpandedSite((cur) => (cur === site.site_id ? null : site.site_id))
@@ -501,6 +515,8 @@ interface SiteRowProps {
   site: ConfiguredSite;
   stats?: SiteSyncStats;
   boost?: SiteBoostStats;
+  downloaders: ConfiguredDownloader[];
+  boostPeerDownloaderId: number | null;
   expanded: boolean;
   onToggle: () => void;
   /** 确保展开（不切换）：菜单里的「编辑授权」需要先展开详情再亮出表单 */
@@ -515,6 +531,8 @@ function SiteRow({
   site,
   stats,
   boost,
+  downloaders,
+  boostPeerDownloaderId,
   expanded,
   onToggle,
   onOpen,
@@ -726,6 +744,8 @@ function SiteRow({
         mode={boostModal ?? "adjust"}
         siteName={item.display_name}
         site={site}
+        downloaders={downloaders}
+        peerDownloaderId={boostPeerDownloaderId}
         onClose={() => setBoostModal(null)}
         onChanged={onChanged}
       />
@@ -737,6 +757,7 @@ function SiteRow({
           site={site}
           stats={stats}
           boost={boost}
+          downloaders={downloaders}
           busy={busy}
           guard={guard}
           onChanged={onChanged}
@@ -755,6 +776,7 @@ interface SiteDetailProps {
   site: ConfiguredSite;
   stats?: SiteSyncStats;
   boost?: SiteBoostStats;
+  downloaders: ConfiguredDownloader[];
   busy: boolean;
   guard: (fn: () => Promise<void>) => Promise<void>;
   onChanged: (site: ConfiguredSite) => void;
@@ -768,12 +790,14 @@ function SiteDetail({
   site,
   stats,
   boost,
+  downloaders,
   busy,
   guard,
   onChanged,
   editingAuth,
   onCloseEditAuth,
 }: SiteDetailProps) {
+  const boostDownloader = resolveBoostDownloader(site, downloaders);
   return (
     <div className="divide-y divide-white/[0.05] border-t border-white/[0.06] bg-white/[0.02] px-4 py-3 sm:px-5">
       {/* ─ 刷流 ─ 只读运行统计；启停与预算在 ⋯ 菜单（带二次确认与预算弹窗） */}
@@ -783,6 +807,12 @@ function SiteDetail({
             <p className="text-caption leading-5 text-[var(--warn)]">
               已暂停：在池做种压到极低上传限速，停止汰换与拉新种（任务与数据保留）。
               可在 ⋯ 菜单里「恢复刷流」。
+            </p>
+          )}
+          {boostDownloader && !boostDownloader.downloader.usable && (
+            <p className="text-caption leading-5 text-[var(--warn)]">
+              刷流下载器「{boostDownloader.downloader.name}」当前不可用（已停用或连接失败），
+              该站暂停抢新种，下载器恢复后自动继续。
             </p>
           )}
           <StatGrid>
@@ -799,6 +829,17 @@ function SiteDetail({
               label="汰换保留期"
               value={site.boost_hold_days > 0 ? `${site.boost_hold_days} 天` : "不保护"}
             />
+            {/* 只接了一台下载器时不出现「刷流下载器」这个概念 */}
+            {boostDownloader && (downloaders.length > 1 || site.boost_downloader_id !== null) && (
+              <DetailStat
+                label="刷流下载器"
+                value={
+                  boostDownloader.followsDefault
+                    ? `${boostDownloader.downloader.name}（默认）`
+                    : boostDownloader.downloader.name
+                }
+              />
+            )}
             {boost && boost.evicted_count > 0 && (
               <DetailStat label="已汰换" value={String(boost.evicted_count)} />
             )}
@@ -892,6 +933,8 @@ function BoostSettingsModal({
   mode,
   siteName,
   site,
+  downloaders,
+  peerDownloaderId,
   onClose,
   onChanged,
 }: {
@@ -900,6 +943,10 @@ function BoostSettingsModal({
   mode: "enable" | "adjust";
   siteName: string;
   site: ConfiguredSite;
+  /** 已接入的下载器；多于一台时弹窗里出现「刷流下载器」选择 */
+  downloaders: ConfiguredDownloader[];
+  /** 其他站点已在用的刷流下载器，开启时优先预选 */
+  peerDownloaderId: number | null;
   onClose: () => void;
   onChanged: (site: ConfiguredSite) => void;
 }) {
@@ -908,13 +955,32 @@ function BoostSettingsModal({
   const [error, setError] = useState<string | null>(null);
   const [budgetGib, setBudgetGib] = useState("");
   const [holdDays, setHoldDays] = useState("");
-  // 每次打开按当前生效值重置表单（上次输入不残留）
+  const [downloaderId, setDownloaderId] = useState<number | null>(null);
+  // 只有一台下载器时没有可选的，不出现这个概念（刷流跟随默认下载器）
+  const pickDownloader = downloaders.length > 1;
+  // 每次打开按当前生效值重置表单（上次输入不残留）。下载器预选顺序：该站已选的 →
+  // 其他站点在用的 → 默认下载器；预选值须仍在列表里且未停用
   useEffect(() => {
     if (!open) return;
     setError(null);
     setBudgetGib(String(Math.round(site.boost_budget_bytes / GIB)));
     setHoldDays(String(site.boost_hold_days));
-  }, [open, site.boost_budget_bytes, site.boost_hold_days]);
+    const selectable = (id: number | null) =>
+      id !== null && downloaders.some((d) => d.id === id && d.enabled);
+    const preset = [
+      site.boost_downloader_id,
+      peerDownloaderId,
+      downloaders.find((d) => d.is_default)?.id ?? null,
+    ].find(selectable);
+    setDownloaderId(preset ?? null);
+  }, [
+    open,
+    site.boost_budget_bytes,
+    site.boost_hold_days,
+    site.boost_downloader_id,
+    peerDownloaderId,
+    downloaders,
+  ]);
 
   async function save() {
     const gib = Math.round(Number(budgetGib.trim()));
@@ -946,7 +1012,15 @@ function BoostSettingsModal({
     setBusy(true);
     setError(null);
     try {
-      onChanged(await setSiteRatioBoost(site.site_id, true, gib * GIB, days));
+      onChanged(
+        await setSiteRatioBoost(
+          site.site_id,
+          true,
+          gib * GIB,
+          days,
+          pickDownloader ? (downloaderId ?? undefined) : undefined,
+        ),
+      );
       onClose();
     } catch (e) {
       setError((e as Error).message);
@@ -1005,6 +1079,22 @@ function BoostSettingsModal({
           />
         </div>
 
+        {pickDownloader && (
+          <BoostDownloaderPicker
+            value={downloaderId}
+            options={downloaders}
+            disabled={busy}
+            onChange={setDownloaderId}
+            hint={
+              mode === "adjust" &&
+              downloaderId !==
+                (site.boost_downloader_id ?? downloaders.find((d) => d.is_default)?.id ?? null)
+                ? "改选只影响之后新抢的种子；已在做种的任务留在原下载器，直到汰换"
+                : "刷流种子投给这台；可与订阅用的默认下载器分开，免得互相挤占队列"
+            }
+          />
+        )}
+
         <div className="flex justify-end gap-2.5 pt-1">
           <button
             type="button"
@@ -1025,6 +1115,96 @@ function BoostSettingsModal({
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** 刷流下载器菜单项样式（与 library-filter-bar 的排序 RadioItem 同款） */
+const PICKER_ITEM_CLASS =
+  "glass-row nav-item flex cursor-pointer items-center justify-between gap-3 px-3 py-2 " +
+  "text-sub outline-none data-[highlighted]:!bg-[var(--glass-fill-hover)] " +
+  "data-[highlighted]:!text-[var(--text)] data-[disabled]:cursor-default data-[disabled]:opacity-45";
+
+/**
+ * 刷流下载器选择（刷流设置弹窗内）。用 Radix DropdownMenu 而不是原生 select：
+ * 原生下拉由系统绘制，跟不了液态玻璃这套皮。停用的下载器列出但不可选；
+ * 连接失败的仍可选（可能只是临时掉线），选后站点详情会提示暂停准入。
+ */
+function BoostDownloaderPicker({
+  value,
+  options,
+  disabled,
+  onChange,
+  hint,
+}: {
+  value: number | null;
+  options: ConfiguredDownloader[];
+  disabled: boolean;
+  onChange: (id: number) => void;
+  hint: string;
+}) {
+  const current = options.find((d) => d.id === value);
+  return (
+    <div>
+      <label className="mb-1.5 block text-caption font-medium text-[var(--text-muted)]">
+        刷流下载器
+      </label>
+      <DropdownMenu.Root>
+        <DropdownMenu.Trigger asChild>
+          <button
+            type="button"
+            disabled={disabled}
+            className="flex w-full items-center justify-between gap-2 rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-left text-ui outline-none transition hover:bg-white/[0.09] focus-visible:border-white/25 disabled:opacity-60 data-[state=open]:border-white/25"
+          >
+            <span className={`truncate ${current ? "text-white" : "text-[var(--text-faint)]"}`}>
+              {current ? current.name : "选择下载器"}
+              {current?.is_default && (
+                <span className="ml-1.5 text-caption text-[var(--text-faint)]">默认</span>
+              )}
+            </span>
+            <ChevronDownIcon className="size-3.5 shrink-0 text-[var(--text-faint)]" />
+          </button>
+        </DropdownMenu.Trigger>
+        <DropdownMenu.Portal>
+          {/* z-[100]：刷流设置弹窗是 topmost（z-90），菜单 portal 到 body 须压过它 */}
+          <DropdownMenu.Content
+            align="start"
+            sideOffset={6}
+            collisionPadding={12}
+            className="menu-surface z-[100] min-w-[var(--radix-dropdown-menu-trigger-width)] p-1"
+          >
+            <DropdownMenu.RadioGroup
+              value={value === null ? "" : String(value)}
+              onValueChange={(next) => onChange(Number(next))}
+            >
+              {options.map((d) => (
+                <DropdownMenu.RadioItem
+                  key={d.id}
+                  value={String(d.id)}
+                  disabled={!d.enabled}
+                  className={PICKER_ITEM_CLASS}
+                >
+                  <span className="min-w-0 truncate">
+                    {d.name}
+                    <span className="ml-1.5 text-caption text-[var(--text-faint)]">
+                      {[
+                        d.is_default && "默认",
+                        !d.enabled ? "已停用" : !d.usable && "连接异常",
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </span>
+                  <DropdownMenu.ItemIndicator>
+                    <CheckIcon className="size-3.5 text-[var(--info)]" />
+                  </DropdownMenu.ItemIndicator>
+                </DropdownMenu.RadioItem>
+              ))}
+            </DropdownMenu.RadioGroup>
+          </DropdownMenu.Content>
+        </DropdownMenu.Portal>
+      </DropdownMenu.Root>
+      <p className="mt-1 text-caption leading-4 text-[var(--text-faint)]">{hint}</p>
+    </div>
   );
 }
 
@@ -1212,7 +1392,8 @@ function SiteBadge({ item }: { item: CatalogItem }) {
     <span className="flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-white/[0.08] bg-white/[0.04]">
       {/* 经统一图片代理的外站 favicon，不经 next/image 优化管道 */}
       <img
-        src={cachedImageUrl(`${origin}/favicon.ico`)}
+        // 20 CSS px 的小图标也带宽度（落在最小档）：个别站点的 .ico 里塞着 256px 大图
+        src={cachedImageUrl(`${origin}/favicon.ico`, { width: 40 })}
         alt=""
         loading="lazy"
         className="size-5"
@@ -1264,6 +1445,21 @@ function DetailStat({ label, value }: { label: string; value: string }) {
       </p>
     </div>
   );
+}
+
+/**
+ * 该站刷流实际投给哪台下载器：选定了就是那台，未选定（null）跟随默认下载器——
+ * 与后端 ratio_boost._boost_downloader 同一判据。列表里找不到时返回 null。
+ */
+function resolveBoostDownloader(
+  site: ConfiguredSite,
+  downloaders: ConfiguredDownloader[],
+): { downloader: ConfiguredDownloader; followsDefault: boolean } | null {
+  const followsDefault = site.boost_downloader_id === null;
+  const downloader = followsDefault
+    ? downloaders.find((d) => d.is_default)
+    : downloaders.find((d) => d.id === site.boost_downloader_id);
+  return downloader ? { downloader, followsDefault } : null;
 }
 
 /** 「下次同步」文案：null（立即到期）或时刻已过（等待 tick 扫描）都显示「即将开始」，

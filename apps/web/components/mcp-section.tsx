@@ -221,7 +221,7 @@ export function McpSection() {
     <div className="space-y-5">
       {banner}
 
-      {/* 总开关：与「Webhook」「消息推送」等分区同一个形态——玻璃卡里左边写清后果、
+      {/* 总开关：与「Webhook」「IM 推送」等分区同一个形态——玻璃卡里左边写清后果、
           右边一个开关。此前是把状态、地址和「新建端点」全塞进一个自制状态条，
           既不是全站的开关样式，主操作也没落在该在的位置。 */}
       <div className="css-glass flex items-center gap-3.5 !rounded-xl p-4">

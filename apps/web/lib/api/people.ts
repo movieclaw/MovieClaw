@@ -1,5 +1,5 @@
 import { request } from "@/lib/http";
-import { cachedImageUrl, imageUrl } from "@/lib/image-proxy";
+import { imageUrl } from "@/lib/image-proxy";
 import type { MediaType } from "@/lib/media-types";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
@@ -76,8 +76,9 @@ export async function fetchPerson(
     tmdbPersonId: dto.tmdb_person_id,
     name: dto.name,
     originalName: dto.original_name ?? undefined,
-    // 头像是 TMDB 图床绝对地址，走缓存代理（图床限速/失联时仍可读本地缓存）
-    avatarUrl: dto.avatar_url ? cachedImageUrl(dto.avatar_url) : "",
+    // 头像可能是本地头像资产的相对路径（/images/people/...，断网可用），也可能是
+    // TMDB 图床地址（走缓存代理）——统一经 imageUrl 解析
+    avatarUrl: dto.avatar_url ? imageUrl(dto.avatar_url) : "",
     credits: dto.credits.map((c) => ({
       mediaItemId: c.media_item_id,
       kind: c.kind,

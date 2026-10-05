@@ -45,10 +45,10 @@ from sqlalchemy import func, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api.core.config import get_settings
 from movieclaw_api.schemas.playback import UpNextItemView
 from movieclaw_api.services.library.thumbs import primary_aspect
 from movieclaw_api.services.media_scrape import asset_version
+from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_db.models import (
     Library,
     LibraryFile,
@@ -341,6 +341,9 @@ async def _hydrate(
                 MediaMetadata.poster_height,
                 MediaMetadata.backdrop_file,
                 MediaMetadata.runtime_minutes,
+                MediaMetadata.logo_file,
+                MediaMetadata.overview,
+                MediaMetadata.genres,
             )
             .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)
             .where(MediaItem.id.in_(item_ids))  # type: ignore[attr-defined]
@@ -353,8 +356,8 @@ async def _hydrate(
     # 分集与文件都读出来再在内存里筛
     wanted = [(anchor.media_item_id, unit[0], unit[1]) for anchor, unit, _, _ in picks]
     episodes = {
-        (int(i), (int(s), int(e))): (name, runtime, still_file, still_path)
-        for i, s, e, name, runtime, still_file, still_path in (
+        (int(i), (int(s), int(e))): (name, runtime, still_file, still_path, overview)
+        for i, s, e, name, runtime, still_file, still_path, overview in (
             await session.execute(
                 select(
                     MediaEpisode.media_item_id,
@@ -364,6 +367,7 @@ async def _hydrate(
                     MediaEpisode.runtime_minutes,
                     MediaEpisode.still_file,
                     MediaEpisode.still_path,
+                    MediaEpisode.overview,
                 ).where(
                     tuple_(
                         MediaEpisode.media_item_id,
@@ -401,34 +405,57 @@ async def _hydrate(
         ).all()
     }
 
-    image_base = get_settings().tmdb_image_base_url.rstrip("/")
     result: list[UpNextItemView] = []
     for anchor, unit, library_id, ahead in picks:
         row = archive.get(anchor.media_item_id)
         if row is None:
             continue
-        item, poster_file, poster_width, poster_height, backdrop_file, item_runtime = row
+        (
+            item,
+            poster_file,
+            poster_width,
+            poster_height,
+            backdrop_file,
+            item_runtime,
+            logo_file,
+            item_overview,
+            genres,
+        ) = row
         if item.id is None:
             continue
         if poster_file:
             poster_url = f"/images/assets/{poster_file}?v={asset_version(poster_file)}"
         else:
-            poster_url = f"{image_base}/w500{item.poster_path}" if item.poster_path else None
+            poster_url = tmdb_image_url(item.poster_path, "poster")
         if backdrop_file:
             backdrop_url = f"/images/assets/{backdrop_file}?v={asset_version(backdrop_file)}"
         else:
-            backdrop_url = f"{image_base}/w780{item.backdrop_path}" if item.backdrop_path else None
+            backdrop_url = tmdb_image_url(item.backdrop_path, "backdrop")
+
+        # 同条目详情页：本地 Logo 资产优先，没下载到就退回 TMDB（logo_path 为空串 =
+        # TMDB 确认没有合适的 Logo）
+        if logo_file:
+            logo_url = f"/images/assets/{logo_file}?v={asset_version(logo_file)}"
+        else:
+            logo_url = tmdb_image_url(item.logo_path, "logo")
 
         is_tv = item.kind == MediaKind.TV.value
-        episode_name, episode_runtime, still_file, still_path = episodes.get(
-            (item.id, unit), (None, None, None, None)
+        episode_name, episode_runtime, still_file, still_path, episode_overview = episodes.get(
+            (item.id, unit), (None, None, None, None, None)
         )
         episode_still_url = None
+        episode_still_original_url = None
         if is_tv:
             if still_file:
                 episode_still_url = f"/images/assets/{still_file}?v={asset_version(still_file)}"
             elif still_path:
-                episode_still_url = f"{image_base}/w500{still_path}"
+                episode_still_url = tmdb_image_url(still_path, "still")
+            # 旧电视客户端用它做大图：剧照母版默认已是原图，本地有就给本地（断网可用），
+            # 否则才是图床原图。新客户端只用 episode_still_url + w（docs/design/image-sizing.md §7）
+            if still_file:
+                episode_still_original_url = episode_still_url
+            elif still_path:
+                episode_still_original_url = tmdb_image_url(still_path, "still")
         duration_ms = _runtime_ms(
             durations.get((item.id, unit)),
             episode_runtime if is_tv else None,
@@ -446,6 +473,11 @@ async def _hydrate(
                 poster_aspect=primary_aspect(item, poster_width, poster_height),
                 backdrop_url=backdrop_url,
                 episode_still_url=episode_still_url,
+                episode_still_original_url=episode_still_original_url,
+                logo_url=logo_url,
+                # 剧集讲卡片这一集（下一集卡讲下一集）；这一集还没有简介时退回整部剧的
+                overview=(episode_overview if is_tv else None) or item_overview or None,
+                genres=[str(genre) for genre in genres or []],
                 season_number=unit[0],
                 episode_number=unit[1],
                 episode_title=episode_name or None,

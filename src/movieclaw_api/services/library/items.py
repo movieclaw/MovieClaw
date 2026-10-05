@@ -41,6 +41,7 @@ from typing import Any, Literal, NamedTuple
 
 from sqlalchemy import BigInteger, Integer, and_, func, not_, nullslast, or_, true, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import load_only
 from sqlmodel import select
 
 from movieclaw_api.schemas.library import (
@@ -51,6 +52,7 @@ from movieclaw_api.schemas.library import (
     LibraryGalleryImageView,
     LibraryInventorySummaryView,
     LibraryItemView,
+    LibraryKindGenreView,
     LibraryRecentAdditionView,
     LibraryRelaxView,
     RelaxSuggestionView,
@@ -71,6 +73,7 @@ from movieclaw_api.services.library.bluray import (
     read_main_playlist,
     streams_have_clpi_metadata,
 )
+from movieclaw_api.services.library.bulk import scalar_rows
 from movieclaw_api.services.library.content_rating import ratings_at_or_below
 from movieclaw_api.services.library.layout import STRM_EXT, entry_dir_of
 from movieclaw_api.services.library.nfo import (
@@ -88,7 +91,9 @@ from movieclaw_api.services.media_probe import (
     probe_retry_due,
 )
 from movieclaw_api.services.media_scrape import asset_version, file_version
+from movieclaw_api.services.people_images import avatar_url, profile_path_of
 from movieclaw_api.services.scrape_config import effective_language, scrape_setting_for_item
+from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_db.models import (
     FileState,
     Library,
@@ -100,7 +105,7 @@ from movieclaw_db.models import (
     utcnow,
 )
 from movieclaw_db.repositories.library_repo import LibraryRepository
-from movieclaw_media.genres import country_label, genre_label
+from movieclaw_media.genres import country_label, genre_label, genre_names
 from movieclaw_media.models import MediaKind
 
 logger = logging.getLogger("movieclaw_api.library_items")
@@ -819,7 +824,7 @@ _WATCH_LABELS: list[tuple[WatchFilter, str]] = [
 
 
 def _facet_scope(
-    library_id: int,
+    library_id: LibraryScope,
     filters: LibraryFilter | None,
     member_id: int | None,
     skip: str,
@@ -854,7 +859,7 @@ def _with_selected(rows, selected: tuple) -> list[FacetValueView]:
 async def _json_facet(
     session: AsyncSession,
     column,
-    library_id: int,
+    library_id: LibraryScope,
     filters: LibraryFilter | None,
     member_id: int | None,
     skip: str,
@@ -1719,6 +1724,153 @@ async def kind_library_ids(
     return frozenset(i for i in rows.scalars().all() if i is not None and i in visible)
 
 
+async def build_kind_genres(
+    session: AsyncSession,
+    library_ids: frozenset[int],
+    kind: HomeKind,
+    *,
+    member_id: int,
+    content_limit: ContentLimit | None = None,
+) -> list[LibraryKindGenreView]:
+    """首页「按类型找电影 / 剧集」色块：跨库口径下每个 TMDB 类型有几部，外加一张封面。
+
+    与单库筛选面板的类型 facet 同一条 ``_json_facet``，库范围换成这一类型的
+    一组库——点色块进去的那面墙（``/kinds/{kind}/items?g=``）走同一套
+    ``_wall_scope`` + ``_narrow``，色块上的数与墙上的格数结构上一致。
+
+    只回有片的类型（色块不该把人带进空墙），按数量倒序。类型名先按本类型的
+    表取，取不到再查另一张（电视库里偶有按电影类型刮削的条目）；两张表都不认
+    的 id 丢掉——色块上印个裸数字没有意义。
+    """
+    if not library_ids:
+        return []
+    rows = await _json_facet(
+        session,
+        MediaMetadata.genre_ids,
+        library_ids,
+        None,
+        member_id,
+        "genres",
+        content_limit=content_limit,
+    )
+    own = genre_names(kind)
+    other = genre_names("tv" if kind == "movie" else "movie")
+    views: list[LibraryKindGenreView] = []
+    for value, count in sorted(rows, key=lambda r: (-r[1], r[0])):
+        if count <= 0 or not value.lstrip("-").isdigit():
+            continue
+        label = own.get(int(value)) or other.get(int(value))
+        if label:
+            views.append(LibraryKindGenreView(value=value, label=label, count=count))
+    await _assign_genre_covers(session, library_ids, views, member_id, content_limit)
+    return views
+
+
+#: 挑封面时先看最近入库的这么多部：常见类型都能在里面找到，冷门类型再单独查
+_GENRE_COVER_RECENT = 400
+#: 冷门类型单独查时往前看的部数（前面的可能没剧照或已被别的类型占用）
+_GENRE_COVER_FALLBACK = 30
+
+
+async def _assign_genre_covers(
+    session: AsyncSession,
+    library_ids: frozenset[int],
+    views: list[LibraryKindGenreView],
+    member_id: int,
+    content_limit: ContentLimit | None,
+) -> None:
+    """给每个类型挑封面：这个类型最近入库、有剧照、还没被别的类型用掉的那部。
+
+    ``views`` 已按部数倒序，大类型先挑——它们的候选最多，让一让也不缺图；同一部片
+    只贴一次，一排色块不会出现两张一样的剧照。「最近入库」与墙的「最近添加」同一个
+    排序（``_wall_page_ids``），可见范围与内容分级也同一份收窄。
+
+    先一次取最近 ``_GENRE_COVER_RECENT`` 部的类型与剧照在内存里分配（一般一次就够）；
+    分不到的冷门类型再按类型各查一次。
+    """
+    if not views:
+        return
+    recent = await _wall_page_ids(
+        session,
+        library_ids,
+        "added_at",
+        _GENRE_COVER_RECENT,
+        0,
+        "confirmed",
+        None,
+        member_id,
+        content_limit,
+    )
+    genres_of = await _genre_ids_of(session, recent)
+    backdrops = await backdrop_facts_many(session, recent)
+    used: set[int] = set()
+    picks: dict[str, int] = {}
+    for view in views:
+        genre = int(view.value)
+        for item_id in recent:
+            if (
+                item_id not in used
+                and backdrops.get(item_id)
+                and genre in genres_of.get(item_id, ())
+            ):
+                picks[view.value] = item_id
+                used.add(item_id)
+                break
+    for view in views:
+        if view.value in picks:
+            continue
+        candidates = await _wall_page_ids(
+            session,
+            library_ids,
+            "added_at",
+            _GENRE_COVER_FALLBACK,
+            0,
+            "confirmed",
+            LibraryFilter(genres=(int(view.value),)),
+            member_id,
+            content_limit,
+        )
+        fresh = [i for i in candidates if i not in used]
+        more = await backdrop_facts_many(session, fresh)
+        backdrops.update(more)
+        pick = next((i for i in fresh if more.get(i)), None)
+        if pick is not None:
+            picks[view.value] = pick
+            used.add(pick)
+    titles = await _titles_of(session, list(picks.values()))
+    for view in views:
+        item_id = picks.get(view.value)
+        if item_id is not None:
+            view.cover_item_id = item_id
+            view.cover_title = titles.get(item_id)
+            view.cover_url = backdrops.get(item_id)
+
+
+async def _genre_ids_of(session: AsyncSession, item_ids: list[int]) -> dict[int, set[int]]:
+    """一批条目的 TMDB 类型 id。"""
+    if not item_ids:
+        return {}
+    # JSON 列不走 scalar_rows 的打包读取：嵌进 json_array 会被当成字符串再编码一层
+    rows = await session.execute(
+        select(MediaMetadata.media_item_id, MediaMetadata.genre_ids).where(
+            MediaMetadata.media_item_id.in_(item_ids)  # type: ignore[attr-defined]
+        )
+    )
+    return {
+        item_id: {int(g) for g in genres or [] if str(g).lstrip("-").isdigit()}
+        for item_id, genres in rows.all()
+    }
+
+
+async def _titles_of(session: AsyncSession, item_ids: list[int]) -> dict[int, str]:
+    if not item_ids:
+        return {}
+    rows = await session.execute(
+        select(MediaItem.id, MediaItem.title).where(MediaItem.id.in_(item_ids))  # type: ignore[attr-defined]
+    )
+    return {item_id: title for item_id, title in rows.all()}
+
+
 async def build_kind_wall(
     session: AsyncSession,
     library_ids: frozenset[int],
@@ -1790,35 +1942,42 @@ async def poster_facts_many(
     靠它把封面代价从「每个合集一次完整墙聚合」压成**整页一条查询**——
     否则一个库自动生成几十个系列合集之后，打开合集页就是几百条查询。
     """
-    from movieclaw_api.core.config import get_settings
 
     ids = [i for i in item_ids if i is not None]
     if not ids:
         return {}
-    base = get_settings().tmdb_image_base_url.rstrip("/")
     out: dict[int, PosterFacts] = {}
-    for item_id, poster_path, poster_file, width, height, released, blur, rating in (
-        await session.execute(
-            select(
-                MediaItem.id,
-                MediaItem.poster_path,
-                MediaMetadata.poster_file,
-                MediaMetadata.poster_width,
-                MediaMetadata.poster_height,
-                MediaMetadata.release_date,
-                MediaMetadata.poster_blur,
-                MediaMetadata.vote_average,
-            )
-            .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)  # type: ignore[arg-type]
-            .where(MediaItem.id.in_(ids))  # type: ignore[attr-defined]
+    for (
+        item_id,
+        poster_path,
+        poster_file,
+        width,
+        height,
+        released,
+        blur,
+        rating,
+    ) in await scalar_rows(
+        session,
+        select(
+            MediaItem.id,
+            MediaItem.poster_path,
+            MediaMetadata.poster_file,
+            MediaMetadata.poster_width,
+            MediaMetadata.poster_height,
+            MediaMetadata.release_date,
+            MediaMetadata.poster_blur,
+            MediaMetadata.vote_average,
         )
-    ).all():
+        .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)  # type: ignore[arg-type]
+        .where(MediaItem.id.in_(ids)),  # type: ignore[attr-defined]
+        pack=len(ids) > 8,
+    ):
         if poster_file:
             # ?v=<mtime>：换图原地覆盖同一路径，不带版本海报墙会一直显示旧图
             url = f"/images/assets/{poster_file}?v={asset_version(poster_file)}"
             out[item_id] = PosterFacts(url, blur or None, (width, height), released, rating)
         else:
-            url = f"{base}/w500{poster_path}" if poster_path else None
+            url = tmdb_image_url(poster_path, "poster")
             out[item_id] = PosterFacts(url, None, None, released, rating)
     return out
 
@@ -1833,30 +1992,26 @@ async def backdrop_facts_many(
     模糊铺底只是前端在 URL 为空时的最后兜底）。剧照没有模糊占位/尺寸的展示
     需求，返回纯 URL 映射即可。
     """
-    from movieclaw_api.core.config import get_settings
 
     ids = [i for i in item_ids if i is not None]
     if not ids:
         return {}
-    base = get_settings().tmdb_image_base_url.rstrip("/")
-    rows = (
-        await session.execute(
-            select(
-                MediaItem.id,
-                MediaItem.backdrop_path,
-                MediaMetadata.backdrop_file,
-            )
-            .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)  # type: ignore[arg-type]
-            .where(MediaItem.id.in_(ids))  # type: ignore[attr-defined]
+    rows = await scalar_rows(
+        session,
+        select(
+            MediaItem.id,
+            MediaItem.backdrop_path,
+            MediaMetadata.backdrop_file,
         )
-    ).all()
+        .outerjoin(MediaMetadata, MediaMetadata.media_item_id == MediaItem.id)  # type: ignore[arg-type]
+        .where(MediaItem.id.in_(ids)),  # type: ignore[attr-defined]
+        pack=len(ids) > 8,
+    )
     return {
         item_id: (
             f"/images/assets/{backdrop_file}?v={asset_version(backdrop_file)}"
             if backdrop_file
-            else f"{base}/w1280{backdrop_path}"
-            if backdrop_path
-            else None
+            else tmdb_image_url(backdrop_path, "backdrop")
         )
         for item_id, backdrop_path, backdrop_file in rows
     }
@@ -1891,57 +2046,71 @@ async def _aggregate_wall_views(
     # 只取聚合真正用得上的六列，不整行取 ORM 对象：台账行有四十来列、其中
     # 三列是 JSON（音轨/字幕/候选），整行取意味着一部三万集的库要反序列化
     # 九万段 JSON——实测 2000 部剧的库因此要跑四秒多，而这些列一个都用不上
-    file_rows = (
-        await session.execute(
-            select(
-                LibraryFile.media_item_id,
-                LibraryFile.library_id,
-                LibraryFile.id,
-                LibraryFile.season_number,
-                LibraryFile.episode_number,
-                LibraryFile.size_bytes,
-                LibraryFile.resolution,
-                LibraryFile.state,
-                LibraryFile.created_at,
-                LibraryFile.added_batch_id,
-                # strm 占位文件永远探不出规格，不算「待补探」
-                and_(
-                    LibraryFile.audio_streams.is_(None),  # type: ignore[union-attr]
-                    LibraryFile.file_path.not_like(f"%{STRM_EXT}"),  # type: ignore[union-attr]
-                ),
-            ).where(
-                (
-                    LibraryFile.library_id == library_id
-                    if library_id is not None
+    file_rows = await scalar_rows(
+        session,
+        select(
+            LibraryFile.media_item_id,
+            LibraryFile.library_id,
+            LibraryFile.id,
+            LibraryFile.season_number,
+            LibraryFile.episode_number,
+            LibraryFile.size_bytes,
+            LibraryFile.resolution,
+            LibraryFile.state,
+            LibraryFile.created_at,
+            LibraryFile.added_batch_id,
+            # strm 占位文件永远探不出规格，不算「待补探」
+            and_(
+                LibraryFile.audio_streams.is_(None),  # type: ignore[union-attr]
+                LibraryFile.file_path.not_like(f"%{STRM_EXT}"),  # type: ignore[union-attr]
+            ),
+        ).where(
+            (
+                LibraryFile.library_id == library_id
+                if library_id is not None
+                else (
+                    tuple_(LibraryFile.media_item_id, LibraryFile.library_id).in_(landing_pairs)
+                    if landing_pairs is not None
                     else (
-                        tuple_(LibraryFile.media_item_id, LibraryFile.library_id).in_(
-                            landing_pairs
-                        )
-                        if landing_pairs is not None
-                        else (
-                            LibraryFile.library_id.in_(library_ids)  # type: ignore[union-attr]
-                            if library_ids is not None
-                            else true()
-                        )
+                        LibraryFile.library_id.in_(library_ids)  # type: ignore[union-attr]
+                        if library_ids is not None
+                        else true()
                     )
-                ),
-                LibraryFile.media_item_id.in_(in_page),  # type: ignore[union-attr]
-            )
-        )
-    ).all()
+                )
+            ),
+            LibraryFile.media_item_id.in_(in_page),  # type: ignore[union-attr]
+        ),
+    )
     files_by_item: dict[int, list[_FileFacts]] = {}
     for media_item_id, *facts in file_rows:
         files_by_item.setdefault(media_item_id, []).append(_FileFacts(*facts))
-    # 条目行整取——展示要用到标题/年份/状态等大部分列
+    # 海报卡只用这些展示列，不读取别名 JSON、身份来源等无关字段，减少并发解码。
     items = (
-        (await session.execute(select(MediaItem).where(MediaItem.id.in_(in_page))))  # type: ignore[attr-defined]
+        (
+            await session.execute(
+                select(MediaItem)
+                .options(
+                    load_only(
+                        MediaItem.id,
+                        MediaItem.kind,
+                        MediaItem.source,
+                        MediaItem.tmdb_id,
+                        MediaItem.title,
+                        MediaItem.year,
+                        MediaItem.status,
+                    )
+                )
+                .where(MediaItem.id.in_(in_page))
+            )
+        )
         .scalars()
         .all()
     )
     grouped: dict[int, tuple[MediaItem, list[_FileFacts]]] = {
         item.id: (item, files_by_item[item.id])  # type: ignore[index]
         for item in items
-        if item.id is not None
+        # 转移/清理可能在分页选出条目后提交，当前库已无文件的条目直接跳过。
+        if item.id in files_by_item
     }
 
     # 剧集的已播单元集合：海报悬浮操作（订阅追新/补齐缺集）的判断依据。
@@ -2142,7 +2311,6 @@ async def build_gallery_groups(
     的 poster.jpg / fanart.jpg 这一层这里不探（要逐条目摸文件系统，一页
     几十部太贵），与海报墙一致。
     """
-    from movieclaw_api.core.config import get_settings
     from movieclaw_api.services.library import chapters as chapters_mod
     from movieclaw_db.models import MediaEpisode
 
@@ -2229,12 +2397,11 @@ async def build_gallery_groups(
             if still_file:
                 url = f"/images/assets/{still_file}?v={asset_version(still_file)}"
             elif still_path:
-                url = f"{get_settings().tmdb_image_base_url.rstrip('/')}/w1280{still_path}"
+                url = tmdb_image_url(still_path, "still")
             else:
                 continue
             stills_by_unit[(item_id, season, episode)] = (url, (name or "").strip())
 
-    base = get_settings().tmdb_image_base_url.rstrip("/")
     groups: list[LibraryGalleryGroupView] = []
     for item_id in page_ids:
         item = items_by_id.get(item_id)
@@ -2247,7 +2414,7 @@ async def build_gallery_groups(
         if poster_file:
             poster_url: str | None = f"/images/assets/{poster_file}?v={asset_version(poster_file)}"
         else:
-            poster_url = f"{base}/w780{item.poster_path}" if item.poster_path else None
+            poster_url = tmdb_image_url(item.poster_path, "poster")
         if poster_url:
             images.append(
                 LibraryGalleryImageView(
@@ -2262,7 +2429,7 @@ async def build_gallery_groups(
                 f"/images/assets/{backdrop_file}?v={asset_version(backdrop_file)}"
             )
         else:
-            backdrop_url = f"{base}/w1280{item.backdrop_path}" if item.backdrop_path else None
+            backdrop_url = tmdb_image_url(item.backdrop_path, "backdrop")
         if backdrop_url:
             images.append(
                 LibraryGalleryImageView(
@@ -2326,51 +2493,6 @@ async def build_gallery_groups(
             )
         )
     return groups
-
-
-async def search_library_items(
-    session: AsyncSession,
-    keyword: str,
-    *,
-    member_id: int | None = None,
-    content_limit: ContentLimit | None = None,
-) -> dict[int, list[LibraryItemView]]:
-    """按关键词搜索全部媒体库的已识别条目：library_id -> 命中条目视图。
-
-    搜索弹窗「媒体库」垂直的数据源。标题/原名子串匹配（忽略英文大小写），
-    只搜已识别入库的条目——待识别文件没有可靠的标题可匹配，去待识别清单
-    处理更合适。组内按标题拼音排序，与海报墙同一套排序规则。
-
-    **观看者的分级约束在这里同样生效**：搜得到就等于看得到（点进去是详情页），
-    墙上藏起来而搜索里搜得出来，那道约束只是障眼法。
-    """
-    pattern = f"%{keyword.strip().lower()}%"
-    rows = (
-        await session.execute(
-            select(LibraryFile.library_id, LibraryFile.media_item_id, MediaItem.title)
-            .join(MediaItem, MediaItem.id == LibraryFile.media_item_id)  # type: ignore[arg-type]
-            .where(
-                LibraryFile.media_item_id.is_not(None),  # type: ignore[union-attr]
-                LibraryFile.unidentified_code.is_(None),  # type: ignore[union-attr]  # 临时条目不进搜索
-                or_(
-                    func.lower(MediaItem.title).like(pattern),
-                    func.lower(MediaItem.original_title).like(pattern),
-                ),
-                *_narrow(None, member_id, content_limit=content_limit),
-            )
-            .distinct()
-        )
-    ).all()
-    matched: dict[int, list[tuple[int, str]]] = {}
-    for library_id, item_id, title in rows:
-        if item_id is not None:
-            matched.setdefault(library_id, []).append((item_id, title))
-
-    result: dict[int, list[LibraryItemView]] = {}
-    for library_id, pairs in matched.items():
-        ordered = [i for i, _ in sorted(pairs, key=lambda p: (title_sort_key(p[1]), p[0]))]
-        result[library_id] = await _aggregate_wall_views(session, library_id, ordered, ordered)
-    return result
 
 
 @dataclass
@@ -2656,10 +2778,10 @@ async def build_season_episodes(
                 info.still_url = f"/images/assets/{meta.still_file}?v={version}"
             elif meta.still_path:
                 if image_base is None:
-                    from movieclaw_api.core.config import get_settings
+                    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
-                    image_base = get_settings().tmdb_image_base_url.rstrip("/")
-                info.still_url = f"{image_base}/w300{meta.still_path}"
+                    image_base = effective_tmdb_image_base_url().rstrip("/")
+                info.still_url = tmdb_image_url(meta.still_path, "still")
         # 本地优先：分集 NFO 的标题/简介、同名 -thumb 缩略图（取首个在位文件）
         owned_file = season_videos.get(number)
         if owned_file is not None:
@@ -2712,10 +2834,8 @@ async def _fill_from_tmdb_season(
 ) -> None:
     """TMDB 分季详情兜底：只填空缺字段，绝不覆盖本地刮削成果。失败静默
     （分集区退化为无剧照/无简介，不阻断）。"""
-    from movieclaw_api.core.config import get_settings
     from movieclaw_api.services.media_discover import get_tmdb_client
 
-    settings = get_settings()
     # 语言按条目的刮削归属库（设计文档 §14）——缓存键必须带上它，否则动漫库
     # 与剧集库的条目会互相串味（同一 tmdb_id 缓存一份，先访问的语言说了算）
     language = effective_language(await scrape_setting_for_item(session, item))
@@ -2738,7 +2858,6 @@ async def _fill_from_tmdb_season(
             exc,
         )
         return
-    image_base = settings.tmdb_image_base_url.rstrip("/")
     remote = {e.get("episode_number"): e for e in data.get("episodes", [])}
     for info in infos:
         episode = remote.get(info.episode_number)
@@ -2749,7 +2868,7 @@ async def _fill_from_tmdb_season(
         info.air_date = info.air_date or episode.get("air_date") or None
         still = episode.get("still_path")
         if info.still_url is None and still:
-            info.still_url = f"{image_base}/w300{still}"
+            info.still_url = tmdb_image_url(still, "still")
 
 
 async def _db_meta(session: AsyncSession, item: MediaItem) -> EntryMetadata | None:
@@ -2761,22 +2880,19 @@ async def _db_meta(session: AsyncSession, item: MediaItem) -> EntryMetadata | No
     """
     if item.id is None:
         return None
-    from movieclaw_api.core.config import get_settings
     from movieclaw_db.repositories import MediaItemRepository
 
     row = await MediaItemRepository(session).get_metadata(item.id)
     if row is None or row.scraped_at is None:
         return None
-    image_base = get_settings().tmdb_image_base_url.rstrip("/")
 
     def _thumb(actor: dict) -> str | None:
-        # NFO 自带的绝对地址优先（吸收时原样存下，见 nfo_absorb._merge_cast），
-        # 否则用 TMDB 图床（经前端缓存代理）
-        if actor.get("nfo_thumb"):
-            return str(actor["nfo_thumb"])
-        if actor.get("profile_path"):
-            return f"{image_base}/w300{actor['profile_path']}"
-        return None
+        # NFO 自带的非 TMDB 头像地址原样给（吸收时存下，见 nfo_absorb._merge_cast）；
+        # TMDB 头像（含 NFO 里的 TMDB 地址）本地有就给本地，断网可用，否则图床兜底
+        nfo = actor.get("nfo_thumb")
+        if nfo and profile_path_of(nfo) is None:
+            return str(nfo)
+        return avatar_url(profile_path_of(nfo) or actor.get("profile_path"))
 
     meta = EntryMetadata(
         plot=row.overview,
@@ -2809,11 +2925,9 @@ async def _tmdb_fallback_meta(session: AsyncSession, item: MediaItem) -> EntryMe
     "本地未刮削"提示，不阻断详情）。结果标记 ``source="tmdb"``，前端据此
     注明信息来自 TMDB 而非本地刮削。
     """
-    from movieclaw_api.core.config import get_settings
     from movieclaw_api.services.media_discover import get_tmdb_client
     from movieclaw_media.models import MediaKind as _Kind
 
-    settings = get_settings()
     kind = _Kind(item.kind)
     # 同 _fill_from_tmdb_season：语言按归属库，缓存键带上语言避免跨库串味
     language = effective_language(await scrape_setting_for_item(session, item))
@@ -2840,12 +2954,11 @@ async def _tmdb_fallback_meta(session: AsyncSession, item: MediaItem) -> EntryMe
         directors = [c["name"] for c in data.get("created_by", []) if c.get("name")]
         run_times = data.get("episode_run_time") or []
         runtime = run_times[0] if run_times else None
-    image_base = settings.tmdb_image_base_url.rstrip("/")
     actors = [
         NfoActor(
             name=c["name"],
             role=(c.get("character") or "").strip() or None,
-            thumb=f"{image_base}/w300{c['profile_path']}" if c.get("profile_path") else None,
+            thumb=avatar_url(c.get("profile_path")),
             tmdb_person_id=c.get("id"),
         )
         for c in credits.get("cast", [])[:40]

@@ -197,7 +197,7 @@ struct SubscriptionDetailView: View {
 
     private func summaryCard(_ detail: API.SubscriptionDetailView) -> some View {
         let isMovie = detail.media.kind == "movie"
-        let poster = api.image(detail.media.posterUrl, .posterCard)
+        let poster = api.image(detail.media.posterUrl, width: ImageWidth.points(80))
         let mediaRoute = AppRoute.mediaDetail(titleRef: "tmdb:\(detail.media.kind):\(detail.media.tmdbId)")
         return VStack(alignment: .leading, spacing: 14) {
             HStack {

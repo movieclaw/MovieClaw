@@ -13,7 +13,7 @@ import {
 
 import { PosterImage } from "@/components/poster-image";
 import type { LibraryItem } from "@/lib/api/libraries";
-import { imageUrl, type ImageVariant } from "@/lib/image-proxy";
+import { imageUrl, screenImageWidth } from "@/lib/image-proxy";
 import { tileWindowRange } from "@/lib/wall-window";
 
 /**
@@ -54,18 +54,31 @@ export interface DensitySpec {
   column: number;
   minColumns: number;
   gap: number;
-  /** 瓦片取哪个规格的图：列宽 ≤230 CSS px 用 480px 的 photo-tile 派生图（2x 屏够用），
-   *  宽松密度列宽更大，直接用 720px 的缩略图本体 */
-  variant: ImageVariant | undefined;
+  /**
+   * 瓦片取图的显示宽（CSS px）：瀑布流的实际列宽在「目标列宽」与约 1.33～1.5 倍之间，
+   * 取这一档的上沿，乘屏幕倍率拼一个固定 w（不用 srcset：灯箱的缩略条要拿到与墙上
+   * **同一个地址**，直接命中浏览器缓存，见 photo-lightbox.tsx）。
+   * 少数比它还宽的瓦片（稀疏月份的一行等高排版）按瓦片自身宽度取，见 PhotoTile。
+   */
+  imageWidth: number;
 }
 export const DENSITY: Record<PhotoWallDensity, DensitySpec> = {
   // 间距是「一面墙」与「一堆卡片」的分界：留白一宽，视线就被格线切碎，
   // 沉浸感没了。三档各自砍掉约一半（用户反馈 2026-09-07），仍保持
   // 紧凑 < 标准 < 宽松的梯度
-  compact: { column: 150, minColumns: 3, gap: 3, variant: "photo-tile" },
-  standard: { column: 230, minColumns: 2, gap: 6, variant: "photo-tile" },
-  loose: { column: 340, minColumns: 1, gap: 10, variant: undefined },
+  compact: { column: 150, minColumns: 3, gap: 3, imageWidth: 200 },
+  standard: { column: 230, minColumns: 2, gap: 6, imageWidth: 300 },
+  // 手机单列约 361 宽，也在这一档之内
+  loose: { column: 340, minColumns: 1, gap: 10, imageWidth: 420 },
 };
+/**
+ * 瓦片取图的像素宽（已取阶梯档）：密度档的显示宽与瓦片自身宽取大者 × 悬停放大 1.04
+ * × 屏幕倍率。相册墙、图廊与两者的灯箱缩略条共用，同一密度下地址一致、命中缓存。
+ */
+export function tileImageWidth(densityWidth: number, tileWidth = 0): number {
+  return screenImageWidth(Math.max(densityWidth, tileWidth), 1.04);
+}
+
 const GAP = 12;
 const MIN_ASPECT = 0.5;
 const MAX_ASPECT = 2;
@@ -614,7 +627,7 @@ const PhotoMonthSection = memo(function PhotoMonthSection({
               y={placement.y}
               width={placement.width}
               height={placement.height}
-              variant={spec.variant}
+              imageWidth={spec.imageWidth}
               onOpen={onOpen}
               workingLabel={workingLabelOf?.(item)}
             />
@@ -640,7 +653,7 @@ const PhotoTile = memo(function PhotoTile({
   y,
   width,
   height,
-  variant,
+  imageWidth,
   onOpen,
   workingLabel,
 }: {
@@ -651,7 +664,8 @@ const PhotoTile = memo(function PhotoTile({
   y: number;
   width: number;
   height: number;
-  variant: ImageVariant | undefined;
+  /** 本密度档的取图显示宽（见 DensitySpec.imageWidth） */
+  imageWidth: number;
   onOpen: (index: number) => void;
   workingLabel?: string;
 }) {
@@ -692,7 +706,9 @@ const PhotoTile = memo(function PhotoTile({
           不必再让 PosterImage 自己逐张探测 —— 那次探测每张要读一次
           getBoundingClientRect，几千张就是几千次强制布局 */}
       <PosterImage
-        src={imageUrl(item.poster_url, variant)}
+        // 瓦片比例就是照片比例（极端比例被夹住时也只会更窄），铺满的有效宽就是瓦片宽；
+        // 不超过密度档就按密度档取，与灯箱缩略条同一个地址
+        src={imageUrl(item.poster_url, { width: tileImageWidth(imageWidth, width) })}
         alt={item.title}
         preload
         className={`absolute inset-0 size-full object-cover transition-transform duration-500 ease-out group-hover/tile:scale-[1.04] motion-reduce:transition-none ${

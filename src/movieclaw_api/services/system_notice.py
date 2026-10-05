@@ -43,6 +43,8 @@ async def upsert_notice(
         await session.execute(select(SystemNotice).where(SystemNotice.dedupe_key == dedupe_key))
     ).scalar_one_or_none()
     now = utcnow()
+    # 新出现或复发的问题推到管理员的手机上（仍在发生的只刷新内容，不重复推）
+    fresh = row is None or row.status == NoticeStatus.RESOLVED.value
     if row is None:
         session.add(
             SystemNotice(
@@ -69,6 +71,16 @@ async def upsert_notice(
         if reactivated:
             logger.info("待处理告警复发（%s）：%s", dedupe_key, title)
     await session.commit()
+    if fresh:
+        from movieclaw_api.services.push import events as push_events
+
+        push_events.system_alert(
+            dedupe_key=dedupe_key,
+            source=source,
+            title=title,
+            message=message,
+            payload=payload or {},
+        )
 
 
 async def resolve_notices(

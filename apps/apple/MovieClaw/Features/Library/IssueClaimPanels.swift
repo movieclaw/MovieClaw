@@ -175,7 +175,8 @@ struct IssueClaimConfirmPanel: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack(alignment: .top, spacing: 12) {
-                RemoteImage(url: api.image(detail.map { $0.title.posterUrl }.flatMap { $0.isEmpty ? nil : $0 } ?? seed.posterUrl, .posterCard))
+                RemoteImage(url: api.image(detail.map { $0.title.posterUrl }.flatMap { $0.isEmpty ? nil : $0 } ?? seed.posterUrl,
+                                           width: ImageWidth.points(70)))
                     .frame(width: 70, height: 104)
                     .clipShape(.rect(cornerRadius: 8))
                 VStack(alignment: .leading, spacing: 4) {
@@ -385,7 +386,7 @@ struct IssueClaimSearchPanel: View {
             ))
         } label: {
             HStack(spacing: 10) {
-                RemoteImage(url: api.image(item.posterUrl, .posterCard))
+                RemoteImage(url: api.image(item.posterUrl, width: ImageWidth.points(32)))
                     .frame(width: 32, height: 48)
                     .clipShape(.rect(cornerRadius: 4))
                 HStack(spacing: 6) {

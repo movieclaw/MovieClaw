@@ -147,6 +147,7 @@ from movieclaw_api.services.playback_favorites import (
 )
 from movieclaw_api.services.playback_stats import playback_history, playback_stats
 from movieclaw_api.services.playback_up_next import up_next_items
+from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_api.settings import PlaybackPolicySetting
 from movieclaw_api.settings.store import get_setting_store
 from movieclaw_db.engine import get_database, get_session
@@ -902,6 +903,10 @@ def _share_stream_kwargs(principal: Principal) -> dict[str, int]:
     }
 
 
+#: 原生 App 在播放会话里报的 client：自研引擎直出原文件，用不上详情页的关键帧采样预热
+NATIVE_APP_CLIENTS = ("ios", "tvos")
+
+
 def _remember_capability(
     payload: PlaybackDecideRequest, principal: Principal, user_agent: str | None
 ) -> None:
@@ -919,10 +924,10 @@ def _remember_session_capability(
     """开会话也记下客户端的解码能力，供详情页起播预热（warmup.py）判断值不值得读盘采样。
 
     原来只在 /decide 里记，而网页早已改成直接开会话（续播点并进开会话，web-player.md §6.10），
-    两个客户端都不再调 /decide——预热对网页一直没生效。App 的自研引擎直出原文件、用不上关键帧
-    采样，不记（免得它偶尔走系统播放器时申报的能力把同一账号的记录搅乱）。
+    两个客户端都不再调 /decide——预热对网页一直没生效。原生 App（iPhone、Apple TV 同一个自研引擎）
+    直出原文件、用不上关键帧采样，不记（免得它偶尔走系统播放器时申报的能力把同一账号的记录搅乱）。
     """
-    if payload.client == "ios":
+    if payload.client in NATIVE_APP_CLIENTS:
         return
     _remember_capability(payload, principal, user_agent)
 
@@ -2577,8 +2582,7 @@ async def get_playback_item(
         version = media_scrape.asset_version(meta_row.poster_file)
         poster_url = f"/images/assets/{meta_row.poster_file}?v={version}"
     elif item.poster_path:
-        base = get_settings().tmdb_image_base_url.rstrip("/")
-        poster_url = f"{base}/w500{item.poster_path}"
+        poster_url = tmdb_image_url(item.poster_path, "poster")
     else:
         poster_url = None
     return ok(

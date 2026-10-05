@@ -436,7 +436,7 @@ struct ManageCoverEditor: View {
 
     var body: some View {
         // 加载失败写「暂无封面」（同 Web），不是一个意义不明的图标
-        RemoteImage(url: api.image("/libraries/\(libraryId)/cover?v=\(stamp)"), placeholderText: "暂无封面")
+        MeasuredRemoteImage(raw: "/libraries/\(libraryId)/cover?v=\(stamp)", aspect: 21 / 10, placeholderText: "暂无封面")
             .aspectRatio(21 / 10, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .clipShape(.rect(cornerRadius: 12))
@@ -560,7 +560,6 @@ struct ManageSwitchRow: View {
                 }
             }
         }
-        .tint(Theme.success)
         .accessibilityIdentifier(identifier)
     }
 }

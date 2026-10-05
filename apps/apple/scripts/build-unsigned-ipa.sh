@@ -5,7 +5,8 @@
 #
 # 与商店版是同一份代码、同一个发行版本（docs/design/ios-release.md §1），只是不签名：
 # 侧载工具会给主程序和 Frameworks/ 下的每个框架统一重签，这里签了也会被覆盖。
-# App 没有扩展与特殊 entitlements，免费 Apple ID 也能签（只占 1 个 App ID）。
+# 商店版的推送与 App Group 权限只在签名时写进包里，这里不签名，包里一个权限都没有；推送的通知扩展
+# 打包时去掉（见下）。所以和以前一样，免费 Apple ID 也能签，只占 1 个 App ID。
 #
 # 本机与 CI（.github/workflows/release.yml 的 ios-ipa 作业）共用。可选环境变量：
 #   MC_BUILD_NUMBER  构建号（默认 UTC 时间 yyyyMMddHHmm）
@@ -41,6 +42,11 @@ app="$out/DerivedData/Build/Products/Release-iphoneos/MovieClaw.app"
 rm -rf "$out/Payload" "$out/$ipa"
 mkdir -p "$out/Payload"
 ditto "$app" "$out/Payload/MovieClaw.app"
+# 去掉推送的通知扩展：侧载包收不到推送——侧载工具重签时换了 Bundle ID，官方推送只发给 App Store 版的
+# Bundle ID，免费 Apple ID 也开不了推送权限。留着它只会多占一个 App ID（免费 Apple ID 每 7 天最多 10 个）。
+# App 发现包里没有它就不弹通知权限（PushCenter.hasNotificationService）
+rm -rf "$out/Payload/MovieClaw.app/PlugIns/MovieClawNotificationService.appex"
+rmdir "$out/Payload/MovieClaw.app/PlugIns" 2>/dev/null || true
 (cd "$out" && zip -qry "$ipa" Payload)
 rm -rf "$out/Payload"
 echo "✅ 已生成 $out/$ipa（$(du -h "$out/$ipa" | cut -f1)）"

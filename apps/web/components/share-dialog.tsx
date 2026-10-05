@@ -181,7 +181,7 @@ export function ShareDialog({
 
         <div className="mt-4 flex items-center gap-3.5">
           <div className="relative h-[72px] w-12 shrink-0 overflow-hidden rounded-lg bg-white/[0.06]">
-            <PosterImage src={imageUrl(posterUrl)} alt="" className="size-full object-cover" />
+            <PosterImage src={imageUrl(posterUrl)} width={48} alt="" className="size-full object-cover" />
           </div>
           <div className="min-w-0">
             <p className="truncate text-ui font-medium text-[var(--text)]">{title}</p>

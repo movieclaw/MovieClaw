@@ -203,7 +203,7 @@ export function isInEndCredits(
  * 的 `PlaybackSegment` 同形，这里只声明用到的字段，保持本模块不依赖接口层。
  */
 export interface SkipSegment {
-  type: "intro" | "outro" | "other";
+  type: "intro" | "outro" | "ad" | "preview" | "other";
   start_ms: number;
   end_ms: number;
   to_end: boolean;
@@ -247,7 +247,7 @@ export const AUTO_NEXT_MAX_STREAK = 3;
  * 「即将播放」卡片要不要倒计时自动播下一集。
  *
  * 只在服务端**认出了**一直放到结尾的片尾时才倒计时：早期版本按「最后 40 秒」猜片尾并 10 秒自动换集，
- * 字幕还没放完画面就被抢走，被拿掉了（2026-08）。现在片尾是整季比对认出来的，倒计时开始时画面一定在片尾里；
+ * 字幕还没放完画面就被抢走，被拿掉了（2026-08）。服务端下发的是片尾识别结果；
  * 只靠 40 秒兜底出来的卡片照旧不自动播。`streak` 是连续自动播了几集（中间有任何操作就清零）。
  */
 export function autoNextArmed(
@@ -258,11 +258,26 @@ export function autoNextArmed(
   return streak < AUTO_NEXT_MAX_STREAK && isInOutro(segments, positionMs);
 }
 
-/**
- * 「跳过」按钮的文案。「其他」段只会出现在片头窗里（片头前的冠名广告、发行许可），
- * 观众眼里也是片头的一部分，同样叫「跳过片头」——只写「跳过」看不出跳的是什么（用户反馈 2026-10-01）
- */
+/** 按服务端确认的类型显示文案；其他或未来类型不猜成片头或广告。 */
 export function skipLabel(seg: SkipSegment): string {
-  if (seg.type === "outro") return "跳过片尾";
-  return "跳过片头";
+  switch (seg.type) {
+    case "intro": return "跳过片头";
+    case "outro": return "跳过片尾";
+    case "ad": return "跳过广告";
+    case "preview": return "跳过预告";
+    default: return "跳过此段";
+  }
+}
+
+/** 下一集卡片的时机；是否有下一集、是否已关闭，由播放器判断。 */
+export function shouldShowUpNext(
+  segments: readonly SkipSegment[] | undefined,
+  positionMs: number,
+  durationMs: number | null,
+  ended = false,
+): boolean {
+  if (ended) return true;
+  // 明确的手动跳过段优先，避免最后 40 秒的兜底卡片抢走「跳过预告」。
+  if (activeSkipSegment(segments, positionMs)) return false;
+  return isInOutro(segments, positionMs) || isInEndCredits(positionMs, durationMs);
 }

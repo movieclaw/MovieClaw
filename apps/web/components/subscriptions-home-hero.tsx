@@ -12,7 +12,7 @@ import {
   SubsHomeDot,
   SubsHomeProgressLine,
 } from "@/components/subscriptions-home-kit";
-import { imageUrl } from "@/lib/image-proxy";
+import { imageUrl, screenImageWidth } from "@/lib/image-proxy";
 import { markPlayIntent, playHref, rememberPlayerReturnPath } from "@/lib/player/play-links";
 import { SUBS_HOME_TONE_COLOR, type SubsHomeHeroSlide } from "@/lib/subscriptions-home";
 import { useTapGuard } from "@/lib/use-tap-guard";
@@ -30,7 +30,10 @@ import { useTapGuard } from "@/lib/use-tap-guard";
 export const SUBS_HOME_HERO_HEIGHT =
   "h-[min(560px,58vh)] min-h-[380px] max-md:h-[min(500px,70svh)] max-md:min-h-[420px]";
 
-/** Hero 剧照地址：有宽幅剧照用剧照，老条目没有剧照时退回海报铺满（与氛围取色同一个地址） */
+/**
+ * Hero 剧照的基础地址：有宽幅剧照用剧照，老条目没有剧照时退回海报铺满。
+ * 不带宽度——剧照层按框实测尺寸、窗口背景按整窗、氛围取色按 240 小图各自带 w。
+ */
 export function heroImageOf(slide: SubsHomeHeroSlide): string | undefined {
   const raw = slide.media.backdrop_url ?? slide.media.poster_url;
   return raw ? imageUrl(raw) : undefined;
@@ -166,7 +169,11 @@ function StatusLine({
  */
 function TitleArt({ slide }: { slide: SubsHomeHeroSlide }) {
   const [failed, setFailed] = useState(false);
-  const logo = slide.media.logo_url && !failed ? imageUrl(slide.media.logo_url) : null;
+  // Logo 靠固有尺寸撑开（max-w 240），不用 srcset，按显示宽 × 倍率拼固定 w
+  const logo =
+    slide.media.logo_url && !failed
+      ? imageUrl(slide.media.logo_url, { width: screenImageWidth(240) })
+      : null;
   return (
     <div aria-hidden="true" className="flex h-[88px] w-full max-w-[300px] items-end justify-center">
       {logo ? (

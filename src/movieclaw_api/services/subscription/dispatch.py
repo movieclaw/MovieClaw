@@ -61,6 +61,7 @@ async def dispatch(
     manual: bool = False,
     match: IdentityMatch | None = None,
     shadow_notes: dict | None = None,
+    actor_member_id: int | None = None,
 ) -> bool:
     """把候选投递给下载器，满足给定的一批工单。返回是否有实际投递发生。
 
@@ -76,6 +77,8 @@ async def dispatch(
     ``match``：身份匹配结果。只取其中的证据强度落台账（"当初凭什么认定这个
     种子就是这部片"），入库时 info_hash 认领据此分级；None=调用方没有身份
     上下文（旧调用点），台账留 NULL。
+
+    ``actor_member_id``：手动选种时点下载的人（超管为 0），「开始下载」不推给他自己。
 
     ``shadow_notes``：尚未生效的判定的观察记录，原样并进投递活动 payload 的
     ``shadow`` 键（**不进 message，不打扰用户**）。用于给拍脑袋定的阈值攒真实
@@ -450,6 +453,21 @@ async def dispatch(
             f"{spec_text}",
             event="dispatch",
             image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
+        )
+        # App 推送：推给订阅的人，后台发送（docs/design/cloud-push.md §5）
+        from movieclaw_api.services.push import events as push_events
+
+        push_events.download_started(
+            subscription_id=subscription.id,
+            item_id=item.id,
+            title=item.title,
+            year=item.year,
+            units=[(w.season_number, w.episode_number) for w in all_targets],
+            detail=candidate.attrs.resolution or "",
+            upgrade=bool(upgrade_rows and not claimed),
+            image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
+            # 手动选种：点下载的人自己不用提醒
+            skip_member_id=actor_member_id,
         )
         # 事件 Webhook(与 IM 推送同点位:种子已真实提交,事件即事实)
         from movieclaw_api.services.subscription.events import build_download_started_event

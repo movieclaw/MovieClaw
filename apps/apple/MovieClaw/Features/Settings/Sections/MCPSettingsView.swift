@@ -72,7 +72,7 @@ struct MCPSettingsView: View {
                 }
             }
 
-            // 总开关：左边写清地址前缀，右边一个开关（与 Webhook / 消息推送同形态）
+            // 总开关：左边写清地址前缀，右边一个开关（与 Webhook / IM 推送同形态）
             Section {
                 Toggle(isOn: Binding(
                     get: { status.enabled },

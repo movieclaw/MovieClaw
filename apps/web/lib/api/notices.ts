@@ -18,7 +18,7 @@ async function unwrap<T>(promise: Promise<ApiEnvelope<T>>): Promise<T> {
 // ---------------------------------------------------------------------------
 
 export type NoticeSeverity = "warning" | "error";
-export type NoticeSource = "subscription" | "ingest" | "downloader" | "site";
+export type NoticeSource = "subscription" | "ingest" | "downloader" | "site" | "cloud";
 
 /** 一条待处理事项 */
 export interface SystemNotice {
@@ -56,6 +56,9 @@ export function noticeHref(notice: SystemNotice): string {
       return "/settings/downloaders";
     case "site":
       return "/settings/sites";
+    // 和 MovieClaw Cloud 断开、连不上、版本不受支持（docs/design/cloud-push.md §2.4）
+    case "cloud":
+      return "/settings/cloud";
     default:
       return "/settings";
   }

@@ -288,6 +288,17 @@ async def submit_download(
             site_id=payload.site_id,
             torrent_id=payload.torrent_id,
         )
+    if result.info_hash:
+        # 入库时把「入库完成」推给点下载的人（docs/design/cloud-push.md §5）。
+        # 每次手动下载都记，不管选库、智能入库还是选目录；超管、Agent 都算超管
+        from movieclaw_api.services.push import downloads as push_downloads
+
+        await push_downloads.remember(
+            member_id=principal.owner_id,
+            info_hash=result.info_hash,
+            save_path=derived_path or row.save_path,
+            download_name=result.name or None,
+        )
     view = DownloadSubmitView(
         info_hash=result.info_hash,
         name=result.name,
@@ -741,6 +752,14 @@ async def delete_downloader_config(
     downloader_id: int,
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[dict]:
+    """删除下载器配置。选它做刷流下载器的站点会一并关闭刷流（不删种），
+    ``data.boost_disabled_sites`` 返回这些站点的 site_id。"""
+    from movieclaw_api.services.ratio_boost import _site_display_name
+
     service = DownloaderConfigService(session)
-    await service.delete(downloader_id)
-    return ok({}, message="已删除")
+    boost_disabled = await service.delete(downloader_id)
+    message = "已删除"
+    if boost_disabled:
+        names = "、".join(_site_display_name(site_id) for site_id in boost_disabled)
+        message = f"已删除，并关闭了 {names} 的刷流（它们用这台下载器刷流）"
+    return ok({"boost_disabled_sites": boost_disabled}, message=message)

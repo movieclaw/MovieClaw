@@ -5,8 +5,8 @@
 所以直接在进程内读 FastAPI 路由表 + Pydantic json schema 来生成。
 
 产物（覆盖写入，勿手改）：
-  MovieClaw/Core/API/Generated/Models.swift     全部请求/响应模型（命名空间 `API`）
-  MovieClaw/Core/API/Generated/Endpoints.swift  每个业务接口一个 async 函数（APIClient 扩展）
+  Shared/Core/API/Generated/Models.swift        全部请求/响应模型（命名空间 `API`）
+  Shared/Core/API/Generated/Endpoints.swift     每个业务接口一个 async 函数（APIClient 扩展）
 
 用法（在仓库根目录，用后端的虚拟环境跑）：
   .venv/bin/python apps/apple/scripts/gen_api.py
@@ -33,7 +33,7 @@ from pydantic import BaseModel, TypeAdapter
 from pydantic.json_schema import GenerateJsonSchema
 
 ROOT = Path(__file__).resolve().parents[3]
-OUT_DIR = ROOT / "apps/apple/MovieClaw/Core/API/Generated"
+OUT_DIR = ROOT / "apps/apple/Shared/Core/API/Generated"
 API_PREFIX = "/api/v1"
 
 SWIFT_KEYWORDS = {
@@ -550,9 +550,11 @@ def main() -> int:
         if any(field.field_info.is_required() for kind, field, _ in params):
             continue
         name = op_func_name(route).strip("`")
+        # 媒体库搜索的 q 与 person_id 是二选一条件，静态签名均可选，实际不能全空。
+        args = 'q: "xjcy"' if name == "searchLibrary" else ""
         tests.append(f"    @Test func {name}() async throws {{")
         tests.append(
-            f"        try await LiveServer.check {{ try await $0.{op_func_name(route)}() }}"
+            f"        try await LiveServer.check {{ try await $0.{op_func_name(route)}({args}) }}"
         )
         tests.append("    }")
     tests.append("}")

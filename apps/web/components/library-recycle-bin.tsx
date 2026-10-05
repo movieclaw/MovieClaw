@@ -799,6 +799,7 @@ function ItemIdentity({ item }: { item: TrashedItem }) {
     <div className="flex min-w-0 items-center gap-2.5">
       <PosterImage
         src={media ? imageUrl(media.poster_url) : null}
+        width={30}
         alt=""
         className="h-11 w-[30px] shrink-0 rounded-[5px] border border-white/[0.08] object-cover"
       />

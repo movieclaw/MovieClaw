@@ -24,6 +24,8 @@ actor WorkerClient {
     private let configuration: WorkerConfiguration
     private let capabilities: WorkerCapabilities
     private var socket: URLSessionWebSocketTask?
+    private var connectionSession: URLSession?
+    private var connectionEvents: AsyncThrowingStream<URLSessionWebSocketTask.Message, Error>.Continuation?
     private var jobs: [String: JobExecution] = [:] {
         didSet { updateSleepPrevention() }
     }
@@ -110,7 +112,6 @@ actor WorkerClient {
 
     @discardableResult
     func runForever() async -> WorkerExit {
-        stopRequested = false
         fatalExit = nil
         publish(.starting, message: "Worker 正在启动")
         let watchdog = Task { [weak self] in await self?.watchdogLoop() }
@@ -178,7 +179,8 @@ actor WorkerClient {
 
     /// 退避等待。被 ``reconnectNow()`` 叫醒或被停止时提前结束；返回 false 表示该退出了。
     private func sleepUnlessWoken(seconds: TimeInterval) async -> Bool {
-        wakeRequested = false
+        // 网络恢复可能发生在进入等待之前；必须消费这个信号后再清除，不能在入口丢掉它。
+        defer { wakeRequested = false }
         let deadline = Date().addingTimeInterval(seconds)
         while Date() < deadline {
             if wakeRequested || stopRequested || Task.isCancelled { break }
@@ -194,22 +196,52 @@ actor WorkerClient {
     ///   但 receive() 要等很久才会发现（半开连接），这 45 秒里 NAS 早把我们判离线了。
     func reconnectNow() {
         guard !stopRequested else { return }
-        guard socket != nil, handshakeCompleted else {
+        guard let candidate = socket, handshakeCompleted else {
             wakeRequested = true
+            // 正卡在握手时，取消当前尝试，让恢复后的网络马上用于新连接。
+            cancelConnection()
             return
         }
         let probeStarted = Date()
+        // 半开 TCP 上 send 本身也可能卡住，不能等发送完成才开始 5 秒探测计时。
+        candidate.send(.string("{\"type\":\"worker.heartbeat\"}")) { _ in }
         Task { [weak self] in
-            try? await self?.send(["type": "worker.heartbeat"])
             try? await Task.sleep(nanoseconds: 5_000_000_000)
-            await self?.dropIfSilent(since: probeStarted)
+            guard !Task.isCancelled else { return }
+            await self?.dropIfSilent(candidate, since: probeStarted)
         }
     }
 
-    private func dropIfSilent(since probeStarted: Date) {
-        guard socket != nil, lastServerMessageAt < probeStarted else { return }
+    private func dropIfSilent(_ candidate: URLSessionWebSocketTask, since probeStarted: Date) {
+        // 探测期间旧连接可能已经断开并换成新连接，不能用旧探测结果取消新连接。
+        guard socket === candidate, handshakeCompleted, lastServerMessageAt < probeStarted else { return }
         AppLogger.shared.warning("唤醒后 NAS 5 秒没有回应，连接多半已失效，立刻重连")
-        socket?.cancel(with: .goingAway, reason: nil)
+        cancelConnection()
+    }
+
+    /// 故障连接必须取消底层会话；发送关闭帧在半开链路上仍可能等对端，receive 不会返回。
+    private func cancelConnection() {
+        // 实测 URLSession 在某些半开连接上取消后仍不结束异步 receive。
+        // 独立结束消息流，让重连不依赖系统接收回调什么时候返回。
+        connectionEvents?.finish(throwing: ConfigurationError.message("NAS 控制连接无响应，稍后自动重连"))
+        socket?.cancel()
+        connectionSession?.invalidateAndCancel()
+    }
+
+    private func receiveNext(
+        _ candidate: URLSessionWebSocketTask,
+        into events: AsyncThrowingStream<URLSessionWebSocketTask.Message, Error>.Continuation
+    ) {
+        guard socket === candidate, !stopRequested else { return }
+        candidate.receive { [weak self] result in
+            switch result {
+            case let .success(message):
+                events.yield(message)
+                Task { await self?.receiveNext(candidate, into: events) }
+            case let .failure(error):
+                events.finish(throwing: error)
+            }
+        }
     }
 
     /// 网络从断开变为可用时立刻重连（换 Wi-Fi、网线插回、VPN 切换）。
@@ -286,11 +318,18 @@ actor WorkerClient {
         let session = URLSession(configuration: .ephemeral)
         let socket = session.webSocketTask(with: request)
         self.socket = socket
+        connectionSession = session
+        let incoming = AsyncThrowingStream<URLSessionWebSocketTask.Message, Error>.makeStream()
+        let events = incoming.continuation
+        connectionEvents = events
         socket.resume()
         defer {
             socket.cancel(with: .goingAway, reason: nil)
             session.invalidateAndCancel()
             self.socket = nil
+            connectionSession = nil
+            events.finish()
+            connectionEvents = nil
         }
         let handshakeGuard = Task { [weak self] in
             do {
@@ -333,35 +372,32 @@ actor WorkerClient {
                     ? [] : capabilities.readOptions,
             ],
         ]
-        do {
-            try await send(hello)
-            if draining {
-                try await send(["type": "worker.draining"])
-            }
-        } catch {
-            throw connectionError(error, socket: socket)
+        // hello 已带 draining；发送与接收都走可主动结束的消息流，握手超时不被 send 卡住。
+        let helloData = try JSONSerialization.data(withJSONObject: hello)
+        socket.send(.string(String(decoding: helloData, as: UTF8.self))) { error in
+            if let error { events.finish(throwing: error) }
         }
+        receiveNext(socket, into: events)
         let heartbeat = Task { [weak self] in
-            await self?.heartbeatLoop()
+            await self?.heartbeatLoop(socket)
         }
         defer { heartbeat.cancel() }
 
-        while !Task.isCancelled && !stopRequested {
-            let message: URLSessionWebSocketTask.Message
-            do {
-                message = try await socket.receive()
-            } catch {
-                throw connectionError(error, socket: socket)
+        do {
+            for try await message in incoming.stream {
+                guard !Task.isCancelled && !stopRequested else { break }
+                // 任何一条消息都算链路活着，心跳 ack 也不例外
+                lastServerMessageAt = Date()
+                guard case let .string(text) = message,
+                      let data = text.data(using: .utf8),
+                      let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                else {
+                    continue
+                }
+                await handle(object)
             }
-            // 任何一条消息都算链路活着，心跳 ack 也不例外
-            lastServerMessageAt = Date()
-            guard case let .string(text) = message,
-                  let data = text.data(using: .utf8),
-                  let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else {
-                continue
-            }
-            await handle(object)
+        } catch {
+            throw connectionError(error, socket: socket)
         }
     }
 
@@ -369,7 +405,7 @@ actor WorkerClient {
     private func abortStalledHandshake(_ candidate: URLSessionWebSocketTask) {
         guard socket === candidate, !handshakeCompleted else { return }
         handshakeTimedOut = true
-        candidate.cancel(with: .goingAway, reason: nil)
+        cancelConnection()
     }
 
     /// 把连接失败翻译成用户看得懂、知道下一步的原因。URLSession 自己的说法是
@@ -392,6 +428,26 @@ actor WorkerClient {
         // 握手阶段就被 HTTP 状态码拒绝（旧版服务端、反向代理）
         if let status = (socket.response as? HTTPURLResponse)?.statusCode, status != 101 {
             return Self.handshakeStatusError(status)
+        }
+        if let urlError = error as? URLError {
+            switch urlError.code {
+            case .notConnectedToInternet:
+                return ConfigurationError.message(
+                    "当前无法访问 NAS 网络，请检查网络连接及 macOS 本地网络权限，稍后自动重连"
+                )
+            case .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+                return ConfigurationError.message("暂时无法连接 NAS，请检查地址和服务状态，稍后自动重连")
+            case .timedOut:
+                return ConfigurationError.message("NAS 连接超时，稍后自动重连")
+            case .networkConnectionLost:
+                return ConfigurationError.message("NAS 控制连接已中断，稍后自动重连")
+            default:
+                break
+            }
+        }
+        let detail = error as NSError
+        if detail.domain == NSPOSIXErrorDomain {
+            return ConfigurationError.message("NAS 控制连接已断开（系统错误 \(detail.code)），稍后自动重连")
         }
         return error
     }
@@ -418,14 +474,14 @@ actor WorkerClient {
         }
     }
 
-    private func heartbeatLoop() async {
+    private func heartbeatLoop(_ candidate: URLSessionWebSocketTask) async {
         while !Task.isCancelled && !stopRequested {
             do {
                 try await Task.sleep(nanoseconds: Self.heartbeatIntervalNanoseconds)
             } catch {
                 return
             }
-            guard !Task.isCancelled && !stopRequested else { return }
+            guard !Task.isCancelled && !stopRequested, socket === candidate else { return }
             // 半开连接（Mac 休眠唤醒、NAS 掉电、路由器换 NAT 映射）下，socket
             // 的 receive() 会一直挂到 TCP 自己放弃，可能好几分钟。服务端 45 秒
             // 就把我们判离线不再派单了，这段时间里 Worker 却以为自己在线、也
@@ -433,10 +489,11 @@ actor WorkerClient {
             if Date().timeIntervalSince(lastServerMessageAt) > Self.serverSilenceTimeout {
                 let seconds = Int(Self.serverSilenceTimeout)
                 AppLogger.shared.warning("NAS 超过 \(seconds) 秒没有任何响应，主动断开重连")
-                socket?.cancel(with: .goingAway, reason: nil)
+                cancelConnection()
                 return
             }
-            try? await send(["type": "worker.heartbeat"])
+            // 发送不能阻塞静默看门狗，否则黑洞网络上永远走不到下一次 45 秒检查。
+            candidate.send(.string("{\"type\":\"worker.heartbeat\"}")) { _ in }
         }
     }
 
@@ -1003,12 +1060,16 @@ actor WorkerClient {
     }
 
     private func publishCurrent(message: String) {
+        guard socket != nil, handshakeCompleted, !stopRequested else {
+            publish(state, message: message)
+            return
+        }
         publish(jobs.isEmpty ? (draining ? .draining : .ready) : .busy, message: message)
     }
 
     private func publish(_ requestedState: WorkerConnectionState, message: String, error: String? = nil) {
         let effectiveState: WorkerConnectionState
-        if requestedState != .stopped && requestedState != .error && draining {
+        if [.ready, .busy, .draining].contains(requestedState) && draining {
             effectiveState = .draining
         } else if requestedState == .ready && !jobs.isEmpty {
             effectiveState = .busy

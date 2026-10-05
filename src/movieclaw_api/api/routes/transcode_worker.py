@@ -23,7 +23,6 @@ from starlette.websockets import WebSocketDisconnect
 
 from movieclaw_api.api.client_address import client_address
 from movieclaw_api.api.deps import require_admin, resolve_worker_principal
-from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import (
     InsufficientStorageException,
     NotFoundException,
@@ -36,12 +35,12 @@ from movieclaw_api.schemas.transcode_worker import (
     RemoteTranscodeConfigView,
 )
 from movieclaw_api.services import login_devices, media_scrape
-from movieclaw_api.services.image_cache import get_image_cache
 from movieclaw_api.services.image_variants import (
     ImageVariant,
     get_image_variant_service,
     source_version_of,
 )
+from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_api.services.playback import remote_config as remote_transcode_config
 from movieclaw_api.services.playback.disc_source import disc_source_for_file
 from movieclaw_api.services.playback.ffmpeg_args import (
@@ -61,7 +60,8 @@ from movieclaw_api.services.playback.session import (
     TranscodeSession,
     get_session_manager,
 )
-from movieclaw_db.engine import get_session
+from movieclaw_api.services.tmdb_images import remote_image_url
+from movieclaw_db.engine import get_database, get_session
 from movieclaw_db.models import LibraryFile, MediaItem
 from movieclaw_db.repositories.media_repo import MediaItemRepository
 from movieclaw_events import new_ulid
@@ -321,6 +321,13 @@ async def transcode_worker_websocket(websocket: WebSocket) -> None:
             )
             await websocket.close(code=1008, reason=str(exc))
             return
+        if principal.device is not None and principal.device.kind == "worker":
+            # Mac 设置里的名称随 hello 更新；只同步已认证转码器自己的记录，
+            # 不改手工令牌名称，也不赋予 Worker 修改其他设备的权限。
+            async with get_database().session() as session:
+                device = await login_devices.get_device(session, principal.device.id)
+                if device is not None and device.name != connection.worker_id:
+                    await login_devices.rename(session, device, connection.worker_id)
         await connection.send(
             {
                 "type": "worker.accepted",
@@ -605,16 +612,21 @@ async def transcode_poster(
     poster_file = meta.poster_file if meta is not None else None
     target = media_scrape.resolve_asset_path(poster_file) if poster_file else None
     if target is not None and target.is_file():
-        source, key, version = target, f"asset:{poster_file}", source_version_of(target.stat())
+        variant = await get_image_variant_service().get_or_create(
+            target,
+            source_key=f"asset:{poster_file}",
+            source_version=source_version_of(target.stat()),
+            variant=ImageVariant.POSTER_CARD,
+        )
     elif item.poster_path:
-        url = f"{get_settings().tmdb_image_base_url.rstrip('/')}/w500{item.poster_path}"
-        cached = await get_image_cache().get_or_fetch(url)
-        source, key, version = cached.path, f"remote:{url}", cached.version
+        url = remote_image_url(
+            effective_tmdb_image_base_url().rstrip("/"), "w500", item.poster_path
+        )
+        variant = await get_image_variant_service().get_or_create_remote(
+            url, variant=ImageVariant.POSTER_CARD
+        )
     else:
         raise NotFoundException("这部片还没有海报")
-    variant = await get_image_variant_service().get_or_create(
-        source, source_key=key, source_version=version, variant=ImageVariant.POSTER_CARD
-    )
     return FileResponse(
         variant.path, media_type=variant.content_type, headers={"Cache-Control": "no-store"}
     )

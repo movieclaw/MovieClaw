@@ -12,17 +12,25 @@ const KINDS: readonly HomeMediaKind[] = ["movie", "tv", "video"];
 /**
  * 按类型的跨库海报墙（/library/kind/{movie|tv|video}）：首页「全部电影」行的
  * 「查看全部」落点。静态段 kind 优先于 /library/[id]，不会被当成库 id。
+ *
+ * `?g=<TMDB genre id>`：首页「按类型找电影 / 剧集」色块的落点，墙按该类型筛好。
+ * 只认一个正整数 id，别的形状当没带。
  */
 export default async function KindWallPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ kind: string }>;
+  searchParams: Promise<{ g?: string | string[] }>;
 }) {
   const { kind } = await params;
   if (!KINDS.includes(kind as HomeMediaKind)) notFound();
+  const { g } = await searchParams;
+  const genre = typeof g === "string" && /^\d+$/.test(g) ? Number(g) : undefined;
   return (
     <div className="flex h-full flex-col">
-      <KindWallView kind={kind as HomeMediaKind} />
+      {/* key：从一个类型色块换到另一个时整面墙重来，不沿用上一面墙的状态 */}
+      <KindWallView key={genre ?? "all"} kind={kind as HomeMediaKind} genre={genre} />
     </div>
   );
 }

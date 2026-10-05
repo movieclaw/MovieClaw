@@ -66,7 +66,7 @@ struct ManageSharesTab: View {
                 Button {
                     openItem(share)
                 } label: {
-                    RemoteImage(url: api.image(share.posterUrl, .posterCard))
+                    RemoteImage(url: api.image(share.posterUrl, width: ImageWidth.points(44)))
                         .frame(width: 44, height: 66)
                         .clipShape(.rect(cornerRadius: 8))
                 }

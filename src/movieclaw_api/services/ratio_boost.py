@@ -30,7 +30,7 @@ import contextlib
 import logging
 import math
 import statistics
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -338,7 +338,7 @@ def apply_observation(
 
 
 def hand_over_if_claimed(
-    task: RatioBoostTask, claimed_hashes: set[str], now: datetime
+    task: RatioBoostTask, claims: Mapping[str, Collection[int | None]], now: datetime
 ) -> bool:
     """种子被订阅投递/手动下载认领时，把刷流任务转出管理。返回是否发生转出。
 
@@ -347,8 +347,21 @@ def hand_over_if_claimed(
     这份数据是订阅的依赖，刷流**绝不能再把它连数据汰换掉**。转出 = 置
     MISSING 让出预算、任务与数据原样保留，之后归订阅的所有权/H&R 状态机
     管辖（反方向「订阅先抢、刷流后到」由准入排除 + already_exists 双重拦截）。
+
+    ``claims`` 是 infohash → 认领方所在下载器 id 集合。只有认领落在**同一台**
+    下载器上才转出：刷流可以单独放一台下载器（站点 ``boost_downloader_id``），
+    订阅投到默认下载器是另起一份独立的副本，并不依赖刷流那份数据——此时把
+    刷流任务转出只会让它在刷流机上永久脱管、占着磁盘没人清。认领方下载器
+    未知（None，存量记录）时按同一台处理，宁可脱管也不误删订阅的数据。
     """
-    if task.state != BoostTaskState.ACTIVE or task.info_hash not in claimed_hashes:
+    if task.state != BoostTaskState.ACTIVE:
+        return False
+    claimed_on = claims.get(task.info_hash)
+    if not claimed_on:
+        return False
+    if task.downloader_id is not None and None not in claimed_on and (
+        task.downloader_id not in claimed_on
+    ):
         return False
     task.state = BoostTaskState.MISSING
     task.evicted_at = now
@@ -752,13 +765,32 @@ class _DownloaderPool:
                     await adapter.close()
 
 
-async def _claimed_hashes(session: AsyncSession) -> set[str]:
-    """被订阅投递或手动下载认领的全部 infohash（统一小写）。"""
-    attempt_rows = (
-        (await session.execute(select(SubscriptionDownloadAttempt.info_hash))).scalars().all()
-    )
-    intent_rows = (await session.execute(select(ManualDownloadIntent.info_hash))).scalars().all()
-    return {h.lower() for h in [*attempt_rows, *intent_rows] if h}
+async def _claimed_hashes(session: AsyncSession) -> dict[str, set[int | None]]:
+    """被订阅投递或手动下载认领的 infohash（统一小写）→ 认领方所在下载器 id 集合。
+
+    下载器 id 为 None 表示记录里没有（存量记录），由 hand_over_if_claimed 按
+    「可能是同一台」保守处理。
+    """
+    rows = [
+        *(
+            await session.execute(
+                select(
+                    SubscriptionDownloadAttempt.info_hash,
+                    SubscriptionDownloadAttempt.downloader_id,
+                )
+            )
+        ).all(),
+        *(
+            await session.execute(
+                select(ManualDownloadIntent.info_hash, ManualDownloadIntent.downloader_id)
+            )
+        ).all(),
+    ]
+    claims: dict[str, set[int | None]] = {}
+    for info_hash, downloader_id in rows:
+        if info_hash:
+            claims.setdefault(info_hash.lower(), set()).add(downloader_id)
+    return claims
 
 
 @dataclass
@@ -981,8 +1013,29 @@ async def apply_boost_pause(session: AsyncSession, site_id: str, paused: bool) -
         await pool.close()
 
 
-async def _default_downloader(session: AsyncSession) -> DownloaderClient | None:
-    """取默认且可用的下载器（与 torrent_submit 同判据），供准入提交。"""
+async def _boost_downloader(
+    session: AsyncSession, cred: SiteCredential
+) -> DownloaderClient | None:
+    """该站刷流准入投给哪台下载器；没有可用的返回 None（本轮不准入）。
+
+    站点开启刷流时选定了下载器（``boost_downloader_id``）就只用那台：它停用
+    或连接失败时返回 None 暂停准入，**不改投默认下载器**——单独指定就是为了
+    让刷流做种别挤占订阅/手动下载的队列，掉线时悄悄改投恰好破坏这一点。
+    下载器本身的连接失败已有系统告警，用户修好后下一个 tick 自动恢复。
+
+    未选定（引入该列前开启的站点，或选定的下载器被删除后外键置空）时沿用
+    默认且可用的下载器，「可用」判据与 ``torrent_submit`` 一致。
+    """
+    if cred.boost_downloader_id is not None:
+        row = await session.get(DownloaderClient, cred.boost_downloader_id)
+        if row is not None and row.enabled and row.status == ConfigStatus.ACTIVE:
+            return row
+        logger.debug(
+            "刷流：站点 %s 选定的下载器 #%s 不可用（停用或连接失败），本轮不准入",
+            cred.site_id,
+            cred.boost_downloader_id,
+        )
+        return None
     result = await session.execute(
         select(DownloaderClient).where(
             DownloaderClient.is_default.is_(True),  # type: ignore[attr-defined]
@@ -1085,9 +1138,9 @@ async def _admit_candidates(
     """第三步准入：扫描该站免费新种，评分排序后在预算内提交。"""
     from movieclaw_api.services.torrent_submit import submit_torrent
 
-    downloader = await _default_downloader(session)
+    downloader = await _boost_downloader(session, cred)
     if downloader is None:
-        logger.debug("刷流：没有可用的默认下载器，站点 %s 本轮不准入", cred.site_id)
+        logger.debug("刷流：站点 %s 没有可用的刷流下载器，本轮不准入", cred.site_id)
         return
     # 拥堵感知：目标下载器已有任务在排队（活动位满）时暂停准入——继续投放
     # 只会把新种压进队尾空转（排队吃免费窗口、48h 被止损删）。队列消化后

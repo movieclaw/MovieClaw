@@ -340,9 +340,12 @@ export function reverifyDownloader(id: number): Promise<ConfiguredDownloader> {
 }
 
 /** 删除下载器配置。 */
-export function deleteDownloader(id: number): Promise<Record<string, never>> {
+/** 删除下载器。选它做刷流下载器的站点会一并关闭刷流，返回这些站点的 site_id。 */
+export function deleteDownloader(id: number): Promise<{ boost_disabled_sites: string[] }> {
   return unwrap(
-    request<ApiEnvelope<Record<string, never>>>(`/downloaders/${id}`, { method: "DELETE" }),
+    request<ApiEnvelope<{ boost_disabled_sites: string[] }>>(`/downloaders/${id}`, {
+      method: "DELETE",
+    }),
   );
 }
 

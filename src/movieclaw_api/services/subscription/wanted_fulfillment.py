@@ -119,6 +119,21 @@ async def close_fulfilled_wanted(session: AsyncSession, media_item_id: int) -> i
             event="imported",
             image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
         )
+        # App 推送：推给订阅的人，后台发送（docs/design/cloud-push.md §5）。
+        # 用户已经从订阅里去掉的季集（in_scope 为假）顺带关掉了工单，但不是他在等的，不推
+        wanted_units = [(w.season_number, w.episode_number) for w in wanted_rows if w.in_scope]
+        if wanted_units:
+            from movieclaw_api.services.push import events as push_events
+
+            push_events.imported(
+                subscription_id=subscription_id,
+                item_id=media_item_id,
+                title=item.title,
+                year=item.year,
+                kind=subscription.kind,
+                units=wanted_units,
+                image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
+            )
         # 事件 Webhook(与 IM 推送同点位:入库已由库存对账确认,事件即事实)
         from movieclaw_api.services.subscription.events import build_fulfilled_event
         from movieclaw_api.services.webhook import emit_events

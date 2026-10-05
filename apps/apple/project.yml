@@ -1,4 +1,4 @@
-# MovieClaw iOS 工程定义（XcodeGen）。
+# MovieClaw 苹果平台工程定义（XcodeGen）：iPhone 版（MovieClaw）与 Apple TV 版（MovieClawTV）。
 #
 # 为什么用 XcodeGen 而不是直接提交 .xcodeproj：
 # - .pbxproj 是机器生成的巨型文件，多人/多会话并行加文件时几乎必然冲突；
@@ -12,6 +12,7 @@ options:
   developmentLanguage: zh-Hans
   deploymentTarget:
     iOS: "26.0"
+    tvOS: "26.0"
   createIntermediateGroups: true
 packages:
   # 图片加载与缓存（MIT）：海报墙的解码降采样、内存/磁盘缓存、预取
@@ -40,7 +41,7 @@ settings:
     # Swift 6.2 起的「易上手并发」：默认主线程隔离，UI 代码不必处处标 @MainActor
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
     SWIFT_APPROACHABLE_CONCURRENCY: YES
-    MARKETING_VERSION: "0.2.0"
+    MARKETING_VERSION: "0.4.0"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
 targets:
@@ -50,7 +51,15 @@ targets:
     sources:
       - path: MovieClaw
         type: syncedFolder
+      # 与 Apple TV 版共用的代码（接口层、登录与账号、播放逻辑、主题与图片加载），见 docs/design/tvos-app.md §6
+      - path: Shared
+        type: syncedFolder
+      # 推送的密文、密钥与登录对照：App 与通知扩展共用（docs/design/cloud-push.md §9）
+      - path: PushShared
+        type: syncedFolder
     dependencies:
+      # 通知扩展：解密推送、换上真正的标题正文与配图
+      - target: MovieClawNotificationService
       - package: Nuke
         product: Nuke
       - package: Nuke
@@ -77,20 +86,32 @@ targets:
           - UIInterfaceOrientationPortrait
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        # 只用系统 HTTPS（URLSession / AVPlayer），属于出口合规豁免的加密；声明后每次上传
-        # App Store Connect 不再逐次追问加密问卷
+        # 只用系统自带的加密（URLSession / AVPlayer 的 HTTPS，推送解密用 CryptoKit 的 AES-GCM），属于出口合规
+        # 豁免的加密；声明后每次上传 App Store Connect 不再逐次追问加密问卷
         ITSAppUsesNonExemptEncryption: false
         # 自托管服务器绝大多数是局域网 http 直连（如 http://192.168.1.10:3000），
         # 必须放开 ATS 才能访问；公网 https 部署不受影响。
+        # 只能有 NSAllowsArbitraryLoads 这一个键：同时出现 NSAllowsLocalNetworking 时
+        # 系统会忽略 NSAllowsArbitraryLoads，「http + 域名」（DDNS、内网穿透）会被拦成 -1022。
+        # 两个扩展与 Apple TV 版同理。
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: true
-          NSAllowsLocalNetworking: true
         NSLocalNetworkUsageDescription: MovieClaw 需要访问局域网，用于自动发现并连接你自己部署的 MovieClaw 服务器。
         NSPhotoLibraryUsageDescription: 选择图片作为头像、媒体库封面或 AI 会话附件。
-        NSCameraUsageDescription: 拍照作为 AI 会话的图片附件。
-        # 后台继续播放音频、画中画
+        NSCameraUsageDescription: 扫描电视、终端上的登录二维码，以及拍照作为 AI 会话的图片附件。
+        # 后台继续播放音频、画中画。推送只发带 mutable-content 的提醒（由通知扩展解密），不需要 remote-notification
         UIBackgroundModes:
           - audio
+        # 与通知扩展共用的 App Group（推送密钥的钥匙串访问组、key_id 对照），跟着 Bundle ID 前缀走
+        MCAppGroup: group.$(MC_BUNDLE_ID_PREFIX).app
+    # 推送（docs/design/cloud-push.md §9）。aps-environment 写 development：导出 App Store / TestFlight 包时
+    # Xcode 按发布描述文件改成 production。未签名的侧载包（scripts/build-unsigned-ipa.sh）不签名，这些都不带
+    entitlements:
+      path: MovieClaw/MovieClaw.entitlements
+      properties:
+        aps-environment: development
+        com.apple.security.application-groups:
+          - group.$(MC_BUNDLE_ID_PREFIX).app
     settings:
       base:
         # 前缀默认 io.movieclaw，可在 Signing.local.xcconfig 或 xcodebuild 参数里改，见 XcodeConfig/Signing.xcconfig
@@ -100,14 +121,53 @@ targets:
         # 审核也会在 iPad 上测。iPad 上仍可按 iPhone 兼容模式安装运行
         TARGETED_DEVICE_FAMILY: "1"
         GENERATE_INFOPLIST_FILE: NO
+  # 通知扩展（docs/design/cloud-push.md §9，push-payload.md §6）：推送到达时按 key_id 取密钥解密，换上真正的
+  # 标题、正文与配图；解不开就保留中继的通用文案。只读 App Group 里的密钥与登录对照，不碰登录令牌
+  MovieClawNotificationService:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: MovieClawNotificationService
+        type: syncedFolder
+      - path: PushShared
+        type: syncedFolder
+    info:
+      path: MovieClawNotificationService/Info.plist
+      properties:
+        CFBundleDisplayName: MovieClaw
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        MCAppGroup: group.$(MC_BUNDLE_ID_PREFIX).app
+        # 配图从服务器下载：自托管服务器多是局域网 http 直连，理由同 App
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: MovieClaw 需要访问局域网，用于从你自己部署的 MovieClaw 服务器下载通知配图。
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.service
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
+    entitlements:
+      path: MovieClawNotificationService/MovieClawNotificationService.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.$(MC_BUNDLE_ID_PREFIX).app
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).app.notification-service
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        # 系统回调扩展的方法不在主线程，扩展不继承工程级的默认主线程隔离
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
   # 自研引擎（AetherEngine）的动态框架边界。
   # 为什么不直接链进 App：这是 LGPL 组件的替换边界（用户可以用自行编译的同名框架替换）；
   # 它的 FFmpeg 引用也在这个框架链接时就绑定到自带的 AetherLib* 框架——一个进程里有两份 FFmpeg 时
   # （2026-09-28 移除 MPV 之前，mpv 还静态打着一份），avcodec_* 绑到哪一份由链接顺序决定，
   # 绑错了症状像引擎 bug（上游文档「One FFmpeg」）。App 只 import AetherCore，不得直接依赖 AetherEngine。
+  # iPhone 与 Apple TV 共用同一个框架目标（同一个模块名 AetherCore），两个 App 各自嵌入对应平台的产物
   AetherCore:
     type: framework
-    platform: iOS
+    platform: auto
+    supportedDestinations: [iOS, tvOS]
     sources:
       - path: AetherCore
         type: syncedFolder
@@ -119,6 +179,128 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: io.movieclaw.aethercore
         GENERATE_INFOPLIST_FILE: YES
         SKIP_INSTALL: YES
+        # LibDovi 的 tvOS 模拟器切片只有 arm64：模拟器只编 arm64（Apple 芯片的 Mac），真机不受影响
+        EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+  # Apple TV 版（docs/design/tvos-app.md）：界面层在 MovieClawTV/，接口层、登录与账号、播放逻辑与 iPhone 版
+  # 共用 Shared/；播放引擎同一个 AetherCore。Bundle ID 与 iPhone 版相同（同一条 App Store 记录，一次购买两端通用）
+  MovieClawTV:
+    type: application
+    platform: tvOS
+    sources:
+      - path: MovieClawTV
+        type: syncedFolder
+      - path: Shared
+        type: syncedFolder
+      # Top Shelf 的数据格式与 App 内部链接：App 写、扩展读，同一份代码
+      - path: MovieClawTVTopShelf/TopShelfSnapshot.swift
+    dependencies:
+      - target: MovieClawTVTopShelf
+      - package: Nuke
+        product: Nuke
+      - package: Nuke
+        product: NukeUI
+      - target: AetherCore
+      # 同 iPhone 版：AetherCore 运行时加载的 AetherLib* 动态框架由 App 嵌入
+      - package: FFmpegBuild
+        product: AetherFFmpegBuild
+    info:
+      path: MovieClawTV/Info.plist
+      properties:
+        CFBundleDisplayName: MovieClaw
+        CFBundleLocalizations:
+          - zh-Hans
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        # 底色纯黑，与 iPhone 版一致；系统界面（键盘、弹窗）也跟着是暗色
+        UIUserInterfaceStyle: Dark
+        ITSAppUsesNonExemptEncryption: false
+        UIRequiredDeviceCapabilities:
+          - arm64
+        # 自托管服务器多是局域网 http 直连，理由同 iPhone 版
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: MovieClaw 需要访问局域网，用于自动发现并连接你自己部署的 MovieClaw 服务器。
+        # Top Shelf 与 App 共用的 App Group（TopShelfStore 读它），跟着 Bundle ID 前缀走
+        MCAppGroup: group.$(MC_BUNDLE_ID_PREFIX).app
+        # App 内部链接：Top Shelf 的「播放」「确认」打开 movieclaw://play/… 与 movieclaw://item/…
+        CFBundleURLTypes:
+          - CFBundleURLName: $(MC_BUNDLE_ID_PREFIX).app
+            CFBundleURLSchemes:
+              - movieclaw
+    # 以 Apple TV 的当前系统用户运行（docs/design/tvos-app.md §5.2）：UserDefaults 按家庭成员分开、各记各的账号偏好，
+    # 令牌与账号列表存进全家共用的钥匙串（KeychainScope）。真机签名时 Xcode 自动签名会给 App ID 开上「User Management」
+    entitlements:
+      path: MovieClawTV/MovieClawTV.entitlements
+      properties:
+        com.apple.developer.user-management:
+          - runs-as-current-user-with-user-independent-keychain
+        com.apple.security.application-groups:
+          - group.$(MC_BUNDLE_ID_PREFIX).app
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).app
+        TARGETED_DEVICE_FAMILY: "3"
+        GENERATE_INFOPLIST_FILE: NO
+        # 分层图标与 Top Shelf 图（scripts/brand/generate_tvos_assets.py 生成）
+        ASSETCATALOG_COMPILER_APPICON_NAME: App Icon & Top Shelf Image
+        # 同 AetherCore：LibDovi 的 tvOS 模拟器切片只有 arm64
+        EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+  # Apple TV 主屏的 Top Shelf（docs/design/tvos-app.md §3.1）：只读 App 写进 App Group 的「接下来继续」，不联网、不碰令牌
+  MovieClawTVTopShelf:
+    type: app-extension
+    platform: tvOS
+    sources:
+      - path: MovieClawTVTopShelf
+        type: syncedFolder
+    info:
+      path: MovieClawTVTopShelf/Info.plist
+      properties:
+        CFBundleDisplayName: MovieClaw
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        MCAppGroup: group.$(MC_BUNDLE_ID_PREFIX).app
+        # App Store Connect 校验要求：64 位扩展也得声明 arm64，缺了上传会被拒（Invalid Bundle）
+        UIRequiredDeviceCapabilities:
+          - arm64
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.tv-top-shelf
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).TopShelfProvider
+    entitlements:
+      path: MovieClawTVTopShelf/MovieClawTVTopShelf.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.$(MC_BUNDLE_ID_PREFIX).app
+        # 与 App 一样以当前系统用户运行：每位家庭成员的主屏显示自己的「接下来继续」
+        com.apple.developer.user-management:
+          - runs-as-current-user-with-user-independent-keychain
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).app.topshelf
+        TARGETED_DEVICE_FAMILY: "3"
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
+        # 系统回调扩展的方法不在主线程，扩展不继承工程级的默认主线程隔离
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
+  # Apple TV 版的端到端验收（遥控器操作的 XCUITest，docs/design/tvos-app.md §7）：对着隔离的测试服务器跑，
+  # 环境变量同 iPhone 版（MC_TEST_SERVER / MC_TEST_USERNAME / MC_TEST_PASSWORD……），见 MovieClawTVUITests/TVFlowUITests.swift
+  MovieClawTVUITests:
+    type: bundle.ui-testing
+    platform: tvOS
+    sources:
+      - path: MovieClawTVUITests
+        type: syncedFolder
+    dependencies:
+      - target: MovieClawTV
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).MovieClawTVUITests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: MovieClawTV
+        # XCTestCase 的初始化器是非隔离的，测试类不能继承工程级的默认主线程隔离（同 iPhone 版）
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        EXCLUDED_ARCHS[sdk=appletvsimulator*]: x86_64
   MovieClawTests:
     type: bundle.unit-test
     platform: iOS
@@ -147,6 +329,13 @@ targets:
         # XCTestCase 的初始化器是非隔离的，测试类不能继承工程级的默认主线程隔离
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
 schemes:
+  MovieClawTV:
+    build:
+      targets:
+        MovieClawTV: all
+    test:
+      targets:
+        - MovieClawTVUITests
   MovieClaw:
     build:
       targets:

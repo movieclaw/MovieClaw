@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// 消息推送 →「推送内容」标签（对应 Web `PushContentTab`）。
+/// IM 推送 →「推送内容」标签（对应 Web `PushContentTab`）。
 ///
 /// 事件开关对所有已接入通道统一生效，逐项即时保存（`PUT /channels/im/push-config`）：
 /// 乐观更新，失败回滚并在顶部报错——与 Web 同一交互，没有「保存」按钮。

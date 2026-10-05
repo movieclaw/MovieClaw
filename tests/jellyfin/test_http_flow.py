@@ -593,7 +593,7 @@ def test_item_image_three_layers(
     class _FakeCache:
         async def get_or_fetch(self, url: str):
             assert "/fallback.jpg" in url
-            return SimpleNamespace(path=fake_file, content_type="image/jpeg")
+            return SimpleNamespace(path=fake_file, content_type="image/jpeg", version="v1")
 
     from movieclaw_api.services import image_cache as image_cache_module
 

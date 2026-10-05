@@ -101,6 +101,8 @@ export function PersonDetailView({ tmdbPersonId }: { tmdbPersonId: number | stri
         <div className="w-[132px] shrink-0 overflow-hidden rounded-xl bg-[var(--poster-placeholder)] shadow-[0_20px_48px_rgba(0,0,0,0.5)] ring-1 ring-white/[0.1] max-md:w-[92px]">
           <PosterImage
             src={person.avatarUrl}
+            // 头像列 132 宽（手机 92）
+            width={132}
             alt={person.name}
             className="aspect-[2/3] w-full object-cover"
             fallback={
@@ -181,6 +183,8 @@ function CreditCard({ credit, showCharacter }: { credit: PersonCredit; showChara
       <div className="aspect-[2/3] overflow-hidden rounded-xl bg-[var(--poster-placeholder)] ring-1 ring-white/[0.08] transition-all duration-300 ease-out group-hover/credit:-translate-y-1 group-hover/credit:shadow-[0_18px_44px_rgba(0,0,0,0.55)] group-hover/credit:ring-white/25">
         <PosterImage
           src={credit.posterUrl}
+          // 作品格子 minmax(126px,1fr)，按 180 取
+          width={180}
           alt={`${credit.title} 海报`}
           className="size-full object-cover"
         />

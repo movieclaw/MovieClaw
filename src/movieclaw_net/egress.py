@@ -84,15 +84,15 @@ class ProxyMode(StrEnum):
 class EgressConfig:
     """出口层的生效配置（由 movieclaw_api 从配置域加载后灌入）。
 
-    默认值即「未配置过」的行为：跟随环境变量，TMDB、图片回源与 GitHub 更新
-    走代理——这是国内部署最常见的诉求（TMDB / GitHub 被墙），同时不影响
-    PT 站直连更快的现实。
+    默认值即「未配置过」的行为：跟随环境变量，TMDB、图片回源、Fanart.tv 与
+    GitHub 更新走代理——这是国内部署最常见的诉求（TMDB / GitHub 被墙），同时
+    不影响 PT 站直连更快的现实。
     """
 
     proxy_mode: ProxyMode = ProxyMode.ENV
     proxy_url: str = ""
     proxy_services: frozenset[str] = field(
-        default_factory=lambda: frozenset({"tmdb", "image", "github"})
+        default_factory=lambda: frozenset({"tmdb", "image", "fanart", "github"})
     )
 
 

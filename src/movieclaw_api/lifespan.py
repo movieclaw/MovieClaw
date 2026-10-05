@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -276,6 +276,17 @@ def build_lifespan(settings: Settings):
         from movieclaw_api.services.im_channel import init_im_channels
 
         await init_im_channels()
+        # MovieClaw Cloud：已连接就起续签循环，未连接时对云端不发任何请求；推送通道的
+        # 能力快照（/v1/info）每半小时检查一次是否过期（docs/design/cloud-push.md §2、§3）
+        from movieclaw_api.services.cloud import init_cloud_service
+        from movieclaw_api.services.push.channels import start_refresh_loop
+
+        await init_cloud_service()
+        start_refresh_loop()
+        # 「媒体库有新片」：每两分钟看一眼台账里新出现的行（services/push/arrivals.py）
+        from movieclaw_api.services.push import arrivals as push_arrivals
+
+        push_arrivals.start()
         # Jellyfin 兼容层的局域网自动发现（UDP 7359）：开关关闭/端口被占时
         # 内部自行降级，不阻断启动
         from movieclaw_jellyfin.udp import start_discovery
@@ -291,12 +302,16 @@ def build_lifespan(settings: Settings):
         from movieclaw_api.services.library import organize as organize_jobs  # noqa: F401
         from movieclaw_api.services.library import scan as scan_jobs  # noqa: F401
         from movieclaw_api.services.library import transfer as transfer_jobs  # noqa: F401
+
+        # 搜索更新复用持久化 Job；增量触发器在迁移中安装，启动不等待全库拼音转换。
+        from movieclaw_api.services.library.search_index import start_search_index
         from movieclaw_api.services.subscription import (  # noqa: F401  取消订阅联动清理
             cleanup as subscription_cleanup_jobs,
         )
         from movieclaw_api.services.subtitle_gen import tasks as subtitle_tasks  # noqa: F401
 
         await init_job_dispatcher()
+        start_search_index()
         # 网页播放器的转码会话：先清上次退出遗留的分片目录（会话状态只在内存，
         # 目录里的任何东西都是垃圾——不能假设上次是干净退出的），再起心跳巡检。
         from movieclaw_api.services.playback.session import get_session_manager
@@ -321,10 +336,20 @@ def build_lifespan(settings: Settings):
         from movieclaw_api.services.subtitle_gen import pgs
 
         asyncio.create_task(_warm_pgs_capability(pgs.warm_capability))
+        # 算法升级后旧识别结果须主动重算；后台只排持久化任务，不在启动期间读 NAS。
+        from movieclaw_api.services.library.skip_segments import enqueue_pending_libraries
+
+        segment_recovery = asyncio.create_task(
+            enqueue_pending_libraries(), name="skip-segments-startup-recovery"
+        )
         logger.info("应用启动完成，数据库就绪")
         try:
             yield
         finally:
+            # 先停止排队任务，避免关闭 Job 执行器和数据库时仍在创建任务。
+            segment_recovery.cancel()
+            with suppress(asyncio.CancelledError):
+                await segment_recovery
             from movieclaw_jellyfin.udp import stop_discovery
 
             stop_discovery()
@@ -352,10 +377,19 @@ def build_lifespan(settings: Settings):
             from movieclaw_api.services.im_channel import close_im_channels
 
             await close_im_channels()
+            from movieclaw_api.services.cloud import close_cloud_service
+            from movieclaw_api.services.push import arrivals as push_arrivals
+            from movieclaw_api.services.push.channels import stop_refresh_loop
+
+            await push_arrivals.stop()
+            await stop_refresh_loop()
+            await close_cloud_service()
             # 持久化任务先在安全边界暂停并退回数据库队列，必须早于 LLM 与
             # 数据库释放；下次启动会由租约与领域检查点直接继续。
             from movieclaw_api.services.jobs import close_job_dispatcher
+            from movieclaw_api.services.library.search_index import close_search_index
 
+            await close_search_index()
             await close_job_dispatcher()
             # 先停止 Agent，避免它在下游 HTTP 客户端和数据库开始释放后继续工作。
             await close_agent_run_registry()

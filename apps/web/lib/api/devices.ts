@@ -1,3 +1,4 @@
+import type { DevicePushState } from "@/lib/api/push";
 import { request } from "@/lib/http";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
@@ -83,6 +84,8 @@ export interface LoginDeviceView {
   owner_id: number;
   owner_username: string;
   owner_nickname: string;
+  /** App 类设备（ios / tvos / android）的推送状态，其他设备为 null（docs/design/cloud-push.md §7.3） */
+  push: DevicePushState | null;
 }
 
 /**

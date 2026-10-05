@@ -6,8 +6,10 @@
 import type { ComponentType, SVGProps } from "react";
 import {
   ActivityIcon,
+  BellIcon,
   BookmarkIcon,
   ChatIcon,
+  CloudIcon,
   DeviceIcon,
   DownloadIcon,
   FilmIcon,
@@ -15,6 +17,7 @@ import {
   GearIcon,
   GlobeIcon,
   PaletteIcon,
+  PhoneIcon,
   PhotoIcon,
   PlayIcon,
   SendIcon,
@@ -142,7 +145,8 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
   {
     // 「设备」是每个人自己的登录设备（浏览器、App、命令行、转码器），属于
     // 「我在哪些地方登录着」，所以跟个人信息放在一起、对成员同样开放
-    // （docs/design/login-devices.md §8）。
+    // （docs/design/login-devices.md §8）。「通知」同理：每个人自己选收哪些
+    // 手机通知，成员只需要这一个入口，不用知道云和中继（docs/design/cloud-push.md §1）。
     label: "账号",
     items: [
       { id: "profile", label: "个人信息", description: "头像、昵称与登录密码", icon: UserIcon },
@@ -151,6 +155,12 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
         label: "设备",
         description: "登录着你的账号的浏览器、App、命令行与转码器",
         icon: DeviceIcon,
+      },
+      {
+        id: "notifications",
+        label: "通知",
+        description: "选你想在手机上收到的通知",
+        icon: BellIcon,
       },
       { id: "appearance", label: "外观", description: "首页背景与界面质感", icon: PaletteIcon },
     ],
@@ -185,12 +195,19 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     ],
   },
   {
-    // 推人（消息推送）、推服务（Webhook）、AI 供应商接入，都是对外集成；
+    // 推人（App 推送、IM 推送）、推服务（Webhook）、AI 供应商接入，都是对外集成；
     // AI 紧挨着它最大的消费方（推送里的 AI 对话）。接入与设定是两件事：
     // 「模型接入」回答怎么连上，「AI 设定」回答什么场景用哪个模型。
+    // App 推送管通道与设备覆盖，连接 MovieClaw Cloud 在「系统」组（cloud-push.md §0.1）。
     label: "通知与集成",
     items: [
-      { id: "im-push", label: "消息推送", description: "微信 / Telegram / Discord / 飞书 推送与 AI 对话", icon: ChatIcon },
+      {
+        id: "app-push",
+        label: "App 推送",
+        description: "给 iPhone、iPad 上的 MovieClaw App 发通知",
+        icon: PhoneIcon,
+      },
+      { id: "im-push", label: "IM 推送", description: "微信 / Telegram / Discord / 飞书 推送与 AI 对话", icon: ChatIcon },
       { id: "webhook", label: "Webhook", description: "向外部服务推送播放、收藏等事件", icon: SendIcon },
       { id: "llm", label: "模型接入", description: "接入 OpenAI、百炼等模型供应商，可同时接入多家", icon: SparkIcon },
       { id: "mcp", label: "MCP 服务", description: "把 movieclaw 的能力开放给 Claude Code、Cursor 等 AI 客户端", icon: PlugIcon },
@@ -198,9 +215,16 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     ],
   },
   {
-    // 装完配一次/出问题才碰的低频运维项，沉底
+    // 装完配一次/出问题才碰的低频运维项，沉底。MovieClaw Cloud 是整台服务器的一次性
+    // 连接，以后云端的能力（远程访问等）都挂在它下面，所以放这里而不是推送旁边
     label: "系统",
     items: [
+      {
+        id: "cloud",
+        label: "MovieClaw Cloud",
+        description: "把这台服务器连到你的 MovieClaw 账号，使用官方推送等云端服务",
+        icon: CloudIcon,
+      },
       { id: "app", label: "更新与维护", description: "版本更新与应用重启", icon: GearIcon },
       { id: "network", label: "网络", description: "代理、镜像与外部访问地址，解决 TMDB 等不可达", icon: GlobeIcon },
       { id: "logs", label: "系统日志", description: "后端运行日志，按天存档", icon: TerminalIcon },
@@ -214,11 +238,11 @@ export const settingsSections: SettingsSection[] = settingsSectionGroups.flatMap
 );
 
 /** 成员可见的设置分区（其余分区后端一律 403，前端不给入口）。 */
-const MEMBER_SECTION_IDS = new Set(["profile", "devices", "appearance"]);
+const MEMBER_SECTION_IDS = new Set(["profile", "devices", "notifications", "appearance"]);
 
 /**
  * 按角色过滤设置分区分组：管理员全量；成员只剩「账号」组的个人分区
- * （个人信息、自己的设备、外观；概览呈现的是全局配置健康，属管理员视角，成员不可见）。
+ * （个人信息、自己的设备、通知、外观；概览呈现的是全局配置健康，属管理员视角，成员不可见）。
  * 这只是界面裁剪——安全边界在后端的 require_admin / 守护测试。
  */
 export function settingsSectionGroupsFor(

@@ -87,6 +87,9 @@ export function LibraryScrapeSettings({
       language_priority: config.setting.language_priority.length
         ? config.setting.language_priority
         : config.effective.language_priority,
+      // 全局画质没选过（空串）时按生效值反推的那一档：「跟随全局：原图」才说得出来，
+      // 切到自定义时也从这一档起步
+      image_quality: config.setting.image_quality || config.effective.image_quality,
     };
   }, [config]);
 
@@ -216,6 +219,7 @@ export function LibraryScrapeSettings({
           patch={patch}
           extraImageLangs={chipOptions.imageLangs}
           effective={config?.effective ?? null}
+          inheritsGlobal
           shellFor={shellFor}
         />
       </ScrapeSection>
@@ -223,7 +227,7 @@ export function LibraryScrapeSettings({
       <ScrapeSection label="命名与整理">
         <Card
           title="命名模板"
-          desc="留空即跟随全局模板。命名的产物是本库目录树里的路径，所以每个库可以各用一套。"
+          desc="留空即跟随全局模板。命名的产物是本库目录树里的路径，所以每个库可以各用一套。全部占位符（原名、集名、视频编码、站点等）与实时预览见「设置 → 刮削与整理 → 命名模板」。"
           shell={fieldShellFor("命名模板", NAMING_FIELDS)}
         >
           {NAMING_FIELDS.map((field) => (

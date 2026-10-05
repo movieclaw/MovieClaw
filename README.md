@@ -18,6 +18,7 @@
   <a href="#just-say-the-word-it-handles-the-rest">AI Agent</a> ·
   <a href="#boundaries">Boundaries</a> ·
   <a href="#control-it-from-anywhere">CLI</a> ·
+  <a href="https://movieclaw.io/en/docs">Docs</a> ·
   <a href="docs/design/">Design Docs</a> ·
   <a href="#community">Community</a> ·
   <a href="https://github.com/movieclaw/movieclaw/issues">Feedback</a>
@@ -33,7 +34,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/images/home.jpg" width="900" alt="The MovieClaw library: Continue Watching, favorites, and all your libraries">
+  <img src="docs/images/subscriptions.jpg" width="900" alt="The Subscriptions page in the MovieClaw web app: newly added titles in the carousel, with Just Added below">
 </p>
 
 <p align="center">
@@ -79,7 +80,8 @@ engine: FFmpeg unpacks, Apple plays.
 
 **Getting the app**: download `MovieClaw-iOS-unsigned.ipa` from
 [Releases](https://github.com/movieclaw/movieclaw/releases) and sideload it with AltStore,
-SideStore, or Sideloadly using your own Apple ID (iOS 26 or later). A public TestFlight is
+SideStore, or Sideloadly using your own Apple ID (iOS 26 or later; sideloaded builds can't
+receive push notifications). A public TestFlight is
 coming. Trackers and download clients are configured in the web app.
 
 The web app is liquid glass: the sidebar, inputs, and floating buttons refract whatever
@@ -104,7 +106,7 @@ and Feishu groups can join as a push-only outlet. It checks with you before dele
 anything, and every tool it calls is right there for you to see. The rules are spelled
 out under [Boundaries](#boundaries).
 
-The agent needs an LLM connected under **Settings → AI Models** (any OpenAI-compatible
+The agent needs an LLM connected under **Settings → Model Providers** (any OpenAI-compatible
 endpoint). Skip it and everything else still works. Teach it "skills" in plain Markdown:
 drop a directory with a `SKILL.md` into `data/agent-skills/` (a `description` in the
 frontmatter, instructions in the body, scripts welcome) and the agent loads it on its own
@@ -338,8 +340,8 @@ then:
    here.
 3. **Connect your sites**: **Settings → Resource Sites** — paste cookies / API keys, or
    let the browser extension sync them automatically.
-4. Optional: **Settings → AI Models** to hook up an LLM and unlock the assistant;
-   **Settings → Watched Import** to add "source directory → target library" rules, so
+4. Optional: **Settings → Model Providers** to hook up an LLM (then pick a default model under **Settings → AI**)
+   and unlock the assistant; **Settings → Auto-import** to add "source directory → target library" rules, so
    downloads from any source flow into the library too.
 
 > Just want one command to try it out?
@@ -348,7 +350,7 @@ then:
 
 ### Everyday upgrades skip the image pull
 
-From then on, day-to-day upgrades happen in **Settings → App → Version & Updates**:
+From then on, day-to-day upgrades happen in **Settings → Updates & Maintenance**:
 MovieClaw pulls a few-megabyte artifact package from GitHub Releases (mirrors
 configurable), applies it on the `data` volume, and the result survives container
 recreation. If an update misbehaves, roll back on the same page — and a genuinely broken
@@ -412,7 +414,7 @@ irm https://raw.githubusercontent.com/movieclaw/movieclaw/main/scripts/install-c
 Then run `mclaw login` to pair. With no arguments it scans the local network first;
 across subnets or over a VPN, pass the address yourself
 (`mclaw login --server http://192.168.1.10:3000`). The command displays a pairing code —
-verify and approve it in the web UI under **Settings → Members & Devices → Devices**. The
+verify and approve it in the web UI under **Settings → Devices**. The
 token is handed straight back to the process, never printed, so it never ends up in your
 clipboard or shell history.
 
@@ -481,7 +483,7 @@ Change the **left** side of the `ports` colon — e.g. `"8096:3000"` — and bro
 
 Only under `--network host` does the container port become the host port, and only then
 do you actually change the listening port: add `-e MOVIECLAW_WEB_PORT=8096`, or change it
-after setup under **Settings → App → Network & Maintenance** (restarts itself on save).
+after setup under **Settings → Network** (restarts itself on save).
 
 **Host networking has a further trap**: the container's internal frontend (3001) and
 backend (8000) also bind directly on the host. They're not currently configurable, and
@@ -499,10 +501,10 @@ the colon and stay off host networking.**
 
 `无法连通 TMDB` ("cannot reach TMDB"), `ConnectTimeout`, `CircuitOpenError`, or
 `CERTIFICATE_VERIFY_FAILED` — whether in the logs or in the connectivity test under
-**Settings → Network & Proxy** — all point to the same problem.
+**Settings → Network** — all point to the same problem.
 
 If your network can't reach `api.themoviedb.org` directly, set a proxy or mirror address
-under **Settings → Network & Proxy** and confirm with the built-in connectivity test. By
+under **Settings → Network** and confirm with the built-in connectivity test. By
 default the proxy covers TMDB, artwork fetches, and GitHub updates, while tracker sites
 stay on direct connections (usually faster that way).
 </details>

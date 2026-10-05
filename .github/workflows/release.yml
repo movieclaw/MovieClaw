@@ -9,6 +9,8 @@
 #     面向 NAS 用户的开源项目来说等同于劝退。
 #   - iOS 未签名 IPA（MovieClaw-iOS-unsigned.ipa）：给不走 App Store / TestFlight 的
 #     用户用 AltStore / SideStore / Sideloadly 以自己的 Apple ID 重签后侧载。
+#   后两个是可选附件，各自按改动判断：自上一版以来对应代码没变时不重编，
+#   直接沿用上一个 Release 里的同名文件（asset-plan / carry-assets 作业）。
 # 产物上传成功后自动调用 docker-image.yml，同步发布同版本号的
 # Docker 镜像（多架构，标签策略见该工作流头注释）。
 #
@@ -39,6 +41,10 @@ on:
       tag:
         description: "要发布的 tag（如 v0.2.0），须与 pyproject / __version__ 一致"
         required: true
+      force_rebuild:
+        description: "可选附件（Mac 转码器、iOS IPA）一律重编，不沿用上一版（证书或打包流程变了时用）"
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -201,13 +207,75 @@ jobs:
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             cli/dist/mclaw_*.tar.gz cli/dist/mclaw_*.zip cli/dist/checksums.txt
 
-  # macOS 远程转码 Worker。needs 只为等 draft Release 被创建出来，与
-  # docker-image 并行。它构建失败不拦发布——publish 作业不看它的结果，
+  # 可选附件（Mac 转码器、iOS IPA）这次重编还是沿用上一版，判断规则见脚本头注释。
+  # 单独一个 ubuntu 作业先判断，沿用时 macOS runner 一台都不用起。
+  asset-plan:
+    needs: release-artifacts
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      TARGET_SHA: ${{ github.sha }}
+      FORCE_REBUILD: ${{ inputs.force_rebuild || false }}
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      worker_mode: ${{ steps.plan.outputs.worker_mode }}
+      worker_from: ${{ steps.plan.outputs.worker_from }}
+      ipa_mode: ${{ steps.plan.outputs.ipa_mode }}
+      ipa_from: ${{ steps.plan.outputs.ipa_from }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          # 要拿上一个 tag 做 diff，需要完整历史与 tag
+          fetch-depth: 0
+
+      - id: plan
+        name: 按改动判断
+        run: |
+          scripts/release-asset-plan.sh MovieClawTranscoder-macos-arm64.zip \
+            macos/MovieClawTranscoder | sed 's/^/worker_/' >> "$GITHUB_OUTPUT"
+          # iPhone 版用到的是 apps/apple 下除 Apple TV 专属目录与测试以外的全部
+          # （Shared/、AetherCore、Vendor、project.yml 等与 TV 共用，改了也要重编）
+          scripts/release-asset-plan.sh MovieClaw-iOS-unsigned.ipa \
+            apps/apple \
+            ':(exclude)apps/apple/MovieClawTV' \
+            ':(exclude)apps/apple/MovieClawTVTopShelf' \
+            ':(exclude)apps/apple/MovieClawTVUITests' \
+            ':(exclude)apps/apple/MovieClawTests' \
+            ':(exclude)apps/apple/MovieClawUITests' | sed 's/^/ipa_/' >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+  # 沿用上一版的附件：从上一个 Release 下载同名文件，原样传到本次 Release。
+  carry-assets:
+    needs: asset-plan
+    if: ${{ needs.asset-plan.outputs.worker_mode == 'carry' || needs.asset-plan.outputs.ipa_mode == 'carry' }}
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+      WORKER_MODE: ${{ needs.asset-plan.outputs.worker_mode }}
+      WORKER_FROM: ${{ needs.asset-plan.outputs.worker_from }}
+      IPA_MODE: ${{ needs.asset-plan.outputs.ipa_mode }}
+      IPA_FROM: ${{ needs.asset-plan.outputs.ipa_from }}
+    steps:
+      - name: 复制附件
+        run: |
+          carry() {
+            echo "从 $2 沿用 $1"
+            gh release download "$2" --repo "$GITHUB_REPOSITORY" --pattern "$1" --dir carried
+            gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber "carried/$1"
+          }
+          if [ "$WORKER_MODE" = carry ]; then carry MovieClawTranscoder-macos-arm64.zip "$WORKER_FROM"; fi
+          if [ "$IPA_MODE" = carry ]; then carry MovieClaw-iOS-unsigned.ipa "$IPA_FROM"; fi
+
+  # macOS 远程转码 Worker（自上一版以来有改动才编，否则由 carry-assets 沿用）。
+  # 与 docker-image 并行。它构建失败不拦发布——publish 作业不看它的结果，
   # Release 里就是少一个可选附件，主更新链路不受影响；但刻意不用
   # continue-on-error：那样失败会藏在绿色 workflow 里没人发现，红出来
   # 才有人去重跑补传。
   worker-macos:
-    needs: release-artifacts
+    needs: asset-plan
+    if: ${{ needs.asset-plan.outputs.worker_mode == 'build' }}
     # 必须是 Xcode 26 起的工具链：用旧 SDK 构建的 App 在 macOS 26 上不会有液态
     # 玻璃（系统控件的新外观只对用 macOS 26 SDK 链接的 App 生效），代码里的
     # 玻璃组件也会被 `#if compiler(>=6.2)` 整段编译掉。App 最低仍支持 macOS 12。
@@ -305,8 +373,10 @@ jobs:
   # iOS 未签名 IPA（docs/design/ios-release.md「侧载」）：与商店版同一份代码、同一个发行版本，
   # 只是不签名，由用户的侧载工具重签。与 worker-macos 一样是可选附件：失败不拦转正，
   # 重跑本作业即可补传。不需要任何签名密钥，fork 出去的仓库也能照常产出。
+  # 同样有改动才编，否则由 carry-assets 沿用。
   ios-ipa:
-    needs: release-artifacts
+    needs: asset-plan
+    if: ${{ needs.asset-plan.outputs.ipa_mode == 'build' }}
     # 本项目要 iOS 26 SDK 与 Swift 6.2（Xcode 26 起）
     runs-on: macos-26
     env:
@@ -344,10 +414,10 @@ jobs:
   # 终审：产物齐全 + 镜像发布成功后才把 draft Release 转正。
   # 这是发布原子性的落点——转正之前，应用内更新、install-cli.sh 的
   # latest/download、Release 页对用户都不可见，不存在「半成品 Release」。
-  # worker-macos / ios-ipa 失败不拦转正（可选附件），但 cli 或镜像失败时 Release
+  # worker-macos / ios-ipa / carry-assets 失败不拦转正（可选附件），但 cli 或镜像失败时 Release
   # 停在 draft：修复后重跑本工作流即可，全链路可安全重入。
   publish:
-    needs: [cli, worker-macos, ios-ipa, docker-image]
+    needs: [cli, worker-macos, ios-ipa, carry-assets, docker-image]
     if: ${{ !cancelled() && needs.cli.result == 'success' && needs.docker-image.result == 'success' }}
     runs-on: ubuntu-latest
     env:
@@ -377,10 +447,10 @@ jobs:
             exit 1
           fi
           if ! echo "$assets" | grep -qx "MovieClawTranscoder-macos-arm64.zip"; then
-            echo "::warning::缺少 macOS Worker 附件（可选产物），Release 照常发布；重跑 worker-macos 作业可补传"
+            echo "::warning::缺少 macOS Worker 附件（可选产物），Release 照常发布；重跑 worker-macos 或 carry-assets 作业可补传"
           fi
           if ! echo "$assets" | grep -qx "MovieClaw-iOS-unsigned.ipa"; then
-            echo "::warning::缺少 iOS 未签名 IPA（可选产物），Release 照常发布；重跑 ios-ipa 作业可补传"
+            echo "::warning::缺少 iOS 未签名 IPA（可选产物），Release 照常发布；重跑 ios-ipa 或 carry-assets 作业可补传"
           fi
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
           echo "Release $RELEASE_TAG 已发布"

@@ -487,3 +487,123 @@ def test_gallery_shares_the_members_order(client: TestClient, tmp_path: Path) ->
     assert [g["media_item_id"] for g in _gallery(client, cross["id"])] == [avatar, 1]
     assert [g["library_id"] for g in _gallery(client, cross["id"])] == [1, 1]
     assert client.get("/api/v1/collections/9999/gallery").status_code == 404
+
+
+def test_virtual_library_cover_reuses_shelf_renderer(client: TestClient, tmp_path: Path) -> None:
+    """四张封面与真实库使用同一渲染器，指定封面置前，素材变更使 ETag 失效。"""
+    from PIL import Image
+
+    from movieclaw_api.services.library.cover import render_shelf_collage
+
+    root = Path(get_settings().metadata_dir) / "images"
+    paths = []
+    for item_id, color in enumerate(["#334466", "#885544", "#448877", "#887744", "#674477"], 1):
+        path = root / str(item_id) / "poster.jpg"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (200, 300), color).save(path)
+        paths.append(path)
+
+    async def add_members() -> None:
+        async with get_database().session() as session:
+            for item_id in range(2, 6):
+                session.add(
+                    MediaItem(
+                        id=item_id,
+                        kind="movie",
+                        title=f"作品{item_id}",
+                        original_title=f"Film {item_id}",
+                        tmdb_id=3000 + item_id,
+                    )
+                )
+                await session.flush()
+                session.add(
+                    MediaMetadata(media_item_id=item_id, poster_file=f"{item_id}/poster.jpg")
+                )
+                session.add(
+                    LibraryFile(
+                        library_id=1,
+                        media_item_id=item_id,
+                        season_number=0,
+                        episode_number=0,
+                        file_path=str(tmp_path / f"{item_id}.mkv"),
+                        size_bytes=100,
+                        source=FileSource.SCANNED,
+                        state=FileState.IN_PLACE,
+                    )
+                )
+            await session.commit()
+
+    asyncio.run(add_members())
+    created = _create(client, name="四张海报", item_ids=[1, 2, 3, 4, 5])
+
+    async def choose_cover() -> None:
+        from movieclaw_db.models import Collection
+
+        async with get_database().session() as session:
+            row = await session.get(Collection, created["id"])
+            row.cover_item_id = 5
+            await session.commit()
+
+    asyncio.run(choose_cover())
+    url = f"/api/v1/collections/{created['id']}/cover"
+    response = client.get(url)
+    assert response.status_code == 200, response.text
+    expected = tmp_path / "expected.jpg"
+    render_shelf_collage([paths[4], paths[0], paths[1], paths[2]], expected)
+    assert response.content == expected.read_bytes()
+    assert response.headers["cache-control"] == "private, no-cache"
+    etag = response.headers["etag"]
+    assert client.get(url, headers={"If-None-Match": etag}).status_code == 304
+    Image.new("RGB", (200, 300), "#ff5544").save(paths[4])
+    refreshed = client.get(url, headers={"If-None-Match": etag})
+    assert refreshed.status_code == 200
+    assert refreshed.headers["etag"] != etag
+
+
+def test_cover_checks_access_before_serving_cached_image(client: TestClient, monkeypatch) -> None:
+    """旧 ETag 不能绕过私有合集或可见库权限；空的跨库合集也没有封面。"""
+    from movieclaw_api.api.routes import collections as routes
+    from movieclaw_api.services.library.access import ContentLimit
+
+    private = _create(client, name="私有", item_ids=[1], visibility="private")
+    shared = _create(client, name="共享", item_ids=[1])
+    cross = client.post("/api/v1/collections", json={"name": "跨库", "item_ids": [1]}).json()[
+        "data"
+    ]
+
+    async def other_member(*_args):
+        return 2, set(), ContentLimit()
+
+    monkeypatch.setattr(routes, "_scope", other_member)
+    for row in [private, shared, cross]:
+        response = client.get(
+            f"/api/v1/collections/{row['id']}/cover", headers={"If-None-Match": '"old"'}
+        )
+        assert response.status_code == 404
+
+
+def test_cover_forwards_viewer_scope_to_members(client: TestClient, monkeypatch) -> None:
+    """拼贴素材与成员列表使用相同的身份、可见库和分级约束。"""
+    from movieclaw_api.api.routes import collections as routes
+    from movieclaw_api.services.library.access import ContentLimit
+
+    created = _create(client, name="分级", item_ids=[1])
+    limit = ContentLimit(max_age=12)
+    received = {}
+
+    async def scope(*_args):
+        return 2, {1}, limit
+
+    async def members(_session, _row, **kwargs):
+        received.update(kwargs)
+        return []
+
+    monkeypatch.setattr(routes, "_scope", scope)
+    monkeypatch.setattr(routes, "resolve_members", members)
+    assert client.get(f"/api/v1/collections/{created['id']}/cover").status_code == 404
+    assert received == {
+        "member_id": 2,
+        "visible_library_ids": {1},
+        "content_limit": limit,
+        "limit": 4,
+    }

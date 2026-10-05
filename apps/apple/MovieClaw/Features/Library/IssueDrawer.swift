@@ -698,7 +698,7 @@ private struct IssueReviewGroupRow: View {
 
     private func side(_ info: API.ReviewItemView, suggestion: Bool) -> some View {
         HStack(spacing: 8) {
-            RemoteImage(url: api.image(info.posterUrl, .posterCard))
+            RemoteImage(url: api.image(info.posterUrl, width: ImageWidth.points(36)))
                 .frame(width: 36, height: 54)
                 .clipShape(.rect(cornerRadius: 6))
             VStack(alignment: .leading, spacing: 1) {

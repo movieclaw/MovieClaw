@@ -298,6 +298,9 @@ rules list
 rules update
 scrape
 scrape countries
+scrape fanart
+scrape fanart set-key
+scrape fanart show
 scrape languages
 scrape set
 scrape show
@@ -307,7 +310,7 @@ search history clear
 search history delete
 search history get-results
 search history list
-search library-items
+search library
 search presets
 search presets list
 search presets update

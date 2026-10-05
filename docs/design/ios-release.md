@@ -53,6 +53,7 @@ App 里**不提供**「资源与下载」这组配置（订阅规则、资源站
 cd apps/apple
 export MC_ASC_KEY_ID=… MC_ASC_ISSUER_ID=…   # 建议放本机 ~/.appstoreconnect/ 下的 env 文件里 source，不入库
 scripts/release.sh --upload                 # 上传：同一个构建可用于内部 / 对外 TestFlight 与提审
+scripts/release.sh --tv --upload            # Apple TV 版：同一条 App 记录，构建单独上传
 ```
 
 - **版本号与服务器各自独立**（2026-09-29 用户决定：App 和服务器不是一回事）：
@@ -61,7 +62,7 @@ scripts/release.sh --upload                 # 上传：同一个构建可用于�
   - 什么时候改：准备**提审**一个新版本时手动递增（App Store 要求新版本号大于已上架的）；
     同一版本号下反复传 TestFlight 不用改，靠构建号区分。
   - 构建号默认取 UTC 时间 `yyyyMMddHHmm`，天然递增，不用管。
-  - 随服务器 Release 附带的侧载 IPA 是那次发版提交上的 App，版本号就是当时的 `MARKETING_VERSION`，
+  - 随服务器 Release 附带的侧载 IPA 是最近一次改动 App 时编的那个包，版本号就是当时的 `MARKETING_VERSION`，
     所以服务器 v0.28.0 里的 IPA 可能是 App 0.1.0，这是正常的。
 - 产物与日志在 `apps/apple/build-release/`（已被 git 忽略），归档约 5 分钟，DerivedData 约 0.7 GB，
   磁盘紧时打包完可删。
@@ -72,13 +73,17 @@ scripts/release.sh --upload                 # 上传：同一个构建可用于�
 
 ### 侧载用的未签名 IPA
 
-每次发版 release.yml 的 `ios-ipa` 作业在 macOS runner 上跑 `apps/apple/scripts/build-unsigned-ipa.sh`，
-把 `MovieClaw-iOS-unsigned.ipa` 附到 GitHub Release（可选附件，失败不拦转正）。给不走 App Store /
+发版时 release.yml 的 `ios-ipa` 作业在 macOS runner 上跑 `apps/apple/scripts/build-unsigned-ipa.sh`，
+把 `MovieClaw-iOS-unsigned.ipa` 附到 GitHub Release（可选附件，失败不拦转正）。自上一版以来 iPhone 版
+用到的代码（`apps/apple` 除 Apple TV 专属目录与测试）没改动时不重编，由 `carry-assets` 作业直接沿用
+上一个 Release 里的 IPA（判断规则见 `scripts/release-asset-plan.sh`）。Apple TV 版不出侧载包，只走 TestFlight。给不走 App Store /
 TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple ID 重签安装——免费 Apple ID
 签的包 7 天过期（AltStore / SideStore 可后台自动续签），付费开发者账号 1 年。
 
 - 与商店版**同一份代码、同一个发行版本**（§1），只是不签名；不需要任何签名密钥，fork 仓库也能产出。
-- App 没有扩展、没有特殊 entitlements，免费 Apple ID 也能签（只占 1 个 App ID）。
+- 打包时去掉通知扩展（`MovieClawNotificationService`）和推送、App Group 的 entitlements，免费
+  Apple ID 也能签（只占 1 个 App ID）。代价是侧载版**收不到推送**：免费 Apple ID 本来就没有推送能力，
+  官方推送中继也只推商店版的 Bundle ID。App 发现自己没带通知扩展时不请求通知权限、不登记推送。
 - 文件名固定，`releases/latest/download/MovieClaw-iOS-unsigned.ipa` 长期指向最新版。
 - 附在服务器 Release 上而不单开 iOS Release：应用内更新按 GitHub 的 latest Release 判断服务器新版本，
   单独的 iOS Release 会被当成最新服务器版本，打乱更新检查。App 自己的版本号见 §3。
@@ -130,7 +135,7 @@ TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple 
   FFmpeg 的 `AetherLib*` 二进制框架不带清单；若上传后收到 ITMS-91053 邮件点名缺少某类声明，
   按邮件补到对应清单里。新增代码用到这几类 API 时同步更新清单。
 - **开源许可**：「我的 → 关于 MovieClaw」列出随包分发的组件、许可与源码地址，全文随包
-  （`Features/About/Licenses/`）。升级 AetherEngine / FFmpegBuild / Nuke 等依赖时同步核对。
+  （`apps/apple/Shared/Resources/Licenses/`，iPhone 与 Apple TV 共用）。升级 AetherEngine / FFmpegBuild / Nuke 等依赖时同步核对。
   AetherEngine 是 LGPL-3.0 且带 App Store 例外；FFmpeg 为 LGPL-2.1（未启用 GPL 组件），
   以动态框架随包，满足可替换要求。
 - **播放质量记录**：App 会把每次播放的起播耗时、跳转、卡顿、失败原因（失败时附最近的播放器日志，

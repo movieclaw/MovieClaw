@@ -40,7 +40,12 @@ var knownNonGenerated = []string{
 	"members.sign-out",
 	"images.asset",
 	"images.proxy",
+	// 演职员本地头像（docs/design/image-sizing.md §4.2）：二进制出图，客户端展示用
+	"images.person",
+	// 本地图片画质的磁盘估算：设置页「约 X GB」的数据源，命令行无消费方
+	"scrape.storage-estimate",
 	"libraries.cover",
+	"collection.cover",
 	"ui.library.files.preview-subtitles",
 	"ui.library.files.original",
 	"ui.library.files.thumb",
@@ -51,6 +56,9 @@ var knownNonGenerated = []string{
 	// 命令行查库走 search / libraries 命令
 	"ui.library.kind.summary",
 	"ui.library.kind.items",
+	"ui.library.kind.genres",
+	// 海报行选中展开用的批量展示信息（Apple TV 首页）：纯呈现层数据
+	"ui.library.showcase",
 	"playback.decide",
 	"playback.item.info",
 	"playback.item.episodes",
@@ -139,6 +147,7 @@ var knownNonGenerated = []string{
 	"share.artwork",
 	"share.asset",
 	"share.image-proxy",
+	"share.person-avatar",
 	"share.thumb",
 	"share.playback.decide",
 	"share.playback.session.start",
@@ -153,6 +162,28 @@ var knownNonGenerated = []string{
 	"reels.feed",
 	"reels.facets",
 	"reels.events",
+	// MovieClaw Cloud 与 App 推送（docs/design/cloud-push.md）：连接要在官网批准、看配对码，
+	// 推送通道、通知开关、App 登记都是设置页和 App 的事，命令行没有对应形态
+	"cloud.status",
+	"cloud.pairing.start",
+	"cloud.pairing.cancel",
+	"cloud.renew",
+	"cloud.disconnect",
+	"cloud.settings.set",
+	"cloud.notices.dismiss",
+	"push.channels.list",
+	"push.channels.official.set",
+	"push.relays.probe",
+	"push.relays.create",
+	"push.relays.update",
+	"push.relays.delete",
+	"push.relays.refresh",
+	"push.me.show",
+	"push.me.preferences.set",
+	"push.me.test",
+	"push.me.registration.set",
+	"push.me.registration.delete",
+	"push.images.get",
 }
 
 // TestNonGeneratedEndpointsAreAllKnown 强制新端点显式表态：进命令树，或登记豁免。
@@ -309,7 +340,7 @@ func TestDomainCommandSets(t *testing.T) {
 		"search": {
 			"search.titles",
 			"search.torrents",
-			"search.library-items",
+			"search.library",
 			"search.history.list",
 			"search.history.get-results",
 			"search.history.delete",

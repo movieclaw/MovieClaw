@@ -200,15 +200,27 @@ def test_facets_count_what_the_wall_shows(stack) -> None:
     assert sum(row["count"] for row in facets["genres"]) == len(wall)
 
 
+def test_showcase_does_not_leak_it(stack) -> None:
+    """电视首页海报行的选中展开（剧照 / 简介）按 id 整批取——拿到 id 也取不到超出分级的。"""
+    client, become_child, become_admin = stack
+    ids = "&".join(f"ids={i}" for i in range(1, len(CATALOG) + 1))
+    become_admin()
+    assert len(client.get(f"/api/v1/libraries/showcase?{ids}").json()["data"]) == len(CATALOG)
+
+    become_child(13)
+    shown = client.get(f"/api/v1/libraries/showcase?{ids}").json()["data"]
+    assert {row["content_rating"] for row in shown} == {"G", "PG", "PG-13"}
+
+
 def test_search_cannot_find_it(stack) -> None:
     """搜得到就等于看得到（点进去是详情页）。"""
     client, become_child, become_admin = stack
     become_admin()
-    groups = client.get("/api/v1/search/library-items?keyword=成人").json()["data"]
-    assert groups and _titles(groups[0]["items"]) == {"成人片"}
+    hits = client.get("/api/v1/search/library?q=成人").json()["data"]["items"]
+    assert _titles([hit["item"] for hit in hits]) == {"成人片"}
 
     become_child(13)
-    assert client.get("/api/v1/search/library-items?keyword=成人").json()["data"] == []
+    assert client.get("/api/v1/search/library?q=成人").json()["data"]["items"] == []
 
 
 def test_collection_members_are_narrowed_too(stack) -> None:
@@ -275,9 +287,7 @@ def test_playback_is_blocked_too(stack) -> None:
     assert client.post("/api/v1/playback/decide", json=body).status_code == 404
     # 分级之内的那部照放（这里没有真文件，能走到"找不到可播放的文件"就说明
     # 它过了可见性这一关，而不是被约束挡在门外）
-    allowed = client.post(
-        "/api/v1/playback/decide", json={"media_item_id": 1, "capability": {}}
-    )
+    allowed = client.post("/api/v1/playback/decide", json={"media_item_id": 1, "capability": {}})
     assert allowed.status_code != 403
 
 

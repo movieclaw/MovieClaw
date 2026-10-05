@@ -13,6 +13,7 @@ from typing import Literal
 from pydantic import Field, field_serializer
 
 from movieclaw_api.schemas.base import BaseModel
+from movieclaw_api.services.tmdb_images import MediaFiles, asset_url, tmdb_image_url
 from movieclaw_db.models import (
     MediaItem,
     MediaSeason,
@@ -67,10 +68,11 @@ class MediaBrief(BaseModel):
     status: str | None
 
     @classmethod
-    def from_model(cls, item: MediaItem) -> MediaBrief:
-        from movieclaw_api.core.config import get_settings
+    def from_model(cls, item: MediaItem, files: MediaFiles | None = None) -> MediaBrief:
+        """``files``：条目的本地资产（海报, 背景, Logo）。订阅对象已在库时用本地图，断网可用；
+        没下好的那张才用图床兜底（docs/design/image-sizing.md §7）。"""
+        poster_file, backdrop_file, logo_file = files or (None, None, None)
 
-        base = get_settings().tmdb_image_base_url.rstrip("/")
         return cls(
             media_item_id=item.id,  # type: ignore[arg-type]  # 落库后必有主键
             kind=MediaKind(item.kind),
@@ -79,9 +81,17 @@ class MediaBrief(BaseModel):
             title=item.title,
             original_title=item.original_title,
             year=item.year,
-            poster_url=f"{base}/w500{item.poster_path}" if item.poster_path else None,
-            backdrop_url=f"{base}/w1280{item.backdrop_path}" if item.backdrop_path else None,
-            logo_url=f"{base}/w500{item.logo_path}" if item.logo_path else None,
+            poster_url=(
+                asset_url(poster_file)
+                if poster_file
+                else tmdb_image_url(item.poster_path, "poster")
+            ),
+            backdrop_url=(
+                asset_url(backdrop_file)
+                if backdrop_file
+                else tmdb_image_url(item.backdrop_path, "backdrop")
+            ),
+            logo_url=asset_url(logo_file) if logo_file else tmdb_image_url(item.logo_path, "logo"),
             status=item.status,
         )
 
@@ -128,11 +138,11 @@ class ResolveCandidateView(BaseModel):
 
     @classmethod
     def from_model(cls, c: ResolveCandidate, *, kind: MediaKind) -> ResolveCandidateView:
-        from movieclaw_api.core.config import get_settings
+        from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 
         poster_url = None
         if c.poster_path:
-            base = get_settings().tmdb_image_base_url.rstrip("/")
+            base = effective_tmdb_image_base_url().rstrip("/")
             poster_url = f"{base}/w342{c.poster_path}"
         return cls(
             tmdb_id=c.tmdb_id,
@@ -432,6 +442,7 @@ class SubscriptionView(BaseModel):
         item: MediaItem,
         counts: dict[str, int],
         season_collection: list[SeasonOverview] | None = None,
+        media_files: MediaFiles | None = None,
     ) -> SubscriptionView:
         wanted = counts.get("wanted", 0)
         grabbed = counts.get("grabbed", 0)
@@ -439,7 +450,7 @@ class SubscriptionView(BaseModel):
         imported = counts.get("imported", 0)
         return cls(
             id=sub.id,  # type: ignore[arg-type]
-            media=MediaBrief.from_model(item),
+            media=MediaBrief.from_model(item, media_files),
             status=sub.status,
             selected_seasons=list(sub.selected_seasons),
             follow_future=sub.follow_future,
@@ -744,11 +755,12 @@ class SubscriptionDetailView(SubscriptionView):
         wanted_rows: list[WantedItem],
         resource_timings: dict[tuple[int, int], dict[str, object]] | None = None,
         rule_spec: object | None = None,
+        media_files: MediaFiles | None = None,
     ) -> SubscriptionDetailView:
         counts: dict[str, int] = {}
         for w in wanted_rows:
             counts[w.status] = counts.get(w.status, 0) + 1
-        base = SubscriptionView.from_model(sub, item, counts)
+        base = SubscriptionView.from_model(sub, item, counts, media_files=media_files)
         upgrades = _wanted_upgrades(wanted_rows, rule_spec)
         view = cls(
             **base.model_dump(),

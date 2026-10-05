@@ -31,7 +31,7 @@ def _nexus_site(site_id: str) -> NexusPHPSite:
 def test_all_builtin_sites_default_to_shanghai_timezone() -> None:
     load_all_sites()
 
-    assert len(list_sites()) == 23
+    assert len(list_sites()) == 25
     assert {config.timezone for config in list_sites()} == {"Asia/Shanghai"}
 
 

@@ -74,8 +74,11 @@ KINDS: dict[str, KindSpec] = {
 }
 #: 用账号密码登录的原生 App（``/auth/device/login`` 只接受这几种）
 APP_KINDS = ("ios", "tvos", "android")
-#: 走配对码的客户端（``/auth/device/authorize`` 只接受这几种）
-PAIRING_KINDS = ("cli", "worker")
+#: 走配对码的客户端（``/auth/device/authorize`` 只接受这几种）。Apple TV 也在其中：
+#: 电视上打字太痛苦，默认是「电视显示码、手机批准」（docs/design/tvos-app.md §5.1）。
+#: 它配出来的仍是 ``tvos`` 这一种登录设备：人直接操作的客户端、改密时随之下线，
+#: 与用账号密码登录的 Apple TV 完全同构——两种登录方式只是拿到同一种令牌的两条路
+PAIRING_KINDS = ("cli", "worker", "tvos")
 
 #: 令牌明文前缀：肉眼可辨认来源，误提交扫描器也好识别；也用来区分升级前
 #: 签发的签名 Cookie（没有这个前缀）与表内令牌。
@@ -149,6 +152,7 @@ async def issue(
     user_agent: str | None = None,
     ip: str | None = None,
     expires_at: datetime | None = None,
+    approver_device_id: int | None = None,
 ) -> tuple[str, LoginDevice]:
     """签发一枚设备令牌，返回 (明文, 行)。明文仅此一次，服务端只存哈希。
 
@@ -156,8 +160,11 @@ async def issue(
     App 重新登录、命令行重新 ``mclaw login`` 都不该越积越多。换人登录同一台
     设备则各占一行——一台手机上登多个账号是正常用法（这点与 Jellyfin 的
     「同设备覆盖」不同）。
+
+    ``approver_device_id``：配对时在 App 上点批准的那台，「新设备登录」不再提醒它。
     """
     installation_id = _clip(installation_id, 128)
+    replaced: list[LoginDevice] = []
     if installation_id:
         replaced = await _delete_where(
             session,
@@ -197,6 +204,19 @@ async def issue(
         row.id,
         "超管" if member_id == 0 else f"成员 #{member_id}",
     )
+    # 新设备登录：告诉本人的其他设备（docs/design/cloud-push.md §5）。网页登录太频繁、
+    # 同一台设备重新登录（替换旧凭证，或之前在这台上自己退出过）都不算新设备，不推
+    if kind != "web" and not replaced:
+        from movieclaw_api.services.push import events as push_events
+
+        if not await push_events.returning_device(member_id, kind, installation_id):
+            push_events.new_device(
+                member_id=member_id,
+                device_ids=frozenset(i for i in (row.id, approver_device_id) if i is not None),
+                name=row.name,
+                kind_label=spec_of(kind).label,
+                ip=ip or None,
+            )
     return plaintext, row
 
 

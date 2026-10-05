@@ -957,6 +957,19 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                     event="upgraded",
                     image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
                 )
+                # App 推送：推给订阅的人，后台发送（docs/design/cloud-push.md §5）
+                from movieclaw_api.services.push import events as push_events
+
+                push_events.upgraded(
+                    subscription_id=wanted.subscription_id,
+                    item_id=media_item_id,
+                    title=item.title,
+                    year=item.year,
+                    unit=(wanted.season_number, wanted.episode_number),
+                    old_label=old_label,
+                    new_label=new_label,
+                    image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
+                )
             logger.info(
                 "洗版完成：条目 #%s %s %s → %s",
                 media_item_id,
@@ -1092,6 +1105,8 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                         f"连续 {wanted.upgrade_verify_failures} 次抓到标称与实测不符的资源，"
                         "洗版已转入 30 天冷却。可在订阅详情检查候选质量或调整规则组。"
                     ),
+                    # 告警中心和手机推送据此直接跳到这个订阅
+                    payload={"subscription_id": wanted.subscription_id},
                 )
             logger.warning(
                 "洗版证伪：条目 #%s %s 标称与实测不符（连续 %d 次）",

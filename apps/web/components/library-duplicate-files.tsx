@@ -840,6 +840,7 @@ function SeasonBlock({
       <div className="flex items-center gap-2.5 border-b border-white/[0.07] bg-white/[0.02] px-4 py-2.5">
         <PosterImage
           src={imageUrl(media.poster_url)}
+          width={26}
           alt=""
           className="h-[38px] w-[26px] shrink-0 rounded-[4px] border border-white/[0.08] object-cover"
         />

@@ -493,6 +493,21 @@ export const DeviceIcon = (p: IconProps) => (
   </Base>
 );
 
+/** 手机：App 推送（发到 iPhone、iPad 上的 MovieClaw App），与指浏览器/电脑的 DeviceIcon 区分开 */
+export const PhoneIcon = (p: IconProps) => (
+  <Base {...p}>
+    <rect x="6.5" y="2.5" width="11" height="19" rx="2.5" />
+    <path d="M11 18.5h2" />
+  </Base>
+);
+
+/** 云：MovieClaw Cloud（服务器连接到 MovieClaw 账号） */
+export const CloudIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+  </Base>
+);
+
 export const GlobeIcon = (p: IconProps) => (
   <Base {...p}>
     <circle cx="12" cy="12" r="9" />

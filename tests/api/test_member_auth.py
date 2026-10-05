@@ -525,6 +525,7 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/share/{slug}/artwork"),
     ("GET", "/api/v1/share/{slug}/images/assets/{path}"),
     ("GET", "/api/v1/share/{slug}/images/proxy"),
+    ("GET", "/api/v1/share/{slug}/images/people/{path}"),
     ("GET", "/api/v1/share/{slug}/files/{file_id}/thumb"),
     ("POST", "/api/v1/share/{slug}/playback/decide"),
     ("POST", "/api/v1/share/{slug}/playback/sessions"),
@@ -550,10 +551,13 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/discover/region"),
     ("GET", "/api/v1/people/{tmdb_person_id}"),
     ("GET", "/api/v1/images/assets/{path}"),
+    # 演职员头像是公开资料（TMDB 头像），成员看详情页就要用到
+    ("GET", "/api/v1/images/people/{path}"),
     ("GET", "/api/v1/images/proxy"),
     # 媒体库：浏览面（管理动作全部在库路由级挂 require_admin）
     ("GET", "/api/v1/libraries"),
-    ("GET", "/api/v1/search/library-items"),
+    # 相关度搜索同属库内浏览，接口逐页检查库白名单与内容分级，不依赖 PT 搜索开关。
+    ("GET", "/api/v1/search/library"),
     ("GET", "/api/v1/libraries/files/{file_id}/thumb"),
     # 图片库的原图（灯箱全屏查看与下载）是成员的浏览面；路径由台账行推导、
     # 接口自身按文件所属库校验成员可见性，只服务图片扩展名的文件
@@ -577,6 +581,10 @@ _MEMBER_ALLOWLIST = {
     # 可见的库），内容分级同样经 _narrow 强制收窄，与单库墙同一套口径
     ("GET", "/api/v1/libraries/kinds/{kind}"),
     ("GET", "/api/v1/libraries/kinds/{kind}/items"),
+    ("GET", "/api/v1/libraries/kinds/{kind}/genres"),
+    # 首页海报行选中展开的批量展示信息：id 逐个按 visible_library_ids 与内容分级过滤，
+    # 看不见的条目静默略过（见 services/library/showcase.py）
+    ("GET", "/api/v1/libraries/showcase"),
     ("GET", "/api/v1/libraries/{library_id}/items/{media_item_id}"),
     ("GET", "/api/v1/libraries/{library_id}/items/{media_item_id}/artwork"),
     ("GET", "/api/v1/libraries/{library_id}/items/{media_item_id}/episodes"),
@@ -587,6 +595,8 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/collections"),
     ("POST", "/api/v1/collections"),
     ("GET", "/api/v1/collections/{collection_id}"),
+    # 首页虚拟库封面属于成员浏览面，素材按合集归属、可见库与分级约束收窄。
+    ("GET", "/api/v1/collections/{collection_id}/cover"),
     ("PUT", "/api/v1/collections/{collection_id}"),
     ("DELETE", "/api/v1/collections/{collection_id}"),
     ("GET", "/api/v1/collections/{collection_id}/items"),
@@ -680,6 +690,15 @@ _MEMBER_ALLOWLIST = {
     ("POST", "/api/v1/subscriptions/{subscription_id}/missing-resource-searches"),
     # 一轮洗版与「立即搜索」同口径：订阅能力 + 归属校验（路由内 assert_can_manage）
     ("POST", "/api/v1/subscriptions/{subscription_id}/upgrade-runs"),
+    # App 推送（docs/design/cloud-push.md §7.3）：每个人只管自己的通知开关、设备状态、
+    # 测试通知；App 登记只认这台设备自己的凭证（服务层判定，网页会话登记不了）
+    ("GET", "/api/v1/push/me"),
+    ("PUT", "/api/v1/push/me/preferences"),
+    ("POST", "/api/v1/push/me/test"),
+    ("PUT", "/api/v1/push/me/registration"),
+    ("DELETE", "/api/v1/push/me/registration"),
+    # 推送配图：公开区（地址自带签名），成员自然可达
+    ("GET", "/api/v1/push/images/{token}"),
 }
 
 # 路径参数哑值（与 test_auth.py 的匿名守护测试保持一致）
@@ -734,6 +753,9 @@ _PATH_DUMMIES = {
     "{key}": "cache.images",
     # 播放体验记录的播放编号
     "{attempt_id}": "test-attempt",
+    # App 推送的自建中继、推送配图的签名
+    "{relay_id}": "r_test",
+    "{token}": "no-such-image",
 }
 
 

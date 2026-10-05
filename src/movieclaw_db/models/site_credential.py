@@ -96,6 +96,17 @@ class SiteCredential(TimestampMixin, table=True):
     # 默认 3 天覆盖多数站点的考核时长；无 H&R 考核的站可调 0 = 自由汰换
     #（判定成熟度仍由引擎的测量窗保证，见 ratio_boost.evictable）
     boost_hold_days: int = Field(default=3, description="刷流汰换最低保留天数；0=不保护")
+    # 刷流把新种投给哪台下载器：开启刷流时由用户为该站选定。刷流做种与订阅/
+    # 手动下载挤在同一台客户端会互相占满队列，所以刷流可以单独放一台。
+    # NULL = 跟随默认下载器（引入本列之前开启的站点、或选定的下载器被删除后）。
+    # 选定的下载器停用/连接失败时只暂停该站准入，绝不改投默认下载器——
+    # 否则恰好在用户想隔离的时候把刷流挤回前台下载器（见 ratio_boost._boost_downloader）
+    boost_downloader_id: int | None = Field(
+        default=None,
+        foreign_key="downloader_client.id",
+        ondelete="SET NULL",
+        description="刷流投递的下载器；NULL=跟随默认下载器",
+    )
 
     # ------------------------------------------------------------------
     # 验证状态机（见 ConfigStatus）

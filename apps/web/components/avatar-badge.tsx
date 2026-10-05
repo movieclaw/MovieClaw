@@ -1,5 +1,6 @@
 "use client";
 
+import { responsiveImage } from "@/lib/image-width";
 import { initialsOf } from "@/lib/session";
 
 /**
@@ -31,7 +32,8 @@ export function AvatarBadge({
     >
       {avatarUrl ? (
         <img
-          src={avatarUrl}
+          // 全站头像最大 72 CSS px（设置页），小号徽标按它取也只落在最小一两档
+          {...responsiveImage(avatarUrl, 72)}
           alt={`${nickname} 的头像`}
           decoding="async"
           className="h-full w-full object-cover"

@@ -48,7 +48,7 @@
 |---|---|---|---|
 | 影视（TMDB / 豆瓣片名） | `POST /search/titles` | 🔑 | `allow_subscribe`；不受内容分级约束 |
 | 资源（PT 站点聚合） | `GET /search/torrents[/stream]` | 🔑 | `allow_search` + 站点白名单 |
-| 媒体库 | `GET /search/library-items` | ✅ | 可见库 + 内容分级 |
+| 媒体库 | `GET /search/library` | ✅ | 可见库 + 内容分级 |
 | 搜索历史 | `/search/history*` | ✅ | 按人隔离；回放结果时按分区补判权限 |
 | 搜索预设（分类 / 站点组合） | `GET/PUT /search/presets` | 读 🔑 / 写 ⛔ | 成员前端不读，用内置默认 |
 | **搜索入口与 `/search` 路由** | — | 🔑 | **只看 `allow_search`**（§2.2 U1 的 bug） |

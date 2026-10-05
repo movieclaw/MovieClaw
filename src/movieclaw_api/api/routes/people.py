@@ -12,12 +12,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.api.deps import require_login
-from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import NotFoundException
 from movieclaw_api.schemas.person import PersonCreditView, PersonView
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import visible_library_ids
+from movieclaw_api.services.people_images import avatar_url
+from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import MediaMetadata
 from movieclaw_db.repositories import PersonRepository
@@ -59,7 +60,6 @@ async def get_person(
         # 同一个 404：不泄露「有这个人、但你不能看」
         raise NotFoundException("库内没有这位影人的作品")
 
-    base = get_settings().tmdb_image_base_url.rstrip("/")
 
     # 海报优先本地资产：一次查完再配对，不逐条目查（N+1）
     item_ids = [c.media_item.id for c in credits if c.media_item.id is not None]
@@ -89,7 +89,7 @@ async def get_person(
             rel = poster_assets[item.id]
             poster_url: str | None = f"/images/assets/{rel}?v={asset_version(rel)}"
         else:
-            poster_url = f"{base}/w500{item.poster_path}" if item.poster_path else None
+            poster_url = tmdb_image_url(item.poster_path, "poster")
         views.append(
             PersonCreditView(
                 media_item_id=item.id,
@@ -109,7 +109,7 @@ async def get_person(
             tmdb_person_id=person.tmdb_person_id,
             name=person.name,
             original_name=person.original_name,
-            avatar_url=f"{base}/w300{person.profile_path}" if person.profile_path else None,
+            avatar_url=avatar_url(person.profile_path),
             credits=views,
         )
     )

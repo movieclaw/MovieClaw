@@ -50,6 +50,8 @@ from movieclaw_db.models.person import MediaItemPerson, Person
 from movieclaw_db.models.playback_log import PlaybackLog
 from movieclaw_db.models.playback_metric import PlaybackMetric
 from movieclaw_db.models.playback_state import PlaybackState
+from movieclaw_db.models.push_download_watch import PushDownloadWatch
+from movieclaw_db.models.push_preference import PushPreference
 from movieclaw_db.models.ratio_boost_stat import RatioBoostStat
 from movieclaw_db.models.ratio_boost_task import BoostTaskState, RatioBoostTask
 from movieclaw_db.models.ratio_boost_task_sample import RatioBoostTaskSample
@@ -138,6 +140,8 @@ __all__ = [
     "MemberSiteAccess",
     "Person",
     "PlaybackLog",
+    "PushDownloadWatch",
+    "PushPreference",
     "PlaybackMetric",
     "PlaybackState",
     "MediaSeason",

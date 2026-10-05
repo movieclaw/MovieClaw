@@ -10,7 +10,7 @@ import SwiftUI
 /// 用法：`.fullScreenCover(item: $lightbox) { DiscoverLightbox(content: $0).sheetFeedback() }`
 struct DiscoverLightboxContent: Identifiable {
     let id = UUID()
-    /// 舞台图地址（已解析好，如 `api.image(url, .photoScreen)` 或原图）
+    /// 舞台图地址（已解析好，如 `api.image(url, width: ImageWidth.screen)` 或原图）
     var urls: [URL?]
     var initialIndex: Int = 0
     var title: String

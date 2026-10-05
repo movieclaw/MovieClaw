@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from pathlib import Path
 
 from movieclaw_channel.types import OutboundEnvelope, ReplyContext
 from movieclaw_db.engine import get_database
@@ -35,13 +36,14 @@ _push_tasks: set[asyncio.Task[None]] = set()
 
 def tmdb_push_image_url(backdrop_path: str | None, poster_path: str | None) -> str | None:
     """推送配图 URL:优先横版剧照(w780,渲染规格恒定),无剧照回落海报(w500)。"""
-    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
+    from movieclaw_api.services.tmdb_images import remote_image_url
 
-    base = get_settings().tmdb_image_base_url.rstrip("/")
+    base = effective_tmdb_image_base_url().rstrip("/")
     if backdrop_path:
-        return f"{base}/w780{backdrop_path}"
+        return remote_image_url(base, "w780", backdrop_path)
     if poster_path:
-        return f"{base}/w500{poster_path}"
+        return remote_image_url(base, "w500", poster_path)
     return None
 
 
@@ -86,12 +88,68 @@ async def push_to_all_channels(text: str, photo: bytes | None = None) -> int:
     return count
 
 
+# 推送配图的统一宽度:手机通知大图约 360 点宽 × 3 倍屏
+PUSH_IMAGE_WIDTH = 1280
+
+
+async def local_push_image(image_url: str) -> Path | None:
+    """推送配图优先用本地母版(docs/design/image-sizing.md §7):按地址里的 TMDB 路径反查条目,
+    条目的背景 / 海报已落本地就用本地文件——TMDB 图床被墙或限流时推送照样带图。"""
+    import re
+
+    from sqlmodel import or_, select
+
+    from movieclaw_api.services.media_scrape import resolve_asset_path
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import MediaItem, MediaMetadata
+
+    match = re.search(r"/t/p/[a-z0-9]+(/[^/?#]+)$", image_url)
+    if match is None:
+        return None
+    path = match.group(1)
+    async with get_database().session() as session:
+        row = (
+            await session.execute(
+                select(
+                    MediaMetadata.backdrop_file,
+                    MediaMetadata.poster_file,
+                    MediaItem.backdrop_path,
+                )
+                .join(MediaItem, MediaItem.id == MediaMetadata.media_item_id)  # type: ignore[arg-type]
+                .where(or_(MediaItem.backdrop_path == path, MediaItem.poster_path == path))
+                .limit(1)
+            )
+        ).first()
+    if row is None:
+        return None
+    backdrop_file, poster_file, backdrop_path = row
+    rel = backdrop_file if backdrop_path == path else poster_file
+    target = resolve_asset_path(rel) if rel else None
+    return target if target is not None and target.is_file() else None
+
+
 async def _fetch_image(image_url: str) -> bytes | None:
-    """经 ImageCache 取配图字节;任何失败返回 None(推送退纯文本)。"""
+    """取配图字节:本地母版优先(缩到推送宽度),否则经 ImageCache 回源。
+
+    任何失败返回 None(推送退纯文本)。
+    """
     try:
         from movieclaw_api.services.image_cache import get_image_cache
+        from movieclaw_api.services.image_variants import (
+            get_image_variant_service,
+            local_source_version,
+        )
 
-        cached = await get_image_cache().get_or_fetch(image_url)
+        local = await local_push_image(image_url)
+        if local is not None:
+            cached = await get_image_variant_service().get_or_create(
+                local,
+                source_key=f"push:{local}",
+                source_version=await asyncio.to_thread(local_source_version, local),
+                width=PUSH_IMAGE_WIDTH,
+            )
+        else:
+            cached = await get_image_cache().get_or_fetch(image_url)
         return await asyncio.to_thread(cached.path.read_bytes)
     except Exception:  # noqa: BLE001 -- 配图取不到只降级,不能拦住文本推送
         logger.info("推送配图获取失败,将发纯文本:%s", image_url)

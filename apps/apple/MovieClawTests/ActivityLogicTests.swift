@@ -120,5 +120,11 @@ struct ActivityLogicTests {
         #expect(NoticeCenterView.visible([child]).map(\.id) == [2])
         #expect(NoticeCenterView.href(parent) == "/subscriptions/9")
         #expect(NoticeCenterView.href(child) == "/settings/import-watch")
+        // 和 MovieClaw Cloud 断开、连不上：跳 Cloud 设置页（与网页、手机推送同一套映射）
+        let cloud: API.NoticeView = decode([
+            "id": 3, "severity": "warning", "source": "cloud", "title": "t", "message": "m",
+            "payload": [:], "created_at": "", "updated_at": "",
+        ])
+        #expect(NoticeCenterView.href(cloud) == "/settings/cloud")
     }
 }

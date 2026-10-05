@@ -215,6 +215,124 @@ async def test_variant_is_webp_cached_and_never_upscales(tmp_path: Path) -> None
         assert image.size == (300, 169), "小分集图不应为凑 480px 被强行放大"
 
 
+async def test_remote_variant_survives_original_eviction(tmp_path: Path) -> None:
+    """远程图的派生只认 URL：原图被淘汰、图床也不通时，派生图照样命中。"""
+    calls = 0
+    online = True
+    payload = BytesIO()
+    Image.new("RGB", (1600, 900), "#224466").save(payload, "JPEG", quality=95)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        if not online:
+            return httpx.Response(503)
+        return httpx.Response(
+            200, headers={"Content-Type": "image/jpeg"}, content=payload.getvalue()
+        )
+
+    cache = _make_cache(tmp_path, handler)
+    service = ImageVariantService(cache)
+    url = "https://img.host-a.com/still.jpg"
+    first = await service.get_or_create_remote(url, variant=ImageVariant.LANDSCAPE_CARD)
+    assert calls == 1
+
+    # 原图被 LRU 淘汰（删掉它的缓存条目），图床也断了
+    digest = hashlib.sha256(url.encode()).hexdigest()
+    original = tmp_path / "images" / digest[:2] / digest
+    original.unlink()
+    original.with_suffix(".json").unlink()
+    online = False
+
+    second = await service.get_or_create_remote(url, variant=ImageVariant.LANDSCAPE_CARD)
+    assert second.path == first.path
+    assert calls == 1
+
+
+def test_snap_width_rounds_up_to_ladder() -> None:
+    from movieclaw_api.services.image_variants import WIDTH_LADDER, snap_width
+
+    assert snap_width(1) == 160
+    assert snap_width(523) == 720  # iPhone 海报墙 174.5 点 × 3
+    assert snap_width(732) == 960  # 电视海报墙 333 点 × 2 × 焦点 1.1
+    assert snap_width(99999) == WIDTH_LADDER[-1]
+    # 相邻两档不超过 1.5 倍：最多多给 1.5 倍宽
+    assert all(b / a <= 1.5 for a, b in zip(WIDTH_LADDER, WIDTH_LADDER[1:], strict=False))
+
+
+async def test_width_variant_downscales_or_passes_through(tmp_path: Path) -> None:
+    """宽度档：原图更宽就等比缩到那一档；原图不比那一档大就回原图本身，不重编码。"""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    service = ImageVariantService(_make_cache(tmp_path, handler))
+    large = tmp_path / "backdrop.jpg"
+    Image.new("RGB", (3840, 2160), "#224466").save(large, "JPEG", quality=90)
+    derived = await service.get_or_create(
+        large, source_key="asset:b", source_version=local_source_version(large), width=500
+    )
+    with Image.open(derived.path) as image:
+        assert image.format == "WEBP"
+        assert image.size == (720, 405)  # 500 向上取到 720 档
+
+    poster = tmp_path / "poster.jpg"
+    Image.new("RGB", (780, 1170), "#664422").save(poster, "JPEG")
+    same = await service.get_or_create(
+        poster, source_key="asset:p", source_version=local_source_version(poster), width=900
+    )
+    assert same.path == poster  # 780 宽的原图装得进 960 档：原样返回
+    assert same.content_type == "image/jpeg"
+
+    # 没发布过的电视预设并进阶梯：tv-poster = 960 档
+    tv = await service.get_or_create(
+        large,
+        source_key="asset:b",
+        source_version=local_source_version(large),
+        variant=ImageVariant.TV_POSTER,
+    )
+    with Image.open(tv.path) as image:
+        assert image.width == 960
+
+
+async def test_width_variant_keeps_palette_transparency(tmp_path: Path) -> None:
+    """调色板模式的透明 PNG（片名 Logo 常见）缩小后透明区仍透明，不能变黑底。"""
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500)
+
+    service = ImageVariantService(_make_cache(tmp_path, handler))
+    logo = tmp_path / "logo.png"
+    rgba = Image.new("RGBA", (1600, 400), (0, 0, 0, 0))
+    rgba.paste((240, 200, 40, 255), (200, 100, 1400, 300))
+    rgba.convert("P", palette=Image.Palette.ADAPTIVE).save(logo, "PNG", transparency=0)
+    derived = await service.get_or_create(
+        logo, source_key="asset:logo", source_version=local_source_version(logo), width=700
+    )
+    with Image.open(derived.path) as image:
+        assert image.mode == "RGBA"
+        assert image.getpixel((2, 2))[3] == 0
+
+
+async def test_remote_width_variant(tmp_path: Path) -> None:
+    payload = BytesIO()
+    Image.new("RGB", (1600, 900), "#224466").save(payload, "JPEG", quality=95)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, headers={"Content-Type": "image/jpeg"}, content=payload.getvalue()
+        )
+
+    service = ImageVariantService(_make_cache(tmp_path, handler))
+    small = await service.get_or_create_remote("https://img.host-a.com/a.jpg", width=300)
+    with Image.open(small.path) as image:
+        assert image.size == (360, 202)
+    whole = await service.get_or_create_remote("https://img.host-a.com/a.jpg", width=3000)
+    assert whole.content_type == "image/jpeg"  # 原图装得进 3840 档：原样存一份
+    with Image.open(whole.path) as image:
+        assert image.size == (1600, 900)
+
+
 async def test_variant_keeps_source_aspect_without_cropping(tmp_path: Path) -> None:
     """其他库的横版封面（16:9）走竖海报预设时等比缩进外接框，不能裁成 2:3 竖条：
     前端卡片框按真实比例排版，服务端一裁就只剩画面正中一小块。"""
@@ -316,6 +434,20 @@ def test_proxy_route_serves_cached_image(client: TestClient, tmp_path: Path) -> 
     assert (tmp_path / "img-cache" / digest[:2] / digest).is_file()
     # 二次访问命中缓存，同样成功
     assert client.get("/api/v1/images/proxy", params={"url": url}).status_code == 200
+
+
+def test_asset_route_reports_type_by_extension(client: TestClient, tmp_path: Path) -> None:
+    """资产直出按扩展名报类型：片名 Logo 是 PNG，不能一律报成 image/jpeg。"""
+    item_dir = tmp_path / "metadata" / "images" / "14"
+    item_dir.mkdir(parents=True)
+    Image.new("RGBA", (40, 20), (0, 0, 0, 0)).save(item_dir / "logo.png", "PNG")
+    Image.new("RGB", (40, 60), "#335577").save(item_dir / "poster.jpg", "JPEG")
+
+    logo = client.get("/api/v1/images/assets/14/logo.png")
+    assert logo.status_code == 200
+    assert logo.headers["content-type"] == "image/png"
+    poster = client.get("/api/v1/images/assets/14/poster.jpg")
+    assert poster.headers["content-type"] == "image/jpeg"
 
 
 def test_remote_and_local_routes_share_landscape_variant(

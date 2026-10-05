@@ -10,6 +10,7 @@ import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { GripIcon, LockIcon, MoreIcon } from "@/components/icons";
 import { LIBRARY_KIND_META } from "@/components/library-kind-meta";
 import { libraryCoverUrl, type MediaLibrary, SCAN_PHASE_LABELS } from "@/lib/api/libraries";
+import { responsiveImage } from "@/lib/image-proxy";
 import {
   type LibraryStatus,
   type LibraryStatusTone,
@@ -251,7 +252,7 @@ function LibraryThumb({ library, Icon }: { library: MediaLibrary; Icon: typeof L
     <div className="relative h-11 w-[72px] shrink-0 overflow-hidden rounded-lg border border-white/[0.08] bg-gradient-to-br from-[#1c2230] to-[#10131c]">
       {showImage ? (
         <img
-          src={libraryCoverUrl(library.id)}
+          {...responsiveImage(libraryCoverUrl(library.id), 72)}
           alt=""
           loading="lazy"
           className="size-full object-cover"

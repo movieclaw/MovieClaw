@@ -124,7 +124,7 @@ import {
   type WallSortPref,
 } from "@/lib/wall-sort";
 import { formatRelativeTime } from "@/lib/time";
-import { cachedImageUrl } from "@/lib/image-proxy";
+import { imageUrl, responsiveImage } from "@/lib/image-proxy";
 import { keepIfEqual, reconcileList } from "@/lib/poll-reconcile";
 import { usePermissions } from "@/lib/permissions";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
@@ -3200,7 +3200,7 @@ function ReviewGroupRow({ group, onChanged }: { group: ReviewGroup; onChanged: (
     <div className="flex min-w-0 flex-1 items-center gap-2.5">
       {info.poster_url ? (
         <img
-          src={cachedImageUrl(info.poster_url)}
+          {...responsiveImage(imageUrl(info.poster_url), 36)}
           alt=""
           loading="lazy"
           decoding="async"

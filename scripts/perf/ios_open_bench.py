@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """iOS App 页面打开速度的自动化测量（模拟器 + App 内打点）。
 
-口径见 App 里的 ``PerfTrace``（apps/apple/MovieClaw/Core/PerfTrace.swift）：每次页面打开记
+口径见 App 里的 ``PerfTrace``（apps/apple/Shared/Core/PerfTrace.swift）：每次页面打开记
 起点 t0（冷启动 = 进程创建；切页签 = 选中那一刻）、首帧、数据就绪、视觉完成（首屏图片全部显示）。
 这个脚本负责把 App 反复冷启动、按剧本切页签、收回打点文件，再汇总成中位数 / P90。
 

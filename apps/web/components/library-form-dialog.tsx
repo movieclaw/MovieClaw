@@ -29,6 +29,7 @@ import {
   uploadLibraryCover,
   type LibraryAccessMode,
 } from "@/lib/api/libraries";
+import { responsiveImage } from "@/lib/image-proxy";
 import { listMembers, type MemberView } from "@/lib/api/members";
 import type { LibraryKind } from "@/lib/media-types";
 
@@ -820,7 +821,8 @@ function CoverEditor({
           ) : (
             <img
               key={stamp}
-              src={libraryCoverUrl(libraryId)}
+              // 预览框 w-52（208），手机通栏约 360
+              {...responsiveImage(libraryCoverUrl(libraryId), 360)}
               alt=""
               className="size-full object-cover"
               onError={() => setFailed(true)}

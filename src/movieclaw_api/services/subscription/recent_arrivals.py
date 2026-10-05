@@ -26,7 +26,6 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.media_scrape import asset_version
 
 # 「看完了吗 / 文件在不在位」与接下来继续同一套判定，直接复用那边的批量查询，
@@ -37,6 +36,7 @@ from movieclaw_api.services.playback_up_next import (
     _runtime_ms,
     _states,
 )
+from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_db.models import (
     LibraryFile,
     MediaEpisode,
@@ -200,7 +200,6 @@ async def _hydrate(
         ).all()
     }
 
-    image_base = get_settings().tmdb_image_base_url.rstrip("/")
     result: list[RecentArrival] = []
     for subscription, media, units, imported_at in picks:
         assert media.id is not None
@@ -215,7 +214,7 @@ async def _hydrate(
             if still_file:
                 still_url = f"/images/assets/{still_file}?v={asset_version(still_file)}"
             elif still_path:
-                still_url = f"{image_base}/w780{still_path}"
+                still_url = tmdb_image_url(still_path, "still")
         position_ms = states.get((media.id, display), (False, 0))[1]
         duration_ms = _runtime_ms(
             durations.get((media.id, display)),

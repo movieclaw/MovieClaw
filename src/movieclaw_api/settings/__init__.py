@@ -33,10 +33,12 @@ from movieclaw_api.settings.base import (
 from movieclaw_api.settings.channel_push import (
     ChannelPushSetting,
 )
+from movieclaw_api.settings.cloud import CloudSetting, PushChannelsSetting
 from movieclaw_api.settings.llm import LlmDefaultsSetting
 from movieclaw_api.settings.mcp import McpEndpoint, McpEndpointsSetting
 from movieclaw_api.settings.metadata import (
     DiscoverPreferencesSetting,
+    FanartSetting,
     MetadataScrapeSetting,
 )
 from movieclaw_api.settings.network import (
@@ -101,6 +103,7 @@ __all__ = [
     "AdminAccountSetting",
     "SessionSecretSetting",
     # 刮削与发现页偏好
+    "FanartSetting",
     "MetadataScrapeSetting",
     "DiscoverPreferencesSetting",
     # 网络与代理
@@ -110,6 +113,9 @@ __all__ = [
     "DEFAULT_REMOTE_TRANSCODE_MAX_ARTIFACT_BYTES",
     "MAX_REMOTE_TRANSCODE_ARTIFACT_BYTES",
     "ChannelPushSetting",
+    # MovieClaw Cloud 与 App 推送通道
+    "CloudSetting",
+    "PushChannelsSetting",
     "BUILTIN_EGRESS_SERVICES",
     # AI 设定（各用途默认模型）
     "LlmDefaultsSetting",

@@ -1,6 +1,6 @@
 import SwiftUI
 
-// 消息推送 →「接入通道」标签（对应 Web `ChannelsTab` + `AddChannelMenu` + `ChannelAccountRowView`）。
+// IM 推送 →「接入通道」标签（对应 Web `ChannelsTab` + `AddChannelMenu` + `ChannelAccountRowView`）。
 
 /// 全部可接入的通道：微信走扫码，Telegram/Discord 走 bot token + 配对码，飞书贴群机器人 Webhook。
 ///

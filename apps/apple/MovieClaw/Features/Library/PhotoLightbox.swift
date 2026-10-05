@@ -6,8 +6,8 @@ extension PhotoWallView {
     ///
     /// 舞台交互（缩放、翻页、缩略条、收放控件）全在 `LibraryZoomableImage.Lightbox` 里，
     /// 与图廊、章节图的灯箱共用；这里只负责图片库特有的三件事：
-    /// - **三级地址**：墙上的缩略图 → 长边 2048 的屏幕适配图（`?size=screen`，服务端按原图
-    ///   惰性派生并缓存）→ 只有放大后才拉几 MB 的原图；
+    /// - **三级地址**：墙上的缩略图 → 屏宽像素的屏幕适配图（原图地址带 `w`，服务端按原图
+    ///   惰性派生并缓存）→ 只有放大后才拉几 MB 的原图（不带 `w`）；
     /// - **拍摄信息**面板：文件名、拍摄日期、尺寸、大小、格式、路径，按需从条目详情接口
     ///   （`GET /libraries/{lib}/items/{id}`）拉，同一张只拉一次；
     /// - **下载原图**：Web 在 iOS 桌面应用里先下载、再弹系统分享面板，失败在灯箱顶部提示原因；
@@ -96,8 +96,9 @@ extension PhotoWallView {
                 return LibraryZoomableImage.Slide(
                     id: i,
                     title: item.title,
-                    thumbURL: api.image(item.posterUrl),
-                    screenURL: original.map { api.url($0, query: [URLQueryItem(name: "size", value: "screen")]) },
+                    // 与墙上瓦片同一个地址（同一密度档的宽度）：墙已经加载过，打开灯箱直接命中缓存
+                    thumbURL: api.image(item.posterUrl, width: GalleryPrefs.shared.density.tileImageWidth),
+                    screenURL: original.flatMap { api.image($0, width: ImageWidth.screen) },
                     fullURL: original.map { api.url($0) },
                     aspect: item.primaryAspect
                 )

@@ -96,6 +96,26 @@ def test_logo_asset_listed_and_served_as_transparent_png(
     assert poster.headers["content-type"] == "image/jpeg"
 
 
+def test_pascal_case_scale_params_are_honored(
+    client: TestClient, seeded: dict, tmp_path: Path
+) -> None:
+    """Infuse 这类客户端发 PascalCase 的 MaxWidth / FillWidth：照样出缩放图，不能回原图。"""
+    token = jf_login(client)
+    movie = seeded["movie"]
+    _write_logo(tmp_path / "metadata" / "images" / str(movie) / "logo.png")
+    _sql(
+        "update media_metadata set logo_file = ? where media_item_id = ?",
+        (f"{movie}/logo.png", movie),
+    )
+
+    for param in ("MaxWidth", "FillWidth"):
+        resp = client.get(
+            f"/Items/{item_guid(movie)}/Images/Logo", params={"ApiKey": token, param: 40}
+        )
+        assert resp.status_code == 200
+        assert _decode(resp.content).width == 40, param
+
+
 def test_palette_png_logo_keeps_transparency_when_scaled(
     client: TestClient, seeded: dict, tmp_path: Path
 ) -> None:
@@ -135,7 +155,7 @@ def test_series_logo_falls_back_to_tmdb_and_parents_point_at_it(
     class _FakeCache:
         async def get_or_fetch(self, url: str):
             requested.append(url)
-            return SimpleNamespace(path=fake, content_type="image/png")
+            return SimpleNamespace(path=fake, content_type="image/png", version="v1")
 
     from movieclaw_api.services import image_cache as image_cache_module
 

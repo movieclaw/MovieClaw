@@ -304,6 +304,10 @@ class LibraryFile(TimestampMixin, table=True):
     # 名称解析不得覆盖——upsert 保留人工值、重复行合并时人工值优先。
     media_source_manual: bool = Field(default=False, description="片源为人工标注；自动解析不得覆盖")
     release_group: str | None = Field(default=None, description="发布组")
+    # 入库时源文件的原始文件名（不含扩展名），命名模板 {release_name} 的取值。
+    # 整理改名后当前文件名就不是它了，所以必须在入库现场落下来；存量扫描
+    # 发现的文件不知道原名，为 NULL
+    release_name: str | None = Field(default=None, description="入库时的原始文件名（不含扩展名）")
 
     # -- 来源与追溯 ----------------------------------------------------------
     source: str = Field(index=True, description="imported（入库管线）/ scanned（存量扫描）")

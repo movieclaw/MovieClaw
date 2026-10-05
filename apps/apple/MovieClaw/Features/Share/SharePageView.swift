@@ -266,7 +266,7 @@ private struct ShareCollectionView: View {
                 ZStack {
                     Color.white.opacity(0.04)
                     if item.posterUrl != nil {
-                        RemoteImage(url: api.image(item.posterUrl, .posterCard))
+                        MeasuredRemoteImage(raw: item.posterUrl)
                     } else {
                         Text("暂无海报").font(.caption).foregroundStyle(.white.opacity(0.3))
                     }

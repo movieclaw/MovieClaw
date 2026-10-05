@@ -121,7 +121,7 @@ POST /api/v1/auth/device/authorize                      匿名 + 限流（新增
      权限由批准者决定（§4）。
      → {user_code: "MCLW-7F3K",
         device_code: "<高熵不可猜>",
-        verification_uri: "http://10.1.1.5:3000/settings/devices",
+        verification_uri: "http://10.1.1.5:3000/activate",
         interval: 2, expires_in: 300}
 
 POST /api/v1/auth/device/token                          匿名 + 限流（新增）
@@ -555,7 +555,7 @@ worker_token 的三态语义**全部删除**。
 $ mclaw login --server http://10.1.1.5:3000
 ✓ 已连接 movieclaw
 
-请在浏览器打开：http://10.1.1.5:3000/settings/devices
+请在浏览器打开：http://10.1.1.5:3000/activate
 核对配对码：      MCLW-7F3K
 
 ⠋ 等待批准…（5 分钟内有效）

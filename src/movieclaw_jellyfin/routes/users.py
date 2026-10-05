@@ -73,6 +73,8 @@ async def authenticate_by_name(request: Request) -> JSONResponse:
                 select(JellyfinDevice).where(JellyfinDevice.device_id == auth.device_id)
             )
         ).scalar_one_or_none()
+        # 这台设备第一次登录、或者换了个人登录：给这个人的手机推「新设备登录」
+        newcomer = device is None or device.member_id != member_id
         if device is None:
             device = JellyfinDevice(token=token, device_id=auth.device_id)
             session.add(device)
@@ -87,6 +89,17 @@ async def authenticate_by_name(request: Request) -> JSONResponse:
         device.last_seen_at = utcnow()
         device.updated_at = utcnow()
         await session.commit()
+    if newcomer:
+        from movieclaw_api.api.client_address import client_address
+        from movieclaw_api.services.push import events as push_events
+
+        push_events.new_device(
+            member_id=member_id,
+            device_ids=frozenset(),
+            name=auth.device or auth.client or "播放器",
+            kind_label=auth.client or "第三方播放器",
+            ip=client_address(request) or None,
+        )
 
     # 超管与成员都按可浏览集投影 EnabledFolders（超管摘掉自己的库也不在电视端出现）
     visible, pinned = await _enabled_scope(member_id)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from sqlalchemy import JSON, Column
 from sqlmodel import Field
 
 from movieclaw_db.models.base import TimestampMixin
@@ -49,3 +50,27 @@ class LoginDevice(MemberScopedMixin, TimestampMixin, table=True):
     # 只有网页会话有过期时间（沿用 7 天 / 记住我 30 天）；App、命令行、转码器
     # 长期有效，失效只靠注销——自动过期等于让用户某天莫名其妙掉线。
     expires_at: datetime | None = Field(default=None, description="过期时间；空=长期有效")
+
+    # -- App 推送登记（docs/design/cloud-push.md §4）------------------------------
+    # 只有 App 类设备（ios / tvos / android）会登记：App 用这台设备自己的凭证把 APNs
+    # 令牌和解密密钥交给实例。跟着这一行走——退出登录、注销设备、删除成员时随行删除，
+    # 不会留下一个还能往别人手机上推的登记。密钥是这台设备解密推送内容用的，加密存储。
+    push_token: str | None = Field(default=None, description="APNs 设备令牌（十六进制）")
+    push_topic: str | None = Field(default=None, description="App 的 Bundle ID")
+    push_environment: str | None = Field(
+        default=None, description="production / development（调试版是 development）"
+    )
+    push_types: list | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="这台设备支持的推送类型，如 [\"alert\"]",
+    )
+    push_key_id: str | None = Field(default=None, description="解密密钥的 key_id（随机值）")
+    push_key: str | None = Field(default=None, description="解密密钥（SecretBox 加密存储）")
+    push_permission: str | None = Field(
+        default=None, description="系统通知权限：authorized / provisional / denied ……"
+    )
+    push_problem: str | None = Field(
+        default=None, description="推送暴露的问题：bad_token（令牌和环境对不上等）"
+    )
+    push_registered_at: datetime | None = Field(default=None, description="最近一次登记时间")

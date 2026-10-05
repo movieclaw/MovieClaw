@@ -750,7 +750,7 @@ def test_feed_carries_directors_and_film_duration(client, tmp_path):
     [director] = items[structured]["title"]["directors"]
     assert director["name"] == "姜文"
     assert director["tmdb_person_id"] == 4321
-    assert director["avatar_url"].endswith("/w185/jiangwen.jpg")
+    assert director["avatar_url"].endswith("/original/jiangwen.jpg")
     # 没有关系行的旧条目退回档案里的姓名，最多两位
     assert [d["name"] for d in items[fallback]["title"]["directors"]] == ["甲", "乙"]
     assert items[fallback]["title"]["directors"][0]["tmdb_person_id"] is None

@@ -60,11 +60,11 @@ def test_get_config_returns_defaults_and_catalog(client):
     resp = client.get("/api/v1/network/config")
     assert resp.status_code == 200
     data = resp.json()["data"]
-    # 默认：跟随环境变量，TMDB、图片回源与 GitHub 更新走代理
+    # 默认：跟随环境变量，TMDB、图片回源、Fanart.tv 与 GitHub 更新走代理
     assert data["proxy_mode"] == "env"
-    assert sorted(data["proxy_services"]) == ["github", "image", "tmdb"]
+    assert sorted(data["proxy_services"]) == ["fanart", "github", "image", "tmdb"]
     service_ids = [item["id"] for item in data["services"]]
-    assert {"tmdb", "image", "douban", "llm", "github"} <= set(service_ids)
+    assert {"tmdb", "image", "fanart", "douban", "llm", "github"} <= set(service_ids)
     # 镜像默认值供前端 placeholder 展示
     assert data["mirror_defaults"]["tmdb_api_base_url"].startswith("http")
 
@@ -263,6 +263,44 @@ def test_test_endpoint_probes_telegram_discord_and_webhook(client, monkeypatch):
     assert requests[1].headers["Authorization"] == "Bot test-bot-token"
     assert str(requests[2].url) == "http://receiver.test/hook"
     assert requests[2].headers["X-Test"] == "1"
+
+
+def test_test_endpoint_probes_fanart(client, monkeypatch):
+    """Fanart.tv 连通性测试：没 Key 也能测线路（401 缺 Key 照样算通）；配了 Key
+    走请求头一并验证（不进 URL），无效 Key 给出明确提示。"""
+    import movieclaw_api.services.fanart as fanart_mod
+    from movieclaw_api.settings import FanartSetting
+
+    requests: list[httpx.Request] = []
+    services: list[str] = []
+    status = {"code": 401}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        return httpx.Response(status["code"], json={})
+
+    def fake_transport(service, **kwargs):
+        services.append(service)
+        return httpx.MockTransport(handler)
+
+    monkeypatch.setattr(network_config, "egress_transport", fake_transport)
+
+    def probe() -> str:
+        response = client.post("/api/v1/network/test", json={"service": "fanart"})
+        assert response.status_code == 200, response.text
+        assert response.json()["data"]["ok"] is True
+        return response.json()["data"]["message"]
+
+    assert "尚未填写" in probe()
+    assert "api-key" not in requests[-1].headers
+    monkeypatch.setattr(fanart_mod, "_current", FanartSetting(api_key="bad-key-0000"))
+    assert "API Key 无效" in probe()
+    status["code"] = 200
+    assert "API Key 有效" in probe()
+    assert requests[-1].headers["api-key"] == "bad-key-0000"
+    assert "api_key" not in str(requests[-1].url)
+    assert services == ["fanart"] * 3
+    fanart_mod.reset_fanart_runtime()
 
 
 def test_requires_login(tmp_path, monkeypatch):

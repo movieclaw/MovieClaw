@@ -79,7 +79,7 @@ private struct SubsHomeRecentCard: View {
     @Environment(\.api) private var api
     @Environment(Router.self) private var router
 
-    private static let width: CGFloat = 264
+    private static let width: CGFloat = PhoneCardWidth.recent
     private var isTV: Bool { card.media.kind == "tv" }
 
     /// 第三行：什么时候到的、这一批还有几集、看到哪了
@@ -137,7 +137,8 @@ private struct SubsHomeRecentCard: View {
         Color.clear
             .aspectRatio(16 / 9, contentMode: .fit)
             .overlay {
-                RemoteImage(url: api.image(card.stillUrl ?? card.media.backdropUrl ?? card.media.posterUrl, .landscapeCard))
+                RemoteImage(url: api.image(card.stillUrl ?? card.media.backdropUrl ?? card.media.posterUrl,
+                                           width: ImageWidth.points(PhoneCardWidth.recent)))
             }
             .overlay(alignment: .bottom) {
                 LinearGradient(colors: [.clear, .black.opacity(0.72)], startPoint: .top, endPoint: .bottom)
@@ -171,7 +172,7 @@ private struct SubsHomeRecentCard: View {
     /// 卡片左下角的小号片名 Logo（没有就不画，片名在卡片下面）
     @ViewBuilder
     private var logo: some View {
-        if let raw = card.media.logoUrl, let url = api.image(raw) {
+        if let raw = card.media.logoUrl, let url = api.image(raw, width: ImageWidth.points(PhoneCardWidth.recentLogo)) {
             LazyImage(url: url) { state in
                 Group {
                     if let image = state.image {
@@ -182,7 +183,7 @@ private struct SubsHomeRecentCard: View {
                 }
                 .perfImage(url, state)
             }
-            .frame(maxWidth: 118, maxHeight: 34, alignment: .bottomLeading)
+            .frame(maxWidth: PhoneCardWidth.recentLogo, maxHeight: 34, alignment: .bottomLeading)
         }
     }
 }
@@ -360,7 +361,7 @@ private struct SubsHomeAgendaRow: View {
         Color.clear
             .frame(width: 92, height: 52)
             .overlay {
-                RemoteImage(url: api.image(entry.media?.backdropUrl ?? entry.media?.posterUrl, .landscapeCard))
+                RemoteImage(url: api.image(entry.media?.backdropUrl ?? entry.media?.posterUrl, width: ImageWidth.points(92)))
             }
             .overlay(alignment: .bottom) {
                 if let progress = entry.progress {
@@ -525,7 +526,7 @@ struct SubsHomePosterCard: View {
         Color.clear
             .aspectRatio(Theme.posterAspect, contentMode: .fit)
             .overlay {
-                RemoteImage(url: api.image(item.sub.media.posterUrl, .posterCard))
+                MeasuredRemoteImage(raw: item.sub.media.posterUrl)
                     .saturation(dimmed ? 0.35 : 1)
                     .brightness(dimmed ? -0.12 : 0)
             }

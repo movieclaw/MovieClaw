@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import Field, field_serializer
+from pydantic import Field, field_serializer, field_validator
 
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.services.library.preflight import (
@@ -648,6 +648,25 @@ class LibraryKindSummaryView(BaseModel):
     item_count: int = Field(description="符合当前筛选的作品数（跨库去重）")
 
 
+class LibraryKindGenreView(BaseModel):
+    """首页「按类型找电影 / 剧集」的一格：一个 TMDB 类型、跨库部数，以及贴在卡片上的封面。
+
+    封面是这个类型**最近入库**、有剧照的那部片——色块同时是「这个类型新来了什么」
+    的提示。部数多的类型先挑，同一部片不会贴在两个类型上。
+    """
+
+    value: str = Field(description="TMDB genre id；点进去带 g=value 开墙")
+    label: str = Field(description="类型中文名")
+    count: int = Field(description="跨库去重后的部数")
+    cover_item_id: int | None = Field(
+        default=None, description="封面那部片的条目 id；没有可用剧照时为空"
+    )
+    cover_title: str | None = Field(default=None, description="封面那部片的片名")
+    cover_url: str | None = Field(
+        default=None, description="封面剧照（横版）；本地资产优先，回落 TMDB 图床"
+    )
+
+
 class LibraryGalleryImageView(BaseModel):
     """图廊里的一张图：条目的海报 / 剧照 / 分集剧照 / 章节场景图之一。
 
@@ -796,15 +815,6 @@ class LibraryItemView(BaseModel):
         if value.tzinfo is None:
             value = value.replace(tzinfo=UTC)
         return value.isoformat()
-
-
-class LibrarySearchGroupView(BaseModel):
-    """媒体库搜索结果的一组：一个库内命中关键词的条目（组内按标题拼音排序）。"""
-
-    library_id: int
-    library_name: str
-    kind: MediaKind
-    items: list[LibraryItemView]
 
 
 class AudioStreamView(BaseModel):
@@ -1031,6 +1041,33 @@ class LocalMetaView(BaseModel):
     )
 
 
+class LibraryItemShowcaseView(BaseModel):
+    """海报行「选中展开」要的展示信息（电视首页，同 Netflix 电视版的焦点卡）。
+
+    海报墙列表（``LibraryItemView``）只带画格子要的字段；焦点停在某张海报上时，
+    它展开成横版剧照卡、下面写类型 / 时长 / 分级与两行简介——这些字段一行二十部
+    整批取一次，不逐张拉详情（详情带全部文件清单，一部剧上百集）。
+    """
+
+    media_item_id: int
+    backdrop_url: str | None = Field(
+        default=None,
+        description=(
+            "横版剧照：本地资产优先，回落 TMDB w1280"
+            "（展开卡约 800 点宽，4K 下 1600px，列表那张 w780 发虚）"
+        ),
+    )
+    logo_url: str | None = Field(
+        default=None, description="片名 Logo（透明底 PNG）；没有时前端写文字片名"
+    )
+    overview: str | None = Field(default=None, description="简介（前端最多显示两行）")
+    genres: list[str] = Field(default_factory=list, description="类型（前端取前两个）")
+    runtime_minutes: int | None = Field(
+        default=None, description="片长（电影用；剧集为单集时长，前端不显示）"
+    )
+    content_rating: str | None = Field(default=None, description="分级（优先 CN，无则 US）")
+
+
 class LibraryItemDetailView(BaseModel):
     """条目详情页的完整数据：基本信息 + 本地刮削元数据 + 逐文件真实规格。
 
@@ -1138,8 +1175,10 @@ class SeasonEpisodesView(BaseModel):
 class ArtworkCandidateView(BaseModel):
     """「更换图片」弹层里的一张候选（docs/design/metadata.md 6.3）。"""
 
-    file_path: str = Field(description="TMDB 图片路径（选定时原样回传）")
-    preview_url: str = Field(description="缩略预览地址（TMDB 图床，前端经代理加载）")
+    file_path: str = Field(
+        description="图片路径（选定时原样回传）：TMDB 为相对路径，Fanart.tv 为图床绝对地址"
+    )
+    preview_url: str = Field(description="缩略预览地址（图床小图，前端经代理加载）")
     width: int | None = None
     height: int | None = None
     language: str | None = Field(
@@ -1147,6 +1186,12 @@ class ArtworkCandidateView(BaseModel):
     )
     vote_average: float | None = None
     vote_count: int | None = None
+    source: Literal["tmdb", "fanart"] = Field(default="tmdb", description="图片来源")
+    likes: int | None = Field(default=None, description="Fanart.tv 的点赞数（仅 Fanart 图）")
+    unlisted: bool = Field(
+        default=False,
+        description="在用但不在本次候选里（旧策略选的 / 上游下架 / 来源没取到）：语言与热度未知",
+    )
 
 
 class ArtworkCandidatesView(BaseModel):
@@ -1170,6 +1215,11 @@ class ArtworkCandidatesView(BaseModel):
     poster_locked: bool = Field(default=False, description="海报已手动选定，刷新不覆盖")
     backdrop_locked: bool = Field(default=False, description="背景已手动选定，刷新不覆盖")
     logo_locked: bool = Field(default=False, description="徽标已手动选定，刷新不覆盖")
+    fanart: Literal["ok", "not_configured", "invalid", "error", "none"] = Field(
+        default="none",
+        description="Fanart.tv 候选的状态：ok=已混入候选 / not_configured=还没填 Key / "
+        "invalid=Key 已失效 / error=这次没取到 / none=不适用",
+    )
 
 
 class ArtworkSelectPayload(BaseModel):
@@ -1179,8 +1229,22 @@ class ArtworkSelectPayload(BaseModel):
         description="poster=海报 / backdrop=背景图 / logo=片名徽标"
     )
     file_path: str | None = Field(
-        default=None, min_length=1, description="TMDB 图片路径；null=解锁并恢复自动选图"
+        default=None,
+        min_length=1,
+        description="候选里的 file_path（TMDB 相对路径或 Fanart.tv 图床地址）；"
+        "null=解锁并恢复自动选图",
     )
+
+    @field_validator("file_path")
+    @classmethod
+    def _check_file_path(cls, value: str | None) -> str | None:
+        """只收 TMDB 相对路径或 Fanart 图床地址：选定后服务端会去拉这张图，
+        不能让任意 URL 经这里变成服务端代发的请求。"""
+        from movieclaw_media.fanart import is_fanart_asset
+
+        if value is None or value.startswith("/") or is_fanart_asset(value):
+            return value
+        raise ValueError("图片路径不合法：只接受 TMDB 图片路径或 Fanart.tv 图床地址")
 
 
 class ReidentifyResultView(BaseModel):

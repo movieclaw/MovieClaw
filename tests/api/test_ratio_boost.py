@@ -765,7 +765,7 @@ class TestHandOverIfClaimed:
     def test_claimed_task_leaves_pool_without_deletion(self) -> None:
         """被订阅认领的任务转出管理：让出预算、绝不删数据，之后归订阅状态机管。"""
         task = _task()
-        assert hand_over_if_claimed(task, {task.info_hash}, _NOW)
+        assert hand_over_if_claimed(task, {task.info_hash: {None}}, _NOW)
         assert task.state == BoostTaskState.MISSING
         assert task.evicted_at == _NOW
         assert "认领" in (task.evict_reason or "")
@@ -774,13 +774,29 @@ class TestHandOverIfClaimed:
 
     def test_unclaimed_task_stays(self) -> None:
         task = _task()
-        assert not hand_over_if_claimed(task, {"f" * 40}, _NOW)
+        assert not hand_over_if_claimed(task, {"f" * 40: {None}}, _NOW)
         assert task.state == BoostTaskState.ACTIVE
+
+    def test_claim_on_same_downloader_hands_over(self) -> None:
+        task = _task(downloader_id=1)
+        assert hand_over_if_claimed(task, {task.info_hash: {1}}, _NOW)
+
+    def test_claim_on_other_downloader_keeps_boost_management(self) -> None:
+        """刷流在专用下载器、订阅投到默认下载器：订阅那份是独立副本，刷流这份
+        继续受管（照常汰换），否则会在刷流机上永久脱管占盘。"""
+        task = _task(downloader_id=2)
+        assert not hand_over_if_claimed(task, {task.info_hash: {1}}, _NOW)
+        assert task.state == BoostTaskState.ACTIVE
+
+    def test_claim_with_unknown_downloader_hands_over(self) -> None:
+        """认领方下载器未知（存量记录）按同一台处理：宁可脱管，不误删订阅数据。"""
+        task = _task(downloader_id=2)
+        assert hand_over_if_claimed(task, {task.info_hash: {1, None}}, _NOW)
 
     def test_terminal_states_untouched(self) -> None:
         """已终态（evicted/missing）的任务不重复转出，保留原始结论。"""
         task = _task(state=BoostTaskState.EVICTED, evict_reason="原始原因")
-        assert not hand_over_if_claimed(task, {task.info_hash}, _NOW)
+        assert not hand_over_if_claimed(task, {task.info_hash: {None}}, _NOW)
         assert task.evict_reason == "原始原因"
 
 
@@ -1308,3 +1324,142 @@ async def test_site_delete_keeps_tasks_scheduled_for_cleanup(db) -> None:
     assert released == 1
     assert rows[_hash(13)].state == BoostTaskState.MISSING
     assert rows[_hash(14)].state == BoostTaskState.ACTIVE
+
+
+# ---------------------------------------------------------------------------
+# 刷流下载器按站点选择（设计 2.10）：选定那台就只用那台，不可用不改投默认
+# ---------------------------------------------------------------------------
+
+
+async def _seed_downloaders_and_site(db, *, boost_downloader: str | None) -> dict[str, int]:
+    """建默认下载器 main 与刷流机 seedbox（均可用）、一个开着刷流的 demo 站点；
+    boost_downloader 为站点选定的下载器名（None=未选定）。返回 {名称: id}。"""
+    from movieclaw_db.models import DownloaderClient
+    from movieclaw_db.models.site_credential import AuthType, ConfigStatus, SiteCredential
+
+    async with db.session() as session:
+        rows = {
+            name: DownloaderClient(
+                name=name,
+                client_type="qbittorrent",
+                url=f"http://{name}",
+                is_default=name == "main",
+                status=ConfigStatus.ACTIVE,
+            )
+            for name in ("main", "seedbox")
+        }
+        session.add_all(rows.values())
+        await session.commit()
+        ids = {name: row.id for name, row in rows.items()}
+        session.add(
+            SiteCredential(
+                site_id="demo",
+                auth_type=AuthType.COOKIE,
+                boost_enabled=True,
+                boost_downloader_id=ids[boost_downloader] if boost_downloader else None,
+            )
+        )
+        await session.commit()
+        return ids
+
+
+async def _resolve_boost_downloader(db) -> int | None:
+    from movieclaw_api.services.ratio_boost import _boost_downloader
+    from movieclaw_db.models.site_credential import SiteCredential
+
+    async with db.session() as session:
+        cred = (await session.execute(select(SiteCredential))).scalars().one()
+        row = await _boost_downloader(session, cred)
+        return None if row is None else row.id
+
+
+@pytest.mark.asyncio
+async def test_boost_downloader_unset_follows_default(db) -> None:
+    """未选定（存量站点）= 跟随默认下载器，与引入该列前的行为一致。"""
+    ids = await _seed_downloaders_and_site(db, boost_downloader=None)
+    assert await _resolve_boost_downloader(db) == ids["main"]
+
+
+@pytest.mark.asyncio
+async def test_boost_downloader_uses_site_choice(db) -> None:
+    ids = await _seed_downloaders_and_site(db, boost_downloader="seedbox")
+    assert await _resolve_boost_downloader(db) == ids["seedbox"]
+
+
+@pytest.mark.asyncio
+async def test_boost_downloader_unavailable_never_falls_back_to_default(db) -> None:
+    """选定那台连接失败/停用时暂停准入，绝不改投默认下载器（隔离是选它的初衷）。"""
+    from movieclaw_db.models import DownloaderClient
+    from movieclaw_db.models.site_credential import ConfigStatus
+
+    ids = await _seed_downloaders_and_site(db, boost_downloader="seedbox")
+    async with db.session() as session:
+        row = await session.get(DownloaderClient, ids["seedbox"])
+        row.status = ConfigStatus.FAILED
+        await session.commit()
+    assert await _resolve_boost_downloader(db) is None
+
+    async with db.session() as session:
+        row = await session.get(DownloaderClient, ids["seedbox"])
+        row.status = ConfigStatus.ACTIVE
+        row.enabled = False
+        await session.commit()
+    assert await _resolve_boost_downloader(db) is None
+
+
+@pytest.mark.asyncio
+async def test_deleting_boost_downloader_turns_site_boost_off(db) -> None:
+    """删除站点选定的刷流下载器：该站刷流关闭，不改投默认下载器（隔离不被悄悄破坏）。"""
+    from movieclaw_api.services.downloader_config import DownloaderConfigService
+    from movieclaw_db.models.site_credential import SiteCredential
+
+    ids = await _seed_downloaders_and_site(db, boost_downloader="seedbox")
+    async with db.session() as session:
+        disabled = await DownloaderConfigService(session).delete(ids["seedbox"])
+    assert disabled == ["demo"]
+    async with db.session() as session:
+        cred = (await session.execute(select(SiteCredential))).scalars().one()
+        assert not cred.boost_enabled
+        assert cred.boost_downloader_id is None
+
+
+@pytest.mark.asyncio
+async def test_deleting_other_downloader_leaves_boost_alone(db) -> None:
+    """删的不是刷流下载器：站点刷流不受影响。"""
+    from movieclaw_api.services.downloader_config import DownloaderConfigService
+    from movieclaw_db.models.site_credential import SiteCredential
+
+    ids = await _seed_downloaders_and_site(db, boost_downloader="seedbox")
+    async with db.session() as session:
+        assert await DownloaderConfigService(session).delete(ids["main"]) == []
+    async with db.session() as session:
+        cred = (await session.execute(select(SiteCredential))).scalars().one()
+        assert cred.boost_enabled
+        assert cred.boost_downloader_id == ids["seedbox"]
+    assert await _resolve_boost_downloader(db) == ids["seedbox"]
+
+
+@pytest.mark.asyncio
+async def test_set_ratio_boost_validates_and_keeps_downloader(db) -> None:
+    """开启时选定下载器；不存在/已停用的拒绝；不传则保持原选择。"""
+    from movieclaw_api.exceptions import BadRequestException
+    from movieclaw_api.services.site_config import SiteConfigService
+    from movieclaw_db.models import DownloaderClient
+
+    ids = await _seed_downloaders_and_site(db, boost_downloader=None)
+    async with db.session() as session:
+        service = SiteConfigService(session)
+        row = await service.set_ratio_boost("demo", enabled=True, downloader_id=ids["seedbox"])
+        assert row.boost_downloader_id == ids["seedbox"]
+
+        row = await service.set_ratio_boost("demo", enabled=True, hold_days=5)
+        assert row.boost_downloader_id == ids["seedbox"]
+
+        with pytest.raises(BadRequestException):
+            await service.set_ratio_boost("demo", enabled=True, downloader_id=9999)
+
+        main = await session.get(DownloaderClient, ids["main"])
+        main.enabled = False
+        await session.commit()
+        with pytest.raises(BadRequestException):
+            await service.set_ratio_boost("demo", enabled=True, downloader_id=ids["main"])

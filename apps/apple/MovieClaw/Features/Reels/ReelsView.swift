@@ -636,7 +636,7 @@ private struct ReelPage: View {
         } label: {
             HStack(spacing: 8) {
                 // 32pt（原来 24pt 只比名字那行字高一点，显小，2026-09-30 用户反馈；同 Instagram Reels 作者头像）
-                RemoteImage(url: api.image(lead.avatarUrl), placeholderSymbol: "person.fill")
+                RemoteImage(url: api.image(lead.avatarUrl, width: ImageWidth.points(32)), placeholderSymbol: "person.fill")
                     .frame(width: 32, height: 32)
                     .clipShape(Circle())
                     .overlay(Circle().stroke(.white.opacity(0.25), lineWidth: 0.5))

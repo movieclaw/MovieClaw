@@ -134,11 +134,12 @@ export function Sidebar({
       {collapsed ? (
         <div className="flex flex-col items-center gap-2 px-3 pb-3 pt-5">
           <BrandHome onSelect={onSelect} homeId={isMember ? "library" : "new"}>
+            {/* 界面小尺寸用细笔画版标志（标准版的粗笔画在这里显得重一档） */}
             <Image
-              src="/brand/movieclaw-mark.png"
+              src="/brand/movieclaw-mark-ui.png"
               alt="MovieClaw"
-              width={512}
-              height={512}
+              width={256}
+              height={256}
               priority
               className="size-7 object-contain"
             />
@@ -148,16 +149,18 @@ export function Sidebar({
         </div>
       ) : (
         <div className="flex items-center justify-between px-4 pb-3 pt-4">
-          {/* 标志 + 字标：字标用真实文字（Inter 半粗、单色，颜色只由标志承担），比烤进图片里的字更清晰 */}
+          {/* 标志 + 字标：字标用真实文字（Inter 半粗、单色，颜色只由标志承担），比烤进图片里的字更清晰。
+              比例按品牌规范：字形高 20px（22px 方块里占 91%）≈ 字标大写高（17px × 0.727 ≈ 12.4px）的 1.6 倍；
+              标志用细笔画版，笔画约 2.3px，与半粗字标的笔画协调 */}
           <BrandHome onSelect={onSelect} homeId={isMember ? "library" : "new"}>
-            <span className="flex items-center gap-2">
+            <span className="flex items-center gap-1.5">
               <Image
-                src="/brand/movieclaw-mark.png"
+                src="/brand/movieclaw-mark-ui.png"
                 alt=""
-                width={512}
-                height={512}
+                width={256}
+                height={256}
                 priority
-                className="size-7 object-contain"
+                className="size-[22px] object-contain"
               />
               <span className="text-[17px] font-semibold tracking-[-0.022em] text-[var(--text)]">MovieClaw</span>
             </span>

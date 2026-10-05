@@ -30,6 +30,11 @@ BUILTIN_EGRESS_SERVICES: list[dict[str, str]] = [
         "label": "图片回源",
         "description": "海报/背景图代理回源（TMDB 图床及各站图床）",
     },
+    {
+        "id": "fanart",
+        "label": "Fanart.tv",
+        "description": "Fanart.tv 图片来源：接口 webservice.fanart.tv 与图床 assets.fanart.tv",
+    },
     {"id": "douban", "label": "豆瓣", "description": "豆瓣榜单与搜索（国内网络通常可直连）"},
     {"id": "llm", "label": "AI 模型", "description": "大语言模型供应商接口"},
     {
@@ -53,6 +58,17 @@ BUILTIN_EGRESS_SERVICES: list[dict[str, str]] = [
         "label": "事件 Webhook",
         "description": "向外部服务推送播放、收藏等事件；目标多在内网，"
         "endpoint 可单独选择直连（默认）或走代理",
+    },
+    {
+        "id": "movieclaw_cloud",
+        "label": "MovieClaw Cloud",
+        "description": "连接、续签与上报（api.movieclaw.io）；未连接时不发任何请求",
+    },
+    {
+        "id": "movieclaw_push",
+        "label": "App 推送",
+        "description": "推送中继（官方 push.movieclaw.io 与公网上的自建中继）；"
+        "局域网里的自建中继总是直连",
     },
     {
         "id": "github",
@@ -87,7 +103,7 @@ class NetworkEgressSetting(SettingSchema):
         description="手动模式的代理地址，支持 http:// 与 socks5://（如 socks5://192.168.1.2:7891）",
     )
     proxy_services: list[str] = Field(
-        default_factory=lambda: ["tmdb", "image", "github"],
+        default_factory=lambda: ["tmdb", "image", "fanart", "github"],
         description="走代理的服务标签列表；PT 站用 site:<站点id> 形式按站独立控制",
     )
     tmdb_api_base_url: str = Field(

@@ -65,6 +65,7 @@ from movieclaw_api.services.title_discovery import (
     get_title_discovery_service,
     parse_title_ref,
 )
+from movieclaw_api.services.tmdb_images import local_media_files
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import MediaItem, Subscription, WantedItem
 from movieclaw_db.repositories import LibraryFileRepository, MediaItemRepository
@@ -98,7 +99,8 @@ def _job_origin(client_name: object) -> str:
     return "web"
 
 
-def _detail_view(
+async def _detail_view(
+    session: AsyncSession,
     sub: Subscription,
     item: MediaItem,
     wanted: list[WantedItem],
@@ -114,7 +116,10 @@ def _detail_view(
     ``can_manage`` 只有读详情与创建两处需要算（可能是只关注的成员）；调整类接口
     已经过发起人校验，走到组装这一步必然可管理。
     """
-    view = SubscriptionDetailView.from_detail(sub, item, wanted, resource_timings, rule_spec)
+    files = (await local_media_files(session, [item.id])).get(item.id or -1)
+    view = SubscriptionDetailView.from_detail(
+        sub, item, wanted, resource_timings, rule_spec, media_files=files
+    )
     view.forecast_pending = forecast_refresh_pending(view.media.media_item_id)
     view.can_manage = can_manage
     return view
@@ -151,7 +156,9 @@ async def _prepare_resolved_target(
         aired_by_season[season_number] = aired_by_season.get(season_number, 0) + 1
     return PrepareView(
         status="ready",
-        media=MediaBrief.from_model(item),
+        media=MediaBrief.from_model(
+            item, (await local_media_files(session, [item.id])).get(item.id)
+        ),
         seasons=[
             SeasonOverview.from_row(
                 row,
@@ -320,8 +327,13 @@ async def create_subscription(
     resource_timings = await service.resource_timings(subscription.id)
     return ok(
         SubscriptionCreateView(
-            subscription=_detail_view(
-                sub, item, wanted, resource_timings, can_manage=_can_manage(principal, sub)
+            subscription=await _detail_view(
+                session,
+                sub,
+                item,
+                wanted,
+                resource_timings,
+                can_manage=_can_manage(principal, sub),
             ),
             download_routing=download_routing,
         ),
@@ -404,6 +416,7 @@ async def list_subscriptions(
     )
     owned_by_item = await LibraryFileRepository(session).owned_counts_by_season_many(tv_item_ids)
 
+    files_by_item = await local_media_files(session, [item.id for _sub, item, _counts in rows])
     views: list[SubscriptionView] = []
     for sub, item, counts in rows:
         item_id = item.id or -1
@@ -417,7 +430,11 @@ async def list_subscriptions(
             )
             for season in seasons_by_item.get(item_id, [])
         ]
-        views.append(SubscriptionView.from_model(sub, item, counts, collection))
+        views.append(
+            SubscriptionView.from_model(
+                sub, item, counts, collection, media_files=files_by_item.get(item_id)
+            )
+        )
     # 「洗版中」批量派生（与详情页同口径）：海报墙据此给完结剧亮青点
     from movieclaw_api.services.subscription import upgrading_counts
 
@@ -501,11 +518,14 @@ async def list_recent_arrivals(
         days=days,
         limit=limit,
     )
+    arrival_files = await local_media_files(session, [arrival.media.id for arrival in arrivals])
     return ok(
         [
             RecentArrivalView(
                 subscription_id=arrival.subscription.id,  # type: ignore[arg-type]
-                media=MediaBrief.from_model(arrival.media),
+                media=MediaBrief.from_model(
+                    arrival.media, arrival_files.get(arrival.media.id or -1)
+                ),
                 season_number=arrival.display[0],
                 episode_number=arrival.display[1],
                 episode_name=arrival.episode_name,
@@ -551,8 +571,14 @@ async def get_subscription(
         except ValueError:
             rule_spec = None
     return ok(
-        _detail_view(
-            sub, item, wanted, resource_timings, rule_spec, can_manage=_can_manage(principal, sub)
+        await _detail_view(
+            session,
+            sub,
+            item,
+            wanted,
+            resource_timings,
+            rule_spec,
+            can_manage=_can_manage(principal, sub),
         )
     )
 
@@ -645,7 +671,7 @@ async def update_subscription(
     sub, item, wanted = await service.detail(subscription_id)
     resource_timings = await service.resource_timings(subscription_id)
     return ok(
-        _detail_view(sub, item, wanted, resource_timings),
+        await _detail_view(session, sub, item, wanted, resource_timings),
         message="订阅已调整",
     )
 
@@ -746,6 +772,7 @@ async def grab_subscription_torrent(
         imdb_id=payload.imdb_id,
         douban_id=payload.douban_id,
         publish_time=payload.publish_time,
+        actor_member_id=principal.owner_id,
     )
     units = [
         DownloadUnitView(season_number=w.season_number, episode_number=w.episode_number)
@@ -772,7 +799,7 @@ async def _set_tracking_state(
     resource_timings = await service.resource_timings(subscription_id)
     message = "已暂停，资源匹配与搜索将跳过该订阅" if paused else "已恢复追踪"
     return ok(
-        _detail_view(sub, item, wanted, resource_timings),
+        await _detail_view(session, sub, item, wanted, resource_timings),
         message=message,
     )
 
@@ -819,7 +846,7 @@ async def set_subscription_follow_future(
     resource_timings = await service.resource_timings(subscription_id)
     message = "已开启自动续订" if payload.enabled else "已关闭自动续订"
     return ok(
-        _detail_view(sub, item, wanted, resource_timings),
+        await _detail_view(session, sub, item, wanted, resource_timings),
         message=message,
     )
 

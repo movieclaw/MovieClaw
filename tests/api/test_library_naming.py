@@ -275,3 +275,150 @@ def test_empty_bracket_groups_dropped_with_literals(
 ) -> None:
     """占位符全空的括号组连同组内字面文本一起丢弃。"""
     assert render(template, context) == expected
+
+
+# ---------------------------------------------------------------------------
+# issue #577：新开放的占位符、片名去重、超长截短
+# ---------------------------------------------------------------------------
+
+
+def test_new_identity_tokens_render_from_item() -> None:
+    """英文名 / 豆瓣 ID 从条目取值，四个模板都能用。"""
+    item = _item(english_title="Kite", douban_id="26340419")
+    tpl = NamingTemplates(entry_dir="{title} ({year}) [{english_title}] [douban-{douban_id}]")
+    assert entry_dir_name_of(item, templates=tpl) == "风筝 (2017) [Kite] [douban-26340419]"
+
+
+def test_title_tokens_deduplicated_in_template_order() -> None:
+    """国产片 title == original_title：后出现的那个渲染为空，括号组整组收掉。"""
+    tpl = "{title} ({original_title}) ({year})"
+    assert render(tpl, {"title": "风筝", "original_title": "风筝", "year": 2017}) == "风筝 (2017)"
+    assert (
+        render(tpl, {"title": "沙丘2", "original_title": "Dune: Part Two", "year": 2024})
+        == "沙丘2 (Dune Part Two) (2024)"
+    )
+    # 先写原名则保留原名、去掉后面的同值片名；大小写差异视为同名
+    assert (
+        render(
+            "{original_title} - {english_title}",
+            {"original_title": "Dune", "english_title": "DUNE"},
+        )
+        == "Dune"
+    )
+
+
+def test_file_attrs_format_like_release_names() -> None:
+    from movieclaw_api.services.library.naming import file_attrs
+
+    attrs = file_attrs(
+        video_codec="hevc",
+        hdr="Dolby Vision",
+        bit_depth=10,
+        audio_streams=[
+            {"codec": "aac", "channels": 2, "default": False},
+            {
+                "codec": "truehd",
+                "profile": "Dolby TrueHD + Dolby Atmos",
+                "channels": 8,
+                "channel_layout": "7.1",
+                "default": True,
+            },
+        ],
+        site_id="hdsky",
+        release_name="Dune.Part.Two.2024.2160p",
+    )
+    assert attrs["video_codec"] == "HEVC"
+    assert attrs["hdr"] == "DV"
+    assert attrs["bit_depth"] == "10bit"
+    assert attrs["audio"] == "TrueHD Atmos 7.1"  # 取标了默认的那条
+    assert attrs["site"] == "hdsky"
+    assert attrs["release_name"] == "Dune.Part.Two.2024.2160p"
+    # 未探测：全部为空，模板里随括号组收缩
+    empty = file_attrs()
+    assert all(v is None for v in empty.values())
+
+
+@pytest.mark.parametrize(
+    "stream,expected",
+    [
+        ({"codec": "eac3", "channels": 6, "channel_layout": "5.1(side)"}, "DDP 5.1"),
+        ({"codec": "dts", "profile": "DTS-HD MA", "channels": 8}, "DTS-HD MA 7.1"),
+        ({"codec": "aac", "profile": "LC", "channels": 2, "channel_layout": "stereo"}, "AAC 2.0"),
+        ({"codec": "pcm_s24le", "channels": 2}, "LPCM 2.0"),
+        ({"codec": "ac3", "channels": 6}, "DD 5.1"),
+    ],
+)
+def test_audio_label(stream: dict, expected: str) -> None:
+    from movieclaw_api.services.library.naming import file_attrs
+
+    assert file_attrs(audio_streams=[stream])["audio"] == expected
+
+
+def test_episode_and_season_names_render() -> None:
+    """{episode_title}/{season_name} 由调用方按季集查好传进来。"""
+    tpl = NamingTemplates(
+        season_dir="Season {season:02d} {season_name}",
+        episode_file="{title} - S{season:02d}E{episode:02d} - {episode_title}",
+    )
+    item = _item()
+    assert season_dir_name(0, item, templates=tpl, season_name="特别篇") == "Season 00 特别篇"
+    assert (
+        episode_file_name(item, 1, 3, templates=tpl, episode_title="延安来的姑娘")
+        == "风筝 - S01E03 - 延安来的姑娘"
+    )
+    # 没刮到集名：分隔符一并收缩，不留 "- " 尾巴
+    assert episode_file_name(item, 1, 3, templates=tpl) == "风筝 - S01E03"
+
+
+@pytest.mark.parametrize(
+    "field,template",
+    [
+        ("entry_dir", "{title} {english_title} {douban_id}"),
+        ("movie_file", "{title} {video_codec} {hdr} {bit_depth} {audio} {site} {release_name}"),
+        ("season_dir", "{season_name} S{season}"),
+        ("episode_file", "{title} S{season}E{episode} {season_name} {episode_title} {audio}"),
+    ],
+)
+def test_new_tokens_accepted_where_resolvable(field: str, template: str) -> None:
+    assert validate_template(field, template) is None
+
+
+@pytest.mark.parametrize(
+    "field,template",
+    [
+        # 条目目录在投递时就要算出来，那时还没有文件，文件属性必须拒绝
+        ("entry_dir", "{title} {release_name}"),
+        ("entry_dir", "{title} {site}"),
+        ("movie_file", "{title} {season_name}"),
+        ("season_dir", "S{season} {episode_title}"),
+    ],
+)
+def test_new_tokens_rejected_where_unresolvable(field: str, template: str) -> None:
+    assert "不可用的占位符" in (validate_template(field, template) or "")
+
+
+def test_long_names_truncate_free_text_but_keep_episode_code() -> None:
+    """超长时截短最长的自由文本，SxxEyy、年份与规格保持完整；结果幂等。"""
+    from movieclaw_api.services.library.naming import MAX_SEGMENT_BYTES
+
+    tpl = "{title} ({year}) - S{season:02d}E{episode:02d} - {episode_title} [{resolution}]"
+    ctx = {
+        "title": "很长的剧名" * 8,
+        "year": 2017,
+        "season": 1,
+        "episode": 3,
+        "episode_title": "非常非常长的集名" * 10,
+        "resolution": "2160p",
+    }
+    name = render(tpl, ctx)
+    assert len(name.encode()) <= MAX_SEGMENT_BYTES
+    assert "(2017) - S01E03 - " in name and name.endswith("[2160p]")
+    assert name.startswith("很长的剧名" * 8)  # 先截最长的集名，片名完整
+    assert render(tpl, ctx) == name  # 确定性：入库与整理算出同一个名字
+
+
+def test_long_literal_template_hard_cut() -> None:
+    from movieclaw_api.services.library.naming import MAX_SEGMENT_BYTES
+
+    name = render("{title} " + "字" * 100, {"title": "某片"})
+    assert len(name.encode()) <= MAX_SEGMENT_BYTES and name.startswith("某片 ")

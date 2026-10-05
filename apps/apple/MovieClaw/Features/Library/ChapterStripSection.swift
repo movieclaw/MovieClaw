@@ -73,7 +73,7 @@ struct ChapterStripSection: View {
                     ForEach(chapters, id: \.index) { chapter in
                         ChapterCard(
                             chapter: chapter,
-                            imageURL: api.image(chapter.imageUrl, .landscapeCard),
+                            imageURL: api.image(chapter.imageUrl, width: ImageWidth.points(200)),
                             resumeHere: chapter.index == resumeIndex
                         ) {
                             if chapter.imageUrl != nil, let i = withImages.firstIndex(where: { $0.index == chapter.index }) {
@@ -118,8 +118,9 @@ struct ChapterStripSection: View {
             LibraryZoomableImage.Slide(
                 id: chapter.index,
                 title: Self.caption(chapter),
-                thumbURL: api.image(chapter.imageUrl, .landscapeCard),
-                screenURL: api.image(chapter.imageUrl),
+                // 缩略条与章节卡同一个地址（命中缓存）；舞台按屏宽像素取
+                thumbURL: api.image(chapter.imageUrl, width: ImageWidth.points(200)),
+                screenURL: api.image(chapter.imageUrl, width: ImageWidth.screen),
                 aspect: 16.0 / 9.0
             )
         }

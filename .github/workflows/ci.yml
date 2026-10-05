@@ -4,7 +4,8 @@
 # 此前 pytest / ruff / web:lint / web:typecheck 全靠本地自觉，外部贡献 PR
 # 没有任何机器把关。本工作流把四条门禁固化到 CI：
 #
-#   - python 作业：ruff check . + pytest（跳过 integration 标记的用例）。
+#   - python 作业：ruff check . + pytest（跳过 integration 标记的用例），pytest
+#     按文件拆 3 片并行，单用例 180 秒超时（卡死几分钟内失败并打出线程栈）。
 #     enrich 的片名/季集抽取依赖 NER 模型（运行期数据，不入 git），缺模型时
 #     季集相关的一批测试会稳定失败——所以先从模型 Release 下载三个文件，
 #     并用 actions/cache 按 tag 缓存，避免每次跑 CI 都拉 15MB。
@@ -96,10 +97,23 @@ jobs:
               - *all
               - "macos/**"
 
+  # pytest 拆成 3 片并行（公开仓库的托管 runner 免费），每片内再按 4 核
+  # xdist 并行。按文件分配、按历史耗时装箱（tests/conftest.py 的
+  # pytest_collection_modifyitems），三片大致同时跑完；某片明显偏慢时用
+  # scripts/update-shard-durations.py 刷新 tests/shard-durations.json。
   python:
+    name: python (${{ matrix.shard }}/3)
     needs: changes
     if: needs.changes.outputs.python == 'true'
     runs-on: ubuntu-latest
+    strategy:
+      # 一片挂了其余照跑完，一次把所有失败都报出来
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    # 兜底：正常 pytest 几分钟跑完。单用例卡死由 pytest-timeout 拦截，这里管的是
+    # 用例之外的卡死（进程退出、插件收尾），避免像以前那样挂到 GitHub 默认的 6 小时
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
@@ -110,6 +124,26 @@ jobs:
 
       - name: 安装依赖（含 dev 工具链）
         run: pip install -e ".[dev]"
+
+      # tests/agent 的会话夹具要现场编译 Go 版 mclaw（Agent ↔ CLI 接线验证），
+      # 编译需要内嵌的基线 spec（构建产物，不入 git）。以前这里不导出，编译
+      # 必然失败，整个 tests/agent（近百个用例）在 CI 里一直被静默跳过。
+      # 导出同时写服务端那份 spec.json，测试里读 spec 也不必再从代码现算。
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: cli/go.mod
+          cache-dependency-path: cli/go.sum
+
+      - name: 导出内嵌基线 spec
+        run: PYTHON=python scripts/export-spec.sh
+
+      # 预先编好一份交给夹具复用（MOVIECLAW_CLI_BIN）：否则每个 xdist worker
+      # 各自现场 go build，首个 Agent 用例的 setup 要多等十几秒
+      - name: 编译 mclaw
+        working-directory: cli
+        run: |
+          go build -o "$RUNNER_TEMP/mclaw" ./cmd/mclaw
+          echo "MOVIECLAW_CLI_BIN=$RUNNER_TEMP/mclaw" >> "$GITHUB_ENV"
 
       - name: 恢复 NER 模型缓存
         id: ner-cache
@@ -127,16 +161,24 @@ jobs:
             --repo "${{ github.repository }}" \
             --dir data/models/torrent-ner
 
+      # 全仓库一次就够，放在第一片
       - name: ruff
+        if: matrix.shard == 1
         run: ruff check .
 
       # -n auto 按 runner 核数并行（ubuntu-latest 4 核，串行 9 分半 → 3 分内）。
       # --dist loadfile 让同一文件的用例固定在同一 worker 串行执行：
       # tests/docker/test_entrypoint_supervision.py 会绑定固定端口（8000/3001），
       # 跨 worker 并发跑同文件用例会端口冲突，loadfile 从分发层面杜绝。
-      # --durations=30：2026-09 已涨到 8 分钟，列出最慢的用例供定位
+      # --durations=30：列出最慢的用例供定位。
+      # --timeout=180：单用例（含夹具收尾）上限。CI 上最慢的正常用例十几秒；
+      # 超时即失败并打出全部线程栈，卡死不再拖住整个作业、也能直接看出是谁。
+      # 不再额外加 -q：pyproject 的 addopts 已有一个，叠成 -qq 会吞掉末尾的
+      # 「N passed in Xs」汇总行。
       - name: pytest
-        run: python -m pytest -q -m "not integration" -n auto --dist loadfile --durations=30
+        env:
+          PYTEST_SHARD: ${{ matrix.shard }}/3
+        run: python -m pytest -m "not integration" -n auto --dist loadfile --durations=30 --timeout=180
 
   cli-go:
     needs: changes

@@ -467,7 +467,7 @@ async def collections_containing(
 COVER_COUNT = 3
 
 
-def cover_head(collection: Collection, ids: list[int]) -> list[int]:
+def cover_head(collection: Collection, ids: list[int], *, count: int = COVER_COUNT) -> list[int]:
     """卡片上要铺的那几张封面对应的条目——指定了封面就把它挪到最前。"""
     if not ids:
         return []
@@ -475,7 +475,7 @@ def cover_head(collection: Collection, ids: list[int]) -> list[int]:
     if collection.cover_item_id in head:
         head.remove(collection.cover_item_id)
         head.insert(0, collection.cover_item_id)
-    return head[:COVER_COUNT]
+    return head[:count]
 
 
 def is_content_collection(collection: Collection) -> bool:

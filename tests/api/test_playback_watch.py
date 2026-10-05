@@ -289,6 +289,10 @@ def test_judging_reported_tracks_adds_no_queries(client, tmp_path):
     不因带不带轨、报的是不是默认轨而变。"""
     from sqlalchemy import event
 
+    from movieclaw_api.services.library.search_index import close_search_index
+
+    # 只统计播放心跳；名称索引的独立后台读写不能混进这三次请求的 SQL 条数。
+    client.portal.call(close_search_index)
     _, item_id = seed(client, tmp_path)
     client.portal.call(  # type: ignore[attr-defined]
         partial(_set_tracks, item_id, audio_streams=_EN_ZH_AUDIO,

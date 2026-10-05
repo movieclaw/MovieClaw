@@ -317,6 +317,41 @@ async def _ensure_library_cover_once(library_id: int) -> tuple[Path, str] | None
     return target, key
 
 
+async def ensure_collection_cover(
+    collection_id: int, poster_files: list[str]
+) -> tuple[Path, str] | None:
+    """用当前观看者可见的素材渲染合集封面，复用真实库的货架构图。
+
+    缓存指纹包含素材路径和版本，不同权限范围的封面不会串用；产物沿用已登记的
+    library-covers 缓存目录。不同观看者的产物可并存，不能按合集 id 清理彼此的缓存。
+    """
+    root = _assets_root().resolve()
+    posters = []
+    for rel in poster_files:
+        path = (root / rel).resolve()
+        if path.is_relative_to(root) and path.is_file():
+            posters.append(path)
+        if len(posters) >= MAX_POSTERS:
+            break
+    if not posters:
+        return None
+    key = _cover_key(posters)
+    target = covers_dir() / f"collection-{collection_id}-{key}.jpg"
+    if not target.is_file():
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # 原子替换：Web 与 App 同时请求时也不会读到尚未写完的 JPEG。
+        temp = target.with_name(f"{target.stem}-{uuid4().hex}.tmp")
+        try:
+            await asyncio.to_thread(render_shelf_collage, posters, temp)
+            os.replace(temp, target)
+        except Exception:
+            logger.exception("合集封面拼贴渲染失败（collection_id=%d）", collection_id)
+            return None
+        finally:
+            temp.unlink(missing_ok=True)
+    return target, key
+
+
 def render_shelf_collage(poster_paths: list[Path], out: Path) -> None:
     """Pillow 渲染「氛围光货架」。纯同步，调用方负责丢线程池。"""
     from PIL import Image, ImageDraw, ImageEnhance, ImageFilter

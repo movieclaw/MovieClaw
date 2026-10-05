@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "movieclaw"
-version = "0.29.0"
+version = "0.31.0"
 description = "Best-practice Python HTTP service template powered by FastAPI."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -74,6 +74,8 @@ dependencies = [
   # 中文标题的拼音首字母（媒体库海报墙的排序与 A-Z 快速定位）：纯 Python、
   # 无二进制依赖，自带姓氏/多音字词库，比自维护一张码点表准。
   "pypinyin>=0.53.0,<1.0.0",
+  # 媒体库搜索的繁简归一化：只生成派生检索文本，不改写标题与身份别名。
+  "opencc-python-reimplemented>=0.1.7,<0.2.0",
   # 字幕服务（movieclaw_playback.subtitles，docs/design/jellyfin-subtitle.md §5）：
   # pysubs2 做格式解析与 srt↔vtt 转换（SubtitleEdit 的 Python 对应物）；
   # charset-normalizer 探测 GBK/BIG5 等中文编码后统一转 UTF-8 输出。
@@ -92,6 +94,9 @@ dev = [
   # CI 并行跑测试（-n auto --dist loadfile）：2900+ 用例串行要 9 分多钟，
   # 4 核并行压到 1/3 左右。dev 工具依赖，不进运行时，无需 bump runtime-version
   "pytest-xdist>=3.6.0,<4.0.0",
+  # CI 单用例超时：用例卡死时几分钟内失败并打出全部线程栈，而不是把作业挂到被
+  # 人工取消（曾多次卡 30 分钟～6 小时且看不出是哪个用例）。dev 依赖，不进运行时
+  "pytest-timeout>=2.3.0,<3.0.0",
   # 锁小版本段：ruff 新版会带新规则，放宽上限会让 CI 门禁凭空变红
   "ruff>=0.16.0,<0.17.0",
 ]

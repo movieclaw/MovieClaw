@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   buildHomeRows,
+  homeCollectionIds,
   moveRowTo,
   newCollectionRow,
   newLibraryRow,
@@ -27,11 +28,37 @@ const COLS = [
   { id: 7, name: "宫崎骏", library_id: 3, sort: "release_date_asc" },
   { id: 8, name: "诺兰", library_id: 1, sort: "title" },
 ];
-// 类型行（kind:*）有自己的一组用例；其余用例只看库行 / 合集行 / 内置行的合并规则
-const withoutKinds = (rows) => rows.filter((row) => row.kind !== "media-kind");
+// 类型行（kind:*）与类型色块行（genres:*）各有自己的一组用例；其余用例只看库行 /
+// 合集行 / 内置行的合并规则
+const withoutKinds = (rows) =>
+  rows.filter((row) => row.kind !== "media-kind" && row.kind !== "genres");
 const ids = (rows) => withoutKinds(rows).map((row) => row.id);
 const allIds = (rows) => rows.map((row) => row.id);
 const find = (rows, id) => rows.find((row) => row.id === id);
+
+test("虚拟库卡片与合集行同步显示，沿用行顺序并按合集去重", () => {
+  const prefs = { rows: [
+    { id: "row:hidden", collection_id: 7, hidden: true },
+    { id: "row:nolan", collection_id: 8, name: "今晚看点什么", sort: "random" },
+    { id: "row:miyazaki", collection_id: 7 },
+    { id: "row:duplicate", collection_id: 8, sort: "rating" },
+    { id: "row:deleted", collection_id: 99 },
+  ] };
+  const rows = buildHomeRows(prefs, LIBS, COLS);
+  assert.deepEqual(homeCollectionIds(rows), [8, 7]);
+  assert.equal(rows.find((row) => row.id === "row:nolan").collection.name, "诺兰");
+  assert.deepEqual(homeCollectionIds(buildHomeRows(prefs, LIBS, [COLS[0]])), [7]);
+  assert.deepEqual(homeCollectionIds(buildHomeRows({ rows: [] }, LIBS, COLS)), []);
+});
+
+test("隐藏或移除合集行同步移除虚拟库卡片，恢复显示后保留入口", () => {
+  const pref = { id: "row:nolan", collection_id: 8 };
+  const cards = (rows) => homeCollectionIds(buildHomeRows({ rows }, LIBS, COLS));
+  assert.deepEqual(cards([pref]), [8]);
+  assert.deepEqual(cards([{ ...pref, hidden: true }]), []);
+  assert.deepEqual(cards([]), []);
+  assert.deepEqual(cards([{ ...pref, hidden: false }]), [8]);
+});
 
 test("空清单 = 出厂布局：三个内置行 + 每库一行最近添加", () => {
   const rows = buildHomeRows({ rows: [] }, LIBS, COLS);
@@ -285,68 +312,47 @@ test("一条库行都没有时，新库的默认行插在「我的媒体库」�
 // 按类型的跨库行（设计文档 §8）
 // ---------------------------------------------------------------------------
 
-test("出厂布局：每种类型一条，排在库行前面；同类型 ≥2 个库才默认显示", () => {
+test("出厂布局不带类型行：「全部电影」要主动添加才出现", () => {
   const rows = buildHomeRows({ rows: [] }, LIBS, COLS);
-  assert.deepEqual(allIds(rows), [
-    "up-next",
-    "favorites",
-    "libraries",
-    "kind:movie",
-    "kind:tv",
-    "lib:1",
-    "lib:2",
-    "lib:3",
-  ]);
-  // 只有一个电影库：类型行与那个库的默认行一模一样，生成但隐藏
-  assert.equal(find(rows, "kind:movie").hidden, true);
-  // 两个剧集库（剧集 + 动漫）：默认显示
-  assert.equal(find(rows, "kind:tv").hidden, false);
-  assert.deepEqual(
-    find(rows, "kind:tv").libraries.map((library) => library.id),
-    [2, 3],
-  );
-  assert.equal(rowTitle(find(rows, "kind:tv")), "全部剧集 · 最近添加");
-  assert.equal(rowMeta(find(rows, "kind:tv")), "全部剧集（2 个库） · 最近添加");
+  // 类型色块行（genres:*）是另一回事，有自己的用例
+  assert.deepEqual(ids(rows), ["up-next", "favorites", "libraries", "lib:1", "lib:2", "lib:3"]);
+  assert.equal(rows.some((row) => row.kind === "media-kind"), false);
+  // 升级前存的清单也不补类型行
+  const saved = buildHomeRows({ rows: [{ id: "up-next" }, { id: "lib:2" }] }, LIBS, COLS);
+  assert.equal(saved.some((row) => row.kind === "media-kind"), false);
 });
 
-test("类型行只聚合可见、没被排除首页的库；一个都不剩的类型不出现；照片不做", () => {
+test("类型行只聚合可见、没被排除首页的库；一个都不剩的类型不出现", () => {
   const libs = [
     lib(1, "电影"),
     lib(2, "4K 电影"),
     lib(3, "少儿", "movie", { exclude_from_home: true }),
     lib(4, "仅管理", "movie", { viewer_access: false }),
     lib(5, "录像", "video", { exclude_from_home: true }),
-    lib(6, "照片", "photo"),
-    lib(7, "照片 2", "photo"),
   ];
-  const rows = buildHomeRows({ rows: [{ id: "kind:video" }] }, libs, []);
+  const rows = buildHomeRows(
+    { rows: [{ id: "row:m", media_kind: "movie" }, { id: "row:v", media_kind: "video" }] },
+    libs,
+    [],
+  );
   assert.deepEqual(
     rows.filter((row) => row.kind === "media-kind").map((row) => row.id),
-    ["kind:movie"],
+    ["row:m"],
   );
   assert.deepEqual(
-    find(rows, "kind:movie").libraries.map((library) => library.id),
+    find(rows, "row:m").libraries.map((library) => library.id),
     [1, 2],
   );
+  assert.equal(rowTitle(find(rows, "row:m")), "全部电影 · 最近添加");
+  assert.equal(rowMeta(find(rows, "row:m")), "全部电影（2 个库） · 最近添加");
 });
 
-test("升级前存的清单：类型行插在第一条库行之前，显隐沿用出厂规则", () => {
-  const rows = buildHomeRows(
-    { rows: [{ id: "up-next" }, { id: "row:c", collection_id: 7 }, { id: "lib:2" }, { id: "lib:1" }] },
-    LIBS,
-    COLS,
-  );
-  assert.deepEqual(allIds(rows).slice(0, 5), ["up-next", "row:c", "kind:movie", "kind:tv", "lib:2"]);
-  assert.equal(find(rows, "kind:movie").hidden, true);
-  assert.equal(find(rows, "kind:tv").hidden, false);
-});
-
-test("存过的类型行：按存的显隐与排序，可改名；自加类型行带 media_kind", () => {
+test("v0.30.0 存下的 kind: 行：隐藏的丢掉，显示中的保留且能删；自加类型行带 media_kind", () => {
   const rows = buildHomeRows(
     {
       rows: [
         { id: "kind:movie", sort: "rating", unwatched: true },
-        { id: "kind:tv", hidden: true },
+        { id: "kind:tv", hidden: true }, // 当年默认塞进来的隐藏行
         { id: "row:k", media_kind: "tv", sort: "random", name: "今晚追哪部" },
         { id: "row:gone", media_kind: "video" }, // 没有其他视频库：静默消失
       ],
@@ -354,17 +360,17 @@ test("存过的类型行：按存的显隐与排序，可改名；自加类型�
     LIBS,
     COLS,
   );
-  // 存过的不再套「单库默认隐藏」：用户打开过就是打开
   assert.equal(find(rows, "kind:movie").hidden, false);
+  assert.equal(find(rows, "kind:movie").builtin, false);
   assert.equal(rowTitle(find(rows, "kind:movie")), "全部电影 · 评分最高");
-  assert.equal(find(rows, "kind:tv").hidden, true);
+  assert.equal(find(rows, "kind:tv"), undefined);
   assert.equal(rowTitle(find(rows, "row:k")), "今晚追哪部");
   assert.equal(find(rows, "row:gone"), undefined);
+  // 写回：老的 kind: 行不带来源字段（类型在 id 里），自加行带 media_kind
   assert.deepEqual(
-    rowsToPrefs(["kind:movie", "kind:tv", "row:k"].map((id) => find(rows, id))),
+    rowsToPrefs(["kind:movie", "row:k"].map((id) => find(rows, id))),
     [
       { id: "kind:movie", sort: "rating", unwatched: true },
-      { id: "kind:tv", hidden: true, sort: "added_at" },
       { id: "row:k", media_kind: "tv", sort: "random", name: "今晚追哪部" },
     ],
   );
@@ -379,4 +385,75 @@ test("类型行的排序预设按类型裁剪；新加的类型行从最近添�
   assert.equal(added.builtin, false);
   assert.equal(rowTitle(added), "全部其他视频 · 最近添加");
   assert.deepEqual(rowsToPrefs([added]), [{ id: "row:new", media_kind: "video", sort: "added_at" }]);
+});
+
+test("类型色块行：出厂布局紧跟「我的媒体库」，只给有库的类型", () => {
+  const rows = buildHomeRows({ rows: [] }, LIBS, COLS);
+  assert.deepEqual(allIds(rows).slice(0, 5), [
+    "up-next",
+    "favorites",
+    "libraries",
+    "genres:movie",
+    "genres:tv",
+  ]);
+  assert.equal(rowTitle(find(rows, "genres:movie")), "按类型找电影");
+  assert.equal(rowTitle(find(rows, "genres:tv")), "按类型找剧集");
+  assert.equal(rowMeta(find(rows, "genres:tv")), "内置 · 每个类型一格（2 个库）");
+  // 只有其他视频库：两条都不出现；剧集库全被排除出首页：剧集那条不出现
+  const onlyVideo = buildHomeRows({ rows: [] }, [lib(9, "录像", "video")], []);
+  assert.equal(onlyVideo.some((row) => row.kind === "genres"), false);
+  const tvExcluded = buildHomeRows(
+    { rows: [] },
+    [lib(1, "电影"), lib(2, "剧集", "tv", { exclude_from_home: true })],
+    [],
+  );
+  assert.deepEqual(
+    tvExcluded.filter((row) => row.kind === "genres").map((row) => row.id),
+    ["genres:movie"],
+  );
+});
+
+test("类型色块行：老用户存过的清单里没有它们，升级后插在「我的媒体库」之后", () => {
+  const prefs = {
+    rows: [
+      { id: "libraries" },
+      { id: "lib:2" },
+      { id: "row:nolan", collection_id: 8 },
+      { id: "up-next" },
+    ],
+  };
+  const rows = buildHomeRows(prefs, LIBS, COLS);
+  assert.deepEqual(allIds(rows).slice(0, 4), ["libraries", "genres:movie", "genres:tv", "lib:2"]);
+  // 一条库行都没存过时，新库的默认行排在类型色块行之后（与出厂布局同序）
+  const bare = buildHomeRows({ rows: [{ id: "libraries" }, { id: "up-next" }] }, LIBS, COLS);
+  assert.deepEqual(allIds(bare).slice(0, 6), [
+    "libraries",
+    "genres:movie",
+    "genres:tv",
+    "lib:1",
+    "lib:2",
+    "lib:3",
+  ]);
+});
+
+test("类型色块行：存了就按存的位置与显隐，写回只带 id 与 hidden", () => {
+  const prefs = {
+    rows: [
+      { id: "genres:tv", hidden: true },
+      { id: "up-next" },
+      { id: "genres:movie" },
+    ],
+  };
+  const rows = buildHomeRows(prefs, LIBS, COLS);
+  assert.deepEqual(allIds(rows).slice(0, 3), ["genres:tv", "up-next", "genres:movie"]);
+  assert.equal(find(rows, "genres:tv").hidden, true);
+  const saved = rowsToPrefs(rows);
+  assert.deepEqual(saved.slice(0, 3), [
+    { id: "genres:tv", hidden: true },
+    { id: "up-next" },
+    { id: "genres:movie" },
+  ]);
+  // 这一类型的库都没了：存过的行静默消失
+  const noTv = buildHomeRows(prefs, [lib(1, "电影")], []);
+  assert.equal(noTv.some((row) => row.id === "genres:tv"), false);
 });

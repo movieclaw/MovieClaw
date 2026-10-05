@@ -98,6 +98,8 @@ export function DiscoveredPersonDetailView({
         <div className="w-[132px] shrink-0 overflow-hidden rounded-xl bg-[var(--poster-placeholder)] shadow-[0_20px_48px_rgba(0,0,0,0.5)] ring-1 ring-white/[0.1] max-md:w-[92px]">
           <PosterImage
             src={person.avatarUrl}
+            // 头像列 132 宽（手机 92）
+            width={132}
             alt={person.name}
             className="aspect-[2/3] w-full object-cover"
             fallback={

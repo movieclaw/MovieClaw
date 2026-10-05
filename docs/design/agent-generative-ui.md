@@ -67,7 +67,7 @@ name: show_media_cards_v1
 |---|---|---|---|
 | `library` | 媒体库卡片：封面拼贴 + 库名 + 类型与库存统计 | `library_id` | `library list` → `id` |
 | `title` | 影片/剧集海报卡片：海报、评分、年份，自动标注已入库/已订阅，悬停一键订阅 | `title_ref`；只有 TMDB 编号时 `tmdb_id`+`media_type` | `search titles` / `discover …` → `title_ref` |
-| `library_item` | 库内条目播放卡片：剧照或海报 + 一键播放 + 观看进度 + 片源规格 | `media_item_id`，剧集可选 `season_number`+`episode_number` | `library items list` / `search library-items` → `media_item_id` |
+| `library_item` | 库内条目播放卡片：剧照或海报 + 一键播放 + 观看进度 + 片源规格 | `media_item_id`，剧集可选 `season_number`+`episode_number` | `library items list` / `search library` → `media_item_id` |
 | `subscription` | 订阅卡片：海报 + 追更范围 + 收录进度 + 自动续订/已收齐斜标 | `subscription_id` | `subscriptions list` → `id` |
 
 handler 语义：

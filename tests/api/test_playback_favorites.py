@@ -299,7 +299,7 @@ def test_favorites_gallery_shares_the_wall_order_and_carries_landing_library(cli
     assert [g["library_id"] for g in groups] == [ids["shows_library"], ids["movies_library"]]
     assert all(g["is_favorite"] for g in groups)
     assert [i["kind"] for i in groups[0]["images"]] == ["poster"]
-    assert groups[0]["images"][0]["url"].endswith(f"/w780/p{ids['show']}.jpg")
+    assert groups[0]["images"][0]["url"].endswith(f"/original/p{ids['show']}.jpg")
 
 
 def test_favorites_gallery_pages_by_work(client, tmp_path):

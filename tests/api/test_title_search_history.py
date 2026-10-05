@@ -132,3 +132,52 @@ def test_unified_results_endpoint_discriminates_vertical(client: TestClient) -> 
     ]
     assert title_result["vertical"] == "titles"
     assert torrent_result["vertical"] == "torrents"
+
+
+@pytest.mark.parametrize("vertical", ["titles", "torrents"])
+def test_history_limit_applies_within_vertical(client: TestClient, vertical: str) -> None:
+    """先按搜索类型过滤再取最近组，同词的其他类型与更新的记录都不能混入。"""
+    _search_titles(client, "沙丘")
+    client.get("/api/v1/search/torrents", params={"keyword": "沙丘"})
+    client.get(
+        "/api/v1/search/torrents",
+        params={"keyword": "沙丘", "categories": ["movie"]},
+    )
+    if vertical == "titles":
+        client.get("/api/v1/search/torrents", params={"keyword": "星际穿越"})
+    else:
+        _search_titles(client, "星际穿越")
+
+    resp = client.get("/api/v1/search/history", params={"vertical": vertical, "limit": 1})
+    assert resp.status_code == 200
+    items = resp.json()["data"]
+    assert len(items) == (1 if vertical == "titles" else 2)
+    assert {item["keyword"] for item in items} == {"沙丘"}
+    assert {item["vertical"] for item in items} == {vertical}
+
+
+@pytest.mark.parametrize("vertical", ["titles", "torrents"])
+def test_clear_history_only_removes_current_vertical(client: TestClient, vertical: str) -> None:
+    """清空包含未在最近列表展示的记录，但保留另一个搜索类型的历史与快照。"""
+    _search_titles(client, "沙丘")
+    _search_titles(client, "星际穿越")
+    client.get("/api/v1/search/torrents", params={"keyword": "沙丘"})
+    client.get("/api/v1/search/torrents", params={"keyword": "奥本海默"})
+
+    resp = client.delete("/api/v1/search/history", params={"vertical": vertical})
+    assert resp.status_code == 200
+    assert resp.json()["message"] == "已清空 2 条搜索历史"
+    items = _history(client)
+    assert len(items) == 2
+    assert all(item["vertical"] != vertical for item in items)
+    for item in items:
+        assert client.get(f"/api/v1/search/history/{item['id']}/results").status_code == 200
+
+
+@pytest.mark.parametrize("method", ["get", "delete"])
+def test_history_rejects_unsupported_vertical(client: TestClient, method: str) -> None:
+    """媒体库不记录历史；无效类型不能悄悄退化成查询或清空全部。"""
+    _search_titles(client, "沙丘")
+    resp = getattr(client, method)("/api/v1/search/history", params={"vertical": "library"})
+    assert resp.status_code == 422
+    assert len(_history(client)) == 1

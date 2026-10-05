@@ -6,11 +6,13 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { LiquidGlassButton } from "@/components/liquid-glass";
 
+import { AppPushSection } from "@/components/app-push-section";
 import { AppStorageSection } from "@/components/app-storage-section";
 import { ScheduledTasksSection } from "@/components/scheduled-tasks-section";
 import { AppUpdateDot, usePendingUpdate } from "@/components/app-update-entry";
 import { AppUpdateSection } from "@/components/app-update-section";
 import { AvatarBadge } from "@/components/avatar-badge";
+import { CloudSection } from "@/components/cloud-section";
 import { DevicesSection } from "@/components/devices-section";
 import { DownloaderConfigSection } from "@/components/downloader-config-section";
 import { useConfirm, useToast } from "@/components/feedback";
@@ -22,6 +24,7 @@ import { AiSettingsSection } from "@/components/ai-settings-section";
 import { LlmConfigSection } from "@/components/llm-config-section";
 import { ImPushSection } from "@/components/im-push-section";
 import { NetworkConfigSection } from "@/components/network-config-section";
+import { NotificationsSection } from "@/components/notifications-section";
 import { RemoteTranscodeSection } from "@/components/remote-transcode-section";
 import { ScrapeSettingsSection } from "@/components/scrape-settings-section";
 import { SiteConfigSection, SitesSectionSubtitle } from "@/components/site-config-section";
@@ -68,7 +71,7 @@ export interface SettingsSidebarProps {
 
 export function SettingsSidebar({ active, onSelect, onBack }: SettingsSidebarProps) {
   const { backdrop } = useBackdrop();
-  // 成员只看到「账号」组（个人信息/设备/外观）；管理分区后端一律 403，前端不给入口
+  // 成员只看到「账号」组（个人信息/设备/通知/外观）；管理分区后端一律 403，前端不给入口
   const { session } = useSession();
   const sectionGroups = settingsSectionGroupsFor(session.role);
   // 与工作台侧栏共用同一份用户偏好（透明度/明暗）；外观分区拖动滑杆时，
@@ -236,10 +239,16 @@ export function SettingsPanel({ active }: SettingsPanelProps) {
           <AiSettingsSection />
         ) : section.id === "im-push" ? (
           <ImPushSection />
+        ) : section.id === "app-push" ? (
+          <AppPushSection />
         ) : section.id === "members" ? (
           <MembersSection />
         ) : section.id === "devices" ? (
           <DevicesSection />
+        ) : section.id === "notifications" ? (
+          <NotificationsSection />
+        ) : section.id === "cloud" ? (
+          <CloudSection />
         ) : section.id === "app" ? (
           <AppSection />
         ) : section.id === "mcp" ? (
@@ -1600,10 +1609,7 @@ function BackdropTile({
 /* —— 其它分区：通用骨架（含真实液态玻璃开关，展示 WebGL 控件） —— */
 function GenericSection({ sectionId }: { sectionId: string }) {
   const { backdrop } = useBackdrop();
-  const toggles =
-    sectionId === "notifications"
-      ? ["任务完成时通知我", "任务失败时通知我", "每周巡检摘要"]
-      : ["启用此模块", "记录审计日志"];
+  const toggles = ["启用此模块", "记录审计日志"];
 
   return (
     <div className="space-y-5">

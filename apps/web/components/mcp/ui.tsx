@@ -13,7 +13,7 @@
  *    危险区，且要打字确认。
  *
  * 开关不在这里：分区总开关与端点启停都用全站统一的 LiquidGlassButton，
- * 与「Webhook」「消息推送」等分区长得一样，不另造一个。
+ * 与「Webhook」「IM 推送」等分区长得一样，不另造一个。
  */
 
 import { CopyButton } from "@/components/copy-button";

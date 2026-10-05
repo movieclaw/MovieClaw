@@ -187,6 +187,62 @@ def test_demo_allows_browsing_login_and_account_switching(client: TestClient, mo
     assert client.post(f"{_AUTH}/logout", json={}).status_code == 200
 
 
+@pytest.mark.parametrize("account", [_ADMIN, _MEMBER])
+def test_demo_tv_pairing_full_flow(client: TestClient, monkeypatch, account) -> None:
+    """模拟电视出码、手机批准、电视兑换并访问媒体库，权限跟随批准者。"""
+    _provision(client)
+    _enable_demo(monkeypatch)
+    _login(client, account)
+    response = client.post(
+        f"{_AUTH}/device/authorize",
+        json={"client_type": "tvos", "client_name": "客厅 Apple TV"},
+    )
+    assert response.status_code == 200, response.text
+    grant = response.json()["data"]
+    request = client.get(f"{_AUTH}/devices/requests/{grant['user_code']}")
+    assert request.status_code == 200, request.text
+    assert request.json()["data"]["source_ip"] == ""
+    assert client.post(
+        f"{_AUTH}/device/token", json={"device_code": grant["device_code"]}
+    ).status_code == 202
+    approved = client.post(f"{_AUTH}/devices/requests/{grant['user_code']}/approve")
+    assert approved.status_code == 200, approved.text
+    response = client.post(f"{_AUTH}/device/token", json={"device_code": grant["device_code"]})
+    assert response.status_code == 200, response.text
+    token = response.json()["data"]["token"]
+    client.cookies.clear()
+    headers = {"Authorization": f"Bearer {token}"}
+    me = client.get(f"{_AUTH}/me", headers=headers).json()["data"]
+    assert (me["username"], me["demo"], me["device"]["kind"]) == (
+        account["username"], True, "tvos"
+    )
+    assert client.get("/api/v1/libraries", headers=headers).status_code == 200
+    _assert_demo_denied(client.post("/api/v1/members", json={}, headers=headers))
+    assert client.post(
+        f"{_AUTH}/device/token", json={"device_code": grant["device_code"]}
+    ).status_code == 400
+
+
+@pytest.mark.parametrize("client_type", ["cli", "worker"])
+def test_demo_rejects_non_tv_pairing(client: TestClient, monkeypatch, client_type) -> None:
+    _provision(client)
+    # 普通模式遗留的配对挑战：切入演示模式后同样不能批准或兑换。
+    grant = client.post(
+        f"{_AUTH}/device/authorize",
+        json={"client_type": client_type, "client_name": "程序设备"},
+    ).json()["data"]
+    _enable_demo(monkeypatch)
+    _assert_demo_denied(client.post(
+        f"{_AUTH}/device/authorize",
+        json={"client_type": client_type, "client_name": "程序设备"},
+    ))
+    _assert_demo_denied(client.get(f"{_AUTH}/devices/requests/{grant['user_code']}"))
+    _assert_demo_denied(client.post(f"{_AUTH}/devices/requests/{grant['user_code']}/approve"))
+    _assert_demo_denied(client.post(
+        f"{_AUTH}/device/token", json={"device_code": grant["device_code"]}
+    ))
+
+
 def test_demo_blocks_sensitive_reads(client: TestClient, monkeypatch) -> None:
     admin_cookie, _ = _provision(client)
     _enable_demo(monkeypatch)
@@ -377,16 +433,21 @@ async def _fake_resolver(host: str) -> list[str]:
     return ["93.184.216.34"]
 
 
-async def test_demo_image_proxy_only_serves_allowed_hosts() -> None:
+async def test_demo_image_proxy_only_serves_allowed_hosts(monkeypatch) -> None:
+    from movieclaw_api.services.image_proxy import _demo_allowed_hosts
+
+    _enable_demo(monkeypatch)
     async def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, headers={"Content-Type": "image/jpeg"}, content=b"jpeg")
 
     proxy = ImageProxy(
         transport=httpx.MockTransport(handler),
         resolver=_fake_resolver,
-        allowed_host_suffixes=("tmdb.org", "doubanio.com"),
+        allowed_host_suffixes=_demo_allowed_hosts(),
     )
     content, _ = await proxy.fetch("https://image.tmdb.org/t/p/w500/a.jpg")
+    assert content == b"jpeg"
+    content, _ = await proxy.fetch("https://assets.fanart.tv/fanart/a.jpg")
     assert content == b"jpeg"
     with pytest.raises(BadRequestException):
         await proxy.fetch("https://img.example-host.com/a.png")
@@ -394,6 +455,7 @@ async def test_demo_image_proxy_only_serves_allowed_hosts() -> None:
     with pytest.raises(BadRequestException):
         await proxy.fetch("https://eviltmdb.org/a.png")
     await proxy.aclose()
+    get_settings.cache_clear()
 
 
 def test_demo_disables_in_app_update(monkeypatch) -> None:

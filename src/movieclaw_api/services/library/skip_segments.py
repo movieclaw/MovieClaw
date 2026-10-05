@@ -7,7 +7,7 @@
 三件事，各在合适的时候做：
 
 1. **指纹**（读媒体文件，贵）：每集片头窗（前 10 分钟）+ 片尾窗（后 7 分钟）的
-   chromaprint 音频指纹，ffmpeg 一次一个、低优先级，算完存成缓存文件
+   chromaprint 音频指纹，ffmpeg 低优先级、按机器规格多路并行（见「并发」），算完存成缓存文件
    （``settings.audio_fingerprint_dir``），状态记在 ``media_segment`` 表。每个文件
    只算一次：片源大小变了（洗版原地替换）才重算。
 2. **整季识别**（只比指纹，便宜）：一季里任何一集的指纹新算出来，就把整季重新比一遍，
@@ -15,12 +15,19 @@
    放在**独立子进程**里跑（``python -m movieclaw_playback.skip_segments``）——放在服务
    进程里会抢 GIL、拖慢同时在跑的接口与取流（2026-09-30 实测：同进程纯 Python 计算让
    查库慢几百倍，独立进程零影响）。
-3. **什么时候做**（每个入口都先查「有没有待办」，没有就什么都不排）：
+3. **画面证据**（读少量关键帧，中等）：整季识别后，按需在片尾附近抽几帧做文字识别，
+   用演职员表修正片尾——补上音频找不到的黑底演职员表、截掉片尾后的剧情、否决不是片尾的
+   重复配乐（``movieclaw_playback.credits``）。每帧的识别结果缓存在指纹目录
+   （``{文件 id}.frames.json``），季里来新集重算时复用；OCR 模型缺失时跳过这一步。
+   文字识别在独立的工作进程池里做（``_OcrPool``），不占服务进程的 GIL。
+4. **并发**：指纹与画面核对以「一集」为单位多路并行，路数按机器规格定（``work_limit``：
+   可用物理核数减一，封顶 4），全进程共用（``_work_slot``）。看片时收紧：直接播放只留一路，
+   本机在转码就整个暂停（``playback_load``）。
+5. **什么时候做**（每个入口都先查「有没有待办」，没有就什么都不排）：
    - 入库（``enqueue_ingested_item``）：新集落位后排一份条目作业，读的是刚下载完的本地文件。
-     不让路，但一次最多读 ``PRIORITY_BATCH`` 个文件，整季积压留给整库回填；
+     比整库回填先拿到并发槽，但一次最多读 ``PRIORITY_BATCH`` 个文件，整季积压留给整库回填；
    - 扫描作业收尾、监听触发的增量扫描、暂缓文件的补扫、打开开关
-     （都走 ``enqueue_after_library_change``）：整库补缺，低优先级，**有人在看片就暂停**
-     （``playback_active``）——它连续读片库所在的磁盘，和正在播的片子抢同一份 IO；
+     （都走 ``enqueue_after_library_change``）：整库补缺，低优先级，后台连续跑几个小时；
    - 开播（``schedule_playback_bump``）：播到的这一集没有片段 → 20 秒后排一份条目作业，
      先算离正在看的这一集最近的几集。这一集多半赶不上，下一集就有了。**不做边播边算**：
      ffmpeg 的 chromaprint 要读完整段才出结果，分块办法实测边界偏 2.6 秒、短段会丢
@@ -35,8 +42,11 @@ import asyncio
 import contextlib
 import json
 import logging
+import math
 import os
+import re
 import shutil
+import subprocess
 import sys
 import time
 from collections.abc import Awaitable, Callable
@@ -45,7 +55,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import col, select
 
@@ -65,7 +75,9 @@ from movieclaw_db.models import (
 )
 from movieclaw_db.models.library_file import DISC_CONTAINERS
 from movieclaw_db.models.playback_state import PlaybackState
-from movieclaw_playback import activity
+from movieclaw_playback import activity, segment_labels
+from movieclaw_playback import credits as credits_logic
+from movieclaw_playback.ocr import DET_MODEL, REC_MODEL
 from movieclaw_playback.skip_segments import (
     ALGO_VERSION,
     FINGERPRINT_VERSION,
@@ -87,17 +99,23 @@ _DETECT_BASE_TIMEOUT_S = 120.0
 _DETECT_TIMEOUT_PER_EPISODE_S = 6.0
 #: 开播后等多久再排作业：让开起播的关键窗口
 _BUMP_DELAY_S = 20.0
-#: 整库回填遇到有人在看片时，每隔多久再看一眼人走了没有（也是取消请求的响应间隔）
+#: 等并发槽时每隔多久重看一次播放状态（转码结束、直接播放停了就放开路数；也是取消请求的响应间隔）
 _QUIET_POLL_S = 3.0
 #: 播放会话 / 转码会话多久没有动静就不再算「有人在看」：播放器每 10 秒左右上报一次进度或心跳，
 #: 45 秒 = 连丢三个周期。浏览器被直接杀掉、App 崩了不会发「停止」，不设这个窗口会让回填白等好几分钟
 _FRESH_S = 45.0
-#: 开播提队 / 入库触发的条目作业一次最多读几个文件（其余留给整库回填，它会为在看的人让路）。
-#: 这类作业本身不让路——入库读的是刚下载好的本地文件、开播提队本来就是因为有人开播——
-#: 但整季可能有一大堆没算的旧集，不设上限就会为一集新片把整个积压从 NAS 上读一遍
+#: 开播提队 / 入库触发的条目作业一次最多读几个文件（其余留给整库回填）。
+#: 这类作业比整库回填先拿并发槽，但整季可能有一大堆没算的旧集，
+#: 不设上限就会为一集新片把整个积压从 NAS 上读一遍
 PRIORITY_BATCH = 6
 #: 第一段片头离文件开头不超过这么多毫秒时，下发给播放器的起点贴到 0（见 ``segments_for_file``）
 _HEAD_SNAP_MS = 15_000
+#: 只对中文内容贴零（原始语言 zh / 粤语 cn，或出品地含中国大陆）。国内每集开头先放发行许可证，
+#: 许可证、厂标之前那几秒只会是每集不同的冠名广告（NAS 国产剧实测 142 个 ≤12 秒的空隙无一剧情）；
+#: 海外剧常有几秒的剧情冷开场（日剧 A海外纪录片 A），贴零会误跳剧情
+#: （docs/design/skip-intro.md §2.9）
+_HEAD_SNAP_LANGUAGES = frozenset({"zh", "cn"})
+_HEAD_SNAP_COUNTRIES = frozenset({"CN"})
 #: 多少天内看过的季算「正在追」，整库回填优先做（见 ``seasons_needing_work``）
 _WATCHING_WINDOW = timedelta(days=30)
 
@@ -143,7 +161,7 @@ _slots: dict[str, tuple[asyncio.AbstractEventLoop, asyncio.Semaphore]] = {}
 
 
 def _slot(name: str) -> asyncio.Semaphore:
-    """全进程一次只跑一个 ffmpeg 指纹 / 一个识别子进程：护住 NAS 的读盘与 CPU。
+    """全进程一次只跑一个识别子进程（整季比对只读指纹缓存，毫秒到几十秒，不值得并行）。
 
     信号量绑定事件循环，按循环惰性创建（测试里每个用例一个新循环）。
     """
@@ -165,50 +183,238 @@ def _niced(args: list[str]) -> list[str]:
     return [nice, "-n", "10", *args] if nice else args
 
 
-def playback_active() -> bool:
-    """现在有没有人在看片：有未暂停且近期有动静的播放会话、有仍在服务的取流、或有近期有心跳的转码会话。
+# ---------------------------------------------------------------------------
+# 并发：路数按机器规格定，看片时收紧
+# ---------------------------------------------------------------------------
 
-    数据来自进程内的播放活动注册表（播放器进度上报 + 取流字节计量，Web / iOS / Jellyfin
-    客户端都汇到这里）。整库回填据此让路——它连续几个小时顺序读片库所在的磁盘 / 网络，
-    和正在播的片子抢的是同一份 IO，而「播放不被打扰」比「识别早一小时完成」重要得多。
+#: 最多几路并行。每一路是「一集」：读片源算指纹（IO + 音频解码），或抽帧 + 文字识别（约一个核）。
+#: 封顶 4 是给磁盘留余地：同时读的文件再多，机械盘就开始来回寻道（与播放直通上限
+#: ``MAX_REMUX_CONCURRENCY`` 同一考虑），核再多也不再加快
+_MAX_WORKERS = 4
+
+
+def _read_int(path: str) -> int | None:
+    try:
+        with open(path) as f:
+            return int(f.read().split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+
+
+def _cgroup_cpu_limit() -> float | None:
+    """容器的 CPU 配额（核数，``docker --cpus``）；没限制或读不到返回 None。"""
+    try:
+        with open("/sys/fs/cgroup/cpu.max") as f:  # cgroup v2：「配额 周期」或「max 周期」
+            quota, period = f.read().split()[:2]
+        if quota != "max" and int(period) > 0:
+            return int(quota) / int(period)
+        return None
+    except (OSError, ValueError):
+        pass
+    quota = _read_int("/sys/fs/cgroup/cpu/cpu.cfs_quota_us")  # cgroup v1，-1 表示不限
+    period = _read_int("/sys/fs/cgroup/cpu/cpu.cfs_period_us")
+    if quota and quota > 0 and period:
+        return quota / period
+    return None
+
+
+def _physical_cores() -> int:
+    """本进程能用的物理核数：按超线程合并，再受绑核与容器 CPU 配额约束。
+
+    不用 ``os.cpu_count()``：它数的是逻辑线程，而文字识别是吃满向量单元的纯计算，
+    超线程几乎不加速（NAS 的 Ryzen V1500B 实测 4 路 → 6 路识别只快 8%）；它也不看
+    容器配额，``--cpus=2`` 的容器照样报宿主机全部线程。macOS 只数性能核。
+    """
+    if sys.platform == "darwin":
+        for key in ("hw.perflevel0.physicalcpu", "hw.physicalcpu"):
+            with contextlib.suppress(OSError, ValueError, subprocess.SubprocessError):
+                out = subprocess.run(
+                    ["sysctl", "-n", key], capture_output=True, text=True, timeout=5, check=True
+                )
+                return max(1, int(out.stdout.strip()))
+        return max(1, os.cpu_count() or 1)
+    cpus = (
+        sorted(os.sched_getaffinity(0))
+        if hasattr(os, "sched_getaffinity")
+        else list(range(os.cpu_count() or 1))
+    )
+    cores: set[tuple[int | None, int | None]] = set()
+    for cpu in cpus:
+        base = f"/sys/devices/system/cpu/cpu{cpu}/topology"
+        core = _read_int(f"{base}/core_id")
+        if core is None:  # 没有拓扑信息（部分虚拟化环境）：按逻辑核算
+            cores = {(None, c) for c in cpus}
+            break
+        cores.add((_read_int(f"{base}/physical_package_id"), core))
+    count = max(1, len(cores))
+    quota = _cgroup_cpu_limit()
+    if quota is not None:
+        count = min(count, max(1, math.ceil(quota)))
+    return count
+
+
+_work_limit: int | None = None
+
+
+def work_limit() -> int:
+    """空闲时最多几路并行：物理核数减一（留一个核给接口、取流与其他后台任务），至少 1、封顶 4。
+
+    机器规格进程内只读一次。NAS（4 核 8 线程）是 3 路，2 核的小主机 1 路。
+    """
+    global _work_limit
+    if _work_limit is None:
+        cores = _physical_cores()
+        _work_limit = max(1, min(_MAX_WORKERS, cores - 1))
+        logger.info("片头片尾识别按机器规格最多 %s 路并行（%s 个物理核可用）", _work_limit, cores)
+    return _work_limit
+
+
+IDLE, PLAYING, TRANSCODING = "idle", "playing", "transcoding"
+
+
+def playback_load() -> str:
+    """现在的播放负载：``TRANSCODING`` 本机有转码会话 > ``PLAYING`` 有人在看 > ``IDLE``。
+
+    「有人在看」：有未暂停且近期有动静的播放会话、有仍在服务的取流、或有近期有心跳的
+    转码 / 直通会话。数据来自进程内的播放活动注册表（播放器进度上报 + 取流字节计量，Web /
+    iOS / Jellyfin 客户端都汇到这里）。外置 Worker 上的转码不占本机 CPU，按「在看」算。
     """
     now = time.monotonic()
+    fresh = [t for t in get_session_manager().active() if now - t.last_ping <= _FRESH_S]
+    if any(t.is_transcoding and not t.remote for t in fresh):
+        return TRANSCODING
+    if fresh:
+        return PLAYING
     sessions, meters = activity.snapshot()
     if any(m.kind == activity.STREAM_KIND_PLAY for m in meters):
-        return True  # 正在往外发字节，一定在看
+        return PLAYING  # 正在往外发字节，一定在看
     if any(not s.paused and now - s.last_activity_mono <= _FRESH_S for s in sessions):
-        return True
-    return any(now - t.last_ping <= _FRESH_S for t in get_session_manager().active())
+        return PLAYING
+    return IDLE
 
 
-async def _wait_until_quiet(context: jobs.JobContext) -> None:
-    """整库回填专用：有人在看片就暂停，片放完（或暂停播放）后自动继续。
+def playback_active() -> bool:
+    return playback_load() != IDLE
 
-    在处理器里直接等是安全的：调度器的心跳会一直续租约，取消也随时能打断（每轮都查）。
-    入库时的条目作业与开播提队的作业**不等**——前者只读一集刚下载好的本地文件，
-    后者本来就是因为有人开播才排的。
-    """
-    announced = False
-    while playback_active():
-        await context.raise_if_cancelled()
-        if not announced:
-            announced = True
-            logger.info("有人正在看片，片头片尾识别先暂停，看完后自动继续")
-            await context.update_progress(
-                mode="indeterminate",
-                phase="analyzing",
-                message="有人正在看片，片头片尾识别先暂停，看完后自动继续",
-            )
-        await asyncio.sleep(_QUIET_POLL_S)
-    if announced:
-        # 进度平时只在一季做完时刷新，一季可能要读好几分钟；不在这里改掉「暂停」字样，
-        # 任务中心会在已经恢复读盘后继续显示暂停，直到这一季做完
-        logger.info("没人在看片了，片头片尾识别继续")
-        await context.update_progress(
+
+def _allowed_workers() -> int:
+    """此刻允许几路：空闲按机器规格；有人在看只留一路（播放读的是同一份磁盘）；
+    本机在转码就停（软件转码要吃满所有核，「播放不卡」比「识别早一点做完」重要得多）。"""
+    load = playback_load()
+    if load == TRANSCODING:
+        return 0
+    if load == PLAYING:
+        return 1
+    return work_limit()
+
+
+class _PauseNotice:
+    """一个作业里「因转码暂停 / 恢复」只在任务中心说一次（多路同时在等时不重复刷进度）。"""
+
+    def __init__(self, context: jobs.JobContext):
+        self.context = context
+        self.paused = False
+
+    async def pause(self) -> None:
+        if self.paused:
+            return
+        self.paused = True
+        logger.info("本机正在转码播放，片头片尾识别先暂停，播完后自动继续")
+        await self.context.update_progress(
             mode="indeterminate",
             phase="analyzing",
-            message="没人在看片了，继续识别片头片尾",
+            message="正在转码播放，片头片尾识别先暂停，播完后自动继续",
         )
+
+    async def resume(self) -> None:
+        if not self.paused:
+            return
+        # 进度平时只在一季做完时刷新：恢复时不换掉「暂停」字样，任务中心会一直显示暂停到这一季做完
+        self.paused = False
+        logger.info("转码播放结束，片头片尾识别继续")
+        await self.context.update_progress(
+            mode="indeterminate", phase="analyzing", message="转码播放结束，继续识别片头片尾"
+        )
+
+
+class _WorkSlots:
+    """全进程共用的并发槽：容量随播放负载变化（``_allowed_workers``），不是固定的信号量。
+
+    收紧时已经在跑的那一路做完手上这一集（最多几十秒）再让出，不中途打断。
+    条目作业（入库、开播提队）排在整库回填前面：有它在等，回填就不拿新槽。
+    """
+
+    def __init__(self) -> None:
+        self.running = 0
+        self.urgent_waiting = 0
+        self.changed = asyncio.Condition()
+
+    @contextlib.asynccontextmanager
+    async def hold(self, *, urgent: bool, notice: _PauseNotice | None):
+        async with self.changed:
+            self.urgent_waiting += urgent
+            try:
+                while True:
+                    allowed = _allowed_workers()
+                    if self.running < allowed and (urgent or not self.urgent_waiting):
+                        break
+                    if allowed == 0 and notice is not None:
+                        await notice.pause()
+                    # 有路放出来会被唤醒；播放状态的变化没有通知，按间隔重看
+                    with contextlib.suppress(TimeoutError):
+                        await asyncio.wait_for(self.changed.wait(), _QUIET_POLL_S)
+                    if notice is not None:
+                        await notice.context.raise_if_cancelled()
+            finally:
+                self.urgent_waiting -= urgent
+            self.running += 1
+        try:
+            if notice is not None:
+                await notice.resume()
+            yield
+        finally:
+            async with self.changed:
+                self.running -= 1
+                self.changed.notify_all()
+
+
+_work: tuple[asyncio.AbstractEventLoop, _WorkSlots] | None = None
+
+
+def _work_slot(*, polite: bool, notice: _PauseNotice | None = None):
+    """拿一路并发槽读片源 / 做画面核对。``polite`` 为假（条目作业）时优先。
+
+    槽绑定事件循环，按循环惰性创建（测试里每个用例一个新循环）。
+    """
+    global _work
+    loop = asyncio.get_running_loop()
+    if _work is None or _work[0] is not loop:
+        _work = (loop, _WorkSlots())
+    return _work[1].hold(urgent=not polite, notice=notice)
+
+
+async def _for_each(items: list, fn: Callable[[Any], Awaitable[Any]]) -> list:
+    """按顺序把 ``items`` 分给至多 ``work_limit()`` 路并行处理，结果按原顺序返回。
+
+    实际同时在跑的路数由 ``_work_slot`` 管；这里只是不为一季几百集一次起几百个协程。
+    任何一路抛错（含取消）就取消其余各路再抛出。
+    """
+    results: list = [None] * len(items)
+    queue = iter(enumerate(items))
+
+    async def lane() -> None:
+        for index, item in queue:
+            results[index] = await fn(item)
+
+    lanes = [asyncio.ensure_future(lane()) for _ in range(min(work_limit(), len(items)))]
+    try:
+        await asyncio.gather(*lanes)
+    except BaseException:
+        for task in lanes:
+            task.cancel()
+        await asyncio.gather(*lanes, return_exceptions=True)
+        raise
+    return results
 
 
 # ---------------------------------------------------------------------------
@@ -384,12 +590,151 @@ class FingerprintError(Exception):
     """算不了指纹（中文原因直接给用户看）。"""
 
 
-async def _chromaprint_window(path: str, start: float, length: float) -> bytes:
-    """ffmpeg 读一个窗口的第一条音轨，输出原始哈希字节。"""
+def _stream_length(stream: dict) -> float | None:
+    """ffprobe 给的音轨时长（秒）：优先 duration，其次 MKV 的 DURATION 标签；拿不到返回 None。"""
+    for value in (stream.get("duration"), (stream.get("tags") or {}).get("DURATION")):
+        try:
+            parts = [float(x) for x in str(value).split(":")]
+            seconds = (
+                parts[0]
+                if len(parts) == 1
+                else sum(x * weight for x, weight in zip(parts, (3600, 60, 1), strict=True))
+            )
+            if math.isfinite(seconds) and seconds > 0:
+                return seconds
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _same_content_track(stream: dict, language: str | None) -> bool:
+    """能代替选中轨的同一份混音：同语言（或语言未知）、不是解说轨 / 口述影像轨。"""
+    disposition = stream.get("disposition") or {}
+    if disposition.get("comment") or disposition.get("visual_impaired"):
+        return False
+    other = (stream.get("tags") or {}).get("language")
+    return language in (None, "und") or other in (None, "und", language)
+
+
+def _complete_audio_index(streams: list[dict], duration: float) -> int:
+    """第一条音轨明显短缺时，选同语言、完整的普通音轨；信息不足则维持第一条。
+
+    NAS华语剧 J E03 第一条音轨误封了 E02 的完整音频，比本集短约 249 秒；第二条
+    才覆盖本集。不能只凭 codec/默认标记选择（这两条都标了默认），也不能把解说轨
+    或其他语言的音轨当作修复。5 秒容差保留正常的收尾静音、容器时长舍入差异。
+    """
+    length = _stream_length
+    if not streams or duration <= 0:
+        return 0
+    first_length = length(streams[0])
+    if first_length is None or first_length >= duration - 5:
+        return 0
+    language = (streams[0].get("tags") or {}).get("language")
+    for index, stream in enumerate(streams[1:], 1):
+        if not _same_content_track(stream, language):
+            continue
+        track_length = length(stream)
+        if track_length is not None and abs(track_length - duration) <= 5:
+            return index
+    return 0
+
+
+#: 解码开销大的无损编码。NAS 实测解两分钟音频：TrueHD 7.1 要 2.6 秒，同片的 AC3 备选轨
+#: 0.63 秒；DTS / EAC3 / AAC / FLAC 都在 0.24～0.57 秒，不值得换
+_COSTLY_AUDIO_CODECS = frozenset({"truehd", "mlp"})
+
+
+def _cheaper_audio_index(streams: list[dict], index: int, duration: float) -> int:
+    """选中的轨是 TrueHD 时，换同语言、完整的有损轨，省四分之三的解码 CPU。
+
+    原盘 Remux 的 TrueHD 轨通常带一条同混音的 AC3 兼容轨，指纹照样和别的集对得上。
+    时长不明或差 5 秒以上的轨不换：宁可多花解码时间，也不能换到不完整的轨上。
+    """
+    if not 0 <= index < len(streams) or duration <= 0:
+        return index
+    chosen = streams[index]
+    if (chosen.get("codec_name") or "").lower() not in _COSTLY_AUDIO_CODECS:
+        return index
+    language = (chosen.get("tags") or {}).get("language")
+    for other, stream in enumerate(streams):
+        if other == index or (stream.get("codec_name") or "").lower() in _COSTLY_AUDIO_CODECS:
+            continue
+        if not _same_content_track(stream, language):
+            continue
+        track_length = _stream_length(stream)
+        if track_length is not None and abs(track_length - duration) <= 5:
+            return other
+    return index
+
+
+async def _fingerprint_audio_index(file: LibraryFile) -> int:
+    """只对多音轨或尚无轨信息的文件探测时长，避免给普通单音轨增加一次 NAS 访问。"""
+    if file.audio_streams is not None and len(file.audio_streams) <= 1:
+        return 0
+    args = [
+        "ffprobe",
+        "-v",
+        "error",
+        "-select_streams",
+        "a",
+        "-show_entries",
+        "stream=codec_name,duration:stream_tags=DURATION,language:stream_disposition=comment,visual_impaired",
+        "-of",
+        "json",
+        file.file_path,
+    ]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *_niced(args), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+    except OSError as exc:
+        raise FingerprintError("无法启动音轨探测工具，请检查 ffprobe 是否可用") from exc
+    try:
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=30)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        raise FingerprintError("读取音轨信息超时，请检查磁盘或网络") from None
+    except asyncio.CancelledError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        raise
+    if proc.returncode != 0:
+        raise FingerprintError("无法核对多音轨时长，请检查片源是否可读")
+    try:
+        payload = json.loads(out)
+        streams = payload["streams"]
+        if not isinstance(streams, list):
+            raise ValueError
+    except (ValueError, KeyError, TypeError) as exc:
+        raise FingerprintError("音轨探测结果无效，无法选择完整音轨") from exc
+    duration = float(file.duration_seconds or 0)
+    index = _complete_audio_index(streams, duration)
+    if index:
+        logger.warning(
+            "文件 #%s 的第一条音轨时长不足，改用第 %s 条完整音轨识别片头片尾", file.id, index + 1
+        )
+    cheaper = _cheaper_audio_index(streams, index, duration)
+    if cheaper != index:
+        logger.info(
+            "文件 #%s 的第 %s 条音轨是 TrueHD，改用同语言的第 %s 条有损音轨算指纹（解码快约 4 倍）",
+            file.id,
+            index + 1,
+            cheaper + 1,
+        )
+    return cheaper
+
+
+async def _chromaprint_window(
+    path: str, start: float, length: float, audio_index: int = 0
+) -> bytes:
+    """ffmpeg 读一个窗口的指定音轨，输出原始哈希字节。"""
     args = ["ffmpeg", "-nostdin", "-v", "error"]
     if start > 0:
         args += ["-ss", f"{start:.3f}"]
-    args += ["-i", path, "-t", f"{length:.3f}", "-map", "0:a:0", "-ac", "2"]
+    args += ["-i", path, "-t", f"{length:.3f}", "-map", f"0:a:{audio_index}", "-ac", "2"]
     args += ["-f", "chromaprint", "-fp_format", "raw", "-"]
     proc = await asyncio.create_subprocess_exec(
         *_niced(args), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
@@ -423,18 +768,24 @@ async def _chromaprint_window(path: str, start: float, length: float) -> bytes:
 async def compute_fingerprint(file: LibraryFile) -> None:
     """算一个文件的片头窗 + 片尾窗指纹，原子写入缓存文件。失败抛 ``FingerprintError``。
 
-    **调用方要持有 ffmpeg 槽**（``_slot("ffmpeg")``）：全进程一次只读一个文件，护住 NAS 的读盘。
+    **调用方要持有一路并发槽**（``_work_slot``）：同时读几个文件按机器规格与播放负载定。
     """
     assert file.id is not None
     duration = float(file.duration_seconds or 0)
     bounds = window_bounds(duration)
+    audio_index = await _fingerprint_audio_index(file)
     windows: dict[str, bytes] = {}
     for name, (start, length) in bounds.items():
-        windows[name] = await _chromaprint_window(file.file_path, start, length)
+        if audio_index:
+            windows[name] = await _chromaprint_window(file.file_path, start, length, audio_index)
+        else:
+            windows[name] = await _chromaprint_window(file.file_path, start, length)
     meta = {
         "file_id": file.id,
         "size": file.size_bytes,
         "duration": duration,
+        "audio_selection_version": 1,
+        "audio_index": audio_index,
         "windows": {name: {"start": s, "length": n} for name, (s, n) in bounds.items()},
     }
     path = fingerprint_path(file.id)
@@ -448,8 +799,8 @@ async def compute_fingerprint(file: LibraryFile) -> None:
     await asyncio.to_thread(_write)
 
 
-def _fingerprint_readable(file_id: int) -> bool:
-    """缓存文件还在且是当前格式（用户可能在缓存管理里清空过）。"""
+def _fingerprint_readable(file_id: int, *, check_audio_selection: bool = False) -> bool:
+    """快速核对缓存头与版本；正文完整性由识别子进程校验，损坏时会重新排队提取。"""
     path = fingerprint_path(file_id)
     try:
         with path.open("rb") as f:
@@ -457,7 +808,370 @@ def _fingerprint_readable(file_id: int) -> bool:
         meta = json.loads(head)
     except (OSError, ValueError):
         return False
-    return isinstance(meta, dict) and meta.get("v") == FINGERPRINT_VERSION
+    return (
+        isinstance(meta, dict)
+        and meta.get("v") == FINGERPRINT_VERSION
+        and (not check_audio_selection or meta.get("audio_selection_version") == 1)
+    )
+
+
+# ---------------------------------------------------------------------------
+# 画面证据：用片尾的演职员表修正片尾（movieclaw_playback.credits）
+# ---------------------------------------------------------------------------
+
+#: 帧观测缓存的格式版本：抽帧尺寸、OCR 模型或文字归一化变了就加一，旧缓存作废
+FRAMES_VERSION = 1
+#: 抽帧宽度：960 宽的画面上演职员表的小字仍可读，识别耗时约为 1920 宽的三分之一
+_FRAME_WIDTH = 960
+#: 找广告角标时的抽帧宽度：角标在 960 宽上只有约 20 像素、笔画一两个像素，放大也补不回细节
+#: （华语剧 D三帧只认出一帧）；1440 宽三帧全认出，每帧多约 0.25 秒
+_CORNER_FRAME_WIDTH = 1440
+#: 单帧 ffmpeg 超时：4K 精确定位要从关键帧解码过去，NAS 上约 3 秒
+_FRAME_TIMEOUT_S = 60.0
+#: 比这短的集不看画面（短动画、预告片）：片尾窗只有几十秒，演职员表规则不适用
+_MIN_FRAME_DURATION_S = 600.0
+
+#: 单帧识别的超时：NAS 上满屏演职员表最慢约 11 秒，留足余量；超时的工作进程直接杀掉换新
+_OCR_TIMEOUT_S = 120.0
+
+
+class _OcrWorker:
+    """一个常驻的文字识别工作进程（``python -m movieclaw_playback.ocr``，协议见其 ``_main``）。"""
+
+    def __init__(self, proc: asyncio.subprocess.Process):
+        self.proc = proc
+
+    @classmethod
+    async def start(cls, model_dir: str) -> _OcrWorker:
+        # 子进程继承当前的模块搜索路径（应用内更新的 overlay），与识别子进程同款写法
+        env = dict(os.environ, PYTHONPATH=os.pathsep.join(p for p in sys.path if p))
+        proc = await asyncio.create_subprocess_exec(
+            sys.executable,
+            "-m",
+            "movieclaw_playback.ocr",
+            model_dir,
+            stdin=asyncio.subprocess.PIPE,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
+            env=env,
+        )
+        return cls(proc)
+
+    async def read(self, img: Any, corners: bool) -> dict[str, Any]:
+        assert self.proc.stdin is not None and self.proc.stdout is not None
+        h, w = img.shape[:2]
+        head = json.dumps({"h": h, "w": w, "corners": corners}).encode() + b"\n"
+        self.proc.stdin.write(head + img.tobytes())
+        await self.proc.stdin.drain()
+        line = await self.proc.stdout.readline()
+        if not line:
+            raise RuntimeError(f"文字识别进程退出了（退出码 {await self.proc.wait()}）")
+        reply = json.loads(line)
+        if "error" in reply:
+            raise RuntimeError(f"文字识别出错：{reply['error']}")
+        return reply
+
+    async def stop(self) -> None:
+        with contextlib.suppress(ProcessLookupError):
+            self.proc.kill()
+        await self.proc.wait()
+
+
+class _OcrPool:
+    """文字识别工作进程池：按需起进程（至多 ``work_limit()`` 个），每个进程一份模型、单线程。
+
+    用完的进程放回池里给下一帧用（模型加载约 1 秒，不能每帧起一次）。出过错、超时的进程
+    直接杀掉，下一帧起新的。作业结束后整个池关掉（``_using_ocr``），模型不常驻内存。
+    """
+
+    def __init__(self, model_dir: str):
+        self.model_dir = model_dir
+        self.idle: list[_OcrWorker] = []
+        self.busy: set[_OcrWorker] = set()
+
+    async def recognize(
+        self, img: Any, corners: bool
+    ) -> tuple[float, list[tuple[str, float, float, float, float]], list[str] | None]:
+        """识别一帧，返回（平均亮度，文字行，四角的字或 None）。"""
+        worker = self.idle.pop() if self.idle else await _OcrWorker.start(self.model_dir)
+        self.busy.add(worker)
+        try:
+            reply = await asyncio.wait_for(worker.read(img, corners), _OCR_TIMEOUT_S)
+        except BaseException:
+            self.busy.discard(worker)
+            await worker.stop()
+            raise
+        self.busy.discard(worker)
+        self.idle.append(worker)
+        lines = [tuple(line) for line in reply["lines"]]
+        return float(reply["luma"]), lines, reply["corners"]
+
+    async def close(self) -> None:
+        workers = [*self.idle, *self.busy]
+        self.idle.clear()
+        self.busy.clear()
+        await asyncio.gather(*(w.stop() for w in workers), return_exceptions=True)
+
+
+_ocr_models: tuple[str, bool] | None = None
+_ocr_pool: _OcrPool | None = None
+_ocr_users = 0
+
+
+def _ocr_engine() -> _OcrPool | None:
+    """当前作业用的识别池；模型缺失返回 None（只在模型目录第一次出现时记一次日志）。
+
+    要在 ``_using_ocr`` 里调用，池在最后一个使用者退出时关掉。
+    """
+    global _ocr_models, _ocr_pool
+    model_dir = get_settings().ocr_model_dir
+    if _ocr_models is None or _ocr_models[0] != model_dir:
+        present = all((Path(model_dir) / name).is_file() for name in (DET_MODEL, REC_MODEL))
+        if not present:
+            logger.info("未找到画面文字识别模型（%s），片头片尾识别只用声音", model_dir)
+        _ocr_models = (model_dir, present)
+    if not _ocr_models[1]:
+        return None
+    if _ocr_pool is None or _ocr_pool.model_dir != model_dir:
+        _ocr_pool = _OcrPool(model_dir)
+    return _ocr_pool
+
+
+@contextlib.asynccontextmanager
+async def _using_ocr():
+    """持有识别池：作业（或单独调用的一季）期间工作进程留着复用，最后一个使用者退出时关掉。"""
+    global _ocr_users, _ocr_pool
+    _ocr_users += 1
+    try:
+        yield
+    finally:
+        _ocr_users -= 1
+        if _ocr_users == 0 and _ocr_pool is not None:
+            pool, _ocr_pool = _ocr_pool, None
+            await pool.close()
+
+
+def frames_path(file_id: int) -> Path:
+    return Path(get_settings().audio_fingerprint_dir) / f"{file_id}.frames.json"
+
+
+_PTS_TIME = re.compile(rb"pts_time:\s*(-?[0-9.]+)")
+
+
+async def _grab_frame(
+    path: str, t: float, accurate: bool, width: int = _FRAME_WIDTH
+) -> tuple[Any, float] | None:
+    """抽一帧：返回（``width`` 宽的 RGB 数组，这一帧在文件里的实际秒数）；失败返回 None。
+
+    ``accurate`` 为假时只解关键帧（``-skip_frame nokey``），NAS 上 4K 一帧约 0.5 秒，但拿到的是
+    t **之后**的第一个关键帧，最多晚一个 GOP（几秒到十几秒）——必须用 showinfo 报的实际时间，
+    按请求时间标记会把晚几秒的演职员表当成更早出现（美剧 B片尾起点因此早了 13 秒）。
+    为真时从关键帧解码到 t，精确但 4K 要两三秒，只在找边界时用。
+    """
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    start = max(0.0, t)
+    args = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "info"]
+    if not accurate:
+        args += ["-skip_frame", "nokey"]
+    args += ["-ss", f"{start:.3f}", "-i", path, "-frames:v", "1", "-an", "-sn"]
+    args += ["-vf", f"scale={width}:-2,showinfo"]
+    args += ["-f", "image2pipe", "-vcodec", "bmp", "-"]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *_niced(args), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        )
+    except OSError:
+        return None
+    try:
+        out, err = await asyncio.wait_for(proc.communicate(), timeout=_FRAME_TIMEOUT_S)
+    except TimeoutError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        await proc.wait()
+        return None
+    except asyncio.CancelledError:
+        with contextlib.suppress(ProcessLookupError):
+            proc.kill()
+        raise
+    if proc.returncode != 0 or not out:
+        return None
+    # 输入端 -ss 之后输出时间轴从请求点归零：showinfo 的 pts_time 就是这一帧比请求点晚了多少
+    match = _PTS_TIME.search(err)
+    actual = start + (float(match.group(1)) if match else 0.0)
+    try:
+        return np.asarray(Image.open(io.BytesIO(out)).convert("RGB")), actual
+    except (OSError, ValueError):
+        return None
+
+
+class _FrameProbe:
+    """一个文件的抽帧 + 识别，带磁盘缓存。
+
+    缓存同时记请求时间和实际时间：关键帧请求按请求时间 ±1.5 秒复用（同一个请求点每次都拿到
+    同一个关键帧）；精确请求按实际时间 ±0.3 秒复用，不拿关键帧顶替。
+    """
+
+    def __init__(self, file: LibraryFile, engine: _OcrPool):
+        self.file = file
+        self.engine = engine
+        self.dirty = False
+        # (请求时间, 是否精确, 帧)
+        self.frames: list[tuple[float, bool, credits_logic.Frame]] = []
+        try:
+            data = json.loads(frames_path(int(file.id)).read_text())  # type: ignore[arg-type]
+            if data.get("v") == FRAMES_VERSION and data.get("size") == file.size_bytes:
+                for item in data.get("frames", []):
+                    frame = credits_logic.Frame(
+                        float(item["t"]),
+                        float(item["luma"]),
+                        [tuple(x) for x in item["lines"]],
+                        item.get("corners"),
+                    )
+                    self.frames.append((float(item["req"]), bool(item["accurate"]), frame))
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+
+    async def observe(
+        self, t: float, accurate: bool, corners: bool = False
+    ) -> credits_logic.Frame | None:
+        """抽 t 处的一帧并识别；``corners`` 为真时连四角一起识别（找广告角标，多 0.6 秒）。"""
+        for req, cached_accurate, frame in self.frames:
+            hit = (accurate and cached_accurate and abs(frame.t - t) <= 0.3) or (
+                not accurate and abs(req - t) <= 1.5
+            )
+            if hit and (not corners or frame.corners is not None):
+                return frame
+        width = _CORNER_FRAME_WIDTH if corners else _FRAME_WIDTH
+        grabbed = await _grab_frame(self.file.file_path, t, accurate, width)
+        if grabbed is None:
+            return None
+        img, actual = grabbed
+        luma, lines, corner_texts = await self.engine.recognize(img, corners)
+        frame = credits_logic.Frame(actual, luma, lines, corner_texts)
+        self.frames.append((t, accurate, frame))
+        self.dirty = True
+        return frame
+
+    async def observe_corners(self, t: float) -> credits_logic.Frame | None:
+        return await self.observe(t, False, corners=True)
+
+    def save(self) -> None:
+        if not self.dirty:
+            return
+        payload = {
+            "v": FRAMES_VERSION,
+            "size": self.file.size_bytes,
+            "frames": [
+                {
+                    "req": req,
+                    "t": f.t,
+                    "accurate": acc,
+                    "luma": round(f.luma, 1),
+                    "lines": [list(x) for x in f.lines],
+                    "corners": f.corners,
+                }
+                for req, acc, f in sorted(self.frames, key=lambda item: item[2].t)
+            ],
+        }
+        path = frames_path(int(self.file.id))  # type: ignore[arg-type]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        staging = path.with_name(f".{path.name}.part")
+        staging.write_text(json.dumps(payload, ensure_ascii=False))
+        os.replace(staging, path)
+
+
+async def _refine_with_frames(
+    files: list[LibraryFile],
+    results: dict[str, list[dict[str, Any]]],
+    *,
+    chinese: bool,
+    context: jobs.JobContext | None,
+    polite: bool,
+    notice: _PauseNotice | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    """逐集用画面文字修正声音识别的结果：片尾按演职员表修正；不到结尾的片尾之后找「下集预告」；
+    中文内容再按「广告」角标给开头的段定类型（``segment_labels``）。
+
+    各集互不依赖，多路并行（每集占一路并发槽）；一集之内的抽帧前后依赖（二分找边界），按顺序做。
+    任何一集出错都保留它的声音结果，不影响整季。
+    """
+    async with _using_ocr():
+        engine = _ocr_engine()
+        if engine is None:
+            return results
+        todo = [
+            f
+            for f in files
+            if str(f.id) in results and float(f.duration_seconds or 0) >= _MIN_FRAME_DURATION_S
+        ]
+
+        async def refine(file: LibraryFile) -> list[dict[str, Any]] | None:
+            if context is not None:
+                await context.raise_if_cancelled()
+            await foreground.yield_to_foreground()
+            async with _work_slot(polite=polite, notice=notice):
+                return await _refine_episode(file, results[str(file.id)], engine, chinese=chinese)
+
+        refined = dict(results)
+        for file, segments in zip(todo, await _for_each(todo, refine), strict=True):
+            if segments is not None:
+                refined[str(file.id)] = segments
+        return refined
+
+
+async def _refine_episode(
+    file: LibraryFile, original: list[dict[str, Any]], engine: _OcrPool, *, chinese: bool
+) -> list[dict[str, Any]] | None:
+    """一集的画面核对：有改动返回新的片段表，没改动或出错返回 None（保留声音结果）。"""
+    duration = float(file.duration_seconds or 0)
+    segments = [dict(s) for s in original]
+    outro = next((s for s in segments if s.get("type") == "outro"), None)
+    audio = (outro["start_ms"] / 1000, outro["end_ms"] / 1000) if outro else None
+    probe = _FrameProbe(file, engine)
+    notes: list[str] = []
+    try:
+        decision = await credits_logic.refine_outro(audio, duration, probe.observe)
+        if decision.segment != audio:
+            notes.append(f"片尾：{decision.reason}")
+        segments = [s for s in segments if s.get("type") != "outro"]
+        if decision.segment is not None:
+            start, end = decision.segment
+            segments.append(
+                {
+                    "type": "outro",
+                    "start_ms": int(round(start * 1000)),
+                    "end_ms": int(round(end * 1000)),
+                    "support": int(outro.get("support", 0)) if outro else 0,
+                    "to_end": duration - end <= 5.0,
+                }
+            )
+            if duration - end > 5.0:
+                preview = await segment_labels.find_preview(end, duration, probe.observe)
+                if preview is not None:
+                    segments.append(
+                        {
+                            "type": "preview",
+                            "start_ms": int(round(preview[0] * 1000)),
+                            "end_ms": int(round(preview[1] * 1000)),
+                            "support": 0,
+                            "to_end": True,
+                        }
+                    )
+                    notes.append(f"片尾后 {preview[0]:.0f} 秒起是下集预告")
+        if chinese:
+            notes += await segment_labels.label_head_ads(segments, probe.observe_corners)
+        await asyncio.to_thread(probe.save)
+    except Exception as exc:  # noqa: BLE001 —— 画面核对锦上添花：抽帧、OCR 出任何错都退回声音结果
+        logger.warning("文件 #%s 的画面核对失败，保留声音识别结果：%s", file.id, exc)
+        return None
+    if not notes:
+        return None
+    logger.info("文件 #%s 按画面修正：%s", file.id, "；".join(notes))
+    return sorted(segments, key=lambda s: s["start_ms"])
 
 
 # ---------------------------------------------------------------------------
@@ -502,7 +1216,10 @@ def _fingerprint_due(file: LibraryFile, state: MediaSegmentState | None) -> bool
         return True
     if state.source_size != file.size_bytes:
         return True  # 片源变了（洗版原地替换），失败的也重试一次
-    return state.fingerprint_status == "ok" and not _fingerprint_readable(int(file.id or 0))
+    return state.fingerprint_status == "ok" and not _fingerprint_readable(
+        int(file.id or 0),
+        check_audio_selection=file.audio_streams is None or len(file.audio_streams) > 1,
+    )
 
 
 async def _run_detection(episodes: list[dict[str, Any]]) -> dict[str, Any]:
@@ -542,29 +1259,49 @@ async def _run_detection(episodes: list[dict[str, Any]]) -> dict[str, Any]:
     return json.loads(out)
 
 
-async def _fingerprint_one(file: LibraryFile) -> str:
+_file_locks: tuple[asyncio.AbstractEventLoop, dict[int, asyncio.Lock]] | None = None
+
+
+def _file_lock(file_id: int) -> asyncio.Lock:
+    """同一个文件同时只有一路在算指纹（锁按事件循环惰性创建，同 ``_work_slot``）。"""
+    global _file_locks
+    loop = asyncio.get_running_loop()
+    if _file_locks is None or _file_locks[0] is not loop:
+        _file_locks = (loop, {})
+    return _file_locks[1].setdefault(file_id, asyncio.Lock())
+
+
+async def _fingerprint_one(
+    file: LibraryFile, *, polite: bool = False, notice: _PauseNotice | None = None
+) -> str:
     """算一个文件的指纹并把状态写进台账，返回 ``ok`` / ``failed`` / ``skipped``。
 
-    排到 ffmpeg 槽之后**先复查还要不要算**，复查和写状态都在槽里做：同一季有两个作业并行时
-    （入库的条目作业 + 整库回填），前一个可能刚把这个文件算完，后一个手里的清单已经过时了。
+    拿到这个文件的锁之后**先复查还要不要算**：同一季有两个作业并行时（入库的条目作业 +
+    整库回填），前一个可能刚把这个文件算完，后一个手里的清单已经过时了。复查不占并发槽。
     """
     assert file.id is not None
     db = get_database()
-    async with _slot("ffmpeg"):
+    async with _file_lock(file.id):
         async with db.session() as session:
             fresh = await session.get(MediaSegmentState, file.id)
         if not _fingerprint_due(file, fresh):
             return "skipped"
         error: str | None = None
-        try:
-            await compute_fingerprint(file)
-        except FingerprintError as exc:
-            error = str(exc)
-            logger.warning("文件 #%s 算不了片头片尾指纹：%s（%s）", file.id, error, file.file_path)
+        async with _work_slot(polite=polite, notice=notice):
+            try:
+                await compute_fingerprint(file)
+            except FingerprintError as exc:
+                error = str(exc)
+                logger.warning(
+                    "文件 #%s 算不了片头片尾指纹：%s（%s）", file.id, error, file.file_path
+                )
         async with db.session() as session:
             row = await session.get(MediaSegmentState, file.id)
             if row is None:
                 row = MediaSegmentState(library_file_id=file.id)
+            # 新指纹可能来自洗版，也可能因为换用了完整音轨；后一种文件大小并没变。
+            # 两者都必须撤下旧区间，等新指纹完成整季比对，不能在中间阶段继续误跳。
+            row.segments = None
             row.fingerprint_status = "failed" if error else "ok"
             row.error = error
             row.source_size = file.size_bytes
@@ -588,8 +1325,9 @@ async def analyze_season(
 ) -> SeasonOutcome:
     """把一季做完：补齐缺的指纹，再整季识别一遍（有新指纹或结果过期时）。
 
-    每个文件的指纹单独提交——作业中途被取消、服务重启，已经算好的不会白算。
-    ``polite``：每个文件开读前，有人在看片就先等（整库回填用，见 ``_wait_until_quiet``）。
+    每个文件的指纹单独提交——作业中途被取消、服务重启，已经算好的不会白算。指纹与画面核对
+    都按集多路并行（``_for_each`` + ``_work_slot``）。
+    ``polite``：整库回填用，并发槽让条目作业先拿。
     ``max_new``：这次最多新算几个指纹（``PRIORITY_BATCH``），多出来的留给整库回填；挑哪几个：
     给了 ``prefer_episode`` 就先挑离它最近的集（开播提队：在看第 N 集，先把 N 附近的算出来），
     否则先挑最新入库的（入库触发）。识别照样用已有的全部指纹做，只是积压的旧集要等回填。
@@ -606,22 +1344,32 @@ async def analyze_season(
         else:
             due.sort(key=lambda fs: fs[0].created_at, reverse=True)
         due = due[: max(max_new, 0)]
-    for file, _ in due:
+    notice = _PauseNotice(context) if context is not None else None
+
+    async def fingerprint(file: LibraryFile) -> str:
         if context is not None:
             await context.raise_if_cancelled()
-            if polite:
-                await _wait_until_quiet(context)
         # 前台有请求在等响应就让一步（services/foreground.py）：页面加载的那一两秒里别抢数据库
         await foreground.yield_to_foreground()
-        result = await _fingerprint_one(file)
+        return await _fingerprint_one(file, polite=polite, notice=notice)
+
+    for result in await _for_each([file for file, _ in due], fingerprint):
         if result == "failed":
             outcome.failed += 1
         elif result == "ok":
             outcome.fingerprinted += 1
 
+    # 用取得本轮输入的时间排序结果，不能用结束时间：旧任务可能晚于新任务返回。
+    analysis_started_at = utcnow()
     async with db.session() as session:
         rows = await _season_files(session, media_item_id, season_number)
-        ready = [(f, s) for f, s in rows if s is not None and s.fingerprint_status == "ok"]
+        # 有读取预算时，洗版或音轨选择过期的指纹可能还没轮到重算；不能参与比对，
+        # 否则会污染其他集，还会被盖上新版已完成标记，从待办清单中永久漏掉。
+        ready = [
+            (f, s)
+            for f, s in rows
+            if s is not None and s.fingerprint_status == "ok" and not _fingerprint_due(f, s)
+        ]
         stale = any(
             s.analyzed_at is None or s.algo_version != ALGO_VERSION or s.segments is None
             for _, s in ready
@@ -642,24 +1390,54 @@ async def analyze_season(
     response = await _run_detection(episodes)
     results: dict[str, list[dict[str, Any]]] = response.get("results", {})
     unreadable = {int(i) for i in response.get("unreadable", [])}
+    async with db.session() as session:
+        chinese = await _is_chinese_title(session, media_item_id)
+    results = await _refine_with_frames(
+        [f for f, _ in ready if int(f.id or 0) not in unreadable],
+        results,
+        chinese=chinese,
+        context=context,
+        polite=polite,
+        notice=notice,
+    )
     now = utcnow()
     async with db.session() as session:
-        for f, _ in ready:
-            row = await session.get(MediaSegmentState, f.id)
-            if row is None:
-                continue
-            if int(f.id or 0) in unreadable:
-                # 指纹文件在比对前被清掉 / 读不了（缓存管理里清空过，本次又没轮到重算它）：
-                # 不动它现有的结果——播放照常给原来的片头；它在下次这一季重算指纹时补回
-                continue
+        for f, snapshot in ready:
+            needs_rebuild = int(f.id or 0) in unreadable
             segments = results.get(str(f.id), [])
-            row.segments = segments
-            row.algo_version = int(response.get("algo_version") or ALGO_VERSION)
-            row.analyzed_at = now
-            outcome.with_intro += any(s.get("type") == "intro" for s in segments)
-            outcome.with_outro += any(s.get("type") == "outro" for s in segments)
-            row.updated_at = now
-            session.add(row)
+            if needs_rebuild:
+                # JSON 头完好但正文截断也会到这里。留在待办中，让下一轮真正重建，
+                # 不能永久沿用坏缓存，或误把“读不了”记成“本集没有片头”。
+                values = dict(fingerprint_status="pending", analyzed_at=None, updated_at=now)
+            else:
+                values = dict(
+                    segments=segments,
+                    algo_version=int(response.get("algo_version") or ALGO_VERSION),
+                    analyzed_at=analysis_started_at,
+                    updated_at=now,
+                )
+            # 本集指纹没变也不代表共识没变：伙伴换轨会改变整季结果。以输入时间排序，
+            # 旧任务无论先写还是后写，都不能覆盖较新输入算出的结果；条件与写入原子执行。
+            written = await session.execute(
+                update(MediaSegmentState)
+                .where(
+                    MediaSegmentState.library_file_id == f.id,
+                    MediaSegmentState.fingerprint_status == "ok",
+                    MediaSegmentState.source_size == snapshot.source_size,
+                    MediaSegmentState.fingerprinted_at == snapshot.fingerprinted_at,
+                    or_(
+                        col(MediaSegmentState.analyzed_at).is_(None),
+                        col(MediaSegmentState.analyzed_at) <= analysis_started_at,
+                    ),
+                )
+                .values(**values)
+            )
+            if written.rowcount:
+                if needs_rebuild:
+                    logger.warning("文件 #%s 的音频指纹缓存无法读取，已排入重建", f.id)
+                else:
+                    outcome.with_intro += any(s.get("type") == "intro" for s in segments)
+                    outcome.with_outro += any(s.get("type") == "outro" for s in segments)
         await session.commit()
     outcome.analyzed = True
     logger.info(
@@ -679,23 +1457,60 @@ async def analyze_season(
 
 
 async def segments_for_file(session: AsyncSession, file: LibraryFile) -> list[dict[str, Any]]:
-    """播放器要的片段（毫秒）：库开着开关、识别过才有，否则空表。两次主键查询。"""
+    """播放器要的片段（毫秒）：库开着开关、识别过才有，否则空表。两次主键查询（要贴零时再查一次元数据）。"""
     if file.id is None or file.library_id is None:
         return []
     state = await session.get(MediaSegmentState, file.id)
-    if state is None or not state.segments or state.fingerprint_status != "ok":
+    if (
+        state is None
+        or not state.segments
+        or state.fingerprint_status != "ok"
+        or state.source_size != file.size_bytes
+        or state.algo_version != ALGO_VERSION
+    ):
+        # 新算法可能正是修复旧区间误跳剧情；重算前暂不下发旧结果，开播路径会优先排队。
         return []
     library = await session.get(Library, file.library_id)
     if library is None or library.kind != "tv" or not library.detect_media_segments:
         return []
     segments = [dict(s) for s in state.segments]
-    # 片头前那几秒多是平台台标、片名卡，不值得单独看：第一段离开头不到 _HEAD_SNAP_MS 就从 0 算起，
+    # 片头前那几秒多是平台台标、冠名广告，不值得单独看：第一段离开头不到 _HEAD_SNAP_MS 就从 0 算起，
     # 开播就给「跳过」，不必等到冠名广告真正响起才冒出来（用户反馈 2026-10-01）。
-    # 只改下发的区间，库里存的仍是识别原值；跳到的终点不变
-    first = min(segments, key=lambda seg: seg["start_ms"], default=None)
-    if first is not None and 0 < first["start_ms"] <= _HEAD_SNAP_MS:
-        first["start_ms"] = 0
+    # 只改下发的区间，库里存的仍是识别原值；跳到的终点不变。
+    # 只对中文内容（见 _HEAD_SNAP_LANGUAGES）。
+    # 起点都在 _HEAD_SNAP_MS 内的几段（许可证 0–6.6 秒、厂标、片头 10.4 秒起）并成一个按钮，
+    # 从 0 跳到其中最远的终点：v6 认出短段后，不并就会把 v5 的一个按钮拆成两个，中间几秒台标漏跳
+    heads = [s for s in segments if s["type"] != "outro" and s["start_ms"] <= _HEAD_SNAP_MS]
+    if (
+        heads
+        and (len(heads) > 1 or heads[0]["start_ms"] > 0)
+        and file.media_item_id is not None
+        and await _is_chinese_title(session, file.media_item_id)
+    ):
+        merged = {**max(heads, key=lambda s: s["end_ms"]), "start_ms": 0}
+        segments = [merged, *(s for s in segments if not any(s is h for h in heads))]
+        segments.sort(key=lambda s: s["start_ms"])
     return segments
+
+
+async def _is_chinese_title(session: AsyncSession, media_item_id: int) -> bool:
+    """是不是中文内容（原始语言 zh / 粤语 cn，或出品地含 CN）：开头贴零与广告角标都只对它做。
+
+    没刮到元数据的当作不是（宁可少跳）。
+    """
+    row = (
+        await session.execute(
+            select(MediaMetadata.original_language, MediaMetadata.origin_countries).where(
+                MediaMetadata.media_item_id == media_item_id
+            )
+        )
+    ).first()
+    if row is None:
+        return False
+    language, countries = row
+    return (language or "") in _HEAD_SNAP_LANGUAGES or bool(
+        set(countries or []) & _HEAD_SNAP_COUNTRIES
+    )
 
 
 _bump_pending: set[tuple[int, int]] = set()
@@ -836,6 +1651,41 @@ async def enqueue_after_library_change(library_id: int, *, origin: str = "system
     return True
 
 
+async def enqueue_pending_libraries() -> None:
+    """启动后恢复存量识别：只查数据库并排持久化任务，不扫描 NAS，不阻塞启动。
+
+    算法版本变化本身就会产生待办，无须等扫描、入库或用户开播。已在队列里的库由
+    原有 dedupe_key 合并；完成后再次启动不会重复排空任务。一个库失败不影响其他库。
+    """
+    try:
+        async with get_database().session() as session:
+            library_ids = (
+                (
+                    await session.execute(
+                        select(LibraryFile.library_id)
+                        .join(Library, col(Library.id) == col(LibraryFile.library_id))
+                        .outerjoin(
+                            MediaSegmentState,
+                            col(MediaSegmentState.library_file_id) == col(LibraryFile.id),
+                        )
+                        .where(*eligible_conditions(), _needs_work_condition())
+                        .distinct()
+                    )
+                )
+                .scalars()
+                .all()
+            )
+    except Exception:  # noqa: BLE001 —— 后台补齐失败不能阻断应用启动
+        logger.exception("启动后检查片头片尾待办失败，后续媒体库扫描会再次尝试")
+        return
+    for library_id in library_ids:
+        try:
+            await foreground.yield_to_foreground()
+            await enqueue_after_library_change(int(library_id))
+        except Exception:  # noqa: BLE001 —— 一个库排队失败不影响其他库
+            logger.exception("媒体库 #%s 的片头片尾更新排队失败，后续扫描会再次尝试", library_id)
+
+
 async def enqueue_after_scan(library_id: int, summary: object) -> bool:
     """直接调 ``scan_library`` 的两条路径（监听触发的增量扫描、暂缓文件的补扫）扫完之后调用。
 
@@ -925,48 +1775,50 @@ async def _run_seasons(
     stats = {"seasons": 0, "fingerprinted": 0, "failed": 0, "errors": 0}
     attempts: dict[tuple[int, int], int] = {}
     done = 0
-    while True:
-        await context.raise_if_cancelled()
-        left = None if budget is None else budget - stats["fingerprinted"] - stats["failed"]
-        if left is not None and left <= 0:
-            break
-        async with get_database().session() as session:
-            todo = [key for key in await find(session) if attempts.get(key, 0) < _MAX_ROUNDS]
-        if not todo:
-            break
-        item_id, season = todo[0]
-        attempts[(item_id, season)] = attempts.get((item_id, season), 0) + 1
-        try:
-            outcome = await analyze_season(
-                item_id,
-                season,
-                context=context,
-                polite=polite,
-                max_new=left,
-                prefer_episode=prefer_episode,
-            )
-        except (jobs.JobCancelled, asyncio.CancelledError):
-            raise
-        except Exception:  # noqa: BLE001 —— 一季出错不打断整批
-            stats["errors"] += 1
-            attempts[(item_id, season)] = _MAX_ROUNDS
-            logger.exception("条目 #%s 第 %s 季的片头片尾识别出错", item_id, season)
-        else:
-            stats["seasons"] += 1
-            stats["fingerprinted"] += outcome.fingerprinted
-            stats["failed"] += outcome.failed
-        done += 1
-        total = done + len(todo) - 1
-        if total == done or context.progress_due():
-            await context.update_progress(
-                mode="determinate",
-                phase="analyzing",
-                message=f"正在识别片头片尾：第 {done}/{total} 季",
-                current=done,
-                total=total,
-                percent=round(done * 100 / total, 1) if total else 100.0,
-                details=dict(stats),
-            )
+    # 文字识别进程跨季复用，作业结束才关（每季重起一遍要多花几秒加载模型）
+    async with _using_ocr():
+        while True:
+            await context.raise_if_cancelled()
+            left = None if budget is None else budget - stats["fingerprinted"] - stats["failed"]
+            if left is not None and left <= 0:
+                break
+            async with get_database().session() as session:
+                todo = [key for key in await find(session) if attempts.get(key, 0) < _MAX_ROUNDS]
+            if not todo:
+                break
+            item_id, season = todo[0]
+            attempts[(item_id, season)] = attempts.get((item_id, season), 0) + 1
+            try:
+                outcome = await analyze_season(
+                    item_id,
+                    season,
+                    context=context,
+                    polite=polite,
+                    max_new=left,
+                    prefer_episode=prefer_episode,
+                )
+            except (jobs.JobCancelled, asyncio.CancelledError):
+                raise
+            except Exception:  # noqa: BLE001 —— 一季出错不打断整批
+                stats["errors"] += 1
+                attempts[(item_id, season)] = _MAX_ROUNDS
+                logger.exception("条目 #%s 第 %s 季的片头片尾识别出错", item_id, season)
+            else:
+                stats["seasons"] += 1
+                stats["fingerprinted"] += outcome.fingerprinted
+                stats["failed"] += outcome.failed
+            done += 1
+            total = done + len(todo) - 1
+            if total == done or context.progress_due():
+                await context.update_progress(
+                    mode="determinate",
+                    phase="analyzing",
+                    message=f"正在识别片头片尾：第 {done}/{total} 季",
+                    current=done,
+                    total=total,
+                    percent=round(done * 100 / total, 1) if total else 100.0,
+                    details=dict(stats),
+                )
     logger.info("%s的片头片尾识别完成：%s", subject, stats)
     return stats
 
@@ -1033,7 +1885,7 @@ async def _run_item_job(context: jobs.JobContext, input_data: dict[str, Any]) ->
         budget=PRIORITY_BATCH,
         prefer_episode=int(episode) if episode is not None else None,
     )
-    # 积压没做完的交给整库回填（它会为在看片的人让路）：按条目所在的库各排一份
+    # 积压没做完的交给整库回填（低优先级，条目作业来了先让）：按条目所在的库各排一份
     async with get_database().session() as session:
         left = await seasons_needing_work(session, media_item_id=media_item_id)
         library_ids = (

@@ -43,6 +43,7 @@ import {
   type ReidentifyPreview,
 } from "@/lib/api/libraries";
 import { formatBytes } from "@/lib/format";
+import { imageUrl, responsiveImage } from "@/lib/image-proxy";
 
 /** 身份来源 → 中文短语（结论卡上说明"凭什么这么认"）。 */
 const SOURCE_LABELS: Record<string, string> = {
@@ -204,7 +205,7 @@ function CurrentIdentity({ preview }: { preview: ReidentifyPreview }) {
     <div className="flex items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] p-3">
       {current.poster_url ? (
         <img
-          src={current.poster_url}
+          {...responsiveImage(imageUrl(current.poster_url), 44)}
           alt={current.title}
           loading="lazy"
           decoding="async"
@@ -327,7 +328,7 @@ function GroupRow({
           <div className="flex items-center gap-3">
             {outcome.poster_url ? (
               <img
-                src={outcome.poster_url}
+                {...responsiveImage(imageUrl(outcome.poster_url), 40)}
                 alt={outcome.title ?? ""}
                 loading="lazy"
                 decoding="async"

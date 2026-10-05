@@ -37,6 +37,15 @@ Resolver = Callable[[str], Awaitable[list[str]]]
 
 _STANDARD_PORTS = {"http": 80, "https": 443}
 
+# 归属独立出口标签的图床：这些域名的图片下载按各自服务的代理开关与熔断走，
+# 而不是「图片回源」——「网络与代理」里的「Fanart.tv」一项同时管它的接口和图床
+_HOST_SERVICES = {"assets.fanart.tv": "fanart"}
+
+
+def egress_service_for_host(host: str) -> str:
+    """图片域名归属的出口标签（默认「图片回源」image）。"""
+    return _HOST_SERVICES.get(host, "image")
+
 # Clash / Surge / sing-box 等代理工具的 fake-ip 模式会把所有域名解析到这个
 # RFC 2544 基准测试保留段，真实连接由代理接管转发。它不是内网网段，判定为
 # 内网会把开着代理的用户全部误杀，故显式放行。
@@ -102,11 +111,12 @@ class ImageProxy:
         if self._allowed_host_suffixes is not None and not any(
             host == suffix or host.endswith(f".{suffix}") for suffix in self._allowed_host_suffixes
         ):
-            raise BadRequestException("演示站只代理 TMDB 与豆瓣图床的图片")
-        # 图片回源走代理时跳过本地 DNS 校验：被墙域名在本地可能解析失败或被
+            raise BadRequestException("演示站只代理 TMDB、豆瓣与 Fanart.tv 图床的图片")
+        # 该域名的出口走代理时跳过本地 DNS 校验：被墙域名在本地可能解析失败或被
         # 污染，而实际连接由代理端发起（CONNECT 隧道按域名转发），本地解析
-        # 结果既不可靠也不参与连接；内网防护责任随出口转移到用户的代理上
-        if resolve_proxy_url("image") is not None:
+        # 结果既不可靠也不参与连接；内网防护责任随出口转移到用户的代理上。
+        # 按域名归属的标签判断（Fanart 图床看「Fanart.tv」那一项，不看图片回源）
+        if resolve_proxy_url(egress_service_for_host(host)) is not None:
             return host
         try:
             addresses = await self._resolve(host)
@@ -195,6 +205,42 @@ class ImageProxy:
             logger.warning("代理图片请求失败：%s（%s）", current, exc)
             raise UpstreamServiceException("远端图片加载失败，请稍后重试") from exc
 
+    async def content_length(self, url: str, *, accept: str | None = None) -> int | None:
+        """只取响应头（HEAD）问远端图片的字节数，**不下载内容**；拿不到返回 None。
+
+        「下载前比较」用：本地已有一张候选图时，字节数与远端一致就视为同一张，
+        省掉整张下载。图床边缘节点可能即时压缩优化（TMDB 的 BunnyCDN），同一地址
+        不同节点的字节数可能略有出入——对不上调用方会退回下载，宁可少省也不错认。
+        ``accept`` 必须与真实下载时一致——TMDB 的 CDN 按 Accept 协商格式，浏览器式
+        Accept 拿到的是 WebP，字节数自然对不上。
+
+        安全检查与 ``fetch`` 同一套（逐跳校验域名与内网地址）；任何失败都只返回
+        None，调用方据此退回正常下载——探测失败不能变成「图片缺失」。
+        """
+        current = url
+        try:
+            for _ in range(self._max_redirects + 1):
+                host = await self._validated_host(current)
+                response = await self._client.head(
+                    current, headers=self._headers_for(current, host, accept)
+                )
+                if response.is_redirect:
+                    location = response.headers.get("location")
+                    if not location:
+                        return None
+                    current = str(httpx.URL(current).join(location))
+                    continue
+                if response.status_code != 200:
+                    return None
+                content_type = response.headers.get("content-type", "").split(";", 1)[0]
+                length = response.headers.get("content-length")
+                if not content_type.lower().startswith("image/") or not (length or "").isdigit():
+                    return None
+                return int(length)
+        except Exception as exc:  # noqa: BLE001 -- 探测失败退回正常下载
+            logger.debug("图片字节数探测失败（改为直接下载）：%s（%s）", current, exc)
+        return None
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
@@ -206,16 +252,35 @@ def _demo_allowed_hosts() -> tuple[str, ...] | None:
     """公开演示站的图片代理域名白名单；正常部署返回 None（开放域名）。
 
     演示站的账号是公开的，开放域名的图片代理等于给全网送一个免费的图片中转站；
-    而演示站用得上的远程图片只有发现页的 TMDB 与豆瓣图床（docs/design/demo-site.md）。
+    仅放行产品使用的 TMDB、豆瓣和 Fanart.tv 图床（docs/design/demo-site.md）。
     """
     settings = get_settings()
     if not settings.demo_mode:
         return None
-    hosts = ["tmdb.org", "doubanio.com"]
+    hosts = ["tmdb.org", "doubanio.com", "assets.fanart.tv"]
     mirror = urlsplit(settings.tmdb_image_base_url).hostname
     if mirror:
         hosts.append(mirror)
     return tuple(hosts)
+
+
+class _HostRoutedTransport(httpx.AsyncBaseTransport):
+    """按请求域名把图片下载分给不同出口标签的 transport（默认 ``image``）。"""
+
+    def __init__(
+        self, default: httpx.AsyncBaseTransport, routes: dict[str, httpx.AsyncBaseTransport]
+    ) -> None:
+        self._default = default
+        self._routes = routes
+
+    async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        transport = self._routes.get(request.url.host, self._default)
+        return await transport.handle_async_request(request)
+
+    async def aclose(self) -> None:
+        await self._default.aclose()
+        for transport in self._routes.values():
+            await transport.aclose()
 
 
 def get_image_proxy() -> ImageProxy:
@@ -228,7 +293,13 @@ def get_image_proxy() -> ImageProxy:
             # 统一出口：服务标签 image，代理路由/熔断由 movieclaw_net 按配置接管。
             # TLS 用浏览器特征上下文：豆瓣图床的 EdgeOne 边缘按 TLS 指纹拦
             # Python 默认配置（返回 JS 挑战页），详见 browser_tls_context 注释。
-            transport=egress_transport("image", verify=browser_tls_context()),
+            transport=_HostRoutedTransport(
+                egress_transport("image", verify=browser_tls_context()),
+                {
+                    host: egress_transport(service, verify=browser_tls_context())
+                    for host, service in _HOST_SERVICES.items()
+                },
+            ),
         )
     return _proxy
 

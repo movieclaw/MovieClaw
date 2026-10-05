@@ -34,6 +34,7 @@ import {
   updateDownloader,
 } from "@/lib/api/downloaders";
 import type { PathProbe } from "@/lib/api/downloaders";
+import { listConfiguredSites, listSiteCatalog } from "@/lib/api/sites";
 import { formatRelativeTime } from "@/lib/time";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
 import { LiquidGlassButton } from "@/components/liquid-glass";
@@ -45,6 +46,22 @@ const STATUS_META: Record<DownloaderStatus, { label: string; color: string }> = 
   pending: { label: "待测试", color: "#c0c4cc" },
   failed: { label: "连接失败", color: "var(--danger)" },
 };
+
+/**
+ * 选这台下载器刷流、且刷流开着的站点名称（删除确认用）。删除是低频操作，
+ * 现取即可；取不到就不提示（后端照样会关闭这些站点的刷流）。
+ */
+async function boostSitesOn(downloaderId: number): Promise<string[]> {
+  try {
+    const [sites, catalog] = await Promise.all([listConfiguredSites(), listSiteCatalog()]);
+    const names = new Map(catalog.map((c) => [c.site_id, c.display_name]));
+    return sites
+      .filter((s) => s.boost_enabled && s.boost_downloader_id === downloaderId)
+      .map((s) => names.get(s.site_id) ?? s.site_id);
+  } catch {
+    return [];
+  }
+}
 
 /** 下载器类型 → 展示名 */
 const TYPE_LABEL: Record<DownloaderClientType, string> = {
@@ -427,10 +444,20 @@ function DownloaderRow({
             }
             onDelete={() =>
               void guard(async () => {
+                // 选它做刷流下载器的站点会被一并关闭刷流（后端执行，见
+                // DownloaderConfigService.delete），确认前讲清楚影响哪些站点
+                const boostSites = await boostSitesOn(downloader.id);
                 if (
                   !(await confirm({
                     title: `删除下载器「${downloader.name}」？`,
                     description: "下载器中的任务不受影响，只是 movieclaw 不再向它投递。",
+                    bullets:
+                      boostSites.length > 0
+                        ? [
+                            `${boostSites.join("、")} 用这台下载器刷流，删除后这些站点的刷流会关闭`,
+                            "已在做种的刷流种子保留在下载器里；想继续刷流，重新开启并选一台下载器即可",
+                          ]
+                        : undefined,
                     confirmLabel: "删除",
                     tone: "danger",
                   }))

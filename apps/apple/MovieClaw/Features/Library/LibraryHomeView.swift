@@ -1,62 +1,10 @@
 import NukeUI
 import SwiftUI
 
-/// 首页行清单偏好的进程内共享副本。
-///
-/// Web 把全站界面偏好放在一个 React Context 里（按当前会话加载）；App 里只有媒体库首页、
-/// 自定义页与合集页用到 `home.rows`，放一个模块级单例即可：自定义页保存后直接写回这里，
-/// 返回首页时立刻按新清单渲染，不必等下一轮轮询。
-///
-/// 单例跨账号存活，所以副本记着属于谁（服务器地址 + 用户名，同 SubscriptionIndex）：
-/// 切换账号后第一次使用就作废旧副本重新拉。否则新账号首页沿用旧布局，更糟的是在新账号的合集页点
-/// 「显示在首页」会以旧账号的行清单为底整份保存，覆盖新账号的偏好（第二轮审计 N-04a-1）。
-@Observable
-final class LibraryHomePrefs {
-    static let shared = LibraryHomePrefs()
-    /// nil = 还没从服务器拉到
-    var rows: [API.HomeRowPref]?
-    /// 副本所属账号（`ownerKey`）
-    @ObservationIgnored private(set) var owner: String?
-
-    static func ownerKey(api: APIClient, username: String?) -> String {
-        "\(api.server.apiBase.absoluteString)|\(username ?? "")"
-    }
-
-    /// 以这个账号的身份使用副本：换了账号就清空旧账号的行清单
-    func adopt(owner key: String) {
-        guard key != owner else { return }
-        owner = key
-        rows = nil
-    }
-
-    /// 接收一次拉取结果：拉取期间换了账号（或已有更新的副本）就丢弃，不串到别的账号上
-    func accept(_ fetched: [API.HomeRowPref]?, for key: String) {
-        guard key == owner, rows == nil else { return }
-        rows = fetched
-    }
-
-    /// 确保副本属于这个账号且已拉到（失败保持 nil，下次再拉）
-    func ensureLoaded(api: APIClient, owner key: String) async {
-        adopt(owner: key)
-        guard rows == nil else { return }
-        accept((try? await api.uiPrefsShow())?.home.rows, for: key)
-    }
-
-    /// 保存首页行清单。后端 PUT `/ui/preferences` 是整体覆盖，所以以当前完整偏好为底只换 home.rows；
-    /// 成功后写回共享副本（自定义页、合集页「显示在首页」共用）。
-    func save(_ rows: [API.HomeRowPrefInput], api: APIClient) async throws {
-        let base = try await api.uiPrefsShow()
-        var input = try JSONDecoder().decode(API.UiPreferencesSettingInput.self, from: JSONEncoder().encode(base))
-        input.home = API.HomeUiPrefsInput(rows: rows)
-        let saved = try await api.uiPrefsUpdate(body: input)
-        self.rows = saved.home.rows
-    }
-}
-
 /// 媒体库首页（Web `library-view.tsx`，路由 `/library`）。
 ///
 /// 页面 = 标题统计 + 按 `ui.preferences.home.rows` 合并出的行清单：
-/// 接下来继续 / 我的收藏 / 我的媒体库（库卡片 + 扫描进度环）/ 每库一行 / 合集行。
+/// 接下来继续 / 我的收藏 / 我的媒体库（真实库 + 首页合集虚拟库卡片）/ 每库一行 / 合集行。
 /// 只负责「看」，排序与行的增删改全部收进自定义页。
 ///
 /// 刷新策略同 Web：有库在扫描/整理时 3 秒一轮（结束后再保持 12 秒快轮询，接住监控去抖触发的连环扫描），
@@ -77,6 +25,7 @@ struct LibraryHomeView: View {
     private var upNext: [API.UpNextItemView]? { store.upNext }
     private var favorites: API.FavoritesView? { store.favorites }
     private var itemsByKey: [String: [API.LibraryItemView]] { store.itemsByKey }
+    private var genresByKind: [String: [API.LibraryKindGenreView]] { store.genresByKind }
     private var failed: Bool { store.failed }
     /// 扫描/整理结束后的 12 秒快轮询窗口还没过（同 Web recentlyBusy）。必须是状态而不是在 body 里
     /// 现算 `Date.now < busyUntil`：数据不变时 body 不会重算，间隔就会一直停在 3 秒
@@ -101,20 +50,11 @@ struct LibraryHomeView: View {
             // 只有「一个页面按钮 + 最右的搜索圆钮」。原先平铺的 list.bullet / 齿轮图标
             // 在 iOS 里分别像「切列表视图」「App 设置」，含义对不上（2026-09-26 用户要求整理）
             // 「片段」是 2026-09-29 用户要求放在媒体库顶部试验的入口（docs/design/reels.md），图标用圆圈播放
-            // （不和底部「媒体库」页签的 play.square.stack 撞）、带「片段」二字。
-            // 顺序「⋯ · 搜索 · ▶ 片段」（2026-09-30 用户拍板）：片段当本页主操作放最右的主操作位，最少用的 ⋯ 在最里。
-            // 外壳注入的搜索在 `.primaryAction`（见 MainTabView 的 AppTopBar），页面自己的 `.primaryAction` 排在
-            // 它后面，所以片段也放 `.primaryAction`，前面垫一个间隔，与搜索各自成独立圆钮
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-            ToolbarItem(placement: .primaryAction) {
-                // iOS 26 工具栏会把 Label 强制成只显示图标（.labelStyle(.titleAndIcon) 也不管用，真机实测），
-                // 所以图标和字自己并排画
+            // （不和底部「媒体库」页签的 play.square.stack 撞）。不常用：只留图标、排在最左，
+            // 与 ⋯ 合成一个玻璃胶囊，顶栏只剩「▶ ⋯ · 搜索」两组（2026-10-05 用户要求，原先三颗圆钮又多又乱）
+            ToolbarItem(placement: .topBarTrailing) {
                 Button { openReels() } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "play.circle")
-                        Text("片段")
-                    }
-                    .fixedSize()
+                    Image(systemName: "play.circle")
                 }
                 .accessibilityLabel("片段")
                 .accessibilityIdentifier("library-reels")
@@ -142,6 +82,11 @@ struct LibraryHomeView: View {
             Task { await reload() }
             // 「继续观看」多半从这里点：先把起播要用的连接连好（见 PlaybackPreconnect）
             PlaybackPreconnect.warm(api: api)
+        }
+        // 自定义首页是盖在上面的弹出表单，关掉时这里不会再触发 onAppear：行清单一变就刷新
+        // （store 按指纹只重拉变了的行；表单开着时首页在下面跟着变）
+        .onChange(of: prefs.rows) { old, _ in
+            if old != nil, !warmup { Task { await reload() } }
         }
         .onChange(of: dataComplete) { _, complete in
             if complete, !warmup { PerfTrace.pageDataReady("library") }
@@ -189,6 +134,8 @@ struct LibraryHomeView: View {
     private var rows: [HomeRows.Row] {
         HomeRows.build(prefs: prefs.rows ?? store.snapshotRows ?? [], libraries: libraries ?? [], collections: collections)
     }
+
+    private var homeCollections: [API.CollectionView] { HomeRows.pinnedCollections(rows) }
 
     private var pollInterval: Double {
         let libs = libraries ?? []
@@ -261,7 +208,7 @@ struct LibraryHomeView: View {
                         Text("首页空空如也").font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
                         Text("所有行都被隐藏了。到「自定义首页」挑几行回来，或恢复默认。")
                             .font(.footnote).foregroundStyle(Theme.textMuted).multilineTextAlignment(.center)
-                        NavigationLink(value: AppRoute.libraryCustomize) { Text("自定义首页") }
+                        Button("自定义首页") { router.push(.libraryCustomize) }
                             .buttonStyle(.glass)
                             .padding(.top, 10)
                     }
@@ -318,7 +265,7 @@ struct LibraryHomeView: View {
                 .accessibilityIdentifier("favorites-row")
             }
         case .libraries:
-            if !visibleLibraries.isEmpty {
+            if !visibleLibraries.isEmpty || !homeCollections.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     LibrarySectionHeader(title: row.title) {
                         if !collections.isEmpty {
@@ -327,13 +274,22 @@ struct LibraryHomeView: View {
                         }
                     }
                     ScrollView(.horizontal, showsIndicators: false) {
-                        LazyHStack(spacing: 14) {
+                        LazyHStack(alignment: .top, spacing: 14) {
                             ForEach(visibleLibraries, id: \.id) { library in
                                 NavigationLink(value: AppRoute.library(id: library.id)) {
                                     LibraryHomeCard(library: library, hasPosters: !(itemsByKey[LibraryHomeStore.coverKey(library.id)] ?? []).isEmpty)
                                 }
                                 .buttonStyle(.plain)
                                 .accessibilityIdentifier("library-card-\(library.id)")
+                            }
+                            // 与真实库同排，合集之间沿用首页海报行的顺序；点卡片进原合集。
+                            ForEach(homeCollections, id: \.id) { collection in
+                                NavigationLink(value: AppRoute.collection(libraryId: collection.libraryId, collectionId: collection.id)) {
+                                    CollectionLibraryHomeCard(collection: collection)
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("合集「\(collection.name)」，\(collection.itemCount) 部")
+                                .accessibilityIdentifier("collection-library-card-\(collection.id)")
                             }
                         }
                         .padding(.horizontal, Theme.pagePadding)
@@ -342,10 +298,58 @@ struct LibraryHomeView: View {
                 }
                 .padding(.top, 24)
             }
+        case let .genres(kind, _):
+            // 每个有片的类型一格，按部数倒序（服务端排好）；一格都没有时整段隐藏
+            if let genres = genresByKind[kind], !genres.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    LibrarySectionHeader(title: row.title)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        LazyHStack(alignment: .top, spacing: 12) {
+                            ForEach(genres, id: \.value) { genre in
+                                if let id = Int(genre.value) {
+                                    NavigationLink(value: AppRoute.libraryKind(kind: kind, genre: id)) {
+                                        // 卡片下方写最近入库那部片的片名（与海报行「片名 + 年份」同一个格式）
+                                        VStack(alignment: .leading, spacing: 8) {
+                                            GenreCardFace(
+                                                genreId: id, label: genre.label, count: genre.count,
+                                                coverURL: api.image(genre.coverUrl, width: ImageWidth.points(PhoneCardWidth.genreTile)),
+                                                width: PhoneCardWidth.genreTile
+                                            )
+                                            VStack(alignment: .leading, spacing: 2) {
+                                                Text(genre.coverTitle ?? genre.label)
+                                                    .font(.subheadline.weight(.medium))
+                                                    .foregroundStyle(Theme.text)
+                                                Text(genre.coverTitle != nil ? "最近入库" : "\(genre.count) 部")
+                                                    .font(.caption)
+                                                    .foregroundStyle(Theme.textMuted)
+                                            }
+                                            .lineLimit(1)
+                                            .frame(width: PhoneCardWidth.genreTile, alignment: .leading)
+                                        }
+                                    }
+                                    .buttonStyle(GenreTileButtonStyle())
+                                    .accessibilityIdentifier("genre-tile-\(kind)-\(id)")
+                                }
+                            }
+                        }
+                        .padding(.horizontal, Theme.pagePadding)
+                    }
+                    .scrollClipDisabled()
+                }
+                .padding(.top, 24)
+                .accessibilityIdentifier("home-row-\(row.id)")
+            }
         case let .library(library, _, _, _, _, _):
             let items = itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []
             if !items.isEmpty {
                 posterRow(title: row.title, moreTitle: "查看全部", more: .library(id: library.id), items: items.map { PosterRowItem($0, fallbackLibrary: library.id) })
+                    .accessibilityIdentifier("home-row-\(row.id)")
+            }
+        case let .mediaKind(kind, _, _, _, _, _, _):
+            // 「全部电影」：同类型的库合成一面墙，查看全部进跨库墙页；每格落回服务端给的落点库
+            let items = itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []
+            if !items.isEmpty {
+                posterRow(title: row.title, moreTitle: "查看全部", more: .libraryKind(kind: kind), items: items.map { PosterRowItem($0, fallbackLibrary: 0) })
                     .accessibilityIdentifier("home-row-\(row.id)")
             }
         case let .collection(collection, _, _, _):
@@ -367,8 +371,10 @@ struct LibraryHomeView: View {
                 LazyHStack(alignment: .top, spacing: 12) {
                     ForEach(items) { item in
                         NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId, itemId: item.id)) {
-                            LibraryPosterCell(title: item.title, year: item.year, url: api.image(item.posterUrl, .posterCard), imageAspect: item.aspect)
-                                .frame(width: 124)
+                            LibraryPosterCell(title: item.title, year: item.year,
+                                              url: api.image(item.posterUrl, width: ImageWidth.points(PhoneCardWidth.homePoster)),
+                                              imageAspect: item.aspect)
+                                .frame(width: PhoneCardWidth.homePoster)
                         }
                         .buttonStyle(.plain)
                         .contextMenu {
@@ -387,6 +393,15 @@ struct LibraryHomeView: View {
 
     private func reload() async {
         await store.reload(api: api, owner: LibraryHomePrefs.ownerKey(api: api, username: model.session?.username))
+    }
+}
+
+/// 类型色块的按压反馈：轻微缩小（同系统卡片的按下手感），不叠系统的高亮蒙层
+private struct GenreTileButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.spring(duration: 0.25), value: configuration.isPressed)
     }
 }
 
@@ -422,7 +437,7 @@ private struct PosterRowItem: Identifiable {
 
 // MARK: - 库卡片
 
-/// 库卡片（Web `LibraryCard`）：服务端拼好的「氛围光货架」封面 + 库名 +「默认」；
+/// 库卡片（Web `LibraryCard`）：服务端拼好的「氛围光货架」封面 + 库名（`ShelfCardCaption`）；
 /// 扫描 / 整理 / 元数据刷新进行中时封面归进度环并写出阶段，其余时间有待入账文件就挂「N 个新文件入库中」。
 private struct LibraryHomeCard: View {
     let library: API.LibraryView
@@ -441,7 +456,8 @@ private struct LibraryHomeCard: View {
                     .font(.system(size: 40))
                     .foregroundStyle(.white.opacity(0.13))
                 if hasPosters || library.customCover {
-                    RemoteImage(url: api.image("/libraries/\(library.id)/cover"), placeholderSymbol: LibraryKindMeta.symbol(library.kind))
+                    RemoteImage(url: api.image("/libraries/\(library.id)/cover", width: ImageWidth.points(PhoneCardWidth.libraryCover)),
+                                placeholderSymbol: LibraryKindMeta.symbol(library.kind))
                 }
                 if busy {
                     ZStack {
@@ -485,23 +501,40 @@ private struct LibraryHomeCard: View {
             .aspectRatio(21 / 10, contentMode: .fit)
             .clipShape(.rect(cornerRadius: 16))
             .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.1)))
-            HStack(spacing: 8) {
-                Text(library.name)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                if library.isDefault {
-                    Text("默认")
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.8))
-                        .padding(.horizontal, 8).padding(.vertical, 2)
-                        .background(.white.opacity(0.1), in: .capsule)
-                        .overlay(Capsule().strokeBorder(.white.opacity(0.14)))
+            ShelfCardCaption(name: library.name)
+        }
+        .frame(width: PhoneCardWidth.libraryCover)
+        .contentShape(.rect)
+    }
+}
+
+// MARK: - 合集虚拟库卡片
+
+/// 首页合集的虚拟库卡片：复用真实媒体库的服务端货架封面，也不计入真实库统计。
+/// 卡片规格沿用 LibraryHomeCard（名称同为 `ShelfCardCaption`，封面左下挂「合集」标签），名字用合集原名，与可单独改名的海报行分开。
+private struct CollectionLibraryHomeCard: View {
+    let collection: API.CollectionView
+    @Environment(\.api) private var api
+
+    var body: some View {
+        VStack(spacing: 10) {
+            ZStack {
+                LinearGradient(colors: [Color(red: 0.11, green: 0.13, blue: 0.19), Color(red: 0.06, green: 0.07, blue: 0.11)], startPoint: .topLeading, endPoint: .bottomTrailing)
+                Image(systemName: "rectangle.stack")
+                    .font(.system(size: 40))
+                    .foregroundStyle(.white.opacity(0.13))
+                if !collection.covers.isEmpty {
+                    RemoteImage(url: api.image("/collections/\(collection.id)/cover", width: ImageWidth.points(PhoneCardWidth.libraryCover)),
+                                placeholderSymbol: "rectangle.stack")
                 }
             }
-            .padding(.horizontal, 8)
+            .aspectRatio(21 / 10, contentMode: .fit)
+            .clipShape(.rect(cornerRadius: 16))
+            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(.white.opacity(0.1)))
+            .overlay(alignment: .bottomLeading) { CollectionCoverTag() }
+            ShelfCardCaption(name: collection.name)
         }
-        .frame(width: 230)
+        .frame(width: PhoneCardWidth.libraryCover)
         .contentShape(.rect)
     }
 }
@@ -587,7 +620,7 @@ private struct UpNextCard: View {
             }
             .buttonStyle(.plain)
         }
-        .frame(width: 200)
+        .frame(width: PhoneCardWidth.upNext)
     }
 
     /// 剧照加载失败时的兜底（与「没有剧照」同一套画法）
@@ -596,7 +629,7 @@ private struct UpNextCard: View {
         if isEpisode {
             LibraryArtwork(url: nil, frameAspect: 16 / 9, fallbackText: code)
         } else {
-            LibraryArtwork(url: api.image(item.posterUrl, ImageVariant.card(aspect: item.posterAspect)), imageAspect: item.posterAspect,
+            LibraryArtwork(url: api.image(item.posterUrl, width: ImageWidth.points(PhoneCardWidth.upNext)), imageAspect: item.posterAspect,
                            frameAspect: 16 / 9, fallbackText: item.posterUrl == nil ? item.title : nil)
         }
     }
@@ -609,7 +642,7 @@ private struct UpNextCard: View {
                 Color.clear
                     .aspectRatio(16 / 9, contentMode: .fit)
                     .overlay {
-                        LazyImage(url: api.image(url, .landscapeCard)) { state in
+                        LazyImage(url: api.image(url, width: ImageWidth.points(PhoneCardWidth.upNext))) { state in
                             Group {
                                 if let image = state.image {
                                     image.resizable().aspectRatio(contentMode: .fill)
@@ -619,7 +652,7 @@ private struct UpNextCard: View {
                                     Theme.surfaceRaised
                                 }
                             }
-                            .perfImage(api.image(url, .landscapeCard), state)
+                            .perfImage(api.image(url, width: ImageWidth.points(PhoneCardWidth.upNext)), state)
                         }
                     }
                     .clipped()
@@ -627,7 +660,7 @@ private struct UpNextCard: View {
                 LibraryArtwork(url: nil, frameAspect: 16 / 9, fallbackText: code)
             } else {
                 // 缺横向剧照：用海报按真实比例模糊铺底兜底
-                LibraryArtwork(url: api.image(item.posterUrl, ImageVariant.card(aspect: item.posterAspect)), imageAspect: item.posterAspect,
+                LibraryArtwork(url: api.image(item.posterUrl, width: ImageWidth.points(PhoneCardWidth.upNext)), imageAspect: item.posterAspect,
                                frameAspect: 16 / 9, fallbackText: item.posterUrl == nil ? item.title : nil)
             }
             LinearGradient(colors: [.black.opacity(0.75), .clear], startPoint: .bottom, endPoint: .top).frame(height: 56)
@@ -778,5 +811,39 @@ private struct ClearLibraryHistorySheet: View {
                 feedback.error(error)
             }
         }
+    }
+}
+
+// MARK: - 库卡 / 合集卡共用的名称与合集标签
+
+/// 「我的媒体库」行的卡片名：库卡与合集卡共用，封面下方居中、只占一行（Web `ShelfCardCaption`，
+/// Emby / Jellyfin「我的媒体」同款）。不写部数（页头已有总数，入口卡只负责认出是哪个）；
+/// 「默认」是订阅 / 下载的落库设置，只在库管理页标注；合集的区分是封面左下的 `CollectionCoverTag`，不占名称行
+private struct ShelfCardCaption: View {
+    let name: String
+
+    var body: some View {
+        Text(name)
+            .font(.headline)
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 8)
+    }
+}
+
+/// 合集卡封面左下的「合集」玻璃标签：落在货架封面的倒影暗区（本就没信息、压得住字），
+/// 与库卡「N 个新文件入库中」同位置、同一套胶囊——合集没有扫描状态，两者不会撞车
+private struct CollectionCoverTag: View {
+    var body: some View {
+        Label("合集", systemImage: "rectangle.stack")
+            .font(.caption2.weight(.semibold))
+            .foregroundStyle(.white.opacity(0.9))
+            .padding(.horizontal, 8).padding(.vertical, 3)
+            .background(.black.opacity(0.5), in: .capsule)
+            .background(.ultraThinMaterial, in: .capsule)
+            .overlay(Capsule().strokeBorder(.white.opacity(0.16)))
+            .fixedSize()
+            .padding(8)
     }
 }

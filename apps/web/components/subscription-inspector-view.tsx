@@ -63,7 +63,7 @@ import {
   type WantedItem,
 } from "@/lib/api/subscriptions";
 import { formatBytes, formatDuration } from "@/lib/format";
-import { cachedImageUrl } from "@/lib/image-proxy";
+import { imageUrl } from "@/lib/image-proxy";
 import { seasonsWithIndeterminate } from "@/lib/media-source-annotation";
 import { shouldShowResourceTiming } from "@/lib/resource-timing";
 import { subscriptionStatusMeta } from "@/lib/subscription-ui";
@@ -276,7 +276,8 @@ export function SubscriptionInspectorView({
         ? `${meta.label} · ${upgradingText}`
         : meta.label;
   const isMovie = detail.media.kind === "movie";
-  const poster = detail.media.poster_url ? cachedImageUrl(detail.media.poster_url) : null;
+  // imageUrl 而非 cachedImageUrl：订阅对象已入库时海报是本地资产的相对路径
+  const poster = detail.media.poster_url ? imageUrl(detail.media.poster_url) : null;
 
   const togglePause = async () => {
     const resuming = detail.status === "paused";
@@ -419,6 +420,8 @@ export function SubscriptionInspectorView({
         {poster && (
           <PosterImage
             src={poster}
+            // 背后的重模糊铺底与海报同一宽度：地址一致，浏览器只取一次
+            width={112}
             alt=""
             className="absolute inset-0 size-full scale-110 object-cover opacity-25 blur-3xl brightness-[0.42] saturate-[0.9]"
           />
@@ -449,6 +452,8 @@ export function SubscriptionInspectorView({
             {poster ? (
               <PosterImage
                 src={poster}
+                // 海报列 112 宽（手机 80）
+                width={112}
                 alt={`${detail.media.title} 海报`}
                 className="aspect-[2/3] w-full object-cover"
               />

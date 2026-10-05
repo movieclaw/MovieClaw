@@ -195,6 +195,62 @@ final class DiscoverUITests: XCTestCase {
 
     // MARK: 搜索
 
+    /// 只在隔离测试实例运行：预先播种两类独有关键词与「共同关键词」，允许清空影视历史。
+    /// MC_TEST_HISTORY_FIXTURE=1 表示调用方已准备好临时实例，不能对日常使用的服务器运行。
+    @MainActor
+    func testSearchHistoryFollowsMode() throws {
+        guard env["MC_TEST_HISTORY_FIXTURE"] == "1" else {
+            throw XCTSkip("需要隔离的搜索历史测试数据")
+        }
+        let app = try launch()
+        let search = app.navigationBars.buttons["open-search"]
+        XCTAssertTrue(search.waitForExistence(timeout: 20))
+        search.tap()
+        let media = app.segmentedControls.buttons["影视"]
+        let torrent = app.segmentedControls.buttons["资源"]
+        let library = app.segmentedControls.buttons["媒体库"]
+        XCTAssertTrue(media.waitForExistence(timeout: 10))
+
+        func history(_ keyword: String) -> XCUIElement {
+            app.buttons.matching(NSPredicate(format: "identifier == 'history-row' AND label CONTAINS %@", keyword)).firstMatch
+        }
+
+        media.tap()
+        XCTAssertTrue(history("影视独有记录").waitForExistence(timeout: 10))
+        XCTAssertFalse(history("资源独有记录").exists)
+        // 来回切换后，关键词相同的两类记录也不能串入当前分类。
+        for _ in 0 ..< 2 {
+            torrent.tap()
+            XCTAssertTrue(history("资源独有记录").waitForExistence(timeout: 10))
+            XCTAssertFalse(history("影视独有记录").exists)
+            media.tap()
+            XCTAssertTrue(history("影视独有记录").waitForExistence(timeout: 10))
+            XCTAssertFalse(history("资源独有记录").exists)
+        }
+        history("影视独有记录").tap()
+        XCTAssertTrue(app.scrollViews["media-results"].waitForExistence(timeout: 10))
+        let back = app.navigationBars.buttons["搜索"].firstMatch
+        XCTAssertTrue(back.waitForExistence(timeout: 5))
+        back.tap()
+        XCTAssertTrue(history("影视独有记录").waitForExistence(timeout: 10), "结果页返回应刷新当前分类")
+        app.searchFields.firstMatch.tap()
+        XCTAssertTrue(library.waitForExistence(timeout: 5))
+        library.tap()
+        XCTAssertEqual(app.buttons.matching(identifier: "history-row").count, 0)
+        XCTAssertFalse(app.buttons["history-clear"].exists)
+        media.tap()
+        XCTAssertTrue(history("影视独有记录").waitForExistence(timeout: 10))
+        app.buttons["history-clear"].tap()
+        let cleared = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == false"), object: history("影视独有记录"))
+        XCTAssertEqual(XCTWaiter.wait(for: [cleared], timeout: 10), .completed)
+        torrent.tap()
+        XCTAssertTrue(history("资源独有记录").waitForExistence(timeout: 10), "清空影视不能删除资源历史")
+        media.tap()
+        XCTAssertTrue(app.staticTexts["还没有搜索记录"].waitForExistence(timeout: 10))
+        XCTAssertFalse(history("影视独有记录").exists)
+        snapshot("搜索历史-按分类清空")
+    }
+
     @MainActor
     func testSearchHomeAndMediaLibraryVerticals() throws {
         let app = try launch()
@@ -214,9 +270,9 @@ final class DiscoverUITests: XCTestCase {
         XCTAssertTrue(app.buttons["poster-card"].waitForExistence(timeout: 40), "影视搜索应有结果")
         snapshot("影视搜索结果")
         app.segmentedControls["search-vertical"].buttons["媒体库"].tap()
-        let group = app.otherElements["library-group"].firstMatch
+        let items = app.otherElements["library-items"].firstMatch
         let empty = app.otherElements["library-empty"]
-        XCTAssertTrue(group.waitForExistence(timeout: 20) || empty.exists, "媒体库垂直应出分组或空态")
+        XCTAssertTrue(items.waitForExistence(timeout: 20) || empty.exists, "媒体库垂直应出相关度结果或空态")
         snapshot("媒体库搜索结果")
     }
 
@@ -226,6 +282,9 @@ final class DiscoverUITests: XCTestCase {
         let searchButton = app.navigationBars.buttons["open-search"]
         XCTAssertTrue(searchButton.waitForExistence(timeout: 20), "标签根页右上角应有搜索")
         searchButton.tap()
+        let mode = app.segmentedControls.buttons["资源"]
+        XCTAssertTrue(mode.waitForExistence(timeout: 10))
+        mode.tap()
         let row = app.buttons.matching(NSPredicate(format: "identifier == 'history-row' AND label CONTAINS %@", torrentKeyword)).firstMatch
         guard row.waitForExistence(timeout: 15) else {
             throw XCTSkip("最近搜索里没有「\(torrentKeyword)」的站点资源快照，跳过（避免发起真实 PT 搜索）")

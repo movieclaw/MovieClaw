@@ -763,7 +763,9 @@ function TopEntry({
         {rank + 1}
       </span>
       <PosterImage
-        src={row.media.poster_url ? imageUrl(row.media.poster_url, "poster-card") : null}
+        src={row.media.poster_url ? imageUrl(row.media.poster_url) : null}
+        // 冠军 120×180、亚季军 80×120
+        width={hero ? 120 : 80}
         alt={row.media.title}
         className={`relative z-10 shrink-0 rounded-lg object-cover shadow-[0_18px_40px_rgba(0,0,0,0.6)] ring-1 ring-white/15 ${
           hero ? "h-[180px] w-[120px]" : "h-[120px] w-[80px]"
@@ -840,7 +842,8 @@ function FavoritePodium({
   }
   const drilled = memberId != null;
   const [first, ...rest] = favorites;
-  const ambient = first.media.poster_url ? imageUrl(first.media.poster_url, "poster-card") : null;
+  // 氛围底是放大 1.5 倍再重模糊的海报，小图就够；与冠军卡同一宽度（120），地址一致只取一次
+  const ambient = first.media.poster_url ? imageUrl(first.media.poster_url) : null;
   // 不足三部时列数跟着少，别留空位
   const columns = ["1.5fr", ...rest.map(() => "1fr")].join(" ");
   return (
@@ -852,6 +855,7 @@ function FavoritePodium({
         <div aria-hidden="true" className="pointer-events-none absolute inset-0">
           <PosterImage
             src={ambient}
+            width={120}
             alt=""
             className="h-full w-full scale-150 object-cover opacity-45 blur-3xl saturate-150"
           />
@@ -1104,6 +1108,7 @@ export function WatchStatsPanel({
             leading: (
               <PosterImage
                 src={row.media.poster_url ? imageUrl(row.media.poster_url) : null}
+                width={24}
                 alt={row.media.title}
                 className="h-9 w-6 shrink-0 rounded-md object-cover ring-1 ring-white/10"
               />

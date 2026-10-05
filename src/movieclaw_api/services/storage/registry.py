@@ -119,6 +119,22 @@ def _orphans_by_id(model_name: str) -> EntryProbe:
     return probe
 
 
+async def _unused_profile_tiers(entries: list[Path]) -> set[Path]:
+    """头像目录第一层是档位（original / h632 / …）：全局与各库覆盖都不用的档位整层算孤儿。"""
+    from sqlmodel import select
+
+    from movieclaw_api.services.scrape_config import effective_profile_size, merge_for_library
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import Library
+
+    async with get_database().session() as session:
+        libraries = (await session.execute(select(Library))).scalars().all()
+    in_use = {effective_profile_size()} | {
+        effective_profile_size(merge_for_library(library)) for library in libraries
+    }
+    return {e for e in entries if e.is_dir() and e.name not in in_use}
+
+
 async def _staging_dirs(entries: list[Path]) -> set[Path]:
     """生成到一半的 staging（``.<name>.<uuid>.part``）：正在写，不能碰。"""
     return {e for e in entries if e.name.endswith(".part")}
@@ -217,6 +233,7 @@ DATA_DIRS: tuple[DataDir, ...] = (
             "（一集约 33 KB），同一季的指纹互相比对就能认出片头片尾。清空后已经认出的片头片尾"
             "不受影响，播放照常给「跳过片头」；但之后这一季再来新集时，要把旧集重新读一遍"
             "（每集约 6 秒、几百 MB 的读取），所以只建议在磁盘紧张时清理。"
+            "这里还存着片尾几帧画面的文字识别结果（用来核对演职员表），清掉后重新识别时补抽。"
         ),
         default="data/cache/audio-fingerprints",
         resolve=lambda s: Path(s.audio_fingerprint_dir),
@@ -336,6 +353,22 @@ DATA_DIRS: tuple[DataDir, ...] = (
         clearable=False,
         orphans=_orphans_by_id("MediaItem"),
     ),
+    DataDir(
+        key="metadata.people",
+        title="演职员头像",
+        summary="刮削下载的演员与导演头像（同一个人只存一份）",
+        description=(
+            "详情页、影人页、Jellyfin 人物图用的演职员头像，按 TMDB 头像路径去重，同一个人在"
+            "多少部片里出现都只存一份；断网时头像照样显示。按画质档位分层存放，换了头像档位后"
+            "旧档位那一层不再使用，可作为孤儿清理。整体重建要重新从外网下载，因此不提供清空。"
+        ),
+        default="data/metadata/people",
+        resolve=lambda s: Path(s.people_images_dir),
+        group=Group.CACHE,
+        rebuild_cost=RebuildCost.EXPENSIVE,
+        clearable=False,
+        orphans=_unused_profile_tiers,
+    ),
     # ---- 用户数据与系统状态：只展示占用，面板不提供删除 -----------------------
     DataDir(
         key="database",
@@ -379,8 +412,11 @@ DATA_DIRS: tuple[DataDir, ...] = (
     DataDir(
         key="models",
         title="模型文件",
-        summary="NER 模型与语音检测模型",
-        description="种子命名识别（NER）模型与字幕同步用的语音检测模型，由应用内更新维护。",
+        summary="NER 模型、语音检测与画面文字识别模型",
+        description=(
+            "种子命名识别（NER）模型与字幕同步用的语音检测模型，由应用内更新维护；"
+            "本地开发时片头片尾识别用的画面文字识别（PP-OCR）模型也放在这里（镜像里已内置）。"
+        ),
         default="data/models",
         resolve=lambda s: Path(s.data_dir) / "models",
     ),

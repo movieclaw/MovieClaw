@@ -1,5 +1,6 @@
 import { publicEnv } from "@/lib/env";
 import { request, resolveRequestUrl } from "@/lib/http";
+import { snapWidth } from "@/lib/image-width";
 import type { ItemSource, LibraryKind, MediaType } from "@/lib/media-types";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
@@ -683,12 +684,20 @@ export function getKindSummary(
   return unwrap(request<ApiEnvelope<LibraryKindSummary>>(`/libraries/kinds/${kind}${suffix}`));
 }
 
-/** 媒体库搜索结果的一组：一个库内命中关键词的条目（组内按标题拼音排序）。 */
-export interface LibrarySearchGroup {
-  library_id: number;
-  library_name: string;
-  kind: MediaType;
-  items: LibraryItem[];
+/**
+ * 首页「按类型找电影 / 剧集」色块：这一类型跨库每个 TMDB 类型有几部（去重），
+ * 外加一张封面（这个类型最近入库那部片的剧照，部数多的类型先挑、不重复）。
+ * 只回有片的类型、按部数倒序；value 是 genre id，点进去带 `?g=value` 开墙。
+ */
+export function listKindGenres(kind: "movie" | "tv"): Promise<KindGenre[]> {
+  return unwrap(request<ApiEnvelope<KindGenre[]>>(`/libraries/kinds/${kind}/genres`));
+}
+
+/** 首页类型色块的一格：类型、部数，以及贴在卡片上的最近入库那部片的剧照（没有可用剧照时为空）。 */
+export interface KindGenre extends FacetValue {
+  cover_item_id: number | null;
+  cover_title: string | null;
+  cover_url: string | null;
 }
 
 /** 海报墙 A-Z 索引条的一档（按标题排序下的首字母分组）。 */
@@ -846,16 +855,17 @@ export function listLibraryGallery(
 
 /**
  * 图片库原图地址（按台账文件 id，服务端按库可见性鉴权）。
- * - `size: "screen"`：长边 ≤2048 的屏幕适配 WebP，灯箱先看它（几百 KB），放大才拉原图；
+ * - `width`：需要的像素宽（取到服务端宽度阶梯，见 lib/image-width.ts），灯箱舞台按
+ *   屏宽像素取（几百 KB），放大到 1:1 才拉原图；取代旧的 `size=screen`；
  * - `download`：原图作为附件下载。
  */
 export function libraryFileOriginalUrl(
   fileId: number,
-  options: { download?: boolean; size?: "screen" } = {},
+  options: { download?: boolean; width?: number } = {},
 ): string {
   const query = new URLSearchParams();
   if (options.download) query.set("download", "1");
-  else if (options.size) query.set("size", options.size);
+  else if (options.width) query.set("w", String(snapWidth(options.width)));
   const suffix = query.size > 0 ? `?${query}` : "";
   return resolveRequestUrl(`/libraries/files/${fileId}/original${suffix}`);
 }
@@ -1023,9 +1033,9 @@ export function refreshItemMetadata(
 
 /** 「更换图片」弹层里的一张候选图。 */
 export interface ArtworkCandidate {
-  /** TMDB 图片路径（选定时原样回传） */
+  /** 图片路径（选定时原样回传）：TMDB 为相对路径，Fanart.tv 为图床绝对地址 */
   file_path: string;
-  /** 缩略预览地址（TMDB 图床绝对地址，展示前需 cachedImageUrl） */
+  /** 缩略预览地址（图床绝对地址，展示前需 cachedImageUrl） */
   preview_url: string;
   width: number | null;
   height: number | null;
@@ -1033,6 +1043,12 @@ export interface ArtworkCandidate {
   language: string | null;
   vote_average: number | null;
   vote_count: number | null;
+  /** 图片来源 */
+  source: "tmdb" | "fanart";
+  /** Fanart.tv 的点赞数（仅 Fanart 图） */
+  likes: number | null;
+  /** 在用但不在本次候选里：只知道路径，语言与热度未知（别显示成「无文字」） */
+  unlisted?: boolean;
 }
 
 /** 「更换图片」能换的三种图：海报 / 背景 / 片名徽标（透明底 PNG）。 */
@@ -1052,6 +1068,11 @@ export interface ArtworkCandidates {
   poster_locked: boolean;
   backdrop_locked: boolean;
   logo_locked: boolean;
+  /**
+   * Fanart.tv 候选的状态：ok=已混入候选 / not_configured=还没填 Key（弹层露出
+   * 「从 Fanart.tv 找更多」入口）/ invalid=Key 已失效 / error=这次没取到 / none=不适用
+   */
+  fanart: "ok" | "not_configured" | "invalid" | "error" | "none";
 }
 
 /** 条目的候选海报/背景/徽标（「更换图片」弹层数据源）。 */

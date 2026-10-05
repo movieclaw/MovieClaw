@@ -2,14 +2,21 @@ import SwiftUI
 
 /// 自定义首页（Web `library-customize-view.tsx`，路由 `/library/customize`）。
 ///
-/// 一张行清单：拖动把手换位、眼睛显隐；可设的行（收藏 / 库行 / 合集行）点名字展开设置——
-/// 排序（一个菜单同时定档位与方向：「最近添加」「最早添加」各一条）、名字、「只显示我没看过的」、删除（仅自加行）。
-/// 底部「＋ 添加一行 · 从哪来？」选一个库或合集；「恢复默认」存空清单。
+/// 功能与 Web 一致，交互按 iOS 的编辑列表重新组织（不照搬 Web 的原地展开）：
+/// - **整页是一张弹出表单**（`AppSheet.customizeHome`，由 Router 把 `/library/customize` 改成弹出）：
+///   编辑布局是一件「进去改完就走」的事，表单盖在首页上，关掉就看到效果，也不会被悬浮标签栏挡住；
+/// - **主清单只做两件事**：行首圆圈显隐、行尾把手拖动排序（同系统「音乐 › 资料库 › 编辑」）；
+///   每行下面一行小字说清来源与排序，能设置的行带 ›，点进单行设置页；
+/// - **单行设置页**（`RowSettingsView`）是标准表单：名字、排序依据 + 方向、只看没看过的、来源、删除（仅自加行）。
+///   哪种行支持哪些设置就只出哪几组，不出现灰掉的控件；
+/// - **添加一行**：左上角 ＋ 打开来源选择（按类型 / 媒体库 / 合集三组），选中即加到末尾并直接进它的设置页；
+/// - **恢复默认**：红字放在清单最底部，二次确认；不占右上角——那里是 ✓ 完成。
 ///
 /// 保存：每次改动先落本地草稿，400ms 防抖后整份 PUT `/ui/preferences`（后端是整体覆盖，
-/// 所以要带上主题、侧栏等其余偏好原值）。保存成功写回 `LibraryHomePrefs.shared`，回首页立即生效。
+/// 所以要带上主题、侧栏等其余偏好原值）。保存成功写回 `LibraryHomePrefs.shared`，关掉表单首页立即生效。
 struct LibraryCustomizeView: View {
     @Environment(\.api) private var api
+    @Environment(\.dismiss) private var dismiss
     @Environment(Feedback.self) private var feedback
     @Environment(AppModel.self) private var model
     @State private var prefs = LibraryHomePrefs.shared
@@ -20,8 +27,10 @@ struct LibraryCustomizeView: View {
     @State private var loadFailed = false
     @State private var saveError: String?
     @State private var draft: [HomeRows.Row]?
-    @State private var expanded: String?
     @State private var saveTask: Task<Void, Never>?
+    /// 表单内的导航栈：压的是行 id（单行设置页）
+    @State private var path: [String] = []
+    @State private var adding = false
 
     private var savedRows: [HomeRows.Row] {
         HomeRows.build(prefs: prefs.rows ?? [], libraries: libraries ?? [], collections: collections)
@@ -30,71 +39,94 @@ struct LibraryCustomizeView: View {
     private var rows: [HomeRows.Row] { draft ?? savedRows }
 
     var body: some View {
-        List {
-            Section {
-                if libraries != nil {
-                    ForEach(rows) { row in
-                        RowItem(
-                            row: row,
-                            expanded: expanded == row.id,
-                            onToggle: { withAnimation { expanded = expanded == row.id ? nil : row.id } },
-                            onChange: { update(row.id, $0) },
-                            onRemove: { remove(row.id) }
-                        )
+        NavigationStack(path: $path) {
+            List {
+                Section {
+                    if libraries != nil {
+                        ForEach(rows) { row in
+                            RowLine(
+                                row: row,
+                                onToggle: { update(row.id) { $0.hidden.toggle() } },
+                                onOpen: { path.append(row.id) }
+                            )
+                        }
+                        .onMove { from, to in
+                            var next = rows
+                            next.move(fromOffsets: from, toOffset: to)
+                            commit(next)
+                        }
+                    } else if !loadFailed {
+                        HStack { Spacer(); ProgressView(); Spacer() }
                     }
-                    .onMove { from, to in
-                        var next = rows
-                        next.move(fromOffsets: from, toOffset: to)
-                        commit(next)
+                } header: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        if loadFailed {
+                            // 读取失败时整张清单不画——残缺清单上点一下圆圈就会整份保存，把认不出的库行/合集行永久丢掉
+                            Text("读取媒体库与合集失败，行清单可能不完整；下拉刷新重试。")
+                                .foregroundStyle(Theme.warning)
+                                .accessibilityIdentifier("customize-load-failed")
+                        }
+                        if let saveError {
+                            Text(saveError).foregroundStyle(Theme.danger)
+                        }
+                        Text("首页的行")
                     }
-                }
-            } header: {
-                VStack(alignment: .leading, spacing: 6) {
-                    if !loadFailed || libraries != nil {
-                        Text(libraries == nil ? "正在读取…" : "\(rows.filter { !$0.hidden }.count) 行显示 · \(rows.filter(\.hidden).count) 行隐藏")
+                } footer: {
+                    if libraries != nil {
+                        Text("\(rows.filter { !$0.hidden }.count) 行显示、\(rows.filter(\.hidden).count) 行隐藏。轻点圆圈显示或隐藏，按住右侧把手拖动排序。改动只影响你自己的首页。")
                             .accessibilityIdentifier("customize-summary")
                     }
-                    if loadFailed {
-                        // 同 Web：读取失败时整张清单不画——残缺清单上点一下眼睛就会整份保存，把认不出的库行/合集行永久丢掉
-                        Text("读取媒体库与合集失败，行清单可能不完整；下拉刷新重试。")
-                            .foregroundStyle(Theme.warning)
-                            .accessibilityIdentifier("customize-load-failed")
-                    }
-                    if let saveError {
-                        Text(saveError).foregroundStyle(Theme.danger)
-                    }
                 }
-                .textCase(nil)
-            }
 
-            if libraries != nil {
-                Section {
-                    AddRowChips(
-                        libraries: (libraries ?? []).filter(\.viewerAccess),
-                        // 内置的「我的收藏」等自动合集不进候选（首页已有「我的收藏」这一行）
-                        collections: collections.filter { $0.kind == "user" },
-                        onHome: Set(rows.compactMap { if case let .collection(c, _, _, _) = $0.kind { c.id } else { nil } }),
-                        add: add
-                    )
-                } header: {
-                    Text("＋ 添加一行 · 从哪来？").textCase(nil)
-                } footer: {
-                    Text("改动即时生效，只影响你自己的首页；效果回首页看。")
+                if libraries != nil {
+                    Section {
+                        Button("恢复默认布局", role: .destructive) { Task { await restoreDefaults() } }
+                            .accessibilityIdentifier("restore-defaults")
+                    }
                 }
             }
-        }
-        .environment(\.editMode, .constant(.active))
-        .scrollContentBackground(.hidden)
-        .appBackground()
-        .navigationTitle("自定义首页")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("恢复默认") { Task { await restoreDefaults() } }
-                    .accessibilityIdentifier("restore-defaults")
+            // 常驻编辑态：拖动把手一直在。不给 onDelete，行首就不会冒出红色减号（与显隐圆圈打架）；删除在单行设置页里
+            .environment(\.editMode, .constant(.active))
+            .navigationTitle("自定义首页")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button("添加一行", systemImage: "plus") { adding = true }
+                        .disabled(libraries == nil)
+                        .accessibilityIdentifier("add-row")
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成", systemImage: "checkmark", role: .confirm) { dismiss() }
+                        .accessibilityIdentifier("customize-done")
+                }
             }
+            .navigationDestination(for: String.self) { id in
+                if let row = rows.first(where: { $0.id == id }) {
+                    RowSettingsView(
+                        row: row,
+                        onChange: { update(id, $0) },
+                        onRemove: {
+                            path.removeAll { $0 == id }
+                            remove(id)
+                        }
+                    )
+                }
+            }
+            .sheet(isPresented: $adding) {
+                AddRowSheet(
+                    // 按类型的来源与首页同一口径：可见、没被排除首页的同类型库
+                    kinds: HomeRows.mediaKindGroups((libraries ?? []).filter(\.viewerAccess)),
+                    libraries: (libraries ?? []).filter(\.viewerAccess),
+                    // 内置的「我的收藏」等自动合集不进候选（首页已有「我的收藏」这一行）
+                    collections: collections.filter { $0.kind == "user" },
+                    onHome: Set(rows.compactMap { if case let .collection(c, _, _, _) = $0.kind { c.id } else { nil } }),
+                    add: add
+                )
+                .sheetFeedback()
+            }
+            .task { await load() }
+            .refreshable { await load() }
         }
-        .task { await load() }
-        .refreshable { await load() }
         .onDisappear { flushSave() }
     }
 
@@ -130,13 +162,14 @@ struct LibraryCustomizeView: View {
     }
 
     private func remove(_ id: String) {
-        if expanded == id { expanded = nil }
         commit(rows.filter { $0.id != id })
     }
 
+    /// 加到末尾，并直接进它的设置页（新行多半要马上改排序或名字）
     private func add(_ row: HomeRows.Row) {
         commit(rows + [row])
-        expanded = row.id
+        adding = false
+        path.append(row.id)
     }
 
     /// 改动落草稿，400ms 防抖后保存
@@ -151,7 +184,7 @@ struct LibraryCustomizeView: View {
         }
     }
 
-    /// 离开页面时把还在防抖窗口里的改动立即存掉
+    /// 关掉表单时把还在防抖窗口里的改动立即存掉
     private func flushSave() {
         guard let draft, saveTask != nil else { return }
         saveTask?.cancel()
@@ -183,10 +216,9 @@ struct LibraryCustomizeView: View {
     }
 
     private func restoreDefaults() async {
-        guard await feedback.confirm("恢复默认布局？", message: "你自己加的行会被移除。", confirmTitle: "恢复默认", destructive: true) else { return }
+        guard await feedback.confirm("恢复默认布局？", message: "你自己加的行会被移除，排序和名字回到默认。", confirmTitle: "恢复默认", destructive: true) else { return }
         saveTask?.cancel()
         saveTask = nil
-        expanded = nil
         draft = nil
         do {
             let saved = try await savePrefs([])
@@ -198,242 +230,365 @@ struct LibraryCustomizeView: View {
     }
 }
 
-/// 清单里的一行。收起时：名字 · 眼睛；可设的行点名字展开设置（Web `RowItem`）
-private struct RowItem: View {
+// MARK: - 主清单的一行
+
+/// 行首圆圈（显隐）+ 名字与小字 + ›（能设置的行）。拖动把手由编辑态的 List 自己画在行尾
+private struct RowLine: View {
     let row: HomeRows.Row
-    let expanded: Bool
     var onToggle: () -> Void
-    var onChange: ((inout HomeRows.Row) -> Void) -> Void
-    var onRemove: () -> Void
-
-    typealias SortOption = (key: String, reversed: Bool, label: String)
-
-    /// 这一行可选的排序：每个有方向的指标两条（自然方向在前），随机 / 未看优先各一条
-    private var sortOptions: [SortOption]? {
-        switch row.kind {
-        case .favorites:
-            return HomeRows.favoritesSorts.flatMap { key -> [SortOption] in
-                let preset = HomeRows.favoritesPreset(key)
-                return preset.direction == nil ? [(key, false, preset.name(false))] : [(key, false, preset.name(false)), (key, true, preset.name(true))]
-            }
-        case let .library(library, _, _, _, _, _):
-            return options(HomeRows.sorts(for: library.kind))
-        case .collection:
-            return options(HomeRows.allSorts)
-        default:
-            return nil
-        }
-    }
-
-    private func options(_ keys: [String]) -> [SortOption] {
-        keys.flatMap { key -> [SortOption] in
-            let preset = HomeRows.preset(key)
-            return preset.direction == nil ? [(key, false, preset.short(false))] : [(key, false, preset.short(false)), (key, true, preset.short(true))]
-        }
-    }
+    var onOpen: () -> Void
 
     var body: some View {
-        let editable = sortOptions != nil
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 8) {
-                Button {
-                    if editable { onToggle() }
-                } label: {
-                    HStack(spacing: 8) {
-                        Text(row.title)
-                            .foregroundStyle(row.hidden ? Theme.textFaint : Theme.text)
-                            .lineLimit(1)
-                        if row.hidden {
-                            Text("已隐藏")
-                                .font(.caption2)
-                                .foregroundStyle(Theme.textFaint)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .overlay(Capsule().strokeBorder(Theme.line))
-                        }
-                        if editable {
-                            Image(systemName: "chevron.down")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(Theme.textFaint)
-                                .rotationEffect(.degrees(expanded ? 180 : 0))
-                        }
-                        Spacer(minLength: 0)
-                    }
+        HStack(spacing: 12) {
+            Button(action: onToggle) {
+                Image(systemName: row.hidden ? "circle" : "checkmark.circle.fill")
+                    .font(.title3)
+                    .foregroundStyle(row.hidden ? AnyShapeStyle(.tertiary) : AnyShapeStyle(.tint))
+                    .contentTransition(.symbolEffect(.replace))
+                    .frame(width: 28, height: 28)
                     .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("row-title-\(row.id)")
-                Button {
-                    onChange { $0.hidden.toggle() }
-                } label: {
-                    Image(systemName: row.hidden ? "eye.slash" : "eye")
-                        .foregroundStyle(row.hidden ? Theme.textFaint : Theme.textMuted)
-                        .frame(width: 36, height: 32)
-                        .contentShape(.rect)
-                }
-                .buttonStyle(.plain)
-                .accessibilityLabel(row.hidden ? "显示「\(row.title)」" : "隐藏「\(row.title)」")
-                .accessibilityIdentifier("row-visibility-\(row.id)")
             }
-            if expanded, let options = sortOptions {
-                settings(options)
+            .buttonStyle(.plain)
+            .accessibilityLabel(row.hidden ? "显示「\(row.title)」" : "隐藏「\(row.title)」")
+            .accessibilityIdentifier("row-visibility-\(row.id)")
+
+            // 不能设置的行（接下来继续、我的媒体库）不包按钮：包了再 disabled 会连文字一起置灰，看着像被隐藏了
+            if row.configurable {
+                Button(action: onOpen) { label }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("row-title-\(row.id)")
+            } else {
+                label.accessibilityIdentifier("row-title-\(row.id)")
             }
         }
         .padding(.vertical, 2)
     }
 
-    @ViewBuilder
-    private func settings(_ options: [SortOption]) -> some View {
-        let current = options.first { $0.key == row.sort && $0.reversed == row.reversed }
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-            GridRow {
-                Text("排序").font(.footnote).foregroundStyle(Theme.textMuted)
-                Menu {
-                    ForEach(options, id: \.label) { option in
-                        Button {
-                            onChange { r in
-                                switch r.kind {
-                                case .favorites: r.kind = .favorites(sort: option.key, reversed: option.reversed)
-                                case let .library(library, _, _, unwatched, name, builtin):
-                                    r.kind = .library(library: library, sort: option.key, reversed: option.reversed,
-                                                      unwatched: option.key == "last_played" ? false : unwatched, name: name, builtin: builtin)
-                                case let .collection(collection, _, _, name):
-                                    r.kind = .collection(collection: collection, sort: option.key, reversed: option.reversed, name: name)
-                                default: break
-                                }
-                            }
-                        } label: {
-                            if option.label == current?.label { Label(option.label, systemImage: "checkmark") } else { Text(option.label) }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(current?.label ?? "排序")
-                        Image(systemName: "chevron.up.chevron.down").font(.caption2)
-                    }
-                    .font(.subheadline.weight(.medium))
-                }
-                .accessibilityIdentifier("row-sort")
+    private var label: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.title)
+                    .foregroundStyle(row.hidden ? Theme.textFaint : Theme.text)
+                    .lineLimit(1)
+                Text(row.meta)
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textFaint)
+                    .lineLimit(1)
             }
-            switch row.kind {
-            case .library, .collection: nameRow(hint: row.defaultTitle)
-            default: EmptyView()
+            Spacer(minLength: 0)
+            if row.configurable {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
         }
-        let showUnwatched: Bool = { if case let .library(_, sort, _, _, _, _) = row.kind { sort != "last_played" } else { false } }()
-        if showUnwatched || row.removable {
-            HStack {
-                if case let .library(_, _, _, unwatched, _, _) = row.kind, showUnwatched {
-                    Toggle("只显示我没看过的", isOn: Binding(
-                        get: { unwatched },
-                        set: { value in
-                            onChange { r in
-                                if case let .library(library, sort, reversed, _, name, builtin) = r.kind {
-                                    r.kind = .library(library: library, sort: sort, reversed: reversed, unwatched: value, name: name, builtin: builtin)
+        .contentShape(.rect)
+    }
+}
+
+private extension HomeRows.Row {
+    /// 有可设项（排序 / 名字 / 删除）的行才点得进设置页；接下来继续、我的媒体库只能显隐和换位
+    var configurable: Bool { sort != nil }
+}
+
+// MARK: - 单行设置页
+
+/// 一行的设置（标准表单）：名字 → 排序依据 + 方向 → 只看没看过的 → 来源 → 删除（仅自加行）
+private struct RowSettingsView: View {
+    let row: HomeRows.Row
+    var onChange: ((inout HomeRows.Row) -> Void) -> Void
+    var onRemove: () -> Void
+
+    @FocusState private var nameFocused: Bool
+
+    /// 排序依据的候选（不分方向，方向单独一个分段控件）
+    private var sortKeys: [String] {
+        switch row.kind {
+        case .favorites: HomeRows.favoritesSorts
+        case let .library(library, _, _, _, _, _): HomeRows.sorts(for: library.kind)
+        case let .mediaKind(kind, _, _, _, _, _, _): HomeRows.sorts(for: kind)
+        case .collection: HomeRows.allSorts
+        default: []
+        }
+    }
+
+    private var isFavorites: Bool { if case .favorites = row.kind { true } else { false } }
+
+    private var direction: WallSortDirection? {
+        guard let sort = row.sort else { return nil }
+        return isFavorites ? HomeRows.favoritesPreset(sort).direction : HomeRows.preset(sort).direction
+    }
+
+    /// 「只显示我没看过的」：只对库行与类型行有意义，且与「最近观看」互斥（那一行只要播过的）
+    private var unwatched: Bool? {
+        switch row.kind {
+        case let .library(_, sort, _, unwatched, _, _), let .mediaKind(_, _, sort, _, unwatched, _, _):
+            sort == "last_played" ? nil : unwatched
+        default: nil
+        }
+    }
+
+    private var nameEditable: Bool {
+        switch row.kind {
+        case .library, .mediaKind, .collection: true
+        default: false
+        }
+    }
+
+    /// 这一行从哪来：名字改掉之后，靠它认出这一行指向哪个库 / 哪些库 / 哪个合集
+    private var source: String? {
+        switch row.kind {
+        case let .library(library, _, _, _, _, _): "\(library.name)库"
+        case let .mediaKind(_, libraries, _, _, _, _, _): libraries.map(\.name).joined(separator: "、")
+        case let .collection(collection, _, _, _): "合集「\(collection.name)」"
+        default: nil
+        }
+    }
+
+    var body: some View {
+        Form {
+            if nameEditable {
+                Section {
+                    TextField(row.defaultTitle, text: Binding(
+                        mcGet: { row.customName },
+                        set: { value in setName(String(value.prefix(40))) }
+                    ))
+                    .submitLabel(.done)
+                    .focused($nameFocused)
+                    .onChange(of: nameFocused) { _, focused in
+                        // 失焦时去掉首尾空白（同 Web onBlur trim）；输入途中不 trim，免得吃掉词间的空格
+                        let trimmed = row.customName.trimmingCharacters(in: .whitespacesAndNewlines)
+                        if !focused, trimmed != row.customName { setName(trimmed) }
+                    }
+                    .accessibilityIdentifier("row-name")
+                } header: {
+                    Text("名字")
+                } footer: {
+                    Text("留空就跟随排序自动取名。")
+                }
+            }
+
+            Section("排序") {
+                ForEach(sortKeys, id: \.self) { key in
+                    Button {
+                        // 换依据时回到该档的自然方向
+                        setSort(key, reversed: false)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(Self.sortLabel(key)).foregroundStyle(Theme.text)
+                                if let hint = Self.sortHint(key) {
+                                    Text(hint).font(.footnote).foregroundStyle(Theme.textFaint)
                                 }
                             }
+                            Spacer()
+                            if row.sort == key {
+                                Image(systemName: "checkmark").font(.body.weight(.semibold)).foregroundStyle(.tint)
+                            }
                         }
-                    ))
-                    .font(.footnote)
-                    .toggleStyle(.switch)
-                    .fixedSize()
-                    .accessibilityIdentifier("row-unwatched")
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("row-sort-\(key)")
                 }
-                Spacer()
-                if row.removable {
+                if let direction, let sort = row.sort {
+                    // 自然方向在前：「新→旧」「高→低」「A→Z」
+                    Picker("顺序", selection: Binding(
+                        mcGet: { row.reversed },
+                        set: { setSort(sort, reversed: $0) }
+                    )) {
+                        Text(direction.label(reversed: false)).tag(false)
+                        Text(direction.label(reversed: true)).tag(true)
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("row-order")
+                }
+            }
+
+            if let unwatched {
+                Section {
+                    Toggle("只显示我没看过的", isOn: Binding(mcGet: { unwatched }, set: setUnwatched))
+                        .accessibilityIdentifier("row-unwatched")
+                }
+            }
+
+            if let source {
+                Section {
+                    LabeledContent("来源", value: source)
+                } footer: {
+                    if case .mediaKind = row.kind {
+                        Text("同一部片在几个库里都有时只出现一次；从首页排除的库不算在内。")
+                    }
+                }
+            }
+
+            if row.removable {
+                Section {
                     Button("删除这一行", role: .destructive, action: onRemove)
-                        .font(.footnote)
-                        .buttonStyle(.borderless)
                         .accessibilityIdentifier("row-remove")
                 }
             }
         }
+        .navigationTitle(row.title)
+        .navigationBarTitleDisplayMode(.inline)
     }
 
-    /// 名字输入框失焦时去掉首尾空白（同 Web onBlur trim）；输入途中不 trim，免得吃掉词间的空格
-    @FocusState private var nameFocused: Bool
+    // MARK: 改动（按行的种类改对应字段；「最近观看」与「只看没看过的」互斥）
 
-    private func trimName() {
+    private func setSort(_ key: String, reversed: Bool) {
         onChange { r in
             switch r.kind {
-            case let .library(library, sort, reversed, unwatched, name, builtin):
-                r.kind = .library(library: library, sort: sort, reversed: reversed, unwatched: unwatched,
-                                  name: name.trimmingCharacters(in: .whitespacesAndNewlines), builtin: builtin)
-            case let .collection(collection, sort, reversed, name):
-                r.kind = .collection(collection: collection, sort: sort, reversed: reversed, name: name.trimmingCharacters(in: .whitespacesAndNewlines))
+            case .favorites: r.kind = .favorites(sort: key, reversed: reversed)
+            case let .library(library, _, _, unwatched, name, builtin):
+                r.kind = .library(library: library, sort: key, reversed: reversed,
+                                  unwatched: key == "last_played" ? false : unwatched, name: name, builtin: builtin)
+            case let .mediaKind(kind, libraries, _, _, unwatched, name, builtin):
+                r.kind = .mediaKind(kind: kind, libraries: libraries, sort: key, reversed: reversed,
+                                    unwatched: key == "last_played" ? false : unwatched, name: name, builtin: builtin)
+            case let .collection(collection, _, _, name):
+                r.kind = .collection(collection: collection, sort: key, reversed: reversed, name: name)
             default: break
             }
         }
     }
 
-    private func nameRow(hint: String) -> some View {
-        GridRow {
-            Text("名字").font(.footnote).foregroundStyle(Theme.textMuted)
-            TextField(hint, text: Binding(
-                get: { row.customName },
-                set: { value in
-                    let name = String(value.prefix(40))
-                    onChange { r in
-                        switch r.kind {
-                        case let .library(library, sort, reversed, unwatched, _, builtin):
-                            r.kind = .library(library: library, sort: sort, reversed: reversed, unwatched: unwatched, name: name, builtin: builtin)
-                        case let .collection(collection, sort, reversed, _):
-                            r.kind = .collection(collection: collection, sort: sort, reversed: reversed, name: name)
-                        default: break
-                        }
-                    }
-                }
-            ))
-            .textFieldStyle(.roundedBorder)
-            .submitLabel(.done)
-            .focused($nameFocused)
-            .onChange(of: nameFocused) { _, focused in
-                if !focused, row.customName != row.customName.trimmingCharacters(in: .whitespacesAndNewlines) { trimName() }
+    private func setUnwatched(_ value: Bool) {
+        onChange { r in
+            switch r.kind {
+            case let .library(library, sort, reversed, _, name, builtin):
+                r.kind = .library(library: library, sort: sort, reversed: reversed, unwatched: value, name: name, builtin: builtin)
+            case let .mediaKind(kind, libraries, sort, reversed, _, name, builtin):
+                r.kind = .mediaKind(kind: kind, libraries: libraries, sort: sort, reversed: reversed, unwatched: value, name: name, builtin: builtin)
+            default: break
             }
-            .accessibilityIdentifier("row-name")
+        }
+    }
+
+    private func setName(_ name: String) {
+        onChange { r in
+            switch r.kind {
+            case let .library(library, sort, reversed, unwatched, _, builtin):
+                r.kind = .library(library: library, sort: sort, reversed: reversed, unwatched: unwatched, name: name, builtin: builtin)
+            case let .mediaKind(kind, libraries, sort, reversed, unwatched, _, builtin):
+                r.kind = .mediaKind(kind: kind, libraries: libraries, sort: sort, reversed: reversed, unwatched: unwatched, name: name, builtin: builtin)
+            case let .collection(collection, sort, reversed, _):
+                r.kind = .collection(collection: collection, sort: sort, reversed: reversed, name: name)
+            default: break
+            }
+        }
+    }
+
+    // MARK: 排序依据的叫法（不带方向；方向在分段控件里）
+
+    static func sortLabel(_ key: String) -> String {
+        switch key {
+        case "unwatched_first": "未看优先"
+        case "favorited_at": "收藏时间"
+        case "release_date": "上映时间"
+        case "last_played": "上次观看"
+        case "rating": "评分"
+        case "random": "随便看看"
+        case "title": "片名"
+        default: "添加时间"
+        }
+    }
+
+    static func sortHint(_ key: String) -> String? {
+        switch key {
+        case "unwatched_first": "没看完的在前，再按收藏时间"
+        case "last_played": "只列我播放过的"
+        case "random": "每天换一批"
+        default: nil
         }
     }
 }
 
-/// 「添加一行」的候选：库 +「最近添加」、合集本身；已在首页的合集置灰
-private struct AddRowChips: View {
+// MARK: - 添加一行
+
+/// 「添加一行」的来源选择：按类型（「全部电影」，跨库合并）/ 媒体库 / 合集；已在首页的合集置灰打勾
+private struct AddRowSheet: View {
+    let kinds: [(kind: String, libraries: [API.LibraryView])]
     let libraries: [API.LibraryView]
     let collections: [API.CollectionView]
     let onHome: Set<Int>
     var add: (HomeRows.Row) -> Void
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
-        TrackFlowLayout(spacing: 8, lineSpacing: 8) {
-            ForEach(libraries, id: \.id) { library in
-                Button("\(library.name)库") { add(HomeRows.newLibraryRow(library)) }
-                    .buttonStyle(AddChipStyle())
-                    .accessibilityIdentifier("add-row-library-\(library.id)")
-            }
-            ForEach(collections, id: \.id) { collection in
-                let onHome = onHome.contains(collection.id)
-                Button {
-                    add(HomeRows.newCollectionRow(collection))
-                } label: {
-                    HStack(spacing: 6) {
-                        Text(collection.name)
-                        Text(onHome ? "已在首页" : "\(collection.itemCount) 部").font(.caption).foregroundStyle(Theme.textFaint)
+        NavigationStack {
+            List {
+                if !kinds.isEmpty {
+                    Section {
+                        // 类型排最前：「全部电影」是比单个库更大的来源
+                        ForEach(kinds, id: \.kind) { group in
+                            choice(
+                                title: "全部\(HomeRows.mediaKindLabel(group.kind))",
+                                icon: Self.kindIcon(group.kind),
+                                detail: "\(group.libraries.count) 个库"
+                            ) { add(HomeRows.newMediaKindRow(group.kind, libraries: group.libraries)) }
+                            .accessibilityIdentifier("add-row-kind-\(group.kind)")
+                        }
+                    } header: {
+                        Text("按类型")
+                    } footer: {
+                        Text("同类型的库合成一行，同一部片只出现一次。")
                     }
                 }
-                .buttonStyle(AddChipStyle())
-                .disabled(onHome)
-                .opacity(onHome ? 0.35 : 1)
+                if !libraries.isEmpty {
+                    Section("媒体库") {
+                        ForEach(libraries, id: \.id) { library in
+                            choice(title: library.name, icon: Self.kindIcon(library.kind), detail: nil) {
+                                add(HomeRows.newLibraryRow(library))
+                            }
+                            .accessibilityIdentifier("add-row-library-\(library.id)")
+                        }
+                    }
+                }
+                if !collections.isEmpty {
+                    Section("合集") {
+                        ForEach(collections, id: \.id) { collection in
+                            let onHome = onHome.contains(collection.id)
+                            choice(title: collection.name, icon: "square.stack", detail: onHome ? nil : "\(collection.itemCount) 部", done: onHome) {
+                                add(HomeRows.newCollectionRow(collection))
+                            }
+                            .disabled(onHome)
+                        }
+                    }
+                }
+            }
+            .navigationTitle("添加一行")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭", systemImage: "xmark", role: .close) { dismiss() }
+                }
             }
         }
-        .padding(.vertical, 4)
+        .presentationDetents([.medium, .large])
     }
-}
 
-private struct AddChipStyle: ButtonStyle {
-    func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .font(.subheadline)
-            .foregroundStyle(Theme.textMuted)
-            .padding(.horizontal, 12).padding(.vertical, 6)
-            .background(configuration.isPressed ? Color.white.opacity(0.07) : .clear, in: .capsule)
-            .overlay(Capsule().strokeBorder(.white.opacity(0.15)))
+    private func choice(title: String, icon: String, detail: String?, done: Bool = false, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: icon)
+                    .foregroundStyle(.tint)
+                    .frame(width: 24)
+                Text(title).foregroundStyle(done ? Theme.textFaint : Theme.text)
+                Spacer()
+                if let detail { Text(detail).font(.subheadline).foregroundStyle(Theme.textFaint) }
+                if done { Image(systemName: "checkmark").foregroundStyle(Theme.textFaint) }
+            }
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private static func kindIcon(_ kind: String) -> String {
+        switch kind {
+        case "tv": "tv"
+        case "video": "video"
+        case "photo": "photo"
+        default: "film"
+        }
     }
 }

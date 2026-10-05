@@ -171,7 +171,7 @@ struct SubscribeSheet: View {
         HStack(spacing: 14) {
             Color.clear
                 .frame(width: 56, height: 84)
-                .overlay { RemoteImage(url: api.image(prepared?.media?.posterUrl, .posterCard)) }
+                .overlay { RemoteImage(url: api.image(prepared?.media?.posterUrl, width: ImageWidth.points(56))) }
                 .background(Color.white.opacity(0.06))
                 .clipShape(.rect(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Color.white.opacity(0.1)))
@@ -210,7 +210,7 @@ struct SubscribeSheet: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         Color.clear.aspectRatio(2.0 / 3.0, contentMode: .fit)
-                            .overlay { RemoteImage(url: api.image(candidate.posterUrl, .posterCard)) }
+                            .overlay { MeasuredRemoteImage(raw: candidate.posterUrl) }
                             .clipShape(.rect(cornerRadius: 10))
                             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(Color.white.opacity(0.1)))
                         Text(candidate.title).font(.subheadline).foregroundStyle(Theme.text.opacity(0.9)).lineLimit(1)
