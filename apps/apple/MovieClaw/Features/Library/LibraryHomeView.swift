@@ -49,20 +49,11 @@ struct LibraryHomeView: View {
             // 只有「一个页面按钮 + 最右的搜索圆钮」。原先平铺的 list.bullet / 齿轮图标
             // 在 iOS 里分别像「切列表视图」「App 设置」，含义对不上（2026-09-26 用户要求整理）
             // 「片段」是 2026-09-29 用户要求放在媒体库顶部试验的入口（docs/design/reels.md），图标用圆圈播放
-            // （不和底部「媒体库」页签的 play.square.stack 撞）、带「片段」二字。
-            // 顺序「⋯ · 搜索 · ▶ 片段」（2026-09-30 用户拍板）：片段当本页主操作放最右的主操作位，最少用的 ⋯ 在最里。
-            // 外壳注入的搜索在 `.primaryAction`（见 MainTabView 的 AppTopBar），页面自己的 `.primaryAction` 排在
-            // 它后面，所以片段也放 `.primaryAction`，前面垫一个间隔，与搜索各自成独立圆钮
-            ToolbarSpacer(.fixed, placement: .primaryAction)
-            ToolbarItem(placement: .primaryAction) {
-                // iOS 26 工具栏会把 Label 强制成只显示图标（.labelStyle(.titleAndIcon) 也不管用，真机实测），
-                // 所以图标和字自己并排画
+            // （不和底部「媒体库」页签的 play.square.stack 撞）。不常用：只留图标、排在最左，
+            // 与 ⋯ 合成一个玻璃胶囊，顶栏只剩「▶ ⋯ · 搜索」两组（2026-10-05 用户要求，原先三颗圆钮又多又乱）
+            ToolbarItem(placement: .topBarTrailing) {
                 Button { openReels() } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "play.circle")
-                        Text("片段")
-                    }
-                    .fixedSize()
+                    Image(systemName: "play.circle")
                 }
                 .accessibilityLabel("片段")
                 .accessibilityIdentifier("library-reels")
