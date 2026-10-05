@@ -53,7 +53,9 @@ def resource_summary(resources):
     return {
         "samples": len(resources),
         "cpu_measurement_valid": converted,
-        "cpu_average_percent": statistics.mean(r["cpu_percent"] for r in resources) if converted else None,
+        "cpu_average_percent": (
+            statistics.mean(r["cpu_percent"] for r in resources) if converted else None
+        ),
         "footprint_first_mb": resources[0]["footprint_mb"],
         "footprint_last_mb": resources[-1]["footprint_mb"],
         "footprint_peak_mb": max(r["footprint_mb"] for r in resources),
@@ -70,14 +72,18 @@ def main():
     args = parser.parse_args()
     events = read_jsonl(args.trace)
     summary = {"input": input_summary(events)}
-    summary["first_run_loop_idle_ms"] = next((e["t"] for e in events if e["ev"] == "app.firstCommit"), None)
+    summary["first_run_loop_idle_ms"] = next(
+        (e["t"] for e in events if e["ev"] == "app.firstCommit"), None
+    )
     if args.resources:
         resources = read_jsonl(args.resources)
         if resources:
             summary["resources"] = resource_summary(resources)
     if args.hitches:
         if args.pid is None or args.active_seconds is None or args.active_seconds <= 0:
-            parser.error("--hitches requires --pid and a positive --active-seconds (exclude idle time)")
+            parser.error(
+                "--hitches requires --pid and a positive --active-seconds (exclude idle time)"
+            )
         summary["hitches"] = hitch_summary(args.hitches, args.pid, args.active_seconds)
     print(json.dumps(summary, indent=2))
 

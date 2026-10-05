@@ -54,7 +54,9 @@ def main():
         if previous:
             print(json.dumps({
                 "t": now / 1e9, "phase": args.phase,
-                "cpu_percent": cpu_percent(cpu - previous[1], now - previous[0], timebase.numer, timebase.denom),
+                "cpu_percent": cpu_percent(
+                    cpu - previous[1], now - previous[0], timebase.numer, timebase.denom
+                ),
                 "cpu_timebase": [timebase.numer, timebase.denom],
                 "footprint_mb": usage.phys_footprint / 1024**2,
                 "resident_mb": usage.resident_size / 1024**2,
