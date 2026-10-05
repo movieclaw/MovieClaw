@@ -1,5 +1,5 @@
 # =============================================================================
-# iOS / Apple TV App 编译检查
+# iOS / Apple TV / Mac App 编译检查
 #
 # 改到 apps/apple 的 PR 在 GitHub 的 macOS runner（默认 Xcode 26.x）上把 App 编一遍。
 # 为什么要有：本机开发用的是更新的 Xcode，它能推断通过的写法（隔离一致性、长表达式），
@@ -11,7 +11,8 @@
 # `#if DEBUG` 的另一支，留给发版 PR（bump 版本号）按 Release 编，与发版的 ios-ipa 作业同口径，
 # 在 tag 推出去之前拦下。
 #
-# iPhone 与 Apple TV 两个作业并行，按改动路径各自决定跑不跑。用作业级 if 而不是工作流级 paths
+# iPhone、Apple TV、Mac 三个作业并行，按改动路径各自决定跑不跑（Mac 版同样随发版出附件，
+# release.yml 的 mac-app 作业，同理要在 PR 阶段按 CI 的 Xcode 编过）。用作业级 if 而不是工作流级 paths
 # 过滤（同 ci.yml）：被 if 跳过的作业记为 skipped、视同通过，设为分支保护的必需检查也不会让
 # 没改 App 的 PR 卡在「检查未完成」。路径清单要覆盖各 App 目标真正编到的目录（见 project.yml），
 # 新增跨目录的源码时同步下面的 filters。
@@ -23,7 +24,7 @@ on:
   workflow_dispatch:
     inputs:
       configuration:
-        description: "编译配置（两个 App 都编）"
+        description: "编译配置（三个 App 都编）"
         type: choice
         options: [Release, Debug]
         default: Release
@@ -40,6 +41,7 @@ jobs:
     outputs:
       iphone: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.iphone == 'true' }}
       tv: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.tv == 'true' }}
+      mac: ${{ github.event_name == 'workflow_dispatch' || steps.filter.outputs.mac == 'true' }}
       configuration: ${{ inputs.configuration || (steps.filter.outputs.release == 'true' && 'Release' || 'Debug') }}
     steps:
       - uses: dorny/paths-filter@v3
@@ -47,7 +49,7 @@ jobs:
         id: filter
         with:
           filters: |
-            # 发版 PR（bump 版本号）：两个 App 都按 Release 编
+            # 发版 PR（bump 版本号）：三个 App 都按 Release 编
             release: &release
               - "src/movieclaw_api/__init__.py"
             common: &common
@@ -68,6 +70,9 @@ jobs:
               - *common
               - "apps/apple/MovieClawTV/**"
               - "apps/apple/MovieClawTVTopShelf/**"
+            mac:
+              - *common
+              - "apps/apple/MovieClawMac/**"
 
   iphone:
     needs: changes
@@ -131,3 +136,34 @@ jobs:
         with:
           name: tv-build-log
           path: apps/apple/build-ci/MovieClawTV.log
+
+  # Mac 版（docs/design/macos-app.md）：与 iPhone、Apple TV 版共用 Shared/ 与播放引擎
+  mac:
+    needs: changes
+    if: needs.changes.outputs.mac == 'true'
+    # 与 release.yml 的 mac-app 作业同一个 runner 镜像
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 准备工具链
+        run: |
+          brew install xcodegen
+          xcodebuild -version
+
+      - name: 恢复 Swift 包缓存
+        uses: actions/cache@v4
+        with:
+          path: ~/workspace/.mc-ios-spm
+          key: ios-spm-${{ hashFiles('apps/apple/project.yml', 'apps/apple/Vendor/AetherEngine/Package.swift') }}
+          restore-keys: ios-spm-
+
+      - name: 编译 Mac 版（${{ needs.changes.outputs.configuration }}）
+        run: apps/apple/scripts/ci-build.sh MovieClawMac macOS ${{ needs.changes.outputs.configuration }}
+
+      - name: 失败时上传完整编译日志
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-build-log
+          path: apps/apple/build-ci/MovieClawMac.log

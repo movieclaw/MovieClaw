@@ -1,6 +1,6 @@
 ---
 name: release
-description: 发布 movieclaw 新版本。当用户要求发版、发布新版本、打 tag、发布 NER 模型、发布 Docker 镜像，或打包上传 iOS App 到 TestFlight / App Store、补传发版附件（IPA、Mac 转码器）时使用。涵盖版本号三处同步、应用/模型/镜像/iOS 的完整流程、可选附件失败补救与检查清单。
+description: 发布 movieclaw 新版本。当用户要求发版、发布新版本、打 tag、发布 NER 模型、发布 Docker 镜像，或打包上传 iOS App 到 TestFlight / App Store、补传发版附件（IPA、Mac 转码器、Mac 版 App）时使用。涵盖版本号三处同步、应用/模型/镜像/iOS 的完整流程、可选附件失败补救与检查清单。
 ---
 
 # movieclaw 发布规范
@@ -47,14 +47,14 @@ description: 发布 movieclaw 新版本。当用户要求发版、发布新版�
 4. release.yml 两段式发布（draft → publish）：先以 draft 创建 Release，
    各作业往上传产物——应用三件套（app-web.tar.gz / app-backend.tar.gz /
    manifest.json，可选 manifest.json.sig）、mclaw 六平台归档 + checksums、
-   macOS Worker zip 与 iOS 未签名 IPA（均为可选附件）——同时发布多架构 Docker 镜像到 Docker Hub
+   macOS Worker zip、iOS 未签名 IPA 与 Mac 版 App zip（均为可选附件）——同时发布多架构 Docker 镜像到 Docker Hub
    （movieclaw/movieclaw，正式版打 vX.Y.Z + runtime-N + latest，
    预发布版只打 vX.Y.Z-… 不动 latest）。最后 publish 作业校验产物齐全、
    镜像发布成功后把 draft 转正；此前 Release 对应用内更新和
    install-cli.sh 都不可见。**任何作业失败时 Release 停在 draft，
    修复后到 Actions 重跑整个 release 工作流即可**（上传均带 --clobber，
-   安全重入）；仅 Worker / IPA 挂了不拦转正，重跑 worker-macos / ios-ipa 作业补传即可。
-   Worker 与 IPA 按改动判断：自上一版以来对应代码没变时不重编，`carry-assets` 作业直接
+   安全重入）；仅 Worker / IPA / Mac 版挂了不拦转正，重跑 worker-macos / ios-ipa / mac-app 作业补传即可。
+   Worker、IPA 与 Mac 版按改动判断：自上一版以来对应代码没变时不重编，`carry-assets` 作业直接
    沿用上一个 Release 的同名附件（规则见 `scripts/release-asset-plan.sh`）。证书、公证配置
    或打包流程变了而代码没变时，到 Actions → release 手动 Run workflow 勾选 `force_rebuild`
 5. changelog：写 docs/changelog/vX.Y.Z.md 合入 main。changelog 先于发版
@@ -174,7 +174,7 @@ ffmpeg 版本，发版前按下表逐项过一遍。
    开了自动分发的内部测试组会自动收到；对外测试组按 checklist §5 加构建、提审。
 4. 看 Apple 邮件：ITMS-91053 等警告按邮件补隐私清单。
 
-## 七、可选附件失败的补救（worker-macos / ios-ipa / carry-assets）
+## 七、可选附件失败的补救（worker-macos / ios-ipa / mac-app / carry-assets）
 
 publish 作业不等它们，Release 会照常转正——但 changelog 若写了这些附件就必须补上。
 GitHub 只允许整次运行结束后再单独重跑某个作业（`gh run rerun --job <id>`）。
@@ -183,12 +183,18 @@ GitHub 只允许整次运行结束后再单独重跑某个作业（`gh run rerun
   `git checkout vX.Y.Z` 后跑 `apps/apple/scripts/build-unsigned-ipa.sh`，再
   `gh release upload vX.Y.Z apps/apple/build-ipa/MovieClaw-iOS-unsigned.ipa --clobber` 补传，
   然后开 PR 修 CI 兼容（PR 上的 `ios` 检查能复现）。
+- **mac-app 编译失败**：同上，多半是 CI 的 Xcode 比本机旧（PR 上 `ios` 工作流的 mac 作业能复现）。本机
+  `git checkout vX.Y.Z` 后跑 `MOVIECLAW_SIGNING_IDENTITY="Developer ID Application: …" MOVIECLAW_NOTARY_PROFILE=<凭证名>
+  apps/apple/scripts/package-mac-app.sh`（签名、公证、打包一条龙），再
+  `gh release upload vX.Y.Z apps/apple/build-macapp/MovieClaw-macos-arm64.zip --clobber` 补传。
+  公证失败时脚本会打出 Apple 的逐条拒绝原因；密钥类报错同下面 worker-macos。
 - **worker-macos 公证失败**，按报错对仓库密钥：
   - `--issuer … must be a valid UUID` → `APPLE_API_ISSUER_ID` 值不对（常见多带空格 / 换行）
   - `HTTP status code: 401` → `APPLE_API_KEY_ID` 与 `APPLE_API_KEY_P8` 不是同一把，或密钥已撤销
   - 「没有 Developer ID Application 证书」→ `.p12` 导出的是别的证书
   `.p8` / `.p12` 属于凭证，由账号持有人自己 `gh secret set`（从本机文件重定向输入，不经聊天）。
-  改好后单独重跑 worker-macos；可下载产物本机 `spctl -a -vv` 看到 `Notarized Developer ID` 即成功。
+  改好后单独重跑 worker-macos（mac-app 用同一套密钥，一并重跑）；可下载产物本机 `spctl -a -vv`
+  看到 `Notarized Developer ID` 即成功。
 
 ## 八、发版检查清单
 
@@ -206,6 +212,7 @@ GitHub 只允许整次运行结束后再单独重跑某个作业（`gh run rerun
       `.sig`），人工只需确认 release 工作流全绿、Release 已从 draft 转正；
       worker-macos 作业红了 → Worker zip 缺失，重跑该作业补传；
       ios-ipa 作业红了 → `MovieClaw-iOS-unsigned.ipa` 缺失，重跑该作业补传；
+      mac-app 作业红了 → `MovieClaw-macos-arm64.zip` 缺失，重跑该作业补传；
       carry-assets 作业红了 → 沿用的附件缺失，重跑该作业补传
 - [ ] changelog 已写入 `docs/changelog/vX.Y.Z.md` 并合入 main（release-notes.yml
       自动同步为 Release body，应用内更新界面会原文展示给用户），并按

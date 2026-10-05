@@ -1,7 +1,7 @@
 #!/bin/zsh
 # PR 上的 App 编译检查（.github/workflows/ios.yml）：只编不签不打包。
 # 用法：ci-build.sh <scheme> <platform> <configuration>
-#   例：ci-build.sh MovieClaw iOS Debug、ci-build.sh MovieClawTV tvOS Release
+#   例：ci-build.sh MovieClaw iOS Debug、ci-build.sh MovieClawTV tvOS Release、ci-build.sh MovieClawMac macOS Debug
 # 普通 PR 编 Debug（按文件并行编、快）；发版 PR 编 Release，与发版的 ios-ipa 作业同口径。
 # 完整日志写到 build-ci/<scheme>.log，失败时打出关键行与日志末尾。
 set -euo pipefail
