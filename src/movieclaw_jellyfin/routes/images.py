@@ -25,11 +25,11 @@ from sqlalchemy import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from movieclaw_api.services.library.chapters import chapter_image_map, effective_chapters
-from movieclaw_api.services.media_scrape import LOGO_ASSET_SIZE
+from movieclaw_api.services.media_scrape import LOGO_ASSET_SIZE, image_kind_of
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import Library, LibraryFile, MediaEpisode, MediaMetadata, MediaSeason
 from movieclaw_jellyfin.errors import JellyfinError, not_found
-from movieclaw_jellyfin.ids import EntityKind, decode_guid, item_guid
+from movieclaw_jellyfin.ids import FIXED_COLLECTIONS, EntityKind, decode_guid, item_guid
 
 router = APIRouter()
 
@@ -292,6 +292,23 @@ async def get_item_image(
                 "ETag": f'"{cover[1]}"',
             },
         )
+    if ref is not None and ref.kind == EntityKind.FIXED and ref.entity_id == FIXED_COLLECTIONS:
+        # 「合集」视图封面：/UserViews 按观看者权限渲染好，tag 即素材指纹
+        from movieclaw_api.services.library.cover import collections_view_cover
+
+        tag = request.query_params.get("tag") or ""
+        path = collections_view_cover(tag) if image_type.lower() == "primary" else None
+        if path is None:
+            raise JellyfinError(404, text=f"Item does not have an image of type {image_type}")
+        return FileResponse(
+            path,
+            media_type="image/jpeg",
+            headers={
+                "Vary": "Accept",
+                "Cache-Control": "public, max-age=31536000, immutable",
+                "ETag": f'"{tag}"',
+            },
+        )
     if ref is not None and ref.kind == EntityKind.PERSON:
         return await _person_image(ref.entity_id, image_type, request)
     # 条目 Primary/Backdrop/Logo 走与 Web 相同的三层解析（docs/design/metadata.md 5）：
@@ -366,6 +383,10 @@ async def get_item_image(
 
 
 _SCALE_PARAMS = ("maxWidth", "maxHeight", "width", "height", "fillWidth", "fillHeight")
+# 缩放框缺省边（不限制）
+_MAX_EDGE = 8192
+# 原图直出前要先转成 JPEG/PNG 的格式
+_TRANSCODE_KINDS = ("webp", "avif")
 
 
 def _scale_bounds(request: Request) -> tuple[int, int] | None:
@@ -385,7 +406,7 @@ def _scale_bounds(request: Request) -> tuple[int, int] | None:
         return None
     widths = [v for n, v in values if "idth" in n]
     heights = [v for n, v in values if "eight" in n]
-    return (min(widths) if widths else 8192, min(heights) if heights else 8192)
+    return (min(widths) if widths else _MAX_EDGE, min(heights) if heights else _MAX_EDGE)
 
 
 def _render_scaled(src: Path, bounds: tuple[int, int]) -> tuple[bytes, str]:
@@ -424,11 +445,23 @@ async def _maybe_scaled(
 
     ``source_version``：源文件本身就在图片缓存里（TMDB 兜底图）时传缓存条目的版本。
     缓存命中会每小时 touch 一次文件 mtime（LRU 记访问时间），拿 mtime 当版本的话
-    每小时就多渲染一份同样的缩放图、旧的堆着等淘汰。"""
-    original_type = original_type or mimetypes.guess_type(str(target))[0] or "image/jpeg"
+    每小时就多渲染一份同样的缩放图、旧的堆着等淘汰。
+
+    类型按文件头认，不信扩展名（issue #587）：旧版本从图床落下的 poster.jpg 有
+    一部分其实是 WebP，按扩展名报 image/jpeg 会让播放器解码失败。WebP/AVIF
+    即使不缩放也转一份 JPEG/PNG 给出去——第三方播放器对它们的支持参差。"""
+    kind = image_kind_of(target)
+    original_type = (
+        (f"image/{kind}" if kind else None)
+        or original_type
+        or mimetypes.guess_type(str(target))[0]
+        or "image/jpeg"
+    )
     bounds = _scale_bounds(request)
     if bounds is None:
-        return target, original_type
+        if kind not in _TRANSCODE_KINDS:
+            return target, original_type
+        bounds = (_MAX_EDGE, _MAX_EDGE)  # 只转格式，不缩
     if source_version is None:
         try:
             source_version = str(target.stat().st_mtime_ns)

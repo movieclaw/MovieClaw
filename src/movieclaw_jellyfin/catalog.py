@@ -1141,10 +1141,13 @@ async def list_libraries(
 
     不暴露的形态（图片库，能力位 ``jellyfin_exposed=False``）在这里统一挡掉，
     五个调用方（视图、计数、最新媒体……）不必各自判断。
+
+    按控制台拖好的展示顺序返回（与 Web 端库列表同一口径，issue #587）。
     """
     q = select(Library).where(Library.kind.not_in(_hidden_kinds()))  # type: ignore[union-attr]
     if visible_ids is not None:
         q = q.where(Library.id.in_(visible_ids))
+    q = q.order_by(Library.sort_order.asc(), Library.id.asc())  # type: ignore[union-attr]
     return list((await session.execute(q)).scalars())
 
 
@@ -1716,7 +1719,7 @@ def library_view_dto(
     return dto
 
 
-def collections_view_dto(ctx: DtoContext) -> dict[str, Any]:
+def collections_view_dto(ctx: DtoContext, cover_tag: str | None = None) -> dict[str, Any]:
     """「合集」聚合视图（docs/design/library-collections.md 4.3）。
 
     **协议侧不照搬产品侧的「合集挂在库下面」**，而是走 Jellyfin 惯例的一个顶层
@@ -1732,7 +1735,8 @@ def collections_view_dto(ctx: DtoContext) -> dict[str, Any]:
     dto = _common(ctx, guid, "合集", "CollectionFolder", "Unknown")
     dto["IsFolder"] = True
     dto["CollectionType"] = "boxsets"
-    dto["ImageTags"] = {}
+    # 封面 = 各可见合集封面海报的货架拼贴；tag 即素材指纹，取图时凭它找回产物
+    dto["ImageTags"] = {"Primary": cover_tag} if cover_tag else {}
     dto["BackdropImageTags"] = []
     dto["ParentId"] = root_guid()
     dto["UserData"] = {

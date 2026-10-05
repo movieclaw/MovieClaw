@@ -2402,7 +2402,7 @@ async def _adopt_from_media_dir(
         return lengths[probe_url]
 
     for candidate in candidates:
-        if await asyncio.to_thread(_image_kind_of, candidate) != expected:
+        if await asyncio.to_thread(image_kind_of, candidate) != expected:
             continue
         try:
             size = (await asyncio.to_thread(candidate.stat)).st_size
@@ -2424,7 +2424,7 @@ async def _adopt_from_media_dir(
     return False
 
 
-def _image_kind_of(path: Path) -> str | None:
+def image_kind_of(path: Path) -> str | None:
     try:
         with path.open("rb") as handle:
             return _image_kind(handle.read(16))

@@ -23,6 +23,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
@@ -325,6 +326,31 @@ async def ensure_collection_cover(
     缓存指纹包含素材路径和版本，不同权限范围的封面不会串用；产物沿用已登记的
     library-covers 缓存目录。不同观看者的产物可并存，不能按合集 id 清理彼此的缓存。
     """
+    return await _ensure_poster_collage(f"collection-{collection_id}", poster_files)
+
+
+_COLLECTIONS_VIEW_STEM = "collections"
+_KEY_RE = re.compile(r"[0-9a-f]{32}")
+
+
+async def ensure_collections_view_cover(poster_files: list[str]) -> tuple[Path, str] | None:
+    """Jellyfin 顶层「合集」视图的封面：每个可见合集出一张封面海报，同一种货架构图。
+
+    素材由调用方按观看者权限选好（取图请求不带凭据，只能凭 tag 找回这里的产物）。
+    """
+    return await _ensure_poster_collage(_COLLECTIONS_VIEW_STEM, poster_files)
+
+
+def collections_view_cover(key: str) -> Path | None:
+    """按 tag（即素材指纹）找回已渲染的「合集」视图封面；没有或 tag 不合法返回 None。"""
+    if not _KEY_RE.fullmatch(key):
+        return None
+    path = covers_dir() / f"{_COLLECTIONS_VIEW_STEM}-{key}.jpg"
+    return path if path.is_file() else None
+
+
+async def _ensure_poster_collage(stem: str, poster_files: list[str]) -> tuple[Path, str] | None:
+    """把资产相对路径列表渲染成 ``{stem}-{素材指纹}.jpg``，返回 (文件, 指纹)。"""
     root = _assets_root().resolve()
     posters = []
     for rel in poster_files:
@@ -336,7 +362,7 @@ async def ensure_collection_cover(
     if not posters:
         return None
     key = _cover_key(posters)
-    target = covers_dir() / f"collection-{collection_id}-{key}.jpg"
+    target = covers_dir() / f"{stem}-{key}.jpg"
     if not target.is_file():
         target.parent.mkdir(parents=True, exist_ok=True)
         # 原子替换：Web 与 App 同时请求时也不会读到尚未写完的 JPEG。
@@ -345,7 +371,7 @@ async def ensure_collection_cover(
             await asyncio.to_thread(render_shelf_collage, posters, temp)
             os.replace(temp, target)
         except Exception:
-            logger.exception("合集封面拼贴渲染失败（collection_id=%d）", collection_id)
+            logger.exception("合集封面拼贴渲染失败（%s）", stem)
             return None
         finally:
             temp.unlink(missing_ok=True)
