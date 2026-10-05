@@ -142,10 +142,12 @@ struct MacHomeView: View {
 
     // MARK: 大图区
 
+    /// 剧照渐隐越过大图区下沿的长度：到「接下来继续」卡片的顶边（行间距 40 − 上提 32 + 标题 24 + 间隔 10 + 卡片上边距 6）
+    private static let fadeOverhang: CGFloat = 48
+
     private func hero(_ stage: API.UpNextItemView, items: [API.UpNextItemView], height: CGFloat, width: CGFloat) -> some View {
         ZStack(alignment: .bottomLeading) {
-            MacStageBackdrop(url: stageImageURL(stage), tint: tint, fadeFrom: 0.6, animatesZoom: false)
-                .frame(height: height)
+            Color.clear.frame(height: height)
             VStack(alignment: .leading, spacing: 20) {
                 MacStageInfo(
                     title: stage.title,
@@ -169,6 +171,14 @@ struct MacHomeView: View {
         }
         .frame(height: height)
         .frame(maxWidth: .infinity, alignment: .leading)
+        // 剧照比大图区多画一截，一直淡到「接下来继续」的卡片顶边：标题压在渐隐的尾巴上，大图与下面的行连成一片
+        // （同 Apple TV App、Apple Music）。渐隐起点不动（按钮与简介背后照旧压暗），只把终点挪下去；
+        // 布局高度不变，下面的行不被推开，多出的这截画在行的底下
+        .background(alignment: .top) {
+            MacStageBackdrop(url: stageImageURL(stage), tint: tint, fadeFrom: 0.6 * height / (height + Self.fadeOverhang),
+                             animatesZoom: false)
+                .frame(height: height + Self.fadeOverhang)
+        }
         .overlay(alignment: .bottomTrailing) {
             if items.count > 1 {
                 stagePager(items, current: stage.mediaItemId)
@@ -177,7 +187,6 @@ struct MacHomeView: View {
             }
         }
         .overlay { stageArrows(items, current: stage.mediaItemId) }
-        .clipped()
         .onHover { inside in withAnimation(.easeOut(duration: 0.2)) { heroHovering = inside } }
         // 触控板在大图上左右轻扫：换前一部 / 后一部
         .modifier(MacHorizontalSwipe { step in moveStage(by: step, in: items, current: stage.mediaItemId) })
@@ -319,8 +328,24 @@ struct MacHomeView: View {
     @ViewBuilder
     private func rowView(_ row: HomeRows.Row) -> some View {
         switch row.kind {
-        case .upNext, .genres:
+        case .upNext:
             EmptyView()
+        case let .genres(kind, _):
+            // 「按类型找电影 / 剧集」：每个有片的类型一格（按部数倒序，服务端排好），点进按这个类型筛好的跨库墙；一格都没有时整行不出
+            if let genres = store.genresByKind[kind], !genres.isEmpty {
+                MacShelf(title: row.title, artHeight: MacMetrics.genreHeight) {
+                    ForEach(genres, id: \.value) { genre in
+                        if let id = Int(genre.value) {
+                            MacGenreCard(label: genre.label, count: genre.count, mediaKind: kind,
+                                         coverURL: api.image(genre.coverUrl, width: ImageWidth.macCard(MacMetrics.genreWidth))) {
+                                router.push(.rowWall(title: genre.label, source: .genre(kind: kind, genre: id, count: genre.count)))
+                            }
+                            .accessibilityIdentifier("mac-genre-\(kind)-\(id)")
+                        }
+                    }
+                }
+                .id(row.id)
+            }
         case .favorites:
             if let items = store.favorites?.items, !items.isEmpty {
                 posterShelf(row, items: items.map(\.asLibraryItem), total: store.favorites?.total)
@@ -430,7 +455,7 @@ struct MacHomeView: View {
     private func isEmpty(_ row: HomeRows.Row) -> Bool {
         switch row.kind {
         case .upNext: (store.upNext ?? []).isEmpty
-        case .genres: true
+        case let .genres(kind, _): (store.genresByKind[kind] ?? []).isEmpty
         case .favorites: (store.favorites?.items ?? []).isEmpty
         case .libraries: directory.browsable.isEmpty && homeCollections.isEmpty
         case .library, .mediaKind, .collection: (store.itemsByKey[LibraryHomeStore.fetchKey(row)] ?? []).isEmpty

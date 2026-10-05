@@ -170,6 +170,7 @@ final class MacFrameMonitor: NSObject {
 ///     drag 0 600 2           手指按住匀速拖：速度（点/秒）、时长（秒），停住再抬手，没有惯性
 ///     top                    滚回顶部（连发大位移，不计入测量）
 ///     click 640 300          在窗口这一点单击
+///     playupnext             起播「接下来继续」第一部
 ///     shot 名字              截主窗口 → 容器 Library/Caches/perf/shots/名字.png
 ///     quit                   退出 App
 @MainActor
@@ -270,6 +271,26 @@ final class MacScrollBench {
             if let down = event(.leftMouseDown), let up = event(.leftMouseUp) {
                 NSApp.postEvent(up, atStart: false)
                 window.sendEvent(down)
+            }
+        case "hoverlights":
+            // 模拟指针移进播放器里的红绿灯（核对三钮一起出符号）：真实的进出事件合成不了，直接交给那组按钮的容器
+            guard let window, let content = window.contentView else { return }
+            func find(_ view: NSView) -> MacWindowControls.Container? {
+                if let hit = view as? MacWindowControls.Container { return hit }
+                for child in view.subviews { if let hit = find(child) { return hit } }
+                return nil
+            }
+            if let controls = find(content), let event = NSEvent.mouseEvent(
+                with: .mouseMoved, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
+                controls.mouseEntered(with: event)
+            }
+        case "playupnext":
+            // 直接播「接下来继续」第一部（端到端核对播放器界面）
+            if let item = LibraryHomeStore.shared.upNext?.first {
+                let episode = item.kind == "tv"
+                router?.play(PlayRequest(mediaItemId: item.mediaItemId, season: episode ? item.seasonNumber : nil,
+                                         episode: episode ? item.episodeNumber : nil))
             }
         case "wait":
             try? await Task.sleep(for: .seconds(numbers.first ?? 1))

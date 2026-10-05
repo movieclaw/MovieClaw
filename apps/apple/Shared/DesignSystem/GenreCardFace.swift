@@ -42,6 +42,8 @@ struct GenreCardFace: View {
     let coverURL: URL?
     let width: CGFloat
     var imageSaturation: Double = 1
+    /// 剧照在卡片里的缩放（Mac 悬停时 1.045，同网页；卡片外框不动）
+    var imageScale: CGFloat = 1
 
     #if os(tvOS)
     private let height: CGFloat = 234
@@ -80,6 +82,7 @@ struct GenreCardFace: View {
                                     .init(color: .clear, location: 0.6),
                                 ], startPoint: .bottom, endPoint: .top))
                         }
+                        .scaleEffect(imageScale)
                 } else {
                     RadialGradient(colors: [Color(white: 0.28), Color(white: 0.12)],
                                    center: .topTrailing, startRadius: 0, endRadius: width * 0.85)

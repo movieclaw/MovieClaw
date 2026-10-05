@@ -279,11 +279,12 @@ private struct MacPlayerContent: View {
 
             VStack(spacing: 0) {
                 HStack {
-                    MacPlayerTopBar(controller: controller, close: close)
+                    MacPlayerTopBar(controller: controller, showsWindowControls: !window.isFullScreen, close: close)
                     Spacer(minLength: 0)
                 }
-                .padding(.leading, 20)
-                .padding(.top, 16)
+                // 窗口模式：红绿灯落在系统标题栏原来的位置（左 19、中线距顶 26），打开播放器时不跳
+                .padding(.leading, window.isFullScreen ? 20 : 19)
+                .padding(.top, window.isFullScreen ? 16 : 9)
                 Spacer(minLength: 0)
                 MacPlayerTransport(
                     controller: controller, trickplay: trickplay, volume: volume, isFullScreen: window.isFullScreen,
@@ -455,7 +456,13 @@ private struct MacPlayerContent: View {
     private func pointerMoved(_ point: CGPoint?) {
         guard point != pointer else { return }
         pointer = point
-        if point != nil { showChrome() }
+        if point != nil {
+            showChrome()
+        } else if chromeVisible, scrubMs == nil, panel == nil, !isModal, !controller.phase.isBusy, controller.phase != .ended {
+            // 指针离开播放器：控制层（含左上角返回）立刻淡出，不等 3 秒无操作。
+            // 拖进度条拖出窗口、面板或对话框开着、起播中、播完时照旧留着
+            chromeVisible = false
+        }
     }
 
     private func showChrome() {

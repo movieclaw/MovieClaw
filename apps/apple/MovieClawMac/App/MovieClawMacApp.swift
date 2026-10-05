@@ -7,6 +7,7 @@ import SwiftUI
 /// 左侧可收起的侧边栏（顶上搜索框）+ 右侧内容区，液态玻璃只用在侧边栏、工具栏与播放器的浮层上。
 @main
 struct MovieClawMacApp: App {
+    @NSApplicationDelegateAdaptor(MacAppDelegate.self) private var appDelegate
     /// 最先执行（存储属性按声明顺序初始化，早于下面的 AppModel）：AppModel 在初始化里就可能用快照直接进
     /// 主界面、开始加载图片，图片加载器必须先配好
     private let bootstrap: Void = {
@@ -49,6 +50,12 @@ struct MovieClawMacApp: App {
         .defaultPosition(.center)
         .restorationBehavior(.disabled)
     }
+}
+
+/// 关掉主窗口就退出（单窗口 App，同「系统设置」）：留在程序坞里也没有别的事可做。
+/// 正在播放时退出会同步补发一次「停止」（PlaybackController 监听 willTerminate），续播点不丢
+final class MacAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
 }
 
 /// 按 `AppModel.phase` 切换顶层界面：欢迎（连接、登录、选人）或主界面。

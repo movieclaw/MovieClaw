@@ -23,13 +23,19 @@ enum MacPlayerMetrics {
     static let space = "mac-player"
 }
 
-/// 左上角：返回按钮 + 片名两行
+/// 左上角：（窗口模式下）红绿灯 + 返回按钮 + 片名两行
 struct MacPlayerTopBar: View {
     let controller: PlaybackController
+    /// 窗口模式下带上红绿灯（全屏时系统自己从顶上滑出，不画）
+    var showsWindowControls = false
     let close: () -> Void
 
     var body: some View {
         HStack(spacing: 12) {
+            if showsWindowControls {
+                MacWindowControls()
+                    .padding(.trailing, 8)
+            }
             Button(action: close) {
                 Image(systemName: "chevron.backward")
                     .font(.system(size: 15, weight: .semibold))
@@ -68,6 +74,66 @@ struct MacPlayerTopBar: View {
         if let name = controller.currentEpisode?.name, !name.isEmpty { return "\(code) · \(name)" }
         return code
     }
+}
+
+/// 播放器里的红绿灯：同 QuickTime、IINA，跟控制层一起浮现、一起淡出。
+///
+/// 播放器打开时主界面把窗口工具栏整个藏起（否则侧边栏开关等工具栏按钮会压在画面上），系统的红绿灯随标题栏一起没了；
+/// 这里用 `NSWindow.standardWindowButton(_:for:)` 另建一组原生按钮放进控制层：关闭、最小化、绿灯进全屏都是系统行为
+struct MacWindowControls: NSViewRepresentable {
+    /// 与系统标题栏里的排布一致：14 点的圆钮，间隔 23 点
+    static let size = CGSize(width: 60, height: 14)
+
+    func makeNSView(context: Context) -> Container { Container(frame: NSRect(origin: .zero, size: Self.size)) }
+
+    func updateNSView(_ nsView: Container, context: Context) {}
+
+    final class Container: NSView {
+        private var buttons: [NSWindow.ButtonType: NSButton] = [:]
+        /// 指针在这组按钮上：三个钮一起显示 × − ⤢（同系统标题栏）
+        private var pointerInside = false {
+            didSet { buttons.values.forEach { $0.needsDisplay = true } }
+        }
+
+        override init(frame: NSRect) {
+            super.init(frame: frame)
+            let style: NSWindow.StyleMask = [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView]
+            for (index, type) in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton].enumerated() {
+                guard let button = NSWindow.standardWindowButton(type, for: style) else { continue }
+                button.setFrameOrigin(NSPoint(x: CGFloat(index) * 23, y: 0))
+                addSubview(button)
+                buttons[type] = button
+            }
+        }
+
+        required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(NSTrackingArea(rect: bounds, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+                                           owner: self, userInfo: nil))
+        }
+
+        override func mouseEntered(with event: NSEvent) { pointerInside = true }
+        override func mouseExited(with event: NSEvent) { pointerInside = false }
+
+        /// 红绿灯画符号前问父视图「指针在不在这一组上」（系统标题栏就是这样回答的；Chrome 的自绘标题栏同此做法）。
+        /// 不回答的话三个钮悬停时都不出符号
+        @objc func _mouseInGroup(_ button: NSButton) -> Bool { pointerInside }
+
+        /// 另建的按钮不认得自己在哪个窗口：关闭、最小化显式发给所在窗口（绿灯走系统默认，进出全屏）
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            guard let window else { return }
+            buttons[.closeButton]?.target = window
+            buttons[.closeButton]?.action = #selector(NSWindow.performClose(_:))
+            buttons[.miniaturizeButton]?.target = window
+            buttons[.miniaturizeButton]?.action = #selector(NSWindow.performMiniaturize(_:))
+        }
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: Container, context: Context) -> CGSize? { Self.size }
 }
 
 /// 底部的玻璃控制面板
@@ -181,7 +247,9 @@ struct MacPlayerTransport: View {
                 .padding(.horizontal, 7)
                 .frame(height: 20)
                 .overlay(Capsule().strokeBorder(.white.opacity(0.85), lineWidth: 1.4))
-                .frame(minWidth: 34, minHeight: 34)
+                // 四周同样留 7 点：悬停 / 选中的底与徽标是同心的两层胶囊
+                .padding(.horizontal, 7)
+                .frame(minHeight: 34)
                 .contentShape(.rect)
         }
         .buttonStyle(MacPlayerButtonStyle(active: panel == .quality))
@@ -232,7 +300,8 @@ struct MacPlayerButtonStyle: ButtonStyle {
         var body: some View {
             configuration.label
                 .background {
-                    Circle()
+                    // 胶囊：方形的图标按钮上就是圆，比圆宽的画质徽标上跟着按钮宽度走
+                    Capsule()
                         .fill(.white.opacity(!enabled ? 0 : configuration.isPressed ? 0.24 : active ? 0.2 : hovering ? 0.12 : 0))
                 }
                 // 不可用（没有上一集 / 下一集）时淡下去

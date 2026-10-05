@@ -19,6 +19,9 @@ enum MacMetrics {
     static let landscapeWidth: CGFloat = 296
     /// 「我的媒体库」库卡宽（16:9）
     static let libraryWidth: CGFloat = 296
+    /// 「按类型找电影 / 剧集」类型卡：同网页 236 × 150（docs/design/genre-cinematic-cards.md）
+    static let genreWidth: CGFloat = 236
+    static let genreHeight: CGFloat = 150
     /// 卡片之间
     static let cardSpacing: CGFloat = 18
     /// 行与行之间
@@ -140,6 +143,30 @@ struct MacLandscapeCard: View {
         .background {
             LinearGradient(colors: [.clear, .black.opacity(0.75)], startPoint: .top, endPoint: .bottom)
         }
+    }
+}
+
+/// 「按类型找电影 / 剧集」的一格：全幅剧照类型卡（三端共用 `GenreCardFace`）。
+/// 悬停时剧照恢复饱和、微微放大（同网页的 1.045 倍、Apple TV 的焦点），滚动中不响应悬停
+struct MacGenreCard: View {
+    let label: String
+    let count: Int
+    let mediaKind: String
+    let coverURL: URL?
+    let action: () -> Void
+
+    @State private var hovering = MacCardDebug.forceHover
+    @Environment(\.macScrollInProgress) private var scrolling
+
+    private var active: Bool { hovering && !scrolling }
+
+    var body: some View {
+        GenreCardFace(label: label, count: count, mediaKind: mediaKind, coverURL: coverURL, width: MacMetrics.genreWidth,
+                      imageSaturation: active ? 1 : 0.76, imageScale: active ? 1.045 : 1)
+            .shadow(color: .black.opacity(active ? 0.35 : 0.2), radius: active ? 10 : 4, y: active ? 5 : 2)
+            .animation(scrolling ? nil : .easeOut(duration: 0.2), value: active)
+            .onHover { hovering = $0 || MacCardDebug.forceHover }
+            .macCardTap("浏览\(label)，\(count) 部\(mediaKind == "tv" ? "剧集" : "电影")", action: action)
     }
 }
 
