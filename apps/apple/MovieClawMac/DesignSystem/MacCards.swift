@@ -250,7 +250,8 @@ struct MacSeeAllCard: View {
     }
 }
 
-/// 卡片共用的外观：圆角图 + 细亮边 + 左上角标 + 悬停浮层（压暗、播放键、⋯ 菜单）+ 图下的片名
+/// 卡片共用的外观：圆角图 + 细亮边 + 左上角标 + 悬停浮层（压暗、播放键、⋯ 菜单）+ 图下的片名。
+/// 开着 `macCardFocusEffect`（全产品默认）时悬停不出任何按钮，改成 Apple TV 式的聚焦：放大、随指针微倾、指针处一团高光
 private struct MacCardLabel<Art: View>: View {
     let title: String
     let subtitle: String?
@@ -264,13 +265,22 @@ private struct MacCardLabel<Art: View>: View {
     @ViewBuilder let art: () -> Art
 
     @State private var hovering = MacCardDebug.forceHover
+    @Environment(\.macCardFocusEffect) private var focusEffect
+    @Environment(\.macCardSelected) private var selected
+    @Environment(\.macCardControlsInFocus) private var controlsInFocus
+    /// 聚焦时指针在图上的位置（0～1），图外为 nil
+    @State private var pointer: UnitPoint?
+    @State private var artSize: CGSize = .zero
+
+    private var focused: Bool { focusEffect && hovering }
+    private var controlsOnHover: Bool { hovering && (!focusEffect || controlsInFocus) }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             art()
                 .overlay {
                     // 悬停压暗一层：同 Apple Music，告诉人「这张可以点」
-                    Color.black.opacity(hovering ? 0.18 : 0)
+                    if !focusEffect { Color.black.opacity(hovering ? 0.18 : 0) }
                 }
                 .overlay(alignment: .topLeading) {
                     if let badge {
@@ -283,30 +293,59 @@ private struct MacCardLabel<Art: View>: View {
                     }
                 }
                 .overlay(alignment: .bottom) {
-                    if hovering, !centeredControls, play != nil || !menu.isEmpty {
+                    if controlsOnHover, !centeredControls, play != nil || !menu.isEmpty {
                         hoverControls
                             .transition(.opacity)
                     }
                 }
                 .overlay {
-                    if hovering, centeredControls, let play {
+                    if controlsOnHover, centeredControls, let play {
                         playButton(play, size: 44)
                             .transition(.opacity)
                     }
                 }
                 .overlay(alignment: .topTrailing) {
-                    if hovering, centeredControls, !menu.isEmpty {
+                    if controlsOnHover, centeredControls, !menu.isEmpty {
                         menuButton
                             .padding(8)
+                            .transition(.opacity)
+                    }
+                }
+                .overlay {
+                    // 聚焦高光：指针处一团柔光，同 Apple TV 海报的镜面反光
+                    if focused {
+                        RadialGradient(colors: [.white.opacity(0.22), .white.opacity(0.06), .clear],
+                                       center: pointer ?? UnitPoint(x: 0.5, y: 0.2),
+                                       startRadius: 0, endRadius: max(artSize.width, artSize.height) * 0.75)
+                            .blendMode(.plusLighter)
+                            .allowsHitTesting(false)
                             .transition(.opacity)
                     }
                 }
                 .clipShape(.rect(cornerRadius: MacMetrics.cardCorner))
                 .overlay {
                     RoundedRectangle(cornerRadius: MacMetrics.cardCorner)
-                        .strokeBorder(.white.opacity(0.12), lineWidth: 0.5)
+                        .strokeBorder(.white.opacity(selected ? 0.75 : focused ? 0.32 : 0.12),
+                                      lineWidth: selected ? 2 : focused ? 1 : 0.5)
                 }
-                .shadow(color: .black.opacity(hovering ? 0.35 : 0.2), radius: hovering ? 10 : 4, y: hovering ? 5 : 2)
+                .onGeometryChange(for: CGSize.self) { $0.size } action: { artSize = $0 }
+                .onContinuousHover { phase in
+                    guard focusEffect else { return }
+                    switch phase {
+                    case .active(let location) where artSize.width > 0 && artSize.height > 0:
+                        pointer = UnitPoint(x: location.x / artSize.width, y: location.y / artSize.height)
+                    default:
+                        pointer = nil
+                    }
+                }
+                // 随指针微倾（最多 4°）：指针在哪一侧，哪一侧往里压
+                .rotation3DEffect(.degrees(focused ? tilt.y : 0), axis: (x: 1, y: 0, z: 0), perspective: 0.5)
+                .rotation3DEffect(.degrees(focused ? tilt.x : 0), axis: (x: 0, y: 1, z: 0), perspective: 0.5)
+                .scaleEffect(focused ? 1.05 : 1)
+                .shadow(color: .black.opacity(focused ? 0.5 : hovering ? 0.35 : 0.2),
+                        radius: focused ? 18 : hovering ? 10 : 4, y: focused ? 12 : hovering ? 5 : 2)
+                .animation(.spring(response: 0.34, dampingFraction: 0.72), value: focused)
+                .animation(.easeOut(duration: 0.12), value: pointer)
             if showsCaption {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
@@ -321,12 +360,21 @@ private struct MacCardLabel<Art: View>: View {
                     }
                 }
                 .frame(width: width, alignment: .leading)
+                // 封面放大后片名往下让一点
+                .offset(y: focused ? 6 : 0)
+                .animation(.spring(response: 0.34, dampingFraction: 0.72), value: focused)
             }
         }
         .contentShape(.rect)
         .onHover { inside in
             withAnimation(.easeOut(duration: 0.15)) { hovering = inside || MacCardDebug.forceHover }
         }
+    }
+
+    /// 微倾角度（度）：x 绕竖轴、y 绕横轴
+    private var tilt: (x: Double, y: Double) {
+        guard let pointer else { return (0, 0) }
+        return ((pointer.x - 0.5) * 8, (0.5 - pointer.y) * 8)
     }
 
     /// 左下播放键、右下「⋯」：小号玻璃圆钮，同 Apple Music 封面上的那两枚
@@ -369,6 +417,15 @@ private struct MacCardLabel<Art: View>: View {
         .glassEffect(.regular.interactive(), in: .circle)
         .help("更多")
     }
+}
+
+extension EnvironmentValues {
+    /// 卡片悬停时走 Apple TV 式聚焦（不出按钮）：全产品的海报统一这样，起播走详情页或右键菜单
+    @Entry var macCardFocusEffect = true
+    /// 卡片描一圈亮边表示「选中」（首页大图正讲的那一部）
+    @Entry var macCardSelected = false
+    /// 聚焦时仍浮出播放键与「⋯」（首页「接下来继续」：点卡片只换大图，点播放键才起播）
+    @Entry var macCardControlsInFocus = false
 }
 
 /// 开发期出图用：环境变量 MC_FORCE_HOVER=1 让所有卡片一出来就是悬停的样子（合成的鼠标事件触发不了系统的悬停追踪）

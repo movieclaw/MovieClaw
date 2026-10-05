@@ -298,6 +298,7 @@ struct MacItemDetailView: View {
                     imageURL: api.image(episode.stillUrl, width: ImageWidth.macCard(MacMetrics.landscapeWidth)),
                     runtimeMinutes: detail.localMeta?.runtimeMinutes,
                     isStage: browseSeason == season && episode.episodeNumber == selectedEpisode?.episodeNumber,
+                    select: { selectEpisode(episode) },
                     play: { playEpisode(episode) },
                     toggleWatched: { Task { await markEpisode(episode, played: !episode.played) } }
                 )
@@ -551,6 +552,16 @@ struct MacItemDetailView: View {
                                 episode: isMovie ? nil : selectedEpisode?.episodeNumber, startSeconds: start))
     }
 
+    /// 点分集卡片：头图改讲这一集（续播点随 `unitKey` 重新取），不起播；起播走卡片上的播放键或头图的「播放」
+    private func selectEpisode(_ episode: API.EpisodeView) {
+        guard let browseSeason else { return }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            season = browseSeason
+            episodes = browseEpisodes
+            selectedEpisode = episode
+        }
+    }
+
     private func playEpisode(_ episode: API.EpisodeView) {
         guard episode.owned, let browseSeason else { return }
         router.play(PlayRequest(mediaItemId: itemId, season: browseSeason, episode: episode.episodeNumber))
@@ -598,14 +609,17 @@ private struct MacEpisodeCard: View {
     let runtimeMinutes: Int?
     /// 头图正讲这一集：描一圈亮边
     let isStage: Bool
+    /// 点卡片：选中这一集（头图改讲它）
+    let select: () -> Void
+    /// 点悬停浮出的播放键：起播
     let play: () -> Void
     let toggleWatched: () -> Void
 
     private let width = MacMetrics.landscapeWidth
-    @State private var hovering = false
+    @State private var hovering = MacCardDebug.forceHover
 
     var body: some View {
-        Button(action: play) {
+        Button(action: select) {
             VStack(alignment: .leading, spacing: 9) {
                 RemoteImage(url: imageURL, placeholderText: "第 \(episode.episodeNumber) 集")
                     .frame(width: width, height: width * 9 / 16)
@@ -624,10 +638,19 @@ private struct MacEpisodeCard: View {
                         if hovering, episode.owned {
                             ZStack {
                                 Color.black.opacity(0.2)
-                                Image(systemName: "play.fill")
-                                    .font(.system(size: 18, weight: .bold))
-                                    .frame(width: 44, height: 44)
-                                    .glassEffect(.regular, in: .circle)
+                                    .allowsHitTesting(false)
+                                Button(action: play) {
+                                    Image(systemName: "play.fill")
+                                        .font(.system(size: 18, weight: .bold))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 44, height: 44)
+                                        .contentShape(.circle)
+                                }
+                                .buttonStyle(.plain)
+                                .glassEffect(.regular.interactive(), in: .circle)
+                                .help("播放")
+                                .accessibilityLabel("播放第 \(episode.episodeNumber) 集")
+                                .accessibilityIdentifier("mac-episode-play-\(episode.episodeNumber)")
                             }
                             .transition(.opacity)
                         }
@@ -668,7 +691,7 @@ private struct MacEpisodeCard: View {
                 Button(episode.played ? "标为未看" : "标为已看", systemImage: episode.played ? "circle" : "checkmark.circle", action: toggleWatched)
             }
         }
-        .help(episode.owned ? "播放第 \(episode.episodeNumber) 集" : "这一集还没有片源")
+        .help(episode.owned ? "第 \(episode.episodeNumber) 集" : "这一集还没有片源")
         .accessibilityLabel("第 \(episode.episodeNumber) 集 \(episode.name ?? "")")
     }
 

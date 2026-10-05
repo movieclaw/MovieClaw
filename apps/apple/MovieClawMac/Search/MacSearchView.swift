@@ -26,19 +26,32 @@ struct MacSearchView: View {
                 if let selectedPerson {
                     personBanner(selectedPerson)
                 }
-                if !model.people.isEmpty, selectedPerson == nil {
-                    peopleRow
+                // 换词时旧结果留着、淡一点，新结果到了再换上（不闪空）
+                Group {
+                    if !model.people.isEmpty, selectedPerson == nil {
+                        peopleRow
+                    }
+                    if !model.items.isEmpty {
+                        itemsGrid
+                    }
                 }
-                if !model.items.isEmpty {
-                    itemsGrid
+                .opacity(model.searching ? 0.55 : 1)
+                if showsSkeleton {
+                    MacSearchSkeleton()
+                        .transition(.opacity)
                 }
                 states
             }
+            // 撑满内容区：结果没到时页面也是整页底色，不只是标题那么宽一条
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, MacMetrics.edge)
             .padding(.top, 12)
             .padding(.bottom, 48)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.macPage)
+        .animation(.easeOut(duration: 0.2), value: model.searching)
+        .animation(.easeOut(duration: 0.25), value: model.items.map(\.item.mediaItemId))
         .navigationTitle("搜索")
         .toolbar(removing: .title)
         .task(id: input) {
@@ -61,7 +74,7 @@ struct MacSearchView: View {
             Text(trimmed.isEmpty ? "搜索" : "「\(trimmed)」")
                 .font(.system(size: 28, weight: .bold))
                 .lineLimit(1)
-            if model.searching {
+            if model.searching, !showsSkeleton {
                 ProgressView().controlSize(.small)
             } else if !trimmed.isEmpty, model.loadedInput == input, selectedPerson == nil {
                 Text(model.nextCursor == nil ? "\(model.items.count) 部" : "\(model.items.count)+ 部")
@@ -69,6 +82,11 @@ struct MacSearchView: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// 第一次搜、手上还没有任何结果：先铺一层海报骨架占位
+    private var showsSkeleton: Bool {
+        model.searching && model.items.isEmpty && model.people.isEmpty && model.failed == nil
     }
 
     private func personBanner(_ person: API.LibrarySearchPerson) -> some View {
@@ -207,6 +225,34 @@ struct MacSearchView: View {
     static func avatarURL(_ person: API.LibrarySearchPerson) -> URL? {
         guard let path = person.profilePath, path.hasPrefix("/") else { return nil }
         return URL(string: "https://image.tmdb.org/t/p/w185\(path)")
+    }
+}
+
+/// 结果到之前的占位：与结果同一套网格的海报骨架，轻轻呼吸（同 Apple Music 搜索时的占位块）
+private struct MacSearchSkeleton: View {
+    @State private var dim = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            RoundedRectangle(cornerRadius: 4).frame(width: 56, height: 18)
+            LazyVGrid(columns: MacPosterWall<EmptyView>.columns, alignment: .leading, spacing: 26) {
+                ForEach(0..<12, id: \.self) { _ in
+                    VStack(alignment: .leading, spacing: 8) {
+                        RoundedRectangle(cornerRadius: MacMetrics.cardCorner)
+                            .aspectRatio(2 / 3, contentMode: .fit)
+                        RoundedRectangle(cornerRadius: 3).frame(width: 90, height: 11)
+                        RoundedRectangle(cornerRadius: 3).frame(width: 56, height: 9)
+                    }
+                }
+            }
+        }
+        .foregroundStyle(.white.opacity(0.07))
+        .opacity(dim ? 0.45 : 1)
+        .onAppear {
+            withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { dim = true }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }
 
