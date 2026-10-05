@@ -72,8 +72,10 @@ final class TVStagePreview {
     @ObservationIgnored private var ended = false
     @ObservationIgnored private var framed = false
 
+    /// 有一层大图挂着画面、且没被滚走、没被打断。没有大图（条目连剧照、海报都没有）就不放：否则只有声音没有画面
     private var visible: Bool {
-        interruptions.isEmpty && !(surfaceOwner.map(hiddenSurfaces.contains) ?? false)
+        guard interruptions.isEmpty, let surfaceOwner else { return false }
+        return !hiddenSurfaces.contains(surfaceOwner)
     }
 
     // MARK: 页面调用
@@ -87,9 +89,12 @@ final class TVStagePreview {
         if !sameTitle { pages.removeAll() }
         pages.removeAll { $0.owner == owner }
         pages.append((owner, request))
-        // 同一部：正在放（或正在准备）就接着放；放完了只有换了放法（首页的回忆放完，进详情页放挑好的那段）才再放
-        let idle = player == nil && cycle == nil
-        if !sameTitle || (idle && (!ended || current?.source != request.source)) { begin(request) }
+        // 同一部已经在放（看得见了）：接着放，不管这一页要的是哪一段——从首页进详情，视频不断
+        if sameTitle, started, !ended { return }
+        // 要的正是这一段，并且正在准备或已经放完：不重来（放完的不再重播，取不到的不再反复取）
+        if current == request, cycle != nil || ended { return }
+        // 其余（换了一部、还没开播就换了放法、剧集换了一集）按这一页的规则重新开始
+        begin(request)
     }
 
     /// 页面离开（切页签、返回）。稍等一下再拆：首页压进详情页时两边的出现、消失谁先谁后不一定，
@@ -178,10 +183,11 @@ final class TVStagePreview {
         let fetched = try? await api.reelsPreview(mediaItemId: request.mediaItemId, source: request.source.rawValue,
                                                   season: request.season, episode: request.episode)
         guard !Task.isCancelled, let item = fetched ?? nil else { return }
-        prefetch(item, api: api)
+        // 停稳一小会儿再补字节、建播放器：一路按方向键划过去时只取了地址，不白下索引（几 MB）
         let elapsed = clock.now - shownAt
         if elapsed < Self.engineDelay { try? await Task.sleep(for: Self.engineDelay - elapsed) }
         guard !Task.isCancelled else { return }
+        prefetch(item, api: api)
         startPlayer(item, api: api)
         _ = await dwell
         guard !Task.isCancelled else { return }
@@ -223,6 +229,9 @@ final class TVStagePreview {
         case let .failed(message):
             NSLog("[TVStagePreview] 预告放不了，保持剧照：%@", message)
             teardown(keepEnded: true)
+        case .playing, .buffering:
+            // 刚按下播放、还在起播时大图就滚走了：那一刻暂停不了（还没在放），真开播时再核对一次，别在看不见的地方出声
+            refresh()
         default:
             break
         }
@@ -317,30 +326,32 @@ struct TVStagePreviewLayer: View {
     private var preview: TVStagePreview { .shared }
 
     var body: some View {
-        ZStack {
-            if preview.key == key, let view = preview.engineView {
-                TVPreviewHost(engineView: view, attached: preview.surfaceOwner == token)
-                    .opacity(preview.showing ? 1 : 0)
-                    .animation(.easeInOut(duration: preview.showing ? 0.9 : 1.2), value: preview.showing)
-            }
-        }
-        .allowsHitTesting(false)
-        .onAppear { preview.claimSurface(token) }
-        .onDisappear { preview.releaseSurface(token) }
-        .onChange(of: visible, initial: true) { _, visible in preview.setSurface(token, visible: visible) }
+        let mine = preview.key == key
+        TVPreviewHost(engineView: mine ? preview.engineView : nil,
+                      attached: preview.surfaceOwner == token,
+                      shown: mine && preview.showing)
+            .allowsHitTesting(false)
+            .onAppear { preview.claimSurface(token) }
+            .onDisappear { preview.releaseSurface(token) }
+            .onChange(of: visible, initial: true) { _, visible in preview.setSurface(token, visible: visible) }
     }
 }
 
-/// 引擎视图的宿主：只有轮到这一层（`attached`）才把视图挂过来——首页与详情页的大图同时在时，
-/// 两边都抢着挂会来回挪
+/// 引擎视图的宿主。
+/// - 只有轮到这一层（`attached`）才把视图挂过来：首页与详情页的大图同时在时，两边都抢着挂会来回挪；
+/// - 淡入淡出直接在 UIKit 里做：大图外面套着遮罩与合成组，SwiftUI 的透明度过渡作用不到嵌进来的 UIKit 视图
+///   （录屏逐帧看是一帧之内硬切）。换了一部、播放器拆掉时画面留在原处淡出（旧引擎半秒后才拆），不硬切回上一部的剧照
 private struct TVPreviewHost: UIViewRepresentable {
-    let engineView: UIView
+    let engineView: UIView?
     let attached: Bool
+    let shown: Bool
 
     func makeUIView(context: Context) -> UIView {
         let container = UIView()
         container.backgroundColor = .clear
         container.clipsToBounds = true
+        // 一出现就该显示的（首页进详情，详情页接过正在放的画面）直接显示，不再淡入一遍
+        container.alpha = shown ? 1 : 0
         update(container)
         return container
     }
@@ -350,10 +361,18 @@ private struct TVPreviewHost: UIViewRepresentable {
     }
 
     private func update(_ container: UIView) {
-        guard attached, engineView.superview !== container else { return }
-        container.subviews.forEach { $0.removeFromSuperview() }
-        engineView.frame = container.bounds
-        engineView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-        container.addSubview(engineView)
+        if attached, let engineView, engineView.superview !== container {
+            container.subviews.forEach { $0.removeFromSuperview() }
+            engineView.frame = container.bounds
+            engineView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+            container.addSubview(engineView)
+        }
+        let target: CGFloat = shown ? 1 : 0
+        guard container.alpha != target else { return }
+        // 淡入 0.9 秒；放完、滚走淡出 1.2 秒；播放器拆掉（换了一部、被打断）0.35 秒，赶在旧引擎拆掉之前淡完
+        let duration = shown ? 0.9 : (engineView == nil ? 0.35 : 1.2)
+        UIView.animate(withDuration: duration, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState]) {
+            container.alpha = target
+        }
     }
 }
