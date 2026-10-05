@@ -9,7 +9,6 @@ struct MacCommands: Commands {
     let model: AppModel
     @FocusedValue(\.macRouter) private var router
     @FocusedValue(\.macFocusSearch) private var focusSearch
-    @FocusedValue(\.macWindowState) private var windowState
     @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
@@ -58,8 +57,8 @@ struct MacCommands: Commands {
                     }
                 }
                 Divider()
-                Button("添加账号…") { windowState?.addingAccount = true }
-                    .disabled(windowState == nil)
+                Button("添加账号…") { openWindow(id: MacAddAccountView.windowID) }
+                    .disabled(router == nil)
                 Button("退出登录…") { router?.confirmingLogout = true }
                     .disabled(router == nil)
             }

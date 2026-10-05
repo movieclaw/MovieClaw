@@ -5,7 +5,7 @@ import SwiftUI
 // 选择账号（`MacAccountChooser`）。登录卡片在 MacSignInStep.swift，扫码登录在 MacPairingLogin.swift。
 //
 // 每张卡片需要的数据（已存的服务器、账号、出错原因）都从参数传进来，只在按钮动作里才用 `AppModel`：
-// 欢迎页与「添加账号」sheet 共用同一套卡片，各自决定传什么。
+// 欢迎页与「添加账号」窗口共用同一套卡片，各自决定传什么；排版按 `macWelcomeCardStyle` 走两套。
 
 /// 尺寸
 enum MacWelcomeMetrics {
@@ -14,11 +14,22 @@ enum MacWelcomeMetrics {
     static let cardCorner: CGFloat = 26
     /// 卡片里的内嵌分组（服务器列表、账号列表、服务器信息）圆角
     static let insetCorner: CGFloat = 12
+    /// 对话框排版里左侧标签列的宽（右对齐，「确认密码」四个字放得下）
+    static let dialogLabelWidth: CGFloat = 60
+}
+
+/// 卡片的两套排版
+enum MacWelcomeCardStyle {
+    /// 欢迎页：浮在星空上的玻璃卡片，宋体大标题、通栏主按钮
+    case glass
+    /// 「添加账号」独立窗口：macOS 对话框——居中的 App 图标与标题、标签右对齐的表单行、右下角「取消 / 主按钮」
+    case dialog
 }
 
 extension EnvironmentValues {
-    /// 卡片是否自己套一层液态玻璃：欢迎页浮在星空上要套；「添加账号」sheet 本身就是一层材质，不再套（玻璃套玻璃发糊）
-    @Entry var macWelcomeCardOnGlass = true
+    @Entry var macWelcomeCardStyle = MacWelcomeCardStyle.glass
+    /// 对话框排版里「取消」做什么（关掉窗口）
+    @Entry var macDialogCancel: (() -> Void)?
 }
 
 // MARK: - 卡片外壳
@@ -31,9 +42,58 @@ struct MacWelcomeCard<Content: View>: View {
     var onBack: (() -> Void)?
     @ViewBuilder let content: () -> Content
 
-    @Environment(\.macWelcomeCardOnGlass) private var onGlass
+    @Environment(\.macWelcomeCardStyle) private var style
+    @Environment(\.macDialogCancel) private var cancel
 
     var body: some View {
+        switch style {
+        case .glass: glassCard
+        case .dialog: dialogCard
+        }
+    }
+
+    /// 对话框：图标、标题、说明居中，内容在下；有「返回」时底部一行「返回 … 取消」
+    private var dialogCard: some View {
+        VStack(spacing: 20) {
+            VStack(spacing: 6) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .frame(width: 56, height: 56)
+                    .padding(.bottom, 4)
+                    .accessibilityHidden(true)
+                Text(title)
+                    .font(.system(size: 17, weight: .semibold))
+                    .accessibilityAddTraits(.isHeader)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            content()
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if let onBack {
+                MacDialogFooter {
+                    Button("返回", action: onBack)
+                        .keyboardShortcut(.cancelAction)
+                        .accessibilityIdentifier("mac-welcome-back")
+                    Spacer(minLength: 0)
+                    if let cancel {
+                        Button("取消", action: cancel)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 28)
+        .padding(.top, 16)
+        .padding(.bottom, 20)
+        .frame(width: MacWelcomeMetrics.cardWidth)
+    }
+
+    private var glassCard: some View {
         let card = VStack(alignment: .leading, spacing: 18) {
             VStack(alignment: .leading, spacing: 8) {
                 if let onBack {
@@ -64,16 +124,39 @@ struct MacWelcomeCard<Content: View>: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
 
-        if onGlass {
-            card
-                .padding(28)
-                .frame(width: MacWelcomeMetrics.cardWidth)
-                .glassEffect(.regular, in: .rect(cornerRadius: MacWelcomeMetrics.cardCorner))
-        } else {
-            card
-                .padding(24)
-                .frame(width: MacWelcomeMetrics.cardWidth)
+        return card
+            .padding(28)
+            .frame(width: MacWelcomeMetrics.cardWidth)
+            .glassEffect(.regular, in: .rect(cornerRadius: MacWelcomeMetrics.cardCorner))
+    }
+}
+
+/// 对话框排版的一行：左边右对齐的标签，右边内容（同 macOS「连接服务器」「添加账户」这类对话框）
+struct MacDialogRow<Content: View>: View {
+    let label: String
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(label)
+                .foregroundStyle(.secondary)
+                .frame(width: MacWelcomeMetrics.dialogLabelWidth, alignment: .trailing)
+            content()
         }
+        .font(.system(size: 13))
+    }
+}
+
+/// 对话框底部一行按钮（右下角主按钮、旁边「取消」），系统默认样式、大号
+struct MacDialogFooter<Content: View>: View {
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        HStack(spacing: 10) {
+            content()
+        }
+        .controlSize(.large)
+        .padding(.top, 4)
     }
 }
 

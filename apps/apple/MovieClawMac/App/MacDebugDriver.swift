@@ -21,6 +21,7 @@ import SwiftUI
 ///     key space / key left / key f / key escape / key cmd+f   往窗口发一个按键
 ///     type 文字                     往当前焦点输入文字
 ///     dump tree                     控件树（标识、标签、角色、位置）→ mc-debug/shots/tree.txt
+///     hscroll 700 300 200           在这一点横向滚动（模拟触控板左右轻扫，正数 = 手指往左划）
 ///     wait 1.5                      等一会儿再执行下一条
 ///
 /// 结果与出错写进 `mc-debug/log.txt`，每条一行，便于对照。
@@ -133,6 +134,10 @@ final class MacDebugDriver {
             // scroll <x> <y> <dy>：鼠标在 (x, y) 处滚动 dy 点（正数往下看）
             guard numbers.count == 3 else { return log("scroll 参数不对") }
             scroll(at: CGPoint(x: numbers[0], y: numbers[1]), by: numbers[2])
+        case "hscroll":
+            // hscroll <x> <y> <dx>：在 (x, y) 处横向滚动 dx 点（触控板左右轻扫；正数 = 手指往左划）
+            guard numbers.count == 3 else { return log("hscroll 参数不对") }
+            scroll(at: CGPoint(x: numbers[0], y: numbers[1]), by: 0, horizontal: numbers[2])
         case "key":
             key(arg)
         case "type":
@@ -264,19 +269,22 @@ final class MacDebugDriver {
     }
 
     /// 合成滚轮（像素单位，按触控板的精确滚动处理）：分几下发，SwiftUI 的滚动视图才跟得上
-    private func scroll(at point: CGPoint, by delta: Double) {
+    private func scroll(at point: CGPoint, by delta: Double, horizontal: Double = 0) {
         guard let window, let content = window.contentView else { return }
         let local = CGPoint(x: point.x, y: content.bounds.height - point.y)
         let screen = window.convertPoint(toScreen: local)
         let mainHeight = NSScreen.screens.first?.frame.height ?? 0
-        let steps = max(1, Int(abs(delta) / 40))
+        let steps = max(1, Int(max(abs(delta), abs(horizontal)) / 40))
         for _ in 0 ..< steps {
-            guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1,
-                                   wheel1: Int32(-delta / Double(steps)), wheel2: 0, wheel3: 0) else { continue }
+            guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 2,
+                                   wheel1: Int32(-delta / Double(steps)), wheel2: Int32(-horizontal / Double(steps)),
+                                   wheel3: 0) else { continue }
             cg.location = CGPoint(x: screen.x, y: mainHeight - screen.y)
-            if let event = NSEvent(cgEvent: cg) { window.sendEvent(event) }
+            guard let event = NSEvent(cgEvent: cg) else { continue }
+            // 横向（模拟触控板轻扫）走事件队列：页面里的本地事件监听只看得到从队列里取出的事件
+            if horizontal != 0 { NSApp.postEvent(event, atStart: false) } else { window.sendEvent(event) }
         }
-        log("scroll (\(Int(point.x)), \(Int(point.y))) \(Int(delta))")
+        log("scroll (\(Int(point.x)), \(Int(point.y))) \(Int(delta)) 横 \(Int(horizontal))")
     }
 
     private func key(_ spec: String) {

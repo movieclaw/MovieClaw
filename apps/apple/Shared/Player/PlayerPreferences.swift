@@ -73,7 +73,7 @@ struct QualityOption: Identifiable, Hashable {
     var id: String { label }
 
     static let all: [QualityOption] = [
-        QualityOption(maxHeight: nil, label: "自动", hint: "原画质优先，能直通不转码"),
+        QualityOption(maxHeight: nil, label: "原画", hint: "不限画质：能直通就播原文件，放不了时按原分辨率转码"),
         QualityOption(maxHeight: 1080, label: "1080p", hint: "约 6 Mbps"),
         QualityOption(maxHeight: 720, label: "720p", hint: "约 3 Mbps，网络一般时选它"),
         QualityOption(maxHeight: 480, label: "480p", hint: "约 1.5 Mbps，弱网救急"),

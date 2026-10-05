@@ -36,13 +36,24 @@ struct MovieClawMacApp: App {
         }
         .windowResizability(.contentSize)
         .defaultPosition(.center)
+
+        // 添加账号：独立的小窗口（同 Apple Music 的登录窗口），不挂在主窗口上——登录成功那一刻主界面按新账号整棵重建，
+        // 与它无关；只有红绿灯、系统半透明的窗口底
+        Window("添加账号", id: MacAddAccountView.windowID) {
+            MacAddAccountView()
+                .environment(model)
+                .preferredColorScheme(.dark)
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
+        .defaultPosition(.center)
+        .restorationBehavior(.disabled)
     }
 }
 
 /// 按 `AppModel.phase` 切换顶层界面：欢迎（连接、登录、选人）或主界面。
 struct MacRootView: View {
     @Environment(AppModel.self) private var model
-    @State private var windowState = MacWindowState()
 
     var body: some View {
         Group {
@@ -59,15 +70,6 @@ struct MacRootView: View {
                 // 侧边栏整体顶到标题栏里、搜索框压住红绿灯（从有大图的首页切到另一个账号时实测）
                 MacMainView(accountKey: "\(model.server?.origin.absoluteString ?? "")#\(session.username)")
             }
-        }
-        .environment(windowState)
-        .focusedSceneValue(\.macWindowState, windowState)
-        .sheet(isPresented: Binding(get: { windowState.addingAccount }, set: { windowState.addingAccount = $0 })) {
-            MacAddAccountView()
-        }
-        // 换了账号（含在「添加账号」里登录成功）：sheet 收起
-        .onChange(of: "\(model.server?.origin.absoluteString ?? "")#\(model.session?.username ?? "")") { _, _ in
-            windowState.addingAccount = false
         }
         .frame(minWidth: 960, minHeight: 600)
         .background(Theme.background)

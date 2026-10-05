@@ -32,6 +32,8 @@ struct MacSignInStep: View {
     @State private var method: Method = .password
     /// 是否为「初始化」形态：已知服务器是全新的，或登录时才发现
     @State private var setup: Bool
+    @Environment(\.macWelcomeCardStyle) private var style
+    @Environment(\.macDialogCancel) private var cancel
 
     init(target: MacSignInTarget, purpose: Purpose = .welcome, onBack: (() -> Void)? = nil,
          onChangeServer: @escaping () -> Void, onSwitchAccount: (() -> Void)? = nil, onSignedIn: (() -> Void)? = nil) {
@@ -46,7 +48,9 @@ struct MacSignInStep: View {
 
     var body: some View {
         MacWelcomeCard(title: title, subtitle: subtitle, onBack: onBack) {
-            serverRow
+            if style == .glass {
+                serverRow
+            }
 
             if !setup {
                 Picker("登录方式", selection: $method) {
@@ -59,7 +63,21 @@ struct MacSignInStep: View {
                 .accessibilityIdentifier("mac-signin-method")
             }
 
+            if style == .dialog {
+                // 对话框：服务器与下面的用户名、密码排成同一列标签
+                dialogServerRow
+                    .padding(.top, 4)
+            }
+
             loginForm
+
+            if style == .dialog, method == .qrCode, !setup, let cancel {
+                MacDialogFooter {
+                    Spacer(minLength: 0)
+                    Button("取消", action: cancel)
+                        .keyboardShortcut(.cancelAction)
+                }
+            }
 
             if let onSwitchAccount {
                 Button("切换到本机登录过的其他账号", action: onSwitchAccount)
@@ -105,6 +123,20 @@ struct MacSignInStep: View {
         .macWelcomeInset()
     }
 
+    /// 对话框排版的服务器一行：「服务器  192.168.1.10:3000  更换…」
+    private var dialogServerRow: some View {
+        MacDialogRow(label: "服务器") {
+            Text(target.server.displayString)
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .textSelection(.enabled)
+            Spacer(minLength: 8)
+            Button("更换…", action: onChangeServer)
+                .buttonStyle(.link)
+                .accessibilityIdentifier("mac-signin-change-server")
+        }
+    }
+
     private var title: String {
         if setup { return "初始化这台服务器" }
         if method == .qrCode { return "用手机扫码登录" }
@@ -124,7 +156,7 @@ struct MacSignInStep: View {
         }
         switch purpose {
         case .welcome: return "输入这台服务器上的账号与密码。"
-        case .addAccount: return "可以是这台服务器上的另一个账号；要登录别的服务器，点「更换服务器」。原来的账号仍留在这台 Mac 上，随时切回。"
+        case .addAccount: return "登录这台或另一台服务器上的账号。\n原来的账号仍留在这台 Mac 上，随时切回。"
         }
     }
 }
@@ -151,25 +183,30 @@ struct MacPasswordForm: View {
     @State private var error: String?
     @FocusState private var focus: Field?
 
+    @Environment(\.macWelcomeCardStyle) private var style
+    @Environment(\.macDialogCancel) private var cancel
+
     var body: some View {
+        Group {
+            switch style {
+            case .glass: glassBody
+            case .dialog: dialogBody
+            }
+        }
+        .onAppear {
+            if username.isEmpty, let name = target.username { username = name }
+            focus = username.isEmpty ? .username : .password
+        }
+    }
+
+    /// 欢迎页：三个大号输入框叠放，下面通栏主按钮
+    private var glassBody: some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(spacing: 10) {
-                TextField("用户名", text: $username, prompt: Text(setup ? "管理员用户名（至少 3 个字符）" : "用户名"))
-                    .textContentType(Self.autofill ? .username : nil)
-                    .focused($focus, equals: .username)
-                    .onSubmit { focus = .password }
-                    .accessibilityIdentifier("mac-signin-username")
-                SecureField("密码", text: $password, prompt: Text(setup ? "密码（至少 8 位）" : "密码"))
-                    .textContentType(Self.autofill ? (setup ? .newPassword : .password) : nil)
-                    .focused($focus, equals: .password)
-                    .onSubmit { if setup { focus = .confirm } else { submit() } }
-                    .accessibilityIdentifier("mac-signin-password")
+                usernameField
+                passwordField
                 if setup {
-                    SecureField("确认密码", text: $confirm, prompt: Text("再输一遍密码"))
-                        .textContentType(Self.autofill ? .newPassword : nil)
-                        .focused($focus, equals: .confirm)
-                        .onSubmit(submit)
-                        .accessibilityIdentifier("mac-signin-confirm")
+                    confirmField
                         .transition(.opacity.combined(with: .move(edge: .top)))
                 }
             }
@@ -189,10 +226,71 @@ struct MacPasswordForm: View {
             .padding(.top, 4)
             .accessibilityIdentifier("mac-signin-submit")
         }
-        .onAppear {
-            if username.isEmpty, let name = target.username { username = name }
-            focus = username.isEmpty ? .username : .password
+    }
+
+    /// 对话框：标签右对齐的表单行（与上面的「服务器」一行同一列），右下角「取消 / 登录」
+    private var dialogBody: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(spacing: 10) {
+                MacDialogRow(label: "用户名") { usernameField }
+                MacDialogRow(label: "密码") { passwordField }
+                if setup {
+                    MacDialogRow(label: "确认密码") { confirmField }
+                        .transition(.opacity.combined(with: .move(edge: .top)))
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            .autocorrectionDisabled()
+
+            if let error {
+                MacWelcomeError(message: error)
+                    .padding(.leading, MacWelcomeMetrics.dialogLabelWidth + 10)
+            }
+
+            MacDialogFooter {
+                Spacer(minLength: 0)
+                if let cancel {
+                    Button("取消", action: cancel)
+                        .keyboardShortcut(.cancelAction)
+                }
+                Button(action: submit) {
+                    HStack(spacing: 6) {
+                        if busy { ProgressView().controlSize(.small) }
+                        Text(buttonTitle)
+                    }
+                    .frame(minWidth: 64)
+                }
+                .buttonStyle(.borderedProminent)
+                .keyboardShortcut(.defaultAction)
+                .disabled(busy || !filled)
+                .accessibilityIdentifier("mac-signin-submit")
+            }
+            .padding(.top, 8)
         }
+    }
+
+    private var usernameField: some View {
+        TextField("用户名", text: $username, prompt: Text(setup ? "管理员用户名（至少 3 个字符）" : "用户名"))
+            .textContentType(Self.autofill ? .username : nil)
+            .focused($focus, equals: .username)
+            .onSubmit { focus = .password }
+            .accessibilityIdentifier("mac-signin-username")
+    }
+
+    private var passwordField: some View {
+        SecureField("密码", text: $password, prompt: Text(setup ? "密码（至少 8 位）" : "密码"))
+            .textContentType(Self.autofill ? (setup ? .newPassword : .password) : nil)
+            .focused($focus, equals: .password)
+            .onSubmit { if setup { focus = .confirm } else { submit() } }
+            .accessibilityIdentifier("mac-signin-password")
+    }
+
+    private var confirmField: some View {
+        SecureField("确认密码", text: $confirm, prompt: Text("再输一遍密码"))
+            .textContentType(Self.autofill ? .newPassword : nil)
+            .focused($focus, equals: .confirm)
+            .onSubmit(submit)
+            .accessibilityIdentifier("mac-signin-confirm")
     }
 
     private var filled: Bool {

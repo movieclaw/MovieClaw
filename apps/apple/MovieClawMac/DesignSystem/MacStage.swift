@@ -10,10 +10,11 @@ import SwiftUI
 // - `MacStageInfo`：左下角的文字——片名（有 Logo 画 Logo）、年份类型片长 + 画质小标签、第几集、简介；
 // - `MacTitleArt`、`MacMediaBadge`、`MacBlurredBackdrop`：共用的小件。
 
-/// 大图区的高度：随窗口宽度走，16:9 剧照露出上面约 3/4，太矮的窗口也至少 420、太高也不超过 760
+/// 大图区的高度：随窗口宽度走，按剧照本身的 16:9 整张露出（不裁上下）；至少 420，
+/// 至多窗口高度的 82%（矮窗口里给下面的行留出位置，这时剧照按比例铺满、裁掉下沿，不变形）
 enum MacStageLayout {
     static func height(for width: CGFloat, windowHeight: CGFloat) -> CGFloat {
-        min(max(width * 9 / 16 * 0.78, 420), min(760, max(420, windowHeight * 0.82)))
+        min(max(width * 9 / 16, 420), max(420, windowHeight * 0.82))
     }
 
     /// 片名 Logo 的最大宽高：跟着大图区宽度走（窄窗口 360×100，铺满 1920 的大窗口约 540×150），

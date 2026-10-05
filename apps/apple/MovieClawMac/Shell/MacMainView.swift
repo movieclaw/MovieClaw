@@ -244,7 +244,6 @@ extension FocusedValues {
     /// 把焦点交给侧边栏的搜索框（⌘F）
     @Entry var macFocusSearch: (() -> Void)?
     /// 跨账号的窗口状态（菜单栏「账号 › 添加账号…」用）
-    @Entry var macWindowState: MacWindowState?
 }
 
 /// 当前账号能看到的媒体库清单与显示在首页的合集，按服务端顺序（侧边栏列库、海报墙取库名用）。

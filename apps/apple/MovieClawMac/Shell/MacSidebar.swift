@@ -48,6 +48,7 @@ struct MacSidebar: View {
                 Section("合集") {
                     ForEach(pinnedCollections, id: \.id) { collection in
                         Label(collection.name, systemImage: "rectangle.stack")
+                            .badge(collection.itemCount)
                             .tag(MainTab.collection(collection.id))
                             .accessibilityIdentifier("mac-sidebar-collection-\(collection.id)")
                     }
@@ -55,6 +56,8 @@ struct MacSidebar: View {
             }
         }
         .listStyle(.sidebar)
+        // 列表滚到账号底下：柔和渐隐虚化（同 Apple Music），不要硬边那条分隔线
+        .scrollEdgeEffectStyle(.soft, for: .bottom)
         // 账号钉在底下，列表从它底下滚过去时带滚动边缘的玻璃虚化（同 Apple Music 侧边栏底部的账号）
         .safeAreaBar(edge: .bottom, spacing: 0) {
             MacAccountButton()

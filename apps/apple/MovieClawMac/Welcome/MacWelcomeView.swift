@@ -234,14 +234,16 @@ private struct MacFilmSubtitle: View {
 
 // MARK: - 添加账号（sheet）
 
-/// 已登录时从侧边栏账号浮层「添加账号…」打开的 sheet：登录到这台或另一台服务器上的又一个账号。
+/// 已登录时从侧边栏账号浮层或菜单栏「添加账号…」打开的独立小窗口（同 Apple Music 的登录窗口）：
+/// 登录到这台或另一台服务器上的又一个账号。
 ///
-/// 与欢迎页同一套卡片内容（`MacSignInStep` / `MacServerPicker`），只是不铺星空、卡片不套玻璃（sheet 自己就是一层材质）：
+/// 与欢迎页同一套卡片内容（`MacSignInStep` / `MacServerPicker`），只是不铺星空、卡片不套玻璃（窗口底已是系统材质）：
 /// 起始是登录到当前服务器，「更换服务器」进找服务器那一步，Esc 退回；在起始卡片上 Esc 等于取消。
-/// 登录成功后当前账号换成新账号，主界面整棵重建（这个 sheet 随之消失）；登的若正是当前账号，主界面不重建，这里自己关掉。
+/// 登录成功后关掉这个窗口，主窗口按新账号整棵重建。
 struct MacAddAccountView: View {
+    static let windowID = "add-account"
     @Environment(AppModel.self) private var model
-    @Environment(\.dismiss) private var dismiss
+    @Environment(\.dismissWindow) private var dismissWindow
     /// 正在找服务器（从登录卡片「更换服务器」进来）
     @State private var picking = false
     /// 登录到哪台服务器：默认当前这台，找服务器那一步选了别的就换成那台
@@ -249,41 +251,58 @@ struct MacAddAccountView: View {
 
     var body: some View {
         let server = chosen ?? model.server
-        VStack(alignment: .leading, spacing: 0) {
-            Group {
-                if picking || server == nil {
-                    MacServerPicker(saved: model.savedServers, onBack: server == nil ? nil : { picking = false }) { address in
-                        chosen = address
-                        picking = false
-                    }
-                } else if let server {
-                    MacSignInStep(
-                        target: .init(server: server),
-                        purpose: .addAccount,
-                        onChangeServer: { picking = true },
-                        onSignedIn: { dismiss() }
-                    )
-                    .id(server)
+        Group {
+            if picking || server == nil {
+                MacServerPicker(saved: model.savedServers, onBack: server == nil ? nil : { picking = false }) { address in
+                    chosen = address
+                    picking = false
                 }
+            } else if let server {
+                MacSignInStep(
+                    target: .init(server: server),
+                    purpose: .addAccount,
+                    onChangeServer: { picking = true },
+                    onSignedIn: { dismiss() }
+                )
+                .id(server)
             }
-            .environment(\.macWelcomeCardOnGlass, false)
-
-            Divider()
-            HStack {
-                Spacer()
-                // 在找服务器那一步时 Esc 归卡片上的「返回」，这里不抢
-                if picking {
-                    Button("取消") { dismiss() }
-                } else {
-                    Button("取消") { dismiss() }
-                        .keyboardShortcut(.cancelAction)
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 14)
         }
+        .environment(\.macWelcomeCardStyle, .dialog)
+        .environment(\.macDialogCancel, { dismiss() })
         .frame(width: MacWelcomeMetrics.cardWidth)
+        .containerBackground(.thickMaterial, for: .window)
+        // 摆在 MovieClaw 主窗口正中（不是屏幕正中）
+        .background(MacWindowReader { MacDialogPlacement.centerOnMainWindow($0) })
         .animation(.smooth(duration: 0.3), value: picking)
         .accessibilityIdentifier("mac-add-account")
+    }
+
+    private func dismiss() {
+        dismissWindow(id: Self.windowID)
+    }
+}
+
+/// 从主窗口打开的小窗口摆在主窗口正中（同 Apple Music 的登录窗口跟着主窗口出现），放不下就贴着屏幕可见区域
+enum MacDialogPlacement {
+    @MainActor
+    static func centerOnMainWindow(_ window: NSWindow?) {
+        guard let window else { return }
+        place(window)
+        // 内容第一次排完版窗口尺寸才定：下一轮再对一次
+        DispatchQueue.main.async { place(window) }
+    }
+
+    @MainActor
+    private static func place(_ window: NSWindow) {
+        guard let main = NSApp.windows.first(where: {
+            $0 !== window && $0.isVisible && $0.identifier?.rawValue.hasPrefix("main") == true
+        }) else { return }
+        let size = window.frame.size
+        var origin = NSPoint(x: main.frame.midX - size.width / 2, y: main.frame.midY - size.height / 2)
+        if let visible = (main.screen ?? NSScreen.main)?.visibleFrame {
+            origin.x = min(max(origin.x, visible.minX), visible.maxX - size.width)
+            origin.y = min(max(origin.y, visible.minY), visible.maxY - size.height)
+        }
+        window.setFrameOrigin(origin)
     }
 }

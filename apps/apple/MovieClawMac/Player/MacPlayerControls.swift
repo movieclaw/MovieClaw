@@ -2,19 +2,23 @@ import SwiftUI
 
 // 播放器的控制层（docs/design/macos-app.md、Mac 设计调研 SPEC §4.7）：
 // - 左上角：返回 + 片名 / 「第 X 季第 Y 集 · 集名」；
-// - 底部居中一枚液态玻璃胶囊：播放 / 暂停、后退 / 前进 10 秒、当前时间、进度条、剩余时间、
-//   音频与字幕、画质、音量、全屏。宽 min(窗口宽 − 96, 720)、高 56、距底 24，下面垫一层由下往上 35%→0 的黑色渐变托字。
+// - 底部居中一块两行的液态玻璃面板（排法同 Infuse / QuickTime / IINA 的浮动控制栏）：
+//   上行左边音量（滑条常驻）、正中「上一集 · 后退 10 秒 · 播放 / 暂停 · 前进 10 秒 · 下一集」（上一集 / 下一集只在剧集出现）、
+//   右边音频与字幕、画质、全屏；下行「已播 — 整条进度条（胶囊滑块常驻）— 剩余」。
+//   宽 min(窗口宽 − 96, 720)、高 100、距底 24；材质是标准玻璃（暗画面上略亮、边缘有高光与折射，同 Infuse），
+//   下面垫一层淡的黑色渐变托字。图标大而实，播放键最大。
 // 开关类按钮的状态不只靠颜色（吸取 Apple Music 胶囊的教训）：字幕开着用实心气泡，关着用空心。
 
 /// 控制层尺寸：胶囊与字幕避让、右下角按钮都按它算
 enum MacPlayerMetrics {
-    static let capsuleHeight: CGFloat = 56
-    static let capsuleMaxWidth: CGFloat = 720
-    static let capsuleBottom: CGFloat = 24
-    /// 胶囊两侧至少留的窗口边距（合计 96）
-    static let capsuleSideInset: CGFloat = 48
-    /// 胶囊顶边距窗口底边：字幕要抬到它上面
-    static var chromeHeight: CGFloat { capsuleBottom + capsuleHeight + 12 }
+    static let panelHeight: CGFloat = 100
+    static let panelMaxWidth: CGFloat = 720
+    static let panelBottom: CGFloat = 24
+    static let panelCorner: CGFloat = 22
+    /// 面板两侧至少留的窗口边距（合计 96）
+    static let panelSideInset: CGFloat = 48
+    /// 面板顶边距窗口底边：字幕要抬到它上面
+    static var chromeHeight: CGFloat { panelBottom + panelHeight + 12 }
     /// 播放器的坐标空间（左上角为原点）：指针位置按它记，进度条据此算悬停在哪
     static let space = "mac-player"
 }
@@ -66,7 +70,7 @@ struct MacPlayerTopBar: View {
     }
 }
 
-/// 底部的玻璃控制胶囊
+/// 底部的玻璃控制面板
 struct MacPlayerTransport: View {
     let controller: PlaybackController
     let trickplay: TrickplayImages
@@ -86,49 +90,77 @@ struct MacPlayerTransport: View {
     var body: some View {
         let duration = controller.timelineDurationMs ?? 0
         let position = controller.timelineMs(fromFileMs: scrubMs ?? controller.positionMs)
-        HStack(spacing: 4) {
-            MacPlayerIconButton(symbol: playSymbol, size: 19, help: controller.paused ? "播放（空格）" : "暂停（空格）",
-                                id: "mac-player-play", action: togglePlay)
-                .accessibilityLabel(controller.paused ? "播放" : "暂停")
-            MacPlayerIconButton(symbol: "gobackward.10", size: 15, help: "后退 10 秒（←）", id: "mac-player-back10") { skip(-10) }
-            MacPlayerIconButton(symbol: "goforward.10", size: 15, help: "前进 10 秒（→）", id: "mac-player-fwd10") { skip(10) }
+        VStack(spacing: 0) {
+            // 上行：两侧等宽，播放键永远在正中
+            HStack(spacing: 0) {
+                MacVolumeControl(volume: volume)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 22) {
+                    if controller.unit.isEpisode {
+                        MacPlayerIconButton(symbol: "backward.end.fill", size: 17, help: "上一集（⌘←）", id: "mac-player-previous") {
+                            controller.playPrevious()
+                        }
+                        .disabled(controller.previousEpisode == nil)
+                    }
+                    MacPlayerIconButton(symbol: "gobackward.10", size: 21, help: "后退 10 秒（←）", id: "mac-player-back10") { skip(-10) }
+                    MacPlayerIconButton(symbol: playSymbol, size: 30, diameter: 48,
+                                        help: controller.paused ? "播放（空格）" : "暂停（空格）",
+                                        id: "mac-player-play", action: togglePlay)
+                        .accessibilityLabel(controller.paused ? "播放" : "暂停")
+                    MacPlayerIconButton(symbol: "goforward.10", size: 21, help: "前进 10 秒（→）", id: "mac-player-fwd10") { skip(10) }
+                    if controller.unit.isEpisode {
+                        MacPlayerIconButton(symbol: "forward.end.fill", size: 17, help: "下一集（⌘→）", id: "mac-player-next") {
+                            controller.noteUserActivity()
+                            controller.playNext()
+                        }
+                        .disabled(controller.nextEpisode == nil)
+                    }
+                }
+                HStack(spacing: 6) {
+                    MacPlayerIconButton(symbol: controller.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
+                                        size: 18, help: "字幕与音轨", id: "mac-player-tracks", active: panel == .tracks) {
+                        panel = panel == .tracks ? nil : .tracks
+                    }
+                    if controller.scope.shareSlug == nil {
+                        qualityButton
+                    }
+                    MacPlayerIconButton(symbol: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                                        size: 17, help: isFullScreen ? "退出全屏（F）" : "全屏（F）", id: "mac-player-fullscreen",
+                                        action: toggleFullScreen)
+                }
+                .frame(maxWidth: .infinity, alignment: .trailing)
+            }
+            .frame(height: 54)
 
-            Text(Formatters.clock(Double(position) / 1000))
-                .frame(minWidth: 46, alignment: .trailing)
-                .accessibilityIdentifier("mac-player-time")
-                .accessibilityValue("\(position)")
-            MacScrubber(controller: controller, trickplay: trickplay, pointer: pointer, scrubMs: $scrubMs)
-                .padding(.horizontal, 6)
-            Button {
-                showsTotal.toggle()
-            } label: {
-                // 片长还不知道（起播中）时显示占位，不显示「-0:00」
-                Text(duration <= 0 ? "--:--" : showsTotal ? Formatters.clock(Double(duration) / 1000)
-                     : "-" + Formatters.clock(Double(max(0, duration - position)) / 1000))
-                    .frame(minWidth: 52, alignment: .leading)
-                    .contentShape(.rect)
+            // 下行：已播 — 进度条（占满）— 剩余
+            HStack(spacing: 10) {
+                Text(Formatters.clock(Double(position) / 1000))
+                    .frame(minWidth: 46, alignment: .leading)
+                    .accessibilityIdentifier("mac-player-time")
+                    .accessibilityValue("\(position)")
+                MacScrubber(controller: controller, trickplay: trickplay, pointer: pointer, scrubMs: $scrubMs)
+                Button {
+                    showsTotal.toggle()
+                } label: {
+                    // 片长还不知道（起播中）时显示占位，不显示「-0:00」
+                    Text(duration <= 0 ? "--:--" : showsTotal ? Formatters.clock(Double(duration) / 1000)
+                         : "-" + Formatters.clock(Double(max(0, duration - position)) / 1000))
+                        .frame(minWidth: 46, alignment: .trailing)
+                        .contentShape(.rect)
+                }
+                .buttonStyle(.plain)
+                .help(showsTotal ? "显示剩余时间" : "显示总时长")
+                .accessibilityIdentifier("mac-player-remaining")
             }
-            .buttonStyle(.plain)
-            .help(showsTotal ? "显示剩余时间" : "显示总时长")
-            .accessibilityIdentifier("mac-player-remaining")
-
-            MacPlayerIconButton(symbol: controller.selectedSubtitle == nil ? "captions.bubble" : "captions.bubble.fill",
-                                size: 16, help: "字幕与音轨", id: "mac-player-tracks", active: panel == .tracks) {
-                panel = panel == .tracks ? nil : .tracks
-            }
-            if controller.scope.shareSlug == nil {
-                qualityButton
-            }
-            MacVolumeControl(volume: volume, pointer: pointer)
-            MacPlayerIconButton(symbol: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                                size: 14, help: isFullScreen ? "退出全屏（F）" : "全屏（F）", id: "mac-player-fullscreen",
-                                action: toggleFullScreen)
+            .frame(height: 30)
         }
-        .font(.system(size: 12, weight: .medium).monospacedDigit())
+        .font(.system(size: 13, weight: .semibold).monospacedDigit())
         .foregroundStyle(.white)
-        .padding(.horizontal, 12)
-        .frame(height: MacPlayerMetrics.capsuleHeight)
-        .glassEffect(.regular.tint(.black.opacity(0.18)), in: .capsule)
+        .padding(.horizontal, 18)
+        .padding(.top, 4)
+        .padding(.bottom, 10)
+        .frame(height: MacPlayerMetrics.panelHeight)
+        .glassEffect(.regular, in: .rect(cornerRadius: MacPlayerMetrics.panelCorner))
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("mac-player-transport")
     }
@@ -140,15 +172,15 @@ struct MacPlayerTransport: View {
 
     /// 画质：一枚小字徽标写着当前档（自动 / 1080p…），点开选档
     private var qualityButton: some View {
-        let label = QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? "自动"
+        let label = QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? "原画"
         return Button {
             panel = panel == .quality ? nil : .quality
         } label: {
             Text(label)
-                .font(.system(size: 10.5, weight: .bold))
-                .padding(.horizontal, 6)
-                .frame(height: 18)
-                .overlay(Capsule().strokeBorder(.white.opacity(0.75), lineWidth: 1.2))
+                .font(.system(size: 11.5, weight: .bold))
+                .padding(.horizontal, 7)
+                .frame(height: 20)
+                .overlay(Capsule().strokeBorder(.white.opacity(0.85), lineWidth: 1.4))
                 .frame(minWidth: 34, minHeight: 34)
                 .contentShape(.rect)
         }
@@ -159,10 +191,12 @@ struct MacPlayerTransport: View {
     }
 }
 
-/// 胶囊里的图标按钮：悬停时浮出一层淡白底，按下略暗
+/// 面板里的图标按钮：悬停时浮出一层淡白底，按下略暗
 struct MacPlayerIconButton: View {
     let symbol: String
     var size: CGFloat = 15
+    /// 点按区域与悬停底的直径
+    var diameter: CGFloat = 34
     let help: String
     let id: String
     var active = false
@@ -173,7 +207,7 @@ struct MacPlayerIconButton: View {
             Image(systemName: symbol)
                 .font(.system(size: size, weight: .semibold))
                 .contentTransition(.symbolEffect(.replace))
-                .frame(width: 34, height: 34)
+                .frame(width: diameter, height: diameter)
                 .contentShape(.rect)
         }
         .buttonStyle(MacPlayerButtonStyle(active: active))
@@ -184,45 +218,43 @@ struct MacPlayerIconButton: View {
 
 struct MacPlayerButtonStyle: ButtonStyle {
     var active = false
-    @State private var hovering = false
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .background {
-                Circle()
-                    .fill(.white.opacity(configuration.isPressed ? 0.24 : active ? 0.2 : hovering ? 0.12 : 0))
-            }
-            .opacity(configuration.isPressed ? 0.75 : 1)
-            .onHover { hovering = $0 }
-            .animation(.easeOut(duration: 0.12), value: hovering)
+        StyleBody(configuration: configuration, active: active)
+    }
+
+    private struct StyleBody: View {
+        let configuration: Configuration
+        let active: Bool
+        @Environment(\.isEnabled) private var enabled
+        @State private var hovering = false
+
+        var body: some View {
+            configuration.label
+                .background {
+                    Circle()
+                        .fill(.white.opacity(!enabled ? 0 : configuration.isPressed ? 0.24 : active ? 0.2 : hovering ? 0.12 : 0))
+                }
+                // 不可用（没有上一集 / 下一集）时淡下去
+                .opacity(!enabled ? 0.35 : configuration.isPressed ? 0.75 : 1)
+                .onHover { hovering = $0 }
+                .animation(.easeOut(duration: 0.12), value: hovering)
+        }
     }
 }
 
-/// 音量：喇叭图标（点一下静音）+ 滑块。滑块平时收着，指针移到喇叭上时向右展开（省出进度条的宽度），
-/// 离开这一块才收；拖动途中指针离开也不收
+/// 音量：喇叭图标（点一下静音）+ 常驻滑条（白色胶囊滑块，同 Infuse）
 struct MacVolumeControl: View {
     @Bindable var volume: MacPlayerVolume
-    /// 指针位置（播放器坐标空间）
-    let pointer: CGPoint?
-    @State private var expanded = false
-    @State private var dragging = false
-    @State private var frame: CGRect = .zero
 
-    private static let sliderWidth: CGFloat = 72
+    private static let sliderWidth: CGFloat = 100
 
     var body: some View {
-        HStack(spacing: 2) {
-            MacPlayerIconButton(symbol: volume.symbol, size: 14, help: volume.muted ? "取消静音（M）" : "静音（M）",
+        HStack(spacing: 6) {
+            MacPlayerIconButton(symbol: volume.symbol, size: 17, help: volume.muted ? "取消静音（M）" : "静音（M）",
                                 id: "mac-player-mute") { volume.toggleMute() }
                 .accessibilityValue(volume.muted ? "已静音" : "\(Int(volume.level * 100))%")
-            if expanded || dragging {
-                slider
-                    .transition(.opacity.combined(with: .move(edge: .leading)))
-            }
-        }
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(MacPlayerMetrics.space)) } action: { frame = $0 }
-        .onChange(of: pointer.map { frame.insetBy(dx: -2, dy: -10).contains($0) } ?? false) { _, inside in
-            withAnimation(.easeOut(duration: 0.18)) { expanded = inside }
+            slider
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("mac-player-volume")
@@ -237,18 +269,18 @@ struct MacVolumeControl: View {
                 Capsule().fill(.white).frame(width: width * fraction)
             }
             .frame(height: 4)
+            .overlay(alignment: .leading) {
+                MacSliderKnob(width: 22, height: 13)
+                    .offset(x: MacSliderKnob.offset(fraction: fraction, width: width, knob: 22))
+            }
             .frame(maxHeight: .infinity)
             .contentShape(.rect)
             .gesture(DragGesture(minimumDistance: 0).onChanged { value in
-                dragging = true
                 volume.muted = false
                 volume.level = min(1, max(0, value.location.x / width))
-            }.onEnded { _ in
-                dragging = false
             })
         }
         .frame(width: Self.sliderWidth, height: 34)
-        .padding(.trailing, 6)
         .accessibilityElement()
         .accessibilityLabel("音量")
         .accessibilityValue("\(Int(volume.level * 100))%")
@@ -256,7 +288,25 @@ struct MacVolumeControl: View {
     }
 }
 
-/// 进度条：已缓冲 / 已播放 / 播放头。悬停时变粗、播放头浮出，上方显示那一点的缩略图（服务端雪碧图）与时间
+/// 滑条上的白色胶囊滑块（音量、进度条共用）
+struct MacSliderKnob: View {
+    let width: CGFloat
+    let height: CGFloat
+
+    var body: some View {
+        Capsule()
+            .fill(.white)
+            .frame(width: width, height: height)
+            .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+    }
+
+    /// 滑块左边缘的横坐标：滑块整个落在滑条里（两端不出头）
+    static func offset(fraction: CGFloat, width: CGFloat, knob: CGFloat) -> CGFloat {
+        min(max(0, width * fraction - knob / 2), max(0, width - knob))
+    }
+}
+
+/// 进度条：已缓冲 / 已播放 / 胶囊滑块。悬停时变粗、滑块略放大，上方显示那一点的缩略图（服务端雪碧图）与时间
 /// （悬停按播放器统一跟踪的指针位置算，见 `MacPointerTracker`）；
 /// 按下即跳、按住拖动时画面跟着走（`scrubFollow`），松手精确跳到落点。时间一律按时间轴算（片段模式下是这一段）
 struct MacScrubber: View {
@@ -277,6 +327,7 @@ struct MacScrubber: View {
             let playedX = width * fraction(position, of: duration)
             let hoverX = hoverX(in: proxy.frame(in: .named(MacPlayerMetrics.space)))
             let thick = hoverX != nil || scrubMs != nil
+            let knob: CGFloat = thick ? 26 : 22
             ZStack(alignment: .leading) {
                 Capsule().fill(.white.opacity(0.22))
                 Capsule().fill(.white.opacity(0.32))
@@ -284,13 +335,11 @@ struct MacScrubber: View {
                 Capsule().fill(.white)
                     .frame(width: playedX)
             }
-            .frame(height: thick ? 6 : 4)
+            .frame(height: thick ? 7 : 5)
             .overlay(alignment: .leading) {
-                Circle()
-                    .fill(.white)
-                    .shadow(color: .black.opacity(0.35), radius: 3)
-                    .frame(width: thick ? 13 : 0, height: thick ? 13 : 0)
-                    .offset(x: playedX - (thick ? 6.5 : 0))
+                // 胶囊滑块常驻（同 Infuse），悬停 / 拖动时略放大
+                MacSliderKnob(width: knob, height: thick ? 15 : 13)
+                    .offset(x: MacSliderKnob.offset(fraction: width > 0 ? playedX / width : 0, width: width, knob: knob))
             }
             .frame(maxHeight: .infinity)
             .contentShape(.rect)

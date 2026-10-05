@@ -248,7 +248,7 @@ struct TVPlayerPanel: View {
         case .audio:
             (controller.currentAudio ?? AudioOption.defaultRef(in: controller.audioOptions)).map { "audio-\($0)" } ?? ""
         case .quality:
-            "quality-" + (QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? "自动")
+            "quality-" + (QualityOption.all.first { $0.maxHeight == controller.quality }?.label ?? "原画")
         }
     }
 }

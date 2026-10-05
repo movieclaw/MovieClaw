@@ -210,11 +210,11 @@ final class PlayerUITests: XCTestCase {
         shot(app, "\(shotPrefix)-subtitles")
         // 点在「⋯」键的角上而不是图标正中：真机手指落点不准，只有图标笔画可点时这里会点空（真机反馈的根因）
         tapControl(app, "player-设置", at: CGVector(dx: 0.15, dy: 0.2))
-        XCTAssertTrue(app.buttons["quality-自动"].waitForExistence(timeout: 5), "设置菜单没有打开（点按钮边缘应同样生效）")
+        XCTAssertTrue(app.buttons["quality-原画"].waitForExistence(timeout: 5), "设置菜单没有打开（点按钮边缘应同样生效）")
         shot(app, "\(shotPrefix)-settings")
         // 点画面空白处收起菜单
         tapEmptyArea(app, dx: 0.95, dy: 0.55)
-        XCTAssertTrue(app.buttons["quality-自动"].waitForNonExistence(timeout: 3), "点画面应收起菜单")
+        XCTAssertTrue(app.buttons["quality-原画"].waitForNonExistence(timeout: 3), "点画面应收起菜单")
 
         // 退出
         tapControl(app, "player-close")

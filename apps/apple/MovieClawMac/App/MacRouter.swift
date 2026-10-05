@@ -138,13 +138,3 @@ final class MacRouter {
     /// 点下播放就建控制器、发起播请求（由持有 API 客户端的主界面设置）
     @ObservationIgnored var startPlaybackEarly: ((PlayRequest) -> Void)?
 }
-
-/// 跨账号存在的窗口状态（挂在根视图上，换账号时主界面整棵重建、它不跟着重建）。
-///
-/// 「添加账号」sheet 放在这里而不是主界面里：在 sheet 里登录成功的那一刻账号就换了，主界面整棵重建；
-/// sheet 若挂在主界面上，它的宿主在 sheet 还开着时被拆掉，窗口的标题栏布局会乱掉
-/// （侧边栏整体上移、搜索框压到红绿灯上，实测）。挂在根视图上，主界面安心重建，sheet 随后自己收起
-@Observable
-final class MacWindowState {
-    var addingAccount = false
-}

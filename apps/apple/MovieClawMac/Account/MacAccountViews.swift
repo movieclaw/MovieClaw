@@ -29,11 +29,12 @@ struct MacAccountButton: View {
             }
             .padding(.horizontal, 8)
             .padding(.vertical, 7)
-            .background(.white.opacity(hovering || showsPanel ? 0.08 : 0), in: .rect(cornerRadius: 10))
+            // 悬停 / 浮层开着：系统填充色的圆角底（同侧边栏行的选中形状），淡入淡出
+            .background(.fill.tertiary.opacity(hovering || showsPanel ? 1 : 0), in: .rect(cornerRadius: 10))
             .contentShape(.rect(cornerRadius: 10))
         }
         .buttonStyle(.plain)
-        .onHover { hovering = $0 }
+        .onHover { inside in withAnimation(.easeOut(duration: 0.15)) { hovering = inside } }
         .popover(isPresented: $showsPanel, arrowEdge: .top) {
             MacAccountPanel(close: { showsPanel = false })
         }
@@ -49,7 +50,6 @@ struct MacAccountPanel: View {
     @Environment(AppModel.self) private var model
     @Environment(\.openWindow) private var openWindow
     @Environment(MacRouter.self) private var router
-    @Environment(MacWindowState.self) private var windowState
     @State private var error: String?
     @State private var switching: String?
 
@@ -91,7 +91,7 @@ struct MacAccountPanel: View {
             VStack(spacing: 2) {
                 MacPanelAction(title: "添加账号…", symbol: "person.badge.plus") {
                     close()
-                    windowState.addingAccount = true
+                    openWindow(id: MacAddAccountView.windowID)
                 }
                     .accessibilityIdentifier("mac-account-add")
                 MacPanelAction(title: "关于 MovieClaw", symbol: "info.circle") {

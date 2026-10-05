@@ -23,6 +23,8 @@ struct MacHomeView: View {
     @State private var stageId: Int?
     /// 鼠标正停在哪张「接下来继续」卡上（停稳才换大图）
     @State private var hoveredId: Int?
+    /// 用箭头、圆点、轻扫换了大图：「接下来继续」那一行滚到这一张（悬停换大图时不滚，卡片不能在指针底下跑开）
+    @State private var shelfTarget: Int?
     /// 指针在大图上：左右箭头只在这时浮出
     @State private var heroHovering = MacCardDebug.forceHover
     /// 剧照边缘色（大图区以下的底色从它过渡到页面底色）
@@ -214,7 +216,9 @@ struct MacHomeView: View {
 
     private func moveStage(by step: Int, in items: [API.UpNextItemView], current: Int) {
         guard let index = items.firstIndex(where: { $0.mediaItemId == current }), items.indices.contains(index + step) else { return }
-        withAnimation(.easeInOut(duration: 0.45)) { stageId = items[index + step].mediaItemId }
+        let target = items[index + step].mediaItemId
+        withAnimation(.easeInOut(duration: 0.45)) { stageId = target }
+        shelfTarget = target
     }
 
     /// 「继续播放」「详情」：主按钮是醒目的玻璃（同 Apple Music 的「播放」），次按钮普通玻璃
@@ -250,6 +254,7 @@ struct MacHomeView: View {
             ForEach(items.prefix(12), id: \.mediaItemId) { item in
                 Button {
                     withAnimation(.easeInOut(duration: 0.45)) { stageId = item.mediaItemId }
+                    shelfTarget = item.mediaItemId
                 } label: {
                     Capsule()
                         .fill(.white.opacity(item.mediaItemId == current ? 0.95 : 0.35))
@@ -270,9 +275,11 @@ struct MacHomeView: View {
     /// 「接下来继续」一行：剧照卡，点一下直接续播；鼠标停在哪张，大图就讲哪一部
     private func upNextShelf(_ items: [API.UpNextItemView], stage: API.UpNextItemView) -> some View {
         MacShelf(title: "接下来继续", artHeight: MacMetrics.landscapeWidth * 9 / 16,
+                 scrollTo: shelfTarget, scrollAnchor: nil,
                  scrollingChanged: { upNextScrolling = $0 }) {
             ForEach(Array(items.enumerated()), id: \.element.mediaItemId) { index, item in
                 upNextCard(item)
+                    .id(item.mediaItemId)
                     // 大图正讲的这一部描一圈亮边，看得出上面讲的是哪张（卡片自己画，聚焦放大时跟着走）
                     .environment(\.macCardSelected, item.mediaItemId == stage.mediaItemId && items.count > 1)
                     .environment(\.macCardControlsInFocus, true)
@@ -325,15 +332,15 @@ struct MacHomeView: View {
                     ForEach(directory.browsable, id: \.id) { library in
                         MacLibraryCard(name: library.name, count: library.stats.itemCount,
                                        imageURL: api.image("/libraries/\(library.id)/cover", width: ImageWidth.macCard(MacMetrics.libraryWidth))) {
-                            router.searchText = ""
-                            router.select(.library(library.id))
+                            // 压进首页的栈：左上角有返回，回到首页（侧边栏点库才是换到那个库的根页面）
+                            router.push(.library(library.id))
                         }
                         .accessibilityIdentifier("mac-home-library-\(library.id)")
                     }
                     ForEach(collections, id: \.id) { collection in
                         MacLibraryCard(name: collection.name, count: collection.itemCount, collection: true,
                                        imageURL: collection.covers.isEmpty ? nil : api.image("/collections/\(collection.id)/cover", width: ImageWidth.macCard(MacMetrics.libraryWidth))) {
-                            router.select(.collection(collection.id))
+                            router.push(.collection(id: collection.id, name: collection.name))
                         }
                     }
                 }
@@ -442,31 +449,38 @@ private struct MacHorizontalSwipe: ViewModifier {
     @State private var tracker = Tracker()
 
     func body(content: Content) -> some View {
+        // 每次重绘换上新的回调：回调里的「现在是第几部」是这一次渲染的值（只在出现时装一次，会一直从第一部算）
+        let _ = tracker.onSwipe = onSwipe
         content
             .onHover { tracker.hovering = $0 }
-            .onAppear { tracker.install(onSwipe) }
+            .onAppear { tracker.install() }
             .onDisappear { tracker.remove() }
     }
 
     @MainActor
     private final class Tracker {
-        var hovering = false
+        var hovering = MacCardDebug.forceHover
+        var onSwipe: ((Int) -> Void)?
         private var monitor: Any?
         private var travelled: CGFloat = 0
         private var fired = false
+        private var lastEvent: TimeInterval = 0
 
-        func install(_ onSwipe: @escaping (Int) -> Void) {
+        func install() {
             remove()
             monitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
                 guard let self, hovering, event.hasPreciseScrollingDeltas else { return event }
-                if event.phase == .began { travelled = 0; fired = false }
+                // 新的一次手势：触控板有 began 标记；没有阶段信息的（横向滚轮鼠标等）按停顿 0.3 秒以上算
+                let now = ProcessInfo.processInfo.systemUptime
+                if event.phase == .began || now - lastEvent > 0.3 { travelled = 0; fired = false }
+                lastEvent = now
                 // 松手后的惯性：这一下已经算过就一并吞掉，免得带着页面晃
                 if !event.momentumPhase.isEmpty { return fired ? nil : event }
                 guard abs(event.scrollingDeltaX) > abs(event.scrollingDeltaY) else { return event }
                 travelled += event.scrollingDeltaX
                 if !fired, abs(travelled) > 60 {
                     fired = true
-                    onSwipe(travelled < 0 ? 1 : -1)
+                    onSwipe?(travelled < 0 ? 1 : -1)
                 }
                 return nil
             }

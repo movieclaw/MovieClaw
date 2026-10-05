@@ -10,7 +10,8 @@ import SwiftUI
 /// | 操作 | 行为 |
 /// |---|---|
 /// | 移动鼠标 | 控制层浮现；静止 3 秒（且没停在控件上、没暂停）淡出，指针一起藏起来 |
-/// | 单击画面 / 空格 | 播放 / 暂停（画面正中闪一下状态） |
+/// | 播放键 / 空格 | 播放 / 暂停（空格时画面正中闪一下状态）；单击画面不暂停（拖窗口、切焦点时容易误触） |
+/// | 单击画面 | 唤出控制层（面板开着时先收面板） |
 /// | 双击画面 / F / ⌃⌘F | 全屏进出 |
 /// | 按住画面拖动 | 移动窗口（同 Infuse） |
 /// | ← → / ⌥← ⌥→ | 后退 / 前进 10 秒；⌘← ⌘→ 上一集 / 下一集 |
@@ -18,8 +19,8 @@ import SwiftUI
 /// | Esc | 依次：收起面板 → 退出全屏 → 关闭播放器 |
 /// | ⌘. | 关闭播放器 |
 ///
-/// 字幕避让：控制层出现时，若字幕会被底部胶囊压住，就临时把字幕抬到胶囊上方（同 AVKit 系统播放器的做法），
-/// 控制层收起后落回原位；画面上下有黑边、字幕本来就在胶囊上方时不动。只改这一次显示，不改用户的字幕设置。
+/// 字幕避让：控制层出现时，若字幕会被底部控制面板压住，就临时把字幕抬到面板上方（同 AVKit 系统播放器的做法），
+/// 控制层收起后落回原位；画面上下有黑边、字幕本来就在面板上方时不动。只改这一次显示，不改用户的字幕设置。
 struct MacPlayerScreen: View {
     let request: PlayRequest
 
@@ -105,7 +106,7 @@ private struct MacPlayerContent: View {
     @State private var chromeVisible = true
     /// 每次有操作就 +1：自动收起的计时从头算
     @State private var chromeActivity = 0
-    /// 指针在画面里的位置（不在画面里为 nil）：停在左上角片名一带或底部胶囊一带时控制层不收
+    /// 指针在画面里的位置（不在画面里为 nil）：停在左上角片名一带或底部控制面板一带时控制层不收
     @State private var pointer: CGPoint?
     @State private var size: CGSize = .zero
     @State private var panel: MacPlayerPanelKind?
@@ -115,8 +116,6 @@ private struct MacPlayerContent: View {
     /// 已经出过画面的播放单元：起播封面只在每个单元（每一集）出第一帧之前显示
     @State private var startedUnit: PlaybackUnit?
     @State private var sleepGuard = MacDisplaySleepGuard()
-    /// 单击画面后等着看是不是双击的那一下（双击来了就取消）
-    @State private var pendingClick: Task<Void, Never>?
     @FocusState private var keyFocus: Bool
 
     var body: some View {
@@ -129,7 +128,7 @@ private struct MacPlayerContent: View {
                         .transition(.opacity)
                 }
                 // 出错时控制层仍在、压在对话框之上：这一档放不出来时（如限了画质而服务端转不了），
-                // 用户能直接在胶囊里改回「自动」画质或换音轨，而不只有「重试 / 关闭」
+                // 用户能直接在控制面板里改回「自动」画质或换音轨，而不只有「重试 / 关闭」
                 if chromeVisible, controller.infoError == nil, controller.phase != .consent {
                     chrome(size: proxy.size)
                         .transition(.opacity)
@@ -220,7 +219,6 @@ private struct MacPlayerContent: View {
         #endif
         .onDisappear {
             sleepGuard.update(playing: false)
-            pendingClick?.cancel()
         }
     }
 
@@ -244,9 +242,8 @@ private struct MacPlayerContent: View {
         }
     }
 
-    /// 画面这块：单击 播放 / 暂停（面板开着时先收面板），双击 全屏。
-    /// 单击要等一个双击间隔（系统设置里的值）确认不是双击才生效，双击不会顺带把播放状态切两次。
-    /// 双击按 AppKit 事件自带的连击数认（`clickCount`），与系统对「双击」的判定一致
+    /// 画面这块：单击只唤出控制层（面板开着时先收面板），不切播放 / 暂停——拖窗口、点回窗口时太容易误触，
+    /// 播放 / 暂停只走控制栏的按钮与空格；双击 全屏（按 AppKit 事件自带的连击数认，与系统对「双击」的判定一致）
     private var surface: some View {
         Color.clear
             .contentShape(.rect)
@@ -254,26 +251,14 @@ private struct MacPlayerContent: View {
             .gesture(WindowDragGesture())
             .onTapGesture {
                 if (NSApp.currentEvent?.clickCount ?? 1) >= 2 {
-                    pendingClick?.cancel()
-                    pendingClick = nil
                     toggleFullScreen()
                     return
                 }
-                if panel != nil {
-                    panel = nil
-                    showChrome()
-                    return
-                }
-                pendingClick?.cancel()
-                pendingClick = Task {
-                    try? await Task.sleep(for: .seconds(NSEvent.doubleClickInterval))
-                    guard !Task.isCancelled else { return }
-                    pendingClick = nil
-                    togglePlay()
-                }
+                panel = nil
+                showChrome()
             }
             .accessibilityElement()
-            .accessibilityLabel(controller.paused ? "播放" : "暂停")
+            .accessibilityLabel("画面")
             .accessibilityValue(stateSummary)
             .accessibilityIdentifier("mac-player-surface")
     }
@@ -282,13 +267,13 @@ private struct MacPlayerContent: View {
 
     private func chrome(size: CGSize) -> some View {
         ZStack {
-            // 托字的渐变：顶部压暗给片名，底部由下往上 35%→0 给玻璃胶囊（HIG：clear 系玻璃在亮画面上要垫压暗层）
+            // 托字的渐变：顶部压暗给片名，底部由下往上 30%→0 给玻璃面板（HIG：clear 玻璃在亮画面上要垫压暗层）
             VStack(spacing: 0) {
                 LinearGradient(colors: [.black.opacity(0.55), .clear], startPoint: .top, endPoint: .bottom)
                     .frame(height: 120)
                 Spacer(minLength: 0)
-                LinearGradient(colors: [.clear, .black.opacity(0.35)], startPoint: .top, endPoint: .bottom)
-                    .frame(height: 180)
+                LinearGradient(colors: [.clear, .black.opacity(0.3)], startPoint: .top, endPoint: .bottom)
+                    .frame(height: 200)
             }
             .allowsHitTesting(false)
 
@@ -307,10 +292,10 @@ private struct MacPlayerContent: View {
                 )
                 .overlay(alignment: .bottomTrailing) {
                     panelView(maxHeight: max(160, min(380, size.height - 260)))
-                        .offset(y: -(MacPlayerMetrics.capsuleHeight + 10))
+                        .offset(y: -(MacPlayerMetrics.panelHeight + 10))
                 }
-                .frame(width: max(320, min(size.width - MacPlayerMetrics.capsuleSideInset * 2, MacPlayerMetrics.capsuleMaxWidth)))
-                .padding(.bottom, MacPlayerMetrics.capsuleBottom)
+                .frame(width: max(360, min(size.width - MacPlayerMetrics.panelSideInset * 2, MacPlayerMetrics.panelMaxWidth)))
+                .padding(.bottom, MacPlayerMetrics.panelBottom)
             }
         }
     }
@@ -329,7 +314,7 @@ private struct MacPlayerContent: View {
         }
     }
 
-    /// 右下角：换画质建议 / 跳过片头 / 下一集卡片（同一个角落，同时只出一个）。控制层出现时让到胶囊上方
+    /// 右下角：换画质建议 / 跳过片头 / 下一集卡片（同一个角落，同时只出一个）。控制层出现时让到面板上方
     private var contextualCorner: some View {
         // 叠放而不是横排：换下来的那个淡出期间还占着位置，横排会把新来的挤出窗口右边
         ZStack(alignment: .bottomTrailing) {
@@ -408,7 +393,7 @@ private struct MacPlayerContent: View {
             || controller.phase == .ended
     }
 
-    /// 指针停在控件一带：左上角片名（顶上 70 点、左半边）或底部胶囊那一条
+    /// 指针停在控件一带：左上角片名（顶上 70 点、左半边）或底部控制面板那一条
     private var pointerOnChrome: Bool {
         guard let pointer, size.height > 0 else { return false }
         return (pointer.y < 70 && pointer.x < size.width / 2) || pointer.y > size.height - MacPlayerMetrics.chromeHeight - 4
@@ -434,8 +419,8 @@ private struct MacPlayerContent: View {
 
     // MARK: 字幕避让
 
-    /// 控制层出现时字幕该抬到多高：字幕底边（距画面底部 bottomPercent%）若会落进胶囊所在的那一条，
-    /// 就抬到胶囊顶边之上；画面有黑边、本来就够高时不变
+    /// 控制层出现时字幕该抬到多高：字幕底边（距画面底部 bottomPercent%）若会落进面板所在的那一条，
+    /// 就抬到面板顶边之上；画面有黑边、本来就够高时不变
     private func liftedSubtitleStyle(size: CGSize) -> SubtitleStyle {
         var style = controller.subtitleStyle
         guard chromeVisible, !isModal, let videoSize = controller.engine?.videoSize, size.height > 0 else { return style }

@@ -307,7 +307,8 @@ private struct MacCardLabel<Art: View>: View {
                     }
                 }
                 .overlay(alignment: .topTrailing) {
-                    if controlsOnHover, centeredControls, !menu.isEmpty {
+                    // 「⋯」只在不做聚焦效果的卡片上出；聚焦卡片的更多操作走右键菜单
+                    if controlsOnHover, !focusEffect, centeredControls, !menu.isEmpty {
                         menuButton
                             .padding(8)
                             .transition(.opacity)
@@ -434,7 +435,7 @@ extension EnvironmentValues {
     @Entry var macCardFocusEffect = true
     /// 卡片描一圈亮边表示「选中」（首页大图正讲的那一部）
     @Entry var macCardSelected = false
-    /// 聚焦时仍浮出播放键与「⋯」（首页「接下来继续」：点卡片只换大图，点播放键才起播）
+    /// 聚焦时仍浮出播放键（首页「接下来继续」：点卡片进详情，点播放键才起播）
     @Entry var macCardControlsInFocus = false
     /// 滚动及惯性期间暂停卡片悬停效果，停稳后再恢复。
     @Entry var macScrollInProgress = false
@@ -542,6 +543,8 @@ struct MacShelf<Content: View>: View {
     var artHeight: CGFloat?
     /// 出现时（以及这个值变了时）滚到哪一张：卡片用 `.id(_:)` 标上同一个整数（分集横排滚到正在看的那一集）
     var scrollTo: Int?
+    /// 滚过去时目标卡停在哪：默认停在左边距处；nil = 只滚到刚好整张露出来（已经看得见就不动），带动画
+    var scrollAnchor: UnitPoint? = UnitPoint(x: 0.04, y: 0.5)
     var scrollingChanged: ((Bool) -> Void)?
     @ViewBuilder let content: () -> Content
 
@@ -598,7 +601,11 @@ struct MacShelf<Content: View>: View {
             guard let scrollTo else { return }
             // 等横排建好、量出宽度再滚；目标卡停在左边距处，前面露一点上一张，看得出前面还有
             try? await Task.sleep(for: .milliseconds(60))
-            position.scrollTo(id: scrollTo, anchor: UnitPoint(x: 0.04, y: 0.5))
+            if let scrollAnchor {
+                position.scrollTo(id: scrollTo, anchor: scrollAnchor)
+            } else {
+                withAnimation(.easeInOut(duration: 0.35)) { position.scrollTo(id: scrollTo) }
+            }
         }
     }
 
