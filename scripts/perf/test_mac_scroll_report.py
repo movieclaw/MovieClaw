@@ -7,9 +7,22 @@ from mac_scroll_report import combine, pool
 
 
 def frames(seg, hitch_ms, dur_ms, dropped=0):
-    return {"ev": "frames", "seg": seg, "dur_ms": dur_ms, "hitch_ms": hitch_ms, "hitch_ratio": hitch_ms / dur_ms * 1000,
-            "dropped": dropped, "period_ms": 8.33, "p95_ms": 9, "p99_ms": 20, "max_ms": 30, "over50": 0, "over100": 0,
-            "main_busy_pct": 10, "long_tasks": 1}
+    return {
+        "ev": "frames",
+        "seg": seg,
+        "dur_ms": dur_ms,
+        "hitch_ms": hitch_ms,
+        "hitch_ratio": hitch_ms / dur_ms * 1000,
+        "dropped": dropped,
+        "period_ms": 8.33,
+        "p95_ms": 9,
+        "p99_ms": 20,
+        "max_ms": 30,
+        "over50": 0,
+        "over100": 0,
+        "main_busy_pct": 10,
+        "long_tasks": 1,
+    }
 
 
 class ScrollReportTests(unittest.TestCase):
@@ -22,7 +35,11 @@ class ScrollReportTests(unittest.TestCase):
             paths = []
             for index in range(2):
                 path = Path(tmp) / f"run{index}.jsonl"
-                lines = [{"ev": "net", "t": 1}, frames("v.fling", 5, 1000), frames("h.poster", 1, 1000)]
+                lines = [
+                    {"ev": "net", "t": 1},
+                    frames("v.fling", 5, 1000),
+                    frames("h.poster", 1, 1000),
+                ]
                 path.write_text("\n".join(json.dumps(line) for line in lines) + "\n")
                 paths.append(path)
             pooled = pool(paths)

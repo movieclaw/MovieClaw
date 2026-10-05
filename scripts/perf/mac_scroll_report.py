@@ -4,6 +4,7 @@
 Each trace is one bench run; segments with the same name across runs are pooled (frame-weighted).
 `--base` compares against a baseline set of traces.
 """
+
 import argparse
 import json
 import statistics
@@ -30,7 +31,7 @@ def pool(traces):
 
 
 def combine(runs):
-    """Pool runs of one segment: totals are summed, distributional values take the median across runs."""
+    """Pool runs of one segment: totals are summed, distributions take the median across runs."""
     dur = sum(r["dur_ms"] for r in runs)
     hitch = sum(r["hitch_ms"] for r in runs)
     dropped = sum(r["dropped"] for r in runs)
@@ -51,14 +52,23 @@ def combine(runs):
     }
 
 
-COLUMNS = [("hitch_ratio", "hitch ms/s", "{:.1f}"), ("drop_pct", "drop%", "{:.1f}"), ("p95_ms", "p95", "{:.1f}"),
-           ("p99_ms", "p99", "{:.1f}"), ("max_ms", "max", "{:.0f}"), ("over50", ">50ms", "{}"),
-           ("busy_pct", "main busy%", "{:.0f}"), ("long_tasks", "long tasks", "{}")]
+COLUMNS = [
+    ("hitch_ratio", "hitch ms/s", "{:.1f}"),
+    ("drop_pct", "drop%", "{:.1f}"),
+    ("p95_ms", "p95", "{:.1f}"),
+    ("p99_ms", "p99", "{:.1f}"),
+    ("max_ms", "max", "{:.0f}"),
+    ("over50", ">50ms", "{}"),
+    ("busy_pct", "main busy%", "{:.0f}"),
+    ("long_tasks", "long tasks", "{}"),
+]
 
 
 def table(current, base=None):
     names = list(current)
-    head = f"{'segment':<16}{'runs':>5}{'secs':>7}" + "".join(f"{label:>13}" for _, label, _ in COLUMNS)
+    head = f"{'segment':<16}{'runs':>5}{'secs':>7}" + "".join(
+        f"{label:>13}" for _, label, _ in COLUMNS
+    )
     lines = [head, "-" * len(head)]
     for name in names:
         c = combine(current[name])
@@ -69,7 +79,8 @@ def table(current, base=None):
                 cell += f"({fmt.format(combine(base[name])[key])})"
             row += f"{cell:>13}"
         lines.append(row)
-        lines.append(f"{'':<28}hitch ms/s per run: {', '.join(f'{r['hitch_ratio']:.1f}' for r in current[name])}")
+        ratios = ", ".join(f"{r['hitch_ratio']:.1f}" for r in current[name])
+        lines.append(f"{'':<28}hitch ms/s per run: {ratios}")
     return "\n".join(lines)
 
 

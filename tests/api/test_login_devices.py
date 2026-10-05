@@ -138,11 +138,9 @@ def test_mac_app_logs_in_as_a_login_device_without_push(client: TestClient) -> N
     assert (device["kind"], device["kind_label"], device["family"]) == ("macos", "Mac App", "login")
     listed = _as(client, resp.json()["data"]["token"]).get(f"{_AUTH}/devices").json()["data"]
     mac = next(d for d in listed if d["kind"] == "macos")
+    # 服务器开着推送时也不挂推送状态、不能登记：
+    # 见 test_cloud_push.test_apps_without_push_get_no_push_hint
     assert mac["push"] is None
-    # 对照：iPhone 还没登记推送也会显示推送状态
-    _app_login(client, _ADMIN)
-    listed = _as(client, resp.json()["data"]["token"]).get(f"{_AUTH}/devices").json()["data"]
-    assert next(d for d in listed if d["kind"] == "ios")["push"] is not None
 
 
 def test_app_login_wrong_password_is_rejected_and_throttled(client: TestClient) -> None:
