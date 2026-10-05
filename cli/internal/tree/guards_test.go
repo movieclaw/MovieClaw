@@ -33,6 +33,7 @@ var knownNonGenerated = []string{
 	"auth.devices.revoke-current",
 	"auth.devices.rename",
 	"auth.devices.revoke",
+	"auth.devices.cleanup",
 	"auth.devices.request",
 	"auth.devices.approve",
 	"auth.devices.deny",

@@ -506,6 +506,8 @@ _MEMBER_ALLOWLIST = {
     ("DELETE", "/api/v1/auth/devices/current"),
     ("PATCH", "/api/v1/auth/devices/{device_id}"),
     ("DELETE", "/api/v1/auth/devices/{device_id}"),
+    # 清理长期没用的设备：成员只清自己的，all=true（清全员）在路由里对非超管 403
+    ("POST", "/api/v1/auth/devices/cleanup"),
     ("GET", "/api/v1/auth/devices/requests/{user_code}"),
     ("POST", "/api/v1/auth/devices/requests/{user_code}/approve"),
     ("POST", "/api/v1/auth/devices/requests/{user_code}/deny"),
