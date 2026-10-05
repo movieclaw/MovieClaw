@@ -152,6 +152,12 @@ private struct TVPlayerContent: View {
         .animation(.easeInOut(duration: 0.25), value: panel)
         .animation(.easeInOut(duration: 0.2), value: controller.notice)
         .onPlayPauseCommand(perform: togglePlay)
+        // 播放器在放时 App 是系统的「正在播放」应用，遥控器的播放 / 暂停键先交给系统远程命令
+        // （NowPlayingBridge 直接暂停控制器），到不了上面的 onPlayPauseCommand，控制层就不出来：
+        // 画面停住却没有片名和进度条（2026-10-05 模拟器走查发现）。以「用户暂停了」这个状态为准补上
+        .onChange(of: showPaused) { _, shown in
+            if shown { showChrome() }
+        }
         .onExitCommand(perform: back)
         // 面板开着时不许系统拿返回键直接关掉播放器：焦点万一悬空，返回键也只该收起面板（由 back 处理），不能退出播放
         .interactiveDismissDisabled(panel != nil)

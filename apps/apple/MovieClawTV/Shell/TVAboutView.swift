@@ -69,7 +69,9 @@ struct TVAboutView: View {
     }
 }
 
-/// 一个组件的源码地址与许可全文。电视上长文要靠焦点滚动：整篇放进一个可聚焦的块，上下滑动翻页
+/// 一个组件的源码地址与许可全文。电视上长文要靠焦点滚动：全文按页切成可聚焦的块，上下滑动一页一页翻。
+/// 不能整篇一个块：焦点只在块与块之间跳，比一屏高的块中间那段永远滚不到（LGPL 正文大半读不到，
+/// 标题也被顶出屏幕，2026-10-05 模拟器走查发现）
 private struct TVLicenseTextView: View {
     let component: OpenSourceComponent
 
@@ -82,14 +84,29 @@ private struct TVLicenseTextView: View {
                     .font(.callout)
                     .foregroundStyle(.secondary)
                 ForEach(component.licenseFiles, id: \.self) { file in
-                    Text(Self.text(of: file))
-                        .font(.caption.monospaced())
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .focusable()
+                    // 同一份文件的各页紧挨着排（不用外层的段距），读起来还是连续的一篇
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(Self.pages(of: Self.text(of: file)).enumerated()), id: \.offset) { _, page in
+                            Text(page)
+                                .font(.caption.monospaced())
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .focusable()
+                        }
+                    }
                 }
             }
             .padding(.horizontal, TVMetrics.edge)
             .padding(.vertical, 40)
+        }
+    }
+
+    /// 每块的行数：等宽小字一屏放得下，翻页时上一块的尾巴还露在屏幕上，读着不断档
+    private static let linesPerPage = 20
+
+    private static func pages(of text: String) -> [String] {
+        let lines = text.components(separatedBy: "\n")
+        return stride(from: 0, to: lines.count, by: linesPerPage).map {
+            lines[$0 ..< min($0 + linesPerPage, lines.count)].joined(separator: "\n")
         }
     }
 

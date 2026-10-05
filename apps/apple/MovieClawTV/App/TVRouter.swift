@@ -22,6 +22,8 @@ final class TVRouter {
     var reclaimPageFocus = 0
     /// 同上，当前页签是首页、没有压着二级页时由首页自己把焦点要回去（见 `TVHomeView`）
     var reclaimHomeFocus = 0
+    /// 同上，当前页签是首页以外（搜索、账号）且没有压着二级页时，由页签根页面把焦点要回去（见 `TVTabRoot`）
+    var reclaimTabFocus = 0
     /// 正在播放的控制器：播放器视图出现时接过去（同 iPhone 版 `Router.activePlayback`）
     var activePlayback: PlaybackController?
 

@@ -150,6 +150,10 @@ struct TVMainView: View {
             router.reclaimPageFocus += 1
         } else if router.selectedTab == .home {
             router.reclaimHomeFocus += 1
+        } else {
+            // 搜索、账号页签的首屏：此前只管首页，在这两页按返回退到主屏再回来，侧边栏一直展开着
+            // （2026-10-05 模拟器走查发现）
+            router.reclaimTabFocus += 1
         }
     }
 
@@ -163,11 +167,12 @@ struct TVMainView: View {
             // 头像放进侧边栏顶部（`tabViewSidebarHeader`）要 tvOS 27，先做成第一项
             Tab(session?.nickname ?? "账号", systemImage: "person.crop.circle", value: MainTab.account) {
                 stack(.account) {
-                    TVWhoIsWatchingView(onClose: { router.selectedTab = .home }, onAbout: { router.push(.about) })
+                    TVWhoIsWatchingView(onClose: { router.selectedTab = .home }, onAbout: { router.push(.about) },
+                                        reclaimFocus: router.reclaimTabFocus)
                 }
             }
             Tab(value: MainTab.search, role: .search) {
-                stack(.search) { TVSearchView() }
+                stack(.search) { TVSearchRoot() }
             }
             Tab("首页", systemImage: "house", value: MainTab.home) {
                 stack(.home) { TVHomeView(mainScope: mainScope) }
@@ -260,6 +265,29 @@ struct TVDestination: View {
         case let .rowWall(title, source): TVRowWallView(title: title, source: source)
         case .about: TVAboutView()
         }
+    }
+}
+
+/// 搜索页签的首屏：从后台回来、焦点还停在侧边栏上时把焦点要回页面（侧边栏随之收起）。
+/// 搜索页的焦点在系统键盘上，拿不到具体元素，只能整页要焦点、由系统落到键盘上。
+/// 首页、账号页各有自己的落点（「继续播放」、当前账号），分别由 `TVHomeView`、`TVWhoIsWatchingView` 处理；
+/// 二级页由 `TVDestination` 处理
+private struct TVSearchRoot: View {
+    @Environment(TVRouter.self) private var router
+    @FocusState private var reclaimed: Bool
+
+    var body: some View {
+        TVSearchView()
+            .focused($reclaimed)
+            .task(id: router.reclaimTabFocus) {
+                guard router.reclaimTabFocus > 0, router.selectedTab == .search else { return }
+                // 赋值在焦点系统还没恢复好时可能被忽略：同首页，隔一会儿再补几次
+                for delay in [0, 150, 300, 500] {
+                    try? await Task.sleep(for: .milliseconds(delay))
+                    guard !Task.isCancelled, router.player == nil, !reclaimed else { return }
+                    reclaimed = true
+                }
+            }
     }
 }
 

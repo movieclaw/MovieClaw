@@ -25,6 +25,12 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
     private var observations: [NSKeyValueObservation] = []
     private var timeObserver: Any?
     private var notificationTokens: [NSObjectProtocol] = []
+    /// 播放器级的速率变化通知（跟着播放器走，不随播放项替换，见 `observe`）
+    private var rateToken: NSObjectProtocol?
+    /// 本播放项已经为「开播失败」补救过一次（见 `observe` 里的速率通知）
+    private var rateFailureRetried = false
+    /// 我们要它在放（开播、恢复播放后为 true，暂停后为 false）：速率被系统退成 0 时据此判断是不是该补救
+    private var intendsToPlay = false
 
     /// 起播目标（readyToPlay 之后才能 seek）
     private var pendingStart: Double = 0
@@ -96,6 +102,7 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
         pendingStart = start
         self.autoplay = autoplay
         didPrepare = false
+        rateFailureRetried = false
         ended = false
         loadingMeter.reset()
         bandwidthMeter.reset()
@@ -112,6 +119,7 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
         // 起播这一段不等「预计不会卡」：第一帧一解出来就开始走。开着这个等待，AVPlayer 会先攒一截
         // 缓冲才动（本机实测开始播放从 650~830 毫秒提前到 180~230 毫秒）；开始播放后再打开，播放中照旧防卡顿
         player.automaticallyWaitsToMinimizeStalling = false
+        intendsToPlay = startedEarly
         if startedEarly { player.playImmediately(atRate: desiredRate) }
     }
 
@@ -121,6 +129,8 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
     func play() {
         if ended { ended = false }
         setPrefetchSuspended(false)
+        intendsToPlay = true
+        rateFailureRetried = false
         player.playImmediately(atRate: desiredRate)
     }
 
@@ -129,7 +139,10 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
         player.currentItem?.preferredForwardBufferDuration = suspended ? 1 : 0
     }
 
-    func pause() { player.pause() }
+    func pause() {
+        intendsToPlay = false
+        player.pause()
+    }
 
     func seek(to seconds: Double, exact: Bool) {
         let time = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
@@ -317,6 +330,8 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
         observations.removeAll()
         notificationTokens.forEach(NotificationCenter.default.removeObserver)
         notificationTokens.removeAll()
+        if let rateToken { NotificationCenter.default.removeObserver(rateToken) }
+        rateToken = nil
         pipController?.stopPictureInPicture()
         pipController = nil
         player.pause()
@@ -332,6 +347,28 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
             let reason = player.reasonForWaitingToPlay
             Task { @MainActor in self?.timeControlChanged(status, reason: reason) }
         })
+        // 挂上就开播（`load` 的 startedEarly）时缓冲可能还是空的：不等缓冲的模式下 AVPlayer 强行开播失败，
+        // 把速率退回 0（系统日志里是 SetRateFailed，通知里的原因却是空的），之后缓冲到位也不会自己再起
+        // （日志「desired rate is 0.0; not restarting」），
+        // 就绪回调又因为已经开过播不再补调——画面停在 0:00、按一下暂停再播放才走。
+        // 服务端转码刚起、首片还没产出时必现（2026-10-05 Apple TV 模拟器上杜比视界降级到转码流实测）。
+        // 这时打开防卡顿等待、重新设上速率：AVPlayer 转入等待，缓冲够了自己开始。
+        // 判定：我们要它在放（`intendsToPlay`）、速率却被退成 0，且原因不是我们自己设的、不是切后台 / 音频被打断。
+        // 不能拿「还在不等缓冲模式」当条件：失败前 AVPlayer 会先报一下「播放中」，timeControlChanged 已经把等待打开了。
+        // 每次开播只补救一次（`rateFailureRetried`），等待打开后速率设置不会再因缓冲失败，不会反复触发
+        rateToken = NotificationCenter.default.addObserver(forName: AVPlayer.rateDidChangeNotification, object: player, queue: .main) { [weak self] note in
+            let reason = note.userInfo?[AVPlayer.rateDidChangeReasonKey] as? AVPlayer.RateDidChangeReason
+            MainActor.assumeIsolated {
+                guard let self, self.player.rate == 0, self.intendsToPlay, !self.ended, !self.rateFailureRetried,
+                      reason == nil || reason == .setRateFailed else { return }
+                self.rateFailureRetried = true
+                #if DEBUG
+                print("[AVPlayerEngine] 开播被系统退回暂停（缓冲还是空的），打开防卡顿等待后重新开播")
+                #endif
+                self.player.automaticallyWaitsToMinimizeStalling = true
+                self.player.rate = self.desiredRate
+            }
+        }
         // 隔空播放进出：切换系统字幕轨（卡顿 / 缺粮由控制器的 StallWatch 统一判定）
         observations.append(player.observe(\.isExternalPlaybackActive, options: [.new]) { @Sendable [weak self] _, _ in
             Task { @MainActor in self?.applySystemSubtitle() }
@@ -397,7 +434,12 @@ final class AVPlayerEngine: NSObject, PlayerEngine {
 
     /// 起播位置已就位：按需开始播放
     private func beginPlayback() {
-        if autoplay { player.playImmediately(atRate: desiredRate) } else { onEvent?(.paused) }
+        if autoplay {
+            intendsToPlay = true
+            player.playImmediately(atRate: desiredRate)
+        } else {
+            onEvent?(.paused)
+        }
     }
 
     private func timeControlChanged(_ status: AVPlayer.TimeControlStatus, reason: AVPlayer.WaitingReason?) {
