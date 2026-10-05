@@ -42,7 +42,8 @@ settings:
     # Swift 6.2 起的「易上手并发」：默认主线程隔离，UI 代码不必处处标 @MainActor
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
     SWIFT_APPROACHABLE_CONCURRENCY: YES
-    MARKETING_VERSION: "0.4.0"
+    # App 自己的版本号，iPhone、Apple TV、Mac 三端共用（docs/design/ios-release.md §3），与服务器版本无关
+    MARKETING_VERSION: "0.5.0"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
 targets:

@@ -59,11 +59,14 @@ scripts/release.sh --tv --upload            # Apple TV 版：同一条 App 记�
 - **版本号与服务器各自独立**（2026-09-29 用户决定：App 和服务器不是一回事）：
   - 营销版本号只有一处——`project.yml` 的 `MARKETING_VERSION`（首发 0.1.0），TestFlight、App Store、
     侧载 IPA 都读它；与服务器的 `pyproject.toml` / 发版 tag 无关，也不受「版本号三处一致」约束。
+  - iPhone、Apple TV、Mac 三端共用这一个版本号（2026-10-05 定：同一份代码、同一个 Bundle ID，版本号对齐
+    才说得清「0.5.0」是哪套代码；构建号各平台各自递增）。Mac 版随服务器 Release 发的 zip 同样读它，
+    首个随发版的 Mac 包是 0.5.0。某个平台要单独发紧急修复时只给它提审补丁版本，下一个常规版本再对齐。
   - 什么时候改：准备**提审**一个新版本时手动递增（App Store 要求新版本号大于已上架的）；
     同一版本号下反复传 TestFlight 不用改，靠构建号区分。
   - 构建号默认取 UTC 时间 `yyyyMMddHHmm`，天然递增，不用管。
-  - 随服务器 Release 附带的侧载 IPA 是最近一次改动 App 时编的那个包，版本号就是当时的 `MARKETING_VERSION`，
-    所以服务器 v0.28.0 里的 IPA 可能是 App 0.1.0，这是正常的。
+  - 随服务器 Release 附带的侧载 IPA 与 Mac 版 zip 是最近一次改动 App 时编的那个包，版本号就是当时的
+    `MARKETING_VERSION`，所以服务器 v0.28.0 里的 IPA 可能是 App 0.1.0，这是正常的。
 - 产物与日志在 `apps/apple/build-release/`（已被 git 忽略），归档约 5 分钟，DerivedData 约 0.7 GB，
   磁盘紧时打包完可删。
 - 不带 `--upload` 只在本机导出 `.ipa`，用于验证签名；首次导出时自动签名会在账号下创建
