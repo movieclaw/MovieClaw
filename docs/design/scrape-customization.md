@@ -134,7 +134,7 @@ TMDB 环境变量（语言/地区/图片档位）、库级 `write_media_assets` 
 
 可用 token：`title` / `original_title` / `year` / `tmdb_id` / `imdb_id` /
 `season` / `episode` / `episode_title` / `resolution` / `media_source` /
-`release_group`。数字 token 支持 `:02d` 补零后缀，其余不引入条件/过滤器
+`release_group`（2026-10 扩充见 §12）。数字 token 支持 `:02d` 补零后缀，其余不引入条件/过滤器
 语法——需要"字段缺失时不留空括号"的场景由渲染器统一处理（token 为空
 时连同紧邻的成对括号与分隔符收缩，规则确定性、有单测）。
 
@@ -840,3 +840,33 @@ P3 的 `LIBRARY_OVERRIDABLE` 从"能不能按库覆盖"的白名单，改为按*
 **将来若要重新露出**：别放回影片页。放在库设置页的「刮削设置」里更合适
 （"本库有 N 部片的归属不是本库"这类诊断信息），那是用户已经在思考刮削口味的
 上下文。
+
+## 12. 占位符扩充（2026-10-05，issue #577）
+
+issue 问的 `{original_title}` 早已可用，真正的缺口是**可发现性**（按钮只写英文
+占位符名）和「区分多版本」所需的文件维度。本轮：
+
+| 占位符 | 可用模板 | 取值 |
+|---|---|---|
+| `english_title` / `douban_id` | 全部 | 条目身份字段 |
+| `season_name` | 季目录、剧集文件名 | `media_season.name` |
+| `video_codec` / `hdr` / `bit_depth` / `audio` | 文件名 | 探测结果，写法贴近发布名（HEVC / DV / 10bit / DDP Atmos 5.1） |
+| `site` | 文件名 | 站点**标识**（hdsky），不用显示名——显示名会随配置调整，一变整库待整理 |
+| `release_name` | 文件名 | 新列 `library_file.release_name`：入库时源文件名（不含扩展名） |
+
+- **修复**：`{episode_title}` 此前声明可用却没人供值，恒为空。现由
+  `naming.load_unit_names` 为入库与整理两侧同源供值（季名同）。
+- **命名同源**：文件属性一律经 `naming.file_attrs` 格式化，入库喂探测结果 +
+  来源戳，整理喂台账行。`release_name` 必须入库现场落列——整理改名后当前文件名
+  就不是原名了；扫描重入账只补空不覆盖。存量扫描发现的文件没有站点与原名，
+  这两项渲染为空并收缩。条目目录不开放文件属性：投递时就要算 save_path。
+- **片名去重**：`title` / `original_title` / `english_title` 在同一模板里值相同
+  （忽略大小写）时只留第一次出现，「风筝 (风筝)」→「风筝」。
+- **长度保护**：单段超过 200 字节时逐个截短最长的自由文本（片名/集名/季名/
+  原始文件名，保底 30 字节），季集号、年份、规格不截；仍超长才整体硬截。
+  200 给扩展名、版本标签后缀与字幕附属后缀留余量（单段上限 255 字节）。
+- Web / iOS 预览渲染器同步去重与截短规则；iOS 有对拍单测
+  （`ScrapeNamingRenderTests`，期望值由后端 `render` 算出）。
+- 端到端：`tests/api/test_naming_tokens_e2e.py`——真实入库落盘后整理零改名，
+  四处变异（整理丢集名 / 丢站点、入库不落原名、去掉去重）均能抓到。
+

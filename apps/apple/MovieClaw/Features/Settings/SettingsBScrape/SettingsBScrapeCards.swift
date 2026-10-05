@@ -332,22 +332,37 @@ struct SettingsBScrapeNamingRows: View {
             Text("可用占位符（点击插入到「\(focusedField.label)」）")
                 .font(.caption2)
                 .foregroundStyle(Theme.textFaint)
-            SettingsBFlow(spacing: 6, lineSpacing: 6) {
-                ForEach(focusedField.tokens, id: \.self) { token in
-                    Button {
-                        insert(token)
-                    } label: {
-                        Text("{\(token)}")
-                            .font(.caption.monospaced())
-                            .foregroundStyle(Theme.accent)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.white.opacity(0.05), in: .rect(cornerRadius: 7))
-                            .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.white.opacity(0.08)))
+            ForEach(SettingsBScrapeNaming.tokenGroups, id: \.label) { group in
+                let tokens = group.tokens.filter { focusedField.tokens.contains($0.key) }
+                if !tokens.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(group.label).font(.caption2).foregroundStyle(Theme.textFaint)
+                        SettingsBFlow(spacing: 6, lineSpacing: 6) {
+                            ForEach(tokens, id: \.key) { token in
+                                Button {
+                                    insert(token.key)
+                                } label: {
+                                    Text(token.name)
+                                        .font(.caption)
+                                        .foregroundStyle(Theme.accent)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 4)
+                                        .background(Color.white.opacity(0.05), in: .rect(cornerRadius: 7))
+                                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.white.opacity(0.08)))
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("插入\(token.name)占位符")
+                                .accessibilityIdentifier("scrape-token-\(token.key)")
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("scrape-token-\(token)")
                 }
+            }
+            if focusedField.tokens.contains("site") {
+                Text("站点与原始文件名只有经本系统入库的文件才有；存量扫描发现的文件这两项为空，会自动收缩。")
+                    .font(.caption2)
+                    .foregroundStyle(Theme.textFaint)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(.vertical, 4)
@@ -392,13 +407,13 @@ struct SettingsBScrapeNamingRows: View {
             }
             if valid {
                 previewLine(
-                    caption: "电影 · 沙丘：第二部（2024）· 2160p BluRay FRDS",
+                    caption: "电影 · 沙丘：第二部（2024）· 2160p DV TrueHD Atmos · BluRay FRDS",
                     root: "/media/电影/",
                     path: "\(render(tpl("naming_entry_dir"), movie))/\(render(tpl("naming_movie_file"), movie)).mkv",
                     id: "scrape-preview-movie"
                 )
                 previewLine(
-                    caption: "剧集 · 风筝（2017）第 1 季第 3 集 · 1080p WEB-DL CHDWEB",
+                    caption: "剧集 · 风筝（2017）第 1 季第 3 集 · 1080p SDR AAC · WEB-DL CHDWEB",
                     root: "/media/剧集/",
                     path: "\(render(tpl("naming_entry_dir"), episode))/\(render(tpl("naming_season_dir"), episode))/\(render(tpl("naming_episode_file"), episode)).mkv",
                     id: "scrape-preview-episode"

@@ -227,7 +227,7 @@ export function LibraryScrapeSettings({
       <ScrapeSection label="命名与整理">
         <Card
           title="命名模板"
-          desc="留空即跟随全局模板。命名的产物是本库目录树里的路径，所以每个库可以各用一套。"
+          desc="留空即跟随全局模板。命名的产物是本库目录树里的路径，所以每个库可以各用一套。全部占位符（原名、集名、视频编码、站点等）与实时预览见「设置 → 刮削与整理 → 命名模板」。"
           shell={fieldShellFor("命名模板", NAMING_FIELDS)}
         >
           {NAMING_FIELDS.map((field) => (

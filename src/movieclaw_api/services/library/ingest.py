@@ -136,6 +136,8 @@ from movieclaw_api.services.library.layout import (
 )
 from movieclaw_api.services.library.naming import (
     episode_file_name,
+    file_attrs,
+    load_unit_names,
     movie_file_name,
     season_dir_name,
 )
@@ -2333,6 +2335,10 @@ async def _ingest_entry(
             entry_name=entry.name if entry.is_dir() else entry.stem,
             known_seasons=known_seasons,
         )
+    # 季名/集名：命名模板 {season_name}/{episode_title} 的取值（与整理同一来源）
+    season_names, episode_names = (
+        await load_unit_names(session, [item.id]) if kind is not MediaKind.MOVIE else ({}, {})
+    )
     notes: list[str] = []
     # 逐文件的失败按性质分档：环境故障（探测失败/搬运出错）→ failed 退避
     # 重试；解析不出季集、目标同名冲突 → pending 等人（重试改变不了结果）
@@ -2394,20 +2400,42 @@ async def _ingest_entry(
         # （{resolution}/{media_source}/{release_group}），拿不到值的话
         # 用户配了这些占位符只会渲染成空——探测本身是纯读取，前移无副作用
         file_spec = spec if file == main else await asyncio.to_thread(probe_media, file)
-        attrs = {
-            "resolution": file_spec.resolution if file_spec else None,
-            "media_source": release_attrs.media_source,
-            "release_group": release_attrs.release_group,
-        }
+        # 来源戳也提到命名之前：站点是 {site} 占位符的取值
+        stamp_site, stamp_torrent = provenance(
+            file, None if kind is MediaKind.MOVIE else (season, episode)
+        )
+        # 文件属性经 file_attrs 统一格式化——整理侧从台账行取同一组值，
+        # 两侧格式化口径一致才算得出同一个名字（命名同源）
+        attrs = file_attrs(
+            resolution=file_spec.resolution if file_spec else None,
+            media_source=release_attrs.media_source,
+            release_group=release_attrs.release_group,
+            video_codec=file_spec.video_codec if file_spec else None,
+            hdr=file_spec.hdr if file_spec else None,
+            bit_depth=file_spec.bit_depth if file_spec else None,
+            audio_streams=list(file_spec.audio_streams) if file_spec else None,
+            site_id=stamp_site,
+            release_name=file.stem,
+        )
         # 文件名走命名模板（默认即 ``标题 (年份)`` / ``… - SxxEyy``）；
         # 版本标签等冲突后缀仍由 _transfer 追加，不进模板
         if kind is MediaKind.MOVIE:
             target = Path(dest_dir) / f"{movie_file_name(item, library=dest_library, **attrs)}{ext}"
         else:
+            season_name = season_names.get((item.id, season))
+            stem = episode_file_name(
+                item,
+                season,
+                episode,
+                library=dest_library,
+                season_name=season_name,
+                episode_title=episode_names.get((item.id, season, episode)),
+                **attrs,
+            )
             target = (
                 Path(dest_dir)
-                / season_dir_name(season, item, library=dest_library)
-                / f"{episode_file_name(item, season, episode, library=dest_library, **attrs)}{ext}"
+                / season_dir_name(season, item, library=dest_library, season_name=season_name)
+                / f"{stem}{ext}"
             )
         # 门禁逐文件生效：暂停的季包可能前几集完整、后几集残缺，主文件
         # 探测通过不代表每个文件都完整
@@ -2528,9 +2556,6 @@ async def _ingest_entry(
                 doubt["expected_minutes"],
                 final.name,
             )
-        stamp_site, stamp_torrent = provenance(
-            file, None if kind is MediaKind.MOVIE else (season, episode)
-        )
         await repo.upsert_by_path(
             LibraryFile(
                 library_id=dest_library.id,
@@ -2555,6 +2580,7 @@ async def _ingest_entry(
                 chapters=list(file_spec.chapters) if file_spec else None,
                 media_source=release_attrs.media_source,
                 release_group=release_attrs.release_group,
+                release_name=file.stem,
                 source=FileSource.IMPORTED,
                 identity_source=ledger_identity,
                 identity_doubt=doubt,

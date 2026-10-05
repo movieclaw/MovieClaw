@@ -2695,6 +2695,7 @@ async def _merge_same_file_rows(
         "external_subtitles",
         "media_source",
         "release_group",
+        "release_name",
         "site_id",
         "torrent_id",
     ):

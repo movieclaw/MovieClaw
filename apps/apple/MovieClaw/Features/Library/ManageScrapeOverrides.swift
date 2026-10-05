@@ -208,7 +208,7 @@ struct ManageScrapeOverrides: View {
         cardHeader(id: "naming", title: "命名模板", customized: !hit.isEmpty,
                    status: hit.isEmpty ? "跟随全局" : "自定义：\(hit.map(\.label).joined(separator: "、"))")
         if open == "naming" {
-            Text("留空即跟随全局模板。命名的产物是本库目录树里的路径，所以每个库可以各用一套。")
+            Text("留空即跟随全局模板。命名的产物是本库目录树里的路径，所以每个库可以各用一套。全部占位符（原名、集名、视频编码、站点等）与实时预览见「设置 → 刮削与整理 → 命名模板」。")
                 .font(.footnote).foregroundStyle(Theme.textMuted).fixedSize(horizontal: false, vertical: true)
             ForEach(Self.namingFields, id: \.key) { field in
                 let globalValue = baseDict[field.key]?.stringValue ?? ""

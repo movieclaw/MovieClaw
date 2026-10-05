@@ -70,6 +70,8 @@ from movieclaw_api.services.library.layout import entry_dir_of
 from movieclaw_api.services.library.naming import (
     entry_dir_name_of,
     episode_file_name,
+    file_attrs,
+    load_unit_names,
     movie_file_name,
     season_dir_name,
 )
@@ -202,9 +204,15 @@ async def build_organize_plan(session, library: Library) -> OrganizePlan:
     rows = [(f, item) for f, item in result.all()]
     kind = MediaKind(library.kind)
     roots = [r.rstrip("/") for r in library.root_paths]
+    # 季名/集名：命名模板 {season_name}/{episode_title} 的取值（与入库同一来源）
+    unit_names = (
+        await load_unit_names(session, {item.id for _, item in rows if item is not None})
+        if kind is not MediaKind.MOVIE
+        else ({}, {})
+    )
     # 磁盘检查（exists/is_dir/附属文件枚举）放线程池：大库上千次 stat 不该阻塞事件循环
     # 带上库本身：命名模板可按库覆盖（library.scrape_overrides）
-    return await asyncio.to_thread(_build_plan_sync, library, kind, roots, rows)
+    return await asyncio.to_thread(_build_plan_sync, library, kind, roots, rows, unit_names)
 
 
 def _build_plan_sync(
@@ -212,8 +220,10 @@ def _build_plan_sync(
     kind: MediaKind,
     roots: list[str],
     rows: list[tuple[LibraryFile, MediaItem | None]],
+    unit_names: tuple[dict[tuple[int, int], str], dict[tuple[int, int, int], str]] = ({}, {}),
 ) -> OrganizePlan:
     plan = OrganizePlan(library_id=library.id)
+    season_names, episode_names = unit_names
     candidates: list[RenameAction] = []
     for row, item in rows:
         if row.state != FileState.IN_PLACE:
@@ -241,24 +251,38 @@ def _build_plan_sync(
         # 目录名与文件名各走各的模板（默认两者相同，即模板化之前的行为）
         entry_dir = entry_dir_name_of(item, library=library)
         ext = src.suffix.lower()
-        # 文件属性来自台账行：命名模板可以用 {resolution}/{media_source}/
-        # {release_group}，与入库侧喂的是同一组值（命名同源）
-        attrs = {
-            "resolution": row.resolution,
-            "media_source": row.media_source,
-            "release_group": row.release_group,
-        }
+        # 文件属性来自台账行，经 file_attrs 与入库侧同口径格式化（命名同源）
+        attrs = file_attrs(
+            resolution=row.resolution,
+            media_source=row.media_source,
+            release_group=row.release_group,
+            video_codec=row.video_codec,
+            hdr=row.hdr,
+            bit_depth=row.bit_depth,
+            audio_streams=row.audio_streams,
+            site_id=row.site_id,
+            release_name=row.release_name,
+        )
         if kind is MediaKind.MOVIE:
             target = (
                 Path(root) / entry_dir / f"{movie_file_name(item, library=library, **attrs)}{ext}"
             )
         else:
             season = row.season_number
-            stem = episode_file_name(item, season, row.episode_number, library=library, **attrs)
+            season_name = season_names.get((item.id, season))
+            stem = episode_file_name(
+                item,
+                season,
+                row.episode_number,
+                library=library,
+                season_name=season_name,
+                episode_title=episode_names.get((item.id, season, row.episode_number)),
+                **attrs,
+            )
             target = (
                 Path(root)
                 / entry_dir
-                / season_dir_name(season, item, library=library)
+                / season_dir_name(season, item, library=library, season_name=season_name)
                 / f"{stem}{ext}"
             )
         if str(target) == row.file_path:

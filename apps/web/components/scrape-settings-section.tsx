@@ -746,7 +746,58 @@ function tokenValue(ctx: Record<string, unknown>, name: string, pad?: string): s
   return text;
 }
 
+/** 片名类占位符：同一模板里值相同的只保留第一次出现（「风筝 (风筝)」→「风筝」）。 */
+const TITLE_TOKENS = ["title", "original_title", "english_title"];
+/** 超长时可截短的自由文本占位符；编号、年份、规格不截。 */
+const SHRINKABLE_TOKENS = [...TITLE_TOKENS, "episode_title", "season_name", "release_name"];
+/** 单段名字字节上限与截短保底，与后端 MAX_SEGMENT_BYTES / _SHRINK_FLOOR_BYTES 一致。 */
+const MAX_SEGMENT_BYTES = 200;
+const SHRINK_FLOOR_BYTES = 30;
+const utf8Length = (text: string) => new TextEncoder().encode(text).length;
+
+/** 按 UTF-8 字节截断，不切坏多字节字符。 */
+function cutBytes(text: string, limit: number): string {
+  let out = "";
+  let used = 0;
+  for (const char of text) {
+    used += utf8Length(char);
+    if (used > limit) break;
+    out += char;
+  }
+  return out;
+}
+
+function dedupeTitles(template: string, ctx: Record<string, unknown>): Record<string, unknown> {
+  const next = { ...ctx };
+  const seen = new Set<string>();
+  for (const m of template.matchAll(TOKEN_RE)) {
+    if (!TITLE_TOKENS.includes(m[1])) continue;
+    const value = tokenValue(next, m[1], m[2]).toLowerCase();
+    if (!value) continue;
+    if (seen.has(value)) next[m[1]] = null;
+    seen.add(value);
+  }
+  return next;
+}
+
 function renderTemplate(template: string, ctx: Record<string, unknown>): string {
+  // 片名去重 → 渲染 → 超长时逐个截短最长的自由文本（与后端 render 同序）
+  const context = dedupeTitles(template, ctx);
+  let text = renderOnce(template, context);
+  for (let i = 0; i < SHRINKABLE_TOKENS.length * 2; i++) {
+    const over = utf8Length(text) - MAX_SEGMENT_BYTES;
+    if (over <= 0) return text;
+    const sizes = SHRINKABLE_TOKENS.map((n) => [n, utf8Length(tokenValue(context, n))] as const);
+    const [name, size] = sizes.reduce((a, b) => (b[1] > a[1] ? b : a));
+    if (size <= SHRINK_FLOOR_BYTES) break;
+    const keep = Math.max(size - over, SHRINK_FLOOR_BYTES);
+    context[name] = cutBytes(tokenValue(context, name), keep).replace(/^[ .-]+|[ .-]+$/g, "");
+    text = renderOnce(template, context);
+  }
+  return sanitizeSegment(cutBytes(text, MAX_SEGMENT_BYTES)) || "未命名";
+}
+
+function renderOnce(template: string, ctx: Record<string, unknown>): string {
   // ① 占位符全空的括号组连同组内字面文本一起丢弃（收掉 "[tmdbid-]" 这种残留）
   const dropped = template.replace(BRACKET_GROUP_RE, (group) => {
     const tokens = [...group.matchAll(TOKEN_RE)];
@@ -768,8 +819,65 @@ function renderTemplate(template: string, ctx: Record<string, unknown>): string 
 }
 
 /** 模板字段定义：可用占位符与后端 naming.ALLOWED_TOKENS 一一对应。 */
-const COMMON_TOKENS = ["title", "original_title", "year", "tmdb_id", "imdb_id"];
-const FILE_ATTR_TOKENS = ["resolution", "media_source", "release_group"];
+const COMMON_TOKENS = [
+  "title",
+  "original_title",
+  "english_title",
+  "year",
+  "tmdb_id",
+  "imdb_id",
+  "douban_id",
+];
+const FILE_ATTR_TOKENS = [
+  "resolution",
+  "video_codec",
+  "hdr",
+  "bit_depth",
+  "audio",
+  "media_source",
+  "release_group",
+  "site",
+  "release_name",
+];
+
+/** 占位符按类别分组展示，按钮上写中文名（悬停看占位符原文）。 */
+const TOKEN_GROUPS: { label: string; tokens: Record<string, string> }[] = [
+  {
+    label: "片名与编号",
+    tokens: {
+      title: "片名",
+      original_title: "原名",
+      english_title: "英文名",
+      year: "年份",
+      tmdb_id: "TMDB ID",
+      imdb_id: "IMDb ID",
+      douban_id: "豆瓣 ID",
+    },
+  },
+  {
+    label: "季集",
+    tokens: { season: "季号", season_name: "季名", episode: "集号", episode_title: "集名" },
+  },
+  {
+    label: "文件规格",
+    tokens: {
+      resolution: "分辨率",
+      video_codec: "视频编码",
+      hdr: "HDR",
+      bit_depth: "位深",
+      audio: "音轨",
+    },
+  },
+  {
+    label: "来源",
+    tokens: {
+      media_source: "片源",
+      release_group: "发布组",
+      site: "站点",
+      release_name: "原始文件名",
+    },
+  },
+];
 
 const NAMING_FIELDS = [
   {
@@ -791,14 +899,21 @@ const NAMING_FIELDS = [
     label: "季目录",
     note: "必须包含 {season}",
     fallback: "Season {season:02d}",
-    tokens: [...COMMON_TOKENS, "season"],
+    tokens: [...COMMON_TOKENS, "season", "season_name"],
   },
   {
     key: "naming_episode_file" as const,
     label: "剧集文件名",
     note: "必须包含 {season} 与 {episode}",
     fallback: "{title} ({year}) - S{season:02d}E{episode:02d}",
-    tokens: [...COMMON_TOKENS, ...FILE_ATTR_TOKENS, "season", "episode", "episode_title"],
+    tokens: [
+      ...COMMON_TOKENS,
+      ...FILE_ATTR_TOKENS,
+      "season",
+      "season_name",
+      "episode",
+      "episode_title",
+    ],
   },
 ];
 
@@ -806,25 +921,42 @@ const NAMING_FIELDS = [
 const SAMPLE_MOVIE = {
   title: "沙丘：第二部",
   original_title: "Dune: Part Two",
+  english_title: "Dune: Part Two",
   year: 2024,
   tmdb_id: 693134,
   imdb_id: "tt15239678",
+  douban_id: "35575567",
   resolution: "2160p",
+  video_codec: "HEVC",
+  hdr: "DV",
+  bit_depth: "10bit",
+  audio: "TrueHD Atmos 7.1",
   media_source: "BluRay",
   release_group: "FRDS",
+  site: "hdsky",
+  release_name: "Dune.Part.Two.2024.2160p.BluRay.DV.HEVC.TrueHD.7.1.Atmos-FRDS",
 };
 const SAMPLE_EPISODE = {
   title: "风筝",
   original_title: "风筝",
+  english_title: "Kite",
   year: 2017,
   tmdb_id: 68035,
   imdb_id: "tt6952510",
+  douban_id: "26340419",
   season: 1,
+  season_name: "第 1 季",
   episode: 3,
   episode_title: "延安来的姑娘",
   resolution: "1080p",
+  video_codec: "H.264",
+  hdr: null, // SDR：{hdr} 渲染为空，演示收缩
+  bit_depth: "8bit",
+  audio: "AAC 2.0",
   media_source: "WEB-DL",
   release_group: "CHDWEB",
+  site: "chdbits",
+  release_name: "Kite.2017.S01E03.1080p.WEB-DL.H264.AAC-CHDWEB",
 };
 
 /** 前端侧轻校验：与后端同口径，只为即时反馈；能否保存以后端返回为准。 */
@@ -948,19 +1080,36 @@ function NamingTab({
         <p className="mb-1.5 text-micro uppercase tracking-widest text-[var(--text-faint)]">
           可用占位符（点击插入到「{focusedField.label}」）
         </p>
-        <div className="flex flex-wrap gap-1.5">
-          {focusedField.tokens.map((token) => (
-            <button
-              key={token}
-              type="button"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => insertToken(token)}
-              className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-2 py-1 font-mono text-caption text-[var(--accent-2)] transition-colors hover:bg-white/[0.07] hover:text-[var(--accent)]"
-            >
-              {`{${token}}`}
-            </button>
-          ))}
+        <div className="flex flex-col gap-2">
+          {TOKEN_GROUPS.map((group) => {
+            const tokens = Object.keys(group.tokens).filter((t) => focusedField.tokens.includes(t));
+            if (tokens.length === 0) return null;
+            return (
+              <div key={group.label} className="flex flex-wrap items-center gap-1.5">
+                <span className="w-16 shrink-0 text-caption text-[var(--text-faint)]">
+                  {group.label}
+                </span>
+                {tokens.map((token) => (
+                  <button
+                    key={token}
+                    type="button"
+                    title={`{${token}}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => insertToken(token)}
+                    className="rounded-lg border border-white/[0.08] bg-white/[0.04] px-2 py-1 text-caption text-[var(--accent-2)] transition-colors hover:bg-white/[0.07] hover:text-[var(--accent)]"
+                  >
+                    {group.tokens[token]}
+                  </button>
+                ))}
+              </div>
+            );
+          })}
         </div>
+        {focusedField.tokens.includes("site") && (
+          <p className="mt-2 text-caption text-[var(--text-faint)]">
+            站点与原始文件名只有经本系统入库的文件才有；存量扫描发现的文件这两项为空，会自动收缩。
+          </p>
+        )}
       </div>
 
       <div className="mt-4 overflow-hidden rounded-xl border border-white/[0.08]">
@@ -976,7 +1125,7 @@ function NamingTab({
           <div className="flex flex-col gap-3 overflow-x-auto px-3.5 py-3">
             <div>
               <p className="mb-1 text-caption text-[var(--text-faint)]">
-                电影 · 沙丘：第二部（2024）· 2160p BluRay FRDS
+                电影 · 沙丘：第二部（2024）· 2160p DV TrueHD Atmos · BluRay FRDS
               </p>
               <p className="whitespace-nowrap font-mono text-sub leading-relaxed">
                 <span className="text-[var(--text-faint)]">/media/电影/</span>
@@ -985,7 +1134,7 @@ function NamingTab({
             </div>
             <div>
               <p className="mb-1 text-caption text-[var(--text-faint)]">
-                剧集 · 风筝（2017）第 1 季第 3 集 · 1080p WEB-DL CHDWEB
+                剧集 · 风筝（2017）第 1 季第 3 集 · 1080p SDR AAC · WEB-DL CHDWEB
               </p>
               <p className="whitespace-nowrap font-mono text-sub leading-relaxed">
                 <span className="text-[var(--text-faint)]">/media/剧集/</span>

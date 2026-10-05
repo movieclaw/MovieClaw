@@ -35,16 +35,44 @@ from movieclaw_api.services.library.config import sanitize_folder_name
 _TOKEN = re.compile(r"\{(\w+)(?::0(\d)d)?\}")
 
 # 可用占位符按可解析的上下文分组——在拿不到值的模板里放占位符只会渲染成空，
-# 与其让用户事后发现名字少了一截，不如保存时就报错
-_COMMON = frozenset({"title", "original_title", "year", "tmdb_id", "imdb_id"})
-_FILE_ATTRS = frozenset({"resolution", "media_source", "release_group"})
+# 与其让用户事后发现名字少了一截，不如保存时就报错。
+# 条目目录只能用条目身份字段：投递时就要算出 save_path，那时文件还不存在
+_COMMON = frozenset(
+    {"title", "original_title", "english_title", "year", "tmdb_id", "imdb_id", "douban_id"}
+)
+# 文件属性：入库侧来自探测/来源戳，整理侧来自台账行，两侧都经 file_attrs 格式化
+_FILE_ATTRS = frozenset(
+    {
+        "resolution",
+        "media_source",
+        "release_group",
+        "video_codec",
+        "hdr",
+        "bit_depth",
+        "audio",
+        "site",
+        "release_name",
+    }
+)
 
 ALLOWED_TOKENS: dict[str, frozenset[str]] = {
     "entry_dir": _COMMON,
     "movie_file": _COMMON | _FILE_ATTRS,
-    "season_dir": _COMMON | frozenset({"season"}),
-    "episode_file": _COMMON | _FILE_ATTRS | frozenset({"season", "episode", "episode_title"}),
+    "season_dir": _COMMON | frozenset({"season", "season_name"}),
+    "episode_file": _COMMON
+    | _FILE_ATTRS
+    | frozenset({"season", "season_name", "episode", "episode_title"}),
 }
+
+# 片名类占位符：同一个模板里值相同的只保留第一次出现（见 _dedupe_titles）
+_TITLE_TOKENS = ("title", "original_title", "english_title")
+# 超长时可截短的自由文本占位符（编号、年份、规格截了会撞名或失真，不截）
+_SHRINKABLE = (*_TITLE_TOKENS, "episode_title", "season_name", "release_name")
+# 单段名字的字节上限。ext4/NTFS/APFS 单段上限 255 字节，留出扩展名、
+# 多版本「 - 标签」后缀与字幕/剧照等附属文件后缀（.zh-Hans.forced.ass）的余量
+MAX_SEGMENT_BYTES = 200
+# 自由文本最多截到这么长（约 10 个汉字）：片名截没了不同影片会撞名
+_SHRINK_FLOOR_BYTES = 30
 
 # 模板字段的中文名（错误文案用，面向非开发者）
 FIELD_LABELS = {
@@ -123,15 +151,62 @@ def _collapse(text: str) -> str:
     return text.strip(" -–.")
 
 
+def _dedupe_titles(template: str, context: Mapping[str, Any]) -> dict[str, Any]:
+    """片名类占位符去重：值与模板里更早出现的片名相同时渲染为空。
+
+    国产片的 title 与 original_title 是同一个值，``{title} ({original_title})``
+    不去重就是「风筝 (风筝)」。置空后括号组随之整组丢弃，模板里不需要条件语法。
+    """
+    ctx = dict(context)
+    seen: set[str] = set()
+    for name, pad in _TOKEN.findall(template):
+        if name not in _TITLE_TOKENS:
+            continue
+        value = _token_value(ctx, name, pad).casefold()
+        if not value:
+            continue
+        if value in seen:
+            ctx[name] = None
+        seen.add(value)
+    return ctx
+
+
+def _render_once(template: str, context: Mapping[str, Any]) -> str:
+    text = _drop_empty_groups(template, context)
+    text = _TOKEN.sub(lambda m: _token_value(context, m.group(1), m.group(2)), text)
+    return sanitize_folder_name(_collapse(text))
+
+
+def _cut_bytes(text: str, limit: int) -> str:
+    """按 UTF-8 字节截断，不切坏多字节字符。"""
+    return text.encode()[: max(limit, 0)].decode(errors="ignore")
+
+
 def render(template: str, context: Mapping[str, Any]) -> str:
     """按上下文渲染一段名字（**只是一段**，不含路径分隔符）。
 
     三步：先整组丢弃占位符全空的括号组，再替换占位符，最后收缩并整体
     过一次 ``sanitize_folder_name``（兜住模板字面文本里的保留字符）。
+
+    超过 ``MAX_SEGMENT_BYTES`` 时逐个截短最长的自由文本占位符（片名、集名、
+    原始发布名），季集号、年份、规格保持完整——截掉 ``S01E03`` 会让多集撞名。
+    截短只依赖上下文，入库与整理算出的仍是同一个名字。
     """
-    text = _drop_empty_groups(template, context)
-    text = _TOKEN.sub(lambda m: _token_value(context, m.group(1), m.group(2)), text)
-    return sanitize_folder_name(_collapse(text))
+    ctx = _dedupe_titles(template, context)
+    text = _render_once(template, ctx)
+    for _ in range(len(_SHRINKABLE) * 2):
+        over = len(text.encode()) - MAX_SEGMENT_BYTES
+        if over <= 0:
+            return text
+        sizes = {n: len(_token_value(ctx, n, None).encode()) for n in _SHRINKABLE}
+        name = max(sizes, key=lambda n: sizes[n])
+        if sizes[name] <= _SHRINK_FLOOR_BYTES:
+            break
+        keep = max(sizes[name] - over, _SHRINK_FLOOR_BYTES)
+        ctx[name] = _cut_bytes(_token_value(ctx, name, None), keep).strip(" .-")
+        text = _render_once(template, ctx)
+    # 没有可截的自由文本（模板字面文本本身就超长）或截不动：整体硬截兜底
+    return sanitize_folder_name(_cut_bytes(text, MAX_SEGMENT_BYTES))
 
 
 # ---------------------------------------------------------------------------
@@ -195,9 +270,95 @@ def item_context(item: Any) -> dict[str, Any]:
     return {
         "title": item.title,
         "original_title": getattr(item, "original_title", None),
+        "english_title": getattr(item, "english_title", None),
         "year": item.year,
         "tmdb_id": getattr(item, "tmdb_id", None),
         "imdb_id": getattr(item, "imdb_id", None),
+        "douban_id": getattr(item, "douban_id", None),
+    }
+
+
+# 文件属性的展示写法：贴近发布名惯例（HEVC / DV / DDP 5.1），而不是探测器原值
+_CODEC_LABELS = {
+    "hevc": "HEVC",
+    "h264": "H.264",
+    "av1": "AV1",
+    "vp9": "VP9",
+    "mpeg2video": "MPEG-2",
+    "vc1": "VC-1",
+}
+_HDR_LABELS = {"Dolby Vision": "DV"}
+_AUDIO_CODEC_LABELS = {
+    "aac": "AAC",
+    "ac3": "DD",
+    "eac3": "DDP",
+    "truehd": "TrueHD",
+    "dts": "DTS",
+    "flac": "FLAC",
+    "opus": "Opus",
+    "mp3": "MP3",
+    "lpcm": "LPCM",
+}
+# 只是编码内部档次的 profile 不如 codec 有信息量（与回收站音轨展示同一判断）
+_GENERIC_AUDIO_PROFILES = {"lc", "main", "high", "baseline", "main 10"}
+_CHANNEL_LABELS = {1: "1.0", 2: "2.0", 6: "5.1", 7: "6.1", 8: "7.1"}
+
+
+def _audio_label(streams: list | None) -> str | None:
+    """默认音轨（没有标默认的取第一条）→「编码 声道」，如 ``DDP 5.1`` / ``DTS-HD MA 7.1``。"""
+    if not streams:
+        return None
+    stream = next((s for s in streams if s.get("default")), streams[0])
+    codec = str(stream.get("codec") or "").lower()
+    if codec.startswith("pcm_"):
+        codec = "lpcm"  # pcm_s24le / pcm_bluray 等都是无压缩 PCM
+    base = _AUDIO_CODEC_LABELS.get(codec, codec.upper()) if codec else None
+    profile = str(stream.get("profile") or "")
+    if "atmos" in profile.lower():
+        name = f"{base} Atmos" if base else "Atmos"
+    elif profile and profile.lower() not in _GENERIC_AUDIO_PROFILES:
+        name = profile
+    else:
+        name = base
+    layout = str(stream.get("channel_layout") or "").split("(")[0].strip()
+    channels = stream.get("channels")
+    if layout[:1].isdigit():
+        chan = layout
+    elif isinstance(channels, int):
+        chan = _CHANNEL_LABELS.get(channels, f"{channels}ch")
+    else:
+        chan = None
+    return " ".join(p for p in (name, chan) if p) or None
+
+
+def file_attrs(
+    *,
+    resolution: str | None = None,
+    media_source: str | None = None,
+    release_group: str | None = None,
+    video_codec: str | None = None,
+    hdr: str | None = None,
+    bit_depth: int | None = None,
+    audio_streams: list | None = None,
+    site_id: str | None = None,
+    release_name: str | None = None,
+) -> dict[str, Any]:
+    """文件属性 → 渲染上下文。入库（探测结果 + 来源戳）与整理（台账行）
+    **都必须经这里**格式化，否则同一个文件两侧算出不同的名字。
+
+    ``{site}`` 取站点标识（hdsky / chdbits）而不是显示名：显示名带空格与
+    中文、且会随站点配置调整，一变就让整库「待整理」；标识是稳定的键。
+    """
+    return {
+        "resolution": resolution,
+        "media_source": media_source,
+        "release_group": release_group,
+        "video_codec": _CODEC_LABELS.get(video_codec or "", (video_codec or "").upper()) or None,
+        "hdr": _HDR_LABELS.get(hdr or "", hdr) or None,
+        "bit_depth": f"{bit_depth}bit" if bit_depth else None,
+        "audio": _audio_label(audio_streams),
+        "site": site_id,
+        "release_name": release_name,
     }
 
 
@@ -243,11 +404,13 @@ def season_dir_name(
     item: Any | None = None,
     templates: NamingTemplates | None = None,
     library: object | None = None,
+    season_name: str | None = None,
 ) -> str:
-    """季目录名。"""
+    """季目录名。``season_name`` 是 TMDB 季名（如「特别篇」），供 ``{season_name}``。"""
     tpl = templates or effective_templates(library)
     context: dict[str, Any] = dict(item_context(item)) if item is not None else {}
     context["season"] = season
+    context["season_name"] = season_name
     return render(tpl.season_dir, context)
 
 
@@ -264,4 +427,37 @@ def episode_file_name(
     return render(
         tpl.episode_file,
         {**item_context(item), "season": season, "episode": episode, **extra},
+    )
+
+
+async def load_unit_names(
+    session: Any, item_ids: Any
+) -> tuple[dict[tuple[int, int], str], dict[tuple[int, int, int], str]]:
+    """季名与集名（``{season_name}`` / ``{episode_title}`` 的取值），入库与整理共用。
+
+    返回 ``({(条目, 季): 季名}, {(条目, 季, 集): 集名})``；空名不收录（渲染为空）。
+    """
+    from sqlmodel import select
+
+    from movieclaw_db.models import MediaEpisode, MediaSeason
+
+    ids = list(item_ids)
+    if not ids:
+        return {}, {}
+    seasons = await session.execute(
+        select(MediaSeason.media_item_id, MediaSeason.season_number, MediaSeason.name).where(
+            MediaSeason.media_item_id.in_(ids)  # type: ignore[attr-defined]
+        )
+    )
+    episodes = await session.execute(
+        select(
+            MediaEpisode.media_item_id,
+            MediaEpisode.season_number,
+            MediaEpisode.episode_number,
+            MediaEpisode.name,
+        ).where(MediaEpisode.media_item_id.in_(ids))  # type: ignore[attr-defined]
+    )
+    return (
+        {(i, s): name for i, s, name in seasons.all() if name},
+        {(i, s, e): name for i, s, e, name in episodes.all() if name},
     )
