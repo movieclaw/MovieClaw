@@ -96,14 +96,32 @@ struct TVStageBackdrop: View {
                             .frame(width: 1920, height: 1080)
                     }
                 }
-                .modifier(TVStageFade(fadeFrom: fadeFrom, cover: fullImage ? nil : (tint ?? .tvPage)))
+                .overlay {
+                    if !fullImage {
+                        // 首页的下沿渐隐：剧照底下是一种纯色，盖一层渐变到这种颜色的渐变（见 `TVEasedFade.rising`）
+                        LinearGradient(stops: TVEasedFade.rising(color: tint ?? .tvPage, from: fadeFrom), startPoint: .top, endPoint: .bottom)
+                            .allowsHitTesting(false)
+                    }
+                }
+                if fullImage, url != nil {
+                    // 详情页的下沿渐隐（见 `TVStageFadeCover`）
+                    TVStageFadeCover(ambientURL: ambientURL, fadeFrom: fadeFrom, shift: max(0, scrollOffset - pinnedScroll))
+                }
                 if url != nil {
                     // 托字的黑压在剧照与预告之上（两者同一层黑：换图交叉淡入时与各自带一层黑的效果相同）
                     Group {
                         if fullImage {
-                            TVStageScrim(strength: cornerScrim, shape: .corner)
-                                .frame(width: 1920, height: 1080)
-                                .mask { TVStageImage.fadeMask(from: fadeFrom) }
+                            // 详情页：静止时下沿不渐隐（`fadeFrom` 为 1），遮罩什么也不遮，却每帧都要离屏渲染。
+                            // 两份黑靠透明度切换（不随滑动重建视图）：静止时用不带遮罩的那份，往下滑才换带遮罩的
+                            let fading = fadeFrom < 1
+                            ZStack {
+                                TVStageScrim(strength: cornerScrim, shape: .corner)
+                                    .opacity(fading ? 0 : 1)
+                                TVStageScrim(strength: cornerScrim, shape: .corner)
+                                    .mask { TVStageImage.fadeMask(from: fadeFrom) }
+                                    .opacity(fading ? 1 : 0)
+                            }
+                            .frame(width: 1920, height: 1080)
                         } else {
                             // 首页：同样的黑预先算成一张图，免掉全屏遮罩（见 `TVStageLeadingScrim`）
                             TVStageLeadingScrim(strength: cornerScrim, fadeFrom: fadeFrom)
@@ -170,25 +188,27 @@ private struct TVStageImage: View {
     }
 }
 
-/// 剧照（连同预告）的下沿渐隐。
-/// - 首页（`cover` 是剧照底下垫的那一种纯色）：不用遮罩，在上面盖一层从透明渐变到同一种颜色的渐变。
-///   「剧照渐隐、露出底下的纯色」与「剧照上盖一层渐变到这种颜色」逐像素相同（剧照半透明、换图交叉淡入时也相同），
-///   但全屏遮罩每帧都要在 4K 下离屏渲染整块画面——剧照慢推、预告视频让画面每帧都在变，
-///   真机（Apple TV 4K 二代）上 GPU 一帧 50 毫秒、首页只出 30 帧（2026-10-06 Instruments 实测）；
-/// - 详情页（`cover` 为 nil）：剧照底下垫的是模糊剧照，不是纯色，仍用遮罩
-private struct TVStageFade: ViewModifier {
+/// 详情页剧照（连同预告）的下沿渐隐：剧照本身不套遮罩，在它上面盖一份与底下相同的模糊背景，
+/// 从上往下渐渐不透明，并且贴着屏幕不动（抵消整层跟着列表上移的那段位移），与底下那份严丝合缝。
+/// 「剧照渐隐、露出底下的模糊背景」与「剧照上盖一层渐变出现的同一份背景」逐像素相同（整层淡出时也相同）。
+/// 静止时不渐隐（`fadeFrom` 为 1），这层全透明、不参与合成；原先剧照套着的全屏遮罩此时什么也不遮，
+/// 却每帧都要在 4K 下离屏渲染整块画面（剧照慢推、预告视频让它每帧都在变）。只有往下滑时才出现
+private struct TVStageFadeCover: View {
+    let ambientURL: URL?
     let fadeFrom: CGFloat
-    let cover: Color?
+    /// 整层跟着列表往上移了多少
+    let shift: CGFloat
 
-    func body(content: Content) -> some View {
-        if let cover {
-            content.overlay {
-                LinearGradient(stops: TVEasedFade.rising(color: cover, from: fadeFrom), startPoint: .top, endPoint: .bottom)
-                    .allowsHitTesting(false)
+    var body: some View {
+        TVBlurredBackdrop(url: ambientURL)
+            .offset(y: shift)
+            // 遮罩跟着剧照走（不随上面的位移）：剧照那 1080 点里从透明渐变到不透明，剧照下面不画（本来就露出底下那份）
+            .mask(alignment: .top) {
+                LinearGradient(stops: TVEasedFade.rising(color: .black, from: fadeFrom), startPoint: .top, endPoint: .bottom)
+                    .frame(height: 1080)
             }
-        } else {
-            content.mask { TVStageImage.fadeMask(from: fadeFrom) }
-        }
+            .opacity(fadeFrom < 1 ? 1 : 0)
+            .allowsHitTesting(false)
     }
 }
 
@@ -588,7 +608,11 @@ enum TVEasedFade {
         return a + (b - a) * (position - CGFloat(index))
     }
 
-    /// `stops` 的补：`from` 以上全透明，往下按同一条曲线渐变到不透明。盖在剧照上代替「渐隐遮罩 + 底下的纯色」
+    /// `stops` 的补：`from` 以上全透明，往下按同一条曲线渐变到不透明。盖在剧照上代替渐隐遮罩：
+    /// 剧照底下是一种纯色时（首页），「剧照渐隐、露出底下的纯色」与「剧照上盖一层渐变到这种颜色」逐像素相同
+    /// （剧照半透明、换图交叉淡入时也相同），而全屏遮罩每帧都要在 4K 下离屏渲染整块画面——剧照慢推、预告视频
+    /// 让画面每帧都在变，真机（Apple TV 4K 二代）上 GPU 一帧 50 毫秒、首页只出 30 帧（2026-10-06 Instruments 实测）。
+    /// 详情页剧照底下是模糊背景，盖的是同一份背景（`TVStageFadeCover`），用它当遮罩
     static func rising(color: Color, from: CGFloat, steps: Int = 12) -> [Gradient.Stop] {
         [.init(color: color.opacity(0), location: 0)] + (0 ... steps).map { index in
             let t = CGFloat(index) / CGFloat(steps)
