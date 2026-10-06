@@ -229,6 +229,22 @@ struct PushPayloadTests {
         #expect(plaintext.server == nil)
     }
 
+    /// 剧卡的快捷操作与集数格子（docs/design/cloud-push.md §5.1）
+    @Test func decodesCardActionsAndGrid() throws {
+        let plaintext = try decode(#"""
+        {"v":1,"type":"alert","title":"余红旧事 可以先看了","category":"item",
+         "actions":[{"id":"play","title":"播放第 4 集","open":"/play/7/s01e04"},
+                    {"id":"open","title":"查看全部剧集","open":"/library/3/item/7"},
+                    {"id":"mute","title":"这部剧不再提醒","item":7}],
+         "grid":{"season":1,"cells":"sssddw"}}
+        """#)
+        #expect(plaintext.category == "item")
+        #expect(plaintext.actions?.map(\.id) == ["play", "open", "mute"])
+        #expect(plaintext.actions?.first?.open == "/play/7/s01e04")
+        #expect(plaintext.actions?.last?.item == 7)
+        #expect(plaintext.grid == PushPlaintext.Grid(season: 1, cells: "sssddw"))
+    }
+
     /// 用实例的方式加密一段明文，再像通知扩展那样从 userInfo 解开
     private func push(_ json: String) throws -> DecryptedPush? {
         let isolated = IsolatedStore()
@@ -376,6 +392,30 @@ struct PushTapTargetTests {
 
         // 测试向量的 open 是 movieclaw:// 链接，不是站内路径：只切账号
         #expect(PushTapTarget(userInfo: ["e": PushCryptoTests.vectorPayload], store: isolated.store) == PushTapTarget(login: nas, openPath: nil))
+    }
+
+    /// 长按菜单里的快捷操作：按明文里这个操作的 open 打开（播放链接直接起播）；静音取明文里的条目
+    @Test func cardActionsComeFromTheCiphertext() throws {
+        let isolated = IsolatedStore()
+        defer { isolated.tearDown() }
+        isolated.store.save(PushCryptoTests.vectorKey, keyID: PushCryptoTests.vectorKeyID, for: nas)
+        let json = #"""
+        {"v":1,"type":"alert","title":"T","open":"/library/3/item/7?season=1&episode=4",
+         "actions":[{"id":"play","title":"播放第 4 集","open":"/play/7/s01e04"},
+                    {"id":"open","title":"查看全部剧集","open":"https://evil.example/x"},
+                    {"id":"mute","title":"这部剧不再提醒","item":7}]}
+        """#
+        let payload = try PushCrypto.seal(Data(json.utf8), key: PushCryptoTests.vectorKey, keyID: PushCryptoTests.vectorKeyID)
+        let userInfo: [AnyHashable: Any] = ["e": payload, "mc_open": "/activate?code=EVIL"]
+        let play = PushTapTarget(userInfo: userInfo, store: isolated.store, action: "play")
+        #expect(play == PushTapTarget(login: nas, openPath: "/play/7/s01e04"))
+        #expect(PlayRequest(webPath: play?.openPath ?? "")?.episode == 4, "播放链接直接起播第 4 集")
+        // 不是站内路径的不认；没有的操作不认
+        #expect(PushTapTarget(userInfo: userInfo, store: isolated.store, action: "open") == nil)
+        #expect(PushTapTarget(userInfo: userInfo, store: isolated.store, action: "share") == nil)
+        let mute = PushActions.MuteRequest(userInfo: userInfo, store: isolated.store)
+        #expect(mute?.item == 7 && mute?.login == nas)
+        #expect(PushActions.MuteRequest(userInfo: ["e": "v1.x.AAAA.BBBB"], store: isolated.store) == nil)
     }
 
     /// 认不出是哪个登录（已退出、通用文案的推送）：只是打开 App

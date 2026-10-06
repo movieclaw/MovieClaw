@@ -42,10 +42,11 @@ app="$out/DerivedData/Build/Products/Release-iphoneos/MovieClaw.app"
 rm -rf "$out/Payload" "$out/$ipa"
 mkdir -p "$out/Payload"
 ditto "$app" "$out/Payload/MovieClaw.app"
-# 去掉推送的通知扩展：侧载包收不到推送——侧载工具重签时换了 Bundle ID，官方推送只发给 App Store 版的
-# Bundle ID，免费 Apple ID 也开不了推送权限。留着它只会多占一个 App ID（免费 Apple ID 每 7 天最多 10 个）。
-# App 发现包里没有它就不弹通知权限（PushCenter.hasNotificationService）
+# 去掉推送的两个通知扩展（解密、长按展开）：侧载包收不到推送——侧载工具重签时换了 Bundle ID，官方推送只发给
+# App Store 版的 Bundle ID，免费 Apple ID 也开不了推送权限。留着它们只会多占 App ID（免费 Apple ID 每 7 天最多 10 个）。
+# App 发现包里没有解密扩展就不弹通知权限（PushCenter.hasNotificationService）
 rm -rf "$out/Payload/MovieClaw.app/PlugIns/MovieClawNotificationService.appex"
+rm -rf "$out/Payload/MovieClaw.app/PlugIns/MovieClawNotificationContent.appex"
 rmdir "$out/Payload/MovieClaw.app/PlugIns" 2>/dev/null || true
 (cd "$out" && zip -qry "$ipa" Payload)
 rm -rf "$out/Payload"

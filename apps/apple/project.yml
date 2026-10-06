@@ -62,6 +62,8 @@ targets:
     dependencies:
       # 通知扩展：解密推送、换上真正的标题正文与配图
       - target: MovieClawNotificationService
+      # 通知内容扩展：长按剧卡时的大图、集数格子与快捷操作
+      - target: MovieClawNotificationContent
       - package: Nuke
         product: Nuke
       - package: Nuke
@@ -107,11 +109,13 @@ targets:
         # 与通知扩展共用的 App Group（推送密钥的钥匙串访问组、key_id 对照），跟着 Bundle ID 前缀走
         MCAppGroup: group.$(MC_BUNDLE_ID_PREFIX).app
     # 推送（docs/design/cloud-push.md §9）。aps-environment 写 development：导出 App Store / TestFlight 包时
-    # Xcode 按发布描述文件改成 production。未签名的侧载包（scripts/build-unsigned-ipa.sh）不签名，这些都不带
+    # Xcode 按发布描述文件改成 production。未签名的侧载包（scripts/build-unsigned-ipa.sh）不签名，这些都不带。
+    # 时效性通知：账号安全、严重的管理员告警在专注模式下也提醒（cloud-push.md §5.1）
     entitlements:
       path: MovieClaw/MovieClaw.entitlements
       properties:
         aps-environment: development
+        com.apple.developer.usernotifications.time-sensitive: true
         com.apple.security.application-groups:
           - group.$(MC_BUNDLE_ID_PREFIX).app
     settings:
@@ -160,6 +164,44 @@ targets:
         SKIP_INSTALL: YES
         # 系统回调扩展的方法不在主线程，扩展不继承工程级的默认主线程隔离
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+  # 通知内容扩展（docs/design/cloud-push.md §9）：长按剧卡（类别 item）时显示大图、一季的集数格子（哪几集到了、
+  # 看过、还在下载、没找到），并把快捷操作的标题换成具体的（「播放第 4 集」）。格子在密文里：和 App 一样按 key_id
+  # 从 App Group 共享的钥匙串取密钥自己解，不读通知扩展写的东西
+  MovieClawNotificationContent:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: MovieClawNotificationContent
+        type: syncedFolder
+      - path: PushShared
+        type: syncedFolder
+    info:
+      path: MovieClawNotificationContent/Info.plist
+      properties:
+        CFBundleDisplayName: MovieClaw
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        MCAppGroup: group.$(MC_BUNDLE_ID_PREFIX).app
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.usernotifications.content-extension
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationViewController
+          NSExtensionAttributes:
+            UNNotificationExtensionCategory: item
+            # 标题正文也由扩展画（大图在最上面），系统默认的那份隐藏
+            UNNotificationExtensionDefaultContentHidden: true
+            UNNotificationExtensionInitialContentSizeRatio: 1.0
+            UNNotificationExtensionUserInteractionEnabled: false
+    entitlements:
+      path: MovieClawNotificationContent/MovieClawNotificationContent.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.$(MC_BUNDLE_ID_PREFIX).app
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: $(MC_BUNDLE_ID_PREFIX).app.notification-content
+        TARGETED_DEVICE_FAMILY: "1"
+        GENERATE_INFOPLIST_FILE: NO
+        SKIP_INSTALL: YES
   # 自研引擎（AetherEngine）的动态框架边界。
   # 为什么不直接链进 App：这是 LGPL 组件的替换边界（用户可以用自行编译的同名框架替换）；
   # 它的 FFmpeg 引用也在这个框架链接时就绑定到自带的 AetherLib* 框架——一个进程里有两份 FFmpeg 时

@@ -127,6 +127,15 @@ final class NotificationSettingsModel {
         }
     }
 
+    /// 恢复一部片的推送（长按通知「这部剧不再提醒」静音的）：先从列表里拿掉，失败按服务器上的为准
+    func unmute(_ id: Int) async throws {
+        guard var next = state.value else { return }
+        next.mutedItems?.removeAll { $0.id == id }
+        state = .loaded(next)
+        let api = api
+        try await write { try await api.pushMeMutedRemove(itemId: id) }
+    }
+
     /// 给自己的设备发一条测试通知（10 秒内只能发一次，后端拒绝时带可读的原因）
     func sendTest() async throws -> API.PushTestView {
         try await api.pushMeTest()
@@ -167,6 +176,7 @@ private struct NotificationSettingsContent: View {
                 readinessSections(settings)
                 attentionSection(settings)
                 eventSections(settings)
+                mutedSection(settings)
                 testSection(settings)
             }
         }
@@ -362,6 +372,34 @@ private struct NotificationSettingsContent: View {
             }
             .accessibilityAddTraits(selected ? .isSelected : [])
             .accessibilityIdentifier("notifications-library-\(library.name)")
+        }
+    }
+
+    // MARK: 不再提醒的剧
+
+    /// 长按通知点过「这部剧不再提醒」的片：一部一行，点「恢复」重新提醒。没有就不显示
+    @ViewBuilder
+    private func mutedSection(_ settings: API.MyPushView) -> some View {
+        if let muted = settings.mutedItems, !muted.isEmpty {
+            Section {
+                ForEach(muted, id: \.id) { item in
+                    HStack(spacing: 12) {
+                        Text(item.year.map { "\(item.title)（\($0)）" } ?? item.title)
+                            .lineLimit(1)
+                        Spacer(minLength: 8)
+                        SettingsBAsyncButton("恢复") {
+                            do { try await model.unmute(item.id) } catch { feedback.error(error) }
+                        }
+                        .font(.subheadline.weight(.medium))
+                        .buttonStyle(.glass)
+                        .accessibilityIdentifier("notifications-unmute-\(item.id)")
+                    }
+                }
+            } header: {
+                Text("不再提醒")
+            } footer: {
+                Text("在通知上长按选「这部剧不再提醒」的片。只是不推送，订阅照常下载。")
+            }
         }
     }
 

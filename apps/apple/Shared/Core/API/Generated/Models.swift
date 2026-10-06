@@ -5933,6 +5933,8 @@ nonisolated extension API {
         var libraryIds: [Int]?
         /// 我收不到通知的设备；空 = 没问题
         var attention: [API.PushAttentionView]
+        /// 静音了的片（长按通知「这部剧不再提醒」），最近静音的在前
+        var mutedItems: [API.PushMutedItemView]?
 
         enum CodingKeys: String, CodingKey {
             case instanceReady = "instance_ready"
@@ -5942,6 +5944,7 @@ nonisolated extension API {
             case libraries
             case libraryIds = "library_ids"
             case attention
+            case mutedItems = "muted_items"
         }
     }
 
@@ -7629,6 +7632,21 @@ nonisolated extension API {
         enum CodingKeys: String, CodingKey {
             case id
             case name
+            case kind
+        }
+    }
+
+    /// 「这部剧不再提醒」静音了的一部片。
+    struct PushMutedItemView: Codable, Hashable, Sendable {
+        var id: Int
+        var title: String
+        var year: Int?
+        var kind: String
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case title
+            case year
             case kind
         }
     }

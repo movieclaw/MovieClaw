@@ -208,8 +208,9 @@ class MyPushView(BaseModel):
         description="「媒体库有新片」关心的库；null = 能看到的全部（含以后新建的）"
     )
     attention: list[PushAttentionView] = Field(description="我收不到通知的设备；空 = 没问题")
-    muted_items: list[PushMutedItemView] = Field(
-        default_factory=list,
+    # 可空：App 连旧服务器时没有这个字段，生成的模型得能解码
+    muted_items: list[PushMutedItemView] | None = Field(
+        default=None,
         description="静音了的片（长按通知「这部剧不再提醒」），最近静音的在前",
     )
 

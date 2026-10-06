@@ -1893,6 +1893,18 @@ nonisolated extension APIClient {
         return try await send("GET", "/push/me")
     }
 
+    /// 恢复一部片的推送
+    /// `DELETE /push/me/muted-items/{item_id}`
+    func pushMeMutedRemove(itemId: Int) async throws -> API.MyPushView {
+        return try await send("DELETE", "/push/me/muted-items/\(itemId)")
+    }
+
+    /// 这部片不再提醒（长按通知的快捷操作；只关推送，订阅照常下载）
+    /// `PUT /push/me/muted-items/{item_id}`
+    func pushMeMutedAdd(itemId: Int) async throws -> API.MyPushView {
+        return try await send("PUT", "/push/me/muted-items/\(itemId)")
+    }
+
     /// 改我的通知开关
     /// `PUT /push/me/preferences`
     func pushMePreferencesSet(body: API.PushPreferencesRequest) async throws -> API.MyPushView {
