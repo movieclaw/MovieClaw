@@ -187,6 +187,15 @@ class PushLibraryView(BaseModel):
     kind: str
 
 
+class PushMutedItemView(BaseModel):
+    """「这部剧不再提醒」静音了的一部片。"""
+
+    id: int
+    title: str
+    year: int | None
+    kind: str
+
+
 class MyPushView(BaseModel):
     instance_ready: bool = Field(description="服务器有没有任何可用通道")
     is_admin: bool
@@ -199,6 +208,10 @@ class MyPushView(BaseModel):
         description="「媒体库有新片」关心的库；null = 能看到的全部（含以后新建的）"
     )
     attention: list[PushAttentionView] = Field(description="我收不到通知的设备；空 = 没问题")
+    muted_items: list[PushMutedItemView] = Field(
+        default_factory=list,
+        description="静音了的片（长按通知「这部剧不再提醒」），最近静音的在前",
+    )
 
 
 class PushPreferencesRequest(BaseModel):

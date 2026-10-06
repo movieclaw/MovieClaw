@@ -947,28 +947,15 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                 )
             )
             if item is not None:
-                from movieclaw_api.services.channel_push import (
-                    notify_channels,
-                    tmdb_push_image_url,
-                )
-
-                notify_channels(
-                    f"✨ 已洗版:《{item.title}》{_unit_text(wanted)}\n{old_label} → {new_label}",
-                    event="upgraded",
-                    image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
-                )
-                # App 推送：推给订阅的人，后台发送（docs/design/cloud-push.md §5）
+                # App 推送与 IM 通道：按订阅合并成一条，在推送事件中枢里做（cards.py）
                 from movieclaw_api.services.push import events as push_events
 
                 push_events.upgraded(
                     subscription_id=wanted.subscription_id,
                     item_id=media_item_id,
-                    title=item.title,
-                    year=item.year,
                     unit=(wanted.season_number, wanted.episode_number),
                     old_label=old_label,
                     new_label=new_label,
-                    image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
                 )
             logger.info(
                 "洗版完成：条目 #%s %s %s → %s",

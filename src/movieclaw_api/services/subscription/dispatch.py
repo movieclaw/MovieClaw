@@ -441,33 +441,21 @@ async def dispatch(
     )
     await recompute_subscription_status(session, subscription, item)
 
-    # IM 通道推送(微信/TG/Discord;fire-and-forget,失败不影响投递链路)
+    # App 推送与 IM 通道（微信/TG/Discord）：只投一个事件，按剧合并、写文案都在推送事件中枢里
+    # 做，不占投递链路（docs/design/cloud-push.md §5.1）
     if not dry_run:
-        from movieclaw_api.services.channel_push import notify_channels, tmdb_push_image_url
-
-        year_text = f"({item.year}) " if item.year else ""
-        push_verb = "开始洗版下载" if upgrade_rows and not claimed else "开始下载"
-        notify_channels(
-            f"📥 {push_verb}:《{item.title}》{year_text}{units_label}\n"
-            f"来自 {candidate.site_id} 的「{candidate.title[:60]}」\n"
-            f"{spec_text}",
-            event="dispatch",
-            image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
-        )
-        # App 推送：推给订阅的人，后台发送（docs/design/cloud-push.md §5）
         from movieclaw_api.services.push import events as push_events
 
         push_events.download_started(
             subscription_id=subscription.id,
             item_id=item.id,
-            title=item.title,
-            year=item.year,
             units=[(w.season_number, w.episode_number) for w in all_targets],
             detail=candidate.attrs.resolution or "",
             upgrade=bool(upgrade_rows and not claimed),
-            image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
             # 手动选种：点下载的人自己不用提醒
             skip_member_id=actor_member_id,
+            source=f"来自 {candidate.site_id} 的「{candidate.title[:60]}」",
+            spec=spec_text,
         )
         # 事件 Webhook(与 IM 推送同点位:种子已真实提交,事件即事实)
         from movieclaw_api.services.subscription.events import build_download_started_event

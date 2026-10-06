@@ -90,11 +90,16 @@ def encode_plaintext(message: dict) -> bytes:
 
 
 def fit_alert(message: dict) -> bytes:
-    """编码 alert 明文；超过上限时先截短 ``body``，还超就再截 ``title``。"""
+    """编码 alert 明文；超过上限时先去掉集数格子，再截短 ``body``，还超就再截 ``title``。"""
     data = encode_plaintext(message)
     if len(data) <= MAX_ALERT_PLAINTEXT_BYTES:
         return data
     trimmed = dict(message)
+    # 集数格子只是长按时的点缀，不能为它截掉正文
+    if trimmed.pop("grid", None) is not None:
+        data = encode_plaintext(trimmed)
+        if len(data) <= MAX_ALERT_PLAINTEXT_BYTES:
+            return data
     for field in ("body", "subtitle", "title"):
         text = str(trimmed.get(field) or "")
         while text and len(data) > MAX_ALERT_PLAINTEXT_BYTES:

@@ -31,3 +31,8 @@ class PushPreference(MemberScopedMixin, TimestampMixin, table=True):
         sa_column=Column(JSON, nullable=True),
         description="「媒体库有新片」关心哪些库；空 = 我能看到的全部（含以后新建的）",
     )
+    muted_item_ids: list | None = Field(
+        default=None,
+        sa_column=Column(JSON, nullable=True),
+        description="「这部剧不再提醒」静音的条目 id；空 = 没静音过",
+    )

@@ -373,6 +373,10 @@ def build_lifespan(settings: Settings):
             from movieclaw_api.services.push.channels import stop_refresh_loop
 
             await push_arrivals.stop()
+            # 推送事件中枢：停消费者、取消剧卡的定时（docs/design/cloud-push.md §5.1）
+            from movieclaw_api.services.push import hub as push_hub
+
+            await push_hub.stop()
             await stop_refresh_loop()
             await close_cloud_service()
             # 持久化任务先在安全边界暂停并退回数据库队列，必须早于 LLM 与

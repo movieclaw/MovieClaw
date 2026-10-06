@@ -180,6 +180,42 @@ async def update_preferences(
     return ok(await me.build_view(session, principal))
 
 
+@member_router.put(
+    "/muted-items/{item_id}",
+    response_model=ApiResponse[MyPushView],
+    summary="这部片不再提醒（长按通知的快捷操作；只关推送，订阅照常下载）",
+    operation_id="push.me.muted.add",
+    openapi_extra=_HIDDEN,
+)
+async def mute_item(
+    item_id: int,
+    principal: Principal = Depends(require_login),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[MyPushView]:
+    from movieclaw_db.models import MediaItem
+
+    if await session.get(MediaItem, item_id) is None:
+        raise NotFoundException("没有这部片")
+    await preferences.set_muted(session, principal.owner_id, item_id, True)
+    return ok(await me.build_view(session, principal))
+
+
+@member_router.delete(
+    "/muted-items/{item_id}",
+    response_model=ApiResponse[MyPushView],
+    summary="恢复一部片的推送",
+    operation_id="push.me.muted.remove",
+    openapi_extra=_HIDDEN,
+)
+async def unmute_item(
+    item_id: int,
+    principal: Principal = Depends(require_login),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[MyPushView]:
+    await preferences.set_muted(session, principal.owner_id, item_id, False)
+    return ok(await me.build_view(session, principal))
+
+
 @member_router.post(
     "/test",
     response_model=ApiResponse[PushTestView],

@@ -49,6 +49,17 @@ class AlertContent:
     #: 点开时 App 自动切过去）；"server" = 手机连了不止一台服务器时标服务器名（管理员告警）；
     #: "account" = 同一台服务器上登了不止一个账号时标账号名（账号安全，服务器名已写进正文）
     source: str | None = None
+    #: 打扰级别（APNs 的 interruption-level）：passive = 不响不亮屏，只进通知中心（进度更新、
+    #: 开始下载这类）；active = 正常响；time-sensitive = 专注模式下也提醒（账号安全）
+    level: str = "active"
+    #: 在系统通知摘要里排第几（0~1，APNs 的 relevance-score）；None = 不填
+    relevance: float | None = None
+    #: 通知类别（App 按它挂快捷操作、长按时的展开界面）
+    category: str | None = None
+    #: 长按时的快捷操作：``{"id", "title", "open"?}``，App 点了按 ``id`` 处理
+    actions: list[dict] | None = None
+    #: 长按时的集数格子：``{"season", "cells"}``（cards.py 的 ``grid``）
+    grid: dict | None = None
 
 
 #: 按收件人写文案：同一事件对不同的人可能跳到不同的页面（比如各自能看到的库）。
@@ -98,7 +109,14 @@ def _plaintext(content: AlertContent, *, server: dict, account: dict) -> dict:
         message["thread"] = content.thread
     if content.source:
         message["source"] = content.source
-    message["sound"] = "default"
+    if content.category:
+        message["category"] = content.category
+    if content.actions:
+        message["actions"] = content.actions
+    if content.grid:
+        message["grid"] = content.grid
+    if content.level != "passive":
+        message["sound"] = "default"
     message["server"] = server
     message["account"] = account
     message["sent_at"] = int(utcnow().timestamp())
@@ -188,6 +206,8 @@ async def prepare(
             environment=device.push_environment or "production",
             payload=payload,
             collapse_id=collapse_value,
+            level=content.level,
+            relevance=content.relevance,
         )
         seen_tokens.add(token)
         outgoing.append(

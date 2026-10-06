@@ -7,8 +7,9 @@
 - **直接下进库目录、靠扫描入账**：按「保存目录/任务名」这个路径对上（``match_scanned``，
   「媒体库有新片」的后台每两分钟调一次），这次下载的文件 3 分钟没有新的了才推。
 
-和订阅入库同一个开关、同样的文案；这几集已经推过的（订阅对账、「媒体库有新片」）不再
-推（``events.claim_units``）。没对上的记录 30 天后清理。推送失败绝不影响下载和入库。
+和订阅入库同一个开关、同一张剧卡（cards.py）：只下了一部的进这部剧的卡，这几集已经在卡上
+说过的（订阅对账、「媒体库有新片」）不再推。没对上的记录 30 天后清理。推送失败绝不影响
+下载和入库。
 """
 
 from __future__ import annotations
@@ -180,87 +181,65 @@ async def match_scanned(session: AsyncSession, now: datetime) -> list[Finished]:
 
 
 def announce(items: list[Finished]) -> None:
-    """推「入库完成」给点下载的人（后台发送）。"""
-    from movieclaw_api.services.push.notify import notify
+    """推「入库完成」给点下载的人：投事件，进这部剧的卡（cards.py）。"""
+    from movieclaw_api.services.push.hub import Downloaded, emit
 
     for done in items:
-        notify("imported", {done.member_id}, _content(done))
+        emit(Downloaded(finished=done))
 
 
-def _content(done: Finished):  # type: ignore[no-untyped-def]
-    from movieclaw_api.services.push.events import (
-        _display_title,
-        _imported_content,
-        _item_visible,
-        _lazy_image,
-        claim_units,
-    )
-    from movieclaw_api.services.push.notify import AlertContent
+async def units_of(session: AsyncSession, done: Finished) -> dict[int, list[tuple[int, int]]]:
+    """这次下载入库的条目 → 单元（按入库顺序）。一个新文件都没搬时是兜底条目的整部。"""
+    rows = []
+    if done.batch_ids or done.row_ids:
+        condition = (
+            LibraryFile.added_batch_id.in_(done.batch_ids)  # type: ignore[union-attr]
+            if done.batch_ids
+            else LibraryFile.id.in_(done.row_ids)  # type: ignore[union-attr]
+        )
+        rows = (
+            await session.execute(
+                select(  # type: ignore[call-overload]
+                    LibraryFile.media_item_id,
+                    LibraryFile.season_number,
+                    LibraryFile.episode_number,
+                )
+                .where(LibraryFile.library_id == done.library_id, condition)
+                .order_by(LibraryFile.id)
+            )
+        ).all()
+    units: dict[int, list[tuple[int, int]]] = {}
+    for item_id, season, episode in rows:
+        if item_id is not None:
+            found = units.setdefault(int(item_id), [])
+            if (int(season), int(episode)) not in found:
+                found.append((int(season), int(episode)))
+    if not units and done.fallback_item_id is not None:
+        units[done.fallback_item_id] = [(0, 0)]
+    return units
+
+
+def announce_summary(done: Finished, item_ids: list[int]) -> None:
+    """一次下载里有好几部（合集、「其他」库的一堆视频）：合成「你下载的 N 部已入库」。"""
+    from movieclaw_api.services.channel_push import tmdb_push_image_url
+    from movieclaw_api.services.push.events import _lazy_image
+    from movieclaw_api.services.push.notify import AlertContent, notify
 
     async def build(session: AsyncSession, member_id: int) -> AlertContent | None:
-        rows = []
-        if done.batch_ids or done.row_ids:
-            condition = (
-                LibraryFile.added_batch_id.in_(done.batch_ids)  # type: ignore[union-attr]
-                if done.batch_ids
-                else LibraryFile.id.in_(done.row_ids)  # type: ignore[union-attr]
-            )
-            rows = (
-                await session.execute(
-                    select(  # type: ignore[call-overload]
-                        LibraryFile.media_item_id,
-                        LibraryFile.season_number,
-                        LibraryFile.episode_number,
-                    )
-                    .where(LibraryFile.library_id == done.library_id, condition)
-                    .order_by(LibraryFile.id)
-                )
-            ).all()
-        units: dict[int, list[tuple[int, int]]] = {}
-        for item_id, season, episode in rows:
-            if item_id is not None:
-                units.setdefault(int(item_id), []).append((int(season), int(episode)))
-        if not units and done.fallback_item_id is not None:
-            units[done.fallback_item_id] = [(0, 0)]
-
-        # 看得到、这几集还没推过的条目
-        fresh: list[tuple[MediaItem, list[tuple[int, int]]]] = []
-        for item_id, item_units in units.items():
-            if not await _item_visible(session, member_id, item_id):
-                continue
-            item = await session.get(MediaItem, item_id)
-            if item is None:
-                continue
-            claimed = claim_units(member_id, item_id, sorted(set(item_units)))
-            if claimed:
-                fresh.append((item, claimed))
-        if not fresh:
+        items = [item for i in item_ids if (item := await session.get(MediaItem, i)) is not None]
+        if not items:
             return None
-
-        from movieclaw_api.services.channel_push import tmdb_push_image_url
-
-        first, first_units = fresh[0]
-        image = _lazy_image(tmdb_push_image_url(first.backdrop_path, first.poster_path))
-        if len(fresh) == 1:
-            return await _imported_content(
-                session,
-                member_id,
-                item_id=first.id or 0,
-                name=_display_title(first.title, first.year),
-                kind=first.kind,
-                units=first_units,
-                image=image,
-            )
         library = await session.get(Library, done.library_id)
         videos = library is not None and library.kind not in ("movie", "tv")
-        names = "、".join(item.title for item, _ in fresh[:NAMED_IN_SUMMARY])
-        more = "等" if len(fresh) > NAMED_IN_SUMMARY else ""
+        names = "、".join(item.title for item in items[:NAMED_IN_SUMMARY])
+        more = "等" if len(items) > NAMED_IN_SUMMARY else ""
+        image = _lazy_image(tmdb_push_image_url(items[0].backdrop_path, items[0].poster_path))
         return AlertContent(
-            title=f"你下载的 {len(fresh)} {'个视频' if videos else '部'}已入库",
+            title=f"你下载的 {len(items)} {'个视频' if videos else '部'}已入库",
             body=f"{names}{more}，点开就能看",
             image=await image(),
             open=f"/library/{done.library_id}",
             thread=f"download-{done.library_id}",
         )
 
-    return build
+    notify("imported", {done.member_id}, build)

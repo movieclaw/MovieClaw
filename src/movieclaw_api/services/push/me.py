@@ -13,6 +13,7 @@ from movieclaw_api.schemas.cloud import (
     PushAttentionView,
     PushEventView,
     PushLibraryView,
+    PushMutedItemView,
     PushRegistrationView,
     PushTestResultView,
     PushTestView,
@@ -97,7 +98,17 @@ async def build_view(session: AsyncSession, principal: Principal) -> MyPushView:
         if lib.id in visible and watchable(lib)
     ]
     chosen = await preferences.library_selection(session, principal.owner_id)
+    from movieclaw_db.models import MediaItem
+
+    muted = []
+    for item_id in await preferences.muted_list(session, principal.owner_id):
+        item = await session.get(MediaItem, item_id)
+        if item is not None:
+            muted.append(
+                PushMutedItemView(id=item_id, title=item.title, year=item.year, kind=item.kind)
+            )
     return MyPushView(
+        muted_items=muted,
         instance_ready=any(c.usable for c in channels),
         is_admin=principal.is_admin,
         events=events,

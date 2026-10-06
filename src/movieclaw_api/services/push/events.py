@@ -16,8 +16,6 @@ import functools
 import hashlib
 import logging
 import time
-from collections.abc import Callable
-from dataclasses import dataclass, field, replace
 from datetime import timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -124,24 +122,6 @@ def subscribers(subscription_id: int):  # type: ignore[no-untyped-def]
     return resolve
 
 
-def _season_name(season: int) -> str:
-    return "特别篇" if season == 0 else f"第 {season} 季"
-
-
-def episode_label(units: list[tuple[int, int]]) -> str:
-    """单元描述（给人看）：电影为空；「第 2 季第 7 集」「第 1 季 8 集」「12 集」。"""
-    episodes = sorted({u for u in units if u != (0, 0)})
-    if not episodes:
-        return ""
-    if len(episodes) == 1:
-        season, episode = episodes[0]
-        return f"{_season_name(season)}第 {episode} 集"
-    seasons = {s for s, _ in episodes}
-    if len(seasons) == 1:
-        return f"{_season_name(next(iter(seasons)))} {len(episodes)} 集"
-    return f"{len(episodes)} 集"
-
-
 def _display_title(title: str, year: int | None) -> str:
     return title.strip() or (f"{year} 年的作品" if year else "一部作品")
 
@@ -158,179 +138,21 @@ def _lazy_image(image_url: str | None):  # type: ignore[no-untyped-def]
     return get
 
 
-#: 最近推过「入库」的 (成员, 条目, 季, 集) → 时间（电影是 (0, 0)）。「入库完成」和
-#: 「媒体库有新片」对同一个人说的是同一件事，订阅对账、手动下载入库、新片检查又先后
-#: 不定：谁先推了，后来的就不再推给这个人；同一批被对账两次也不会响两次。
-#: 只在内存里：服务恰好在这几分钟里重启，最坏是多收一条。
-_notified_units: dict[tuple[int, int, int, int], float] = {}
-_NOTIFIED_TTL_S = 6 * 3600
-
-
-def claim_units(
-    member_id: int, item_id: int, units: list[tuple[int, int]]
-) -> list[tuple[int, int]]:
-    """这些单元里还没推给过这个人的（按原顺序），并记为已推。"""
-    now = time.monotonic()
-    for key, at in list(_notified_units.items()):
-        if now - at > _NOTIFIED_TTL_S:
-            del _notified_units[key]
-    fresh = []
-    for season, episode in dict.fromkeys(units or [(0, 0)]):
-        key = (member_id, item_id, season, episode)
-        if key not in _notified_units:
-            _notified_units[key] = now
-            fresh.append((season, episode))
-    return fresh
-
-
-async def _imported_content(
-    session: AsyncSession,
-    member_id: int,
-    *,
-    item_id: int,
-    name: str,
-    kind: str,
-    units: list[tuple[int, int]],
-    image,  # type: ignore[no-untyped-def]
-) -> AlertContent:
-    """「入库完成」的文案（订阅入库、手动下载入库共用）。
-
-    点开到这个人能看到的库里的这一部 / 这一集。
-    """
-    single = units[0] if len(units) == 1 else None
-    path = await _library_path(session, member_id, item_id, single)
-    label = episode_label(units)
-    if kind == "tv" and label:
-        return AlertContent(
-            title=f"{name} 更新了",
-            body=f"{label}已入库，点开就能看",
-            image=await image(),
-            open=path,
-            thread=f"item-{item_id}",
-        )
-    return AlertContent(
-        title=f"{name} 已入库",
-        body="点开就能看",
-        image=await image(),
-        open=path,
-        thread=f"item-{item_id}",
-    )
-
-
 # ----------------------------------------------------------------------
-# 订阅类事件
+# 订阅类事件：只投事件，合并与文案在推送事件中枢里做（hub.py、cards.py）
 # ----------------------------------------------------------------------
 
-#: 「入库完成」「洗版完成」按订阅攒一攒再发：直接下进库目录的季包是一集一集入账的，
-#: 每入账一集就对账一次；整季洗版也是一集一集验证的——不攒的话十集就响十次。
-#: 同一个订阅这么久没有新的就发出去，一直有新的也最多等 _MERGE_MAX_S
-_MERGE_QUIET_S = 60.0
-_MERGE_MAX_S = 600.0
 
-
-@dataclass
-class _Merging:
-    """一个订阅正在攒的一条推送。"""
-
-    started: float
-    units: list[tuple[int, int]] = field(default_factory=list)
-    #: 洗版：每个单元的「旧版本 → 新版本」
-    changes: dict[tuple[int, int], tuple[str, str]] = field(default_factory=dict)
-    handle: asyncio.TimerHandle | None = None
-
-
-_merging: dict[tuple[str, int], _Merging] = {}
-
-
-def _merge(
-    key: tuple[str, int],
-    add: Callable[[_Merging], None],
-    send: Callable[[_Merging], None],
-) -> None:
-    """把这次的单元并进 ``key`` 正在攒的那条，安静一会儿再 ``send``。"""
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:  # 没有事件循环（命令行工具里）：直接发
-        merging = _Merging(started=0.0)
-        add(merging)
-        send(merging)
-        return
-    now = loop.time()
-    merging = _merging.get(key)
-    if merging is None:
-        merging = _merging[key] = _Merging(started=now)
-    add(merging)
-    if merging.handle is not None:
-        merging.handle.cancel()
-
-    def fire() -> None:
-        if _merging.get(key) is merging:
-            del _merging[key]
-        try:
-            send(merging)
-        except Exception:  # noqa: BLE001
-            logger.exception("发送 App 推送失败（已忽略）")
-
-    delay = max(0.0, min(_MERGE_QUIET_S, merging.started + _MERGE_MAX_S - now))
-    merging.handle = loop.call_later(delay, fire)
+def _units(units: list[tuple[int, int]]) -> tuple[tuple[int, int], ...]:
+    return tuple((int(s), int(e)) for s, e in units)
 
 
 @_never_raise
-def imported(
-    *,
-    subscription_id: int,
-    item_id: int,
-    title: str,
-    year: int | None,
-    kind: str,
-    units: list[tuple[int, int]],
-    image_url: str | None,
-) -> None:
-    """订阅的内容整理进媒体库了（同一个订阅一分钟内的合成一条）。"""
+def imported(*, subscription_id: int, item_id: int, units: list[tuple[int, int]]) -> None:
+    """订阅的这几集整理进媒体库了：进这部剧的卡（cards.py）。"""
+    from movieclaw_api.services.push.hub import Imported, emit
 
-    def add(merging: _Merging) -> None:
-        merging.units.extend(u for u in units if u not in merging.units)
-
-    def send(merging: _Merging) -> None:
-        _send_imported(
-            subscription_id=subscription_id,
-            item_id=item_id,
-            name=_display_title(title, year),
-            kind=kind,
-            units=sorted(merging.units),
-            image_url=image_url,
-        )
-
-    _merge(("imported", subscription_id), add, send)
-
-
-def _send_imported(
-    *,
-    subscription_id: int,
-    item_id: int,
-    name: str,
-    kind: str,
-    units: list[tuple[int, int]],
-    image_url: str | None,
-) -> None:
-    image = _lazy_image(image_url)
-
-    async def build(session: AsyncSession, member_id: int) -> AlertContent | None:
-        if not await _item_visible(session, member_id, item_id):
-            return None
-        fresh = claim_units(member_id, item_id, units)
-        if not fresh:
-            return None  # 这几集刚推过（手动下载入库或「媒体库有新片」）
-        content = await _imported_content(
-            session, member_id, item_id=item_id, name=name, kind=kind, units=fresh, image=image
-        )
-        return replace(
-            content,
-            open=content.open or f"/subscriptions/{subscription_id}",
-            thread=f"subscription-{subscription_id}",
-        )
-
-    notify("imported", subscribers(subscription_id), build)
+    emit(Imported(subscription_id=subscription_id, item_id=item_id, units=_units(units)))
 
 
 @_never_raise
@@ -338,36 +160,31 @@ def download_started(
     *,
     subscription_id: int,
     item_id: int,
-    title: str,
-    year: int | None,
     units: list[tuple[int, int]],
     detail: str,
     upgrade: bool,
-    image_url: str | None,
     skip_member_id: int | None = None,
+    source: str = "",
+    spec: str = "",
 ) -> None:
-    """订阅找到资源、交给下载器了。``skip_member_id``：手动选种时点下载的人，不推给他。"""
-    image = _lazy_image(image_url)
-    label = episode_label(units)
-    name = _display_title(title, year)
-    verb = "开始洗版下载" if upgrade else "开始下载"
-    resolve = subscribers(subscription_id)
+    """订阅找到资源、交给下载器了。``skip_member_id``：手动选种时点下载的人，不推给他。
 
-    async def recipients(session: AsyncSession) -> set[int]:
-        return await resolve(session) - {skip_member_id}
+    ``source``、``spec`` 是 IM 消息里的来源与规格（App 推送不用）。
+    """
+    from movieclaw_api.services.push.hub import Started, emit
 
-    async def build(session: AsyncSession, member_id: int) -> AlertContent | None:
-        if not await _item_visible(session, member_id, item_id):
-            return None
-        return AlertContent(
-            title=f"{verb}：{name}",
-            body=" · ".join(part for part in (label, detail) if part),
-            image=await image(),
-            open=f"/subscriptions/{subscription_id}",
-            thread=f"subscription-{subscription_id}",
+    emit(
+        Started(
+            subscription_id=subscription_id,
+            item_id=item_id,
+            units=_units(units),
+            detail=detail,
+            upgrade=upgrade,
+            skip_member_id=skip_member_id,
+            source=source,
+            spec=spec,
         )
-
-    notify("download_started", recipients, build)
+    )
 
 
 @_never_raise
@@ -375,42 +192,22 @@ def upgraded(
     *,
     subscription_id: int,
     item_id: int,
-    title: str,
-    year: int | None,
     unit: tuple[int, int],
     old_label: str,
     new_label: str,
-    image_url: str | None,
 ) -> None:
-    """订阅的内容换成了更好的版本（同一个订阅一分钟内的合成一条）。"""
+    """订阅的一集换成了更好的版本（同一个订阅一分钟内的合成一条，cards.py）。"""
+    from movieclaw_api.services.push.hub import Upgraded, emit
 
-    def add(merging: _Merging) -> None:
-        if unit not in merging.units:
-            merging.units.append(unit)
-        merging.changes[unit] = (old_label, new_label)
-
-    def send(merging: _Merging) -> None:
-        image = _lazy_image(image_url)
-        name = _display_title(title, year)
-        label = episode_label(sorted(merging.units))
-        pairs = set(merging.changes.values())
-        # 每集都是同样的升级就写出来；各不相同只说换成了更好的版本
-        change = f"{next(iter(pairs))[0]} → {next(iter(pairs))[1]}" if len(pairs) == 1 else ""
-
-        async def build(session: AsyncSession, member_id: int) -> AlertContent | None:
-            if not await _item_visible(session, member_id, item_id):
-                return None
-            return AlertContent(
-                title=f"洗版完成：{name}",
-                body=" · ".join(part for part in (label, change) if part) or "换成了更好的版本",
-                image=await image(),
-                open=f"/subscriptions/{subscription_id}",
-                thread=f"subscription-{subscription_id}",
-            )
-
-        notify("upgraded", subscribers(subscription_id), build)
-
-    _merge(("upgraded", subscription_id), add, send)
+    emit(
+        Upgraded(
+            subscription_id=subscription_id,
+            item_id=item_id,
+            unit=(int(unit[0]), int(unit[1])),
+            old_label=old_label,
+            new_label=new_label,
+        )
+    )
 
 
 # ----------------------------------------------------------------------
@@ -445,6 +242,8 @@ def new_device(
             open="/settings/devices",
             thread="account",
             source="account",
+            # 账号安全：专注模式下也要提醒（App 有「时效性通知」能力）
+            level="time-sensitive",
         )
 
     notify("new_device", {member_id}, build, exclude_device_ids=device_ids)
@@ -620,6 +419,8 @@ async def _send_alerts() -> None:
     due.sort(key=lambda r: (r.severity != NoticeSeverity.ERROR.value, keys.index(r.dedupe_key)))
     first = due[0]
     first_payload = first.payload if isinstance(first.payload, dict) else {}
+    # 有严重的（下载器、站点整个不可用这类）就用时效性：专注模式下也要让管理员知道
+    level = "time-sensitive" if first.severity == NoticeSeverity.ERROR.value else "active"
     if len(due) == 1:
         content = AlertContent(
             title=first.title,
@@ -627,6 +428,7 @@ async def _send_alerts() -> None:
             open=notice_path(first.source, first_payload),
             thread="system",
             source="server",
+            level=level,
         )
         collapse = ("notice", first.dedupe_key)
     else:
@@ -637,6 +439,7 @@ async def _send_alerts() -> None:
             open=notice_path(first.source, first_payload),
             thread="system",
             source="server",
+            level=level,
         )
         collapse = ("notice", "batch")
 
@@ -647,13 +450,11 @@ async def _send_alerts() -> None:
 
 
 def reset_state() -> None:
-    """测试用：清掉内存里的推送状态（攒着的、冷却中的、推过的单元）。"""
+    """测试用：清掉内存里的推送状态（剧卡、冷却中的告警）。"""
     global _alert_flush
-    for merging in _merging.values():
-        if merging.handle is not None:
-            merging.handle.cancel()
-    _merging.clear()
-    _notified_units.clear()
+    from movieclaw_api.services.push import hub
+
+    hub.reset_state()
     _alert_pushed_at.clear()
     _alert_queue.clear()
     if _alert_flush is not None:
