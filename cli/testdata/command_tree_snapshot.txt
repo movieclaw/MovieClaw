@@ -270,6 +270,7 @@ subscriptions upgrade-run
 transcode config set
 transcode config show
 transcode status
+transcode worker config
 ui prefs show
 ui prefs update
 watch create
