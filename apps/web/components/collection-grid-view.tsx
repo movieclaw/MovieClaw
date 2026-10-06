@@ -264,7 +264,7 @@ export function CollectionGridView({
       <PageNav
         title={title}
         fallback={{
-          label: mediaType === "tv" ? "发现剧集" : "发现电影",
+          label: "发现",
           href: `/discover/${mediaType === "tv" ? "tv" : "movie"}?source=${provider === "douban" ? "douban" : "tmdb"}` as Route,
         }}
         className="page-inset-bleed"

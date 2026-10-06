@@ -97,6 +97,8 @@ def _subtitle_tracks(file: LibraryFile, choice: SubtitleChoice) -> tuple[Subtitl
             codec=(raw.get("codec") or None),
             language=raw.get("language"),
             is_default=embedded_track(index) == default_ref,
+            title=raw.get("title"),
+            is_forced=bool(raw.get("forced")),
         )
         for index, raw in enumerate(file.subtitle_streams or [])
         if isinstance(raw, dict)
@@ -112,6 +114,8 @@ def _subtitle_tracks(file: LibraryFile, choice: SubtitleChoice) -> tuple[Subtitl
             # title 段是扫描时从文件名解析好的（视频 stem 之后的 token），
             # AI 字幕的世代标记就写在这里
             is_ai=is_ai_generated(entry.get("title")),
+            title=entry.get("title"),
+            is_forced=bool(entry.get("forced")),
         )
         for entry in (file.external_subtitles or [])
         if isinstance(entry, dict) and entry.get("filename")

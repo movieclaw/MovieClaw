@@ -35,7 +35,7 @@ export function DiscoveredPersonDetailView({
   const [failure, setFailure] = useState<"missing" | "error" | null>(null);
   const { subscriptionOf } = useSubscribeEntry();
   const { open } = useMediaDetail();
-  const navFallback = { label: "发现电影", href: "/discover/movie" as Route };
+  const navFallback = { label: "发现", href: "/discover/movie" as Route };
   // Netflix 桌面返回语言一套：全出血(isHome)详情页用 NetflixBackButton；带
   // PageNav 工具条的页面用 PageNav 内返回键；两者同图标 / 同尺寸档 / 同 4vw
   // 基线 / 同 useBackNavigation 行为。本页 Netflix 桌面换 NetflixBackButton

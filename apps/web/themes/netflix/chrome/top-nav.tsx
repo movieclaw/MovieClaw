@@ -8,7 +8,7 @@ import { useEffect, useRef, useState } from "react";
 import { AccountSwitcherDialog } from "@/components/account-switcher-dialog";
 import { AvatarBadge } from "@/components/avatar-badge";
 import { MovieclawWordmark } from "@/components/brand";
-import { ChevronDownIcon, LogoutIcon, UserIcon } from "@/components/icons";
+import { ChevronDownIcon, LogoutIcon, UsersIcon } from "@/components/icons";
 import { AppUpdateEntry } from "@/components/app-update-entry";
 import { NoticeCenter } from "@/components/notice-center";
 import { SearchCommand, type SearchSubmitOptions } from "@/components/search-command";
@@ -40,16 +40,14 @@ import { clearUiPrefsCache } from "@/lib/ui-prefs-cache";
 /** 顶栏导航链接的全局固定清单（权限过滤对齐侧栏可见性判定）。
  *  无「首页」——内容首页已与媒体库合并（2026-09 修订），字标直达 /library。 */
 const NAV_LINKS: { id: string; label: string; href: Route }[] = [
-  { id: "movies", label: "电影", href: "/discover/movie" as Route },
-  { id: "tv", label: "剧集", href: "/discover/tv" as Route },
   { id: "library", label: "媒体库", href: "/library" as Route },
   { id: "subscriptions", label: "我的订阅", href: "/subscriptions" as Route },
+  { id: "discover", label: "发现", href: "/discover/movie" as Route },
 ];
 
 /** pathname → 顶栏激活项 id（与 NAV_LINKS 对齐；未命中返回空串，无高亮）。 */
 function activeNavId(pathname: string): string {
-  if (pathname.startsWith("/discover/movie")) return "movies";
-  if (pathname.startsWith("/discover/tv")) return "tv";
+  if (pathname.startsWith("/discover/")) return "discover";
   // / 是 /library 的别名（Netflix 主题下 replace 过去），高亮随媒体库
   if (pathname === "/" || pathname.startsWith("/library")) return "library";
   if (pathname.startsWith("/subscriptions")) return "subscriptions";
@@ -384,7 +382,7 @@ function NetflixAvatarMenu({
           <div className="my-1 h-px bg-white/[0.08]" />
           <MenuRow
             label="切换账号"
-            icon={<UserIcon className="size-[18px]" />}
+            icon={<UsersIcon className="size-[18px]" />}
             onClick={() => {
               setOpen(false);
               setSwitcherOpen(true);

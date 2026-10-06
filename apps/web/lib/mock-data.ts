@@ -5,28 +5,27 @@
  */
 import type { ComponentType, SVGProps } from "react";
 import {
-  ActivityIcon,
-  BellIcon,
+  GaugeIcon,
+  BellBadgeIcon,
   BookmarkIcon,
-  ChatIcon,
+  ChatBubblesIcon,
   CloudIcon,
-  DeviceIcon,
-  DownloadIcon,
-  FilmIcon,
-  FolderIcon,
-  GearIcon,
+  SparklesIcon,
+  LaptopPhoneIcon,
+  DownloadCircleIcon,
+  FolderGearIcon,
+  GearsIcon,
   GlobeIcon,
   PaletteIcon,
-  PhoneIcon,
-  PhotoIcon,
-  PlayIcon,
-  SendIcon,
+  AppBadgeIcon,
+  PhotosStackIcon,
+  PlayRectangleIcon,
+  PaperplaneIcon,
   ServerIcon,
-  ShieldIcon,
-  SparkIcon,
+  MembersKeyIcon,
   TerminalIcon,
-  TvIcon,
-  UserIcon,
+  WandIcon,
+  UserCircleIcon,
   PlugIcon,
 } from "@/components/icons";
 
@@ -40,8 +39,7 @@ export interface ExploreItem {
 }
 
 export const exploreItems: ExploreItem[] = [
-  { id: "explore-movies", label: "发现电影", icon: FilmIcon },
-  { id: "explore-tv", label: "发现剧集", icon: TvIcon },
+  { id: "discover", label: "发现", icon: SparklesIcon },
 ];
 
 /** 最近会话（类 Codex / ChatGPT 的会话列表） */
@@ -138,7 +136,7 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
         id: "overview",
         label: "概览",
         description: "配置状态一览：缺什么、有什么问题、下一步做什么",
-        icon: ActivityIcon,
+        icon: GaugeIcon,
       },
     ],
   },
@@ -149,18 +147,18 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     // 手机通知，成员只需要这一个入口，不用知道云和中继（docs/design/cloud-push.md §1）。
     label: "账号",
     items: [
-      { id: "profile", label: "个人信息", description: "头像、昵称与登录密码", icon: UserIcon },
+      { id: "profile", label: "个人信息", description: "头像、昵称与登录密码", icon: UserCircleIcon },
       {
         id: "devices",
         label: "设备",
         description: "登录着你的账号的浏览器、App、命令行与转码器",
-        icon: DeviceIcon,
+        icon: LaptopPhoneIcon,
       },
       {
         id: "notifications",
         label: "通知",
         description: "选你想在手机上收到的通知",
-        icon: BellIcon,
+        icon: BellBadgeIcon,
       },
       { id: "appearance", label: "外观", description: "首页背景与界面质感", icon: PaletteIcon },
     ],
@@ -170,7 +168,7 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     // （docs/design/member-management.md §3.9.1）。
     label: "成员",
     items: [
-      { id: "members", label: "成员", description: "家庭成员账号、能力开关与可见范围", icon: ShieldIcon },
+      { id: "members", label: "成员", description: "家庭成员账号、能力开关与可见范围", icon: MembersKeyIcon },
     ],
   },
   {
@@ -180,8 +178,8 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     items: [
       { id: "subscription", label: "订阅规则", description: "订阅规则组与投递模拟预演", icon: BookmarkIcon },
       { id: "sites", label: "资源站点", description: "站点接入与鉴权、搜索分类、插件 Cookie 同步", icon: ServerIcon },
-      { id: "downloaders", label: "下载器", description: "qBittorrent / Transmission 接入", icon: DownloadIcon },
-      { id: "import-watch", label: "自动入库", description: "监听下载目录，下载完成后自动整理进媒体库", icon: FolderIcon },
+      { id: "downloaders", label: "下载器", description: "qBittorrent / Transmission 接入", icon: DownloadCircleIcon },
+      { id: "import-watch", label: "自动入库", description: "监听下载目录，下载完成后自动整理进媒体库", icon: FolderGearIcon },
     ],
   },
   {
@@ -190,8 +188,8 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     // 转码策略、字幕偏好等播放域设置留好家。
     label: "媒体库",
     items: [
-      { id: "scrape", label: "刮削与整理", description: "海报、简介、命名与目录整理的全局默认", icon: PhotoIcon },
-      { id: "playback", label: "播放", description: "远程转码与播放体验", icon: PlayIcon },
+      { id: "scrape", label: "刮削与整理", description: "海报、简介、命名与目录整理的全局默认", icon: PhotosStackIcon },
+      { id: "playback", label: "播放", description: "远程转码与播放体验", icon: PlayRectangleIcon },
     ],
   },
   {
@@ -205,13 +203,13 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
         id: "app-push",
         label: "App 推送",
         description: "给 iPhone、iPad 上的 MovieClaw App 发通知",
-        icon: PhoneIcon,
+        icon: AppBadgeIcon,
       },
-      { id: "im-push", label: "IM 推送", description: "微信 / Telegram / Discord / 飞书 推送与 AI 对话", icon: ChatIcon },
-      { id: "webhook", label: "Webhook", description: "向外部服务推送播放、收藏等事件", icon: SendIcon },
-      { id: "llm", label: "模型接入", description: "接入 OpenAI、百炼等模型供应商，可同时接入多家", icon: SparkIcon },
+      { id: "im-push", label: "IM 推送", description: "微信 / Telegram / Discord / 飞书 推送与 AI 对话", icon: ChatBubblesIcon },
+      { id: "webhook", label: "Webhook", description: "向外部服务推送播放、收藏等事件", icon: PaperplaneIcon },
+      { id: "llm", label: "模型接入", description: "接入 OpenAI、百炼等模型供应商，可同时接入多家", icon: SparklesIcon },
       { id: "mcp", label: "MCP 服务", description: "把 movieclaw 的能力开放给 Claude Code、Cursor 等 AI 客户端", icon: PlugIcon },
-      { id: "ai", label: "AI 设定", description: "智能体与字幕处理使用的默认模型", icon: SparkIcon },
+      { id: "ai", label: "AI 设定", description: "智能体与字幕处理使用的默认模型", icon: WandIcon },
     ],
   },
   {
@@ -225,7 +223,7 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
         description: "把这台服务器连到你的 MovieClaw 账号，使用官方推送等云端服务",
         icon: CloudIcon,
       },
-      { id: "app", label: "更新与维护", description: "版本更新与应用重启", icon: GearIcon },
+      { id: "app", label: "更新与维护", description: "版本更新与应用重启", icon: GearsIcon },
       { id: "network", label: "网络", description: "代理、镜像与外部访问地址，解决 TMDB 等不可达", icon: GlobeIcon },
       { id: "logs", label: "系统日志", description: "后端运行日志，按天存档", icon: TerminalIcon },
     ],

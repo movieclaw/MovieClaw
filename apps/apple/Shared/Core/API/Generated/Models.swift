@@ -10218,6 +10218,8 @@ nonisolated extension API {
         var language: String?
         var isDefault: Bool
         var isAi: Bool
+        var title: String?
+        var isForced: Bool?
 
         enum CodingKeys: String, CodingKey {
             case trackRef = "track_ref"
@@ -10225,6 +10227,8 @@ nonisolated extension API {
             case language
             case isDefault = "is_default"
             case isAi = "is_ai"
+            case title
+            case isForced = "is_forced"
         }
     }
 

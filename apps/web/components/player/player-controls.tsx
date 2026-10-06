@@ -1248,17 +1248,19 @@ function SubtitleMenu({
             key={option.ref}
             active={selected === option.ref}
             badge={option.isAi ? <AiChip /> : null}
+            multiline
             onClick={() => {
               onSelect(option.ref);
               onClose();
             }}
           >
-            {option.label}
+            <span className="block">{option.title}</span>
+            <span className="mt-0.5 block text-[12px] font-normal leading-snug text-white/45">{option.detail}</span>
           </MenuItem>
         ))}
         {tracks.unavailable.map((item) => (
           <div key={item.ref} className="px-4 py-1.5 text-white/35">
-            <div className="truncate">{item.label}</div>
+            <div className="break-words [overflow-wrap:anywhere]">{item.label}</div>
             <div className="text-[12px] leading-snug">{item.reason}</div>
           </div>
         ))}
@@ -1391,6 +1393,7 @@ function MenuItem({
   badge,
   onClick,
   children,
+  multiline = false,
 }: {
   active: boolean;
   /** 可选的行首小图标。必须与文字**并列**，不能塞进 truncate 的 span 里——
@@ -1400,6 +1403,7 @@ function MenuItem({
   badge?: React.ReactNode;
   onClick: () => void;
   children: React.ReactNode;
+  multiline?: boolean;
 }) {
   return (
     <button
@@ -1411,9 +1415,10 @@ function MenuItem({
       className={`flex w-full cursor-pointer items-center gap-2.5 px-4 py-2 text-left font-medium transition-colors hover:bg-white/10 ${
         active ? "text-white" : "text-white/80 hover:text-white"
       }`}
+      aria-pressed={multiline ? active : undefined}
     >
       {icon}
-      <span className="truncate">{children}</span>
+      <span className={multiline ? "min-w-0 break-words [overflow-wrap:anywhere]" : "truncate"}>{children}</span>
       <span className="ml-auto flex shrink-0 items-center gap-2">
         {badge}
         {active ? <CheckIcon className="size-4 text-white" /> : null}

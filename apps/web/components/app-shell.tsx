@@ -460,8 +460,7 @@ function navIdFromPath(pathname: string): string {
   if (pathname.startsWith("/library")) return "library";
   if (pathname.startsWith("/subscriptions")) return "subscriptions";
   if (pathname.startsWith("/activity")) return "tasks";
-  if (pathname.startsWith("/discover/movie")) return "explore-movies";
-  if (pathname.startsWith("/discover/tv")) return "explore-tv";
+  if (pathname.startsWith("/discover/")) return "discover";
   const session = /^\/sessions\/([^/]+)$/.exec(pathname);
   return session ? session[1] : "";
 }
@@ -477,10 +476,8 @@ function pathOfNavId(id: string): Route {
       return "/subscriptions";
     case "tasks":
       return "/activity" as Route;
-    case "explore-movies":
+    case "discover":
       return "/discover/movie" as Route;
-    case "explore-tv":
-      return "/discover/tv" as Route;
     default:
       return `/sessions/${id}` as Route;
   }

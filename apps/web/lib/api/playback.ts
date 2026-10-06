@@ -558,6 +558,8 @@ export interface SubtitlePlan {
   is_default: boolean;
   /** 本机 AI 生成的字幕（翻译 / 双语），字幕菜单据此打标 */
   is_ai?: boolean;
+  title?: string | null;
+  is_forced?: boolean | null;
 }
 
 /**

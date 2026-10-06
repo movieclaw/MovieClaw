@@ -3,14 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
-import { BookmarkIcon, CompassIcon, LibraryIcon, UserIcon } from "@/components/icons";
+import { BookmarkFillIcon, SparklesIcon, LibraryStackIcon, UserCircleIcon } from "@/components/icons";
 import { usePermissions } from "@/lib/permissions";
 
 /**
  * Netflix 主题的移动端底部标签栏（<768px，docs/design/web-themes.md §5.2）。
  *
- * 参照 Netflix App 的内容消费动线映射为 4 个**路由**页签：发现 / 媒体库 /
- * 订阅 / 我的（2026-09 修订：移除「首页」——内容首页与媒体库合并，/ 改由
+ * 参照 Netflix App 的内容消费动线映射为 4 个**路由**页签：媒体库 / 订阅 /
+ * 发现 / 我的（2026-09 修订：移除「首页」——内容首页与媒体库合并，/ 改由
  * 顶栏字标直达，底栏让位给高频的内容入口；「订阅」对齐桌面顶栏的「我的订阅」）。
  * 「订阅」按 canSubscribe 显隐，无权限时退化为 3 页签。
  * 栏高 49px + 底部安全区、激活白、未激活 --text-faint、图标 24px——这些数值
@@ -18,19 +18,17 @@ import { usePermissions } from "@/lib/permissions";
  */
 
 /** 页签基础清单（订阅由权限过滤补充，「我的」固定在末位）。 */
-const BASE_TABS = [
-  { id: "discover", label: "发现", href: "/discover/movie", Icon: CompassIcon },
-  { id: "library", label: "媒体库", href: "/library", Icon: LibraryIcon },
-] as const;
+const LIBRARY_TAB = { id: "library", label: "媒体库", href: "/library", Icon: LibraryStackIcon } as const;
+const DISCOVER_TAB = { id: "discover", label: "发现", href: "/discover/movie", Icon: SparklesIcon } as const;
 
 const SUBSCRIPTION_TAB = {
   id: "subscriptions",
   label: "订阅",
   href: "/subscriptions",
-  Icon: BookmarkIcon,
+  Icon: BookmarkFillIcon,
 } as const;
 
-const MY_TAB = { id: "my", label: "我的", href: "/my", Icon: UserIcon } as const;
+const MY_TAB = { id: "my", label: "我的", href: "/my", Icon: UserCircleIcon } as const;
 
 /** pathname → 当前页签 id（详情等子页落在所属的顶层页签上）。 */
 function activeTabId(pathname: string): string {
@@ -49,8 +47,8 @@ export function NetflixTabBar() {
   const pathname = usePathname();
   const { canSubscribe } = usePermissions();
   const active = activeTabId(pathname);
-  // 订阅页签按权限插在媒体库与我的之间；tab 数组重建的代价可忽略（4 个字面量）
-  const tabs = canSubscribe ? [...BASE_TABS, SUBSCRIPTION_TAB, MY_TAB] : [...BASE_TABS, MY_TAB];
+  // 订阅按权限显示，放在媒体库与发现之间。
+  const tabs = [LIBRARY_TAB, ...(canSubscribe ? [SUBSCRIPTION_TAB] : []), DISCOVER_TAB, MY_TAB];
 
   return (
     <nav

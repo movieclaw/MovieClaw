@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 from itsdangerous import BadSignature, URLSafeSerializer
@@ -20,6 +21,7 @@ from movieclaw_api.services.push import crypto
 _IMAGE_SALT = "movieclaw.push.image.v1"
 IMAGE_TOKEN_TTL_S = 7 * 24 * 3600
 IMAGE_PATH_PREFIX = "/api/v1/push/images/"
+_collapse_lock: tuple[asyncio.AbstractEventLoop, asyncio.Lock] | None = None
 
 
 def _tmdb_base() -> str:
@@ -57,10 +59,17 @@ async def collapse_key() -> bytes:
     """collapse_id 用的本地密钥：第一次用时生成并加密存储，不发给任何人。"""
     from movieclaw_api.settings import PushChannelsSetting, get_setting_store
 
-    store = get_setting_store()
-    config = await store.get(PushChannelsSetting)
-    if not config.collapse_key:
-        config = config.model_copy(deep=True)
-        config.collapse_key = crypto.new_collapse_key()
-        await store.set(config)
-    return crypto.b64url_decode(config.collapse_key)
+    # 首次通知会并发准备多个收件人，不能各自生成密钥再覆盖彼此。
+    # 锁随事件循环重建，避免应用重启／测试的旧循环被再次使用。
+    global _collapse_lock
+    loop = asyncio.get_running_loop()
+    if _collapse_lock is None or _collapse_lock[0] is not loop:
+        _collapse_lock = (loop, asyncio.Lock())
+    async with _collapse_lock[1]:
+        store = get_setting_store()
+        config = await store.get(PushChannelsSetting)
+        if not config.collapse_key:
+            config = config.model_copy(deep=True)
+            config.collapse_key = crypto.new_collapse_key()
+            await store.set(config)
+        return crypto.b64url_decode(config.collapse_key)

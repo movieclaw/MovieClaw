@@ -232,7 +232,7 @@ function generatedSubtitleLabel(stream: SubtitleStream): string | null {
 
 /** 字幕 → 分组用的语言名（AI 产物的语言写在标题里，优先认它）。 */
 function subtitleLanguageName(stream: SubtitleStream): string {
-  return generatedSubtitleLabel(stream) ?? languageLabel(stream.language) ?? stream.title?.trim() ?? UNKNOWN_LANGUAGE;
+  return generatedSubtitleLabel(stream) ?? languageLabel(stream.language) ?? UNKNOWN_LANGUAGE;
 }
 
 function subtitleFormatToken(stream: SubtitleStream): string {
@@ -426,17 +426,19 @@ function subtitleEntries(
     const isDefault = defaults
       ? track !== null && defaults.subtitle_track === track
       : stream.default;
-    const label = [language, format].filter(Boolean).join(" · ");
+    const title = stream.title?.trim();
+    const primary = external
+      ? externalSubtitleLabel(stream.file_name, videoStem)
+      : title || `内封轨 ${embeddedOrdinal}`;
+    const label = [primary, language, format].filter(Boolean).join(" · ");
     return {
       key: `subtitle:${track ?? `unknown:${index}`}`,
       language,
       rank: subtitleRank(stream, language),
       format,
       tone: subtitleTone(stream),
-      primary: external
-        ? externalSubtitleLabel(stream.file_name, videoStem)
-        : `内封轨 ${embeddedOrdinal}`,
-      secondary: external ? externalSubtitleSuffix(stream) : "内封",
+      primary,
+      secondary: external ? externalSubtitleSuffix(stream) : title ? `内封轨 ${embeddedOrdinal}` : "内封",
       flags: [isDefault ? "默认" : null, stream.forced ? "强制" : null].filter(
         (flag): flag is string => flag !== null,
       ),
@@ -1044,6 +1046,20 @@ function TrackLine({
   onSelect?: () => void;
   onDelete?: () => void;
 }) {
+  const subtitle = entry.key.startsWith("subtitle:");
+  const metadata = (
+    <span className="flex flex-wrap items-center gap-1.5">
+      <span className="text-caption text-[var(--text-faint)]">{entry.secondary}</span>
+      {entry.flags.map((flag) => (
+        <span
+          key={flag}
+          className="rounded-[5px] bg-white/[0.07] px-1.5 py-0.5 text-micro font-semibold text-[var(--text-muted)]"
+        >
+          {flag}
+        </span>
+      ))}
+    </span>
+  );
   const content = (
     <>
       <span
@@ -1051,17 +1067,16 @@ function TrackLine({
       >
         {entry.format}
       </span>
-      <span className="truncate text-sub text-white/88">{entry.primary}</span>
+      {subtitle ? (
+        <span className="min-w-0">
+          <span className="block break-words text-sub text-white/88 [overflow-wrap:anywhere]">{entry.primary}</span>
+          {metadata}
+        </span>
+      ) : (
+        <span className="truncate text-sub text-white/88">{entry.primary}</span>
+      )}
       <span className="flex items-center gap-1.5">
-        <span className="text-caption text-[var(--text-faint)]">{entry.secondary}</span>
-        {entry.flags.map((flag) => (
-          <span
-            key={flag}
-            className="rounded-[5px] bg-white/[0.07] px-1.5 py-0.5 text-micro font-semibold text-[var(--text-muted)]"
-          >
-            {flag}
-          </span>
-        ))}
+        {!subtitle && metadata}
         {onSelect && (
           // 行尾「动作格」：可删的行由垃圾桶占这一格（浮在其上，见下方），
           // 不可删的行放可点箭头。两者尺寸相同，所以行与行的右缘天然对齐，
@@ -1095,7 +1110,7 @@ function TrackLine({
         <button
           type="button"
           onClick={onSelect}
-          aria-label={`预览字幕：${entry.language} · ${entry.format} · ${entry.primary}`}
+          aria-label={`预览字幕：${entry.language} · ${entry.format} · ${entry.primary} · ${entry.secondary}`}
           className={`group/line ${className} focus-visible:outline-none`}
         >
           {content}

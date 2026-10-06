@@ -112,7 +112,7 @@ export function MediaDetailView({
   const listItem = getMediaSeed(source, id);
   const fallbackType = listItem?.type ?? type ?? "movie";
   const navFallback = {
-    label: fallbackType === "tv" ? "发现剧集" : "发现电影",
+    label: "发现",
     href: `/discover/${fallbackType}` as Route,
   };
   const back = useBackNavigation(navFallback.href);

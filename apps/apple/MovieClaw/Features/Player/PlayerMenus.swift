@@ -59,7 +59,8 @@ struct PlayerMenuRow<Badge: View>: View {
                     .frame(width: MenuMetrics.checkColumn, alignment: .leading)
                     .opacity(active ? 1 : 0)
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(title).lineLimit(1)
+                    Text(title).lineLimit(identifier?.hasPrefix("subtitle-") == true ? nil : 1)
+                        .fixedSize(horizontal: false, vertical: true)
                     if let hint { Text(hint).font(.caption).foregroundStyle(.white.opacity(0.45)).lineLimit(2) }
                 }
                 Spacer(minLength: 6)
@@ -199,7 +200,7 @@ struct SubtitleMenu: View {
                 close()
             }
             ForEach(controller.subtitles.options) { option in
-                PlayerMenuRow(title: option.label, active: controller.selectedSubtitle == option.ref, badge: {
+                PlayerMenuRow(title: option.displayTitle, hint: option.detail, active: controller.selectedSubtitle == option.ref, identifier: "subtitle-\(option.ref)", badge: {
                     if option.isAI { AIChip() }
                 }) {
                     controller.selectSubtitle(option.ref)
@@ -208,7 +209,7 @@ struct SubtitleMenu: View {
             }
             ForEach(controller.subtitles.unavailable) { item in
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(item.label).lineLimit(1)
+                    Text(item.label).fixedSize(horizontal: false, vertical: true)
                     Text(item.reason).font(.caption)
                 }
                 .font(.subheadline)

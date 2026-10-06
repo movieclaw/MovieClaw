@@ -117,6 +117,8 @@ class SubtitleTrack:
     #: 本机 AI 生成的字幕（翻译/双语）。播放器要据此打标——AI 字幕的译文与
     #: 时间轴都可能有偏差，用户有权在选之前就知道这条是机器产的。
     is_ai: bool = False
+    title: str | None = None
+    is_forced: bool = False
 
 
 @dataclass(frozen=True)
@@ -233,6 +235,8 @@ class SubtitlePlan:
     is_default: bool = False
     #: 本机 AI 生成（见 SubtitleTrack.is_ai），原样透传给播放器打标
     is_ai: bool = False
+    title: str | None = None
+    is_forced: bool = False
 
 
 @dataclass(frozen=True)
@@ -1194,6 +1198,8 @@ def plan_subtitles(media: MediaProfile) -> tuple[SubtitlePlan, ...]:
                 language=track.language,
                 is_default=track.is_default,
                 is_ai=track.is_ai,
+                title=track.title,
+                is_forced=track.is_forced,
             )
         )
     return tuple(plans)

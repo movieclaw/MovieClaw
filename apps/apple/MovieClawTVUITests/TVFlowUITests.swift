@@ -275,6 +275,33 @@ final class TVFlowUITests: XCTestCase {
         TVRemote.press(.menu)
     }
 
+    /// 隔离字幕夹具：完整标题、空白兜底、同名轨序号、强制标记与遥控选轨。
+    @MainActor
+    func testSubtitleMetadata() throws {
+        try XCTSkipUnless(env["MC_TEST_SUBTITLE_ITEM"] != nil, "需提供隔离字幕夹具")
+        let item = try XCTUnwrap(env["MC_TEST_SUBTITLE_ITEM"])
+        let app = launchSignedIn(["-mcRoute", "/play/\(item)"])
+        waitForPlayback(app)
+        TVRemote.press(.down)
+        XCTAssertTrue(app.element("tv-player-panel").waitForExistence(timeout: 10))
+        let long = app.buttons["tv-panel-subtitle-embedded:2"]
+        XCTAssertTrue(long.waitForExistence(timeout: 5))
+        XCTAssertTrue(long.label.contains("国配简体特效 · 蓝光修订版 · "))
+        XCTAssertTrue(long.label.contains("内封轨 3"))
+        XCTAssertTrue(app.buttons["tv-panel-subtitle-embedded:3"].label.contains("内封轨 4"))
+        let forced = app.buttons["tv-panel-subtitle-embedded:5"]
+        XCTAssertTrue(forced.label.contains("简英特效"))
+        XCTAssertTrue(forced.label.contains("内封轨 6"))
+        XCTAssertTrue(forced.label.contains("强制"))
+        TVRemote.select(forced, trying: [.up, .down], limit: 15)
+        TVRemote.press(.menu)
+        TVRemote.press(.down)
+        XCTAssertTrue(app.element("tv-player-panel").waitForExistence(timeout: 5))
+        XCTAssertEqual(forced.value as? String, "已选中")
+        snapshot("subtitle-metadata-tv")
+        TVRemote.press(.menu, times: 2)
+    }
+
     // MARK: 谁在看
 
     /// 登录两个账号后重开 App：不再问「谁在看」，直接以上次用的账号（第二个）进首页（2026-10-04 用户要求）

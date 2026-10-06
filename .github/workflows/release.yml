@@ -276,6 +276,12 @@ jobs:
       MAC_MODE: ${{ needs.asset-plan.outputs.mac_mode }}
       MAC_FROM: ${{ needs.asset-plan.outputs.mac_from }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: 复制附件
         run: |
           carry() {
@@ -286,6 +292,9 @@ jobs:
           if [ "$WORKER_MODE" = carry ]; then carry MovieClawTranscoder-macos-arm64.zip "$WORKER_FROM"; fi
           if [ "$IPA_MODE" = carry ]; then carry MovieClaw-iOS-unsigned.ipa "$IPA_FROM"; fi
           if [ "$MAC_MODE" = carry ]; then carry MovieClaw-macos-arm64.zip "$MAC_FROM"; fi
+          if [ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false ]; then
+            bash scripts/publish-download-manifest.sh "$RELEASE_TAG"
+          fi
 
   # macOS 远程转码 Worker（自上一版以来有改动才编，否则由 carry-assets 沿用）。
   # 与 docker-image 并行。它构建失败不拦发布——publish 作业不看它的结果，
@@ -388,6 +397,10 @@ jobs:
         run: |
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             MovieClawTranscoder-macos-arm64.zip
+          # 只重跑此作业补传公开版本时，也刷新官网信息；draft 的终审统一生成。
+          if [ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false ]; then
+            bash scripts/publish-download-manifest.sh "$RELEASE_TAG"
+          fi
 
   # iOS 未签名 IPA（docs/design/ios-release.md「侧载」）：与商店版同一份代码、同一个发行版本，
   # 只是不签名，由用户的侧载工具重签。与 worker-macos 一样是可选附件：失败不拦转正，
@@ -502,6 +515,9 @@ jobs:
         run: |
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             apps/apple/build-macapp/MovieClaw-macos-arm64.zip
+          if [ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = false ]; then
+            bash scripts/publish-download-manifest.sh "$RELEASE_TAG"
+          fi
 
   # 产物发布成功后同步发布 Docker 镜像。串在产物之后而非并行，
   # 是为了避免产物构建失败（版本校验不过等）时 latest 镜像已被推走。
@@ -520,18 +536,32 @@ jobs:
   publish:
     needs: [cli, worker-macos, ios-ipa, mac-app, carry-assets, docker-image]
     if: ${{ !cancelled() && needs.cli.result == 'success' && needs.docker-image.result == 'success' }}
-    runs-on: ubuntu-latest
+    # 官网清单从实际 ZIP 读取，macOS runner 还能复核签名和公证。
+    runs-on: macos-26
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
       GH_TOKEN: ${{ github.token }}
       # 只用于判断本仓库是否启用了清单签名（启用则 .sig 必须在场）
       RELEASE_SIGNING_KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
     steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 生成官网的版本与架构清单
+        run: |
+          python3 -m unittest discover -s scripts/tests -p 'test_download_manifest.py'
+          bash scripts/publish-download-manifest.sh "$RELEASE_TAG"
+
       - name: 校验产物齐全并发布 Release
         run: |
           assets="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json assets --jq '.assets[].name')"
-          required="app-web.tar.gz app-backend.tar.gz manifest.json
+          required="app-web.tar.gz app-backend.tar.gz manifest.json downloads.json
             mclaw_linux_amd64.tar.gz mclaw_linux_arm64.tar.gz
             mclaw_darwin_amd64.tar.gz mclaw_darwin_arm64.tar.gz
             mclaw_windows_amd64.zip mclaw_windows_arm64.zip

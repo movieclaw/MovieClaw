@@ -424,7 +424,6 @@ private enum TrackModel {
     static func subtitleLanguageName(_ stream: API.SubtitleStreamView) -> String {
         generatedSubtitleLabel(stream)
             ?? languageLabel(stream.language)
-            ?? stream.title?.trimmingCharacters(in: .whitespacesAndNewlines)
             ?? unknownLanguage
     }
 
@@ -557,7 +556,10 @@ private enum TrackModel {
             if !external { embeddedOrdinal += 1 }
             let track = subtitleTrackRef(stream, index: index)
             let isDefault = defaults.map { track != nil && $0.subtitleTrack == track } ?? stream.default
-            let label = "\(language) · \(format)"
+            let title = stream.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let hasTitle = !title.isEmpty
+            let primary = external ? externalSubtitleLabel(stream.fileName, videoStem: videoStem) : hasTitle ? title : "内封轨 \(embeddedOrdinal)"
+            let label = "\(primary) · \(language) · \(format)"
             var flags: [String] = []
             if isDefault { flags.append("默认") }
             if stream.forced { flags.append("强制") }
@@ -567,8 +569,8 @@ private enum TrackModel {
                 rank: subtitleRank(stream, language: language),
                 format: format,
                 tone: subtitleTone(stream),
-                primary: external ? externalSubtitleLabel(stream.fileName, videoStem: videoStem) : "内封轨 \(embeddedOrdinal)",
-                secondary: external ? externalSubtitleSuffix(stream) : "内封",
+                primary: primary,
+                secondary: external ? externalSubtitleSuffix(stream) : hasTitle ? "内封轨 \(embeddedOrdinal)" : "内封",
                 flags: flags,
                 external: external,
                 order: isDefault ? 0 : isAiSubtitle(stream) ? 3 : external ? 2 : 1,
@@ -837,7 +839,7 @@ private struct TrackListSheet: View {
         Group {
             if selectable {
                 NavigationLink(value: entry.id) { lineContent(entry) }
-                    .accessibilityLabel("预览字幕：\(entry.language) · \(entry.format) · \(entry.primary)")
+                    .accessibilityLabel("预览字幕：\(entry.language) · \(entry.format) · \(entry.primary) · \(entry.secondary)")
             } else {
                 lineContent(entry)
             }
@@ -860,26 +862,50 @@ private struct TrackListSheet: View {
                 .padding(.horizontal, 6)
                 .frame(height: 20)
                 .background(entry.tone.background, in: .rect(cornerRadius: 5))
-            Text(entry.primary)
-                .font(.subheadline)
-                .foregroundStyle(Theme.text)
-                .lineLimit(1)
-                .truncationMode(.middle)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            HStack(spacing: 6) {
-                Text(entry.secondary)
-                    .font(.caption)
-                    .foregroundStyle(Theme.textMuted)
-                ForEach(entry.flags, id: \.self) { flag in
-                    Text(flag)
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(Theme.textMuted)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Color.white.opacity(0.07), in: .rect(cornerRadius: 5))
+            if kind == .subtitle {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(entry.primary)
+                        .font(.subheadline)
+                        .foregroundStyle(Theme.text)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                    HStack(spacing: 6) {
+                        Text(entry.secondary)
+                            .font(.caption)
+                            .foregroundStyle(Theme.textMuted)
+                        ForEach(entry.flags, id: \.self) { flag in
+                            Text(flag)
+                                .font(.caption2.weight(.semibold))
+                                .foregroundStyle(Theme.textMuted)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.white.opacity(0.07), in: .rect(cornerRadius: 5))
+                        }
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                Text(entry.primary)
+                    .font(.subheadline)
+                    .foregroundStyle(Theme.text)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack(spacing: 6) {
+                    Text(entry.secondary)
+                        .font(.caption)
+                        .foregroundStyle(Theme.textMuted)
+                    ForEach(entry.flags, id: \.self) { flag in
+                        Text(flag)
+                            .font(.caption2.weight(.semibold))
+                            .foregroundStyle(Theme.textMuted)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.white.opacity(0.07), in: .rect(cornerRadius: 5))
+                    }
+                }
+                .fixedSize()
             }
-            .fixedSize()
         }
     }
 }

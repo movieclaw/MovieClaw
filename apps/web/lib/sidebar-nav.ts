@@ -30,11 +30,13 @@ export function applyNavOrder<T extends NavOrderable>(items: T[], order: string[
   const byId = new Map(items.map((item) => [item.id, item]));
   const ordered: T[] = [];
   for (const id of order) {
-    const item = byId.get(id);
+    // 旧版两个发现入口合并，沿用最先出现的入口位置。
+    const itemId = id === "explore-movies" || id === "explore-tv" ? "discover" : id;
+    const item = byId.get(itemId);
     // 已删除 / 当前不可见的 id 忽略；重复 id 只取第一次（delete 后不再命中）
     if (item) {
       ordered.push(item);
-      byId.delete(id);
+      byId.delete(itemId);
     }
   }
   // byId 里剩下的是"没排过的"，Map 保留插入序 = 内置默认顺序

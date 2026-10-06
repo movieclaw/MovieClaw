@@ -55,7 +55,7 @@ struct PlayerTracksTests {
             Track(language: nil, codec: "ass", channels: 0, isDefault: false),
         ])
         #expect(tracks.options.map(\.kind) == ["vtt", "ass"])
-        #expect(tracks.options[1].label == "内封轨 1 · 特效")
+        #expect(tracks.options[1].label == "内封轨 2 · 特效")
     }
 
     @Test func engineAudioOptionsNeedTwoTracks() {
@@ -106,4 +106,73 @@ struct PlayerTracksTests {
         ])
         #expect(engine.map { $0.unavailableReason != nil } == [true, false])
     }
+
+    @Test func subtitleTitlesDoNotReplaceTrackIdentity() throws {
+        let title = "国配简体特效 · 蓝光修订版 · " + String(repeating: "保留屏幕文字🎬", count: 60)
+        let plans = [
+            API.SubtitlePlanView(trackRef: "embedded:3", kind: "pgs", language: "chi", isDefault: false, isAi: false, title: "  \(title)  ", isForced: true),
+            API.SubtitlePlanView(trackRef: "embedded:4", kind: "pgs", language: "chi", isDefault: true, isAi: false, title: title),
+        ]
+        let tracks = SubtitleTracks.plan(plans, urls: ["/a", "/b"])
+        #expect(tracks.options.map(\.displayTitle) == [title, title])
+        #expect(tracks.options[0].detail == "中文 · PGS 图形 · 内封轨 4 · 强制")
+        #expect(tracks.options[1].detail == "中文 · PGS 图形 · 内封轨 5 · 默认")
+        #expect(tracks.options.map(\.id) == ["embedded:3", "embedded:4"])
+        #expect(tracks.options.map(\.path) == ["/a", "/b"])
+    }
+
+    @Test func oldServerAndBlankTitlesKeepDistinctFallbacks() throws {
+        let json = #"[{"track_ref":"embedded:0","kind":"vtt","language":"und","is_default":false,"is_ai":false}]"#
+        let plans = try JSONDecoder().decode([API.SubtitlePlanView].self, from: Data(json.utf8))
+        let old = SubtitleTracks.plan(plans, urls: ["/a"]).options[0]
+        #expect(old.displayTitle == "内封轨 1")
+        #expect(old.detail == "未知语言 · WebVTT · 内封")
+        #expect(!old.isForced)
+        for title in [nil, "", " \n\t　"] as [String?] {
+            var embedded = option("embedded:6")
+            embedded.title = title
+            #expect(embedded.displayTitle == "内封轨 7")
+            var external = option("external:film.chs.ass")
+            external.title = title
+            #expect(external.displayTitle == "film.chs.ass")
+            #expect(external.detail.contains("外挂"))
+        }
+    }
+
+    @Test func engineOnlyFillsMissingTitlesWithoutReplacingServerChoices() {
+        var server = option("embedded:0")
+        server.title = "服务端标题"
+        var tracks = SubtitleTracks(options: [server, option("embedded:1"), option("external:a.srt")])
+        let engine = [
+            Track(language: "chi", codec: "pgssub", channels: 0, isDefault: true, title: "引擎标题"),
+            Track(language: "chi", codec: "pgssub", channels: 0, isDefault: true, title: "简英 · 修订版", isForced: true),
+        ]
+        let changed = tracks.adoptEngineSubtitles(engine)
+        #expect(changed)
+        #expect(tracks.options[0].displayTitle == "服务端标题")
+        #expect(tracks.options[1].displayTitle == "简英 · 修订版")
+        #expect(tracks.options[1].path == "/api/v1/sub")
+        #expect(!tracks.options[1].isDefault)
+        #expect(tracks.options[1].isForced)
+        let again = tracks.adoptEngineSubtitles(engine)
+        #expect(!again)
+        var disc = SubtitleTracks(options: [server])
+        let replaced = disc.adoptEngineSubtitles(engine, replacingEmbedded: true)
+        #expect(replaced)
+        #expect(disc.options[1].isForced)
+        #expect(disc.options[1].detail.contains("内封轨 2"))
+    }
+
+
+    @Test func manyIdenticalSubtitleNamesDoNotCollapseTracks() {
+        let plans = (0 ..< 200).map { index in
+            API.SubtitlePlanView(trackRef: "embedded:\(index)", kind: "vtt", language: "chi", isDefault: index == 0, isAi: false, title: "简英特效")
+        }
+        let tracks = SubtitleTracks.plan(plans, urls: plans.enumerated().map { "/sub?track=\($0.offset)" })
+        #expect(tracks.options.count == 200)
+        #expect(Set(tracks.options.map(\.id)).count == 200)
+        #expect(tracks.options.last?.detail == "中文 · WebVTT · 内封轨 200")
+        #expect(tracks.initialSelection(remembered: "embedded:199") == "embedded:199")
+    }
+
 }

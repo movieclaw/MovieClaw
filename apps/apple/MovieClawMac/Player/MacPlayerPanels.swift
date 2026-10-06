@@ -66,7 +66,7 @@ struct MacTracksPanel: View {
         ForEach(MacSubtitleGroups.build(controller.subtitles.options)) { group in
             MacPanelHeader(title: group.title)
             ForEach(group.options) { item in
-                MacPanelRow(id: "mac-panel-subtitle-\(item.ref)", title: MacTrackText.split(item.label).title,
+                MacPanelRow(id: "mac-panel-subtitle-\(item.ref)", title: item.displayTitle,
                             detail: MacTrackText.subtitleDetail(item), active: controller.selectedSubtitle == item.ref) {
                     controller.selectSubtitle(item.ref)
                     close()
@@ -76,7 +76,7 @@ struct MacTracksPanel: View {
         if !controller.subtitles.unavailable.isEmpty {
             MacPanelHeader(title: "暂时放不了")
             ForEach(controller.subtitles.unavailable) { item in
-                MacPanelRow(id: "mac-panel-subtitle-\(item.ref)", title: MacTrackText.split(item.label).title,
+                MacPanelRow(id: "mac-panel-subtitle-\(item.ref)", title: item.label,
                             detail: item.reason, active: false, disabled: true) {}
             }
         }
@@ -153,7 +153,7 @@ private struct MacPanelHeader: View {
 }
 
 /// 面板里的一行：左边对勾（当前项），主标题 + 一行小字；悬停浮出淡白底
-private struct MacPanelRow: View {
+struct MacPanelRow: View {
     let id: String
     let title: String
     let detail: String?
@@ -173,12 +173,14 @@ private struct MacPanelRow: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title)
                         .font(.system(size: 13, weight: active ? .semibold : .regular))
-                        .lineLimit(1)
+                        .lineLimit(id.hasPrefix("mac-panel-subtitle-") ? nil : 1)
+                        .fixedSize(horizontal: false, vertical: true)
                     if let detail, !detail.isEmpty {
                         Text(detail)
                             .font(.system(size: 11))
                             .foregroundStyle(.white.opacity(0.55))
-                            .lineLimit(1)
+                            .lineLimit(id.hasPrefix("mac-panel-subtitle-") ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                 }
                 Spacer(minLength: 0)
@@ -238,18 +240,7 @@ enum MacTrackText {
         return (parts.first ?? label, rest.isEmpty ? nil : rest)
     }
 
-    /// 字幕的小字：格式 · 外挂 / 内封 · AI 翻译 · 默认
-    static func subtitleDetail(_ item: SubtitleOption) -> String {
-        var parts: [String] = []
-        if let format = formats[item.kind.lowercased()] { parts.append(format) } else if let fromLabel = split(item.label).detail {
-            parts.append(fromLabel)
-        }
-        if item.ref.hasPrefix("external:") { parts.append("外挂") } else if item.ref.hasPrefix("embedded:") { parts.append("内封") }
-        if item.isAI { parts.append("AI 翻译") }
-        if item.isDefault { parts.append("默认") }
-        return parts.joined(separator: " · ")
-    }
+    /// 字幕名称与说明分开，标题里的分隔符不会被误拆。
+    static func subtitleDetail(_ item: SubtitleOption) -> String { item.detail }
 
-    private static let formats = ["srt": "SRT", "subrip": "SRT", "ass": "ASS", "ssa": "ASS", "vtt": "WebVTT", "webvtt": "WebVTT",
-                                  "pgs": "PGS 图形", "text": "文本"]
 }
