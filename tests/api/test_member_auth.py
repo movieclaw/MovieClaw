@@ -699,6 +699,9 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/push/me"),
     ("PUT", "/api/v1/push/me/preferences"),
     ("POST", "/api/v1/push/me/test"),
+    # 「这部剧不再提醒」：只静音自己的推送（按 owner_id 存），订阅照常下载
+    ("PUT", "/api/v1/push/me/muted-items/{item_id}"),
+    ("DELETE", "/api/v1/push/me/muted-items/{item_id}"),
     ("PUT", "/api/v1/push/me/registration"),
     ("DELETE", "/api/v1/push/me/registration"),
     # 推送配图：公开区（地址自带签名），成员自然可达
@@ -760,6 +763,7 @@ _PATH_DUMMIES = {
     # App 推送的自建中继、推送配图的签名
     "{relay_id}": "r_test",
     "{token}": "no-such-image",
+    "{item_id}": "1",
 }
 
 

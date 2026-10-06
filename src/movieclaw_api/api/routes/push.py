@@ -205,7 +205,7 @@ async def mute_item(
     response_model=ApiResponse[MyPushView],
     summary="恢复一部片的推送",
     operation_id="push.me.muted.remove",
-    openapi_extra=_HIDDEN,
+    openapi_extra={**_HIDDEN, "x-cli-dangerous": "confirm"},
 )
 async def unmute_item(
     item_id: int,

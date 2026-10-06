@@ -394,6 +394,7 @@ def fill_path_params(path: str) -> str:
         .replace("{attempt_id}", "test-attempt")  # 播放体验记录的播放编号
         .replace("{relay_id}", "r_test")  # App 推送的自建中继
         .replace("{token}", "no-such-image")  # 推送配图的签名
+        .replace("{item_id}", "1")  # 推送「这部剧不再提醒」的条目
     )
 
 

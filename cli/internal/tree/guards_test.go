@@ -184,6 +184,8 @@ var knownNonGenerated = []string{
 	"push.me.show",
 	"push.me.preferences.set",
 	"push.me.test",
+	"push.me.muted.add",
+	"push.me.muted.remove",
 	"push.me.registration.set",
 	"push.me.registration.delete",
 	"push.images.get",
