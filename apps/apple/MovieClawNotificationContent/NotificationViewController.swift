@@ -13,6 +13,8 @@ import UserNotificationsUI
 final class NotificationViewController: UIViewController, UNNotificationContentExtension {
     private let model = CardModel()
     private var host: UIHostingController<CardView>?
+    /// 拿到通知之后才按内容定高度：之前量出来只有空架子，会先把展开界面压扁再撑开
+    private var received = false
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -32,12 +34,21 @@ final class NotificationViewController: UIViewController, UNNotificationContentE
     }
 
     func didReceive(_ notification: UNNotification) {
+        received = true
         let content = notification.request.content
         let push = DecryptedPush(userInfo: content.userInfo, store: .shared)
         let plaintext = push.flatMap { $0.plaintext.isNewer ? nil : $0.plaintext }
         model.title = content.title
         model.body = content.body
         model.image = Self.image(content.attachments.first)
+        if model.image == nil, let push, let url = PushAlertPresentation(push, logins: []).imageURL {
+            // 通知扩展没来得及附上配图（5 秒内没下载完）：展开时再取一次
+            Task { [weak self] in
+                guard let (data, _) = try? await URLSession.shared.data(from: url), let image = UIImage(data: data) else { return }
+                self?.model.image = image
+                self?.resize()
+            }
+        }
         model.grid = plaintext?.grid
         let actions = plaintext?.actions ?? []
         model.playing = actions.first { $0.id == "play" }.flatMap { Self.unitLabel(fromPlayTitle: $0.title) }
@@ -52,9 +63,9 @@ final class NotificationViewController: UIViewController, UNNotificationContentE
         resize()
     }
 
-    /// 按内容定高度：宽度是系统给的，高度随格子行数变
+    /// 按内容定高度：宽度是系统给的，高度随大图和格子行数变
     private func resize() {
-        guard let host, view.bounds.width > 0 else { return }
+        guard received, let host, view.bounds.width > 0 else { return }
         let size = host.sizeThatFits(in: CGSize(width: view.bounds.width, height: .greatestFiniteMagnitude))
         let height = ceil(size.height)
         if abs(preferredContentSize.height - height) > 0.5 {

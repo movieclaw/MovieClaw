@@ -175,6 +175,10 @@ targets:
         type: syncedFolder
       - path: PushShared
         type: syncedFolder
+    # 要显式链接：系统按 Info.plist 找扩展上下文类（_UNNotificationContentExtensionVendorContext），
+    # 只靠 import 的自动链接时它不在包里，扩展一启动就崩
+    dependencies:
+      - sdk: UserNotificationsUI.framework
     info:
       path: MovieClawNotificationContent/Info.plist
       properties:
@@ -182,6 +186,10 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         MCAppGroup: group.$(MC_BUNDLE_ID_PREFIX).app
+        # 通知扩展没来得及附上配图时，展开时从服务器再取一次：理由同通知扩展
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+        NSLocalNetworkUsageDescription: MovieClaw 需要访问局域网，用于从你自己部署的 MovieClaw 服务器下载通知配图。
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.content-extension
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationViewController

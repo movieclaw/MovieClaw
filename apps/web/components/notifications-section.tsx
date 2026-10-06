@@ -19,9 +19,11 @@ import { Banner, ErrorBanner, LINK_CLASS, Toggle } from "@/components/cloud-push
 import { useToast } from "@/components/feedback";
 import {
   type MyPushLibrary,
+  type MyPushMutedItem,
   type MyPushView,
   getMyPush,
   sendMyPushTest,
+  unmuteMyPushItem,
   updateMyPushPreferences,
 } from "@/lib/api/push";
 import {
@@ -104,7 +106,23 @@ export function NotificationsSection() {
     }
   };
 
-  /** 回到「全部」：包括以后新建的库 */
+  /** 恢复一部片的推送：先从列表里拿掉，失败从服务端重读 */
+  const unmute = async (id: number) => {
+    const seq = ++seqRef.current;
+    setError(null);
+    setView(
+      (prev) =>
+        prev && { ...prev, muted_items: prev.muted_items?.filter((item) => item.id !== id) },
+    );
+    try {
+      const next = await unmuteMyPushItem(id);
+      if (seq === seqRef.current) setView(next);
+    } catch (e) {
+      setError((e as Error).message);
+      void load();
+    }
+  };
+
   const sendTest = async () => {
     setTesting(true);
     try {
@@ -222,6 +240,10 @@ export function NotificationsSection() {
         </section>
       ))}
 
+      {view.muted_items && view.muted_items.length > 0 && (
+        <MutedItems items={view.muted_items} onUnmute={(id) => void unmute(id)} />
+      )}
+
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
         <button
           type="button"
@@ -272,5 +294,43 @@ function LibraryPicker({
         {all ? "全选时包括以后新建的库" : "只推勾上的库；全部勾上时也包括以后新建的库"}
       </p>
     </div>
+  );
+}
+
+/** 「不再提醒」：长按通知选了「这部剧不再提醒」的片，一部一行，可以恢复 */
+function MutedItems({
+  items,
+  onUnmute,
+}: {
+  items: MyPushMutedItem[];
+  onUnmute: (id: number) => void;
+}) {
+  return (
+    <section>
+      <h3 className="group-label mb-2.5 px-1">不再提醒</h3>
+      <div className="css-glass !rounded-xl">
+        {items.map((item, i) => (
+          <div
+            key={item.id}
+            className={`flex items-center gap-3.5 px-4 py-3 ${i > 0 ? "border-t border-white/[0.06]" : ""}`}
+          >
+            <p className="min-w-0 flex-1 truncate text-body text-[var(--text)]">
+              {item.title}
+              {item.year != null && <span className="text-[var(--text-faint)]">（{item.year}）</span>}
+            </p>
+            <button
+              type="button"
+              onClick={() => onUnmute(item.id)}
+              className="btn-glass px-3 py-1 text-sub font-medium"
+            >
+              恢复
+            </button>
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 px-1 text-caption leading-5 text-[var(--text-faint)]">
+        在手机通知上长按选「这部剧不再提醒」的片。只是不推送，订阅照常下载。
+      </p>
+    </section>
   );
 }

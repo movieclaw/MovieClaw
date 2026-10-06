@@ -90,13 +90,28 @@ struct EpisodeCells: Equatable {
 
 struct EpisodeGrid: View {
     let cells: EpisodeCells
-    private let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 11)
+    private static let columns = 11
+
+    /// 每行 11 集；最后一行不满时用空位补齐，格子宽度一致
+    private var rows: [[Int]] {
+        stride(from: 0, to: cells.states.count, by: Self.columns).map { start in
+            Array(start..<min(start + Self.columns, cells.states.count))
+        }
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            LazyVGrid(columns: columns, spacing: 4) {
-                ForEach(Array(cells.states.enumerated()), id: \.offset) { index, state in
-                    EpisodeCell(number: index + 1, state: state)
+            // 不用 LazyVGrid：懒加载的网格量不出真实高度，展开界面会被压成一条
+            Grid(horizontalSpacing: 4, verticalSpacing: 4) {
+                ForEach(rows, id: \.first) { row in
+                    GridRow {
+                        ForEach(row, id: \.self) { index in
+                            EpisodeCell(number: index + 1, state: cells.states[index])
+                        }
+                        ForEach(row.count..<Self.columns, id: \.self) { _ in
+                            Color.clear.frame(height: 20)
+                        }
+                    }
                 }
             }
             HStack(spacing: 12) {

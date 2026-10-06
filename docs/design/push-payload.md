@@ -61,8 +61,12 @@ v1.<key_id>.<nonce>.<密文>
 | `open` | 可选，点开后的页面：网页站内路径（如 `/subscriptions/42`），网页和 App 用同一套路由 |
 | `thread` | 可选，分组（设置为通知的 `threadIdentifier`；App 会再按服务器分开，不同服务器的通知不混在一组） |
 | `source` | 可选，要不要在手机上标出来源：没有这个字段 = 不标；`server` = 手机连了不止一台服务器时标服务器名；`account` = 同一台服务器上登了不止一个账号时标账号名 |
-| `category` | 可选，通知类别（操作按钮） |
-| `sound` | 可选，`default` 或 App 内置的声音名 |
+| `category` | 可选，通知类别（操作按钮、长按展开界面）；剧卡是 `item` |
+| `sound` | 可选，`default` 或 App 内置的声音名；被动（`interruption-level: passive`）的推送不带 |
+| `actions` | 可选，长按的快捷操作：`[{"id", "title", "open"?, "item"?}]`。`id` 为 `play`（`open` 是 `/play/...` 播放链接）、`open`（`open` 是站内路径）、`mute`（`item` 是要静音的条目）。App 点了按 `id` 处理，标题由内容扩展换上 |
+| `grid` | 可选，长按时的集数格子：`{"season": 1, "cells": "sssddww-m"}`，第 1 集起每集一个字符：`s` 看过、`d` 已入库、`w` 下载中、`m` 没找到、`-` 其他；明文超长时先去掉它 |
+
+打扰级别和摘要排序不在明文里：实例填在中继消息的 `aps`（`interruption-level`、`relevance-score`），见推送中继协议 §7。
 
 事件清单（推给谁、什么文案、点开去哪）见 [`cloud-push.md`](cloud-push.md) 第 5 节。
 

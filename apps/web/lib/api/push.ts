@@ -192,6 +192,14 @@ export interface MyPushLibrary {
   kind: string;
 }
 
+/** 长按通知点了「这部剧不再提醒」的片：只是不推送，订阅照常下载 */
+export interface MyPushMutedItem {
+  id: number;
+  title: string;
+  year: number | null;
+  kind: string;
+}
+
 export interface MyPushView {
   /** 服务器有没有任何可用通道 */
   instance_ready: boolean;
@@ -205,6 +213,8 @@ export interface MyPushView {
   libraries: MyPushLibrary[];
   /** 「媒体库有新片」关心的库；null = 能看到的全部（含以后新建的） */
   library_ids: number[] | null;
+  /** 静音了的片，最近静音的在前；旧服务器没有这个字段 */
+  muted_items?: MyPushMutedItem[] | null;
 }
 
 export interface PushTestResult {
@@ -232,6 +242,13 @@ export function updateMyPushPreferences(patch: {
 }
 
 /** 给自己的设备发一条测试通知；10 秒内只能发一次（后端拒绝时带可读的 message）。 */
+/** 恢复一部片的推送（长按通知「这部剧不再提醒」静音的） */
+export function unmuteMyPushItem(itemId: number): Promise<MyPushView> {
+  return unwrap(
+    request<ApiEnvelope<MyPushView>>(`/push/me/muted-items/${itemId}`, { method: "DELETE" }),
+  );
+}
+
 export function sendMyPushTest(): Promise<PushTestResult> {
   return unwrap(request<ApiEnvelope<PushTestResult>>("/push/me/test", { method: "POST" }));
 }
