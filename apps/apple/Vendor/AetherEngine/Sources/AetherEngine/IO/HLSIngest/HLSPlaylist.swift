@@ -81,13 +81,23 @@ enum HLSPlaylist: Equatable {
 /// Line-oriented RFC 8216 parser for the subset the live ingest needs. Pure (no I/O).
 enum HLSPlaylistParser {
 
+    /// Audit NET-105: the longest line any tag or URI in a real playlist comes to is a DATERANGE with
+    /// a SCTE-35 payload, a few KB. A line past this is not a playlist line, and refusing it keeps every
+    /// per-line helper, present and future, off a megabyte of one attribute soup.
+    static let maximumLineBytes = 64 * 1024
+
     static func parse(_ text: String) throws -> HLSPlaylist {
         // `split(separator: "\n")` compares whole Characters, and "\r\n" is one grapheme cluster in
         // Swift, so a CRLF playlist came back as a single line (audit NET-2, NAT-3). `isNewline` is
         // true for "\r\n", "\n" and "\r" alike.
-        let lines = text
+        let lines = try text
             .split(whereSeparator: \.isNewline)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .map { line -> String in
+                guard line.utf8.count <= maximumLineBytes else {
+                    throw HLSIngestError.playlistInvalid(reason: "playlist line exceeds \(maximumLineBytes) bytes")
+                }
+                return line.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             .filter { !$0.isEmpty }
         guard lines.first?.hasPrefix("#EXTM3U") == true else {
             throw HLSIngestError.playlistInvalid(reason: "missing #EXTM3U")
@@ -178,7 +188,8 @@ enum HLSPlaylistParser {
 
         for line in lines {
             if line.hasPrefix("#EXT-X-TARGETDURATION:") {
-                targetDuration = Double(line.dropFirst("#EXT-X-TARGETDURATION:".count))
+                targetDuration = try boundedDuration(line.dropFirst("#EXT-X-TARGETDURATION:".count),
+                                                     tag: "TARGETDURATION")
             } else if line.hasPrefix("#EXT-X-MEDIA-SEQUENCE:") {
                 // A hostile or MITM value near Int.max makes `mediaSequence + segments.count`
                 // overflow and trap downstream (audit NET-3); reject it here instead. A merely
@@ -190,8 +201,11 @@ enum HLSPlaylistParser {
                     mediaSequence = parsed
                 }
             } else if line.hasPrefix("#EXTINF:") {
-                let payload = line.dropFirst("#EXTINF:".count)
-                pendingDuration = Double(payload.split(separator: ",").first.map(String.init) ?? "")
+                // The duration is the first non-empty comma field; `split` built a Substring for every
+                // field of the title to find it (audit NET-105).
+                let payload = line.dropFirst("#EXTINF:".count).drop(while: { $0 == "," })
+                let field = payload[..<(payload.firstIndex(of: ",") ?? payload.endIndex)]
+                pendingDuration = try boundedDuration(field, tag: "EXTINF")
             } else if line.hasPrefix("#EXT-X-DISCONTINUITY") && !line.hasPrefix("#EXT-X-DISCONTINUITY-SEQUENCE") {
                 pendingDiscontinuity = true
             } else if line.hasPrefix("#EXT-X-KEY:") {
@@ -261,18 +275,31 @@ enum HLSPlaylistParser {
         )
     }
 
+    /// A duration tag's value; nil when it does not parse, which keeps the pre-existing fallbacks.
+    /// `Double(_:)` accepts `inf`, `nan` and any magnitude, and every consumer converts to an integer
+    /// somewhere downstream (audit NET-101), so a non-finite value or one past the program ceiling is
+    /// refused here. Negatives are left to the consumers: they trap nothing, and a sloppy live origin
+    /// should not lose its channel over one.
+    private static func boundedDuration(_ text: Substring, tag: String) throws -> Double? {
+        guard let value = Double(text) else { return nil }
+        guard value.isFinite, value <= MediaDurationCeiling.seconds else {
+            throw HLSIngestError.playlistInvalid(reason: "\(tag) out of range")
+        }
+        return value
+    }
+
     /// Parse a `0x`-prefixed hex EXT-X-KEY IV into 16-byte big-endian Data. Returns nil on malformed length (caller falls back to sequence-number IV).
     /// ISO 8601 with fractional seconds is what every broadcaster emits; the plain form is accepted
     /// because the spec allows it.
     private static func parseProgramDateTime(_ raw: String) -> Date? {
         let text = raw.trimmingCharacters(in: .whitespaces)
-        let withFraction = ISO8601DateFormatter()
-        withFraction.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        if let date = withFraction.date(from: text) { return date }
-        let plain = ISO8601DateFormatter()
-        plain.formatOptions = [.withInternetDateTime]
-        return plain.date(from: text)
+        return (try? fractionalDateStyle.parse(text)) ?? (try? plainDateStyle.parse(text))
     }
+
+    /// Audit NET-106: two `ISO8601DateFormatter`s were built per PROGRAM-DATE-TIME line, 1.1 to 1.6 s
+    /// for a 3600-segment window that carries one on every segment. Value-type styles are built once.
+    private static let fractionalDateStyle = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private static let plainDateStyle = Date.ISO8601FormatStyle()
 
     private static func parseHexIV(_ raw: String) -> Data? {
         var hex = raw.trimmingCharacters(in: .whitespaces)
@@ -303,28 +330,43 @@ enum HLSPlaylistParser {
     /// Extract a KEY=VALUE attribute from a tag line, tolerating quoted values. Match is anchored to `:` or `,` before the key: bare substring search matched `BANDWIDTH=` inside `AVERAGE-BANDWIDTH=` and caused wrong variant selection.
     /// Internal rather than private since #316: the master rewriter reads the same attributes off the
     /// same tag lines, and a second parser would be a second place for the anchoring trap to reappear.
+    ///
+    /// One left-to-right pass that carries the quote parity along. It recounted the quotes from the
+    /// line start for every `KEY=` it met, so a line of unclosed quote plus thousands of `,KEY=` took
+    /// time quadratic in its length, 9.6 s at 64 KiB (audit NET-105, NAT-102). Scanned as UTF-8: the
+    /// delimiters are ASCII.
     static func attribute(_ key: String, in line: String) -> String? {
-        let needle = "\(key)="
-        var searchStart = line.startIndex
-        while let range = line.range(of: needle, range: searchStart..<line.endIndex) {
-            searchStart = range.upperBound
-            if range.lowerBound != line.startIndex {
-                let before = line[line.index(before: range.lowerBound)]
-                guard before == ":" || before == "," else { continue }
+        let needle = Array("\(key)=".utf8)
+        var line = line
+        return line.withUTF8 { bytes -> String? in
+            let count = bytes.count
+            var insideQuotes = false
+            var index = 0
+            while index < count {
+                let byte = bytes[index]
+                if byte == UInt8(ascii: "\"") {
+                    insideQuotes.toggle()
+                    index += 1
+                    continue
+                }
+                guard !insideQuotes, byte == needle[0], index + needle.count <= count,
+                      index == 0 || bytes[index - 1] == UInt8(ascii: ":") || bytes[index - 1] == UInt8(ascii: ","),
+                      needle.indices.allSatisfy({ bytes[index + $0] == needle[$0] })
+                else {
+                    index += 1
+                    continue
+                }
+                let valueStart = index + needle.count
+                if valueStart < count, bytes[valueStart] == UInt8(ascii: "\"") {
+                    let quoted = UnsafeBufferPointer(rebasing: bytes[(valueStart + 1)...])
+                    guard let end = quoted.firstIndex(of: UInt8(ascii: "\"")) else { return nil }
+                    return String(decoding: UnsafeBufferPointer(rebasing: quoted[..<end]), as: UTF8.self)
+                }
+                let rest = UnsafeBufferPointer(rebasing: bytes[valueStart...])
+                let end = rest.firstIndex(of: UInt8(ascii: ",")) ?? rest.endIndex
+                return String(decoding: UnsafeBufferPointer(rebasing: rest[..<end]), as: UTF8.self)
             }
-            // Reject matches inside quoted values (odd quote count before match = inside quotes).
-            let quotesBefore = line[line.startIndex..<range.lowerBound]
-                .reduce(0) { $1 == "\"" ? $0 + 1 : $0 }
-            guard quotesBefore % 2 == 0 else { continue }
-            let rest = line[range.upperBound...]
-            if rest.hasPrefix("\"") {
-                let afterQuote = rest.dropFirst()
-                guard let end = afterQuote.firstIndex(of: "\"") else { return nil }
-                return String(afterQuote[..<end])
-            }
-            let end = rest.firstIndex(of: ",") ?? rest.endIndex
-            return String(rest[..<end])
+            return nil
         }
-        return nil
     }
 }

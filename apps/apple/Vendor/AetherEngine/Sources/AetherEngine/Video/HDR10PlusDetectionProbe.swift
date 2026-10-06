@@ -3,8 +3,9 @@ import AetherLibavformat
 import AetherLibavcodec
 import AetherLibavutil
 
-/// Bounds for the pre-playback HDR10+ (ST 2094-40) carriage scan, `AetherEngine.probe(url:detecting:)` with
-/// `.hdr10Plus`.
+/// Bounds for the pre-playback dynamic HDR metadata scan, `AetherEngine.probe(url:detecting:)` with
+/// `.hdr10Plus` (ST 2094-40) and/or `.hdrVivid` (CUVA). Both run in one pass over the same packets and
+/// share these bounds.
 ///
 /// Separate from `LoadOptions` and from the lightweight `probe(url:)` path, exactly like
 /// `AtmosDetectionOptions`: a host opts into reading real video packets without the default probe changing
@@ -69,11 +70,22 @@ struct HDR10PlusDetectionOutcome: Sendable, Equatable {
     let stopReason: StopReason
     let packetsRead: Int
     let bytesRead: Int64
+    /// What the pass confirmed. `.found` means every requested format was; a cap can still end a pass
+    /// that confirmed one of two, and that confirmation stands. Defaults to the single-target reading.
+    let found: ProbeDetail
 
-    /// A negative is never authoritative and is never published as one: only `.found` sets the flag, and the
-    /// flag is only ever set, never cleared. Every other reason means "not seen inside this budget", which
-    /// for a cap is genuinely inconclusive and for EOF is only as conclusive as the source is short.
-    var carriesHDR10Plus: Bool { stopReason == .found }
+    init(stopReason: StopReason, packetsRead: Int, bytesRead: Int64, found: ProbeDetail? = nil) {
+        self.stopReason = stopReason
+        self.packetsRead = packetsRead
+        self.bytesRead = bytesRead
+        self.found = found ?? (stopReason == .found ? .hdr10Plus : [])
+    }
+
+    /// A negative is never authoritative and is never published as one: only a validated payload sets a
+    /// flag, and a flag is only ever set, never cleared. Not found means "not seen inside this budget",
+    /// which for a cap is genuinely inconclusive and for EOF is only as conclusive as the source is short.
+    var carriesHDR10Plus: Bool { found.contains(.hdr10Plus) }
+    var carriesHDRVivid: Bool { found.contains(.hdrVivid) }
 }
 
 /// Which extra, strictly more expensive detail a probe should resolve on top of the container metadata.
@@ -90,6 +102,10 @@ public struct ProbeDetail: OptionSet, Sendable {
 
     /// HDR10+ (ST 2094-40) carriage via a bounded packet scan. See `HDR10PlusDetectionOptions`.
     public static let hdr10Plus = ProbeDetail(rawValue: 1 << 1)
+
+    /// HDR Vivid (CUVA T/UWA 005.1) carriage in HEVC via the same bounded packet scan as `.hdr10Plus`,
+    /// sharing its `HDR10PlusDetectionOptions` budget. See `SourceProbe.carriesHDRVividMetadata`.
+    public static let hdrVivid = ProbeDetail(rawValue: 1 << 2)
 }
 
 extension AetherEngine {
@@ -135,8 +151,9 @@ extension AetherEngine {
         detected == .hdr10 ? .hdr10Plus : detected
     }
 
-    /// Bounded scan for HDR10+ carriage on `videoIndex`. Opens no decoder: it reads demuxed packets and asks
-    /// `HDR10PlusMetadataScan` about each one, stopping at the first hit or the first cap.
+    /// Bounded scan for HDR10+ and/or HDR Vivid carriage on `videoIndex` (`targets`). Opens no decoder: it
+    /// reads demuxed packets and asks `HDR10PlusMetadataScan` / `HDRVividMetadataScan` about each one,
+    /// stopping once every target is confirmed or at the first cap.
     ///
     /// Deliberately runs BEFORE any queue-flushing seek, unlike `detectAtmos`. `avformat_find_stream_info`
     /// leaves the packets it read queued, `av_read_frame` hands those back first, and at the head of a
@@ -150,8 +167,10 @@ extension AetherEngine {
         demuxer: Demuxer,
         videoIndex: Int32,
         options: HDR10PlusDetectionOptions,
+        targets: ProbeDetail = .hdr10Plus,
         now: () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
     ) -> HDR10PlusDetectionOutcome {
+        let targets = targets.intersection([.hdr10Plus, .hdrVivid])
         guard videoIndex >= 0, let stream = demuxer.stream(at: videoIndex),
               let codecpar = stream.pointee.codecpar,
               codecpar.pointee.codec_type == AVMEDIA_TYPE_VIDEO else {
@@ -175,13 +194,15 @@ extension AetherEngine {
         var packetsRead = 0
         var bytesRead: Int64 = 0
         var packetsSeen = 0
+        var found: ProbeDetail = []
         let fuse = Self.hdr10PlusForeignPacketFuse(maxPackets: options.maxPackets)
 
         while true {
             if let cap = Self.hdr10PlusScanCapReached(
                 packetsRead: packetsRead, bytesRead: bytesRead, elapsed: elapsed(), options: options
             ) {
-                return HDR10PlusDetectionOutcome(stopReason: cap, packetsRead: packetsRead, bytesRead: bytesRead)
+                return HDR10PlusDetectionOutcome(
+                    stopReason: cap, packetsRead: packetsRead, bytesRead: bytesRead, found: found)
             }
 
             let packet: UnsafeMutablePointer<AVPacket>?
@@ -189,7 +210,7 @@ extension AetherEngine {
                 packet = try demuxer.readPacket()
             } catch {
                 return HDR10PlusDetectionOutcome(
-                    stopReason: readEnded(.demuxError), packetsRead: packetsRead, bytesRead: bytesRead)
+                    stopReason: readEnded(.demuxError), packetsRead: packetsRead, bytesRead: bytesRead, found: found)
             }
             defer {
                 if let packet {
@@ -199,46 +220,52 @@ extension AetherEngine {
             }
             guard elapsed() < options.timeBudget else {
                 return HDR10PlusDetectionOutcome(
-                    stopReason: .timeCap, packetsRead: packetsRead, bytesRead: bytesRead)
+                    stopReason: .timeCap, packetsRead: packetsRead, bytesRead: bytesRead, found: found)
             }
             guard let pkt = packet else {
                 return HDR10PlusDetectionOutcome(
-                    stopReason: readEnded(.demuxEOF), packetsRead: packetsRead, bytesRead: bytesRead)
+                    stopReason: readEnded(.demuxEOF), packetsRead: packetsRead, bytesRead: bytesRead, found: found)
             }
 
-            var found = false
             packetsSeen += 1
             if pkt.pointee.stream_index == videoIndex {
                 let packetBytes = Int64(pkt.pointee.size)
                 guard packetBytes >= 0 else {
                     return HDR10PlusDetectionOutcome(
-                        stopReason: .demuxError, packetsRead: packetsRead, bytesRead: bytesRead)
+                    stopReason: .demuxError, packetsRead: packetsRead, bytesRead: bytesRead, found: found)
                 }
                 guard packetBytes <= options.maxBytes - bytesRead else {
                     return HDR10PlusDetectionOutcome(
-                        stopReason: .byteCap, packetsRead: packetsRead, bytesRead: bytesRead)
+                    stopReason: .byteCap, packetsRead: packetsRead, bytesRead: bytesRead, found: found)
                 }
                 packetsRead += 1
                 bytesRead += packetBytes
-                found = HDR10PlusMetadataScan.packetCarriesHDR10Plus(pkt, codecParameters: codecpar)
+                if targets.contains(.hdr10Plus), !found.contains(.hdr10Plus),
+                   HDR10PlusMetadataScan.packetCarriesHDR10Plus(pkt, codecParameters: codecpar) {
+                    found.insert(.hdr10Plus)
+                }
+                if targets.contains(.hdrVivid), !found.contains(.hdrVivid),
+                   HDRVividMetadataScan.packetCarriesHDRVivid(pkt, codecParameters: codecpar) {
+                    found.insert(.hdrVivid)
+                }
             }
             // Evidence in hand outranks the soft budget. The caps exist to bound what this pass SPENDS,
             // and a confirmation is already paid for; dropping it would turn an overrun into a false
             // negative on a slow origin, which the caller cannot tell apart from "this source has none".
-            if found {
+            if !targets.isEmpty, found.isSuperset(of: targets) {
                 return HDR10PlusDetectionOutcome(
-                    stopReason: .found, packetsRead: packetsRead, bytesRead: bytesRead)
+                    stopReason: .found, packetsRead: packetsRead, bytesRead: bytesRead, found: found)
             }
 
             guard elapsed() < options.timeBudget else {
                 return HDR10PlusDetectionOutcome(
-                    stopReason: .timeCap, packetsRead: packetsRead, bytesRead: bytesRead)
+                    stopReason: .timeCap, packetsRead: packetsRead, bytesRead: bytesRead, found: found)
             }
 
             // AVDISCARD_ALL is advisory, so a container that keeps handing back foreign packets still ends.
             if packetsSeen >= fuse {
                 return HDR10PlusDetectionOutcome(
-                    stopReason: .packetCap, packetsRead: packetsRead, bytesRead: bytesRead)
+                    stopReason: .packetCap, packetsRead: packetsRead, bytesRead: bytesRead, found: found)
             }
         }
     }

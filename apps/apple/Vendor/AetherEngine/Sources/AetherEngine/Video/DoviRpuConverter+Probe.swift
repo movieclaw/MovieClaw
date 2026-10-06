@@ -40,7 +40,38 @@ extension AetherEngine {
 
     // MARK: - Dovi convert probe (aetherctl dovitest)
 
-    /// Walk every HEVC video packet, run `convertPacketToProfile81`, and write Annex-B output (AVCC length prefix replaced by `00 00 00 01`) for validation with `dovi_tool extract-rpu`. False returns are counted as failures but still emitted.
+    private nonisolated static let doviProbeStartCode: [UInt8] = [0x00, 0x00, 0x00, 0x01]
+
+    /// The head of the probe's output: the source's VPS/SPS/PPS, so `dovi_tool`'s parser can walk the stream. hvcC keeps them out of band and they are re-emitted start-coded; Annex-B extradata already is start-coded and is written as it is.
+    nonisolated static func doviProbeParameterSets(
+        extradata: UnsafePointer<UInt8>?, size: Int, framing: VideoNALFraming
+    ) -> Data {
+        guard let extradata, size > 0 else { return Data() }
+        switch framing {
+        case .annexB:
+            return Data(bytes: extradata, count: size)
+        case .lengthPrefixed:
+            var out = Data()
+            for nal in parseHVCCParameterSets(extradata, size) {
+                out.append(contentsOf: doviProbeStartCode)
+                out.append(contentsOf: nal)
+            }
+            return out
+        }
+    }
+
+    /// One packet as Annex B: every NAL behind a four-byte start code, whichever framing the packet arrived in.
+    nonisolated static func doviProbeAnnexB(_ packet: UnsafePointer<AVPacket>, framing: VideoNALFraming) -> Data {
+        guard let data = packet.pointee.data, packet.pointee.size > 0 else { return Data() }
+        var out = Data()
+        A53SEIParser.forEachNAL(data, Int(packet.pointee.size), framing) { nal, len in
+            out.append(contentsOf: doviProbeStartCode)
+            out.append(nal, count: len)
+        }
+        return out
+    }
+
+    /// Walk every HEVC video packet, run `convertPacketToProfile81`, and write the result as Annex B for validation with `dovi_tool extract-rpu`. The source's own NAL framing is resolved once from its extradata and used for the converter, the enhancement-layer probe and the writer alike, so an Annex-B source (a disc remux) is walked as what it is. False returns are counted as failures but still emitted. A read or write error ends the run by throwing rather than reporting the part that was done.
     public nonisolated static func doviConvertProbe(
         url: URL,
         outputPath: String,
@@ -59,65 +90,43 @@ extension AetherEngine {
             )
         }
 
-        FileManager.default.createFile(atPath: outputPath, contents: nil)
-        guard let handle = FileHandle(forWritingAtPath: outputPath) else {
-            throw AetherEngineError.noVideoStream
-        }
+        // O_NOFOLLOW: the output name may sit in a directory other users can write to.
+        let fd = open(outputPath, O_WRONLY | O_CREAT | O_TRUNC | O_NOFOLLOW, 0o600)
+        guard fd >= 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
         defer { try? handle.close() }
 
-        let startCode: [UInt8] = [0x00, 0x00, 0x00, 0x01]
-
-        // MP4 hvcC keeps VPS/SPS/PPS out-of-band; emit them once as Annex-B so dovi_tool's parser can walk the stream.
-        if let cp = stream.pointee.codecpar,
-           let ed = cp.pointee.extradata, cp.pointee.extradata_size > 0 {
-            let edSize = Int(cp.pointee.extradata_size)
-            for nal in parseHVCCParameterSets(ed, edSize) {
-                handle.write(Data(startCode))
-                handle.write(Data(nal))
-            }
+        var extradata: UnsafePointer<UInt8>?
+        var extradataSize = 0
+        if let cp = stream.pointee.codecpar, let ed = cp.pointee.extradata, cp.pointee.extradata_size > 0 {
+            extradata = UnsafePointer(ed)
+            extradataSize = Int(cp.pointee.extradata_size)
         }
+        let framing = A53SEIParser.nalFraming(codec: .hevc, extradata: extradata, size: extradataSize)
+        try handle.write(contentsOf: doviProbeParameterSets(
+            extradata: extradata, size: extradataSize, framing: framing))
 
         var packetsProcessed = 0
         var conversions = 0
         var failures = 0
         var elType: String? = nil
 
-        while true {
-            let maybePacket: UnsafeMutablePointer<AVPacket>?
-            do {
-                maybePacket = try demuxer.readPacket()
-            } catch {
-                break
+        while let packet = try demuxer.readPacket() {
+            defer {
+                av_packet_unref(packet)
+                av_packet_free_safe(packet)
             }
-            guard let packet = maybePacket else { break }  // EOF
-
-            if packet.pointee.stream_index == videoIdx {
-                packetsProcessed += 1
-                if elType == nil {
-                    elType = DoviRpuConverter.enhancementLayerType(packet)
-                }
-                if DoviRpuConverter.convertPacketToProfile81(packet) {
-                    conversions += 1
-                } else {
-                    failures += 1
-                }
-                if let data = packet.pointee.data, packet.pointee.size > 4 {
-                    let size = Int(packet.pointee.size)
-                    var off = 0
-                    while off + 4 <= size {
-                        var len = 0
-                        for i in 0..<4 { len = (len << 8) | Int(data[off + i]) }
-                        let nalStart = off + 4
-                        if len == 0 || nalStart + len > size { break }
-                        handle.write(Data(startCode))
-                        handle.write(Data(bytes: data + nalStart, count: len))
-                        off = nalStart + len
-                    }
-                }
+            guard packet.pointee.stream_index == videoIdx else { continue }
+            packetsProcessed += 1
+            if elType == nil {
+                elType = DoviRpuConverter.enhancementLayerType(packet, framing: framing)
             }
-
-            av_packet_unref(packet)
-            av_packet_free_safe(packet)
+            if DoviRpuConverter.convertPacketToProfile81(packet, framing: framing) {
+                conversions += 1
+            } else {
+                failures += 1
+            }
+            try handle.write(contentsOf: doviProbeAnnexB(packet, framing: framing))
         }
 
         return DoviConvertProbeResult(

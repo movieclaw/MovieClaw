@@ -37,6 +37,10 @@ public enum EngineTLS {
     /// for tasks that missed a per-task delegate.
     static let sessionDelegate = SessionTrustDelegate()
 
+    /// The redirect rule without the trust answer, for a session that must see
+    /// system trust alone (`HLSOriginRelay.systemTrustRefuses`).
+    static let redirectDelegate = RedirectScrubbingDelegate()
+
     /// Single disposition shared by the session-level delegate and the
     /// per-task delegates in AVIOReader. Anything other than a server-trust
     /// challenge the host accepted is left to default handling, so client
@@ -58,7 +62,31 @@ public enum EngineTLS {
         completionHandler(.useCredential, URLCredential(trust: trust))
     }
 
-    final class SessionTrustDelegate: NSObject, URLSessionDelegate, @unchecked Sendable {
+    /// Audit NET-108: URLSession's own redirect copies every custom header
+    /// except `Authorization` to the new request (measured on CFNetwork 3896:
+    /// `X-Emby-Token`, `Cookie`, `Range` and `Referer` all reached a cross-host
+    /// target), so without this a 302 took the host's token wherever it
+    /// pointed. A task delegate that implements its own redirect method
+    /// (AVIOReader, SourcePrewarmFetcher) still answers for its task; one that
+    /// does not (the relay's pump) falls back to this.
+    class RedirectScrubbingDelegate: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+        func urlSession(
+            _ session: URLSession,
+            task: URLSessionTask,
+            willPerformHTTPRedirection response: HTTPURLResponse,
+            newRequest request: URLRequest,
+            completionHandler: @escaping (URLRequest?) -> Void
+        ) {
+            let original = task.originalRequest
+            completionHandler(RedirectHeaderPolicy.redirectRequest(
+                request,
+                originalURL: original?.url,
+                originalRange: original?.value(forHTTPHeaderField: "Range"),
+                extraHeaders: [:]))
+        }
+    }
+
+    final class SessionTrustDelegate: RedirectScrubbingDelegate, @unchecked Sendable {
         func urlSession(
             _ session: URLSession,
             didReceive challenge: URLAuthenticationChallenge,

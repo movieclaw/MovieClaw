@@ -29,6 +29,9 @@ enum WebVTTSegmentParser {
     /// are cut on frame times, so the clipped halves rarely meet exactly.
     private static let joinTolerance = 0.25
 
+    /// Audit SUB-106: a real broadcaster segment carries 0 to 5 cues. Cues past this count are not read.
+    static let maxCuesPerSegment = 4096
+
     static func parse(_ text: String) -> WebVTTSegment? {
         let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
         guard lines.first(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty })?
@@ -61,6 +64,7 @@ enum WebVTTSegmentParser {
             let joined = body.joined(separator: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
             if !joined.isEmpty {
                 cues.append(WebVTTSegment.Cue(start: start, end: end, text: joined))
+                if cues.count >= maxCuesPerSegment { break }
             }
         }
         return WebVTTSegment(anchorLocalSeconds: anchor.local, anchorMPEGTS90k: anchor.mpegts, cues: cues)
@@ -101,10 +105,17 @@ enum WebVTTSegmentParser {
     static func merged(into existing: [SubtitleCue], adding: [SubtitleCue],
                        nextID: inout Int) -> [SubtitleCue] {
         var result = existing
+        // Audit SUB-106: only a cue with identical text can join, so the candidates come from a
+        // per-text index instead of a scan of everything published (40k cues took 3.9 s). The
+        // indices stay ascending, so the first match is the one the scan found.
+        var indicesByText: [String: [Int]] = [:]
+        for (index, candidate) in result.enumerated() {
+            if case .text(let text) = candidate.body { indicesByText[text, default: []].append(index) }
+        }
         for cue in adding {
             guard case .text(let text) = cue.body else { continue }
-            let match = result.firstIndex { candidate in
-                guard case .text(let candidateText) = candidate.body, candidateText == text else { return false }
+            let match = indicesByText[text]?.first { index in
+                let candidate = result[index]
                 return cue.startTime <= candidate.endTime + joinTolerance
                     && cue.endTime >= candidate.startTime - joinTolerance
             }
@@ -116,6 +127,7 @@ enum WebVTTSegmentParser {
                                             body: old.body,
                                             placement: old.placement)
             } else {
+                indicesByText[text, default: []].append(result.count)
                 result.append(cue)
             }
         }
@@ -142,14 +154,17 @@ enum WebVTTSegmentParser {
     }
 
     /// `HH:MM:SS.mmm` or `MM:SS.mmm`; hours are unbounded (providers run the LOCAL clock for days).
+    /// Audit SUB-106: `Double(_:)` accepts `inf`, `nan` and `1e999`, and a cue ending at `+inf` was
+    /// never pruned, so a value that is not a finite non-negative number is refused.
     private static func parseTimestamp(_ text: String) -> Double? {
         let parts = text.components(separatedBy: ":")
         guard parts.count == 2 || parts.count == 3 else { return nil }
         let values = parts.compactMap { Double($0.replacingOccurrences(of: ",", with: ".")) }
-        guard values.count == parts.count else { return nil }
-        return parts.count == 3
+        guard values.count == parts.count, values.allSatisfy({ $0.isFinite && $0.sign == .plus }) else { return nil }
+        let seconds = parts.count == 3
             ? values[0] * 3600 + values[1] * 60 + values[2]
             : values[0] * 60 + values[1]
+        return seconds.isFinite ? seconds : nil
     }
 
 

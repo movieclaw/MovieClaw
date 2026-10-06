@@ -111,7 +111,8 @@ struct SoftwareStoredPacket: Sendable, Equatable {
         mutating func bytes(count: UInt64) throws -> Data {
             guard count <= UInt64(remaining) else { throw EnvelopeError.truncated }
             let end = offset + Int(count)
-            let slice = Data(data[offset..<end])
+            // Audit PERF-109: a view of the record, not a copy; the caller copies once into its AVPacket.
+            let slice = data[offset..<end]
             offset = end
             return slice
         }

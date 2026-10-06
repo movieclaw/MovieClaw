@@ -9,12 +9,20 @@ import Foundation
 /// interpret a sub-second decoded queue as the size of the compressed packet cache.
 public struct LiveTelemetry: Equatable, Sendable {
     // Enthusiast section
+    /// Rate of the media the playhead crossed over about the last 10 s of playback: the bytes of the
+    /// played video and audio packets presented in that span, over the media seconds it covered
+    /// (AE#514). Not the transfer, which is `networkThroughputMbps`: a read-ahead, a re-fetch after a
+    /// seek and a live source draining into its DVR window while paused all move bytes that nobody
+    /// played. Stands still through a pause, on live too. nil until the playhead has crossed a span the
+    /// session has bytes for. The remote-HLS bypass has no demuxer, so on that route this is the playing
+    /// variant's declared BANDWIDTH.
     public let instantBitrateMbps: Double?
-    /// Lifetime mean rate of the session, over the seconds it spent consuming media rather than over
-    /// wall-clock seconds since it started (AE#514). A pause therefore leaves this value standing
-    /// still instead of dragging it toward zero for as long as the pause lasts, and so does the tail
-    /// after end-of-media. nil until the session has both accrued active time and fetched something:
-    /// like `networkThroughputMbps`, a value that cannot be measured yet is a gap, never a zero.
+    /// Lifetime mean of the same quotient: every played byte over every media second played this
+    /// session (AE#514). A seek charges nothing for the span it jumped, a pause and the tail after
+    /// end-of-media charge nothing at all, and the prefetch counts once it is played, not when it
+    /// arrives. On the remote-HLS bypass it is the variant's declared AVERAGE-BANDWIDTH, or BANDWIDTH
+    /// where the master omits it. nil until something was played: like `networkThroughputMbps`, a value
+    /// that cannot be measured yet is a gap, never a zero.
     public let averageBitrateMbps: Double?
     /// Live bitrate of the audio bridge's encoded output, or nil when no bridge is active (stream-copy /
     /// AVPlayer-native path) or before the first delta. Measured from the bridge's cumulative output-byte

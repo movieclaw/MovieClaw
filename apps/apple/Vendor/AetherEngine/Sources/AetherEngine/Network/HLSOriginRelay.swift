@@ -43,20 +43,19 @@ final class HLSOriginRelay: @unchecked Sendable {
 
     private let stateLock = NSLock()
 
-    /// Origins this relay will fetch, as scheme://host:port. Seeded by `admit(_:)` and grown
-    /// as playlists reveal where their own sub-resources live, so a stream split across hosts
-    /// keeps working while a request naming somewhere nobody advertised is still refused.
+    /// Origins this relay will fetch, as scheme://host:port. Seeded by `allow(_:)` and
+    /// `grantCredentials(to:httpHeaders:)` and grown as playlists reveal where their own
+    /// sub-resources live, so a stream split across hosts keeps working while a request naming
+    /// somewhere nobody advertised is still refused.
     private var allowedOrigins = Set<String>()
 
-    /// Sent upstream on every fetch. Origins that gate on Referer, User-Agent or
-    /// Authorization need these, and they can no longer ride on the asset because the asset
-    /// now points at the local server.
-    private var upstreamHeaders: [String: String] = [:]
-
-    /// The URLs the host itself pointed the relay at. Credential headers follow a fetch only to
-    /// one of these origins with no TLS downgrade; an origin a playlist revealed gets the rest of
-    /// the headers but not the token (audit NET-7).
-    private var credentialOrigins: [URL] = []
+    /// Sent upstream on every fetch. Origins that gate on Referer, User-Agent or Authorization need
+    /// these, and they can no longer ride on the asset because the asset now points at the local
+    /// server. The anchors are the URLs the host itself pointed the relay at: credential headers
+    /// follow a fetch only to one of those origins with no TLS downgrade, and an origin a playlist
+    /// revealed or a redirect landed on gets the rest of the headers but not the token (audit NET-7,
+    /// NET-109).
+    private var credentials = CredentialScope(headers: [:], anchors: [])
 
     /// The NSURLError code of the last upstream handshake this relay lost to system trust, if any.
     ///
@@ -76,9 +75,19 @@ final class HLSOriginRelay: @unchecked Sendable {
     private let session: URLSession
 
     private let heldBodyLimit: Int
+    private let pendingLimit: Int
 
-    init(maximumHeldBodyBytes: Int = HLSOriginRelay.maximumHeldBodyBytes) {
+    /// Audit NET-107: fetches cut off because the consumer fell `pendingLimit` bytes behind. Diagnostics and tests.
+    var cappedFetchCount: Int {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return _cappedFetchCount
+    }
+    private var _cappedFetchCount = 0
+
+    init(maximumHeldBodyBytes: Int = HLSOriginRelay.maximumHeldBodyBytes,
+         maximumPendingBytes: Int = HLSOriginRelay.maximumPendingBytes) {
         heldBodyLimit = maximumHeldBodyBytes
+        pendingLimit = maximumPendingBytes
         let config = URLSessionConfiguration.ephemeral
         config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
         config.urlCache = nil
@@ -114,10 +123,12 @@ final class HLSOriginRelay: @unchecked Sendable {
         config.urlCache = nil
         config.timeoutIntervalForRequest = trustProbeSeconds
         config.timeoutIntervalForResource = trustProbeSeconds
-        // No delegate on purpose. This session must answer the way AVPlayer's own networking does,
-        // which is system trust and nothing else; handing it `EngineTLS.sessionDelegate` would ask
-        // the host and get back the answer that hides what is being measured.
-        let session = URLSession(configuration: config)
+        // No trust delegate on purpose. This session must answer the way AVPlayer's own networking
+        // does, which is system trust and nothing else; handing it `EngineTLS.sessionDelegate` would
+        // ask the host and get back the answer that hides what is being measured. The redirect rule
+        // still applies (audit NET-108).
+        let session = URLSession(
+            configuration: config, delegate: EngineTLS.redirectDelegate, delegateQueue: nil)
         defer { session.invalidateAndCancel() }
 
         var request = URLRequest(url: origin)
@@ -142,17 +153,43 @@ final class HLSOriginRelay: @unchecked Sendable {
 
     // MARK: - Admission
 
-    /// Lets this relay fetch `origin`, and adopts the headers a load carries. Returns the
+    /// Lets this relay fetch `origin` without granting it the host's credentials. Returns the
     /// origin key, or nil for a URL with no host to fetch from.
     @discardableResult
-    func admit(_ origin: URL, httpHeaders: [String: String] = [:]) -> String? {
+    func allow(_ origin: URL) -> String? {
         guard let key = Self.originKey(for: origin) else { return nil }
         stateLock.lock()
         allowedOrigins.insert(key)
-        if !httpHeaders.isEmpty { upstreamHeaders = httpHeaders }
-        if !credentialOrigins.contains(origin) { credentialOrigins.append(origin) }
         stateLock.unlock()
         return key
+    }
+
+    /// Lets this relay fetch `origin` AND send it the credential headers, and adopts the headers a
+    /// load carries. Only for a URL the host itself handed over (audit NET-109): anything a
+    /// playlist or a redirect produced goes through `allow(_:)`.
+    @discardableResult
+    func grantCredentials(to origin: URL, httpHeaders: [String: String] = [:]) -> String? {
+        guard let key = Self.originKey(for: origin) else { return nil }
+        stateLock.lock()
+        allowedOrigins.insert(key)
+        let anchors = credentials.anchors.contains(origin)
+            ? credentials.anchors : credentials.anchors + [origin]
+        credentials = CredentialScope(
+            headers: httpHeaders.isEmpty ? credentials.headers : httpHeaders, anchors: anchors)
+        stateLock.unlock()
+        return key
+    }
+
+    /// The URLs whose origins receive the host's credentials.
+    var credentialAnchors: [URL] {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return credentials.anchors
+    }
+
+    /// The headers a relayed fetch of `target` carries upstream.
+    func upstreamHeaders(for target: URL) -> [String: String] {
+        stateLock.lock(); defer { stateLock.unlock() }
+        return credentials.headers(for: target)
     }
 
     /// scheme://host:port for `url`, which is the granularity the allow list works at.
@@ -287,7 +324,7 @@ final class HLSOriginRelay: @unchecked Sendable {
 
         stateLock.lock()
         let permitted = allowedOrigins.contains(key)
-        let headers = Self.headers(upstreamHeaders, for: origin, grantedFor: credentialOrigins)
+        let headers = credentials.headers(for: origin)
         stateLock.unlock()
         guard permitted else {
             EngineLog.emit(
@@ -330,17 +367,6 @@ final class HLSOriginRelay: @unchecked Sendable {
         }
     }
 
-    /// Everything the host sent, with the credentials only when `target` is one of the host's own
-    /// origins (same host, same port, no downgrade).
-    static func headers(_ headers: [String: String], for target: URL, grantedFor anchors: [URL])
-        -> [String: String]
-    {
-        if anchors.contains(where: { RedirectHeaderPolicy.credentialsAllowed(from: $0, to: target) }) {
-            return headers
-        }
-        return RedirectHeaderPolicy.scoped(headers, grantedFor: nil, sentTo: target)
-    }
-
     private static func looksLikePlaylist(url: URL, contentType: String?) -> Bool {
         if let type = contentType?.lowercased(), type.contains("mpegurl") || type.contains("m3u") {
             return true
@@ -374,6 +400,11 @@ final class HLSOriginRelay: @unchecked Sendable {
     static let maximumHeldPlaylistBytes = 16 * 1024 * 1024
     static let maximumHeldBodyBytes = 64 * 1024 * 1024
 
+    /// Audit NET-107: what one streamed fetch may hold for a consumer that is not draining. Above any
+    /// segment a player asks for in one request, so a consumer that is merely slow is never cut off,
+    /// and far enough under a session's memory that a stalled one cannot turn it into a heap.
+    static let maximumPendingBytes = 32 * 1024 * 1024
+
     /// The answers that mean "you are asking too often", which arm the pacer for this origin.
     private static let refusalStatuses: Set<Int> = [429, 503, 509]
 
@@ -406,12 +437,15 @@ final class HLSOriginRelay: @unchecked Sendable {
             for: origin, label: "relay", timeout: Self.slotWaitSeconds)
         defer { OriginRequestBudget.shared.release(ticket) }
 
-        let pump = UpstreamPump()
+        let pump = UpstreamPump(hardCapBytes: pendingLimit) { [weak self] in
+            guard let self else { return }
+            self.stateLock.lock()
+            self._cappedFetchCount += 1
+            self.stateLock.unlock()
+        }
         let task = session.dataTask(with: request)
         task.delegate = pump
         task.resume()
-        // abandon before cancel: a body parked at the high-water mark is waiting on a consumer, and
-        // cancelling the task does not wake it.
         defer { pump.abandon(); task.cancel() }
 
         guard let http = pump.awaitHead() else {
@@ -561,14 +595,23 @@ final class HLSOriginRelay: @unchecked Sendable {
 /// land. Holding them here instead, and writing from the delegate callback, would put a socket the
 /// player has stopped reading in front of every other task on this session's serial delegate queue.
 ///
-/// The bound is what makes the handoff backpressure rather than an unbounded copy of the body: the
-/// producer waits once the consumer is that far behind, which is the same shape the direct route has
-/// when a socket stops draining.
+/// Audit NET-107: the producer never waits. The delegate queue is serial across every task on the
+/// session, so parking it inside `didReceive` for one consumer that stopped reading (an AirPlay
+/// receiver on a slow link) held up the head and body of every other relayed fetch for a whole
+/// park. Backpressure by `URLSessionTask.suspend()` is no way out: transports that ignore it were
+/// measured (#220), and suspended flows correlated with every connection in the process going deaf
+/// (#310). So the bound is a cap on what one fetch may hold: past it the fetch is cancelled, the
+/// body the player was promised ends short and the server closes the connection, which is how a
+/// truncated transfer already reads, and the player asks again.
 private final class UpstreamPump: NSObject, URLSessionDataDelegate, @unchecked Sendable {
 
-    /// One segment's worth of slack. Enough that a fast origin never waits on a loopback write, small
-    /// enough that a stalled player cannot turn a session into a heap of parked segments.
-    private static let highWaterBytes = 4 * 1024 * 1024
+    private let hardCapBytes: Int
+    private let onCapped: @Sendable () -> Void
+
+    init(hardCapBytes: Int, onCapped: @escaping @Sendable () -> Void) {
+        self.hardCapBytes = hardCapBytes
+        self.onCapped = onCapped
+    }
 
     private let condition = NSCondition()
     private var head: HTTPURLResponse?
@@ -576,6 +619,7 @@ private final class UpstreamPump: NSObject, URLSessionDataDelegate, @unchecked S
     private var finished = false
     private var failure: Error?
     private var consumerGaveUp = false
+    private var capped = false
 
     // MARK: - Consumer, on the server's worker thread
 
@@ -627,8 +671,7 @@ private final class UpstreamPump: NSObject, URLSessionDataDelegate, @unchecked S
         }
     }
 
-    /// Stops the producer waiting on a consumer that is no longer there. Without it a body parked at
-    /// the high-water mark holds the delegate queue for the life of the session.
+    /// Tells the producer to stop buffering for a consumer that is no longer there.
     func abandon() {
         condition.lock()
         consumerGaveUp = true
@@ -663,14 +706,26 @@ private final class UpstreamPump: NSObject, URLSessionDataDelegate, @unchecked S
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         condition.lock()
-        while pending.count >= Self.highWaterBytes && !consumerGaveUp { condition.wait() }
-        let abandoned = consumerGaveUp
-        if !abandoned {
-            pending.append(data)
-            condition.broadcast()
+        var stop = consumerGaveUp || capped
+        var newlyCapped = false
+        if !stop {
+            if pending.count + data.count > hardCapBytes {
+                capped = true
+                newlyCapped = true
+                stop = true
+            } else {
+                pending.append(data)
+                condition.broadcast()
+            }
         }
         condition.unlock()
-        if abandoned { dataTask.cancel() }
+        if newlyCapped {
+            EngineLog.emit(
+                "[HLSOriginRelay] the consumer fell more than \(hardCapBytes >> 20) MiB behind one fetch; "
+                + "cancelling it so the player asks again", category: .hlsServer)
+            onCapped()
+        }
+        if stop { dataTask.cancel() }
     }
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {

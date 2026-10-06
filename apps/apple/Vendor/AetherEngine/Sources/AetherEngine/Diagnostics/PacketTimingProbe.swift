@@ -26,6 +26,12 @@ public enum PacketTimingProbe {
         public var errorDescription: String? { description }
     }
 
+    /// nil when the step does not fit `Int64` (audit SUB-112): the timestamps are the probed file's own.
+    static func dtsDelta(_ dts: Int64, after last: Int64) -> Int64? {
+        let (delta, overflow) = dts.subtractingReportingOverflow(last)
+        return overflow ? nil : delta
+    }
+
     public static func run(
         url: URL,
         seekSeconds: Double,
@@ -107,9 +113,13 @@ public enum PacketTimingProbe {
             if isKey { keyCount += 1 }
             if dts != Int64.min {
                 if let last = lastDts {
-                    let d = dts - last
-                    dtsDeltaHist[d, default: 0] += 1
-                    if d <= 0 { nonMonotonicDts += 1 }
+                    if let d = dtsDelta(dts, after: last) {
+                        dtsDeltaHist[d, default: 0] += 1
+                        if d <= 0 { nonMonotonicDts += 1 }
+                    } else {
+                        // A step no Int64 holds is a broken timeline, not a delta worth a bucket.
+                        nonMonotonicDts += 1
+                    }
                 }
                 lastDts = dts
             }

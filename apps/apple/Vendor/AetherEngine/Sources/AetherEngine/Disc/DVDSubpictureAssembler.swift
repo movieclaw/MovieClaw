@@ -30,6 +30,11 @@ struct DVDSubpictureAssembler {
 
     var isAssembling: Bool { timing != nil }
 
+    var reservedCapacity: Int { buffer.capacity }
+
+    static let maxUnitBytes = 1 << 20
+    static let initialReservationBytes = 64 * 1024
+
     /// Feed one demuxed fragment. Returns the unit once it is complete, nil while it is not (or when
     /// the fragment was dropped).
     mutating func ingest(_ fragment: UnsafeRawBufferPointer, timing fragmentTiming: Timing) -> Unit? {
@@ -43,11 +48,14 @@ struct DVDSubpictureAssembler {
             } else if bytes.count < 6 {
                 return nil
             }
-            guard size > 0 else { return nil }
+            // Audit NET-104: the 32-bit form stated up to 4 GiB, all of it reserved up front, and the
+            // unit then swallowed every later fragment of the stream. A DVD SPU is at most 53,220
+            // bytes; 1 MiB leaves room for the HD-DVD units `dvdsubdec` decodes.
+            guard size > 0, size <= Self.maxUnitBytes else { return nil }
             expected = size
             timing = fragmentTiming
             buffer.removeAll(keepingCapacity: true)
-            buffer.reserveCapacity(size)
+            buffer.reserveCapacity(min(size, Self.initialReservationBytes))
         }
         guard buffer.count + fragment.count <= expected, let unitTiming = timing else {
             reset()

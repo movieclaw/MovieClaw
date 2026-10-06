@@ -44,6 +44,8 @@ final class DisplayCriteriaController {
     /// #339: armed at the criteria write, not when the play gate opens, so an engine-written switch is
     /// observable end to end instead of having to be guessed at from the in-progress flag.
     private let observation = SwitchObservation()
+    /// DEC-105: what is left of the observed-end wait for the armed switch (`observedEndCap`).
+    private var observedEndBudget: ObservedEndBudget?
     #endif
 
     /// The arm generation whose record has been spent. Only a gate that ends the load's wait spends it, so
@@ -70,8 +72,14 @@ final class DisplayCriteriaController {
 
     /// #133 pure decision: skip only when we previously applied (`didApply`) exactly these criteria and have
     /// not reset since. Otherwise write, returning whether a dynamic-range switch is expected (HDR) or not (SDR).
-    nonisolated static func applyOutcome(didApply: Bool, last: AppliedCriteria?, target: AppliedCriteria) -> ApplyResult {
-        if didApply, last == target { return .unchanged }
+    ///
+    /// AE#678: `managerHoldsCriteria` is the display manager's own answer. A host that wrote
+    /// `preferredDisplayCriteria = nil` itself (leaving full screen for a preview) leaves `lastApplied`
+    /// describing criteria the panel no longer has, and the skip then kept the UI mode on a channel that
+    /// needed its frame rate.
+    nonisolated static func applyOutcome(didApply: Bool, last: AppliedCriteria?, target: AppliedCriteria,
+                                         managerHoldsCriteria: Bool = true) -> ApplyResult {
+        if didApply, managerHoldsCriteria, last == target { return .unchanged }
         return target.isHDR ? .willSwitch : .applied
     }
 
@@ -154,6 +162,40 @@ final class DisplayCriteriaController {
     nonisolated static func settleCapMs(cap: SettleCap, startRecorded: Bool) -> Int {
         guard cap == .awaitObservedEnd, startRecorded else { return stage2CapMs }
         return observedEndCapMs
+    }
+
+    /// The observed-end wait left for one armed switch, shared by every gate that waits on it.
+    struct ObservedEndBudget: Equatable {
+        let armGeneration: Int
+        let deadlineNanos: UInt64
+    }
+
+    /// DEC-105: `observedEndCapMs` is one budget per armed switch, not per gate. The #667 wait leaves the
+    /// record unspent for the play gate, so on a panel whose end is never announced (or whose in-progress
+    /// flag sticks) both read the same `.running`, and each used to spend the whole cap on one switch.
+    /// The first gate to wait sets the deadline; a later gate on the same arm gets what is left of it.
+    nonisolated static func observedEndCap(settleCap: SettleCap, startRecorded: Bool, armGeneration: Int,
+                                           nowNanos: UInt64, budget: ObservedEndBudget?)
+        -> (capMs: Int, budget: ObservedEndBudget?) {
+        let capMs = settleCapMs(cap: settleCap, startRecorded: startRecorded)
+        guard capMs == observedEndCapMs, armGeneration != 0 else { return (capMs, budget) }
+        if let budget, budget.armGeneration == armGeneration {
+            return (min(capMs, elapsedMs(fromNanos: nowNanos, toNanos: budget.deadlineNanos)), budget)
+        }
+        let deadline = nowNanos &+ UInt64(capMs) * 1_000_000
+        return (capMs, ObservedEndBudget(armGeneration: armGeneration, deadlineNanos: deadline))
+    }
+
+    /// Audit LIF-106: one poll of a switch wait. False once the load waiting on it is gone: its task
+    /// was cancelled (a cancelled `Task.sleep` returns at once, so the `try?` these loops used turned
+    /// them into a hot spin on the main actor until the cap) or a newer load or stop superseded it.
+    static func gateTick(milliseconds: Int, isCurrent: () -> Bool) async -> Bool {
+        do {
+            try await Task.sleep(for: .milliseconds(milliseconds))
+        } catch {
+            return false
+        }
+        return isCurrent()
     }
 
     /// Both stages spend a deadline, not a poll count. `n` sleeps of `m` ms is only `n * m` on an idle
@@ -758,7 +800,15 @@ final class DisplayCriteriaController {
                 category: .engine
             )
         }
-        if case .unchanged = Self.applyOutcome(didApply: didApply, last: lastApplied, target: target) {
+        let managerHoldsCriteria = displayManager.preferredDisplayCriteria != nil
+        if didApply, !managerHoldsCriteria {
+            EngineLog.emit(
+                "[DisplayCriteria] criteria were cleared outside the engine since its last SET; writing again",
+                category: .engine
+            )
+        }
+        if case .unchanged = Self.applyOutcome(didApply: didApply, last: lastApplied, target: target,
+                                               managerHoldsCriteria: managerHoldsCriteria) {
             // Keep lastCriteriaWasHDR consistent with the still-active criteria for any waitForSwitch classification.
             lastCriteriaWasHDR = isHDR
             EngineLog.emit(
@@ -826,6 +876,39 @@ final class DisplayCriteriaController {
         #endif
     }
 
+    /// AE#667: whether a switch this load was armed for has been seen to start and not yet to end.
+    ///
+    /// Read from the notifications, not from `isDisplayModeSwitchInProgress` alone, because the flag is
+    /// documented as unreliable around a write and sticks `true` on panels whose DV switch never reports.
+    /// A switch nobody saw start answers false, so a caller waiting on this never waits for an end that
+    /// cannot be announced.
+    func observedSwitchIsRunning() -> Bool {
+        #if os(tvOS)
+        guard let window = resolveWindow() else { return false }
+        let snapshot = observation.snapshot()
+        guard Self.recordIsFreshEvidence(recordGeneration: snapshot.generation,
+                                         lastSpentGeneration: spentArmGeneration) else { return false }
+        let observed = Self.observedSwitch(
+            startedAtNanos: snapshot.startedAt,
+            endedAtNanos: snapshot.endedAt,
+            gateEntryNanos: DispatchTime.now().uptimeNanoseconds,
+            switchInProgress: window.avDisplayManager.isDisplayModeSwitchInProgress)
+        if case .running = observed { return true }
+        return false
+        #else
+        return false
+        #endif
+    }
+
+    /// AE#667: the system's in-progress flag, for a decision that may only be made more cautious by it.
+    var displayModeSwitchInProgress: Bool {
+        #if os(tvOS)
+        resolveWindow()?.avDisplayManager.isDisplayModeSwitchInProgress ?? false
+        #else
+        false
+        #endif
+    }
+
     /// Block until the panel settles its HDR mode negotiation, bounded so an
     /// unobservable switch can't stall the first frame.
     ///
@@ -848,9 +931,13 @@ final class DisplayCriteriaController {
     /// `consumesRecord: false` leaves the observation readable for the load's second gate. The pre-flight
     /// passes it: it waits an HDR switch out before the item is built, and the play gate that follows is
     /// entitled to the same start/end timestamps (#339).
+    ///
+    /// `isCurrent` answers whether the load this gate holds is still the engine's; the wait is abandoned
+    /// at the next tick once it is not, or once its task is cancelled (audit LIF-106).
     func waitForSwitch(startGrace: StartGrace = .full,
                        consumesRecord: Bool = true,
-                       settleCap: SettleCap = .standard) async {
+                       settleCap: SettleCap = .standard,
+                       isCurrent: () -> Bool = { true }) async {
         #if os(tvOS)
         guard startGrace != .skip else { return }
         guard let window = resolveWindow() else { return }
@@ -954,7 +1041,10 @@ final class DisplayCriteriaController {
                     break
                 }
                 isFirstPoll = false
-                try? await Task.sleep(for: .milliseconds(10))
+                guard await Self.gateTick(milliseconds: 10, isCurrent: isCurrent) else {
+                    EngineLog.emit("[DisplayCriteria] gate abandoned in the start phase after \(Self.elapsedMs(since: entry))ms: the load it held was cancelled or superseded", category: .engine)
+                    return
+                }
             }
             // Time spent, not the budget: the polls carry scheduler overhead, and everything downstream is
             // reported relative to this (#49).
@@ -973,10 +1063,15 @@ final class DisplayCriteriaController {
         // switch is unobservable to the app can't gate the first frame the way the
         // old fixed 5s poll did.
         // What this gate may spend waiting for the end, given who is waiting on it (`settleCapMs`).
-        let capMs = Self.settleCapMs(
-            cap: settleCap,
-            startRecorded: gateSnapshot.startedAt != nil || observation.hasNewStart(since: gateSnapshot))
         let stage2Entry = DispatchTime.now()
+        let cap = Self.observedEndCap(
+            settleCap: settleCap,
+            startRecorded: gateSnapshot.startedAt != nil || observation.hasNewStart(since: gateSnapshot),
+            armGeneration: gateSnapshot.generation,
+            nowNanos: stage2Entry.uptimeNanoseconds,
+            budget: observedEndBudget)
+        observedEndBudget = cap.budget
+        let capMs = cap.capMs
         func timing() -> String {
             // The panel's own switch duration whenever both notifications were seen. This is the number the
             // `.brief` premise ("engine rate-only writes settle sub-second") has never been checked against
@@ -994,7 +1089,10 @@ final class DisplayCriteriaController {
         // multiple after a dwell can be asked how long it has actually held it.
         var cadenceHistory = PanelCadenceHistory()
         while !Self.isBudgetSpent(elapsedMs: Self.elapsedMs(since: stage2Entry), budgetMs: capMs) {
-            try? await Task.sleep(for: .milliseconds(50))
+            guard await Self.gateTick(milliseconds: 50, isCurrent: isCurrent) else {
+                EngineLog.emit("[DisplayCriteria] gate abandoned while waiting for the end (\(timing())): the load it held was cancelled or superseded", category: .engine)
+                return
+            }
             let stage2Ms = Self.elapsedMs(since: stage2Entry)
             let relation = panelRelation()
             cadenceHistory = Self.extendCadenceHistory(cadenceHistory, relation: relation, nowMs: stage2Ms)

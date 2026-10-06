@@ -4,12 +4,16 @@ import Foundation
 struct OutputTimestampSanitizer {
     private var lastDtsByStream: [Int32: Int64] = [:]
 
-    mutating func sanitize(streamIndex: Int32, pts: Int64, dts: Int64) -> (pts: Int64, dts: Int64) {
+    /// nil when no dts after the stream's last one exists (it already sits at Int64.max, audit
+    /// SEG-101); the caller drops the packet.
+    mutating func sanitize(streamIndex: Int32, pts: Int64, dts: Int64) -> (pts: Int64, dts: Int64)? {
         guard dts != Int64.min else { return (pts, dts) }  // NOPTS: nothing to enforce
 
         var outDts = dts
         if let last = lastDtsByStream[streamIndex], outDts <= last {
-            outDts = last + 1
+            let (bumped, overflow) = last.addingReportingOverflow(1)
+            guard !overflow else { return nil }
+            outDts = bumped
         }
         let outPts = pts == Int64.min ? outDts : max(pts, outDts)  // NOPTS pts collapses to dts (safe floor for audio and video)
 

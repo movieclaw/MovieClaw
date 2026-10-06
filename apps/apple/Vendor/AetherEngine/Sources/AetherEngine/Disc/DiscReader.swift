@@ -49,13 +49,9 @@ enum DiscReader {
             return nil
         }
         let playlistDir = (try? udf.list(path: ["BDMV", "PLAYLIST"])) ?? []
-        var parsed: [MPLSPlaylist] = []
-        for e in playlistDir where e.name.hasSuffix(".mpls") {
-            let exts = (try? udf.extents(of: e)) ?? []
-            guard !exts.isEmpty else { continue }
-            let bytes = readAll(reader, exts)
-            if let pl = MPLSParser.parse(bytes) { parsed.append(pl) }
-        }
+        let parsed = scanPlaylists(playlistDir,
+                                   extents: { (try? udf.extents(of: $0)) ?? [] },
+                                   read: { readAll(reader, $0) })
         let titles = BDTitleSelector.enumerateTitles(parsed)
         guard !titles.isEmpty else {
             EngineLog.emit("[disc] BDMV present but no parseable .mpls (\(playlistDir.count) PLAYLIST entries, \(parsed.count) parsed); cannot select a title", category: .demux)
@@ -64,26 +60,15 @@ enum DiscReader {
         let selectedIndex = selectTitleID.flatMap { titles.indices.contains($0) ? $0 : nil } ?? 0
         let selected = titles[selectedIndex]
         let streamDir = (try? udf.list(path: ["BDMV", "STREAM"])) ?? []
-        var allExtents: [(offset: Int64, length: Int64)] = []
-        // One ClipSpan per resolved clip: byte start in the concat stream + how far to pull its
-        // timestamps back so it continues contiguously from clip 0 (AE#105 multi-clip position drift).
-        var clipTimeline: [ClipSpan] = []
-        var resolvedClips: [(index: Int, clip: String, byteStart: Int64)] = []  // [MovieClaw P7]
-        let subTicks = selected.bdClipSubtractTicks ?? []
-        let cumBeforeTicks = selected.bdClipCumulativeBeforeTicks ?? []
-        for (k, clip) in (selected.bdClipIDs ?? []).enumerated() {
-            guard let e = streamDir.first(where: { $0.name == "\(clip).m2ts" }),
-                  let exts = try? udf.extents(of: e) else { continue }
-            let byteStart = allExtents.reduce(Int64(0)) { $0 + max(0, $1.length) }
-            resolvedClips.append((k, clip, byteStart))
-            let predictedShift = k < subTicks.count ? Double(subTicks[k]) / discTickRate : 0
-            let cumBeforeSec = k < cumBeforeTicks.count ? Double(cumBeforeTicks[k]) / discTickRate : 0
-            clipTimeline.append(ClipSpan(concatByteStart: byteStart,
-                                         cumulativeBeforeSec: cumBeforeSec,
-                                         predictedShiftSec: predictedShift))
-            EngineLog.emit("[disc] AE#105 clip[\(k)] id=\(clip) subTicks=\(k < subTicks.count ? subTicks[k] : 0) predictedSec=\(String(format: "%.3f", predictedShift)) cumBeforeSec=\(String(format: "%.3f", cumBeforeSec)) byteStart=\(byteStart)", category: .demux)
-            allExtents += exts
-        }
+        let streamIndex = Dictionary(streamDir.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        let assembled = assembleBluRayTitle(
+            clipIDs: selected.bdClipIDs ?? [],
+            subtractTicks: selected.bdClipSubtractTicks ?? [],
+            cumulativeBeforeTicks: selected.bdClipCumulativeBeforeTicks ?? [],
+            extentsOfClip: { clip in streamIndex["\(clip).m2ts"].flatMap { try? udf.extents(of: $0) } })
+        let allExtents = assembled.extents
+        var clipTimeline = assembled.clipTimeline
+        let resolvedClips = assembled.resolvedClips   // [MovieClaw P7]
         guard !allExtents.isEmpty else {
             EngineLog.emit("[disc] selected title \(selectedIndex) clips=\(selected.bdClipIDs ?? []) but resolved no m2ts extents in BDMV/STREAM (\(streamDir.count) entries); cannot build stream", category: .demux)
             return nil
@@ -109,6 +94,110 @@ enum DiscReader {
         return DiscInfo(reader: ConcatIOReader(base: reader, extents: allExtents),
                         formatHint: "mpegts", titles: titles, selectedTitleIndex: selectedIndex,
                         clipTimeline: clipTimeline, seekTable: seekTable)
+    }
+
+    // MARK: - Bounds on what a disc image can make recognition do (audit NET-103)
+
+    /// `.mpls` entries examined per PLAYLIST directory. Real discs carry dozens, anti-rip discs a few hundred.
+    static let maxPlaylistFiles = 4_000
+    /// Bytes of playlist data read in total. A real `.mpls` is KB-scale, so this is orders above any disc.
+    static let maxPlaylistBytes: Int64 = 32 * 1024 * 1024
+    /// PlayItems kept across every parsed playlist (about 32 bytes each), so a directory of maximal
+    /// playlists cannot be retained whole.
+    static let maxPlaylistItems = 500_000
+    /// Extents in one assembled title. A real m2ts is a few dozen extents (1 GB each), a decoy loop
+    /// repeats a short clip a few hundred times.
+    static let maxTitleExtents = 65_536
+    /// A run of this many unreadable playlists means the source is gone (cancelled or closed reader).
+    private static let maxConsecutiveShortReads = 16
+    /// `readAll`'s ceiling.
+    private static let maxSmallFileBytes: Int64 = 8 * 1024 * 1024
+
+    /// Reads and parses the `.mpls` entries of a PLAYLIST directory under the bounds above. Stops at the
+    /// first bound that trips and keeps what was parsed before it.
+    static func scanPlaylists(
+        _ entries: [UDFEntry],
+        extents: (UDFEntry) -> [(offset: Int64, length: Int64)],
+        read: ([(offset: Int64, length: Int64)]) -> [UInt8]
+    ) -> [MPLSPlaylist] {
+        var parsed: [MPLSPlaylist] = []
+        var examined = 0
+        var bytesRead: Int64 = 0
+        var items = 0
+        var shortReads = 0
+        for e in entries where e.name.hasSuffix(".mpls") {
+            examined += 1
+            guard examined <= maxPlaylistFiles else {
+                EngineLog.emit("[disc] PLAYLIST scan stopped at \(maxPlaylistFiles) .mpls entries", category: .demux)
+                break
+            }
+            let exts = extents(e)
+            guard !exts.isEmpty else { continue }
+            let declared = exts.reduce(Int64(0)) { $0 + max(0, $1.length) }
+            guard declared > 0, declared <= maxSmallFileBytes else { continue }
+            bytesRead += declared
+            guard bytesRead <= maxPlaylistBytes else {
+                EngineLog.emit("[disc] PLAYLIST scan stopped after \(maxPlaylistBytes) bytes of playlists", category: .demux)
+                break
+            }
+            let bytes = read(exts)
+            if Int64(bytes.count) < declared {
+                shortReads += 1
+                if shortReads >= maxConsecutiveShortReads {
+                    EngineLog.emit("[disc] PLAYLIST scan stopped, \(shortReads) unreadable playlists in a row", category: .demux)
+                    break
+                }
+            } else {
+                shortReads = 0
+            }
+            guard let pl = MPLSParser.parse(bytes) else { continue }
+            items += pl.clipIDs.count
+            guard items <= maxPlaylistItems else {
+                EngineLog.emit("[disc] PLAYLIST scan stopped after \(maxPlaylistItems) PlayItems", category: .demux)
+                break
+            }
+            parsed.append(pl)
+        }
+        return parsed
+    }
+
+    /// Resolves a title's clips into the concatenated extent list plus one `ClipSpan` per resolved clip
+    /// (byte start in the concat stream, and how far to pull its timestamps back so it continues
+    /// contiguously from clip 0, AE#105). Each distinct clip is looked up once, a repeated clip reuses its
+    /// extents, and the title ends at the clip that would pass `maxTitleExtents`.
+    static func assembleBluRayTitle(
+        clipIDs: [String], subtractTicks: [Int64], cumulativeBeforeTicks: [UInt64],
+        extentsOfClip: (String) -> [(offset: Int64, length: Int64)]?
+    ) -> (extents: [(offset: Int64, length: Int64)], clipTimeline: [ClipSpan], resolvedClips: [(index: Int, clip: String, byteStart: Int64)]) {
+        var allExtents: [(offset: Int64, length: Int64)] = []
+        var clipTimeline: [ClipSpan] = []
+        var resolvedClips: [(index: Int, clip: String, byteStart: Int64)] = []
+        var resolved: [String: [(offset: Int64, length: Int64)]?] = [:]
+        var byteStart: Int64 = 0
+        for (k, clip) in clipIDs.enumerated() {
+            let lookup: [(offset: Int64, length: Int64)]?
+            if let known = resolved[clip] {
+                lookup = known
+            } else {
+                lookup = extentsOfClip(clip)
+                resolved[clip] = .some(lookup)
+            }
+            guard let exts = lookup else { continue }
+            guard allExtents.count + exts.count <= maxTitleExtents else {
+                EngineLog.emit("[disc] title truncated at clip[\(k)]: more than \(maxTitleExtents) extents", category: .demux)
+                break
+            }
+            resolvedClips.append((k, clip, byteStart))
+            let predictedShift = k < subtractTicks.count ? Double(subtractTicks[k]) / discTickRate : 0
+            let cumBeforeSec = k < cumulativeBeforeTicks.count ? Double(cumulativeBeforeTicks[k]) / discTickRate : 0
+            clipTimeline.append(ClipSpan(concatByteStart: byteStart,
+                                         cumulativeBeforeSec: cumBeforeSec,
+                                         predictedShiftSec: predictedShift))
+            EngineLog.emit("[disc] AE#105 clip[\(k)] id=\(clip) subTicks=\(k < subtractTicks.count ? subtractTicks[k] : 0) predictedSec=\(String(format: "%.3f", predictedShift)) cumBeforeSec=\(String(format: "%.3f", cumBeforeSec)) byteStart=\(byteStart)", category: .demux, level: .verbose)
+            allExtents += exts
+            byteStart += exts.reduce(Int64(0)) { $0 + max(0, $1.length) }
+        }
+        return (allExtents, clipTimeline, resolvedClips)
     }
 
     /// Memoize a successful recognition so a re-open of the same source (track switch on a remote ISO)
@@ -139,7 +228,7 @@ enum DiscReader {
         // Extent lengths are untrusted on-disc bytes (up to ~1 GB each). Cap the total before
         // allocating so a crafted .mpls cannot drive an arbitrary allocation (jetsam/DoS); 8 MB
         // matches UDFReader.readDirectory's guard and dwarfs any real playlist (KB-scale).
-        let maxBytes: Int64 = 8 * 1024 * 1024
+        let maxBytes = maxSmallFileBytes
         let declared = exts.reduce(Int64(0)) { $0 + max(0, $1.length) }
         guard declared > 0, declared <= maxBytes else { return [] }
         let total = Int(declared)
@@ -255,7 +344,8 @@ enum DiscReader {
         let groups = DVDTitleSelector.enumerateTitleVOBGroups(files)
         guard !groups.isEmpty else { return nil }
         var orderedGroups = groups
-        if let ifoFile = files.first(where: { $0.name.uppercased() == "VIDEO_TS.IFO" }),
+        let filesByName = Dictionary(files.map { ($0.name.uppercased(), $0) }, uniquingKeysWith: { first, _ in first })
+        if let ifoFile = filesByName["VIDEO_TS.IFO"],
            let ifoTitles = DVDIFOParser.parseTitles(readFile(ifoFile)) {
             let titleVTSNs = Set(ifoTitles.map(\.vtsn))
             let filtered = groups.filter { titleVTSNs.contains($0.vtsn) }
@@ -270,7 +360,7 @@ enum DiscReader {
             var subpictureStreamIDs: [Int]?
             let nn = g.vtsn < 10 ? "0\(g.vtsn)" : "\(g.vtsn)"
             let ifoName = "VTS_\(nn)_0.IFO"
-            if let vtsIFO = files.first(where: { $0.name.uppercased() == ifoName }) {
+            if let vtsIFO = filesByName[ifoName] {
                 let bytes = readFile(vtsIFO)
                 if idx == selectedIndex { selectedIFO = bytes }
                 if let detail = DVDIFOParser.parseTitleDetail(bytes) {

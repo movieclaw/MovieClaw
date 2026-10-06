@@ -26,4 +26,11 @@ enum SoftwareEndOfMediaClock {
         guard remaining > 0 else { return 0 }
         return min(remaining, maxTailPlayoutSeconds)
     }
+
+    /// Where a late park puts the clock: back on `latest` when the clock has run past it, nil (park
+    /// where it stands) otherwise or when either value is unusable.
+    static func parkSeconds(clockSeconds: Double, notAfter latest: Double) -> Double? {
+        guard clockSeconds.isFinite, latest.isFinite, clockSeconds > latest else { return nil }
+        return latest
+    }
 }

@@ -168,6 +168,32 @@ enum VideoRoutingPolicy {
         }
     }
 
+    /// A URL source that turned out forward-only (the origin ignores `Range` and names no length, so
+    /// the reader could only stream it front to back) is served the way a declared sequential origin
+    /// is, when its container states a duration: native path, one linear pass, seeks unavailable.
+    /// The software path it used to take cannot seek on such a source either, so the promotion costs
+    /// nothing it had, and it buys what only the native path has: hardware decode, AVPlayer's
+    /// buffering, and a picture on an AirPlay receiver (the software host renders on the device,
+    /// only its audio follows the route).
+    ///
+    /// Only when the routing had already chosen native and the host did not ask for software, so
+    /// the promotion never moves a session between hosts on its own. A custom reader is the host's
+    /// to describe. Without a duration the segment plan has nothing to stride over, so that source
+    /// keeps the software path.
+    static func promotesForwardOnlySourceToSequential(
+        isSourceSeekable: Bool,
+        isLive: Bool,
+        declaredSequential: Bool,
+        isCustomSource: Bool,
+        routedSoftware: Bool,
+        preferred: DecodePath,
+        containerDurationSeconds: Double
+    ) -> Bool {
+        !isSourceSeekable && !isLive && !declaredSequential && !isCustomSource
+            && !routedSoftware && preferred == .automatic
+            && containerDurationSeconds.isFinite && containerDurationSeconds > 0
+    }
+
     /// #176 follow-up: DV variants whose only signal is IPT-PQ-c2 (no compatible base layer) cannot be
     /// color-correctly decoded by the software path: libavcodec / dav1d hand the IPT signal on as YCbCr,
     /// which renders with a green/purple cast. That is HEVC P5 and AV1 P10.0 (compat 0). P7 / P8.x /

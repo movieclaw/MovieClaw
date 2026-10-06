@@ -2,6 +2,21 @@ import Foundation
 import AetherLibavcodec
 import AetherLibavutil
 
+/// Audit BIT-104: whether a video sample of the session's track has walked exactly as a
+/// length-prefixed chain (BIT-1). Held by the session rather than by one muxer, because every seek,
+/// restart and reload builds a fresh muxer, and a muxer's first sample is exactly the one a restart
+/// lands on.
+final class NALFramingLatch: @unchecked Sendable {
+    private let lock = NSLock()
+    private var confirmed: Bool
+
+    init(confirmed: Bool = false) { self.confirmed = confirmed }
+
+    var isConfirmed: Bool { lock.withLock { confirmed } }
+
+    func confirm() { lock.withLock { confirmed = true } }
+}
+
 /// The length-prefixed NAL chain (avcC / hvcC framing) as Apple's fMP4 parser walks it.
 ///
 /// A sample in an mp4 video track is a run of NAL units, each introduced by a big-endian length of

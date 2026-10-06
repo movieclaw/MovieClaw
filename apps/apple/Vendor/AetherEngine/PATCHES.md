@@ -1,9 +1,25 @@
 # MovieClaw 对 AetherEngine 的补丁（我们自己维护的 fork）
 
-基线：上游 [AetherEngine](https://github.com/superuser404notfound/AetherEngine) **7.19.0**（LGPL-3.0 + App Store 例外）。
+基线：上游 [AetherEngine](https://github.com/superuser404notfound/AetherEngine) **7.28.0**（`7de2d5a0dbb8bc60c09be5620a71f8904d7ab60f`，2026-10-06 同步）（LGPL-3.0 + App Store 例外）。
 这份源码就是 MovieClaw 自己维护的 fork（2026-09-27 起）：引擎问题我们自己修、自己完善，不以「等上游合并」为前提。
 补丁在源码里都标了 `[MovieClaw P<n>]` 或 `[MovieClaw patch P<n>]`，动机与实测见 `docs/design/player-engine.md`
 第 7、8 节与 `docs/design/disc-direct-play.md`。LGPL 义务：修改后的源码随仓库公开，关于页注明组件与源码地址。
+
+## 2026-10-06：7.19.0 → 7.28.0
+
+完整合入上游引擎目标的 112 个变更文件，保留 MovieClaw 原有的 56 个补丁编号。新增流与音频详情、HLS 旁路遥测、共享输出、I-frame 拖动缩略图、顺序读取声明、缺失 ctts 的 HEVC 修复及 HDR Vivid 探测；FFmpegBuild / LibDovi 依赖约束不变。
+
+合并交界处：P17/P30 的显示时钟等待跟随上游新的软解/硬解重排窗口；P7 的 CLPI 位置记录跟随有界、去重后的标题组装；P22/P53 的 HTTP 原盘预取复用上游限制响应体大小的 delegate；P10 默认音轨规则进入上游线程安全快照。P56 的首次 512 KB 请求仍默认启用，上游假定首次 32 MB 请求的 Range 用例在关闭此开关时验证。
+
+验证记录：
+
+- macOS、iOS Simulator、tvOS 的 Debug 构建通过。
+- 上游相关回归 145 项通过（70 项格式/缓存边界、68 项加载取消/共享输出/读取稳定性、7 项默认 Range 配置）；新增的 4 项合并回归包含在 App 的单元测试中。
+- App 单元测试 392 项中 391 项通过。`SourceByteCacheTests.launchTrimShrinksAnOversizedSourceKeepingMetadata` 的磁盘分配量断言在未同步的 7.19 源码上复现同样的 7 个失败。
+- 真正登录 NAS 的 PlayerUITests：起播/续播 MP4、MKV、暂停/继续、前后跳转、下一集通过。`testLandscapeAndLock` 的 3 个 UI 断言在主干 7.19 上也全部复现。
+- iOS Simulator 的冷缓存语料回归：MP4、MKV、蓝光目录、DVD 目录、DVD ISO、VC-1 蓝光目录、蓝光 ISO 全部起播并完成前后两次跳转（14 次落点），没有服务端降级；MKV 中途换音轨与字幕后继续播放。
+- macOS 直接播放 NAS 的 4K HDR10 HEVC + TrueHD：硬解、音频桥接和播放头推进正常，观察期间无掉帧、无服务端降级。
+- 网络故障回归：冷起播拒连 6 秒后恢复，6 Mbps 限速约 7.6 秒出画并持续播放；播放中拒连 20 秒、其间跳到未缓存的 675 秒位置，实际新请求被拒，网络回来后自动重连，播放头推进至 702 秒，没有服务端降级。重连会重建引擎，因此此场景以目标位置之后持续出画/推进验证，不依赖被重建清掉的 SeekTrace。
 
 | 补丁 | 位置 | 做什么 | 为什么 |
 |---|---|---|---|
@@ -28,7 +44,7 @@
 
 | P16 | `Video/SegmentCache.swift`、`Native/SoftwarePacketDiskFIFO.swift`、`AetherEngine+Prewarm.swift` | 死会话留下的缓存立刻清：分片目录与软件通路包缓存都带存活锁（flock，进程一死内核就放），锁没人拿着且建了 10 秒以上就删，不再等 1 小时 / 24 小时；新增 `sweepStaleSessionCaches()` 供宿主启动时清一遍（两种缓存原来只在建同类新会话时顺手清） | 被杀掉的播放会话每个留下最多 2 GB 分片、1 GB 上下包缓存：真机一夜测试 App 占用长到 16 GB（分片 8.9 GB + 包缓存 6.6 GB），此前 4K 片子因手机写满起播失败；改后临时目录 0.08 GB |
 
-| P17 | `Native/SoftwarePlaybackHost.swift` | 软件通路跳转落地与起播锚时钟时，时钟先停在落点（速率 0），落点之后第 5 次送帧（渲染器重排缓冲 4 帧，这一次落点那一帧才交到显示层）再按当前速率走；兜底 0.6 秒，暂停取消等待 | 原来落地就走时钟，解码器还在从前一个关键帧往目标解，前十几帧一出来就迟到被丢，跳转后画面停半秒再跳：DVD 7 → 0、AVI 11 → 0、VP9 4 → 0 帧，起播时间不变 |
+| P17 | `Native/SoftwarePlaybackHost.swift` | 软件通路跳转落地与起播锚时钟时，时钟先停在落点（速率 0），按渲染器当前重排深度等到落点帧送出（上游 7.23 起软件解码保留 1 帧、硬解保留 4 帧）再按当前速率走；兜底 0.6 秒，暂停取消等待 | 原来落地就走时钟，解码器还在从前一个关键帧往目标解，前十几帧一出来就迟到被丢，跳转后画面停半秒再跳：DVD 7 → 0、AVI 11 → 0、VP9 4 → 0 帧，起播时间不变 |
 | P18 | `Demuxer/MatroskaCuesProbe.swift`（新）、`Demuxer/Demuxer.swift`、`Video/HLSVideoEngine.swift`、`Video/HLSVideoEngine+SegmentPlanning.swift` | 没有可用 Cues 的 MKV：打开时读文件头解析 SeekHead（跟不到的链、读不全的头都不下结论），判定没有或指向文件尾之外就跳过起播前的索引预热；按时间定位前按字节比例估位置、往后找最近的 Cluster 读时间码（至多校正两次）得到目标前最近的一个，再按平均码率估到目标之后探一次得到目标后最近的一个，都登记成 libavformat 的索引项（反向定位落前一个，生产端「不早于目标」的正向定位落后一个；码率按探到的点现算，截断文件的片长不可信）；分片计划的可信判定加「尾部覆盖」：最后一个关键帧离片尾超过 60 秒就退回均匀切分 | 片库 6675 个 MKV 里 8 个没有可用索引（《饥饿站台》下载不完整、Cues 指针在 18.6 GB 而文件只有 11.8 GB；7 个《哆啦A梦》番外是没下完的空壳），边下边播的文件也是这个状态。原来预热线性读 10 秒（上限）放弃，扫到的关键帧只覆盖开头 212 秒却被判可信，最后一段从 205 秒拉到片尾 5933 秒，永远不出画；改后续播到 900 秒 1.2 秒出画，往后跳 600 秒 0.93 秒、往回跳到 300 秒 1.49 秒且落点准确 |
 
 | P19 | `Demuxer/CustomIOReaderBridge.swift` | 自定义读取器的桥接层累计交给解复用器的字节数，作为「已从源拉取字节」上报遥测（原来写死 0） | 光盘镜像、原盘目录都经这层接进引擎：顶栏加载速度恒为「0 KB/s」、带宽估计为空（真机《蜘蛛侠：英雄无归》UHD 原盘，快进、换轨都是 0） |

@@ -34,7 +34,8 @@ final class FrameCache {
         // Thumbnails floor to grid; snapshots round to nearest so a value within
         // half a bucket of a stored position resolves to the same entry.
         let rounded = mode == .thumbnail ? scaled.rounded(.down) : scaled.rounded()
-        return Int(rounded)
+        // Audit BIT-105: `Int(_:)` traps past `Int.max`; every such position shares the last bucket.
+        return rounded < 0x1p62 ? Int(rounded) : 1 << 62
     }
 
     func get(mode: FrameMode, seconds: Double) -> CGImage? {

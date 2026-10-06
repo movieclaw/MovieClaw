@@ -282,7 +282,7 @@ extension HLSVideoEngine {
                 packetsWritten: prod.packetsWrittenCount,
                 cachedSegments: cache?.count ?? 0
             ) {
-                handleVODReadErrorExit(code)
+                handleVODReadErrorExit(code, deadProducer: prod)
             } else {
                 EngineLog.emit(
                     "[HLSVideoEngine] VOD pump died before producing anything "
@@ -429,7 +429,7 @@ extension HLSVideoEngine {
     /// AVPlayer's real position, authoritative so it wins the coalescer's pending slot. The
     /// demuxer whose read just threw is marked suspect so performRestart replaces it via the #79
     /// fresh-demuxer path instead of seeking the failed connection.
-    func handleVODReadErrorExit(_ code: Int32) {
+    func handleVODReadErrorExit(_ code: Int32, deadProducer: HLSSegmentProducer? = nil) {
         // #377: the reader knows the difference between a source that is gone and one that is
         // metering us, and loses it on the way here: the give-up arm returns a bare `-1`, FFmpeg
         // renders that as "Operation not permitted", and this is what arrives. Ask the budget,
@@ -518,11 +518,32 @@ extension HLSVideoEngine {
             + "\(String(format: "%.0f", spent))s of \(String(format: "%.0f", budget))s spent)",
             category: .session
         )
-        Task.detached(priority: .userInitiated) { [weak self] in
+        let sessionEpoch = sessionEpochSnapshot()
+        Task.detached(priority: .userInitiated) { [weak self, weak deadProducer] in
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
             guard let self else { return }
-            self.requestRestart(at: idx, authoritative: true)
+            self.fireMeteredRevive(at: idx, deadProducer: deadProducer, sessionEpoch: sessionEpoch)
         }
+    }
+
+    /// Audit HLS-104: the backoff runs 3 to 45 s, and in that time a segment-driven restart, a seek or
+    /// a stop may already have replaced the dead producer. Whichever did has the better position.
+    static func meteredReviveStillOwed(sessionUnchanged: Bool, deadProducerInstalled: Bool) -> Bool {
+        sessionUnchanged && deadProducerInstalled
+    }
+
+    func fireMeteredRevive(at idx: Int, deadProducer: HLSSegmentProducer?, sessionEpoch: UInt64) {
+        let sessionUnchanged = isSessionEpochCurrent(sessionEpoch)
+        let owed = Self.meteredReviveStillOwed(
+            sessionUnchanged: sessionUnchanged, deadProducerInstalled: currentProducerIs(deadProducer))
+        guard owed else {
+            EngineLog.emit(
+                "[HLSVideoEngine] #377 metered revive at seg\(idx) skipped: the dead producer was "
+                + "already replaced or the session stopped during the backoff",
+                category: .session)
+            return
+        }
+        requestRestart(at: idx, authoritative: true)
     }
 
     /// #377: how long a refusal keeps classifying a read error as metering. The reader's give-up
@@ -773,8 +794,9 @@ extension HLSVideoEngine {
                 liveReopenOutputEndSeconds: outputEnd
             )
             newProd.firstSegmentDiscontinuous = true
+            let newEpoch = newProd.epoch
             newProd.onVideoShiftKnown = { [weak self] shiftPts, _, _ in
-                self?.handleLiveTimelineRebase(shiftPts, seamOutputSeconds: outputEnd)
+                self?.handleLiveTimelineRebase(shiftPts, seamOutputSeconds: outputEnd, producerEpoch: newEpoch)
             }
             producer = newProd
             restartLock.unlock()
@@ -1022,7 +1044,7 @@ extension HLSVideoEngine {
     }
 
     /// NSLock unavailable from async contexts; this synchronous helper wraps the check.
-    private func currentProducerIs(_ p: HLSSegmentProducer) -> Bool {
+    private func currentProducerIs(_ p: HLSSegmentProducer?) -> Bool {
         restartLock.lock()
         defer { restartLock.unlock() }
         return producer === p
@@ -1073,8 +1095,9 @@ extension HLSVideoEngine {
             )
             // Fresh connection joins the broadcast at "now"; source clock jumps, so the seam carries #EXT-X-DISCONTINUITY. Shift handoff deferred to seam to avoid jumping the host clock while pre-loss content is on screen.
             newProd.firstSegmentDiscontinuous = true
+            let newEpoch = newProd.epoch
             newProd.onVideoShiftKnown = { [weak self] shiftPts, _, _ in
-                self?.handleLiveTimelineRebase(shiftPts, seamOutputSeconds: outputEnd)
+                self?.handleLiveTimelineRebase(shiftPts, seamOutputSeconds: outputEnd, producerEpoch: newEpoch)
             }
             producer = newProd
             // #199: the new demuxer reads from the factory-vended reader; take ownership so stop()

@@ -181,9 +181,16 @@ final class AudioBridge: @unchecked Sendable {
     /// source), the abandoned pump can still be inside feed() while the restart thread calls
     /// startSegment() on this otherwise lock-free bridge; concurrent libswresample/libavcodec calls on
     /// the same contexts are a data race. Uncontended in the normal single-pump case. Mirrors
-    /// AudioDecoder.stateLock. Diagnostic reads (fifoSampleCount/liveBytes) stay lock-free; the engine
-    /// lifecycle (restartLock ref-handoff + waitForFinish-gated cleanup) forecloses their races.
+    /// AudioDecoder.stateLock. Diagnostic reads (fifoSampleCount/liveBytes) never touch a context: they read
+    /// a snapshot published under `opLock` (audit DEC-104, Vpipeline-101), because feed() and startSegment()
+    /// free and replace `swrCtx` / `encoderCtx` mid-session and the lifecycle only forecloses that for cleanup().
     private let opLock = NSLock()
+
+    /// The figures `liveBytes` and `fifoSampleCount` report, written at the end of every operation that
+    /// can change them while `opLock` is held. Its own lock, so a 1 Hz reader neither waits on a long
+    /// feed() nor sees a torn struct.
+    private let liveBytesLock = NSLock()
+    private var publishedLiveBytes = LiveBytes(fifoSamples: 0, fifoBytes: 0, swrDelaySamples: 0, swrDelayBytes: 0)
 
     /// PCM intermediate format end-to-end (resampler -> FIFO -> encoder). S16 for lossy sources (EAC3/AC3);
     /// S32 @ bits_per_raw_sample=24 for lossless sources (TrueHD, DTS-HD MA, FLAC, ALAC, raw 24/32-bit PCM) so
@@ -487,14 +494,12 @@ final class AudioBridge: @unchecked Sendable {
         opLock.lock()
         defer { opLock.unlock() }
         cleanup()
+        publishLiveBytes()
     }
 
     /// FIFO depth in samples/channel, for the engine memory probe. Steady-state below frame_size (~4608 @48kHz);
     /// a growing value means the encoder isn't keeping up with the resampler.
-    var fifoSampleCount: Int {
-        guard let f = fifo else { return 0 }
-        return Int(av_audio_fifo_size(f))
-    }
+    var fifoSampleCount: Int { liveBytes.fifoSamples }
 
     /// Cumulative bytes of encoded audio the bridge has emitted this session (sum of every output packet's size).
     /// Monotonic across producer restarts and encoder rebuilds; the telemetry sampler diffs it into a live output
@@ -623,37 +628,30 @@ final class AudioBridge: @unchecked Sendable {
     }
 
     var liveBytes: LiveBytes {
-        let fifoSamples: Int
-        if let f = fifo {
-            fifoSamples = Int(av_audio_fifo_size(f))
-        } else {
-            fifoSamples = 0
-        }
+        liveBytesLock.lock()
+        defer { liveBytesLock.unlock() }
+        return publishedLiveBytes
+    }
 
-        let channels: Int
-        let bytesPerSample: Int = Int(pcmBytesPerSample)
-        if let enc = encoderCtx {
-            channels = Int(enc.pointee.ch_layout.nb_channels)
-        } else {
-            channels = 0
-        }
-
-        let fifoBytes = fifoSamples * channels * bytesPerSample
-
-        let swrDelaySamples: Int
+    /// Reads the FFmpeg contexts and publishes the result for `liveBytes`. Callers hold `opLock`, which
+    /// is what makes the reads safe against the swaps.
+    private func publishLiveBytes() {
+        let fifoSamples = fifo.map { Int(av_audio_fifo_size($0)) } ?? 0
+        let channels = encoderCtx.map { Int($0.pointee.ch_layout.nb_channels) } ?? 0
+        let bytesPerSample = Int(pcmBytesPerSample)
+        var swrDelaySamples = 0
         if let swr = swrCtx, let enc = encoderCtx {
             swrDelaySamples = Int(swr_get_delay(swr, Int64(enc.pointee.sample_rate)))
-        } else {
-            swrDelaySamples = 0
         }
-        let swrDelayBytes = swrDelaySamples * channels * bytesPerSample
-
-        return LiveBytes(
+        let snapshot = LiveBytes(
             fifoSamples: fifoSamples,
-            fifoBytes: fifoBytes,
+            fifoBytes: fifoSamples * channels * bytesPerSample,
             swrDelaySamples: swrDelaySamples,
-            swrDelayBytes: swrDelayBytes
+            swrDelayBytes: swrDelaySamples * channels * bytesPerSample
         )
+        liveBytesLock.lock()
+        publishedLiveBytes = snapshot
+        liveBytesLock.unlock()
     }
 
     /// Mark a producer restart boundary: drain the FIFO (drops the buffered partial frame, max ~96 ms @48kHz) and
@@ -662,6 +660,7 @@ final class AudioBridge: @unchecked Sendable {
     func startSegment() {
         opLock.lock()
         defer { opLock.unlock() }
+        defer { publishLiveBytes() }
         // A prior pump reached EOF and flush() drained the encoder into its terminal state; rebuild it
         // before this restart feeds new frames (#99 failure mode B).
         if drainedAtEOF {
@@ -697,6 +696,7 @@ final class AudioBridge: @unchecked Sendable {
         guard let dec = decoderCtx, let enc = encoderCtx,
               let swr = swrCtx, let fifoPtr = fifo else { return [] }
         drainedAtEOF = true
+        defer { publishLiveBytes() }
         var results: [UnsafeMutablePointer<AVPacket>] = []
 
         // 1. Drain the decoder's internal delay.
@@ -833,6 +833,7 @@ final class AudioBridge: @unchecked Sendable {
               let fifoPtr = fifo else {
             return []
         }
+        defer { publishLiveBytes() }
 
         stats.packetsFed += 1
         stats.packetsFedSinceLastEnqueue += 1

@@ -60,7 +60,7 @@ extension AetherEngine {
         applyConfirmedAtmos()
         let candidates = Self.atmosConfirmationCandidates(in: audioTracks)
         guard !candidates.isEmpty else { return }
-        if isCustomSource, customReader?.makeIndependentReader() == nil { return }
+        if isCustomSource, !Self.canForkCustomReader(customReader) { return }
 
         let headers = loadedOptions.httpHeaders
         let formatHint = customFormatHint
@@ -72,6 +72,15 @@ extension AetherEngine {
                 callerProbesize: probesize, callerMaxAnalyzeDuration: maxAnalyzeDuration,
                 candidates: candidates)
         }
+    }
+
+    /// Whether the host's reader can hand out the independent cursor each pass needs. The probe builds a
+    /// real reader, which the `IOReader` contract leaves to the engine to close (audit DEC-109); a host
+    /// whose fork opens a connection would otherwise hold one per load for nothing.
+    nonisolated static func canForkCustomReader(_ reader: IOReader?) -> Bool {
+        guard let probe = reader?.makeIndependentReader() else { return false }
+        probe.close()
+        return true
     }
 
     /// Teardown. `markClosed()` on the side demuxer so a parked AVIO read cannot outlive the session,

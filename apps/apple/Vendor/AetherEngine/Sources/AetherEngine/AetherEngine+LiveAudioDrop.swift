@@ -14,18 +14,24 @@ import Foundation
 /// tail, and `audioDelivery` reads `.droppedNoPipeline`, the fact a host ladder demotes on.
 extension AetherEngine {
 
-    /// What a load keeps of the undecodable stream: the session's own rebuilds keep it, which is
+    /// What a load keeps of the undecodable streams: the session's own rebuilds keep them, which is
     /// what keeps them video-only, and a host load is a new source and starts clean.
-    nonisolated static func undecodableAudioStreamIndexAcrossLoad(
-        _ current: Int32?, sessionPreservingReload: Bool
-    ) -> Int32? {
-        sessionPreservingReload ? current : nil
+    nonisolated static func undecodableAudioStreamIndicesAcrossLoad(
+        _ current: Set<Int32>, sessionPreservingReload: Bool
+    ) -> Set<Int32> {
+        sessionPreservingReload ? current : []
     }
 
     @MainActor
     func dropUndecodableLiveAudio(streamIndex: Int32, bridgeSummary: String) async {
-        guard undecodableLiveAudioStreamIndex == nil else { return }
-        undecodableLiveAudioStreamIndex = streamIndex
+        guard undecodableLiveAudioStreamIndices.insert(streamIndex).inserted else {
+            EngineLog.emit(
+                "[AetherEngine] AE#641 stream \(streamIndex) is already marked undecodable "
+                + "(\(bridgeSummary)); the session is already video-only for it",
+                category: .engine
+            )
+            return
+        }
         EngineLog.emit(
             "[AetherEngine] AE#641 the live audio bridge decoded nothing from stream \(streamIndex) "
             + "(\(bridgeSummary)); rebuilding the session video-only instead of serving an audio "

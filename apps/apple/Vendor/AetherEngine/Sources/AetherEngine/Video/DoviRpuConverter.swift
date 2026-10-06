@@ -39,7 +39,18 @@ public enum DoviRpuConverter {
         guard Self.canRebuild(framing) else { return true }
         let size = Int(packet.pointee.size)
 
-        var outputNALs: [[UInt8]] = []
+        // Audit PERF-111: what survives is described, not copied. Each piece points into the source
+        // packet (passed through) or into a libdovi buffer (a rewritten RPU), and the one rebuild below
+        // is the only copy. The source stays alive until that copy is made, and the libdovi buffers
+        // until this function returns.
+        struct Piece {
+            let base: UnsafePointer<UInt8>
+            let count: Int
+        }
+        var pieces: [Piece] = []
+        pieces.reserveCapacity(16)
+        var rewritten: [UnsafePointer<DoviData>] = []
+        defer { for buffer in rewritten { dovi_data_free(buffer) } }
         var converted = false
         var droppedEL = false
         var degraded = false
@@ -56,34 +67,26 @@ public enum DoviRpuConverter {
                     degraded = true
                     return
                 }
-                let rc = dovi_convert_rpu_with_mode(rpu, 2)
-                if rc != 0 {
-                    dovi_rpu_free(rpu)
+                defer { dovi_rpu_free(rpu) }
+                guard dovi_convert_rpu_with_mode(rpu, 2) == 0,
+                      let out = dovi_write_unspec62_nalu(rpu) else {
                     degraded = true
                     return
                 }
-                guard let out = dovi_write_unspec62_nalu(rpu) else {
-                    dovi_rpu_free(rpu)
-                    degraded = true
-                    return
-                }
-                let outLen = out.pointee.len
-                guard let outData = out.pointee.data, outLen > 0 else {
+                guard let outData = out.pointee.data, out.pointee.len > 0 else {
                     dovi_data_free(out)
-                    dovi_rpu_free(rpu)
                     degraded = true
                     return
                 }
-                outputNALs.append([UInt8](UnsafeBufferPointer(start: outData, count: outLen)))
-                dovi_data_free(out)
-                dovi_rpu_free(rpu)
+                rewritten.append(out)
+                pieces.append(Piece(base: outData, count: out.pointee.len))
                 converted = true
 
             case nalTypeEL:
                 droppedEL = true
 
             default:
-                outputNALs.append([UInt8](UnsafeBufferPointer(start: nal, count: len)))
+                pieces.append(Piece(base: nal, count: len))
             }
         }
 
@@ -92,8 +95,8 @@ public enum DoviRpuConverter {
         }
 
         var total = 0
-        for nal in outputNALs {
-            total += lengthPrefixSize + nal.count
+        for piece in pieces {
+            total += lengthPrefixSize + piece.count
         }
         // Degenerate: all NALs were RPU/EL. Leave the packet untouched rather than emit a zero-length video packet.
         guard total > 0 else { return true }
@@ -110,8 +113,8 @@ public enum DoviRpuConverter {
 
         let emitsStartCodes = framing == .annexB
         var w = 0
-        for nal in outputNALs {
-            let n = nal.count
+        for piece in pieces {
+            let n = piece.count
             if emitsStartCodes {
                 dst[w + 0] = 0; dst[w + 1] = 0; dst[w + 2] = 0; dst[w + 3] = 1
             } else {
@@ -121,10 +124,8 @@ public enum DoviRpuConverter {
                 dst[w + 3] = UInt8(n & 0xFF)
             }
             w += lengthPrefixSize
-            nal.withUnsafeBufferPointer { src in
-                if let base = src.baseAddress, n > 0 {
-                    memcpy(dst + w, base, n)
-                }
+            if n > 0 {
+                memcpy(dst + w, piece.base, n)
             }
             w += n
         }

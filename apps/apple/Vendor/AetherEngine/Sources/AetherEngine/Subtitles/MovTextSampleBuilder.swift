@@ -10,18 +10,7 @@ enum MovTextSampleBuilder {
     /// per block, quadratic on a remote cue made of many small blocks (karaoke tracks emit one per
     /// syllable). An unclosed `{` keeps itself and everything after it, as before.
     static func sanitize(_ assText: String) -> String {
-        var s = ""
-        s.reserveCapacity(assText.utf8.count)
-        var cursor = assText.startIndex
-        while cursor < assText.endIndex {
-            guard let open = assText[cursor...].firstIndex(of: "{"),
-                  let close = assText[open...].firstIndex(of: "}") else {
-                s += assText[cursor...]
-                break
-            }
-            s += assText[cursor..<open]
-            cursor = assText.index(after: close)
-        }
+        var s = SubtitleRectText.strippingOverrideBlocks(assText)
         s = s.replacingOccurrences(of: "\\N", with: "\n")
         s = s.replacingOccurrences(of: "\\n", with: "\n")
         s = s.replacingOccurrences(of: "\\h", with: " ")

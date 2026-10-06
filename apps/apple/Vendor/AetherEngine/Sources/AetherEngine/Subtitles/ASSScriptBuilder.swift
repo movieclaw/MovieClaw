@@ -70,10 +70,10 @@ public final class ASSScriptBuilder {
         seen.removeAll(keepingCapacity: true)
     }
 
-    /// ASS timestamp `H:MM:SS.cc` (centiseconds). Negative input
-    /// clamps to zero.
+    /// ASS timestamp `H:MM:SS.cc` (centiseconds). Negative input and NaN clamp to zero, and a
+    /// time past 4e9 s (infinity included) pins there.
     public static func timestamp(_ seconds: Double) -> String {
-        let total = max(0, seconds)
+        let total = max(0, SourceTimestampBounds.clampedSeconds(seconds))
         var centis = Int((total * 100).rounded())
         let h = centis / 360_000
         centis %= 360_000

@@ -1029,9 +1029,10 @@ extension AetherEngine {
                 memcpy(dst, base, size)
             }
         }
-        pkt.pointee.pts = Int64((entry.ptsSeconds * 1000).rounded())
+        // Audit FEA-101: the store bounds these, but an entry is a plain value and the conversion traps.
+        pkt.pointee.pts = SourceTimestampBounds.roundedTicks(entry.ptsSeconds * 1000) ?? Int64.min
         pkt.pointee.dts = pkt.pointee.pts
-        pkt.pointee.duration = Int64((entry.durationSeconds * 1000).rounded())
+        pkt.pointee.duration = max(0, SourceTimestampBounds.roundedTicks(entry.durationSeconds * 1000) ?? 0)
         pkt.pointee.flags = entry.flags
         // #233: WebVTT placement lives in side data, not in the payload, so it has to be put back.
         if let settings = entry.webvttSettings {
@@ -1757,6 +1758,18 @@ extension AetherEngine {
         let w = sourceVideoWidth > 0 ? sourceVideoWidth : 1920
         let h = sourceVideoHeight > 0 ? sourceVideoHeight : 1080
         let startAt = startAtSeconds ?? sourceTime
+        // Sodalite#156: the anchor next to the playhead it is supposed to mean. `sourceTime` is
+        // written on the native path only by the render sink and by seek landings, never by the clock
+        // tick (#49), and while an external screen holds the picture nothing renders locally. A
+        // reader anchored on a stale or zero source time refills from the head of the file and then
+        // serves empty .vtt for the window the receiver is actually asking for, which is a caption
+        // box with nothing in it. These two numbers disagreeing is that defect; them agreeing means
+        // the reader simply has not caught up yet, which is a different problem with a different fix.
+        EngineLog.emit("[AetherEngine] #156 reader anchor: startAt=\(String(format: "%.2f", startAt))s "
+                       + "sourceTime=\(String(format: "%.2f", sourceTime))s "
+                       + "clock=\(String(format: "%.2f", currentTime))s "
+                       + "explicit=\(startAtSeconds.map { String(format: "%.2f", $0) } ?? "nil")",
+                       category: .engine)
         let reader = customClone
         // #76: same bounded-probe + active-title open as the inline reader.
         let probesize = loadedOptions.probesize
@@ -2663,21 +2676,22 @@ extension AetherEngine {
         Task { @MainActor in
             self.currentAVPlayer?.appliesMediaSelectionCriteriaAutomatically = false
             guard let group = try? await item.asset.loadMediaSelectionGroup(for: .legible) else { return }
-            var match: AVMediaSelectionOption?
-            var seen: [String] = []
+            var snapshots: [RemoteHLSMediaSelection.LegibleOption] = []
             for option in group.options {
-                let playlistName = await RemoteHLSMediaSelection.playlistName(of: option)
-                seen.append(playlistName ?? option.displayName)
-                if match == nil, playlistName == name || option.displayName == name { match = option }
+                snapshots.append(RemoteHLSMediaSelection.LegibleOption(
+                    displayName: option.displayName, extendedLanguageTag: nil,
+                    isDefault: false, isForced: false, isSDH: false,
+                    playlistName: await RemoteHLSMediaSelection.playlistName(of: option)))
             }
-            guard let option = match else {
+            let seen = snapshots.map(RemoteHLSMediaSelection.injectionKey)
+            guard let index = RemoteHLSMediaSelection.injectedRenditionIndex(named: name, in: snapshots) else {
                 EngineLog.emit(
                     "[AetherEngine] #316: injected rendition \"\(name)\" is not in the item's legible "
                     + "group (\(seen.joined(separator: ", ")))",
                     category: .engine)
                 return
             }
-            item.select(option, in: group)
+            item.select(group.options[index], in: group)
             EngineLog.emit("[AetherEngine] #316: selected injected rendition \"\(name)\" for external id=\(id)",
                            category: .engine)
         }

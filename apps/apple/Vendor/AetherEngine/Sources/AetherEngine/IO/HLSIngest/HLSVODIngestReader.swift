@@ -111,7 +111,7 @@ final class HLSVODIngestReader: TimeSeekableIOReader, @unchecked Sendable {
         } catch {
             if Task.isCancelled { throw CancellationError() }
             EngineLog.emit(
-                "[HLSVODIngest] carriage probe inconclusive: \(error)",
+                "[HLSVODIngest] carriage probe inconclusive: \(EngineLog.summary(of: error))",
                 category: .engine
             )
             return nil
@@ -384,7 +384,8 @@ final class HLSVODIngestReader: TimeSeekableIOReader, @unchecked Sendable {
             func spawn(_ index: Int) {
                 let item = resolvedSegments[index]
                 group.addTask {
-                    let bytes = try await self.fetch(item.1)
+                    let bytes = try await self.fetch(
+                        item.1, limit: BoundedFetch.segmentLimit(forDuration: item.0.duration))
                     guard let crypt = item.0.crypt else { return (index, bytes) }
                     return (
                         index,
@@ -449,7 +450,7 @@ final class HLSVODIngestReader: TimeSeekableIOReader, @unchecked Sendable {
         producer = nil
         condition.broadcast()
         condition.unlock()
-        EngineLog.emit("[HLSVODIngest] terminal: \(error)", category: .engine)
+        EngineLog.emit("[HLSVODIngest] terminal: \(EngineLog.summary(of: error))", category: .engine)
     }
 
     private func resolveMedia() async throws -> ResolvedMedia {
@@ -481,22 +482,33 @@ final class HLSVODIngestReader: TimeSeekableIOReader, @unchecked Sendable {
         guard !media.hasUnsupportedEncryption else {
             throw HLSIngestError.encryptedNotSupported
         }
+        let timeline = try Self.segmentTimeline(media.segments)
+        return ResolvedMedia(
+            url: mediaURL,
+            segments: media.segments,
+            starts: timeline.starts,
+            duration: timeline.duration
+        )
+    }
+
+    static func segmentTimeline(_ segments: [HLSMediaSegment]) throws -> (starts: [Double], duration: Double) {
         var starts: [Double] = []
-        starts.reserveCapacity(media.segments.count)
+        starts.reserveCapacity(segments.count)
         var duration = 0.0
-        for segment in media.segments {
+        for segment in segments {
             guard segment.duration.isFinite, segment.duration > 0 else {
                 throw HLSIngestError.playlistInvalid(reason: "segment duration must be positive")
             }
             starts.append(duration)
             duration += segment.duration
         }
-        return ResolvedMedia(
-            url: mediaURL,
-            segments: media.segments,
-            starts: starts,
-            duration: duration
-        )
+        // Audit HLS-102: each entry is inside the parser's ceiling, the sum need not be. A tiny entry
+        // after a large sum also leaves the total unmoved, the starts stop being monotonic, and the
+        // uniform fallback plans the whole sum.
+        guard duration <= MediaDurationCeiling.seconds else {
+            throw HLSIngestError.playlistInvalid(reason: "program duration exceeds \(MediaDurationCeiling.seconds)s")
+        }
+        return (starts, duration)
     }
 
     /// Credentials only where the host's playlist is (audit NET-7).
@@ -522,8 +534,15 @@ final class HLSVODIngestReader: TimeSeekableIOReader, @unchecked Sendable {
         return (try HLSPlaylistParser.parse(text), response.url ?? url)
     }
 
-    private func fetch(_ url: URL) async throws -> Data {
-        let (data, response) = try await session.data(for: makeRequest(url))
+    /// A segment or a key body, cut off at `limit` while it arrives (audit NET-112).
+    private func fetch(_ url: URL, limit: Int) async throws -> Data {
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await BoundedFetch.data(for: makeRequest(url), session: session, limit: limit)
+        } catch is BoundedFetch.Exceeded {
+            throw HLSIngestError.playlistInvalid(reason: "body exceeds \(limit) bytes")
+        }
         let status = (response as? HTTPURLResponse)?.statusCode ?? -1
         guard (200..<300).contains(status), !data.isEmpty else {
             throw HLSIngestError.playlistUnreachable(status: status)
@@ -553,7 +572,7 @@ final class HLSVODIngestReader: TimeSeekableIOReader, @unchecked Sendable {
         if let cached = keyCacheLock.withLock({ keyCache[keyURL.absoluteString] }) {
             key = cached
         } else {
-            let fetched = try await fetch(keyURL)
+            let fetched = try await fetch(keyURL, limit: BoundedFetch.keyLimit)
             guard fetched.count == kCCKeySizeAES128 else {
                 throw HLSIngestError.segmentDecryptFailed(reason: "key length is not 16 bytes")
             }

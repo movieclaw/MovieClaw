@@ -32,6 +32,11 @@ final class LiveRecordingWriter: LiveRecordingSink, @unchecked Sendable {
     private var videoSourceStreamIndex: Int32?
     private var reportedFailure = false
     private var teardownScheduled = false
+    /// The failure a scheduled teardown is ending the recording with, kept so whoever else ends the
+    /// recording meanwhile (a stop, a zap) can report it instead of calling the file cleanly ended.
+    private var pendingFailure: RecordingFailure?
+    /// Entered when a teardown is scheduled, left when it has run: `finish(reason:)` joins it.
+    private let teardownGroup = DispatchGroup()
 
     private var queue: LiveRecordingQueue!
 
@@ -39,6 +44,13 @@ final class LiveRecordingWriter: LiveRecordingSink, @unchecked Sendable {
     private let onFailure: @Sendable (RecordingFailure) -> Void
 
     var bytesWritten: Int64 { ctxLock.lock(); defer { ctxLock.unlock() }; return _bytesWritten }
+    var isClosed: Bool { ctxLock.lock(); defer { ctxLock.unlock() }; return closed }
+
+    #if DEBUG
+    /// Test-only: runs on the drain queue before each write, so a test can hold the drain and make a
+    /// teardown take as long as a slow disk would.
+    nonisolated(unsafe) var beforeWriteForTesting: (@Sendable () -> Void)?
+    #endif
     var droppedBytes: Int64 { queue.droppedBytes }
 
     init(url: URL,
@@ -170,6 +182,9 @@ final class LiveRecordingWriter: LiveRecordingSink, @unchecked Sendable {
     // MARK: - Writer queue
 
     private func write(_ item: LiveRecordingQueue.QueuedPacket) {
+        #if DEBUG
+        beforeWriteForTesting?()
+        #endif
         ctxLock.lock()
         // Deliberately NOT gated on `closed`. `finish` stops ACCEPTING first and drains second, so
         // gating the write here would discard everything still queued at the moment of a stop, up
@@ -218,8 +233,18 @@ final class LiveRecordingWriter: LiveRecordingSink, @unchecked Sendable {
 
     // MARK: - Teardown
 
-    func finish(reason: RecordingEndReason) {
+    /// Closes the recording and returns the failure it ended with, if any (audit FEA-105). A stop that
+    /// lands while a scheduled teardown is already draining used to see `closed`, return at once, and let
+    /// the caller publish `.ended` for a file that was still being written; it now joins that teardown
+    /// and hands back the failure the teardown recorded, which its own report can no longer deliver
+    /// because the recording has been released by then.
+    @discardableResult
+    func finish(reason: RecordingEndReason) -> RecordingFailure? {
         finish(reason: reason, failure: nil)
+        teardownGroup.wait()
+        ctxLock.lock()
+        defer { ctxLock.unlock() }
+        return pendingFailure
     }
 
     /// Tears the writer down from somewhere that must not block: the demux thread (a refused
@@ -228,10 +253,14 @@ final class LiveRecordingWriter: LiveRecordingSink, @unchecked Sendable {
         ctxLock.lock()
         guard !closed, !teardownScheduled else { ctxLock.unlock(); return }
         teardownScheduled = true
+        pendingFailure = failure
+        teardownGroup.enter()
         ctxLock.unlock()
 
-        DispatchQueue.global(qos: .utility).async { [weak self] in
-            self?.finish(reason: .stoppedByHost, failure: failure)
+        // Strong self: the group is entered, and a group released while entered is a libdispatch trap.
+        DispatchQueue.global(qos: .utility).async {
+            self.finish(reason: .stoppedByHost, failure: failure)
+            self.teardownGroup.leave()
         }
     }
 

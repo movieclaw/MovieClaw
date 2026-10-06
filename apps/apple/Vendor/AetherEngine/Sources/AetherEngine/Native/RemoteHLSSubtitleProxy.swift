@@ -82,7 +82,7 @@ enum RemoteHLSSubtitleProxy {
     /// pointed at the relay's own address for the origin.
     private static func relayOnly(originURL: URL, httpHeaders: [String: String]) -> Prepared? {
         let relay = HLSOriginRelay()
-        relay.admit(originURL, httpHeaders: httpHeaders)
+        relay.grantCredentials(to: originURL, httpHeaders: httpHeaders)
         let server = HLSLocalServer(relay: relay)
         do {
             try server.start()
@@ -123,11 +123,14 @@ enum RemoteHLSSubtitleProxy {
                               needsRelay: Bool) async throws -> Prepared {
         let session = makeSession()
         defer { session.finishTasksAndInvalidate() }
+        // Audit NAT-105: the variant is whatever the master names, on any host or scheme, so the
+        // host's credentials go only where the host sent them.
+        let credentials = CredentialScope(headers: httpHeaders, anchor: originURL)
 
         let (body, finalURL) = try await fetchPlaylist(originURL, session: session, headers: httpHeaders)
         let parsed = try parse(body, at: finalURL)
         let duration = try await programDuration(of: parsed, at: finalURL,
-                                                 session: session, headers: httpHeaders)
+                                                 session: session, credentials: credentials)
 
         let rewritten = try RemoteHLSMasterRewrite.rewriteDeclaringNames(
             originPlaylist: body,
@@ -139,7 +142,11 @@ enum RemoteHLSSubtitleProxy {
                                                  programDuration: duration,
                                                  defaultHeaders: httpHeaders)
         let relay: HLSOriginRelay? = needsRelay ? HLSOriginRelay() : nil
-        relay?.admit(finalURL, httpHeaders: httpHeaders)
+        // Audit NET-109: the grant belongs to the URL the host handed over. A redirect target is
+        // only allowed, or a cross-host redirect would move the token to the edge and leave the
+        // host's own origin without it.
+        relay?.grantCredentials(to: originURL, httpHeaders: httpHeaders)
+        relay?.allow(finalURL)
         let server = HLSLocalServer(provider: provider, relay: relay)
         do {
             try server.start()
@@ -222,7 +229,7 @@ enum RemoteHLSSubtitleProxy {
     private static func programDuration(of playlist: HLSPlaylist,
                                         at url: URL,
                                         session: URLSession,
-                                        headers: [String: String]) async throws -> Double {
+                                        credentials: CredentialScope) async throws -> Double {
         switch playlist {
         case .media(let media):
             guard media.hasEndList else { throw Refusal.notVOD }
@@ -232,7 +239,8 @@ enum RemoteHLSSubtitleProxy {
                   let variantURL = HLSPlaylistParser.resolve(uri: variant.uri, against: url) else {
                 throw Refusal.unusablePlaylist("master declares no resolvable variant")
             }
-            let (body, finalURL) = try await fetchPlaylist(variantURL, session: session, headers: headers)
+            let (body, finalURL) = try await fetchPlaylist(
+                variantURL, session: session, headers: credentials.headers(for: variantURL))
             guard case .media(let media) = try parse(body, at: finalURL) else {
                 throw Refusal.unusablePlaylist("variant is not a media playlist")
             }
@@ -242,7 +250,7 @@ enum RemoteHLSSubtitleProxy {
     }
 
     /// Longest program this proxy will serve as a whole-program WebVTT rendition.
-    static let maxProgramDurationSeconds: Double = 7 * 24 * 3600
+    static let maxProgramDurationSeconds: Double = MediaDurationCeiling.seconds
 
     /// A hostile or malformed EXTINF (`inf`, negative, or a huge total) reaches `Int(Double)` in
     /// `wholeSecondsCovering` downstream and traps (audit NAT-1); refuse it here instead. Internal

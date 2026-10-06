@@ -506,6 +506,12 @@ extension AetherEngine {
                               native: nativeVideoSession?.demuxerBytesFetched)
     }
 
+    /// AE#514: the played-media ledger of whichever path owns the pump, same precedence as the byte
+    /// counter above. nil before a pipeline exists and on the paths with no pump to feed one.
+    var playedMediaLedger: PlayedMediaLedger? {
+        softwareHost?.playedMediaLedger ?? nativeVideoSession?.playedMediaLedger
+    }
+
     /// #306: the precedence itself, as a function, so the ordering is assertable without a live
     /// session on either path. Software first: only one of the two exists per session, and a
     /// software session's counter is the one that used to be dropped.

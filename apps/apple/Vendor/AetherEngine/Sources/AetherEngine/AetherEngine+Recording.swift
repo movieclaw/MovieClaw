@@ -22,8 +22,16 @@ public extension AetherEngine {
     /// or a path that cannot be created. Anything that can only be discovered while writing arrives
     /// through `$recordingState` as `.failed`, never through both.
     func startRecording(to url: URL) async throws {
-        // The previous file is still being finalized off the main actor; it may be this path.
+        // The previous file is still being finalized off the main actor; it may be this path. The wait
+        // suspends, so a stop or a new load can run inside it (audit FEA-106): either one retires this
+        // start, which would otherwise install a writer the host had already stopped, or one on the
+        // channel that replaced the one it was asked for.
+        let generation = loadGeneration
+        let stopSerial = recordingStopSerial
         await recordingFinish?.value
+        guard loadGeneration == generation, recordingStopSerial == stopSerial else {
+            throw CancellationError()
+        }
         if case .recording(let progress) = recordingState {
             throw RecordingFailure.alreadyRecording(progress.url)
         }
@@ -63,6 +71,7 @@ public extension AetherEngine {
 
     /// Ends the recording and closes the file. Idempotent, and a no-op when nothing is recording.
     func stopRecording() async {
+        recordingStopSerial &+= 1
         endRecordingIfRunning(reason: .stoppedByHost)
         await recordingFinish?.value
     }
@@ -103,6 +112,10 @@ extension AetherEngine {
     /// used to run right here on the main actor. It runs detached now, and `.ended` is published
     /// once it is done, because `.ended` promises a closed, playable file. A recording started in
     /// the meantime owns the state, so the late `.ended` of this one is dropped.
+    ///
+    /// Audit FEA-105: when the writer was already tearing itself down (the queue ceiling, a write
+    /// error), the writer's own failure report is ignored here because this call released the
+    /// recording first, so the failure it returns is what gets published instead of `.ended`.
     func endRecordingIfRunning(reason: RecordingEndReason) {
         guard let writer = activeRecording else { return }
         (activeRecordingHost as? LiveRecordingHost)?.setRecordingSink(nil)
@@ -113,9 +126,14 @@ extension AetherEngine {
         let previous = recordingFinish
         recordingFinish = Task { [weak self] in
             await previous?.value
-            await Task.detached(priority: .utility) { writer.finish(reason: reason) }.value
+            let failure = await Task.detached(priority: .utility) { writer.finish(reason: reason) }.value
             guard let self, self.recordingGeneration == generation else { return }
-            self.recordingState = .ended(reason)
+            if let failure {
+                self.recordingState = .failed(failure)
+                EngineLog.emit("[Recording] failed: \(failure)", category: .session)
+            } else {
+                self.recordingState = .ended(reason)
+            }
         }
     }
 
@@ -217,12 +235,13 @@ extension AetherEngine {
 
     /// Test-only: runs the real `startRecording` path against a stub route, so a lifecycle test
     /// exercises production code rather than a parallel implementation.
-    func _testStartRecordingWithStubHost(to url: URL, host: TestRecordingHost) throws {
+    func _testStartRecordingWithStubHost(to url: URL, host: TestRecordingHost,
+                                         ceilingBytes: Int = AetherEngine.recordingQueueCeilingBytes) throws {
         _testSetLiveRoute(isLive: true, route: .loopback)
         let writer = try LiveRecordingWriter(
             url: url,
             streams: host.recordingStreamDescriptors(),
-            ceilingBytes: Self.recordingQueueCeilingBytes,
+            ceilingBytes: ceilingBytes,
             onFailure: makeRecordingFailureHandler()
         )
         activeRecording = writer

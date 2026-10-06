@@ -396,6 +396,45 @@ extension AetherEngine {
         Swift.max(0, producerFloorSession - (itemSeekableStart + shift))
     }
 
+    /// AE#684: what a native live item starts ON, once per item.
+    ///
+    /// Reported from the field: after an item rebuild placed mid-segment (`segment 26 + 1.91s`) sound
+    /// and picture were slightly apart, and together again after the next rebuild, which landed on a
+    /// boundary (`segment 129 + 0.03s`). The served media measures aligned on the harness (see
+    /// `docs/cli.md`), and nothing on macOS can observe what AVPlayer's audio renderer does with it,
+    /// so the line states the two facts a device capture needs beside the viewer's verdict: where in
+    /// which segment the item started, and where that segment's sound begins against its picture.
+    /// The AE#440 line beside it says whether the start was forced with `playImmediately`, which in
+    /// that capture was true for the one item reported out of sync and for none of the other four.
+    @MainActor
+    func noteLiveItemStart() {
+        guard isLive, let host = nativeHost, let session = nativeVideoSession else { return }
+        let itemSeconds = host.currentTime
+        let outputSeconds = itemSeconds + liveItemAxisOffsetSeconds
+        EngineLog.emit(
+            Self.liveItemStartAccount(
+                item: host.itemGeneration, itemSeconds: itemSeconds,
+                heads: session.liveSegmentHeads(atOutputSeconds: outputSeconds)),
+            category: .engine)
+    }
+
+    nonisolated static func liveItemStartAccount(
+        item: Int, itemSeconds: Double,
+        heads: (index: Int, secondsIntoSegment: Double, pictureStart: Double, sound: (first: Double, last: Double)?)?
+    ) -> String {
+        let head = "[AetherEngine] #684 item #\(item) starts at its own "
+            + "\(String(format: "%.3f", itemSeconds))s"
+        guard let heads else { return head + ", in no segment the producer lists yet" }
+        let place = ": segment \(heads.index) + \(String(format: "%.3f", heads.secondsIntoSegment))s, "
+            + "whose picture opens at \(String(format: "%.3f", heads.pictureStart))s"
+        guard let sound = heads.sound else { return head + place + " and whose sound was not recorded" }
+        let lead = (heads.pictureStart - sound.first) * 1000
+        return head + place + " and whose sound runs "
+            + "\(String(format: "%.3f", sound.first))..\(String(format: "%.3f", sound.last))s "
+            + "(it opens \(String(format: "%.0f", abs(lead))) ms "
+            + (lead >= 0 ? "before" : "after") + " the picture)"
+    }
+
     /// AE#446 round 4: the three readings a rejoin's placement is argued from, on one line.
     ///
     /// They were only ever available separately, which is why an item's clock and an item's seekable
@@ -453,7 +492,7 @@ extension AetherEngine {
         guard var w = liveWindow else { return }
         w.noteEdge(edgeSessionTime)
         w.notePlayhead(currentTime)
-        w.noteResidentFloor(residentLiveFloorSessionSeconds())
+        w.noteResidentFloor(residentLiveFloorSessionSeconds() ?? softwareHost?.dvrResidentFloorSessionSeconds)
         // Sodalite#104 round 4: the cadence the playlist declares, which outranks how the source
         // happened to deliver. nil on the paths that serve no playlist of ours.
         w.noteTargetDuration(liveTargetDurationSeconds)

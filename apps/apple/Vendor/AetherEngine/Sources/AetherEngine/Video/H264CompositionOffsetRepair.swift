@@ -195,7 +195,8 @@ enum H264CompositionOffsetRepair {
         decodeLead: Int64
     ) -> Int64 {
         guard streamStartTime != Int64.min, ladderStart != Int64.min, decodeLead > 0 else { return 0 }
-        let raw = streamStartTime - ladderStart
+        let (raw, overflow) = streamStartTime.subtractingReportingOverflow(ladderStart)
+        guard !overflow else { return 0 }
         return min(max(raw, 0), decodeLead)
     }
 
@@ -290,8 +291,13 @@ enum H264CompositionOffsetRepair {
         // are then spread over twice the ladder while still being distinct. Ranks have to FILL the
         // window they came from: the span may exceed the sample only by the pictures still in flight
         // at its ragged edge, which is the reorder delay.
+        // A hierarchical mini-GOP longer than the reorder delay sends its anchor further ahead than
+        // that allowance (#699's HEVC stream: POC 15 decoded while 11 to 14 are still to come, at
+        // delay 2), so the window may instead prove itself by a decode-order prefix of at least
+        // `minimumSamples` pictures that fills its display range exactly, which is the stricter test.
         guard let maxIndex = displayIndices.max(), let minIndex = displayIndices.min(),
-              maxIndex - minIndex + 1 <= Int64(samples.count + videoDelay + 1) else {
+              maxIndex - minIndex + 1 <= Int64(samples.count + videoDelay + 1)
+                || hasContiguousPrefix(samples.map { $0.pictureOrderCount / pocStep }) else {
             return .inconclusive("display indices do not fill the sampled window")
         }
 
@@ -351,6 +357,19 @@ enum H264CompositionOffsetRepair {
                 ladderOrdinalOffset: ladderOrdinalOffset
             )
         )
+    }
+
+    /// True when some decode-order prefix of at least `minimumSamples` display indices covers its
+    /// own range without a gap, i.e. a whole number of mini-GOPs closed inside the window.
+    static func hasContiguousPrefix(_ indices: [Int64]) -> Bool {
+        guard var low = indices.first else { return false }
+        var high = low
+        for (offset, index) in indices.enumerated() {
+            low = min(low, index)
+            high = max(high, index)
+            if offset + 1 >= minimumSamples, high - low == Int64(offset) { return true }
+        }
+        return false
     }
 
     /// Which phase of the cadence the sampled ladder starts on, and where that puts lattice ordinal
@@ -463,7 +482,14 @@ enum H264CompositionOffsetRepair {
                     return nil
                 }
                 let landingIndex = pictureOrderCount / plan.pocStep
-                sequenceAnchorDTS = dts - landingIndex * plan.step
+                // Audit BIT-101: a 64-bit `tfdt` step and a landing order near -2^31 leave Int64.
+                let (landingTicks, productOverflow) = landingIndex.multipliedReportingOverflow(by: plan.step)
+                let (anchor, anchorOverflow) = dts.subtractingReportingOverflow(landingTicks)
+                guard !productOverflow, !anchorOverflow else {
+                    unrepairedPictures += 1
+                    return nil
+                }
+                sequenceAnchorDTS = anchor
                 sequenceBaseOrdinal = plan.presentationOrdinal(ladderTimestamp: dts)
                     .flatMap { ordinal -> Int64? in
                         let (base, overflow) = ordinal.subtractingReportingOverflow(landingIndex)
@@ -501,22 +527,25 @@ enum H264CompositionOffsetRepair {
     }
 }
 
-/// Reads a picture order count per packet with libavcodec's H.264 parser. No decoder is opened and
-/// no picture is reconstructed: the parser walks the slice header, which is where display order
-/// lives. It takes MP4's length-prefixed AVCC payload directly as long as the codec context carries
-/// the `avcC` extradata, so no Annex-B conversion sits in the packet path.
+/// Reads a picture order count per packet with libavcodec's H.264 or HEVC parser. No decoder is
+/// opened and no picture is reconstructed: the parser walks the slice header, which is where display
+/// order lives. It takes MP4's length-prefixed AVCC / HVCC payload directly as long as the codec
+/// context carries the `avcC` / `hvcC` extradata, so no Annex-B conversion sits in the packet path.
 final class H264PictureOrderReader {
     private var parser: UnsafeMutablePointer<AVCodecParserContext>?
     private var context: UnsafeMutablePointer<AVCodecContext>?
+    private let codecID: AVCodecID
     var isFramePicture: Bool { parser?.pointee.picture_structure == AV_PICTURE_STRUCTURE_FRAME }
 
     init?(codecParameters: UnsafePointer<AVCodecParameters>, timeBase: AVRational) {
-        guard let codec = avcodec_find_decoder(AV_CODEC_ID_H264),
+        codecID = codecParameters.pointee.codec_id
+        guard codecID == AV_CODEC_ID_H264 || codecID == AV_CODEC_ID_HEVC,
+              let codec = avcodec_find_decoder(codecID),
               let context = avcodec_alloc_context3(codec) else { return nil }
         self.context = context
         guard avcodec_parameters_to_context(context, codecParameters) >= 0 else { return nil }
         context.pointee.pkt_timebase = timeBase
-        guard let parser = av_parser_init(Int32(AV_CODEC_ID_H264.rawValue)) else { return nil }
+        guard let parser = av_parser_init(Int32(codecID.rawValue)) else { return nil }
         self.parser = parser
         // MP4 samples are whole access units; without this the parser hunts for start codes that
         // length-prefixed payloads do not contain.
@@ -535,7 +564,7 @@ final class H264PictureOrderReader {
     func reset() {
         guard let parser else { return }
         av_parser_close(parser)
-        self.parser = av_parser_init(Int32(AV_CODEC_ID_H264.rawValue))
+        self.parser = av_parser_init(Int32(codecID.rawValue))
         self.parser?.pointee.flags |= Int32(PARSER_FLAG_COMPLETE_FRAMES)
     }
 
@@ -574,6 +603,7 @@ final class H264CompositionOffsetRepairSession {
     private let videoDelay: Int
     private let streamStartTime: Int64
     private let ladderStart: Int64
+    private let codecName: String
     private var reader: H264PictureOrderReader?
     private var rewriter: H264CompositionOffsetRepair.Rewriter?
     private let partialRepairCandidate: H264PartialCompositionRepairSession?
@@ -583,8 +613,10 @@ final class H264CompositionOffsetRepairSession {
     private var heldBytes = 0
     private var verdictDescription = "sampling"
 
-    /// nil unless this stream is the exact shape the defect needs: ISO-BMFF, H.264, and a bitstream
-    /// that declares reordered pictures. Everything else never sees a parser or a held packet.
+    /// nil unless this stream is the exact shape the defect needs: ISO-BMFF, H.264 or HEVC, and a
+    /// bitstream that declares reordered pictures. Everything else never sees a parser or a held
+    /// packet. HEVC carries the same loss (#699: a CUVA conformance stream with B pictures and no
+    /// `ctts`), and its slice header carries the same picture order count.
     init?(
         containerFormatName: String?,
         stream: UnsafeMutablePointer<AVStream>,
@@ -594,7 +626,7 @@ final class H264CompositionOffsetRepairSession {
         let containers = containerFormatName?.split(separator: ",") ?? []
         guard containers.contains("mov") || containers.contains("mp4") else { return nil }
         guard let codecpar = stream.pointee.codecpar,
-              codecpar.pointee.codec_id == AV_CODEC_ID_H264,
+              codecpar.pointee.codec_id == AV_CODEC_ID_H264 || codecpar.pointee.codec_id == AV_CODEC_ID_HEVC,
               codecpar.pointee.video_delay > 0,
               let reader = H264PictureOrderReader(
                 codecParameters: codecpar, timeBase: stream.pointee.time_base)
@@ -605,7 +637,11 @@ final class H264CompositionOffsetRepairSession {
         self.ladderStart = ladderStart
         self.reader = reader
         let (lead, overflow) = stream.pointee.start_time.subtractingReportingOverflow(ladderStart)
-        partialRepairCandidate = !overflow && stream.pointee.start_time != Int64.min && ladderStart != Int64.min
+        // The partial-region repair reads H.264 NAL types to find its IDRs, so HEVC gets the
+        // all-missing repair only.
+        self.codecName = codecpar.pointee.codec_id == AV_CODEC_ID_HEVC ? "HEVC" : "H.264"
+        partialRepairCandidate = codecpar.pointee.codec_id == AV_CODEC_ID_H264
+            && !overflow && stream.pointee.start_time != Int64.min && ladderStart != Int64.min
             ? H264PartialCompositionRepairSession(stream: stream, streamIndex: streamIndex, presentationLead: lead)
             : nil
     }
@@ -759,7 +795,7 @@ final class H264CompositionOffsetRepairSession {
             }
             self.rewriter = rewriter
             EngineLog.emit(
-                "[Demuxer] #409 missing H.264 composition offsets confirmed on stream \(streamIndex): "
+                "[Demuxer] #409 missing \(codecName) composition offsets confirmed on stream \(streamIndex): "
                 + "\(verdictDescription) samples=\(samples.count)",
                 category: .demux
             )

@@ -355,10 +355,7 @@ final class AudioDecoder: @unchecked Sendable {
 
         // First frame in a new accumulator captures the PTS; subsequent frames only extend the buffer.
         if pendingSampleCount == 0 {
-            let pts = frame.pointee.pts
-            pendingStartPTS = (pts != Int64.min)
-                ? CMTimeMake(value: pts * Int64(timeBase.num), timescale: Int32(timeBase.den))
-                : .invalid
+            pendingStartPTS = SourceTimestampBounds.cmTime(ticks: frame.pointee.pts, timeBase: timeBase)
         }
 
         pendingBytes.append(tempBuffer, count: Int(convertedSamples) * bytesPerSample)

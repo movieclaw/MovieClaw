@@ -192,7 +192,7 @@ final class NoCutStallWatchdog: @unchecked Sendable {
         let readRate = stalledFor > 0 ? Double(progress) / stalledFor : 0
         let ptsAdvance = (firstVideoPts != Int64.min && lastVideoPts != Int64.min
                           && videoTimeBaseSeconds > 0)
-            ? Double(lastVideoPts - firstVideoPts) * videoTimeBaseSeconds
+            ? Double(SourceTimestampBounds.difference(lastVideoPts, firstVideoPts)) * videoTimeBaseSeconds
             : -1
         switch HLSSegmentProducer.noCutStallAction(
             stalledFor: stalledFor,

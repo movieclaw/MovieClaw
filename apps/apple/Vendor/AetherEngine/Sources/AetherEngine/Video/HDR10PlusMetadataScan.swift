@@ -49,7 +49,7 @@ enum HDR10PlusMetadataScan {
         let bytes = UnsafeBufferPointer(start: data, count: size)
         switch codecID {
         case AV_CODEC_ID_H264, AV_CODEC_ID_HEVC:
-            return scanNALs(bytes, codecID: codecID, framing: framing)
+            return scanNALs(bytes, codecID: codecID, framing: framing, payload: validT35)
         case AV_CODEC_ID_AV1:
             return scanOBUs(bytes)
         default:
@@ -71,9 +71,11 @@ enum HDR10PlusMetadataScan {
     /// A walk that runs into malformed framing stops and reports what it had already VALIDATED, rather
     /// than discarding it. Only `validT35` ever sets the answer, so an aborted walk cannot invent one;
     /// abandoning a confirmed payload because a later NAL in the same packet is malformed would be a
-    /// false negative on the one carriage this scan exists to find.
-    private static func scanNALs(
-        _ bytes: UnsafeBufferPointer<UInt8>, codecID: AVCodecID, framing: VideoNALFraming
+    /// false negative on the one carriage this scan exists to find. `payload` validates one registered
+    /// T.35 message (its bytes start at the country code), so HDR Vivid shares this walk.
+    static func scanNALs(
+        _ bytes: UnsafeBufferPointer<UInt8>, codecID: AVCodecID, framing: VideoNALFraming,
+        payload: (UnsafePointer<UInt8>, Int) -> Bool
     ) -> Bool {
         var found = false
         func visit(_ start: Int, _ end: Int) -> Bool {
@@ -90,7 +92,7 @@ enum HDR10PlusMetadataScan {
             }
             guard isSEI else { return true }
             guard let rbsp = unescape(bytes, start: start + headerSize, end: end),
-                  let carriesMetadata = scanSEI(rbsp) else { return false }
+                  let carriesMetadata = scanSEI(rbsp, payload: payload) else { return false }
             found = found || carriesMetadata
             return true
         }
@@ -155,7 +157,7 @@ enum HDR10PlusMetadataScan {
     /// Nil denotes malformed SEI framing; false is a well-formed SEI without HDR10+. A message this
     /// walk has already VALIDATED outranks framing it cannot finish reading, so nil is only ever the
     /// answer when nothing was confirmed.
-    private static func scanSEI(_ bytes: [UInt8]) -> Bool? {
+    private static func scanSEI(_ bytes: [UInt8], payload: (UnsafePointer<UInt8>, Int) -> Bool) -> Bool? {
         var offset = 0
         var found = false
         func extendedValue() -> Int? {
@@ -176,7 +178,7 @@ enum HDR10PlusMetadataScan {
                   size <= bytes.count - offset else { return found ? true : nil }
             if type == 4 {
                 let valid = bytes.withUnsafeBufferPointer {
-                    validT35($0.baseAddress! + offset, size: size)
+                    payload($0.baseAddress! + offset, size)
                 }
                 found = found || valid
             }
@@ -217,7 +219,7 @@ enum HDR10PlusMetadataScan {
                     var trailing = end
                     while trailing > offset, bytes[trailing - 1] == 0 { trailing -= 1 }
                     guard trailing > offset, bytes[trailing - 1] == 0x80 else { return found }
-                    found = validT35(bytes.baseAddress! + offset, size: trailing - offset - 1) || found
+                    found = validT35(bytes.baseAddress! + offset, trailing - offset - 1) || found
                 }
             }
             offset = end
@@ -244,7 +246,7 @@ enum HDR10PlusMetadataScan {
 
     // MARK: - Complete ST 2094-40 validation
 
-    private static func validT35(_ bytes: UnsafePointer<UInt8>, size: Int) -> Bool {
+    private static func validT35(_ bytes: UnsafePointer<UInt8>, _ size: Int) -> Bool {
         guard size > t35Header.count, size - t35Header.count <= Int(AV_HDR_PLUS_MAX_PAYLOAD_SIZE),
               t35Header.indices.allSatisfy({ bytes[$0] == t35Header[$0] }),
               let metadata = av_dynamic_hdr_plus_alloc(nil) else { return false }

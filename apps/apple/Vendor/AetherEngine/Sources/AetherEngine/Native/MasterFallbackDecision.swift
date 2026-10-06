@@ -39,8 +39,12 @@ enum MasterFallbackDecision {
     /// fully explained by the window, so it earns this item its media fallback and nothing more.
     /// Latching it cost the rest of the viewing session its master, and in a process that never
     /// backgrounds the AE#588 clear never came.
-    static func shouldLatchPanelRefusal(code: Int, displayEligibleForHDRNow: Bool) -> Bool {
-        isDisplayRejectionCode(code) && displayEligibleForHDRNow
+    ///
+    /// AE#667: nor while a display mode switch is in progress. AVPlayer answers for the mode the panel is
+    /// in at that moment, which mid-switch is the one it is leaving, so the refusal is about the moment.
+    static func shouldLatchPanelRefusal(code: Int, displayEligibleForHDRNow: Bool,
+                                        displaySwitchInProgress: Bool) -> Bool {
+        isDisplayRejectionCode(code) && displayEligibleForHDRNow && !displaySwitchInProgress
     }
 
     /// Any code that means "AVPlayer rejected the served master itself": the display-rejection pair

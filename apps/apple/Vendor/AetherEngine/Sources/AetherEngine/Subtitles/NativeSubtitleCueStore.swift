@@ -30,7 +30,8 @@ final class NativeSubtitleCueStore: @unchecked Sendable {
     init() {}
 
     private static func key(start: Double, end: Double, text: String) -> String {
-        "\(Int((start * 1000).rounded()))|\(Int((end * 1000).rounded()))|\(text)"
+        let start = SourceTimestampBounds.clampedSeconds(start), end = SourceTimestampBounds.clampedSeconds(end)
+        return "\(Int((start * 1000).rounded()))|\(Int((end * 1000).rounded()))|\(text)"
     }
 
     func setShiftSeconds(_ s: Double) { lock.lock(); shiftSeconds = s; lock.unlock() }

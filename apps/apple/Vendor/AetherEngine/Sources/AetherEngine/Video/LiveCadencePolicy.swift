@@ -7,6 +7,11 @@ struct LiveCadenceEvidence: Sendable, Equatable {
     var closedCadenceSeconds: Double?
     /// Longest segment duration (EXTINF) the upstream has actually served, nil until the first arrival.
     var servedSegmentDurationSeconds: Double?
+    /// AE#684: the media the join took, summed EXTINF, nil until it has joined.
+    var joinBacklogSeconds: Double? = nil
+    /// AE#684: the reader has handed over the whole join and its consumer is waiting on it for more.
+    /// nil where nothing can say.
+    var joinIsSpent: Bool? = nil
 }
 
 /// Turns the OBSERVED arrival cadence of a live ingest source (`LiveArrivalCadenceMeter`, surfaced by the
@@ -53,6 +58,12 @@ final class LiveCadencePolicy: @unchecked Sendable {
     /// AE#447: the running floor, the monotonic max of the CLOSED evidence. Not "the observed cadence":
     /// the open gap the gate holds open is deliberately not in here.
     private var measuredFloorSeconds: Double
+    /// AE#684: the served-segment term of that floor, kept apart. Monotonic like the floor.
+    private var longestUpstreamSegmentSeconds: Double = 0
+    /// AE#684: what the join took. First value wins: a reopen joins again, and its seal is long taken.
+    private var joinedBacklogSeconds: Double?
+    /// AE#684: latched once true, so a later delivery that fills the reader again cannot unspend it.
+    private var joinSpent: Bool?
 
     /// - Parameters:
     ///   - observe: reader's current `observedLiveCadenceSeconds`; nil until the first upstream arrival.
@@ -96,6 +107,13 @@ final class LiveCadencePolicy: @unchecked Sendable {
         if let evidence = observeSealEvidence?() {
             if let served = evidence.servedSegmentDurationSeconds, served > 0 {
                 measuredFloorSeconds = max(measuredFloorSeconds, served)
+                longestUpstreamSegmentSeconds = max(longestUpstreamSegmentSeconds, served)
+            }
+            if joinedBacklogSeconds == nil, let joined = evidence.joinBacklogSeconds, joined > 0 {
+                joinedBacklogSeconds = joined
+            }
+            if let spent = evidence.joinIsSpent, joinSpent != true {
+                joinSpent = spent
             }
             if let closed = evidence.closedCadenceSeconds, closed > 0 {
                 measuredFloorSeconds = max(measuredFloorSeconds, closed)
@@ -117,6 +135,31 @@ final class LiveCadencePolicy: @unchecked Sendable {
         case .disciplined:
             if cadence > burstThresholdSeconds { state = .bursty }
         }
+    }
+
+    /// AE#684: the longest segment the upstream has served, on its own. Inside the floor above it is
+    /// one more term of a max that is divided by the client's patience; a segment duration is the
+    /// period the upstream delivers at, not a worst case, so the seal takes it whole
+    /// (`LiveEdgePolicy.targetDurationForUpstreamSegment`). nil until the first arrival.
+    var upstreamSegmentDurationSeconds: Double? {
+        lock.lock(); defer { lock.unlock() }
+        advanceLocked()
+        return longestUpstreamSegmentSeconds > 0 ? longestUpstreamSegmentSeconds : nil
+    }
+
+    /// AE#684: whether the join has been handed over and consumed, bar the GOP the next upstream
+    /// delivery will close. A fact from the reader, nil where there is none to ask.
+    var joinIsSpent: Bool? {
+        lock.lock(); defer { lock.unlock() }
+        advanceLocked()
+        return joinSpent
+    }
+
+    /// AE#684: the media the join listed (summed EXTINF), for the seal line. nil until it has joined.
+    var joinBacklogSeconds: Double? {
+        lock.lock(); defer { lock.unlock() }
+        advanceLocked()
+        return joinedBacklogSeconds
     }
 
     var blockingReloadEnabled: Bool {

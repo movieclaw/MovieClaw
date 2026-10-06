@@ -109,7 +109,9 @@ extension AetherEngine {
     /// - **Dolby Atmos**, which for E-AC-3 means the JOC flag in the dependent substream and only exists
     ///   post-decode (`.atmos`, see `AtmosDetectionOptions`), and
     /// - **HDR10+**, whose ST 2094-40 metadata rides an in-band ITU-T T.35 SEI that no demuxer parses
-    ///   (`.hdr10Plus`, see `HDR10PlusDetectionOptions`).
+    ///   (`.hdr10Plus`, see `HDR10PlusDetectionOptions`), and
+    /// - **HDR Vivid**, whose CUVA metadata rides the same kind of SEI in HEVC (`.hdrVivid`, scanned in
+    ///   the same pass and under the same `HDR10PlusDetectionOptions` budget).
     ///
     /// Both cost reads past `avformat_find_stream_info`, which is why `probe(url:)` does neither.
     /// Neither is for the playback-start critical path. Asking for both runs both
@@ -117,7 +119,7 @@ extension AetherEngine {
     /// queued, then the queue-flushing seek the Atmos decode pass needs.
     ///
     /// Both passes are additive and one-directional. They can only ever SET `isAtmos` /
-    /// `carriesHDR10PlusMetadata`, never clear what the container already declared, and a pass that hits a cap
+    /// `carriesHDR10PlusMetadata` / `carriesHDRVividMetadata`, never clear what the container already declared, and a pass that hits a cap
     /// leaves the base probe's answer exactly where it was.
     ///
     /// - Parameters:
@@ -125,7 +127,7 @@ extension AetherEngine {
     ///   - options: Forwarded verbatim to `probe(url:)` (`httpHeaders` only).
     ///   - detecting: Which extra passes to run. Empty is the header probe with the same controls.
     ///   - atmosDetection: Bounds + optional track override for the Atmos decode pass. Ignored without `.atmos`.
-    ///   - hdr10PlusDetection: Bounds for the HDR10+ scan. Ignored without `.hdr10Plus`.
+    ///   - hdr10PlusDetection: Bounds for the HDR10+ / HDR Vivid scan. Ignored without either.
     ///   - limits: Whole-probe limits, shared across open, stream analysis, seeks and both passes.
     ///   - cancellation: Cancellation reaches HTTP I/O or the custom reader's `cancel()`.
     /// - Throws: Open errors, `ProbeError` for whole-probe stops, or `CancellationError`. Ordinary
@@ -216,12 +218,17 @@ extension AetherEngine {
         // HDR10+ first, and before any seek: `avformat_find_stream_info` leaves its packets queued and
         // `av_read_frame` hands those back first, so at the head of a container the scan gets video packets
         // that have already been paid for. Running it after the Atmos pass would mean re-reading them.
-        if detecting.contains(.hdr10Plus) {
+        let dynamicTargets = detecting.intersection([.hdr10Plus, .hdrVivid])
+        if !dynamicTargets.isEmpty {
             let outcome = Self.detectHDR10Plus(
-                demuxer: demuxer, videoIndex: demuxer.videoStreamIndex, options: hdr10PlusDetection)
+                demuxer: demuxer, videoIndex: demuxer.videoStreamIndex, options: hdr10PlusDetection,
+                targets: dynamicTargets)
             try control?.check()
             if outcome.carriesHDR10Plus {
                 probe = Self.enrichHDR10Plus(base: probe)
+            }
+            if outcome.carriesHDRVivid {
+                probe.carriesHDRVividMetadata = true
             }
         }
 
@@ -317,6 +324,7 @@ extension AetherEngine {
         var width: Int32 = 0
         var height: Int32 = 0
         var dvProfileNum: Int? = nil
+        var streamFormat: VideoStreamFormat? = nil
         let videoIdx = demuxer.videoStreamIndex
         if videoIdx >= 0, let stream = demuxer.stream(at: videoIdx) {
             detectedFormat = Self.detectVideoFormat(stream: stream)
@@ -325,6 +333,7 @@ extension AetherEngine {
             width = stream.pointee.codecpar.pointee.width
             height = stream.pointee.codecpar.pointee.height
             dvProfileNum = Self.dvProfile(stream: stream)
+            streamFormat = VideoStreamFormat(codecpar: stream.pointee.codecpar)
         }
         let codecName: String? = {
             guard detectedCodecID != AV_CODEC_ID_NONE,
@@ -352,7 +361,8 @@ extension AetherEngine {
             audioTracks: demuxer.audioTrackInfos(),
             subtitleTracks: demuxer.subtitleTrackInfos(),
             metadata: demuxer.mediaMetadata(),
-            isLive: isLive
+            isLive: isLive,
+            videoStreamFormat: streamFormat
         )
     }
 
@@ -563,17 +573,34 @@ extension AetherEngine {
     ///
     /// `formatKnown` is false when the open-time probe failed: the real range is then unknown and a DV write
     /// may still be inbound, so a suppressed host keeps the full budget.
+    ///
+    /// `noWriterExpected` is a `.secondary` load (Sodalite#175): nobody writes criteria for it, so there is
+    /// no inbound switch to wait for.
     nonisolated static func playGateGrace(
         criteriaUnchanged: Bool,
         engineIsCriteriaWriter: Bool,
         formatKnown: Bool,
-        effectiveFormat: VideoFormat
+        effectiveFormat: VideoFormat,
+        noWriterExpected: Bool = false
     ) -> DisplayCriteriaController.StartGrace {
         // #133: the criteria were already active, nothing was written, nothing can settle.
-        if criteriaUnchanged { return .skip }
+        if criteriaUnchanged || noWriterExpected { return .skip }
         if engineIsCriteriaWriter { return .brief }
         guard formatKnown else { return .full }
         return effectiveFormat == .sdr ? .brief : .full
+    }
+
+    /// Sodalite#175: a secondary never writes criteria, whatever the host passed.
+    nonisolated static func applyingSharedOutputRole(_ options: LoadOptions) -> LoadOptions {
+        guard options.sharedOutputRole == .secondary else { return options }
+        var adjusted = options
+        adjusted.suppressDisplayCriteria = true
+        return adjusted
+    }
+
+    /// Sodalite#175: Now Playing belongs to the primary; a secondary never takes it.
+    nonisolated static func ownsNowPlaying(hostOptIn: Bool, role: SharedOutputRole) -> Bool {
+        hostOptIn && role == .primary
     }
 
     /// Whitelist (not blacklist) of AVPlayer-native audio codecs: AAC, MP3, MP2, ALAC, AC-3/E-AC-3, LPCM, FLAC (native since iOS/tvOS 11). Anything else falls back to `AudioPlaybackHost` (FFmpeg).
@@ -916,6 +943,27 @@ extension AetherEngine {
     ) -> Bool {
         if panelPresentsHDR { return true }
         return attemptWhenUnproven && displayEligibleForHDR && !panelRefusedHDRMaster
+    }
+
+    /// AE#667: whether an unproven master has to wait for the running switch before it is served.
+    ///
+    /// The pre-flight releases the load at its 2 s cap while an HDR switch is still in flight, on purpose:
+    /// the overlap is what #348 kept, and a proven or media route has nothing to lose by it. The unproven
+    /// master is the one route that does, because its whole point is to let AVPlayer's acceptance stand in
+    /// for the readout, and AVPlayer answers for the mode the panel is in NOW. Measured on an Apple TV 4K
+    /// (tvOS 27.0, HDR10 panel): master served 140 ms after the cap, `-11868` 80 ms later, the switch
+    /// ending 660 ms after that, and the refusal latched, so every later HDR title went media-direct.
+    ///
+    /// Only a switch seen to START counts. A DV switch that never reports would make this an unbounded wait
+    /// for an end that cannot arrive, and a proven panel is excluded because it already answered. What the
+    /// wait costs is the prep that used to overlap the switch's tail; the play gate held the first frame
+    /// until that end anyway.
+    nonisolated static func unprovenMasterAwaitsSwitchEnd(
+        routesAsHDR: Bool,
+        panelPresentsHDR: Bool,
+        switchRunning: Bool
+    ) -> Bool {
+        routesAsHDR && !panelPresentsHDR && switchRunning
     }
 
     /// AE#541: the HDR route of an in-place rebuild, composed from the same two decisions the load makes.

@@ -284,8 +284,18 @@ final class OriginRequestBudget: @unchecked Sendable {
         state.lastRefillAt = instant
     }
 
-    /// Wait until this origin's pacer allows one more request. Returns the milliseconds spent
-    /// waiting, or nil when `timeout` measured from `started` ran out first.
+    private enum PacerWait {
+        case passed(milliseconds: Double)
+        /// `timeout` measured from `started` ran out first.
+        case spent
+        /// The caller's `shouldAbort` fired before a token was taken. Nothing was consumed.
+        case aborted
+    }
+
+    /// Wait until this origin's pacer allows one more request, or until `timeout` measured from
+    /// `started` runs out, or until `shouldAbort` says the caller no longer wants it (audit DMX-112:
+    /// a pump parked here for a session that has been torn down must not take the next session's
+    /// token, so the check comes before a token is consumed, every slice).
     ///
     /// **Nothing is held while this waits.** A pacer token is consumed, not held, so a caller
     /// parked here occupies no slot. Waiting for the token INSIDE a slot (the shape this replaces)
@@ -293,10 +303,11 @@ final class OriginRequestBudget: @unchecked Sendable {
     /// every other path behind it for the whole quiet period, and a suite full of readers doing that
     /// blocked enough threads that unrelated tests could not get one.
     private func waitForPacerToken(raw: String, label: String, started: DispatchTime,
-                                   timeout: TimeInterval) -> Double? {
+                                   timeout: TimeInterval, shouldAbort: (() -> Bool)?) -> PacerWait {
         var pacingStarted: DispatchTime?
         let sleeper = DispatchSemaphore(value: 0)
         while true {
+            if shouldAbort?() == true { return .aborted }
             let instant = now()
             lock.lock()
             let key = headLocked(raw)
@@ -306,7 +317,7 @@ final class OriginRequestBudget: @unchecked Sendable {
             guard let quietUntil = state.quietUntil else {
                 origins[key] = state
                 lock.unlock()
-                return pacedMilliseconds(since: pacingStarted, label: label, spent: false)
+                return .passed(milliseconds: pacedMilliseconds(since: pacingStarted, label: label, spent: false))
             }
 
             let waitNeeded: TimeInterval
@@ -318,7 +329,7 @@ final class OriginRequestBudget: @unchecked Sendable {
                     state.tokens -= 1
                     origins[key] = state
                     lock.unlock()
-                    return pacedMilliseconds(since: pacingStarted, label: label, spent: false)
+                    return .passed(milliseconds: pacedMilliseconds(since: pacingStarted, label: label, spent: false))
                 }
                 waitNeeded = (1 - state.tokens) / Self.pacerRefillPerSecond
             }
@@ -328,7 +339,7 @@ final class OriginRequestBudget: @unchecked Sendable {
             let remaining = timeout - Self.elapsedSeconds(from: started, to: DispatchTime.now())
             guard remaining > 0 else {
                 _ = pacedMilliseconds(since: pacingStarted, label: label, spent: true)
-                return nil
+                return .spent
             }
 
             if pacingStarted == nil { pacingStarted = DispatchTime.now() }
@@ -359,14 +370,27 @@ final class OriginRequestBudget: @unchecked Sendable {
     /// not a correctness barrier, and blocking a read forever to honour a guess about someone
     /// else's rate limiter trades a slow session for a dead one. The un-granted case is counted
     /// and logged, because a budget that is being routinely overrun is worth seeing.
-    func acquire(for url: URL, label: String, timeout: TimeInterval) -> Ticket? {
+    ///
+    /// `shouldAbort` (audit DMX-112) is polled once per `pacerWaitSliceSeconds` in both waits, and a
+    /// caller that has been torn down while parked gets nil back with nothing consumed: no pacer
+    /// token, no slot, and its place in the FIFO given up, so it cannot take what the next session
+    /// is waiting for. nil is also what an unkeyable URL returns, so a caller that passes
+    /// `shouldAbort` tells the two apart by asking its own abort state.
+    func acquire(for url: URL, label: String, timeout: TimeInterval,
+                 shouldAbort: (() -> Bool)? = nil) -> Ticket? {
         guard let raw = Self.originKey(for: url) else { return nil }
 
         let started = DispatchTime.now()
         // Rate before concurrency. The two rules bind different things and only this order lets a
         // caller wait for the rate rule without holding the concurrency one.
-        guard let pacedMs = waitForPacerToken(raw: raw, label: label, started: started,
-                                              timeout: timeout) else {
+        let pacedMs: Double
+        switch waitForPacerToken(raw: raw, label: label, started: started,
+                                 timeout: timeout, shouldAbort: shouldAbort) {
+        case .aborted:
+            return nil
+        case .passed(let milliseconds):
+            pacedMs = milliseconds
+        case .spent:
             // The pacer alone spent the caller's budget. Proceed uncounted-for, the same answer the
             // slot timeout below gives, and stay honest about being on the link.
             lock.lock()
@@ -401,8 +425,38 @@ final class OriginRequestBudget: @unchecked Sendable {
         // What the pacer already spent comes off the slot's budget, so the caller's total wait is
         // the one figure it asked for rather than that figure per gate.
         let slotBudget = max(0, timeout - Self.elapsedSeconds(from: started, to: DispatchTime.now()))
-        let signalled = semaphore.wait(timeout: .now() + slotBudget) == .success
+        var signalled = false
+        var aborted = false
+        if let shouldAbort {
+            let deadline = DispatchTime.now() + slotBudget
+            while true {
+                let slice = min(Self.elapsedSeconds(from: DispatchTime.now(), to: deadline),
+                                Self.pacerWaitSliceSeconds)
+                if semaphore.wait(timeout: .now() + slice) == .success { signalled = true; break }
+                if shouldAbort() { aborted = true; break }
+                if DispatchTime.now() >= deadline { break }
+            }
+        } else {
+            signalled = semaphore.wait(timeout: .now() + slotBudget) == .success
+        }
         let waitedMs = Double(DispatchTime.now().uptimeNanoseconds - started.uptimeNanoseconds) / 1_000_000
+
+        if aborted {
+            lock.lock()
+            let keyNow = headLocked(raw)
+            var parked = origins[keyNow] ?? OriginState()
+            if let i = parked.waiters.firstIndex(where: { $0 === semaphore }) {
+                parked.waiters.remove(at: i)
+                origins[keyNow] = parked
+                lock.unlock()
+                return nil
+            }
+            lock.unlock()
+            // A release counted the slot in and signalled between the last slice and this lock, so
+            // the slot is ours already; it goes back rather than to a caller that has left.
+            release(Ticket(key: raw, label: label, waitedMs: waitedMs, granted: true))
+            return nil
+        }
 
         if signalled {
             // `release` counted us in before signalling, so the slot is already ours.

@@ -62,6 +62,14 @@ enum RemoteHLSMediaSelection {
         option.playlistName ?? option.displayName
     }
 
+    /// The option that carries an injected rendition's served NAME (audit NAT-104). Matched on
+    /// `injectionKey`, the identity the dedupe and the auto-select mirror already use: a first-hit test
+    /// of `playlistName == name || displayName == name` picked the ORIGIN's option whenever its localized
+    /// display name equalled the sidecar's NAME, and the origin's renditions sit ahead of the injected ones.
+    static func injectedRenditionIndex(named name: String, in options: [LegibleOption]) -> Int? {
+        options.firstIndex { injectionKey($0) == name }
+    }
+
     /// Reroute only the typed VOD-path misroute, and only for URL sources: custom readers have no
     /// URL for AVPlayer to open, and the live raw-path misroute has its own destination
     /// (`shouldRouteLiveOntoIngest`, AE#363).
@@ -88,6 +96,34 @@ enum RemoteHLSMediaSelection {
     /// Same two guards as the VOD side: only the typed misroute, and only for URL sources, because a
     /// custom reader has no playlist URL to ingest from and keeps the typed rejection. The reader only
     /// classifies as `hlsPlaylistOnRawLivePath` on the live path, so `isLive` needs no guard here.
+    /// AE#678: a live URL already known to answer with a playlist goes straight onto the ingest. The
+    /// raw path would open it, read `#EXTM3U`, throw it away and send the load around through AE#363,
+    /// which is one discarded request per zap, and against a single-connection origin one more request
+    /// the ingest's own playlist fetch has to queue behind. Known means a `.m3u8` / `.m3u` path, or a
+    /// URL that has taken the AE#363 route in this process before (IPTV channel URLs often carry no
+    /// extension at all). Keyed on the whole URL: one Xtream path serves TS or HLS depending on its query.
+    static func isKnownLivePlaylist(_ url: URL) -> Bool {
+        if ["m3u8", "m3u"].contains(url.pathExtension.lowercased()) { return true }
+        return knownPlaylistLock.withLock { knownPlaylistURLs.contains(url.absoluteString) }
+    }
+
+    static func noteLivePlaylist(_ url: URL) {
+        knownPlaylistLock.withLock {
+            let key = url.absoluteString
+            knownPlaylistURLs.removeAll { $0 == key }
+            knownPlaylistURLs.append(key)
+            if knownPlaylistURLs.count > knownPlaylistCapacity { knownPlaylistURLs.removeFirst() }
+        }
+    }
+
+    static func forgetKnownLivePlaylistsForTesting() {
+        knownPlaylistLock.withLock { knownPlaylistURLs.removeAll() }
+    }
+
+    private static let knownPlaylistLock = NSLock()
+    nonisolated(unsafe) private static var knownPlaylistURLs: [String] = []
+    private static let knownPlaylistCapacity = 512
+
     static func shouldRouteLiveOntoIngest(failure: Error?, isCustomSource: Bool) -> Bool {
         guard !isCustomSource,
               let readerError = failure as? AVIOReaderError,

@@ -1,6 +1,7 @@
 import Foundation
 import CoreMedia
 import CoreVideo
+import CoreGraphics
 import AetherLibavformat
 import AetherLibavcodec
 
@@ -20,6 +21,8 @@ protocol VideoDecodingPipeline: AnyObject, Sendable {
     /// Only the software decoder produces it; VideoToolbox surfaces no A53 side data (H.264/HEVC
     /// never route through the SW host, so nothing is missed there).
     var onA53Captions: (@Sendable ([CCDataParser.CCTriplet], Double) -> Void)? { get set }
+    /// AE#658: the decoded format and its display buffer, reported on the first frame and on change.
+    var onDecodedFormat: (@Sendable (DecodedVideoFormat) -> Void)? { get set }
     var skipUntilPTS: CMTime? { get set }
 
     /// AE#492: the decoder's current feed epoch. A caller that decides a batch of packets is
@@ -156,6 +159,19 @@ enum ColorAttachments {
         guard presentsSDRAsSRGB else { return tag ?? bt709 }
         if let tag, tag != bt709 { return tag }
         return kCVImageBufferTransferFunction_sRGB
+    }
+
+    /// The colour space CoreVideo manages a buffer with these tags in, i.e. the one playback shows the
+    /// picture in. An RGB still converted from the same picture has to carry it: tagged sRGB instead,
+    /// a BT.709 still drew 8 levels darker than VideoToolbox's own conversion of the frame, and an SDR
+    /// BT.2020 one up to 57 levels off in red.
+    static func colorSpace(for tags: Tags) -> CGColorSpace? {
+        let attachments: NSDictionary = [
+            kCVImageBufferColorPrimariesKey: tags.primaries,
+            kCVImageBufferTransferFunctionKey: tags.transfer,
+            kCVImageBufferYCbCrMatrixKey: tags.matrix,
+        ]
+        return CVImageBufferCreateColorSpaceFromAttachments(attachments)?.takeRetainedValue()
     }
 
     /// PQ (ST 2084) or HLG transfer means the stream is HDR.

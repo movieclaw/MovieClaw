@@ -17,8 +17,17 @@ import Foundation
 extension AetherEngine {
 
     /// Rebuild this session on the software path, once, because the native one refused the media.
+    /// `expectedGeneration` is the session the failure was raised under (audit LIF-103).
     @MainActor
-    func escalateToSoftwarePath(_ request: SoftwarePathEscalation.Request) async {
+    func escalateToSoftwarePath(_ request: SoftwarePathEscalation.Request, expectedGeneration: UInt64) async {
+        // Audit LIF-103: a stop() or a new load() between the failure and this job ended that session;
+        // its options and budget now belong to whatever replaced it.
+        guard loadGeneration == expectedGeneration else {
+            EngineLog.emit(
+                "[AetherEngine] #561 escalation dropped: the session it was raised for has ended",
+                category: .engine)
+            return
+        }
         guard SoftwarePathEscalation.shouldEscalate(
             errorDomain: request.domain,
             availability: SoftwarePathEscalation.Availability(
@@ -71,8 +80,9 @@ extension AetherEngine {
             // AE#629: a rebuild that failed after its teardown has already surfaced its own failure,
             // and a load() that followed it threw that same error. Publishing the absorbed one on top
             // would hand the host two `.error`s for one failure, the second contradicting the throw.
-            // The absorbed failure is not lost: `softwarePathEscalations` carried it.
-            if case .error = state {
+            // The absorbed failure is not lost: `softwarePathEscalations` carried it. Audit LIF-103:
+            // asked of the generation, not of `state`, which does not say whose failure it holds.
+            guard loadGeneration == expectedGeneration else {
                 EngineLog.emit(
                     "[AetherEngine] #561 the software rebuild failed after its teardown (\(error)); "
                     + "its own failure is the one surfaced",

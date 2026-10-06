@@ -191,13 +191,25 @@ public enum DolbyVisionRecordAudit {
         } catch {
             return nil
         }
+        return rpuProfile(walking: demuxer, packetBudget: packetBudget)
+    }
 
+    /// The walk over an opened demuxer, split out so a test can hand it a counting reader.
+    static func rpuProfile(
+        walking demuxer: Demuxer, packetBudget: Int = auditPacketBudget,
+        byteBudget: Int64 = Int64(walkByteBudget)
+    ) -> Int? {
         let videoIdx = demuxer.videoStreamIndex
         guard videoIdx >= 0, let stream = demuxer.stream(at: videoIdx) else { return nil }
         let codecpar = stream.pointee.codecpar
         let framing = A53SEIParser.nalFraming(
             codec: .hevc, extradata: codecpar?.pointee.extradata,
             size: Int(codecpar?.pointee.extradata_size ?? 0))
+
+        // Audit BIT-103: Matroska resyncs byte by byte through junk inside one av_read_frame, where
+        // neither the packet fuse nor the packet byte count below can see the bytes go by.
+        demuxer.beginInputByteBudget(byteBudget)
+        defer { demuxer.endInputByteBudget() }
 
         var walked = 0
         var packetsRead = 0

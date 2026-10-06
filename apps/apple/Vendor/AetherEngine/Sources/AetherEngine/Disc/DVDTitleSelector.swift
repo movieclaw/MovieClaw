@@ -4,13 +4,17 @@ import Foundation
 /// VTS_nn_0.VOB = menus; VTS_nn_1..9.VOB = content. Titles are ordered largest-first (total content
 /// VOB size, a proxy for duration) so id 0 is the main feature, matching the Blu-ray convention.
 enum DVDTitleSelector {
+    /// DVD-Video numbers its title sets 01 to 99. The number is an on-disc name, so anything else is
+    /// not a title set and must not become a group (audit NET-103).
+    static let vtsRange = 1...99
+
     /// One selectable title = one VTS's content VOBs (whole-VTS resolution; per-cell/episodic splitting
     /// is deferred). VOBs within a title are ordered by part; titles are ordered by total size, largest first.
     static func enumerateTitleVOBGroups(_ files: [DiscFile]) -> [(vtsn: Int, vobs: [DiscFile])] {
         struct Part { let title: Int; let part: Int; let file: DiscFile }
         var parts: [Part] = []
         for f in files {
-            guard let (title, part) = parseVOBName(f.name), part >= 1 else { continue }
+            guard let (title, part) = parseVOBName(f.name), part >= 1, vtsRange.contains(title) else { continue }
             parts.append(Part(title: title, part: part, file: f))
         }
         let byTitle = Dictionary(grouping: parts, by: \.title)

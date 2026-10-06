@@ -27,6 +27,14 @@ final class ByteFIFO: @unchecked Sendable {
         return parked
     }
 
+    /// AE#684: nothing queued and a caller waiting for more. A writer only parks at capacity, so with
+    /// the queue empty the parked caller is the reader, and everything written so far is consumed.
+    var isEmptyWithReaderParked: Bool {
+        condition.lock()
+        defer { condition.unlock() }
+        return queue.isEmpty && parked > 0 && !finished && !cancelled
+    }
+
     init(capacity: Int) {
         self.capacity = capacity
     }

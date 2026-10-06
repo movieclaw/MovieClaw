@@ -64,9 +64,31 @@ final class AudioPlaybackHost {
 
     private var lastRate: Float = 1.0
 
-    /// Source-position seconds the host opened at; the demux loop aligns the master clock to the first
-    /// decoded sample's PTS. `.zero` on cold start, resume offset on a start-position load.
+    /// Source-position seconds the host opened at; the demux loop resolves the master clock's anchor from it
+    /// and the first decoded sample's PTS (`clockAnchor`). `.zero` on cold start, resume offset on a
+    /// start-position load.
     private var initialClockTime: CMTime = .zero
+
+    /// Where the clock is anchored for a first decoded sample at `firstPTS`, and the session zero the host
+    /// then subtracts from the raw clock. The anchor stays `initialClockTime` for a source that starts where
+    /// it was asked to (a resume lands within `SWClockAnchorPolicy.toleranceSeconds`), and moves to the
+    /// sample for one whose timestamps start far past it: a clock at 0 under buffers stamped 3600 s never
+    /// reaches them, and the back-pressure gate parks the loop against the gap (audit DEC-102).
+    nonisolated static func clockAnchor(initialClockTime: CMTime, firstPTS: CMTime)
+        -> (anchor: CMTime, sessionZeroSeconds: Double) {
+        let resolution = SWClockAnchorPolicy.resolve(
+            initialSeconds: initialClockTime.seconds,
+            firstSampleSeconds: firstPTS.isValid ? firstPTS.seconds : Double.nan)
+        let anchor = resolution.anchorSeconds == initialClockTime.seconds
+            ? initialClockTime
+            : CMTime(seconds: resolution.anchorSeconds, preferredTimescale: 90000)
+        return (anchor, resolution.sessionZeroSeconds)
+    }
+
+    /// The position published for a raw synchronizer time.
+    nonisolated static func publishedTime(raw: Double, sessionZeroSeconds: Double) -> Double {
+        sessionZeroSeconds > 0 ? max(0, raw - sessionZeroSeconds) : raw
+    }
 
     /// Latched once the first `play()` has spun up the demux loop.
     private var demuxLoopStarted: Bool = false
@@ -74,12 +96,26 @@ final class AudioPlaybackHost {
     /// True between pause() and next play() so play() resumes the synchronizer rate (mirrors SoftwarePlaybackHost.pausedByHost).
     private var pausedByHost: Bool = false
 
+    /// #694: latched when end of media parks the clock (AE#374 on this host). Keeps `play()` from
+    /// restarting a clock the source stopped; a seek clears it.
+    private var didParkClockAtEnd = false
+
     /// Shared clock-armed latch (mirrors SoftwarePlaybackHost._clockArmed): demux loop arms once on first decoded
     /// packet; seek() anchors directly and sets this so the loop doesn't snap back to the stale initial anchor.
     nonisolated(unsafe) private var _clockArmed = false
     nonisolated private var clockArmed: Bool {
         get { flagsLock.lock(); defer { flagsLock.unlock() }; return _clockArmed }
         set { flagsLock.lock(); _clockArmed = newValue; flagsLock.unlock() }
+    }
+
+    /// Audit DEC-102: the offset between the source's own timestamps and the published position, set once by
+    /// the demux loop when it anchors the clock on a first sample that lies past the load anchor (an Ogg
+    /// radio stream's granule position, an audio-only TS that joined mid-broadcast). 0 for a source that
+    /// starts where it was asked to. Same meaning and same policy as `SoftwarePlaybackHost.clockSessionZero`.
+    nonisolated(unsafe) private var _sessionZeroSeconds: Double = 0
+    nonisolated private var sessionZeroSeconds: Double {
+        get { flagsLock.lock(); defer { flagsLock.unlock() }; return _sessionZeroSeconds }
+        set { flagsLock.lock(); _sessionZeroSeconds = newValue; flagsLock.unlock() }
     }
 
     /// Bumped by every seek(); demux loop resets its enqueue high-water mark on change so the back-pressure
@@ -145,8 +181,9 @@ final class AudioPlaybackHost {
         self.audioDecoder = aDec
         self.audioStreamIndex = resolvedAudioIdx
         self.audioOutput = AudioOutput()
+        self.audioOutput?.volume = volume
 
-        if let start = startPosition, start > 0 {
+        if let start = startPosition, start.isFinite, start > 0 {
             // #254: same off-main, deadline-bounded reposition the transport seek uses. Also load()'s
             // only suspension point, so the only place a stop() can land mid-load.
             _ = await dem.seekBounded(to: start, timeout: Self.seekBudgetSeconds, on: seekQueue)
@@ -172,9 +209,9 @@ final class AudioPlaybackHost {
             hostPaused: pausedByHost,
             clockArmed: clockArmed && demuxLoopStarted,
             synchronizerRate: audioOutput?.rate ?? 0,
-            // This host has neither a rebuffer that stops the clock nor an end-of-media park.
+            // This host has no rebuffer that stops the clock.
             rebuffering: false,
-            parkedAtEndOfMedia: false
+            parkedAtEndOfMedia: didParkClockAtEnd
         ) {
         case .resumeHostPause:
             pausedByHost = false
@@ -216,6 +253,10 @@ final class AudioPlaybackHost {
     }
 
     var clockRateForTesting: Float? { audioOutput?.rate }
+    var clockSecondsForTesting: Double? { audioOutput?.currentTimeSeconds }
+    var isClockArmedForTesting: Bool { clockArmed }
+    var sessionZeroForTesting: Double { sessionZeroSeconds }
+    var outputVolumeForTesting: Float? { audioOutput?.volume }
     #endif
 
     func pause() {
@@ -254,6 +295,7 @@ final class AudioPlaybackHost {
         // and it invalidates in-flight packets from the moment the seek starts rather than after it.
         bumpSeekGeneration()
         let generation = seekGeneration
+        didParkClockAtEnd = false
         // #292: inside another seek's window `isPlaying` is that seek's parked flag, not the transport's
         // intent. Inherit what it captured, and hand the same value on to whoever supersedes this one.
         let wasPlaying = SeekResumeIntent.resolve(isPlaying: isPlaying,
@@ -265,10 +307,14 @@ final class AudioPlaybackHost {
         audioDecoder?.flush()
         audioOutput?.flush()
 
+        // `seconds` is the published axis; the demuxer and the synchronizer clock speak the source's own
+        // timestamps, so the target is carried over before it reaches either (audit DEC-102).
+        let sourceSeconds = SWClockAnchorPolicy.sourceSeconds(
+            forSession: seconds, sessionZeroSeconds: sessionZeroSeconds)
         currentTime = seconds
         seekInFlight = true
         let outcome = await dem.seekBounded(
-            to: seconds, timeout: Self.seekBudgetSeconds, on: seekQueue,
+            to: sourceSeconds, timeout: Self.seekBudgetSeconds, on: seekQueue,
             isSuperseded: { [weak self] in self?.seekGeneration != generation })
         guard seekGeneration == generation, !stopRequested else { return .superseded }
         seekInFlight = false
@@ -281,7 +327,7 @@ final class AudioPlaybackHost {
         }
         currentTime = seconds
 
-        let targetTime = CMTime(seconds: seconds, preferredTimescale: 90000)
+        let targetTime = CMTime(seconds: sourceSeconds, preferredTimescale: 90000)
         guard demuxLoopStarted else {
             // Cold seek (no play() yet): stash target so the loop's first decoded packet anchors there, not at .zero.
             initialClockTime = targetTime
@@ -320,9 +366,9 @@ final class AudioPlaybackHost {
         isReady = false
     }
 
-    var volume: Float {
-        get { audioOutput?.volume ?? 1.0 }
-        set { audioOutput?.volume = newValue }
+    /// #660: held here, not only on the output, because the engine sets it before `load()` builds one.
+    var volume: Float = 1.0 {
+        didSet { audioOutput?.volume = volume }
     }
 
     // MARK: - Demux loop
@@ -340,15 +386,18 @@ final class AudioPlaybackHost {
         let getClockArmed: @Sendable () -> Bool = { [weak self] in self?.clockArmed ?? true }
         let setClockArmed: @Sendable () -> Void = { [weak self] in self?.clockArmed = true }
         let getSeekGeneration: @Sendable () -> UInt64 = { [weak self] in self?.seekGeneration ?? 0 }
+        let onClockAnchored: @Sendable (Double) -> Void = { [weak self] zero in self?.sessionZeroSeconds = zero }
         let onError: @Sendable (String) -> Void = { [weak self] msg in
             Task { @MainActor [weak self] in
                 self?.failure = PlaybackErrorInfo(kind: .audioSessionFailed, message: msg)
             }
         }
-        let onEnd: @Sendable () -> Void = { [weak self] in
+        let onEnd: @Sendable (UInt64, Double) -> Void = { [weak self] generation, lastEnqueuedEnd in
             Task { @MainActor [weak self] in
-                self?.didReachEnd = true
-                self?.isPlaying = false
+                guard let self, self.seekGeneration == generation else { return }
+                self.parkClockAtEndOfMedia(lastEnqueuedEnd: lastEnqueuedEnd)
+                self.didReachEnd = true
+                self.isPlaying = false
             }
         }
 
@@ -365,6 +414,7 @@ final class AudioPlaybackHost {
                 stopRequested: getStopRequested,
                 clockArmed: getClockArmed,
                 armClock: setClockArmed,
+                onClockAnchored: onClockAnchored,
                 seekGeneration: getSeekGeneration,
                 onError: onError,
                 onEnd: onEnd
@@ -386,9 +436,10 @@ final class AudioPlaybackHost {
         stopRequested: @Sendable () -> Bool,
         clockArmed: @Sendable () -> Bool,
         armClock: @Sendable () -> Void,
+        onClockAnchored: @Sendable (Double) -> Void,
         seekGeneration: @Sendable () -> UInt64,
         onError: @Sendable (String) -> Void,
-        onEnd: @Sendable () -> Void
+        onEnd: @Sendable (UInt64, Double) -> Void
     ) {
         // Clock-armed latch is SHARED with the host: anchor the clock exactly once on the first decoded packet.
         // seekClock is NOT idempotent (re-sets rate+time), so per-packet calls would snap the clock back ~47x/sec
@@ -400,7 +451,8 @@ final class AudioPlaybackHost {
         // playback end and bounds decoded-PCM memory in the renderer.
         let maxBufferAhead: Double = 8.0
         // Source-time seconds of the last sample handed to the renderer. lastEnqueuedEnd and currentTimeSeconds
-        // share the source-PTS timeline (clock anchored to initialClockTime), so their difference is seconds queued ahead.
+        // share the source-PTS timeline (the clock is anchored on the source axis, see `clockAnchor`), so their
+        // difference is seconds queued ahead.
         var lastEnqueuedEnd: Double = 0
         var seenSeekGeneration = seekGeneration()
 
@@ -436,10 +488,16 @@ final class AudioPlaybackHost {
                 if stopRequested() { return false }
             }
 
+            // Audit DEC-106: read before the packet, so a flush landing anywhere after this retires every
+            // buffer decided on below, inside `enqueue`, where the comparison is atomic with the enqueue.
+            let epochBeforeRead = audioOutput?.epoch ?? 0
             let packet: UnsafeMutablePointer<AVPacket>?
             do {
                 packet = try demuxer.readPacket()
             } catch {
+                // Audit SEG-104: a stop closes the demuxer, which aborts a parked read. That is the
+                // stop arriving, not a playback failure.
+                if stopRequested() { return false }
                 EngineLog.emit("[AudioHost] demux read failed: \(error)", category: .swPlayback)
                 onError("Playback error: \(error.localizedDescription)")
                 return false
@@ -454,8 +512,14 @@ final class AudioPlaybackHost {
                     // Audit DEC-2: a seek's flush can land inside the drain, as in `decode` below.
                     let drained = aDec.drain()
                     let tail = seekGeneration() == seenSeekGeneration ? drained : []
-                    for buf in tail { aOut.enqueue(sampleBuffer: buf) }
-                    if let last = tail.last {
+                    var tailAccepted = true
+                    for buf in tail {
+                        guard aOut.enqueue(sampleBuffer: buf, ifEpoch: epochBeforeRead) else {
+                            tailAccepted = false
+                            break
+                        }
+                    }
+                    if tailAccepted, let last = tail.last {
                         let end = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(last))
                             + CMTimeGetSeconds(CMSampleBufferGetDuration(last))
                         if end.isFinite, end > lastEnqueuedEnd { lastEnqueuedEnd = end }
@@ -480,7 +544,7 @@ final class AudioPlaybackHost {
                 }
                 if seekedAway { return true }
                 if seekGeneration() != seenSeekGeneration { return true }
-                onEnd()
+                onEnd(seenSeekGeneration, lastEnqueuedEnd)
                 return false
             }
 
@@ -503,7 +567,11 @@ final class AudioPlaybackHost {
                     return true
                 }
                 for buf in buffers {
-                    aOut.enqueue(sampleBuffer: buf)
+                    guard aOut.enqueue(sampleBuffer: buf, ifEpoch: epochBeforeRead) else {
+                        av_packet_unref(packet)
+                        av_packet_free_safe(packet)
+                        return true
+                    }
                 }
                 if let last = buffers.last {
                     let end = CMTimeGetSeconds(CMSampleBufferGetPresentationTimeStamp(last))
@@ -511,7 +579,21 @@ final class AudioPlaybackHost {
                     if end.isFinite, end > lastEnqueuedEnd { lastEnqueuedEnd = end }
                 }
                 if !clockArmed(), !buffers.isEmpty {
-                    aOut.seekClock(to: initialClockTime, rate: initialRate)
+                    let resolved = clockAnchor(
+                        initialClockTime: initialClockTime,
+                        firstPTS: CMSampleBufferGetPresentationTimeStamp(buffers[0]))
+                    if resolved.sessionZeroSeconds > 0 {
+                        EngineLog.emit(
+                            "[AudioHost] clock anchored at the first sample: "
+                            + "anchor=\(String(format: "%.3f", resolved.anchor.seconds))s "
+                            + "(load anchor \(String(format: "%.3f", initialClockTime.seconds))s, "
+                            + "sessionZero=\(String(format: "%.3f", resolved.sessionZeroSeconds))s)",
+                            category: .swPlayback
+                        )
+                        // Before the clock moves, so no tick can publish the raw position in between.
+                        onClockAnchored(resolved.sessionZeroSeconds)
+                    }
+                    aOut.seekClock(to: resolved.anchor, rate: initialRate)
                     armClock()
                 }
             }
@@ -529,6 +611,39 @@ final class AudioPlaybackHost {
         }
     }
 
+    /// #694: stop the master clock on the last sample instead of letting it free-run past the end
+    /// (AE#374 on the software host). The playthrough wait in the demux loop releases up to 0.25 s
+    /// before the last enqueued sample, so the park is deferred by what is still queued: parking stops
+    /// the renderer too and an immediate park would cut that tail. Either way the clock stops on the
+    /// last sample, not where it stands when the park runs.
+    private func parkClockAtEndOfMedia(lastEnqueuedEnd: Double) {
+        guard !didParkClockAtEnd else { return }
+        didParkClockAtEnd = true
+        guard clockArmed, let aOut = audioOutput else { return }
+        let tail = SoftwareEndOfMediaClock.tailPlayoutSeconds(
+            clockSeconds: aOut.currentTimeSeconds,
+            lastAudioPts: lastEnqueuedEnd
+        )
+        guard tail > 0 else { return parkClockNow(notAfter: lastEnqueuedEnd) }
+        let generation = seekGeneration
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(tail * 1_000_000_000))
+            guard let self, self.seekGeneration == generation, self.didParkClockAtEnd else { return }
+            self.parkClockNow(notAfter: lastEnqueuedEnd)
+        }
+    }
+
+    private func parkClockNow(notAfter latest: Double) {
+        guard !stopRequested, let aOut = audioOutput else { return }
+        aOut.pause(notAfter: latest)
+        rate = 0
+        EngineLog.emit(
+            "[AudioHost] end of media: clock parked at "
+            + "\(String(format: "%.3f", aOut.currentTimeSeconds))s",
+            category: .swPlayback
+        )
+    }
+
     // MARK: - Time updates
 
     private func startTimeUpdates() {
@@ -541,7 +656,7 @@ final class AudioPlaybackHost {
                 guard !self.seekInFlight else { return }
                 let t = aOut.currentTimeSeconds
                 if t.isFinite, t >= 0 {
-                    self.currentTime = t
+                    self.currentTime = Self.publishedTime(raw: t, sessionZeroSeconds: self.sessionZeroSeconds)
                 }
             }
     }

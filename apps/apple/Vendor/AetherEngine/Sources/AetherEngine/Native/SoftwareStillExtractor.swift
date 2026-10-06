@@ -128,7 +128,7 @@ final class SoftwareStillExtractor: @unchecked Sendable {
                 memcpy(dst, base, packet.bytes.count)
             }
         }
-        p.pointee.pts = Int64((packet.pts / timeBaseSeconds).rounded())
+        p.pointee.pts = SourceTimestampBounds.roundedTicks(packet.pts / timeBaseSeconds) ?? Int64.min
         p.pointee.dts = p.pointee.pts
         p.pointee.flags = packet.isKeyframe ? AV_PKT_FLAG_KEY : 0
         p.pointee.stream_index = videoStreamIndex

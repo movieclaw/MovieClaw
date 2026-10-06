@@ -20,12 +20,16 @@ struct MPLSPlaylist: Equatable {
 }
 
 enum MPLSParser {
+    /// BD-ROM caps a playlist at 999 PlayItems, and the count field is 16 bits wide (audit NET-103).
+    static let maxPlayItems = 999
+
     static func parse(_ data: [UInt8]) -> MPLSPlaylist? {
         guard data.count >= 16,
               Array(data[0..<4]) == Array("MPLS".utf8) else { return nil }
         let plStart = be32(data, 8)
         guard plStart + 10 <= data.count else { return nil }
         let count = be16(data, plStart + 6)
+        guard count <= maxPlayItems else { return nil }
         var pos = plStart + 10
         var clips: [String] = []
         var ticks: UInt64 = 0

@@ -119,7 +119,8 @@ public actor FrameExtractor {
     // MARK: - Core
 
     private func produce(at seconds: Double, mode: FrameMode, targetWidth: Int, maxSize: CGSize?) async -> CGImage? {
-        guard !isShutDown else { return nil }
+        // Audit BIT-105: a 0/0 scrub fraction or `CMTime.indefinite.seconds` is a host bug, not a position.
+        guard !isShutDown, seconds.isFinite, seconds >= 0 else { return nil }
         if let hit = cache.get(mode: mode, seconds: seconds) {
             scheduleIdleClose()
             return hit

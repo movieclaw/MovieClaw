@@ -82,6 +82,14 @@ final class FrameDecodeContext: @unchecked Sendable {
         return false
     }
 
+    /// Whether this open may ask VideoToolbox. A no-base-layer Dolby Vision title stays on software
+    /// (audit BIT-102): VideoToolbox hands 10-bit 4:2:0 over as P010, `DolbyVisionStillConverter` accepts
+    /// only `yuv420p10le`, and the IPT-PQ-C2 planes then went through the BT.2020 tone map, which is the
+    /// green / magenta cast #103 fixed.
+    static func stillUsesHardware(allows: Bool, disabled: Bool, dvNoBaseLayer: Bool) -> Bool {
+        allows && !disabled && !dvNoBaseLayer
+    }
+
     /// Thread budget for the disposable still/thumbnail decoder. Capped well below the
     /// core count so it cannot grab every core at playback's QoS and starve the
     /// real-time software decode (and, with subs on, the subtitle side-demuxer) on a
@@ -215,7 +223,8 @@ final class FrameDecodeContext: @unchecked Sendable {
             throw FrameDecodeError.unsupportedCodec
         }
         var openedWithHardware = false
-        if allowsHardwareDecode, !hardwareDecodeDisabled {
+        if Self.stillUsesHardware(allows: allowsHardwareDecode, disabled: hardwareDecodeDisabled,
+                                  dvNoBaseLayer: isDolbyVisionNoBaseLayer) {
             let deviceResult = av_hwdevice_ctx_create(
                 &hardwareDeviceContext, AV_HWDEVICE_TYPE_VIDEOTOOLBOX, nil, nil, 0)
             if deviceResult >= 0, hardwareDeviceContext != nil {
@@ -405,8 +414,8 @@ final class FrameDecodeContext: @unchecked Sendable {
 
         demuxer.seek(to: seekSeconds)
 
-        guard timeBase.num > 0 else { return nil }
-        let targetPTS = Int64((seekSeconds * Double(timeBase.den)) / Double(timeBase.num))
+        // A target the stream's own time base cannot hold is no position in it (audit BIT-105).
+        guard let targetPTS = Demuxer.ticks(forSeconds: seekSeconds, timeBase: timeBase) else { return nil }
 
         var frame: UnsafeMutablePointer<AVFrame>? = av_frame_alloc()
         guard frame != nil else { return nil }
@@ -664,7 +673,8 @@ final class FrameDecodeContext: @unchecked Sendable {
         // Without this sws converts every picture with its BT.601 default, which put a 1080p
         // BT.709 colour bar up to 33 levels off in the still while playback showed it right.
         // The matrix comes from the rule the displayed buffer is tagged by, so both agree.
-        let coefficients = sws_getCoefficients(Self.swsColorspace(for: ColorDescription(frame: frame)))
+        let description = ColorDescription(frame: frame)
+        let coefficients = sws_getCoefficients(Self.swsColorspace(for: description))
         sws_setColorspaceDetails(
             swsContext, coefficients, Self.isFullRange(frame) ? 1 : 0,
             coefficients, 1, 0, 1 << 16, 1 << 16)
@@ -705,7 +715,8 @@ final class FrameDecodeContext: @unchecked Sendable {
 
         let data = Data(rgba)
         guard let provider = CGDataProvider(data: data as CFData),
-              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else {
+              let colorSpace = ColorAttachments.colorSpace(for: ColorAttachments.presented(description))
+                ?? CGColorSpace(name: CGColorSpace.sRGB) else {
             return nil
         }
         // sws_scale RGBA yields opaque pixels (alpha 0xFF), so alpha is ignorable not premultiplied.

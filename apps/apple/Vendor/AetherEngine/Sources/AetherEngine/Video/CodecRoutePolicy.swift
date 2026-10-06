@@ -140,6 +140,14 @@ extension HLSVideoEngine {
     /// (media-direct, no CODECS) hid it, but once HEVC is signaled through a master (below) a strict
     /// Apple TV rejects the Main10 declaration against the Main hvcC in the init; macOS / the Simulator
     /// tolerate the mismatch. Deriving the string from the actual hvcC keeps master and init consistent.
+    /// AE#674: the highest `general_level_idc` a master's CODECS declares (5.1, which covers 2160p60).
+    /// Encoders stamp 5.2 (156) on 1080p24 streams, and AVPlayer screens a master variant's declared
+    /// level against the device: an Apple TV 4K refuses 5.2 with -11848 / CoreMedia -15517 on every
+    /// attempt, DV and reduced master alike, while the same bytes decode media-direct, where nothing
+    /// is declared. The init's hvcC keeps the stated level; only the attribute is capped. A stream
+    /// that genuinely needs more would end on the media playlist anyway, so capping costs it nothing.
+    static let maxDeclaredHEVCLevel = 153
+
     static func hevcCodecsString(
         fromConfigRecord hvcC: [UInt8],
         sampleEntry: String = "hvc1"
@@ -174,7 +182,8 @@ extension HLSVideoEngine {
         var trimmedConstraints = constraintBytes
         while let last = trimmedConstraints.last, last == 0 { trimmedConstraints.removeLast() }
         let tier = tierFlag == 1 ? "H" : "L"
-        var s = "\(sampleEntry).\(spacePrefix)\(profileIDC).\(compatHex).\(tier)\(levelIDC)"
+        let declaredLevel = min(Int(levelIDC), maxDeclaredHEVCLevel)
+        var s = "\(sampleEntry).\(spacePrefix)\(profileIDC).\(compatHex).\(tier)\(declaredLevel)"
         if !trimmedConstraints.isEmpty {
             s += "." + trimmedConstraints.map { String(format: "%02x", $0) }.joined(separator: ".")
         }
@@ -255,9 +264,9 @@ extension HLSVideoEngine {
             profile: codecpar.pointee.profile, level: codecpar.pointee.level)
     }
 
-    /// Derive the plain-HEVC CODECS string from the source hvcC (or the SPS of Annex-B extradata) when
-    /// parseable, else fall back to the legacy Main10 form. Used only by the non-DV `.none` / `.profile82` branch; DV variants keep their
-    /// deliberate `hvc1.2.4` (Main10 PQ base) declaration.
+    /// Derive the HEVC CODECS string from the source hvcC (or the SPS of Annex-B extradata) when
+    /// parseable, else fall back to the Main10 form. Every hvc1 route uses it, the DV ones included
+    /// (AE#674): their base layer is the hvcC in the init, so the master declares what that states.
     private func plainHEVCCodecs(
         codecpar: UnsafePointer<AVCodecParameters>,
         fallbackLevel hevcLevel: Int
@@ -476,7 +485,7 @@ extension HLSVideoEngine {
         let dvLevelRaw = Int(dvRecord?.dv_level ?? 0)
         let dvLevel = dvLevelRaw > 0 ? dvLevelRaw : 6
         let hevcLevelRaw = Int(codecpar.pointee.level)
-        let hevcLevel = hevcLevelRaw > 0 ? hevcLevelRaw : 150
+        let hevcLevel = hevcLevelRaw > 0 ? min(hevcLevelRaw, Self.maxDeclaredHEVCLevel) : 150
         let dvLevelStr = String(format: "%02d", dvLevel)
 
         if let r = dvRecord {
@@ -613,7 +622,7 @@ extension HLSVideoEngine {
             return CodecRoute(
                 codecTagOverride: "hvc1",
                 videoRange: .pq,
-                primaryCodecs: "hvc1.2.4.L\(hevcLevel)",
+                primaryCodecs: plainHEVCCodecs(codecpar: codecpar, fallbackLevel: hevcLevel),
                 supplementalCodecs: supplemental,
                 doviConfig: doviConfig,
                 convertP7ToProfile81: false,
@@ -635,7 +644,7 @@ extension HLSVideoEngine {
             return CodecRoute(
                 codecTagOverride: "hvc1",
                 videoRange: .hlg,
-                primaryCodecs: "hvc1.2.4.L\(hevcLevel)",
+                primaryCodecs: plainHEVCCodecs(codecpar: codecpar, fallbackLevel: hevcLevel),
                 supplementalCodecs: supplemental,
                 doviConfig: doviConfig,
                 convertP7ToProfile81: false,
@@ -657,7 +666,7 @@ extension HLSVideoEngine {
             return CodecRoute(
                 codecTagOverride: "hvc1",
                 videoRange: .pq,
-                primaryCodecs: "hvc1.2.4.L\(hevcLevel)",
+                primaryCodecs: plainHEVCCodecs(codecpar: codecpar, fallbackLevel: hevcLevel),
                 supplementalCodecs: supplemental,
                 doviConfig: doviConfig,
                 convertP7ToProfile81: effectiveDvMode,

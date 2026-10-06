@@ -93,6 +93,8 @@ enum SoftwarePathEscalation {
     struct Takeover {
         let supersededGeneration: UInt64
         let rebuild: Task<Void, Error>
+        /// The claim runs immediately before the rebuild's own `stopInternal`, which moves the generation by one.
+        var rebuildGeneration: UInt64 { supersededGeneration &+ 1 }
     }
 
     /// The domain of a media failure, i.e. AVFoundation could not make sense of what it was served.

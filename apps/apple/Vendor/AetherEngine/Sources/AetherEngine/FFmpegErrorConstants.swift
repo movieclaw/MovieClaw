@@ -9,6 +9,9 @@ enum FFmpegErr {
     static let eagain: Int32 = -35
     /// `AVERROR_INVALIDDATA` = FFERRTAG('I','N','D','A') = -0x41444E49.
     static let invalidData: Int32 = -0x41444E49
+    /// `AVERROR_EXIT` = FFERRTAG('E','X','I','T') = -0x54495845: "immediate exit was requested", what
+    /// libavformat answers when its interrupt callback fires.
+    static let exit: Int32 = -0x54495845
     /// `AVERROR(EINVAL)`; EINVAL is POSIX 22 on Apple platforms. Some decoders (notably `dca` on a
     /// DTS-HD MA XLL frame that residual-codes channels without a usable core) reject a single packet
     /// with this while staying usable for the next one (#64).

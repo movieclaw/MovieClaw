@@ -41,7 +41,7 @@ enum WebVTTBuilder {
     }
 
     private static func timestamp(_ seconds: Double) -> String {
-        let total = max(0, seconds)
+        let total = max(0, SourceTimestampBounds.clampedSeconds(seconds))
         let whole = Int(total)
         let h = whole / 3600
         let m = (whole % 3600) / 60

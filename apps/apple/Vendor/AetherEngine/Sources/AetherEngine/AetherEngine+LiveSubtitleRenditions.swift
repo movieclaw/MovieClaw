@@ -22,6 +22,15 @@ extension AetherEngine {
         id >= liveSubtitleRenditionTrackIDBase && id < liveSubtitleRenditionTrackIDBase + 1_000
     }
 
+    /// Audit Vcred-101: the rendition playlist and every segment it lists are URIs the master named,
+    /// on any host or scheme, so the host's credentials go only to the ingest's own origin, as on the
+    /// ingest's other fetches. No live ingest reader, no anchor, no credentials.
+    nonisolated static func liveSubtitleRenditionCredentials(headers: [String: String], source: IOReader?)
+        -> CredentialScope
+    {
+        CredentialScope(headers: headers, anchor: (source as? LiveIngestSourceInfo)?.credentialOrigin)
+    }
+
     /// Publish the renditions the live ingest resolved. Called once per load, before playback settles;
     /// the master's declaration is proof enough that the track exists, so unlike the caption tap there
     /// is nothing to wait for.
@@ -95,7 +104,8 @@ extension AetherEngine {
         // The state line is worth having but not every two seconds: LogTap is a ring buffer, and a
         // line that repeats 30 times a minute pushes out everything a reader came for.
         var pollsSinceStateLine = 0
-        let headers = loadedOptions.httpHeaders
+        let credentials = Self.liveSubtitleRenditionCredentials(
+            headers: loadedOptions.httpHeaders, source: customReader)
         while !Task.isCancelled {
             guard activeSubtitleTrackIndex == trackID else { return }
             // The source axis can be re-anchored under a running session (a producer seam republishes
@@ -111,9 +121,12 @@ extension AetherEngine {
             }
             var pollInterval = 2.0
             do {
-                let text = try await Self.fetchText(rendition.playlistURL, headers: headers)
-                guard case .media(let media) = try HLSPlaylistParser.parse(text) else { return }
-                pollInterval = max(1, media.targetDuration)
+                // Audit FEA-104: the fetch and both parses run off the main actor; only the merge and
+                // the publish below are back on it.
+                guard let media = try await Self.fetchLiveSubtitleRenditionPlaylist(
+                    rendition.playlistURL, headers: credentials.headers(for: rendition.playlistURL))
+                else { return }
+                pollInterval = Self.liveSubtitlePollInterval(targetDuration: media.targetDuration)
                 // Anchor the work at the playhead, not at the start of the playlist. A rendition
                 // playlist is not a handful of segments: MDR publishes its whole two hour DVR window,
                 // 3600 entries, and walking it from the front means thousands of fetches for content
@@ -134,8 +147,8 @@ extension AetherEngine {
                           let url = HLSPlaylistParser.resolve(uri: segment.uri, against: rendition.playlistURL)
                     else { continue }
                     seen.insert(segment.uri)
-                    guard let body = try? await Self.fetchText(url, headers: headers),
-                          let parsed = WebVTTSegmentParser.parse(body) else { continue }
+                    guard let parsed = await Self.fetchLiveSubtitleRenditionSegment(
+                        url, headers: credentials.headers(for: url)) else { continue }
                     guard activeSubtitleTrackIndex == trackID else { return }
                     let fresh = WebVTTSegmentParser.cues(from: parsed, segmentWallStart: wallStart,
                                                          segmentDuration: segment.duration,
@@ -172,28 +185,76 @@ extension AetherEngine {
         }
     }
 
+    /// Audit FEA-102: a week-long TARGETDURATION would put the loop to sleep for a week and end the
+    /// subtitles; past about 2e10 s it trapped `UInt64(_:)` outright.
+    nonisolated static func liveSubtitlePollInterval(targetDuration: Double) -> Double {
+        guard !targetDuration.isNaN else { return 1 }
+        return min(max(1, targetDuration), 30)
+    }
+
     /// Keep the published array bounded: a channel left running for hours would otherwise carry every
     /// line it ever showed, and #271 is the standing reminder that this array is paid for per publish.
     private func pruned(_ cues: [SubtitleCue]) -> [SubtitleCue] {
         let horizon = clock.currentTime - (loadedOptions.dvrWindowSeconds ?? 600) - 60
-        guard horizon > 0 else { return cues }
-        return cues.filter { $0.endTime >= horizon }
+        guard horizon > 0 else { return Self.capLiveSubtitleCues(cues) }
+        return Self.capLiveSubtitleCues(cues.filter { $0.endTime >= horizon })
+    }
+
+    /// Audit SUB-106: the time horizon above is the normal bound; this one is for an origin whose cues
+    /// never age out of it. The newest cues are the ones that were appended last.
+    nonisolated static let maxLiveSubtitleCues = 2000
+
+    nonisolated static func capLiveSubtitleCues(_ cues: [SubtitleCue]) -> [SubtitleCue] {
+        cues.count > maxLiveSubtitleCues ? Array(cues.suffix(maxLiveSubtitleCues)) : cues
+    }
+
+    /// Audit FEA-107: this session was `.default`, a 7-day resource timeout and a disk cache, so one
+    /// endless body grew until jetsam. Ephemeral and finite, like the ingest readers' own.
+    nonisolated static func liveSubtitleRenditionSessionConfiguration() -> URLSessionConfiguration {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.timeoutIntervalForRequest = 10
+        configuration.timeoutIntervalForResource = 30
+        return configuration
     }
 
     /// `URLSession.shared` cannot carry a delegate, so this was the one engine fetch a host's trust
     /// decision could never reach. Owned and process-wide for the same reason the carriage probe's
     /// is: an uninvalidated session outlives its caller.
-    private static let renditionSession = URLSession(
-        configuration: .default, delegate: EngineTLS.sessionDelegate, delegateQueue: nil)
+    nonisolated static let renditionSession = URLSession(
+        configuration: liveSubtitleRenditionSessionConfiguration(),
+        delegate: EngineTLS.sessionDelegate, delegateQueue: nil)
 
-    private static func fetchText(_ url: URL, headers: [String: String]) async throws -> String {
+    /// One poll of a rendition playlist, fetched under a size cap with its status checked and parsed
+    /// off the main actor (audit FEA-104, FEA-107). nil when the URL answers with a master playlist.
+    nonisolated static func fetchLiveSubtitleRenditionPlaylist(
+        _ url: URL, headers: [String: String], session: URLSession = renditionSession
+    ) async throws -> HLSMediaPlaylist? {
         var request = URLRequest(url: url)
         for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
-        let (data, _) = try await renditionSession.data(for: request)
+        let (data, response) = try await BoundedPlaylistFetch.data(
+            for: request, session: session, limit: HLSLiveIngestReader.maximumPlaylistBytes)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+        guard (200..<300).contains(status) else { throw HLSIngestError.playlistUnreachable(status: status) }
         guard let text = String(data: data, encoding: .utf8) else {
             throw HLSIngestError.playlistInvalid(reason: "rendition payload is not UTF-8")
         }
-        return text
+        guard case .media(let media) = try HLSPlaylistParser.parse(text) else { return nil }
+        return media
+    }
+
+    /// One WebVTT segment: nil for anything that is not a parsable body within the cap (audit SUB-106,
+    /// FEA-107). A segment that fails is not retried, as before.
+    nonisolated static func fetchLiveSubtitleRenditionSegment(
+        _ url: URL, headers: [String: String], session: URLSession = renditionSession
+    ) async -> WebVTTSegment? {
+        var request = URLRequest(url: url)
+        for (key, value) in headers { request.setValue(value, forHTTPHeaderField: key) }
+        guard let (data, response) = try? await BoundedFetch.data(
+                for: request, session: session, limit: BoundedFetch.webVTTSegmentLimit),
+              let status = (response as? HTTPURLResponse)?.statusCode, (200..<300).contains(status),
+              let text = String(data: data, encoding: .utf8)
+        else { return nil }
+        return WebVTTSegmentParser.parse(text)
     }
 
     /// Drop the renditions and stop any fetch. Called from the session teardown paths that already

@@ -58,7 +58,9 @@ final class SubtitlePacketStore: @unchecked Sendable {
 
     /// Ceiling for one in-assembly PGS display set (a 4K set stays far below this); a pending
     /// buffer past it is malformed or mis-parsed and gets dropped rather than grown unbounded.
-    static let maxPendingDisplaySetBytes: Int = 16 * 1024 * 1024
+    /// Audit SUB-111: pending sets also count toward the aggregate cap, so 16 MiB per set was
+    /// room for 16 MiB x 2 writers x every PID of a crafted transport stream.
+    static let maxPendingDisplaySetBytes: Int = 4 * 1024 * 1024
 
     /// #151: which reader is writing. The pump and the forward prefetcher can both feed the same
     /// stream; a completed entry re-harvested by the other collapses on a byte-identical payload in
@@ -86,14 +88,22 @@ final class SubtitlePacketStore: @unchecked Sendable {
     private var entriesByStream: [Int32: [StoredSubtitlePacket]] = [:]
     private var bytesByStream: [Int32: Int] = [:]
     private var pendingSetByStream: [PendingKey: PendingDisplaySet] = [:]
+    /// Audit SUB-103: same-PTS runs longer than `linearDedupeRun` answer "was this payload already
+    /// stored here" from a hash set instead of comparing against every packet of the run. The set is
+    /// only a filter: it may hold hashes of evicted packets (a stale hit costs one scan) but never
+    /// lacks one of a live packet, since every append to the run inserts its hash.
+    private var payloadHashesByRun: [Int32: [UInt64: Set<Int>]] = [:]
+    private static let linearDedupeRun = 8
+    private static let maxCachedRunsPerStream = 4096
 
     /// Instance caps (default to the static ceilings). Injectable so tests can drive eviction with
     /// tiny payloads instead of allocating gigabytes.
     private let perStreamCap: Int
     private let aggregateCap: Int
 
-    /// #166 aggregate-budget bookkeeping. `totalBytes` mirrors the sum of `bytesByStream` (kept
-    /// incrementally so the per-append check is O(1)). `protectedStreams` are the active drain
+    /// #166 aggregate-budget bookkeeping. `totalBytes` mirrors the sum of `bytesByStream` plus the
+    /// display sets still in assembly (audit SUB-111), kept incrementally so the per-append check is
+    /// O(1). `protectedStreams` are the active drain
     /// targets, never evicted by aggregate pressure. `lastTouchByStream` orders non-protected
     /// streams coldest-first for eviction; a monotonic counter (no wall clock) drives it.
     private var totalBytes: Int = 0
@@ -179,7 +189,10 @@ final class SubtitlePacketStore: @unchecked Sendable {
     private func appendLocked(streamIndex: Int32, ptsSeconds: Double, durationSeconds: Double,
                               flags: Int32, payload: Data, webvttSettings: String? = nil) {
         let before = bytesByStream[streamIndex] ?? 0
-        var entries = entriesByStream[streamIndex] ?? []
+        // Audit SUB-103: taken out of the dictionary before it is mutated. Left in, the dictionary
+        // holds the second reference and the insert below copied every retained packet per append,
+        // 10k appends took 0.65 s and 40k took 10.9 s.
+        var entries = entriesByStream.removeValue(forKey: streamIndex) ?? []
         var bytes = before
         // #362: a re-harvest of a packet already stored takes the FRESH sequence. It is a new
         // observation of that position by the run doing the writing, and that is exactly what the
@@ -198,24 +211,26 @@ final class SubtitlePacketStore: @unchecked Sendable {
         // prefetcher re-harvesting the same packet (#151), and only that collapses. Anything else
         // joins the end of the run, so a shared timestamp reaches the drainer in harvest order:
         // the drainer decodes a window in array order and later events layer over earlier ones.
-        var probe = Self.lowerBound(entries, ptsSeconds)
-        var duplicateIndex: Int?
-        while probe < entries.count, entries[probe].ptsSeconds == ptsSeconds {
-            if entries[probe].payload == payload {
-                duplicateIndex = probe
-                break
-            }
-            probe += 1
-        }
-        if let duplicateIndex {
+        let run = Self.lowerBound(entries, ptsSeconds)..<Self.upperBound(entries, ptsSeconds)
+        if let duplicateIndex = duplicateIndexLocked(in: entries, run: run, payload: payload,
+                                                     streamIndex: streamIndex, ptsSeconds: ptsSeconds) {
             bytes -= entries[duplicateIndex].payload.count
             entries[duplicateIndex] = entry
         } else {
-            entries.insert(entry, at: probe)
+            entries.insert(entry, at: run.upperBound)
         }
         bytes += payload.count
-        while bytes > perStreamCap, entries.count > 1 {
-            bytes -= entries.removeFirst().payload.count
+        if bytes > perStreamCap {
+            // Audit SUB-103: evict to a low-water mark in one move. Dropping just enough made every
+            // append at the cap shift the whole array for one packet.
+            let lowWater = perStreamCap - perStreamCap / 10
+            var dropped = 0
+            while bytes > lowWater, dropped < entries.count - 1 {
+                bytes -= entries[dropped].payload.count
+                dropped += 1
+            }
+            entries.removeFirst(dropped)
+            payloadHashesByRun[streamIndex] = nil
         }
         entriesByStream[streamIndex] = entries
         bytesByStream[streamIndex] = bytes
@@ -223,6 +238,25 @@ final class SubtitlePacketStore: @unchecked Sendable {
         touchCounter &+= 1
         lastTouchByStream[streamIndex] = touchCounter
         enforceAggregateCapLocked(justTouched: streamIndex)
+    }
+
+    /// Index within `run` of the packet `payload` duplicates, nil when it is new. A long run is
+    /// screened through `payloadHashesByRun` first; see there.
+    private func duplicateIndexLocked(in entries: [StoredSubtitlePacket], run: Range<Int>, payload: Data,
+                                      streamIndex: Int32, ptsSeconds: Double) -> Int? {
+        guard !run.isEmpty else { return nil }
+        func scan() -> Int? {
+            run.first { entries[$0].payload.count == payload.count && entries[$0].payload == payload }
+        }
+        guard run.count > Self.linearDedupeRun else { return scan() }
+        let key = (ptsSeconds + 0.0).bitPattern
+        var runs = payloadHashesByRun.removeValue(forKey: streamIndex) ?? [:]
+        var hashes = runs.removeValue(forKey: key) ?? Set(run.map { entries[$0].payload.hashValue })
+        let seenBefore = !hashes.insert(payload.hashValue).inserted
+        if runs.count >= Self.maxCachedRunsPerStream { runs.removeAll() }
+        runs[key] = hashes
+        payloadHashesByRun[streamIndex] = runs
+        return seenBefore ? scan() : nil
     }
 
     /// First index at or past `ptsSeconds` in a PTS-sorted run. Harvest is near-monotonic, but the
@@ -245,6 +279,21 @@ final class SubtitlePacketStore: @unchecked Sendable {
         return low
     }
 
+    /// First index whose PTS is greater than `ptsSeconds`; `lowerBound` and this bracket a same-PTS run.
+    static func upperBound(_ entries: [StoredSubtitlePacket], _ ptsSeconds: Double) -> Int {
+        var low = 0
+        var high = entries.count
+        while low < high {
+            let mid = low + (high - low) / 2
+            if entries[mid].ptsSeconds <= ptsSeconds {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+        return low
+    }
+
     /// #166: bound retained bytes across ALL streams. Evict oldest entries from the coldest
     /// (least-recently-touched) NON-protected stream first, then the next coldest, until the total
     /// is back under `aggregateCap` or only protected streams remain. Protected streams (the active
@@ -252,20 +301,35 @@ final class SubtitlePacketStore: @unchecked Sendable {
     /// cold stream is dropped and re-harvested from the pump/prefetcher if it is selected later.
     private func enforceAggregateCapLocked(justTouched: Int32) {
         guard totalBytes > aggregateCap else { return }
-        let candidates = bytesByStream.keys
+        // Audit SUB-103: down to a low-water mark, so the pass does not rerun on the next append, and
+        // each victim loses its leading packets in one `removeFirst(k)`.
+        let lowWater = aggregateCap - aggregateCap / 10
+        var streams = Set(bytesByStream.keys)
+        for key in pendingSetByStream.keys { streams.insert(key.streamIndex) }
+        let candidates = streams
             .filter { !protectedStreams.contains($0) && $0 != justTouched }
             .sorted { (lastTouchByStream[$0] ?? 0) < (lastTouchByStream[$1] ?? 0) }
         for idx in candidates {
-            guard totalBytes > aggregateCap else { break }
-            guard var entries = entriesByStream[idx] else { continue }
+            guard totalBytes > lowWater else { break }
+            // Audit SUB-111: an unfinished display set of a cold stream goes before anything complete.
+            for writer in [Writer.pump, Writer.prefetch] {
+                _ = takePendingLocked(PendingKey(streamIndex: idx, writer: writer))
+            }
+            guard totalBytes > lowWater, var entries = entriesByStream.removeValue(forKey: idx) else {
+                if entriesByStream[idx] == nil { lastTouchByStream[idx] = nil }
+                continue
+            }
             var bytes = bytesByStream[idx] ?? 0
-            while totalBytes > aggregateCap, !entries.isEmpty {
-                let removed = entries.removeFirst().payload.count
+            var dropped = 0
+            while totalBytes > lowWater, dropped < entries.count {
+                let removed = entries[dropped].payload.count
                 bytes -= removed
                 totalBytes -= removed
+                dropped += 1
             }
+            entries.removeFirst(dropped)
+            payloadHashesByRun[idx] = nil
             if entries.isEmpty {
-                entriesByStream[idx] = nil
                 bytesByStream[idx] = nil
                 lastTouchByStream[idx] = nil
             } else {
@@ -273,6 +337,21 @@ final class SubtitlePacketStore: @unchecked Sendable {
                 bytesByStream[idx] = bytes
             }
         }
+    }
+
+    /// A display set in assembly leaves the dictionary while it is worked on, so appending to it is in
+    /// place, and its bytes leave the aggregate count with it. `putPendingLocked` is the way back.
+    private func takePendingLocked(_ key: PendingKey) -> PendingDisplaySet? {
+        guard let pending = pendingSetByStream.removeValue(forKey: key) else { return nil }
+        totalBytes -= pending.payload.count
+        return pending
+    }
+
+    private func putPendingLocked(_ pending: PendingDisplaySet, _ key: PendingKey) {
+        pendingSetByStream[key] = pending
+        totalBytes += pending.payload.count
+        touchCounter &+= 1
+        lastTouchByStream[key.streamIndex] = touchCounter
     }
 
     /// Shared pump-side harvest for both hosts: convert a raw AVPacket into a stored entry on
@@ -305,6 +384,12 @@ final class SubtitlePacketStore: @unchecked Sendable {
     func harvestChunk(streamIndex: Int32, ptsSeconds: Double?, durationSeconds: Double,
                       flags: Int32, payload: Data, assembleSplitDisplaySets: Bool,
                       writer: Writer = .pump, webvttSettings: String? = nil) {
+        // Audit FEA-101: the pump, the software-host tap and the prefetcher all store through here,
+        // and the drain scales these seconds back into Int64 milliseconds. Same rule as the
+        // demuxer's bound: an implausible time is unset, an implausible duration is 0.
+        let bound = SourceTimestampBounds.maxPlausibleSeconds
+        let ptsSeconds = ptsSeconds.flatMap { $0.isFinite && abs($0) < bound ? $0 : nil }
+        let durationSeconds = durationSeconds.isFinite && durationSeconds < bound ? Swift.max(0, durationSeconds) : 0
         lock.lock(); defer { lock.unlock() }
         // #416: a harvested packet is a position its writer demonstrably read, so the run reaches
         // it. This is what gives the pump the forward lookahead its playhead-based note cannot
@@ -326,7 +411,7 @@ final class SubtitlePacketStore: @unchecked Sendable {
         }
         let key = PendingKey(streamIndex: streamIndex, writer: writer)
         while !chunk.isEmpty {
-            var pending = pendingSetByStream[key]
+            var pending = takePendingLocked(key)
             // A backward pts jump under an open set means the pump re-anchored mid-set;
             // the stale partial buffer must not swallow the fresh set's segments.
             if let pts = ptsSeconds, let open = pending, pts < open.ptsSeconds - 1.0 {
@@ -338,7 +423,6 @@ final class SubtitlePacketStore: @unchecked Sendable {
                 // restart overlap above) is undecodable on its own and gets dropped.
                 pending = nil
                 guard let pts = ptsSeconds else {
-                    pendingSetByStream[key] = nil
                     return   // No anchor for this set; skip its chunks until the next PCS.
                 }
                 pending = PendingDisplaySet(ptsSeconds: pts, durationSeconds: durationSeconds,
@@ -346,9 +430,9 @@ final class SubtitlePacketStore: @unchecked Sendable {
             }
             guard var open = pending else {
                 // Mid-set start (backfill landed between PCS and END): not decodable, drop.
-                pendingSetByStream[key] = nil
                 return
             }
+            pending = nil
             let endBoundary = Self.pgsEndBoundary(in: chunk)
             let consumed: Data
             if let endBoundary {
@@ -361,16 +445,15 @@ final class SubtitlePacketStore: @unchecked Sendable {
             open.payload.append(consumed)
             open.flags |= flags
             if open.payload.count > Self.maxPendingDisplaySetBytes {
-                pendingSetByStream[key] = nil
                 return
             }
             if endBoundary != nil {
                 appendLocked(streamIndex: streamIndex, ptsSeconds: open.ptsSeconds,
                              durationSeconds: open.durationSeconds, flags: open.flags,
                              payload: open.payload)
-                pendingSetByStream[key] = nil
             } else {
-                pendingSetByStream[key] = open
+                putPendingLocked(open, key)
+                enforceAggregateCapLocked(justTouched: streamIndex)
             }
         }
     }
@@ -403,7 +486,8 @@ final class SubtitlePacketStore: @unchecked Sendable {
     func entries(streamIndex: Int32, from: Double, through: Double) -> [StoredSubtitlePacket] {
         lock.lock(); defer { lock.unlock() }
         guard let entries = entriesByStream[streamIndex] else { return [] }
-        return entries.filter { $0.ptsSeconds >= from && $0.ptsSeconds <= through }
+        // The run is PTS-sorted, so the window is found by search instead of a scan of the session.
+        return Array(entries[Self.lowerBound(entries, from)...].prefix { $0.ptsSeconds <= through })
     }
 
     /// #362: PTS of the first stored packet on `streamIndex` strictly after `ptsSeconds`.
@@ -416,8 +500,7 @@ final class SubtitlePacketStore: @unchecked Sendable {
     func firstPTS(streamIndex: Int32, after ptsSeconds: Double) -> Double? {
         lock.lock(); defer { lock.unlock() }
         guard let entries = entriesByStream[streamIndex] else { return nil }
-        var index = Self.lowerBound(entries, ptsSeconds)
-        while index < entries.count, entries[index].ptsSeconds <= ptsSeconds { index += 1 }
+        let index = Self.upperBound(entries, ptsSeconds)
         guard index < entries.count else { return nil }
         // Deliberately answered even across a harvest hole, where the next stored packet belongs to
         // an older run and the real successor is still on its way. The answer is then too late, but
@@ -451,6 +534,7 @@ final class SubtitlePacketStore: @unchecked Sendable {
                 totalBytes += newBytes - (bytesByStream[idx] ?? 0)
                 entriesByStream[idx] = Array(kept)
                 bytesByStream[idx] = newBytes
+                payloadHashesByRun[idx] = nil
             }
         }
     }
@@ -460,6 +544,7 @@ final class SubtitlePacketStore: @unchecked Sendable {
         entriesByStream.removeAll()
         bytesByStream.removeAll()
         pendingSetByStream.removeAll()
+        payloadHashesByRun.removeAll()
         lastTouchByStream.removeAll()
         protectedStreams.removeAll()
         totalBytes = 0

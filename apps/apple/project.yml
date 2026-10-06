@@ -22,7 +22,7 @@ packages:
     from: "13.0.0"
   # 自研引擎的内核（LGPL-3.0 + App Store 例外）：FFmpeg 解封装、就地换封装成 HLS 交给 AVPlayer，
   # AVPlayer 解不了的编码走 FFmpeg 软解 + 系统显示层。设计见 docs/design/player-engine.md。
-  # 用仓库内的 Vendor/AetherEngine（上游 7.19.0 + 起播优化补丁，清单见其 PATCHES.md），
+  # 用仓库内的 Vendor/AetherEngine（上游 7.28.0 + 起播优化补丁，清单见其 PATCHES.md），
   # 补丁逐个提给上游，合并后回到直接引用上游版本。升级前要用语料回归（见设计文档「质量体系」）。
   AetherEngine:
     path: Vendor/AetherEngine

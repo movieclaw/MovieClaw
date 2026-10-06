@@ -66,7 +66,9 @@ enum HLSCarriageProbe {
                 session: session ?? sharedSession
             )
         } catch {
-            EngineLog.emit("[HLSCarriageProbe] carriage probe inconclusive: \(error)", category: .engine)
+            EngineLog.emit(
+                "[HLSCarriageProbe] carriage probe inconclusive: \(EngineLog.summary(of: error))",
+                category: .engine)
             return .settled(.inconclusive)
         }
     }
@@ -90,7 +92,9 @@ enum HLSCarriageProbe {
                 session: session ?? sharedSession
             )
         } catch {
-            EngineLog.emit("[HLSCarriageProbe] carriage probe inconclusive: \(error)", category: .engine)
+            EngineLog.emit(
+                "[HLSCarriageProbe] carriage probe inconclusive: \(EngineLog.summary(of: error))",
+                category: .engine)
             return .inconclusive
         }
     }

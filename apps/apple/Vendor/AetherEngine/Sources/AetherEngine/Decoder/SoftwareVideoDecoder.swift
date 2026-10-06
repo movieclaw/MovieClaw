@@ -22,6 +22,20 @@ final class SoftwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
     var onFirstHDR10PlusDetected: (@Sendable () -> Void)?
     var onA53Captions: (@Sendable ([CCDataParser.CCTriplet], Double) -> Void)?
 
+    /// AE#658: fires (decode thread) on the first displayed frame and whenever the decoded format or the
+    /// display buffer's format changes. Guarded by `lock`, like everything `emit` reads.
+    var onDecodedFormat: (@Sendable (DecodedVideoFormat) -> Void)?
+    private var decodedFormatKey: DecodedFormatKey?
+    private var reportedFormatKey: DecodedFormatKey?
+
+    /// The decoder's own output, taken before a deinterlace graph can rewrite the frame (the hardware
+    /// graph hands `emit` a VideoToolbox surface whose pixel format says nothing about the decode).
+    struct DecodedFormatKey: Equatable {
+        var pixelFormat: Int32
+        var color: ColorDescription
+        var pixelBufferType: OSType = 0
+    }
+
     /// True when the source is >8-bit (HDR10, AV1 HDR).
     private var use10Bit = false
 
@@ -41,6 +55,10 @@ final class SoftwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
     private var pixelBufferPool: CVPixelBufferPool?
     private var poolWidth = 0
     private var poolHeight = 0
+    private var poolFormat = OutputFormat(tenBit: false, fullRange: false)
+    /// The format the last converted frame asked for, so a change is logged once (release-visible) rather
+    /// than per frame. Guarded by `lock`, like the pool.
+    private var loggedOutputFormat: OutputFormat?
 
     /// Skip pre-seek frames; decoded for reference but not converted.
     /// Guarded by `skipLock` not `lock`: emit() runs with `lock` held, so a same-lock accessor would deadlock.
@@ -120,6 +138,48 @@ final class SoftwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
     /// #544: decode on the calling thread with no frame-level threading. Set before `open`; the
     /// still extractor is the only caller, everything on a playback path wants the parallel default.
     var decodesSingleThreaded = false
+
+    /// The pixel buffer format this decoder hands the display layer, read off the decoded frame (audit
+    /// DEC-107). The container's declaration alone missed two cases: `color_range` was never read, so a
+    /// full-range AV1 / VP9 / HEVC picture was labelled video range and shown crushed, and
+    /// `bits_per_raw_sample` is 0 for libdav1d and the AV1 / VP9 parsers, so a 10-bit SDR stream was
+    /// dithered down to 8 bit.
+    struct OutputFormat: Equatable {
+        var tenBit: Bool
+        var fullRange: Bool
+
+        var pixelFormatType: OSType {
+            switch (tenBit, fullRange) {
+            case (false, false): return kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            case (false, true): return kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+            case (true, false): return kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
+            case (true, true): return kCVPixelFormatType_420YpCbCr10BiPlanarFullRange
+            }
+        }
+
+        var swscaleFormat: AVPixelFormat { tenBit ? AV_PIX_FMT_P010LE : AV_PIX_FMT_NV12 }
+    }
+
+    /// `streamIs10Bit` is the open-time verdict (declared depth or an HDR transfer) and only ever widens
+    /// the answer. The range is a LABEL: the legacy `sws_scale` reads a source's range from the pixel
+    /// format alone (the yuvj family), so a full-range frame in a plain 4:2:0 format is copied across
+    /// untouched and only has to be tagged as what it is. Asking swscale to convert would take 4K off its
+    /// unscaled NV12 / P010 path, and a yuvj source IS converted to video range by swscale itself, so it
+    /// stays video range here.
+    nonisolated static func outputFormat(pixelFormat: Int32, colorRange: AVColorRange,
+                                         streamIs10Bit: Bool) -> OutputFormat {
+        let format = AVPixelFormat(rawValue: pixelFormat)
+        let depth = av_pix_fmt_desc_get(format)?.pointee.comp.0.depth ?? 8
+        let convertedBySwscale: Bool
+        switch format {
+        case AV_PIX_FMT_YUVJ420P, AV_PIX_FMT_YUVJ422P, AV_PIX_FMT_YUVJ444P, AV_PIX_FMT_YUVJ440P:
+            convertedBySwscale = true
+        default:
+            convertedBySwscale = false
+        }
+        return OutputFormat(tenBit: streamIs10Bit || depth > 8,
+                            fullRange: colorRange == AVCOL_RANGE_JPEG && !convertedBySwscale)
+    }
 
     /// AE#499: what the container declared about colour, captured at `open` before a single frame
     /// exists. A decoded frame carries the VUI alone, and a remux whose VUI is empty would otherwise
@@ -311,6 +371,7 @@ final class SoftwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
             // AE#499: fill the fields the VUI left open from the container's declaration BEFORE any
             // consumer reads the frame, for the same reason the timestamp repair below runs here.
             ColorDescription.backfill(frame: f, container: containerColor)
+            decodedFormatKey = DecodedFormatKey(pixelFormat: f.pointee.format, color: ColorDescription(frame: f))
 
             // #407: repair the frame's own timestamp BEFORE anything reads it. A frame that reaches
             // the renderer with no PTS is unschedulable and gets dropped there, so every consumer
@@ -418,12 +479,9 @@ final class SoftwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
     }
 
     private func emitInner(_ f: UnsafeMutablePointer<AVFrame>, timeBase tb: AVRational) {
-        if let threshold = skipUntilPTS, f.pointee.pts != Int64.min {
-            let framePTS = CMTimeMake(
-                value: f.pointee.pts * Int64(tb.num),
-                timescale: Int32(tb.den)
-            )
-            if CMTimeCompare(framePTS, threshold) < 0 {
+        let cmPTS = SourceTimestampBounds.cmTime(ticks: f.pointee.pts, timeBase: tb)
+        if let threshold = skipUntilPTS, cmPTS.isValid {
+            if CMTimeCompare(cmPTS, threshold) < 0 {
                 return
             }
             // Compare-and-clear: a concurrent seek can install a new threshold; blindly nil-ing would discard it.
@@ -459,16 +517,7 @@ final class SoftwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
             pixelBuffer = converted
         }
 
-        let pts = f.pointee.pts
-        let cmPTS: CMTime
-        if pts != Int64.min {
-            cmPTS = CMTimeMake(
-                value: pts * Int64(tb.num),
-                timescale: Int32(tb.den)
-            )
-        } else {
-            cmPTS = .invalid
-        }
+        reportDecodedFormat(pixelBuffer: pixelBuffer)
 
         // HDR10+: read dynamic metadata from post-decode AVFrame side data (T.35 SEI bytes).
         // Can't reuse the VT path's packet-side stash; this decoder owns its own packet flow.
@@ -546,6 +595,7 @@ final class SoftwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
         pixelBufferPool = nil
         poolWidth = 0
         poolHeight = 0
+        loggedOutputFormat = nil
         if let session = transferSession {
             VTPixelTransferSessionInvalidate(session)
             transferSession = nil
@@ -564,16 +614,12 @@ final class SoftwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
     /// Create (or reuse) the decoder-owned CVPixelBufferPool for the given geometry. These
     /// attributes (IOSurface + Metal compatible, NV12/P010) are the ones the display path has
     /// always accepted; both the sws path and the hw-deinterlace transfer draw from here.
-    private func ensurePixelBufferPool(width: Int, height: Int) -> CVPixelBufferPool? {
-        let cvPixelFormat: OSType = use10Bit
-            ? kCVPixelFormatType_420YpCbCr10BiPlanarVideoRange
-            : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
-
-        if pixelBufferPool == nil || poolWidth != width || poolHeight != height {
+    private func ensurePixelBufferPool(width: Int, height: Int, format: OutputFormat) -> CVPixelBufferPool? {
+        if pixelBufferPool == nil || poolWidth != width || poolHeight != height || poolFormat != format {
             pixelBufferPool = nil
             let poolAttrs: NSDictionary = [kCVPixelBufferPoolMinimumBufferCountKey: 6]
             let pbAttrs: NSDictionary = [
-                kCVPixelBufferPixelFormatTypeKey: cvPixelFormat,
+                kCVPixelBufferPixelFormatTypeKey: format.pixelFormatType,
                 kCVPixelBufferWidthKey: width,
                 kCVPixelBufferHeightKey: height,
                 kCVPixelBufferMetalCompatibilityKey: true,
@@ -582,6 +628,7 @@ final class SoftwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
             CVPixelBufferPoolCreate(kCFAllocatorDefault, poolAttrs, pbAttrs, &pixelBufferPool)
             poolWidth = width
             poolHeight = height
+            poolFormat = format
         }
         return pixelBufferPool
     }
@@ -596,16 +643,33 @@ final class SoftwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
             guard status == noErr, let s = session else { return nil }
             transferSession = s
         }
+        // The transfer converts range and depth itself, so it asks for the stream's own default.
         guard let session = transferSession,
               let pool = ensurePixelBufferPool(
                   width: CVPixelBufferGetWidth(src),
-                  height: CVPixelBufferGetHeight(src)
+                  height: CVPixelBufferGetHeight(src),
+                  format: OutputFormat(tenBit: use10Bit, fullRange: false)
               ) else { return nil }
         var dst: CVPixelBuffer?
         guard CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &dst) == kCVReturnSuccess,
               let out = dst else { return nil }
         guard VTPixelTransferSessionTransferImage(session, from: src, to: out) == noErr else { return nil }
         return out
+    }
+
+    private func reportDecodedFormat(pixelBuffer: CVPixelBuffer) {
+        guard let onDecodedFormat, var key = decodedFormatKey else { return }
+        key.pixelBufferType = CVPixelBufferGetPixelFormatType(pixelBuffer)
+        guard key != reportedFormatKey else { return }
+        reportedFormatKey = key
+        onDecodedFormat(DecodedVideoFormat(
+            frame: VideoStreamFormat(
+                pixelFormat: AVPixelFormat(rawValue: key.pixelFormat),
+                declaredBitDepth: 0,
+                color: key.color,
+                codecID: codecContext?.pointee.codec_id ?? AV_CODEC_ID_NONE,
+                profile: codecContext?.pointee.profile ?? AV_PROFILE_UNKNOWN),
+            pixelBufferFormat: DecodedVideoFormat.fourCC(key.pixelBufferType)))
     }
 
     // MARK: - AVFrame → CVPixelBuffer (sws_scale)
@@ -617,7 +681,19 @@ final class SoftwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
 
         let srcFmt = AVPixelFormat(rawValue: frame.pointee.format)
 
-        let dstFmt = use10Bit ? AV_PIX_FMT_P010LE : AV_PIX_FMT_NV12
+        let outputFormat = Self.outputFormat(
+            pixelFormat: frame.pointee.format, colorRange: frame.pointee.color_range, streamIs10Bit: use10Bit)
+        let dstFmt = outputFormat.swscaleFormat
+        if outputFormat != loggedOutputFormat {
+            loggedOutputFormat = outputFormat
+            EngineLog.emit(
+                "[SWDecoder] output \(outputFormat.tenBit ? "10-bit P010" : "8-bit NV12"), "
+                + "\(outputFormat.fullRange ? "full" : "video") range "
+                + "(frame \(av_get_pix_fmt_name(srcFmt).map { String(cString: $0) } ?? "?"), "
+                + "color_range=\(frame.pointee.color_range.rawValue))",
+                category: .swPlayback
+            )
+        }
 
         swsContext = sws_getCachedContext(
             swsContext,
@@ -630,7 +706,7 @@ final class SoftwareVideoDecoder: VideoDecodingPipeline, @unchecked Sendable {
         guard swsContext != nil else { return nil }
 
         var pixelBuffer: CVPixelBuffer?
-        guard let pool = ensurePixelBufferPool(width: width, height: height) else { return nil }
+        guard let pool = ensurePixelBufferPool(width: width, height: height, format: outputFormat) else { return nil }
         let status = CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &pixelBuffer)
         guard status == kCVReturnSuccess, let pb = pixelBuffer else { return nil }
 
