@@ -97,6 +97,29 @@ def clock(world, monkeypatch):  # type: ignore[no-untyped-def]
     return fake
 
 
+def test_first_pushes_share_collapse_key(client, monkeypatch):  # type: ignore[no-untyped-def]
+    """首次并发推送只创建一把密钥，之后同一张卡的 ID 才能保持不变。"""
+    from movieclaw_api.services.push.images import collapse_key
+    from movieclaw_api.settings import get_setting_store
+
+    async def go() -> None:
+        store = get_setting_store()
+        save = store.set
+
+        async def slow_save(config):  # type: ignore[no-untyped-def]
+            await asyncio.sleep(0.01)
+            await save(config)
+
+        monkeypatch.setattr(store, "set", slow_save)
+        keys = await asyncio.gather(*(collapse_key() for _ in range(8)))
+        assert len(set(keys)) == 1
+        store.invalidate("push.channels")
+        assert await collapse_key() == keys[0]
+
+    assert client.portal is not None
+    client.portal.call(go)
+
+
 class Show:
     """一部订阅了的剧：剧集库、季集表、管理员发起 + 家人关注的订阅、每集一个工单。"""
 
