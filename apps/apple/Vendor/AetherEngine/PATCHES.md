@@ -1,6 +1,7 @@
 # MovieClaw 对 AetherEngine 的补丁（我们自己维护的 fork）
 
 基线：上游 [AetherEngine](https://github.com/superuser404notfound/AetherEngine) **7.28.0**（`7de2d5a0dbb8bc60c09be5620a71f8904d7ab60f`，2026-10-06 同步）（LGPL-3.0 + App Store 例外）。
+独立维护仓库：[yipengfei329/AetherEngine](https://github.com/yipengfei329/AetherEngine)，本次源码对应提交 `4114e9b904d324df5c10b4eb88895bb209b0f1ec`；完整扩展已通过英文草稿 [上游 PR #703](https://github.com/superuser404notfound/AetherEngine/pull/703) 提交评审。fork 保留上游完整包结构与测试，本目录仍是同一引擎源码的内置副本。
 这份源码就是 MovieClaw 自己维护的 fork（2026-09-27 起）：引擎问题我们自己修、自己完善，不以「等上游合并」为前提。
 补丁在源码里都标了 `[MovieClaw P<n>]` 或 `[MovieClaw patch P<n>]`，动机与实测见 `docs/design/player-engine.md`
 第 7、8 节与 `docs/design/disc-direct-play.md`。LGPL 义务：修改后的源码随仓库公开，关于页注明组件与源码地址。
