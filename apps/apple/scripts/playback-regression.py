@@ -66,6 +66,19 @@ async def main():
         passed = passed and "[FrameStats] native" in log
         results.append({"name": name, "passed": passed})
         print(report, flush=True)
+    # Cached playback can conceal a broken recovery path. Force a cold seek
+    # while actual origin requests are refused, then observe the new playhead.
+    name = "cold-seek-refuse"
+    lab.SCENARIOS[name] = lab.scenario("mkv", 75, "play", lab.cut_then("refuse", None, 20, at=8),
+                                      extra=["-mcPurgeByteCache", "YES", "-mcAutoSeek", "18:675"])
+    report, passed = await lab.run(name)
+    log = Path(lab.OUT, f"{name}.log").read_text(errors="replace")
+    proxy = Path(lab.OUT, f"{name}.proxy.log").read_text(errors="replace")
+    heads = [int(t) for t in re.findall(r"\[FrameStats\] native t=(\d+)", log)]
+    refused = proxy.count("fault=refuse")
+    passed = passed and refused > 0 and any(t >= 680 for t in heads)
+    results.append({"name": name, "passed": passed, "refusedRequests": refused})
+    print(report + f"\n  Origin refusals: {refused}; cold seek recovery: {'PASS' if passed else 'FAIL'}", flush=True)
     Path(lab.OUT, "results.json").write_text(json.dumps(results, indent=2) + "\n")
     failed = [result["name"] for result in results if not result["passed"]]
     print(f"Playback regression failures: {failed}", flush=True)
