@@ -71,7 +71,7 @@ import type {
 } from "@/lib/media-types";
 
 /**
- * 发现页（发现电影 / 发现剧集）：Netflix 式「Hero 大横幅 + 分类横滚行」。
+ * 发现页：Netflix 式「Hero 大横幅 + 分类横滚行」。
  *
  * 页面纵向结构：
  *   1. HeroBanner —— 精选影片轮播大横幅（宽幅剧照 + 渐变蒙版 + 标题区 + 操作按钮）
@@ -304,9 +304,7 @@ export function DiscoverView({
     [mediaType, router, source],
   );
 
-  // 电影/剧集切换（只在移动端：Netflix 是顶栏右上角的分段，银玻璃在左上角标题菜单里；
-  // 桌面端顶栏导航已有「电影 / 剧集」两个链接，不再重复放）。切换保留当前
-  // 数据源视角。
+  // 类型与数据源在同一个发现入口内切换，切类型保留数据源视角。
   const chrome = usePageChrome();
   const isMobile = useIsMobile();
   // Netflix 主题（isNf，见上）：工具栏悬浮在 Hero 上（不自占一条）、Hero 全出血（§5.3 构图）
@@ -319,16 +317,13 @@ export function DiscoverView({
     [mediaType, router, source],
   );
 
-  // 桌面工具栏（两个主题）与 Netflix 手机顶栏的控件组。
+  // 桌面只保留筛选控件，类型与数据源收进标题菜单；Netflix 手机沿用分段切换。
   const controls = useMemo(
     () => (
       <div className="flex items-center gap-2">
         {isMobile && <MediaTypeSwitcher value={mediaType} onChange={switchMediaType} />}
-        <SourceSwitcher value={source} onChange={switchSource} compact={isMobile} />
-        {/* 筛选仅 TMDB 源支持：豆瓣视角下不再整体隐藏（隐藏会让顶栏右栏
-            跳动重排），改为禁用置灰原地保留，规则由禁用态自己表达。
-            位置按方案 C 排在两颗胶囊之后、紧邻搜索键，不再夹在中间。
-            银玻璃桌面用与手机同一套下拉菜单；Netflix 维持组合筛选弹窗。 */}
+        {isMobile && <SourceSwitcher value={source} onChange={switchSource} />}
+        {/* 银玻璃与手机一致，仅 TMDB 显示筛选；Netflix 沿用禁用态与组合筛选弹窗。 */}
         {isNf ? (
           <DiscoveryFilterControl
             mediaType={mediaType}
@@ -338,23 +333,21 @@ export function DiscoverView({
             compact={isMobile}
             disabled={source !== "tmdb"}
           />
-        ) : (
+        ) : source === "tmdb" ? (
           <DiscoveryFilterMenu
             mediaType={mediaType}
             filters={filters}
             currentYear={currentYear}
             onChange={changeFilters}
-            disabled={source !== "tmdb"}
           />
-        )}
+        ) : null}
       </div>
     ),
     [changeFilters, currentYear, filters, isMobile, isNf, mediaType, source, switchMediaType, switchSource],
   );
 
-  // 发现页是侧栏一级入口，没有 PageNav，页面控件若自己吸一条顶栏，窄屏上
-  // 就会摞在全局顶栏底下变成两排 header。移动端改为挂进全局顶栏那一行，
-  // 桌面端维持原来的吸顶工具栏不变。Netflix 手机端维持把三组控件都挂顶栏右侧。
+  // 手机控件挂进全局顶栏，桌面在页内工具栏复用标题菜单。
+  // Netflix 手机端维持把三组控件都挂顶栏右侧。
   //
   // 银玻璃手机（2026-09-27 对齐原生 App，DiscoverView.swift 的 toolbarContent）：
   //   - 左上角是标题菜单：大字「电影 / 剧集」+ 小字数据源 + ⌄，点开切类型与数据源；
@@ -363,15 +356,16 @@ export function DiscoverView({
   const silverMobile = isMobile && !isNf;
   const titleMenu = useMemo(
     () =>
-      silverMobile ? (
+      !isMobile || silverMobile ? (
         <DiscoverTitleMenu
           mediaType={mediaType}
           source={source}
           onMediaTypeChange={switchMediaType}
           onSourceChange={switchSource}
+          variant={isMobile ? "mobile" : isNf ? "compact" : "desktop"}
         />
       ) : null,
-    [mediaType, silverMobile, source, switchMediaType, switchSource],
+    [isMobile, isNf, mediaType, silverMobile, source, switchMediaType, switchSource],
   );
   const silverFilterMenu = useMemo(
     () =>
@@ -393,9 +387,9 @@ export function DiscoverView({
   }, [controls, isMobile, setTopBarActions, silverFilterMenu, silverMobile]);
   const setTopBarLeading = chrome?.setTopBarLeading;
   useEffect(() => {
-    if (!titleMenu || !setTopBarLeading) return;
+    if (!silverMobile || !titleMenu || !setTopBarLeading) return;
     return setTopBarLeading(titleMenu);
-  }, [setTopBarLeading, titleMenu]);
+  }, [setTopBarLeading, silverMobile, titleMenu]);
 
   // 银玻璃手机的沉浸式 Hero：只在本页**真的会画 Hero** 时才把页面提到顶栏底下
   // ——展示清单声明了 Hero 且数据不是「无/失败」（undefined = 还在加载、骨架占位）。
@@ -416,14 +410,13 @@ export function DiscoverView({
   useHeroScrollVar(scrollRootRef, heroRootRef, `${Boolean(page)}:${filtering}:${Boolean(error)}`);
 
   // 桌面工具栏（手机的控件在全局顶栏里）
-  const pageTitle = mediaType === "movie" ? "发现电影" : "发现剧集";
   const toolbar = isMobile ? null : isNf ? (
     // Netflix：fixed 悬浮在视口右上（顶栏下方），不随页面滚动移位——发现页
     // 一滚数屏，筛选/数据源入口跟着内容滚走后想换源就得滚回顶部。
     // 页面悬浮操作簇走主题坑位（与详情页 ⋯ 菜单同一规格）而不是手写一份
     // 同款 fixed 类：手写副本会与组件规格漂移（此前 z-20 vs z-30），改一处漏
     // 一处。唯一差异是层级 20→30：与返回键同层，仍在 z-40 顶栏之下。
-    PageActions ? <PageActions>{controls}</PageActions> : null
+    PageActions ? <PageActions>{titleMenu}{controls}</PageActions> : null
   ) : (
     // 银玻璃桌面：与订阅首页同一形态——页内标题在左、控件在右；有 Hero 时叠在大图顶部的
     // 压暗上（随页面滚走），没有 Hero（豆瓣、筛选结果）时是普通的页头行
@@ -435,8 +428,8 @@ export function DiscoverView({
           : "sticky top-0 pb-3 pt-7"
       }`}
     >
-      <h2 className="text-on-image text-[26px] font-bold leading-tight tracking-[-0.02em] text-white">
-        {pageTitle}
+      <h2 className="pointer-events-auto">
+        {titleMenu}
       </h2>
       <div className="pointer-events-auto flex items-center gap-2">{controls}</div>
     </div>
@@ -581,19 +574,13 @@ export function DiscoverView({
   return silverFrame(scrollBody);
 }
 
-/** 数据源视角切换：两个视角分别缓存，来回切换不会重复请求。compact 档给
- *  移动端顶栏用：字号、内边距、底板配方与类型胶囊完全同档（text-sub +
- *  py-1.5 px-2.5 + 标准玻璃底），全行控件一套规格一套配方；宽排布顺序
- *  （类型在前、来源在后）表达先选内容、再选来源的动线。宽度预算：375px
- *  视口下 ≈364px 放得下，容器横向滚动仅作更窄设备的兜底。 */
+/** Netflix 手机顶栏的数据源分段切换，与类型胶囊保持同一规格。 */
 function SourceSwitcher({
   value,
   onChange,
-  compact = false,
 }: {
   value: MediaSource;
   onChange: (source: MediaSource) => void;
-  compact?: boolean;
 }) {
   return (
     // 胶囊底材与订阅页 MediaTypeSwitcher 逐类一致（不加 solid-popover 浮层钩子）：
@@ -606,9 +593,7 @@ function SourceSwitcher({
           type="button"
           aria-pressed={value === source}
           onClick={() => onChange(source)}
-          className={`rounded-full font-semibold transition ${
-            compact ? "px-2.5 py-1.5 text-sub" : "py-1.5 px-4 text-sub"
-          } ${
+          className={`rounded-full px-2.5 py-1.5 text-sub font-semibold transition ${
             value === source
               ? "bg-white/15 text-white shadow-sm"
               : "text-[var(--text-muted)] hover:text-white"
@@ -622,21 +607,23 @@ function SourceSwitcher({
 }
 
 /**
- * 银玻璃手机发现页左上角的标题菜单（对应 iOS DiscoverView.swift 的 titleMenu）：
+ * 发现页的标题菜单（对应 iOS DiscoverView.swift 的 titleMenu）：
  * 大字「电影 / 剧集」+ 小字数据源 + ⌄，点开两组单选——类型、数据源。切换沿用
  * switchMediaType / switchSource（切类型保留数据源、切数据源保留类型，都清空筛选）。
- * 取代了原先底栏附件里的电影 / 剧集分段与顶栏的 TMDB / 豆瓣 胶囊。
+ * 手机挂全局顶栏左侧；桌面银玻璃挂页头左侧，Netflix 挂右上方操作区。
  */
 function DiscoverTitleMenu({
   mediaType,
   source,
   onMediaTypeChange,
   onSourceChange,
+  variant = "mobile",
 }: {
   mediaType: MediaType;
   source: MediaSource;
   onMediaTypeChange: (type: MediaType) => void;
   onSourceChange: (source: MediaSource) => void;
+  variant?: "mobile" | "desktop" | "compact";
 }) {
   const typeLabel = mediaType === "tv" ? "剧集" : "电影";
   const sourceLabel = source === "douban" ? "豆瓣" : "TMDB";
@@ -652,10 +639,23 @@ function DiscoverTitleMenu({
         <button
           type="button"
           aria-label={`正在看${typeLabel}，数据源${sourceLabel}；切换类型或数据源`}
-          className="flex min-w-0 items-baseline gap-1.5 rounded-lg outline-none transition-opacity active:opacity-60 focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
+          className={`flex min-w-0 items-baseline gap-1.5 outline-none transition-opacity active:opacity-60 focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)] ${
+            variant === "compact"
+              ? "rounded-full border border-white/10 bg-black/35 px-4 py-2 backdrop-blur-xl"
+              : "rounded-lg"
+          }`}
         >
           {/* 30px：比其他标签根页的大标题（28px）略大一档，同 App 的 30pt 标题菜单 */}
-          <span className={`${TOP_BAR_LARGE_TITLE_CLASS} !text-[30px]`}>{typeLabel}</span>
+          <span
+            className={variant === "mobile"
+              ? `${TOP_BAR_LARGE_TITLE_CLASS} !text-[30px]`
+              : variant === "desktop"
+                ? "text-on-image text-[26px] font-bold leading-tight tracking-[-0.02em] text-white"
+                : "text-sub font-semibold text-white"
+            }
+          >
+            {typeLabel}
+          </span>
           <span className="shrink-0 text-caption font-semibold text-[var(--text-muted)]">
             {sourceLabel}
           </span>
@@ -664,7 +664,7 @@ function DiscoverTitleMenu({
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
-          align="start"
+          align={variant === "compact" ? "end" : "start"}
           sideOffset={8}
           collisionPadding={12}
           className="menu-surface z-50 min-w-[12rem] p-1"

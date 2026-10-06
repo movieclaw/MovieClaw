@@ -13,9 +13,9 @@ import { useResolvedTheme } from "@/themes/registry";
  *   - Netflix：**没有首页**（2026-09 修订：内容首页与媒体库合并成页，
  *     Billboard 移入 /library 页顶，见 themes/netflix/components/library-hero.tsx），
  *     / 仅剩老书签与历史链接会到达，replace 到 /library；
- *   - 银玻璃移动端：replace 到底栏首个页签 /discover/movie（2026-09-23，
+ *   - 银玻璃移动端：replace 到底栏首个页签 /library（2026-10-06，
  *     docs/design/web-themes-mobile/04）——手机上新会话不是高频操作，收进
- *     「更多」面板（进 /new 整页），PWA 冷启动（start_url = /）直接落在发现。
+ *     「更多」面板（进 /new 整页），PWA 冷启动（start_url = /）直接落在媒体库。
  * 主题只存在于登录后的偏好 Context 里（服务端无值），因此这里是客户端组件。
  */
 export default function HomePage() {
@@ -24,7 +24,7 @@ export default function HomePage() {
   // 「/」仅剩老书签与历史链接会到达，replace 到 /library
   const hasLibraryHero = useResolvedTheme().slots.libraryHero != null;
   const isMobile = useIsMobile();
-  const redirectTo = hasLibraryHero ? "/library" : isMobile ? "/discover/movie" : null;
+  const redirectTo = hasLibraryHero || isMobile ? "/library" : null;
 
   useEffect(() => {
     if (redirectTo) router.replace(redirectTo);

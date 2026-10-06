@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { ContentEmptyState } from "@/components/content-empty-state";
-import { CompassIcon, ShieldIcon } from "@/components/icons";
+import { SparklesIcon, ShieldIcon } from "@/components/icons";
 import {
   DESKTOP_CARD_FRAME,
   DESKTOP_IMMERSIVE_FRAME,
@@ -211,8 +211,8 @@ export function SubscriptionsView() {
                   href={"/discover/tv" as Route}
                   className="btn-accent flex items-center gap-1.5 rounded-full px-4 py-2 text-ui font-semibold"
                 >
-                  <CompassIcon className="size-4" />
-                  去发现剧集
+                  <SparklesIcon className="size-4" />
+                  去发现
                 </Link>
               ) : undefined
             }

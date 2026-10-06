@@ -14,7 +14,7 @@ import {
 
 import { usePendingUpdate } from "@/components/app-update-entry";
 import { AvatarBadge } from "@/components/avatar-badge";
-import { ActivityIcon, BookmarkIcon, HomeIcon, LibraryStackIcon } from "@/components/icons";
+import { ActivityIcon, BookmarkFillIcon, SparklesIcon, LibraryStackIcon } from "@/components/icons";
 import { mediaLiveCount, useMediaActivity } from "@/components/media-activity-section";
 import { GlassRim, type RimTarget } from "@/lib/glass-rim";
 import {
@@ -46,7 +46,7 @@ import { taskActivityBadge, useTaskActivity, type TaskActivityBadge } from "@/li
  *     或点它即展开（对应 tabBarMinimizeBehavior = .onScrollDown）。收缩时页签向
  *     当前页签收拢、糊掉淡出，圆钮在左端弹出；展开时页签自左向右依次浮现。
  *
- * 页签（纯图标，参照 Instagram iOS 底栏）：发现 / 媒体库 / 订阅 / 活动 / 头像。
+ * 页签（纯图标，参照 Instagram iOS 底栏）：媒体库 / 订阅 / 发现 / 活动 / 头像。
  * 「订阅」按 canSubscribe 显隐，「活动」仅管理员；最右的头像是当前用户头像，
  * 落到 /my「更多」页（主题 pages.my 坑位，基础实现 = components/more-page.tsx），
  * 收纳个人信息、设置、切换账号、AI 会话等低频入口，/settings 下的页面也算在它名下。
@@ -64,13 +64,13 @@ import { taskActivityBadge, useTaskActivity, type TaskActivityBadge } from "@/li
  *     保持原来的纯 CSS 暗玻璃。
  */
 
-const DISCOVER_TAB = { id: "discover", label: "发现", href: "/discover/movie", Icon: HomeIcon } as const;
+const DISCOVER_TAB = { id: "discover", label: "发现", href: "/discover/movie", Icon: SparklesIcon } as const;
 const LIBRARY_TAB = { id: "library", label: "媒体库", href: "/library", Icon: LibraryStackIcon } as const;
 const SUBSCRIPTION_TAB = {
   id: "subscriptions",
   label: "订阅",
   href: "/subscriptions",
-  Icon: BookmarkIcon,
+  Icon: BookmarkFillIcon,
 } as const;
 /** 活动（任务中心）：高频入口，从「更多」页提到底栏（2026-09-24 用户要求）；
  *  Agent 能力，管理员专属——与侧栏 memberNavItems 同口径。iOS 标签栏上限 5 个，
@@ -151,9 +151,9 @@ export function GlassTabBar() {
   const { canSubscribe, isAdmin } = usePermissions();
   const { session } = useSession();
   const tabs = [
-    DISCOVER_TAB,
     LIBRARY_TAB,
     ...(canSubscribe ? [SUBSCRIPTION_TAB] : []),
+    DISCOVER_TAB,
     ...(isAdmin ? [ACTIVITY_TAB] : []),
     MORE_TAB,
   ];

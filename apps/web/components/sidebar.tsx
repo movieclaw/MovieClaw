@@ -6,11 +6,11 @@ import { createPortal } from "react-dom";
 
 import {
   ActivityIcon,
-  BookmarkIcon,
+  BookmarkFillIcon,
   ChatIcon,
   ClockIcon,
   CopyIcon,
-  LibraryIcon,
+  LibraryStackIcon,
   MoreIcon,
   PanelLeftIcon,
   PencilIcon,
@@ -61,7 +61,7 @@ export interface SidebarProps {
   flat?: boolean;
 }
 
-/** 主导航：新会话 / 媒体库 / 探索项 / 订阅 / 活动，合并成一列扁平列表。
+/** 主导航：新会话 / 媒体库 / 订阅 / 探索项 / 活动，合并成一列扁平列表。
  *  「新会话」是 Agent 入口（管理员专属，成员侧隐藏——后端也会 403）。
  *
  *  这个数组的次序就是**内置默认顺序**：用户在「设置 → 外观 → 导航顺序」里排过
@@ -70,9 +70,9 @@ export interface SidebarProps {
  *  两边的图标与文案不会各写一份。 */
 export const SIDEBAR_NAV_ITEMS = [
   { id: "new", label: "新会话", icon: PlusIcon },
-  { id: "library", label: "媒体库", icon: LibraryIcon },
+  { id: "library", label: "媒体库", icon: LibraryStackIcon },
+  { id: "subscriptions", label: "我的订阅", icon: BookmarkFillIcon },
   ...exploreItems,
-  { id: "subscriptions", label: "我的订阅", icon: BookmarkIcon },
   // 「活动」（管理员专属）在这里占一位，只为**参与排序**：它带角标、落点还随
   // 角标变，因此渲染仍交给 JobCenter（见下方 navItems.map 的分支），这里登记的
   // label/icon 只给设置页的排序列表用。id 与 app-shell 的 navIdFromPath 对齐

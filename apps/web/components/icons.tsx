@@ -1,6 +1,6 @@
 /**
  * 项目内联图标集。
- * 统一用 24x24、描边风格的 SVG，避免为骨架引入额外图标库（保持依赖精简）。
+ * 统一用 24x24 SVG；菜单对齐 iPhone 的符号，页签用实心、设置列表用描边。
  * 颜色继承 currentColor，尺寸由外部通过 className（如 size-4）控制。
  */
 import type { SVGProps } from "react";
@@ -162,13 +162,6 @@ export const CalendarIcon = (p: IconProps) => (
   </Base>
 );
 
-export const CompassIcon = (p: IconProps) => (
-  <Base {...p}>
-    <circle cx="12" cy="12" r="8.5" />
-    <path d="m15.5 8.5-2 5-5 2 2-5 5-2Z" />
-  </Base>
-);
-
 /**
  * 设置齿轮。
  *
@@ -302,51 +295,28 @@ export const OpenIcon = (p: IconProps) => (
   </Base>
 );
 
-/**
- * 媒体库（侧栏入口）：四格藏品网格，右下一格填实。
- *
- * 原先用 LayersIcon，但那枚在搜索页表示「分组视图」，一套图标两个含义。
- * 这里挑图标的约束比看上去紧：邻居「发现电影 / 发现剧集」都是方框类
- * （胶片、电视），媒体盒之类的方框一列看下来分不出；两张卡前后叠的画法
- * 与 CopyIcon（复制）构造完全一样；书架在 18px 下像柱状图。四格网格与
- * 上述全都不撞，填实的那一格让它不至于被读成一个「网格视图」开关。
- */
-export const LibraryIcon = (p: IconProps) => (
-  <Base {...p}>
-    <rect x="3.4" y="3.6" width="7.4" height="7.4" rx="1.4" />
-    <rect x="13.2" y="3.6" width="7.4" height="7.4" rx="1.4" />
-    <rect x="3.4" y="13" width="7.4" height="7.4" rx="1.4" />
-    <rect x="13.2" y="13" width="7.4" height="7.4" rx="1.4" fill="currentColor" />
-  </Base>
-);
-
-/**
- * 发现（手机底栏专用）：房子。
- *
- * 底栏去掉文字后（2026-09-25），CompassIcon 的罗盘在 iPhone 上就是 Safari 的图标，
- * 容易被读成「打开浏览器」。发现页是打开应用落地的第一页，纯图标底栏（Instagram、
- * YouTube）都用房子表示这一页。用户从 6 个备选里选定；桌面侧栏与 Netflix 主题仍用罗盘。
- * 与上面的 HouseIcon（屋顶 + 墙、无门）是两种画法：这个是闭合轮廓带门洞，28px 下更饱满。
- */
-export const HomeIcon = (p: IconProps) => (
-  <Base {...p}>
-    <path d="M4 10.4 12 3.8l8 6.6V19a1.5 1.5 0 0 1-1.5 1.5H15v-5.2H9v5.2H5.5A1.5 1.5 0 0 1 4 19Z" />
-  </Base>
-);
-
-/**
- * 媒体库（手机底栏专用）：卡片堆叠 + 实心播放三角。
- *
- * 底栏去掉文字后（2026-09-25），LibraryIcon 的四宫格读起来像「应用列表 / 网格视图」。
- * 堆叠卡片是苹果「资料库」的通用画法（Apple Music、Apple TV 的资料库页签），iOS 用户
- * 一眼认得；前卡里的播放三角点明是视频库。用户从 7 个备选里选定。桌面侧栏与 Netflix
- * 主题仍用 LibraryIcon——侧栏有文字，且那里四宫格要避开相邻的胶片 / 电视方框图标。
- */
+/** 媒体库：叠放的播放卡片，对齐 iPhone 的 play.square.stack.fill。 */
 export const LibraryStackIcon = (p: IconProps) => (
   <Base {...p}>
-    <rect x="3.5" y="8.5" width="17" height="12" rx="2.2" />
-    <path d="M5.8 5.5h12.4M8 2.9h8" />
-    <path d="M10.5 11.7v5.6l4.6-2.8Z" fill="currentColor" />
+    <path d="M6.5 4h11M9 1.5h6" />
+    <path
+      d="M6 6.5h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-12a2 2 0 0 1 2-2ZM10 10.5v8l6-4Z"
+      fill="currentColor" stroke="none" fillRule="evenodd"
+    />
+  </Base>
+);
+
+/** 发现 / 模型接入：三枚闪光，对齐 iPhone 的 sparkles。 */
+export const SparklesIcon = (p: IconProps) => (
+  <Base {...p} fill="currentColor" stroke="none">
+    <path d="M14 5c1.2 5 2.5 6.3 7.5 7.5-5 1.2-6.3 2.5-7.5 7.5-1.2-5-2.5-6.3-7.5-7.5C11.5 11.3 12.8 10 14 5ZM5.5 1.5c.6 2.6 1.4 3.4 4 4-2.6.6-3.4 1.4-4 4-.6-2.6-1.4-3.4-4-4 2.6-.6 3.4-1.4 4-4ZM5 16c.5 2.2 1.1 2.8 3.3 3.3C6.1 19.8 5.5 20.4 5 22.6c-.5-2.2-1.1-2.8-3.3-3.3C3.9 18.8 4.5 18.2 5 16Z" />
+  </Base>
+);
+
+/** 页签用实心书签，对齐 iPhone 的 bookmark.fill；设置列表仍用描边款。 */
+export const BookmarkFillIcon = (p: IconProps) => (
+  <Base {...p} fill="currentColor" stroke="none">
+    <path d="M6 2h12a1.5 1.5 0 0 1 1.5 1.5V22L12 17.5 4.5 22V3.5A1.5 1.5 0 0 1 6 2Z" />
   </Base>
 );
 
@@ -583,5 +553,105 @@ export const ChatIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="M21 11.5a7.5 7.5 0 0 1-7.5 7.5c-1.06 0-2.07-.2-3-.57L5 20l1.57-4.5A7.5 7.5 0 1 1 21 11.5Z" />
     <path d="M9.5 11.5h.01M13.5 11.5h.01" />
+  </Base>
+);
+
+/** 以下为菜单图标：符号语义与 iPhone SettingsSection.systemImage 保持一致。 */
+export const GaugeIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M4.6 18a9 9 0 1 1 14.8 0H4.6ZM12 12l4-5" />
+    <circle cx="12" cy="12" r="1.2" fill="currentColor" />
+    <path d="M5.5 11h.01M7.5 6.5h.01M12 4.5h.01M18.5 11h.01" strokeWidth="2.5" />
+  </Base>
+);
+
+export const UserCircleIcon = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="9" r="3" />
+    <path d="M5.5 18a7 7 0 0 1 13 0" />
+  </Base>
+);
+
+export const MembersKeyIcon = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="8" cy="7" r="3" />
+    <path d="M2 19v-2a6 6 0 0 1 10-4.5M15 4.2a3 3 0 0 1 0 5.6M17 12a5 5 0 0 1 4 4" />
+    <circle cx="14" cy="17" r="2" />
+    <path d="M16 17h6M19 17v2M21 17v2" />
+  </Base>
+);
+
+export const LaptopPhoneIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 5H4a1 1 0 0 0-1 1v11h9M1 20h11" />
+    <rect x="15" y="3" width="7" height="18" rx="1.8" />
+    <path d="M17.5 18.5h2" />
+  </Base>
+);
+
+export const BellBadgeIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 4a6 6 0 0 0-6 6c0 5-2 6-2 6h16s-2-1-2-5M10 20a2 2 0 0 0 4 0" />
+    <circle cx="18" cy="5" r="3" fill="currentColor" stroke="none" />
+  </Base>
+);
+
+export const DownloadCircleIcon = (p: IconProps) => (
+  <Base {...p}>
+    <circle cx="12" cy="12" r="9" />
+    <path d="M12 6v12m-4-4 4 4 4-4" />
+  </Base>
+);
+
+export const FolderGearIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M11 20H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2v2M2 9h11" />
+    <path d="m18 12 .6 1.7 1.8.1.8 1.4-.9 1.5.9 1.5-.8 1.4-1.8.1L18 22l-1.7-.1-.6-1.7-1.8-.1-.8-1.4.9-1.5-.9-1.5.8-1.4 1.8-.1.6-1.7Z" />
+    <circle cx="17.2" cy="17.2" r="1.6" />
+  </Base>
+);
+
+export const PhotosStackIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M17 3H4a2 2 0 0 0-2 2v11" />
+    <rect x="6" y="7" width="16" height="14" rx="2" />
+    <circle cx="11" cy="11" r="1.2" />
+    <path d="m7 19 5-5 3 3 3-4 3 4" />
+  </Base>
+);
+
+export const PlayRectangleIcon = (p: IconProps) => (
+  <Base {...p}>
+    <rect x="2" y="5" width="20" height="14" rx="2.5" />
+    <path d="m10 8 6 4-6 4Z" fill="currentColor" stroke="none" />
+  </Base>
+);
+
+export const AppBadgeIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M12 3H6a3 3 0 0 0-3 3v12a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-6" />
+    <circle cx="18" cy="6" r="4" />
+  </Base>
+);
+
+export const ChatBubblesIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="M5 15H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2H9l-4 4v-3ZM12 18h4l4 3v-3a2 2 0 0 0 2-2V9" />
+  </Base>
+);
+
+export const PaperplaneIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="m3 10 18-7-7 18-3-8-8-3ZM11 13 21 3" />
+  </Base>
+);
+
+export const GearsIcon = (p: IconProps) => (
+  <Base {...p}>
+    <path d="m9 2 1 2 2 .2 1.3 2-1 1.8 1 1.8-1.3 2-2 .2-1 2H6.7l-1-2-2-.2-1.3-2 1-1.8-1-1.8 1.3-2 2-.2 1-2Z" />
+    <circle cx="7.8" cy="8" r="2.2" />
+    <path d="m17 11 .8 1.7 1.9.2 1.2 1.8-.9 1.7.9 1.7-1.2 1.8-1.9.2-.8 1.7h-2l-.8-1.7-1.9-.2-1.2-1.8.9-1.7-.9-1.7 1.2-1.8 1.9-.2.8-1.7Z" />
+    <circle cx="16" cy="16.5" r="1.9" />
   </Base>
 );
