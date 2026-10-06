@@ -1,10 +1,12 @@
 import importlib.util
 import json
-from pathlib import Path
 import unittest
+from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-spec = importlib.util.spec_from_file_location("prepare_project", ROOT / "scripts/prepare-project.py")
+spec = importlib.util.spec_from_file_location(
+    "prepare_project", ROOT / "scripts/prepare-project.py"
+)
 prepare = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(prepare)
 
@@ -14,10 +16,15 @@ class EngineDependencyTests(unittest.TestCase):
         self.lock = json.loads((ROOT / "Package.resolved").read_text())
         pins = {pin["identity"]: pin for pin in self.lock["pins"]}
         engine = pins["aetherengine"]
-        self.project = {"packages": {
-            "AetherEngine": {"url": engine["location"], "revision": engine["state"]["revision"]},
-            "FFmpegBuild": {"exactVersion": pins["ffmpegbuild"]["state"]["version"]},
-        }}
+        self.project = {
+            "packages": {
+                "AetherEngine": {
+                    "url": engine["location"],
+                    "revision": engine["state"]["revision"],
+                },
+                "FFmpegBuild": {"exactVersion": pins["ffmpegbuild"]["state"]["version"]},
+            }
+        }
 
     def test_accepts_committed_lock(self):
         prepare.check_lock(self.project, self.lock)

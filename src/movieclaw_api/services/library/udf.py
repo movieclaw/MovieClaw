@@ -4,7 +4,8 @@
 没有。刷片 / 大图预告要在镜像里挑一段放，需要主播放列表（MPLS）与关键帧入口表（CLPI），
 这两样都是盘里的小文件，只要能按路径找到并读出来。
 
-照搬 App 引擎里已在真机上跑过的实现（``yipengfei329/AetherEngine/Sources/AetherEngine/Disc/UDFReader.swift``）：
+照搬 App 引擎里已在真机上跑过的实现：
+``yipengfei329/AetherEngine/Sources/AetherEngine/Disc/UDFReader.swift``。
 UDF 2.50，解析元数据分区与碎片化文件的分配描述符；扇区 2048 字节；只校验描述符标签号
 （不校验 CRC）。所有长度字段都来自不可信的镜像，读之前一律夹紧。
 """
