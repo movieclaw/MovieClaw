@@ -501,6 +501,8 @@ struct TVShelf<Content: View>: View {
     let title: String
     /// 标题右侧的说明（如「12 部」）
     var detail: String?
+    /// 收起行标题（占位不变）：首页大图预告开播、卡片行让位时用
+    var titleHidden = false
     @ViewBuilder let content: () -> Content
 
     /// 焦点在不在这一行：在就把行标题点亮，不在就压暗（同系统 Apple TV App：眼睛自然落在当前这一行）
@@ -523,6 +525,7 @@ struct TVShelf<Content: View>: View {
                 }
             }
             .padding(.horizontal, TVMetrics.edge)
+            .opacity(titleHidden ? 0 : 1)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: TVMetrics.cardSpacing) {
                     content()
