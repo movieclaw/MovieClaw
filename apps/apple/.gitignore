@@ -8,3 +8,6 @@ xcuserdata/
 
 # 本机签名（开发者团队 ID），不入库
 XcodeConfig/Signing.local.xcconfig
+
+# 从锁定的引擎依赖生成，三个 App 共用
+Shared/About/AetherEngineDependency.generated.swift

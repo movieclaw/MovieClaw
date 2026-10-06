@@ -2,8 +2,8 @@
 #
 # 为什么用 XcodeGen 而不是直接提交 .xcodeproj：
 # - .pbxproj 是机器生成的巨型文件，多人/多会话并行加文件时几乎必然冲突；
-# - 这里按目录收录源码，新增 Swift 文件无需改工程文件，重新 `xcodegen` 即可。
-# 生成：cd apps/apple && xcodegen generate（产物 MovieClaw.xcodeproj 已在 .gitignore）
+# - 这里按目录收录源码，新增 Swift 文件无需改工程文件，重新运行准备脚本即可。
+# 生成：apps/apple/scripts/prepare-project.py（产物 MovieClaw.xcodeproj 已在 .gitignore）
 name: MovieClaw
 options:
   bundleIdPrefix: io.movieclaw
@@ -22,10 +22,11 @@ packages:
     from: "13.0.0"
   # 自研引擎的内核（LGPL-3.0 + App Store 例外）：FFmpeg 解封装、就地换封装成 HLS 交给 AVPlayer，
   # AVPlayer 解不了的编码走 FFmpeg 软解 + 系统显示层。设计见 docs/design/player-engine.md。
-  # 用仓库内的 Vendor/AetherEngine（上游 7.28.0 + 起播优化补丁，清单见其 PATCHES.md），
-  # 补丁逐个提给上游，合并后回到直接引用上游版本。升级前要用语料回归（见设计文档「质量体系」）。
+  # 引擎改动在独立 fork 维护；固定完整提交，Package.resolved 锁定传递依赖。
+  # 更新与验证流程见 docs/design/player-engine.md §5。
   AetherEngine:
-    path: Vendor/AetherEngine
+    url: https://github.com/yipengfei329/AetherEngine
+    revision: "cc3f12598b4ab3fa116723bcca37311885ff8941"
   # AetherEngine 自带的 FFmpeg（AetherLib* 动态框架，LGPL-2.1，无 GPL 组件）。
   # 单独声明是为了让 App 目标把这些动态框架嵌进包里（见 MovieClaw 目标的依赖说明）；
   # 版本必须与 AetherEngine 当前版本要求的一致，升级 AetherEngine 时一起改。

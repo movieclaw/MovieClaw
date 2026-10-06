@@ -225,13 +225,76 @@ HLS 一路 404 被判「文件放不了」→ 系统播放器 + 转码；之后�
 
 ## 5. 与 AetherEngine 的关系
 
-- **依赖，不 fork**：`project.yml` 钉死版本（`exactVersion`），包在 `PlayerEngine` 协议后面；需要的改动尽量提上游 PR。
-  它的代码量大（最大的文件约 7400 行），长期自己维护一个分叉代价很高。
-- **升级前跑语料回归**：上游几乎每天发版，升级版本号前要用第 6 节的语料在模拟器上过一遍。
-- **许可**：AetherEngine 为 LGPL-3.0 加 App Store 例外，改了引擎本身要按 LGPL 公开；FFmpeg 以动态框架随包分发。
-  MovieClaw（MIT）与之共存，关于页需列出组件与源码地址（上架前补）。
-- **我们自己做的部分**：路线规划与兜底阶梯、服务端配合（直出会话、媒体事实、补探测盲区、原盘虚拟拼接）、
-  字幕叠加层（引擎只给字幕数据）、iOS / tvOS 界面、语料回归，以及给引擎补的能力（原盘双 PID 杜比视界等）。
+### 5.1 维护边界与版本锁定
+
+引擎源码唯一维护在 [yipengfei329/AetherEngine](https://github.com/yipengfei329/AetherEngine)，
+上游为 [superuser404notfound/AetherEngine](https://github.com/superuser404notfound/AetherEngine)。
+MovieClaw 不再存放 Vendor 副本：`project.yml` 引用 fork 的完整提交 SHA，
+`apps/apple/Package.resolved` 同时锁定引擎、FFmpegBuild、LibDovi、Nuke 和传递依赖。
+`main` 是 fork 的维护主线，功能在分支开发；升级引擎必须显式更新 App 的 SHA，不跟随远程 main 自动变化。
+补丁清单在 [fork 的 PATCHES.md](https://github.com/yipengfei329/AetherEngine/blob/main/PATCHES.md)。
+
+App 只通过 `AetherCore.framework` 调用引擎，维持动态链接边界；FFmpeg 动态框架仍由各 App 嵌入。
+引擎算法、网络读取、光盘、缓存改动在 fork；业务路由、服务器配合、字幕叠加、界面及引擎适配在 MovieClaw。
+App 测试保留消费端兼容性回归；引擎自身的完整单元测试在 fork 运行。
+
+所有构建、测试与打包入口先调用 `apps/apple/scripts/prepare-project.py`：校验 SHA 与锁文件一致，
+生成工程并恢复锁文件。后续 `xcodebuild` 使用 `-onlyUsePackageVersionsFromResolvedFile`，
+缺失或冲突的锁定版本直接失败。Xcode 直接打开工程前也先运行该脚本。
+CI 的三个 App 与 App 发版使用 Xcode 27，与引擎上游的受测工具链一致。
+
+AetherEngine 为 LGPL-3.0 加 App Store 例外，MovieClaw 为 MIT；许可全文仍随 App 分发。
+三端关于页的源码地址由同一个准备脚本从锁定依赖生成，指向实际使用的 fork 提交，避免源码说明跟版本脱节。
+生成文件不提交，新的工作区通过准备脚本重建；它只包含公开源码地址，不含账号或签名信息。
+
+### 5.2 升级与回馈上游
+
+1. 在独立引擎仓库 `git fetch upstream`，从 fork 的维护主线切工作分支，合并选定的上游提交或 tag。
+   使用 Git 合并解决冲突，不再覆盖源码后重新逐条打补丁。核对 PATCHES.md，删除已经被上游吸收的补丁说明。
+2. 在引擎仓库执行 `swift build`、`swift test`，检查失败是否来自本次修改。
+   有意改变的策略须同步其断言；既有失败须如实记录，不能把筛选用例通过当作全套测试通过。
+   完成引擎验证后推到自己的 fork；给上游提交可独立审阅的 PR，描述使用英文。
+3. 在 MovieClaw 工作分支把 `project.yml` 的 `AetherEngine.revision` 改为经过验证的完整 SHA，然后执行：
+
+```sh
+apps/apple/scripts/prepare-project.py --update-lock
+```
+
+审阅 `Package.resolved`：确认引擎提交正确，只有必要的传递依赖改变。
+如引擎改变 FFmpegBuild 要求，同时修改 App 显式嵌入的 `exactVersion`。
+普通构建不使用 `--update-lock`；缓存删除、重新生成工程或新建工作区均不应改变依赖版本。
+
+4. 编译三端并跑 App 单元、播放器 UI 与真实片源回归，成功后一起提交 `project.yml`、`Package.resolved` 和必要适配。
+   引擎回归未通过时保留在工作分支；回滚只需恢复上一组 SHA 与锁文件并重新运行准备脚本。
+
+```sh
+apps/apple/scripts/ci-build.sh MovieClaw iOS Debug
+apps/apple/scripts/ci-build.sh MovieClawTV tvOS Debug
+apps/apple/scripts/ci-build.sh MovieClawMac macOS Debug
+MC_SIM='<专用 iPhone 模拟器名>' apps/apple/scripts/test.sh -only-testing:MovieClawTests
+MC_SIM='<专用 iPhone 模拟器名>' apps/apple/scripts/test.sh -only-testing:MovieClawUITests/PlayerUITests
+```
+
+### 5.3 可重复的真实播放回归
+
+`apps/apple/scripts/playback-regression.py` 复用故障实验台，验证 MP4、MKV、蓝光目录、DVD 目录、
+UDF DVD 镜像、VC-1 蓝光目录和蓝光镜像；每类两次跳转，MKV 另切音轨与字幕。
+然后验证起播拒连、中途断流和慢线路。全程禁止服务端兜底，任一失败退出非零，逐项结果保存在 `results.json`。
+
+先把 Debug App 安装到专用模拟器。复制 `apps/apple/tests/playback-samples.example.json`，
+按自己的测试库填写路由；MKV 须包含第二条音轨和第一条字幕，片长须能覆盖跳转目标。
+示例条目属于开发 NAS，不作为其他服务器的通用条目。账号通过环境变量提供，不能写入仓库。
+
+```sh
+MC_SIM='<专用模拟器名或 UDID>' MC_SERVER='http://<测试服务器>:3000' \
+  MC_TEST_USERNAME='<测试账号>' MC_TEST_PASSWORD='<测试密码>' \
+  MC_FAULT_OUT='/tmp/movieclaw-engine-regression' \
+  apps/apple/scripts/playback-regression.py /path/to/playback-samples.json
+```
+
+首次执行约十分钟，日志包括每个场景的 App 与代理日志。
+模拟器验证之外，HDR / Dolby Vision、Atmos 和能耗仍需真机及 Apple TV 验收。
+既有的 APFS 缓存容量断言及横屏锁定 UI 失败须单独跟踪，迁移依赖不代表修复这些问题。
 
 ## 6. 阶段 0 验证清单
 

@@ -1,0 +1,50 @@
+{
+  "originHash" : "df74583e9ea0477838c91e99cf194054dfd5d937011aa6555a890aef83db6193",
+  "pins" : [
+    {
+      "identity" : "aetherengine",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/yipengfei329/AetherEngine",
+      "state" : {
+        "revision" : "cc3f12598b4ab3fa116723bcca37311885ff8941"
+      }
+    },
+    {
+      "identity" : "ffmpegbuild",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/superuser404notfound/FFmpegBuild",
+      "state" : {
+        "revision" : "fda08325455bc12c112b5b82d014b98fa0fee0be",
+        "version" : "3.6.0"
+      }
+    },
+    {
+      "identity" : "libdovi",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/superuser404notfound/LibDovi",
+      "state" : {
+        "revision" : "0d7cce1d6836a30d13a3a2326e50a153af53f014",
+        "version" : "2.1.0"
+      }
+    },
+    {
+      "identity" : "nuke",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kean/Nuke",
+      "state" : {
+        "revision" : "30f7a7e72e0607d304fbf69c799474bd5fb6d1ce",
+        "version" : "13.2.0"
+      }
+    },
+    {
+      "identity" : "smbclient",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/kishikawakatsumi/SMBClient",
+      "state" : {
+        "revision" : "e636c2b2458930770932a36d311ec9d478575b90",
+        "version" : "0.3.1"
+      }
+    }
+  ],
+  "version" : 3
+}

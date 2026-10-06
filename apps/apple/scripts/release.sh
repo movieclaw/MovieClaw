@@ -47,10 +47,10 @@ fi
 
 command -v xcodegen >/dev/null || { echo "错误：需要 XcodeGen（brew install xcodegen）" >&2; exit 1; }
 # 每次都按 project.yml 重新生成，保证打包用的工程与仓库里的定义一致
-xcodegen generate >/dev/null
+scripts/prepare-project.py
 
 settings="$(xcodebuild -project MovieClaw.xcodeproj -scheme "$scheme" -configuration Release \
-  -showBuildSettings 2>/dev/null)"
+  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -onlyUsePackageVersionsFromResolvedFile -showBuildSettings 2>/dev/null)"
 setting() { awk -v k="$1" '$1 == k && $2 == "=" { $1 = ""; $2 = ""; sub(/^ +/, ""); print; exit }' <<<"$settings"; }
 team="$(setting DEVELOPMENT_TEAM)"
 bundle_id="$(setting PRODUCT_BUNDLE_IDENTIFIER)"
@@ -78,7 +78,7 @@ echo "归档中（完整日志：$out/$name-archive.log）…"
 if ! xcodebuild -project MovieClaw.xcodeproj -scheme "$scheme" -configuration Release \
   -destination "generic/platform=$platform" -archivePath "$archive" \
   -derivedDataPath "${MC_DERIVED:-$out/DerivedData}" \
-  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -packageAuthorizationProvider netrc \
+  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -packageAuthorizationProvider netrc -onlyUsePackageVersionsFromResolvedFile \
   -allowProvisioningUpdates "${auth[@]}" \
   CURRENT_PROJECT_VERSION="$build" \
   archive >"$out/$name-archive.log" 2>&1; then

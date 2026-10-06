@@ -17,7 +17,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 command -v xcodegen >/dev/null || { echo "错误：需要 XcodeGen（brew install xcodegen）" >&2; exit 1; }
-xcodegen generate >/dev/null
+scripts/prepare-project.py
 
 out="${MC_IPA_OUT:-build-ipa}"
 build="${MC_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
@@ -28,7 +28,7 @@ echo "编译未签名 IPA（构建号 $build，提交 $(git rev-parse --short HE
 # CODE_SIGNING_ALLOWED=NO：不签名、也不要求开发者团队（CI 与 fork 仓库都没有团队 ID）
 if ! xcodebuild -project MovieClaw.xcodeproj -scheme MovieClaw -configuration Release \
   -destination "generic/platform=iOS" -derivedDataPath "$out/DerivedData" \
-  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -packageAuthorizationProvider netrc \
+  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -packageAuthorizationProvider netrc -onlyUsePackageVersionsFromResolvedFile \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
   CURRENT_PROJECT_VERSION="$build" \
   build >"$out/build.log" 2>&1; then

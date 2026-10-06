@@ -595,7 +595,7 @@ onAppear 里才接上控制器，控制层、手势层、菜单这时才建）�
 （片库超过 100 MB 的 MP4 约六成，抽样 60 部有 34 部）走的是另一条路，结局相同：解复用器读到 mdat 盒子头就跳去文件尾读 moov，
 读取器把文件头连接挪过去，回到 mdat 开头时同样掉进 4 MB 整块补取。
 
-**改动**（`Vendor/AetherEngine/PATCHES.md` P53～P56，各带开关，对照时关掉）：
+**改动**（[fork 的 PATCHES.md](https://github.com/yipengfei329/AetherEngine/blob/main/PATCHES.md) P53～P56，各带开关，对照时关掉）：
 
 | 补丁 | 做什么 | App 开关（关） |
 |---|---|---|
@@ -657,7 +657,7 @@ P56 是对 P54 的纠偏：《大江大河》MP4（1.3 Mbit/s，moov 3.2 MB，�
 - AVPlayer 能边收边解一个还没写完的分片（分块传输），收到完整的片段（moof + mdat）就能出画，分片内的片段 0.5 秒最好。
   所以切段不动，改成「分片边产出边送」。
 
-**改动**（`Vendor/AetherEngine/PATCHES.md` P57～P59，各带开关）：
+**改动**（[fork 的 PATCHES.md](https://github.com/yipengfei329/AetherEngine/blob/main/PATCHES.md) P57～P59，各带开关）：
 
 | 补丁 | 做什么 | App 开关（关） |
 |---|---|---|

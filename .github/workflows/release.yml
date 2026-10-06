@@ -396,8 +396,8 @@ jobs:
   ios-ipa:
     needs: asset-plan
     if: ${{ needs.asset-plan.outputs.ipa_mode == 'build' }}
-    # 本项目要 iOS 26 SDK 与 Swift 6.2（Xcode 26 起）
-    runs-on: macos-26
+    # 与 App PR 检查及 AetherEngine 上游一致：Xcode 27
+    runs-on: xcode-27
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
@@ -428,8 +428,8 @@ jobs:
   mac-app:
     needs: asset-plan
     if: ${{ needs.asset-plan.outputs.mac_mode == 'build' }}
-    # 液态玻璃与 SwiftUI 新接口要 macOS 26 SDK（Xcode 26 起），同 worker-macos / ios-ipa
-    runs-on: macos-26
+    # 与 App PR 检查及 ios-ipa 一致：Xcode 27（Worker 独立保留原工具链）
+    runs-on: xcode-27
     env:
       RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
     steps:
