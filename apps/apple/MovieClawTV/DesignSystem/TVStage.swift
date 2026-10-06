@@ -81,19 +81,23 @@ struct TVStageBackdrop: View {
                         .id(tint.description)
                         .transition(.opacity)
                 }
-                if let url {
-                    TVStageImage(url: url, fadeFrom: fadeFrom)
-                        .id(url)
-                        .transition(.opacity)
-                }
-                if url != nil {
+                // 剧照与预告先叠成一层、再整体套一次下沿渐隐。原先两者各套一次：渐隐区里视频只剩几成不透明，
+                // 压不住底下同样半透明的剧照，开播后下半部分透出剧照的残影（2026-10-06 用户真机反馈）
+                ZStack(alignment: .top) {
+                    if let url {
+                        TVStageImage(url: url)
+                            .id(url)
+                            .transition(.opacity)
+                    }
                     // 大图预告盖在剧照上（不跟着推近）。与剧照分开放、不随换图重建：剧照每换一部整个换掉一次，
                     // 嵌在里面的 UIKit 画面在旧剧照开始淡出的那一刻就不画了（录屏逐帧看是硬切），没法自己淡出
-                    if let previewKey {
+                    if url != nil, let previewKey {
                         TVStagePreviewLayer(key: previewKey, visible: stageInPlace)
                             .frame(width: 1920, height: 1080)
-                            .mask { TVStageImage.fadeMask(from: fadeFrom) }
                     }
+                }
+                .mask { TVStageImage.fadeMask(from: fadeFrom) }
+                if url != nil {
                     // 托字的黑压在剧照与预告之上（两者同一层黑：换图交叉淡入时与各自带一层黑的效果相同）
                     TVStageScrim(strength: cornerScrim, shape: fullImage ? .corner : .leading)
                         .frame(width: 1920, height: 1080)
@@ -125,13 +129,11 @@ struct TVStageBackdrop: View {
     }
 }
 
-/// 一张铺满整屏的剧照：出现后 40 秒慢慢推近到 1.06 倍（Ken Burns，裁在屏幕框里），下半部分渐隐进边缘色。
+/// 一张铺满整屏的剧照：出现后 40 秒慢慢推近到 1.06 倍（Ken Burns，裁在屏幕框里）。
 /// 每换一部是一个新视图（外面 `.id(url)`），推近从头开始，不会和上一部没走完的动画叠在一起。
-/// 托字的黑（`TVStageScrim`）不在这里：它要同时压住盖在剧照上的大图预告
+/// 下沿渐隐、托字的黑（`TVStageScrim`）都不在这里：它们要连同盖在剧照上的大图预告一起套
 private struct TVStageImage: View {
     let url: URL
-    /// 从屏高的哪儿开始渐隐到下沿（见 `TVStageBackdrop.fadeFrom`）
-    let fadeFrom: CGFloat
     @State private var zoom: CGFloat = 1
 
     var body: some View {
@@ -150,14 +152,12 @@ private struct TVStageImage: View {
                 .scaleEffect(zoom)
             }
             .clipped()
-            // 下半部分渐隐进边缘色：屏高 40% 以上保持原样，一路平滑淡到屏幕下沿，卡片行落在渐隐的部分上
-            .mask { Self.fadeMask(from: fadeFrom) }
             .onAppear {
                 withAnimation(.linear(duration: 40)) { zoom = TVMetrics.stageZoom }
             }
     }
 
-    /// 剧照、预告、托字的黑共用的下沿渐隐
+    /// 剧照（连同预告）、托字的黑共用的下沿渐隐：屏高 `from` 以上保持原样，一路平滑淡到屏幕下沿，卡片行落在渐隐的部分上
     static func fadeMask(from: CGFloat) -> some View {
         LinearGradient(stops: TVEasedFade.stops(color: .black, from: from, to: 1), startPoint: .top, endPoint: .bottom)
     }

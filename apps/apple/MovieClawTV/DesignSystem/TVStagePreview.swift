@@ -323,7 +323,7 @@ final class TVStagePreview {
     }
 }
 
-/// 大图上挂预告画面的那一层（放在 `TVStageImage` 里剧照之上、压暗之下）。
+/// 大图上挂预告画面的那一层（放在 `TVStageBackdrop` 里剧照之上、压暗之下，与剧照一起套下沿渐隐）。
 /// 只有讲的正是在放的那一部、并且是最后出现的那一层时才把引擎画面挂上来
 struct TVStagePreviewLayer: View {
     let key: Int
