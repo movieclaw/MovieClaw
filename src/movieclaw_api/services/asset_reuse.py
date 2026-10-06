@@ -127,7 +127,11 @@ def _season_names(number: int) -> list[str]:
 
 
 def scan_entry_art(
-    entries: Iterable[Path], videos: Iterable[Path], season_numbers: Iterable[int]
+    entries: Iterable[Path],
+    videos: Iterable[Path],
+    season_numbers: Iterable[int],
+    *,
+    media_kind: str,
 ) -> MediaDirArt:
     """条目级的已有图：海报 / 背景 / Logo / 季海报（同步磁盘 IO，调用方放线程池）。
 
@@ -142,7 +146,7 @@ def scan_entry_art(
     cache: dict = {}
     for key, kind in (("poster", "poster"), ("backdrop", "fanart"), ("logo", "clearlogo")):
         for entry in entries:
-            found = find_artwork(entry, kind, own, cache=cache)
+            found = find_artwork(entry, kind, own, media_kind=media_kind, cache=cache)
             if found is not None:
                 art.candidates.setdefault(key, []).append(found)
     numbers = list(season_numbers)

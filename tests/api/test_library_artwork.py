@@ -11,6 +11,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from movieclaw_api.services.asset_reuse import scan_entry_art
 from movieclaw_api.services.library.artwork import dir_art_owned, find_artwork
 from movieclaw_api.services.library.items import local_item_artwork
 from movieclaw_db.models import FileSource, LibraryFile
@@ -73,9 +76,9 @@ def test_local_item_artwork_for_bare_file_under_root(tmp_path: Path) -> None:
     video = _touch(root / "clip.mp4")
     _touch(root / "other.mp4")
     _touch(root / "poster.jpg")  # 库根下的目录级图不归任何条目
-    assert local_item_artwork([root], [_row(video)], "poster") is None
+    assert local_item_artwork([root], [_row(video)], "poster", media_kind="video") is None
     own = _touch(root / "clip-poster.jpg")
-    assert local_item_artwork([root], [_row(video)], "poster") == own
+    assert local_item_artwork([root], [_row(video)], "poster", media_kind="video") == own
 
 
 def test_artwork_names_match_case_insensitively(tmp_path: Path) -> None:
@@ -83,3 +86,47 @@ def test_artwork_names_match_case_insensitively(tmp_path: Path) -> None:
     video = _touch(tmp_path / "B" / "B.mkv")
     art = _touch(tmp_path / "B" / "B-Poster.JPG")
     assert find_artwork(video.parent, "poster", [video]) == art
+
+
+@pytest.mark.parametrize("subdir", ["Season 1", ""])
+@pytest.mark.parametrize("suffix", ["", "-poster", "-folder", "-cover", "-default", "-movie"])
+def test_series_poster_ignores_all_episode_sidecars(tmp_path: Path, subdir, suffix) -> None:
+    show = tmp_path / "剧 (2020)"
+    video = _touch(show / subdir / "S01E01.mkv")
+    own = _touch(video.with_name(f"{video.stem}{suffix}.jpg"))
+    poster = _touch(show / "Poster.JPG")
+
+    assert find_artwork(show, "poster", [video], media_kind="tv") == poster
+    assert local_item_artwork([tmp_path], [_row(video)], "poster", media_kind="tv") == poster
+    # 文件级封面/缩略图仍然认视频自己的 sidecar。
+    assert find_artwork(video.parent, "poster", [video]) == own
+    # 没有季档案（如只刷新海报）时也必须依据条目类型，不能靠季数猜类型。
+    art = scan_entry_art([show], [video], [], media_kind="tv")
+    assert art.candidates["poster"] == [poster]
+
+
+@pytest.mark.parametrize("subdir", ["Season 1", ""])
+def test_series_without_directory_poster_has_no_local_poster(tmp_path: Path, subdir) -> None:
+    show = tmp_path / "剧 (2020)"
+    video = _touch(show / subdir / "S01E01.mkv")
+    _touch(video.with_suffix(".jpg"))
+    _touch(video.with_name(video.stem + "-poster.jpg"))
+
+    assert local_item_artwork([tmp_path], [_row(video)], "poster", media_kind="tv") is None
+    assert "poster" not in scan_entry_art([show], [video], [1], media_kind="tv").candidates
+
+
+def test_series_directory_poster_still_requires_ownership(tmp_path: Path) -> None:
+    show = tmp_path / "混放"
+    video = _touch(show / "S01E01.mkv")
+    _touch(show / "other.mkv")
+    _touch(show / "poster.jpg")
+    assert local_item_artwork([tmp_path], [_row(video)], "poster", media_kind="tv") is None
+
+
+def test_movie_asset_reuse_preserves_sidecar_priority(tmp_path: Path) -> None:
+    video = _touch(tmp_path / "电影 (2020)" / "电影.mkv")
+    own = _touch(video.with_suffix(".jpg"))
+    _touch(video.parent / "poster.jpg")
+    art = scan_entry_art([video.parent], [video], [], media_kind="movie")
+    assert art.candidates["poster"] == [own]

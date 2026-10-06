@@ -7,7 +7,8 @@ Web 的 artwork 接口、Jellyfin 图片接口、本地条目的资产生成（t
 规则照抄 Jellyfin ``LocalImageProvider``（docs/design/library-other-kind.md 1.5.3）：
 
 1. **文件自己的图**：``<主干>-poster.jpg`` 这类带视频文件名主干前缀的 sidecar，
-   精确匹配，永远优先——它明确写着归谁；
+   精确匹配，永远优先——它明确写着归谁；剧集海报只认剧集目录级图，不认分集
+   sidecar（包括平铺在剧集目录里的分集）；
 2. **目录级的图**：不带前缀的 ``poster.jpg`` / ``fanart.jpg``，只在目录**归这个
    条目**时才认——目录里的视频全是它的（单片一目录、多版本同目录、剧集的
    季目录结构都算）。混放目录里的 ``poster.jpg`` 是目录自己的图，谁都不该拿，
@@ -166,6 +167,7 @@ def find_artwork(
     kind: str,
     own_files: Iterable[Path],
     *,
+    media_kind: str | None = None,
     cache: DirListing | None = None,
 ) -> Path | None:
     """按规则找一张 ``kind`` 图（poster / fanart / thumb / clearlogo）；没有返回 None。
@@ -174,14 +176,18 @@ def find_artwork(
     的季目录）；sidecar 按各文件主干匹配，目录级图按归属判定。同步磁盘 IO
     （每个涉及的目录列一次），调用方自行决定是否进线程池。
 
+    ``media_kind="tv"`` 的条目海报跳过分集 sidecar；单视频/缩略图调用不传类型。
+
     ``cache``：调用方跨多次调用共享的目录列举缓存。详情页要连着找 poster 与
     fanart，不共享的话同一批目录要列两遍——剧集的季目录一列就是几十个文件。
     """
     suffixes, dir_names = _KINDS[kind]
+    if media_kind == "tv" and kind == "poster":
+        suffixes = ()
     own_files = list(own_files)
     if cache is None:
         cache = {}
-    for video in own_files:
+    for video in own_files if suffixes else []:
         listing = _listing(video.parent, cache)
         if not listing:
             continue

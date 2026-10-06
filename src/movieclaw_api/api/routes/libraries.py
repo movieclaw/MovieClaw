@@ -3016,9 +3016,9 @@ async def get_item_artwork(
     """路径完全由服务端从台账推导（客户端只给 id），不存在路径注入面。"""
     service = LibraryConfigService(session)
     library = await service.get(library_id)
-    _, rows = await _item_rows(session, library_id, media_item_id)
+    item, rows = await _item_rows(session, library_id, media_item_id)
     roots = [Path(p) for p in library.root_paths]
-    art = await asyncio.to_thread(local_item_artwork, roots, rows, kind)
+    art = await asyncio.to_thread(local_item_artwork, roots, rows, kind, media_kind=item.kind)
     if art is not None:
         # 本地文件可能被用户替换，给短缓存而非 immutable
         return await sized_file(
