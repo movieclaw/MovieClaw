@@ -74,7 +74,8 @@ async def main():
     report, passed = await lab.run(name)
     log = Path(lab.OUT, f"{name}.log").read_text(errors="replace")
     proxy = Path(lab.OUT, f"{name}.proxy.log").read_text(errors="replace")
-    heads = [int(t) for t in re.findall(r"\[FrameStats\] native t=(\d+)", log)]
+    after_seek = log.split("跳转 → 675 秒", 1)
+    heads = [int(t) for t in re.findall(r"\[FrameStats\] native t=(\d+)", after_seek[-1])] if len(after_seek) == 2 else []
     refused = proxy.count("fault=refuse")
     passed = passed and refused > 0 and any(t >= 680 for t in heads)
     results.append({"name": name, "passed": passed, "refusedRequests": refused})
