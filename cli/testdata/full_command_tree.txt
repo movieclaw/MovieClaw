@@ -374,6 +374,8 @@ transcode config
 transcode config set
 transcode config show
 transcode status
+transcode worker
+transcode worker config
 ui
 ui prefs
 ui prefs show
