@@ -163,12 +163,12 @@ struct TVPlayerPanel: View {
                 controller.selectSubtitle(nil)
             }
         case let .option(item):
-            option(id: "subtitle-\(item.ref)", title: TVTrackText.split(item.label).title, detail: TVTrackText.subtitleDetail(item),
+            option(id: "subtitle-\(item.ref)", title: item.displayTitle, detail: TVTrackText.subtitleDetail(item),
                    active: controller.selectedSubtitle == item.ref) {
                 controller.selectSubtitle(item.ref)
             }
         case let .unavailable(item):
-            option(id: "subtitle-\(item.ref)", title: TVTrackText.split(item.label).title, detail: item.reason, active: false, disabled: true) {}
+            option(id: "subtitle-\(item.ref)", title: item.label, detail: item.reason, active: false, disabled: true) {}
         case let .more(count, names):
             option(id: "subtitle-more", title: "展开其他 \(count) 条字幕", detail: names, active: false) {
                 expanded = true
@@ -195,11 +195,13 @@ struct TVPlayerPanel: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(.system(size: 30, weight: .semibold))
-                        .lineLimit(1)
+                        .lineLimit(id.hasPrefix("subtitle-") ? nil : 1)
+                        .fixedSize(horizontal: false, vertical: true)
                     if let detail, !detail.isEmpty {
                         Text(detail)
                             .font(.system(size: 21))
-                            .lineLimit(1)
+                            .lineLimit(id.hasPrefix("subtitle-") ? nil : 1)
+                            .fixedSize(horizontal: false, vertical: true)
                             .opacity(0.6)
                     }
                 }
@@ -283,20 +285,9 @@ enum TVTrackText {
         return (parts.first ?? label, rest.isEmpty ? nil : rest)
     }
 
-    /// 字幕的小字：格式 · 外挂 / 内封 · AI 翻译 · 默认
-    static func subtitleDetail(_ item: SubtitleOption) -> String {
-        var parts: [String] = []
-        if let format = formats[item.kind.lowercased()] { parts.append(format) } else if let fromLabel = split(item.label).detail {
-            parts.append(fromLabel)
-        }
-        if item.ref.hasPrefix("external:") { parts.append("外挂") } else if item.ref.hasPrefix("embedded:") { parts.append("内封") }
-        if item.isAI { parts.append("AI 翻译") }
-        if item.isDefault { parts.append("默认") }
-        return parts.joined(separator: " · ")
-    }
+    /// 字幕名称与说明分开，标题里的分隔符不会被误拆。
+    static func subtitleDetail(_ item: SubtitleOption) -> String { item.detail }
 
-    private static let formats = ["srt": "SRT", "subrip": "SRT", "ass": "ASS", "ssa": "ASS", "vtt": "WebVTT", "webvtt": "WebVTT",
-                                  "pgs": "PGS 图形", "text": "文本"]
 }
 
 /// 字幕栏的分组：关闭 → 正在使用 → 中文 → 英语 → 其他语言（多时折叠）。纯函数，便于单测

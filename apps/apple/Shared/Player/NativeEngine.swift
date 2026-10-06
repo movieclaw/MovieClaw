@@ -387,6 +387,8 @@ final class NativeEngine: NSObject, PlayerEngine {
         let codec: String
         let channels: Int
         let isDefault: Bool
+        var title: String? = nil
+        var isForced: Bool = false
     }
 
     /// 内封音轨，按流顺序排：第 N 条 = embedded:N（与服务端探测的编号口径一致）
@@ -402,7 +404,12 @@ final class NativeEngine: NSObject, PlayerEngine {
 
     private static func embedded(_ tracks: [AetherPlayback.Track]) -> [EmbeddedTrack] {
         tracks.filter { !$0.isExternal }.sorted { $0.id < $1.id }
-            .map { EmbeddedTrack(language: $0.language, codec: $0.codec, channels: $0.channels, isDefault: $0.isDefault) }
+            .map { track in
+                // 引擎无标题时合成的名称只是语言/编码说明，菜单仍按轨号兜底。
+                let fallback = track.language.map { "\($0.uppercased()) (\(track.codec))" } ?? "Track \(track.id) (\(track.codec))"
+                return EmbeddedTrack(language: track.language, codec: track.codec, channels: track.channels, isDefault: track.isDefault,
+                                     title: track.name == fallback ? nil : track.name, isForced: track.isForced)
+            }
     }
 
     // MARK: - 字幕（引擎画图形字幕，文字字幕交给叠加层）

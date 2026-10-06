@@ -447,6 +447,9 @@ class SubtitlePlanView(BaseModel):
     is_default: bool = False
     #: 本机 AI 生成的字幕（翻译/双语）。播放器的字幕菜单据此打「AI 生成」标
     is_ai: bool = False
+    title: str | None = None
+    # 可选以兼容旧服务端：Apple 客户端缺字段时按非强制轨展示。
+    is_forced: bool | None = None
 
 
 class PlaybackDecisionView(BaseModel):

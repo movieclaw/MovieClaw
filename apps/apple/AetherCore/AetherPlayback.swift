@@ -71,6 +71,7 @@ public final class AetherPlayback {
         public let channels: Int
         public let isExternal: Bool
         public let isDefault: Bool
+        public let isForced: Bool
     }
 
     /// 诊断与看门狗用的读数快照（1 秒刷新一次的引擎遥测 + 当前状态）
@@ -690,7 +691,7 @@ public final class AetherPlayback {
 
     private static func track(_ info: TrackInfo) -> Track {
         Track(id: info.id, name: info.name, codec: info.codec, language: info.language, channels: info.channels,
-              isExternal: info.isExternal, isDefault: info.isDefault)
+              isExternal: info.isExternal, isDefault: info.isDefault, isForced: info.isForced)
     }
 
     // MARK: - 画中画 / 生命周期
