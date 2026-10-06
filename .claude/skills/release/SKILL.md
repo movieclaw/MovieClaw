@@ -176,6 +176,10 @@ ffmpeg 版本，发版前按下表逐项过一遍。
 
 ## 七、可选附件失败的补救（worker-macos / ios-ipa / mac-app / carry-assets）
 
+官网版本通过 Release 附件 `downloads.json` 自动同步，规则见 `docs/design/download-manifest.md`。
+正常发布与补跑作业会自动刷新；人工补传 Mac ZIP 后，在 macOS 上运行
+`bash scripts/publish-download-manifest.sh vX.Y.Z`。它从实际包读取版本和芯片，沿用旧包时保留包内版本。
+
 publish 作业不等它们，Release 会照常转正——但 changelog 若写了这些附件就必须补上。
 GitHub 只允许整次运行结束后再单独重跑某个作业（`gh run rerun --job <id>`）。
 
@@ -214,6 +218,7 @@ GitHub 只允许整次运行结束后再单独重跑某个作业（`gh run rerun
       ios-ipa 作业红了 → `MovieClaw-iOS-unsigned.ipa` 缺失，重跑该作业补传；
       mac-app 作业红了 → `MovieClaw-macos-arm64.zip` 缺失，重跑该作业补传；
       carry-assets 作业红了 → 沿用的附件缺失，重跑该作业补传
+- [ ] `downloads.json` 与 Mac ZIP 一致；人工补传 ZIP 后已刷新清单，官网能显示包内版本及对应芯片
 - [ ] changelog 已写入 `docs/changelog/vX.Y.Z.md` 并合入 main（release-notes.yml
       自动同步为 Release body，应用内更新界面会原文展示给用户），并按
       `changelog-guide.md` 自检过第一屏

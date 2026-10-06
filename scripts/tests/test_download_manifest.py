@@ -1,0 +1,79 @@
+"""发行清单契约：真实版本、不同芯片、旧包复用及空附件。"""
+
+import importlib.util
+import json
+import plistlib
+import struct
+import subprocess
+import sys
+import tempfile
+import unittest
+import zipfile
+from pathlib import Path
+from unittest.mock import patch
+
+SCRIPT = Path(__file__).resolve().parents[1] / "build-download-manifest.py"
+spec = importlib.util.spec_from_file_location("download_manifest", SCRIPT)
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+
+
+def binary(cpu):
+    return struct.pack("<8I", 0xFEEDFACF, cpu, 0, 2, 0, 0, 0, 0)
+
+
+class DownloadManifestTest(unittest.TestCase):
+    def archive(self, directory, name, cpu=0x0100000C):
+        archive = directory / name
+        with zipfile.ZipFile(archive, "w") as z:
+            z.writestr(
+                "MovieClaw.app/Contents/Info.plist",
+                plistlib.dumps(
+                    {
+                        "CFBundleIdentifier": "io.movieclaw.app",
+                        "CFBundleExecutable": "MovieClaw",
+                        "CFBundleShortVersionString": "0.5.0",
+                        "CFBundleVersion": "202610051230",
+                        "LSMinimumSystemVersion": "26.0",
+                    }
+                ),
+            )
+            z.writestr("MovieClaw.app/Contents/MacOS/MovieClaw", binary(cpu))
+        return archive
+
+    @patch.object(module, "verification", return_value=(True, True))
+    def test_real_version_and_chip_ignore_filename_and_server_tag(self, _verify):
+        with tempfile.TemporaryDirectory() as tmp:
+            # 文件名故意写 arm64，实际是 Intel；不能根据名称猜测。
+            archive = self.archive(Path(tmp), "MovieClaw-macos-arm64.zip", 0x01000007)
+            entry = module.describe(archive)
+            self.assertEqual((entry["version"], entry["arch"]), ("0.5.0", "x86_64"))
+            self.assertEqual(entry["minimumSystemVersion"], "26.0")
+            self.assertEqual(entry["size"], archive.stat().st_size)
+            self.assertEqual(len(entry["sha256"]), 64)
+            self.assertTrue(entry["signed"] and entry["notarized"])
+
+    def test_universal_and_unsupported_binary(self):
+        fat = struct.pack(">2I", 0xCAFEBABE, 2)
+        fat += struct.pack(">5I", 0x0100000C, 0, 48, 32, 0)
+        fat += struct.pack(">5I", 0x01000007, 0, 80, 32, 0)
+        self.assertEqual(module.architecture(fat), "universal")
+        self.assertEqual(module.architecture(binary(0x0100000C)), "arm64")
+        with self.assertRaises(ValueError):
+            module.architecture(b"not a Mach-O")
+
+    def test_cli_empty_and_carried_archive_keep_actual_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            command = [sys.executable, str(SCRIPT), "--directory", tmp, "--tag"]
+            subprocess.run([*command, "v1.0.0"], check=True, capture_output=True)
+            self.assertEqual(json.loads((directory / "downloads.json").read_text())["packages"], [])
+            self.archive(directory, "MovieClaw-macos-arm64.zip")
+            subprocess.run([*command, "v1.1.0"], check=True, capture_output=True)
+            manifest = json.loads((directory / "downloads.json").read_text())
+            self.assertEqual(manifest["release"], "v1.1.0")
+            self.assertEqual(manifest["packages"][0]["version"], "0.5.0")
+
+
+if __name__ == "__main__":
+    unittest.main()
