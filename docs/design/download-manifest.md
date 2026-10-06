@@ -31,6 +31,6 @@ Cloud 分页读取正式应用 Release，忽略 draft、预发布和模型 Relea
 bash scripts/publish-download-manifest.sh v0.32.0
 ```
 
-此脚本从 GitHub 下载该 Release 的所有实际 Mac ZIP，生成并补传清单，不需要重新发布服务器。Cloud 在访问时按 10 分钟缓存刷新，更新下载信息无需重建官网；失败保留持久化的最近成功数据，一分钟后允许重试。首次同步失败则提示查看 GitHub 发布，不猜版本或下载地址。
+此脚本从 GitHub 下载该 Release 的所有实际 Mac ZIP，生成并补传清单，不需要重新发布服务器。Cloud 在访问时立即返回上次成功同步的缓存；缓存超过 1 小时，在响应发送后异步刷新 GitHub，新清单通过校验并保存后才供后续访问使用，更新下载信息无需重建官网。失败保留持久化的最近成功数据，1 小时后允许重试。首次没有缓存则立即提供 GitHub 发布入口，并安排后台同步，不猜版本或下载地址。
 
 验证：`python3 -m unittest discover -s scripts/tests -p 'test_download_manifest.py'`；Cloud 中运行 `pnpm test:downloads`、`pnpm build && bash scripts/test-download-variants.sh`，以及 `bash scripts/test-download.sh <官网地址>` 核对真实 ZIP 与页面版本。
