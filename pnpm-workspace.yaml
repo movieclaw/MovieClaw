@@ -9,3 +9,7 @@ allowBuilds:
   sharp: true
   spawn-sync: false
   unrs-resolver: true
+
+# 渐进 fMP4 延续片段保持时间轴；端到端守卫见 test_remote_transcode_e2e.py。
+patchedDependencies:
+  hls.js@1.7.1: patches/hls.js@1.7.1.patch

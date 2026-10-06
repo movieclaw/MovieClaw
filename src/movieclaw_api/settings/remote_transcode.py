@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated
+
 from pydantic import Field
 
 from movieclaw_api.settings.base import SettingSchema, register_setting
@@ -38,8 +40,18 @@ class RemoteTranscodeSetting(SettingSchema):
     )
 
 
+@register_setting(namespace="playback.worker_limits", title="转码器并发上限")
+class WorkerLimitsSetting(SettingSchema):
+    """按授权设备 id 保存；设备改名不影响配置，运行统计不进数据库。"""
+
+    limits: dict[str, Annotated[int, Field(strict=True, ge=1, le=4)]] = Field(
+        default_factory=dict
+    )
+
+
 __all__ = [
     "DEFAULT_REMOTE_TRANSCODE_MAX_ARTIFACT_BYTES",
     "MAX_REMOTE_TRANSCODE_ARTIFACT_BYTES",
     "RemoteTranscodeSetting",
+    "WorkerLimitsSetting",
 ]

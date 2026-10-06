@@ -657,6 +657,8 @@ class PlaybackSessionView(BaseModel):
     #: 可直接喂给 <video src> 或 hls.js 的地址，已带签名 token。
     #: 决策不是 plan 时为 None。
     stream_url: str | None = None
+    #: 转码器可在整段完成前输出完整 MP4 片段，浏览器可渐进解码。
+    progressive_segments: bool = False
     #: 会话时间轴的零点在文件里的位置。**文件时间 = start_ms + currentTime**——
     #: 全前端只有这一处换算（见 ffmpeg_args 模块文档的时间轴取舍）。
     #: timeline="file" 时它退化为「建议的起播位置」：分片时间戳本身就是

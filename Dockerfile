@@ -39,6 +39,7 @@ RUN npm install -g pnpm@10
 WORKDIR /build
 # 源码要在 install 之前就位：extension 的 postinstall（wxt prepare）依赖 entrypoints/ 源码
 COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY patches ./patches
 COPY apps ./apps
 RUN pnpm config set registry "$NPM_REGISTRY" && pnpm install --frozen-lockfile
 

@@ -676,6 +676,8 @@ export interface PlaybackSession {
   session_id: string | null;
   /** 可直接喂给 <video src> 或 hls.js 的地址，已带签名 token */
   stream_url: string | null;
+  /** 转码器能在整段完成前输出完整 MP4 片段；旧服务端未声明时按整段加载 */
+  progressive_segments?: boolean;
   /** 会话时间轴的零点在文件里的位置。**文件时间 = start_ms + currentTime**。
    * timeline="file"（VOD 预生成列表）时它只是建议起播位置：分片时间戳
    * 本身是文件绝对时间，currentTime 即文件时间，换算参照点为 0 */

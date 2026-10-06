@@ -1,0 +1,42 @@
+--- a/src/remux/passthrough-remuxer.ts
++++ b/src/remux/passthrough-remuxer.ts
+@@ -210,6 +210,11 @@
+     // the media duration (which is what timeOffset is provided as) before we need to process the next chunk.
+     if (!Number.isFinite(lastEndTime!)) {
+       lastEndTime = this.lastEndTime = timeOffset || 0;
++    }
++
++    // A progressive continuation starts at the previous chunk end, not the segment start.
++    if (chunkMeta.id > 1 || flush) {
++      timeOffset = lastEndTime!;
+     }
+ 
+     // The binary segment data is added to the videoTrack in the mp4demuxer. We don't check to see if the data is only
+--- a/dist/hls.mjs
++++ b/dist/hls.mjs
+@@ -17795,6 +17795,11 @@
+       lastEndTime = this.lastEndTime = timeOffset || 0;
+     }
+ 
++    // A progressive continuation starts at the previous chunk end, not the segment start.
++    if (chunkMeta.id > 1 || flush) {
++      timeOffset = lastEndTime;
++    }
++
+     // The binary segment data is added to the videoTrack in the mp4demuxer. We don't check to see if the data is only
+     // audio or video (or both); adding it to video was an arbitrary choice.
+     const data = videoTrack.samples;
+--- a/dist/hls.js
++++ b/dist/hls.js
+@@ -18371,6 +18371,11 @@
+         lastEndTime = this.lastEndTime = timeOffset || 0;
+       }
+ 
++      // A progressive continuation starts at the previous chunk end, not the segment start.
++      if (chunkMeta.id > 1 || flush) {
++        timeOffset = lastEndTime;
++      }
++
+       // The binary segment data is added to the videoTrack in the mp4demuxer. We don't check to see if the data is only
+       // audio or video (or both); adding it to video was an arbitrary choice.
+       var data = videoTrack.samples;

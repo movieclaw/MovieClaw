@@ -4,6 +4,11 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  hls.js@1.7.1:
+    hash: cb8c35da929d652426f2162a46f5f8420f861f32541ef5d30d3f5f00e3c47e0f
+    path: patches/hls.js@1.7.1.patch
+
 importers:
 
   .: {}
@@ -44,8 +49,8 @@ importers:
         specifier: ^1.11.21
         version: 1.11.21
       hls.js:
-        specifier: ^1.7.1
-        version: 1.7.1
+        specifier: 1.7.1
+        version: 1.7.1(patch_hash=cb8c35da929d652426f2162a46f5f8420f861f32541ef5d30d3f5f00e3c47e0f)
       jassub:
         specifier: ^2.5.14
         version: 2.5.14
@@ -54,7 +59,7 @@ importers:
         version: 0.49.0(typescript@5.9.3)
       libbitsub:
         specifier: ^1.11.0
-        version: 1.12.1(hls.js@1.7.1)(react@19.2.4)
+        version: 1.12.1(hls.js@1.7.1(patch_hash=cb8c35da929d652426f2162a46f5f8420f861f32541ef5d30d3f5f00e3c47e0f))(react@19.2.4)
       media-chrome:
         specifier: ^4.19.2
         version: 4.19.2(react@19.2.4)
@@ -6931,7 +6936,7 @@ snapshots:
     dependencies:
       '@types/hast': 3.0.5
 
-  hls.js@1.7.1: {}
+  hls.js@1.7.1(patch_hash=cb8c35da929d652426f2162a46f5f8420f861f32541ef5d30d3f5f00e3c47e0f): {}
 
   hookable@6.1.1: {}
 
@@ -7286,11 +7291,11 @@ snapshots:
     dependencies:
       isomorphic.js: 0.2.5
 
-  libbitsub@1.12.1(hls.js@1.7.1)(react@19.2.4):
+  libbitsub@1.12.1(hls.js@1.7.1(patch_hash=cb8c35da929d652426f2162a46f5f8420f861f32541ef5d30d3f5f00e3c47e0f))(react@19.2.4):
     dependencies:
       '@webgpu/types': 0.1.72
     optionalDependencies:
-      hls.js: 1.7.1
+      hls.js: 1.7.1(patch_hash=cb8c35da929d652426f2162a46f5f8420f861f32541ef5d30d3f5f00e3c47e0f)
       react: 19.2.4
 
   lie@3.3.0:

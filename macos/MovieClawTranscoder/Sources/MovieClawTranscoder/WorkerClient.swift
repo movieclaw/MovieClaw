@@ -23,6 +23,8 @@ actor WorkerClient {
     private let statusContinuation: AsyncStream<WorkerStatus>.Continuation
     private let configuration: WorkerConfiguration
     private let capabilities: WorkerCapabilities
+    private var maxJobs: Int
+    private let telemetry = WorkerTelemetry()
     private var socket: URLSessionWebSocketTask?
     private var connectionSession: URLSession?
     private var connectionEvents: AsyncThrowingStream<URLSessionWebSocketTask.Message, Error>.Continuation?
@@ -74,8 +76,8 @@ actor WorkerClient {
     /// 最近一次收到 NAS 消息的时间（含心跳 ack），用于判定半开连接。
     private var lastServerMessageAt = Date()
 
-    /// 心跳间隔；服务端的离线判定窗口是它的三倍，留足丢包余量。
-    private static let heartbeatIntervalNanoseconds: UInt64 = 15_000_000_000
+    /// 每 5 秒采样一次；服务端的 45 秒离线窗口留足丢包余量。
+    private static let heartbeatIntervalNanoseconds: UInt64 = 5_000_000_000
     /// 多久没收到 NAS 任何消息就认定链路已死。与服务端 WORKER_IDLE_TIMEOUT_S
     /// 保持一致，避免两边对「这条连接还活着吗」给出相反的答案。
     private static let serverSilenceTimeout: TimeInterval = 45
@@ -107,6 +109,7 @@ actor WorkerClient {
         self.statusContinuation = stream.continuation
         self.configuration = configuration
         self.capabilities = capabilities
+        self.maxJobs = configuration.maxJobs
         self.recordJob = recordJob
     }
 
@@ -354,6 +357,8 @@ actor WorkerClient {
                 "encoders": capabilities.encoders,
                 "backends": capabilities.backends,
                 "max_jobs": configuration.maxJobs,
+                "server_config": true,
+                "hardware": WorkerTelemetry.hardware(),
                 // 旧版服务端忽略这个字段；新版只把 TS 分片任务派给声明了 mpegts 的 Worker
                 "segment_types": ArtifactUploadProxy.supportedSegmentTypes,
                 // 能接收 job.playback（观众播放位置），面板上显示「看到 25:10 / 1:52:10」
@@ -493,7 +498,10 @@ actor WorkerClient {
                 return
             }
             // 发送不能阻塞静默看门狗，否则黑洞网络上永远走不到下一次 45 秒检查。
-            candidate.send(.string("{\"type\":\"worker.heartbeat\"}")) { _ in }
+            let payload: [String: Any] = ["type": "worker.heartbeat", "load": telemetry.sample()]
+            if let data = try? JSONSerialization.data(withJSONObject: payload) {
+                candidate.send(.string(String(decoding: data, as: UTF8.self))) { _ in }
+            }
         }
     }
 
@@ -501,6 +509,7 @@ actor WorkerClient {
         guard let type = message["type"] as? String else { return }
         switch type {
         case "worker.accepted":
+            if let limit = message["max_jobs"] as? Int, (1...4).contains(limit) { maxJobs = limit }
             lastError = nil
             handshakeCompleted = true
             if problem == .remoteDisabled || problem == .authRejected {
@@ -508,6 +517,13 @@ actor WorkerClient {
             }
             publish(draining ? .draining : .ready, message: "Worker 已连接到 NAS")
             AppLogger.shared.info("Worker 已连接到 NAS：\(configuration.workerID)")
+        case "worker.config":
+            if let limit = message["max_jobs"] as? Int, (1...4).contains(limit) {
+                maxJobs = limit
+                publishCurrent(message: "并发上限已同步")
+            }
+        case "worker.config.error":
+            publish(state, message: "并发设置未保存", error: message["error"] as? String)
         case "job.start":
             await startJob(message)
         case "job.stop":
@@ -599,7 +615,7 @@ actor WorkerClient {
             timelines.removeValue(forKey: jobID)
             currentProgress.removeValue(forKey: jobID)
         }
-        guard jobs.count < configuration.maxJobs else {
+        guard jobs.count < maxJobs else {
             await sendFailure(jobID: jobID, attemptID: attemptID, error: "Worker 并发已满")
             return
         }
@@ -1096,7 +1112,7 @@ actor WorkerClient {
                 state: effectiveState,
                 message: message,
                 workerID: configuration.workerID,
-                maxJobs: configuration.maxJobs,
+                maxJobs: maxJobs,
                 jobs: running,
                 ffmpegVersion: capabilities.ffmpegVersion,
                 encoders: capabilities.encoders,
@@ -1105,6 +1121,15 @@ actor WorkerClient {
                 problem: problem
             )
         )
+    }
+
+    func requestMaxJobs(_ value: Int) async {
+        guard (1...4).contains(value), handshakeCompleted else { return }
+        do {
+            try await send(["type": "worker.configure", "max_jobs": value])
+        } catch {
+            publish(state, message: "并发设置未保存", error: sanitized(error.localizedDescription))
+        }
     }
 
     private func sanitized(_ text: String) -> String {

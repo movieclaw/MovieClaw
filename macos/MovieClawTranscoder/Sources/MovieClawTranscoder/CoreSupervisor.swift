@@ -147,6 +147,10 @@ final class CoreSupervisor {
         send(.setDraining(value))
     }
 
+    func setMaxJobs(_ value: Int) {
+        send(.setMaxJobs(value))
+    }
+
     /// 睡眠唤醒、网络恢复：请内核立刻确认连接；内核正等着重启的话，直接提前重启。
     func reconnectNow() {
         guard isActive, transitionTask == nil else { return }

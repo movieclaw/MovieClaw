@@ -11,6 +11,7 @@ import {
   getRemoteTranscodeConfig,
   getRemoteTranscodeStatus,
   saveRemoteTranscodeConfig,
+  saveWorkerLimit,
 } from "@/lib/api/transcode-worker";
 
 const BYTES_PER_MIB = 1024 * 1024;
@@ -42,7 +43,7 @@ export interface RemoteTranscodeSectionProps {
  * 「播放」分区的远程转码设置（原「应用 → 远程转码」标签，设置页按功能重组后
  * 迁入「媒体库」组）。
  *
- * 这一页要人做的决定只剩一个：开还是不开。
+ * 在这里启用远程转码，并调整每台设备的并发上限。
  *
  * Worker 用哪个地址连过来，是在 Mac 那侧填的；服务端下发任务时用的取源地址和
  * 产物回传地址，默认直接取用那条控制连接自报的地址（remote_worker.py 的
@@ -58,6 +59,7 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [status, setStatus] = useState<RemoteTranscodeStatus | null>(null);
+  const [savingLimit, setSavingLimit] = useState<number | null>(null);
   // 已授权的 Worker：「设备」里 scope=transcode 的那些（配对出来的转码器，以及
   // 给命令行模式转码器用的「仅限转码」手工令牌）。运行时注册表在断线时会把
   // Worker 整个摘掉（remote_worker.py 的 unregister），所以只看 status.workers
@@ -67,6 +69,37 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
   // 待批准的请求这里看不到了：服务端不再列出待批准请求（只能按配对码查），
   // 转码器发起配对时会直接打开带码的批准页（docs/design/login-devices.md §4）。
   const [authorizedWorkers, setAuthorizedWorkers] = useState<LoginDeviceView[]>([]);
+
+  async function updateLimit(deviceID: number, value: number) {
+    setSavingLimit(deviceID);
+    setError(null);
+    try {
+      await saveWorkerLimit(deviceID, value);
+      setStatus(await getRemoteTranscodeStatus());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "并发上限保存失败");
+    } finally {
+      setSavingLimit(null);
+    }
+  }
+
+  function limitControl(name: string, deviceID: number, value: number, supported = true) {
+    return (
+      <label className="mt-2 flex items-center gap-3 text-caption text-[var(--text-muted)]">
+        同时转码
+        <select
+          aria-label={`${name} 最大并发任务数`}
+          className={`${INPUT_CLASS} !w-auto`}
+          value={value}
+          disabled={savingLimit !== null || !supported}
+          onChange={(event) => void updateLimit(deviceID, Number(event.target.value))}
+        >
+          {[1, 2, 3, 4].map((limit) => <option key={limit} value={limit}>{limit} 路</option>)}
+        </select>
+        {!supported ? "更新转码器后可同步设置" : savingLimit === deviceID ? "正在保存…" : "与转码器同步"}
+      </label>
+    );
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -157,13 +190,9 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
   }
 
   const onlineWorkers = status?.workers.filter((w) => w.online) ?? [];
-  // 已授权但此刻没连上的：按名字和运行时列表对齐。名字两边都取 Mac 设置里的
-  // 「Worker 名称」（配对时提交的 client_name 就是它），正常情况对得上；
-  // 用户配对后又改了名字才会多出一条，那种情况显示两行也不算错——确实有一份
-  // 旧授权还挂着，去设备页注销即可。手工令牌的名字是创建时起的，要与命令行
-  // 模式转码器的 --worker-id 同名才对得上（创建表单里有提示）。
-  const liveNames = new Set((status?.workers ?? []).map((w) => w.worker_id));
-  const offlineWorkers = authorizedWorkers.filter((d) => !liveNames.has(d.name));
+  // 按授权设备匹配，Worker 改名或使用不同名称的手工令牌都不会多出一条离线记录。
+  const connectedDevices = new Set((status?.workers ?? []).map((w) => `ld-${w.device_id}`));
+  const offlineWorkers = authorizedWorkers.filter((d) => !connectedDevices.has(d.id));
   const hasAnyWorker = (status?.workers.length ?? 0) > 0 || offlineWorkers.length > 0;
   // 开关打开 ≠ Worker 连上了。这两件事分开说，用户才知道下一步该干什么：
   // 前者不满足要打开开关（或改正「高级」里填错的覆盖地址），后者不满足
@@ -281,6 +310,9 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
                       {[
                         worker.platform,
                         worker.arch,
+                        worker.hardware.chip,
+                        worker.hardware.cpu_cores ? `${worker.hardware.cpu_cores} 核` : null,
+                        worker.hardware.memory_bytes ? `${Math.round(worker.hardware.memory_bytes / 1024 ** 3)} GB` : null,
                         worker.ffmpeg_version ? `ffmpeg ${worker.ffmpeg_version}` : null,
                         worker.backends.length > 0 ? worker.backends.join("/") : null,
                         `任务 ${worker.active_jobs}/${worker.max_jobs}`,
@@ -289,6 +321,14 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
                         .filter(Boolean)
                         .join(" · ")}
                     </p>
+                    {worker.load && (
+                      <p className="mt-1 text-caption text-[var(--text-faint)]">
+                        CPU {Math.round(worker.load.cpu * 100)}% · 内存压力 { ["正常", "偏高", "很高"][worker.load.memory_pressure] }
+                        {worker.load.thermal_state >= 2 ? " · 正在降温" : ""}
+                      </p>
+                    )}
+                    {worker.device_id != null && limitControl(worker.worker_id, worker.device_id,
+                      status.device_limits[`ld-${worker.device_id}`] ?? worker.max_jobs, worker.server_config)}
                   </li>
                 ))}
                 {/* 已授权但没连上来的。它们在运行时注册表里不存在，但授权还在，
@@ -309,6 +349,7 @@ export function RemoteTranscodeSection({ onOpenDevices }: RemoteTranscodeSection
                       已授权 · 最近活跃 {relativeTime(device.last_seen_at)}
                       {config.ready ? " · Mac 没开机或没联网时属正常" : ""}
                     </p>
+                    {limitControl(device.name, Number(device.id.replace("ld-", "")), status.device_limits[device.id] ?? 1)}
                   </li>
                 ))}
               </ul>

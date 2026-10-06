@@ -39,6 +39,7 @@ import {
 import { backBufferSeconds } from "./buffer-budget";
 import type { FailureCause } from "./failure-policy";
 import { type MediaRecoverState, nextMediaRecovery } from "./media-recover";
+import { isPartialSegmentResponse, partialSegmentRequest } from "./progressive-hls";
 import {
   DECODE_STALL_MIN_BUFFER_S,
   DIRECT_DEAD_S,
@@ -127,6 +128,8 @@ export interface EngineOptions {
   mse?: MseKind;
   /** 走系统原生 HLS：无 MSE 的旧设备传 master 列表，iPhone / iPad 的 HEVC 传媒体列表（playback-mode.ts） */
   preferNativeHls?: boolean;
+  /** 服务端确认当前转码任务支持渐进输出；整段输出时避免流式解封装的额外复制 */
+  progressiveSegments?: boolean;
   /**
    * 首帧起播位置（**列表时间轴**的秒数）。
    *
@@ -554,6 +557,10 @@ class HlsEngine implements PlaybackEngine {
       // 转码会话的 playlist 是 EVENT 类型、只增不改，边转边给。低延迟模式
       // 的那套 part 级请求在这里没有意义，只会多打服务端。
       lowLatencyMode: false,
+      // 远程转码每 0.5 秒产出一个完整 MP4 片段：直接喂 MSE，省去等满 4 秒分片。
+      // hls.js 只在支持流式 Fetch 时切换 loader；旧浏览器仍按整段加载。
+      progressive: this.options.progressiveSegments === true,
+      fetchSetup: partialSegmentRequest,
       // 分片请求超时要**盖过服务端的按需供片等待**（ensure_segment 最长挂
       // 请求 30 秒等转码追上来）：默认 20 秒会在服务端即将给出分片前把请求
       // 掐掉重发，慢转码场景下反复空转。120s 的 maxLoadTimeMs 是 hls.js 对
@@ -663,7 +670,8 @@ class HlsEngine implements PlaybackEngine {
       // 降档之后也下不来，而这行读数恰恰是用来判断降档有没有用的（见
       // bandwidth.ts 的 BITRATE_SAMPLE_COUNT）。
       const stats = data.frag?.stats;
-      const bytes = stats?.total ?? 0;
+      // 分块响应不带 Content-Length；FetchLoader 此时只累计 loaded，total 仍为 0。
+      const bytes = stats?.loaded ?? 0;
       const seconds = data.frag?.duration ?? 0;
       if (bytes > 0 && seconds > 0) {
         this.bitrateSamples = pushBitrateSample(this.bitrateSamples, { bytes, seconds });
@@ -672,8 +680,14 @@ class HlsEngine implements PlaybackEngine {
       // 取流速度：口径与「为什么不能用 data.frag.stats.loading 的时刻」见
       // bandwidth.ts —— 一句话，那是 XHR 回调排到主线程的时间，卡顿时会把
       // 几 MB 的分片算成传了十几毫秒，读数飙到带宽的上百倍。
-      const timing = readResourceTiming(data.frag?.url);
-      const sample = sampleFromResourceTiming(timing, performance.now());
+      const timing = readResourceTiming(
+        typeof Response !== "undefined" && data.networkDetails instanceof Response
+          ? data.networkDetails.url
+          : data.frag?.url,
+      );
+      const sample = isPartialSegmentResponse(data.networkDetails)
+        ? null
+        : sampleFromResourceTiming(timing, performance.now());
       if (sample) {
         this.bandwidth = pushBandwidthSample(this.bandwidth, sample, {
           minSamples: BANDWIDTH_MIN_SAMPLES,

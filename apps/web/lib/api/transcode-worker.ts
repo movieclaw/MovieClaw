@@ -71,6 +71,10 @@ export interface RemoteTranscodeWorker {
   /** 距最近一次收到该 Worker 消息的秒数。 */
   last_seen_seconds: number;
   online: boolean;
+  device_id: number | null;
+  server_config: boolean;
+  hardware: { chip?: string; cpu_cores?: number; memory_bytes?: number };
+  load: { cpu: number; memory_pressure: number; thermal_state: number; memory_used_bytes?: number } | null;
 }
 
 export interface RemoteTranscodeStatus {
@@ -78,6 +82,14 @@ export interface RemoteTranscodeStatus {
   base_url_configured: boolean;
   ready: boolean;
   workers: RemoteTranscodeWorker[];
+  device_limits: Record<string, number>;
+}
+
+export function saveWorkerLimit(deviceID: number, maxJobs: number): Promise<{ max_jobs: number }> {
+  return unwrap(request<ApiEnvelope<{ max_jobs: number }>>(`/transcode-worker/devices/${deviceID}/config`, {
+    method: "PUT",
+    body: JSON.stringify({ max_jobs: maxJobs }),
+  }));
 }
 
 /**
@@ -91,4 +103,3 @@ export function getRemoteTranscodeStatus(): Promise<RemoteTranscodeStatus> {
     request<ApiEnvelope<RemoteTranscodeStatus>>("/transcode-worker/status"),
   );
 }
-

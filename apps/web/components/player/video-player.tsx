@@ -1587,6 +1587,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
       hasMse: capabilityRef.current?.mse !== "none",
       mse: capabilityRef.current?.mse ?? "none",
       preferNativeHls: mode.engine === "native-hls",
+      progressiveSegments: session.progressive_segments === true,
       // 直出档没有分片字节数可数，取流速度只能用「缓冲涨了几秒 × 码率」反推
       sourceBitrateBps: session.source?.bit_rate ?? null,
       // 首帧就从续播点开始装载。会话相对制下换算结果≈0，与从前无异；VOD

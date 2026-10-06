@@ -34,13 +34,19 @@ enum CapabilityProbe {
         }
         // 滤镜清单拿不到不影响接单：NAS 当它没有 Metal 滤镜，走 CPU 滤镜的老路
         let filterOutput = (try? execute(ffmpegPath, arguments: ["-hide_banner", "-filters"])) ?? ""
+        var filters = parseFilters(filterOutput).filter(metalFilters.contains)
+        if filters.contains("scale_vt") {
+            let help = (try? execute(ffmpegPath, arguments: ["-hide_banner", "-h", "filter=scale_vt"])) ?? ""
+            // 上游也有同名滤镜，但没有 Jellyfin 的 format 选项，不能执行 NAS 的 GPU 链路。
+            if !scaleSupportsFormat(help) { filters.removeAll { $0 == "scale_vt" } }
+        }
         // 同理：选项清单拿不到就一个都不申报，NAS 照旧装命令
         let helpOutput = (try? execute(ffmpegPath, arguments: ["-hide_banner", "-h", "full"])) ?? ""
         return WorkerCapabilities(
             ffmpegVersion: version,
             encoders: encoders,
             backends: backends,
-            filters: parseFilters(filterOutput).filter(metalFilters.contains),
+            filters: filters,
             hwDecoders: hardwareDecoders(ffmpegMajorVersion: majorVersion(of: version)),
             readOptions: parseReadOptions(helpOutput)
         )
@@ -50,6 +56,12 @@ enum CapabilityProbe {
     /// 打开时不倒着读文件尾估时长。未知选项会让 ffmpeg 直接退出，所以要先问 ffmpeg 自己。
     /// （按块要、连接复用由取源代理做，见 ``SourceReadProxy``。）
     static let readOptions: [String] = ["skip_estimate_duration_from_pts"]
+
+    static func scaleSupportsFormat(_ help: String) -> Bool {
+        help.split(separator: "\n").contains {
+            $0.split(whereSeparator: { $0 == " " || $0 == "\t" }).first == "format"
+        }
+    }
 
     /// 从 `ffmpeg -h full` 的输出里挑出认得的取源选项。选项行形如 `  -skip_estimate_duration_from_pts <boolean> …`。
     static func parseReadOptions(_ output: String) -> [String] {

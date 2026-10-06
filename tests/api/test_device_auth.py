@@ -734,3 +734,137 @@ def test_worker_messages_refresh_last_seen(client: TestClient) -> None:
     device = _paired_devices(client)[0]
     assert device["last_seen_ip"] == "192.168.1.60"
     assert not device["last_seen_at"].startswith(stale.isoformat()[:16])
+
+
+def test_worker_limits_sync_web_and_mac_persist_across_rename_and_reconnect(client):
+    """HTTP 网页修改 → WS 推送；Mac 修改 → HTTP 读取；重连不让本机旧值覆盖。"""
+    from movieclaw_api.services.playback.remote_worker import get_remote_worker_registry
+    from movieclaw_api.settings.remote_transcode import WorkerLimitsSetting
+    from movieclaw_api.settings.store import get_setting_store
+
+    token = _pair(client, client_type="worker", name="mac")
+    device_id = int(_paired_devices(client)[0]["id"].removeprefix("ld-"))
+    endpoint = f"/api/v1/transcode-worker/devices/{device_id}/config"
+    assert client.put("/api/v1/transcode-worker/config", json={"enabled": True}).status_code == 200
+
+    def hello(name, maximum):
+        return {
+            "type": "worker.hello",
+            "protocol_version": 1,
+            "worker_id": name,
+            "capabilities": {
+                "server_config": True,
+                "max_jobs": maximum,
+                "backends": ["videotoolbox"],
+                "encoders": ["h264_videotoolbox"],
+            },
+        }
+
+    with client.websocket_connect("/api/v1/transcode-worker/ws", headers=_bearer(token)) as ws:
+        ws.send_json(hello("mac", 3))
+        assert ws.receive_json()["max_jobs"] == 3
+        # 保留正在执行的槽位：降低上限不能打断播放。
+        registry = get_remote_worker_registry()
+        registry.reserve("running-a", backend="videotoolbox")
+        registry.reserve("running-b", backend="videotoolbox")
+        assert client.put(endpoint, json={"max_jobs": 1}).status_code == 200
+        assert ws.receive_json() == {"type": "worker.config", "max_jobs": 1}
+        status = client.get("/api/v1/transcode-worker/status").json()["data"]
+        assert status["workers"][0]["active_jobs"] == 2
+        assert status["workers"][0]["max_jobs"] == 1
+        ws.send_json({"type": "worker.configure", "max_jobs": 4})
+        assert ws.receive_json() == {"type": "worker.config", "max_jobs": 4}
+        assert (
+            client.get("/api/v1/transcode-worker/status").json()["data"]["device_limits"][
+                f"ld-{device_id}"
+            ]
+            == 4
+        )
+        ws.send_json({"type": "worker.configure", "max_jobs": 99})
+        assert ws.receive_json()["type"] == "worker.config.error"
+        registry.release_job("running-a")
+        registry.release_job("running-b")
+
+    # 失效缓存后从数据库重读，确认不是只更新了运行时状态。
+    get_setting_store().invalidate("playback.worker_limits")
+    stored = client.portal.call(get_setting_store().get, WorkerLimitsSetting)
+    assert stored.limits[str(device_id)] == 4
+    with client.websocket_connect("/api/v1/transcode-worker/ws", headers=_bearer(token)) as ws:
+        ws.send_json(hello("renamed-mac", 1))
+        assert ws.receive_json()["max_jobs"] == 4
+    # 离线修改；下次连接同步服务器新值。
+    assert client.put(endpoint, json={"max_jobs": 2}).status_code == 200
+    with client.websocket_connect("/api/v1/transcode-worker/ws", headers=_bearer(token)) as ws:
+        ws.send_json(hello("renamed-mac", 1))
+        assert ws.receive_json()["max_jobs"] == 2
+
+
+def test_worker_config_is_scoped_and_telemetry_does_not_write_settings(client, monkeypatch):
+    from movieclaw_api.settings.store import get_setting_store
+
+    tokens = [_pair(client, client_type="worker", name=f"mac-{i}") for i in range(2)]
+    devices = _paired_devices(client)
+    ids = [
+        int(next(d["id"] for d in devices if d["name"] == f"mac-{i}").removeprefix("ld-"))
+        for i in range(2)
+    ]
+    assert client.put("/api/v1/transcode-worker/config", json={"enabled": True}).status_code == 200
+    with client.websocket_connect("/api/v1/transcode-worker/ws", headers=_bearer(tokens[0])) as ws:
+        ws.send_json(
+            {
+                "type": "worker.hello",
+                "protocol_version": 1,
+                "worker_id": "mac-0",
+                "capabilities": {"server_config": True, "max_jobs": 1},
+            }
+        )
+        assert ws.receive_json()["type"] == "worker.accepted"
+        # 转码凭证不能通过管理员 HTTP 接口修改其他设备。
+        cookies = dict(client.cookies)
+        client.cookies.clear()
+        response = client.put(
+            f"/api/v1/transcode-worker/devices/{ids[1]}/config",
+            headers=_bearer(tokens[0]),
+            json={"max_jobs": 4},
+        )
+        client.cookies.update(cookies)
+        assert response.status_code in (401, 403)
+        ws.send_json({"type": "worker.configure", "device_id": ids[1], "max_jobs": 2})
+        assert ws.receive_json()["max_jobs"] == 2
+        limits = client.get("/api/v1/transcode-worker/status").json()["data"]["device_limits"]
+        assert limits[f"ld-{ids[0]}"] == 2
+        assert f"ld-{ids[1]}" not in limits
+
+        async def unexpected_write(_):
+            pytest.fail("统计上报不应写配置数据库")
+
+        monkeypatch.setattr(get_setting_store(), "set", unexpected_write)
+        for _ in range(100):
+            ws.send_json(
+                {
+                    "type": "worker.heartbeat",
+                    "load": {
+                        "cpu": 0.3,
+                        "memory_pressure": 0,
+                        "thermal_state": 0,
+                        "memory_used_bytes": 1024,
+                    },
+                }
+            )
+            assert ws.receive_json()["type"] == "worker.heartbeat.ack"
+        worker = client.get("/api/v1/transcode-worker/status").json()["data"]["workers"][0]
+        assert worker["load"]["cpu"] == pytest.approx(0.3)
+        assert worker["load"]["memory_used_bytes"] == 1024
+
+
+@pytest.mark.parametrize("value", [0, 5, True, "2", 1.5])
+def test_worker_limit_http_rejects_invalid_values(client, value):
+    token = _pair(client, client_type="worker", name="mac")
+    assert token
+    device_id = int(_paired_devices(client)[0]["id"].removeprefix("ld-"))
+    assert (
+        client.put(
+            f"/api/v1/transcode-worker/devices/{device_id}/config", json={"max_jobs": value}
+        ).status_code
+        == 422
+    )
