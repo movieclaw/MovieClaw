@@ -276,6 +276,8 @@ struct TorrentResultsView: View {
                     Text(TorrentSearchLogic.facetLabel(dim, facet.value, siteName: model.siteName))
                     Text("\(facet.count) 条")
                 }
+                // 菜单使用系统勾选项，不能继承 App 全局的 SystemSwitchStyle 滑动开关。
+                .toggleStyle(.automatic)
             }
             if !selected.isEmpty {
                 Section {
