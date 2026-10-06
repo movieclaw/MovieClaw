@@ -718,6 +718,111 @@ def test_push_end_to_end_through_official_relay(client: TestClient, world: World
     assert world.cloud.reports[-1]["relay"]["reachable"] is True
 
 
+@pytest.mark.parametrize("second_phone", [False, True])
+def test_test_push_counts_unique_phones(
+    client: TestClient, world: World, second_phone: bool
+) -> None:
+    """同一 iPhone 的多条登录登记：页面与实际测试通知都只算一台。"""
+    _connect(client, world)
+    _data(client.put("/api/v1/push/me/preferences", json={"events": {"new_device": False}}))
+    token = "a8" * 32
+    for i in range(5):
+        bearer = _app_login(client, _ADMIN, installation=f"iphone-install-{i}", name="我的 iPhone")
+        _, key = _register(client, bearer, token=token)
+    # macOS、tvOS、网页以及没登记通知的 iOS 设备都不计入。
+    for kind in ("macos", "tvos", "ios"):
+        _app_login(client, _ADMIN, installation=f"other-{kind}", name=kind, kind=kind)
+    if second_phone:
+        bearer = _app_login(client, _ADMIN, installation="second-iphone", name="我的 iPhone")
+        _register(client, bearer, token="b8" * 32)
+    relay = world.relays["push.test"]
+    relay.messages.clear()
+    mine = _data(client.get("/api/v1/push/me"))
+    expected = 2 if second_phone else 1
+    assert mine["ready_devices"] == expected
+    result = _data(client.post("/api/v1/push/me/test"))
+    assert result["sent"] == mine["ready_devices"]
+    assert len(result["results"]) == len(relay.messages) == expected
+    message = next(m for m in relay.messages if m["token"] == token)
+    assert _open(message, key)["title"] == "测试通知"
+
+
+@pytest.mark.parametrize(
+    "missing", ["push_environment", "push_key_id", "push_key", "invalid_key", "background"]
+)
+def test_test_push_count_excludes_undeliverable_registrations(
+    client: TestClient, world: World, missing: str
+) -> None:
+    _connect(client, world)
+    bearer = _app_login(client, _ADMIN, installation="incomplete-iphone", name="iPhone")
+    _register(client, bearer, token="a9" * 32)
+
+    async def change_registration() -> None:
+        from sqlmodel import select
+
+        from movieclaw_db.engine import get_database
+        from movieclaw_db.models import LoginDevice
+
+        async with get_database().session() as session:
+            device = (
+                await session.execute(
+                    select(LoginDevice).where(LoginDevice.installation_id == "incomplete-iphone")
+                )
+            ).scalar_one()
+            if missing == "background":
+                device.push_types = ["background"]
+            elif missing == "invalid_key":
+                device.push_key = "cannot-decrypt"
+            else:
+                setattr(device, missing, None)
+            session.add(device)
+            await session.commit()
+
+    assert client.portal is not None
+    client.portal.call(change_registration)
+    assert _data(client.get("/api/v1/push/me"))["ready_devices"] == 0
+    assert _data(client.post("/api/v1/push/me/test")) == {"sent": 0, "results": []}
+
+
+def test_test_push_count_excludes_stale_account_registration(
+    client: TestClient, world: World
+) -> None:
+    """手机已切换账号，旧账号的通知页不再声称这台手机能收通知。"""
+    from datetime import timedelta
+
+    _connect(client, world)
+    _create_member(client)
+    token = "ba" * 32
+    admin = _app_login(client, _ADMIN, installation="old-account", name="iPhone")
+    _register(client, admin, token=token)
+    member = _app_login(client, _MEMBER, installation="current-account", name="iPhone")
+    _register(client, member, token=token)
+
+    async def age_registration() -> None:
+        from sqlmodel import select
+
+        from movieclaw_db.engine import get_database
+        from movieclaw_db.models import LoginDevice, utcnow
+
+        async with get_database().session() as session:
+            device = (
+                await session.execute(
+                    select(LoginDevice).where(LoginDevice.installation_id == "old-account")
+                )
+            ).scalar_one()
+            device.push_registered_at = utcnow() - timedelta(days=8)
+            session.add(device)
+            await session.commit()
+
+    assert client.portal is not None
+    client.portal.call(age_registration)
+    assert _data(client.get("/api/v1/push/me"))["ready_devices"] == 0
+    assert _data(client.post("/api/v1/push/me/test")) == {"sent": 0, "results": []}
+    assert _data(_as_app(client, member, "GET", "/api/v1/push/me"))["ready_devices"] == 1
+    result = _data(_as_app(client, member, "POST", "/api/v1/push/me/test"))
+    assert result["sent"] == 1
+
+
 def test_same_phone_two_accounts_gets_one_push(client: TestClient, world: World) -> None:
     _connect(client, world)
     _create_member(client)

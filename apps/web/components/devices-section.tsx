@@ -1,7 +1,7 @@
 "use client";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 
@@ -20,6 +20,7 @@ import {
   PlayIcon,
   PlusIcon,
   ServerIcon,
+  RefreshIcon,
   TerminalIcon,
   TvIcon,
 } from "@/components/icons";
@@ -40,6 +41,7 @@ import {
   CLEANUP_DAY_OPTIONS,
   DEFAULT_CLEANUP_DAYS,
   type DeviceGlyph,
+  type DeviceGroup,
   STALE_AFTER_DAYS,
   deviceGlyph,
   envSnippet,
@@ -89,26 +91,31 @@ export function DevicesSection() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [cleaning, setCleaning] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerGroup, setDrawerGroup] = useState("browser");
+  const requestId = useRef(0);
   // 写操作后递增它来重拉列表；拉取放在 effect 里并丢弃过期响应——快速来回切
   // 「只看我的 / 全部成员」时，晚到的旧响应不能盖掉新视图
   const [reloadTick, setReloadTick] = useState(0);
   const reload = useCallback(() => setReloadTick((tick) => tick + 1), []);
 
-  useEffect(() => {
-    let alive = true;
+  const refreshDevices = useCallback(async () => {
+    const id = ++requestId.current;
     setLoadError(null);
-    listLoginDevices(scope === "all").then(
-      (next) => {
-        if (alive) setDevices(next);
-      },
-      (e: Error) => {
-        if (alive) setLoadError(e.message);
-      },
-    );
+    try {
+      const next = await listLoginDevices(scope === "all");
+      if (id === requestId.current) setDevices(next);
+    } catch (e) {
+      if (id === requestId.current) setLoadError((e as Error).message);
+    }
+  }, [scope]);
+
+  useEffect(() => {
+    void refreshDevices();
     return () => {
-      alive = false;
+      requestId.current += 1;
     };
-  }, [scope, reloadTick]);
+  }, [refreshDevices, reloadTick]);
 
   // 在线状态会变（转码器连上 / 断开、手机刚用过）：页面开着时每 15 秒静默刷新一次，
   // 切到后台标签页就不刷
@@ -230,6 +237,7 @@ export function DevicesSection() {
                 value={scope}
                 onChange={(next) => {
                   if (next === scope) return;
+                  setDrawerOpen(false);
                   setDevices(null);
                   setScope(next);
                 }}
@@ -244,37 +252,195 @@ export function DevicesSection() {
           </p>
         ) : devices === null ? (
           <p className="px-1 text-sub text-[var(--text-faint)]">加载中…</p>
-        ) : groups.length === 0 ? (
-          <EmptyState />
         ) : (
-          groups.map((group) => (
-            <div key={group.key} className="space-y-2">
-              <h3 className="px-1 text-caption text-[var(--text-faint)]">
-                {group.label}
-                <span className="ml-1.5 tabular-nums">{group.devices.length}</span>
-              </h3>
-              <div className="css-glass divide-y divide-white/[0.055] !rounded-2xl">
-                {group.devices.map((device) => (
-                  <DeviceRow
-                    key={device.id}
-                    device={device}
-                    showOwner={scope === "all"}
-                    busy={busy === device.id}
-                    onRename={() => void handleRename(device)}
-                    onRevoke={() => void handleRevoke(device)}
-                  />
-                ))}
-              </div>
-            </div>
-          ))
+          <div className="grid gap-4 lg:grid-cols-2" aria-label="当前在线设备摘要">
+            {groups.map((group) => {
+              const online = group.devices.filter((device) => deviceLive(device));
+              return (
+                <section key={group.key} aria-label={`${group.label}分组`} className="css-glass flex min-w-0 flex-col !rounded-2xl">
+                  <div className="flex items-center justify-between gap-3 px-4 py-3">
+                    <h3 className="text-body font-medium text-[var(--text)]">{group.label}</h3>
+                    <span className="shrink-0 text-caption text-[var(--text-muted)]">{online.length} 在线</span>
+                  </div>
+                  <div className="divide-y divide-white/[0.055]">
+                    {online.slice(0, 5).map((device) => (
+                      <DeviceRow key={device.id} device={device} compact showOwner={scope === "all"}
+                        busy={busy === device.id} onRename={() => void handleRename(device)} onRevoke={() => void handleRevoke(device)} />
+                    ))}
+                    {online.length === 0 && (
+                      <p className="px-4 py-6 text-sub text-[var(--text-faint)]">
+                        {group.devices.length ? "暂无在线设备，离线记录可在查看全部中找到" : "暂无设备记录，登录或配对后会显示在这里"}
+                      </p>
+                    )}
+                  </div>
+                  {group.devices.length > 0 && (
+                    <button type="button" aria-label={`查看全部${group.label}设备`}
+                      onClick={() => { setDrawerGroup(group.key); setDrawerOpen(true); }}
+                      className="mt-auto flex min-h-11 items-center justify-between gap-2 border-t border-white/[0.055] px-4 py-3 text-sub text-[var(--text-muted)] transition-colors hover:bg-white/[0.05]">
+                      <span>查看全部</span><span className="flex items-center gap-1.5 text-caption">{group.devices.length} 条记录<ChevronRightIcon className="size-4" /></span>
+                    </button>
+                  )}
+                </section>
+              );
+            })}
+          </div>
         )}
+        {devices && <p className="px-1 text-caption text-[var(--text-faint)]">摘要只显示当前在线的前 5 台设备；查看全部包含在线和离线记录。</p>}
       </section>
+
+      <DevicesDrawer key={scope} open={drawerOpen} groupKey={drawerGroup} groups={groups} showOwner={scope === "all"} busy={busy}
+        error={loadError} onClose={() => setDrawerOpen(false)} onGroupChange={setDrawerGroup} onRefresh={refreshDevices}
+        onRename={handleRename} onRevoke={handleRevoke} />
 
       {isAdmin && <ManualTokenSection onCreated={reload} />}
       {cleaning && (
         <CleanupDialog all={scope === "all"} onClose={() => setCleaning(false)} onCleaned={reload} />
       )}
     </div>
+  );
+}
+
+/** 全部记录在抽屉内按批显示；关闭与切换分类都保留各自的浏览位置。 */
+function DevicesDrawer({
+  open, groupKey, groups, showOwner, busy, error, onClose, onGroupChange, onRefresh, onRename, onRevoke,
+}: {
+  open: boolean;
+  groupKey: string;
+  groups: DeviceGroup<LoginDeviceView>[];
+  showOwner: boolean;
+  busy: string | null;
+  error: string | null;
+  onClose: () => void;
+  onGroupChange: (key: string) => void;
+  onRefresh: () => Promise<void>;
+  onRename: (device: LoginDeviceView) => Promise<void>;
+  onRevoke: (device: LoginDeviceView) => Promise<void>;
+}) {
+  const [limits, setLimits] = useState<Record<string, number>>({});
+  const [refreshing, setRefreshing] = useState(false);
+  const [pull, setPull] = useState(0);
+  const positions = useRef<Record<string, number>>({});
+  const panel = useRef<HTMLElement>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const sentinel = useRef<HTMLDivElement>(null);
+  const group = groups.find((item) => item.key === groupKey);
+  const online = group?.devices.filter((device) => deviceLive(device)) ?? [];
+  const offline = group?.devices.filter((device) => !deviceLive(device)) ?? [];
+  const ordered = [...online, ...offline];
+  const limit = limits[groupKey] ?? 20;
+  const visible = ordered.slice(0, limit);
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try { await onRefresh(); } finally { setRefreshing(false); setPull(0); }
+  }, [onRefresh]);
+
+  useLayoutEffect(() => {
+    if (open && scroller.current) scroller.current.scrollTop = positions.current[groupKey] ?? 0;
+  }, [open, groupKey]);
+
+  useEffect(() => {
+    if (!open) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const frame = requestAnimationFrame(() => panel.current?.querySelector<HTMLButtonElement>("button")?.focus());
+    return () => {
+      cancelAnimationFrame(frame);
+      document.body.style.overflow = overflow;
+      trigger?.focus({ preventScroll: true });
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !sentinel.current || !scroller.current || limit >= ordered.length) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        setLimits((previous) => ({ ...previous, [groupKey]: (previous[groupKey] ?? 20) + 20 }));
+      }
+    }, { root: scroller.current, rootMargin: "0px 0px 150px 0px" });
+    observer.observe(sentinel.current);
+    return () => observer.disconnect();
+  }, [open, groupKey, limit, ordered.length]);
+
+  useEffect(() => {
+    const element = scroller.current;
+    if (!open || !element) return;
+    let start: number | null = null;
+    let distance = 0;
+    const reset = () => { start = null; distance = 0; setPull(0); };
+    const begin = (event: TouchEvent) => {
+      start = element.scrollTop <= 0 && !refreshing ? event.touches[0].clientY : null;
+    };
+    const move = (event: TouchEvent) => {
+      if (start === null) return;
+      distance = Math.min(100, Math.max(0, (event.touches[0].clientY - start) / 2));
+      if (distance > 0) { event.preventDefault(); setPull(distance); }
+    };
+    const end = () => { const shouldRefresh = distance >= 55; reset(); if (shouldRefresh) void refresh(); };
+    element.addEventListener("touchstart", begin, { passive: true });
+    element.addEventListener("touchmove", move, { passive: false });
+    element.addEventListener("touchend", end);
+    element.addEventListener("touchcancel", reset);
+    return () => {
+      element.removeEventListener("touchstart", begin);
+      element.removeEventListener("touchmove", move);
+      element.removeEventListener("touchend", end);
+      element.removeEventListener("touchcancel", reset);
+    };
+  }, [open, groupKey, refresh, refreshing]);
+
+  return (
+    <Modal open={open} onClose={onClose} label="全部设备列表" width="lg" placement="right"
+      panelClassName="h-full !max-h-full !rounded-none max-md:h-[88dvh] max-md:!rounded-t-3xl">
+      <section ref={panel} className="flex min-h-0 flex-1 flex-col" onKeyDown={(event) => {
+        if (event.key !== "Tab" || !event.currentTarget.contains(event.target as Node)) return;
+        const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")].filter((button) => button.getClientRects().length);
+        const first = buttons[0], last = buttons[buttons.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }}>
+        <div aria-hidden className="mx-auto mt-2 hidden h-1 w-9 shrink-0 rounded-full bg-white/20 max-md:block" />
+        <header className="shrink-0 space-y-3 px-4 pb-3 pt-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0"><h2 className="text-ui font-semibold text-[var(--text)]">{group?.label ?? "设备"}</h2>
+              <p className="text-caption text-[var(--text-muted)]">{online.length} 在线 · 共 {ordered.length} 条记录</p></div>
+            <div className="flex shrink-0 items-center gap-1">
+              <button type="button" onClick={() => void refresh()} disabled={refreshing} aria-label="刷新设备列表" className="flex size-11 items-center justify-center rounded-full text-[var(--text-muted)] hover:bg-white/[0.07] disabled:opacity-40"><RefreshIcon className={`size-4 ${refreshing ? "animate-spin" : ""}`} /></button>
+              <button type="button" onClick={onClose} className="min-h-11 px-2 text-sub text-[var(--accent)]">完成</button>
+            </div>
+          </div>
+          <div role="tablist" aria-label="设备类型" className="grid grid-cols-4 gap-1 rounded-xl bg-white/[0.06] p-1">
+            {groups.map((item) => <button key={item.key} type="button" role="tab" aria-selected={groupKey === item.key} aria-controls="devices-drawer-list"
+              onClick={() => onGroupChange(item.key)}
+              onKeyDown={(event) => {
+                if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+                event.preventDefault();
+                const index = groups.findIndex((candidate) => candidate.key === item.key);
+                const next = (index + (event.key === "ArrowRight" ? 1 : groups.length - 1)) % groups.length;
+                onGroupChange(groups[next].key);
+                event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>("button")[next]?.focus();
+              }}
+              className={`min-h-10 rounded-lg px-1 text-sub ${groupKey === item.key ? "bg-white/[0.14] text-[var(--text)]" : "text-[var(--text-muted)]"}`}>
+              {item.key === "paired" ? "命令行" : item.label}</button>)}
+          </div>
+        </header>
+        <div ref={scroller} id="devices-drawer-list" role="tabpanel" aria-label={`${group?.label ?? "设备"}记录`}
+          onScroll={(event) => { positions.current[groupKey] = event.currentTarget.scrollTop; }}
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain scroll-thin">
+          {(pull > 0 || refreshing) && <p role="status" className="flex items-center justify-center text-caption text-[var(--text-muted)]" style={{ height: refreshing ? 44 : pull }}>{refreshing ? "正在刷新…" : pull >= 55 ? "松开刷新" : "下拉刷新"}</p>}
+          {error && <p role="alert" className="px-4 py-3 text-sub text-[var(--danger)]">{error}</p>}
+          {ordered.length === 0 && <p className="px-4 py-12 text-center text-sub text-[var(--text-muted)]">暂无设备记录，登录或配对后会显示在这里</p>}
+          {visible.map((device, index) => <div key={device.id} data-device-id={device.id}>
+            {(index === 0 || index === online.length) && <h3 className="px-5 pb-1 pt-4 text-caption text-[var(--text-faint)]">{deviceLive(device) ? "当前在线" : "离线 · 最近使用优先"}</h3>}
+            <DeviceRow device={device} showOwner={showOwner} busy={busy === device.id} onRename={() => void onRename(device)} onRevoke={() => void onRevoke(device)} />
+          </div>)}
+          <div ref={sentinel} role="status" className="px-4 py-5 text-center text-caption text-[var(--text-faint)]">{ordered.length > visible.length ? "继续滚动，自动载入" : ordered.length ? "已显示全部记录" : ""}</div>
+        </div>
+        <footer className="flex shrink-0 justify-between gap-3 border-t border-white/[0.07] px-4 py-3 text-caption text-[var(--text-faint)]">
+          <span>{visible.length} / {ordered.length} 条记录</span><span className="md:hidden">下拉刷新</span>
+        </footer>
+      </section>
+    </Modal>
   );
 }
 
@@ -397,6 +563,7 @@ function DeviceRow({
   busy,
   onRename,
   onRevoke,
+  compact = false,
 }: {
   device: LoginDeviceView;
   /** 「全部成员」视图：写明这台设备是谁的 */
@@ -404,6 +571,7 @@ function DeviceRow({
   busy: boolean;
   onRename: () => void;
   onRevoke: () => void;
+  compact?: boolean;
 }) {
   const pushNote = devicePushNote(device.push);
   const activity = [
@@ -444,15 +612,15 @@ function DeviceRow({
           </p>
         )}
         <MetaLine parts={identityParts(device)} />
-        <MetaLine parts={activity} />
-        {isStale(device.last_seen_at, device.created_at) && (
+        {!compact && <MetaLine parts={activity} />}
+        {!compact && isStale(device.last_seen_at, device.created_at) && (
           <RowNote icon={ClockIcon} color="var(--warn)">
             已超过 {STALE_AFTER_DAYS}{" "}
             天没有活跃（不会自动失效），不再使用的话建议注销。
           </RowNote>
         )}
         {/* App 收不到通知时写一行原因；能收到就什么都不写（docs/design/cloud-push.md §8） */}
-        {pushNote && (
+        {!compact && pushNote && (
           <RowNote
             icon={BellIcon}
             color={
@@ -643,21 +811,6 @@ function CleanupDialog({
         </div>
       </div>
     </Modal>
-  );
-}
-
-/** 空态：直接告诉用户设备从哪来，而不是只说「暂无数据」。 */
-function EmptyState() {
-  return (
-    <div className="css-glass flex flex-col items-center gap-3 !rounded-2xl px-6 py-10 text-center">
-      <span className="icon-chip size-11 !rounded-2xl">
-        <TerminalIcon className="size-5" />
-      </span>
-      <p className="text-body font-medium text-[var(--text)]">还没有登录着的设备</p>
-      <p className="max-w-sm text-sub leading-relaxed text-[var(--text-muted)]">
-        在 App 里登录、在终端运行 mclaw login，或在转码器里连接并配对后，它们会出现在这里。
-      </p>
-    </div>
   );
 }
 

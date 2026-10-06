@@ -22,6 +22,11 @@ struct DevicesSettingsView: View {
     @State private var busy: String?
     @State private var error: String?
     @State private var cleaning = false
+    @State private var showDeviceList = false
+    @State private var selectedGroup = "browser"
+    @State private var deviceListLimits: [String: Int] = [:]
+    @State private var deviceListPositions: [String: String] = [:]
+    @State private var requestID = 0
 
     // 手工令牌
     @State private var tokenStage: TokenStage = .idle
@@ -64,6 +69,14 @@ struct DevicesSettingsView: View {
             if permissions.isAdmin, let config = try? await api.appShow() { externalUrl = config.externalUrl }
         }
         .refreshable { await load() }
+        .onChange(of: showAll) { _, _ in
+            showDeviceList = false
+            deviceListLimits = [:]
+            deviceListPositions = [:]
+        }
+        .sheet(isPresented: $showDeviceList) {
+            deviceListSheet.sheetFeedback()
+        }
         .sheet(isPresented: $cleaning) {
             DeviceCleanupSheet(all: showAll) { message in
                 cleaning = false
@@ -75,9 +88,16 @@ struct DevicesSettingsView: View {
     }
 
     private func load() async {
+        requestID += 1
+        let request = requestID
+        let all = showAll
         do {
-            devices = .loaded(try await api.authDevicesList(all: showAll))
+            let next = try await api.authDevicesList(all: all)
+            guard request == requestID, !Task.isCancelled else { return }
+            devices = .loaded(next)
+            error = nil
         } catch {
+            guard request == requestID, !Task.isCancelled else { return }
             if devices.value == nil { devices = .failed(error.localizedDescription) }
             self.error = error.localizedDescription
         }
@@ -129,23 +149,20 @@ struct DevicesSettingsView: View {
 
     // MARK: 设备列表
 
-    /// 按类别分组：网页与 App、命令行与转码器、播放器（Jellyfin 客户端）
+    /// 与网页一致的四类：空组保留，区分没有在线设备与没有设备记录。
     private struct DeviceGroup: Identifiable {
         let id: String
         let title: String
-        let footer: String?
         let items: [API.LoginDeviceView]
     }
 
     private func groups(_ list: [API.LoginDeviceView]) -> [DeviceGroup] {
-        let apps = list.filter { ["web", "ios", "tvos", "macos", "android"].contains($0.kind) }
-        let programs = list.filter { ["cli", "worker", "manual"].contains($0.kind) }
-        let players = list.filter { $0.kind == "jellyfin" }
         return [
-            DeviceGroup(id: "apps", title: "网页与 App", footer: "用账号密码登录的。改密码后，除了你正在用的这台，其余全部下线。", items: apps),
-            DeviceGroup(id: "programs", title: "命令行与转码器", footer: "配对或手工创建的，改密码时默认保留（转码器常年无人值守）。怀疑密码泄露时，改密时勾选一并注销。", items: programs),
-            DeviceGroup(id: "players", title: "播放器", footer: "Infuse 等 Jellyfin 客户端。", items: players),
-        ].filter { !$0.items.isEmpty }
+            DeviceGroup(id: "browser", title: "浏览器", items: list.filter { $0.kind == "web" }),
+            DeviceGroup(id: "app", title: "App", items: list.filter { ["ios", "tvos", "macos", "android"].contains($0.kind) }),
+            DeviceGroup(id: "paired", title: "命令行与转码器", items: list.filter { !["web", "ios", "tvos", "macos", "android", "jellyfin"].contains($0.kind) }),
+            DeviceGroup(id: "player", title: "播放器", items: list.filter { $0.kind == "jellyfin" }),
+        ]
     }
 
     @ViewBuilder
@@ -157,22 +174,131 @@ struct DevicesSettingsView: View {
             Section { Text(message).font(.subheadline).foregroundStyle(Theme.danger) }
         case let .loaded(list):
             ForEach(groups(list)) { group in
+                let online = group.items.filter { DeviceText.isLive($0) }
                 Section {
-                    ForEach(group.items, id: \.id) { device in
-                        deviceRow(device)
+                    ForEach(Array(online.prefix(5)), id: \.id) { device in
+                        deviceRow(device, compact: true)
+                    }
+                    if online.isEmpty {
+                        Text(group.items.isEmpty ? "暂无设备记录，登录或配对后会显示在这里" : "暂无在线设备，离线记录可在查看全部中找到")
+                            .font(.subheadline).foregroundStyle(Theme.textMuted)
+                            .accessibilityIdentifier("devices-empty-\(group.id)")
+                    }
+                    if !group.items.isEmpty {
+                        Button {
+                            selectedGroup = group.id
+                            showDeviceList = true
+                        } label: {
+                            HStack {
+                                Text("查看全部").foregroundStyle(Theme.text)
+                                Spacer()
+                                Text("\(group.items.count) 条记录").font(.caption).foregroundStyle(Theme.textMuted)
+                                Image(systemName: "chevron.right").font(.caption).foregroundStyle(Theme.textFaint)
+                            }
+                        }
+                        .accessibilityIdentifier("devices-all-\(group.id)")
                     }
                 } header: {
-                    Text(group.title)
+                    HStack { Text(group.title); Spacer(); Text("\(online.count) 在线") }
                 } footer: {
-                    if let footer = group.footer { Text(footer) }
+                    if group.id == "player" { Text("摘要只显示当前在线的前 5 台设备；查看全部包含在线和离线记录。") }
                 }
             }
         }
     }
 
+    private var deviceListSheet: some View {
+        let allGroups = groups(devices.value ?? [])
+        let group = allGroups.first { $0.id == selectedGroup } ?? allGroups[0]
+        return NavigationStack {
+            VStack(spacing: 0) {
+                Picker("设备类型", selection: $selectedGroup) {
+                    ForEach(allGroups) { item in
+                        Text(item.id == "paired" ? "命令行" : item.title).tag(item.id)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .padding(.horizontal, 16).padding(.bottom, 12)
+                .accessibilityIdentifier("devices-list-category")
+                deviceList(group)
+            }
+            .appBackground()
+            .navigationTitle(group.title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { showDeviceList = false }
+                        .accessibilityIdentifier("devices-list-done")
+                }
+            }
+        }
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func deviceList(_ group: DeviceGroup) -> some View {
+        let online = group.items.filter { DeviceText.isLive($0) }
+        let ordered = online + group.items.filter { !DeviceText.isLive($0) }
+        let limit = deviceListLimits[group.id] ?? 20
+        let visible = Array(ordered.prefix(limit))
+        return ScrollView {
+            LazyVStack(alignment: .leading, spacing: 0) {
+                Text("\(online.count) 在线 · 共 \(ordered.count) 条记录")
+                    .font(.caption).foregroundStyle(Theme.textMuted)
+                    .padding(.vertical, 12)
+                if let error { SettingsNotice(text: error) }
+                if ordered.isEmpty {
+                    Text("暂无设备记录，登录或配对后会显示在这里")
+                        .font(.subheadline).foregroundStyle(Theme.textMuted).padding(.vertical, 40)
+                        .accessibilityIdentifier("devices-list-empty")
+                }
+                ForEach(Array(visible.enumerated()), id: \.element.id) { index, device in
+                    VStack(alignment: .leading, spacing: 0) {
+                        if index == 0 || index == online.count {
+                            Text(DeviceText.isLive(device) ? "当前在线" : "离线 · 最近使用优先")
+                                .font(.caption).foregroundStyle(Theme.textFaint).padding(.vertical, 12)
+                        }
+                        deviceRow(device).padding(.vertical, 12)
+                        Divider()
+                    }
+                    .id(device.id)
+                }
+                if visible.count < ordered.count {
+                    Text("继续滚动，自动载入")
+                        .font(.caption).foregroundStyle(Theme.textMuted)
+                        .frame(maxWidth: .infinity).padding(.vertical, 20)
+                        .id("load-\(group.id)-\(limit)")
+                        .onAppear { deviceListLimits[group.id] = limit + 20 }
+                } else if !ordered.isEmpty {
+                    Text("已显示全部记录").font(.caption).foregroundStyle(Theme.textFaint)
+                        .frame(maxWidth: .infinity).padding(.vertical, 20)
+                }
+            }
+            .scrollTargetLayout()
+            .padding(.horizontal, 16)
+        }
+        .scrollPosition(id: Binding(
+            get: { deviceListPositions[group.id] },
+            set: { if let id = $0 { deviceListPositions[group.id] = id } }
+        ), anchor: .top)
+        .refreshable { await load() }
+        .accessibilityIdentifier("devices-list-scroll")
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+                Text("\(visible.count) / \(ordered.count) 条记录")
+                    .accessibilityIdentifier("devices-list-count")
+                Spacer()
+                Text("下拉刷新")
+            }
+            .font(.caption).foregroundStyle(Theme.textFaint)
+            .padding(.horizontal, 16).padding(.vertical, 12)
+            .background(.regularMaterial)
+        }
+    }
+
     /// 一行设备：图标（在线时右下角亮绿点）+ 名字 + 系统与版本 + 最近活跃 + 提示，⋯ 菜单贴右上角。
     /// 说明文字只在整段之间换行（见 DeviceText.metaLine）；分隔线统一从文字列开始，不随提示行左右跳
-    private func deviceRow(_ device: API.LoginDeviceView) -> some View {
+    private func deviceRow(_ device: API.LoginDeviceView, compact: Bool = false) -> some View {
         HStack(alignment: .top, spacing: 12) {
             DeviceBadge(symbol: DeviceText.symbol(device), live: DeviceText.isLive(device))
             VStack(alignment: .leading, spacing: 3) {
@@ -187,16 +313,16 @@ struct DevicesSettingsView: View {
                             .fixedSize()
                     }
                 }
-                ForEach([DeviceText.identityParts(device, showOwner: showAll), DeviceText.activityParts(device)], id: \.self) { parts in
+                ForEach(compact ? [DeviceText.identityParts(device, showOwner: showAll)] : [DeviceText.identityParts(device, showOwner: showAll), DeviceText.activityParts(device)], id: \.self) { parts in
                     if !parts.isEmpty {
                         Text(DeviceText.metaLine(parts)).font(.caption).foregroundStyle(Theme.textFaint)
                     }
                 }
-                if DeviceText.isDormant(device) {
+                if !compact, DeviceText.isDormant(device) {
                     rowNote("clock", "超过 90 天没有用过，不认识或不再用的设备可以注销", color: Theme.warning)
                 }
                 // App 收不到推送时说一句为什么（能收到就不提，docs/design/cloud-push.md §7.3）
-                if let push = device.push, push.status != "ok" {
+                if !compact, let push = device.push, push.status != "ok" {
                     rowNote("bell.slash", push.statusText, color: push.status == "not_registered" ? Theme.textMuted : Theme.warning)
                         .accessibilityIdentifier("device-push-\(device.name)")
                 }

@@ -346,13 +346,52 @@ final class SettingsAUITests: XCTestCase {
         tapSafely(app, dismiss, "我已保存")
         confirmAlert(app, titleContains: "关闭后就看不到这枚令牌了", button: "我已保存")
 
-        tapSafely(app, app.buttons["device-menu-\(name)"], "设备菜单")
+        tapSafely(app, app.buttons["devices-all-paired"], "查看全部命令行与转码器")
+        tapSafely(app, app.scrollViews["devices-list-scroll"].buttons["device-menu-\(name)"], "设备菜单")
         tapSafely(app, app.buttons["注销"], "注销自建令牌")
         confirmAlert(app, titleContains: name, button: "注销")
         XCTAssertTrue(waitUntil(15) {
             !((try? probe.getArray("/auth/devices")) ?? []).contains { $0["name"] as? String == name }
         }, "自建令牌应已注销")
         snapshot("设备-已吊销")
+    }
+
+    /// 使用 tests/e2e/seed_devices.py 的独立本地数据验收摘要、空态与连续加载。
+    @MainActor
+    func testDeviceSummaryAndDrawer() throws {
+        let app = try launch(route: "/settings/devices")
+        guard let probe else { return }
+        guard server.contains("127.0.0.1"), try probe.getArray("/auth/devices").contains(where: { ($0["name"] as? String) == "device-fixture-offline-cli" }) else {
+            throw XCTSkip("需要独立的设备验收数据")
+        }
+        XCTAssertTrue(app.buttons["devices-all-browser"].waitForExistence(timeout: 20))
+        XCTAssertGreaterThan(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "device-row-device-fixture-browser-")).count, 0)
+        XCTAssertLessThanOrEqual(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH %@", "device-row-device-fixture-browser-")).count, 5)
+        tapSafely(app, app.buttons["devices-all-browser"], "查看全部浏览器")
+        let count = app.staticTexts["devices-list-count"]
+        XCTAssertTrue(count.waitForExistence(timeout: 10))
+        XCTAssertTrue(count.label.hasPrefix("20 /"), "首批只展示 20 条")
+        let list = app.scrollViews["devices-list-scroll"]
+        XCTAssertTrue(list.exists)
+        for _ in 0 ..< 8 {
+            list.swipeUp(velocity: .slow)
+            if !count.label.hasPrefix("20 /") { break }
+        }
+        XCTAssertFalse(count.label.hasPrefix("20 /"), "滑动到底应自动追加记录")
+        let loaded = count.label
+        let categories = app.segmentedControls["devices-list-category"]
+        categories.buttons["命令行"].tap()
+        XCTAssertTrue(app.staticTexts["device-fixture-offline-cli"].waitForExistence(timeout: 5))
+        categories.buttons["播放器"].tap()
+        XCTAssertTrue(app.staticTexts["devices-list-empty"].waitForExistence(timeout: 5))
+        categories.buttons["浏览器"].tap()
+        XCTAssertEqual(count.label, loaded, "返回分类应保留已载入记录")
+        app.buttons["devices-list-done"].tap()
+        tapSafely(app, app.buttons["devices-all-browser"], "重新打开浏览器")
+        XCTAssertEqual(count.label, loaded, "重新打开抽屉应保留已载入记录")
+        list.swipeDown(velocity: .fast)
+        list.swipeDown(velocity: .fast)
+        snapshot("设备-分组摘要与抽屉")
     }
 
     /// 清理长期没用的设备：先列名单再注销。默认只看名单、取消退出；真注销只在一次性测试服务器上

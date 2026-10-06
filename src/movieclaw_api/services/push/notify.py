@@ -131,6 +131,25 @@ def _deliverable(device: LoginDevice) -> bool:
     )
 
 
+async def alert_devices(session: AsyncSession, devices: list[LoginDevice]) -> list[LoginDevice]:
+    """提醒类推送候选，排除不可发送和旧账号登记，最近登记的在前。"""
+    devices = [d for d in devices if _deliverable(d)]
+    newest = await registration.newest_registrations(
+        session, {(d.push_token or "").lower() for d in devices}
+    )
+    epoch = datetime(1970, 1, 1)
+    return [
+        d
+        for d in sorted(
+            devices,
+            key=lambda d: (-(d.push_registered_at or epoch).timestamp(), d.member_id, d.id or 0),
+        )
+        if (d.push_token or "").lower() not in newest
+        or newest[(d.push_token or "").lower()] - (d.push_registered_at or epoch)
+        <= STALE_REGISTRATION
+    ]
+
+
 async def prepare(
     session: AsyncSession,
     *,
@@ -149,8 +168,9 @@ async def prepare(
     devices = [
         d
         for d in await registration.registered_devices(session, member_ids=recipients)
-        if d.id is not None and d.id not in exclude_device_ids and _deliverable(d)
+        if d.id is not None and d.id not in exclude_device_ids
     ]
+    devices = await alert_devices(session, devices)
     if not devices:
         return []
     server = await server_identity()
@@ -166,20 +186,9 @@ async def prepare(
     # 同一台手机（同一个 APNs 令牌）登了几个账号时只推一条，用最近登记过的那个账号的
     # 密钥：App 每次打开都给手机上的每个账号重新登记，已经从手机上删掉的账号不会再登记，
     # 它的密钥手机上也没有了。比这台手机最新的登记旧了一周以上的，当它已经不在这台手机上
-    newest = await registration.newest_registrations(
-        session, {(d.push_token or "").lower() for d in devices}
-    )
-    epoch = datetime(1970, 1, 1)
-    for device in sorted(
-        devices,
-        key=lambda d: (-(d.push_registered_at or epoch).timestamp(), d.member_id, d.id or 0),
-    ):
+    for device in devices:
         token = (device.push_token or "").lower()
         if token in seen_tokens:
-            continue
-        latest = newest.get(token)
-        registered = device.push_registered_at or epoch
-        if latest is not None and latest - registered > STALE_REGISTRATION:
             continue
         if device.member_id not in contents:
             contents[device.member_id] = await build(session, device.member_id)
