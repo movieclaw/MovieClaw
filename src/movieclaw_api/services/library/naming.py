@@ -231,12 +231,6 @@ def validate_template(field: str, template: str) -> str | None:
             f"（该模板可用：{'、'.join('{' + n + '}' for n in sorted(allowed))}）"
         )
 
-    if field in ("entry_dir", "movie_file") and not ({"title", "original_title"} & used):
-        return f"{label}模板必须包含 {{title}} 或 {{original_title}}，否则不同影片会重名"
-    if field == "season_dir" and "season" not in used:
-        return "季目录模板必须包含 {season}，否则不同季的同集号文件会互相覆盖"
-    if field == "episode_file" and not {"season", "episode"} <= used:
-        return "剧集文件名模板必须包含 {season} 与 {episode}，否则同一部剧的多集会互相覆盖"
     return None
 
 

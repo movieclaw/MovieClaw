@@ -17,6 +17,17 @@ struct ScrapeNamingRenderTests {
         "resolution": "1080p", "site": "chdbits",
     ]
 
+    @Test func templatesDoNotRequireSpecificTokens() {
+        let templates = ["{tmdb_id}", "{release_name}", "{season_name}", "{release_name}"]
+        for (field, template) in zip(SettingsBScrapeNaming.fields, templates) {
+            #expect(SettingsBScrapeNaming.error(for: field, template: template) == nil)
+            #expect(SettingsBScrapeNaming.error(for: field, template: "收藏") == nil)
+            #expect(SettingsBScrapeNaming.error(for: field, template: "{title}/{year}") != nil)
+            #expect(SettingsBScrapeNaming.error(for: field, template: "{unknown}") != nil)
+        }
+        #expect(SettingsBScrapeNaming.render("{release_name}", movie) == movie["release_name"])
+    }
+
     @Test func titleTokensAreDeduplicated() {
         let tpl = "{title} ({original_title}) ({english_title}) ({year})"
         #expect(SettingsBScrapeNaming.render(tpl, movie) == "沙丘：第二部 (Dune Part Two) (2024)")

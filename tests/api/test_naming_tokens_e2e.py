@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -208,6 +209,129 @@ async def test_ingest_renders_every_new_token_and_organize_agrees(db, tmp_path, 
     summary = await organize_library(library_id)
     assert summary.errors == []
     assert (summary.renamed, summary.already_ok) == (0, 2)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["movie", "tv"])
+async def test_release_name_only_ingest_and_organize(db, tmp_path, monkeypatch, kind):
+    """#615：只用原始文件名，真实入库保留原名，整理重跑零改名。"""
+    _apply_setting(
+        naming_entry_dir="{tmdb_id}",
+        naming_movie_file="{release_name}",
+        naming_season_dir="{season_name}",
+        naming_episode_file="{release_name}",
+    )
+    root, watch = tmp_path / kind, tmp_path / "watch"
+    root.mkdir()
+    watch.mkdir()
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="自由命名库", kind=kind, root_paths=[str(root)]
+        )
+        library_id = library.id
+    if kind == "tv":
+        item = await _tv_item(db)
+        releases = [
+            "House.of.the.Dragon.S01E01.2160p-FRDS",
+            "House.of.the.Dragon.S01E02.2160p-FRDS",
+        ]
+        _stub_units(monkeypatch)
+    else:
+        async with db.session() as session:
+            item = MediaItem(
+                kind="movie",
+                tmdb_id=693134,
+                title="沙丘：第二部",
+                original_title="Dune: Part Two",
+                year=2024,
+            )
+            session.add(item)
+            await session.commit()
+            await session.refresh(item)
+        releases = ["Dune.Part.Two.2024.2160p.BluRay-FRDS"]
+
+    async def identify_none(*_args):
+        return None
+
+    monkeypatch.setattr(ingest_mod, "_identify", identify_none)
+    async with db.session() as session:
+        session.add(
+            ManualDownloadIntent(
+                info_hash="free-naming", media_item_id=item.id, library_id=library_id
+            )
+        )
+        await session.commit()
+
+    async def briefs():
+        return [
+            TorrentBrief(
+                name="release", content_name="release", completed=True, info_hash="free-naming"
+            )
+        ]
+
+    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    entry = watch / "release"
+    entry.mkdir()
+    for release in releases:
+        (entry / f"{release}.mkv").write_bytes(release.encode())
+    rule = ImportWatch(source_path=str(watch), strategy="hardlink", library_id=None, kind=kind)
+    await ingest_mod._sweep_dir(rule, None, execute_inline=True)
+
+    target_dir = root / str(item.tmdb_id)
+    if kind == "tv":
+        target_dir /= "第 1 季"
+    for release in releases:
+        assert (target_dir / f"{release}.mkv").read_bytes() == release.encode()
+    async with db.session() as session:
+        rows = list((await session.execute(select(LibraryFile))).scalars().all())
+    assert sorted(row.release_name for row in rows) == sorted(releases)
+    assert {row.file_path for row in rows} == {
+        str(target_dir / f"{release}.mkv") for release in releases
+    }
+
+    summary = await organize_library(library_id)
+    assert summary.errors == []
+    assert (summary.renamed, summary.already_ok) == (0, len(releases))
+
+
+@pytest.mark.asyncio
+async def test_free_naming_collision_does_not_overwrite(db, tmp_path):
+    """自由模板产生同名目标时，整理仍追加标签，两集内容和台账都保留。"""
+    _apply_setting(naming_season_dir="剧集", naming_episode_file="episode")
+    root = tmp_path / "tv"
+    root.mkdir()
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="自由命名库", kind="tv", root_paths=[str(root)]
+        )
+        library_id = library.id
+    item = await _tv_item(db)
+    sources = [root / "E01.mkv", root / "E02.mkv"]
+    async with db.session() as session:
+        for episode, source in enumerate(sources, 1):
+            source.write_bytes(f"ep{episode}".encode())
+            session.add(
+                LibraryFile(
+                    library_id=library_id,
+                    media_item_id=item.id,
+                    season_number=1,
+                    episode_number=episode,
+                    file_path=str(source),
+                    size_bytes=3,
+                    source=FileSource.SCANNED,
+                    state=FileState.IN_PLACE,
+                )
+            )
+        await session.commit()
+
+    summary = await organize_library(library_id)
+    assert summary.errors == []
+    assert summary.renamed == 2
+    assert summary.skipped == 0
+    assert sorted(path.read_bytes() for path in root.rglob("*.mkv")) == [b"ep1", b"ep2"]
+    async with db.session() as session:
+        rows = list((await session.execute(select(LibraryFile))).scalars().all())
+    assert sorted(Path(row.file_path).read_bytes() for row in rows) == [b"ep1", b"ep2"]
 
 
 @pytest.mark.asyncio

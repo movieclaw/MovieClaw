@@ -1248,7 +1248,7 @@ async def test_dirty_override_still_organizes_with_global_template(db, tmp_path)
     root = tmp_path / "tv"
     async with db.session() as session:
         library = await _make_library(session, kind=MediaKind.TV, root=root, name="脏库")
-        library.scrape_overrides = {"naming_episode_file": "{title}"}  # 缺季集号，非法
+        library.scrape_overrides = {"naming_episode_file": "{unknown}"}  # 不可用占位符
         session.add(library)
         item = await _make_item(session, kind=MediaKind.TV, tmdb_id=11, title="剧", year=2022)
         _add_file(session, library, item, _touch(root / "raw" / "a.mkv"), season=1, episode=4)

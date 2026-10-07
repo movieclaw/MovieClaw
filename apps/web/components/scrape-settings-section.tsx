@@ -897,14 +897,14 @@ const NAMING_FIELDS = [
   {
     key: "naming_season_dir" as const,
     label: "季目录",
-    note: "必须包含 {season}",
+    note: "",
     fallback: "Season {season:02d}",
     tokens: [...COMMON_TOKENS, "season", "season_name"],
   },
   {
     key: "naming_episode_file" as const,
     label: "剧集文件名",
-    note: "必须包含 {season} 与 {episode}",
+    note: "",
     fallback: "{title} ({year}) - S{season:02d}E{episode:02d}",
     tokens: [
       ...COMMON_TOKENS,
@@ -960,24 +960,12 @@ const SAMPLE_EPISODE = {
 };
 
 /** 前端侧轻校验：与后端同口径，只为即时反馈；能否保存以后端返回为准。 */
-function templateError(key: string, template: string, allowed: string[]): string | null {
+function templateError(template: string, allowed: string[]): string | null {
   if (!template.trim()) return null; // 空 = 用默认模板
   if (/[\\/]/.test(template)) return "不能包含路径分隔符（目录层级是固定的）";
   const used = [...template.matchAll(TOKEN_RE)].map((m) => m[1]);
   const unknown = used.filter((t) => !allowed.includes(t));
   if (unknown.length) return `不可用的占位符：${unknown.map((t) => `{${t}}`).join("、")}`;
-  if (
-    (key === "naming_entry_dir" || key === "naming_movie_file") &&
-    !used.some((t) => t === "title" || t === "original_title")
-  ) {
-    return "必须包含 {title} 或 {original_title}，否则不同影片会重名";
-  }
-  if (key === "naming_season_dir" && !used.includes("season")) {
-    return "必须包含 {season}，否则不同季的同集号文件会互相覆盖";
-  }
-  if (key === "naming_episode_file" && !(used.includes("season") && used.includes("episode"))) {
-    return "必须包含 {season} 与 {episode}，否则同一部剧的多集会互相覆盖";
-  }
   return null;
 }
 
@@ -995,7 +983,7 @@ function NamingTab({
   const [focused, setFocused] = useState<string>("naming_episode_file");
   const refs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  const errors = NAMING_FIELDS.map((f) => templateError(f.key, setting[f.key], f.tokens));
+  const errors = NAMING_FIELDS.map((f) => templateError(setting[f.key], f.tokens));
   const valid = errors.every((e) => e === null);
 
   const tpl = (key: (typeof NAMING_FIELDS)[number]["key"]) =>

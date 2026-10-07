@@ -141,12 +141,10 @@ def test_extra_attrs_available_in_file_templates() -> None:
     [
         ("entry_dir", "", "不能为空"),
         ("entry_dir", "{title}/{year}", "路径分隔符"),
-        ("entry_dir", "{year}", "{title}"),
         ("entry_dir", "{title} {episode}", "不可用的占位符"),
-        ("season_dir", "Season", "{season}"),
-        ("episode_file", "{title} E{episode:02d}", "{season}"),
-        ("episode_file", "{title} S{season:02d}", "{episode}"),
-        ("movie_file", "{year}", "{title}"),
+        ("movie_file", "{release_name}\\{title}", "路径分隔符"),
+        ("season_dir", "{episode}", "不可用的占位符"),
+        ("episode_file", "{unknown}", "不可用的占位符"),
     ],
 )
 def test_invalid_templates_rejected(field: str, template: str, keyword: str) -> None:
@@ -156,6 +154,25 @@ def test_invalid_templates_rejected(field: str, template: str, keyword: str) -> 
 
 def test_default_templates_pass_validation() -> None:
     assert validate_templates(DEFAULT_TEMPLATES) is None
+
+
+@pytest.mark.parametrize(
+    "field,template",
+    [
+        ("entry_dir", "{year}"),
+        ("entry_dir", "{tmdb_id}"),
+        ("entry_dir", "{english_title}"),
+        ("movie_file", "{release_name}"),
+        ("movie_file", "movie"),
+        ("season_dir", "Season"),
+        ("season_dir", "{season_name}"),
+        ("episode_file", "{release_name}"),
+        ("episode_file", "{title} E{episode:02d}"),
+        ("episode_file", "{title} S{season:02d}"),
+    ],
+)
+def test_templates_do_not_require_specific_tokens(field: str, template: str) -> None:
+    assert validate_template(field, template) is None
 
 
 def test_custom_valid_templates_pass() -> None:
