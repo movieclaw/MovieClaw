@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""从发行 ZIP 生成官网 downloads.json；重用旧包时仍读取包里的真实版本。
+"""从发行 ZIP / APK 生成官网 downloads.json；沿用旧包时保留真实版本。
 
 用法：python3 scripts/build-download-manifest.py --tag v0.32.0 --directory dist/downloads
 在 macOS 上会额外复核 Developer ID 签名及公证，供官网按实际结果展示。
@@ -99,6 +99,30 @@ def describe(archive: Path) -> dict:
     return entry
 
 
+def describe_android(apk: Path) -> dict:
+    # 元数据由 Android runner 的 aapt2 / apksigner 从实际 APK 生成；沿用时一起复制。
+    # publish 的 macOS runner 不需要再安装 Android SDK，先校验元数据绑定的包未改变。
+    entry = json.loads(apk.with_suffix(".json").read_text())
+    with apk.open("rb") as stream:
+        digest = hashlib.file_digest(stream, "sha256").hexdigest()
+    if (entry.get("asset"), entry.get("size"), entry.get("sha256")) != (
+        apk.name, apk.stat().st_size, digest
+    ):
+        raise ValueError(f"{apk.name} 与 Android 下载元数据不一致")
+    if (
+        entry.get("product") != "android"
+        or entry.get("applicationId") != "io.movieclaw.android"
+        or entry.get("arch") != "arm64"
+        or entry.get("signed") is not True
+        or not re.fullmatch(r"\d+\.\d+\.\d+", entry.get("version", ""))
+        or not re.fullmatch(r"[0-9a-f]{64}", entry.get("certificateSha256", ""))
+        or not 1 <= int(entry.get("build", "0")) <= 2100000000
+        or not isinstance(entry.get("minimumSdk"), int)
+    ):
+        raise ValueError(f"{apk.name} 的 Android 下载元数据不合法")
+    return entry
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--tag", required=True)
@@ -107,6 +131,9 @@ def main() -> None:
     if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[\w.-]+)?", args.tag):
         parser.error("tag 必须是应用 Release 的 vX.Y.Z")
     packages = [describe(p) for p in sorted(args.directory.glob("MovieClaw*-macos-*.zip"))]
+    packages += [
+        describe_android(p) for p in sorted(args.directory.glob("MovieClaw-Android-*.apk"))
+    ]
     manifest = {"schema": 1, "release": args.tag, "packages": packages}
     output = args.directory / "downloads.json"
     output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")

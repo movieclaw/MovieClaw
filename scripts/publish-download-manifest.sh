@@ -7,7 +7,7 @@ repo="${GITHUB_REPOSITORY:-movieclaw/MovieClaw}"
 download_dir="$(mktemp -d)"
 trap 'rm -rf "$download_dir"' EXIT
 gh release view "$tag" --repo "$repo" --json assets \
-  --jq '.assets[].name | select(test("^MovieClaw.*-macos-.*\\.zip$"))' > "$download_dir/assets.txt"
+  --jq '.assets[].name | select(test("^MovieClaw.*-macos-.*\\.zip$|^MovieClaw-Android-.*\\.(apk|json)$"))' > "$download_dir/assets.txt"
 while IFS= read -r asset; do
   gh release download "$tag" --repo "$repo" --pattern "$asset" --dir "$download_dir"
 done < "$download_dir/assets.txt"

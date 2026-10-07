@@ -1,6 +1,5 @@
 import java.net.URI
 import java.security.MessageDigest
-import java.time.LocalDate
 import java.util.Properties
 import java.util.zip.ZipInputStream
 import org.gradle.api.DefaultTask
@@ -20,20 +19,26 @@ plugins {
     alias(libs.plugins.hilt)
 }
 
+val appVersion = Properties().apply {
+    rootProject.file("version.properties").inputStream().use(::load)
+}
+val appVersionName = appVersion.getProperty("versionName")
+val appVersionCode = appVersion.getProperty("versionCode").toInt()
+require(appVersionName.matches(Regex("\\d+\\.\\d+\\.\\d+"))) { "Android versionName 必须为 X.Y.Z" }
+require(appVersionCode in 1..2100000000) { "Android versionCode 超出允许范围" }
+
 android {
     namespace = "io.movieclaw.android"
     compileSdk = 36
+    buildToolsVersion = "36.0.0"
     ndkVersion = "28.2.13676358"
 
     defaultConfig {
         applicationId = "io.movieclaw.android"
         minSdk = 26
         targetSdk = 36
-        // 版本随构建日期（自更新方案：GitHub release tag `android-apk-YYYYMMDD` 同源）：
-        // versionCode = YYYYMMDD——单调递增、供客户端比较新旧；versionName = YYYY.MM.DD（展示）
-        val buildStamp = LocalDate.now()
-        versionCode = buildStamp.year * 10000 + buildStamp.monthValue * 100 + buildStamp.dayOfMonth
-        versionName = "%04d.%02d.%02d".format(buildStamp.year, buildStamp.monthValue, buildStamp.dayOfMonth)
+        versionCode = appVersionCode
+        versionName = appVersionName
         ndk {
             // libmp2.so(libmpv 全量内核)仅随 arm64 分发,包体控制见设计方案 §附录 B
             abiFilters += listOf("arm64-v8a")
@@ -47,8 +52,20 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val keystore = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
+            if (keystore != null) {
+                storeFile = file(keystore)
+                storePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").get()
+            }
+        }
+    }
     buildTypes {
         release {
+            signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
@@ -87,6 +104,9 @@ android {
  * 任务动作里只碰 JDK API —— 这样才与配置缓存兼容。
  */
 abstract class DownloadNativeLibsTask : DefaultTask() {
+
+    @get:Input
+    abstract val required: Property<Boolean>
 
     @get:Input
     abstract val zipUrl: Property<String>
@@ -145,6 +165,9 @@ abstract class DownloadNativeLibsTask : DefaultTask() {
             }
             logger.lifecycle("原生库就位：$count 个 .so → ${dir.path}")
         } catch (e: Exception) {
+            if (required.get()) {
+                throw GradleException("正式 APK 必须包含预编译原生库，拒绝降级发布", e)
+            }
             // 拉不到就拉倒：没有这些库也能编出可用的 Exo 内核包，不能让它挡住构建
             logger.lifecycle(
                 "预编译原生库下载失败（${e.message}）。本次构建为**仅 Exo 内核**的 APK：" +
@@ -185,6 +208,7 @@ val downloadNativeLibs = tasks.register<DownloadNativeLibsTask>("downloadNativeL
     description = "下载并解压 arm64-v8a 预编译原生库（FFmpeg / mpv / libass）"
     zipUrl.set(nativeLibsUrl)
     zipSha256.set(nativeLibsSha256)
+    required.set((findProperty("requireNativeLibs") as String?) == "true")
     targetDir.set(layout.projectDirectory.dir("src/main/jniLibs/arm64-v8a"))
     workDir.set(layout.buildDirectory.dir("tmp/nativeLibs"))
 }

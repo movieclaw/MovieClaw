@@ -4,6 +4,17 @@ MovieClaw 自托管媒体服务器的 Android 原生客户端(Kotlin + Jetpack C
 
 界面与交互以 **apps/web 的移动端网页**为准(逐屏实测对齐),播放链路参照 apps/apple 的 iOS 客户端。
 
+## 正式版本与下载
+
+Android 版本由 `version.properties` 独立管理，不跟随服务器或 iPhone 的版本号。
+服务器每次发版都会附带正式签名的 `MovieClaw-Android-arm64.apk`；Android 代码没变化时沿用旧包。
+[最新版 APK](https://github.com/movieclaw/MovieClaw/releases/latest/download/MovieClaw-Android-arm64.apk)
+在首个包含 Android 的正式 Release 发布后生效。当前支持 Android 8.0+、arm64-v8a 手机/平板。
+
+正式打包使用 `bash apps/android/scripts/package-release.sh`（在仓库根目录执行），需要固定签名密钥，
+并强制检查完整播放器依赖。版本规则、签名配置和发版作业见
+[Android 发版说明](../../docs/design/android-release.md)。
+
 ## 本地构建
 
 ```
@@ -16,7 +27,7 @@ echo "sdk.dir=<你的 Android SDK 路径>" > local.properties   # 或设 ANDROID
 - **预编译原生库会在首次构建时自动下载**(约 38MB,来自 Releases 的 `android-native-libs`):
   构建脚本先校验 sha256 再解压到 `app/src/main/jniLibs/arm64-v8a/`,只下一次。
   地址与校验和在 `gradle.properties` 的 `nativeLibsUrl` / `nativeLibsSha256`,换版本改这两行;
-  离线或下载失败**不会中断构建**,只是产出一个仅 Exo 内核的包(提示会写在构建日志里)。
+  开发构建离线或下载失败**不会中断构建**,只是产出一个仅 Exo 内核的包；正式打包会拒绝这种降级。
   想显式跳过:`./gradlew :app:assembleDebug -PskipNativeLibsDownload=true`。
 ### 预编译依赖(FFmpeg / mpv / libass)
 

@@ -11,7 +11,9 @@
 #     用户用 AltStore / SideStore / Sideloadly 以自己的 Apple ID 重签后侧载。
 #   - Mac 版 App（MovieClaw-macos-arm64.zip）：与转码器同一套 Developer ID 签名与公证，
 #     下载解压后双击即可打开。
-#   后三个是可选附件，各自按改动判断：自上一版以来对应代码没变时不重编，
+#   - Android 正式签名 APK（MovieClaw-Android-arm64.apk）与包内版本元数据：
+#     版本独立于服务器/Apple；有改动才重编，否则沿用旧包。缺失时拦截 Release 转正。
+#   Worker / IPA / Mac App 是可选附件：自上一版以来对应代码没变时不重编，
 #   直接沿用上一个 Release 里的同名文件（asset-plan / carry-assets 作业）。
 # 产物上传成功后自动调用 docker-image.yml，同步发布同版本号的
 # Docker 镜像（多架构，标签策略见该工作流头注释）。
@@ -44,7 +46,7 @@ on:
         description: "要发布的 tag（如 v0.2.0），须与 pyproject / __version__ 一致"
         required: true
       force_rebuild:
-        description: "可选附件（Mac 转码器、iOS IPA）一律重编，不沿用上一版（证书或打包流程变了时用）"
+        description: "客户端附件（Mac 转码器、iOS IPA、Mac App、Android APK）全部重编"
         type: boolean
         default: false
 
@@ -209,7 +211,7 @@ jobs:
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
             cli/dist/mclaw_*.tar.gz cli/dist/mclaw_*.zip cli/dist/checksums.txt
 
-  # 可选附件（Mac 转码器、iOS IPA、Mac 版 App）这次重编还是沿用上一版，判断规则见脚本头注释。
+  # 客户端附件这次重编还是沿用上一版，判断规则见脚本头注释。
   # 单独一个 ubuntu 作业先判断，沿用时 macOS runner 一台都不用起。
   asset-plan:
     needs: release-artifacts
@@ -226,6 +228,8 @@ jobs:
       ipa_from: ${{ steps.plan.outputs.ipa_from }}
       mac_mode: ${{ steps.plan.outputs.mac_mode }}
       mac_from: ${{ steps.plan.outputs.mac_from }}
+      android_mode: ${{ steps.plan.outputs.android_mode }}
+      android_from: ${{ steps.plan.outputs.android_from }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -259,7 +263,70 @@ jobs:
             ':(exclude)apps/apple/MovieClawTests/' \
             ':(exclude)apps/apple/MovieClawUITests/' \
             ':(exclude)apps/apple/MovieClawMacTests/' | sed 's/^/mac_/' >> "$GITHUB_OUTPUT"
+          scripts/release-asset-plan.sh MovieClaw-Android-arm64.apk \
+            apps/android .github/workflows/release.yml | sed 's/^/android_/' >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
+
+  # Android 是必需附件：每次正式 Release 都有可安装的 APK 和固定下载地址。
+  # 沿用单独放在本作业内，其他可选附件复制失败不会影响 Android 的结果判定。
+  android-apk:
+    needs: asset-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      ANDROID_MODE: ${{ needs.asset-plan.outputs.android_mode }}
+      ANDROID_FROM: ${{ needs.asset-plan.outputs.android_from }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-java@v4
+        if: env.ANDROID_MODE == 'build'
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+        if: env.ANDROID_MODE == 'build'
+
+      - name: 构建正式签名 Android APK
+        if: env.ANDROID_MODE == 'build'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          : "${ANDROID_KEYSTORE_BASE64:?未配置 Android 正式签名密钥}"
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/movieclaw-android.p12"
+          umask 077
+          trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
+          bash apps/android/scripts/package-release.sh
+
+      - name: 沿用上一版 Android APK 和实际版本信息
+        if: env.ANDROID_MODE == 'carry'
+        run: |
+          mkdir -p apps/android/build/release
+          gh release download "$ANDROID_FROM" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'MovieClaw-Android-arm64.apk' --pattern 'MovieClaw-Android-arm64.json' \
+            --dir apps/android/build/release
+
+      - name: 验证并上传 Android 附件
+        run: |
+          python3 scripts/build-download-manifest.py --tag "$RELEASE_TAG" \
+            --directory apps/android/build/release
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            apps/android/build/release/MovieClaw-Android-arm64.apk \
+            apps/android/build/release/MovieClaw-Android-arm64.json
+          echo "Android APK: https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/MovieClaw-Android-arm64.apk" >> "$GITHUB_STEP_SUMMARY"
 
   # 沿用上一版的附件：从上一个 Release 下载同名文件，原样传到本次 Release。
   carry-assets:
@@ -532,10 +599,10 @@ jobs:
   # 这是发布原子性的落点——转正之前，应用内更新、install-cli.sh 的
   # latest/download、Release 页对用户都不可见，不存在「半成品 Release」。
   # worker-macos / ios-ipa / mac-app / carry-assets 失败不拦转正（可选附件），但 cli 或镜像失败时 Release
-  # 停在 draft：修复后重跑本工作流即可，全链路可安全重入。
+  # 停在 draft；Android APK 也是必需附件。修复后重跑本工作流即可，全链路可安全重入。
   publish:
-    needs: [cli, worker-macos, ios-ipa, mac-app, carry-assets, docker-image]
-    if: ${{ !cancelled() && needs.cli.result == 'success' && needs.docker-image.result == 'success' }}
+    needs: [cli, android-apk, worker-macos, ios-ipa, mac-app, carry-assets, docker-image]
+    if: ${{ !cancelled() && needs.cli.result == 'success' && needs.android-apk.result == 'success' && needs.docker-image.result == 'success' }}
     # 官网清单从实际 ZIP 读取，macOS runner 还能复核签名和公证。
     runs-on: macos-26
     env:
@@ -565,7 +632,7 @@ jobs:
             mclaw_linux_amd64.tar.gz mclaw_linux_arm64.tar.gz
             mclaw_darwin_amd64.tar.gz mclaw_darwin_arm64.tar.gz
             mclaw_windows_amd64.zip mclaw_windows_arm64.zip
-            checksums.txt"
+            checksums.txt MovieClaw-Android-arm64.apk MovieClaw-Android-arm64.json"
           if [ -n "$RELEASE_SIGNING_KEY" ]; then
             required="$required manifest.json.sig"
           fi

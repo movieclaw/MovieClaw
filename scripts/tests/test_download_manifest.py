@@ -1,5 +1,6 @@
 """发行清单契约：真实版本、不同芯片、旧包复用及空附件。"""
 
+import hashlib
 import importlib.util
 import json
 import plistlib
@@ -73,6 +74,38 @@ class DownloadManifestTest(unittest.TestCase):
             manifest = json.loads((directory / "downloads.json").read_text())
             self.assertEqual(manifest["release"], "v1.1.0")
             self.assertEqual(manifest["packages"][0]["version"], "0.5.0")
+
+    def test_android_carry_preserves_version_and_rejects_changed_apk(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            apk = Path(tmp) / "MovieClaw-Android-arm64.apk"
+            apk.write_bytes(b"previously verified signed APK")
+            entry = {
+                "product": "android", "applicationId": "io.movieclaw.android",
+                "version": "0.1.0", "build": "30000001", "minimumSdk": 26,
+                "arch": "arm64", "asset": apk.name, "signed": True,
+                "certificateSha256": "a" * 64,
+                "size": apk.stat().st_size,
+                "sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
+            }
+            apk.with_suffix(".json").write_text(json.dumps(entry))
+            for tag in ("v0.33.0", "v0.34.0"):
+                subprocess.run(
+                    [sys.executable, str(SCRIPT), "--directory", tmp, "--tag", tag],
+                    check=True, capture_output=True,
+                )
+                manifest = json.loads((Path(tmp) / "downloads.json").read_text())
+                self.assertEqual(manifest["packages"], [entry])
+                self.assertEqual(manifest["release"], tag)
+            apk.write_bytes(b"replaced APK")
+            with self.assertRaises(ValueError):
+                module.describe_android(apk)
+
+    def test_android_requires_metadata(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            apk = Path(tmp) / "MovieClaw-Android-arm64.apk"
+            apk.write_bytes(b"APK")
+            with self.assertRaises(FileNotFoundError):
+                module.describe_android(apk)
 
 
 if __name__ == "__main__":

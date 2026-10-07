@@ -15,7 +15,7 @@
 | 认证 | 设备令牌（`POST /auth/device/login` 用账号密码换），存 **AndroidKeyStore** 加密的凭据库 | 与 iOS 同一套：这台手机是「我的设备」里的一台，可单独注销；多账号（多服务器）都在本机 |
 | 接口层 | 手写 Retrofit 接口 + kotlinx.serialization（SnakeCase、`ignoreUnknownKeys`） | 安卓侧只用得到其中一部分；字段可空、未知字段忽略，对服务端新旧版本宽容（例：字幕轨 `title` 缺失时回落语言码） |
 | 工程 | Gradle（Kotlin DSL）+ Hilt/KSP + Media3 + Coil 3 | 一以贯之的官方栈，CI 上 `testDebugUnitTest / assembleDebug / lintDebug` |
-| 版本号 | `versionCode = YYYYMMDD`、`versionName = YYYY.MM.DD`（**构建日期**），release tag `android-apk-YYYYMMDD` | 供「从 GitHub 检查/下载更新」比较新旧；同一天重出包只换附件 |
+| 版本号 | `apps/android/version.properties` 独立管理 `versionName` / 递增 `versionCode` | 随服务器 Release 分发 APK，版本独立于服务器与 Apple；见 [发版说明](android-release.md) |
 | 原生库 | FFmpeg / mpv / libass 的预编译产物放**独立仓库** [movieclaw-android-libs](https://github.com/anlan-home/movieclaw-android-libs)，构建时下载 + 校验 sha256 | 压缩包约 38MB、解压 116MB，不宜入库；缺包不中断构建（退化成仅 Exo 内核的包，日志写明）。许可（mpv GPL-2.0+、FFmpeg LGPL/GPL、libass ISC、libc++ Apache）与逐项来源见该仓库 README 与包内 `NOTICE.md` |
 | 包名 | `io.movieclaw.android` | 与 iOS 的 `io.movieclaw.app` 不同，见 §5；请求标识按上游约定 `MovieClaw-Android/<版本>` |
 | 外观 | 跟随手机端网页（纯黑底、材质用同一套玻璃令牌）；「底栏液态玻璃」这类本机开关放「我的 → 设置」 | 与 iOS 同为「不做网页的外观编辑」 |

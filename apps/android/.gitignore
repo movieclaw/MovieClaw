@@ -6,6 +6,8 @@ build/
 
 # 本机配置（SDK 路径等，每台机器不同；模板见 README「本地构建」）
 local.properties
+*.jks
+*.keystore
 
 # IDE
 .idea/

@@ -8,11 +8,13 @@ on:
     paths:
       - 'apps/android/**'
       - '.github/workflows/android-stability.yml'
+      - '.github/workflows/release.yml'
   push:
     branches: [main, android]
     paths:
       - 'apps/android/**'
       - '.github/workflows/android-stability.yml'
+      - '.github/workflows/release.yml'
 
 permissions:
   contents: read
@@ -35,6 +37,22 @@ jobs:
       - name: Android scenario tests, lint and Exo-only APK
         working-directory: apps/android
         run: bash gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug -PskipNativeLibsDownload=true --stacktrace
+      # PR 构建只用临时测试证书，正式签名密钥仅交给 release 工作流。
+      - name: Verify full release packaging with an ephemeral certificate
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ci-test-password
+          ANDROID_KEY_ALIAS: movieclaw-ci
+          ANDROID_KEY_PASSWORD: ci-test-password
+        run: |
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/android-ci.p12"
+          trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
+          keytool -genkeypair -keystore "$ANDROID_KEYSTORE_PATH" -storetype PKCS12 \
+            -alias "$ANDROID_KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 2 \
+            -dname 'CN=MovieClaw CI Test' -storepass:env ANDROID_KEYSTORE_PASSWORD \
+            -keypass:env ANDROID_KEY_PASSWORD -noprompt
+          bash apps/android/scripts/package-release.sh
+          python3 scripts/build-download-manifest.py --tag v0.0.0 \
+            --directory apps/android/build/release
       - uses: actions/upload-artifact@v4
         if: always()
         with:
