@@ -130,6 +130,20 @@ html[data-theme="netflix"] [class*="ring-white"] {
  * 一条规则覆盖静息与 hover 两种状态。
  */
 
+/* 类型色块（首页「按类型找电影 / 剧集」）的顶边内高光 + 四周发丝内线：同样是
+   银玻璃「卡片厚度」的白色勾边语言，纯黑画布上读作一圈白边（横图暗部尤甚）
+   ——与上面 ring-white 同一批去白边对象。 */
+html[data-theme="netflix"] .genre-tile-sheen {
+  box-shadow: none;
+}
+
+/* 类型色块的圆角：12px 是银玻璃照 iOS 类型卡写死的固定值（任意值工具类，
+   不走 rounded-* 换挡），Netflix 主题下与全站卡片统一到 6px 卡角。
+   内层 rounded-[inherit]（高光层等）随根自动跟随。 */
+html[data-theme="netflix"] .genre-tile {
+  border-radius: 6px;
+}
+
 html[data-theme="netflix"] .glass-row {
   border-radius: 4px;
 }
