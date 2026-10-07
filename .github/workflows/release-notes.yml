@@ -1,7 +1,8 @@
 # =============================================================================
 # Release changelog 同步
 #
-# docs/changelog/vX.Y.Z.md 是各版本 changelog 的事实源（进版本管理、可评审）。
+# docs/changelog/vX.Y.Z.md 与 torrent-ner-vN.md 是应用和模型日志的事实源。
+# 每份文件包含英文正文与完整中文说明（进版本管理、可评审）。
 # 该目录有文件合入 main 时，本工作流把每份 changelog 同步为同名 tag 的
 # GitHub Release body——应用内更新界面会原文展示这段文字。
 #
@@ -34,7 +35,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           shopt -s nullglob
-          for file in docs/changelog/v*.md; do
+          for file in docs/changelog/v*.md docs/changelog/torrent-ner-v*.md; do
             tag="$(basename "$file" .md)"
             if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
               echo "同步 $file → Release $tag"

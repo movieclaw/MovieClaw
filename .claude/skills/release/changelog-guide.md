@@ -9,6 +9,19 @@ Infuse、Immich、Tailscale、Linear、Raycast、Things、Notion、Dia、Figma�
 Obsidian、Vercel、Telegram、flomo、滴答清单、Bear），括号里是出处，方便理解
 「为什么这么写」。
 
+## 多语言维护
+
+- 每个版本只维护一份 `docs/changelog/<tag>.md`：应用用 `vX.Y.Z.md`，模型用
+  `torrent-ner-vN.md`。同一份文件同步到同一个 GitHub Release，不按语言另建 Release。
+- **英文在前，完整中文在后**，两段之间用 `---` 和 `## 简体中文` 分隔。使用纯 Markdown，
+  不用 HTML 折叠区：GitHub 支持折叠，但当前应用内更新日志不解析 HTML。
+- 两种语言讲同一组事实，修改功能、升级要求或已知限制时在同一个 PR 里同步修改两段，
+  不把中文缩成摘要。翻译保留版本号、命令、文件名、URL、校验值和贡献者账号。
+- 英文统一使用 `Highlights`、`More features and improvements`、`Fixed`、
+  `Before you update`；正文沿用下面的场景写法。菜单译名要对应实际入口，必要时附中文名。
+- 审核时对照两种语言的 Docker / 客户端升级要求、回退提醒、功能范围、数字与链接。
+  `release-notes.yml` 只同步描述；调整语言不改标签、版本号、附件或发布状态。
+
 ## 一、先盘点，再取舍
 
 1. **盘点（保证不漏）**：`git log --first-parent 上一个正式版tag..HEAD --oneline`
@@ -27,35 +40,42 @@ Obsidian、Vercel、Telegram、flomo、滴答清单、Bear），括号里是出�
 照这个顺序，没有内容的节直接省略：
 
 ```markdown
-## vX.Y.Z：本版主题（一个短语）
+## vX.Y.Z: Release theme
 
-一两句主题段：本版让用户得到了什么，顺手点出其余亮点。
+One or two sentences about what users gain, mentioning the other highlights.
 
-> ⚠️ **需要你动手**：要做什么（命令 / 菜单路径）、不做会怎样。
-> （不需要时写一行：✅ 本版无需更新 Docker 镜像，在「设置 → 更新与维护」一键更新即可。）
+> ⚠️ **Action required**: What to do, where to do it, and what happens otherwise.
+> (When unnecessary: ✅ No Docker image update is required. Update from Settings → Update & Maintenance.)
 
-### 本版亮点
+### Highlights
 
-#### 以好处或用户问题为标题
+#### A benefit or user question
 
-痛点或场景一句 → 现在能做到什么 → 从哪开始用（或「升级后自动生效」）。
+The situation → what is possible now → where to start, or that it applies automatically.
 
-### 其他新功能 / 体验改进
+### More features and improvements
 
-- **好处短语**：一句说明，必要时带入口。
+- **Benefit**: One sentence, with the entry point when needed.
 
-（两类合计不超过 4 条时合成一节「其他新功能与改进」，多了再拆成两节）
+(Split Features and Improvements when their combined count exceeds four.)
 
-### 修好了
+### Fixed
 
-- 在哪、做什么时、出现的什么问题，现在不会了。
-- 以及 N 处细节修复。
+- The recognizable problem that no longer occurs.
 
-### 升级须知
+### Before you update
 
-- 数据库迁移与回退（只在本版有迁移时写）、全局性的已知限制、功能下线与替代入口。
+- Database migration and rollback (only when applicable), limitations and replacement entry points.
 
-感谢 @someone 的贡献。完整改动见 [vA.B.C → vX.Y.Z](https://github.com/movieclaw/movieclaw/compare/vA.B.C...vX.Y.Z)。
+Thanks to @someone. Full changes: [vA.B.C → vX.Y.Z](https://github.com/movieclaw/movieclaw/compare/vA.B.C...vX.Y.Z).
+
+---
+
+## 简体中文
+
+## vX.Y.Z：本版主题
+
+完整中文说明，保持与英文相同的事实、升级提示、功能范围和链接。
 ```
 
 **第一屏**（主题标题 + 主题段 + 提示框 + 第一个亮点标题）必须能单独成立：用户只看
@@ -135,8 +155,8 @@ Obsidian、Vercel、Telegram、flomo、滴答清单、Bear），括号里是出�
 
 ## 五、篇幅与自检
 
-- 50 行以内（含空行）；亮点之外的条目各不超过一行——指 Markdown 源码一行、约 40 个
-  汉字，不用分号硬塞第二件事。
+- 每种语言分别控制在 50 行以内（含空行）；亮点之外的条目各不超过一行——指
+  Markdown 源码一行、中文约 40 个汉字或英文一句话，不用分号硬塞第二件事。
 - 写完只读第一屏：能不能让人想更新？知不知道要不要动手？
 - 念给一个不写代码的朋友听：有没有哪句需要解释？每个亮点他知不知道去哪儿试？
 
