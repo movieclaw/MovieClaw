@@ -1,0 +1,55 @@
+# 只创建已知漏洞的修复 PR，按生态分组；普通版本升级由维护者按需处理。
+# open-pull-requests-limit: 0 只停用版本更新，不影响安全更新。
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      python-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directories:
+      - /
+      - /scripts/perf/web_faultlab
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      javascript-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: gomod
+    directory: /cli
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      go-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: gradle
+    directory: /apps/android
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      android-security:
+        applies-to: security-updates
+        patterns: ["*"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 0
+    groups:
+      actions-security:
+        applies-to: security-updates
+        patterns: ["*"]
