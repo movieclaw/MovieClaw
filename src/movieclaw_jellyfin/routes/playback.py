@@ -713,8 +713,8 @@ async def video_stream(
     unit = _stream_unit(ref)
     if request.method == "GET" and not activity.has_session(device_id):
         # 服务重启后注册表已清空，而 Infuse 一类直连播放器正常播放阶段不发
-        # 心跳，只会一直拉字节：把取流当作播放仍在进行的证据把会话建回来，
-        # 否则活动页要等用户暂停再播才看得到。HEAD 只是探测，不算播放。
+        # 心跳，只会一直拉字节：有近期未结束的播放日志才恢复会话，避免把
+        # 详情页的 GET 预缓存误报成播放。HEAD 只是探测，不恢复会话。
         async with get_database().session() as db:
             await playback_watch.restore_session_from_stream(
                 db, unit, member_id=identity.device.member_id, client=_identity_client(identity)
