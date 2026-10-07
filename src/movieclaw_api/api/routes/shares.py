@@ -19,7 +19,7 @@ import logging
 from typing import Annotated, Literal
 from urllib.parse import quote
 
-from fastapi import APIRouter, Cookie, Depends, Path, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Cookie, Depends, Path, Query, Request, Response
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -877,12 +877,18 @@ async def shared_decide(
 )
 async def shared_start_session(
     payload: PlaybackSessionRequest,
+    response: Response,
+    background_tasks: BackgroundTasks,
     principal: Principal = Depends(require_share_access),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[PlaybackSessionView]:
     await _assert_decide_payload(session, principal, payload)
     return await playback_routes.start_playback_session(
-        payload, principal=principal, session=session
+        payload,
+        response=response,
+        background_tasks=background_tasks,
+        principal=principal,
+        session=session,
     )
 
 

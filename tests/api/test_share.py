@@ -349,6 +349,44 @@ async def test_share_principal_scope(client: TestClient) -> None:
     assert client.get(f"{_SHARE}/{slug}/images/assets/{other_item}/poster.jpg").status_code == 404
 
 
+@pytest.mark.parametrize("attempt_id", [None, "share-attempt"])
+async def test_share_start_session_returns_timing_and_runs_background_tasks(
+    client: TestClient, tmp_path, attempt_id
+) -> None:
+    """分享起播必须转传响应和后台任务，普通 CI 也守住 #613 的回归。"""
+    from tests.api.test_playback_stream import CAPABILITY, _seed
+
+    from movieclaw_api.services.playback import qoe
+
+    file_id = await _seed(tmp_path, container="mp4")
+    async with get_database().session() as session:
+        file = await session.get(LibraryFile, file_id)
+        assert file is not None
+        library_id, item_id = file.library_id, file.media_item_id
+    share = _create_share(client, library_id, item_id)["data"]
+    _anonymous(client)
+
+    started = client.post(
+        f"{_SHARE}/{share['slug']}/playback/sessions",
+        json={"file_id": file_id, "capability": CAPABILITY, "attempt_id": attempt_id},
+    )
+    assert started.status_code == 200, started.text
+    assert "total;dur=" in started.headers["Server-Timing"]
+    assert started.json()["data"]["decision"]["tier"] == 0
+    url = started.json()["data"]["stream_url"]
+    streamed = client.get(url)
+    assert streamed.status_code == 200
+    assert streamed.content == b"FAKE-MEDIA-BYTES" * 64
+    grant = await verify_stream_token(url.split("token=", 1)[1])
+    assert grant is not None and grant.share_id == share["id"]
+    if attempt_id:
+        async with get_database().session() as session:
+            attempt = await qoe.get_attempt(session, attempt_id)
+            assert attempt is not None
+            assert attempt.member_id == share_service.SHARE_VISITOR_MEMBER_ID
+            assert attempt.status == "started" and attempt.tier == 0
+
+
 # ---------------------------------------------------------------------------
 # 5. 访客视图投影
 # ---------------------------------------------------------------------------
