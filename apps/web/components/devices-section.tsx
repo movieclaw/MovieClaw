@@ -1,6 +1,5 @@
 "use client";
 
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
@@ -15,7 +14,6 @@ import {
   DeviceIcon,
   GlobeIcon,
   InfoIcon,
-  MoreIcon,
   PhoneIcon,
   PlayIcon,
   PlusIcon,
@@ -24,7 +22,19 @@ import {
   TerminalIcon,
   TvIcon,
 } from "@/components/icons";
+import { ErrorBanner } from "@/components/cloud-push-ui";
 import { Modal } from "@/components/modal";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_DANGER_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsCard,
+  SettingsList,
+  SettingsMoreMenu,
+  SettingsSection,
+  SettingsTabs,
+} from "@/components/settings-ui";
 import { reloadAfterAccountChange } from "@/lib/account-reload";
 import { getAppConfig } from "@/lib/api/app";
 import { logout } from "@/lib/api/auth";
@@ -61,7 +71,11 @@ import { TONE_COLOR, devicePushNote } from "@/lib/cloud-push-display";
 import { accessiblePathFor } from "@/lib/permissions";
 import { useSession } from "@/lib/session";
 import { formatDateTime } from "@/lib/time";
-import { useTheme } from "@/lib/ui-prefs";
+import { useTabParam } from "@/lib/use-tab-param";
+
+/** 视图页签（?tab=all 直达「全部成员」）；成员只有自己的视图 */
+const ADMIN_SCOPES = ["mine", "all"] as const;
+const MEMBER_SCOPES = ["mine"] as const;
 
 /**
  * 「设置 → 设备」分区（docs/design/login-devices.md §8；配对流程见 device-auth.md）。
@@ -86,7 +100,7 @@ export function DevicesSection() {
   const prompt = usePrompt();
   const toast = useToast();
   // 超管专属：只看我的 / 全部成员（all=true 时每台设备带主人）
-  const [scope, setScope] = useState<"mine" | "all">("mine");
+  const [scope, setScope] = useTabParam(isAdmin ? ADMIN_SCOPES : MEMBER_SCOPES, "mine");
   const [devices, setDevices] = useState<LoginDeviceView[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -200,99 +214,134 @@ export function DevicesSection() {
 
   const groups = devices ? groupDevices(devices) : [];
 
+  const changeScope = (next: "mine" | "all") => {
+    if (next === scope) return;
+    setDrawerOpen(false);
+    setDevices(null);
+    setScope(next);
+  };
+
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       {/* 批准新设备在独立的 /activate 页（components/device-approval.tsx）；这里只留入口，
           来设备页找「批准」的人不至于扑空 */}
-      <Link
-        href={"/activate" as Route}
-        className="css-glass group flex items-center gap-3.5 !rounded-2xl px-5 py-4 transition-colors hover:bg-white/[0.06]"
-      >
-        <DeviceIcon className="size-5 shrink-0 text-[var(--text-muted)]" />
-        <span className="min-w-0 flex-1">
-          <span className="block text-body font-semibold text-[var(--text)]">批准新设备登录</span>
-          <span className="block text-sub text-[var(--text-muted)]">
-            Apple TV、Mac、命令行或转码器显示配对码后，到批准页输入
+      <SettingsList>
+        <Link
+          href={"/activate" as Route}
+          className="group flex min-h-[56px] items-center gap-4 px-4 py-3 transition-colors hover:bg-white/[0.04]"
+        >
+          <span className="icon-chip size-9 !rounded-xl">
+            <DeviceIcon className="size-[18px]" />
           </span>
-        </span>
-        <ChevronRightIcon className="size-4 shrink-0 text-[var(--text-faint)] transition-transform group-hover:translate-x-0.5" />
-      </Link>
+          <span className="min-w-0 flex-1">
+            <span className="block text-body font-medium text-[var(--text)]">批准新设备登录</span>
+            <span className="mt-0.5 block text-caption leading-5 text-[var(--text-faint)]">
+              Apple TV、Mac、命令行或转码器显示配对码后，到批准页输入
+            </span>
+          </span>
+          <ChevronRightIcon className="size-4 shrink-0 text-[var(--text-faint)] transition-transform group-hover:translate-x-0.5" />
+        </Link>
+      </SettingsList>
 
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3 px-1">
-          <h2 className="text-caption font-semibold uppercase tracking-wider text-[var(--text-faint)]">
-            {scope === "all" ? "全部成员的设备" : "我的设备"}
-          </h2>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setCleaning(true)}
-              disabled={!devices?.some((device) => !device.current)}
-              className="rounded-full px-3 py-1 text-sub font-medium text-[var(--text-muted)] transition-colors hover:bg-white/[0.07] hover:text-[var(--text)] disabled:opacity-40"
-            >
-              清理…
-            </button>
-            {isAdmin && (
-              <ScopeToggle
-                value={scope}
-                onChange={(next) => {
-                  if (next === scope) return;
-                  setDrawerOpen(false);
-                  setDevices(null);
-                  setScope(next);
-                }}
-              />
-            )}
-          </div>
-        </div>
+      <div className="space-y-6">
+        {/* 超管专属：只看我的 / 全部成员（all=true 时每台设备带主人） */}
+        {isAdmin && (
+          <SettingsTabs
+            tabs={[
+              { id: "mine", label: "只看我的" },
+              { id: "all", label: "全部成员" },
+            ]}
+            value={scope}
+            onChange={changeScope}
+          />
+        )}
+        <p className="px-1 text-sub leading-5 text-[var(--text-muted)]">
+          按类型列出当前在线的设备，每类最多 5 台；「查看全部」包含在线和离线记录。
+        </p>
 
         {loadError ? (
-          <p className="rounded-xl border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-4 py-2.5 text-sub text-[var(--danger)]">
-            {loadError}
-          </p>
+          <ErrorBanner>{loadError}</ErrorBanner>
         ) : devices === null ? (
-          <p className="px-1 text-sub text-[var(--text-faint)]">加载中…</p>
+          <div className="h-[104px] animate-pulse rounded-xl bg-white/[0.04]" />
         ) : (
-          <div className="grid gap-4 lg:grid-cols-2" aria-label="当前在线设备摘要">
+          <div className="space-y-10" aria-label="当前在线设备摘要">
             {groups.map((group) => {
               const online = group.devices.filter((device) => deviceLive(device));
               return (
-                <section key={group.key} aria-label={`${group.label}分组`} className="css-glass flex min-w-0 flex-col !rounded-2xl">
-                  <div className="flex items-center justify-between gap-3 px-4 py-3">
-                    <h3 className="text-body font-medium text-[var(--text)]">{group.label}</h3>
-                    <span className="shrink-0 text-caption text-[var(--text-muted)]">{online.length} 在线</span>
-                  </div>
-                  <div className="divide-y divide-white/[0.055]">
-                    {online.slice(0, 5).map((device) => (
-                      <DeviceRow key={device.id} device={device} compact showOwner={scope === "all"}
-                        busy={busy === device.id} onRename={() => void handleRename(device)} onRevoke={() => void handleRevoke(device)} />
-                    ))}
-                    {online.length === 0 && (
-                      <p className="px-4 py-6 text-sub text-[var(--text-faint)]">
-                        {group.devices.length ? "暂无在线设备，离线记录可在查看全部中找到" : "暂无设备记录，登录或配对后会显示在这里"}
-                      </p>
-                    )}
-                  </div>
+                <SettingsSection
+                  key={group.key}
+                  title={group.label}
+                  description={
+                    group.devices.length > 0
+                      ? `${online.length} 在线 · 共 ${group.devices.length} 条记录`
+                      : "暂无设备记录，登录或配对后会显示在这里"
+                  }
+                  action={
+                    group.devices.length > 0 && (
+                      <button
+                        type="button"
+                        aria-label={`查看全部${group.label}设备`}
+                        onClick={() => {
+                          setDrawerGroup(group.key);
+                          setDrawerOpen(true);
+                        }}
+                        className={SETTINGS_BUTTON_CLASS}
+                      >
+                        查看全部
+                      </button>
+                    )
+                  }
+                >
                   {group.devices.length > 0 && (
-                    <button type="button" aria-label={`查看全部${group.label}设备`}
-                      onClick={() => { setDrawerGroup(group.key); setDrawerOpen(true); }}
-                      className="mt-auto flex min-h-11 items-center justify-between gap-2 border-t border-white/[0.055] px-4 py-3 text-sub text-[var(--text-muted)] transition-colors hover:bg-white/[0.05]">
-                      <span>查看全部</span><span className="flex items-center gap-1.5 text-caption">{group.devices.length} 条记录<ChevronRightIcon className="size-4" /></span>
-                    </button>
+                    <SettingsList>
+                      {online.slice(0, 5).map((device) => (
+                        <DeviceRow
+                          key={device.id}
+                          device={device}
+                          compact
+                          showOwner={scope === "all"}
+                          busy={busy === device.id}
+                          onRename={() => void handleRename(device)}
+                          onRevoke={() => void handleRevoke(device)}
+                        />
+                      ))}
+                      {online.length === 0 && (
+                        <p className="px-4 py-4 text-sub text-[var(--text-faint)]">
+                          暂无在线设备，离线记录在「查看全部」里
+                        </p>
+                      )}
+                    </SettingsList>
                   )}
-                </section>
+                </SettingsSection>
               );
             })}
           </div>
         )}
-        {devices && <p className="px-1 text-caption text-[var(--text-faint)]">摘要只显示当前在线的前 5 台设备；查看全部包含在线和离线记录。</p>}
-      </section>
+      </div>
 
       <DevicesDrawer key={scope} open={drawerOpen} groupKey={drawerGroup} groups={groups} showOwner={scope === "all"} busy={busy}
         error={loadError} onClose={() => setDrawerOpen(false)} onGroupChange={setDrawerGroup} onRefresh={refreshDevices}
         onRename={handleRename} onRevoke={handleRevoke} />
 
       {isAdmin && <ManualTokenSection onCreated={reload} />}
+
+      <SettingsSection title="危险操作">
+        <SettingsCard
+          tone="danger"
+          title={scope === "all" ? "清理全部成员长期没用的设备" : "清理长期没用的设备"}
+          description="一次注销一段时间没用过的设备，被注销的要重新登录或配对才能再用。正在用的这台、连着的转码器不会被清理。"
+          action={
+            <button
+              type="button"
+              onClick={() => setCleaning(true)}
+              disabled={!devices?.some((device) => !device.current)}
+              className={SETTINGS_DANGER_BUTTON_CLASS}
+            >
+              清理…
+            </button>
+          }
+        />
+      </SettingsSection>
       {cleaning && (
         <CleanupDialog all={scope === "all"} onClose={() => setCleaning(false)} onCleaned={reload} />
       )}
@@ -444,40 +493,6 @@ function DevicesDrawer({
   );
 }
 
-/** 超管的视图切换：与设置页其余胶囊标签同一交互语言（Netflix 激活态白底黑字）。 */
-function ScopeToggle({
-  value,
-  onChange,
-}: {
-  value: "mine" | "all";
-  onChange: (next: "mine" | "all") => void;
-}) {
-  const activePillCls = useTheme().structural ? "bg-white text-black" : "bg-white/[0.14] text-white";
-  const options = [
-    { id: "mine" as const, label: "只看我的" },
-    { id: "all" as const, label: "全部成员" },
-  ];
-  return (
-    <div className="flex gap-1.5">
-      {options.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          aria-pressed={option.id === value}
-          onClick={() => onChange(option.id)}
-          className={`rounded-full px-3 py-1 text-sub font-medium transition-colors ${
-            option.id === value
-              ? activePillCls
-              : "text-[var(--text-muted)] hover:bg-white/[0.07] hover:text-[var(--text)]"
-          }`}
-        >
-          {option.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 /** 行首图标：形态一眼可辨；在线时右下角亮一个绿点（不在线不画，灰点只是噪音）。 */
 const GLYPH_ICON: Record<
   DeviceGlyph,
@@ -581,7 +596,7 @@ function DeviceRow({
   ].filter((part): part is string => Boolean(part));
 
   return (
-    <div className="flex items-start gap-3.5 px-5 py-4 first:rounded-t-2xl last:rounded-b-2xl max-sm:gap-3 max-sm:px-4">
+    <div className="flex items-start gap-3.5 px-4 py-3 max-sm:gap-3">
       <DeviceBadge
         glyph={deviceGlyph(device.kind, device.scope)}
         live={deviceLive(device)}
@@ -633,48 +648,21 @@ function DeviceRow({
           </RowNote>
         )}
       </div>
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
-          <button
-            type="button"
-            disabled={busy}
-            aria-label={`管理「${device.name}」`}
-            className="-mr-1.5 -mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full text-[var(--text-muted)] outline-none transition hover:bg-white/[0.08] hover:text-[var(--text)] focus-visible:ring-2 focus-visible:ring-white/60 disabled:opacity-40 data-[state=open]:bg-white/[0.1] data-[state=open]:text-[var(--text)]"
-          >
-            <MoreIcon className="size-[18px]" />
-          </button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            align="end"
-            sideOffset={6}
-            collisionPadding={12}
-            className="menu-surface z-50 min-w-[10rem] p-1"
-          >
-            {device.renamable && (
-              <DropdownMenu.Item
-                onSelect={onRename}
-                className={MENU_ITEM_CLASS}
-              >
-                改名…
-              </DropdownMenu.Item>
-            )}
-            <DropdownMenu.Item
-              onSelect={onRevoke}
-              className={`${MENU_ITEM_CLASS} !text-[var(--danger)] data-[highlighted]:!bg-[rgba(255,107,107,0.12)]`}
-            >
-              {device.current ? "注销并退出登录…" : "注销…"}
-            </DropdownMenu.Item>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+      <SettingsMoreMenu
+        label={`管理「${device.name}」`}
+        disabled={busy}
+        items={[
+          ...(device.renamable ? [{ label: "改名…", onSelect: onRename }] : []),
+          {
+            label: device.current ? "注销并退出登录…" : "注销…",
+            onSelect: onRevoke,
+            danger: true,
+          },
+        ]}
+      />
     </div>
   );
 }
-
-const MENU_ITEM_CLASS =
-  "glass-row nav-item cursor-pointer px-3 py-2 text-ui font-medium outline-none " +
-  "data-[highlighted]:!bg-[var(--glass-fill-hover)] data-[highlighted]:!text-[var(--text)]";
 
 /**
  * 「清理长期没用的设备」：选多少天没用过，先让服务端列出会注销哪几台（dry_run），
@@ -792,7 +780,7 @@ function CleanupDialog({
           <button
             type="button"
             onClick={onClose}
-            className="rounded-lg border border-white/10 bg-white/[0.06] px-4 py-2 text-ui text-white/80 transition hover:bg-white/[0.1]"
+            className={SETTINGS_BUTTON_CLASS}
           >
             取消
           </button>
@@ -800,7 +788,7 @@ function CleanupDialog({
             type="button"
             onClick={submit}
             disabled={!preview?.length || busy}
-            className="rounded-lg bg-red-500/85 px-4 py-2 text-ui font-medium text-white transition hover:bg-red-500 disabled:cursor-not-allowed disabled:opacity-50"
+            className={SETTINGS_DANGER_BUTTON_CLASS}
           >
             {busy
               ? "注销中…"
@@ -902,28 +890,41 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
     if (ok) setCreated(null);
   };
 
+  const code = (text: string) => (
+    <code className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--text)]">
+      {text}
+    </code>
+  );
+
   return (
-    <section className="space-y-3">
-      <div className="flex items-baseline justify-between gap-3 px-1">
-        <h2 className="text-caption font-semibold uppercase tracking-wider text-[var(--text-faint)]">
-          手工创建令牌
-        </h2>
-        {stage === "idle" && !created && (
+    <SettingsSection
+      title="手工创建令牌"
+      description={
+        <>
+          没法在浏览器里按下批准的环境——NAS 上的定时任务、CI、无界面容器——在这里创建一枚令牌，用{" "}
+          {code("MOVIECLAW_SERVER")} 和 {code("MOVIECLAW_TOKEN")}{" "}
+          两个环境变量注入给 mclaw。能打开浏览器的机器请直接运行 mclaw login 配对，不必走这里。
+          命令行模式（Headless）的转码器同样在这里创建，权限选「仅限转码」。
+        </>
+      }
+      action={
+        stage === "idle" &&
+        !created && (
           <button
             type="button"
             onClick={() => setStage("form")}
-            className="btn-glass flex items-center gap-1.5 px-3 py-1.5 text-sub font-medium"
+            className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1`}
           >
-            <PlusIcon className="size-3.5" />
+            <PlusIcon className="size-4" />
             创建令牌
           </button>
-        )}
-      </div>
-
+        )
+      }
+    >
       {error && (
-        <p className="rounded-xl border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-4 py-2.5 text-sub text-[var(--danger)]">
-          {error}
-        </p>
+        <div className="mb-3">
+          <ErrorBanner>{error}</ErrorBanner>
+        </div>
       )}
 
       {created ? (
@@ -935,115 +936,105 @@ function ManualTokenSection({ onCreated }: { onCreated: () => void }) {
           onDismiss={() => void handleDismiss()}
         />
       ) : stage === "form" ? (
-        <div className="css-glass space-y-4 !rounded-2xl p-5">
-          <div className="space-y-1.5">
-            <label htmlFor="manual-token-name" className="text-sub font-medium text-[var(--text-muted)]">
-              名字
-            </label>
-            <input
-              id="manual-token-name"
-              type="text"
-              autoFocus
-              maxLength={64}
-              value={name}
-              placeholder={scope === "transcode" ? "macmini-m1" : "nas-cron"}
-              onChange={(e) => {
-                setName(e.target.value);
-                if (nameError) setNameError(null);
-              }}
-              onKeyDown={(e) => e.key === "Enter" && void handleCreate()}
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-body text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[var(--accent)]/50"
-            />
-            <p
-              className={`text-caption ${
-                nameError ? "text-[var(--danger)]" : "text-[var(--text-faint)]"
-              }`}
-            >
-              {nameError ??
-                (scope === "transcode"
-                  ? "建议与转码器的 --worker-id 同名：「设置 → 播放」靠名字对上它的在线状态。"
-                  : "日后在上面的设备列表里就靠它认出这枚令牌、决定要不要注销。")}
-            </p>
-          </div>
+        <SettingsCard
+          title="新令牌"
+          action={
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={creating}
+                onClick={resetForm}
+                className={SETTINGS_BUTTON_CLASS}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                disabled={creating}
+                onClick={() => void handleCreate()}
+                className={SETTINGS_PRIMARY_BUTTON_CLASS}
+              >
+                {creating ? "创建中…" : "创建令牌"}
+              </button>
+            </div>
+          }
+        >
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <label htmlFor="manual-token-name" className="text-sub font-medium text-[var(--text-muted)]">
+                名字
+              </label>
+              <input
+                id="manual-token-name"
+                type="text"
+                autoFocus
+                maxLength={64}
+                value={name}
+                placeholder={scope === "transcode" ? "macmini-m1" : "nas-cron"}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (nameError) setNameError(null);
+                }}
+                onKeyDown={(e) => e.key === "Enter" && void handleCreate()}
+                className={`${SETTINGS_INPUT_CLASS} w-full`}
+              />
+              <p
+                className={`text-caption ${
+                  nameError ? "text-[var(--danger)]" : "text-[var(--text-faint)]"
+                }`}
+              >
+                {nameError ??
+                  (scope === "transcode"
+                    ? "建议与转码器的 --worker-id 同名：「设置 → 播放」靠名字对上它的在线状态。"
+                    : "日后在上面的设备列表里就靠它认出这枚令牌、决定要不要注销。")}
+              </p>
+            </div>
 
-          <fieldset className="space-y-1.5">
-            <legend className="mb-1.5 text-sub font-medium text-[var(--text-muted)]">权限</legend>
-            <div className="grid grid-cols-2 gap-2 max-sm:grid-cols-1">
-              {MANUAL_SCOPE_OPTIONS.map((option) => (
-                <label
-                  key={option.value}
-                  className={`cursor-pointer rounded-xl border px-3.5 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent-ring)] ${
-                    scope === option.value
-                      ? "border-[var(--accent)]/50 bg-[var(--accent-soft)]"
-                      : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06]"
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="manual-token-scope"
-                    value={option.value}
-                    checked={scope === option.value}
-                    onChange={() => setScope(option.value)}
-                    className="sr-only"
-                  />
-                  <span
-                    className={`block text-sub font-medium ${
-                      scope === option.value ? "text-[var(--accent)]" : "text-[var(--text)]"
+            <fieldset className="space-y-1.5">
+              <legend className="mb-1.5 text-sub font-medium text-[var(--text-muted)]">权限</legend>
+              <div className="grid grid-cols-2 gap-2 max-sm:grid-cols-1">
+                {MANUAL_SCOPE_OPTIONS.map((option) => (
+                  <label
+                    key={option.value}
+                    className={`cursor-pointer rounded-xl border px-3.5 py-2.5 transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-[var(--accent-ring)] ${
+                      scope === option.value
+                        ? "border-[var(--accent)]/50 bg-[var(--accent-soft)]"
+                        : "border-white/[0.08] bg-white/[0.03] hover:bg-white/[0.06]"
                     }`}
                   >
-                    {option.label}
-                  </span>
-                  <span className="mt-0.5 block text-caption text-[var(--text-faint)]">{option.hint}</span>
-                </label>
-              ))}
+                    <input
+                      type="radio"
+                      name="manual-token-scope"
+                      value={option.value}
+                      checked={scope === option.value}
+                      onChange={() => setScope(option.value)}
+                      className="sr-only"
+                    />
+                    <span
+                      className={`block text-sub font-medium ${
+                        scope === option.value ? "text-[var(--accent)]" : "text-[var(--text)]"
+                      }`}
+                    >
+                      {option.label}
+                    </span>
+                    <span className="mt-0.5 block text-caption text-[var(--text-faint)]">{option.hint}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            {/* 与审批卡同一套说法：完全权限的手工令牌和批准出来的命令行令牌同权，
+                没有理由在这里说得更轻 */}
+            <div className="rounded-xl border border-[var(--accent)]/20 bg-[var(--accent-soft)] px-4 py-3">
+              <p className="text-sub font-semibold text-[var(--accent)]">{manualGrant.title}</p>
+              <p className="mt-1 text-sub leading-relaxed text-[var(--text-muted)]">
+                {manualGrant.body}
+              </p>
             </div>
-          </fieldset>
-
-          {/* 与审批卡同一套说法：完全权限的手工令牌和批准出来的命令行令牌同权，
-              没有理由在这里说得更轻 */}
-          <div className="rounded-xl border border-[var(--accent)]/20 bg-[var(--accent-soft)] px-4 py-3">
-            <p className="text-sub font-semibold text-[var(--accent)]">{manualGrant.title}</p>
-            <p className="mt-1 text-sub leading-relaxed text-[var(--text-muted)]">
-              {manualGrant.body}
-            </p>
           </div>
-
-          <div className="flex items-center gap-2.5">
-            <button
-              type="button"
-              disabled={creating}
-              onClick={() => void handleCreate()}
-              className="btn-accent rounded-full px-4.5 py-2 text-sub font-semibold disabled:opacity-40"
-            >
-              {creating ? "创建中…" : "创建令牌"}
-            </button>
-            <button
-              type="button"
-              disabled={creating}
-              onClick={resetForm}
-              className="btn-glass px-3.5 py-2 text-sub font-medium text-[var(--text-muted)] disabled:opacity-40"
-            >
-              取消
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="css-glass !rounded-2xl p-5">
-          <p className="text-sub leading-relaxed text-[var(--text-muted)]">
-            没法在浏览器里按下批准的环境——NAS 上的定时任务、CI、无界面容器——在这里创建一枚令牌，用{" "}
-            <code className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--text)]">
-              MOVIECLAW_SERVER
-            </code>{" "}
-            和{" "}
-            <code className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[0.92em] text-[var(--text)]">
-              MOVIECLAW_TOKEN
-            </code>{" "}
-            两个环境变量注入给 mclaw。能打开浏览器的机器请直接运行 mclaw login 配对，不必走这里。
-            命令行模式（Headless）的转码器同样在这里创建，权限选「仅限转码」。
-          </p>
-        </div>
-      )}
-    </section>
+        </SettingsCard>
+      ) : null}
+    </SettingsSection>
   );
 }
 
@@ -1076,7 +1067,7 @@ function CreatedTokenCard({
   const snippet = headless ? headlessArgs(address.url, token) : envSnippet(address.url, token);
 
   return (
-    <div className="css-glass space-y-4 !rounded-2xl border-[var(--warn)]/35 p-5">
+    <div className="css-glass space-y-4 !rounded-xl border-[var(--warn)]/35 p-5">
       <div className="flex items-start gap-3">
         <CheckIcon className="mt-0.5 size-[18px] shrink-0 text-[var(--ok)]" />
         <div className="min-w-0">
@@ -1095,7 +1086,7 @@ function CreatedTokenCard({
           <CopyButton
             text={snippet}
             label={headless ? "复制这一行" : "复制两行"}
-            className="btn-glass px-3 py-1.5 text-sub font-medium text-[var(--text-muted)]"
+            className={SETTINGS_BUTTON_CLASS}
           />
         </div>
         {/* 令牌那段用 --warn 上色：一眼分得出哪部分是秘密、不能贴进工单和聊天。
@@ -1151,12 +1142,12 @@ function CreatedTokenCard({
         <CopyButton
           text={token}
           label="仅复制令牌"
-          className="btn-glass px-3.5 py-2 text-sub font-medium text-[var(--text-muted)]"
+          className={SETTINGS_BUTTON_CLASS}
         />
         <button
           type="button"
           onClick={onDismiss}
-          className="btn-accent rounded-full px-4.5 py-2 text-sub font-semibold"
+          className={SETTINGS_PRIMARY_BUTTON_CLASS}
         >
           我已保存，关闭
         </button>

@@ -4,8 +4,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 
+import { ErrorBanner } from "@/components/cloud-push-ui";
 import { ExpandIcon, ShrinkIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
+import { SETTINGS_BUTTON_CLASS, SETTINGS_INPUT_CLASS } from "@/components/settings-ui";
 import { fetchLogContent, fetchLogDays, type LogContent, type LogDay } from "@/lib/api/logs";
 import { formatBytes } from "@/lib/format";
 
@@ -352,7 +354,7 @@ export function SystemLogsSection() {
           disabled={loading || days.length === 0}
           aria-label="选择日志日期"
           onChange={(e) => switchDay(e.target.value)}
-          className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-ui text-[var(--text)] outline-none focus:border-[var(--accent)]/60 [&>option]:bg-[#1a1e28]"
+          className={`${SETTINGS_INPUT_CLASS} [&>option]:bg-[#1a1e28]`}
         >
           {days.length === 0 && <option value="">暂无日志</option>}
           {days.map((d) => (
@@ -411,23 +413,19 @@ export function SystemLogsSection() {
           type="button"
           onClick={() => void refresh(activeDay)}
           disabled={loading}
-          className="btn-glass px-3.5 py-1.5 text-sub font-medium disabled:opacity-40"
+          className={SETTINGS_BUTTON_CLASS}
         >
           {loading ? "加载中…" : "刷新"}
         </button>
       </div>
   );
 
-  const errorBanner = error ? (
-    <p className="rounded-xl border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-4 py-2.5 text-sub text-[var(--danger)]">
-      {error}
-    </p>
-  ) : null;
+  const errorBanner = error ? <ErrorBanner>{error}</ErrorBanner> : null;
 
   // 日志窗口：头部过滤条 + 虚拟滚动内容区；全屏态改为纵向弹性布局撑满面板
   const logWindow = (
     <div
-      className={`css-glass overflow-hidden !rounded-2xl ${
+      className={`css-glass overflow-hidden !rounded-xl ${
         fullscreen ? "flex min-h-0 flex-1 flex-col" : ""
       }`}
     >
@@ -576,14 +574,14 @@ export function SystemLogsSection() {
       {errorBanner}
       {logWindow}
 
-      <div className="flex items-start justify-between gap-4">
-        <p className="text-on-image text-sub leading-5 text-[var(--text-faint)]">
+      <div className="flex items-start justify-between gap-4 px-1">
+        <p className="text-on-image text-caption leading-5 text-[var(--text-faint)]">
           日志按天存档在服务端 data/logs 目录（Docker 部署挂载 data 卷即可持久化），
           超过保留天数的旧日志会自动清理；保留天数与目录位置可通过 LOG_RETENTION_DAYS、LOG_DIR
           环境变量调整。
         </p>
         {!isLatestDay && activeDay && refreshMs > 0 && (
-          <p className="shrink-0 text-sub text-[var(--text-faint)]">正在查看历史日志，自动刷新已暂停</p>
+          <p className="shrink-0 text-caption text-[var(--text-faint)]">正在查看历史日志，自动刷新已暂停</p>
         )}
       </div>
     </div>

@@ -2,9 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { ErrorBanner } from "@/components/cloud-push-ui";
 import { useConfirm } from "@/components/feedback";
 import { CheckIcon, CopyIcon, DownloadIcon, PuzzleIcon, ShieldIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_DANGER_BUTTON_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings-ui";
 import { EXTENSION_ZIP_URL, useExtensionInstalled } from "@/lib/extension-install";
 import {
   type SyncTokenView,
@@ -15,14 +24,12 @@ import {
 import { formatDateTime } from "@/lib/time";
 
 /**
- * 浏览器插件卡片：嵌在「资源站点」分区底部（插件是站点 Cookie 同步的配套工具，
- * 不单设分区）。
- * 卡面保持极简（一段说明 + 状态点 + 两个按钮）：
- * - 安装引导收进「安装插件」按钮的弹窗——Chrome 政策不允许商店外插件一键
- *   静默安装，必须手动加载，四步指引在弹窗里讲清楚，不平铺占版面；
- * - 同步令牌：设完即用、极少回访的配置，收进「同步令牌」按钮的弹窗里管理。
+ * 浏览器插件小节：嵌在「资源站点」分区底部（插件是站点 Cookie 同步的配套工具，
+ * 不单设分区）。两行：
+ * - 插件本身：安装状态 + 「安装插件」——Chrome 政策不允许商店外插件一键
+ *   静默安装，必须手动加载，四步指引收在弹窗里讲清楚，不平铺占版面；
+ * - 同步令牌：设完即用、极少回访的配置，收进弹窗里管理。
  * 各站点的同步与验证状态直接看上方站点列表，不在这里重复展示。
- * 视觉与站点列表同款扁平面板（配置页不用玻璃质感）。
  */
 export function ExtensionCard() {
   const { installed } = useExtensionInstalled();
@@ -37,55 +44,56 @@ export function ExtensionCard() {
         : { label: "未检测到", color: "#c0c4cc" };
 
   return (
-    <section className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex items-start gap-3.5">
-          <span className="icon-chip size-10 shrink-0 !rounded-xl">
-            <PuzzleIcon className="size-5" />
+    <SettingsSection
+      title="浏览器插件"
+      description="在站点页面一键读取登录 Cookie（含 httpOnly）并同步到本服务，免去手动复制粘贴，还能随 Cookie 变化自动保持最新。"
+    >
+      <SettingsList>
+        <SettingsRow
+          leading={
+            <span className="icon-chip size-9 shrink-0 !rounded-xl">
+              <PuzzleIcon className="size-[18px]" />
+            </span>
+          }
+          label="MovieClaw 浏览器插件"
+          description={
+            installed
+              ? "打开站点页面，点浏览器工具栏的 MovieClaw 图标即可同步；首次使用先生成同步令牌填入插件。"
+              : "支持 Chrome / Edge 等 Chromium 内核浏览器。"
+          }
+        >
+          <span className="flex items-center gap-1.5 text-sub text-[var(--text-muted)]">
+            <span
+              className={`size-2 rounded-full ${installed === null ? "animate-pulse" : ""}`}
+              style={{ background: badge.color }}
+            />
+            {badge.label}
           </span>
-          <div>
-            <h2 className="text-body-lg font-semibold">MovieClaw 浏览器插件</h2>
-            <p className="mt-0.5 text-sub leading-5 text-[var(--text-muted)]">
-              在站点页面一键读取登录 Cookie（含 httpOnly）并同步到本服务，免去手动复制粘贴，
-              还能随 Cookie 变化自动保持最新。
-            </p>
-          </div>
-        </div>
-        <span className="flex shrink-0 items-center gap-1.5 text-sub text-[var(--text-muted)]">
-          <span
-            className={`size-2 rounded-full ${installed === null ? "animate-pulse" : ""}`}
-            style={{ background: badge.color }}
-          />
-          {badge.label}
-        </span>
-      </div>
-
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        {!installed && (
+          {!installed && (
+            <button
+              type="button"
+              onClick={() => setInstallOpen(true)}
+              className={`${SETTINGS_BUTTON_CLASS} flex items-center gap-1.5`}
+            >
+              <DownloadIcon className="size-4" />
+              安装插件
+            </button>
+          )}
+        </SettingsRow>
+        <SettingsRow
+          label="同步令牌"
+          description="在插件的设置里填入此令牌，即可把站点 Cookie 同步到本服务。"
+        >
           <button
             type="button"
-            onClick={() => setInstallOpen(true)}
-            className="btn-accent flex items-center gap-1.5 rounded-full px-4 py-2 text-sub font-semibold"
+            onClick={() => setTokenOpen(true)}
+            className={`${SETTINGS_BUTTON_CLASS} flex items-center gap-1.5`}
           >
-            <DownloadIcon className="size-4" />
-            安装插件
+            <ShieldIcon className="size-4" />
+            管理
           </button>
-        )}
-        <button
-          type="button"
-          onClick={() => setTokenOpen(true)}
-          className="btn-glass flex items-center gap-1.5 px-4 py-2 text-sub font-medium"
-        >
-          <ShieldIcon className="size-4" />
-          同步令牌
-        </button>
-        {installed && (
-          <p className="text-caption text-[var(--text-faint)]">
-            <CheckIcon className="mr-1 inline size-3.5 text-[var(--ok)]" />
-            打开站点页面，点浏览器工具栏的 MovieClaw 图标即可同步；首次使用先生成同步令牌填入插件。
-          </p>
-        )}
-      </div>
+        </SettingsRow>
+      </SettingsList>
 
       <InstallModal
         open={installOpen}
@@ -96,7 +104,7 @@ export function ExtensionCard() {
         }}
       />
       <TokenModal open={tokenOpen} onClose={() => setTokenOpen(false)} />
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -127,7 +135,7 @@ function InstallModal({
         <a
           href={EXTENSION_ZIP_URL}
           download
-          className="btn-accent flex w-fit items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sub font-semibold"
+          className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex w-fit items-center gap-1.5`}
         >
           <DownloadIcon className="size-4" />
           下载插件包
@@ -154,7 +162,7 @@ function InstallModal({
         <button
           type="button"
           onClick={onOpenToken}
-          className="btn-glass flex w-fit items-center gap-1.5 px-3.5 py-1.5 text-sub font-medium"
+          className={`${SETTINGS_BUTTON_CLASS} flex w-fit items-center gap-1.5`}
         >
           <ShieldIcon className="size-4" />
           去生成令牌
@@ -192,11 +200,7 @@ function InstallModal({
           <p className="text-caption text-[var(--text-faint)]">
             支持 Chrome / Edge 等 Chromium 内核浏览器；安装检测同样仅对 Chromium 生效。
           </p>
-          <button
-            type="button"
-            onClick={onClose}
-            className="btn-glass shrink-0 px-4 py-2 text-sub font-medium"
-          >
+          <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
             完成
           </button>
         </div>
@@ -293,9 +297,7 @@ function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
         </div>
 
         {error && (
-          <div className="rounded-xl border border-[#ff6b6b]/30 bg-[#ff6b6b]/10 px-4 py-3 text-body text-[#ff6b6b]">
-            {error}
-          </div>
+          <ErrorBanner>{error}</ErrorBanner>
         )}
 
         {loading ? (
@@ -308,31 +310,28 @@ function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
           </p>
         )}
 
-        <div className="flex flex-wrap gap-3 pt-1">
-          <button
-            type="button"
-            onClick={onGenerate}
-            disabled={busy || loading}
-            className="btn-accent rounded-full px-4 py-2 text-sub font-semibold disabled:opacity-60"
-          >
-            {token?.enabled ? "重新生成" : "生成令牌"}
-          </button>
+        {/* 危险动作靠左；完成在左、提交在右 */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
           {token?.enabled && (
             <button
               type="button"
               onClick={onRevoke}
               disabled={busy || loading}
-              className="btn-glass px-4 py-2 text-sub font-medium !text-[var(--danger)] hover:!border-[#ff6b6b]/40"
+              className={SETTINGS_DANGER_BUTTON_CLASS}
             >
               关闭同步
             </button>
           )}
+          <button type="button" onClick={onClose} className={`${SETTINGS_BUTTON_CLASS} ml-auto`}>
+            完成
+          </button>
           <button
             type="button"
-            onClick={onClose}
-            className="btn-glass ml-auto px-4 py-2 text-sub font-medium"
+            onClick={onGenerate}
+            disabled={busy || loading}
+            className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
-            完成
+            {token?.enabled ? "重新生成" : "生成令牌"}
           </button>
         </div>
       </div>

@@ -49,7 +49,7 @@ function UpdateNoticeCard({ pending }: { pending: PendingUpdateView }) {
   return (
     <Link
       href="/settings/app"
-      className="css-glass flex items-center gap-3 !rounded-2xl px-5 py-3.5 transition-colors hover:bg-white/[0.06]"
+      className="css-glass flex items-center gap-3 !rounded-xl px-5 py-3.5 transition-colors hover:bg-white/[0.06]"
       style={{ color: "var(--info)" }}
     >
       <UpgradeIcon className="size-[18px] shrink-0" />

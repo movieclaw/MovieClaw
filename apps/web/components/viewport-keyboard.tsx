@@ -12,13 +12,19 @@ import { softKeyboardPossible } from "@/lib/soft-keyboard";
  * 布局视口（innerHeight 纹丝不动），测量天然免疫。
  */
 export function syncViewportOvershoot() {
-  if (!window.matchMedia("(display-mode: standalone)").matches) return;
+  const standalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  if (!standalone) return;
   if (!window.CSS || !CSS.supports("(-webkit-touch-callout: none)")) return;
   const root = document.documentElement;
   const safeTop = parseFloat(getComputedStyle(root).getPropertyValue("--safe-top"));
   if (!Number.isFinite(safeTop)) return;
   const gap = Math.min(Math.max(screen.height - window.innerHeight, 0), safeTop);
   root.style.setProperty("--vp-overshoot", `${gap}px`);
+  // 文档高度另算：初始包含块可能比 innerHeight 矮（iOS 26.6），见 layout.tsx
+  const docGap = Math.min(Math.max(screen.height - root.clientHeight, 0), safeTop);
+  root.style.setProperty("--doc-overshoot", `${docGap}px`);
 }
 
 /**

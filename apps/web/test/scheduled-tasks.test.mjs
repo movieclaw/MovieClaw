@@ -6,6 +6,7 @@ import {
   dailyTimeOf,
   describeSchedule,
   suggestReconcileInterval,
+  toggleUpdate,
 } from "../lib/scheduled-tasks.ts";
 
 test("周期文案：间隔按小时 / 分钟说人话，每天固定时刻认得出来", () => {
@@ -32,4 +33,19 @@ test("对账建议：只在有网络挂载库且周期比一小时长时提", ()
   assert.equal(suggestReconcileInterval(one, true), false);
   assert.equal(suggestReconcileInterval(daily, true), true);
   assert.equal(suggestReconcileInterval(six, false), false);
+});
+
+test("拨开关只带已保存的周期：不夹带界面上没保存的草稿", () => {
+  const interval = { trigger_type: "interval", interval_seconds: 21600, cron_expr: null };
+  const daily = { trigger_type: "cron", interval_seconds: null, cron_expr: "0 3 * * *" };
+  assert.deepEqual(toggleUpdate(interval, false), {
+    enabled: false,
+    trigger_type: "interval",
+    interval_seconds: 21600,
+  });
+  assert.deepEqual(toggleUpdate(daily, true), {
+    enabled: true,
+    trigger_type: "cron",
+    cron_expr: "0 3 * * *",
+  });
 });

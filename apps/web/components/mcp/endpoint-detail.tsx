@@ -23,9 +23,17 @@ import {
   checkMcpEndpoint,
   previewMcpTools,
 } from "@/lib/api/mcp";
-import { useBackdrop } from "@/lib/backdrop";
 import { relativeTime } from "@/lib/devices-display";
-import { LiquidGlassButton } from "@/components/liquid-glass";
+import { Toggle } from "@/components/cloud-push-ui";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_DANGER_BUTTON_CLASS,
+  SettingsCard,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+  SettingsTabs,
+} from "@/components/settings-ui";
 
 type Tab = "overview" | "tools" | "settings";
 
@@ -67,7 +75,6 @@ export function EndpointDetail({
   onRotate: () => void;
   onDelete: () => void;
 }) {
-  const { backdrop } = useBackdrop();
   const [preview, setPreview] = useState<McpPreview | null>(null);
   const [confirmText, setConfirmText] = useState("");
   const [check, setCheck] = useState<McpSelfCheck | null>(null);
@@ -136,18 +143,13 @@ export function EndpointDetail({
             <span className="text-caption text-[var(--text-muted)]">
               {endpoint.enabled ? "已启用" : "已停用"}
             </span>
-            <LiquidGlassButton
-              backgroundImage={backdrop}
-              variant="dark"
+            <Toggle
               checked={endpoint.enabled}
-              aria-label={`启用 ${endpoint.name}`}
-              onCheckedChange={(next: boolean) => {
+              label={`启用 ${endpoint.name}`}
+              onChange={(next) => {
                 if (!busy) onToggleEnabled(next);
               }}
-              className="!min-h-0 !w-auto !gap-0 !bg-transparent !p-0"
-            >
-              <span className="sr-only">{endpoint.enabled ? "已开启" : "已关闭"}</span>
-            </LiquidGlassButton>
+            />
           </div>
         </div>
 
@@ -163,27 +165,22 @@ export function EndpointDetail({
         </div>
       </div>
 
-      <nav className="flex gap-1 border-b border-white/[0.07]">
-        {TABS.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onTab(item.id)}
-            className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sub transition-colors ${
-              tab === item.id
-                ? "border-[var(--accent)] text-[var(--text)]"
-                : "border-transparent text-[var(--text-muted)] hover:text-[var(--text)]"
-            }`}
-          >
-            {item.label}
-            {item.id === "tools" && (
-              <span className="tabular-nums text-caption text-[var(--text-faint)]">
-                {endpoint.tool_count}
-              </span>
-            )}
-          </button>
-        ))}
-      </nav>
+      <SettingsTabs
+        tabs={TABS.map((item) => ({
+          id: item.id,
+          label:
+            item.id === "tools" ? (
+              <>
+                {item.label}
+                <span className="tabular-nums text-caption opacity-60">{endpoint.tool_count}</span>
+              </>
+            ) : (
+              item.label
+            ),
+        }))}
+        value={tab}
+        onChange={onTab}
+      />
 
       {tab === "overview" && (
         <div className="space-y-5">
@@ -211,26 +208,23 @@ export function EndpointDetail({
           </div>
 
           {/* 自检：配完之后最想问的那句「它现在能用吗」，就地给答案 */}
-          <div className="rounded-xl border border-white/[0.07] p-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sub font-medium">连通性自检</p>
-                <p className="mt-0.5 text-caption text-[var(--text-muted)]">
-                  跑一遍真实协议，只试调只读工具，不改任何状态。
-                </p>
-              </div>
+          <SettingsList>
+            <SettingsRow
+              label="连通性自检"
+              description="跑一遍真实协议，只试调只读工具，不改任何状态。"
+            >
               <button
                 type="button"
                 onClick={() => void runCheck()}
                 disabled={checking}
-                className="btn-glass shrink-0 px-3 py-1.5 text-sub font-medium disabled:opacity-50"
+                className={SETTINGS_BUTTON_CLASS}
               >
                 {checking ? "自检中…" : check ? "重新自检" : "运行自检"}
               </button>
-            </div>
+            </SettingsRow>
 
             {check && (
-              <div className="mt-3 space-y-2 border-t border-white/[0.06] pt-3">
+              <div className="space-y-2 px-4 py-3">
                 <p className="flex items-center gap-2 text-sub">
                   <StatusDot on={check.ok} title={check.ok ? "通过" : "未通过"} />
                   <span className={check.ok ? "" : "text-[var(--danger)]"}>{check.message}</span>
@@ -270,9 +264,9 @@ export function EndpointDetail({
                 ))}
               </div>
             )}
-          </div>
+          </SettingsList>
 
-          <div className="rounded-xl border border-white/[0.07] px-4 py-2">
+          <div className="css-glass !rounded-xl px-4 py-2">
             <MetaRow label="服务">
               {/* 详情页不设上限：这一屏就是要看全「到底开放了什么」 */}
               <ServiceChips services={endpoint.services} max={endpoint.services.length} />
@@ -337,30 +331,38 @@ export function EndpointDetail({
 
           {/* 危险区：沉到最底，删除要打字确认——和 Stripe/GitHub 的处理一致，
               因为端点一删，接入它的客户端立刻全断，而且不可恢复 */}
-          <section className="rounded-xl border border-[var(--danger)]/30 p-4">
-            <h3 className="text-sub font-medium text-[var(--danger)]">危险操作</h3>
-            <p className="mt-1 text-caption leading-relaxed text-[var(--text-muted)]">
-              删除后地址与令牌一并作废，不可恢复；已接入的客户端会立刻失败。
-              确认请输入端点标识 <span className="font-mono text-[var(--text)]">{endpoint.slug}</span>。
-            </p>
-            <div className="mt-3 flex items-center gap-2">
+          <SettingsSection title="危险操作">
+            <SettingsCard
+              tone="danger"
+              title="删除这个端点"
+              description={
+                <>
+                  删除后地址与令牌一并作废，不可恢复；已接入的客户端会立刻失败。
+                  确认请输入端点标识{" "}
+                  <span className="font-mono text-[var(--text)]">{endpoint.slug}</span>。
+                </>
+              }
+              action={
+                <button
+                  type="button"
+                  disabled={busy || confirmText !== endpoint.slug}
+                  onClick={onDelete}
+                  className={SETTINGS_DANGER_BUTTON_CLASS}
+                >
+                  删除这个端点
+                </button>
+              }
+            >
               <input
                 type="text"
                 value={confirmText}
                 onChange={(e) => setConfirmText(e.target.value)}
                 placeholder={endpoint.slug}
+                aria-label="输入端点标识确认删除"
                 className={`${INPUT_CLASS} max-w-[220px] font-mono`}
               />
-              <button
-                type="button"
-                disabled={busy || confirmText !== endpoint.slug}
-                onClick={onDelete}
-                className="btn-glass px-3.5 py-1.5 text-sub font-medium !text-[#ff6b6b] disabled:opacity-40"
-              >
-                删除这个端点
-              </button>
-            </div>
-          </section>
+            </SettingsCard>
+          </SettingsSection>
         </div>
       )}
     </div>

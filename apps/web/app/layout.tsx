@@ -161,8 +161,15 @@ const RESTORE_THEME_SCRIPT = `try{var p=JSON.parse(localStorage.getItem("moviecl
  * 不变；新系统为 0，自动归位。必须在首帧绘制前执行——CSS 猜测值先就位、这里
  * 立刻覆写成内联样式，用户看不到跳动。旋转后的重测见 viewport-keyboard.tsx
  * 的 syncViewportOvershoot（与本段是同一份逻辑的两处副本，改一处要看另一处）。
+ *
+ * 同时测 --doc-overshoot（文档高度的补偿，见 globals.css html,body）：iOS 26.6
+ * 实测 innerHeight / 100dvh / fixed 层已是整屏（912），初始包含块（clientHeight，
+ * height:100% 的基准）却仍矮一个 safe-top（844）。文档只有 844 高时 WebKit 不画
+ * 下面那 68，露出底部黑条；所以文档按「屏幕 − clientHeight」补，铺底层仍按
+ * 「屏幕 − innerHeight」补（补多了会把底栏、灯箱推出屏幕，即 #450）。
+ * navigator.standalone 兜底：加到主屏但没有清单的页面 display-mode 不匹配。
  */
-const SYNC_VIEWPORT_OVERSHOOT_SCRIPT = `try{if(window.matchMedia("(display-mode: standalone)").matches&&window.CSS&&CSS.supports("(-webkit-touch-callout: none)")){var d=document.documentElement,s=parseFloat(getComputedStyle(d).getPropertyValue("--safe-top"));if(isFinite(s)){var g=Math.min(Math.max(screen.height-window.innerHeight,0),s);d.style.setProperty("--vp-overshoot",g+"px")}}}catch(e){}`;
+const SYNC_VIEWPORT_OVERSHOOT_SCRIPT = `try{if((window.matchMedia("(display-mode: standalone)").matches||navigator.standalone===true)&&window.CSS&&CSS.supports("(-webkit-touch-callout: none)")){var d=document.documentElement,s=parseFloat(getComputedStyle(d).getPropertyValue("--safe-top"));if(isFinite(s)){var g=Math.min(Math.max(screen.height-window.innerHeight,0),s);d.style.setProperty("--vp-overshoot",g+"px");var q=Math.min(Math.max(screen.height-d.clientHeight,0),s);d.style.setProperty("--doc-overshoot",q+"px")}}}catch(e){}`;
 
 export default function RootLayout({
   children,

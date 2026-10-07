@@ -6,6 +6,8 @@
  * 不给可视化编辑——那类需求直接改表达式。
  */
 
+import type { ScheduledTaskUpdate } from "@/lib/api/scheduled-tasks";
+
 export type TriggerType = "interval" | "cron";
 
 export interface ScheduleShape {
@@ -64,4 +66,17 @@ export function suggestReconcileInterval(
   if (!anyNetworkLibrary) return false;
   if (shape.trigger_type !== "interval") return true; // 固定时刻 = 一天一次，比一小时长
   return (shape.interval_seconds ?? 0) > RECONCILE_NETWORK_SUGGESTED_SECONDS;
+}
+
+/**
+ * 只切启停时提交的请求体。接口要求整体提交（启停 + 周期），这里周期一律取
+ * 服务器上已保存的那份——界面上改了还没点保存的周期草稿不能借开关夹带提交。
+ */
+export function toggleUpdate(
+  saved: ScheduleShape,
+  enabled: boolean,
+): ScheduledTaskUpdate {
+  return saved.trigger_type === "interval"
+    ? { enabled, trigger_type: "interval", interval_seconds: saved.interval_seconds }
+    : { enabled, trigger_type: "cron", cron_expr: saved.cron_expr };
 }

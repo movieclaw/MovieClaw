@@ -215,6 +215,11 @@
      只在 iOS 的独立 App 形态下补偿，见下方媒体查询；其余场景恒为 0。 */
   --vp-overshoot: 0px;
 
+  /* 文档高度的补偿量（html,body 的 min-height 用）。老系统上与 --vp-overshoot
+     相等；iOS 26.6 起 fixed 层已铺满整屏而初始包含块仍矮一个 safe-top，两者分家，
+     由 layout.tsx 的首帧脚本分别实测写入。 */
+  --doc-overshoot: var(--vp-overshoot);
+
   /* —— 软键盘占高 ——
      iOS 弹软键盘不改布局视口（100dvh 纹丝不动），满屏高的外壳因此有一大截
      被压在键盘底下，贴底的输入行整个看不见。这个变量由
@@ -268,7 +273,7 @@ body {
    * 随即复现），由 components/viewport-keyboard.tsx 把窗口滚回原点。
    * 两处是一对，改动任一侧前先看懂另一侧。
    */
-  min-height: calc(100% + var(--vp-overshoot));
+  min-height: calc(100% + var(--doc-overshoot));
 }
 
 

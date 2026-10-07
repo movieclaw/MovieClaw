@@ -2,10 +2,16 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-
-import { useConfirm } from "@/components/feedback";
-import { InfoIcon, MoreIcon, RefreshIcon } from "@/components/icons";
+import { Banner } from "@/components/cloud-push-ui";
+import { useConfirm, useToast } from "@/components/feedback";
+import { InfoIcon, RefreshIcon } from "@/components/icons";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SettingsList,
+  SettingsMoreMenu,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings-ui";
 import { Tooltip } from "@/components/tooltip";
 import {
   cleanStorage,
@@ -45,8 +51,6 @@ import { formatRelativeTime } from "@/lib/time";
  *   「未登记目录」块只在后端发现登记表之外的条目时出现。
  */
 
-type Notice = { key: string; text: string; ok: boolean } | null;
-
 /** 后台统计期间的轮询间隔 */
 const POLL_MS = 2000;
 
@@ -55,8 +59,8 @@ export function AppStorageSection() {
   const [computing, setComputing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  const [notice, setNotice] = useState<Notice>(null);
   const confirm = useConfirm();
+  const toast = useToast();
 
   /** 读一次状态：拿到新快照才替换页面数据，没算完就只更新「统计中」标记。 */
   const load = useCallback(async (refresh: boolean) => {
@@ -107,7 +111,6 @@ export function AppStorageSection() {
 
   const doClean = async (key: string, mode: CleanMode) => {
     setBusyKey(key);
-    setNotice(null);
     try {
       const result = await cleanStorage(key, mode);
       const parts = [
@@ -115,15 +118,11 @@ export function AppStorageSection() {
       ];
       if (result.skipped_busy > 0)
         parts.push(`跳过正在使用的 ${result.skipped_busy} 项`);
-      setNotice({ key, text: parts.join("，"), ok: true });
+      toast.success(parts.join("，"));
       // 清理让后端快照标脏：这一次读取会拉起后台重算，占用数字随后被轮询替换
       await load(false);
     } catch (e) {
-      setNotice({
-        key,
-        text: e instanceof Error ? e.message : "清理失败",
-        ok: false,
-      });
+      toast.error(e instanceof Error ? e.message : "清理失败");
     } finally {
       setBusyKey(null);
     }
@@ -144,65 +143,48 @@ export function AppStorageSection() {
       : "尚未统计";
 
   return (
-    <div className="space-y-6">
-      <section>
-        <SectionHeader label="磁盘概览">
-          <span className="truncate text-caption text-[var(--text-faint)]">
-            {statusText}
-          </span>
+    <div className="space-y-10">
+      <SettingsSection
+        title="磁盘概览"
+        description={statusText}
+        action={
           <button
             type="button"
             onClick={() => void load(true)}
             disabled={computing}
-            className="btn-glass shrink-0 gap-1 px-2.5 py-1 text-caption font-medium disabled:opacity-50"
+            className={SETTINGS_BUTTON_CLASS}
           >
-            <RefreshIcon
-              className={`size-3 ${computing ? "animate-spin" : ""}`}
-            />
+            <RefreshIcon className={`size-3.5 ${computing ? "animate-spin" : ""}`} />
             {computing ? "统计中" : "刷新"}
           </button>
-        </SectionHeader>
+        }
+      >
         <DiskOverview usage={usage} error={error} />
-      </section>
+      </SettingsSection>
 
       {usage && usage.unregistered.length > 0 && (
-        <section>
-          <SectionHeader label="未登记目录" />
-          <div className="rounded-2xl border border-amber-300/20 bg-amber-400/[0.07] px-4 py-4 sm:px-5">
-            <p className="text-sub text-amber-100/85">
-              数据目录下出现了程序未登记的条目，不会被统计或清理。请把路径反馈给开发者。
-            </p>
-            <ul className="mt-2.5 space-y-1.5">
+        <SettingsSection title="未登记目录">
+          <Banner tone="warn">
+            数据目录下出现了程序未登记的条目，不会被统计或清理。请把路径反馈给开发者。
+            <ul className="mt-2 space-y-1">
               {usage.unregistered.map((u) => (
-                <li
-                  key={u.path}
-                  className="flex items-center justify-between gap-4 text-sub"
-                >
-                  <span
-                    className="truncate font-mono text-amber-100/70"
-                    title={u.path}
-                  >
+                <li key={u.path} className="flex items-center justify-between gap-4">
+                  <span className="truncate font-mono" title={u.path}>
                     {relativeTo(u.path, usage.data_root)}
                   </span>
-                  <span className="tnum shrink-0 text-amber-100/70">
-                    {formatBytes(u.bytes)}
-                  </span>
+                  <span className="tnum shrink-0">{formatBytes(u.bytes)}</span>
                 </li>
               ))}
             </ul>
-          </div>
-        </section>
+          </Banner>
+        </SettingsSection>
       )}
 
-      <section>
-        <SectionHeader label="可清理的缓存">
-          {usage && (
-            <span className="tnum text-caption text-[var(--text-faint)]">
-              合计 {formatBytes(usage.cache_bytes)}
-            </span>
-          )}
-        </SectionHeader>
-        <div className="css-glass divide-y divide-white/[0.055] !rounded-2xl">
+      <SettingsSection
+        title="可清理的缓存"
+        description={usage ? `合计 ${formatBytes(usage.cache_bytes)}` : undefined}
+      >
+        <SettingsList>
           {!usage ? (
             <SkeletonRows count={4} />
           ) : (
@@ -211,55 +193,27 @@ export function AppStorageSection() {
                 key={d.key}
                 dir={d}
                 busy={busyKey === d.key}
-                notice={notice?.key === d.key ? notice : null}
                 onClean={(mode) => void askClean(d, mode)}
               />
             ))
           )}
-        </div>
-      </section>
+        </SettingsList>
+      </SettingsSection>
 
-      <section>
-        <SectionHeader label="应用数据">
-          {usage && (
-            <span className="tnum text-caption text-[var(--text-faint)]">
-              合计 {formatBytes(usage.data_bytes)} · 只展示，不提供删除
-            </span>
-          )}
-        </SectionHeader>
-        <div className="css-glass divide-y divide-white/[0.055] !rounded-2xl">
+      <SettingsSection
+        title="应用数据"
+        description={
+          usage ? `合计 ${formatBytes(usage.data_bytes)} · 只展示，不提供删除` : undefined
+        }
+      >
+        <SettingsList>
           {!usage ? (
             <SkeletonRows count={6} />
           ) : (
-            dataDirs.map((d) => (
-              <DirRow
-                key={d.key}
-                dir={d}
-                busy={false}
-                notice={null}
-              />
-            ))
+            dataDirs.map((d) => <DirRow key={d.key} dir={d} busy={false} />)
           )}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-/** 分组标题行：左侧小标签，右侧可放合计/时间/刷新等次要信息。 */
-function SectionHeader({
-  label,
-  children,
-}: {
-  label: string;
-  children?: React.ReactNode;
-}) {
-  return (
-    <div className="mb-2.5 flex items-center justify-between gap-3 px-1">
-      <h3 className="group-label shrink-0">{label}</h3>
-      {children && (
-        <span className="flex min-w-0 items-center gap-2.5">{children}</span>
-      )}
+        </SettingsList>
+      </SettingsSection>
     </div>
   );
 }
@@ -287,7 +241,7 @@ function DiskOverview({
   ];
 
   return (
-    <div className="css-glass !rounded-2xl px-4 py-4 sm:px-5">
+    <div className="css-glass !rounded-xl px-4 py-4">
       <div className="flex items-end justify-between gap-4">
         <div className="min-w-0">
           <p className="text-ui font-medium text-[var(--text)]">
@@ -335,160 +289,91 @@ function DiskOverview({
           </div>
         ))}
       </div>
-      {error && <p className="mt-3 text-sub text-red-300/90">{error}</p>}
+      {error && <p className="mt-3 text-sub text-[var(--danger)]">{error}</p>}
     </div>
   );
 }
 
-/** 一行目录：名称 + 一句话用途 | 占用 | ⋯ 菜单；清理结果提示内联在行下。 */
+/** 一行目录：名称 + 一句话用途 | 占用 | ⋯ 菜单。 */
 function DirRow({
   dir,
   busy,
-  notice,
   onClean,
 }: {
   dir: DirUsage;
   busy: boolean;
-  notice: Notice;
   /** 只有可清理的目录传；点菜单项即发起确认（弹窗在上层） */
   onClean?: (mode: CleanMode) => void;
 }) {
   const expensive = dir.rebuild_cost === "expensive";
   const actionable = dir.group === "cache" && !!onClean;
   return (
-    <div className="px-4 py-3 sm:px-5">
-      <div className="flex items-center gap-3">
-        <div className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5">
-            <span className="truncate text-ui font-medium text-[var(--text)]">
-              {dir.title}
-            </span>
-            <Tooltip
-              content={
-                <>
-                  <p>{dir.description}</p>
-                  <p className="mt-1.5 break-all font-mono text-caption text-[var(--text-muted)]">
-                    {dir.path}
-                  </p>
-                </>
-              }
-              placement="top"
-              maxWidth={360}
-              openOnClick
+    <SettingsRow
+      label={
+        <span className="flex items-center gap-1.5">
+          <span className="truncate">{dir.title}</span>
+          <Tooltip
+            content={
+              <>
+                <p>{dir.description}</p>
+                <p className="mt-1.5 break-all font-mono text-caption text-[var(--text-muted)]">
+                  {dir.path}
+                </p>
+              </>
+            }
+            placement="top"
+            maxWidth={360}
+            openOnClick
+          >
+            <button
+              type="button"
+              aria-label={`「${dir.title}」的说明`}
+              className="flex shrink-0 text-[var(--text-faint)] transition-colors hover:text-[var(--text-muted)] focus-visible:text-[var(--text-muted)]"
             >
-              <button
-                type="button"
-                aria-label={`「${dir.title}」的说明`}
-                className="flex shrink-0 text-[var(--text-faint)] transition-colors hover:text-[var(--text-muted)] focus-visible:text-[var(--text-muted)]"
-              >
-                <InfoIcon className="size-[14px]" />
-              </button>
-            </Tooltip>
-          </span>
-          <span className="mt-0.5 flex items-center gap-1.5 text-caption text-[var(--text-faint)]">
-            {expensive && (
-              <span className="shrink-0 rounded-full bg-amber-400/10 px-1.5 py-px text-micro font-medium text-amber-300/90">
-                重建代价高
-              </span>
-            )}
-            <span className="truncate">{dir.summary}</span>
-          </span>
-        </div>
-        <span
-          className={`tnum shrink-0 text-right text-ui font-semibold ${
-            dir.exists && dir.bytes > 0
-              ? "text-[var(--text)]"
-              : "text-[var(--text-faint)]"
-          }`}
-        >
-          {dir.exists ? formatBytes(dir.bytes) : "—"}
+              <InfoIcon className="size-[14px]" />
+            </button>
+          </Tooltip>
         </span>
-        {actionable && (
-          <RowActionsMenu
-            dir={dir}
-            busy={busy}
-            expensive={expensive}
-            onClean={onClean}
-          />
-        )}
-      </div>
-
-      {notice && (
-        <p
-          className={`mt-1.5 text-caption ${notice.ok ? "text-emerald-300/85" : "text-red-300/90"}`}
-        >
-          {notice.text}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/**
- * 行尾 ⋯ 菜单：两个清理动作收在这里。
- *
- * 与媒体库列表行（library-manage-row.tsx）用同一套 Radix DropdownMenu 与样式，
- * Portal 渲染保证浮层不被卡片的 overflow/backdrop-filter 裁掉。清理进行中时
- * 图标换成转圈并禁用入口，行内不再需要「清理中…」这样的长文案占位。
- */
-function RowActionsMenu({
-  dir,
-  busy,
-  expensive,
-  onClean,
-}: {
-  dir: DirUsage;
-  busy: boolean;
-  expensive: boolean;
-  onClean: (mode: CleanMode) => void;
-}) {
-  const itemClass =
-    "glass-row nav-item cursor-pointer px-3 py-2 text-ui font-medium outline-none " +
-    "data-[highlighted]:!bg-[var(--glass-fill-hover)] data-[highlighted]:!text-[var(--text)] " +
-    "data-[disabled]:pointer-events-none data-[disabled]:opacity-40";
-
-  return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
-          aria-label={`「${dir.title}」的清理操作`}
-          disabled={busy || !dir.exists}
-          className="grid size-8 shrink-0 place-items-center rounded-full border border-white/[0.09] bg-white/[0.04] text-white/80 transition hover:bg-white/[0.1] hover:text-white disabled:opacity-40 data-[state=open]:bg-white/[0.14] data-[state=open]:text-white"
-        >
-          {busy ? (
+      }
+      description={
+        <span className="flex items-center gap-1.5">
+          {expensive && (
+            <span className="shrink-0 rounded-full bg-amber-400/10 px-1.5 py-px text-micro font-medium text-amber-300/90">
+              重建代价高
+            </span>
+          )}
+          <span className="truncate">{dir.summary}</span>
+        </span>
+      }
+    >
+      <span
+        className={`tnum text-right text-ui font-semibold ${
+          dir.exists && dir.bytes > 0 ? "text-[var(--text)]" : "text-[var(--text-faint)]"
+        }`}
+      >
+        {dir.exists ? formatBytes(dir.bytes) : "—"}
+      </span>
+      {/* 两个清理动作收在 ⋯ 里；清理进行中换成转圈占位，行内不再需要「清理中…」长文案 */}
+      {actionable &&
+        (busy ? (
+          <span className="grid size-8 shrink-0 place-items-center text-[var(--text-muted)]">
             <RefreshIcon className="size-4 animate-spin" />
-          ) : (
-            <MoreIcon className="size-[18px]" />
-          )}
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={6}
-          collisionPadding={12}
-          className="menu-surface z-50 min-w-[10rem] p-1"
-        >
-          {dir.orphan_aware && (
-            <DropdownMenu.Item
-              onSelect={() => onClean("orphans")}
-              className={itemClass}
-            >
-              清理孤儿条目
-            </DropdownMenu.Item>
-          )}
-          {dir.clearable && (
-            <DropdownMenu.Item
-              onSelect={() => onClean("all")}
-              className={`${itemClass}${expensive ? " !text-red-300/90" : ""}`}
-            >
-              全部清空
-            </DropdownMenu.Item>
-          )}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+          </span>
+        ) : (
+          <SettingsMoreMenu
+            label={`「${dir.title}」的清理操作`}
+            disabled={!dir.exists}
+            items={[
+              ...(dir.orphan_aware
+                ? [{ label: "清理孤儿条目", onSelect: () => onClean("orphans") }]
+                : []),
+              ...(dir.clearable
+                ? [{ label: "全部清空", onSelect: () => onClean("all"), danger: expensive }]
+                : []),
+            ]}
+          />
+        ))}
+    </SettingsRow>
   );
 }
 
@@ -496,7 +381,7 @@ function SkeletonRows({ count }: { count: number }) {
   return (
     <>
       {Array.from({ length: count }, (_, i) => (
-        <div key={i} className="flex items-center gap-3 px-4 py-3.5 sm:px-5">
+        <div key={i} className="flex min-h-[56px] items-center gap-3 px-4 py-3">
           <div className="flex-1 space-y-1.5">
             <div className="h-3 w-28 animate-pulse rounded bg-white/[0.08]" />
             <div className="h-2.5 w-48 animate-pulse rounded bg-white/[0.05]" />

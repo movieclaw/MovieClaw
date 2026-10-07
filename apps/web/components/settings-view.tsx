@@ -15,6 +15,7 @@ import { AvatarBadge } from "@/components/avatar-badge";
 import { CloudSection } from "@/components/cloud-section";
 import { DevicesSection } from "@/components/devices-section";
 import { DownloaderConfigSection } from "@/components/downloader-config-section";
+import { ErrorBanner } from "@/components/cloud-push-ui";
 import { useConfirm, useToast } from "@/components/feedback";
 import { ImportWatchSection } from "@/components/import-watch-section";
 import { SettingsOverviewSection } from "@/components/settings-overview-section";
@@ -30,10 +31,21 @@ import { ScrapeSettingsSection } from "@/components/scrape-settings-section";
 import { SiteConfigSection, SitesSectionSubtitle } from "@/components/site-config-section";
 import { SubscriptionSettingsSection } from "@/components/subscription-settings-section";
 import { SystemLogsSection } from "@/components/system-logs-section";
-import { TranscodeCacheToggleSection } from "@/components/transcode-cache-toggle-section";
-import { TrickplayToggleSection } from "@/components/trickplay-toggle-section";
+import { TranscodeCacheToggleRow } from "@/components/transcode-cache-toggle-section";
+import { TrickplayToggleRow } from "@/components/trickplay-toggle-section";
 import { WebhookSection } from "@/components/webhook-section";
 import { GlassPanel } from "@/components/glass-panel";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_DANGER_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsCard,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+  SettingsTabs,
+} from "@/components/settings-ui";
 import {
   CheckIcon,
   ChevronDownIcon,
@@ -267,108 +279,288 @@ export function SettingsPanel({ active }: SettingsPanelProps) {
   );
 }
 
-/**
- * 分组容器：小号大写分组标签 + 一张玻璃卡片。
- * 卡片内的行由使用方提供，多行时配合 divide-y 呈现 macOS 设置式的字段组。
- */
-function SettingsGroup({ label, children }: { label: string; children: React.ReactNode }) {
+/* —— 个人信息分区（真实账号数据，来自登录会话） —— */
+function ProfileSection() {
+  const { session } = useSession();
   return (
-    <section>
-      <h3 className="group-label mb-2.5 px-1">{label}</h3>
-      {children}
-    </section>
+    <div className="space-y-10">
+      <SettingsSection title="个人资料">
+        <SettingsList>
+          <AvatarRow />
+          <NicknameRow />
+          <SettingsRow label="用户名" description="登录时使用，不可修改">
+            <span className="text-ui text-[var(--text-muted)]">{session.username}</span>
+          </SettingsRow>
+          <SettingsRow label="身份">
+            <span className="text-ui text-[var(--text-muted)]">
+              {session.role === "member" ? "成员" : "超级管理员"}
+            </span>
+          </SettingsRow>
+        </SettingsList>
+      </SettingsSection>
+
+      <SettingsSection title="安全">
+        <ChangePasswordCard />
+      </SettingsSection>
+
+      <SettingsSection title="危险操作">
+        <WatchHistoryCard />
+      </SettingsSection>
+    </div>
   );
 }
 
-/* —— 个人信息分区（真实账号数据，来自登录会话） —— */
-function ProfileSection() {
+/** 头像行：点头像选图，前端压到 512px JPEG 再上传（头像不需要大图），成功即同步
+ *  会话上下文——avatar_url 带新版本号，侧栏用户菜单等所有展示处立即换新图。 */
+function AvatarRow() {
   const { session, setSession } = useSession();
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-  const [avatarBusy, setAvatarBusy] = useState(false);
-  const [avatarError, setAvatarError] = useState<string | null>(null);
+  const toast = useToast();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  /** 选图后：前端压到 512px JPEG 再上传（头像不需要大图），成功即同步会话
-   *  上下文——avatar_url 带新版本号，侧栏用户菜单等所有展示处立即换新图。 */
-  const handleAvatarPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePick = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     // 清空 value：否则再次选择同一张图不会触发 change 事件。
     e.target.value = "";
     if (!file) return;
-    setAvatarBusy(true);
-    setAvatarError(null);
+    setBusy(true);
+    setError(null);
     try {
       const blob = await fileToCompressedJpeg(file, 512);
       setSession(await uploadAvatar(blob));
+      toast.success("头像已更新");
     } catch (err) {
-      setAvatarError(err instanceof Error ? err.message : "上传失败，请重试");
+      setError(err instanceof Error ? err.message : "上传失败，请重试");
     } finally {
-      setAvatarBusy(false);
+      setBusy(false);
     }
   };
 
   return (
-    <div className="space-y-8">
-      {/* 账号总览卡：大圆形头像（点击上传 / 替换）+ 昵称 / 用户名 / 身份徽章 */}
-      <div className="css-glass flex items-center gap-5 !rounded-2xl p-6">
+    <SettingsRow label="头像" description="点击头像更换图片" error={error}>
+      <button
+        type="button"
+        onClick={() => inputRef.current?.click()}
+        disabled={busy}
+        aria-label="更换头像"
+        className="group relative rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
+      >
+        <AvatarBadge
+          nickname={session.nickname}
+          avatarUrl={session.avatar_url}
+          className="size-10 text-base"
+        />
+        <span
+          className={`absolute inset-0 flex items-center justify-center rounded-full bg-black/55 text-micro font-semibold text-white transition-opacity ${
+            busy ? "opacity-100" : "touch-reveal opacity-0 group-hover:opacity-100"
+          }`}
+        >
+          {busy ? "上传中" : "更换"}
+        </span>
+      </button>
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        hidden
+        onChange={(e) => void handlePick(e)}
+      />
+    </SettingsRow>
+  );
+}
+
+/**
+ * 昵称行：输入框常驻，失焦或回车即保存（单值即时生效，不配保存按钮），
+ * Esc 放弃修改。保存后同步会话上下文，侧栏立即更新。
+ */
+function NicknameRow() {
+  const { session, setSession } = useSession();
+  const toast = useToast();
+  const [draft, setDraft] = useState(session.nickname);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  // Esc 放弃：随后的失焦不再提交（失焦回调读到的还是改过的 draft）
+  const discardRef = useRef(false);
+
+  // 别处（如另一个标签页登录态刷新）改了昵称时跟上
+  useEffect(() => setDraft(session.nickname), [session.nickname]);
+
+  const commit = async () => {
+    if (discardRef.current) {
+      discardRef.current = false;
+      return;
+    }
+    const nickname = draft.trim();
+    if (nickname === session.nickname) {
+      setDraft(session.nickname);
+      return;
+    }
+    if (!nickname) {
+      setError("昵称不能为空");
+      setDraft(session.nickname);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      setSession(await updateProfile(nickname));
+      toast.success("昵称已更新");
+    } catch (err) {
+      setError(err instanceof HttpError ? err.message : "网络异常，请稍后重试");
+      setDraft(session.nickname);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsRow label="昵称" error={error}>
+      <input
+        type="text"
+        aria-label="昵称"
+        value={draft}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setError(null);
+        }}
+        onBlur={() => void commit()}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") e.currentTarget.blur();
+          if (e.key === "Escape") {
+            discardRef.current = true;
+            setDraft(session.nickname);
+            setError(null);
+            e.currentTarget.blur();
+          }
+        }}
+        maxLength={32}
+        disabled={busy}
+        className={`${SETTINGS_INPUT_CLASS} w-48`}
+      />
+    </SettingsRow>
+  );
+}
+
+/**
+ * 修改密码卡片（docs/design/login-devices.md「失效联动」）。
+ *
+ * 改密后用密码登录的其他设备（网页、App、播放器）全部下线，当前这台保留；
+ * 配对出来的命令行、转码器与手工令牌默认保留——转码器常年无人值守，改个密码
+ * 就停转码很难排查。怀疑密码泄露时，勾上「同时注销命令行和转码器」一并收回。
+ * 没有这类设备时不出现勾选项：没东西可注销，多一个选项只会让人犹豫。
+ *
+ * 三个字段一起提交：页脚右侧唯一的提交按钮，没填全时置灰。
+ */
+function ChangePasswordCard() {
+  const toast = useToast();
+  const [oldPassword, setOldPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [signOutPaired, setSignOutPaired] = useState(false);
+  // 配对类设备（命令行、转码器、手工令牌）的台数
+  const [pairedCount, setPairedCount] = useState(0);
+
+  useEffect(() => {
+    // 拿不到就按 0 台处理、不显示勾选项：这是附属信息，不该挡住改密
+    void listLoginDevices()
+      .then((devices) => setPairedCount(devices.filter((d) => d.family === "paired").length))
+      .catch(() => undefined);
+  }, []);
+
+  const submit = async () => {
+    if (newPassword.length < 8) {
+      setError("新密码至少 8 位");
+      return;
+    }
+    if (newPassword !== confirm) {
+      setError("两次输入的新密码不一致");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    const withPaired = pairedCount > 0 && signOutPaired;
+    try {
+      // 成功回执用后端的话：它会写明这次注销了几台
+      const message = await changePassword(oldPassword, newPassword, withPaired);
+      setOldPassword("");
+      setNewPassword("");
+      setConfirm("");
+      setSignOutPaired(false);
+      if (withPaired) setPairedCount(0);
+      toast.success(message);
+    } catch (err) {
+      setError(err instanceof HttpError ? err.message : "网络异常，请稍后重试");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const field = (
+    label: string,
+    value: string,
+    onChange: (v: string) => void,
+    autoComplete: string,
+  ) => (
+    <label className="block">
+      <span className="mb-1.5 block text-sub font-medium text-[var(--text-muted)]">{label}</span>
+      <input
+        type="password"
+        value={value}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setError(null);
+        }}
+        onKeyDown={(e) => e.key === "Enter" && void submit()}
+        autoComplete={autoComplete}
+        className={`${SETTINGS_INPUT_CLASS} w-full max-w-xs`}
+      />
+    </label>
+  );
+
+  return (
+    <SettingsCard
+      title="修改密码"
+      description="修改后，用密码登录的其他设备（网页、App、播放器）会全部下线，当前设备保持登录。"
+      hint="新密码至少 8 位"
+      action={
         <button
           type="button"
-          onClick={() => avatarInputRef.current?.click()}
-          disabled={avatarBusy}
-          aria-label="上传头像"
-          title="点击更换头像"
-          className="group relative shrink-0 rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
+          onClick={() => void submit()}
+          disabled={busy || !oldPassword || !newPassword || !confirm}
+          className={SETTINGS_PRIMARY_BUTTON_CLASS}
         >
-          <AvatarBadge
-            nickname={session.nickname}
-            avatarUrl={session.avatar_url}
-            className="size-[72px] text-2xl"
-          />
-          {/* hover / 上传中：圆形遮罩浮出提示，暗示头像可点击更换 */}
-          <span
-            className={`absolute inset-0 flex items-center justify-center rounded-full bg-black/55 text-caption font-semibold text-white transition-opacity ${
-              avatarBusy ? "opacity-100" : "touch-reveal opacity-0 group-hover:opacity-100"
-            }`}
-          >
-            {avatarBusy ? "上传中…" : "更换"}
-          </span>
+          {busy ? "提交中…" : "修改密码"}
         </button>
-        <input
-          ref={avatarInputRef}
-          type="file"
-          accept="image/*"
-          hidden
-          onChange={(e) => void handleAvatarPick(e)}
-        />
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
-            <p className="text-xl font-semibold tracking-tight">{session.nickname}</p>
-            <span className="rounded-full border border-white/[0.12] bg-[var(--accent-soft)] px-2.5 py-0.5 text-caption font-semibold text-[var(--accent)]">
-              {session.role === "member" ? "成员" : "超级管理员"}
+      }
+    >
+      <div className="space-y-3.5">
+        {field("当前密码", oldPassword, setOldPassword, "current-password")}
+        {field("新密码", newPassword, setNewPassword, "new-password")}
+        {field("确认新密码", confirm, setConfirm, "new-password")}
+        {pairedCount > 0 && (
+          <label className="flex cursor-pointer items-start gap-2.5 pt-1">
+            <input
+              type="checkbox"
+              checked={signOutPaired}
+              onChange={(e) => setSignOutPaired(e.target.checked)}
+              className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
+            />
+            <span className="min-w-0">
+              <span className="block text-sub text-[var(--text)]">
+                同时注销命令行和转码器（{pairedCount} 台）
+              </span>
+              <span className="mt-0.5 block text-caption leading-5 text-[var(--text-faint)]">
+                转码器常年无人值守，改密一般不需要停掉它；怀疑密码泄露时请勾上。
+              </span>
             </span>
-          </div>
-          <p className="mt-1 text-body text-[var(--text-muted)]">@{session.username}</p>
-          {avatarError && (
-            <p className="mt-1.5 text-sub text-[var(--danger)]">{avatarError}</p>
-          )}
-        </div>
+          </label>
+        )}
+        {error && <p className="text-sub text-[var(--danger)]">{error}</p>}
       </div>
-
-      {/* 字段组：合并进一张卡片，行间发丝分隔（macOS 设置式），不再是散落的孤立圆角块 */}
-      <SettingsGroup label="账号信息">
-        <div className="css-glass divide-y divide-white/[0.055] !rounded-2xl">
-          <NicknameRow />
-          <FieldRow label="用户名" value={session.username} hint="登录凭证，不可修改" />
-        </div>
-      </SettingsGroup>
-
-      <SettingsGroup label="安全">
-        <ChangePasswordCard />
-      </SettingsGroup>
-
-      <SettingsGroup label="观看历史">
-        <WatchHistoryCard />
-      </SettingsGroup>
-    </div>
+    </SettingsCard>
   );
 }
 
@@ -397,234 +589,32 @@ function WatchHistoryCard() {
     }
   };
   return (
-    <div className="css-glass flex items-center justify-between gap-4 !rounded-2xl px-5 py-4">
-      <div>
-        <p className="text-body font-medium text-[var(--text)]">清空全部观看记录</p>
-        <p className="mt-0.5 text-caption text-[var(--text-faint)]">
-          续播进度、已看标记与播放次数一并清除；单部作品或单个库的记录可在对应页面的 ⋯ 菜单里清
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={() => void clearAll()}
-        disabled={busy}
-        className="btn-glass h-9 shrink-0 px-4 text-ui font-medium !text-[#ff9f9f] disabled:opacity-40"
-      >
-        {busy ? "清空中…" : "清空"}
-      </button>
-    </div>
-  );
-}
-
-/** 只读字段行（可附加说明文字）。 */
-function FieldRow({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <div className="flex items-center justify-between gap-4 px-5 py-4 first:rounded-t-2xl last:rounded-b-2xl">
-      <div>
-        <p className="text-body font-medium text-[var(--text)]">{label}</p>
-        {hint && <p className="mt-0.5 text-caption text-[var(--text-faint)]">{hint}</p>}
-      </div>
-      <span className="text-body text-[var(--text-muted)]">{value}</span>
-    </div>
-  );
-}
-
-/** 昵称行：点「编辑」原地展开输入框，保存后同步会话上下文（侧栏立即更新）。 */
-function NicknameRow() {
-  const { session, setSession } = useSession();
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const startEdit = () => {
-    setDraft(session.nickname);
-    setError(null);
-    setEditing(true);
-  };
-
-  const save = async () => {
-    const nickname = draft.trim();
-    if (!nickname) {
-      setError("昵称不能为空");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    try {
-      setSession(await updateProfile(nickname));
-      setEditing(false);
-    } catch (err) {
-      setError(err instanceof HttpError ? err.message : "网络异常，请稍后重试");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <div className="px-5 py-4 first:rounded-t-2xl last:rounded-b-2xl">
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-body font-medium text-[var(--text)]">昵称</p>
-        {editing ? (
-          <div className="flex items-center gap-2">
-            <input
-              type="text"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && save()}
-              maxLength={32}
-              autoFocus
-              className="w-44 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-1.5 text-ui text-[var(--text)] outline-none focus:border-[var(--accent)]/60"
-            />
-            <button
-              type="button"
-              onClick={save}
-              disabled={busy}
-              className="btn-accent rounded-full px-3.5 py-1.5 text-sub font-semibold disabled:opacity-40"
-            >
-              {busy ? "保存中…" : "保存"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditing(false)}
-              disabled={busy}
-              className="btn-glass px-3 py-1.5 text-sub font-medium"
-            >
-              取消
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-3">
-            <span className="text-body text-[var(--text-muted)]">{session.nickname}</span>
-            <button type="button" onClick={startEdit} className="btn-glass px-3 py-1 text-sub font-medium">
-              编辑
-            </button>
-          </div>
-        )}
-      </div>
-      {error && <p className="mt-2 text-right text-sub text-[var(--danger)]">{error}</p>}
-    </div>
-  );
-}
-
-/**
- * 修改密码卡片（docs/design/login-devices.md「失效联动」）。
- *
- * 改密后用密码登录的其他设备（网页、App、播放器）全部下线，当前这台保留；
- * 配对出来的命令行、转码器与手工令牌默认保留——转码器常年无人值守，改个密码
- * 就停转码很难排查。怀疑密码泄露时，勾上「同时注销命令行和转码器」一并收回。
- * 没有这类设备时不出现勾选项：没东西可注销，多一个选项只会让人犹豫。
- */
-function ChangePasswordCard() {
-  const [oldPassword, setOldPassword] = useState("");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirm, setConfirm] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // 成功回执用后端的话：它会写明这次注销了几台
-  const [done, setDone] = useState<string | null>(null);
-  const [signOutPaired, setSignOutPaired] = useState(false);
-  // 配对类设备（命令行、转码器、手工令牌）的台数
-  const [pairedCount, setPairedCount] = useState(0);
-
-  useEffect(() => {
-    // 拿不到就按 0 台处理、不显示勾选项：这是附属信息，不该挡住改密
-    void listLoginDevices()
-      .then((devices) => setPairedCount(devices.filter((d) => d.family === "paired").length))
-      .catch(() => undefined);
-  }, []);
-
-  const submit = async () => {
-    if (newPassword.length < 8) {
-      setError("新密码至少 8 位");
-      return;
-    }
-    if (newPassword !== confirm) {
-      setError("两次输入的新密码不一致");
-      return;
-    }
-    setBusy(true);
-    setError(null);
-    setDone(null);
-    const withPaired = pairedCount > 0 && signOutPaired;
-    try {
-      const message = await changePassword(oldPassword, newPassword, withPaired);
-      setOldPassword("");
-      setNewPassword("");
-      setConfirm("");
-      setSignOutPaired(false);
-      if (withPaired) setPairedCount(0);
-      setDone(message);
-    } catch (err) {
-      setError(err instanceof HttpError ? err.message : "网络异常，请稍后重试");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const field = (
-    label: string,
-    value: string,
-    onChange: (v: string) => void,
-    autoComplete: string,
-  ) => (
-    <div>
-      <label className="mb-1.5 block text-sub font-medium text-[var(--text-muted)]">{label}</label>
-      <input
-        type="password"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        autoComplete={autoComplete}
-        className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-ui text-[var(--text)] outline-none focus:border-[var(--accent)]/60"
-      />
-    </div>
-  );
-
-  return (
-    <div className="css-glass space-y-4 !rounded-2xl p-5">
-      {field("当前密码", oldPassword, setOldPassword, "current-password")}
-      {field("新密码（至少 8 位）", newPassword, setNewPassword, "new-password")}
-      {field("确认新密码", confirm, setConfirm, "new-password")}
-      {pairedCount > 0 && (
-        <label className="flex cursor-pointer items-start gap-2.5">
-          <input
-            type="checkbox"
-            checked={signOutPaired}
-            onChange={(e) => setSignOutPaired(e.target.checked)}
-            className="mt-1 size-4 shrink-0 accent-[var(--accent)]"
-          />
-          <span className="min-w-0">
-            <span className="block text-sub text-[var(--text)]">
-              同时注销命令行和转码器（{pairedCount} 台）
-            </span>
-            <span className="mt-0.5 block text-caption leading-5 text-[var(--text-faint)]">
-              转码器常年无人值守，改密一般不需要停掉它；怀疑密码泄露时请勾上。
-            </span>
-          </span>
-        </label>
-      )}
-      {error && <p className="text-sub text-[var(--danger)]">{error}</p>}
-      {done && <p className="text-sub text-[var(--text-muted)]">{done}</p>}
-      <div className="flex justify-end">
+    <SettingsCard
+      tone="danger"
+      title="清空全部观看记录"
+      description="续播进度、已看标记与播放次数一并清除，无法恢复。只想清单部作品或单个库，到对应页面的 ⋯ 菜单里操作。"
+      hint="只影响你自己的记录"
+      action={
         <button
           type="button"
-          onClick={submit}
-          disabled={busy || !oldPassword || !newPassword || !confirm}
-          className="btn-accent rounded-full px-4.5 py-2 text-ui font-semibold disabled:opacity-40"
+          onClick={() => void clearAll()}
+          disabled={busy}
+          className={SETTINGS_DANGER_BUTTON_CLASS}
         >
-          {busy ? "提交中…" : "修改密码"}
+          {busy ? "清空中…" : "清空观看记录"}
         </button>
-      </div>
-    </div>
+      }
+    />
   );
 }
 
 /**
- * —— 更新与维护分区：两类设置，胶囊标签切换（与外观分区同一交互语言） ——
+ * —— 更新与维护分区：三类设置，SettingsTabs 页签切换 ——
  *
  *   - 版本与更新：当前版本、检查/执行更新、NER 模型、回退、重启应用
  *     （AppUpdateSection）；
- *   - 缓存管理：data/ 各目录的占用与清理（AppStorageSection，内容来自后端登记表）。
+ *   - 缓存管理：data/ 各目录的占用与清理（AppStorageSection，内容来自后端登记表）；
+ *   - 定时任务：后台任务的周期与启停（ScheduledTasksSection）。
  *
  * 设置页按功能重组前这里叫「应用」，还塞着外部访问地址与远程转码——前者迁去
  * 「网络」分区（网络配置只留一个家），后者升级为「媒体库」组的「播放」分区。
@@ -643,34 +633,23 @@ function AppSection() {
   const [tab, setTab] = useTabParam(["update", "storage", "tasks"] as const, "update");
   // 本分区只对管理员渲染（成员的分区清单里没有 app），无需再按角色关轮询
   const pendingUpdate = usePendingUpdate();
-  // Netflix：激活胶囊是白底黑字（与外观分区同一语言，见 AppearanceSection）
-  const activePillCls = useTheme().structural ? "bg-white text-black" : "bg-white/[0.14] text-white";
   const tabs = [
-    { id: "update" as const, label: "版本与更新" },
+    {
+      id: "update" as const,
+      label: (
+        <>
+          版本与更新
+          {pendingUpdate && <AppUpdateDot />}
+        </>
+      ),
+    },
     { id: "storage" as const, label: "缓存管理" },
     { id: "tasks" as const, label: "定时任务" },
-  ] as const;
+  ];
 
   return (
-    <div className="space-y-5">
-      <div className="flex gap-1.5">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            aria-pressed={t.id === tab}
-            onClick={() => setTab(t.id)}
-            className={`flex items-center gap-1.5 rounded-full px-3.5 py-1.5 text-sub font-medium transition-colors ${
-              t.id === tab
-                ? activePillCls
-                : "text-[var(--text-muted)] hover:bg-white/[0.07] hover:text-[var(--text)]"
-            }`}
-          >
-            {t.label}
-            {t.id === "update" && pendingUpdate && <AppUpdateDot />}
-          </button>
-        ))}
-      </div>
+    <div className="space-y-8">
+      <SettingsTabs tabs={tabs} value={tab} onChange={setTab} />
       {tab === "update" && <AppUpdateSection />}
       {tab === "storage" && <AppStorageSection />}
       {tab === "tasks" && <ScheduledTasksSection />}
@@ -681,7 +660,8 @@ function AppSection() {
 /**
  * —— 播放分区（媒体库组）——
  *
- * 住户：进度条预览的生成开关、远程转码（原「应用 → 远程转码」标签迁来）。
+ * 住户：进度条预览与转码缓存两颗开关（合成「播放体验」一组）、远程转码
+ * （原「应用 → 远程转码」标签迁来）。
  * 按功能命名为「播放」而不是按实现叫「远程转码」：转码策略、字幕偏好等
  * 播放域设置都落在这里，分区不用再改名。Worker 的审批与吊销仍在
  * 「设备」分区，靠 onOpenDevices 一键直达。
@@ -689,9 +669,17 @@ function AppSection() {
 function PlaybackSection() {
   const router = useRouter();
   return (
-    <div className="space-y-7">
-      <TrickplayToggleSection />
-      <TranscodeCacheToggleSection />
+    <div className="space-y-10">
+      {/* 进度条预览与转码缓存各只有一颗开关：同属「拿服务器资源换播放体验」，并成一组 */}
+      <SettingsSection
+        title="播放体验"
+        description="用服务器的算力与磁盘换更顺手的播放；开关改完即生效。"
+      >
+        <SettingsList>
+          <TrickplayToggleRow />
+          <TranscodeCacheToggleRow />
+        </SettingsList>
+      </SettingsSection>
       <RemoteTranscodeSection
         onOpenDevices={() => router.push("/settings/devices" as Route)}
       />
@@ -709,7 +697,7 @@ function PlaybackSection() {
  * 全站蒙版默认就是「浅暗 + 轻模糊」的轻档（背景大图隐约透出），因此两类
  * 设置在本分区内即所见即所得：换图立刻全屏生效，调玻璃/蒙版滑杆也对着
  * 真实背景实时预览。效果本身就是提示，不再放文字说明条。
- * 标签切换与详情页「剧照/海报」同一交互语言；切走界面质感时未保存的滑杆
+ * 标签用设置页统一的 SettingsTabs；切走界面质感时未保存的滑杆
  * 草稿自动撤销（组件卸载即触发既有的清理逻辑）。
  */
 function AppearanceSection() {
@@ -725,48 +713,32 @@ function AppearanceSection() {
   // 纯色平铺主题（capabilities.glass = false）不渲染背景大图与玻璃/蒙版，
   // 这两组设置置灰标注，prefs 字段保留不丢
   const glassDisabled = !useResolvedTheme().capabilities.glass;
-  // Netflix：激活胶囊是白底黑字（品牌语言：选中态 = 白底），不是灰底透明白
-  const activePillCls = glassDisabled ? "bg-white text-black" : "bg-white/[0.14] text-white";
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-10">
       <ThemeGroup />
-      <div className="flex gap-1.5">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            aria-pressed={t.id === tab}
-            onClick={() => setTab(t.id)}
-            className={`rounded-full px-3.5 py-1.5 text-sub font-medium transition-colors ${
-              t.id === tab
-                ? activePillCls
-                : "text-[var(--text-muted)] hover:bg-white/[0.07] hover:text-[var(--text)]"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      {tab === "backdrop" ? (
-        glassDisabled ? (
-          <DisabledGlassGroup label="首页背景">
+      <div className="space-y-6">
+        <SettingsTabs tabs={tabs} value={tab} onChange={setTab} />
+        {tab === "backdrop" ? (
+          glassDisabled ? (
+            <DisabledGlassGroup label="首页背景">
+              <BackdropGroup />
+            </DisabledGlassGroup>
+          ) : (
             <BackdropGroup />
-          </DisabledGlassGroup>
-        ) : (
-          <BackdropGroup />
-        )
-      ) : tab === "texture" ? (
-        glassDisabled ? (
-          <DisabledGlassGroup label="界面质感">
+          )
+        ) : tab === "texture" ? (
+          glassDisabled ? (
+            <DisabledGlassGroup label="界面质感">
+              <InterfaceTextureGroup />
+            </DisabledGlassGroup>
+          ) : (
             <InterfaceTextureGroup />
-          </DisabledGlassGroup>
+          )
         ) : (
-          <InterfaceTextureGroup />
-        )
-      ) : (
-        <NavOrderGroup />
-      )}
+          <NavOrderGroup />
+        )}
+      </div>
     </div>
   );
 }
@@ -833,19 +805,20 @@ function ThemeGroup() {
   };
 
   return (
-    <SettingsGroup label="主题">
+    <SettingsSection
+      title="主题"
+      footnote={`主题跟随账号保存，所有设备同步；切换立即生效。当前设置的是${
+        isMobile ? "移动端" : "桌面端"
+      }的主题，两端可分别设置。`}
+    >
       <ThemeCards
         current={current}
         loading={loading}
         busyId={busyId}
         onPick={(id) => void pick(id)}
       />
-      {error && <p className="mt-2 text-sub text-[var(--danger)]">{error}</p>}
-      <p className="mt-2.5 px-1 text-caption text-[var(--text-faint)]">
-        主题跟随账号保存，所有设备同步；切换立即生效。当前设置的是
-        {isMobile ? "移动端" : "桌面端"}的主题，两端可分别设置。
-      </p>
-    </SettingsGroup>
+      {error && <p className="mt-2 px-1 text-sub text-[var(--danger)]">{error}</p>}
+    </SettingsSection>
   );
 }
 
@@ -964,131 +937,126 @@ function BackdropGroup() {
   };
 
   return (
-    <SettingsGroup label="首页背景">
-        <div className="space-y-4">
-          {/* 大预览 = 投放区：点击换图 / 拖入换图 / hover 浮出操作 */}
-          <div
-            role="button"
-            tabIndex={0}
-            aria-label="点击或拖入图片更换首页背景"
-            onClick={() => !busy && !loading && inputRef.current?.click()}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                inputRef.current?.click();
-              }
-            }}
-            onDragOver={(e) => {
+    // 页签名就是标题：页签下不再套同名小节，说明放到内容下方
+    <div>
+      <div className="space-y-4">
+        {/* 大预览 = 投放区：点击换图 / 拖入换图 / hover 浮出操作 */}
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="点击或拖入图片更换首页背景"
+          onClick={() => !busy && !loading && inputRef.current?.click()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
-              setDragging(true);
-            }}
-            onDragLeave={(e) => {
-              // 只在真正离开容器时收起投放态（进入子元素也会触发 dragleave）
-              if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
-            }}
-            onDrop={(e) => {
-              e.preventDefault();
-              setDragging(false);
-              const file = e.dataTransfer.files?.[0];
-              if (file && !busy) void handleFile(file);
-            }}
-            className="group relative aspect-[16/9] cursor-pointer overflow-hidden rounded-2xl border border-white/[0.14] bg-black/30 shadow-[0_28px_70px_-18px_rgba(0,0,0,0.7)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
-          >
-            <img
-              src={backdrop}
-              alt="当前首页背景预览"
-              loading="lazy"
-              decoding="async"
-              /* object-top：与真实背景（globals.css 的 body::before）同一锚点。
-                 这块叫"预览"就得真的能预览——默认的居中裁切会让预览里看得好好的
-                 画面，铺到全屏后从另一个位置切开 */
-              className="h-full w-full object-cover object-top transition-transform duration-500 ease-out group-hover:scale-[1.03]"
-            />
-            {/* 底部信息渐变 + 当前背景名 */}
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/65 to-transparent" />
-            <div className="pointer-events-none absolute bottom-4 left-5 text-white">
-              <p className="text-on-image text-body font-semibold">
-                {isCustom ? "自定义背景" : "默认背景 · 深色调"}
-              </p>
-              <p className="text-on-image mt-0.5 text-caption text-white/75">
-                点击或拖入图片即可更换
-              </p>
-            </div>
-            {/* hover：轻压暗 + 中央浮出更换按钮 */}
-            <div className="touch-reveal pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition duration-300 group-hover:bg-black/25 group-hover:opacity-100">
-              <span className="btn-accent rounded-full px-4.5 py-2 text-sub font-semibold">
-                更换图片
-              </span>
-            </div>
-            {/* 拖拽投放态 */}
-            {dragging && (
-              <div className="absolute inset-2 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-[var(--accent)] bg-black/50 backdrop-blur-sm">
-                <p className="text-body font-semibold text-[var(--accent-strong)]">
-                  松开，设为首页背景
-                </p>
-              </div>
-            )}
-            {/* 上传 / 加载中的遮罩 */}
-            {(busy || loading) && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 backdrop-blur-sm">
-                <p className="text-body font-medium text-white/90">
-                  {busy ? "正在应用…" : "加载中…"}
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* 画廊瓷砖：默认常驻 + 图库全部图 + 上传，可横滑；点选即切换，hover 浮出 × 删除 */}
-          {/* 负外边距 + 等量内边距：给选中环（ring-2，画在瓷砖外侧）留出溢出空间，
-              否则会被 overflow-x-auto 容器的上/左边缘裁掉 */}
-          <div className="scroll-none -mx-1.5 -mt-1.5 flex items-start gap-3.5 overflow-x-auto px-1.5 pt-1.5 pb-1">
-            <BackdropTile
-              src={BACKDROP}
-              label="默认"
-              active={!isCustom}
-              disabled={busy || loading}
-              onSelect={() => void handleSelect(null)}
-            />
-            {items.map((item, i) => (
-              <BackdropTile
-                key={item.id}
-                src={item.url}
-                label={`自定义 ${i + 1}`}
-                active={item.id === activeId}
-                disabled={busy}
-                onSelect={() => void handleSelect(item.id)}
-                onDelete={() => void handleDelete(item.id)}
-              />
-            ))}
-            <button
-              type="button"
-              onClick={() => inputRef.current?.click()}
-              disabled={busy || loading}
-              className="group/tile shrink-0 disabled:opacity-50"
-            >
-              <span className="flex h-[68px] w-[120px] items-center justify-center rounded-lg border border-dashed border-white/[0.22] bg-black/25 backdrop-blur-md transition-colors group-hover/tile:border-white/[0.4] group-hover/tile:bg-white/[0.06]">
-                <PlusIcon className="size-5 text-[var(--text-muted)] transition-colors group-hover/tile:text-[var(--text)]" />
-              </span>
-              <span className="text-on-image mt-1.5 block text-center text-caption text-[var(--text-muted)]">
-                上传
-              </span>
-            </button>
-          </div>
-
-          <input ref={inputRef} type="file" accept="image/*" hidden onChange={handlePick} />
-
-          {error && (
-            <p className="rounded-xl border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-4 py-2.5 text-sub text-[var(--danger)]">
-              {error}
+              inputRef.current?.click();
+            }
+          }}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragging(true);
+          }}
+          onDragLeave={(e) => {
+            // 只在真正离开容器时收起投放态（进入子元素也会触发 dragleave）
+            if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragging(false);
+          }}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragging(false);
+            const file = e.dataTransfer.files?.[0];
+            if (file && !busy) void handleFile(file);
+          }}
+          className="group relative aspect-[16/9] cursor-pointer overflow-hidden rounded-2xl border border-white/[0.14] bg-black/30 shadow-[0_28px_70px_-18px_rgba(0,0,0,0.7)] outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-ring)]"
+        >
+          <img
+            src={backdrop}
+            alt="当前首页背景预览"
+            loading="lazy"
+            decoding="async"
+            /* object-top：与真实背景（globals.css 的 body::before）同一锚点。
+               这块叫"预览"就得真的能预览——默认的居中裁切会让预览里看得好好的
+               画面，铺到全屏后从另一个位置切开 */
+            className="h-full w-full object-cover object-top transition-transform duration-500 ease-out group-hover:scale-[1.03]"
+          />
+          {/* 底部信息渐变 + 当前背景名 */}
+          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-28 bg-gradient-to-t from-black/65 to-transparent" />
+          <div className="pointer-events-none absolute bottom-4 left-5 text-white">
+            <p className="text-on-image text-body font-semibold">
+              {isCustom ? "自定义背景" : "默认背景 · 深色调"}
             </p>
+            <p className="text-on-image mt-0.5 text-caption text-white/75">
+              点击或拖入图片即可更换
+            </p>
+          </div>
+          {/* hover：轻压暗 + 中央浮出更换按钮 */}
+          <div className="touch-reveal pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 opacity-0 transition duration-300 group-hover:bg-black/25 group-hover:opacity-100">
+            <span className="btn-accent rounded-full px-4.5 py-2 text-sub font-semibold">
+              更换图片
+            </span>
+          </div>
+          {/* 拖拽投放态 */}
+          {dragging && (
+            <div className="absolute inset-2 z-10 flex items-center justify-center rounded-xl border-2 border-dashed border-[var(--accent)] bg-black/50 backdrop-blur-sm">
+              <p className="text-body font-semibold text-[var(--accent-strong)]">
+                松开，设为首页背景
+              </p>
+            </div>
           )}
-
-          <p className="text-on-image text-sub leading-5 text-[var(--text-faint)]">
-            建议使用 16:9、分辨率较高的横图。上传的图全部保留在服务端图库（最多 20
-            张），点选即切换、hover 缩略图可删除；玻璃面板的折射随生效图一并更新，跨设备访问同一实例保持一致。
-          </p>
+          {/* 上传 / 加载中的遮罩 */}
+          {(busy || loading) && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+              <p className="text-body font-medium text-white/90">
+                {busy ? "正在应用…" : "加载中…"}
+              </p>
+            </div>
+          )}
         </div>
-    </SettingsGroup>
+
+        {/* 画廊瓷砖：默认常驻 + 图库全部图 + 上传，可横滑；点选即切换，hover 浮出 × 删除 */}
+        {/* 负外边距 + 等量内边距：给选中环（ring-2，画在瓷砖外侧）留出溢出空间，
+            否则会被 overflow-x-auto 容器的上/左边缘裁掉 */}
+        <div className="scroll-none -mx-1.5 -mt-1.5 flex items-start gap-3.5 overflow-x-auto px-1.5 pt-1.5 pb-1">
+          <BackdropTile
+            src={BACKDROP}
+            label="默认"
+            active={!isCustom}
+            disabled={busy || loading}
+            onSelect={() => void handleSelect(null)}
+          />
+          {items.map((item, i) => (
+            <BackdropTile
+              key={item.id}
+              src={item.url}
+              label={`自定义 ${i + 1}`}
+              active={item.id === activeId}
+              disabled={busy}
+              onSelect={() => void handleSelect(item.id)}
+              onDelete={() => void handleDelete(item.id)}
+            />
+          ))}
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            disabled={busy || loading}
+            className="group/tile shrink-0 disabled:opacity-50"
+          >
+            <span className="flex h-[68px] w-[120px] items-center justify-center rounded-lg border border-dashed border-white/[0.22] bg-black/25 backdrop-blur-md transition-colors group-hover/tile:border-white/[0.4] group-hover/tile:bg-white/[0.06]">
+              <PlusIcon className="size-5 text-[var(--text-muted)] transition-colors group-hover/tile:text-[var(--text)]" />
+            </span>
+            <span className="text-on-image mt-1.5 block text-center text-caption text-[var(--text-muted)]">
+              上传
+            </span>
+          </button>
+        </div>
+
+        <input ref={inputRef} type="file" accept="image/*" hidden onChange={handlePick} />
+
+        {error && <ErrorBanner>{error}</ErrorBanner>}
+      </div>
+      <p className="mt-2 px-1 text-caption leading-5 text-[var(--text-faint)]">
+        建议使用 16:9、分辨率较高的横图。上传的图全部保留在服务端图库（最多 20 张），点选即切换、hover 缩略图可删除；玻璃面板的折射随生效图一并更新，跨设备访问同一实例保持一致。
+      </p>
+    </div>
   );
 }
 
@@ -1161,8 +1129,9 @@ function InterfaceTextureGroup() {
   const isDefault = same(draft, { sidebar: DEFAULT_UI_PREFS.sidebar, scrim: DEFAULT_UI_PREFS.scrim });
 
   return (
-    <SettingsGroup label="界面质感">
-      <div className="css-glass space-y-5 !rounded-2xl p-5">
+    // 页签名就是标题：页签下直接是行组，不再套同名小节
+    <div className="overflow-hidden rounded-xl">
+      <SettingsList>
         <SliderRow
           label="侧栏透明度"
           hint="玻璃材质的整体浓度：0% 为标准玻璃卡片，100% 玻璃完全隐去、直接透出页面背景"
@@ -1215,33 +1184,17 @@ function InterfaceTextureGroup() {
           onChange={(v) => update({ scrim: { dark: v / 100 } })}
         />
 
-        {error && <p className="text-sub text-[var(--danger)]">{error}</p>}
-
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-caption text-[var(--text-faint)]">
-            {dirty ? "调节实时预览中，保存后对所有设备生效" : "设置已保存，跨设备一致"}
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={reset}
-              disabled={loading || busy || isDefault}
-              className="btn-glass px-3.5 py-1.5 text-sub font-medium disabled:opacity-40"
-            >
-              恢复默认
-            </button>
-            <button
-              type="button"
-              onClick={() => void save(draft)}
-              disabled={loading || busy || !dirty}
-              className="btn-accent rounded-full px-4 py-1.5 text-sub font-semibold disabled:opacity-40"
-            >
-              {busy ? "保存中…" : "保存"}
-            </button>
-          </div>
-        </div>
-      </div>
-    </SettingsGroup>
+        <DraftFooter
+          hint={dirty ? "调节实时预览中，保存后对所有设备生效" : "设置已保存，跨设备一致"}
+          error={error}
+          busy={busy}
+          resetDisabled={loading || busy || isDefault}
+          saveDisabled={loading || busy || !dirty}
+          onReset={reset}
+          onSave={() => void save(draft)}
+        />
+      </SettingsList>
+    </div>
   );
 }
 
@@ -1342,90 +1295,123 @@ function NavOrderGroup() {
   const disabled = loading || busy;
 
   return (
-    <SettingsGroup label="导航顺序">
-      <div className="css-glass space-y-4 !rounded-2xl p-5">
-        <p className="text-sub leading-6 text-[var(--text-muted)]">
-          调整左侧栏主导航的排列次序：拖动条目，或用右侧的上下按钮。待处理与更新入口有事才
-          出现，位置固定，不参与排序。
-        </p>
+    // 页签名就是标题：页签下直接是说明 + 行组，不再套同名小节
+    <div>
+      <p className="mb-3 px-1 text-sub leading-5 text-[var(--text-muted)]">
+        调整左侧栏主导航的排列次序：拖动条目，或用右侧的上下按钮。待处理与更新入口有事才出现，位置固定，不参与排序。
+      </p>
+      <div className="overflow-hidden rounded-xl">
+        <SettingsList>
+          <ul className="divide-y divide-[var(--line)]">
+            {rows.map((item, index) => {
+              const Icon = item.icon;
+              return (
+                <li
+                  key={item.id}
+                  draggable={!disabled}
+                  onDragStart={() => setDragIndex(index)}
+                  onDragEnd={() => setDragIndex(null)}
+                  // 拖到哪就换到哪（跟手实时重排），而不是松手才生效：
+                  // 侧栏预览同步跟着变，所见即所得
+                  onDragEnter={() => {
+                    if (dragIndex == null || dragIndex === index) return;
+                    move(dragIndex, index);
+                    setDragIndex(index);
+                  }}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => e.preventDefault()}
+                  className={`flex items-center gap-3 px-4 py-2.5 transition ${
+                    dragIndex === index ? "bg-white/[0.1] opacity-60" : ""
+                  } ${disabled ? "opacity-50" : "cursor-grab active:cursor-grabbing"}`}
+                >
+                  <GripIcon className="size-4 shrink-0 text-[var(--text-faint)]" />
+                  <Icon className="size-[18px] shrink-0 text-[var(--text-muted)]" />
+                  <span className="flex-1 truncate text-ui font-medium text-[var(--text)]">
+                    {item.label}
+                  </span>
+                  <span className="tnum shrink-0 text-caption text-[var(--text-faint)]">
+                    {index + 1}
+                  </span>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <MoveButton
+                      label={`把「${item.label}」上移`}
+                      disabled={disabled || index === 0}
+                      up
+                      onClick={() => move(index, index - 1)}
+                    />
+                    <MoveButton
+                      label={`把「${item.label}」下移`}
+                      disabled={disabled || index === rows.length - 1}
+                      onClick={() => move(index, index + 1)}
+                    />
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
 
-        <ul className="space-y-1.5">
-          {rows.map((item, index) => {
-            const Icon = item.icon;
-            return (
-              <li
-                key={item.id}
-                draggable={!disabled}
-                onDragStart={() => setDragIndex(index)}
-                onDragEnd={() => setDragIndex(null)}
-                // 拖到哪就换到哪（跟手实时重排），而不是松手才生效：
-                // 侧栏预览同步跟着变，所见即所得
-                onDragEnter={() => {
-                  if (dragIndex == null || dragIndex === index) return;
-                  move(dragIndex, index);
-                  setDragIndex(index);
-                }}
-                onDragOver={(e) => e.preventDefault()}
-                onDrop={(e) => e.preventDefault()}
-                className={`flex items-center gap-3 rounded-xl border px-3 py-2.5 transition ${
-                  dragIndex === index
-                    ? "border-white/20 bg-white/[0.1] opacity-60"
-                    : "border-white/[0.08] bg-white/[0.035]"
-                } ${disabled ? "opacity-50" : "cursor-grab active:cursor-grabbing"}`}
-              >
-                <GripIcon className="size-4 shrink-0 text-[var(--text-faint)]" />
-                <Icon className="size-[18px] shrink-0 text-[var(--text-muted)]" />
-                <span className="flex-1 truncate text-ui font-medium text-[var(--text)]">
-                  {item.label}
-                </span>
-                <span className="tnum shrink-0 text-caption text-[var(--text-faint)]">
-                  {index + 1}
-                </span>
-                <div className="flex shrink-0 items-center gap-1">
-                  <MoveButton
-                    label={`把「${item.label}」上移`}
-                    disabled={disabled || index === 0}
-                    up
-                    onClick={() => move(index, index - 1)}
-                  />
-                  <MoveButton
-                    label={`把「${item.label}」下移`}
-                    disabled={disabled || index === rows.length - 1}
-                    onClick={() => move(index, index + 1)}
-                  />
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+          <DraftFooter
+            hint={dirty ? "左侧栏实时预览中，保存后对所有设备生效" : "设置已保存，跨设备一致"}
+            error={error}
+            busy={busy}
+            resetDisabled={disabled || isDefault}
+            saveDisabled={disabled || !dirty}
+            onReset={reset}
+            onSave={() => void save(draft)}
+          />
+        </SettingsList>
+      </div>
+    </div>
+  );
+}
 
-        {error && <p className="text-sub text-[var(--danger)]">{error}</p>}
-
-        <div className="flex items-center justify-between gap-3">
-          <p className="text-caption text-[var(--text-faint)]">
-            {dirty ? "左侧栏实时预览中，保存后对所有设备生效" : "设置已保存，跨设备一致"}
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={reset}
-              disabled={disabled || isDefault}
-              className="btn-glass px-3.5 py-1.5 text-sub font-medium disabled:opacity-40"
-            >
-              恢复默认
-            </button>
-            <button
-              type="button"
-              onClick={() => void save(draft)}
-              disabled={disabled || !dirty}
-              className="btn-accent rounded-full px-4 py-1.5 text-sub font-semibold disabled:opacity-40"
-            >
-              {busy ? "保存中…" : "保存"}
-            </button>
-          </div>
+/**
+ * 「预览草稿 → 保存」类设置的页脚（界面质感、导航顺序共用），样式对齐 SettingsCard
+ * 的页脚：左边提示当前是预览还是已保存，右边「恢复默认」与唯一的提交按钮。
+ * 拖滑杆、拖排序是连续调节，逐次即存会把半途的值同步到所有设备，所以保留显式保存。
+ */
+function DraftFooter({
+  hint,
+  error,
+  busy,
+  resetDisabled,
+  saveDisabled,
+  onReset,
+  onSave,
+}: {
+  hint: string;
+  error: string | null;
+  busy: boolean;
+  resetDisabled: boolean;
+  saveDisabled: boolean;
+  onReset: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="bg-black/20 px-4 py-2.5">
+      {error && <p className="pb-2 text-sub text-[var(--danger)]">{error}</p>}
+      <div className="flex min-h-8 items-center justify-between gap-3">
+        <p className="min-w-0 text-caption leading-5 text-[var(--text-faint)]">{hint}</p>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={onReset}
+            disabled={resetDisabled}
+            className={SETTINGS_BUTTON_CLASS}
+          >
+            恢复默认
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={saveDisabled}
+            className={SETTINGS_PRIMARY_BUTTON_CLASS}
+          >
+            {busy ? "保存中…" : "保存"}
+          </button>
         </div>
       </div>
-    </SettingsGroup>
+    </div>
   );
 }
 
@@ -1483,7 +1469,7 @@ function SliderRow({
   onChange: (value: number) => void;
 }) {
   return (
-    <div>
+    <div className="px-4 py-3.5">
       <div className="flex items-baseline justify-between">
         <p className="text-body font-medium text-[var(--text)]">{label}</p>
         <span className="tnum text-sub text-[var(--text-muted)]">
@@ -1603,7 +1589,7 @@ function GenericSection({ sectionId }: { sectionId: string }) {
 
   return (
     <div className="space-y-5">
-      <SettingsGroup label="偏好">
+      <SettingsSection title="偏好">
         <div className="css-glass divide-y divide-white/[0.055] !rounded-2xl">
           {toggles.map((label, i) => (
             <div
@@ -1624,7 +1610,7 @@ function GenericSection({ sectionId }: { sectionId: string }) {
             </div>
           ))}
         </div>
-      </SettingsGroup>
+      </SettingsSection>
 
       <p className="text-sub leading-6 text-[var(--text-faint)]">
         这是「{sectionId}」分区的占位内容。后续会接入真实配置项与后端接口。

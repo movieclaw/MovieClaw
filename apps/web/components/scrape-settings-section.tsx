@@ -17,9 +17,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { BrandLoader } from "@/components/brand-loader";
+import { Toggle } from "@/components/cloud-push-ui";
 import { FanartKeyForm, fanartUsable, useFanartStatus } from "@/components/fanart-key-form";
 import { useToast } from "@/components/feedback";
 import { ChevronDownIcon } from "@/components/icons";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings-ui";
 import {
   type CountryOption,
   IMAGE_QUALITY_PRESETS,
@@ -37,11 +46,6 @@ import {
   saveScrapeConfig,
 } from "@/lib/api/scrape";
 import { listLibraries } from "@/lib/api/libraries";
-
-const INPUT_CLASS =
-  "rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-sub " +
-  "text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] " +
-  "focus:border-[var(--accent)]/50";
 
 /** 排序芯片的候选项。id 是落库值（语言标签 / 地区码 / meta·orig·null token）。 */
 interface ChipOption {
@@ -403,7 +407,7 @@ function OrderChips({
       {moreOpen && (
         <div className="mt-2.5 rounded-xl border border-white/[0.12] bg-white/[0.04] p-3">
           <input
-            className={`${INPUT_CLASS} mb-2.5 w-full`}
+            className={`${SETTINGS_INPUT_CLASS} mb-2.5 w-full`}
             placeholder={`搜索${moreLabel}（名称或代码）…`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -558,6 +562,8 @@ export interface CardShell {
   customized: boolean;
   /** 卡片级三态开关；命名/目录写入走字段级三态，不传 */
   follow?: CardFollowState;
+  /** 折叠头右侧的一句即时反馈（全局页自动保存的「保存中… / 已保存」） */
+  note?: string;
 }
 
 export function Card({
@@ -584,7 +590,7 @@ export function Card({
   const effectiveFollow = shell?.follow ?? follow;
   const body = (
     <>
-      <p className="mb-4 mt-1 max-w-[62ch] text-sub text-[var(--text-muted)]">{desc}</p>
+      <p className="mb-4 max-w-[62ch] text-sub leading-5 text-[var(--text-muted)]">{desc}</p>
       {effectiveFollow && <CardFollowSwitch follow={effectiveFollow} />}
       {/* 跟随全局时控件只读：看得见全局值长什么样，但改不动。
           用 `inert` 而不是 `pointer-events-none`——后者只挡鼠标，键盘照样能
@@ -662,59 +668,59 @@ function CollapsibleCard({
   }, [shell.open]);
 
   return (
-    <section
-      ref={ref}
-      className="overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.04]"
-    >
-        <button
-          type="button"
-          aria-expanded={shell.open}
-          onClick={shell.onToggleOpen}
-          className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
-        >
-          <span className="min-w-0 flex-1">
-            <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-ui font-semibold">
-              {title}
-              {shell.customized && (
-                <span className="size-1.5 shrink-0 rounded-full bg-[var(--accent)]" aria-hidden />
-              )}
-              {/* 收起时也要看得见"这项被几个库改了"——它正是"在全局改了不生效"
-                  的答案，藏在展开态里等于没有 */}
-              {overriddenBy && overriddenBy.length > 0 && (
-                <span
-                  title={`${overriddenBy.join("、")}不跟随此处的设置`}
-                  className="rounded-full bg-[var(--accent-soft)] px-2 py-px text-micro font-normal text-[var(--accent)]"
-                >
-                  {overriddenBy.length} 个库已覆盖
-                </span>
-              )}
-            </span>
-            {/* 状态常显：不点开也知道这张卡是跟着全局还是本库自己配过 */}
-            <span
-              className={`mt-0.5 block truncate text-caption ${
-                shell.customized ? "text-[var(--accent)]" : "text-[var(--text-faint)]"
-              }`}
-            >
-              {shell.status}
-            </span>
+    <section ref={ref}>
+      <button
+        type="button"
+        aria-expanded={shell.open}
+        onClick={shell.onToggleOpen}
+        className="flex min-h-[56px] w-full items-center gap-4 px-4 py-3 text-left transition-colors hover:bg-white/[0.03]"
+      >
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-body font-medium text-[var(--text)]">
+            {title}
+            {shell.customized && (
+              <span className="size-1.5 shrink-0 rounded-full bg-[var(--accent)]" aria-hidden />
+            )}
+            {/* 收起时也要看得见"这项被几个库改了"——它正是"在全局改了不生效"
+                的答案，藏在展开态里等于没有 */}
+            {overriddenBy && overriddenBy.length > 0 && (
+              <span
+                title={`${overriddenBy.join("、")}不跟随此处的设置`}
+                className="rounded-full bg-[var(--accent-soft)] px-2 py-px text-micro font-normal text-[var(--accent)]"
+              >
+                {overriddenBy.length} 个库已覆盖
+              </span>
+            )}
           </span>
-          <ChevronDownIcon
-            className={`size-4 shrink-0 text-[var(--text-faint)] transition-transform ${
-              shell.open ? "rotate-180" : ""
+          {/* 状态常显：不点开也知道这张卡是跟着全局还是本库自己配过 */}
+          <span
+            className={`mt-0.5 block truncate text-caption ${
+              shell.customized ? "text-[var(--accent)]" : "text-[var(--text-faint)]"
             }`}
-          />
-        </button>
-        <div
-          className={`grid transition-[grid-template-rows] duration-200 ease-out ${
-            shell.open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+          >
+            {shell.status}
+          </span>
+        </span>
+        {shell.note && (
+          <span className="shrink-0 text-caption text-[var(--text-faint)]">{shell.note}</span>
+        )}
+        <ChevronDownIcon
+          className={`size-4 shrink-0 text-[var(--text-faint)] transition-transform ${
+            shell.open ? "rotate-180" : ""
           }`}
-        >
-          <div className="overflow-hidden" inert={!shell.open}>
-            <div className="border-t border-white/[0.06] px-4 pb-4">{children}</div>
-          </div>
+        />
+      </button>
+      <div
+        className={`grid transition-[grid-template-rows] duration-200 ease-out ${
+          shell.open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+        }`}
+      >
+        <div className="overflow-hidden" inert={!shell.open}>
+          <div className="px-4 pb-4">{children}</div>
         </div>
-      </section>
-    );
+      </div>
+    </section>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -959,6 +965,8 @@ const SAMPLE_EPISODE = {
   release_name: "Kite.2017.S01E03.1080p.WEB-DL.H264.AAC-CHDWEB",
 };
 
+type NamingValues = Pick<ScrapeSetting, (typeof NAMING_FIELDS)[number]["key"]>;
+
 /** 前端侧轻校验：与后端同口径，只为即时反馈；能否保存以后端返回为准。 */
 function templateError(template: string, allowed: string[]): string | null {
   if (!template.trim()) return null; // 空 = 用默认模板
@@ -982,12 +990,24 @@ function NamingTab({
 }) {
   const [focused, setFocused] = useState<string>("naming_episode_file");
   const refs = useRef<Record<string, HTMLInputElement | null>>({});
+  // 模板是文本：边打字边存会把写到一半的模板落库，所以四个字段攒成草稿，
+  // 页脚「保存」一起提交（其余卡片是离散控件，改完即存）
+  // 只认这四个字段：别的卡片自动保存时 setting 会换新对象，不能因此冲掉草稿
+  const { naming_entry_dir, naming_movie_file, naming_season_dir, naming_episode_file } = setting;
+  const saved = useMemo<NamingValues>(
+    () => ({ naming_entry_dir, naming_movie_file, naming_season_dir, naming_episode_file }),
+    [naming_entry_dir, naming_movie_file, naming_season_dir, naming_episode_file],
+  );
+  const [draft, setDraft] = useState(saved);
+  useEffect(() => setDraft(saved), [saved]);
+  const dirty = NAMING_FIELDS.some((f) => draft[f.key] !== saved[f.key]);
+  const edit = (changes: Partial<NamingValues>) => setDraft((current) => ({ ...current, ...changes }));
 
-  const errors = NAMING_FIELDS.map((f) => templateError(setting[f.key], f.tokens));
+  const errors = NAMING_FIELDS.map((f) => templateError(draft[f.key], f.tokens));
   const valid = errors.every((e) => e === null);
 
   const tpl = (key: (typeof NAMING_FIELDS)[number]["key"]) =>
-    setting[key].trim() || NAMING_FIELDS.find((f) => f.key === key)!.fallback;
+    draft[key].trim() || NAMING_FIELDS.find((f) => f.key === key)!.fallback;
 
   const moviePath = valid
     ? `${renderTemplate(tpl("naming_entry_dir"), SAMPLE_MOVIE)}/${renderTemplate(
@@ -1007,11 +1027,11 @@ function NamingTab({
     const field = NAMING_FIELDS.find((f) => f.key === key);
     if (!field) return;
     const input = refs.current[key];
-    const current = setting[field.key] || field.fallback;
+    const current = draft[field.key] || field.fallback;
     const start = input?.selectionStart ?? current.length;
     const end = input?.selectionEnd ?? start;
     const next = `${current.slice(0, start)}{${token}}${current.slice(end)}`;
-    patch({ [field.key]: next } as Partial<ScrapeSetting>);
+    edit({ [field.key]: next });
     window.requestAnimationFrame(() => {
       const el = refs.current[key];
       if (!el) return;
@@ -1053,10 +1073,10 @@ function NamingTab({
             }}
             spellCheck={false}
             placeholder={field.fallback}
-            value={setting[field.key]}
+            value={draft[field.key]}
             onFocus={() => setFocused(field.key)}
-            onChange={(e) => patch({ [field.key]: e.target.value } as Partial<ScrapeSetting>)}
-            className={`${INPUT_CLASS} w-full font-mono ${
+            onChange={(e) => edit({ [field.key]: e.target.value })}
+            className={`${SETTINGS_INPUT_CLASS} w-full font-mono ${
               errors[i] ? "border-[var(--danger)]/55" : ""
             }`}
           />
@@ -1133,24 +1153,41 @@ function NamingTab({
         )}
       </div>
 
-      <div className="mt-3 flex flex-wrap items-center gap-2.5">
+      <p className="mt-3 text-caption text-[var(--text-faint)]">
+        同条目多版本会自动追加「 - 版本标签」后缀，无需写进模板
+      </p>
+
+      {/* 卡片页脚：左边恢复默认（只改草稿），右边唯一的提交按钮 */}
+      <div className="-mx-4 -mb-4 mt-5 flex min-h-[52px] items-center justify-between gap-3 border-t border-[var(--line)] bg-black/20 px-4 py-2.5">
         <button
           type="button"
           onClick={() =>
-            patch({
+            edit({
               naming_entry_dir: "",
               naming_movie_file: "",
               naming_season_dir: "",
               naming_episode_file: "",
             })
           }
-          className="btn-glass rounded-lg px-3 py-1.5 text-sub"
+          className={SETTINGS_BUTTON_CLASS}
         >
           恢复默认模板
         </button>
-        <span className="text-caption text-[var(--text-faint)]">
-          同条目多版本会自动追加「 - 版本标签」后缀，无需写进模板
-        </span>
+        <div className="flex items-center gap-2">
+          {dirty && (
+            <button type="button" onClick={() => setDraft(saved)} className={SETTINGS_BUTTON_CLASS}>
+              放弃修改
+            </button>
+          )}
+          <button
+            type="button"
+            disabled={!dirty || !valid}
+            onClick={() => patch(draft)}
+            className={SETTINGS_PRIMARY_BUTTON_CLASS}
+          >
+            保存
+          </button>
+        </div>
       </div>
     </Card>
   );
@@ -1159,38 +1196,6 @@ function NamingTab({
 /* ------------------------------------------------------------------ */
 /* 目录写入                                                            */
 /* ------------------------------------------------------------------ */
-
-function Toggle({
-  checked,
-  onChange,
-  disabled,
-}: {
-  checked: boolean;
-  onChange: (next: boolean) => void;
-  disabled?: boolean;
-}) {
-  return (
-    <label className="relative inline-block h-[22px] w-[38px] shrink-0">
-      <input
-        type="checkbox"
-        className="peer absolute inset-0 z-10 m-0 cursor-pointer opacity-0 disabled:cursor-default"
-        checked={checked}
-        disabled={disabled}
-        onChange={(e) => onChange(e.target.checked)}
-      />
-      <span
-        className={`absolute inset-0 rounded-full transition-colors peer-disabled:opacity-35 ${
-          checked ? "bg-[var(--accent-2)]" : "bg-white/[0.12]"
-        }`}
-      />
-      <span
-        className={`pointer-events-none absolute top-0.5 size-[18px] rounded-full bg-[#e8ecf4] transition-transform ${
-          checked ? "translate-x-[18px]" : "translate-x-0.5"
-        }`}
-      />
-    </label>
-  );
-}
 
 const MIRROR_ROWS = [
   {
@@ -1210,44 +1215,26 @@ const MIRROR_ROWS = [
   },
 ];
 
+/** 三个开关直接是行组里的三行：开关不需要折叠，改完即存 */
 function MirrorTab({
   setting,
   patch,
-  overriddenBy,
-  shellFor,
 }: {
   setting: ScrapeSetting;
   patch: (changes: Partial<ScrapeSetting>) => void;
-  overriddenBy?: (keys: (keyof ScrapeSetting)[]) => string[];
-  shellFor?: (title: string, keys: (keyof ScrapeSetting)[]) => CardShell;
 }) {
   return (
-    <Card
-      title="媒体目录写入"
-      overriddenBy={overriddenBy?.(MIRROR_ROWS.map((r) => r.key))}
-      shell={shellFor?.(
-        "媒体目录写入",
-        MIRROR_ROWS.map((r) => r.key),
-      )}
-      desc="把刮削成果写入媒体目录，反哺 Emby / Jellyfin / Kodi（文件名遵循播放器规范）。只增不删除；已存在的 NFO 绝不覆盖。每个媒体库还有一个总开关，关掉则该库三项都不写。"
-    >
-      <div className="divide-y divide-white/[0.06]">
-        {MIRROR_ROWS.map((row) => (
-          <div key={row.key} className="flex items-center justify-between gap-4 py-2.5">
-            <div>
-              <span className="text-ui font-medium">{row.label}</span>
-              <span className="mt-0.5 block max-w-[46ch] text-caption text-[var(--text-faint)]">
-                {row.hint}
-              </span>
-            </div>
-            <Toggle
-              checked={setting[row.key]}
-              onChange={(next) => patch({ [row.key]: next } as Partial<ScrapeSetting>)}
-            />
-          </div>
-        ))}
-      </div>
-    </Card>
+    <>
+      {MIRROR_ROWS.map((row) => (
+        <SettingsRow key={row.key} label={row.label} description={row.hint}>
+          <Toggle
+            checked={setting[row.key]}
+            label={row.label}
+            onChange={(next) => patch({ [row.key]: next } as Partial<ScrapeSetting>)}
+          />
+        </SettingsRow>
+      ))}
+    </>
   );
 }
 
@@ -1261,19 +1248,22 @@ function MirrorTab({
  * 全局页与库页各自调用一次即可——两处渲染的是同一批芯片，控件不同源
  * 会随时间漂移成两套交互（设计文档 §14.5：用户学一次就够）。
  */
-/** 分节标签 + 该节的卡片。标签不可点，只做视觉分组；全局页与库设置页共用。 */
+/** 小节标题 + 一个行组：每张折叠卡是组里的一行。全局页与库设置页共用。 */
 export function ScrapeSection({
   label,
+  description,
   children,
 }: {
   label: string;
+  description?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <div className="space-y-2">
-      <p className="text-micro uppercase tracking-widest text-[var(--text-faint)]">{label}</p>
-      {children}
-    </div>
+    <SettingsSection title={label} description={description}>
+      <div className="overflow-hidden rounded-xl">
+        <SettingsList>{children}</SettingsList>
+      </div>
+    </SettingsSection>
   );
 }
 
@@ -1441,7 +1431,7 @@ function ImageSourcesCard({
           <span className="text-[var(--info)]">ℹ︎</span>
           <span className="min-w-0 flex-1">
             <strong className="font-semibold text-[var(--text)]">Fanart.tv 已启用。</strong>
-            保存后，之后新入库的条目会自动用上；
+            之后新入库的条目会自动用上；
             <strong className="font-semibold text-[var(--text)]">
               已入库的条目需要你在媒体库执行「刷新元数据」
             </strong>
@@ -1615,6 +1605,29 @@ function ImageSourcesCard({
         每种图按自己的语言优先级（海报、背景、片名 Logo 卡里配置）逐档找；同一档语言两个来源都有图时，才按上面的来源顺序挑。所以把中文排第一，就不会因为来源顺序拿到英文图。
       </p>
     </Card>
+  );
+}
+
+/** 像素门槛输入：打字时只改本地草稿，失焦或回车才提交（不把「1」「10」这些中间值存下来） */
+function WidthInput({ value, onCommit }: { value: number; onCommit: (next: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => setDraft(String(value)), [value]);
+  const commit = () => {
+    const next = Math.max(0, Math.round(Number(draft) || 0));
+    setDraft(String(next));
+    if (next !== value) onCommit(next);
+  };
+  return (
+    <input
+      type="number"
+      min={0}
+      step={100}
+      className={`${SETTINGS_INPUT_CLASS} w-24 tabular-nums`}
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
+    />
   );
 }
 
@@ -1807,14 +1820,7 @@ export function ImagesTab({
           ).map(([key, label]) => (
             <span key={key} className="flex items-center gap-1.5">
               {label} ≥
-              <input
-                type="number"
-                min={0}
-                step={100}
-                className={`${INPUT_CLASS} w-24 tabular-nums`}
-                value={setting[key]}
-                onChange={(e) => patch({ [key]: Number(e.target.value) || 0 })}
-              />
+              <WidthInput value={setting[key]} onCommit={(next) => patch({ [key]: next })} />
               {/* 0 在输入框里看不出是"不限制"还是"没填"，补一句 */}
               {setting[key] === 0 && (
                 <span className="text-caption text-[var(--text-faint)]">不限制</span>
@@ -1869,7 +1875,7 @@ export function ImagesTab({
               <label key={field.key} className="flex flex-col gap-1">
                 <span className="text-caption text-[var(--text-muted)]">{field.label}</span>
                 <select
-                  className={INPUT_CLASS}
+                  className={SETTINGS_INPUT_CLASS}
                   value={setting[field.key]}
                   onChange={(e) => patch({ [field.key]: e.target.value } as Partial<ScrapeSetting>)}
                 >
@@ -1902,8 +1908,12 @@ export function ScrapeSettingsSection() {
   // 一屏能扫完全站配置（用户决策 2026-08-30：与库设置页形态完全一致）
   const [open, setOpen] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [dirty, setDirty] = useState(false);
+  // 自动保存的状态：显示在展开的那一行右侧（「保存中… / 已保存」）
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  // 最新的编辑值与待发的保存：连续点芯片时合并成一次请求，只采纳最后一次的响应
+  const latest = useRef<ScrapeSetting | null>(null);
+  const timer = useRef<number | null>(null);
+  const seq = useRef(0);
   // 「本地图片画质」各档的磁盘估算；拉不到（非管理员、网络）就不显示数字，设置照常可用
   const [estimate, setEstimate] = useState<ImageStorageEstimate | null>(null);
   const loadEstimate = useCallback(() => {
@@ -1922,13 +1932,13 @@ export function ScrapeSettingsSection() {
       setView(config);
       // 编辑态用"生效值"起步：跟随 env 的空列表在界面上就是当前生效的语言，
       // 用户看到的即所得；未改动不保存则语义不变
-      setSetting({
+      latest.current = {
         ...config.setting,
         language_priority: config.setting.language_priority.length
           ? config.setting.language_priority
           : config.effective.language_priority,
-      });
-      setDirty(false);
+      };
+      setSetting(latest.current);
     } catch (err) {
       setError(err instanceof Error ? err.message : "加载失败，请重试");
     }
@@ -1958,6 +1968,12 @@ export function ScrapeSettingsSection() {
     (title: string, keys: (keyof ScrapeSetting)[]): CardShell => ({
       open: open === title,
       onToggleOpen: () => setOpen((current) => (current === title ? null : title)),
+      note:
+        open === title && saveState !== "idle"
+          ? saveState === "saving"
+            ? "保存中…"
+            : "已保存"
+          : undefined,
       // 全局页没有"跟随/覆盖"这个静默态（它就是被跟随的那一层），折叠头只报
       // 当前值；点亮与否交给「N 个库已覆盖」徽标表达
       customized: false,
@@ -1969,7 +1985,7 @@ export function ScrapeSettingsSection() {
           })
         : "",
     }),
-    [open, setting, view],
+    [open, setting, view, saveState],
   );
 
   const overriddenBy = useCallback(
@@ -1980,28 +1996,60 @@ export function ScrapeSettingsSection() {
     [libraryOverrides],
   );
 
-  const patch = useCallback((changes: Partial<ScrapeSetting>) => {
-    setSetting((current) => (current ? { ...current, ...changes } : current));
-    setDirty(true);
-  }, []);
-
-  const save = useCallback(async () => {
-    if (!setting) return;
-    setSaving(true);
+  const persist = useCallback(async () => {
+    timer.current = null;
+    const current = latest.current;
+    if (!current) return;
+    const mine = ++seq.current;
+    setSaveState("saving");
     try {
-      const config = await saveScrapeConfig(setting);
+      const config = await saveScrapeConfig(current);
+      if (mine !== seq.current) return;
+      // 不拿响应覆盖编辑值：请求在路上时用户可能又改了别的
       setView(config);
-      setSetting(config.setting);
-      setDirty(false);
+      setSaveState("saved");
       // 估算里「自定义」那一档按已保存配置算，保存后重取
       loadEstimate();
-      toast.success("已保存。语言与图片对存量条目生效需在媒体库执行整库刷新");
     } catch (err) {
+      if (mine !== seq.current) return;
+      setSaveState("idle");
       toast.error(err instanceof Error ? err.message : "保存失败，请重试");
-    } finally {
-      setSaving(false);
+      // 失败不猜怎么回滚，重读服务端的真实值
+      void load();
     }
-  }, [setting, toast, loadEstimate]);
+  }, [toast, loadEstimate, load]);
+
+  // 「已保存」停留两秒后收起
+  useEffect(() => {
+    if (saveState !== "saved") return;
+    const id = window.setTimeout(() => setSaveState("idle"), 2000);
+    return () => window.clearTimeout(id);
+  }, [saveState]);
+
+  // 离开页面时还没发出去的改动立刻发掉
+  const persistRef = useRef(persist);
+  persistRef.current = persist;
+  useEffect(
+    () => () => {
+      if (timer.current !== null) {
+        window.clearTimeout(timer.current);
+        void persistRef.current();
+      }
+    },
+    [],
+  );
+
+  /** 改完即存：控件都是离散的（芯片、单选、开关、下拉），没有写到一半的中间态 */
+  const patch = useCallback(
+    (changes: Partial<ScrapeSetting>) => {
+      if (!latest.current) return;
+      latest.current = { ...latest.current, ...changes };
+      setSetting(latest.current);
+      if (timer.current !== null) window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => void persist(), 400);
+    },
+    [persist],
+  );
 
   if (error) {
     return (
@@ -2022,20 +2070,22 @@ export function ScrapeSettingsSection() {
     );
   }
 
+  const mirrorOverrides = overriddenBy(MIRROR_ROWS.map((row) => row.key));
+
   return (
-    <div className="space-y-5">
+    <div className="space-y-10">
       {/* 「可按库覆盖」这件事在分区顶部统一说一句：P4 之后所有字段都能按库
           覆盖，逐卡贴徽标不区分任何东西，只是噪音（设计文档 §14.5） */}
-      <p className="text-sub leading-relaxed text-[var(--text-muted)]">
-        全站默认的刮削口味。
+      <p className="px-1 text-sub leading-relaxed text-[var(--text-muted)]">
+        全站默认的刮削口味，改动自动保存，对新刮削立即生效；已入库的条目在媒体库执行「刷新元数据」后按新配置更新。
         <strong className="font-medium text-[var(--text)]">任意一项</strong>
-        都可以在媒体库的「编辑库 → 刮削设置」里单独覆盖，没被覆盖的库跟随这里。
+        都可以在「编辑库 → 刮削设置」里单独覆盖，没被覆盖的库跟随这里。
       </p>
 
-      {/* 分节 + 手风琴卡片：与「编辑库 → 刮削设置」同一套结构与控件。
+      {/* 分节 + 行组：与「编辑库 → 刮削设置」同一套结构与控件。
           分节顺序沿用刮削管线的先后，只为读起来顺——四组之间没有依赖，
           所以不编号（编号会把并列分组伪装成必须按序完成的向导）。 */}
-      <ScrapeSection label="元数据">
+      <ScrapeSection label="元数据" description="标题、简介等文本的语言，以及内容分级取哪个地区">
         <MetaTab
           setting={setting}
           patch={patch}
@@ -2046,7 +2096,7 @@ export function ScrapeSettingsSection() {
         />
       </ScrapeSection>
 
-      <ScrapeSection label="图片">
+      <ScrapeSection label="图片" description="从哪些图库挑图、各类图按什么语言挑，以及本地存多大">
         <ImagesTab
           setting={setting}
           patch={patch}
@@ -2058,27 +2108,26 @@ export function ScrapeSettingsSection() {
         />
       </ScrapeSection>
 
-      <ScrapeSection label="命名与整理">
+      <ScrapeSection label="命名与整理" description="整理入库时的目录与文件命名">
         <NamingTab setting={setting} patch={patch} overriddenBy={overriddenBy} shellFor={shellFor} />
       </ScrapeSection>
 
-      <ScrapeSection label="目录写入">
-        <MirrorTab setting={setting} patch={patch} overriddenBy={overriddenBy} shellFor={shellFor} />
+      <ScrapeSection
+        label="目录写入"
+        description={
+          <>
+            把刮削成果写入媒体目录，反哺 Emby / Jellyfin / Kodi。只增不删，已存在的 NFO 绝不覆盖；每个媒体库还有一个总开关。
+            {mirrorOverrides.length > 0 && (
+              <span className="text-[var(--accent)]">
+                {" "}
+                {mirrorOverrides.join("、")}已单独覆盖。
+              </span>
+            )}
+          </>
+        }
+      >
+        <MirrorTab setting={setting} patch={patch} />
       </ScrapeSection>
-
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-caption text-[var(--text-faint)]">
-          保存后对新刮削立即生效；存量条目在媒体库页执行「刷新元数据」后按新配置更新。
-        </p>
-        <button
-          type="button"
-          disabled={!dirty || saving}
-          onClick={save}
-          className="btn-accent shrink-0 rounded-full px-5 py-2 text-ui font-semibold disabled:opacity-50"
-        >
-          {saving ? "保存中…" : "保存"}
-        </button>
-      </div>
     </div>
   );
 }

@@ -2,20 +2,20 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-
+import { ErrorBanner, Toggle } from "@/components/cloud-push-ui";
 import { DirectoryPicker } from "@/components/directory-picker";
 import { useConfirm } from "@/components/feedback";
-import {
-  ChevronDownIcon,
-  DownloadIcon,
-  FolderIcon,
-  MoreIcon,
-  PlusIcon,
-  XIcon,
-} from "@/components/icons";
-import { useBackdrop } from "@/lib/backdrop";
+import { ChevronDownIcon, DownloadIcon, FolderIcon, PlusIcon, XIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsDrawer,
+  SettingsEmpty,
+  SettingsMoreMenu,
+  SettingsSection,
+} from "@/components/settings-ui";
 import {
   type ConfiguredDownloader,
   type DownloaderClientType,
@@ -37,7 +37,6 @@ import type { PathProbe } from "@/lib/api/downloaders";
 import { listConfiguredSites, listSiteCatalog } from "@/lib/api/sites";
 import { formatRelativeTime } from "@/lib/time";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
-import { LiquidGlassButton } from "@/components/liquid-glass";
 
 /** 连接状态 → 展示文案与颜色（与站点配置同语言） */
 const STATUS_META: Record<DownloaderStatus, { label: string; color: string }> = {
@@ -81,7 +80,7 @@ const IN_PROGRESS: DownloaderStatus[] = ["pending", "verifying"];
 /**
  * 「下载器」设置分区。
  *
- * 与站点配置同构：列表展示已接入的下载器，「添加下载器」展开表单；
+ * 与站点配置同构：列表展示已接入的下载器，新增与编辑都在右侧抽屉里填表；
  * 保存后后端异步测试连接，前端对中间态（pending/verifying）轮询刷新，
  * 直到 active / failed。搜索结果里的"提交下载"以这里配置的实例为目标。
  */
@@ -89,12 +88,10 @@ export function DownloaderConfigSection() {
   const [downloaders, setDownloaders] = useState<ConfiguredDownloader[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  // 是否展开「添加下载器」面板
-  const [adding, setAdding] = useState(false);
+  // 编辑抽屉：「add」= 添加下载器，数字 = 编辑该 id 的下载器
+  const [drawer, setDrawer] = useState<"add" | number | null>(null);
   // 当前展开详情的下载器（单开手风琴，与站点列表同款交互）
   const [expanded, setExpanded] = useState<number | null>(null);
-  // 当前亮出编辑表单的下载器 id（表单嵌在详情里；菜单「编辑配置」会先展开详情）
-  const [editing, setEditing] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
@@ -111,8 +108,8 @@ export function DownloaderConfigSection() {
     void load();
   }, [load]);
 
-  // 体检修复卡跳转带来的映射建议（?suggest_mapping=/xx）：自动展开默认
-  // 下载器的编辑表单并预填一条映射的本机侧，用户只需补下载器视角的路径
+  // 体检修复卡跳转带来的映射建议（?suggest_mapping=/xx）：自动打开默认
+  // 下载器的编辑抽屉并预填一条映射的本机侧，用户只需补下载器视角的路径
   const [suggestMapping, setSuggestMapping] = useState<string | null>(null);
   useEffect(() => {
     const suggested = new URLSearchParams(window.location.search).get("suggest_mapping");
@@ -123,8 +120,7 @@ export function DownloaderConfigSection() {
     if (!suggestMapping || loading || suggestConsumed.current || downloaders.length === 0) return;
     suggestConsumed.current = true;
     const target = downloaders.find((d) => d.is_default) ?? downloaders[0];
-    setExpanded(target.id);
-    setEditing(target.id);
+    setDrawer(target.id);
   }, [suggestMapping, loading, downloaders]);
 
   // 拥堵提示跳转（?limits=<id>，与 suggest_mapping 同款参数惯例）：自动打开
@@ -161,130 +157,117 @@ export function DownloaderConfigSection() {
   }, []);
 
   const usableCount = downloaders.filter((d) => d.usable).length;
+  const editingTarget =
+    typeof drawer === "number" ? downloaders.find((d) => d.id === drawer) ?? null : null;
 
   return (
-    <div className="space-y-5">
-      {error && (
-        <div className="rounded-xl border border-[#ff6b6b]/30 bg-[#ff6b6b]/10 px-4 py-3 text-body text-[#ff6b6b]">
-          {error}
-        </div>
-      )}
-
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-sub text-[var(--text-muted)]">
-          {loading
-            ? "加载中…"
-            : downloaders.length === 0
-              ? "接入你自己部署的下载软件，资源将由它们完成下载。"
-              : `已接入 ${downloaders.length} 个下载器，${usableCount} 个可用。保存后系统会自动测试连接。`}
-        </p>
-        <div className="flex shrink-0 items-center gap-2.5">
+    <SettingsSection
+      title="已接入下载器"
+      description={
+        loading
+          ? "加载中…"
+          : downloaders.length === 0
+            ? "接入你自己部署的下载软件，资源将由它们完成下载。"
+            : `共 ${downloaders.length} 个，${usableCount} 个可用。保存后系统会自动测试连接。`
+      }
+      action={
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
             onClick={() => void load()}
             disabled={loading}
-            className="btn-glass px-3.5 py-1.5 text-sub font-medium"
+            className={SETTINGS_BUTTON_CLASS}
           >
             刷新
           </button>
           <button
             type="button"
-            onClick={() => setAdding((v) => !v)}
+            onClick={() => setDrawer("add")}
             disabled={loading}
-            className="btn-accent flex items-center gap-1 rounded-full py-1.5 pl-2.5 pr-3.5 text-sub font-semibold disabled:opacity-60"
+            className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
           >
             <PlusIcon className="size-4" />
             添加下载器
           </button>
         </div>
+      }
+    >
+      <div className="space-y-3">
+        {error && <ErrorBanner>{error}</ErrorBanner>}
+
+        {/* 已配置下载器列表：行式布局，与设置页行组同款容器 */}
+        {loading ? (
+          <div className="space-y-px overflow-hidden rounded-xl border border-white/[0.08]">
+            <div className="h-14 animate-pulse bg-white/[0.04]" />
+            <div className="h-14 animate-pulse bg-white/[0.04]" />
+          </div>
+        ) : downloaders.length === 0 ? (
+          <SettingsEmpty
+            icon={<DownloadIcon className="size-5" />}
+            title="还没有接入任何下载器"
+            description="点「添加下载器」接入，支持 qBittorrent 和 Transmission。"
+          />
+        ) : (
+          <div className="css-glass divide-y divide-[var(--line)] overflow-hidden !rounded-xl">
+            {downloaders.map((downloader) => (
+              <DownloaderRow
+                key={downloader.id}
+                downloader={downloader}
+                autoOpenLimits={autoLimitsId === downloader.id}
+                expanded={expanded === downloader.id}
+                onToggle={() =>
+                  setExpanded((cur) => (cur === downloader.id ? null : downloader.id))
+                }
+                onEdit={() => setDrawer(downloader.id)}
+                onChanged={upsert}
+                onDeleted={(id) => {
+                  setDownloaders((prev) => prev.filter((d) => d.id !== id));
+                  setExpanded((cur) => (cur === id ? null : cur));
+                  setDrawer((cur) => (cur === id ? null : cur));
+                  // 删除默认时后端会把默认让给另一台，整体刷新拿到新归属
+                  void load();
+                }}
+                onRefresh={() => void load()}
+                onError={setError}
+              />
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* 「添加下载器」面板：与站点页的添加面板同款扁平容器 */}
-      {adding && (
-        <div className="rounded-xl border border-white/[0.08] bg-white/[0.03] p-4">
-          <DownloaderForm
-            downloader={null}
-            onSubmit={async (payload) => {
-              upsert(await createDownloader(payload));
-              setAdding(false);
-            }}
-            onCancel={() => setAdding(false)}
-            onError={setError}
-          />
-        </div>
+      {/* 新增 / 编辑抽屉：按目标换 key，每次打开都从该下载器的当前值起表 */}
+      {(drawer === "add" || editingTarget) && (
+        <DownloaderForm
+          key={editingTarget?.id ?? "add"}
+          downloader={editingTarget}
+          suggestMapping={editingTarget ? suggestMapping : null}
+          onSubmit={async (payload) => {
+            upsert(
+              editingTarget
+                ? await updateDownloader(editingTarget.id, payload)
+                : await createDownloader(payload),
+            );
+            setDrawer(null);
+          }}
+          onClose={() => setDrawer(null)}
+        />
       )}
-
-      {/* 已配置下载器列表：扁平面板容器，行式布局 */}
-      {loading ? (
-        <div className="space-y-px overflow-hidden rounded-xl border border-white/[0.08]">
-          <div className="h-14 animate-pulse bg-white/[0.04]" />
-          <div className="h-14 animate-pulse bg-white/[0.04]" />
-        </div>
-      ) : downloaders.length === 0 ? (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-white/[0.08] bg-white/[0.03] px-6 py-12 text-center">
-          <span className="icon-chip size-12 !rounded-2xl">
-            <DownloadIcon className="size-6" />
-          </span>
-          <div>
-            <p className="text-body font-medium text-[var(--text)]">还没有接入任何下载器</p>
-            <p className="mt-1 text-sub text-[var(--text-muted)]">
-              点击右上角「添加下载器」，支持 qBittorrent 和 Transmission。
-            </p>
-          </div>
-        </div>
-      ) : (
-        <div className="divide-y divide-white/[0.06] overflow-hidden rounded-xl border border-white/[0.08] bg-white/[0.03]">
-          {downloaders.map((downloader) => (
-            <DownloaderRow
-              key={downloader.id}
-              downloader={downloader}
-              suggestMapping={suggestMapping}
-              autoOpenLimits={autoLimitsId === downloader.id}
-              expanded={expanded === downloader.id}
-              editing={editing === downloader.id}
-              onToggle={() =>
-                setExpanded((cur) => (cur === downloader.id ? null : downloader.id))
-              }
-              onEdit={() => {
-                setExpanded(downloader.id);
-                setEditing(downloader.id);
-              }}
-              onCloseEdit={() => setEditing((cur) => (cur === downloader.id ? null : cur))}
-              onChanged={upsert}
-              onDeleted={(id) => {
-                setDownloaders((prev) => prev.filter((d) => d.id !== id));
-                setExpanded((cur) => (cur === id ? null : cur));
-                setEditing((cur) => (cur === id ? null : cur));
-                // 删除默认时后端会把默认让给另一台，整体刷新拿到新归属
-                void load();
-              }}
-              onRefresh={() => void load()}
-              onError={setError}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+    </SettingsSection>
   );
 }
 
-/* —— 下载器行：一行一台，P0 常驻（名称 / 默认 / 状态）；点击整行展开详情 ——
-   与站点行同构：操作全收进 ⋯ 菜单（启停 / 编辑 / 限速 / 默认 / 重测 / 删除），
-   视觉不用玻璃质感与 WebGL 开关，配置页要的是轻和稳。 */
+/* —— 下载器行：一行一台，P0 常驻（名称 / 默认 / 状态）；点击整行展开只读详情 ——
+   行尾只常驻「编辑」（打开抽屉），其余操作收进 ⋯ 菜单（启停 / 限速 / 默认 /
+   重测 / 删除），不用 WebGL 开关，配置页要的是轻和稳。 */
 
 interface DownloaderRowProps {
   downloader: ConfiguredDownloader;
-  /** 体检跳转建议预填的映射本机侧路径（无建议时为 null） */
-  suggestMapping: string | null;
   /** 拥堵提示跳转（?limits=<id>）：挂载后自动打开「限速与队列」弹窗 */
   autoOpenLimits?: boolean;
   expanded: boolean;
-  /** 编辑表单是否亮出（嵌在详情里） */
-  editing: boolean;
   onToggle: () => void;
-  /** 确保展开并亮出编辑表单（菜单「编辑配置」） */
+  /** 打开编辑抽屉 */
   onEdit: () => void;
-  onCloseEdit: () => void;
   onChanged: (downloader: ConfiguredDownloader) => void;
   onDeleted: (id: number) => void;
   /** 需要整体刷新列表的操作（如设默认会同时改动其他条目）之后调用 */
@@ -294,13 +277,10 @@ interface DownloaderRowProps {
 
 function DownloaderRow({
   downloader,
-  suggestMapping,
   autoOpenLimits = false,
   expanded,
-  editing,
   onToggle,
   onEdit,
-  onCloseEdit,
   onChanged,
   onDeleted,
   onRefresh,
@@ -416,110 +396,117 @@ function DownloaderRow({
           </p>
         )}
 
-        {/* 控制区：展开箭头 + 操作菜单 */}
-        <div className="flex shrink-0 items-center gap-0.5">
+        {/* 控制区：展开箭头 + 编辑 + 操作菜单 */}
+        <div className="flex shrink-0 items-center gap-1">
           <span className="flex size-7 items-center justify-center rounded-full text-[var(--text-faint)] transition-colors group-hover:bg-white/[0.08] group-hover:text-[var(--text-muted)]">
             <ChevronDownIcon
               className={`size-4 transition-transform ${expanded ? "rotate-180" : ""}`}
             />
           </span>
-          <DownloaderActionsMenu
-            downloader={downloader}
-            busy={busy}
-            editing={editing}
-            onSetEnabled={(enabled) =>
-              void guard(async () => onChanged(await setDownloaderEnabled(downloader.id, enabled)))
-            }
-            onEdit={editing ? onCloseEdit : onEdit}
-            onLimits={() => setLimitsOpen(true)}
-            onSetDefault={() =>
-              void guard(async () => {
-                await setDefaultDownloader(downloader.id);
-                // 原默认的标记同时被清掉，整体刷新一次拿到全量新状态
-                onRefresh();
-              })
-            }
-            onReverify={() =>
-              void guard(async () => onChanged(await reverifyDownloader(downloader.id)))
-            }
-            onDelete={() =>
-              void guard(async () => {
-                // 选它做刷流下载器的站点会被一并关闭刷流（后端执行，见
-                // DownloaderConfigService.delete），确认前讲清楚影响哪些站点
-                const boostSites = await boostSitesOn(downloader.id);
-                if (
-                  !(await confirm({
-                    title: `删除下载器「${downloader.name}」？`,
-                    description: "下载器中的任务不受影响，只是 movieclaw 不再向它投递。",
-                    bullets:
-                      boostSites.length > 0
-                        ? [
-                            `${boostSites.join("、")} 用这台下载器刷流，删除后这些站点的刷流会关闭`,
-                            "已在做种的刷流种子保留在下载器里；想继续刷流，重新开启并选一台下载器即可",
-                          ]
-                        : undefined,
-                    confirmLabel: "删除",
-                    tone: "danger",
-                  }))
-                ) {
-                  return;
-                }
-                await deleteDownloader(downloader.id);
-                onDeleted(downloader.id);
-              })
-            }
-          />
+          {/* 拦住冒泡：菜单经 portal 渲染，点菜单项、在按钮上按回车都不该顺带开合整行 */}
+          <div
+            className="flex items-center gap-1"
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          >
+            <button type="button" onClick={onEdit} className={SETTINGS_BUTTON_CLASS}>
+              编辑
+            </button>
+            <SettingsMoreMenu
+              label={`「${downloader.name}」的更多操作`}
+              items={[
+                {
+                  label: downloader.enabled ? "停用下载器" : "启用下载器",
+                  disabled: busy,
+                  onSelect: () =>
+                    void guard(async () =>
+                      onChanged(await setDownloaderEnabled(downloader.id, !downloader.enabled)),
+                    ),
+                },
+                { label: "限速与队列…", disabled: busy, onSelect: () => setLimitsOpen(true) },
+                {
+                  label: "设为默认",
+                  disabled: busy || downloader.is_default,
+                  onSelect: () =>
+                    void guard(async () => {
+                      await setDefaultDownloader(downloader.id);
+                      // 原默认的标记同时被清掉，整体刷新一次拿到全量新状态
+                      onRefresh();
+                    }),
+                },
+                {
+                  label: "重新测试连接",
+                  disabled: busy || IN_PROGRESS.includes(downloader.status),
+                  onSelect: () =>
+                    void guard(async () => onChanged(await reverifyDownloader(downloader.id))),
+                },
+                {
+                  label: "删除配置",
+                  danger: true,
+                  disabled: busy,
+                  onSelect: () =>
+                    void guard(async () => {
+                      // 选它做刷流下载器的站点会被一并关闭刷流（后端执行，见
+                      // DownloaderConfigService.delete），确认前讲清楚影响哪些站点
+                      const boostSites = await boostSitesOn(downloader.id);
+                      if (
+                        !(await confirm({
+                          title: `删除下载器「${downloader.name}」？`,
+                          description: "下载器中的任务不受影响，只是 movieclaw 不再向它投递。",
+                          bullets:
+                            boostSites.length > 0
+                              ? [
+                                  `${boostSites.join("、")} 用这台下载器刷流，删除后这些站点的刷流会关闭`,
+                                  "已在做种的刷流种子保留在下载器里；想继续刷流，重新开启并选一台下载器即可",
+                                ]
+                              : undefined,
+                          confirmLabel: "删除",
+                          tone: "danger",
+                        }))
+                      ) {
+                        return;
+                      }
+                      await deleteDownloader(downloader.id);
+                      onDeleted(downloader.id);
+                    }),
+                },
+              ]}
+            />
+          </div>
         </div>
       </div>
 
-      {/* 展开详情：连接 / 保存目录 / 路径映射，以及嵌入的编辑表单 */}
+      {/* 展开详情（只读）：连接 / 保存目录 / 路径映射；编辑在抽屉里 */}
       {expanded && (
         <div className="divide-y divide-white/[0.05] border-t border-white/[0.06] bg-white/[0.02] px-4 py-3 sm:px-5">
-          {editing ? (
-            <div className="py-1">
-              <DownloaderForm
-                downloader={downloader}
-                suggestMapping={suggestMapping}
-                onSubmit={async (payload) => {
-                  onChanged(await updateDownloader(downloader.id, payload));
-                  onCloseEdit();
-                }}
-                onCancel={onCloseEdit}
-                onError={onError}
+          <DetailSection label="连接">
+            <StatGrid>
+              <DetailStat
+                label="地址"
+                value={downloader.url}
+                href={downloader.url}
+                title="在新窗口打开下载器 WebUI"
+                wide
               />
-            </div>
-          ) : (
-            <>
-              <DetailSection label="连接">
-                <StatGrid>
-                  <DetailStat
-                    label="地址"
-                    value={downloader.url}
-                    href={downloader.url}
-                    title="在新窗口打开下载器 WebUI"
-                    wide
-                  />
-                  <DetailStat label="用户名" value={downloader.username ?? "未设置"} />
-                  <DetailStat label="版本" value={downloader.version ?? "—"} />
-                </StatGrid>
-              </DetailSection>
-              <DetailSection label="落盘">
-                <StatGrid>
-                  <DetailStat
-                    label="默认保存目录"
-                    value={downloader.save_path ?? "下载器默认"}
-                    wide
-                  />
-                </StatGrid>
-              </DetailSection>
-              <DetailSection label="映射">
-                <PathMappingTable
-                  mappings={downloader.path_mappings ?? []}
-                  health={downloader.path_health ?? []}
-                />
-              </DetailSection>
-            </>
-          )}
+              <DetailStat label="用户名" value={downloader.username ?? "未设置"} />
+              <DetailStat label="版本" value={downloader.version ?? "—"} />
+            </StatGrid>
+          </DetailSection>
+          <DetailSection label="落盘">
+            <StatGrid>
+              <DetailStat
+                label="默认保存目录"
+                value={downloader.save_path ?? "下载器默认"}
+                wide
+              />
+            </StatGrid>
+          </DetailSection>
+          <DetailSection label="映射">
+            <PathMappingTable
+              mappings={downloader.path_mappings ?? []}
+              health={downloader.path_health ?? []}
+            />
+          </DetailSection>
         </div>
       )}
 
@@ -686,7 +673,6 @@ function DownloaderLimitsModal({
   downloader: ConfiguredDownloader;
   onClose: () => void;
 }) {
-  const { backdrop } = useBackdrop();
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -780,11 +766,7 @@ function DownloaderLimitsModal({
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
-        {error && (
-          <div className="rounded-xl border border-[#ff6b6b]/30 bg-[#ff6b6b]/10 px-4 py-3 text-body text-[#ff6b6b]">
-            {error}
-          </div>
-        )}
+        {error && <ErrorBanner>{error}</ErrorBanner>}
 
         {loading ? (
           <div className="space-y-2">
@@ -816,34 +798,19 @@ function DownloaderLimitsModal({
               <span className="text-sub text-[var(--text-muted)]">
                 备用限速档（计划任务/手动一键慢速时生效的那组限速）
               </span>
-              <LiquidGlassButton
-                backgroundImage={backdrop}
-                variant="dark"
-                checked={altSpeed}
-                disabled={busy}
-                aria-label="备用限速档"
-                onCheckedChange={setAltSpeed}
-                className="!min-h-0 !w-auto shrink-0 !gap-0 !bg-transparent !p-0"
-              >
-                <span className="sr-only">备用限速档</span>
-              </LiquidGlassButton>
+              <Toggle checked={altSpeed} disabled={busy} label="备用限速档" onChange={setAltSpeed} />
             </label>
 
             <label className="flex items-center justify-between gap-3">
               <span className="text-sub text-[var(--text-muted)]">
                 任务队列（超出上限的任务排队等待）
               </span>
-              <LiquidGlassButton
-                backgroundImage={backdrop}
-                variant="dark"
+              <Toggle
                 checked={queueEnabled}
                 disabled={busy}
-                aria-label="任务队列"
-                onCheckedChange={setQueueEnabled}
-                className="!min-h-0 !w-auto shrink-0 !gap-0 !bg-transparent !p-0"
-              >
-                <span className="sr-only">任务队列</span>
-              </LiquidGlassButton>
+                label="任务队列"
+                onChange={setQueueEnabled}
+              />
             </label>
 
             {queueEnabled && (
@@ -875,20 +842,15 @@ function DownloaderLimitsModal({
       </div>
 
       {/* 底栏常驻 */}
-      <div className="flex justify-end gap-2.5 border-t border-white/[0.07] px-6 py-4">
-        <button
-          type="button"
-          onClick={onClose}
-          disabled={busy}
-          className="btn-glass px-4 py-2 text-sub font-medium"
-        >
+      <div className="flex justify-end gap-2 border-t border-white/[0.07] px-6 py-4">
+        <button type="button" onClick={onClose} disabled={busy} className={SETTINGS_BUTTON_CLASS}>
           取消
         </button>
         <button
           type="button"
           onClick={() => void save()}
           disabled={busy || loading}
-          className="btn-accent rounded-full px-4 py-2 text-sub font-semibold disabled:opacity-60"
+          className={SETTINGS_PRIMARY_BUTTON_CLASS}
         >
           {busy ? "保存中…" : "保存"}
         </button>
@@ -926,7 +888,7 @@ function LimitInput({
           placeholder={placeholder}
           disabled={disabled}
           onChange={(e) => onChange(e.target.value)}
-          className={`w-full rounded-lg border border-white/10 bg-white/[0.06] px-3 py-2 text-ui text-white outline-none transition [appearance:textfield] focus:border-white/25 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${
+          className={`${SETTINGS_INPUT_CLASS} w-full [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none ${
             unit ? "pr-14" : ""
           }`}
         />
@@ -940,101 +902,7 @@ function LimitInput({
   );
 }
 
-/* —— 下载器操作折叠菜单（与站点卡片同款 Radix DropdownMenu） —— */
-
-interface DownloaderActionsMenuProps {
-  downloader: ConfiguredDownloader;
-  busy: boolean;
-  /** 编辑表单已亮出时菜单项变成「收起编辑」 */
-  editing: boolean;
-  onSetEnabled: (enabled: boolean) => void;
-  onEdit: () => void;
-  onLimits: () => void;
-  onSetDefault: () => void;
-  onReverify: () => void;
-  onDelete: () => void;
-}
-
-function DownloaderActionsMenu({
-  downloader,
-  busy,
-  editing,
-  onSetEnabled,
-  onEdit,
-  onLimits,
-  onSetDefault,
-  onReverify,
-  onDelete,
-}: DownloaderActionsMenuProps) {
-  // Radix DropdownMenu：菜单渲染进 body Portal 并做碰撞检测；
-  // 菜单项加大内边距保证移动端触控目标
-  const itemClass =
-    "glass-row nav-item cursor-pointer px-3 py-2.5 text-sub font-medium outline-none " +
-    "data-[highlighted]:!bg-[var(--glass-fill-hover)] data-[highlighted]:!text-[var(--text)] " +
-    "data-[disabled]:pointer-events-none data-[disabled]:opacity-40";
-  const canReverify = !IN_PROGRESS.includes(downloader.status);
-
-  return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
-          aria-label="下载器操作"
-          onClick={(e) => e.stopPropagation()}
-          className="glass-row !w-auto p-2 data-[state=open]:!bg-[var(--glass-fill-active)] data-[state=open]:!text-[var(--text)]"
-        >
-          <MoreIcon className="size-4" />
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={6}
-          collisionPadding={12}
-          className="menu-surface z-50 min-w-[10rem] p-1"
-          onClick={(e) => e.stopPropagation()}
-        >
-          <DropdownMenu.Item
-            onSelect={() => onSetEnabled(!downloader.enabled)}
-            disabled={busy}
-            className={itemClass}
-          >
-            {downloader.enabled ? "停用下载器" : "启用下载器"}
-          </DropdownMenu.Item>
-          <DropdownMenu.Item onSelect={onEdit} className={itemClass}>
-            {editing ? "收起编辑" : "编辑配置"}
-          </DropdownMenu.Item>
-          <DropdownMenu.Item onSelect={onLimits} disabled={busy} className={itemClass}>
-            限速与队列…
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            onSelect={onSetDefault}
-            disabled={busy || downloader.is_default}
-            className={itemClass}
-          >
-            设为默认
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            onSelect={onReverify}
-            disabled={busy || !canReverify}
-            className={itemClass}
-          >
-            重新测试连接
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            onSelect={onDelete}
-            disabled={busy}
-            className={`${itemClass} !text-[#ff6b6b] data-[highlighted]:!bg-[#ff6b6b]/10`}
-          >
-            删除配置
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
-  );
-}
-
-/* —— 连接表单：类型 + 名称 + 地址 + 可选凭证/保存目录，新增与编辑共用 —— */
+/* —— 连接表单抽屉：类型 + 名称 + 地址 + 可选凭证/保存目录，新增与编辑共用 —— */
 
 interface DownloaderFormProps {
   /** 编辑对象；null 表示新增 */
@@ -1042,8 +910,7 @@ interface DownloaderFormProps {
   /** 体检跳转建议预填的映射本机侧路径（无建议时不传） */
   suggestMapping?: string | null;
   onSubmit: (payload: DownloaderPayload) => Promise<void>;
-  onCancel: () => void;
-  onError: (message: string) => void;
+  onClose: () => void;
 }
 
 /** 已有映射按前缀已覆盖建议路径时不再追加，避免预填出冗余行。 */
@@ -1062,10 +929,10 @@ function DownloaderForm({
   downloader,
   suggestMapping = null,
   onSubmit,
-  onCancel,
-  onError,
+  onClose,
 }: DownloaderFormProps) {
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [clientType, setClientType] = useState<DownloaderClientType>(
     downloader?.client_type ?? "qbittorrent",
   );
@@ -1086,6 +953,11 @@ function DownloaderForm({
   );
   // 目录弹窗当前服务的字段："save" = 默认保存目录，数字 = 第 N 条映射的左列
   const [pickerTarget, setPickerTarget] = useState<"save" | number | null>(null);
+  // 体检跳转落地：抽屉打开即滚到路径映射，用户直接补下载器视角那一列
+  const mappingsRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (suggestMapping) mappingsRef.current?.scrollIntoView({ block: "start" });
+  }, [suggestMapping]);
 
   // 映射行要么删掉要么填完整：下载器侧必须是绝对路径
   const mappingsComplete = mappings.every(
@@ -1107,6 +979,7 @@ function DownloaderForm({
 
   function submit() {
     setBusy(true);
+    setError(null);
     void onSubmit({
       name: name.trim(),
       client_type: clientType,
@@ -1119,7 +992,7 @@ function DownloaderForm({
         : null,
       enabled: downloader?.enabled ?? true,
     })
-      .catch((e) => onError((e as Error).message))
+      .catch((e) => setError((e as Error).message))
       .finally(() => setBusy(false));
   }
 
@@ -1127,249 +1000,259 @@ function DownloaderForm({
     setMappings((prev) => prev.map((m, i) => (i === index ? { ...m, ...patch } : m)));
   }
 
-  const inputClass =
-    "w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-ui " +
-    "text-[var(--text)] outline-none focus:border-[var(--accent)]/60";
+  const inputClass = `${SETTINGS_INPUT_CLASS} w-full`;
   const labelClass = "mb-1.5 block text-sub font-medium text-[var(--text-muted)]";
 
   return (
-    <div className="space-y-4">
-      {/* 下载器类型 */}
-      <div>
-        <label className={labelClass}>下载器类型</label>
-        <div className="flex flex-wrap gap-2">
-          {(Object.keys(TYPE_LABEL) as DownloaderClientType[]).map((t) => (
-            <button
-              key={t}
-              type="button"
-              onClick={() => setClientType(t)}
-              data-active={clientType === t}
-              className="glass-row nav-item !w-auto px-3 py-1.5 text-sub font-medium"
-            >
-              {TYPE_LABEL[t]}
-            </button>
-          ))}
-        </div>
-      </div>
+    <SettingsDrawer
+      open
+      // 目录选择器叠在抽屉上时，同一下 Esc 只该关掉选择器
+      onClose={() => {
+        if (pickerTarget === null) onClose();
+      }}
+      title={downloader ? `编辑「${downloader.name}」` : "添加下载器"}
+      actions={
+        <>
+          <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={busy || !canSubmit}
+            className={SETTINGS_PRIMARY_BUTTON_CLASS}
+          >
+            {busy ? "保存中…" : downloader ? "保存" : "添加"}
+          </button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        {error && <ErrorBanner>{error}</ErrorBanner>}
 
-      <div>
-        <label className={labelClass}>名称</label>
-        <input
-          type="text"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="如：家里的 qBittorrent"
-          autoComplete="off"
-          className={inputClass}
-        />
-      </div>
-
-      <div>
-        <label className={labelClass}>
-          {clientType === "qbittorrent" ? "WebUI 地址" : "RPC 地址"}
-        </label>
-        <input
-          type="text"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder={URL_PLACEHOLDER[clientType]}
-          autoComplete="off"
-          className={inputClass}
-        />
-      </div>
-
-      {/* 凭证：未开鉴权的下载器可整体留空 */}
-      <div className="grid grid-cols-2 gap-3">
+        {/* 下载器类型 */}
         <div>
-          <label className={labelClass}>用户名（可选）</label>
+          <label className={labelClass}>下载器类型</label>
+          <div className="flex flex-wrap gap-2">
+            {(Object.keys(TYPE_LABEL) as DownloaderClientType[]).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setClientType(t)}
+                data-active={clientType === t}
+                className="glass-row nav-item !w-auto px-3 py-1.5 text-sub font-medium"
+              >
+                {TYPE_LABEL[t]}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className={labelClass}>名称</label>
           <input
             type="text"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="如：家里的 qBittorrent"
             autoComplete="off"
             className={inputClass}
           />
         </div>
+
         <div>
-          <label className={labelClass}>密码（可选）</label>
+          <label className={labelClass}>
+            {clientType === "qbittorrent" ? "WebUI 地址" : "RPC 地址"}
+          </label>
           <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder={downloader ? "出于安全，请重新填写" : ""}
-            autoComplete="new-password"
+            type="text"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder={URL_PLACEHOLDER[clientType]}
+            autoComplete="off"
             className={inputClass}
           />
         </div>
-      </div>
 
-      <div>
-        <label className={labelClass}>默认保存目录（可选）</label>
-        <div className="flex items-center gap-2">
+        {/* 凭证：未开鉴权的下载器可整体留空 */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className={labelClass}>用户名（可选）</label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              autoComplete="off"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className={labelClass}>密码（可选）</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder={downloader ? "出于安全，请重新填写" : ""}
+              autoComplete="new-password"
+              className={inputClass}
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className={labelClass}>默认保存目录（可选）</label>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPickerTarget("save")}
+              className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/[0.08] bg-black/25 px-3 py-1.5 text-left transition-colors hover:border-[var(--accent)]/50"
+            >
+              <FolderIcon className="size-4 shrink-0 text-[var(--accent)]/80" />
+              {savePath ? (
+                <span dir="rtl" className="min-w-0 flex-1 truncate font-mono text-ui text-[var(--text)]">
+                  {"‎" + savePath + "‎"}
+                </span>
+              ) : (
+                <span className="text-ui text-[var(--text-faint)]">浏览服务器目录并选择…</span>
+              )}
+            </button>
+            {savePath && (
+              <button
+                type="button"
+                onClick={() => setSavePath("")}
+                aria-label="清除默认保存目录"
+                className="glass-row !w-auto shrink-0 p-2"
+              >
+                <XIcon className="size-4" />
+              </button>
+            )}
+          </div>
+          <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
+            提交下载时文件的保存位置，从 movieclaw 能看到的目录里选择；下载器看到的路径不同时，
+            配合下方「路径映射」翻译。留空则使用下载器自己设置的默认下载目录
+            ——下载器与 movieclaw 没有共享目录的部署请留空。
+          </p>
+        </div>
+
+        {/* 路径映射：默认折叠，仅跨容器/跨主机部署需要展开配置 */}
+        <div ref={mappingsRef} className="scroll-mt-2">
           <button
             type="button"
-            onClick={() => setPickerTarget("save")}
-            className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-left transition-colors hover:border-[var(--accent)]/50"
+            onClick={() => setMappingsOpen((v) => !v)}
+            className="flex items-center gap-1.5 text-sub font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
           >
-            <FolderIcon className="size-4 shrink-0 text-[var(--accent)]/80" />
-            {savePath ? (
-              <span dir="rtl" className="min-w-0 flex-1 truncate font-mono text-ui text-[var(--text)]">
-                {"‎" + savePath + "‎"}
-              </span>
-            ) : (
-              <span className="text-ui text-[var(--text-faint)]">浏览服务器目录并选择…</span>
+            <span
+              className="inline-block transition-transform"
+              style={{ transform: mappingsOpen ? "rotate(90deg)" : undefined }}
+            >
+              ›
+            </span>
+            路径映射（可选）
+            {!mappingsOpen && mappings.length > 0 && (
+              <span className="text-[var(--text-faint)]">已配置 {mappings.length} 条</span>
             )}
           </button>
-          {savePath && (
-            <button
-              type="button"
-              onClick={() => setSavePath("")}
-              aria-label="清除默认保存目录"
-              className="glass-row !w-auto shrink-0 p-2"
-            >
-              <XIcon className="size-4" />
-            </button>
+          {mappingsOpen && (
+            <div className="mt-2.5 space-y-2.5">
+              <p className="text-caption leading-relaxed text-[var(--text-faint)]">
+                movieclaw 与下载器不在同一容器/主机、同一块盘两边路径不同时才需要：
+                提交下载前会把保存目录按前缀翻译成下载器视角。例如 movieclaw 看到的下载区是
+                <code className="mx-0.5 font-mono">/data/downloads</code>、下载器容器里是
+                <code className="mx-0.5 font-mono">/downloads</code>，则添加一条对照。留空表示两边路径一致。
+                注意：配了映射后，所有下载保存目录（含媒体库目录）都必须被某条映射覆盖，
+                否则会拒绝投递以防下载进下载器容器内的孤立路径；下载器能以相同路径直达的目录，
+                添加一条两边相同的映射即可。
+              </p>
+              {suggestMapping && (
+                <p className="rounded-lg bg-[var(--accent-soft)] px-3 py-2 text-caption leading-relaxed text-[var(--accent)]">
+                  已按体检建议预填映射的本机侧 {suggestMapping}——右侧填下载器视角的对应路径；
+                  下载器可直达同名路径时，点中间的 → 把左侧复制过去即可。
+                </p>
+              )}
+              {mappings.map((mapping, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPickerTarget(index)}
+                    title="movieclaw 上的路径（浏览选择）"
+                    className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-white/[0.08] bg-black/25 px-3 py-1.5 text-left transition-colors hover:border-[var(--accent)]/50"
+                  >
+                    <FolderIcon className="size-4 shrink-0 text-[var(--accent)]/80" />
+                    {mapping.local ? (
+                      <span dir="rtl" className="min-w-0 flex-1 truncate font-mono text-ui text-[var(--text)]">
+                        {"‎" + mapping.local + "‎"}
+                      </span>
+                    ) : (
+                      <span className="truncate text-ui text-[var(--text-faint)]">movieclaw 上的路径…</span>
+                    )}
+                  </button>
+                  {/* 箭头即按钮：两边路径一致时点一下把左侧复制到右侧，省去手动输入 */}
+                  <button
+                    type="button"
+                    onClick={() => setMapping(index, { remote: mapping.local })}
+                    disabled={!mapping.local}
+                    title="将左侧路径复制到右侧（两边路径一致时使用）"
+                    aria-label="将左侧路径复制到右侧"
+                    className="shrink-0 rounded-lg px-1.5 py-1 text-[var(--text-faint)] transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-[var(--accent)] disabled:cursor-default"
+                  >
+                    →
+                  </button>
+                  <input
+                    type="text"
+                    value={mapping.remote}
+                    onChange={(e) => setMapping(index, { remote: e.target.value })}
+                    placeholder="下载器上的路径，如 /downloads"
+                    autoComplete="off"
+                    className={`${inputClass} flex-1 font-mono`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setMappings((prev) => prev.filter((_, i) => i !== index))}
+                    aria-label="删除这条映射"
+                    className="glass-row !w-auto shrink-0 p-2"
+                  >
+                    <XIcon className="size-4" />
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setMappings((prev) => [...prev, { local: "", remote: "" }])}
+                className="btn-glass flex items-center gap-1 px-3 py-1.5 text-sub font-medium"
+              >
+                <PlusIcon className="size-3.5" />
+                添加映射
+              </button>
+              {!mappingsComplete ? (
+                <p className="text-caption text-[#ffb46b]">
+                  每条映射两边都要填：左边浏览选择，右边填下载器上以 / 开头的绝对路径；不需要的行请删除。
+                </p>
+              ) : !mappingsUnique ? (
+                <p className="text-caption text-[#ffb46b]">
+                  映射的路径不能重复：同一 movieclaw 路径或同一下载器路径只能出现一次，请修改或删除重复的行。
+                </p>
+              ) : null}
+            </div>
           )}
         </div>
-        <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
-          提交下载时文件的保存位置，从 movieclaw 能看到的目录里选择；下载器看到的路径不同时，
-          配合下方「路径映射」翻译。留空则使用下载器自己设置的默认下载目录
-          ——下载器与 movieclaw 没有共享目录的部署请留空。
-        </p>
-      </div>
 
-      {/* 路径映射：默认折叠，仅跨容器/跨主机部署需要展开配置 */}
-      <div>
-        <button
-          type="button"
-          onClick={() => setMappingsOpen((v) => !v)}
-          className="flex items-center gap-1.5 text-sub font-medium text-[var(--text-muted)] transition-colors hover:text-[var(--text)]"
-        >
-          <span
-            className="inline-block transition-transform"
-            style={{ transform: mappingsOpen ? "rotate(90deg)" : undefined }}
-          >
-            ›
-          </span>
-          路径映射（可选）
-          {!mappingsOpen && mappings.length > 0 && (
-            <span className="text-[var(--text-faint)]">已配置 {mappings.length} 条</span>
-          )}
-        </button>
-        {mappingsOpen && (
-          <div className="mt-2.5 space-y-2.5">
-            <p className="text-caption leading-relaxed text-[var(--text-faint)]">
-              movieclaw 与下载器不在同一容器/主机、同一块盘两边路径不同时才需要：
-              提交下载前会把保存目录按前缀翻译成下载器视角。例如 movieclaw 看到的下载区是
-              <code className="mx-0.5 font-mono">/data/downloads</code>、下载器容器里是
-              <code className="mx-0.5 font-mono">/downloads</code>，则添加一条对照。留空表示两边路径一致。
-              注意：配了映射后，所有下载保存目录（含媒体库目录）都必须被某条映射覆盖，
-              否则会拒绝投递以防下载进下载器容器内的孤立路径；下载器能以相同路径直达的目录，
-              添加一条两边相同的映射即可。
-            </p>
-            {suggestMapping && (
-              <p className="rounded-lg bg-[var(--accent-soft)] px-3 py-2 text-caption leading-relaxed text-[var(--accent)]">
-                已按体检建议预填映射的本机侧 {suggestMapping}——右侧填下载器视角的对应路径；
-                下载器可直达同名路径时，点中间的 → 把左侧复制过去即可。
-              </p>
-            )}
-            {mappings.map((mapping, index) => (
-              <div key={index} className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setPickerTarget(index)}
-                  title="movieclaw 上的路径（浏览选择）"
-                  className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-left transition-colors hover:border-[var(--accent)]/50"
-                >
-                  <FolderIcon className="size-4 shrink-0 text-[var(--accent)]/80" />
-                  {mapping.local ? (
-                    <span dir="rtl" className="min-w-0 flex-1 truncate font-mono text-ui text-[var(--text)]">
-                      {"‎" + mapping.local + "‎"}
-                    </span>
-                  ) : (
-                    <span className="truncate text-ui text-[var(--text-faint)]">movieclaw 上的路径…</span>
-                  )}
-                </button>
-                {/* 箭头即按钮：两边路径一致时点一下把左侧复制到右侧，省去手动输入 */}
-                <button
-                  type="button"
-                  onClick={() => setMapping(index, { remote: mapping.local })}
-                  disabled={!mapping.local}
-                  title="将左侧路径复制到右侧（两边路径一致时使用）"
-                  aria-label="将左侧路径复制到右侧"
-                  className="shrink-0 rounded-lg px-1.5 py-1 text-[var(--text-faint)] transition-colors enabled:hover:bg-white/[0.06] enabled:hover:text-[var(--accent)] disabled:cursor-default"
-                >
-                  →
-                </button>
-                <input
-                  type="text"
-                  value={mapping.remote}
-                  onChange={(e) => setMapping(index, { remote: e.target.value })}
-                  placeholder="下载器上的路径，如 /downloads"
-                  autoComplete="off"
-                  className={`${inputClass} flex-1 font-mono`}
-                />
-                <button
-                  type="button"
-                  onClick={() => setMappings((prev) => prev.filter((_, i) => i !== index))}
-                  aria-label="删除这条映射"
-                  className="glass-row !w-auto shrink-0 p-2"
-                >
-                  <XIcon className="size-4" />
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              onClick={() => setMappings((prev) => [...prev, { local: "", remote: "" }])}
-              className="btn-glass flex items-center gap-1 px-3 py-1.5 text-sub font-medium"
-            >
-              <PlusIcon className="size-3.5" />
-              添加映射
-            </button>
-            {!mappingsComplete ? (
-              <p className="text-caption text-[#ffb46b]">
-                每条映射两边都要填：左边浏览选择，右边填下载器上以 / 开头的绝对路径；不需要的行请删除。
-              </p>
-            ) : !mappingsUnique ? (
-              <p className="text-caption text-[#ffb46b]">
-                映射的路径不能重复：同一 movieclaw 路径或同一下载器路径只能出现一次，请修改或删除重复的行。
-              </p>
-            ) : null}
-          </div>
-        )}
+        <DirectoryPicker
+          open={pickerTarget !== null}
+          initialPath={
+            pickerTarget === "save"
+              ? savePath || undefined
+              : typeof pickerTarget === "number"
+                ? mappings[pickerTarget]?.local || undefined
+                : undefined
+          }
+          onClose={() => setPickerTarget(null)}
+          onSelect={(path) => {
+            if (pickerTarget === "save") setSavePath(path);
+            else if (typeof pickerTarget === "number") setMapping(pickerTarget, { local: path });
+            setPickerTarget(null);
+          }}
+        />
       </div>
-
-      <div className="flex items-center justify-end gap-3 pt-1">
-        <button type="button" onClick={onCancel} className="btn-glass px-3.5 py-2 text-ui font-medium">
-          取消
-        </button>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={busy || !canSubmit}
-          className="btn-accent rounded-full px-4.5 py-2 text-ui font-semibold disabled:opacity-40"
-        >
-          {busy ? "保存中…" : "保存"}
-        </button>
-      </div>
-
-      <DirectoryPicker
-        open={pickerTarget !== null}
-        initialPath={
-          pickerTarget === "save"
-            ? savePath || undefined
-            : typeof pickerTarget === "number"
-              ? mappings[pickerTarget]?.local || undefined
-              : undefined
-        }
-        onClose={() => setPickerTarget(null)}
-        onSelect={(path) => {
-          if (pickerTarget === "save") setSavePath(path);
-          else if (typeof pickerTarget === "number") setMapping(pickerTarget, { local: path });
-          setPickerTarget(null);
-        }}
-      />
-    </div>
+    </SettingsDrawer>
   );
 }

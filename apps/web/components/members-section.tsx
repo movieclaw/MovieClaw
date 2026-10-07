@@ -9,14 +9,21 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 import { AvatarBadge } from "@/components/avatar-badge";
 import { BrandLoader } from "@/components/brand-loader";
 import { copyText } from "@/components/copy-button";
 import { useConfirm, useToast } from "@/components/feedback";
-import { CheckIcon, MoreIcon, PlusIcon } from "@/components/icons";
+import { CheckIcon, PlusIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsEmpty,
+  SettingsMoreMenu,
+  SettingsSection,
+} from "@/components/settings-ui";
 import { listLibraries, type MediaLibrary } from "@/lib/api/libraries";
 import {
   createMember,
@@ -150,61 +157,61 @@ export function MembersSection() {
   };
 
   return (
-    <section>
-      <div className="mb-3 flex items-center justify-between gap-4">
-        <div>
-          <h3 className="text-body font-semibold text-[var(--text)]">成员账号</h3>
-          <p className="mt-0.5 text-caption text-[var(--text-faint)]">
-            管理登录状态、功能权限和可见媒体库
-          </p>
-        </div>
+    <SettingsSection
+      title="成员账号"
+      description={
+        members && members.length > 0
+          ? `${members.length} 位成员 · 管理登录状态、功能权限和可见媒体库`
+          : "管理登录状态、功能权限和可见媒体库"
+      }
+      action={
         <button
           type="button"
           onClick={() => setCreating(true)}
-          className="btn-accent flex shrink-0 items-center gap-1.5 rounded-full px-4 py-2 text-sub font-semibold"
+          className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1`}
         >
           <PlusIcon className="size-4" />
           添加成员
         </button>
-      </div>
-
-      <div className="css-glass overflow-hidden !rounded-xl">
-        <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,.8fr)_minmax(88px,130px)_36px] gap-4 border-b border-white/[0.07] px-4 py-2.5 text-caption font-medium text-[var(--text-faint)] max-md:hidden">
-          <span>成员</span>
-          <span>功能权限</span>
-          <span>媒体库范围</span>
-          <span>最近活动</span>
-          <span className="sr-only">操作</span>
+      }
+    >
+      {members !== null && members.length === 0 ? (
+        <SettingsEmpty
+          title="还没有成员账号"
+          description="添加后即可分别控制订阅、搜索和媒体库可见范围。"
+        />
+      ) : (
+        <div className="css-glass overflow-hidden !rounded-xl">
+          <div className="grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(0,.8fr)_minmax(88px,130px)_36px] gap-4 border-b border-[var(--line)] px-4 py-2.5 text-caption font-medium text-[var(--text-faint)] max-md:hidden">
+            <span>成员</span>
+            <span>功能权限</span>
+            <span>媒体库范围</span>
+            <span>最近活动</span>
+            <span className="sr-only">操作</span>
+          </div>
+          {members === null ? (
+            <div className="flex items-center justify-center gap-2 px-5 py-10 text-ui text-[var(--text-muted)]">
+              <BrandLoader className="size-5" />
+              正在加载成员…
+            </div>
+          ) : (
+            <div className="divide-y divide-[var(--line)]">
+              {members.map((member) => (
+                <MemberTableRow
+                  key={member.id}
+                  member={member}
+                  libraries={libraries}
+                  onEdit={() => setEditing(member)}
+                  onResetPassword={() => void resetPassword(member)}
+                  onSignOut={() => void signOutEverywhere(member)}
+                  onToggleStatus={() => void toggleStatus(member)}
+                  onDelete={() => void removeMember(member)}
+                />
+              ))}
+            </div>
+          )}
         </div>
-        {members === null ? (
-          <div className="flex items-center justify-center gap-2 px-5 py-10 text-ui text-[var(--text-muted)]">
-            <BrandLoader className="size-5" />
-            正在加载成员…
-          </div>
-        ) : members.length === 0 ? (
-          <div className="px-5 py-10 text-center">
-            <p className="text-body font-medium text-[var(--text)]">还没有成员账号</p>
-            <p className="mt-1 text-sub text-[var(--text-muted)]">
-              添加后即可分别控制订阅、搜索和媒体库可见范围。
-            </p>
-          </div>
-        ) : (
-          <div className="divide-y divide-white/[0.055]">
-            {members.map((member) => (
-              <MemberTableRow
-                key={member.id}
-                member={member}
-                libraries={libraries}
-                onEdit={() => setEditing(member)}
-                onResetPassword={() => void resetPassword(member)}
-                onSignOut={() => void signOutEverywhere(member)}
-                onToggleStatus={() => void toggleStatus(member)}
-                onDelete={() => void removeMember(member)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
+      )}
 
       <CreateMemberDialog
         open={creating}
@@ -232,7 +239,7 @@ export function MembersSection() {
       )}
 
       <PasswordResultDialog result={passwordResult} onClose={() => setPasswordResult(null)} />
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -343,57 +350,25 @@ function MemberActionsMenu({
   onToggleStatus: () => void;
   onDelete: () => void;
 }) {
-  const itemClass =
-    "glass-row nav-item cursor-pointer px-3 py-2 text-sub font-medium outline-none " +
-    "data-[highlighted]:!bg-[var(--glass-fill-hover)] data-[highlighted]:!text-[var(--text)]";
-
   return (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger asChild>
-        <button
-          type="button"
-          aria-label={`${member.nickname} 的更多操作`}
-          title="更多操作"
-          className="glass-row !size-8 justify-center !p-0 data-[state=open]:!bg-[var(--glass-fill-active)] data-[state=open]:!text-[var(--text)] max-md:col-start-2 max-md:row-start-1"
-        >
-          <MoreIcon className="size-4" />
-        </button>
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={6}
-          collisionPadding={12}
-          className="menu-surface z-50 min-w-[9rem] p-1"
-        >
-          <DropdownMenu.Item onSelect={onEdit} className={itemClass}>
-            编辑成员
-          </DropdownMenu.Item>
-          <DropdownMenu.Item onSelect={onResetPassword} className={itemClass}>
-            重置密码
-          </DropdownMenu.Item>
-          {/* 停用的成员设备早已全部注销，这一项对他没有意义 */}
-          {member.status === "active" && (
-            <DropdownMenu.Item onSelect={onSignOut} className={itemClass}>
-              全部下线
-            </DropdownMenu.Item>
-          )}
-          <DropdownMenu.Separator className="my-1 h-px bg-white/[0.07]" />
-          <DropdownMenu.Item
-            onSelect={onToggleStatus}
-            className={`${itemClass} ${member.status === "active" ? "!text-[#ffb36b] data-[highlighted]:!bg-[#ffb36b]/10" : ""}`}
-          >
-            {member.status === "active" ? "停用成员" : "启用成员"}
-          </DropdownMenu.Item>
-          <DropdownMenu.Item
-            onSelect={onDelete}
-            className={`${itemClass} !text-[#ff6b6b] data-[highlighted]:!bg-[#ff6b6b]/10`}
-          >
-            删除成员
-          </DropdownMenu.Item>
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+    // 手机上 ⋯ 挪到首行右侧（网格定位留在外层，菜单本身用统一组件）
+    <div className="max-md:col-start-2 max-md:row-start-1">
+      <SettingsMoreMenu
+        label={`${member.nickname} 的更多操作`}
+        items={[
+          { label: "编辑成员", onSelect: onEdit },
+          { label: "重置密码", onSelect: onResetPassword },
+          // 停用的成员设备早已全部注销，这一项对他没有意义
+          ...(member.status === "active" ? [{ label: "全部下线", onSelect: onSignOut }] : []),
+          {
+            label: member.status === "active" ? "停用成员" : "启用成员",
+            onSelect: onToggleStatus,
+            warn: member.status === "active",
+          },
+          { label: "删除成员", onSelect: onDelete, danger: true },
+        ]}
+      />
+    </div>
   );
 }
 
@@ -480,14 +455,14 @@ function CreateMemberDialog({
         </div>
 
         <div className="mt-6 flex justify-end gap-3">
-          <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
+          <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
             取消
           </button>
           <button
             type="button"
             disabled={busy}
             onClick={() => void submit()}
-            className="btn-accent h-9 rounded-full px-5 text-ui font-semibold disabled:opacity-40"
+            className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
             {busy ? "创建中…" : "创建成员"}
           </button>
@@ -705,14 +680,14 @@ function EditMemberDialog({
       </div>
 
       <div className="flex shrink-0 justify-end gap-3 border-t border-white/[0.07] px-6 py-4 max-md:px-5">
-        <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
+        <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
           取消
         </button>
         <button
           type="button"
           disabled={busy}
           onClick={() => void save()}
-          className="btn-accent flex h-9 items-center gap-1.5 rounded-full px-5 text-ui font-semibold disabled:opacity-40"
+          className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1.5`}
         >
           <CheckIcon className="size-4" />
           {busy ? "保存中…" : "保存设置"}
@@ -751,7 +726,7 @@ function PasswordResultDialog({
           </CopySurface>
         </div>
         <div className="mt-5 flex justify-end">
-          <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
+          <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
             完成
           </button>
         </div>
@@ -760,8 +735,7 @@ function PasswordResultDialog({
   );
 }
 
-const INPUT_CLASS =
-  "w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5 text-ui text-[var(--text)] outline-none focus:border-[var(--accent)]/60";
+const INPUT_CLASS = `${SETTINGS_INPUT_CLASS} w-full`;
 
 function Field({
   label,

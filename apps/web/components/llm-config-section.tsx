@@ -2,9 +2,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { ErrorBanner } from "@/components/cloud-push-ui";
 import { useConfirm } from "@/components/feedback";
-import { SparkIcon } from "@/components/icons";
+import { PlusIcon, SparkIcon } from "@/components/icons";
 import { useLlmCapability } from "@/components/llm-gate";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsEmpty,
+  SettingsList,
+  SettingsMoreMenu,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings-ui";
 import {
   type LlmModelInfo,
   type LlmPreset,
@@ -107,126 +118,111 @@ export function LlmConfigSection() {
   }
 
   return (
-    <div className="space-y-5">
-      {error && (
-        <div
-          role="alert"
-          className="rounded-xl border border-[#ff6b6b]/30 bg-[#ff6b6b]/10 px-4 py-3 text-body text-[#ff6b6b]"
-        >
-          {error}
-        </div>
-      )}
+    <div className="space-y-10">
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
-      {editing === null && (
-        <p className="text-sub leading-relaxed text-[var(--text-muted)]">
-          {loading
-            ? "加载中…"
-            : providers.length === 0
-              ? "接入一个或多个大语言模型供应商，AI 能力（对话助手、字幕处理、智能识别等）将由它们驱动。"
-              : "接入后该供应商目录里的全部模型都可在对话框里选用；各场景默认用哪个模型，在「AI 设定」里配置。"}
-        </p>
-      )}
-
-      {loading ? (
-        <div className="h-[104px] animate-pulse rounded-xl bg-white/[0.04]" />
-      ) : editing !== null ? (
+      {editing !== null ? (
         /* 编辑态只保留表单，避免状态卡在小屏重复占据首屏 */
-        <div className="css-glass !rounded-2xl p-5 max-sm:p-4">
-          <div className="mb-6">
-            <p className="text-body font-semibold text-[var(--text)]">
-              {editing === "new" ? "接入模型供应商" : `编辑「${editing.name}」`}
-            </p>
-            <p className="mt-1 text-sub leading-relaxed text-[var(--text-muted)]">
-              保存后系统会自动测试连接。
-            </p>
-          </div>
-          <LlmProviderForm
-            config={editing === "new" ? null : editing}
-            presets={presets}
-            // 其它实例已占用的名字：留空按供应商名保存时据此加序号，避免撞唯一名
-            takenNames={providers
-              .filter((p) => editing === "new" || p.id !== editing.id)
-              .map((p) => p.name)}
-            onSubmit={async (payload) => {
-              if (editing === "new") await createLlmProvider(payload);
-              else await updateLlmProvider(editing.id, payload);
-              setEditing(null);
-              await afterChange();
-            }}
-            onCancel={() => setEditing(null)}
-            onError={setError}
-          />
-        </div>
-      ) : providers.length === 0 ? (
-        /* 空态：一个都没接入 */
-        <div className="css-glass flex flex-col items-center gap-3 !rounded-2xl px-6 py-12 text-center max-sm:px-4 max-sm:py-9">
-          <span className="icon-chip size-12 !rounded-2xl">
-            <SparkIcon className="size-6" />
-          </span>
-          <div>
-            <p className="text-body font-medium text-[var(--text)]">还没有接入模型供应商</p>
-            <p className="mt-1 text-sub text-[var(--text-muted)]">
-              支持 OpenAI、阿里云百炼，以及任何 OpenAI 兼容端点（如自建 vLLM / Ollama）。
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setEditing("new")}
-            className="btn-accent mt-1 min-h-10 rounded-full px-5 py-2 text-sub font-semibold max-sm:w-full"
-          >
-            接入模型供应商
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {providers.map((config) => (
-            <ProviderCard
-              key={config.id}
-              config={config}
-              preset={presets.find((p) => p.id === config.provider_type)}
-              busy={busy}
-              onEdit={() => setEditing(config)}
-              onReverify={() =>
-                void guard(async () => {
-                  await reverifyLlmProvider(config.id);
-                  await load();
-                })
-              }
-              onDelete={() =>
-                void guard(async () => {
-                  if (
-                    !(await confirm({
-                      title: `删除「${config.name}」？`,
-                      description:
-                        "它目录里的模型将不可再选；AI 设定中指向它的默认模型会自动兜底到其它已接入的供应商。",
-                      confirmLabel: "删除",
-                      tone: "danger",
-                    }))
-                  ) {
-                    return;
-                  }
-                  await deleteLlmProvider(config.id);
-                  await afterChange();
-                })
-              }
+        <SettingsSection
+          title={editing === "new" ? "接入模型供应商" : `编辑「${editing.name}」`}
+          description="保存后系统会自动测试连接。"
+        >
+          <div className="css-glass !rounded-xl p-5 max-sm:p-4">
+            <LlmProviderForm
+              config={editing === "new" ? null : editing}
+              presets={presets}
+              // 其它实例已占用的名字：留空按供应商名保存时据此加序号，避免撞唯一名
+              takenNames={providers
+                .filter((p) => editing === "new" || p.id !== editing.id)
+                .map((p) => p.name)}
+              onSubmit={async (payload) => {
+                if (editing === "new") await createLlmProvider(payload);
+                else await updateLlmProvider(editing.id, payload);
+                setEditing(null);
+                await afterChange();
+              }}
+              onCancel={() => setEditing(null)}
+              onError={setError}
             />
-          ))}
-          <button
-            type="button"
-            onClick={() => setEditing("new")}
-            className="btn-glass min-h-10 w-full px-3 py-2 text-sub font-medium"
-          >
-            ＋ 接入另一家供应商
-          </button>
-        </div>
+          </div>
+        </SettingsSection>
+      ) : (
+        <SettingsSection
+          title="供应商"
+          description={
+            loading
+              ? "加载中…"
+              : providers.length === 0
+                ? "接入一个或多个大语言模型供应商，AI 能力（对话助手、字幕处理、智能识别等）将由它们驱动。"
+                : "接入后该供应商目录里的全部模型都可在对话框里选用；各场景默认用哪个模型，在「AI 设定」里配置。"
+          }
+          action={
+            !loading && (
+              <button
+                type="button"
+                onClick={() => setEditing("new")}
+                className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1`}
+              >
+                <PlusIcon className="size-4" />
+                接入供应商
+              </button>
+            )
+          }
+        >
+          {loading ? (
+            <div className="h-[104px] animate-pulse rounded-xl bg-white/[0.04]" />
+          ) : providers.length === 0 ? (
+            /* 空态：一个都没接入；入口在小节标题行右侧 */
+            <SettingsEmpty
+              icon={<SparkIcon className="size-5" />}
+              title="还没有接入模型供应商"
+              description="支持 OpenAI、阿里云百炼，以及任何 OpenAI 兼容端点（如自建 vLLM / Ollama）。"
+            />
+          ) : (
+            <SettingsList>
+              {providers.map((config) => (
+                <ProviderRow
+                  key={config.id}
+                  config={config}
+                  preset={presets.find((p) => p.id === config.provider_type)}
+                  busy={busy}
+                  onEdit={() => setEditing(config)}
+                  onReverify={() =>
+                    void guard(async () => {
+                      await reverifyLlmProvider(config.id);
+                      await load();
+                    })
+                  }
+                  onDelete={() =>
+                    void guard(async () => {
+                      if (
+                        !(await confirm({
+                          title: `删除「${config.name}」？`,
+                          description:
+                            "它目录里的模型将不可再选；AI 设定中指向它的默认模型会自动兜底到其它已接入的供应商。",
+                          confirmLabel: "删除",
+                          tone: "danger",
+                        }))
+                      ) {
+                        return;
+                      }
+                      await deleteLlmProvider(config.id);
+                      await afterChange();
+                    })
+                  }
+                />
+              ))}
+            </SettingsList>
+          )}
+        </SettingsSection>
       )}
     </div>
   );
 }
 
-/* —— 实例卡片：名称 + 状态 + 连接信息 + 操作行 —— */
+/* —— 实例行：名称 + 状态 + 连接信息，行尾编辑 + ⋯ 菜单 —— */
 
-function ProviderCard({
+function ProviderRow({
   config,
   preset,
   busy,
@@ -241,77 +237,69 @@ function ProviderCard({
   onReverify: () => void;
   onDelete: () => void;
 }) {
+  const summary = [
+    preset?.display_name ?? config.provider_type,
+    // 自定义端点的目录是用户补录的，条数比测试模型更有信息量
+    config.extra_models.length > 0 ? `${config.extra_models.length} 个自定义模型` : null,
+    `上次检查 ${formatRelativeTime(config.last_checked_at)}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  // 端点与连接测试模型一眼可核对；UA 仅在用户覆盖过时展示——没配的用户不需要知道有这回事
+  const connection = [
+    config.base_url ?? preset?.base_url ?? "官方默认",
+    `测试模型 ${config.default_model}`,
+    config.user_agent ? `UA ${config.user_agent}` : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   return (
-    <div className="css-glass overflow-hidden !rounded-2xl">
-      <div className="p-4 max-sm:p-3.5">
-        <div className="flex items-start gap-3.5">
-          <span className="icon-chip size-10 !rounded-xl">
-            <SparkIcon className="size-5" />
+    <SettingsRow
+      leading={
+        <span className="icon-chip size-9 !rounded-xl">
+          <SparkIcon className="size-[18px]" />
+        </span>
+      }
+      label={
+        <span className="flex flex-wrap items-center gap-2">
+          <span className="min-w-0 truncate">{config.name}</span>
+          <StatusPill status={config.status} />
+        </span>
+      }
+      description={
+        <>
+          <span className="block break-all">{connection}</span>
+          {/* 连接失败的原因可能是整段上游报错：最多三行，完整内容悬停可见 */}
+          <span
+            title={config.status === "failed" ? (config.last_error ?? undefined) : undefined}
+            className={`block ${
+              config.status === "failed" && config.last_error
+                ? "line-clamp-3 break-words text-[var(--danger)]"
+                : ""
+            }`}
+          >
+            {config.status === "failed" && config.last_error ? config.last_error : summary}
           </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <p className="truncate text-body font-semibold text-[var(--text)]">{config.name}</p>
-              <StatusPill status={config.status} />
-            </div>
-            <p
-              className={`mt-1 text-caption leading-relaxed ${
-                config.status === "failed"
-                  ? "break-words text-[#ff9b9b]"
-                  : "text-[var(--text-faint)]"
-              }`}
-            >
-              {config.status === "failed" && config.last_error
-                ? config.last_error
-                : [
-                    preset?.display_name ?? config.provider_type,
-                    // 自定义端点的目录是用户补录的，条数比测试模型更有信息量
-                    config.extra_models.length > 0
-                      ? `${config.extra_models.length} 个自定义模型`
-                      : null,
-                    `上次检查 ${formatRelativeTime(config.last_checked_at)}`,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* 连接信息带：端点与默认模型，一眼可核对 */}
-      <div className="grid grid-cols-2 gap-x-7 gap-y-3 border-t border-white/[0.06] px-4 py-3 max-sm:grid-cols-1 max-sm:px-3.5">
-        <InfoStat label="API 端点" value={config.base_url ?? preset?.base_url ?? "官方默认"} />
-        <InfoStat label="连接测试模型" value={config.default_model} />
-        {/* 仅在用户覆盖过 UA 时展示——没配的用户不需要知道有这回事 */}
-        {config.user_agent && <InfoStat label="User-Agent" value={config.user_agent} />}
-      </div>
-
-      {/* 操作独占一行，避免窄屏时与名称、状态互相挤压 */}
-      <div className="grid grid-cols-3 gap-2 border-t border-white/[0.06] p-3 max-[360px]:grid-cols-1">
-        <button
-          type="button"
-          onClick={onEdit}
-          className="btn-glass min-h-10 px-3 py-2 text-sub font-medium"
-        >
-          编辑配置
-        </button>
-        <button
-          type="button"
-          disabled={busy || IN_PROGRESS.includes(config.status)}
-          onClick={onReverify}
-          className="btn-glass min-h-10 px-3 py-2 text-sub font-medium disabled:opacity-40"
-        >
-          重新测试
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={onDelete}
-          className="btn-glass min-h-10 px-3 py-2 text-sub font-medium !text-[#ff7d7d] disabled:opacity-40"
-        >
-          删除
-        </button>
-      </div>
-    </div>
+        </>
+      }
+    >
+      <button type="button" disabled={busy} onClick={onEdit} className={SETTINGS_BUTTON_CLASS}>
+        编辑
+      </button>
+      <SettingsMoreMenu
+        label={`「${config.name}」的更多操作`}
+        disabled={busy}
+        items={[
+          {
+            label: "重新测试",
+            onSelect: onReverify,
+            disabled: IN_PROGRESS.includes(config.status),
+          },
+          { label: "删除…", onSelect: onDelete, danger: true },
+        ]}
+      />
+    </SettingsRow>
   );
 }
 
@@ -325,20 +313,6 @@ function StatusPill({ status }: { status: LlmProviderStatus }) {
       <span className="size-1.5 rounded-full" style={{ background: meta.color }} />
       {meta.label}
     </span>
-  );
-}
-
-function InfoStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="min-w-0">
-      <p className="text-micro text-[var(--text-faint)]">{label}</p>
-      <p
-        className="mt-0.5 break-all text-ui font-semibold leading-relaxed text-[var(--text)]"
-        title={value}
-      >
-        {value}
-      </p>
-    </div>
   );
 }
 
@@ -571,10 +545,8 @@ function LlmProviderForm({
       .finally(() => setBusy(false));
   }
 
-  const inputClass =
-    "min-h-11 w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 " +
-    "text-[16px] text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] " +
-    "focus:border-[var(--accent)]/60 sm:text-ui";
+  // 移动端 16px 字号：iOS 小于 16px 的输入框聚焦会整页放大
+  const inputClass = `${SETTINGS_INPUT_CLASS} w-full max-sm:text-[16px]`;
   const labelClass = "mb-1.5 block text-sub font-medium text-[var(--text-muted)]";
 
   return (
@@ -964,7 +936,7 @@ function LlmProviderForm({
                 type="button"
                 onClick={addCustomModel}
                 disabled={!draftValid}
-                className="btn-accent min-h-9 rounded-full px-4 py-1.5 text-sub font-semibold disabled:opacity-40"
+                className={SETTINGS_BUTTON_CLASS}
               >
                 添加到目录
               </button>
@@ -974,7 +946,7 @@ function LlmProviderForm({
                   setDraft(EMPTY_DRAFT);
                   setAddingCustom(false);
                 }}
-                className="btn-glass min-h-9 px-3 py-1.5 text-sub font-medium"
+                className={SETTINGS_BUTTON_CLASS}
               >
                 取消
               </button>
@@ -995,7 +967,7 @@ function LlmProviderForm({
         <button
           type="button"
           onClick={onCancel}
-          className="btn-glass min-h-11 flex-1 px-3.5 py-2 text-ui font-medium sm:flex-none"
+          className={`${SETTINGS_BUTTON_CLASS} max-sm:flex-1`}
         >
           取消
         </button>
@@ -1003,7 +975,7 @@ function LlmProviderForm({
           type="button"
           onClick={submit}
           disabled={busy || !canSubmit}
-          className="btn-accent min-h-11 flex-[1.6] rounded-full px-4.5 py-2 text-ui font-semibold disabled:opacity-40 sm:flex-none"
+          className={`${SETTINGS_PRIMARY_BUTTON_CLASS} max-sm:flex-[1.6]`}
         >
           {busy ? "保存中…" : "保存并测试连接"}
         </button>

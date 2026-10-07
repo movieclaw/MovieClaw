@@ -32,6 +32,15 @@ import {
 import { useConfirm, useToast } from "@/components/feedback";
 import { CloudIcon, InfoIcon } from "@/components/icons";
 import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_DANGER_BUTTON_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsCard,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings-ui";
+import {
   type CloudConnectionView,
   type CloudPairingView,
   type CloudStatusView,
@@ -183,48 +192,39 @@ function DisconnectedView({
         </Banner>
       )}
 
-      <div className="css-glass flex items-start gap-4 !rounded-2xl p-6 max-sm:flex-col max-sm:p-5">
-        <span className="icon-chip size-12 !rounded-2xl">
-          <CloudIcon className="size-[22px]" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-body-lg font-semibold text-[var(--text)]">还没有连接</p>
-          <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
-            连接后，家人手机上的 MovieClaw App 就能收到通知。连接需要一个 MovieClaw 账号（Apple、Google
-            或邮箱都行），只有你（管理员）需要，家人不用。
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2.5">
-            <button
-              type="button"
-              onClick={onConnect}
-              className="btn-accent rounded-full px-4 py-2 text-ui font-semibold"
-            >
-              连接到 MovieClaw 账号
-            </button>
+      <div>
+        <SettingsCard
+          title="还没有连接"
+          description="连接后，家人手机上的 MovieClaw App 就能收到通知。连接需要一个 MovieClaw 账号（Apple、Google 或邮箱都行），只有你（管理员）需要，家人不用。"
+          hint={
             <a
               href={cloudReportsInfoUrl(status.cloud_url)}
               target="_blank"
               rel="noopener noreferrer"
-              className="btn-glass px-4 py-2 text-ui font-medium"
+              className={LINK_CLASS}
             >
               会向 MovieClaw Cloud 上报哪些信息？
             </a>
-          </div>
-        </div>
+          }
+          action={
+            <button type="button" onClick={onConnect} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
+              连接到 MovieClaw 账号
+            </button>
+          }
+        />
+        {/* 给不连接的人留出口：卡片下方一行补充说明，不再另起一条横幅 */}
+        <p className="mt-2 px-1 text-caption leading-5 text-[var(--text-faint)]">
+          只想用微信、Telegram 收通知？不用连接，去{" "}
+          <Link href="/settings/im-push" className={LINK_CLASS}>
+            IM 推送
+          </Link>
+          。自己打包了 App？去{" "}
+          <Link href="/settings/app-push" className={LINK_CLASS}>
+            App 推送
+          </Link>{" "}
+          添加自建中继。
+        </p>
       </div>
-
-      {/* 给不连接的人留出口 */}
-      <Banner tone="info">
-        只想用微信、Telegram 收通知？不用连接，去{" "}
-        <Link href="/settings/im-push" className={LINK_CLASS}>
-          IM 推送
-        </Link>
-        。自己打包了 App？去{" "}
-        <Link href="/settings/app-push" className={LINK_CLASS}>
-          App 推送
-        </Link>{" "}
-        添加自建中继。
-      </Banner>
     </div>
   );
 }
@@ -240,36 +240,34 @@ function PairingCard({
 }) {
   const pending = pairing == null || pairing.status === "pending";
   return (
-    <div className="css-glass flex items-center gap-4 !rounded-2xl p-5 max-sm:flex-col max-sm:items-start">
-      <span className="icon-chip size-11 !rounded-2xl">
-        <CloudIcon className="size-5" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="flex items-center gap-2 text-body font-semibold text-[var(--text)]">
-          {pending && <Spinner />}
-          {pending ? "正在等待在官网批准" : "这次连接没有完成"}
-        </p>
-        <p className="mt-0.5 text-sub leading-6 text-[var(--text-muted)]">
-          {pairing == null ? (
-            "正在申请配对码…"
-          ) : pending ? (
-            <>
-              配对码 <span className="font-mono text-[var(--text)]">{pairing.user_code}</span>
-              ，在官网批准后这里会自动变成已连接。
-            </>
-          ) : (
-            pairingFailureText(pairing.status, pairing.message)
-          )}
-        </p>
-      </div>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="btn-accent shrink-0 rounded-full px-4 py-1.5 text-sub font-semibold"
-      >
-        {pending ? "查看配对码" : "重新连接"}
-      </button>
-    </div>
+    <SettingsCard
+      title={pending ? "正在等待在官网批准" : "这次连接没有完成"}
+      description={
+        pairing == null ? (
+          "正在申请配对码…"
+        ) : pending ? (
+          <>
+            配对码 <span className="font-mono text-[var(--text)]">{pairing.user_code}</span>
+            ，在官网批准后这里会自动变成已连接。
+          </>
+        ) : (
+          pairingFailureText(pairing.status, pairing.message)
+        )
+      }
+      hint={
+        pending && (
+          <span className="flex items-center gap-2">
+            <Spinner />
+            等待批准中
+          </span>
+        )
+      }
+      action={
+        <button type="button" onClick={onOpen} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
+          {pending ? "查看配对码" : "重新连接"}
+        </button>
+      }
+    />
   );
 }
 
@@ -374,85 +372,88 @@ function ConnectedView({ status, run }: { status: CloudStatusView; run: Run }) {
   };
 
   return (
-    <div className="space-y-6">
-      {tone && (
-        <Banner
-          tone={tone}
-          action={
-            <button
-              type="button"
-              disabled={busy != null}
-              onClick={() => void renew()}
-              className="btn-glass px-3 py-1.5 text-sub font-medium disabled:opacity-40"
+    <div className="space-y-10">
+      {(tone || notices.length > 0) && (
+        <div className="space-y-4">
+          {tone && (
+            <Banner
+              tone={tone}
+              action={
+                <button
+                  type="button"
+                  disabled={busy != null}
+                  onClick={() => void renew()}
+                  className={SETTINGS_BUTTON_CLASS}
+                >
+                  {busy === "renew" ? "同步中…" : "立即同步"}
+                </button>
+              }
             >
-              {busy === "renew" ? "同步中…" : "立即同步"}
-            </button>
-          }
-        >
-          {healthMessage(status.health, status.health_message)}
-        </Banner>
-      )}
+              {healthMessage(status.health, status.health_message)}
+            </Banner>
+          )}
 
-      {notices.map((notice) => (
-        <Banner
-          key={notice.id}
-          tone={noticeTone(notice.level)}
-          title="来自 MovieClaw 的通知"
-          onDismiss={() => void dismiss(notice.id)}
-          dismissLabel="关闭这条通知"
-        >
-          {notice.message}
-        </Banner>
-      ))}
+          {notices.map((notice) => (
+            <Banner
+              key={notice.id}
+              tone={noticeTone(notice.level)}
+              title="来自 MovieClaw 的通知"
+              onDismiss={() => void dismiss(notice.id)}
+              dismissLabel="关闭这条通知"
+            >
+              {notice.message}
+            </Banner>
+          ))}
+        </div>
+      )}
 
       <SummaryCard status={status} connection={connection} manageUrl={manageUrl} />
 
-      <section>
-        <h3 className="group-label mb-2.5 px-1">上报</h3>
-        <div className="css-glass !rounded-2xl">
-          <div className="flex items-center gap-3.5 px-5 py-4 max-sm:px-4">
-            <div className="min-w-0 flex-1">
-              <p className="text-body font-medium text-[var(--text)]">上报统计信息</p>
-              <p className="mt-0.5 text-caption leading-5 text-[var(--text-faint)]">
-                按平台和 App 版本汇总的设备数、官方推送能不能连通。关掉后只上报版本信息，推送不受影响，只是官网上少一些展示
-              </p>
-            </div>
+      <SettingsSection
+        title="上报"
+        footnote={
+          <a
+            href={cloudReportsInfoUrl(status.cloud_url)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={LINK_CLASS}
+          >
+            连接后会向 MovieClaw Cloud 上报哪些信息？
+          </a>
+        }
+      >
+        <SettingsList>
+          <SettingsRow
+            label="上报统计信息"
+            description="按平台和 App 版本汇总的设备数、官方推送能不能连通。关掉后只上报版本信息，推送不受影响，只是官网上少一些展示"
+          >
             <Toggle
               checked={reportStats}
               label="上报统计信息"
               disabled={statsDraft != null}
               onChange={(next) => void toggleStats(next)}
             />
-          </div>
-          <div className="border-t border-white/[0.06] px-5 py-3.5 max-sm:px-4">
-            <a
-              href={cloudReportsInfoUrl(status.cloud_url)}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={`text-sub ${LINK_CLASS}`}
-            >
-              连接后会向 MovieClaw Cloud 上报哪些信息？
-            </a>
-          </div>
-        </div>
-      </section>
+          </SettingsRow>
+        </SettingsList>
+      </SettingsSection>
 
-      <div className="css-glass flex items-center gap-3.5 !rounded-2xl px-5 py-4 max-sm:px-4">
-        <div className="min-w-0 flex-1">
-          <p className="text-body font-medium text-[var(--text)]">断开连接</p>
-          <p className="mt-0.5 text-caption leading-5 text-[var(--text-faint)]">
-            家人手机上的官方推送会立即停止。自建中继不受影响
-          </p>
-        </div>
-        <button
-          type="button"
-          disabled={busy != null}
-          onClick={() => void disconnect()}
-          className="btn-glass shrink-0 px-3.5 py-1.5 text-sub font-medium !text-[var(--danger)] disabled:opacity-40"
-        >
-          {busy === "disconnect" ? "断开中…" : "断开"}
-        </button>
-      </div>
+      <SettingsSection title="危险操作">
+        <SettingsCard
+          tone="danger"
+          title="断开连接"
+          description="家人手机上的官方推送会立即停止。自建中继不受影响"
+          action={
+            <button
+              type="button"
+              disabled={busy != null}
+              onClick={() => void disconnect()}
+              className={SETTINGS_DANGER_BUTTON_CLASS}
+            >
+              {busy === "disconnect" ? "断开中…" : "断开"}
+            </button>
+          }
+        />
+      </SettingsSection>
     </div>
   );
 }
@@ -474,70 +475,75 @@ function SummaryCard({
     : null;
 
   return (
-    <div className="css-glass !rounded-2xl">
-      <div className="flex flex-wrap items-start gap-x-3.5 gap-y-3 px-5 py-4 max-sm:px-4">
-        <span className="icon-chip size-11 !rounded-2xl">
-          <CloudIcon className="size-5" />
-        </span>
-        {/* 窄屏上文字列占满图标右侧（图标 44px + 间距 14px，再留一点余量），「在官网管理」换到下一行 */}
-        <div className="min-w-0 flex-1 max-sm:basis-[calc(100%-64px)]">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <p className="min-w-0 truncate text-body-lg font-semibold text-[var(--text)]">
-              {connection?.instance_name || status.server_name}
-            </p>
-            <StatusPill tone="ok" label="已连接" />
-          </div>
-          <p className="mt-1 text-sub text-[var(--text-muted)]">
-            {connectedAccountLine(connection?.account_display)}
-          </p>
-          {timeline && <p className="mt-0.5 text-caption text-[var(--text-faint)]">{timeline}</p>}
-        </div>
-        <a
-          href={manageUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="btn-glass shrink-0 px-3 py-1.5 text-sub font-medium max-sm:ml-[58px]"
-        >
-          在官网管理 ↗
-        </a>
-      </div>
-
-      {rows.map((row) => (
-        <div
-          key={row.id}
-          className="flex flex-wrap items-center gap-x-3.5 gap-y-2 border-t border-white/[0.06] px-5 py-4 max-sm:px-4"
-        >
-          <div className="min-w-0 flex-1 basis-48">
-            <p
-              className={`text-body font-medium ${
-                row.granted ? "text-[var(--text)]" : "text-[var(--text-muted)]"
-              }`}
+    <>
+      <SettingsSection title="账号">
+        <SettingsList>
+          <SettingsRow
+            leading={
+              <span className="icon-chip size-10 !rounded-xl">
+                <CloudIcon className="size-5" />
+              </span>
+            }
+            label={
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="min-w-0 truncate">
+                  {connection?.instance_name || status.server_name}
+                </span>
+                <StatusPill tone="ok" label="已连接" />
+              </span>
+            }
+            description={
+              <>
+                {connectedAccountLine(connection?.account_display)}
+                {timeline && <span className="block">{timeline}</span>}
+              </>
+            }
+          >
+            <a
+              href={manageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${SETTINGS_BUTTON_CLASS} inline-flex items-center`}
             >
-              {row.label}
-            </p>
-            <p className="mt-0.5 text-caption leading-5 text-[var(--text-faint)]">
-              {row.id === "push"
-                ? row.granted
-                  ? `给登录了这台服务器的手机发通知${dailyLimit != null && dailyLimit > 0 ? ` · 每天最多 ${dailyLimit} 条` : ""}`
-                  : "这台服务器没有使用官方推送的权限"
-                : row.granted
-                  ? "已授予这台服务器"
-                  : "即将推出。推出后在这里单独开启，不用重新连接"}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-3">
-            <StatusPill
-              tone={row.granted ? "ok" : "neutral"}
-              label={row.granted ? "已授予" : row.id === "push" ? "未授予" : "即将推出"}
-            />
-            {row.id === "push" && (
-              <Link href="/settings/app-push" className={`text-sub ${LINK_CLASS}`}>
-                App 推送设置
-              </Link>
-            )}
-          </div>
-        </div>
-      ))}
-    </div>
+              在官网管理 ↗
+            </a>
+          </SettingsRow>
+        </SettingsList>
+      </SettingsSection>
+
+      <SettingsSection title="权限与能力">
+        <SettingsList>
+          {rows.map((row) => (
+            <SettingsRow
+              key={row.id}
+              label={
+                <span className={row.granted ? undefined : "text-[var(--text-muted)]"}>
+                  {row.label}
+                </span>
+              }
+              description={
+                row.id === "push"
+                  ? row.granted
+                    ? `给登录了这台服务器的手机发通知${dailyLimit != null && dailyLimit > 0 ? ` · 每天最多 ${dailyLimit} 条` : ""}`
+                    : "这台服务器没有使用官方推送的权限"
+                  : row.granted
+                    ? "已授予这台服务器"
+                    : "即将推出。推出后在这里单独开启，不用重新连接"
+              }
+            >
+              <StatusPill
+                tone={row.granted ? "ok" : "neutral"}
+                label={row.granted ? "已授予" : row.id === "push" ? "未授予" : "即将推出"}
+              />
+              {row.id === "push" && (
+                <Link href="/settings/app-push" className={`text-sub ${LINK_CLASS}`}>
+                  App 推送设置
+                </Link>
+              )}
+            </SettingsRow>
+          ))}
+        </SettingsList>
+      </SettingsSection>
+    </>
   );
 }
