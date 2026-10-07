@@ -194,8 +194,7 @@ final class ShellParityUITests: XCTestCase {
         app4.terminate()
 
         let app5 = try launch(route: "/settings/app?tab=storage")
-        XCTAssertTrue(app5.buttons["app-tab-缓存管理"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app5.buttons["app-tab-缓存管理"].isSelected, "?tab=storage 应直达缓存管理")
+        XCTAssertTrue(app5.navigationBars["缓存管理"].waitForExistence(timeout: 20), "?tab=storage 应直达缓存管理")
         snapshot("深链-缓存管理")
         app5.terminate()
 

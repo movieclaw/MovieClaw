@@ -42,10 +42,10 @@ final class CloudConnection {
     }
 
     /// 开始连接：拿到配对码就在网页框里打开批准页
-    func connect(instanceName: String?) async throws {
+    func connect(instanceName: String?, openApproval: Bool = true) async throws {
         let name = instanceName?.trimmingCharacters(in: .whitespacesAndNewlines)
         apply(try await api.cloudPairingStart(body: .init(instanceName: name?.isEmpty == false ? name : nil)))
-        openApprovalPage()
+        if openApproval { openApprovalPage() }
     }
 
     func openApprovalPage() {

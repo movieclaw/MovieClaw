@@ -1,12 +1,10 @@
 import SwiftUI
 
-// 「刮削与整理」各卡片的内容（对应 Web MetaTab / ImagesTab / NamingTab / MirrorTab 的卡片内部控件）。
-// 外层折叠壳（标题、摘要、N 个库已覆盖、展开箭头）在 ScrapeSettingsView 里统一画，
-// 这里只负责展开后的表单行——每个视图返回若干 Form 行，直接嵌进同一个 Section。
+// 刮削设置编辑器和媒体库覆盖编辑器共用的原生表单行。
 
 /// 卡片清单：顺序、标题、说明、覆盖判定所用的后端字段名都与 Web 一致
 enum SettingsBScrapeCard: String, CaseIterable, Identifiable {
-    case metaLanguage, certCountry, poster, backdrop, quality, naming, mirror
+    case metaLanguage, certCountry, sources, poster, backdrop, logo, quality, naming, mirror
 
     var id: String { rawValue }
 
@@ -14,9 +12,11 @@ enum SettingsBScrapeCard: String, CaseIterable, Identifiable {
         switch self {
         case .metaLanguage: "元数据语言"
         case .certCountry: "内容分级"
+        case .sources: "图片来源"
+        case .logo: "片名 Logo"
         case .poster: "海报"
-        case .backdrop: "背景图（fanart）"
-        case .quality: "画质与门槛"
+        case .backdrop: "背景图"
+        case .quality: "图片画质"
         case .naming: "命名模板"
         case .mirror: "媒体目录写入"
         }
@@ -25,13 +25,17 @@ enum SettingsBScrapeCard: String, CaseIterable, Identifiable {
     var desc: String {
         switch self {
         case .metaLanguage:
-            "标题、简介、类型名等文本的语言。点选语言即加入优先级，第 1 位是主语言（决定向 TMDB 请求的语言），缺失的字段按顺序回落——回落基于已拉取的翻译数据，不产生额外请求。"
+            "标题、简介等文本优先使用第 1 位语言，缺失内容按顺序使用其他语言。长按手柄拖动可调整顺序。"
         case .certCountry:
             "条目分级（如 PG-13、TV-MA）按顺序取第一个有数据的地区。"
+        case .sources:
+            "先匹配图片语言，同一语言有多个来源时再按来源顺序选择。手动选定的图片始终优先。"
+        case .logo:
+            "片名 Logo 按语言优先级选择，所有语言都没有可用图片时不显示 Logo。"
         case .poster:
             "海报和文本一样有语言：中文版、原版、无文字干净版是不同的候选图。你在条目详情页手动选定的图始终优先，不受这里影响。"
         case .backdrop:
-            "铺在详情页全屏的沉浸底图。「无文字」是没有烧录任何片名文字的干净图——排第 1 位即无文字优先；想要带片名 logo 的横图，把语言排到前面。"
+            "详情页的背景图片按优先级选择。「无文字」优先选择没有片名的背景图。"
         case .quality:
             "本地图片画质决定刮削时下载到本地的图片多大（默认存原图，各设备都最清楚；调低可显著节省磁盘），改动后在媒体库执行「刷新元数据」会按新画质重下；分辨率门槛过滤模糊候选图。"
         case .naming:
@@ -46,6 +50,8 @@ enum SettingsBScrapeCard: String, CaseIterable, Identifiable {
         switch self {
         case .metaLanguage: ["language_priority"]
         case .certCountry: ["cert_country_priority"]
+        case .sources: ["fanart_enabled", "poster_source_order", "backdrop_source_order", "logo_source_order", "season_poster_source_order"]
+        case .logo: ["logo_language_priority"]
         case .poster: ["poster_mode", "poster_language_priority"]
         case .backdrop: ["backdrop_language_priority"]
         case .quality: ["poster_min_width", "backdrop_min_width", "poster_size", "backdrop_size", "still_size", "profile_size", "image_quality"]
@@ -54,10 +60,45 @@ enum SettingsBScrapeCard: String, CaseIterable, Identifiable {
         }
     }
 
+    /// 服务端支持部分更新；只提交当前编辑项，保留其他分类和新版本新增的字段。
+    func payload(_ s: API.MetadataScrapeSetting) -> API.MetadataScrapeSettingInput {
+        API.MetadataScrapeSettingInput(
+            languagePriority: self == .metaLanguage ? s.languagePriority : nil,
+            certCountryPriority: self == .certCountry ? s.certCountryPriority : nil,
+            posterMode: self == .poster ? s.posterMode : nil,
+            posterLanguagePriority: self == .poster ? s.posterLanguagePriority : nil,
+            backdropLanguagePriority: self == .backdrop ? s.backdropLanguagePriority : nil,
+            posterMinWidth: self == .quality ? s.posterMinWidth : nil,
+            backdropMinWidth: self == .quality ? s.backdropMinWidth : nil,
+            posterSize: self == .quality ? s.posterSize : nil,
+            backdropSize: self == .quality ? s.backdropSize : nil,
+            stillSize: self == .quality ? s.stillSize : nil,
+            profileSize: self == .quality ? s.profileSize : nil,
+            imageQuality: self == .quality ? s.imageQuality : nil,
+            logoLanguagePriority: self == .logo ? s.logoLanguagePriority : nil,
+            fanartEnabled: self == .sources ? s.fanartEnabled : nil,
+            posterSourceOrder: self == .sources ? s.posterSourceOrder : nil,
+            backdropSourceOrder: self == .sources ? s.backdropSourceOrder : nil,
+            logoSourceOrder: self == .sources ? s.logoSourceOrder : nil,
+            seasonPosterSourceOrder: self == .sources ? s.seasonPosterSourceOrder : nil,
+            namingEntryDir: self == .naming ? s.namingEntryDir : nil,
+            namingMovieFile: self == .naming ? s.namingMovieFile : nil,
+            namingSeasonDir: self == .naming ? s.namingSeasonDir : nil,
+            namingEpisodeFile: self == .naming ? s.namingEpisodeFile : nil,
+            mirrorImages: self == .mirror ? s.mirrorImages : nil,
+            mirrorNfo: self == .mirror ? s.mirrorNfo : nil,
+            mirrorEpisodeThumbs: self == .mirror ? s.mirrorEpisodeThumbs : nil
+        )
+    }
+
     func summary(_ s: API.MetadataScrapeSetting) -> String {
         switch self {
         case .metaLanguage: SettingsBScrapeSummary.metaLanguage(s)
         case .certCountry: SettingsBScrapeSummary.certCountry(s)
+        case .sources: s.fanartEnabled == true ? "TMDB 与 Fanart.tv" : "TMDB · Fanart.tv 未启用"
+        case .logo: (s.logoLanguagePriority ?? ["meta", "en", "orig", "null"]).map { id in
+            SettingsBScrapeCatalog.commonImageLangs.first { $0.id == id }?.name ?? id
+        }.joined(separator: " → ")
         case .poster: SettingsBScrapeSummary.poster(s)
         case .backdrop: SettingsBScrapeSummary.backdrop(s)
         case .quality: SettingsBScrapeSummary.quality(s)
@@ -87,11 +128,13 @@ struct SettingsBScrapePosterRows: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(mode.title).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
-                        Text(mode.desc).font(.caption).foregroundStyle(Theme.textFaint)
+                        Text(mode.id == "default" && setting.fanartEnabled == true
+                             ? "TMDB 使用默认海报，再与 Fanart 海报按语言优先级比较" : mode.desc).font(.caption).foregroundStyle(Theme.textFaint)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                     Spacer(minLength: 8)
-                    Image(systemName: setting.posterMode == mode.id ? "checkmark.circle.fill" : "circle")
+                    Image(systemName: "checkmark")
+                        .opacity(setting.posterMode == mode.id ? 1 : 0)
                         .foregroundStyle(setting.posterMode == mode.id ? Theme.accent : Theme.textFaint)
                         .font(.title3)
                 }
@@ -110,9 +153,9 @@ struct SettingsBScrapePosterRows: View {
             primaryTag: "首选",
             identifier: "scrape-poster-lang"
         )
-        // 默认模式下语言优先级不生效：看得见但改不动（同 Web 的半透明 + 禁点）
-        .disabled(setting.posterMode != "language")
-        .opacity(setting.posterMode == "language" ? 1 : 0.4)
+        // Fanart 启用时，默认 TMDB 海报也需要按语言与 Fanart 候选比较。
+        .disabled(setting.posterMode != "language" && setting.fanartEnabled != true)
+        .opacity(setting.posterMode == "language" || setting.fanartEnabled == true ? 1 : 0.4)
     }
 }
 
@@ -128,6 +171,7 @@ struct SettingsBScrapePosterRows: View {
 /// - 每档旁边是按当前媒体库估算的磁盘占用（`scrapeStorageEstimate`），自定义只在它就是当前生效档时给得出数。
 struct SettingsBScrapeQualityRows: View {
     @Binding var setting: API.MetadataScrapeSetting
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
     /// 档位留空时的生效值（库覆盖页传全局生效值）；`imageQuality` 是没选过档时界面该选中的那一档
     let effective: API.ScrapeEffectiveView?
     /// 各档的磁盘估算；拿不到就不写
@@ -168,7 +212,7 @@ struct SettingsBScrapeQualityRows: View {
         VStack(alignment: .leading, spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("最低分辨率门槛").font(.body.weight(.medium))
-                Text("低于门槛的候选图不选；候选全部不达标时自动放宽。它管选哪张图，与上面存多大无关")
+                Text("单位为像素，0 表示不限制。低于门槛的候选图不选；候选全部不达标时自动放宽。")
                     .font(.caption).foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -186,7 +230,7 @@ struct SettingsBScrapeQualityRows: View {
         } label: {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 3) {
                         Text(quality.title).font(.body.weight(.semibold)).foregroundStyle(Theme.text)
                         if let bytes = estimatedBytes(quality.id) {
                             Text("\(inheritsGlobal ? "全站" : "")约 \(Self.gigabytes(bytes))")
@@ -198,7 +242,8 @@ struct SettingsBScrapeQualityRows: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer(minLength: 8)
-                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                Image(systemName: "checkmark")
+                    .opacity(isSelected ? 1 : 0)
                     .foregroundStyle(isSelected ? Theme.accent : Theme.textFaint)
                     .font(.title3)
             }
@@ -239,24 +284,20 @@ struct SettingsBScrapeQualityRows: View {
 
     /// 宽度门槛输入：直接绑字符串代理，边打字边写回（空 / 非数字 = 0 = 不限制）
     private func widthField(_ label: String, _ keyPath: WritableKeyPath<API.MetadataScrapeSetting, Int>, id: String) -> some View {
-        HStack(spacing: 8) {
-            Text("\(label) ≥").foregroundStyle(Theme.textMuted)
+        let layout = dynamicTypeSize.isAccessibilitySize
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 8))
+            : AnyLayout(HStackLayout(spacing: 12))
+        return layout {
+            Text("\(label)最小宽度").foregroundStyle(Theme.textMuted)
             TextField("0", text: Binding(
                 get: { String(setting[keyPath: keyPath]) },
                 set: { setting[keyPath: keyPath] = Int($0.filter(\.isNumber)) ?? 0 }
             ))
             .keyboardType(.numberPad)
             .monospacedDigit()
-            .frame(width: 90)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.white.opacity(0.05), in: .rect(cornerRadius: 8))
+            .multilineTextAlignment(dynamicTypeSize.isAccessibilitySize ? .leading : .trailing)
+            .accessibilityLabel("\(label)最小宽度，像素，0 表示不限制")
             .accessibilityIdentifier(id)
-            // 0 在输入框里看不出是「不限制」还是「没填」，补一句
-            if setting[keyPath: keyPath] == 0 {
-                Text("不限制").font(.caption).foregroundStyle(Theme.textFaint)
-            }
-            Spacer()
         }
     }
 
@@ -303,13 +344,13 @@ struct SettingsBScrapeNamingRows: View {
     var body: some View {
         ForEach(Array(fields.enumerated()), id: \.element.key) { index, field in
             VStack(alignment: .leading, spacing: 6) {
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(field.label).font(.subheadline.weight(.semibold))
                     if !field.note.isEmpty {
                         Text(field.note).font(.caption).foregroundStyle(Theme.textFaint)
                     }
                 }
-                TextField(field.fallback, text: $setting[dynamicMember: field.keyPath], selection: selectionBinding(field.key))
+                TextField(field.fallback, text: $setting[dynamicMember: field.keyPath], selection: selectionBinding(field.key), axis: .vertical)
                     .font(.subheadline.monospaced())
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
@@ -328,44 +369,23 @@ struct SettingsBScrapeNamingRows: View {
             .padding(.vertical, 4)
         }
 
-        VStack(alignment: .leading, spacing: 8) {
-            Text("可用占位符（点击插入到「\(focusedField.label)」）")
-                .font(.caption2)
-                .foregroundStyle(Theme.textFaint)
+        Menu {
             ForEach(SettingsBScrapeNaming.tokenGroups, id: \.label) { group in
                 let tokens = group.tokens.filter { focusedField.tokens.contains($0.key) }
                 if !tokens.isEmpty {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(group.label).font(.caption2).foregroundStyle(Theme.textFaint)
-                        SettingsBFlow(spacing: 6, lineSpacing: 6) {
-                            ForEach(tokens, id: \.key) { token in
-                                Button {
-                                    insert(token.key)
-                                } label: {
-                                    Text(token.name)
-                                        .font(.caption)
-                                        .foregroundStyle(Theme.accent)
-                                        .padding(.horizontal, 8)
-                                        .padding(.vertical, 4)
-                                        .background(Color.white.opacity(0.05), in: .rect(cornerRadius: 7))
-                                        .overlay(RoundedRectangle(cornerRadius: 7).strokeBorder(Color.white.opacity(0.08)))
-                                }
-                                .buttonStyle(.plain)
-                                .accessibilityLabel("插入\(token.name)占位符")
+                    SettingsFormSection(group.label) {
+                        ForEach(tokens, id: \.key) { token in
+                            Button(token.name) { insert(token.key) }
                                 .accessibilityIdentifier("scrape-token-\(token.key)")
-                            }
                         }
                     }
                 }
             }
-            if focusedField.tokens.contains("site") {
-                Text("站点与原始文件名只有经本系统入库的文件才有；存量扫描发现的文件这两项为空，会自动收缩。")
-                    .font(.caption2)
-                    .foregroundStyle(Theme.textFaint)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        } label: {
+            Label("向\(focusedField.label)插入占位符", systemImage: "plus.circle")
+                .frame(minHeight: 44)
         }
-        .padding(.vertical, 4)
+        .accessibilityIdentifier("scrape-token-menu")
         // 挂在单一行上（挂在 ForEach 上会被分发成每行一份）
         .onChange(of: focusedKey) { _, key in
             if let key { lastFocused = key }
@@ -373,18 +393,9 @@ struct SettingsBScrapeNamingRows: View {
 
         preview
 
-        HStack(spacing: 10) {
-            Button("恢复默认模板") {
-                for field in fields { setting[keyPath: field.keyPath] = "" }
-            }
-            .buttonStyle(.glass)
-            .accessibilityIdentifier("scrape-naming-reset")
-            Text("同条目多版本会自动追加「 - 版本标签」后缀，无需写进模板")
-                .font(.caption)
-                .foregroundStyle(Theme.textFaint)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.vertical, 4)
+        Text("同条目多版本会自动追加版本标签。站点与原始文件名仅对经 MovieClaw 入库的文件有效，缺失字段会自动收缩。")
+            .font(.caption).foregroundStyle(Theme.textFaint)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     /// 实时预览：两条样例路径（模板有误时只显示「✕ 模板有误」）
@@ -426,13 +437,10 @@ struct SettingsBScrapeNamingRows: View {
     private func previewLine(caption: String, root: String, path: String, id: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(caption).font(.caption).foregroundStyle(Theme.textFaint)
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text("\(Text(root).foregroundStyle(Theme.textFaint))\(Text(path).foregroundStyle(Theme.accent))")
-                    .font(.footnote.monospaced())
-                    .lineLimit(1)
-                    .fixedSize()
-                    .textSelection(.enabled)
-            }
+            Text("\(Text(root).foregroundStyle(Theme.textFaint))\(Text(path).foregroundStyle(Theme.accent))")
+                .font(.footnote.monospaced())
+                .fixedSize(horizontal: false, vertical: true)
+                .textSelection(.enabled)
             .accessibilityElement(children: .combine)
             .accessibilityIdentifier(id)
         }

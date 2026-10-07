@@ -103,11 +103,11 @@ private struct SettingsBPushWeixinBody: View {
 
     var body: some View {
         if let error {
-            Section {
+            SettingsFormSection {
                 SubsNoticeRow(text: error, tone: .error).accessibilityIdentifier("push-bind-error")
             }
         }
-        Section {
+        SettingsFormSection {
             statusRow
                 .task {
                     guard !autoStarted else { return }
@@ -118,7 +118,7 @@ private struct SettingsBPushWeixinBody: View {
         }
         // 微信要求补填手机上显示的配对码时才出现
         if binding?.status == "need_verify_code" {
-            Section {
+            SettingsFormSection {
                 HStack(spacing: 8) {
                     SettingsBPushInput(
                         placeholder: "手机微信上显示的数字",
@@ -264,11 +264,11 @@ private struct SettingsBPushFeishuBody: View {
 
     var body: some View {
         if let error {
-            Section {
+            SettingsFormSection {
                 SubsNoticeRow(text: error, tone: .error).accessibilityIdentifier("push-bind-error")
             }
         }
-        Section {
+        SettingsFormSection {
             SettingsBPushInput(
                 placeholder: "https://open.feishu.cn/open-apis/bot/v2/hook/…",
                 text: $webhookUrl,
@@ -331,11 +331,11 @@ private struct SettingsBPushTokenBody: View {
 
     var body: some View {
         if let error {
-            Section {
+            SettingsFormSection {
                 SubsNoticeRow(text: error, tone: .error).accessibilityIdentifier("push-bind-error")
             }
         }
-        Section {
+        SettingsFormSection {
             mainRow.polling(every: 2) { await poll() }
         }
     }

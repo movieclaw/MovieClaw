@@ -11,17 +11,8 @@ struct DeviceApprovalLaunch: Identifiable, Hashable {
     var scanFirst = false
 }
 
-/// 批准设备登录（对应网页 /activate，见 docs/design/login-devices.md §4）。全屏呈现，一气呵成：
-/// 相机取景 → 扫到后换成登录页同款的星空，底部升起一张液态玻璃卡片：设备、配对码、将获得的权限、
-/// 以谁的身份批准，以及「批准登录 / 拒绝」→ 卡片换成结果。
-///
-/// 为什么批准 / 拒绝放在卡片里、不放导航栏右上角：导航栏的「取消 / 完成」是编辑类表单的确认
-/// （日历「新建日程」的「添加」）；这里是一个有安全后果的决定，苹果自家的同类场景——iPhone 帮
-/// Apple TV 登录、AirPods 配对——都是底部卡片里的大按钮，拇指够得着、看完信息顺手按。
-/// 扫到码也不自动批准：人必须看过卡片再按，这是防钓鱼的那道闸（服务端也只按配对码查一条请求）。
-///
-/// 入口：「我的」页右上角扫码（scanFirst）、「设置 → 设备」的「批准新设备登录」（手输或再扫码）、
-/// 站内链接 /activate?code=…（以及旧的 /settings/devices?code=…）。
+/// 批准设备登录：标准导航与可滚动内容，输入、核对、结果三个阶段保留明确的退出入口。
+/// 扫码不会自动批准；设备身份、配对码、权限与批准账号始终先于决定按钮展示。
 struct DeviceApprovalFlow: View {
     let launch: DeviceApprovalLaunch
 
@@ -35,7 +26,6 @@ struct DeviceApprovalFlow: View {
     @State private var host: String?
     @State private var busy = false
     @State private var error: String?
-    @State private var lit = false
     @FocusState private var codeFocused: Bool
 
     enum Stage: Equatable {
@@ -77,51 +67,38 @@ struct DeviceApprovalFlow: View {
         }
     }
 
-    // MARK: 星空 + 底部卡片
+    // MARK: 标准导航与滚动内容
 
     private var approvalScene: some View {
-        ZStack(alignment: .bottom) {
-            CosmosBackdrop(lit: lit, dimmed: false).ignoresSafeArea()
-            VStack(spacing: 0) {
-                HStack {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark").font(.body.weight(.semibold)).frame(width: 44, height: 44)
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    switch stage {
+                    case .scanning, .input: inputContent
+                    case .looking: lookingContent
+                    case let .request(request): requestContent(request)
+                    case let .approved(name):
+                        resultContent(approved: true, message: "「\(name)」会自动登录，回到那台设备上继续即可。")
+                    case .denied:
+                        resultContent(approved: false, message: "这台设备不会登录。如需连接，请在设备上重新发起配对。")
                     }
-                    .buttonStyle(.glass)
-                    .buttonBorderShape(.circle)
-                    .accessibilityLabel("关闭")
-                    .accessibilityIdentifier("device-approval-close")
-                    Spacer()
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 8)
-                Spacer(minLength: 24)
-                card
-                    .padding(.horizontal, 12)
-                    .padding(.bottom, 8)
+                .padding(24)
+                .frame(maxWidth: 600, alignment: .leading)
+                .frame(maxWidth: .infinity)
+            }
+            .scrollDismissesKeyboard(.interactively)
+            .appBackground()
+            .navigationTitle("批准设备登录")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("关闭", systemImage: "xmark") { dismiss() }
+                        .disabled(busy)
+                        .accessibilityIdentifier("device-approval-close")
+                }
             }
         }
-        .onAppear { withAnimation(.easeOut(duration: 1.2)) { lit = true } }
-    }
-
-    private var card: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            switch stage {
-            case .scanning, .input: inputContent
-            case .looking: lookingContent
-            case let .request(request): requestContent(request)
-            case let .approved(name):
-                resultContent(approved: true, message: "「\(name)」会在几秒内自动登录，回到那台设备上继续就好。")
-            case .denied:
-                resultContent(approved: false, message: "这台设备不会登录。如果它其实是你的，让它重新发起配对即可。")
-            }
-        }
-        .padding(24)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassEffect(.regular, in: .rect(cornerRadius: 36))
-        .animation(.smooth(duration: 0.35), value: stage)
     }
 
     // MARK: 输入配对码
@@ -129,14 +106,13 @@ struct DeviceApprovalFlow: View {
     @ViewBuilder
     private var inputContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("批准设备登录").font(.title2.weight(.bold))
             Text("输入 Apple TV、Mac、命令行或转码器上显示的配对码，或者扫它旁边的二维码。")
                 .font(.subheadline).foregroundStyle(.secondary)
         }
         VStack(alignment: .leading, spacing: 8) {
             TextField("MCLW-XXXX", text: $code)
-                .font(.system(size: 26, weight: .semibold, design: .monospaced))
-                .tracking(3)
+                .font(.title2.monospaced().weight(.semibold))
+                .tracking(1)
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
                 // 配对码只有字母数字：直接给英文键盘，免得中文输入法先出候选词
@@ -145,10 +121,10 @@ struct DeviceApprovalFlow: View {
                 .onSubmit { Task { await lookUp() } }
                 .focused($codeFocused)
                 .padding(.horizontal, 16)
-                .frame(height: 58)
+                .padding(.vertical, 16)
                 .background(.white.opacity(0.08), in: .rect(cornerRadius: 18))
                 .accessibilityIdentifier("pairing-code")
-                // 手输进来时直接弹键盘（等卡片升起再聚焦，免得动画和键盘挤在一起）；带着码进来的不抢
+                // 手输时等页面呈现后聚焦；带着配对码进入时不抢焦点。
                 .task {
                     guard code.isEmpty else { return }
                     try? await Task.sleep(for: .milliseconds(450))
@@ -159,8 +135,11 @@ struct DeviceApprovalFlow: View {
             }
         }
         VStack(spacing: 10) {
-            Button { Task { await lookUp() } } label: { Text("继续").frame(maxWidth: .infinity) }
-                .prominentCardButton()
+            Button { Task { await lookUp() } } label: {
+                Text("继续").foregroundStyle(.black).frame(maxWidth: .infinity)
+            }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .disabled(code.trimmingCharacters(in: .whitespaces).isEmpty)
                 .accessibilityIdentifier("pairing-lookup")
             Button {
@@ -169,7 +148,7 @@ struct DeviceApprovalFlow: View {
             } label: {
                 Label("扫描二维码", systemImage: "qrcode.viewfinder").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glass)
+            .buttonStyle(.bordered)
             .controlSize(.large)
             .accessibilityIdentifier("device-approval-scan")
         }
@@ -204,8 +183,9 @@ struct DeviceApprovalFlow: View {
         }
         VStack(alignment: .leading, spacing: 4) {
             Text(request.userCode)
-                .font(.system(size: 34, weight: .semibold, design: .monospaced))
-                .tracking(5)
+                .font(.largeTitle.monospaced().weight(.semibold))
+                .minimumScaleFactor(0.6)
+                .lineLimit(1)
                 .foregroundStyle(Theme.accent)
                 .accessibilityIdentifier("device-request-code")
             // 配对码是这张卡真正的安全控制：大号等宽字，让人真的去和设备屏幕逐字比对
@@ -230,15 +210,16 @@ struct DeviceApprovalFlow: View {
         VStack(spacing: 10) {
             if !blocked {
                 Button { Task { await decide(request, approve: true) } } label: {
-                    Label("批准登录", systemImage: "checkmark").frame(maxWidth: .infinity)
+                    Label("批准登录", systemImage: "checkmark").foregroundStyle(.black).frame(maxWidth: .infinity)
                 }
-                .prominentCardButton()
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
                 .accessibilityIdentifier("device-approve-\(request.userCode)")
             }
             Button(role: .destructive) { Task { await decide(request, approve: false) } } label: {
                 Text("拒绝").frame(maxWidth: .infinity)
             }
-            .buttonStyle(.glass)
+            .buttonStyle(.bordered)
             .controlSize(.large)
             .accessibilityIdentifier("device-deny-\(request.userCode)")
         }
@@ -269,8 +250,9 @@ struct DeviceApprovalFlow: View {
         .padding(.top, 8)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("device-approval-result")
-        Button { dismiss() } label: { Text("完成").frame(maxWidth: .infinity) }
-            .prominentCardButton()
+        Button { dismiss() } label: { Text("完成").foregroundStyle(.black).frame(maxWidth: .infinity) }
+            .buttonStyle(.borderedProminent)
+            .controlSize(.large)
             .accessibilityIdentifier("device-approval-done")
     }
 
@@ -282,9 +264,13 @@ struct DeviceApprovalFlow: View {
             stage = .input
             return
         }
+        guard !busy else { return }
+        codeFocused = false
         code = target
         error = nil
         stage = .looking
+        busy = true
+        defer { busy = false }
         do {
             let request = try await api.authDevicesRequest(userCode: target)
             stage = .request(request)

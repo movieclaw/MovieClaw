@@ -19,7 +19,7 @@ struct SettingsBPushContentSections: View {
     ]
 
     var body: some View {
-        Section {
+        SettingsFormSection {
             SettingsBIntro(text: "这里的开关对所有已接入通道统一生效——关掉某个事件，任何通道都不会再收到它。")
                 .task { await load() } // 挂在具体行上，避免 Section 修饰符被分发到每一行
             if let error {
@@ -28,7 +28,7 @@ struct SettingsBPushContentSections: View {
             }
         }
 
-        Section {
+        SettingsFormSection {
             if let config {
                 ForEach(rows, id: \.id) { row in
                     Toggle(isOn: Binding(
@@ -49,7 +49,7 @@ struct SettingsBPushContentSections: View {
         }
 
         // 测试推送：验证已接入通道确实能收到系统事件
-        Section {
+        SettingsFormSection {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("测试推送").font(.body.weight(.medium))

@@ -1,16 +1,6 @@
 import SwiftUI
 
-/// 端点详情（对应 Web `mcp/endpoint-detail.tsx`）：一个端点的全部真相，按「读 → 用 → 改 → 删」分三栏。
-///
-/// Web 是 `?endpoint=slug&tab=` 的原地视图切换；手机上改为从列表 push 进来的独立页面，
-/// 顶部分段控件切「概览 / 工具 N / 设置」，信息与操作一个不少：
-/// - **概览**：启停开关、端点地址（可复制，未配外部地址时警告）、认证请求头、连通性自检、
-///   服务 / 工具定义体积 / 令牌提示 + 轮换 / 最近调用、已失效服务提示；
-/// - **工具**：工具目录（`SettingsBMCPToolCatalog`），数据来自工具面预览；
-/// - **设置**：与新建共用的字段区（地址标识只读）+ 保存；底部危险区打字确认后删除。
-///
-/// 端点数据不在本页持有副本，每次都按 id 从共享 `SettingsBMCPStore` 现取——写操作后整份重拉，
-/// 返回列表时两边一致。轮换令牌后弹出令牌专屏（与新建同一个），确认保存后回到概览。
+/// 端点详情：连接概览与自检；工具目录独立导航，编辑与危险操作在右上角。
 struct SettingsBMCPEndpointDetail: View {
     let store: SettingsBMCPStore
     let endpointId: String
@@ -33,19 +23,22 @@ struct SettingsBMCPEndpointDetail: View {
     @Environment(\.api) private var api
     @Environment(Feedback.self) private var feedback
     @Environment(\.dismiss) private var dismiss
-    @State private var tab: Tab
+    private let initialTab: Tab
+    @State private var routeConsumed = false
+    @State private var showingTools = false
+    @State private var editing = false
+    @State private var deleting = false
     @State private var preview: API.PreviewView?
+    @State private var previewError: String?
     @State private var check: API.SelfCheckView?
     @State private var checking = false
-    @State private var draft: SettingsBMCPDraft?
-    @State private var confirmText = ""
     @State private var issued: SettingsBMCPIssued?
 
     /// - Parameter initialTab: 深链 `?endpoint=&tab=` 直达的栏目；缺省概览
     init(store: SettingsBMCPStore, endpointId: String, initialTab: Tab = .overview) {
         self.store = store
         self.endpointId = endpointId
-        _tab = State(initialValue: initialTab)
+        self.initialTab = initialTab
     }
 
     var body: some View {
@@ -61,6 +54,63 @@ struct SettingsBMCPEndpointDetail: View {
         }
         .navigationTitle(store.endpoint(id: endpointId)?.name ?? "端点")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                if let endpoint = store.endpoint(id: endpointId) {
+                    Menu {
+                        Button("编辑端点", systemImage: "pencil") { editing = true }
+                            .accessibilityIdentifier("mcp-detail-edit")
+                        Button("轮换令牌", systemImage: "key") { Task { await rotate(endpoint) } }
+                            .accessibilityIdentifier("mcp-detail-rotate")
+                        Button("删除端点", systemImage: "trash", role: .destructive) { deleting = true }
+                            .accessibilityIdentifier("mcp-detail-delete")
+                    } label: { Label("端点操作", systemImage: "ellipsis") }
+                    .disabled(store.busy)
+                    .accessibilityIdentifier("mcp-detail-actions")
+                }
+            }
+        }
+        .task {
+            guard !routeConsumed else { return }
+            routeConsumed = true
+            showingTools = initialTab == .tools
+            editing = initialTab == .settings
+        }
+        .navigationDestination(isPresented: $showingTools) {
+            Form {
+                if let preview { SettingsBMCPToolCatalog(tools: preview.tools) }
+                else if let previewError {
+                    SettingsFormSection {
+                        SettingsBNotice(text: previewError, tone: .danger).accessibilityIdentifier("mcp-tools-error")
+                        Button("重新加载工具目录", systemImage: "arrow.clockwise") {
+                            guard let endpoint = store.endpoint(id: endpointId) else { return }
+                            Task { await loadPreview(endpoint) }
+                        }.accessibilityIdentifier("mcp-tools-retry")
+                    }
+                } else { SettingsFormSection { ProgressView("正在计算工具目录…") } }
+            }
+            .settingsBFormStyle()
+            .navigationTitle("工具目录")
+            .navigationBarTitleDisplayMode(.inline)
+            .task {
+                if preview == nil, previewError == nil, let endpoint = store.endpoint(id: endpointId) {
+                    await loadPreview(endpoint)
+                }
+            }
+        }
+        .sheet(isPresented: $editing) {
+            if let endpoint = store.endpoint(id: endpointId) {
+                SettingsBMCPEditSheet(store: store, endpoint: endpoint).sheetFeedback()
+            }
+        }
+        .sheet(isPresented: $deleting) {
+            if let endpoint = store.endpoint(id: endpointId) {
+                SettingsBMCPDeleteSheet(store: store, endpoint: endpoint) {
+                    deleting = false
+                    dismiss()
+                }.sheetFeedback()
+            }
+        }
         .sheet(item: $issued) { item in
             SettingsBMCPTokenIssuedView(
                 name: item.created.endpoint.name,
@@ -68,7 +118,7 @@ struct SettingsBMCPEndpointDetail: View {
                 token: item.created.token
             ) {
                 issued = nil
-                tab = .overview
+
             }
             .sheetFeedback()
         }
@@ -84,32 +134,13 @@ struct SettingsBMCPEndpointDetail: View {
     private func content(_ endpoint: API.EndpointView) -> some View {
         Form {
             if let error = store.error {
-                Section {
+                SettingsFormSection {
                     SettingsBNotice(text: error, tone: .danger).accessibilityIdentifier("mcp-error")
                 }
             }
             header(endpoint)
-            Section {
-                Picker("视图", selection: $tab) {
-                    ForEach(Tab.allCases) { item in
-                        Text(item == .tools ? "工具 \(endpoint.toolCount)" : item.rawValue).tag(item)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets())
-                .accessibilityIdentifier("mcp-detail-tabs")
-            }
-            switch tab {
-            case .overview: overview(endpoint)
-            case .tools:
-                if let preview {
-                    SettingsBMCPToolCatalog(tools: preview.tools)
-                } else {
-                    Section { Text("正在计算工具目录…").foregroundStyle(Theme.textMuted) }
-                }
-            case .settings: settings(endpoint)
-            }
+            overview(endpoint)
+
         }
         .settingsBFormStyle()
         .refreshable { await store.load(api) }
@@ -117,7 +148,7 @@ struct SettingsBMCPEndpointDetail: View {
 
     /// 头部：名字 + 启停开关，下一行淡色元信息（状态 / 地址 / 形态）
     private func header(_ endpoint: API.EndpointView) -> some View {
-        Section {
+        SettingsFormSection {
             Toggle(isOn: Binding(
                 get: { endpoint.enabled },
                 set: { next in
@@ -125,21 +156,8 @@ struct SettingsBMCPEndpointDetail: View {
                     Task { _ = await store.run(api) { try await api.mcpEndpointsUpdate(endpointId: endpoint.id, body: .init(enabled: next)) } }
                 }
             )) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(endpoint.name).font(.title3.weight(.medium)).lineLimit(1)
-                    HStack(spacing: 6) {
-                        SettingsBMCPStatusDot(on: endpoint.enabled)
-                        Text(endpoint.enabled ? "运行中" : "已停用")
-                        Text("·").foregroundStyle(Theme.textFaint)
-                        Text("/mcp/\(endpoint.slug)").monospaced()
-                        Text("·").foregroundStyle(Theme.textFaint)
-                        Text(SettingsBMCPFormat.mode(endpoint.expandTools))
-                    }
-                    .font(.caption)
-                    .foregroundStyle(Theme.textMuted)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                }
+                Label(endpoint.enabled ? "已启用" : "已停用", systemImage: endpoint.enabled ? "checkmark.circle.fill" : "pause.circle")
+                    .foregroundStyle(endpoint.enabled ? Color.green : Theme.textMuted)
             }
             .disabled(store.busy)
             .accessibilityLabel("启用 \(endpoint.name)")
@@ -152,50 +170,50 @@ struct SettingsBMCPEndpointDetail: View {
     @ViewBuilder
     private func overview(_ endpoint: API.EndpointView) -> some View {
         // 接进一个客户端要填的全部东西，就是地址 + 认证头
-        Section {
+        SettingsFormSection {
             SettingsBMCPCopyField(value: store.fullURL(endpoint), label: "复制地址", identifier: "mcp-detail-copy-url")
-                .listRowBackground(Color.clear)
+                .settingsRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
             if !endpoint.url.hasPrefix("http") {
                 SettingsBNotice(text: "还没配置外部访问地址，这里只有相对路径。外部客户端要连上，先去「设置 → 网络」填对外地址。", tone: .warn)
-                    .listRowBackground(Color.clear)
+                    .settingsRowBackground(Color.clear)
                     .listRowInsets(EdgeInsets())
             }
         } header: {
             Text("端点地址")
         }
 
-        Section {
+        SettingsFormSection {
             SettingsBMCPCodeBlock(code: "Authorization: Bearer <你的端点令牌>", lang: "http", identifier: "mcp-detail-copy-header")
-                .listRowBackground(Color.clear)
+                .settingsRowBackground(Color.clear)
                 .listRowInsets(EdgeInsets())
+            DisclosureGroup("连接说明") {
+                Text("令牌明文只在创建和轮换时显示一次（服务端只存哈希），忘了可在右上角操作菜单轮换。传输是 Streamable HTTP，客户端里选「HTTP」而不是 SSE；claude.ai 网页版的自定义连接器只支持 OAuth，暂时接不进来，Claude Code、Cursor、Cline 等本地客户端都可以。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
         } header: {
             Text("认证请求头")
-        } footer: {
-            Text("令牌明文只在创建和轮换时显示一次（服务端只存哈希），忘了就在下面轮换一枚新的。传输是 Streamable HTTP，客户端里选「HTTP」而不是 SSE；claude.ai 网页版的自定义连接器只支持 OAuth，暂时接不进来，Claude Code、Cursor、Cline 等本地客户端都可以。")
         }
 
         selfCheckSection(endpoint)
 
-        Section {
+        SettingsFormSection {
             VStack(alignment: .leading, spacing: 6) {
                 Text("服务").foregroundStyle(Theme.textMuted)
                 // 详情页不设上限：这一屏就是要看全「到底开放了什么」
                 SettingsBMCPServiceChips(services: endpoint.services, max: endpoint.services.count)
             }
-            LabeledContent("工具") {
-                Text(preview.map { "定义约 \(SettingsBMCPFormat.bytes($0.approxBytes))" } ?? "计算中…")
-            }
-            LabeledContent("令牌") {
-                HStack(spacing: 8) {
-                    Text(endpoint.tokenHint).monospaced()
-                    Button("轮换") { Task { await rotate(endpoint) } }
-                        .font(.caption.weight(.medium))
-                        .buttonStyle(.glass)
-                        .disabled(store.busy)
-                        .accessibilityIdentifier("mcp-detail-rotate")
+            Button { showingTools = true } label: {
+                HStack {
+                    Text("工具目录").foregroundStyle(Theme.text)
+                    Spacer()
+                    Text("\(endpoint.toolCount) 个").foregroundStyle(.secondary)
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                 }
-            }
+            }.accessibilityIdentifier("mcp-detail-tools")
+            LabeledContent("工具定义", value: preview.map { SettingsBMCPFormat.bytes($0.approxBytes) } ?? (previewError == nil ? "计算中…" : "加载失败"))
+            LabeledContent("工具形态", value: SettingsBMCPFormat.mode(endpoint.expandTools))
+            LabeledContent("令牌", value: endpoint.tokenHint)
             LabeledContent("最近调用") {
                 Text(endpoint.lastUsedAt == nil ? "从未调用" : SettingsBMCPFormat.relative(endpoint.lastUsedAt))
                     .accessibilityIdentifier("mcp-detail-last-used")
@@ -203,7 +221,7 @@ struct SettingsBMCPEndpointDetail: View {
         }
 
         if !endpoint.missingServices.isEmpty {
-            Section {
+            SettingsFormSection {
                 SettingsBNotice(
                     text: "配置里有 \(endpoint.missingServices.count) 个服务在当前版本已不存在，已忽略：\(endpoint.missingServices.joined(separator: "、"))",
                     tone: .warn
@@ -214,7 +232,7 @@ struct SettingsBMCPEndpointDetail: View {
 
     /// 连通性自检：跑一遍真实协议，只试调只读工具，就地回答「它现在能用吗」
     private func selfCheckSection(_ endpoint: API.EndpointView) -> some View {
-        Section {
+        SettingsFormSection {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text("连通性自检").font(.subheadline.weight(.medium))
@@ -269,71 +287,18 @@ struct SettingsBMCPEndpointDetail: View {
         }
     }
 
-    // MARK: - 设置
-
-    @ViewBuilder
-    private func settings(_ endpoint: API.EndpointView) -> some View {
-        let binding = Binding(
-            get: { draft ?? SettingsBMCPDraft(endpoint) },
-            set: { draft = $0 }
-        )
-        let current = binding.wrappedValue
-        SettingsBMCPEndpointFields(
-            draft: binding,
-            services: store.status?.services ?? [],
-            baseUrl: store.status?.baseUrl ?? "",
-            slugEditable: false
-        )
-        Section {
-            HStack(spacing: 10) {
-                Button {
-                    dismiss()
-                } label: {
-                    Text("取消").frame(maxWidth: .infinity)
-                }
-                .buttonStyle(.glass)
-                .accessibilityIdentifier("mcp-form-cancel")
-                Button {
-                    Task { await save(endpoint, current) }
-                } label: {
-                    Text("保存修改").font(.body.weight(.semibold)).frame(maxWidth: .infinity)
-                }
-                .discoverProminentButton()
-                .disabled(store.busy || current.name.trimmingCharacters(in: .whitespaces).isEmpty || current.services.isEmpty)
-                .accessibilityIdentifier("mcp-form-submit")
-            }
-            .listRowBackground(Color.clear)
-            .listRowInsets(EdgeInsets())
-        }
-
-        // 危险区：沉到最底，删除要打字确认——端点一删，接入它的客户端立刻全断，且不可恢复
-        Section {
-            Text("删除后地址与令牌一并作废，不可恢复；已接入的客户端会立刻失败。确认请输入端点标识 \(Text(endpoint.slug).monospaced().foregroundStyle(Theme.text))。")
-                .font(.caption)
-                .foregroundStyle(Theme.textMuted)
-                .fixedSize(horizontal: false, vertical: true)
-            TextField(endpoint.slug, text: $confirmText)
-                .font(.body.monospaced())
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-                .accessibilityIdentifier("mcp-delete-confirm")
-            Button(role: .destructive) {
-                Task { await remove(endpoint) }
-            } label: {
-                Text("删除这个端点").frame(maxWidth: .infinity)
-            }
-            .disabled(store.busy || confirmText != endpoint.slug)
-            .accessibilityIdentifier("mcp-delete")
-        } header: {
-            Text("危险操作").foregroundStyle(Theme.danger)
-        }
-    }
-
     // MARK: - 动作
 
     private func loadPreview(_ endpoint: API.EndpointView) async {
         preview = nil
-        preview = try? await api.mcpEndpointsPreview(body: .init(services: endpoint.services, expandTools: endpoint.expandTools))
+        previewError = nil
+        do {
+            preview = try await api.mcpEndpointsPreview(body: .init(services: endpoint.services, expandTools: endpoint.expandTools))
+        } catch is CancellationError {
+        } catch {
+            guard !Task.isCancelled else { return }
+            previewError = error.localizedDescription
+        }
     }
 
     /// 自检请求本身失败（网络断、接口不存在）也显示成一次「未通过」——自检的意义就是给出结论
@@ -361,25 +326,86 @@ struct SettingsBMCPEndpointDetail: View {
         }
     }
 
-    private func save(_ endpoint: API.EndpointView, _ draft: SettingsBMCPDraft) async {
-        let body = API.EndpointUpdateRequest(
-            name: draft.name,
-            services: draft.services,
-            expandTools: draft.expandTools,
-            timeoutSeconds: draft.timeoutSeconds
-        )
-        _ = await store.run(api) { try await api.mcpEndpointsUpdate(endpointId: endpoint.id, body: body) }
-    }
 
-    private func remove(_ endpoint: API.EndpointView) async {
-        if await store.run(api, { try await api.mcpEndpointsDelete(endpointId: endpoint.id) }) != nil {
-            dismiss()
-        }
-    }
 }
 
 /// 令牌专屏的弹出参数（不给生成模型加 Identifiable 一致性，包一层）
 struct SettingsBMCPIssued: Identifiable {
     let id = UUID()
     let created: API.EndpointCreatedView
+}
+
+private struct SettingsBMCPEditSheet: View {
+    let store: SettingsBMCPStore
+    let endpoint: API.EndpointView
+    @Environment(\.api) private var api
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: SettingsBMCPDraft
+    @State private var discarding = false
+
+    init(store: SettingsBMCPStore, endpoint: API.EndpointView) {
+        self.store = store
+        self.endpoint = endpoint
+        _draft = State(initialValue: SettingsBMCPDraft(endpoint))
+    }
+
+    private var dirty: Bool { draft != SettingsBMCPDraft(endpoint) }
+
+    var body: some View {
+        SubsSheetScaffold(title: "编辑端点", onClose: {
+            if dirty { discarding = true } else { dismiss() }
+        }, confirm: SubsSheetConfirm(title: "保存", enabled: dirty && draft.valid,
+                                     busy: store.busy, identifier: "mcp-form-submit") {
+            Task {
+                let body = API.EndpointUpdateRequest(name: draft.name.trimmingCharacters(in: .whitespaces),
+                    services: draft.services, expandTools: draft.expandTools, timeoutSeconds: draft.timeoutSeconds)
+                if await store.run(api, { try await api.mcpEndpointsUpdate(endpointId: endpoint.id, body: body) }) != nil {
+                    dismiss()
+                }
+            }
+        }) {
+            if let error = store.error { SettingsFormSection { SettingsBNotice(text: error, tone: .danger) } }
+            SettingsBMCPEndpointFields(draft: $draft, services: store.status?.services ?? [],
+                                      baseUrl: store.status?.baseUrl ?? "", slugEditable: false)
+        }
+        .disabled(store.busy)
+        .interactiveDismissDisabled(store.busy || dirty)
+        .alert("放弃未保存的修改？", isPresented: $discarding) {
+            Button("继续编辑", role: .cancel) { }
+            Button("放弃修改", role: .destructive) { dismiss() }
+        }
+    }
+}
+
+private struct SettingsBMCPDeleteSheet: View {
+    let store: SettingsBMCPStore
+    let endpoint: API.EndpointView
+    let onDeleted: () -> Void
+    @Environment(\.api) private var api
+    @State private var confirmText = ""
+
+    var body: some View {
+        SubsSheetScaffold(title: "删除端点") {
+            SettingsFormSection {
+                Text("删除「\(endpoint.name)」后，地址与令牌立即作废，已接入的客户端将无法连接。此操作无法撤销。")
+                TextField(endpoint.slug, text: $confirmText)
+                    .textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityIdentifier("mcp-delete-confirm")
+            } footer: { Text("请输入端点标识 \(endpoint.slug) 以确认。") }
+            SettingsFormSection {
+                Button("删除端点", role: .destructive) {
+                    Task {
+                        if await store.run(api, { try await api.mcpEndpointsDelete(endpointId: endpoint.id) }) != nil {
+                            onDeleted()
+                        }
+                    }
+                }
+                .disabled(store.busy || confirmText != endpoint.slug)
+                .accessibilityIdentifier("mcp-delete")
+            }
+            if let error = store.error { SettingsFormSection { SettingsBNotice(text: error, tone: .danger) } }
+        }
+        .disabled(store.busy)
+        .interactiveDismissDisabled(store.busy)
+    }
 }

@@ -1,15 +1,7 @@
 import SwiftUI
 
-/// 设置 → MCP 服务（对应 Web `mcp-section.tsx` 的列表视图，设计见 docs/design/mcp-server.md §7）。
-///
-/// Web 是 4xl 宽的开发者控制台：列表 → 详情（三栏）→ 新建（两栏）都在同一块内容区里原地切换。
-/// 手机上改成系统层级，信息与操作一个不少：
-/// - **列表**（本页）：总开关（地址前缀）、「已配置 N 个端点」+ 新建、服务关闭提示、
-///   端点行（状态点 / 名称 / 路径 / 服务标签 / 工具数 · 形态 · 最近调用），同 Web 窄屏卡片版式；
-/// - **详情**：点行 push `SettingsBMCPEndpointDetail`（概览 / 工具 / 设置）；
-/// - **新建**：弹层 `SettingsBMCPCreateSheet`，成功后原地换成令牌专屏，确认保存后自动推入新端点详情。
-///
-/// 状态由 `SettingsBMCPStore` 在列表与详情间共享，所有写操作后整份重拉 `GET /mcp/status`。
+/// MCP 服务：总开关与端点列表；新建后展示一次性令牌，再进入详情。
+/// 状态由共享 store 持有，写操作后刷新列表与详情。
 struct MCPSettingsView: View {
     @Environment(\.api) private var api
     @State private var store = SettingsBMCPStore()
@@ -37,6 +29,16 @@ struct MCPSettingsView: View {
             }
         }
         .appBackground()
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("新建端点", systemImage: "plus") {
+                    store.error = nil
+                    creating = true
+                }
+                .disabled(store.busy || store.status == nil)
+                .accessibilityIdentifier("mcp-create")
+            }
+        }
         .task {
             await store.load(api)
             guard !routeQueryConsumed else { return }
@@ -67,13 +69,13 @@ struct MCPSettingsView: View {
     private func list(_ status: API.StatusView) -> some View {
         Form {
             if let error = store.error {
-                Section {
+                SettingsFormSection {
                     SettingsBNotice(text: error, tone: .danger).accessibilityIdentifier("mcp-error")
                 }
             }
 
             // 总开关：左边写清地址前缀，右边一个开关（与 Webhook / IM 推送同形态）
-            Section {
+            SettingsFormSection {
                 Toggle(isOn: Binding(
                     get: { status.enabled },
                     set: { enabled in
@@ -93,7 +95,7 @@ struct MCPSettingsView: View {
                 .accessibilityIdentifier("mcp-enabled")
             }
 
-            Section {
+            SettingsFormSection {
                 if !status.enabled && !status.endpoints.isEmpty {
                     SettingsBNotice(text: "服务已关闭，下面所有端点一律返回 404。配置与令牌都保留着，打开开关即恢复。", tone: .warn)
                         .accessibilityIdentifier("mcp-disabled-notice")
@@ -106,7 +108,7 @@ struct MCPSettingsView: View {
                             .foregroundStyle(Theme.textMuted)
                             .multilineTextAlignment(.center)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("点击右上角「新建端点」开始。").font(.caption).foregroundStyle(Theme.textFaint)
+                        Text("点击右上角加号创建端点。").font(.caption).foregroundStyle(Theme.textFaint)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 20)
@@ -118,22 +120,11 @@ struct MCPSettingsView: View {
                     }
                 }
             } header: {
-                HStack {
-                    Text(status.endpoints.isEmpty ? "还没有 MCP 端点。" : "已配置 \(status.endpoints.count) 个端点。")
-                        .textCase(nil)
-                    Spacer()
-                    Button {
-                        store.error = nil
-                        creating = true
-                    } label: {
-                        Label("新建端点", systemImage: "plus").font(.footnote.weight(.semibold))
-                    }
-                    .discoverProminentButton()
-                    .disabled(store.busy)
-                    .textCase(nil)
-                    .accessibilityIdentifier("mcp-create")
-                }
+                Text("端点")
+            } footer: {
+                Text("每个端点有独立的访问令牌与工具范围，可供 AI 客户端连接。")
             }
+
         }
         .settingsBFormStyle()
         .refreshable { await store.load(api) }
@@ -144,20 +135,18 @@ struct MCPSettingsView: View {
         Button {
             openEndpoint = endpoint.id
         } label: {
-            HStack(alignment: .top, spacing: 10) {
+            HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 6) {
                     HStack(spacing: 8) {
                         SettingsBMCPStatusDot(on: endpoint.enabled)
                         Text(endpoint.name).font(.body.weight(.medium)).foregroundStyle(Theme.text).lineLimit(1)
                     }
                     Text("/mcp/\(endpoint.slug)").font(.caption.monospaced()).foregroundStyle(Theme.textMuted)
-                    SettingsBMCPServiceChips(services: endpoint.services, max: 3)
-                    Text("\(endpoint.toolCount) 个工具 · \(SettingsBMCPFormat.mode(endpoint.expandTools)) · \(endpoint.lastUsedAt == nil ? "从未调用" : SettingsBMCPFormat.relative(endpoint.lastUsedAt))")
-                        .font(.caption)
-                        .foregroundStyle(Theme.textFaint)
+                    Text("\(endpoint.toolCount) 个工具 · \(endpoint.enabled ? "已启用" : "已停用")")
+                        .font(.caption).foregroundStyle(Theme.textFaint)
                 }
                 Spacer(minLength: 4)
-                Image(systemName: "chevron.right").font(.caption).foregroundStyle(Theme.textFaint).padding(.top, 4)
+                Image(systemName: "chevron.right").font(.caption).foregroundStyle(Theme.textFaint)
             }
             .contentShape(.rect)
             .opacity(endpoint.enabled ? 1 : 0.55)

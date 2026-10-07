@@ -2864,6 +2864,30 @@ nonisolated extension API {
         }
     }
 
+    struct FanartKeyPayload: Codable, Hashable, Sendable {
+        /// Fanart.tv API Key
+        var apiKey: String
+
+        enum CodingKeys: String, CodingKey {
+            case apiKey = "api_key"
+        }
+    }
+
+    struct FanartStatusView: Codable, Hashable, Sendable {
+        /// 是否已保存过 Fanart.tv API Key
+        var configured: Bool
+        /// 已保存的 Key 被 Fanart.tv 拒绝过（刮削时遇到 401），需要重新填写
+        var keyInvalid: Bool
+        /// Key 的末四位（展示「••••abcd」用）；没配置为空串
+        var keyHint: String
+
+        enum CodingKeys: String, CodingKey {
+            case configured
+            case keyInvalid = "key_invalid"
+            case keyHint = "key_hint"
+        }
+    }
+
     /// 首页「我的收藏」的一格：单库海报墙的条目视图 + 收藏上下文。
     /// 收藏层级来自最近一次收藏的那一行：整剧两者皆 null，整季只有季号，
     /// 单集季集都有；电影恒为 null（内部 (0,0) 哨兵不外泄）。
@@ -5679,6 +5703,18 @@ nonisolated extension API {
         var profileSize: String
         /// 本地图片画质：original=原图 / standard=标准 / compact=节省空间 / custom=自定义（逐项看四个档位）；空 = 没选过，逐项跟随档位与环境变量
         var imageQuality: String
+        /// 片名 Logo 语言优先级：逐档找第一张有图的语言，全部落空则不显示 Logo
+        var logoLanguagePriority: [String]?
+        /// 自动选图是否使用 Fanart.tv（需先配置 Fanart API Key）
+        var fanartEnabled: Bool?
+        /// 海报的来源顺序
+        var posterSourceOrder: [String]?
+        /// 背景图的来源顺序（TMDB 背景常有 4K，Fanart 固定 1920 宽）
+        var backdropSourceOrder: [String]?
+        /// 片名 Logo 的来源顺序（Fanart 的中文 Logo 更多）
+        var logoSourceOrder: [String]?
+        /// 季海报的来源顺序（只对剧集生效；语言跟随海报语言优先级）
+        var seasonPosterSourceOrder: [String]?
         /// 条目目录模板；空 = 默认 {title} ({year})
         var namingEntryDir: String
         /// 电影文件名模板；空 = 默认 {title} ({year})
@@ -5707,6 +5743,12 @@ nonisolated extension API {
             case stillSize = "still_size"
             case profileSize = "profile_size"
             case imageQuality = "image_quality"
+            case logoLanguagePriority = "logo_language_priority"
+            case fanartEnabled = "fanart_enabled"
+            case posterSourceOrder = "poster_source_order"
+            case backdropSourceOrder = "backdrop_source_order"
+            case logoSourceOrder = "logo_source_order"
+            case seasonPosterSourceOrder = "season_poster_source_order"
             case namingEntryDir = "naming_entry_dir"
             case namingMovieFile = "naming_movie_file"
             case namingSeasonDir = "naming_season_dir"
@@ -5743,6 +5785,18 @@ nonisolated extension API {
         var profileSize: String?
         /// 本地图片画质：original=原图 / standard=标准 / compact=节省空间 / custom=自定义（逐项看四个档位）；空 = 没选过，逐项跟随档位与环境变量
         var imageQuality: String?
+        /// 片名 Logo 语言优先级：逐档找第一张有图的语言，全部落空则不显示 Logo
+        var logoLanguagePriority: [String]?
+        /// 自动选图是否使用 Fanart.tv（需先配置 Fanart API Key）
+        var fanartEnabled: Bool?
+        /// 海报的来源顺序
+        var posterSourceOrder: [String]?
+        /// 背景图的来源顺序（TMDB 背景常有 4K，Fanart 固定 1920 宽）
+        var backdropSourceOrder: [String]?
+        /// 片名 Logo 的来源顺序（Fanart 的中文 Logo 更多）
+        var logoSourceOrder: [String]?
+        /// 季海报的来源顺序（只对剧集生效；语言跟随海报语言优先级）
+        var seasonPosterSourceOrder: [String]?
         /// 条目目录模板；空 = 默认 {title} ({year})
         var namingEntryDir: String?
         /// 电影文件名模板；空 = 默认 {title} ({year})
@@ -5771,6 +5825,12 @@ nonisolated extension API {
             case stillSize = "still_size"
             case profileSize = "profile_size"
             case imageQuality = "image_quality"
+            case logoLanguagePriority = "logo_language_priority"
+            case fanartEnabled = "fanart_enabled"
+            case posterSourceOrder = "poster_source_order"
+            case backdropSourceOrder = "backdrop_source_order"
+            case logoSourceOrder = "logo_source_order"
+            case seasonPosterSourceOrder = "season_poster_source_order"
             case namingEntryDir = "naming_entry_dir"
             case namingMovieFile = "naming_movie_file"
             case namingSeasonDir = "naming_season_dir"

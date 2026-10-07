@@ -2077,6 +2077,18 @@ nonisolated extension APIClient {
         return try await send("GET", "/scrape/country-options")
     }
 
+    /// Fanart.tv 图片来源的 Key 状态（不含明文）
+    /// `GET /scrape/fanart`
+    func scrapeFanartShow() async throws -> API.FanartStatusView {
+        return try await send("GET", "/scrape/fanart")
+    }
+
+    /// 验证并保存 Fanart.tv API Key（全站共用；验证不过不保存）
+    /// `PUT /scrape/fanart`
+    func scrapeFanartSetKey(body: API.FanartKeyPayload) async throws -> API.FanartStatusView {
+        return try await send("PUT", "/scrape/fanart", body: body)
+    }
+
     /// 完整语种表（供「更多语言」搜索面板）
     /// `GET /scrape/language-options`
     func scrapeLanguages() async throws -> [API.LanguageOption] {

@@ -1,316 +1,258 @@
 import SwiftUI
 
-/// 设置 → 播放（Web settings-view.tsx 的 PlaybackSection：进度条预览、转码缓存、远程转码）。
-///
-/// - 进度条预览、转码缓存：两颗开关改即存（`PUT /playback/policy`），失败回滚（乐观更新）；
-/// - 远程转码：开关是**意图**、Worker 连接是**现实**，两件事分开说——
-///   配置 `GET/PUT /transcode-worker/config`，在线状态 `GET /transcode-worker/status` 每 5 秒轮询，
-///   同时轮询待批准请求与已授权 Worker（断线的 Worker 也要列出来，否则 Mac 一关机就「凭空消失」）；
-///   保存才落库，「高级」里的覆盖地址只服务于反代改写 Host 的少数部署。
+/// 即时播放偏好与远程转码分组展示，远程配置在独立草稿中保存。
 struct PlaybackSettingsView: View {
     @Environment(\.api) private var api
     @Environment(Router.self) private var router
-
     @State private var policy: API.PlaybackPolicyView?
-    /// 策略错误及其归属：加载失败两张卡都显示；保存失败只显示在出错的那张卡（Web 两张卡各管各的错误）
     @State private var policyError: String?
-    @State private var policyErrorScope: PolicyErrorScope = .load
-    enum PolicyErrorScope { case load, trickplay, cache }
     @State private var policyBusy = false
-
     @State private var config: Loadable<API.RemoteTranscodeConfigView> = .loading
-    @State private var enabled = false
-    @State private var baseURLDraft = ""
-    @State private var advancedOpen = false
-    @State private var saving = false
-    @State private var saveError: String?
-    @State private var saved = false
+    @State private var editing = false
+    @State private var showingPairing = false
     @State private var status: SettingsTranscodeWorkerStatus?
-    /// 已授权的转码器（配对来的 Worker 与「仅限转码」的手工令牌），用来列出没连上来的那几台
+    @State private var statusError: String?
     @State private var authorizedWorkers: [API.LoginDeviceView] = []
-
-    /// 单个 HLS 产物上传上限固定 512 MiB（Worker 上传代理的实现上限，不是偏好，不给用户填）
-    private static let artifactLimitBytes = 512 * 1024 * 1024
 
     var body: some View {
         List {
-            policySection
+            policySections
             remoteSections
         }
-        .scrollDismissesKeyboard(.interactively)
+        .listStyle(.insetGrouped)
         .appBackground()
         .task { await loadPolicy() }
         .task { await loadConfig() }
         .polling(every: 5, immediately: true) { await pollStatus() }
-    }
-
-    // MARK: 进度条预览 / 转码缓存
-
-    @ViewBuilder
-    private var policySection: some View {
-        Section("进度条预览") {
-            if let policyError, policyErrorScope != .cache { SettingsNotice(text: policyError) }
-            if let policy {
-                Toggle(isOn: Binding(mcGet: { policy.trickplayEnabled }, set: { value in Task { await savePolicy(trickplay: value) } })) {
-                    SettingsRowText(
-                        title: "生成进度条预览图",
-                        detail: policy.trickplayEnabled
-                            ? "拖动进度条时可以看到画面缩略图；影片入库后首次播放会在后台慢慢生成"
-                            : "不再为新影片生成预览，已生成的照常显示；重新打开即恢复生成"
-                    )
-                }
-                .disabled(policyBusy)
-                .accessibilityIdentifier("playback-trickplay")
-            } else if policyError == nil {
-                SettingsLoadingRow()
+        .sheet(isPresented: $editing) {
+            if let value = config.value {
+                RemoteTranscodeEditor(config: value) { saved in
+                    config = .loaded(saved)
+                    Task { await pollStatus() }
+                }.sheetFeedback()
             }
         }
-        Section("转码缓存") {
-            if let policyError, policyErrorScope != .trickplay { SettingsNotice(text: policyError) }
-            if let policy {
-                Toggle(isOn: Binding(mcGet: { policy.transcodeCacheEnabled }, set: { value in Task { await savePolicy(cache: value) } })) {
-                    SettingsRowText(
-                        title: "保留转码产物供续播、重看复用",
-                        detail: policy.transcodeCacheEnabled
-                            ? "同一部片再次播放时已转出的部分直接读文件、不重新转码；缓存按磁盘剩余空间自动限额、24 小时未用自动清理，也可在「存储」页清空"
-                            : "会话结束即删除分片，每次播放都重新转码；磁盘特别紧张时用"
-                    )
+        .sheet(isPresented: $showingPairing) {
+            SubsSheetScaffold(title: "连接转码器", closeTitle: "完成") {
+                SettingsFormSection {
+                    Label("在 Mac 上打开 MovieClaw Transcoder，查找局域网服务器或输入服务器地址。", systemImage: "1.circle")
+                    Label("选择「连接并配对」，获取配对码。", systemImage: "2.circle")
+                    Label("在服务器的「设备」页输入配对码，核对设备后批准。", systemImage: "3.circle")
+                } footer: { Text("目前支持 macOS Apple Silicon。配对凭证直接返回 Mac，无需手动复制令牌。") }
+                SettingsFormSection {
+                    Button("前往设备管理") {
+                        showingPairing = false
+                        router.push(.settingsSection(.devices))
+                    }.accessibilityIdentifier("playback-pairing-devices")
                 }
-                .disabled(policyBusy)
-                .accessibilityIdentifier("playback-transcode-cache")
-            } else if policyError == nil {
-                SettingsLoadingRow()
+            }.sheetFeedback()
+        }
+    }
+
+    @ViewBuilder private var policySections: some View {
+        if let policyError {
+            SettingsFormSection {
+                SettingsNotice(text: policyError)
+                if policy == nil { Button("重试") { Task { await loadPolicy() } } }
             }
         }
+        if let policy {
+            SettingsFormSection {
+                Toggle("进度条预览", isOn: Binding(mcGet: { policy.trickplayEnabled }, set: { value in
+                    Task { await savePolicy(trickplay: value) }
+                }))
+                .disabled(policyBusy).accessibilityIdentifier("playback-trickplay")
+            } footer: {
+                Text(policy.trickplayEnabled ? "首次播放时后台生成预览图，拖动进度条即可查看画面。" : "不为新影片生成预览图，已有预览仍可使用。")
+            }
+            SettingsFormSection {
+                Toggle("保留转码缓存", isOn: Binding(mcGet: { policy.transcodeCacheEnabled }, set: { value in
+                    Task { await savePolicy(cache: value) }
+                }))
+                .disabled(policyBusy).accessibilityIdentifier("playback-transcode-cache")
+            } footer: {
+                Text(policy.transcodeCacheEnabled ? "续播、重看时复用已转码内容。按可用空间自动限额，24 小时未用自动清理，也可在「更新与维护 → 缓存管理」中清空。" : "播放结束后删除分片，再次播放时重新转码。")
+            }
+        } else if policyError == nil { SettingsFormSection { SettingsLoadingRow() } }
     }
 
-    private func loadPolicy() async {
-        do {
-            policy = try await api.playbackPolicyShow()
-            policyError = nil
-        } catch {
-            policyError = error.localizedDescription
-            policyErrorScope = .load
-        }
-    }
-
-    /// 改即存：先乐观更新，失败回滚并显示后端原因
-    private func savePolicy(trickplay: Bool? = nil, cache: Bool? = nil) async {
-        guard let previous = policy else { return }
-        var optimistic = previous
-        if let trickplay { optimistic.trickplayEnabled = trickplay }
-        if let cache { optimistic.transcodeCacheEnabled = cache }
-        policy = optimistic
-        policyBusy = true
-        policyError = nil
-        defer { policyBusy = false }
-        do {
-            policy = try await api.playbackPolicySet(body: .init(trickplayEnabled: trickplay, transcodeCacheEnabled: cache))
-        } catch {
-            policy = previous
-            policyError = error.localizedDescription
-            policyErrorScope = trickplay != nil ? .trickplay : .cache
-        }
-    }
-
-    // MARK: 远程转码
-
-    @ViewBuilder
-    private var remoteSections: some View {
+    @ViewBuilder private var remoteSections: some View {
         switch config {
-        case .loading:
-            Section("远程转码") { SettingsLoadingRow(text: "正在加载远程转码设置…") }
+        case .loading: SettingsFormSection("远程转码") { SettingsLoadingRow() }
         case let .failed(message):
-            Section("远程转码") {
-                Text("远程转码设置加载失败").foregroundStyle(Theme.textMuted)
-                Text(message).font(.footnote).foregroundStyle(Theme.danger)
+            SettingsFormSection("远程转码") {
+                SettingsNotice(text: message)
                 Button("重试") { Task { await loadConfig() } }
             }
         case let .loaded(config):
-            remoteLoaded(config)
+            SettingsFormSection {
+                Button { editing = true } label: {
+                    HStack {
+                        Text("远程转码设置").foregroundStyle(.primary)
+                        Spacer()
+                        Label(config.enabled ? "已启用" : "已关闭", systemImage: config.enabled ? "checkmark.circle.fill" : "pause.circle")
+                            .foregroundStyle(config.enabled ? Theme.success : Theme.textMuted)
+                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                    }
+                }.accessibilityIdentifier("remote-transcode-settings")
+                ForEach(config.issues, id: \.self) { issue in SettingsNotice(text: issue, tone: .warn) }
+            } header: { Text("远程转码") } footer: {
+                Text(config.enabled ? "兼容转码器处理需要远程硬件的任务。没有转码器在线时自动使用服务器本地转码。" : "启用后可使用 Mac 的硬件转码能力，服务器仍负责播放会话与缓存。")
+            }
+            workerSection(config)
         }
     }
 
-    @ViewBuilder
-    private func remoteLoaded(_ config: API.RemoteTranscodeConfigView) -> some View {
+    private func workerSection(_ config: API.RemoteTranscodeConfigView) -> some View {
         let workers = status?.workers ?? []
-        let online = workers.filter(\.online)
-        let liveNames = Set(workers.map(\.workerId))
-        let offline = authorizedWorkers.filter { !liveNames.contains($0.name) }
-        let hasAnyWorker = !workers.isEmpty || !offline.isEmpty
-        let statusText = !config.enabled ? "已关闭"
-            : !config.ready ? "「高级」里的覆盖地址不合法，暂不会分配远程转码任务"
-            : !online.isEmpty ? "已就绪，\(online.count) 个 Worker 在线"
-            : "配置已就绪，但还没有 Worker 连上来"
-        let statusColor: Color = !config.enabled ? Theme.textMuted : (config.ready && !online.isEmpty ? Theme.success : Theme.warning)
-
-        // 远程转码介绍放在最上面（Web 的段首说明），下面才是「状态」组
-        Section {
-            if let saveError { SettingsNotice(text: saveError) }
-            Text("只把需要远程硬件能力的转码任务交给兼容 Worker。NAS 仍负责鉴权、播放会话和 HLS 缓存；修改后立即生效，不需要重启应用。当前可用的 Worker 实现为 macOS Apple Silicon 版本。")
-                .font(.subheadline).foregroundStyle(Theme.textMuted)
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4))
-        }
-
-        Section {
-            Toggle(isOn: $enabled) {
-                SettingsRowText(
-                    title: "启用远程硬件转码",
-                    detail: enabled
-                        ? "没有 Worker 在线时，播放自动回落到 NAS 本地转码，不会失败"
-                        : "关闭后已配对的 Worker 也会断开连接，所有播放走 NAS 本地转码"
-                )
+        let connected = Set(workers.map(\.workerId))
+        let offline = authorizedWorkers.filter { !connected.contains($0.name) }
+        return SettingsFormSection {
+            if let statusError {
+                SettingsNotice(text: "无法刷新转码器状态：\(statusError)", tone: .warn)
             }
-            .accessibilityIdentifier("remote-transcode-enabled")
-            Text("当前状态：\(Text(statusText).foregroundStyle(statusColor))")
-                .font(.subheadline)
-            ForEach(config.issues, id: \.self) { issue in
-                Text("· \(issue)").font(.caption).foregroundStyle(Theme.warning)
-            }
-        } header: {
-            Text("状态")
-        }
-
-        Section("Worker") {
-            if !config.ready {
-                SettingsNotice(
-                    text: !config.enabled
-                        ? "远程转码还没开启，Worker 现在连不上来。打开上面的开关并保存即可。"
-                        : "「高级」里填的覆盖地址不合法，Worker 现在连不上来。改正或清空它即可。",
-                    tone: .warn
-                )
-            }
-            // 状态接口拿不到（含失败）时停在这句（Web status == null），不去猜引导或离线列表
-            if status == nil {
-                Text("正在获取 Worker 状态…").font(.caption).foregroundStyle(Theme.textFaint)
-            } else if hasAnyWorker {
-                ForEach(workers, id: \.workerId) { worker in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(worker.workerId).font(.subheadline.weight(.medium))
-                            Spacer()
-                            Text(worker.online ? (worker.draining ? "暂停接单" : "在线") : "已离线")
-                                .font(.caption)
-                                .foregroundStyle(worker.online ? (worker.draining ? Theme.warning : Theme.success) : Theme.textFaint)
+            if let status {
+                ForEach(status.workers, id: \.workerId) { worker in
+                    VStack(alignment: .leading, spacing: 5) {
+                        ViewThatFits(in: .horizontal) {
+                            HStack { Text(worker.workerId); Spacer(); workerState(worker) }
+                            VStack(alignment: .leading, spacing: 4) { Text(worker.workerId); workerState(worker) }
                         }
-                        Text(worker.summary).font(.caption).foregroundStyle(Theme.textFaint)
-                    }
+                        Text(worker.summary).font(.caption).foregroundStyle(.secondary)
+                    }.accessibilityIdentifier("playback-worker-\(worker.workerId)")
                 }
                 ForEach(offline, id: \.id) { device in
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 5) {
                         HStack {
-                            Text(device.name).font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
+                            Text(device.name)
                             Spacer()
-                            Text("未连接").font(.caption).foregroundStyle(Theme.textFaint)
+                            Label("未连接", systemImage: "circle").font(.subheadline).foregroundStyle(.secondary)
                         }
-                        Text("已授权 · 最近活跃 \(SettingsTime.deviceRelative(device.lastSeenAt))\(config.ready ? " · Mac 没开机或没联网时属正常" : "")")
-                            .font(.caption).foregroundStyle(Theme.textFaint)
+                        Text("已授权 · 最近活跃 \(SettingsTime.deviceRelative(device.lastSeenAt))").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Button("在「设备」里查看授权或注销") { router.push(.settingsSection(.devices)) }
-                    .font(.caption)
-            } else if config.ready {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("还没有 Worker 接入。在 Mac 上：").font(.subheadline).foregroundStyle(Theme.textMuted)
-                    Text("1. 打开 MovieClaw Transcoder，点「在局域网中查找」或直接填 movieclaw 地址；")
-                    Text("2. 点「连接并配对」，它会显示一段配对码；")
-                    Text("3. 回到「设置 → 设备」，输入配对码，核对无误后批准。")
-                    Text("全程不需要在任何一边输入令牌——Worker 的凭证是批准时签发的，直接回到那台 Mac，不经过屏幕。")
+                if workers.isEmpty && offline.isEmpty {
+                    Text(config.ready ? "尚无转码器连接" : "启用远程转码后，可连接兼容的转码器")
+                        .foregroundStyle(.secondary)
                 }
-                .font(.caption).foregroundStyle(Theme.textFaint)
-                Button("去设备页") { router.push(.settingsSection(.devices)) }
-                    .font(.caption)
-            }
-        }
-
-        Section("高级") {
-            DisclosureGroup(isExpanded: $advancedOpen) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("服务端下发任务时要告诉 Worker「去哪儿取源视频、往哪儿传 HLS 产物」。默认自动取用这台 Worker 连上来时用的地址，不需要设置——它刚从那儿握上手，必然够得着，而且通常就是最快的那条内网路径。只有当反向代理把 Host 改写成了上游地址（如 127.0.0.1:8000），导致 Worker 拿到的地址回不来时，才需要在这里指定一个 Worker 够得着的地址。")
-                        .font(.caption).foregroundStyle(Theme.textFaint)
-                    Text("覆盖地址").font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
-                    TextField("留空 = 自动（推荐）", text: $baseURLDraft)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .padding(10)
-                        .background(Color.white.opacity(0.04), in: .rect(cornerRadius: 10))
-                        .accessibilityIdentifier("remote-transcode-base-url")
-                    Text(config.baseUrlSource == "remote_transcode_setting" ? "当前使用上面填写的覆盖地址。" : "当前为自动：每台 Worker 各用自己连上来的地址。")
-                        .font(.caption).foregroundStyle(Theme.textFaint)
+            } else if statusError == nil { SettingsLoadingRow(text: "正在获取转码器状态…") }
+            Button { showingPairing = true } label: { Label("连接转码器", systemImage: "plus") }
+                .accessibilityIdentifier("playback-connect-worker")
+            Button { router.push(.settingsSection(.devices)) } label: {
+                HStack {
+                    Text("管理已授权设备")
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
                 }
-                .padding(.top, 6)
-            } label: {
-                HStack(spacing: 8) {
-                    Text("取源与回传地址")
-                    Text(config.baseUrlSource == "worker_connection" ? "自动" : "已覆盖为 \(config.baseUrl)")
-                        .font(.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
-                }
-            }
-        }
-
-        Section {
-            HStack {
-                if saved {
-                    Label("已保存", systemImage: "checkmark").font(.subheadline).foregroundStyle(Theme.success)
-                }
-                Spacer()
-                Button(saving ? "保存中…" : "保存设置") { Task { await saveConfig() } }
-                    .settingsProminentButton()
-                    .disabled(saving)
-                    .accessibilityIdentifier("remote-transcode-save")
-            }
-            .listRowBackground(Color.clear)
+            }.accessibilityIdentifier("playback-manage-workers")
+        } header: { Text("转码器") } footer: {
+            Text("在线状态每 5 秒刷新。Mac 休眠或断网时显示为未连接。")
         }
     }
 
-    private func loadConfig() async {
-        await Loadable.load(into: $config) { try await api.transcodeConfigShow() }
-        if let value = config.value {
-            enabled = value.enabled
-            baseURLDraft = value.baseUrlOverride
-            advancedOpen = !value.baseUrl.isEmpty
-        }
+    private func workerState(_ worker: SettingsTranscodeWorkerStatus.Worker) -> some View {
+        Label(worker.online ? (worker.draining ? "暂停接单" : "在线") : "已离线",
+              systemImage: worker.online ? (worker.draining ? "pause.circle.fill" : "circle.fill") : "circle")
+            .font(.subheadline)
+            .foregroundStyle(worker.online ? (worker.draining ? Theme.warning : Theme.success) : Theme.textMuted)
     }
 
-    /// 在线状态与授权清单：附属指示器，失败不弹错，不盖掉用户正在填的表单
+    private func loadPolicy() async {
+        do { policy = try await api.playbackPolicyShow(); policyError = nil }
+        catch { policyError = error.localizedDescription }
+    }
+
+    private func savePolicy(trickplay: Bool? = nil, cache: Bool? = nil) async {
+        guard !policyBusy, let previous = policy else { return }
+        var optimistic = previous
+        if let trickplay { optimistic.trickplayEnabled = trickplay }
+        if let cache { optimistic.transcodeCacheEnabled = cache }
+        policy = optimistic; policyBusy = true; policyError = nil
+        defer { policyBusy = false }
+        do { policy = try await api.playbackPolicySet(body: .init(trickplayEnabled: trickplay, transcodeCacheEnabled: cache)) }
+        catch { policy = previous; policyError = error.localizedDescription }
+    }
+
+    private func loadConfig() async { await Loadable.load(into: $config) { try await api.transcodeConfigShow() } }
+
+    /// 保留上次成功的状态，刷新失败时明确标记，避免已授权设备凭空消失。
     private func pollStatus() async {
-        status = try? await api.send("GET", "/transcode-worker/status", as: SettingsTranscodeWorkerStatus.self)
         do {
-            authorizedWorkers = try await api.authDevicesList(all: true).filter { $0.scope == "transcode" }
-        } catch {
-            authorizedWorkers = []
-        }
-    }
-
-    private func saveConfig() async {
-        saving = true
-        saveError = nil
-        saved = false
-        defer { saving = false }
-        do {
-            let next = try await api.transcodeConfigSet(body: .init(
-                enabled: enabled,
-                baseUrl: baseURLDraft.trimmingCharacters(in: .whitespaces),
-                // 存量若被调低过，这一步顺手拉回默认值——高上限只会更少地误伤
-                maxArtifactBytes: Self.artifactLimitBytes
-            ))
-            config = .loaded(next)
-            enabled = next.enabled
-            baseURLDraft = next.baseUrlOverride
-            saved = true
-            Task {
-                try? await Task.sleep(for: .seconds(2.2))
-                saved = false
-            }
-            await pollStatus()
-        } catch {
-            saveError = error.localizedDescription
-        }
+            let latest = try await api.send("GET", "/transcode-worker/status", as: SettingsTranscodeWorkerStatus.self)
+            let authorized = try await api.authDevicesList(all: true).filter { $0.scope == "transcode" }
+            status = latest; authorizedWorkers = authorized; statusError = nil
+        } catch { statusError = error.localizedDescription }
     }
 }
 
+struct RemoteTranscodeDraft: Equatable {
+    var enabled: Bool
+    var baseURL: String
+    init(_ config: API.RemoteTranscodeConfigView) { enabled = config.enabled; baseURL = config.baseUrlOverride }
+    var valid: Bool { NetworkSettingsValidation.validURL(baseURL, allowEmpty: true) }
+    var payload: API.RemoteTranscodeConfigPayload {
+        .init(enabled: enabled, baseUrl: baseURL.trimmingCharacters(in: .whitespacesAndNewlines), maxArtifactBytes: 512 * 1024 * 1024)
+    }
+}
+
+private struct RemoteTranscodeEditor: View {
+    let config: API.RemoteTranscodeConfigView
+    let onSaved: (API.RemoteTranscodeConfigView) -> Void
+    @Environment(\.api) private var api
+    @Environment(\.dismiss) private var dismiss
+    @State private var draft: RemoteTranscodeDraft
+    @State private var busy = false
+    @State private var error: String?
+    @State private var discarding = false
+    @State private var confirmingDisable = false
+    private var dirty: Bool { draft != RemoteTranscodeDraft(config) }
+
+    init(config: API.RemoteTranscodeConfigView, onSaved: @escaping (API.RemoteTranscodeConfigView) -> Void) {
+        self.config = config; self.onSaved = onSaved
+        _draft = State(initialValue: RemoteTranscodeDraft(config))
+    }
+
+    var body: some View {
+        SubsSheetScaffold(title: "远程转码设置", onClose: {
+            if dirty { discarding = true } else { dismiss() }
+        }, confirm: .init(title: "保存", enabled: dirty && draft.valid, busy: busy, identifier: "remote-transcode-save") {
+            if config.enabled && !draft.enabled { confirmingDisable = true }
+            else { Task { await save() } }
+        }) {
+            SettingsFormSection {
+                Toggle("启用远程硬件转码", isOn: $draft.enabled).accessibilityIdentifier("remote-transcode-enabled")
+            } footer: {
+                Text(draft.enabled ? "保存后立即生效，无需重启。没有兼容转码器在线时自动回到服务器本地转码。" : "关闭后，已配对转码器会断开连接，播放使用服务器本地转码。")
+            }
+            SettingsFormSection {
+                TextField("自动使用转码器连接地址", text: $draft.baseURL)
+                    .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                    .accessibilityIdentifier("remote-transcode-base-url")
+            } header: { Text("取源与回传地址") } footer: {
+                Text("留空使用每台转码器连接服务器时的地址。仅当反向代理改写 Host、导致转码器无法取源或回传时，才需要填写转码器可访问的 http(s) 地址。")
+            }
+            if !draft.valid { SettingsFormSection { Text("请输入完整的 http(s) 地址，或留空使用自动地址。").foregroundStyle(Theme.warning) } }
+            if let error { SettingsFormSection { SettingsNotice(text: error) } }
+        }
+        .disabled(busy)
+        .interactiveDismissDisabled(busy || dirty)
+        .alert("放弃未保存的修改？", isPresented: $discarding) {
+            Button("继续编辑", role: .cancel) { }
+            Button("放弃修改", role: .destructive) { dismiss() }
+        }
+        .alert("关闭远程转码？", isPresented: $confirmingDisable) {
+            Button("取消", role: .cancel) { }
+            Button("关闭并保存", role: .destructive) { Task { await save() } }
+        } message: { Text("已配对的转码器会断开连接，后续播放使用服务器本地转码。") }
+    }
+
+    private func save() async {
+        busy = true; error = nil
+        defer { busy = false }
+        do { onSaved(try await api.transcodeConfigSet(body: draft.payload)); dismiss() }
+        catch { self.error = error.localizedDescription }
+    }
+}
 /// `GET /transcode-worker/status` 的响应（生成器给的是任意字典，这里按 Web lib/api/transcode-worker.ts 手写）
 nonisolated struct SettingsTranscodeWorkerStatus: Decodable, Sendable {
     struct Worker: Decodable, Sendable {

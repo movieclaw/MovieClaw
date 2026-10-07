@@ -36,6 +36,18 @@ ROOT = Path(__file__).resolve().parents[3]
 OUT_DIR = ROOT / "apps/apple/Shared/Core/API/Generated"
 API_PREFIX = "/api/v1"
 
+# 新图片来源字段不在旧服务器响应中。保持可选，也保留既有 Swift 本地构造调用。
+BACKWARD_COMPATIBLE_RESPONSE_FIELDS = {
+    "MetadataScrapeSetting": {
+        "logo_language_priority",
+        "fanart_enabled",
+        "poster_source_order",
+        "backdrop_source_order",
+        "logo_source_order",
+        "season_poster_source_order",
+    },
+}
+
 SWIFT_KEYWORDS = {
     "associatedtype",
     "class",
@@ -252,7 +264,11 @@ def gen_struct(name: str, schema: dict, defs: dict) -> list[str]:
             swift_name += "_"
         used.add(swift_name)
         typ, nullable = swift_type(prop, defs)
-        optional = nullable or json_key not in required
+        optional = (
+            nullable
+            or json_key not in required
+            or json_key in BACKWARD_COMPATIBLE_RESPONSE_FIELDS.get(name, set())
+        )
         lines += doc_lines(prop.get("description"), "        ")
         if prop.get("readOnly") and not optional:
             # 计算字段由服务端推导：解码时照常必有，本地构造时不必填（数组给空、其余可选）

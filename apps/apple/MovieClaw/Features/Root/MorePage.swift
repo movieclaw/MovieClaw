@@ -9,8 +9,7 @@ import SwiftUI
 ///   能看见的兜底入口「切换账号」与「退出登录」一起放在个人信息页最底部（iOS 账户详情页惯例）；
 /// - 提醒组（仅管理员、有事才出现，同 iOS 设置 App 账户卡下的「有可用更新」）：待处理（30 秒轮询）/
 ///   应用更新（文案「新版本 vX」或「新识别模型 X」）；
-/// - 服务器设置：标题下面一行小字写当前服务器地址（iOS 副标题行，与账户卡「昵称 / 超级管理员」、服务器设置页
-///   各分区的「标题 / 说明」同一写法），回答「这些设置改的是哪台」，也让人一眼看到 App 连的是哪个地址。
+/// - 服务器设置：App Logo + 标题，下面一行小字写当前服务器地址，说明这些设置改的是哪台服务器。
 ///   试过分组下方的说明文字（footer，悬在卡片外没有一体感）和同一行右侧灰字，用户选了副标题（2026-09-29）。
 ///   「关于 MovieClaw」不占这里的位置（低频，用户认为太重），放在服务器设置页最底部；
 /// - 最近会话（管理员）：首行「新会话」（加号，顶栏的「+」已去掉，这里是发起新会话的入口），下面是 AI 会话，
@@ -118,7 +117,11 @@ struct MorePage: View {
                             }
                         }
                     } icon: {
-                        Image(systemName: "gearshape")
+                        Image("MovieClawLogo")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 28, height: 28)
+                            .accessibilityHidden(true)
                     }
                 }
                 .accessibilityIdentifier("more-settings")

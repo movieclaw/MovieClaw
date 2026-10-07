@@ -166,9 +166,9 @@ private struct NotificationSettingsContent: View {
             permissionSection
             switch model.state {
             case .loading:
-                Section { SettingsLoadingRow() }
+                SettingsFormSection { SettingsLoadingRow() }
             case let .failed(message):
-                Section {
+                SettingsFormSection {
                     SettingsBNotice(text: message, tone: .danger)
                     SettingsBAsyncButton("重试") { await model.load() }
                 }
@@ -215,7 +215,7 @@ private struct NotificationSettingsContent: View {
     // MARK: 系统权限
 
     private var permissionSection: some View {
-        Section {
+        SettingsFormSection {
             HStack(spacing: 12) {
                 Label("系统通知", systemImage: push.permission == .denied ? "bell.slash" : "bell")
                 Spacer(minLength: 8)
@@ -249,7 +249,7 @@ private struct NotificationSettingsContent: View {
         if settings.instanceReady {
             if settings.isAdmin, let status = connection.value, status.state == "connected" {
                 // 刚在这里开启：给一句确认
-                Section {
+                SettingsFormSection {
                     HStack(spacing: 12) {
                         Image(systemName: "checkmark.circle.fill").font(.title3).foregroundStyle(Theme.success)
                         SettingsRowText(title: "手机通知已开启",
@@ -260,13 +260,13 @@ private struct NotificationSettingsContent: View {
                 }
             }
         } else if !settings.isAdmin {
-            Section {
+            SettingsFormSection {
                 SettingsBNotice(text: "管理员还没有开启手机通知。开启后你会自动收到，不用再设置。", tone: .info)
                     .accessibilityIdentifier("notifications-not-ready")
             }
         } else if connection.isConnected, let status = connection.value {
             // 连着 MovieClaw Cloud，但没有能用的通道（版本不受支持、官方通道被停用……）：去「MovieClaw Cloud」看原因
-            Section {
+            SettingsFormSection {
                 SettingsBNotice(text: status.healthMessage ?? "服务器已连接 MovieClaw Cloud，但现在没有可用的推送通道。", tone: .warn)
                 NavigationLink(value: AppRoute.settingsSection(.cloud)) {
                     Label(SettingsSection.cloud.title, systemImage: SettingsSection.cloud.systemImage)
@@ -281,7 +281,7 @@ private struct NotificationSettingsContent: View {
 
     /// 管理员的「开启手机通知」：连接 MovieClaw Cloud，网页框里批准完自动回到这里
     private var enableCard: some View {
-        Section {
+        SettingsFormSection {
             VStack(alignment: .leading, spacing: 6) {
                 Text("开启手机通知").font(.headline)
                 Text("把「\(connection.value?.serverName ?? app.server?.hostLabel ?? "这台服务器")」连到你的 MovieClaw 账号，全家人的 MovieClaw App 都能收到通知。")
@@ -320,7 +320,7 @@ private struct NotificationSettingsContent: View {
     private func eventSections(_ settings: API.MyPushView) -> some View {
         let groups = NotificationSettingsModel.groups(settings.events)
         ForEach(Array(groups.enumerated()), id: \.element.title) { index, group in
-            Section {
+            SettingsFormSection {
                 ForEach(group.events, id: \.key) { event in
                     Toggle(isOn: Binding(get: { event.enabled }, set: { value in
                         Task {
@@ -381,7 +381,7 @@ private struct NotificationSettingsContent: View {
     @ViewBuilder
     private func mutedSection(_ settings: API.MyPushView) -> some View {
         if let muted = settings.mutedItems, !muted.isEmpty {
-            Section {
+            SettingsFormSection {
                 ForEach(muted, id: \.id) { item in
                     HStack(spacing: 12) {
                         Text(item.year.map { "\(item.title)（\($0)）" } ?? item.title)
@@ -409,7 +409,7 @@ private struct NotificationSettingsContent: View {
     @ViewBuilder
     private func attentionSection(_ settings: API.MyPushView) -> some View {
         if settings.instanceReady, !settings.attention.isEmpty {
-            Section {
+            SettingsFormSection {
                 SettingsBNotice(text: Self.attentionText(settings.attention), tone: .warn)
                     .accessibilityIdentifier("notifications-attention")
                 NavigationLink(value: AppRoute.settingsSection(.devices)) {
@@ -429,7 +429,7 @@ private struct NotificationSettingsContent: View {
 
     private func testSection(_ settings: API.MyPushView) -> some View {
         let count = settings.readyDevices
-        return Section {
+        return SettingsFormSection {
             HStack(spacing: 12) {
                 SettingsRowText(title: "发送测试通知",
                                 detail: count > 0 ? "发给你的 \(count) 台设备" : "你的设备现在都收不到通知")

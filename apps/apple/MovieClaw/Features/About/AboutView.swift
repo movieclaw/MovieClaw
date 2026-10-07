@@ -12,7 +12,7 @@ import SwiftUI
 struct AboutView: View {
     var body: some View {
         List {
-            Section {
+            SettingsFormSection {
                 LabeledContent("版本", value: Self.versionText)
                 Link(destination: URL(string: "https://github.com/movieclaw/movieclaw")!) {
                     Label("项目主页（开源）", systemImage: "chevron.left.forwardslash.chevron.right")
@@ -24,7 +24,7 @@ struct AboutView: View {
                 Text("MovieClaw 是自托管服务的客户端：你的媒体、账号与观看记录都在你自己部署的服务器上，App 不向开发者或任何第三方上传数据。")
             }
 
-            Section {
+            SettingsFormSection {
                 ForEach(OpenSourceComponent.all) { component in
                     NavigationLink {
                         LicenseTextView(component: component)
@@ -43,7 +43,7 @@ struct AboutView: View {
                 Text("播放引擎 AetherEngine 与 FFmpeg 以动态框架随 App 分发，你可以按各自的许可获取源码、修改并替换。本 App 使用的 AetherEngine 修改版源码可通过下方组件链接获取，链接对应本次构建使用的提交。")
             }
 
-            Section {
+            SettingsFormSection {
                 Link(destination: URL(string: "https://www.themoviedb.org")!) {
                     Label("The Movie Database (TMDB)", systemImage: "film.stack")
                 }

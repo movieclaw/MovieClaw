@@ -38,6 +38,7 @@ struct SettingsBLLMProviderForm: View {
     @State private var draft = SettingsBLLMModelDraft()
     @State private var busy = false
     @State private var error: String?
+    @State private var discarding = false
 
     init(provider: API.LlmProviderView?, presets: [API.LlmPresetView], takenNames: [String], onSaved: @escaping () -> Void) {
         self.provider = provider
@@ -93,13 +94,24 @@ struct SettingsBLLMProviderForm: View {
         return nil
     }
 
+    private var dirty: Bool {
+        name != (provider?.name ?? "") || providerType != (provider?.providerType ?? "bailian")
+            || baseUrl != (provider?.baseUrl ?? "") || userAgent != (provider?.userAgent ?? "")
+            || !apiKey.isEmpty || extraModels != (provider?.extraModels ?? [])
+            || (addingCustom && draft != SettingsBLLMModelDraft())
+    }
+
     // MARK: - 界面
 
     var body: some View {
-        NavigationStack {
-            Form {
+        SubsSheetScaffold(title: provider == nil ? "接入模型供应商" : "编辑供应商", onClose: {
+            if dirty { discarding = true } else { dismiss() }
+        }, confirm: SubsSheetConfirm(title: "保存并测试连接", enabled: submitHint == nil,
+                                     busy: busy, identifier: "llm-form-save") {
+            Task { await submit() }
+        }) {
                 if let error {
-                    Section {
+                    SettingsFormSection {
                         SettingsBNotice(text: error, tone: .danger)
                             .accessibilityIdentifier("llm-form-error")
                     }
@@ -111,39 +123,20 @@ struct SettingsBLLMProviderForm: View {
                     customModelSection
                 }
                 if let submitHint {
-                    Section {
+                    SettingsFormSection {
                         Text(submitHint)
                             .font(.caption)
                             .foregroundStyle(Theme.textFaint)
                             .accessibilityIdentifier("llm-form-hint")
                     }
                 }
-            }
-            .scrollContentBackground(.hidden)
-            .navigationTitle(provider.map { "编辑「\($0.name)」" } ?? "接入模型供应商")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消", systemImage: "xmark") { dismiss() }
-                        .accessibilityIdentifier("llm-form-cancel")
-                }
-            }
-            .safeAreaBar(edge: .bottom) {
-                SubsPrimaryButton(
-                    title: busy ? "保存中…" : "保存并测试连接",
-                    busy: busy,
-                    enabled: submitHint == nil,
-                    identifier: "llm-form-save"
-                ) {
-                    Task { await submit() }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-            }
-            .background(Theme.background.opacity(0.35))
         }
-        .presentationBackground(.regularMaterial)
-        .interactiveDismissDisabled(busy)
+        .disabled(busy)
+        .interactiveDismissDisabled(busy || dirty)
+        .alert("放弃未保存的修改？", isPresented: $discarding) {
+            Button("继续编辑", role: .cancel) { }
+            Button("放弃修改", role: .destructive) { dismiss() }
+        }
         .onChange(of: providerType) { _, _ in
             // 换供应商：端点 / UA / 高级设置 / 参数子表单都与上一家无关，一并清掉
             baseUrl = ""
@@ -155,7 +148,7 @@ struct SettingsBLLMProviderForm: View {
 
     /// 供应商（下拉）+ 所选供应商的提示卡
     private var providerSection: some View {
-        Section {
+        SettingsFormSection {
             Picker("供应商", selection: $providerType) {
                 if presets.isEmpty {
                     Text("正在加载供应商…").tag(providerType)
@@ -184,7 +177,7 @@ struct SettingsBLLMProviderForm: View {
 
     /// 实例名 / API 端点 / API Key / 高级设置（User-Agent）
     private var connectionSection: some View {
-        Section {
+        SettingsFormSection {
             SettingsBTextField(
                 label: "实例名（可选）",
                 text: $name,
@@ -277,7 +270,7 @@ struct SettingsBLLMProviderForm: View {
     @ViewBuilder
     private var catalogSection: some View {
         if isCustomEndpoint {
-            Section {
+            SettingsFormSection {
                 ForEach(extras, id: \.id) { m in
                     HStack(spacing: 12) {
                         VStack(alignment: .leading, spacing: 2) {
@@ -301,7 +294,7 @@ struct SettingsBLLMProviderForm: View {
                 Menu {
                     // 其它预设目录的模型：选中即入列，参数复用
                     ForEach(borrowedGroups, id: \.label) { group in
-                        Section("\(group.label) 目录（同名模型参数复用）") {
+                        SettingsFormSection("\(group.label) 目录（同名模型参数复用）") {
                             ForEach(group.models, id: \.id) { m in
                                 let hints = SettingsBLLMFormat.hints(m)
                                 Button(m.id + (hints.isEmpty ? "" : "（\(hints)）")) { borrow(m) }
@@ -319,7 +312,7 @@ struct SettingsBLLMProviderForm: View {
                 Text("兼容端点没有内置目录，请把端点上部署的模型添加进来（含参数）。接入后这些模型可在 AI 设定与对话框里选用；连接测试用第一个。")
             }
         } else if let preset {
-            Section {
+            SettingsFormSection {
                 Text("模型目录以「\(preset.displayName)」预设为准，共 \(catalog.count) 个模型，接入后可在 AI 设定与对话框里选用；连接测试用目录里第一个。")
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
@@ -331,7 +324,7 @@ struct SettingsBLLMProviderForm: View {
 
     /// 自定义模型参数子表单：这些参数是 agent 做上下文 / 思考预算决策的依据，必填项带 *
     private var customModelSection: some View {
-        Section {
+        SettingsFormSection {
             SettingsBTextField(label: "模型 id *", text: $draft.id, placeholder: "如：my-vllm-model", mono: true, identifier: "llm-custom-id")
             SettingsBNumberField(label: "上下文长度 *", text: $draft.contextWindow, placeholder: "131072", identifier: "llm-custom-context")
             SettingsBNumberField(label: "最大输出 *", text: $draft.maxOutput, placeholder: "8192", identifier: "llm-custom-max-output")

@@ -52,17 +52,26 @@ final class SettingsBUITests: XCTestCase {
 
     /// 把目标滚进可点区域（最多滑 8 次）
     @MainActor
-    private func reveal(_ element: XCUIElement, _ what: String, timeout: TimeInterval = 20) {
+    private func reveal(_ element: XCUIElement, _ what: String, timeout: TimeInterval = 20, scrollView: XCUIElement? = nil) {
+        let scrollUp = {
+            if let scrollView {
+                let start = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
+                let end = scrollView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+                start.press(forDuration: 0.05, thenDragTo: end)
+            } else {
+                self.app.swipeUp(velocity: .slow)
+            }
+        }
         // Form/List 懒加载：屏幕外的行还不存在，先滑动找
         var scrolls = 0
         while !element.waitForExistence(timeout: scrolls == 0 ? timeout : 2), scrolls < 8 {
-            app.swipeUp(velocity: .slow)
+            scrollUp()
             scrolls += 1
         }
         XCTAssertTrue(element.exists, "\(what) 应存在")
         var tries = 0
         while !clear(element), tries < 8 {
-            app.swipeUp(velocity: .slow)
+            scrollUp()
             tries += 1
         }
         XCTAssertTrue(clear(element), "\(what) 不可点击或被遮挡，为避免误点停止用例")
@@ -95,6 +104,82 @@ final class SettingsBUITests: XCTestCase {
     }
 
     // MARK: 订阅规则
+
+    /// 设置目录只显示入口标题；浏览全部分组，再打开设备页并返回，不修改服务器配置。
+    @MainActor
+    func testSettingsIndexTitlesAndNavigation() throws {
+        try launch(route: "/settings")
+        let navigationTitle = app.navigationBars["服务器设置"].staticTexts["服务器设置"]
+        let title = app.staticTexts["settings-title"]
+        XCTAssertTrue(title.waitForExistence(timeout: 20))
+        XCTAssertEqual(title.label, "服务器设置")
+        XCTAssertFalse(navigationTitle.exists, "卡片标题可见时不应重复显示导航标题")
+        let description = app.staticTexts["settings-description"]
+        XCTAssertTrue(description.waitForExistence(timeout: 10))
+        let address = try XCTUnwrap(URLComponents(string: server))
+        let host = try XCTUnwrap(address.host)
+        XCTAssertTrue(description.label.contains("当前服务器：\(host)"))
+        if let port = address.port, port != (address.scheme == "https" ? 443 : 80) {
+            XCTAssertTrue(description.label.contains(":\(port)"))
+        }
+        XCTAssertTrue(description.label.hasSuffix("修改将保存到这台服务器。"))
+        XCTAssertFalse(description.label.contains("私人服务器"))
+        let titleFrame = title.frame
+        let descriptionFrame = description.frame
+        let list = app.collectionViews.firstMatch
+        XCTAssertTrue(list.exists)
+        let entries = [
+            ("devices", "设备"), ("notifications", "通知"), ("members", "成员"),
+            ("scrape", "刮削与整理"), ("playback", "播放"),
+            ("im-push", "IM 推送"), ("webhook", "Webhook"), ("llm", "模型接入"),
+            ("mcp", "MCP 服务"), ("ai", "AI 设定"),
+            ("cloud", "MovieClaw Cloud"), ("app", "更新与维护"),
+            ("network", "网络"), ("logs", "系统日志"), ("about", "关于 MovieClaw"),
+        ]
+        snapshot("服务器设置-顶部")
+        let dragStart = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6))
+        let dragEnd = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6 - 32 / list.frame.height))
+        dragStart.press(forDuration: 0.05, thenDragTo: dragEnd, withVelocity: .slow, thenHoldForDuration: 0.5)
+        XCTAssertLessThan(title.frame.minY, titleFrame.minY - 10, "介绍卡的标题应随列表上移")
+        XCTAssertLessThan(description.frame.minY, descriptionFrame.minY - 10, "介绍卡的说明应随列表上移")
+        XCTAssertEqual(description.frame.minY - title.frame.minY, descriptionFrame.minY - titleFrame.minY, accuracy: 1,
+                       "标题和说明应作为同一张卡片一起滚动")
+        snapshot("服务器设置-介绍卡随列表滚动")
+        XCTAssertFalse(navigationTitle.exists, "卡片标题仍可见时导航标题不应提前出现")
+        // 只把卡片标题推过导航栏底边，说明仍留在屏内：交接跟随标题，不等整张卡片消失。
+        let titleScroll = title.frame.maxY - app.navigationBars.firstMatch.frame.maxY + 24
+        let handoffEnd = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6 - titleScroll / list.frame.height))
+        dragStart.press(forDuration: 0.05, thenDragTo: handoffEnd, withVelocity: .slow, thenHoldForDuration: 0.5)
+        XCTAssertTrue(description.isHittable, "标题交接时说明仍应留在屏内")
+        XCTAssertTrue(navigationTitle.waitForExistence(timeout: 5), "卡片标题离开视口时导航标题应立即接上")
+        snapshot("服务器设置-标题交接")
+        for (id, title) in entries {
+            let row = app.buttons["settings-\(id)"]
+            reveal(row, title, scrollView: list)
+            XCTAssertEqual(row.label, title, "设置入口应只有标题，不附带描述")
+        }
+        XCTAssertFalse(title.isHittable || description.isHittable, "滚到底部后介绍卡应离开视口，不固定在顶部")
+        XCTAssertTrue(navigationTitle.isHittable, "介绍卡滚出视口后导航栏仍应显示服务器设置标题")
+        snapshot("服务器设置-底部")
+
+        let devices = app.buttons["settings-devices"]
+        for _ in 0 ..< 6 {
+            if title.isHittable && description.isHittable && clear(devices) { break }
+            let start = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+            let end = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65))
+            start.press(forDuration: 0.05, thenDragTo: end)
+        }
+        XCTAssertTrue(title.isHittable)
+        XCTAssertFalse(navigationTitle.exists, "卡片标题滚回来后应隐藏导航标题")
+        snapshot("服务器设置-返回顶部")
+        tap(devices, "设备")
+        XCTAssertTrue(app.navigationBars["设备"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["devices-approve-entry"].waitForExistence(timeout: 20))
+        tap(app.navigationBars["设备"].buttons.firstMatch, "返回服务器设置")
+        XCTAssertTrue(title.waitForExistence(timeout: 10))
+        XCTAssertFalse(navigationTitle.exists, "从子页返回后应保持正确的标题状态")
+        XCTAssertEqual(app.buttons["settings-devices"].label, "设备")
+    }
 
     /// 模拟一单：只调搜索与预览接口
     @MainActor
@@ -240,10 +325,12 @@ final class SettingsBUITests: XCTestCase {
         snapshot("自动入库")
 
         try launch(route: "/settings/scrape")
+        tap(app.buttons["scrape-card-metaLanguage"], "元数据语言")
         let save = app.buttons["scrape-save"]
-        reveal(save, "刮削保存键（页底，只看不点）", timeout: 30)
+        reveal(save, "刮削保存键", timeout: 30)
         XCTAssertFalse(save.isEnabled, "未改动时保存键应禁用")
         snapshot("刮削与整理")
+        tap(app.buttons["sheet-close"], "关闭语言设置")
 
         try launch(route: "/settings/im-push")
         XCTAssertTrue(app.descendants(matching: .any)["push-channels-count"].waitForExistence(timeout: 30)
@@ -258,7 +345,7 @@ final class SettingsBUITests: XCTestCase {
         try launch(route: "/settings/llm")
         XCTAssertTrue(app.descendants(matching: .any).matching(NSPredicate(format: "identifier BEGINSWITH 'llm-provider-'")).firstMatch.waitForExistence(timeout: 30), "应列出已接入的供应商")
         tap(app.buttons["llm-create"].firstMatch, "接入另一家供应商")
-        tap(app.buttons["llm-form-cancel"], "取消（不保存）")
+        tap(app.buttons["sheet-close"], "取消（不保存）")
         snapshot("模型接入")
 
         try launch(route: "/settings/mcp")

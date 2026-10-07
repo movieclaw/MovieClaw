@@ -1,15 +1,7 @@
 import SwiftUI
 
-/// 设置 → 模型接入（对应 Web `llm-config-section.tsx`）。
-///
-/// 这一页只回答「怎么连上」：可接入多个供应商实例（官方 + 中转 + 自建可并存），
-/// 每个实例一个 Section（状态卡片，见 `SettingsBLLMProviderCard`）；
-/// 哪个场景用哪个模型不在这里配，见「AI 设定」。
-///
-/// 保存后后端异步用目录第一个模型做一次最小对话验证，所以任一实例处于待测试 / 测试中时
-/// 每 2 秒刷新列表直到落定（同 Web `useVisiblePolling(…, 2000)`），空闲时轮询回调不发请求。
-/// 新建 / 编辑在 Web 上是原地把列表换成表单；手机上改为弹层（`SettingsBLLMProviderForm`），
-/// 字段、校验、提示文案一致。
+/// 模型接入：列表展示供应商状态，连接信息与操作放入详情。
+/// 保存后服务端异步测试连接；只有待测试 / 测试中时每两秒刷新。
 struct LLMSettingsView: View {
     /// 表单打开参数：provider 为 nil = 新建
     private struct SettingsBLLMEditing: Identifiable {
@@ -25,6 +17,7 @@ struct LLMSettingsView: View {
     @State private var editing: SettingsBLLMEditing?
     /// 任一卡片操作进行中：禁用全部卡片按钮（同 Web busy）
     @State private var busy = false
+    @State private var selectedProvider: Int?
 
     private var inProgress: Bool {
         providers?.contains { SettingsBLLMStatus.inProgress($0.status) } ?? false
@@ -33,44 +26,58 @@ struct LLMSettingsView: View {
     var body: some View {
         Form {
             if let error {
-                Section {
+                SettingsFormSection {
                     SettingsBNotice(text: error, tone: .danger)
                         .accessibilityIdentifier("llm-error")
                 }
-            }
-            Section {
-                SettingsBIntro(text: introText)
             }
             if let providers {
                 if providers.isEmpty {
                     emptySection
                 } else {
-                    ForEach(providers, id: \.id) { provider in
-                        SettingsBLLMProviderCard(
-                            provider: provider,
-                            preset: presets.first { $0.id == provider.providerType },
-                            busy: busy,
-                            onEdit: { editing = SettingsBLLMEditing(provider: provider) },
-                            onReverify: { await reverify(provider) },
-                            onDelete: { await remove(provider) }
-                        )
-                    }
-                    Section {
-                        Button {
-                            editing = SettingsBLLMEditing()
-                        } label: {
-                            Text("＋ 接入另一家供应商").frame(maxWidth: .infinity)
+                    SettingsFormSection {
+                        ForEach(providers, id: \.id) { provider in
+                            Button { selectedProvider = provider.id } label: {
+                                HStack(spacing: 12) {
+                                    SettingsBDot(tone: SettingsBLLMStatus.tone(provider.status), size: 8)
+                                    VStack(alignment: .leading, spacing: 3) {
+                                        Text(provider.name).foregroundStyle(Theme.text)
+                                        Text(SettingsBLLMStatus.label(provider.status))
+                                            .font(.caption).foregroundStyle(Theme.textMuted)
+                                    }
+                                    Spacer()
+                                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                                }
+                            }
+                            .accessibilityIdentifier("llm-provider-\(provider.id)")
                         }
-                        .accessibilityIdentifier("llm-create")
-                    }
+                    } header: { Text("模型供应商") } footer: { Text(introText) }
+
                 }
             } else {
-                Section {
+                SettingsFormSection {
                     ProgressView().frame(maxWidth: .infinity).accessibilityIdentifier("loading")
                 }
             }
         }
         .settingsBFormStyle()
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("接入模型供应商", systemImage: "plus") { editing = SettingsBLLMEditing() }
+                    .disabled(busy || presets.isEmpty)
+                    .accessibilityIdentifier("llm-create")
+            }
+        }
+        .navigationDestination(item: $selectedProvider) { id in
+            if let provider = providers?.first(where: { $0.id == id }) {
+                SettingsBLLMProviderCard(
+                    provider: provider, preset: presets.first { $0.id == provider.providerType }, busy: busy,
+                    error: error,
+                    onEdit: { editing = SettingsBLLMEditing(provider: provider) },
+                    onReverify: { await reverify(provider) }, onDelete: { await remove(provider) }
+                )
+            }
+        }
         .task { await initialLoad() }
         // 只有实例处于中间态时才真的请求；间隔每轮重新取值
         .polling(every: inProgress ? 2 : 10) {
@@ -78,7 +85,7 @@ struct LLMSettingsView: View {
             // 轮询失败静默重试，不打断页面
             if let list = try? await api.llmProvidersList() { providers = list }
         }
-        .refreshable { await load() }
+        .refreshable { await initialLoad() }
         .sheet(item: $editing) { target in
             SettingsBLLMProviderForm(
                 provider: target.provider,
@@ -101,7 +108,7 @@ struct LLMSettingsView: View {
 
     /// 空态：一个都没接入
     private var emptySection: some View {
-        Section {
+        SettingsFormSection {
             VStack(spacing: 12) {
                 Image(systemName: "sparkles")
                     .font(.title2)
@@ -118,7 +125,8 @@ struct LLMSettingsView: View {
                     Text("接入模型供应商").font(.body.weight(.semibold)).frame(maxWidth: .infinity)
                 }
                 .discoverProminentButton()
-                .accessibilityIdentifier("llm-create")
+                .disabled(presets.isEmpty)
+                .accessibilityIdentifier("llm-create-empty")
             }
             .frame(maxWidth: .infinity)
             .padding(.vertical, 16)
@@ -128,18 +136,17 @@ struct LLMSettingsView: View {
     // MARK: - 数据
 
     private func initialLoad() async {
-        // 预设目录是静态数据，进分区拉一次即可
-        async let presetsTask: Void = loadPresets()
-        await load()
-        await presetsTask
-    }
-
-    private func loadPresets() async {
         do {
-            presets = try await api.llmPresets()
+            async let loadedPresets = api.llmPresets()
+            async let loadedProviders = api.llmProvidersList()
+            let (presets, providers) = try await (loadedPresets, loadedProviders)
+            self.presets = presets
+            self.providers = providers
+            error = nil
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription
+            if providers == nil { providers = [] }
         }
     }
 
@@ -176,6 +183,7 @@ struct LLMSettingsView: View {
         defer { busy = false }
         do {
             _ = try await api.llmProvidersDelete(providerId: provider.id)
+            selectedProvider = nil
             LLMCapabilityProbe.shared.invalidate()
             AgentCatalog.invalidateModels()
             await load()
