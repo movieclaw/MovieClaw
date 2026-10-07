@@ -544,7 +544,8 @@ function SubscriptionPosterRow({
           {subscriptions.length} 部
         </span>
       </div>
-      <HScroller className="m-row gap-4 px-[4vw] pb-1 pt-1 max-md:gap-3">
+      {/* pt-2：海报卡悬停上浮 6px 的头部余量（media-row 同一规矩），缺了会削顶角 */}
+      <HScroller className="m-row gap-4 px-[4vw] pb-1 pt-2 max-md:gap-3">
         {subscriptions.map((sub) => (
           <div
             key={sub.id}

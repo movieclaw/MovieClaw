@@ -483,7 +483,7 @@ export const AgentMediaCardsBlock = memo(function AgentMediaCardsBlock({
         <h4 className="mb-2 text-sub font-semibold text-[var(--text-muted)]">{group.title}</h4>
       )}
       {/* 负外边距让首张卡与正文左缘对齐，横滚时卡片仍能贴着容器边滑出 */}
-      <HScroller className="-mx-1 gap-3 px-1 pb-2 pt-1">
+      <HScroller className="-mx-1 gap-3 px-1 pt-1.5 pb-2">
         {group.cards.map((spec) => (
           <MediaCard key={spec.key} spec={spec} />
         ))}
