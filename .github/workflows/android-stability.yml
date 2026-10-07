@@ -5,10 +5,6 @@ on:
   # main 上的改动也照跑；只写 [android] 的话上游 CI 里这条永远不触发。
   pull_request:
     branches: [main, android]
-    paths:
-      - 'apps/android/**'
-      - '.github/workflows/android-stability.yml'
-      - '.github/workflows/release.yml'
   push:
     branches: [main, android]
     paths:
@@ -20,7 +16,28 @@ permissions:
   contents: read
 
 jobs:
+  # PR 始终启动工作流，只按路径跳过构建，让 android-ok 可作为必需检查。
+  # push 已由上面的 paths 筛选，直接运行回归检查。
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      android: ${{ github.event_name == 'push' || steps.filter.outputs.android == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            android:
+              - 'apps/android/**'
+              - '.github/workflows/android-stability.yml'
+              - '.github/workflows/release.yml'
+
   regression:
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -61,3 +78,16 @@ jobs:
             apps/android/app/build/reports/tests/
             apps/android/app/build/reports/lint-results-debug.*
             apps/android/app/build/outputs/apk/debug/
+
+  android-ok:
+    needs: [changes, regression]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总 Android 检查结果
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if ${{ needs.changes.result != 'success' || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then
+            echo "Android 检查失败或被取消"
+            exit 1
+          fi

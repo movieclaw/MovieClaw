@@ -14,6 +14,7 @@
 # 过滤（同 ci.yml）：被 if 跳过的作业记为 skipped、视同通过，设为分支保护的必需检查也不会让
 # 没改 App 的 PR 卡在「检查未完成」。路径清单要覆盖各 App 目标真正编到的目录（见 project.yml），
 # 新增跨目录的源码时同步下面的 filters。
+# 分支保护只要求 apple-ok：汇总三个 App 的结果，未改 App 的 PR 也会有明确的成功检查。
 # =============================================================================
 name: ios
 
@@ -168,3 +169,16 @@ jobs:
         with:
           name: mac-build-log
           path: apps/apple/build-ci/MovieClawMac.log
+
+  apple-ok:
+    needs: [changes, iphone, tv, mac]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总 Apple App 检查结果
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if ${{ needs.changes.result != 'success' || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then
+            echo "Apple App 检查失败或被取消"
+            exit 1
+          fi
