@@ -1310,7 +1310,9 @@ export function PlayAction({
         type="button"
         onClick={onPlay}
         aria-label={progressText ? `${label}，${progressText}` : label}
-        className="inline-flex h-12 shrink-0 items-center justify-center gap-2.5 rounded-full bg-white px-8 text-body font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition duration-200 hover:bg-white/90 active:scale-[0.985] max-md:h-11 max-md:w-full max-md:px-6"
+        // media-cta 钩子类：媒体主行动键的主题换皮入口，Netflix 主题下
+        // 白底黑字 → 品牌红（见 themes/netflix/tokens.css）；银玻璃维持白键
+        className="media-cta inline-flex h-12 shrink-0 items-center justify-center gap-2.5 rounded-full bg-white px-8 text-body font-semibold text-black shadow-[0_10px_30px_rgba(0,0,0,0.35)] transition duration-200 hover:bg-white/90 active:scale-[0.985] max-md:h-11 max-md:w-full max-md:px-6"
       >
         <PlayIcon className="size-5" />
         {label}

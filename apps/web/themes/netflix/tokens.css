@@ -156,6 +156,14 @@ html[data-theme="netflix"] .brand-badge {
   box-shadow: none;
 }
 
+/* 海报左上角「已入库」斜标（poster-card 的 compact 斜标，全站经
+   PosterCardVisual 统一渲染）：银玻璃绿渐变 → 品牌红渐变，两端取
+   --accent / --accent-2（与 brand-badge 同源），投影同几何换红色调。 */
+html[data-theme="netflix"] .ribbon-owned {
+  background-image: linear-gradient(90deg, var(--accent) 0%, var(--accent-2) 100%);
+  box-shadow: 0 2px 8px rgba(229, 9, 20, 0.38);
+}
+
 /* —— 品牌红扩大使用面（§4 纪律：红只出现在品牌标识 / 主 CTA / 进度条 /
       激活指示上） —— */
 /* 头像徽标（无上传图时的首字底）：银玻璃 → 品牌红 */
@@ -287,6 +295,26 @@ html[data-theme="netflix"] .btn-accent:hover {
 html[data-theme="netflix"] .btn-accent:active {
   transform: none;
   background: rgb(255 255 255 / 0.5);
+}
+
+/* —— 媒体主行动键（订阅影片 / 订阅追踪 / 播放）：品牌红 ——
+ * 钩子类 .media-cta 挂在媒体内容的「那一颗」主键上：海报卡/Hero 的订阅键、
+ * 发现详情订阅追踪、详情页播放键与 Billboard 播放键。上面的 .btn-accent
+ * 白底黑字只服务表单类主按钮（确认/保存/应用），媒体 CTA 按 §4 纪律的
+ * 另一半「红出现在主 CTA」走品牌红。必须写在 .btn-accent 覆盖之后：
+ * 两者同特异性，靠源码顺序压过白底与白色按下态。hover 沿 Netflix 的红
+ * 语义（变暗不变亮），按下取品牌暗红。 */
+html[data-theme="netflix"] .media-cta {
+  background: var(--accent);
+  color: #ffffff;
+}
+
+html[data-theme="netflix"] .media-cta:hover {
+  background: var(--accent-strong);
+}
+
+html[data-theme="netflix"] .media-cta:active {
+  background: var(--accent-2);
 }
 
 

@@ -325,9 +325,11 @@ function PosterCardContent({
   const overlayMeta = item.overlayMeta?.trim() ?? "";
   const overview = item.overview ?? "";
   const ribbon = resolveRibbon(item);
+  // owned 挂 ribbon-owned 钩子类：主题对「已入库」斜标换皮的唯一入口
+  // （Netflix 下绿渐变 → 品牌红渐变，见 themes/netflix/tokens.css）
   const compactRibbonTone =
     ribbon?.tone === "owned"
-      ? "from-emerald-500 via-green-500 to-teal-500 shadow-[0_2px_8px_rgba(16,185,129,0.38)]"
+      ? "ribbon-owned from-emerald-500 via-green-500 to-teal-500 shadow-[0_2px_8px_rgba(16,185,129,0.38)]"
       : "from-sky-500 via-blue-500 to-indigo-500 shadow-[0_2px_8px_rgba(59,130,246,0.38)]";
   const frameAspect = item.aspect ?? 2 / 3;
   // 主图与框比例明显不同才走「模糊铺底 + 中央完整图」；2:3 海报进 2:3 框（差在
@@ -599,7 +601,9 @@ function PosterCardActionButton({
       className={
         existingSub
           ? "flex h-7 items-center gap-1.5 rounded-full bg-white/[0.18] px-3 text-caption font-semibold text-white/90 transition-colors hover:bg-white/[0.26]"
-          : "btn-accent flex h-7 items-center gap-1 rounded-full px-3 text-caption font-semibold"
+          // media-cta 钩子类：媒体主行动键（订阅/播放）的主题换皮入口，
+          // Netflix 主题下白底黑字 → 品牌红（见 themes/netflix/tokens.css）
+          : "btn-accent media-cta flex h-7 items-center gap-1 rounded-full px-3 text-caption font-semibold"
       }
     >
       {existingSub ? (

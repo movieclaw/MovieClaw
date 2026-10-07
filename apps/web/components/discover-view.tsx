@@ -1120,7 +1120,7 @@ function HeroCopy({ item, fullBleed }: { item: MediaItem; fullBleed: boolean }) 
           className={`${
             existingSub
               ? "flex h-10 items-center gap-2 rounded-full bg-white/[0.18] px-5 text-ui font-semibold text-white/90 backdrop-blur-md transition-colors hover:bg-white/[0.26]"
-              : "btn-accent flex h-10 items-center gap-2 rounded-full px-5 text-ui font-semibold"
+              : "btn-accent media-cta flex h-10 items-center gap-2 rounded-full px-5 text-ui font-semibold"
           } ${
             // 银玻璃手机：操作键统一 34px 高、最小宽 120px（同原生 App 的 HeroActionButton：
             // 系统 regular 档高度，单颗主键给最小宽度，轮播换片时键宽不跳）

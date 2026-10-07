@@ -560,7 +560,7 @@ export function MediaDetailView({
                 <button
                   type="button"
                   onClick={openSubscribe}
-                  className={`btn-accent flex h-10 items-center gap-2 rounded-full px-5 text-ui font-semibold ${actionSize}`}
+                  className={`btn-accent media-cta flex h-10 items-center gap-2 rounded-full px-5 text-ui font-semibold ${actionSize}`}
                 >
                   <BellIcon className="size-4" />
                   订阅追踪
