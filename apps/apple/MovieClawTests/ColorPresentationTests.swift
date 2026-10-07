@@ -2,10 +2,14 @@ import CoreVideo
 import Testing
 import AetherLibavutil
 @testable import AetherEngine
+import AetherCore
 
 /// SDR 按 sRGB 上屏（引擎补丁 P60）：iPhone / Mac 上 BT.709 曲线的 SDR（含未标注）改标 sRGB，
 /// HDR 与其他传递函数不动；原色、矩阵的缺省补全仍同 VideoToolbox（AE#654）。
 struct ColorPresentationTests {
+    /// 引擎默认按上游显示；MovieClaw 的配置（AetherCore）打开 P60
+    init() { AetherPlayback.configureEngine() }
+
     private func describe(p: AVColorPrimaries = AVCOL_PRI_UNSPECIFIED,
                           t: AVColorTransferCharacteristic = AVCOL_TRC_UNSPECIFIED,
                           m: AVColorSpace = AVCOL_SPC_UNSPECIFIED) -> ColorDescription {
