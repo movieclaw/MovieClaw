@@ -9,7 +9,7 @@ import SwiftUI
 ///
 /// 刷新节奏同 Web：
 /// - 预测后台刷新中（`forecast_pending`）每 1.5 秒只重取详情，最多 40 次；
-/// - 有在途投递（grabbed / downloaded）时每 5 秒拉实时下载进度、每 30 秒静默全量刷新；无在途时零请求。
+/// - 有在途投递（grabbed / downloaded）时每 5 秒拉实时下载进度、每 30 秒静默全量刷新；智能订阅等待时也刷新决策状态。
 ///
 /// 「更多」管理面板里的动作：调整订阅、洗一轮版、开关自动续订、更换规则组（管理员）、暂停/恢复、
 /// 取消订阅（成员 = 取消关注；管理员 = 带移除预览与删种删文件选项的彻底删除）。
@@ -101,7 +101,7 @@ struct SubscriptionDetailView: View {
             }
         }
         .polling(every: 5, immediately: true) { await refreshDownloads() }
-        .polling(every: 30) { if hasInFlight { await reload() } }
+        .polling(every: 30) { if hasInFlight || detail?.isSmart == true { await reload() } }
         .sheet(item: $sheet, onDismiss: runPendingAction) { sheet in
             sheetContent(sheet)
         }
@@ -161,6 +161,10 @@ struct SubscriptionDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 summaryCard(detail)
+                if let notice = detail.smartNotice {
+                    Text(notice).font(.subheadline).foregroundStyle(SubsColor.warn)
+                        .padding(16).inspectorCard().accessibilityIdentifier("smart-notice")
+                }
                 SearchRoundBar(activities: activities, wanted: detail.wanted)
                 WantedBreakdown(
                     wanted: detail.wanted,
@@ -169,7 +173,10 @@ struct SubscriptionDetailView: View {
                     failures: WantedLogic.pendingFailures(activities),
                     canAnnotate: permissions.isAdmin,
                     openSeasons: $openSeasons,
-                    onAnnotate: { sheet = .annotate($0) }
+                    onAnnotate: { sheet = .annotate($0) },
+                    smartDetail: detail.isSmart ? detail : nil,
+                    canTune: canTune(detail),
+                    onSmartChanged: { await reload() }
                 )
                 ActivityLogSection(activities: activities)
             }
@@ -243,10 +250,13 @@ struct SubscriptionDetailView: View {
             }
 
             // 配置事实：稳定的 label / value 列
-            HStack(alignment: .top, spacing: 12) {
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), alignment: .topLeading), count: detail.isSmart ? 2 : 3), alignment: .leading, spacing: 12) {
                 fact("收录范围", isMovie ? "正片" : detail.selectedSeasons.isEmpty ? "未勾选季" : "第 \(detail.selectedSeasons.map(String.init).joined(separator: "、")) 季")
                 if !isMovie { fact("自动续订", detail.followFuture ? "已开启" : "已关闭") }
-                if permissions.canManageSubscriptions { fact("规则组", ruleSetFact(detail)) }
+                if detail.isSmart, let preferences = detail.smartPreferences {
+                    fact("智能目标", preferences.targetLabel)
+                    fact("后续洗版", preferences.allowUpgrade ? (isMovie ? "达标核验后停止" : "逐集达标核验后停止") : "关闭")
+                } else if !detail.isSmart, permissions.canManageSubscriptions { fact("规则组", ruleSetFact(detail)) }
             }
             .padding(.vertical, 12)
             .overlay(alignment: .top) { Divider().overlay(Color.white.opacity(0.08)) }
@@ -340,7 +350,7 @@ struct SubscriptionDetailView: View {
                     completed: detail.status == "completed",
                     canSubscribe: permissions.canSubscribe,
                     canTune: canTune(detail),
-                    canManage: permissions.canManageSubscriptions,
+                    canManage: permissions.canManageSubscriptions && !detail.isSmart,
                     followFuture: detail.media.kind == "movie" ? nil : detail.followFuture,
                     busy: busy
                 ) { action in

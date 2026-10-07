@@ -387,6 +387,9 @@ enum WantedLogic {
         if w.status == "grabbed" {
             return .init(label: "已提交下载", color: SubsColor.ok, note: "\(SubsFormat.relative(w.grabbedAt))提交给下载器")
         }
+        if let smart = SmartSelection(w) {
+            return .init(label: smart.presentation.label, color: SubsColor.info, note: smart.presentation.note)
+        }
         guard let nextSearch = w.nextSearchAt, let due = SubsFormat.date(nextSearch) else {
             return .init(label: "未定档", color: SubsColor.neutral, note: "上映/播出日期未公布，定档后自动排队")
         }
@@ -458,6 +461,7 @@ enum WantedLogic {
         isMovie: Bool,
         live: API.SubscriptionDownloadView?,
         failure: API.ActivityView?,
+        isSmart: Bool = false,
         now: Date = .now
     ) -> [Milestone] {
         var chain: [Milestone] = []
@@ -489,7 +493,7 @@ enum WantedLogic {
                 label: "搜索", state: .now,
                 time: w.searchAttempts > 0 ? "已搜 \(w.searchAttempts) 次" : "",
                 detail: presentation(w, now: now).note,
-                why: w.lastRejectReason.map { "最近一次被拒：\($0)" }
+                why: w.selectionState?["reason"]?.stringValue == "identity_unconfirmed" ? nil : w.lastRejectReason.map { "最近一次被拒：\($0)" }
             ))
         }
 
@@ -502,7 +506,9 @@ enum WantedLogic {
             let dispatchFailure = failure?.type == "dispatch_failed" ? failure : nil
             chain.append(Milestone(
                 label: "投递", state: .todo,
-                detail: dispatchFailure != nil ? "上次投递未成功，已退回队列" : "尚未找到符合规则组的资源",
+                detail: dispatchFailure != nil ? "上次投递未成功，已退回队列" : isSmart
+                    ? (SmartSelection(w) != nil && w.selectionState?["reason"]?.stringValue != "identity_unconfirmed" ? "等待智能选择完成" : "等待合格资源")
+                    : "尚未找到符合规则组的资源",
                 why: dispatchFailure?.message,
                 sources: lastTiming.map { [$0] } ?? []
             ))

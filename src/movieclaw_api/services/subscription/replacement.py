@@ -472,10 +472,18 @@ async def _try_candidates(
     if subscription is None or subscription.status == SubscriptionStatus.PAUSED:
         return False
     item = await session.get(MediaItem, subscription.media_item_id)
-    rule = await session.get(RuleSet, subscription.rule_set_id)
-    if item is None or rule is None:
+    if subscription.selection_mode == "smart":
+        from movieclaw_api.services.subscription.smart_profiles import read_policy
+        spec = read_policy(subscription)
+        from movieclaw_api.services.subscription.smart_runtime import runtime_settings
+        runtime = await runtime_settings()
+        if not runtime.enabled or runtime.shadow_only:
+            return False
+    else:
+        rule = await session.get(RuleSet, subscription.rule_set_id)
+        spec = RuleSetSpec.model_validate(rule.spec) if rule else None
+    if item is None or spec is None:
         return False
-    spec = RuleSetSpec.model_validate(rule.spec)
     targets = await _current_attempt_wanted(session, attempt)
     if not targets:
         return False
@@ -500,7 +508,7 @@ async def _try_candidates(
         if candidate.seeders == 0:
             continue
         match = match_identity(candidate, identity)
-        if match is None:
+        if match is None or (subscription.selection_mode == "smart" and match.id_conflict):
             continue
         covered = covered_units(
             match,
@@ -509,6 +517,16 @@ async def _try_candidates(
         )
         if not covered:
             continue
+        if subscription.selection_mode == "smart":
+            from movieclaw_api.services.subscription.file_selection import selective_units_for
+
+            if (
+                selective_units_for(
+                    match, [(r.season_number, r.episode_number) for r in covered], subscription.kind
+                )
+                is not None
+            ):
+                continue
         verdict = evaluate_rules(candidate, spec, pack_episode_count=len(covered))
         if not verdict.accepted or not quality_not_lower(candidate, attempt.quality):
             continue
@@ -552,6 +570,21 @@ async def _try_candidates(
         ).scalars()
     )
     for candidate, covered, _verdict, match in accepted:
+        if subscription.selection_mode == "smart":
+            from movieclaw_api.services.subscription.dispatch import dispatch
+            return await dispatch(
+                session,
+                subscription=subscription,
+                item=item,
+                wanted_rows=[r for r in covered if r.status != WantedStatus.IMPORTED],
+                upgrade_rows=[r for r in covered if r.status == WantedStatus.IMPORTED],
+                candidate=candidate,
+                verdict=_verdict,
+                match=match,
+                source=source,
+                selection_versions={r.id: r.selection_version for r in covered},
+                replacing_attempt=attempt,
+            )
         try:
             result, downloader = await submit_torrent(
                 session,
@@ -803,7 +836,9 @@ async def _has_trial(session: AsyncSession, attempt_id: int) -> bool:
         await session.execute(
             select(SubscriptionDownloadAttempt.id).where(
                 SubscriptionDownloadAttempt.replaces_attempt_id == attempt_id,
-                SubscriptionDownloadAttempt.status == DownloadAttemptStatus.TRIAL,
+                SubscriptionDownloadAttempt.status.in_(
+                    [DownloadAttemptStatus.TRIAL, DownloadAttemptStatus.SUBMITTING]
+                ),
             )
         )
     ).first() is not None

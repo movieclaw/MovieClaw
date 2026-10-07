@@ -1,0 +1,5398 @@
+{
+  "as_of": "2026-10-07T04:33:49.183968",
+  "keyword": "Spider Man Homecoming",
+  "page": 1,
+  "scope": "current search snapshot, not complete historical observation",
+  "sites": [
+    {
+      "site_id": "keepfrds",
+      "count": 3,
+      "failed": false
+    },
+    {
+      "site_id": "hdhome",
+      "count": 24,
+      "failed": false
+    },
+    {
+      "site_id": "mteam",
+      "count": 46,
+      "failed": false
+    },
+    {
+      "site_id": "ssd",
+      "count": 21,
+      "failed": false
+    },
+    {
+      "site_id": "chdbits",
+      "count": 29,
+      "failed": false
+    },
+    {
+      "site_id": "ttg",
+      "count": 0,
+      "failed": false
+    }
+  ],
+  "items": [
+    {
+      "site_id": "keepfrds",
+      "torrent_id": "6690",
+      "title": "【蜘蛛侠：英雄归来/蜘蛛侠：强势回归(港)/蜘蛛人：返校日(台)】 mUHD作品 4k HDR10版本",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "3Audio"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "FRDS"
+      },
+      "size_bytes": 25415468974,
+      "seeders": 237,
+      "upload_time": "2017-12-15T08:04:51+00:00"
+    },
+    {
+      "site_id": "keepfrds",
+      "torrent_id": "6393",
+      "title": "【蜘蛛侠：英雄归来/蜘蛛侠：强势回归/蜘蛛人：返校日/蜘蛛侠：返校季】 国英双语 10bit HEVC版本",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日",
+          "蜘蛛侠：返校季"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "2Audio"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "FRDS"
+      },
+      "size_bytes": 7301444403,
+      "seeders": 92,
+      "upload_time": "2017-10-11T23:28:43+00:00"
+    },
+    {
+      "site_id": "keepfrds",
+      "torrent_id": "6376",
+      "title": "【蜘蛛侠：英雄归来/蜘蛛侠：强势回归(港)/蜘蛛人：返校日(台)/蜘蛛侠：返校季/新蜘蛛侠】sup简繁英字幕",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日",
+          "蜘蛛侠：返校季",
+          "新蜘蛛侠"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "720p",
+        "video_codec": null,
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "FRDS"
+      },
+      "size_bytes": 3886945402,
+      "seeders": 7,
+      "upload_time": "2017-10-06T02:23:10+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "248223",
+      "title": "Spider-Man Homecoming 2017 2160p BluRay DoVi x265 10bit Atmos TrueHD7.1-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归",
+          "蜘蛛人: 返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 36335423324,
+      "seeders": 28,
+      "upload_time": "2025-07-05T14:42:20+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "248222",
+      "title": "Spider-Man Homecoming 2017 1080p BluRay x264 Atmos TrueHD7.1-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归",
+          "蜘蛛人: 返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 18801219338,
+      "seeders": 5,
+      "upload_time": "2025-07-05T14:41:34+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "248221",
+      "title": "Spider-Man Homecoming 2017 1080p BluRay x265 10bit Atmos TrueHD7.1-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归",
+          "蜘蛛人: 返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 15633680957,
+      "seeders": 12,
+      "upload_time": "2025-07-05T14:40:41+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "236296",
+      "title": "Pearl SpiderMan Homecoming 2017 1080i HDTV H264 DD2.0 2Audio-HDHTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归"
+        ],
+        "titles_en": [
+          "Pearl SpiderMan Homecoming"
+        ],
+        "title_candidates": [
+          "明珠台",
+          "蜘蛛侠：强势回归 粤"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080i",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "HDTV",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DD"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "yue",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "HDHTV"
+      },
+      "size_bytes": 4198330531,
+      "seeders": 10,
+      "upload_time": "2025-03-15T16:17:34+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "189950",
+      "title": "Spider-Man Homecoming 2017 UHD BluRay 2160p TrueHD Atmos 7.1 x265 10bit HDR-BeiTai",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "BeiTai"
+      },
+      "size_bytes": 23761906565,
+      "seeders": 5,
+      "upload_time": "2024-01-15T03:40:37+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "84493",
+      "title": "Spider-Man Homecoming 2017 2160p UHD Blu-ray REMUX DV HEVC Atmos TrueHD 7.1-HDH",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "UHD Blu-ray",
+        "remux": true,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDH"
+      },
+      "size_bytes": 52387863592,
+      "seeders": 10,
+      "upload_time": "2021-04-19T00:59:14+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "55465",
+      "title": "Spider-Man Homecoming 2017 UHD BluRay REMUX 2160p HEVC Atmos TrueHD7.1 2Audio-CHD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": true,
+        "audio": [
+          "TrueHD",
+          "2Audio",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 54342073712,
+      "seeders": 55,
+      "upload_time": "2019-08-27T09:01:32+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "51443",
+      "title": "Spider-Man Homecoming 2017 2160p EUR UHD BluRay REMUX HEVC Atmos TrueHD 7.1-HDH",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛人:返校日",
+          "蜘蛛侠:强势回归"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": true,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDH"
+      },
+      "size_bytes": 52194590064,
+      "seeders": 7,
+      "upload_time": "2019-05-17T04:17:34+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "50743",
+      "title": "Spider-Man Homecoming 2017 2160p EUR UHD BluRay HEVC Atmos TrueHD 7.1-DiY@HDHome",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛人:返校日",
+          "蜘蛛侠:强势回归"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "DiY@HDHome"
+      },
+      "size_bytes": 61707942625,
+      "seeders": 9,
+      "upload_time": "2019-04-20T05:23:58+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "36485",
+      "title": "Spider-Man Homecoming 2017 2160p UHD Blu-Ray HEVC Atmos TrueHD 7 1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 66185446031,
+      "seeders": 31,
+      "upload_time": "2018-03-31T14:27:07+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "36409",
+      "title": "Spider-Man Homecoming 2017 HK Blu-ray 1080p AVC DTS-HD MA 5.1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 52194590064,
+      "seeders": 17,
+      "upload_time": "2018-03-29T16:38:35+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "29680",
+      "title": "Spider-Man: Homecoming 2017 2160p EUR UHD Blu-ray HEVC TrueHD 7.1-TERMiNAL",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛侠：新复仇者"
+        ],
+        "titles_en": [
+          "Spider-Man: Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "yue"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "TERMiNAL"
+      },
+      "size_bytes": 61761629716,
+      "seeders": 12,
+      "upload_time": "2017-11-15T17:50:48+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "29065",
+      "title": "Spider-Man Homecoming 2017 TW 2D+3D Blu-ray 1080p AVC DTS-HD MA 5.1-HDH",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "蜘蛛侠英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [
+          "蜘蛛侠英雄归来自购台版原盘，喜欢的不要错过了"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDH"
+      },
+      "size_bytes": 88776974008,
+      "seeders": 6,
+      "upload_time": "2017-11-02T08:20:02+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "28055",
+      "title": "Spider-Man Homecoming 2017 HK Blu-ray 1080p AVC DTS-HD MA 5.1-TTG",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "TTG"
+      },
+      "size_bytes": 44753559224,
+      "seeders": 2,
+      "upload_time": "2017-10-11T15:25:31+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "28045",
+      "title": "Spider.Man.Homecoming.2017.3D.SBS.1080p.BluRay.h265.10bit.2Audio.DTS-HD.MA5.1-SHMA",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider.Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA",
+          "2Audio"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en",
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "SHMA"
+      },
+      "size_bytes": 6957847019,
+      "seeders": 5,
+      "upload_time": "2017-10-11T08:24:16+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "27942",
+      "title": "Spider Man Homecoming 2017 3D BluRay 1080p AVC DTS-HD MA5.1-bb@HDSky iso",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 42369852375,
+      "seeders": 8,
+      "upload_time": "2017-10-09T00:54:41+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "27845",
+      "title": "Spider Man Homecoming 2017 BluRay REMUX 1080p AVC DTS-HD MA5.1-HDH",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": true,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDH"
+      },
+      "size_bytes": 28464895754,
+      "seeders": 3,
+      "upload_time": "2017-10-06T08:57:48+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "27843",
+      "title": "Spider Man Homecoming 2017 1080p BluRay DTS-HD MA 5.1 x264-HDH",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDH"
+      },
+      "size_bytes": 11778947809,
+      "seeders": 12,
+      "upload_time": "2017-10-06T07:07:24+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "27842",
+      "title": "Spider Man Homecoming 2017 720p BluRay DTS x264-HDH",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "720p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDH"
+      },
+      "size_bytes": 5368709120,
+      "seeders": 7,
+      "upload_time": "2017-10-06T07:06:52+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "27841",
+      "title": "Spider Man Homecoming 2017 BluRay iPad 1080p AAC x264-HDHPad",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [
+          "蜘蛛侠:英雄归来/蜘蛛侠:强势回归(港)/蜘蛛人:返校日(台"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDHPad"
+      },
+      "size_bytes": 2695091978,
+      "seeders": 11,
+      "upload_time": "2017-10-06T07:03:59+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "27826",
+      "title": "Spider Man Homecoming 2017 BluRay 1080p AVC DTS-HD MA5.1-LKReborn@CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "LKReborn@CHDBits"
+      },
+      "size_bytes": 43282532925,
+      "seeders": 1,
+      "upload_time": "2017-10-05T23:15:51+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "27825",
+      "title": "Spider Man Homecoming 2017 BluRay 1080p AVC DTS-HD MA5.1-HDHome",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDHome"
+      },
+      "size_bytes": 43099996815,
+      "seeders": 8,
+      "upload_time": "2017-10-05T21:50:37+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "27723",
+      "title": "Spider-Man Homecoming 2017 1080p BluRay DTS x264-SPARKS",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [
+          "原盤首發] 蜘蛛侠：英雄归来"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "SPARKS"
+      },
+      "size_bytes": 10651518894,
+      "seeders": 2,
+      "upload_time": "2017-10-03T08:38:08+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "26585",
+      "title": "Michael Giacchino - Spider-Man: Homecoming (Original Motion Picture Soundtrack) 2017 FLAC-HosT",
+      "attrs": {
+        "media_type": null,
+        "content_type": "music",
+        "titles_zh": [
+          "蜘蛛侠:英雄归来"
+        ],
+        "titles_en": [],
+        "title_candidates": [
+          "电影原声】蜘蛛侠:英雄归来_原声大碟"
+        ],
+        "year": null,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": null,
+        "video_codec": null,
+        "hdr": [],
+        "media_source": null,
+        "remux": false,
+        "audio": [
+          "FLAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HosT"
+      },
+      "size_bytes": 585409495,
+      "seeders": 3,
+      "upload_time": "2017-09-09T15:26:33+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1172582",
+      "title": "Spider-Man Homecoming 2017 2160p CORE WEB-DL HDR x265 DTS 5.1-TheBigBeautifulRelease",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日",
+          "新蜘蛛侠",
+          "蜘蛛侠：归来",
+          "蜘蛛侠：回家",
+          "蜘蛛侠：返校季",
+          "蜘蛛侠：返校节",
+          "蜘蛛侠：归乡",
+          "蜘蛛侠：新复仇者"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming",
+          "The Amazing Spider-Man 3",
+          "Spider-Man: The New Avenger",
+          "Spiderman"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 78166873760,
+      "seeders": 1,
+      "upload_time": "2026-04-25T14:38:09+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1036844",
+      "title": "Spider-Man Homecoming 2017 2160p MA WEB-DL DDP5.1 HDR H.265-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [
+          "小罗伯特·唐尼",
+          "玛丽莎·托梅",
+          "迈克尔·基顿",
+          "雅各布·贝塔隆"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 24976134806,
+      "seeders": 46,
+      "upload_time": "2025-09-19T11:25:38+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "991998",
+      "title": "Spider-Man Homecoming 2017 2160p BluRay DoVi x265 10bit Atmos TrueHD7.1-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归",
+          "蜘蛛人: 返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 36337282676,
+      "seeders": 52,
+      "upload_time": "2025-07-05T10:10:33+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "965771",
+      "title": "Spider-Man Homecoming 2017 2160p MA WEB-DL H.265 DDP5.1-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [
+          "小罗伯特·唐尼",
+          "玛丽莎·托梅",
+          "迈克尔·基顿",
+          "雅各布·贝塔隆"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 25053424926,
+      "seeders": 8,
+      "upload_time": "2025-05-24T01:22:05+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "949140",
+      "title": "Spider Man Homecoming 2017 2160p HamiVideo WEB-DL DD5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DD"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "hami_video"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 18342117752,
+      "seeders": 3,
+      "upload_time": "2025-04-23T06:30:47+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "842042",
+      "title": "Spiderman Homecoming 2017 1080p BluRay DTS x264-ZQ",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "新蜘蛛侠",
+          "蜘蛛人：返校日",
+          "蜘蛛侠：回家",
+          "蜘蛛侠：强势回归",
+          "蜘蛛侠：归乡",
+          "蜘蛛侠：归来",
+          "蜘蛛侠：新复仇者",
+          "蜘蛛侠：返校季",
+          "蜘蛛侠：返校节"
+        ],
+        "titles_en": [
+          "Spiderman Homecoming",
+          "Spider-Man: The New Avenger",
+          "Spiderman",
+          "The Amazing Spider-Man 3"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ZQ"
+      },
+      "size_bytes": 17484840015,
+      "seeders": 3,
+      "upload_time": "2024-10-16T20:43:03+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "829491",
+      "title": "Spider-Man Homecoming 2017 BluRay 2160p HEVC Atmos TrueHD_7.1-XDY@Dream",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "新蜘蛛侠",
+          "蜘蛛人：返校日",
+          "蜘蛛侠：回家",
+          "蜘蛛侠：强势回归",
+          "蜘蛛侠：归乡",
+          "蜘蛛侠：归来",
+          "蜘蛛侠：新复仇者",
+          "蜘蛛侠：返校季",
+          "蜘蛛侠：返校节"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming",
+          "Spider-Man: The New Avenger",
+          "Spiderman",
+          "The Amazing Spider-Man 3"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "XDY@Dream"
+      },
+      "size_bytes": 30652377823,
+      "seeders": 15,
+      "upload_time": "2024-09-21T01:16:34+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "822782",
+      "title": "Spider-Man: Homecoming 2017 UHD BluRay 2160p TrueHD Atmos 7.1 DV HEVC REMUX-FraMeSToR",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man: Homecoming"
+        ],
+        "title_candidates": [
+          "汤姆·赫兰德 [杜比全景声+杜比视界"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "UHD Blu-ray",
+        "remux": true,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "FraMeSToR"
+      },
+      "size_bytes": 53537900139,
+      "seeders": 8,
+      "upload_time": "2024-09-07T06:14:45+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "711547",
+      "title": "Spider.Man.Homecoming.2017.3D.SBS.1080P.BluRay.H265.DTS-HDMA.True-HD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider.Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA",
+          "TrueHD"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 17421997293,
+      "seeders": 4,
+      "upload_time": "2023-09-16T00:00:58+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "688663",
+      "title": "Spider-Man Homecoming 2017 EUR UHD BluRay 2160p x265 HDR Atmos TrueHD 7.1-Zone",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠 : 英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "Zone"
+      },
+      "size_bytes": 21771489921,
+      "seeders": 4,
+      "upload_time": "2023-07-01T02:13:56+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "627364",
+      "title": "Spider-Man Homecoming 2017 UHD BluRay REMUX 2160p DV 7.1 TrueHD Atmos V2",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [
+          "活動置頂160*蜘蛛侠：英雄归来 UHD原盘提取杜比视界",
+          "7.1全景声",
+          "国配"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": null,
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "UHD Blu-ray",
+        "remux": true,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 54763843884,
+      "seeders": 24,
+      "upload_time": "2022-11-16T12:20:09+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "626399",
+      "title": "Spider-Man: Homecoming 2017 UHD Blu-ray 2160p HEVC Atmos TrueHD 7.1-CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [],
+        "titles_en": [
+          "Spider-Man: Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 61758907016,
+      "seeders": 2,
+      "upload_time": "2022-11-12T12:50:18+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "609787",
+      "title": "Spider-Man Homecoming 2017 UHD BluRay 2160p TrueHD Atmos 7.1 x265 10bit HDR-BeiTai",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "BeiTai"
+      },
+      "size_bytes": 23761031529,
+      "seeders": 9,
+      "upload_time": "2022-09-14T08:24:51+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "592038",
+      "title": "Spider-Man Homecoming 2017-2021 HKG UHD Blu-ray 2160p HEVC TrueHD Atmos 7 1-DIY",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄系列"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 221344774884,
+      "seeders": 3,
+      "upload_time": "2022-07-10T04:35:51+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "429368",
+      "title": "Spider.Man.Homecoming.2017.3D.BluRay.1080p.HSBS.x264.DTS-HD.MA5.1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider.Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 14376183552,
+      "seeders": 12,
+      "upload_time": "2020-09-11T02:48:10+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "309859",
+      "title": "Spider-Man Homecoming 2017 UHD BluRay REMUX 2160p HEVC Atmos TrueHD7.1 2Audio-CHD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": true,
+        "audio": [
+          "TrueHD",
+          "2Audio",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 54339992841,
+      "seeders": 83,
+      "upload_time": "2019-07-30T14:42:22+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "303743",
+      "title": "Spider-Man Homecoming 2017 2160P MULTi COMPLETE UHD BLURAY-GERUDO",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日",
+          "新蜘蛛侠",
+          "蜘蛛侠：归来",
+          "蜘蛛侠：回家",
+          "蜘蛛侠：返校季",
+          "蜘蛛侠：返校节",
+          "蜘蛛侠：归乡",
+          "蜘蛛侠：新复仇者"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": null,
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "GERUDO"
+      },
+      "size_bytes": 60374057838,
+      "seeders": 2,
+      "upload_time": "2019-07-02T10:57:06+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "303327",
+      "title": "Spider Man Homecoming 2017 BluRay 1080p DTS-HD MA5.1 x264-beAst",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "beAst"
+      },
+      "size_bytes": 9492665544,
+      "seeders": 4,
+      "upload_time": "2019-06-30T05:20:54+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "294726",
+      "title": "Spider-Man Homecoming 2017 BluRay 2160p Atmos TrueHD7.1 x265 10bit-CHD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 19343674595,
+      "seeders": 14,
+      "upload_time": "2019-05-17T17:43:41+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "262046",
+      "title": "Spider Man Homecoming 2017 BluRay 1080p AVC DTS-HD MA 5.1-HDHome",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDHome"
+      },
+      "size_bytes": 43096640766,
+      "seeders": 2,
+      "upload_time": "2018-11-07T09:07:07+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "230633",
+      "title": "Spider-Man Homecoming 2017 2160p UHD Blu-Ray HEVC Atmos TrueHD 7 1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 66181660672,
+      "seeders": 44,
+      "upload_time": "2018-03-31T11:13:43+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "230329",
+      "title": "Spider-Man Homecoming 2017 HKG Blu-ray 1080p AVC DTS-HD MA 5.1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归",
+          "蜘蛛人: 返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 52191204701,
+      "seeders": 16,
+      "upload_time": "2018-03-30T10:29:15+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "221742",
+      "title": "Spider Man Homecoming 2017 720p BluRay DTS x264-PuTao",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "720p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "PuTao"
+      },
+      "size_bytes": 8012597758,
+      "seeders": 1,
+      "upload_time": "2018-01-13T23:08:29+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "220185",
+      "title": "Spider-Man: Homecoming 2017 2160p GER UHD Blu-ray HEVC TrueHD 7.1-NIMA4K",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man: Homecoming"
+        ],
+        "title_candidates": [
+          "蜘蛛人：返校日(台)【4K德版原盘 英字】动作 科幻 冒险"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD"
+        ],
+        "subtitle_languages": [
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "NIMA4K"
+      },
+      "size_bytes": 61442353292,
+      "seeders": 1,
+      "upload_time": "2017-12-31T02:31:43+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "218071",
+      "title": "Spider-Man Homecoming 2017 BluRay 2160p x265 10bit HDR 3Audio mUHD-FRDS",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "3Audio"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "FRDS"
+      },
+      "size_bytes": 25413083466,
+      "seeders": 283,
+      "upload_time": "2017-12-16T13:37:02+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "215320",
+      "title": "Spider.Man.Homecoming.2017.BluRay.1080p.x264.DTS.2Audios-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider.Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 11807024784,
+      "seeders": 78,
+      "upload_time": "2017-11-23T13:04:49+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "214534",
+      "title": "Spider-Man Homecoming 2017 UHD BluRay 2160p TrueHD Atmos 7 1 HEVC REMUX-FraMeSToR",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日",
+          "新蜘蛛侠",
+          "蜘蛛侠：归来",
+          "蜘蛛侠：回家",
+          "蜘蛛侠：返校季",
+          "蜘蛛侠：返校节",
+          "蜘蛛侠：归乡",
+          "蜘蛛侠：新复仇者"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": true,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "yue"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "FraMeSToR"
+      },
+      "size_bytes": 52468399042,
+      "seeders": 0,
+      "upload_time": "2017-11-16T05:37:16+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "214527",
+      "title": "Spider-Man: Homecoming 2017 2160p EUR UHD Blu-ray HEVC TrueHD 7.1-TERMiNAL",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日",
+          "新蜘蛛侠",
+          "蜘蛛侠：归来",
+          "蜘蛛侠：回家",
+          "蜘蛛侠：返校季",
+          "蜘蛛侠：返校节",
+          "蜘蛛侠：归乡",
+          "蜘蛛侠：新复仇者"
+        ],
+        "titles_en": [
+          "Spider-Man: Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "yue"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "TERMiNAL"
+      },
+      "size_bytes": 61758917016,
+      "seeders": 24,
+      "upload_time": "2017-11-15T16:59:28+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "213722",
+      "title": "Spider.Man.Homecoming.2017.BluRay.720p.x264.AC3-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider.Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "720p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DD"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 4300465795,
+      "seeders": 7,
+      "upload_time": "2017-11-08T02:49:36+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "213484",
+      "title": "Spider-Man Homecoming 2017 TW 2D+3D Blu-ray 1080p AVC DTS-HD MA 5.1-HDH",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [
+          "蜘蛛侠：英雄归来[自购台版 2D+3D 原盘中字"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDH"
+      },
+      "size_bytes": 88781881344,
+      "seeders": 3,
+      "upload_time": "2017-11-06T11:00:14+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "210694",
+      "title": "Spider Man Homecoming 2017 720p BluRay DD5.1 x264-BMDru",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "720p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DD"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "BMDru"
+      },
+      "size_bytes": 4029403708,
+      "seeders": 1,
+      "upload_time": "2017-10-14T06:48:35+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "210515",
+      "title": "Spider-Man Homecoming 2017 BluRay 1080p x265.10bit 2Audio MNHD-FRDS",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日",
+          "蜘蛛侠：返校季"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "2Audio"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "FRDS"
+      },
+      "size_bytes": 7300072520,
+      "seeders": 62,
+      "upload_time": "2017-10-12T17:05:02+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "210377",
+      "title": "Spider-Man Homecoming 2017 HK Blu-ray 1080p AVC DTS-HD MA 5.1-TTG",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "TTG"
+      },
+      "size_bytes": 44749094912,
+      "seeders": 1,
+      "upload_time": "2017-10-11T15:25:25+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "210288",
+      "title": "Spider-Man Homecoming 2017 BluRay 1080p DTS-HD MA 5.1 x264-EPiC@CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "EPiC@CMCT"
+      },
+      "size_bytes": 16884438848,
+      "seeders": 2,
+      "upload_time": "2017-10-11T10:42:06+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "209934",
+      "title": "Spider Man Homecoming 2017 3D BluRay 1080p AVC DTS-HD MA5.1-bb@HDSky iso",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 42373218304,
+      "seeders": 8,
+      "upload_time": "2017-10-09T00:54:26+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "209842",
+      "title": "Spider Man Homecoming 2017 BluRay iPad 1080p AAC x264-HDHPad",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDHPad"
+      },
+      "size_bytes": 2698007207,
+      "seeders": 4,
+      "upload_time": "2017-10-08T09:03:31+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "209865",
+      "title": "Spider Man: Homecoming 2017 1080p 3D Blu-ray AVC DTS-HD MA5.1-ST@CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man: Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ST@CHDBits"
+      },
+      "size_bytes": 41982951424,
+      "seeders": 1,
+      "upload_time": "2017-10-08T07:18:59+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "209639",
+      "title": "Spider Man Homecoming 2017 BluRay 1080p AVC DTS-HD MA5.1-bb@HDSky",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "bb@HDSky"
+      },
+      "size_bytes": 43506401280,
+      "seeders": 2,
+      "upload_time": "2017-10-07T03:49:42+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "209619",
+      "title": "Spider Man Homecoming 2017 BluRay REMUX 1080p AVC DTS-HD MA5.1-HDH",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": true,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDH"
+      },
+      "size_bytes": 28461858620,
+      "seeders": 3,
+      "upload_time": "2017-10-06T15:30:18+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "209522",
+      "title": "Spider-Man Homecoming 2017 1080p BluRay DTS-HD MA 51 x264-AAG",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛俠:英雄歸來",
+          "蜘蛛俠:強勢回歸",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [
+          "章節"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "AAG"
+      },
+      "size_bytes": 8318057735,
+      "seeders": 1,
+      "upload_time": "2017-10-06T03:33:39+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "209496",
+      "title": "Spider Man Homecoming 2017 1080p Blu-ray AVC DTS-HD MA5.1-LKReborn@CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "LKReborn@CHDBits"
+      },
+      "size_bytes": 43284555550,
+      "seeders": 2,
+      "upload_time": "2017-10-06T00:13:33+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "209354",
+      "title": "Spider-Man Homecoming 2017 BluRay 1080p AAC x264-MTeamPAD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "MTeamPAD"
+      },
+      "size_bytes": 3925232343,
+      "seeders": 1,
+      "upload_time": "2017-10-05T02:08:05+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "209227",
+      "title": "Spider-Man: Homecoming 2017 BluRay 1080p DTS-HD MA 5.1 x264-MTeam",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man: Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "MTeam"
+      },
+      "size_bytes": 11873328291,
+      "seeders": 10,
+      "upload_time": "2017-10-04T01:36:23+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "209171",
+      "title": "Spider-Man: Homecoming 2017 BluRay 720p DTS x264-MTeam",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man: Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "720p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "MTeam"
+      },
+      "size_bytes": 7044206897,
+      "seeders": 5,
+      "upload_time": "2017-10-03T13:42:44+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "209096",
+      "title": "Spider-Man : Homecoming 2017 3D BluRay 1080p AVC DTS-HD MA5.1-MTeam",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man : Homecoming"
+        ],
+        "title_candidates": [
+          "原盤首發]  蜘蛛侠：英雄归来"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "MTeam"
+      },
+      "size_bytes": 42002350080,
+      "seeders": 0,
+      "upload_time": "2017-10-03T00:18:12+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "208319",
+      "title": "Spider-Man Homecoming 2017 1080p WEB-DL DD+5.1 H.264-SiGMA",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "SiGMA"
+      },
+      "size_bytes": 8793906013,
+      "seeders": 4,
+      "upload_time": "2017-09-26T08:17:36+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "623569",
+      "title": "Spider-Man.Homecoming.2017.2160p.UHD.GER.Blu-ray.DV.HDR10.HEVC.TrueHD.Atmos.7.1-FULLSiZE",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日",
+          "新蜘蛛侠",
+          "蜘蛛侠：归来",
+          "蜘蛛侠：回家",
+          "蜘蛛侠：返校季",
+          "蜘蛛侠：返校节",
+          "蜘蛛侠：归乡",
+          "蜘蛛侠：新复仇者"
+        ],
+        "titles_en": [
+          "Spider-Man.Homecoming",
+          "Spider-Man: Homecoming",
+          "The Amazing Spider-Man 3",
+          "Spider-Man: The New Avenger",
+          "Spiderman"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR10",
+          "DV"
+        ],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "FULLSiZE"
+      },
+      "size_bytes": 61439507169,
+      "seeders": 1,
+      "upload_time": "2026-08-29T17:14:06+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "611421",
+      "title": "Spider-Man:.Homecoming.2017.1080p.CEE.Blu-ray.AVC.DTS-HD.MA.5.1-GMslbenfica",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man:.Homecoming"
+        ],
+        "title_candidates": [
+          "冒险 [CEE原盘"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "GMslbenfica"
+      },
+      "size_bytes": 41972567900,
+      "seeders": 2,
+      "upload_time": "2026-05-24T17:29:22+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "583578",
+      "title": "Spider-Man:.Homecoming.2017.2160p.UHD.Hybrid.BluRay.DD+.7.1.Atmos.DV.HDR10+.x265-BiTOR",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man:.Homecoming"
+        ],
+        "title_candidates": [
+          "小罗伯特·唐尼",
+          "玛丽莎·托梅",
+          "迈克尔·基顿",
+          "雅各布·贝塔隆"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "HDR10+",
+          "DV"
+        ],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "BiTOR"
+      },
+      "size_bytes": 19896435998,
+      "seeders": 0,
+      "upload_time": "2025-11-28T10:24:28+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "578184",
+      "title": "Spider-Man.Homecoming.2017.UHD.BluRay.REMUX.2160p.HEVC.Atmos.TrueHD.7.1.2Audio-CHD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": true,
+        "audio": [
+          "TrueHD",
+          "2Audio",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 54342073712,
+      "seeders": 25,
+      "upload_time": "2025-11-01T07:39:05+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "570892",
+      "title": "Spider-Man:.Homecoming.2017.2160p.MA.WEB-DL.TrueHD.7.1.Atmos.DV.HDR.H.265-TheFarm",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "新蜘蛛侠",
+          "蜘蛛人：返校日",
+          "蜘蛛侠：回家",
+          "蜘蛛侠：强势回归",
+          "蜘蛛侠：归乡",
+          "蜘蛛侠：归来",
+          "蜘蛛侠：新复仇者",
+          "蜘蛛侠：返校季",
+          "蜘蛛侠：返校节"
+        ],
+        "titles_en": [
+          "Spider-Man:.Homecoming",
+          "Spider-Man: The New Avenger",
+          "Spiderman",
+          "The Amazing Spider-Man 3",
+          "Spider-Man: Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR",
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "TheFarm"
+      },
+      "size_bytes": 30408368455,
+      "seeders": 1,
+      "upload_time": "2025-09-26T03:18:04+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "556923",
+      "title": "Spider-Man.Homecoming.2017.2160p.MA.WEB-DL.DDP5.1.H.265-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man.Homecoming"
+        ],
+        "title_candidates": [
+          "小罗伯特·唐尼",
+          "玛丽莎·托梅",
+          "迈克尔·基顿",
+          "雅各布·贝塔隆"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 25061134172,
+      "seeders": 8,
+      "upload_time": "2025-07-14T07:55:50+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "555336",
+      "title": "Spider-Man:.Homecoming.2017.2160p.BluRay.DoVi.x265.10bit.TrueHD.Atmos.7.1-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛人：返校日",
+          "蜘蛛侠：强势回归"
+        ],
+        "titles_en": [
+          "Spider-Man:.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 36335423324,
+      "seeders": 16,
+      "upload_time": "2025-07-05T23:44:39+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "456430",
+      "title": "Spider-Man.Homecoming.2017.1080p.MA.WEB-DL.DDP5.1.H.264-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man.Homecoming"
+        ],
+        "title_candidates": [
+          "小罗伯特·唐尼",
+          "玛丽莎·托梅",
+          "迈克尔·基顿",
+          "雅各布·贝塔隆"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 8128225607,
+      "seeders": 18,
+      "upload_time": "2024-11-27T03:20:56+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "383413",
+      "title": "Spider-Man.Homecoming.2017.2160p.EUR.UHD.Blu-ray.HEVC.TrueHD.7.1-TERMiNAL",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man.Homecoming"
+        ],
+        "title_candidates": [
+          "4K UHD欧版原盘中字"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "TERMiNAL"
+      },
+      "size_bytes": 61761629716,
+      "seeders": 3,
+      "upload_time": "2023-12-05T13:27:30+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "63404",
+      "title": "Spider-Man.Homecoming.2017.2160p.UHD.Blu-Ray.HEVC.Atmos.TrueHD.7.1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归"
+        ],
+        "titles_en": [
+          "Spider-Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 66185446031,
+      "seeders": 56,
+      "upload_time": "2018-03-29T13:51:05+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "63391",
+      "title": "Spider-Man.Homecoming.2017.HK.Blu-ray.1080p.AVC.DTS-HD.MA.5.1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归"
+        ],
+        "titles_en": [
+          "Spider-Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 52194590064,
+      "seeders": 34,
+      "upload_time": "2018-03-29T07:39:10+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "57811",
+      "title": "Spider.Man.Homecoming.2017.BluRay.1080p.x264.DTS.2Audios-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider.Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 11811160064,
+      "seeders": 115,
+      "upload_time": "2017-11-23T08:55:05+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "56229",
+      "title": "Spider.Man.Homecoming.2017.3D.BluRay.1080p.HSBS.x264.DTS-HD.MA5.1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider.Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 14377403023,
+      "seeders": 17,
+      "upload_time": "2017-10-12T02:29:23+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "56228",
+      "title": "Spider.Man.Homecoming.2017.3D.BluRay.1080p.HOU.x264.DTS-HD.MA5.1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider.Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 14377403023,
+      "seeders": 13,
+      "upload_time": "2017-10-12T02:28:59+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "56220",
+      "title": "Spider-Man.Homecoming.2017.HK.3D.Blu-ray.1080p.AVC.DTS-HD.MA.5.1-TTG",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man.Homecoming"
+        ],
+        "title_candidates": [
+          "3D版 蜘蛛侠：英雄归来"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "TTG"
+      },
+      "size_bytes": 44248900567,
+      "seeders": 0,
+      "upload_time": "2017-10-11T18:56:46+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "56161",
+      "title": "Spider-Man.Homecoming.2017.BluRay.1080p.DTS-HD.MA.5.1.x264-EPiC@CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider-Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "EPiC@CMCT"
+      },
+      "size_bytes": 16879221473,
+      "seeders": 9,
+      "upload_time": "2017-10-10T13:15:18+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "56086",
+      "title": "Spider.Man.Homecoming.2017.3D.BluRay.1080p.AVC.DTS-HD.MA5.1-bb@HDSky",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider.Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "bb@HDSky"
+      },
+      "size_bytes": 42369852375,
+      "seeders": 12,
+      "upload_time": "2017-10-09T00:54:38+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "56021",
+      "title": "Spider.Man.Homecoming.2017.BluRay.720p.x264.AC3-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider.Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "720p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DD"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 4305704714,
+      "seeders": 39,
+      "upload_time": "2017-10-07T09:43:58+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "55928",
+      "title": "Spider.Man.Homecoming.2017.BluRay.1080p.AVC.DTS-HD.MA5.1-LKReborn@CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider.Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "LKReborn@CHDBits"
+      },
+      "size_bytes": 43282532925,
+      "seeders": 2,
+      "upload_time": "2017-10-05T23:16:00+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "55570",
+      "title": "Spider-Man.Homecoming.2017.720p.WEB-DL.H264.AC3-EVO",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "720p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DD"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "EVO"
+      },
+      "size_bytes": 4413078896,
+      "seeders": 1,
+      "upload_time": "2017-09-27T01:03:40+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "55552",
+      "title": "Spider-Man.Homecoming.2017.1080p.WEB-DL.DD+5.1.H.264-SiGMA",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "SiGMA"
+      },
+      "size_bytes": 8793945538,
+      "seeders": 2,
+      "upload_time": "2017-09-26T08:23:58+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "487959",
+      "title": "Spider-Man Homecoming 2017 1080p MA WEB-DL DDP5.1 H.264-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [
+          "小罗伯特"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 8128225607,
+      "seeders": 13,
+      "upload_time": "2025-10-06T10:55:26+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "460649",
+      "title": "Spider-Man Homecoming 2017 2160p BluRay DoVi x265 10bit Atmos TrueHD7.1-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归",
+          "蜘蛛人: 返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 36335423324,
+      "seeders": 18,
+      "upload_time": "2025-07-05T14:42:04+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "460648",
+      "title": "Spider-Man Homecoming 2017 1080p BluRay x264 Atmos TrueHD7.1-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归",
+          "蜘蛛人: 返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 18801219338,
+      "seeders": 1,
+      "upload_time": "2025-07-05T14:41:18+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "460647",
+      "title": "Spider-Man Homecoming 2017 1080p BluRay x265 10bit Atmos TrueHD7.1-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归",
+          "蜘蛛人: 返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 15633680957,
+      "seeders": 8,
+      "upload_time": "2025-07-05T14:40:35+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "440918",
+      "title": "Spider Man Homecoming 2017 2160p HamiVideo WEB-DL DD5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DD"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "hami_video"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 18339510353,
+      "seeders": 2,
+      "upload_time": "2025-04-21T12:19:50+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "440916",
+      "title": "Spider Man Homecoming 2017 1080p HamiVideo WEB-DL DD5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DD"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "hami_video"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7945689497,
+      "seeders": 1,
+      "upload_time": "2025-04-21T12:15:20+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "398717",
+      "title": "Spider Man Homecoming 2017 BluRay 1080p x264 DTS 2Audios-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 11811160064,
+      "seeders": 49,
+      "upload_time": "2024-11-01T15:15:38+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "381113",
+      "title": "Spider-Man Homecoming 2017 2160p AMZN WEB-DL DDP5.1 HDR H 265-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [
+          "小罗伯特"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": null,
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 15547781611,
+      "seeders": 1,
+      "upload_time": "2024-08-27T06:45:56+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "227955",
+      "title": "Spider-Man Homecoming 2017 UHD BluRay REMUX 2160p DV 7.1 TrueHD Atmos V2",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [
+          "蜘蛛侠：英雄归来 UHD原盘提取杜比视界",
+          "7.1全景声",
+          "国配"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": null,
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "UHD Blu-ray",
+        "remux": true,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 54760833024,
+      "seeders": 2,
+      "upload_time": "2022-12-17T02:31:01+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "101170",
+      "title": "Spider.Man.Homecoming.2017.3D.BluRay.1080p.HSBS.x264.DTS-HD.MA5.1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠:英雄归来",
+          "蜘蛛侠:强势回归",
+          "蜘蛛人:返校日"
+        ],
+        "titles_en": [
+          "Spider.Man.Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 14377403023,
+      "seeders": 11,
+      "upload_time": "2020-09-11T02:49:25+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "86241",
+      "title": "Spider Man Homecoming 2017 3D BluRay 1080p AVC DTS-HD MA5.1-bb@HDSky",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "bb@HDSky"
+      },
+      "size_bytes": 42369852375,
+      "seeders": 9,
+      "upload_time": "2020-04-06T13:56:43+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "64519",
+      "title": "Spider-Man Homecoming 2017 UHD BluRay REMUX 2160p HEVC Atmos TrueHD7.1 2Audio-CHD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": true,
+        "audio": [
+          "TrueHD",
+          "2Audio",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 54342073712,
+      "seeders": 54,
+      "upload_time": "2019-07-30T14:21:59+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "64286",
+      "title": "Spider-Man Homecoming 2017 ULTRAHD Blu-ray 2160p HEVC Atmos TrueHD 7.1-sGnb@CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "sGnb@CHDBits"
+      },
+      "size_bytes": 65058017116,
+      "seeders": 224,
+      "upload_time": "2019-07-28T08:17:43+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "58325",
+      "title": "Spider-Man Homecoming 2017 BluRay 2160p Atmos TrueHD7 1 x265 10bit-CHD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 19348827668,
+      "seeders": 8,
+      "upload_time": "2019-05-17T11:25:37+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "52608",
+      "title": "Spider-Man Homecoming 2017 BluRay 1080p x265.10bit 2Audio MNHD-FRDS",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "2Audio"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "FRDS"
+      },
+      "size_bytes": 7301444403,
+      "seeders": 30,
+      "upload_time": "2019-02-21T09:06:30+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "33542",
+      "title": "Spider-Man Homecoming 2017 HK Blu-ray 1080p AVC DTS-HD MA 5.1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 52194590064,
+      "seeders": 15,
+      "upload_time": "2018-04-03T23:47:28+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "33352",
+      "title": "Spider-Man Homecoming 2017 2160p UHD Blu-Ray HEVC Atmos TrueHD 7 1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠: 英雄归来",
+          "蜘蛛侠: 强势回归"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [
+          "双语"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 66185446031,
+      "seeders": 27,
+      "upload_time": "2018-03-31T13:05:30+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "29604",
+      "title": "Spider-Man Homecoming 2017 BluRay 2160p x265.10bit HDR 3Audio mUHD-FRDS",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "3Audio"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "FRDS"
+      },
+      "size_bytes": 25415468974,
+      "seeders": 127,
+      "upload_time": "2018-01-04T08:55:04+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "25849",
+      "title": "Spider-Man Homecoming 2017 UHD Blu-ray 2160p True-HD Atmos 7.1 HEVC REMUX-FraMeSToR",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日",
+          "新蜘蛛侠",
+          "蜘蛛侠：归来",
+          "蜘蛛侠：回家",
+          "蜘蛛侠：返校季"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": true,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "FraMeSToR"
+      },
+      "size_bytes": 52473762938,
+      "seeders": 2,
+      "upload_time": "2017-11-15T21:25:20+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "25843",
+      "title": "Spider-Man: Homecoming 2017 2160p EUR UHD Blu-ray HEVC TrueHD 7.1-TERMiNAL",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日",
+          "新蜘蛛侠",
+          "蜘蛛侠：归来",
+          "蜘蛛侠：回家",
+          "蜘蛛侠：返校季"
+        ],
+        "titles_en": [
+          "Spider-Man: Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "UHD Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "TERMiNAL"
+      },
+      "size_bytes": 61761629716,
+      "seeders": 7,
+      "upload_time": "2017-11-15T16:59:32+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "24094",
+      "title": "Spider Man Homecoming 2017 3D BluRay 1080p AVC DTS-HD MA5.1-ST@CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ST@CHDBits"
+      },
+      "size_bytes": 41983305318,
+      "seeders": 2,
+      "upload_time": "2017-10-07T16:44:34+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "24085",
+      "title": "Spider Man Homecoming 2017 BluRay 720p AAC x264-CHDPAD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日",
+          "新蜘蛛侠",
+          "蜘蛛侠：归来",
+          "蜘蛛侠：回家",
+          "蜘蛛侠：返校季"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "720p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CHDPAD"
+      },
+      "size_bytes": 2695091978,
+      "seeders": 2,
+      "upload_time": "2017-10-07T12:30:14+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "24029",
+      "title": "Spider Man Homecoming 2017 BluRay REMUX 1080p AVC DTS-HD MA5.1 DD2.0-CHD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": true,
+        "audio": [
+          "DTS-HD MA",
+          "DD"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 28776280883,
+      "seeders": 1,
+      "upload_time": "2017-10-06T05:55:44+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "24016",
+      "title": "Spider Man Homecoming 2017 BluRay 1080p AVC DTS-HD MA5.1-LKReborn@CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "LKReborn@CHDBits"
+      },
+      "size_bytes": 43282532925,
+      "seeders": 5,
+      "upload_time": "2017-10-05T17:06:04+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "23928",
+      "title": "Spider Man Homecoming 2017 BluRay 1080p DTS-HDMA5.1 2Audio x264-CHD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA",
+          "2Audio"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 12380243230,
+      "seeders": 6,
+      "upload_time": "2017-10-03T15:55:48+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "23927",
+      "title": "Spider Man Homecoming 2017 BluRay 1080p DTS 2Audio x264-CHD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [
+          "蜘蛛人：返校日(台) [国/英"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 11542724608,
+      "seeders": 2,
+      "upload_time": "2017-10-03T15:54:12+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "23919",
+      "title": "Spider Man Homecoming 2017 BluRay 720p DTS 2Audio x264-CHD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [
+          "蜘蛛人：返校日(台) [国/英"
+        ],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "720p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 7118908293,
+      "seeders": 1,
+      "upload_time": "2017-10-03T13:24:46+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "23883",
+      "title": "Spider Man Homecoming 2017 BluRay 1080p AVC DTS-HD MA5.1-CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来",
+          "蜘蛛侠：强势回归",
+          "蜘蛛人：返校日"
+        ],
+        "titles_en": [
+          "Spider Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 42906723287,
+      "seeders": 2,
+      "upload_time": "2017-10-02T23:00:11+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "23616",
+      "title": "Spider-Man Homecoming 2017 1080p WEB-DL H264 DD 5.1-@Bibiloni9",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "蜘蛛侠：英雄归来"
+        ],
+        "titles_en": [
+          "Spider-Man Homecoming"
+        ],
+        "title_candidates": [],
+        "year": 2017,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DD"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "@Bibiloni9"
+      },
+      "size_bytes": 4907000135,
+      "seeders": 2,
+      "upload_time": "2017-09-27T03:55:51+00:00"
+    }
+  ]
+}

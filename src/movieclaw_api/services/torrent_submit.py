@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Collection
 from dataclasses import dataclass
@@ -147,9 +148,7 @@ def _best_match(
     return best
 
 
-def translate_save_path(
-    path: str | None, mappings: list[dict[str, str]] | None
-) -> str | None:
+def translate_save_path(path: str | None, mappings: list[dict[str, str]] | None) -> str | None:
     """把 movieclaw 视角的保存目录翻译成下载器视角（最长前缀匹配）。
 
     映射形如 ``[{"local": "/data/downloads", "remote": "/downloads"}]``。
@@ -165,9 +164,7 @@ def translate_save_path(
     return remote + path[len(local) :]
 
 
-def translate_to_local(
-    path: str | None, mappings: list[dict[str, str]] | None
-) -> str | None:
+def translate_to_local(path: str | None, mappings: list[dict[str, str]] | None) -> str | None:
     """反向翻译：把下载器上报的路径翻译回 movieclaw 视角（最长前缀匹配）。
 
     救援巡检核验落点用。未命中原样返回（视角一致部署）。
@@ -198,6 +195,9 @@ async def submit_torrent(
     category: str = "movieclaw",
     select_units: set[tuple[int, int]] | None = None,
     known_seasons: Collection[int] | None = None,
+    before_submit=None,
+    selection_owner: str | None = None,
+    before_resume=None,
 ) -> tuple[SubmitResult, DownloaderClient]:
     """从站点取回种子并提交到下载器，返回（提交结果, 所用下载器记录）。
 
@@ -281,12 +281,16 @@ async def submit_torrent(
     )
     downloader = create_downloader(config)
     try:
+        if before_submit is not None:
+            from movieclaw_downloader.torrent import compute_info_hash
+
+            await before_submit(compute_info_hash(torrent_bytes), row.id)
         submit_result = await downloader.submit(
             DownloadRequest(
                 torrent_bytes=torrent_bytes,
                 save_path=submit_save_path,
                 category=category,
-                tags=tags,
+                tags=tags + ([selection_owner] if selection_owner else []),
                 # 选择性下载必须以暂停态入库：先规划文件取舍再恢复下载，
                 # 否则下载器可能瞬间把整包拉完，选择失去意义
                 paused=select_units is not None,
@@ -296,7 +300,16 @@ async def submit_torrent(
         # 的目标目录（否则文件留在刷流目录，入库监听永远看不见），台账转出。
         # 迁移失败不连累提交——留给刷流的认领转出兜底，订阅按"非自有任务"
         # 的既有路径处理
-        if submit_result.already_exists and category != "movieclaw-boost":
+        if selection_owner and select_units and submit_result.info_hash:
+            submit_result = await apply_strict_file_selection(
+                downloader,
+                submit_result,
+                select_units,
+                known_seasons=known_seasons,
+                owner=selection_owner,
+                before_resume=before_resume,
+            )
+        elif submit_result.already_exists and category != "movieclaw-boost":
             submit_result = await _reclaim_boost_task(
                 session, downloader, submit_result, save_path=submit_save_path
             )
@@ -341,6 +354,65 @@ async def submit_torrent(
                 "下载线索写入失败（目录 %s），副标题识别信号将缺失", save_path, exc_info=True
             )
     return submit_result, row
+
+
+async def apply_strict_file_selection(
+    downloader,
+    submit_result: SubmitResult,
+    needed_units: set[tuple[int, int]],
+    *,
+    known_seasons: Collection[int] | None,
+    owner: str,
+    before_resume=None,
+) -> SubmitResult:
+    """暂停态选择并回读验证；任何异常都不恢复，重试仅操作原意图的任务。"""
+    from movieclaw_api.services.subscription.file_selection import plan_strict_file_selection
+
+    info_hash = submit_result.info_hash
+    status = await downloader.get_torrent(info_hash, include_files=True)
+    # 添加后下载器可能先校验恢复数据；等暂停状态可观察后才改文件。
+    for _ in range(10):
+        if status is None or status.state != "checking":
+            break
+        await asyncio.sleep(0.2)
+        status = await downloader.get_torrent(info_hash, include_files=True)
+    if status is None or owner not in status.tags:
+        raise ValueError("无法确认该任务属于本次智能投递，不修改已有任务，等待对账")
+    plan = plan_strict_file_selection(
+        [f.path for f in status.files],
+        needed_units,
+        known_seasons=known_seasons,
+    )
+    expected = set(plan.keep_indices)
+    actual = {i for i, f in enumerate(status.files) if f.selected}
+    if actual != expected:
+        if status.state != "paused":
+            raise ValueError("文件选择尚未核验且任务不是暂停状态，请在下载器暂停后重试")
+        indices = [
+            status.files[i].index if status.files[i].index is not None else i
+            for i in plan.keep_indices
+        ]
+        await downloader.set_file_selection(info_hash, indices)
+    verified = await downloader.get_torrent(info_hash, include_files=True)
+    if (
+        verified is None
+        or owner not in verified.tags
+        or [(f.index, f.path, f.size_bytes) for f in verified.files]
+        != [(f.index, f.path, f.size_bytes) for f in status.files]
+        or {i for i, f in enumerate(verified.files) if f.selected} != expected
+    ):
+        raise ValueError("下载器文件选择回读不一致，未恢复下载；稍后重试同一任务")
+    if not verified.completed:
+        if verified.state not in {"paused", "downloading", "queued", "stalled", "checking"}:
+            raise ValueError("下载器状态尚未确认，等待重试同一任务")
+        if before_resume is not None:
+            await before_resume()
+        # 校验恢复数据时也可能仍处于添加时的暂停态；恢复是幂等操作。
+        await downloader.resume(info_hash)
+    # 所有权标签证明这是超时后找回的同一投递，不是用户已有任务。
+    return submit_result.model_copy(
+        update={"already_exists": False, "skipped_file_count": len(plan.skip_indices)}
+    )
 
 
 async def _apply_file_selection(

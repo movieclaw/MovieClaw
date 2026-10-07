@@ -368,6 +368,8 @@ class SubscriptionService:
         library_id: int | None = None,
         douban_id: str | None = None,
         member_id: int | None = None,
+        selection_mode: str = "rules",
+        smart_profile_revision: int | None = None,
     ) -> Subscription:
         """创建订阅并生成初始工单。同一条目已有订阅时幂等返回已有（不改参数）。
 
@@ -390,6 +392,17 @@ class SubscriptionService:
             logger.info("条目《%s》已有订阅 #%s，幂等返回", item.title, existing.id)
             return existing
         assert item.id is not None
+
+        from movieclaw_api.services.subscription.smart_profiles import freeze_policy
+
+        if selection_mode not in {"rules", "smart"}:
+            raise BadRequestException("订阅模式无效")
+        if selection_mode == "smart" and rule_set_id is not None:
+            raise BadRequestException("智能模式不能同时指定规则组")
+        smart_policy = (
+            await freeze_policy(self._session, kind.value, smart_profile_revision)
+            if selection_mode == "smart" else None
+        )
 
         selected = self._validate_selection(kind, selected_seasons or [], seasons)
         # 剧集不勾季又不追新时 E 恒为空：订阅会落库成 0 工单，随即被派生重算判成
@@ -424,14 +437,14 @@ class SubscriptionService:
         # 规则组：显式指定优先；否则按适用范围自动选组（docs/design/rule-set-scope.md），
         # 都不命中落默认组。成员订阅、补下缺失单元等不带规则组的路径都走这里
         rule_note: str | None = None
-        if rule_set_id is None:
+        if rule_set_id is None and selection_mode == "rules":
             if not facts_known:
                 facts = await gather_facts(self._session, item)
             pick = await self._rule_sets.pick(kind.value, facts)
             rule_set_id = pick.rule_set.id
             if pick.matched:
                 rule_note = pick.reason
-        assert rule_set_id is not None
+        assert rule_set_id is not None or smart_policy is not None
 
         # 订阅弹层打开时（prepare）用户还没选库，条目多半没有刮削归属；
         # 这里入库目标定格了，同一时刻把归属补上（设计文档 §14），
@@ -450,6 +463,8 @@ class SubscriptionService:
                 selected_seasons=selected,
                 follow_future=follow_future,
                 rule_set_id=rule_set_id,
+                selection_mode=selection_mode,
+                smart_policy=smart_policy,
                 library_id=library_id,
                 status=SubscriptionStatus.ACTIVE,
                 created_by_member_id=member_id,
@@ -466,6 +481,16 @@ class SubscriptionService:
         movie_plan = await self._movie_plan(item) if kind is MediaKind.MOVIE else None
         rows = [self._to_wanted(subscription, unit, schedule=movie_plan) for unit in units]
         await self._repo.add_wanted(rows)
+        if smart_policy is not None:
+            from movieclaw_api.services.subscription.upgrade import (
+                arm_upgrade_candidates,
+                fill_snapshots,
+                materialize_owned_wanted,
+            )
+            imported = await materialize_owned_wanted(self._session, subscription)
+            await fill_snapshots(self._session, item.id, imported)
+            await arm_upgrade_candidates(self._session, imported)
+            await self._session.commit()
         created_message = self._created_message(item, kind, selected, follow_future, rows)
         if skipped_owned:
             created_message += f"；库里已有 {len(skipped_owned)} 个单元，无需重复下载"
@@ -526,6 +551,11 @@ class SubscriptionService:
         item = await self._media_repo_get(subscription.media_item_id)
 
         new_rule_set = None
+        if subscription.selection_mode == "smart":
+            if rule_set_id not in (None, 0):
+                raise BadRequestException("智能订阅不能换绑规则组；请保持当前模式")
+            # 旧客户端可能回传 API 的无规则占位值，不能把它当成真实外键。
+            rule_set_id = None
         if rule_set_id is not None and rule_set_id != subscription.rule_set_id:
             new_rule_set = await self._rule_sets.get(rule_set_id)
             subscription.rule_set_id = rule_set_id

@@ -118,12 +118,19 @@ async def grab_manual(
     # 单元也是手选的合法目标——「无法确认」的单元靠这条路人工替换。投递带
     # manual 标记，入库后由实测验证裁决：证明更优则替换旧版，否则共存保留
     spec: RuleSetSpec | None = None
-    rule_set = await session.get(RuleSet, subscription.rule_set_id)
+    rule_set = (
+        await session.get(RuleSet, subscription.rule_set_id) if subscription.rule_set_id else None
+    )
     if rule_set is not None:
         try:
             spec = RuleSetSpec.model_validate(rule_set.spec or {})
         except ValueError:
             spec = None
+    if subscription.selection_mode == "smart":
+        from movieclaw_api.services.subscription.smart_profiles import read_policy
+        spec = read_policy(subscription)
+        if spec is None:
+            raise BadRequestException("智能设置快照无效，已暂停选种")
     upgrade_pool: dict[tuple[int, int], WantedItem] = {}
     if spec is not None and spec.upgrade_source is not None:
         upgrade_pool = {
@@ -180,6 +187,10 @@ async def grab_manual(
         download_url=download_url,
         publish_time=publish_time,
     )
+    if subscription.selection_mode == "smart":
+        from movieclaw_matcher.smart import eligible
+        if not eligible(candidate, spec):
+            raise BadRequestException("所选资源不满足智能模式的最低要求")
     identity = MediaIdentity(
         kind=item.kind,
         year=item.year,

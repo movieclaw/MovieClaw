@@ -203,7 +203,7 @@ export function SettingsPanel({ active }: SettingsPanelProps) {
       >
         {/* Netflix 移动端：分区名已由页顶的 NetflixSettingsNav（返回键 + 分区
             名）呈现，这里的大图标头在窄屏上重复占位（globals.css 按主题隐藏） */}
-        <header className="settings-panel-head flex items-center gap-4">
+        <header className={`settings-panel-head flex items-center gap-4 ${section.id === "subscription" ? "max-md:hidden" : ""}`}>
           <span className="icon-chip size-12 !rounded-2xl">
             <Icon className="size-[22px]" />
           </span>
@@ -225,7 +225,7 @@ export function SettingsPanel({ active }: SettingsPanelProps) {
         </header>
 
         {/* 发丝分隔线：左亮右隐的渐变，呼应玻璃边缘的受光 */}
-        <div className="settings-panel-head mb-8 mt-7 h-px bg-gradient-to-r from-white/[0.14] via-white/[0.06] to-transparent" />
+        <div className={`settings-panel-head mb-8 mt-7 h-px bg-gradient-to-r from-white/[0.14] via-white/[0.06] to-transparent ${section.id === "subscription" ? "max-md:hidden" : ""}`} />
 
         {section.id === "overview" ? (
           <SettingsOverviewSection />

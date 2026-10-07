@@ -4,13 +4,13 @@ import SwiftUI
 /// 由 `router.present(.subscribe(...))` 唤起——发现海报、影片详情、搜索结果、AI 卡片、媒体库「洗版」共用。
 ///
 /// 流程对应后端 `POST /subscriptions/title-preview` 的三态：
-/// - ready：季勾选 + 自动续订 +（管理员）规则组与入库库 + 投递路由预检 + 快捷新建规则组；
+/// - ready：品质 / 等待摘要；追踪范围与更多选项进入子页；首次智能设置保存后才可确认；
 /// - ambiguous：豆瓣收敛歧义，候选海报墙确认一次后带新引用重新预检；
 /// - not_found：TMDB 未收录，无法订阅。
 /// 已订阅的条目进入管理态：取消订阅（成员 = 取消关注；管理员叠一层带预览的彻底删除）。
 ///
 /// 默认值：剧集勾选全部已播正季（豆瓣季条目采信服务端 suggested_seasons）；在播剧开自动续订；
-/// 规则组与入库库取后端按适用范围 / 收藏范围路由的结论，路由选中的不是默认项时才说明「为什么选了它」。
+/// 默认智能选择；电影和剧集分别复用服务器偏好。规则模式与目标库收进更多选项，配置异常保持可见。
 ///
 /// 洗版变体（`request.upgrade`）：季按库存预填、（超管）只列带洗版目标的规则组（成员不选组）、自动续订默认关；
 /// 建好订阅后立刻跑一轮洗版并在弹层内展示体检报告。
@@ -45,6 +45,13 @@ struct SubscribeSheet: View {
     @State private var creatingRuleSet = false
     @State private var cancelling = false
 
+    @State private var selectionMode = "smart"
+    @State private var smartProfile: SmartProfile?
+    @State private var pages: [Page] = []
+    @State private var formHeight: CGFloat = 0
+
+    enum Page: Hashable { case smart, range, options }
+
     private var upgradeMode: Bool { request.upgrade }
     private var canManage: Bool { permissions.canManageSubscriptions }
 
@@ -62,7 +69,8 @@ struct SubscribeSheet: View {
     }
 
     private var canSubmit: Bool {
-        guard let media = prepared?.media, !busy else { return false }
+        guard let media = prepared?.media, !busy, pages.isEmpty else { return false }
+        if selectionMode == "smart", smartProfile?.preferences == nil || smartProfile?.kind != media.kind { return false }
         if upgradeMode, canManage, !selectableRules.contains(where: { $0.id == ruleSetId }) { return false }
         if media.kind == "movie" { return true }
         return !selectedSeasons.isEmpty || followFuture
@@ -70,7 +78,7 @@ struct SubscribeSheet: View {
 
     private var showsSubmit: Bool { prepared?.status == "ready" && prepared?.existingSubscriptionId == nil }
     /// 规则组只有超管能选（`GET /rule-sets` 仅超管可读）；成员洗版沿用订阅当前的规则组（member-permissions-v2 §3.7）
-    private var showsRules: Bool { canManage && (upgradeMode || !ruleSets.isEmpty) }
+    private var showsRules: Bool { canManage && selectionMode == "rules" && (upgradeMode || !ruleSets.isEmpty) }
     private var showsLibrary: Bool { canManage && !libraries.isEmpty }
     private var pickedRule: API.RuleSetView? { selectableRules.first { $0.id == ruleSetId } }
 
@@ -86,21 +94,56 @@ struct SubscribeSheet: View {
                     UpgradeRunReportView(title: displayTitle, isMovie: kind == "movie", report: upgradeReport)
                 }
             } else {
-                SubsSheetScaffold(
-                    title: upgradeMode ? "订阅并洗版" : "订阅",
-                    confirm: showsSubmit ? SubsSheetConfirm(
-                        title: upgradeMode ? "订阅并开始洗版" : "确认订阅",
-                        enabled: canSubmit,
-                        busy: busy,
-                        identifier: "subscribe-submit"
-                    ) { Task { await submit() } } : nil,
-                    ready: prepared != nil || error != nil
-                ) {
-                    content
+                NavigationStack(path: $pages) {
+                    Form { content }
+                        .subsFormStyle()
+                        .listSectionSpacing(12)
+                        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+                            geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom
+                        } action: { _, height in
+                            formHeight = height
+                        }
+                        .navigationTitle(upgradeMode ? "订阅并洗版" : "订阅")
+                        .navigationBarTitleDisplayMode(.inline)
+                        .navigationDestination(for: Page.self) { page in
+                            switch page {
+                            case .smart:
+                                if let smartProfile {
+                                    SmartProfileEditor(kind: kind, profile: smartProfile) { self.smartProfile = $0 }
+                                }
+                            case .range:
+                                Form { rangeFields }.subsFormStyle().navigationTitle("追踪范围")
+                                    .navigationBarTitleDisplayMode(.inline)
+                            case .options:
+                                Form { optionFields }.subsFormStyle().navigationTitle("更多选项")
+                                    .navigationBarTitleDisplayMode(.inline)
+                            }
+                        }
+                        .toolbar {
+                            if pages.isEmpty {
+                                ToolbarItem(placement: .cancellationAction) {
+                                    Button("取消", systemImage: "xmark", role: .close) { dismiss() }
+                                        .disabled(busy).accessibilityIdentifier("sheet-close")
+                                }
+                                if showsSubmit {
+                                    ToolbarItem(placement: .confirmationAction) {
+                                        if busy { ProgressView() }
+                                        else {
+                                            Button(upgradeMode ? "订阅并开始洗版" : "确认订阅", systemImage: "checkmark", role: .confirm) {
+                                                Task { await submit() }
+                                            }
+                                            .discoverProminentButton().disabled(!canSubmit)
+                                            .accessibilityIdentifier("subscribe-submit")
+                                        }
+                                    }
+                                }
+                            }
+                        }
                 }
+                .modifier(SubsFittedDetents(ready: prepared != nil || error != nil, fullHeight: !pages.isEmpty, contentHeight: formHeight))
             }
         }
-        .interactiveDismissDisabled(busy)
+        .interactiveDismissDisabled(busy || pages.contains(.smart))
         .accessibilityIdentifier("subscribe-sheet")
         .task { await runPrepare(request.titleRef) }
         // 投递路由预览随「入库库」与「预检收敛出的条目」两者变化重拉（同 Web 依赖 [prepared?.media, libraryId]）：
@@ -126,14 +169,16 @@ struct SubscribeSheet: View {
 
     @ViewBuilder
     private var content: some View {
-        Section {
-            header
-        } footer: {
-            if upgradeMode {
+        if upgradeMode {
+            Section {
+                header
+            } footer: {
                 Text("洗版通过订阅持续追踪更好的版本：确认后建立订阅并立即体检库里已有的每一集。")
             }
+            .subsBareRow()
+        } else {
+            Section { header }.subsBareRow()
         }
-        .subsBareRow()
 
         if let error {
             Section {
@@ -263,54 +308,105 @@ struct SubscribeSheet: View {
     /// 订阅表单（ready 且未订阅）
     @ViewBuilder
     private func form(_ prepared: API.PrepareView) -> some View {
+        if selectionMode == "smart" {
+            SmartProfileSection(kind: kind, profile: $smartProfile) {
+                if pages.isEmpty { pages.append(.smart) }
+            }
+                .id(kind)
+        } else {
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Text(upgradeMode ? "洗版规则" : "规则模式").font(.subheadline).foregroundStyle(.secondary)
+                        Spacer()
+                        if canManage {
+                            Button("修改规则") { pages.append(.options) }
+                                .font(.subheadline).buttonStyle(.borderless)
+                        }
+                    }
+                    Text(pickedRule?.name ?? "按系统规则选择").font(.headline)
+                    if let pickedRule, RuleSetText.summary(pickedRule.typedSpec).isEmpty {
+                        Text("当前规则不限品质，可能选到低画质资源。")
+                            .font(.footnote).foregroundStyle(SubsColor.warn)
+                    }
+                    if upgradeMode {
+                        Text(pickedRule?.upgradeTarget.map { "洗到 \($0)" } ?? "按订阅当前的规则组洗版")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    }
+                }
+            }
+        }
         if prepared.media?.kind == "tv" {
             Section {
-                ForEach(prepared.seasons, id: \.seasonNumber) { season in
-                    SeasonPickRow(season: season, checked: selectedSeasons.contains(season.seasonNumber)) {
-                        if selectedSeasons.contains(season.seasonNumber) {
-                            selectedSeasons.remove(season.seasonNumber)
-                        } else {
-                            selectedSeasons.insert(season.seasonNumber)
+                NavigationLink(value: Page.range) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("追踪范围").font(.subheadline).foregroundStyle(.secondary)
+                        Text(rangeSummary).font(.body.weight(.medium))
+                        Text(followFuture ? "自动追踪新集和新季" : "仅收录所选季")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }.padding(.vertical, 4)
+                }.accessibilityIdentifier("subscribe-range")
+                if selectedSeasons.isEmpty && !followFuture {
+                    Text("请选择至少一季，或开启自动续订。").font(.footnote).foregroundStyle(SubsColor.warn)
+                }
+            }
+        }
+        if !upgradeMode || canManage {
+            Section {
+                NavigationLink(value: Page.options) {
+                    LabeledContent("更多选项") {
+                        if let library = libraries.first(where: { $0.id == libraryId }) {
+                            Text("存入「\(library.name)」").font(.subheadline)
                         }
                     }
+                }.accessibilityIdentifier("subscribe-options")
+            }
+        }
+        if let preview = dispatchPreview, !preview.ok {
+            Section { SubsNoticeRow(text: preview.warning ?? "下载与入库配置尚未就绪", tone: .warn) }
+        }
+    }
+
+    @ViewBuilder private var rangeFields: some View {
+        Section("收录的季") {
+            ForEach(prepared?.seasons ?? [], id: \.seasonNumber) { season in
+                SeasonPickRow(season: season, checked: selectedSeasons.contains(season.seasonNumber)) {
+                    if selectedSeasons.contains(season.seasonNumber) { selectedSeasons.remove(season.seasonNumber) }
+                    else { selectedSeasons.insert(season.seasonNumber) }
                 }
-            } header: {
-                Text("选择要收录的季")
-            } footer: {
-                Text("勾选即要整季（含未播集）")
-            }
-            Section {
-                Toggle("自动续订", isOn: $followFuture)
-                    .accessibilityIdentifier("subscribe-follow-future")
-            } footer: {
-                Text("之后播出的新集、新一季自动加入追踪")
             }
         }
+        Section {
+            Toggle("自动续订", isOn: $followFuture)
+                .toggleStyle(SystemSwitchStyle()).accessibilityIdentifier("subscribe-follow-future")
+        } footer: { Text("自动追踪新集和新季") }
+    }
 
-        if upgradeMode, !canManage, showsSubmit {
-            Section {
-                Text("按订阅当前的规则组洗版").foregroundStyle(Theme.textMuted)
-            } header: {
-                Text("洗版规则")
+    @ViewBuilder private var optionFields: some View {
+        Section {
+            if !upgradeMode {
+                Picker("选择方式", selection: $selectionMode) {
+                    Text("智能选择").tag("smart")
+                    Text("规则模式").tag("rules")
+                }.pickerStyle(.menu).accessibilityIdentifier("subscribe-mode")
             }
+            if showsRules { ruleRow }
         }
-
-        if showsRules || showsLibrary {
+        if showsLibrary {
             Section {
-                if showsRules { ruleRow }
-                if showsLibrary {
-                    Picker("入库到", selection: $libraryId) {
-                        ForEach(libraries, id: \.id) { library in
-                            Text(library.name + (library.isDefault ? "（默认）" : "")).tag(Int?.some(library.id))
-                        }
+                Picker("入库到", selection: $libraryId) {
+                    ForEach(libraries, id: \.id) { library in
+                        Text(library.name + (library.isDefault ? "（默认）" : "")).tag(Int?.some(library.id))
                     }
-                    .pickerStyle(.menu)
-                    .accessibilityIdentifier("subscribe-library")
-                }
-            } footer: {
-                routingFooter
-            }
+                }.pickerStyle(.menu).accessibilityIdentifier("subscribe-library")
+            } footer: { routingFooter.font(.footnote) }
         }
+    }
+
+    private var rangeSummary: String {
+        let seasons = selectedSeasons.sorted()
+        if seasons.isEmpty { return followFuture ? "仅追新集" : "选择要收录的季" }
+        return seasons.count > 3 ? "已选 \(seasons.count) 季" : seasons.map(SubsFormat.seasonName).joined(separator: "、")
     }
 
     /// 规则组行：原生菜单行，菜单里单选规则组，末尾是低频的「新建规则组…」
@@ -371,22 +467,14 @@ struct SubscribeSheet: View {
     /// 脚注背后是毛玻璃，系统次要色太淡，统一提到 textMuted
     @ViewBuilder
     private var routingFooter: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            // 路由选中的恰好是默认组时理由就是废话，只在选了非默认组时解释；
-            // 组名已写在行里，后端理由原文（「按适用范围选用「电影」：电影」）再念一遍组名反而啰嗦
-            if showsRules, let ruleRouted, ruleSetId == ruleRouted.ruleSetId, pickedRule?.isDefault == false {
-                Label("按适用范围自动选择", systemImage: "sparkles")
-            }
-            if showsLibrary {
-                if let routed, let reason = routed.reason, libraryId == routed.libraryId,
-                   libraries.first(where: { $0.id == routed.libraryId })?.isDefault == false {
-                    Label(reason, systemImage: "sparkles")
-                        .accessibilityIdentifier("subscribe-routed-library")
-                }
-                if let dispatchPreview { DispatchPreviewNote(preview: dispatchPreview) }
-            }
+        if showsRules, let ruleRouted, ruleSetId == ruleRouted.ruleSetId, pickedRule?.isDefault == false {
+            Label("按适用范围自动选择", systemImage: "sparkles").foregroundStyle(Theme.textMuted)
         }
-        .foregroundStyle(Theme.textMuted)
+        if showsLibrary, let routed, let reason = routed.reason, libraryId == routed.libraryId,
+           libraries.first(where: { $0.id == routed.libraryId })?.isDefault == false {
+            Label(reason, systemImage: "sparkles").foregroundStyle(Theme.textMuted)
+                .accessibilityIdentifier("subscribe-routed-library")
+        }
     }
 
     // MARK: 数据
@@ -394,6 +482,8 @@ struct SubscribeSheet: View {
     /// 预检并按结果初始化表单默认值（候选确认后带新引用再次进入）
     private func runPrepare(_ ref: String) async {
         prepared = nil
+        smartProfile = nil
+        selectionMode = upgradeMode ? "rules" : "smart"
         error = nil
         upgradeReport = nil
         do {
@@ -461,7 +551,7 @@ struct SubscribeSheet: View {
     }
 
     private func submit() async {
-        guard let media = prepared?.media else { return }
+        guard canSubmit, let media = prepared?.media else { return }
         busy = true
         error = nil
         defer { busy = false }
@@ -472,8 +562,10 @@ struct SubscribeSheet: View {
                 sourceTitleRef: request.titleRef.hasPrefix("douban:") ? request.titleRef : nil,
                 selectedSeasons: selectedSeasons.sorted(),
                 followFuture: followFuture,
-                ruleSetId: canManage ? ruleSetId : nil,
-                libraryId: canManage ? libraryId : nil
+                ruleSetId: canManage && selectionMode == "rules" ? ruleSetId : nil,
+                libraryId: canManage ? libraryId : nil,
+                selectionMode: selectionMode,
+                smartProfileRevision: selectionMode == "smart" ? smartProfile?.revision : nil
             ))
             await refreshIndex()
             if upgradeMode {

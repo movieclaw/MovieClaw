@@ -2051,3 +2051,35 @@ def test_library_new_kinds_and_unrecognized_files(client: TestClient, world: Wor
     check()
     _wait(lambda: len(relay.messages) >= 1)
     assert _open(relay.messages[-1], key)["title"] == "新片：流浪地球 3"
+
+
+def test_identity_skip_is_one_informational_push_without_actions(client: TestClient, world: World) -> None:
+    """同名资源知会经过真实登记、加密与中继；重复评估不再推、不产生待办。"""
+    from movieclaw_api.services.subscription.twins import _inform_user
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import MediaItem
+
+    _connect(client, world)
+    bearer = _app_login(client, _ADMIN, installation="identity-skip-install", name="iPhone")
+    _, key = _register(client, bearer, token="b9" * 32)
+    subscription_id, item_id = _seed_subscription(client, kind="movie", title="奥德赛", creator=None, followers=[])
+    relay = world.relays["push.test"]
+    relay.messages.clear()
+
+    async def inform():
+        async with get_database().session() as session:
+            item = await session.get(MediaItem, item_id)
+            await _inform_user(session, subscription_id=subscription_id, item=item)
+
+    assert client.portal is not None
+    client.portal.call(inform)
+    _wait(lambda: len(relay.messages) >= 1)
+    plain = _open(relay.messages[0], key)
+    assert plain["title"] == "《奥德赛》仍在寻找资源"
+    assert "已跳过" in plain["body"] and "无需你处理" in plain["body"]
+    assert plain["open"] == f"/subscriptions/{subscription_id}"
+    assert "actions" not in plain and "category" not in plain
+    client.portal.call(inform)
+    time.sleep(0.3)
+    assert len(relay.messages) == 1
+    assert _data(client.get("/api/v1/system/notices")) == []

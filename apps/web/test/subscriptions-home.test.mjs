@@ -258,23 +258,22 @@ test("剧集一排：进行中在前，已暂停 / 已收齐在分隔线后", ()
     recent(9, { episodes: [5, 6], importedAt: at(-7200) }),
   ];
   const row = shelf("tv", subs, arrivalGroups(arrivals, [], now), recents);
-  // 进行中：下载中 → 有没看的新集 → 今天更新 → 两天后更新 → 洗版中（含已收齐但正在洗版的）
-  // → 缺集找资源 → 追更中（什么都不缺，等下一集）；同名次按最近变动、再按片名
-  assert.deepEqual(row.active.map((item) => item.sub.id), [2, 9, 3, 1, 11, 4, 5, 10]);
+  // 进行中：缺集（即使同时在洗旧集）仍先于纯洗版；同名次保持原有顺序。
+  assert.deepEqual(row.active.map((item) => item.sub.id), [2, 9, 3, 1, 4, 5, 10, 11]);
   assert.deepEqual(
     row.active.map((item) => item.chip?.text ?? null),
-    ["下载中", "新 2 集", "今天更新", "周一更新", "洗版中", "洗版中", "缺 4 集", null],
+    ["下载中", "新 2 集", "今天更新", "周一更新", "缺 4 集", "缺 4 集", null, "洗版中"],
   );
   // 已完成的不因「刚到了、还没看」被拉回前排；最近完成的在前
   assert.deepEqual(row.paused.map((item) => item.sub.id), [6]);
   assert.deepEqual(row.done.map((item) => item.sub.id), [8, 7]);
-  assert.ok(row.done.every((item) => item.chip === null && item.progress === null && item.resting));
+  assert.ok(row.done.every((item) => item.chip === null && item.resting));
   assert.equal(row.restingLabel, "暂停·收齐");
   // 计数 = 分隔线前的数量
   assert.equal(shelfCountSummary(row), "8 部进行中 · 共 11 部");
   assert.equal(wallSummary(row, "tv"), "共 11 部剧集 · 8 部进行中");
   assert.equal(row.active.find((item) => item.sub.id === 5)?.meta, "第 1 季 · 4 / 8");
-  assert.equal(row.active.find((item) => item.sub.id === 5)?.progress, 0.5);
+
   assert.equal(row.done[0].meta, "已收齐 · 第 1 季");
 });
 
@@ -344,4 +343,25 @@ test("氛围底色取饱和度加权的主色并压到深色档，灰调画面�
   assert.equal(red.r, Math.round(0.44 * 255));
   assert.ok(red.g === red.b && red.g < red.r);
   assert.equal(red.g, Math.round(0.44 * (1 - 0.72) * 255));
+});
+
+
+test("纯洗版最近有活动或下载预告，也排在首次获取资源之后", () => {
+  for (const kind of ["movie", "tv"]) {
+    const upgrade = sub(1, { kind, owned: 8, progress: { wanted: 0, imported: 8, upgrading: 1 }, updatedAt: "2026-10-07T00:00:00Z" });
+    const waiting = sub(2, { kind });
+    const pipeline = arrivalGroups([arrival(1, { kind, status: "grabbed" })], [], now);
+    const row = shelf(kind, [upgrade, waiting], pipeline, []);
+    assert.deepEqual(row.active.map((item) => item.sub.id), [2, 1]);
+    assert.equal(row.active[1].chip.text, "洗版中");
+  }
+});
+
+test("未订阅的旧季缺集不抬高纯洗版；缺少库存但没有工单仍按缺集排", () => {
+  const upgrade = sub(1, { owned: 8, progress: { wanted: 0, imported: 8, upgrading: 1 } });
+  upgrade.season_collection.push({ ...upgrade.season_collection[0], season_number: 2, owned_count: 0 });
+  const missing = sub(2, { progress: { wanted: 0, imported: 4, upgrading: 1 } });
+  const row = shelf("tv", [upgrade, missing], [], []);
+  assert.deepEqual(row.active.map((item) => item.sub.id), [2, 1]);
+  assert.deepEqual(row.active.map((item) => item.chip.text), ["缺 4 集", "洗版中"]);
 });

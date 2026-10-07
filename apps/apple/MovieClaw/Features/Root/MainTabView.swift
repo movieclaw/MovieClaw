@@ -67,9 +67,7 @@ struct MainTabView: View {
         let api = model.api ?? EnvironmentValues().api
 
         TabView(selection: Binding(get: { router.selectedTab }, set: { tab in
-            // 再点一次当前页签：回到这个页签的根页（iOS 惯例）。「片段」这类不带返回键的二级页靠它回去
-            if tab == router.selectedTab { router.popToRoot() }
-            router.selectedTab = tab
+            router.selectTab(tab)
         })) {
             Tab(value: MainTab.library) {
                 TabRoot(tab: .library) { LibraryHomeView() }

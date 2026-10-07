@@ -212,6 +212,7 @@ class TransmissionDownloader(BaseDownloader):
             downloaded_bytes=max(0, int(downloaded)) if downloaded is not None else None,
             completed=completed,
             save_path=torrent.download_dir,
+            tags=list(torrent.fields.get("labels") or []),
             files=(
                 [
                     # file.name 是种子内相对路径（含顶层目录）

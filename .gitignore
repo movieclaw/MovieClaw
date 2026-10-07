@@ -10,6 +10,7 @@ dist/
 build/
 .coverage
 htmlcov/
+/output/
 
 # 环境变量
 .env

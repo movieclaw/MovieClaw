@@ -18,7 +18,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Row
+from sqlalchemy import Row, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -29,6 +29,7 @@ from movieclaw_api.services.subscription.identity_recheck import (
     fetch_external_ids,
     needs_external_id_recheck,
 )
+from movieclaw_api.services.subscription.smart_profiles import read_policy
 from movieclaw_api.services.subscription.twins import ambiguous_verdict, ensure_twins
 from movieclaw_db.models import (
     ActivityType,
@@ -60,6 +61,7 @@ from movieclaw_matcher import (
     implausible_for_runtime,
     match_identity,
 )
+from movieclaw_matcher.smart import SmartPolicy, candidate_key
 from movieclaw_tracker.datetime_utils import DEFAULT_SITE_TIMEZONE
 
 logger = logging.getLogger("movieclaw_api.subscription_matching")
@@ -107,6 +109,7 @@ def upgrade_backoff_delay(attempts: int) -> timedelta:
     """洗版搜索退避档位（7d → 14d → 30d 封顶）。"""
     return UPGRADE_BACKOFF[min(attempts, len(UPGRADE_BACKOFF) - 1)]
 
+
 _SITE_CALENDAR_TIMEZONE = ZoneInfo(DEFAULT_SITE_TIMEZONE)
 
 
@@ -117,11 +120,7 @@ def publish_calendar_date(value: datetime | None) -> date:
     会把本地凌晨发布误算到前一天，导致本该覆盖的单集资源被过滤。
     """
     utc_value = value or utcnow()
-    aware = (
-        utc_value.replace(tzinfo=UTC)
-        if utc_value.tzinfo is None
-        else utc_value.astimezone(UTC)
-    )
+    aware = utc_value.replace(tzinfo=UTC) if utc_value.tzinfo is None else utc_value.astimezone(UTC)
     return aware.astimezone(_SITE_CALENDAR_TIMEZONE).date()
 
 
@@ -272,6 +271,8 @@ def upgrade_ready(wanted: WantedItem, spec: RuleSetSpec, *, now: datetime) -> bo
     """
     from movieclaw_matcher import provably_below_cutoff
 
+    if isinstance(spec, SmartPolicy) and (wanted.selection_state or {}).get("target_reached"):
+        return False
     if not wanted.quality:  # NULL 未回填 / {} 无法识别哨兵
         return False
     snapshot = QualitySnapshot.model_validate(wanted.quality)
@@ -285,7 +286,9 @@ def upgrade_ready(wanted: WantedItem, spec: RuleSetSpec, *, now: datetime) -> bo
     return not fused
 
 
-async def load_match_context(session: AsyncSession) -> dict[int, MediaContext]:
+async def load_match_context(
+    session: AsyncSession, *, subscription_ids: set[int] | None = None
+) -> dict[int, MediaContext]:
     """加载匹配上下文：缺口单元 + 洗版单元，{media_item_id: MediaContext}。
 
     活跃订阅通常只有几十个，整体载入进程内、逐种子比对是可承受的；
@@ -294,6 +297,9 @@ async def load_match_context(session: AsyncSession) -> dict[int, MediaContext]:
     from movieclaw_matcher import QualitySnapshot
 
     specs = await _load_specs(session)
+    from movieclaw_api.services.subscription.smart_runtime import runtime_settings
+
+    runtime = None
 
     contexts: dict[int, MediaContext] = {}
     result = await session.execute(
@@ -303,10 +309,19 @@ async def load_match_context(session: AsyncSession) -> dict[int, MediaContext]:
             WantedItem.status == WantedStatus.WANTED,
             WantedItem.in_scope.is_(True),  # type: ignore[attr-defined]
             Subscription.status == SubscriptionStatus.ACTIVE,
+            Subscription.id.in_(subscription_ids) if subscription_ids is not None else True,
         )
     )
     for wanted, subscription in result.all():
-        spec = specs.get(subscription.rule_set_id, RuleSetSpec())
+        if subscription.selection_mode == "smart":
+            runtime = runtime or await runtime_settings()
+            if not runtime.enabled:
+                continue
+        spec = (
+            read_policy(subscription)
+            if subscription.selection_mode == "smart"
+            else specs.get(subscription.rule_set_id, RuleSetSpec())
+        )
         if spec is None:
             continue  # 坏规则组，_load_specs 已报错
         ctx = await _ensure_context(session, contexts, wanted.media_item_id, subscription, spec)
@@ -356,7 +371,14 @@ async def load_match_context(session: AsyncSession) -> dict[int, MediaContext]:
     upgrade_rule_ids = {
         rid for rid, spec in specs.items() if spec is not None and spec.upgrade_source is not None
     }
-    if upgrade_rule_ids:
+    if (
+        upgrade_rule_ids
+        or (
+            await session.execute(
+                select(Subscription.id).where(Subscription.selection_mode == "smart").limit(1)
+            )
+        ).first()
+    ):
         now = utcnow()
         # 拿全部 imported 单元（含 quality NULL 的）：可洗的进 upgrade_wanted，
         # 其余进 upgrade_blocked——铁律需要知道"包会不会碰到不该重下的集"
@@ -369,17 +391,27 @@ async def load_match_context(session: AsyncSession) -> dict[int, MediaContext]:
                 # 洗版的主场景恰恰是"已收齐"（completed）的订阅——只有
                 # 用户显式暂停才停（quality-upgrade.md §6.3）
                 Subscription.status != SubscriptionStatus.PAUSED,  # type: ignore[arg-type]
-                Subscription.rule_set_id.in_(upgrade_rule_ids),  # type: ignore[union-attr]
+                Subscription.id.in_(subscription_ids) if subscription_ids is not None else True,
+                or_(
+                    Subscription.rule_set_id.in_(upgrade_rule_ids),
+                    Subscription.selection_mode == "smart",
+                ),
             )
         )
         upgrade_subs: set[int] = set()
         for wanted, subscription in result.all():
-            spec = specs.get(subscription.rule_set_id)
+            if subscription.selection_mode == "smart":
+                runtime = runtime or await runtime_settings()
+                if not runtime.enabled:
+                    continue
+            spec = (
+                read_policy(subscription)
+                if subscription.selection_mode == "smart"
+                else specs.get(subscription.rule_set_id)
+            )
             if spec is None:
                 continue
-            ctx = await _ensure_context(
-                session, contexts, wanted.media_item_id, subscription, spec
-            )
+            ctx = await _ensure_context(session, contexts, wanted.media_item_id, subscription, spec)
             if ctx is None:
                 continue
             unit = (wanted.season_number, wanted.episode_number)
@@ -439,9 +471,7 @@ async def load_match_context(session: AsyncSession) -> dict[int, MediaContext]:
 
     # 空上下文（缺口与洗版都为零）没有比对价值，剔除以便调用方快速返回
     contexts = {
-        media_id: ctx
-        for media_id, ctx in contexts.items()
-        if ctx.open_wanted or ctx.upgrade_wanted
+        media_id: ctx for media_id, ctx in contexts.items() if ctx.open_wanted or ctx.upgrade_wanted
     }
 
     # 回填已知季号（"无季号单集"的安全推断依赖它；从工单推导即覆盖订阅关心的季）
@@ -537,9 +567,7 @@ def _recheck_mismatch_verdict(candidate: TorrentCandidate) -> RuleVerdict:
     return RuleVerdict(
         accepted=False,
         reason_code="identity_recheck_failed",
-        reason_text=(
-            f"投递前复核后无法确认「{candidate.title[:60]}」属于本条目，已跳过"
-        ),
+        reason_text=(f"投递前复核后无法确认「{candidate.title[:60]}」属于本条目，已跳过"),
     )
 
 
@@ -610,8 +638,7 @@ def drop_proven_missing(
     return [
         wanted
         for wanted in covered
-        if source
-        not in ctx.content_missing.get((wanted.season_number, wanted.episode_number), ())
+        if source not in ctx.content_missing.get((wanted.season_number, wanted.episode_number), ())
     ]
 
 
@@ -648,21 +675,32 @@ async def _resolve_upgrade(
         return [], None
     # 铁律的另一半：包还覆盖了不可洗的已入库单元（到顶/不可比/在途）→
     # 抓它就是为洗一部分重下整季，整体放弃洗版维度
-    if ctx.upgrade_blocked and covered_units(match, ctx.upgrade_blocked, published=published):
+    smart = isinstance(ctx.spec, SmartPolicy)
+    if (
+        not smart
+        and ctx.upgrade_blocked
+        and covered_units(match, ctx.upgrade_blocked, published=published)
+    ):
         return [], None
     labels: tuple[str, str] | None = None
+    accepted = []
     for wanted in covered:
         snapshot = ctx.upgrade_snapshots.get((wanted.season_number, wanted.episode_number))
         if snapshot is None:  # 理论不可达：快照与单元同步维护
+            if smart:
+                continue
             return [], None
         upgrade_verdict = compare_upgrade(candidate, snapshot, ctx.spec)
         if not upgrade_verdict.accepted:
             if upgrade_verdict.reason_code == "upgrade_not_comparable" and not quiet:
                 await _log_rejection(repo, ctx, candidate, covered, upgrade_verdict, source)
+            if smart:
+                continue
             return [], None
+        accepted.append(wanted)
         if labels is None and upgrade_verdict.current_label and upgrade_verdict.candidate_label:
             labels = (upgrade_verdict.current_label, upgrade_verdict.candidate_label)
-    return covered, labels
+    return accepted, labels
 
 
 async def drop_protected_sites(
@@ -692,7 +730,11 @@ async def drop_protected_sites(
 
 
 async def evaluate_and_dispatch(
-    session: AsyncSession, torrents: list[SiteTorrent], *, source: str
+    session: AsyncSession,
+    torrents: list[SiteTorrent],
+    *,
+    source: str,
+    subscription_ids: set[int] | None = None,
 ) -> MatchSummary:
     """共享管道主入口：一批种子 × 全部活跃缺口 → 匹配/过滤/选优/投递。
 
@@ -703,7 +745,7 @@ async def evaluate_and_dispatch(
 
     summary = MatchSummary(torrents_seen=len(torrents))
     torrents = await drop_protected_sites(session, torrents)
-    contexts = await load_match_context(session)
+    contexts = await load_match_context(session, subscription_ids=subscription_ids)
     if not contexts:
         return summary
 
@@ -712,12 +754,17 @@ async def evaluate_and_dispatch(
         int, list[tuple[TorrentCandidate, IdentityMatch, RuleVerdict, tuple[int, ...]]]
     ] = {}
     repo = SubscriptionRepository(session)
-    for row in torrents:
-        candidate = to_candidate(row)
-        if candidate is None:
-            continue
-        published = publish_calendar_date(candidate.publish_time)
-        for media_id, ctx in contexts.items():
+    from movieclaw_api.services.subscription.smart_selection import candidate_pool, plan_selection
+
+    pools = await candidate_pool(session, contexts, torrents)
+    identity_rejections_by_media = {}
+    for media_id, ctx in contexts.items():
+        pool = await drop_protected_sites(session, pools[media_id])
+        for row in pool:
+            candidate = to_candidate(row)
+            if candidate is None:
+                continue
+            published = publish_calendar_date(candidate.publish_time)
             match = match_identity(candidate, ctx.identity)
             if match is None:
                 continue
@@ -731,6 +778,10 @@ async def evaluate_and_dispatch(
                 continue  # 身份命中但既无缺口也无可洗单元，无需任何动作
             summary.identity_hits += 1
             if match.id_conflict:
+                if ctx.item.kind == "movie":
+                    identity_rejections_by_media.setdefault(media_id, {})[
+                        candidate_key(candidate)
+                    ] = f"{candidate.title}：{_id_conflict_verdict(match).reason_text}"
                 # 外部 ID 反证：站点明确说了这是另一部片。当下没有别的上下文
                 # 可以推翻它（时长/体积反证与孪生条目探测尚未落地），按保守
                 # 口径否决——但**必须留下解释**：站点的 IMDb 是上传者手填的，
@@ -782,9 +833,7 @@ async def evaluate_and_dispatch(
                 if upgrade_covered and not covered
                 else _NO_UPGRADE_RANK
             )
-            accepted.setdefault(media_id, []).append(
-                (candidate, match, verdict, upgrade_rank)
-            )
+            accepted.setdefault(media_id, []).append((candidate, match, verdict, upgrade_rank))
 
     # 第二遍：按条目选优投递。整季包优先（已确认决策）；一个候选投出后，
     # 它覆盖的单元从缺口/洗版清单里划掉，剩余单元继续由次优候选补。
@@ -792,8 +841,8 @@ async def evaluate_and_dispatch(
     # 因为免费加分先抓个"只高半档"的版本、下一轮再洗一次（同一单元两次下载）。
     # 缺口侧不受影响——覆盖缺口的候选档位位次恒为 _NO_UPGRADE_RANK（见上），
     # 而纯洗版候选按定义不碰缺口单元，两侧的选优互不干扰。
-    for media_id, entries in accepted.items():
-        ctx = contexts[media_id]
+    for media_id, ctx in contexts.items():
+        entries = accepted.get(media_id, [])
         # 身份证据强度排在洗版档位与评分之前：先要**对的片**，再谈档位和评分。
         # 位置在 is_pack 之后是刻意的——"整季包优先"是既有的已确认决策，本次
         # 只补身份维度，不顺手改包优先的语义
@@ -807,27 +856,22 @@ async def evaluate_and_dispatch(
             ),
             reverse=True,
         )
-        remaining = dict(ctx.open_wanted)
-        remaining_upgrade = dict(ctx.upgrade_wanted)
-        # 同名同年歧义每轮**最多问一次**：一部热门片一批能有几十个候选，逐个
-        # 问等于给用户刷屏几十条"这个是不是你要的片"。候选已按证据强度与评分
-        # 排好序，问最靠前的那个就够；后续候选照常评估（其中若有带影片编号的，
-        # 它能自动裁决出结果，比问用户更好），只是不再重复发问
-        asked_once = False
-        for candidate, match, verdict, _rank in entries:
+        # 身份核验先于智能品质/等待决策：被拦截的候选不能占位或消耗等待预算。
+        identity_rejections = identity_rejections_by_media.get(media_id, {})
+        notify_identity = True
+        if isinstance(ctx.spec, SmartPolicy):
+            from movieclaw_api.services.subscription.smart_runtime import runtime_settings
+            notify_identity = not (await runtime_settings()).shadow_only
+        verified = []
+        for candidate, match, verdict, rank in entries:
             published = publish_calendar_date(candidate.publish_time)
             targets = drop_proven_missing(
-                ctx, candidate, covered_units(match, remaining, published=published)
+                ctx, candidate, covered_units(match, ctx.open_wanted, published=published)
             )
-            upgrade_targets, upgrade_labels = await _resolve_upgrade(
-                repo, ctx, candidate, match, remaining_upgrade, published, source, quiet=True
+            upgrade_targets, _ = await _resolve_upgrade(
+                repo, ctx, candidate, match, ctx.upgrade_wanted, published, source, quiet=True
             )
-            if not targets and not upgrade_targets:
-                continue
-            # 投递前的外部 ID 复核（§7）：站点详情页几乎都标了 IMDb，而我们
-            # 从来没读过。位置放在这里是刻意的——只为**真的要投出去**的候选
-            # 花这一次请求（下一步本来就要向同站取种），被规则拒掉的、被更优
-            # 候选顶掉的都不花
+            # 仅复核已通过规则的电影候选；结果回填索引，后续无需重复查询。
             if needs_external_id_recheck(candidate, ctx.identity):
                 enriched = await fetch_external_ids(session, candidate)
                 if enriched is not candidate:
@@ -843,6 +887,9 @@ async def evaluate_and_dispatch(
                             if rechecked is not None
                             else _recheck_mismatch_verdict(enriched),
                             source,
+                        )
+                        identity_rejections[candidate_key(candidate)] = (
+                            f"{candidate.title}：影片编号与订阅不符，已跳过"
                         )
                         continue
                     # 证据变强了：候选与判定一起换成复核后的版本，投递台账
@@ -862,9 +909,8 @@ async def evaluate_and_dispatch(
                         identity=ctx.identity,
                         candidate=candidate,
                         twins=twins,
-                        may_ask=not asked_once,
+                        notify=notify_identity,
                     )
-                    asked_once = asked_once or outcome == "ask"
                     summary.rejected += 1
                     await _log_rejection(
                         repo,
@@ -874,7 +920,31 @@ async def evaluate_and_dispatch(
                         _ambiguous_verdict(outcome, reason),
                         source,
                     )
+                    identity_rejections[candidate_key(candidate)] = f"{candidate.title}：{reason}"
                     continue
+            verified.append((candidate, match, verdict, rank))
+        entries = verified
+        selection_versions = {}
+        if isinstance(ctx.spec, SmartPolicy):
+            entries, selection_versions = await plan_selection(
+                session, ctx, entries, identity_rejections=identity_rejections
+            )
+        remaining = dict(ctx.open_wanted)
+        remaining_upgrade = dict(ctx.upgrade_wanted)
+        for candidate, match, verdict, _rank in entries:
+            published = publish_calendar_date(candidate.publish_time)
+            targets = drop_proven_missing(
+                ctx, candidate, covered_units(match, remaining, published=published)
+            )
+            upgrade_targets, upgrade_labels = await _resolve_upgrade(
+                repo, ctx, candidate, match, remaining_upgrade, published, source, quiet=True
+            )
+            if isinstance(ctx.spec, SmartPolicy):
+                chosen_ids = selection_versions.get(candidate_key(candidate), {})
+                targets = [w for w in targets if w.id in chosen_ids]
+                upgrade_targets = [w for w in upgrade_targets if w.id in chosen_ids]
+            if not targets and not upgrade_targets:
+                continue
             # 体积÷片长 反证：**shadow 模式，只记录不改变行为**
             # （docs/design/identity-confidence.md §10.2）。阈值是凭经验拍的，
             # 直接开成否决会误伤正常发布；先让它在真实流量上跑一段，用投递
@@ -901,6 +971,7 @@ async def evaluate_and_dispatch(
                 upgrade_labels=upgrade_labels,
                 match=match,
                 shadow_notes={"bitrate_reject": shadow} if shadow else None,
+                selection_versions=selection_versions.get(candidate_key(candidate)),
             )
             if done:
                 summary.dispatched_units += len(targets) + len(upgrade_targets)
@@ -931,6 +1002,11 @@ async def _log_rejection(
     source: str,
 ) -> None:
     """记一条规则拒绝活动；同一 (订阅, 站点, 种子) 去重（查最近活动）。"""
+    if isinstance(ctx.spec, SmartPolicy):
+        from movieclaw_api.services.subscription.smart_runtime import runtime_settings
+
+        if (await runtime_settings()).shadow_only:
+            return
     subscription_id = ctx.subscription.id
     assert subscription_id is not None
     recent = await repo.list_activities(subscription_id, limit=200)
@@ -939,12 +1015,11 @@ async def _log_rejection(
             activity.type == ActivityType.MATCH_REJECTED
             and activity.payload.get("site_id") == candidate.site_id
             and activity.payload.get("torrent_id") == candidate.torrent_id
+            and activity.payload.get("reason_code") == verdict.reason_code
         ):
             return  # 已经解释过这个候选为什么被拒，不重复刷屏
     units_label = units_text(covered)
-    reason_note = (
-        f"{verdict.reason_text}——来自 {candidate.site_id} 的「{candidate.title[:60]}」"
-    )
+    reason_note = f"{verdict.reason_text}——来自 {candidate.site_id} 的「{candidate.title[:60]}」"
     # 单集履历注解：最近一次被拒原因冻结在工单上，详情页里程碑链的搜索站
     # 直接读。covered 行与本 repo 同一 session，setattr 进 dirty 集、随下方
     # add_activity 的 commit 一起落库。同一种子的重复评估在上方去重 return，

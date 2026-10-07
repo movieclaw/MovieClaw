@@ -188,6 +188,23 @@ def download_started(
 
 
 @_never_raise
+def identity_skipped(*, subscription_id: int, item_id: int, title: str, message: str) -> None:
+    """同名资源已自动跳过：只知会订阅者，点通知查看订阅，不提供下载操作。"""
+    async def build(session: AsyncSession, member_id: int) -> AlertContent | None:
+        if not await _item_visible(session, member_id, item_id):
+            return None
+        return AlertContent(
+            title=title, body=message, open=f"/subscriptions/{subscription_id}",
+            thread=f"subscription:{subscription_id}",
+        )
+
+    notify(
+        "identity_skipped", subscribers(subscription_id), build,
+        collapse=("identity-skipped", str(subscription_id)),
+    )
+
+
+@_never_raise
 def upgraded(
     *,
     subscription_id: int,

@@ -162,8 +162,6 @@ export interface SubsHomeShelfItem {
   chip: SubsHomeChip | null;
   /** 海报下第二行：「第 3 季 · 4 / 8」「已收齐 · 全 5 季」「2026」 */
   meta: string;
-  /** 海报底部的收录细线（进行中的剧集，当季已收 / 应有）；null = 不画 */
-  progress: number | null;
   /** 已暂停 / 已完成：压暗，排在分隔线后面 */
   resting: boolean;
 }
@@ -720,7 +718,6 @@ export function shelf(
       phase: standing.phase,
       chip: standing.chip,
       meta: shelfMeta(sub, standing.phase),
-      progress: standing.phase === "active" ? seasonProgress(sub) : null,
       resting: standing.phase !== "active",
     };
     if (standing.phase === "active") active.push({ rank: standing.rank, item });
@@ -771,8 +768,8 @@ export function wallSummary(shelf: SubsHomeShelf, kind: "movie" | "tv"): string 
 /**
  * 一部订阅的位置与小签。剧集与电影同一套口径，进行中内部按此刻最要紧排：
  *
- *   下载中 / 整理中 → 有没看的新集（剧集）→ 今天更新 → 某天更新 → 洗版中
- *   → 缺集 / 找资源中 → 追更中（剧集，等下一集或下一季）→ 未上映（电影）
+ *   下载中 / 整理中 → 有没看的新集（剧集）→ 今天更新 → 某天更新
+ *   → 缺集 / 找资源中 → 追更中（剧集）→ 未上映（电影）→ 仅洗版
  *
  * 已完成的订阅不因「刚到了、还没看」被拉回前排——那是 Hero 与「刚刚入库」的职责；
  * 唯一的例外是洗版：内容虽已齐，但正在换更好的版本，事情还在进行。
@@ -791,6 +788,12 @@ export function subscriptionStanding(
   if (sub.status === "paused") {
     return { phase: "paused", rank: 0, chip: { text: "已暂停", tone: "calm" } };
   }
+  const missing = isTV ? missingAired(sub) : 0;
+  const pending = missing > 0 || sub.progress.wanted + sub.progress.grabbed + sub.progress.downloaded > 0;
+  // 旧集洗版不降低新集缺口的优先级；纯洗版即使有下载预告，也留在进行中末尾。
+  if ((sub.progress.upgrading ?? 0) > 0 && !pending) {
+    return active(8, { text: "洗版中", tone: "upgrade" });
+  }
   // 正在下载 / 整理：有预告按预告，没有（老服务端 / 预告还没取到）按订阅进度判断
   const pipeline =
     group?.presentation.statusLabel ??
@@ -798,11 +801,8 @@ export function subscriptionStanding(
   if (pipeline === "下载中") return active(0, { text: "下载中", tone: "live", pulse: true });
   if (pipeline === "整理中") return active(0, { text: "整理中", tone: "ok", pulse: true });
 
-  const upgrading = (sub.progress.upgrading ?? 0) > 0;
-  if (subscriptionFullyCollected(sub) || sub.status === "completed") {
-    return upgrading
-      ? active(4, { text: "洗版中", tone: "upgrade" })
-      : { phase: "done", rank: 0, chip: null };
+  if (!pending && (subscriptionFullyCollected(sub) || sub.status === "completed")) {
+    return { phase: "done", rank: 0, chip: null };
   }
   if (isTV && recent) {
     const count = recent.units.length;
@@ -814,9 +814,7 @@ export function subscriptionStanding(
       group.daysAhead === 1 ? "明天" : (weekdayOf(group.expectedDay) ?? `${group.daysAhead} 天后`);
     return active(3 + group.daysAhead / 100, { text: `${when}更新`, tone: "calm" });
   }
-  if (upgrading) return active(4, { text: "洗版中", tone: "upgrade" });
   if (isTV) {
-    const missing = missingAired(sub);
     return missing > 0 ? active(5, { text: `缺 ${missing} 集`, tone: "warn" }) : active(6, null);
   }
   return released(sub)
@@ -853,21 +851,6 @@ export function shelfMeta(sub: Subscription, phase: SubsHomePhase): string {
   if (!meta) return year ?? "剧集";
   if (phase === "done") return `已收齐 · ${meta.label}`;
   return `${meta.label} · ${meta.value}`;
-}
-
-/** 剧集当季收录比例（海报底部细线）：在追的看最新一季，与收录摘要同口径 */
-export function seasonProgress(sub: Subscription): number | null {
-  if (sub.media.kind !== "tv") return null;
-  const seasons = sub.season_collection
-    .filter((season) => season.season_number > 0)
-    .toSorted((left, right) => left.season_number - right.season_number);
-  const selected = new Set(sub.selected_seasons.filter((season) => season > 0));
-  const scoped = selected.size === 0 ? seasons : seasons.filter((season) => selected.has(season.season_number));
-  const latest = (sub.follow_future ? seasons.at(-1) : undefined) ?? scoped.at(-1);
-  if (!latest) return null;
-  const total = Math.max(latest.episode_count ?? 0, latest.aired_count, latest.owned_count);
-  if (total <= 0) return null;
-  return Math.min(1, latest.owned_count / total);
 }
 
 /** 电影是否已上映（TMDB status；缺失按已上映处理——宁可说「找资源中」也不误报「未上映」） */

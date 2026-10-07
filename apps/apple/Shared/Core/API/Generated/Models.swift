@@ -10028,6 +10028,8 @@ nonisolated extension API {
         var ruleSetId: Int?
         /// 入库目标库；缺省用该类型默认库
         var libraryId: Int?
+        var selectionMode: String?
+        var smartProfileRevision: Int?
 
         enum CodingKeys: String, CodingKey {
             case titleRef = "title_ref"
@@ -10036,6 +10038,8 @@ nonisolated extension API {
             case followFuture = "follow_future"
             case ruleSetId = "rule_set_id"
             case libraryId = "library_id"
+            case selectionMode = "selection_mode"
+            case smartProfileRevision = "smart_profile_revision"
         }
     }
 
@@ -10067,7 +10071,11 @@ nonisolated extension API {
         var status: String
         var selectedSeasons: [Int]
         var followFuture: Bool
+        /// 规则组 id；智能模式为 0（兼容旧客户端整数契约），以 selection_mode 为准
         var ruleSetId: Int
+        var selectionMode: String?
+        var smartPolicy: [String: API.JSONValue]?
+        var smartStatus: String?
         /// 入库目标库；null=该类型默认库
         var libraryId: Int?
         var progress: API.ProgressView
@@ -10088,6 +10096,9 @@ nonisolated extension API {
             case selectedSeasons = "selected_seasons"
             case followFuture = "follow_future"
             case ruleSetId = "rule_set_id"
+            case selectionMode = "selection_mode"
+            case smartPolicy = "smart_policy"
+            case smartStatus = "smart_status"
             case libraryId = "library_id"
             case progress
             case seasonCollection = "season_collection"
@@ -10222,7 +10233,11 @@ nonisolated extension API {
         var status: String
         var selectedSeasons: [Int]
         var followFuture: Bool
+        /// 规则组 id；智能模式为 0（兼容旧客户端整数契约），以 selection_mode 为准
         var ruleSetId: Int
+        var selectionMode: String?
+        var smartPolicy: [String: API.JSONValue]?
+        var smartStatus: String?
         /// 入库目标库；null=该类型默认库
         var libraryId: Int?
         var progress: API.ProgressView
@@ -10238,6 +10253,9 @@ nonisolated extension API {
             case selectedSeasons = "selected_seasons"
             case followFuture = "follow_future"
             case ruleSetId = "rule_set_id"
+            case selectionMode = "selection_mode"
+            case smartPolicy = "smart_policy"
+            case smartStatus = "smart_status"
             case libraryId = "library_id"
             case progress
             case seasonCollection = "season_collection"
@@ -11703,6 +11721,8 @@ nonisolated extension API {
         var lastRejectReason: String?
         var grabTitle: String?
         var upgrade: API.WantedUpgradeView?
+        var selectionState: [String: API.JSONValue]?
+        var selectionVersion: Int?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -11723,6 +11743,8 @@ nonisolated extension API {
             case lastRejectReason = "last_reject_reason"
             case grabTitle = "grab_title"
             case upgrade
+            case selectionState = "selection_state"
+            case selectionVersion = "selection_version"
         }
     }
 

@@ -10,6 +10,8 @@
 
 用法（在仓库根目录，用后端的虚拟环境跑）：
   .venv/bin/python apps/apple/scripts/gen_api.py
+  # 仅同步指定模型，保留其它模块的生成产物：
+  .venv/bin/python apps/apple/scripts/gen_api.py --models SubscriptionView,WantedView
 
 生成规则要点：
 - 响应模型按「序列化」口径出 schema，且所有字段视为必有（后端 ApiResponse 不做
@@ -36,8 +38,11 @@ ROOT = Path(__file__).resolve().parents[3]
 OUT_DIR = ROOT / "apps/apple/Shared/Core/API/Generated"
 API_PREFIX = "/api/v1"
 
-# 新图片来源字段不在旧服务器响应中。保持可选，也保留既有 Swift 本地构造调用。
+# 新增响应字段在旧服务器中不存在。保持可选，也保留既有 Swift 本地构造调用。
 BACKWARD_COMPATIBLE_RESPONSE_FIELDS = {
+    "SubscriptionView": {"selection_mode"},
+    "SubscriptionDetailView": {"selection_mode"},
+    "WantedView": {"selection_version"},
     "MetadataScrapeSetting": {
         "logo_language_priority",
         "fanart_enabled",
@@ -472,6 +477,21 @@ def main() -> int:
         model_lines += gen_struct(type_name(raw_name), defs[raw_name], defs)
         model_lines.append("")
     model_lines.append("}")
+
+    if "--models" in sys.argv:
+        names = sys.argv[sys.argv.index("--models") + 1].split(",")
+        path = OUT_DIR / "Models.swift"
+        source = path.read_text(encoding="utf-8")
+        for name in names:
+            replacement = "\n".join(gen_struct(name, defs[name], defs))
+            replacement = replacement[replacement.index("    struct ") :]
+            pattern = rf"    struct {re.escape(name)}:.*?^    }}"
+            source, count = re.subn(pattern, lambda _, replacement=replacement: replacement, source, flags=re.S | re.M)
+            if count != 1:
+                raise ValueError(f"Expected one existing model: {name}")
+        path.write_text(source, encoding="utf-8")
+        print(f"已同步模型：{', '.join(names)}")
+        return 0
 
     # ---- Endpoints.swift ----
     ep = [

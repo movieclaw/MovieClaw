@@ -70,7 +70,7 @@ interface EditorTarget {
   template: { name: string; spec: RuleSetSpec } | null;
 }
 
-export function RuleSetsPanel() {
+export function RuleSetsPanel({ onPreview }: { onPreview: () => void }) {
   const confirm = useConfirm();
   const toast = useToast();
   const [ruleSets, setRuleSets] = useState<RuleSet[] | null>(null);
@@ -128,14 +128,17 @@ export function RuleSetsPanel() {
         "修改只影响之后的资源评估，已下载的内容不受影响。"
       }
       action={
-        <button
-          type="button"
-          onClick={() => setEditing({ ruleSet: null, template: null })}
-          className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
-        >
-          <PlusIcon className="size-4" />
-          新建规则组
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={onPreview} className={SETTINGS_BUTTON_CLASS}>预览匹配</button>
+          <button
+            type="button"
+            onClick={() => setEditing({ ruleSet: null, template: null })}
+            className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
+          >
+            <PlusIcon className="size-4" />
+            新建规则组
+          </button>
+        </div>
       }
     >
       {error && (
@@ -174,6 +177,11 @@ export function RuleSetsPanel() {
           ))}
         </div>
       )}
+
+      <details className="mt-4 text-sub text-[var(--text-muted)]">
+        <summary className="cursor-pointer py-2">匹配与修改说明</summary>
+        <p className="mt-1 leading-relaxed">多个规则组都适用时，条件更多的优先；没有匹配时使用默认组。修改只影响之后的资源评估，已下载内容不受影响。</p>
+      </details>
 
       {editing !== null && (
         <RuleSetEditorDialog

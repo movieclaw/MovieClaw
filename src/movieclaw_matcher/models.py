@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, model_serializer, model_validator
 
 from movieclaw_enrich.models import TorrentAttrs
 from movieclaw_enrich.vocab import PLATFORM_IDS
@@ -543,6 +543,16 @@ class QualitySnapshot(BaseModel):
     video_codec: str | None = None  # 视频编码；probe 定族、名称定写法（见 build_snapshot）
     platforms: list[str] = Field(default_factory=list)  # 流媒体平台；名称来源
     bit_rate: int | None = None  # 实测码率（bps）；留证据供详情页展示，不参与档位
+    resolution_verified: bool = False
+    source_evidence: str | None = None
+
+    @model_serializer(mode="wrap")
+    def serialize_evidence(self, handler):
+        result = handler(self)
+        if not self.resolution_verified and self.source_evidence is None:
+            result.pop("resolution_verified", None)
+            result.pop("source_evidence", None)
+        return result
 
 
 @dataclass(frozen=True)

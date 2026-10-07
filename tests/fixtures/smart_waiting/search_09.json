@@ -1,0 +1,3181 @@
+{
+  "as_of": "2026-10-07T04:33:56.191013",
+  "keyword": "新神榜 杨戬",
+  "page": 1,
+  "scope": "current search snapshot, not complete historical observation",
+  "sites": [
+    {
+      "site_id": "hdhome",
+      "count": 13,
+      "failed": false
+    },
+    {
+      "site_id": "ssd",
+      "count": 12,
+      "failed": false
+    },
+    {
+      "site_id": "keepfrds",
+      "count": 0,
+      "failed": false
+    },
+    {
+      "site_id": "mteam",
+      "count": 30,
+      "failed": false
+    },
+    {
+      "site_id": "chdbits",
+      "count": 18,
+      "failed": false
+    },
+    {
+      "site_id": "ttg",
+      "count": 0,
+      "failed": false
+    }
+  ],
+  "items": [
+    {
+      "site_id": "hdhome",
+      "torrent_id": "289840",
+      "title": "New Gods Yang Jian 2022 Blu-ray 1080p AVC Atmos TrueHD 7.1-ST@TTG",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "yue"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "ST@TTG"
+      },
+      "size_bytes": 48737141391,
+      "seeders": 6,
+      "upload_time": "2026-04-26T16:56:59+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "202402",
+      "title": "New Gods Yang Jian 2022 2160p HQ WEB-DL H.265 60fps DDP5.1 Atmos-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian",
+          "New Gods: Yang Jian"
+        ],
+        "title_candidates": [
+          "4K 高码 60fps 杜比全景声",
+          "国语"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 25050396753,
+      "seeders": 5,
+      "upload_time": "2024-05-12T13:36:35+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "172161",
+      "title": "New Gods Yang Jian 2022 IMAX 2160p WEB-DL HEVC 10bit HDR10 DTS5.1 4Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "4Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 6796785745,
+      "seeders": 11,
+      "upload_time": "2023-08-05T07:21:02+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "162527",
+      "title": "New Gods Yang Jian 2022 Blu-ray 1080p AVC DTS-HD MA 5.1-Pete@HDSky",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "Pete@HDSky"
+      },
+      "size_bytes": 44699872133,
+      "seeders": 6,
+      "upload_time": "2023-05-09T09:31:41+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "160823",
+      "title": "New Gods Yang Jian 2022 BluRay 1080p AVC DTS-HD MA5.1-MTeam",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "MTeam"
+      },
+      "size_bytes": 48865990410,
+      "seeders": 9,
+      "upload_time": "2023-04-27T15:52:17+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "160988",
+      "title": "New Gods Yang Jian 2022 1080p BluRay x264 DTS-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜",
+          "杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "新神榜: 杨戬"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 14431090114,
+      "seeders": 14,
+      "upload_time": "2023-04-27T08:50:57+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "160987",
+      "title": "New Gods Yang Jian 2022 1080p BluRay x265 10bit DTS-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜",
+          "杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "新神榜: 杨戬"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 9953586708,
+      "seeders": 24,
+      "upload_time": "2023-04-27T08:47:20+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "155313",
+      "title": "New Gods Yang Jian 2022 2160p HQ WEB-DL HEVC 60fps AAC-HDHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "4K HQ 60fps",
+          "冒险 [汉语普通话/简体中字]**禁转资源"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "HDHWEB"
+      },
+      "size_bytes": 23847805911,
+      "seeders": 3,
+      "upload_time": "2023-03-05T08:22:25+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "154946",
+      "title": "New Gods Yang Jian 2022 2160p WEB-DL HEVC 10bit 120fps AAC-HDHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "4K 超高帧率",
+          "冒险 [汉语普通话/简体中字"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "HDHWEB"
+      },
+      "size_bytes": 10404558274,
+      "seeders": 4,
+      "upload_time": "2023-03-01T20:00:31+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "144658",
+      "title": "New Gods Yang Jian 2022 2160p WEB-DL HEVC AAC-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "4K高码率@QHstudIo小组作品"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 15902116413,
+      "seeders": 4,
+      "upload_time": "2022-11-30T01:32:40+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "140911",
+      "title": "New Gods Yang Jian 2022 2160p WEB-DL H265 120FPS AAC-ADWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "冒险 *4K 120FPS"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ADWeb"
+      },
+      "size_bytes": 11048803368,
+      "seeders": 38,
+      "upload_time": "2022-11-01T10:59:50+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "140908",
+      "title": "New Gods Yang Jian 2022 1080p WEB-DL H264 AAC-HDHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "HDHWEB"
+      },
+      "size_bytes": 2147483648,
+      "seeders": 8,
+      "upload_time": "2022-11-01T10:28:14+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "140905",
+      "title": "New Gods Yang Jian 2022 2160p 60FPS WEB-DL H265 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7247757312,
+      "seeders": 11,
+      "upload_time": "2022-11-01T09:49:05+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "607606",
+      "title": "New.Gods.Yang.Jian.2022.2160p.HQ.WEB-DL.HEVC.10bit.HDR10.DTS-X5.1.4.6Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New.Gods.Yang.Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS:X"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 22086869319,
+      "seeders": 1,
+      "upload_time": "2026-04-26T10:25:25+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "554766",
+      "title": "New.Gods.Yang.Jian.2022.1080p.NF.WEB-DL.AAC2.0.H.264-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New.Gods.Yang.Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "netflix"
+        ],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 4864050462,
+      "seeders": 4,
+      "upload_time": "2025-07-02T12:16:06+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "413620",
+      "title": "New.Gods.Yang.Jian.2022.1080p.BluRay.x265.10bit.DTS-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜: 杨戬"
+        ],
+        "titles_en": [
+          "New.Gods.Yang.Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 9953586708,
+      "seeders": 20,
+      "upload_time": "2024-05-27T01:46:42+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "358597",
+      "title": "New.Gods.Yang.Jian.2022.1080p.BluRay.AVC.DTS-HD.MA.5.1-dan@Audies",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New.Gods.Yang.Jian",
+          "New Gods: Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "dan@Audies"
+      },
+      "size_bytes": 48855252992,
+      "seeders": 1,
+      "upload_time": "2023-05-17T10:48:02+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "357464",
+      "title": "New.Gods.Yang.Jian.2022.USA.BluRay.720p.x264.AC3-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New.Gods.Yang.Jian"
+        ],
+        "title_candidates": [
+          "新神榜：杨戬 (美版"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "720p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DD"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 4617089843,
+      "seeders": 16,
+      "upload_time": "2023-05-08T00:05:51+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "357296",
+      "title": "New.Gods.Yang.Jian.2022.USA.BluRay.1080p.x264.DTS-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New.Gods.Yang.Jian"
+        ],
+        "title_candidates": [
+          "新神榜：杨戬 (美版"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 12884901888,
+      "seeders": 49,
+      "upload_time": "2023-05-06T09:52:46+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "356466",
+      "title": "New.Gods.Yang.Jian.2022.BluRay.1080p.AVC.DTS-HD.MA5.1-MTeam",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New.Gods.Yang.Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "MTeam"
+      },
+      "size_bytes": 48865990410,
+      "seeders": 5,
+      "upload_time": "2023-04-25T22:33:48+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "347780",
+      "title": "New.Gods.Yang.Jian.2022.IMAX.WEB-DL.4K.HDR10.HEVC.10bit.DTS-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New.Gods.Yang.Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 5680094248,
+      "seeders": 14,
+      "upload_time": "2023-01-26T08:27:47+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "339708",
+      "title": "New.Gods：Yang.Jian.2022.4K.WEB-DL.HEVC.DV.DDP5.1-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New.Gods：Yang.Jian",
+          "New Gods: Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 9040906158,
+      "seeders": 10,
+      "upload_time": "2022-11-02T13:28:13+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "339628",
+      "title": "New.Gods.Yang.Jian.2022.WEB-DL.1080p.HEVC.AAC-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New.Gods.Yang.Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 1352914698,
+      "seeders": 27,
+      "upload_time": "2022-11-01T12:27:34+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "339621",
+      "title": "New.Gods.Yang.Jian.2022.WEB-DL.2160p.H.265.10bit.AAC-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "documentary",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New.Gods.Yang.Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 7247757312,
+      "seeders": 45,
+      "upload_time": "2022-11-01T11:15:04+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "339618",
+      "title": "New.Gods.Yang.Jian.2022.2160p.60FPS.WEB-DL.H.265.AAC-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "documentary",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New.Gods.Yang.Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7247757312,
+      "seeders": 6,
+      "upload_time": "2022-11-01T09:53:56+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1220871",
+      "title": "New Gods Yang Jian 2022 2160p WEB-DL HDR H.265 DDP Atmos 5.1 3Audios-CSWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian",
+          "Xin Shen Bang: Yang Jian"
+        ],
+        "title_candidates": [
+          "王凯",
+          "李兰陵"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CSWEB"
+      },
+      "size_bytes": 20966590846,
+      "seeders": 19,
+      "upload_time": "2026-07-31T16:35:29+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1220867",
+      "title": "New Gods Yang Jian 2022 2160p WEB-DL DV H.265 DDP Atmos 5.1 3Audios-CSWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian",
+          "Xin Shen Bang: Yang Jian"
+        ],
+        "title_candidates": [
+          "王凯",
+          "李兰陵"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CSWEB"
+      },
+      "size_bytes": 26310487981,
+      "seeders": 5,
+      "upload_time": "2026-07-31T16:34:10+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1175944",
+      "title": "New Gods  Yang Jian 2022 2160p WEB-DL H.265 AAC-CSWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods  Yang Jian",
+          "New Gods: Yang Jian"
+        ],
+        "title_candidates": [
+          "编剧：王微",
+          "季冠霖",
+          "李立宏"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CSWEB"
+      },
+      "size_bytes": 4637451371,
+      "seeders": 4,
+      "upload_time": "2026-05-02T22:50:43+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1173034",
+      "title": "New Gods Yang Jian 2022 2160p HQ WEB-DL H.265 10bit HDR10 DTS-X5.1.4 6Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS:X"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 22081543274,
+      "seeders": 3,
+      "upload_time": "2026-04-26T14:24:31+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1107514",
+      "title": "New Gods Yang Jian 2022 2160p HQ WEB-DL H.265 60fps DDP 5.1 4Audio Atmos-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian",
+          "New Gods: Yang Jian"
+        ],
+        "title_candidates": [
+          "4K 高码 60fps 杜比全景声",
+          "国语",
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "4Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 25049111183,
+      "seeders": 8,
+      "upload_time": "2026-01-03T15:22:49+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1034874",
+      "title": "New Gods Yang Jian 2022 1080p NF WEB-DL AAC2.0 H.264-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "netflix"
+        ],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 4866920222,
+      "seeders": 2,
+      "upload_time": "2025-09-15T14:08:31+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1000551",
+      "title": "New Gods Yang Jian 2022 1080p NF WEB-DL AAC2.0 H.264-MWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "中国大陆",
+          "动作 动画 奇幻 冒险",
+          "赵霁",
+          "王凯 季冠霖"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "netflix"
+        ],
+        "release_group": "MWeb"
+      },
+      "size_bytes": 4866862290,
+      "seeders": 5,
+      "upload_time": "2025-07-19T02:47:20+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "988171",
+      "title": "New Gods: Yang Jian 2022 2160p WEB-DL x264 AAC 2.0-individual",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods: Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "individual"
+      },
+      "size_bytes": 10790784412,
+      "seeders": 3,
+      "upload_time": "2025-06-29T14:10:36+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "919636",
+      "title": "New Gods Yang Jian 2022 USA BluRay 1080p x264 DTS 5.1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "新神榜：杨戬 (美版"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 12888242953,
+      "seeders": 15,
+      "upload_time": "2025-03-06T15:31:53+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "838184",
+      "title": "新神榜：杨戬.New.Gods.Yang.Jian.2022.2160p.IMAX.WEB-DL.H265.HDR.DTS-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New.Gods.Yang.Jian"
+        ],
+        "title_candidates": [
+          "季冠霖"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 5685536570,
+      "seeders": 9,
+      "upload_time": "2024-10-08T13:45:00+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "772208",
+      "title": "New Gods Yang Jian 2022 1080p BluRay AVC DTS-HD MA 5.1-YingDIY",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en",
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "YingDIY"
+      },
+      "size_bytes": 48950488109,
+      "seeders": 2,
+      "upload_time": "2024-04-08T18:02:13+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "726471",
+      "title": "New Gods Yang Jian 2022 1080p WEB-DL H.264 AAC-AGSVWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian",
+          "New Gods: Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "AGSVWEB"
+      },
+      "size_bytes": 2209173060,
+      "seeders": 14,
+      "upload_time": "2023-11-10T09:34:58+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "698125",
+      "title": "New Gods Yang Jian 2022 IMAX 2160p WEB-DL HEVC 10bit HDR10 DTS5.1 4Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "4Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 6800052744,
+      "seeders": 13,
+      "upload_time": "2023-08-02T04:25:45+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "676981",
+      "title": "New Gods Yang Jian 2022 1080p BluRay AVC DTS-HD MA 5.1-dan@Audies",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian",
+          "New Gods: Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "dan@Audies"
+      },
+      "size_bytes": 48851133196,
+      "seeders": 0,
+      "upload_time": "2023-05-16T15:11:20+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "675749",
+      "title": "New Gods Yang Jian 2022 Blu-ray 1080p AVC DTS-HD MA 5.1-Pete@HDSky",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "Pete@HDSky"
+      },
+      "size_bytes": 44696600576,
+      "seeders": 2,
+      "upload_time": "2023-05-11T05:51:15+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "672575",
+      "title": "New Gods Yang Jian 2022 1080p BluRay x264 DTS-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜",
+          "杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "新神榜: 杨戬"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 14429248057,
+      "seeders": 11,
+      "upload_time": "2023-04-27T08:51:04+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "672574",
+      "title": "New Gods Yang Jian 2022 1080p BluRay x265 10bit DTS-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜",
+          "杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "新神榜: 杨戬"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 9949545220,
+      "seeders": 24,
+      "upload_time": "2023-04-27T08:47:27+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "672426",
+      "title": "New Gods Yang Jian 2022 BluRay 1080p DTS-HD MA5.1 x265 10bit-BeiTai",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "BeiTai"
+      },
+      "size_bytes": 10242074911,
+      "seeders": 14,
+      "upload_time": "2023-04-26T16:05:28+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "670428",
+      "title": "New Gods Yang Jian 2022 BluRay 1080p AVC DTS-HD MA5.1-MTeam",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "原盤首發] 新神榜：杨戬"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "MTeam"
+      },
+      "size_bytes": 48864952320,
+      "seeders": 25,
+      "upload_time": "2023-04-17T15:02:25+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "663932",
+      "title": "New Gods Yang Jian 2022 2160p WEB-DL H.265 120FPS 10bit AAC-MaoZhan",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "documentary",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "MaoZhan"
+      },
+      "size_bytes": 11031523317,
+      "seeders": 4,
+      "upload_time": "2023-03-23T11:57:49+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "656650",
+      "title": "New Gods Yang Jian 2022 2160p WEB-DL 60fps H265 10bit DDP5.1 Atmos-LeagueWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏 [国语/中字"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "LeagueWEB"
+      },
+      "size_bytes": 24544657619,
+      "seeders": 14,
+      "upload_time": "2023-02-24T06:09:57+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "630578",
+      "title": "New Gods Yang Jian 2022 60fps 2160p WEB-DL DDP5.1 Atmos AAC HDR H.265-HDSWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "documentary",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP",
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDSWEB"
+      },
+      "size_bytes": 11808000757,
+      "seeders": 10,
+      "upload_time": "2022-11-28T02:12:15+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623866",
+      "title": "New Gods Yang Jian 2022 2160p WEB-DL HEVC AAC-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "4K高码率@QHstudIo小组作品"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 15901193040,
+      "seeders": 6,
+      "upload_time": "2022-11-04T01:29:32+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623527",
+      "title": "New Gods Yang Jian 2022 2160p WEB-DL H.265 120FPS AAC-ADWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "冒险 *4K 120FPS"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ADWeb"
+      },
+      "size_bytes": 11043943766,
+      "seeders": 48,
+      "upload_time": "2022-11-03T11:25:58+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623206",
+      "title": "New Gods Yang Jian 2022 2160p 120fps WEB-DL HEVC 10bit AAC-HDVWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDVWEB"
+      },
+      "size_bytes": 11044787109,
+      "seeders": 64,
+      "upload_time": "2022-11-01T12:56:00+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623177",
+      "title": "New Gods Yang Jian 2022 2160p WEB-DL H.265 60FPS AAC-ADWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "冒险 *4K 60FPS"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ADWeb"
+      },
+      "size_bytes": 7250996546,
+      "seeders": 7,
+      "upload_time": "2022-11-01T11:08:18+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623156",
+      "title": "New Gods Yang Jian 2022 2160p 60FPS WEB-DL H.265 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7250996546,
+      "seeders": 6,
+      "upload_time": "2022-11-01T09:53:37+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623131",
+      "title": "New Gods Yang Jian 2022 2160p 120Fps WEB-DL H.265 AAC-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 11043943766,
+      "seeders": 11,
+      "upload_time": "2022-11-01T08:45:21+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623129",
+      "title": "New Gods Yang Jian 2022 2160p 60Fps WEB-DL H.265 AAC-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 7250996603,
+      "seeders": 12,
+      "upload_time": "2022-11-01T08:31:50+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623128",
+      "title": "New Gods Yang Jian 2022 2160p WEB-DL H.265 AAC-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 4937239407,
+      "seeders": 7,
+      "upload_time": "2022-11-01T08:25:41+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "544248",
+      "title": "New Gods Yang Jian 2022 Blu-ray 1080p AVC Atmos TrueHD 7.1-ST@TTG",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "yue"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "ST@TTG"
+      },
+      "size_bytes": 48737141391,
+      "seeders": 1,
+      "upload_time": "2026-04-26T16:52:47+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "459375",
+      "title": "New Gods Yang Jian 2022 1080p NF WEB-DL AAC 2.0 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian",
+          "New Gods: Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "netflix"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 4864050462,
+      "seeders": 0,
+      "upload_time": "2025-07-01T12:10:41+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "430609",
+      "title": "New Gods Yang Jian 2022 USA BluRay 1080p x264 DTS 5.1-CMCT",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "新神榜：杨戬 (美版"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCT"
+      },
+      "size_bytes": 12884901888,
+      "seeders": 17,
+      "upload_time": "2025-03-09T07:38:49+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "354119",
+      "title": "New Gods Yang Jian 2022 2160p HQ WEB-DL H265 60fps DDP5.1 Atmos-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian",
+          "New Gods: Yang Jian"
+        ],
+        "title_candidates": [
+          "4K 高码 60fps 杜比全景声",
+          "国语"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 25050396753,
+      "seeders": 9,
+      "upload_time": "2024-05-10T15:05:21+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "354115",
+      "title": "New Gods Yang Jian 2022 2160p HQ WEB-DL H265 DV DDP5.1 Atmos-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian",
+          "New Gods: Yang Jian"
+        ],
+        "title_candidates": [
+          "4K 高码 杜比视界 杜比全景声",
+          "国语"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 20186346291,
+      "seeders": 8,
+      "upload_time": "2024-05-10T14:57:26+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "295363",
+      "title": "New Gods Yang Jian 2022 BluRay 1080p DTS-HD MA5.1 x265 10bit-BeiTai",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "BeiTai"
+      },
+      "size_bytes": 10243497000,
+      "seeders": 7,
+      "upload_time": "2023-10-05T06:09:43+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "259071",
+      "title": "New Gods Yang Jian 2022 Blu-ray 1080p AVC DTS-HD MA 5.1-Pete@HDSky",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "Pete@HDSky"
+      },
+      "size_bytes": 44699872133,
+      "seeders": 1,
+      "upload_time": "2023-05-10T15:19:14+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "257153",
+      "title": "New Gods Yang Jian 2022 BluRay REMUX 1080p AVC DTS-HD MA5.1-CHD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": true,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 35089882808,
+      "seeders": 9,
+      "upload_time": "2023-05-01T13:26:16+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "256592",
+      "title": "New Gods Yang Jian 2022 Bluray 1080p AVC DTS-HD MA 5.1-ltzww@CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "ltzww@CHDBits"
+      },
+      "size_bytes": 48898202664,
+      "seeders": 31,
+      "upload_time": "2023-04-29T06:23:45+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "256246",
+      "title": "New Gods Yang Jian 2022 1080p BluRay x264 DTS-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜",
+          "杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "新神榜: 杨戬"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 14431090114,
+      "seeders": 13,
+      "upload_time": "2023-04-27T08:49:28+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "256243",
+      "title": "New Gods Yang Jian 2022 1080p BluRay x265 10bit DTS-WiKi",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜",
+          "杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "新神榜: 杨戬"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "WiKi"
+      },
+      "size_bytes": 9953586708,
+      "seeders": 14,
+      "upload_time": "2023-04-27T08:44:50+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "254884",
+      "title": "New Gods Yang Jian 2022 BluRay 1080p DTS-HDMA5.1 x265.10bit-CHD",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 8933531975,
+      "seeders": 3,
+      "upload_time": "2023-04-19T10:10:52+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "254627",
+      "title": "New Gods Yang Jian 2022 BluRay 1080p AVC DTS-HD MA5.1-CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "新神榜"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "新神榜：杨戬 h5"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHD"
+      },
+      "size_bytes": 48865990410,
+      "seeders": 2,
+      "upload_time": "2023-04-17T17:07:19+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "242361",
+      "title": "New Gods Yang Jian 2022 2160p WEB-DL 60fps H265 10bit DDP5.1 Atmos-LeagueWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏 [国语/中字"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "LeagueWEB"
+      },
+      "size_bytes": 24545738096,
+      "seeders": 4,
+      "upload_time": "2023-02-17T04:31:38+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "218475",
+      "title": "New Gods Yang Jian 2022 2160p 60fps WEB-DL DDP5.1 AAC H.265-HDSWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "新神榜：杨戬 60帧 高码率+高帧率"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP",
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "HDSWEB"
+      },
+      "size_bytes": 7977901752,
+      "seeders": 2,
+      "upload_time": "2022-11-05T13:59:29+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "217637",
+      "title": "New Gods Yang Jian 2022 2160p DV WEB-DL H265 DDP5 1-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 9040906158,
+      "seeders": 4,
+      "upload_time": "2022-11-01T08:25:30+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "217633",
+      "title": "New Gods Yang Jian 2022 2160p 60FPS WEB-DL H265 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7247757312,
+      "seeders": 7,
+      "upload_time": "2022-11-01T08:16:52+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "217630",
+      "title": "New Gods Yang Jian 2022 2160p 120FPS WEB-DL H265 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "新神榜：杨戬"
+        ],
+        "titles_en": [
+          "New Gods Yang Jian"
+        ],
+        "title_candidates": [
+          "季冠霖",
+          "李立宏",
+          "李兰陵",
+          "赵毅"
+        ],
+        "year": 2022,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 11048803368,
+      "seeders": 13,
+      "upload_time": "2022-11-01T08:05:09+00:00"
+    }
+  ]
+}

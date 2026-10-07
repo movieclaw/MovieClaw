@@ -1,0 +1,5405 @@
+{
+  "as_of": "2026-10-07T04:33:28.302237",
+  "keyword": "The Peripheral",
+  "page": 1,
+  "scope": "current search snapshot, not complete historical observation",
+  "sites": [
+    {
+      "site_id": "ssd",
+      "count": 6,
+      "failed": false
+    },
+    {
+      "site_id": "hdhome",
+      "count": 21,
+      "failed": false
+    },
+    {
+      "site_id": "mteam",
+      "count": 63,
+      "failed": false
+    },
+    {
+      "site_id": "chdbits",
+      "count": 22,
+      "failed": false
+    },
+    {
+      "site_id": "keepfrds",
+      "count": 0,
+      "failed": false
+    },
+    {
+      "site_id": "ttg",
+      "count": 0,
+      "failed": false
+    }
+  ],
+  "items": [
+    {
+      "site_id": "ssd",
+      "torrent_id": "558223",
+      "title": "The.Peripheral.S01.2022.2160p.WEB-DL.DV.H.265.DDP5.1.Atmos-HHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The.Peripheral"
+        ],
+        "title_candidates": [
+          "欧瑞克·莱利",
+          "加里·卡尔",
+          "杰克·莱诺",
+          "朱利安·摩尔-库克",
+          "路易斯·赫特哈姆"
+        ],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 62126701936,
+      "seeders": 3,
+      "upload_time": "2025-07-21T02:02:32+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "355485",
+      "title": "The.Peripheral.S01.Hybrid.2160p.AMZN.WEB-DL.DD+.5.1.Atmos.DV.HDR10+.H.265-HighBreed",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The.Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季 4K Hybrid 中字"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10+",
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HighBreed"
+      },
+      "size_bytes": 54223962112,
+      "seeders": 3,
+      "upload_time": "2023-04-17T10:43:02+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "345812",
+      "title": "The.Peripheral.2022.S01.Complete.AMZN.WEB-DL.1080p.H264.DDP.5.1-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "化身"
+        ],
+        "titles_en": [
+          "The.Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 24073291694,
+      "seeders": 28,
+      "upload_time": "2023-01-04T15:20:21+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "342933",
+      "title": "The.Peripheral.S01.720p.AMZN.WEB-DL.DDP5.1.H.264-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The.Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "720p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 14463302369,
+      "seeders": 7,
+      "upload_time": "2022-12-03T06:58:10+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "342869",
+      "title": "The.Peripheral.S01.2160p.AMZN.WEB-DL.DDP5.1.H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The.Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 54932631715,
+      "seeders": 7,
+      "upload_time": "2022-12-02T13:21:40+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "342823",
+      "title": "The.Peripheral.S01.2022.Amazon.WEB-DL.1080p.H.264.DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The.Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 33962453893,
+      "seeders": 10,
+      "upload_time": "2022-12-02T05:11:06+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "266670",
+      "title": "The Peripheral S01 2022 1080p AMZN WEB-DL H.264 DDP 5.1-FROGWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "FROGWeb"
+      },
+      "size_bytes": 34048353239,
+      "seeders": 2,
+      "upload_time": "2025-12-02T08:20:26+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "227485",
+      "title": "The Peripheral 2022 S01 Complete 2160p AMZN WEB-DL HDR10+ H.265 10bit DDP5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10+"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 68923487682,
+      "seeders": 4,
+      "upload_time": "2024-12-10T11:31:35+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "170618",
+      "title": "The Peripheral S01 2022 1080p 1080p WEBrip x265 AC3￡cXcY@FRDS",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "末梢",
+          "外围",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季/末梢/外围/外围逃杀】第一季"
+        ],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "WEBRip",
+        "remux": false,
+        "audio": [
+          "DD"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "FRDS"
+      },
+      "size_bytes": 19338090250,
+      "seeders": 18,
+      "upload_time": "2023-07-21T13:51:22+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "160002",
+      "title": "The Peripheral S01 Hybrid 2160p AMZN WEB-DL DD+ 5.1 Atmos DV HDR10+ H.265-HighBreed",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季 4K Hybrid 中字"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10+",
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HighBreed"
+      },
+      "size_bytes": 54223962112,
+      "seeders": 2,
+      "upload_time": "2023-04-17T11:20:21+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "156107",
+      "title": "The Peripheral S01 2022 1080p AMZN WEB-DL DDP5.1 H.264-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季"
+        ],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 33962453893,
+      "seeders": 5,
+      "upload_time": "2023-03-13T02:03:15+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "156106",
+      "title": "The Peripheral S01 2022 HDR 2160p AMZN WEB-DL DDP5.1 H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季"
+        ],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 54395760803,
+      "seeders": 9,
+      "upload_time": "2023-03-13T01:58:27+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "156105",
+      "title": "The Peripheral S01 2160p AMZN WEB-DL DDP5.1 H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 54932631715,
+      "seeders": 5,
+      "upload_time": "2023-03-13T01:53:44+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "147172",
+      "title": "The Peripheral S01 2022 Complete 2160p WEB-DL x265 HDR DDP5.1-HDHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDHWEB"
+      },
+      "size_bytes": 51153060495,
+      "seeders": 2,
+      "upload_time": "2022-12-18T14:21:38+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "146091",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL H.264 DDP5.1-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 30623116820,
+      "seeders": 2,
+      "upload_time": "2022-12-09T15:14:26+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "145188",
+      "title": "The Peripheral S01 2160p AMZN WEB-DL DDP5.1 H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 54932631715,
+      "seeders": 8,
+      "upload_time": "2022-12-02T13:22:02+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "145178",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 4K HEVC HDR DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 54395760803,
+      "seeders": 26,
+      "upload_time": "2022-12-02T12:17:34+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "145111",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 1080p H.264 DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 33962453893,
+      "seeders": 7,
+      "upload_time": "2022-12-02T04:52:37+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "143801",
+      "title": "The Peripheral S01E07 2022 Amazon WEB-DL 4K HEVC HDR DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          7
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 5884105195,
+      "seeders": 8,
+      "upload_time": "2022-11-25T13:48:18+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "142891",
+      "title": "The Peripheral S01E06 2022 Amazon WEB-DL 1080p H.264 DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          6
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 4337916968,
+      "seeders": 2,
+      "upload_time": "2022-11-19T12:00:23+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "142276",
+      "title": "The Peripheral S01E01-E02 2022 Amazon WEB-DL 1080p H.264 DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧 边缘世界 第一季 第01-02集"
+        ],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 9513352560,
+      "seeders": 4,
+      "upload_time": "2022-11-13T16:33:29+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "142275",
+      "title": "The Peripheral S01E03 2022 Amazon WEB-DL 1080p H.264 DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          3
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 4971424645,
+      "seeders": 2,
+      "upload_time": "2022-11-13T16:32:54+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "142274",
+      "title": "The Peripheral S01E04 2022 Amazon WEB-DL 1080p H.264 DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          4
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 4069481512,
+      "seeders": 2,
+      "upload_time": "2022-11-13T16:31:08+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "142273",
+      "title": "The Peripheral S01E05 2022 Amazon WEB-DL 1080p H.264 DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          5
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 4015794421,
+      "seeders": 2,
+      "upload_time": "2022-11-13T16:29:06+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "140403",
+      "title": "The Peripheral S01 EP02 2022 2160p WEB-DL x265 HDR DDP5.1-HDHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          2
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDHWEB"
+      },
+      "size_bytes": 7129645711,
+      "seeders": 6,
+      "upload_time": "2022-10-28T09:04:43+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "140402",
+      "title": "The Peripheral S01 EP03 2022 2160p WEB-DL x265 HDR DDP5.1-HDHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          3
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDHWEB"
+      },
+      "size_bytes": 7870527569,
+      "seeders": 5,
+      "upload_time": "2022-10-28T09:03:19+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "140401",
+      "title": "The Peripheral S01 EP01 2022 2160p WEB-DL x265 HDR DDP5.1-HDHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDHWEB"
+      },
+      "size_bytes": 7999376588,
+      "seeders": 5,
+      "upload_time": "2022-10-28T09:02:16+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1030686",
+      "title": "The Peripheral 2022 S01 Complete 2160p AMZN WEB-DL HDR10+ H.265 10bit DDP5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10+"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 68921174322,
+      "seeders": 6,
+      "upload_time": "2025-09-08T11:09:50+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1026326",
+      "title": "The Peripheral 2022 S01 2160p AMZN WEB-DL HDR10+ H.265 DDP 5.1 Atmos-FROGWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10+"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "FROGWeb"
+      },
+      "size_bytes": 71083188439,
+      "seeders": 4,
+      "upload_time": "2025-08-31T05:33:34+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "974153",
+      "title": "The Peripheral S01 2022 1080p AMZN WEB-DL H.264 DDP 5.1-FROGWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "FROGWeb"
+      },
+      "size_bytes": 34045181369,
+      "seeders": 6,
+      "upload_time": "2025-06-07T00:26:25+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "888402",
+      "title": "The Peripheral 2022 S01 Complete 2160p AMZN WEB-DL DoVi H.265 10bit DDP5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 72261557733,
+      "seeders": 3,
+      "upload_time": "2025-01-08T05:25:51+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "707936",
+      "title": "The Peripheral 2022 S01 Complete 2160p AMZN WEB-DL x265 DDP5.1-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "外围逃杀",
+          "末梢"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 50253771477,
+      "seeders": 14,
+      "upload_time": "2023-09-01T23:12:52+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "670376",
+      "title": "The Peripheral S01 Hybrid 2160p AMZN WEB-DL DD+ 5.1 Atmos DV HDR10+ H.265-HighBreed",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季 4K Hybrid 中字"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10+",
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HighBreed"
+      },
+      "size_bytes": 54222374017,
+      "seeders": 7,
+      "upload_time": "2023-04-17T11:28:54+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "659501",
+      "title": "The Peripheral S01 2022.1080p AMZ WEB-DL H264 DDP5.1-SakuraWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 7,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "SakuraWEB"
+      },
+      "size_bytes": 73621503507,
+      "seeders": 1,
+      "upload_time": "2023-03-06T13:47:50+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "651065",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL DDP 5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "外围逃杀",
+          "末梢"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧：边缘世界"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 33974387348,
+      "seeders": 6,
+      "upload_time": "2023-02-04T09:15:43+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "634499",
+      "title": "The Peripheral S01 1080p WEB-Rip DDP5.1 x265 10bit-Yumi@FRDS",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "外围逃杀",
+          "末梢"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "WEBRip",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "Yumi@FRDS"
+      },
+      "size_bytes": 13762897562,
+      "seeders": 12,
+      "upload_time": "2022-12-10T11:12:09+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "634518",
+      "title": "The Peripheral S01 2022 1080p 1080p WEBrip x265 AC3￡cXcY@FRDS",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "末梢",
+          "外围",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季/末梢/外围/外围逃杀】第一季"
+        ],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "WEBRip",
+        "remux": false,
+        "audio": [
+          "DD"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "FRDS"
+      },
+      "size_bytes": 19336537139,
+      "seeders": 44,
+      "upload_time": "2022-12-10T10:34:29+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "634370",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL H.264 DDP5.1-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 30621499936,
+      "seeders": 1,
+      "upload_time": "2022-12-09T21:29:56+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "634136",
+      "title": "The Peripheral S01 1080p WEBRip x265.10bit AAC-Auska",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "外围逃杀",
+          "末梢"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "WEBRip",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "Auska"
+      },
+      "size_bytes": 8391890277,
+      "seeders": 1,
+      "upload_time": "2022-12-09T06:00:36+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "633379",
+      "title": "The Peripheral S01 2022 1080p AMZN WEB-DL x264 DDP5.1-ADWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "x264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "ADWeb"
+      },
+      "size_bytes": 33952491643,
+      "seeders": 4,
+      "upload_time": "2022-12-07T12:16:32+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "633279",
+      "title": "The.Peripheral.S01E01-08.2160p.AMZN.WEB-DL.x265.8bit.SDR.DDP5.1",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The.Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": null
+      },
+      "size_bytes": 54778387383,
+      "seeders": 3,
+      "upload_time": "2022-12-06T11:26:18+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "632970",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 1080p H264 DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 33966161843,
+      "seeders": 3,
+      "upload_time": "2022-12-05T04:24:37+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "632047",
+      "title": "The Peripheral S01 2160p AMZN WEB-DL DDP5.1 HDR H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 54396110310,
+      "seeders": 22,
+      "upload_time": "2022-12-02T19:16:09+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "632040",
+      "title": "The Peripheral S01 2160p AMZN WEB-DL DDP5.1 H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 54930548077,
+      "seeders": 10,
+      "upload_time": "2022-12-02T18:31:09+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "631922",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 4K HEVC HDR DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 54395540634,
+      "seeders": 63,
+      "upload_time": "2022-12-02T12:45:00+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "631756",
+      "title": "The Peripheral S01E08 2022 Amazon WEB-DL 1080p H264 DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          8
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 3615549692,
+      "seeders": 4,
+      "upload_time": "2022-12-02T12:35:16+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "631804",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 1080p H.264 DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 33966161843,
+      "seeders": 12,
+      "upload_time": "2022-12-02T06:48:42+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "631787",
+      "title": "The Peripheral S01E08 The Creation of a Thousand Forests 2160p AMZN WEB-DL DDP5.1 HDR H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          8
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 6162098152,
+      "seeders": 6,
+      "upload_time": "2022-12-02T05:52:00+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "631786",
+      "title": "The Peripheral S01E08 The Creation of a Thousand Forests 2160p AMZN WEB-DL DDP5.1 H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          8
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 6234736382,
+      "seeders": 1,
+      "upload_time": "2022-12-02T05:51:58+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "631761",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL DDP5.1 H.264-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "邊緣世界 第一季"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 33966728206,
+      "seeders": 6,
+      "upload_time": "2022-12-02T04:45:24+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "631754",
+      "title": "The Peripheral S01E08 The Creation of a Thousand Forests 1080p AMZN WEB-DL DDP5.1 H.264-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          8
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 3615608258,
+      "seeders": 7,
+      "upload_time": "2022-12-02T04:02:55+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "629911",
+      "title": "The Peripheral S01E07 2022 Amazon WEB-DL 4K HEVC HDR DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          7
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 5888978594,
+      "seeders": 12,
+      "upload_time": "2022-11-25T13:20:28+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "629828",
+      "title": "The Peripheral S01E07 The Doodad 2160p AMZN WEB-DL DDP5.1 HDR H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          7
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 5889045884,
+      "seeders": 5,
+      "upload_time": "2022-11-25T06:09:53+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "629827",
+      "title": "The Peripheral S01E07 The Doodad 2160p AMZN WEB-DL DDP5.1 H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          7
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 5979625041,
+      "seeders": 2,
+      "upload_time": "2022-11-25T06:09:50+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "629794",
+      "title": "The Peripheral S01E07 The Doodad 1080p AMZN WEB-DL DDP5.1 H.264-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          7
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 3443756019,
+      "seeders": 9,
+      "upload_time": "2022-11-25T03:44:04+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "628042",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 4K HEVC HDR DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          6
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 6686564659,
+      "seeders": 6,
+      "upload_time": "2022-11-19T10:41:40+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "628063",
+      "title": "The.Peripheral.S01E06.2022.Amazon.WEB-DL.4K.HEVC.HDR.DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The.Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          6
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 6686564659,
+      "seeders": 10,
+      "upload_time": "2022-11-19T10:40:35+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "628068",
+      "title": "The Peripheral S01E06 2022 Amazon WEB-DL 1080p H264 DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          6
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 4340814912,
+      "seeders": 3,
+      "upload_time": "2022-11-19T10:40:26+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "627837",
+      "title": "The Peripheral S01E06 Fuck You and Eat Shit 2160p AMZN WEB-DL DDP5.1 HDR H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          6
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 6686632821,
+      "seeders": 5,
+      "upload_time": "2022-11-18T05:18:38+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "627836",
+      "title": "The Peripheral S01E06 Fuck You and Eat Shit 2160p AMZN WEB-DL DDP5.1 H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          6
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 6725370466,
+      "seeders": 4,
+      "upload_time": "2022-11-18T05:18:35+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "627832",
+      "title": "The Peripheral S01E06 Fuck You and Eat Shit 1080p AMZN WEB-DL DDP5.1 H.264-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          6
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 4340882989,
+      "seeders": 6,
+      "upload_time": "2022-11-18T04:23:15+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "626905",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 2160p HEVC HDR DDP-HDCTV AQ",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧 边缘世界 第一季"
+        ],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": null
+      },
+      "size_bytes": 35660331847,
+      "seeders": 2,
+      "upload_time": "2022-11-15T10:09:14+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "627045",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL AV1 10bit OPUS-Auska",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": "anime",
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AV1",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "OPUS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "Auska"
+      },
+      "size_bytes": 4495661230,
+      "seeders": 2,
+      "upload_time": "2022-11-15T03:28:44+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "626882",
+      "title": "William Gibson - The Peripheral (Unabridged) (2014)",
+      "attrs": {
+        "media_type": null,
+        "content_type": null,
+        "titles_zh": [],
+        "titles_en": [],
+        "title_candidates": [
+          "边缘世界-azw3小说&mp3有声小说"
+        ],
+        "year": null,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": null,
+        "video_codec": null,
+        "hdr": [],
+        "media_source": null,
+        "remux": false,
+        "audio": [
+          "MP3"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 411698423,
+      "seeders": 28,
+      "upload_time": "2022-11-14T12:36:09+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "626012",
+      "title": "The Peripheral S01E05 2022 Amazon WEB-DL 4K HEVC HDR DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          5
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 6352458316,
+      "seeders": 6,
+      "upload_time": "2022-11-11T13:09:02+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "626018",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 4K HEVC HDR DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          5
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 6352458316,
+      "seeders": 6,
+      "upload_time": "2022-11-11T13:07:48+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "626037",
+      "title": "The Peripheral S01E05 What About Bob 2160p AMZN WEB-DL DDP5.1 HDR H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          5
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 6352525447,
+      "seeders": 7,
+      "upload_time": "2022-11-11T08:49:32+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "625991",
+      "title": "The Peripheral S01E05 What About Bob 1080p AMZN WEB-DL DDP5.1 H.264-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          5
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 4014210760,
+      "seeders": 8,
+      "upload_time": "2022-11-11T03:53:20+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "624482",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 2160p HEVC HDR DDP-HDCTV AQ",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧 边缘世界 第一季"
+        ],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": null
+      },
+      "size_bytes": 29307589255,
+      "seeders": 5,
+      "upload_time": "2022-11-06T10:19:43+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "624202",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 2160p HEVC HDR DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          4
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 6310637802,
+      "seeders": 4,
+      "upload_time": "2022-11-05T05:19:30+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623882",
+      "title": "The.Peripheral.S01E04.2022.Amazon.WEB-DL.1080p.H264.DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The.Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          4
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 4067868203,
+      "seeders": 2,
+      "upload_time": "2022-11-04T10:03:44+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623895",
+      "title": "The.Peripheral.S01E04.2022.Amazon.WEB-DL.4K.HEVC.HDR.DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The.Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          4
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 6310637802,
+      "seeders": 9,
+      "upload_time": "2022-11-04T10:02:35+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623906",
+      "title": "The Peripheral S01E04 Jackpot 2160p AMZN WEB-DL DDP5.1 HDR H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          4
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 6310702623,
+      "seeders": 9,
+      "upload_time": "2022-11-04T05:01:18+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623904",
+      "title": "The Peripheral S01E04 Jackpot 2160p AMZN WEB-DL DDP5.1 H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          4
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 6383902030,
+      "seeders": 1,
+      "upload_time": "2022-11-04T05:01:17+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "623876",
+      "title": "The Peripheral S01E04 Jackpot 1080p AMZN WEB-DL DDP5.1 H.264-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          4
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 4067932970,
+      "seeders": 6,
+      "upload_time": "2022-11-04T02:50:12+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "622223",
+      "title": "The Peripheral S01E03 2022 Amazon WEB-DL 2160p HEVC HDR DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          3
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 7868247567,
+      "seeders": 10,
+      "upload_time": "2022-10-29T14:12:32+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "621996",
+      "title": "The Peripheral S01E03 Haptic Drift 2160p AMZN WEB-DL DDP5.1 H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          3
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 7936135326,
+      "seeders": 3,
+      "upload_time": "2022-10-29T00:05:01+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "621995",
+      "title": "The Peripheral S01E03 Haptic Drift 2160p AMZN WEB-DL DDP5.1 HDR H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          3
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 7868330745,
+      "seeders": 5,
+      "upload_time": "2022-10-29T00:05:00+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "621955",
+      "title": "The Peripheral S01E03 Haptic Drift 1080p AMZN WEB-DL DDP5.1 H.264-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          3
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 4967210533,
+      "seeders": 6,
+      "upload_time": "2022-10-28T16:35:09+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "621775",
+      "title": "The Peripheral S01E03 1080p WEB H.264-GLHF",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "外围逃杀",
+          "末梢"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          3
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "GLHF"
+      },
+      "size_bytes": 4967113850,
+      "seeders": 3,
+      "upload_time": "2022-10-28T12:01:11+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "621774",
+      "title": "The Peripheral S01E03 HDR 2160p WEB H.265-GLHF",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          3
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "GLHF"
+      },
+      "size_bytes": 7868234105,
+      "seeders": 5,
+      "upload_time": "2022-10-28T12:00:09+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "619771",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 4K HEVC HDR DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧 边缘世界 第一季 第01-02集"
+        ],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 15126612422,
+      "seeders": 15,
+      "upload_time": "2022-10-22T12:08:43+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "619926",
+      "title": "The Peripheral S01E02 Empathy Bonus 2160p AMZN WEB-DL DDP5.1 H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          2
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 7193796707,
+      "seeders": 6,
+      "upload_time": "2022-10-22T03:31:16+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "619925",
+      "title": "The Peripheral S01E01 Pilot 2160p AMZN WEB-DL DDP5.1 H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 8062680893,
+      "seeders": 5,
+      "upload_time": "2022-10-22T03:31:13+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "619845",
+      "title": "The Peripheral S01E02 Empathy Bonus 2160p AMZN WEB-DL DDP5.1 HDR H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          2
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 7125940361,
+      "seeders": 5,
+      "upload_time": "2022-10-21T20:11:38+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "619844",
+      "title": "The Peripheral S01E01 Pilot 2160p AMZN WEB-DL DDP5.1 HDR H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "Amazon Prime 劇集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 8000834277,
+      "seeders": 6,
+      "upload_time": "2022-10-21T20:11:32+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "619663",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 1080p H.264 DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧 边缘世界 第一季 第01-02集"
+        ],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 9516968004,
+      "seeders": 14,
+      "upload_time": "2022-10-21T13:56:48+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "619575",
+      "title": "The Peripheral S01E02 Empathy Bonus 1080p AMZN WEB-DL DDP5.1 H.264-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "化身",
+          "邊緣世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          2
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 4428196383,
+      "seeders": 3,
+      "upload_time": "2022-10-21T03:36:30+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "619574",
+      "title": "The Peripheral S01E01 Pilot 1080p AMZN WEB-DL DDP5.1 H.264-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "邊緣世界",
+          "化身"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "《邊緣世界》"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 5088930294,
+      "seeders": 2,
+      "upload_time": "2022-10-21T03:34:36+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "882042",
+      "title": "Duck brother on the stage to meet high-end peripheral goddess",
+      "attrs": {
+        "media_type": null,
+        "content_type": null,
+        "titles_zh": [],
+        "titles_en": [
+          "Duck brother on the stage to meet high-end peripheral goddess"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": null,
+        "hdr": [],
+        "media_source": null,
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 691814861,
+      "seeders": 162,
+      "upload_time": "2024-12-28T09:03:47+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "410093",
+      "title": "The Peripheral 2022 S01 Complete 2160p AMZN WEB-DL HDR10+ H.265 10bit DDP5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10+"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 68923487682,
+      "seeders": 2,
+      "upload_time": "2024-12-10T11:31:52+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "285622",
+      "title": "The Peripheral 2022 S01 Complete 2160p AMZN WEB-DL x265 DDP5.1-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "外围逃杀",
+          "末梢"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "en"
+        ],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 50251117363,
+      "seeders": 1,
+      "upload_time": "2023-09-01T09:55:49+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "254539",
+      "title": "The Peripheral S01 Hybrid 2160p AMZN WEB-DL DD+ 5.1 Atmos DV HDR10+ H.265-HighBreed",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季 4K Hybrid 中字"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10+",
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HighBreed"
+      },
+      "size_bytes": 54223962112,
+      "seeders": 1,
+      "upload_time": "2023-04-17T11:20:08+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "241455",
+      "title": "The Peripheral S01 2022 Amazon WEB-DL 4K HEVC HDR DDP-HDCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "HDCTV"
+      },
+      "size_bytes": 54395760803,
+      "seeders": 20,
+      "upload_time": "2023-02-13T04:05:48+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "226713",
+      "title": "The Peripheral S01 2022 1080p 1080p WEBrip x265 AC3￡cXcY@FRDS",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "末梢",
+          "外围",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季/末梢/外围/外围逃杀】第一季"
+        ],
+        "year": 2022,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "WEBRip",
+        "remux": false,
+        "audio": [
+          "DD"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "en",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "FRDS"
+      },
+      "size_bytes": 19338090250,
+      "seeders": 29,
+      "upload_time": "2022-12-12T01:04:18+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "225749",
+      "title": "The Peripheral S01 1080p WEB-Rip DDP5.1 x265 10bit-Yumi@FRDS",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "外围逃杀",
+          "末梢"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "x265",
+        "hdr": [],
+        "media_source": "WEBRip",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "Yumi@FRDS"
+      },
+      "size_bytes": 13636521164,
+      "seeders": 3,
+      "upload_time": "2022-12-08T02:48:29+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "224629",
+      "title": "The Peripheral S01 2160p AMZN WEB-DL DDP5.1 H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 54932631715,
+      "seeders": 4,
+      "upload_time": "2022-12-02T13:16:45+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "224606",
+      "title": "The Peripheral S01 2160p AMZN WEB-DL DDP5.1 HDR H.265-xiaopie@CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "末梢",
+          "外围",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "xiaopie@CHDWEB"
+      },
+      "size_bytes": 54385023385,
+      "seeders": 52,
+      "upload_time": "2022-12-02T12:09:31+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "224573",
+      "title": "The Peripheral S01 2160p AMZN WEB-DL DDP5.1 HDR H.265-NTb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "末梢",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "边缘世界 第一季"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "NTb"
+      },
+      "size_bytes": 54395760803,
+      "seeders": 6,
+      "upload_time": "2022-12-02T08:45:07+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "224548",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL DDP.5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "外围逃杀",
+          "末梢"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧：边缘世界"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 8,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 33973191311,
+      "seeders": 7,
+      "upload_time": "2022-12-02T03:36:36+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "224547",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL DDP.5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "外围逃杀",
+          "末梢"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧：边缘世界"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          8
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 3618509946,
+      "seeders": 7,
+      "upload_time": "2022-12-02T03:34:08+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "223110",
+      "title": "The Peripheral S01 2160p AMZN WEB-DL DDP5.1 HDR H.265-xiaopie@CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "末梢",
+          "外围",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          7
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "xiaopie@CHDWEB"
+      },
+      "size_bytes": 5884105195,
+      "seeders": 3,
+      "upload_time": "2022-11-26T01:36:24+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "222916",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL DDP.5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "外围逃杀",
+          "末梢"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧：边缘世界"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          7
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 3446711255,
+      "seeders": 3,
+      "upload_time": "2022-11-25T03:59:40+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "221471",
+      "title": "The Peripheral S01 2160p AMZN WEB-DL DDP5.1 HDR H.265-xiaopie@CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "末梢",
+          "外围",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          6
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "xiaopie@CHDWEB"
+      },
+      "size_bytes": 6689411563,
+      "seeders": 4,
+      "upload_time": "2022-11-18T14:45:23+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "221348",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL DDP.5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "外围逃杀",
+          "末梢"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧：边缘世界"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          6
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 4337916968,
+      "seeders": 5,
+      "upload_time": "2022-11-18T04:56:24+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "219669",
+      "title": "The Peripheral S01 2160p AMZN WEB-DL DDP5.1 HDR H.265-xiaopie@CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "末梢",
+          "外围",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          5
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "xiaopie@CHDWEB"
+      },
+      "size_bytes": 6345814179,
+      "seeders": 4,
+      "upload_time": "2022-11-11T11:36:41+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "219583",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL DDP.5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围",
+          "外围逃杀",
+          "末梢"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧：边缘世界"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          5
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 4015794421,
+      "seeders": 6,
+      "upload_time": "2022-11-11T03:59:51+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "218841",
+      "title": "The Peripheral S01 2160p AMZN WEB-DL DDP5.1 HDR H.265-xiaopie@CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "末梢",
+          "外围",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          4
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "xiaopie@CHDWEB"
+      },
+      "size_bytes": 6313601925,
+      "seeders": 4,
+      "upload_time": "2022-11-07T11:53:01+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "218186",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL DDP.5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧：边缘世界"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          4
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 4069481512,
+      "seeders": 5,
+      "upload_time": "2022-11-04T04:06:11+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "217668",
+      "title": "The Peripheral S01 2160p AMZN WEB-DL DDP5.1 HDR H.265-xiaopie@CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "末梢",
+          "外围",
+          "外围逃杀"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧：边缘世界 第一季第01-03集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "xiaopie@CHDWEB"
+      },
+      "size_bytes": 22988812451,
+      "seeders": 6,
+      "upload_time": "2022-11-01T10:41:40+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "216672",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL DDP 5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧：边缘世界"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          3
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 4971424645,
+      "seeders": 5,
+      "upload_time": "2022-10-28T04:14:58+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "215108",
+      "title": "The Peripheral S01 1080p AMZN WEB-DL DDP.5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "边缘世界",
+          "外围"
+        ],
+        "titles_en": [
+          "The Peripheral"
+        ],
+        "title_candidates": [
+          "美剧：边缘世界",
+          "外围 第一季 第01-02集"
+        ],
+        "year": null,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 9513352560,
+      "seeders": 4,
+      "upload_time": "2022-10-21T04:52:54+00:00"
+    }
+  ]
+}

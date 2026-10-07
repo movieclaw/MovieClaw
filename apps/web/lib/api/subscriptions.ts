@@ -108,7 +108,11 @@ export interface Subscription {
   status: SubscriptionStatus;
   selected_seasons: number[];
   follow_future: boolean;
+  /** 智能模式为 0（兼容旧客户端整数契约）；模式以 selection_mode 为准。 */
   rule_set_id: number;
+  selection_mode?: "rules" | "smart";
+  smart_policy?: SmartPreferences | null;
+  smart_status?: string | null;
   /** 入库目标库；null = 该类型的默认库 */
   library_id: number | null;
   progress: SubscriptionProgress;
@@ -190,6 +194,8 @@ export interface ResourceTiming {
 }
 
 export interface WantedItem {
+  selection_state?: SmartSelectionState | null;
+  selection_version?: number;
   id: number;
   season_number: number;
   episode_number: number;
@@ -296,6 +302,8 @@ export interface SubscriptionTargetPreviewPayload {
 }
 
 export interface CreateSubscriptionPayload {
+  selection_mode?: "rules" | "smart";
+  smart_profile_revision?: number;
   /** Discover 返回或歧义候选确认后的稳定引用 */
   title_ref: string;
   /** 从豆瓣候选改选 TMDB 条目时保留原始豆瓣身份 */
@@ -912,4 +920,43 @@ export function setDefaultRuleSet(id: number): Promise<RuleSet> {
 /** 删除规则组（默认组与被订阅引用的组后端会拒绝，错误信息可直接展示）。 */
 export function deleteRuleSet(id: number): Promise<void> {
   return unwrap(request<ApiEnvelope<void>>(`/rule-sets/${id}`, { method: "DELETE" }));
+}
+
+export interface SmartPreferences {
+  resolution: "1080p" | "2160p";
+  source: "web-dl" | "blu-ray" | "remux";
+  wait_seconds: number;
+  allow_upgrade: boolean;
+  strict_resolution: boolean;
+}
+export interface SmartProfile {
+  kind: "movie" | "tv";
+  revision: number;
+  preferences: SmartPreferences | null;
+}
+export interface SmartSelectionState {
+  identity_explanation?: string | null;
+  anchor_source?: "first_seen" | "published_at";
+  first_observed_at?: string | null;
+  wait_explanation?: string | null;
+  manual_extended?: boolean;
+  choice_explanation?: string | null;
+  anchor: string;
+  deadline: string;
+  observation_end: string;
+  reason: string;
+  candidate_key: string | null;
+  candidate_title: string | null;
+  following: string | null;
+  target_reached: boolean;
+  prediction?: { start: string; end: string; episodes: number[]; lag_seconds: number } | null;
+}
+export function getSmartProfile(kind: "movie" | "tv"): Promise<SmartProfile> {
+  return unwrap(request<ApiEnvelope<SmartProfile>>(`/subscriptions/smart-profiles/${kind}`));
+}
+export function saveSmartProfile(kind: "movie" | "tv", preferences: SmartPreferences, revision: number): Promise<SmartProfile> {
+  return unwrap(request<ApiEnvelope<SmartProfile>>(`/subscriptions/smart-profiles/${kind}`, { method: "PUT", body: JSON.stringify({ preferences, revision }) }));
+}
+export function changeSmartWait(subscriptionId: number, wantedId: number, version: number, action: { extend_seconds?: number; candidate_key?: string }): Promise<unknown> {
+  return unwrap(request<ApiEnvelope<unknown>>(`/subscriptions/${subscriptionId}/wanted/${wantedId}/smart-wait`, { method: "POST", body: JSON.stringify({ version, ...action }) }));
 }

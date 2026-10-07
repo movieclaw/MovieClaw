@@ -143,8 +143,6 @@ struct SubsHomeShelfItem: Identifiable, Equatable {
     var chip: SubsHomeChip?
     /// 海报下第二行：「第 3 季 · 4 / 8」「已收齐 · 全 5 季」「2026」
     var meta: String
-    /// 海报底部的收录细线（进行中的剧集，当季已收 / 应有）；nil = 不画
-    var progress: Double?
     var id: Int { sub.id }
     /// 已暂停 / 已完成：压暗，排在分隔线后面
     var resting: Bool { phase != .active }
@@ -567,8 +565,7 @@ enum SubscriptionsHome {
                 sub: sub,
                 phase: standing.phase,
                 chip: standing.chip,
-                meta: meta(sub, phase: standing.phase),
-                progress: standing.phase == .active ? seasonProgress(sub) : nil
+                meta: meta(sub, phase: standing.phase)
             )
             switch standing.phase {
             case .active: active.append((standing.rank, item))
@@ -603,8 +600,8 @@ enum SubscriptionsHome {
 
     /// 一部订阅的位置与小签。剧集与电影同一套口径，进行中内部按此刻最要紧排：
     ///
-    ///   下载中 / 整理中 → 有没看的新集（剧集）→ 今天更新 → 某天更新 → 洗版中
-    ///   → 缺集 / 找资源中 → 追更中（剧集，等下一集或下一季）→ 未上映（电影）
+    ///   下载中 / 整理中 → 有没看的新集（剧集）→ 今天更新 → 某天更新
+    ///   → 缺集 / 找资源中 → 追更中（剧集）→ 未上映（电影）→ 仅洗版
     ///
     /// 已完成的订阅不因「刚到了、还没看」被拉回前排——那是 Hero 与「刚刚入库」的职责；
     /// 唯一的例外是洗版：内容虽已齐，但正在换更好的版本，事情还在进行。
@@ -620,6 +617,12 @@ enum SubscriptionsHome {
         if sub.status == "paused" {
             return SubsHomeStanding(phase: .paused, rank: 0, chip: SubsHomeChip(text: "已暂停", tone: .calm))
         }
+        let missing = isTV ? missingAired(sub) : 0
+        let pending = missing > 0 || sub.progress.wanted + sub.progress.grabbed + sub.progress.downloaded > 0
+        // 旧集洗版不降低新集缺口的优先级；纯洗版即使有下载预告，也留在进行中末尾。
+        if sub.progress.upgrading > 0, !pending {
+            return active(8, SubsHomeChip(text: "洗版中", tone: .upgrade))
+        }
         // 正在下载 / 整理：有预告按预告，没有（老服务端 / 预告还没取到）按订阅进度判断
         let pipeline = group?.presentation.statusLabel
             ?? (sub.progress.downloaded > 0 ? "整理中" : (sub.progress.grabbed > 0 ? "下载中" : nil))
@@ -628,11 +631,8 @@ enum SubscriptionsHome {
         case "整理中": return active(0, SubsHomeChip(text: "整理中", tone: .ok, pulse: true))
         default: break
         }
-        let upgrading = sub.progress.upgrading > 0
-        if SubscriptionSummary.fullyCollected(sub) || sub.status == "completed" {
-            return upgrading
-                ? active(4, SubsHomeChip(text: "洗版中", tone: .upgrade))
-                : SubsHomeStanding(phase: .done, rank: 0, chip: nil)
+        if !pending, SubscriptionSummary.fullyCollected(sub) || sub.status == "completed" {
+            return SubsHomeStanding(phase: .done, rank: 0, chip: nil)
         }
         if isTV, let recent {
             let count = recent.units.count
@@ -643,9 +643,7 @@ enum SubscriptionsHome {
             let when = group.daysAhead == 1 ? "明天" : (weekday(of: group.expectedDay) ?? "\(group.daysAhead) 天后")
             return active(3 + Double(group.daysAhead) / 100, SubsHomeChip(text: "\(when)更新", tone: .calm))
         }
-        if upgrading { return active(4, SubsHomeChip(text: "洗版中", tone: .upgrade)) }
         if isTV {
-            let missing = missingAired(sub)
             return missing > 0 ? active(5, SubsHomeChip(text: "缺 \(missing) 集", tone: .warn)) : active(6, nil)
         }
         return released(sub)
@@ -674,18 +672,6 @@ enum SubscriptionsHome {
         guard let meta = SubscriptionSummary.collectionMeta(sub) else { return year ?? "剧集" }
         if phase == .done { return "已收齐 · \(meta.label)" }
         return "\(meta.label) · \(meta.value)"
-    }
-
-    /// 剧集当季收录比例（海报底部细线）：在追的看最新一季，与收录摘要同口径
-    static func seasonProgress(_ sub: API.SubscriptionView) -> Double? {
-        guard sub.media.kind == "tv" else { return nil }
-        let seasons = sub.seasonCollection.filter { $0.seasonNumber > 0 }.sorted { $0.seasonNumber < $1.seasonNumber }
-        let selected = Set(sub.selectedSeasons.filter { $0 > 0 })
-        let scoped = selected.isEmpty ? seasons : seasons.filter { selected.contains($0.seasonNumber) }
-        guard let latest = (sub.followFuture ? seasons.last : nil) ?? scoped.last else { return nil }
-        let total = max(latest.episodeCount ?? 0, latest.airedCount, latest.ownedCount)
-        guard total > 0 else { return nil }
-        return min(1, Double(latest.ownedCount) / Double(total))
     }
 
     /// 电影是否已上映（TMDB status；缺失按已上映处理——宁可说「找资源中」也不误报「未上映」）

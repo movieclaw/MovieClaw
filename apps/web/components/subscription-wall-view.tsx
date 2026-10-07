@@ -66,7 +66,7 @@ export function SubscriptionWallView({ kind }: { kind: "movie" | "tv" }) {
     return (sub: Subscription) => {
       const library =
         sub.library_id === null ? defaultLibrary.get(sub.media.kind) : libraryName.get(sub.library_id);
-      const parts = [ruleName.get(sub.rule_set_id), library].filter(Boolean);
+      const parts = [(sub.selection_mode === "smart" ? "智能选择" : sub.rule_set_id !== null ? ruleName.get(sub.rule_set_id) : null), library].filter(Boolean);
       return parts.length ? parts.join(" → ") : null;
     };
   }, [ruleSets, libraries]);

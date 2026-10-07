@@ -63,7 +63,7 @@ struct SubscriptionWallView: View {
                         .foregroundStyle(Theme.textFaint)
                 }
                 LazyVGrid(
-                    columns: [GridItem(.adaptive(minimum: 104), spacing: 12, alignment: .top)],
+                    columns: [GridItem(.adaptive(minimum: 140), spacing: 12, alignment: .top)],
                     alignment: .leading,
                     spacing: 20
                 ) {
@@ -106,7 +106,7 @@ struct SubscriptionWallView: View {
 
     /// 海报第三行：「规则组 → 媒体库」；订阅未指定库时显示该类型默认库
     private func flow(for sub: API.SubscriptionView) -> String? {
-        let ruleSet = ruleSets.first { $0.id == sub.ruleSetId }?.name
+        let ruleSet = sub.selectionMode == "smart" ? "智能选择" : ruleSets.first { $0.id == sub.ruleSetId }?.name
         let library = sub.libraryId.flatMap { id in libraries.first { $0.id == id }?.name }
             ?? libraries.first { $0.isDefault && $0.kind == sub.media.kind }?.name
         let parts = [ruleSet, library].compactMap { $0 }

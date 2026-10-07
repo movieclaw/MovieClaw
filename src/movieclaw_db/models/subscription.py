@@ -5,6 +5,7 @@ from enum import StrEnum
 
 from sqlalchemy import (
     JSON,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -45,6 +46,7 @@ class DownloadAttemptStatus(StrEnum):
     ``wanted_item.info_hash`` 当作完整下载历史。
     """
 
+    SUBMITTING = "submitting"  # 智能选择已认领；先恢复同一提交意图，禁止换候选
     ACTIVE = "active"  # 当前主源，正常观察下载进度
     REPLACEMENT_PENDING = "replacement_pending"  # 主源无进度，等待/正在寻找替代源
     TRIAL = "trial"  # 替代源已投递，等待真实字节增长后晋升
@@ -74,6 +76,11 @@ class Subscription(TimestampMixin, table=True):
         UniqueConstraint("media_item_id", name="uq_subscription_media_item"),
         # 海报墙只按持久化时间倒序扫描；id 是同一时间戳下的稳定次序。
         Index("ix_subscription_last_activity", "last_activity_at", "id"),
+        CheckConstraint(
+            "(selection_mode = 'rules' AND rule_set_id IS NOT NULL AND smart_policy IS NULL) OR "
+            "(selection_mode = 'smart' AND rule_set_id IS NULL AND smart_policy IS NOT NULL)",
+            name="ck_subscription_selection_mode",
+        ),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -128,9 +135,15 @@ class Subscription(TimestampMixin, table=True):
     )
 
     # -- 载体规则（只持引用，不做 override）---------------------------------
-    rule_set_id: int = Field(
-        sa_column=Column(Integer, ForeignKey("rule_set.id"), nullable=False, index=True),
+    rule_set_id: int | None = Field(
+        default=None,
+        sa_column=Column(Integer, ForeignKey("rule_set.id"), nullable=True, index=True),
         description="引用的规则组；规则组被引用时禁删（服务层保证）",
+    )
+
+    selection_mode: str = Field(default="rules", index=True)
+    smart_policy: dict | None = Field(
+        default=None, sa_column=Column(JSON(none_as_null=True), nullable=True)
     )
 
     status: str = Field(
@@ -226,6 +239,7 @@ class WantedItem(TimestampMixin, table=True):
         ),
         # 被动匹配直达索引：种子 → 条目 → 未满足工单，一次查询不 join 订阅
         Index("ix_wanted_media_status", "media_item_id", "status"),
+        Index("ix_wanted_smart_due", "status", "in_scope", "next_selection_at"),
     )
 
     id: int | None = Field(default=None, primary_key=True)
@@ -279,6 +293,12 @@ class WantedItem(TimestampMixin, table=True):
         sa_column=Column(JSON, nullable=True),
         description="追新资源发布时间预测快照；NULL=尚无可靠预测",
     )
+
+    selection_state: dict | None = Field(
+        default=None, sa_column=Column(JSON(none_as_null=True), nullable=True)
+    )
+    selection_version: int = Field(default=0)
+    next_selection_at: datetime | None = Field(default=None, index=True)
 
     grabbed_at: datetime | None = Field(default=None, description="投递成功时间")
 
@@ -375,6 +395,9 @@ class SubscriptionDownloadAttempt(TimestampMixin, table=True):
     )
 
     info_hash: str = Field(index=True, description="BT infohash（统一小写）")
+    submission: dict | None = Field(
+        default=None, sa_column=Column(JSON(none_as_null=True), nullable=True)
+    )
     site_id: str | None = Field(default=None, description="候选来源站点")
     torrent_id: str | None = Field(default=None, description="站点内种子 ID")
     torrent_title: str = Field(default="", description="投递时的种子标题快照")

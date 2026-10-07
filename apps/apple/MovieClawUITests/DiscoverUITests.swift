@@ -34,7 +34,11 @@ final class DiscoverUITests: XCTestCase {
 
     @MainActor
     private func snapshot(_ name: String) {
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        let screenshot = XCUIScreen.main.screenshot()
+        if let directory = env["MC_SHOT_DIR"] {
+            try? screenshot.pngRepresentation.write(to: URL(fileURLWithPath: directory).appendingPathComponent("\(name).png"))
+        }
+        let attachment = XCTAttachment(screenshot: screenshot)
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
@@ -140,8 +144,62 @@ final class DiscoverUITests: XCTestCase {
         seven.tap()
         XCTAssertTrue(app.buttons["最低评分：7 分以上"].waitForExistence(timeout: 10), "胶囊应写出当前值")
         snapshot("筛选结果")
+        // 结果页复用同一类型菜单：增加、取消一个类型都必须真正更新筛选。
+        app.buttons["类型：剧情"].tap()
+        let comedy = app.buttons["喜剧"].firstMatch
+        XCTAssertTrue(comedy.waitForExistence(timeout: 5))
+        comedy.tap()
+        let combined = app.buttons["类型：剧情、喜剧"]
+        XCTAssertTrue(combined.waitForExistence(timeout: 10))
+        combined.tap()
+        app.buttons["剧情"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["类型：喜剧"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["筛选：喜剧"].exists)
+        snapshot("类型多选与取消")
         app.buttons["filtered-clear"].tap()
         XCTAssertTrue(app.otherElements["discover-hero"].waitForExistence(timeout: 30), "清空条件回到发现页")
+    }
+
+    /// 底栏「发现」总是回到无筛选首页，保留电影/剧集视角；筛选结果不是导航栈中的二级页。
+    @MainActor
+    func testDiscoverTabReturnsHome() throws {
+        let app = try launch(route: "/discover/tv?genres=18&rating=7")
+        XCTAssertTrue(app.staticTexts["筛选结果"].waitForExistence(timeout: 30))
+        let discoverTab = app.tabBars.buttons["发现"].firstMatch
+        XCTAssertTrue(discoverTab.waitForExistence(timeout: 10))
+        discoverTab.tap()
+        XCTAssertTrue(app.staticTexts["筛选结果"].waitForNonExistence(timeout: 10), "再次点发现应清空筛选")
+        XCTAssertTrue(app.buttons["筛选：全部"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["discover-title-menu"].label.contains("剧集"))
+        snapshot("发现-底栏返回首页")
+
+        // 离开后点回发现，同样回首页，而不是恢复先前的筛选结果。
+        pickGenre(app, app.buttons["discover-filter"], "剧情")
+        XCTAssertTrue(app.staticTexts["筛选结果"].waitForExistence(timeout: 15))
+        app.tabBars.buttons["订阅"].firstMatch.tap()
+        discoverTab.tap()
+        XCTAssertTrue(app.staticTexts["筛选结果"].waitForNonExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["筛选：全部"].waitForExistence(timeout: 10))
+
+        // 从筛选结果进入影片详情，再点底栏，需要同时退栈和清空根页面筛选。
+        pickGenre(app, app.buttons["discover-filter"], "剧情")
+        let card = app.buttons["poster-card"].firstMatch
+        XCTAssertTrue(card.waitForExistence(timeout: 30))
+        card.tap()
+        XCTAssertTrue(app.buttons["poster-card-subscribe"].waitForExistence(timeout: 5))
+        card.tap()
+        XCTAssertTrue(app.scrollViews["media-detail"].waitForExistence(timeout: 30))
+        discoverTab.tap()
+        XCTAssertTrue(app.scrollViews["media-detail"].waitForNonExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["筛选结果"].exists)
+        XCTAssertTrue(app.buttons["筛选：全部"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["discover-title-menu"].label.contains("剧集"))
+
+        pickFromTitleMenu(app, "豆瓣")
+        discoverTab.tap()
+        XCTAssertTrue(app.buttons["discover-title-menu"].label.contains("豆瓣"))
+        XCTAssertTrue(app.buttons["discover-title-menu"].label.contains("剧集"))
+        snapshot("发现-返回保留数据源")
     }
 
     /// 右上角筛选菜单 →「类型」二级菜单 → 选一项（等类型清单加载）
@@ -151,8 +209,9 @@ final class DiscoverUITests: XCTestCase {
         let genres = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "类型")).firstMatch
         XCTAssertTrue(genres.waitForExistence(timeout: 10), "筛选菜单里没有「类型」")
         genres.tap()
+        snapshot("类型菜单")
         let genre = app.buttons[name].firstMatch
-        XCTAssertTrue(genre.waitForExistence(timeout: 20), "类型菜单里没有「\(name)」")
+        XCTAssertTrue(genre.waitForExistence(timeout: 20), "类型菜单里没有「\(name)」\n\(app.debugDescription)")
         genre.tap()
     }
 

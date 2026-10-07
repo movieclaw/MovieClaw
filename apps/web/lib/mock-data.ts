@@ -176,7 +176,7 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     // Cookie 同步）→ 下载器 → 自动入库（下载完成的收尾）。
     label: "资源与下载",
     items: [
-      { id: "subscription", label: "订阅规则", description: "订阅规则组与投递模拟预演", icon: BookmarkIcon },
+      { id: "subscription", label: "订阅规则", description: "管理智能选择偏好与自定义规则", icon: BookmarkIcon },
       { id: "sites", label: "资源站点", description: "站点接入与鉴权、搜索分类、插件 Cookie 同步", icon: ServerIcon },
       { id: "downloaders", label: "下载器", description: "qBittorrent / Transmission 接入", icon: DownloadCircleIcon },
       { id: "import-watch", label: "自动入库", description: "监听下载目录，下载完成后自动整理进媒体库", icon: FolderGearIcon },

@@ -469,7 +469,7 @@ private struct SubsHomeSeeAllCard: View {
     }
 }
 
-/// 海报：只留一个状态小签 + 进行中剧集的当季收录细线，其余交给下面两行字。
+/// 海报只保留一个状态小签，收录数量放在下方文字中。
 /// 首页横滑与海报墙共用这一张，状态签与顺序两处一致；墙上多一行「规则组 → 媒体库」流向
 struct SubsHomePosterCard: View {
     let item: SubsHomeShelfItem
@@ -529,17 +529,6 @@ struct SubsHomePosterCard: View {
                 MeasuredRemoteImage(raw: item.sub.media.posterUrl)
                     .saturation(dimmed ? 0.35 : 1)
                     .brightness(dimmed ? -0.12 : 0)
-            }
-            .overlay(alignment: .bottom) {
-                if let progress = item.progress {
-                    ZStack(alignment: .bottom) {
-                        LinearGradient(colors: [.clear, .black.opacity(0.55)], startPoint: .top, endPoint: .bottom)
-                            .frame(height: 34)
-                        SubsHomeProgressLine(value: progress, tint: .white.opacity(0.92), height: 2.5)
-                            .padding(.horizontal, 9)
-                            .padding(.bottom, 8)
-                    }
-                }
             }
             .overlay(alignment: .topLeading) {
                 if let chip = item.chip {

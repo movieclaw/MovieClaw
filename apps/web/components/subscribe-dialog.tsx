@@ -6,7 +6,9 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 
 import { BrandLoader } from "@/components/brand-loader";
-import { CheckIcon, ListIcon, PlusIcon, TrashIcon, UpgradeIcon } from "@/components/icons";
+import { SmartProfileCard } from "@/components/smart-subscription-settings";
+import type { SmartProfile } from "@/lib/api/subscriptions";
+import { CheckIcon, ChevronRightIcon, ListIcon, PlusIcon, TrashIcon, UpgradeIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { PosterImage } from "@/components/poster-image";
 import { RuleSetEditorDialog, specSummary, upgradeTargetLabel } from "@/components/rule-sets-panel";
@@ -99,6 +101,10 @@ export function SubscribeDialog({
   const [selectedSeasons, setSelectedSeasons] = useState<Set<number>>(new Set());
   const [followFuture, setFollowFuture] = useState(false);
   const [ruleSetId, setRuleSetId] = useState<number | null>(null);
+  const [selectionMode, setSelectionMode] = useState<"smart" | "rules">("smart");
+  const [smartProfile, setSmartProfile] = useState<SmartProfile | null>(null);
+  const [optionsOpen, setOptionsOpen] = useState(false);
+  const [rangeExpanded, setRangeExpanded] = useState(false);
   // 快捷新建规则组（编辑器叠在本弹窗之上，保存后自动选中新组）
   const [creatingRuleSet, setCreatingRuleSet] = useState(false);
   // 管理员取消订阅：叠一层弹窗选"要不要连种子/媒体库文件一起删"
@@ -143,6 +149,10 @@ export function SubscribeDialog({
   /** 预检并按结果初始化表单默认值（候选确认后会带着 tmdbId 再次进入）。 */
   const runPrepare = useCallback(
     async (t: SubscribeTarget) => {
+      setSelectionMode(t.upgradeIntent ? "rules" : "smart");
+      setSmartProfile(null);
+      setOptionsOpen(!!t.upgradeIntent);
+      setRangeExpanded(false);
       setPrepared(null);
       setError(null);
       setUpgradeReport(null);
@@ -219,6 +229,7 @@ export function SubscribeDialog({
                 .filter((s) => s.season_number > 0 && s.aired_count > 0)
                 .map((s) => s.season_number);
         setSelectedSeasons(new Set(defaultSeasons));
+        setRangeExpanded(defaultSeasons.length === 0 && result.media?.status !== "Returning Series");
         setFollowFuture(
           !t.upgradeIntent &&
             resolvedKind === "tv" &&
@@ -261,7 +272,9 @@ export function SubscribeDialog({
         source_title_ref: target.titleRef.startsWith("douban:") ? target.titleRef : null,
         selected_seasons: [...selectedSeasons].sort((a, b) => a - b),
         follow_future: followFuture,
-        rule_set_id: canManageSubscriptions ? ruleSetId : null,
+        rule_set_id: selectionMode === "rules" && canManageSubscriptions ? ruleSetId : null,
+        selection_mode: selectionMode,
+        smart_profile_revision: selectionMode === "smart" ? smartProfile?.revision : undefined,
         library_id: canManageSubscriptions ? libraryId : null,
       });
       onChanged?.();
@@ -338,6 +351,7 @@ export function SubscribeDialog({
 
   const canSubmit = useMemo(() => {
     if (!prepared?.media || busy) return false;
+    if (selectionMode === "smart" && (!smartProfile?.preferences || smartProfile.kind !== prepared.media.kind)) return false;
     // 洗版变体必须选中一个带洗版目标的组，否则触发一轮洗版会被后端拒绝；
     // 成员不选组（按订阅当前的规则组洗版），不受此约束
     if (
@@ -358,9 +372,99 @@ export function SubscribeDialog({
     canManageSubscriptions,
     selectableRules,
     ruleSetId,
+    selectionMode,
+    smartProfile,
   ]);
 
   if (!target) return null;
+
+  const media = prepared?.media;
+  const kind = media?.kind ?? target.kind;
+  const existingId = prepared?.status === "ready" ? prepared.existing_subscription_id : null;
+  const showsForm = prepared?.status === "ready" && !existingId;
+  const showsRules = selectionMode === "rules" && canManageSubscriptions;
+  const pickedRule = selectableRules.find((r) => r.id === ruleSetId);
+  const chips = pickedRule ? specSummary(pickedRule.spec) : [];
+  const pickedLibrary = libraries.find((l) => l.id === libraryId);
+  const seasonNames = [...selectedSeasons].sort((a, b) => a - b).map((n) => n === 0 ? "特别篇" : `第 ${n} 季`);
+  const rangeSummary = seasonNames.length > 3 ? `已选 ${seasonNames.length} 季` : seasonNames.join("、");
+
+  const mediaSummary = <div className="flex items-center gap-3.5 px-1">
+    <div className="h-[84px] w-14 shrink-0 overflow-hidden rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10">
+      <PosterImage src={media?.poster_url ? imageUrl(media.poster_url) : undefined} width={56} alt={media?.title ?? target.title} className="size-full object-cover" />
+    </div>
+    <div className="min-w-0 flex-1">
+      <p className="line-clamp-2 text-title-sm font-semibold text-white">{media?.title ?? target.title}</p>
+      <p className="mt-1 text-sub text-[var(--text-muted)]">{[media?.year ?? target.year, kind === "movie" ? "电影" : "剧集"].filter(Boolean).join(" · ")}</p>
+      {showsForm && prepared?.movie_owned && <p className="mt-1.5 flex items-center gap-1 text-caption text-[var(--ok)]">
+        <CheckIcon className="size-3.5 shrink-0" />
+        {upgradeMode ? "媒体库已有，将按需洗版" : "媒体库已有，不会重复下载"}
+      </p>}
+    </div>
+  </div>;
+
+  // 桌面与手机共用同一份订阅信息层级，低频选项只在用户展开时显示。
+  const subscriptionForm = <div className="space-y-4">
+    {selectionMode === "smart" ? (
+      <SmartProfileCard kind={kind} onSaved={setSmartProfile} compact />
+    ) : (
+      <section className="rounded-2xl border border-[var(--line)] bg-[var(--surface-inset)] p-4" aria-label="规则选择">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="text-sub text-[var(--text-muted)]">{upgradeMode ? "洗版规则" : "规则模式"}</h3>
+          {canManageSubscriptions && <button type="button" className="min-h-11 -my-2 -mr-2 px-2 text-sub text-[var(--accent)]" onClick={() => setOptionsOpen(true)}>修改规则</button>}
+        </div>
+        <p className="mt-2 text-body font-semibold text-[var(--text)]">{pickedRule?.name ?? "按系统规则选择"}</p>
+        {upgradeMode && <p className="mt-2 text-sub text-[var(--text-muted)]">{pickedRule ? `洗到 ${upgradeTargetLabel(pickedRule.spec)}` : MEMBER_UPGRADE_RULE_HINT}</p>}
+        {pickedRule && chips.length === 0 && <p className="mt-2 text-sub text-[var(--warn)]">当前规则不限品质，可能选到低画质资源。</p>}
+      </section>
+    )}
+
+    {kind === "tv" && <section className="overflow-hidden rounded-2xl border border-[var(--line)]" aria-label="追踪范围">
+      <button type="button" aria-expanded={rangeExpanded} onClick={() => setRangeExpanded((value) => !value)} className="flex w-full items-center gap-3 p-4 text-left">
+        <span className="min-w-0 flex-1">
+          <span className="block text-sub text-[var(--text-muted)]">追踪范围</span>
+          <span className="mt-1 block text-ui font-medium text-[var(--text)]">{rangeSummary || (followFuture ? "仅追新集" : "选择要收录的季")}</span>
+          <span className="mt-1 block text-caption text-[var(--text-muted)]">{followFuture ? "自动追踪新集和新季" : "仅收录所选季"}</span>
+        </span>
+        <span className="text-sub text-[var(--text-muted)]">{rangeExpanded ? "收起" : "调整"}</span>
+        <ChevronRightIcon aria-hidden className={`size-3.5 shrink-0 text-[var(--text-faint)] transition-transform ${rangeExpanded ? "rotate-90" : ""}`} />
+      </button>
+      {rangeExpanded && <div className="border-t border-[var(--line)]">
+        <div className="max-h-64 divide-y divide-white/[0.07] overflow-y-auto">
+          {(prepared?.seasons ?? []).map((season) => <SeasonChoiceRow key={season.season_number} season={season} checked={selectedSeasons.has(season.season_number)} onToggle={() => toggleSeason(season.season_number)} />)}
+        </div>
+        <SheetToggleRow label="自动续订" description="新集与新季自动加入追踪" checked={followFuture} onChange={setFollowFuture} />
+      </div>}
+      {selectedSeasons.size === 0 && !followFuture && <p className="px-4 pb-3 text-sub text-[var(--warn)]">请选择至少一季，或开启自动续订。</p>}
+    </section>}
+
+    {(!upgradeMode || canManageSubscriptions) && <section aria-label="更多订阅选项">
+      <button type="button" aria-expanded={optionsOpen} onClick={() => setOptionsOpen((value) => !value)} className="flex min-h-11 w-full items-center gap-2 px-1 text-left text-sub text-[var(--text-muted)]">
+        <span className="shrink-0">更多选项</span>
+        <span className="min-w-0 flex-1 truncate text-right text-caption">{pickedLibrary ? `存入「${pickedLibrary.name}」` : "订阅方式"}</span>
+        <ChevronRightIcon aria-hidden className={`size-3.5 shrink-0 transition-transform ${optionsOpen ? "rotate-90" : ""}`} />
+      </button>
+      {optionsOpen && <SheetSection footer={
+        <>
+          {showsRules && ruleRouted && ruleSetId === ruleRouted.ruleSetId && !pickedRule?.is_default && <p>按适用范围自动选择规则组</p>}
+          {canManageSubscriptions && routed?.reason && libraryId === routed.libraryId && <p>{routed.reason}</p>}
+        </>
+      }>
+        {!upgradeMode && <SheetMenuRow label="选择方式" value={selectionMode} options={[{ value: "smart", label: "智能选择" }, { value: "rules", label: "规则模式" }]} onChange={(value) => setSelectionMode(value as "smart" | "rules")} />}
+        {showsRules && (selectableRules.length === 0 ? <SheetRow icon={<PlusIcon className="size-[18px]" />} label={upgradeMode ? "新建带洗版目标的规则组" : "新建规则组"} onClick={() => setCreatingRuleSet(true)} /> : <SheetMenuRow
+          label={upgradeMode ? "洗版规则" : "资源规则"}
+          value={ruleSetId === null ? "" : String(ruleSetId)}
+          options={selectableRules.map((rule) => ({ value: String(rule.id), label: `${rule.name}${rule.is_default ? "（默认）" : ""}` }))}
+          onChange={(value) => setRuleSetId(Number(value))}
+          extra={<SheetMenuAction icon={<PlusIcon className="size-4" />} label="新建规则组…" onSelect={() => setCreatingRuleSet(true)} />}
+        >
+          {chips.length > 0 && <span className="block text-caption leading-relaxed text-[var(--text-muted)]">{chips.join(" · ")}</span>}
+        </SheetMenuRow>)}
+        {canManageSubscriptions && libraries.length > 0 && <SheetMenuRow label="入库到" value={libraryId === null ? "" : String(libraryId)} options={libraries.map((library) => ({ value: String(library.id), label: `${library.name}${library.is_default ? "（默认）" : ""}` }))} onChange={(value) => setLibraryId(Number(value))} />}
+      </SheetSection>}
+    </section>}
+    {dispatchPreview && !dispatchPreview.ok && <DispatchPreviewNote preview={dispatchPreview} />}
+  </div>;
 
   // 叠在本弹层之上的二级弹窗（管理员取消订阅、快捷新建规则组）：桌面与手机两套形态共用
   const overlays = (
@@ -415,16 +519,6 @@ export function SubscribeDialog({
   }
 
   if (sheetForm) {
-    const media = prepared?.media;
-    const kind = media?.kind ?? target.kind;
-    const existingId = prepared?.status === "ready" ? prepared.existing_subscription_id : null;
-    const showsForm = prepared?.status === "ready" && !existingId;
-    const showsRules = canManageSubscriptions && (upgradeMode || ruleSets.length > 0);
-    const showsLibrary = canManageSubscriptions && libraries.length > 0;
-    const pickedRule = selectableRules.find((r) => r.id === ruleSetId);
-    const chips = pickedRule ? specSummary(pickedRule.spec) : [];
-    const newRuleSetLabel = "新建规则组…";
-    const poster = media?.poster_url;
     return (
       <>
         <SheetScaffold
@@ -442,48 +536,8 @@ export function SubscribeDialog({
               : undefined
           }
         >
-          {/* 条目卡：海报 + 片名 + 年份与类型，一眼确认订的是哪一部；加载中在这里转圈 */}
-          <div>
-            <div className="flex items-center gap-3.5 px-1">
-              <div className="h-[84px] w-14 shrink-0 overflow-hidden rounded-lg bg-white/[0.06] ring-1 ring-inset ring-white/10">
-                <PosterImage
-                  src={poster ? imageUrl(poster) : undefined}
-                  width={56}
-                  alt={media?.title ?? target.title}
-                  className="size-full object-cover"
-                />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="line-clamp-2 text-title-sm font-semibold text-white">
-                  {media?.title ?? target.title}
-                </p>
-                <p className="mt-1 text-sub text-[var(--text-muted)]">
-                  {[media?.year ?? target.year, kind === "movie" ? "电影" : "剧集"]
-                    .filter(Boolean)
-                    .join(" · ")}
-                </p>
-                {!prepared && !error && (
-                  <p className="mt-1.5 flex items-center gap-1.5 text-caption text-[var(--text-muted)]">
-                    <BrandLoader className="size-4" />
-                    正在获取条目信息…
-                  </p>
-                )}
-                {showsForm && prepared?.movie_owned && (
-                  <p className="mt-1.5 flex items-center gap-1 text-caption text-[var(--ok)]">
-                    <CheckIcon className="size-3.5 shrink-0" />
-                    {upgradeMode
-                      ? "媒体库已有，将体检现有版本并按需洗版"
-                      : "媒体库已有，订阅后不会重复下载"}
-                  </p>
-                )}
-              </div>
-            </div>
-            {upgradeMode && (
-              <p className="mt-2.5 px-1 text-caption leading-relaxed text-[var(--text-muted)]">
-                洗版通过订阅持续追踪更好的版本：确认后建立订阅并立即体检库里已有的每一集。
-              </p>
-            )}
-          </div>
+          {mediaSummary}
+          {!prepared && !error && <p className="flex items-center gap-2 text-sub text-[var(--text-muted)]"><BrandLoader className="size-4" />正在获取条目信息…</p>}
 
           {error && <SheetNotice tone="error">{error}</SheetNotice>}
 
@@ -571,121 +625,7 @@ export function SubscribeDialog({
             </>
           )}
 
-          {/* —— 订阅表单：季 / 自动续订 / 规则与入库，各成一组 —— */}
-          {showsForm && media?.kind === "tv" && (
-            <>
-              <SheetSection title="选择要收录的季" footer="勾选即要整季（含未播集）">
-                {(prepared?.seasons ?? []).map((s) => (
-                  <SeasonChoiceRow
-                    key={s.season_number}
-                    season={s}
-                    checked={selectedSeasons.has(s.season_number)}
-                    onToggle={() => toggleSeason(s.season_number)}
-                  />
-                ))}
-              </SheetSection>
-              <SheetSection footer="之后播出的新集、新一季自动加入追踪">
-                <SheetToggleRow
-                  label="自动续订"
-                  checked={followFuture}
-                  onChange={setFollowFuture}
-                />
-              </SheetSection>
-            </>
-          )}
-
-          {showsForm && upgradeMode && !canManageSubscriptions && (
-            <SheetSection title="洗版规则" footer={MEMBER_UPGRADE_RULE_HINT}>
-              <SheetRow label="按订阅当前的规则组洗版" />
-            </SheetSection>
-          )}
-
-          {showsForm && (showsRules || showsLibrary) && (
-            <SheetSection
-              footer={
-                <>
-                  {upgradeMode && <p>只列出配置了洗版目标的组</p>}
-                  {/* 路由选中的恰好是默认组时理由就是废话，只在选了非默认组时说明；
-                      组名已写在行里，不再复述后端理由原文 */}
-                  {showsRules &&
-                    ruleRouted &&
-                    ruleSetId === ruleRouted.ruleSetId &&
-                    pickedRule &&
-                    !pickedRule.is_default && (
-                      <p className="text-[var(--accent)]/90">按适用范围自动选择</p>
-                    )}
-                  {showsLibrary && routed && routed.reason && libraryId === routed.libraryId && (
-                    <p className="text-[var(--accent)]/90">自动选库：{routed.reason}</p>
-                  )}
-                  {showsLibrary && dispatchPreview && (
-                    <DispatchPreviewNote preview={dispatchPreview} />
-                  )}
-                </>
-              }
-            >
-              {showsRules &&
-                (upgradeMode && selectableRules.length === 0 ? (
-                  <>
-                    <SheetRow
-                      label={
-                        <span className="text-sub leading-6 text-[var(--text-muted)]">
-                          还没有配置洗版目标的规则组——新建一个，在编辑器里选择「洗到哪一档」即可。
-                        </span>
-                      }
-                    />
-                    <SheetRow
-                      icon={<PlusIcon className="size-[18px]" />}
-                      label={newRuleSetLabel}
-                      onClick={() => setCreatingRuleSet(true)}
-                    />
-                  </>
-                ) : (
-                  // 规则组行：行内写当前组 + 品质摘要，点开是单选菜单，末尾是低频的「新建规则组…」
-                  <SheetMenuRow
-                    label={upgradeMode ? "洗版规则" : "资源规则"}
-                    value={ruleSetId === null ? "" : String(ruleSetId)}
-                    options={selectableRules.map((r) => ({
-                      value: String(r.id),
-                      label: `${r.name}${r.is_default ? "（默认）" : ""}${
-                        upgradeMode ? ` · 洗到 ${upgradeTargetLabel(r.spec)}` : ""
-                      }`,
-                    }))}
-                    onChange={(v) => setRuleSetId(Number(v))}
-                    extra={
-                      <SheetMenuAction
-                        icon={<PlusIcon className="size-4" />}
-                        label={newRuleSetLabel}
-                        onSelect={() => setCreatingRuleSet(true)}
-                      />
-                    }
-                  >
-                    {pickedRule && (
-                      <span
-                        className={`block text-caption leading-relaxed ${
-                          chips.length === 0 ? "text-[var(--warn)]/90" : "text-[var(--text-muted)]"
-                        }`}
-                      >
-                        {/* 全不限是个危险默认：把风险讲在订阅之前 */}
-                        {chips.length === 0
-                          ? "该规则组不限任何条件——可能抓到低画质或无人做种的资源，建议在「设置 → 订阅规则 → 规则组」里加上分辨率与做种数限制"
-                          : chips.join(" · ")}
-                      </span>
-                    )}
-                  </SheetMenuRow>
-                ))}
-              {showsLibrary && (
-                <SheetMenuRow
-                  label="入库到"
-                  value={libraryId === null ? "" : String(libraryId)}
-                  options={libraries.map((l) => ({
-                    value: String(l.id),
-                    label: `${l.name}${l.is_default ? "（默认）" : ""}`,
-                  }))}
-                  onChange={(v) => setLibraryId(Number(v))}
-                />
-              )}
-            </SheetSection>
-          )}
+          {showsForm && subscriptionForm}
         </SheetScaffold>
         {overlays}
       </>
@@ -704,10 +644,6 @@ export function SubscribeDialog({
       <div className="border-b border-white/[0.07] px-6 pb-4 pt-6 max-md:px-5">
         <h2 className="text-title font-bold text-white">
           {upgradeMode ? "订阅并洗版" : "订阅追踪"}
-          <span className="ml-2 text-ui font-normal text-[var(--text-muted)]">
-            {target.title}
-            {target.year ? ` (${target.year})` : ""}
-          </span>
         </h2>
         {upgradeMode && (
           <p className="mt-1 text-sub leading-6 text-[var(--text-muted)]">
@@ -717,6 +653,7 @@ export function SubscribeDialog({
       </div>
 
       <div className="scroll-thin min-h-0 flex-1 overflow-y-auto p-6 max-md:p-5">
+          {mediaSummary}
           {/* —— 加载 / 错误 —— */}
           {!prepared && !error && (
             <div className="mt-8 flex items-center justify-center gap-2.5 pb-4 text-ui text-[var(--text-muted)]">
@@ -813,167 +750,7 @@ export function SubscribeDialog({
             </div>
           )}
 
-          {/* —— 订阅表单 —— */}
-          {prepared?.status === "ready" && !prepared.existing_subscription_id && (
-            <div className="mt-4 space-y-5">
-              {prepared.movie_owned && (
-                <p className="flex items-center gap-2 rounded-xl border border-[var(--ok)]/25 bg-[var(--ok)]/10 px-3.5 py-2.5 text-sub text-[var(--ok)]">
-                  <CheckIcon className="size-4 shrink-0" />
-                  {upgradeMode
-                    ? "媒体库里已有这部电影，将体检现有版本并按需洗版"
-                    : "媒体库里已有这部电影，订阅后不会重复下载"}
-                </p>
-              )}
-              {prepared.media?.kind === "tv" && (
-                <section>
-                  <h3 className="mb-2 text-ui font-semibold text-white/85">
-                    选择要收录的季
-                    <span className="ml-2 font-normal text-[var(--text-faint)]">
-                      勾选即要整季（含未播集）
-                    </span>
-                  </h3>
-                  <div className="space-y-1.5">
-                    {prepared.seasons.map((s) => (
-                      <SeasonRow
-                        key={s.season_number}
-                        season={s}
-                        checked={selectedSeasons.has(s.season_number)}
-                        onToggle={() => toggleSeason(s.season_number)}
-                      />
-                    ))}
-                  </div>
-
-                  <label className="mt-4 flex cursor-pointer items-center justify-between rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3">
-                    <span>
-                      <span className="block text-ui font-medium text-white/90">
-                        自动续订
-                      </span>
-                      <span className="mt-0.5 block text-caption text-[var(--text-faint)]">
-                        之后播出的新集、新一季自动加入追踪
-                      </span>
-                    </span>
-                    <input
-                      type="checkbox"
-                      checked={followFuture}
-                      onChange={(e) => setFollowFuture(e.target.checked)}
-                      className="size-4 accent-[var(--accent-2)]"
-                    />
-                  </label>
-                </section>
-              )}
-
-              {upgradeMode && !canManageSubscriptions && (
-                <section>
-                  <h3 className="mb-2 text-ui font-semibold text-white/85">洗版规则</h3>
-                  <p className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sub leading-6 text-[var(--text-muted)]">
-                    <span className="font-medium text-white/85">按订阅当前的规则组洗版。</span>
-                    {MEMBER_UPGRADE_RULE_HINT}
-                  </p>
-                </section>
-              )}
-
-              {canManageSubscriptions && (upgradeMode || ruleSets.length > 0) && (
-                <section>
-                  <div className="mb-2 flex items-center justify-between">
-                    <h3 className="text-ui font-semibold text-white/85">
-                      {upgradeMode ? "洗版规则" : "资源规则"}
-                      {upgradeMode && (
-                        <span className="ml-2 font-normal text-[var(--text-faint)]">
-                          只列出配置了洗版目标的组
-                        </span>
-                      )}
-                    </h3>
-                    <button
-                      type="button"
-                      onClick={() => setCreatingRuleSet(true)}
-                      className="text-sub font-medium text-[var(--accent)] hover:underline"
-                    >
-                      + 新建规则组
-                    </button>
-                  </div>
-                  {upgradeMode && selectableRules.length === 0 ? (
-                    <p className="rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sub leading-6 text-[var(--text-muted)]">
-                      还没有配置洗版目标的规则组——点右上角「+ 新建规则组」，在编辑器里选择「洗到哪一档」即可。
-                    </p>
-                  ) : (
-                  <select
-                    value={ruleSetId ?? undefined}
-                    onChange={(e) => setRuleSetId(Number(e.target.value))}
-                    className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5 text-ui text-white/90 outline-none focus:border-white/25 [&>option]:bg-[#181c28]"
-                  >
-                    {selectableRules.map((r) => (
-                      <option key={r.id} value={r.id}>
-                        {r.name}
-                        {r.is_default ? "（默认）" : ""}
-                        {upgradeMode ? ` · 洗到 ${upgradeTargetLabel(r.spec)}` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  )}
-                  {/* 适用范围徽标：说明"为什么默认选了这个组"；用户改组即消失 */}
-                  {ruleRouted && ruleSetId === ruleRouted.ruleSetId && (
-                    <p className="mt-1.5 text-caption leading-relaxed text-[var(--accent)]/90">
-                      自动选组：{ruleRouted.reason}
-                    </p>
-                  )}
-                  {/* 所选组的条件摘要：选规则不再是「盲选」 */}
-                  {(() => {
-                    const picked = selectableRules.find((r) => r.id === ruleSetId);
-                    if (!picked) return null;
-                    const chips = specSummary(picked.spec);
-                    return (
-                      <p className="mt-1.5 flex flex-wrap gap-1.5">
-                        {chips.length === 0 ? (
-                          // 全不限是个危险默认：第一批抓到的可能是低清枪版或
-                          // 零做种死种，用琥珀色把风险讲在订阅之前
-                          <span className="text-caption text-[var(--warn)]/90">
-                            该规则组不限任何条件——可能抓到低画质或无人做种的资源，
-                            建议在「设置 → 订阅规则 → 规则组」里加上分辨率与做种数限制
-                          </span>
-                        ) : (
-                          chips.map((chip) => (
-                            <span
-                              key={chip}
-                              className="rounded-md bg-white/[0.07] px-1.5 py-0.5 text-caption text-white/75"
-                            >
-                              {chip}
-                            </span>
-                          ))
-                        )}
-                      </p>
-                    );
-                  })()}
-                </section>
-              )}
-
-              {canManageSubscriptions && libraries.length > 0 && (
-                <section>
-                  <h3 className="mb-2 text-ui font-semibold text-white/85">入库到</h3>
-                  <select
-                    value={libraryId ?? undefined}
-                    onChange={(e) => setLibraryId(Number(e.target.value))}
-                    className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5 text-ui text-white/90 outline-none focus:border-white/25 [&>option]:bg-[#181c28]"
-                  >
-                    {libraries.map((l) => (
-                      <option key={l.id} value={l.id}>
-                        {l.name}
-                        {l.is_default ? "（默认）" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  {/* 收藏范围路由徽标：说明"为什么默认选了这个库"；用户改库即消失 */}
-                  {routed && routed.reason && libraryId === routed.libraryId && (
-                    <p className="mt-1.5 text-caption leading-relaxed text-[var(--accent)]/90">
-                      自动选库：{routed.reason}
-                    </p>
-                  )}
-                  {/* 投递路由预检：与后端真实投递同源判定，配置问题当场亮出 */}
-                  {dispatchPreview && <DispatchPreviewNote preview={dispatchPreview} />}
-                </section>
-              )}
-
-            </div>
-          )}
+          {showsForm && <div className="mt-5">{subscriptionForm}</div>}
       </div>
 
       {/* 底栏常驻（仅订阅表单态；管理态的按钮短，留在正文里） */}
@@ -1090,41 +867,8 @@ export function SeasonChoiceRow({
   );
 }
 
-/** 投递路由预检说明：选库即预演「下载会落到哪、能否自动入库」（桌面与手机两套形态共用）。 */
+/** 入库配置有问题时直接提示，不把下载路径放进日常订阅表单。 */
 function DispatchPreviewNote({ preview }: { preview: DispatchPreview }) {
-  if (!preview.ok) {
-    return (
-      <p className="mt-1.5 rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-caption leading-relaxed text-amber-200">
-        {preview.warning}
-      </p>
-    );
-  }
-  return (
-    <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
-      {preview.mode === "watch" ? (
-        preview.staging_path ? (
-          <>
-            将投递到自动入库的监听目录 <span className="font-mono">{preview.path}</span>
-            ，下载完成后整理到 <span className="font-mono">{preview.staging_path}</span>
-            ，文件进入媒体库根目录后自动入账
-          </>
-        ) : (
-          <>
-            将投递到自动入库的监听目录 <span className="font-mono">{preview.path}</span>
-            ，下载完成后自动整理入库
-          </>
-        )
-      ) : (
-        // 条目目录由后端按命名模板渲染（entry_dir）：模板可全局/
-        // 按库自定义，前端自己拼「标题 (年份)」会与真实落点不符
-        <>
-          将直接下载到库内目录{" "}
-          <span className="font-mono">
-            {(preview.entry_dir ?? preview.path)?.replace(/\/+$/, "")}
-          </span>
-          ，完成后自动入账
-        </>
-      )}
-    </p>
-  );
+  if (preview.ok || !preview.warning) return null;
+  return <p role="alert" className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-caption leading-relaxed text-amber-200">{preview.warning}</p>;
 }

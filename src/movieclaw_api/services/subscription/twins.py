@@ -131,9 +131,7 @@ def _as_twin(raw: dict, item: MediaItem, own_names: set[str]) -> dict | None:
 async def _load_twin_detail(client, twin: dict) -> None:
     """补齐孪生的 imdb_id 与片长；失败静默（少一条证据而已，不致命）。"""
     try:
-        data = await client.get(
-            f"movie/{twin['tmdb_id']}", {"append_to_response": "external_ids"}
-        )
+        data = await client.get(f"movie/{twin['tmdb_id']}", {"append_to_response": "external_ids"})
     except Exception:  # noqa: BLE001 -- 少一条证据不影响"存在孪生"这个结论
         return
     external = data.get("external_ids") or {}
@@ -150,28 +148,13 @@ async def ambiguous_verdict(
     identity,
     candidate,
     twins: list[dict],
-    may_ask: bool = True,
+    notify: bool = True,
 ) -> tuple[str, str]:
-    """歧义条目遇到"只靠片名年份认出来"的候选时怎么办。
-
-    返回 ``(处置, 理由)``，处置取值：
-
-    - ``"reject"``：有证据表明这个种子属于孪生那一部，直接否决且**不打扰用户**；
-    - ``"ask"``：证据不足，停下来问用户（告警在此点亮）。
-
-    ``may_ask=False``：本轮已经为这个订阅问过一次了，判定照做、活动照记，但
-    **不再点灯**。一部热门片一批能有几十个候选，逐个点灯等于刷屏。
-
-    走到这里的候选一定**没有外部 ID**：有的话，相等已经在信号一升格成
-    ``exact_id``（不进本函数），不等已经被 §5.2 的冲突反证拦下了。所以能用的
-    只剩体积与片长。
-    """
+    """身份不明的候选跳过并知会一次；明确属于另一部的候选直接拒绝。"""
     from movieclaw_matcher import better_explained_by_twin
 
     by_id = {t["tmdb_id"]: t for t in twins}
-    runtimes = {
-        t["tmdb_id"]: t["runtime_minutes"] for t in twins if t.get("runtime_minutes")
-    }
+    runtimes = {t["tmdb_id"]: t["runtime_minutes"] for t in twins if t.get("runtime_minutes")}
     loser = better_explained_by_twin(candidate, identity.runtime_minutes, runtimes)
     if loser is not None:
         other = by_id[loser]
@@ -180,53 +163,42 @@ async def ambiguous_verdict(
             f"（{other['year']}，tmdb={loser}），不像本条目"
         )
 
-    if may_ask:
-        await _ask_user(
-            session,
-            subscription_id=subscription_id,
-            item=item,
-            candidate=candidate,
-            twins=twins,
+    if notify:
+        await _inform_user(session, subscription_id=subscription_id, item=item)
+    return "skip", "存在同名影片，资源缺少可区分的影片编号，已跳过；订阅会继续寻找，无需处理"
+
+
+async def _inform_user(session: AsyncSession, *, subscription_id: int, item: MediaItem) -> None:
+    """每个订阅只知会一次。保留已自动处理的记录，不进入待办或点亮红点。"""
+    from sqlalchemy.dialects.sqlite import insert
+
+    from movieclaw_api.services.push import events
+    from movieclaw_api.services.system_notice import resolve_notices
+    from movieclaw_db.models import NoticeSeverity, NoticeStatus, SystemNotice, utcnow
+
+    # 旧版本曾把同一情况写成待确认告警，升级后自动消退。
+    await resolve_notices(session, prefix=f"subscription.ambiguous:{subscription_id}:")
+    now = utcnow()
+    title = f"《{item.title}》仍在寻找资源"
+    message = "发现同名影片，部分资源暂时无法确认，已跳过。订阅会继续寻找，无需你处理。"
+    inserted = await session.execute(
+        insert(SystemNotice)
+        .values(
+            dedupe_key=f"subscription.identity-skipped:{subscription_id}",
+            severity=NoticeSeverity.WARNING.value,
+            source="subscription",
+            title=title,
+            message=message,
+            payload={"subscription_id": subscription_id, "media_item_id": item.id},
+            status=NoticeStatus.RESOLVED.value,
+            resolved_at=now,
+            created_at=now,
+            updated_at=now,
         )
-    return "ask", "存在同名同年的另一部影片，且没有任何可区分的证据，已暂停并请你确认"
-
-
-async def _ask_user(
-    session: AsyncSession, *, subscription_id: int, item: MediaItem, candidate, twins: list[dict]
-) -> None:
-    """点亮一条待确认告警。
-
-    复用告警中心而不是新建一套交互：``upsert_notice`` 自带的两条语义正好
-    对上——同一 (订阅, 站点, 种子) 只存一行；用户 dismiss（"不是，别再推荐"）
-    之后**永久沉默**，不会每轮匹配都来烦一次。
-
-    两个按钮都用现成接口，前端不需要新端点：
-    - 「就是这部，下载」→ 手动选种（``POST /subscriptions/{id}/grab``），它本来
-      就绕过自动裁决，正是"用户显式选择高于一切"的既有通道；
-    - 「不是，别再推荐」→ 告警 dismiss（``POST /system/notices/{id}/dismiss``）。
-    """
-    from movieclaw_api.services.system_notice import upsert_notice
-    from movieclaw_db.models import NoticeSeverity
-
-    others = "、".join(f"《{t['title']}》（{t['year']}，tmdb={t['tmdb_id']}）" for t in twins)
-    await upsert_notice(
-        session,
-        dedupe_key=f"subscription.ambiguous:{subscription_id}:{candidate.site_id}:{candidate.torrent_id}",
-        severity=NoticeSeverity.WARNING,
-        source="subscription",
-        title=f"《{item.title}》有一个候选无法确认是不是你要的影片",
-        message=(
-            f"存在同名同年的另一部影片：{others}。"
-            f"来自 {candidate.site_id} 的「{candidate.title[:80]}」只标了片名和年份，"
-            "站点也没有标注影片编号，系统无法区分它属于哪一部，已暂停下载。"
-            "确认是你要的那部就点下载，不是的话点忽略，之后不再为这个种子打扰你。"
-        ),
-        payload={
-            "subscription_id": subscription_id,
-            "media_item_id": item.id,
-            "site_id": candidate.site_id,
-            "torrent_id": candidate.torrent_id,
-            "torrent_title": candidate.title,
-            "twins": twins,
-        },
+        .on_conflict_do_nothing(index_elements=["dedupe_key"])
     )
+    await session.commit()
+    if inserted.rowcount:
+        events.identity_skipped(
+            subscription_id=subscription_id, item_id=item.id, title=title, message=message
+        )

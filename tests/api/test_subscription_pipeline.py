@@ -1727,12 +1727,8 @@ _TWIN = {
 }
 
 
-async def test_ambiguous_movie_stops_and_asks_the_user(db, monkeypatch) -> None:
-    """有同名同年的兄弟、又没有任何可区分的证据 → 不投递，点亮待确认告警。
-
-    这正是 §0 现场在"站点没标影片编号"时的正确归宿：宁可停下来问一句，
-    也不要凭片名+年份蒙一个。
-    """
+async def test_ambiguous_movie_skips_and_informs_the_user(db, monkeypatch) -> None:
+    """身份不明只跳过资源，不暂停订阅、不产生待办。"""
     from movieclaw_db.models import SystemNotice
 
     _fake_detail(monkeypatch, imdb_id=None)  # 站点没标编号
@@ -1751,9 +1747,9 @@ async def test_ambiguous_movie_stops_and_asks_the_user(db, monkeypatch) -> None:
 
         assert (await _wanted_map(session, sub.id))[(0, 0)].status == WantedStatus.WANTED
         notice = (await session.execute(select(SystemNotice))).scalars().one()
-        assert notice.payload["site_id"] == "testsite"
-        assert notice.payload["torrent_id"] == "ambiguous"
-        assert notice.payload["twins"][0]["tmdb_id"] == 555
+        assert notice.status == "resolved"
+        assert notice.payload["subscription_id"] == sub.id
+        assert "无需你处理" in notice.message
         # 探测结果落缓存，下轮不再打 TMDB
         item = await session.get(MediaItem, sub.media_item_id)
         assert item.identity_twins == [_TWIN]
@@ -1824,12 +1820,8 @@ async def test_twin_probe_is_skipped_for_tv(db, monkeypatch) -> None:
         assert (await _wanted_map(session, sub.id))[(1, 1)].status == WantedStatus.GRABBED
 
 
-async def test_ambiguous_movie_asks_at_most_once_per_round(db, monkeypatch) -> None:
-    """一批几十个候选时最多问一次——逐个点灯等于给用户刷屏。
-
-    候选已按证据强度与评分排序，问最靠前的那个就够；后续候选照常评估
-    （其中带影片编号的仍能自动裁决出结果），只是不再重复发问。
-    """
+async def test_ambiguous_movie_informs_once_for_the_subscription(db, monkeypatch) -> None:
+    """多个候选与多轮评估只留一条已自动处理的知会记录。"""
     from movieclaw_db.models import SystemNotice
 
     _fake_detail(monkeypatch, imdb_id=None)
@@ -1851,7 +1843,9 @@ async def test_ambiguous_movie_asks_at_most_once_per_round(db, monkeypatch) -> N
         await evaluate_and_dispatch(session, rows, source="被动匹配")
 
         notices = (await session.execute(select(SystemNotice))).scalars().all()
-        assert len(notices) == 1
+        assert len(notices) == 1 and notices[0].status == "resolved"
+        await evaluate_and_dispatch(session, rows, source="重复评估")
+        assert len((await session.execute(select(SystemNotice))).scalars().all()) == 1
         # 每个候选仍各自留下了拒绝记录（可解释性不打折）
         rejected = [a for a in await _activities(session, sub.id) if a.type == "match_rejected"]
         assert len(rejected) == 5

@@ -5,6 +5,43 @@ import Testing
 /// 发现模块的纯逻辑：站内链接恢复视角（类型 × 数据源 × 筛选，同 Web `/discover/{type}?…`）
 @MainActor
 struct DiscoverLogicTests {
+    @Test func tabTapReturnsToRoot() {
+        let router = Router()
+        for tab in MainTab.allCases {
+            router.paths[tab] = [.settings]
+            router.selectTab(tab)
+            #expect(router.selectedTab == tab)
+            #expect(router.paths[tab] == [])
+        }
+    }
+
+    @Test func discoverTabRequestsHomeOnEveryTap() {
+        let router = Router()
+        let initial = router.discoverHomeRequest
+        router.selectTab(.discover)
+        let firstTap = router.discoverHomeRequest
+        #expect(firstTap != initial)
+        router.selectTab(.discover)
+        let repeatedTap = router.discoverHomeRequest
+        #expect(repeatedTap != firstTap)
+        router.selectTab(.subscriptions)
+        #expect(router.discoverHomeRequest == repeatedTap)
+        router.selectTab(.discover)
+        #expect(router.discoverHomeRequest != repeatedTap)
+    }
+
+    @Test func discoverLinkKeepsItsFilters() {
+        let router = Router()
+        let initial = router.discoverHomeRequest
+        #expect(router.open(webPath: "/discover/tv?genres=18&rating=7"))
+        #expect(router.selectedTab == .discover)
+        #expect(router.discoverHomeRequest == initial)
+        let viewpoint = DiscoverViewpoint(parameter: router.rootParameter?.value ?? "")
+        #expect(viewpoint.mediaType == "tv")
+        #expect(viewpoint.filters.genreIds == [18])
+        #expect(viewpoint.filters.ratingGte == 7)
+    }
+
     @Test func viewpointFromTypeOnly() {
         let viewpoint = DiscoverViewpoint(parameter: "tv")
         #expect(viewpoint.mediaType == "tv")
