@@ -186,6 +186,7 @@ async def unified_status(subscription_id: int):
 @app.post("/__lab/identity/{verified}")
 async def identity_case(verified: bool):
     from tests.api.smart_identity_fixture import seed_identity_case
+
     from movieclaw_db.engine import get_database
 
     async with get_database().session() as session:

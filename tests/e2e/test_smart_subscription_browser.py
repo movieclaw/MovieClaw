@@ -736,7 +736,11 @@ def test_settings_tabs_rule_editor_and_real_preview(smart_stack, width, height):
 def test_identity_skip_is_informational_on_desktop_and_mobile(smart_stack):
     base, api, root = smart_stack
     with pw.sync_playwright() as playwright:
-        options = {"channel": "chrome"} if Path("/Applications/Google Chrome.app").exists() else _chromium_kwargs()
+        options = (
+            {"channel": "chrome"}
+            if Path("/Applications/Google Chrome.app").exists()
+            else _chromium_kwargs()
+        )
         browser = playwright.chromium.launch(headless=True, **options)
         context = browser.new_context(viewport={"width": 1440, "height": 1000})
         credentials = {"username": "identity-test", "password": "isolated-test-only"}

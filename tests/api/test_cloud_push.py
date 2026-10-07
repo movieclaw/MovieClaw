@@ -2053,7 +2053,9 @@ def test_library_new_kinds_and_unrecognized_files(client: TestClient, world: Wor
     assert _open(relay.messages[-1], key)["title"] == "新片：流浪地球 3"
 
 
-def test_identity_skip_is_one_informational_push_without_actions(client: TestClient, world: World) -> None:
+def test_identity_skip_is_one_informational_push_without_actions(
+    client: TestClient, world: World
+) -> None:
     """同名资源知会经过真实登记、加密与中继；重复评估不再推、不产生待办。"""
     from movieclaw_api.services.subscription.twins import _inform_user
     from movieclaw_db.engine import get_database
@@ -2062,7 +2064,9 @@ def test_identity_skip_is_one_informational_push_without_actions(client: TestCli
     _connect(client, world)
     bearer = _app_login(client, _ADMIN, installation="identity-skip-install", name="iPhone")
     _, key = _register(client, bearer, token="b9" * 32)
-    subscription_id, item_id = _seed_subscription(client, kind="movie", title="奥德赛", creator=None, followers=[])
+    subscription_id, item_id = _seed_subscription(
+        client, kind="movie", title="奥德赛", creator=None, followers=[]
+    )
     relay = world.relays["push.test"]
     relay.messages.clear()
 

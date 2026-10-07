@@ -85,7 +85,7 @@ class SmartProfilePayload(BaseModel):
     preferences: SmartPreferences
 
 
-@router.get("/smart-profiles/{kind}", operation_id="subscriptions.smart_profile")
+@router.get("/smart-profiles/{kind}", operation_id="subscriptions.get-smart-profile")
 async def get_smart_profile(
     kind: Literal["movie", "tv"], session: AsyncSession = Depends(get_session)
 ):
@@ -97,7 +97,7 @@ async def get_smart_profile(
 @router.put(
     "/smart-profiles/{kind}",
     dependencies=[Depends(require_admin)],
-    operation_id="subscriptions.save_smart_profile",
+    operation_id="subscriptions.save-smart-profile",
 )
 async def put_smart_profile(
     kind: Literal["movie", "tv"],
@@ -115,7 +115,8 @@ class SmartWaitPayload(BaseModel):
 
 
 @router.post(
-    "/{subscription_id}/wanted/{wanted_id}/smart-wait", operation_id="subscriptions.smart_wait"
+    "/{subscription_id}/wanted/{wanted_id}/smart-wait",
+    operation_id="subscriptions.update-smart-wait",
 )
 async def update_smart_wait(
     subscription_id: int,

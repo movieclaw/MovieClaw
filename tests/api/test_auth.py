@@ -363,6 +363,8 @@ def fill_path_params(path: str) -> str:
         .replace("{douban_id}", "26266893")
         .replace("{collection_id}", "movie_top250")
         .replace("{subscription_id}", "1")
+        .replace("{wanted_id}", "1")
+        .replace("{kind}", "movie")
         .replace("{rule_set_id}", "1")
         .replace("{library_id}", "1")
         .replace("{media_item_id}", "1")
