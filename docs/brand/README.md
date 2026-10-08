@@ -46,6 +46,7 @@
 | 网页 | `apps/web/public/brand/`、`apps/web/app/favicon.ico`、`apps/web/public/favicon.svg`、`apple-touch-icon.png`、`icons/`、`splash/` | `.venv/bin/python scripts/brand/generate_web_assets.py`（启动图的设备清单读 `apps/web/lib/apple-splash.ts`） |
 | iOS | `apps/apple/MovieClaw/Assets.xcassets/AppIcon.appiconset/`：默认（不透明）、深色（透明底）、着色（灰阶）三种外观 | 直接替换三张 1024 PNG |
 | Apple TV | `apps/apple/MovieClawTV/Assets.xcassets/App Icon & Top Shelf Image.brandassets/`：分层图标（背景 + 标志两层，焦点视差）与 Top Shelf 横幅 | `.venv/bin/python scripts/brand/generate_tvos_assets.py`（macOS，字标经 Quick Look 从横版组合 SVG 取出） |
+| Android TV | `apps/android-tv/app/src/main/res/`：不透明 PNG 横幅（16:9，xhdpi 320×180）、方形 PNG 图标（xhdpi 160×160），mdpi 至 xxxhdpi 五档；API 26+ 为 108dp 自适应前景 + 纯黑背景 | `.venv/bin/python scripts/brand/generate_android_tv_assets.py`（macOS / Pillow，复用 tvOS 字标提取方法） |
 | macOS 转码器 | `docs/brand/transcoder/`：已锁定的三角循环母版；`BrandMark.swift`：运行时矢量徽标与菜单栏模板；`Resources/AppIcon.icns`：应用图标 | 更新专用母版和运行时轮廓后，在转码器目录运行 `scripts/render-app-icon.sh` |
 | 浏览器扩展 | `apps/extension/public/icon/{16,32,48,128}.png`（WXT 自动写进 manifest） | 从 `masters/favicon-1024.png` 缩放 |
 | README | 顶部横幅 `docs/images/banner.{zh,en}.jpg`（和官网分享卡片同一版式，2400×1260，自带深色底，GitHub 明暗主题都能用）；`docs/images/logo-dark.png` / `logo-light.png` 是横版组合（宽 720），README 已不再引用 | 换标志后照官网分享卡片的版式重出横幅 |
