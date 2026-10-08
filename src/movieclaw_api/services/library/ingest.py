@@ -1742,10 +1742,31 @@ async def _ingest_entry(
     # 合集已入库的各部作品：合集行没有单一身份，摘要行按这一列数「几部」
     collection_item_ids: list[int] | None = None
 
+    async def record_imported(intent_owner: str | None) -> None:
+        """入库完成的可靠事件（plugin-phase2a.md §4），随入库结论的那次提交成立。"""
+        if item is None or item.id is None:
+            return
+        from movieclaw_api import domain_events
+
+        await domain_events.record_ingest_imported(
+            session,
+            item=item,
+            library_id=dest_library.id if dest_library is not None else None,
+            batch_id=added_batch_id,
+            imported_names=imported_files,
+            info_hashes=[*(matched_hashes or []), *(consumable_hashes or [])],
+            rule_id=rule.id,
+            staging=staging is not None,
+            intent_owner=intent_owner,
+        )
+
     async def conclude(
         status: IngestStatus, message: str, imported: int = 0
     ) -> IngestEntry | _GroupOutcome:
         if grouped:
+            # 电影合集的一部：外层合集落账时一起提交
+            if status is IngestStatus.IMPORTED and imported:
+                await record_imported(None)
             return _GroupOutcome(status, message, imported, item, list(imported_files))
         if status is IngestStatus.IMPORTED and not snap.fingerprint.startswith("ready:"):
             # 整树结论成功 = 条目当前所有文件都已处理：仍挂着的分批 blocked
@@ -1780,6 +1801,7 @@ async def _ingest_entry(
                     entry.name,
                     stale.id,
                 )
+        intent_owner: str | None = None
         if status is IngestStatus.IMPORTED and item is not None and item.id is not None:
             source_hashes = matched_hashes if consumable_hashes is None else consumable_hashes
             hashes = sorted({value.lower() for value in source_hashes or [] if value})
@@ -1797,6 +1819,7 @@ async def _ingest_entry(
                     .all()
                 )
                 for intent in intents:
+                    intent_owner = intent_owner or intent.owner
                     await session.delete(intent)
                     logger.info("手动下载身份锚已随成功入库消费：hash=%s", intent.info_hash)
         # 手动下载的人等的就是这一刻：按种子对上是谁点的，入库结论提交之后推「入库完成」
@@ -1818,6 +1841,8 @@ async def _ingest_entry(
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("对照手动下载的推送对象失败（已忽略）")
+        if status is IngestStatus.IMPORTED:
+            await record_imported(intent_owner)
         saved = await _save_record(
             session,
             dest_library,

@@ -3264,6 +3264,8 @@ async def delete_item_files(
     library: Library,
     media_item_id: int,
     files: list[LibraryFile],
+    *,
+    before_commit: Callable[[set[int]], Awaitable[None]] | None = None,
 ) -> DeleteResult:
     """把条目从库中**彻底删除**：磁盘上的条目目录（视频+NFO+海报+字幕）
     整个清掉，台账行随之删除。
@@ -3354,6 +3356,9 @@ async def delete_item_files(
             await session.delete(row)
     result.rows_deleted = len(deleted_row_ids)
     result.pending_purge = staging.dirs
+    if before_commit is not None:
+        # 删除事件与删行同一次提交成立（plugin-phase2a.md §4）
+        await before_commit(deleted_row_ids)
     await session.commit()
     if result.rows_deleted:
         await LibraryRepository(session).refresh_stats([library.id])
@@ -3375,6 +3380,8 @@ async def delete_single_file(
     library: Library,
     row: LibraryFile,
     item_rows: list[LibraryFile],
+    *,
+    before_commit: Callable[[set[int]], Awaitable[None]] | None = None,
 ) -> DeleteResult:
     """从磁盘删除条目的**单个文件**（多版本洗版 / 删某一集重下的出口）。
 
@@ -3391,13 +3398,18 @@ async def delete_single_file(
     """
     assert row.media_item_id is not None
     if len(item_rows) == 1:
-        return await delete_item_files(session, library, row.media_item_id, item_rows)
+        return await delete_item_files(
+            session, library, row.media_item_id, item_rows, before_commit=before_commit
+        )
 
     result = DeleteResult()
     assert library.id is not None
     if row.state == FileState.MISSING:
         await session.delete(row)
         result.rows_deleted = 1
+        if before_commit is not None:
+            assert row.id is not None
+            await before_commit({row.id})
         await session.commit()
         await LibraryRepository(session).refresh_stats([library.id])
         return result
@@ -3425,6 +3437,9 @@ async def delete_single_file(
         result.freed_bytes = row.size_bytes
         result.pending_purge = staging.dirs
         await session.delete(row)
+        if before_commit is not None:
+            assert row.id is not None
+            await before_commit({row.id})
         await session.commit()
         await LibraryRepository(session).refresh_stats([library.id])
         logger.info(

@@ -2773,6 +2773,39 @@ async def test_ingest_records_the_source_torrent_of_each_file(db, tmp_path, monk
 
 
 @pytest.mark.asyncio
+async def test_ingest_records_imported_event_for_subscribed_plugins(db, tmp_path, monkeypatch):
+    """有插件订阅「入库完成」时，入库结论提交的同时写下事件：条目、新入账文件（带来源种子）、hash。"""
+    from movieclaw_api.services import durable_events
+    from movieclaw_db.models import DomainEvent, EventConsumer
+
+    async with db.session() as session:
+        session.add(EventConsumer(consumer_id="test:ingest", event_name="library.ingest.imported"))
+        await session.commit()
+    durable_events.reset_subscribed()
+    try:
+        await _ingest_shared_folder(
+            db,
+            tmp_path,
+            monkeypatch,
+            deliveries={9: ("hash-e09", "t09")},
+            torrents={"hash-e09": "ep9.mkv"},
+            statuses=True,
+        )
+        async with db.session() as session:
+            [row] = (await session.execute(select(DomainEvent))).scalars().all()
+    finally:
+        durable_events.reset_subscribed()
+    payload = row.payload
+    assert row.name == "library.ingest.imported"
+    assert payload["media"]["title"] == "测试剧集"
+    assert [(f["season"], f["episode"], f["info_hash"]) for f in payload["files"]] == [
+        (1, 9, "hash-e09")
+    ]
+    assert payload["info_hashes"] == ["hash-e09"]
+    assert payload["staging"] is False and payload["intent_owner"] is None
+
+
+@pytest.mark.asyncio
 async def test_explicit_e00_pilot_skipped_without_blocking(db, tmp_path, monkeypatch):
     """显式 E00（先导/特辑占位）不入库但也不阻塞：正片照常入库、结论 imported、
     文案如实说明——不再误报「解析不出集号」把含 E00 的季包钉在待处理。"""

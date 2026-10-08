@@ -23,6 +23,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api import domain_events
 from movieclaw_api.api.deps import require_admin, require_login
 from movieclaw_api.api.routes.images import WIDTH_QUERY, requested_width, sized_file
 from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
@@ -3050,7 +3051,10 @@ async def delete_library_item(
     library = await service.get(library_id)
     await _assert_not_busy(session, library.name, library_id)
     item, rows = await _item_rows(session, library_id, media_item_id)
-    result = await delete_item_files(session, library, media_item_id, rows)
+    record_deleted = await domain_events.deletion_recorder(session, library_id, item, rows)
+    result = await delete_item_files(
+        session, library, media_item_id, rows, before_commit=record_deleted
+    )
 
     # 通知下游媒体服务器刷新库（未配置时空转；失败只告警不阻断）
 
@@ -3100,7 +3104,8 @@ async def delete_library_file(
     if row is None:
         raise NotFoundException(f"台账文件不存在或不属于「{item.title}」：id={file_id}")
     file_name = PurePath(row.file_path).name
-    result = await delete_single_file(session, library, row, rows)
+    record_deleted = await domain_events.deletion_recorder(session, library_id, item, rows)
+    result = await delete_single_file(session, library, row, rows, before_commit=record_deleted)
 
     # 与整条目删除同一套善后：通知媒体服务器刷新；条目在所有库都没文件了
     # 且没订阅时连同图片资产一并清掉；磁盘回收挪到响应之后

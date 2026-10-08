@@ -106,6 +106,11 @@ def _arm_wake(session: AsyncSession) -> None:
     event.listen(sync, "after_commit", after_commit, once=True)
 
 
+async def wanted(session: AsyncSession, evt: Event[Any, Any]) -> bool:
+    """有没有插件订阅这个事件；没有就不必拍快照（零开销的前半段）。"""
+    return evt.name in await _subscribed_names(session)
+
+
 async def record(session: AsyncSession, evt: Event[Any, Any], payload: Any) -> bool:
     """在业务会话里写一条可靠事件（不提交）。返回是否写入（没有消费者时不写）。"""
     if evt.delivery is not Delivery.DURABLE:

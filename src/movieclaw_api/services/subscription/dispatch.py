@@ -535,6 +535,21 @@ async def dispatch(
                 .where(WantedItem.id == wanted.id)
                 .values(grab_title=grab_note, updated_at=grab_ts)
             )
+    if not dry_run:
+        # 可靠事件随下面这条抓取动态一起提交（plugin-phase2a.md §4）；模拟投递不是事实，不发
+        from movieclaw_api import domain_events
+
+        await domain_events.record_subscription_units(
+            session,
+            domain_events.SUBSCRIPTION_DOWNLOAD_STARTED,
+            subscription_id=subscription.id,
+            item=item,
+            units=[(w.season_number, w.episode_number) for w in all_targets],
+            info_hash=submitted_info_hash,
+            site_id=candidate.site_id,
+            torrent_title=candidate.title,
+            upgrade=bool(upgrade_rows and not claimed),
+        )
     await repo.add_activity(
         SubscriptionActivity(
             subscription_id=subscription.id,
