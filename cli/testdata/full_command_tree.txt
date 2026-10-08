@@ -7,6 +7,8 @@
 # 装配完成后的整棵命令树（精选层 + 生成层，含分组名），一行一条命令路径。
 activity
 app
+app plugins
+app plugins list
 app port
 app port set
 app restart

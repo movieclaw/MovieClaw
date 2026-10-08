@@ -1,3 +1,4 @@
+app plugins list
 app port set
 app restart
 app set
