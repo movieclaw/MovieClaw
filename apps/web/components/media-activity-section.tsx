@@ -34,7 +34,7 @@ import {
   type MediaActivityTarget,
 } from "@/lib/api/playback";
 import { loadActivityScope, saveActivityScope } from "@/lib/activity-scope";
-import { deliveryColor, deliveryDetail, shortDeviceLabel } from "@/lib/activity-overview";
+import { deliveryColor, deliveryDetail, deviceLabel } from "@/lib/activity-overview";
 import { formatBytes } from "@/lib/format";
 import { imageUrl } from "@/lib/image-proxy";
 import { WATCH_VIEW_LABELS, type WatchViewName } from "@/lib/task-center";
@@ -152,11 +152,6 @@ function unitLabel(media: MediaActivityTarget): string | null {
   const season = String(media.season_number).padStart(2, "0");
   const episode = String(media.episode_number).padStart(2, "0");
   return `S${season}E${episode}`;
-}
-
-function deviceLabel(client: string, deviceName: string): string {
-  if (client && deviceName && client !== deviceName) return `${client} · ${deviceName}`;
-  return deviceName || client || "未知设备";
 }
 
 /** 元信息行：过滤空片段后用「·」连接，避免设备名或客户端缺失时留下悬空分隔符。 */
@@ -435,7 +430,7 @@ export function SessionCard({
             }
           />
         </div>
-        <MetaLine parts={[session.member_name, shortDeviceLabel(device)]} />
+        <MetaLine parts={[session.member_name, device]} />
         <div className="tnum flex min-w-0 items-center gap-1.5 whitespace-nowrap text-caption">
           {delivery && tone && (
             <span

@@ -14,6 +14,7 @@ import {
   type MediaActivityTarget,
   type PlaybackLogEntry,
 } from "@/lib/api/playback";
+import { deviceLabel } from "@/lib/activity-overview";
 import { formatRuntimeMinutes } from "@/lib/format";
 import { imageUrl } from "@/lib/image-proxy";
 import { formatClockTime, formatTimelineDayLabel, timelineDayKey } from "@/lib/time";
@@ -234,7 +235,7 @@ function HistorySkeleton() {
 
 function HistoryRow({ entry }: { entry: PlaybackLogEntry }) {
   const live = entry.ended_at === null;
-  const device = [entry.client, entry.device_name].filter(Boolean).join(" · ");
+  const device = deviceLabel(entry.client, entry.device_name);
   return (
     <div className="flex items-center gap-3 px-4 py-2.5 max-md:px-3.5">
       <span className="tnum w-11 shrink-0 text-caption text-white/40">

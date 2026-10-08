@@ -176,7 +176,7 @@ struct PlaybackHistoryRow: View {
             ActivityPoster(media: entry.media, width: 28, height: 42, radius: 6)
             VStack(alignment: .leading, spacing: 2) {
                 ActivityTitleText(media: entry.media, showYear: false)
-                Text(WatchFormat.metaLine([entry.memberName, WatchFormat.metaLine([entry.client, entry.deviceName])]))
+                Text(WatchFormat.metaLine([entry.memberName, WatchFormat.deviceLabel(client: entry.client, deviceName: entry.deviceName)]))
                     .font(.caption).foregroundStyle(Theme.textFaint).lineLimit(1)
             }
             VStack(alignment: .trailing, spacing: 2) {

@@ -127,4 +127,17 @@ struct ActivityLogicTests {
         ])
         #expect(NoticeCenterView.href(cloud) == "/settings/cloud")
     }
+
+    /// 播放设备名：去「MovieClaw 」品牌前缀、设备名以客户端名打头时不重复（口径同 Web `deviceLabel`）
+    @Test func deviceLabel() {
+        #expect(WatchFormat.deviceLabel(client: "MovieClaw Web", deviceName: "Safari · iPhone") == "Web · Safari · iPhone")
+        #expect(WatchFormat.deviceLabel(client: "Infuse", deviceName: "Apple TV") == "Infuse · Apple TV")
+        #expect(WatchFormat.deviceLabel(client: "MovieClaw Apple TV", deviceName: "Apple TV · tvOS 27.0") == "Apple TV · tvOS 27.0")
+        #expect(WatchFormat.deviceLabel(client: "MovieClaw Android", deviceName: "Android 16") == "Android 16")
+        #expect(WatchFormat.deviceLabel(client: "MovieClaw Android TV", deviceName: "BRAVIA 4K VH2 · Android 12")
+            == "Android TV · BRAVIA 4K VH2 · Android 12")
+        #expect(WatchFormat.deviceLabel(client: "MovieClaw Android", deviceName: "AndroidTV") == "Android · AndroidTV")
+        #expect(WatchFormat.deviceLabel(client: "", deviceName: "") == "未知设备")
+        #expect(WatchFormat.deviceLabel(client: "Infuse", deviceName: "") == "Infuse")
+    }
 }
