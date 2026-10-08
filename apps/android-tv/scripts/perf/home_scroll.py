@@ -98,14 +98,21 @@ def ensure_device(avd: str | None) -> None:
     raise SystemExit("模拟器没能启动")
 
 
-def wait_quiet(max_load: float) -> None:
-    """宿主机上别的任务把负载压满时先等等：模拟器的 CPU 被抢走，数字会成倍变差，还可能被看门狗杀掉"""
+def cpu_idle() -> float:
+    """宿主机此刻的 CPU 空闲百分比（top 采两次取后一次；负载平均值反应慢，还把等 IO 的进程算进去）"""
+    out = subprocess.run(["top", "-l", "2", "-n", "0", "-s", "1"], capture_output=True, text=True).stdout
+    lines = [l for l in out.splitlines() if l.startswith("CPU usage")]
+    return float(lines[-1].rsplit(",", 1)[1].split("%")[0]) if lines else 100.0
+
+
+def wait_quiet(min_idle: float) -> None:
+    """宿主机上别的任务把 CPU 吃满时先等：模拟器的 CPU 被抢走，数字会成倍变差，还可能被看门狗杀掉"""
     waited = 0
-    while os.getloadavg()[0] > max_load and waited < 1800:
-        if waited % 60 == 0:
-            print(f"宿主机负载 {os.getloadavg()[0]:.0f}，等降到 {max_load:.0f} 以下……", flush=True)
-        time.sleep(10)
-        waited += 10
+    while (idle := cpu_idle()) < min_idle and waited < 7200:
+        if waited % 300 == 0:
+            print(f"宿主机 CPU 空闲 {idle:.0f}%，等到 {min_idle:.0f}% 以上……", flush=True)
+        time.sleep(20)
+        waited += 20
 
 
 def launch(compile_mode: str, settle: float) -> None:
@@ -285,7 +292,7 @@ def main() -> int:
     ap.add_argument("--compile", default="verify", choices=["verify", "speed-profile", "speed"])
     ap.add_argument("--settle", type=float, default=8.0, help="冷启动后等首屏就绪的秒数")
     ap.add_argument("--out", type=Path, default=Path("/tmp/atv-perf"))
-    ap.add_argument("--max-load", type=float, default=14, help="宿主机 1 分钟负载超过它就先等（默认 14，按 12 核的 Mac 定）")
+    ap.add_argument("--min-idle", type=float, default=40, help="宿主机 CPU 空闲低于这个百分比就先等（默认 40）")
     ap.add_argument("--avd", help="设备掉线时用这个模拟器名重新启动（不给就直接退出）")
     ap.add_argument("--reanalyze", type=Path, help="不录，只重新分析这个目录里已有的 trace（<标签>-<场景>-<轮>.pftrace）")
     args = ap.parse_args()
@@ -309,7 +316,7 @@ def main() -> int:
                 for scenario in scenarios:
                     for attempt in range(3):
                         try:
-                            wait_quiet(args.max_load)
+                            wait_quiet(args.min_idle)
                             ensure_device(args.avd)
                             if apk and not installed:
                                 adb("install", "-r", apk)
@@ -330,7 +337,7 @@ def main() -> int:
                     entry = {
                         "label": label, "scenario": scenario, "run": run, "weak": args.weak, "compile": args.compile,
                         # 宿主机负载：同一台 Mac 上别的任务忙起来时数字会整体变差，只比较同一时段交替跑出的结果
-                        "load1": round(os.getloadavg()[0], 1), "metrics": metrics,
+                        "load1": round(os.getloadavg()[0], 1), "idle": round(cpu_idle()), "metrics": metrics,
                     }
                     results.append(entry)
                     with log.open("a") as f:
