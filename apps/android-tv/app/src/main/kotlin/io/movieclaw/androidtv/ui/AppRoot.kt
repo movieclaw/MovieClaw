@@ -13,6 +13,9 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import io.movieclaw.androidtv.ui.components.Spinner
 import io.movieclaw.androidtv.AccountSession
 import io.movieclaw.androidtv.AppGraph
@@ -44,7 +47,17 @@ fun AppRoot(graph: AppGraph, args: LaunchArgs) {
     }
     McTheme {
         CompositionLocalProvider(LocalGraph provides graph) {
-            Box(Modifier.fillMaxSize().background(McColors.Background)) {
+            // 返回键一律交给系统的返回分发（各页的 BackHandler 按层级生效，同 tvOS 菜单键）。
+            // Compose 默认把返回键当成「焦点退出当前组」：焦点在按钮行这类焦点组里时，第一下只把焦点退到组上、
+            // 按键被吞掉，页面退不回去
+            val backDispatcher = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+            Box(
+                Modifier.fillMaxSize().background(McColors.Background).onPreviewKeyEvent { event ->
+                    if (event.nativeKeyEvent.keyCode != android.view.KeyEvent.KEYCODE_BACK || backDispatcher == null) return@onPreviewKeyEvent false
+                    if (event.type == KeyEventType.KeyUp) backDispatcher.onBackPressed()
+                    true
+                },
+            ) {
                 Crossfade(phase is AppModel.Phase.Ready, label = "phase") { ready ->
                     val current = phase
                     when {

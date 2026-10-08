@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,7 +35,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -52,6 +55,7 @@ import io.movieclaw.androidtv.ui.theme.McMetrics
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
 import io.movieclaw.androidtv.ui.theme.ptSp
+import io.movieclaw.androidtv.ui.components.layerFocus
 
 data class ShowcaseEntry(
     val id: Long,
@@ -67,7 +71,7 @@ data class ShowcaseEntry(
 /**
  * 选中展开的海报行（TVShowcaseShelf）：平时 300×450 海报，焦点所在那张横向展开到 800 宽、换成背景图 + 片名 Logo；
  * 行下面写这一部的「类型 · 年份 · 片长 · 分级」与两行简介。焦点那张滚到左边 80 处。
- * 从上下切进这一行时落回上次停的那张（focusRestorer）。
+ * 从上下切进这一行只落在上次停的那张（没停过就第一张；上次停在「查看全部」就落它），不按位置挑最近的（同 Apple 端）。
  */
 @OptIn(ExperimentalComposeUiApi::class)
 @Composable
@@ -78,9 +82,15 @@ fun ShowcaseShelf(
     onOpen: (ShowcaseEntry) -> Unit,
     onRowFocus: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
-    trailing: LazyListScope.() -> Unit = {},
+    /** 行末「查看全部」：把给的 Modifier 挂到它身上，入口才认得它 */
+    trailing: LazyListScope.(Modifier) -> Unit = {},
 ) {
     var focusedId by remember { mutableStateOf<Long?>(null) }
+    var remembered by remember { mutableStateOf<Long?>(null) }
+    var leftAtTrailing by remember { mutableStateOf(false) }
+    val cardFocus = remember { mutableMapOf<Long, FocusRequester>() }
+    val trailingFocus = remember { FocusRequester() }
+    val trailingModifier = Modifier.focusRequester(trailingFocus).onFocusChanged { if (it.hasFocus) leftAtTrailing = true }
     var rowFocused by remember { mutableStateOf(false) }
     val color by animateColorAsState(if (rowFocused) McColors.Text else McColors.Secondary, tween(200), label = "showcase-title")
     val state = rememberLazyListState()
@@ -103,15 +113,40 @@ fun ShowcaseShelf(
         io.movieclaw.androidtv.ui.components.TvScrollSpec(80) {
         LazyRow(
             state = state,
-            modifier = Modifier.fillMaxWidth().focusRestorer().focusGroup(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .focusProperties {
+                    enter = {
+                        if (leftAtTrailing) trailingFocus
+                        else (remembered ?: entries.firstOrNull()?.id)?.let { cardFocus[it] } ?: FocusRequester.Default
+                    }
+                }
+                .focusGroup(),
             // 右侧留出 1920 − 80 − 800 的余量：最后一张也能滚到左边展开
             contentPadding = PaddingValues(start = McMetrics.Edge, end = (1920 - 80 - 800).pt, top = 20.pt, bottom = 20.pt),
             horizontalArrangement = Arrangement.spacedBy(McMetrics.CardSpacing),
         ) {
             itemsIndexed(entries, key = { _, e -> e.id }) { _, entry ->
-                ShowcaseCard(entry, details[entry.id], expanded = focusedId == entry.id, onFocus = { if (it) focusedId = entry.id }) { onOpen(entry) }
+                val requester = remember { FocusRequester() }
+                DisposableEffect(entry.id) {
+                    cardFocus[entry.id] = requester
+                    onDispose { if (cardFocus[entry.id] === requester) cardFocus.remove(entry.id) }
+                }
+                ShowcaseCard(
+                    entry,
+                    details[entry.id],
+                    expanded = focusedId == entry.id,
+                    modifier = Modifier.focusRequester(requester),
+                    onFocus = {
+                        if (it) {
+                            focusedId = entry.id
+                            remembered = entry.id
+                            leftAtTrailing = false
+                        }
+                    },
+                ) { onOpen(entry) }
             }
-            trailing()
+            trailing(trailingModifier)
         }
         }
         Box(Modifier.padding(horizontal = McMetrics.Edge)) {
@@ -127,13 +162,14 @@ fun ShowcaseShelf(
 }
 
 @Composable
-private fun ShowcaseCard(entry: ShowcaseEntry, detail: LibraryItemShowcaseView?, expanded: Boolean, onFocus: (Boolean) -> Unit, onClick: () -> Unit) {
+private fun ShowcaseCard(entry: ShowcaseEntry, detail: LibraryItemShowcaseView?, expanded: Boolean, modifier: Modifier, onFocus: (Boolean) -> Unit, onClick: () -> Unit) {
     val width by animateDpAsState(if (expanded) McMetrics.ShowcaseExpandedWidth else McMetrics.ShowcasePosterWidth, tween(300), label = "showcase-width")
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(McMetrics.CardCorner)
     Surface(
         onClick = onClick,
-        modifier = Modifier
+        modifier = modifier
+            .layerFocus()
             .width(width)
             .height(McMetrics.ShowcaseHeight)
             .onFocusChanged {
@@ -181,11 +217,12 @@ private fun ShowcaseCard(entry: ShowcaseEntry, detail: LibraryItemShowcaseView?,
 @Composable
 private fun ShowcaseInfo(entry: ShowcaseEntry, detail: LibraryItemShowcaseView?) {
     Column(verticalArrangement = Arrangement.spacedBy(20.pt)) {
-        Text(showcaseMeta(entry, detail), style = McType.size(27, FontWeight.SemiBold), maxLines = 1)
+        // 行高照 tvOS 的 SF 量的（元信息一行 32、简介行距 36）：Noto 默认行框高，整行会往下多占二十来点
+        Text(showcaseMeta(entry, detail), style = McType.size(27, FontWeight.SemiBold).copy(lineHeight = 32.ptSp), maxLines = 1)
         detail?.overview?.trim()?.takeIf { it.isNotEmpty() }?.let {
             Text(
                 it,
-                style = McType.size(25).copy(lineHeight = 39.ptSp),
+                style = McType.size(25).copy(lineHeight = 36.ptSp),
                 color = Color.White.copy(alpha = 0.82f),
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis,

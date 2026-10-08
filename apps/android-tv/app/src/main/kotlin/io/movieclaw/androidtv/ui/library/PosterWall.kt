@@ -8,6 +8,7 @@ import androidx.compose.foundation.gestures.BringIntoViewSpec
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -300,7 +301,8 @@ private fun WallHeader(title: String, subtitle: String?, modifier: Modifier, acc
             }
         }
         Spacer(Modifier.width(40.pt))
-        accessory()
+        // tvOS 整行按首行基线对齐：按钮比居中低 7（模拟器量的）
+        Box(Modifier.offset(y = 7.pt)) { accessory() }
     }
 }
 

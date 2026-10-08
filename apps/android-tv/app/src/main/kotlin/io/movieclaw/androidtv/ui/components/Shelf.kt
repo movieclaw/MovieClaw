@@ -101,7 +101,7 @@ fun StateView(
             Text(title, style = McType.Title2.copy(fontWeight = FontWeight.SemiBold), textAlign = TextAlign.Center)
             message?.let { Text(it, style = McType.Callout, color = McColors.Secondary, textAlign = TextAlign.Center, modifier = Modifier.widthIn(max = 1100.pt)) }
             action?.let {
-                Button(onClick = onAction, modifier = Modifier.padding(top = 12.pt)) { Text(it, style = McType.Headline) }
+                Button(onClick = onAction, modifier = Modifier.layerFocus().padding(top = 12.pt)) { Text(it, style = McType.Headline) }
             }
         }
     }

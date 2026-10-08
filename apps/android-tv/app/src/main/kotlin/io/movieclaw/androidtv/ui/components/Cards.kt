@@ -67,7 +67,7 @@ fun FocusCard(
     Card(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.onFocusChanged { onFocus(it.isFocused || it.hasFocus) },
+        modifier = modifier.layerFocus().onFocusChanged { onFocus(it.isFocused || it.hasFocus) },
         shape = CardDefaults.shape(shape),
         scale = CardDefaults.scale(focusedScale = McMetrics.FocusZoom, pressedScale = 1.04f),
         border = CardDefaults.border(

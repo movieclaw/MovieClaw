@@ -55,6 +55,7 @@ import io.movieclaw.androidtv.ui.theme.McColors
 import io.movieclaw.androidtv.ui.theme.McMetrics
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
+import io.movieclaw.androidtv.ui.components.layerFocus
 
 /**
  * 媒体库卡（TVLibraryCard）：565×317.8（16:9）；上部是 21:10 的封面、下沿 80%→100% 渐隐，
@@ -140,6 +141,7 @@ fun GenreCard(label: String, count: Long, mediaKind: String, cover: String?, onC
     Surface(
         onClick = onClick,
         modifier = modifier
+            .layerFocus()
             .width(McMetrics.GenreWidth)
             .height(234.pt)
             .scale(scale)

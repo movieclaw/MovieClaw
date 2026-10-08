@@ -32,6 +32,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.withStyle
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Glow
@@ -48,6 +49,7 @@ import io.movieclaw.androidtv.ui.components.RemoteImage
 import io.movieclaw.androidtv.ui.theme.McMetrics
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
+import io.movieclaw.androidtv.ui.components.layerFocus
 
 /** 系统按钮的高度（tvOS 默认按钮：两台模拟器截图量出约 76 点、字约 29 点，同首页大图区按钮） */
 private val ButtonHeight = 76.pt
@@ -65,12 +67,14 @@ internal fun PillButton(
     circle: Boolean = false,
     extraPadding: Boolean = false,
     contentDescription: String? = null,
+    height: Dp = ButtonHeight,
+    iconSize: Dp = 28.pt,
     onFocus: (Boolean) -> Unit = {},
 ) {
     val shape = if (circle) CircleShape else RoundedCornerShape(50)
     Surface(
         onClick = onClick,
-        modifier = modifier.height(ButtonHeight).then(if (circle) Modifier.width(ButtonHeight) else Modifier)
+        modifier = modifier.layerFocus().height(height).then(if (circle) Modifier.width(height) else Modifier)
             .onFocusChanged { onFocus(it.isFocused) },
         shape = ClickableSurfaceDefaults.shape(shape),
         colors = ClickableSurfaceDefaults.colors(
@@ -90,7 +94,7 @@ internal fun PillButton(
             horizontalArrangement = Arrangement.spacedBy(12.pt, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            icon?.let { Icon(it, contentDescription, modifier = Modifier.size(28.pt)) }
+            icon?.let { Icon(it, contentDescription, modifier = Modifier.size(iconSize)) }
             text?.let { Text(it, style = McType.Body.copy(fontWeight = FontWeight.Medium), maxLines = 1) }
         }
     }
@@ -101,7 +105,7 @@ internal fun PillButton(
 internal fun SeasonTab(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     Surface(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.layerFocus(),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) Color.White.copy(alpha = 0.2f) else Color.Transparent,
@@ -196,7 +200,7 @@ internal fun PersonCard(person: CastPerson, onClick: () -> Unit, modifier: Modif
     var focused by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
-        modifier = modifier.width(236.pt).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
+        modifier = modifier.layerFocus().width(236.pt).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(0)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,

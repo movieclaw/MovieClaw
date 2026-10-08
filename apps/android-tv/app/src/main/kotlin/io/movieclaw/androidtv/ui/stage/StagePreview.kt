@@ -278,6 +278,10 @@ fun rememberStagePreview(api: McApi, server: ServerAddress, http: OkHttpClient, 
 @Composable
 fun UseStagePreview(preview: StagePreview, request: StagePreview.Request?) {
     val owner = remember { Any() }
-    LaunchedEffect(request) { request?.let { preview.show(it, owner) } }
+    // 页面被压在别的页下面时让出预告，回到屏幕上再接着要（首页 → 详情是同一部就接着放）
+    val visible = io.movieclaw.androidtv.ui.shell.LocalPageVisible.current
+    LaunchedEffect(request, visible) {
+        if (visible && request != null) preview.show(request, owner) else preview.leave(owner)
+    }
     DisposableEffect(preview) { onDispose { preview.leave(owner) } }
 }

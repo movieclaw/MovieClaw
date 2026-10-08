@@ -82,6 +82,7 @@ import io.movieclaw.androidtv.ui.theme.pt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import io.movieclaw.androidtv.ui.components.layerFocus
 
 /** 首屏的焦点位置（TVHomeFocus） */
 private sealed interface HomeFocus {
@@ -119,7 +120,9 @@ fun HomeScreen() {
     var wakes by remember { mutableStateOf(0) }
     var cardTopPx by remember { mutableStateOf<Float?>(null) }
 
-    LaunchedEffect(store, router.playbackClosed) { store.reload() }
+    // 出现时刷新（从二级页退回来也算，同 Apple 端 .task）、关掉播放器后刷新
+    val pageVisible = io.movieclaw.androidtv.ui.shell.LocalPageVisible.current
+    LaunchedEffect(store, router.playbackClosed, pageVisible) { if (pageVisible) store.reload() }
     // 接下来继续变了就同步到系统首页的「继续观看」
     val graph = io.movieclaw.androidtv.LocalGraph.current
     LaunchedEffect(store.upNext) { store.upNext?.let { graph.watchNext.publish(it, session.server, session.token) } }
@@ -387,7 +390,7 @@ private suspend fun ensureVisible(state: androidx.compose.foundation.lazy.LazyLi
 private fun HeroButton(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector, modifier: Modifier, onClick: () -> Unit) {
     Button(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.layerFocus(),
         contentPadding = PaddingValues(horizontal = 36.pt, vertical = 18.pt),
         scale = ButtonDefaults.scale(focusedScale = 1.06f),
         colors = ButtonDefaults.colors(
@@ -447,9 +450,9 @@ private fun HomeRow(
                 ShowcaseEntry(it.mediaItemId, it.title, it.kind, it.year, it.posterUrl, it.backdropUrl, it.seasons.count { s -> s > 0 }, it.libraryId)
             }
             LaunchedEffect(entries.map { it.id }) { store.loadShowcase(entries.map { it.id }) }
-            ShowcaseShelf(row.title, entries, store.showcase, onOpen = { e -> e.libraryId?.let { router.push(Route.Item(it, e.id)) } }, onRowFocus = onRowFocus) {
+            ShowcaseShelf(row.title, entries, store.showcase, onOpen = { e -> e.libraryId?.let { router.push(Route.Item(it, e.id)) } }, onRowFocus = onRowFocus) { seeAll ->
                 item("see-all") {
-                    SeeAllCard(store.favorites?.total?.toInt(), onClick = {
+                    SeeAllCard(store.favorites?.total?.toInt(), modifier = seeAll, onClick = {
                         router.push(Route.RowWall(row.title, WallSource.Favorites(kind.sort, kind.reversed, store.favorites?.total)))
                     })
                 }
@@ -499,9 +502,9 @@ private fun HomeRow(
             }
             // 「查看全部」上写的总数：只在确切知道时写（媒体库没加筛选时用库的统计）
             val total = (kind as? HomeRows.Kind.Library)?.takeIf { !it.unwatched && it.sort != "last_played" }?.library?.stats?.itemCount
-            ShowcaseShelf(row.title, entries, store.showcase, onOpen = { e -> e.libraryId?.let { router.push(Route.Item(it, e.id)) } }, onRowFocus = onRowFocus) {
+            ShowcaseShelf(row.title, entries, store.showcase, onOpen = { e -> e.libraryId?.let { router.push(Route.Item(it, e.id)) } }, onRowFocus = onRowFocus) { seeAll ->
                 if (source != null) {
-                    item("see-all") { SeeAllCard(total?.toInt(), onClick = { router.push(Route.RowWall(row.title, source)) }) }
+                    item("see-all") { SeeAllCard(total?.toInt(), modifier = seeAll, onClick = { router.push(Route.RowWall(row.title, source)) }) }
                 }
             }
         }

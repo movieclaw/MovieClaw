@@ -21,6 +21,7 @@ import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
@@ -32,6 +33,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.layout
 import io.movieclaw.androidtv.ui.LaunchArgs
 import io.movieclaw.androidtv.ui.accounts.AboutScreen
 import io.movieclaw.androidtv.ui.accounts.AccountsScreen
@@ -53,6 +55,9 @@ class ShellChrome {
 }
 
 val LocalShellChrome = compositionLocalOf { ShellChrome() }
+
+/** 这一页现在是否在屏幕上（页签根页在压栈期间仍然存活，但不可见） */
+val LocalPageVisible = compositionLocalOf { true }
 
 /** 首页数据跟着账号走、主界面共享（详情页挑起始季要读「接下来继续」） */
 val LocalHomeStore = compositionLocalOf<io.movieclaw.androidtv.ui.home.HomeStore?> { null }
@@ -164,21 +169,57 @@ fun MainShell(args: LaunchArgs) {
                     }
                     .focusGroup(),
             ) {
-                val pageKey = "${router.tab}:${stack.size}:${top ?: "root"}"
-                saveable.SaveableStateProvider(pageKey) {
-                    when (top) {
-                        null -> when (router.tab) {
-                            MainTab.Home -> HomeScreen()
-                            MainTab.Search -> SearchScreen()
-                            MainTab.Account -> AccountsScreen()
+                // 导航栈里每一页都保持存活（同 tvOS 导航栈）：只摆出栈顶那页，压在下面的不摆放、不参与方向键找焦点，
+                // 退回时焦点回到原来那颗（LayerFocusMemory）
+                val layers = listOf<Route?>(null) + stack
+                layers.forEachIndexed { index, route ->
+                    val visible = index == layers.lastIndex
+                    val key = if (route == null) "root:${router.tab}" else "${router.tab}:$index:$route"
+                    androidx.compose.runtime.key(key) {
+                        val layerFocus = remember { FocusRequester() }
+                        val memory = remember { io.movieclaw.androidtv.ui.components.LayerFocusMemory() }
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .layout { measurable, constraints ->
+                                    val placeable = measurable.measure(constraints)
+                                    layout(placeable.width, placeable.height) { if (visible) placeable.place(0, 0) }
+                                }
+                                .focusRequester(layerFocus)
+                                .focusRestorer()
+                                .focusGroup(),
+                        ) {
+                            CompositionLocalProvider(
+                                LocalPageVisible provides visible,
+                                io.movieclaw.androidtv.ui.components.LocalLayerFocusMemory provides memory,
+                            ) {
+                                saveable.SaveableStateProvider(key) {
+                                    when (route) {
+                                        null -> when (router.tab) {
+                                            MainTab.Home -> HomeScreen()
+                                            MainTab.Search -> SearchScreen()
+                                            MainTab.Account -> AccountsScreen()
+                                        }
+                                        is Route.Item -> ItemDetailScreen(route.libraryId, route.itemId)
+                                        is Route.Library -> LibraryWallScreen(route.id)
+                                        is Route.Collection -> CollectionWallScreen(route.id, route.name)
+                                        is Route.Person -> PersonScreen(route)
+                                        is Route.RowWall -> RowWallScreen(route.title, route.source)
+                                        Route.About -> AboutScreen()
+                                        is Route.License -> LicenseScreen(route.componentName)
+                                    }
+                                }
+                            }
                         }
-                        is Route.Item -> ItemDetailScreen(top.libraryId, top.itemId)
-                        is Route.Library -> LibraryWallScreen(top.id)
-                        is Route.Collection -> CollectionWallScreen(top.id, top.name)
-                        is Route.Person -> PersonScreen(top)
-                        is Route.RowWall -> RowWallScreen(top.title, top.source)
-                        Route.About -> AboutScreen()
-                        is Route.License -> LicenseScreen(top.componentName)
+                        // 退回到这一页：焦点回到离开时那颗（新压进来的页自己会要焦点）
+                        var shown by remember { mutableStateOf(visible) }
+                        LaunchedEffect(visible) {
+                            if (visible && !shown) {
+                                delay(30)
+                                if (!memory.restore()) runCatching { layerFocus.requestFocus() }
+                            }
+                            shown = visible
+                        }
                     }
                 }
             }

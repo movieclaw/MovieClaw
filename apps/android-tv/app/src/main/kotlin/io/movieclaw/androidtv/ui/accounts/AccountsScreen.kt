@@ -67,6 +67,7 @@ import io.movieclaw.androidtv.ui.welcome.WelcomeButton
 import io.movieclaw.androidtv.ui.welcome.welcomeSerif
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import io.movieclaw.androidtv.ui.components.layerFocus
 
 /**
  * 谁在看（TVWhoIsWatchingView）：本机登录过的全部账号（跨服务器）大头像横排，星空背景，焦点放大，按确认键进入。
@@ -305,7 +306,7 @@ fun AboutScreen() {
 private fun ComponentCell(component: OpenSourceComponent, onClick: () -> Unit, modifier: Modifier) {
     Surface(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.layerFocus(),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.pt)),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
         colors = ClickableSurfaceDefaults.colors(

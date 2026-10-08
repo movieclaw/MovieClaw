@@ -2,6 +2,7 @@ package io.movieclaw.androidtv.ui.library
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,7 +29,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
@@ -41,7 +41,6 @@ import io.movieclaw.androidtv.ui.detail.PillButton
 import io.movieclaw.androidtv.ui.detail.attempt
 import io.movieclaw.androidtv.ui.detail.tryFocus
 import io.movieclaw.androidtv.ui.shell.WallSource
-import io.movieclaw.androidtv.ui.theme.McColors
 import io.movieclaw.androidtv.ui.theme.McMetrics
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
@@ -70,6 +69,15 @@ fun LibraryWallScreen(libraryId: Long) {
     var unwatched by remember { mutableStateOf(store.string("$key.unwatched") == "true") }
     var menuOpen by remember { mutableStateOf(false) }
     val buttonFocus = remember { FocusRequester() }
+    // 面板关着焦点出不去：等它从树上撤掉再把焦点还给排序按钮
+    var menuShown by remember { mutableStateOf(false) }
+    LaunchedEffect(menuOpen) {
+        if (!menuOpen && menuShown) {
+            delay(16)
+            buttonFocus.tryFocus()
+        }
+        menuShown = menuOpen
+    }
 
     LaunchedEffect(libraryId) {
         if (loader.title != null) return@LaunchedEffect
@@ -96,6 +104,9 @@ fun LibraryWallScreen(libraryId: Long) {
                 onClick = { menuOpen = true },
                 text = WallLogic.sortButtonLabel(sort.sort, unwatched),
                 icon = McIcons.Filter,
+                // tvOS 默认按钮在标题行里矮一号（65），图标「line.3.horizontal.decrease」也比详情页的宽
+                height = 65.pt,
+                iconSize = 34.pt,
                 modifier = Modifier.focusRequester(buttonFocus),
             )
         },
@@ -112,10 +123,7 @@ fun LibraryWallScreen(libraryId: Long) {
                         unwatched = !unwatched
                         store.putString("$key.unwatched", unwatched.toString())
                     },
-                    onDismiss = {
-                        menuOpen = false
-                        buttonFocus.tryFocus()
-                    },
+                    onDismiss = { menuOpen = false },
                 )
             }
         },
@@ -161,8 +169,9 @@ fun RowWallScreen(title: String, source: WallSource) {
 }
 
 /**
- * 排序菜单（tvOS 的系统 Menu）：右上角浮一块深色面板，「排序」四档（当前档打勾）+ 分隔 + 「只看没看过的」开关。
- * 选一项就收起；返回键收起；焦点关在面板里，收起后回到排序按钮。
+ * 排序菜单（tvOS 的系统 Menu）：按钮下方浮一块 450 宽的玻璃面板，四档排序（当前档打勾）+ 分隔 + 「只看没看过的」开关。
+ * 打开时焦点落在第一项（同 tvOS）；选一项就收起；返回键收起；焦点关在面板里，收起后回到排序按钮。
+ * 尺寸照 tvOS 27 模拟器量的：一项 66 高、左右各缩 17，勾在 26、字在 66，分隔线左右缩 33。
  */
 @Composable
 private fun BoxScope.SortMenu(
@@ -181,35 +190,31 @@ private fun BoxScope.SortMenu(
             if (first.tryFocus()) return@LaunchedEffect
         }
     }
-    val shape = RoundedCornerShape(28.pt)
+    val shape = RoundedCornerShape(44.pt)
     Column(
         Modifier
             .align(Alignment.TopEnd)
-            .padding(top = 122.pt, end = McMetrics.Edge)
-            .width(560.pt)
+            .padding(top = 165.pt, end = McMetrics.Edge)
+            .width(450.pt)
             .shadow(40.pt, shape, ambientColor = Color.Black, spotColor = Color.Black.copy(alpha = 0.6f))
-            .background(Color(0xFF26282F).copy(alpha = 0.98f), shape)
-            .padding(vertical = 16.pt)
+            // tvOS 是模糊玻璃；这里没有背后模糊，压深一些免得后面海报上的字透出来
+            .background(Color(0xFF23252C).copy(alpha = 0.9f), shape)
+            .border(1.pt, Color.White.copy(alpha = 0.12f), shape)
+            .padding(vertical = 20.pt)
             .focusProperties { onExit = { cancelFocusChange() } }
             .focusGroup(),
     ) {
-        Text(
-            "排序",
-            style = McType.Caption.copy(fontWeight = FontWeight.SemiBold),
-            color = McColors.Secondary,
-            modifier = Modifier.padding(horizontal = 32.pt, vertical = 8.pt),
-        )
-        WallLogic.LIBRARY_SORTS.forEach { option ->
+        WallLogic.LIBRARY_SORTS.forEachIndexed { index, option ->
             MenuRow(
                 text = WallLogic.shortLabel(option),
                 checked = option == sort,
-                modifier = if (option == sort) Modifier.focusRequester(first) else Modifier,
+                modifier = if (index == 0) Modifier.focusRequester(first) else Modifier,
             ) {
                 onSort(option)
                 onDismiss()
             }
         }
-        Box(Modifier.padding(vertical = 12.pt, horizontal = 24.pt).fillMaxWidth().height(1.pt).background(Color.White.copy(alpha = 0.12f)))
+        Box(Modifier.padding(vertical = 14.pt, horizontal = 33.pt).fillMaxWidth().height(1.pt).background(Color.White.copy(alpha = 0.16f)))
         MenuRow(text = "只看没看过的", checked = unwatched) {
             onToggleUnwatched()
             onDismiss()
@@ -222,8 +227,8 @@ private fun BoxScope.SortMenu(
 private fun MenuRow(text: String, checked: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
-        modifier = modifier.padding(horizontal = 12.pt).fillMaxWidth().height(72.pt),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.pt)),
+        modifier = modifier.padding(horizontal = 17.pt).fillMaxWidth().height(66.pt),
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.Transparent,
             contentColor = Color.White,
@@ -232,14 +237,14 @@ private fun MenuRow(text: String, checked: Boolean, modifier: Modifier = Modifie
             pressedContainerColor = Color.White.copy(alpha = 0.85f),
             pressedContentColor = Color.Black,
         ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
         glow = ClickableSurfaceDefaults.glow(),
     ) {
-        Row(Modifier.padding(horizontal = 20.pt).height(72.pt), horizontalArrangement = Arrangement.spacedBy(16.pt), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 24.pt).height(66.pt), horizontalArrangement = Arrangement.spacedBy(10.pt), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(32.pt), contentAlignment = Alignment.Center) {
-                if (checked) Icon(McIcons.Check, null, modifier = Modifier.size(30.pt))
+                if (checked) Icon(McIcons.Check, null, modifier = Modifier.size(28.pt))
             }
-            Text(text, style = McType.Callout)
+            Text(text, style = McType.size(26))
         }
     }
 }
