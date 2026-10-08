@@ -21,7 +21,7 @@ import re
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from movieclaw_api.services.library.layout import IMAGE_EXTS
@@ -142,7 +142,25 @@ def probe_media(path: str | Path) -> MediaSpec | None:
         payload = json.loads(proc.stdout)
     except json.JSONDecodeError:
         return None
-    return _parse_probe(payload, include_mpegts_pids=Path(path).suffix.lower() == ".m2ts")
+    spec = _parse_probe(payload, include_mpegts_pids=Path(path).suffix.lower() == ".m2ts")
+    if Path(path).suffix.lower() == ".iso":
+        spec = _with_disc_image_duration(spec, path)
+    return spec
+
+
+def _with_disc_image_duration(spec: MediaSpec, path: str | Path) -> MediaSpec:
+    """光盘镜像的片长换成盘内正片的时长（蓝光主播放列表 / DVD 正片节目链）。
+
+    ffprobe 对整个镜像估的片长常常离谱（NAS 实测一集 DVD 记成 4 秒、一部蓝光多出一小时），
+    「继续观看」的进度、片长显示都按台账算。读不出盘内结构就保留 ffprobe 的值。
+    """
+    # 延迟导入：播放源模块依赖面大，探测模块保持轻量
+    from movieclaw_api.services.playback.iso_source import iso_disc_source
+
+    source = iso_disc_source(path)
+    if source is None or source.duration_s <= 0:
+        return spec
+    return replace(spec, duration_seconds=round(source.duration_s))
 
 
 

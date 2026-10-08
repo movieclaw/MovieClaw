@@ -125,7 +125,15 @@ def client(tmp_path, monkeypatch):
 _seed_counter = itertools.count(1)
 
 
-async def _seed(tmp_path: Path, *, container="mkv", codec="h264", strm=False) -> int:
+async def _seed(
+    tmp_path: Path,
+    *,
+    container="mkv",
+    codec="h264",
+    strm=False,
+    data: bytes | None = None,
+    duration_seconds: int = 600,
+) -> int:
     """建库 + 建条目 + 落一个真实存在的文件，返回 library_file.id。
 
     每次调用建独立的库与文件（名字带序号）——同一用例里要播两部片时，
@@ -137,7 +145,7 @@ async def _seed(tmp_path: Path, *, container="mkv", codec="h264", strm=False) ->
     name = f"movie{n}.strm" if strm else f"movie{n}.{container}"
     path = media_root / name
     path.write_text("https://pan.example.com/a.mkv\n") if strm else path.write_bytes(
-        b"FAKE-MEDIA-BYTES" * 64
+        data if data is not None else b"FAKE-MEDIA-BYTES" * 64
     )
     async with get_database().session() as session:
         library = await LibraryRepository(session).create(
@@ -156,7 +164,7 @@ async def _seed(tmp_path: Path, *, container="mkv", codec="h264", strm=False) ->
             container=container,
             video_codec=codec,
             resolution="1080p",
-            duration_seconds=600,
+            duration_seconds=duration_seconds,
             audio_streams=[{"codec": "aac", "channels": 2, "default": True}],
         )
         session.add(row)
@@ -874,6 +882,35 @@ def test_concurrency_limit_returns_503_with_chinese_message(client, tmp_path, mo
     message = resp.json()["message"]
     assert "上限" in message or "已满" in message
     assert "1/1" in message  # 告诉用户当前占用，而不是干巴巴一句「满了」
+
+
+def test_disc_image_session_is_planned_on_the_main_title_duration(client, tmp_path, monkeypatch):
+    """光盘镜像起播：ffmpeg 经 subfile 读镜像上的正片区间；分片按盘内主播放列表的片长排，
+    不按台账（ffprobe 对整个镜像估的，NAS 实测一集 DVD 记成 4 秒，开播几秒就弹「下一集」）。"""
+    from tests.api.test_iso_source import _bluray_image
+
+    calls: list[dict] = []
+
+    def fake_build(plan, *, source_path, session_dir, **kw):
+        calls.append({"source_path": source_path, **kw})
+        playlist = Path(session_dir) / "index.m3u8"
+        return TranscodeCommand(
+            argv=["python3", "-c", FAKE_FFMPEG, str(playlist)],
+            playlist_path=playlist,
+            init_path=Path(session_dir) / "init.mp4",
+        )
+
+    monkeypatch.setattr(session_mod, "build_hls_command", fake_build)
+    image, _, _ = _bluray_image(metadata=False)
+    file_id = seed(client, tmp_path, container="iso", data=image, duration_seconds=4)
+    data = start_session(client, file_id)
+    assert data["decision"]["tier"] == 1, data["decision"]
+    call = calls[-1]
+    assert (call.get("input_format"), call.get("protocol_whitelist")) == ("concat", "file,subfile")
+    assert "file 'subfile,,start," in Path(call["source_path"]).read_text(encoding="utf-8")
+    (session,) = session_mod.get_session_manager().active()
+    assert session.segment_plan is not None
+    assert session.segment_plan.duration_s == pytest.approx(900)
 
 
 def test_tv_app_starting_another_file_frees_its_stale_session(client, tmp_path, monkeypatch):

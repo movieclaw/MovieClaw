@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import subprocess
+
 import pytest
 from starlette.applications import Starlette
 from starlette.routing import Route
@@ -9,6 +12,7 @@ from starlette.testclient import TestClient
 from tests.api.test_bluray_clpi import _mpls
 from tests.api.test_reels_disc_index import S, _bcd, _clpi, _UdfBuilder, _vmg_ifo
 
+from movieclaw_api.services import media_probe
 from movieclaw_api.services.playback import iso_source
 from movieclaw_playback.streaming import FileWindowResponse
 
@@ -188,3 +192,24 @@ def test_file_window_response_serves_a_slice_with_relative_ranges(tmp_path):
     assert part.headers["content-range"] == "bytes 100-199/5000"
     tail = client.get("/clip", headers={"Range": "bytes=4900-"})
     assert tail.content == data[5900:6000]
+
+
+def test_probe_takes_the_disc_image_duration_from_the_main_title(tmp_path, monkeypatch):
+    """ffprobe 对整个镜像估的片长不可信（NAS 实测一集 DVD 记成 4 秒）：台账用盘内正片的时长。"""
+    image, _, _ = _bluray_image(metadata=False)
+    path = tmp_path / "movie.iso"
+    path.write_bytes(image)
+    payload = {
+        "format": {"duration": "4.0"},
+        "streams": [{"codec_type": "video", "codec_name": "h264"}],
+    }
+
+    def fake_ffprobe(args, **_kwargs):
+        return subprocess.CompletedProcess(args, 0, json.dumps(payload).encode(), b"")
+
+    monkeypatch.setattr(media_probe.subprocess, "run", fake_ffprobe)
+    assert media_probe.probe_media(path).duration_seconds == 900
+    # 读不出盘内结构的镜像保留 ffprobe 的值
+    plain = tmp_path / "plain.iso"
+    plain.write_bytes(b"\0" * (300 * S))
+    assert media_probe.probe_media(plain).duration_seconds == 4

@@ -1184,16 +1184,18 @@ async def start_playback_session(
         if (file.container or "") == "iso":
             raise NotFoundException("服务端读不了这个光盘镜像（ISO）的盘内结构，无法换封装或转码")
         raise NotFoundException("原盘主播放列表不可读，无法播放；请检查 BDMV/PLAYLIST 是否完整")
-    # 台账没有片长的 DVD 镜像（ffprobe 对镜像估不出）用正片节目链的时长：VOD 分片规划要它
-    duration_value = file.duration_seconds or (
-        disc.duration_s if disc is not None and disc.image == "dvd" else None
+    # 光盘镜像的片长以盘内结构为准（蓝光主播放列表 / DVD 正片节目链）：台账里是 ffprobe 对整个
+    # 镜像估的，常常离谱（NAS 实测一集 DVD 记成 4 秒、一部蓝光多出一小时），拿它排 VOD 分片，
+    # 播放器会以为片子几秒就放完
+    duration_value = (
+        disc.duration_s if disc is not None and disc.image is not None else file.duration_seconds
     )
 
     async def _keyframe_index():
         """全片关键帧索引，只有直通档的 VOD 规划要它。冷缓存时 mp4 要过
         ffprobe（上秒级）——这是把它并入 gather 的主要理由：分享链接直达
         播放页时详情页预热没跑过，串行 await 会把这一秒全记在起播上。"""
-        if not file.duration_seconds or not view.video or view.video.action != "copy":
+        if not duration_value or not view.video or view.video.action != "copy":
             return None
         if disc is not None:
             return await asyncio.to_thread(disc.keyframe_index)
