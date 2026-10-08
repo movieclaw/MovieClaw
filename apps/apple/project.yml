@@ -44,7 +44,7 @@ settings:
     SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
     SWIFT_APPROACHABLE_CONCURRENCY: YES
     # App 自己的版本号，iPhone、Apple TV、Mac 三端共用（docs/design/ios-release.md §3），与服务器版本无关
-    MARKETING_VERSION: "0.6.0"
+    MARKETING_VERSION: "0.7.0"
     CURRENT_PROJECT_VERSION: "1"
     CODE_SIGN_STYLE: Automatic
 targets:
