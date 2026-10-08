@@ -14,9 +14,12 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import contextvars
 import itertools
+import json
 import logging
 import os
+import subprocess
 import sys
 import time
 from collections import deque
@@ -24,14 +27,25 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from movieclaw_kernel import Context, Delivery, Mode, Plugin
+from movieclaw_kernel import (
+    DURABLE_EVENTS,
+    Context,
+    Delivery,
+    Mode,
+    Plugin,
+    ServiceKey,
+    current_delivery,
+)
 from movieclaw_sdk.protocol import MAX_LINE, decode, dump, encode, known_events, load
 
 logger = logging.getLogger("movieclaw_api.plugin_runtime")
 
 HANDSHAKE_TIMEOUT = 30.0
+DESCRIBE_TIMEOUT = 20.0
 #: 普通事件的单次投递时限（钩子另有内核的时限，更短）
 CALL_TIMEOUT = 30.0
+#: 可靠事件的处理时限：处理里常要调宿主操作（删种、删订阅），给足时间；超时按失败重试
+DURABLE_TIMEOUT = 300.0
 STOP_GRACE = 5.0
 CRASH_WINDOW = 600.0
 CRASH_LIMIT = 5
@@ -41,6 +55,7 @@ _ENV_KEEP = ("PATH", "LANG", "LC_ALL", "TZ", "HOME", "TMPDIR")
 _UNSET: Any = object()
 
 NextFn = Callable[[Any], Awaitable[Any]]
+RpcFn = Callable[[str, dict[str, Any]], Awaitable[Any]]
 
 #: 正在运行的插件进程（诊断与测试用）
 sessions: dict[str, Session] = {}
@@ -64,14 +79,19 @@ def _child_env() -> dict[str, str]:
 class Session:
     """一个插件进程：拉起、握手、调用、监管、停止。"""
 
-    def __init__(self, entry_id: str, *, path: Path, module: str, config: Any) -> None:
+    def __init__(
+        self, entry_id: str, *, path: Path, module: str, config: Any, data_dir: str = "./data"
+    ) -> None:
         self.entry_id = entry_id
+        self._data_dir = str(Path(data_dir).resolve())
         self._path = path
         self._module = module
         self._config = config
         self._proc: asyncio.subprocess.Process | None = None
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._nexts: dict[str, NextFn] = {}
+        self._contexts: dict[str, contextvars.Context] = {}
+        self.rpc_handler: RpcFn | None = None
         self._ids = itertools.count(1)
         self._readers: list[asyncio.Task[Any]] = []
         self._stopping = False
@@ -139,13 +159,23 @@ class Session:
         hello = await self._read(proc)
         if hello["type"] != "hello":
             raise RuntimeError(f"插件进程握手失败：期望 hello，收到 {hello['type']}")
-        await self._send({"type": "init", "entry_id": self.entry_id, "config": self._config})
+        await self._send(
+            {
+                "type": "init",
+                "entry_id": self.entry_id,
+                "config": self._config,
+                "data_dir": self._data_dir,
+            }
+        )
         declarations: list[dict[str, Any]] = []
         while True:
             message = await self._read(proc)
             kind = message["type"]
             if kind == "on":
                 declarations.append(message)
+            elif kind == "rpc":
+                # 插件在 apply 里就要用宿主服务（拿宿主操作凭证、读插件数据）
+                asyncio.get_running_loop().create_task(self._run_rpc(message))
             elif kind == "ready":
                 self.title = message.get("title")
                 return declarations
@@ -190,6 +220,10 @@ class Session:
                         future.set_result(message)
                 elif kind == "next":
                     asyncio.get_running_loop().create_task(self._run_next(message))
+                elif kind == "rpc":
+                    # 在发起这次调用的事件的上下文里执行：发起方、因果链、可靠事件的投递信息原样沿用
+                    context = self._contexts.get(message.get("call") or "")
+                    asyncio.get_running_loop().create_task(self._run_rpc(message), context=context)
                 elif kind == "disposed":
                     pass
                 else:
@@ -216,6 +250,30 @@ class Session:
         with contextlib.suppress(PluginProcessGone):
             await self._send(reply)
 
+    async def _run_rpc(self, message: dict[str, Any]) -> None:
+        reply: dict[str, Any] = {"type": "rpc_result", "id": message["id"]}
+        try:
+            if self.rpc_handler is None:
+                raise RuntimeError("宿主没有为这个插件提供服务")
+            result = await self.rpc_handler(message["method"], message.get("params") or {})
+            reply.update(ok=True, result=result)
+        except Exception as exc:  # noqa: BLE001 -- 原样告诉插件，由插件决定怎么处理
+            from movieclaw_api.services.host_ops import OpsError
+
+            if isinstance(exc, OpsError):
+                error = {
+                    "kind": "ops",
+                    "status": exc.status,
+                    "code": exc.code,
+                    "message": exc.message,
+                    "details": exc.details,
+                }
+            else:
+                error = {"kind": "service", "message": f"{type(exc).__name__}: {exc}"}
+            reply.update(ok=False, error=error)
+        with contextlib.suppress(PluginProcessGone):
+            await self._send(reply)
+
     def _fail_pending(self, exc: Exception) -> None:
         for future in self._pending.values():
             if not future.done():
@@ -237,16 +295,35 @@ class Session:
         call_id = str(next(self._ids))
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
         self._pending[call_id] = future
+        self._contexts[call_id] = contextvars.copy_context()
         if run_next is not None:
             self._nexts[call_id] = run_next
+        message: dict[str, Any] = {
+            "type": "call",
+            "id": call_id,
+            "listener": listener,
+            "payload": payload,
+        }
+        delivery = current_delivery.get()
+        if delivery is not None:
+            message["delivery"] = {
+                "event_id": delivery.event_id,
+                "name": delivery.name,
+                "occurred_at": delivery.occurred_at,
+                "origin": {
+                    "kind": delivery.origin.kind,
+                    "id": delivery.origin.id,
+                    "chain": list(delivery.origin.chain),
+                },
+                "attempt": delivery.attempt,
+            }
         try:
-            await self._send(
-                {"type": "call", "id": call_id, "listener": listener, "payload": payload}
-            )
+            await self._send(message)
             reply = await asyncio.wait_for(future, timeout)
         finally:
             self._pending.pop(call_id, None)
             self._nexts.pop(call_id, None)
+            self._contexts.pop(call_id, None)
         if not reply.get("ok"):
             raise RuntimeError(f"插件 {self.entry_id} 处理失败：{reply.get('error')}")
         return reply.get("result")
@@ -317,9 +394,8 @@ def _proxy(session: Session, declaration: dict[str, Any]) -> tuple[Any, Callable
     event = known_events().get(declaration["event"])
     if event is None:
         raise ValueError(f"事件 {declaration['event']} 不存在或没有开放给第三方插件")
-    if event.delivery is Delivery.DURABLE:
-        raise NotImplementedError(f"进程外插件暂不能订阅可靠事件 {event.name}（第三阶段 C3 开放）")
     listener = declaration["id"]
+    timeout = DURABLE_TIMEOUT if event.delivery is Delivery.DURABLE else CALL_TIMEOUT
 
     if event.mode is Mode.WATERFALL:
 
@@ -334,17 +410,140 @@ def _proxy(session: Session, declaration: dict[str, Any]) -> tuple[Any, Callable
         return event, waterfall
 
     async def call(payload: Any) -> Any:
-        data = await session.call(listener, dump(event.payload, payload))
+        data = await session.call(listener, dump(event.payload, payload), timeout=timeout)
         return load(event.result, data) if event.mode is Mode.BAIL else None
 
     return event, call
 
 
-def remote_plugin(entry_id: str, *, title: str, path: Path, module: str, config: Any) -> Plugin:
-    """进程外运行的插件条目：代码在子进程里，内核里只有代理。"""
+def _open_services() -> dict[str, ServiceKey[Any]]:
+    """进程外插件能用的服务（插件侧有对应的代理，见 ``movieclaw_sdk.runner``）。"""
+    from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_HEALTH
+
+    return {
+        HOST_OPS.name: HOST_OPS,
+        PLUGIN_DATA.name: PLUGIN_DATA,
+        PLUGIN_HEALTH.name: PLUGIN_HEALTH,
+        DURABLE_EVENTS.name: DURABLE_EVENTS,
+    }
+
+
+def describe(path: Path, module: str, entry_id: str) -> dict[str, Any]:
+    """在子进程里读出插件的声明（标题、要注入的服务、宿主操作），主进程不导入插件代码。"""
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-s",
+            "-m",
+            "movieclaw_sdk.runner",
+            "--path",
+            str(path),
+            "--module",
+            module,
+            "--entry",
+            entry_id,
+            "--describe",
+        ],
+        capture_output=True,
+        cwd=str(path),
+        env=_child_env(),
+        timeout=DESCRIBE_TIMEOUT,
+        check=False,
+    )
+    if proc.returncode != 0:
+        tail = proc.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or ["无输出"]
+        raise RuntimeError(f"读取插件声明失败：{tail[0]}")
+    return json.loads(proc.stdout.decode("utf-8").splitlines()[-1])
+
+
+_MISSING: Any = object()
+
+
+async def _service_handler(ctx: Context, names: tuple[str, ...]) -> RpcFn:
+    """插件在子进程里调宿主服务时，宿主这边代它执行（以它自己的上下文、凭证与数据作用域）。"""
+    from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_HEALTH
+
+    client = await ctx.use(HOST_OPS).client(ctx) if HOST_OPS.name in names else None
+    store = ctx.use(PLUGIN_DATA).scoped(ctx) if PLUGIN_DATA.name in names else None
+    health = ctx.use(PLUGIN_HEALTH).reporter(ctx) if PLUGIN_HEALTH.name in names else None
+
+    def need(service: Any, name: str) -> Any:
+        if service is None:
+            raise LookupError(f"服务 {name} 没有在 inject 里声明")
+        return service
+
+    async def handle(method: str, params: dict[str, Any]) -> Any:
+        if method == "ops.client":
+            return {"operations": sorted(need(client, HOST_OPS.name).operations)}
+        if method == "ops.call":
+            return await need(client, HOST_OPS.name).call(
+                params["operation_id"], params.get("arguments"), timeout=params.get("timeout")
+            )
+        if method.startswith("data."):
+            data = need(store, PLUGIN_DATA.name)
+            scope = params.get("scope") or "global"
+            if method == "data.get":
+                value = await data.get(params["key"], scope=scope, default=_MISSING)
+                return {
+                    "found": value is not _MISSING,
+                    "value": None if value is _MISSING else value,
+                }
+            if method == "data.set":
+                await data.set(
+                    params["key"],
+                    params.get("value"),
+                    scope=scope,
+                    secret=bool(params.get("secret")),
+                )
+                return None
+            if method == "data.delete":
+                return await data.delete(params["key"], scope=scope)
+            if method == "data.items":
+                return await data.items(scope=scope)
+            if method == "data.scopes":
+                return await data.scopes(params["key"], entity=params.get("entity"))
+        if method == "health.degraded":
+            await need(health, PLUGIN_HEALTH.name).degraded(
+                params["key"], params["message"], action_href=params.get("action_href")
+            )
+            return None
+        if method == "health.ok":
+            await need(health, PLUGIN_HEALTH.name).ok(params["key"], params.get("message") or "")
+            return None
+        raise LookupError(f"未知的服务调用：{method}")
+
+    return handle
+
+
+def remote_plugin(
+    entry_id: str,
+    *,
+    title: str,
+    path: Path,
+    module: str,
+    config: Any,
+    inject: tuple[str, ...] = (),
+    permissions: tuple[str, ...] = (),
+) -> Plugin:
+    """进程外运行的插件条目：代码在子进程里，内核里只有代理。
+
+    ``inject`` / ``permissions`` 来自插件自己的声明（``describe``），宿主据此注入服务、
+    发宿主操作授权。
+    """
+    services = _open_services()
+    unknown = [name for name in inject if name not in services]
+    if unknown:
+        raise ValueError(f"进程外插件暂不能使用服务：{'、'.join(unknown)}")
 
     async def apply(ctx: Context) -> None:
-        session = Session(entry_id, path=path, module=module, config=config)
+        session = Session(
+            entry_id,
+            path=path,
+            module=module,
+            config=config,
+            data_dir=getattr(ctx.settings, "data_dir", "./data"),
+        )
+        session.rpc_handler = await _service_handler(ctx, inject)
         declarations = await session.start()
         session.declarations = declarations
         ctx.effect(session.stop, label="stop-process")
@@ -357,4 +556,12 @@ def remote_plugin(entry_id: str, *, title: str, path: Path, module: str, config:
         sessions[entry_id] = session
         ctx.effect(lambda: sessions.pop(entry_id, None), label="forget-session")
 
-    return Plugin(name=entry_id, title=title, apply=apply, disableable=True, apply_timeout=45.0)
+    return Plugin(
+        name=entry_id,
+        title=title,
+        apply=apply,
+        inject=tuple(services[name] for name in inject),
+        permissions=permissions,
+        disableable=True,
+        apply_timeout=45.0,
+    )

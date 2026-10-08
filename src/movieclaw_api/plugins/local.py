@@ -208,20 +208,27 @@ def load_local_entries(settings: object) -> list[Entry]:
 
 def _remote(root: Path, spec: LocalSpec) -> Plugin:
     """独立进程运行：主进程不导入插件代码，只登记代理（services/plugin_runtime.py）。"""
-    from movieclaw_api.services.plugin_runtime import remote_plugin
+    from movieclaw_api.services.plugin_runtime import describe, remote_plugin
 
     found = (root / f"{spec.module}.py").is_file() or (root / spec.module / "__init__.py").is_file()
     if not found:
         return _failing(
             spec.id, f"找不到 {LOCAL_DIR}/{spec.module}.py 或 {LOCAL_DIR}/{spec.module}/__init__.py"
         )
-    return remote_plugin(
-        spec.id,
-        title=f"本地插件 {spec.id}（独立进程）",
-        path=root,
-        module=spec.module,
-        config=spec.config,
-    )
+    try:
+        declared = describe(root, spec.module, spec.id)
+        return remote_plugin(
+            spec.id,
+            title=f"{declared['title']}（独立进程）",
+            path=root,
+            module=spec.module,
+            config=spec.config,
+            inject=tuple(declared["inject"]),
+            permissions=tuple(declared["permissions"]),
+        )
+    except Exception as exc:  # noqa: BLE001 -- 本地代码出什么错都只影响它自己
+        logger.warning("本地插件 %s 无法以独立进程运行：%s", spec.id, exc)
+        return _failing(spec.id, f"{type(exc).__name__}: {exc}")
 
 
 def configure_host_ops(host: Any, settings: object) -> None:

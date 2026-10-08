@@ -12,15 +12,27 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextvars
 import importlib
+import itertools
 import logging
 import os
 import sys
 import traceback
+import types
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from movieclaw_kernel import Event, Mode, Plugin, ServiceKey
+from movieclaw_kernel import (
+    DURABLE_EVENTS,
+    Delivery,
+    DeliveryInfo,
+    Event,
+    Mode,
+    Origin,
+    Plugin,
+    ServiceKey,
+)
 from movieclaw_sdk import SDK_VERSION
 from movieclaw_sdk.protocol import MAX_LINE, decode, dump, encode, known_events, load
 
@@ -28,15 +40,132 @@ logger = logging.getLogger("movieclaw_sdk.runner")
 
 _UNSET: Any = object()
 
+#: 正在处理的宿主调用（事件 / 钩子）：插件在其中发起的服务调用带上它，宿主据此沿用发起方与因果链
+_current_call: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "movieclaw_sdk_call", default=None
+)
+_current_delivery: contextvars.ContextVar[DeliveryInfo | None] = contextvars.ContextVar(
+    "movieclaw_sdk_delivery", default=None
+)
+
+
+class RemoteServiceError(RuntimeError):
+    pass
+
+
+# ---------------------------------------------------------------------- 服务代理
+class _RemoteOpsClient:
+    def __init__(self, runner: Runner, entry_id: str, operations: list[str]) -> None:
+        self._runner = runner
+        self.entry_id = entry_id
+        self.operations = frozenset(operations)
+
+    def allowed(self, operation_id: str) -> bool:
+        return operation_id in self.operations
+
+    async def call(
+        self,
+        operation_id: str,
+        arguments: dict[str, Any] | None = None,
+        *,
+        timeout: float | None = None,
+    ) -> Any:
+        return await self._runner.rpc(
+            "ops.call", {"operation_id": operation_id, "arguments": arguments, "timeout": timeout}
+        )
+
+
+class _RemoteHostOps:
+    def __init__(self, runner: Runner) -> None:
+        self._runner = runner
+
+    async def client(self, ctx: Any, *, timeout: float | None = None) -> _RemoteOpsClient:
+        reply = await self._runner.rpc("ops.client", {})
+        return _RemoteOpsClient(self._runner, ctx.entry_id, reply["operations"])
+
+
+class _RemoteStore:
+    def __init__(self, runner: Runner, entry_id: str) -> None:
+        self._runner = runner
+        self.entry_id = entry_id
+
+    async def get(self, key: str, *, scope: str = "global", default: Any = None) -> Any:
+        found = await self._runner.rpc("data.get", {"key": key, "scope": scope})
+        return found["value"] if found["found"] else default
+
+    async def set(
+        self, key: str, value: Any, *, scope: str = "global", secret: bool = False
+    ) -> None:
+        await self._runner.rpc(
+            "data.set", {"key": key, "value": value, "scope": scope, "secret": secret}
+        )
+
+    async def delete(self, key: str, *, scope: str = "global") -> bool:
+        return bool(await self._runner.rpc("data.delete", {"key": key, "scope": scope}))
+
+    async def items(self, *, scope: str = "global") -> dict[str, Any]:
+        return dict(await self._runner.rpc("data.items", {"scope": scope}))
+
+    async def scopes(self, key: str, *, entity: str | None = None) -> dict[str, Any]:
+        return dict(await self._runner.rpc("data.scopes", {"key": key, "entity": entity}))
+
+
+class _RemotePluginData:
+    def __init__(self, runner: Runner) -> None:
+        self._runner = runner
+
+    def scoped(self, ctx: Any) -> _RemoteStore:
+        return _RemoteStore(self._runner, ctx.entry_id)
+
+
+class _RemoteHealth:
+    def __init__(self, runner: Runner) -> None:
+        self._runner = runner
+
+    async def degraded(self, key: str, message: str, *, action_href: str | None = None) -> None:
+        await self._runner.rpc(
+            "health.degraded", {"key": key, "message": message, "action_href": action_href}
+        )
+
+    async def ok(self, key: str, message: str = "") -> None:
+        await self._runner.rpc("health.ok", {"key": key, "message": message})
+
+
+class _RemotePluginHealth:
+    def __init__(self, runner: Runner) -> None:
+        self._runner = runner
+
+    def reporter(self, ctx: Any) -> _RemoteHealth:
+        return _RemoteHealth(self._runner)
+
+
+_SERVICE_PROXIES: dict[str, Callable[[Runner], Any]] = {
+    "host-ops": _RemoteHostOps,
+    "plugin-data": _RemotePluginData,
+    "plugin-health": _RemotePluginHealth,
+}
+
 
 class RemoteContext:
     """进程外插件拿到的上下文：与内核 ``Context`` 同名同签名。
 
-    目前支持事件与钩子、后台任务、清理；服务与注册表贡献随第三阶段后续 PR 开放。
+    支持事件与钩子（含可靠事件与 ``ctx.delivery``）、后台任务、清理，以及宿主操作、插件数据、
+    健康上报三种服务；注册表贡献与插件路由随第三阶段 C4 开放。
     """
 
-    def __init__(self, runner: Runner, entry_id: str, title: str, config: Any) -> None:
+    def __init__(
+        self,
+        runner: Runner,
+        entry_id: str,
+        title: str,
+        config: Any,
+        inject: tuple[str, ...],
+        data_dir: str = "./data",
+    ) -> None:
         self._runner = runner
+        self._inject = inject
+        #: 只有数据目录：进程外插件拿不到宿主的完整配置（里面有主密钥、数据库地址）
+        self.settings = types.SimpleNamespace(data_dir=data_dir)
         self.entry_id = entry_id
         self.title = title
         self.config = config
@@ -56,6 +185,11 @@ class RemoteContext:
     ) -> None:
         if known_events().get(event.name) is not event:
             raise ValueError(f"事件 {event.name} 没有开放给第三方插件")
+        if event.delivery is Delivery.DURABLE:
+            if not id:
+                raise ValueError(f"可靠事件 {event.name} 的监听器必须有稳定 id")
+            if DURABLE_EVENTS.name not in self._inject:
+                raise ValueError(f"订阅可靠事件 {event.name} 须在 inject 里声明 DURABLE_EVENTS")
         key = id or f"{event.name}#{len(self._handlers)}"
         if key in self._handlers:
             raise ValueError(f"监听器 id 重复：{key}")
@@ -71,8 +205,18 @@ class RemoteContext:
     def effect(self, disposer: Callable[[], Any], *, label: str = "effect") -> None:
         self._effects.append(disposer)
 
+    @property
+    def delivery(self) -> DeliveryInfo | None:
+        """当前在处理的可靠事件的投递信息（与内核 ``ctx.delivery`` 相同）。"""
+        return _current_delivery.get()
+
     def use(self, key: ServiceKey[Any]) -> Any:
-        raise NotImplementedError(f"进程外插件暂不能使用服务 {key.name}（第三阶段 C3 起逐步开放）")
+        if key.name not in self._inject:
+            raise LookupError(f"服务 {key.name} 没有在 inject 里声明")
+        factory = _SERVICE_PROXIES.get(key.name)
+        if factory is None:
+            raise NotImplementedError(f"进程外插件暂不能使用服务 {key.name}")
+        return factory(self._runner)
 
     def contribute(self, *args: Any, **kwargs: Any) -> None:
         raise NotImplementedError("进程外插件暂不能往注册表贡献（第三阶段 C4 起开放）")
@@ -93,6 +237,8 @@ class RemoteContext:
 class Runner:
     def __init__(self, writer: Any) -> None:
         self._writer = writer
+        self._rpcs: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._rpc_ids = itertools.count(1)
         self._nexts: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._calls: set[asyncio.Task[Any]] = set()
         self.ctx: RemoteContext | None = None
@@ -101,9 +247,53 @@ class Runner:
         self._writer.write(encode(message))
         self._writer.flush()
 
+    async def rpc(self, method: str, params: dict[str, Any]) -> Any:
+        """请宿主执行一次服务调用（宿主操作、插件数据、健康上报）。"""
+        rpc_id = f"r{next(self._rpc_ids)}"
+        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
+        self._rpcs[rpc_id] = future
+        try:
+            self.send(
+                {
+                    "type": "rpc",
+                    "id": rpc_id,
+                    "call": _current_call.get(),
+                    "method": method,
+                    "params": params,
+                }
+            )
+            reply = await future
+        finally:
+            self._rpcs.pop(rpc_id, None)
+        if reply.get("ok"):
+            return reply.get("result")
+        error = reply.get("error") or {}
+        if error.get("kind") == "ops":
+            from movieclaw_api.services.host_ops import OpsError
+
+            raise OpsError(
+                error["status"], error["code"], error["message"], error.get("details") or None
+            )
+        raise RemoteServiceError(error.get("message") or "宿主服务调用失败")
+
     # ------------------------------------------------------------------ 调用
     async def _handle_call(self, message: dict[str, Any]) -> None:
         call_id = message["id"]
+        _current_call.set(call_id)
+        delivery = message.get("delivery")
+        if delivery is not None:
+            origin = delivery["origin"]
+            _current_delivery.set(
+                DeliveryInfo(
+                    event_id=delivery["event_id"],
+                    name=delivery["name"],
+                    occurred_at=delivery["occurred_at"],
+                    origin=Origin(
+                        kind=origin["kind"], id=origin["id"], chain=tuple(origin["chain"])
+                    ),
+                    attempt=delivery["attempt"],
+                )
+            )
         try:
             assert self.ctx is not None
             event, handler = self.ctx._handlers[message["listener"]]
@@ -156,6 +346,10 @@ class Runner:
                 future = self._nexts.pop(message["id"], None)
                 if future is not None and not future.done():
                     future.set_result(message)
+            elif kind == "rpc_result":
+                future = self._rpcs.pop(message["id"], None)
+                if future is not None and not future.done():
+                    future.set_result(message)
             elif kind == "dispose":
                 if self.ctx is not None:
                     await self.ctx.dispose()
@@ -184,19 +378,46 @@ async def run(args: argparse.Namespace) -> int:
     runner = Runner(_PROTOCOL_OUT)
     runner.send({"type": "hello", "sdk": SDK_VERSION, "pid": os.getpid()})
     init = decode(await reader.readline())
+    # apply 里可能已经要调宿主服务（读插件数据、拿宿主操作凭证）：先开始收消息
+    serving = loop.create_task(runner.serve(reader))
     try:
         found = _find_plugin(args.module, args.entry)
         config = init.get("config")
         if found.config is not None:
             config = found.config.model_validate(config or {})
-        runner.ctx = RemoteContext(runner, args.entry, init.get("title") or found.title, config)
+        inject = tuple(key.name for key in found.inject)
+        runner.ctx = RemoteContext(
+            runner,
+            args.entry,
+            init.get("title") or found.title,
+            config,
+            inject,
+            init.get("data_dir") or "./data",
+        )
         await found.apply(runner.ctx)
     except Exception as exc:  # noqa: BLE001 -- 启动失败报给宿主，由内核标 FAILED
         runner.send({"type": "failed", "error": f"{type(exc).__name__}: {exc}"})
         traceback.print_exc()
+        serving.cancel()
         return 1
     runner.send({"type": "ready", "title": found.title})
-    return await runner.serve(reader)
+    return await serving
+
+
+def describe(args: argparse.Namespace) -> int:
+    """只读出插件的声明（宿主据此构造内核条目），不运行它。"""
+    found = _find_plugin(args.module, args.entry)
+    _PROTOCOL_OUT.write(
+        encode(
+            {
+                "type": "describe",
+                "title": found.title,
+                "inject": [key.name for key in found.inject],
+                "permissions": list(found.permissions),
+            }
+        )
+    )
+    return 0
 
 
 _PROTOCOL_OUT: Any = None
@@ -208,12 +429,15 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--path", required=True, help="插件代码所在目录（加入 sys.path）")
     parser.add_argument("--module", required=True)
     parser.add_argument("--entry", required=True, help="条目 id（@plugin 的名字）")
+    parser.add_argument("--describe", action="store_true", help="只输出插件声明后退出")
     args = parser.parse_args(argv)
     # 标准输出只留给协议：插件的 print 改到标准错误
     _PROTOCOL_OUT = os.fdopen(os.dup(sys.stdout.fileno()), "wb", buffering=0)
     sys.stdout = sys.stderr
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(levelname)s %(message)s")
     sys.path.insert(0, args.path)
+    if args.describe:
+        return describe(args)
     return asyncio.run(run(args))
 
 

@@ -32,8 +32,9 @@ from movieclaw_media.models import MediaKind
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "plugins"
 
 
-@pytest.fixture
-def app_client(tmp_path, monkeypatch):
+@pytest.fixture(params=["inline", "process"])
+def app_client(request, tmp_path, monkeypatch):
+    """主进程里跑一遍、独立进程里再跑一遍（plugin-phase3.md §0：运行位置对插件透明）。"""
     from movieclaw_api.settings.store import reset_setting_store
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'kw.db'}")
@@ -51,11 +52,12 @@ def app_client(tmp_path, monkeypatch):
             """
             - id: examples.keyword-rules
               local: true
+              runtime: {runtime}
               config:
                 rules:
                   1: { require_any: [国语], exclude: [抢先版] }
             """
-        ),
+        ).replace("{runtime}", request.param),
         encoding="utf-8",
     )
     from movieclaw_api.app import create_app

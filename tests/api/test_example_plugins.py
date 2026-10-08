@@ -33,6 +33,15 @@ ADMIN = {"username": "admin", "password": "s3cret-pass"}
 HASH = "c" * 40
 
 
+@pytest.fixture(params=["inline", "process"])
+def runtime(request) -> str:
+    """同一个插件在主进程里跑一遍、在独立进程里再跑一遍。
+
+    plugin-phase3.md §0 的硬指标：运行位置对插件透明。
+    """
+    return request.param
+
+
 @pytest.fixture
 def data_dir(tmp_path, monkeypatch):
     import sys
@@ -149,13 +158,16 @@ def login_admin(client: TestClient) -> None:
 CASCADE_YAML = """
 - id: examples.delete-cascade
   local: true
+  runtime: {runtime}
   config: {{delete_files: true, dry_run: {dry_run}}}
   grants: [subscriptions.delete, dl.torrent.delete]
 """
 
 
-def test_deleting_a_show_removes_its_subscription_then_its_torrent(data_dir, downloader) -> None:
-    install(data_dir, "delete_cascade", CASCADE_YAML.format(dry_run="false"))
+def test_deleting_a_show_removes_its_subscription_then_its_torrent(
+    data_dir, downloader, runtime
+) -> None:
+    install(data_dir, "delete_cascade", CASCADE_YAML.format(dry_run="false", runtime=runtime))
     app, client = start(data_dir)
     with client:
         login_admin(client)
@@ -176,8 +188,8 @@ def test_deleting_a_show_removes_its_subscription_then_its_torrent(data_dir, dow
     assert downloader.deleted == [(HASH, True, 0)]
 
 
-def test_dry_run_only_rehearses(data_dir, downloader) -> None:
-    install(data_dir, "delete_cascade", CASCADE_YAML.format(dry_run="true"))
+def test_dry_run_only_rehearses(data_dir, downloader, runtime) -> None:
+    install(data_dir, "delete_cascade", CASCADE_YAML.format(dry_run="true", runtime=runtime))
     app, client = start(data_dir)
     with client:
         login_admin(client)
@@ -196,9 +208,9 @@ def test_dry_run_only_rehearses(data_dir, downloader) -> None:
 
 
 def test_deleting_one_episode_keeps_the_season_pack_of_a_followed_show(
-    data_dir, downloader
+    data_dir, downloader, runtime
 ) -> None:
-    install(data_dir, "delete_cascade", CASCADE_YAML.format(dry_run="false"))
+    install(data_dir, "delete_cascade", CASCADE_YAML.format(dry_run="false", runtime=runtime))
     app, client = start(data_dir)
     with client:
         login_admin(client)
@@ -221,7 +233,7 @@ def test_deleting_one_episode_keeps_the_season_pack_of_a_followed_show(
 
 
 # ---------------------------------------------------------------------- 片单订阅
-def test_watchlist_titles_become_subscriptions_once(data_dir, monkeypatch) -> None:
+def test_watchlist_titles_become_subscriptions_once(data_dir, monkeypatch, runtime) -> None:
     from movieclaw_api.api.routes import subscriptions as subscription_routes
     from movieclaw_api.schemas.discover import DiscoveredTitleView
     from movieclaw_api.services.title_discovery import (
@@ -277,6 +289,7 @@ def test_watchlist_titles_become_subscriptions_once(data_dir, monkeypatch) -> No
         f"""
         - id: examples.watchlist-feed
           local: true
+          runtime: {runtime}
           config: {{source: "{feed}", interval_minutes: 0.01}}
           grants: [search.titles, subscriptions.create]
         """,
