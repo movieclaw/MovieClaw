@@ -22,8 +22,9 @@ extension PhotoWallView {
         @Environment(\.api) private var api
         @State private var infoOpen = false
         @State private var details: [Int: API.LibraryItemDetailView] = [:]
-        /// 下载原图的进度 / 失败提示（画面顶部）
+        /// 下载原图的进度（画面顶部）；失败走全 App 统一的顶部提示
         @State private var downloadNote: String?
+        @Environment(Feedback.self) private var feedback
         /// 下好的原图：弹系统分享面板
         @State private var shareFile: SharedOriginal?
 
@@ -65,7 +66,7 @@ extension PhotoWallView {
 
         private static let preparing = "正在准备下载…"
 
-        /// 先把原图下到临时目录，成功再弹分享面板；失败在灯箱顶部写明原因，4 秒后收起
+        /// 先把原图下到临时目录，成功再弹分享面板；失败弹提示写明原因
         private func download(fileId: Int, item: API.LibraryItemView) async {
             downloadNote = Self.preparing
             do {
@@ -79,10 +80,9 @@ extension PhotoWallView {
             } catch is CancellationError {
                 downloadNote = nil
             } catch {
+                downloadNote = nil
                 let reason = error.localizedDescription
-                downloadNote = "下载原图失败：\(reason.isEmpty ? "请检查网络后重试" : reason)"
-                try? await Task.sleep(for: .seconds(4))
-                if downloadNote?.hasPrefix("下载原图失败") == true { downloadNote = nil }
+                feedback.error("下载原图失败：\(reason.isEmpty ? "请检查网络后重试" : reason)")
             }
         }
 

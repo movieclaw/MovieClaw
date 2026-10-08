@@ -102,6 +102,7 @@ struct LibraryHomeView: View {
         }
         .sheet(isPresented: $clearingLibrary) {
             ClearLibraryHistorySheet(libraries: visibleLibraries) { Task { await reload() } }
+                .sheetFeedback()
         }
         .alert("正在使用移动网络", isPresented: $confirmingReelsOnCellular) {
             Button("进入") { router.push(.reels) }

@@ -74,7 +74,9 @@ apps/apple/
   （如 `PlayerUpNextCard`、`LibraryWallCell`），通用名（`UpNextCard`、`Row`、`Header`）禁止使用。
 - **模型一致性**：给 `API.*` 模型加 `Identifiable` 等协议一律写在 `Core/API/ModelConformances.swift`（先 grep，别在模块里重复声明）。
 - 反馈：`@Environment(Feedback.self)`：`feedback.success/error`、`await feedback.confirm(…)`、`await feedback.prompt(…)`，
-  文案照搬 Web。
+  文案照搬 Web。提示一律走它，不在页面里另画提示条（全屏灯箱同样挂 `.sheetFeedback()`）。提示是底部居中的液态玻璃胶囊
+  （浮在标签栏 / 键盘之上，不挡顶部返回键，位置约定同 Material Snackbar），同一时刻只有一条（新的顶替旧的，
+  这点与 Web 最多叠 4 条不同），下滑 / 点按收起，成功与错误带触感；播放器画面上的 `PlayerHUD` 属于画面提示，不在此列。
 - 导航：`@Environment(Router.self)`：`router.push(.libraryItem(…))`、`router.open(webPath:)`、
   `router.play(PlayRequest(…))`、`router.present(.subscribe(…))`。
   页面入口类型与参数固定在 `App/Routing/Destinations.swift`，模块只替换自己的占位文件，**不改路由表**。
