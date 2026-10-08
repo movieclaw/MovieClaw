@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from secrets import token_hex
@@ -419,6 +420,38 @@ async def direct_play_byte_patches(
     if (video_codec or "").lower() != "hevc":
         return ()
     return await asyncio.to_thread(hev1_to_hvc1_patches, path)
+
+
+class FileWindowResponse(DisconnectAwareFileResponse):
+    """把文件里的一段当成一个独立文件供出：长度、Range 都按段内偏移算。
+
+    光盘镜像里的剪辑没有自己的文件，远程 Worker 按段取源时由它从镜像上读这一段
+    （iso_source.py）。读盘、断连、计量与父类完全相同，只是区间整体平移 ``offset``。
+    """
+
+    def __init__(self, path: str | Path, *, offset: int, length: int, **kwargs) -> None:
+        real = os.stat(path)
+        window = os.stat_result(
+            (
+                real.st_mode,
+                real.st_ino,
+                real.st_dev,
+                real.st_nlink,
+                real.st_uid,
+                real.st_gid,
+                length,
+                int(real.st_atime),
+                int(real.st_mtime),
+                int(real.st_ctime),
+            )
+        )
+        super().__init__(path, stat_result=window, **kwargs)
+        self._offset = offset
+        self._length = length
+
+    async def _send_span(self, file, send: Send, start: int, end: int | None) -> None:
+        stop = self._length if end is None else end
+        await super()._send_span(file, send, self._offset + start, self._offset + stop)
 
 
 def container_mime_type(container: str | None) -> str:

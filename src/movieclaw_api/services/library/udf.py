@@ -112,6 +112,29 @@ class UDFReader:
     def size(self, entry: UDFEntry) -> int:
         return self._read_file_entry(entry.icb_block, entry.icb_part_ref).size
 
+    def byte_ranges(self, entry: UDFEntry) -> list[tuple[int, int]]:
+        """文件内容在镜像里的位置：``[(起始字节, 长度), …]``，首尾相接的分配区合并成一段。
+
+        大文件按 UDF 规定切成不超过 1 GB 的分配区，母盘工具基本都连续写，合并后通常只剩一段——
+        服务端据此把镜像里的视频文件当成镜像上的一个字节区间交给 ffmpeg（``subfile`` 协议）。
+        内嵌在文件项里的小文件没有独立位置，返回空表。
+        """
+        fe = self._read_file_entry(entry.icb_block, entry.icb_part_ref)
+        ranges: list[tuple[int, int]] = []
+        remaining = fe.size
+        for ext in fe.extents:
+            if remaining <= 0:
+                break
+            ref = ext.long_part_ref if ext.long_part_ref is not None else fe.part_ref
+            start = self._resolve(ext.block, ref) * SECTOR
+            length = min(ext.length, remaining)
+            remaining -= length
+            if ranges and ranges[-1][0] + ranges[-1][1] == start:
+                ranges[-1] = (ranges[-1][0], ranges[-1][1] + length)
+            else:
+                ranges.append((start, length))
+        return ranges
+
     def read(self, entry: UDFEntry, limit: int) -> bytes:
         """读整个文件（最多 ``limit`` 字节；超过即视为异常，抛 ``UDFError``）。"""
         fe = self._read_file_entry(entry.icb_block, entry.icb_part_ref)

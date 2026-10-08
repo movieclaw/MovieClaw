@@ -473,6 +473,24 @@ async def test_stop_for_file_leaves_other_members_alone(manager, monkeypatch):
         await manager.shutdown()
 
 
+async def test_same_device_starting_another_file_frees_its_stale_session(manager, monkeypatch):
+    """播放器被强杀没发 DELETE：同一台设备重开别的片子时，旧会话当场让出转码名额，
+    不用等 180 秒心跳超时；同一成员在别的设备上的会话不受影响。"""
+    install_fake(monkeypatch, WRITES_PLAYLIST_THEN_SLEEPS)
+    try:
+        stale = await manager.start(
+            make_plan(file_id=41), source_path="/m/a.mkv", member_id=1, device_id="ld-7"
+        )
+        other_tv = await manager.start(
+            make_plan(file_id=41), source_path="/m/a.mkv", member_id=1, device_id="ld-8"
+        )
+        assert await manager.stop_stale_for_device("ld-7", keep_file_id=42) == 1
+        assert manager.get(stale.id) is None
+        assert manager.get(other_tv.id) is not None
+    finally:
+        await manager.shutdown()
+
+
 # ---------------------------------------------------------------------------
 # 巡检任务
 # ---------------------------------------------------------------------------

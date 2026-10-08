@@ -1188,6 +1188,19 @@ def test_iso_is_raw_bytes_for_full_decode_players_and_explained_to_browsers():
     assert "ISO" in decision.reason and "Infuse" in decision.suggestion
 
 
+def test_readable_iso_is_remuxed_or_transcoded_for_players_that_need_the_server():
+    """服务端读出了镜像里的正片（iso_source.py 给出 disc_clips）：不再拒绝，与原盘目录一样按
+    常规判定走——编码能直通就换封装，不能就转码；全解码播放器照旧原字节直推。"""
+    readable = media(container="iso", disc_clips=1)
+    decision = decide_playback(readable, SAFARI_MAC, WITH_GPU)
+    assert isinstance(decision, PlaybackPlan)
+    assert decision.tier is not PlaybackTier.DIRECT_PLAY  # ISO 不能整份交给浏览器
+
+    decision = decide_playback(readable, universal_capability(), NO_GPU)
+    assert isinstance(decision, PlaybackPlan)
+    assert decision.tier is PlaybackTier.DIRECT_PLAY
+
+
 def test_fmp4_copy_audio_track_avoids_truehd_and_prefers_same_language():
     """原盘 HLS remux：TrueHD 装不进 fMP4（ffmpeg 视为 experimental），回退到同语言
     的 AC-3 核心；用户点选的可封装轨优先；全都不可封装时原样返回。"""
@@ -1399,3 +1412,20 @@ def test_local_tracks_keep_direct_play_for_a_non_default_track():
 def test_declared_container_skips_keyframe_probe():
     """直连原文件用不上关键帧密度：预热不为它读盘采样。"""
     assert not needs_keyframe_probe(media(keyframe_interval_s=None), EXOPLAYER, WITH_GPU)
+
+
+def test_hdr_without_free_hardware_says_busy_when_the_remote_transcoder_is_full():
+    """远程转码器在线但名额占满：不说「未检测到硬件」（会把人支去查一台好好的转码器），
+    说正忙、稍候或停掉别的转码。"""
+    from dataclasses import replace
+
+    hdr = media(hdr="HDR10", bit_depth=10, video_codec="hevc")
+    sdr_screen = replace(SAFARI_MAC, hdr_passthrough=False)
+    busy = PlaybackPolicy(hardware_available=False, hardware_busy=True)
+    decision = decide_playback(hdr, sdr_screen, busy)
+    assert isinstance(decision, PlaybackRejected)
+    assert "正忙" in decision.reason and "未检测到" not in decision.reason
+
+    decision = decide_playback(hdr, sdr_screen, NO_GPU)
+    assert isinstance(decision, PlaybackRejected)
+    assert "未检测到可用的硬件加速设备" in decision.reason

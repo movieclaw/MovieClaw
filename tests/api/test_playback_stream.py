@@ -876,6 +876,31 @@ def test_concurrency_limit_returns_503_with_chinese_message(client, tmp_path, mo
     assert "1/1" in message  # 告诉用户当前占用，而不是干巴巴一句「满了」
 
 
+def test_tv_app_starting_another_file_frees_its_stale_session(client, tmp_path, monkeypatch):
+    """电视被强杀没来得及结束播放：同一台电视开下一部片时旧会话当场让出名额，
+    不会被「已满」挡住（浏览器可以多开标签页，见上一条，不这么处理）。"""
+    monkeypatch.setattr(routes_playback, "MAX_REMUX_CONCURRENCY", 1)
+    ids = [seed(client, tmp_path, container="mkv") for _ in range(2)]
+    grant = client.post(
+        "/api/v1/auth/device/authorize",
+        json={"client_type": "androidtv", "client_name": "客厅 BRAVIA"},
+    ).json()["data"]
+    approved = client.post(f"/api/v1/auth/devices/requests/{grant['user_code']}/approve")
+    assert approved.status_code == 200, approved.text
+    token = client.post(
+        "/api/v1/auth/device/token", json={"device_code": grant["device_code"]}
+    ).json()["data"]["token"]
+    tv = {"Authorization": f"Bearer {token}"}
+    client.cookies.clear()  # 之后以电视的身份请求（Cookie 优先于 Bearer）
+
+    for file_id in ids:
+        resp = client.post(
+            f"{_PB}/sessions", json={"file_id": file_id, "capability": CAPABILITY}, headers=tv
+        )
+        assert resp.status_code == 200, resp.text
+    assert [s.file_id for s in session_mod.get_session_manager().active()] == [ids[1]]
+
+
 def test_low_disk_space_returns_503(client, tmp_path, monkeypatch):
     """盘要满了就别再转了——转码分片与 SQLite 同卷，写满会让数据库也写不进去，
     整个应用不可用。这是「宁可播不了，也不能把应用搞挂」。"""

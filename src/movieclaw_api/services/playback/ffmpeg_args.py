@@ -469,6 +469,7 @@ def build_hls_command(
     worker_caps: WorkerVideoCaps | None = None,
     progressive: bool = False,
     seek_pad_s: float = 0.5,
+    protocol_whitelist: str | None = None,
 ) -> TranscodeCommand:
     """把播放计划翻成 ffmpeg 命令。档 0（Direct Play）不该走到这里。
 
@@ -561,6 +562,9 @@ def build_hls_command(
     if input_format == "concat":
         # -safe 0：清单里是绝对路径（默认的 safe 模式只认相对路径）
         argv += ["-f", "concat", "-safe", "0"]
+        if protocol_whitelist:
+            # 光盘镜像的段写成 subfile 区间（iso_source.py）：concat 默认只放行 file 协议
+            argv += ["-protocol_whitelist", protocol_whitelist]
     argv += ["-i", source_path]
 
     # 只取一路视频一路音频；字幕流不进输出容器（-sn）——默认旁挂由前端渲染

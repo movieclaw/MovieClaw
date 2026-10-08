@@ -171,6 +171,9 @@ class PlaybackPolicy:
     software_transcode_enabled: bool = False
     #: 硬件自检（§5.2）的结论。为 False 时档 3 不可用，只能落档 4。
     hardware_available: bool = False
+    #: 没有空闲硬件，但远程转码器在线、只是名额都占满了：此时的「没硬件」是暂时的，
+    #: 提示要说「正忙、稍候」而不是「未检测到硬件」
+    hardware_busy: bool = False
     #: 转码输出的高度上限，超出则降分辨率。
     max_transcode_height: int = 1080
 
@@ -334,13 +337,12 @@ def decide_playback(
     if media.is_strm:
         return _decide_strm(media, failed_tiers)
 
-    # 光盘镜像（ISO）：服务端读不了盘内结构（没有 UDF / ISO9660 解析，ffprobe 读 ISO
-    # 只是碰巧嗅探到盘内字节，规格不可信），换封装、转码都无从谈起——但自己拉原文件的
-    # 全解码播放器未必放不了（Infuse、带 libbluray 的播放器都认 ISO），所以不拦：一律给
-    # 原字节直推，放不放得了由播放器自己决定。申报了能读镜像的（App 的自研引擎）额外标上
-    # disc="image"，它据此按镜像装载（disc-direct-play.md §2.2）。
-    # 只有指望服务端换封装 / 转码的客户端（浏览器）明确告知放不了——服务端确实无能为力，
-    # 与其开一个注定 404 的会话，不如直接说清原因和出路。
+    # 光盘镜像（ISO）：自己拉原文件的全解码播放器（Infuse、带 libbluray 的播放器都认 ISO）
+    # 一律给原字节直推，放不放得了由播放器自己决定；申报了能读镜像的（App 的自研引擎）额外
+    # 标上 disc="image"，它据此按镜像装载（disc-direct-play.md §2.2）。
+    # 指望服务端换封装 / 转码的客户端（Android TV、浏览器）：服务端用只读 UDF 读取器找出
+    # 镜像里正片的字节区间（iso_source.py，决策前由 plan.py 解析，段数进 disc_clips），
+    # 读得出就按原盘目录同一套常规判定走；读不出才明确告知放不了，免得开一个注定失败的会话。
     if media.container == "iso":
         if capability.universal:
             return PlaybackPlan(
@@ -356,11 +358,14 @@ def decide_playback(
                 reason="光盘镜像原字节直推，盘内结构由播放器在本机读取",
                 disc="image" if capability.disc_image else None,
             )
-        return PlaybackRejected(
-            reason="服务端读不了光盘镜像（ISO）的盘内结构，没法为这个播放器换封装或转码",
-            suggestion="请用能直接播放 ISO 的播放器（MovieClaw 的 iOS App、Infuse 等）；"
-            "或把镜像里的 BDMV 目录解出来后重新入库",
-        )
+        # 服务端读出了镜像里的正片（蓝光主片各段 / DVD 正片节目链在镜像上的字节区间，
+        # iso_source.py）：与原盘目录一样按下面的常规判定换封装或转码
+        if media.disc_clips < 1:
+            return PlaybackRejected(
+                reason="服务端读不了这个光盘镜像（ISO）的盘内结构，没法为这个播放器换封装或转码",
+                suggestion="请用能直接播放 ISO 的播放器（MovieClaw 的 iOS / Apple TV App、"
+                "Infuse 等），或把镜像里的正片解出来后重新入库",
+            )
 
     # 2. 恒等快照（全解码播放器）：永远直连，与 jellyfin-compat.md 行为一致。
     #    例外：多剪辑原盘没有单个文件可直连。能读原盘目录的播放器（App 的自研引擎）
@@ -530,6 +535,13 @@ class _AudioVerdict:
     needs_remap: bool = False
 
 
+def _no_hardware(policy: PlaybackPolicy) -> str:
+    """「没有可用硬件」的那半句：远程转码器在线但正忙时说清楚是暂时的。"""
+    if policy.hardware_busy:
+        return "但能做色调映射的转码器正忙（转码名额已满），请稍候或停止其它正在转码的播放后重试。"
+    return "但未检测到可用的硬件加速设备。"
+
+
 def _judge_video(
     media: MediaProfile,
     capability: ClientCapability,
@@ -594,8 +606,7 @@ def _judge_video(
                 reason="Dolby Vision 需要转换色彩空间才能正确显示",
                 blocked=(
                     "这部片是 Dolby Vision，需要显卡做色调映射才能正常播放，"
-                    "但未检测到可用的硬件加速设备。软件色调映射转 4K 太慢，"
-                    "不予启用。"
+                    f"{_no_hardware(policy)}软件色调映射转 4K 太慢，不予启用。"
                 ),
             )
         return _VideoVerdict(can_copy=False, reason="Dolby Vision 已转换为 SDR 显示")
@@ -607,7 +618,7 @@ def _judge_video(
                 reason=f"{media.hdr} 需要转换为 SDR",
                 blocked=(
                     f"这部片是 {media.hdr}，当前设备不支持 HDR 显示，需要显卡做"
-                    "色调映射；但未检测到可用的硬件加速设备。"
+                    f"色调映射；{_no_hardware(policy)}"
                 ),
             )
         return _VideoVerdict(can_copy=False, reason=f"{media.hdr} 已转换为 SDR 显示")

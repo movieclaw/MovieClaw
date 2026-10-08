@@ -1028,6 +1028,9 @@ class TranscodeSessionManager:
         if session.concat_list is not None:
             source_path = str(session.directory / CONCAT_LIST_NAME)
             extra["input_format"] = "concat"
+            if "'subfile," in session.concat_list:
+                # 光盘镜像：清单里的段是镜像上的字节区间（iso_source.py）
+                extra["protocol_whitelist"] = "file,subfile"
         return build_hls_command(
             session.plan,
             source_path=source_path,
@@ -2331,6 +2334,26 @@ class TranscodeSessionManager:
         victims = [sid for sid, s in self._sessions.items() if s.device_id == device_id]
         for sid in victims:
             await self.stop(sid, reason=reason)
+        return len(victims)
+
+    async def stop_stale_for_device(self, device_id: str, *, keep_file_id: int) -> int:
+        """一台设备开始播放 ``keep_file_id``：停掉它名下其它文件的会话。
+
+        一台电视同一时间只放一路。播放器被系统强杀、断电、断网时来不及发 DELETE，旧会话要等
+        180 秒心跳超时才回收，这段时间它照样占着转码名额——同一台设备重开播放时新会话会被
+        「转码会话已满」挡住（NAS 实测）。同一文件的旧会话由 ``stop_for_file`` 处理。
+
+        调用方只对一次只放一路的 App 设备调用；浏览器可以多开标签页同时放几部片。
+        """
+        victims = [
+            sid
+            for sid, s in self._sessions.items()
+            if s.device_id == device_id and s.file_id != keep_file_id
+        ]
+        for sid in victims:
+            await self.stop(sid, reason="同一台设备开始播放别的片子，旧会话已没人在看")
+        if victims:
+            logger.info("同一设备的旧会话 %d 个已停（device=%s）", len(victims), device_id)
         return len(victims)
 
     async def stop_for_file(self, file_id: int, member_id: int) -> int:

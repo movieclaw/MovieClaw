@@ -19,7 +19,9 @@ from movieclaw_api.services.media_probe import probe_keyframe_interval
 from movieclaw_api.services.playback.disc_source import disc_source_for_file
 from movieclaw_api.services.playback.ffmpeg_args import effective_hw_backend
 from movieclaw_api.services.playback.hwprobe import hardware_available
+from movieclaw_api.services.playback.iso_source import iso_disc_source
 from movieclaw_api.services.playback.limits import MAX_TRANSCODE_HEIGHT
+from movieclaw_api.services.playback.remote_worker import remote_worker_busy
 from movieclaw_api.services.playback.track_context import track_contexts
 from movieclaw_api.settings import PlaybackPolicySetting
 from movieclaw_api.settings.store import get_setting_store
@@ -108,6 +110,11 @@ async def decide_for_files(
         # 原盘：段数进决策输入（多剪辑没有单文件可直连）；关键帧密度来自 CLPI
         # 的 EP_map 而不是 ffprobe——目录探不了，m2ts 本体通读不起
         disc = disc_source_for_file(file) if file.is_disc() else None
+        is_iso = (file.container or "") == "iso"
+        if is_iso and not capability.universal:
+            # 光盘镜像：能自己读镜像的播放器原字节直推（决策层的 ISO 分支），用不着读盘；其余
+            # 客户端要服务端换封装 / 转码，先把镜像里的正片解析成区间（iso_source.py）
+            disc = await asyncio.to_thread(iso_disc_source, file.file_path)
         disc_clips = len(disc.clips) if disc is not None else 0
         disc_playlist = disc.playlist_name if disc is not None else None
         context = (contexts or {}).get(file.id or 0)
@@ -126,7 +133,7 @@ async def decide_for_files(
                 context=context,
                 preferred_audio=preferred_audio,
             )
-        elif needs_keyframe_probe(
+        elif not is_iso and needs_keyframe_probe(
             profile,
             capability,
             policy,
@@ -178,9 +185,11 @@ async def load_policy() -> PlaybackPolicy:
     （limits.py，独立播放设置页已于 2026-08-25 撤下）。
     """
     stored = await get_setting_store().get(PlaybackPolicySetting)
+    available = await asyncio.to_thread(hardware_available)
     return PlaybackPolicy(
         software_transcode_enabled=stored.software_transcode_enabled,
-        hardware_available=await asyncio.to_thread(hardware_available),
+        hardware_available=available,
+        hardware_busy=not available and remote_worker_busy("videotoolbox"),
         max_transcode_height=MAX_TRANSCODE_HEIGHT,
     )
 

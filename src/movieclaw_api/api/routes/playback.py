@@ -107,6 +107,7 @@ from movieclaw_api.services.playback.hwprobe import (
     available_local_backends,
     probe_backends_async,
 )
+from movieclaw_api.services.playback.iso_source import transcode_disc_source
 from movieclaw_api.services.playback.limits import (
     MAX_REMUX_CONCURRENCY,
     auto_quota_bytes,
@@ -960,6 +961,10 @@ async def _decide(
     raise BadRequestException("需要提供 file_id 或 media_item_id")
 
 
+#: 一次只放一路的 App（登录设备类型）：开播新片时可以放心停掉它名下别的片子的会话
+_SINGLE_PLAYER_KINDS = frozenset({"ios", "tvos", "android", "androidtv"})
+
+
 @router.post(
     "/sessions",
     response_model=ApiResponse[PlaybackSessionView],
@@ -1070,6 +1075,10 @@ async def start_playback_session(
         # 软件转码。先释放旧会话，再重新决策一次，才能把刚空出来的远程能力
         # 纳入最终结果；没有旧会话时不重复做这次决策。
         replaced = await manager.stop_for_file(file.id, member_id)
+        # 同一台电视 / 手机上一部片的会话（播放器被强杀没来得及结束的）也让出名额；
+        # 浏览器可以多开标签页同时放两部，不算
+        if principal.device is not None and principal.device.kind in _SINGLE_PLAYER_KINDS:
+            replaced += await manager.stop_stale_for_device(device_id, keep_file_id=file.id)
         if replaced:
             decision = await _decide(payload, principal, session)
             if decision is None:
@@ -1168,10 +1177,17 @@ async def start_playback_session(
     # 原盘（disc-playback.md §3.4）：ffmpeg 吃不了目录——单剪辑也走 concat
     # 清单（时间轴 = 播放列表时间，与台账时长、章节同口径），关键帧索引来自
     # CLPI 的 EP_map。远程 Worker 读的是 NAS 下发的 ffconcat 清单（各段剪辑一个
-    # HTTP 地址，remote-transcode.md §5.2），只派给申报了能读原盘的 Worker
-    disc = disc_source_for_file(file) if file.is_disc() else None
+    # HTTP 地址，remote-transcode.md §5.2），只派给申报了能读原盘的 Worker。
+    # 光盘镜像同样走这条：正片是镜像上的字节区间，清单里每段写 subfile 地址（iso_source.py）
+    disc = await asyncio.to_thread(transcode_disc_source, file) if file.is_disc() else None
     if file.is_disc() and disc is None:
+        if (file.container or "") == "iso":
+            raise NotFoundException("服务端读不了这个光盘镜像（ISO）的盘内结构，无法换封装或转码")
         raise NotFoundException("原盘主播放列表不可读，无法播放；请检查 BDMV/PLAYLIST 是否完整")
+    # 台账没有片长的 DVD 镜像（ffprobe 对镜像估不出）用正片节目链的时长：VOD 分片规划要它
+    duration_value = file.duration_seconds or (
+        disc.duration_s if disc is not None and disc.image == "dvd" else None
+    )
 
     async def _keyframe_index():
         """全片关键帧索引，只有直通档的 VOD 规划要它。冷缓存时 mp4 要过
@@ -1289,14 +1305,20 @@ async def start_playback_session(
     # force_key_frames 在绝对栅格上强插关键帧，用等长规划。规划失败（时长
     # 未知 / 关键帧索引读不出）退回旧的会话相对模式，一切照旧。
     segment_plan = None
-    if file.duration_seconds:
-        duration_s = float(file.duration_seconds)
+    if duration_value:
+        duration_s = float(duration_value)
         if view.video and view.video.action == "transcode":
             segment_plan = compute_uniform_plan(duration_s, target_s=SEGMENT_SECONDS)
         elif keyframe_index is not None:
             segment_plan = compute_keyframe_plan(keyframe_index.times_s, duration_s)
     start_ms = resolved_start_ms
-    if segment_plan is None and start_ms > 0 and view.video and view.video.action == "copy":
+    if (
+        segment_plan is None
+        and start_ms > 0
+        and view.video
+        and view.video.action == "copy"
+        and disc is None  # 原盘 / 镜像没有可探的单一文件（对整张镜像跑 ffprobe 只会白等）
+    ):
         # 旧模式的关键帧校正（VOD 下不需要：start() 自己对齐到分片边界）
         keyframe_s = await asyncio.to_thread(probe_keyframe_before, file.file_path, start_ms / 1000)
         if keyframe_s is not None:
