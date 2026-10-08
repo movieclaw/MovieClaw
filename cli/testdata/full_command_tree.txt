@@ -8,6 +8,9 @@
 activity
 app
 app plugins
+app plugins dead-letters
+app plugins dead-letters dismiss
+app plugins dead-letters replay
 app plugins list
 app port
 app port set

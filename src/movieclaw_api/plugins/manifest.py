@@ -28,6 +28,7 @@ from movieclaw_api.plugins import (
     core,
     delivery,
     domains,
+    events,
     library,
     notices,
     playback,
@@ -45,6 +46,7 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
     for p in (
         core.database,
         core.registries,
+        events.durable_events,
         core.secrets,
         core.setting_store,
         notices.plugin_notices,

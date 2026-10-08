@@ -129,3 +129,55 @@ def test_malformed_patch_file_is_ignored_with_a_warning(env, caplog) -> None:
     with client:
         assert app.state.kernel.fiber("jellyfin.discovery").state.value == "active"
     assert "插件补丁文件" in caplog.text
+
+
+def test_durable_section_and_dead_letter_actions(env) -> None:
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import DomainEvent, EventDeadLetter
+
+    _, client = make_admin_client()
+    with client:
+        body = client.get("/api/v1/app/plugins").json()["data"]
+        assert body["durable"] == {"consumers": [], "dead_letters": []}
+
+        async def seed() -> int:
+            async with get_database().session() as session:
+                session.add(DomainEvent(seq=5, id="01EVT", name="library.item.deleted", payload={}))
+                letter = EventDeadLetter(
+                    consumer_id="acme.gone:main",
+                    event_seq=5,
+                    event_id="01EVT",
+                    event_name="library.item.deleted",
+                    error="RuntimeError: boom",
+                    attempts=6,
+                )
+                session.add(letter)
+                await session.commit()
+                return letter.id
+
+        letter_id = client.portal.call(seed)  # 在应用自己的事件循环里写库
+        [letter] = client.get("/api/v1/app/plugins").json()["data"]["durable"]["dead_letters"]
+        assert letter["id"] == letter_id and letter["error"] == "RuntimeError: boom"
+
+        # 订阅它的插件不在运行：重放给出可读原因，不改死信
+        resp = client.post(f"/api/v1/app/plugins/dead-letters/{letter_id}/replay")
+        assert resp.status_code == 409
+        assert "没有运行" in resp.json()["message"]
+        assert client.post("/api/v1/app/plugins/dead-letters/999/replay").status_code == 404
+
+        assert (
+            client.post(f"/api/v1/app/plugins/dead-letters/{letter_id}/dismiss").status_code == 200
+        )
+        assert client.get("/api/v1/app/plugins").json()["data"]["durable"]["dead_letters"] == []
+
+
+def test_durable_section_is_empty_when_delivery_plugin_disabled(env) -> None:
+    (env / "plugins.yaml").write_text("- id: kernel.durable-events\n  disabled: true\n")
+    _, client = make_admin_client()
+    with client:
+        body = client.get("/api/v1/app/plugins").json()["data"]
+        by_id = {p["id"]: p for p in body["plugins"]}
+        assert by_id["kernel.durable-events"]["state"] == "disabled"
+        assert body["durable"] is None
+        resp = client.post("/api/v1/app/plugins/dead-letters/1/dismiss")
+        assert resp.status_code == 409

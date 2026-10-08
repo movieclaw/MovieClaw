@@ -1,3 +1,5 @@
+app plugins dead-letters dismiss
+app plugins dead-letters replay
 app plugins list
 app port set
 app restart
