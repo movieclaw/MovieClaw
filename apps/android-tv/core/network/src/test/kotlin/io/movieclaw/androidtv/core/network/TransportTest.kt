@@ -122,4 +122,34 @@ class TransportTest {
         assertEquals("星际 穿越", url.queryParameter("q"))
         assertEquals("24", url.queryParameter("limit"))
     }
+
+    /** 连上了只是响应慢：提示「响应太慢」，不叫人去查地址（同 Apple 端 .timeout） */
+    @Test
+    fun readTimeoutSaysServerIsSlowNotUnreachable() = runTest {
+        val address = ServerAddress.parse(server.url("/").toString())!!
+        val quick = OkHttpClient.Builder().readTimeout(300, java.util.concurrent.TimeUnit.MILLISECONDS).build()
+        val slowApi = McApi(OkHttpTransport(address.apiBase, quick, { token }))
+        server.enqueue(MockResponse.Builder().headersDelay(2, java.util.concurrent.TimeUnit.SECONDS).body("""{"data":{"initialized":true}}""").build())
+        try {
+            slowApi.authBootstrapStatus()
+            fail("应当超时")
+        } catch (e: UnreachableException) {
+            assertEquals("服务器响应太慢，请求已取消——请稍后重试", e.message)
+        }
+    }
+
+    /** 开播放会话走单独的长读超时：服务端采样关键帧要几十秒时不该被当成连不上 */
+    @Test
+    fun sessionStartWaitsLongerThanOrdinaryCalls() = runTest {
+        val address = ServerAddress.parse(server.url("/").toString())!!
+        val quick = OkHttpClient.Builder().readTimeout(300, java.util.concurrent.TimeUnit.MILLISECONDS).build()
+        val slowApi = McApi(OkHttpTransport(address.apiBase, quick, { token }))
+        server.enqueue(MockResponse.Builder().headersDelay(1, java.util.concurrent.TimeUnit.SECONDS).body("""{"data":{}}""").build())
+        try {
+            slowApi.playbackSessionStart(PlaybackSessionRequest(mediaItemId = 1, capability = ClientCapabilityIn()))
+        } catch (e: UnreachableException) {
+            fail("不该超时：${e.message}")
+        }
+        assertEquals("/api/v1/playback/sessions", server.takeRequest().url.encodedPath)
+    }
 }

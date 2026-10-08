@@ -35,6 +35,8 @@ class OkHttpTransport(
     /** 带着令牌收到 401：令牌已失效（被注销、改了密码），上层据此打回登录页 */
     private val onUnauthorized: (rejectedToken: String) -> Unit = {},
 ) : ApiTransport {
+    /** 开播放会话可能要服务端先采样关键帧（慢存储上的光盘镜像实测 60 秒），单独多等一会儿 */
+    private val slowClient: OkHttpClient by lazy { client.newBuilder().readTimeout(SLOW_READ_SECONDS, java.util.concurrent.TimeUnit.SECONDS).build() }
 
     override suspend fun <T> send(
         method: String,
@@ -59,7 +61,8 @@ class OkHttpTransport(
         val text: String
         val status: Int
         try {
-            client.newCall(request).await().use { resp ->
+            val caller = if (method == "POST" && path in SLOW_PATHS) slowClient else client
+            caller.newCall(request).await().use { resp ->
                 status = resp.code
                 text = resp.body.string()
             }
@@ -98,6 +101,8 @@ class OkHttpTransport(
         val JSON = "application/json; charset=utf-8".toMediaType()
         val EMPTY_BODY = ByteArray(0).toRequestBody(JSON)
         val BODY_METHODS = setOf("POST", "PUT", "PATCH")
+        val SLOW_PATHS = setOf("/playback/sessions")
+        const val SLOW_READ_SECONDS = 150L
     }
 }
 

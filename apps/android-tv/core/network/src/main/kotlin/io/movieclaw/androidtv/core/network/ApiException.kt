@@ -27,14 +27,21 @@ class UnreachableException(val host: String?, cause: Throwable) : IOException(ne
     val isTimeout: Boolean get() = cause is SocketTimeoutException || cause is InterruptedIOException
 
     companion object {
+        /** OkHttp 建连超时的消息是「failed to connect to …」/「connect timed out」；读响应超时只写「timeout」/「Read timed out」 */
+        private fun Throwable.isConnectTimeout(): Boolean = message?.contains("connect", ignoreCase = true) == true
+
         fun networkMessage(host: String?, error: Throwable): String {
             val who = host?.let { "「$it」" } ?: "服务器"
             return when (error) {
                 is UnknownHostException -> "找不到$who：域名无法解析，请检查地址拼写；内网域名需要电视与服务器在同一网络"
                 is NoRouteToHostException -> "电视没有联网：请检查 Wi-Fi 或有线网络"
                 is ConnectException -> "${who}拒绝连接：端口不对或服务器没在运行。请确认地址与浏览器里打开 MovieClaw 时的完全一致（包括端口）"
-                is SocketTimeoutException, is InterruptedIOException ->
+                // 连上了只是等响应超时（同 Apple 端 .timeout）：不是地址的问题，别叫人去查地址
+                is SocketTimeoutException, is InterruptedIOException -> if (error.isConnectTimeout()) {
                     "连接${who}超时，服务器没有响应：请确认地址和端口正确、服务器在运行；局域网地址需要电视连着同一个网络"
+                } else {
+                    "服务器响应太慢，请求已取消——请稍后重试"
+                }
                 is SSLHandshakeException -> "${who}的 HTTPS 证书不受信任（常见于自签名证书）：请换用正规证书（如 Let's Encrypt），或改用 http 地址"
                 is SSLException -> "无法与${who}建立 HTTPS 安全连接：服务器如果没有配置 https，请把地址开头改成 http://"
                 is SocketException -> "与${who}的连接中途断开：请重试；反复出现时检查网络是否稳定"
