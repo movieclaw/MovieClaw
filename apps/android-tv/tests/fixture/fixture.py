@@ -3,7 +3,7 @@
 全新数据库 + 生成的测试片 + 假 TMDB（tmdb_mock.py），不碰本机 data 库、不连外网；
 后端跑当前工作区的代码。Android TV 模拟器与 Apple TV 模拟器连同一台，走查对比用。
 
-  .venv/bin/python apps/android-tv/tests/fixture/fixture.py start   # 生成片子、起服务、建库、灌观看记录
+  .venv/bin/python apps/android-tv/tests/fixture/fixture.py start   # 生成片子、起服务、建库、灌数据
   .venv/bin/python apps/android-tv/tests/fixture/fixture.py stop
   .venv/bin/python apps/android-tv/tests/fixture/fixture.py status
 

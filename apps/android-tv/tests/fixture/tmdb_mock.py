@@ -91,7 +91,8 @@ def _canvas(size: tuple[int, int], seed: str) -> Image.Image:
     for y in range(h):
         t = y / max(h - 1, 1)
         draw.line(
-            [(0, y), (w, y)], fill=tuple(int(a + (b - a) * t) for a, b in zip(top, bottom, strict=True))
+            [(0, y), (w, y)],
+            fill=tuple(int(a + (b - a) * t) for a, b in zip(top, bottom, strict=True)),
         )
     blobs = Image.new("RGBA", size, (0, 0, 0, 0))
     bd = ImageDraw.Draw(blobs)
@@ -150,7 +151,9 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, body, mime, cache=True)
         key = path.split("/3/", 1)[-1].strip("/")
         if key in CATALOG:
-            return self._send(200, json.dumps(CATALOG[key], ensure_ascii=False).encode(), "application/json")
+            return self._send(
+                200, json.dumps(CATALOG[key], ensure_ascii=False).encode(), "application/json"
+            )
         if key.startswith(("discover/", "search/", "trending/")) or key.endswith(
             ("popular", "top_rated", "now_playing", "upcoming", "on_the_air", "airing_today")
         ):
