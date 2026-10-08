@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from movieclaw_api.plugins.keys import DB, HOST_OPS, PLUGIN_DATA, PLUGIN_HEALTH
+from movieclaw_api.plugins.keys import DB, HOST_OPS, PLUGIN_DATA, PLUGIN_HEALTH, PLUGIN_ROUTES
 from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
 
 
@@ -75,3 +75,23 @@ async def plugin_health(ctx: Context) -> None:
 
     ctx.provide(PLUGIN_HEALTH, PluginHealthService(ctx.use(DB)))
 
+
+@plugin(
+    "kernel.plugin-routes",
+    title="插件路由",
+    inject=(DB,),
+    provides=(PLUGIN_ROUTES,),
+    disableable=True,
+    reloadable=True,
+)
+async def plugin_routes(ctx: Context) -> None:
+    from movieclaw_api.services import host_ops
+    from movieclaw_api.services.plugin_data import PluginStore
+    from movieclaw_api.services.plugin_routes import PluginRoutes
+
+    if host_ops._app is None:
+        raise RuntimeError("应用尚未绑定（插件路由只能挂在运行中的应用上）")
+    db = ctx.use(DB)
+    ctx.provide(
+        PLUGIN_ROUTES, PluginRoutes(host_ops._app, lambda entry_id: PluginStore(db, entry_id))
+    )

@@ -89,12 +89,27 @@
 
 ## 8. 插件路由与签名链接（PR B7，风险最高，放最后）
 
-- 先修规格哈希：`_route_signature` 在新版 FastAPI 下已拿不到路由；改为基于 `app.openapi()` 的内容哈希，并在插件
-  路由变化时失效。
-- 三个宿主路由器预先挂好：`/api/v1/plugins/<id>/...` 分管理员区、成员区、公开区（公开区必须验签）。插件贡献
-  `PLUGIN_ROUTES`，激活时挂到宿主路由器、释放时摘除；operationId 必须以 `plugins.<id>.` 开头。
-- 签名链接服务：每个插件一把自己的密钥（存在插件数据里，加密），可签发不过期的链接（写进 `.strm`）或带时限的链接；
-  不与会话密钥共用（改密轮换不能让已写出去的 `.strm` 全部失效）。
+- 先修规格哈希：FastAPI 0.142 起 `app.routes` 里只剩「被包含的路由器」，`_route_signature` 一条路由都拿不到
+  （同构应用的指纹缓存因此全部撞在同一个键上）；改为经 `iter_route_contexts` 展开实际生效的路由。
+- 路由变化后的指纹：`spec_state.routes_changed(app)` 不再认基线，**后台线程**重算（防抖 1 秒，连续变化只认最后一次），
+  算好之前沿用旧指纹。现场生成整份 spec 本机约 4 秒、NAS 更久，放在事件循环里会把重启后的第一批请求卡住。
+  线程只基于在事件循环上取的生效路由快照生成——请求处理会按路由版本重建生效路由对象，线程里两遍遍历拿到
+  不同对象时字段映射对不上（实测 `KeyError: (ModelField…, 'serialization')`）。算好后顺手回填 FastAPI 的
+  OpenAPI 缓存（带快照时的路由版本），CLI 发现偏斜来拉 `/spec` 时不必再现场生成。
+- 实现形态改为**服务**而不是注册表：`PLUGIN_ROUTES`（实验级，`kernel.plugin-routes` 提供），
+  `routes.mount(ctx, router, zone=...)` 同步校验（operationId 必须以 `plugins.<条目 id>.` 开头、只收普通 HTTP 接口、
+  条目 id 能当路径段），校验失败插件直接进 FAILED，错误原因可见；摘除登记为插件自己的 effect，卸载 / 依赖的服务
+  重载时自动摘除。挂到宿主路由器 `/api/v1/plugins/<条目 id>/...`，鉴权在挂载时由宿主按区注入：`admin`（`require_admin`）、
+  `member`（`require_login`）、`public`（本插件的签名，没签名 / 不对 / 过期一律 404）。插件主体（`mcpl_` 令牌）调插件路由
+  同样要按 operationId 授权。
+- 摘除路由：FastAPI 的路由版本是「自身版本 + 子路由器版本之和」，直接摘子路由器会让总和回退、可能撞上旧值而命中旧的
+  路由表 / OpenAPI 缓存；摘除时把宿主路由器自身版本补到严格大于摘除前。
+- 签名链接：`await routes.sign(ctx, path, params=..., expires_in=..., absolute=...)`。签名覆盖完整路径与全部查询参数；
+  不传 `expires_in` 即不过期（写进 `.strm`）；`absolute=True` 拼「外部访问地址」，没配置时报错。每个插件一把密钥，
+  首次使用时生成，存在它自己的插件数据里（键 `kernel.link-key`，加密），不与会话密钥共用：改密 / 轮换会话密钥、
+  插件或服务重载都不会让已写出去的 `.strm` 失效。
+- 已知限制：插件路由不进宿主操作目录（`HOST_OPS` 读构建期基线），插件之间暂不能经宿主操作互调对方路由；
+  挂了路由的实例 `/health` 的 `spec_hash` 与发布产物的基线不同（NAS 开发版部署脚本的指纹校验要先摘掉验收插件）。
 
 ## 9. 不在二 B 的提供方注册表（迁移路径）
 

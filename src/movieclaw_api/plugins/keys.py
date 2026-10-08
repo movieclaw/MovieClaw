@@ -52,3 +52,8 @@ SITE_DATA_PACKS: RegistryKey[Any] = RegistryKey(
     stability=Stability.EXPERIMENTAL,
     doc="站点数据包：插件贡献一个站点 YAML 目录（优先级：内置 < 数据包 < 用户目录）",
 )
+PLUGIN_ROUTES: ServiceKey[Any] = ServiceKey(
+    "plugin-routes",
+    stability=Stability.EXPERIMENTAL,
+    doc="插件路由：挂到 /api/v1/plugins/<条目 id>（管理员 / 成员 / 验签公开三区），签发签名链接",
+)
