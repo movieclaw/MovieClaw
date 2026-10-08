@@ -76,7 +76,7 @@ async def recorded(db, name: str | None = None) -> list[dict]:
         ]
 
 
-async def seed_show(db, tmp_path: Path) -> dict:
+async def seed_show(db, tmp_path: Path, *, info_hash: str = "packhash") -> dict:
     """一部剧两集，季包由订阅投递（自有、非 H&R）；第二集的文件另记着一个来源种子。"""
     root = tmp_path / "media" / "tv"
     show = root / "测试剧集 (2024)" / "Season 01"
@@ -103,7 +103,7 @@ async def seed_show(db, tmp_path: Path) -> dict:
             SubscriptionDownloadAttempt(
                 subscription_id=sub.id,
                 downloader_id=downloader.id,
-                info_hash="PACKHASH",
+                info_hash=info_hash.upper(),
                 torrent_title="Test.Show.S01.1080p",
                 units=[[1, 1], [1, 2]],
                 owned_by_movieclaw=True,
@@ -121,7 +121,7 @@ async def seed_show(db, tmp_path: Path) -> dict:
                 file_path=str(path),
                 size_bytes=2,
                 source=FileSource.IMPORTED,
-                info_hash="packhash",
+                info_hash=info_hash.lower(),
                 downloader_id=downloader.id,
             )
             session.add(row)
