@@ -8,7 +8,7 @@ struct EngineConfigurationTests {
         #expect(AetherPlayback.engineConfigurationSnapshot == [
             "vodSegmentTargetSeconds": "2.0",
             "vodFirstSegmentTargetSeconds": "1.0",
-            "servesSegmentsProgressively": "true",
+            "progressiveSegmentDelivery": "true",
             "declaresIndependentMediaSegments": "true",
             "seekSnapDecodeBudgetSeconds": "0.2",
             "startSnapDecodeBudgetSeconds": "0.05",
