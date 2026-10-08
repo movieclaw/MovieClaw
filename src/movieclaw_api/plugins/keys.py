@@ -1,0 +1,27 @@
+"""内置服务键（docs/design/plugin-kernel.md §7）。
+
+集中在这里，一眼看全系统有哪些服务。第一阶段全部是 ``INTERNAL`` 契约：只供内置插件使用，
+随时可改；第二阶段逐个评估后再升为 ``EXPERIMENTAL`` 对外开放。
+
+存量代码仍经 ``get_database()`` 这类模块级单例取用（不改调用点）；服务键主要用来表达
+插件之间的依赖、驱动启动顺序与级联释放，新代码优先经 ``ctx.use`` 取。
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from movieclaw_kernel import ServiceKey
+
+DB: ServiceKey[Any] = ServiceKey("db", doc="数据库引擎（迁移完成后提供）")
+SECRETS: ServiceKey[Any] = ServiceKey("secrets", doc="凭据加解密器")
+SETTING_STORE: ServiceKey[Any] = ServiceKey("setting-store", doc="配置存储")
+EGRESS: ServiceKey[Any] = ServiceKey("egress", doc="网络出口（代理路由、镜像地址）")
+SITES: ServiceKey[Any] = ServiceKey("sites", doc="站点目录（内置 + 用户自定义）")
+SITE_ACCESS: ServiceKey[Any] = ServiceKey("site-access", doc="站点访问管理器（已认证的共享客户端）")
+AGENT_RUNS: ServiceKey[Any] = ServiceKey("agent-runs", doc="Agent 运行注册表")
+SCHEDULER: ServiceKey[Any] = ServiceKey("scheduler", doc="定时任务调度器")
+CLOUD: ServiceKey[Any] = ServiceKey("cloud", doc="MovieClaw Cloud 连接")
+PUSH_HUB: ServiceKey[Any] = ServiceKey("push-hub", doc="推送事件中枢")
+JOBS: ServiceKey[Any] = ServiceKey("jobs", doc="持久化后台任务执行器")
+REMOTE_WORKERS: ServiceKey[Any] = ServiceKey("remote-workers", doc="远程转码 Worker 注册表")

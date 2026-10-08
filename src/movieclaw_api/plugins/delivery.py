@@ -1,0 +1,74 @@
+"""通道与推送插件（plugin-kernel.md §7）。
+
+微信、IM、Cloud、推送中枢、新片到达、Jellyfin 局域网发现。
+"""
+
+from __future__ import annotations
+
+from movieclaw_api.plugins.keys import AGENT_RUNS, CLOUD, DB, EGRESS, PUSH_HUB
+from movieclaw_kernel import Context, plugin
+
+
+@plugin("channel.weixin", title="微信通道", inject=(AGENT_RUNS,), disableable=True)
+async def weixin(ctx: Context) -> None:
+    from movieclaw_api.services.weixin_channel import close_weixin_channel, init_weixin_channel
+
+    # 拉起所有已绑定账号的收发循环；入站消息要驱动 Agent，所以依赖 Agent 注册表
+    # （关闭时先停通道：掐断在飞长轮询、停会话 worker，再停 Agent）
+    await init_weixin_channel()
+    ctx.effect(close_weixin_channel, label="close-weixin")
+
+
+@plugin("channel.im", title="Telegram / Discord / 飞书", inject=(AGENT_RUNS,), disableable=True)
+async def im_channels(ctx: Context) -> None:
+    from movieclaw_api.services.im_channel import close_im_channels, init_im_channels
+
+    await init_im_channels()
+    ctx.effect(close_im_channels, label="close-im")
+
+
+@plugin("cloud", title="MovieClaw Cloud", inject=(EGRESS,), provides=(CLOUD,), disableable=True)
+async def cloud(ctx: Context) -> None:
+    from movieclaw_api.services.cloud import close_cloud_service, init_cloud_service
+
+    # 已连接就起续签循环；未连接时对云端不发任何请求（docs/design/cloud-push.md §2、§3）
+    service = await init_cloud_service()
+    ctx.effect(close_cloud_service, label="close-cloud")
+    ctx.provide(CLOUD, service)
+
+
+@plugin("push.hub", title="推送事件中枢", inject=(DB,), provides=(PUSH_HUB,))
+async def push_hub(ctx: Context) -> None:
+    from movieclaw_api.services.push import hub
+
+    # 中枢懒启动（第一次 emit 时建队列和消费者），这里只负责关停：
+    # 停消费者、取消剧卡的定时（docs/design/cloud-push.md §5.1）
+    ctx.effect(hub.stop, label="stop-push-hub")
+    ctx.provide(PUSH_HUB, hub)
+
+
+@plugin("push.channels-refresh", title="推送通道能力快照", inject=(CLOUD,))
+async def push_channels_refresh(ctx: Context) -> None:
+    from movieclaw_api.services.push.channels import start_refresh_loop, stop_refresh_loop
+
+    # 推送通道的能力快照（/v1/info）每半小时检查一次是否过期
+    start_refresh_loop()
+    ctx.effect(stop_refresh_loop, label="stop-refresh-loop")
+
+
+@plugin("push.arrivals", title="媒体库有新片", inject=(PUSH_HUB, DB), disableable=True)
+async def push_arrivals(ctx: Context) -> None:
+    from movieclaw_api.services.push import arrivals
+
+    # 每两分钟看一眼台账里新出现的行；先于推送中枢停下
+    arrivals.start()
+    ctx.effect(arrivals.stop, label="stop-arrivals")
+
+
+@plugin("jellyfin.discovery", title="Jellyfin 局域网发现", disableable=True)
+async def jellyfin_discovery(ctx: Context) -> None:
+    from movieclaw_jellyfin.udp import start_discovery, stop_discovery
+
+    # UDP 7359；开关关闭 / 端口被占时内部自行降级
+    await start_discovery(ctx.settings.jellyfin_public_port)
+    ctx.effect(stop_discovery, label="stop-discovery")
