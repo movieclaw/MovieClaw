@@ -461,3 +461,14 @@ async def test_startup_overhead_for_many_plugins_is_small() -> None:
     await kernel.stop()
     # 设计预算 50 毫秒；CI 机器抖动大，断言放宽到 0.5 秒，实测值见 PR 描述
     assert elapsed < 0.5
+
+
+async def test_providing_none_is_rejected() -> None:
+    @plugin("nothing", title="nothing", provides=(DB,))
+    async def nothing(ctx) -> None:
+        ctx.provide(DB, None)
+
+    async with KernelHarness() as h:
+        fiber = await h.mount(nothing)
+        assert fiber.state is State.FAILED
+        assert "None" in fiber.error

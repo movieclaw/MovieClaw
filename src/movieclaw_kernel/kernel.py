@@ -505,6 +505,8 @@ class Kernel:
     def _provide(self, fiber: Fiber, key: ServiceKey[Any], value: Any) -> None:
         if all(k.name != key.name for k in fiber.plugin.provides):
             raise ValueError(f"插件 {fiber.id} 未在 provides 中声明服务 {key.name}")
+        if value is None:
+            raise ValueError(f"服务 {key.name} 不能提供 None（与「没有提供方」无法区分）")
         holder = self._services.get(key.name)
         if holder is not None:
             raise RuntimeError(f"服务 {key.name} 已由 {holder[1].id} 提供")
