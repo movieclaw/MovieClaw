@@ -961,6 +961,18 @@ async def _decide(
     raise BadRequestException("需要提供 file_id 或 media_item_id")
 
 
+async def _requested_file_ids(session: AsyncSession, payload: PlaybackSessionRequest) -> list[int]:
+    """这次开会话请求指向的文件：给了 file_id 就是它，否则是这个单元（条目 / 季 / 集）的在位文件"""
+    if payload.file_id is not None:
+        return [payload.file_id]
+    if payload.media_item_id is None:
+        return []
+    statement = playback_plan.library_files_statement(
+        payload.media_item_id, payload.season_number, payload.episode_number
+    )
+    return [row.id for row in (await session.execute(statement)).scalars().all()]
+
+
 #: 一次只放一路的 App（登录设备类型）：开播新片时可以放心停掉它名下别的片子的会话
 _SINGLE_PLAYER_KINDS = frozenset({"ios", "tvos", "android", "androidtv"})
 
@@ -1061,6 +1073,20 @@ async def start_playback_session(
     if decision is None:
         raise NotFoundException("没有找到可播放的文件")
     view = playback_plan.to_view(decision)
+    if view.outcome != "plan":
+        # 同一成员对同一文件的旧会话（换字幕要烧录、换音轨、降档重开时还没让出来的）可能正占着
+        # 唯一的色调映射名额，让这次决策判成「转码器正忙」——自己挡住自己（Android TV 故障注入
+        # 实测：杜比视界换 PGS 字幕直接落错误页）。这次请求本来就要替换它：先让出来再决策一次。
+        # 拒绝的决策不带文件，按请求解出这个单元的文件
+        manager = get_session_manager()
+        replaced = 0
+        for candidate in await _requested_file_ids(session, payload):
+            replaced += await manager.stop_for_file(candidate, member_id)
+        if replaced:
+            decision = await _decide(payload, principal, session)
+            if decision is None:
+                raise NotFoundException("没有找到可播放的文件")
+            view = playback_plan.to_view(decision)
     if view.outcome != "plan":
         attempt_started(view.file_id, -1, view, decide=decide_ms)
         return ok(PlaybackSessionView(decision=view, watch=watch_view))

@@ -133,6 +133,8 @@ async def _seed(
     strm=False,
     data: bytes | None = None,
     duration_seconds: int = 600,
+    hdr: str | None = None,
+    resolution: str = "1080p",
 ) -> int:
     """建库 + 建条目 + 落一个真实存在的文件，返回 library_file.id。
 
@@ -163,7 +165,8 @@ async def _seed(
             state=FileState.IN_PLACE,
             container=container,
             video_codec=codec,
-            resolution="1080p",
+            resolution=resolution,
+            hdr=hdr,
             duration_seconds=duration_seconds,
             audio_streams=[{"codec": "aac", "channels": 2, "default": True}],
         )
@@ -809,6 +812,79 @@ def test_quality_switch_releases_remote_worker_before_final_decision(
         assert current is not None
         assert current.remote is True
         assert current.hw_backend == "videotoolbox"
+
+
+def test_reopening_a_tone_mapped_title_frees_its_own_worker_slot_first(
+    client, tmp_path, monkeypatch
+):
+    """杜比视界只能靠远程 Worker 色调映射：换字幕 / 换音轨重开会话时，这位成员自己的旧会话
+    正占着唯一的槽位。不能判成「转码器正忙」把自己挡住（Android TV 实测换 PGS 字幕落错误页），
+    要先让出来再决策。"""
+    from movieclaw_api.services.playback import hwprobe
+    from movieclaw_api.services.playback import plan as plan_mod
+
+    availability = {"value": False}
+    backends = lambda: ("videotoolbox",) if availability["value"] else ()  # noqa: E731
+    monkeypatch.setattr(hwprobe, "available_backends", backends)
+    monkeypatch.setattr(routes_playback, "available_backends", backends)
+    monkeypatch.setattr(routes_playback, "available_local_backends", lambda: ())
+    monkeypatch.setattr(
+        routes_playback, "remote_worker_available", lambda *_a, **_k: availability["value"]
+    )
+    monkeypatch.setattr(plan_mod, "hardware_available", lambda: availability["value"])
+    monkeypatch.setattr(plan_mod, "remote_worker_busy", lambda _b: not availability["value"])
+    monkeypatch.setattr(
+        routes_playback,
+        "effective_remote_transcode_config",
+        lambda: SimpleNamespace(base_url="http://nas.local"),
+    )
+    assert client.put(f"{_PB}/policy", json={"software_transcode_enabled": True}).status_code == 200
+    file_id = seed(
+        client, tmp_path, container="mkv", codec="hevc", hdr="Dolby Vision", resolution="2160p"
+    )
+    manager = get_session_manager()
+    old_id = "old-tonemap-session"
+    old_directory = Path(get_settings().transcode_dir) / old_id
+    old_directory.mkdir(parents=True, exist_ok=True)
+    manager._sessions[old_id] = session_mod.TranscodeSession(
+        id=old_id,
+        file_id=file_id,
+        member_id=0,
+        tier=PlaybackTier.HARDWARE_TRANSCODE,
+        directory=old_directory,
+        start_ms=0,
+        plan=PlaybackPlan(
+            tier=PlaybackTier.HARDWARE_TRANSCODE,
+            file_id=file_id,
+            container="hls-fmp4",
+            video=VideoPlan(action="transcode", codec="h264", height=2160),
+            audio=AudioPlan(action="copy", track_ref=None),
+            reason="测试",
+        ),
+        remote=True,
+    )
+    original_stop_for_file = manager.stop_for_file
+
+    async def stop_and_release(file_id_value: int, member_id: int) -> int:
+        replaced = await original_stop_for_file(file_id_value, member_id)
+        if replaced:
+            availability["value"] = True
+        return replaced
+
+    monkeypatch.setattr(manager, "stop_for_file", stop_and_release)
+
+    async def fake_spawn_remote(remote_session, _base_url: str) -> None:
+        remote_session.state = "ready"
+        remote_session.remote_worker_id = "mac-mini"
+
+    monkeypatch.setattr(manager, "_spawn_remote", fake_spawn_remote)
+
+    # 电视能解 HEVC、显示不了杜比视界：走到「要色调映射」那一道
+    hevc_tv = {**CAPABILITY, "video": [{"codec": "h264"}, {"codec": "hevc"}]}
+    data = start_session(client, file_id, capability=hevc_tv, subtitle_track="embedded:0")
+    assert data["decision"]["outcome"] == "plan", data["decision"]
+    assert data["decision"]["tier"] == int(PlaybackTier.HARDWARE_TRANSCODE)
+    assert manager.get(old_id) is None
 
 
 def test_init_segment_waits_until_fully_written(client, tmp_path, monkeypatch):
