@@ -9,9 +9,8 @@
 
 from pathlib import Path
 
-from PIL import Image
-
 from generate_tvos_assets import mark_glyph, scaled, wordmark
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[2]
 BRAND = ROOT / "docs/brand"
@@ -49,7 +48,9 @@ def main() -> None:
             mipmap / "banner.png", optimize=True
         )
         size = round(80 * factor)
-        icon.resize((size, size), Image.Resampling.LANCZOS).save(mipmap / "ic_launcher.png", optimize=True)
+        icon.resize((size, size), Image.Resampling.LANCZOS).save(
+            mipmap / "ic_launcher.png", optimize=True
+        )
         size = round(108 * factor)
         foreground.resize((size, size), Image.Resampling.LANCZOS).save(
             drawable / "ic_launcher_foreground.png", optimize=True
