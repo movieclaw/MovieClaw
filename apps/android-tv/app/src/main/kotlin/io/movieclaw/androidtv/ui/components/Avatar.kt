@@ -26,14 +26,11 @@ import androidx.tv.material3.Text
 import io.movieclaw.androidtv.ui.theme.McMetrics
 import io.movieclaw.androidtv.ui.theme.pt
 
-/** 头像缩写（TVAvatar）：首字是中日韩文字就取一个字，否则取前两个字母大写 */
+/** 头像缩写（TVAvatar.initials）：去掉首尾空白；首字是汉字（U+4E00–9FFF）取一个字，否则取前两个字符大写；空名字是「?」 */
 fun initials(name: String): String {
-    val first = name.firstOrNull() ?: return ""
-    val cjk = Character.UnicodeScript.of(first.code).let {
-        it == Character.UnicodeScript.HAN || it == Character.UnicodeScript.HIRAGANA ||
-            it == Character.UnicodeScript.KATAKANA || it == Character.UnicodeScript.HANGUL
-    }
-    return if (cjk) first.toString() else name.take(2).uppercase()
+    val trimmed = name.trim()
+    val first = trimmed.firstOrNull() ?: return "?"
+    return if (first.code in 0x4E00..0x9FFF) first.toString() else trimmed.take(2).uppercase()
 }
 
 /**

@@ -27,8 +27,11 @@ class MovieClawApp : Application(), SingletonImageLoader.Factory {
                 val origin = saved.address.origin
                 request.url.host == origin.host && request.url.port == origin.port
             }
+            // 谁在看页的头像带 mc_account=<用户名>：按那个账号的令牌取（同 Apple 端 AvatarURL.tagged）
+            val tagged = request.url.queryParameter("mc_account")
             val bearer = when {
                 match == null -> null
+                tagged != null -> model.tokenFor(match.address, tagged)
                 match.origin == model.server?.toString() -> model.token
                 else -> match.activeAccount?.let { model.tokenFor(match.address, it.username) }
             }
