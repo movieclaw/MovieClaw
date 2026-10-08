@@ -32,3 +32,13 @@ HOST_OPS: ServiceKey[Any] = ServiceKey(
     stability=Stability.EXPERIMENTAL,
     doc="宿主操作：插件以自己的身份调用本进程的 OpenAPI 操作（按操作授权）",
 )
+PLUGIN_DATA: ServiceKey[Any] = ServiceKey(
+    "plugin-data",
+    stability=Stability.EXPERIMENTAL,
+    doc="插件数据：插件自己的状态与挂在实体上的扩展字段（只能读写自己的）",
+)
+PLUGIN_HEALTH: ServiceKey[Any] = ServiceKey(
+    "plugin-health",
+    stability=Stability.EXPERIMENTAL,
+    doc="插件健康：常驻任务报告降级 / 恢复，降级进系统通知与诊断",
+)

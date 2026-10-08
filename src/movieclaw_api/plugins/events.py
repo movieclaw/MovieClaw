@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from movieclaw_api.plugins.keys import DB, HOST_OPS
+from movieclaw_api.plugins.keys import DB, HOST_OPS, PLUGIN_DATA, PLUGIN_HEALTH
 from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
 
 
@@ -46,3 +46,32 @@ async def host_ops(ctx: Context) -> None:
     # 用户在 plugins.yaml 里给本地插件的批准（grants、act_as）
     configure_host_ops(host, ctx.settings)
     ctx.provide(HOST_OPS, host)
+
+
+@plugin(
+    "kernel.plugin-data",
+    title="插件数据",
+    inject=(DB,),
+    provides=(PLUGIN_DATA,),
+    disableable=True,
+    reloadable=True,
+)
+async def plugin_data(ctx: Context) -> None:
+    from movieclaw_api.services.plugin_data import PluginDataService
+
+    ctx.provide(PLUGIN_DATA, PluginDataService(ctx.use(DB)))
+
+
+@plugin(
+    "kernel.plugin-health",
+    title="插件健康",
+    inject=(DB,),
+    provides=(PLUGIN_HEALTH,),
+    disableable=True,
+    reloadable=True,
+)
+async def plugin_health(ctx: Context) -> None:
+    from movieclaw_api.services.plugin_health import PluginHealthService
+
+    ctx.provide(PLUGIN_HEALTH, PluginHealthService(ctx.use(DB)))
+

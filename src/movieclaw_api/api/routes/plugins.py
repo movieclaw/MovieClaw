@@ -39,6 +39,14 @@ class PluginStats(BaseModel):
     breaker: str
 
 
+class HealthView(BaseModel):
+    key: str
+    ok: bool
+    message: str
+    action_href: str | None = None
+    since: str
+
+
 class PluginView(BaseModel):
     id: str
     plugin: str
@@ -60,6 +68,10 @@ class PluginView(BaseModel):
     dispose_ms: float | None
     unsettled: bool
     stats: PluginStats
+    health: list[HealthView] = Field(
+        default_factory=list, description="插件自己报告的运行状况（PLUGIN_HEALTH）"
+    )
+    data_rows: int = Field(default=0, description="插件数据行数（PLUGIN_DATA）")
 
 
 class ContributionView(BaseModel):
@@ -144,14 +156,23 @@ def _durable_store(request: Request):
     operation_id="app.plugins.list",
 )
 async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
+    from movieclaw_api.plugins.keys import PLUGIN_DATA, PLUGIN_HEALTH
     from movieclaw_kernel import DURABLE_EVENTS
 
     kernel = _kernel(request)
     store = kernel.service(DURABLE_EVENTS)
     durable = await store.describe() if store is not None else None
+    health_service = kernel.service(PLUGIN_HEALTH)
+    health = health_service.snapshot() if health_service is not None else {}
+    data_service = kernel.service(PLUGIN_DATA)
+    data_rows = await data_service.counts() if data_service is not None else {}
+    plugins = [
+        {**item, "health": health.get(item["id"], []), "data_rows": data_rows.get(item["id"], 0)}
+        for item in kernel.snapshot()
+    ]
     return ok(
         PluginsView.model_validate(
-            {"plugins": kernel.snapshot(), "contracts": kernel.contracts(), "durable": durable}
+            {"plugins": plugins, "contracts": kernel.contracts(), "durable": durable}
         )
     )
 

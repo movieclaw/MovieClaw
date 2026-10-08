@@ -38,9 +38,19 @@ export function pluginStateTone(state: PluginState): Tone {
   return STATE_TONE[state] ?? "neutral";
 }
 
-/** 需要管理员留意的状态：失败、不兼容、等待依赖（关闭是有意为之，不算） */
+/** 插件自己报告的降级（令牌过期、外部系统连不上……） */
+export function degradedHealth(plugin: PluginInfo): string[] {
+  return (plugin.health ?? []).filter((h) => !h.ok).map((h) => h.message);
+}
+
+/** 需要管理员留意的状态：失败、不兼容、等待依赖、运行中报告降级（关闭是有意为之，不算） */
 export function needsAttention(plugin: PluginInfo): boolean {
-  return plugin.state === "failed" || plugin.state === "incompatible" || plugin.state === "pending";
+  return (
+    plugin.state === "failed" ||
+    plugin.state === "incompatible" ||
+    plugin.state === "pending" ||
+    (plugin.state === "active" && degradedHealth(plugin).length > 0)
+  );
 }
 
 function disabledByText(source: string | null): string {
@@ -64,6 +74,8 @@ export function pluginDetail(plugin: PluginInfo): string {
     case "disabled":
       return disabledByText(plugin.disabled_by);
     case "active": {
+      const degraded = degradedHealth(plugin);
+      if (degraded.length > 0) return `运行异常：${degraded.join("；")}`;
       const parts: string[] = [];
       if (plugin.apply_ms !== null) parts.push(`启动 ${formatMs(plugin.apply_ms)}`);
       if (plugin.stats.tasks > 0) parts.push(`${plugin.stats.tasks} 个后台任务`);

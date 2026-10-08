@@ -37,6 +37,11 @@ class Context(Generic[C]):
         return self._fiber.id
 
     @property
+    def title(self) -> str:
+        """插件的展示名（``@plugin(title=...)``）。"""
+        return self._fiber.plugin.title
+
+    @property
     def settings(self) -> Any:
         return self._kernel.settings
 

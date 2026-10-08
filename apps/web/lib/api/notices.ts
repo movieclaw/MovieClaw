@@ -59,9 +59,14 @@ export function noticeHref(notice: SystemNotice): string {
     // 和 MovieClaw Cloud 断开、连不上、版本不受支持（docs/design/cloud-push.md §2.4）
     case "cloud":
       return "/settings/cloud";
-    // 后端某个模块（内置插件）启动失败（docs/design/plugin-kernel.md §9）
-    case "plugin":
-      return "/settings/app?tab=plugins";
+    // 后端某个模块（内置插件）启动失败（docs/design/plugin-kernel.md §9）；插件运行中报告的
+    // 降级可以带一个站内路径，指向能修它的地方（docs/design/plugin-phase2b.md §5）
+    case "plugin": {
+      const href = notice.payload.action_href;
+      return typeof href === "string" && href.startsWith("/") && !href.startsWith("//")
+        ? href
+        : "/settings/app?tab=plugins";
+    }
     default:
       return "/settings";
   }

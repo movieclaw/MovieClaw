@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  degradedHealth,
   formatMs,
   isLocalPlugin,
   needsAttention,
@@ -132,3 +133,17 @@ test("本地插件单独计数并可识别", () => {
   assert.equal(isLocalPlugin(list[0]), false);
   assert.equal(pluginsSummary(list), "3 个模块 · 2 个运行中 · 1 个需要留意 · 其中 2 个是本地插件");
 });
+
+test("插件报告的降级算需要留意，并写进行内说明", () => {
+  const healthy = plugin({ health: [{ key: "a", ok: true, message: "", action_href: null, since: "" }] });
+  const degraded = plugin({
+    health: [{ key: "trakt", ok: false, message: "Trakt 令牌已过期", action_href: null, since: "" }],
+  });
+  assert.equal(needsAttention(healthy), false);
+  assert.equal(needsAttention(degraded), true);
+  assert.deepEqual(degradedHealth(degraded), ["Trakt 令牌已过期"]);
+  assert.equal(pluginDetail(degraded), "运行异常：Trakt 令牌已过期");
+  // 旧服务端没有 health 字段
+  assert.equal(needsAttention(plugin()), false);
+});
+

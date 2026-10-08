@@ -64,6 +64,18 @@ export interface PluginInfo {
   dispose_ms: number | null;
   unsettled: boolean;
   stats: PluginStats;
+  /** 插件自己报告的运行状况（PLUGIN_HEALTH）；旧服务端没有这个字段 */
+  health?: PluginHealth[];
+  /** 插件数据行数（PLUGIN_DATA） */
+  data_rows?: number;
+}
+
+export interface PluginHealth {
+  key: string;
+  ok: boolean;
+  message: string;
+  action_href: string | null;
+  since: string;
 }
 
 export interface PluginsOverview {
