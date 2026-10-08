@@ -236,6 +236,12 @@ def init_scheduler(config: SchedulerConfig) -> SchedulerService:
     return _scheduler_service
 
 
+def reset_scheduler() -> None:
+    """清空全局单例（调度器插件释放时调用）：下次启用重新建一个，而不是复用已关停的。"""
+    global _scheduler_service
+    _scheduler_service = None
+
+
 def try_get_scheduler() -> SchedulerService | None:
     """已初始化就给单例，没有就 None——设置接口在调度器关着时也要能改库里的定义。"""
     return _scheduler_service

@@ -6,7 +6,9 @@ from movieclaw_api.plugins.keys import AGENT_RUNS, DB
 from movieclaw_kernel import Context, plugin
 
 
-@plugin("agent.runs", title="Agent 运行注册表", inject=(DB,), provides=(AGENT_RUNS,))
+@plugin(
+    "agent.runs", title="Agent 运行注册表", inject=(DB,), provides=(AGENT_RUNS,), reloadable=True
+)
 async def agent_runs(ctx: Context) -> None:
     from movieclaw_api.services.agent_runs import (
         close_agent_run_registry,
@@ -20,7 +22,7 @@ async def agent_runs(ctx: Context) -> None:
     ctx.provide(AGENT_RUNS, registry)
 
 
-@plugin("agent.session-index", title="Agent 会话索引校准", inject=(DB,))
+@plugin("agent.session-index", title="Agent 会话索引校准", inject=(DB,), reloadable=True)
 async def agent_session_index(ctx: Context) -> None:
     from movieclaw_api.services.agent_session_recorder import rebuild_agent_session_index
 
@@ -28,7 +30,7 @@ async def agent_session_index(ctx: Context) -> None:
     await rebuild_agent_session_index()
 
 
-@plugin("agent.attachments", title="Agent 附件暂存清理")
+@plugin("agent.attachments", title="Agent 附件暂存清理", reloadable=True)
 async def agent_attachments(ctx: Context) -> None:
     from movieclaw_api.services.agent_attachments import get_agent_attachment_store
 

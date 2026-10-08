@@ -20,7 +20,7 @@ logger = logging.getLogger("movieclaw_api.plugins.notices")
 NOTICE_PREFIX = "plugin:"
 
 
-@plugin("kernel.notices", title="插件故障提醒", inject=(DB, SETTING_STORE))
+@plugin("kernel.notices", title="插件故障提醒", inject=(DB, SETTING_STORE), reloadable=True)
 async def plugin_notices(ctx: Context) -> None:
     from sqlmodel import select
 

@@ -18,7 +18,7 @@ from movieclaw_kernel import Context, RegistryChange, plugin
 logger = logging.getLogger("movieclaw_api.plugins.scheduling")
 
 
-@plugin("app-update.startup-check", title="启动后检查更新", inject=(SCHEDULER,))
+@plugin("app-update.startup-check", title="启动后检查更新", inject=(SCHEDULER,), reloadable=True)
 async def app_update_startup_check(ctx: Context) -> None:
     from movieclaw_api.services.app_update import close_startup_check, start_startup_check
 
@@ -28,7 +28,7 @@ async def app_update_startup_check(ctx: Context) -> None:
     ctx.effect(close_startup_check, label="close-startup-check")
 
 
-@plugin("app-update", title="应用更新", inject=(DB,))
+@plugin("app-update", title="应用更新", inject=(DB,), reloadable=True)
 async def app_update(ctx: Context) -> None:
     from movieclaw_api.services import app_update as module
     from movieclaw_scheduler import contribute_tasks
@@ -44,7 +44,14 @@ async def app_update(ctx: Context) -> None:
     ctx.plugin(app_update_startup_check)
 
 
-@plugin("scheduler", title="定时任务调度器", inject=(DB,), provides=(SCHEDULER,), disableable=True)
+@plugin(
+    "scheduler",
+    title="定时任务调度器",
+    inject=(DB,),
+    provides=(SCHEDULER,),
+    disableable=True,
+    reloadable=True,
+)
 async def scheduler(ctx: Context) -> None:
     from movieclaw_scheduler import (
         SCHEDULED_TASKS,
@@ -52,6 +59,7 @@ async def scheduler(ctx: Context) -> None:
         contribute_tasks,
         get_scheduler,
         init_scheduler,
+        reset_scheduler,
     )
     from movieclaw_scheduler import tasks as builtin_tasks
 
@@ -66,6 +74,8 @@ async def scheduler(ctx: Context) -> None:
     service = get_scheduler()
     # 启动时加载注册表里已有的全部任务（领域插件排在调度器之前，启动即齐）
     await service.start()
+    # 释放顺序（逆序）：先关停，再清空单例——重新启用时建新的，不复用已关停的
+    ctx.effect(reset_scheduler, label="reset-scheduler")
     ctx.effect(service.shutdown, label="shutdown-scheduler")
     ctx.provide(SCHEDULER, service)
 
@@ -87,7 +97,9 @@ async def scheduler(ctx: Context) -> None:
     ctx.task(apply_changes(), name="sync-tasks")
 
 
-@plugin("boost.sentinel", title="刷流带宽哨兵", inject=(SCHEDULER,), disableable=True)
+@plugin(
+    "boost.sentinel", title="刷流带宽哨兵", inject=(SCHEDULER,), disableable=True, reloadable=True
+)
 async def boost_sentinel(ctx: Context) -> None:
     from movieclaw_api.services.boost_bandwidth import (
         close_boost_bandwidth_sentinel,
@@ -99,7 +111,7 @@ async def boost_sentinel(ctx: Context) -> None:
     ctx.effect(close_boost_bandwidth_sentinel, label="close-boost-sentinel")
 
 
-@plugin("jobs", title="持久化任务执行器", inject=(DB,), provides=(JOBS,))
+@plugin("jobs", title="持久化任务执行器", inject=(DB,), provides=(JOBS,), reloadable=True)
 async def jobs(ctx: Context) -> None:
     from movieclaw_api.services.jobs import close_job_dispatcher, init_job_dispatcher
 

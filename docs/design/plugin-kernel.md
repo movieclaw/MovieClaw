@@ -779,6 +779,11 @@ schema（第二阶段）、`SEARCH_RESULTS` 事件（第二阶段）、打包格
 
 通过的插件标记 `reloadable=True`；不通过的记录原因，作为第二阶段的改造清单。
 
+**实施结果（PR 5）**：36 个非关键顶层插件（含子插件共 37 个）全部通过，均已标记 `reloadable=True`。
+过程中发现并修正一处：调度器插件释放后单例仍指向已关停的实例，重新启用时被「重复初始化被忽略」
+复用；现在释放时清空单例（`reset_scheduler`），重新启用建新实例。守护测试
+`tests/api/test_plugin_reloadable.py` 要求非关键插件都可重载（或在 `NOT_RELOADABLE` 写明原因）。
+
 ### 12.5 端到端验证（NAS 真实环境）
 
 按 `movieclaw-nas-dev-deploy` 流程部署开发版，用真实数据：

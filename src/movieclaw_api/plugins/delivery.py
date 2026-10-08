@@ -9,7 +9,7 @@ from movieclaw_api.plugins.keys import AGENT_RUNS, CLOUD, DB, EGRESS, PUSH_HUB
 from movieclaw_kernel import Context, plugin
 
 
-@plugin("channel.weixin", title="微信通道", inject=(AGENT_RUNS,), disableable=True)
+@plugin("channel.weixin", title="微信通道", inject=(AGENT_RUNS,), disableable=True, reloadable=True)
 async def weixin(ctx: Context) -> None:
     from movieclaw_api.services.weixin_channel import close_weixin_channel, init_weixin_channel
 
@@ -19,7 +19,13 @@ async def weixin(ctx: Context) -> None:
     ctx.effect(close_weixin_channel, label="close-weixin")
 
 
-@plugin("channel.im", title="Telegram / Discord / 飞书", inject=(AGENT_RUNS,), disableable=True)
+@plugin(
+    "channel.im",
+    title="Telegram / Discord / 飞书",
+    inject=(AGENT_RUNS,),
+    disableable=True,
+    reloadable=True,
+)
 async def im_channels(ctx: Context) -> None:
     from movieclaw_api.services.im_channel import close_im_channels, init_im_channels
 
@@ -27,7 +33,14 @@ async def im_channels(ctx: Context) -> None:
     ctx.effect(close_im_channels, label="close-im")
 
 
-@plugin("cloud", title="MovieClaw Cloud", inject=(EGRESS,), provides=(CLOUD,), disableable=True)
+@plugin(
+    "cloud",
+    title="MovieClaw Cloud",
+    inject=(EGRESS,),
+    provides=(CLOUD,),
+    disableable=True,
+    reloadable=True,
+)
 async def cloud(ctx: Context) -> None:
     from movieclaw_api.services.cloud import close_cloud_service, init_cloud_service
 
@@ -37,7 +50,7 @@ async def cloud(ctx: Context) -> None:
     ctx.provide(CLOUD, service)
 
 
-@plugin("push.hub", title="推送事件中枢", inject=(DB,), provides=(PUSH_HUB,))
+@plugin("push.hub", title="推送事件中枢", inject=(DB,), provides=(PUSH_HUB,), reloadable=True)
 async def push_hub(ctx: Context) -> None:
     from movieclaw_api.services.push import hub
 
@@ -47,7 +60,7 @@ async def push_hub(ctx: Context) -> None:
     ctx.provide(PUSH_HUB, hub)
 
 
-@plugin("push.channels-refresh", title="推送通道能力快照", inject=(CLOUD,))
+@plugin("push.channels-refresh", title="推送通道能力快照", inject=(CLOUD,), reloadable=True)
 async def push_channels_refresh(ctx: Context) -> None:
     from movieclaw_api.services.push.channels import start_refresh_loop, stop_refresh_loop
 
@@ -56,7 +69,9 @@ async def push_channels_refresh(ctx: Context) -> None:
     ctx.effect(stop_refresh_loop, label="stop-refresh-loop")
 
 
-@plugin("push.arrivals", title="媒体库有新片", inject=(PUSH_HUB, DB), disableable=True)
+@plugin(
+    "push.arrivals", title="媒体库有新片", inject=(PUSH_HUB, DB), disableable=True, reloadable=True
+)
 async def push_arrivals(ctx: Context) -> None:
     from movieclaw_api.services.push import arrivals
 
@@ -65,7 +80,7 @@ async def push_arrivals(ctx: Context) -> None:
     ctx.effect(arrivals.stop, label="stop-arrivals")
 
 
-@plugin("jellyfin.discovery", title="Jellyfin 局域网发现", disableable=True)
+@plugin("jellyfin.discovery", title="Jellyfin 局域网发现", disableable=True, reloadable=True)
 async def jellyfin_discovery(ctx: Context) -> None:
     from movieclaw_jellyfin.udp import start_discovery, stop_discovery
 

@@ -14,7 +14,7 @@ from movieclaw_kernel import Context, plugin
 logger = logging.getLogger("movieclaw_api.plugins.playback")
 
 
-@plugin("playback.remote-config", title="远程转码配置", inject=(SETTING_STORE,))
+@plugin("playback.remote-config", title="远程转码配置", inject=(SETTING_STORE,), reloadable=True)
 async def remote_config(ctx: Context) -> None:
     from movieclaw_api.services.playback.remote_config import load_remote_transcode_config
 
@@ -22,7 +22,7 @@ async def remote_config(ctx: Context) -> None:
     await load_remote_transcode_config()
 
 
-@plugin("storage.guard", title="数据目录登记检查")
+@plugin("storage.guard", title="数据目录登记检查", reloadable=True)
 async def storage_guard(ctx: Context) -> None:
     from movieclaw_api.services.storage.registry import unregistered_entries
 
@@ -40,13 +40,15 @@ async def _warm_pgs_capability() -> None:
         logger.warning("PGS 图片字幕识别自检未能完成，将在首次预检时再检测", exc_info=True)
 
 
-@plugin("subtitle.pgs-warm", title="PGS 字幕识别能力预热")
+@plugin("subtitle.pgs-warm", title="PGS 字幕识别能力预热", reloadable=True)
 async def pgs_warm(ctx: Context) -> None:
     # seconv/Tesseract 是部署环境的属性，启动时在后台探测一次；AI 字幕预检只查缓存
     ctx.task(_warm_pgs_capability(), name="warm-pgs")
 
 
-@plugin("playback.remote-workers", title="远程转码 Worker", provides=(REMOTE_WORKERS,))
+@plugin(
+    "playback.remote-workers", title="远程转码 Worker", provides=(REMOTE_WORKERS,), reloadable=True
+)
 async def remote_workers(ctx: Context) -> None:
     from movieclaw_api.services.playback.remote_worker import get_remote_worker_registry
 
@@ -66,7 +68,7 @@ async def _warm_hardware_probe() -> None:
         logger.warning("硬件加速自检未能完成，按「无可用硬件」处理", exc_info=True)
 
 
-@plugin("playback.transcode", title="网页播放转码会话", inject=(REMOTE_WORKERS,))
+@plugin("playback.transcode", title="网页播放转码会话", inject=(REMOTE_WORKERS,), reloadable=True)
 async def transcode(ctx: Context) -> None:
     """清单最后一项：关闭时第一个释放。
 

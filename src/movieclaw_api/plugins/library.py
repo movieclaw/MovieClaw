@@ -9,7 +9,7 @@ from movieclaw_api.plugins.keys import DB, JOBS
 from movieclaw_kernel import Context, plugin
 
 
-@plugin("library.builtin-collections", title="内置合集自愈", inject=(DB,))
+@plugin("library.builtin-collections", title="内置合集自愈", inject=(DB,), reloadable=True)
 async def builtin_collections(ctx: Context) -> None:
     """给每个库补齐内置合集（现在只有「我的收藏」），幂等。
 
@@ -30,7 +30,7 @@ async def builtin_collections(ctx: Context) -> None:
         await session.commit()
 
 
-@plugin("enrich.backfill", title="扩充属性重算", inject=(DB,))
+@plugin("enrich.backfill", title="扩充属性重算", inject=(DB,), reloadable=True)
 async def enrich_backfill(ctx: Context) -> None:
     from movieclaw_api.services.enrich_backfill import (
         close_enrich_backfill,
@@ -42,7 +42,7 @@ async def enrich_backfill(ctx: Context) -> None:
     ctx.effect(close_enrich_backfill, label="close-enrich-backfill")
 
 
-@plugin("library.disc-image-durations", title="光盘镜像片长修正", inject=(DB,))
+@plugin("library.disc-image-durations", title="光盘镜像片长修正", inject=(DB,), reloadable=True)
 async def disc_image_durations(ctx: Context) -> None:
     from movieclaw_api.services.library.disc_image_durations import (
         close_disc_image_duration_heal,
@@ -54,7 +54,9 @@ async def disc_image_durations(ctx: Context) -> None:
     ctx.effect(close_disc_image_duration_heal, label="close-disc-image-durations")
 
 
-@plugin("library.dolby-vision-backfill", title="杜比视界 profile 补记", inject=(DB,))
+@plugin(
+    "library.dolby-vision-backfill", title="杜比视界 profile 补记", inject=(DB,), reloadable=True
+)
 async def dolby_vision_backfill(ctx: Context) -> None:
     from movieclaw_api.services.library.dolby_vision_backfill import (
         close_dolby_vision_backfill,
@@ -66,7 +68,7 @@ async def dolby_vision_backfill(ctx: Context) -> None:
     ctx.effect(close_dolby_vision_backfill, label="close-dolby-vision-backfill")
 
 
-@plugin("library.watch", title="媒体库实时监控", inject=(DB,), disableable=True)
+@plugin("library.watch", title="媒体库实时监控", inject=(DB,), disableable=True, reloadable=True)
 async def library_watch(ctx: Context) -> None:
     from movieclaw_api.services.library.watch import close_library_watcher, init_library_watcher
 
@@ -77,7 +79,9 @@ async def library_watch(ctx: Context) -> None:
     ctx.effect(close_library_watcher, label="close-library-watcher")
 
 
-@plugin("library.ingest-watch", title="下载监听导入", inject=(DB,), disableable=True)
+@plugin(
+    "library.ingest-watch", title="下载监听导入", inject=(DB,), disableable=True, reloadable=True
+)
 async def ingest_watch(ctx: Context) -> None:
     from movieclaw_api.services.library.ingest import close_ingest_watcher, init_ingest_watcher
 
@@ -86,7 +90,7 @@ async def ingest_watch(ctx: Context) -> None:
     ctx.effect(close_ingest_watcher, label="close-ingest-watcher")
 
 
-@plugin("library.search-index", title="媒体库搜索索引", inject=(JOBS,))
+@plugin("library.search-index", title="媒体库搜索索引", inject=(JOBS,), reloadable=True)
 async def search_index(ctx: Context) -> None:
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.library import search_index as module
@@ -98,7 +102,7 @@ async def search_index(ctx: Context) -> None:
     ctx.effect(module.close_search_index, label="close-search-index")
 
 
-@plugin("library.skip-segments", title="片头识别启动补算", inject=(JOBS,))
+@plugin("library.skip-segments", title="片头识别启动补算", inject=(JOBS,), reloadable=True)
 async def skip_segments_recovery(ctx: Context) -> None:
     from movieclaw_api.services.library.skip_segments import enqueue_pending_libraries
 

@@ -32,6 +32,7 @@ from movieclaw_scheduler.service import (
     SchedulerService,
     get_scheduler,
     init_scheduler,
+    reset_scheduler,
 )
 
 __all__ = [
@@ -46,5 +47,6 @@ __all__ = [
     "iter_tasks",
     "SchedulerService",
     "init_scheduler",
+    "reset_scheduler",
     "get_scheduler",
 ]

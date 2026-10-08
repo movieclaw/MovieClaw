@@ -109,7 +109,7 @@ async def scrape_runtime(ctx: Context) -> None:
     await load_scrape_runtime()
 
 
-@plugin("core.http-clients", title="共享 HTTP 客户端", inject=(EGRESS,))
+@plugin("core.http-clients", title="共享 HTTP 客户端", inject=(EGRESS,), reloadable=True)
 async def http_clients(ctx: Context) -> None:
     """发现页服务与图片代理的客户端是懒建的单例，这里只负责在关闭时释放。
 
@@ -148,7 +148,7 @@ async def site_access(ctx: Context) -> None:
     ctx.provide(SITE_ACCESS, manager)
 
 
-@plugin("selfheal.credentials", title="凭据状态自愈", inject=(DB, SECRETS))
+@plugin("selfheal.credentials", title="凭据状态自愈", inject=(DB, SECRETS), reloadable=True)
 async def selfheal_credentials(ctx: Context) -> None:
     """重启自愈：清理上次遗留的「验证中」状态；存量明文凭据一次性加密（均幂等）。"""
     from movieclaw_db.engine import get_database

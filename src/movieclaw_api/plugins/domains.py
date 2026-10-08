@@ -11,7 +11,7 @@ from movieclaw_api.plugins.keys import DB, SITE_ACCESS
 from movieclaw_kernel import Context, plugin
 
 
-@plugin("downloads", title="下载与种子同步", inject=(SITE_ACCESS,))
+@plugin("downloads", title="下载与种子同步", inject=(SITE_ACCESS,), reloadable=True)
 async def downloads(ctx: Context) -> None:
     from movieclaw_api.services import (
         download_progress,
@@ -24,7 +24,7 @@ async def downloads(ctx: Context) -> None:
     contribute_tasks(ctx, download_progress, torrent_sync, torrent_matcher, media_refresh)
 
 
-@plugin("boost", title="自动刷分享率", inject=(SITE_ACCESS,), disableable=True)
+@plugin("boost", title="自动刷分享率", inject=(SITE_ACCESS,), disableable=True, reloadable=True)
 async def boost(ctx: Context) -> None:
     from movieclaw_api.services import ratio_boost
     from movieclaw_scheduler import contribute_tasks
@@ -32,7 +32,7 @@ async def boost(ctx: Context) -> None:
     contribute_tasks(ctx, ratio_boost)
 
 
-@plugin("subscription", title="订阅", inject=(SITE_ACCESS,))
+@plugin("subscription", title="订阅", inject=(SITE_ACCESS,), reloadable=True)
 async def subscription(ctx: Context) -> None:
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.subscription import (
@@ -47,7 +47,7 @@ async def subscription(ctx: Context) -> None:
     contribute_job_handlers(ctx, cleanup)  # 取消订阅联动清理
 
 
-@plugin("library.core", title="媒体库", inject=(DB,))
+@plugin("library.core", title="媒体库", inject=(DB,), reloadable=True)
 async def library_core(ctx: Context) -> None:
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.library import (
@@ -81,7 +81,7 @@ async def library_core(ctx: Context) -> None:
     )
 
 
-@plugin("media.scrape", title="元数据刷新", inject=(DB,))
+@plugin("media.scrape", title="元数据刷新", inject=(DB,), reloadable=True)
 async def media_scrape(ctx: Context) -> None:
     from movieclaw_api.services import media_scrape as module
     from movieclaw_api.services.jobs import contribute_job_handlers
@@ -89,7 +89,7 @@ async def media_scrape(ctx: Context) -> None:
     contribute_job_handlers(ctx, module)
 
 
-@plugin("subtitle.gen", title="AI 字幕生成", inject=(DB,))
+@plugin("subtitle.gen", title="AI 字幕生成", inject=(DB,), reloadable=True)
 async def subtitle_gen(ctx: Context) -> None:
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.subtitle_gen import tasks
