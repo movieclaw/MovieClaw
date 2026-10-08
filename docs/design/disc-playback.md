@@ -66,7 +66,8 @@ remux；客户端永远走「转码」URL，只是编码器是 copy。
    Infuse/VidHub 都自带 TS 解复用，直出能保住 Dolby Vision 双层与全部音轨，
    也不占 NAS CPU；实测 141 张盘里九成是单剪辑。
 4. **ISO 与 DVD 不在本期。** ISO 需要 libbluray 挂载（Jellyfin 走 `bluray:`
-   协议），VIDEO_TS 的 VOB 拼接另有 IFO 解析，都留到后续。
+   协议），VIDEO_TS 的 VOB 拼接另有 IFO 解析，都留到后续。（2026-10-08 起服务端
+   能换封装 / 转码光盘镜像，没用 libbluray，见 §7。）
 
 ## 3. 设计
 
@@ -246,11 +247,34 @@ def resolve_disc_source(file_path: str) -> DiscSource | None
 
 ## 5. 明确不做与已知取舍
 
-- 不做 ISO、DVD（VIDEO_TS）；不做 BD-J 菜单、多角度（取角度 0）、SubPath
-  画中画。
+- 不做 DVD 目录（VIDEO_TS）；光盘镜像只转正片（§7）；不做 BD-J 菜单、多角度
+  （取角度 0）、SubPath 画中画。
 - 多剪辑 remux 只保留第一路视频，Dolby Vision Profile 7 退化 HDR10；单剪辑直出
   不受影响。
 - 原盘不支持下载与 trickplay 缩略图（与 Jellyfin 一致；`CanDownload` 语义在
   兼容层对应「不给下载入口」）。
 - 台账 `hdr` 列对 DV 原盘只识别到 HDR10：MPEG-TS 里 DV 靠 PMT 描述符标识，
   ffprobe 不出 side data；如需显示 DV 徽标，另起任务解析 PMT。
+
+## 7. 光盘镜像（ISO）的服务端播放（2026-10-08）
+
+此前 ISO 只原字节交给能读镜像的播放器，其余客户端（Android TV、网页）放不了。现在服务端
+用只读 UDF 读取器（`library/udf.py`，刷片挑点已在用）找出正片在镜像上的字节，装成与原盘
+目录同一种 `DiscSource`（`playback/iso_source.py`），换封装 / 转码管线不改：
+
+- **蓝光**：主播放列表选法与原盘目录相同；每段剪辑记下它在镜像上的各截区间，CLPI 从镜像
+  里读出给关键帧表。
+- **DVD**：主标题集与正片节目链的选法与 App 引擎一致（`library/dvd.py`）；只取节目链各单元
+  覆盖的扇区（标题集末尾的花絮单元时间戳从头再来，留着会让片长估成 99 秒、跳转跳到末尾）；
+  节目链按 VOB 分段（一盘两集的电视剧 DVD 换 VOB 时时间戳也从 0 起），每段写单元表里精确到帧
+  的时长，concat 才能把时间轴接对。
+- **读取**：清单里每段是 `subfile,,start,S,end,E,,:镜像`；正片在镜像里断成多截（双层盘换层
+  断 2 截，交错存放的盘上千截）时用 `concat:` 协议按字节拼，仍可按字节跳转（NAS 实测 1683 截
+  跳 1 小时 1.7 秒）。ffmpeg 要 `-protocol_whitelist file,subfile,concat`。远程 Worker 照旧取
+  `clips/{i}`，服务端用 `FileWindowResponse` 把各截拼成一个文件按 Range 供出。
+- **片长**：ffprobe 对整个镜像估的片长常常离谱或为空（NAS 78 个里 62 个不对，一集 DVD 记成
+  4 秒——它是「看到哪算看完」的分母）。探测 `.iso` 时改用盘内正片时长，存量行启动时后台校准
+  （`library/disc_image_durations.py`）。起播的分片规划也直接用盘内时长。
+- **不做整文件关键帧采样**：原盘的关键帧来自 CLPI，DVD 段走转码，没有必要读整个镜像。
+- 读不出（不是 UDF、路径含 `|` 又断成多截）时 `iso_disc_source` 返回 None，起播报「服务端读不了
+  这个光盘镜像」。解析结果按（路径、大小、修改时间）缓存，NAS 上读完 78 个镜像的盘内结构共 8 秒。
