@@ -18,6 +18,8 @@ dependencies {
     api(libs.media3.exoplayer)
     implementation(libs.media3.exoplayer.hls)
     implementation(libs.media3.datasource.okhttp)
+    // 系统「正在播放」、遥控器媒体键、语音助手（docs/design/androidtv-app.md §4.4）
+    implementation(libs.media3.session)
     implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
 }
