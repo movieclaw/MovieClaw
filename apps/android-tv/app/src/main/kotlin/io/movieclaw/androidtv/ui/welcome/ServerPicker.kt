@@ -23,7 +23,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.tv.material3.Text
+import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalGraph
 import io.movieclaw.androidtv.core.network.ServerAddress
 import io.movieclaw.androidtv.core.session.ServerDiscovery

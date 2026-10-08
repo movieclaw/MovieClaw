@@ -47,7 +47,7 @@ import androidx.tv.material3.Glow
 import androidx.tv.material3.Icon
 import androidx.tv.material3.LocalContentColor
 import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
+import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.core.playback.PlaybackController
 import io.movieclaw.androidtv.core.playback.PlayerState
 import io.movieclaw.androidtv.core.playback.QualityOption

@@ -50,7 +50,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Icon
-import androidx.tv.material3.Text
+import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalSession
 import io.movieclaw.androidtv.core.model.generated.UpNextItemView
 import io.movieclaw.androidtv.ui.components.CaptionMode

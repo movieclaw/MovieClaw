@@ -43,7 +43,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.tv.material3.Text
+import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.core.model.generated.FavoriteItemView
 import io.movieclaw.androidtv.core.model.generated.LibraryItemView
 import io.movieclaw.androidtv.core.network.generated.McApi

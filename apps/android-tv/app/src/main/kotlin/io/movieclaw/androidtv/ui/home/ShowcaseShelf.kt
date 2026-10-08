@@ -45,7 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
+import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.core.model.generated.LibraryItemShowcaseView
 import io.movieclaw.androidtv.ui.components.RemoteImage
 import io.movieclaw.androidtv.ui.stage.TitleArt
