@@ -13,6 +13,7 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime
 
 from sqlalchemy import Select, select
+from sqlalchemy.exc import IntegrityError
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from movieclaw_db.models import (
@@ -118,16 +119,13 @@ async def get_states(
 async def _get_or_create(
     session: AsyncSession, unit: Unit, *, member_id: int
 ) -> PlaybackState:
-    row = (
-        await session.execute(
-            select(PlaybackState).where(
-                PlaybackState.member_id == member_id,
-                PlaybackState.media_item_id == unit[0],
-                PlaybackState.season_number == unit[1],
-                PlaybackState.episode_number == unit[2],
-            )
-        )
-    ).scalar_one_or_none()
+    statement = select(PlaybackState).where(
+        PlaybackState.member_id == member_id,
+        PlaybackState.media_item_id == unit[0],
+        PlaybackState.season_number == unit[1],
+        PlaybackState.episode_number == unit[2],
+    )
+    row = (await session.execute(statement)).scalar_one_or_none()
     if row is None:
         row = PlaybackState(
             member_id=member_id,
@@ -135,7 +133,16 @@ async def _get_or_create(
             season_number=unit[1],
             episode_number=unit[2],
         )
-        session.add(row)
+        try:
+            # INSERT 圈在 SAVEPOINT 里当场写入（同 library_file_repo.upsert_by_path）：
+            # 撞键只回滚保存点，会话照常可用
+            async with session.begin_nested():
+                session.add(row)
+        except IntegrityError:
+            # 同一成员的另一台设备同时首次开播这一单元，抢先写入了这一行
+            # （两边都查到「没有」再各自插入）。撞键不是错误，用它那一行——
+            # 曾经直接 500
+            row = (await session.execute(statement)).scalar_one()
     return row
 
 
