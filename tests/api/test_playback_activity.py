@@ -467,7 +467,7 @@ async def _seed_movie_in_library(
             # Android TV 是独立客户端（docs/design/androidtv-app.md），不能被认成手机版
             "MovieClaw-AndroidTV/0.1.0 (BRAVIA 4K VH2; Android 12; build 1)",
             "MovieClaw Android TV",
-            "Android TV · Android 12",
+            "BRAVIA 4K VH2 · Android 12",
         ),
     ],
 )
