@@ -320,6 +320,24 @@ class LibraryFile(TimestampMixin, table=True):
     source: str = Field(index=True, description="imported（入库管线）/ scanned（存量扫描）")
     site_id: str | None = Field(default=None, description="入库来源站点；scanned 为 NULL")
     torrent_id: str | None = Field(default=None, description="入库来源种子；scanned 为 NULL")
+    # 下载器任务（docs/design/plugin-phase2a.md §5.1）：「删了片子顺手删种子」要知道文件来自哪个
+    # 下载器任务。入库时从订阅下载记录 / 手动下载意图取，原地下载的扫描按下载记录的保存路径反查；
+    # 再次扫描同一路径时不被空值覆盖。NULL = 不知道（外部放进来的文件、上线前的旧行）
+    info_hash: str | None = Field(
+        default=None,
+        sa_column=Column(Text, nullable=True, index=True),
+        description="来源种子的 infohash（小写）；NULL=未知",
+    )
+    downloader_id: int | None = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("downloader_client.id", ondelete="SET NULL"),
+            nullable=True,
+            index=True,
+        ),
+        description="承载来源种子的下载器；NULL=未知或下载器已删除",
+    )
     # 同一次监听入库或存量扫描新发现的文件共享批次号。「最近添加」据此只展示
     # 让条目本次置顶的季集变化，而不是把条目名下全部历史库存误写成新增内容。
     # NULL 是迁移前旧台账；旧应用回退后新增的行也自然落 NULL，由界面退回时间。

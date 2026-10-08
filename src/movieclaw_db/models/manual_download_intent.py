@@ -74,3 +74,10 @@ class ManualDownloadIntent(TimestampMixin, table=True):
     # 站点内种子 ID：与 site_id 一起反查 site_torrent 的详情页，供任务中心
     # 提供「打开种子页」。旧数据/前端未传时为 NULL，仅少一个跳转入口
     torrent_id: str | None = Field(default=None, description="站点内种子 ID；NULL=未知")
+    # 下载归属（docs/design/plugin-phase2a.md §5.2）：谁发起的这次下载。插件经宿主操作投递时为
+    # ``plugin:<条目 id>``，入库事件带上它，插件据此认出自己投递的下载
+    owner: str = Field(
+        default="manual",
+        sa_column=Column(Text, nullable=False, server_default="manual"),
+        description="manual（用户手动）或 plugin:<条目 id>",
+    )

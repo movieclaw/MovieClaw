@@ -2040,6 +2040,20 @@ async def _ingest_entry(
         """某个入库文件的来源戳 (site, torrent)。"""
         return delivery.stamp(entry, file, unit) if delivery is not None else manual_stamp
 
+    def torrent_of(
+        file: Path | None, unit: tuple[int, int] | None
+    ) -> tuple[str | None, int | None]:
+        """某个入库文件来自哪个下载器任务 (info_hash, 下载器)；判不出为 (None, None)。
+
+        与来源戳同源：插件做「删片顺手删种子」时按它定位下载器任务（plugin-phase2a.md §5.1）。
+        """
+        if manual_intent is not None:
+            return manual_intent.info_hash.lower(), manual_intent.downloader_id
+        attempt = delivery.attempt_for(entry, file, unit) if delivery is not None else None
+        if attempt is None:
+            return None, None
+        return attempt.info_hash.lower(), attempt.downloader_id
+
     # 来源快照（docs/design/library-duplicate-files.md §2）：与来源戳同源、同粒度
     # ——订阅投递按文件定位到那次投递，手动下载与监听识别按条目；文案在落账
     # 现场一次成型，之后订阅取消 / 规则删除 / 种子表滚动都不影响它可读
@@ -2247,6 +2261,7 @@ async def _ingest_entry(
         assert dest_library is not None and dest_library.id is not None
         stat = final.stat()
         disc_site, disc_torrent = provenance(None, None)
+        disc_hash, disc_downloader = torrent_of(None, None)
         await repo.upsert_by_path(
             LibraryFile(
                 library_id=dest_library.id,
@@ -2281,6 +2296,8 @@ async def _ingest_entry(
                 identity_source=ledger_identity,
                 site_id=disc_site,
                 torrent_id=disc_torrent,
+                info_hash=disc_hash,
+                downloader_id=disc_downloader,
                 added_batch_id=added_batch_id,
                 origin=origin_for(None, None),
             )
@@ -2404,6 +2421,9 @@ async def _ingest_entry(
         file_spec = spec if file == main else await asyncio.to_thread(probe_media, file)
         # 来源戳也提到命名之前：站点是 {site} 占位符的取值
         stamp_site, stamp_torrent = provenance(
+            file, None if kind is MediaKind.MOVIE else (season, episode)
+        )
+        stamp_hash, stamp_downloader = torrent_of(
             file, None if kind is MediaKind.MOVIE else (season, episode)
         )
         # 文件属性经 file_attrs 统一格式化——整理侧从台账行取同一组值，
@@ -2590,6 +2610,8 @@ async def _ingest_entry(
                 identity_doubt=doubt,
                 site_id=stamp_site,
                 torrent_id=stamp_torrent,
+                info_hash=stamp_hash,
+                downloader_id=stamp_downloader,
                 added_batch_id=added_batch_id,
                 origin=origin_for(file, None if kind is MediaKind.MOVIE else (season, episode)),
             )

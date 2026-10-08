@@ -2293,6 +2293,8 @@ async def test_manual_download_identity_claim_via_info_hash(db, tmp_path, monkey
     assert str(entry) not in ingest_mod._deferred
     async with db.session() as session:
         assert (await session.execute(select(ManualDownloadIntent))).scalar_one_or_none() is None
+        # 意图用完即删，来源种子落在文件行上（删片联动要靠它找下载器任务）
+        assert (await session.execute(select(LibraryFile))).scalar_one().info_hash == "manualhash"
 
 
 @pytest.mark.asyncio
@@ -2748,6 +2750,26 @@ async def test_shared_folder_file_from_foreign_torrent_gets_no_stamp(db, tmp_pat
         statuses=True,
     )
     assert stamps == {11: ("ssd", "t11"), 12: (None, None)}
+
+
+@pytest.mark.asyncio
+async def test_ingest_records_the_source_torrent_of_each_file(db, tmp_path, monkeypatch):
+    """来源种子与来源戳同源、同粒度：逐文件记到写入它的那次投递；外部种子写的文件不记。"""
+    await _ingest_shared_folder(
+        db,
+        tmp_path,
+        monkeypatch,
+        deliveries={9: ("hash-e09", "t09"), 11: ("hash-e11", "t11")},
+        torrents={"hash-e09": "ep9.mkv", "hash-e11": "ep11.mkv", "hash-foreign": "ep12.mkv"},
+        statuses=True,
+    )
+    async with db.session() as session:
+        rows = (await session.execute(select(LibraryFile))).scalars().all()
+    assert {row.episode_number: row.info_hash for row in rows} == {
+        9: "hash-e09",
+        11: "hash-e11",
+        12: None,
+    }
 
 
 @pytest.mark.asyncio
