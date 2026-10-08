@@ -1,9 +1,12 @@
 package io.movieclaw.androidtv.ui.components
 
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Backspace
 import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.PlayCircleFilled
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ChevronLeft
@@ -85,4 +88,10 @@ object McIcons {
     val Filter = Icons.Filled.FilterList
     /** ‹ */
     val Back = Icons.Filled.ChevronLeft
+    /** globe（搜索键盘换输入法） */
+    val Globe = Icons.Filled.Language
+    /** delete.left.fill */
+    val Backspace = Icons.AutoMirrored.Filled.Backspace
+    /** playpause.circle.fill（遥控器的播放 / 暂停键） */
+    val PlayPauseCircle = Icons.Filled.PlayCircleFilled
 }

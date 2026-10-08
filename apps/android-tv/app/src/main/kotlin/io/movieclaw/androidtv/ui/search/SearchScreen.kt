@@ -1,5 +1,25 @@
 package io.movieclaw.androidtv.ui.search
 
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.tv.material3.Icon
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -47,6 +67,7 @@ import io.movieclaw.androidtv.ui.components.McIcons
 import io.movieclaw.androidtv.ui.components.PosterCard
 import io.movieclaw.androidtv.ui.components.Shelf
 import io.movieclaw.androidtv.ui.components.Spinner
+import io.movieclaw.androidtv.ui.components.TvScrollSpec
 import io.movieclaw.androidtv.ui.components.StateView
 import io.movieclaw.androidtv.ui.shell.LocalRouter
 import io.movieclaw.androidtv.ui.shell.LocalShellChrome
@@ -55,7 +76,6 @@ import io.movieclaw.androidtv.ui.theme.McColors
 import io.movieclaw.androidtv.ui.theme.McMetrics
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
-import io.movieclaw.androidtv.ui.welcome.TvTextField
 import io.movieclaw.androidtv.ui.welcome.WelcomeButton
 import io.movieclaw.androidtv.ui.welcome.tvClickable
 import kotlinx.coroutines.delay
@@ -64,11 +84,12 @@ import kotlinx.coroutines.delay
 private const val AVATAR = 150
 
 /**
- * 搜索（TVSearchView）：顶上一个输入框（按确认弹出系统键盘，也能用遥控器语音），下面一排联想词，再往下是结果：
- * 「人物」（小一号的演职员头像卡，进影人页）、「最相关的影片」（海报下常显片名、年份·类型、命中原因），
- * 有下一页时行尾「更多结果」。名称、别名、拼音首字母、演员导演都能搜。
+ * 搜索（TVSearchView）：照 tvOS 系统搜索页——顶上一行搜索字（左放大镜、右「按下 ⏯ 更改键盘」），下面一整排屏幕键盘，
+ * 有联想时键盘下一排联想词（第一个是搜「当前输入」本身，焦点停在哪个，顶上就先显示哪个），一道分隔线，再往下是结果：
+ * 「人物」（小一号的演职员头像卡，进影人页）、「最相关的影片」（海报下常显片名、年份·类型、命中原因），有下一页时行尾「更多结果」。
  *
- * tvOS 用的是系统搜索页（整排屏幕键盘）；电视上的 Android 没有这种内嵌键盘，换成输入框 + 系统输入法 + 联想词条。
+ * 键盘只有字母、数字、符号三档（拼音首字母就能搜中文片名）；要打汉字或用语音，按「换输入法」键或遥控器的播放 / 暂停键
+ * 换成系统输入法。接了实体键盘也能直接打字。
  */
 @Composable
 fun SearchScreen() {
@@ -80,15 +101,20 @@ fun SearchScreen() {
     val requesters = remember { HashMap<String, FocusRequester>() }
     fun requester(key: String) = requesters.getOrPut(key) { FocusRequester() }
     fun Modifier.tracked(key: String) = focusRequester(requester(key)).onFocusChanged { if (it.isFocused || it.hasFocus) model.focusedKey = key }
+    var mode by rememberSaveable { mutableStateOf(KeyMode.Letters) }
+    var keyboardFocused by remember { mutableStateOf(false) }
+    /** 焦点停在联想词上：顶上先显示它 */
+    var preview by remember { mutableStateOf<String?>(null) }
+    var systemInput by remember { mutableStateOf(false) }
 
-    // 进页面：焦点落在输入框；从详情退回来还给上次的那张卡
+    // 进页面：焦点落在键盘第一个字上；切页签回来还给上次的那张卡
     LaunchedEffect(Unit) {
-        val key = model.focusedKey ?: "field"
+        val key = model.focusedKey ?: "key"
         for (wait in listOf(0L, 50L, 100L, 200L, 400L)) {
             delay(wait)
             if (runCatching { requester(key).requestFocus() }.getOrDefault(false)) return@LaunchedEffect
         }
-        runCatching { requester("field").requestFocus() }
+        runCatching { requester("key").requestFocus() }
     }
     // 左上角「‹ 搜索」胶囊只在滚到顶时显示
     LaunchedEffect(list) {
@@ -96,110 +122,250 @@ fun SearchScreen() {
     }
     DisposableEffect(Unit) { onDispose { chrome.pillVisible = true } }
 
+    // 回到键盘（或换成系统输入法）时整页滚回顶上：输入的那一行要看得见
+    LaunchedEffect(keyboardFocused, systemInput) {
+        if (keyboardFocused || systemInput) list.animateScrollToItem(0)
+    }
+
+    fun type(text: String) = model.onQueryChange(model.query + text)
+    fun delete() = model.onQueryChange(model.query.dropLast(1))
+
     val trimmed = model.trimmed
-    LazyColumn(
-        Modifier.fillMaxSize(),
-        state = list,
-        contentPadding = PaddingValues(top = 60.pt, bottom = 40.pt),
-        verticalArrangement = Arrangement.spacedBy(McMetrics.RowSpacing),
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF34393F), Color(0xFF24231F))))
+            // 遥控器的播放 / 暂停键换成系统输入法；实体键盘直接打字
+            .onKeyEvent { event ->
+                if (event.type != KeyEventType.KeyDown) return@onKeyEvent false
+                val native = event.nativeKeyEvent
+                when {
+                    native.keyCode == android.view.KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE && keyboardFocused -> {
+                        systemInput = true
+                        true
+                    }
+                    native.keyCode == android.view.KeyEvent.KEYCODE_DEL -> {
+                        delete()
+                        true
+                    }
+                    native.unicodeChar > 0 && !native.isCtrlPressed && native.unicodeChar.toChar().let { !it.isISOControl() } -> {
+                        type(native.unicodeChar.toChar().toString())
+                        true
+                    }
+                    else -> false
+                }
+            },
     ) {
-        item(key = "field") {
-            Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(24.pt)) {
-                TvTextField(
-                    model.query,
-                    model::onQueryChange,
-                    "片名、拼音首字母、演员或导演",
-                    Modifier.width(1100.pt).onFocusChanged { if (it.isFocused) model.focusedKey = "field" },
-                    focusRequester = requester("field"),
-                    imeAction = ImeAction.Search,
-                    leadingIcon = McIcons.Search,
-                    onSubmit = { model.submit() },
-                )
-                if (model.suggestions.isNotEmpty()) Suggestions(model)
-            }
-        }
-        if (model.searching) {
-            item(key = "searching") {
-                Column(Modifier.padding(horizontal = McMetrics.Edge), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.pt)) {
-                    Spinner(sizePt = 50)
-                    Text("正在搜索…", style = McType.Body, color = McColors.Secondary)
+        // 只在焦点那一行露不全时才滚（同 tvOS），键盘、联想词之间上下挪不动页面
+        TvScrollSpec(80) {
+        LazyColumn(
+            Modifier.fillMaxSize(),
+            state = list,
+            contentPadding = PaddingValues(bottom = 40.pt),
+        ) {
+            item(key = "keyboard") {
+                Column(Modifier.fillMaxWidth()) {
+                    Spacer(Modifier.height(110.pt))
+                    SearchField(preview ?: model.query, showHint = keyboardFocused && preview == null)
+                    Spacer(Modifier.height(93.pt))
+                    SearchKeyboard(
+                        mode = mode,
+                        onKey = ::type,
+                        onSpace = { type(" ") },
+                        onDelete = ::delete,
+                        onClear = { model.onQueryChange("") },
+                        onSwitchMode = { mode = mode.next },
+                        onSystemInput = { systemInput = true },
+                        modifier = Modifier.onFocusChanged { keyboardFocused = it.hasFocus },
+                        firstKey = Modifier.tracked("key"),
+                    )
+                    if (model.suggestions.isNotEmpty() && trimmed.isNotEmpty()) {
+                        Spacer(Modifier.height(35.pt))
+                        Suggestions(model, onPreview = { preview = it })
+                        Spacer(Modifier.height(40.pt))
+                    } else {
+                        Spacer(Modifier.height(38.pt))
+                    }
+                    Box(Modifier.padding(horizontal = McMetrics.Edge).fillMaxWidth().height(1.pt).background(Color.White.copy(alpha = 0.16f)))
+                    Spacer(Modifier.height(if (model.people.isNotEmpty() || model.items.isNotEmpty()) 50.pt else 20.pt))
                 }
             }
-        }
-        if (model.people.isNotEmpty()) {
-            item(key = "people") {
-                Shelf("人物") {
-                    items(model.people, key = { it.id }) { person ->
-                        PersonCard(person, Modifier.tracked("person:${person.id}")) {
-                            // 旧服务端不返回 TMDB 影人 id：没有影人页可进，按确认不跳转
-                            val tmdb = person.tmdbPersonId ?: return@PersonCard
-                            router.push(Route.Person(tmdb, person.name, person.avatarUrl, null))
-                        }
+            if (model.searching) {
+                item(key = "searching") {
+                    Column(Modifier.fillMaxWidth().padding(bottom = McMetrics.RowSpacing), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.pt)) {
+                        Spinner(sizePt = 50)
+                        Text("正在搜索…", style = McType.Body, color = McColors.Secondary)
                     }
                 }
             }
-        }
-        if (model.items.isNotEmpty()) {
-            item(key = "items") {
-                Shelf("最相关的影片") {
-                    items(model.items, key = { it.item.mediaItemId }) { hit -> HitCard(hit, Modifier.tracked("item:${hit.item.mediaItemId}")) }
-                    if (model.nextCursor != null) {
-                        item(key = "more") {
-                            // 与海报同高，按钮在中间
-                            Box(Modifier.height(McMetrics.PosterWidth * 1.5f), contentAlignment = Alignment.Center) {
-                                WelcomeButton(
-                                    if (model.loadingMore) "正在加载…" else "更多结果",
-                                    onClick = model::loadMore,
-                                    enabled = !model.loadingMore,
-                                    modifier = Modifier.tracked("more"),
-                                )
+            if (model.people.isNotEmpty()) {
+                item(key = "people") {
+                    Shelf("人物", modifier = Modifier.padding(bottom = McMetrics.RowSpacing)) {
+                        items(model.people, key = { it.id }) { person ->
+                            PersonCard(person, Modifier.tracked("person:${person.id}")) {
+                                // 旧服务端不返回 TMDB 影人 id：没有影人页可进，按确认不跳转
+                                val tmdb = person.tmdbPersonId ?: return@PersonCard
+                                router.push(Route.Person(tmdb, person.name, person.avatarUrl, null))
                             }
                         }
                     }
                 }
             }
+            if (model.items.isNotEmpty()) {
+                item(key = "items") {
+                    Shelf("最相关的影片") {
+                        items(model.items, key = { it.item.mediaItemId }) { hit -> HitCard(hit, Modifier.tracked("item:${hit.item.mediaItemId}")) }
+                        if (model.nextCursor != null) {
+                            item(key = "more") {
+                                // 与海报同高，按钮在中间
+                                Box(Modifier.height(McMetrics.PosterWidth * 1.5f), contentAlignment = Alignment.Center) {
+                                    WelcomeButton(
+                                        if (model.loadingMore) "正在加载…" else "更多结果",
+                                        onClick = model::loadMore,
+                                        enabled = !model.loadingMore,
+                                        modifier = Modifier.tracked("more"),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            val failed = model.failed
+            when {
+                failed != null -> item(key = "failed") {
+                    StateView(McIcons.WifiError, "搜索失败", message = failed, action = "重试", height = 420.pt, onAction = { model.submit() })
+                }
+                model.items.isEmpty() && !model.searching && trimmed.isNotEmpty() -> item(key = "empty") {
+                    StateView(McIcons.Search, "没有找到相关影片", message = "试试片名、别名、拼音首字母或演员、导演姓名。", height = 420.pt)
+                }
+                trimmed.isEmpty() && !model.searching -> item(key = "idle") {
+                    StateView(McIcons.Search, "搜索你的媒体库", message = "输入 xjcy、星际cy 或诺兰，也可以使用遥控器听写。", height = 420.pt)
+                }
+            }
         }
-        val failed = model.failed
-        when {
-            failed != null -> item(key = "failed") {
-                StateView(McIcons.WifiError, "搜索失败", message = failed, action = "重试", height = 420.pt, onAction = { model.submit() })
-            }
-            model.items.isEmpty() && !model.searching && trimmed.isNotEmpty() -> item(key = "empty") {
-                StateView(McIcons.Search, "没有找到相关影片", message = "试试片名、别名、拼音首字母或演员、导演姓名。", height = 420.pt)
-            }
-            trimmed.isEmpty() && !model.searching -> item(key = "idle") {
-                StateView(McIcons.Search, "搜索你的媒体库", message = "输入 xjcy、星际cy 或诺兰，也可以使用遥控器听写。", height = 420.pt)
+        }
+        if (systemInput) {
+            SystemInput(
+                value = model.query,
+                onValueChange = model::onQueryChange,
+                onSubmit = { model.submit() },
+                onClose = {
+                    systemInput = false
+                    runCatching { requester("key").requestFocus() }
+                },
+            )
+        }
+    }
+}
+
+/** 顶上那一行：放大镜 + 输入的字（没输入时灰色提示语）；键盘有焦点时右边写「按下 ⏯ 更改键盘」 */
+@Composable
+private fun SearchField(text: String, showHint: Boolean) {
+    Row(
+        Modifier.fillMaxWidth().height(90.pt).padding(start = 104.pt, end = McMetrics.Edge),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(McIcons.SearchOutline, null, tint = Color.White.copy(alpha = 0.6f), modifier = Modifier.size(52.pt))
+        Spacer(Modifier.width(42.pt))
+        Text(
+            text.ifEmpty { "片名、拼音首字母、演员或导演" },
+            style = McType.size(44, FontWeight.Medium),
+            color = Color.White.copy(alpha = if (text.isEmpty()) 0.4f else 0.7f),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
+        )
+        if (showHint) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.pt)) {
+                Text("按下", style = McType.size(29), color = Color.White.copy(alpha = 0.4f))
+                Icon(McIcons.PlayPauseCircle, null, tint = Color.White.copy(alpha = 0.4f), modifier = Modifier.size(32.pt))
+                Text("更改键盘", style = McType.size(29), color = Color.White.copy(alpha = 0.4f))
             }
         }
     }
 }
 
-/** 联想词（tvOS 键盘上的建议列表）：选一个就把它填进输入框、立即搜 */
+/**
+ * 系统输入法（打汉字、语音）：一个看不见的输入框接住输入法，字照常显示在顶上那一行。
+ * 输入法上按「搜索」立即搜；收起输入法后再按方向键 / 返回键回到屏幕键盘。
+ */
 @Composable
-private fun Suggestions(model: SearchModel) {
+private fun SystemInput(value: String, onValueChange: (String) -> Unit, onSubmit: () -> Unit, onClose: () -> Unit) {
+    val focus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    BackHandler(onBack = onClose)
+    LaunchedEffect(Unit) {
+        repeat(5) {
+            delay(16)
+            if (runCatching { focus.requestFocus() }.getOrDefault(false)) {
+                keyboard?.show()
+                return@LaunchedEffect
+            }
+        }
+    }
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = Modifier
+            .size(1.pt)
+            .graphicsLayer { alpha = 0f }
+            .focusRequester(focus)
+            .onPreviewKeyEvent { event ->
+                // 输入法开着时方向键归它；收起之后的方向键说明想回屏幕键盘
+                val code = event.nativeKeyEvent.keyCode
+                val nav = code in android.view.KeyEvent.KEYCODE_DPAD_UP..android.view.KeyEvent.KEYCODE_DPAD_CENTER
+                if (nav && event.type == KeyEventType.KeyDown) {
+                    onClose()
+                    true
+                } else {
+                    false
+                }
+            },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search, autoCorrectEnabled = false),
+        keyboardActions = KeyboardActions(onAny = {
+            keyboard?.hide()
+            onSubmit()
+            onClose()
+        }),
+    )
+}
+
+/**
+ * 联想词（tvOS 键盘下的建议）：第一个是放大镜 +「当前输入」，后面是服务端给的联想。
+ * 焦点停在哪个，顶上先显示哪个；选一个就按它立即搜。
+ */
+@Composable
+private fun Suggestions(model: SearchModel, onPreview: (String?) -> Unit) {
+    val texts = listOf(model.query.trim()) + model.suggestions.map { it.text }.filter { it != model.query.trim() }.distinct()
     LazyRow(
-        Modifier.fillMaxWidth().focusGroup(),
-        contentPadding = PaddingValues(horizontal = McMetrics.Edge, vertical = 8.pt),
-        horizontalArrangement = Arrangement.spacedBy(20.pt, Alignment.CenterHorizontally),
+        Modifier.fillMaxWidth().focusGroup().onFocusChanged { if (!it.hasFocus) onPreview(null) },
+        contentPadding = PaddingValues(horizontal = McMetrics.Edge),
+        horizontalArrangement = Arrangement.spacedBy(21.pt),
     ) {
-        items(model.suggestions, key = { "${it.type}:${it.text}:${it.mediaItemId}:${it.personId}" }) { suggestion ->
+        itemsIndexed(texts, key = { index, text -> "$index:$text" }) { index, text ->
             Surface(
-                onClick = { model.submit(suggestion.text) },
+                onClick = { model.submit(text) },
+                modifier = Modifier.height(66.pt).onFocusChanged { if (it.isFocused) onPreview(if (index == 0) null else text) },
                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
                 scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
                 colors = ClickableSurfaceDefaults.colors(
-                    containerColor = Color.White.copy(alpha = 0.1f),
+                    containerColor = Color.White.copy(alpha = 0.14f),
                     contentColor = McColors.Text,
                     focusedContainerColor = Color.White,
                     focusedContentColor = Color.Black,
                 ),
+                glow = ClickableSurfaceDefaults.glow(),
             ) {
-                Text(
-                    suggestion.text,
-                    style = McType.Callout,
-                    maxLines = 1,
-                    modifier = Modifier.padding(horizontal = 28.pt, vertical = 12.pt),
-                )
+                Row(
+                    Modifier.height(66.pt).padding(horizontal = 25.pt),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.pt),
+                ) {
+                    if (index == 0) Icon(McIcons.SearchOutline, null, modifier = Modifier.size(38.pt))
+                    Text(if (index == 0) "\"$text\"" else text, style = McType.size(35), maxLines = 1)
+                }
             }
         }
     }
