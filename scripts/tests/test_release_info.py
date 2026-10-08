@@ -37,7 +37,10 @@ Invite family to a shared room.
 
 
 def release(tag, **digests):
-    return {"tag": tag, "assets": [{"name": name, "digest": digest} for name, digest in digests.items()]}
+    return {
+        "tag": tag,
+        "assets": [{"name": name, "digest": digest} for name, digest in digests.items()],
+    }
 
 
 class ReleaseInfoTest(unittest.TestCase):
@@ -64,27 +67,44 @@ class ReleaseInfoTest(unittest.TestCase):
 
     def test_summary_keeps_its_line_breaks(self):
         text = CHANGELOG.replace("邀请家人一起看片。\n", "邀请家人一起看片。\n也能各看各的。\n")
-        self.assertEqual(module.notes(text, "0.40.0")["zh"]["summary"], "邀请家人一起看片。\n也能各看各的。")
+        self.assertEqual(
+            module.notes(text, "0.40.0")["zh"]["summary"], "邀请家人一起看片。\n也能各看各的。"
+        )
 
     def test_notes_absent_until_changelog_merged(self):
         info = module.build("v0.40.0", 19, "v0.39.0", 19, [release("v0.40.0")], None)
         self.assertIsNone(info["notes"])
 
     def test_image_update_follows_runtime_version(self):
-        self.assertFalse(module.build("v0.40.0", 19, "v0.39.0", 19, [release("v0.40.0")], None)["imageUpdate"])
-        self.assertTrue(module.build("v0.40.0", 20, "v0.39.0", 19, [release("v0.40.0")], None)["imageUpdate"])
+        self.assertFalse(
+            module.build("v0.40.0", 19, "v0.39.0", 19, [release("v0.40.0")], None)["imageUpdate"]
+        )
+        self.assertTrue(
+            module.build("v0.40.0", 20, "v0.39.0", 19, [release("v0.40.0")], None)["imageUpdate"]
+        )
 
     def test_carried_clients_are_not_updated(self):
         releases = [
-            release("v0.39.0", **{"MovieClawTranscoder-macos-arm64.zip": "sha256:a", "MovieClaw-macos-arm64.zip": "sha256:b"}),
-            release("v0.40.0", **{
-                "MovieClawTranscoder-macos-arm64.zip": "sha256:a",  # 沿用
-                "MovieClaw-macos-arm64.zip": "sha256:c",  # 重新构建
-                "MovieClaw-Android-arm64.apk": "sha256:d",  # 上一版没有
-                "manifest.json": "sha256:e",
-            }),
+            release(
+                "v0.39.0",
+                **{
+                    "MovieClawTranscoder-macos-arm64.zip": "sha256:a",
+                    "MovieClaw-macos-arm64.zip": "sha256:b",
+                },
+            ),
+            release(
+                "v0.40.0",
+                **{
+                    "MovieClawTranscoder-macos-arm64.zip": "sha256:a",  # 沿用
+                    "MovieClaw-macos-arm64.zip": "sha256:c",  # 重新构建
+                    "MovieClaw-Android-arm64.apk": "sha256:d",  # 上一版没有
+                    "manifest.json": "sha256:e",
+                },
+            ),
         ]
-        self.assertEqual(module.updated("v0.40.0", "v0.39.0", releases), ["server", "mac", "android"])
+        self.assertEqual(
+            module.updated("v0.40.0", "v0.39.0", releases), ["server", "mac", "android"]
+        )
 
     def test_missing_previous_release_counts_as_rebuilt(self):
         releases = [release("v0.40.0", **{"MovieClaw-iOS-unsigned.ipa": "sha256:a"})]

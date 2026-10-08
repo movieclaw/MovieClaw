@@ -30,18 +30,27 @@ SEPARATOR = "\n---\n\n## 简体中文\n"
 
 
 def section(text: str, version: str, lang: str) -> dict[str, str]:
-    """一种语言的说明：标题行、紧随其后的一段摘要（保留段内换行，和 Release 页一致），其余是正文。"""
+    """一种语言的说明：标题行、紧随其后的一段摘要（保留段内换行，同 Release 页），其余是正文。"""
     lines = text.strip().split("\n")
     title = re.fullmatch(r"## v(\S+?)[:：]\s*(\S.*)", lines[0])
     if not title or title.group(1) != version:
         raise ValueError(f"{lang} 第一行必须是「## v{version}: 标题」，实际是：{lines[0]!r}")
-    if len(lines) < 3 or lines[1] != "" or not lines[2].strip() or lines[2].startswith(("#", ">", "-", "✅", "⚠️")):
+    if (
+        len(lines) < 3
+        or lines[1] != ""
+        or not lines[2].strip()
+        or lines[2].startswith(("#", ">", "-", "✅", "⚠️"))
+    ):
         raise ValueError(f"{lang} 标题后要空一行，接一段摘要")
     end = lines.index("", 2) if "" in lines[2:] else len(lines)
     body = "\n".join(lines[end:]).strip()
     if not body:
         raise ValueError(f"{lang} 摘要之后没有正文")
-    return {"title": title.group(2).strip(), "summary": "\n".join(lines[2:end]).strip(), "body": body}
+    return {
+        "title": title.group(2).strip(),
+        "summary": "\n".join(lines[2:end]).strip(),
+        "body": body,
+    }
 
 
 def notes(text: str, version: str) -> dict[str, dict[str, str]]:
@@ -58,13 +67,20 @@ def updated(tag: str, previous: str | None, releases: list[dict]) -> list[str]:
     current, before = by_tag[tag], by_tag.get(previous or "", {})
     # 上一版没有 Release 或缺这个附件时，发版流水线会重新构建，所以算作更新。
     return ["server"] + [
-        product for asset, product in CLIENTS.items()
+        product
+        for asset, product in CLIENTS.items()
         if asset in current and not (current[asset] and before.get(asset) == current[asset])
     ]
 
 
-def build(tag: str, runtime: int, previous: str | None, previous_runtime: int | None,
-          releases: list[dict], changelog: str | None) -> dict:
+def build(
+    tag: str,
+    runtime: int,
+    previous: str | None,
+    previous_runtime: int | None,
+    releases: list[dict],
+    changelog: str | None,
+) -> dict:
     version = tag.removeprefix("v")
     return {
         "schema": 1,
@@ -90,7 +106,9 @@ def main() -> None:
     releases = [json.loads(line) for line in args.releases.read_text().splitlines() if line.strip()]
     changelog = args.changelog.read_text(encoding="utf-8") if args.changelog else None
     try:
-        info = build(args.tag, args.runtime, args.previous_tag, args.previous_runtime, releases, changelog)
+        info = build(
+            args.tag, args.runtime, args.previous_tag, args.previous_runtime, releases, changelog
+        )
     except ValueError as error:
         sys.exit(f"release.json 生成失败：{error}")
     print(json.dumps(info, ensure_ascii=False, indent=2))
