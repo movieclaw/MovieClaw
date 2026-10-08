@@ -144,7 +144,7 @@ fun PersonScreen(route: Route.Person) {
         BlurredBackdrop(imageUrl(backdropPoster, McMetrics.BlurredBackdropWidth.toFloat()))
         CompositionLocalProvider(LocalBringIntoViewSpec provides spec) {
             Column(
-                Modifier.fillMaxSize().verticalScroll(scroll).padding(start = McMetrics.Edge, end = McMetrics.Edge, top = 20.pt, bottom = 80.pt),
+                Modifier.fillMaxSize().verticalScroll(scroll).padding(start = McMetrics.Edge, end = McMetrics.Edge, top = McMetrics.PushedTop + 20.pt, bottom = 80.pt),
                 verticalArrangement = Arrangement.spacedBy(36.pt),
             ) {
                 PersonHeader(route, person)

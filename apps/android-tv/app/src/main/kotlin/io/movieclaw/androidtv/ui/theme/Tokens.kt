@@ -65,6 +65,8 @@ object McMetrics {
     const val StageZoom = 1.06f
     /** 模糊背景用的图宽（pt） */
     const val BlurredBackdropWidth = 480
+    /** 压栈的二级页内容区上方的系统内边距（tvOS 实测 48.5，再加约 8 点标题行高差，两台模拟器截图量出取 56） */
+    val PushedTop = 56.pt
     /** 画布宽高（pt），换算屏幕上的位置用 */
     const val CanvasWidth = 1920
     const val CanvasHeight = 1080

@@ -230,7 +230,7 @@ internal fun PosterWall(
                 columns = GridCells.Fixed(WallLayout.COLUMNS),
                 state = grid,
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = McMetrics.Edge, end = McMetrics.Edge, top = 20.pt, bottom = 80.pt),
+                contentPadding = PaddingValues(start = McMetrics.Edge, end = McMetrics.Edge, top = McMetrics.PushedTop + 20.pt, bottom = 80.pt),
                 horizontalArrangement = Arrangement.spacedBy(WallLayout.COLUMN_SPACING.pt),
                 verticalArrangement = Arrangement.spacedBy(WallLayout.ROW_SPACING.pt),
             ) {

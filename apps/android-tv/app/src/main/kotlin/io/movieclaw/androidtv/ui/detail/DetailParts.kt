@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -48,8 +49,8 @@ import io.movieclaw.androidtv.ui.theme.McMetrics
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
 
-/** 系统按钮的高度（tvOS 默认按钮：headline 字 + 上下 20） */
-private val ButtonHeight = 86.pt
+/** 系统按钮的高度（tvOS 默认按钮：两台模拟器截图量出约 76 点、字约 29 点，同首页大图区按钮） */
+private val ButtonHeight = 76.pt
 
 /**
  * tvOS 默认样式的按钮（详情页的播放 / 从头播放、所属合集、海报墙的排序）：平时半透明白底白字，
@@ -84,12 +85,13 @@ internal fun PillButton(
         glow = ClickableSurfaceDefaults.glow(focusedGlow = Glow(Color.Black.copy(alpha = 0.45f), 20.pt)),
     ) {
         Row(
-            Modifier.fillMaxSize().padding(horizontal = if (circle) 0.pt else (40 + if (extraPadding) 16 else 0).pt),
-            horizontalArrangement = Arrangement.spacedBy(16.pt, Alignment.CenterHorizontally),
+            // 只撑满高度：撑满宽度会让横排里的第一颗按钮吃掉整行
+            Modifier.fillMaxHeight().then(if (circle) Modifier.fillMaxWidth() else Modifier).padding(horizontal = if (circle) 0.pt else (36 + if (extraPadding) 8 else 0).pt),
+            horizontalArrangement = Arrangement.spacedBy(12.pt, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            icon?.let { Icon(it, contentDescription, modifier = Modifier.size(36.pt)) }
-            text?.let { Text(it, style = McType.Headline, maxLines = 1) }
+            icon?.let { Icon(it, contentDescription, modifier = Modifier.size(28.pt)) }
+            text?.let { Text(it, style = McType.Body.copy(fontWeight = FontWeight.Medium), maxLines = 1) }
         }
     }
 }
