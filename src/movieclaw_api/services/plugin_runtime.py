@@ -55,7 +55,7 @@ _ENV_KEEP = ("PATH", "LANG", "LC_ALL", "TZ", "HOME", "TMPDIR")
 _UNSET: Any = object()
 
 NextFn = Callable[[Any], Awaitable[Any]]
-RpcFn = Callable[[str, dict[str, Any]], Awaitable[Any]]
+RpcFn = Callable[[str, dict[str, Any], str | None], Awaitable[Any]]
 
 #: 正在运行的插件进程（诊断与测试用）
 sessions: dict[str, Session] = {}
@@ -63,6 +63,17 @@ sessions: dict[str, Session] = {}
 
 class PluginProcessGone(RuntimeError):
     pass
+
+
+class RemoteCallError(RuntimeError):
+    """插件处理失败。
+
+    ``job`` 是任务处理器抛出的控制异常（重试 / 阻塞 / 失败 / 取消）的结构化描述。
+    """
+
+    def __init__(self, message: str, *, job: dict[str, Any] | None = None) -> None:
+        super().__init__(message)
+        self.job = job
 
 
 def _child_env() -> dict[str, str]:
@@ -91,7 +102,10 @@ class Session:
         self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._nexts: dict[str, NextFn] = {}
         self._contexts: dict[str, contextvars.Context] = {}
+        self.jobs: dict[str, Any] = {}
+        """正在子进程里执行的任务：调用编号 → 宿主这边真实的 ``JobContext``。"""
         self.rpc_handler: RpcFn | None = None
+        self.contributions: list[dict[str, Any]] = []
         self._ids = itertools.count(1)
         self._readers: list[asyncio.Task[Any]] = []
         self._stopping = False
@@ -168,11 +182,14 @@ class Session:
             }
         )
         declarations: list[dict[str, Any]] = []
+        self.contributions = []
         while True:
             message = await self._read(proc)
             kind = message["type"]
             if kind == "on":
                 declarations.append(message)
+            elif kind == "contribute":
+                self.contributions.append(message)
             elif kind == "rpc":
                 # 插件在 apply 里就要用宿主服务（拿宿主操作凭证、读插件数据）
                 asyncio.get_running_loop().create_task(self._run_rpc(message))
@@ -255,7 +272,9 @@ class Session:
         try:
             if self.rpc_handler is None:
                 raise RuntimeError("宿主没有为这个插件提供服务")
-            result = await self.rpc_handler(message["method"], message.get("params") or {})
+            result = await self.rpc_handler(
+                message["method"], message.get("params") or {}, message.get("call")
+            )
             reply.update(ok=True, result=result)
         except Exception as exc:  # noqa: BLE001 -- 原样告诉插件，由插件决定怎么处理
             from movieclaw_api.services.host_ops import OpsError
@@ -288,7 +307,8 @@ class Session:
         payload: Any,
         run_next: NextFn | None = None,
         *,
-        timeout: float = CALL_TIMEOUT,
+        timeout: float | None = CALL_TIMEOUT,
+        job: Any = None,
     ) -> Any:
         if not self.online:
             raise PluginProcessGone(f"插件 {self.entry_id} 的进程不在运行")
@@ -304,6 +324,9 @@ class Session:
             "listener": listener,
             "payload": payload,
         }
+        if job is not None:
+            self.jobs[call_id] = job
+            message.update(kind="job", job_id=job.job_id)
         delivery = current_delivery.get()
         if delivery is not None:
             message["delivery"] = {
@@ -324,8 +347,11 @@ class Session:
             self._pending.pop(call_id, None)
             self._nexts.pop(call_id, None)
             self._contexts.pop(call_id, None)
+            self.jobs.pop(call_id, None)
         if not reply.get("ok"):
-            raise RuntimeError(f"插件 {self.entry_id} 处理失败：{reply.get('error')}")
+            raise RemoteCallError(
+                f"插件 {self.entry_id} 处理失败：{reply.get('error')}", job=reply.get("job")
+            )
         return reply.get("result")
 
     # ------------------------------------------------------------------ 监管
@@ -352,13 +378,13 @@ class Session:
             )
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, BACKOFF_MAX)
-            previous = {(d["event"], d["id"]) for d in self.declarations}
+            previous = _shape(self.declarations, self.contributions)
             try:
                 declarations = await self.start()
             except Exception:
                 logger.exception("插件 %s 重启失败", self.entry_id)
                 continue
-            if {(d["event"], d["id"]) for d in declarations} != previous:
+            if _shape(declarations, self.contributions) != previous:
                 logger.error("插件 %s 重启后声明的监听器变了，按崩溃处理", self.entry_id)
                 await self._kill()
                 continue
@@ -388,6 +414,71 @@ class Session:
         if proc is not None and proc.returncode is None:
             proc.kill()
             await proc.wait()
+
+
+def _shape(declarations: list[dict[str, Any]], contributions: list[dict[str, Any]]) -> set[Any]:
+    """插件声明的形状：重启后必须一致（代理已经按它登记在内核里了）。"""
+    return {("on", d["event"], d["id"]) for d in declarations} | {
+        ("contribute", c["registry"], c["id"]) for c in contributions
+    }
+
+
+def _job_error(error: RemoteCallError) -> Exception:
+    """子进程里任务处理器抛出的控制异常，在宿主这边还原成同一种异常交给执行器。"""
+    from movieclaw_api.services import jobs
+
+    job = error.job or {}
+    cls = job.get("cls")
+    message = str(job.get("message") or error)
+    kwargs = {"code": job["code"]} if job.get("code") else {}
+    if cls == "JobCancelled":
+        return jobs.JobCancelled()
+    if cls == "JobRetry":
+        return jobs.JobRetry(
+            message,
+            delay_seconds=int(job.get("delay_seconds") or 15),
+            actions=job.get("actions"),
+            **kwargs,
+        )
+    if cls in ("JobBlocked", "JobFailed"):
+        return getattr(jobs, cls)(
+            message, actions=job.get("actions"), details=job.get("details"), **kwargs
+        )
+    return error
+
+
+def _contribution(session: Session, contribution: dict[str, Any]) -> tuple[Any, Any]:
+    """子进程声明的贡献项 → （注册表键，登记到内核里的代理项）。"""
+    from movieclaw_api.pipeline import INGEST_STEPS, IngestStep
+    from movieclaw_api.plugins.keys import SITE_DATA_PACKS
+    from movieclaw_api.services import jobs
+
+    registry, cid, item = contribution["registry"], contribution["id"], contribution["item"]
+    if registry == jobs.JOB_HANDLERS.name:
+
+        async def handler(context: Any, data: dict[str, Any]) -> dict[str, Any] | None:
+            try:
+                return await session.call(cid, data, timeout=None, job=context)
+            except PluginProcessGone as exc:
+                raise jobs.JobRetry(
+                    f"插件 {session.entry_id} 的进程不在运行，稍后重试", delay_seconds=30
+                ) from exc
+            except RemoteCallError as exc:
+                raise _job_error(exc) from exc
+
+        return jobs.JOB_HANDLERS, jobs.RegisteredJobHandler(
+            handler, frozenset(int(v) for v in item["versions"])
+        )
+    if registry == INGEST_STEPS.name:
+        return INGEST_STEPS, IngestStep(
+            job_type=item["job_type"],
+            title=item["title"],
+            slot=item["slot"],
+            kinds=tuple(item.get("kinds") or ()),
+        )
+    if registry == SITE_DATA_PACKS.name:
+        return SITE_DATA_PACKS, Path(item["path"])
+    raise ValueError(f"进程外插件不能往注册表 {registry} 贡献")
 
 
 def _proxy(session: Session, declaration: dict[str, Any]) -> tuple[Any, Callable[..., Any]]:
@@ -459,7 +550,7 @@ def describe(path: Path, module: str, entry_id: str) -> dict[str, Any]:
 _MISSING: Any = object()
 
 
-async def _service_handler(ctx: Context, names: tuple[str, ...]) -> RpcFn:
+async def _service_handler(ctx: Context, session: Session, names: tuple[str, ...]) -> RpcFn:
     """插件在子进程里调宿主服务时，宿主这边代它执行（以它自己的上下文、凭证与数据作用域）。"""
     from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_HEALTH
 
@@ -472,7 +563,18 @@ async def _service_handler(ctx: Context, names: tuple[str, ...]) -> RpcFn:
             raise LookupError(f"服务 {name} 没有在 inject 里声明")
         return service
 
-    async def handle(method: str, params: dict[str, Any]) -> Any:
+    async def handle(method: str, params: dict[str, Any], call: str | None) -> Any:
+        if method.startswith("job."):
+            context = session.jobs.get(call or "")
+            if context is None:
+                raise LookupError("只能在任务处理器里汇报任务进度")
+            if method == "job.update_progress":
+                await context.update_progress(**params)
+                return None
+            if method == "job.current_progress":
+                return await context.current_progress()
+            if method == "job.cancel_requested":
+                return await context.cancel_requested()
         if method == "ops.client":
             return {"operations": sorted(need(client, HOST_OPS.name).operations)}
         if method == "ops.call":
@@ -543,7 +645,7 @@ def remote_plugin(
             config=config,
             data_dir=getattr(ctx.settings, "data_dir", "./data"),
         )
-        session.rpc_handler = await _service_handler(ctx, inject)
+        session.rpc_handler = await _service_handler(ctx, session, inject)
         declarations = await session.start()
         session.declarations = declarations
         ctx.effect(session.stop, label="stop-process")
@@ -551,6 +653,15 @@ def remote_plugin(
             event, handler = _proxy(session, declaration)
             ctx.on(
                 event, handler, id=declaration["id"], priority=int(declaration.get("priority", 0))
+            )
+        for contribution in session.contributions:
+            key, item = _contribution(session, contribution)
+            ctx.contribute(
+                key,
+                contribution["id"],
+                item,
+                priority=int(contribution.get("priority", 0)),
+                override=bool(contribution.get("override")),
             )
         ctx.task(session.supervise(), name="supervise")
         sessions[entry_id] = session

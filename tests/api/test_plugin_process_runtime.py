@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import textwrap
@@ -272,3 +273,124 @@ def test_crash_loop_stops_restarting_and_reports(tmp_path, monkeypatch) -> None:
     finally:
         durable_events.reset_state()
         get_settings.cache_clear()
+
+
+JOBS_PLUGIN = """
+import os
+from pathlib import Path
+
+from movieclaw_api.pipeline import INGEST_STEPS, IngestStep
+from movieclaw_api.plugins.keys import SITE_DATA_PACKS
+from movieclaw_api.services.jobs import JOB_HANDLERS, JobBlocked, RegisteredJobHandler
+from movieclaw_sdk import plugin
+
+
+@plugin("acme.jobs", title="任务插件")
+async def apply(ctx) -> None:
+    async def echo(context, data):
+        await context.update_progress(
+            mode="determinate", phase="work", message="做了一半", current=1, total=2
+        )
+        if data.get("block"):
+            raise JobBlocked(
+                "缺少网盘凭据",
+                actions=[{"type": "open_settings", "label": "去配置", "target": "app"}],
+            )
+        return {"echo": data["value"], "pid": os.getpid(), "job": context.job_id}
+
+    ctx.contribute(JOB_HANDLERS, "echo", RegisteredJobHandler(echo, frozenset({1})))
+    step = IngestStep(job_type=f"{ctx.entry_id}:echo", title="上传")
+    ctx.contribute(INGEST_STEPS, "upload", step)
+    ctx.contribute(SITE_DATA_PACKS, "sites", Path(__file__).parent / "acme_sites")
+"""
+
+
+def test_process_plugin_contributes_job_handlers_steps_and_site_packs(tmp_path, monkeypatch):
+    from sqlmodel import select
+
+    from movieclaw_api import pipeline
+    from movieclaw_api.services import jobs
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import Job, JobEvent, JobStatus
+    from movieclaw_tracker import get_site_config, load_all_sites
+    from movieclaw_tracker.exceptions import SiteNotFoundError
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'jobs.db'}")
+    monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
+    monkeypatch.setenv("SITE_CONFIGS_DIR", str(tmp_path / "site-configs"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    get_settings.cache_clear()
+    durable_events.reset_state()
+    plugins = tmp_path / "plugins"
+    (plugins / "acme_sites").mkdir(parents=True)
+    (plugins / "acme_jobs.py").write_text(JOBS_PLUGIN, encoding="utf-8")
+    (plugins / "acme_sites" / "acmept.yaml").write_text(
+        "site_id: acmept\ndisplay_name: Acme PT\nbase_url: https://acme.example\n"
+        "framework: nexusphp\ncategories:\n  movie: [401]\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "plugins.yaml").write_text(
+        "- id: acme.jobs\n  local: true\n  module: acme_jobs\n  runtime: process\n",
+        encoding="utf-8",
+    )
+    from movieclaw_api.app import create_app
+
+    app = create_app()
+
+    async def enqueue(data: dict) -> str:
+        async with get_database().session() as session:
+            created = await jobs.create_job(session, job_type="acme.jobs:echo", input_data=data)
+            return created.job.id
+
+    async def load(job_id: str) -> Job:
+        async with get_database().session() as session:
+            return (await session.execute(select(Job).where(Job.id == job_id))).scalar_one()
+
+    async def events_of(job_id: str) -> list:
+        async with get_database().session() as session:
+            rows = await session.execute(select(JobEvent).where(JobEvent.job_id == job_id))
+            return [row.payload for row in rows.scalars()]
+
+    def finished(client, job_id: str) -> Job:
+        done = (JobStatus.SUCCEEDED, JobStatus.BLOCKED, JobStatus.FAILED)
+        wait_for(lambda: client.portal.call(load, job_id).status in done, timeout=30)
+        return client.portal.call(load, job_id)
+
+    try:
+        with TestClient(app) as client:
+            fiber = app.state.kernel.fiber("acme.jobs")
+            assert fiber.state.value == "active", fiber.error
+            assert fiber.plugin.title == "任务插件（独立进程）"
+            # 纯数据项原样贡献（第三方 id 带插件前缀）
+            [step] = pipeline.steps_for(pipeline.INGEST_STAGED, "tv")
+            assert step.job_type == "acme.jobs:echo"
+            assert get_site_config("acmept").display_name == "Acme PT"
+
+            # 任务在子进程里执行：结果、进度经协议回到宿主
+            ok = finished(client, client.portal.call(enqueue, {"value": 42}))
+            assert ok.status == JobStatus.SUCCEEDED, ok.error
+            assert ok.result["echo"] == 42 and ok.result["job"] == ok.id
+            assert ok.result["pid"] == plugin_runtime.sessions["acme.jobs"].pid != os.getpid()
+            assert "做了一半" in json.dumps(
+                client.portal.call(events_of, ok.id), ensure_ascii=False
+            )
+
+            # 控制异常原样还原：阻塞、带「去配置」动作
+            blocked = finished(client, client.portal.call(enqueue, {"value": 1, "block": True}))
+            assert blocked.status == JobStatus.BLOCKED
+            assert blocked.error["message"] == "缺少网盘凭据"
+            assert blocked.error["actions"] == [
+                {"type": "open_settings", "label": "去配置", "target": "app"}
+            ]
+
+            # 卸载：贡献全部撤销
+            client.portal.call(app.state.kernel.unmount, "acme.jobs")
+            assert pipeline.steps_for(pipeline.INGEST_STAGED, "tv") == []
+            assert jobs.resolve_job_handler("acme.jobs:echo") is None
+            with pytest.raises(SiteNotFoundError):
+                get_site_config("acmept")
+    finally:
+        durable_events.reset_state()
+        get_settings.cache_clear()
+        load_all_sites()

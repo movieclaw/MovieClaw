@@ -13,14 +13,17 @@ from __future__ import annotations
 import argparse
 import asyncio
 import contextvars
+import dataclasses
 import importlib
 import itertools
 import logging
 import os
 import sys
+import time
 import traceback
 import types
 from collections.abc import Callable, Coroutine
+from pathlib import Path
 from typing import Any
 
 from movieclaw_kernel import (
@@ -139,6 +142,51 @@ class _RemotePluginHealth:
         return _RemoteHealth(self._runner)
 
 
+class RemoteJobContext:
+    """进程外任务处理器拿到的 ``JobContext``：进度、取消查询经协议交给宿主的真实上下文。"""
+
+    def __init__(self, runner: Runner, job_id: str) -> None:
+        self._runner = runner
+        self.job_id = job_id
+        self._last_progress_write = time.monotonic() - 3600.0
+
+    def progress_due(self, *, min_interval: float = 1.0) -> bool:
+        now = time.monotonic()
+        if now - self._last_progress_write < min_interval:
+            return False
+        self._last_progress_write = now
+        return True
+
+    async def update_progress(self, **progress: Any) -> None:
+        await self._runner.rpc("job.update_progress", progress)
+
+    async def current_progress(self) -> dict[str, Any]:
+        return dict(await self._runner.rpc("job.current_progress", {}) or {})
+
+    async def cancel_requested(self) -> bool:
+        return bool(await self._runner.rpc("job.cancel_requested", {}))
+
+    async def raise_if_cancelled(self) -> None:
+        from movieclaw_api.services.jobs import JobCancelled
+
+        if await self.cancel_requested():
+            raise JobCancelled()
+
+    async def acquire_target_resource(self, resource_type: str, resource_id: str | int) -> bool:
+        raise NotImplementedError("进程外任务暂不能申请资源锁")
+
+
+def _contribution(registry: str, item: Any) -> tuple[dict[str, Any], Any]:
+    """注册表贡献项 → （发给宿主的数据，留在本进程的东西）。只开放纯数据项与任务处理器。"""
+    if registry == "job-handlers":
+        return {"versions": sorted(item.definition_versions)}, item.handler
+    if registry == "ingest-steps":
+        return dataclasses.asdict(item), None
+    if registry == "site-data-packs":
+        return {"path": str(Path(item).resolve())}, None
+    raise NotImplementedError(f"进程外插件暂不能往注册表 {registry} 贡献")
+
+
 _SERVICE_PROXIES: dict[str, Callable[[Runner], Any]] = {
     "host-ops": _RemoteHostOps,
     "plugin-data": _RemotePluginData,
@@ -149,8 +197,8 @@ _SERVICE_PROXIES: dict[str, Callable[[Runner], Any]] = {
 class RemoteContext:
     """进程外插件拿到的上下文：与内核 ``Context`` 同名同签名。
 
-    支持事件与钩子（含可靠事件与 ``ctx.delivery``）、后台任务、清理，以及宿主操作、插件数据、
-    健康上报三种服务；注册表贡献与插件路由随第三阶段 C4 开放。
+    支持事件与钩子（含可靠事件与 ``ctx.delivery``）、后台任务、清理；宿主操作、插件数据、
+    健康上报三种服务；往任务处理器、入库槽位、站点数据包三个注册表贡献。插件路由随 C4 第二部分开放。
     """
 
     def __init__(
@@ -172,6 +220,7 @@ class RemoteContext:
         self.third_party = True
         self.logger = logging.getLogger(f"movieclaw_plugin.{entry_id}")
         self._handlers: dict[str, tuple[Event[Any, Any], Callable[..., Any]]] = {}
+        self._jobs: dict[str, Callable[..., Any]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
         self._effects: list[Callable[[], Any]] = []
 
@@ -218,8 +267,28 @@ class RemoteContext:
             raise NotImplementedError(f"进程外插件暂不能使用服务 {key.name}")
         return factory(self._runner)
 
-    def contribute(self, *args: Any, **kwargs: Any) -> None:
-        raise NotImplementedError("进程外插件暂不能往注册表贡献（第三阶段 C4 起开放）")
+    def contribute(
+        self,
+        key: Any,
+        id: str,
+        item: Any,
+        *,
+        priority: int = 0,
+        override: bool = False,
+    ) -> None:
+        data, local = _contribution(key.name, item)
+        if key.name == "job-handlers":
+            self._jobs[id] = local
+        self._runner.send(
+            {
+                "type": "contribute",
+                "registry": key.name,
+                "id": id,
+                "item": data,
+                "priority": priority,
+                "override": override,
+            }
+        )
 
     async def dispose(self) -> None:
         for task in list(self._tasks):
@@ -294,6 +363,9 @@ class Runner:
                     attempt=delivery["attempt"],
                 )
             )
+        if message.get("kind") == "job":
+            await self._handle_job(message)
+            return
         try:
             assert self.ctx is not None
             event, handler = self.ctx._handlers[message["listener"]]
@@ -314,6 +386,29 @@ class Runner:
                     "traceback": traceback.format_exc(limit=8),
                 }
             )
+
+    async def _handle_job(self, message: dict[str, Any]) -> None:
+        from movieclaw_api.services.jobs import JobCancelled, JobControlError, JobRetry
+
+        call_id = message["id"]
+        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        try:
+            assert self.ctx is not None
+            handler = self.ctx._jobs[message["listener"]]
+            context = RemoteJobContext(self, message["job_id"])
+            result = await _maybe_await(handler(context, message["payload"]))
+            reply.update(ok=True, result=result)
+        except JobCancelled:
+            reply.update(ok=False, error="任务已取消", job={"cls": "JobCancelled"})
+        except JobControlError as exc:
+            job: dict[str, Any] = {"cls": type(exc).__name__, **exc.as_error()}
+            if isinstance(exc, JobRetry):
+                job["delay_seconds"] = exc.delay_seconds
+            reply.update(ok=False, error=exc.message, job=job)
+        except Exception as exc:  # noqa: BLE001 -- 未知错误：宿主按「未知错误」收敛
+            traceback.print_exc()
+            reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
+        self.send(reply)
 
     def _next_for(self, call_id: str, event: Event[Any, Any]) -> Callable[..., Any]:
         async def next_(new_value: Any = _UNSET) -> Any:
