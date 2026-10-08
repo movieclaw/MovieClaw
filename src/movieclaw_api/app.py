@@ -29,6 +29,13 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
     register_middlewares(app, settings)
     app.include_router(api_router, prefix=settings.api_v1_prefix)
+    # 插件自己的接口（/api/v1/plugins/<条目 id>/...，docs/design/plugin-phase2b.md §8）：插件挂载时
+    # 按区注入鉴权，宿主路由器本身不带路由。必须挂在应用顶层、与 api_router 并列：FastAPI 的路由
+    # 版本逐层向上累加，嵌在 api_router 里时插件每挂 / 摘一次，上层就要为全部业务路由重建生效
+    # 上下文（本机约 1.5 秒，在事件循环上）；并列时只重建插件这一小块
+    from movieclaw_api.services.plugin_routes import host_router as plugin_routes_host
+
+    app.include_router(plugin_routes_host, prefix=settings.api_v1_prefix)
 
     # Jellyfin 兼容播放接口（docs/design/jellyfin-compat.md）：根路径命名空间，
     # 不进业务 OpenAPI，自带 token 体系与错误形态

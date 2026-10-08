@@ -236,3 +236,26 @@ def test_public_zone_requires_the_plugin_signature(app_client, no_spec_refresh) 
 
     rows = client.portal.call(stored)
     assert [(r.key, r.secret) for r in rows] == [("kernel.link-key", True)]
+
+
+def test_mounting_routes_does_not_rebuild_the_business_routes(app_client, no_spec_refresh) -> None:
+    """宿主路由器挂在应用顶层：插件挂路由只重建插件那一块，业务路由的生效上下文原样复用。
+
+    嵌在 api_router 里时，每挂 / 摘一次都要为全部业务路由重建（本机约 1.5 秒，卡在事件循环上）。
+    """
+    from fastapi.routing import iter_route_contexts
+
+    def health_context():
+        return next(
+            c._route_context
+            for c in iter_route_contexts(app.routes)
+            if c.path_format == "/api/v1/health"
+        )
+
+    app, client = app_client
+    before = health_context()
+    apply, _ = files_plugin("acme.cheap", zone="admin")
+    assert mount(app, client, apply, "acme.cheap").state.value == "active"
+    assert health_context() is before
+    client.portal.call(app.state.kernel.unmount, "acme.cheap")
+    assert health_context() is before
