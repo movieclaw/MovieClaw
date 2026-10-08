@@ -473,3 +473,17 @@ def test_process_plugin_routes_are_proxied_with_host_auth(tmp_path, monkeypatch)
     finally:
         durable_events.reset_state()
         get_settings.cache_clear()
+
+
+def test_diagnostics_tell_process_plugins_apart(app_client) -> None:
+    from movieclaw_api.api.deps import require_admin, require_login
+    from movieclaw_api.services.auth import Principal
+
+    app, client = app_client
+    admin = Principal(kind="admin", name="t")
+    app.dependency_overrides[require_admin] = lambda: admin
+    app.dependency_overrides[require_login] = lambda: admin
+    plugins = {p["id"]: p for p in client.get("/api/v1/app/plugins").json()["data"]["plugins"]}
+    assert plugins["acme.blocklist"]["runtime"] == "process"
+    assert plugins["acme.blocklist"]["title"] == "发布组黑名单（独立进程）"
+    assert plugins["core.database"]["runtime"] == "inline"

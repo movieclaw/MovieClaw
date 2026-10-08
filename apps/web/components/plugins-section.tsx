@@ -13,6 +13,7 @@ import {
 import {
   formatMs,
   isLocalPlugin,
+  localPluginRuntimes,
   needsAttention,
   pluginDetail,
   pluginStateLabel,
@@ -58,6 +59,7 @@ export function PluginsSection() {
 
   const problems = plugins?.filter(needsAttention) ?? [];
   const locals = plugins?.filter(isLocalPlugin) ?? [];
+  const runtimes = localPluginRuntimes(plugins ?? []);
   const slow = plugins ? slowestStarts(plugins) : [];
 
   return (
@@ -102,7 +104,11 @@ export function PluginsSection() {
           )}
           {locals.length > 0 && (
             <Banner tone="warn" title={`已开启 ${locals.length} 个本地插件`}>
-              它们来自 data/plugins，在应用进程里运行，拥有与主程序相同的系统权限——只开启你信任的代码。
+              它们来自 data/plugins。
+              {runtimes.inline > 0 &&
+                `其中 ${runtimes.inline} 个在应用进程里运行，拥有与主程序相同的系统权限——只开启你信任的代码。`}
+              {runtimes.process > 0 &&
+                `${runtimes.process} 个在独立进程里运行：崩溃、卡死只影响它自己，拿不到主密钥等敏感配置。`}
               要关掉某个本地插件：在 data/plugins.yaml 里去掉它的 local 或加上 disabled: true，重启生效。
             </Banner>
           )}

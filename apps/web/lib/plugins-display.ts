@@ -106,6 +106,13 @@ export function isLocalPlugin(plugin: PluginInfo): boolean {
   return plugin.source === "local";
 }
 
+/** 本地插件里有几个在主进程里运行（与主程序同权限）、几个在独立进程里运行 */
+export function localPluginRuntimes(plugins: PluginInfo[]): { inline: number; process: number } {
+  const locals = plugins.filter(isLocalPlugin);
+  const process = locals.filter((p) => p.runtime === "process").length;
+  return { inline: locals.length - process, process };
+}
+
 /** 分区副标题：一共几个、几个在运行、几个出问题、几个是本地插件 */
 export function pluginsSummary(plugins: PluginInfo[]): string {
   const active = plugins.filter((p) => p.state === "active").length;

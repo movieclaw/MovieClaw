@@ -72,6 +72,9 @@ class PluginView(BaseModel):
         default_factory=list, description="插件自己报告的运行状况（PLUGIN_HEALTH）"
     )
     data_rows: int = Field(default=0, description="插件数据行数（PLUGIN_DATA）")
+    runtime: str = Field(
+        default="inline", description="inline：主进程里运行；process：独立进程（第三阶段）"
+    )
 
 
 class ContributionView(BaseModel):
@@ -179,8 +182,15 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
     health = health_service.snapshot() if health_service is not None else {}
     data_service = kernel.service(PLUGIN_DATA)
     data_rows = await data_service.counts() if data_service is not None else {}
+    from movieclaw_api.services.plugin_runtime import process_entries
+
     plugins = [
-        {**item, "health": health.get(item["id"], []), "data_rows": data_rows.get(item["id"], 0)}
+        {
+            **item,
+            "health": health.get(item["id"], []),
+            "data_rows": data_rows.get(item["id"], 0),
+            "runtime": "process" if item["id"] in process_entries else "inline",
+        }
         for item in kernel.snapshot()
     ]
     from movieclaw_api.plugins import safe_mode

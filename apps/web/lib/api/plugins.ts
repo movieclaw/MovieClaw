@@ -68,6 +68,8 @@ export interface PluginInfo {
   health?: PluginHealth[];
   /** 插件数据行数（PLUGIN_DATA） */
   data_rows?: number;
+  /** inline：主进程里运行；process：独立进程。旧服务端没有这个字段 */
+  runtime?: "inline" | "process";
 }
 
 export interface PluginHealth {

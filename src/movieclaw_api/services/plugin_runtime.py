@@ -64,6 +64,8 @@ RpcFn = Callable[[str, dict[str, Any], str | None], Awaitable[Any]]
 
 #: 正在运行的插件进程（诊断与测试用）
 sessions: dict[str, Session] = {}
+#: 以独立进程运行的条目（诊断页据此区分「进程内 / 独立进程」）
+process_entries: set[str] = set()
 
 
 class PluginProcessGone(RuntimeError):
@@ -755,6 +757,7 @@ def remote_plugin(
     unknown = [name for name in inject if name not in services]
     if unknown:
         raise ValueError(f"进程外插件暂不能使用服务：{'、'.join(unknown)}")
+    process_entries.add(entry_id)
 
     async def apply(ctx: Context) -> None:
         session = Session(

@@ -610,6 +610,22 @@ def describe(args: argparse.Namespace) -> int:
 _PROTOCOL_OUT: Any = None
 
 
+def _die_with_parent() -> None:
+    """宿主进程没了就跟着退出（Linux）：宿主被强杀、容器又没重启时不留孤儿进程。
+
+    标准输入关闭也会让主循环退出，但插件若卡在不让出的计算里就读不到了，所以再加一道内核信号。
+    """
+    if not sys.platform.startswith("linux"):
+        return
+    import ctypes
+    import signal
+
+    with contextlib.suppress(OSError, AttributeError):
+        ctypes.CDLL("libc.so.6", use_errno=True).prctl(1, signal.SIGKILL)  # PR_SET_PDEATHSIG
+    if os.getppid() == 1:  # 设置之前宿主就已经没了
+        os._exit(0)
+
+
 def main(argv: list[str] | None = None) -> int:
     global _PROTOCOL_OUT
     parser = argparse.ArgumentParser(description="MovieClaw 进程外插件运行器")
@@ -618,6 +634,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--entry", required=True, help="条目 id（@plugin 的名字）")
     parser.add_argument("--describe", action="store_true", help="只输出插件声明后退出")
     args = parser.parse_args(argv)
+    _die_with_parent()
     # 标准输出只留给协议：插件的 print 改到标准错误
     _PROTOCOL_OUT = os.fdopen(os.dup(sys.stdout.fileno()), "wb", buffering=0)
     sys.stdout = sys.stderr

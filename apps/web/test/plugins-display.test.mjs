@@ -5,6 +5,7 @@ import {
   degradedHealth,
   formatMs,
   isLocalPlugin,
+  localPluginRuntimes,
   needsAttention,
   pluginDetail,
   pluginStateLabel,
@@ -132,6 +133,17 @@ test("本地插件单独计数并可识别", () => {
   assert.equal(isLocalPlugin(list[1]), true);
   assert.equal(isLocalPlugin(list[0]), false);
   assert.equal(pluginsSummary(list), "3 个模块 · 2 个运行中 · 1 个需要留意 · 其中 2 个是本地插件");
+});
+
+test("本地插件区分进程内与独立进程（旧服务端没有 runtime 按进程内算）", () => {
+  const list = [
+    plugin({ id: "db" }),
+    plugin({ id: "acme.inline", source: "local" }),
+    plugin({ id: "acme.proc", source: "local", runtime: "process" }),
+    plugin({ id: "acme.proc2", source: "local", runtime: "process" }),
+  ];
+  assert.deepEqual(localPluginRuntimes(list), { inline: 1, process: 2 });
+  assert.deepEqual(localPluginRuntimes([]), { inline: 0, process: 0 });
 });
 
 test("插件报告的降级算需要留意，并写进行内说明", () => {
