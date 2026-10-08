@@ -4,7 +4,11 @@ import http from "node:http";
 
 const STREAM_RE = /\/api\/v1\/playback\/(sessions\/[^/]+\/(seg|init)|files\/\d+\/(stream|disc))/;
 
-export function createProxy({ port, upstreamHost, upstreamPort, log = () => {} }) {
+/**
+ * ``tap``（可选）：{ re, onExchange(method, url, reqBody, resBody, status) }——命中 re 的请求把请求体与
+ * 响应体（各最多 64 KB）交给回调。浏览器那边用 Playwright 自己看请求，电视实验台没有，只能在线路上看。
+ */
+export function createProxy({ port, upstreamHost, upstreamPort, log = () => {}, tap = null }) {
   const t0 = Date.now();
   const state = {
     // 线路：bps = null 不限速
@@ -37,6 +41,7 @@ export function createProxy({ port, upstreamHost, upstreamPort, log = () => {} }
       return "pass";
     }
     if (state.faultScope === "stream" && !isStream(url)) return "pass";
+    if (state.faultScope instanceof RegExp && !state.faultScope.test(url)) return "pass";
     return state.fault;
   }
 
@@ -70,7 +75,10 @@ export function createProxy({ port, upstreamHost, upstreamPort, log = () => {} }
       return;
     }
     if (state.rttMs) await new Promise((r) => setTimeout(r, state.rttMs));
+    const tapped = tap && tap.re.test(url) ? { req: [], res: [] } : null;
+    if (tapped) req.on("data", (c) => tapped.req.push(c));
     const headers = { ...req.headers, host: `${upstreamHost}:${upstreamPort}` };
+    if (tapped) delete headers["accept-encoding"]; // 要看明文响应
     const upstreamReq = http.request(
       { host: upstreamHost, port: upstreamPort, method: req.method, path: url, headers, agent },
       async (upstreamRes) => {
@@ -93,6 +101,7 @@ export function createProxy({ port, upstreamHost, upstreamPort, log = () => {} }
               if (firstByteMs === null) firstByteMs = Date.now() - started;
               bytes += piece.length;
               stats.bytes += piece.length;
+              if (tapped && bytes <= 65536) tapped.res.push(piece);
               if (!res.write(piece)) await new Promise((r) => res.once("drain", r));
             }
           }
@@ -101,6 +110,12 @@ export function createProxy({ port, upstreamHost, upstreamPort, log = () => {} }
           aborted = true;
           res.destroy();
         } finally {
+          if (tapped) {
+            const text = (parts) => Buffer.concat(parts).toString("utf8");
+            try {
+              tap.onExchange(req.method, url, text(tapped.req), text(tapped.res), upstreamRes.statusCode);
+            } catch {}
+          }
           inflight.delete(entry);
           stats.requests += 1;
           log({

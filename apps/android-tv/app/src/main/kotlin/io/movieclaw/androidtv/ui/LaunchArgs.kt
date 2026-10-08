@@ -9,6 +9,7 @@ import android.content.Intent
  *     --es mc_server http://10.0.2.2:8810 --es mc_user admin --es mc_pass xxx \
  *     [--es mc_tab account|search|home] [--el mc_play <id>] [--es mc_item <库>-<条目>]
  *     [--es mc_route /play/<id>[/sXXeYY][?t=秒]]   （同 Apple 端 -mcRoute，指定集数与起点）
+ *     [--es mc_lab <场景名>]                        （同 Apple 端 -mcLab，播放记录打实验室标签）
  */
 data class LaunchArgs(
     val server: String? = null,
@@ -18,6 +19,8 @@ data class LaunchArgs(
     val playMediaItemId: Long? = null,
     val item: Pair<Long, Long>? = null,
     val play: io.movieclaw.androidtv.ui.shell.PlayRequest? = null,
+    /** 实验室场景名（同 Apple 端 -mcLab）：这次启动里的播放记录都打上它 */
+    val lab: String? = null,
 ) {
     companion object {
         fun from(intent: Intent?): LaunchArgs {
@@ -31,6 +34,7 @@ data class LaunchArgs(
                 item = intent.getStringExtra("mc_item")?.split("-")?.mapNotNull { it.toLongOrNull() }
                     ?.takeIf { it.size == 2 }?.let { it[0] to it[1] },
                 play = intent.getStringExtra("mc_route")?.let(::playRoute),
+                lab = intent.getStringExtra("mc_lab"),
             )
         }
 

@@ -53,6 +53,12 @@ class AppGraph(app: Application) {
 
     /** 待处理的深链（「继续观看」点进来、或冷启动带的），主界面取走后清空 */
     val deepLinks = kotlinx.coroutines.flow.MutableStateFlow<io.movieclaw.androidtv.system.DeepLink?>(null)
+
+    /** 调试包：实验台让正在放的播放器跳到某个文件时间（毫秒，`am start … --el mc_seek_ms`），量跳转耗时用 */
+    val labSeeks = kotlinx.coroutines.flow.MutableSharedFlow<Long>(extraBufferCapacity = 4)
+
+    /** 调试包：实验台切音轨 / 字幕（`--es mc_audio embedded:2`、`--es mc_subtitle off`），量换轨耗时用 */
+    val labTracks = kotlinx.coroutines.flow.MutableSharedFlow<Pair<String, String>>(extraBufferCapacity = 4)
 }
 
 /** 一个已登录账号的一切：服务器、令牌、带令牌的接口、会话（权限）。 */

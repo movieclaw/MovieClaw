@@ -33,6 +33,7 @@ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.session.MediaSession
 import io.movieclaw.androidtv.core.model.generated.PlaybackClientLogPayload
+import io.movieclaw.androidtv.core.model.generated.PlaybackMetricPayload
 import io.movieclaw.androidtv.core.model.generated.PlaybackPolicyPayload
 import io.movieclaw.androidtv.core.model.generated.PlaybackProgressRequest
 import io.movieclaw.androidtv.core.model.generated.PlaybackSessionRequest
@@ -62,6 +63,8 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.util.concurrent.TimeUnit
@@ -97,7 +100,14 @@ class PlaybackController(
     scope: CoroutineScope,
     private val target: PlaybackTarget,
     private val capability: CapabilityProbe = CapabilityProbe(context),
+    /** 调试包：每秒往 logcat（PlaybackProbe）打一行状态，给故障注入实验台判定用 */
+    private val probe: Boolean = false,
+    /** 实验室场景名（调试参数 mc_lab）：这些播放的记录打上标签，统计默认排除 */
+    private val lab: String = "",
 ) {
+    private val deviceFacts = DeviceFacts(context)
+    private val engineFacts = EngineFacts()
+    private val reportStore = PlaybackReportStore(prefs, context.filesDir)
     private val job = SupervisorJob(scope.coroutineContext[Job])
     private val scope = CoroutineScope(scope.coroutineContext + job)
 
@@ -149,8 +159,8 @@ class PlaybackController(
         override fun pause() = this@PlaybackController.pause()
         override fun setPlayWhenReady(playWhenReady: Boolean) = if (playWhenReady) play() else pause()
         // 系统给的是 Exo 的流时间，换回文件时间
-        override fun seekTo(positionMs: Long) = this@PlaybackController.seekTo(originMs + positionMs, exact = true)
-        override fun seekTo(mediaItemIndex: Int, positionMs: Long) = this@PlaybackController.seekTo(originMs + positionMs, exact = true)
+        override fun seekTo(positionMs: Long) = this@PlaybackController.seekTo(originMs + positionMs, exact = true, source = "media_key")
+        override fun seekTo(mediaItemIndex: Int, positionMs: Long) = this@PlaybackController.seekTo(originMs + positionMs, exact = true, source = "media_key")
         override fun seekForward() = this@PlaybackController.seekBy(10_000)
         override fun seekBack() = this@PlaybackController.seekBy(-10_000)
         override fun getSeekForwardIncrement(): Long = 10_000
@@ -225,6 +235,7 @@ class PlaybackController(
     private var reportedStart = false
     private var lastDownlinkBps: Double? = null
     private var loadingBps: Double? = null
+    private var resourceTick = 0
     private var lastSecondAt = 0L
     private val stallWatch = StallWatch()
     private var qualitySuggestion = QualitySuggestion()
@@ -258,9 +269,11 @@ class PlaybackController(
         set { copy(quality = remembered) }
         qualityFromMemory = remembered != null
         exo.addListener(ExoListener())
+        exo.addAnalyticsListener(engineFacts)
         this.scope.launch {
             for (work in reports) runCatching { work() }
         }
+        flushStoredReports()
     }
 
     // ======================================================================
@@ -434,7 +447,7 @@ class PlaybackController(
     fun skipCurrentSegment() {
         noteUserActivity()
         val segment = s.skipSegment ?: return
-        seekTo(segment.endMs, exact = true)
+        seekTo(segment.endMs, exact = true, source = "skip")
     }
 
     // ======================================================================
@@ -443,6 +456,8 @@ class PlaybackController(
 
     /** 去后端要一个能播的地址。[next]：Deciding（新请求）/ SessionStarting（换会话）/ Degrading（降档） */
     private fun request(startMs: Long?, next: Phase) {
+        record?.mark("session_request")
+        record?.event("request", "开会话（${next.name}${startMs?.let { " @${it / 1000}s" } ?: ""}）")
         attempt += 1
         failureInFlight = false
         val myAttempt = attempt
@@ -489,6 +504,7 @@ class PlaybackController(
                 val wait = reconnectBackoff.nextDelayMs()
                 if (wait != null) {
                     // 播放中重开时服务端暂时连不上（多半在重启）：隔几秒自动再试，不直接落到错误页
+                    record?.beginReconnect("开会话失败：${e.message}")
                     log("reconnect-retry", "reason" to str(e.message), "delay_s" to JsonPrimitive(wait / 1000))
                     flash("连接中断，正在重连…")
                     delay(wait)
@@ -538,6 +554,7 @@ class PlaybackController(
                     )
                     return
                 }
+                record?.beginUserWait()
                 set { copy(pendingDecision = decision, phase = Phase.Consent) }
                 return
             }
@@ -568,11 +585,16 @@ class PlaybackController(
         playsOriginalFile = original
         originMs = if (original || opened.timeline == "file") 0 else opened.startMs
         record?.let { r ->
+            r.mark("session_ready")
+            if (r.firstFrameAt == null) {
+                r.startPositionMs = opened.startMs
+                r.resumed = requestedStartMs == null && opened.startMs > 0
+            }
             r.tier = decision.tier ?: -1
             r.degradedFrom = decision.degradedFrom
             r.libraryFileId = fileId
             r.hwBackend = opened.hwBackend ?: ""
-            r.route = if (original) "direct" else if ((decision.tier ?: 0) >= 2) "server_transcode" else "server_remux"
+            r.route = PlaybackRoute.of(original, decision.tier, degraded = decision.degradedFrom != null || failedTiers.isNotEmpty() || nativeFailed, userCapped = qualityLimited)
         }
         session = opened
         sourceProbeUrl = if (original) url.toString() else null
@@ -629,6 +651,8 @@ class PlaybackController(
             .clearOverrides()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
             .build()
+        engineFacts.reset()
+        EngineLog.add("player", "装载 ${if (original) "原文件" else "服务端流"} 档 ${decision.tier} 起点 ${position / 1000}s")
         exo.setMediaItem(item, (position - originMs).coerceAtLeast(0))
         exo.playWhenReady = s.wantsPlay
         exo.prepare()
@@ -657,6 +681,7 @@ class PlaybackController(
 
     private fun fail(message: String, suggestion: String?, category: String = "unknown") {
         Log.w(TAG, "播放出错：$message｜${suggestion ?: "-"}")
+        EngineLog.add("player", "错误页：$message")
         record?.noteError(message, category, recordStage)
         exo.pause()
         session = null
@@ -670,6 +695,7 @@ class PlaybackController(
     /** 本机放不了原文件：本单元改走服务端 HLS */
     private fun nativeFallback(reason: String) {
         nativeFailed = true
+        record?.noteFallback("改走服务端流：$reason")
         log("engine-fallback", "from" to str("exo"), "reason" to str(reason), "media_item_id" to JsonPrimitive(unit.mediaItemId))
         flash("本机解不了这个文件，改由服务端转换后播放")
         request(s.positionMs, Phase.SessionStarting)
@@ -695,6 +721,7 @@ class PlaybackController(
         // 保存接口回显的是落库后的取值：不是 true 说明开关根本没生效，不能假装成功
         if (!saved.softwareTranscodeEnabled) throw IllegalStateException("软件转码开关保存后未生效，请重试或查看服务端日志")
         consentGranted = true
+        record?.endUserWait()
         request(s.positionMs, Phase.Deciding)
     }
 
@@ -718,7 +745,14 @@ class PlaybackController(
                     seekStartedAt = null
                     // 以暂停状态起播 / 暂停中拖动：就绪后回到正常态，否则转圈不消
                     if (!exo.playWhenReady && s.phase == Phase.Buffering) set { copy(phase = Phase.Playing, paused = true) }
-                    record?.endRebuffer(SystemClock.elapsedRealtime())
+                    record?.let { r ->
+                        r.mark("media_prepared")
+                        // 原地跳转、原地换轨：就绪即落地（换会话式的等新流首帧）
+                        if (r.firstFrameAt != null) {
+                            r.seekPresented()
+                            r.switchPresented()
+                        }
+                    }
                 }
                 Player.STATE_ENDED -> onEnded()
                 else -> Unit
@@ -726,7 +760,16 @@ class PlaybackController(
         }
 
         override fun onRenderedFirstFrame() {
-            record?.noteFirstFrame(SystemClock.elapsedRealtime())
+            val r = record ?: return
+            if (r.firstFrameAt == null) {
+                r.noteFirstFrame()
+                noteDelivery()
+            } else {
+                // 换会话后新流的首帧：换会话式的跳转、换轨在这一刻落地
+                r.seekPresented()
+                r.switchPresented()
+                noteDelivery()
+            }
         }
 
         override fun onPlayerError(error: PlaybackException) {
@@ -754,7 +797,8 @@ class PlaybackController(
         set { copy(paused = false) }
         val phase = s.phase
         if (phase != Phase.Buffering && phase != Phase.Playing && phase != Phase.Ended) return
-        record?.endRebuffer(SystemClock.elapsedRealtime())
+        record?.notePlaying()
+        record?.endReconnect()
         set { copy(phase = Phase.Playing) }
         failureCount = 0
         networkRestarts.reachedPlaying()
@@ -783,9 +827,8 @@ class PlaybackController(
 
     private fun onBuffering() {
         if (s.phase == Phase.Playing) {
+            // 卡顿不看引擎报不报缓冲，按播放头判（tickPosition → PlaybackRecord.samplePlayhead）
             set { copy(phase = Phase.Buffering) }
-            // seek 造成的等待是「跳转耗时」，不是卡顿
-            if (seekStartedAt == null) record?.beginRebuffer(SystemClock.elapsedRealtime())
         }
     }
 
@@ -844,8 +887,13 @@ class PlaybackController(
             ),
         )
         Log.w(TAG, "失败处置 cause=$cause original=$playsOriginalFile → $response｜$reason")
+        EngineLog.add("player", "失败处置 $cause → $response：$reason")
+        if (response != FailurePolicy.Response.FailSourceMissing && response != FailurePolicy.Response.FailNetwork) {
+            record?.noteEngineFailure(reason, cause.name)
+        }
         when (response) {
             FailurePolicy.Response.Reconnect -> {
+                record?.beginReconnect(reason)
                 log("network-restart", "reason" to str(reason), "attempt" to JsonPrimitive(networkRestarts.consecutive))
                 val probe = sourceProbeUrl
                 if (playsOriginalFile && probe != null) awaitSourceThenReconnect(probe) else request(s.positionMs, Phase.SessionStarting)
@@ -875,6 +923,7 @@ class PlaybackController(
     private fun awaitSourceThenReconnect(probe: String) {
         failureInFlight = true
         val myAttempt = attempt
+        record?.beginReconnect("直连片源断了")
         set { copy(phase = Phase.SessionStarting) }
         flash("连接中断，正在重连…")
         scope.launch {
@@ -914,6 +963,7 @@ class PlaybackController(
         failedTiers.add(tier)
         if (failureCount + 1 >= 2) (0L until 4L).forEach { failedTiers.add(it) }
         failureCount += 1
+        record?.noteFallback("档 $tier 放不了：$reason")
         if (tier >= 4) {
             fail(reason, "可以换一个版本重试；若反复出现，请打开「⋯ → 播放诊断」查看原因。", "decode")
             return
@@ -1053,10 +1103,10 @@ class PlaybackController(
     }
 
     /** 相对跳转（左右键、媒体键）：按关键帧，快 */
-    fun seekBy(deltaMs: Long) = seekTo(s.positionMs + deltaMs, exact = false)
+    fun seekBy(deltaMs: Long) = seekTo(s.positionMs + deltaMs, exact = false, source = "dpad")
 
-    /** 跳到文件时间（毫秒） */
-    fun seekTo(raw: Long, exact: Boolean = true) {
+    /** 跳到文件时间（毫秒）。[source] 记进播放记录：scrub（拖动）/ dpad / skip / media_key */
+    fun seekTo(raw: Long, exact: Boolean = true, source: String = "scrub") {
         // 先夹进片长之内：越过片尾的落点会开出一个什么也转不出来的会话
         var targetMs = raw.coerceAtLeast(0)
         val duration = s.durationMs
@@ -1066,13 +1116,16 @@ class PlaybackController(
         if (!mediaLoaded || session == null || phase == Phase.SessionStarting || phase == Phase.Deciding || phase == Phase.Degrading) {
             // 会话正在重开的空档：改走换会话，新会话直接从目标位置起
             if (phase.isBusy && session == null && (phase != Phase.Deciding || s.positionMs > 0)) {
+                record?.beginSeek(source, s.positionMs, targetMs, buffered = false, paused = !s.wantsPlay, restart = true)
                 set { copy(positionMs = targetMs) }
                 request(targetMs, Phase.SessionStarting)
             }
             return
         }
-        record?.noteSeek()
-        if (session?.timeline == "session" && activeSessionId != null && !withinSessionBuffer(targetMs)) {
+        val buffered = targetMs >= s.positionMs - 1000 && targetMs <= (s.bufferedEndMs ?: 0)
+        val restart = session?.timeline == "session" && activeSessionId != null && !withinSessionBuffer(targetMs)
+        record?.beginSeek(source, s.positionMs, targetMs, buffered = buffered, paused = !s.wantsPlay, restart = restart)
+        if (restart) {
             // 会话相对列表只覆盖已转出的部分：落点在区间外才换会话，区间内原地跳
             set { copy(positionMs = targetMs) }
             request(targetMs, Phase.SessionStarting)
@@ -1131,6 +1184,11 @@ class PlaybackController(
     /** 换音轨：直连原文件时 Exo 原地切换；否则带着当前位置重开会话（服务端流的音轨在开会话时就定死了） */
     fun selectAudio(ref: String) {
         noteUserActivity()
+        // 选的就是正在放的那条：什么都不用做，也不算一次切换
+        if (ref != s.currentAudio) {
+            record?.noteTrackChange("audio", s.currentAudio, ref)
+            record?.beginSwitch("audio", s.currentAudio, ref)
+        }
         requestedAudio = ref
         val index = embeddedIndexOf(ref)
         val group = if (playsOriginalFile && index != null) audioGroups().getOrNull(index) else null
@@ -1159,11 +1217,15 @@ class PlaybackController(
 
     fun selectSubtitle(ref: String?) {
         noteUserActivity()
+        val previous = s.selectedSubtitle
+        val changing = ref != previous
+        if (changing) record?.noteTrackChange("subtitle", previous, ref)
         subtitleTouched = true
         set { copy(selectedSubtitle = ref) }
         val option = ref?.let { r -> s.subtitles.options.firstOrNull { it.ref == r } }
         val wantBurn = option?.kind == "pgs" && !exoRenders(option)
         if (!wantBurn) {
+            if (changing) record?.beginSwitch("subtitle", previous, ref, immediate = burnedSubtitle == null)
             applySubtitle()
             if (burnedSubtitle != null) {
                 // 在放烧录过的服务端流：撤下烧录（直连能放的话服务端会直接给回原文件）
@@ -1176,6 +1238,7 @@ class PlaybackController(
         }
         if (burnedSubtitle == ref) return
         // 图形字幕（PGS）放服务端流时画不了：服务端转码压制进画面（约一秒切换）
+        record?.beginSwitch("subtitle", previous, ref)
         requestedSubtitle = ref
         set { copy(wantsPlay = true) }
         request(s.positionMs, Phase.SessionStarting)
@@ -1217,6 +1280,8 @@ class PlaybackController(
     /** 语义是上限：视频直通且源不超所选档就不用重开 */
     private fun switchQuality(maxHeight: Int?) {
         if (maxHeight == s.quality) return
+        record?.noteBehavior("quality_change", s.quality?.toString() ?: "original", maxHeight?.toString() ?: "original")
+        record?.beginSwitch("quality", s.quality?.toString() ?: "original", maxHeight?.toString() ?: "original")
         set { copy(quality = maxHeight) }
         val copying = playsOriginalFile || session?.decision?.video?.action == "copy"
         val height = exo.videoSize.height
@@ -1362,12 +1427,16 @@ class PlaybackController(
                 delay(250)
                 tickPosition()
                 tick += 1
-                if (tick % 4 == 0) tickSecond()
+                if (tick % 4 == 0) {
+                    tickSecond()
+                    if (probe) logProbe()
+                }
             }
         }
     }
 
     private fun tickPosition() {
+        sampleStall()
         val phase = s.phase
         if (!mediaLoaded || session == null || (phase != Phase.Buffering && phase != Phase.Playing)) return
         val stream = exo.currentPosition
@@ -1387,7 +1456,30 @@ class PlaybackController(
         if (phase == Phase.Playing && exo.isPlaying) record?.let { it.watchedMs += 250 }
     }
 
+    /**
+     * 卡顿按播放头判（playback-qoe.md §3.2）：用户想看、出过画、不在后台、没在跳转或换轨，播放头 0.5 秒不走算一次——
+     * 断线重连、换会话期间画面停着也算。原因在卡顿开始时判。
+     */
+    private fun sampleStall() {
+        val r = record ?: return
+        val phase = s.phase
+        val eligible = r.firstFrameAt != null && s.wantsPlay && !backgrounded && !r.seekPending && seekStartedAt == null &&
+            phase != Phase.Ended && phase != Phase.Error && phase != Phase.Consent && phase != Phase.Idle
+        r.samplePlayhead(s.positionMs, eligible) {
+            val ahead = (s.bufferedEndMs ?: 0) - s.positionMs
+            when {
+                phase == Phase.SessionStarting || phase == Phase.Deciding -> "session_restart"
+                phase == Phase.Degrading -> "fallback"
+                ahead >= 3000 -> "decode"
+                (loadingBps ?: 0.0) <= 0 -> "network"
+                else -> "slow_link"
+            }
+        }
+    }
+
     private fun tickSecond() {
+        resourceTick += 1
+        if (resourceTick % 10 == 0) sampleResources()
         if (!mediaLoaded) return
         val now = SystemClock.elapsedRealtime()
         val elapsed = (now - lastSecondAt).coerceAtLeast(1)
@@ -1395,10 +1487,36 @@ class PlaybackController(
         val bytes = bytesLoaded.getAndSet(0)
         loadingBps = bytes * 8 * 1000.0 / elapsed
         // 带宽估计另记：申报给服务端的 downlink_bps 要的是线路能力，缓冲满了也保持上次实测值
-        if (bytes > 0) lastDownlinkBps = bandwidth.bitrateEstimate.toDouble()
+        if (bytes > 0) {
+            lastDownlinkBps = bandwidth.bitrateEstimate.toDouble()
+            record?.noteDownlink(bandwidth.bitrateEstimate.toDouble())
+        }
         set { copy(speedLabel = PlayerFormat.loadingSpeed(loadingBps)) }
         runWatchdogs()
         feedQualitySuggestion()
+    }
+
+    /** 实验台读的一行状态（`adb logcat -s PlaybackProbe`）：阶段、文件时间播放头、界面上的提示与错误 */
+    private fun logProbe() {
+        val st = s
+        val fields = linkedMapOf<String, JsonElement>(
+            "unit" to JsonPrimitive("${st.unit.mediaItemId}/${st.unit.season}/${st.unit.episode}"),
+            "ph" to JsonPrimitive(st.phase.name),
+            "pos" to JsonPrimitive(st.positionMs),
+            "dur" to (st.durationMs?.let(::JsonPrimitive) ?: JsonNull),
+            "buf" to (st.bufferedEndMs?.let(::JsonPrimitive) ?: JsonNull),
+            "playing" to JsonPrimitive(mediaLoaded && exo.isPlaying),
+            "want" to JsonPrimitive(st.wantsPlay),
+            "tier" to (session?.decision?.tier?.let(::JsonPrimitive) ?: JsonNull),
+            "orig" to JsonPrimitive(playsOriginalFile),
+            "notice" to (st.notice?.let(::JsonPrimitive) ?: JsonNull),
+            "err" to (st.errorMessage?.let(::JsonPrimitive) ?: JsonNull),
+            "offer" to JsonPrimitive(st.qualityOffer != null),
+            "stall" to JsonPrimitive(record?.stalling == true),
+            "q" to (st.quality?.let(::JsonPrimitive) ?: JsonNull),
+            "bps" to (loadingBps?.let { JsonPrimitive(it.toLong()) } ?: JsonNull),
+        )
+        Log.i(PROBE_TAG, JsonObject(fields).toString())
     }
 
     private fun resetWatchdogs() {
@@ -1456,8 +1574,7 @@ class PlaybackController(
         val seeking = seekStartedAt != null
         qualitySuggestion.tick(stalled = phase == Phase.Buffering || seeking, seeking = seeking, loadingBps = loadingBps)
         if (s.qualityOffer != null || qualitySuggestion.offered) return
-        val formatBitrate = listOfNotNull(exo.videoFormat?.bitrate, exo.audioFormat?.bitrate).filter { it > 0 }.sum().takeIf { it > 0 }
-        val bitrate = formatBitrate?.toDouble() ?: session?.source?.bitRate?.toDouble()
+        val bitrate = QualitySuggestion.streamBitrate(exo.videoFormat?.bitrate, exo.audioFormat?.bitrate, session?.source?.bitRate)
         val source = sourceHeight()
         val currentHeight = s.quality?.let { cap -> source?.let { minOf(it, cap) } ?: cap } ?: source
         val offer = qualitySuggestion.offer(bitrate, currentHeight) ?: return
@@ -1555,20 +1672,128 @@ class PlaybackController(
     // ======================================================================
 
     private fun beginRecord(origin: String) {
-        record = PlaybackRecord(unit, origin, SystemClock.elapsedRealtime())
+        record = PlaybackRecord(unit, origin, SystemClock.elapsedRealtime(), SystemClock::elapsedRealtime, lab)
+        EngineLog.add("player", "开始播放 ${unit.mediaItemId}/${unit.season}/${unit.episode}（$origin）")
     }
 
     private fun endRecord(forceOutcome: String? = null) {
         val r = record ?: return
         record = null
         val outcome = forceOutcome ?: r.outcome(s.phase == Phase.Error, s.phase == Phase.Ended, s.positionMs, s.durationMs)
-        val counters = exo.videoDecoderCounters?.also { it.ensureUpdated() }
-        val payload = r.payload(
-            outcome, SystemClock.elapsedRealtime(), network, identity.appVersion,
+        noteDelivery(r)
+        r.noteLeaving()
+        val payload = recordPayload(r, outcome)
+        reportStore.clearRunning()
+        reportStore.enqueue(payload)
+        enqueueReport {
+            api.playbackMetricReport(payload)
+            reportStore.remove(payload.attemptId)
+        }
+    }
+
+    /** 完整记录：明细、设备快照，值得的时候附引擎日志尾巴 */
+    private fun recordPayload(r: PlaybackRecord, outcome: String): PlaybackMetricPayload {
+        val counters = runCatching { exo.videoDecoderCounters?.also { it.ensureUpdated() } }.getOrNull()
+        r.device = deviceFacts.snapshot
+        val context = JsonObject(
+            mapOf(
+                "app_version" to JsonPrimitive(identity.appVersion),
+                "os" to JsonPrimitive(android.os.Build.VERSION.RELEASE),
+                "model" to JsonPrimitive("${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}"),
+                "network" to JsonPrimitive(network.key),
+                "interface" to JsonPrimitive(deviceFacts.networkInterface()),
+            ),
+        )
+        return r.payload(
+            outcome = outcome, network = network, appVersion = identity.appVersion,
+            networkInterface = deviceFacts.networkInterface(), context = context,
+            positionMs = s.positionMs, durationMs = s.durationMs,
             droppedFrames = counters?.droppedBufferCount?.toLong(),
             totalFrames = counters?.let { (it.renderedOutputBufferCount + it.droppedBufferCount + it.skippedOutputBufferCount).toLong() },
+            logTail = if (r.wantsLogTail(outcome)) EngineLog.tail() else null,
         )
-        enqueueReport { api.playbackMetricReport(payload) }
+    }
+
+    /** 每 10 秒：资源读数，并把「正在播放」快照存到本机（闪退 / 被杀后下次按异常退出补报） */
+    private fun sampleResources() {
+        val r = record ?: return
+        r.sampleResources(deviceFacts.memoryMb(), deviceFacts.thermal())
+        if (r.firstFrameAt != null || s.phase.isBusy) {
+            // 平时不带日志尾巴（快照几 KB）；出过问题才带上——崩溃时另有崩溃栈与日志尾巴同步写下
+            runCatching { reportStore.saveRunning(recordPayload(r, "exited")) }
+        }
+    }
+
+    /** 上次没收尾的播放（闪退）与没发出去的记录：补发 */
+    private fun flushStoredReports() {
+        val abnormal = reportStore.takeAbnormal()
+        abnormal?.let(reportStore::enqueue)
+        val pending = reportStore.queued()
+        if (pending.isEmpty()) return
+        enqueueReport {
+            for (payload in pending) {
+                runCatching { api.playbackMetricReport(payload) }.onSuccess { reportStore.remove(payload.attemptId) }
+            }
+        }
+    }
+
+    /** 规格快照（playback-qoe.md §3.3）：源、实际解码与输出、音频交付方式、字幕呈现、当前输出设备 */
+    private fun noteDelivery(r: PlaybackRecord? = record) {
+        val rec = r ?: return
+        val opened = session ?: return
+        val decision = opened.decision
+        val track = decision.audioTracks.firstOrNull { it.ref == (s.currentAudio ?: decision.audio?.trackRef) }
+        val sourceCodec = (track?.codec ?: decision.audio?.codec)?.lowercase()
+        val displayHdr = deviceFacts.displayHdr()
+        val decoded = engineFacts.videoRange
+        val audioDelivery = when {
+            playsOriginalFile -> if (engineFacts.audioPassthrough) "passthrough" else "decoded"
+            decision.audio?.action == "copy" -> if (engineFacts.audioPassthrough) "server_copy_passthrough" else "server_copy"
+            else -> "server_transcode"
+        }
+        val subtitleMode = when {
+            burnedSubtitle != null -> "burned"
+            s.selectedSubtitle == null -> "none"
+            s.engineSubtitles -> "engine"
+            s.overlaySubtitleUrl != null -> "overlay"
+            else -> "none"
+        }
+        rec.noteDelivery(
+            buildJsonObject {
+                put("route", rec.route)
+                put("tier", decision.tier ?: -1)
+                put("user_capped", qualityLimited)
+                put("video", buildJsonObject {
+                    put("source_format", hdrKey(opened.source?.hdr))
+                    // 显示器不支持 HDR 时电视自己把 HDR 映射成 SDR 输出
+                    put("output_format", decoded?.let { if (it != "sdr" && !displayHdr) "sdr" else it })
+                    put("codec", opened.source?.videoCodec)
+                    put("action", decision.video?.action)
+                    put("tone_map", decision.video?.toneMap == true)
+                    put("decoder", engineFacts.videoDecoder)
+                    put("decoder_hw", engineFacts.videoDecoder?.let { !it.startsWith("c2.android") && !it.startsWith("OMX.google") })
+                    put("decoded", engineFacts.videoFormat?.let(EngineFacts::describe))
+                    put("source_fps", opened.source?.frameRate)
+                })
+                put("audio", buildJsonObject {
+                    put("source_codec", sourceCodec)
+                    put("source_channels", track?.channels)
+                    put("source_lossless", sourceCodec in LOSSLESS_CODECS)
+                    put("delivery", audioDelivery)
+                    put("output_codec", engineFacts.audioOutputEncoding?.let(EngineFacts::encodingName))
+                    put("output_channels", engineFacts.audioOutputChannels)
+                    put("decoder", engineFacts.audioDecoder)
+                    put("tunneling", engineFacts.audioTunneling)
+                    put("underruns", engineFacts.audioUnderruns)
+                })
+                put("subtitle", buildJsonObject { put("mode", subtitleMode) })
+                put("output", buildJsonObject {
+                    put("audio_route", deviceFacts.audioRoute())
+                    put("display_hdr", displayHdr)
+                    put("display_mode", deviceFacts.currentDisplay())
+                })
+            },
+        )
     }
 
     private val recordStage: String
@@ -1590,6 +1815,8 @@ class PlaybackController(
 
     /** 客户端事件日志（服务端按天日志）：一律带上播放编号，与服务端的「播放会话就绪」等行串起来 */
     private fun log(event: String, vararg detail: Pair<String, JsonElement>) {
+        EngineLog.add("log", "$event ${JsonObject(detail.toMap())}")
+        record?.event(event, detail.joinToString(" ") { (k, v) -> "$k=$v" })
         val map = detail.toMap().toMutableMap()
         record?.id?.let { map["attempt_id"] = JsonPrimitive(it) }
         scope.launch { runCatching { api.playbackClientLog(PlaybackClientLogPayload(event, JsonObject(map))) } }
@@ -1599,6 +1826,19 @@ class PlaybackController(
 
     companion object {
         private const val TAG = "Playback"
+        const val PROBE_TAG = "PlaybackProbe"
+
+        /** 无损音频编码（规格损失判定：经 HDMI 输出时无损变有损算损失） */
+        val LOSSLESS_CODECS = setOf("truehd", "mlp", "flac", "alac", "pcm_s16le", "pcm_s24le", "pcm_bluray", "pcm_dvd", "dts-hd ma")
+
+        /** 台账的 HDR 标签 → 规格快照的口径 */
+        fun hdrKey(label: String?): String = when (label?.lowercase()?.replace(" ", "")) {
+            null, "" -> "sdr"
+            "dolbyvision" -> "dolbyvision"
+            "hdr10+" -> "hdr10plus"
+            "hlg" -> "hlg"
+            else -> "hdr10"
+        }
         const val PROGRESS_INTERVAL_MS = 10_000L
         const val PING_INTERVAL_MS = 15_000L
 

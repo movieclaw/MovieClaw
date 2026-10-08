@@ -98,6 +98,8 @@ fun PlayerScreen(request: PlayRequest, onClose: () -> Unit) {
                 override fun putString(key: String, value: String?) = graph.store.putString(key, value)
             },
             scope = graph.appScope,
+            probe = io.movieclaw.androidtv.BuildConfig.DEBUG,
+            lab = (context.applicationContext as io.movieclaw.androidtv.MovieClawApp).labScenario,
             target = PlaybackTarget(
                 mediaItemId = request.mediaItemId,
                 seasonNumber = request.seasonNumber ?: 0,
@@ -110,6 +112,12 @@ fun PlayerScreen(request: PlayRequest, onClose: () -> Unit) {
     DisposableEffect(controller) {
         controller.start()
         onDispose { controller.close() }
+    }
+    LaunchedEffect(controller) { graph.labSeeks.collect { controller.seekTo(it, exact = true, source = "lab") } }
+    LaunchedEffect(controller) {
+        graph.labTracks.collect { (kind, ref) ->
+            if (kind == "audio") controller.selectAudio(ref) else controller.selectSubtitle(ref.takeIf { it != "off" })
+        }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { controller.setBackgrounded(true) }
     LifecycleEventEffect(Lifecycle.Event.ON_START) { controller.setBackgrounded(false) }

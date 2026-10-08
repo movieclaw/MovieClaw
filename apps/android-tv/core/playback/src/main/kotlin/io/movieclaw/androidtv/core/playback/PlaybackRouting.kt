@@ -177,6 +177,17 @@ class QualitySuggestion {
         const val LONG_WAIT_SECONDS = 8
         const val LINK_MARGIN = 0.9
 
+        /**
+         * 这一路流要多少带宽：引擎认出了视频码率才用引擎的（视频 + 音频），否则用片源的总码率。服务端流（HLS 媒体
+         * 列表）里 Exo 只读得到音轨的码率，只拿它比，5 Mbps 的线路看 9 Mbps 的片也会被当成「够用」，一直卡却从不
+         * 提示（故障注入实测：90 秒卡 19 次）
+         */
+        fun streamBitrate(videoBps: Int?, audioBps: Int?, sourceBps: Long?): Double? {
+            val video = videoBps?.takeIf { it > 0 }
+            if (video != null) return (video + (audioBps?.takeIf { it > 0 } ?: 0)).toDouble()
+            return sourceBps?.takeIf { it > 0 }?.toDouble()
+        }
+
         /** 比当前低、码率留两成余量装得下实测速度的最高一档；都装不下给最低档；已在最低档返回 null */
         fun recommendedHeight(bps: Double, below: Int?): Int? {
             val ladder = listOf(1080 to 6_000_000.0, 720 to 3_000_000.0, 480 to 1_500_000.0)
