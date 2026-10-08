@@ -220,3 +220,20 @@ async def test_plugin_state_events_and_snapshot() -> None:
         assert any(e["name"] == "kernel/plugin-state" for e in contracts["events"])
     assert ("boom", "loading") in states
     assert ("boom", "failed") in states
+
+
+async def test_third_party_override_replaces_the_original_id() -> None:
+    """第三方显式覆盖（override=True）用原 id 压进同一个覆盖栈：替换内置实现，卸载后恢复。"""
+
+    @plugin("acme.replace", title="替换")
+    async def replace(ctx) -> None:
+        ctx.contribute(ADAPTERS, "aria2", Adapter("acme"), override=True)
+
+    async with KernelHarness() as h:
+        builtin = await h.mount(contributor("builtin.dl", "aria2", Adapter("builtin")))
+        third = await h.mount(replace, source="acme")
+        assert h.registry(ADAPTERS).get("aria2") == Adapter("acme")
+        assert "acme.replace:aria2" not in h.registry(ADAPTERS)
+        await h.unmount(third)
+        assert h.registry(ADAPTERS).get("aria2") == Adapter("builtin")
+        await h.unmount(builtin)

@@ -35,7 +35,7 @@ from movieclaw_db.models import (
     JobStatus,
     utcnow,
 )
-from movieclaw_kernel import RegistryKey
+from movieclaw_kernel import RegistryKey, Stability
 
 if TYPE_CHECKING:
     from movieclaw_kernel import Context, Registry
@@ -168,7 +168,10 @@ class RegisteredJobHandler:
 _handlers: dict[str, RegisteredJobHandler] = {}
 
 JOB_HANDLERS: RegistryKey[RegisteredJobHandler] = RegistryKey(
-    "job-handlers", schema=RegisteredJobHandler, doc="持久化后台任务的处理器（领域插件贡献）"
+    "job-handlers",
+    schema=RegisteredJobHandler,
+    stability=Stability.EXPERIMENTAL,
+    doc="持久化后台任务的处理器（领域插件贡献；第三方插件的任务类型自动带插件 id 前缀）",
 )
 
 _bound_handlers: Registry[RegisteredJobHandler] | None = None

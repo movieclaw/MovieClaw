@@ -7,7 +7,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from movieclaw_db.models.scheduled_task import TriggerType
-from movieclaw_kernel import RegistryKey
+from movieclaw_kernel import RegistryKey, Stability
 
 if TYPE_CHECKING:
     from movieclaw_kernel import Context, Registry
@@ -51,7 +51,10 @@ class TaskDefinition:
 _REGISTRY: dict[str, TaskDefinition] = {}
 
 SCHEDULED_TASKS: RegistryKey[TaskDefinition] = RegistryKey(
-    "scheduled-tasks", schema=TaskDefinition, doc="可调度的定时任务（领域插件贡献）"
+    "scheduled-tasks",
+    schema=TaskDefinition,
+    stability=Stability.EXPERIMENTAL,
+    doc="可调度的定时任务（领域插件贡献；第三方插件可用 override 整段替换内置任务）",
 )
 
 _bound: Registry[TaskDefinition] | None = None

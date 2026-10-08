@@ -115,6 +115,7 @@ from uuid import uuid4
 from sqlalchemy import String, cast, or_, update
 from sqlmodel import select
 
+from movieclaw_api.pipeline import StagedFile, enqueue_staged
 from movieclaw_api.services import jobs
 from movieclaw_api.services.import_watch_config import rule_target_label
 from movieclaw_api.services.library.bluray import (
@@ -1741,6 +1742,24 @@ async def _ingest_entry(
     unresolved_files: list[str] | None = None
     # 合集已入库的各部作品：合集行没有单一身份，摘要行按这一列数「几部」
     collection_item_ids: list[int] | None = None
+    # 暂存（自定义目录）规则本轮放进暂存目录的文件与订阅 / 手动下载锚定的目标库：
+    # 入库流水线槽位 ingest.staged 按它为插件步骤建下游任务（plugin-phase2b.md §7）
+    staged_files: list[StagedFile] = []
+    staged_library_id: int | None = None
+
+    async def enqueue_staged_steps() -> None:
+        if not staged_files or item is None:
+            return
+        await enqueue_staged(
+            session,
+            files=staged_files,
+            item=item,
+            rule=rule,
+            library_id=staged_library_id,
+            batch_id=added_batch_id,
+            ingest_job_id=job_context.job_id if job_context is not None else None,
+            info_hashes=[*(matched_hashes or []), *(consumable_hashes or [])],
+        )
 
     async def record_imported(intent_owner: str | None) -> None:
         """入库完成的可靠事件（plugin-phase2a.md §4），随入库结论的那次提交成立。"""
@@ -1767,6 +1786,7 @@ async def _ingest_entry(
             # 电影合集的一部：外层合集落账时一起提交
             if status is IngestStatus.IMPORTED and imported:
                 await record_imported(None)
+            await enqueue_staged_steps()
             return _GroupOutcome(status, message, imported, item, list(imported_files))
         if status is IngestStatus.IMPORTED and not snap.fingerprint.startswith("ready:"):
             # 整树结论成功 = 条目当前所有文件都已处理：仍挂着的分批 blocked
@@ -1843,6 +1863,8 @@ async def _ingest_entry(
                 logger.exception("对照手动下载的推送对象失败（已忽略）")
         if status is IngestStatus.IMPORTED:
             await record_imported(intent_owner)
+        # 不论结论：部分失败的入库也已经把一些文件搬进暂存目录了，重试时它们不会再报
+        await enqueue_staged_steps()
         saved = await _save_record(
             session,
             dest_library,
@@ -2276,6 +2298,8 @@ async def _ingest_entry(
             return await conclude(IngestStatus.FAILED, str(exc))
         imported_files.append(final.name)
         if staging is not None:
+            staged_files.append(StagedFile(final, 0, 0, torrent_of(None, None)[0]))
+            staged_library_id = pinned_library_id
             verb = "硬链接" if strategy == "hardlink" else "复制"
             return await conclude(
                 IngestStatus.IMPORTED,
@@ -2572,8 +2596,10 @@ async def _ingest_entry(
         relative_name = _relative_entry_file(entry, file)
         imported_files.append(file.name if relative_name in {None, "."} else relative_name)
         if staging is not None:
-            # 自定义目录：文件是"过客"，搬到位即完成，不写库台账
+            # 自定义目录：文件是"过客"，搬到位即完成，不写库台账；交给流水线槽位的下游步骤
             imported += 1
+            staged_files.append(StagedFile(final, season or 0, episode or 0, stamp_hash))
+            staged_library_id = pinned_library_id
             continue
         assert dest_library is not None and dest_library.id is not None
         # stat 落位后的目标文件（跨盘复制时 mtime 与源不同），size/mtime 一次拿全

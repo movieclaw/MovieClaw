@@ -4597,3 +4597,63 @@ async def test_reprocessed_entry_same_payload_on_version_name_is_idempotent(
     async with db.session() as session:
         record = (await session.execute(select(IngestEntry))).scalar_one()
     assert record.status == IngestStatus.IMPORTED
+
+
+@pytest.mark.asyncio
+async def test_staged_files_feed_the_ingest_staged_slot(db, tmp_path, monkeypatch):
+    """暂存规则把文件放好后，为流水线槽位 ingest.staged 的每个插件步骤建一个下游任务
+    （plugin-phase2b.md §7），载荷带最终路径与季集；没有步骤时什么都不建。"""
+    from movieclaw_api import pipeline
+    from movieclaw_kernel import Registry
+
+    root, watch, staging = tmp_path / "tv", tmp_path / "watch", tmp_path / "staging"
+    watch.mkdir()
+    staging.mkdir()
+    await _make_library(db, kind=MediaKind.TV, root=root)
+    item = await _make_item(db, kind=MediaKind.TV, title="上云剧集", year=2026)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "probe_media", lambda _path: _FAKE_SPEC)
+    _stub_unit(monkeypatch, lambda file: (1, int(file.stem.removeprefix("ep"))))
+    async with db.session() as session:
+        session.add(
+            ImportWatch(
+                source_path=str(watch), strategy="hardlink", kind="tv", target_path=str(staging)
+            )
+        )
+        await session.commit()
+    entry = watch / "上云剧集 S01"
+    entry.mkdir()
+    (entry / "ep1.mkv").write_bytes(b"episode-1")
+    (entry / "ep2.mkv").write_bytes(b"episode-2")
+
+    steps = Registry(pipeline.INGEST_STEPS)
+    steps.add(
+        "acme.cloud:upload",
+        pipeline.IngestStep(job_type="acme.cloud:upload", title="上传网盘"),
+        entry_id="acme.cloud",
+    )
+    steps.add(
+        "acme.movies:only",
+        pipeline.IngestStep(job_type="acme.movies:only", title="只管电影", kinds=("movie",)),
+        entry_id="acme.movies",
+    )
+    unbind = pipeline.bind_steps(steps)
+    try:
+        async with db.session() as session:
+            rule = (await session.execute(select(ImportWatch))).scalar_one()
+        await ingest_mod._sweep_dir(rule, None, execute_inline=True)
+        await ingest_mod._sweep_dir(rule, None, execute_inline=True)
+    finally:
+        unbind()
+
+    async with db.session() as session:
+        downstream = list(
+            (await session.execute(select(Job).where(Job.job_type.startswith("acme.")))).scalars()
+        )
+    [job] = downstream  # 只管电影的步骤不接剧集
+    assert job.job_type == "acme.cloud:upload" and job.status == JobStatus.QUEUED
+    files = sorted(job.input_data["files"], key=lambda f: f["episode"])
+    assert [(f["season"], f["episode"]) for f in files] == [(1, 1), (1, 2)]
+    assert all(Path(f["path"]).is_relative_to(staging) and Path(f["path"]).exists() for f in files)
+    assert job.input_data["media"]["title"] == "上云剧集"
+    assert job.input_data["rule"]["target_path"] == str(staging)

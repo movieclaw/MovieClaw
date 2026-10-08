@@ -50,12 +50,14 @@ async def registries(ctx: Context) -> None:
     模块声明目录，命令行工具与单独驱动引擎的测试照常工作。处理器表一变就唤醒执行器，
     运行中挂上的插件贡献的新任务类型能被及时领取。决策钩子（hooks.py）同理：没绑时走默认实现。
     """
-    from movieclaw_api import hooks
+    from movieclaw_api import hooks, pipeline
     from movieclaw_api.services import jobs
     from movieclaw_scheduler import SCHEDULED_TASKS, bind_registry
 
     hooks.bind_bus(ctx.events)
     ctx.effect(lambda: hooks.unbind_bus(ctx.events), label="unbind-hooks")
+    # 流水线槽位的步骤表（pipeline.py）：入库任务按它为插件步骤建下游任务
+    ctx.effect(pipeline.bind_steps(ctx.registry(pipeline.INGEST_STEPS)), label="unbind-steps")
 
     ctx.effect(bind_registry(ctx.registry(SCHEDULED_TASKS)), label="unbind-scheduled-tasks")
     ctx.effect(
