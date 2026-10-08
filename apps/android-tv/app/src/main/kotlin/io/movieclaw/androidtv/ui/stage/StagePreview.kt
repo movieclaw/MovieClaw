@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -291,7 +292,11 @@ fun BoxScope.StagePreviewLayer(preview: StagePreview, mediaItemId: Long, visible
     if (mine && exo != null && preview.surfaceOwner === token) {
         ContentFrame(
             player = exo,
-            modifier = Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha },
+            // 视频画面是一张纹理：透明度直接乘上去，不用整屏离屏（docs/perf/androidtv-home-scroll-2026-10.md）
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                this.alpha = alpha
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+            },
             surfaceType = SURFACE_TYPE_TEXTURE_VIEW,
             contentScale = ContentScale.Crop,
         )

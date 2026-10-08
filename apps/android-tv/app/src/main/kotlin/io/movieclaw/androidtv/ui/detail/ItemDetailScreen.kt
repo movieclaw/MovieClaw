@@ -143,7 +143,7 @@ fun ItemDetailScreen(libraryId: Long, itemId: Long) {
     }
 }
 
-/** 整页背景：剧照按屏宽取，往下滑时跟着内容滚走、露出同一张图的模糊版（只这一层读滚动量） */
+/** 整页背景：剧照按屏宽取，往下滑时跟着内容滚走、露出同一张图的模糊版（滚动量只在它的图层里读） */
 @Composable
 private fun DetailBackdrop(itemId: Long, detail: LibraryItemDetailView?, scroll: ScrollState) {
     // 大图预告：详情页放「高光」片段；从首页进来是同一部就接着放（TVStagePreview 按条目 id 认）
@@ -154,7 +154,7 @@ private fun DetailBackdrop(itemId: Long, detail: LibraryItemDetailView?, scroll:
     StageBackdrop(
         image = detail?.backdropUrl ?: detail?.posterUrl,
         fullImage = true,
-        scrollPx = scroll.value.toFloat(),
+        scrollPx = { scroll.value.toFloat() },
         pinnedPt = 0f,
         fadePt = 900f,
         preview = if (preview != null && detail != null) { visible -> StagePreviewLayer(preview, itemId, visible) } else null,

@@ -1,12 +1,9 @@
 package io.movieclaw.androidtv.ui.home
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
@@ -31,6 +28,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -47,6 +52,7 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.core.model.generated.LibraryItemShowcaseView
+import io.movieclaw.androidtv.ui.components.ModulatedCrossfade
 import io.movieclaw.androidtv.ui.components.RemoteImage
 import io.movieclaw.androidtv.ui.stage.TitleArt
 import io.movieclaw.androidtv.ui.theme.Formatters
@@ -150,11 +156,8 @@ fun ShowcaseShelf(
         }
         }
         Box(Modifier.padding(horizontal = McMetrics.Edge)) {
-            AnimatedContent(
-                entries.firstOrNull { it.id == focusedId },
-                transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(300)) },
-                label = "showcase-info",
-            ) { entry ->
+            // 几行字的交叉淡入：透明度直接乘到字上，不离屏（ModulatedCrossfade）；简介行数不同时高度照旧平滑过渡
+            ModulatedCrossfade(entries.firstOrNull { it.id == focusedId }, tween(300), Modifier.animateContentSize()) { entry ->
                 if (entry != null) ShowcaseInfo(entry, details[entry.id])
             }
         }
@@ -185,9 +188,13 @@ private fun ShowcaseCard(entry: ShowcaseEntry, detail: LibraryItemShowcaseView?,
         glow = ClickableSurfaceDefaults.glow(focusedGlow = androidx.tv.material3.Glow(Color.Black.copy(alpha = 0.55f), 26.pt)),
         colors = ClickableSurfaceDefaults.colors(containerColor = McColors.SurfaceRaised, focusedContainerColor = McColors.SurfaceRaised),
     ) {
+        // 展开时背景图版淡入、海报淡出（0.3 秒）。不给背景图版整块套透明度（每帧离屏两块 800×450），而是倒过来叠：
+        // 背景图版在下面照常画，海报在上面按 1 − a 的透明度画（单张图，直接乘透明度）；卡片比海报宽出来的那截，
+        // 盖一层卡底色 × (1 − a)。两处都是「a × 背景图版 + (1 − a) × 原来的底」，与整块淡入逐像素相同
+        val reveal = animateFloatAsState(if (expanded) 1f else 0f, tween(300), label = "showcase-reveal")
+        val revealing by remember { derivedStateOf { reveal.value > 0f } }
         Box(Modifier.fillMaxSize().clip(shape)) {
-            RemoteImage(entry.poster, 300f, Modifier.width(McMetrics.ShowcasePosterWidth).fillMaxSize(), placeholder = entry.title)
-            androidx.compose.animation.AnimatedVisibility(expanded, enter = fadeIn(tween(300)), exit = fadeOut(tween(300))) {
+            if (expanded || revealing) {
                 Box(Modifier.width(McMetrics.ShowcaseExpandedWidth).height(McMetrics.ShowcaseHeight)) {
                     RemoteImage(detail?.backdropUrl ?: entry.backdrop ?: entry.poster, 800f, Modifier.fillMaxSize(), placeholder = entry.title)
                     Box(
@@ -209,7 +216,27 @@ private fun ShowcaseCard(entry: ShowcaseEntry, detail: LibraryItemShowcaseView?,
                         textSizePt = 52,
                     )
                 }
+                Spacer(
+                    Modifier.fillMaxSize().drawBehind {
+                        val a = reveal.value
+                        val poster = McMetrics.ShowcasePosterWidth.toPx()
+                        if (a < 1f && size.width > poster) {
+                            drawRect(McColors.SurfaceRaised, topLeft = Offset(poster, 0f), size = Size(size.width - poster, size.height), alpha = 1 - a)
+                        }
+                    },
+                )
             }
+            // 海报不垫底色：卡片本身就是同一种底色（ClickableSurfaceDefaults.colors），垫了反而让上面的透明度算不对
+            RemoteImage(
+                entry.poster,
+                300f,
+                Modifier.width(McMetrics.ShowcasePosterWidth).fillMaxSize().graphicsLayer {
+                    alpha = 1 - reveal.value
+                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                },
+                placeholder = entry.title,
+                showsPlaceholderBox = false,
+            )
         }
     }
 }
