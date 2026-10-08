@@ -200,6 +200,7 @@ library items purge-file
 library items refresh-metadata
 library items regenerate-chapter-images
 library items reidentify
+library items relations
 library items relax
 library items restore-file
 library items share

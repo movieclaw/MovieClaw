@@ -40,6 +40,7 @@ ffprobe 门禁**——探测失败的老文件可能只是格式怪，拦下反�
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import re
@@ -675,12 +676,23 @@ async def enqueue_scan_job(
     actor_name: str | None = None,
     actor_id: str | None = None,
     origin: str = "web",
+    scope_paths: list[str] | None = None,
 ) -> jobs.CreateJobResult:
-    """创建用户可观察、可取消、可跨重启恢复的媒体库扫描作业。"""
+    """创建用户可观察、可取消、可跨重启恢复的媒体库扫描作业。
+
+    ``scope_paths``：只扫这些条目目录（库根下第一级的绝对路径，见 ``scope_entries``）。
+    范围扫描与监听触发的扫描同一语义：不补探存量规格；范围解析存疑时退回整库。
+    """
     input_data: dict[str, object] = {
         "library_id": library_id,
-        "backfill_existing_specs": True,
+        "backfill_existing_specs": not scope_paths,
     }
+    dedupe_key = f"library.scan:{library_id}"
+    if scope_paths:
+        input_data["scope_paths"] = sorted(scope_paths)
+        # 不同范围各自排队；整库扫描在跑时它覆盖了范围扫描，返回已有作业
+        digest = hashlib.sha1("\n".join(sorted(scope_paths)).encode()).hexdigest()[:12]
+        dedupe_key = f"library.scan:{library_id}:scope:{digest}"
     if reconcile_root_change:
         input_data.update(
             reconcile_root_change=True,
@@ -693,7 +705,7 @@ async def enqueue_scan_job(
         subject=library_name,
         input_data=input_data,
         resources=[jobs.ResourceRef("library", library_id)],
-        dedupe_key=f"library.scan:{library_id}",
+        dedupe_key=dedupe_key,
         conflict_policy="return_existing",
         handler_revision="library.scan.v1",
         max_attempts=3,
@@ -883,6 +895,9 @@ async def _run_scan_job(
         "job_context": context,
         "raise_unexpected": True,
     }
+    scope = input_data.get("scope_paths")
+    if isinstance(scope, list) and scope:
+        scan_kwargs["scope_paths"] = {str(path) for path in scope}
     if input_data.get("reconcile_root_change") is True:
         roots = input_data.get("previous_root_paths")
         new_roots = input_data.get("reconcile_new_root_paths")
@@ -921,6 +936,21 @@ async def _run_scan_job(
     if summary.errors:
         message += f"，{len(summary.errors)} 个问题已记录"
     return {"message": message, **payload}
+
+
+def scope_entries(library: Library, paths: list[str]) -> list[str]:
+    """把任意路径换成它所在的条目目录（库根下第一级的绝对路径）；不在任何库根之下抛 ValueError。"""
+    roots = [Path(r) for r in library.root_paths]
+    entries: set[str] = set()
+    for raw in paths:
+        target = Path(raw)
+        if not target.is_absolute():
+            raise ValueError(f"必须是绝对路径：{raw}")
+        root = next((r for r in roots if target != r and target.is_relative_to(r)), None)
+        if root is None:
+            raise ValueError(f"不在「{library.name}」的任何根路径之下：{raw}")
+        entries.add(str(root / target.relative_to(root).parts[0]))
+    return sorted(entries)
 
 
 async def _resolve_scope(

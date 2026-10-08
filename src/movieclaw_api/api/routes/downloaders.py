@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -582,6 +583,10 @@ async def delete_download_task_from_downloader(
         default=False,
         description="是否同时删除下载器任务对应的数据文件；默认仅移除任务",
     ),
+    dry_run: Annotated[
+        bool,
+        Query(description="只演练：返回任务是否存在、会牵动哪些订阅季集，不删任何东西"),
+    ] = False,
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[DownloadTaskDeleteView]:
     """把这个任务从下载器移除。
@@ -592,9 +597,30 @@ async def delete_download_task_from_downloader(
     如果这个种子是某条订阅投递的，删掉之后那几集会退回「缺资源」状态，
     订阅会重新去找新的资源。
     """
-    from movieclaw_api.services.download_tasks import delete_download_task
+    from movieclaw_api.services.download_tasks import (
+        delete_download_task,
+        plan_delete_download_task,
+    )
 
     normalized_hash = info_hash.lower()
+    if dry_run:
+        plan = await plan_delete_download_task(
+            session, downloader_id=downloader_id, info_hash=normalized_hash
+        )
+        return ok(
+            DownloadTaskDeleteView(
+                downloader_id=downloader_id,
+                info_hash=normalized_hash,
+                delete_files=delete_files,
+                dry_run=True,
+                exists=plan.exists,
+                title=plan.title,
+                manual_intent=plan.manual_intent,
+                requeued_units=[list(unit) for unit in plan.requeued_units],
+                cancelled_attempts=plan.cancelled_attempts,
+            ),
+            message=f"演练：未删除任何东西（下载器「{plan.downloader_name}」）",
+        )
     await delete_download_task(
         session,
         downloader_id=downloader_id,

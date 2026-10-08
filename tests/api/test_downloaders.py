@@ -1527,6 +1527,13 @@ def test_delete_download_task_targets_downloader_and_keeps_files_by_default(clie
         "downloader_id": downloader_id,
         "info_hash": info_hash,
         "delete_files": False,
+        # 演练字段（dry_run=true 时才有值）
+        "dry_run": False,
+        "exists": None,
+        "title": None,
+        "manual_intent": None,
+        "requeued_units": None,
+        "cancelled_attempts": None,
     }
     assert _delete_calls == [(info_hash, False)]
     assert c.get("/api/v1/downloaders/tasks").json()["data"]["items"] == []
@@ -1869,6 +1876,13 @@ def test_delete_download_task_can_remove_data_files(client) -> None:
         "downloader_id": downloader_id,
         "info_hash": info_hash,
         "delete_files": True,
+        # 演练字段（dry_run=true 时才有值）
+        "dry_run": False,
+        "exists": None,
+        "title": None,
+        "manual_intent": None,
+        "requeued_units": None,
+        "cancelled_attempts": None,
     }
     assert response.json()["message"] == "已删除种子任务和数据文件"
     assert _delete_calls == [(info_hash, True)]

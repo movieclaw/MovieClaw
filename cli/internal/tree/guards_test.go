@@ -316,6 +316,7 @@ func TestDomainCommandSets(t *testing.T) {
 			"library.items.refresh-metadata",
 			"library.items.regenerate-chapter-images",
 			"library.items.reidentify",
+			"library.items.relations",
 			"library.items.share.create",
 			"library.items.share.get",
 			"library.items.share.revoke",
