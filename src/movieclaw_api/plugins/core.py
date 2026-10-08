@@ -42,6 +42,29 @@ async def database(ctx: Context) -> None:
     ctx.provide(DB, db)
 
 
+@plugin("core.registries", title="任务与处理器注册表", critical=True)
+async def registries(ctx: Context) -> None:
+    """把内核里的两张注册表绑定为当前生效的定时任务表与后台任务处理器表。
+
+    绑定之后，调度器、执行器、定时任务接口都只认插件贡献的项；解绑（内核关闭）后回落到
+    模块声明目录，命令行工具与单独驱动引擎的测试照常工作。处理器表一变就唤醒执行器，
+    运行中挂上的插件贡献的新任务类型能被及时领取。
+    """
+    from movieclaw_api.services import jobs
+    from movieclaw_scheduler import SCHEDULED_TASKS, bind_registry
+
+    ctx.effect(bind_registry(ctx.registry(SCHEDULED_TASKS)), label="unbind-scheduled-tasks")
+    ctx.effect(
+        jobs.bind_handler_registry(ctx.registry(jobs.JOB_HANDLERS)), label="unbind-job-handlers"
+    )
+
+    def on_handlers_changed(change) -> None:
+        jobs.note_job_type(change.id)
+        jobs.wake_job_dispatcher()
+
+    ctx.watch(jobs.JOB_HANDLERS, on_handlers_changed)
+
+
 @plugin("core.secrets", title="凭据加密", provides=(SECRETS,), critical=True)
 async def secrets(ctx: Context) -> None:
     from movieclaw_db.crypto import init_secret_box

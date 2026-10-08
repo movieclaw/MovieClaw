@@ -9,6 +9,8 @@
 - 先停微信 / IM 通道，再停 Agent 注册表：两个通道依赖 AGENT_RUNS；
 - 先停「新片到达」，再停推送中枢：arrivals 依赖 PUSH_HUB；
 - 片头补算、搜索索引先于任务执行器停：二者依赖 JOBS；
+- 领域贡献插件排在调度器与执行器之前：二者启动时任务、处理器已齐；关闭时引擎先停，
+  任务不会在关停过程中被逐个撤下写库；
 - 任务执行器、Agent、站点客户端先于数据库释放：都依赖 DB；
 - Agent 先于共享 HTTP 客户端释放：HTTP 客户端激活更早；
 - 最后刷统计、关数据库：core.database 是根。
@@ -16,13 +18,14 @@
 
 from __future__ import annotations
 
-from movieclaw_api.plugins import agent, core, delivery, library, playback, scheduling
+from movieclaw_api.plugins import agent, core, delivery, domains, library, playback, scheduling
 from movieclaw_kernel import Entry, Patch
 
 BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
     Entry(p.name, p)
     for p in (
         core.database,
+        core.registries,
         core.secrets,
         core.setting_store,
         core.egress,
@@ -40,6 +43,12 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         library.disc_image_durations,
         library.dolby_vision_backfill,
         scheduling.app_update,
+        domains.downloads,
+        domains.boost,
+        domains.subscription,
+        domains.library_core,
+        domains.media_scrape,
+        domains.subtitle_gen,
         scheduling.scheduler,
         scheduling.boost_sentinel,
         library.library_watch,

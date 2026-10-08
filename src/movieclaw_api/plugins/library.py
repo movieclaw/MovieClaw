@@ -88,12 +88,14 @@ async def ingest_watch(ctx: Context) -> None:
 
 @plugin("library.search-index", title="媒体库搜索索引", inject=(JOBS,))
 async def search_index(ctx: Context) -> None:
-    from movieclaw_api.services.library.search_index import close_search_index, start_search_index
+    from movieclaw_api.services.jobs import contribute_job_handlers
+    from movieclaw_api.services.library import search_index as module
 
     # 搜索更新复用持久化 Job；增量触发器在迁移中安装，启动不等待全库拼音转换。
     # 释放先于任务执行器（激活晚于它）
-    start_search_index()
-    ctx.effect(close_search_index, label="close-search-index")
+    contribute_job_handlers(ctx, module)
+    module.start_search_index()
+    ctx.effect(module.close_search_index, label="close-search-index")
 
 
 @plugin("library.skip-segments", title="片头识别启动补算", inject=(JOBS,))

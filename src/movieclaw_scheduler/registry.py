@@ -3,8 +3,14 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from types import ModuleType
+from typing import TYPE_CHECKING, Any
 
 from movieclaw_db.models.scheduled_task import TriggerType
+from movieclaw_kernel import RegistryKey
+
+if TYPE_CHECKING:
+    from movieclaw_kernel import Context, Registry
 
 logger = logging.getLogger("movieclaw_scheduler.registry")
 
@@ -35,8 +41,33 @@ class TaskDefinition:
     description: str = ""
 
 
-# 全局注册表：task_key -> TaskDefinition。模块导入时由 @register_task 填充。
+# 声明目录：task_key -> TaskDefinition。模块导入时由 @register_task 填充。
+#
+# 两种模式（docs/design/plugin-kernel.md §6）：
+# - 应用运行时由插件内核接管：各领域插件把自己模块里声明的任务贡献进内核注册表
+#   ``SCHEDULED_TASKS``，``core.registries`` 插件把它绑定为当前生效的任务表——
+#   只有被贡献的任务会被调度，插件卸载即撤下，「某条路由碰巧 import 过」不再算数；
+# - 没有内核时（命令行工具、单独驱动调度器的测试）回落到这份声明目录，行为与以前一致。
 _REGISTRY: dict[str, TaskDefinition] = {}
+
+SCHEDULED_TASKS: RegistryKey[TaskDefinition] = RegistryKey(
+    "scheduled-tasks", schema=TaskDefinition, doc="可调度的定时任务（领域插件贡献）"
+)
+
+_bound: Registry[TaskDefinition] | None = None
+
+
+def bind_registry(registry: Registry[TaskDefinition]) -> Callable[[], None]:
+    """把内核注册表绑定为当前生效的任务表；返回解绑函数。"""
+    global _bound
+    _bound = registry
+
+    def unbind() -> None:
+        global _bound
+        if _bound is registry:
+            _bound = None
+
+    return unbind
 
 
 def register_task(
@@ -74,7 +105,7 @@ def register_task(
     def decorator(handler: TaskHandler) -> TaskHandler:
         if key in _REGISTRY:
             raise ValueError(f"定时任务 key 重复注册：{key}")
-        _REGISTRY[key] = TaskDefinition(
+        definition = TaskDefinition(
             key=key,
             title=title,
             handler=handler,
@@ -84,6 +115,9 @@ def register_task(
             default_enabled=enabled,
             description=description,
         )
+        _REGISTRY[key] = definition
+        # 标记在函数上：插件据此把「本模块声明的任务」贡献进内核注册表
+        handler.__scheduled_task__ = definition  # type: ignore[attr-defined]
         logger.debug("已注册定时任务：%s（%s）", key, title)
         return handler
 
@@ -91,10 +125,34 @@ def register_task(
 
 
 def get_task(key: str) -> TaskDefinition | None:
-    """按 key 取任务定义；未注册返回 None。"""
+    """按 key 取当前生效的任务定义；未注册返回 None。"""
+    if _bound is not None:
+        return _bound.get(key)
     return _REGISTRY.get(key)
 
 
 def iter_tasks() -> list[TaskDefinition]:
-    """返回所有已注册任务定义（按 key 排序，输出稳定）。"""
+    """返回当前生效的全部任务定义（按 key 排序，输出稳定）。"""
+    if _bound is not None:
+        return [definition for _, definition in sorted(_bound.items())]
     return [_REGISTRY[k] for k in sorted(_REGISTRY)]
+
+
+def declared_tasks(module: ModuleType) -> list[TaskDefinition]:
+    """模块里用 ``@register_task`` 声明的任务（只算本模块定义的函数）。"""
+    found: list[TaskDefinition] = []
+    for value in vars(module).values():
+        definition: Any = getattr(value, "__scheduled_task__", None)
+        if isinstance(definition, TaskDefinition) and value.__module__ == module.__name__:
+            found.append(definition)
+    return sorted(found, key=lambda d: d.key)
+
+
+def contribute_tasks(ctx: Context, *modules: ModuleType) -> None:
+    """把这些模块声明的任务贡献进 ``SCHEDULED_TASKS``；插件卸载时自动撤下。"""
+    for module in modules:
+        definitions = declared_tasks(module)
+        if not definitions:
+            raise ValueError(f"模块 {module.__name__} 没有声明任何定时任务")
+        for definition in definitions:
+            ctx.contribute(SCHEDULED_TASKS, definition.key, definition)

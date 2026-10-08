@@ -1,12 +1,21 @@
-"""调度与后台任务插件（plugin-kernel.md §7）。
+"""调度与后台任务插件（plugin-kernel.md §6、§7）。
 
 应用更新、定时任务调度器、刷流带宽哨兵、持久化任务执行器。
+
+定时任务与后台任务处理器都是注册表贡献：领域插件把自己模块里声明的任务 / 处理器贡献进
+``SCHEDULED_TASKS`` / ``JOB_HANDLERS``，调度器与执行器只认注册表——插件卸载即撤下，
+不再靠「某个模块碰巧被 import 过」。
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
+
 from movieclaw_api.plugins.keys import DB, JOBS, SCHEDULER
-from movieclaw_kernel import Context, plugin
+from movieclaw_kernel import Context, RegistryChange, plugin
+
+logger = logging.getLogger("movieclaw_api.plugins.scheduling")
 
 
 @plugin("app-update.startup-check", title="启动后检查更新", inject=(SCHEDULER,))
@@ -21,57 +30,32 @@ async def app_update_startup_check(ctx: Context) -> None:
 
 @plugin("app-update", title="应用更新", inject=(DB,))
 async def app_update(ctx: Context) -> None:
-    from movieclaw_api.services.app_update import (
-        clear_legacy_update_notices,
-        prune_stale_overlays,
-        record_baseline_version,
-    )
+    from movieclaw_api.services import app_update as module
+    from movieclaw_scheduler import contribute_tasks
 
     # 旧版更新提醒清场：更新提醒曾写进「待处理事项」，现已改为侧栏常驻徽标，存量告警行
     # 再无任何路径去消退它
-    await clear_legacy_update_notices()
+    await module.clear_legacy_update_notices()
     # 镜像升级后残留的陈旧 overlay 就地清掉，否则状态页会一直显示「已安装但未在运行」
-    await prune_stale_overlays()
+    await module.prune_stale_overlays()
     # 跑镜像基线时记下版本号：回退列表据此向用户明示「回落基线 = 回到 v 几」
-    await record_baseline_version()
+    await module.record_baseline_version()
+    contribute_tasks(ctx, module)  # 每日检查更新
     ctx.plugin(app_update_startup_check)
 
 
-def _import_task_modules() -> None:
-    """领域任务模块经 import 触发 ``@register_task`` 注册（须在调度器 start 之前）。"""
-    from movieclaw_api.services import (  # noqa: F401
-        app_update,  # 应用更新每日检查
-        download_progress,  # 下载完成检测与入库
-        media_refresh,  # 媒体库对账
-        ratio_boost,  # 自动刷分享率
-        torrent_matcher,  # 订阅管线
-        torrent_sync,  # 种子同步
-    )
-    from movieclaw_api.services.library import (  # noqa: F401
-        ingest,  # 监听导入与对账
-        nfo_backfill,  # 本地 NFO 吸收回填
-        recycle,  # 回收站到期清理与孤儿清扫
-        scan,  # 库对账
-        series_backfill,  # 作品系列存量回填
-    )
-    from movieclaw_api.services.subscription import (  # noqa: F401
-        smart_scheduler,  # 智能订阅定时
-        upgrade,  # 洗版基线回填
-        wanted_search,  # 缺口搜索
-    )
-
-
-@plugin(
-    "scheduler",
-    title="定时任务调度器",
-    inject=(DB,),
-    provides=(SCHEDULER,),
-    disableable=True,
-)
+@plugin("scheduler", title="定时任务调度器", inject=(DB,), provides=(SCHEDULER,), disableable=True)
 async def scheduler(ctx: Context) -> None:
-    from movieclaw_scheduler import SchedulerConfig, get_scheduler, init_scheduler
+    from movieclaw_scheduler import (
+        SCHEDULED_TASKS,
+        SchedulerConfig,
+        contribute_tasks,
+        get_scheduler,
+        init_scheduler,
+    )
+    from movieclaw_scheduler import tasks as builtin_tasks
 
-    _import_task_modules()
+    contribute_tasks(ctx, builtin_tasks)  # 历史清理、缓存清理
     settings = ctx.settings
     init_scheduler(
         SchedulerConfig(
@@ -80,9 +64,27 @@ async def scheduler(ctx: Context) -> None:
         )
     )
     service = get_scheduler()
+    # 启动时加载注册表里已有的全部任务（领域插件排在调度器之前，启动即齐）
     await service.start()
     ctx.effect(service.shutdown, label="shutdown-scheduler")
     ctx.provide(SCHEDULER, service)
+
+    # 运行中挂上 / 卸下的插件：任务随之排上 / 撤下。注册表回调是同步的，这里排队串行处理
+    changes: asyncio.Queue[RegistryChange] = asyncio.Queue()
+    ctx.watch(SCHEDULED_TASKS, changes.put_nowait)
+
+    async def apply_changes() -> None:
+        while True:
+            change = await changes.get()
+            try:
+                if change.kind == "added":
+                    await service.add_task(change.item)
+                else:
+                    await service.remove_task(change.id)
+            except Exception:
+                logger.exception("同步定时任务 %s 的%s失败", change.id, change.kind)
+
+    ctx.task(apply_changes(), name="sync-tasks")
 
 
 @plugin("boost.sentinel", title="刷流带宽哨兵", inject=(SCHEDULER,), disableable=True)
@@ -97,24 +99,10 @@ async def boost_sentinel(ctx: Context) -> None:
     ctx.effect(close_boost_bandwidth_sentinel, label="close-boost-sentinel")
 
 
-def _import_job_handler_modules() -> None:
-    """领域模块经 import 完成后台任务处理器注册（不能依赖「某条路由碰巧加载过模块」）。"""
-    from movieclaw_api.services import media_scrape  # noqa: F401
-    from movieclaw_api.services.library import (  # noqa: F401
-        ingest,
-        organize,
-        scan,
-        transfer,
-    )
-    from movieclaw_api.services.subscription import cleanup  # noqa: F401  取消订阅联动清理
-    from movieclaw_api.services.subtitle_gen import tasks  # noqa: F401
-
-
 @plugin("jobs", title="持久化任务执行器", inject=(DB,), provides=(JOBS,))
 async def jobs(ctx: Context) -> None:
     from movieclaw_api.services.jobs import close_job_dispatcher, init_job_dispatcher
 
-    # 在所有业务依赖就绪后启动；关闭时在安全边界暂停并退回数据库队列，须早于数据库释放
-    _import_job_handler_modules()
+    # 只领取注册表里有处理器的任务类型；关闭时在安全边界暂停并退回数据库队列，须早于数据库释放
     ctx.effect(close_job_dispatcher, label="close-job-dispatcher")
     ctx.provide(JOBS, await init_job_dispatcher())
