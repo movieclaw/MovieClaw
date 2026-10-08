@@ -94,7 +94,8 @@ fun PausedTitle(title: String, episodeLabel: String?, modifier: Modifier = Modif
         )
         Text(
             title,
-            style = McType.size(76, FontWeight.Bold).copy(shadow = Shadow(Color.Black.copy(alpha = 0.5f), blurRadius = 16f)),
+            // tvOS 的 largeTitle 在模拟器上实测约 62（不是文档里的 76）
+            style = McType.size(62, FontWeight.Bold).copy(shadow = Shadow(Color.Black.copy(alpha = 0.5f), blurRadius = 16f)),
             color = Color.White,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -110,7 +111,8 @@ fun PausedTitle(title: String, episodeLabel: String?, modifier: Modifier = Modif
 fun SkipButton(segment: PlaybackSegmentView, onClick: () -> Unit, modifier: Modifier = Modifier) {
     GlassButton(onClick, modifier) {
         Row(
-            Modifier.padding(horizontal = (12 + 28).pt, vertical = (4 + 18).pt),
+            // 整颗 88 高（tvOS 量出）：Noto 行框高，上下内边距比 Apple 的 4 + 18 少一截
+            Modifier.padding(horizontal = (12 + 28).pt, vertical = 16.pt),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.pt),
         ) {
@@ -129,10 +131,11 @@ fun UpNextCard(episode: EpisodeView, countdown: Double?, onClick: () -> Unit, mo
         modifier = modifier,
         shape = ClickableSurfaceDefaults.shape(shape),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f, pressedScale = 1f),
+        // tvOS 的玻璃卡透出后面的画面：平时白 20%，焦点白 32%（不做背后模糊）
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = McColors.SurfaceRaised,
+            containerColor = Color.White.copy(alpha = 0.2f),
             contentColor = Color.White,
-            focusedContainerColor = Color(0xFF3A3D47),
+            focusedContainerColor = Color.White.copy(alpha = 0.32f),
             focusedContentColor = Color.White,
         ),
         border = ClickableSurfaceDefaults.border(
@@ -318,7 +321,8 @@ fun GlassButton(onClick: () -> Unit, modifier: Modifier = Modifier, content: @Co
         colors = ClickableSurfaceDefaults.colors(
             containerColor = Color.White.copy(alpha = 0.14f),
             contentColor = Color.White,
-            focusedContainerColor = Color.White,
+            // 焦点时的玻璃也透一点画面（tvOS 上是被画面染了色的亮白）
+            focusedContainerColor = Color.White.copy(alpha = 0.85f),
             focusedContentColor = Color.Black,
         ),
         border = ClickableSurfaceDefaults.border(

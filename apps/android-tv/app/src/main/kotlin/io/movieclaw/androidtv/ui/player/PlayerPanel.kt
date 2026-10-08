@@ -57,6 +57,7 @@ import io.movieclaw.androidtv.ui.components.McIcons
 import io.movieclaw.androidtv.ui.theme.McColors
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
+import io.movieclaw.androidtv.ui.theme.ptSp
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -111,7 +112,8 @@ fun PlayerPanel(state: PlayerState, controller: PlaybackController) {
             },
     ) {
         Row(
-            Modifier.padding(start = 90.pt, end = 90.pt, top = 70.pt).height(690.pt).fillMaxWidth(),
+            // tvOS 的边距再加上系统安全区（上 60、左右 80）
+            Modifier.padding(start = 170.pt, end = 170.pt, top = 130.pt).height(690.pt).fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(60.pt),
         ) {
             for (tab in tabs) {
@@ -164,7 +166,7 @@ fun PlayerPanel(state: PlayerState, controller: PlaybackController) {
                                     section.title?.let {
                                         Text(
                                             it,
-                                            style = McType.size(20, FontWeight.Bold),
+                                            style = McType.size(20, FontWeight.Bold).copy(lineHeight = 24.ptSp),
                                             color = Color.White.copy(alpha = 0.4f),
                                             modifier = Modifier.padding(start = 28.pt, top = 16.pt, bottom = 2.pt),
                                         )
@@ -284,14 +286,15 @@ private fun PanelOption(
             Column(verticalArrangement = Arrangement.spacedBy(4.pt)) {
                 Text(
                     title,
-                    style = McType.size(30, FontWeight.SemiBold),
+                    // 行高照 SF 的 1.2 倍：Noto 默认行框高，每行会多出四五点、整列往下拉长
+                    style = McType.size(30, FontWeight.SemiBold).copy(lineHeight = 36.ptSp),
                     maxLines = if (wraps) Int.MAX_VALUE else 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (!detail.isNullOrEmpty()) {
                     Text(
                         detail,
-                        style = McType.size(21),
+                        style = McType.size(21).copy(lineHeight = 25.ptSp),
                         color = LocalContentColor.current.copy(alpha = LocalContentColor.current.alpha * 0.6f),
                         maxLines = if (wraps) Int.MAX_VALUE else 1,
                         overflow = TextOverflow.Ellipsis,

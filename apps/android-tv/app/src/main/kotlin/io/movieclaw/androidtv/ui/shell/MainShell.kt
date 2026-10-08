@@ -105,6 +105,7 @@ fun MainShell(args: LaunchArgs) {
         }
         args.item?.let { (lib, id) -> router.push(Route.Item(lib, id)) }
         args.playMediaItemId?.let { router.play(PlayRequest(it)) }
+        args.play?.let(router::play)
     }
 
     // 「继续观看」/ 深链：续播直接开播放器，条目回到首页页签压上详情

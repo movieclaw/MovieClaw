@@ -8,6 +8,7 @@ import android.content.Intent
  *   adb shell am start -n io.movieclaw.androidtv/.MainActivity \
  *     --es mc_server http://10.0.2.2:8810 --es mc_user admin --es mc_pass xxx \
  *     [--es mc_tab account|search|home] [--el mc_play <id>] [--es mc_item <库>-<条目>]
+ *     [--es mc_route /play/<id>[/sXXeYY][?t=秒]]   （同 Apple 端 -mcRoute，指定集数与起点）
  */
 data class LaunchArgs(
     val server: String? = null,
@@ -16,6 +17,7 @@ data class LaunchArgs(
     val tab: String? = null,
     val playMediaItemId: Long? = null,
     val item: Pair<Long, Long>? = null,
+    val play: io.movieclaw.androidtv.ui.shell.PlayRequest? = null,
 ) {
     companion object {
         fun from(intent: Intent?): LaunchArgs {
@@ -28,6 +30,19 @@ data class LaunchArgs(
                 playMediaItemId = intent.getLongExtra("mc_play", -1).takeIf { it > 0 },
                 item = intent.getStringExtra("mc_item")?.split("-")?.mapNotNull { it.toLongOrNull() }
                     ?.takeIf { it.size == 2 }?.let { it[0] to it[1] },
+                play = intent.getStringExtra("mc_route")?.let(::playRoute),
+            )
+        }
+
+        /** 「/play/17/s01e01?t=0」→ 第 17 部第 1 季第 1 集从 0 秒起 */
+        fun playRoute(path: String): io.movieclaw.androidtv.ui.shell.PlayRequest? {
+            val match = Regex("""^/play/(\d+)(?:/s(\d+)e(\d+))?(?:\?t=(\d+))?$""").find(path) ?: return null
+            val (id, season, episode, start) = match.destructured
+            return io.movieclaw.androidtv.ui.shell.PlayRequest(
+                id.toLong(),
+                season.toLongOrNull(),
+                episode.toLongOrNull(),
+                start.toLongOrNull(),
             )
         }
     }
