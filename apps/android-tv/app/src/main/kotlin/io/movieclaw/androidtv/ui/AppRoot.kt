@@ -38,6 +38,10 @@ fun AppRoot(graph: AppGraph, args: LaunchArgs) {
         model.revalidate()
         model.retryRevocations()
     }
+    // 退出登录 / 没有账号了：清掉系统首页的「继续观看」
+    LaunchedEffect(phase) {
+        if (phase is AppModel.Phase.NeedsLogin || phase is AppModel.Phase.NeedsServer || phase is AppModel.Phase.ChooseAccount) graph.watchNext.clear()
+    }
     McTheme {
         CompositionLocalProvider(LocalGraph provides graph) {
             Box(Modifier.fillMaxSize().background(McColors.Background)) {

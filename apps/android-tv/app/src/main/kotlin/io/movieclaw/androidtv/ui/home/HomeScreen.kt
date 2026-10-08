@@ -120,6 +120,9 @@ fun HomeScreen() {
     var cardTopPx by remember { mutableStateOf<Float?>(null) }
 
     LaunchedEffect(store, router.playbackClosed) { store.reload() }
+    // 接下来继续变了就同步到系统首页的「继续观看」
+    val graph = io.movieclaw.androidtv.LocalGraph.current
+    LaunchedEffect(store.upNext) { store.upNext?.let { graph.watchNext.publish(it, session.server, session.token) } }
     LaunchedEffect(store) {
         while (true) {
             delay(60_000)

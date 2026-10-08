@@ -47,6 +47,12 @@ class AppGraph(app: Application) {
             ?: Build.MODEL
 
     val model = AppModel(store, http, identity, deviceName)
+
+    /** 系统首页「继续观看」 */
+    val watchNext = io.movieclaw.androidtv.system.WatchNextPublisher(app, http)
+
+    /** 待处理的深链（「继续观看」点进来、或冷启动带的），主界面取走后清空 */
+    val deepLinks = kotlinx.coroutines.flow.MutableStateFlow<io.movieclaw.androidtv.system.DeepLink?>(null)
 }
 
 /** 一个已登录账号的一切：服务器、令牌、带令牌的接口、会话（权限）。 */

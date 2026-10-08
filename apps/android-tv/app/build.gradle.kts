@@ -48,6 +48,7 @@ dependencies {
     implementation(libs.tv.material)
     implementation(libs.compose.material.icons)
     implementation(libs.zxing.core)
+    implementation(libs.androidx.tvprovider)
     implementation(libs.media3.ui.compose)
     implementation(libs.media3.datasource.okhttp)
     implementation(libs.coil.compose)

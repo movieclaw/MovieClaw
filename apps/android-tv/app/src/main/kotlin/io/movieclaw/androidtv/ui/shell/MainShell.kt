@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -93,6 +94,20 @@ fun MainShell(args: LaunchArgs) {
         }
         args.item?.let { (lib, id) -> router.push(Route.Item(lib, id)) }
         args.playMediaItemId?.let { router.play(PlayRequest(it)) }
+    }
+
+    // 「继续观看」/ 深链：续播直接开播放器，条目回到首页页签压上详情
+    val pendingLink by graph.deepLinks.collectAsState()
+    LaunchedEffect(pendingLink) {
+        when (val link = pendingLink ?: return@LaunchedEffect) {
+            is io.movieclaw.androidtv.system.DeepLink.Play -> router.play(PlayRequest(link.mediaItemId, link.season, link.episode))
+            is io.movieclaw.androidtv.system.DeepLink.Item -> {
+                router.select(MainTab.Home)
+                router.stack.clear()
+                router.push(Route.Item(link.libraryId, link.itemId))
+            }
+        }
+        graph.deepLinks.value = null
     }
 
     fun openSidebar() {

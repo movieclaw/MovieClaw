@@ -4,6 +4,8 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- 系统首页「继续观看」行（Watch Next） -->
+    <uses-permission android:name="com.android.providers.tv.permission.WRITE_EPG_DATA" />
 
     <!-- 只给电视：没有触摸屏、要求 leanback -->
     <uses-feature android:name="android.software.leanback" android:required="true" />
@@ -30,6 +32,18 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+            <!-- 「继续观看」与深链：movieclaw://play/<条目>?season=&episode=、movieclaw://item/<库>/<条目> -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="movieclaw" />
+            </intent-filter>
         </activity>
+        <provider
+            android:name=".system.WatchNextImageProvider"
+            android:authorities="${applicationId}.watchnext"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
     </application>
 </manifest>
