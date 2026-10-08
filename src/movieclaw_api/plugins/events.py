@@ -37,8 +37,12 @@ async def durable_events(ctx: Context) -> None:
     reloadable=True,
 )
 async def host_ops(ctx: Context) -> None:
+    from movieclaw_api.plugins.local import configure_host_ops
     from movieclaw_api.services import host_ops as service
 
     if service._app is None:
         raise RuntimeError("应用尚未绑定（宿主操作只能在运行中的应用里提供）")
-    ctx.provide(HOST_OPS, service.HostOps(service._app))
+    host = service.HostOps(service._app)
+    # 用户在 plugins.yaml 里给本地插件的批准（grants、act_as）
+    configure_host_ops(host, ctx.settings)
+    ctx.provide(HOST_OPS, host)

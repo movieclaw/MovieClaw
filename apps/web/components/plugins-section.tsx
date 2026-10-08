@@ -7,6 +7,7 @@ import { SettingsList, SettingsRow, SettingsSection } from "@/components/setting
 import { listPlugins, type PluginInfo } from "@/lib/api/plugins";
 import {
   formatMs,
+  isLocalPlugin,
   needsAttention,
   pluginDetail,
   pluginStateLabel,
@@ -40,6 +41,7 @@ export function PluginsSection() {
   }, [reload]);
 
   const problems = plugins?.filter(needsAttention) ?? [];
+  const locals = plugins?.filter(isLocalPlugin) ?? [];
   const slow = plugins ? slowestStarts(plugins) : [];
 
   return (
@@ -57,6 +59,12 @@ export function PluginsSection() {
           {problems.length > 0 && (
             <Banner tone="warn">
               有 {problems.length} 个模块没有正常运行，原因写在下面对应的行里；修复后重启应用即可恢复。
+            </Banner>
+          )}
+          {locals.length > 0 && (
+            <Banner tone="warn" title={`已开启 ${locals.length} 个本地插件`}>
+              它们来自 data/plugins，在应用进程里运行，拥有与主程序相同的系统权限——只开启你信任的代码。
+              要关掉某个本地插件：在 data/plugins.yaml 里去掉它的 local 或加上 disabled: true，重启生效。
             </Banner>
           )}
           {slow.length > 0 && (
@@ -77,6 +85,9 @@ export function PluginsSection() {
                       <span className="text-caption font-normal text-[var(--text-faint)]">
                         {p.id}
                       </span>
+                      {isLocalPlugin(p) && (
+                        <span className="text-caption font-medium text-[var(--warn)]">本地插件</span>
+                      )}
                     </span>
                   }
                   description={pluginDetail(p)}

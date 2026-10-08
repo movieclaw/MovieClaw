@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   formatMs,
+  isLocalPlugin,
   needsAttention,
   pluginDetail,
   pluginStateLabel,
@@ -119,4 +120,15 @@ test("启动最慢只列 100 毫秒以上的前几名", () => {
     slowestStarts(list).map((p) => p.id),
     ["db", "eg"],
   );
+});
+
+test("本地插件单独计数并可识别", () => {
+  const list = [
+    plugin({ id: "db" }),
+    plugin({ id: "acme.cascade", source: "local" }),
+    plugin({ id: "acme.watch", source: "local", state: "failed", error: "导入失败" }),
+  ];
+  assert.equal(isLocalPlugin(list[1]), true);
+  assert.equal(isLocalPlugin(list[0]), false);
+  assert.equal(pluginsSummary(list), "3 个模块 · 2 个运行中 · 1 个需要留意 · 其中 2 个是本地插件");
 });

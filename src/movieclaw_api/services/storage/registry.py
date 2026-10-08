@@ -423,13 +423,24 @@ DATA_DIRS: tuple[DataDir, ...] = (
     DataDir(
         key="plugins.patch",
         title="插件补丁",
-        summary="禁用指定内置插件的排障开关",
+        summary="禁用内置插件、开启本地插件的开关",
         description=(
-            "排障用的插件补丁（plugins.yaml），可禁用允许关闭的内置子系统，"
-            "改动在重启后生效；删除即恢复全部默认启用。"
+            "插件补丁（plugins.yaml）：可禁用允许关闭的内置子系统，也是开启本地受信插件、"
+            "批准它调用哪些操作的地方；改动在重启后生效，删除即恢复全部默认。"
         ),
         default="data/plugins.yaml",
         resolve=lambda s: Path(s.data_dir) / "plugins.yaml",
+    ),
+    DataDir(
+        key="plugins.local",
+        title="本地插件",
+        summary="用户自己写的插件代码",
+        description=(
+            "本地受信插件的 Python 代码（docs/design/plugin-phase2a.md §6）。只有在 plugins.yaml "
+            "里写了 local: true 的才会加载；进程内运行，拥有与主程序相同的系统权限。"
+        ),
+        default="data/plugins",
+        resolve=lambda s: Path(s.data_dir) / "plugins",
     ),
     DataDir(
         key="site_configs",

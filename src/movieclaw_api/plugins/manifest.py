@@ -103,16 +103,12 @@ def patch_file(settings: object) -> Path:
     return Path(getattr(settings, "data_dir", "./data")) / PATCH_FILE
 
 
-def file_patches(settings: object) -> list[Patch]:
-    """读 ``data/plugins.yaml``：不存在即为空；格式不对只告警、整份忽略，不拦启动。
+#: 补丁条目认识的字段：disabled 关掉一个条目；其余是本地受信插件的开启与批准（plugins/local.py）
+_PATCH_FIELDS = frozenset({"id", "disabled", "local", "module", "config", "grants", "act_as"})
 
-    第一阶段只认 ``disabled``，例如::
 
-        - id: jellyfin.discovery
-          disabled: true
-
-    只有允许禁用的插件能被禁用（关键插件永远不能），由内核在装载清单时检查。
-    """
+def read_patch_items(settings: object) -> list[dict]:
+    """读 ``data/plugins.yaml`` 的条目：不存在即为空；格式不对只告警、整份忽略，不拦启动。"""
     path = patch_file(settings)
     if not path.is_file():
         return []
@@ -126,17 +122,31 @@ def file_patches(settings: object) -> list[Patch]:
     if not isinstance(data, list):
         logger.warning("插件补丁文件 %s 须是列表（每项一个条目），已忽略整份补丁", path)
         return []
-    patches: list[Patch] = []
+    items: list[dict] = []
     for index, item in enumerate(data):
         if not isinstance(item, dict) or not isinstance(item.get("id"), str):
             logger.warning("插件补丁第 %d 项缺少 id，已跳过：%r", index + 1, item)
             continue
-        unknown = set(item) - {"id", "disabled"}
+        items.append(item)
+    return items
+
+
+def file_patches(settings: object) -> list[Patch]:
+    """``data/plugins.yaml`` 里的禁用补丁，例如::
+
+        - id: jellyfin.discovery
+          disabled: true
+
+    只有允许禁用的插件能被禁用（关键插件永远不能），由内核在装载清单时检查。
+    ``local`` / ``module`` / ``config`` / ``grants`` / ``act_as`` 是本地受信插件的字段，
+    见 plugins/local.py。
+    """
+    patches: list[Patch] = []
+    for item in read_patch_items(settings):
+        unknown = set(item) - _PATCH_FIELDS
         if unknown:
             logger.warning(
-                "插件补丁 %s 含暂不支持的字段 %s（第一阶段只认 disabled），已忽略这些字段",
-                item["id"],
-                sorted(unknown),
+                "插件补丁 %s 含不认识的字段 %s，已忽略这些字段", item["id"], sorted(unknown)
             )
         patches.append(Patch(item["id"], disabled=bool(item.get("disabled", False))))
     return patches

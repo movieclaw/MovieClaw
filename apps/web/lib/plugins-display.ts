@@ -89,14 +89,21 @@ export function sortPlugins(plugins: PluginInfo[]): PluginInfo[] {
   return [...attention, ...rest];
 }
 
-/** 分区副标题：一共几个、几个在运行、几个出问题 */
+/** 用户在 plugins.yaml 里开启的本地受信插件（进程内运行，权限与主程序相同） */
+export function isLocalPlugin(plugin: PluginInfo): boolean {
+  return plugin.source === "local";
+}
+
+/** 分区副标题：一共几个、几个在运行、几个出问题、几个是本地插件 */
 export function pluginsSummary(plugins: PluginInfo[]): string {
   const active = plugins.filter((p) => p.state === "active").length;
   const problems = plugins.filter(needsAttention).length;
   const disabled = plugins.filter((p) => p.state === "disabled").length;
+  const local = plugins.filter(isLocalPlugin).length;
   const parts = [`${plugins.length} 个模块`, `${active} 个运行中`];
   if (problems > 0) parts.push(`${problems} 个需要留意`);
   if (disabled > 0) parts.push(`${disabled} 个已关闭`);
+  if (local > 0) parts.push(`其中 ${local} 个是本地插件`);
   return parts.join(" · ");
 }
 
