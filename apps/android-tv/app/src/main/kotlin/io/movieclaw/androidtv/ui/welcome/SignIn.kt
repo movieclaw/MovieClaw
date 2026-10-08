@@ -69,16 +69,16 @@ fun SignInStep(server: ServerAddress, prefilledUsername: String?, expired: Boole
     if (usePassword) {
         SignInForm(server, prefilledUsername, expired, onUseQrCode = { usePassword = false }, onChangeServer = onChangeServer)
     } else {
-        PairingLogin(server, onUsePassword = { usePassword = true }, onChangeServer = onChangeServer)
+        PairingLogin(server, onUsePassword = { usePassword = true })
     }
 }
 
 /**
  * 扫码登录（TVPairingLogin）：电视上显示配对码与二维码，人用手机扫码打开网页批准页（或在已登录的浏览器里输入配对码），
- * 谁批准电视就登录成谁。协议与状态见 [Pairing]。比 Apple 端多一个「更换服务器」（Apple 只能绕道账号密码页）。
+ * 谁批准电视就登录成谁。协议与状态见 [Pairing]。换服务器按返回键（同 Apple 端）。
  */
 @Composable
-fun PairingLogin(server: ServerAddress, onUsePassword: () -> Unit, onChangeServer: () -> Unit) {
+fun PairingLogin(server: ServerAddress, onUsePassword: () -> Unit) {
     val graph = LocalGraph.current
     var challenge by remember { mutableStateOf<DeviceAuthorizeView?>(null) }
     var status by remember { mutableStateOf<PairingStatus>(PairingStatus.Requesting) }
@@ -134,7 +134,6 @@ fun PairingLogin(server: ServerAddress, onUsePassword: () -> Unit, onChangeServe
             Row(Modifier.padding(top = 10.pt), horizontalArrangement = Arrangement.spacedBy(24.pt)) {
                 if (status is PairingStatus.Failed) WelcomeButton("换一个码", onClick = { attempt++ })
                 WelcomeButton("改用账号密码登录", onClick = onUsePassword, modifier = Modifier.focusRequester(usePasswordFocus))
-                WelcomeButton("更换服务器", onClick = onChangeServer)
             }
         }
         QrCodeBox(challenge?.verificationUriComplete)

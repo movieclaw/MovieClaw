@@ -70,5 +70,6 @@ fun Avatar(
  * 电视上做不到实时背景模糊（性能），用半透明白 + 细边近似。
  */
 fun Modifier.glass(corner: Dp = 48.pt): Modifier = this
-    .background(Color.White.copy(alpha = 0.1f), RoundedCornerShape(corner))
+    // tvOS 的 .glassEffect(.regular) 压在星空上只提亮一点（取色约 12）
+    .background(Color.White.copy(alpha = 0.05f), RoundedCornerShape(corner))
     .border(1.pt, Color.White.copy(alpha = 0.16f), RoundedCornerShape(corner))

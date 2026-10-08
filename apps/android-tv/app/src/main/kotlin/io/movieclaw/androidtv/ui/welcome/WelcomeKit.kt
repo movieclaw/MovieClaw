@@ -89,11 +89,12 @@ val WelcomeSerif = FontFamily(Font(R.font.welcome_serif))
 
 fun welcomeSerif(pt: Int) = TextStyle(fontFamily = WelcomeSerif, fontSize = pt.ptSp)
 
-/** tvOS 默认按钮字号（38 中等） */
-val ButtonText = McType.size(38, FontWeight.Medium)
+/** tvOS 默认按钮字号（body 29 中等；模拟器截图量出，大号的主按钮另给 headline） */
+val ButtonText = McType.size(29, FontWeight.Medium)
 
 /**
  * 标准按钮（tvOS 的默认按钮）：平时半透明胶囊，获得焦点时白底黑字放大。可带一个前置图标。
+ * tvOS 的按钮高度固定 68（与字号无关，聚焦放大到 76 上下）、左右各留 32（两台模拟器截图量出）。
  */
 @Composable
 fun WelcomeButton(
@@ -108,7 +109,7 @@ fun WelcomeButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier.layerFocus(),
+        modifier = modifier.layerFocus().height(68.pt),
         enabled = enabled,
         shape = ButtonDefaults.shape(CircleShape),
         colors = ButtonDefaults.colors(
@@ -121,8 +122,8 @@ fun WelcomeButton(
             disabledContainerColor = Color.White.copy(alpha = 0.06f),
             disabledContentColor = McColors.TextFaint,
         ),
-        scale = ButtonDefaults.scale(focusedScale = 1.08f),
-        contentPadding = PaddingValues(horizontal = 40.pt, vertical = 18.pt),
+        scale = ButtonDefaults.scale(focusedScale = 1.1f),
+        contentPadding = PaddingValues(horizontal = 32.pt, vertical = 0.pt),
     ) {
         Row(horizontalArrangement = Arrangement.spacedBy(14.pt), verticalAlignment = Alignment.CenterVertically) {
             leading?.invoke()
@@ -156,24 +157,25 @@ fun TvTextField(
     var focused by remember { mutableStateOf(false) }
     val keyboard = LocalSoftwareKeyboardController.current
     val lit = editing || focused
-    val shape = RoundedCornerShape(16.pt)
+    // tvOS 的输入框：胶囊形，平时比卡片还暗一点（黑 30%），聚焦浅灰底（231）、放大到 78 高（模拟器截图取色、量出）
+    val shape = CircleShape
     Surface(
         onClick = { editing = true },
         modifier = modifier
-            .height(86.pt)
+            .height(72.pt)
             .focusRequester(focusRequester)
             .onFocusChanged { focused = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(shape),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (editing) Color.White else Color.White.copy(alpha = 0.12f),
+            containerColor = if (editing) FieldLit else Color.Black.copy(alpha = 0.3f),
             contentColor = if (editing) Color.Black else McColors.Text,
-            focusedContainerColor = Color.White,
+            focusedContainerColor = FieldLit,
             focusedContentColor = Color.Black,
         ),
     ) {
         Row(
-            Modifier.padding(horizontal = 30.pt).height(86.pt),
+            Modifier.padding(horizontal = 30.pt).height(72.pt),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(18.pt),
         ) {
@@ -187,7 +189,7 @@ fun TvTextField(
                     .focusProperties { canFocus = editing }
                     .onFocusChanged { if (!it.hasFocus && editing) editing = false },
                 singleLine = true,
-                textStyle = McType.Callout.copy(color = if (lit) Color.Black else McColors.Text),
+                textStyle = McType.size(27).copy(color = if (lit) Color.Black else McColors.Text),
                 cursorBrush = SolidColor(Color.Black),
                 visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
                 keyboardOptions = KeyboardOptions(
@@ -206,7 +208,7 @@ fun TvTextField(
                         if (value.isEmpty()) {
                             Text(
                                 placeholder,
-                                style = McType.Callout,
+                                style = McType.size(25),
                                 color = if (lit) Color.Black.copy(alpha = 0.45f) else McColors.Secondary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
@@ -228,6 +230,9 @@ fun TvTextField(
         }
     }
 }
+
+/** 输入框聚焦 / 编辑时的浅灰底 */
+private val FieldLit = Color(0xFFE7E7E7)
 
 /** 红色的出错说明（Label + exclamationmark.triangle.fill） */
 @Composable
