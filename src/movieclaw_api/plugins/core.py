@@ -44,14 +44,18 @@ async def database(ctx: Context) -> None:
 
 @plugin("core.registries", title="任务与处理器注册表", critical=True)
 async def registries(ctx: Context) -> None:
-    """把内核里的两张注册表绑定为当前生效的定时任务表与后台任务处理器表。
+    """把内核里的两张注册表绑定为当前生效的定时任务表与后台任务处理器表，并把事件总线交给决策钩子。
 
     绑定之后，调度器、执行器、定时任务接口都只认插件贡献的项；解绑（内核关闭）后回落到
     模块声明目录，命令行工具与单独驱动引擎的测试照常工作。处理器表一变就唤醒执行器，
-    运行中挂上的插件贡献的新任务类型能被及时领取。
+    运行中挂上的插件贡献的新任务类型能被及时领取。决策钩子（hooks.py）同理：没绑时走默认实现。
     """
+    from movieclaw_api import hooks
     from movieclaw_api.services import jobs
     from movieclaw_scheduler import SCHEDULED_TASKS, bind_registry
+
+    hooks.bind_bus(ctx.events)
+    ctx.effect(lambda: hooks.unbind_bus(ctx.events), label="unbind-hooks")
 
     ctx.effect(bind_registry(ctx.registry(SCHEDULED_TASKS)), label="unbind-scheduled-tasks")
     ctx.effect(
