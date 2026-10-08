@@ -26,6 +26,7 @@ import androidx.media3.datasource.DataSpec
 import androidx.media3.datasource.HttpDataSource
 import androidx.media3.datasource.TransferListener
 import androidx.media3.datasource.okhttp.OkHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
@@ -181,6 +182,14 @@ class PlaybackController(
                 .setSubtitleParserFactory(assParsers),
         )
         .setBandwidthMeter(bandwidth)
+        // 缓冲字节上限跟着本进程的堆走（Exo 的缓冲在 Java 堆里）：默认上限约 130 MB，小堆的盒子放高码率片直接
+        // 内存溢出（Android 6 镜像堆上限 48 MB，《老友记》播放即崩）
+        .setLoadControl(
+            DefaultLoadControl.Builder()
+                .setTargetBufferBytes(BufferBudget.targetBytes(Runtime.getRuntime().maxMemory()))
+                .setPrioritizeTimeOverSizeThresholds(false)
+                .build(),
+        )
         .setAudioAttributes(
             AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
             true,

@@ -98,3 +98,15 @@ class PlayerFormatTest {
         assertNull(PlaybackController.tokenIn(null))
     }
 }
+
+class BufferBudgetTest {
+    private val mb = 1L shl 20
+
+    @org.junit.Test
+    fun bufferFollowsTheHeap() {
+        // 大堆（largeHeap 512 MB）用满 Exo 的默认上限；192 MB 的电视 48 MB；小堆的老盒子保底 16 MB
+        org.junit.Assert.assertEquals(128 * mb, BufferBudget.targetBytes(512 * mb).toLong())
+        org.junit.Assert.assertEquals(48 * mb, BufferBudget.targetBytes(192 * mb).toLong())
+        org.junit.Assert.assertEquals(16 * mb, BufferBudget.targetBytes(48 * mb).toLong())
+    }
+}

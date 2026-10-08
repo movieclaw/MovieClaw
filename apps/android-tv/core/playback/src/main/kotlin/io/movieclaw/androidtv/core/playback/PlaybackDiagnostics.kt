@@ -320,6 +320,9 @@ class DeviceFacts(private val context: Context) {
         val info = ActivityManager.MemoryInfo().also(manager::getMemoryInfo)
         put("total_mb", info.totalMem / (1 shl 20))
         put("class_mb", manager.memoryClass)
+        put("large_class_mb", manager.largeMemoryClass)
+        put("heap_max_mb", Runtime.getRuntime().maxMemory() / (1 shl 20))
+        put("buffer_budget_mb", BufferBudget.targetBytes(Runtime.getRuntime().maxMemory()) / (1 shl 20))
         put("low_ram", manager.isLowRamDevice)
     }
 
