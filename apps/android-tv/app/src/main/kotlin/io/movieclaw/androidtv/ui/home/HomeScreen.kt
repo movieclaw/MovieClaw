@@ -126,8 +126,11 @@ fun HomeScreen() {
     // 接下来继续变了就同步到系统首页的「继续观看」
     val graph = io.movieclaw.androidtv.LocalGraph.current
     LaunchedEffect(store.upNext) { store.upNext?.let { graph.watchNext.publish(it, session.server, session.token) } }
-    LaunchedEffect(store) {
-        while (true) {
+    // 定时刷新只在首页真被看着时做：播放器盖在上面、或压着二级页时不刷（故障注入实测：看片时首页照样每分钟
+    // 把各行与背景图重取一遍，线路差时跟视频抢带宽）。回到首页由上面那条按可见性刷新补上
+    val watching = pageVisible && router.player == null
+    LaunchedEffect(store, watching) {
+        while (watching) {
             delay(60_000)
             store.reload()
         }

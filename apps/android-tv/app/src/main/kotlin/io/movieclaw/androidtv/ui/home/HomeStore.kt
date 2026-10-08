@@ -59,8 +59,13 @@ class HomeStore(private val api: McApi) {
         task.await()
     }
 
-    private suspend fun load() = coroutineScope {
-        try {
+    /**
+     * try 必须包在 coroutineScope **外面**：里面的 async 失败时，除了 await 抛异常，还会取消整个作用域、由
+     * coroutineScope 在返回处再抛一次——包在里面接不住，异常一路冒到 LaunchedEffect 让 App 崩溃
+     * （故障注入实测：断网时首页 60 秒一次的刷新撞上就闪退，看着片也一样）。
+     */
+    private suspend fun load() = try {
+        coroutineScope {
             val prefsTask = async { runCatching { api.uiPrefsShow().home.rows }.getOrNull() }
             val libsTask = async { api.libraryList(scope = "all") }
             val colsTask = async { runCatching { api.collectionList() }.getOrNull() }
@@ -95,11 +100,11 @@ class HomeStore(private val api: McApi) {
                 genresByKind = genresTask?.await().orEmpty()
                 fingerprint = print
             }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (_: Exception) {
-            failed = true
         }
+    } catch (e: CancellationException) {
+        throw e
+    } catch (_: Exception) {
+        failed = true
     }
 
     private suspend fun fetchFavorites(kind: HomeRows.Kind.Favorites): FavoritesView? = runCatching {
