@@ -145,14 +145,19 @@ _PROBE_COMMIT_EVERY = 32
 
 
 def find_local_artwork(
-    entry_dir: Path, kind: str, own_files: list[Path], *, cache: DirListing | None = None
+    entry_dir: Path,
+    kind: str,
+    own_files: list[Path],
+    *,
+    media_kind: str | None = None,
+    cache: DirListing | None = None,
 ) -> Path | None:
     """条目目录下的本地美术图；``kind``: poster / fanart / thumb。找不到返回 None。
 
     规则见 artwork.find_artwork：文件自己的 ``<主干>-poster`` 精确匹配优先，
     目录级 ``poster.jpg`` 只在目录归这个条目时才认（混放目录不串图）。
     """
-    return find_artwork(entry_dir, kind, own_files, cache=cache)
+    return find_artwork(entry_dir, kind, own_files, media_kind=media_kind, cache=cache)
 
 
 def _external_subtitles_many(
@@ -2549,7 +2554,12 @@ async def layered_item_meta(session: AsyncSession, item: MediaItem) -> EntryMeta
 
 
 def local_item_artwork(
-    roots: list[Path], files: list[LibraryFile], kind: str, *, cache: DirListing | None = None
+    roots: list[Path],
+    files: list[LibraryFile],
+    kind: str,
+    *,
+    media_kind: str,
+    cache: DirListing | None = None,
 ) -> Path | None:
     """条目目录里的本地美术图（逐个条目目录找，第一张命中即用）。
 
@@ -2557,20 +2567,22 @@ def local_item_artwork(
     刮削资产 / TMDB 图床。文件直接躺在库根下（没有条目目录）时按它所在
     目录找，此时只可能命中文件自己的 sidecar。同步磁盘 IO——调用方自行
     决定是否进线程池。
+
+    ``media_kind`` 来自条目身份，剧集海报不接受分集 sidecar。
     """
     paths = [Path(row.file_path) for row in files]
     entry_dirs = resolve_entry_dirs(roots, files) or list(dict.fromkeys(p.parent for p in paths))
     for entry in entry_dirs:
         if not entry.is_dir():
             continue
-        art = find_local_artwork(entry, kind, paths, cache=cache)
+        art = find_local_artwork(entry, kind, paths, media_kind=media_kind, cache=cache)
         if art is not None:
             return art
     return None
 
 
 def _detail_local_files(
-    roots: list[Path], files: list[LibraryFile]
+    roots: list[Path], files: list[LibraryFile], *, media_kind: str
 ) -> tuple[Path | None, Path | None, dict[Path, list[str]]]:
     """详情页要的全部本地磁盘信息，**一次线程跳转、一批目录只列一次**。
 
@@ -2579,8 +2591,8 @@ def _detail_local_files(
     的目录列举数 = 条目涉及的目录数，与文件数无关。
     """
     cache: DirListing = {}
-    poster = local_item_artwork(roots, files, "poster", cache=cache)
-    fanart = local_item_artwork(roots, files, "fanart", cache=cache)
+    poster = local_item_artwork(roots, files, "poster", media_kind=media_kind, cache=cache)
+    fanart = local_item_artwork(roots, files, "fanart", media_kind=media_kind, cache=cache)
     videos = [
         Path(row.file_path)
         for row in files
@@ -2602,7 +2614,7 @@ async def build_item_detail(
     local_meta = await layered_item_meta(session, item)
 
     poster_art, fanart_art, subtitles_by_path = await asyncio.to_thread(
-        _detail_local_files, roots, files
+        _detail_local_files, roots, files, media_kind=item.kind
     )
 
     external: dict[int, list[str]] = {}

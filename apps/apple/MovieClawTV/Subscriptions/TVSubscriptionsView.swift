@@ -91,7 +91,6 @@ struct TVSubscriptionsView: View {
                 ForEach(shelf.all) { entry in
                     TVPosterCard(title: entry.sub.media.title, subtitle: entry.chip?.text ?? entry.meta,
                                  imageURL: api.image(entry.sub.media.posterUrl, width: ImageWidth.tvCard(TVMetrics.posterWidth)),
-                                 progress: entry.progress,
                                  badge: entry.resting ? SubscriptionStatusMeta.label(entry.sub.status) : nil) {
                         router.push(.discoverTitle("tmdb:\(entry.sub.media.kind):\(entry.sub.media.tmdbId)"))
                     }

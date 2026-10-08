@@ -12,7 +12,7 @@ struct OpenSourceComponent: Identifiable {
 
     static let all: [OpenSourceComponent] = [
         .init(name: "AetherEngine（MovieClaw 修改版）", license: "LGPL-3.0，附 App Store 例外",
-              source: "https://github.com/movieclaw/movieclaw/tree/main/apps/apple/Vendor/AetherEngine",
+              source: AetherEngineDependency.sourceURL,
               licenseFiles: ["License-AetherEngine", "License-GPL-3.0"]),
         .init(name: "FFmpeg", license: "LGPL-2.1 或更新版本",
               source: "https://github.com/superuser404notfound/FFmpegBuild",

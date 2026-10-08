@@ -16,9 +16,14 @@
 
 import { useEffect, useState } from "react";
 
-import { ErrorBanner, INPUT_CLASS, Spinner } from "@/components/cloud-push-ui";
+import { ErrorBanner, Spinner } from "@/components/cloud-push-ui";
 import { CheckIcon, XIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+} from "@/components/settings-ui";
 import {
   type CloudStatusView,
   cancelCloudPairing,
@@ -126,7 +131,7 @@ export function CloudPairingDialog({
           <button
             type="button"
             onClick={onClose}
-            className="btn-accent mt-2 rounded-full px-5 py-1.5 text-sub font-semibold"
+            className={`${SETTINGS_PRIMARY_BUTTON_CLASS} mt-2`}
           >
             完成
           </button>
@@ -153,20 +158,20 @@ export function CloudPairingDialog({
               onChange={(e) => setName(e.target.value)}
               maxLength={NAME_MAX_LENGTH}
               autoFocus
-              className={INPUT_CLASS}
+              className={`${SETTINGS_INPUT_CLASS} w-full`}
             />
           </label>
           <p className="text-caption leading-5 text-[var(--text-faint)]">
             申请的权限：使用官方推送。只有你需要 MovieClaw 账号，家人不用。
           </p>
           <div className="flex justify-end gap-2">
-            <button type="button" onClick={onClose} className="btn-glass px-4 py-1.5 text-sub font-medium">
+            <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
               取消
             </button>
             <button
               type="submit"
               disabled={busy != null || !name.trim()}
-              className="btn-accent rounded-full px-4 py-1.5 text-sub font-semibold disabled:opacity-40"
+              className={SETTINGS_PRIMARY_BUTTON_CLASS}
             >
               {busy === "start" ? "正在获取配对码…" : "获取配对码"}
             </button>
@@ -227,7 +232,7 @@ export function CloudPairingDialog({
               type="button"
               disabled={busy != null}
               onClick={() => void cancel()}
-              className="btn-glass shrink-0 px-4 py-1.5 text-sub font-medium disabled:opacity-40"
+              className={SETTINGS_BUTTON_CLASS}
             >
               {busy === "cancel" ? "取消中…" : "取消"}
             </button>
@@ -249,7 +254,7 @@ export function CloudPairingDialog({
               type="button"
               disabled={busy != null}
               onClick={() => void cancel()}
-              className="btn-glass px-4 py-1.5 text-sub font-medium disabled:opacity-40"
+              className={SETTINGS_BUTTON_CLASS}
             >
               取消
             </button>
@@ -257,7 +262,7 @@ export function CloudPairingDialog({
               type="button"
               disabled={busy != null}
               onClick={() => void start(pairing.instance_name || name)}
-              className="btn-accent rounded-full px-4 py-1.5 text-sub font-semibold disabled:opacity-40"
+              className={SETTINGS_PRIMARY_BUTTON_CLASS}
             >
               {busy === "start" ? "正在获取…" : "重新获取配对码"}
             </button>

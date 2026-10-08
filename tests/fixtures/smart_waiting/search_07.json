@@ -1,0 +1,4843 @@
+{
+  "as_of": "2026-10-07T04:33:40.502997",
+  "keyword": "哪吒之魔童闹海",
+  "page": 1,
+  "scope": "current search snapshot, not complete historical observation",
+  "sites": [
+    {
+      "site_id": "keepfrds",
+      "count": 0,
+      "failed": false
+    },
+    {
+      "site_id": "hdhome",
+      "count": 11,
+      "failed": false
+    },
+    {
+      "site_id": "chdbits",
+      "count": 22,
+      "failed": false
+    },
+    {
+      "site_id": "mteam",
+      "count": 65,
+      "failed": false
+    },
+    {
+      "site_id": "ssd",
+      "count": 8,
+      "failed": false
+    },
+    {
+      "site_id": "ttg",
+      "count": 0,
+      "failed": false
+    }
+  ],
+  "items": [
+    {
+      "site_id": "hdhome",
+      "torrent_id": "265188",
+      "title": "Ne Zha 2 2025 1080p NowPlayer WEB-DL H.264 AAC-UBWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "nowplayer"
+        ],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 5025111736,
+      "seeders": 9,
+      "upload_time": "2025-11-22T03:26:32+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "264886",
+      "title": "Ne Zha 2 2025 2160p 50fps WEB-DL HEVC 10bit HDR Vivid AV3A7.1 4 8Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2 “三界风云起哪吒踏火来”"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "哪吒2 “三界风云起哪吒踏火来” 【4K36M超高码率",
+          "菁彩影像",
+          "高帧率",
+          "三维菁彩声(7.1.4"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "HDR Vivid"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 45558865592,
+      "seeders": 39,
+      "upload_time": "2025-11-20T02:11:32+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "257535",
+      "title": "Ne Zha 2 2025 2160p iT WEB-DL DDP 5.1 Atmos DV HDR H.265 2Audios-BYNDR",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "哪吒之魔童闹海 Ne Zha 2",
+          "中国大陆",
+          "剧情 喜剧 动画 奇幻",
+          "汉语普通"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR",
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "BYNDR"
+      },
+      "size_bytes": 27584427458,
+      "seeders": 9,
+      "upload_time": "2025-09-16T09:50:14+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "257534",
+      "title": "Ne Zha 2 2025 2160p AMZN WEB-DL DDP 5.1 Atmos H.265 2Audios-BYNDR",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "哪吒之魔童闹海 Ne Zha 2",
+          "中国大陆",
+          "剧情 喜剧 动画 奇幻"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "BYNDR"
+      },
+      "size_bytes": 17641578168,
+      "seeders": 5,
+      "upload_time": "2025-09-16T09:49:03+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "257520",
+      "title": "Ne Zha 2 2025 1080p AMZN WEB-DL DDP 5.1 Atmos H.264 2Audios-BYNDR",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "哪吒之魔童闹海 Ne Zha 2",
+          "中国大陆",
+          "剧情 喜剧 动画 奇幻"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "BYNDR"
+      },
+      "size_bytes": 10769630494,
+      "seeders": 7,
+      "upload_time": "2025-09-16T06:38:35+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "255161",
+      "title": "Ne Zha 2 2025 60FPS 2160p WEB-DL H.265 10bit DV DDP5.1 Atmos-OurTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "OurTV"
+      },
+      "size_bytes": 37323265802,
+      "seeders": 38,
+      "upload_time": "2025-08-28T10:46:09+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "252202",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 HQ 60fps DDP5.1 Atmos-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "4K 高码 60帧",
+          "主演"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 30322469109,
+      "seeders": 73,
+      "upload_time": "2025-08-05T07:38:39+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "251795",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H.265 10bit DoVi DDP 5.1 Atmos-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 28067611279,
+      "seeders": 72,
+      "upload_time": "2025-08-02T16:27:34+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "251790",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H.265 10bit DDP 5.1 Atmos-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 25812753448,
+      "seeders": 359,
+      "upload_time": "2025-08-02T16:26:21+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "251862",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL 60fps H.265 10bit DTS 5.1-PTerWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 31149250314,
+      "seeders": 59,
+      "upload_time": "2025-08-02T15:21:19+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "235856",
+      "title": "Various Artists Ne zha 2 Original Motion Picture Soundtrack 2025-Flac-QHstudIo",
+      "attrs": {
+        "media_type": null,
+        "content_type": "music",
+        "titles_zh": [],
+        "titles_en": [],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": null,
+        "video_codec": null,
+        "hdr": [],
+        "media_source": null,
+        "remux": false,
+        "audio": [
+          "FLAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 4144643440,
+      "seeders": 11,
+      "upload_time": "2025-03-10T14:46:15+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "576426",
+      "title": "Ne Zha 2 2025 1080p Viu WEB-DL H264 AAC-PTerWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "yue"
+        ],
+        "platforms": [
+          "viu"
+        ],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 2888365506,
+      "seeders": 1,
+      "upload_time": "2026-08-30T21:35:33+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "502571",
+      "title": "Ne Zha 2 2025 1080p NowPlayer WEB-DL H.264 AAC-UBWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "nowplayer"
+        ],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 5025111736,
+      "seeders": 2,
+      "upload_time": "2025-11-22T03:24:28+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "486618",
+      "title": "Ne-Zha 2 2025 1080p HBOMax WEB-DL DDP.5.1 H.264-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne-Zha 2",
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 5111011082,
+      "seeders": 9,
+      "upload_time": "2025-10-01T15:15:03+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "469697",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 HQ DV 60fps DTS5.1-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "4K 高码 杜比视界 60帧"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 35938138849,
+      "seeders": 34,
+      "upload_time": "2025-08-05T11:09:19+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "469275",
+      "title": "Ne Zha 2 2025 2160p 60fps HQ WEB-DL H.265 10bit DV AV3A 7 1 4 8Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 41199473786,
+      "seeders": 62,
+      "upload_time": "2025-08-03T18:36:05+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "468730",
+      "title": "Ne Zha 2 2025 2160p WEB-DL HDR H.265 AV3A7.1 4 3Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 17426829803,
+      "seeders": 19,
+      "upload_time": "2025-08-02T07:29:44+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "468692",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H265 AAC-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "吕艳婷",
+          "囧森瑟夫"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 4498978242,
+      "seeders": 66,
+      "upload_time": "2025-08-02T05:28:58+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "468680",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H265 DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 11403138170,
+      "seeders": 97,
+      "upload_time": "2025-08-02T04:17:08+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "468678",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H265 120fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 12756052869,
+      "seeders": 15,
+      "upload_time": "2025-08-02T04:09:35+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "468677",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 12358768394,
+      "seeders": 21,
+      "upload_time": "2025-08-02T04:04:16+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "468670",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 25694641848,
+      "seeders": 36,
+      "upload_time": "2025-08-02T03:58:19+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "468668",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H265 HDR 120fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 19789061816,
+      "seeders": 11,
+      "upload_time": "2025-08-02T03:50:35+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "468663",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H265 DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "4K 高码"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 28507845427,
+      "seeders": 19,
+      "upload_time": "2025-08-02T03:39:25+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "468662",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H265 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "4K 60帧 高码"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 33017561088,
+      "seeders": 107,
+      "upload_time": "2025-08-02T03:28:42+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "468660",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H265 DV DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "4K 杜比视界 高码"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 30762703257,
+      "seeders": 8,
+      "upload_time": "2025-08-02T03:21:34+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "468654",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H265 DV 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [
+          "external"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 37795712204,
+      "seeders": 350,
+      "upload_time": "2025-08-02T03:15:50+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "431260",
+      "title": "Ne Zha 2019 V3 2160p BluRay HEVC Dolby Vision DTS-HD MA TrueHD 7.1 Atmos-LINMENG@CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童降世"
+        ],
+        "titles_en": [
+          "Ne Zha"
+        ],
+        "title_candidates": [],
+        "year": 2019,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "DTS-HD MA",
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "yue"
+        ],
+        "platforms": [],
+        "release_group": "LINMENG@CHDBits"
+      },
+      "size_bytes": 72606422138,
+      "seeders": 215,
+      "upload_time": "2025-03-11T17:19:00+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "426908",
+      "title": "Ne Zha 2019 V2 2160p BluRay HEVC Dolby Vision TrueHD 7.1 Atmos-LINMENG@CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童降世"
+        ],
+        "titles_en": [
+          "Ne Zha"
+        ],
+        "title_candidates": [],
+        "year": 2019,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "LINMENG@CHDBits"
+      },
+      "size_bytes": 62513248993,
+      "seeders": 71,
+      "upload_time": "2025-02-20T18:51:05+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "426803",
+      "title": "Ne Zha 2019 2160p BluRay HEVC Dolby Vision TrueHD 7.1 Atmos-LINMENG@CHDBits",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童降世"
+        ],
+        "titles_en": [
+          "Ne Zha"
+        ],
+        "title_candidates": [],
+        "year": 2019,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "Blu-ray",
+        "remux": false,
+        "audio": [
+          "TrueHD",
+          "Atmos"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "LINMENG@CHDBits"
+      },
+      "size_bytes": 66185446031,
+      "seeders": 81,
+      "upload_time": "2025-02-20T06:47:48+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "424342",
+      "title": "Destruction before construction 2025.1080p WEB-DL H264 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "documentary",
+        "titles_zh": [
+          "不破不立",
+          "哪吒之魔童",
+          "起，冲！冲！！冲～～～"
+        ],
+        "titles_en": [
+          "Destruction before construction"
+        ],
+        "title_candidates": [
+          "国语",
+          "中字"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 504595742,
+      "seeders": 3,
+      "upload_time": "2025-02-10T12:21:46+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "424340",
+      "title": "Destruction before construction 2025 2160p WEB-DL H265 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "documentary",
+        "titles_zh": [
+          "不破不立",
+          "哪吒之魔童",
+          "起，冲！冲！！冲～～～"
+        ],
+        "titles_en": [
+          "Destruction before construction"
+        ],
+        "title_candidates": [
+          "国语",
+          "中字"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1836098519,
+      "seeders": 7,
+      "upload_time": "2025-02-10T12:18:53+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "424339",
+      "title": "Destruction before construction 2025 2160p HQ WEB-DL H265 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "documentary",
+        "titles_zh": [
+          "不破不立",
+          "哪吒之魔",
+          "，冲！冲！！冲～～～"
+        ],
+        "titles_en": [
+          "Destruction before construction"
+        ],
+        "title_candidates": [
+          "25帧高码版",
+          "国语",
+          "中字"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 8257074626,
+      "seeders": 7,
+      "upload_time": "2025-02-10T12:16:45+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1241478",
+      "title": "Ne Zha 2 2025 1080p Viu WEB-DL H.264 AAC 2.0-PTerWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "yue"
+        ],
+        "platforms": [
+          "viu"
+        ],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 2891941339,
+      "seeders": 14,
+      "upload_time": "2026-08-30T21:41:08+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1223694",
+      "title": "Ne Zha 2025 2160p WEB-DL H.265 DDP Atmos 5.1 3Audios-CSWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha",
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CSWEB"
+      },
+      "size_bytes": 25248244953,
+      "seeders": 11,
+      "upload_time": "2026-08-05T01:16:05+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1223423",
+      "title": "Ne Zha 2025 2160p WEB-DL DV H.265 DDP Atmos 5.1 3Audios-CSWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha",
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CSWEB"
+      },
+      "size_bytes": 31897547194,
+      "seeders": 0,
+      "upload_time": "2026-08-04T15:29:11+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1208369",
+      "title": "Ne.Zha.2.2025.IMAX.2160p.YK.WEB-DL.H.265.HDR.HFR.HQ.DTS-UHD9.1-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne.Zha.2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 27667887964,
+      "seeders": 32,
+      "upload_time": "2026-07-13T14:41:05+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1132549",
+      "title": "Ne Zha 2 2025 IMAX 2160p 60fps HQ WEB-DL H.265 10bit HDR10 AV3A7.1.4 8Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 30012797932,
+      "seeders": 16,
+      "upload_time": "2026-02-09T02:53:53+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1132469",
+      "title": "Ne Zha 2 2025 IMAX 2160p HQ WEB-DL H.265 10bit HDR10 AV3A7.1.4 8Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 25213377860,
+      "seeders": 24,
+      "upload_time": "2026-02-08T23:19:04+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1124168",
+      "title": "Ne Zha 2 2025 2160p WEB-DL 50Fps H.265 AAC 2.0-UBWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 24225085045,
+      "seeders": 16,
+      "upload_time": "2026-01-27T13:47:21+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1107465",
+      "title": "Ne Zha 2 2025 2160p 60fps HQ WEB-DL H.265 10bit DV AV3A 7.1 4 8Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2 “三界风云起哪吒踏火来"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 41204824472,
+      "seeders": 59,
+      "upload_time": "2026-01-03T14:12:48+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1092879",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H.265 10bit DV DTS-X5.1 4 8Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS:X"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 32178031956,
+      "seeders": 17,
+      "upload_time": "2025-12-13T12:51:02+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1090630",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 DDP 2.0 3Audio5.1-PTZWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "PTZWeb"
+      },
+      "size_bytes": 19469018458,
+      "seeders": 45,
+      "upload_time": "2025-12-10T01:31:46+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1090499",
+      "title": "Ne Zha 2 2025 2160p WEB-DL DV H.265 DDP5.1 Atmos-beyayyllpe",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2",
+          "Ne Zha Havoc in the Sea"
+        ],
+        "title_candidates": [
+          "国漫",
+          "4K 60FPS",
+          "国語"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "beyayyllpe"
+      },
+      "size_bytes": 38612715615,
+      "seeders": 24,
+      "upload_time": "2025-12-09T15:44:00+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1087328",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 10bit HDR 60FPS Atmos DDP 5.1-NHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "NHDWEB"
+      },
+      "size_bytes": 35101799581,
+      "seeders": 6,
+      "upload_time": "2025-12-05T07:39:54+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1082557",
+      "title": "Ne Zha 2 2025 2160p WEB-DL DDP2.0 H265-Pure@HDSWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "Pure@HDSWEB"
+      },
+      "size_bytes": 4061884880,
+      "seeders": 19,
+      "upload_time": "2025-11-30T08:14:41+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1076273",
+      "title": "Ne Zha 2 2025 1080p NowPlayer WEB-DL H.264 AAC 2.0-UBWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "en",
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "nowplayer"
+        ],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 5019800910,
+      "seeders": 9,
+      "upload_time": "2025-11-22T03:26:25+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1075017",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 AAC 2.0-HDKWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDKWeb"
+      },
+      "size_bytes": 5589083217,
+      "seeders": 9,
+      "upload_time": "2025-11-20T06:21:53+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1074835",
+      "title": "Ne Zha 2 2025 2160p 50fps WEB-DL H.265 10bit HDR Vivid AV3A7.1 4 8Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2 “三界风云起哪吒踏火来"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR Vivid"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 45556436172,
+      "seeders": 118,
+      "upload_time": "2025-11-20T02:14:31+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1056837",
+      "title": "Ne Zha 2 2025 2160p WEB-DL 60Fps HQ DoVi H.265 10bit DDP 5.1 2Audio Atmos-UBWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 35381108568,
+      "seeders": 21,
+      "upload_time": "2025-10-22T01:04:41+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1055753",
+      "title": "Ne Zha 2 2025 WEB-DL 2160p H.265 AAC",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海  哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 34718980464,
+      "seeders": 6,
+      "upload_time": "2025-10-20T05:32:42+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1035212",
+      "title": "Ne Zha 2 2025 2160p iT WEB-DL DDP 5.1 Atmos DV HDR H.265 2Audios-BYNDR",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "哪吒之魔童闹海 Ne Zha 2",
+          "中国大陆",
+          "剧情 喜剧 动画 奇幻"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR",
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "BYNDR"
+      },
+      "size_bytes": 27588700158,
+      "seeders": 22,
+      "upload_time": "2025-09-16T07:50:19+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1035208",
+      "title": "Ne Zha 2 2025 2160p AMZN WEB-DL DDP 5.1 Atmos H.265 2Audios-BYNDR",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "哪吒之魔童闹海 Ne Zha 2",
+          "中国大陆",
+          "剧情 喜剧 动画 奇幻"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "BYNDR"
+      },
+      "size_bytes": 17640376110,
+      "seeders": 17,
+      "upload_time": "2025-09-16T07:41:52+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1035169",
+      "title": "Ne Zha 2 2025 1080p AMZN WEB-DL DDP 5.1 Atmos H.264 2Audios-BYNDR",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "哪吒之魔童闹海 Ne Zha 2",
+          "中国大陆",
+          "剧情 喜剧 动画 奇幻"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [
+          "amazon"
+        ],
+        "release_group": "BYNDR"
+      },
+      "size_bytes": 10771099752,
+      "seeders": 16,
+      "upload_time": "2025-09-16T05:52:25+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1027226",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H265 HQ DV 60fps DTS5.1-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "4K 高码 杜比视界 60帧",
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 35934055608,
+      "seeders": 113,
+      "upload_time": "2025-09-01T23:50:42+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1026297",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H265 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "4K 60帧 高码"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 33016845660,
+      "seeders": 32,
+      "upload_time": "2025-08-31T05:01:10+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1018738",
+      "title": "Ne Zha 2025 2160p WEB-DL HDRVivid H.265 AAC-ZimaWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒2之魔童闹海",
+          "哪吒之魔童闹海",
+          "哪吒2"
+        ],
+        "titles_en": [
+          "Ne Zha",
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "编剧：饺子",
+          "王竞",
+          "囧森瑟夫",
+          "瀚墨"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR Vivid"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ZimaWeb"
+      },
+      "size_bytes": 4482596976,
+      "seeders": 32,
+      "upload_time": "2025-08-17T22:32:30+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1018638",
+      "title": "Ne Zha 2025 2160p WEB-DL DV H.265 DDP Atmos 5.1-ZimaWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha",
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "编剧：饺子",
+          "王竞",
+          "囧森瑟夫",
+          "瀚墨"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ZimaWeb"
+      },
+      "size_bytes": 10974800207,
+      "seeders": 10,
+      "upload_time": "2025-08-17T14:12:44+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1011901",
+      "title": "Ne Zha 2 2025 2160p WEB-DL HQ H265 HDR10 DDP5.1 Atmos 6Audios-4KSJ",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "票房神话"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "4KSJ"
+      },
+      "size_bytes": 25455127310,
+      "seeders": 253,
+      "upload_time": "2025-08-06T14:16:02+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1011812",
+      "title": "Ne Zha 2 2025 2160p V3 WEB-DL H.265 10bit HDR Vivid AV3A7.1.4 8Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR Vivid"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 17365416974,
+      "seeders": 25,
+      "upload_time": "2025-08-06T13:03:59+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1011771",
+      "title": "Ne Zha 2 2025 1080p WEB-DL H.264 AAC 2.0-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "吕艳婷",
+          "囧森瑟夫",
+          "ARDTU"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 1485404725,
+      "seeders": 115,
+      "upload_time": "2025-08-06T12:12:35+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1011769",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 HQ DDP5.1 Atmos-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "4K 高码",
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮",
+          "ARDTU"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 25808096665,
+      "seeders": 17,
+      "upload_time": "2025-08-06T12:09:08+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1011548",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 AV3A7.1.4 8Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 22047522812,
+      "seeders": 14,
+      "upload_time": "2025-08-06T04:58:32+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1011068",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 DDP5.1 Atmos-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "4K 高码 60帧",
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮",
+          "ARDTU"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 30319822766,
+      "seeders": 35,
+      "upload_time": "2025-08-05T06:51:47+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1010636",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 DDP5.1 Atmos-PTerWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 18588055565,
+      "seeders": 31,
+      "upload_time": "2025-08-04T13:08:42+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1010565",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 AAC 2.0-AGSVWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "AGSVWEB"
+      },
+      "size_bytes": 5627060022,
+      "seeders": 16,
+      "upload_time": "2025-08-04T11:00:33+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1010182",
+      "title": "Ne Zha 2 2025 2160p WEB-DL HQ HDRVivid H.265 10bit DDP 5.1 2Audio Atmos-UBWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "ARDTU"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR Vivid"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 23272229889,
+      "seeders": 44,
+      "upload_time": "2025-08-03T17:04:42+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009564",
+      "title": "Ne Zha 2 2025 1080p WEB-DL H.265 AAC 2.0-HHWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮",
+          "ARDTU"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 8769469568,
+      "seeders": 22,
+      "upload_time": "2025-08-02T17:39:57+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009508",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H.265 DV 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "4K 杜比视界 60帧 高码"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 37800902318,
+      "seeders": 192,
+      "upload_time": "2025-08-02T15:28:32+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009504",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL 60fps H.265 10bit 2Audios DTS 5.1-PTerWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "ARDTU"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 31150047715,
+      "seeders": 74,
+      "upload_time": "2025-08-02T15:20:57+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009460",
+      "title": "Ne Zha 2 2025 1080p WEB-DL H.264 AAC 2.0-1PTBA",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "动画 [汉语普通话"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "1PTBA"
+      },
+      "size_bytes": 7703314125,
+      "seeders": 109,
+      "upload_time": "2025-08-02T14:15:24+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009457",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 DDP 5.1 Atmos-UBWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "ARDTU"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 18588188615,
+      "seeders": 8,
+      "upload_time": "2025-08-02T14:13:46+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009455",
+      "title": "Ne Zha 2 2025 2160p WEB-DL DV H.265 DTS 5.1 2Audio-PTerWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "ARDTU"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 35934055616,
+      "seeders": 11,
+      "upload_time": "2025-08-02T14:13:16+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009442",
+      "title": "Ne Zha 2 2025 1080p WEB-DL H.265 DDP2.0",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 8937837343,
+      "seeders": 10,
+      "upload_time": "2025-08-02T14:03:35+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009434",
+      "title": "Ne Zha 2 2025 2160p WEB-DL 60fps H.265 HDR10 DDP 5.1 4Audio Atmos-AilMWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "普通话",
+          "酷喵TV"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "4Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "AilMWeb"
+      },
+      "size_bytes": 11070473986,
+      "seeders": 28,
+      "upload_time": "2025-08-02T13:47:22+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009433",
+      "title": "Ne Zha 2025 S02 2160p WEB-DL H.264 AAC 2.0-CSWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮",
+          "BiliBili"
+        ],
+        "year": 2025,
+        "seasons": [
+          2
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "CSWEB"
+      },
+      "size_bytes": 13081109513,
+      "seeders": 23,
+      "upload_time": "2025-08-02T13:46:19+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009402",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 EDR DDP5.1 Atmos-AilMWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "普通话",
+          "奇异果"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "AilMWeb"
+      },
+      "size_bytes": 18596626393,
+      "seeders": 2,
+      "upload_time": "2025-08-02T13:00:34+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009381",
+      "title": "Ne Zha 2025 2160p WEB-DL H.265 AAC-ZimaWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha",
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "编剧：饺子",
+          "王竞",
+          "囧森瑟夫",
+          "瀚墨"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ZimaWeb"
+      },
+      "size_bytes": 8329879758,
+      "seeders": 165,
+      "upload_time": "2025-08-02T12:43:47+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009380",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H.265 HDR Vivid DDP 5.1 3Audio Atmos-AilMWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "普通话",
+          "酷喵影院"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR Vivid"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "AilMWeb"
+      },
+      "size_bytes": 24117634819,
+      "seeders": 7,
+      "upload_time": "2025-08-02T12:42:55+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009347",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H265 10bit HDR DoVi DDP5.1 Atmos-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV",
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 23039564263,
+      "seeders": 70,
+      "upload_time": "2025-08-02T11:55:42+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009335",
+      "title": "Ne Zha 2 2025 60FPS 2160p WEB-DL H.265 10bit DDP 5.1 12Audio Atmos-OurTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮",
+          "张珈铭"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "OurTV"
+      },
+      "size_bytes": 32534730717,
+      "seeders": 55,
+      "upload_time": "2025-08-02T11:29:49+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009320",
+      "title": "Ne.Zha.2.2025.WEB-DL.2160p.H265-NGB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne.Zha.2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "NGB"
+      },
+      "size_bytes": 19467388410,
+      "seeders": 156,
+      "upload_time": "2025-08-02T10:55:20+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009319",
+      "title": "Ne Zha 2 2025 2160p WEB-DL DoVi H.265 10bit DDP5.1 Atmos-UBWEB",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 14676247110,
+      "seeders": 3,
+      "upload_time": "2025-08-02T10:52:44+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009273",
+      "title": "Ne Zha 2 2025 2160p WEB-DL  H.265 DV DDP5.1 Atmos-AilMWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "普通话",
+          "酷喵影院"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "AilMWeb"
+      },
+      "size_bytes": 35393583995,
+      "seeders": 2,
+      "upload_time": "2025-08-02T10:20:32+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009268",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 10bit DDP5.1 Atmos-OurTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "OurTV"
+      },
+      "size_bytes": 28022889330,
+      "seeders": 11,
+      "upload_time": "2025-08-02T09:57:56+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009265",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H.265 10bit HDR Vivid AV3A 7.1 4 8Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2 “三界风云起哪吒踏火来"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR Vivid"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 29087753680,
+      "seeders": 19,
+      "upload_time": "2025-08-02T09:32:08+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009255",
+      "title": "Ne Zha 2 2025 2160p WEB-DL HDR H.265 AV3A7.1 4 3Audios-QHstudIo",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 17424868733,
+      "seeders": 58,
+      "upload_time": "2025-08-02T08:44:16+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009191",
+      "title": "Ne Zha 2 2025 60FPS 2160p WEB-DL H.265 10bit DV DDP5.1 Atmos-OurTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "OurTV"
+      },
+      "size_bytes": 37321980905,
+      "seeders": 144,
+      "upload_time": "2025-08-02T06:34:59+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009107",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.264 AAC 2.0-StarfallWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮【B站源"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "StarfallWeb"
+      },
+      "size_bytes": 13080379754,
+      "seeders": 2,
+      "upload_time": "2025-08-02T04:59:10+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009097",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H265 AAC-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "吕艳婷",
+          "囧森瑟夫"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 4494615335,
+      "seeders": 98,
+      "upload_time": "2025-08-02T04:47:48+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009074",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 10bit HDR DDP5.1 Atmos-OurTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "OurTV"
+      },
+      "size_bytes": 25209745864,
+      "seeders": 56,
+      "upload_time": "2025-08-02T04:06:42+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009069",
+      "title": "Ne Zha 2 2025 2160p WEB-DL H.265 AAC 2.0-StarfallWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "陈浩",
+          "绿绮"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "StarfallWeb"
+      },
+      "size_bytes": 6883724146,
+      "seeders": 19,
+      "upload_time": "2025-08-02T03:54:27+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009054",
+      "title": "Ne Zha 2 2025 2160p WEB-DL 60fps H.265 HDR Vivid DDP 2.0 3Audio-AilMWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫",
+          "瀚墨",
+          "普通话",
+          "臻彩MAX+"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR Vivid"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "AilMWeb"
+      },
+      "size_bytes": 16123642112,
+      "seeders": 7,
+      "upload_time": "2025-08-02T03:25:56+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009046",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H.265 10bit DoVi DDP 5.1 Atmos-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 28068888446,
+      "seeders": 83,
+      "upload_time": "2025-08-02T03:10:05+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1009028",
+      "title": "Ne Zha 2 2025 2160p HQ WEB-DL H.265 10bit DDP 5.1 Atmos-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 25808095551,
+      "seeders": 828,
+      "upload_time": "2025-08-02T02:36:37+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "921617",
+      "title": "Various Artists Ne zha 2 Original Motion Picture Soundtrack 2025-Flac-QHstudIo",
+      "attrs": {
+        "media_type": null,
+        "content_type": "music",
+        "titles_zh": [],
+        "titles_en": [],
+        "title_candidates": [],
+        "year": null,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": null,
+        "video_codec": null,
+        "hdr": [],
+        "media_source": null,
+        "remux": false,
+        "audio": [
+          "FLAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 4149925093,
+      "seeders": 54,
+      "upload_time": "2025-03-10T14:46:02+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "906602",
+      "title": "Bu Po Bu Li Ne Zha Zhi Mo Tong Nao Hai Mu Hou Ji Lu Pian 2025 WEB-DL 2160p H.265 10bit 2Audios DDP2.0-OurTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "documentary",
+        "titles_zh": [
+          "不破不立",
+          "不破不立：《哪吒之魔童闹海"
+        ],
+        "titles_en": [
+          "Bu Po Bu Li Ne Zha Zhi Mo Tong Nao Hai Mu Hou Ji Lu Pian"
+        ],
+        "title_candidates": [
+          "不破不立：《哪吒之魔童闹海》幕后纪录片"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "OurTV"
+      },
+      "size_bytes": 8341312680,
+      "seeders": 33,
+      "upload_time": "2025-02-12T04:30:46+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "905644",
+      "title": "Bu Po Bu Li 2025 1080p WEB-DL AVC AAC-ZmWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "documentary",
+        "titles_zh": [
+          "不破不立"
+        ],
+        "titles_en": [
+          "Bu Po Bu Li"
+        ],
+        "title_candidates": [
+          "《不破不立》——哪吒之魔童闹海幕后纪录片",
+          "苏沂",
+          "吕艳婷"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ZmWeb"
+      },
+      "size_bytes": 837905838,
+      "seeders": 12,
+      "upload_time": "2025-02-10T12:07:31+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "569046",
+      "title": "Ne.Zha.2.2025.2160p.iT.WEB-DL.DDP.5.1.Atmos.DV.HDR.H.265.2Audios-BYNDR",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne.Zha.2",
+          "Ne Zha 2"
+        ],
+        "title_candidates": [
+          "哪吒之魔童闹海 Ne Zha 2",
+          "中国大陆",
+          "剧情 喜剧 动画 奇幻"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR",
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn",
+          "en"
+        ],
+        "platforms": [],
+        "release_group": "BYNDR"
+      },
+      "size_bytes": 27584427458,
+      "seeders": 11,
+      "upload_time": "2025-09-16T13:19:11+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "560543",
+      "title": "Ne.Zha.2.2025.2160p.HQ.WEB-DL.H265.10bit.HDR.DoVi.DDP.5.1.Atmos-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne.Zha.2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV",
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 23042499543,
+      "seeders": 266,
+      "upload_time": "2025-08-02T03:36:28+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "560525",
+      "title": "Ne.Zha.2.2025.2160p.HQ.WEB-DL.H265.10bit.DoVi.DDP.5.1.Atmos-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne.Zha.2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 28067611279,
+      "seeders": 118,
+      "upload_time": "2025-08-02T02:51:27+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "560517",
+      "title": "Ne.Zha.2.2025.1080p.WEB-DL.H264.AAC-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne.Zha.2"
+        ],
+        "title_candidates": [
+          "吕艳婷",
+          "囧森瑟夫"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 1481763717,
+      "seeders": 117,
+      "upload_time": "2025-08-02T02:44:19+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "560505",
+      "title": "Ne.Zha.2.2025.2160p.WEB-DL.H265.AAC-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne.Zha.2"
+        ],
+        "title_candidates": [
+          "吕艳婷",
+          "囧森瑟夫"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 4498978242,
+      "seeders": 257,
+      "upload_time": "2025-08-02T02:27:49+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "560497",
+      "title": "Ne.Zha.2.2025.2160p.HQ.WEB-DL.H265.10bit.DDP.5.1.Atmos-CMCTV",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "anime",
+        "titles_zh": [
+          "哪吒之魔童闹海",
+          "哪吒2",
+          "哪吒2之魔童闹海"
+        ],
+        "titles_en": [
+          "Ne.Zha.2"
+        ],
+        "title_candidates": [
+          "囧森瑟夫"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "Atmos",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 25812753448,
+      "seeders": 543,
+      "upload_time": "2025-08-02T02:12:35+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "494536",
+      "title": "Bu.Po.Bu.Li.2025.1080p.WEB-DL.AVC.AAC-ZmWeb",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "documentary",
+        "titles_zh": [
+          "不破不立"
+        ],
+        "titles_en": [
+          "Bu.Po.Bu.Li"
+        ],
+        "title_candidates": [
+          "《不破不立》——哪吒之魔童闹海幕后纪录片",
+          "苏沂",
+          "吕艳婷"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ZmWeb"
+      },
+      "size_bytes": 837906595,
+      "seeders": 8,
+      "upload_time": "2025-05-15T03:58:55+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "472213",
+      "title": "Bu.Po.Bu.Li.Ne.Zha.Zhi.Mo.Tong.Nao.Hai.Mu.Hou.Ji.Lu.Pian.2025.WEB-DL.2160p.H264.AAC-NOVOLAND",
+      "attrs": {
+        "media_type": "movie",
+        "content_type": "documentary",
+        "titles_zh": [
+          "不破不立》——哪吒之魔童闹海幕"
+        ],
+        "titles_en": [
+          "Bu.Po.Bu.Li.Ne.Zha.Zhi.Mo.Tong.Nao.Hai.Mu.Hou.Ji.Lu.Pian"
+        ],
+        "title_candidates": [
+          "《不破不立》——哪吒之魔童闹海幕后纪录片"
+        ],
+        "year": 2025,
+        "seasons": [],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "NOVOLAND"
+      },
+      "size_bytes": 5368709120,
+      "seeders": 19,
+      "upload_time": "2025-02-10T09:19:24+00:00"
+    }
+  ]
+}

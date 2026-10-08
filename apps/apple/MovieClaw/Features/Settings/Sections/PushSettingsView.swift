@@ -14,15 +14,15 @@ struct PushSettingsView: View {
 
     var body: some View {
         Form {
-            Section {
+            SettingsFormSection {
                 Picker("分类", selection: $tab) {
                     ForEach(SettingsBPushTab.allCases, id: \.self) { Text($0.title).tag($0) }
                 }
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .accessibilityIdentifier("push-tab")
+                .settingsRowBackground(Color.clear)
             }
-            .listRowBackground(Color.clear)
             .listRowInsets(EdgeInsets())
 
             switch tab {

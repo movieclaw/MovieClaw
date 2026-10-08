@@ -18,13 +18,13 @@ SIM="${MC_SIM:-iPhone 17}"
 DERIVED="${MC_DERIVED:-build}"
 LOG="$(mktemp -t mc-test-$(basename "$(cd ../.. && pwd)")).log"
 
-[[ -d MovieClaw.xcodeproj ]] || xcodegen generate >/dev/null
+scripts/prepare-project.py || exit $?
 
 TEST_RUNNER_MC_LIVE="${MC_LIVE:-0}" TEST_RUNNER_MC_TEST_SERVER="${MC_TEST_SERVER:-}" TEST_RUNNER_MC_TEST_USERNAME="${MC_TEST_USERNAME:-}" TEST_RUNNER_MC_TEST_PASSWORD="${MC_TEST_PASSWORD:-}" \
 TEST_RUNNER_MC_TEST_MP4_ITEM="${MC_TEST_MP4_ITEM:-}" TEST_RUNNER_MC_TEST_MKV_ITEM="${MC_TEST_MKV_ITEM:-}" TEST_RUNNER_MC_TEST_EPISODE_SHOW="${MC_TEST_EPISODE_SHOW:-}" \
 TEST_RUNNER_MC_TEST_HISTORY_FIXTURE="${MC_TEST_HISTORY_FIXTURE:-0}" xcodebuild -project MovieClaw.xcodeproj -scheme MovieClaw \
   -destination "platform=iOS Simulator,name=$SIM" -derivedDataPath "$DERIVED" \
-  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -packageAuthorizationProvider netrc "$@" test \
+  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -packageAuthorizationProvider netrc -onlyUsePackageVersionsFromResolvedFile "$@" test \
   >"$LOG" 2>&1 &
 PID=$!
 

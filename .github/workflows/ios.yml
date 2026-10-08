@@ -1,10 +1,8 @@
 # =============================================================================
 # iOS / Apple TV / Mac App 编译检查
 #
-# 改到 apps/apple 的 PR 在 GitHub 的 macOS runner（默认 Xcode 26.x）上把 App 编一遍。
-# 为什么要有：本机开发用的是更新的 Xcode，它能推断通过的写法（隔离一致性、长表达式），
-# Xcode 26 会编译失败——v0.28.0 发版时 ios-ipa 作业就因此没产出 IPA（2026-09-29）。
-# 在 PR 阶段拦下，发版时就不会再缺 IPA。
+# 引擎的受测工具链为 Xcode 27（与上游相同）；App CI 与发版都使用同一镜像。
+# 构建固定使用入库的 Package.resolved，远程 fork 和传递依赖不会随 main / tag 漂移。
 #
 # 普通 PR 编 Debug：这类问题是 Xcode 版本差异，Debug 下一样报错；Release 整模块优化改一行也要
 # 整个模块重编，以前 iPhone + Apple TV 要 20 分钟，拖慢合并。只在整模块优化下才暴露的编译器问题、
@@ -16,6 +14,7 @@
 # 过滤（同 ci.yml）：被 if 跳过的作业记为 skipped、视同通过，设为分支保护的必需检查也不会让
 # 没改 App 的 PR 卡在「检查未完成」。路径清单要覆盖各 App 目标真正编到的目录（见 project.yml），
 # 新增跨目录的源码时同步下面的 filters。
+# 分支保护只要求 apple-ok：汇总三个 App 的结果，未改 App 的 PR 也会有明确的成功检查。
 # =============================================================================
 name: ios
 
@@ -55,12 +54,13 @@ jobs:
             common: &common
               - *release
               - ".github/workflows/ios.yml"
-              - "apps/apple/scripts/ci-build.sh"
+              - ".github/workflows/release.yml"
+              - "apps/apple/scripts/**"
               - "apps/apple/project.yml"
               - "apps/apple/XcodeConfig/**"
               - "apps/apple/Shared/**"
               - "apps/apple/AetherCore/**"
-              - "apps/apple/Vendor/**"
+              - "apps/apple/Package.resolved"
             iphone:
               - *common
               - "apps/apple/MovieClaw/**"
@@ -78,7 +78,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.iphone == 'true'
     # 与 release.yml 的 ios-ipa 作业同一个 runner 镜像
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
 
@@ -88,14 +88,16 @@ jobs:
           xcodebuild -version
 
       # 缓存 Swift 包（远程包的检出与 FFmpegBuild 等二进制框架），省掉每次从头拉取。
-      # 仓库不提交 Package.resolved（工程由 XcodeGen 现场生成），键按两处包声明算；
-      # 版本范围内的新补丁版本仍会被解析拉取，缓存只是起点
+      # Package.resolved 与工程声明一同入库，构建只使用锁定版本；缓存不会改变解析结果。
       - name: 恢复 Swift 包缓存
         uses: actions/cache@v4
         with:
           path: ~/workspace/.mc-ios-spm
-          key: ios-spm-${{ hashFiles('apps/apple/project.yml', 'apps/apple/Vendor/AetherEngine/Package.swift') }}
+          key: ios-spm-${{ hashFiles('apps/apple/project.yml', 'apps/apple/Package.resolved') }}
           restore-keys: ios-spm-
+
+      - name: 检查依赖锁定约束
+        run: python3 -m unittest discover -s apps/apple/scripts/tests
 
       - name: 编译 iPhone 版（${{ needs.changes.outputs.configuration }}）
         run: apps/apple/scripts/ci-build.sh MovieClaw iOS ${{ needs.changes.outputs.configuration }}
@@ -111,7 +113,7 @@ jobs:
   tv:
     needs: changes
     if: needs.changes.outputs.tv == 'true'
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
 
@@ -124,7 +126,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/workspace/.mc-ios-spm
-          key: ios-spm-${{ hashFiles('apps/apple/project.yml', 'apps/apple/Vendor/AetherEngine/Package.swift') }}
+          key: ios-spm-${{ hashFiles('apps/apple/project.yml', 'apps/apple/Package.resolved') }}
           restore-keys: ios-spm-
 
       - name: 编译 Apple TV 版（${{ needs.changes.outputs.configuration }}）
@@ -142,7 +144,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.mac == 'true'
     # 与 release.yml 的 mac-app 作业同一个 runner 镜像
-    runs-on: macos-26
+    runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4
 
@@ -155,7 +157,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/workspace/.mc-ios-spm
-          key: ios-spm-${{ hashFiles('apps/apple/project.yml', 'apps/apple/Vendor/AetherEngine/Package.swift') }}
+          key: ios-spm-${{ hashFiles('apps/apple/project.yml', 'apps/apple/Package.resolved') }}
           restore-keys: ios-spm-
 
       - name: 编译 Mac 版（${{ needs.changes.outputs.configuration }}）
@@ -167,3 +169,16 @@ jobs:
         with:
           name: mac-build-log
           path: apps/apple/build-ci/MovieClawMac.log
+
+  apple-ok:
+    needs: [changes, iphone, tv, mac]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总 Apple App 检查结果
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if ${{ needs.changes.result != 'success' || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then
+            echo "Apple App 检查失败或被取消"
+            exit 1
+          fi

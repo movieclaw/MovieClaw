@@ -1174,6 +1174,9 @@ class TranscodeSessionManager:
                 segment_type=segment_type(session.plan),
                 attempt_id=job_id,
                 disc=session.concat_list is not None,
+                plan=session.plan,
+                source_id=session.file_id,
+                learn_speed=session.segment_plan is not None,
             )
         except RemoteWorkerUnavailable as exc:
             session.error = str(exc)
@@ -1505,7 +1508,7 @@ class TranscodeSessionManager:
         这是 seek 的唯一入口：客户端按预生成列表直接请求任意分片，这里判断
         「等它转过来」还是「杀掉重启直奔目标」。
 
-        ``allow_partial``：客户端能边收边解（AVFoundation），且这一轮在边产出边送时，
+        ``allow_partial``：客户端能边收边解（AVFoundation / 流式 hls.js），且这一轮在边产出边送时，
         分片第一个片段一到就返回 ``PartialSegment``，由路由层跟着它的增长往下送，
         不必等整段（docs/design/transcode-latency.md §5）。"""
         plan = session.segment_plan
@@ -2040,6 +2043,9 @@ class TranscodeSessionManager:
                     segment_type=segment_type(session.plan),
                     attempt_id=job_id,
                     disc=session.concat_list is not None,
+                    plan=session.plan,
+                    source_id=session.file_id,
+                    learn_speed=session.segment_plan is not None,
                 )
                 session.progressive = _wants_progressive(session, connection)
                 try:

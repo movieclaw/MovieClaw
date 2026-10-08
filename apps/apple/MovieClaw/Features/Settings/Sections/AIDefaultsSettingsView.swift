@@ -5,7 +5,7 @@ import SwiftUI
 /// 与「模型接入」分开：接入回答「怎么连上」，这里回答「智能体 / 字幕处理默认用哪个模型」。
 /// 选项是所有已接入实例的模型清单（`GET /llm/models`）；服务端保证接入过供应商就一定有默认值，
 /// 所以这里显示的永远是真实存的值。一个都没接入时给空态，引导去「模型接入」。
-/// 选择即保存（`PUT /llm/defaults`），乐观更新、失败回滚；另一项若已失效（不在清单里）不能原样回传，
+/// 抽屉内选择并确认保存（`PUT /llm/defaults`），失败留在抽屉；另一项若已失效不能原样回传，
 /// 传空让服务端按推荐补齐。
 struct AIDefaultsSettingsView: View {
     @Environment(\.api) private var api
@@ -16,8 +16,10 @@ struct AIDefaultsSettingsView: View {
     @State private var options: [API.LlmModelOptionView] = []
     @State private var error: String?
     @State private var saving: Purpose?
+    @State private var selecting: Purpose?
 
-    enum Purpose: String, CaseIterable {
+    enum Purpose: String, CaseIterable, Identifiable {
+        var id: String { rawValue }
         case agent, subtitle
 
         var label: String { self == .agent ? "智能体默认模型" : "字幕处理默认模型" }
@@ -36,28 +38,42 @@ struct AIDefaultsSettingsView: View {
             if defaults != nil, options.isEmpty {
                 emptyState
             } else {
-                Section {
-                    Text("为不同场景各选一个默认模型。可选项来自\(Text("「模型接入」").foregroundStyle(Theme.accent))里所有已接入供应商的模型目录；首次接入时已自动设为该供应商目录里的第一个模型，可随时更改。")
-                        .font(.subheadline).foregroundStyle(Theme.textMuted)
-                        .onTapGesture { router.push(.settingsSection(.llm)) }
-                        .listRowBackground(Color.clear)
-                }
-                if let error { Section { SettingsNotice(text: error) } }
+                if let error { SettingsFormSection { SettingsNotice(text: error) } }
                 if let defaults {
                     ForEach(Purpose.allCases, id: \.self) { purpose in
                         purposeSection(purpose, defaults)
                     }
+                    SettingsFormSection {
+                        Button { router.push(.settingsSection(.llm)) } label: {
+                            HStack {
+                                Text("模型接入").foregroundStyle(Theme.text)
+                                Spacer()
+                                Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
+                            }
+                        }.accessibilityIdentifier("ai-manage-providers")
+                    } footer: { Text("可选模型来自已接入供应商的模型目录。") }
                 } else if error == nil {
-                    Section { SettingsLoadingRow() }
+                    SettingsFormSection { SettingsLoadingRow() }
                 }
             }
         }
-        .appBackground()
+        .settingsBFormStyle()
+        .refreshable { await load() }
+        .sheet(item: $selecting) { purpose in
+            if let defaults {
+                AIModelSelectionSheet(title: purpose.label, explanation: purpose.desc,
+                                      options: options, original: purpose.value(defaults)) { value in
+                    await save(purpose, value)
+                    return error
+                }
+                .sheetFeedback()
+            }
+        }
         .task { await load() }
     }
 
     private var emptyState: some View {
-        Section {
+        SettingsFormSection {
             VStack(spacing: 10) {
                 Image(systemName: "sparkles").font(.title).foregroundStyle(Theme.textMuted)
                 Text("还没有可选的模型").font(.body.weight(.medium))
@@ -73,28 +89,30 @@ struct AIDefaultsSettingsView: View {
 
     private func purposeSection(_ purpose: Purpose, _ defaults: API.LlmDefaultsView) -> some View {
         let value = purpose.value(defaults)
-        // 正常情况下一定有值且在清单里；只有预设目录漂移才会失效，此时提示并展示实际生效的兜底值
-        let stale = value == nil || !options.contains { $0.ref == value }
-        return Section {
-            Picker(selection: Binding(
-                get: { stale ? "" : (value ?? "") },
-                set: { next in Task { await save(purpose, next.isEmpty ? nil : next) } }
-            )) {
-                if stale { Text("请重新选择…").tag("") }
-                ForEach(options, id: \.ref) { option in
-                    Text(option.label + (option.thinkingLevels.isEmpty ? "" : "（思考档位可控）")).tag(option.ref)
+        // 未设定时可由服务端自动选择；只有明确保存过、但已退出目录的引用才属于失效。
+        let stale = AIModelSelection.isStale(value, in: options)
+        let effective = purpose.effective(defaults)
+        let display = label(of: value == nil || stale ? effective : value) ?? "选择模型"
+        return SettingsFormSection {
+            Button { selecting = purpose } label: {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(purpose == .agent ? "智能体" : "字幕处理").foregroundStyle(Theme.text)
+                        Text(value == nil && effective != nil ? "自动 · \(display)" : display)
+                            .font(.subheadline).foregroundStyle(Theme.textMuted)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 4)
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(.tertiary)
                 }
-            } label: {
-                SettingsRowText(title: purpose.label, detail: purpose.desc)
             }
-            .pickerStyle(.navigationLink)
             .disabled(saving != nil)
             .accessibilityIdentifier("ai-\(purpose.rawValue)-model")
             if stale {
-                Text("原设定的「\(value ?? "（空）")」已不在模型清单里，当前自动使用\(label(of: purpose.effective(defaults)) ?? "无")；请重新选择。")
+                Text("原设定的模型已不可用，当前使用\(label(of: purpose.effective(defaults)) ?? "无")，请选择新模型。")
                     .font(.caption).foregroundStyle(Theme.warning)
             }
-        }
+        } footer: { Text(purpose.desc) }
     }
 
     private func label(of ref: String?) -> String? {
@@ -116,17 +134,11 @@ struct AIDefaultsSettingsView: View {
 
     private func save(_ purpose: Purpose, _ value: String?) async {
         guard let previous = defaults else { return }
-        var optimistic = previous
-        if purpose == .agent { optimistic.agentModel = value } else { optimistic.subtitleModel = value }
-        defaults = optimistic
         saving = purpose
         error = nil
         defer { saving = nil }
         /// 另一项若已失效，传空让服务端按推荐补齐（原样回传会被整体拒绝）
-        func sibling(_ ref: String?) -> String? {
-            guard let ref, options.contains(where: { $0.ref == ref }) else { return nil }
-            return ref
-        }
+        func sibling(_ ref: String?) -> String? { AIModelSelection.validReference(ref, in: options) }
         do {
             defaults = try await api.llmDefaultsUpdate(body: .init(
                 agentModel: purpose == .agent ? value : sibling(previous.agentModel),
@@ -137,6 +149,100 @@ struct AIDefaultsSettingsView: View {
         } catch {
             defaults = previous
             self.error = error.localizedDescription
+        }
+    }
+}
+
+/// 模型目录可能在编辑期间发生变化；失效的同级默认值必须交由服务端重新推荐。
+enum AIModelSelection {
+    static func isStale(_ ref: String?, in options: [API.LlmModelOptionView]) -> Bool {
+        ref != nil && validReference(ref, in: options) == nil
+    }
+
+    static func validReference(_ ref: String?, in options: [API.LlmModelOptionView]) -> String? {
+        guard let ref, options.contains(where: { $0.ref == ref }) else { return nil }
+        return ref
+    }
+
+    static func filtered(_ options: [API.LlmModelOptionView], query: String) -> [API.LlmModelOptionView] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return options }
+        return options.filter { "\($0.label) \($0.providerName)".localizedCaseInsensitiveContains(query) }
+    }
+}
+
+private struct AIModelSelectionSheet: View {
+    let title: String
+    let explanation: String
+    let options: [API.LlmModelOptionView]
+    let original: String?
+    let onSave: (String) async -> String?
+    @Environment(\.dismiss) private var dismiss
+    @State private var selected: String?
+    @State private var query = ""
+    @State private var busy = false
+    @State private var error: String?
+    @State private var discarding = false
+
+    init(title: String, explanation: String, options: [API.LlmModelOptionView], original: String?,
+         onSave: @escaping (String) async -> String?) {
+        self.title = title
+        self.explanation = explanation
+        self.options = options
+        self.original = original
+        self.onSave = onSave
+        _selected = State(initialValue: original)
+    }
+
+    private var dirty: Bool { selected != original }
+
+    var body: some View {
+        SubsSheetScaffold(title: title, onClose: {
+            if dirty { discarding = true } else { dismiss() }
+        }, confirm: SubsSheetConfirm(title: "保存", enabled: dirty && AIModelSelection.validReference(selected, in: options) != nil,
+                                     busy: busy, identifier: "ai-model-save") {
+            guard let selected else { return }
+            Task {
+                busy = true
+                error = await onSave(selected)
+                busy = false
+                if error == nil { dismiss() }
+            }
+        }) {
+            SettingsFormSection {
+                HStack {
+                    Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+                    TextField("搜索模型或供应商", text: $query)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .accessibilityIdentifier("ai-model-search")
+                }
+            } footer: { Text(explanation) }
+            SettingsFormSection {
+                let visible = AIModelSelection.filtered(options, query: query)
+                if visible.isEmpty { Text("没有匹配的模型").foregroundStyle(.secondary) }
+                ForEach(visible, id: \.ref) { option in
+                    Button { selected = option.ref } label: {
+                        HStack(spacing: 12) {
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(option.label).foregroundStyle(Theme.text)
+                                Text(option.providerName + (option.thinkingLevels.isEmpty ? "" : " · 支持思考档位"))
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 4)
+                            if selected == option.ref { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                        }
+                    }
+                    .accessibilityAddTraits(selected == option.ref ? .isSelected : [])
+                    .accessibilityIdentifier("ai-model-option-\(option.ref)")
+                }
+            }
+            if let error { SettingsFormSection { SettingsNotice(text: error) } }
+        }
+        .disabled(busy)
+        .interactiveDismissDisabled(busy || dirty)
+        .alert("放弃未保存的修改？", isPresented: $discarding) {
+            Button("继续编辑", role: .cancel) { }
+            Button("放弃修改", role: .destructive) { dismiss() }
         }
     }
 }

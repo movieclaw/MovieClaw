@@ -69,7 +69,7 @@ export function SubsHomeChipView({ chip }: { chip: SubsHomeChip }) {
   );
 }
 
-/** 发丝进度线：底槽 + 带柔光的进度段（下载进度、海报收录、续播进度共用） */
+/** 发丝进度线：底槽 + 带柔光的进度段（下载进度、续播进度共用） */
 export function SubsHomeProgressLine({
   value,
   color = "#fff",
@@ -220,7 +220,7 @@ export function SubsHomePosterCard({
   dimsResting?: boolean;
 }) {
   const tapGuard = useTapGuard();
-  const { sub, chip, meta, progress } = item;
+  const { sub, chip, meta } = item;
   const dimmed = dimsResting && item.resting;
   return (
     <Link
@@ -242,16 +242,6 @@ export function SubsHomePosterCard({
           alt=""
           className={`absolute inset-0 size-full object-cover ${dimmed ? "brightness-[0.88] saturate-[0.35]" : ""}`}
         />
-        {progress != null && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[34px] bg-gradient-to-b from-transparent to-black/55">
-            <SubsHomeProgressLine
-              value={progress}
-              color="rgba(255,255,255,0.92)"
-              height={2.5}
-              className="absolute inset-x-[9px] bottom-2"
-            />
-          </div>
-        )}
         {chip && (
           <div className="pointer-events-none absolute left-[7px] right-[7px] top-[7px] flex">
             <SubsHomeChipView chip={chip} />

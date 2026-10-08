@@ -1975,6 +1975,8 @@ async def test_partial_segment_response_follows_growth_until_complete(tmp_path):
     headers = dict(sent[0]["headers"])
     assert b"content-length" not in headers, "长度未知，必须分块传输"
     assert headers[b"cache-control"] == b"no-store"
+    assert headers[b"x-movieclaw-partial-segment"] == b"1"
+    assert headers[b"x-accel-buffering"] == b"no"
     bodies = [m for m in sent if m["type"] == "http.response.body"]
     assert b"".join(m["body"] for m in bodies) == b"FRAG1FRAG2"
     assert bodies[-1]["more_body"] is False
@@ -2024,8 +2026,8 @@ def test_whole_segment_upload_supersedes_a_half_written_partial(client, tmp_path
     assert not (directory / ".seg00003.m4s.partial").exists()
 
 
-def test_only_avfoundation_clients_get_partial_segments():
-    """边产出边送的半截分片只给 AVFoundation（原生 HLS、没有 MSE）；hls.js 照旧等整段。"""
+def test_only_streaming_clients_get_partial_segments():
+    """AVFoundation 或显式声明渐进解码的网页才能取半成品；普通 XHR 仍等整段。"""
     from movieclaw_api.schemas.playback import ClientCapabilityIn
 
     ios = ClientCapabilityIn(native_hls=True, mse="none")
@@ -2035,10 +2037,15 @@ def test_only_avfoundation_clients_get_partial_segments():
     assert not routes_playback._capability_consumes_partial_segments(web)
     assert not routes_playback._capability_consumes_partial_segments(safari_mse)
 
-    def request(user_agent: str) -> Request:
-        return Request({"type": "http", "headers": [(b"user-agent", user_agent.encode())]})
+    def request(user_agent: str, query: bytes = b"") -> Request:
+        return Request({
+            "type": "http", "headers": [(b"user-agent", user_agent.encode())],
+            "query_string": query,
+        })
 
     avplayer = "AppleCoreMedia/1.0.0.23A341 (iPhone; U; CPU OS 26_0 like Mac OS X; zh_cn)"
     chrome = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140.0"
     assert routes_playback._consumes_partial_segments(request(avplayer))
     assert not routes_playback._consumes_partial_segments(request(chrome))
+    assert routes_playback._consumes_partial_segments(request(chrome, b"partial=1"))
+    assert not routes_playback._consumes_partial_segments(request(chrome, b"partial=0"))

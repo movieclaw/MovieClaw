@@ -4,21 +4,23 @@ import { useEffect } from "react";
 
 import { softKeyboardPossible } from "@/lib/soft-keyboard";
 
-/**
- * --vp-overshoot 的实测重算（首帧值由 layout.tsx 的内联脚本在绘制前写入，逻辑
- * 与注释见那边；本函数是同一份逻辑的运行期副本，改一处要看另一处）。
- * 旋转 / iPad 调整分屏会同时改变 safe-top 与布局视口高度，CSS 猜测值和首帧
- * 实测值都会过期，跟着可视视口 resize 重测一遍。键盘不参与：iOS 弹键盘不改
- * 布局视口（innerHeight 纹丝不动），测量天然免疫。
- */
+/** iOS 主屏网页的画布高度；首帧脚本在 layout.tsx，运行时在恢复/旋转后重测。 */
 export function syncViewportOvershoot() {
-  if (!window.matchMedia("(display-mode: standalone)").matches) return;
+  const standalone =
+    window.matchMedia("(display-mode: standalone)").matches ||
+    (navigator as Navigator & { standalone?: boolean }).standalone === true;
+  if (!standalone) return;
   if (!window.CSS || !CSS.supports("(-webkit-touch-callout: none)")) return;
+  // 不把键盘缩短或捏合后的视口记成整屏高度。
+  if (softKeyboardPossible() || (window.visualViewport?.scale ?? 1) > 1.01) return;
   const root = document.documentElement;
-  const safeTop = parseFloat(getComputedStyle(root).getPropertyValue("--safe-top"));
-  if (!Number.isFinite(safeTop)) return;
-  const gap = Math.min(Math.max(screen.height - window.innerHeight, 0), safeTop);
+  const safeTop = parseFloat(getComputedStyle(root).getPropertyValue("--safe-top")) || 0;
+  const difference = screen.height - window.innerHeight;
+  // 只补状态栏大小的差额；iPad 分屏窗口不应被撑到整块屏幕的高度。
+  const gap = difference > 0 && difference <= safeTop ? difference : 0;
   root.style.setProperty("--vp-overshoot", `${gap}px`);
+  root.style.setProperty("--pwa-height", `${window.innerHeight + gap}px`);
+  root.setAttribute("data-ios-standalone", "");
 }
 
 /**
@@ -60,7 +62,7 @@ export function syncViewportOvershoot() {
  * —— 二、窗口滚动归位 ——
  *
  * 全站是「外壳固定 + 内层容器滚动」，窗口本身永远不该有滚动偏移。但为了修
- * 底部黑条，html/body 被撑高了 --vp-overshoot（见 globals.css，两处是一对），
+ * 底部黑条，html/body 使用独立的整屏高度（见 globals.css，两处是一对），
  * 窗口因此多出一截可滚动区域；iOS 弹出软键盘时会滚动窗口去露出聚焦的输入框
  * （这一截远不够露出输入框，纯属白滚），收起后这段偏移**不会还原**——整页
  * 向上错位一截，顶栏叠进状态栏。
@@ -135,12 +137,15 @@ export function ViewportKeyboard() {
     };
     // 推迟一拍等焦点落定（focusout 触发时 activeElement 还没换过去），
     // 再按新焦点重算键盘占高并归位
-    const onFocusOut = () =>
-      window.setTimeout(() => {
-        applyInset();
-        resetScroll();
-      }, 0);
+    const onFocusOut = () => window.setTimeout(onResize, 0);
 
+    const onVisible = () => {
+      if (document.visibilityState === "visible") onResize();
+    };
+    onResize();
+    window.addEventListener("pageshow", onResize);
+    window.addEventListener("resize", onResize);
+    document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("scroll", resetScroll, { passive: true });
     window.addEventListener("focusin", onFocusIn);
     window.addEventListener("focusout", onFocusOut);
@@ -149,6 +154,9 @@ export function ViewportKeyboard() {
     window.addEventListener("pointerdown", applyInset, { passive: true });
     vv?.addEventListener("resize", onResize);
     return () => {
+      window.removeEventListener("pageshow", onResize);
+      window.removeEventListener("resize", onResize);
+      document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("scroll", resetScroll);
       window.removeEventListener("focusin", onFocusIn);
       window.removeEventListener("focusout", onFocusOut);

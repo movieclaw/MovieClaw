@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 
+import { Toggle } from "@/components/cloud-push-ui";
+import { SettingsRow } from "@/components/settings-ui";
 import { fetchPlaybackPolicy, savePlaybackPolicy } from "@/lib/api/playback";
 
 /**
@@ -15,7 +17,7 @@ import { fetchPlaybackPolicy, savePlaybackPolicy } from "@/lib/api/playback";
  * 失败即回滚并提示，不需要单独的保存按钮。已生成的预览不受开关影响：
  * 关掉只是不再生成新的，重新打开即恢复。
  */
-export function TrickplayToggleSection() {
+export function TrickplayToggleRow() {
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -54,39 +56,23 @@ export function TrickplayToggleSection() {
   );
 
   return (
-    <section>
-      <h3 className="group-label mb-2.5 px-1">进度条预览</h3>
-      <div className="css-glass space-y-4 !rounded-2xl p-5 max-sm:p-4">
-        {error && (
-          <div
-            role="alert"
-            className="rounded-xl border border-[#ff6b6b]/30 bg-[#ff6b6b]/10 px-4 py-3 text-body text-[#ff9b9b]"
-          >
-            {error}
-          </div>
-        )}
-        <label className="flex cursor-pointer items-center justify-between gap-4">
-          <span>
-            <span className="block text-body font-medium text-[var(--text)]">
-              生成进度条预览图
-            </span>
-            <span className="mt-0.5 block text-caption leading-5 text-[var(--text-faint)]">
-              {enabled
-                ? "拖动进度条时可以看到画面缩略图；影片入库后首次播放会在后台慢慢生成"
-                : "不再为新影片生成预览，已生成的照常显示；重新打开即恢复生成"}
-            </span>
-          </span>
-          {enabled !== null && (
-            <input
-              type="checkbox"
-              checked={enabled}
-              disabled={busy}
-              onChange={(event) => void toggle(event.target.checked)}
-              className="size-5 shrink-0 accent-[var(--accent)]"
-            />
-          )}
-        </label>
-      </div>
-    </section>
+    <SettingsRow
+      label="生成进度条预览图"
+      description={
+        enabled
+          ? "拖动进度条时可以看到画面缩略图；影片入库后首次播放会在后台慢慢生成"
+          : "不再为新影片生成预览，已生成的照常显示；重新打开即恢复生成"
+      }
+      error={error}
+    >
+      {enabled !== null && (
+        <Toggle
+          checked={enabled}
+          label="生成进度条预览图"
+          disabled={busy}
+          onChange={(next) => void toggle(next)}
+        />
+      )}
+    </SettingsRow>
   );
 }

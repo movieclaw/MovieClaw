@@ -60,8 +60,13 @@ class RemoteTranscodeConfigView(BaseModel):
     )
 
 
+class WorkerConfigPayload(BaseModel):
+    max_jobs: int = Field(strict=True, ge=1, le=4)
+
+
 __all__ = [
     "RemoteTranscodeConfigPayload",
     "RemoteTranscodeConfigView",
+    "WorkerConfigPayload",
     "RemoteTranscodeBaseUrlSource",
 ]

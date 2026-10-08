@@ -70,9 +70,14 @@ def build_message(
     environment: str,
     payload: str,
     collapse_id: str | None = None,
-    sound: bool = True,
+    level: str = "active",
+    relevance: float | None = None,
 ) -> dict:
-    """中继协议的一条推送消息（第 5.2 节）。``payload`` 是加密后的明文。"""
+    """中继协议的一条推送消息（第 5.2 节）。``payload`` 是加密后的明文。
+
+    ``level`` 是打扰级别（协议 §7 的 ``interruption-level``）：passive 不带声音、不亮屏；
+    ``relevance`` 是系统通知摘要里的排序分（``relevance-score``）。
+    """
     message: dict = {
         "id": str(uuid.uuid4()),
         "platform": "apns",
@@ -84,8 +89,13 @@ def build_message(
         "expires_at": int((utcnow() + ALERT_TTL).timestamp()),
         "payload": payload,
     }
-    if sound:
-        message["aps"] = {"sound": "default"}
+    aps: dict = {} if level == "passive" else {"sound": "default"}
+    if level != "active":
+        aps["interruption-level"] = level
+    if relevance is not None:
+        aps["relevance-score"] = round(min(1.0, max(0.0, relevance)), 2)
+    if aps:
+        message["aps"] = aps
     if collapse_id:
         message["collapse_id"] = collapse_id
     return message

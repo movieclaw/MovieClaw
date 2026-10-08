@@ -23,6 +23,7 @@ enum CoreCommand: Codable, Equatable {
     case configure(CoreConfiguration)
     /// 更新 ffmpeg 前暂停接单（手上的任务照常转完）。
     case setDraining(Bool)
+    case setMaxJobs(Int)
     /// 睡眠唤醒、网络恢复：别等退避，立刻确认连接还活着。
     case reconnectNow
     /// 优雅退出：先跟 NAS 道别、停掉手上的 ffmpeg。

@@ -5,14 +5,7 @@ import { DiscoverView } from "@/components/discover-view";
 import { parseDiscoveryFilters } from "@/lib/discovery-filters";
 import type { MediaSource } from "@/lib/media-types";
 
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ type: string }>;
-}): Promise<Metadata> {
-  const { type } = await params;
-  return { title: type === "tv" ? "发现剧集" : "发现电影" };
-}
+export const metadata: Metadata = { title: "发现" };
 
 /** 发现页（/discover/movie | /discover/tv）：Hero 精选 + 分类横滚行。 */
 export default async function DiscoverPage({

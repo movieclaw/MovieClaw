@@ -1,0 +1,8274 @@
+{
+  "as_of": "2026-10-07T04:32:38.581006",
+  "keyword": "Cold Hunt",
+  "page": 1,
+  "scope": "current search snapshot, not complete historical observation",
+  "sites": [
+    {
+      "site_id": "hdhome",
+      "count": 4,
+      "failed": false
+    },
+    {
+      "site_id": "mteam",
+      "count": 54,
+      "failed": false
+    },
+    {
+      "site_id": "ttg",
+      "count": 0,
+      "failed": false
+    },
+    {
+      "site_id": "ssd",
+      "count": 3,
+      "failed": false
+    },
+    {
+      "site_id": "chdbits",
+      "count": 100,
+      "failed": false
+    },
+    {
+      "site_id": "keepfrds",
+      "count": 0,
+      "failed": false
+    }
+  ],
+  "items": [
+    {
+      "site_id": "hdhome",
+      "torrent_id": "306556",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ HDR10 H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 136665859358,
+      "seeders": 7,
+      "upload_time": "2026-09-26T02:30:28+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "306554",
+      "title": "Cold Hunt 2026 S01 Complete 1080p WEB-DL H.264 AAC-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 5680094248,
+      "seeders": 12,
+      "upload_time": "2026-09-26T02:23:46+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "306511",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H.265 DV 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 156798518558,
+      "seeders": 3,
+      "upload_time": "2026-09-25T17:22:17+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "305990",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60fps H.265 10bit AAC-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 23160611143,
+      "seeders": 35,
+      "upload_time": "2026-09-20T02:28:44+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1263378",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 DTS 5.1-OurTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯",
+          "周逵",
+          "赵阳",
+          "杜比环绕声"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "OurTV"
+      },
+      "size_bytes": 30298771239,
+      "seeders": 15,
+      "upload_time": "2026-10-01T04:06:38+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1262446",
+      "title": "Cold Hunt S01 2026 1080p WEB-DL AAC H264-HDSWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDSWEB"
+      },
+      "size_bytes": 5583484252,
+      "seeders": 13,
+      "upload_time": "2026-09-29T13:29:39+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1260488",
+      "title": "Cold Hunt S01 2026 2160p YK HQ WEB-DL H.265 HDR DTS 5.1 3Audio-ADWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ADWeb"
+      },
+      "size_bytes": 131630340791,
+      "seeders": 15,
+      "upload_time": "2026-09-26T03:05:48+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1260481",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL HFR HQ HDR10 H.265 10bit DTS 5.1 3Audio-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 136670304888,
+      "seeders": 5,
+      "upload_time": "2026-09-26T02:36:59+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1260449",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H.265 HFR HDR DTS 5.1 3Audio-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 136672063724,
+      "seeders": 9,
+      "upload_time": "2026-09-26T01:33:36+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1260410",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL HFR H.265 HDR AAC 2.0-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语中字"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 22677342852,
+      "seeders": 17,
+      "upload_time": "2026-09-26T00:16:15+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1260397",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL HFR H.265 HDR DTS 5.1-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语中字"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 27210819619,
+      "seeders": 10,
+      "upload_time": "2026-09-25T23:47:18+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1260249",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H.265 HFR DTS 5.1 3Audio-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 156800184115,
+      "seeders": 7,
+      "upload_time": "2026-09-25T16:46:03+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1260128",
+      "title": "Cold Hunt 2026 S01 2160p WEB-DL HFR H.265 HDR10 DTS5.1-AilMWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶",
+          "冬城獵兇",
+          "冬城獵凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "万茜",
+          "余文乐"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "AilMWeb"
+      },
+      "size_bytes": 30471816518,
+      "seeders": 21,
+      "upload_time": "2026-09-25T09:56:24+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1258536",
+      "title": "Cold Hunt 2026 S01E1-E15 Complete 2160p WEB-DL HFR HQ H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 113762206184,
+      "seeders": 10,
+      "upload_time": "2026-09-22T12:50:06+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1258524",
+      "title": "Cold Hunt 2026 S01E1-E15 Complete 2160p WEB-DL HQ H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 109886402897,
+      "seeders": 5,
+      "upload_time": "2026-09-22T12:38:51+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1258509",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 24226275928,
+      "seeders": 27,
+      "upload_time": "2026-09-22T12:23:36+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1257618",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL HFR H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 29143964760,
+      "seeders": 71,
+      "upload_time": "2026-09-21T10:41:47+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1257403",
+      "title": "Cold Hunt 2026 S01 Complete 1080p WEB-DL H264 AAC AAC2.0-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 5674758834,
+      "seeders": 49,
+      "upload_time": "2026-09-21T02:46:57+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256725",
+      "title": "Cold Hunt 2026 S01E15 Complete 2160p WEB-DL HFR HQ HDR10 H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 7704738738,
+      "seeders": 4,
+      "upload_time": "2026-09-20T02:59:10+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256504",
+      "title": "Cold Hunt 2026 S01E15 Complete 2160p WEB-DL HFR HQ DoVi H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 9687267025,
+      "seeders": 10,
+      "upload_time": "2026-09-19T16:21:42+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256338",
+      "title": "Cold Hunt 2026 S01E15 2160p WEB-DL HFR HDR H.265 DTS 5.1 3Audio-AilMWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶",
+          "冬城獵兇",
+          "冬城獵凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "万茜",
+          "余文乐"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "AilMWeb"
+      },
+      "size_bytes": 1735670150,
+      "seeders": 5,
+      "upload_time": "2026-09-19T12:45:06+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256292",
+      "title": "Cold Hunt 2026 S01E15 2160p WEB-DL HFR H.265 AAC 2.0-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "李豫京 万茜",
+          "岳晴川 余文乐",
+          "段长河 [汉语普通话中字] 2026"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 1112023513,
+      "seeders": 3,
+      "upload_time": "2026-09-19T11:34:00+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256291",
+      "title": "Cold Hunt 2026 S01E15 1080p WEB-DL HFR H.265 AAC 2.0-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "李豫京 万茜",
+          "岳晴川 余文乐",
+          "段长河 [汉语普通话中字] 2026"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 329533186,
+      "seeders": 8,
+      "upload_time": "2026-09-19T11:32:37+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256290",
+      "title": "Cold Hunt 2026 S01 2160p WEB-DL H.265 AAC 2.0 2Audio-AilMWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶",
+          "冬城獵兇",
+          "冬城獵凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "万茜",
+          "余文乐",
+          "普通话"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "AilMWeb"
+      },
+      "size_bytes": 24065087887,
+      "seeders": 16,
+      "upload_time": "2026-09-19T11:32:26+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256237",
+      "title": "Cold Hunt 2026 S01E15-E18 2160p WEB-DL H.265 AAC 2.0 2Audio-AilMWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶",
+          "冬城獵兇",
+          "冬城獵凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "万茜",
+          "余文乐",
+          "普通话"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15,
+          16,
+          17,
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "AilMWeb"
+      },
+      "size_bytes": 4930328731,
+      "seeders": 16,
+      "upload_time": "2026-09-19T10:05:35+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256196",
+      "title": "Cold Hunt S01 2026 2160p YK WEB-DL H.265 DTS 5.1-ADWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ADWeb"
+      },
+      "size_bytes": 23408788434,
+      "seeders": 155,
+      "upload_time": "2026-09-19T09:12:47+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256195",
+      "title": "Cold Hunt S01 2026 1080p YK WEB-DL H.264 AAC 2.0-ADWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ADWeb"
+      },
+      "size_bytes": 5576861857,
+      "seeders": 28,
+      "upload_time": "2026-09-19T09:12:35+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256194",
+      "title": "Cold Hunt S01E15-E18 2026 2160p YK WEB-DL H.265 DTS 5.1 4Audio-HHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "徐忱",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15,
+          16,
+          17,
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "4Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 4825126419,
+      "seeders": 12,
+      "upload_time": "2026-09-19T09:11:45+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256192",
+      "title": "Cold Hunt S01E15-E18 2026 2160p YK WEB-DL H.265 HDR DTS 5.1 4Audio-HHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "徐忱",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15,
+          16,
+          17,
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "4Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 4890488736,
+      "seeders": 9,
+      "upload_time": "2026-09-19T09:08:03+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256188",
+      "title": "Cold Hunt S01E15-E18 2026 2160p YK WEB-DL H.265 HDR HFR DTS 5.1 4Audio-HHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "徐忱",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15,
+          16,
+          17,
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "4Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 5990700665,
+      "seeders": 17,
+      "upload_time": "2026-09-19T08:59:48+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256182",
+      "title": "Cold Hunt 2026 S01E15 2160p WEB-DL HFR H.265 DTS 5.1 2Audio-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "中国大陆",
+          "剧情, 犯罪"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 1434055501,
+      "seeders": 81,
+      "upload_time": "2026-09-19T08:53:02+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256175",
+      "title": "Cold Hunt S01E15-E18 2026 2160p YK WEB-DL HFR H.265 DTS 5.1 2Audio-HHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "徐忱",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15,
+          16,
+          17,
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 5926628621,
+      "seeders": 50,
+      "upload_time": "2026-09-19T08:34:15+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1256168",
+      "title": "Cold Hunt S01E17 2026 2160p YK WEB-DL H.265 DTS 5.1-ADWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ADWeb"
+      },
+      "size_bytes": 1252158336,
+      "seeders": 150,
+      "upload_time": "2026-09-19T08:26:13+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1255851",
+      "title": "Cold Hunt 2026 S01E14 Complete 2160p WEB-DL HFR HQ HDR10 H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 7649198502,
+      "seeders": 14,
+      "upload_time": "2026-09-19T02:50:56+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1255613",
+      "title": "Cold Hunt S01E14 2026 2160p YK HQ WEB-DL DoVi H.265 DDP 5.1 3Audio-ADWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "3Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ADWeb"
+      },
+      "size_bytes": 8834587166,
+      "seeders": 3,
+      "upload_time": "2026-09-18T16:32:54+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1255594",
+      "title": "Cold Hunt 2026 S01E14 Complete 2160p WEB-DL HFR HQ DoVi H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 9077590872,
+      "seeders": 10,
+      "upload_time": "2026-09-18T16:18:29+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1255418",
+      "title": "Cold Hunt S01E14 2026 2160p WEB-DL HFR HDR AAC H265-HDSWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDSWEB"
+      },
+      "size_bytes": 1343680198,
+      "seeders": 106,
+      "upload_time": "2026-09-18T11:30:20+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1254863",
+      "title": "Cold Hunt 2026 S01E13 Complete 2160p WEB-DL HFR HQ DoVi H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 8211695276,
+      "seeders": 16,
+      "upload_time": "2026-09-17T16:27:37+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1254861",
+      "title": "Cold Hunt 2026 S01E13 Complete 2160p WEB-DL HFR HQ HDR10 H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 7522061784,
+      "seeders": 14,
+      "upload_time": "2026-09-17T16:26:42+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1254703",
+      "title": "Cold Hunt S01E13 2026 2160p WEB-DL HFR HDR AAC H265-HDSWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDSWEB"
+      },
+      "size_bytes": 1257071478,
+      "seeders": 106,
+      "upload_time": "2026-09-17T10:59:09+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1254444",
+      "title": "Cold Hunt 2026 S01E12 Complete 2160p WEB-DL HFR HQ HDR10 H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 7741376179,
+      "seeders": 16,
+      "upload_time": "2026-09-17T02:47:53+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1254269",
+      "title": "Cold Hunt 2026 S01E12 Complete 2160p WEB-DL HFR HQ DoVi H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 8409131968,
+      "seeders": 17,
+      "upload_time": "2026-09-16T16:16:52+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1253979",
+      "title": "Cold Hunt S01E12 2026 2160p WEB-DL HFR HDR AAC H265-HDSWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDSWEB"
+      },
+      "size_bytes": 1569061971,
+      "seeders": 127,
+      "upload_time": "2026-09-16T08:40:05+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1253823",
+      "title": "Cold Hunt 2026 S01E11 Complete 2160p WEB-DL HFR HQ HDR10 H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 7776029973,
+      "seeders": 7,
+      "upload_time": "2026-09-16T03:05:20+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1253607",
+      "title": "Cold Hunt 2026 S01E11 Complete 2160p WEB-DL HFR HQ DoVi H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 8213083515,
+      "seeders": 18,
+      "upload_time": "2026-09-15T16:22:23+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1253469",
+      "title": "Cold Hunt 2026 S01E11 2160p WEB-DL HFR H.265 10bit DTS 5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 1671795548,
+      "seeders": 122,
+      "upload_time": "2026-09-15T12:10:01+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1253466",
+      "title": "Cold Hunt S01E10-E11 2026 2160p YK WEB-DL H.265 HDR HFR DTS 5.1 4Audio-HHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "徐忱",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10,
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "4Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 2966825721,
+      "seeders": 12,
+      "upload_time": "2026-09-15T12:05:38+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1253464",
+      "title": "Cold Hunt S01E10-E11 2026 2160p YK WEB-DL H.265 HFR DTS 5.1 4Audio-HHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "徐忱",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10,
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "4Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 3186677847,
+      "seeders": 15,
+      "upload_time": "2026-09-15T12:01:42+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1253462",
+      "title": "Cold Hunt S01E10-E11 2026 2160p YK WEB-DL H.265 DTS 5.1 4Audio-HHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "徐忱",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10,
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "4Audio",
+          "DTS"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 2615059304,
+      "seeders": 17,
+      "upload_time": "2026-09-15T11:58:36+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1253275",
+      "title": "Cold Hunt 2026 S01E10 Complete 2160p WEB-DL HFR HQ HDR10 H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 8056673378,
+      "seeders": 30,
+      "upload_time": "2026-09-15T05:02:51+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1253089",
+      "title": "Cold Hunt 2026 S01E10 Complete 2160p WEB-DL HFR HQ DoVi H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 8936982811,
+      "seeders": 88,
+      "upload_time": "2026-09-14T16:13:42+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1252528",
+      "title": "Cold Hunt 2026 S01E9 Complete 2160p WEB-DL HFR HQ DoVi H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          9
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 9813810188,
+      "seeders": 109,
+      "upload_time": "2026-09-13T16:21:14+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1252328",
+      "title": "Cold Hunt 2026 S01E1-E8 Complete 2160p WEB-DL HFR HQ HDR10 H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 59758509286,
+      "seeders": 35,
+      "upload_time": "2026-09-13T10:01:22+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1251956",
+      "title": "Cold Hunt 2026 S01E8 Complete 2160p WEB-DL HFR HQ DoVi H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          8
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 9139815490,
+      "seeders": 87,
+      "upload_time": "2026-09-12T16:24:00+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1251739",
+      "title": "Cold Hunt 2026 S01E7 Complete 2160p WEB-DL HFR HQ DoVi H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          7
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 9138899844,
+      "seeders": 112,
+      "upload_time": "2026-09-12T06:10:59+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1251572",
+      "title": "Cold Hunt 2026 S01 E05-E06 2160p WEB-DL HFR H265 HDR AAC-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "冬城猎凶 第5-6集",
+          "国语中字",
+          "ARDTU"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          5,
+          6
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 2733105305,
+      "seeders": 131,
+      "upload_time": "2026-09-12T01:25:57+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1251043",
+      "title": "Cold Hunt 2026 S01E1-E4 Complete 2160p WEB-DL HFR HQ DoVi H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 32311935508,
+      "seeders": 22,
+      "upload_time": "2026-09-11T02:56:11+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1250995",
+      "title": "Cold Hunt 2026 S01E1-E4 Complete 2160p WEB-DL HFR H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 6000822652,
+      "seeders": 164,
+      "upload_time": "2026-09-11T02:09:18+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "626441",
+      "title": "Cold.Hunt.S01.2026.2160p.HQ.WEB-DL.H.265.HDR.60fps.DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold.Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 136676596776,
+      "seeders": 2,
+      "upload_time": "2026-09-26T07:52:51+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "626423",
+      "title": "Cold.Hunt.S01.2026.2160p.HQ.WEB-DL.H.265.DV.60fps.DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold.Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 156798518558,
+      "seeders": 3,
+      "upload_time": "2026-09-26T02:42:35+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "625767",
+      "title": "Cold.Hunt.S01.2026.2160p.WEB-DL.H.265.DTS.5.1-OurTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold.Hunt",
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯",
+          "周逵",
+          "赵阳",
+          "杜比环绕声"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "hardcoded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "OurTV"
+      },
+      "size_bytes": 30300994273,
+      "seeders": 42,
+      "upload_time": "2026-09-19T13:54:23+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587297",
+      "title": "Cold Hunt S01 2026 1080p WEB-DL AAC H264-HDSWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HDSWEB"
+      },
+      "size_bytes": 5583457484,
+      "seeders": 2,
+      "upload_time": "2026-10-01T08:38:41+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586155",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 130760279326,
+      "seeders": 16,
+      "upload_time": "2026-09-26T14:57:54+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586085",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 131630010204,
+      "seeders": 18,
+      "upload_time": "2026-09-26T09:28:27+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586054",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 149786984448,
+      "seeders": 11,
+      "upload_time": "2026-09-26T07:43:56+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585991",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ HDR10 H.265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 136665859358,
+      "seeders": 1,
+      "upload_time": "2026-09-26T02:25:12+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585989",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 135688754298,
+      "seeders": 15,
+      "upload_time": "2026-09-26T02:21:19+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585888",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 136676596776,
+      "seeders": 18,
+      "upload_time": "2026-09-25T14:13:31+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585880",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 156798518558,
+      "seeders": 32,
+      "upload_time": "2026-09-25T13:18:08+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585855",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 33039035924,
+      "seeders": 41,
+      "upload_time": "2026-09-25T11:43:24+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585854",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 28389733826,
+      "seeders": 35,
+      "upload_time": "2026-09-25T11:39:47+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585828",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1750199173,
+      "seeders": 7,
+      "upload_time": "2026-09-25T09:58:14+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585826",
+      "title": "Cold Hunt 2026 S01 2160p WEB-DL 60fps H265 HDR10 DTS5.1-AilMWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶",
+          "冬城獵兇",
+          "冬城獵凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "万茜",
+          "余文乐"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "AilMWeb"
+      },
+      "size_bytes": 30472792965,
+      "seeders": 0,
+      "upload_time": "2026-09-25T09:55:02+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585825",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 2050846883,
+      "seeders": 5,
+      "upload_time": "2026-09-25T09:54:10+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585822",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 8332236554,
+      "seeders": 6,
+      "upload_time": "2026-09-25T09:49:22+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585763",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7892002406,
+      "seeders": 5,
+      "upload_time": "2026-09-25T05:05:24+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585760",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 8901319720,
+      "seeders": 6,
+      "upload_time": "2026-09-25T04:57:36+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585757",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 8493297827,
+      "seeders": 5,
+      "upload_time": "2026-09-25T04:50:38+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585755",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 8514772664,
+      "seeders": 9,
+      "upload_time": "2026-09-25T04:41:56+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585754",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 9448928051,
+      "seeders": 14,
+      "upload_time": "2026-09-25T04:35:34+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585550",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1460288880,
+      "seeders": 7,
+      "upload_time": "2026-09-24T05:20:24+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585546",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1707249500,
+      "seeders": 7,
+      "upload_time": "2026-09-24T05:16:24+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585544",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 6968584437,
+      "seeders": 9,
+      "upload_time": "2026-09-24T05:09:20+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585539",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7054483783,
+      "seeders": 7,
+      "upload_time": "2026-09-24T05:03:17+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585537",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7623566950,
+      "seeders": 9,
+      "upload_time": "2026-09-24T04:55:21+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585536",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7365868912,
+      "seeders": 9,
+      "upload_time": "2026-09-24T04:48:50+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585533",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7333656657,
+      "seeders": 11,
+      "upload_time": "2026-09-24T04:40:47+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585532",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 8063801098,
+      "seeders": 16,
+      "upload_time": "2026-09-24T04:34:54+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585391",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          16
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1245540515,
+      "seeders": 7,
+      "upload_time": "2026-09-23T09:32:59+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585389",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          16
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1449551462,
+      "seeders": 6,
+      "upload_time": "2026-09-23T09:29:25+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585387",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          16
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 6238439997,
+      "seeders": 10,
+      "upload_time": "2026-09-23T09:25:49+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585384",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          16
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 5927054868,
+      "seeders": 5,
+      "upload_time": "2026-09-23T09:20:39+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585383",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          16
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7151120547,
+      "seeders": 8,
+      "upload_time": "2026-09-23T09:14:18+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585382",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          16
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 6066641305,
+      "seeders": 7,
+      "upload_time": "2026-09-23T09:08:23+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585381",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          16
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 6227702579,
+      "seeders": 9,
+      "upload_time": "2026-09-23T09:01:30+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585378",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          16
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7462505676,
+      "seeders": 13,
+      "upload_time": "2026-09-23T08:56:18+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585242",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 113762946252,
+      "seeders": 0,
+      "upload_time": "2026-09-22T12:44:53+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585237",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL HQ H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 109886738268,
+      "seeders": 0,
+      "upload_time": "2026-09-22T12:33:57+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "585234",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 24223615549,
+      "seeders": 0,
+      "upload_time": "2026-09-22T12:18:56+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584992",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 29141353103,
+      "seeders": 8,
+      "upload_time": "2026-09-21T10:36:53+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584908",
+      "title": "Cold Hunt 2026 S01 Complete 1080p WEB-DL H264 AAC-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 5680094248,
+      "seeders": 4,
+      "upload_time": "2026-09-21T02:42:13+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584706",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60fps H.265 10bit AAC-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 23160611143,
+      "seeders": 5,
+      "upload_time": "2026-09-20T03:53:31+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584697",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ HDR10 H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 7709466296,
+      "seeders": 2,
+      "upload_time": "2026-09-20T02:50:45+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584659",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1567663063,
+      "seeders": 9,
+      "upload_time": "2026-09-19T18:43:56+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584658",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1868310773,
+      "seeders": 8,
+      "upload_time": "2026-09-19T18:40:08+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584657",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7237019893,
+      "seeders": 11,
+      "upload_time": "2026-09-19T18:36:10+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584643",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7301444403,
+      "seeders": 6,
+      "upload_time": "2026-09-19T17:06:00+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584639",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 9159017758,
+      "seeders": 8,
+      "upload_time": "2026-09-19T16:58:37+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584637",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7398081167,
+      "seeders": 7,
+      "upload_time": "2026-09-19T16:51:32+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584636",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7709466296,
+      "seeders": 11,
+      "upload_time": "2026-09-19T16:43:08+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584632",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 9685151252,
+      "seeders": 9,
+      "upload_time": "2026-09-19T16:36:05+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584626",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ DoVi H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 9685151252,
+      "seeders": 2,
+      "upload_time": "2026-09-19T16:16:46+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584561",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1889785610,
+      "seeders": 7,
+      "upload_time": "2026-09-19T11:00:49+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584557",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1578400481,
+      "seeders": 6,
+      "upload_time": "2026-09-19T10:53:39+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584552",
+      "title": "Cold Hunt S01 2026 2160p V2 WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "冬城猎凶 第15-18集（尝鲜版",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15,
+          16,
+          17,
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 6141803233,
+      "seeders": 9,
+      "upload_time": "2026-09-19T10:38:52+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584550",
+      "title": "Cold Hunt S01 2026 2160p V2 WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "冬城猎凶 第15-18集（尝鲜版",
+          "国语",
+          "万茜",
+          "余文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15,
+          16,
+          17,
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 5078798827,
+      "seeders": 8,
+      "upload_time": "2026-09-19T10:28:29+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584539",
+      "title": "Cold Hunt S01 2026 1080p WEB-DL H264 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 18,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 5583457484,
+      "seeders": 30,
+      "upload_time": "2026-09-19T09:40:20+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584537",
+      "title": "Cold Hunt S01 2026 1080p WEB-DL H264 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "冬城猎凶 第15-18集",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          15,
+          16,
+          17,
+          18
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1116691496,
+      "seeders": 16,
+      "upload_time": "2026-09-19T09:23:48+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584437",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ HDR10 H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 7645041786,
+      "seeders": 2,
+      "upload_time": "2026-09-19T02:46:00+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584424",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7065221201,
+      "seeders": 10,
+      "upload_time": "2026-09-19T01:54:52+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584418",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 6893422510,
+      "seeders": 5,
+      "upload_time": "2026-09-19T01:48:53+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584416",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 8836895211,
+      "seeders": 6,
+      "upload_time": "2026-09-19T01:41:39+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584415",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7355131494,
+      "seeders": 8,
+      "upload_time": "2026-09-19T01:34:47+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584411",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7645041786,
+      "seeders": 12,
+      "upload_time": "2026-09-19T01:26:35+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584408",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 9073118412,
+      "seeders": 11,
+      "upload_time": "2026-09-19T01:17:18+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584353",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ DoVi H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 9073118412,
+      "seeders": 2,
+      "upload_time": "2026-09-18T16:13:29+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584268",
+      "title": "Cold Hunt S01 2026 1080p WEB-DL H264 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 304233840,
+      "seeders": 18,
+      "upload_time": "2026-09-18T10:30:46+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584125",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1556925644,
+      "seeders": 4,
+      "upload_time": "2026-09-18T00:40:20+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584124",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1836098519,
+      "seeders": 6,
+      "upload_time": "2026-09-18T00:36:18+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584122",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7269232148,
+      "seeders": 9,
+      "upload_time": "2026-09-18T00:32:17+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584120",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7376606330,
+      "seeders": 5,
+      "upload_time": "2026-09-18T00:26:27+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584118",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7687991459,
+      "seeders": 7,
+      "upload_time": "2026-09-18T00:18:55+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584117",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7516192768,
+      "seeders": 7,
+      "upload_time": "2026-09-18T00:12:35+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584087",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7526930186,
+      "seeders": 14,
+      "upload_time": "2026-09-17T16:49:13+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584086",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 8214124953,
+      "seeders": 11,
+      "upload_time": "2026-09-17T16:42:24+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584080",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ HDR10 H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 7526930186,
+      "seeders": 3,
+      "upload_time": "2026-09-17T16:21:53+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "584078",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ DoVi H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 8214124953,
+      "seeders": 2,
+      "upload_time": "2026-09-17T16:15:36+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583996",
+      "title": "Cold Hunt S01 2026 1080p WEB-DL H264 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 297554411,
+      "seeders": 21,
+      "upload_time": "2026-09-17T10:30:51+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583885",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ HDR10 H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 7741678551,
+      "seeders": 2,
+      "upload_time": "2026-09-17T02:43:02+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583857",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1782411427,
+      "seeders": 7,
+      "upload_time": "2026-09-16T17:24:42+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583856",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 2158221066,
+      "seeders": 3,
+      "upload_time": "2026-09-16T17:20:23+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583854",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7473243095,
+      "seeders": 7,
+      "upload_time": "2026-09-16T17:16:08+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583850",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7892002406,
+      "seeders": 3,
+      "upload_time": "2026-09-16T17:09:56+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583847",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7849052733,
+      "seeders": 6,
+      "upload_time": "2026-09-16T17:01:42+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583846",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7967164334,
+      "seeders": 8,
+      "upload_time": "2026-09-16T16:54:52+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583844",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7741678551,
+      "seeders": 11,
+      "upload_time": "2026-09-16T16:45:52+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583843",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 8407398481,
+      "seeders": 9,
+      "upload_time": "2026-09-16T16:39:22+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583841",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ DoVi H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 8407398481,
+      "seeders": 2,
+      "upload_time": "2026-09-16T16:11:58+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583742",
+      "title": "Cold Hunt S01 2026 1080p WEB-DL H264 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          12
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 407266918,
+      "seeders": 16,
+      "upload_time": "2026-09-16T10:30:46+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583667",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7698728878,
+      "seeders": 8,
+      "upload_time": "2026-09-16T06:20:38+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583641",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1556925644,
+      "seeders": 5,
+      "upload_time": "2026-09-16T04:06:15+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583639",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1803886264,
+      "seeders": 5,
+      "upload_time": "2026-09-16T04:02:14+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583637",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7623566950,
+      "seeders": 10,
+      "upload_time": "2026-09-16T03:58:10+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583635",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7709466296,
+      "seeders": 5,
+      "upload_time": "2026-09-16T03:51:34+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583632",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7720203714,
+      "seeders": 6,
+      "upload_time": "2026-09-16T03:43:11+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583624",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ HDR10 H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR10"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 7773890805,
+      "seeders": 2,
+      "upload_time": "2026-09-16T03:00:20+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583562",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "国语",
+          "万茜",
+          "余文乐"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7773890805,
+      "seeders": 15,
+      "upload_time": "2026-09-15T16:43:40+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583560",
+      "title": "Cold Hunt S01 2026 2160p HQ WEB-DL H265 DV 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "高码",
+          "杜比视界",
+          "国语",
+          "万茜",
+          "余文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 8214124953,
+      "seeders": 12,
+      "upload_time": "2026-09-15T16:36:53+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583556",
+      "title": "Cold Hunt 2026 S01 Complete 2160p WEB-DL 60Fps HQ DoVi H265 10bit DTS5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 8214124953,
+      "seeders": 2,
+      "upload_time": "2026-09-15T16:17:31+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583489",
+      "title": "Cold Hunt S01 2026 1080p WEB-DL H264 AAC-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文萱",
+          "李纯"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          11
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 317403955,
+      "seeders": 24,
+      "upload_time": "2026-09-15T10:30:44+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "583472",
+      "title": "Cold Hunt S01 2026 2160p WEB-DL H265 HDR 60fps DTS5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "冬城猎凶"
+        ],
+        "titles_en": [
+          "Cold Hunt"
+        ],
+        "title_candidates": [
+          "国语",
+          "万茜",
+          "余文乐",
+          "尹文"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DTS"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1739461754,
+      "seeders": 4,
+      "upload_time": "2026-09-15T08:33:48+00:00"
+    }
+  ]
+}

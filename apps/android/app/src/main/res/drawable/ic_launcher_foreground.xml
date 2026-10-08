@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- MovieClaw 爪痕标记:三道冷银竖条 -->
+    <path
+        android:fillColor="#8FB3CB"
+        android:pathData="M38,36 l8,-3 l3,42 l-8,3 Z" />
+    <path
+        android:fillColor="#A9C6DC"
+        android:pathData="M51,31 l8,0 l0,44 l-8,0 Z" />
+    <path
+        android:fillColor="#D3E3EF"
+        android:pathData="M62,33 l8,3 l-3,42 l-8,-3 Z" />
+</vector>

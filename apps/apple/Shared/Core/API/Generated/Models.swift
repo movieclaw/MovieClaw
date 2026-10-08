@@ -2864,6 +2864,30 @@ nonisolated extension API {
         }
     }
 
+    struct FanartKeyPayload: Codable, Hashable, Sendable {
+        /// Fanart.tv API Key
+        var apiKey: String
+
+        enum CodingKeys: String, CodingKey {
+            case apiKey = "api_key"
+        }
+    }
+
+    struct FanartStatusView: Codable, Hashable, Sendable {
+        /// 是否已保存过 Fanart.tv API Key
+        var configured: Bool
+        /// 已保存的 Key 被 Fanart.tv 拒绝过（刮削时遇到 401），需要重新填写
+        var keyInvalid: Bool
+        /// Key 的末四位（展示「••••abcd」用）；没配置为空串
+        var keyHint: String
+
+        enum CodingKeys: String, CodingKey {
+            case configured
+            case keyInvalid = "key_invalid"
+            case keyHint = "key_hint"
+        }
+    }
+
     /// 首页「我的收藏」的一格：单库海报墙的条目视图 + 收藏上下文。
     /// 收藏层级来自最近一次收藏的那一行：整剧两者皆 null，整季只有季号，
     /// 单集季集都有；电影恒为 null（内部 (0,0) 哨兵不外泄）。
@@ -5679,6 +5703,18 @@ nonisolated extension API {
         var profileSize: String
         /// 本地图片画质：original=原图 / standard=标准 / compact=节省空间 / custom=自定义（逐项看四个档位）；空 = 没选过，逐项跟随档位与环境变量
         var imageQuality: String
+        /// 片名 Logo 语言优先级：逐档找第一张有图的语言，全部落空则不显示 Logo
+        var logoLanguagePriority: [String]?
+        /// 自动选图是否使用 Fanart.tv（需先配置 Fanart API Key）
+        var fanartEnabled: Bool?
+        /// 海报的来源顺序
+        var posterSourceOrder: [String]?
+        /// 背景图的来源顺序（TMDB 背景常有 4K，Fanart 固定 1920 宽）
+        var backdropSourceOrder: [String]?
+        /// 片名 Logo 的来源顺序（Fanart 的中文 Logo 更多）
+        var logoSourceOrder: [String]?
+        /// 季海报的来源顺序（只对剧集生效；语言跟随海报语言优先级）
+        var seasonPosterSourceOrder: [String]?
         /// 条目目录模板；空 = 默认 {title} ({year})
         var namingEntryDir: String
         /// 电影文件名模板；空 = 默认 {title} ({year})
@@ -5707,6 +5743,12 @@ nonisolated extension API {
             case stillSize = "still_size"
             case profileSize = "profile_size"
             case imageQuality = "image_quality"
+            case logoLanguagePriority = "logo_language_priority"
+            case fanartEnabled = "fanart_enabled"
+            case posterSourceOrder = "poster_source_order"
+            case backdropSourceOrder = "backdrop_source_order"
+            case logoSourceOrder = "logo_source_order"
+            case seasonPosterSourceOrder = "season_poster_source_order"
             case namingEntryDir = "naming_entry_dir"
             case namingMovieFile = "naming_movie_file"
             case namingSeasonDir = "naming_season_dir"
@@ -5743,6 +5785,18 @@ nonisolated extension API {
         var profileSize: String?
         /// 本地图片画质：original=原图 / standard=标准 / compact=节省空间 / custom=自定义（逐项看四个档位）；空 = 没选过，逐项跟随档位与环境变量
         var imageQuality: String?
+        /// 片名 Logo 语言优先级：逐档找第一张有图的语言，全部落空则不显示 Logo
+        var logoLanguagePriority: [String]?
+        /// 自动选图是否使用 Fanart.tv（需先配置 Fanart API Key）
+        var fanartEnabled: Bool?
+        /// 海报的来源顺序
+        var posterSourceOrder: [String]?
+        /// 背景图的来源顺序（TMDB 背景常有 4K，Fanart 固定 1920 宽）
+        var backdropSourceOrder: [String]?
+        /// 片名 Logo 的来源顺序（Fanart 的中文 Logo 更多）
+        var logoSourceOrder: [String]?
+        /// 季海报的来源顺序（只对剧集生效；语言跟随海报语言优先级）
+        var seasonPosterSourceOrder: [String]?
         /// 条目目录模板；空 = 默认 {title} ({year})
         var namingEntryDir: String?
         /// 电影文件名模板；空 = 默认 {title} ({year})
@@ -5771,6 +5825,12 @@ nonisolated extension API {
             case stillSize = "still_size"
             case profileSize = "profile_size"
             case imageQuality = "image_quality"
+            case logoLanguagePriority = "logo_language_priority"
+            case fanartEnabled = "fanart_enabled"
+            case posterSourceOrder = "poster_source_order"
+            case backdropSourceOrder = "backdrop_source_order"
+            case logoSourceOrder = "logo_source_order"
+            case seasonPosterSourceOrder = "season_poster_source_order"
             case namingEntryDir = "naming_entry_dir"
             case namingMovieFile = "naming_movie_file"
             case namingSeasonDir = "naming_season_dir"
@@ -5933,6 +5993,8 @@ nonisolated extension API {
         var libraryIds: [Int]?
         /// 我收不到通知的设备；空 = 没问题
         var attention: [API.PushAttentionView]
+        /// 静音了的片（长按通知「这部剧不再提醒」），最近静音的在前
+        var mutedItems: [API.PushMutedItemView]?
 
         enum CodingKeys: String, CodingKey {
             case instanceReady = "instance_ready"
@@ -5942,6 +6004,7 @@ nonisolated extension API {
             case libraries
             case libraryIds = "library_ids"
             case attention
+            case mutedItems = "muted_items"
         }
     }
 
@@ -7629,6 +7692,21 @@ nonisolated extension API {
         enum CodingKeys: String, CodingKey {
             case id
             case name
+            case kind
+        }
+    }
+
+    /// 「这部剧不再提醒」静音了的一部片。
+    struct PushMutedItemView: Codable, Hashable, Sendable {
+        var id: Int
+        var title: String
+        var year: Int?
+        var kind: String
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case title
+            case year
             case kind
         }
     }
@@ -9950,6 +10028,8 @@ nonisolated extension API {
         var ruleSetId: Int?
         /// 入库目标库；缺省用该类型默认库
         var libraryId: Int?
+        var selectionMode: String?
+        var smartProfileRevision: Int?
 
         enum CodingKeys: String, CodingKey {
             case titleRef = "title_ref"
@@ -9958,6 +10038,8 @@ nonisolated extension API {
             case followFuture = "follow_future"
             case ruleSetId = "rule_set_id"
             case libraryId = "library_id"
+            case selectionMode = "selection_mode"
+            case smartProfileRevision = "smart_profile_revision"
         }
     }
 
@@ -9989,7 +10071,11 @@ nonisolated extension API {
         var status: String
         var selectedSeasons: [Int]
         var followFuture: Bool
+        /// 规则组 id；智能模式为 0（兼容旧客户端整数契约），以 selection_mode 为准
         var ruleSetId: Int
+        var selectionMode: String?
+        var smartPolicy: [String: API.JSONValue]?
+        var smartStatus: String?
         /// 入库目标库；null=该类型默认库
         var libraryId: Int?
         var progress: API.ProgressView
@@ -10010,6 +10096,9 @@ nonisolated extension API {
             case selectedSeasons = "selected_seasons"
             case followFuture = "follow_future"
             case ruleSetId = "rule_set_id"
+            case selectionMode = "selection_mode"
+            case smartPolicy = "smart_policy"
+            case smartStatus = "smart_status"
             case libraryId = "library_id"
             case progress
             case seasonCollection = "season_collection"
@@ -10144,7 +10233,11 @@ nonisolated extension API {
         var status: String
         var selectedSeasons: [Int]
         var followFuture: Bool
+        /// 规则组 id；智能模式为 0（兼容旧客户端整数契约），以 selection_mode 为准
         var ruleSetId: Int
+        var selectionMode: String?
+        var smartPolicy: [String: API.JSONValue]?
+        var smartStatus: String?
         /// 入库目标库；null=该类型默认库
         var libraryId: Int?
         var progress: API.ProgressView
@@ -10160,6 +10253,9 @@ nonisolated extension API {
             case selectedSeasons = "selected_seasons"
             case followFuture = "follow_future"
             case ruleSetId = "rule_set_id"
+            case selectionMode = "selection_mode"
+            case smartPolicy = "smart_policy"
+            case smartStatus = "smart_status"
             case libraryId = "library_id"
             case progress
             case seasonCollection = "season_collection"
@@ -10200,6 +10296,8 @@ nonisolated extension API {
         var language: String?
         var isDefault: Bool
         var isAi: Bool
+        var title: String?
+        var isForced: Bool?
 
         enum CodingKeys: String, CodingKey {
             case trackRef = "track_ref"
@@ -10207,6 +10305,8 @@ nonisolated extension API {
             case language
             case isDefault = "is_default"
             case isAi = "is_ai"
+            case title
+            case isForced = "is_forced"
         }
     }
 
@@ -11621,6 +11721,8 @@ nonisolated extension API {
         var lastRejectReason: String?
         var grabTitle: String?
         var upgrade: API.WantedUpgradeView?
+        var selectionState: [String: API.JSONValue]?
+        var selectionVersion: Int?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -11641,6 +11743,8 @@ nonisolated extension API {
             case lastRejectReason = "last_reject_reason"
             case grabTitle = "grab_title"
             case upgrade
+            case selectionState = "selection_state"
+            case selectionVersion = "selection_version"
         }
     }
 

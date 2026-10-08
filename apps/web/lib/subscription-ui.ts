@@ -1,6 +1,7 @@
 import type { DownloadTask } from "@/lib/api/downloaders";
 import type {
   Subscription,
+  WantedItem,
   SubscriptionStatus,
   TodaySubscriptionArrival,
 } from "@/lib/api/subscriptions";
@@ -393,4 +394,28 @@ function pendingTimeLabel(arrival: TodaySubscriptionArrival): string {
   const nextProbeAt = parsedTime(arrival.next_probe_at);
   if (nextProbeAt != null) return `${formatClock(new Date(nextProbeAt))} 探测`;
   return "时间待更新";
+}
+
+/** 只补充智能选择特有的状态；其余沿用原有分集调度、下载和洗版展示。 */
+export function smartWantedPresentation(row: WantedItem): { label: string; color: string; note: string } | null {
+  const state = row.selection_state;
+  if (row.status !== "wanted" || !state) return null;
+  const reasons: Record<string, [string, string]> = {
+    identity_unconfirmed: ["寻找中", "部分资源未通过影片身份核验，已跳过，继续寻找。"],
+    waiting_target: ["等版本", "历史发布记录支持等待目标品质版本"],
+    waiting_series: ["等版本", "已有合格候选，等待当前跟随版本"],
+    manual_requested: ["选择中", "已请求立即下载，正在核验当前候选"],
+    manual_candidate_unavailable: ["选择中", "指定候选已不可用，正在重新选择"],
+    reconciling: ["待核对", "正在核对提交结果，系统会恢复同一任务"],
+    submitting: ["提交中", "正在提交所选资源"],
+    deadline_fallback: ["选择中", "等待上限已到，正在选择当前合格版本"],
+    published_window_elapsed: ["选择中", "资源已发布一段时间，正在选择当前合格版本"],
+    observation_finished: ["选择中", "观察结束，正在选择当前合格版本"],
+    target_available: ["选择中", "目标版本已出现，正在选择"],
+  };
+  if (!state.candidate_key && !["identity_unconfirmed", "manual_candidate_unavailable", "reconciling", "submitting"].includes(state.reason)) return null;
+  const [label, note] = state.reason === "user_extended" || (state.manual_extended && ["observing", "waiting_target", "waiting_series"].includes(state.reason))
+    ? ["观察中", "按你延长的时间继续等待合适版本"]
+    : reasons[state.reason] ?? ["观察中", "已有合格候选，短暂观察更合适的版本"];
+  return { label, color: "var(--info)", note };
 }

@@ -24,7 +24,7 @@ struct TVAboutView: View {
                 VStack(alignment: .leading, spacing: 20) {
                     Text("开源组件")
                         .font(.title3.weight(.semibold))
-                    Text("播放引擎 AetherEngine 与 FFmpeg 以动态框架随 App 分发，你可以按各自的许可获取源码、修改并替换。本 App 使用的 AetherEngine 修改版源码见项目仓库 apps/apple/Vendor/AetherEngine。")
+                    Text("播放引擎 AetherEngine 与 FFmpeg 以动态框架随 App 分发，你可以按各自的许可获取源码、修改并替换。本 App 使用的 AetherEngine 修改版源码可通过下方组件链接获取，链接对应本次构建使用的提交。")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: 1300, alignment: .leading)

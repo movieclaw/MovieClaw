@@ -140,13 +140,49 @@ def test_naming_templates_save_and_validate(client: TestClient) -> None:
 
     for patch in (
         {"naming_entry_dir": "{title}/{year}"},  # 路径分隔符
-        {"naming_entry_dir": "{year}"},  # 缺片名占位符
-        {"naming_episode_file": "{title} E{episode:02d}"},  # 缺季号
-        {"naming_season_dir": "Season"},  # 缺季号
         {"naming_entry_dir": "{title} {episode}"},  # 该模板不可用的占位符
     ):
         bad = client.put("/api/v1/scrape/config", json={**base, **patch})
         assert bad.status_code == 422, patch
+
+
+def test_free_naming_templates_save_globally_and_per_library(client: TestClient, tmp_path) -> None:
+    """原始文件名、ID 目录与自定义季名可以保存、读回并立即生效。"""
+    from movieclaw_api.services.library.naming import effective_templates
+    from movieclaw_db.models import Library
+
+    payload = {
+        "naming_entry_dir": "{tmdb_id}",
+        "naming_movie_file": "{release_name}",
+        "naming_season_dir": "{season_name}",
+        "naming_episode_file": "{release_name}",
+    }
+    saved = client.put("/api/v1/scrape/config", json=payload)
+    assert saved.status_code == 200, saved.text
+    setting = client.get("/api/v1/scrape/config").json()["data"]["setting"]
+    for key, value in payload.items():
+        assert setting[key] == value
+        assert getattr(effective_templates(), key.removeprefix("naming_")) == value
+
+    root = str(tmp_path / "free-naming")
+    library = _make_library(client, "自由命名库", root, scrape_overrides=payload)
+    assert library["scrape_overrides"] == payload
+    overrides = {**payload, "naming_entry_dir": "收藏", "naming_season_dir": "剧集"}
+    updated = client.put(
+        f"/api/v1/libraries/{library['id']}",
+        json={
+            "name": "自由命名库",
+            "kind": "tv",
+            "root_paths": [root],
+            "scrape_overrides": overrides,
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    stored = client.get(f"/api/v1/libraries/{library['id']}").json()["data"]
+    assert stored["scrape_overrides"] == overrides
+    row = Library(name="自由命名库", kind="tv", root_paths=[root], scrape_overrides=overrides)
+    for key, value in overrides.items():
+        assert getattr(effective_templates(row), key.removeprefix("naming_")) == value
 
 
 def test_discover_region_defaults_and_save(client: TestClient) -> None:
@@ -257,11 +293,11 @@ def test_library_overrides_reject_unknown_and_invalid(client: TestClient, tmp_pa
             "name": "坏模板库",
             "kind": "tv",
             "root_paths": [root],
-            "scrape_overrides": {"naming_episode_file": "{title}"},
+            "scrape_overrides": {"naming_episode_file": "{unknown}"},
         },
     )
     assert resp.status_code == 400
-    assert "{season}" in resp.json()["message"]
+    assert "不可用的占位符" in resp.json()["message"]
 
 
 def test_library_overrides_can_be_cleared(client: TestClient, tmp_path) -> None:

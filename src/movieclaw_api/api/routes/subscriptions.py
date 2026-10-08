@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.api.deps import (
@@ -61,19 +62,91 @@ from movieclaw_api.services.subscription import (
     forecast_refresh_pending,
     recent_arrivals,
 )
+from movieclaw_api.services.subscription.smart_profiles import save_profile
 from movieclaw_api.services.title_discovery import (
     get_title_discovery_service,
     parse_title_ref,
 )
 from movieclaw_api.services.tmdb_images import local_media_files
 from movieclaw_db.engine import get_session
-from movieclaw_db.models import MediaItem, Subscription, WantedItem
+from movieclaw_db.models import MediaItem, SmartProfile, Subscription, WantedItem
 from movieclaw_db.repositories import LibraryFileRepository, MediaItemRepository
+from movieclaw_matcher.smart import SmartPreferences
 from movieclaw_media import DoubanError, TmdbError
 from movieclaw_media.library import ResolveStatus
 from movieclaw_media.models import MediaKind, MediaSource
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
+
+
+
+class SmartProfilePayload(BaseModel):
+    revision: int = Field(ge=0)
+    preferences: SmartPreferences
+
+
+@router.get("/smart-profiles/{kind}", operation_id="subscriptions.get-smart-profile")
+async def get_smart_profile(
+    kind: Literal["movie", "tv"], session: AsyncSession = Depends(get_session)
+):
+    row = await session.get(SmartProfile, kind)
+    return ok({"kind": kind, "revision": row.revision if row else 0,
+               "preferences": row.preferences if row else None})
+
+
+@router.put(
+    "/smart-profiles/{kind}",
+    dependencies=[Depends(require_admin)],
+    operation_id="subscriptions.save-smart-profile",
+)
+async def put_smart_profile(
+    kind: Literal["movie", "tv"],
+    payload: SmartProfilePayload,
+    session: AsyncSession = Depends(get_session),
+):
+    row = await save_profile(session, kind, payload.preferences, payload.revision)
+    return ok({"kind": kind, "revision": row.revision, "preferences": row.preferences})
+
+
+class SmartWaitPayload(BaseModel):
+    version: int = Field(ge=0)
+    extend_seconds: int = Field(default=0, ge=0, le=259200)
+    candidate_key: str | None = Field(default=None, max_length=256)
+
+
+@router.post(
+    "/{subscription_id}/wanted/{wanted_id}/smart-wait",
+    operation_id="subscriptions.update-smart-wait",
+)
+async def update_smart_wait(
+    subscription_id: int,
+    wanted_id: int,
+    payload: SmartWaitPayload,
+    background_tasks: BackgroundTasks,
+    principal: Principal = Depends(require_subscribe_capability),
+    session: AsyncSession = Depends(get_session),
+):
+    await _service(session).assert_can_manage(
+        subscription_id, None if principal.is_admin else principal.member_id
+    )
+    row = await session.get(WantedItem, wanted_id)
+    if row is None or row.subscription_id != subscription_id:
+        raise NotFoundException("没有找到该单集")
+    if bool(payload.extend_seconds) == bool(payload.candidate_key):
+        raise BadRequestException("请选择立即下载或延长等待其中一项")
+    from movieclaw_api.services.subscription.smart_selection import change_wait
+
+    result = await change_wait(
+        session,
+        wanted_id,
+        payload.version,
+        extend_seconds=payload.extend_seconds,
+        immediate_candidate=payload.candidate_key,
+    )
+    if payload.candidate_key:
+        from movieclaw_api.services.subscription.smart_scheduler import evaluate_requested
+        background_tasks.add_task(evaluate_requested, subscription_id)
+    return ok(result)
 
 # 权限分层（docs/design/member-management.md §2.2/§3.2）：
 # - 读（列表/详情/时间线）：登录即可（路由器挂载时已注入 require_login）；
@@ -122,6 +195,22 @@ async def _detail_view(
     )
     view.forecast_pending = forecast_refresh_pending(view.media.media_item_id)
     view.can_manage = can_manage
+    if sub.selection_mode == "smart":
+        from movieclaw_api.services.subscription.smart_profiles import read_policy
+        from movieclaw_api.services.subscription.smart_runtime import runtime_settings
+        runtime = await runtime_settings()
+        policy = read_policy(sub)
+        view.smart_status = (
+            "invalid_policy"
+            if policy is None
+            else "disabled"
+            if not runtime.enabled
+            else "shadow"
+            if runtime.shadow_only
+            else "active"
+        )
+        if policy is None:
+            view.smart_policy = None
     return view
 
 
@@ -321,6 +410,8 @@ async def create_subscription(
         library_id=None if is_member else payload.library_id,
         douban_id=douban_id,
         member_id=principal.member_id if is_member else None,
+        selection_mode=payload.selection_mode,
+        smart_profile_revision=payload.smart_profile_revision,
     )
     assert subscription.id is not None
     sub, item, wanted = await service.detail(subscription.id)
@@ -443,6 +534,8 @@ async def list_subscriptions(
     )
     for view in views:
         view.progress.upgrading = upgrading.get(view.id, 0)
+    # 稳定排序：缺口优先于纯洗版；同组保留仓储的最近活动时间 / id 顺序。
+    views.sort(key=lambda view: view.list_priority)
     return ok(views)
 
 
@@ -564,12 +657,15 @@ async def get_subscription(
     from movieclaw_matcher import RuleSetSpec
 
     rule_spec = None
-    rule_set = await session.get(RuleSet, sub.rule_set_id)
+    rule_set = await session.get(RuleSet, sub.rule_set_id) if sub.rule_set_id else None
     if rule_set is not None:
         try:
             rule_spec = RuleSetSpec.model_validate(rule_set.spec or {})
         except ValueError:
             rule_spec = None
+    if sub.selection_mode == "smart":
+        from movieclaw_api.services.subscription.smart_profiles import read_policy
+        rule_spec = read_policy(sub)
     return ok(
         await _detail_view(
             session,
@@ -699,6 +795,9 @@ async def run_subscription_upgrade(
     # 成员洗版沿用订阅当前的规则组，不能借洗版换组（换组是管理员的配置）
     rule_set_id = payload.rule_set_id if principal.is_admin else None
     report = await run_upgrade_round(session, subscription_id, rule_set_id=rule_set_id)
+    # 与订阅详情相同：仅在响应层把智能模式的空外键转为旧客户端可解码的整数。
+    if report["rule_set_id"] is None:
+        report["rule_set_id"] = 0
     return ok(UpgradeRunView.model_validate(report), message=report["summary"])
 
 

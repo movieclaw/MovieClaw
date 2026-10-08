@@ -46,8 +46,9 @@ protocol SettingsPane: AnyObject {
 /// （docs/design/device-auth.md §5.1）。
 @MainActor
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
-    /// 保存非敏感设置（地址、名称、ffmpeg、并发、自启）。是否要重启 Worker 由调用方判断。
+    /// 保存本机设置（地址、名称、ffmpeg、自启）。是否要重启 Worker 由调用方判断。
     var onSave: ((WorkerSettingsDraft) throws -> Void)?
+    var onSetMaxJobs: ((Int) throws -> Void)?
     /// 配对成功，把令牌交给调用方落钥匙串并启动 Worker。
     var onPaired: ((String) throws -> Void)?
     /// 断开配对：尽力在服务端注销这台 Mac 的凭证，再清除本机配置与令牌。
@@ -234,6 +235,12 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
             render()
             return false
         }
+    }
+
+    func setMaxJobs(_ value: Int) {
+        do { try onSetMaxJobs?(value) }
+        catch { showError(error.localizedDescription) }
+        render()
     }
 
     /// 稳态下唯一的「推倒重来」：在服务端注销（尽力而为）、清掉地址与令牌，回到引导第一步。

@@ -1,17 +1,15 @@
 import SwiftUI
 
-/// 更新与维护 →「缓存管理」页签（Web app-storage-section.tsx）。
+/// 更新与维护 →「缓存管理」（Web app-storage-section.tsx）。
 ///
 /// 这一页是后端登记表（services/storage/registry.py）的视图：每个 data/ 目录的名称、一句话用途、完整说明、
 /// 占用、能否清理都由后端给出，前端只负责分组渲染与确认交互——业务新增一种缓存不需要改这里。
 ///
 /// 打开页面**不会**触发实时统计（遍历 data/ 在大库上要几十秒）：后端给「上一次的快照 + 是否正在重算」，
 /// 页面秒开并标出「统计于 N 分钟前」；点「刷新」才重算，统计期间每 2 秒轮询，旧数据留在页面上直到新快照落地。
-/// 清理动作收进行尾 ⋯ 菜单（清理孤儿条目 / 全部清空），二次确认，重建代价高的目录用红色确认键加重提醒。
-struct AppStoragePanel<Header: View>: View {
-    @ViewBuilder let header: () -> Header
+/// 点目录行打开详情抽屉，清理动作与用途、占用放在一起，二次确认，重建代价高的目录用红色确认键加重提醒。
+struct AppStoragePanel: View {
     @Environment(\.api) private var api
-    @Environment(Feedback.self) private var feedback
 
     @State private var usage: API.StorageUsageView?
     @State private var computing = false
@@ -19,15 +17,13 @@ struct AppStoragePanel<Header: View>: View {
     @State private var busyKey: String?
     @State private var notice: (key: String, text: String, ok: Bool)?
     @State private var loaded = false
+    @State private var selectedKey: String?
 
     var body: some View {
         List {
-            Section { header() }
-                .listRowBackground(Color.clear)
-                .listRowInsets(EdgeInsets(top: 0, leading: 4, bottom: 0, trailing: 4))
             overviewSection
             if let usage, !usage.unregistered.isEmpty {
-                Section("未登记目录") {
+                SettingsFormSection("未登记目录") {
                     Text("数据目录下出现了程序未登记的条目，不会被统计或清理。请把路径反馈给开发者。")
                         .font(.subheadline).foregroundStyle(Theme.warning)
                     ForEach(usage.unregistered, id: \.path) { entry in
@@ -48,6 +44,21 @@ struct AppStoragePanel<Header: View>: View {
                 title: "应用数据", group: "data",
                 trailing: usage.map { "合计 \(Formatters.bytes($0.dataBytes)) · 只展示，不提供删除" }
             )
+        }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("刷新统计", systemImage: "arrow.clockwise") { Task { await load(refresh: true) } }
+                    .disabled(computing).accessibilityIdentifier("storage-refresh")
+            }
+        }
+        .sheet(isPresented: Binding(get: { selectedKey != nil }, set: { if !$0 { selectedKey = nil } })) {
+            if let dir = usage?.dirs.first(where: { $0.key == selectedKey }) {
+                StorageDirectorySheet(dir: dir, busy: busyKey != nil,
+                    notice: notice.flatMap { $0.key == dir.key ? ($0.text, $0.ok) : nil }) { mode in
+                    await clean(dir, mode: mode)
+                }
+                .sheetFeedback()
+            }
         }
         .task { await load(refresh: false) }
         .polling(every: 2) { if computing { await load(refresh: false) } }
@@ -91,7 +102,7 @@ struct AppStoragePanel<Header: View>: View {
             ("其他占用", other, Color.white.opacity(0.2)),
             ("剩余", free, Color.white.opacity(0.07)),
         ]
-        return Section {
+        return SettingsFormSection {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .bottom) {
                     VStack(alignment: .leading, spacing: 2) {
@@ -130,30 +141,14 @@ struct AppStoragePanel<Header: View>: View {
                 }
             }
             .padding(.vertical, 4)
-        } header: {
-            HStack {
-                Text("磁盘概览")
-                Spacer()
-                Text(statusText).textCase(nil).lineLimit(1)
-                Button {
-                    Task { await load(refresh: true) }
-                } label: {
-                    Label(computing ? "统计中" : "刷新", systemImage: "arrow.clockwise")
-                        .font(.caption.weight(.medium))
-                }
-                .buttonStyle(.glass)
-                .controlSize(.mini)
-                .disabled(computing)
-                .textCase(nil)
-                .accessibilityIdentifier("storage-refresh")
-            }
-        }
+        } header: { Text("磁盘概览") }
+          footer: { Text(statusText) }
     }
 
     // MARK: 目录行
 
     private func dirSection(title: String, group: String, trailing: String?) -> some View {
-        Section {
+        SettingsFormSection {
             if let usage {
                 ForEach(usage.dirs.filter { $0.group == group }, id: \.key) { dir in
                     dirRow(dir)
@@ -171,69 +166,21 @@ struct AppStoragePanel<Header: View>: View {
     }
 
     private func dirRow(_ dir: API.DirUsageView) -> some View {
-        let expensive = dir.rebuildCost == "expensive"
-        let actionable = dir.group == "cache" && (dir.orphanAware || dir.clearable)
-        return VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 6) {
-                        Text(dir.title).font(.body.weight(.medium)).lineLimit(1)
-                        SettingsHelpTip(text: "\(dir.description)\n\n\(dir.path)", label: "「\(dir.title)」的说明")
-                    }
-                    HStack(spacing: 6) {
-                        if expensive {
-                            Text("重建代价高").font(.caption2.weight(.medium)).foregroundStyle(Theme.warning)
-                                .padding(.horizontal, 6).padding(.vertical, 1)
-                                .background(Theme.warning.opacity(0.1), in: .capsule)
-                        }
-                        Text(dir.summary).font(.caption).foregroundStyle(Theme.textFaint).lineLimit(2)
-                    }
+        Button { selectedKey = dir.key } label: {
+            HStack(spacing: 12) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(dir.title).foregroundStyle(.primary)
+                    Text(dir.summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                 }
-                Spacer(minLength: 6)
+                Spacer(minLength: 8)
                 Text(dir.exists ? Formatters.bytes(dir.bytes) : "—")
-                    .font(.subheadline.weight(.semibold)).monospacedDigit()
-                    .foregroundStyle(dir.exists && dir.bytes > 0 ? Theme.text : Theme.textFaint)
-                if actionable {
-                    Menu {
-                        if dir.orphanAware {
-                            Button("清理孤儿条目") { Task { await askClean(dir, mode: "orphans") } }
-                        }
-                        if dir.clearable {
-                            Button("全部清空", role: expensive ? .destructive : nil) { Task { await askClean(dir, mode: "all") } }
-                        }
-                    } label: {
-                        Group {
-                            if busyKey == dir.key { ProgressView().controlSize(.small) } else { Image(systemName: "ellipsis") }
-                        }
-                        .frame(width: 30, height: 30)
-                        .contentShape(.rect)
-                    }
-                    .buttonStyle(.glass)
-                    .disabled(busyKey == dir.key || !dir.exists)
-                    .accessibilityLabel("「\(dir.title)」的清理操作")
-                    .accessibilityIdentifier("storage-menu-\(dir.key)")
-                }
+                    .font(.subheadline).monospacedDigit().foregroundStyle(.secondary)
+                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
             }
-            if let notice, notice.key == dir.key {
-                Text(notice.text).font(.caption).foregroundStyle(notice.ok ? Theme.success : Theme.danger)
-            }
-        }
+        }.accessibilityIdentifier("storage-dir-\(dir.key)")
     }
 
-    /// 先确认再清理，文案按模式与重建代价分档
-    private func askClean(_ dir: API.DirUsageView, mode: String) async {
-        let ok: Bool
-        if mode == "orphans" {
-            ok = await feedback.confirm("清理「\(dir.title)」的孤儿条目？",
-                                        message: "只删除媒体库里已不存在的条目，正在使用的内容不受影响。",
-                                        confirmTitle: "清理孤儿条目")
-        } else {
-            ok = await feedback.confirm("清空「\(dir.title)」？",
-                                        message: dir.description,
-                                        confirmTitle: dir.bytes > 0 ? "清空并释放 \(Formatters.bytes(dir.bytes))" : "全部清空",
-                                        destructive: dir.rebuildCost == "expensive")
-        }
-        guard ok else { return }
+    private func clean(_ dir: API.DirUsageView, mode: String) async {
         busyKey = dir.key
         notice = nil
         defer { busyKey = nil }
@@ -253,5 +200,57 @@ struct AppStoragePanel<Header: View>: View {
     private func relative(_ path: String, _ root: String) -> String {
         let prefix = root.hasSuffix("/") ? root : root + "/"
         return path.hasPrefix(prefix) ? String(path.dropFirst(prefix.count)) : path
+    }
+}
+
+/// 确认由抽屉自己的反馈宿主承载，取消后留在当前目录。
+private struct StorageDirectorySheet: View {
+    let dir: API.DirUsageView
+    let busy: Bool
+    let notice: (text: String, ok: Bool)?
+    let onClean: (String) async -> Void
+    @Environment(Feedback.self) private var feedback
+
+    var body: some View {
+        SubsSheetScaffold(title: dir.title, closeTitle: "完成") {
+            SettingsFormSection {
+                LabeledContent("占用空间", value: dir.exists ? Formatters.bytes(dir.bytes) : "—")
+                Text(dir.description).font(.subheadline).foregroundStyle(.secondary)
+            }
+            SettingsFormSection("存储位置") {
+                Text(dir.path).font(.footnote.monospaced()).textSelection(.enabled)
+            }
+            if dir.group == "cache", dir.exists {
+                SettingsFormSection {
+                    if dir.orphanAware {
+                        Button("清理未使用的条目") { Task { await askClean("orphans") } }
+                            .accessibilityIdentifier("storage-clean-orphans")
+                    }
+                    if dir.clearable {
+                        Button("清空缓存", role: .destructive) { Task { await askClean("all") } }
+                            .accessibilityIdentifier("storage-clean-all")
+                    }
+                } footer: {
+                    if dir.rebuildCost == "expensive" { Text("此缓存重建耗时较长，建议优先清理未使用的条目。") }
+                }
+            }
+            if let notice {
+                SettingsFormSection { Text(notice.text).foregroundStyle(notice.ok ? Theme.success : Theme.danger) }
+            }
+        }
+        .disabled(busy)
+        .interactiveDismissDisabled(busy)
+    }
+
+    private func askClean(_ mode: String) async {
+        let ok: Bool
+        if mode == "orphans" {
+            ok = await feedback.confirm("清理「\(dir.title)」的孤儿条目？",
+                message: "只删除媒体库里已不存在的条目，正在使用的内容不受影响。", confirmTitle: "清理孤儿条目")
+        } else {
+            ok = await feedback.confirm("清空「\(dir.title)」？", message: dir.description,
+                confirmTitle: dir.bytes > 0 ? "清空并释放 \(Formatters.bytes(dir.bytes))" : "全部清空", destructive: true)
+        }
+        if ok { await onClean(mode) }
     }
 }

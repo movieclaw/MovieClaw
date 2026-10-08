@@ -12,9 +12,10 @@
 认不出的文件（影视库里挂着临时身份）先不推：推出去只有一个原始文件名。等它被认出来
 （重新识别、手动认领）再按正确的片名推，最多等 24 小时。
 
-攒一攒再发：一个库连续 5 分钟没有新行才发，最多等 30 分钟；一批里不止一部就合成一条。
-推给打开了这项、并勾选了这个库（或选了「全部」）的人；看不到的库、超出分级的片不推；
-已经推过「入库完成」的那几集不再推给同一个人（``events.claim_units``）。
+攒一攒再发：一个库连续 5 分钟没有新行才发，最多等 30 分钟。发的时候只投一个事件给推送事件
+中枢（hub.py）：每个人只剩一部要说的，进那部剧的卡（cards.py，安静送达）；不止一部合成一条
+汇总。推给打开了这项、并勾选了这个库（或选了「全部」）的人；看不到的库、超出分级的片、静音了
+的片不推；已经在这个人剧卡上说过的那几集（自己订阅、手动下载的）不再推。
 """
 
 from __future__ import annotations
@@ -22,20 +23,14 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.exceptions import BadRequestException
-from movieclaw_api.services.push.events import (
-    _item_visible,
-    _lazy_image,
-    _library_path,
-    claim_units,
-    episode_label,
-)
+from movieclaw_api.services.push.events import _lazy_image
 from movieclaw_api.services.push.notify import AlertContent, notify
 from movieclaw_api.settings.cloud import ArrivalsProgress
 from movieclaw_db.engine import get_database
@@ -85,8 +80,6 @@ class ItemArrival:
 
     item: MediaItem
     units: list[tuple[int, int]] = field(default_factory=list)
-    #: 这个库里以前没有这部（新片 / 新剧），否则是已有剧集的更新
-    new_item: bool = False
 
 
 @dataclass
@@ -209,7 +202,6 @@ async def _arrivals(
     """这一批里真正「新」的单元，按条目归并；以及要等它被认出来的行。"""
     found: dict[int, ItemArrival] = {}
     waiting: list[LibraryFile] = []
-    batch_ids = [row.id for row in rows if row.id is not None]
     for row in rows:
         if row.media_item_id is None or row.state != FileState.IN_PLACE.value:
             continue
@@ -239,17 +231,7 @@ async def _arrivals(
             item = await session.get(MediaItem, row.media_item_id)
             if item is None:
                 continue
-            # 这一批之外，这个库里已经有这部的别的文件：是已有剧集的更新，不是新剧
-            before = (
-                await session.execute(
-                    select(LibraryFile.id).where(  # type: ignore[call-overload]
-                        LibraryFile.library_id == library.id,
-                        LibraryFile.media_item_id == row.media_item_id,
-                        LibraryFile.id.not_in(batch_ids),  # type: ignore[union-attr]
-                    )
-                )
-            ).first()
-            arrival = found[row.media_item_id] = ItemArrival(item=item, new_item=before is None)
+            arrival = found[row.media_item_id] = ItemArrival(item=item)
         if unit not in arrival.units:
             arrival.units.append(unit)
     return list(found.values()), waiting
@@ -264,7 +246,7 @@ def _long_existing(row: LibraryFile) -> bool:
     return row.created_at - modified > OLD_FILE
 
 
-def _recipients(library_id: int):  # type: ignore[no-untyped-def]
+def recipients(library_id: int):  # type: ignore[no-untyped-def]
     """打开了「媒体库有新片」、并关心这个库、也看得到这个库的人。"""
 
     async def resolve(session: AsyncSession) -> set[int]:
@@ -295,58 +277,34 @@ def _recipients(library_id: int):  # type: ignore[no-untyped-def]
     return resolve
 
 
-def _content(library: Library, arrivals: list[ItemArrival]):  # type: ignore[no-untyped-def]
-    images = {a.item.id: _lazy_image(_image_url(a.item)) for a in arrivals}
-    videos = library.kind not in ("movie", "tv")  # 「其他」库：家庭录像、课程这类，不叫「片」
+def announce_summary(
+    library_id: int, member_id: int, items: dict[int, list[tuple[int, int]]]
+) -> None:
+    """一个人这一批里不止一部：合成「『电影』新增 N 部：A、B、C 等」（安静送达）。
 
-    async def build(session: AsyncSession, member_id: int) -> AlertContent | None:
-        mine: list[ItemArrival] = []
-        for a in arrivals:
-            if not await _item_visible(session, member_id, a.item.id or 0):
-                continue
-            # 已经推过「入库完成」的那几集（自己订阅或手动下载的）不再推给这个人
-            fresh = claim_units(member_id, a.item.id or 0, a.units)
-            if fresh:
-                mine.append(replace(a, units=fresh))
-        if not mine:
+    只剩一部的不走这里，进那部剧的卡（cards.py）。
+    """
+
+    async def build(session: AsyncSession, _member_id: int) -> AlertContent | None:
+        library = await session.get(Library, library_id)
+        found = [item for i in items if (item := await session.get(MediaItem, i)) is not None]
+        if library is None or not found:
             return None
-        lib = library.name
-        first = mine[0]
-        image = await images[first.item.id]()
-        if len(mine) == 1:
-            item = first.item
-            single = first.units[0] if len(first.units) == 1 else None
-            path = await _library_path(session, member_id, item.id or 0, single)
-            label = episode_label(first.units) if item.kind == "tv" else ""
-            if first.new_item or not label:
-                kind = "新视频" if videos else "新剧" if item.kind == "tv" else "新片"
-                body = f"已加入「{lib}」" + (f"，{label}" if label else "")
-                return AlertContent(
-                    title=f"{kind}：{item.title}",
-                    body=body + "，点开就能看",
-                    image=image,
-                    open=path,
-                    thread=f"library-{library.id}",
-                )
-            return AlertContent(
-                title=f"{item.title} 更新了",
-                body=f"{label}已加入「{lib}」",
-                image=image,
-                open=path,
-                thread=f"library-{library.id}",
-            )
-        names = "、".join(a.item.title for a in mine[:NAMED_IN_SUMMARY])
-        more = "等" if len(mine) > NAMED_IN_SUMMARY else ""
+        videos = library.kind not in ("movie", "tv")  # 「其他」库：家庭录像、课程这类，不叫「片」
+        names = "、".join(item.title for item in found[:NAMED_IN_SUMMARY])
+        more = "等" if len(found) > NAMED_IN_SUMMARY else ""
         unit = "个视频" if videos else "部"
         return AlertContent(
-            title=f"「{lib}」新增 {len(mine)} {unit}",
+            title=f"「{library.name}」新增 {len(found)} {unit}",
             body=f"{names}{more}",
-            image=image,
-            open=f"/library/{library.id}",
-            thread=f"library-{library.id}",
+            image=await _lazy_image(_image_url(found[0]))(),
+            open=f"/library/{library_id}",
+            thread=f"library-{library_id}",
+            level="passive",
+            relevance=0.3,
         )
 
-    return build
+    notify("library_new", {member_id}, build)
 
 
 def _image_url(item: MediaItem) -> str | None:
@@ -370,9 +328,14 @@ async def check_once(now: datetime | None = None) -> int:
             await _save(ArrivalsProgress(started_at=now))
             return 0
         collected = await collect_ready(session, now)
+    from movieclaw_api.services.push.hub import LibraryArrivals, emit
+
     for batch in collected.batches:
-        notify(
-            "library_new", _recipients(batch.library.id or 0), _content(batch.library, batch.items)
+        emit(
+            LibraryArrivals(
+                library_id=batch.library.id or 0,
+                items=tuple((a.item.id or 0, tuple(a.units)) for a in batch.items),
+            )
         )
     if collected.marks != progress.marks or collected.held != progress.held:
         await _save(

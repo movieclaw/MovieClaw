@@ -67,9 +67,7 @@ struct MainTabView: View {
         let api = model.api ?? EnvironmentValues().api
 
         TabView(selection: Binding(get: { router.selectedTab }, set: { tab in
-            // 再点一次当前页签：回到这个页签的根页（iOS 惯例）。「片段」这类不带返回键的二级页靠它回去
-            if tab == router.selectedTab { router.popToRoot() }
-            router.selectedTab = tab
+            router.selectTab(tab)
         })) {
             Tab(value: MainTab.library) {
                 TabRoot(tab: .library) { LibraryHomeView() }
@@ -542,7 +540,7 @@ enum TabIcon {
 /// 外层注入的 `.topBarTrailing` 会排到页面按钮前面，所以放 `.primaryAction`（固定在最右），
 /// 再用固定间隔隔开：页面按钮在左边自成一组，搜索是独立圆钮（媒体库是「▶ ⋯ · 搜索」）。
 ///
-/// 「我的」页在搜索左边多一个扫码钮，两者同在一个玻璃胶囊里（2026-10-02 用户要的「扫码 · 搜索」）：
+/// 「我的」页只保留扫码钮：
 /// 扫电视 / 终端上的登录二维码 → 直达独立的批准页（DeviceApprovalView）。
 struct AppTopBar: ViewModifier {
     let tab: MainTab
@@ -566,7 +564,7 @@ struct AppTopBar: ViewModifier {
                 }
             }
             // 任一搜索分区可用就给入口（影视 / 资源 / 媒体库，见 SearchAccess.canOpenSearch）
-            if searchAccess.canOpenSearch {
+            if tab != .more, searchAccess.canOpenSearch {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         router.push(.searchHome(mode: preferredSearchMode))

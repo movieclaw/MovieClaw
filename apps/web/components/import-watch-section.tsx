@@ -8,10 +8,18 @@ import {
   type ClaimSeed,
   searchSeedFromLabel,
 } from "@/components/claim-panels";
+import { ErrorBanner } from "@/components/cloud-push-ui";
 import { DirectoryPicker } from "@/components/directory-picker";
 import { useConfirm } from "@/components/feedback";
-import { FolderIcon, PlusIcon, XIcon } from "@/components/icons";
+import { FolderIcon, PlusIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsEmpty,
+  SettingsMoreMenu,
+  SettingsSection,
+} from "@/components/settings-ui";
 import { type ConfiguredDownloader, listDownloaders } from "@/lib/api/downloaders";
 import {
   type ImportWatchRule,
@@ -123,56 +131,67 @@ export function ImportWatchSection() {
   };
 
   return (
-    <div className="space-y-5">
-      <p className="text-ui leading-6 text-[var(--text-muted)]">
+    <div className="space-y-10">
+      <p className="px-1 text-ui leading-6 text-[var(--text-muted)]">
         监听下载目录，其中<strong className="font-medium text-white/80">下载完成</strong>
         的内容（下载器确认完成，或文件持续静默且探测通过）自动识别、按「标题 (年份)」规范命名
         搬进目标媒体库或你指定的自定义目录。源文件原地保留：硬链接零占用、可继续做种；复制适合跨盘。
         把下载器的保存目录设为这里的源目录，即可实现「下载完成自动整理入库」。
       </p>
 
-      {error && (
-        <p className="rounded-lg border border-red-400/25 bg-red-500/10 px-3.5 py-2.5 text-ui leading-6 text-red-200">
-          {error}
-        </p>
-      )}
+      <SettingsSection
+        title="自动入库规则"
+        description={rules && rules.length > 0 ? `${rules.length} 条规则` : undefined}
+        action={
+          rules !== null &&
+          !failed && (
+            <button
+              type="button"
+              onClick={() => setEditing("new")}
+              className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
+            >
+              <PlusIcon className="size-4" />
+              添加规则
+            </button>
+          )
+        }
+      >
+        <div className="space-y-3">
+          {error && <ErrorBanner>{error}</ErrorBanner>}
 
-      {failed && (
-        <div className="flex items-center gap-3">
-          <p className="text-ui text-[var(--text-muted)]">自动入库配置加载失败</p>
-          <button type="button" onClick={reload} className="btn-glass px-3 py-1.5 text-sub font-medium">
-            重试
-          </button>
-        </div>
-      )}
-
-      {rules !== null && !failed && (
-        <div className="space-y-2">
-          {rules.length === 0 && (
-            <p className="rounded-xl bg-white/[0.03] px-4 py-6 text-center text-ui text-[var(--text-muted)]">
-              还没有自动入库规则。不需要「下载区 → 库」自动搬运的话，这里保持为空即可。
-            </p>
+          {failed && (
+            <div className="flex items-center gap-3">
+              <p className="text-ui text-[var(--text-muted)]">自动入库配置加载失败</p>
+              <button type="button" onClick={reload} className={SETTINGS_BUTTON_CLASS}>
+                重试
+              </button>
+            </div>
           )}
-          {rules.map((rule) => (
-            <RuleCard
-              key={rule.id}
-              rule={rule}
-              libraries={libraries}
-              onEdit={() => setEditing(rule)}
-              onRemove={() => void remove(rule)}
-              onStatsChanged={reload}
-            />
-          ))}
-          <button
-            type="button"
-            onClick={() => setEditing("new")}
-            className="flex w-full items-center justify-center gap-2 rounded-xl border border-dashed border-white/15 px-3 py-2.5 text-ui font-medium text-[var(--text-muted)] transition-colors hover:border-[var(--accent)]/50 hover:text-white"
-          >
-            <PlusIcon className="size-4" />
-            添加自动入库规则
-          </button>
+
+          {rules !== null &&
+            !failed &&
+            (rules.length === 0 ? (
+              <SettingsEmpty
+                icon={<FolderIcon className="size-5" />}
+                title="还没有自动入库规则"
+                description="不需要「下载区 → 库」自动搬运的话，这里保持为空即可。"
+              />
+            ) : (
+              <div className="css-glass divide-y divide-[var(--line)] !rounded-xl">
+                {rules.map((rule) => (
+                  <RuleCard
+                    key={rule.id}
+                    rule={rule}
+                    libraries={libraries}
+                    onEdit={() => setEditing(rule)}
+                    onRemove={() => void remove(rule)}
+                    onStatsChanged={reload}
+                  />
+                ))}
+              </div>
+            ))}
         </div>
-      )}
+      </SettingsSection>
 
       <RuleFormDialog
         state={editing}
@@ -234,7 +253,7 @@ function RuleCard({
   const total = ENTRY_TABS.reduce((sum, t) => sum + (stats[t.status] ?? 0), 0);
 
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5">
+    <div className="px-4 py-3">
       <div className="flex items-center gap-3">
         <FolderIcon className="size-4 shrink-0 text-[var(--accent)]/80" />
         <div className="min-w-0 flex-1">
@@ -246,22 +265,18 @@ function RuleCard({
             {!rule.process_existing && "（跳过存量）"}
           </p>
         </div>
-        <button type="button" onClick={onEdit} className="btn-glass shrink-0 px-3 py-1.5 text-sub font-medium">
-          编辑
-        </button>
-        <button
-          type="button"
-          aria-label={`删除对 ${rule.source_path} 的监听`}
-          onClick={onRemove}
-          className="shrink-0 rounded-md p-1.5 text-[var(--text-faint)] transition-colors hover:bg-white/10 hover:text-white"
-        >
-          <XIcon className="size-4" />
-        </button>
+        <SettingsMoreMenu
+          label={`${rule.source_path} 的操作`}
+          items={[
+            { label: "编辑", onSelect: onEdit },
+            { label: "删除", onSelect: onRemove, danger: true },
+          ]}
+        />
       </div>
 
       {/* 台账摘要：非零状态成为可点开的过滤标签 */}
       {total > 0 && (
-        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-white/[0.06] pt-2">
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t border-[var(--line)] pt-2">
           {ENTRY_TABS.filter((t) => (stats[t.status] ?? 0) > 0).map((t) => (
             <button
               key={t.status}
@@ -411,6 +426,7 @@ function EntryRow({
             认领
           </button>
         )}
+        {/* 待处理清单是逐条过的队列：认领与忽略都是高频动作，两个都常驻 */}
         {actionable && (
           <button
             type="button"
@@ -591,9 +607,7 @@ function RuleFormDialog({
 
         <div className="scroll-thin min-h-0 flex-1 space-y-4 overflow-y-auto px-6 py-4">
           {error && (
-            <p className="rounded-lg border border-red-400/25 bg-red-500/10 px-3.5 py-2.5 text-ui leading-6 text-red-200">
-              {error}
-            </p>
+            <ErrorBanner>{error}</ErrorBanner>
           )}
 
           <div>
@@ -806,14 +820,14 @@ function RuleFormDialog({
 
         {/* 底栏常驻：表单比屏幕长，保存按钮不能跟着内容滚出视野 */}
         <div className="flex items-center justify-end gap-3 border-t border-white/[0.07] px-6 py-4">
-          <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
+          <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
             取消
           </button>
           <button
             type="button"
             onClick={submit}
             disabled={!canSubmit}
-            className="btn-accent h-9 rounded-full px-5 text-ui font-semibold disabled:opacity-40"
+            className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
             {busy ? "保存中…" : "保存"}
           </button>

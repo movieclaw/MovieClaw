@@ -1,0 +1,25 @@
+# Gradle / Kotlin 构建产物
+build/
+.gradle/
+.kotlin/
+*.hprof
+
+# 本机配置（SDK 路径等，每台机器不同；模板见 README「本地构建」）
+local.properties
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+captures/
+
+# 预编译三方库（FFmpeg / mpv / libass 的 arm64 产物，共 116MB）
+# 不入库：一是体积，二是这些是第三方二进制、分发另有其许可要求。
+# 获取方式见 README「预编译依赖」。
+app/src/main/jniLibs/**/*.so
+
+# CMake / NDK 中间产物
+.cxx/
+*.o
+*.a

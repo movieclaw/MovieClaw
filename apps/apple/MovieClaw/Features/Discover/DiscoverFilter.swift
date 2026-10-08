@@ -116,6 +116,8 @@ struct DiscoverFilterOptions: View {
                             if on { filters.genreIds.append(genre.id) }
                         }
                     ))
+                    // 菜单使用原生勾选项，不能继承表单的自定义绿色开关样式。
+                    .toggleStyle(.automatic)
                 }
             } else {
                 Button(genres == nil ? "类型加载失败，其他条件仍可使用" : "类型加载中…") {}

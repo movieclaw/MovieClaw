@@ -769,6 +769,9 @@ async def test_remote_session_dispatches_job_without_local_process(manager, monk
             segment_type: str = "fmp4",
             attempt_id: str | None = None,
             disc: bool = False,
+            plan: PlaybackPlan | None = None,
+            source_id: int | None = None,
+            learn_speed: bool = False,
         ):
             self.reserved = (job_id, backend)
             return SimpleNamespace(
@@ -866,6 +869,9 @@ async def test_remote_session_uses_worker_connect_address_without_any_config(
             segment_type: str = "fmp4",
             attempt_id: str | None = None,
             disc: bool = False,
+            plan: PlaybackPlan | None = None,
+            source_id: int | None = None,
+            learn_speed: bool = False,
         ):
             return SimpleNamespace(
                 worker_id="mac-mini-a",
@@ -951,6 +957,9 @@ async def test_remote_start_failure_does_not_fallback_to_local_software(manager,
             segment_type: str = "fmp4",
             attempt_id: str | None = None,
             disc: bool = False,
+            plan: PlaybackPlan | None = None,
+            source_id: int | None = None,
+            learn_speed: bool = False,
         ):
             raise session_mod.RemoteWorkerUnavailable("Worker 刚刚断线")
 
@@ -1052,6 +1061,9 @@ async def test_remote_restart_failure_cleans_up_new_job(manager, tmp_path, monke
             segment_type: str = "fmp4",
             attempt_id: str | None = None,
             disc: bool = False,
+            plan: PlaybackPlan | None = None,
+            source_id: int | None = None,
+            learn_speed: bool = False,
         ):
             return SimpleNamespace(
                 worker_id="mac-mini-a",
@@ -1143,6 +1155,9 @@ async def test_remote_seek_restart_uses_the_worker_that_took_the_job(
             segment_type: str = "fmp4",
             attempt_id: str | None = None,
             disc: bool = False,
+            plan: PlaybackPlan | None = None,
+            source_id: int | None = None,
+            learn_speed: bool = False,
         ):
             self.reserved.append((job_id, backend))
             return SimpleNamespace(
@@ -2111,6 +2126,9 @@ async def test_remote_disc_session_reads_ffconcat_and_follows_worker_caps(manage
             segment_type: str = "fmp4",
             attempt_id: str | None = None,
             disc: bool = False,
+            plan: PlaybackPlan | None = None,
+            source_id: int | None = None,
+            learn_speed: bool = False,
         ):
             self.reserved_disc = disc
             return SimpleNamespace(

@@ -14,8 +14,17 @@ import { useEffect, useState } from "react";
 
 import Link from "next/link";
 
+import { ErrorBanner } from "@/components/cloud-push-ui";
 import { useToast } from "@/components/feedback";
 import { SparkIcon } from "@/components/icons";
+import {
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsEmpty,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings-ui";
 import {
   type LlmDefaults,
   type LlmModelOption,
@@ -93,9 +102,9 @@ export function AiSettingsSection() {
   const noProviders = defaults != null && options.length === 0;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-10">
       {!noProviders && (
-        <p className="text-sub leading-6 text-[var(--text-muted)]">
+        <p className="px-1 text-sub leading-6 text-[var(--text-muted)]">
           为不同场景各选一个默认模型。可选项来自
           <Link href="/settings/llm" className="mx-0.5 text-[var(--accent)] hover:underline">
             模型接入
@@ -104,85 +113,71 @@ export function AiSettingsSection() {
         </p>
       )}
 
-      {error && (
-        <div
-          role="alert"
-          className="rounded-xl border border-[#ff6b6b]/30 bg-[#ff6b6b]/10 px-4 py-3 text-body text-[#ff6b6b]"
-        >
-          {error}
-        </div>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {defaults == null ? (
         <div className="h-[104px] animate-pulse rounded-xl bg-white/[0.04]" />
       ) : noProviders ? (
         /* 空态：没有供应商就没有模型可选，引导先去接入 */
-        <div className="css-glass flex flex-col items-center gap-3 !rounded-2xl px-6 py-12 text-center max-sm:px-4 max-sm:py-9">
-          <span className="icon-chip size-12 !rounded-2xl">
-            <SparkIcon className="size-6" />
-          </span>
-          <div>
-            <p className="text-body font-medium text-[var(--text)]">还没有可选的模型</p>
-            <p className="mt-1 max-w-md text-sub leading-relaxed text-[var(--text-muted)]">
-              先在「模型接入」接入至少一家供应商。接入后这里会自动把智能体和字幕处理的默认模型
-              设为该供应商目录里的第一个模型，你可以随时改成别的。
-            </p>
-          </div>
-          <Link
-            href="/settings/llm"
-            className="btn-accent mt-1 min-h-10 rounded-full px-5 py-2 text-sub font-semibold max-sm:w-full"
-          >
-            去接入模型供应商
-          </Link>
-        </div>
+        <SettingsEmpty
+          icon={<SparkIcon className="size-5" />}
+          title="还没有可选的模型"
+          description="先在「模型接入」接入至少一家供应商。接入后这里会自动把智能体和字幕处理的默认模型设为该供应商目录里的第一个模型，你可以随时改成别的。"
+          action={
+            <Link href="/settings/llm" className={SETTINGS_PRIMARY_BUTTON_CLASS + " inline-flex items-center"}>
+              去接入模型供应商
+            </Link>
+          }
+        />
       ) : (
-        <div className="css-glass !rounded-2xl">
-          {PURPOSES.map((purpose, i) => {
-            const value = defaults[purpose.key];
-            const effective = defaults[purpose.effectiveKey];
-            // 正常情况下设定一定有值且在清单里（服务端维护）；只有预设目录变动
-            // 这类漂移才会失效，此时提示并展示实际生效的兜底值
-            const stale = value == null || !options.some((o) => o.ref === value);
-            return (
-              <div
-                key={purpose.key}
-                className={`space-y-2 p-4 max-sm:p-3.5 ${i > 0 ? "border-t border-white/[0.06]" : ""}`}
-              >
-                <div>
-                  <p className="text-body font-medium text-[var(--text)]">{purpose.label}</p>
-                  <p className="mt-0.5 text-caption leading-relaxed text-[var(--text-faint)]">
-                    {purpose.desc}
-                  </p>
-                </div>
-                <select
-                  aria-label={purpose.label}
-                  value={stale ? "" : value}
-                  disabled={saving != null}
-                  onChange={(e) => void save(purpose.key, e.target.value || null)}
-                  className="min-h-11 w-full appearance-none rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-[16px] text-[var(--text)] outline-none transition-colors focus:border-[var(--accent)]/60 disabled:opacity-50 sm:text-ui"
+        <SettingsSection title="默认模型">
+          <SettingsList>
+            {PURPOSES.map((purpose) => {
+              const value = defaults[purpose.key];
+              const effective = defaults[purpose.effectiveKey];
+              // 正常情况下设定一定有值且在清单里（服务端维护）；只有预设目录变动
+              // 这类漂移才会失效，此时提示并展示实际生效的兜底值
+              const stale = value == null || !options.some((o) => o.ref === value);
+              return (
+                <SettingsRow
+                  key={purpose.key}
+                  label={purpose.label}
+                  description={
+                    <>
+                      {purpose.desc}
+                      {stale && (
+                        <span className="mt-1 block text-[var(--warn)]">
+                          原设定的「{value ?? "（空）"}」已不在模型清单里，当前自动使用
+                          {labelOf(effective) ?? "无"}；请重新选择。
+                        </span>
+                      )}
+                    </>
+                  }
                 >
-                  {stale && (
-                    <option value="" disabled>
-                      请重新选择…
-                    </option>
-                  )}
-                  {options.map((o) => (
-                    <option key={o.ref} value={o.ref}>
-                      {o.label}
-                      {o.thinking_levels.length > 0 ? "（思考档位可控）" : ""}
-                    </option>
-                  ))}
-                </select>
-                {stale && (
-                  <p className="text-caption leading-relaxed text-[var(--warn)]">
-                    原设定的「{value ?? "（空）"}」已不在模型清单里，当前自动使用
-                    {labelOf(effective) ?? "无"}；请重新选择。
-                  </p>
-                )}
-              </div>
-            );
-          })}
-        </div>
+                  <select
+                    aria-label={purpose.label}
+                    value={stale ? "" : value}
+                    disabled={saving != null}
+                    onChange={(e) => void save(purpose.key, e.target.value || null)}
+                    className={`${SETTINGS_INPUT_CLASS} w-72 max-sm:w-44`}
+                  >
+                    {stale && (
+                      <option value="" disabled>
+                        请重新选择…
+                      </option>
+                    )}
+                    {options.map((o) => (
+                      <option key={o.ref} value={o.ref}>
+                        {o.label}
+                        {o.thinking_levels.length > 0 ? "（思考档位可控）" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </SettingsRow>
+              );
+            })}
+          </SettingsList>
+        </SettingsSection>
       )}
     </div>
   );

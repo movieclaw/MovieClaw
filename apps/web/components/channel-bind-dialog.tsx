@@ -19,6 +19,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Modal } from "@/components/modal";
 import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+} from "@/components/settings-ui";
+import {
   type ImBinding,
   type ImChannelId,
   type WeixinBindingSnapshot,
@@ -74,9 +79,7 @@ export const CHANNEL_META: Record<
   },
 };
 
-const INPUT_CLASS =
-  "w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2 text-ui " +
-  "text-[var(--text)] outline-none focus:border-[var(--accent)]/60";
+const INPUT_CLASS = `${SETTINGS_INPUT_CLASS} w-full min-w-0`;
 
 export interface ChannelBindDialogProps {
   channel: ChannelKind;
@@ -107,7 +110,7 @@ export function ChannelBindDialog({ channel, onClose, onBound }: ChannelBindDial
           <button
             type="button"
             onClick={onClose}
-            className="btn-glass px-3.5 py-2 text-ui font-medium"
+            className={SETTINGS_BUTTON_CLASS}
           >
             关闭
           </button>
@@ -219,7 +222,7 @@ function WeixinBindBody({ onBound }: { onBound: () => void }) {
             <button
               type="button"
               onClick={() => void begin()}
-              className="btn-accent rounded-full px-4 py-1.5 text-sub font-semibold"
+              className={SETTINGS_PRIMARY_BUTTON_CLASS}
             >
               重试
             </button>
@@ -244,7 +247,7 @@ function WeixinBindBody({ onBound }: { onBound: () => void }) {
               type="button"
               disabled={busy}
               onClick={() => void begin()}
-              className="btn-accent rounded-full px-4 py-1.5 text-sub font-semibold disabled:opacity-40"
+              className={SETTINGS_PRIMARY_BUTTON_CLASS}
             >
               重新生成二维码
             </button>
@@ -268,7 +271,7 @@ function WeixinBindBody({ onBound }: { onBound: () => void }) {
             type="button"
             disabled={busy || !verifyCode.trim()}
             onClick={() => void handleVerifySubmit()}
-            className="btn-accent shrink-0 rounded-xl px-4 py-2 text-sub font-semibold disabled:opacity-40"
+            className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
             确认
           </button>
@@ -326,7 +329,7 @@ function FeishuBindBody({ onBound }: { onBound: () => void }) {
         type="button"
         disabled={busy || !webhookUrl.trim()}
         onClick={() => void handleBind()}
-        className="btn-accent w-full rounded-xl py-2 text-ui font-semibold disabled:opacity-40"
+        className={`${SETTINGS_PRIMARY_BUTTON_CLASS} w-full`}
       >
         {busy ? "接入中…" : "完成接入"}
       </button>
@@ -390,7 +393,7 @@ function ImBindBody({ channel, onBound }: { channel: ImChannelId; onBound: () =>
           type="button"
           disabled={busy || !token.trim()}
           onClick={() => void handleStart()}
-          className="btn-accent w-full rounded-xl py-2 text-ui font-semibold disabled:opacity-40"
+          className={`${SETTINGS_PRIMARY_BUTTON_CLASS} w-full`}
         >
           {busy ? "校验中…" : "获取配对码"}
         </button>
@@ -421,7 +424,7 @@ function ImBindBody({ channel, onBound }: { channel: ImChannelId; onBound: () =>
             <button
               type="button"
               onClick={() => setBinding(null)}
-              className="btn-accent rounded-full px-4 py-1.5 text-sub font-semibold"
+              className={SETTINGS_PRIMARY_BUTTON_CLASS}
             >
               重新发起
             </button>

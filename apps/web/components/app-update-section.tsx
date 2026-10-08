@@ -2,11 +2,22 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { Banner, ErrorBanner } from "@/components/cloud-push-ui";
 import { useConfirm } from "@/components/feedback";
-import { ChevronRightIcon, InfoIcon, RefreshIcon } from "@/components/icons";
+import { ChevronRightIcon, RefreshIcon } from "@/components/icons";
 import { Markdown } from "@/components/markdown";
 import { Modal } from "@/components/modal";
-import { Tooltip } from "@/components/tooltip";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_DANGER_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsCard,
+  SettingsEmpty,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings-ui";
 import {
   type GithubTokenView,
   type ModelUpdateCheckView,
@@ -52,7 +63,7 @@ import { formatDateTime, formatUnixDateTime } from "@/lib/time";
  *     改为轮询 /health 等服务恢复（前后端全量重启），恢复即整页刷新。
  *   - 回退：切回上一版本（可再次回退撤销）；无上一版本时回落镜像内置版本。
  *   - GitHub 访问令牌：可选，避开匿名限流（60 次/小时/IP，走代理时被同节点用户共享）。
- *   - 维护：重启应用（二次确认走全站统一的 useConfirm 弹窗）。原本是本分区第三个
+ *   - 维护：重启应用（页底危险卡片，二次确认走全站统一的 useConfirm 弹窗）。原本是本分区第三个
  *     「维护」标签，但那一整个标签从头到尾
  *     只有这一颗按钮；重启与更新/回退本就是同一类"让应用重来一次"的动作，也
  *     共用同一套「等服务恢复再整页刷新」的等待流程，合到这一页的末尾更好找。
@@ -101,8 +112,7 @@ function isConnectionLoss(status: number): boolean {
 }
 
 export function AppUpdateSection() {
-  // 公开演示站（docs/design/demo-site.md）：应用内更新、回退与重启一律不提供，
-  // 后端也会拒绝；只展示当前版本，免得访客点了按钮才收到拒绝
+  // 演示站只展示版本，不提供更新、回退或重启。
   const demo = useSession().session.demo === true;
   const [status, setStatus] = useState<UpdateStatusView | null>(null);
   const [failed, setFailed] = useState(false);
@@ -111,7 +121,6 @@ export function AppUpdateSection() {
   const [checkError, setCheckError] = useState<string | null>(null);
   const [progress, setProgress] = useState<UpdateProgressView | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
-  // 重启请求被后端拒绝时的说明，显示在「重启应用」按钮下方（离动作最近）
   const [restartError, setRestartError] = useState<string | null>(null);
   const [modelCheck, setModelCheck] = useState<ModelUpdateCheckView | null>(null);
   const [modelChecking, setModelChecking] = useState(false);
@@ -391,7 +400,7 @@ export function AppUpdateSection() {
     return (
       <div className="flex items-center gap-3">
         <p className="text-ui text-[var(--text-muted)]">版本信息加载失败</p>
-        <button type="button" onClick={reload} className="btn-glass px-3 py-1.5 text-sub font-medium">
+        <button type="button" onClick={reload} className={SETTINGS_BUTTON_CLASS}>
           重试
         </button>
       </div>
@@ -405,19 +414,21 @@ export function AppUpdateSection() {
   if (restartWait !== "idle") {
     const [title, detail] = RESTART_COPY[restartKind][restartWait];
     return (
-      <div className="css-glass !rounded-2xl px-6 py-10 text-center">
-        <p className="text-body font-medium text-[var(--text)]">{title}</p>
-        <p className="mt-2 text-sub text-[var(--text-muted)]">{detail}</p>
-        {restartWait === "timeout" && (
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="btn-glass mt-4 px-3.5 py-1.5 text-sub font-medium"
-          >
-            刷新页面
-          </button>
-        )}
-      </div>
+      <SettingsEmpty
+        title={title}
+        description={detail}
+        action={
+          restartWait === "timeout" && (
+            <button
+              type="button"
+              onClick={() => window.location.reload()}
+              className={SETTINGS_BUTTON_CLASS}
+            >
+              刷新页面
+            </button>
+          )
+        }
+      />
     );
   }
 
@@ -449,136 +460,115 @@ export function AppUpdateSection() {
         : "源码部署";
 
   return (
-    <div className="space-y-7">
-      {/* —— 版本（状态与动作同区：「检查更新」就挂在当前版本行的右侧，
-             与 macOS 软件更新/Windows Update 的版式一致；空闲态不再为一颗
-             按钮单开一个分组）—— */}
-      <section>
-        <h3 className="group-label mb-2.5 px-1">版本</h3>
+    <div className="space-y-10">
+      {/* —— 版本（状态与动作同行：「检查更新」就挂在当前版本行的右侧，
+             与 macOS 软件更新/Windows Update 的版式一致）—— */}
+      <SettingsSection title="版本">
         <div className="space-y-3">
-          <div className="css-glass divide-y divide-white/[0.055] !rounded-2xl">
-            <div className="px-5 py-4">
-              <div className="flex items-center justify-between gap-4">
-                <div>
-                  <p className="text-ui font-medium text-[var(--text)]">当前版本</p>
-                  <p className="mt-0.5 text-sub text-[var(--text-muted)]">来源：{sourceLabel}</p>
-                </div>
-                <span className="flex flex-wrap items-center justify-end gap-3">
-                  <span className="font-mono text-body text-[var(--text)]">
-                    v{status.current_version}
-                  </span>
-                  {status.can_update && !updating && !demo && (
-                    <button
-                      type="button"
-                      onClick={doCheck}
-                      disabled={checking}
-                      className="btn-glass px-3.5 py-1.5 text-sub font-medium disabled:opacity-50"
-                    >
-                      <RefreshIcon className={`size-4 ${checking ? "animate-spin" : ""}`} />
-                      <span>{checking ? "正在检查…" : "检查更新"}</span>
-                    </button>
+          <SettingsList>
+            <SettingsRow
+              label="当前版本"
+              description={
+                <>
+                  来源：{sourceLabel}
+                  {/* 手动检查的即时反馈：跟在动作所在的行下方 */}
+                  {check && !check.update_available && (
+                    <span className="block text-emerald-300/90">
+                      已是最新版本（v{check.current_version}）
+                    </span>
                   )}
-                </span>
-              </div>
-              {/* 手动检查的即时反馈：跟在动作所在的行块下方，右对齐向按钮看齐 */}
-              {check && !check.update_available && (
-                <p className="mt-1.5 text-right text-caption text-emerald-300/90">
-                  已是最新版本（v{check.current_version}）
-                </p>
-              )}
-              {checkError && (
-                <p className="mt-1.5 text-right text-caption text-red-300">{checkError}</p>
-              )}
-              {demo ? (
-                <p className="mt-1.5 text-right text-caption text-[var(--text-faint)]">
-                  演示站不提供应用内更新
-                </p>
-              ) : (
-                !status.can_update && (
-                  <p className="mt-1.5 text-right text-caption text-[var(--text-faint)]">
-                    仅 Docker 镜像部署支持应用内更新；源码部署请用 git pull 更新
-                  </p>
-                )
-              )}
-            </div>
-            {status.inactive_overlay_version && (
-              <div className="px-5 py-3.5">
-                <p className="text-sub text-[var(--text-muted)]">
-                  已安装的 v{status.inactive_overlay_version} 未在运行
-                  {status.inactive_overlay_reason ? `：${status.inactive_overlay_reason}` : ""}
-                </p>
-              </div>
-            )}
-            {status.bad_versions.length > 0 && (
-              <div className="px-5 py-3.5">
-                <p className="text-sub text-amber-300/90">
-                  版本 {status.bad_versions.map((v) => `v${v}`).join("、")} 曾连续启动失败，
-                  已被自动回落保护。可在新版本发布后重新更新。
-                </p>
-              </div>
-            )}
-            {status.last_abnormal_exit && (
-              <div className="flex items-start justify-between gap-3 px-5 py-3.5">
-                <p className="text-sub text-amber-300/90">
-                  应用曾于 {formatUnixDateTime(status.last_abnormal_exit.at)}{" "}
-                  异常退出并被容器自动恢复：{status.last_abnormal_exit.detail}
-                  （exit={status.last_abnormal_exit.exit_code}）。若频繁出现，请查看容器日志排查。
-                </p>
-                {/* 偶发的单次自愈事件看完即可确认消除；真再崩溃会重新落盘再次提醒 */}
+                  {demo ? (
+                    <span className="block">演示站不提供应用内更新</span>
+                  ) : !status.can_update && (
+                    <span className="block">仅 Docker 镜像部署支持应用内更新；源码部署请用 git pull 更新</span>
+                  )}
+                </>
+              }
+              error={checkError}
+            >
+              <span className="font-mono text-body text-[var(--text)]">
+                v{status.current_version}
+              </span>
+              {status.can_update && !updating && !demo && (
                 <button
                   type="button"
-                  onClick={dismissExit}
-                  className="btn-glass shrink-0 px-3 py-1.5 text-sub font-medium"
+                  onClick={doCheck}
+                  disabled={checking}
+                  className={SETTINGS_BUTTON_CLASS}
                 >
+                  <RefreshIcon className={`size-4 ${checking ? "animate-spin" : ""}`} />
+                  <span>{checking ? "正在检查…" : "检查更新"}</span>
+                </button>
+              )}
+            </SettingsRow>
+          </SettingsList>
+
+          {status.inactive_overlay_version && (
+            <Banner tone="info">
+              已安装的 v{status.inactive_overlay_version} 未在运行
+              {status.inactive_overlay_reason ? `：${status.inactive_overlay_reason}` : ""}
+            </Banner>
+          )}
+          {status.bad_versions.length > 0 && (
+            <Banner tone="warn">
+              版本 {status.bad_versions.map((v) => `v${v}`).join("、")} 曾连续启动失败，
+              已被自动回落保护。可在新版本发布后重新更新。
+            </Banner>
+          )}
+          {status.last_abnormal_exit && (
+            <Banner
+              tone="warn"
+              action={
+                // 偶发的单次自愈事件看完即可确认消除；真再崩溃会重新落盘再次提醒
+                <button type="button" onClick={dismissExit} className={SETTINGS_BUTTON_CLASS}>
                   知道了
                 </button>
-              </div>
-            )}
-          </div>
+              }
+            >
+              应用曾于 {formatUnixDateTime(status.last_abnormal_exit.at)}{" "}
+              异常退出并被容器自动恢复：{status.last_abnormal_exit.detail}
+              （exit={status.last_abnormal_exit.exit_code}）。若频繁出现，请查看容器日志排查。
+            </Banner>
+          )}
 
-          {/* 更新进度：紧跟版本卡，替换新版本卡片的位置 */}
+          {/* 更新进度：紧跟版本行，替换新版本卡片的位置 */}
           {updating && progress && (
-            <div className="css-glass !rounded-2xl px-5 py-4">
-              <p className="text-ui font-medium text-[var(--text)]">
-                {progress.detail || "正在更新…"}
-              </p>
+            <SettingsCard
+              title={progress.detail || "正在更新…"}
+              hint="更新在后台执行，完成后会自动重启并刷新页面。"
+            >
               {progress.phase === "downloading" && progress.percent != null && (
-                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
+                <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.08]">
                   <div
                     className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-500"
                     style={{ width: `${progress.percent}%` }}
                   />
                 </div>
               )}
-              <p className="mt-2 text-sub text-[var(--text-muted)]">
-                更新在后台执行，完成后会自动重启并刷新页面。
-              </p>
-            </div>
+            </SettingsCard>
           )}
 
           {/* 新版本卡片：进页由快照预填，手动检查后以检查结果为准 */}
           {!updating && available && !demo && (
-            <div className="css-glass !rounded-2xl px-5 py-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-ui font-medium text-[var(--text)]">
-                  发现新版本 v{available.version}
-                </p>
-                {available.compatible ? (
-                  <button
-                    type="button"
-                    onClick={doApply}
-                    className="btn-glass px-3.5 py-1.5 text-sub font-semibold text-[var(--accent)]"
-                  >
-                    立即更新
-                  </button>
-                ) : (
-                  <span className="text-sub text-amber-300/90">
+            <SettingsCard
+              title={`发现新版本 v${available.version}`}
+              hint={
+                available.compatible ? undefined : (
+                  <span className="text-amber-300/90">
                     本次更新包含依赖变化，需拉取新的 Docker 镜像升级
                   </span>
-                )}
-              </div>
+                )
+              }
+              action={
+                available.compatible && (
+                  <button type="button" onClick={doApply} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
+                    立即更新
+                  </button>
+                )
+              }
+            >
               {available.knownBad && (
-                <p className="mt-2 text-sub text-amber-300/90">
+                <p className="mb-3 text-sub text-amber-300/90">
                   注意：v{available.version} 此前曾在本机连续启动失败被自动回落。
                   重新更新会清除失败标记再试一次；若问题依旧，容器会再次自动回落，
                   建议等待修复版本。
@@ -587,239 +577,203 @@ export function AppUpdateSection() {
               {/* 更新说明是 GitHub Release 的 Markdown 原文，复用全站的
                   Markdown 渲染器（紧凑档） */}
               {available.changelog && (
-                <div className="scroll-thin mt-3 max-h-64 overflow-y-auto pr-1">
+                <div className="scroll-thin max-h-64 overflow-y-auto pr-1">
                   <Markdown text={available.changelog} compact />
                 </div>
               )}
-            </div>
+            </SettingsCard>
           )}
-          {actionError && <p className="text-sub text-red-300">{actionError}</p>}
+          {actionError && <ErrorBanner>{actionError}</ErrorBanner>}
+          {/* 上一次更新（应用或模型）异步失败的统一外显：失败可能发生在任一区
+              发起的后台任务里，放在共享位置避免归属混乱 */}
+          {progress?.phase === "failed" && progress.error && (
+            <ErrorBanner>
+              上次更新{progress.target_version ? `（${progress.target_version}）` : ""}失败：
+              {progress.error}
+            </ErrorBanner>
+          )}
         </div>
-      </section>
-
-      {/* 上一次更新（应用或模型）异步失败的统一外显：失败可能发生在任一区
-          发起的后台任务里，放在共享位置避免归属混乱 */}
-      {progress?.phase === "failed" && progress.error && (
-        <div className="css-glass !rounded-2xl px-5 py-3.5">
-          <p className="text-sub text-red-300">
-            上次更新{progress.target_version ? `（${progress.target_version}）` : ""}失败：
-            {progress.error}
-          </p>
-        </div>
-      )}
+      </SettingsSection>
 
       {/* —— NER 模型 ——（独立于代码更新；生效需重新解析模型指针，走全量重启） */}
       {status.can_update && !demo && (
-        <section>
-          <h3 className="group-label mb-2.5 px-1">NER 识别模型</h3>
-          <div className="css-glass !rounded-2xl px-5 py-4">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-ui font-medium text-[var(--text)]">
-                  当前模型：{status.model_tag ?? "无法识别（较早的镜像）"}
-                </p>
-                <p className="mt-0.5 text-sub text-[var(--text-muted)]">
-                  种子名识别（NER）模型独立更新，无需升级镜像；更新后应用会自动重启并刷新页面。
-                </p>
-              </div>
+        <SettingsSection
+          title="NER 识别模型"
+          description="种子名识别（NER）模型独立更新，无需升级镜像；更新后应用会自动重启并刷新页面。"
+        >
+          <SettingsList>
+            <SettingsRow
+              label={`当前模型：${status.model_tag ?? "无法识别（较早的镜像）"}`}
+              description={
+                // 手动检查后的两种"装不了"的结论：只有点过按钮才说，避免进页就
+                // 冒出一句无从触发的结论
+                modelCheck && !availableModelTag ? (
+                  !modelCheck.update_available ? (
+                    <span className="text-emerald-300/90">
+                      模型已是最新（{modelCheck.latest_tag}）
+                    </span>
+                  ) : (
+                    <span className="text-amber-300/90">
+                      发现新模型 {modelCheck.latest_tag}，但该发布未携带更新清单，暂无法应用内安装
+                    </span>
+                  )
+                ) : undefined
+              }
+              error={modelError}
+            >
               {!updating && (
                 <button
                   type="button"
                   onClick={doModelCheck}
                   disabled={modelChecking}
-                  className="btn-glass px-3.5 py-1.5 text-sub font-medium disabled:opacity-50"
+                  className={SETTINGS_BUTTON_CLASS}
                 >
                   {modelChecking ? "正在检查…" : "检查模型更新"}
                 </button>
               )}
-            </div>
+            </SettingsRow>
             {/* 有可装的新模型：进页就摆出来（快照预填），手动检查后以检查结果为准 */}
             {availableModelTag && (
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <span className="text-sub text-[var(--text)]">发现新模型 {availableModelTag}</span>
+              <SettingsRow label={`发现新模型 ${availableModelTag}`}>
                 <button
                   type="button"
                   onClick={doModelApply}
                   disabled={updating}
-                  className="btn-glass px-3.5 py-1.5 text-sub font-semibold text-[var(--accent)] disabled:opacity-50"
+                  className={SETTINGS_PRIMARY_BUTTON_CLASS}
                 >
                   更新模型
                 </button>
-              </div>
+              </SettingsRow>
             )}
-            {/* 手动检查后的两种"装不了"的结论：只有点过按钮才说，避免进页就
-                冒出一句无从触发的结论 */}
-            {modelCheck && !availableModelTag && (
-              <p className="mt-3 text-sub">
-                {!modelCheck.update_available ? (
-                  <span className="text-emerald-300/90">
-                    模型已是最新（{modelCheck.latest_tag}）
-                  </span>
-                ) : (
-                  <span className="text-amber-300/90">
-                    发现新模型 {modelCheck.latest_tag}，但该发布未携带更新清单，暂无法应用内安装
-                  </span>
-                )}
-              </p>
-            )}
-            {modelError && <p className="mt-2 text-sub text-red-300">{modelError}</p>}
-          </div>
-        </section>
+          </SettingsList>
+        </SettingsSection>
       )}
 
       {/* —— 回退与版本保留 ——（有候选版本才出现回退入口；保留数设置常驻） */}
       {status.can_update && rollback && !demo && (
-        <section>
-          <h3 className="group-label mb-2.5 px-1">回退</h3>
-          <div className="css-glass divide-y divide-white/[0.055] !rounded-2xl">
+        <SettingsSection title="回退">
+          <SettingsList>
             {rollback.targets.length > 0 && (
-              <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-                <p className="text-sub text-[var(--text-muted)]">
-                  更新后遇到问题时，可切换到本机保留的历史版本；跨数据库升级的回退
-                  会恢复对应时点的自动备份。
-                </p>
+              <SettingsRow
+                label="回退到历史版本"
+                description="更新后遇到问题时，可切换到本机保留的历史版本；跨数据库升级的回退会恢复对应时点的自动备份。"
+              >
                 <button
                   type="button"
                   onClick={() => setRollbackOpen(true)}
                   disabled={updating}
-                  className="btn-glass px-3.5 py-1.5 text-sub font-medium disabled:opacity-50"
+                  className={SETTINGS_BUTTON_CLASS}
                 >
                   选择版本回退…
                 </button>
-              </div>
+              </SettingsRow>
             )}
-            <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-4">
-              <div>
-                <p className="text-ui font-medium text-[var(--text)]">本地保留版本数</p>
-                <p className="mt-0.5 text-sub text-[var(--text-muted)]">
-                  保留越多可回退的范围越大，占用磁盘越多
-                  {rollback.versions_dir_bytes > 0
-                    ? `（当前占用 ${formatBytes(rollback.versions_dir_bytes)}）`
-                    : ""}
-                </p>
-              </div>
-              <span className="flex items-center gap-2">
-                <button
-                  type="button"
-                  aria-label="减少保留版本数"
-                  onClick={() => doSetRetention(rollback.keep_versions - 1)}
-                  disabled={retentionBusy || rollback.keep_versions <= 2}
-                  className="btn-glass !size-8 justify-center !p-0 text-body disabled:opacity-40"
-                >
-                  −
-                </button>
-                <span className="tnum w-8 text-center text-body font-medium text-[var(--text)]">
-                  {rollback.keep_versions}
-                </span>
-                <button
-                  type="button"
-                  aria-label="增加保留版本数"
-                  onClick={() => doSetRetention(rollback.keep_versions + 1)}
-                  disabled={retentionBusy || rollback.keep_versions >= 20}
-                  className="btn-glass !size-8 justify-center !p-0 text-body disabled:opacity-40"
-                >
-                  +
-                </button>
+            <SettingsRow
+              label="本地保留版本数"
+              description={`保留越多可回退的范围越大，占用磁盘越多${
+                rollback.versions_dir_bytes > 0
+                  ? `（当前占用 ${formatBytes(rollback.versions_dir_bytes)}）`
+                  : ""
+              }`}
+            >
+              <button
+                type="button"
+                aria-label="减少保留版本数"
+                onClick={() => doSetRetention(rollback.keep_versions - 1)}
+                disabled={retentionBusy || rollback.keep_versions <= 2}
+                className="btn-glass !size-8 justify-center !p-0 text-body disabled:opacity-40"
+              >
+                −
+              </button>
+              <span className="tnum w-8 text-center text-body font-medium text-[var(--text)]">
+                {rollback.keep_versions}
               </span>
-            </div>
-          </div>
-        </section>
+              <button
+                type="button"
+                aria-label="增加保留版本数"
+                onClick={() => doSetRetention(rollback.keep_versions + 1)}
+                disabled={retentionBusy || rollback.keep_versions >= 20}
+                className="btn-glass !size-8 justify-center !p-0 text-body disabled:opacity-40"
+              >
+                +
+              </button>
+            </SettingsRow>
+          </SettingsList>
+        </SettingsSection>
       )}
 
       {/* —— GitHub 访问令牌 ——（检查更新走 GitHub API，匿名按出口 IP 限 60 次/小时，
-             走代理时与同节点所有人共用，极易被"限流"；配令牌后改按自己账号计 5000 次） */}
+             走代理时与同节点所有人共用，极易被"限流"；配令牌后改按自己账号计 5000 次）
+             凭据是显式提交：卡片页脚唯一的保存按钮，没填时置灰 */}
       {!demo && (
-        <section>
-          <h3 className="group-label mb-2.5 px-1">GitHub 访问令牌</h3>
-          <div className="css-glass !rounded-2xl px-5 py-4">
-            <p className="text-sub text-[var(--text-muted)]">
-              检查更新时提示「GitHub 限流」，多半是代理出口 IP 被大量用户共用、匿名额度（60
-              次/小时）已被用光。填入自己的令牌后，额度改按你的账号计算。令牌只需能读公开仓库：在
-              GitHub 生成 Fine-grained token，不勾选任何权限即可；它仅用于检查更新，加密保存在本机。
-            </p>
-            {tokenView?.configured && (
-              <p className="mt-2 text-sub text-[var(--text)]">
-                已配置：<span className="tnum">{tokenView.masked}</span>
-              </p>
-            )}
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <input
-                type="password"
-                value={tokenInput}
-                onChange={(e) => setTokenInput(e.target.value)}
-                placeholder={tokenView?.configured ? "填写新令牌以替换" : "github_pat_… 或 ghp_…"}
-                autoComplete="new-password"
-                spellCheck={false}
-                aria-label="GitHub 访问令牌"
-                className="min-w-0 flex-1 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-ui text-[var(--text)] outline-none focus:border-[var(--accent)]/60"
-              />
+        <SettingsSection
+          title="GitHub 访问令牌"
+          description="检查更新时提示「GitHub 限流」，多半是代理出口 IP 被大量用户共用、匿名额度（60 次/小时）已被用光。填入自己的令牌后，额度改按你的账号计算。"
+        >
+          <SettingsCard
+            title="访问令牌"
+            description={tokenView?.configured ? `已配置 ${tokenView.masked}` : "未配置"}
+            hint="只需能读公开仓库：在 GitHub 生成 Fine-grained token，不勾选任何权限即可；仅用于检查更新，加密保存在本机。"
+            action={
               <button
                 type="button"
                 onClick={() => doSaveToken(tokenInput)}
                 disabled={tokenBusy || !tokenInput.trim()}
-                className="btn-glass px-3.5 py-1.5 text-sub font-medium disabled:opacity-50"
+                className={SETTINGS_PRIMARY_BUTTON_CLASS}
               >
                 保存
               </button>
+            }
+          >
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                value={tokenInput}
+                onChange={(e) => setTokenInput(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && tokenInput.trim() && void doSaveToken(tokenInput)}
+                placeholder={tokenView?.configured ? "填写新令牌以替换" : "github_pat_… 或 ghp_…"}
+                autoComplete="new-password"
+                spellCheck={false}
+                aria-label="GitHub 访问令牌"
+                className={`${SETTINGS_INPUT_CLASS} min-w-0 flex-1`}
+              />
               {tokenView?.configured && (
                 <button
                   type="button"
                   onClick={() => doSaveToken("")}
                   disabled={tokenBusy}
-                  className="btn-glass px-3.5 py-1.5 text-sub font-medium disabled:opacity-50"
+                  className={SETTINGS_BUTTON_CLASS}
                 >
                   清除
                 </button>
               )}
             </div>
-          </div>
-        </section>
+          </SettingsCard>
+        </SettingsSection>
       )}
 
-      {/* —— 维护 ——（重启应用：与更新/回退同属"让应用重来一次"，放在本页最后，
-             与上面的更新动作隔开，避免顺手误点；演示站不提供） */}
+      {/* —— 维护 ——（重启应用会打断正在进行的任务：放在本页最后、用危险卡片，
+             与上面的更新动作隔开，避免顺手误点；点击后先确认） */}
       {!demo && (
-        <section>
-          <h3 className="group-label mb-2.5 px-1">维护</h3>
-          <div className="css-glass !rounded-2xl">
-            <div className="flex items-center justify-between gap-4 px-5 py-4">
-              <span className="flex min-w-0 items-center gap-1.5">
-                <span className="truncate text-ui font-medium text-[var(--text)]">重启应用</span>
-                <Tooltip
-                  content={
-                    <>
-                      <p>优雅停机后重新启动后端服务，正在进行的任务会中断。</p>
-                      <p className="mt-1.5">
-                        Docker 部署由容器入口自动拉起新进程，通常几秒内恢复；源码部署需有
-                        systemd 等守护，否则退出后要到服务器上手动启动。
-                      </p>
-                    </>
-                  }
-                  placement="top"
-                  maxWidth={340}
-                  openOnClick
-                >
-                  <button
-                    type="button"
-                    aria-label="重启应用的说明"
-                    className="flex shrink-0 text-[var(--text-faint)] transition-colors hover:text-[var(--text-muted)] focus-visible:text-[var(--text-muted)]"
-                  >
-                    <InfoIcon className="size-[15px]" />
-                  </button>
-                </Tooltip>
-              </span>
+        <SettingsSection title="维护">
+          <SettingsCard
+            tone="danger"
+            title="重启应用"
+            description="优雅停机后重新启动后端服务，正在进行的任务会中断。"
+            hint="Docker 部署由容器入口自动拉起新进程，通常几秒内恢复；源码部署需有 systemd 等守护，否则退出后要到服务器上手动启动。"
+            action={
               <button
                 type="button"
                 onClick={() => void doRestart()}
                 disabled={updating}
-                className="btn-glass shrink-0 px-3.5 py-1.5 text-sub font-semibold text-red-300/90 hover:text-red-200 disabled:opacity-50"
+                className={SETTINGS_DANGER_BUTTON_CLASS}
               >
                 重启应用
               </button>
-            </div>
-            {restartError && <p className="px-5 pb-4 text-sub text-red-300">{restartError}</p>}
-          </div>
-        </section>
+            }
+          />
+          {restartError && <ErrorBanner>{restartError}</ErrorBanner>}
+        </SettingsSection>
       )}
 
       <RollbackDialog
@@ -952,14 +906,14 @@ function RollbackDialog({
       </div>
       {/* 底栏：确认按钮写明落点与数据后果，这是点下去前看到的最后一句话 */}
       <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] px-5 py-3.5">
-        <button type="button" onClick={onClose} className="btn-glass px-3.5 py-1.5 text-sub font-medium">
+        <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
           取消
         </button>
         <button
           type="button"
           disabled={pick == null}
           onClick={() => pick && onConfirm(pick)}
-          className="btn-glass px-3.5 py-1.5 text-sub font-semibold text-red-300 disabled:opacity-40"
+          className={SETTINGS_DANGER_BUTTON_CLASS}
         >
           {pick == null
             ? "选择一个版本"

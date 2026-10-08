@@ -33,6 +33,7 @@ import logging
 from datetime import timedelta
 from pathlib import Path
 
+from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -103,7 +104,7 @@ def _file_sort_key(file: LibraryFile) -> tuple[int, int, int]:
 
 
 def snapshot_from_file(
-    file: LibraryFile, name_attrs: QualitySnapshot | None
+    file: LibraryFile, name_attrs: QualitySnapshot | None, *, with_evidence: bool = False
 ) -> QualitySnapshot:
     """由库文件行 + 名称解析来源构造快照（§4.1 分层取值）。
 
@@ -144,7 +145,7 @@ def snapshot_from_file(
             update={"media_source": file.media_source, "remux": False}
         )
     probed = file.resolution is not None or file.bit_rate is not None
-    return build_snapshot(
+    snapshot = build_snapshot(
         name_attrs,
         probed=probed,
         probe_resolution=file.resolution,
@@ -152,6 +153,22 @@ def snapshot_from_file(
         probe_video_codec=file.video_codec,
         probe_bit_rate=file.bit_rate,
     )
+    if not with_evidence:
+        return snapshot
+    snapshot.resolution_verified = file.resolution is not None
+    if file.is_disc():
+        snapshot.source_evidence = "disc"
+    elif file.media_source_manual:
+        snapshot.source_evidence = "manual"
+    elif file.media_source and name_attrs.media_source:
+        snapshot.source_evidence = (
+            "consistent_declaration"
+            if file.media_source.casefold() == name_attrs.media_source.casefold()
+            else "conflict"
+        )
+    else:
+        snapshot.source_evidence = "unknown"
+    return snapshot
 
 
 async def fill_snapshots(
@@ -201,7 +218,19 @@ async def fill_snapshots(
             ).scalar_one_or_none()
             if attempt is not None and attempt.quality:
                 name_attrs = QualitySnapshot.model_validate(attempt.quality)
-        snapshot = snapshot_from_file(best, name_attrs)
+        subscription = await session.get(Subscription, wanted.subscription_id)
+        snapshot = snapshot_from_file(
+            best,
+            name_attrs,
+            with_evidence=bool(subscription and subscription.selection_mode == "smart"),
+        )
+        if subscription and subscription.selection_mode == "smart":
+            if not snapshot.resolution_verified:
+                snapshot.resolution = None
+            if snapshot.source_evidence in {"conflict", "unknown"}:
+                snapshot.media_source, snapshot.remux = None, False
+            from movieclaw_api.services.subscription.smart_selection import confirm_import
+            await confirm_import(session, subscription, wanted, snapshot)
         wanted.quality = snapshot.model_dump()
         wanted.updated_at = utcnow()
 
@@ -355,6 +384,11 @@ async def run_upgrade_round(
         raise NotFoundException(f"订阅不存在：#{subscription_id}")
     if subscription.status == "paused":
         raise BadRequestException("订阅已暂停，请先恢复追踪再触发洗版")
+    if subscription.selection_mode == "smart":
+        if rule_set_id not in (None, 0):
+            raise BadRequestException("智能订阅不能换绑规则组")
+        # 0 是旧客户端回传的无规则占位值，继续使用智能偏好快照。
+        rule_set_id = None
 
     # （可选）换组：目标组必须配置洗版目标——"选规则 + 触发"合成一步
     if rule_set_id is not None and rule_set_id != subscription.rule_set_id:
@@ -808,7 +842,16 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
             name_attrs = None
             if attempt is not None and attempt.quality and _file_from_attempt(file, attempt):
                 name_attrs = QualitySnapshot.model_validate(attempt.quality)
-            snapshot = snapshot_from_file(file, name_attrs)
+            from movieclaw_matcher.smart import SmartPolicy
+
+            snapshot = snapshot_from_file(
+                file, name_attrs, with_evidence=isinstance(spec, SmartPolicy)
+            )
+            if isinstance(spec, SmartPolicy):
+                if not snapshot.resolution_verified:
+                    snapshot.resolution = None
+                if snapshot.source_evidence in {"conflict", "unknown"}:
+                    snapshot.media_source, snapshot.remux = None, False
             if file.id is not None:
                 snapshots_by_file[file.id] = snapshot
             key = (candidate_ladder_rank(snapshot, rank_spec), file.id or 0)
@@ -836,6 +879,10 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
             new_label = quality_label(best_snapshot, spec)
             old_label = quality_label(baseline, spec)
             wanted.quality = best_snapshot.model_dump()
+            if isinstance(spec, SmartPolicy):
+                from movieclaw_api.services.subscription.smart_selection import confirm_import
+                subscription = await session.get(Subscription, wanted.subscription_id)
+                await confirm_import(session, subscription, wanted, best_snapshot)
             wanted.upgrade_verify_failures = 0
             wanted.updated_at = now
             # 该单元此前若因连续证伪出过熔断提示，升级成功即问题消失
@@ -947,28 +994,15 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                 )
             )
             if item is not None:
-                from movieclaw_api.services.channel_push import (
-                    notify_channels,
-                    tmdb_push_image_url,
-                )
-
-                notify_channels(
-                    f"✨ 已洗版:《{item.title}》{_unit_text(wanted)}\n{old_label} → {new_label}",
-                    event="upgraded",
-                    image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
-                )
-                # App 推送：推给订阅的人，后台发送（docs/design/cloud-push.md §5）
+                # App 推送与 IM 通道：按订阅合并成一条，在推送事件中枢里做（cards.py）
                 from movieclaw_api.services.push import events as push_events
 
                 push_events.upgraded(
                     subscription_id=wanted.subscription_id,
                     item_id=media_item_id,
-                    title=item.title,
-                    year=item.year,
                     unit=(wanted.season_number, wanted.episode_number),
                     old_label=old_label,
                     new_label=new_label,
-                    image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
                 )
             logger.info(
                 "洗版完成：条目 #%s %s %s → %s",
@@ -1126,6 +1160,10 @@ def _better(snapshot, baseline, spec) -> bool:
     不可比（某位单侧未知）保持判否，与旧实现一致。
     """
     from movieclaw_matcher import compare_ladder, ladder_vector
+    from movieclaw_matcher.smart import SmartPolicy, is_upgrade
+
+    if isinstance(spec, SmartPolicy):
+        return is_upgrade(snapshot, baseline, spec)
 
     return (
         compare_ladder(ladder_vector(snapshot, spec), ladder_vector(baseline, spec)) == 1
@@ -1165,6 +1203,10 @@ async def _specs_for_subscriptions(
     }
     result: dict[int, RuleSetSpec | None] = {}
     for sub in subs:
+        if sub.selection_mode == "smart":
+            from movieclaw_api.services.subscription.smart_profiles import read_policy
+            result[sub.id] = read_policy(sub)
+            continue
         rule = rules.get(sub.rule_set_id)
         try:
             result[sub.id] = RuleSetSpec.model_validate(rule.spec or {} if rule else {})
@@ -1391,7 +1433,10 @@ async def _refill_stale_snapshots(session: AsyncSession, upgrade_ids: set[int]) 
                     WantedItem.status == WantedStatus.IMPORTED,  # type: ignore[arg-type]
                     WantedItem.in_scope.is_(True),  # type: ignore[attr-defined]
                     WantedItem.quality.isnot(None),  # type: ignore[union-attr]
-                    Subscription.rule_set_id.in_(upgrade_ids),  # type: ignore[union-attr]
+                    or_(
+                        Subscription.rule_set_id.in_(upgrade_ids),
+                        Subscription.selection_mode == "smart",
+                    ),  # type: ignore[union-attr]
                 )
                 .order_by(WantedItem.id)  # type: ignore[arg-type]
                 .limit(_BACKFILL_BATCH * 4)
@@ -1452,20 +1497,28 @@ async def backfill_upgrade_snapshots() -> None:
     async with db.session() as session:
         rule_sets = list((await session.execute(select(RuleSet))).scalars().all())
         upgrade_ids = rule_set_ids_with_upgrade(rule_sets)
-        if not upgrade_ids:
+        if (
+            not upgrade_ids
+            and not (
+                await session.execute(
+                    select(Subscription.id).where(Subscription.selection_mode == "smart").limit(1)
+                )
+            ).first()
+        ):
             return
         rows = list(
             (
                 await session.execute(
                     select(WantedItem)
-                    .join(
-                        Subscription, Subscription.id == WantedItem.subscription_id
-                    )
+                    .join(Subscription, Subscription.id == WantedItem.subscription_id)
                     .where(
                         WantedItem.status == WantedStatus.IMPORTED,  # type: ignore[arg-type]
                         WantedItem.in_scope.is_(True),  # type: ignore[attr-defined]
                         WantedItem.quality.is_(None),  # type: ignore[union-attr]
-                        Subscription.rule_set_id.in_(upgrade_ids),  # type: ignore[union-attr]
+                        or_(
+                            Subscription.rule_set_id.in_(upgrade_ids),
+                            Subscription.selection_mode == "smart",
+                        ),  # type: ignore[union-attr]
                     )
                     .limit(_BACKFILL_BATCH)
                 )
@@ -1508,7 +1561,10 @@ async def backfill_upgrade_snapshots() -> None:
                         WantedItem.in_scope.is_(True),  # type: ignore[attr-defined]
                         WantedItem.quality.isnot(None),  # type: ignore[union-attr]
                         WantedItem.next_search_at.is_(None),  # type: ignore[union-attr]
-                        Subscription.rule_set_id.in_(upgrade_ids),  # type: ignore[union-attr]
+                        or_(
+                            Subscription.rule_set_id.in_(upgrade_ids),
+                            Subscription.selection_mode == "smart",
+                        ),  # type: ignore[union-attr]
                     )
                     .order_by(WantedItem.id)  # type: ignore[arg-type]
                     .limit(_BACKFILL_BATCH * 4)
@@ -1522,4 +1578,3 @@ async def backfill_upgrade_snapshots() -> None:
             if armed_late:
                 await session.commit()
                 logger.info("洗版排期补挂：%d 个已有快照的单元进入洗版排期", armed_late)
-

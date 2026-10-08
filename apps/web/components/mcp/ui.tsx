@@ -12,11 +12,12 @@
  * 3. **破坏性操作与日常操作分层**：日常操作在行内，破坏性的沉到详情页底部的
  *    危险区，且要打字确认。
  *
- * 开关不在这里：分区总开关与端点启停都用全站统一的 LiquidGlassButton，
+ * 开关不在这里：分区总开关与端点启停都用全站统一的 Toggle（cloud-push-ui），
  * 与「Webhook」「IM 推送」等分区长得一样，不另造一个。
  */
 
 import { CopyButton } from "@/components/copy-button";
+import { SETTINGS_INPUT_CLASS } from "@/components/settings-ui";
 
 /** 状态点：绿=在跑，灰=停用。比一个「已停用」文字标签更省横向空间，也更好扫。 */
 export function StatusDot({ on, title }: { on: boolean; title: string }) {
@@ -139,10 +140,7 @@ export function MetaRow({ label, children }: { label: string; children: React.Re
   );
 }
 
-export const INPUT_CLASS =
-  "w-full rounded-lg border border-white/[0.08] bg-black/25 px-3 py-2 text-sub " +
-  "text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] " +
-  "focus:border-[var(--accent)]/50";
+export const INPUT_CLASS = `${SETTINGS_INPUT_CLASS} w-full`;
 
 export function formatBytes(bytes: number): string {
   return bytes >= 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${bytes} B`;

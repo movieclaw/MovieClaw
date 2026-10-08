@@ -50,6 +50,16 @@ def evaluate_rules(
     ``pack_episode_count``：整季包的体积按每集均摊评估，避免 40 集合集
     被"单集体积上限"误杀。
     """
+    from movieclaw_matcher.smart import SmartPolicy, eligible
+
+    if isinstance(spec, SmartPolicy):
+        accepted = eligible(candidate, spec)
+        return RuleVerdict(
+            accepted=accepted,
+            score=0,
+            reason_code=None if accepted else "smart_ineligible",
+            reason_text=None if accepted else "资源不满足智能模式的最低要求，或品质属性无法确认",
+        )
     attrs = candidate.attrs
 
     if spec.resolutions:

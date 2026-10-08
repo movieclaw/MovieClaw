@@ -35,7 +35,8 @@ struct UpgradeRunSheet: View {
     private var selectedRule: API.RuleSetView? { upgradeRules.first { $0.id == ruleSetId } }
     /// 规则组是超管的配置（`GET /rule-sets` 仅超管可读）：成员不拉列表、不选组，
     /// 后端按订阅当前的规则组洗版（成员传了 rule_set_id 也会被忽略，member-permissions-v2 §3.7）
-    private var picksRule: Bool { permissions.canManageSubscriptions }
+    private var picksRule: Bool { permissions.canManageSubscriptions && !detail.isSmart }
+    private var canRun: Bool { detail.isSmart ? detail.smartPreferences?.allowUpgrade == true : !picksRule || selectedRule != nil }
     private var outOfScopeOwned: [API.SeasonOverview] {
         isMovie ? [] : detail.seasonCollection.filter { $0.ownedCount > 0 && !detail.selectedSeasons.contains($0.seasonNumber) }
     }
@@ -92,7 +93,7 @@ struct UpgradeRunSheet: View {
             subtitle: "逐集检查《\(detail.media.title)》库里已有的版本，低于洗版目标的立即排入搜索；洗到新版本入库并验证通过后，旧文件自动替换。",
             confirm: SubsSheetConfirm(
                 title: paused ? "恢复并触发洗版" : "开始体检并洗版",
-                enabled: !picksRule || selectedRule != nil,
+                enabled: canRun,
                 busy: busy,
                 identifier: "upgrade-run-start"
             ) { Task { await run() } },
@@ -105,7 +106,15 @@ struct UpgradeRunSheet: View {
                 Section { SubsNoticeRow(text: "该订阅已暂停。触发洗版会先恢复追踪，随后开始搜索。", tone: .warn) }
             }
 
-            if !picksRule {
+            if detail.isSmart {
+                Section {
+                    if let preferences = detail.smartPreferences {
+                        Text("智能目标：\(preferences.targetLabel)").font(.headline)
+                        Text(preferences.allowUpgrade ? "按本订阅创建时的设置洗版，达标并完成入库核验后停止。" : "本订阅未开启后续洗版。")
+                            .font(.subheadline).foregroundStyle(.secondary)
+                    } else { Text("智能设置无法读取，暂不能洗版。") }
+                }
+            } else if !picksRule {
                 Section {
                     Text("按订阅当前的规则组洗版").foregroundStyle(Theme.textMuted)
                 } header: {
@@ -190,6 +199,7 @@ struct UpgradeRunSheet: View {
     }
 
     private func run() async {
+        guard canRun else { return }
         guard !picksRule || selectedRule != nil else { return }
         busy = true
         error = nil

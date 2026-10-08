@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
 import { useConfirm, useToast } from "@/components/feedback";
-import { MoreIcon } from "@/components/icons";
+import { ErrorBanner } from "@/components/cloud-push-ui";
+import { PlusIcon } from "@/components/icons";
 import {
   genreOptionsFor,
   regionLabels,
@@ -13,6 +13,14 @@ import {
   useRoutingOptions,
 } from "@/components/library-form-dialog";
 import { Modal } from "@/components/modal";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsEmpty,
+  SettingsMoreMenu,
+  SettingsSection,
+} from "@/components/settings-ui";
 import type { RoutingOptions } from "@/lib/api/libraries";
 import {
   createRuleSet,
@@ -62,7 +70,7 @@ interface EditorTarget {
   template: { name: string; spec: RuleSetSpec } | null;
 }
 
-export function RuleSetsPanel() {
+export function RuleSetsPanel({ onPreview }: { onPreview: () => void }) {
   const confirm = useConfirm();
   const toast = useToast();
   const [ruleSets, setRuleSets] = useState<RuleSet[] | null>(null);
@@ -110,40 +118,46 @@ export function RuleSetsPanel() {
   };
 
   return (
-    <section>
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-body font-semibold text-white/90">规则组</h3>
-        <button
-          type="button"
-          onClick={() => setEditing({ ruleSet: null, template: null })}
-          className="btn-glass px-3 py-1.5 text-sub font-medium"
-        >
-          + 新建规则组
-        </button>
-      </div>
-      <p className="mb-4 text-sub leading-6 text-[var(--text-muted)]">
-        {/* 中文不能在 JSX 里折行：折行处会渲染成一个多余的空格 */}
-        {"规则组定义「什么样的资源可接受」——硬性条件（分辨率、编码、体积、免费等）与偏好顺序。" +
-          "给规则组设置「适用范围」（电影/剧集、区域、类型）后，订阅时会自动选中匹配的组：" +
-          "多个组都匹配时条件更多的优先，都不匹配时用标「默认」的组。" +
-          "修改只影响之后的资源评估，已下载的内容不受影响。"}
-      </p>
-
+    <SettingsSection
+      title="规则组"
+      description="规则组定义「什么样的资源可接受」——硬性条件（分辨率、编码、体积、免费等）与偏好顺序。"
+      footnote={
+        // 中文不能在 JSX 里折行：折行处会渲染成一个多余的空格
+        "给规则组设置「适用范围」（电影/剧集、区域、类型）后，订阅时会自动选中匹配的组：" +
+        "多个组都匹配时条件更多的优先，都不匹配时用标「默认」的组。" +
+        "修改只影响之后的资源评估，已下载的内容不受影响。"
+      }
+      action={
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={onPreview} className={SETTINGS_BUTTON_CLASS}>预览匹配</button>
+          <button
+            type="button"
+            onClick={() => setEditing({ ruleSet: null, template: null })}
+            className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
+          >
+            <PlusIcon className="size-4" />
+            新建规则组
+          </button>
+        </div>
+      }
+    >
       {error && (
-        <p className="mb-3 rounded-lg border border-red-400/25 bg-red-500/10 px-3.5 py-2.5 text-sub leading-6 text-red-200">
-          {error}
-        </p>
+        <div className="mb-3">
+          <ErrorBanner>{error}</ErrorBanner>
+        </div>
       )}
 
       {ruleSets === null ? (
-        <p className="rounded-xl bg-white/[0.03] px-4 py-4 text-ui text-[var(--text-muted)]">
+        <p className="css-glass !rounded-xl px-4 py-4 text-ui text-[var(--text-muted)]">
           正在加载…
         </p>
+      ) : ruleSets.length === 0 ? (
+        <SettingsEmpty title="还没有规则组" description="点「新建规则组」创建。" />
       ) : (
         <div
           role="list"
           aria-label="规则组列表"
-          className="divide-y divide-white/[0.06] overflow-hidden rounded-2xl border border-white/[0.08] bg-white/[0.02]"
+          className="css-glass divide-y divide-[var(--line)] overflow-hidden !rounded-xl"
         >
           {ruleSets.map((rs) => (
             <RuleSetRow
@@ -164,6 +178,11 @@ export function RuleSetsPanel() {
         </div>
       )}
 
+      <details className="mt-4 text-sub text-[var(--text-muted)]">
+        <summary className="cursor-pointer py-2">匹配与修改说明</summary>
+        <p className="mt-1 leading-relaxed">多个规则组都适用时，条件更多的优先；没有匹配时使用默认组。修改只影响之后的资源评估，已下载内容不受影响。</p>
+      </details>
+
       {editing !== null && (
         <RuleSetEditorDialog
           ruleSet={editing.ruleSet}
@@ -175,7 +194,7 @@ export function RuleSetsPanel() {
           }}
         />
       )}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -217,10 +236,6 @@ function RuleSetRow({
     : rs.reference_count > 0
       ? `${rs.reference_count} 个订阅在用`
       : null;
-  const itemClass =
-    "glass-row nav-item cursor-pointer px-3 py-2 text-ui font-medium outline-none " +
-    "data-[highlighted]:!bg-[var(--glass-fill-hover)] data-[highlighted]:!text-[var(--text)] " +
-    "data-[disabled]:pointer-events-none data-[disabled]:opacity-40";
 
   return (
     <div role="listitem" className="grid grid-cols-[minmax(0,1fr)_32px] gap-x-3 px-4 py-3">
@@ -254,52 +269,25 @@ function RuleSetRow({
       </div>
 
       <div className="flex justify-end">
-        <DropdownMenu.Root>
-          <DropdownMenu.Trigger asChild>
-            <button
-              type="button"
-              aria-label={`「${rs.name}」的操作`}
-              className="grid size-8 place-items-center rounded-full border border-white/[0.09] bg-white/[0.04] text-white/80 transition hover:bg-white/[0.1] hover:text-white data-[state=open]:bg-white/[0.14] data-[state=open]:text-white"
-            >
-              <MoreIcon className="size-[18px]" />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content
-              align="end"
-              sideOffset={6}
-              collisionPadding={12}
-              className="menu-surface z-50 min-w-[12rem] p-1"
-            >
-              <DropdownMenu.Item onSelect={onEdit} className={itemClass}>
-                编辑
-              </DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={onCopy} className={itemClass}>
-                复制为新组
-              </DropdownMenu.Item>
-              <DropdownMenu.Item
-                onSelect={onSetDefault}
-                disabled={rs.is_default}
-                className={itemClass}
-              >
-                {rs.is_default ? "已是默认组" : "设为默认组"}
-              </DropdownMenu.Item>
-              <DropdownMenu.Separator className="my-1 h-px bg-white/[0.07]" />
-              <DropdownMenu.Item
-                onSelect={onDelete}
-                disabled={deleteBlock !== null}
-                className={`${itemClass} !text-[var(--danger)] data-[highlighted]:!bg-[rgba(255,107,107,0.12)]`}
-              >
-                删除
-                {deleteBlock && (
-                  <span className="ml-auto pl-3 text-caption text-[var(--text-faint)]">
-                    {deleteBlock}
-                  </span>
-                )}
-              </DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
+        <SettingsMoreMenu
+          label={`「${rs.name}」的操作`}
+          items={[
+            { label: "编辑", onSelect: onEdit },
+            { label: "复制为新组", onSelect: onCopy },
+            {
+              label: rs.is_default ? "已是默认组" : "设为默认组",
+              onSelect: onSetDefault,
+              disabled: rs.is_default,
+            },
+            {
+              label: "删除",
+              onSelect: onDelete,
+              disabled: deleteBlock !== null,
+              danger: true,
+              hint: deleteBlock ?? undefined,
+            },
+          ]}
+        />
       </div>
 
       {/* 摘要芯片跨满整行（含菜单列下方），手机上也能横向铺开 */}
@@ -934,7 +922,7 @@ export function RuleSetEditorDialog({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="如：4K 免费、追剧省流"
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5 text-ui text-[var(--text)] outline-none focus:border-[var(--accent)]/60"
+              className={`${SETTINGS_INPUT_CLASS} w-full`}
             />
           </Field>
 
@@ -1093,7 +1081,7 @@ export function RuleSetEditorDialog({
               value={groupsAllow}
               onChange={(e) => setGroupsAllow(e.target.value)}
               placeholder="留空不限"
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5 text-ui text-[var(--text)] outline-none focus:border-[var(--accent)]/60"
+              className={`${SETTINGS_INPUT_CLASS} w-full`}
             />
           </Field>
           <Field label="制作组黑名单" hint="这些制作组的资源一律不要">
@@ -1102,7 +1090,7 @@ export function RuleSetEditorDialog({
               value={groupsBlock}
               onChange={(e) => setGroupsBlock(e.target.value)}
               placeholder="留空不启用"
-              className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5 text-ui text-[var(--text)] outline-none focus:border-[var(--accent)]/60"
+              className={`${SETTINGS_INPUT_CLASS} w-full`}
             />
           </Field>
           </Section>
@@ -1360,14 +1348,14 @@ export function RuleSetEditorDialog({
 
       {/* 底栏常驻 */}
       <div className="flex justify-end gap-3 border-t border-white/[0.07] px-6 py-4 max-md:px-5">
-        <button type="button" onClick={onClose} className="btn-glass h-9 px-4 text-ui font-medium">
+        <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
           取消
         </button>
         <button
           type="button"
           disabled={busy || !name.trim()}
           onClick={() => void submit()}
-          className="btn-accent h-9 rounded-full px-5 text-ui font-semibold disabled:opacity-50"
+          className={SETTINGS_PRIMARY_BUTTON_CLASS}
         >
           {busy ? "正在保存…" : "保存"}
         </button>
@@ -1647,7 +1635,7 @@ function NumberInput({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5 text-ui text-[var(--text)] outline-none focus:border-[var(--accent)]/60"
+      className={`${SETTINGS_INPUT_CLASS} w-full`}
     />
   );
 }

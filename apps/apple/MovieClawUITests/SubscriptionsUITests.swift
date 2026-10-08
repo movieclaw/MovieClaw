@@ -38,6 +38,7 @@ final class SubscriptionsUITests: XCTestCase {
 
     @MainActor
     private func snapshot(_ name: String) {
+        Thread.sleep(forTimeInterval: 1)
         let screenshot = XCUIScreen.main.screenshot()
         // 交付对照用：设置 MC_SHOT_DIR 时同时落盘一份（模拟器上的测试进程可直接写宿主机路径）
         if let dir = env["MC_SHOT_DIR"] {
@@ -198,7 +199,13 @@ final class SubscriptionsUITests: XCTestCase {
         let app = try launch(route: "/subscriptions", extra: ["-mcSubscribe", readyRef])
         let submit = app.buttons["subscribe-submit"]
         XCTAssertTrue(submit.waitForExistence(timeout: 40), "未订阅作品应进入订阅表单")
-        XCTAssertTrue(app.buttons["season-1"].exists, "剧集应列出可勾选的季")
+        // 精简弹层的范围与规则选项进入子页；只查看，不修改智能偏好。
+        app.descendants(matching: .any)["subscribe-range"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["season-1"].exists, "范围子页应列出可勾选的季")
+        app.navigationBars["追踪范围"].buttons.element(boundBy: 0).tap()
+        app.descendants(matching: .any)["subscribe-options"].firstMatch.tap()
+        app.descendants(matching: .any)["subscribe-mode"].firstMatch.tap()
+        app.buttons["规则模式"].firstMatch.tap()
         let ruleset = app.buttons["subscribe-ruleset"]
         XCTAssertTrue(ruleset.exists, "管理员应能选规则组")
         // 条件摘要在规则组行内，读屏标签 = 行名 + 组名 + 摘要
@@ -217,6 +224,7 @@ final class SubscriptionsUITests: XCTestCase {
         XCTAssertTrue(app.buttons["剧集"].waitForExistence(timeout: 10))
         snapshot("规则组编辑器")
         closeTopSheet(app)
+        app.navigationBars["更多选项"].buttons.element(boundBy: 0).tap()
         XCTAssertTrue(submit.waitForExistence(timeout: 10), "关闭编辑器回到订阅表单")
         closeTopSheet(app)
     }
@@ -229,6 +237,51 @@ final class SubscriptionsUITests: XCTestCase {
         snapshot("订阅弹层-已订阅")
         closeTopSheet(app)
         XCTAssertTrue(app.buttons["subscription-cell"].firstMatch.waitForExistence(timeout: 10))
+    }
+
+    /// NAS 验收只读展示，不保存偏好、不确认订阅、不触发搜索或洗版。
+    @MainActor
+    func testSmartReadonlyPresentation() throws {
+        guard env["MC_SMART_READONLY"] == "1" else { throw XCTSkip("未启用智能订阅只读验收") }
+        let app = try launch(route: "/subscriptions/\(detailSub)")
+        XCTAssertTrue(app.buttons["subscription-more"].waitForExistence(timeout: 35))
+        XCTAssertTrue(app.descendants(matching: .any)["fact-智能目标"].firstMatch.exists)
+        XCTAssertFalse(app.descendants(matching: .any)["fact-规则组"].firstMatch.exists)
+        snapshot("NAS-智能订阅详情")
+        let row = app.buttons["wanted-row"].firstMatch
+        if row.exists { row.tap(); app.swipeUp(); snapshot("NAS-分集明细") }
+        app.terminate()
+        let subscribe = try launch(route: "/subscriptions", extra: ["-mcSubscribe", readyRef])
+        XCTAssertTrue(subscribe.buttons["smart-edit"].waitForExistence(timeout: 35), subscribe.debugDescription)
+        XCTAssertTrue(subscribe.buttons["subscribe-submit"].isEnabled)
+        XCTAssertFalse(subscribe.buttons["subscribe-ruleset"].exists)
+        let initialSheetTop = subscribe.buttons["subscribe-submit"].frame.minY
+        snapshot("NAS-精简订阅弹窗")
+        subscribe.buttons["smart-edit"].tap()
+        XCTAssertTrue(subscribe.buttons["smart-save"].waitForExistence(timeout: 10))
+        XCTAssertFalse(subscribe.buttons["subscribe-submit"].exists)
+        snapshot("NAS-智能设置")
+        subscribe.buttons["smart-cancel-edit"].tap()
+        XCTAssertTrue(subscribe.buttons["subscribe-submit"].waitForExistence(timeout: 10))
+        let restoredHeight = NSPredicate { _, _ in
+            abs(subscribe.buttons["subscribe-submit"].frame.minY - initialSheetTop) < 5
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: restoredHeight, object: nil)], timeout: 5), .completed)
+        snapshot("NAS-返回订阅")
+        closeTopSheet(subscribe)
+        subscribe.terminate()
+        let home = try launch(route: "/subscriptions")
+        for _ in 0..<4 where !home.buttons["subscription-cell"].firstMatch.waitForExistence(timeout: 5) { home.swipeUp() }
+        XCTAssertTrue(home.buttons["subscription-cell"].firstMatch.exists)
+        snapshot("NAS-我的订阅")
+        let shelf = home.buttons["shelf-more-tv"]
+        for _ in 0..<8 where !shelf.isHittable { home.swipeUp() }
+        XCTAssertTrue(shelf.isHittable)
+        snapshot("NAS-剧集订阅海报")
+        shelf.tap()
+        XCTAssertTrue(home.buttons.matching(NSPredicate(format: "label CONTAINS %@", "智能选择")).firstMatch.waitForExistence(timeout: 15))
+        snapshot("NAS-订阅海报墙")
+        home.terminate()
     }
 
     // MARK: 可逆写操作（当场恢复）

@@ -278,7 +278,11 @@ def world(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
     events.reset_state()
     # 推送的几个等待（攒一攒再发）在测试里缩到零点几秒
     monkeypatch.setattr(events, "_ALERT_DELAY_S", 0.2)
-    monkeypatch.setattr(events, "_MERGE_QUIET_S", 0.2)
+    from movieclaw_api.services.push import cards
+
+    monkeypatch.setattr(cards, "STARTED_QUIET_S", 0.2)
+    monkeypatch.setattr(cards, "QUIET_S", 0.2)
+    monkeypatch.setattr(cards, "UPGRADE_QUIET_S", 0.2)
     # 配对轮询与配对后首次续签同理：生产下限是 1 秒，每个用例连接云端要白等两秒
     from movieclaw_api.services.cloud import service as cloud_service
 
@@ -714,6 +718,111 @@ def test_push_end_to_end_through_official_relay(client: TestClient, world: World
     assert world.cloud.reports[-1]["relay"]["reachable"] is True
 
 
+@pytest.mark.parametrize("second_phone", [False, True])
+def test_test_push_counts_unique_phones(
+    client: TestClient, world: World, second_phone: bool
+) -> None:
+    """同一 iPhone 的多条登录登记：页面与实际测试通知都只算一台。"""
+    _connect(client, world)
+    _data(client.put("/api/v1/push/me/preferences", json={"events": {"new_device": False}}))
+    token = "a8" * 32
+    for i in range(5):
+        bearer = _app_login(client, _ADMIN, installation=f"iphone-install-{i}", name="我的 iPhone")
+        _, key = _register(client, bearer, token=token)
+    # macOS、tvOS、网页以及没登记通知的 iOS 设备都不计入。
+    for kind in ("macos", "tvos", "ios"):
+        _app_login(client, _ADMIN, installation=f"other-{kind}", name=kind, kind=kind)
+    if second_phone:
+        bearer = _app_login(client, _ADMIN, installation="second-iphone", name="我的 iPhone")
+        _register(client, bearer, token="b8" * 32)
+    relay = world.relays["push.test"]
+    relay.messages.clear()
+    mine = _data(client.get("/api/v1/push/me"))
+    expected = 2 if second_phone else 1
+    assert mine["ready_devices"] == expected
+    result = _data(client.post("/api/v1/push/me/test"))
+    assert result["sent"] == mine["ready_devices"]
+    assert len(result["results"]) == len(relay.messages) == expected
+    message = next(m for m in relay.messages if m["token"] == token)
+    assert _open(message, key)["title"] == "测试通知"
+
+
+@pytest.mark.parametrize(
+    "missing", ["push_environment", "push_key_id", "push_key", "invalid_key", "background"]
+)
+def test_test_push_count_excludes_undeliverable_registrations(
+    client: TestClient, world: World, missing: str
+) -> None:
+    _connect(client, world)
+    bearer = _app_login(client, _ADMIN, installation="incomplete-iphone", name="iPhone")
+    _register(client, bearer, token="a9" * 32)
+
+    async def change_registration() -> None:
+        from sqlmodel import select
+
+        from movieclaw_db.engine import get_database
+        from movieclaw_db.models import LoginDevice
+
+        async with get_database().session() as session:
+            device = (
+                await session.execute(
+                    select(LoginDevice).where(LoginDevice.installation_id == "incomplete-iphone")
+                )
+            ).scalar_one()
+            if missing == "background":
+                device.push_types = ["background"]
+            elif missing == "invalid_key":
+                device.push_key = "cannot-decrypt"
+            else:
+                setattr(device, missing, None)
+            session.add(device)
+            await session.commit()
+
+    assert client.portal is not None
+    client.portal.call(change_registration)
+    assert _data(client.get("/api/v1/push/me"))["ready_devices"] == 0
+    assert _data(client.post("/api/v1/push/me/test")) == {"sent": 0, "results": []}
+
+
+def test_test_push_count_excludes_stale_account_registration(
+    client: TestClient, world: World
+) -> None:
+    """手机已切换账号，旧账号的通知页不再声称这台手机能收通知。"""
+    from datetime import timedelta
+
+    _connect(client, world)
+    _create_member(client)
+    token = "ba" * 32
+    admin = _app_login(client, _ADMIN, installation="old-account", name="iPhone")
+    _register(client, admin, token=token)
+    member = _app_login(client, _MEMBER, installation="current-account", name="iPhone")
+    _register(client, member, token=token)
+
+    async def age_registration() -> None:
+        from sqlmodel import select
+
+        from movieclaw_db.engine import get_database
+        from movieclaw_db.models import LoginDevice, utcnow
+
+        async with get_database().session() as session:
+            device = (
+                await session.execute(
+                    select(LoginDevice).where(LoginDevice.installation_id == "old-account")
+                )
+            ).scalar_one()
+            device.push_registered_at = utcnow() - timedelta(days=8)
+            session.add(device)
+            await session.commit()
+
+    assert client.portal is not None
+    client.portal.call(age_registration)
+    assert _data(client.get("/api/v1/push/me"))["ready_devices"] == 0
+    assert _data(client.post("/api/v1/push/me/test")) == {"sent": 0, "results": []}
+    assert _data(_as_app(client, member, "GET", "/api/v1/push/me"))["ready_devices"] == 1
+    result = _data(_as_app(client, member, "POST", "/api/v1/push/me/test"))
+    assert result["sent"] == 1
+
+
 def test_same_phone_two_accounts_gets_one_push(client: TestClient, world: World) -> None:
     _connect(client, world)
     _create_member(client)
@@ -803,6 +912,8 @@ def test_new_device_login_notifies_other_devices(client: TestClient, world: Worl
     plain = _open(relay.messages[-1], key)
     assert plain["title"] == "新设备登录了你的账号" and "新 iPad" in plain["body"]
     assert "「客厅 NAS」" in plain["body"] and plain["source"] == "account"
+    # 账号安全：时效性，专注模式下也提醒
+    assert relay.messages[-1]["aps"] == {"sound": "default", "interruption-level": "time-sensitive"}
     # 同一台设备重新登录不算新设备
     count = len(relay.messages)
     _app_login(client, _ADMIN, installation="inst-ipad-9", name="新 iPad")
@@ -979,12 +1090,15 @@ def test_imported_goes_to_subscribers_who_can_see_it(client: TestClient, world: 
     _wait(lambda: len(relay.messages) >= 2)
     by_token = {m["token"]: m for m in relay.messages}
     member_plain = _open(by_token["b0" * 32], member_key)
-    assert member_plain["title"] == "漫长的季节 更新了"
-    assert member_plain["body"] == "第 1 季第 7 集已入库，点开就能看"
+    # 两人都还没开始看：从库里有的第一集开始（docs/design/cloud-push.md §5.1）
+    assert member_plain["title"] == "漫长的季节 更新到第 7 集了"
+    assert member_plain["body"] == "第 7 集都能看，点开从第 7 集开始"
     assert member_plain["open"] == f"/library/{library_id}/item/{item_id}?season=1&episode=7"
+    assert member_plain["thread"] == f"item-{item_id}"
+    assert member_plain["category"] == "item"
     assert member_plain["account"] == {"id": "1", "name": "家人"}
     assert "source" not in member_plain  # 内容类不标来源：点开时 App 自动切过去
-    assert _open(by_token["a0" * 32], admin_key)["title"] == "漫长的季节 更新了"
+    assert _open(by_token["a0" * 32], admin_key)["title"] == "漫长的季节 更新到第 7 集了"
 
     # 只对选中成员开放、家人不在名单里：家人看不到，就不推给家人
     relay.messages.clear()
@@ -994,14 +1108,25 @@ def test_imported_goes_to_subscribers_who_can_see_it(client: TestClient, world: 
     assert [m["token"] for m in relay.messages] == ["a0" * 32]
 
 
-def test_episode_label() -> None:
-    from movieclaw_api.services.push.events import episode_label
+def test_units_text() -> None:
+    """多集一律写区间：「第 1 季 8 集」是 8 集，读起来却像第 8 集。"""
+    from movieclaw_api.services.push.labels import units_text
 
-    assert episode_label([(0, 0)]) == ""
-    assert episode_label([(2, 7)]) == "第 2 季第 7 集"
-    assert episode_label([(0, 3)]) == "特别篇第 3 集"
-    assert episode_label([(1, 1), (1, 2), (1, 3)]) == "第 1 季 3 集"
-    assert episode_label([(1, 8), (2, 1)]) == "2 集"
+    assert units_text([(0, 0)]) == ""
+    assert units_text([(2, 7)]) == "第 2 季第 7 集"
+    assert units_text([(0, 3)]) == "特别篇第 3 集"
+    assert units_text([(1, 1), (1, 2), (1, 3)]) == "第 1 季第 1–3 集"
+    assert units_text([(1, e) for e in range(1, 9)], with_season=False) == "第 1–8 集"
+    assert units_text([(1, 1), (1, 2), (1, 3), (1, 7), (1, 9)]) == "第 1 季第 1–3、7、9 集"
+    assert (
+        units_text([(1, e) for e in [*range(1, 21), 22, 24, 26]], with_season=False)
+        == "第 1–20、22 集等 23 集"
+    )
+    assert (
+        units_text([*((1, e) for e in range(1, 13)), (2, 1), (2, 2), (2, 3)], totals={1: 12})
+        == "第 1 季全 12 集、第 2 季第 1–3 集"
+    )
+    assert units_text([(1, 8), (2, 1)]) == "第 1 季第 8 集、第 2 季第 1 集"
 
 
 # ----------------------------------------------------------------------
@@ -1120,7 +1245,11 @@ def test_library_new_arrivals(client: TestClient, world: World) -> None:
     time.sleep(0.3)
     assert [m["token"] for m in relay.messages] == ["d1" * 32]
     plain = _open(relay.messages[-1], member_key)
-    assert plain["title"] == "新片：流浪地球 2" and "已加入「电影」" in plain["body"]
+    assert plain["title"] == "新片：流浪地球 2"
+    assert plain["body"] == "已加入「电影」，点开就能看"
+    # 不是自己订阅、下载的：安静送达，不响
+    assert relay.messages[-1]["aps"]["interruption-level"] == "passive"
+    assert "sound" not in plain
     assert plain["open"].startswith(f"/library/{movies_id}/item/{movie_id}")
 
     # ② 同一部又来一个更好的版本（洗版）→ 不算新片
@@ -1141,6 +1270,7 @@ def test_library_new_arrivals(client: TestClient, world: World) -> None:
     _wait(lambda: len(relay.messages) >= 1)
     plain = _open(relay.messages[-1], member_key)
     assert plain["title"] == "「电影」新增 3 部" and "奥本海默" in plain["body"]
+    assert relay.messages[-1]["aps"]["interruption-level"] == "passive"
     assert plain["open"] == f"/library/{movies_id}"
 
     # ④ 家人自己订阅了的片：对账先推了「入库完成」，「媒体库有新片」不再重复推给他
@@ -1176,11 +1306,7 @@ def test_library_new_arrivals(client: TestClient, world: World) -> None:
         lambda: push_events.imported(
             subscription_id=subscription_id,
             item_id=item_id,
-            title="我订阅的片",
-            year=2024,
-            kind="movie",
             units=[(0, 0)],
-            image_url=None,
         ),
     )
     _wait(lambda: len(relay.messages) >= 1)
@@ -1694,11 +1820,7 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
         push_events.imported(
             subscription_id=subscription_id,
             item_id=item_id,
-            title="漫长的季节",
-            year=2023,
-            kind="tv",
             units=[(1, episode)],
-            image_url=None,
         )
 
     _in_app(client, lambda: imported(1))
@@ -1708,7 +1830,8 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
     mine = [m for m in relay.messages if m["token"] == "d8" * 32]
     assert len(mine) == 1
     plain = _open(mine[0], admin_key)
-    assert plain["title"] == "漫长的季节 更新了" and plain["body"].startswith("第 1 季 2 集")
+    assert plain["title"] == "漫长的季节 更新到第 2 集了"
+    assert plain["body"] == "第 1–2 集都能看，点开从第 1 集开始"
 
     relay.messages.clear()
 
@@ -1716,12 +1839,9 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
         push_events.upgraded(
             subscription_id=subscription_id,
             item_id=item_id,
-            title="漫长的季节",
-            year=2023,
             unit=(1, episode),
             old_label="1080p",
             new_label="2160p",
-            image_url=None,
         )
 
     _in_app(client, lambda: upgraded(1))
@@ -1730,7 +1850,10 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
     time.sleep(0.6)
     mine = [m for m in relay.messages if m["token"] == "d8" * 32]
     assert len(mine) == 1
-    assert _open(mine[0], admin_key)["body"] == "第 1 季 2 集 · 1080p → 2160p"
+    upgraded_plain = _open(mine[0], admin_key)
+    assert upgraded_plain["body"] == "第 1 季第 1–2 集 · 1080p → 2160p"
+    assert "sound" not in upgraded_plain  # 洗版完成安静送达
+    assert mine[0]["aps"] == {"interruption-level": "passive", "relevance-score": 0.3}
 
     relay.messages.clear()
     _in_app(
@@ -1738,12 +1861,9 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
         lambda: push_events.download_started(
             subscription_id=subscription_id,
             item_id=item_id,
-            title="漫长的季节",
-            year=2023,
             units=[(1, 3)],
             detail="2160p",
             upgrade=False,
-            image_url=None,
             skip_member_id=0,  # 管理员自己在订阅页选的种
         ),
     )
@@ -1931,3 +2051,39 @@ def test_library_new_kinds_and_unrecognized_files(client: TestClient, world: Wor
     check()
     _wait(lambda: len(relay.messages) >= 1)
     assert _open(relay.messages[-1], key)["title"] == "新片：流浪地球 3"
+
+
+def test_identity_skip_is_one_informational_push_without_actions(
+    client: TestClient, world: World
+) -> None:
+    """同名资源知会经过真实登记、加密与中继；重复评估不再推、不产生待办。"""
+    from movieclaw_api.services.subscription.twins import _inform_user
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import MediaItem
+
+    _connect(client, world)
+    bearer = _app_login(client, _ADMIN, installation="identity-skip-install", name="iPhone")
+    _, key = _register(client, bearer, token="b9" * 32)
+    subscription_id, item_id = _seed_subscription(
+        client, kind="movie", title="奥德赛", creator=None, followers=[]
+    )
+    relay = world.relays["push.test"]
+    relay.messages.clear()
+
+    async def inform():
+        async with get_database().session() as session:
+            item = await session.get(MediaItem, item_id)
+            await _inform_user(session, subscription_id=subscription_id, item=item)
+
+    assert client.portal is not None
+    client.portal.call(inform)
+    _wait(lambda: len(relay.messages) >= 1)
+    plain = _open(relay.messages[0], key)
+    assert plain["title"] == "《奥德赛》仍在寻找资源"
+    assert "已跳过" in plain["body"] and "无需你处理" in plain["body"]
+    assert plain["open"] == f"/subscriptions/{subscription_id}"
+    assert "actions" not in plain and "category" not in plain
+    client.portal.call(inform)
+    time.sleep(0.3)
+    assert len(relay.messages) == 1
+    assert _data(client.get("/api/v1/system/notices")) == []

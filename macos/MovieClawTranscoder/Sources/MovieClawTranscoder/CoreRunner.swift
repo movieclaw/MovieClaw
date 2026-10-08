@@ -87,6 +87,8 @@ private actor CoreSession {
             }
         case .reconnectNow:
             await client?.reconnectNow()
+        case let .setMaxJobs(value):
+            await client?.requestMaxJobs(value)
         case .shutdown:
             await shutdown(reason: "界面要求退出")
         }

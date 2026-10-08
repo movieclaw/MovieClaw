@@ -11,7 +11,10 @@
    文件的季集号，产出保留/跳过的文件索引。**不做任何 IO**，真正写下载器
    在 torrent_submit 编排。
 
-规划铁律是**不确定即全量**：任何要保障的单元映射不到文件、或文件解析
+以下“不确定即全量”只适用于旧规则模式。智能模式使用
+:func:`plan_strict_file_selection`，不确定时保持暂停，不回落全量。
+
+旧规则规划铁律是**不确定即全量**：任何要保障的单元映射不到文件、或文件解析
 不出确定的季集号，宁可直接放弃选择让种子全量下载——跳错文件会让工单
 以 GRABBED 永久挂起（文件清单里"看得到"、磁盘上却没有，库存对账既不
 退回也不关单），比多下几个 GB 严重得多。
@@ -114,6 +117,52 @@ def plan_file_selection(
     }
     if not needed_units <= resolved:
         return None
-    return FileSelectionPlan(
-        keep_indices=keep, skip_indices=skip, skip_bytes=skip_bytes
+    return FileSelectionPlan(keep_indices=keep, skip_indices=skip, skip_bytes=skip_bytes)
+
+
+def plan_strict_file_selection(
+    file_paths: Sequence[str],
+    needed_units: set[tuple[int, int]],
+    *,
+    known_seasons: Collection[int] | None = None,
+) -> FileSelectionPlan:
+    """智能补缺：只选可确定映射的独立正片文件，未知不回落全量。"""
+    import re
+
+    from movieclaw_api.services.library.layout import (
+        explicit_episode,
+        explicit_unit,
+        pack_season,
+        season_from_dir,
     )
+
+    paths = [Path(p) for p in file_paths]
+    seasons = set(known_seasons or ()) - {0}
+    sole_season = next(iter(seasons)) if len(seasons) == 1 else None
+    selected, found = [], set()
+    for index, path in enumerate(paths):
+        if path.suffix.lower() not in VIDEO_EXTS:
+            continue  # 压缩包和其他非视频文件不自动下载。
+        # 只用显式标记与季目录、单季台账，不用模型猜测文件季集号。
+        key = explicit_unit(path.stem)
+        if key is None:
+            season = season_from_dir(path.parent) or pack_season(path.parent.name) or sole_season
+            episode = explicit_episode(path.stem)
+            key = (season, episode) if season is not None and episode is not None else None
+        combined = re.search(
+            r"(?:EP?\d+|\d+x\d+)\s*(?:[-~+&]\s*(?:S\d+)?(?:EP?)?\d+|E\d+)",
+            path.stem,
+            re.I,
+        )
+        multiple = len(re.findall(r"S\d+E\d+|\d+x\d+", path.stem, re.I)) > 1
+        if combined or multiple or key is None or key[1] <= 0:
+            raise ValueError(f"无法安全选择文件：{path.name} 的季集范围不明确或不可拆分")
+        if key in needed_units:
+            if key in found:
+                raise ValueError(f"同一集存在多个视频文件，需确认版本：{path.name}")
+            selected.append(index)
+            found.add(key)
+    if not needed_units or found != needed_units:
+        missing = sorted(needed_units - found)
+        raise ValueError(f"种子文件未能完整对应所需集数：{missing}；不会改为全量下载")
+    return FileSelectionPlan(selected, [i for i in range(len(paths)) if i not in selected], 0)

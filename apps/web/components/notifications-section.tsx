@@ -18,10 +18,18 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Banner, ErrorBanner, LINK_CLASS, Toggle } from "@/components/cloud-push-ui";
 import { useToast } from "@/components/feedback";
 import {
+  SETTINGS_BUTTON_CLASS,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings-ui";
+import {
   type MyPushLibrary,
+  type MyPushMutedItem,
   type MyPushView,
   getMyPush,
   sendMyPushTest,
+  unmuteMyPushItem,
   updateMyPushPreferences,
 } from "@/lib/api/push";
 import {
@@ -104,7 +112,23 @@ export function NotificationsSection() {
     }
   };
 
-  /** 回到「全部」：包括以后新建的库 */
+  /** 恢复一部片的推送：先从列表里拿掉，失败从服务端重读 */
+  const unmute = async (id: number) => {
+    const seq = ++seqRef.current;
+    setError(null);
+    setView(
+      (prev) =>
+        prev && { ...prev, muted_items: prev.muted_items?.filter((item) => item.id !== id) },
+    );
+    try {
+      const next = await unmuteMyPushItem(id);
+      if (seq === seqRef.current) setView(next);
+    } catch (e) {
+      setError((e as Error).message);
+      void load();
+    }
+  };
+
   const sendTest = async () => {
     setTesting(true);
     try {
@@ -139,7 +163,7 @@ export function NotificationsSection() {
   }
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-10">
       {!view.instance_ready &&
         (view.is_admin ? (
           <Banner
@@ -186,28 +210,16 @@ export function NotificationsSection() {
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
       {groupEvents(view.events).map((group) => (
-        <section key={group.group}>
-          <h3 className="group-label mb-2.5 px-1">{group.group}</h3>
-          <div className="css-glass !rounded-xl">
-            {group.items.map((event, i) => (
-              <div
-                key={event.key}
-                className={`flex items-center gap-3.5 p-4 ${i > 0 ? "border-t border-white/[0.06]" : ""}`}
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="text-body font-medium text-[var(--text)]">{event.title}</p>
-                  {event.description && (
-                    <p className="mt-0.5 text-caption leading-5 text-[var(--text-faint)]">
-                      {event.description}
-                    </p>
-                  )}
-                </div>
+        <SettingsSection key={group.group} title={group.group}>
+          <SettingsList>
+            {group.items.map((event) => (
+              <SettingsRow key={event.key} label={event.title} description={event.description}>
                 <Toggle
                   checked={event.enabled}
                   label={`${event.title}通知`}
                   onChange={(next) => toggle(event.key, next)}
                 />
-              </div>
+              </SettingsRow>
             ))}
             {/* 「媒体库有新片」打开、而且能看到不止一个库时，就地选关心哪些库 */}
             {group.items.some((e) => e.key === LIBRARY_EVENT && e.enabled) &&
@@ -218,21 +230,28 @@ export function NotificationsSection() {
                   onPick={pickLibrary}
                 />
               )}
-          </div>
-        </section>
+          </SettingsList>
+        </SettingsSection>
       ))}
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-1">
-        <button
-          type="button"
-          disabled={testing || view.ready_devices === 0}
-          onClick={() => void sendTest()}
-          className="btn-glass px-4 py-1.5 text-sub font-medium disabled:opacity-40"
-        >
-          {testing ? "发送中…" : "给我的设备发一条测试通知"}
-        </button>
-        <p className="text-caption text-[var(--text-faint)]">{testTargetHint(view.ready_devices)}</p>
-      </div>
+      {view.muted_items && view.muted_items.length > 0 && (
+        <MutedItems items={view.muted_items} onUnmute={(id) => void unmute(id)} />
+      )}
+
+      <SettingsSection title="测试">
+        <SettingsList>
+          <SettingsRow label="发送测试通知" description={testTargetHint(view.ready_devices)}>
+            <button
+              type="button"
+              disabled={testing || view.ready_devices === 0}
+              onClick={() => void sendTest()}
+              className={SETTINGS_BUTTON_CLASS}
+            >
+              {testing ? "发送中…" : "发送"}
+            </button>
+          </SettingsRow>
+        </SettingsList>
+      </SettingsSection>
     </div>
   );
 }
@@ -252,7 +271,7 @@ function LibraryPicker({
 }) {
   const all = libraryIds == null;
   return (
-    <div className="border-t border-white/[0.06] px-4 pb-3 pt-2">
+    <div className="px-4 pb-3 pt-2">
       <ul>
         {libraries.map((lib) => (
           <li key={lib.id}>
@@ -272,5 +291,46 @@ function LibraryPicker({
         {all ? "全选时包括以后新建的库" : "只推勾上的库；全部勾上时也包括以后新建的库"}
       </p>
     </div>
+  );
+}
+
+/** 「不再提醒」：长按通知选了「这部剧不再提醒」的片，一部一行，可以恢复 */
+function MutedItems({
+  items,
+  onUnmute,
+}: {
+  items: MyPushMutedItem[];
+  onUnmute: (id: number) => void;
+}) {
+  return (
+    <SettingsSection
+      title="不再提醒"
+      description={`${items.length} 部作品`}
+      footnote="在手机通知上长按选「这部剧不再提醒」的片。只是不推送，订阅照常下载。"
+    >
+      <SettingsList>
+        {items.map((item) => (
+          <SettingsRow
+            key={item.id}
+            label={
+              <span className="block truncate">
+                {item.title}
+                {item.year != null && (
+                  <span className="text-[var(--text-faint)]">（{item.year}）</span>
+                )}
+              </span>
+            }
+          >
+            <button
+              type="button"
+              onClick={() => onUnmute(item.id)}
+              className={SETTINGS_BUTTON_CLASS}
+            >
+              恢复
+            </button>
+          </SettingsRow>
+        ))}
+      </SettingsList>
+    </SettingsSection>
   );
 }

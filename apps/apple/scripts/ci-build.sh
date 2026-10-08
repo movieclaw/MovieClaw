@@ -9,7 +9,7 @@ cd "$(dirname "$0")/.."
 
 scheme=$1 platform=$2 config=$3
 command -v xcodegen >/dev/null || { echo "错误：需要 XcodeGen（brew install xcodegen）" >&2; exit 1; }
-xcodegen generate >/dev/null
+scripts/prepare-project.py
 
 mkdir -p build-ci
 log="build-ci/$scheme.log"
@@ -18,7 +18,7 @@ echo "编译 $scheme（$platform，$config），完整日志：$log …"
 # 索引与 dSYM 只给 Xcode 编辑器、崩溃符号化用，检查编译用不上，关掉省时间
 if ! xcodebuild -project MovieClaw.xcodeproj -scheme "$scheme" -configuration "$config" \
   -destination "generic/platform=$platform" -derivedDataPath "build-ci/DerivedData-$scheme" \
-  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -packageAuthorizationProvider netrc \
+  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -packageAuthorizationProvider netrc -onlyUsePackageVersionsFromResolvedFile \
   CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
   COMPILER_INDEX_STORE_ENABLE=NO DEBUG_INFORMATION_FORMAT=dwarf \
   -showBuildTimingSummary \

@@ -62,6 +62,7 @@ from movieclaw_api.settings.schemas import (
     mark_initialized,
     revoke_sync_token,
 )
+from movieclaw_api.settings.smart_subscription import SmartAutomationSettings
 from movieclaw_api.settings.store import (
     SettingStore,
     get_setting_store,
@@ -76,6 +77,7 @@ from movieclaw_api.settings.webhook import (
 )
 
 __all__ = [
+    "SmartAutomationSettings",
     # 基类与注册表
     "SettingSchema",
     "SettingDescriptor",

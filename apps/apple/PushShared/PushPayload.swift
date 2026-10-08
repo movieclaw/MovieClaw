@@ -10,6 +10,22 @@ nonisolated struct PushPlaintext: Decodable, Equatable, Sendable {
         var name: String?
     }
 
+    /// 长按通知时的一个快捷操作（`id`：play 播放 / open 打开页面 / mute 这部剧不再提醒）
+    struct Action: Decodable, Equatable, Sendable {
+        var id: String
+        var title: String
+        /// play、open：点了打开的站内路径
+        var open: String?
+        /// mute：静音的条目
+        var item: Int?
+    }
+
+    /// 长按通知时的集数格子：一季每集一个字符（`s` 看过、`d` 已入库、`w` 下载中、`m` 没找到、`-` 其他），第 1 集起
+    struct Grid: Decodable, Equatable, Sendable {
+        var season: Int
+        var cells: String
+    }
+
     /// 这个版本的 App 认识的明文结构版本
     static let supportedVersion = 1
 
@@ -28,12 +44,14 @@ nonisolated struct PushPlaintext: Decodable, Equatable, Sendable {
     var sound: String?
     /// 要不要在手机上标出来源：没有 = 不标（内容类，点开会自动切账号）；`server` = 标服务器名；`account` = 标账号名
     var source: String?
+    var actions: [Action]?
+    var grid: Grid?
 
     enum CodingKeys: String, CodingKey {
         case version = "v"
         case type
         case sentAt = "sent_at"
-        case server, account, title, body, subtitle, image, open, thread, category, sound, source
+        case server, account, title, body, subtitle, image, open, thread, category, sound, source, actions, grid
     }
 
     init(from decoder: Decoder) throws {
@@ -55,6 +73,8 @@ nonisolated struct PushPlaintext: Decodable, Equatable, Sendable {
         category = lenient(.category)
         sound = lenient(.sound)
         source = lenient(.source)
+        actions = lenient(.actions)
+        grid = lenient(.grid)
     }
 
     /// 比这个版本的 App 新的结构：只尽力显示标题和正文
@@ -156,6 +176,15 @@ nonisolated struct PushTapTarget: Equatable, Sendable {
     init?(userInfo: [AnyHashable: Any], store: PushKeyStore) {
         guard let push = DecryptedPush(userInfo: userInfo, store: store) else { return nil }
         self.init(login: push.login, openPath: push.plaintext.isNewer ? nil : Self.sitePath(push.plaintext.open))
+    }
+
+    /// 点了长按菜单里的快捷操作（play、open）：同样在 App 里重新解密，按明文里这个操作的 `open` 打开
+    init?(userInfo: [AnyHashable: Any], store: PushKeyStore, action: String) {
+        guard let push = DecryptedPush(userInfo: userInfo, store: store), !push.plaintext.isNewer,
+              let found = push.plaintext.actions?.first(where: { $0.id == action }),
+              let path = Self.sitePath(found.open)
+        else { return nil }
+        self.init(login: push.login, openPath: path)
     }
 
     /// 只认站内路径（`/` 开头）：外部地址、`//主机` 形式、自定义协议一律不认

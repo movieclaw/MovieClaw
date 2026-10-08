@@ -20,7 +20,7 @@ enum LanguageLabel {
 struct SubtitleOption: Identifiable, Hashable {
     /// 中性轨引用（embedded:N / external:文件名），同时用作轨记忆的值
     let ref: String
-    let label: String
+    var label: String
     /// vtt（文本）/ ass（特效）/ pgs（图形）
     let kind: String
     /// 服务端地址（已带签名 token，原格式）
@@ -28,6 +28,27 @@ struct SubtitleOption: Identifiable, Hashable {
     let language: String?
     let isDefault: Bool
     let isAI: Bool
+    var title: String? = nil
+    var isForced: Bool = false
+
+    var displayTitle: String {
+        if let title = title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty { return title }
+        if let embeddedIndex { return "内封轨 \(embeddedIndex + 1)" }
+        if ref.hasPrefix("external:") { return String(ref.dropFirst("external:".count)) }
+        return label
+    }
+
+    var detail: String {
+        let formats = ["vtt": "WebVTT", "ass": "ASS", "pgs": "PGS 图形", "text": "文本"]
+        var parts = [LanguageLabel.of(language) ?? "未知语言", formats[kind] ?? kind]
+        if let embeddedIndex {
+            parts.append(displayTitle == "内封轨 \(embeddedIndex + 1)" ? "内封" : "内封轨 \(embeddedIndex + 1)")
+        } else if ref.hasPrefix("external:") { parts.append("外挂") }
+        if isAI { parts.append("AI 翻译") }
+        if isDefault { parts.append("默认") }
+        if isForced { parts.append("强制") }
+        return parts.joined(separator: " · ")
+    }
 
     var id: String { ref }
 
@@ -62,7 +83,8 @@ struct SubtitleTracks: Equatable {
             }
             result.options.append(SubtitleOption(
                 ref: plan.trackRef, label: label, kind: plan.kind, path: urls[index],
-                language: plan.language, isDefault: plan.isDefault, isAI: plan.isAi
+                language: plan.language, isDefault: plan.isDefault, isAI: plan.isAi,
+                title: plan.title, isForced: plan.isForced == true
             ))
         }
         return result
@@ -71,14 +93,15 @@ struct SubtitleTracks: Equatable {
     private static let kindLabels = ["vtt": "文本", "ass": "特效", "pgs": "图形"]
 
     private static func trackLabel(_ plan: API.SubtitlePlanView) -> String {
-        let name = LanguageLabel.of(plan.language) ?? refLabel(plan.trackRef)
+        let title = plan.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = title.flatMap { $0.isEmpty ? nil : $0 } ?? LanguageLabel.of(plan.language) ?? refLabel(plan.trackRef)
         return "\(name) · \(kindLabels[plan.kind] ?? plan.kind)"
     }
 
     /// 没有语言标记时的兜底名：外挂轨用文件名，内封轨用序号
     private static func refLabel(_ ref: String) -> String {
         if ref.hasPrefix("external:") { return String(ref.dropFirst("external:".count)) }
-        if ref.hasPrefix("embedded:") { return "内封轨 \(ref.dropFirst("embedded:".count))" }
+        if ref.hasPrefix("embedded:"), let index = Int(ref.dropFirst("embedded:".count)) { return "内封轨 \(index + 1)" }
         return "未知语言"
     }
 
@@ -95,9 +118,22 @@ struct SubtitleTracks: Equatable {
         }
         for (index, track) in tracks.enumerated() {
             let ref = "embedded:\(index)"
-            guard !options.contains(where: { $0.ref == ref }) else { continue }
+            if let existing = options.firstIndex(where: { $0.ref == ref }) {
+                if options[existing].title?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false,
+                   let title = track.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
+                    options[existing].title = title
+                    options[existing].label = "\(title) · \(Self.kindLabels[options[existing].kind] ?? options[existing].kind)"
+                    added = true
+                }
+                if track.isForced && !options[existing].isForced {
+                    options[existing].isForced = true
+                    added = true
+                }
+                continue
+            }
             // 引擎从画面里读出的隐藏字幕（CEA-608，美剧常见）没有语言标记，直接叫它的名字
-            let name = track.codec == "eia_608" ? "隐藏字幕（CC）" : (LanguageLabel.of(track.language) ?? "内封轨 \(index)")
+            let title = track.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let name = title.flatMap { $0.isEmpty ? nil : $0 } ?? (track.codec == "eia_608" ? "隐藏字幕（CC）" : (LanguageLabel.of(track.language) ?? "内封轨 \(index + 1)"))
             if let reason = Self.undecodableReasons[track.codec] {
                 // 引擎里没有这种字幕的解码器（编码名退回成描述名）：置灰给原因，而不是给一个选了不出字的选项
                 if !unavailable.contains(where: { $0.ref == ref }) {
@@ -110,7 +146,8 @@ struct SubtitleTracks: Equatable {
             let kind = Self.engineKind(track.codec)
             options.append(SubtitleOption(
                 ref: ref, label: "\(name) · \(Self.kindLabels[kind] ?? kind)", kind: kind, path: "",
-                language: track.language, isDefault: track.isDefault, isAI: false
+                language: track.language, isDefault: track.isDefault, isAI: false,
+                title: track.codec == "eia_608" ? name : title, isForced: track.isForced
             ))
             added = true
         }

@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import re
 import threading
 import time
@@ -32,12 +33,14 @@ from movieclaw_api.services.playback.remote_config import (
 from movieclaw_api.services.playback.remote_config import (
     effective_remote_transcode_config as _effective_remote_transcode_config,
 )
+from movieclaw_playback.decide import PlaybackPlan
 
 logger = logging.getLogger("movieclaw_api.playback.remote_worker")
 
 REMOTE_WORKER_PROTOCOL_VERSION = 1
 WORKER_IDLE_TIMEOUT_S = 45.0
 JOB_ACCEPT_TIMEOUT_S = 8.0
+LOAD_TIMEOUT_S = 15.0
 _WORKER_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$")
 _SUPPORTED_BACKENDS = frozenset({"videotoolbox"})
 #: HLS 分片类型，取值同 ffmpeg ``-hls_segment_type``（见 ffmpeg_args.segment_type）。
@@ -95,6 +98,8 @@ class WorkerCapabilities:
     progressive_segments: bool = False
     #: Worker 的 ffmpeg 认的取源选项（``ffmpeg_args.remote_read_options`` 会用到的那几个）
     read_options: tuple[str, ...] = ()
+    server_config: bool = False
+    hardware: dict[str, Any] = field(default_factory=dict)
 
     @property
     def video_caps(self) -> WorkerVideoCaps:
@@ -127,6 +132,12 @@ class WorkerConnection:
     jobs: set[str] = field(default_factory=set)
     draining: bool = False
     send_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+    max_jobs: int = 1
+    load: dict[str, Any] = field(default_factory=dict)
+    load_seen: float = 0.0
+    # 每台最多 32 种任务规格，重连即丢弃；不把不同片源的 speed 混成硬件跑分。
+    speeds: dict[tuple[Any, ...], float] = field(default_factory=dict)
+    speed_samples: dict[tuple[Any, ...], int] = field(default_factory=dict)
 
     async def send(self, payload: dict[str, Any]) -> None:
         """串行发送控制消息，防止并发 stop/start 交叉写 WebSocket。"""
@@ -147,6 +158,10 @@ class RemoteWorkerRegistry:
         self._job_attempts: dict[str, str] = {}
         self._job_events: dict[str, asyncio.Queue[dict[str, Any]]] = {}
         self._job_states: dict[str, dict[str, Any]] = {}
+        self._job_profiles: dict[str, tuple[Any, ...]] = {}
+        self._progress_samples: dict[str, tuple[float, int]] = {}
+        self._job_speeds: dict[str, tuple[float, int, float]] = {}
+        self._paused_jobs: set[str] = set()
 
     # -- Worker 生命周期 -------------------------------------------------
 
@@ -157,6 +172,7 @@ class RemoteWorkerRegistry:
         *,
         observed_base_url: str = "",
         login_device_id: int | None = None,
+        max_jobs: int | None = None,
     ) -> WorkerConnection:
         """校验 hello 并登记 Worker；同 ID 的旧连接会被替换。"""
         raw_worker_id = hello.get("worker_id")
@@ -170,6 +186,11 @@ class RemoteWorkerRegistry:
             worker_id=worker_id,
             websocket=websocket,
             capabilities=capabilities,
+            max_jobs=(
+                max_jobs
+                if max_jobs is not None and capabilities.server_config
+                else min(max_jobs or capabilities.max_jobs, capabilities.max_jobs)
+            ),
             observed_base_url=observed_base_url,
             login_device_id=login_device_id,
             worker_version=str(hello.get("worker_version"))
@@ -195,7 +216,7 @@ class RemoteWorkerRegistry:
             connection.worker_version or "未知",
             capabilities.platform or "未知",
             capabilities.ffmpeg_version or "未知",
-            capabilities.max_jobs,
+            connection.max_jobs,
             ",".join(capabilities.backends) or "无",
             ",".join(capabilities.segment_types),
         )
@@ -226,6 +247,10 @@ class RemoteWorkerRegistry:
             self._job_attempts.clear()
             self._job_events.clear()
             self._job_states.clear()
+            self._job_profiles.clear()
+            self._progress_samples.clear()
+            self._job_speeds.clear()
+            self._paused_jobs.clear()
         for connection in workers:
             await self._close_quietly(connection.websocket, code=1001, reason="服务端关闭")
 
@@ -298,10 +323,14 @@ class RemoteWorkerRegistry:
                     "worker_id": connection.worker_id,
                     "worker_version": connection.worker_version,
                     "arch": connection.arch,
+                    "device_id": connection.login_device_id,
+                    "hardware": connection.capabilities.hardware,
+                    "load": dict(connection.load) if self._load_fresh(connection) else None,
+                    "server_config": connection.capabilities.server_config,
                     "platform": connection.capabilities.platform,
                     "ffmpeg_version": connection.capabilities.ffmpeg_version,
                     "backends": list(connection.capabilities.backends),
-                    "max_jobs": connection.capabilities.max_jobs,
+                    "max_jobs": connection.max_jobs,
                     "disc_sources": connection.capabilities.disc_sources,
                     "hw_decoders": list(connection.capabilities.hw_decoders),
                     "filters": list(connection.capabilities.filters),
@@ -370,6 +399,9 @@ class RemoteWorkerRegistry:
         segment_type: str = "fmp4",
         attempt_id: str | None = None,
         disc: bool = False,
+        plan: PlaybackPlan | None = None,
+        source_id: int | None = None,
+        learn_speed: bool = False,
     ) -> WorkerConnection:
         """选一个空闲 Worker 并占住槽位，返回它的连接。
 
@@ -386,7 +418,9 @@ class RemoteWorkerRegistry:
         with self._lock:
             if job_id in self._job_workers:
                 raise RemoteWorkerUnavailable("远程任务已存在")
-            connection = self._select_worker(backend, segment_type, disc=disc)
+            connection = self._select_worker(
+                backend, segment_type, disc=disc, plan=plan, source_id=source_id
+            )
             if connection is None:
                 if disc and self._select_worker(backend, segment_type) is not None:
                     raise RemoteWorkerUnavailable(
@@ -404,6 +438,8 @@ class RemoteWorkerRegistry:
                 attempt_id if isinstance(attempt_id, str) and attempt_id else job_id
             )
             connection.jobs.add(job_id)
+            if plan is not None and source_id is not None and learn_speed:
+                self._job_profiles[job_id] = self._profile(plan, source_id)
         return connection
 
     def release_job(self, job_id: str) -> None:
@@ -447,11 +483,23 @@ class RemoteWorkerRegistry:
 
     async def pause(self, job_id: str) -> bool:
         """暂停远程 ffmpeg，但保留任务映射，供磁盘低水位保护使用。"""
-        return await self._send_job_control(job_id, "job.pause")
+        sent = await self._send_job_control(job_id, "job.pause")
+        if sent:
+            with self._lock:
+                self._paused_jobs.add(job_id)
+                self._progress_samples.pop(job_id, None)
+                self._job_speeds.pop(job_id, None)
+        return sent
 
     async def resume(self, job_id: str) -> bool:
         """恢复被磁盘低水位暂停的远程 ffmpeg。"""
-        return await self._send_job_control(job_id, "job.resume")
+        sent = await self._send_job_control(job_id, "job.resume")
+        if sent:
+            with self._lock:
+                self._paused_jobs.discard(job_id)
+                self._progress_samples.pop(job_id, None)
+                self._job_speeds.pop(job_id, None)
+        return sent
 
     async def _send_job_control(self, job_id: str, message_type: str) -> bool:
         """向当前任务所属 Worker 发送控制消息，不释放任务槽位。"""
@@ -515,6 +563,7 @@ class RemoteWorkerRegistry:
         message_type = str(message.get("type", ""))
         job_id = str(message.get("job_id", ""))
         if message_type == "worker.heartbeat":
+            self._update_load(connection, message.get("load"))
             await connection.send({"type": "worker.heartbeat.ack"})
             return None
         if message_type == "worker.draining":
@@ -551,6 +600,8 @@ class RemoteWorkerRegistry:
                 is_current_attempt = message_attempt == expected_attempt
             if not is_owner or not is_current_attempt:
                 return None
+            if message_type == "job.progress":
+                self._observe_speed(connection, job_id, message)
             if message_type in {"job.artifact_failed", "job.timeline"}:
                 # 不是任务状态迁移，不能写进状态表（会盖掉 accepted/progress）；
                 # 交回调用方转给会话层（补片记账 / 并进会话时间线）
@@ -580,7 +631,13 @@ class RemoteWorkerRegistry:
     # -- 内部 ------------------------------------------------------------
 
     def _select_worker(
-        self, backend: str, segment_type: str = "fmp4", *, disc: bool = False
+        self,
+        backend: str,
+        segment_type: str = "fmp4",
+        *,
+        disc: bool = False,
+        plan: PlaybackPlan | None = None,
+        source_id: int | None = None,
     ) -> WorkerConnection | None:
         with self._lock:
             candidates = [
@@ -589,18 +646,156 @@ class RemoteWorkerRegistry:
                 if backend in connection.capabilities.backends
                 and segment_type in connection.capabilities.segment_types
                 and (not disc or connection.capabilities.disc_sources)
-                and len(connection.jobs) < connection.capabilities.max_jobs
+                and len(connection.jobs) < connection.max_jobs
                 and not connection.draining
                 and self._is_fresh(connection)
             ]
             if not candidates:
                 return None
-            return min(candidates, key=lambda item: (len(item.jobs), item.connected_at))
+            profile = (
+                self._profile(plan, source_id)
+                if plan is not None and source_id is not None
+                else None
+            )
+            # 仅所有候选都有同规格实测时才比较速度，避免把未知当成最慢、永远不给它接单。
+            compare_speed = profile is not None and all(
+                c.speed_samples.get(profile, 0) >= 3 for c in candidates
+            )
+
+            def rank(item: WorkerConnection) -> tuple:
+                load = item.load if self._load_fresh(item) else {}
+                now = time.monotonic()
+                # CPU 看不到媒体引擎/网络的瓶颈：已有任务接近实时速率时保留供片余量。
+                slow = any(
+                    samples >= 3 and now - seen <= 5 and speed < 1.25
+                    for job in item.jobs
+                    for speed, samples, seen in [self._job_speeds.get(job, (0, 0, 0))]
+                )
+                pressure = max(
+                    load.get("memory_pressure", 0),
+                    max(0, load.get("thermal_state", 0) - 1),
+                    int(load.get("cpu", 0) >= 0.9),
+                    int(slow),
+                )
+                return (
+                    pressure,
+                    len(item.jobs) / item.max_jobs,
+                    -item.speeds[profile] if compare_speed else 0,
+                    int(load.get("cpu", 0.5) * 10),
+                    item.connected_at,
+                )
+
+            return min(candidates, key=rank)
+
+    async def configure_device(self, device_id: int, max_jobs: int) -> None:
+        with self._lock:
+            workers = [c for c in self._workers.values() if c.login_device_id == device_id]
+            for c in workers:
+                c.max_jobs = (
+                    max_jobs
+                    if c.capabilities.server_config
+                    else min(max_jobs, c.capabilities.max_jobs)
+                )
+        for c in workers:
+            if c.capabilities.server_config:
+                try:
+                    await asyncio.wait_for(
+                        c.send({"type": "worker.config", "max_jobs": max_jobs}), 3
+                    )
+                except Exception:  # noqa: BLE001
+                    # 服务器设置已保存；断开后握手会重新同步，不保留半同步的连接。
+                    await self.unregister(c)
+                    await self._close_quietly(c.websocket, code=1012, reason="配置同步失败")
+
+    @staticmethod
+    def _profile(plan: PlaybackPlan, source_id: int) -> tuple[Any, ...]:
+        v = plan.video
+        return (
+            source_id,
+            v.source_codec,
+            v.source_bit_depth,
+            v.height,
+            v.tone_map,
+            v.burn_subtitle,
+            v.source_color,
+            v.codec,
+            v.action,
+            v.bitrate_cap_bps,
+            plan.container,
+            plan.audio,
+        )
+
+    @staticmethod
+    def _load_fresh(connection: WorkerConnection) -> bool:
+        return bool(connection.load) and time.monotonic() - connection.load_seen <= LOAD_TIMEOUT_S
+
+    def _update_load(self, connection: WorkerConnection, raw: Any) -> None:
+        if not isinstance(raw, dict):
+            return
+        cpu = raw.get("cpu")
+        memory = raw.get("memory_pressure")
+        thermal = raw.get("thermal_state")
+        if (
+            not isinstance(cpu, (int, float))
+            or isinstance(cpu, bool)
+            or not math.isfinite(cpu)
+            or not 0 <= cpu <= 1
+            or type(memory) is not int
+            or memory not in (0, 1, 2)
+            or type(thermal) is not int
+            or thermal not in (0, 1, 2, 3)
+        ):
+            return
+        with self._lock:
+            previous = connection.load.get("cpu") if self._load_fresh(connection) else None
+            connection.load = {
+                "cpu": cpu if previous is None else previous * 0.5 + cpu * 0.5,
+                "memory_pressure": memory,
+                "thermal_state": thermal,
+            }
+            used = raw.get("memory_used_bytes")
+            if type(used) is int and used >= 0:
+                connection.load["memory_used_bytes"] = used
+            connection.load_seen = time.monotonic()
+
+    def _observe_speed(self, connection: WorkerConnection, job_id: str, message: dict) -> None:
+        with self._lock:
+            profile = self._job_profiles.get(job_id)
+            output = message.get("out_time_ms")
+            if job_id in self._paused_jobs or type(output) is not int:
+                self._progress_samples.pop(job_id, None)
+                return
+            now = time.monotonic()
+            previous = self._progress_samples.get(job_id)
+            self._progress_samples[job_id] = (now, output)
+            if previous is None:
+                return
+            elapsed = now - previous[0]
+            # 消息过久没到可能是主动限速或网络停顿，不用于给设备性能排序。
+            if not 0.5 <= elapsed <= 3 or output <= previous[1]:
+                self._job_speeds.pop(job_id, None)
+                return
+            speed = (output - previous[1]) / 1000 / elapsed
+            old_speed, samples, _ = self._job_speeds.get(job_id, (speed, 0, now))
+            self._job_speeds[job_id] = (old_speed * 0.5 + speed * 0.5, samples + 1, now)
+            if profile is None or len(connection.jobs) != 1:
+                return
+            if profile not in connection.speeds and len(connection.speeds) >= 32:
+                oldest = next(iter(connection.speeds))
+                connection.speeds.pop(oldest)
+                connection.speed_samples.pop(oldest, None)
+            old = connection.speeds.get(profile, speed)
+            connection.speeds[profile] = old * 0.5 + speed * 0.5
+            connection.speed_samples[profile] = connection.speed_samples.get(profile, 0) + 1
 
     def _release_job(self, job_id: str) -> None:
         with self._lock:
             worker_id = self._job_workers.pop(job_id, None)
             self._job_attempts.pop(job_id, None)
+            self._job_profiles.pop(job_id, None)
+            self._progress_samples.pop(job_id, None)
+            self._job_speeds.pop(job_id, None)
+            self._paused_jobs.discard(job_id)
             if worker_id:
                 connection = self._workers.get(worker_id)
                 if connection is not None:
@@ -618,6 +813,10 @@ class RemoteWorkerRegistry:
                 self._job_workers.pop(job_id, None)
                 self._job_attempts.pop(job_id, None)
                 connection.jobs.discard(job_id)
+                self._job_profiles.pop(job_id, None)
+                self._progress_samples.pop(job_id, None)
+                self._job_speeds.pop(job_id, None)
+                self._paused_jobs.discard(job_id)
                 self.publish_job_event(
                     job_id,
                     {"type": "job.failed", "job_id": job_id, "error": error},
@@ -673,6 +872,15 @@ class RemoteWorkerRegistry:
             filters=names("filters") or (),
             progressive_segments=raw.get("progressive_segments") is True,
             read_options=names("read_options") or (),
+            server_config=raw.get("server_config") is True,
+            hardware={
+                k: v
+                for k, v in (raw.get("hardware") or {}).items()
+                if (k == "chip" and isinstance(v, str) and len(v) <= 128)
+                or (k in {"cpu_cores", "memory_bytes"} and type(v) is int and v > 0)
+            }
+            if isinstance(raw.get("hardware"), dict)
+            else {},
         )
 
     @staticmethod
@@ -697,6 +905,10 @@ def reset_remote_worker_registry() -> None:
         _registry._job_attempts.clear()
         _registry._job_events.clear()
         _registry._job_states.clear()
+        _registry._job_profiles.clear()
+        _registry._progress_samples.clear()
+        _registry._job_speeds.clear()
+        _registry._paused_jobs.clear()
 
 
 def remote_worker_enabled() -> bool:

@@ -204,20 +204,17 @@ struct SubscriptionsHomeModelTests {
             kind: "tv", subscriptions: subs,
             groups: SubscriptionsHome.arrivalGroups(arrivals, tasks: [], now: now), recent: recents
         )
-        // 进行中：下载中 → 有没看的新集 → 今天更新 → 两天后更新 → 洗版中（含已收齐但正在洗版的）
-        // → 缺集找资源 → 追更中（什么都不缺，等下一集）
-        // 同名次按最近变动、再按片名（「作品11」排在「作品4」前）
-        #expect(shelf.active.map(\.sub.id) == [2, 9, 3, 1, 11, 4, 5, 10])
-        #expect(shelf.active.map { $0.chip?.text } == ["下载中", "新 2 集", "今天更新", "周一更新", "洗版中", "洗版中", "缺 4 集", nil])
+        // 缺集（即使同时在洗旧集）仍先于纯洗版；同名次保持原有顺序。
+        #expect(shelf.active.map(\.sub.id) == [2, 9, 3, 1, 4, 5, 10, 11])
+        #expect(shelf.active.map { $0.chip?.text } == ["下载中", "新 2 集", "今天更新", "周一更新", "缺 4 集", "缺 4 集", nil, "洗版中"])
         // 已完成的不因「刚到了、还没看」被拉回前排（那是 Hero 与刚刚入库的事）；最近完成的在前
         #expect(shelf.paused.map(\.sub.id) == [6])
         #expect(shelf.done.map(\.sub.id) == [8, 7])
-        #expect(shelf.done.allSatisfy { $0.chip == nil && $0.progress == nil })
+        #expect(shelf.done.allSatisfy { $0.chip == nil })
         #expect(shelf.restingLabel == "暂停·收齐")
         // 计数 = 分隔线前的数量
         #expect(SubscriptionsHome.countSummary(shelf) == "8 部进行中 · 共 11 部")
         #expect(shelf.active.first { $0.sub.id == 5 }?.meta == "第 1 季 · 4 / 8")
-        #expect(shelf.active.first { $0.sub.id == 5 }?.progress == 0.5)
         #expect(shelf.done.first?.meta == "已收齐 · 第 1 季")
     }
 
@@ -240,6 +237,18 @@ struct SubscriptionsHomeModelTests {
         #expect(shelf.done.map(\.meta) == ["2024 · 已入库", "2024 · 已入库"])
         #expect(shelf.restingLabel == "已入库")
         #expect(SubscriptionsHome.countSummary(shelf) == "3 部进行中 · 共 5 部")
+    }
+
+    @Test func upgradesStayBehindMissingContentEvenWithFreshDownloadForecast() throws {
+        for kind in ["movie", "tv"] {
+            let upgrade = try sub(1, kind: kind, progress: ["wanted": 0, "imported": 8, "upgrading": 1], owned: 8,
+                                  updatedAt: "2026-10-07T00:00:00Z")
+            let waiting = try sub(2, kind: kind)
+            let groups = SubscriptionsHome.arrivalGroups([try arrival(sub: 1, kind: kind, status: "grabbed")], tasks: [], now: now)
+            let row = SubscriptionsHome.shelf(kind: kind, subscriptions: [upgrade, waiting], groups: groups, recent: [])
+            #expect(row.active.map(\.sub.id) == [2, 1])
+            #expect(row.active.last?.chip?.text == "洗版中")
+        }
     }
 
     // MARK: 格式

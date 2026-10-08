@@ -2027,7 +2027,11 @@ async def _media_dir_lookup(session: AsyncSession, item: MediaItem, seasons) -> 
             key = f"s{file.season_number:02d}e{file.episode_number:02d}"
             episode_videos.setdefault(key, []).append(video)
     return _MediaDirLookup(
-        entries, videos, [season.season_number for season in seasons], episode_videos
+        entries,
+        videos,
+        [season.season_number for season in seasons],
+        episode_videos,
+        media_kind=item.kind,
     )
 
 
@@ -2229,11 +2233,14 @@ class _MediaDirLookup:
         videos: list[Path],
         season_numbers: list[int],
         episode_videos: dict[str, list[Path]],
+        *,
+        media_kind: str,
     ) -> None:
         self._entries = entries
         self._videos = videos
         self._season_numbers = season_numbers
         self._episode_videos = episode_videos
+        self._media_kind = media_kind
         self._entry_art = None
         self._lock = asyncio.Lock()
 
@@ -2245,7 +2252,11 @@ class _MediaDirLookup:
         async with self._lock:
             if self._entry_art is None:
                 self._entry_art = await asyncio.to_thread(
-                    scan_entry_art, self._entries, self._videos, self._season_numbers
+                    scan_entry_art,
+                    self._entries,
+                    self._videos,
+                    self._season_numbers,
+                    media_kind=self._media_kind,
                 )
         return self._entry_art
 

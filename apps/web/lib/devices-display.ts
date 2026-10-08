@@ -177,12 +177,12 @@ export function deviceGroupKey(kind: string): string {
   return "paired";
 }
 
-/** 按类型分组，空组不出现。 */
+/** 四类始终保留，让没有在线设备与没有设备记录的状态也有明确归属。 */
 export function groupDevices<T extends { kind: string }>(devices: T[]): DeviceGroup<T>[] {
   return DEVICE_GROUPS.map((group) => ({
     ...group,
     devices: devices.filter((device) => deviceGroupKey(device.kind) === group.key),
-  })).filter((group) => group.devices.length > 0);
+  }));
 }
 
 /** 设备行首的图标。图标已经说明了形态，说明行里就不再重复「iOS App」「浏览器」。 */
@@ -309,6 +309,7 @@ export interface LivenessFields {
   scope: string;
   connected: boolean;
   last_seen_at: string | null;
+  current?: boolean;
 }
 
 /** 是不是靠长连接在线的转码器（配对来的 worker，或「仅限转码」的手工令牌） */
@@ -322,6 +323,7 @@ function isTranscoder(device: LivenessFields): boolean {
  * 仍按最近 5 分钟有没有用过。
  */
 export function deviceLive(device: LivenessFields, now: number = Date.now()): boolean {
+  if (device.current) return true;
   if (isTranscoder(device)) return device.connected;
   return isLive(device.last_seen_at, now);
 }

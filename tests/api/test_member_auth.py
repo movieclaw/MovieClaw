@@ -677,6 +677,8 @@ _MEMBER_ALLOWLIST = {
     ("DELETE", "/api/v1/search/history"),
     # 订阅：读 + 写（写受 allow_subscribe，默认开）；运维接口是管理员专属
     ("GET", "/api/v1/subscriptions"),
+    # 全局智能偏好只读供成员订阅时复用；修改偏好仍限管理员。
+    ("GET", "/api/v1/subscriptions/smart-profiles/{kind}"),
     ("GET", "/api/v1/subscriptions/today-arrivals"),
     # 「刚刚入库」：订阅可见边界同上（自己发起 + 自己关注），文件只列可见库里在位的
     ("GET", "/api/v1/subscriptions/recent-arrivals"),
@@ -694,11 +696,16 @@ _MEMBER_ALLOWLIST = {
     ("POST", "/api/v1/subscriptions/{subscription_id}/missing-resource-searches"),
     # 一轮洗版与「立即搜索」同口径：订阅能力 + 归属校验（路由内 assert_can_manage）
     ("POST", "/api/v1/subscriptions/{subscription_id}/upgrade-runs"),
+    # 等待操作还会按订阅归属与订阅能力校验。
+    ("POST", "/api/v1/subscriptions/{subscription_id}/wanted/{wanted_id}/smart-wait"),
     # App 推送（docs/design/cloud-push.md §7.3）：每个人只管自己的通知开关、设备状态、
     # 测试通知；App 登记只认这台设备自己的凭证（服务层判定，网页会话登记不了）
     ("GET", "/api/v1/push/me"),
     ("PUT", "/api/v1/push/me/preferences"),
     ("POST", "/api/v1/push/me/test"),
+    # 「这部剧不再提醒」：只静音自己的推送（按 owner_id 存），订阅照常下载
+    ("PUT", "/api/v1/push/me/muted-items/{item_id}"),
+    ("DELETE", "/api/v1/push/me/muted-items/{item_id}"),
     ("PUT", "/api/v1/push/me/registration"),
     ("DELETE", "/api/v1/push/me/registration"),
     # 推送配图：公开区（地址自带签名），成员自然可达
@@ -726,6 +733,7 @@ _PATH_DUMMIES = {
     "{douban_id}": "26266893",
     "{collection_id}": "movie_top250",
     "{subscription_id}": "1",
+    "{wanted_id}": "1",
     "{rule_set_id}": "1",
     "{library_id}": "1",
     "{media_item_id}": "1",
@@ -760,6 +768,7 @@ _PATH_DUMMIES = {
     # App 推送的自建中继、推送配图的签名
     "{relay_id}": "r_test",
     "{token}": "no-such-image",
+    "{item_id}": "1",
 }
 
 

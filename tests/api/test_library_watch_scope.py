@@ -520,6 +520,39 @@ async def test_watcher_passes_scope_to_scan(db, tmp_path, monkeypatch) -> None:
         await watcher.stop()
 
 
+async def test_watcher_stop_waits_for_scan_cleanup(monkeypatch) -> None:
+    """关停必须等扫描清理完，不能把仍在用连接的任务留给数据库/事件循环收尾。"""
+    entered = asyncio.Event()
+    cleaned = asyncio.Event()
+
+    async def consume():
+        try:
+            entered.set()
+            await asyncio.Event().wait()
+        finally:
+            # 模拟 SQLAlchemy 异步关闭 session 时的让出。
+            await asyncio.sleep(0)
+            cleaned.set()
+
+    watcher = watch_mod.LibraryWatcher()
+    monkeypatch.setattr(watcher, "_consume", consume)
+    monkeypatch.setattr(watcher, "refresh_watches", lambda: asyncio.sleep(0))
+    await watcher.start()
+    consumer = watcher._consumer
+    startup = watcher._startup
+    assert consumer is not None and startup is not None
+    try:
+        await entered.wait()
+        await watcher.stop()
+        assert cleaned.is_set()
+        assert consumer.done() and startup.done()
+    finally:
+        # 旧实现失败时也完整清理，避免回归测试本身遗留任务。
+        consumer.cancel()
+        startup.cancel()
+        await asyncio.gather(consumer, startup, return_exceptions=True)
+
+
 async def test_watcher_defers_events_during_scan(db, tmp_path, monkeypatch) -> None:
     """扫描进行中收到的事件不丢弃：等扫描结束补触发（旧实现直接丢，
     新文件要等 6 小时对账才可见）。"""

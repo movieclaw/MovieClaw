@@ -1,453 +1,383 @@
 import SwiftUI
 
-/// 设置 → 设备（Web devices-section.tsx，设计见 docs/design/login-devices.md）。
-///
-/// 所有人都能进（成员看自己的设备），这一页承担四件事：
-/// 1. **「批准新设备登录」入口**：批准本身在独立的批准页（DeviceApprovalView，对应网页 /activate），
-///    「我的」页右上角扫码也直达那里。拿着配对码来批准是一次性的事，与管理已登录的设备是两件事；
-/// 2. **我的设备**：登录着这个账号的浏览器、App、命令行、转码器与播放器，当前这台置顶；可以改名、注销。
-///    注销是唯一的事后止损手段，注销即断——它正在播的片、正在跑的转码一并停止；
-/// 3. **全部成员的设备**（超管）：多一列「属于谁」；
-/// 4. **手工令牌**（超管）：给没人能按批准的环境（NAS 定时任务、CI、命令行模式的转码器）。明文只在创建
-///    响应里出现一次，给出可直接粘贴的两行环境变量，关闭前二次确认。
+/// 设备管理：分类 → 完整列表 → 设备详情。批准、创建令牌和批量清理各自形成独立任务。
 struct DevicesSettingsView: View {
     @Environment(\.api) private var api
     @Environment(\.permissions) private var permissions
     @Environment(Router.self) private var router
     @Environment(Feedback.self) private var feedback
     @Environment(AppModel.self) private var model
+    @Environment(\.dynamicTypeSize) private var typeSize
 
     @State private var devices: Loadable<[API.LoginDeviceView]> = .loading
     @State private var showAll = false
     @State private var busy: String?
     @State private var error: String?
     @State private var cleaning = false
-
-    // 手工令牌
-    @State private var tokenStage: TokenStage = .idle
-    @State private var tokenName = ""
-    @State private var tokenScope = "full"
-    @State private var tokenNameError: String?
-    @State private var creating = false
-    @State private var created: API.ApiTokenCreatedView?
-    @State private var externalUrl = ""
-
-    enum TokenStage { case idle, form }
+    @State private var creatingToken = false
+    @State private var showDeviceList = false
+    @State private var selectedGroup = "browser"
+    @State private var selectedDevice: API.LoginDeviceView?
+    @State private var selectedCurrentDevice: API.LoginDeviceView?
+    @State private var search = ""
+    @State private var requestID = 0
 
     var body: some View {
         List {
-            if let error {
-                Section { SettingsNotice(text: error) }
+            SettingsFormSection {
+                Button { router.push(.deviceApproval()) } label: {
+                    Label("批准新设备登录", systemImage: "qrcode.viewfinder")
+                }
+                .accessibilityIdentifier("devices-approve-entry")
+                if permissions.isAdmin {
+                    Button { creatingToken = true } label: {
+                        Label("创建访问令牌", systemImage: "key")
+                    }
+                    .accessibilityIdentifier("token-create-open")
+                }
             }
-            approvalEntry
             if permissions.isAdmin {
-                Section {
-                    Picker("范围", selection: $showAll) {
+                SettingsFormSection {
+                    Picker("设备范围", selection: $showAll) {
                         Text("我的设备").tag(false)
                         Text("全部成员").tag(true)
                     }
-                    .pickerStyle(.segmented)
+                    .modifier(DeviceScopeStyle(accessibility: typeSize.isAccessibilitySize))
                     .accessibilityIdentifier("devices-scope")
                 }
             }
-            devicesSections
-            cleanupEntry
-            if permissions.isAdmin { manualTokenSection }
+            deviceSections
         }
-        .scrollDismissesKeyboard(.immediately)
+        .listStyle(.insetGrouped)
         .appBackground()
         .task(id: showAll) { await load() }
-        // 在线状态会变（转码器连上 / 断开、别的设备刚用过）：页面开着时每 15 秒静默刷新一次
         .polling(every: 15) { await load() }
-        .task {
-            // 对外访问地址：进入分区就先拉，等按下创建再拉会多等一个往返；拿不到就回落当前服务器地址
-            if permissions.isAdmin, let config = try? await api.appShow() { externalUrl = config.externalUrl }
-        }
         .refreshable { await load() }
-        .sheet(isPresented: $cleaning) {
-            DeviceCleanupSheet(all: showAll) { message in
-                cleaning = false
-                feedback.success(message)
-                Task { await load() }
-            }
-            .sheetFeedback()
+        .onChange(of: showAll) { _, _ in
+            devices = .loading
+            error = nil
+            search = ""
+        }
+        .navigationDestination(isPresented: $showDeviceList) { deviceList }
+        .navigationDestination(item: $selectedCurrentDevice) { device in deviceDetail(device) }
+        .sheet(isPresented: $creatingToken) {
+            DeviceTokenSheet { Task { await load() } }.sheetFeedback()
         }
     }
 
     private func load() async {
+        requestID += 1
+        let request = requestID
+        let all = showAll
         do {
-            devices = .loaded(try await api.authDevicesList(all: showAll))
+            let next = try await api.authDevicesList(all: all)
+            guard request == requestID, all == showAll, !Task.isCancelled else { return }
+            devices = .loaded(next)
+            error = nil
         } catch {
+            guard request == requestID, all == showAll, !Task.isCancelled else { return }
             if devices.value == nil { devices = .failed(error.localizedDescription) }
-            self.error = error.localizedDescription
+            else { self.error = error.localizedDescription }
         }
     }
 
-    // MARK: 批准新设备
-
-    private var approvalEntry: some View {
-        Section {
-            Button {
-                router.push(.deviceApproval())
-            } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "qrcode.viewfinder").font(.title3).foregroundStyle(Theme.accent)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("批准新设备登录").foregroundStyle(Theme.text)
-                        Text("扫码或输入 Apple TV、Mac、命令行、转码器上的配对码").font(.caption).foregroundStyle(Theme.textMuted)
-                    }
-                    Spacer()
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.textFaint)
-                }
-            }
-            .accessibilityIdentifier("devices-approve-entry")
-        }
-    }
-
-    // MARK: 清理
-
-    /// 「清理长期没用的设备」：一次注销 N 天没用过的设备（本机、连着的转码器不清）。
-    /// 只有本机一台时没东西可清，不出现
-    @ViewBuilder
-    private var cleanupEntry: some View {
-        if let list = devices.value, list.contains(where: { !$0.current }) {
-            Section {
-                Button {
-                    cleaning = true
-                } label: {
-                    HStack(spacing: 12) {
-                        Image(systemName: "sparkles").font(.body).foregroundStyle(Theme.textMuted).frame(width: 36)
-                        Text(showAll ? "清理全部成员长期没用的设备" : "清理长期没用的设备").foregroundStyle(Theme.text)
-                        Spacer()
-                        Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.textFaint)
-                    }
-                }
-                .accessibilityIdentifier("devices-cleanup-entry")
-            }
-        }
-    }
-
-    // MARK: 设备列表
-
-    /// 按类别分组：网页与 App、命令行与转码器、播放器（Jellyfin 客户端）
-    private struct DeviceGroup: Identifiable {
-        let id: String
-        let title: String
-        let footer: String?
-        let items: [API.LoginDeviceView]
-    }
-
-    private func groups(_ list: [API.LoginDeviceView]) -> [DeviceGroup] {
-        let apps = list.filter { ["web", "ios", "tvos", "macos", "android"].contains($0.kind) }
-        let programs = list.filter { ["cli", "worker", "manual"].contains($0.kind) }
-        let players = list.filter { $0.kind == "jellyfin" }
-        return [
-            DeviceGroup(id: "apps", title: "网页与 App", footer: "用账号密码登录的。改密码后，除了你正在用的这台，其余全部下线。", items: apps),
-            DeviceGroup(id: "programs", title: "命令行与转码器", footer: "配对或手工创建的，改密码时默认保留（转码器常年无人值守）。怀疑密码泄露时，改密时勾选一并注销。", items: programs),
-            DeviceGroup(id: "players", title: "播放器", footer: "Infuse 等 Jellyfin 客户端。", items: players),
-        ].filter { !$0.items.isEmpty }
-    }
+    private var groups: [DeviceGroup] { DeviceGroup.make(devices.value ?? []) }
 
     @ViewBuilder
-    private var devicesSections: some View {
+    private var deviceSections: some View {
         switch devices {
         case .loading:
-            Section { SettingsLoadingRow() }
+            SettingsFormSection { SettingsLoadingRow() }
         case let .failed(message):
-            Section { Text(message).font(.subheadline).foregroundStyle(Theme.danger) }
+            SettingsFormSection { retryRow(message) }
         case let .loaded(list):
-            ForEach(groups(list)) { group in
-                Section {
-                    ForEach(group.items, id: \.id) { device in
-                        deviceRow(device)
+            if let error { SettingsFormSection { retryRow(error) } }
+            if let current = list.first(where: \.current) {
+                SettingsFormSection("当前设备") { deviceLink(current) }
+            }
+            SettingsFormSection {
+                ForEach(groups) { group in
+                    Button {
+                        selectedGroup = group.id
+                        search = ""
+                        showDeviceList = true
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: group.symbol)
+                                .font(.title3).dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                                .foregroundStyle(.secondary)
+                                .frame(width: 28)
+                                .accessibilityHidden(true)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(group.title).foregroundStyle(.primary)
+                                let online = group.items.filter { DeviceText.isLive($0) }.count
+                                let layout = typeSize.isAccessibilitySize
+                                    ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+                                    : AnyLayout(HStackLayout(spacing: 8))
+                                layout {
+                                    Text("\(group.items.count) 台设备").foregroundStyle(.secondary)
+                                    DeviceOnlineLabel(online: online > 0, title: "\(online) 在线")
+                                }
+                                .font(.subheadline)
+                            }
+                            Spacer(minLength: 8)
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                        }
+                        .padding(.vertical, 4)
                     }
-                } header: {
-                    Text(group.title)
-                } footer: {
-                    if let footer = group.footer { Text(footer) }
+                    .accessibilityIdentifier("devices-all-\(group.id)")
                 }
+            } header: {
+                Text(showAll ? "全部成员的设备" : "我的设备")
+            } footer: {
+                Text("包含在线和离线设备。点按设备可查看详情、改名或注销。")
             }
         }
     }
 
-    /// 一行设备：图标（在线时右下角亮绿点）+ 名字 + 系统与版本 + 最近活跃 + 提示，⋯ 菜单贴右上角。
-    /// 说明文字只在整段之间换行（见 DeviceText.metaLine）；分隔线统一从文字列开始，不随提示行左右跳
-    private func deviceRow(_ device: API.LoginDeviceView) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            DeviceBadge(symbol: DeviceText.symbol(device), live: DeviceText.isLive(device))
-            VStack(alignment: .leading, spacing: 3) {
-                HStack(alignment: .firstTextBaseline, spacing: 6) {
-                    Text(device.name).font(.body.weight(.medium)).lineLimit(2)
-                    if device.current {
-                        Text("本机")
-                            .font(.caption2.weight(.semibold))
-                            .foregroundStyle(Theme.accent)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Theme.accentSoft, in: .capsule)
-                            .fixedSize()
-                    }
-                }
-                ForEach([DeviceText.identityParts(device, showOwner: showAll), DeviceText.activityParts(device)], id: \.self) { parts in
-                    if !parts.isEmpty {
-                        Text(DeviceText.metaLine(parts)).font(.caption).foregroundStyle(Theme.textFaint)
-                    }
-                }
-                if DeviceText.isDormant(device) {
-                    rowNote("clock", "超过 90 天没有用过，不认识或不再用的设备可以注销", color: Theme.warning)
-                }
-                // App 收不到推送时说一句为什么（能收到就不提，docs/design/cloud-push.md §7.3）
-                if let push = device.push, push.status != "ok" {
-                    rowNote("bell.slash", push.statusText, color: push.status == "not_registered" ? Theme.textMuted : Theme.warning)
-                        .accessibilityIdentifier("device-push-\(device.name)")
-                }
-            }
-            .padding(.top, 1)
-            .alignmentGuide(.listRowSeparatorLeading) { $0[.leading] }
-            Spacer(minLength: 4)
-            Menu {
-                if device.renamable {
-                    Button("改名", systemImage: "pencil") { Task { await rename(device) } }
-                }
-                Button(device.current ? "注销本机（退出登录）" : "注销", systemImage: "xmark.circle", role: .destructive) {
-                    Task { await revoke(device) }
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.body.weight(.semibold))
-                    .foregroundStyle(Theme.textMuted)
-                    .frame(width: 32, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .disabled(busy == device.id)
-            .accessibilityLabel("管理 \(device.name)")
-            .accessibilityIdentifier("device-menu-\(device.name)")
+    private func retryRow(_ message: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(message, systemImage: "exclamationmark.triangle")
+                .font(.subheadline).foregroundStyle(.secondary)
+            Button("重试") { Task { await load() } }
         }
-        .accessibilityElement(children: .contain)
+    }
+
+    private var deviceList: some View {
+        let group = groups.first { $0.id == selectedGroup } ?? groups[0]
+        let filtered = group.matching(search)
+        let online = filtered.filter { DeviceText.isLive($0) }
+        let offline = filtered.filter { !DeviceText.isLive($0) }
+        return List {
+            if let error { SettingsFormSection { retryRow(error) } }
+            if !online.isEmpty {
+                SettingsFormSection("在线 · \(online.count)") {
+                    ForEach(online, id: \.id) { deviceLink($0) }
+                }
+            }
+            if !offline.isEmpty {
+                SettingsFormSection("离线 · \(offline.count)") {
+                    ForEach(offline, id: \.id) { deviceLink($0) }
+                }
+            }
+        }
+        .listStyle(.insetGrouped)
+        .appBackground()
+        .overlay {
+            if filtered.isEmpty {
+                if search.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    ContentUnavailableView("暂无\(group.title)设备", systemImage: group.symbol,
+                                           description: Text("登录或配对后，设备会出现在这里。"))
+                        .accessibilityIdentifier("devices-list-empty")
+                } else {
+                    ContentUnavailableView.search(text: search)
+                        .accessibilityIdentifier("devices-search-empty")
+                }
+            }
+        }
+        .navigationTitle(group.title)
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $search, placement: .navigationBarDrawer(displayMode: .always),
+                    prompt: showAll ? "搜索设备或成员" : "搜索设备")
+        .navigationDestination(item: $selectedDevice) { device in deviceDetail(device) }
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("清理", role: .destructive) { cleaning = true }
+                    .tint(Theme.danger)
+                    .accessibilityLabel("清理不活跃的\(group.title)设备")
+                    .accessibilityIdentifier("devices-cleanup-entry")
+                    .popover(isPresented: Binding(get: { cleaning && !typeSize.isAccessibilitySize },
+                                                  set: { cleaning = $0 }), arrowEdge: .top) {
+                        cleanupContent(group)
+                    }
+                    .sheet(isPresented: Binding(get: { cleaning && typeSize.isAccessibilitySize },
+                                                set: { cleaning = $0 })) {
+                        cleanupContent(group)
+                    }
+            }
+        }
+        .onChange(of: selectedGroup) { _, _ in search = "" }
+        .refreshable { await load() }
+        .accessibilityIdentifier("devices-list")
+    }
+
+    private func cleanupContent(_ group: DeviceGroup) -> some View {
+        DeviceCleanupPopover(group: group, all: showAll,
+                             onChanged: { Task { await load() } }) { message in
+            cleaning = false
+            feedback.success(message)
+        }
+        .sheetFeedback()
+    }
+
+    private func deviceLink(_ device: API.LoginDeviceView) -> some View {
+        Button {
+            if showDeviceList { selectedDevice = device }
+            else { selectedCurrentDevice = device }
+        } label: {
+            HStack(alignment: .top, spacing: 12) {
+                Image(systemName: DeviceText.symbol(device))
+                    .font(.title3).foregroundStyle(.secondary).frame(width: 28)
+                    .padding(.top, 3).accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(device.name).font(.body).foregroundStyle(.primary)
+                    let identity = DeviceText.identityParts(device, showOwner: showAll).joined(separator: " · ")
+                    if !identity.isEmpty { Text(identity).font(.subheadline).foregroundStyle(.secondary) }
+                    DeviceOnlineLabel(online: DeviceText.isLive(device),
+                                      title: device.current ? "本机 · 正在使用" : DeviceText.isLive(device) ? "在线" : DeviceText.activity(device))
+                        .font(.caption)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                    .padding(.top, 5)
+            }
+            .padding(.vertical, 4)
+        }
         .accessibilityIdentifier("device-row-\(device.name)")
     }
 
-    private func rowNote(_ symbol: String, _ text: String, color: Color) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 5) {
-            Image(systemName: symbol).font(.caption2)
-            Text(text)
+    private func deviceDetail(_ initial: API.LoginDeviceView) -> some View {
+        let device = devices.value?.first { $0.id == initial.id } ?? initial
+        return Form {
+            SettingsFormSection {
+                LabeledContent("名称", value: device.name)
+                LabeledContent("类型", value: device.kindLabel)
+                LabeledContent("状态") {
+                    DeviceOnlineLabel(online: DeviceText.isLive(device),
+                                      title: device.current ? "本机 · 正在使用" : DeviceText.isLive(device) ? "在线" : "离线")
+                }
+                if showAll { LabeledContent("所属成员", value: device.ownerNickname) }
+                if let platform = device.platform, !platform.isEmpty { LabeledContent("系统", value: platform) }
+                if let version = device.clientVersion { LabeledContent("版本", value: version) }
+            }
+            SettingsFormSection("活动") {
+                LabeledContent("最近使用", value: DeviceText.activity(device))
+                if let ip = device.lastSeenIp { LabeledContent("来源地址", value: ip).textSelection(.enabled) }
+                LabeledContent("首次登录", value: SettingsTime.deviceRelative(device.createdAt))
+            }
+            if let push = device.push {
+                SettingsFormSection("通知") {
+                    Label(push.statusText, systemImage: push.status == "ok" ? "bell" : "bell.slash")
+                        .accessibilityIdentifier("device-push-\(device.name)")
+                }
+            }
+            SettingsFormSection {
+                LabeledContent("访问权限", value: device.scope == "transcode" ? "仅限转码" : "与所属账号相同")
+            } footer: {
+                if DeviceText.isDormant(device) { Text("超过 90 天没有使用。不认识或不再使用的设备可以注销。") }
+            }
+            SettingsFormSection {
+                Button(device.current ? "退出本机登录" : "注销设备", role: .destructive) {
+                    Task { await revoke(device) }
+                }
+                .disabled(busy != nil)
+                .accessibilityIdentifier("device-revoke")
+            } footer: {
+                Text(device.kind == "worker" || device.scope == "transcode"
+                     ? "注销会断开转码器并中止正在进行的转码，再次使用需要重新配对。"
+                     : "注销会终止这台设备的访问和播放，再次使用需要重新登录。")
+            }
         }
-        .font(.caption)
-        .foregroundStyle(color)
-        .padding(.top, 2)
+        .appBackground()
+        .navigationTitle("设备详情")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if device.renamable {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("改名") { Task { await rename(device) } }
+                        .disabled(busy != nil)
+                        .accessibilityIdentifier("device-rename")
+                }
+            }
+        }
     }
 
     private func rename(_ device: API.LoginDeviceView) async {
-        guard let name = await feedback.prompt("给设备改名", message: "起一个认得出的名字，比如「客厅的 iPad」。", initial: device.name, confirmTitle: "保存", maxLength: 64)?
-            .trimmingCharacters(in: .whitespaces), !name.isEmpty, name != device.name else { return }
+        guard let name = await feedback.prompt("给设备改名", message: "例如：客厅的 iPad。", initial: device.name,
+                                              confirmTitle: "保存", maxLength: 64)?
+            .trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty, name != device.name else { return }
         busy = device.id
         defer { busy = nil }
         do {
             _ = try await api.authDevicesRename(deviceId: device.id, body: .init(name: name))
             await load()
-        } catch {
-            feedback.error(error)
-        }
+        } catch { feedback.error(error) }
     }
 
     private func revoke(_ device: API.LoginDeviceView) async {
         if device.current {
-            // 注销本机 = 退出当前账号：交给 AppModel，它会在服务端注销、删掉本机令牌、切到下一个账号或回欢迎页
-            guard await feedback.confirm("退出登录？", message: "这台设备上的登录会被注销，再回来需要重新输入密码。", confirmTitle: "退出", destructive: true) else { return }
+            guard await feedback.confirm("退出登录？", message: "这台设备需要重新登录才能再次访问。",
+                                         confirmTitle: "退出登录", destructive: true) else { return }
             await model.logout()
             return
         }
-        let message = device.kind == "worker"
-            ? "这台转码器会立即断开，正在进行的转码会中止，需要重新配对才能再次接入。"
-            : "这台设备会立即失去访问权限，正在播放的也会停止；要再用需要重新登录或重新配对。其他设备不受影响。"
-        guard await feedback.confirm("注销「\(device.name)」？", message: message, confirmTitle: "注销", destructive: true) else { return }
+        let message = device.kind == "worker" || device.scope == "transcode"
+            ? "转码器会立即断开，正在进行的转码会中止，需要重新配对才能再次接入。"
+            : "这台设备会立即失去访问权限，正在播放的也会停止。其他设备不受影响。"
+        guard await feedback.confirm("注销「\(device.name)」？", message: message,
+                                     confirmTitle: "注销", destructive: true) else { return }
         busy = device.id
-        error = nil
         defer { busy = nil }
         do {
             try await api.authDevicesRevoke(deviceId: device.id)
+            selectedDevice = nil
+            selectedCurrentDevice = nil
             await load()
-        } catch {
-            self.error = error.localizedDescription
-        }
+        } catch { feedback.error(error) }
     }
+}
 
-    // MARK: 手工令牌
+private struct DeviceOnlineLabel: View {
+    let online: Bool
+    let title: String
 
-    @ViewBuilder
-    private var manualTokenSection: some View {
-        Section {
-            if let created {
-                createdCard(created)
-            } else if tokenStage == .form {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("名字").font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
-                    TextField("nas-cron", text: $tokenName)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                        .submitLabel(.done)
-                        .onSubmit { Task { await createToken() } }
-                        .onChange(of: tokenName) { _, value in
-                            if value.count > 64 { tokenName = String(value.prefix(64)) }
-                            tokenNameError = nil
-                        }
-                        .accessibilityIdentifier("token-name")
-                    Text(tokenNameError ?? "日后在上面的设备列表里就靠它认出这枚令牌、决定要不要注销。")
-                        .font(.caption)
-                        .foregroundStyle(tokenNameError == nil ? Theme.textFaint : Theme.danger)
-                }
-                Picker("权限", selection: $tokenScope) {
-                    Text("完全权限").tag("full")
-                    Text("仅限转码").tag("transcode")
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("token-scope")
-                grantNote(tokenScope == "transcode" ? DeviceText.transcodeManualGrant : DeviceText.manualGrant)
-                HStack(spacing: 10) {
-                    Button(creating ? "创建中…" : "创建令牌") { Task { await createToken() } }
-                        .settingsProminentButton()
-                        .disabled(creating)
-                        .accessibilityIdentifier("token-create-submit")
-                    Button("取消") {
-                        tokenStage = .idle
-                        tokenName = ""
-                        tokenScope = "full"
-                        tokenNameError = nil
-                    }
-                    .buttonStyle(.glass)
-                    .disabled(creating)
-                    .accessibilityIdentifier("token-create-cancel")
-                }
-            } else {
-                Text("没法按下批准的环境——NAS 上的定时任务、CI、无界面容器、命令行模式的转码器——在这里创建一枚令牌，用 MOVIECLAW_SERVER 和 MOVIECLAW_TOKEN 两个环境变量注入。能打开浏览器的机器请直接运行 mclaw login 配对，不必走这里。")
-                    .font(.subheadline).foregroundStyle(Theme.textMuted)
+    var body: some View {
+        HStack(spacing: 5) {
+            if online {
+                Circle().fill(Theme.success).frame(width: 6, height: 6).accessibilityHidden(true)
             }
-        } header: {
-            HStack {
-                Text("手工创建令牌")
-                Spacer()
-                if tokenStage == .idle, created == nil {
-                    Button { tokenStage = .form } label: { Label("创建令牌", systemImage: "plus") }
-                        .font(.subheadline)
-                        .textCase(nil)
-                        .accessibilityIdentifier("token-create-open")
-                }
-            }
+            Text(title)
+        }
+        .foregroundStyle(online ? Theme.success : Theme.textMuted)
+    }
+}
+
+private struct DeviceScopeStyle: ViewModifier {
+    let accessibility: Bool
+    func body(content: Content) -> some View {
+        if accessibility { content.pickerStyle(.menu) }
+        else { content.pickerStyle(.segmented) }
+    }
+}
+
+struct DeviceGroup: Identifiable {
+    let id: String
+    let title: String
+    let symbol: String
+    let items: [API.LoginDeviceView]
+
+    static func make(_ list: [API.LoginDeviceView]) -> [Self] {
+        [
+            Self(id: "browser", title: "浏览器", symbol: "globe", items: list.filter { $0.kind == "web" }),
+            Self(id: "app", title: "App", symbol: "apps.iphone", items: list.filter { ["ios", "tvos", "macos", "android"].contains($0.kind) }),
+            Self(id: "paired", title: "命令行与转码器", symbol: "terminal", items: list.filter { !["web", "ios", "tvos", "macos", "android", "jellyfin"].contains($0.kind) }),
+            Self(id: "player", title: "播放器", symbol: "play.rectangle", items: list.filter { $0.kind == "jellyfin" }),
+        ]
+    }
+
+    func matching(_ query: String) -> [API.LoginDeviceView] {
+        let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        return items.filter { device in
+            query.isEmpty || [device.name, device.ownerNickname, device.platform ?? ""].contains { $0.localizedStandardContains(query) }
         }
     }
 
-    private func grantNote(_ grant: DeviceText.Grant) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(grant.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.accent)
-            Text(grant.body).font(.subheadline).foregroundStyle(Theme.textMuted)
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.accentSoft, in: .rect(cornerRadius: 12))
-        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Theme.accent.opacity(0.2)))
-    }
-
-    /// 注入地址：优先「对外访问地址」（用户明确声明的），没配时回落 App 当前连接的地址并说破
-    private var serverAddress: (url: String, configured: Bool) {
-        var configured = externalUrl.trimmingCharacters(in: .whitespaces)
-        while configured.hasSuffix("/") { configured.removeLast() }
-        if !configured.isEmpty { return (configured, true) }
-        var origin = api.server.origin.absoluteString
-        while origin.hasSuffix("/") { origin.removeLast() }
-        return (origin, false)
-    }
-
-    /// 一次性凭据卡：全站唯一一处「现在不存就永远没了」的地方。
-    /// 完全权限的令牌给 mclaw 用的两行环境变量；仅限转码的给命令行模式转码器的启动参数
-    /// （它只认 `--nas-url` / `--token`，不读环境变量，见 macos/MovieClawTranscoder/README.md）
-    @ViewBuilder
-    private func createdCard(_ token: API.ApiTokenCreatedView) -> some View {
-        let address = serverAddress
-        let transcode = token.scope == "transcode"
-        let snippet = transcode
-            ? "--nas-url \(address.url) --token \(token.token)"
-            : "MOVIECLAW_SERVER=\(address.url)\nMOVIECLAW_TOKEN=\(token.token)"
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "checkmark").foregroundStyle(Theme.success)
-            VStack(alignment: .leading, spacing: 3) {
-                Text("已创建「\(token.name)」").font(.body.weight(.semibold))
-                Text("令牌明文只显示这一次。关掉这张卡就再也读不到，只能注销后重建。")
-                    .font(.subheadline).foregroundStyle(Theme.warning)
-            }
-        }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("token-created-card")
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(transcode ? "填进转码器的启动参数" : "粘贴到目标环境").font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
-                Spacer()
-                SettingsCopyButton(text: snippet, title: transcode ? "复制参数" : "复制两行")
-                    .buttonStyle(.glass).controlSize(.small)
-            }
-            Group {
-                if transcode {
-                    Text("\(Text("--nas-url ").foregroundStyle(Theme.accent2))\(Text(address.url).foregroundStyle(Theme.text)) \(Text("--token ").foregroundStyle(Theme.accent2))\(Text(token.token).foregroundStyle(Theme.warning))")
-                } else {
-                    Text("\(Text("MOVIECLAW_SERVER=").foregroundStyle(Theme.accent2))\(Text(address.url).foregroundStyle(Theme.text))\n\(Text("MOVIECLAW_TOKEN=").foregroundStyle(Theme.accent2))\(Text(token.token).foregroundStyle(Theme.warning))")
-                }
-            }
-                .font(.footnote.monospaced())
-                .textSelection(.enabled)
-                .padding(12)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Color.black.opacity(0.28), in: .rect(cornerRadius: 12))
-                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.08)))
-        }
-        if transcode {
-            Text("接在 movieclaw-transcoder --headless 后面即可，--worker-id、--ffmpeg 等其余参数照常。")
-                .font(.caption).foregroundStyle(Theme.textFaint)
-        }
-        if address.configured {
-            Text("地址取自「设置 → 网络」里填写的对外访问地址。").font(.caption).foregroundStyle(Theme.textFaint)
-        } else {
-            SettingsNotice(
-                text: "上面这行地址取自 App 当前连接的服务器地址，只是猜测——目标机器不一定连得到。请到「设置 → 网络」填写对外访问地址，之后这里会直接给出正确的一行。",
-                tone: .warn
-            )
-        }
-        HStack {
-            SettingsCopyButton(text: token.token, title: "仅复制令牌")
-                .buttonStyle(.glass)
-            Spacer()
-            Button("我已保存，关闭") { Task { await dismissCreated() } }
-                .settingsProminentButton()
-                .accessibilityIdentifier("token-created-dismiss")
-        }
-    }
-
-    private func createToken() async {
-        let name = tokenName.trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty else {
-            tokenNameError = "先给它起个名字，否则日后没法在列表里认出是哪台机器。"
-            return
-        }
-        creating = true
-        error = nil
-        defer { creating = false }
-        do {
-            created = try await api.authTokensCreate(body: .init(name: name, scope: tokenScope))
-            tokenStage = .idle
-            tokenName = ""
-            tokenScope = "full"
-            tokenNameError = nil
-            await load()
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-
-    /// 关闭一次性凭据卡要过确认：明文关掉就再也读不到，误点的代价是注销重建
-    private func dismissCreated() async {
-        let ok = await feedback.confirm(
-            "关闭后就看不到这枚令牌了？",
-            message: "令牌明文只显示这一次。确认你已经把它存进目标机器，或者复制到了安全的地方。",
-            confirmTitle: "我已保存"
-        )
-        if ok { created = nil }
+    /// 使用服务端的不活跃判定，再限制到当前分类；不会因页面搜索词变化扩大清理范围。
+    func cleanupCandidates(_ preview: [API.DeviceCleanupItem]) -> [API.DeviceCleanupItem] {
+        let ids = Set(items.map(\.id))
+        return preview.filter { ids.contains($0.id) }
     }
 }
 
@@ -539,30 +469,12 @@ enum DeviceText {
         return parts
     }
 
-    /// 第二行说明：正在使用 / 最近活跃、来源 IP
-    static func activityParts(_ device: API.LoginDeviceView) -> [String] {
-        var parts = [device.current ? "正在使用" : activity(device)]
-        if let ip = device.lastSeenIp { parts.append(ip) }
-        return parts
-    }
-
-    /// 把几段说明拼成一行：段内字符用 U+2060（不断行）连住，分隔点用不换行空格贴在前一段末尾，
-    /// 窄屏只会在「· 」之后换行——不会把「2026/10/05」拆开，也不会出现以点开头的行
-    static func metaLine(_ parts: [String]) -> String {
-        parts.map { part in
-            part.map { $0 == " " ? "\u{00A0}" : String($0) }.joined(separator: "\u{2060}")
-        }
-        .joined(separator: "\u{00A0}· ")
-    }
-
     /// 靠长连接在线的转码器（配对来的 worker，或「仅限转码」的手工令牌）
     private static func isTranscoder(_ device: API.LoginDeviceView) -> Bool {
         device.kind == "worker" || device.scope == "transcode"
     }
 
-    /// 列表上的绿点：转码器看此刻连没连着（它只在握手时验一次凭证、之后靠心跳在线，按最近
-    /// 验签时间判断的话，连着的转码器 5 分钟后就会变灰）；其余设备没有长连接，仍按最近 5 分钟
-    /// 有没有用过，本机恒为在线
+    /// 转码器按长连接判断在线；其余设备看最近 5 分钟有没有使用，本机恒为在线。
     static func isLive(_ device: API.LoginDeviceView) -> Bool {
         if device.current { return true }
         if isTranscoder(device) { return device.connected }
@@ -579,113 +491,5 @@ enum DeviceText {
     static func isDormant(_ device: API.LoginDeviceView, now: Date = .now) -> Bool {
         guard !device.current, let seen = Formatters.date(device.lastSeenAt ?? device.createdAt) else { return false }
         return now.timeIntervalSince(seen) > 90 * 24 * 3600
-    }
-}
-
-// MARK: - 行首图标
-
-/// 设备图标；在线时右下角亮一个绿点（不在线不画，灰点只是噪音）
-private struct DeviceBadge: View {
-    let symbol: String
-    let live: Bool
-
-    var body: some View {
-        Image(systemName: symbol)
-            .font(.system(size: 17, weight: .regular))
-            .foregroundStyle(Theme.textMuted)
-            .frame(width: 36, height: 36)
-            .background(Color.white.opacity(0.07), in: .rect(cornerRadius: 10))
-            .overlay(alignment: .bottomTrailing) {
-                if live {
-                    Circle()
-                        .fill(Theme.success)
-                        .frame(width: 9, height: 9)
-                        .overlay(Circle().strokeBorder(Color.black.opacity(0.85), lineWidth: 2).padding(-2))
-                        .shadow(color: Theme.success.opacity(0.6), radius: 4)
-                        .offset(x: 2, y: 2)
-                        .accessibilityLabel("在线")
-                }
-            }
-    }
-}
-
-// MARK: - 清理长期没用的设备
-
-/// 选多少天没用过，先让服务端列出会注销哪几台（dry_run），看清了再一次注销。清理就是注销——
-/// 被清掉的要重新登录或配对，所以名单摆在确认按钮前面。本机与连着的转码器服务端永远不清
-/// （同 Web devices-section.tsx CleanupDialog）
-private struct DeviceCleanupSheet: View {
-    let all: Bool
-    let onDone: (String) -> Void
-    @Environment(\.api) private var api
-    @Environment(Feedback.self) private var feedback
-    @State private var days = 30
-    @State private var preview: Loadable<[API.DeviceCleanupItem]> = .loading
-    @State private var busy = false
-
-    var body: some View {
-        let count = preview.value?.count ?? 0
-        SettingsSheetScaffold(
-            title: "清理设备",
-            confirmTitle: count > 0 ? "注销 \(count) 台" : "注销",
-            confirmDisabled: count == 0,
-            busy: busy,
-            confirmIdentifier: "devices-cleanup-submit",
-            onConfirm: { Task { await submit() } }
-        ) {
-            Section {
-                Picker("多久没用过", selection: $days) {
-                    ForEach([7, 30, 90], id: \.self) { Text("\($0) 天").tag($0) }
-                }
-                .pickerStyle(.segmented)
-                .accessibilityIdentifier("devices-cleanup-days")
-            } header: {
-                Text("多久没用过")
-            } footer: {
-                Text(all ? "清理全部成员的设备。被注销的要重新登录或配对才能再用；正在用的这台、连着的转码器不会被清理。"
-                    : "被注销的要重新登录或配对才能再用；正在用的这台、连着的转码器不会被清理。")
-            }
-            Section {
-                switch preview {
-                case .loading:
-                    SettingsLoadingRow()
-                case let .failed(message):
-                    Text(message).font(.subheadline).foregroundStyle(Theme.danger)
-                case let .loaded(items) where items.isEmpty:
-                    Text("没有超过 \(days) 天没用过的设备").foregroundStyle(Theme.textMuted)
-                case let .loaded(items):
-                    ForEach(items, id: \.id) { item in
-                        HStack {
-                            Text(item.name).lineLimit(1)
-                            Spacer()
-                            if all { Text(item.ownerNickname).font(.caption).foregroundStyle(Theme.textFaint) }
-                        }
-                    }
-                }
-            } header: {
-                if let items = preview.value, !items.isEmpty { Text("将注销 \(items.count) 台") }
-            }
-        }
-        .task(id: days) { await load() }
-    }
-
-    private func load() async {
-        preview = .loading
-        do {
-            preview = .loaded(try await api.authDevicesCleanup(body: .init(inactiveDays: days, all: all, dryRun: true)).devices)
-        } catch {
-            preview = .failed(error.localizedDescription)
-        }
-    }
-
-    private func submit() async {
-        busy = true
-        defer { busy = false }
-        do {
-            let result = try await api.authDevicesCleanup(body: .init(inactiveDays: days, all: all, dryRun: false))
-            onDone("已注销 \(result.devices.count) 台设备")
-        } catch {
-            feedback.error(error)
-        }
     }
 }

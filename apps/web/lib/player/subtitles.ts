@@ -28,6 +28,8 @@ export interface SubtitleOption {
   /** 中性轨引用，同时用作 React key 与轨记忆的值 */
   ref: string;
   label: string;
+  title: string;
+  detail: string;
   /** vtt 交 `<track>`，ass 交 JASSUB，pgs（蓝光位图轨的 .sup）交 libbitsub */
   kind: "vtt" | "ass" | "pgs";
   /** 已带签名 token 的下载地址 */
@@ -64,10 +66,12 @@ const KIND_LABELS: Record<string, string> = {
   pgs: "图形",
 };
 
+const FORMAT_LABELS: Record<string, string> = { vtt: "WebVTT", ass: "ASS", pgs: "PGS 图形" };
+
 function trackLabel(plan: SubtitlePlan): string {
   const language = languageLabel(plan.language);
   const kind = KIND_LABELS[plan.kind] ?? plan.kind;
-  const name = language ?? refLabel(plan.track_ref);
+  const name = plan.title?.trim() || language || refLabel(plan.track_ref);
   return `${name} · ${kind}`;
 }
 
@@ -77,7 +81,7 @@ function trackLabel(plan: SubtitlePlan): string {
  */
 function refLabel(ref: string): string {
   if (ref.startsWith("external:")) return ref.slice("external:".length);
-  if (ref.startsWith("embedded:")) return `内封轨 ${ref.slice("embedded:".length)}`;
+  if (ref.startsWith("embedded:")) return `内封轨 ${Number(ref.slice("embedded:".length)) + 1}`;
   return "未知语言";
 }
 
@@ -109,6 +113,14 @@ export function planSubtitleTracks(
     options.push({
       ref: plan.track_ref,
       label,
+      title: plan.title?.trim() || refLabel(plan.track_ref),
+      detail: [
+        languageLabel(plan.language) ?? "未知语言",
+        FORMAT_LABELS[plan.kind] ?? plan.kind,
+        plan.track_ref.startsWith("external:") ? "外挂" : plan.title?.trim() ? refLabel(plan.track_ref) : "内封",
+        plan.is_default ? "默认" : null,
+        plan.is_forced ? "强制" : null,
+      ].filter(Boolean).join(" · "),
       kind: plan.kind,
       // 文本轨统一要 VTT：`<track>` 只认这个格式，服务端现读现转。
       // ASS 不能转——转成 VTT 就丢掉了特效与排版，番剧字幕直接崩。

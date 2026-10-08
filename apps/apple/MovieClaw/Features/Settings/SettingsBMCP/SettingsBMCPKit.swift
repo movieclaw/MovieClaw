@@ -4,8 +4,8 @@ import SwiftUI
 //
 // 这一页的用户是要把端点接进 Claude Code / Cursor 的开发者，基调沿用 Web 的三条：
 // 1. 标识符（地址、令牌、工具名、参数名）一律等宽字体，且配复制按钮——它们是要粘到别处去的；
-// 2. 信息密度优先：列表每行把「状态 / 地址 / 服务 / 工具数 / 最近调用」一次交代完；
-// 3. 破坏性操作分层：日常操作在行内，删除沉到详情「设置」页底部的危险区，且要打字确认。
+// 2. 列表显示名称、状态与工具数；地址、服务和调用信息进入详情；
+// 3. 破坏性操作分层：轮换与删除放在详情操作菜单，删除仍需输入标识确认。
 
 // MARK: - 共享状态
 
@@ -221,44 +221,26 @@ struct SettingsBMCPTokenIssuedView: View {
     let onDone: () -> Void
 
     var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text("保存「\(name)」的令牌").font(.title3.weight(.medium))
-                        Text("令牌只显示这一次。离开这一屏就再也看不到明文——服务端只保存哈希。丢了不要紧，随时可以轮换出一枚新的（旧的立即失效）。")
-                            .font(.subheadline)
-                            .foregroundStyle(Theme.danger)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("端点地址").font(.caption).foregroundStyle(Theme.textMuted)
-                        SettingsBMCPCopyField(value: url, label: "复制地址", identifier: "mcp-issued-copy-url")
-                        Text("访问令牌").font(.caption).foregroundStyle(Theme.textMuted).padding(.top, 4)
-                        SettingsBMCPCopyField(value: token, label: "复制令牌", identifier: "mcp-issued-copy-token")
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("在客户端加上它").font(.caption).foregroundStyle(Theme.textMuted)
-                        SettingsBMCPCodeBlock(
-                            code: "claude mcp add --transport http movieclaw \\\n  \(url) \\\n  --header \"Authorization: Bearer \(token)\"",
-                            lang: "bash",
-                            identifier: "mcp-issued-copy-command"
-                        )
-                    }
-                }
-                .padding(20)
-                .frame(maxWidth: .infinity, alignment: .leading)
+        SubsSheetScaffold(title: "访问令牌", closable: false,
+                          confirm: SubsSheetConfirm(title: "我已保存", identifier: "mcp-issued-done", action: onDone)) {
+            SettingsFormSection {
+                Text("保存「\(name)」的令牌").font(.headline)
+                Text("令牌只显示这一次，请复制并妥善保存。丢失后可在端点操作菜单轮换新令牌。")
+                    .font(.subheadline).foregroundStyle(Theme.warning)
             }
-            .safeAreaBar(edge: .bottom) {
-                SubsPrimaryButton(title: "我已保存，去看端点", identifier: "mcp-issued-done", action: onDone)
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
+            SettingsFormSection("端点地址") {
+                SettingsBMCPCopyField(value: url, label: "复制地址", identifier: "mcp-issued-copy-url")
             }
-            .navigationTitle("访问令牌")
-            .navigationBarTitleDisplayMode(.inline)
-            .background(Theme.background.opacity(0.35))
+            SettingsFormSection("访问令牌") {
+                SettingsBMCPCopyField(value: token, label: "复制令牌", identifier: "mcp-issued-copy-token")
+            }
+            SettingsFormSection("客户端配置") {
+                SettingsBMCPCodeBlock(
+                    code: "claude mcp add --transport http movieclaw \(url) --header \"Authorization: Bearer \(token)\"",
+                    lang: "bash", identifier: "mcp-issued-copy-command"
+                )
+            }
         }
-        .presentationBackground(.regularMaterial)
         .interactiveDismissDisabled()
     }
 }

@@ -39,6 +39,15 @@ struct TVHomeView: View {
 
     /// 大图预告里认这一页的牌子（`TVStagePreview` 按它判断还有没有页面在用）
     @State private var previewOwner = UUID()
+    /// 卡片行给大图预告让位了（沉到屏幕底边、只露焦点那张的一截），见 `rowYieldTrigger`
+    @State private var rowYielded = false
+    /// 预告画面从哪一刻起盖在剧照上，与最近一次操作（换焦点、叫回卡片行）：让位要两样都静置够了，见 `rowYieldTrigger`
+    @State private var previewSince = ContinuousClock.now
+    @State private var lastInput = ContinuousClock.now
+    /// 叫回卡片行的次数：只用来让「该不该让位」重新计时
+    @State private var wakes = 0
+    /// 「接下来继续」卡片图片上沿在屏幕上的位置（没让位时量）：让位时按它算往下沉多少
+    @State private var cardTop: CGFloat?
 
     /// 预载焦点左右两部的剧照（与大图区显示同一个地址、同一档宽度）：整屏大图几百 KB 起，等焦点移过去才下载会闪一下空底
     private static let prefetcher = ImagePrefetcher()
@@ -85,6 +94,8 @@ struct TVHomeView: View {
         let upNext = visibleRows.contains { $0.kind == .upNext } ? (store.upNext ?? []) : []
         let stage = upNext.first { $0.mediaItemId == stageId } ?? upNext.first
         let backdrop = stage.flatMap(stageImageURL)
+        let preview = TVStagePreview.shared
+        let previewing = stage != nil && preview.showing && preview.key == stage?.mediaItemId
         return ScrollView(.vertical) {
             LazyVStack(alignment: .leading, spacing: TVMetrics.rowSpacing) {
                 if let stage {
@@ -95,6 +106,9 @@ struct TVHomeView: View {
                 }
                 ForEach(visibleRows) { row in
                     rowView(row)
+                        // 卡片行让位时下面各行跟着往下走、淡掉（首屏底边露着下一行的标题与海报顶）
+                        .offset(y: yieldOffset)
+                        .opacity(rowYielded ? 0 : 1)
                 }
             }
             .padding(.bottom, 80)
@@ -125,6 +139,31 @@ struct TVHomeView: View {
                                        owner: previewOwner, api: api)
         }
         .onDisappear { TVStagePreview.shared.leave(owner: previewOwner) }
+        // 卡片行让位：大图预告开播、焦点停在正讲的这张卡上，再静置一会儿，整行就沉到屏幕底边，只露焦点卡的一截
+        // 和一条预告进度（2026-10-06 用户定：片名、简介不让位，挡画面的只有卡片）。
+        // 遥控器的第一下只把它叫回来（`TVWakeCatcher`）；放完淡回剧照、焦点离开这一行时自己升回来
+        .onChange(of: previewing) { _, now in
+            if now { previewSince = .now }
+        }
+        .onChange(of: focus) { lastInput = .now }
+        .task(id: RowYieldTrigger(previewing: previewing, focus: focus, stageId: stage?.mediaItemId, wakes: wakes)) {
+            guard previewing, let stage, focus == .card(stage.mediaItemId), cardTop != nil else {
+                if rowYielded { withAnimation(Self.rowRise) { rowYielded = false } }
+                return
+            }
+            // 视频淡入 0.9 秒之后再让：先让人看清换成了视频。还要离上一次操作 4 秒：刚进这一行、刚叫回来的人
+            // 正在挑卡（焦点停在按钮上时预告就已经在放了，进这一行别 1 秒就沉下去）
+            try? await Task.sleep(until: max(previewSince + .seconds(1.2), lastInput + .seconds(4)))
+            guard !Task.isCancelled else { return }
+            withAnimation(Self.rowSink) { rowYielded = true }
+        }
+        .background {
+            TVWakeCatcher(active: rowYielded) {
+                lastInput = .now
+                wakes += 1
+                withAnimation(Self.rowRise) { rowYielded = false }
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("tv-home")
         // 开机落在首页：第一次有内容就把焦点放到「继续播放」上（播放第一：开机按确认就续播）。只这一次——
@@ -195,9 +234,21 @@ struct TVHomeView: View {
         }
     }
 
-    /// 焦点在「接下来继续」那一行时列表的滚动量：取从按钮往下进这一行时系统自己滚到的位置（实测 415.5），
-    /// 这条最常走的路上不再多出一段校正动画
-    private static let rowScrollOffset: CGFloat = 415.5
+    /// 卡片行让位时往下沉多少：焦点卡的图片上沿落到离屏幕底边 `rowPeek` 的地方
+    private var yieldOffset: CGFloat {
+        guard rowYielded, let cardTop else { return 0 }
+        return max(0, 1080 - Self.rowPeek - cardTop)
+    }
+
+    /// 让位时焦点卡在屏幕底边露出的高度（焦点放大后实际多露约 10 点）
+    private static let rowPeek: CGFloat = 56
+    /// 沉下去慢而柔（不打扰正在看的人），叫回来要快（用户在等着操作）
+    private static let rowSink = Animation.spring(response: 0.9, dampingFraction: 1)
+    private static let rowRise = Animation.spring(response: 0.4, dampingFraction: 0.9)
+
+    /// 焦点在「接下来继续」那一行时列表的滚动量。原先取系统自己滚到的 415.5，片名 Logo 顶着屏幕上沿
+    /// （框顶在 -21.5，2026-10-06 用户指出）；少滚 81.5，Logo 框顶落在屏幕下 60（tvOS 标题安全区）
+    private static let rowScrollOffset: CGFloat = 334
 
     /// 首屏：上半块讲当前这部（文字 + 「继续播放」「详情」，与详情页同一套 `TVStageBlock`），底部露出一截「接下来继续」。
     /// - 默认焦点在「继续播放」，按确认直接续播；往下进卡片行，系统把列表滚上来，大图跟着焦点所在的卡走；
@@ -223,13 +274,28 @@ struct TVHomeView: View {
             } actions: {
                 stageActions(stage)
             }
-            TVShelf(title: "接下来继续") {
+            TVShelf(title: "接下来继续", titleHidden: rowYielded) {
                 ForEach(Array(items.enumerated()), id: \.element.mediaItemId) { index, item in
+                    let current = item.mediaItemId == stage.mediaItemId
                     upNextCard(item)
                         .focused($focus, equals: .card(item.mediaItemId))
                         .accessibilityIdentifier("tv-home-continue-\(index)")
+                        // 让位时只留正在预告的这张，上面一条预告进度
+                        .opacity(rowYielded && !current ? 0 : 1)
+                        .overlay(alignment: .top) {
+                            if rowYielded, current {
+                                TVPreviewProgressLine()
+                                    .offset(y: -26)
+                                    .transition(.opacity)
+                            }
+                        }
+                        // 量卡片上沿（没让位时）：同一行的卡上沿都一样，量哪张都行
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { top in
+                            if !rowYielded { cardTop = top }
+                        }
                 }
             }
+            .offset(y: yieldOffset)
             // 从按钮往下回到这一行：落在大图正讲的那张卡上，而不是按位置挑按钮正下方的第一张——
             // 否则看到第五部、上去看一眼按钮再下来，大图就跳回第一部了
             .defaultFocus($focus, .card(stage.mediaItemId), priority: .userInitiated)
@@ -466,6 +532,34 @@ struct TVHomeView: View {
 
     private func reload() async {
         await store.reload(api: api, owner: owner)
+    }
+}
+
+/// 卡片行该不该让位，取决于这几样：其中任何一样变了都重新计时（换卡、视频开播 / 放完、被叫回来）
+private struct RowYieldTrigger: Equatable {
+    let previewing: Bool
+    let focus: TVHomeFocus?
+    let stageId: Int?
+    let wakes: Int
+}
+
+/// 卡片行让位时露在焦点卡上方的预告进度：一条细线，走完就是这段放完了
+private struct TVPreviewProgressLine: View {
+    var body: some View {
+        // 播放器的位置不是可观察的：每 0.25 秒读一次（片段 30～45 秒，线宽 400 点，一次走不到 3 点）
+        TimelineView(.periodic(from: .now, by: 0.25)) { _ in
+            let progress = TVStagePreview.shared.progress
+            Capsule()
+                .fill(.white.opacity(0.25))
+                .overlay(alignment: .leading) {
+                    Capsule()
+                        .fill(.white.opacity(0.9))
+                        .frame(width: TVMetrics.landscapeWidth * progress)
+                        .animation(.linear(duration: 0.25), value: progress)
+                }
+                .frame(width: TVMetrics.landscapeWidth, height: 4)
+        }
+        .allowsHitTesting(false)
     }
 }
 

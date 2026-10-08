@@ -53,6 +53,9 @@ struct DiscoverView: View {
             }
         }
         .appBackground()
+        .onChange(of: router.discoverHomeRequest) {
+            filters = .empty
+        }
         // 站内链接 /discover/{movie|tv}[?source=&genres=…] 切到本标签时带来的视角（同 Web 地址即状态）
         .onChange(of: router.rootParameter, initial: true) { _, parameter in
             guard let parameter, parameter.tab == .discover else { return }

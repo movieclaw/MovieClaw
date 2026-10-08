@@ -41,6 +41,84 @@ final class PlayerUITests: XCTestCase {
         try runPlayback(item: item, shotPrefix: "native-mkv")
     }
 
+    /// 隔离媒体夹具（test_subtitle_metadata_browser.py）：名称与元数据展示、滚动、同名轨选择。
+    @MainActor
+    func testSubtitleMetadata() throws {
+        try XCTSkipUnless(env["MC_TEST_SUBTITLE_ITEM"] != nil, "需提供隔离字幕夹具")
+        let item = try XCTUnwrap(env["MC_TEST_SUBTITLE_ITEM"].flatMap(Int.init), "需提供隔离字幕夹具 MC_TEST_SUBTITLE_ITEM")
+        startSeconds = 3
+        let app = launch(item: item, diagnostics: true)
+        XCTAssertTrue(waitForPosition(app, atLeast: 4, timeout: 45), "字幕夹具没有起播")
+        tapControl(app, "player-字幕")
+        let long = app.buttons["subtitle-embedded:2"]
+        XCTAssertTrue(long.waitForExistence(timeout: 10))
+        XCTAssertTrue(long.label.contains("国配简体特效 · 蓝光修订版 · "))
+        XCTAssertTrue(long.label.contains("保留屏幕文字与歌曲翻译🎬"))
+        XCTAssertTrue(long.label.contains("内封轨 3"))
+        let blank = app.buttons["subtitle-embedded:3"]
+        XCTAssertTrue(blank.label.contains("内封轨 4"))
+        let first = app.buttons["subtitle-embedded:4"]
+        let forced = app.buttons["subtitle-embedded:5"]
+        XCTAssertTrue(first.label.contains("简英特效"))
+        XCTAssertTrue(forced.label.contains("简英特效"))
+        XCTAssertTrue(forced.label.contains("内封轨 6"))
+        XCTAssertTrue(forced.label.contains("强制"))
+        let scroll = app.scrollViews.containing(.button, identifier: "subtitle-embedded:5").firstMatch
+        for _ in 0 ..< 8 {
+            if forced.isHittable { break }
+            scroll.swipeUp()
+        }
+        XCTAssertTrue(forced.isHittable)
+        shot(app, "subtitle-metadata-iphone")
+        forced.tap()
+        tapControl(app, "player-字幕")
+        XCTAssertTrue(forced.waitForExistence(timeout: 5))
+        XCTAssertTrue(forced.isSelected, "同名强制轨应选中，不能误选上一条")
+        tapControl(app, "player-close")
+    }
+
+    @MainActor
+    func testSubtitleMetadataDetail() throws {
+        try XCTSkipUnless(env["MC_TEST_SUBTITLE_ITEM"] != nil && env["MC_TEST_SUBTITLE_LIBRARY"] != nil, "需提供隔离字幕夹具")
+        let item = try XCTUnwrap(env["MC_TEST_SUBTITLE_ITEM"])
+        let library = try XCTUnwrap(env["MC_TEST_SUBTITLE_LIBRARY"])
+        let app = XCUIApplication()
+        app.launchArguments = ["-mcServer", server, "-mcUser", username, "-mcPass", password,
+                               "-mcRoute", "/library/\(library)/item/\(item)"]
+        app.launch()
+        let chip = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "×5")).firstMatch
+        XCTAssertTrue(chip.waitForExistence(timeout: 30))
+        for _ in 0 ..< 6 {
+            if chip.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(chip.isHittable)
+        chip.tap()
+        let long = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "预览字幕：", "国配简体特效")).firstMatch
+        XCTAssertTrue(long.waitForExistence(timeout: 5))
+        XCTAssertTrue(long.label.contains("保留屏幕文字与歌曲翻译🎬"))
+        XCTAssertTrue(long.label.contains("内封轨 3"))
+        let blank = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "预览字幕：", "内封轨 4")).firstMatch
+        XCTAssertTrue(blank.exists)
+        XCTAssertGreaterThan(long.frame.height, blank.frame.height)
+        let duplicates = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "预览字幕：", "简英特效"))
+        XCTAssertEqual(duplicates.count, 2)
+        XCTAssertTrue(duplicates.matching(NSPredicate(format: "label CONTAINS %@", "内封轨 6")).firstMatch.exists)
+        shot(app, "subtitle-metadata-iphone-detail")
+        for _ in 0 ..< 6 {
+            if long.isHittable { break }
+            app.swipeUp()
+        }
+        XCTAssertTrue(long.isHittable)
+        long.tap()
+        XCTAssertTrue(app.staticTexts["TRACK_3"].waitForExistence(timeout: 30), "预览必须对应第 3 条而不是同语言另一条")
+        let back = app.buttons.matching(NSPredicate(format: "identifier == %@ AND label == %@", "BackButton", "字幕")).firstMatch
+        XCTAssertTrue(back.isHittable)
+        back.tap()
+        XCTAssertTrue(app.buttons["sheet-close"].waitForExistence(timeout: 5))
+        app.buttons["sheet-close"].tap()
+    }
+
     /// 中央三键（后退 10 秒 / 播放暂停 / 前进 10 秒）：在播且控制层可见时必须存在、可点（对等审计 P-1）。
     /// 不开诊断面板（与普通观看一致），开播到退出控制在 30 秒内。
     @MainActor

@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { CheckIcon, InfoIcon } from "@/components/icons";
+import { Banner } from "@/components/cloud-push-ui";
+import { InfoIcon } from "@/components/icons";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsList,
+  SettingsRow,
+  SettingsSaveStatus,
+  SettingsSection,
+} from "@/components/settings-ui";
 import { Tooltip } from "@/components/tooltip";
 import {
   type AppConfigView,
@@ -28,6 +38,7 @@ import {
  * 只能靠改前的确认文案说清楚。所以二次确认里必须直白写出这一条。
  *
  * 其余字段的交互模型与本分区的代理设置一致：输入框失焦自动落库，无保存按钮。
+ * 只有端口的原理说明太长，留在 ⓘ 里；其余说明是行内一行灰字。
  */
 
 /** 端口修改的阶段：确认 → 已提交（应用重启到新端口，本页地址已失效） */
@@ -188,85 +199,57 @@ export function ExternalAccessSection() {
   const behindPortMapping = seenPort !== null && seenPort !== view.web_port;
 
   return (
-    <section>
-      <div className="mb-2.5 flex h-5 items-center justify-between px-1">
-        <h3 className="group-label">外部访问</h3>
-        <span className="text-sub">
-          {saveState === "saving" && <span className="text-[var(--text-faint)]">保存中…</span>}
-          {saveState === "saved" && (
-            <span className="flex items-center gap-1 text-emerald-300/90">
-              <CheckIcon className="size-3.5" />
-              已保存
-            </span>
-          )}
-          {saveState === "error" && <span className="text-red-300">保存失败：{saveError}</span>}
-        </span>
-      </div>
-      <div className="css-glass divide-y divide-white/[0.055] !rounded-2xl">
-        {/* 外部访问地址 */}
-        <div className="px-5 py-4">
-          <div className="flex items-center justify-between gap-4 max-md:flex-col max-md:items-stretch max-md:gap-2">
-            <LabelWithHelp
-              label="外部访问地址"
-              help={
-                <>
-                  <p>
-                    从网络上能访问到本应用的完整地址，保存即生效。通常就是你浏览器
-                    地址栏正在使用的地址（输入框的提示即当前地址，照填即可）。
-                  </p>
-                  <p className="mt-1.5">
-                    若经反向代理 / 域名访问，请填代理后的对外地址，如{" "}
-                    <code>https://movie.example.com</code>。
-                  </p>
-                  <p className="mt-1.5 text-[var(--text-muted)]">
-                    用于生成通知里的跳转链接、对外回调地址等需要绝对 URL 的场景。
-                    Docker 桥接网络部署时，播放器局域网自动发现也会返回这个地址。
-                  </p>
-                </>
-              }
+    <SettingsSection
+      title="外部访问"
+      action={<SettingsSaveStatus state={saveState} error={saveError} />}
+    >
+      <SettingsList>
+        {/* 外部访问地址：未设置时说明换成一句引导，说清动作与收益 */}
+        <SettingsRow
+          label="外部访问地址"
+          description={
+            view.external_url
+              ? "生成通知跳转、AI 回复里的页面链接等绝对地址时用；经反向代理 / 域名访问请填对外地址。Docker 桥接部署时，播放器局域网发现也返回它"
+              : "点「使用」采用当前地址，通知与 AI 回复才能带上页面链接"
+          }
+          error={urlError}
+        >
+          <div className="relative">
+            <input
+              // key 随已保存值变化：一键填入/规范化（去尾斜杠）保存后，
+              // 非受控输入框靠重挂载同步显示最新落库值
+              key={view.external_url}
+              type="text"
+              defaultValue={view.external_url}
+              onChange={(e) => setDraftEmpty(e.target.value.trim() === "")}
+              onBlur={(e) => handleUrlBlur(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
+              placeholder={currentOrigin}
+              aria-label="外部访问地址"
+              className={`${SETTINGS_INPUT_CLASS} w-64 font-mono max-sm:w-40 ${
+                !view.external_url && draftEmpty ? "pr-14" : ""
+              }`}
             />
-            <div className="relative w-[300px] max-w-[55%] max-md:w-full max-md:max-w-none">
-              <input
-                // key 随已保存值变化：一键填入/规范化（去尾斜杠）保存后，
-                // 非受控输入框靠重挂载同步显示最新落库值
-                key={view.external_url}
-                type="text"
-                defaultValue={view.external_url}
-                onChange={(e) => setDraftEmpty(e.target.value.trim() === "")}
-                onBlur={(e) => handleUrlBlur(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()}
-                placeholder={currentOrigin}
-                className={`w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 font-mono text-sub text-[var(--text)] outline-none transition-colors placeholder:text-[var(--text-faint)] focus:border-[var(--accent)]/50 ${
-                  !view.external_url && draftEmpty ? "pr-14" : ""
-                }`}
-              />
-              {/* 框内快捷按钮：紧贴占位符（= 当前浏览器地址）末尾，点一下
-                  直接落库；保存成功后 external_url 非空，按钮随之消失 */}
-              {!view.external_url && draftEmpty && (
-                <button
-                  type="button"
-                  onClick={() => commit({ external_url: currentOrigin })}
-                  disabled={saveState === "saving"}
-                  title={`保存为 ${currentOrigin}`}
-                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-lg bg-white/[0.1] px-2 py-1 text-caption font-semibold text-[var(--text-muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--accent)] disabled:opacity-40"
-                >
-                  使用
-                </button>
-              )}
-            </div>
+            {/* 框内快捷按钮：紧贴占位符（= 当前浏览器地址）末尾，点一下
+                直接落库；保存成功后 external_url 非空，按钮随之消失 */}
+            {!view.external_url && draftEmpty && (
+              <button
+                type="button"
+                onClick={() => commit({ external_url: currentOrigin })}
+                disabled={saveState === "saving"}
+                title={`保存为 ${currentOrigin}`}
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-md bg-white/[0.1] px-2 py-0.5 text-caption font-semibold text-[var(--text-muted)] transition-colors hover:bg-[var(--accent-soft)] hover:text-[var(--accent)] disabled:opacity-40"
+              >
+                使用
+              </button>
+            )}
           </div>
-          {urlError && <p className="mt-1.5 text-right text-caption text-red-300">{urlError}</p>}
-          {/* 未设置时的引导小字：一句话说清动作与收益，完整说明在 ⓘ 里 */}
-          {!view.external_url && !urlError && (
-            <p className="mt-1.5 text-right text-caption leading-5 text-[var(--text-faint)]">
-              点「使用」采用当前地址，通知与 AI 回复才能带上页面链接
-            </p>
-          )}
-        </div>
+        </SettingsRow>
 
-        {/* 对外端口：唯一需要重启的字段，故不走失焦即存，改动要过二次确认 */}
-        <div className="px-5 py-4">
-          <div className="flex items-center justify-between gap-4 max-md:flex-col max-md:items-stretch max-md:gap-2">
+        {/* 对外端口：唯一需要重启的字段，故不走失焦即存，改动要过二次确认。
+            原理说明长且只在要改端口时才需要，留在 ⓘ 里 */}
+        <SettingsRow
+          label={
             <LabelWithHelp
               label="对外端口"
               help={
@@ -291,106 +274,115 @@ export function ExternalAccessSection() {
                 </>
               }
             />
-            <div className="flex w-[300px] max-w-[55%] items-center gap-2 max-md:w-full max-md:max-w-none">
-              <input
-                key={view.web_port}
-                type="text"
-                inputMode="numeric"
-                defaultValue={String(view.web_port)}
-                disabled={!view.web_port_configurable}
-                onChange={(e) => setPortDraft(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && reviewPort((e.target as HTMLInputElement).value)}
-                className="min-w-0 flex-1 rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 font-mono text-sub text-[var(--text)] outline-none transition-colors focus:border-[var(--accent)]/50 disabled:opacity-45"
-              />
-              {view.web_port_configurable && portDraft.trim() !== "" &&
-                portDraft.trim() !== String(view.web_port) && (
+          }
+          description={
+            <>
+              {!view.web_port_configurable ? (
+                "当前部署形态由外部启动前端进程，端口请在启动命令或反向代理处调整"
+              ) : view.web_port_source === "setting" ? (
+                <>
+                  应用内设置
                   <button
                     type="button"
-                    onClick={() => reviewPort(portDraft)}
-                    className="btn-glass shrink-0 px-3 py-1.5 text-sub font-medium"
+                    onClick={() => {
+                      setPortTarget(null);
+                      setPortPhase("confirming");
+                    }}
+                    className="ml-2 underline decoration-dotted underline-offset-2 hover:text-[var(--text-muted)]"
                   >
-                    修改
+                    恢复默认（{view.web_port_default}）
                   </button>
-                )}
-            </div>
-          </div>
-          <p className="mt-1.5 text-right text-caption leading-5 text-[var(--text-faint)]">
-            {portError ? (
-              <span className="text-red-300">{portError}</span>
-            ) : !view.web_port_configurable ? (
-              "当前部署形态由外部启动前端进程，端口请在启动命令或反向代理处调整"
-            ) : view.web_port_source === "setting" ? (
-              <>
-                应用内设置
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPortTarget(null);
-                    setPortPhase("confirming");
-                  }}
-                  className="ml-2 underline decoration-dotted underline-offset-2 hover:text-[var(--text-muted)]"
-                >
-                  恢复默认（{view.web_port_default}）
-                </button>
-              </>
-            ) : view.web_port_source === "env" ? (
-              "来自环境变量 MOVIECLAW_WEB_PORT，在此修改会覆盖它"
-            ) : (
-              "默认端口，改动后需全量重启生效"
+                </>
+              ) : view.web_port_source === "env" ? (
+                "来自环境变量 MOVIECLAW_WEB_PORT，在此修改会覆盖它"
+              ) : (
+                "默认端口，改动后需全量重启生效"
+              )}
+              {view.web_port_rejected !== null && (
+                <span className="mt-1 block text-[var(--warn)]">
+                  上次设置的端口 {view.web_port_rejected} 无法绑定（多半是被占用），
+                  已自动废弃并回落到 {view.web_port}
+                </span>
+              )}
+            </>
+          }
+          error={portError}
+        >
+          {view.web_port_configurable && portDraft.trim() !== "" &&
+            portDraft.trim() !== String(view.web_port) && (
+              <button
+                type="button"
+                onClick={() => reviewPort(portDraft)}
+                className={SETTINGS_BUTTON_CLASS}
+              >
+                修改
+              </button>
             )}
-          </p>
-          {view.web_port_rejected !== null && (
-            <p className="mt-1.5 text-right text-caption leading-5 text-amber-300/90">
-              上次设置的端口 {view.web_port_rejected} 无法绑定（多半是被占用），
-              已自动废弃并回落到 {view.web_port}
-            </p>
-          )}
-        </div>
-      </div>
+          <input
+            key={view.web_port}
+            type="text"
+            inputMode="numeric"
+            defaultValue={String(view.web_port)}
+            disabled={!view.web_port_configurable}
+            onChange={(e) => setPortDraft(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && reviewPort((e.target as HTMLInputElement).value)}
+            aria-label="对外端口"
+            className={`${SETTINGS_INPUT_CLASS} w-24 font-mono`}
+          />
+        </SettingsRow>
+      </SettingsList>
 
       {/* 端口二次确认：bridge 部署的映射同步是代码兜不住的部分，必须写明 */}
       {portPhase === "confirming" && (
-        <div className="mt-4 rounded-xl border border-amber-300/25 bg-amber-400/10 px-4 py-3">
-          <p className="text-sub text-amber-100/90">
-            {portTarget === null
-              ? `确认清除端口设置、恢复默认 ${view.web_port_default}？`
-              : `确认把对外端口从 ${view.web_port} 改为 ${portTarget}？`}
-            应用会全量重启，之后要用新地址 {portUrl(portTarget ?? view.web_port_default)} 访问。
-          </p>
-          {behindPortMapping ? (
-            <p className="mt-1.5 text-caption leading-5 text-red-200/90">
-              检测到你正通过端口 {browserPort()} 访问，而应用监听的是 {view.web_port}——
-              中间存在端口映射或反向代理。只改这里会打断那条链路，你必须同时把映射/反代
-              的目标端口改成 {portTarget ?? view.web_port_default}（Docker 就是 compose 里
-              ports 的右侧，改完重建容器）。如果你只是想换访问端口，改映射的左侧更省事，
-              不必动这个设置。
+        <div className="mt-4">
+          <Banner
+            tone={behindPortMapping ? "danger" : "warn"}
+            title={
+              portTarget === null
+                ? `确认清除端口设置、恢复默认 ${view.web_port_default}？`
+                : `确认把对外端口从 ${view.web_port} 改为 ${portTarget}？`
+            }
+            action={
+              <span className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPortPhase("idle")}
+                  className={SETTINGS_BUTTON_CLASS}
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void doSavePort()}
+                  className={SETTINGS_PRIMARY_BUTTON_CLASS}
+                >
+                  确认修改
+                </button>
+              </span>
+            }
+          >
+            <p>
+              应用会全量重启，之后要用新地址 {portUrl(portTarget ?? view.web_port_default)} 访问。
             </p>
-          ) : (
-            <p className="mt-1.5 text-caption leading-5 text-amber-100/70">
-              若用 Docker 端口映射（bridge）部署，请同时把 compose 里 ports 的容器侧端口
-              改成 {portTarget ?? view.web_port_default} 并重建容器——否则重启后将无法访问，
-              届时只能改 compose 恢复。host 网络或裸机直连则无需任何额外改动。
-            </p>
-          )}
-          <span className="mt-3 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void doSavePort()}
-              className="btn-accent rounded-full px-3.5 py-1.5 text-sub font-semibold"
-            >
-              确认修改
-            </button>
-            <button
-              type="button"
-              onClick={() => setPortPhase("idle")}
-              className="btn-glass px-3 py-1.5 text-sub font-medium"
-            >
-              取消
-            </button>
-          </span>
+            {behindPortMapping ? (
+              <p className="mt-1.5">
+                检测到你正通过端口 {browserPort()} 访问，而应用监听的是 {view.web_port}——
+                中间存在端口映射或反向代理。只改这里会打断那条链路，你必须同时把映射/反代
+                的目标端口改成 {portTarget ?? view.web_port_default}（Docker 就是 compose 里
+                ports 的右侧，改完重建容器）。如果你只是想换访问端口，改映射的左侧更省事，
+                不必动这个设置。
+              </p>
+            ) : (
+              <p className="mt-1.5">
+                若用 Docker 端口映射（bridge）部署，请同时把 compose 里 ports 的容器侧端口
+                改成 {portTarget ?? view.web_port_default} 并重建容器——否则重启后将无法访问，
+                届时只能改 compose 恢复。host 网络或裸机直连则无需任何额外改动。
+              </p>
+            )}
+          </Banner>
         </div>
       )}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -418,7 +410,7 @@ function portUrl(port: number): string {
   return `${window.location.protocol}//${window.location.hostname}:${port}`;
 }
 
-/** 字段名 + ⓘ 帮助（与代理设置同款：说明收进 tooltip，页面只留字段）。 */
+/** 字段名 + ⓘ 帮助（只给说明太长、放不进行内的字段用）。 */
 function LabelWithHelp({ label, help }: { label: string; help: React.ReactNode }) {
   return (
     <span className="flex shrink-0 items-center gap-1.5">

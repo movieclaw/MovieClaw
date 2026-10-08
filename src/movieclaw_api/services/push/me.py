@@ -13,6 +13,7 @@ from movieclaw_api.schemas.cloud import (
     PushAttentionView,
     PushEventView,
     PushLibraryView,
+    PushMutedItemView,
     PushRegistrationView,
     PushTestResultView,
     PushTestView,
@@ -21,7 +22,7 @@ from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.push import channels as channel_registry
 from movieclaw_api.services.push import preferences, registration
 from movieclaw_api.services.push.channels import Channel
-from movieclaw_api.services.push.notify import send_test
+from movieclaw_api.services.push.notify import alert_devices, send_test
 from movieclaw_db.models import LoginDevice
 
 #: 需要本人处理的状态（还没登记的多半是旧版 App，升级后自动登记，不在这里打扰）
@@ -68,13 +69,18 @@ async def build_view(session: AsyncSession, principal: Principal) -> MyPushView:
         )
         .order_by(LoginDevice.id)
     )
-    ready = 0
+    devices = list(rows.scalars())
+    ready_tokens = {
+        (device.push_token or "").lower()
+        for device in await alert_devices(session, devices)
+        if device_status(device, channels)[0] == "ok"
+        and device.push_key_id
+        and registration.decrypt_key(device) is not None
+    }
     attention: list[PushAttentionView] = []
-    for device in rows.scalars():
+    for device in devices:
         status, text, _channel = device_status(device, channels)
-        if status == "ok":
-            ready += 1
-        elif status in ATTENTION_STATUSES:
+        if status in ATTENTION_STATUSES:
             attention.append(
                 PushAttentionView(
                     device_id=f"ld-{device.id}",
@@ -97,11 +103,21 @@ async def build_view(session: AsyncSession, principal: Principal) -> MyPushView:
         if lib.id in visible and watchable(lib)
     ]
     chosen = await preferences.library_selection(session, principal.owner_id)
+    from movieclaw_db.models import MediaItem
+
+    muted = []
+    for item_id in await preferences.muted_list(session, principal.owner_id):
+        item = await session.get(MediaItem, item_id)
+        if item is not None:
+            muted.append(
+                PushMutedItemView(id=item_id, title=item.title, year=item.year, kind=item.kind)
+            )
     return MyPushView(
+        muted_items=muted,
         instance_ready=any(c.usable for c in channels),
         is_admin=principal.is_admin,
         events=events,
-        ready_devices=ready,
+        ready_devices=len(ready_tokens),
         attention=attention,
         libraries=libraries,
         library_ids=(

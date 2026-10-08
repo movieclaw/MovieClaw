@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   groupTodayArrivals,
+  smartWantedPresentation,
   subscriptionCollectionMeta,
   subscriptionFullyCollected,
   subscriptionRibbon,
@@ -443,4 +444,33 @@ test("电影不展示 S00E00 哨兵季集号", () => {
 
   assert.equal(groups[0].episodeLabel, "电影");
   assert.equal(groups[0].daysAhead, 0);
+});
+
+
+test("智能选择只补充分集行特有状态，普通状态沿用原明细", () => {
+  for (const row of [
+    { status: "wanted", selection_state: null },
+    { status: "wanted", selection_state: { reason: "deadline_no_candidate", candidate_key: null } },
+    { status: "grabbed", selection_state: { reason: "observing", candidate_key: "a/1" } },
+    { status: "imported", selection_state: { reason: "observing", candidate_key: "a/1", target_reached: true } },
+  ]) assert.equal(smartWantedPresentation(row), null);
+});
+
+test("智能等待、用户延期与提交核对在原分集行表达", () => {
+  const row = { status: "wanted", selection_state: { reason: "waiting_target", candidate_key: "a/1" } };
+  assert.equal(smartWantedPresentation(row).label, "等版本");
+  row.selection_state.manual_extended = true;
+  assert.match(smartWantedPresentation(row).note, /延长/);
+  row.selection_state.reason = "manual_requested";
+  assert.equal(smartWantedPresentation(row).label, "选择中");
+  row.selection_state.reason = "reconciling";
+  row.selection_state.candidate_key = null;
+  assert.equal(smartWantedPresentation(row).label, "待核对");
+});
+
+
+test("身份不明是持续寻找的知会，不需要下载候选", () => {
+  const row = { status: "wanted", selection_state: { reason: "identity_unconfirmed", candidate_key: null } };
+  assert.equal(smartWantedPresentation(row).label, "寻找中");
+  assert.match(smartWantedPresentation(row).note, /已跳过，继续寻找/);
 });

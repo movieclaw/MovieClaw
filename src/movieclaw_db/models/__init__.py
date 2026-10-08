@@ -73,6 +73,12 @@ from movieclaw_db.models.site_torrent import (
 )
 from movieclaw_db.models.site_torrent_swarm_sample import SiteTorrentSwarmSample
 from movieclaw_db.models.site_user_profile import SiteUserProfile
+from movieclaw_db.models.smart_subscription import (
+    SmartCandidate,
+    SmartDecisionRecord,
+    SmartProfile,
+    SmartSeason,
+)
 from movieclaw_db.models.subscription import (
     DownloadAttemptStatus,
     Subscription,
@@ -155,6 +161,10 @@ __all__ = [
     "ReelEvent",
     "RuleSet",
     "Subscription",
+    "SmartProfile",
+    "SmartCandidate",
+    "SmartDecisionRecord",
+    "SmartSeason",
     "SubscriptionDownloadAttempt",
     "DownloadAttemptStatus",
     "SubscriptionFollower",

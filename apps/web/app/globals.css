@@ -256,19 +256,16 @@
 html,
 body {
   height: 100%;
-  /*
-   * 文档撑到屏幕物理高度（视口 + --vp-overshoot）。这一行是底部黑条修复的
-   * 必要组成，不能删：实测仅靠铺底层的负 bottom 越出视口并不可靠——iOS 上
-   * 来回切换几个页面后，WebKit 会不再绘制视口之外的那一截，黑条复现；
-   * 文档本身够高时，这部分才稳定参与绘制。
-   *
-   * 已知代价：文档因此多出一截可滚动区域，overflow: hidden 挡得住用户滚动、
-   * 挡不住 iOS 自己滚——软键盘弹出时系统会滚动窗口去露出聚焦的输入框，
-   * 收起后不还原，整页上移错位。这不能靠删掉本行来治（曾这么干过，黑条
-   * 随即复现），由 components/viewport-keyboard.tsx 把窗口滚回原点。
-   * 两处是一对，改动任一侧前先看懂另一侧。
-   */
-  min-height: calc(100% + var(--vp-overshoot));
+  min-height: 100%;
+}
+
+/* iOS 主屏网页的百分比高度可能仍以扣除状态栏的初始包含块为基准。
+   根画布和应用内容都用实测像素高度，避免 body 的裁剪边界留下黑边。
+   底栏继续按 fixed 视口定位；安全区只用于控件和滚动内容的内边距。 */
+html[data-ios-standalone],
+html[data-ios-standalone] body {
+  height: var(--pwa-height, 100dvh);
+  min-height: var(--pwa-height, 100dvh);
 }
 
 
@@ -1527,7 +1524,7 @@ html.immersive-route .page-solid {
   height: calc(100vh - var(--keyboard-inset));
   /* 键盘立着时 --app-height = 可视视口像素高（components/viewport-keyboard.tsx），
      不再由 dvh 减差值倒推——见那里的说明；没有键盘时该变量不存在，回到 dvh */
-  height: var(--app-height, calc(100dvh - var(--keyboard-inset)));
+  height: var(--app-height, calc(var(--pwa-height, 100dvh) - var(--keyboard-inset)));
 }
 
 /*

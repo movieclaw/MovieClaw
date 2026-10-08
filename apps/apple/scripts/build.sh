@@ -3,12 +3,12 @@
 #   MC_SIM      模拟器名（默认 iPhone 17）；并行开发时每人用自己的模拟器
 #   MC_DERIVED  DerivedData 目录（默认 ./build）
 #   MC_SPM      共享的 Swift 包缓存目录（默认 ~/workspace/.mc-ios-spm，多个工作区共用省磁盘）
-set -u
+set -euo pipefail
 cd "$(dirname "$0")/.."
-[[ -d MovieClaw.xcodeproj ]] || xcodegen generate >/dev/null
+scripts/prepare-project.py
 SIM="${MC_SIM:-iPhone 17}"
 xcodebuild -project MovieClaw.xcodeproj -scheme MovieClaw \
   -destination "platform=iOS Simulator,name=$SIM" \
   -derivedDataPath "${MC_DERIVED:-build}" \
-  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -packageAuthorizationProvider netrc \
+  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -packageAuthorizationProvider netrc -onlyUsePackageVersionsFromResolvedFile \
   build 2>&1 | grep -E '\.swift:[0-9]+:[0-9]+: error:|^error:|warning: .*(deprecated|never|unused)|BUILD (SUCCEEDED|FAILED)' | sort -u

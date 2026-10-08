@@ -334,7 +334,7 @@ final class TranscodePaneController: PaneController {
         jobsControl.orientation = .horizontal
         jobsControl.spacing = 6
         let jobs = SectionView(title: "并发", rows: [SettingsStyle.row("同时转码", trailing: jobsControl)])
-        jobs.note = "同时进行的转码任务数。多人同时观看需要转码的片子时才需要调高；每多一路，每一路都会变慢。"
+        jobs.note = "上限保存在服务器，与网页同步。降低上限不打断当前任务；连接服务器后可调整。"
         add(jobs)
     }
 
@@ -352,8 +352,10 @@ final class TranscodePaneController: PaneController {
         pathValue.toolTip = pathValue.stringValue
         ffmpegSection?.refresh()
 
-        jobsStepper.integerValue = snapshot.maxJobs
-        jobsValue.stringValue = "\(snapshot.maxJobs) 路"
+        let limit = state.status?.maxJobs ?? snapshot.maxJobs
+        jobsStepper.integerValue = limit
+        jobsStepper.isEnabled = [.ready, .busy, .paused, .draining].contains(state.status?.state ?? .stopped)
+        jobsValue.stringValue = "\(limit) 路"
 
         startProbeIfNeeded(path: snapshot.ffmpegPath)
         renderCodecs()
@@ -484,7 +486,7 @@ final class TranscodePaneController: PaneController {
     @objc private func jobsChanged() {
         let value = jobsStepper.integerValue
         jobsValue.stringValue = "\(value) 路"
-        Task { await settings?.apply(restartsWorker: true) { $0.maxJobs = value } }
+        settings?.setMaxJobs(value)
     }
 }
 

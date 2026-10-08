@@ -1,5 +1,81 @@
 import SwiftUI
 
+extension ContainerValues {
+    @Entry var settingsRowBackground: Color = Color(uiColor: .secondarySystemGroupedBackground)
+}
+
+extension View {
+    func settingsRowBackground(_ color: Color?) -> some View {
+        listRowBackground(color)
+            .containerValue(\.settingsRowBackground, color ?? Color(uiColor: .secondarySystemGroupedBackground))
+    }
+}
+
+/// 参考设置列表：1 pt 灰线，卡片左侧留 56 pt、右侧留 20 pt。
+struct SettingsRowSeparator: View {
+    var body: some View {
+        Color(uiColor: .separator)
+            .frame(height: 1)
+            .padding(.leading, 56)
+            .padding(.trailing, 20)
+    }
+}
+
+/// 保留系统行高，在行背景内绘制统一缩进的分隔线，避免相邻行的黑色接缝。
+struct SettingsFormSection<Header: View, Content: View, Footer: View>: View {
+    @ViewBuilder var content: () -> Content
+    @ViewBuilder var header: () -> Header
+    @ViewBuilder var footer: () -> Footer
+
+    var body: some View {
+        Section {
+            Group(subviews: content()) { rows in
+                ForEach(rows) { row in
+                    row
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        // 系统仍为分隔线保留一像素；用行底色填满，避免两端露出黑缝。
+                        .alignmentGuide(.listRowSeparatorLeading) { _ in -16 }
+                        .alignmentGuide(.listRowSeparatorTrailing) { $0.width + 16 }
+                        .listRowSeparatorTint(row.containerValues.settingsRowBackground)
+                        .listRowBackground(
+                            row.containerValues.settingsRowBackground
+                                .overlay(alignment: .bottom) {
+                                    if row.id != rows.last?.id {
+                                        SettingsRowSeparator()
+                                            .padding(.bottom, 1)
+                                    }
+                                }
+                        )
+                }
+            }
+        } header: { header() } footer: { footer() }
+    }
+}
+
+extension SettingsFormSection where Header == EmptyView, Footer == EmptyView {
+    init(@ViewBuilder content: @escaping () -> Content) {
+        self.init(content: content, header: { EmptyView() }, footer: { EmptyView() })
+    }
+}
+
+extension SettingsFormSection where Footer == EmptyView {
+    init(@ViewBuilder content: @escaping () -> Content, @ViewBuilder header: @escaping () -> Header) {
+        self.init(content: content, header: header, footer: { EmptyView() })
+    }
+}
+
+extension SettingsFormSection where Header == EmptyView {
+    init(@ViewBuilder content: @escaping () -> Content, @ViewBuilder footer: @escaping () -> Footer) {
+        self.init(content: content, header: { EmptyView() }, footer: footer)
+    }
+}
+
+extension SettingsFormSection where Header == Text, Footer == EmptyView {
+    init(_ title: String, @ViewBuilder content: @escaping () -> Content) {
+        self.init(content: content, header: { Text(title) }, footer: { EmptyView() })
+    }
+}
+
 // 设置（下）九个分区共用的小积木。
 //
 // 设置页统一用系统 `Form`（插入分组样式）承载：每个 Web 卡片对应一个 `Section`，
@@ -287,7 +363,7 @@ struct SettingsBDirectoryPicker: View {
     var body: some View {
         NavigationStack {
             List {
-                Section {
+                SettingsFormSection {
                     if editing {
                         TextField("输入绝对路径后回车跳转", text: $draft)
                             .font(.body.monospaced())
@@ -301,7 +377,7 @@ struct SettingsBDirectoryPicker: View {
                         Text(error).font(.footnote).foregroundStyle(Theme.danger)
                     }
                 }
-                Section {
+                SettingsFormSection {
                     if loading && view == nil {
                         ProgressView().frame(maxWidth: .infinity)
                     } else if let view, view.entries.isEmpty {

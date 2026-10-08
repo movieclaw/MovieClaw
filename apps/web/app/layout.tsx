@@ -151,18 +151,12 @@ const THEME_CHROME_MAP = JSON.stringify(
 const RESTORE_THEME_SCRIPT = `try{var p=JSON.parse(localStorage.getItem("movieclaw.ui-prefs")||"null");var c=${THEME_COLOR_MAP};var k=${THEME_CHROME_MAP};var mobile=window.matchMedia&&matchMedia("(max-width:767px)").matches;var t=p?(mobile?(p.theme_mobile||p.theme):(p.theme_desktop||p.theme)):null;var ch=(t&&k[t])||k.silver;var d=document.documentElement;var s=d.style;s.setProperty("--mobile-topbar-h",ch.t+"px");s.setProperty("--mobile-tabbar-h",ch.b+"px");s.setProperty("--mobile-tabbar-offset",ch.o);if(ch.m==="docked")d.setAttribute("data-tabbar-mode","docked");else d.removeAttribute("data-tabbar-mode");if(t&&c[t]){d.setAttribute("data-theme",t);var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",c[t])}}catch(e){}`;
 
 /**
- * 视口超铺补偿的实测校准（--vp-overshoot，globals.css 该变量处的长注释）。
- * CSS 媒体查询按「视口比屏幕矮一个 safe-top」的老几何把它猜成 safe-top；iOS 26
- * 起 standalone 视口已铺满整屏，再减这一截会把贴底固定元素（液态玻璃底栏）推到
- * 物理底边之外——PWA 里切到银玻璃主题后底栏被屏幕下边界裁掉一半即是此因。
- * 改为实测「布局视口底边到屏幕物理底边的真实距离」（screen.height −
- * innerHeight），并以 safe-top 为上限（iPad 分屏等形态下 innerHeight 远小于
- * 屏幕，差值不是超铺量，退回 CSS 猜测值）：老系统实测差值 == safe-top，行为
- * 不变；新系统为 0，自动归位。必须在首帧绘制前执行——CSS 猜测值先就位、这里
- * 立刻覆写成内联样式，用户看不到跳动。旋转后的重测见 viewport-keyboard.tsx
- * 的 syncViewportOvershoot（与本段是同一份逻辑的两处副本，改一处要看另一处）。
+ * iOS 主屏网页必须显式撑满根画布，不能依赖 height:100% 的初始包含块。
+ * 只补状态栏以内的视口差额，避免放大 iPad 分屏；固定底栏仍按视口定位。
+ * 与 viewport-keyboard.tsx 的 syncViewportOvershoot 保持一致；后者负责
+ * 页面挂载、回到前台、旋转及键盘收起后的重新校准。
  */
-const SYNC_VIEWPORT_OVERSHOOT_SCRIPT = `try{if(window.matchMedia("(display-mode: standalone)").matches&&window.CSS&&CSS.supports("(-webkit-touch-callout: none)")){var d=document.documentElement,s=parseFloat(getComputedStyle(d).getPropertyValue("--safe-top"));if(isFinite(s)){var g=Math.min(Math.max(screen.height-window.innerHeight,0),s);d.style.setProperty("--vp-overshoot",g+"px")}}}catch(e){}`;
+const SYNC_VIEWPORT_OVERSHOOT_SCRIPT = `try{if((window.matchMedia("(display-mode: standalone)").matches||navigator.standalone===true)&&window.CSS&&CSS.supports("(-webkit-touch-callout: none)")){var d=document.documentElement,s=parseFloat(getComputedStyle(d).getPropertyValue("--safe-top"))||0,v=screen.height-window.innerHeight,g=v>0&&v<=s?v:0;d.style.setProperty("--vp-overshoot",g+"px");d.style.setProperty("--pwa-height",(window.innerHeight+g)+"px");d.setAttribute("data-ios-standalone","")}}catch(e){}`;
 
 export default function RootLayout({
   children,

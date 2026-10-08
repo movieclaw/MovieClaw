@@ -41,7 +41,7 @@ struct SettingsBMCPToolCatalog: View {
     var body: some View {
         let groups = self.groups
         let shown = groups.reduce(0) { $0 + $1.tools.count }
-        Section {
+        SettingsFormSection {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Theme.textFaint)
                 TextField("搜索工具名或说明", text: $query)
@@ -67,7 +67,7 @@ struct SettingsBMCPToolCatalog: View {
         }
 
         if shown == 0 {
-            Section {
+            SettingsFormSection {
                 Text("没有匹配「\(query)」的工具")
                     .foregroundStyle(Theme.textMuted)
                     .frame(maxWidth: .infinity)
@@ -76,7 +76,7 @@ struct SettingsBMCPToolCatalog: View {
 
         ForEach(groups, id: \.service) { group in
             let folded = collapsed.contains(group.service)
-            Section {
+            SettingsFormSection {
                 if !folded {
                     ForEach(group.tools, id: \.name) { tool in
                         toolRow(tool)
@@ -133,7 +133,7 @@ struct SettingsBMCPToolCatalog: View {
 
         if open {
             SettingsBMCPToolDetail(tool: tool, keyword: keyword)
-                .listRowBackground(Color.black.opacity(0.2))
+                .settingsRowBackground(Color.black.opacity(0.2))
         }
     }
 }

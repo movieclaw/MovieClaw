@@ -94,7 +94,7 @@ struct SettingsBPushChannelsSections: View {
     private var probe: LLMCapabilityProbe { .shared }
 
     var body: some View {
-        Section {
+        SettingsFormSection {
             // 生命周期修饰符挂在常驻的说明行上：挂在 Section 上会被 List 分发到每一行，
             // 变成多份任务 / 多个 sheet 呈现者
             intro
@@ -131,7 +131,7 @@ struct SettingsBPushChannelsSections: View {
             }
         }
 
-        Section {
+        SettingsFormSection {
             if let rows {
                 if rows.isEmpty {
                     emptyState

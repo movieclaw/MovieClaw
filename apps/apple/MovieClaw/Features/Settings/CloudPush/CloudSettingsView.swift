@@ -16,16 +16,17 @@ struct CloudSettingsView: View {
 private struct CloudSettingsContent: View {
     @State var connection: CloudConnection
     @Environment(Feedback.self) private var feedback
-    @State private var instanceName = ""
-    @State private var nameEdited = false
+    @State private var connecting = false
+    @State private var showingDetails = false
+    @State private var busy = false
 
     var body: some View {
         Form {
             switch connection.status {
             case .loading:
-                Section { SettingsLoadingRow() }
+                SettingsFormSection { SettingsLoadingRow() }
             case let .failed(message):
-                Section {
+                SettingsFormSection {
                     SettingsBNotice(text: message, tone: .danger)
                     SettingsBAsyncButton("重试") { await connection.load() }
                 }
@@ -39,14 +40,69 @@ private struct CloudSettingsContent: View {
         }
         .settingsBFormStyle()
         .task { await connection.load() }
-        .refreshable { await connection.load() }
+        .refreshable {
+            guard !busy else { return }
+            busy = true
+            await connection.load()
+            busy = false
+        }
+        .toolbar {
+            if connection.isConnected {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Button("立即同步", systemImage: "arrow.triangle.2.circlepath") {
+                            Task { await renew() }
+                        }
+                        .accessibilityIdentifier("cloud-renew")
+                        Button("断开连接", systemImage: "icloud.slash", role: .destructive) {
+                            Task {
+                                busy = true
+                                defer { busy = false }
+                                await disconnect()
+                            }
+                        }
+                        .accessibilityIdentifier("cloud-disconnect")
+                    } label: {
+                        Image(systemName: "ellipsis")
+                    }
+                    .disabled(busy)
+                    .accessibilityLabel("连接操作")
+                    .accessibilityIdentifier("cloud-actions")
+                }
+            }
+        }
+        .sheet(isPresented: $connecting, onDismiss: { connection.openApprovalPage() }) {
+            CloudConnectSheet(connection: connection, serverName: connection.value?.serverName ?? "")
+                .sheetFeedback()
+        }
+        .sheet(isPresented: $showingDetails) {
+            SubsSheetScaffold(title: "连接详情", closeTitle: "关闭") {
+                if let status = connection.value {
+                    SettingsFormSection {
+                        SettingsBValueRow(label: "服务器", value: status.connection?.instanceName ?? status.serverName)
+                        if let account = status.connection?.accountDisplay {
+                            SettingsBValueRow(label: "账号", value: account)
+                        }
+                        if let date = status.connection?.connectedAt {
+                            SettingsBValueRow(label: "连接时间", value: Formatters.dateTime(date))
+                        }
+                        SettingsBValueRow(label: "云端地址", value: status.cloudUrl, mono: true)
+                    }
+                    if let link = status.connection {
+                        SettingsFormSection("已授予权限") {
+                            ForEach(link.scopes, id: \.self) { scope in
+                                Label(scopeTitle(scope), systemImage: "checkmark.circle.fill")
+                                    .foregroundStyle(Theme.success)
+                            }
+                        }
+                    }
+                }
+            }
+            .sheetFeedback()
+        }
         .cloudApprovalPage(connection)
         .onChange(of: connection.value?.state) { old, new in
-            // 在官网批准了（配对中 → 已连接）：提示一次
             if old != nil, old != "connected", new == "connected" { feedback.success("已连接到 MovieClaw 账号") }
-        }
-        .onChange(of: connection.value?.serverName, initial: true) { _, name in
-            if !nameEdited, let name { instanceName = name }
         }
     }
 
@@ -54,70 +110,60 @@ private struct CloudSettingsContent: View {
 
     @ViewBuilder
     private func disconnectedSections(_ status: API.CloudStatusView) -> some View {
-        Section {
-            SettingsBIntro(text: "把这台服务器连到你的 MovieClaw 账号，家人手机上的 MovieClaw App 就能收到通知。")
+        SettingsFormSection {
+            HStack(spacing: 14) {
+                Image(systemName: "icloud")
+                    .font(.largeTitle)
+                    .foregroundStyle(Theme.accent)
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("连接 MovieClaw 账号").font(.headline)
+                    Text("让家人的手机收到服务器通知")
+                        .font(.subheadline).foregroundStyle(Theme.textMuted)
+                }
+            }
+            .padding(.vertical, 8)
             if let last = status.lastDisconnect {
                 SettingsBNotice(text: last.message.isEmpty ? "这台服务器已和 MovieClaw Cloud 断开" : last.message, tone: .warn)
             }
         }
 
         if connection.pendingPairing != nil || connection.endedPairing != nil {
-            Section {
+            SettingsFormSection {
                 CloudPairingRows(connection: connection)
             } header: {
-                Text("在 MovieClaw 官网批准这次连接")
+                Text("等待官网批准")
             } footer: {
-                Text("这台服务器申请的权限：使用官方推送。关掉网页不会取消配对，在官网批准后这里会自动变成「已连接」。")
+                Text("申请权限：官方推送。关闭网页不会取消配对，批准后会自动完成连接。")
             }
         } else {
-            Section {
-                Text("连接需要一个 MovieClaw 账号，用 Apple、Google 或邮箱登录都可以。只有你（管理员）需要账号，家人不用。")
-                    .font(.subheadline)
-                    .foregroundStyle(Theme.textMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-                SettingsBTextField(label: "服务器名称", text: Binding(get: { instanceName }, set: {
-                    instanceName = $0
-                    nameEdited = true
-                }), placeholder: status.serverName, hint: "官网上显示的名字，以后在官网也能改", identifier: "cloud-instance-name")
-                HStack {
-                    Spacer()
-                    SettingsBAsyncButton {
-                        await connect()
-                    } label: {
-                        Text("连接到 MovieClaw 账号").font(.body.weight(.semibold))
-                    }
-                    .settingsProminentButton()
-                    .accessibilityIdentifier("cloud-connect")
-                    Spacer()
+            SettingsFormSection {
+                Button { connecting = true } label: {
+                    Text("连接账号")
+                        .font(.body.weight(.semibold))
+                        .frame(maxWidth: .infinity)
                 }
-            } header: {
-                Text("还没有连接")
+                .settingsProminentButton()
+                .accessibilityIdentifier("cloud-connect")
+            } footer: {
+                Text("只需管理员连接账号，家人无需注册。")
             }
         }
 
-        Section {
+        SettingsFormSection {
             if let url = Self.reportsInfoURL(cloudURL: status.cloudUrl) {
-                Link("会向 MovieClaw Cloud 上报哪些信息？", destination: url)
-                    .font(.subheadline)
+                Link(destination: url) {
+                    Label("隐私与上报信息", systemImage: "hand.raised")
+                }
             }
             if status.customCloudUrl {
                 SettingsBValueRow(label: "云端地址", value: status.cloudUrl, mono: true)
             }
-        } footer: {
-            Text("只想用微信、Telegram 收通知？不用连接，用「IM 推送」就行。自己打包了 App？在网页端「设置 → App 推送」里添加自建推送中继。")
-        }
-        Section {
             NavigationLink(value: AppRoute.settingsSection(.imPush)) {
                 Label(SettingsSection.imPush.title, systemImage: SettingsSection.imPush.systemImage)
             }
-        }
-    }
-
-    private func connect() async {
-        do {
-            try await connection.connect(instanceName: instanceName)
-        } catch {
-            feedback.error(error)
+        } footer: {
+            Text("微信、Telegram 等 IM 推送无需连接 Cloud。自建 App 的推送中继可在网页端配置。")
         }
     }
 
@@ -125,117 +171,109 @@ private struct CloudSettingsContent: View {
 
     @ViewBuilder
     private func connectedSections(_ status: API.CloudStatusView) -> some View {
-        let link = status.connection
-        Section {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: "checkmark.icloud")
-                    .font(.title2)
-                    .foregroundStyle(status.health == "ok" || status.health == nil ? Theme.success : Theme.warning)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(Self.connectedTitle(link?.accountDisplay))
-                        .font(.body.weight(.medium))
-                        .fixedSize(horizontal: false, vertical: true)
-                    Text(link?.instanceName ?? status.serverName)
-                        .font(.caption)
-                        .foregroundStyle(Theme.textMuted)
+        let healthy = status.health == "ok" || status.health == nil
+        let account = status.connection?.accountDisplay.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        SettingsFormSection {
+            Button { showingDetails = true } label: {
+                HStack(spacing: 14) {
+                    Image(systemName: healthy ? "checkmark.icloud.fill" : "exclamationmark.icloud.fill")
+                        .font(.largeTitle)
+                        .foregroundStyle(healthy ? Theme.success : Theme.warning)
+                        .accessibilityHidden(true)
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(account.isEmpty ? "MovieClaw 账号" : account)
+                            .font(.headline).foregroundStyle(Theme.text)
+                        Label(healthy ? "已连接" : healthLabel(status.health), systemImage: healthy ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                            .font(.subheadline)
+                            .foregroundStyle(healthy ? Theme.success : Theme.warning)
+                    }
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right").font(.caption.weight(.semibold)).foregroundStyle(Theme.textFaint)
                 }
-                Spacer(minLength: 8)
-                SettingsBBadge(text: healthLabel(status.health), tone: healthTone(status.health))
+                .padding(.vertical, 6)
             }
-            .accessibilityElement(children: .combine)
+            .disabled(busy)
             .accessibilityIdentifier("cloud-connected")
-            if let link {
-                if let connectedAt = link.connectedAt {
-                    SettingsBValueRow(label: "连接于", value: Formatters.dateTime(connectedAt))
-                }
-            }
-            if status.customCloudUrl {
-                SettingsBValueRow(label: "云端地址", value: status.cloudUrl, mono: true)
-            }
         }
 
         if let health = status.health, health != "ok" {
-            Section {
+            SettingsFormSection {
                 SettingsBNotice(text: status.healthMessage ?? healthLabel(health), tone: healthTone(health))
                 SettingsBAsyncButton {
-                    do {
-                        try await connection.renew()
-                        if connection.value?.health == "ok" { feedback.success("已和 MovieClaw Cloud 同步") }
-                    } catch {
-                        feedback.error(error)
-                    }
+                    await renew()
                 } label: {
                     Label("立即同步", systemImage: "arrow.triangle.2.circlepath")
                 }
-                .accessibilityIdentifier("cloud-renew")
+                .disabled(busy)
+                .accessibilityIdentifier("cloud-health-renew")
             }
         }
 
         if !status.notices.isEmpty {
-            Section {
+            SettingsFormSection("来自 MovieClaw 的通知") {
                 ForEach(status.notices, id: \.id) { notice in
                     HStack(alignment: .top, spacing: 10) {
                         Image(systemName: notice.level == "info" ? "info.circle.fill" : "exclamationmark.triangle.fill")
                             .foregroundStyle(notice.level == "info" ? Theme.info : Theme.warning)
-                        Text(notice.message)
-                            .font(.subheadline)
-                            .fixedSize(horizontal: false, vertical: true)
+                        Text(notice.message).font(.subheadline).fixedSize(horizontal: false, vertical: true)
                         Spacer(minLength: 4)
                         SettingsBAsyncButton {
+                            busy = true
+                            defer { busy = false }
                             do { try await connection.dismiss(notice) } catch { feedback.error(error) }
                         } label: {
-                            Image(systemName: "xmark").font(.footnote.weight(.semibold)).foregroundStyle(Theme.textMuted)
+                            Image(systemName: "xmark").font(.footnote.weight(.semibold))
+                                .frame(minWidth: 44, minHeight: 44)
                         }
                         .buttonStyle(.borderless)
+                        .disabled(busy)
                         .accessibilityLabel("关闭这条通知")
                     }
                 }
-            } header: {
-                Text("来自 MovieClaw 的通知")
             }
         }
 
-        if let link {
-            Section {
+        if let link = status.connection {
+            SettingsFormSection {
                 ForEach(link.scopes, id: \.self) { scope in
-                    HStack {
-                        SettingsRowText(title: scopeTitle(scope), detail: scope == "push" ? limitsText(link.limits) : nil)
-                        Spacer()
-                        SettingsBBadge(text: "已授予", tone: .ok)
+                    LabeledContent(scopeTitle(scope)) {
+                        Label("已开启", systemImage: "checkmark.circle.fill").foregroundStyle(Theme.success)
                     }
                 }
             } header: {
-                Text("这台服务器能用的")
+                Text("云端服务")
+            } footer: {
+                if link.scopes.contains("push") { Text(limitsText(link.limits)) }
             }
         }
 
-        Section {
-            Toggle(isOn: Binding(get: { status.reportStats }, set: { value in
+        SettingsFormSection {
+            Toggle("上报统计信息", isOn: Binding(get: { status.reportStats }, set: { value in
+                busy = true
                 Task {
+                    defer { busy = false }
                     do { try await connection.setReportStats(value) } catch { feedback.error(error) }
                 }
-            })) {
-                SettingsRowText(title: "上报统计信息", detail: "关掉后只上报版本信息，推送不受影响，只是官网上少一些展示")
-            }
+            }))
+            .disabled(busy)
             .accessibilityIdentifier("cloud-report-stats")
             if let url = Self.reportsInfoURL(cloudURL: status.cloudUrl) {
-                Link("连接后会向 MovieClaw Cloud 上报哪些信息？", destination: url)
-                    .font(.subheadline)
+                Link("隐私与上报信息", destination: url)
             }
         } header: {
-            Text("上报")
-        }
-
-        Section {
-            SettingsBAsyncButton(role: .destructive) {
-                await disconnect()
-            } label: {
-                Text("断开连接")
-            }
-            .accessibilityIdentifier("cloud-disconnect")
+            Text("隐私")
         } footer: {
-            Text("家人手机上的官方推送会立即停止。自建推送中继不受影响。")
+            Text("关闭统计后仅上报版本信息，官方推送不受影响。")
         }
+    }
+
+    private func renew() async {
+        busy = true
+        defer { busy = false }
+        do {
+            try await connection.renew()
+            if connection.value?.health == "ok" { feedback.success("已和 MovieClaw Cloud 同步") }
+        } catch { feedback.error(error) }
     }
 
     /// 断开要二次确认；云端连不上时再问一次，确认后只删这台服务器上的凭证
@@ -258,12 +296,6 @@ private struct CloudSettingsContent: View {
         } catch {
             feedback.error(error)
         }
-    }
-
-    /// 「已连接到 y•••@gmail.com 的 MovieClaw 账号」
-    static func connectedTitle(_ account: String?) -> String {
-        guard let account, !account.isEmpty else { return "已连接到 MovieClaw 账号" }
-        return "已连接到 \(account) 的 MovieClaw 账号"
     }
 
     private func healthLabel(_ health: String?) -> String {
@@ -304,6 +336,53 @@ private struct CloudSettingsContent: View {
         components.query = nil
         components.fragment = "server-reports"
         return components.url
+    }
+}
+
+private struct CloudConnectSheet: View {
+    let connection: CloudConnection
+    let serverName: String
+    @Environment(\.dismiss) private var dismiss
+    @State private var name = ""
+    @State private var busy = false
+    @State private var error: String?
+    @State private var discarding = false
+
+    var body: some View {
+        SubsSheetScaffold(title: "连接账号", onClose: {
+            if name.isEmpty { dismiss() } else { discarding = true }
+        }, confirm: .init(title: "继续", busy: busy, identifier: "cloud-connect-continue") {
+            Task {
+                busy = true
+                error = nil
+                defer { busy = false }
+                do {
+                    try await connection.connect(instanceName: name.isEmpty ? serverName : name, openApproval: false)
+                    dismiss()
+                } catch { self.error = error.localizedDescription }
+            }
+        }) {
+            SettingsFormSection {
+                SettingsBTextField(label: "服务器名称", text: $name, placeholder: serverName,
+                                   identifier: "cloud-instance-name")
+            } footer: {
+                Text("这个名称会显示在官网，方便辨认服务器。")
+            }
+            SettingsFormSection {
+                Label("官方推送", systemImage: "bell.badge")
+            } header: {
+                Text("申请权限")
+            } footer: {
+                Text("继续后前往官网，用 Apple、Google 或邮箱登录并批准连接。服务器只能使用授予的权限。")
+            }
+            if let error { SettingsFormSection { SettingsBNotice(text: error, tone: .danger) } }
+        }
+        .disabled(busy)
+        .interactiveDismissDisabled(busy || !name.isEmpty)
+        .alert("放弃填写的名称？", isPresented: $discarding) {
+            Button("继续编辑", role: .cancel) { }
+            Button("放弃", role: .destructive) { dismiss() }
+        }
     }
 }
 

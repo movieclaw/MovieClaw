@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 
 import { AccountSwitcherDialog } from "@/components/account-switcher-dialog";
 import { AvatarBadge } from "@/components/avatar-badge";
-import { GearIcon, LogoutIcon, UserIcon } from "@/components/icons";
+import { GearIcon, LogoutIcon, UsersIcon } from "@/components/icons";
 import { reloadAfterAccountChange } from "@/lib/account-reload";
 import { logout } from "@/lib/api/auth";
 import { accessiblePathFor, roleLabel } from "@/lib/permissions";
@@ -113,7 +113,7 @@ export function UserMenu({ onOpenSettings, collapsed = false }: UserMenuProps) {
         onClick={() => go()}
       />
       <MenuItem
-        icon={<UserIcon className="size-[18px] max-md:size-[22px]" />}
+        icon={<UsersIcon className="size-[18px] max-md:size-[22px]" />}
         label="切换账号"
         onClick={() => {
           setOpen(false);

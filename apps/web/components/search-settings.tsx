@@ -2,12 +2,18 @@
 
 import { useEffect, useRef, useState } from "react";
 
-import { LiquidGlassButton } from "@/components/liquid-glass";
-
+import { ErrorBanner, Toggle } from "@/components/cloud-push-ui";
 import { useConfirm } from "@/components/feedback";
-import { GripIcon } from "@/components/icons";
+import { GripIcon, PlusIcon } from "@/components/icons";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsCard,
+  SettingsMoreMenu,
+  SettingsSection,
+} from "@/components/settings-ui";
 import { listConfiguredSites, listSiteCatalog } from "@/lib/api/sites";
-import { useBackdrop } from "@/lib/backdrop";
 import {
   CATEGORY_LABEL,
   CATEGORY_OPTIONS,
@@ -83,9 +89,9 @@ interface SiteOption {
  * 一个统一混排的标签列表：内置分类（不可删只可隐藏）与自定义分类（可增删改）
  * 同列拖拽排序、同款显隐开关；「全部」固定在搜索面板首位，不在此列表中。
  *
- * 自定义分类 = 命名的「分类组合 × 站点组合」预设：新建入口在父分区的工具栏
- * （与「添加站点」同位同款主按钮），经 ``createRequest`` 信号触发本组件打开
- * 编辑器（名称 + 分类勾选 + 站点勾选），分类/站点都不勾选表示「不限」。
+ * 自定义分类 = 命名的「分类组合 × 站点组合」预设：新建入口在小节标题行右侧，
+ * 打开编辑器（名称 + 分类勾选 + 站点勾选），分类/站点都不勾选表示「不限」；
+ * 编辑 / 删除收在每行的 ⋯ 菜单里。
  * 站点勾选器只列**已配置**站点；暂时不可用（禁用/验证未通过）的照样可勾选，
  * 搜索时会自动跳过。
  *
@@ -95,8 +101,7 @@ interface SiteOption {
  * 拖拽用原生 Pointer Events 手写（约 60 行），不为此引入 dnd 库：
  * 场景是单列定长小列表，库的能力（多容器、虚拟滚动、传感器抽象）全用不上。
  */
-export function SearchSection({ createRequest = 0 }: { createRequest?: number }) {
-  const { backdrop } = useBackdrop();
+export function SearchSection() {
   const confirm = useConfirm();
   const { tabs, loading, saveTabs } = useSearchPrefs();
   const [error, setError] = useState<string | null>(null);
@@ -104,12 +109,6 @@ export function SearchSection({ createRequest = 0 }: { createRequest?: number })
   const [drag, setDrag] = useState<DragState | null>(null);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
-
-  // 父分区工具栏的「新建自定义分类」按钮：每点一次计数 +1，这里响应信号
-  // 打开空白编辑器（初始 0 不触发，避免挂载即弹编辑器）
-  useEffect(() => {
-    if (createRequest > 0) openEditor(null);
-  }, [createRequest]);
 
   /** 统一的保存包装：清错误 + busy 防抖 + 中文错误回显；返回是否成功。 */
   const apply = async (next: SearchTab[]): Promise<boolean> => {
@@ -270,10 +269,27 @@ export function SearchSection({ createRequest = 0 }: { createRequest?: number })
   };
 
   return (
-    <div className="space-y-5">
-      <section>
+    <div className="space-y-6">
+      <SettingsSection
+        title="搜索分类"
+        action={
+          <button
+            type="button"
+            onClick={() => openEditor(null)}
+            className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
+          >
+            <PlusIcon className="size-4" />
+            新建自定义分类
+          </button>
+        }
+        footnote={
+          "按住左侧手柄拖动即可调整顺序——列表顺序即搜索面板中分类标签的排列顺序，「全部」固定在首位。" +
+          "自定义分类可组合多个资源分类与指定站点，一次搜索只打勾选的站点。" +
+          "改动即时保存到服务端，所有设备与浏览器保持一致。"
+        }
+      >
         {/* divide-y 常驻：拖动中若移除分隔线会让整列高度跳 1px×行数，按下瞬间坐标漂移 */}
-        <div className="css-glass select-none divide-y divide-white/[0.055] !rounded-2xl">
+        <div className="css-glass select-none divide-y divide-[var(--line)] !rounded-xl">
           {tabs.map((tab, index) => (
             <div
               key={`${tab.type}:${tab.id}`}
@@ -281,7 +297,7 @@ export function SearchSection({ createRequest = 0 }: { createRequest?: number })
                 rowRefs.current[index] = el;
               }}
               style={rowStyle(index)}
-              className={`relative flex items-center gap-3 px-5 py-3.5 ${
+              className={`relative flex min-h-[56px] items-center gap-3 px-4 py-3 ${
                 loading ? "opacity-50" : ""
               } ${
                 drag?.from === index
@@ -337,43 +353,27 @@ export function SearchSection({ createRequest = 0 }: { createRequest?: number })
               )}
 
               {tab.type === "preset" && (
-                <div className="flex shrink-0 items-center gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => openEditor(tab)}
-                    disabled={busy || loading}
-                    className="btn-glass px-2.5 py-1 text-caption font-medium disabled:opacity-40"
-                  >
-                    编辑
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void deletePreset(tab)}
-                    disabled={busy || loading}
-                    className="rounded-full px-2.5 py-1 text-caption font-medium text-[var(--text-faint)] transition-colors hover:bg-[var(--danger)]/15 hover:text-[var(--danger)] disabled:opacity-40"
-                  >
-                    删除
-                  </button>
-                </div>
+                <SettingsMoreMenu
+                  label={`「${tab.name}」的操作`}
+                  disabled={busy || loading}
+                  items={[
+                    { label: "编辑", onSelect: () => openEditor(tab) },
+                    { label: "删除", onSelect: () => void deletePreset(tab), danger: true },
+                  ]}
+                />
               )}
 
-              {/* 显隐开关（真实 WebGL 液态玻璃开关，受控模式） */}
-              <LiquidGlassButton
-                backgroundImage={backdrop}
-                variant="dark"
+              {/* 显隐开关：改完即存 */}
+              <Toggle
                 checked={tab.visible}
                 disabled={busy || loading}
-                onCheckedChange={(checked) => toggle(index, checked)}
-                aria-label={`在搜索分类中${tab.visible ? "隐藏" : "展示"}「${tabLabel(tab)}」`}
-                className="!min-h-0 !w-auto !bg-transparent !p-0"
-              >
-                <span className="sr-only">{tabLabel(tab)}</span>
-              </LiquidGlassButton>
+                label={`在搜索分类中${tab.visible ? "隐藏" : "展示"}「${tabLabel(tab)}」`}
+                onChange={(checked) => toggle(index, checked)}
+              />
             </div>
           ))}
         </div>
-
-      </section>
+      </SettingsSection>
 
       {editor && (
         <PresetEditor
@@ -388,17 +388,7 @@ export function SearchSection({ createRequest = 0 }: { createRequest?: number })
         />
       )}
 
-      {error && (
-        <p className="rounded-xl border border-[var(--danger)]/30 bg-[var(--danger)]/10 px-4 py-2.5 text-sub text-[var(--danger)]">
-          {error}
-        </p>
-      )}
-
-      <p className="text-sub leading-6 text-[var(--text-faint)]">
-        按住左侧手柄拖动即可调整顺序——列表顺序即搜索面板中分类标签的排列顺序，「全部」固定在首位。
-        自定义分类可组合多个资源分类与指定站点，一次搜索只打勾选的站点。
-        改动即时保存到服务端，所有设备与浏览器保持一致。
-      </p>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
     </div>
   );
 }
@@ -437,7 +427,6 @@ function PresetEditor({
   onSave: () => void;
   onCancel: () => void;
 }) {
-  const { backdrop } = useBackdrop();
   // null = 加载中；[] = 没有任何已配置站点
   const [siteOptions, setSiteOptions] = useState<SiteOption[] | null>(null);
 
@@ -485,11 +474,25 @@ function PresetEditor({
     }`;
 
   return (
-    <section>
-      <h3 className="group-label mb-2.5 px-1">
-        {draft.editingId ? "编辑自定义分类" : "新建自定义分类"}
-      </h3>
-      <div className="css-glass space-y-5 !rounded-2xl p-5">
+    <SettingsCard
+      title={draft.editingId ? "编辑自定义分类" : "新建自定义分类"}
+      action={
+        <div className="flex gap-2">
+          <button type="button" onClick={onCancel} disabled={busy} className={SETTINGS_BUTTON_CLASS}>
+            取消
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={busy || !draft.name.trim()}
+            className={SETTINGS_PRIMARY_BUTTON_CLASS}
+          >
+            {busy ? "保存中…" : "保存"}
+          </button>
+        </div>
+      }
+    >
+      <div className="space-y-5">
         <div>
           <label className="mb-1.5 block text-sub font-medium text-[var(--text-muted)]">
             名称（1~16 字）
@@ -501,7 +504,7 @@ function PresetEditor({
             maxLength={16}
             placeholder="如：4K 影剧、MT 专搜"
             autoFocus
-            className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3 py-2 text-ui text-[var(--text)] outline-none focus:border-[var(--accent)]/60"
+            className={`${SETTINGS_INPUT_CLASS} w-full`}
           />
         </div>
 
@@ -561,16 +564,11 @@ function PresetEditor({
               如 M-Team）；结果页右上角可随时临时切换。
             </p>
           </div>
-          <LiquidGlassButton
-            backgroundImage={backdrop}
-            variant="dark"
+          <Toggle
             checked={draft.posterMode}
-            onCheckedChange={(checked) => onChange({ ...draft, posterMode: checked })}
-            aria-label={`${draft.posterMode ? "关闭" : "开启"}图览模式`}
-            className="!min-h-0 !w-auto !bg-transparent !p-0"
-          >
-            <span className="sr-only">图览模式</span>
-          </LiquidGlassButton>
+            label={`${draft.posterMode ? "关闭" : "开启"}图览模式`}
+            onChange={(checked) => onChange({ ...draft, posterMode: checked })}
+          />
         </div>
 
         <div className="flex items-center gap-3">
@@ -581,37 +579,13 @@ function PresetEditor({
               适合隐私敏感的分类。
             </p>
           </div>
-          <LiquidGlassButton
-            backgroundImage={backdrop}
-            variant="dark"
+          <Toggle
             checked={draft.skipHistory}
-            onCheckedChange={(checked) => onChange({ ...draft, skipHistory: checked })}
-            aria-label={`${draft.skipHistory ? "关闭" : "开启"}无痕搜索`}
-            className="!min-h-0 !w-auto !bg-transparent !p-0"
-          >
-            <span className="sr-only">无痕搜索</span>
-          </LiquidGlassButton>
-        </div>
-
-        <div className="flex justify-end gap-2">
-          <button
-            type="button"
-            onClick={onCancel}
-            disabled={busy}
-            className="btn-glass px-3.5 py-1.5 text-sub font-medium disabled:opacity-40"
-          >
-            取消
-          </button>
-          <button
-            type="button"
-            onClick={onSave}
-            disabled={busy || !draft.name.trim()}
-            className="btn-accent rounded-full px-4 py-1.5 text-sub font-semibold disabled:opacity-40"
-          >
-            {busy ? "保存中…" : "保存"}
-          </button>
+            label={`${draft.skipHistory ? "关闭" : "开启"}无痕搜索`}
+            onChange={(checked) => onChange({ ...draft, skipHistory: checked })}
+          />
         </div>
       </div>
-    </section>
+    </SettingsCard>
   );
 }

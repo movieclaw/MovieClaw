@@ -42,6 +42,13 @@ PUSH_EVENTS: tuple[PushEvent, ...] = (
         default=False,
     ),
     PushEvent(
+        "identity_skipped",
+        "已跳过同名资源",
+        "订阅发现无法确认身份的同名资源时知会一次，无需处理",
+        group="我的订阅",
+        default=True,
+    ),
+    PushEvent(
         "upgraded",
         "洗版完成",
         "你订阅的内容换成了更好的版本时",
@@ -186,3 +193,54 @@ async def update(
     session.add(row)
     await session.commit()
     return await effective(session, member_id)
+
+
+# ----------------------------------------------------------------------
+# 「这部剧不再提醒」
+# ----------------------------------------------------------------------
+
+
+def _muted(row: PushPreference | None) -> list[int]:
+    if row is None or not isinstance(row.muted_item_ids, list):
+        return []
+    return [int(i) for i in row.muted_item_ids if isinstance(i, int)]
+
+
+async def muted_items(session: AsyncSession, member_ids: set[int]) -> dict[int, set[int]]:
+    """批量读：成员 → 静音的条目 id。"""
+    if not member_ids:
+        return {}
+    rows = (
+        await session.execute(
+            select(PushPreference).where(PushPreference.member_id.in_(member_ids))  # type: ignore[attr-defined]
+        )
+    ).scalars()
+    found = {row.member_id: set(_muted(row)) for row in rows}
+    return {m: found.get(m, set()) for m in member_ids}
+
+
+async def muted_list(session: AsyncSession, member_id: int) -> list[int]:
+    """这个人静音的条目，最近静音的在前。"""
+    row = (
+        await session.execute(select(PushPreference).where(PushPreference.member_id == member_id))
+    ).scalar_one_or_none()
+    return list(reversed(_muted(row)))
+
+
+async def set_muted(session: AsyncSession, member_id: int, item_id: int, muted: bool) -> None:
+    """静音 / 恢复一部片的推送（只关这一部，订阅照常下载）。重复操作是幂等的。"""
+    row = (
+        await session.execute(select(PushPreference).where(PushPreference.member_id == member_id))
+    ).scalar_one_or_none()
+    current = [i for i in _muted(row) if i != item_id]
+    if muted:
+        current.append(item_id)
+    if row is None:
+        if not muted:
+            return
+        row = PushPreference(member_id=member_id, events={}, muted_item_ids=current)
+    else:
+        row.muted_item_ids = current or None
+        row.updated_at = utcnow()
+    session.add(row)
+    await session.commit()

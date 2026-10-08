@@ -26,6 +26,12 @@ import { Banner, ErrorBanner, LINK_CLASS, StatusPill, Toggle } from "@/component
 import { useConfirm, useToast } from "@/components/feedback";
 import { CloudIcon, PlusIcon, ServerIcon } from "@/components/icons";
 import {
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsList,
+  SettingsMoreMenu,
+  SettingsSection,
+} from "@/components/settings-ui";
+import {
   type PushChannelView,
   type PushChannelsView,
   type PushQuota,
@@ -166,70 +172,57 @@ function ChannelList({
   };
 
   return (
-    <div className="space-y-5">
-      {/* 有缺口才提示：哪类 App 没有通道、去哪补（加自建中继），以及去「设备」页看是谁的 */}
-      {uncovered && (
-        <Banner
-          tone="warn"
-          action={
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => setAdding(true)}
-                className="btn-glass px-3 py-1.5 text-sub font-medium"
-              >
-                添加自建中继
-              </button>
-              <button
-                type="button"
-                onClick={() => router.push("/settings/devices" as Route)}
-                className="btn-glass px-3 py-1.5 text-sub font-medium"
-              >
-                查看设备
-              </button>
-            </div>
-          }
-        >
-          {uncovered}
-        </Banner>
-      )}
+    <div className="space-y-10">
+      <div className="space-y-4">
+        {/* 有缺口才提示：哪类 App 没有通道、去哪补（加自建中继），以及去「设备」页看是谁的 */}
+        {uncovered && (
+          <Banner
+            tone="warn"
+            action={
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAdding(true)}
+                  className="btn-glass px-3 py-1.5 text-sub font-medium"
+                >
+                  添加自建中继
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.push("/settings/devices" as Route)}
+                  className="btn-glass px-3 py-1.5 text-sub font-medium"
+                >
+                  查看设备
+                </button>
+              </div>
+            }
+          >
+            {uncovered}
+          </Banner>
+        )}
 
-      <p className="text-sub leading-6 text-[var(--text-muted)]">
-        通知在这台服务器上加密，通道只转发密文。每台设备按它装的 App 自动选通道：官方推送在前，自建中继按列表顺序，前一个连不上就换下一个。
-      </p>
+        <p className="text-sub leading-6 text-[var(--text-muted)]">
+          通知在这台服务器上加密，通道只转发密文。每台设备按它装的 App 自动选通道：官方推送在前，自建中继按列表顺序，前一个连不上就换下一个。
+        </p>
 
-      {error && <ErrorBanner>{error}</ErrorBanner>}
+        {error && <ErrorBanner>{error}</ErrorBanner>}
+      </div>
 
-      <div className="css-glass !rounded-xl">
-        {view.channels.map((channel, i) => (
-          <ChannelRow
-            key={channel.id}
-            channel={channel}
-            cloudState={view.cloud_state}
-            divided={i > 0}
-            enabled={toggling[channel.id] ?? channel.enabled}
-            busy={busyId === channel.id || channel.id in toggling}
-            onToggle={(next) => void toggle(channel, next)}
-            onEdit={() => setEditing(channel)}
-            onRefresh={() => void refresh(channel)}
-            onDelete={() => void remove(channel)}
-          />
-        ))}
-        <div
-          className={`flex flex-wrap items-center gap-x-4 gap-y-2 p-4 ${
-            view.channels.length > 0 ? "border-t border-white/[0.06]" : ""
-          }`}
-        >
+      <SettingsSection
+        title="推送通道"
+        action={
           <button
             type="button"
             onClick={() => setAdding(true)}
-            className="btn-glass flex shrink-0 items-center gap-1 py-1.5 pl-2.5 pr-3.5 text-sub font-medium"
+            className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex items-center gap-1 pl-3`}
           >
             <PlusIcon className="size-4" />
             添加自建中继
           </button>
-          <p className="min-w-0 flex-1 basis-56 text-caption leading-5 text-[var(--text-faint)]">
-            给自己打包的 App 用；能推哪些 App 由中继上的推送证书决定。
+        }
+        footnote={
+          <>
+            自建中继给自己打包的 App 用；能推哪些 App 由中继上的推送证书决定。
             <a
               href={RELAY_DEPLOY_URL}
               target="_blank"
@@ -238,9 +231,25 @@ function ChannelList({
             >
               怎么部署 ↗
             </a>
-          </p>
-        </div>
-      </div>
+          </>
+        }
+      >
+        <SettingsList>
+          {view.channels.map((channel) => (
+            <ChannelRow
+              key={channel.id}
+              channel={channel}
+              cloudState={view.cloud_state}
+              enabled={toggling[channel.id] ?? channel.enabled}
+              busy={busyId === channel.id || channel.id in toggling}
+              onToggle={(next) => void toggle(channel, next)}
+              onEdit={() => setEditing(channel)}
+              onRefresh={() => void refresh(channel)}
+              onDelete={() => void remove(channel)}
+            />
+          ))}
+        </SettingsList>
+      </SettingsSection>
 
       {adding && (
         <AddRelayDialog
@@ -269,12 +278,11 @@ function ChannelList({
 
 /**
  * 一个通道：名称 + 状态胶囊 + 设备数、地址 · 鉴权方式 · Bundle ID、额度条、最近的错误、
- * 启用开关；自建中继另有编辑 / 重新检测 / 删除。
+ * 启用开关；自建中继另有「⋯」菜单：编辑 / 重新检测 / 删除。
  */
 function ChannelRow({
   channel,
   cloudState,
-  divided,
   enabled,
   busy,
   onToggle,
@@ -284,7 +292,6 @@ function ChannelRow({
 }: {
   channel: PushChannelView;
   cloudState: string;
-  divided: boolean;
   enabled: boolean;
   busy: boolean;
   onToggle: (next: boolean) => void;
@@ -299,30 +306,39 @@ function ChannelRow({
   const deviceCount = channelDeviceCount(channel.device_count);
 
   return (
-    // 网格：开关只占标题那一行，说明、地址、额度和按钮从标题左缘一直铺到右缘——
+    // 网格：开关只占标题那一行，说明、地址和额度从标题左缘一直铺到右缘——
     // 窄屏上开关不再整列占着右侧，地址和 Bundle ID 不会被挤成一截一截
-    <div
-      className={`grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-3.5 p-4 ${
-        divided ? "border-t border-white/[0.06]" : ""
-      }`}
-    >
+    <div className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-x-4 px-4 py-3">
       <span className="icon-chip row-span-2 size-10 !rounded-xl">
         {official ? <CloudIcon className="size-5" /> : <ServerIcon className="size-5" />}
       </span>
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 self-center">
-        <p className="min-w-0 truncate text-body font-semibold text-[var(--text)]">{channel.name}</p>
+        <p className="min-w-0 truncate text-body font-medium text-[var(--text)]">{channel.name}</p>
         <StatusPill tone={pill.tone} label={pill.label} />
         {deviceCount && (
           <span className="text-caption text-[var(--text-faint)]">{deviceCount}</span>
         )}
       </div>
       {/* 官方通道跟着云连接走：没连接时开关关着、按不动，连上之后才由管理员决定开关 */}
-      <Toggle
-        checked={awaitingCloud ? false : enabled}
-        label={`启用${channel.name}`}
-        disabled={busy || awaitingCloud}
-        onChange={onToggle}
-      />
+      <div className="flex items-center gap-2 self-center">
+        {!official && (
+          <SettingsMoreMenu
+            label={`${channel.name} 的更多操作`}
+            disabled={busy}
+            items={[
+              { label: "编辑", onSelect: onEdit },
+              { label: "重新检测", onSelect: onRefresh },
+              { label: "删除", onSelect: onDelete, danger: true },
+            ]}
+          />
+        )}
+        <Toggle
+          checked={awaitingCloud ? false : enabled}
+          label={`启用${channel.name}`}
+          disabled={busy || awaitingCloud}
+          onChange={onToggle}
+        />
+      </div>
       <div className="col-span-2 col-start-2 min-w-0">
         {official && (
           <p className="mt-0.5 text-caption leading-5 text-[var(--text-muted)]">
@@ -350,34 +366,6 @@ function ChannelRow({
           <p className="mt-1 break-words text-caption leading-5 text-[var(--danger)]">
             {channel.last_error}
           </p>
-        )}
-        {!official && (
-          <div className="mt-2.5 flex flex-wrap gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onEdit}
-              className="btn-glass px-3 py-1 text-sub font-medium disabled:opacity-40"
-            >
-              编辑
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onRefresh}
-              className="btn-glass px-3 py-1 text-sub font-medium disabled:opacity-40"
-            >
-              重新检测
-            </button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onDelete}
-              className="btn-glass px-3 py-1 text-sub font-medium !text-[var(--danger)] disabled:opacity-40"
-            >
-              删除
-            </button>
-          </div>
         )}
       </div>
     </div>

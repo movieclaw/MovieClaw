@@ -1,0 +1,443 @@
+{
+  "as_of": "2026-10-07T04:32:27.206260",
+  "keyword": "Happy Kanako",
+  "page": 1,
+  "scope": "current search snapshot, not complete historical observation",
+  "sites": [
+    {
+      "site_id": "mteam",
+      "count": 5,
+      "failed": false
+    },
+    {
+      "site_id": "hdhome",
+      "count": 1,
+      "failed": false
+    },
+    {
+      "site_id": "keepfrds",
+      "count": 0,
+      "failed": false
+    },
+    {
+      "site_id": "chdbits",
+      "count": 2,
+      "failed": false
+    },
+    {
+      "site_id": "ttg",
+      "count": 0,
+      "failed": false
+    },
+    {
+      "site_id": "ssd",
+      "count": 1,
+      "failed": false
+    }
+  ],
+  "items": [
+    {
+      "site_id": "mteam",
+      "torrent_id": "1266198",
+      "title": "Happy Kanakos Killer Life 2025 S02 E01-02 1080p DMM WEB-DL AAC2.0 H.264-DepWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "幸福伽菜子的快乐杀手生活"
+        ],
+        "titles_en": [
+          "Happy Kanakos Killer Life",
+          "幸せカナコの殺し屋生活"
+        ],
+        "title_candidates": [
+          "幸福伽菜子的快乐杀手生活 第2季 第1-2集",
+          "原名：幸せカナコの殺し屋生活"
+        ],
+        "year": 2025,
+        "seasons": [
+          2
+        ],
+        "episodes": [
+          1,
+          2
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "DepWeb"
+      },
+      "size_bytes": 1452274360,
+      "seeders": 18,
+      "upload_time": "2026-10-06T22:05:53+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1261111",
+      "title": "Happy Kanako's Killer Life 2026 S02E02 1080p WEB-DL H.264 AAC 2.0",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": "anime",
+        "titles_zh": [
+          "幸福伽菜子的快乐杀手生活"
+        ],
+        "titles_en": [
+          "Happy Kanako's Killer Life"
+        ],
+        "title_candidates": [
+          "幸福伽菜子的快乐杀手生活 第二季"
+        ],
+        "year": 2026,
+        "seasons": [
+          2
+        ],
+        "episodes": [
+          2
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "ja"
+        ],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 679630407,
+      "seeders": 118,
+      "upload_time": "2026-09-27T05:37:51+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1257474",
+      "title": "Happy Kanako's Killer Life 2026 S02E01 1080p WEB-DL H.264 AAC 2.0",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": "anime",
+        "titles_zh": [
+          "幸福伽菜子的快乐杀手生活"
+        ],
+        "titles_en": [
+          "Happy Kanako's Killer Life"
+        ],
+        "title_candidates": [
+          "幸福伽菜子的快乐杀手生活 第二季"
+        ],
+        "year": 2026,
+        "seasons": [
+          2
+        ],
+        "episodes": [
+          1
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "ja"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "ja"
+        ],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 772714782,
+      "seeders": 127,
+      "upload_time": "2026-09-21T05:24:30+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1046754",
+      "title": "Happy Kanako's Killer Life S01 2025 1080p WEB-DL HEVC AAC 2.0-StarfallWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "幸福伽菜子的快乐杀手生活"
+        ],
+        "titles_en": [
+          "Happy Kanako's Killer Life",
+          "幸せカナコの殺し屋生活"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 6,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "StarfallWeb"
+      },
+      "size_bytes": 1426606029,
+      "seeders": 29,
+      "upload_time": "2025-10-06T10:20:32+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1045675",
+      "title": "Happy Kanako's Killer Life 2025 S01 Complete 1080p WEB-DL H.264 AAC 2.0-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": "anime",
+        "titles_zh": [
+          "幸福伽菜子的快乐生活",
+          "伽菜子的幸福杀手生活",
+          "幸福加奈子的快乐杀手生活"
+        ],
+        "titles_en": [
+          "Happy Kanako's Killer Life"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 6,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "ja"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 2186258260,
+      "seeders": 59,
+      "upload_time": "2025-10-04T08:45:17+00:00"
+    },
+    {
+      "site_id": "hdhome",
+      "torrent_id": "258920",
+      "title": "Happy Kanakos Killer Life 2025 S01 Complete 1080p WEB-DL AVC AAC-QHstudIo",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": "anime",
+        "titles_zh": [
+          "幸福伽菜子的快乐杀手生活"
+        ],
+        "titles_en": [
+          "Happy Kanakos Killer Life"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 6,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 2179695902,
+      "seeders": 10,
+      "upload_time": "2025-09-29T01:23:59+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588072",
+      "title": "Happy Kanakos Killer Life 2025 S01 1080p DMM WEB-DL AAC2.0 H.264-DepWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "幸福伽菜子的快乐杀手生活"
+        ],
+        "titles_en": [
+          "Happy Kanakos Killer Life",
+          "幸せカナコの殺し屋生活"
+        ],
+        "title_candidates": [
+          "幸福伽菜子的快乐杀手生活 第1季",
+          "原名：幸せカナコの殺し屋生活"
+        ],
+        "year": 2025,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "DepWeb"
+      },
+      "size_bytes": 3822520893,
+      "seeders": 2,
+      "upload_time": "2026-10-04T10:45:15+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586143",
+      "title": "Happy Kanako's Killer Life 2026 S02E01 1080p WEB-DL H.264 AAC 2.0",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": "anime",
+        "titles_zh": [
+          "幸福伽菜子的快乐杀手生活"
+        ],
+        "titles_en": [
+          "Happy Kanako's Killer Life"
+        ],
+        "title_candidates": [
+          "幸福伽菜子的快乐杀手生活 第二季"
+        ],
+        "year": 2026,
+        "seasons": [
+          2
+        ],
+        "episodes": [
+          1
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "ja"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "ja"
+        ],
+        "platforms": [],
+        "release_group": null
+      },
+      "size_bytes": 772716625,
+      "seeders": 17,
+      "upload_time": "2026-09-26T13:59:55+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "571380",
+      "title": "Happy.Kanakos.Killer.Life.S01.2025.1080p.WEB-DL.H.264.AAC-ADWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "幸福伽菜子的快乐杀手生活"
+        ],
+        "titles_en": [
+          "Happy.Kanakos.Killer.Life",
+          "幸せカナコの殺し屋生活",
+          "Happy Kanakos Killer Life"
+        ],
+        "title_candidates": [],
+        "year": 2025,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 6,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "ADWeb"
+      },
+      "size_bytes": 2179695902,
+      "seeders": 11,
+      "upload_time": "2025-09-28T11:39:54+00:00"
+    }
+  ]
+}

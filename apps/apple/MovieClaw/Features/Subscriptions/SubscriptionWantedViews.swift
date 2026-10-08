@@ -18,7 +18,7 @@ private struct InspectorCard: ViewModifier {
 }
 
 extension View {
-    fileprivate func inspectorCard() -> some View { modifier(InspectorCard()) }
+    func inspectorCard() -> some View { modifier(InspectorCard()) }
 }
 
 // MARK: - 搜索轮次摘要
@@ -73,6 +73,9 @@ struct WantedBreakdown: View {
     let canAnnotate: Bool
     @Binding var openSeasons: Set<Int>
     let onAnnotate: (Int) -> Void
+    var smartDetail: API.SubscriptionDetailView? = nil
+    var canTune = false
+    var onSmartChanged: () async -> Void = {}
 
     @State private var openWanted: Int?
 
@@ -105,7 +108,8 @@ struct WantedBreakdown: View {
                                     isMovie: isMovie,
                                     download: item.infoHash.flatMap { downloads[$0] },
                                     failure: failures[item.id],
-                                    expanded: openWanted == item.id
+                                    expanded: openWanted == item.id,
+                                    smart: smartDetail.map { .init(wanted: item, detail: $0, canManage: canTune, onChanged: onSmartChanged) }
                                 ) {
                                     withAnimation(.snappy) { openWanted = openWanted == item.id ? nil : item.id }
                                 }
@@ -176,6 +180,7 @@ struct WantedRow: View {
     let download: API.SubscriptionDownloadView?
     let failure: API.ActivityView?
     let expanded: Bool
+    var smart: SmartWantedContext? = nil
     let onToggle: () -> Void
 
     var body: some View {
@@ -183,7 +188,7 @@ struct WantedRow: View {
         let stuckOnImport = failure?.type == "import_failed" ? failure : nil
         let presentation = stuckOnImport.map { WantedPresentation(label: "入库失败", color: SubsColor.danger, note: $0.message) } ?? WantedLogic.presentation(wanted)
         let live = stuckOnImport == nil && (wanted.status == "grabbed" || wanted.status == "downloaded") ? download : nil
-        let chain = WantedLogic.milestones(wanted, isMovie: isMovie, live: live, failure: failure)
+        let chain = WantedLogic.milestones(wanted, isMovie: isMovie, live: live, failure: failure, isSmart: smart != nil)
         let lit = WantedLogic.stuckIndex(chain)
         let open = isMovie || expanded
         VStack(spacing: 0) {
@@ -221,7 +226,7 @@ struct WantedRow: View {
             .buttonStyle(.plain)
             .accessibilityIdentifier("wanted-row")
             if open {
-                MilestoneChainView(chain: chain, color: presentation.color)
+                MilestoneChainView(chain: chain, color: presentation.color, smart: smart)
             }
         }
     }
@@ -260,6 +265,7 @@ extension Array {
 struct MilestoneChainView: View {
     let chain: [Milestone]
     let color: Color
+    var smart: SmartWantedContext? = nil
 
     var body: some View {
         let stuck = WantedLogic.stuckIndex(chain)
@@ -300,6 +306,7 @@ struct MilestoneChainView: View {
                             .font(.subheadline).monospacedDigit()
                             .foregroundStyle(milestone.state == .done ? Theme.textFaint : milestone.state == .todo ? Color.white.opacity(0.25) : Color.white.opacity(0.8))
                             .fixedSize(horizontal: false, vertical: true)
+                        if milestone.label == "搜索", let smart { SmartWantedSelection(context: smart) }
                         if let why = milestone.why {
                             Text(why).font(.caption).foregroundStyle(SubsColor.reason.opacity(0.9)).fixedSize(horizontal: false, vertical: true)
                         }

@@ -13,8 +13,8 @@ import {
   GearIcon,
   LogoutIcon,
   PlusIcon,
-  BookmarkIcon,
-  UserIcon,
+  BookmarkFillIcon,
+  UsersIcon,
 } from "@/components/icons";
 import { AppUpdateEntry } from "@/components/app-update-entry";
 import { NoticeCenter } from "@/components/notice-center";
@@ -115,7 +115,7 @@ export function NetflixMyPage() {
           )}
           {canSubscribe && (
             <MyRow
-              Icon={BookmarkIcon}
+              Icon={BookmarkFillIcon}
               label="我的订阅"
               onClick={() => router.push("/subscriptions" as Route)}
             />
@@ -159,7 +159,7 @@ export function NetflixMyPage() {
 
         {/* 账号操作 */}
         <nav aria-label="账号操作" className="mt-6 space-y-0.5">
-          <MyRow Icon={UserIcon} label="切换账号" onClick={() => setSwitcherOpen(true)} />
+          <MyRow Icon={UsersIcon} label="切换账号" onClick={() => setSwitcherOpen(true)} />
           <MyRow Icon={LogoutIcon} label="退出登录" danger onClick={() => void handleLogout()} />
         </nav>
       </div>

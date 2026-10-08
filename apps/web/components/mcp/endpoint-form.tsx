@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import { XIcon } from "@/components/icons";
 import { INPUT_CLASS, formatBytes } from "@/components/mcp/ui";
+import { SETTINGS_BUTTON_CLASS, SETTINGS_PRIMARY_BUTTON_CLASS } from "@/components/settings-ui";
 import type { McpEndpointPayload, McpService, McpToolPreview } from "@/lib/api/mcp";
 import { previewMcpTools } from "@/lib/api/mcp";
 
@@ -325,7 +326,7 @@ export function EndpointForm({
       </div>
 
       <div className="flex items-center justify-end gap-2 border-t border-white/[0.06] pt-4">
-        <button type="button" onClick={onCancel} className="btn-glass px-3.5 py-1.5 text-sub font-medium">
+        <button type="button" onClick={onCancel} className={SETTINGS_BUTTON_CLASS}>
           取消
         </button>
         <button
@@ -334,7 +335,7 @@ export function EndpointForm({
           disabled={
             busy || !draft.name.trim() || !draft.slug.trim() || totals.services === 0 || Boolean(slugError)
           }
-          className="btn-glass px-3.5 py-1.5 text-sub font-medium disabled:opacity-40"
+          className={SETTINGS_PRIMARY_BUTTON_CLASS}
         >
           {submitLabel}
         </button>

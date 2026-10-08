@@ -22,7 +22,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 command -v xcodegen >/dev/null || { echo "错误：需要 XcodeGen（brew install xcodegen）" >&2; exit 1; }
-xcodegen generate >/dev/null
+scripts/prepare-project.py
 
 out="${MC_MAC_OUT:-build-macapp}"
 build="${MC_BUILD_NUMBER:-$(date -u +%Y%m%d%H%M)}"
@@ -34,7 +34,7 @@ echo "编译 Mac 版（构建号 $build，提交 $(git rev-parse --short HEAD)�
 # ad-hoc 签名编译：不要开发者团队，也不注入调试权限（理由见文件头）。arm64：嵌入的 FFmpeg 等动态库只有 Apple 芯片切片
 if ! xcodebuild -project MovieClaw.xcodeproj -scheme MovieClawMac -configuration Release \
   -destination "generic/platform=macOS" -derivedDataPath "$out/DerivedData" \
-  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -packageAuthorizationProvider netrc \
+  -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -packageAuthorizationProvider netrc -onlyUsePackageVersionsFromResolvedFile \
   ARCHS=arm64 ONLY_ACTIVE_ARCH=NO \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM="" CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
   CURRENT_PROJECT_VERSION="$build" \
@@ -53,7 +53,7 @@ ditto "$built" "$app"
 # 由 Xcode 在有开发者团队的签名时生成；这里没有团队，照同一份构建设置按 Xcode 的对应关系生成，
 # 不另维护一份权限文件。脚本还不认识的权限类设置一旦打开就报错，免得发出去的包悄悄少了权限
 entitlements="$out/MovieClaw.entitlements"
-settings="$(xcodebuild -project MovieClaw.xcodeproj -scheme MovieClawMac -configuration Release -showBuildSettings 2>/dev/null)"
+settings="$(xcodebuild -project MovieClaw.xcodeproj -scheme MovieClawMac -configuration Release -clonedSourcePackagesDirPath "${MC_SPM:-$HOME/workspace/.mc-ios-spm}" -onlyUsePackageVersionsFromResolvedFile -showBuildSettings 2>/dev/null)"
 setting() { awk -F' = ' -v key="$1" '{ sub(/^ +/, "", $1) } $1 == key { print $2; exit }' <<<"$settings"; }
 unknown="$(awk -F' = ' '{ sub(/^ +/, "", $1) }
   $1 ~ /^(ENABLE_RESOURCE_ACCESS_|RUNTIME_EXCEPTION_|ENABLE_FILE_ACCESS_|ENABLE_USER_SELECTED_FILES|AUTOMATION_APPLE_EVENTS)/ &&

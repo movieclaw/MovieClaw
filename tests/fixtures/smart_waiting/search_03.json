@@ -1,0 +1,5742 @@
+{
+  "as_of": "2026-10-07T04:32:46.400987",
+  "keyword": "余红旧事",
+  "page": 1,
+  "scope": "current search snapshot, not complete historical observation",
+  "sites": [
+    {
+      "site_id": "keepfrds",
+      "count": 0,
+      "failed": false
+    },
+    {
+      "site_id": "hdhome",
+      "count": 1,
+      "failed": false
+    },
+    {
+      "site_id": "mteam",
+      "count": 20,
+      "failed": false
+    },
+    {
+      "site_id": "ssd",
+      "count": 18,
+      "failed": false
+    },
+    {
+      "site_id": "ttg",
+      "count": 0,
+      "failed": false
+    },
+    {
+      "site_id": "chdbits",
+      "count": 57,
+      "failed": false
+    }
+  ],
+  "items": [
+    {
+      "site_id": "hdhome",
+      "torrent_id": "307324",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DDP 5.1 2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 17426829803,
+      "seeders": 35,
+      "upload_time": "2026-10-05T10:42:11+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1266148",
+      "title": "The Old Story of Yu Hong S01 2026 2160p iQIYI WEB-DL H265 DDP5.1-ADWeb",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "余红旧事 第1季 (2026"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "ADWeb"
+      },
+      "size_bytes": 23465257369,
+      "seeders": 19,
+      "upload_time": "2026-10-06T16:38:10+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1266143",
+      "title": "The Old Story of Yu Hong 2026 S01E1-E21 2160p WEB-DL H.265 DDP5.1 2Audios-QHstudIo",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 17484946541,
+      "seeders": 10,
+      "upload_time": "2026-10-06T16:09:58+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1265518",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR DDP 2.0 4Audio5.1 2Audios-HHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "王佳佳",
+          "张哲华",
+          "向涵之",
+          "付航"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "4Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 50446198985,
+      "seeders": 58,
+      "upload_time": "2026-10-05T10:55:43+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1265516",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 DV DDP 5.1 4Audio 2Audios-HHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "王佳佳",
+          "张哲华",
+          "向涵之",
+          "付航"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "4Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 61048875608,
+      "seeders": 33,
+      "upload_time": "2026-10-05T10:52:30+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1265512",
+      "title": "The Old Story of Yu Hong S01E28-E34 2026 2160p WEB-DL H.265 DV DDP 5.1 4Audio 2Audios-HHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "王佳佳",
+          "张哲华",
+          "向涵之"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "4Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 12170873186,
+      "seeders": 27,
+      "upload_time": "2026-10-05T10:35:41+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1265510",
+      "title": "The Old Story of Yu Hong S01E28-E34 2026 2160p WEB-DL H.265 HDR DDP 2.0 4Audio5.1 2Audios-HHWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "王佳佳",
+          "张哲华",
+          "向涵之"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "4Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "HHWEB"
+      },
+      "size_bytes": 9267775737,
+      "seeders": 11,
+      "upload_time": "2026-10-05T10:31:52+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1265507",
+      "title": "The Old Story of Yu Hong S01E28-E34 2026 2160p IQ WEB-DL H265 DDP 5.1 2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "余红旧事 第28-34集",
+          "于洪",
+          "野火春风",
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 3482232259,
+      "seeders": 63,
+      "upload_time": "2026-10-05T10:23:43+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1265359",
+      "title": "The Old Story of Yu Hong 2026 S01 Complete 2160p IQ WEB-DL H.265 DDP5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 16510796246,
+      "seeders": 134,
+      "upload_time": "2026-10-05T04:48:23+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1265355",
+      "title": "The Old Story of Yu Hong 2026 S01 Complete 1080p IQ WEB-DL H264 AAC AAC2.0-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 8860935698,
+      "seeders": 44,
+      "upload_time": "2026-10-05T04:41:03+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1264893",
+      "title": "The Old Story of Yu Hong S01E25-E27 2026 2160p IQ WEB-DL H265 DDP 5.1 2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "余红旧事 第25-27集",
+          "于洪",
+          "野火春风",
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          25,
+          26,
+          27
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 1478985549,
+      "seeders": 278,
+      "upload_time": "2026-10-04T10:11:09+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1264458",
+      "title": "The Old Story of Yu Hong S01E22-E24 2026 2160p IQ WEB-DL H265 DDP 5.1 2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "余红旧事 第22-24集",
+          "于洪",
+          "野火春风",
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          22,
+          23,
+          24
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 1447585893,
+      "seeders": 258,
+      "upload_time": "2026-10-03T11:08:47+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1264175",
+      "title": "The Old Story of Yu Hong 2026 S01E1-E21 1080p WEB-DL H.264 DDP5.1 2Audios-QHstudIo",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [],
+        "subtitle_carriers": [],
+        "audio_languages": [],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 6412648500,
+      "seeders": 66,
+      "upload_time": "2026-10-02T19:43:07+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1263949",
+      "title": "The Old Story of Yu Hong S01E18-E21 2026 2160p IQ WEB-DL H265 DDP 5.1 2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "余红旧事 第18-21集",
+          "于洪",
+          "野火春风",
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 1934093900,
+      "seeders": 269,
+      "upload_time": "2026-10-02T10:34:02+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1263563",
+      "title": "The Old Story of Yu Hong S01E14-E17 2026 2160p IQ WEB-DL H265 DDP 5.1 2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "余红旧事 第14-17集",
+          "于洪",
+          "野火春风",
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14,
+          15,
+          16,
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 2184428761,
+      "seeders": 303,
+      "upload_time": "2026-10-01T10:32:37+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1262984",
+      "title": "The Old Story of Yu Hong S01E10-E13 2026 2160p IQ WEB-DL H265 DDP 5.1 2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "余红旧事 第10-13集",
+          "于洪",
+          "野火春风",
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10,
+          11,
+          12,
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 2224475345,
+      "seeders": 324,
+      "upload_time": "2026-09-30T10:33:04+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1262459",
+      "title": "The Old Story of Yu Hong S01E01-E09 2026 2160p IQ WEB-DL H265 DDP 5.1 2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "余红旧事 第1-9集",
+          "于洪",
+          "野火春风",
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 4671719296,
+      "seeders": 93,
+      "upload_time": "2026-09-29T13:38:55+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1262440",
+      "title": "The Old Story of Yu Hong 2026 S01 E01-E09 2160p WEB-DL H.265 AAC 5.1 4Audio-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "余红旧事 第1-9集"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "4Audio",
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 6328693395,
+      "seeders": 25,
+      "upload_time": "2026-09-29T13:14:21+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1262395",
+      "title": "The Old Story of Yu Hong 2026 S01E1-E9 Complete 2160p WEB-DL DoVi H.265 10bit DDP5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 15958449862,
+      "seeders": 63,
+      "upload_time": "2026-09-29T11:28:04+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1262367",
+      "title": "The Old Story of Yu Hong 2026 S01E1-E9 Complete 2160p WEB-DL HDRVivid H.265 10bit DDP5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR Vivid"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 14296393636,
+      "seeders": 15,
+      "upload_time": "2026-09-29T10:50:38+00:00"
+    },
+    {
+      "site_id": "mteam",
+      "torrent_id": "1262354",
+      "title": "The Old Story of Yu Hong 2026 S01E1-E9 Complete 2160p WEB-DL HFR HDRVivid H.265 10bit DDP5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR Vivid"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 7816160178,
+      "seeders": 224,
+      "upload_time": "2026-09-29T10:19:44+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "627299",
+      "title": "The.Old.Story.of.Yu.Hong.S01.2026.2160p.IQ.WEB-DL.H265.DDP.5.1.2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 17426829803,
+      "seeders": 171,
+      "upload_time": "2026-10-05T10:28:50+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "627298",
+      "title": "The.Old.Story.of.Yu.Hong.S01.2026.1080p.IQ.WEB-DL.H264.AAC-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 8858370048,
+      "seeders": 107,
+      "upload_time": "2026-10-05T10:26:35+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "627293",
+      "title": "The.Old.Story.of.Yu.Hong.S01E28-E34.2026.2160p.IQ.WEB-DL.H265.DDP.5.1.2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 3478923509,
+      "seeders": 56,
+      "upload_time": "2026-10-05T10:15:20+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "627290",
+      "title": "The.Old.Story.of.Yu.Hong.S01E28-E34.2026.1080p.IQ.WEB-DL.H264.AAC-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 1739461754,
+      "seeders": 46,
+      "upload_time": "2026-10-05T10:06:16+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "627203",
+      "title": "The.Old.Story.of.Yu.Hong.S01E25-E27.2026.2160p.IQ.WEB-DL.H265.DDP.5.1.2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          25,
+          26,
+          27
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 1481763717,
+      "seeders": 58,
+      "upload_time": "2026-10-04T10:09:29+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "627202",
+      "title": "The.Old.Story.of.Yu.Hong.S01E25-E27.2026.1080p.IQ.WEB-DL.H264.AAC-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          25,
+          26,
+          27
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 743996129,
+      "seeders": 52,
+      "upload_time": "2026-10-04T10:05:30+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "627102",
+      "title": "The.Old.Story.of.Yu.Hong.S01E23-E24.2026.2160p.IQ.WEB-DL.H265.DDP.5.1.2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          23,
+          24
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 982756884,
+      "seeders": 62,
+      "upload_time": "2026-10-03T10:36:09+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "627101",
+      "title": "The.Old.Story.of.Yu.Hong.S01E23-E24.2026.1080p.IQ.WEB-DL.H264.AAC-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          23,
+          24
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 527108669,
+      "seeders": 61,
+      "upload_time": "2026-10-03T10:33:15+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "627098",
+      "title": "The.Old.Story.of.Yu.Hong.S01E22.2026.2160p.IQ.WEB-DL.H265.DDP.5.1.2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          22
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 464823255,
+      "seeders": 62,
+      "upload_time": "2026-10-03T10:04:26+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "627097",
+      "title": "The.Old.Story.of.Yu.Hong.S01E22.2026.1080p.IQ.WEB-DL.H264.AAC-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          22
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 228264509,
+      "seeders": 59,
+      "upload_time": "2026-10-03T10:02:49+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "626975",
+      "title": "The.Old.Story.of.Yu.Hong.S01E18-E21.2026.2160p.IQ.WEB-DL.H265.DDP.5.1.2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 1932735283,
+      "seeders": 70,
+      "upload_time": "2026-10-02T10:08:25+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "626974",
+      "title": "The.Old.Story.of.Yu.Hong.S01E18-E21.2026.1080p.IQ.WEB-DL.H264.AAC-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 1041634426,
+      "seeders": 56,
+      "upload_time": "2026-10-02T10:04:20+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "626883",
+      "title": "The.Old.Story.of.Yu.Hong.S01E14-E17.2026.2160p.IQ.WEB-DL.H265.DDP.5.1.2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14,
+          15,
+          16,
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 2179695902,
+      "seeders": 72,
+      "upload_time": "2026-10-01T10:11:09+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "626881",
+      "title": "The.Old.Story.of.Yu.Hong.S01E14-E17.2026.1080p.IQ.WEB-DL.H264.AAC-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14,
+          15,
+          16,
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 1016583946,
+      "seeders": 59,
+      "upload_time": "2026-10-01T10:05:53+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "626815",
+      "title": "The.Old.Story.of.Yu.Hong.S01E10-E13.2026.2160p.IQ.WEB-DL.H265.DDP.5.1.2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10,
+          11,
+          12,
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 2222645575,
+      "seeders": 73,
+      "upload_time": "2026-09-30T10:27:56+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "626814",
+      "title": "The.Old.Story.of.Yu.Hong.S01E10-E13.2026.1080p.IQ.WEB-DL.H264.AAC-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10,
+          11,
+          12,
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 1148903751,
+      "seeders": 63,
+      "upload_time": "2026-09-30T10:23:34+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "626734",
+      "title": "The.Old.Story.of.Yu.Hong.S01E01-E09.2026.2160p.IQ.WEB-DL.H265.DDP.5.1.2Audios-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 4670776934,
+      "seeders": 82,
+      "upload_time": "2026-09-29T12:21:44+00:00"
+    },
+    {
+      "site_id": "ssd",
+      "torrent_id": "626733",
+      "title": "The.Old.Story.of.Yu.Hong.S01E01-E09.2026.1080p.IQ.WEB-DL.H264.AAC-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The.Old.Story.of.Yu.Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 2405181685,
+      "seeders": 67,
+      "upload_time": "2026-09-29T12:14:17+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588356",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "IQY)4K",
+          "杜比视界",
+          "国语",
+          "主演"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 61052960112,
+      "seeders": 70,
+      "upload_time": "2026-10-05T12:29:35+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588355",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 50444390891,
+      "seeders": 49,
+      "upload_time": "2026-10-05T12:29:19+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588689",
+      "title": "The Old Story of Yu Hong 2026 S01 2160p WEB-DL HEVC DDP5.1 2Audios-QHstudIo",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "HEVC",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 17480516894,
+      "seeders": 2,
+      "upload_time": "2026-10-06T16:06:36+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588353",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR 60fps DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 29549374996,
+      "seeders": 31,
+      "upload_time": "2026-10-05T12:28:55+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588352",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "IQ)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 24567212933,
+      "seeders": 23,
+      "upload_time": "2026-10-05T12:28:38+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588351",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 17426829803,
+      "seeders": 62,
+      "upload_time": "2026-10-05T12:28:20+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588350",
+      "title": "The Old Story of Yu Hong S01 2026 1080p IQ WEB-DL H.264 AAC2.0-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 8858370048,
+      "seeders": 38,
+      "upload_time": "2026-10-05T12:28:03+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588314",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第28-34集",
+          "IQY)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 12176232284,
+      "seeders": 42,
+      "upload_time": "2026-10-05T10:46:55+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588306",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第28-34集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 9266391941,
+      "seeders": 32,
+      "upload_time": "2026-10-05T10:24:23+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588305",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR 60fps DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第28-34集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 5776731013,
+      "seeders": 30,
+      "upload_time": "2026-10-05T10:23:57+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588302",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第28-34集",
+          "IQ)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 4874787880,
+      "seeders": 26,
+      "upload_time": "2026-10-05T10:09:29+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588301",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第28-34集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 3478923509,
+      "seeders": 32,
+      "upload_time": "2026-10-05T10:04:27+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588299",
+      "title": "The Old Story of Yu Hong S01 2026 1080p IQ WEB-DL H.264 AAC2.0-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第28-34集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1739461754,
+      "seeders": 21,
+      "upload_time": "2026-10-05T10:03:58+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588243",
+      "title": "The Old Story of Yu Hong 2026 S01 Complete 2160p IQ WEB-DL H265 DDP5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 16514149253,
+      "seeders": 13,
+      "upload_time": "2026-10-05T04:47:23+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588242",
+      "title": "The Old Story of Yu Hong 2026 S01 Complete 1080p IQ WEB-DL H264 AAC-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [],
+        "episodes_total": 34,
+        "complete": true,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 8858370048,
+      "seeders": 5,
+      "upload_time": "2026-10-05T04:39:11+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588193",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第25-27集",
+          "IQY)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          25,
+          26,
+          27
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 5282809774,
+      "seeders": 35,
+      "upload_time": "2026-10-04T19:38:00+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588192",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第25-27集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          25,
+          26,
+          27
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 4198330531,
+      "seeders": 32,
+      "upload_time": "2026-10-04T19:31:23+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588191",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR 60fps DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第25-27集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          25,
+          26,
+          27
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 2512555868,
+      "seeders": 25,
+      "upload_time": "2026-10-04T19:31:02+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588185",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第25-27集",
+          "IQ)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          25,
+          26,
+          27
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 2158221066,
+      "seeders": 20,
+      "upload_time": "2026-10-04T19:08:37+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588184",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第25-27集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          25,
+          26,
+          27
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1481763717,
+      "seeders": 39,
+      "upload_time": "2026-10-04T19:06:48+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588183",
+      "title": "The Old Story of Yu Hong S01 2026 1080p IQ WEB-DL H.264 AAC2.0-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第25-27集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          25,
+          26,
+          27
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 744593817,
+      "seeders": 30,
+      "upload_time": "2026-10-04T19:06:22+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "588109",
+      "title": "The Old Story of Yu Hong S01 2026 1080p IQ WEB-DL H264 AAC-CMCTV",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "于洪",
+          "余红",
+          "野火春风"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "马伊琍",
+          "王佳佳"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          25,
+          26,
+          27
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CMCTV"
+      },
+      "size_bytes": 743996129,
+      "seeders": 8,
+      "upload_time": "2026-10-04T12:46:22+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587995",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第22-24集",
+          "IQY)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          22,
+          23,
+          24
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 5121748500,
+      "seeders": 45,
+      "upload_time": "2026-10-04T05:52:07+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587994",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第22-24集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          22,
+          23,
+          24
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 3661459619,
+      "seeders": 24,
+      "upload_time": "2026-10-04T05:51:37+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587993",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR 60fps DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第22-24集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          22,
+          23,
+          24
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 2458868776,
+      "seeders": 18,
+      "upload_time": "2026-10-04T05:51:15+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587992",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第22-24集",
+          "IQ)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          22,
+          23,
+          24
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 2093796556,
+      "seeders": 14,
+      "upload_time": "2026-10-04T05:50:52+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587991",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第22-24集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          22,
+          23,
+          24
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1449551462,
+      "seeders": 28,
+      "upload_time": "2026-10-04T05:50:25+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587988",
+      "title": "The Old Story of Yu Hong S01 2026 1080p IQ WEB-DL H.264 AAC2.0-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第22-24集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          22,
+          23,
+          24
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 755991838,
+      "seeders": 31,
+      "upload_time": "2026-10-04T05:47:53+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587937",
+      "title": "The Old Story of Yu Hong 2026 S01 1080p WEB-DL H264 DDP5.1-PTerWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "余红旧事 第22-24集"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          22,
+          23,
+          24
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "PTerWEB"
+      },
+      "size_bytes": 984812093,
+      "seeders": 8,
+      "upload_time": "2026-10-04T00:39:19+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587691",
+      "title": "The Old Story of Yu Hong 2026 S01 1080p WEB-DL AVC DDP5.1 2Audios-QHstudIo",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "AVC",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "2Audio",
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "QHstudIo"
+      },
+      "size_bytes": 6410238689,
+      "seeders": 4,
+      "upload_time": "2026-10-02T19:45:22+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587563",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第18-21集",
+          "IQY)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 6818260582,
+      "seeders": 51,
+      "upload_time": "2026-10-02T10:23:10+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587562",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第18-21集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 5175435591,
+      "seeders": 29,
+      "upload_time": "2026-10-02T10:10:39+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587561",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR 60fps DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第18-21集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 3382286745,
+      "seeders": 15,
+      "upload_time": "2026-10-02T10:10:18+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587560",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第18-21集",
+          "IQ)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 2813203578,
+      "seeders": 17,
+      "upload_time": "2026-10-02T10:10:01+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587559",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第18-21集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1932735283,
+      "seeders": 41,
+      "upload_time": "2026-10-02T10:09:44+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587558",
+      "title": "The Old Story of Yu Hong S01 2026 1080p IQ WEB-DL H.264 AAC2.0-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第18-21集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          18,
+          19,
+          20,
+          21
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1042473287,
+      "seeders": 27,
+      "upload_time": "2026-10-02T10:09:24+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587356",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第14-17集",
+          "IQY)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14,
+          15,
+          16,
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7623566950,
+      "seeders": 56,
+      "upload_time": "2026-10-01T11:13:27+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587353",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第14-17集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14,
+          15,
+          16,
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 6463925780,
+      "seeders": 36,
+      "upload_time": "2026-10-01T11:07:43+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587352",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR 60fps DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第14-17集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14,
+          15,
+          16,
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 3468186091,
+      "seeders": 24,
+      "upload_time": "2026-10-01T11:07:16+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587351",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第14-17集",
+          "IQ)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14,
+          15,
+          16,
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 3027951943,
+      "seeders": 23,
+      "upload_time": "2026-10-01T11:06:57+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587350",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第14-17集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14,
+          15,
+          16,
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 2179695902,
+      "seeders": 32,
+      "upload_time": "2026-10-01T11:06:40+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587349",
+      "title": "The Old Story of Yu Hong S01 2026 1080p IQ WEB-DL H.264 AAC2.0-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第14-17集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          14,
+          15,
+          16,
+          17
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1017024348,
+      "seeders": 29,
+      "upload_time": "2026-10-01T11:06:22+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587142",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第10-13集",
+          "IQY)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10,
+          11,
+          12,
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7741678551,
+      "seeders": 76,
+      "upload_time": "2026-09-30T15:37:53+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587102",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第10-13集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10,
+          11,
+          12,
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 7151120547,
+      "seeders": 28,
+      "upload_time": "2026-09-30T11:36:38+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587101",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR 60fps DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第10-13集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10,
+          11,
+          12,
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 3897682821,
+      "seeders": 29,
+      "upload_time": "2026-09-30T11:36:12+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587094",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第10-13集",
+          "IQY)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10,
+          11,
+          12,
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 3124588707,
+      "seeders": 7,
+      "upload_time": "2026-09-30T11:15:28+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587091",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第10-13集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10,
+          11,
+          12,
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 2222645575,
+      "seeders": 33,
+      "upload_time": "2026-09-30T11:09:17+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "587090",
+      "title": "The Old Story of Yu Hong S01 2026 1080p IQ WEB-DL H.264 AAC2.0-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第10-13集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          10,
+          11,
+          12,
+          13
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 1159641169,
+      "seeders": 33,
+      "upload_time": "2026-09-30T11:08:53+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586855",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第1-9集",
+          "IQY)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 16277926051,
+      "seeders": 72,
+      "upload_time": "2026-09-29T11:57:38+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586853",
+      "title": "The Old Story of Yu Hong 2026 S01 Complete 2160p WEB-DL DoVi H265 10bit DDP5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 15955803504,
+      "seeders": 0,
+      "upload_time": "2026-09-29T11:24:19+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586851",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DV DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第1-9集",
+          "IQ)4K",
+          "杜比视界",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "DV"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 6463925780,
+      "seeders": 24,
+      "upload_time": "2026-09-29T11:18:50+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586850",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第1-9集",
+          "IQY)4K",
+          "国语",
+          "主演"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 14538464296,
+      "seeders": 36,
+      "upload_time": "2026-09-29T11:01:54+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586849",
+      "title": "The Old Story of Yu Hong S01 2026 2160p WEB-DL H.265 HDR 60fps DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第1-9集",
+          "IQY)4K",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hant",
+          "zh-Hans"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 8053063680,
+      "seeders": 30,
+      "upload_time": "2026-09-29T11:01:30+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586848",
+      "title": "The Old Story of Yu Hong S01 2026 2160p IQ WEB-DL H.265 DDP5.1-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第1-9集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 4670776934,
+      "seeders": 51,
+      "upload_time": "2026-09-29T11:01:11+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586847",
+      "title": "The Old Story of Yu Hong S01 2026 1080p IQ WEB-DL H.264 AAC2.0-CHDWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [
+          "于洪 第1-9集",
+          "国语"
+        ],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": null,
+        "resolution": "1080p",
+        "video_codec": "H.264",
+        "hdr": [],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "AAC"
+        ],
+        "subtitle_languages": [
+          "zh",
+          "zh-Hans",
+          "zh-Hant",
+          "en"
+        ],
+        "subtitle_carriers": [
+          "embedded"
+        ],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [
+          "iqiyi"
+        ],
+        "release_group": "CHDWEB"
+      },
+      "size_bytes": 2405181685,
+      "seeders": 37,
+      "upload_time": "2026-09-29T11:00:50+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586846",
+      "title": "The Old Story of Yu Hong 2026 S01 Complete 2160p WEB-DL HDRVivid H265 10bit DDP5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR Vivid"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 14291503677,
+      "seeders": 0,
+      "upload_time": "2026-09-29T10:46:26+00:00"
+    },
+    {
+      "site_id": "chdbits",
+      "torrent_id": "586827",
+      "title": "The Old Story of Yu Hong 2026 S01 Complete 2160p WEB-DL 60Fps HDRVivid H265 10bit DDP5.1-UBWEB",
+      "attrs": {
+        "media_type": "tv",
+        "content_type": null,
+        "titles_zh": [
+          "余红旧事",
+          "余红",
+          "野火春风",
+          "于洪"
+        ],
+        "titles_en": [
+          "The Old Story of Yu Hong"
+        ],
+        "title_candidates": [],
+        "year": 2026,
+        "seasons": [
+          1
+        ],
+        "episodes": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "episodes_total": null,
+        "complete": true,
+        "resolution": "2160p",
+        "video_codec": "H.265",
+        "hdr": [
+          "HDR Vivid"
+        ],
+        "media_source": "WEB-DL",
+        "remux": false,
+        "audio": [
+          "DDP"
+        ],
+        "subtitle_languages": [
+          "zh"
+        ],
+        "subtitle_carriers": [],
+        "audio_languages": [
+          "cmn"
+        ],
+        "platforms": [],
+        "release_group": "UBWEB"
+      },
+      "size_bytes": 7816840478,
+      "seeders": 1,
+      "upload_time": "2026-09-29T10:15:58+00:00"
+    }
+  ]
+}

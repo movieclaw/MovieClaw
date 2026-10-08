@@ -72,6 +72,9 @@ final class TVStagePreview {
     @ObservationIgnored private var ended = false
     @ObservationIgnored private var framed = false
 
+    /// 这一段放到哪儿了（0～1）：首页卡片行让位时露出的那条进度线读它。播放器的位置不是可观察的，读的一方自己定时刷新
+    var progress: Double { player?.progress ?? 0 }
+
     /// 有一层大图挂着画面、且没被滚走、没被打断。没有大图（条目连剧照、海报都没有）就不放：否则只有声音没有画面
     private var visible: Bool {
         guard interruptions.isEmpty, let surfaceOwner else { return false }
@@ -323,7 +326,7 @@ final class TVStagePreview {
     }
 }
 
-/// 大图上挂预告画面的那一层（放在 `TVStageImage` 里剧照之上、压暗之下）。
+/// 大图上挂预告画面的那一层（放在 `TVStageBackdrop` 里剧照之上、压暗之下，与剧照一起套下沿渐隐）。
 /// 只有讲的正是在放的那一部、并且是最后出现的那一层时才把引擎画面挂上来
 struct TVStagePreviewLayer: View {
     let key: Int

@@ -52,7 +52,7 @@ struct WebhookSettingsView: View {
 
     private func content(_ config: API.WebhookConfigView) -> some View {
         Form {
-            Section {
+            SettingsFormSection {
                 SettingsBIntro(text: "播放、收藏等事件发生后，MovieClaw 会向下面配置的地址推送 JSON（自有协议带 HMAC-SHA256 签名，头 X-MovieClaw-Signature），供 Home Assistant、观影记录等外部服务实时订阅。")
                 if let error {
                     SettingsBNotice(text: error, tone: .danger)
@@ -60,7 +60,7 @@ struct WebhookSettingsView: View {
             }
 
             if let revealed {
-                Section {
+                SettingsFormSection {
                     Text("「\(revealed.name)」的签名密钥（仅显示这一次，请立即保存）")
                         .font(.subheadline.weight(.medium))
                         .foregroundStyle(Theme.success)
@@ -77,7 +77,7 @@ struct WebhookSettingsView: View {
                 }
             }
 
-            Section {
+            SettingsFormSection {
                 Toggle(isOn: Binding(mcGet: { config.enabled }, set: { value in Task { await toggleGlobal(value) } })) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("启用事件推送")
@@ -88,7 +88,7 @@ struct WebhookSettingsView: View {
                 .accessibilityIdentifier("webhook-global-toggle")
             }
 
-            Section {
+            SettingsFormSection {
                 if config.endpoints.isEmpty {
                     VStack(spacing: 10) {
                         Image(systemName: "paperplane").font(.title2).foregroundStyle(Theme.accent)
@@ -432,9 +432,9 @@ private struct SettingsBWebhookEditor: View {
         NavigationStack {
             Form {
                 if let error {
-                    Section { SettingsBNotice(text: error, tone: .danger) }
+                    SettingsFormSection { SettingsBNotice(text: error, tone: .danger) }
                 }
-                Section {
+                SettingsFormSection {
                     SettingsBTextField(label: "显示名", text: $draft.name, placeholder: "如 Home Assistant", identifier: "webhook-name")
                     SettingsBTextField(label: "目标地址", text: $draft.url, placeholder: "http://192.168.1.10:8123/api/webhook/xxx",
                                        mono: true, keyboard: .URL, identifier: "webhook-url")
@@ -442,7 +442,7 @@ private struct SettingsBWebhookEditor: View {
                         .accessibilityIdentifier("webhook-draft-enabled")
                 }
 
-                Section {
+                SettingsFormSection {
                     Picker("外发格式", selection: Binding(mcGet: { draft.format }, set: setFormat)) {
                         Text("自有协议（HMAC 签名）").tag("movieclaw")
                         Text("Jellyfin 兼容（模板渲染）").tag("jellyfin")
@@ -458,14 +458,14 @@ private struct SettingsBWebhookEditor: View {
                 }
 
                 if draft.format == "jellyfin" {
-                    Section("Handlebars 模板（支持 {{Var}} 与 if_equals / if_exist / link_to / url_encode / json_encode）") {
+                    SettingsFormSection("Handlebars 模板（支持 {{Var}} 与 if_equals / if_exist / link_to / url_encode / json_encode）") {
                         TextField("{\n  \"event\": \"{{NotificationType}}\",\n  \"title\": {{json_encode Name}}\n}", text: $draft.template, axis: .vertical)
                             .font(.footnote.monospaced())
                             .lineLimit(6...14)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                     }
-                    Section("附加请求头（每行一条，如 Authorization: Bearer xxx；可留空）") {
+                    SettingsFormSection("附加请求头（每行一条，如 Authorization: Bearer xxx；可留空）") {
                         TextField("", text: $draft.headersText, axis: .vertical)
                             .font(.footnote.monospaced())
                             .lineLimit(2...6)
@@ -477,7 +477,7 @@ private struct SettingsBWebhookEditor: View {
                 ForEach(groups, id: \.name) { group in
                     let usable = group.entries.filter(selectable)
                     let allOn = !usable.isEmpty && usable.allSatisfy { draft.events.contains($0.event) }
-                    Section {
+                    SettingsFormSection {
                         ForEach(group.entries, id: \.event) { entry in
                             let enabled = selectable(entry)
                             Toggle(isOn: Binding(
@@ -504,7 +504,7 @@ private struct SettingsBWebhookEditor: View {
                     }
                 }
 
-                Section("网络出口") {
+                SettingsFormSection("网络出口") {
                     Picker("网络出口", selection: $draft.egressScope) {
                         Text("内网直连（默认）").tag("lan")
                         Text("跟随代理配置").tag("wan")
@@ -514,7 +514,7 @@ private struct SettingsBWebhookEditor: View {
                 }
 
                 if !draft.isNew && draft.format == "movieclaw" {
-                    Section {
+                    SettingsFormSection {
                         SettingsBValueRow(label: "签名密钥", value: secretMasked.isEmpty ? "（无）" : secretMasked, mono: true)
                         if let rotatedSecret {
                             VStack(alignment: .leading, spacing: 6) {
@@ -536,7 +536,7 @@ private struct SettingsBWebhookEditor: View {
                 }
 
                 if !draft.isNew {
-                    Section {
+                    SettingsFormSection {
                         Button("删除", role: .destructive) { Task { await delete() } }
                             .disabled(busy)
                             .accessibilityIdentifier("webhook-delete")

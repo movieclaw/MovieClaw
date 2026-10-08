@@ -1893,6 +1893,18 @@ nonisolated extension APIClient {
         return try await send("GET", "/push/me")
     }
 
+    /// 恢复一部片的推送
+    /// `DELETE /push/me/muted-items/{item_id}`
+    func pushMeMutedRemove(itemId: Int) async throws -> API.MyPushView {
+        return try await send("DELETE", "/push/me/muted-items/\(itemId)")
+    }
+
+    /// 这部片不再提醒（长按通知的快捷操作；只关推送，订阅照常下载）
+    /// `PUT /push/me/muted-items/{item_id}`
+    func pushMeMutedAdd(itemId: Int) async throws -> API.MyPushView {
+        return try await send("PUT", "/push/me/muted-items/\(itemId)")
+    }
+
     /// 改我的通知开关
     /// `PUT /push/me/preferences`
     func pushMePreferencesSet(body: API.PushPreferencesRequest) async throws -> API.MyPushView {
@@ -2063,6 +2075,18 @@ nonisolated extension APIClient {
     /// `GET /scrape/country-options`
     func scrapeCountries() async throws -> [API.CountryOption] {
         return try await send("GET", "/scrape/country-options")
+    }
+
+    /// Fanart.tv 图片来源的 Key 状态（不含明文）
+    /// `GET /scrape/fanart`
+    func scrapeFanartShow() async throws -> API.FanartStatusView {
+        return try await send("GET", "/scrape/fanart")
+    }
+
+    /// 验证并保存 Fanart.tv API Key（全站共用；验证不过不保存）
+    /// `PUT /scrape/fanart`
+    func scrapeFanartSetKey(body: API.FanartKeyPayload) async throws -> API.FanartStatusView {
+        return try await send("PUT", "/scrape/fanart", body: body)
     }
 
     /// 完整语种表（供「更多语言」搜索面板）

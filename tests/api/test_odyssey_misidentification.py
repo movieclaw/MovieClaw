@@ -10,7 +10,7 @@ Marcel Walz 的 88 分钟小成本片（tmdb=901，tt3559656）。片名一样�
 看到什么"。四条路径覆盖 docs/design/identity-confidence.md 的 P0–P5：
 
 - 场景 A：站点标了影片编号 → 系统自己挡下，用户全程无感（主路径）
-- 场景 B：站点没标编号 → 系统停下来问用户，两个按钮各走一边
+- 场景 B：站点没标编号 → 跳过该候选，知会一次且不要求用户操作
 - 场景 C：错配已经发生 → 入库时留痕，用户能看见
 - 场景 D：用户修正身份 → 原订阅复活，继续找它真正要的那部（客户反馈里那句
   "现在它已经各就各位啦"，在改动前其实并没有——订阅已经静默死亡）
@@ -233,17 +233,16 @@ async def test_scene_a_site_labels_imdb_so_the_wrong_film_never_gets_downloaded(
 
 
 # ---------------------------------------------------------------------------
-# 场景 B：站点没标编号 —— 停下来问用户
+# 场景 B：站点没标编号 —— 跳过并知会，订阅继续寻找
 # ---------------------------------------------------------------------------
 
 
-async def test_scene_b_no_id_anywhere_so_the_system_asks_instead_of_guessing(
+async def test_scene_b_no_id_anywhere_skips_and_informs_without_actions(
     db, monkeypatch
 ) -> None:
-    """站点没标编号，体积对两个片长又都解释得通——系统不猜，停下来问。
+    """站点没标编号，体积对两个片长又都解释得通——系统不猜，跳过候选。
 
-    用户看到的：待处理事项里多了一条，说清楚"有另一部同名同年的片，这个种子
-    分不出属于哪部"，两个按钮。
+    用户收到一次知会；没有下载按钮，也无需处理，订阅继续寻找。
     """
     _site_detail(monkeypatch, imdb_id=None)
     _twin_probe(monkeypatch, [WALZ_TWIN])
@@ -256,16 +255,13 @@ async def test_scene_b_no_id_anywhere_so_the_system_asks_instead_of_guessing(
         assert (await _wanted(session, sub.id)).status == WantedStatus.WANTED
         notice = (await session.execute(select(SystemNotice))).scalars().one()
         assert "奥德赛" in notice.title
-        assert "The Odyssey" in notice.message  # 告诉用户另一部叫什么
-        # 两个按钮要用的东西都在 payload 里
-        assert notice.payload["subscription_id"] == sub.id
-        assert notice.payload["site_id"] == "ssd"
-        assert notice.payload["torrent_id"] == "7788"
-        assert notice.payload["twins"][0]["tmdb_id"] == WALZ_TMDB
+        assert "无需你处理" in notice.message
+        assert notice.payload == {"subscription_id": sub.id, "media_item_id": sub.media_item_id}
+        assert notice.status == "resolved"
 
 
-async def test_scene_b1_user_says_yes_and_it_downloads(db, monkeypatch) -> None:
-    """用户点「就是这部，下载」——走的是既有的手动选种接口，不需要新端点。
+async def test_scene_b1_user_can_still_grab_manually(db, monkeypatch) -> None:
+    """用户另行进入手动选种时，仍可主动下载指定资源。
 
     用户的显式选择高于一切自动裁决：手动选种通道刻意不经过这些反证。
     """
@@ -277,15 +273,13 @@ async def test_scene_b1_user_says_yes_and_it_downloads(db, monkeypatch) -> None:
         sub = await _subscribe_to_nolan(session)
         row = await _walz_torrent_appears(session)
         await evaluate_and_dispatch(session, [row], source="被动匹配")
-        notice = (await session.execute(select(SystemNotice))).scalars().one()
 
-        # 前端拿 notice.payload 直接调既有接口
         covered = await grab_manual(
             session,
-            notice.payload["subscription_id"],
-            site_id=notice.payload["site_id"],
-            torrent_id=notice.payload["torrent_id"],
-            title=notice.payload["torrent_title"],
+            sub.id,
+            site_id=row.site_id,
+            torrent_id=row.torrent_id,
+            title=row.title,
             attrs=TORRENT_ATTRS,
             size_bytes=TORRENT_SIZE,
         )
@@ -294,13 +288,8 @@ async def test_scene_b1_user_says_yes_and_it_downloads(db, monkeypatch) -> None:
         assert (await _wanted(session, sub.id)).status == WantedStatus.GRABBED
 
 
-async def test_scene_b2_user_says_no_and_is_never_asked_again(db, monkeypatch) -> None:
-    """用户点「不是，别再推荐」——走既有的告警忽略接口。
-
-    关键是**不再打扰**：下一轮匹配照样不投这个种子，但不会再点一次灯。
-    """
-    from movieclaw_api.api.routes.system_notices import dismiss_notice
-    from movieclaw_db.models import NoticeStatus
+async def test_scene_b2_repeat_evaluation_does_not_notify_again(db, monkeypatch) -> None:
+    """下一轮匹配仍跳过该候选，且不会再次知会。"""
 
     _site_detail(monkeypatch, imdb_id=None)
     _twin_probe(monkeypatch, [WALZ_TWIN])
@@ -308,15 +297,11 @@ async def test_scene_b2_user_says_no_and_is_never_asked_again(db, monkeypatch) -
         sub = await _subscribe_to_nolan(session)
         row = await _walz_torrent_appears(session)
         await evaluate_and_dispatch(session, [row], source="被动匹配")
-        notice = (await session.execute(select(SystemNotice))).scalars().one()
 
-        await dismiss_notice(notice.id, session)
-
-        # 下一轮匹配：既不投递，也不再点灯
         await evaluate_and_dispatch(session, [row], source="被动匹配")
         assert (await _wanted(session, sub.id)).status == WantedStatus.WANTED
         rows = (await session.execute(select(SystemNotice))).scalars().all()
-        assert len(rows) == 1 and rows[0].status == NoticeStatus.DISMISSED.value
+        assert len(rows) == 1 and rows[0].status == "resolved"
 
 
 # ---------------------------------------------------------------------------

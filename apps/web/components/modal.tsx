@@ -106,6 +106,7 @@ export function Modal({
   raised = false,
   topmost = false,
   panelClassName = "",
+  placement = "center",
   children,
 }: {
   /** false 时不渲染任何内容 */
@@ -122,6 +123,7 @@ export function Modal({
   topmost?: boolean;
   /** 追加到玻璃面板容器的类（定制布局，如 flex 限高列布局） */
   panelClassName?: string;
+  placement?: "center" | "right";
   children: ReactNode;
 }) {
   // Esc 关闭（冒泡阶段，可被上层弹窗的 capture 监听拦截，见文件头注释）。
@@ -161,7 +163,7 @@ export function Modal({
     // 调用方按视口给的 max-h-[N vh] 就可能超过容器，而 items-end 的溢出方向
     // 是**上**，头部与关闭按钮会被顶出屏幕且无法滚回（! 压过调用方的 max-h）。
     <div
-      className={`fixed inset-0 [bottom:calc(-1*var(--vp-overshoot))] ${topmost ? "z-[90]" : raised ? "z-[60]" : "z-50"} flex items-center justify-center p-6 max-md:items-end max-md:p-0`}
+      className={`fixed inset-0 [bottom:calc(-1*var(--vp-overshoot))] ${topmost ? "z-[90]" : raised ? "z-[60]" : "z-50"} flex ${placement === "right" ? "items-stretch justify-end p-0" : "items-center justify-center p-6"} max-md:items-end max-md:p-0`}
       // 键盘弹出时容器底边抬到键盘上沿（覆盖 className 里的 overshoot 负值）：
       // bottom sheet 随之整体上移、居中弹窗在剩余可见区内重新居中，输入框不再被遮
       style={keyboardInset > 0 ? { bottom: keyboardInset } : undefined}

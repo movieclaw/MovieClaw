@@ -93,7 +93,7 @@ def _normalize_state(state: str, *, completed: bool) -> str:
         return "stalled"
     if state == "queuedDL":
         return "queued"
-    if state == "checkingDL":
+    if state in ("checkingDL", "checkingUP", "checkingResumeData"):
         return "checking"
     if state in ("pausedDL", "stoppedDL"):
         return "paused"
@@ -251,9 +251,15 @@ class QBittorrentDownloader(BaseDownloader):
             # progress==1 即全部数据落盘（此后进入做种/完成态）
             completed=completed,
             save_path=torrent.save_path,
+            tags=[
+                tag.strip()
+                for tag in str(getattr(torrent, "tags", "") or "").split(",")
+                if tag.strip()
+            ],
             files=[
                 # f.name 是种子内相对路径（含子目录）
                 TorrentFile(
+                    index=int(getattr(f, "index", position)),
                     path=f.name,
                     size_bytes=int(f.size),
                     completed_bytes=max(
@@ -263,7 +269,7 @@ class QBittorrentDownloader(BaseDownloader):
                     # qB priority=0 表示“不下载”；其余值只区分优先级。
                     selected=int(getattr(f, "priority", 1)) > 0,
                 )
-                for f in files
+                for position, f in enumerate(files)
             ],
             size_bytes=size_bytes or None,
             dlspeed_bytes=int(getattr(torrent, "dlspeed", 0) or 0),
@@ -339,9 +345,7 @@ class QBittorrentDownloader(BaseDownloader):
                     eta_seconds=eta if 0 < eta < 8640000 else None,
                     state=_normalize_state(str(getattr(torrent, "state", "")), completed=completed),
                     error_message=(
-                        None
-                        if completed
-                        else _error_message(str(getattr(torrent, "state", "")))
+                        None if completed else _error_message(str(getattr(torrent, "state", "")))
                     ),
                 )
             )
@@ -521,7 +525,6 @@ class QBittorrentDownloader(BaseDownloader):
         client = self._client()
         with _translate_errors(self.config.url):
             client.torrents_resume(torrent_hashes=info_hash.lower())
-
 
     async def test_connection(self) -> DownloaderInfo:
         return await asyncio.to_thread(self._test_connection_sync)

@@ -1,16 +1,14 @@
 import AppKit
 
-/// 菜单栏图标：品牌标志（``BrandMark``，与网页 logo 同一个极光播放三角）的单色剪影。
+/// 菜单栏图标：转码器三角循环标志（``BrandMark``）的单色剪影。
 ///
 /// 菜单栏只认模板图（只用 alpha、由系统着色），所以不画渐变，只填满字形；字形用细笔画版，
-/// 并收在 16pt 的格子里——与 SF Symbols 及常见菜单栏图标（约 15～16pt 高、1.5～2pt 线宽）同一视觉分量。
+/// 18pt 画布内字形约 15pt 高、线宽 1.7pt，保留菜单栏源稿的边距。
 /// 用代码画而不是打包图片资源：任意倍率都清晰，也省掉一套 asset catalog 与
 /// bundle 查找的失败模式（`swift run` 不在 .app 里时尤其）。
 enum MenuBarIcon {
-    /// 菜单栏可用高度约 22pt。图片画布 18pt（右下角标要用这块地方），字形本身收在中间 16pt 里，
-    /// 画满 18pt 时比旁边的图标显大一号（实测其他菜单栏图标多为 15～16pt 高）。
+    /// 18pt 图片画布，三角循环轮廓和状态角标保持紧凑。
     private static let side: CGFloat = 18
-    private static let glyphSide: CGFloat = 16
 
     /// 右下角的状态角标。不点开面板也能看出 Worker 在干什么。
     enum Badge: Equatable {
@@ -40,7 +38,7 @@ enum MenuBarIcon {
     }
 
     /// 角标压在标志右下角：先挖掉一圈（与图标之间留出缝），再画角标本身，
-    /// 否则 18pt 下角标会和叶子粘成一团。
+    /// 否则 18pt 下角标会和循环轮廓粘成一团。
     private static func drawBadge(_ badge: Badge, in rect: NSRect) {
         guard badge != .none, let context = NSGraphicsContext.current else { return }
         let radius: CGFloat = 3.6
@@ -67,7 +65,6 @@ enum MenuBarIcon {
     }
 
     private static func draw(in rect: NSRect) {
-        let inset = (side - glyphSide) / 2
-        BrandMark.draw(in: rect.insetBy(dx: inset, dy: inset), template: true)
+        BrandMark.draw(in: rect, template: true)
     }
 }

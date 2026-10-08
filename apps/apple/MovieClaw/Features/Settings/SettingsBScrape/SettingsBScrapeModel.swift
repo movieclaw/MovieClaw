@@ -219,9 +219,9 @@ enum SettingsBScrapeNaming {
               fallback: "{title} ({year})", tokens: commonTokens, keyPath: \.namingEntryDir),
         .init(key: "naming_movie_file", label: "电影文件名", note: "",
               fallback: "{title} ({year})", tokens: commonTokens + fileAttrTokens, keyPath: \.namingMovieFile),
-        .init(key: "naming_season_dir", label: "季目录", note: "必须包含 {season}",
+        .init(key: "naming_season_dir", label: "季目录", note: "",
               fallback: "Season {season:02d}", tokens: commonTokens + ["season", "season_name"], keyPath: \.namingSeasonDir),
-        .init(key: "naming_episode_file", label: "剧集文件名", note: "必须包含 {season} 与 {episode}",
+        .init(key: "naming_episode_file", label: "剧集文件名", note: "",
               fallback: "{title} ({year}) - S{season:02d}E{episode:02d}",
               tokens: commonTokens + fileAttrTokens + ["season", "season_name", "episode", "episode_title"],
               keyPath: \.namingEpisodeFile),
@@ -295,20 +295,6 @@ enum SettingsBScrapeNaming {
         let unknown = used.filter { !field.tokens.contains($0) }
         if !unknown.isEmpty {
             return "不可用的占位符：\(unknown.map { "{\($0)}" }.joined(separator: "、"))"
-        }
-        switch field.key {
-        case "naming_entry_dir", "naming_movie_file":
-            if !used.contains(where: { $0 == "title" || $0 == "original_title" }) {
-                return "必须包含 {title} 或 {original_title}，否则不同影片会重名"
-            }
-        case "naming_season_dir":
-            if !used.contains("season") { return "必须包含 {season}，否则不同季的同集号文件会互相覆盖" }
-        case "naming_episode_file":
-            if !(used.contains("season") && used.contains("episode")) {
-                return "必须包含 {season} 与 {episode}，否则同一部剧的多集会互相覆盖"
-            }
-        default:
-            break
         }
         return nil
     }

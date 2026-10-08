@@ -1,13 +1,23 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 
 import Link from "next/link";
 
 import type { MediaSearchItem } from "@/lib/api/discover";
 import { searchTitles } from "@/lib/api/search";
 import { BrandLoader } from "@/components/brand-loader";
+import { CheckIcon, ListIcon, SparklesIcon, XIcon } from "@/components/icons";
+import { Modal } from "@/components/modal";
 import { RuleSetsPanel } from "@/components/rule-sets-panel";
+import { SmartSubscriptionSettings } from "@/components/smart-subscription-settings";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SettingsList,
+  SettingsRow,
+  SettingsSection,
+} from "@/components/settings-ui";
 import {
   checkSubscriptionAutomationReadiness,
   previewSubscriptionDownloadRouting,
@@ -19,24 +29,38 @@ import {
   type PipelineIssue,
 } from "@/lib/api/subscriptions";
 
-/**
- * 订阅规则（设置 → 订阅规则）：订阅相关配置的家。
- *
- * 两个住户：
- * - 模拟一单：搜一部片，把路由选库/投递落点/入库方式完整预演一遍，
- *   不真正订阅——让用户主动验证自己对系统的理解；
- * - 规则组：完整管理入口（新建/编辑/删除，见 rule-sets-panel.tsx）。
- *
- * 链路体检（PipelineHealthPanel）原本也住这里，设置页按功能重组后升级为
- * 「概览」落地页的主体（settings-overview-section.tsx）——它体检的是整条
- * 链路而非订阅规则本身，放在设置入口处让问题主动找人。面板仍定义在本文件：
- * 它与模拟一单共享状态语义（STATUS_META）与修复跳转（fixTarget）。
- */
+/** 规则设置分区浏览，不改变订阅使用的模式；保留切换前未保存的表单。 */
 export function SubscriptionSettingsSection() {
+  const [tab, setTab] = useState<"smart" | "rules">("smart");
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const tabId = useId();
+  const tabs = [{ id: "smart", label: "智能选择", Icon: SparklesIcon }, { id: "rules", label: "自定义规则", Icon: ListIcon }] as const;
+
   return (
-    <div className="space-y-10">
-      <SimulatePanel />
-      <RuleSetsPanel />
+    <div className="space-y-6">
+      <div role="tablist" aria-label="订阅规则设置" className="grid grid-cols-2 border-b border-[var(--line)]">
+        {tabs.map(({ id, label, Icon }, index) => (
+          <button key={id} type="button" role="tab" id={`${tabId}-${id}`} aria-controls={`${tabId}-${id}-panel`} aria-selected={tab === id} tabIndex={tab === id ? 0 : -1}
+            onClick={() => setTab(id)}
+            onKeyDown={(event) => {
+              if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+              event.preventDefault();
+              const next = event.key === "Home" ? 0 : event.key === "End" ? 1 : 1 - index;
+              setTab(tabs[next].id);
+              event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus();
+            }}
+            className={`flex min-h-12 items-center justify-center gap-2 border-b-2 px-3 pb-3 text-ui font-semibold transition-colors ${tab === id ? "border-[var(--accent)] text-[var(--text)]" : "border-transparent text-[var(--text-muted)] hover:text-[var(--text)]"}`}>
+            <Icon className="size-4" />{label}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" id={`${tabId}-smart-panel`} aria-labelledby={`${tabId}-smart`} hidden={tab !== "smart"}>
+        <SmartSubscriptionSettings />
+      </div>
+      <div role="tabpanel" id={`${tabId}-rules-panel`} aria-labelledby={`${tabId}-rules`} hidden={tab !== "rules"}>
+        <RuleSetsPanel onPreview={() => setPreviewOpen(true)} />
+      </div>
+      {previewOpen && <RuleMatchPreview onClose={() => setPreviewOpen(false)} />}
     </div>
   );
 }
@@ -119,27 +143,27 @@ export function PipelineHealthPanel() {
   const issueKeys = new Set((health?.issues ?? []).map((i) => i.key));
 
   return (
-    <section>
-      <div className="mb-2 flex items-center justify-between">
-        <h3 className="text-body font-semibold text-white/90">订阅链路体检</h3>
+    <SettingsSection
+      title="订阅链路体检"
+      description={
+        setupNeeded
+          ? "把订阅跑起来需要三步，完成后这里会变成链路体检。"
+          : "逐库预演「资源搜索 → 下载 → 投递 → 入库」的完整链路，与真实投递同一套判定。红点表示订阅会卡在那一步（工单不会丢，修好后自动重试）；黄点能转但有降级。修改配置后回到本页会自动重检。"
+      }
+      action={
         <button
           type="button"
           onClick={reload}
           disabled={busy}
-          className="btn-glass flex items-center gap-1.5 px-3 py-1.5 text-sub font-medium disabled:opacity-60"
+          className={`${SETTINGS_BUTTON_CLASS} flex items-center gap-1.5`}
         >
           {busy && (
             <span className="size-3 animate-spin rounded-full border-2 border-white/20 border-t-white/70" />
           )}
           重新体检
         </button>
-      </div>
-      <p className="mb-4 text-sub leading-6 text-[var(--text-muted)]">
-        逐库预演「资源搜索 → 下载 → 投递 → 入库」的完整链路，与真实投递同一套判定。
-        红点表示订阅会卡在那一步（工单不会丢，修好后自动重试）；黄点能转但有降级。
-        修改配置后回到本页会自动重检。
-      </p>
-
+      }
+    >
       {failed && (
         <p className="rounded-xl bg-white/[0.03] px-4 py-5 text-center text-ui text-[var(--text-muted)]">
           体检加载失败，请重试
@@ -170,7 +194,7 @@ export function PipelineHealthPanel() {
           ))}
         </div>
       )}
-    </section>
+    </SettingsSection>
   );
 }
 
@@ -203,44 +227,40 @@ function SetupChecklist({ health }: { health: PipelineHealth }) {
     },
   ];
   return (
-    <div className="rounded-xl border border-white/[0.08] bg-white/[0.04] p-4">
-      <p className="mb-3 text-ui font-medium text-white/90">
-        把订阅跑起来需要三步（完成后这里会变成链路体检）：
-      </p>
-      <div className="space-y-2">
+    <>
+      <SettingsList>
         {steps.map((step, i) => (
-          <div key={step.label} className="flex items-center gap-3">
-            <span
-              className={`flex size-5 shrink-0 items-center justify-center rounded-full text-caption font-semibold ${
-                step.done ? "bg-[var(--ok)]/20 text-[var(--ok)]" : "bg-white/10 text-white/70"
-              }`}
-            >
-              {step.done ? "✓" : i + 1}
-            </span>
-            <span className="min-w-0 flex-1">
+          <SettingsRow
+            key={step.label}
+            leading={
               <span
-                className={`text-ui font-medium ${step.done ? "text-white/50 line-through" : "text-white/90"}`}
+                className={`flex size-6 shrink-0 items-center justify-center rounded-full text-caption font-semibold ${
+                  step.done ? "bg-[var(--ok)]/20 text-[var(--ok)]" : "bg-white/10 text-white/70"
+                }`}
               >
+                {step.done ? <CheckIcon className="size-3.5" /> : i + 1}
+              </span>
+            }
+            label={
+              <span className={step.done ? "text-[var(--text-faint)] line-through" : undefined}>
                 {step.label}
               </span>
-              <span className="ml-2 text-caption text-[var(--text-faint)]">{step.hint}</span>
-            </span>
+            }
+            description={step.hint}
+          >
             {!step.done && (
-              <Link
-                href={step.href as never}
-                className="btn-glass shrink-0 px-3 py-1.5 text-sub font-medium"
-              >
+              <Link href={step.href as never} className={`${SETTINGS_BUTTON_CLASS} flex items-center`}>
                 {step.action}
               </Link>
             )}
-          </div>
+          </SettingsRow>
         ))}
-      </div>
-      <p className="mt-3 text-caption leading-relaxed text-[var(--text-faint)]">
+      </SettingsList>
+      <p className="mt-2 px-1 text-caption leading-5 text-[var(--text-faint)]">
         可选第四步：「自动入库」让下载区与媒体库分离（PT 保种推荐）——下载器落盘的
         内容自动硬链接进库，源文件继续做种。不配置则直接下载进库根，同样能自动入账。
       </p>
-    </div>
+    </>
   );
 }
 
@@ -323,7 +343,7 @@ function FixOptionBlock({ option, ordinal }: { option: FixOption; ordinal: numbe
       {href && (
         <Link
           href={href as never}
-          className="btn-glass mt-2.5 self-start px-3 py-1.5 text-sub font-medium"
+          className={`${SETTINGS_BUTTON_CLASS} mt-2.5 flex items-center self-start`}
         >
           {option.fix_label} →
         </Link>
@@ -548,140 +568,154 @@ function ProblemList({ checks }: { checks: PipelineCheck[] }) {
 }
 
 // ---------------------------------------------------------------------------
-// 模拟一单：搜一部片，把完整决策过程演一遍（不真正订阅）
+// 自定义规则的匹配与入库预览（不创建订阅或下载资源）
 // ---------------------------------------------------------------------------
 
-function SimulatePanel() {
+function RuleMatchPreview({ onClose }: { onClose: () => void }) {
   const [query, setQuery] = useState("");
   const [candidates, setCandidates] = useState<MediaSearchItem[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [picked, setPicked] = useState<MediaSearchItem | null>(null);
   const [preview, setPreview] = useState<DispatchPreview | null>(null);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
 
-  // 输入去抖搜索：只取带类型的 TMDB 条目（路由需要 movie/tv 先验）
+  // 关闭或换关键词后，忽略之前搜索与预览的返回结果。
   useEffect(() => {
-    if (timer.current) clearTimeout(timer.current);
+    let active = true;
+    requestId.current += 1;
     setPicked(null);
     setPreview(null);
-    if (query.trim().length < 2) {
-      setCandidates(null);
-      return;
-    }
-    timer.current = setTimeout(() => {
+    setError(null);
+    setCandidates(null);
+    setSearching(false);
+    if (query.trim().length < 2) return;
+    const timer = setTimeout(() => {
       setSearching(true);
       searchTitles(query.trim(), { provider: "tmdb" })
-        .then(({ items }) => setCandidates(items.filter((it) => it.type).slice(0, 6)))
-        .catch(() => setCandidates([]))
-        .finally(() => setSearching(false));
+        .then(({ items, providers }) => {
+          if (!active) return;
+          const failed = providers.find((provider) => !provider.success);
+          if (failed) setError(failed.message ?? "搜索失败，请重试");
+          else setCandidates(items.filter((it) => it.type).slice(0, 6));
+        })
+        .catch(() => { if (active) setError("搜索失败，请重新输入片名"); })
+        .finally(() => { if (active) setSearching(false); });
     }, 400);
-    return () => {
-      if (timer.current) clearTimeout(timer.current);
-    };
+    return () => { active = false; clearTimeout(timer); requestId.current += 1; };
   }, [query]);
 
   const pick = (item: MediaSearchItem) => {
     setPicked(item);
     setPreview(null);
+    setError(null);
     if (!item.type) return;
+    const current = ++requestId.current;
     void previewSubscriptionDownloadRouting(item.type, null, Number(item.id), {
       title: item.title,
       year: item.year,
     })
-      .then(setPreview)
-      .catch(() => setPreview(null));
+      .then((result) => { if (current === requestId.current) setPreview(result); })
+      .catch(() => { if (current === requestId.current) setError("预览失败，请重试"); });
   };
 
   return (
-    <section>
-      <h3 className="mb-2 text-body font-semibold text-white/90">模拟一单</h3>
-      <p className="mb-3 text-sub leading-6 text-[var(--text-muted)]">
-        搜一部片，看它订阅后会进哪个库、用哪个规则组、投递到哪、怎么入库——只做预演，
-        不会真的订阅。配完收藏范围或规则组的适用范围，在这里试一下就知道。
-      </p>
-      <input
-        type="text"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
-        placeholder="输入片名，如：葬送的芙莉莲"
-        autoComplete="off"
-        className="w-full rounded-xl border border-white/[0.08] bg-white/[0.04] px-3.5 py-2.5 text-ui text-[var(--text)] outline-none focus:border-[var(--accent)]/60"
-      />
-      {searching && (
-        <p className="mt-2 text-sub text-[var(--text-faint)]">正在搜索…</p>
-      )}
-      {candidates !== null && !searching && !picked && (
-        <div className="mt-2 flex flex-wrap gap-1.5">
-          {candidates.length === 0 && (
-            <p className="text-sub text-[var(--text-faint)]">没有找到条目，换个关键词试试</p>
-          )}
-          {candidates.map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              onClick={() => pick(item)}
-              className="glass-row nav-item !w-auto px-3 py-1.5 text-sub font-medium"
-            >
-              {item.title}
-              <span className="ml-1.5 text-[var(--text-faint)]">
-                {item.year ?? ""} {item.type === "movie" ? "电影" : "剧集"}
-              </span>
-            </button>
-          ))}
+    <Modal open onClose={onClose} label="规则与入库预览" width="lg">
+      <div className="p-5 sm:p-6">
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <h2 className="text-title font-semibold text-[var(--text)]">规则与入库预览</h2>
+          <button type="button" onClick={onClose} aria-label="关闭预览" className="btn-glass -mr-2 grid size-11 shrink-0 place-items-center"><XIcon className="size-5" /></button>
         </div>
-      )}
-      {picked && (
-        <div className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3">
-          <p className="text-ui font-medium text-white/90">
-            《{picked.title}》{picked.year ? ` (${picked.year})` : ""}
-          </p>
-          {preview === null ? (
-            <p className="mt-2 text-sub text-[var(--text-faint)]">正在预演…</p>
-          ) : (
-            <div className="mt-2 space-y-1.5">
-              <SimStep
-                n={1}
-                text={
-                  preview.route_reason ??
-                  (preview.library_name ? `入库到「${preview.library_name}」` : "没有可用的媒体库")
-                }
-              />
-              {preview.rule_set_reason && (
-                <SimStep n={2} text={preview.rule_set_reason} />
-              )}
-              <SimStep
-                n={preview.rule_set_reason ? 3 : 2}
-                text={
-                  preview.mode === "watch"
-                    ? preview.staging_path
-                      ? `投递到自动入库的监听目录 ${preview.path}，下载完成后识别改名并整理到 ${preview.staging_path}`
-                      : `投递到自动入库的监听目录 ${preview.path}，下载完成后自动整理入库`
-                    : preview.mode === "inplace"
-                      ? // 条目目录由后端按命名模板渲染，前端不自己拼「标题 (年份)」
-                        `直接下载到库内目录 ${(preview.entry_dir ?? preview.path)?.replace(/\/+$/, "")}，完成后自动入账`
-                      : "落到下载器默认目录（不会自动入库）"
-                }
-              />
-              {preview.staging_path && (
+        <p className="mb-4 text-sub leading-relaxed text-[var(--text-muted)]">选择一部作品，查看匹配的自定义规则组与入库位置。仅预览配置，不创建订阅或下载资源。</p>
+        <input
+          type="search"
+          aria-label="搜索预览作品"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="输入片名，如：葬送的芙莉莲"
+          autoComplete="off"
+          className={`${SETTINGS_INPUT_CLASS} w-full`}
+        />
+        {error && <p role="alert" className="mt-3 text-sub text-[var(--danger)]">{error}{picked && <button type="button" onClick={() => pick(picked)} className="ml-3 underline">重试预览</button>}</p>}
+        {searching && (
+          <p className="mt-2 text-sub text-[var(--text-faint)]">正在搜索…</p>
+        )}
+        {candidates !== null && !searching && !picked && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {candidates.length === 0 && (
+              <p className="text-sub text-[var(--text-faint)]">没有找到条目，换个关键词试试</p>
+            )}
+            {candidates.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => pick(item)}
+                className="glass-row nav-item !w-auto px-3 py-1.5 text-sub font-medium"
+              >
+                {item.title}
+                <span className="ml-1.5 text-[var(--text-faint)]">
+                  {item.year ?? ""} {item.type === "movie" ? "电影" : "剧集"}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+        {picked && (
+          <div className="mt-3 rounded-xl border border-white/[0.08] bg-white/[0.04] px-4 py-3">
+            <p className="text-ui font-medium text-white/90">
+              《{picked.title}》{picked.year ? ` (${picked.year})` : ""}
+            </p>
+            {error ? null : preview === null ? (
+              <p className="mt-2 text-sub text-[var(--text-faint)]">正在预演…</p>
+            ) : (
+              <div className="mt-2 space-y-1.5">
+                {preview.rule_set_reason && <SimStep n={1} text={preview.rule_set_reason} />}
                 <SimStep
-                  n={preview.rule_set_reason ? 4 : 3}
-                  text="等待文件进入媒体库根目录后自动扫描入账（上传/转存等外部流转由你的工具完成）"
+                  n={preview.rule_set_reason ? 2 : 1}
+                  text={
+                    preview.route_reason ??
+                    (preview.library_name ? `入库到「${preview.library_name}」` : "没有可用的媒体库")
+                  }
                 />
-              )}
-              {preview.ok ? (
-                <p className="flex items-center gap-1.5 pt-1 text-sub font-medium text-[var(--ok)]">
-                  ✓ 全链路可行：订阅后即可自动下载并整理入库
-                </p>
-              ) : (
-                <p className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-sub leading-relaxed text-amber-200">
-                  {preview.warning}
-                </p>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </section>
+                <details className="py-1 text-sub text-[var(--text-muted)]">
+                  <summary className="cursor-pointer py-1">下载与入库详情</summary>
+                  <div className="mt-2 space-y-2">
+                <SimStep
+                  n={preview.rule_set_reason ? 3 : 2}
+                  text={
+                    preview.mode === "watch"
+                      ? preview.staging_path
+                        ? `投递到自动入库的监听目录 ${preview.path}，下载完成后识别改名并整理到 ${preview.staging_path}`
+                        : `投递到自动入库的监听目录 ${preview.path}，下载完成后自动整理入库`
+                      : preview.mode === "inplace"
+                        ? // 条目目录由后端按命名模板渲染，前端不自己拼「标题 (年份)」
+                          `直接下载到库内目录 ${(preview.entry_dir ?? preview.path)?.replace(/\/+$/, "")}，完成后自动入账`
+                        : "落到下载器默认目录（不会自动入库）"
+                  }
+                />
+                {preview.staging_path && (
+                  <SimStep
+                    n={preview.rule_set_reason ? 4 : 3}
+                    text="等待文件进入媒体库根目录后自动扫描入账（上传/转存等外部流转由你的工具完成）"
+                  />
+                )}
+                  </div>
+                </details>
+                {preview.ok ? (
+                  <p className="flex items-center gap-1.5 pt-1 text-sub font-medium text-[var(--ok)]">
+                    ✓ 规则与入库配置可用
+                  </p>
+                ) : (
+                  <p className="rounded-lg border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-sub leading-relaxed text-amber-200">
+                    {preview.warning}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 
@@ -691,7 +725,7 @@ function SimStep({ n, text }: { n: number; text: string }) {
       <span className="mt-px flex size-4.5 shrink-0 items-center justify-center rounded-full bg-white/10 text-micro font-semibold text-white/70">
         {n}
       </span>
-      <span className="min-w-0 flex-1">{text}</span>
+      <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{text}</span>
     </p>
   );
 }

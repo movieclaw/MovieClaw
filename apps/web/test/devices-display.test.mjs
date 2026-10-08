@@ -142,14 +142,20 @@ test("设备按类型分组：人用的在前，程序代操作的其次，播�
   );
 });
 
-test("空组不出现；不认识的新类型与服务端同口径归入配对类", () => {
+test("空组保留；不认识的新类型与服务端同口径归入配对类", () => {
   assert.deepEqual(
     groupDevices([{ kind: "web" }]).map((g) => g.label),
-    ["浏览器"],
+    ["浏览器", "App", "命令行与转码器", "播放器"],
   );
+  assert.deepEqual(groupDevices([]).map((group) => group.devices.length), [0, 0, 0, 0]);
   assert.equal(deviceGroupKey("android"), "app");
   assert.equal(deviceGroupKey("tvos"), "app");
   assert.equal(deviceGroupKey("未来的新客户端"), "paired");
+});
+
+test("本机即使缺少活动时间也在线，与 iPhone 口径一致", () => {
+  assert.equal(deviceLive({ kind: "web", scope: "full", connected: false, last_seen_at: null, current: true }, NOW), true);
+  assert.equal(deviceLive({ kind: "ios", scope: "full", connected: false, last_seen_at: ago(6 * MINUTE), current: false }, NOW), false);
 });
 
 test("超过 90 天没活跃才提示，没有活跃记录按签发时间算", () => {

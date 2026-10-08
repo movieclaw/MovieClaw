@@ -59,7 +59,7 @@
   （按实际文件名大小写不敏感地解析），不拼接用户给的路径，杜绝路径穿越。
 - token 沿用现有的按 file_id 授权（12 小时）；取流字节照常记到活动页；管理员结束播放后的拒绝窗口照常生效。
 
-### 2.4 引擎（fork 补丁，登记在 `apps/apple/Vendor/AetherEngine/PATCHES.md`）
+### 2.4 引擎（fork 补丁，登记在 [fork 的 PATCHES.md](https://github.com/yipengfei329/AetherEngine/blob/main/PATCHES.md)）
 
 - **P4 镜像地址**：URL 片段 `#aether-disc-image` 声明「这是光盘镜像」，HTTP 源直接走镜像读取器，不再依赖 `.iso` 后缀
   （片段只在本机、不随请求发出）。

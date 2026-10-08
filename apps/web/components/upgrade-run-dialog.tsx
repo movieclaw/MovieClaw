@@ -54,6 +54,7 @@ export function UpgradeRunDialog({
   const { canManageSubscriptions } = usePermissions();
   const sheetForm = useSheetForm();
   const isMovie = detail.media.kind === "movie";
+  const isSmart = detail.selection_mode === "smart";
   const [ruleSets, setRuleSets] = useState<RuleSet[] | null>(null);
   const [ruleSetId, setRuleSetId] = useState<number | null>(null);
   const [creatingRuleSet, setCreatingRuleSet] = useState(false);
@@ -65,7 +66,7 @@ export function UpgradeRunDialog({
 
   useEffect(() => {
     // 成员不拉规则组列表（超管接口），直接按订阅现用组洗版
-    if (!canManageSubscriptions) return;
+    if (!canManageSubscriptions || isSmart) return;
     listRuleSets()
       .then((rules) => {
         setRuleSets(rules);
@@ -79,7 +80,7 @@ export function UpgradeRunDialog({
         }
       })
       .catch(() => setError("未能加载规则组列表，请稍后重试"));
-  }, [canManageSubscriptions, detail.rule_set_id]);
+  }, [canManageSubscriptions, detail.rule_set_id, isSmart]);
 
   const upgradeRules = useMemo(
     () => (ruleSets ?? []).filter((r) => upgradeTargetLabel(r.spec)),
@@ -104,7 +105,7 @@ export function UpgradeRunDialog({
   const paused = detail.status === "paused";
   const selectedRule = upgradeRules.find((r) => r.id === ruleSetId) ?? null;
   // 超管须选定一个带洗版目标的组；成员沿用订阅现用组，无需选择即可触发
-  const canRun = !canManageSubscriptions || !!selectedRule;
+  const canRun = isSmart ? !!detail.smart_policy?.allow_upgrade : !canManageSubscriptions || !!selectedRule;
 
   const run = async () => {
     if (!canRun) return;
@@ -177,7 +178,9 @@ export function UpgradeRunDialog({
           {paused && (
             <SheetNotice tone="warn">该订阅已暂停。触发洗版会先恢复追踪，随后开始搜索。</SheetNotice>
           )}
-          {!canManageSubscriptions ? (
+          {isSmart ? (
+            <p className="p-3 text-sub text-[var(--text-muted)]">按智能订阅保存的品质目标洗版，分辨率和片源同时达标并完成核验后停止。{!detail.smart_policy?.allow_upgrade && "本订阅未开启后续洗版。"}</p>
+          ) : !canManageSubscriptions ? (
             <SheetSection title="洗版目标" footer={MEMBER_RULE_SET_HINT}>
               <SheetRow label="按订阅当前的规则组洗版" />
             </SheetSection>
@@ -293,7 +296,9 @@ export function UpgradeRunDialog({
             {/* —— 规则组（洗版目标住在规则组上；只列带洗版目标的组）—— */}
             <div className="mt-4">
               <p className="text-sub font-semibold text-white/85">洗版目标</p>
-              {!canManageSubscriptions ? (
+              {isSmart ? (
+            <p className="p-3 text-sub text-[var(--text-muted)]">按智能订阅保存的品质目标洗版，分辨率和片源同时达标并完成核验后停止。{!detail.smart_policy?.allow_upgrade && "本订阅未开启后续洗版。"}</p>
+          ) : !canManageSubscriptions ? (
                 <div className="mt-2 rounded-xl border border-white/[0.08] bg-white/[0.03] px-4 py-3 text-sub leading-6 text-[var(--text-muted)]">
                   <span className="font-medium text-white/85">按订阅当前的规则组洗版。</span>
                   {MEMBER_RULE_SET_HINT}

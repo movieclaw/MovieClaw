@@ -232,7 +232,7 @@ async def _item_layer_fallbacks(
             path = Path(p)
             if path not in roots:
                 roots.append(path)
-    art = await asyncio.to_thread(local_item_artwork, roots, files, kind)
+    art = await asyncio.to_thread(local_item_artwork, roots, files, kind, media_kind=item.kind)
     return art, tmdb_path
 
 

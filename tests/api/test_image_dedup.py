@@ -12,6 +12,7 @@ import json
 import shutil
 
 import httpx
+import pytest
 import pytest_asyncio
 from PIL import Image
 from sqlmodel import select
@@ -33,7 +34,7 @@ from movieclaw_api.services.scrape_config import reset_scrape_config
 from movieclaw_api.settings import MetadataScrapeSetting
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
-from movieclaw_db.models import MediaItem
+from movieclaw_db.models import FileSource, LibraryFile, MediaItem
 from movieclaw_db.repositories import MediaItemRepository
 from movieclaw_db.repositories.library_repo import LibraryRepository
 
@@ -267,6 +268,53 @@ async def test_different_image_in_media_dir_is_not_adopted(env, tmp_path) -> Non
     assert tally.downloaded == 1 and tally.adopted == 2
     item_dir = assets_root() / str(item_id)
     assert (item_dir / "poster.jpg").read_bytes() == _render("/poster.jpg", "original")
+
+
+@pytest.mark.parametrize("flat", [False, True], ids=["season-dir", "flat"])
+async def test_series_poster_refresh_does_not_adopt_episode_sidecar(env, tmp_path, flat) -> None:
+    """只刷新海报时没有季档案，仍按 tv 身份排除分集图（issue #602）。"""
+    proxy = env
+    root = tmp_path / "media" / "tv"
+    entry = root / "剧 (2008)"
+    video = entry / ("" if flat else "Season 1") / "S01E01.mkv"
+    video.parent.mkdir(parents=True)
+    video.write_bytes(b"episode")
+    # 即使分集图能通过资产收编的字节数校验，也不属于剧集海报候选。
+    expected = _render("/poster.jpg", "original")
+    video.with_suffix(".jpg").write_bytes(expected)
+    async with get_database().session() as session:
+        library = await LibraryRepository(session).create(
+            name="剧集库", kind="tv", root_paths=[str(root)]
+        )
+        item = MediaItem(
+            kind="tv",
+            tmdb_id=1396,
+            title="剧",
+            original_title="Show",
+            year=2008,
+            poster_path="/poster.jpg",
+        )
+        session.add(item)
+        await session.flush()
+        item_id = item.id
+        session.add(
+            LibraryFile(
+                library_id=library.id,
+                media_item_id=item_id,
+                file_path=str(video),
+                season_number=1,
+                episode_number=1,
+                size_bytes=7,
+                container="mkv",
+                source=FileSource.SCANNED,
+            )
+        )
+        await session.commit()
+    tally = AssetTally()
+    await download_item_assets(item_id, only="poster", tally=tally)
+    assert tally.downloaded == 1 and tally.adopted == 0
+    assert proxy.heads == []
+    assert (assets_root() / str(item_id) / "poster.jpg").read_bytes() == expected
 
 
 async def test_original_from_other_scraper_is_adopted_then_shrunk(env, tmp_path) -> None:

@@ -63,7 +63,7 @@ struct SubscribeRequest: Hashable {
 
 /// 全局导航状态。页面通过 `@Environment(Router.self)` 拿到它来跳转。
 ///
-/// 每个标签页有独立的导航栈（切标签不丢各自的浏览位置）；
+/// 每个标签页有独立的导航栈；点按底栏标签回到对应首页。
 /// `push` 压到当前标签，`open(_:)` 按路由归属切到对应标签再压栈。
 @Observable
 final class Router {
@@ -72,6 +72,8 @@ final class Router {
         didSet { if selectedTab != oldValue { PerfTrace.pageBegan(selectedTab.rawValue, trigger: "tab") } }
     }
     var paths: [MainTab: [AppRoute]] = [:]
+    /// 发现的筛选结果位于根页面内，回首页时除退栈外还需要清空筛选。
+    private(set) var discoverHomeRequest = UUID()
     /// 全屏播放器
     var player: PlayRequest?
     /// 正在播放的控制器：放在这里而不是播放器视图的 @State 里——iOS 26 标签栏在旋转时会重建容器，
@@ -197,8 +199,15 @@ final class Router {
         paths[selectedTab] = path
     }
 
+    /// 用户点按底栏；程序路由仍通过 open / push 保留目标页面的参数。
+    func selectTab(_ tab: MainTab) {
+        selectedTab = tab
+        popToRoot()
+    }
+
     func popToRoot() {
         paths[selectedTab] = []
+        if selectedTab == .discover { discoverHomeRequest = UUID() }
     }
 
     func play(_ request: PlayRequest) {

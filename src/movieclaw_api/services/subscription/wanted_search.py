@@ -268,6 +268,12 @@ async def _search_one_media(media_id: int, budget: _SearchBudget) -> None:
                 select(Subscription).where(Subscription.media_item_id == media_id)
             )
         ).scalar_one_or_none()
+        if subscription and subscription.selection_mode == "smart":
+            from movieclaw_api.services.subscription.smart_profiles import read_policy
+            from movieclaw_api.services.subscription.smart_runtime import runtime_settings
+            runtime = await runtime_settings()
+            if not runtime.enabled or runtime.shadow_only or read_policy(subscription) is None:
+                return
         # 电影的调度地板：搜索未果后的退避不能早于"上映 + 宽限"——用户强制
         # 搜索一部未上映的电影后，档期要恢复原定节奏，而不是被 15 分钟起步的
         # 退避曲线打乱、在明知没资源的窗口里反复空搜。

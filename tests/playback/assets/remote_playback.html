@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<title>远程转码端到端验证</title>
+<button id="run">播放并验证</button>
+<video id="video" playsinline style="width:640px"></video>
+<pre id="result"></pre>
+<script type="module">
+import { createEngine, preloadHlsEngine } from "./engine.js";
+
+const query = new URLSearchParams(location.search);
+const video = document.querySelector("video");
+window.result = null;
+const ready = fetch("/api/v1/auth/login", {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ username: "admin", password: "E2e-only-password!" }),
+}).then(r => { if (!r.ok) throw Error("登录失败"); });
+
+document.querySelector("#run").onclick = async () => {
+  const measured = { waiting: 0, audio_peak: 0, frame_gaps: [], errors: [] };
+  let engine, session, audio, firstShown = false;
+  video.addEventListener("waiting", () => { if (firstShown) measured.waiting++; });
+  try {
+    // 静音输出，但实际解码音频并读取波形，不能只验证视频帧。
+    audio = new AudioContext();
+    await audio.resume();
+    const analyser = audio.createAnalyser();
+    const silent = audio.createGain();
+    silent.gain.value = 0;
+    audio.createMediaElementSource(video).connect(analyser).connect(silent).connect(audio.destination);
+    await ready;
+    if (query.has("xhr")) {
+      window.ReadableStream = undefined;
+      window.Response = undefined;
+    }
+    const started = performance.now();
+    preloadHlsEngine();
+    const from = Number(query.get("start") || 0);
+    const firstFrame = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(Error("首帧超时")), 20_000);
+      video.requestVideoFrameCallback((now, metadata) => {
+        clearTimeout(timer);
+        measured.first_frame_ms = now - started;
+        measured.first_media_time = metadata.mediaTime;
+        firstShown = true;
+        resolve();
+      });
+    });
+    const response = await fetch("/api/v1/playback/sessions", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        file_id: Number(query.get("file")), start_ms: from * 1000, max_height: 1080,
+        capability: {
+          video: [{ codec: "h264", max_height: 1080 }], audio: [{ codec: "aac" }],
+          containers: ["mp4", "hls-fmp4"],
+        },
+      }),
+    });
+    const body = await response.json();
+    if (!response.ok) throw Error(JSON.stringify(body));
+    session = body.data;
+    measured.tier = session.decision.tier;
+    measured.progressive_segments = session.progressive_segments;
+    engine = createEngine({
+      video, streamUrl: session.stream_url, container: "hls-fmp4", hasMse: true,
+      mse: "full", startPositionS: session.timeline === "file" ? session.start_ms / 1000 : 0,
+      progressiveSegments: session.progressive_segments === true,
+      telemetry: false, onFailed: (reason, cause) => measured.errors.push({ reason, cause }),
+    });
+    await engine.attach();
+    await video.play();
+    await firstFrame;
+    let previous;
+    const frame = (_now, metadata) => {
+      if (previous !== undefined && metadata.mediaTime - previous > 0.08) {
+        measured.frame_gaps.push([previous, metadata.mediaTime]);
+      }
+      previous = metadata.mediaTime;
+      if (!window.result) video.requestVideoFrameCallback(frame);
+    };
+    if (query.has("seek")) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const target = Number(query.get("seek"));
+      const seeking = performance.now();
+      const landed = new Promise((resolve, reject) => {
+        const timer = setTimeout(() => reject(Error("拖动落点超时")), 20_000);
+        const check = (now, metadata) => {
+          if (metadata.mediaTime < target - 0.1) {
+            video.requestVideoFrameCallback(check);
+            return;
+          }
+          clearTimeout(timer);
+          measured.seek_ms = now - seeking;
+          measured.seek_media_time = metadata.mediaTime;
+          resolve();
+        };
+        video.requestVideoFrameCallback(check);
+      });
+      engine.seek(target);
+      await landed;
+    }
+    video.requestVideoFrameCallback(frame);
+    const samples = new Float32Array(analyser.fftSize);
+    const deadline = performance.now() + 20_000;
+    while (!video.ended && performance.now() < deadline) {
+      analyser.getFloatTimeDomainData(samples);
+      measured.audio_peak = Math.max(measured.audio_peak, ...samples.map(Math.abs));
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    measured.ended = video.ended;
+    measured.duration = video.duration;
+    measured.current_time = video.currentTime;
+    measured.stats = engine.stats();
+    measured.media_requests = performance.getEntriesByType("resource")
+      .filter(r => r.name.includes(".m4s")).map(r => ({ url: new URL(r.name).pathname, partial: new URL(r.name).searchParams.get("partial") }));
+    const diagnostics = await fetch(
+      `/api/v1/playback/sessions/${session.session_id}/diagnostics?${session.stream_url.split("?")[1]}`,
+    ).then(r => r.json());
+    measured.diagnostics = diagnostics.data;
+  } catch (error) {
+    measured.error = error.message;
+  } finally {
+    engine?.destroy();
+    await audio?.close();
+    video.pause();
+    if (session) await fetch(`/api/v1/playback/sessions/${session.session_id}`, { method: "DELETE" });
+    window.result = measured;
+    document.querySelector("#result").textContent = JSON.stringify(measured, null, 2);
+  }
+};
+</script>
+</html>

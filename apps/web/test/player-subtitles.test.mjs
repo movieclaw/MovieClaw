@@ -52,8 +52,8 @@ test("没有语言标记时内封轨按序号命名，不至于几条长得一�
     [plan("embedded:0", "vtt"), plan("embedded:2", "vtt")],
     ["/a", "/b"],
   );
-  assert.match(options[0].label, /内封轨 0/);
-  assert.match(options[1].label, /内封轨 2/);
+  assert.match(options[0].label, /内封轨 1/);
+  assert.match(options[1].label, /内封轨 3/);
 });
 
 test("PGS 是可选轨：.sup 原样下发交 libbitsub，不追加 format 参数", () => {
@@ -148,4 +148,68 @@ test("cue 里的可执行标记不会被原样带出去", () => {
 
 test("多行 cue 的换行要留着", () => {
   assert.equal(plainCueText("第一行\n<b>第二行</b>"), "第一行\n第二行");
+});
+
+
+test("标题与语言、序号分开：同名轨、分隔符和标记不会影响选择", () => {
+  const title = "国配简体特效 · 蓝光修订版 · " + "保留屏幕文字🎬".repeat(60);
+  const { options } = planSubtitleTracks([
+    plan("embedded:3", "pgs", { title: `  ${title}  `, language: "chi", is_forced: true }),
+    plan("embedded:4", "pgs", { title, language: "chi", is_default: true }),
+    plan("external:film.ai.chs.srt", "vtt", { title: "AI 简体中文", language: "chs", is_ai: true }),
+  ], ["/a", "/b", "/c"]);
+  assert.equal(options[0].title, title);
+  assert.equal(options[1].title, title);
+  assert.equal(options[0].detail, "中文 · PGS 图形 · 内封轨 4 · 强制");
+  assert.equal(options[1].detail, "中文 · PGS 图形 · 内封轨 5 · 默认");
+  assert.equal(options[2].detail, "简体中文 · WebVTT · 外挂");
+  assert.equal(options[2].isAi, true);
+  assert.equal(pickInitialSubtitle(options, null), "embedded:4");
+  assert.equal(pickInitialSubtitle(options, "embedded:3"), "embedded:3");
+  const renamed = planSubtitleTracks([
+    plan("embedded:3", "pgs", { title: "改名", language: "chi" }),
+  ], ["/a"]).options;
+  assert.equal(pickInitialSubtitle(renamed, "embedded:3"), "embedded:3");
+});
+
+test("缺省、空白标题与未知语言回退到一基轨号，外挂回退文件名", () => {
+  for (const title of [undefined, null, "", " ", "\n\t\u3000"]) {
+    const { options } = planSubtitleTracks([
+      plan("embedded:0", "vtt", { title, language: "und" }),
+      plan("embedded:6", "ass", { title, language: "chi" }),
+      plan("external:film.chs.ass", "ass", { title }),
+    ], ["/a", "/b", "/c"]);
+    assert.equal(options[0].title, "内封轨 1");
+    assert.equal(options[0].detail, "未知语言 · WebVTT · 内封");
+    assert.equal(options[1].title, "内封轨 7");
+    assert.equal(options[1].detail, "中文 · ASS · 内封");
+    assert.equal(options[2].title, "film.chs.ass");
+    assert.equal(options[2].detail, "未知语言 · ASS · 外挂");
+  }
+});
+
+test("缺地址与不支持格式的轨仍保留完整标题，文本内容不作 HTML 处理", () => {
+  const title = '<img src=x onerror="alert(1)"> · 简英';
+  const result = planSubtitleTracks([
+    plan("embedded:0", "vtt", { title }),
+    plan("embedded:1", "vobsub", { title }),
+  ], ["", "/b"]);
+  assert.equal(result.options.length, 0);
+  assert.equal(result.unavailable.length, 2);
+  assert.ok(result.unavailable.every((track) => track.label.startsWith(title)));
+});
+
+
+test("大量同名字幕和中间缺地址仍按引用选轨，不串位", () => {
+  const plans = Array.from({ length: 200 }, (_, index) => plan(`embedded:${index}`, "vtt", {
+    title: "简英特效", language: "chi", is_default: index === 0,
+  }));
+  const urls = plans.map((_, index) => index === 17 ? "" : `/sub?track=${index}`);
+  const { options, unavailable } = planSubtitleTracks(plans, urls);
+  assert.equal(options.length, 199);
+  assert.equal(new Set(options.map((option) => option.ref)).size, 199);
+  assert.equal(unavailable[0].ref, "embedded:17");
+  assert.equal(options.find((option) => option.ref === "embedded:18").url, "/sub?track=18&format=vtt");
+  assert.equal(options.at(-1).detail, "中文 · WebVTT · 内封轨 200");
+  assert.equal(pickInitialSubtitle(options, "embedded:199"), "embedded:199");
 });

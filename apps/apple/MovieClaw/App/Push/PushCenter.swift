@@ -44,6 +44,7 @@ final class PushCenter: NSObject {
     /// App 启动时调用（AppDelegate 的 didFinishLaunching 返回前：点通知冷启动时，系统要在那之前拿到代理）
     func start() {
         UNUserNotificationCenter.current().delegate = self
+        PushActions.register()
         foregroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.willEnterForegroundNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -278,17 +279,34 @@ final class PushCenter: NSObject {
 // MARK: - 前台展示与点开
 
 extension PushCenter: UNUserNotificationCenterDelegate {
-    /// 在前台也照常横幅、进通知列表、响铃
+    /// 在前台也照常横幅、进通知列表、响铃；被动的（进度更新、开始下载这类）只进通知列表，和锁屏时一样不打扰
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler([.banner, .list, .sound])
+        completionHandler(notification.request.content.interruptionLevel == .passive ? [.list] : [.banner, .list, .sound])
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
                                             withCompletionHandler completionHandler: @escaping () -> Void) {
-        if response.actionIdentifier == UNNotificationDefaultActionIdentifier,
-           let target = PushTapTarget(userInfo: response.notification.request.content.userInfo, store: .shared) {
-            Task { @MainActor in PushCenter.shared.pendingTap = target }
+        let userInfo = response.notification.request.content.userInfo
+        switch response.actionIdentifier {
+        case UNNotificationDefaultActionIdentifier:
+            if let target = PushTapTarget(userInfo: userInfo, store: .shared) {
+                Task { @MainActor in PushCenter.shared.pendingTap = target }
+            }
+        case PushActions.mute:
+            guard let request = PushActions.MuteRequest(userInfo: userInfo) else { break }
+            // 在后台办完再告诉系统：系统给的时间够一次请求
+            nonisolated(unsafe) let done = completionHandler
+            Task { @MainActor in
+                await PushActions.mute(request)
+                done()
+            }
+            return
+        case let action:
+            // 播放、查看全部剧集：按明文里这个操作的 open 打开（播放链接直接起播）
+            if let target = PushTapTarget(userInfo: userInfo, store: .shared, action: action) {
+                Task { @MainActor in PushCenter.shared.pendingTap = target }
+            }
         }
         completionHandler()
     }

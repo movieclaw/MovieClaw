@@ -442,6 +442,8 @@ async def test_watcher_triggers_incremental_scan(db, tmp_path, monkeypatch) -> N
 
     watcher = watch_mod.LibraryWatcher()
     await watcher.start()
+    consumer = watcher._consumer
+    assert consumer is not None
     try:
         # 建 watch 已放后台（不阻塞应用启动），等它完成再造文件，
         # 否则事件可能发生在监听建立之前
@@ -461,6 +463,7 @@ async def test_watcher_triggers_incremental_scan(db, tmp_path, monkeypatch) -> N
         assert rows[0].file_path.endswith("Avatar.2009.1080p.mkv")
     finally:
         await watcher.stop()
+        assert consumer.done(), "停止监控后扫描任务仍未退出"
 
 
 def test_watcher_ignores_read_only_events() -> None:

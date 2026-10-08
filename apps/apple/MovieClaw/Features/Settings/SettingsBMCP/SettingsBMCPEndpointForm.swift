@@ -21,13 +21,15 @@ struct SettingsBMCPDraft: Equatable {
     }
 
     var timeoutSeconds: Int? { Int(timeout.trimmingCharacters(in: .whitespaces)) }
+    var timeoutValid: Bool { timeoutSeconds.map { (5 ... 900).contains($0) } ?? false }
+    var valid: Bool { !name.trimmingCharacters(in: .whitespaces).isEmpty && !services.isEmpty && timeoutValid }
 }
 
 /// 新建 / 编辑端点的字段区（对应 Web `EndpointForm`），产出若干 `Section`，嵌进调用方的 `Form`。
 ///
 /// 按「配置 ↔ 后果」重排：
 /// - 名称与地址标识（新建时即时校验格式与重名，不等提交换回 409）；
-/// - 工具形态做成两张对比卡（展开 / 折叠），差异（工具数、体积、调用样式）直接写在卡面；
+/// - 工具形态使用原生菜单，工具数、体积与说明随选择更新；
 /// - 服务选择器可搜索、已选置顶，每条两行（域名 + 说明），说明是判断该不该勾的唯一依据，不截断；
 /// - 「客户端将看到」：实时预览这套配置真实产出的工具面（`POST /mcp/endpoints/preview`，纯内存试算）。
 ///   Web 桌面放右栏，手机上顺延到最后一个 Section。
@@ -85,9 +87,9 @@ struct SettingsBMCPEndpointFields: View {
         basicSection
         modeSection
         servicesSection
-        Section {
+        SettingsFormSection {
             SettingsBNumberField(label: "单次调用超时（秒）", text: $draft.timeout, placeholder: "300", identifier: "mcp-form-timeout")
-        }
+        } footer: { Text(draft.timeoutValid ? "单次调用最多等待 5–900 秒。" : "请输入 5–900 之间的整数。") }
         previewSection
     }
 
@@ -95,7 +97,7 @@ struct SettingsBMCPEndpointFields: View {
 
     private var basicSection: some View {
         let slugError = Self.slugError(draft.slug, editable: slugEditable, taken: takenSlugs)
-        return Section {
+        return SettingsFormSection {
             SettingsBTextField(label: "端点名称", text: $draft.name, placeholder: "家庭影音助理", identifier: "mcp-form-name")
             VStack(alignment: .leading, spacing: 6) {
                 Text("地址标识" + (slugEditable ? "" : "（建成后不可改）"))
@@ -121,50 +123,26 @@ struct SettingsBMCPEndpointFields: View {
     // MARK: 工具形态
 
     private var modeSection: some View {
-        Section("工具形态") {
-            modeCard(expand: true, title: "展开", sample: "subscriptions_update",
-                     desc: "一条命令一个工具，参数带类型，模型照 schema 填",
-                     count: commandTotal, size: expandedBytes)
-            modeCard(expand: false, title: "折叠", sample: "subscriptions(command, params)",
-                     desc: "一个服务一个工具，工具少、占的上下文小",
-                     count: chosen.count, size: collapsedBytes)
-        }
-    }
-
-    private func modeCard(expand: Bool, title: String, sample: String, desc: String, count: Int, size: Int) -> some View {
-        let on = draft.expandTools == expand
-        return Button {
-            draft.expandTools = expand
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: on ? "largecircle.fill.circle" : "circle")
-                    .foregroundStyle(on ? Theme.accentStrong : Theme.textFaint)
-                    .padding(.top, 2)
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(title).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text)
-                        Spacer()
-                        Text(chosen.isEmpty ? "—" : "\(count) 个工具 · \(SettingsBMCPFormat.bytes(size))")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(Theme.textMuted)
-                    }
-                    Text(sample).font(.system(size: 11).monospaced()).foregroundStyle(Theme.accent)
-                    Text(desc).font(.caption).foregroundStyle(Theme.textMuted)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        SettingsFormSection {
+            Picker("工具形态", selection: $draft.expandTools) {
+                Text("展开").tag(true)
+                Text("折叠").tag(false)
             }
-            .contentShape(.rect)
+            .pickerStyle(.menu)
+            .accessibilityIdentifier("mcp-form-mode")
+            LabeledContent("工具数量", value: "\(toolCount) 个")
+            LabeledContent("定义大小", value: SettingsBMCPFormat.bytes(bytes))
+        } header: { Text("工具") } footer: {
+            Text(draft.expandTools
+                 ? "每条命令作为独立工具，模型直接填写参数。工具较多时可以改用折叠。"
+                 : "每个服务作为一个工具，调用时指定命令与参数，减少上下文占用。")
         }
-        .buttonStyle(.plain)
-        .listRowBackground(on ? Theme.accentSoft : nil)
-        .accessibilityIdentifier(expand ? "mcp-form-mode-expand" : "mcp-form-mode-collapse")
-        .accessibilityAddTraits(on ? .isSelected : [])
     }
 
     // MARK: 服务选择器
 
     private var servicesSection: some View {
-        Section {
+        SettingsFormSection {
             HStack(spacing: 8) {
                 Image(systemName: "magnifyingglass").foregroundStyle(Theme.textFaint)
                 TextField("搜索服务…", text: $query)
@@ -207,7 +185,7 @@ struct SettingsBMCPEndpointFields: View {
                     .contentShape(.rect)
                 }
                 .buttonStyle(.plain)
-                .listRowBackground(on ? Theme.accentSoft : nil)
+                .settingsRowBackground(on ? Theme.accentSoft : nil)
                 .accessibilityIdentifier("mcp-form-service-\(service.domain)")
                 .accessibilityAddTraits(on ? .isSelected : [])
             }
@@ -221,7 +199,7 @@ struct SettingsBMCPEndpointFields: View {
     // MARK: 实时后果
 
     private var previewSection: some View {
-        Section("客户端将看到") {
+        SettingsFormSection("客户端将看到") {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline, spacing: 4) {
                     Text("\(toolCount)").font(.title.weight(.medium).monospacedDigit())
@@ -283,7 +261,7 @@ struct SettingsBMCPEndpointFields: View {
 
 // MARK: - 新建端点弹层
 
-/// 新建端点（Web `view.creating` 视图）：字段区 + 底栏「创建端点」。
+/// 新建端点：原生玻璃表单，右上角确认创建。
 /// 创建成功后弹层原地换成令牌专屏（令牌明文只在这一次响应里），确认保存后关闭并交给列表页推入详情。
 struct SettingsBMCPCreateSheet: View {
     let store: SettingsBMCPStore
@@ -294,12 +272,13 @@ struct SettingsBMCPCreateSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var draft = SettingsBMCPDraft()
     @State private var issued: API.EndpointCreatedView?
+    @State private var discarding = false
 
     private var takenSlugs: [String] { store.status?.endpoints.map(\.slug) ?? [] }
 
     private var canSubmit: Bool {
         !store.busy
-            && !draft.name.trimmingCharacters(in: .whitespaces).isEmpty
+            && draft.valid
             && !draft.slug.trimmingCharacters(in: .whitespaces).isEmpty
             && !draft.services.isEmpty
             && SettingsBMCPEndpointFields.slugError(draft.slug, editable: true, taken: takenSlugs) == nil
@@ -321,41 +300,24 @@ struct SettingsBMCPCreateSheet: View {
     }
 
     private var form: some View {
-        NavigationStack {
-            Form {
-                if let error = store.error {
-                    Section {
-                        SettingsBNotice(text: error, tone: .danger).accessibilityIdentifier("mcp-error")
-                    }
-                }
-                SettingsBMCPEndpointFields(
-                    draft: $draft,
-                    services: store.status?.services ?? [],
-                    baseUrl: store.status?.baseUrl ?? "",
-                    slugEditable: true,
-                    takenSlugs: takenSlugs
-                )
+        SubsSheetScaffold(title: "创建端点", onClose: {
+            if draft != SettingsBMCPDraft() { discarding = true } else { dismiss() }
+        }, confirm: SubsSheetConfirm(title: "创建端点", enabled: canSubmit,
+                                     busy: store.busy, identifier: "mcp-form-submit") {
+            Task { await submit() }
+        }) {
+            if let error = store.error {
+                SettingsFormSection { SettingsBNotice(text: error, tone: .danger).accessibilityIdentifier("mcp-error") }
             }
-            .scrollContentBackground(.hidden)
-            .navigationTitle("创建端点")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消", systemImage: "xmark") { dismiss() }
-                        .accessibilityIdentifier("mcp-form-cancel")
-                }
-            }
-            .safeAreaBar(edge: .bottom) {
-                SubsPrimaryButton(title: "创建端点", busy: store.busy, enabled: canSubmit, identifier: "mcp-form-submit") {
-                    Task { await submit() }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-            }
-            .background(Theme.background.opacity(0.35))
+            SettingsBMCPEndpointFields(draft: $draft, services: store.status?.services ?? [],
+                                      baseUrl: store.status?.baseUrl ?? "", slugEditable: true, takenSlugs: takenSlugs)
         }
-        .presentationBackground(.regularMaterial)
-        .interactiveDismissDisabled(store.busy)
+        .disabled(store.busy)
+        .interactiveDismissDisabled(store.busy || draft != SettingsBMCPDraft())
+        .alert("放弃未保存的修改？", isPresented: $discarding) {
+            Button("继续编辑", role: .cancel) { }
+            Button("放弃修改", role: .destructive) { dismiss() }
+        }
     }
 
     private func submit() async {

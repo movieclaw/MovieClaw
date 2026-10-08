@@ -230,9 +230,14 @@ class LibraryWatcher:
 
     async def stop(self) -> None:
         self._closed = True
-        for task in (self._consumer, self._startup, *self._rescan_tasks.values()):
-            if task is not None:
-                task.cancel()
+        tasks = [
+            task for task in (self._consumer, self._startup, *self._rescan_tasks.values())
+            if task is not None
+        ]
+        for task in tasks:
+            task.cancel()
+        # 扫描可能还在异步关闭数据库 session；等它退出再让调用方释放数据库。
+        await asyncio.gather(*tasks, return_exceptions=True)
         self._consumer = None
         self._startup = None
         self._rescan_tasks.clear()

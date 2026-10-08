@@ -562,6 +562,12 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
         do {
             let snapshot = try configurationStore.snapshot()
             let controller = SettingsWindowController(snapshot: snapshot)
+            controller.onSetMaxJobs = { [weak self] value in
+                guard let self, [.ready, .busy, .paused, .draining].contains(self.latestStatus?.state ?? .stopped) else {
+                    throw ConfigurationError.message("请先连接服务器，再修改并发上限")
+                }
+                self.supervisor.setMaxJobs(value)
+            }
             // 保存与配对是两回事：改地址不该动令牌，配对成功也不该改地址。
             // 分成两个回调，「改个端口结果掉线了」这种事就不会发生。
             controller.onSave = { [weak self] draft in
@@ -637,7 +643,6 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
         return old.nasURL != new.nasURL
             || old.workerID != new.workerID
             || old.ffmpegPath != new.ffmpegPath
-            || old.maxJobs != new.maxJobs
     }
 
     /// 配置变更后的统一收尾：刷新 ffmpeg 状态、菜单栏，并重启 Worker 连接。
@@ -670,6 +675,10 @@ final class MovieClawAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func apply(_ status: WorkerStatus) {
+        if [.ready, .busy, .paused, .draining].contains(status.state) {
+            configurationStore.rememberServerMaxJobs(status.maxJobs)
+            if let snapshot = try? configurationStore.snapshot() { settingsWindow?.update(snapshot: snapshot) }
+        }
         latestStatus = status
         menuBar.update(status: status, configured: isConfigured)
     }

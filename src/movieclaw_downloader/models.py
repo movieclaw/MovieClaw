@@ -118,6 +118,7 @@ class DownloaderLimits(BaseModel):
 class TorrentFile(BaseModel):
     """下载任务内的单个文件（路径是种子内相对路径）。"""
 
+    index: int | None = None
     path: str
     size_bytes: int
     # 单文件完成字节数是分批入库的权威证据。None 表示旧适配器没有提供，
@@ -192,6 +193,7 @@ class TorrentStatus(BaseModel):
     completed: bool
     save_path: str
     files: list[TorrentFile] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
     # 任务总体积（已选文件），未知为 None
     size_bytes: int | None = None
     # 当前下载速度（字节/秒），未知为 None

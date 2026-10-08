@@ -95,23 +95,45 @@ struct SubsSheetConfirm {
 struct SubsFittedDetents: ViewModifier {
     var ready = true
     var fullHeight = false
+    /// 导航弹窗由根表单提供尺寸，避免把子页的 ScrollView 当作根页面测量。
+    var contentHeight: CGFloat?
     @State private var measured: CGFloat = 0
     @State private var fitHeight: CGFloat?
     @State private var detent: PresentationDetent = .medium
+    @State private var previousDetent: PresentationDetent?
 
     private var fitDetent: PresentationDetent { fitHeight.map { .height($0) } ?? .medium }
 
     func body(content: Content) -> some View {
-        content
-            .onScrollGeometryChange(for: CGFloat.self) { geometry in
-                geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom
-            } action: { _, height in
-                measured = height
-                fit()
+        Group {
+            if contentHeight == nil {
+                content.onScrollGeometryChange(for: CGFloat.self) { geometry in
+                    geometry.contentSize.height + geometry.contentInsets.top + geometry.contentInsets.bottom
+                } action: { _, height in
+                    measured = height
+                    fit()
+                }
+            } else {
+                content
+            }
+        }
+            .onChange(of: contentHeight, initial: true) { _, height in
+                if let height {
+                    measured = height
+                    fit()
+                }
             }
             .onChange(of: ready) { fit() }
             .onChange(of: fullHeight, initial: true) { _, full in
-                if full { detent = .large }
+                if full {
+                    previousDetent = detent
+                    detent = .large
+                } else if let previousDetent {
+                    // 子页临时占满高度，返回时恢复原来的档位，不让简短的订阅摘要留下整屏空白。
+                    detent = previousDetent == .large ? .large : fitDetent
+                    self.previousDetent = nil
+                    fit()
+                }
             }
             .presentationDetents([fitDetent, .large], selection: $detent)
     }

@@ -1,0 +1,93 @@
+name: Android stability
+
+on:
+  # 分支列表同时含 main（上游主分支）与 android（本仓库开发分支）：合并到上游后，
+  # main 上的改动也照跑；只写 [android] 的话上游 CI 里这条永远不触发。
+  pull_request:
+    branches: [main, android]
+  push:
+    branches: [main, android]
+    paths:
+      - 'apps/android/**'
+      - '.github/workflows/android-stability.yml'
+      - '.github/workflows/release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  # PR 始终启动工作流，只按路径跳过构建，让 android-ok 可作为必需检查。
+  # push 已由上面的 paths 筛选，直接运行回归检查。
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      android: ${{ github.event_name == 'push' || steps.filter.outputs.android == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            android:
+              - 'apps/android/**'
+              - '.github/workflows/android-stability.yml'
+              - '.github/workflows/release.yml'
+
+  regression:
+    needs: changes
+    if: needs.changes.outputs.android == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      # 不装 android-actions/setup-android：ubuntu-latest 镜像自带 Android SDK 且许可证已接受
+      # （v3 动作的 sdkmanager --licenses 在 runner 上 exit 1，会把整条流水线卡在启动阶段）
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Native shutdown regression with sanitizers
+        run: bash apps/android/tests/native/run.sh
+      - name: Android scenario tests, lint and Exo-only APK
+        working-directory: apps/android
+        run: bash gradlew :app:testDebugUnitTest :app:assembleDebug :app:lintDebug -PskipNativeLibsDownload=true --stacktrace
+      # PR 构建只用临时测试证书，正式签名密钥仅交给 release 工作流。
+      - name: Verify full release packaging with an ephemeral certificate
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ci-test-password
+          ANDROID_KEY_ALIAS: movieclaw-ci
+          ANDROID_KEY_PASSWORD: ci-test-password
+        run: |
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/android-ci.p12"
+          trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
+          keytool -genkeypair -keystore "$ANDROID_KEYSTORE_PATH" -storetype PKCS12 \
+            -alias "$ANDROID_KEY_ALIAS" -keyalg RSA -keysize 2048 -validity 2 \
+            -dname 'CN=MovieClaw CI Test' -storepass:env ANDROID_KEYSTORE_PASSWORD \
+            -keypass:env ANDROID_KEY_PASSWORD -noprompt
+          bash apps/android/scripts/package-release.sh
+          python3 scripts/build-download-manifest.py --tag v0.0.0 \
+            --directory apps/android/build/release
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-regression-results
+          path: |
+            apps/android/app/build/reports/tests/
+            apps/android/app/build/reports/lint-results-debug.*
+            apps/android/app/build/outputs/apk/debug/
+
+  android-ok:
+    needs: [changes, regression]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总 Android 检查结果
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if ${{ needs.changes.result != 'success' || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then
+            echo "Android 检查失败或被取消"
+            exit 1
+          fi

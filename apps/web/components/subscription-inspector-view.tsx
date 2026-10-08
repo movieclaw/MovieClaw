@@ -1,5 +1,9 @@
 "use client";
+import { SmartSubscriptionStatus, SmartWantedSelection, type SmartSelectionContext } from "@/components/smart-subscription-status";
 
+import { smartSummary } from "@/components/smart-subscription-settings";
+import { smartWantedPresentation } from "@/lib/subscription-ui";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { useRouter } from "next/navigation";
@@ -200,7 +204,7 @@ export function SubscriptionInspectorView({
     hasInFlight ? 5000 : null,
     { leading: true },
   );
-  useVisiblePolling(reload, hasInFlight ? 30000 : null);
+  useVisiblePolling(reload, hasInFlight || detail?.selection_mode === "smart" ? 30000 : null);
 
   // 工单 → 进度组的索引（同一整季包的多集共享一个种子/一份进度）
   const downloadByHash = useMemo(() => {
@@ -493,7 +497,7 @@ export function SubscriptionInspectorView({
 
             {/* 配置不再做成一排同款胶囊，而是稳定的 label/value 信息列。
                 每列保持可扫读；超长季列表或规则名只在值行截断。 */}
-            <div className="mt-4 grid grid-cols-[repeat(auto-fit,minmax(80px,1fr))] gap-3 border-y border-white/[0.08] py-3 max-md:col-span-2 max-md:mt-1">
+            <div className={`mt-4 grid grid-cols-[repeat(auto-fit,minmax(80px,1fr))] gap-3 border-y border-white/[0.08] py-3 max-md:col-span-2 max-md:mt-1 ${detail.selection_mode === "smart" ? "max-md:grid-cols-2" : ""}`}>
               <SubscriptionFact
                 label="收录范围"
                 value={
@@ -510,7 +514,11 @@ export function SubscriptionInspectorView({
                   value={detail.follow_future ? "已开启" : "已关闭"}
                 />
               )}
-              {canManageSubscriptions && <SubscriptionFact label="规则组" value={ruleSetName} />}
+              {detail.selection_mode === "smart" && detail.smart_policy && <>
+                <SubscriptionFact label="智能目标" value={smartSummary(detail.smart_policy)} />
+                <SubscriptionFact label="后续洗版" value={detail.smart_policy.allow_upgrade ? "逐集达标核验后停止" : "关闭"} />
+              </>}
+              {canManageSubscriptions && detail.selection_mode !== "smart" && <SubscriptionFact label="规则组" value={ruleSetName} />}
             </div>
 
             <ProgressStrip progress={detail.progress} unitLabel={isMovie ? "部" : "集"} />
@@ -565,7 +573,7 @@ export function SubscriptionInspectorView({
                       onAdjust={() => setAdjusting(true)}
                       onUpgradeRun={() => setUpgradeRunning(true)}
                       onToggleFollowFuture={() => void toggleFollowFuture()}
-                      onSwitchRule={() => setSwitchingRule(true)}
+                      onSwitchRule={detail.selection_mode === "smart" ? undefined : () => setSwitchingRule(true)}
                       onTogglePause={() => void togglePause()}
                       onRemove={() => void remove()}
                     />
@@ -588,9 +596,11 @@ export function SubscriptionInspectorView({
 
       {/* —— 2. 单视图主体：搜索轮次摘要 → 按季分组的集履历 → 排查记录 —— */}
       <div className="mt-7 space-y-4">
+        <SmartSubscriptionStatus detail={detail} />
         <SearchRoundBar activities={activities} wanted={detail.wanted} />
         <WantedBreakdown
           wanted={detail.wanted}
+          smart={detail.selection_mode === "smart" ? { detail, canManage: canTune, onChanged: reload } : undefined}
           isMovie={isMovie}
           downloads={downloadByHash}
           failures={pendingFailures(activities)}
@@ -633,7 +643,7 @@ export function SubscriptionInspectorView({
             setManaging(false);
             void toggleFollowFuture();
           }}
-          onSwitchRule={() => {
+          onSwitchRule={detail.selection_mode === "smart" ? undefined : () => {
             setManaging(false);
             setSwitchingRule(true);
           }}
@@ -682,7 +692,7 @@ export function SubscriptionInspectorView({
         />
       )}
 
-      {canManageSubscriptions && switchingRule && (
+      {canManageSubscriptions && switchingRule && detail.selection_mode !== "smart" && (
         <RuleSetSwitchDialog
           ruleSets={ruleSets}
           currentId={detail.rule_set_id}
@@ -712,7 +722,7 @@ interface SubscriptionManageActionsProps {
   /** 打开「洗一轮版」弹层（quality-upgrade.md §13.5 的订阅详情入口） */
   onUpgradeRun: () => void;
   onToggleFollowFuture: () => void;
-  onSwitchRule: () => void;
+  onSwitchRule?: () => void;
   onTogglePause: () => void;
   onRemove: () => void;
 }
@@ -777,7 +787,7 @@ function SubscriptionManageMenu({
               {followFuture ? "关闭自动续订" : "开启自动续订"}
             </DropdownMenu.Item>
           )}
-          {canManageSubscriptions && (
+          {canManageSubscriptions && onSwitchRule && (
             <DropdownMenu.Item onSelect={onSwitchRule} className={itemClass}>
               更换规则组…
             </DropdownMenu.Item>
@@ -859,7 +869,7 @@ function SubscriptionManageSheet({
               onClick={onToggleFollowFuture}
             />
           )}
-          {canManageSubscriptions && (
+          {canManageSubscriptions && onSwitchRule && (
             <SheetRow icon={<ListIcon className={icon} />} label="更换规则组" chevron onClick={onSwitchRule} />
           )}
           {canTune && (
@@ -915,7 +925,7 @@ function SubscriptionManageSheet({
               <span>{followFuture ? "关闭自动续订" : "开启自动续订"}</span>
             </button>
           )}
-          {canManageSubscriptions && (
+          {canManageSubscriptions && onSwitchRule && (
             <button type="button" onClick={onSwitchRule} className={rowClass}>
               <span>更换规则组</span>
               <span aria-hidden className="text-white/35">›</span>
@@ -1425,6 +1435,7 @@ function defaultOpenSeasons(wanted: WantedItem[]): Set<number> {
  */
 function WantedBreakdown({
   wanted,
+  smart,
   isMovie,
   downloads,
   failures,
@@ -1433,6 +1444,7 @@ function WantedBreakdown({
   onAnnotated,
 }: {
   wanted: WantedItem[];
+  smart?: SmartSelectionContext;
   isMovie: boolean;
   /** info_hash → 实时下载快照（无在途工单时为空 Map） */
   downloads: Map<string, SubscriptionDownload>;
@@ -1580,6 +1592,7 @@ function WantedBreakdown({
                     <WantedRow
                       key={w.id}
                       wanted={w}
+                      smart={smart}
                       isMovie={isMovie}
                       download={w.info_hash ? downloads.get(w.info_hash) : undefined}
                       failure={failures.get(w.id)}
@@ -1697,7 +1710,7 @@ function milestonesOf(
       state: "now",
       time: w.search_attempts > 0 ? `已搜 ${w.search_attempts} 次` : "",
       det: wantedPresentation(w).note,
-      why: w.last_reject_reason ? `最近一次被拒：${w.last_reject_reason}` : undefined,
+      why: w.selection_state?.reason !== "identity_unconfirmed" && w.last_reject_reason ? `最近一次被拒：${w.last_reject_reason}` : undefined,
     });
   }
 
@@ -1726,7 +1739,7 @@ function milestonesOf(
       lab: "投递",
       state: "todo",
       time: "",
-      det: dispatchFailure ? "上次投递未成功，已退回队列" : "尚未找到符合规则组的资源",
+      det: dispatchFailure ? "上次投递未成功，已退回队列" : w.selection_state?.candidate_key ? "已有候选，等待选择与核验完成" : "尚未找到符合要求的资源",
       why: dispatchFailure?.message,
       src: lastTiming ? [lastTiming] : undefined,
     });
@@ -1819,7 +1832,7 @@ function stuckIndex(chain: Milestone[]): number {
  * （色块/色条都是对链语法的重复）：发光节点是链原生的选中指示器，站名染成
  * 同一状态色作文字锚点——一列中性站名里唯一有色的那个就是卡点。
  */
-function MilestoneChain({ chain, color }: { chain: Milestone[]; color: string }) {
+function MilestoneChain({ chain, color, selection }: { chain: Milestone[]; color: string; selection?: ReactNode }) {
   const stuck = stuckIndex(chain);
   return (
     /* 左缩进 76px = 行内边距 20 + 集号列 44 + 间距 12：链与行说明文字同列起步 */
@@ -1889,6 +1902,7 @@ function MilestoneChain({ chain, color }: { chain: Milestone[]; color: string })
               >
                 {m.det}
               </span>
+              {m.lab === "搜索" && selection}
               {m.why && (
                 <span className="basis-full text-caption leading-5 text-[#ff8a8a]/90">
                   {m.why}
@@ -1919,6 +1933,7 @@ function MilestoneChain({ chain, color }: { chain: Milestone[]; color: string })
  */
 function WantedRow({
   wanted: w,
+  smart,
   isMovie,
   download,
   failure,
@@ -1926,6 +1941,7 @@ function WantedRow({
   onToggle,
 }: {
   wanted: WantedItem;
+  smart?: SmartSelectionContext;
   isMovie: boolean;
   /** 该工单锚定种子的实时下载快照（仅在途工单有，5s 轮询更新） */
   download?: SubscriptionDownload;
@@ -2046,7 +2062,7 @@ function WantedRow({
       ) : (
         <div className={headerClass}>{header}</div>
       )}
-      {open && <MilestoneChain chain={chain} color={color} />}
+      {open && <MilestoneChain chain={chain} color={color} selection={smart ? <SmartWantedSelection {...smart} row={w} /> : undefined} />}
     </li>
   );
 }
@@ -2108,6 +2124,9 @@ function resourceTimingNote(timing: ResourceTiming | null, previous: boolean): s
 
 function wantedPresentation(w: WantedItem): { label: string; color: string; note: string } {
   if (w.status === "imported") {
+    if (w.selection_state?.target_reached && !w.upgrade?.active) {
+      return { label: "已入库", color: "var(--ok)", note: `${w.upgrade?.current_label ? `${w.upgrade.current_label} · ` : ""}已达标，已停止洗版` };
+    }
     // 洗版中（quality-upgrade.md §8.3）：已入库但规则组的洗版目标还没达到。
     // 标签与差距文案由后端统一生成（当前档 → 目标档），前端零拼接
     if (w.upgrade?.active) {
@@ -2152,6 +2171,8 @@ function wantedPresentation(w: WantedItem): { label: string; color: string; note
       note: `${formatRelativeTime(w.grabbed_at)}提交给下载器`,
     };
   }
+  const smart = smartWantedPresentation(w);
+  if (smart) return smart;
   // status === "wanted"：按调度语义解释它此刻卡在哪。
   // 文案刻意写短：徽标已经说清「是什么状态」，这一行只补「关键的那个时间点」。
   // 一屏几十行同状态的追踪项，把机制解释重复几十遍纯属噪音，窄屏上还会被截断

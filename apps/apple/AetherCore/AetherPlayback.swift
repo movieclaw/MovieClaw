@@ -71,6 +71,7 @@ public final class AetherPlayback {
         public let channels: Int
         public let isExternal: Bool
         public let isDefault: Bool
+        public let isForced: Bool
     }
 
     /// 诊断与看门狗用的读数快照（1 秒刷新一次的引擎遥测 + 当前状态）
@@ -157,6 +158,7 @@ public final class AetherPlayback {
     private var subtitleDelay: Double = 0
 
     public init() throws {
+        Self.configureEngine()
         engine = try AetherEngine()
         let container = PlaybackContainerView(playerView: playerView, subtitleView: subtitleView)
         view = container
@@ -178,6 +180,61 @@ public final class AetherPlayback {
     /// 开发期：字幕列表变化时把文字字幕连同 ASS 定位打到控制台（排查字幕摆放用）
     nonisolated(unsafe) public static var logsCues = false
 
+    /// 让 MovieClaw 的引擎配置生效（只做一次）。引擎 fork 的每个下游开关默认都是上游行为（方便逐项提交上游），
+    /// MovieClaw 用的那套在 `engineConfiguration` 里逐项打开。本类里碰引擎全局状态的入口（建实例、预连、预取、
+    /// 清缓存、各开关的读写）都先调它：片源字节缓存这类状态第一次用到时就定型了，刷片预取可能早于第一个引擎；
+    /// 开发期开关（`NativeEngine.prepareEngineEnvironment`）也总在它之后覆盖
+    public nonisolated static func configureEngine() { _ = engineConfiguration }
+
+    private nonisolated static let engineConfiguration: Void = {
+        AetherEngine.vodSegmentTargetSeconds = 2                  // P33
+        AetherEngine.vodFirstSegmentTargetSeconds = 1             // P3
+        AetherEngine.servesSegmentsProgressively = true           // P57
+        AetherEngine.declaresIndependentMediaSegments = true      // P59
+        AetherEngine.seekSnapDecodeBudgetSeconds = 0.2            // P36
+        AetherEngine.startSnapDecodeBudgetSeconds = 0.05          // P39
+        AetherEngine.presentsSDRAsSRGB = true                     // P60
+        AetherEngine.softwareClockIgnoresEarlyFirstSample = true  // P13
+        AetherEngine.parkSecondaryTrueHDDuringProbe = true        // P34
+        AetherEngine.cuePrewarmTargetsStart = true                // P45
+        AetherEngine.prefetchesMatroskaCues = true                // P49
+        AetherEngine.prefetchesMP4TailMoov = true                 // P54
+        AetherEngine.usesHostMatroskaCues = true                  // P58
+        AetherEngine.prioritizesIndexPrefetch = true              // P56
+        AetherEngine.waitsOnProgressingPrefetch = true            // P53
+        AetherEngine.skipsDetourOnSlowLink = true                 // P55
+        AetherEngine.persistsSourceByteCache = true               // P42
+        AetherEngine.sourceByteCacheKeepsSpareRuns = true         // P50
+        AetherEngine.sourceByteCacheTrimKeepsMetadata = true      // P51
+        // P32 的后台写盘引擎默认已开；这里不碰，它的 setter 会提前建出共享缓存
+    }()
+
+    /// 当前生效的引擎配置（单元测试核对 MovieClaw 那套没漏项）
+    public nonisolated static var engineConfigurationSnapshot: [String: String] {
+        configureEngine()
+        return [
+            "vodSegmentTargetSeconds": "\(AetherEngine.vodSegmentTargetSeconds)",
+            "vodFirstSegmentTargetSeconds": AetherEngine.vodFirstSegmentTargetSeconds.map { "\($0)" } ?? "nil",
+            "servesSegmentsProgressively": "\(AetherEngine.servesSegmentsProgressively)",
+            "declaresIndependentMediaSegments": "\(AetherEngine.declaresIndependentMediaSegments)",
+            "seekSnapDecodeBudgetSeconds": "\(AetherEngine.seekSnapDecodeBudgetSeconds)",
+            "startSnapDecodeBudgetSeconds": "\(AetherEngine.startSnapDecodeBudgetSeconds)",
+            "presentsSDRAsSRGB": "\(AetherEngine.presentsSDRAsSRGB)",
+            "softwareClockIgnoresEarlyFirstSample": "\(AetherEngine.softwareClockIgnoresEarlyFirstSample)",
+            "parkSecondaryTrueHDDuringProbe": "\(AetherEngine.parkSecondaryTrueHDDuringProbe)",
+            "cuePrewarmTargetsStart": "\(AetherEngine.cuePrewarmTargetsStart)",
+            "prefetchesMatroskaCues": "\(AetherEngine.prefetchesMatroskaCues)",
+            "prefetchesMP4TailMoov": "\(AetherEngine.prefetchesMP4TailMoov)",
+            "usesHostMatroskaCues": "\(AetherEngine.usesHostMatroskaCues)",
+            "prioritizesIndexPrefetch": "\(AetherEngine.prioritizesIndexPrefetch)",
+            "waitsOnProgressingPrefetch": "\(AetherEngine.waitsOnProgressingPrefetch)",
+            "skipsDetourOnSlowLink": "\(AetherEngine.skipsDetourOnSlowLink)",
+            "persistsSourceByteCache": "\(AetherEngine.persistsSourceByteCache)",
+            "sourceByteCacheKeepsSpareRuns": "\(AetherEngine.sourceByteCacheKeepsSpareRuns)",
+            "sourceByteCacheTrimKeepsMetadata": "\(AetherEngine.sourceByteCacheTrimKeepsMetadata)",
+        ]
+    }
+
     /// 接管引擎日志：一律进环形缓冲（Release 包也开，播放失败时随播放记录上报最近的若干行，
     /// 见 docs/design/playback-qoe.md §3.5）；`mirror` 时同步打到控制台（开发期，`EngineLog` 默认只进系统日志，
     /// 模拟器排查时看不到）。每行前面带开机以来的秒数（与 App 侧 `[NativeEngine]` 行同一时钟），拆起播各段耗时用。
@@ -193,92 +250,104 @@ public final class AetherPlayback {
 
     /// 点播换封装的分片目标时长（秒，引擎补丁 P33，默认 2）。宿主按它把窗口段数折回同样的缓冲时长
     public static var segmentTargetSeconds: Double {
-        get { AetherEngine.vodSegmentTargetSeconds }
-        set { AetherEngine.vodSegmentTargetSeconds = newValue }
+        get { configureEngine(); return AetherEngine.vodSegmentTargetSeconds }
+        set { configureEngine(); AetherEngine.vodSegmentTargetSeconds = newValue }
     }
 
     /// 主力通路跳转吸附关键帧的逐帧解码预算（秒，引擎补丁 P36，默认 0.2；≤ 0 关闭，真机新旧对照用）
     public static var seekSnapDecodeBudgetSeconds: Double {
-        get { AetherEngine.seekSnapDecodeBudgetSeconds }
-        set { AetherEngine.seekSnapDecodeBudgetSeconds = newValue }
+        get { configureEngine(); return AetherEngine.seekSnapDecodeBudgetSeconds }
+        set { configureEngine(); AetherEngine.seekSnapDecodeBudgetSeconds = newValue }
     }
 
     /// 起播 / 跳转后看缓冲过没过开播线的间隔（秒，引擎补丁 P28，默认 0.025；真机新旧对照用）
     public static var vodStartWitnessIntervalSeconds: Double {
-        get { AetherEngine.vodStartWitnessIntervalSeconds }
-        set { AetherEngine.vodStartWitnessIntervalSeconds = max(0.01, newValue) }
+        get { configureEngine(); return AetherEngine.vodStartWitnessIntervalSeconds }
+        set { configureEngine(); AetherEngine.vodStartWitnessIntervalSeconds = max(0.01, newValue) }
     }
 
     /// 起播落点吸附关键帧的逐帧解码预算（秒，引擎补丁 P39，默认 0.05；≤ 0 关闭，真机新旧对照用）
     public static var startSnapDecodeBudgetSeconds: Double {
-        get { AetherEngine.startSnapDecodeBudgetSeconds }
-        set { AetherEngine.startSnapDecodeBudgetSeconds = newValue }
+        get { configureEngine(); return AetherEngine.startSnapDecodeBudgetSeconds }
+        set { configureEngine(); AetherEngine.startSnapDecodeBudgetSeconds = newValue }
     }
 
     /// 预先和源站建好取源连接（引擎补丁 P43）：点播放时调，起播协商回来前把 TCP / TLS 握手做掉。
     /// url 是同一源站上任何一个便宜的地址（MovieClaw 用健康检查），headers 同装载时的
     public nonisolated static func preconnect(url: URL, headers: [String: String] = [:]) {
+        configureEngine()
         AetherEngine.preconnect(url: url, httpHeaders: headers)
     }
 
     /// MKV 文件头一到就按 SeekHead 把索引（Cues）先取回来（引擎补丁 P49，默认开；真机新旧对照时关掉）
     public static func setPrefetchesMatroskaCues(_ on: Bool) {
+        configureEngine()
         AetherEngine.prefetchesMatroskaCues = on
     }
 
     /// 读到在途的提前取（尾部预读 / MKV 索引）时，只要还在往回送就一直等（引擎补丁 P53，默认开；对照时关掉）
     public static func setWaitsOnProgressingPrefetch(_ on: Bool) {
+        configureEngine()
         AetherEngine.waitsOnProgressingPrefetch = on
     }
 
     /// MP4 的 moov 在文件尾时，文件头一到就并行取回来（引擎补丁 P54，默认开；对照时关掉）
     public static func setPrefetchesMP4TailMoov(_ on: Bool) {
+        configureEngine()
         AetherEngine.prefetchesMP4TailMoov = on
     }
 
     /// 实测线路慢到 4 MB 整块补取在限时内到不齐时，回跳直接重连流式读（引擎补丁 P55，默认开；对照时关掉）
     public static func setSkipsDetourOnSlowLink(_ on: Bool) {
+        configureEngine()
         AetherEngine.skipsDetourOnSlowLink = on
     }
 
     /// 点播分片边产出边送、分片内每 0.5 秒一个片段（引擎补丁 P57，默认开；对照时关掉）
     public static func setServesSegmentsProgressively(_ on: Bool) {
+        configureEngine()
         AetherEngine.servesSegmentsProgressively = on
     }
 
     /// 点播媒体播放列表也声明分片各自独立，跳转时 AVPlayer 直接要目标段（引擎补丁 P59，默认开；对照时关掉）
     public static func setDeclaresIndependentMediaSegments(_ on: Bool) {
+        configureEngine()
         AetherEngine.declaresIndependentMediaSegments = on
     }
 
     /// 服务端给了 MKV 精简索引就用它顶替原索引（引擎补丁 P58，默认开；对照时关掉）
     public static func setUsesHostMatroskaCues(_ on: Bool) {
+        configureEngine()
         AetherEngine.usesHostMatroskaCues = on
     }
 
     /// 冷打开时文件头先只要 512 KB，索引提前取在途时文件头不超前预读（引擎补丁 P56，默认开；对照时关掉）
     public static func setPrioritizesIndexPrefetch(_ on: Bool) {
+        configureEngine()
         AetherEngine.prioritizesIndexPrefetch = on
     }
 
     /// MKV 索引预热是否跳到起播点（引擎补丁 P45，默认开；关掉即上游的跳到片中间，真机新旧对照用）
     public static func setCuePrewarmTargetsStart(_ on: Bool) {
+        configureEngine()
         AetherEngine.cuePrewarmTargetsStart = on
     }
 
     /// 宿主自己管音频会话的类别、策略与多声道支持（引擎补丁 P47）：设为 true 后引擎建实例时不再重设类别
     public static var hostManagesAudioSessionCategory: Bool {
-        get { AetherEngine.hostManagesAudioSessionCategory }
-        set { AetherEngine.hostManagesAudioSessionCategory = newValue }
+        get { configureEngine(); return AetherEngine.hostManagesAudioSessionCategory }
+        set { configureEngine(); AetherEngine.hostManagesAudioSessionCategory = newValue }
     }
 
     /// 探测流时是否跳过第二条起的 TrueHD（引擎补丁 P34，默认开；真机新旧对照时关掉）
     public static func setParkSecondaryTrueHD(_ on: Bool) {
+        configureEngine()
         AetherEngine.parkSecondaryTrueHDDuringProbe = on
     }
 
     /// 片源字节缓存写盘是否放后台队列（引擎补丁 P32，默认开；真机新旧对照时关掉）
     public static func setByteCacheWritesInBackground(_ on: Bool) {
+        configureEngine()
         AetherEngine.sourceByteCacheWritesInBackground = on
     }
 
@@ -291,6 +360,7 @@ public final class AetherPlayback {
     public nonisolated static func prefetchSource(url: URL, cacheKey: String,
                                                   ranges: [(offset: Int64, length: Int64)],
                                                   headers: [String: String] = [:]) async -> Int64 {
+        configureEngine()
         let report = await AetherEngine.prefetchSourceRanges(
             url: url, cacheKey: cacheKey,
             ranges: ranges.map { SourceByteRange(offset: $0.offset, length: $0.length) },
@@ -690,7 +760,7 @@ public final class AetherPlayback {
 
     private static func track(_ info: TrackInfo) -> Track {
         Track(id: info.id, name: info.name, codec: info.codec, language: info.language, channels: info.channels,
-              isExternal: info.isExternal, isDefault: info.isDefault)
+              isExternal: info.isExternal, isDefault: info.isDefault, isForced: info.isForced)
     }
 
     // MARK: - 画中画 / 生命周期
@@ -722,6 +792,7 @@ public final class AetherPlayback {
     /// 清掉被杀掉的播放会话留在临时目录里的分片与包缓存、整理跨启动保留的片源字节缓存
     /// （每次 App 启动调一次即可，放后台线程）
     public nonisolated static func sweepStaleCaches() {
+        configureEngine()
         AetherEngine.sweepStaleSessionCaches()
     }
 
@@ -732,26 +803,31 @@ public final class AetherPlayback {
 
     /// 片源字节缓存是否跨启动保留（引擎补丁 P42，默认开）。要在建第一个引擎之前设，真机新旧对照用
     public nonisolated static func setPersistsSourceCache(_ on: Bool) {
+        configureEngine()
         AetherEngine.persistsSourceByteCache = on
     }
 
     /// 片源字节缓存每块另记一段暂存范围（引擎补丁 P50，默认开）。真机新旧对照用
     public nonisolated static func setSourceCacheKeepsSpareRuns(_ on: Bool) {
+        configureEngine()
         AetherEngine.sourceByteCacheKeepsSpareRuns = on
     }
 
     /// 启动整理跨启动缓存超额时先缩到只剩文件头尾的元数据、缩完仍超才整条删（引擎补丁 P51，默认开）。真机新旧对照用
     public nonisolated static func setSourceCacheTrimKeepsMetadata(_ on: Bool) {
+        configureEngine()
         AetherEngine.sourceByteCacheTrimKeepsMetadata = on
     }
 
     /// 删掉跨启动保留的片源字节缓存（引擎补丁 P50）：只能在建第一个引擎之前调，真机对照每次热身前清场用
     public nonisolated static func removePersistedSourceCache() {
+        configureEngine()
         AetherEngine.removePersistedSourceByteCache()
     }
 
     /// 片源字节缓存的记账立刻落盘（引擎补丁 P42）：App 进后台时调，下次启动续播认得最后几秒下过的字节
     public nonisolated static func flushSourceCacheIndexes() {
+        configureEngine()
         AetherEngine.flushSourceByteCacheIndexes()
     }
 

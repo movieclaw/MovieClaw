@@ -11,9 +11,14 @@
 
 import { useId, useState, type ReactNode } from "react";
 
-import { Banner, ErrorBanner, INPUT_CLASS, LINK_CLASS } from "@/components/cloud-push-ui";
+import { Banner, ErrorBanner, LINK_CLASS } from "@/components/cloud-push-ui";
 import { CheckIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
+import {
+  SETTINGS_BUTTON_CLASS,
+  SETTINGS_INPUT_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+} from "@/components/settings-ui";
 import {
   type PushChannelView,
   type PushChannelsView,
@@ -130,7 +135,7 @@ export function AddRelayDialog({
               type="button"
               disabled={busy != null || !url.trim()}
               onClick={() => void runProbe()}
-              className="btn-glass shrink-0 px-4 py-1.5 text-sub font-medium disabled:opacity-40"
+              className={SETTINGS_BUTTON_CLASS}
             >
               {busy === "probe" ? "检测中…" : "检测"}
             </button>
@@ -189,7 +194,7 @@ export function AddRelayDialog({
         </p>
 
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="btn-glass px-4 py-1.5 text-sub font-medium">
+          <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
             取消
           </button>
           <button
@@ -197,7 +202,7 @@ export function AddRelayDialog({
             disabled={blocker != null || busy != null}
             title={blocker ?? undefined}
             onClick={() => void save()}
-            className="btn-accent rounded-full px-4 py-1.5 text-sub font-semibold disabled:opacity-40"
+            className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
             {busy === "save" ? "保存中…" : "保存"}
           </button>
@@ -368,13 +373,13 @@ export function EditRelayDialog({
           )}
         </Field>
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose} className="btn-glass px-4 py-1.5 text-sub font-medium">
+          <button type="button" onClick={onClose} className={SETTINGS_BUTTON_CLASS}>
             取消
           </button>
           <button
             type="submit"
             disabled={!canSave || busy}
-            className="btn-accent rounded-full px-4 py-1.5 text-sub font-semibold disabled:opacity-40"
+            className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
             {busy ? "保存中…" : "保存"}
           </button>
@@ -383,6 +388,8 @@ export function EditRelayDialog({
     </Modal>
   );
 }
+
+const INPUT_CLASS = `${SETTINGS_INPUT_CLASS} w-full`;
 
 /** 表单字段：标签 + 输入 + 灰字说明。输入由调用方渲染，拿到关联标签的 id。 */
 function Field({

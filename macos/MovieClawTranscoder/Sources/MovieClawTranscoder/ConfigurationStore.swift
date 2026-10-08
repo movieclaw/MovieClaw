@@ -8,7 +8,6 @@ struct WorkerSettingsDraft: Sendable {
     var nasURL: String
     var workerID: String
     var ffmpegPath: String
-    var maxJobs: Int
     var autoConnect: Bool
 }
 
@@ -19,7 +18,6 @@ extension WorkerSettingsDraft {
             nasURL: snapshot.nasURL,
             workerID: snapshot.workerID,
             ffmpegPath: snapshot.ffmpegPath,
-            maxJobs: snapshot.maxJobs,
             autoConnect: snapshot.autoConnect
         )
     }
@@ -60,6 +58,8 @@ struct WorkerSettingsSnapshot: Sendable {
 /// * 令牌明文本身读到就在进程内缓存，同一次运行不重复读。
 final class ConfigurationStore: @unchecked Sendable {
     private let defaults: UserDefaults
+    // 只在本次运行缓存服务器回执；旧 UserDefaults 值仅用于首次升级迁移。
+    private var serverMaxJobs: Int
     /// 令牌明文的进程内缓存。`loaded` 单独存，因为「读过了，结果是没有」和
     /// 「还没读过」必须分得开——否则每次都会重读一遍。
     private var cachedTokenLoaded = false
@@ -68,6 +68,7 @@ final class ConfigurationStore: @unchecked Sendable {
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        self.serverMaxJobs = max(1, min(4, defaults.integer(forKey: Keys.maxJobs) == 0 ? 1 : defaults.integer(forKey: Keys.maxJobs)))
     }
 
     /// 有没有配过令牌。**不读钥匙串**，只看 UserDefaults 里的标记。
@@ -139,7 +140,7 @@ final class ConfigurationStore: @unchecked Sendable {
             ffmpegSource: source,
             managedFFmpegPath: managedPath,
             managedFFmpegVersion: defaults.string(forKey: Keys.managedFFmpegVersion),
-            maxJobs: max(1, min(4, defaults.integer(forKey: Keys.maxJobs) == 0 ? 1 : defaults.integer(forKey: Keys.maxJobs))),
+            maxJobs: serverMaxJobs,
             autoConnect: defaults.object(forKey: Keys.autoConnect) as? Bool ?? true,
             tokenConfigured: tokenConfigured,
             startupDownloadPromptDismissed: defaults.bool(forKey: Keys.startupDownloadPromptDismissed),
@@ -194,7 +195,6 @@ final class ConfigurationStore: @unchecked Sendable {
             managedPath == ffmpegPath ? FFmpegSource.managed.rawValue : FFmpegSource.custom.rawValue,
             forKey: Keys.ffmpegSource
         )
-        defaults.set(max(1, min(4, draft.maxJobs)), forKey: Keys.maxJobs)
         defaults.set(draft.autoConnect, forKey: Keys.autoConnect)
         return try loadConfiguration()
     }
@@ -203,6 +203,13 @@ final class ConfigurationStore: @unchecked Sendable {
     func saveToken(_ token: String) throws {
         try KeychainStore.saveToken(token)
         rememberToken(token)
+    }
+
+    func rememberServerMaxJobs(_ value: Int) {
+        serverMaxJobs = value
+        if defaults.object(forKey: Keys.maxJobs) != nil {
+            defaults.removeObject(forKey: Keys.maxJobs)
+        }
     }
 
     /// 记录已下载版本，但不改变当前正在使用的自定义 ffmpeg。
@@ -229,6 +236,7 @@ final class ConfigurationStore: @unchecked Sendable {
         for key in [Keys.nasURL, Keys.workerID, Keys.maxJobs, Keys.autoConnect] {
             defaults.removeObject(forKey: key)
         }
+        serverMaxJobs = 1
         if source == .managed, let managedPath {
             defaults.set(managedPath, forKey: Keys.ffmpegPath)
             defaults.set(FFmpegSource.managed.rawValue, forKey: Keys.ffmpegSource)

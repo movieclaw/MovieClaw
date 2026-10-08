@@ -1,0 +1,267 @@
+{
+  "date": "2026-10-06",
+  "environment": {
+    "chip": "Apple M2 Max",
+    "cpu_cores": 12,
+    "memory_gib": 64,
+    "ffmpeg": "8.1.2 upstream",
+    "client": "HeadlessChrome 154.0.0.0",
+    "hls_js": "1.7.1",
+    "network": "loopback; server and two native worker cores on one physical Mac",
+    "worker_max_jobs": [
+      2,
+      1
+    ]
+  },
+  "source": {
+    "type": "synthetic testsrc2 with AAC stereo",
+    "duration_s": 30,
+    "width": 3840,
+    "height": 2160,
+    "fps": 24,
+    "video_codec": "HEVC",
+    "bit_depth": 8,
+    "color": "SDR",
+    "video_bitrate_target_bps": 12000000
+  },
+  "output": {
+    "video_codec": "H.264",
+    "height": 1080,
+    "encoder": "h264_videotoolbox",
+    "filters": "CPU; scale_vt format option unavailable"
+  },
+  "timing": {
+    "start": "immediately before playback session API POST",
+    "end": "first requestVideoFrameCallback; page, login and HLS library already loaded",
+    "excluded": "full MovieClaw page initialization and browser capability probing",
+    "observation_seconds": {
+      "cold": 5,
+      "concurrent": 15,
+      "cached": 5
+    }
+  },
+  "results": [
+    {
+      "accepted_ms": 9,
+      "api_ms": 37.30000001192093,
+      "cache_hit": false,
+      "dispatch_ms": 1,
+      "dropped": 0,
+      "ffmpeg_ms": 7,
+      "file_id": 1,
+      "first_fragment_ms": 647,
+      "first_frame_ms": 1384.600000023842,
+      "first_segment_served_ms": 1139,
+      "frames": 123,
+      "label": "cold-1",
+      "last_landed_ms": 4247,
+      "output": {
+        "action": "transcode",
+        "bitrate_cap_bps": null,
+        "burn_subtitle": null,
+        "codec": "h264",
+        "height": 1080,
+        "tone_map": false
+      },
+      "played_seconds": 4.958934,
+      "waiting": 0,
+      "worker_id": "e2e-mac-0"
+    },
+    {
+      "accepted_ms": 2,
+      "api_ms": 12.699999988079073,
+      "cache_hit": false,
+      "dispatch_ms": 0,
+      "dropped": 0,
+      "ffmpeg_ms": 2,
+      "file_id": 2,
+      "first_fragment_ms": 458,
+      "first_frame_ms": 987.9320000238416,
+      "first_segment_served_ms": 934,
+      "frames": 124,
+      "label": "cold-2",
+      "last_landed_ms": 3949,
+      "output": {
+        "action": "transcode",
+        "bitrate_cap_bps": null,
+        "burn_subtitle": null,
+        "codec": "h264",
+        "height": 1080,
+        "tone_map": false
+      },
+      "played_seconds": 4.973906,
+      "waiting": 0,
+      "worker_id": "e2e-mac-0"
+    },
+    {
+      "accepted_ms": 3,
+      "api_ms": 14.600000023841858,
+      "cache_hit": false,
+      "dispatch_ms": 0,
+      "dropped": 0,
+      "ffmpeg_ms": 2,
+      "file_id": 3,
+      "first_fragment_ms": 462,
+      "first_frame_ms": 970.766,
+      "first_segment_served_ms": 934,
+      "frames": 123,
+      "label": "cold-3",
+      "last_landed_ms": 4049,
+      "output": {
+        "action": "transcode",
+        "bitrate_cap_bps": null,
+        "burn_subtitle": null,
+        "codec": "h264",
+        "height": 1080,
+        "tone_map": false
+      },
+      "played_seconds": 4.966267,
+      "waiting": 0,
+      "worker_id": "e2e-mac-0"
+    },
+    {
+      "accepted_ms": 3,
+      "api_ms": 14.900000035762789,
+      "cache_hit": false,
+      "dispatch_ms": 0,
+      "dropped": 0,
+      "ffmpeg_ms": 2,
+      "file_id": 4,
+      "first_fragment_ms": 560,
+      "first_frame_ms": 1967.1000000476852,
+      "first_segment_served_ms": 1904,
+      "frames": 363,
+      "label": "concurrent-1",
+      "last_landed_ms": 9860,
+      "last_segment": "seg00007.m4s",
+      "output": {
+        "action": "transcode",
+        "bitrate_cap_bps": null,
+        "burn_subtitle": null,
+        "codec": "h264",
+        "height": 1080,
+        "tone_map": false
+      },
+      "played_seconds": 14.958803,
+      "waiting": 0,
+      "worker_id": "e2e-mac-0"
+    },
+    {
+      "accepted_ms": 5,
+      "api_ms": 24.600000023841854,
+      "cache_hit": false,
+      "dispatch_ms": 0,
+      "dropped": 0,
+      "ffmpeg_ms": 2,
+      "file_id": 5,
+      "first_fragment_ms": 582,
+      "first_frame_ms": 1632.2999999761596,
+      "first_segment_served_ms": 1440,
+      "frames": 363,
+      "label": "concurrent-2",
+      "last_landed_ms": 6968,
+      "last_segment": "seg00007.m4s",
+      "output": {
+        "action": "transcode",
+        "bitrate_cap_bps": null,
+        "burn_subtitle": null,
+        "codec": "h264",
+        "height": 1080,
+        "tone_map": false
+      },
+      "played_seconds": 14.9577,
+      "waiting": 0,
+      "worker_id": "e2e-mac-0"
+    },
+    {
+      "accepted_ms": 5,
+      "api_ms": 21.69999998807907,
+      "cache_hit": false,
+      "dispatch_ms": 0,
+      "dropped": 0,
+      "ffmpeg_ms": 4,
+      "file_id": 6,
+      "first_fragment_ms": 678,
+      "first_frame_ms": 2238.5999999999985,
+      "first_segment_served_ms": 2042,
+      "frames": 363,
+      "label": "concurrent-3",
+      "last_landed_ms": 9864,
+      "last_segment": "seg00007.m4s",
+      "output": {
+        "action": "transcode",
+        "bitrate_cap_bps": null,
+        "burn_subtitle": null,
+        "codec": "h264",
+        "height": 1080,
+        "tone_map": false
+      },
+      "played_seconds": 14.95752,
+      "waiting": 0,
+      "worker_id": "e2e-mac-1"
+    },
+    {
+      "api_ms": 13.600000023841858,
+      "cache_hit": true,
+      "dropped": 0,
+      "file_id": 1,
+      "first_frame_ms": 62.30000003576288,
+      "first_segment_served_ms": 11,
+      "frames": 124,
+      "label": "cached-1",
+      "output": {
+        "action": "transcode",
+        "bitrate_cap_bps": null,
+        "burn_subtitle": null,
+        "codec": "h264",
+        "height": 1080,
+        "tone_map": false
+      },
+      "played_seconds": 4.973095,
+      "waiting": 0,
+      "worker_id": null
+    },
+    {
+      "api_ms": 13.199999988079073,
+      "cache_hit": true,
+      "dropped": 0,
+      "file_id": 2,
+      "first_frame_ms": 59.80000002384168,
+      "first_segment_served_ms": 8,
+      "frames": 123,
+      "label": "cached-2",
+      "output": {
+        "action": "transcode",
+        "bitrate_cap_bps": null,
+        "burn_subtitle": null,
+        "codec": "h264",
+        "height": 1080,
+        "tone_map": false
+      },
+      "played_seconds": 4.968657,
+      "waiting": 0,
+      "worker_id": null
+    },
+    {
+      "api_ms": 16.30000001192093,
+      "cache_hit": true,
+      "dropped": 0,
+      "file_id": 3,
+      "first_frame_ms": 63.765999988078875,
+      "first_segment_served_ms": 14,
+      "frames": 123,
+      "label": "cached-3",
+      "output": {
+        "action": "transcode",
+        "bitrate_cap_bps": null,
+        "burn_subtitle": null,
+        "codec": "h264",
+        "height": 1080,
+        "tone_map": false
+      },
+      "played_seconds": 4.972969,
+      "waiting": 0,
+      "worker_id": null
+    }
+  ]
+}

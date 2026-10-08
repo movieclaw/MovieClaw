@@ -35,6 +35,13 @@ from movieclaw_matcher.models import (
     UpgradeVerdict,
     hdr_effective_values,
 )
+from movieclaw_matcher.smart import (
+    SmartPolicy,
+    is_upgrade,
+    quality_vector,
+    target_met,
+    verified_target_met,
+)
 
 Entry = tuple[TorrentCandidate, IdentityMatch, RuleVerdict]
 
@@ -246,6 +253,8 @@ def effective_ladder(spec: RuleSetSpec) -> tuple[str, ...]:
     洗版全线哑火。resolution / source 恒有效：前者有内置默认偏好序，
     后者有内置片源档，都不依赖用户配置。
     """
+    if isinstance(spec, SmartPolicy):
+        return ("resolution", "source")
     dims = tuple(
         dim
         for dim in spec.upgrade_ladder
@@ -302,6 +311,8 @@ def ladder_vector(
     item: QualitySnapshot | TorrentAttrs, spec: RuleSetSpec
 ) -> tuple[int | None, ...]:
     """档位向量：逐位的位次，``None`` = 该维度未知（不可比，见 §2.4）。"""
+    if isinstance(spec, SmartPolicy):
+        return quality_vector(item)
     return tuple(_dimension_rank(item, dim, spec) for dim in effective_ladder(spec))
 
 
@@ -359,6 +370,9 @@ def covered_by_existing(
       名称也没标）。对来件一无所知时不做猜测性丢弃，交给调用方按"宁可
       进待处理"处理。
     """
+    if isinstance(spec, SmartPolicy):
+        rows = list(existing)
+        return any(not is_upgrade(incoming, row, spec) for row in rows) if rows else None
     if incoming.resolution is None:
         return None
     incoming_vector = ladder_vector(incoming, spec)
@@ -468,6 +482,8 @@ def quality_label(
 
 def upgrade_target_label(spec: RuleSetSpec) -> str | None:
     """洗版目标的人话标签（"2160p Remux · x265"）；未配置洗版返回 None。"""
+    if isinstance(spec, SmartPolicy):
+        return spec.target_label if spec.allow_upgrade else None
     if spec.upgrade_source is None:
         return None
     resolution, _ = _target(spec)
@@ -488,6 +504,13 @@ def provably_below_cutoff(snapshot: QualitySnapshot | None, spec: RuleSetSpec) -
     只有可证明"还差着"的单元才参与洗版排期——证明不了的（快照缺失、
     分辨率位次未知、同分辨率但片源未知）一律安静，不打扰站点。
     """
+    if isinstance(spec, SmartPolicy):
+        return bool(
+            spec.allow_upgrade
+            and snapshot
+            and None not in quality_vector(snapshot)
+            and not target_met(snapshot, spec)
+        )
     target = target_vector(spec)
     if target is None or snapshot is None:
         return False
@@ -501,6 +524,8 @@ def provably_at_cutoff(snapshot: QualitySnapshot | None, spec: RuleSetSpec) -> b
     （分辨率位次未知、同分辨率但片源未知）体检报告要如实展示为
     「无法确认」，不能冒充"已达目标"。
     """
+    if isinstance(spec, SmartPolicy):
+        return bool(snapshot and verified_target_met(snapshot, spec))
     target = target_vector(spec)
     if target is None or snapshot is None:
         return False
@@ -518,6 +543,17 @@ def compare_upgrade(
     判定链与 ``provably_*`` 共用 ``compare_ladder``，本函数只额外负责把
     "在哪一位上定的序"翻译成人话——每次拒绝永远只解释一个维度（§14.7）。
     """
+    if isinstance(spec, SmartPolicy):
+        accepted = is_upgrade(candidate.attrs, snapshot, spec)
+        return UpgradeVerdict(
+            accepted=accepted,
+            current_label=quality_label(snapshot),
+            candidate_label=quality_label(candidate.attrs),
+            reason_code=None if accepted else "smart_not_upgrade",
+            reason_text=None
+            if accepted
+            else "尚不能证明两个品质维度均不退步且至少一项提升，或已达到停止目标",
+        )
     if spec.upgrade_source is None:
         raise ValueError("规则组未配置洗版目标，不应调用洗版比较")
 
