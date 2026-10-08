@@ -23,6 +23,7 @@ import logging
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Any
 
 import httpx
@@ -70,11 +71,17 @@ class _EntrySettings:
     act_as: str | None = None
 
 
-def _operation_index(app: Any) -> dict[str, Any]:
-    """本进程应用的操作目录：与 CLI / MCP 同一入选口径（有 operationId、非隐藏、非流式）。"""
+@lru_cache(maxsize=1)
+def _operation_index() -> dict[str, Any]:
+    """操作目录：与 CLI / MCP 同一份基线 spec、同一入选口径（有 operationId、非隐藏、非流式）。
+
+    读构建期导出的基线（部署产物里一定有，且与代码同版），不现场 ``app.openapi()``：
+    现算整份 spec 在 NAS 上要好几秒，而插件第一次拿凭证正是在启动过程中。
+    """
+    from movieclaw_api.services.spec_catalog import load_spec
     from movieclaw_mcp.catalog import _build_operation
 
-    spec = app.openapi()
+    spec = load_spec()
     index: dict[str, Any] = {}
     for path, methods in (spec.get("paths") or {}).items():
         for method, op in methods.items():
@@ -111,7 +118,7 @@ class HostOps:
     @property
     def index(self) -> dict[str, Any]:
         if self._index is None:
-            self._index = _operation_index(self._app)
+            self._index = _operation_index()
         return self._index
 
     def configure(
