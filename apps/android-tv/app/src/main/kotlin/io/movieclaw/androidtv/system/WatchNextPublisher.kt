@@ -26,6 +26,8 @@ class WatchNextPublisher(private val context: Context, private val http: OkHttpC
     private val prefs = context.getSharedPreferences("watch_next", Context.MODE_PRIVATE)
     private var lastFingerprint: Int? = null
 
+    // tvprovider 的 WatchNextProgram.Builder 继承自受限的泛型基类，lint 把整条链误报成受限接口
+    @SuppressLint("RestrictedApi")
     suspend fun publish(items: List<UpNextItemView>, server: ServerAddress, token: String) = withContext(Dispatchers.IO) {
         val picked = items.take(LIMIT)
         val fingerprint = (listOf(server.toString()) + picked.map { "${it.mediaItemId}-${it.seasonNumber}-${it.episodeNumber}-${it.progressPercent}" }).hashCode()

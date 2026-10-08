@@ -1,6 +1,5 @@
 package io.movieclaw.androidtv.ui.shell
 
-import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -75,7 +74,7 @@ val LocalStagePreview = compositionLocalOf<io.movieclaw.androidtv.ui.stage.Stage
 fun MainShell(args: LaunchArgs) {
     val router = remember { Router() }
     val chrome = remember { ShellChrome() }
-    val activity = LocalContext.current as? Activity
+    val activity = androidx.activity.compose.LocalActivity.current
     var sidebarOpen by remember { mutableStateOf(false) }
     var focusInSidebar by remember { mutableStateOf(false) }
     val pageFocus = remember { FocusRequester() }

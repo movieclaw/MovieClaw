@@ -289,7 +289,7 @@ fun HomeScreen() {
                             titleAlpha = yieldAlpha,
                         ) {
                             items(upNext, key = { it.mediaItemId }) { item ->
-                                val requester = cardFocus.getOrPut(item.mediaItemId) { FocusRequester() }
+                                val requester = remember(item.mediaItemId) { cardFocus.getOrPut(item.mediaItemId) { FocusRequester() } }
                                 val current = item.mediaItemId == stage.mediaItemId
                                 Box(
                                     Modifier
