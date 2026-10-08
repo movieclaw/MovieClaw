@@ -637,7 +637,23 @@ async def test_end_playback_drops_live_session_and_signals_the_player(client: Te
     assert len(client.get("/api/v1/playback/activity").json()["data"]["sessions"]) == 1
 
 
-async def test_playback_log_records_each_session_and_feeds_stats(client: TestClient) -> None:
+@pytest.fixture
+def clock(monkeypatch):
+    """播放日志写侧的墙钟：观看时长按两次上报的间隔封顶，模拟播放要让时间真的走。"""
+    from movieclaw_api.services.playback import watch
+
+    state = {"now": utcnow()}
+    monkeypatch.setattr(watch, "utcnow", lambda: state["now"])
+
+    def advance(seconds: float) -> None:
+        state["now"] += timedelta(seconds=seconds)
+
+    return advance
+
+
+async def test_playback_log_records_each_session_and_feeds_stats(
+    client: TestClient, clock
+) -> None:
     """播放日志：一场一行，观看时长按进度增量累加、seek 跳过的不算；
     统计与记录接口从它出。"""
     movie_id, library_id = await _seed_movie_in_library(
@@ -645,26 +661,24 @@ async def test_playback_log_records_each_session_and_feeds_stats(client: TestCli
     )
     body = {"media_item_id": movie_id, "device_id": "browser-a"}
     ua = {"User-Agent": "Mozilla/5.0 (Macintosh) Chrome/120.0"}
-    client.post("/api/v1/playback/progress", json={**body, "event": "start"}, headers=ua)
-    for position in (10_000, 20_000, 35_000):
-        client.post(
-            "/api/v1/playback/progress",
-            json={**body, "event": "progress", "position_ms": position},
-            headers=ua,
-        )
-    # 往前拖了一个小时：这段不是看过的，不计入观看时长
-    client.post(
-        "/api/v1/playback/progress",
-        json={**body, "event": "progress", "position_ms": 3_635_000},
-        headers=ua,
-    )
-    client.post(
-        "/api/v1/playback/progress",
-        json={**body, "event": "stop", "position_ms": 3_640_000},
-        headers=ua,
-    )
-    # 同一设备紧接着再开一次同一部片：仍在同一场的保鲜期内，不另开一行
-    client.post("/api/v1/playback/progress", json={**body, "event": "start"}, headers=ua)
+
+    def report(event: str, position_ms: int | None = None) -> None:
+        payload = {**body, "event": event}
+        if position_ms is not None:
+            payload["position_ms"] = position_ms
+        client.post("/api/v1/playback/progress", json=payload, headers=ua)
+
+    report("start")
+    for second in range(10, 80, 10):  # 每 10 秒一次心跳，看了 70 秒
+        clock(10)
+        report("progress", second * 1_000)
+    # 5 秒后往前拖了一个小时：只算这 5 秒（外加 2 秒网络余量），拖过去的不算
+    clock(5)
+    report("progress", 3_635_000)
+    clock(5)
+    report("stop", 3_640_000)
+    # 同一设备紧接着再开一次同一部片：新开一行，进行中
+    report("start")
 
     history = client.get("/api/v1/playback/history").json()["data"]
     assert history["hidden_count"] == 0
@@ -676,39 +690,136 @@ async def test_playback_log_records_each_session_and_feeds_stats(client: TestCli
     assert first["client"] == "MovieClaw Web"
     assert first["device_name"] == "Chrome · macOS"
     assert first["ended_at"] is not None
-    assert first["watched_ms"] == 40_000  # 10+10+15+5 秒；那一小时的 seek 不算
+    assert first["watched_ms"] == 70_000 + 7_000 + 5_000
     assert first["end_position_ms"] == 3_640_000
     assert first["completed"] is False
     assert latest["ended_at"] is None  # 新一场进行中
+    assert latest["watched_ms"] == 0
 
     stats = client.get(
         "/api/v1/playback/stats/watch", params={"days": 7, "tz_offset": 480}
     ).json()["data"]
     assert stats["days"] == 7
+    # 刚开的那一场还没看满一分钟，不算场次（播放记录里照列）
     assert stats["current"] == {
-        "plays": 2, "watched_ms": 40_000, "completed": 0, "active_members": 1
+        "plays": 1, "watched_ms": 82_000, "completed": 0, "active_members": 1
     }
     # 日志刚开始记：上一周期没有数据，前端据此显示「暂无上一周期数据」而不是 0%
     assert stats["previous_available"] is False
     assert stats["previous"]["plays"] == 0
     assert len(stats["previous_by_day"]) == 8
     assert len(stats["by_hour"]) == 7 and all(len(r) == 24 for r in stats["by_hour"])
-    assert sum(sum(r) for r in stats["by_hour"]) == 40_000
+    assert sum(sum(r) for r in stats["by_hour"]) == 82_000
     assert stats["by_member"] == [
-        {"member_id": 0, "member_name": "admin", "plays": 2, "watched_ms": 40_000, "completed": 0}
+        {"member_id": 0, "member_name": "admin", "plays": 1, "watched_ms": 82_000, "completed": 0}
     ]
-    assert stats["by_client"] == [{"client": "MovieClaw Web", "plays": 2, "watched_ms": 40_000}]
+    assert stats["by_client"] == [{"client": "MovieClaw Web", "plays": 1, "watched_ms": 82_000}]
     assert len(stats["by_day"]) == 8  # 7 天窗口按日补齐，含今天
-    assert sum(day["plays"] for day in stats["by_day"]) == 2
+    assert sum(day["plays"] for day in stats["by_day"]) == 1
     assert max(day["members"] for day in stats["by_day"]) == 1
     # 网页播放没上报过质量指标：档位分解为空，不伪造「直连 2 场」
     assert stats["by_tier"] == []
     assert len(stats["top_titles"]) == 1
     assert stats["top_titles"][0]["media"]["title"] == "盗梦空间"
-    assert stats["top_titles"][0]["plays"] == 2
+    assert stats["top_titles"][0]["plays"] == 1
     assert stats["top_titles"][0]["members"] == 1
     assert [r["media"]["title"] for r in stats["favorites"]] == ["盗梦空间"]
     assert stats["previous_favorites"] == []
+
+
+async def test_watched_time_is_capped_by_wall_clock(client: TestClient, clock) -> None:
+    """观看时长不会超过真实流逝的时间：两分钟以内的来回拖动不算观看；心跳疏的
+    客户端（一段正常播放超过两分钟才报一次）也不会被整段当成 seek 丢掉。"""
+    movie_id, _ = await _seed_movie_in_library(title="盗梦空间", tmdb_id=27205, library_name="电影")
+
+    def report(device: str, event: str, position_ms: int | None = None) -> None:
+        payload = {"media_item_id": movie_id, "device_id": device, "event": event}
+        if position_ms is not None:
+            payload["position_ms"] = position_ms
+        client.post("/api/v1/playback/progress", json=payload)
+
+    # 59 秒里来回拖 30 次进度条，每次跳 100 秒：旧规则记了 15 分钟
+    report("scrub", "start")
+    for i in range(30):
+        clock(2)
+        report("scrub", "progress", 100_000 if i % 2 == 0 else 0)
+    report("scrub", "stop", 0)
+
+    # 心跳疏的播放器：开播后 5 分钟才报一次位置，正常播放的 5 分钟全算
+    report("sparse", "start")
+    clock(300)
+    report("sparse", "progress", 300_000)
+    clock(200)
+    report("sparse", "stop", 500_000)
+
+    entries = client.get("/api/v1/playback/history").json()["data"]["entries"]
+    # 15 次往前拖，每次只记 2 秒间隔 + 2 秒余量
+    assert sorted(e["watched_ms"] for e in entries) == [15 * 4_000, 500_000]
+
+
+async def test_stats_ignore_glance_plays(client: TestClient) -> None:
+    """点开就退的不算一场：不计场次、不计人数，也不会把这部片顶上最受欢迎。"""
+    glance_id, _ = await _seed_movie_in_library(title="点开就退", tmdb_id=1, library_name="电影")
+    watched_id, _ = await _seed_movie_in_library(title="认真看完", tmdb_id=2, library_name="剧集")
+    now = utcnow()
+
+    def log(member: int, item: int, watched_ms: int, *, completed: bool = False) -> PlaybackLog:
+        return PlaybackLog(
+            member_id=member, media_item_id=item, kind="movie", title="x", device_id=f"d{member}",
+            client="Infuse", started_at=now - timedelta(hours=1), last_seen_at=now,
+            ended_at=now, watched_ms=watched_ms, completed=completed,
+        )
+
+    async with get_database().session() as session:
+        for member in (1, 2, 3):
+            session.add(log(member, glance_id, 2_000))
+            session.add(log(member, glance_id, 0))
+        session.add(log(1, watched_id, 7_200_000, completed=True))
+        # 续播点在 88%：最后一场只看了 40 秒，但它把片子看完了，照样算一场
+        session.add(log(2, watched_id, 40_000, completed=True))
+        await session.commit()
+
+    stats = client.get("/api/v1/playback/stats/watch", params={"days": 7}).json()["data"]
+    assert stats["current"] == {
+        "plays": 2, "watched_ms": 7_240_000, "completed": 2, "active_members": 2
+    }
+    assert [r["media"]["title"] for r in stats["favorites"]] == ["认真看完"]
+    assert [r["media"]["title"] for r in stats["top_titles"]] == ["认真看完"]
+    # 播放记录是日志，每一行照列
+    assert len(client.get("/api/v1/playback/history").json()["data"]["entries"]) == 8
+
+
+async def test_previous_period_needs_full_log_coverage(client: TestClient) -> None:
+    """日志只覆盖上一周期的一部分时不做对照，否则得出「+949%」这种假涨幅。"""
+    movie_id, _ = await _seed_movie_in_library(title="盗梦空间", tmdb_id=27205, library_name="电影")
+    now = utcnow()
+
+    async def seed(ago: timedelta) -> None:
+        async with get_database().session() as session:
+            session.add(
+                PlaybackLog(
+                    member_id=0, media_item_id=movie_id, title="x", device_id="d",
+                    started_at=now - ago, last_seen_at=now - ago, ended_at=now - ago,
+                    watched_ms=600_000,
+                )
+            )
+            await session.commit()
+
+    await seed(timedelta(days=1))
+    await seed(timedelta(days=10))  # 落在上一周期（8～14 天前）里，但之前没有日志
+    stats = client.get("/api/v1/playback/stats/watch", params={"days": 7}).json()["data"]
+    assert stats["previous"]["plays"] == 1
+    assert stats["previous_available"] is False
+
+    await seed(timedelta(days=20))  # 日志早于上一周期开头：上期完整
+    stats = client.get("/api/v1/playback/stats/watch", params={"days": 7}).json()["data"]
+    assert stats["previous_available"] is True
+    # 钻取到某个成员：覆盖仍看全表，这个成员上期没看是真实的 0
+    stats = client.get(
+        "/api/v1/playback/stats/watch", params={"days": 7, "member_id": 5}
+    ).json()["data"]
+    assert stats["previous_available"] is True
+    assert stats["previous"]["plays"] == 0
 
 
 async def test_favorite_title_counts_members_not_hours(client: TestClient) -> None:

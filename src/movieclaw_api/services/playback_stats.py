@@ -6,7 +6,8 @@
   折叠（范围外只报个数）；
 - 观看统计：一段时间内的播放次数、观看时长、看完次数、活跃成员，以及按成员 /
   按客户端 / 按天 / 按作品的分解。聚合在 Python 里做——家庭服务器几十天的日志
-  也就几千行，比跨方言的 SQL 分组省心，且按天分组要用浏览器时区。
+  也就几千行，比跨方言的 SQL 分组省心，且按天分组要用浏览器时区。只统计
+  :func:`counts_as_play` 的行，播放记录则每行照列。
 
 没收到停止的行（播放器异常退出）按「最后一次心跳超过会话保鲜期」视为已结束，
 结束时间取最后一次心跳；仍在保鲜期内的视为进行中。
@@ -49,6 +50,21 @@ from movieclaw_playback.state import Unit
 
 #: 顶部作品榜的长度
 _TOP_TITLES = 10
+
+#: 一场播放计入统计的最低实际观看时长。点开就退、试播挑版本、拖进度条看一眼都会
+#: 记一行日志——NAS 实测三十天 1281 行里 823 行不足一分钟、264 行是 0 秒；把它们
+#: 算成「场次」，场次被放大近三倍、看完率被稀释，「看过的人数」也被一个点开两秒的
+#: 成员抬高（最受欢迎冠军总共只看了 11 秒）。
+MIN_PLAY_WATCHED_MS = 60_000
+
+
+def counts_as_play(row: PlaybackLog) -> bool:
+    """这一行算不算一场播放：实际看了至少一分钟，或者在这场里看完了。
+
+    看完的不论时长都算：续播点在 88% 的那一场只看最后几十秒，却是把这一集看完的
+    那一场，丢掉它看完率就漏了。
+    """
+    return row.watched_ms >= MIN_PLAY_WATCHED_MS or row.completed
 
 
 def effective_end(row: PlaybackLog, now: datetime) -> datetime | None:
@@ -312,9 +328,14 @@ async def playback_stats(
     statement = select(PlaybackLog).where(PlaybackLog.started_at >= previous_since)
     if member_id is not None:
         statement = statement.where(PlaybackLog.member_id == member_id)
-    all_rows = list((await session.execute(statement)).scalars())
+    all_rows = [r for r in (await session.execute(statement)).scalars() if counts_as_play(r)]
     rows = [r for r in all_rows if r.started_at >= since]
     previous_rows = [r for r in all_rows if r.started_at < since]
+    # 上一周期要被日志完整覆盖才能拿来对照：日志从某天才开始记，只覆盖了上期最后两天
+    # 也会有数据，拿它比会得出「+949%」。覆盖看全表最早一行，不随成员钻取变——某个
+    # 成员上期没看是真实的 0，不是缺数据。
+    first_logged = (await session.execute(select(func.min(PlaybackLog.started_at)))).scalar()
+    previous_available = first_logged is not None and first_logged <= previous_since
 
     names = await _member_names(session, {r.member_id for r in rows})
     targets, _ = await _targets_for(
@@ -371,7 +392,7 @@ async def playback_stats(
         days=days,
         current=_totals(rows),
         previous=_totals(previous_rows),
-        previous_available=len(previous_rows) > 0,
+        previous_available=previous_available,
         by_day=_day_series(rows, since=since, until=now, offset=offset),
         previous_by_day=_day_series(
             previous_rows, since=previous_since, until=since, offset=offset

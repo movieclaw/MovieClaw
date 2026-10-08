@@ -174,9 +174,12 @@ def web_client_info(*, device_id: str, user_agent: str | None) -> ClientInfo:
 # 播放日志（playback_log）：每场播放一行
 # ---------------------------------------------------------------------------
 
-#: 单次进度增量的上限：超过它视为 seek 跳过的区间，不计入观看时长。Jellyfin
-#: 客户端心跳最疏也在 30 秒级，网页端 10 秒，留足余量。
-_WATCH_DELTA_CAP_MS = 120_000
+#: 进度增量按墙钟封顶：两次上报之间最多只可能看了「间隔这么久」，多出来的是 seek
+#: 跳过的区间。余量吸收网络抖动（上报晚到一点不该吃掉下一段的观看时长）。
+#: 曾经是「单次增量超过两分钟视为 seek」的固定上限：两分钟以内的来回拖动全被当成
+#: 观看累加（NAS 实测一行 59 秒的播放记了 15 分钟），心跳疏的客户端正常播放超过
+#: 两分钟的一段又被整段丢弃。
+_WATCH_CLOCK_SLACK_MS = 2_000
 
 #: 同一设备同一单元的重复「开始」（seek、暂停后恢复、换源重协商都会再发
 #: Playing）在这个窗口内视为同一场，不另开一行；与实时注册表的保鲜期同值。
@@ -290,8 +293,9 @@ async def _log_progress(
         )
     if position_ms is not None:
         delta = position_ms - row.end_position_ms
-        if 0 < delta <= _WATCH_DELTA_CAP_MS:
-            row.watched_ms += delta
+        if delta > 0:
+            elapsed_ms = int((now - row.last_seen_at).total_seconds() * 1000)
+            row.watched_ms += min(delta, max(elapsed_ms, 0) + _WATCH_CLOCK_SLACK_MS)
         row.end_position_ms = position_ms
     row.last_seen_at = now
     row.updated_at = now
