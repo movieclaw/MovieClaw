@@ -15,14 +15,25 @@ SECTOR = 2048
 
 
 @dataclass(frozen=True)
-class ProgramChain:
-    """一条节目链：播放时长，与各单元在标题集正片 VOB 里的扇区区间。
+class Cell:
+    """节目链里的一个单元：在标题集正片 VOB 里的扇区区间、所属 VOB、播放时长。
 
-    区间含首尾，扇区号相对 VTS_NN_1.VOB 的起点。
+    扇区区间含首尾，扇区号相对 VTS_NN_1.VOB 的起点。同一个 VOB（``vob_id``）里时间戳连续，
+    换 VOB 时时间戳可能从头再来（一张盘放两集的电视剧 DVD 常见）。
     """
 
+    first: int
+    last: int
+    vob_id: int
     seconds: float
-    cells: tuple[tuple[int, int], ...]
+
+
+@dataclass(frozen=True)
+class ProgramChain:
+    """一条节目链：播放时长（整秒，与 App 引擎一致）与各单元。"""
+
+    seconds: float
+    cells: tuple[Cell, ...]
 
 
 def main_title_set(vob_sizes: dict[str, int], read_ifo: Callable[[str], bytes]) -> int | None:
@@ -65,9 +76,10 @@ def longest_program_chain(data: bytes) -> ProgramChain:
 
     IFO 头 0xCC 是节目链信息表（VTS_PGCITI）的扇区号；表头 2 字节是节目链个数，其后每条
     8 字节（类别 4 字节 + 相对表头的偏移 4 字节）。节目链里：0x03 是单元个数，0x04 起 4 字节
-    是 BCD 编码的播放时长（时、分、秒、帧；帧字节最高两位是帧率标志，不计入时长），0xE8 起
-    2 字节是单元播放信息表（C_PBIT）相对节目链的偏移；表里每个单元 24 字节，8～11 是首个
-    VOBU 的起始扇区、20～23 是末个 VOBU 的结束扇区。
+    是 BCD 编码的播放时长（时、分、秒、帧；帧字节最高两位是帧率标志），0xE8 起 2 字节是
+    单元播放信息表（C_PBIT）、0xEA 起 2 字节是单元位置表（C_POSIT）相对节目链的偏移。播放
+    信息表每个单元 24 字节：4～7 是单元时长（同上的 BCD）、8～11 是首个 VOBU 的起始扇区、
+    20～23 是末个 VOBU 的结束扇区；位置表每个单元 4 字节，0～1 是 VOB 号。
     """
     if len(data) < 0xD0 or data[:12] != b"DVDVIDEO-VTS":
         raise ValueError("不是标题集 IFO")
@@ -83,22 +95,36 @@ def longest_program_chain(data: bytes) -> ProgramChain:
         pgc = table + int.from_bytes(data[entry + 4 : entry + 8], "big")
         if pgc + 0xEA > len(data):
             continue
-        hours, minutes, seconds = (_bcd(b) for b in data[pgc + 4 : pgc + 7])
-        total = float(hours * 3600 + minutes * 60 + seconds)
+        total = float(int(_playback_time(data[pgc + 4 : pgc + 8])))
         if total <= best.seconds:
             continue
-        cells: list[tuple[int, int]] = []
+        cells: list[Cell] = []
         cell_table = pgc + int.from_bytes(data[pgc + 0xE8 : pgc + 0xEA], "big")
+        positions = pgc + int.from_bytes(data[pgc + 0xEA : pgc + 0xEC], "big")
         for c in range(data[pgc + 3]):
             cell = cell_table + c * 24
             if cell + 24 > len(data):
                 break
             first = int.from_bytes(data[cell + 8 : cell + 12], "big")
             last = int.from_bytes(data[cell + 20 : cell + 24], "big")
+            position = positions + c * 4
+            vob_id = (
+                int.from_bytes(data[position : position + 2], "big")
+                if position + 4 <= len(data)
+                else 0
+            )
             if last >= first:
-                cells.append((first, last))
+                cells.append(Cell(first, last, vob_id, _playback_time(data[cell + 4 : cell + 8])))
         best = ProgramChain(total, tuple(cells))
     return best
+
+
+def _playback_time(raw: bytes) -> float:
+    """BCD 播放时长（时、分、秒、帧）→ 秒。帧字节高两位是帧率：01=25，11=29.97。"""
+    hours, minutes, seconds = (_bcd(b) for b in raw[:3])
+    fps = {1: 25.0, 3: 30000 / 1001}.get(raw[3] >> 6)
+    frames = _bcd(raw[3] & 0x3F) / fps if fps else 0.0
+    return hours * 3600 + minutes * 60 + seconds + frames
 
 
 def _bcd(value: int) -> int:

@@ -12,7 +12,8 @@ ffmpeg 经 ``subfile`` 协议把区间当文件读（多截再用 ``concat`` 协
   CLPI 一并读出供关键帧表（VOD 分片、能否 remux 的判断都靠它）。
 - **DVD 镜像**：主标题（选法见 ``library.dvd``，与 App 引擎一致）正片节目链各单元覆盖的扇区
   区间——不是整个标题集：标题集末尾常挂着花絮单元，时间戳从头再来，ffmpeg 会把片长估成那一段、
-  按时间跳转直接跳到末尾（NAS 实测《金枝玉叶》估成 99 秒）。按节目链裁掉后片长、跳转都正常。
+  按时间跳转直接跳到末尾（NAS 实测《金枝玉叶》估成 99 秒）。节目链按 VOB 分段（换 VOB 时
+  时间戳同样可能从头再来），每段在清单里写上时长。
 
 读不出（不是 UDF、结构损坏）返回 None，调用方按「放不了」处理。
 """
@@ -160,29 +161,43 @@ def _dvd(path: Path, reader: UDFReader) -> DiscSource | None:
         for start, length in reader.byte_ranges(vobs[name])
     ]
     total = sum(b - a for a, b in windows)
-    first = min(cell[0] for cell in chain.cells)
-    last = max(cell[1] for cell in chain.cells)
-    start, end = first * SECTOR, (last + 1) * SECTOR
-    if end > total:
-        logger.info("DVD 镜像的节目链越过了正片 VOB 的范围：%s", path)
-        return None
-    ranges = slice_windows(windows, start, end)
-    if len(ranges) > 1 and "|" in str(path):
-        logger.info("DVD 镜像的正片在镜像里断成 %d 截、路径含「|」，拼不了：%s", len(ranges), path)
-        return None
+    # 按 VOB 分段：同一 VOB 里时间戳连续，换 VOB 可能从头再来（NAS 实测《公司的力量》一张盘
+    # 两集，第二集时间戳又从 0 起）。一整段喂给 ffmpeg 时它按时间跳转会跳错、转几片就到「末尾」；
+    # 每个 VOB 一段、写上时长，concat 按段对齐时间轴，跳转先落到对应的段
+    groups: list[list[dvd.Cell]] = []
+    for cell in chain.cells:
+        if groups and groups[-1][-1].vob_id == cell.vob_id:
+            groups[-1].append(cell)
+        else:
+            groups.append([cell])
+    if any(sum(cell.seconds for cell in group) <= 0 for group in groups):
+        # 单元表没写时长：只能整条节目链一段，时长取节目链的
+        groups = [list(chain.cells)]
+    clips: list[DiscClip] = []
+    for index, group in enumerate(groups):
+        seconds = sum(cell.seconds for cell in group) if len(groups) > 1 else chain.seconds
+        start, end = group[0].first * SECTOR, (group[-1].last + 1) * SECTOR
+        if end > total:
+            logger.info("DVD 镜像的节目链越过了正片 VOB 的范围：%s", path)
+            return None
+        ranges = slice_windows(windows, start, end)
+        if len(ranges) > 1 and "|" in str(path):
+            logger.info("DVD 镜像的正片在镜像里断成多截、路径含「|」，拼不了：%s", path)
+            return None
+        clips.append(
+            DiscClip(
+                clip_id=f"VTS_{main:02d}_{index + 1}",
+                path=path,
+                in_time=0,
+                out_time=round(seconds * MPLS_CLOCK_HZ),
+                byte_ranges=tuple(ranges),
+                timed=False,
+            )
+        )
     return DiscSource(
         disc_dir=path,
         playlist_name=f"VTS_{main:02d}",
-        clips=(
-            DiscClip(
-                clip_id=f"VTS_{main:02d}",
-                path=path,
-                in_time=0,
-                out_time=int(chain.seconds * MPLS_CLOCK_HZ),
-                byte_ranges=tuple(ranges),
-                timed=False,
-            ),
-        ),
+        clips=tuple(clips),
         image="dvd",
     )
 

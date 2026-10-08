@@ -126,8 +126,11 @@ def test_bluray_clip_split_across_the_image_is_read_piece_by_piece(tmp_path):
     assert f"file '{clip.read_url}'" in source.concat_list()
 
 
-def _vts_ifo_with_cells(seconds: int, cells: list[tuple[int, int]], extra: list[int]) -> bytes:
-    """标题集 IFO：第一条节目链是正片（带单元表），``extra`` 是更短的附属节目链。"""
+def _vts_ifo_with_cells(
+    seconds: int, cells: list[tuple[int, int, int, int]], extra: list[int]
+) -> bytes:
+    """标题集 IFO：第一条节目链是正片，``cells`` 每项（首扇区, 末扇区, VOB 号, 秒）；
+    ``extra`` 是更短的附属节目链。"""
     data = bytearray(6 * S)
     data[:12] = b"DVDVIDEO-VTS"
     data[0xCC:0xD0] = (1).to_bytes(4, "big")
@@ -140,16 +143,25 @@ def _vts_ifo_with_cells(seconds: int, cells: list[tuple[int, int]], extra: list[
         data[entry + 4 : entry + 8] = pgc_rel.to_bytes(4, "big")
         pgc = table + pgc_rel
         data[pgc + 3] = len(chain_cells)
-        h, m, s = secs // 3600, secs // 60 % 60, secs % 60
-        data[pgc + 4 : pgc + 8] = bytes([_bcd(h), _bcd(m), _bcd(s), 0xC0])
-        cell_table = 0xEC
+        data[pgc + 4 : pgc + 8] = _bcd_time(secs)
+        cell_table, positions = 0xEC, 0xEC + 24 * len(chain_cells)
         data[pgc + 0xE8 : pgc + 0xEA] = cell_table.to_bytes(2, "big")
-        for c, (first, last) in enumerate(chain_cells):
+        data[pgc + 0xEA : pgc + 0xEC] = positions.to_bytes(2, "big")
+        for c, (first, last, vob_id, cell_secs) in enumerate(chain_cells):
             cell = pgc + cell_table + c * 24
+            data[cell + 4 : cell + 8] = _bcd_time(cell_secs)
             data[cell + 8 : cell + 12] = first.to_bytes(4, "big")
             data[cell + 20 : cell + 24] = last.to_bytes(4, "big")
-        pgc_rel += cell_table + 24 * len(chain_cells)
+            position = pgc + positions + c * 4
+            data[position : position + 2] = vob_id.to_bytes(2, "big")
+            data[position + 3] = c + 1
+        pgc_rel += positions + 4 * len(chain_cells)
     return bytes(data)
+
+
+def _bcd_time(secs: int) -> bytes:
+    h, m, s = secs // 3600, secs // 60 % 60, secs % 60
+    return bytes([_bcd(h), _bcd(m), _bcd(s), 0x40])  # 帧 0，25 fps
 
 
 class _ContiguousBuilder(_UdfBuilder):
@@ -178,7 +190,7 @@ def test_dvd_iso_range_is_the_main_program_chain_not_the_whole_title_set(tmp_pat
         {
             "VIDEO_TS": {
                 "VIDEO_TS.IFO": _vmg_ifo([1]),
-                "VTS_01_0.IFO": _vts_ifo_with_cells(5400, [(0, 2), (3, 4)], [90]),
+                "VTS_01_0.IFO": _vts_ifo_with_cells(5400, [(0, 2, 1, 3000), (3, 4, 1, 2400)], [90]),
                 "VTS_01_1.VOB": vob1,
                 "VTS_01_2.VOB": vob2,
             },
@@ -200,13 +212,42 @@ def test_dvd_iso_range_is_the_main_program_chain_not_the_whole_title_set(tmp_pat
     assert source.keyframe_index() is None
 
 
+def test_dvd_iso_program_chain_is_split_where_the_vob_changes(tmp_path):
+    # 一张盘两集：两个 VOB 各自的时间戳都从 0 起。每个 VOB 一段、写上各自时长，
+    # concat 才能把时间轴接对、按时间跳转落到第二集里
+    vob = b"".join(bytes([0x40 + i]) * S for i in range(6))
+    image = _ContiguousBuilder().build(
+        {
+            "VIDEO_TS": {
+                "VIDEO_TS.IFO": _vmg_ifo([1]),
+                "VTS_01_0.IFO": _vts_ifo_with_cells(
+                    5310, [(0, 1, 1, 1500), (2, 2, 1, 1170), (3, 5, 2, 2640)], []
+                ),
+                "VTS_01_1.VOB": vob,
+            },
+        }
+    )
+    path = tmp_path / "two-episodes.iso"
+    path.write_bytes(image)
+
+    source = iso_source.iso_disc_source(path)
+    assert source is not None
+    first, second = source.clips
+    assert b"".join(image[a:b] for a, b in first.byte_ranges) == vob[: 3 * S]
+    assert b"".join(image[a:b] for a, b in second.byte_ranges) == vob[3 * S :]
+    assert (first.duration_s, second.duration_s) == (2670, 2640)
+    listing = source.concat_list()
+    assert "duration 2670.000000" in listing and "duration 2640.000000" in listing
+    assert source.duration_s == pytest.approx(5310)
+
+
 def test_dvd_iso_with_scattered_title_vobs_is_read_piece_by_piece(tmp_path):
     vob1, vob2 = bytes([1]) * S, bytes([2]) * S
     image = _UdfBuilder(metadata=False).build(
         {
             "VIDEO_TS": {
                 "VIDEO_TS.IFO": _vmg_ifo([1]),
-                "VTS_01_0.IFO": _vts_ifo_with_cells(600, [(0, 1)], []),
+                "VTS_01_0.IFO": _vts_ifo_with_cells(600, [(0, 1, 1, 600)], []),
                 "VTS_01_1.VOB": vob1,
                 "VTS_01_0.VOB": bytes([9]) * S,  # 夹在两个正片 VOB 之间：不连续
                 "VTS_01_2.VOB": vob2,
