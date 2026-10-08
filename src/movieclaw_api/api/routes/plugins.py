@@ -125,12 +125,25 @@ class DurableView(BaseModel):
     dead_letters: list[DeadLetterView] = Field(description="未处理的死信（最近 50 条）")
 
 
+class SafeModeView(BaseModel):
+    active: bool = Field(description="本次启动是否跳过了全部本地 / 第三方插件")
+    reason: str
+    since: float | None = Field(description="进入安全模式的时间（Unix 秒）")
+    skipped: list[str] = Field(description="被跳过的插件")
+    forced: str | None = Field(description="env / file：手动强制；空：自动进入或未进入")
+
+
 class PluginsView(BaseModel):
     plugins: list[PluginView]
     contracts: ContractsView
     durable: DurableView | None = Field(
         default=None, description="可靠事件的消费进度与死信；投递插件未运行时为空"
     )
+    safe_mode: SafeModeView = Field(description="插件安全模式（docs/design/plugin-phase3.md §5）")
+
+
+class SafeModeExitView(BaseModel):
+    mounted: dict[str, str] = Field(description="重新加载的插件 → 加载后的状态")
 
 
 def _kernel(request: Request):
@@ -170,11 +183,50 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
         {**item, "health": health.get(item["id"], []), "data_rows": data_rows.get(item["id"], 0)}
         for item in kernel.snapshot()
     ]
+    from movieclaw_api.plugins import safe_mode
+
     return ok(
         PluginsView.model_validate(
-            {"plugins": plugins, "contracts": kernel.contracts(), "durable": durable}
+            {
+                "plugins": plugins,
+                "contracts": kernel.contracts(),
+                "durable": durable,
+                "safe_mode": safe_mode.current().view(),
+            }
         )
     )
+
+
+@router.post(
+    "/safe-mode/exit",
+    response_model=ApiResponse[SafeModeExitView],
+    summary="退出插件安全模式：当场重新加载被跳过的本地 / 第三方插件",
+    operation_id="app.plugins.safe-mode.exit",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def exit_safe_mode(request: Request) -> ApiResponse[SafeModeExitView]:
+    """插件若再把应用拖垮，下次启动会重新进入安全模式。"""
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.plugins import safe_mode
+    from movieclaw_api.plugins.local import load_local_entries, local_specs
+    from movieclaw_api.plugins.notices import publish_safe_mode
+
+    kernel = _kernel(request)
+    if not safe_mode.current().active:
+        raise ConflictException("当前没有处于安全模式")
+    settings = get_settings()
+    ids = [spec.id for spec in local_specs(settings) if not spec.disabled]
+    try:
+        safe_mode.exit_safe_mode(settings, ids)
+    except PermissionError as exc:
+        raise ConflictException(str(exc)) from exc
+    await publish_safe_mode(safe_mode.current())
+    mounted: dict[str, str] = {}
+    for entry in load_local_entries(settings):
+        if kernel.fiber(entry.id) is None:
+            mounted[entry.id] = (await kernel.mount(entry)).state.value
+    safe_mode.schedule_settle(settings)
+    return ok(SafeModeExitView(mounted=mounted), message="已退出安全模式")
 
 
 @router.post(

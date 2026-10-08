@@ -1,6 +1,7 @@
 app plugins dead-letters dismiss
 app plugins dead-letters replay
 app plugins list
+app plugins safe-mode exit
 app port set
 app restart
 app set

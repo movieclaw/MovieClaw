@@ -78,10 +78,33 @@ export interface PluginHealth {
   since: string;
 }
 
+/** 插件安全模式（docs/design/plugin-phase3.md §5）：上次带着插件没能稳定运行，本次跳过了它们 */
+export interface PluginSafeMode {
+  active: boolean;
+  reason: string;
+  /** 进入时间（Unix 秒） */
+  since: number | null;
+  skipped: string[];
+  /** env / file：手动强制（env 只能改环境变量退出）；null：自动进入或未进入 */
+  forced: string | null;
+}
+
 export interface PluginsOverview {
   plugins: PluginInfo[];
+  /** 旧服务端没有这个字段 */
+  safe_mode?: PluginSafeMode;
 }
 
 export async function listPlugins(): Promise<PluginsOverview> {
   return (await request<ApiEnvelope<PluginsOverview>>("/app/plugins")).data;
+}
+
+/** 退出安全模式：当场重新加载被跳过的插件，返回「插件 → 加载后的状态」 */
+export async function exitSafeMode(): Promise<Record<string, string>> {
+  return (
+    await request<ApiEnvelope<{ mounted: Record<string, string> }>>(
+      "/app/plugins/safe-mode/exit",
+      { method: "POST" },
+    )
+  ).data.mounted;
 }

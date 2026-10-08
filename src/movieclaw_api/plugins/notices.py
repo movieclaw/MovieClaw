@@ -63,3 +63,33 @@ async def plugin_notices(ctx: Context) -> None:
             open_keys.discard(key)
 
     ctx.on(PLUGIN_STATE, on_state, id="failure-notices")
+
+    # 插件安全模式（plugins/safe_mode.py）：进了就挂一条待处理事项，没进就消退上次的
+    from movieclaw_api.plugins import safe_mode
+
+    await publish_safe_mode(safe_mode.current())
+
+
+async def publish_safe_mode(mode) -> None:
+    from movieclaw_api.plugins import safe_mode
+    from movieclaw_api.services.system_notice import resolve_notices, upsert_notice
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import NoticeSeverity
+
+    async with get_database().session() as session:
+        if not mode.active:
+            await resolve_notices(session, dedupe_key=safe_mode.NOTICE_KEY)
+            return
+        skipped = "、".join(mode.skipped) or "无"
+        await upsert_notice(
+            session,
+            dedupe_key=safe_mode.NOTICE_KEY,
+            severity=NoticeSeverity.WARNING,
+            source="plugin",
+            title="已进入插件安全模式",
+            message=(
+                f"{mode.reason}。本次跳过的插件：{skipped}。排查后到「设置 → 更新与维护 → 模块」"
+                "退出安全模式，被跳过的插件会当场重新加载。"
+            ),
+            payload={"skipped": mode.skipped, "forced": mode.forced},
+        )

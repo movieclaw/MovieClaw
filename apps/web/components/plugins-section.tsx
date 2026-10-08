@@ -4,7 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 
 import { Banner, ErrorBanner, StatusPill } from "@/components/cloud-push-ui";
 import { SettingsList, SettingsRow, SettingsSection } from "@/components/settings-ui";
-import { listPlugins, type PluginInfo } from "@/lib/api/plugins";
+import {
+  exitSafeMode,
+  listPlugins,
+  type PluginInfo,
+  type PluginSafeMode,
+} from "@/lib/api/plugins";
 import {
   formatMs,
   isLocalPlugin,
@@ -26,16 +31,27 @@ import {
  */
 export function PluginsSection() {
   const [plugins, setPlugins] = useState<PluginInfo[] | null>(null);
+  const [safeMode, setSafeMode] = useState<PluginSafeMode | null>(null);
+  const [exiting, setExiting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const reload = useCallback(() => {
     listPlugins()
       .then((overview) => {
         setPlugins(overview.plugins);
+        setSafeMode(overview.safe_mode ?? null);
         setError(null);
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : "加载失败"));
   }, []);
+
+  const leaveSafeMode = useCallback(() => {
+    setExiting(true);
+    exitSafeMode()
+      .then(() => reload())
+      .catch((err: unknown) => setError(err instanceof Error ? err.message : "退出失败"))
+      .finally(() => setExiting(false));
+  }, [reload]);
   useEffect(() => {
     reload();
   }, [reload]);
@@ -56,6 +72,29 @@ export function PluginsSection() {
       >
         <div className="space-y-3">
           {error && <ErrorBanner>{error}</ErrorBanner>}
+          {safeMode?.active && (
+            <Banner
+              tone="warn"
+              title="插件安全模式：本次没有加载本地 / 第三方插件"
+              action={
+                safeMode.forced === "env" ? undefined : (
+                  <button
+                    type="button"
+                    disabled={exiting}
+                    onClick={leaveSafeMode}
+                    className="btn-accent inline-flex rounded-full px-4 py-1.5 text-sub font-semibold disabled:opacity-60"
+                  >
+                    {exiting ? "正在加载…" : "退出安全模式"}
+                  </button>
+                )
+              }
+            >
+              {safeMode.reason}。跳过的插件：{safeMode.skipped.join("、") || "无"}。
+              {safeMode.forced === "env"
+                ? "去掉环境变量 MOVIECLAW_SAFE_MODE 并重启即可退出。"
+                : "排查后退出，被跳过的插件会当场重新加载；它若再把应用拖垮，下次启动会自动回到安全模式。"}
+            </Banner>
+          )}
           {problems.length > 0 && (
             <Banner tone="warn">
               有 {problems.length} 个模块没有正常运行，原因写在下面对应的行里；修复后重启应用即可恢复。
