@@ -43,6 +43,9 @@ object McColors {
     val Line = Color.White.copy(alpha = 0.08f)
     /** 播放器信息面板的勾 */
     val Check = Color(0xFFFFD478)
+    /** tvOS 没设背景的页（搜索、关于）露出的系统底：上偏冷灰、下偏暖褐的竖向渐变（模拟器截图取色） */
+    val SystemTop = Color(0xFF34393F)
+    val SystemBottom = Color(0xFF24231F)
 }
 
 /** TVMetrics（TVCards.swift） */

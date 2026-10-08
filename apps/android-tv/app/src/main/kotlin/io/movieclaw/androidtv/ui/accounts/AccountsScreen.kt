@@ -17,6 +17,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import io.movieclaw.androidtv.ui.components.TvScrollSpec
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -133,7 +136,8 @@ fun AccountsScreen() {
     Box(Modifier.fillMaxSize()) {
         CosmosBackdrop(lit = true, dimmed = true)
         Column(
-            Modifier.fillMaxSize(),
+            // tvOS 在页签里居中的是安全区（上沿让出页签栏那一截）：整块比屏幕正中低 40（两台模拟器截图量出）
+            Modifier.fillMaxSize().padding(top = 80.pt),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(70.pt, Alignment.CenterVertically),
         ) {
@@ -141,7 +145,8 @@ fun AccountsScreen() {
             // 放得下就居中摆一排；账号太多才横向滚动
             LazyRow(
                 Modifier.fillMaxWidth().enterAt(currentFocus),
-                contentPadding = PaddingValues(horizontal = McMetrics.Edge, vertical = 40.pt),
+                // 上下只留焦点放大的余量（横向列表在竖直方向本来就多给一截不裁）
+                contentPadding = PaddingValues(horizontal = McMetrics.Edge, vertical = 16.pt),
                 horizontalArrangement = Arrangement.spacedBy(70.pt, Alignment.CenterHorizontally),
             ) {
                 items(accounts, key = { it.id }) { saved ->
@@ -247,11 +252,14 @@ fun AboutScreen() {
     val router = LocalRouter.current
     val first = remember { FocusRequester() }
     InitialFocus(first)
+    // 只在焦点那一格露不全时才滚（同 tvOS）：进页面焦点落在第一个组件上，页头照常露着
+    TvScrollSpec(80) {
     Column(
         Modifier
             .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(McColors.SystemTop, McColors.SystemBottom)))
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = McMetrics.Edge, vertical = 40.pt),
+            .padding(start = McMetrics.Edge, end = McMetrics.Edge, top = McMetrics.PushedTop + 40.pt, bottom = 40.pt),
         verticalArrangement = Arrangement.spacedBy(48.pt),
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(16.pt)) {
@@ -299,6 +307,7 @@ fun AboutScreen() {
             )
         }
     }
+    }
 }
 
 /** 一个组件的格子（系统 NavigationLink 的样子）：平时半透明底，焦点时白底黑字微微放大 */
@@ -342,8 +351,9 @@ fun LicenseScreen(componentName: String) {
     Column(
         Modifier
             .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(McColors.SystemTop, McColors.SystemBottom)))
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = McMetrics.Edge, vertical = 40.pt),
+            .padding(start = McMetrics.Edge, end = McMetrics.Edge, top = McMetrics.PushedTop + 40.pt, bottom = 40.pt),
         verticalArrangement = Arrangement.spacedBy(30.pt),
     ) {
         Text(componentName, style = McType.Title2.copy(fontWeight = FontWeight.Bold))

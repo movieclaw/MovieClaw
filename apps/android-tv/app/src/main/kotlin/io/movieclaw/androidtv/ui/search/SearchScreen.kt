@@ -134,7 +134,7 @@ fun SearchScreen() {
     Box(
         Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF34393F), Color(0xFF24231F))))
+            .background(Brush.verticalGradient(listOf(McColors.SystemTop, McColors.SystemBottom)))
             // 遥控器的播放 / 暂停键换成系统输入法；实体键盘直接打字
             .onKeyEvent { event ->
                 if (event.type != KeyEventType.KeyDown) return@onKeyEvent false

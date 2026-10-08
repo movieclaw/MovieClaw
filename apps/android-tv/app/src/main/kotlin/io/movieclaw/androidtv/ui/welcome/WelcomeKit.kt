@@ -74,6 +74,7 @@ import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
 import io.movieclaw.androidtv.ui.theme.ptSp
 import kotlinx.coroutines.delay
+import io.movieclaw.androidtv.ui.components.layerFocus
 
 /*
  * 欢迎页、登录卡片与「谁在看」共用的小零件：宋体、按钮、电视输入框、状态行、选人大头像。
@@ -107,7 +108,7 @@ fun WelcomeButton(
 ) {
     Button(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier.layerFocus(),
         enabled = enabled,
         shape = ButtonDefaults.shape(CircleShape),
         colors = ButtonDefaults.colors(
@@ -342,6 +343,7 @@ private fun ProfileButton(onClick: () -> Unit, modifier: Modifier, content: @Com
     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(200), label = "profile-press")
     Column(
         modifier
+            .layerFocus()
             .tvClickable(interaction, onClick)
             .graphicsLayer {
                 this.alpha = alpha
