@@ -52,6 +52,22 @@ def _age(path, seconds: int) -> None:
 
 
 @pytest.mark.asyncio
+async def test_fresh_strm_is_not_deferred(db, tmp_path, monkeypatch):
+    """刚写出的 .strm 立刻入账（按文件名识别、播放时才读内容）；同目录刚写的真视频照旧暂缓。"""
+    root = tmp_path / "movies"
+    library_id = await _make_library(db, root)
+    (root / "上云电影 (2026).strm").write_text("https://example.com/play/1\n", encoding="utf-8")
+    (root / "zzqx.mkv").write_bytes(b"downloading")
+    monkeypatch.setattr(scan_mod, "_arm_rescan", lambda lid, delay: None)
+
+    summary = await scan_library(library_id)
+    assert summary.deferred == 1
+    async with db.session() as session:
+        rows = list((await session.execute(select(LibraryFile.file_path))).scalars().all())
+    assert rows == [str(root / "上云电影 (2026).strm")]
+
+
+@pytest.mark.asyncio
 async def test_fresh_file_deferred_then_ingested(db, tmp_path, monkeypatch):
     """mtime 太新的文件暂缓入账并安排补扫；静默够久后正常入账。"""
     root = tmp_path / "movies"

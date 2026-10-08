@@ -8,10 +8,12 @@ CI 里 `tests/api/test_example_plugins*.py` 会把它们装进临时数据目录
 | `delete_cascade.py` | 删片联动：删了片子，顺手删订阅和下载器任务 | 可靠事件 `library.item.deleted` / `library.file.deleted`、宿主操作 `subscriptions.delete`、`dl.torrent.delete`（含演练） |
 | `watchlist_feed.py` | 片单订阅：外部片单里新出现的片名自动订阅 | 后台任务、宿主操作 `search.titles`、`subscriptions.create` |
 | `keyword_rules.py` | 关键字规则：给订阅加「必须包含 / 排除」关键字与额外搜索词 | 决策钩子 `subscription.candidates.filter` / `subscription.search.keywords`、插件数据（订阅扩展字段）、可靠事件 `subscription.deleted` |
+| `cloud_strm.py` | 网盘上传：入库暂存后传到网盘，媒体库里放指向插件的签名 `.strm` | 流水线槽位 `ingest.staged`、任务处理器（断点续传、进度、重试 / 阻塞）、插件路由（验签公开区）与签名链接、宿主操作 `library.get`、`library.scan.start` |
+| `site_pack/` | 站点数据包：把一组自己适配的站点 YAML 打成插件分发 | 站点数据包注册表 `site-data-packs`（包形式的本地插件） |
 
 ## 装到自己的 MovieClaw 上
 
-1. 把插件文件复制到数据目录的 `plugins/` 下（Docker 部署即数据卷里的 `plugins/`）。
+1. 把插件文件（或 `site_pack/` 这样的整个目录）复制到数据目录的 `plugins/` 下（Docker 部署即数据卷里的 `plugins/`）。
 2. 在数据目录的 `plugins.yaml` 里显式开启，并批准它要调用的操作：
 
    ```yaml

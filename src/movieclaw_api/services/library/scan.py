@@ -1353,12 +1353,17 @@ async def _scan(
                 continue
             # 完整性检测：mtime 太新 = 疑似写入中（下载/拷贝进行时），本轮
             # 暂缓入账、稍后补扫——库不假设目录用途，根路径完全可能同时是
-            # 下载目录。mtime 在未来超出一个窗口视为时钟异常，照常入账
+            # 下载目录。mtime 在未来超出一个窗口视为时钟异常，照常入账。
+            # strm 不等：它按文件名识别、播放时才读内容，「写了一半」对台账无害；
+            # 网盘插件写完 .strm 立刻触发的扫描不该再白等五分钟
             try:
                 age = now_ts - (await asyncio.to_thread(file.stat)).st_mtime
             except OSError:
                 age = NEW_FILE_QUIET_SECONDS  # 瞬时消失/不可读：交给后续流程处理
-            if -NEW_FILE_QUIET_SECONDS <= age < NEW_FILE_QUIET_SECONDS:
+            if (
+                -NEW_FILE_QUIET_SECONDS <= age < NEW_FILE_QUIET_SECONDS
+                and (is_disc or file.suffix.lower() != STRM_EXT)
+            ):
                 summary.deferred += 1
                 remaining = NEW_FILE_QUIET_SECONDS - age
                 min_remaining = (

@@ -115,7 +115,7 @@ from uuid import uuid4
 from sqlalchemy import String, cast, or_, update
 from sqlmodel import select
 
-from movieclaw_api.pipeline import StagedFile, enqueue_staged
+from movieclaw_api.pipeline import INGEST_STAGED, StagedFile, enqueue_staged, steps_for
 from movieclaw_api.services import jobs
 from movieclaw_api.services.import_watch_config import rule_target_label
 from movieclaw_api.services.library.bluray import (
@@ -1750,12 +1750,20 @@ async def _ingest_entry(
     async def enqueue_staged_steps() -> None:
         if not staged_files or item is None:
             return
+        library_id = staged_library_id
+        if library_id is None and steps_for(INGEST_STAGED, item.kind):
+            # 名称识别的身份没有定格的库：按收藏范围路由出「它该进哪个库」交给下游步骤
+            # （暂存规则本身按类型不按库；只算不改，暂存入库的行为不变）
+            from movieclaw_api.services.library.routing import route_for_item
+
+            decision = await route_for_item(session, kind.value, item)
+            library_id = decision.library.id if decision.library is not None else None
         await enqueue_staged(
             session,
             files=staged_files,
             item=item,
             rule=rule,
-            library_id=staged_library_id,
+            library_id=library_id,
             batch_id=added_batch_id,
             ingest_job_id=job_context.job_id if job_context is not None else None,
             info_hashes=[*(matched_hashes or []), *(consumable_hashes or [])],
