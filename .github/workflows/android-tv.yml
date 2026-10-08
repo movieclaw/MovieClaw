@@ -1,0 +1,99 @@
+name: Android TV
+
+# Android TV 客户端（apps/android-tv，docs/design/androidtv-app.md）。与手机版完全独立，单独一条流水线。
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths:
+      - 'apps/android-tv/**'
+      - 'src/movieclaw_api/schemas/**'
+      - 'src/movieclaw_api/api/routes/**'
+      - '.github/workflows/android-tv.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  # PR 始终启动工作流，只按路径跳过，让 android-tv-ok 可作为必需检查
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      app: ${{ github.event_name == 'push' || steps.filter.outputs.app == 'true' }}
+      api: ${{ github.event_name == 'push' || steps.filter.outputs.api == 'true' }}
+    steps:
+      - uses: dorny/paths-filter@v3
+        if: github.event_name == 'pull_request'
+        id: filter
+        with:
+          filters: |
+            app:
+              - 'apps/android-tv/**'
+              - '.github/workflows/android-tv.yml'
+            api:
+              - 'apps/android-tv/scripts/**'
+              - 'apps/android-tv/core/model/src/main/kotlin/**/generated/**'
+              - 'apps/android-tv/core/network/src/main/kotlin/**/generated/**'
+              - 'src/movieclaw_api/schemas/**'
+              - 'src/movieclaw_api/api/routes/**'
+              - '.github/workflows/android-tv.yml'
+
+  # 后端改了 TV 用到的接口或模型却没重新生成 Kotlin：在这里拦住
+  generated:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - run: pip install -e .
+      - name: 生成的 Kotlin 接口与后端一致
+        run: python apps/android-tv/scripts/gen_api.py --check
+
+  build:
+    needs: changes
+    if: needs.changes.outputs.app == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      # ubuntu-latest 自带 Android SDK 且许可证已接受；缺的平台版本由 AGP 自动下载
+      - uses: gradle/actions/setup-gradle@v4
+      - name: 单测、lint、debug 包与 release 混淆包
+        working-directory: apps/android-tv
+        run: >-
+          bash gradlew --stacktrace
+          :core:network:test :core:session:testDebugUnitTest :core:playback:testDebugUnitTest
+          :app:lintDebug :app:assembleDebug :app:assembleRelease
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-tv-results
+          path: |
+            apps/android-tv/**/build/reports/tests/
+            apps/android-tv/app/build/reports/lint-results-debug.*
+            apps/android-tv/app/build/outputs/apk/debug/
+
+  android-tv-ok:
+    needs: [changes, generated, build]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: 汇总 Android TV 检查结果
+        run: |
+          echo '${{ toJSON(needs) }}'
+          if ${{ needs.changes.result != 'success' || contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}; then
+            echo "Android TV 检查失败或被取消"
+            exit 1
+          fi

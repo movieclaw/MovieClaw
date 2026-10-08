@@ -187,3 +187,36 @@ Release（同 NER 模型 `torrent-ner-v1` 的做法），构建时下载 + 校�
 3. **导航**：照 Apple TV 的左侧可收起抽屉（§2），只有账号 / 搜索 / 首页三项。
 4. **接口层**：仿 Apple 端 `gen_api.py` 的思路，在进程内读 FastAPI 路由与 Pydantic 模型，生成 Kotlin 模型 + 接口，
    只生成 TV 用到的那部分（白名单）；生成脚本放 `apps/android-tv/scripts/`，CI 校验生成物与后端一致。
+
+## 10. 实现记录
+
+### 10.1 A0 骨架（2026-10-08，分支 `feat/androidtv-app`）
+
+| 落点 | 内容 |
+|---|---|
+| `apps/android-tv/core/model` | 生成的接口模型（`generated/Models.kt`，88 个）+ `McJson` 宽容配置 |
+| `apps/android-tv/core/network` | OkHttp 传输、信封拆包、错误、User-Agent、地址解析、图片宽度阶梯；生成的 `McApi`（36 个接口）；协议契约单测（MockWebServer） |
+| `apps/android-tv/core/session` | 账号库（KeyStore 加密令牌，坏 KeyStore 退回私有目录明文）、服务器探测与最低版本、账号密码登录 |
+| `apps/android-tv/core/playback` | 能力探测（Exo 的解码器清单 + HDMI 透传 + 显示 HDR）、`PlaybackController`（开会话、直连 / HLS、本机选音轨、进度 10 秒 / 心跳 15 秒、失败带 `failed_tiers` 降档） |
+| `apps/android-tv/app` | 登录页、A0 首页（接下来继续 + 各库最近条目）、播放页（确认 播放暂停、左右 ∓10 秒、返回 退出）；调试直达参数 `mc_server / mc_user / mc_pass / mc_play` |
+| `apps/android-tv/scripts/gen_api.py` | 接口生成器（白名单），`--check` 进 CI |
+| `apps/android-tv/tests/fixture/fixture.py` | 隔离测试服务器 + 生成测试片 |
+| `.github/workflows/android-tv.yml` | 生成物校验、单测、lint、debug / release 包；`android-tv-ok` 汇总 |
+
+工程取舍：Navigation3 要求 minSdk 24，与 §1 的 23 冲突，导航栈自己管（一个栈 + 返回键 + `SaveableStateHolder`）。
+
+**服务端顺带修的两处**（都是 Exo 首次接入暴露的）：
+1. 直连判定认客户端申报的容器、新增 `local_tracks`（§4.2）。
+2. VOD 模式（`-copyts`）转码音频时，编码器预填充让 fMP4 第一片音轨的 `tfdt` 为负（AAC −1024、E-AC-3 −256）。
+   Safari / hls.js 把它当有符号数宽容读，ExoPlayer 按规范读无符号数直接报「Top bit not zero」，凡是要服务端转码音频的片子
+   都起不了播。现把转码音频整体后移一个预填充（`asetpts`），视频时间戳不动（`ffmpeg_args._audio_args`）。
+
+**验收（模拟器 Android TV 14，对隔离测试服务器）**：遥控器按键 / 调试参数驱动，全部真实起播并截图核对：
+- H.264 MP4、VP9 WebM、续播用的 6 分钟 H.264：档 0 原文件直连；
+- HEVC + AC3 5.1 + 双字幕 MKV、MPEG-2 + AC3 TS：模拟器没有 AC3 解码器也不能透传，服务端判档 2（音频转码），
+  服务端 HLS 播放正常（修 `tfdt` 前在 Exo 上必挂，降档链路一路降到「需要软件转码」的提示，也验证了降档回路）；
+- 暂停信息层、快进、返回退出上报 stop；续播点 70.3 秒落库，再进入从 70.3 秒接着播；
+- 活动页记录为「MovieClaw Android TV · Android TV · Android 14」。
+
+**未验证**：本机切内封音轨（`local_tracks` 直连时选非默认轨）在模拟器上没有触发条件（AC3 不能解），留到真机；
+release 混淆包只验证了能编出来，没装机跑。NAS（0.32.0）还不认 `androidtv`，部署本分支前连不上。
