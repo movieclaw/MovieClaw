@@ -94,11 +94,62 @@ def list_sites() -> list[SiteConfig]:
 # ---------------------------------------------------------------------------
 
 
-def _import_class(dotted_path: str) -> type[BaseSite]:
-    """动态导入类。例如 'movieclaw_tracker.sites.custom.mteam.MTeamSite'。"""
-    module_path, _, class_name = dotted_path.rpartition(".")
-    module = importlib.import_module(module_path)
-    cls = getattr(module, class_name)
+#: 内置站点类（docs/design/plugin-phase2b.md §6）。YAML 的 ``custom_class`` 可以写短名，也兼容
+#: 历史上的完整导入路径——但只认这张表里的：此前任意导入路径都能被 ``importlib`` 执行，用户数据
+#: 目录里的一个 YAML 就能运行任意模块的顶层代码
+BUILTIN_SITE_CLASSES: dict[str, str] = {
+    "mteam": "movieclaw_tracker.sites.custom.mteam.MTeamSite",
+    "sunnypt": "movieclaw_tracker.sites.custom.sunnypt.SunnyPTSite",
+    "ourbits": "movieclaw_tracker.sites.custom.ourbits.OurBitsSite",
+    "ttg": "movieclaw_tracker.sites.custom.ttg.TTGSite",
+}
+
+#: 插件注册的站点类（名字 → 类），由插件内核的 SITE_CLASSES 注册表同步进来
+_plugin_site_classes: dict[str, type[BaseSite]] = {}
+#: 插件贡献的站点数据包目录（YAML），加载顺序：内置 < 数据包 < 用户目录
+_data_pack_dirs: dict[str, Path] = {}
+
+
+class UnknownSiteClass(ValueError):
+    """``custom_class`` 引用了既不是内置、也没有插件注册的站点类。"""
+
+
+def register_site_class(name: str, cls: type[BaseSite]) -> None:
+    if not (isinstance(cls, type) and issubclass(cls, BaseSite)):
+        raise TypeError(f"站点类 {name} 必须是 BaseSite 的子类")
+    _plugin_site_classes[name] = cls
+
+
+def unregister_site_class(name: str) -> None:
+    _plugin_site_classes.pop(name, None)
+
+
+def register_data_pack(name: str, directory: Path) -> None:
+    _data_pack_dirs[name] = Path(directory)
+
+
+def unregister_data_pack(name: str) -> None:
+    _data_pack_dirs.pop(name, None)
+
+
+def _import_class(ref: str) -> type[BaseSite]:
+    """按名字取站点类：插件注册的、内置短名、内置完整路径；其他一律拒绝，不做任意导入。"""
+    cls: object
+    if ref in _plugin_site_classes:
+        cls = _plugin_site_classes[ref]
+    else:
+        dotted_path = BUILTIN_SITE_CLASSES.get(ref)
+        if dotted_path is None and ref in BUILTIN_SITE_CLASSES.values():
+            dotted_path = ref
+        if dotted_path is None:
+            raise UnknownSiteClass(
+                f"'{ref}' 不是内置站点类（{', '.join(sorted(BUILTIN_SITE_CLASSES))}），"
+                "也没有插件注册它；custom_class 不再接受任意导入路径"
+            )
+        module_path, _, class_name = dotted_path.rpartition(".")
+        cls = getattr(importlib.import_module(module_path), class_name)
+    if not (isinstance(cls, type) and issubclass(cls, BaseSite)):
+        raise UnknownSiteClass(f"'{ref}' 不是站点类（须继承 BaseSite）")
     return cls
 
 
@@ -212,7 +263,12 @@ def _load_site_yaml(
         # 若仅有 custom_class 而无 framework，selectors 为 None（自定义类自行管理）
         if "custom_class" in raw:
             try:
-                site_class = _import_class(raw["custom_class"])
+                site_class = _import_class(str(raw["custom_class"]))
+            except UnknownSiteClass as exc:
+                logger.warning(
+                    "站点 %s 的 custom_class 不可用，已跳过（%s）：%s", site_id, exc, yaml_file
+                )
+                return None
             except Exception:
                 logger.exception(
                     "站点 %s 的 custom_class '%s' 导入失败（类路径写错？），已跳过: %s",
@@ -316,6 +372,12 @@ def load_all_sites(user_configs_dir: str | Path | None = None) -> None:
         _load_configs_dir(configs_dir, framework_defaults)
     else:
         logger.warning("Site configs directory not found: %s", configs_dir)
+
+    for pack, pack_dir in sorted(_data_pack_dirs.items()):
+        if pack_dir.is_dir():
+            _load_configs_dir(pack_dir, framework_defaults, is_user_dir=True)
+        else:
+            logger.warning("站点数据包 %s 的目录不存在：%s", pack, pack_dir)
 
     if user_configs_dir is not None:
         user_dir = Path(user_configs_dir)

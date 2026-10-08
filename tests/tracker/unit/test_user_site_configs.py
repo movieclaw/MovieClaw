@@ -134,3 +134,79 @@ def test_without_user_dir_builtin_sites_intact() -> None:
 
     site_ids = {c.site_id for c in list_sites()}
     assert {"mteam", "ssd", "ttg", "chdbits"} <= site_ids
+
+
+def test_custom_class_never_imports_arbitrary_modules(tmp_path: Path, monkeypatch) -> None:
+    """数据文件不能执行代码：custom_class 只认内置站点类与插件注册的类（plugin-phase2b.md §6）。"""
+    import sys
+
+    marker = tmp_path / "imported.marker"
+    module_dir = tmp_path / "pkgs"
+    module_dir.mkdir()
+    (module_dir / "evil_site_module.py").write_text(
+        f"open({str(marker)!r}, 'w').write('ran')\nclass Evil: pass\n", encoding="utf-8"
+    )
+    monkeypatch.syspath_prepend(str(module_dir))
+    configs = tmp_path / "configs"
+    configs.mkdir()
+    (configs / "evil.yaml").write_text(
+        "site_id: evil\nframework: nexusphp\ncustom_class: evil_site_module.Evil\n",
+        encoding="utf-8",
+    )
+    (configs / "mysite.yaml").write_text(_USER_SITE_YAML, encoding="utf-8")
+
+    load_all_sites(configs)
+
+    assert not marker.exists(), "custom_class 不能导入白名单之外的模块"
+    assert "evil_site_module" not in sys.modules
+    assert get_site_config("mysite").display_name == "My Site"
+    with pytest.raises(SiteNotFoundError):
+        get_site_config("evil")
+
+
+def test_builtin_site_classes_resolve_by_short_name_and_legacy_path(tmp_path: Path) -> None:
+    from movieclaw_tracker.sites.custom.mteam import MTeamSite
+
+    (tmp_path / "short.yaml").write_text(
+        "site_id: shortmt\nframework: api\ncustom_class: mteam\n", encoding="utf-8"
+    )
+    (tmp_path / "legacy.yaml").write_text(
+        "site_id: legacymt\nframework: api\n"
+        "custom_class: movieclaw_tracker.sites.custom.mteam.MTeamSite\n",
+        encoding="utf-8",
+    )
+    load_all_sites(tmp_path)
+    assert get_site_config("shortmt").site_class is MTeamSite
+    assert get_site_config("legacymt").site_class is MTeamSite
+    # 内置的四个站点（M-Team、SunnyPT、OurBits、TTG）照常加载
+    for site_id in ("mteam", "sunnypt", "ourbits", "ttg"):
+        get_site_config(site_id)
+
+
+def test_plugin_site_classes_and_data_packs(tmp_path: Path) -> None:
+    from movieclaw_tracker import registry
+    from movieclaw_tracker.frameworks.nexusphp import NexusPHPSite
+
+    class AcmeSite(NexusPHPSite):
+        pass
+
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    (pack / "acme.yaml").write_text(
+        "site_id: acmepack\nframework: nexusphp\ncustom_class: 'acme.sites:AcmeSite'\n"
+        "base_url: https://acme.example\ncategories:\n  movie: [1]\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(TypeError):
+        registry.register_site_class("bad", object)  # type: ignore[arg-type]
+    registry.register_site_class("acme.sites:AcmeSite", AcmeSite)
+    registry.register_data_pack("acme.sites:pack", pack)
+    try:
+        load_all_sites()
+        assert get_site_config("acmepack").site_class is AcmeSite
+    finally:
+        registry.unregister_data_pack("acme.sites:pack")
+        registry.unregister_site_class("acme.sites:AcmeSite")
+    load_all_sites()
+    with pytest.raises(SiteNotFoundError):
+        get_site_config("acmepack")

@@ -129,10 +129,33 @@ async def http_clients(ctx: Context) -> None:
 @plugin("tracker.sites", title="站点目录", provides=(SITES,), critical=True)
 async def sites(ctx: Context) -> None:
     import movieclaw_tracker
+    from movieclaw_api.plugins.keys import SITE_CLASSES, SITE_DATA_PACKS
     from movieclaw_tracker import load_all_sites
+    from movieclaw_tracker import registry as site_registry
 
-    # 内置 sites/configs/*.yaml + 用户自定义 data/site-configs/，用户目录同 site_id 覆盖内置
-    load_all_sites(ctx.settings.site_configs_dir)
+    def reload() -> None:
+        # 内置 sites/configs < 插件数据包 < 用户目录 data/site-configs（同 site_id 后者覆盖）
+        load_all_sites(ctx.settings.site_configs_dir)
+
+    # 插件贡献的站点类与站点数据包（docs/design/plugin-phase2b.md §6）：随插件挂上 / 卸下
+    # 重载站点目录。YAML 的 custom_class 只认内置站点类与这里注册的类，不再做任意导入
+    def on_class(change) -> None:
+        if change.kind == "added":
+            site_registry.register_site_class(change.id, change.item)
+        else:
+            site_registry.unregister_site_class(change.id)
+        reload()
+
+    def on_pack(change) -> None:
+        if change.kind == "added":
+            site_registry.register_data_pack(change.id, Path(change.item))
+        else:
+            site_registry.unregister_data_pack(change.id)
+        reload()
+
+    ctx.watch(SITE_CLASSES, on_class)
+    ctx.watch(SITE_DATA_PACKS, on_pack)
+    reload()
     ctx.provide(SITES, movieclaw_tracker)
 
 

@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from movieclaw_kernel import ServiceKey, Stability
+from movieclaw_kernel import RegistryKey, ServiceKey, Stability
 
 DB: ServiceKey[Any] = ServiceKey("db", doc="数据库引擎（迁移完成后提供）")
 SECRETS: ServiceKey[Any] = ServiceKey("secrets", doc="凭据加解密器")
@@ -41,4 +41,14 @@ PLUGIN_HEALTH: ServiceKey[Any] = ServiceKey(
     "plugin-health",
     stability=Stability.EXPERIMENTAL,
     doc="插件健康：常驻任务报告降级 / 恢复，降级进系统通知与诊断",
+)
+SITE_CLASSES: RegistryKey[Any] = RegistryKey(
+    "site-classes",
+    stability=Stability.EXPERIMENTAL,
+    doc="站点类：插件贡献 BaseSite 子类，站点 YAML 的 custom_class 按贡献 id 引用",
+)
+SITE_DATA_PACKS: RegistryKey[Any] = RegistryKey(
+    "site-data-packs",
+    stability=Stability.EXPERIMENTAL,
+    doc="站点数据包：插件贡献一个站点 YAML 目录（优先级：内置 < 数据包 < 用户目录）",
 )
