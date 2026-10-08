@@ -10,6 +10,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.decoder.ffmpeg.FfmpegLibrary
 import androidx.media3.exoplayer.audio.AudioCapabilities
 import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import io.movieclaw.androidtv.core.model.generated.AudioSupportIn
@@ -22,7 +23,11 @@ import io.movieclaw.androidtv.core.model.generated.VideoSupportIn
  * 解码器按 Exo 自己会选的那份清单查（[MediaCodecUtil]），不是系统全量列表；
  * 音频再加上 HDMI 能透传的编码——透传的编码不需要本机能解。
  */
-class CapabilityProbe(private val context: Context) {
+class CapabilityProbe(
+    private val context: Context,
+    /** 这台机器上实测坏过的解码器（[DecoderDenylist]）：不算进能力 */
+    private val denied: (String) -> Boolean = { false },
+) {
 
     fun probe(): ClientCapabilityIn {
         val (dolbyVision, baseLayer) = dolbyVision()
@@ -43,8 +48,11 @@ class CapabilityProbe(private val context: Context) {
         )
     }
 
+    private fun decoders(mime: String) =
+        runCatching { MediaCodecUtil.getDecoderInfos(mime, false, false) }.getOrDefault(emptyList()).filterNot { denied(it.name) }
+
     private fun videoSupport(): List<VideoSupportIn> = VIDEO_MIMES.mapNotNull { (codec, mime) ->
-        val decoders = runCatching { MediaCodecUtil.getDecoderInfos(mime, false, false) }.getOrDefault(emptyList())
+        val decoders = decoders(mime)
         val height = CapabilityRules.maxHeight(
             decoders.map { (it.capabilities?.videoCapabilities?.supportedHeights?.upper ?: 1080) to it.hardwareAccelerated },
         ) ?: return@mapNotNull null
@@ -54,11 +62,10 @@ class CapabilityProbe(private val context: Context) {
 
     /** （完整呈现的杜比视界 profile，能退回基础层的 profile） */
     private fun dolbyVision(): Pair<Set<Int>, Set<Int>> {
-        val dv = runCatching { MediaCodecUtil.getDecoderInfos(MimeTypes.VIDEO_DOLBY_VISION, false, false) }.getOrDefault(emptyList())
+        val dv = decoders(MimeTypes.VIDEO_DOLBY_VISION)
         val profileBits = dv.flatMap { info -> info.capabilities?.profileLevels?.map { it.profile }.orEmpty() }
         val full = CapabilityRules.dolbyVisionProfiles(profileBits, displayHdrTypes().contains(HDR_TYPE_DOLBY_VISION))
-        fun hardware(mime: String) = runCatching { MediaCodecUtil.getDecoderInfos(mime, false, false) }
-            .getOrDefault(emptyList()).any { it.hardwareAccelerated }
+        fun hardware(mime: String) = decoders(mime).any { it.hardwareAccelerated }
         val baseLayer = CapabilityRules.baseLayerProfiles(
             hevc = hardware(MimeTypes.VIDEO_H265), avc = hardware(MimeTypes.VIDEO_H264), av1 = hardware(MimeTypes.VIDEO_AV1),
         ) - full
@@ -77,8 +84,8 @@ class CapabilityProbe(private val context: Context) {
             AudioCapabilities.getCapabilities(context, AudioAttributes.DEFAULT, null)
         }.getOrNull()
         return AUDIO_CODECS.mapNotNull { (codec, mime, encoding) ->
-            val decodable = runCatching { MediaCodecUtil.getDecoderInfos(mime, false, false).isNotEmpty() }
-                .getOrDefault(false)
+            // 系统解码器、FFmpeg 软解（core:ffmpeg，编过 FFmpeg 才可用）、透传，三者有一样就能直放
+            val decodable = decoders(mime).isNotEmpty() || ffmpegDecodes(mime)
             val passes = encoding != null && passthrough?.supportsEncoding(encoding) == true
             if (!decodable && !passes) return@mapNotNull null
             AudioSupportIn(codec = codec, maxChannels = 8)
@@ -86,6 +93,9 @@ class CapabilityProbe(private val context: Context) {
     }
 
     private fun displaySupportsHdr(): Boolean = displayHdrTypes().isNotEmpty()
+
+    private fun ffmpegDecodes(mime: String): Boolean =
+        runCatching { FfmpegLibrary.isAvailable() && FfmpegLibrary.supportsFormat(mime) }.getOrDefault(false)
 
     private data class AudioCodec(val codec: String, val mime: String, val encoding: Int?)
 
@@ -111,6 +121,7 @@ class CapabilityProbe(private val context: Context) {
         val AUDIO_CODECS = listOf(
             AudioCodec("aac", MimeTypes.AUDIO_AAC, null),
             AudioCodec("mp3", MimeTypes.AUDIO_MPEG, null),
+            AudioCodec("mp2", MimeTypes.AUDIO_MPEG_L2, null),
             AudioCodec("opus", MimeTypes.AUDIO_OPUS, null),
             AudioCodec("vorbis", MimeTypes.AUDIO_VORBIS, null),
             AudioCodec("flac", MimeTypes.AUDIO_FLAC, null),

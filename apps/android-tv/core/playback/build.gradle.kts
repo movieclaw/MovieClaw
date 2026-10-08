@@ -20,6 +20,8 @@ dependencies {
     implementation(libs.media3.datasource.okhttp)
     // 系统「正在播放」、遥控器媒体键、语音助手（docs/design/androidtv-app.md §4.4）
     implementation(libs.media3.session)
+    // FFmpeg 音频软解（能力申报要问它能解什么）
+    implementation(project(":core:ffmpeg"))
     implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
 }

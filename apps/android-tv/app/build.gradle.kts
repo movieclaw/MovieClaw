@@ -38,6 +38,8 @@ android {
 dependencies {
     implementation(project(":core:session"))
     implementation(project(":core:playback"))
+    // FFmpeg 音频软解：Exo 按类名反射加载，只要在 APK 里（§4.3）
+    implementation(project(":core:ffmpeg"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

@@ -29,6 +29,9 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException
+import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
+import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.session.MediaSession
@@ -99,13 +102,18 @@ class PlaybackController(
     prefs: PrefsStore,
     scope: CoroutineScope,
     private val target: PlaybackTarget,
-    private val capability: CapabilityProbe = CapabilityProbe(context),
+    capabilityOverride: CapabilityProbe? = null,
     /** 调试包：每秒往 logcat（PlaybackProbe）打一行状态，给故障注入实验台判定用 */
     private val probe: Boolean = false,
     /** 实验室场景名（调试参数 mc_lab）：这些播放的记录打上标签，统计默认排除 */
     private val lab: String = "",
 ) {
+    private val denylist = DecoderDenylist(prefs, identity.appVersion)
+    private val capability = capabilityOverride ?: CapabilityProbe(context, denylist::isDenied)
     private val deviceFacts = DeviceFacts(context)
+
+    /** 最近一次 Exo 报错里出错的解码器（名字, MIME）：确定这一路解不了时拉黑它 */
+    private var failedDecoder: Pair<String, String>? = null
     private val engineFacts = EngineFacts()
     private val reportStore = PlaybackReportStore(prefs, context.filesDir)
     private val job = SupervisorJob(scope.coroutineContext[Job])
@@ -142,8 +150,14 @@ class PlaybackController(
     private val exo: ExoPlayer = ExoPlayer.Builder(
         context,
         DefaultRenderersFactory(context)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_PREFER)
-            .setEnableDecoderFallback(true),
+            // 扩展（FFmpeg 音频软解）排在系统解码器之后：系统能解、或能透传给电视 / 功放的（AC3 / E-AC-3 全景声 /
+            // TrueHD）照旧走系统，FFmpeg 只兜底两者都不行的。PREFER 会让 FFmpeg 抢先解成 PCM，透传就没了
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON)
+            .setEnableDecoderFallback(true)
+            // 这台机器上实测坏过的解码器不再选（DecoderDenylist）
+            .setMediaCodecSelector { mime, secure, tunneling ->
+                MediaCodecSelector.DEFAULT.getDecoderInfos(mime, secure, tunneling).filterNot { denylist.isDenied(it.name) }
+            },
     )
         .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
         .setBandwidthMeter(bandwidth)
@@ -773,6 +787,7 @@ class PlaybackController(
         }
 
         override fun onPlayerError(error: PlaybackException) {
+            failedDecoder = failingDecoder(error)
             val status = (error.cause as? HttpDataSource.InvalidResponseCodeException)?.responseCode
             val cause = FailurePolicy.classify(error.errorCode, status, playsOriginalFile)
             val reason = "播放失败：${error.errorCodeName}" + (status?.let { "（HTTP $it）" } ?: "")
@@ -848,6 +863,19 @@ class PlaybackController(
         if (reportedStart) sendProgress(paused = true)
     }
 
+    /** 异常链里出错的解码器：初始化失败（DecoderInitializationException）或解码中出错（MediaCodecDecoderException） */
+    private fun failingDecoder(error: Throwable): Pair<String, String>? {
+        var current: Throwable? = error
+        while (current != null) {
+            when (current) {
+                is MediaCodecRenderer.DecoderInitializationException -> current.codecInfo?.let { return it.name to it.mimeType }
+                is MediaCodecDecoderException -> current.codecInfo?.let { return it.name to it.mimeType }
+            }
+            current = current.cause
+        }
+        return null
+    }
+
     /** Exo 报的失败。直连原文件时报「解不了」，先探片源取不取得到：起播那一刻断线、超时 Exo 也只知道「打不开」 */
     private fun engineReportedFailure(reason: String, cause: FailureCause) {
         val phase = s.phase
@@ -887,6 +915,12 @@ class PlaybackController(
             ),
         )
         Log.w(TAG, "失败处置 cause=$cause original=$playsOriginalFile → $response｜$reason")
+        // 确定这一路本机解不了（原位重试也救不回来、要改走服务端）：出错的解码器以后不再选
+        val decodeGaveUp = response == FailurePolicy.Response.FallbackToServerStream ||
+            (response == FailurePolicy.Response.StepDownTier && playsOriginalFile)
+        if (decodeGaveUp && (cause == FailureCause.Decode || cause == FailureCause.DecodeFinal)) {
+            failedDecoder?.let { (name, mime) -> denylist.deny(name, mime, reason) }
+        }
         EngineLog.add("player", "失败处置 $cause → $response：$reason")
         if (response != FailurePolicy.Response.FailSourceMissing && response != FailurePolicy.Response.FailNetwork) {
             record?.noteEngineFailure(reason, cause.name)
@@ -1696,7 +1730,12 @@ class PlaybackController(
     /** 完整记录：明细、设备快照，值得的时候附引擎日志尾巴 */
     private fun recordPayload(r: PlaybackRecord, outcome: String): PlaybackMetricPayload {
         val counters = runCatching { exo.videoDecoderCounters?.also { it.ensureUpdated() } }.getOrNull()
-        r.device = deviceFacts.snapshot
+        val denied = denylist.entries()
+        r.device = if (denied.isEmpty()) {
+            deviceFacts.snapshot
+        } else {
+            JsonObject(deviceFacts.snapshot + ("denied_decoders" to JsonObject(denied.mapValues { JsonPrimitive("${it.value.mime}：${it.value.reason}") })))
+        }
         val context = JsonObject(
             mapOf(
                 "app_version" to JsonPrimitive(identity.appVersion),

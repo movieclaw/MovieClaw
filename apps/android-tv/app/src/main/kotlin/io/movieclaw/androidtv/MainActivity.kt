@@ -19,6 +19,16 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val args = LaunchArgs.from(intent)
         args.lab?.let { (application as MovieClawApp).labScenario = it }
+        // 调试包：实验台拉黑一个解码器（「名字:MIME」；clear = 清空），验证选解码器与能力申报都会绕开它
+        if (BuildConfig.DEBUG) intent.getStringExtra("mc_deny_decoder")?.let { spec ->
+            val prefs = object : io.movieclaw.androidtv.core.playback.PrefsStore {
+                override fun string(key: String) = graph.store.string(key)
+                override fun putString(key: String, value: String?) = graph.store.putString(key, value)
+            }
+            val list = io.movieclaw.androidtv.core.playback.DecoderDenylist(prefs, graph.identity.appVersion)
+            val parts = spec.split(":", limit = 2)
+            if (spec == "clear") list.clear() else if (parts.size == 2) list.deny(parts[0], parts[1], "实验台")
+        }
         DeepLink.from(intent)?.let { graph.deepLinks.value = it }
         setContent { AppRoot(graph, args) }
     }

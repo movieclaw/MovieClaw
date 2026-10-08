@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "MovieClawAndroidTV"
-include(":app", ":core:model", ":core:network", ":core:session", ":core:playback")
+include(":app", ":core:model", ":core:network", ":core:session", ":core:playback", ":core:ffmpeg")

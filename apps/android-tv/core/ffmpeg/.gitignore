@@ -1,0 +1,3 @@
+# native/ffmpeg/build.sh 的产物（FFmpeg 共享库与头文件），不入库
+/src/main/jni/ffmpeg/
+/.cxx/

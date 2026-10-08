@@ -70,12 +70,18 @@ jobs:
           java-version: '21'
       # ubuntu-latest 自带 Android SDK 且许可证已接受；缺的平台版本由 AGP 自动下载
       - uses: gradle/actions/setup-gradle@v4
+      # FFmpeg 音频软解库（LGPL-2.1 共享库，产物不入库，§4.3）：没有它 App 照常能编，只是 release 包里缺软解
+      - name: FFmpeg 音频解码库
+        working-directory: apps/android-tv
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.3.13750724" "cmake;3.22.1" > /dev/null
+          NDK="$ANDROID_HOME/ndk/27.3.13750724" bash native/ffmpeg/build.sh
       - name: 单测、lint、debug 包与 release 混淆包
         working-directory: apps/android-tv
         run: >-
           bash gradlew --stacktrace
           :core:network:test :core:session:testDebugUnitTest :core:playback:testDebugUnitTest
-          :app:lintDebug :app:assembleDebug :app:assembleRelease
+          :app:testDebugUnitTest :app:lintDebug :app:assembleDebug :app:assembleRelease
       - uses: actions/upload-artifact@v4
         if: always()
         with:
