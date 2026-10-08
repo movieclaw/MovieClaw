@@ -105,7 +105,13 @@ core/playback
    给 HLS → 播 `stream_url`，持会话期间每 15 秒心跳。
 3. Exo 起播失败（解码器报错、首帧超时）→ 带 `failed_tiers` 重开会话，逐级降档；每次回落带原因上报（`/playback/client-log`）。
 
-**待实测核对**（A0）：直连原文件时，选非默认音轨是否会被服务端顶成转码档——Exo 在本机就能切内封轨，上送时应保持档 0。
+**服务端判定的配合（2026-10-08 用户定，已实现）**：原来的判定按浏览器写，不申报 `universal` 时只有 mp4 / mov 能直连，
+mkv / ts / webm 一律重封装成 HLS（`containers` 字段服务端从没读过），选了非默认音轨也会被顶成重封装。现改为：
+- 文件容器在客户端申报的 `containers` 里也算可直连（`decide._resolve_tier`）；编码、HDR、分辨率仍由服务端核对；
+- 新增能力字段 `local_tracks`：播放器能在本机切内封音轨，直连时不因「放的不是默认轨」重封装，计划里的
+  `audio.track_ref` 就是要它在本机选中的那条。
+现有客户端只申报 mp4 / hls-fmp4、不带 `local_tracks`，行为不变（`tests/playback/test_decide.py` 锁住）。
+老服务端会忽略 `local_tracks`、照旧重封装——能播，只是多走一路 HLS。
 
 ### 4.3 补短板
 

@@ -1350,3 +1350,52 @@ def test_transcode_plan_carries_the_source_codec():
     assert isinstance(decision, PlaybackPlan)
     assert decision.video.action == "transcode"
     assert decision.video.source_codec == "vc1"
+
+
+# ---------------------------------------------------------------------------
+# 原生播放器申报的容器与本机切轨（Android TV 的 ExoPlayer，docs/design/androidtv-app.md §4.2）
+# ---------------------------------------------------------------------------
+
+EXOPLAYER = ClientCapability(
+    video=(VideoSupport("h264"), VideoSupport("hevc"), VideoSupport("vp9")),
+    audio=(AudioSupport("aac"), AudioSupport("ac3"), AudioSupport("opus")),
+    containers=frozenset({"mp4", "mkv", "webm", "ts", "hls-fmp4"}),
+    mse="none",
+    native_hls=True,
+    local_tracks=True,
+)
+
+
+@pytest.mark.parametrize("container", ["mkv", "webm", "ts"])
+def test_declared_containers_play_the_original_file(container):
+    """原生播放器申报能直接解封装的容器：给档 0 原文件，不在服务端重封装。"""
+    decision = decide_playback(media(container=container), EXOPLAYER, WITH_GPU)
+    assert decision.tier is PlaybackTier.DIRECT_PLAY
+    assert decision.container == "mp4"
+
+
+def test_browsers_still_remux_mkv():
+    """浏览器只申报 mp4 / hls-fmp4：mkv 照旧重封装，现有客户端行为不变。"""
+    assert decide_playback(media(), CHROME_HEVC, WITH_GPU).tier is PlaybackTier.REMUX
+
+
+def test_declared_container_still_checks_codecs():
+    """容器能直连不等于什么都放得了：编码照样由服务端核对。"""
+    decision = decide_playback(media(video_codec="vc1"), EXOPLAYER, WITH_GPU)
+    assert decision.tier is PlaybackTier.HARDWARE_TRANSCODE
+
+
+def test_local_tracks_keep_direct_play_for_a_non_default_track():
+    """本机能切轨的播放器选了非默认轨也直连，计划里带上那条让它自己选中。"""
+    profile = media(audio_tracks=(JPN_AAC, CHI_AAC))
+    picked = decide_playback(profile, EXOPLAYER, WITH_GPU, preferred_audio="embedded:2")
+    assert picked.tier is PlaybackTier.DIRECT_PLAY
+    assert picked.audio.track_ref == "embedded:2"
+    without = ClientCapability(**{**vars(EXOPLAYER), "local_tracks": False})
+    remuxed = decide_playback(profile, without, WITH_GPU, preferred_audio="embedded:2")
+    assert remuxed.tier is PlaybackTier.REMUX
+
+
+def test_declared_container_skips_keyframe_probe():
+    """直连原文件用不上关键帧密度：预热不为它读盘采样。"""
+    assert not needs_keyframe_probe(media(keyframe_interval_s=None), EXOPLAYER, WITH_GPU)

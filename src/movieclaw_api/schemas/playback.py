@@ -374,6 +374,9 @@ class ClientCapabilityIn(BaseModel):
     #: 能经目录取流接口读原盘目录：多剪辑原盘给档 0 目录直推（会话的 ``stream_url``
     #: 是目录清单地址，决策带主播放列表名），NAS 不起 ffmpeg
     disc_folder: bool = False
+    #: 能在本机切换内封音轨（Android TV 的 ExoPlayer）：直出原文件时自己选中计划里的那条，
+    #: 服务端不再为「选中的不是默认轨」重封装。浏览器只放默认轨，不申报
+    local_tracks: bool = False
 
 
 class PlaybackDecideRequest(BaseModel):

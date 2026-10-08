@@ -335,4 +335,5 @@ def capability_from_request(payload) -> ClientCapability:  # noqa: ANN001
         universal=payload.universal,
         disc_image=payload.disc_image,
         disc_folder=payload.disc_folder,
+        local_tracks=payload.local_tracks,
     )

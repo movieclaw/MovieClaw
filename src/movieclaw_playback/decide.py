@@ -456,7 +456,7 @@ def decide_playback(
 
     # 6–7. 综合定档。
     tier, container, reason, degraded_from = _resolve_tier(
-        media, video_verdict, audio_verdict, policy, failed_tiers
+        media, video_verdict, audio_verdict, policy, failed_tiers, capability=capability
     )
     if isinstance(tier, PlaybackRejected):
         return tier
@@ -760,6 +760,7 @@ def _resolve_tier(
     policy: PlaybackPolicy,
     failed_tiers: frozenset[PlaybackTier],
     *,
+    capability: ClientCapability,
     enforce_keyframe_gate: bool = True,
 ) -> tuple[PlaybackTier | PlaybackRejected, str, str, PlaybackTier | None]:
     """综合定档（§3.3 步骤 6–7）。返回 (档位或拒绝, 容器, 中文理由,
@@ -785,7 +786,10 @@ def _resolve_tier(
 
     if video.can_copy and audio.can_copy:
         container = (media.container or "").lower()
-        if container in DIRECT_PLAY_CONTAINERS and not audio.needs_remap:
+        # 播放器申报能直接解封装的容器（原生播放器的 mkv / ts / webm……）同样直连；
+        # 能在本机切轨的播放器不用为「选中的不是默认轨」重封装
+        direct = container in DIRECT_PLAY_CONTAINERS or container in capability.containers
+        if direct and (not audio.needs_remap or capability.local_tracks):
             tier = PlaybackTier.DIRECT_PLAY
         elif audio.needs_remap:
             # 直出档整份文件交给 <video>，浏览器只会放容器里的默认轨——我们
@@ -1042,6 +1046,7 @@ def needs_keyframe_probe(
         audio_verdict,
         policy,
         failed_tiers,
+        capability=capability,
         enforce_keyframe_gate=False,
     )
     return tier in (PlaybackTier.REMUX, PlaybackTier.AUDIO_TRANSCODE)
