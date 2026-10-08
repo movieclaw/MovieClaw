@@ -1,0 +1,183 @@
+# Android TV App 设计（定义稿）
+
+> 状态：已定稿（2026-10-08 用户确认 §9 四项），实施中。分支 `feat/androidtv-app`。
+> 关联文档：[tvos-app.md](tvos-app.md)（产品形态的参照）、[player-engine.md](player-engine.md)（终端做重活的原则）、
+> [device-auth.md](device-auth.md) / [login-devices.md](login-devices.md)（设备令牌与扫码配对）、
+> [library-home-perspective.md](library-home-perspective.md)（首页的行）、[image-sizing.md](image-sizing.md)（图片宽度阶梯）。
+
+## 0. 一句话
+
+**Android TV 版是 Apple TV 版在安卓电视上的同胞**：产品形态、交互原则照 tvos-app.md（播放第一、不让人在电视上打字、
+一家人共用、只看不管）；代码是一套**全新独立的工程**，只以服务端协议为准。
+
+## 1. 决策
+
+| 事项 | 结论 | 理由 |
+|---|---|---|
+| 与现有安卓手机版的关系 | **完全独立**：不复用、不参考 `apps/android` 的代码、依赖版本与设计 | 用户决定（2026-10-08）：手机版由其他开发者贡献，架构与内核的可靠性未经验证。服务端协议以后端代码为准，Apple 端只作行为对照 |
+| 技术栈 | Kotlin + Jetpack Compose + **Compose for TV**（`androidx.tv:tv-material`） | Google 当前推荐的电视界面栈，焦点、D-pad、卡片放大都有现成组件 |
+| 最低系统 | **minSdk 23（Android 6.0）**，target / compile 取当前最新稳定 SDK | Media3 自 1.9 起 minSdk 23，再往下没有意义；覆盖国产盒子、索尼等厂商电视与 Google TV 设备 |
+| CPU 架构 | **arm64-v8a + armeabi-v7a** 都出 | 不少电视芯片是 64 位、系统却是 32 位用户态（Chromecast with Google TV、部分索尼 / 国产电视），只出 arm64 会装不上 |
+| 播放内核 | **Media3 ExoPlayer 主引擎** + 服务端 HLS 兜底；用扩展补短板（§4） | 硬解、HDR / 杜比视界、音频透传都直接交给系统，电视端最稳；与 player-engine.md「终端做重活、解不了再走服务端」一致 |
+| 依赖注入 | 手写构造注入（一个 `AppGraph`），不上 Hilt | 工程小，少一层注解处理与构建时间；账号切换时整张图重建即可 |
+| 网络 | OkHttp + kotlinx.serialization；响应字段一律可空带默认值、`ignoreUnknownKeys` | 新旧服务端双向兼容（api-compat 教训） |
+| 接口层 | **从后端生成 Kotlin**（§9 第 4 项） | 字段不漂移，服务端改了重新生成 |
+| 图片 | Coil 3（OkHttp 通道，带 `Authorization`），按宽度阶梯取图 | 图片接口要登录；阶梯同后端 `WIDTH_LADDER` |
+| 包名 / 标识 | `io.movieclaw.androidtv`；请求标识 `MovieClaw-AndroidTV/<版本> (<型号>; Android <版本>; build <n>)` | 与手机版 `io.movieclaw.android` 并存不冲突，同一台设备可两个都装 |
+| 设备类型 | 服务端新增 `androidtv`（§6） | 「我的设备」里要显示成电视、批准页的「将获得」要写对；扫码配对必须登记 |
+| 版本号 | `apps/android-tv/version.properties` 独立管理 | 同 android-release.md 给 TV 预留的口径：独立 applicationId、版本文件和附件名 |
+| 文案 | 一律取 Apple TV / 网页现成文案，不自造 | 多端同一个功能叫同一个名字 |
+
+## 2. 功能范围（一期）
+
+对齐 Apple TV 首版，**不做发现和订阅**（用户 2026-10-08 定）。
+
+| 功能 | 怎么做 | 用到的接口 |
+|---|---|---|
+| 找服务器 | 局域网发现（Jellyfin 兼容 UDP 7359，单播扫本网段 /24）+ 手填地址；候选地址过 `GET /health` 才算数；低于最低服务器版本直接说明 | `udp 7359`、`GET /health`、`GET /auth/bootstrap` |
+| 扫码登录（默认） | 电视显示二维码 + 配对码，手机扫码批准；按 `interval` 轮询 | `POST /auth/device/authorize`、`POST /auth/device/token`、`GET /auth/me` |
+| 账号密码（兜底） | 电视屏幕键盘输入 | `POST /auth/device/login`（`kind: androidtv`） |
+| 谁在看 / 多账号 | 侧边栏第一项；跨服务器切换 = 换令牌、不联网、整棵界面树与 `AppGraph` 重建；启动直接进上次的账号 | 本机存储；退出登录 `DELETE /auth/devices/current`（失败入队重试） |
+| 首页 | 首屏是跟着焦点走的「接下来继续」大图区，下面接用户在网页自定义的行 | `GET /playback/up-next`、`GET /ui/preferences`（只读）、各行取数（库 / 类型 / 合集 / 收藏 / 按类型找）、`GET /libraries/showcase` |
+| 媒体库海报墙 | 从首页「我的媒体库」行进；筛选只留排序、只看未看、类型；每页 60 条、短页即止 | `GET /libraries?scope=all`、`GET /libraries/{id}/items`、`GET /libraries/kinds/{kind}/items` |
+| 条目详情 | 大剧照 + 片名 Logo + 事实行 + 主按钮「继续 mm:ss」；季、分集横排、演职员；版本、标记已看 / 收藏 | `GET /libraries/{lid}/items/{id}`、`…/episodes`、`GET /playback/resume`、`GET/POST /playback/marks`、`GET /people/{id}` |
+| 搜索 | 屏幕键盘 + 系统语音输入，只搜媒体库 | `GET /search/library` |
+| 播放 | §4、§5 | `/playback/sessions` 一族 |
+| 关于 | 版本号 + 开源组件许可（**LGPL 合规必需**） | — |
+| 不做 | 发现、订阅、片段、大图预告、设置、活动、AI 助手、待处理事项、站点资源、媒体库管理、分享 | — |
+
+导航照 Apple TV 的最终形态：左侧可收起的抽屉（`tv-material` 的 `NavigationDrawer`），只有 **账号 / 搜索 / 首页** 三项；
+二级页（详情、海报墙、影人页）压在抽屉之上、盖住整屏，返回键退回。
+
+## 3. 工程
+
+### 3.1 目录
+
+独立的 Gradle 工程，按「核心 / 功能」分模块，核心模块不依赖任何界面：
+
+```
+apps/android-tv/
+  settings.gradle.kts / build.gradle.kts / gradle/libs.versions.toml（依赖版本唯一来源）
+  version.properties
+  core/
+    model/        接口数据模型（纯 Kotlin，可空带默认值）
+    network/      OkHttp 客户端、信封解包、错误中文化、User-Agent、令牌注入
+    session/      服务器发现、登录 / 配对状态机、账号库（KeyStore 加密）、权限
+    playback/     会话协议、能力探测、引擎抽象（Player 接口）、进度 / 心跳上报、跳过段、选轨
+  feature/
+    onboarding/ home/ library/ detail/ search/ player/ accounts/ about/
+  app/            Application、MainActivity、导航壳、AppGraph
+  native/ffmpeg/  LGPL FFmpeg 音频扩展的编译脚本（产物不入库，§4.3）
+  tests/          端到端（遥控器按键驱动）
+```
+
+模块边界的目的：播放与会话逻辑可以单测、可以换引擎，以后若要做安卓手机界面，`core/*` 原样共用。
+
+### 3.2 约定
+
+- 一切请求都过 `core/network`，页面里不拼 URL；播放链路（会话、进度、心跳）走独立连接池，不排在页面请求后面。
+- 新字段可空 + 默认值；枚举类响应字段（如 `segments[].type`）解码时未知值降级为「其他」，不让整包失败。
+- 焦点：每一页进来都要有确定的初始焦点；卡片焦点放大统一走一个组件；不用 `rAF` 式的时序假设（Compose 里用 `FocusRequester` + 首帧回调）。
+- 电视上没有浏览器：外链、预告片网页入口一律不做。
+
+## 4. 播放内核
+
+### 4.1 分层
+
+```
+feature/player     控制层界面（遥控器交互、信息面板、跳过片头 / 下一集卡、拖动预览）
+core/playback
+  PlaybackController   会话协议、兜底阶梯、看门狗、选轨记忆、下一集、进度上报
+  CapabilityProbe      起播前查本机能力：解码器、HDR / 杜比视界、HDMI 透传格式
+  Engine（= Media3 Player 接口）
+    ├─ ExoEngine       主引擎：原文件直连（Range + 签名 token）或服务端 HLS
+    └─ （后期可选）MpvEngine  LGPL 构建的 libmpv，适配同一个 Player 接口，上层不改
+```
+
+### 4.2 起播判定
+
+1. 起播前 `CapabilityProbe` 产出能力快照，随 `POST /playback/sessions` 上送（`ClientCapabilityIn`）：
+   - 视频：`MediaCodecList` 里**硬件**解码器支持的编码与最大高度（h264 / hevc / av1 / vp9 / mpeg2 / vc1 按机器实际）；
+   - HDR：显示设备的 HDR 能力（HDR10 / HDR10+ / HLG / 杜比视界）+ 是否有杜比视界解码器；
+   - 音频：本机解码器 + HDMI 透传能力（AC3 / EAC3 / EAC3-JOC / DTS / DTS-HD / TrueHD），有 FFmpeg 扩展时再加软解能覆盖的编码；
+   - 容器：Exo 能直接解封装的（mp4 / mkv / webm / ts）；原盘镜像 / 目录不申报（交给服务端）。
+2. 服务端给原文件 → Exo 直连 `/playback/files/{id}/stream?token=…`（Range），内封音轨 / 字幕由 Exo 在本机切换；
+   给 HLS → 播 `stream_url`，持会话期间每 15 秒心跳。
+3. Exo 起播失败（解码器报错、首帧超时）→ 带 `failed_tiers` 重开会话，逐级降档；每次回落带原因上报（`/playback/client-log`）。
+
+**待实测核对**（A0）：直连原文件时，选非默认音轨是否会被服务端顶成转码档——Exo 在本机就能切内封轨，上送时应保持档 0。
+
+### 4.3 补短板
+
+| 短板 | 方案 | 许可 |
+|---|---|---|
+| 电视 / 功放解不了 TrueHD、DTS 等 | **自编** Media3 `decoder_ffmpeg` 扩展（只启用音频解码器：truehd / mlp / dca / ac3 / eac3 / flac / alac 等），透传优先、透传不了才软解 | Media3 胶水代码 Apache 2.0；FFmpeg 按 **LGPL-2.1** 编（不开 `--enable-gpl` / `--enable-nonfree` / `--enable-version3`），编成**独立 `.so` 动态链接** |
+| ASS 特效字幕 | libass（`io.github.peerless2012:ass-media`，MIT；libass 本身 ISC） | 宽松许可 |
+| PGS / SRT / VTT | Exo 自带 | — |
+| 原盘 ISO / BDMV、冷门编码 | 服务端 HLS（一期）；后期视需要挂 LGPL 构建的 libmpv 备用引擎 | libmpv 须 `-Dgpl=false` |
+
+**不用 Jellyfin 发布的 `org.jellyfin.media3:media3-ffmpeg-decoder`**：它声明的许可是 GPL-3.0，链进 App 进程会让整个 APK
+落入 GPL，与 MovieClaw 许可的非商用附加条件冲突。（Mac 转码器 / Docker 用的 jellyfin-ffmpeg 是独立进程调用的命令行程序，
+不受影响。）
+
+FFmpeg 产物：`native/ffmpeg/build.sh` 固定 FFmpeg 版本与 sha256、用 NDK 交叉编译两种架构，产物发到本仓库一个专门的
+Release（同 NER 模型 `torrent-ner-v1` 的做法），构建时下载 + 校验；「关于」页附 FFmpeg 许可全文、源码地址与编译脚本位置。
+**风险**：ass-media 0.5.x 是对着 Media3 1.8 编的，Media3 版本要与它、与自编扩展三方对齐，升级 Media3 时一起验。
+
+### 4.4 电视上才有的事
+
+- **帧率匹配**：24p 片源让电视切 24Hz。Android 11+ 用 Media3 的帧率策略（`Surface.setFrameRate`），遵从系统「匹配内容帧率」开关；
+  更老的系统按需切 `preferredDisplayModeId`。
+- **HDR / 杜比视界**：按显示能力输出；杜比视界 Profile 7 双层原盘依赖少数芯片，无解码器时退到 HDR10 基础层。
+- **音频透传**：读 HDMI 支持的格式，直通优先（全景声 EAC3-JOC / TrueHD-Atmos 原样给功放），不行再解码。
+- **MediaSession**：接入系统（遥控器媒体键、Google 助理「暂停 / 快进」、系统「正在播放」）。
+- **控制层**照 Android TV 系统播放器的手感：确认键 播放 / 暂停；左右 后退 / 前进 10 秒，按住连续拖动（带缩略图预览）；
+  下键 信息面板（字幕、音轨、画质、版本、章节）；返回键 先收面板、再退出（进度照常上报）；片头 / 片尾出现「跳过片头」「下一集」并自动拿焦点。
+
+## 5. 账号与登录
+
+- 令牌：`AndroidKeyStore` 生成 AES-GCM 密钥加密后存 DataStore；账号列表（服务器地址、用户名、头像、设备 ID）同库。
+- `installation_id` = `androidtv-<uuid>`，首次启动生成、随账号库保存。
+- 401 回登录（登录 / 引导接口除外）；退出登录先调 `DELETE /auth/devices/current`，失败入队、下次联网补发。
+- 权限按 `GET /auth/me` 的 `capabilities` 算（一期只影响「标记已看 / 收藏」之外的入口，基本用不到）。
+
+## 6. 服务端与网页要改的（新增 `androidtv` 设备类型）
+
+| 位置 | 改动 |
+|---|---|
+| `services/login_devices.py` | `KINDS` 加 `androidtv`（`Android TV App`，interactive，family login）；进 `APP_KINDS`、`PAIRING_KINDS` |
+| `schemas/auth.py` | `DeviceClientInfo.kind` 的 Literal 加 `androidtv`，`client_type` 描述同步 |
+| `services/playback/watch.py` | User-Agent 正则与 `_APP_CLIENTS` 认 `MovieClaw-AndroidTV/`（否则活动页记成「MovieClaw Web」） |
+| `api/routes/playback.py` | `NATIVE_APP_CLIENTS` 加 `androidtv` |
+| `apps/web/lib/devices-display.ts` 等 | 类型名「Android TV」、电视图标、批准页「将获得」文案同 `tvos` |
+| iOS「设置 → 设备」 | 类型名与「将获得」文案同上 |
+
+**兼容**：老服务端收到 `kind: androidtv` 会 422。TV 端登录前已有最低服务器版本检查，把最低版本定为带上这批改动的服务器版本，
+并在界面上说清「请先升级服务器到 x.y」，而不是报登录失败。
+
+## 7. 分期与验收
+
+| 阶段 | 内容 | 验收 |
+|---|---|---|
+| **A0 骨架** | 工程、CI 编译与单测；账号密码登录（调试参数可直达）；能力探测；最简播放页直连原文件 + HLS 兜底 + 进度上报；服务端 `androidtv` 改动 | 模拟器上对隔离测试服务器（/tmp 新库 + 生成的测试片）登录并播完：H.264 MP4、HEVC + AC3 5.1 + 双字幕 MKV、MPEG-2 TS、VP9 WebM；活动页显示「Android TV」 |
+| **A1 能看** | 局域网发现、扫码登录、谁在看、导航抽屉、首页、海报墙、详情、搜索、完整播放控制层（拖动预览、信息面板、跳过片头、下一集）、关于 | 只用方向键 / 确认 / 返回，走完「开机 → 选人 → 选片 → 播放 → 下一集 → 返回」；每页焦点能走到所有元素；遥控器按键驱动的端到端用例全过 |
+| **A2 好看好听** | 自编 LGPL FFmpeg 音频扩展、libass、帧率匹配、HDR / 杜比视界 / 透传在索尼电视上验 | 索尼真机：HDR10 / 杜比视界给原文件不降级；24p 切 24Hz；接功放全景声 / TrueHD 不降混；ASS 特效字幕正确 |
+| **A3 之后** | Google TV「继续观看」（系统首页的 Watch Next）、大图预告、可选 libmpv 备用引擎、发版接入 | 另定 |
+
+端到端验证方式：模拟器 `Android_TV_API_34` + 遥控器按键（`adb shell input keyevent DPAD_*`，或 UI Automator 用例）+ 截图；
+后端用 /tmp 下全新数据库的隔离测试服务器（不碰本机 data 库）。真机项（HDR、透传、帧率）在索尼电视上验。
+
+## 8. 风险与待验证
+
+- **厂商 ROM 的解码器怪癖**：部分盒子硬解器自报能力与实际不符（报支持 4K HEVC 却花屏）。能力探测要有「实测失败即拉黑该解码器 + 降档」的回路。
+- **32 位系统内存**：armeabi-v7a 盒子内存常只有 2GB，首页十几行海报要控制图片解码尺寸与并发。
+- **Media3 / ass-media / 自编 FFmpeg 扩展的版本对齐**（§4.3）。
+- **Compose for TV 在老系统（Android 6～8）上的性能**：在模拟器的低版本镜像上至少跑一遍首页滚动。
+
+## 9. 已定（2026-10-08 用户确认）
+
+1. **目录与包名**：`apps/android-tv/`、`io.movieclaw.androidtv`。
+2. **设备类型**：新增 `androidtv`（§6）。
+3. **导航**：照 Apple TV 的左侧可收起抽屉（§2），只有账号 / 搜索 / 首页三项。
+4. **接口层**：仿 Apple 端 `gen_api.py` 的思路，在进程内读 FastAPI 路由与 Pydantic 模型，生成 Kotlin 模型 + 接口，
+   只生成 TV 用到的那部分（白名单）；生成脚本放 `apps/android-tv/scripts/`，CI 校验生成物与后端一致。
