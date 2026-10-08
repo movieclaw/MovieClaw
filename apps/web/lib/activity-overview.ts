@@ -68,12 +68,16 @@ export function deliveryDetail(delivery: PlaybackDelivery): string | null {
 /**
  * 客户端 · 设备名，如「Web · Safari · iPhone」：
  * - 自家客户端的「MovieClaw 」品牌前缀没有信息量，去掉；
- * - 设备名已以客户端名打头时不再重复（「Apple TV」+「Apple TV · tvOS 27.0」→「Apple TV · tvOS 27.0」）。
+ * - 设备名里已有某段以客户端名打头时不再重复（「Apple TV」+「Apple TV · tvOS 27.0」→
+ *   「Apple TV · tvOS 27.0」，「iOS」+「iPhone · iOS 27.0」→「iPhone · iOS 27.0」）。
  */
 export function deviceLabel(client: string, deviceName: string): string {
   const name = client.startsWith("MovieClaw ") ? client.slice("MovieClaw ".length) : client;
   if (!deviceName) return name || "未知设备";
-  if (!name || deviceName === name || deviceName.startsWith(`${name} `)) return deviceName;
+  const repeats = deviceName
+    .split(" · ")
+    .some((part) => part === name || part.startsWith(`${name} `));
+  if (!name || repeats) return deviceName;
   return `${name} · ${deviceName}`;
 }
 

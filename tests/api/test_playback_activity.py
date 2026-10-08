@@ -460,7 +460,7 @@ async def _seed_movie_in_library(
         (
             "MovieClaw-Android/0.1.0 (Pixel 9; Android 16; build 7)",
             "MovieClaw Android",
-            "Android 16",
+            "Pixel 9 · Android 16",
         ),
     ],
 )

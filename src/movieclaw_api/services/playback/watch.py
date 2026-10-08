@@ -55,6 +55,8 @@ _APP_USER_AGENT = re.compile(
     r"MovieClaw-(?P<platform>iOS|tvOS|macOS|Android)/(?P<version>[0-9A-Za-z._+-]+)"
 )
 _APP_SYSTEM = re.compile(r"\b(?P<os>iOS|iPadOS|tvOS|macOS|Android) (?P<version>[0-9.]+)")
+#: UA 括号里的第一段机型位（Android 报的是 ``Build.MODEL``，如「Pixel 9」）
+_APP_MODEL = re.compile(r"MovieClaw-[^/]+/\S+ \((?P<model>[^;)]+);")
 
 #: 网页端设备标识的命名空间前缀：与 Jellyfin 设备 id 同在一张注册表里，
 #: 加前缀避免两类标识意外撞车。
@@ -145,6 +147,11 @@ def web_client_info(*, device_id: str, user_agent: str | None) -> ClientInfo:
         device = fallback_device
         if app["platform"] == "iOS":
             device = next((name for needle, name in _PLATFORMS if needle in ua), fallback_device)
+        elif app["platform"].startswith("Android"):
+            # Android 的机型才是有用的设备名；占位的「Android」与客户端名重复
+            model = _APP_MODEL.search(ua)
+            if model is not None and model["model"].strip():
+                device = model["model"].strip()
         system = _APP_SYSTEM.search(ua)
         if system is not None:
             # 设备名与系统名相同（Android）时只写一次：「Android 16」而不是「Android · Android 16」

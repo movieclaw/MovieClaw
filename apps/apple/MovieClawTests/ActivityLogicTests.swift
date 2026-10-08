@@ -134,6 +134,8 @@ struct ActivityLogicTests {
         #expect(WatchFormat.deviceLabel(client: "Infuse", deviceName: "Apple TV") == "Infuse · Apple TV")
         #expect(WatchFormat.deviceLabel(client: "MovieClaw Apple TV", deviceName: "Apple TV · tvOS 27.0") == "Apple TV · tvOS 27.0")
         #expect(WatchFormat.deviceLabel(client: "MovieClaw Android", deviceName: "Android 16") == "Android 16")
+        #expect(WatchFormat.deviceLabel(client: "MovieClaw iOS", deviceName: "iPhone · iOS 27.0") == "iPhone · iOS 27.0")
+        #expect(WatchFormat.deviceLabel(client: "MovieClaw Android", deviceName: "Pixel 9 · Android 16") == "Pixel 9 · Android 16")
         #expect(WatchFormat.deviceLabel(client: "MovieClaw Android TV", deviceName: "BRAVIA 4K VH2 · Android 12")
             == "Android TV · BRAVIA 4K VH2 · Android 12")
         #expect(WatchFormat.deviceLabel(client: "MovieClaw Android", deviceName: "AndroidTV") == "Android · AndroidTV")

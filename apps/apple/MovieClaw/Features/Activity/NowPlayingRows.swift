@@ -94,11 +94,13 @@ enum WatchFormat {
     }
 
     /// 客户端 · 设备名（对齐 Web `deviceLabel`）：自家客户端的「MovieClaw 」品牌前缀没有信息量，去掉；
-    /// 设备名已以客户端名打头时不再重复（「Apple TV」+「Apple TV · tvOS 27.0」→「Apple TV · tvOS 27.0」）
+    /// 设备名里已有某段以客户端名打头时不再重复（「Apple TV」+「Apple TV · tvOS 27.0」→「Apple TV · tvOS 27.0」，
+    /// 「iOS」+「iPhone · iOS 27.0」→「iPhone · iOS 27.0」）
     static func deviceLabel(client: String, deviceName: String) -> String {
         let name = client.hasPrefix("MovieClaw ") ? String(client.dropFirst("MovieClaw ".count)) : client
         if deviceName.isEmpty { return name.isEmpty ? "未知设备" : name }
-        if name.isEmpty || deviceName == name || deviceName.hasPrefix("\(name) ") { return deviceName }
+        let repeats = deviceName.components(separatedBy: " · ").contains { $0 == name || $0.hasPrefix("\(name) ") }
+        if name.isEmpty || repeats { return deviceName }
         return "\(name) · \(deviceName)"
     }
 

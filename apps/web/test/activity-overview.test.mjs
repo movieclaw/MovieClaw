@@ -64,6 +64,8 @@ test("设备名：去掉自家品牌前缀、不重复客户端名", () => {
   assert.equal(deviceLabel("MovieClaw Apple TV", "Apple TV · tvOS 27.0"), "Apple TV · tvOS 27.0");
   assert.equal(deviceLabel("MovieClaw Mac", "Mac · macOS 26.0"), "Mac · macOS 26.0");
   assert.equal(deviceLabel("MovieClaw Android", "Android 16"), "Android 16");
+  assert.equal(deviceLabel("MovieClaw iOS", "iPhone · iOS 27.0"), "iPhone · iOS 27.0");
+  assert.equal(deviceLabel("MovieClaw Android", "Pixel 9 · Android 16"), "Pixel 9 · Android 16");
   assert.equal(
     deviceLabel("MovieClaw Android TV", "BRAVIA 4K VH2 · Android 12"),
     "Android TV · BRAVIA 4K VH2 · Android 12",
