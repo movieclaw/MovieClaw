@@ -24,34 +24,52 @@ import io.movieclaw.androidtv.core.model.generated.VideoSupportIn
  */
 class CapabilityProbe(private val context: Context) {
 
-    fun probe(): ClientCapabilityIn = ClientCapabilityIn(
-        video = videoSupport(),
-        audio = audioSupport(),
-        containers = CONTAINERS,
-        hdrPassthrough = displaySupportsHdr(),
-        mse = "none",
-        isMobile = false,
-        nativeHls = true,
-        universal = false,
-        discImage = false,
-        discFolder = false,
-        localTracks = true,
-    )
+    fun probe(): ClientCapabilityIn {
+        val (dolbyVision, baseLayer) = dolbyVision()
+        return ClientCapabilityIn(
+            video = videoSupport(),
+            audio = audioSupport(),
+            containers = CONTAINERS,
+            hdrPassthrough = displaySupportsHdr(),
+            mse = "none",
+            isMobile = false,
+            nativeHls = true,
+            universal = false,
+            discImage = false,
+            discFolder = false,
+            localTracks = true,
+            dolbyVisionProfiles = dolbyVision.map(Int::toLong).sorted(),
+            dolbyVisionBaseLayerProfiles = baseLayer.map(Int::toLong).sorted(),
+        )
+    }
 
     private fun videoSupport(): List<VideoSupportIn> = VIDEO_MIMES.mapNotNull { (codec, mime) ->
         val decoders = runCatching { MediaCodecUtil.getDecoderInfos(mime, false, false) }.getOrDefault(emptyList())
-        if (decoders.isEmpty()) return@mapNotNull null
+        val height = CapabilityRules.maxHeight(
+            decoders.map { (it.capabilities?.videoCapabilities?.supportedHeights?.upper ?: 1080) to it.hardwareAccelerated },
+        ) ?: return@mapNotNull null
         val hardware = decoders.any { it.hardwareAccelerated }
-        val maxHeight = decoders.maxOf { info ->
-            info.capabilities?.videoCapabilities?.supportedHeights?.upper ?: 1080
-        }
-        VideoSupportIn(
-            codec = codec,
-            maxHeight = maxHeight.coerceAtMost(4320).toLong(),
-            // 只有软解时 4K 多半跟不上，交给服务端按高度判断降档
-            smooth = hardware || maxHeight <= 1080,
-            powerEfficient = hardware,
-        )
+        VideoSupportIn(codec = codec, maxHeight = height.toLong(), smooth = true, powerEfficient = hardware)
+    }
+
+    /** （完整呈现的杜比视界 profile，能退回基础层的 profile） */
+    private fun dolbyVision(): Pair<Set<Int>, Set<Int>> {
+        val dv = runCatching { MediaCodecUtil.getDecoderInfos(MimeTypes.VIDEO_DOLBY_VISION, false, false) }.getOrDefault(emptyList())
+        val profileBits = dv.flatMap { info -> info.capabilities?.profileLevels?.map { it.profile }.orEmpty() }
+        val full = CapabilityRules.dolbyVisionProfiles(profileBits, displayHdrTypes().contains(HDR_TYPE_DOLBY_VISION))
+        fun hardware(mime: String) = runCatching { MediaCodecUtil.getDecoderInfos(mime, false, false) }
+            .getOrDefault(emptyList()).any { it.hardwareAccelerated }
+        val baseLayer = CapabilityRules.baseLayerProfiles(
+            hevc = hardware(MimeTypes.VIDEO_H265), avc = hardware(MimeTypes.VIDEO_H264), av1 = hardware(MimeTypes.VIDEO_AV1),
+        ) - full
+        return full to baseLayer
+    }
+
+    @Suppress("DEPRECATION")
+    private fun displayHdrTypes(): Set<Int> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return emptySet()
+        val display = context.getSystemService(DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY) ?: return emptySet()
+        return display.hdrCapabilities?.supportedHdrTypes?.toSet().orEmpty()
     }
 
     private fun audioSupport(): List<AudioSupportIn> {
@@ -67,17 +85,14 @@ class CapabilityProbe(private val context: Context) {
         }
     }
 
-    @Suppress("DEPRECATION")
-    private fun displaySupportsHdr(): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return false
-        val display = context.getSystemService(DisplayManager::class.java)?.getDisplay(Display.DEFAULT_DISPLAY)
-            ?: return false
-        return display.hdrCapabilities?.supportedHdrTypes?.isNotEmpty() == true
-    }
+    private fun displaySupportsHdr(): Boolean = displayHdrTypes().isNotEmpty()
 
     private data class AudioCodec(val codec: String, val mime: String, val encoding: Int?)
 
     private companion object {
+        /** `Display.HdrCapabilities.HDR_TYPE_DOLBY_VISION` */
+        const val HDR_TYPE_DOLBY_VISION = 1
+
         /** Exo 能直接解封装的容器（服务端据此直连原文件，见 decide._resolve_tier）。 */
         val CONTAINERS = listOf("mp4", "mkv", "webm", "ts", "hls-fmp4")
 
@@ -105,5 +120,38 @@ class CapabilityProbe(private val context: Context) {
             AudioCodec("dts", MimeTypes.AUDIO_DTS, C.ENCODING_DTS),
             AudioCodec("truehd", MimeTypes.AUDIO_TRUEHD, C.ENCODING_DOLBY_TRUEHD),
         )
+    }
+}
+
+/** 能力申报的纯规则（单测覆盖；取数的部分在 [CapabilityProbe]） */
+object CapabilityRules {
+    /** 软解码器最多申报到这个高度：电视 CPU 软解 1080p 的 H.264 / MPEG-2 尚可，软解 4K 必卡 */
+    const val SOFTWARE_MAX_HEIGHT = 1080
+
+    /** 一种编码能直放的最大高度：有硬解按硬解的上限，只有软解的封顶 1080p；一个解码器都没有返回 null */
+    fun maxHeight(decoders: List<Pair<Int, Boolean>>): Int? {
+        if (decoders.isEmpty()) return null
+        val hardware = decoders.filter { it.second }.maxOfOrNull { it.first }
+        val software = decoders.filter { !it.second }.maxOfOrNull { minOf(it.first, SOFTWARE_MAX_HEIGHT) }
+        return listOfNotNull(hardware, software).max().coerceAtMost(4320)
+    }
+
+    /**
+     * 杜比视界解码器申报的 profile（`CodecProfileLevel.DolbyVisionProfile*` 是按位的常量：P0 = 0x1 … P8 = 0x100，
+     * profile 号 = 位序号）。屏幕不支持杜比视界时解出来也显示不对，一个都不算
+     */
+    fun dolbyVisionProfiles(profileBits: List<Int>, displaySupportsDolbyVision: Boolean): Set<Int> {
+        if (!displaySupportsDolbyVision) return emptySet()
+        return profileBits.filter { it > 0 && it and (it - 1) == 0 }.map(Integer::numberOfTrailingZeros).toSet()
+    }
+
+    /**
+     * 解不了杜比视界时 Exo 会改用常规解码器解基础层的 profile（Media3 `MediaCodecUtil.getAlternativeCodecMimeType`：
+     * P4 / P8 → HEVC、P9 → H.264、P10 → AV1）；要有对应的硬解码器
+     */
+    fun baseLayerProfiles(hevc: Boolean, avc: Boolean, av1: Boolean): Set<Int> = buildSet {
+        if (hevc) addAll(listOf(4, 8))
+        if (avc) add(9)
+        if (av1) add(10)
     }
 }

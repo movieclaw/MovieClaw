@@ -965,7 +965,7 @@ class PlaybackController(
         failureCount += 1
         record?.noteFallback("档 $tier 放不了：$reason")
         if (tier >= 4) {
-            fail(reason, "可以换一个版本重试；若反复出现，请打开「⋯ → 播放诊断」查看原因。", "decode")
+            fail(reason, "可以换一个版本重试；若反复出现，把出错的时间告诉管理员——服务器上留有这次播放的诊断记录。", "decode")
             return
         }
         request(s.positionMs, Phase.Degrading)
