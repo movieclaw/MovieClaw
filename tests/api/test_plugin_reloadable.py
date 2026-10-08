@@ -39,6 +39,11 @@ def app_client(tmp_path, monkeypatch):
     monkeypatch.setenv("SITE_CONFIGS_DIR", str(tmp_path / "site-configs"))
     monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path))
     monkeypatch.setenv("SCHEDULER_ENABLED", "true")
+    # Jellyfin 自动发现默认绑固定的 UDP 7359：并行跑测试时别的进程可能正占着它，
+    # 首次启用绑不上、重载时又绑上了，描述符数就「多出一个」。改绑随机端口，结果才确定
+    from movieclaw_jellyfin import udp
+
+    monkeypatch.setattr(udp, "DISCOVERY_PORT", 0)
     get_settings.cache_clear()
     from movieclaw_api.app import create_app
 
