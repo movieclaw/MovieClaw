@@ -1584,7 +1584,7 @@ class PlaybackController(
             "startup", "engine" to str("exo"), "tier" to (session?.decision?.tier?.let(::JsonPrimitive) ?: JsonNull),
             "original" to JsonPrimitive(playsOriginalFile), "start_ms" to JsonPrimitive(s.positionMs),
             "media_item_id" to JsonPrimitive(unit.mediaItemId), "file_id" to (session?.decision?.fileId?.let(::JsonPrimitive) ?: JsonNull),
-            "first_frame_ms" to (r.firstFrameAt?.let { JsonPrimitive(it) } ?: JsonNull),
+            "first_frame_ms" to (r.firstFrameMs?.let { JsonPrimitive(it) } ?: JsonNull),
         )
     }
 

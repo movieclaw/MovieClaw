@@ -18,6 +18,10 @@ class PlaybackRecord(val unit: PlaybackUnit, val origin: String, private val sta
     var route: String = ""
     var firstFrameAt: Long? = null
         private set
+
+    /** 起播到首帧的耗时（毫秒）；还没出首帧时 null */
+    val firstFrameMs: Long?
+        get() = firstFrameAt?.let { it - startedAt }
     var rebufferCount = 0L
         private set
     var rebufferMs = 0L
@@ -69,7 +73,7 @@ class PlaybackRecord(val unit: PlaybackUnit, val origin: String, private val sta
         droppedFrames: Long?, totalFrames: Long?,
     ): PlaybackMetricPayload {
         endRebuffer(now)
-        val ttff = firstFrameAt?.let { it - startedAt }
+        val ttff = firstFrameMs
         return PlaybackMetricPayload(
             libraryFileId = libraryFileId,
             tier = tier,
