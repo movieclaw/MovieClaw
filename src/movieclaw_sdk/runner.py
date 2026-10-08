@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import contextlib
 import contextvars
 import dataclasses
 import importlib
@@ -187,10 +188,54 @@ def _contribution(registry: str, item: Any) -> tuple[dict[str, Any], Any]:
     raise NotImplementedError(f"进程外插件暂不能往注册表 {registry} 贡献")
 
 
+class _RemotePluginRoutes:
+    """插件路由：路由器挂进本进程自己的 ASGI 应用（Unix 套接字）。
+
+    宿主按区挂代理路由，鉴权、验签都在宿主；请求与响应流式转发。
+    """
+
+    def __init__(self, runner: Runner) -> None:
+        self._runner = runner
+
+    def mount(self, ctx: Any, router: Any, *, zone: str = "admin") -> str:
+        from fastapi.routing import APIRoute
+
+        prefix = f"/api/v1/plugins/{ctx.entry_id}"
+        routes = [
+            {
+                "path": route.path,
+                "methods": sorted(route.methods or ()),
+                "operation_id": route.operation_id,
+                "summary": route.summary,
+                "name": route.name,
+            }
+            for route in router.routes
+            if isinstance(route, APIRoute)
+        ]
+        self._runner.serve_router(router, prefix)
+        self._runner.send({"type": "routes", "zone": zone, "routes": routes})
+        return prefix
+
+    async def sign(
+        self,
+        ctx: Any,
+        path: str,
+        *,
+        params: dict[str, str] | None = None,
+        expires_in: int | None = None,
+        absolute: bool = False,
+    ) -> str:
+        return await self._runner.rpc(
+            "routes.sign",
+            {"path": path, "params": params, "expires_in": expires_in, "absolute": absolute},
+        )
+
+
 _SERVICE_PROXIES: dict[str, Callable[[Runner], Any]] = {
     "host-ops": _RemoteHostOps,
     "plugin-data": _RemotePluginData,
     "plugin-health": _RemotePluginHealth,
+    "plugin-routes": _RemotePluginRoutes,
 }
 
 
@@ -198,7 +243,7 @@ class RemoteContext:
     """进程外插件拿到的上下文：与内核 ``Context`` 同名同签名。
 
     支持事件与钩子（含可靠事件与 ``ctx.delivery``）、后台任务、清理；宿主操作、插件数据、
-    健康上报三种服务；往任务处理器、入库槽位、站点数据包三个注册表贡献。插件路由随 C4 第二部分开放。
+    健康上报三种服务；往任务处理器、入库槽位、站点数据包三个注册表贡献；插件路由与签名链接。
     """
 
     def __init__(
@@ -311,6 +356,48 @@ class Runner:
         self._nexts: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._calls: set[asyncio.Task[Any]] = set()
         self.ctx: RemoteContext | None = None
+        self.socket: str | None = None
+        self._app: Any = None
+        self._server: Any = None
+        self._serving: asyncio.Task[Any] | None = None
+
+    def serve_router(self, router: Any, prefix: str) -> None:
+        """第一次挂路由时在宿主指定的 Unix 套接字上起 ASGI 服务；之后的路由器挂到同一个应用上。"""
+        from fastapi import FastAPI
+
+        if self.socket is None:
+            raise RuntimeError("宿主没有为这个插件分配路由套接字")
+        if self._app is None:
+            import uvicorn
+
+            self._app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
+            with contextlib.suppress(FileNotFoundError):
+                os.unlink(self.socket)
+            config = uvicorn.Config(
+                self._app, uds=self.socket, lifespan="off", log_level="warning", access_log=False
+            )
+            self._server = uvicorn.Server(config)
+            self._serving = asyncio.get_running_loop().create_task(self._server.serve())
+        self._app.include_router(router, prefix=prefix)
+
+    async def wait_serving(self) -> None:
+        if self._server is None:
+            return
+        deadline = time.monotonic() + 15
+        while not self._server.started:
+            if self._serving is not None and self._serving.done():
+                self._serving.result()
+                raise RuntimeError("插件路由服务没有起来")
+            if time.monotonic() > deadline:
+                raise RuntimeError("插件路由服务 15 秒内没有起来")
+            await asyncio.sleep(0.02)
+
+    async def stop_serving(self) -> None:
+        if self._server is not None:
+            self._server.should_exit = True
+        if self._serving is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(self._serving, 5)
 
     def send(self, message: dict[str, Any]) -> None:
         self._writer.write(encode(message))
@@ -337,6 +424,8 @@ class Runner:
         if reply.get("ok"):
             return reply.get("result")
         error = reply.get("error") or {}
+        if error.get("kind") == "value":
+            raise ValueError(error.get("message") or "参数不对")
         if error.get("kind") == "ops":
             from movieclaw_api.services.host_ops import OpsError
 
@@ -448,6 +537,7 @@ class Runner:
             elif kind == "dispose":
                 if self.ctx is not None:
                     await self.ctx.dispose()
+                await self.stop_serving()
                 self.send({"type": "disposed"})
                 return 0
 
@@ -473,6 +563,7 @@ async def run(args: argparse.Namespace) -> int:
     runner = Runner(_PROTOCOL_OUT)
     runner.send({"type": "hello", "sdk": SDK_VERSION, "pid": os.getpid()})
     init = decode(await reader.readline())
+    runner.socket = init.get("socket")
     # apply 里可能已经要调宿主服务（读插件数据、拿宿主操作凭证）：先开始收消息
     serving = loop.create_task(runner.serve(reader))
     try:
@@ -490,6 +581,7 @@ async def run(args: argparse.Namespace) -> int:
             init.get("data_dir") or "./data",
         )
         await found.apply(runner.ctx)
+        await runner.wait_serving()
     except Exception as exc:  # noqa: BLE001 -- 启动失败报给宿主，由内核标 FAILED
         runner.send({"type": "failed", "error": f"{type(exc).__name__}: {exc}"})
         traceback.print_exc()

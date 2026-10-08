@@ -15,17 +15,22 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import contextvars
+import hashlib
 import itertools
 import json
 import logging
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
+
+from fastapi import Request
+from fastapi.responses import StreamingResponse
 
 from movieclaw_kernel import (
     DURABLE_EVENTS,
@@ -106,6 +111,10 @@ class Session:
         """正在子进程里执行的任务：调用编号 → 宿主这边真实的 ``JobContext``。"""
         self.rpc_handler: RpcFn | None = None
         self.contributions: list[dict[str, Any]] = []
+        self.routes: list[dict[str, Any]] = []
+        # Unix 套接字路径有长度上限（macOS 104 字节）：放在临时目录、用短哈希命名
+        digest = hashlib.sha1(f"{entry_id}:{os.getpid()}".encode()).hexdigest()[:12]
+        self.socket = str(Path(tempfile.gettempdir()) / f"mcp-{digest}.sock")
         self._ids = itertools.count(1)
         self._readers: list[asyncio.Task[Any]] = []
         self._stopping = False
@@ -179,10 +188,12 @@ class Session:
                 "entry_id": self.entry_id,
                 "config": self._config,
                 "data_dir": self._data_dir,
+                "socket": self.socket,
             }
         )
         declarations: list[dict[str, Any]] = []
         self.contributions = []
+        self.routes = []
         while True:
             message = await self._read(proc)
             kind = message["type"]
@@ -190,6 +201,8 @@ class Session:
                 declarations.append(message)
             elif kind == "contribute":
                 self.contributions.append(message)
+            elif kind == "routes":
+                self.routes.append(message)
             elif kind == "rpc":
                 # 插件在 apply 里就要用宿主服务（拿宿主操作凭证、读插件数据）
                 asyncio.get_running_loop().create_task(self._run_rpc(message))
@@ -287,6 +300,8 @@ class Session:
                     "message": exc.message,
                     "details": exc.details,
                 }
+            elif isinstance(exc, ValueError):
+                error = {"kind": "value", "message": str(exc)}
             else:
                 error = {"kind": "service", "message": f"{type(exc).__name__}: {exc}"}
             reply.update(ok=False, error=error)
@@ -378,13 +393,13 @@ class Session:
             )
             await asyncio.sleep(backoff)
             backoff = min(backoff * 2, BACKOFF_MAX)
-            previous = _shape(self.declarations, self.contributions)
+            previous = _shape(self, self.declarations)
             try:
                 declarations = await self.start()
             except Exception:
                 logger.exception("插件 %s 重启失败", self.entry_id)
                 continue
-            if _shape(declarations, self.contributions) != previous:
+            if _shape(self, declarations) != previous:
                 logger.error("插件 %s 重启后声明的监听器变了，按崩溃处理", self.entry_id)
                 await self._kill()
                 continue
@@ -408,6 +423,8 @@ class Session:
             task.cancel()
         await asyncio.gather(*self._readers, return_exceptions=True)
         self._fail_pending(PluginProcessGone("插件已卸载"))
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(self.socket)
 
     async def _kill(self) -> None:
         proc = self._proc
@@ -416,11 +433,102 @@ class Session:
             await proc.wait()
 
 
-def _shape(declarations: list[dict[str, Any]], contributions: list[dict[str, Any]]) -> set[Any]:
+def _shape(session: Session, declarations: list[dict[str, Any]]) -> set[Any]:
     """插件声明的形状：重启后必须一致（代理已经按它登记在内核里了）。"""
-    return {("on", d["event"], d["id"]) for d in declarations} | {
-        ("contribute", c["registry"], c["id"]) for c in contributions
+    return (
+        {("on", d["event"], d["id"]) for d in declarations}
+        | {("contribute", c["registry"], c["id"]) for c in session.contributions}
+        | {
+            ("route", m["zone"], r["operation_id"], r["path"])
+            for m in session.routes
+            for r in m["routes"]
+        }
+    )
+
+
+#: 不跨跳转发的头（逐跳头与由传输层重新生成的头）
+_HOP_HEADERS = frozenset(
+    {
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+        "host",
     }
+)
+
+
+def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
+    """按插件声明的路由清单建一个代理路由器：把请求流式转给插件进程的 Unix 套接字。
+
+    鉴权、验签由宿主在挂载时注入（``PLUGIN_ROUTES.mount``），这里只负责搬运；
+    网盘取流这类几 GB 的 Range 请求，请求体与响应体都按块转发，不落内存。
+    """
+    import httpx
+    from fastapi import APIRouter
+    from starlette.background import BackgroundTask
+
+    router = APIRouter()
+
+    from movieclaw_api.exceptions import AppException
+
+    def unavailable() -> AppException:
+        return AppException(
+            status_code=503,
+            code="PLUGIN_UNAVAILABLE",
+            message=f"插件 {session.entry_id} 暂时不可用（进程不在运行或正在重启），请稍后再试",
+        )
+
+    async def forward(request: Request) -> StreamingResponse:
+        if not session.online:
+            raise unavailable()
+        client = httpx.AsyncClient(
+            transport=httpx.AsyncHTTPTransport(uds=session.socket),
+            base_url="http://plugin",
+            timeout=httpx.Timeout(30.0, read=None),
+        )
+        headers = [(k, v) for k, v in request.headers.items() if k.lower() not in _HOP_HEADERS]
+        upstream = client.build_request(
+            request.method,
+            request.url.path,
+            params=request.url.query or None,
+            headers=headers,
+            content=request.stream(),
+        )
+        try:
+            response = await client.send(upstream, stream=True)
+        except httpx.TransportError as exc:
+            await client.aclose()
+            raise unavailable() from exc
+        except BaseException:
+            await client.aclose()
+            raise
+
+        async def close() -> None:
+            await response.aclose()
+            await client.aclose()
+
+        return StreamingResponse(
+            response.aiter_raw(),
+            status_code=response.status_code,
+            headers={k: v for k, v in response.headers.items() if k.lower() not in _HOP_HEADERS},
+            background=BackgroundTask(close),
+        )
+
+    for route in routes:
+        router.add_api_route(
+            route["path"],
+            forward,
+            methods=route["methods"],
+            operation_id=route["operation_id"],
+            summary=route.get("summary"),
+            name=route.get("name"),
+        )
+    return router
 
 
 def _job_error(error: RemoteCallError) -> Exception:
@@ -509,12 +617,13 @@ def _proxy(session: Session, declaration: dict[str, Any]) -> tuple[Any, Callable
 
 def _open_services() -> dict[str, ServiceKey[Any]]:
     """进程外插件能用的服务（插件侧有对应的代理，见 ``movieclaw_sdk.runner``）。"""
-    from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_HEALTH
+    from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_HEALTH, PLUGIN_ROUTES
 
     return {
         HOST_OPS.name: HOST_OPS,
         PLUGIN_DATA.name: PLUGIN_DATA,
         PLUGIN_HEALTH.name: PLUGIN_HEALTH,
+        PLUGIN_ROUTES.name: PLUGIN_ROUTES,
         DURABLE_EVENTS.name: DURABLE_EVENTS,
     }
 
@@ -575,6 +684,16 @@ async def _service_handler(ctx: Context, session: Session, names: tuple[str, ...
                 return await context.current_progress()
             if method == "job.cancel_requested":
                 return await context.cancel_requested()
+        if method == "routes.sign":
+            from movieclaw_api.plugins.keys import PLUGIN_ROUTES
+
+            return await ctx.use(PLUGIN_ROUTES).sign(
+                ctx,
+                params["path"],
+                params=params.get("params"),
+                expires_in=params.get("expires_in"),
+                absolute=bool(params.get("absolute")),
+            )
         if method == "ops.client":
             return {"operations": sorted(need(client, HOST_OPS.name).operations)}
         if method == "ops.call":
@@ -654,6 +773,13 @@ def remote_plugin(
             ctx.on(
                 event, handler, id=declaration["id"], priority=int(declaration.get("priority", 0))
             )
+        if session.routes:
+            from movieclaw_api.plugins.keys import PLUGIN_ROUTES
+
+            for mounted in session.routes:
+                ctx.use(PLUGIN_ROUTES).mount(
+                    ctx, _route_proxy(session, mounted["routes"]), zone=mounted["zone"]
+                )
         for contribution in session.contributions:
             key, item = _contribution(session, contribution)
             ctx.contribute(

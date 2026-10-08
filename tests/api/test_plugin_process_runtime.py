@@ -394,3 +394,82 @@ def test_process_plugin_contributes_job_handlers_steps_and_site_packs(tmp_path, 
         durable_events.reset_state()
         get_settings.cache_clear()
         load_all_sites()
+
+
+ROUTES_PLUGIN = """
+import os
+
+from fastapi import APIRouter
+
+from movieclaw_api.plugins.keys import PLUGIN_ROUTES
+from movieclaw_sdk import plugin
+
+
+@plugin("acme.web", title="插件接口", inject=(PLUGIN_ROUTES,))
+async def apply(ctx) -> None:
+    routes = ctx.use(PLUGIN_ROUTES)
+    admin = APIRouter()
+
+    @admin.post("/echo/{n}", operation_id="plugins.acme.web.echo")
+    async def echo(n: int, body: dict) -> dict:
+        return {"n": n, "body": body, "pid": os.getpid()}
+
+    public = APIRouter()
+
+    @public.get("/blob", operation_id="plugins.acme.web.blob")
+    async def blob() -> dict:
+        return {"pid": os.getpid()}
+
+    routes.mount(ctx, admin, zone="admin")
+    routes.mount(ctx, public, zone="public")
+"""
+
+
+def test_process_plugin_routes_are_proxied_with_host_auth(tmp_path, monkeypatch) -> None:
+    from movieclaw_api.api.deps import require_login
+    from movieclaw_api.services.auth import Principal
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'web.db'}")
+    monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
+    monkeypatch.setenv("SITE_CONFIGS_DIR", str(tmp_path / "site-configs"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    monkeypatch.setattr(plugin_runtime, "BACKOFF_MAX", 0.2)
+    get_settings.cache_clear()
+    durable_events.reset_state()
+    (tmp_path / "plugins").mkdir()
+    (tmp_path / "plugins" / "acme_web.py").write_text(ROUTES_PLUGIN, encoding="utf-8")
+    (tmp_path / "plugins.yaml").write_text(
+        "- id: acme.web\n  local: true\n  module: acme_web\n  runtime: process\n",
+        encoding="utf-8",
+    )
+    from movieclaw_api.app import create_app
+
+    app = create_app()
+    try:
+        with TestClient(app) as client:
+            assert app.state.kernel.fiber("acme.web").state.value == "active"
+            session = plugin_runtime.sessions["acme.web"]
+            # 管理员区：宿主注入鉴权，未登录 401；登录后请求体、路径参数原样到插件进程
+            assert client.post("/api/v1/plugins/acme.web/echo/3", json={"a": 1}).status_code == 401
+            admin = Principal(kind="admin", name="t")
+            app.dependency_overrides[require_login] = lambda: admin
+            reply = client.post("/api/v1/plugins/acme.web/echo/3", json={"a": 1})
+            assert reply.status_code == 200, reply.text
+            assert reply.json() == {"n": 3, "body": {"a": 1}, "pid": session.pid}
+            app.dependency_overrides.clear()
+            # 公开区：没签名 404（验签在宿主；签名链接的完整流程见网盘示例的进程外用例）
+            assert client.get("/api/v1/plugins/acme.web/blob").status_code == 404
+            # 进程挂了：代理返回 503，重启后恢复
+            pid = session.pid
+            os.kill(pid, 9)
+            wait_for(lambda: not session.online)
+            app.dependency_overrides[require_login] = lambda: admin
+            assert client.post("/api/v1/plugins/acme.web/echo/1", json={}).status_code == 503
+            wait_for(lambda: session.online and session.pid != pid)
+            assert client.post("/api/v1/plugins/acme.web/echo/1", json={}).json()["pid"] == (
+                session.pid
+            )
+    finally:
+        durable_events.reset_state()
+        get_settings.cache_clear()

@@ -37,8 +37,9 @@ EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "plugins"
 UPLOAD = "examples.cloud-strm:upload"
 
 
-@pytest.fixture
-def app_client(tmp_path, monkeypatch):
+@pytest.fixture(params=["inline", "process"])
+def app_client(request, tmp_path, monkeypatch):
+    """主进程里跑一遍、独立进程里再跑一遍（plugin-phase3.md §0：运行位置对插件透明）。"""
     from movieclaw_api.settings.store import reset_setting_store
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'cloud.db'}")
@@ -55,6 +56,7 @@ def app_client(tmp_path, monkeypatch):
             f"""
             - id: examples.cloud-strm
               local: true
+              runtime: {request.param}
               config: {{ cloud_dir: "{tmp_path / "cloud"}", chunk_mb: 1 }}
               grants: [library.get, library.scan.start]
             """
