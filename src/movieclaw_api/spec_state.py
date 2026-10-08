@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import threading
+import weakref
 from collections import OrderedDict
 from typing import Any
 
@@ -77,11 +78,56 @@ def _route_signature(app: FastAPI) -> tuple[Any, ...]:
     )
 
 
+_baseline_hash: str | None = None
+#: 路由与基线 spec 同源的应用（create_app 产出的产品应用）；测试里临时拼的应用不在其中
+_baseline_apps: weakref.WeakSet[FastAPI] = weakref.WeakSet()
+
+
+def mark_baseline_app(app: FastAPI) -> None:
+    _baseline_apps.add(app)
+
+
+def unmark_baseline_app(app: FastAPI) -> None:
+    """应用的路由不再与基线同源（例如运行中挂了插件路由）：之后的指纹现场计算。"""
+    _baseline_apps.discard(app)
+    if getattr(app.state, "spec_hash", None) is not None:
+        del app.state.spec_hash
+
+
+def _hash_from_baseline() -> str | None:
+    """构建期导出的基线 spec 的指纹；没有基线文件（源码直接运行）返回 None。
+
+    基线由同一份代码导出（正式发布与开发版部署的产物里都有，见 spec_catalog），指纹与现场
+    ``app.openapi()`` 算出的完全一致；读文件约几十毫秒，而现场生成整份 spec 要好几秒，且在
+    事件循环里同步执行——NAS 上重启后的第一个请求（常常就是健康检查）会被它卡住 7 秒多。
+    """
+    global _baseline_hash
+    if _baseline_hash is None:
+        import json
+
+        from movieclaw_api.services.spec_catalog import _SPEC_PATH
+
+        try:
+            text = _SPEC_PATH.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        try:
+            _baseline_hash = spec_hash(json.loads(text))
+        except ValueError:
+            return None
+    return _baseline_hash
+
+
 def get_spec_hash(app: FastAPI) -> str:
     """取当前 app 的 spec 指纹，并在同构 app 之间复用计算结果。"""
     cached = getattr(app.state, "spec_hash", None)
     if cached is not None:
         return cached
+    if app in _baseline_apps:
+        baseline = _hash_from_baseline()
+        if baseline is not None:
+            app.state.spec_hash = baseline
+            return baseline
 
     signature = _route_signature(app)
     # 首次生成约需数百毫秒。锁覆盖计算过程，避免并发启动多个同构 app 时重复

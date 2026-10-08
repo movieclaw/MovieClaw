@@ -41,4 +41,8 @@ def create_app() -> FastAPI:
     from movieclaw_mcp import register as register_mcp
 
     register_mcp(app)
+    # 这是产品应用：路由与构建期导出的基线 spec 同源，规格指纹可以直接取基线（spec_state.py）
+    from movieclaw_api.spec_state import mark_baseline_app
+
+    mark_baseline_app(app)
     return app
