@@ -30,7 +30,7 @@ SEPARATOR = "\n---\n\n## 简体中文\n"
 
 
 def section(text: str, version: str, lang: str) -> dict[str, str]:
-    """一种语言的说明：标题行、紧随其后的一段摘要，其余是正文。"""
+    """一种语言的说明：标题行、紧随其后的一段摘要（保留段内换行，和 Release 页一致），其余是正文。"""
     lines = text.strip().split("\n")
     title = re.fullmatch(r"## v(\S+?)[:：]\s*(\S.*)", lines[0])
     if not title or title.group(1) != version:
@@ -41,7 +41,7 @@ def section(text: str, version: str, lang: str) -> dict[str, str]:
     body = "\n".join(lines[end:]).strip()
     if not body:
         raise ValueError(f"{lang} 摘要之后没有正文")
-    return {"title": title.group(2).strip(), "summary": " ".join(lines[2:end]).strip(), "body": body}
+    return {"title": title.group(2).strip(), "summary": "\n".join(lines[2:end]).strip(), "body": body}
 
 
 def notes(text: str, version: str) -> dict[str, dict[str, str]]:

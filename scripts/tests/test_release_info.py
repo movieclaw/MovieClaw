@@ -62,6 +62,10 @@ class ReleaseInfoTest(unittest.TestCase):
             with self.subTest(name), self.assertRaises(ValueError):
                 module.notes(text, "0.40.0")
 
+    def test_summary_keeps_its_line_breaks(self):
+        text = CHANGELOG.replace("邀请家人一起看片。\n", "邀请家人一起看片。\n也能各看各的。\n")
+        self.assertEqual(module.notes(text, "0.40.0")["zh"]["summary"], "邀请家人一起看片。\n也能各看各的。")
+
     def test_notes_absent_until_changelog_merged(self):
         info = module.build("v0.40.0", 19, "v0.39.0", 19, [release("v0.40.0")], None)
         self.assertIsNone(info["notes"])
