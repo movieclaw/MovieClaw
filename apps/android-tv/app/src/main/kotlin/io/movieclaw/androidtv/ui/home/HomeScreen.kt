@@ -1,5 +1,20 @@
 package io.movieclaw.androidtv.ui.home
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -48,6 +63,10 @@ import io.movieclaw.androidtv.ui.components.StateView
 import io.movieclaw.androidtv.ui.components.NoAutoScroll
 import io.movieclaw.androidtv.ui.shell.LocalRouter
 import io.movieclaw.androidtv.ui.shell.LocalShellChrome
+import io.movieclaw.androidtv.ui.shell.LocalStagePreview
+import io.movieclaw.androidtv.ui.stage.StagePreview
+import io.movieclaw.androidtv.ui.stage.StagePreviewLayer
+import io.movieclaw.androidtv.ui.stage.UseStagePreview
 import io.movieclaw.androidtv.ui.shell.PlayRequest
 import io.movieclaw.androidtv.ui.shell.Route
 import io.movieclaw.androidtv.ui.shell.WallSource
@@ -93,6 +112,12 @@ fun HomeScreen() {
     val playFocus = remember { FocusRequester() }
     val cardFocus = remember { mutableStateMapOf<Long, FocusRequester>() }
     var launchFocusPending by remember { mutableStateOf(true) }
+    // 卡片行给大图预告让位（沉到屏幕底边、只露焦点那张的一截）
+    var rowYielded by remember { mutableStateOf(false) }
+    var previewSince by remember { mutableStateOf(0L) }
+    var lastInput by remember { mutableStateOf(System.currentTimeMillis()) }
+    var wakes by remember { mutableStateOf(0) }
+    var cardTopPx by remember { mutableStateOf<Float?>(null) }
 
     LaunchedEffect(store, router.playbackClosed) { store.reload() }
     LaunchedEffect(store) {
@@ -134,7 +159,34 @@ fun HomeScreen() {
         router.play(PlayRequest(item.mediaItemId, if (episode) item.seasonNumber else null, if (episode) item.episodeNumber else null))
     }
 
+    val preview = LocalStagePreview.current
+    // 大图停稳在一部片上就预约它的预告：从上次停下的地方往前倒 30 秒，放到停下的地方
+    if (preview != null) {
+        UseStagePreview(preview, stage?.let { StagePreview.Request(it.mediaItemId, "resume", it.seasonNumber, it.episodeNumber) })
+    }
     val ptPx = density.density * 0.5f
+    val previewing = preview != null && stage != null && preview.showing && preview.key == stage.mediaItemId
+    LaunchedEffect(previewing) { if (previewing) previewSince = System.currentTimeMillis() }
+    LaunchedEffect(previewing, focus, stage?.mediaItemId, wakes) {
+        val onStageCard = stage != null && focus == HomeFocus.Card(stage.mediaItemId)
+        if (!previewing || !onStageCard || cardTopPx == null) {
+            rowYielded = false
+            return@LaunchedEffect
+        }
+        // 视频淡入之后再让（先看清换成了视频），还要离上一次操作 4 秒（刚进这一行的人正在挑卡）
+        val until = maxOf(previewSince + 1_200, lastInput + 4_000)
+        delay(maxOf(0L, until - System.currentTimeMillis()))
+        rowYielded = true
+    }
+    val screenPx = 1080 * ptPx
+    val yieldTarget = if (rowYielded) maxOf(0f, screenPx - 56 * ptPx - (cardTopPx ?: screenPx)) else 0f
+    // 沉下去慢而柔，叫回来要快
+    val yieldOffset by animateFloatAsState(
+        yieldTarget,
+        if (rowYielded) spring(dampingRatio = 1f, stiffness = 48.7f) else spring(dampingRatio = 0.9f, stiffness = 246f),
+        label = "row-yield",
+    )
+    val yieldAlpha by animateFloatAsState(if (rowYielded) 0f else 1f, if (rowYielded) spring(1f, 48.7f) else spring(0.9f, 246f), label = "row-yield-alpha")
     val scrollPx = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 100_000f
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 4 }
@@ -162,6 +214,7 @@ fun HomeScreen() {
     fun onFocusChange(new: HomeFocus?) {
         val old = focus
         focus = new
+        lastInput = System.currentTimeMillis()
         when {
             new is HomeFocus.Card && old !is HomeFocus.Card ->
                 scope.launch { listState.animateScrollToItem(0, (334 * ptPx).toInt()) }
@@ -170,8 +223,21 @@ fun HomeScreen() {
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
-        StageBackdrop(stage?.let { it.backdropUrl ?: it.episodeStillUrl ?: it.posterUrl }, scrollPx = scrollPx)
+    Box(
+        Modifier.fillMaxSize().onPreviewKeyEvent { event ->
+            // 让位时遥控器的第一下只把卡片行叫回来，不挪焦点（TVWakeCatcher）
+            if (!rowYielded || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+            lastInput = System.currentTimeMillis()
+            wakes++
+            rowYielded = false
+            true
+        },
+    ) {
+        StageBackdrop(
+            stage?.let { it.backdropUrl ?: it.episodeStillUrl ?: it.posterUrl },
+            scrollPx = scrollPx,
+            preview = if (preview != null && stage != null) { visible -> StagePreviewLayer(preview, stage.mediaItemId, visible) } else null,
+        )
         NoAutoScroll {
         LazyColumn(
             state = listState,
@@ -214,12 +280,20 @@ fun HomeScreen() {
                         Shelf(
                             "接下来继续",
                             // 从按钮往下回到这一行：落在大图正讲的那张卡上
-                            modifier = Modifier.focusProperties {
-                                enter = { cardFocus[stage.mediaItemId] ?: FocusRequester.Default }
-                            },
+                            modifier = Modifier
+                                .graphicsLayer { translationY = yieldOffset }
+                                .focusProperties { enter = { cardFocus[stage.mediaItemId] ?: FocusRequester.Default } },
+                            titleAlpha = yieldAlpha,
                         ) {
                             items(upNext, key = { it.mediaItemId }) { item ->
                                 val requester = cardFocus.getOrPut(item.mediaItemId) { FocusRequester() }
+                                val current = item.mediaItemId == stage.mediaItemId
+                                Box(
+                                    Modifier
+                                        .graphicsLayer { alpha = if (current) 1f else yieldAlpha }
+                                        .onGloballyPositioned { if (!rowYielded) cardTopPx = it.positionInRoot().y },
+                                ) {
+                                if (current && rowYielded && preview != null) PreviewProgressLine(preview, Modifier.offset(y = (-26).pt))
                                 LandscapeCard(
                                     image = if (item.kind == "tv") item.episodeStillUrl ?: item.backdropUrl else item.backdropUrl ?: item.posterUrl,
                                     title = item.title,
@@ -232,12 +306,14 @@ fun HomeScreen() {
                                     onLongClick = { menuFor = item },
                                     onFocus = { if (it) onFocusChange(HomeFocus.Card(item.mediaItemId)) },
                                 )
+                                }
                             }
                         }
                     }
                 }
             }
             items(rows.filter { it.kind != HomeRows.Kind.UpNext }, key = { it.id }) { row ->
+                Box(Modifier.graphicsLayer { translationY = yieldOffset; alpha = yieldAlpha }) {
                 HomeRow(row, store, browsable, pinnedCollections) { focused ->
                     if (focused) {
                         onFocusChange(null)
@@ -254,6 +330,7 @@ fun HomeScreen() {
                         }
                     }
                 }
+                }
             }
         }
         }
@@ -266,6 +343,22 @@ fun HomeScreen() {
             ),
             onDismiss = { menuFor = null },
         )
+    }
+}
+
+/** 卡片行让位时露在焦点卡上方的预告进度：416×4 的细线，每 0.25 秒读一次播放位置 */
+@Composable
+private fun PreviewProgressLine(preview: StagePreview, modifier: Modifier) {
+    var progress by remember { mutableStateOf(preview.progress) }
+    LaunchedEffect(preview) {
+        while (true) {
+            progress = preview.progress
+            delay(250)
+        }
+    }
+    val animated by animateFloatAsState(progress, tween(250, easing = LinearEasing), label = "preview-progress")
+    Box(modifier.width(McMetrics.LandscapeWidth).height(4.pt).background(Color.White.copy(alpha = 0.25f), RoundedCornerShape(50))) {
+        Box(Modifier.fillMaxWidth(animated).height(4.pt).background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(50)))
     }
 }
 

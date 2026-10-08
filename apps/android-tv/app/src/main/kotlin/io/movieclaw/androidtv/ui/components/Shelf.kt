@@ -55,13 +55,14 @@ fun Shelf(
     detail: String? = null,
     state: LazyListState = rememberLazyListState(),
     spacing: Dp = McMetrics.CardSpacing,
+    titleAlpha: Float = 1f,
     content: LazyListScope.() -> Unit,
 ) {
     var focused by remember { mutableStateOf(false) }
     val color by animateColorAsState(if (focused) McColors.Text else McColors.Secondary, tween(200), label = "shelf-title")
     Column(modifier.onFocusChanged { focused = it.hasFocus }, verticalArrangement = Arrangement.spacedBy(8.pt)) {
         Row(Modifier.padding(horizontal = McMetrics.Edge), horizontalArrangement = Arrangement.spacedBy(16.pt), verticalAlignment = Alignment.Bottom) {
-            Text(title, style = McType.size(32, FontWeight.SemiBold), color = color, maxLines = 1)
+            Text(title, style = McType.size(32, FontWeight.SemiBold), color = color.copy(alpha = color.alpha * titleAlpha), maxLines = 1)
             detail?.let { Text(it, style = McType.Callout, color = McColors.Secondary) }
         }
         TvScrollSpec(80) {

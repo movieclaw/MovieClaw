@@ -49,6 +49,7 @@ dependencies {
     implementation(libs.compose.material.icons)
     implementation(libs.zxing.core)
     implementation(libs.media3.ui.compose)
+    implementation(libs.media3.datasource.okhttp)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     debugImplementation(libs.compose.ui.tooling)

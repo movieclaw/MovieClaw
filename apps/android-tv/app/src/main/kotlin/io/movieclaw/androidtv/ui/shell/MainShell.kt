@@ -54,6 +54,9 @@ class ShellChrome {
 
 val LocalShellChrome = compositionLocalOf { ShellChrome() }
 
+/** 主界面共享的大图预告（首页与详情页同一个，进详情接着放） */
+val LocalStagePreview = compositionLocalOf<io.movieclaw.androidtv.ui.stage.StagePreview?> { null }
+
 /**
  * 主界面外壳（TVMainView）：
  * - 左侧可收起的侧边栏（账号 / 搜索 / 首页）。平时只有左上角一枚「‹ 当前页」胶囊；在页面最左边再按左、
@@ -74,6 +77,13 @@ fun MainShell(args: LaunchArgs) {
     val pageFocus = remember { FocusRequester() }
     val sidebarFocus = remember { FocusRequester() }
     val saveable = rememberSaveableStateHolder()
+    val graph = io.movieclaw.androidtv.LocalGraph.current
+    val session = io.movieclaw.androidtv.LocalSession.current
+    val preview = io.movieclaw.androidtv.ui.stage.rememberStagePreview(session.api, session.server, graph.http, graph.identity.userAgent, graph.appScope)
+    // 正片播放器打开时拆掉预告，关掉后重新开始
+    LaunchedEffect(router.player) {
+        if (router.player != null) preview.interrupt() else { delay(1000); preview.resume() }
+    }
     val focusManager = LocalFocusManager.current
 
     LaunchedEffect(Unit) {
@@ -110,7 +120,7 @@ fun MainShell(args: LaunchArgs) {
         }
     }
 
-    CompositionLocalProvider(LocalRouter provides router, LocalShellChrome provides chrome) {
+    CompositionLocalProvider(LocalRouter provides router, LocalShellChrome provides chrome, LocalStagePreview provides preview) {
         Box(Modifier.fillMaxSize().background(McColors.Background)) {
             val stack = router.stack
             val top = stack.lastOrNull()
