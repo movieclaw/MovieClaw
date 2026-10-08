@@ -73,6 +73,8 @@ class PluginStateChanged:
     entry_id: str
     state: str
     error: str | None = None
+    title: str = ""
+    critical: bool = False
 
 
 PLUGIN_STATE: Event[PluginStateChanged, None] = Event(
@@ -445,7 +447,16 @@ class Kernel:
     def _announce(self, fiber: Fiber) -> None:
         if not self.bus.listeners(PLUGIN_STATE):
             return
-        self.bus.emit(PLUGIN_STATE, PluginStateChanged(fiber.id, fiber.state.value, fiber.error))
+        self.bus.emit(
+            PLUGIN_STATE,
+            PluginStateChanged(
+                fiber.id,
+                fiber.state.value,
+                fiber.error,
+                fiber.plugin.title,
+                fiber.plugin.critical,
+            ),
+        )
 
     # ================================================================== 释放
     async def _dispose_all(self) -> None:

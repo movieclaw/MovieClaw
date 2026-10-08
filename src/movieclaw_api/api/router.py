@@ -60,6 +60,7 @@ from movieclaw_api.api.routes.network import router as network_router
 from movieclaw_api.api.routes.people import router as people_router
 from movieclaw_api.api.routes.playback import router as playback_router
 from movieclaw_api.api.routes.playback import stream_router as playback_stream_router
+from movieclaw_api.api.routes.plugins import router as plugins_router
 from movieclaw_api.api.routes.push import admin_router as push_admin_router
 from movieclaw_api.api.routes.push import member_router as push_member_router
 from movieclaw_api.api.routes.push import public_router as push_public_router
@@ -179,6 +180,8 @@ _ADMIN_ROUTERS = [
     storage_router,
     # 定时任务的周期与启停：改的是全站的后台节奏，管理员专属
     scheduled_tasks_router,
+    # 运行模块诊断：列出全部子系统的状态与失败原因（含内部错误文本），管理员专属
+    plugins_router,
     spec_router,
     # AI 字幕生成消费 LLM 配额（真金白银），G1 管理员专属；成员开放随
     # G2 额度护栏一起评估（docs/design/subtitle-ai-translate.md §6）

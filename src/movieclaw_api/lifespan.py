@@ -7,7 +7,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from movieclaw_api.core.config import Settings
-from movieclaw_api.plugins.manifest import BUILTIN_MANIFEST, env_patches
+from movieclaw_api.plugins.manifest import BUILTIN_MANIFEST, load_patches
 from movieclaw_kernel import Kernel
 
 logger = logging.getLogger("movieclaw_api.lifespan")
@@ -29,7 +29,7 @@ def build_lifespan(settings: Settings):
         app.state.kernel = kernel
         if not settings.scheduler_enabled:
             logger.info("定时任务调度器已按配置关闭（SCHEDULER_ENABLED=false）")
-        await kernel.start(BUILTIN_MANIFEST, patches=env_patches(settings))
+        await kernel.start(BUILTIN_MANIFEST, patches=load_patches(settings))
         logger.info("应用启动完成，数据库就绪")
         try:
             yield

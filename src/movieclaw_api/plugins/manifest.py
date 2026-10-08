@@ -18,8 +18,27 @@
 
 from __future__ import annotations
 
-from movieclaw_api.plugins import agent, core, delivery, domains, library, playback, scheduling
+import logging
+from pathlib import Path
+
+import yaml
+
+from movieclaw_api.plugins import (
+    agent,
+    core,
+    delivery,
+    domains,
+    library,
+    notices,
+    playback,
+    scheduling,
+)
 from movieclaw_kernel import Entry, Patch
+
+logger = logging.getLogger("movieclaw_api.plugins.manifest")
+
+#: 补丁文件（docs/design/plugin-kernel.md §10.3）：放在数据目录根下，随数据卷持久化
+PATCH_FILE = "plugins.yaml"
 
 BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
     Entry(p.name, p)
@@ -28,6 +47,7 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         core.registries,
         core.secrets,
         core.setting_store,
+        notices.plugin_notices,
         core.egress,
         core.scrape_runtime,
         playback.remote_config,
@@ -69,6 +89,54 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         playback.transcode,
     )
 )
+
+
+def load_patches(settings: object) -> list[Patch]:
+    """补丁层：环境变量开关 + ``data/plugins.yaml``。改补丁需要重启生效。"""
+    return env_patches(settings) + file_patches(settings)
+
+
+def patch_file(settings: object) -> Path:
+    return Path(getattr(settings, "data_dir", "./data")) / PATCH_FILE
+
+
+def file_patches(settings: object) -> list[Patch]:
+    """读 ``data/plugins.yaml``：不存在即为空；格式不对只告警、整份忽略，不拦启动。
+
+    第一阶段只认 ``disabled``，例如::
+
+        - id: jellyfin.discovery
+          disabled: true
+
+    只有允许禁用的插件能被禁用（关键插件永远不能），由内核在装载清单时检查。
+    """
+    path = patch_file(settings)
+    if not path.is_file():
+        return []
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as exc:
+        logger.warning("插件补丁文件 %s 读取失败，已忽略整份补丁：%s", path, exc)
+        return []
+    if data is None:
+        return []
+    if not isinstance(data, list):
+        logger.warning("插件补丁文件 %s 须是列表（每项一个条目），已忽略整份补丁", path)
+        return []
+    patches: list[Patch] = []
+    for index, item in enumerate(data):
+        if not isinstance(item, dict) or not isinstance(item.get("id"), str):
+            logger.warning("插件补丁第 %d 项缺少 id，已跳过：%r", index + 1, item)
+            continue
+        unknown = set(item) - {"id", "disabled"}
+        if unknown:
+            logger.warning(
+                "插件补丁 %s 含暂不支持的字段 %s（第一阶段只认 disabled），已忽略这些字段",
+                item["id"],
+                sorted(unknown),
+            )
+        patches.append(Patch(item["id"], disabled=bool(item.get("disabled", False))))
+    return patches
 
 
 def env_patches(settings: object) -> list[Patch]:

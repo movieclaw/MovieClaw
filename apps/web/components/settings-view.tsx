@@ -8,6 +8,7 @@ import { LiquidGlassButton } from "@/components/liquid-glass";
 
 import { AppPushSection } from "@/components/app-push-section";
 import { AppStorageSection } from "@/components/app-storage-section";
+import { PluginsSection } from "@/components/plugins-section";
 import { ScheduledTasksSection } from "@/components/scheduled-tasks-section";
 import { AppUpdateDot, usePendingUpdate } from "@/components/app-update-entry";
 import { AppUpdateSection } from "@/components/app-update-section";
@@ -614,7 +615,8 @@ function WatchHistoryCard() {
  *   - 版本与更新：当前版本、检查/执行更新、NER 模型、回退、重启应用
  *     （AppUpdateSection）；
  *   - 缓存管理：data/ 各目录的占用与清理（AppStorageSection，内容来自后端登记表）；
- *   - 定时任务：后台任务的周期与启停（ScheduledTasksSection）。
+ *   - 定时任务：后台任务的周期与启停（ScheduledTasksSection）；
+ *   - 模块：后端各子系统（内置插件）的状态与启动耗时，只读（PluginsSection）。
  *
  * 设置页按功能重组前这里叫「应用」，还塞着外部访问地址与远程转码——前者迁去
  * 「网络」分区（网络配置只留一个家），后者升级为「媒体库」组的「播放」分区。
@@ -630,7 +632,7 @@ function AppSection() {
   // ?tab=storage 深链直达缓存管理，切换时写回地址栏（见 useTabParam）。旧的
   // ?tab=maintain 不再是合法值，会落到默认的「版本与更新」——重启入口正好在那；
   // 旧的 ?tab=remote 深链在路由层重定向到 /settings/playback，到不了这里。
-  const [tab, setTab] = useTabParam(["update", "storage", "tasks"] as const, "update");
+  const [tab, setTab] = useTabParam(["update", "storage", "tasks", "plugins"] as const, "update");
   // 本分区只对管理员渲染（成员的分区清单里没有 app），无需再按角色关轮询
   const pendingUpdate = usePendingUpdate();
   const tabs = [
@@ -645,6 +647,7 @@ function AppSection() {
     },
     { id: "storage" as const, label: "缓存管理" },
     { id: "tasks" as const, label: "定时任务" },
+    { id: "plugins" as const, label: "模块" },
   ];
 
   return (
@@ -653,6 +656,7 @@ function AppSection() {
       {tab === "update" && <AppUpdateSection />}
       {tab === "storage" && <AppStorageSection />}
       {tab === "tasks" && <ScheduledTasksSection />}
+      {tab === "plugins" && <PluginsSection />}
     </div>
   );
 }

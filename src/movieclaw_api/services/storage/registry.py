@@ -421,6 +421,17 @@ DATA_DIRS: tuple[DataDir, ...] = (
         resolve=lambda s: Path(s.data_dir) / "models",
     ),
     DataDir(
+        key="plugins.patch",
+        title="插件补丁",
+        summary="禁用指定内置插件的排障开关",
+        description=(
+            "排障用的插件补丁（plugins.yaml），可禁用允许关闭的内置子系统，"
+            "改动在重启后生效；删除即恢复全部默认启用。"
+        ),
+        default="data/plugins.yaml",
+        resolve=lambda s: Path(s.data_dir) / "plugins.yaml",
+    ),
+    DataDir(
         key="site_configs",
         title="站点配置",
         summary="用户自行适配的站点 YAML",
