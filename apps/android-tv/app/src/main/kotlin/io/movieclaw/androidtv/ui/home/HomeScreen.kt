@@ -102,7 +102,7 @@ fun HomeScreen() {
     val session = LocalSession.current
     val router = LocalRouter.current
     val chrome = LocalShellChrome.current
-    val store = remember(session.key) { HomeStore(session.api) }
+    val store = io.movieclaw.androidtv.ui.shell.LocalHomeStore.current ?: remember(session.key) { HomeStore(session.api) }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current

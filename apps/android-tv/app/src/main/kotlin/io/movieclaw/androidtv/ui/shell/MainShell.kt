@@ -55,6 +55,9 @@ class ShellChrome {
 
 val LocalShellChrome = compositionLocalOf { ShellChrome() }
 
+/** 首页数据跟着账号走、主界面共享（详情页挑起始季要读「接下来继续」） */
+val LocalHomeStore = compositionLocalOf<io.movieclaw.androidtv.ui.home.HomeStore?> { null }
+
 /** 主界面共享的大图预告（首页与详情页同一个，进详情接着放） */
 val LocalStagePreview = compositionLocalOf<io.movieclaw.androidtv.ui.stage.StagePreview?> { null }
 
@@ -80,6 +83,10 @@ fun MainShell(args: LaunchArgs) {
     val saveable = rememberSaveableStateHolder()
     val graph = io.movieclaw.androidtv.LocalGraph.current
     val session = io.movieclaw.androidtv.LocalSession.current
+    val homeStore = remember(session.key) { io.movieclaw.androidtv.ui.home.HomeStore(session.api) }
+    val upNextUnit: (Long) -> Pair<Long, Long>? = { id ->
+        homeStore.upNext?.firstOrNull { it.mediaItemId == id && it.kind == "tv" }?.let { it.seasonNumber to it.episodeNumber }
+    }
     val preview = io.movieclaw.androidtv.ui.stage.rememberStagePreview(session.api, session.server, graph.http, graph.identity.userAgent, graph.appScope)
     // 正片播放器打开时拆掉预告，关掉后重新开始
     LaunchedEffect(router.player) {
@@ -135,7 +142,10 @@ fun MainShell(args: LaunchArgs) {
         }
     }
 
-    CompositionLocalProvider(LocalRouter provides router, LocalShellChrome provides chrome, LocalStagePreview provides preview) {
+    CompositionLocalProvider(LocalRouter provides router, LocalShellChrome provides chrome, LocalStagePreview provides preview,
+        LocalHomeStore provides homeStore,
+        io.movieclaw.androidtv.ui.detail.LocalUpNextUnit provides upNextUnit,
+    ) {
         Box(Modifier.fillMaxSize().background(McColors.Background)) {
             val stack = router.stack
             val top = stack.lastOrNull()

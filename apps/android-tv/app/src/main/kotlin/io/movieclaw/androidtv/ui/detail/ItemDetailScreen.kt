@@ -2,6 +2,7 @@
 
 package io.movieclaw.androidtv.ui.detail
 
+import io.movieclaw.androidtv.ui.stage.StagePreviewLayer
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.focusGroup
@@ -119,7 +120,7 @@ fun ItemDetailScreen(libraryId: Long, itemId: Long) {
 
     val scroll = rememberScrollState()
     Box(Modifier.fillMaxSize().onFocusChanged { pageFocused = it.hasFocus }) {
-        DetailBackdrop(state.detail, scroll)
+        DetailBackdrop(itemId, state.detail, scroll)
         val detail = state.detail
         when {
             state.failed -> {
@@ -144,13 +145,19 @@ fun ItemDetailScreen(libraryId: Long, itemId: Long) {
 
 /** 整页背景：剧照按屏宽取，往下滑时跟着内容滚走、露出同一张图的模糊版（只这一层读滚动量） */
 @Composable
-private fun DetailBackdrop(detail: LibraryItemDetailView?, scroll: ScrollState) {
+private fun DetailBackdrop(itemId: Long, detail: LibraryItemDetailView?, scroll: ScrollState) {
+    // 大图预告：详情页放「高光」片段；从首页进来是同一部就接着放（TVStagePreview 按条目 id 认）
+    val preview = io.movieclaw.androidtv.ui.shell.LocalStagePreview.current
+    if (preview != null) {
+        io.movieclaw.androidtv.ui.stage.UseStagePreview(preview, io.movieclaw.androidtv.ui.stage.StagePreview.Request(itemId, "highlight"))
+    }
     StageBackdrop(
         image = detail?.backdropUrl ?: detail?.posterUrl,
         fullImage = true,
         scrollPx = scroll.value.toFloat(),
         pinnedPt = 0f,
         fadePt = 900f,
+        preview = if (preview != null && detail != null) { visible -> StagePreviewLayer(preview, itemId, visible) } else null,
     )
 }
 
