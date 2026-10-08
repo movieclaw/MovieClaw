@@ -829,6 +829,106 @@ async def test_finished_is_judged_from_how_far_and_how_much_was_watched(
     }
 
 
+async def test_resumed_segments_merge_into_one_viewing(client: TestClient) -> None:
+    """接着上一段续播的几行合成一场：场次、看完、一分钟门槛都按整场判；时长按每行的
+    设备记。隔太久或看完后重看另起一场。"""
+    movie_id, _ = await _seed_movie_in_library(title="盗梦空间", tmdb_id=27205, library_name="电影")
+    base = utcnow() - timedelta(days=1)  # 片长 6000 秒，片尾区从 5400 秒开始
+
+    def seg(minute: int, start: int, end: int, watched: int, client: str) -> PlaybackLog:
+        at = base + timedelta(minutes=minute)
+        return PlaybackLog(
+            member_id=1, media_item_id=movie_id, kind="movie", title="x", device_id=client,
+            client=client, started_at=at, last_seen_at=at + timedelta(milliseconds=watched),
+            ended_at=at + timedelta(milliseconds=watched), start_position_ms=start,
+            end_position_ms=end, watched_ms=watched,
+        )
+
+    async with get_database().session() as session:
+        session.add_all(
+            [
+                # 第一场：手机看 40 秒，十分钟后电视上接着看 40 秒——两行各不足一分钟，合起来算一场
+                seg(0, 0, 40_000, 40_000, "iPhone"),
+                seg(10, 40_000, 80_000, 40_000, "Apple TV"),
+                # 第二场：起点对不上上一行的终点（跳到了 5300 秒），另起一场，看进片尾算看完
+                seg(20, 5_300_000, 5_500_000, 200_000, "Apple TV"),
+                # 第三场：上一行之后 4 小时才在同一位置接着看，隔太久，另起一场
+                seg(260, 5_500_000, 5_600_000, 100_000, "Apple TV"),
+                # 看完后重看：续播点清零从头播，另起一场；停在 200 秒、只看了 50 秒
+                seg(300, 0, 200_000, 50_000, "iPhone"),
+                # 片头 5% 以内停下不留续播点，下一段从 0 开始也算接着看——两行各不足一分钟，
+                # 合起来 90 秒算一场
+                seg(310, 0, 40_000, 40_000, "iPhone"),
+            ]
+        )
+        await session.commit()
+
+    stats = client.get("/api/v1/playback/stats/watch", params={"days": 7}).json()["data"]
+    assert stats["current"] == {
+        "plays": 4, "watched_ms": 470_000, "completed": 2, "active_members": 1
+    }
+    # 场次记在开始看的设备上，时长记在实际播放的设备上
+    assert {r["client"]: (r["plays"], r["watched_ms"]) for r in stats["by_client"]} == {
+        "iPhone": (2, 130_000), "Apple TV": (2, 340_000)
+    }
+    assert stats["top_titles"][0]["plays"] == 4
+
+
+async def test_watch_time_is_spread_over_the_hours_it_spans(client: TestClient) -> None:
+    """一场 23:30 到 01:30 的观看：热力图摊到 23、0、1 点，按天摊到前后两天。"""
+    movie_id, _ = await _seed_movie_in_library(title="盗梦空间", tmdb_id=27205, library_name="电影")
+    tz = timedelta(hours=8)
+    local_midnight = (utcnow() + tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    midnight = local_midnight - timedelta(days=1) - tz  # 昨天零点（UTC）
+    async with get_database().session() as session:
+        session.add(
+            PlaybackLog(
+                member_id=0, media_item_id=movie_id, title="x", device_id="d",
+                started_at=midnight - timedelta(minutes=30),
+                last_seen_at=midnight + timedelta(minutes=90),
+                ended_at=midnight + timedelta(minutes=90),
+                start_position_ms=0, end_position_ms=7_200_000, watched_ms=7_200_000,
+            )
+        )
+        await session.commit()
+
+    stats = client.get(
+        "/api/v1/playback/stats/watch", params={"days": 7, "tz_offset": 480}
+    ).json()["data"]
+    before, after = (local_midnight - timedelta(days=2)), (local_midnight - timedelta(days=1))
+    assert stats["by_hour"][before.weekday()][23] == 1_800_000
+    assert stats["by_hour"][after.weekday()][0] == 3_600_000
+    assert stats["by_hour"][after.weekday()][1] == 1_800_000
+    by_day = {d["date"]: d for d in stats["by_day"]}
+    assert by_day[before.strftime("%Y-%m-%d")]["watched_ms"] == 1_800_000
+    assert by_day[before.strftime("%Y-%m-%d")]["plays"] == 1  # 场次记在开始的那天
+    assert by_day[after.strftime("%Y-%m-%d")]["watched_ms"] == 5_400_000
+    assert by_day[after.strftime("%Y-%m-%d")]["plays"] == 0
+    assert sum(sum(r) for r in stats["by_hour"]) == stats["current"]["watched_ms"]
+
+
+async def test_share_guests_count_time_but_not_members(client: TestClient) -> None:
+    """分享访客（-1 哨兵）的观看时长照算，「活跃成员」只数家里的账号。"""
+    movie_id, _ = await _seed_movie_in_library(title="盗梦空间", tmdb_id=27205, library_name="电影")
+    now = utcnow()
+    async with get_database().session() as session:
+        for member in (0, -1):
+            session.add(
+                PlaybackLog(
+                    member_id=member, media_item_id=movie_id, title="x", device_id=f"d{member}",
+                    started_at=now - timedelta(hours=1), last_seen_at=now, ended_at=now,
+                    watched_ms=600_000,
+                )
+            )
+        await session.commit()
+
+    stats = client.get("/api/v1/playback/stats/watch", params={"days": 7}).json()["data"]
+    assert stats["current"]["plays"] == 2
+    assert stats["current"]["watched_ms"] == 1_200_000
+    assert stats["current"]["active_members"] == 1
+    assert {r["member_name"] for r in stats["by_member"]} == {"admin", "分享访客"}
+
+
 async def test_tier_breakdown_ignores_lab_runs_and_glances(client: TestClient) -> None:
     """按播放方式与场次同一口径：故障注入实验台的实验、不到一分钟的都不算。"""
     async with get_database().session() as session:

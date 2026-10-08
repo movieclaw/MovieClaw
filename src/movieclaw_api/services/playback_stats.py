@@ -6,8 +6,9 @@
   折叠（范围外只报个数）；
 - 观看统计：一段时间内的播放次数、观看时长、看完次数、活跃成员，以及按成员 /
   按客户端 / 按天 / 按作品的分解。聚合在 Python 里做——家庭服务器几十天的日志
-  也就几千行，比跨方言的 SQL 分组省心，且按天分组要用浏览器时区。只统计
-  :func:`counts_as_play` 的行，播放记录则每行照列。
+  也就几千行，比跨方言的 SQL 分组省心，且按天分组要用浏览器时区。统计的单位
+  是「一次观看」（:class:`_Viewing`：续播接着看的几行合成一场），只统计算一场的
+  观看；播放记录则每行照列。
 
 没收到停止的行（播放器异常退出）按「最后一次心跳超过会话保鲜期」视为已结束，
 结束时间取最后一次心跳；仍在保鲜期内的视为进行中。
@@ -16,6 +17,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -46,7 +48,7 @@ from movieclaw_db.models import PlaybackLog, PlaybackMetric
 from movieclaw_db.models.base import utcnow
 from movieclaw_media.models import MediaKind
 from movieclaw_playback import activity
-from movieclaw_playback.progress import MAX_RESUME_PCT
+from movieclaw_playback.progress import MAX_RESUME_PCT, MIN_RESUME_PCT
 from movieclaw_playback.state import Unit
 
 #: 顶部作品榜的长度
@@ -59,34 +61,136 @@ _TOP_TITLES = 10
 MIN_PLAY_WATCHED_MS = 60_000
 
 
-def finished(row: PlaybackLog, duration_ms: int | None) -> bool:
-    """这一场有没有看完：播进了片尾区，而且是看过去的、不是拖过去的。
+#: 续播合并：同一成员同一集，新的一行从上一行停下的位置（容差内）接着播、且间隔
+#: 不超过这么久，算同一次观看。NAS 上 461 场里 122 场是接着上一场续播的，间隔中位
+#: 8 分钟（退到后台、换设备、暂停太久都会拆行）；三小时覆盖「吃完饭回来接着看」，
+#: 又不会把「今早接着看昨晚那部」并进去，也不像按自然日那样在零点硬切。
+_RESUME_GAP = timedelta(hours=3)
+_RESUME_POSITION_SLACK_MS = 60_000
 
-    不能直接用写侧的 ``completed``：它记的是「已看在这一场翻转」，重看一部已看过的
-    片子看到结尾永远不会翻转（NAS 上播到片尾的 148 行有 40 行因此没算看完）；反过来
-    从开头直接拖到片尾也会翻转（30 天里 30 行看了不到一分钟就「看完」）。所以：
-    - 播进片尾区按片长现算，与续播阈值同一把尺；片长未知时退回写侧的翻转标记；
-    - 实际观看至少覆盖这一场播放跨度的三分之一——跳片头片尾、两三倍速都过得去，
-      看五分钟就拖到结尾过不去。
-    """
-    reached = row.completed or bool(
+
+def _reached_end(row: PlaybackLog, duration_ms: int | None) -> bool:
+    """这一行播进了片尾区：与续播阈值同一把尺；片长未知时退回写侧的已看翻转标记。"""
+    return row.completed or bool(
         duration_ms
         and (
             row.end_position_ms * 100 >= duration_ms * MAX_RESUME_PCT
             or row.end_position_ms >= duration_ms - 1000
         )
     )
-    span = max(row.end_position_ms - row.start_position_ms, 0)
-    return reached and row.watched_ms > 0 and row.watched_ms * 3 >= span
 
 
-def counts_as_play(row: PlaybackLog, duration_ms: int | None) -> bool:
-    """这一行算不算一场播放：实际看了至少一分钟，或者这一场看完了。
+def _watched_through(watched_ms: int, span_ms: int) -> bool:
+    """实际观看至少覆盖播放跨度的三分之一：跳片头片尾、两三倍速都过得去，看五分钟就
+    拖到结尾过不去。"""
+    return watched_ms > 0 and watched_ms * 3 >= span_ms
 
-    看完的不论时长都算：续播点在 88% 的那一场只看最后几十秒，却是把这一集看完的
-    那一场，丢掉它看完率就漏了；短片同理。
+
+def finished(row: PlaybackLog, duration_ms: int | None) -> bool:
+    """这一行有没有看完：播进了片尾区，而且是看过去的、不是拖过去的。
+
+    不能直接用写侧的 ``completed``：它记的是「已看在这一场翻转」，重看一部已看过的
+    片子看到结尾永远不会翻转（NAS 上播到片尾的 148 行有 40 行因此没算看完）；反过来
+    从开头直接拖到片尾也会翻转（30 天里 30 行看了不到一分钟就「看完」）。
     """
-    return row.watched_ms >= MIN_PLAY_WATCHED_MS or finished(row, duration_ms)
+    span = max(row.end_position_ms - row.start_position_ms, 0)
+    return _reached_end(row, duration_ms) and _watched_through(row.watched_ms, span)
+
+
+@dataclass
+class _Viewing:
+    """一次观看：同一成员同一集、接着上一段续播的几行日志合成的一场。
+
+    场次、看完、「算不算一场」都按整次观看判断——三段各看 40 秒合起来两分钟算一场，
+    哪一段播进片尾整场就算看完；观看时长仍按每一段实际发生的时间与设备记。
+    """
+
+    segments: list[PlaybackLog]
+    reached_end: bool = False
+
+    @property
+    def first(self) -> PlaybackLog:
+        return self.segments[0]
+
+    @property
+    def watched_ms(self) -> int:
+        return sum(s.watched_ms for s in self.segments)
+
+    @property
+    def finished(self) -> bool:
+        span = sum(max(s.end_position_ms - s.start_position_ms, 0) for s in self.segments)
+        return self.reached_end and _watched_through(self.watched_ms, span)
+
+    @property
+    def counts(self) -> bool:
+        """算不算一场：实际看了至少一分钟，或者看完了（续播点在 88% 的那一场只看最后
+        几十秒，却是把这一集看完的那一场；短片同理）。"""
+        return self.watched_ms >= MIN_PLAY_WATCHED_MS or self.finished
+
+
+def _continues(last: PlaybackLog, row: PlaybackLog, duration_ms: int | None) -> bool:
+    """``row`` 是不是接着 ``last`` 看的：间隔不太久，起点接上了终点。
+
+    片头 5% 以内停下不留续播点（movieclaw_playback.progress），下一段从 0 开始；
+    这时只要上一段停在片头区，从 0 开始也算接着看。
+    """
+    if row.started_at - last.last_seen_at > _RESUME_GAP:
+        return False
+    if abs(row.start_position_ms - last.end_position_ms) <= _RESUME_POSITION_SLACK_MS:
+        return True
+    return (
+        row.start_position_ms == 0
+        and bool(duration_ms)
+        and last.end_position_ms * 100 < (duration_ms or 0) * MIN_RESUME_PCT
+    )
+
+
+def _group_viewings(
+    rows: list[PlaybackLog], durations: dict[Unit, int | None]
+) -> list[_Viewing]:
+    """按开始时间把日志行串成一次次观看（见 :data:`_RESUME_GAP`）。
+
+    接续看的是新一行的起点：它取自开播时的续播点，换设备接着看也成立；看完以后
+    续播点清零，重看从头开始，自然另起一场。
+    """
+    viewings: list[_Viewing] = []
+    latest: dict[tuple[int, Unit], _Viewing] = {}
+    for row in sorted(rows, key=lambda r: (r.started_at, r.id or 0)):
+        unit = (row.media_item_id, row.season_number, row.episode_number)
+        viewing = latest.get((row.member_id, unit))
+        last = viewing.segments[-1] if viewing else None
+        if viewing is not None and last is not None and _continues(last, row, durations.get(unit)):
+            viewing.segments.append(row)
+        else:
+            viewing = latest[(row.member_id, unit)] = _Viewing([row])
+            viewings.append(viewing)
+        viewing.reached_end = viewing.reached_end or _reached_end(row, durations.get(unit))
+    return viewings
+
+
+def _spread(row: PlaybackLog, offset: timedelta) -> Iterator[tuple[datetime, int]]:
+    """一行的观看时长按墙钟均摊到它经过的每个本地整点：(该小时的本地起点, 毫秒)。
+
+    观看时长在开始与最后一次上报之间累加，分不出其中哪段暂停过，均摊是最好的近似；
+    余数给最后一个小时，各小时之和恒等于这一行的观看时长。曾经整场归到开始的那个
+    小时，23 点开始的两小时电影全堆在 23 点、跨零点的算错日期。
+    """
+    if row.watched_ms <= 0:
+        return
+    start = row.started_at + offset
+    end = max(row.last_seen_at + offset, start)
+    total = (end - start).total_seconds()
+    hour = start.replace(minute=0, second=0, microsecond=0)
+    given = 0
+    while True:
+        following = hour + timedelta(hours=1)
+        if following >= end or total <= 0:
+            yield hour, row.watched_ms - given
+            return
+        share = int(row.watched_ms * (following - max(hour, start)).total_seconds() / total)
+        given += share
+        yield hour, share
+        hour = following
 
 
 def effective_end(row: PlaybackLog, now: datetime) -> datetime | None:
@@ -232,23 +336,32 @@ _TIER_LABELS = {0: "直连", 1: "重封装", 2: "音频转码", 3: "硬件转码
 
 
 def _day_series(
-    rows: list[PlaybackLog],
-    done: set[int],
+    viewings: list[_Viewing],
+    segments: list[PlaybackLog],
     *,
     since: datetime,
     until: datetime,
     offset: timedelta,
 ) -> list[PlaybackStatsDayRow]:
-    """按浏览器本地日期分桶，补齐没有播放的日子；行数 = 周期天数 + 1。"""
+    """按浏览器本地日期分桶，补齐没有播放的日子；行数 = 周期天数 + 1。
+
+    场次与看完记在一次观看开始的那天，时长按实际经过的时段摊到各天。
+    """
     buckets: dict[str, dict] = defaultdict(
         lambda: {"plays": 0, "watched": 0, "done": 0, "members": set()}
     )
-    for row in rows:
-        day = buckets[(row.started_at + offset).strftime("%Y-%m-%d")]
+    for viewing in viewings:
+        day = buckets[(viewing.first.started_at + offset).strftime("%Y-%m-%d")]
         day["plays"] += 1
-        day["watched"] += row.watched_ms
-        day["done"] += int(row.id in done)
-        day["members"].add(row.member_id)
+        day["done"] += int(viewing.finished)
+        if viewing.first.member_id >= 0:
+            day["members"].add(viewing.first.member_id)
+    for row in segments:
+        for hour, watched in _spread(row, offset):
+            day = buckets[hour.strftime("%Y-%m-%d")]
+            day["watched"] += watched
+            if row.member_id >= 0:
+                day["members"].add(row.member_id)
     out: list[PlaybackStatsDayRow] = []
     cursor = (since + offset).date()
     last = (until + offset).date()
@@ -283,18 +396,20 @@ class _TitleAgg:
         )
 
 
-def _aggregate_titles(rows: list[PlaybackLog]) -> dict[int, _TitleAgg]:
-    """按条目聚合；剧集取该条目最近一场的那一集当展示锚（rows 按时间无序，取先遇到的）。"""
+def _aggregate_titles(
+    viewings: list[_Viewing], segments: list[PlaybackLog]
+) -> dict[int, _TitleAgg]:
+    """按条目聚合：场次数观看，时长与看过的人按行；剧集取最近一行的那一集当展示锚
+    （行按开始时间升序，后来的覆盖）。"""
     titles: dict[int, _TitleAgg] = {}
-    for row in rows:
-        agg = titles.get(row.media_item_id)
-        if agg is None:
-            agg = titles[row.media_item_id] = _TitleAgg(
-                unit=(row.media_item_id, row.season_number, row.episode_number)
-            )
-        agg.plays += 1
+    for row in sorted(segments, key=lambda r: (r.started_at, r.id or 0)):
+        unit = (row.media_item_id, row.season_number, row.episode_number)
+        agg = titles.setdefault(row.media_item_id, _TitleAgg(unit=unit))
+        agg.unit = unit
         agg.watched_ms += row.watched_ms
         agg.members.add(row.member_id)
+    for viewing in viewings:
+        titles[viewing.first.media_item_id].plays += 1
     return titles
 
 
@@ -323,12 +438,13 @@ def _favorites(
     return rows
 
 
-def _totals(rows: list[PlaybackLog], done: set[int]) -> PlaybackStatsTotals:
+def _totals(viewings: list[_Viewing], segments: list[PlaybackLog]) -> PlaybackStatsTotals:
     return PlaybackStatsTotals(
-        plays=len(rows),
-        watched_ms=sum(r.watched_ms for r in rows),
-        completed=sum(int(r.id in done) for r in rows),
-        active_members=len({r.member_id for r in rows}),
+        plays=len(viewings),
+        watched_ms=sum(r.watched_ms for r in segments),
+        completed=sum(int(v.finished) for v in viewings),
+        # 活跃成员只数家里的账号：分享访客（-1 哨兵）的时长照算，人不算
+        active_members=len({r.member_id for r in segments if r.member_id >= 0}),
     )
 
 
@@ -361,13 +477,14 @@ async def playback_stats(
         session, logged, browsable_library_ids=browsable_library_ids, fold_hidden=fold_hidden
     )
 
-    def unit_duration(row: PlaybackLog) -> int | None:
-        return durations.get((row.media_item_id, row.season_number, row.episode_number))
-
-    finished_ids = {r.id for r in logged if finished(r, unit_duration(r))}  # type: ignore[misc]
-    all_rows = [r for r in logged if counts_as_play(r, unit_duration(r))]
-    rows = [r for r in all_rows if r.started_at >= since]
-    previous_rows = [r for r in all_rows if r.started_at < since]
+    # 一次观看归到它开始的那个周期；它的每一行按各自的开始时间归周期（上期开始、本期
+    # 接着看完的那部片，场次算上期，本期接着看的时长算本期）
+    counted = [v for v in _group_viewings(logged, durations) if v.counts]
+    viewings = [v for v in counted if v.first.started_at >= since]
+    previous_viewings = [v for v in counted if v.first.started_at < since]
+    counted_rows = [r for v in counted for r in v.segments]
+    rows = [r for r in counted_rows if r.started_at >= since]
+    previous_rows = [r for r in counted_rows if r.started_at < since]
     # 上一周期要被日志完整覆盖才能拿来对照：日志从某天才开始记，只覆盖了上期最后两天
     # 也会有数据，拿它比会得出「+949%」。覆盖看全表最早一行，不随成员钻取变——某个
     # 成员上期没看是真实的 0，不是缺数据。
@@ -379,19 +496,20 @@ async def playback_stats(
     by_member: dict[int, list[int]] = defaultdict(lambda: [0, 0, 0])  # plays, watched, completed
     by_client: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     by_hour = [[0] * 24 for _ in range(7)]
-    for row in rows:
-        member = by_member[row.member_id]
+    # 场次与看完记在一次观看的第一行（谁、用什么开始看的）；时长记在每一行自己身上
+    for viewing in viewings:
+        member = by_member[viewing.first.member_id]
         member[0] += 1
-        member[1] += row.watched_ms
-        member[2] += int(row.id in finished_ids)
-        client = by_client[row.client or "未知客户端"]
-        client[0] += 1
-        client[1] += row.watched_ms
-        # 时段热力图按开始时刻分桶：一场归到它开始的那个小时，够回答「什么时候有人在看」
-        local = row.started_at + offset
-        by_hour[local.weekday()][local.hour] += row.watched_ms
+        member[2] += int(viewing.finished)
+        by_client[viewing.first.client or "未知客户端"][0] += 1
+    for row in rows:
+        by_member[row.member_id][1] += row.watched_ms
+        by_client[row.client or "未知客户端"][1] += row.watched_ms
+        # 时段热力图按实际经过的时段摊开，回答「什么时候有人在看」
+        for hour, watched in _spread(row, offset):
+            by_hour[hour.weekday()][hour.hour] += watched
 
-    titles = _aggregate_titles(rows)
+    titles = _aggregate_titles(viewings, rows)
     top_titles: list[PlaybackStatsTitleRow] = []
     hidden_titles = 0
     for agg in sorted(titles.values(), key=lambda t: (t.watched_ms, t.plays), reverse=True):
@@ -423,12 +541,12 @@ async def playback_stats(
 
     return PlaybackWatchStatsView(
         days=days,
-        current=_totals(rows, finished_ids),
-        previous=_totals(previous_rows, finished_ids),
+        current=_totals(viewings, rows),
+        previous=_totals(previous_viewings, previous_rows),
         previous_available=previous_available,
-        by_day=_day_series(rows, finished_ids, since=since, until=now, offset=offset),
+        by_day=_day_series(viewings, rows, since=since, until=now, offset=offset),
         previous_by_day=_day_series(
-            previous_rows, finished_ids, since=previous_since, until=since, offset=offset
+            previous_viewings, previous_rows, since=previous_since, until=since, offset=offset
         ),
         by_hour=by_hour,
         by_member=sorted(
@@ -458,5 +576,7 @@ async def playback_stats(
         hidden_title_count=hidden_titles,
         favorites=_favorites(titles, targets),
         # 上一周期的最受欢迎只用来对照（「蝉联」还是「上期是谁」），同样按可见范围折叠
-        previous_favorites=_favorites(_aggregate_titles(previous_rows), targets),
+        previous_favorites=_favorites(
+            _aggregate_titles(previous_viewings, previous_rows), targets
+        ),
     )
