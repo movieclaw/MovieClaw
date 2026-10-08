@@ -1,7 +1,9 @@
 package io.movieclaw.androidtv.core.network
 
 import io.movieclaw.androidtv.core.model.McJson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.json.JsonElement
@@ -41,7 +43,8 @@ class OkHttpTransport(
         body: JsonElement?,
         response: KSerializer<T>,
         enveloped: Boolean,
-    ): T {
+    ): T = withContext(Dispatchers.IO) {
+        // 读响应体、解码都在 IO 线程：OkHttp 的回调会在调用方的线程恢复，主线程读网络会被系统直接拦下
         val url = apiBase.newBuilder().apply {
             addPathSegments(path.trimStart('/'))
             query.forEach { (name, value) -> addQueryParameter(name, value) }
@@ -69,7 +72,7 @@ class OkHttpTransport(
         if (status == 401 && bearer != null) onUnauthorized(bearer)
         if (status !in 200..299) throw errorOf(status, json)
         val data = if (enveloped) (json as? JsonObject)?.get("data") ?: JsonNull else json ?: JsonNull
-        return try {
+        try {
             McJson.decodeFromJsonElement(response, data)
         } catch (e: SerializationException) {
             throw ApiException(status, "DECODE_ERROR", "服务器返回的数据看不懂：${e.message}")

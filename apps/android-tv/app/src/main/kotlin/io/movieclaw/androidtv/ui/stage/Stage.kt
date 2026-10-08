@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -117,7 +118,12 @@ fun StageBackdrop(
                 },
         ) {
             if (!fullImage && tint != null) {
-                Box(Modifier.fillMaxSize().background(animatedTint))
+                // 边缘色铺满首屏，并在屏幕下沿之外再延伸 600pt 渐变到深炭灰：往下滚、背景上移时才露出这段过渡，
+                // 首屏里只有「剧照渐隐进边缘色」一段过渡（两段过渡夹一截平台在真机上会看出横线）
+                Column(Modifier.fillMaxWidth().wrapContentHeight(Alignment.Top, unbounded = true)) {
+                    Box(Modifier.fillMaxWidth().height(1080.pt).background(animatedTint))
+                    Box(Modifier.fillMaxWidth().height(600.pt).background(EasedFade.vertical(EasedFade.stops(animatedTint, 0f, 1f))))
+                }
             }
             Box(Modifier.fillMaxWidth().height(1080.pt)) {
                 Crossfade(screenUrl, animationSpec = tween(600), label = "stage") { url ->

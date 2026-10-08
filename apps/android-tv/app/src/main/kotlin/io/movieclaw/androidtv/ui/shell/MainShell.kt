@@ -28,6 +28,10 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import io.movieclaw.androidtv.ui.LaunchArgs
 import io.movieclaw.androidtv.ui.accounts.AboutScreen
 import io.movieclaw.androidtv.ui.accounts.AccountsScreen
@@ -70,6 +74,7 @@ fun MainShell(args: LaunchArgs) {
     val pageFocus = remember { FocusRequester() }
     val sidebarFocus = remember { FocusRequester() }
     val saveable = rememberSaveableStateHolder()
+    val focusManager = LocalFocusManager.current
 
     LaunchedEffect(Unit) {
         when (args.tab) {
@@ -114,15 +119,14 @@ fun MainShell(args: LaunchArgs) {
                     .fillMaxSize()
                     .focusRequester(pageFocus)
                     .focusRestorer()
-                    .focusProperties {
-                        // 页面最左边再按左：展开侧边栏，焦点不在页面里乱跳
-                        onExit = {
-                            if (requestedFocusDirection == FocusDirection.Left) {
-                                cancelFocusChange()
-                                openSidebar()
-                            }
+                    .focusProperties { canFocus = !sidebarOpen }
+                    // 页面最左边再按左：展开侧边栏。按键冒泡到这里说明页面里没人处理，先试着往左挪焦点，挪不动才展开
+                    .onKeyEvent { event ->
+                        if (event.type != KeyEventType.KeyDown || event.nativeKeyEvent.keyCode != android.view.KeyEvent.KEYCODE_DPAD_LEFT) {
+                            return@onKeyEvent false
                         }
-                        canFocus = !sidebarOpen
+                        if (!focusManager.moveFocus(FocusDirection.Left)) openSidebar()
+                        true
                     }
                     .focusGroup(),
             ) {

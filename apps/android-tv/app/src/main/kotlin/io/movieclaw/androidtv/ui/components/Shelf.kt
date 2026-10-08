@@ -64,13 +64,15 @@ fun Shelf(
             Text(title, style = McType.size(32, FontWeight.SemiBold), color = color, maxLines = 1)
             detail?.let { Text(it, style = McType.Callout, color = McColors.Secondary) }
         }
-        LazyRow(
-            state = state,
-            modifier = Modifier.fillMaxWidth().focusGroup(),
-            contentPadding = PaddingValues(horizontal = McMetrics.Edge, vertical = 20.pt),
-            horizontalArrangement = Arrangement.spacedBy(spacing),
-            content = content,
-        )
+        TvScrollSpec(80) {
+            LazyRow(
+                state = state,
+                modifier = Modifier.fillMaxWidth().focusGroup(),
+                contentPadding = PaddingValues(horizontal = McMetrics.Edge, vertical = 20.pt),
+                horizontalArrangement = Arrangement.spacedBy(spacing),
+                content = content,
+            )
+        }
     }
 }
 
