@@ -12,6 +12,12 @@ data class ServerAddress(val origin: HttpUrl) {
 
     override fun toString(): String = origin.toString().trimEnd('/')
 
+    /** 给人看的地址：去掉协议（`192.168.1.10:3000`）。错误文案、谁在看的小字用 */
+    val displayString: String get() = toString().substringAfter("://")
+
+    /** 主机加端口 */
+    val hostLabel: String get() = if (origin.port == HttpUrl.defaultPort(origin.scheme)) origin.host else "${origin.host}:${origin.port}"
+
     companion object {
         /** 人手填的地址：可以不带 http://、可以带尾斜杠或 /api/v1。填错返回 null。 */
         fun parse(input: String): ServerAddress? {
@@ -19,8 +25,8 @@ data class ServerAddress(val origin: HttpUrl) {
             if (text.isEmpty()) return null
             if (!text.contains("://")) text = "http://$text"
             text = text.removeSuffix("/api/v1")
-            val url = text.toHttpUrlOrNull() ?: return null
-            return ServerAddress(url.newBuilder().encodedPath("/").query(null).fragment(null).build())
+            val url = text.toHttpUrlOrNull()?.takeIf { it.scheme == "http" || it.scheme == "https" } ?: return null
+            return ServerAddress(url.newBuilder().encodedPath("/").query(null).fragment(null).username("").password("").build())
         }
     }
 }

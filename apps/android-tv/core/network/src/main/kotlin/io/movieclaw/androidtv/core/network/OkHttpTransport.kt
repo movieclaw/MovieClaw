@@ -30,6 +30,8 @@ class OkHttpTransport(
     private val apiBase: HttpUrl,
     private val client: OkHttpClient,
     private val token: () -> String? = { null },
+    /** 带着令牌收到 401：令牌已失效（被注销、改了密码），上层据此打回登录页 */
+    private val onUnauthorized: (rejectedToken: String) -> Unit = {},
 ) : ApiTransport {
 
     override suspend fun <T> send(
@@ -45,10 +47,11 @@ class OkHttpTransport(
             query.forEach { (name, value) -> addQueryParameter(name, value) }
         }.build()
         val payload = body?.let { McJson.encodeToString(JsonElement.serializer(), it).toRequestBody(JSON) }
+        val bearer = token()
         val request = Request.Builder()
             .url(url)
             .method(method, payload ?: if (method in BODY_METHODS) EMPTY_BODY else null)
-            .apply { token()?.let { header("Authorization", "Bearer $it") } }
+            .apply { bearer?.let { header("Authorization", "Bearer $it") } }
             .build()
         val text: String
         val status: Int
@@ -58,11 +61,12 @@ class OkHttpTransport(
                 text = resp.body.string()
             }
         } catch (e: IOException) {
-            throw UnreachableException(e)
+            throw UnreachableException(apiBase.host + (if (apiBase.port != 80 && apiBase.port != 443) ":${apiBase.port}" else ""), e)
         }
         val json = text.takeIf { it.isNotBlank() }?.let {
             runCatching { McJson.parseToJsonElement(it) }.getOrNull()
         }
+        if (status == 401 && bearer != null) onUnauthorized(bearer)
         if (status !in 200..299) throw errorOf(status, json)
         val data = if (enveloped) (json as? JsonObject)?.get("data") ?: JsonNull else json ?: JsonNull
         return try {

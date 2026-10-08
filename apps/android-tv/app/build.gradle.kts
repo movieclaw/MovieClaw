@@ -46,6 +46,8 @@ dependencies {
     implementation(libs.compose.ui)
     implementation(libs.compose.foundation)
     implementation(libs.tv.material)
+    implementation(libs.compose.material.icons)
+    implementation(libs.zxing.core)
     implementation(libs.media3.ui.compose)
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)

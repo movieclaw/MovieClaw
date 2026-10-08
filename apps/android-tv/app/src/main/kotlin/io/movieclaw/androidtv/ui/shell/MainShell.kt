@@ -1,0 +1,173 @@
+package io.movieclaw.androidtv.ui.shell
+
+import android.app.Activity
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.LocalContext
+import io.movieclaw.androidtv.ui.LaunchArgs
+import io.movieclaw.androidtv.ui.accounts.AboutScreen
+import io.movieclaw.androidtv.ui.accounts.AccountsScreen
+import io.movieclaw.androidtv.ui.accounts.LicenseScreen
+import io.movieclaw.androidtv.ui.detail.ItemDetailScreen
+import io.movieclaw.androidtv.ui.detail.PersonScreen
+import io.movieclaw.androidtv.ui.home.HomeScreen
+import io.movieclaw.androidtv.ui.library.CollectionWallScreen
+import io.movieclaw.androidtv.ui.library.LibraryWallScreen
+import io.movieclaw.androidtv.ui.library.RowWallScreen
+import io.movieclaw.androidtv.ui.player.PlayerScreen
+import io.movieclaw.androidtv.ui.search.SearchScreen
+import io.movieclaw.androidtv.ui.theme.McColors
+import kotlinx.coroutines.delay
+
+/** 页面告诉外壳：左上角「‹ 首页」胶囊要不要显示（页签根页滚到顶时才显示，同 tvOS 往下滚时收起） */
+class ShellChrome {
+    var pillVisible by mutableStateOf(true)
+}
+
+val LocalShellChrome = compositionLocalOf { ShellChrome() }
+
+/**
+ * 主界面外壳（TVMainView）：
+ * - 左侧可收起的侧边栏（账号 / 搜索 / 首页）。平时只有左上角一枚「‹ 当前页」胶囊；在页面最左边再按左、
+ *   或在页签根页按返回，展开侧边栏并把焦点交给它。侧边栏里上下移动不换页，按确认才切过去；选当前页签退回根页。
+ * - 每个页签一个导航栈，各自记住浏览位置；二级页盖满整屏、不显示胶囊。
+ * - 返回键：页面里有二级页就退一层；焦点在侧边栏时收起侧边栏、焦点还给页面；页签根页上第一次返回展开侧边栏、
+ *   第二次退出 App。
+ * - 播放器盖在整个界面之上，有自己的返回键处理。
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+@Composable
+fun MainShell(args: LaunchArgs) {
+    val router = remember { Router() }
+    val chrome = remember { ShellChrome() }
+    val activity = LocalContext.current as? Activity
+    var sidebarOpen by remember { mutableStateOf(false) }
+    var focusInSidebar by remember { mutableStateOf(false) }
+    val pageFocus = remember { FocusRequester() }
+    val sidebarFocus = remember { FocusRequester() }
+    val saveable = rememberSaveableStateHolder()
+
+    LaunchedEffect(Unit) {
+        when (args.tab) {
+            "account" -> router.select(MainTab.Account)
+            "search" -> router.select(MainTab.Search)
+        }
+        args.item?.let { (lib, id) -> router.push(Route.Item(lib, id)) }
+        args.playMediaItemId?.let { router.play(PlayRequest(it)) }
+    }
+
+    fun openSidebar() {
+        sidebarOpen = true
+    }
+
+    fun closeSidebar() {
+        sidebarOpen = false
+        runCatching { pageFocus.requestFocus() }
+    }
+
+    LaunchedEffect(sidebarOpen) {
+        if (sidebarOpen) {
+            delay(30)
+            runCatching { sidebarFocus.requestFocus() }
+        }
+    }
+
+    BackHandler(enabled = router.player == null) {
+        when {
+            focusInSidebar && router.stack.isNotEmpty() -> closeSidebar()
+            focusInSidebar -> activity?.finish()
+            router.pop() -> Unit
+            else -> openSidebar()
+        }
+    }
+
+    CompositionLocalProvider(LocalRouter provides router, LocalShellChrome provides chrome) {
+        Box(Modifier.fillMaxSize().background(McColors.Background)) {
+            val stack = router.stack
+            val top = stack.lastOrNull()
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .focusRequester(pageFocus)
+                    .focusRestorer()
+                    .focusProperties {
+                        // 页面最左边再按左：展开侧边栏，焦点不在页面里乱跳
+                        onExit = {
+                            if (requestedFocusDirection == FocusDirection.Left) {
+                                cancelFocusChange()
+                                openSidebar()
+                            }
+                        }
+                        canFocus = !sidebarOpen
+                    }
+                    .focusGroup(),
+            ) {
+                val pageKey = "${router.tab}:${stack.size}:${top ?: "root"}"
+                saveable.SaveableStateProvider(pageKey) {
+                    when (top) {
+                        null -> when (router.tab) {
+                            MainTab.Home -> HomeScreen()
+                            MainTab.Search -> SearchScreen()
+                            MainTab.Account -> AccountsScreen()
+                        }
+                        is Route.Item -> ItemDetailScreen(top.libraryId, top.itemId)
+                        is Route.Library -> LibraryWallScreen(top.id)
+                        is Route.Collection -> CollectionWallScreen(top.id, top.name)
+                        is Route.Person -> PersonScreen(top)
+                        is Route.RowWall -> RowWallScreen(top.title, top.source)
+                        Route.About -> AboutScreen()
+                        is Route.License -> LicenseScreen(top.componentName)
+                    }
+                }
+            }
+            // 平时左上角的「‹ 当前页」胶囊：页签根页、滚到顶、侧边栏收起时显示
+            AnimatedVisibility(
+                visible = !sidebarOpen && top == null && chrome.pillVisible && router.player == null,
+                enter = fadeIn(tween(200)),
+                exit = fadeOut(tween(200)),
+            ) { SidebarPill(router.tab) }
+            AnimatedVisibility(sidebarOpen, enter = fadeIn(tween(200)), exit = fadeOut(tween(200))) {
+                Sidebar(
+                    current = router.tab,
+                    focusRequester = sidebarFocus,
+                    modifier = Modifier.onFocusChanged { focusInSidebar = it.hasFocus },
+                    onSelect = {
+                        router.select(it)
+                        closeSidebar()
+                    },
+                    onClose = ::closeSidebar,
+                )
+            }
+            router.player?.let { request ->
+                PlayerScreen(request, onClose = {
+                    router.closePlayer()
+                    runCatching { pageFocus.requestFocus() }
+                })
+            }
+        }
+    }
+}

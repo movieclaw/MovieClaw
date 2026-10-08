@@ -87,6 +87,8 @@ ENDPOINTS = [
     "GET /playback/files/{file_id}/trickplay",
     "POST /playback/client-log",
     "POST /playback/metrics",
+    # 首页 / 详情大图区的预告片段
+    "GET /reels/preview/{media_item_id}",
 ]
 
 KOTLIN_KEYWORDS = {

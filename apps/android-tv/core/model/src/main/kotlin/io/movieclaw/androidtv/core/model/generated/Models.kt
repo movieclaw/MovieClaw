@@ -1923,6 +1923,233 @@ data class PlaybackStateView(
     @SerialName("ended_by_admin") val endedByAdmin: Boolean = false,
 )
 
+@Serializable
+data class ReelByteRangeView(
+    /**
+     * 起始字节
+     */
+    @SerialName("offset") val offset: Long = 0,
+    /**
+     * 长度
+     */
+    @SerialName("length") val length: Long = 0,
+    /**
+     * head 文件头 / index 索引 / start 起点后约 4 秒
+     */
+    @SerialName("purpose") val purpose: String = "",
+)
+
+@Serializable
+data class ReelEpisodeView(
+    /**
+     * 季号
+     */
+    @SerialName("season") val season: Long = 0,
+    /**
+     * 集号
+     */
+    @SerialName("episode") val episode: Long = 0,
+    /**
+     * 集名
+     */
+    @SerialName("name") val name: String? = null,
+    /**
+     * 分集简介
+     */
+    @SerialName("overview") val overview: String? = null,
+)
+
+@Serializable
+data class ReelItemView(
+    /**
+     * 片段标识（事件上报用）
+     */
+    @SerialName("id") val id: String = "",
+    @SerialName("title") val title: ReelTitleView = ReelTitleView(),
+    /**
+     * 封面：起点那一帧；没有时是剧照
+     */
+    @SerialName("cover_url") val coverUrl: String? = null,
+    @SerialName("segment") val segment: ReelSegmentView = ReelSegmentView(),
+    @SerialName("play") val play: ReelPlayView = ReelPlayView(),
+)
+
+@Serializable
+data class ReelPersonView(
+    /**
+     * 姓名
+     */
+    @SerialName("name") val name: String = "",
+    /**
+     * TMDB 影人 ID（打开人物页用）；只有姓名时为空
+     */
+    @SerialName("tmdb_person_id") val tmdbPersonId: Long? = null,
+    /**
+     * 头像（TMDB 图床地址）
+     */
+    @SerialName("avatar_url") val avatarUrl: String? = null,
+)
+
+/**
+ * 怎么放这一条。mode=seek：自研引擎打开原片、从 segment.start_ms 起播。
+ */
+@Serializable
+data class ReelPlayView(
+    /**
+     * 放法：seek=从原片中间起播（一期仅此一种）
+     */
+    @SerialName("mode") val mode: String = "",
+    /**
+     * seek：原片取流地址（带 /api/v1 的相对路径，含令牌）
+     */
+    @SerialName("stream_url") val streamUrl: String? = null,
+    /**
+     * seek：原片大小（片源字节缓存的键要用）
+     */
+    @SerialName("size_bytes") val sizeBytes: Long? = null,
+    /**
+     * seek：光盘的交付方式（同正片会话 decision.disc）——image=光盘镜像，stream_url 是镜像原字节；folder=原盘目录（BDMV / VIDEO_TS），按 GET /playback/files/{file_id}/disc 的清单（含主播放列表）逐个文件取；None=普通文件
+     */
+    @SerialName("disc") val disc: String? = null,
+    /**
+     * seek：起播音轨的同类型序号
+     */
+    @SerialName("audio_ordinal") val audioOrdinal: Long? = null,
+    /**
+     * seek：要显示的中文字幕；None 不开
+     */
+    @SerialName("subtitle") val subtitle: ReelSubtitleView? = null,
+    /**
+     * seek：上一条播放期间应预取的字节范围
+     */
+    @SerialName("prefetch") val prefetch: List<ReelByteRangeView> = emptyList(),
+)
+
+/**
+ * 放原片的哪一段（原片时间轴，与怎么放无关）。
+ */
+@Serializable
+data class ReelSegmentView(
+    /**
+     * 原片文件（台账行 id）
+     */
+    @SerialName("file_id") val fileId: Long = 0,
+    /**
+     * 起点（落在关键帧上）
+     */
+    @SerialName("start_ms") val startMs: Long = 0,
+    /**
+     * 终点（落在两句对白之间）
+     */
+    @SerialName("end_ms") val endMs: Long = 0,
+    /**
+     * 原片总长（剧集是这一集）
+     */
+    @SerialName("duration_ms") val durationMs: Long? = null,
+    /**
+     * 挑法：bitrate 码率最高段 / chapter 章节起点 / position 固定位置
+     */
+    @SerialName("method") val method: String = "",
+)
+
+@Serializable
+data class ReelSubtitleView(
+    /**
+     * 内封字幕的同类型序号（embedded:<k> 的 k）
+     */
+    @SerialName("ordinal") val ordinal: Long = 0,
+    @SerialName("language") val language: String? = null,
+    @SerialName("title") val title: String? = null,
+    @SerialName("codec") val codec: String? = null,
+    /**
+     * 只含这一段（前后各留几秒）的字幕文件地址（带 /api/v1 的相对路径，含令牌），时间戳是文件时间。放转码流、全屏片段模式用：读不到内封轨时靠它出字幕，不必等 NAS 通读整个文件抽整轨。只有能原样拷贝的文字轨才有（srt / ass），否则为 None
+     */
+    @SerialName("url") val url: String? = null,
+    /**
+     * url 那份字幕的格式：srt / ass
+     */
+    @SerialName("format") val format: String? = null,
+)
+
+/**
+ * 这一条属于哪部片：展示用的信息。图片地址都是不带 /api/v1 的相对路径或完整外链。
+ */
+@Serializable
+data class ReelTitleView(
+    /**
+     * 条目 id
+     */
+    @SerialName("media_item_id") val mediaItemId: Long = 0,
+    /**
+     * 这一条的文件所在的媒体库（分享要用）
+     */
+    @SerialName("library_id") val libraryId: Long = 0,
+    /**
+     * 电影 / 剧集 / 其他
+     */
+    @SerialName("kind") val kind: String = "",
+    /**
+     * 片名
+     */
+    @SerialName("name") val name: String = "",
+    /**
+     * 年份
+     */
+    @SerialName("year") val year: Long? = null,
+    /**
+     * 评分（0～10）
+     */
+    @SerialName("rating") val rating: Double? = null,
+    /**
+     * 片长；剧集是这一集的时长
+     */
+    @SerialName("runtime_minutes") val runtimeMinutes: Long? = null,
+    /**
+     * 类型，最多 3 个
+     */
+    @SerialName("genres") val genres: List<String> = emptyList(),
+    /**
+     * 宣传语
+     */
+    @SerialName("tagline") val tagline: String? = null,
+    /**
+     * 简介（剧集是整剧的，分集简介在 episode 里）
+     */
+    @SerialName("overview") val overview: String? = null,
+    /**
+     * 本人收藏了没有（电影 / 整剧）
+     */
+    @SerialName("favorite") val favorite: Boolean = false,
+    /**
+     * 本人看过没有（电影看整部，剧集看这一集）
+     */
+    @SerialName("played") val played: Boolean = false,
+    /**
+     * 看了一半时的进度（1～99，同「继续观看」口径）；没看过、已看完为空
+     */
+    @SerialName("progress_percent") val progressPercent: Long? = null,
+    /**
+     * 电影是导演、剧集是主创，最多两位
+     */
+    @SerialName("directors") val directors: List<ReelPersonView> = emptyList(),
+    /**
+     * 海报
+     */
+    @SerialName("poster_url") val posterUrl: String? = null,
+    /**
+     * 横版剧照
+     */
+    @SerialName("backdrop_url") val backdropUrl: String? = null,
+    /**
+     * 片名 Logo（本地资产）
+     */
+    @SerialName("logo_url") val logoUrl: String? = null,
+    /**
+     * 剧集：这一段出自哪一集
+     */
+    @SerialName("episode") val episode: ReelEpisodeView? = null,
+)
+
 /**
  * 整库刷新中正在处理的一部片（并发若干路，故是列表）。
  */
