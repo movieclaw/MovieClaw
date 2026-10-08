@@ -14,7 +14,7 @@ from tests.api.test_reels_disc_index import S, _bcd, _clpi, _UdfBuilder, _vmg_if
 
 from movieclaw_api.services import media_probe
 from movieclaw_api.services.playback import iso_source
-from movieclaw_playback.streaming import FileWindowResponse
+from movieclaw_playback.streaming import FileWindowResponse, slice_windows
 
 CLOCK = 45_000
 
@@ -60,13 +60,13 @@ def test_bluray_iso_main_clips_become_byte_ranges_of_the_image(tmp_path, metadat
     assert source.playlist_name == "00800.mpls"
     assert [c.clip_id for c in source.clips] == ["00001", "00002"]
     for clip, payload in zip(source.clips, (first, second), strict=True):
-        start, end = clip.byte_range
+        ((start, end),) = clip.byte_ranges
         assert image[start:end] == payload  # 区间里正好是这段剪辑的字节
     assert source.duration_s == pytest.approx(900)
     assert source.uses_subfile
 
     listing = source.concat_list()
-    start, end = source.clips[0].byte_range
+    ((start, end),) = source.clips[0].byte_ranges
     assert f"file 'subfile,,start,{start},end,{end},,:{path}'" in listing
     assert "inpoint 10.000000" in listing and "outpoint 610.000000" in listing
 
@@ -75,6 +75,55 @@ def test_bluray_iso_main_clips_become_byte_ranges_of_the_image(tmp_path, metadat
     assert index is not None
     assert index.times_s[0] == pytest.approx(0, abs=0.01)
     assert index.times_s[-1] == pytest.approx(898, abs=0.01)
+
+
+class _SplitBuilder(_UdfBuilder):
+    """大文件在镜像里断成两截、中间夹着别的数据（双层盘换层、交错存放的盘就是这样）。"""
+
+    def __init__(self) -> None:
+        super().__init__(metadata=False)
+
+    def file(self, data: bytes, *, size: int | None = None) -> int:
+        if len(data) <= 2 * S:
+            return super().file(data, size=size)
+        head, tail = data[: 2 * S], data[2 * S :]
+        first = self._phys_block(2)
+        self._write_phys(first, head)
+        self._write_phys(self._phys_block(3), b"\xee" * (3 * S))  # 夹在中间的别的数据
+        second = self._phys_block(-(-len(tail) // S))
+        self._write_phys(second, tail)
+        ads = b"".join(
+            len(part).to_bytes(4, "little") + block.to_bytes(4, "little")
+            for part, block in ((head, first), (tail, second))
+        )
+        fe_block = self._meta_block()
+        self._write_meta(fe_block, self._fe(size if size is not None else len(data), ads, 0))
+        return fe_block
+
+
+def test_bluray_clip_split_across_the_image_is_read_piece_by_piece(tmp_path):
+    first = b"".join(bytes([0x30 + i]) * S for i in range(3)) + b"\x99" * 100
+    image = _SplitBuilder().build(
+        {
+            "BDMV": {
+                "PLAYLIST": {"00001.mpls": _mpls(("00001", CLOCK * 10, CLOCK * 610))},
+                "CLIPINF": {},
+                "STREAM": {"00001.m2ts": first},
+            },
+        }
+    )
+    path = tmp_path / "split.iso"
+    path.write_bytes(image)
+
+    source = iso_source.iso_disc_source(path)
+    assert source is not None
+    (clip,) = source.clips
+    assert len(clip.byte_ranges) == 2
+    assert b"".join(image[a:b] for a, b in clip.byte_ranges) == first
+    # ffmpeg 用 concat 协议把各截按字节拼起来读
+    parts = [f"subfile,,start,{a},end,{b},,:{path}" for a, b in clip.byte_ranges]
+    assert clip.read_url == "concat:" + "|".join(parts)
+    assert f"file '{clip.read_url}'" in source.concat_list()
 
 
 def _vts_ifo_with_cells(seconds: int, cells: list[tuple[int, int]], extra: list[int]) -> bytes:
@@ -142,7 +191,7 @@ def test_dvd_iso_range_is_the_main_program_chain_not_the_whole_title_set(tmp_pat
     source = iso_source.iso_disc_source(path)
     assert source is not None and source.image == "dvd"
     (clip,) = source.clips
-    start, end = clip.byte_range
+    ((start, end),) = clip.byte_ranges  # 两个 VOB 首尾相接：合成一截
     assert image[start:end] == (vob1 + vob2)[: 5 * S]
     assert source.duration_s == pytest.approx(5400)
     # DVD 段没有播放列表时间：清单只写时长，不写 IN/OUT
@@ -151,22 +200,26 @@ def test_dvd_iso_range_is_the_main_program_chain_not_the_whole_title_set(tmp_pat
     assert source.keyframe_index() is None
 
 
-def test_dvd_iso_with_scattered_title_vobs_is_not_readable_by_range(tmp_path):
-    vob = bytes([1]) * S
+def test_dvd_iso_with_scattered_title_vobs_is_read_piece_by_piece(tmp_path):
+    vob1, vob2 = bytes([1]) * S, bytes([2]) * S
     image = _UdfBuilder(metadata=False).build(
         {
             "VIDEO_TS": {
                 "VIDEO_TS.IFO": _vmg_ifo([1]),
                 "VTS_01_0.IFO": _vts_ifo_with_cells(600, [(0, 1)], []),
-                "VTS_01_1.VOB": vob,
+                "VTS_01_1.VOB": vob1,
                 "VTS_01_0.VOB": bytes([9]) * S,  # 夹在两个正片 VOB 之间：不连续
-                "VTS_01_2.VOB": vob,
+                "VTS_01_2.VOB": vob2,
             },
         }
     )
     path = tmp_path / "scattered.iso"
     path.write_bytes(image)
-    assert iso_source.iso_disc_source(path) is None
+    source = iso_source.iso_disc_source(path)
+    assert source is not None
+    (clip,) = source.clips
+    assert len(clip.byte_ranges) == 2
+    assert b"".join(image[a:b] for a, b in clip.byte_ranges) == vob1 + vob2
 
 
 def test_not_udf_image_has_no_source(tmp_path):
@@ -175,23 +228,35 @@ def test_not_udf_image_has_no_source(tmp_path):
     assert iso_source.iso_disc_source(path) is None
 
 
-def test_file_window_response_serves_a_slice_with_relative_ranges(tmp_path):
+def test_file_window_response_stitches_pieces_and_maps_ranges(tmp_path):
     path = tmp_path / "image.bin"
     data = bytes(range(256)) * 64  # 16 KB
     path.write_bytes(data)
+    stitched = data[1000:3000] + data[5000:8000]
 
     async def endpoint(request):
-        return FileWindowResponse(path, offset=1000, length=5000, media_type="video/MP2T")
+        return FileWindowResponse(
+            path, windows=[(1000, 3000), (5000, 8000)], media_type="video/MP2T"
+        )
 
     client = TestClient(Starlette(routes=[Route("/clip", endpoint)]))
     whole = client.get("/clip")
-    assert whole.status_code == 200 and whole.content == data[1000:6000]
+    assert whole.status_code == 200 and whole.content == stitched
     assert whole.headers["content-length"] == "5000"
-    part = client.get("/clip", headers={"Range": "bytes=100-199"})
-    assert part.status_code == 206 and part.content == data[1100:1200]
-    assert part.headers["content-range"] == "bytes 100-199/5000"
+    inside = client.get("/clip", headers={"Range": "bytes=100-199"})
+    assert inside.status_code == 206 and inside.content == stitched[100:200]
+    assert inside.headers["content-range"] == "bytes 100-199/5000"
+    across = client.get("/clip", headers={"Range": "bytes=1900-2099"})  # 跨两截
+    assert across.content == stitched[1900:2100]
     tail = client.get("/clip", headers={"Range": "bytes=4900-"})
-    assert tail.content == data[5900:6000]
+    assert tail.content == stitched[4900:]
+
+
+def test_slice_windows_maps_offsets_and_merges_adjacent_pieces():
+    windows = [(100, 200), (200, 300), (900, 1000)]
+    assert slice_windows(windows, 50, 250) == [(150, 300), (900, 950)]
+    assert slice_windows(windows, 0, 100) == [(100, 200)]
+    assert slice_windows(windows, 300, 300) == []
 
 
 def test_probe_takes_the_disc_image_duration_from_the_main_title(tmp_path, monkeypatch):

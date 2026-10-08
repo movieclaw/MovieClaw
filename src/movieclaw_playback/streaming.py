@@ -14,7 +14,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
 from secrets import token_hex
 from typing import TypeVar
@@ -23,7 +23,7 @@ from urllib.parse import urlsplit
 import anyio
 from starlette.datastructures import MutableHeaders
 from starlette.responses import FileResponse
-from starlette.types import Receive, Scope, Send
+from starlette.types import Message, Receive, Scope, Send
 
 from movieclaw_playback.mp4_sample_entry import (
     BytePatch,
@@ -423,14 +423,16 @@ async def direct_play_byte_patches(
 
 
 class FileWindowResponse(DisconnectAwareFileResponse):
-    """把文件里的一段当成一个独立文件供出：长度、Range 都按段内偏移算。
+    """把文件里的几段首尾相接当成一个独立文件供出：长度、Range 都按拼接后的偏移算。
 
     光盘镜像里的剪辑没有自己的文件，远程 Worker 按段取源时由它从镜像上读这一段
-    （iso_source.py）。读盘、断连、计量与父类完全相同，只是区间整体平移 ``offset``。
+    （iso_source.py）；剪辑在镜像里断成多截时（双层盘换层、交错存放）按顺序拼起来。
+    读盘、断连、计量与父类完全相同，只是每截区间平移到它在镜像里的位置。
     """
 
-    def __init__(self, path: str | Path, *, offset: int, length: int, **kwargs) -> None:
+    def __init__(self, path: str | Path, *, windows: Sequence[tuple[int, int]], **kwargs) -> None:
         real = os.stat(path)
+        length = sum(end - start for start, end in windows)
         window = os.stat_result(
             (
                 real.st_mode,
@@ -446,12 +448,46 @@ class FileWindowResponse(DisconnectAwareFileResponse):
             )
         )
         super().__init__(path, stat_result=window, **kwargs)
-        self._offset = offset
+        self._windows = tuple(windows)
         self._length = length
 
     async def _send_span(self, file, send: Send, start: int, end: int | None) -> None:
-        stop = self._length if end is None else end
-        await super()._send_span(file, send, self._offset + start, self._offset + stop)
+        pieces = slice_windows(self._windows, start, self._length if end is None else end)
+        if not pieces:
+            await send({"type": "http.response.body", "body": b"", "more_body": False})
+            return
+
+        async def hold_open(message: Message) -> None:
+            # 前几截读完不能收尾：父类每截末尾发 more_body=False，这里改成还有下文
+            await send({**message, "more_body": True})
+
+        for i, (a, b) in enumerate(pieces):
+            await super()._send_span(file, send if i == len(pieces) - 1 else hold_open, a, b)
+            if self._should_stop_reading():
+                return
+
+
+def slice_windows(
+    windows: Sequence[tuple[int, int]], start: int, end: int
+) -> list[tuple[int, int]]:
+    """几截首尾相接的区间里的 ``[start, end)`` → 落在原文件上的各截 ``(起, 止)``。
+
+    在原文件上恰好相邻的截合并成一截。
+    """
+    out: list[tuple[int, int]] = []
+    offset = 0
+    for a, b in windows:
+        lo, hi = max(start, offset), min(end, offset + b - a)
+        if lo < hi:
+            piece = (a + lo - offset, a + hi - offset)
+            if out and out[-1][1] == piece[0]:
+                out[-1] = (out[-1][0], piece[1])
+            else:
+                out.append(piece)
+        offset += b - a
+        if offset >= end:
+            break
+    return out
 
 
 def container_mime_type(container: str | None) -> str:

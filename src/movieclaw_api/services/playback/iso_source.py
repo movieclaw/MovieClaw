@@ -1,10 +1,12 @@
 """光盘镜像（ISO）的服务端播放源：给不能自己读镜像的播放器换封装 / 转码用。
 
 原来服务端读不了镜像的盘内结构，ISO 只能原字节直推给能读镜像的播放器（App 的自研引擎、
-Infuse），其余客户端（Android TV、网页）一律「放不了」。镜像里的正片其实就是镜像上的一段
-连续字节：蓝光主片的 m2ts、DVD 正片标题集的 VOB 都由母盘工具顺序写入。这里用只读 UDF 读取器
-（``udf.UDFReader``，刷片挑点已在用）找出这段字节，装成与原盘目录同一种 ``DiscSource``——
-ffmpeg 经 ``subfile`` 协议把区间当文件读，远程 Worker 按区间取字节，转码管线一行不改。
+Infuse），其余客户端（Android TV、网页）一律「放不了」。镜像里的正片其实就是镜像上的几截
+字节：蓝光主片的 m2ts、DVD 正片标题集的 VOB 由母盘工具顺序写入，多半一整截，双层盘在换层处
+断成两截，交错存放的盘（多版本无缝分支、3D）断成上百上千截。这里用只读 UDF 读取器
+（``udf.UDFReader``，刷片挑点已在用）找出这些字节，装成与原盘目录同一种 ``DiscSource``——
+ffmpeg 经 ``subfile`` 协议把区间当文件读（多截再用 ``concat`` 协议按字节拼，仍可按字节跳转），
+远程 Worker 按区间取字节，转码管线一行不改。NAS 实测 78 个 ISO 全部读完盘内结构共 8 秒。
 
 - **蓝光镜像**：主播放列表（与原盘目录同一套选法，排除诱饵列表）的每段剪辑一个区间，
   CLPI 一并读出供关键帧表（VOD 分片、能否 remux 的判断都靠它）。
@@ -12,7 +14,7 @@ ffmpeg 经 ``subfile`` 协议把区间当文件读，远程 Worker 按区间取�
   区间——不是整个标题集：标题集末尾常挂着花絮单元，时间戳从头再来，ffmpeg 会把片长估成那一段、
   按时间跳转直接跳到末尾（NAS 实测《金枝玉叶》估成 99 秒）。按节目链裁掉后片长、跳转都正常。
 
-读不出（不是 UDF、结构损坏、正片在镜像里不连续）返回 None，调用方按「放不了」处理。
+读不出（不是 UDF、结构损坏）返回 None，调用方按「放不了」处理。
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from movieclaw_api.services.playback.disc_source import (
     disc_source_for_file,
 )
 from movieclaw_db.models import LibraryFile
+from movieclaw_playback.streaming import slice_windows
 
 logger = logging.getLogger("movieclaw_api.iso_source")
 
@@ -98,22 +101,17 @@ def _bluray(path: Path, reader: UDFReader) -> DiscSource | None:
     clpi_data: dict[str, bytes] = {}
     for item in playlist.items:
         ranges = reader.byte_ranges(streams[item.clip_id])
-        if len(ranges) != 1:
-            logger.info(
-                "蓝光镜像的剪辑 %s 在镜像里不连续（%d 段），不能按区间读：%s",
-                item.clip_id,
-                len(ranges),
-                path,
-            )
+        if not ranges or (len(ranges) > 1 and "|" in str(path)):
+            # 多截靠 concat 协议拼，它用「|」分隔各截，路径里有「|」就拼不了
+            logger.info("蓝光镜像的剪辑 %s 读不了：%s（%d 截）", item.clip_id, path, len(ranges))
             return None
-        start, length = ranges[0]
         clips.append(
             DiscClip(
                 clip_id=item.clip_id,
                 path=path,
                 in_time=item.in_time,
                 out_time=item.out_time,
-                byte_range=(start, start + length),
+                byte_ranges=tuple((start, start + length) for start, length in ranges),
             )
         )
         entry = clpis.get(item.clip_id)
@@ -149,32 +147,28 @@ def _dvd(path: Path, reader: UDFReader) -> DiscSource | None:
         return None
     if chain.seconds <= 0 or not chain.cells:
         return None
-    # 正片 VOB（VTS_NN_1、_2…）在镜像里必须首尾相接，扇区号才能当成一整段连续字节
+    # 正片 VOB（VTS_NN_1、_2…）按顺序拼起来就是节目链扇区号所在的空间；它们在镜像里不一定
+    # 首尾相接（双层盘换层处断开），从拼接空间里切出节目链覆盖的那段，再落回镜像上的各截
     prefix = f"VTS_{main:02d}_"
     parts = sorted(
         (name for name in vobs if name.startswith(prefix) and not name.endswith("_0.VOB")),
         key=lambda name: int(name.removesuffix(".VOB").rsplit("_", 1)[1]),
     )
-    ranges: list[tuple[int, int]] = []
-    for name in parts:
-        ranges.extend(reader.byte_ranges(vobs[name]))
-    merged: list[tuple[int, int]] = []
-    for start, length in ranges:
-        if merged and merged[-1][0] + merged[-1][1] == start:
-            merged[-1] = (merged[-1][0], merged[-1][1] + length)
-        else:
-            merged.append((start, length))
-    if len(merged) != 1:
-        logger.info(
-            "DVD 镜像的正片 VOB 在镜像里不连续（%d 段），不能按区间读：%s", len(merged), path
-        )
-        return None
-    base, total = merged[0]
+    windows = [
+        (start, start + length)
+        for name in parts
+        for start, length in reader.byte_ranges(vobs[name])
+    ]
+    total = sum(b - a for a, b in windows)
     first = min(cell[0] for cell in chain.cells)
     last = max(cell[1] for cell in chain.cells)
-    start, end = base + first * SECTOR, base + (last + 1) * SECTOR
-    if end > base + total:
+    start, end = first * SECTOR, (last + 1) * SECTOR
+    if end > total:
         logger.info("DVD 镜像的节目链越过了正片 VOB 的范围：%s", path)
+        return None
+    ranges = slice_windows(windows, start, end)
+    if len(ranges) > 1 and "|" in str(path):
+        logger.info("DVD 镜像的正片在镜像里断成 %d 截、路径含「|」，拼不了：%s", len(ranges), path)
         return None
     return DiscSource(
         disc_dir=path,
@@ -185,7 +179,7 @@ def _dvd(path: Path, reader: UDFReader) -> DiscSource | None:
                 path=path,
                 in_time=0,
                 out_time=int(chain.seconds * MPLS_CLOCK_HZ),
-                byte_range=(start, end),
+                byte_ranges=tuple(ranges),
                 timed=False,
             ),
         ),

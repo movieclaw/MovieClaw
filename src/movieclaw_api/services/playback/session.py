@@ -1028,9 +1028,10 @@ class TranscodeSessionManager:
         if session.concat_list is not None:
             source_path = str(session.directory / CONCAT_LIST_NAME)
             extra["input_format"] = "concat"
-            if "'subfile," in session.concat_list:
-                # 光盘镜像：清单里的段是镜像上的字节区间（iso_source.py）
-                extra["protocol_whitelist"] = "file,subfile"
+            if "'subfile," in session.concat_list or "'concat:subfile," in session.concat_list:
+                # 光盘镜像：清单里的段是镜像上的字节区间，断成多截的再用 concat 协议拼
+                # （iso_source.py）
+                extra["protocol_whitelist"] = "file,subfile,concat"
         return build_hls_command(
             session.plan,
             source_path=source_path,

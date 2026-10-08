@@ -47,26 +47,28 @@ CONCAT_LIST_NAME = "source.concat"
 class DiscClip:
     """主播放列表里的一段：哪个 m2ts、播哪一截（45 kHz 时间戳）。
 
-    光盘镜像（ISO）里的段没有自己的文件：``path`` 是镜像，``byte_range`` 是这段在镜像里的
-    ``(起始字节, 结束字节)``（结束不含），ffmpeg 经 ``subfile`` 协议读、远程 Worker 按区间取。
-    ``timed=False`` 的段（DVD 正片）没有播放列表时间，清单里只写时长、不写 IN/OUT——VOB 自带
-    连续的时间戳，按 IN/OUT 裁会裁错。
+    光盘镜像（ISO）里的段没有自己的文件：``path`` 是镜像，``byte_ranges`` 是这段在镜像里的
+    各个 ``(起始字节, 结束字节)``（结束不含），按顺序首尾相接就是这段的字节——双层盘在换层处
+    断开、交错存放的盘断成上千截。ffmpeg 经 ``subfile``（多截再套 ``concat``）协议读、远程
+    Worker 按区间取。``timed=False`` 的段（DVD 正片）没有播放列表时间，清单里只写时长、不写
+    IN/OUT——VOB 自带连续的时间戳，按 IN/OUT 裁会裁错。
     """
 
     clip_id: str
     path: Path
     in_time: int
     out_time: int
-    byte_range: tuple[int, int] | None = None
+    byte_ranges: tuple[tuple[int, int], ...] | None = None
     timed: bool = True
 
     @property
     def read_url(self) -> str:
-        """ffmpeg 读这一段的地址：普通剪辑是文件路径，镜像里的段是 ``subfile`` 区间。"""
-        if self.byte_range is None:
+        """ffmpeg 读这一段的地址：普通剪辑是文件路径，镜像里的段是 ``subfile`` 区间，
+        断成多截时用 ``concat`` 协议按字节拼起来（可按字节跳转，seek 不受影响）。"""
+        if self.byte_ranges is None:
             return str(self.path)
-        start, end = self.byte_range
-        return f"subfile,,start,{start},end,{end},,:{self.path}"
+        parts = [f"subfile,,start,{a},end,{b},,:{self.path}" for a, b in self.byte_ranges]
+        return parts[0] if len(parts) == 1 else "concat:" + "|".join(parts)
 
     @property
     def duration_s(self) -> float:
@@ -166,8 +168,8 @@ class DiscSource:
 
     @property
     def uses_subfile(self) -> bool:
-        """清单里有镜像区间：ffmpeg 要放行 ``subfile`` 协议（concat 默认只开 file）。"""
-        return any(clip.byte_range is not None for clip in self.clips)
+        """清单里有镜像区间：ffmpeg 要放行 ``subfile`` 与 ``concat`` 协议（清单默认只开 file）。"""
+        return any(clip.byte_ranges is not None for clip in self.clips)
 
     def _clip_keyframes(self, clip: DiscClip) -> list[int] | None:
         if self.clpi is None:

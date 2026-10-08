@@ -906,11 +906,36 @@ def test_disc_image_session_is_planned_on_the_main_title_duration(client, tmp_pa
     data = start_session(client, file_id)
     assert data["decision"]["tier"] == 1, data["decision"]
     call = calls[-1]
-    assert (call.get("input_format"), call.get("protocol_whitelist")) == ("concat", "file,subfile")
+    assert call.get("input_format") == "concat"
+    assert call.get("protocol_whitelist") == "file,subfile,concat"
     assert "file 'subfile,,start," in Path(call["source_path"]).read_text(encoding="utf-8")
     (session,) = session_mod.get_session_manager().active()
     assert session.segment_plan is not None
     assert session.segment_plan.duration_s == pytest.approx(900)
+
+
+def test_stored_disc_image_durations_are_healed_from_the_main_title(client, tmp_path):
+    """存量 ISO 的台账片长（ffprobe 对镜像估的）换成盘内正片时长：它是「看到哪算看完」的
+    分母，记成 4 秒的那集一开播就被判成看完。读不出盘内结构的镜像保持原样。"""
+    from tests.api.test_iso_source import _bluray_image
+
+    from movieclaw_api.services.library.disc_image_durations import heal_disc_image_durations
+    from movieclaw_api.services.playback import iso_source
+
+    iso_source.clear_cache()
+    image, _, _ = _bluray_image(metadata=False)
+    wrong = seed(client, tmp_path, container="iso", data=image, duration_seconds=4)
+    unreadable = seed(client, tmp_path, container="iso", duration_seconds=4)
+
+    assert client.portal.call(heal_disc_image_durations) == 1
+    assert client.portal.call(heal_disc_image_durations) == 0  # 幂等：校准过的不再改
+
+    async def durations():
+        async with get_database().session() as session:
+            rows = [await session.get(LibraryFile, i) for i in (wrong, unreadable)]
+            return [row.duration_seconds for row in rows]
+
+    assert client.portal.call(durations) == [900, 4]
 
 
 def test_tv_app_starting_another_file_frees_its_stale_session(client, tmp_path, monkeypatch):

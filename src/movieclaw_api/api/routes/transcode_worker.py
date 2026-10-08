@@ -627,13 +627,11 @@ async def transcode_disc_clip(
     path = clip.path
     if not path.is_file():
         raise _missing_source(session_id, file, path)
-    if clip.byte_range is not None:
-        # 光盘镜像里的剪辑：镜像上的一段字节当成独立文件供出（iso_source.py）
-        start, end = clip.byte_range
+    if clip.byte_ranges is not None:
+        # 光盘镜像里的剪辑：镜像上的几截字节拼成一个独立文件供出（iso_source.py）
         return FileWindowResponse(
             path,
-            offset=start,
-            length=end - start,
+            windows=clip.byte_ranges,
             media_type="video/MP2T" if disc.image == "bluray" else "video/MP2P",
             headers={"Cache-Control": "no-store"},
             probe=_source_read_marks(session_id, request, clip=index),
