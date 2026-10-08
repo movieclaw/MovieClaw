@@ -91,16 +91,21 @@ overlay 更新同一套「版本目录 + 原子切链」做法）。
   现成的内核行为，进程外只是「代理背后是另一个进程」。
 - **插件侧的 `RemoteContext`** 与内核 `Context` 同名同签名：插件代码不分运行位置（§0 的硬指标）。
 
-### 4.2 协议（JSON over WebSocket，`/api/v1/plugin-runtime/connect`，`mcpl_` 令牌鉴权）
+### 4.2 协议（每行一条 JSON；本机子进程走标准输入输出）
+
+传输与协议分开：本机子进程用标准输入输出管道（私有、不占端口、不需要凭证出进程，测试里也能跑）；
+将来 `mclaw plugin dev` 远程开发用 WebSocket（`mcpl_` 令牌鉴权）承载同一套消息。插件的 `print` 被改到标准错误，
+宿主按行收进日志。C2 已实现的消息：
 
 | 方向 | 消息 | 说明 |
 |---|---|---|
 | 插件 → 宿主 | `hello{sdk, entry, title}` | 握手；宿主核对与安装记录一致 |
 | 插件 → 宿主 | `on{event, id, mode}` / `contribute{registry, id, item}` / `ready` | `apply` 期间的声明，`ready` 之后宿主才把条目标为 ACTIVE |
 | 宿主 → 插件 | `call{call_id, kind, target, payload}` | 投递事件、调用钩子、执行任务、请求路由以外的回调 |
+| 插件 → 宿主 / 宿主 → 插件 | `next{call_id, payload?}` / `next_result{call_id, ok, result}` | 钩子里调用 `next()`：宿主替它跑下游（可带改过的载荷），结果再送回去——与进程内语义完全一致 |
 | 插件 → 宿主 | `reply{call_id, ok, result \| error}` | 结果按契约的结果类型校验；非法 = 当作监听器出错 |
 | 插件 → 宿主 | `log{level, message}` / `health{key, ok, message}` / `progress{job_id, …}` | 日志带条目 id 进宿主日志；健康走 `PLUGIN_HEALTH` |
-| 双向 | `ping` / `pong` | 15 秒无响应视为卡死 → 杀进程、重启 |
+| 双向 | `ping` / `pong` | 15 秒无响应视为卡死 → 杀进程、重启（C2 先靠单次调用时限兜底：钩子 2 秒、普通事件 30 秒） |
 
 载荷就是契约里的冻结模型 `model_dump(mode="json")`，两端用同一个模型类校验（SDK 与宿主同源）。
 
@@ -108,7 +113,7 @@ overlay 更新同一套「版本目录 + 原子切链」做法）。
 
 | 插件里写的 | 宿主侧代理 |
 |---|---|
-| `ctx.on(LIVE 事件 / 钩子)` | 在真实 ctx 上登记一个 async 监听器：发 `call`、等 `reply`；钩子的 `next_` 由宿主在调用前先求值，把下游结果一并发过去（waterfall 语义在单监听器内等价） |
+| `ctx.on(LIVE 事件 / 钩子)` | 在真实 ctx 上登记一个 async 监听器：发 `call`、等 `reply`；钩子里插件调 `next()` 时经 `next` 消息让宿主跑下游 |
 | `ctx.on(可靠事件, id=…)` | 登记到 `DURABLE_EVENTS`，代理等插件确认才算成功；进程不在 → 抛错 → 原有重试 / 死信 |
 | `ctx.contribute(JOB_HANDLERS, …)` | 代理处理器：发 `call{kind: job}`，插件侧拿到一个 `JobContext` 代理（进度、取消、`JobRetry` / `JobBlocked` 以结构化错误回传） |
 | `ctx.contribute(INGEST_STEPS / SITE_DATA_PACKS / …)` | 纯数据项，原样贡献（数据包目录换成插件包内的路径） |

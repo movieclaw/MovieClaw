@@ -45,6 +45,8 @@ class LocalSpec:
     grants: tuple[str, ...] = ()
     act_as: str | None = None
     disabled: bool = False
+    runtime: str = "inline"
+    """``inline``：主进程里运行；``process``：独立进程（docs/design/plugin-phase3.md §4）。"""
 
 
 def plugins_dir(settings: object) -> Path:
@@ -68,8 +70,10 @@ def local_specs(settings: object) -> list[LocalSpec]:
         config = item.get("config") or {}
         grants = item.get("grants") or []
         act_as = item.get("act_as")
+        runtime = item.get("runtime") or "inline"
         if (
-            not isinstance(module, str)
+            runtime not in ("inline", "process")
+            or not isinstance(module, str)
             or not module.isidentifier()
             or not isinstance(config, dict)
             or not isinstance(grants, list)
@@ -78,7 +82,7 @@ def local_specs(settings: object) -> list[LocalSpec]:
         ):
             logger.warning(
                 "本地插件 %s 的配置不合规（module 须是合法模块名、config 是映射、"
-                "grants 是字符串列表），已跳过",
+                "grants 是字符串列表、runtime 是 inline 或 process），已跳过",
                 entry_id,
             )
             continue
@@ -90,6 +94,7 @@ def local_specs(settings: object) -> list[LocalSpec]:
                 grants=tuple(grants),
                 act_as=act_as,
                 disabled=bool(item.get("disabled", False)),
+                runtime=runtime,
             )
         )
     return specs
@@ -181,16 +186,42 @@ def load_local_entries(settings: object) -> list[Entry]:
     root = plugins_dir(settings)
     entries: list[Entry] = []
     for spec in specs:
-        plugin = (
-            _failing(spec.id, "已在 plugins.yaml 中关闭") if spec.disabled else _resolve(root, spec)
-        )
+        if spec.disabled:
+            plugin = _failing(spec.id, "已在 plugins.yaml 中关闭")
+        elif spec.runtime == "process":
+            plugin = _remote(root, spec)
+        else:
+            plugin = _resolve(root, spec)
         entries.append(Entry(spec.id, plugin, config=spec.config, source=SOURCE))
-    logger.warning(
-        "已加载 %d 个本地插件（进程内运行，拥有与主程序相同的系统权限）：%s",
-        len(entries),
-        "、".join(e.id for e in entries),
-    )
+    inline = [s.id for s in specs if s.runtime == "inline"]
+    process = [s.id for s in specs if s.runtime == "process"]
+    if inline:
+        logger.warning(
+            "已加载 %d 个本地插件（进程内运行，拥有与主程序相同的系统权限）：%s",
+            len(inline),
+            "、".join(inline),
+        )
+    if process:
+        logger.info("已加载 %d 个独立进程运行的本地插件：%s", len(process), "、".join(process))
     return entries
+
+
+def _remote(root: Path, spec: LocalSpec) -> Plugin:
+    """独立进程运行：主进程不导入插件代码，只登记代理（services/plugin_runtime.py）。"""
+    from movieclaw_api.services.plugin_runtime import remote_plugin
+
+    found = (root / f"{spec.module}.py").is_file() or (root / spec.module / "__init__.py").is_file()
+    if not found:
+        return _failing(
+            spec.id, f"找不到 {LOCAL_DIR}/{spec.module}.py 或 {LOCAL_DIR}/{spec.module}/__init__.py"
+        )
+    return remote_plugin(
+        spec.id,
+        title=f"本地插件 {spec.id}（独立进程）",
+        path=root,
+        module=spec.module,
+        config=spec.config,
+    )
 
 
 def configure_host_ops(host: Any, settings: object) -> None:
