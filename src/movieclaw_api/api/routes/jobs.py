@@ -40,6 +40,8 @@ router = APIRouter(prefix="/jobs", tags=["jobs"])
 def _origin(principal: Principal, client_name: str | None) -> str:
     if principal.kind == "agent":
         return "agent"
+    if principal.plugin is not None:
+        return "plugin"
     if client_name and client_name.strip().lower() in {"cli", "web", "agent", "scheduler"}:
         return client_name.strip().lower()
     # 命令行与手工令牌（脚本）记成 cli；网页、App 记成 web

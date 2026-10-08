@@ -287,6 +287,7 @@ async def submit_download(
             save_path=derived_path,
             site_id=payload.site_id,
             torrent_id=payload.torrent_id,
+            owner=f"plugin:{principal.plugin.entry_id}" if principal.plugin else "manual",
         )
     if result.info_hash:
         # 入库时把「入库完成」推给点下载的人（docs/design/cloud-push.md §5）。

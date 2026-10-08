@@ -25,8 +25,12 @@ def build_lifespan(settings: Settings):
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        from movieclaw_api.services import host_ops
+
         kernel = Kernel(settings=settings)
         app.state.kernel = kernel
+        # 宿主操作要经 ASGI 调本进程应用；内核不认识 FastAPI，由这里绑定
+        host_ops.bind_app(app)
         if not settings.scheduler_enabled:
             logger.info("定时任务调度器已按配置关闭（SCHEDULER_ENABLED=false）")
         await kernel.start(BUILTIN_MANIFEST, patches=load_patches(settings))
@@ -35,6 +39,7 @@ def build_lifespan(settings: Settings):
             yield
         finally:
             await kernel.stop()
+            host_ops.unbind_app(app)
             logger.info("应用已关闭，数据库连接已释放")
 
     return lifespan

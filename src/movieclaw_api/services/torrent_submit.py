@@ -529,8 +529,11 @@ async def anchor_manual_download(
     downloader_id: int | None = None,
     download_name: str | None = None,
     save_path: str | None = None,
+    owner: str = "manual",
 ) -> None:
     """按 infohash 保存手动下载的已确认身份，供监听导入完成后直接认领。
+
+    ``owner``：谁发起的下载——``manual``（用户）或 ``plugin:<条目 id>``（插件经宿主操作投递）。
 
     下载器已存在同一任务时会返回同一个 hash。此时保留首次提交时确认的
     身份/库，不能让一次后来的重复点击覆盖原任务的入库归属。
@@ -562,6 +565,7 @@ async def anchor_manual_download(
                 save_path=save_path,
                 site_id=site_id,
                 torrent_id=torrent_id,
+                owner=owner,
             )
         )
         try:

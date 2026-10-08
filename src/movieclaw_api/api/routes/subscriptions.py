@@ -167,7 +167,7 @@ def _service(session: AsyncSession) -> SubscriptionService:
 
 def _job_origin(client_name: object) -> str:
     """从统一客户端头识别 Web/CLI；直接调用路由的测试对象安全退回 Web。"""
-    if isinstance(client_name, str) and client_name.lower() in {"web", "cli", "agent"}:
+    if isinstance(client_name, str) and client_name.lower() in {"web", "cli", "agent", "plugin"}:
         return client_name.lower()
     return "web"
 

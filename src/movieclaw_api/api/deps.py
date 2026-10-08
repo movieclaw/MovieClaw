@@ -6,10 +6,11 @@ from fastapi import Cookie, Depends, Header
 from starlette.requests import HTTPConnection
 
 from movieclaw_api.api.client_address import client_address
-from movieclaw_api.exceptions import ForbiddenException, UnauthorizedException
+from movieclaw_api.exceptions import AppException, ForbiddenException, UnauthorizedException
 from movieclaw_api.services import auth as auth_service
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.settings.schemas import get_sync_setting
+from movieclaw_kernel import Origin, current_origin
 
 
 def _extract_bearer(authorization: str | None) -> str | None:
@@ -56,14 +57,38 @@ async def optional_login(
     """
     ip = client_address(connection) or None  # type: ignore[arg-type]
     user_agent = connection.headers.get("user-agent")
+    principal: Principal | None = None
     if session_token:
-        return await auth_service.verify_cookie_token(session_token, ip=ip, user_agent=user_agent)
-    if bearer := _extract_bearer(authorization):
-        return await auth_service.verify_bearer_token(bearer, ip=ip, user_agent=user_agent)
-    return None
+        principal = await auth_service.verify_cookie_token(
+            session_token, ip=ip, user_agent=user_agent
+        )
+    elif bearer := _extract_bearer(authorization):
+        principal = await auth_service.verify_bearer_token(bearer, ip=ip, user_agent=user_agent)
+    if principal is not None:
+        _attribute(principal)
+    return principal
+
+
+def _attribute(principal: Principal) -> None:
+    """把请求主体记成本次请求的发起方（插件内核的因果链，docs/design/plugin-phase2a.md §3）。
+
+    这次请求里写下的可靠事件据此带上「谁触发的」：插件能认出自己引起的事件，因果链上限也能
+    穿过宿主操作生效（插件经 ASGI 调本进程接口时，上下文里已经带着它的因果链）。
+    """
+    origin = current_origin.get()
+    if principal.plugin is not None:
+        current_origin.set(Origin(kind="plugin", id=principal.plugin.entry_id, chain=origin.chain))
+    elif origin.kind == "system" and not origin.chain:
+        if principal.kind == "member":
+            current_origin.set(Origin(kind="member", id=str(principal.member_id)))
+        elif principal.kind == "admin":
+            current_origin.set(Origin(kind="user", id=principal.name))
+        else:
+            current_origin.set(Origin(kind=principal.kind, id=principal.name))
 
 
 async def require_login(
+    connection: HTTPConnection,
     principal: Principal | None = Depends(optional_login),
 ) -> Principal:
     """业务接口的登录鉴权依赖：会话 Cookie **或** Bearer 令牌，返回请求主体。
@@ -88,6 +113,19 @@ async def require_login(
         raise UnauthorizedException("未登录，请先登录")
     if principal.device is not None and principal.device.scope == "transcode":
         raise ForbiddenException("转码器的凭证只能用于转码，不能访问业务接口")
+    if principal.plugin is not None:
+        # 插件主体按操作授权：只放行授权集合里的 operationId（同样是默认拒绝）
+        route = connection.scope.get("route")
+        operation_id = getattr(route, "operation_id", None)
+        if operation_id is None or operation_id not in principal.plugin.operations:
+            raise AppException(
+                status_code=403,
+                code="PLUGIN_OPERATION_DENIED",
+                message=(
+                    f"插件 {principal.plugin.entry_id} 没有获得调用 "
+                    f"{operation_id or connection.url.path} 的授权"
+                ),
+            )
     return principal
 
 

@@ -41,6 +41,16 @@ class Context(Generic[C]):
         return self._kernel.settings
 
     @property
+    def permissions(self) -> tuple[str, ...]:
+        """插件声明需要的宿主操作（由宿主解释，见 ``@plugin(permissions=...)``）。"""
+        return self._fiber.plugin.permissions
+
+    @property
+    def third_party(self) -> bool:
+        """非内置来源（本地受信插件、将来的第三方插件）。"""
+        return self._fiber.third_party
+
+    @property
     def config(self) -> C:
         return self._fiber.config
 

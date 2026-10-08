@@ -97,6 +97,8 @@ def _preview_view(pv: gen_tasks.Preview) -> GenPreviewView:
 def _request_origin(principal: Principal, client_name: str | None) -> str:
     if principal.kind == "agent":
         return "agent"
+    if principal.plugin is not None:
+        return "plugin"
     if client_name and client_name.lower() in {"web", "cli", "agent", "scheduler"}:
         return client_name.lower()
     # 命令行与手工令牌（脚本）记成 cli；网页、App 记成 web

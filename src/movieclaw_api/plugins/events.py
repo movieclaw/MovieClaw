@@ -1,12 +1,14 @@
-"""可靠事件投递（docs/design/plugin-phase2a.md §2）。
+"""插件扩展底座：可靠事件投递与宿主操作（docs/design/plugin-phase2a.md §2、§3）。
 
-提供 ``DURABLE_EVENTS``：订阅了可靠事件的插件注入它，内核经它登记监听器。本插件停用时
-那些插件因缺依赖进入等待；业务侧照常写事件行（名单由库里的消费者行决定），恢复后补投。
+``kernel.durable-events`` 提供 ``DURABLE_EVENTS``：订阅了可靠事件的插件注入它，内核经它登记
+监听器。本插件停用时那些插件因缺依赖进入等待；业务侧照常写事件行（名单由库里的消费者行决定），恢复后补投。
+
+``kernel.host-ops`` 提供 ``HOST_OPS``：插件以自己的身份调用本进程的 OpenAPI 操作。
 """
 
 from __future__ import annotations
 
-from movieclaw_api.plugins.keys import DB
+from movieclaw_api.plugins.keys import DB, HOST_OPS
 from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
 
 
@@ -25,3 +27,18 @@ async def durable_events(ctx: Context) -> None:
     ctx.effect(store.close, label="close-durable-events")
     store.start_housekeeping()
     ctx.provide(DURABLE_EVENTS, store)
+
+
+@plugin(
+    "kernel.host-ops",
+    title="宿主操作",
+    provides=(HOST_OPS,),
+    disableable=True,
+    reloadable=True,
+)
+async def host_ops(ctx: Context) -> None:
+    from movieclaw_api.services import host_ops as service
+
+    if service._app is None:
+        raise RuntimeError("应用尚未绑定（宿主操作只能在运行中的应用里提供）")
+    ctx.provide(HOST_OPS, service.HostOps(service._app))

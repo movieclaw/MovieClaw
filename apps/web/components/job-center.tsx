@@ -208,9 +208,11 @@ function originLabel(job: JobView): string {
       ? "CLI"
       : job.origin === "agent"
         ? "智能体"
-        : job.origin === "scheduler" || job.origin === "system"
-          ? "系统自动"
-          : "网页";
+        : job.origin === "plugin"
+          ? "插件"
+          : job.origin === "scheduler" || job.origin === "system"
+            ? "系统自动"
+            : "网页";
   return job.actor_name ? `${origin} · ${job.actor_name}` : origin;
 }
 
