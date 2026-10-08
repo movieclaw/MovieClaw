@@ -1,0 +1,5 @@
+# 基线配置（docs/perf/androidtv-home-scroll-2026-10.md）：App 自己的代码全部预编译。
+# Compose、TV Material、Coil 等依赖自带的规则由 AGP 自动合并，这里只补本 App 的包。
+# 侧载安装没有云端配置，系统后台编译（设备空闲时）之后才生效；在那之前全靠 JIT。
+HSPLio/movieclaw/androidtv/**;->**(**)**
+Lio/movieclaw/androidtv/**;
