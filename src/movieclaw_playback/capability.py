@@ -95,6 +95,11 @@ class ClientCapability:
     #: 播放器能在本机切换内封音轨（ExoPlayer）：直出原文件时它自己选中计划里的那条，
     #: 不必为了「放的不是默认轨」重封装。浏览器的 <video> 只放默认轨，不能申报
     local_tracks: bool = False
+    #: 能完整呈现的杜比视界 profile（设备有对应的杜比视界解码器、屏幕支持杜比视界）：原样直通
+    dolby_vision_profiles: frozenset[int] = field(default_factory=frozenset)
+    #: 解不了杜比视界时能退回基础层播放的 profile（ExoPlayer 对 P8 改用 HEVC 解码器解基础层）：
+    #: 基础层兼容、屏幕能直出 HDR 时直通。浏览器解码行为不一，不申报
+    dolby_vision_base_layer_profiles: frozenset[int] = field(default_factory=frozenset)
 
     @property
     def uses_native_hls_player(self) -> bool:

@@ -134,6 +134,9 @@ class MediaProfile:
     video_codec: str | None = None
     resolution: str | None = None
     hdr: str | None = None  # None=SDR / "HDR10" / "HLG" / "HDR10+" / "Dolby Vision"
+    #: 杜比视界 profile 与基础层能否直接解读（台账真值；老台账没探到时 None，按「不知道」保守转码）
+    dv_profile: int | None = None
+    dv_bl_compatible: bool | None = None
     #: 归一化色彩空间标签（"BT.2020" / "BT.709" / "BT.601" / …），来自 ffprobe
     #: 落库的真值。SDR 片同样可能是 BT.2020（10-bit 压制常见），转码要据此决定
     #: 插不插色彩空间转换——只看 hdr 是不够的。
@@ -595,10 +598,30 @@ def _judge_video(
             reason=f"按所选画质上限 {max_height}p 转码（源为 {media.resolution}）",
         )
 
-    # HDR 判定。Dolby Vision 一律转码 + tone-map：DV Profile 5 用 IPTPQc2 色彩
-    # 空间，当成普通 HDR10 直通会输出**绿紫画面**（§7-④）；而 media_probe 目前
-    # 只落 "Dolby Vision" 不落 profile，分不出 P5 与自带 HDR10 基础层的 P8，
-    # 因此保守全转。待探测层补齐 dv_profile 后可放开 P8 直通。
+    # HDR 判定。Dolby Vision 按 profile 分：
+    # - 播放设备申报能解这个 profile（电视的杜比视界解码器 + 屏幕支持杜比视界）→ 原样直通；
+    # - 基础层能直接解读（P8 / P7 带 HDR10 基础层）、设备申报会退回基础层、屏幕能直出 HDR
+    #   → 直通，设备只放 HDR10 基础层（丢掉杜比视界的动态元数据，画面正确）；
+    # - 其余（P5 的 IPTPQc2 基础层当成 HDR10 会输出**绿紫画面**，§7-④；或 profile 未知）
+    #   → 转码 + tone-map。
+    if media.hdr == "Dolby Vision" and media.dv_profile is not None:
+        if media.dv_profile in capability.dolby_vision_profiles:
+            return _VideoVerdict(
+                can_copy=True,
+                reason=f"Dolby Vision Profile {media.dv_profile} 由播放设备直接解码",
+            )
+        if (
+            media.dv_bl_compatible
+            and media.dv_profile in capability.dolby_vision_base_layer_profiles
+            and capability.hdr_passthrough
+        ):
+            return _VideoVerdict(
+                can_copy=True,
+                reason=(
+                    f"播放 Dolby Vision Profile {media.dv_profile} 的 HDR10 基础层"
+                    "（设备不能解杜比视界）"
+                ),
+            )
     if media.hdr == "Dolby Vision":
         if not policy.hardware_available:
             return _VideoVerdict(

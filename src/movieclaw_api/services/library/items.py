@@ -3117,6 +3117,9 @@ async def backfill_streams(
             row.video_codec = row.video_codec or spec.video_codec
             # 新探测能把历史上笼统的 HDR10 细化成 Dolby Vision/HDR10+。
             row.hdr = spec.hdr or row.hdr
+            if spec.dv_profile is not None:
+                row.dv_profile = spec.dv_profile
+                row.dv_bl_compatible = spec.dv_bl_compatible
             row.bit_depth = row.bit_depth or spec.bit_depth
             row.duration_seconds = row.duration_seconds or spec.duration_seconds
             row.bit_rate = row.bit_rate or spec.bit_rate

@@ -188,6 +188,12 @@ def build_lifespan(settings: Settings):
         )
 
         start_disc_image_duration_heal()
+        # 存量杜比视界文件补记 profile（播放决策按 profile 分直通 / 基础层 / 转码）
+        from movieclaw_api.services.library.dolby_vision_backfill import (
+            start_dolby_vision_backfill,
+        )
+
+        start_dolby_vision_backfill()
         # 旧版更新提醒清场：更新提醒曾写进「待处理事项」，现已改为侧栏常驻徽标，
         # 存量告警行再无任何路径去消退它，会永远挂在告警面板上（见函数注释）
         from movieclaw_api.services.app_update import (
@@ -404,6 +410,11 @@ def build_lifespan(settings: Settings):
             )
 
             await close_disc_image_duration_heal()
+            from movieclaw_api.services.library.dolby_vision_backfill import (
+                close_dolby_vision_backfill,
+            )
+
+            await close_dolby_vision_backfill()
             if settings.scheduler_enabled:
                 from movieclaw_api.services.app_update import close_startup_check
                 from movieclaw_api.services.boost_bandwidth import (

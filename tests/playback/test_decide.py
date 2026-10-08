@@ -1429,3 +1429,70 @@ def test_hdr_without_free_hardware_says_busy_when_the_remote_transcoder_is_full(
     decision = decide_playback(hdr, sdr_screen, NO_GPU)
     assert isinstance(decision, PlaybackRejected)
     assert "未检测到可用的硬件加速设备" in decision.reason
+
+
+# ---------------------------------------------------------------------------
+# 杜比视界按 profile（台账有 dv_profile 之后；电视申报能解的 profile、能退回基础层的 profile）
+# ---------------------------------------------------------------------------
+
+from dataclasses import replace as _replace  # noqa: E402
+
+DV_TV = _replace(
+    EXOPLAYER,
+    hdr_passthrough=True,
+    dolby_vision_profiles=frozenset({5, 8}),
+    dolby_vision_base_layer_profiles=frozenset({8}),
+)
+HDR10_TV = _replace(
+    EXOPLAYER, hdr_passthrough=True, dolby_vision_base_layer_profiles=frozenset({8})
+)
+SDR_TV = _replace(EXOPLAYER, dolby_vision_base_layer_profiles=frozenset({8}))
+
+
+def dv(profile, compatible):
+    return media(
+        video_codec="hevc",
+        resolution="2160p",
+        hdr="Dolby Vision",
+        dv_profile=profile,
+        dv_bl_compatible=compatible,
+    )
+
+
+def test_dolby_vision_tv_plays_the_profiles_it_decodes_untouched():
+    for profile, compatible in ((5, False), (8, True)):
+        decision = decide_playback(dv(profile, compatible), DV_TV, WITH_GPU)
+        assert decision.tier is PlaybackTier.DIRECT_PLAY, decision.reason
+        assert "直接解码" in decision.reason
+
+
+def test_hdr10_tv_plays_the_base_layer_of_compatible_profiles():
+    decision = decide_playback(dv(8, True), HDR10_TV, WITH_GPU)
+    assert decision.tier is PlaybackTier.DIRECT_PLAY
+    assert "基础层" in decision.reason
+
+
+def test_profile_5_still_needs_tone_mapping_without_a_dolby_vision_decoder():
+    """P5 的基础层是 IPTPQc2：当 HDR10 放就是绿紫画面"""
+    decision = decide_playback(dv(5, False), HDR10_TV, WITH_GPU)
+    assert decision.tier is PlaybackTier.HARDWARE_TRANSCODE
+    assert decision.video.tone_map is True
+
+
+def test_base_layer_needs_an_hdr_display():
+    decision = decide_playback(dv(8, True), SDR_TV, WITH_GPU)
+    assert decision.tier is PlaybackTier.HARDWARE_TRANSCODE
+    assert decision.video.tone_map is True
+
+
+def test_profile_7_falls_back_only_where_the_client_declares_it():
+    # ExoPlayer 只对 P8（和 P4）改用 HEVC 解码器解基础层，P7 不在申报里：照旧转码
+    assert decide_playback(dv(7, True), HDR10_TV, WITH_GPU).tier is PlaybackTier.HARDWARE_TRANSCODE
+
+
+def test_unknown_profile_and_old_clients_keep_transcoding():
+    """台账没探到 profile、或客户端没申报杜比视界：与原来一样转码，判错就是绿紫画面"""
+    transcode = PlaybackTier.HARDWARE_TRANSCODE
+    assert decide_playback(dv(None, None), DV_TV, WITH_GPU).tier is transcode
+    old_client = _replace(EXOPLAYER, hdr_passthrough=True)
+    assert decide_playback(dv(8, True), old_client, WITH_GPU).tier is transcode

@@ -59,6 +59,35 @@ def test_dv_info_marks_backward_compatible_base_layer():
     assert _dv_info(video) == (8, True)
 
 
+def test_probe_spec_carries_the_dolby_vision_profile_into_the_ledger():
+    """播放决策按 profile 分直通 / 基础层 / 转码：探测结论要把它带进台账"""
+    from movieclaw_api.services.media_probe import _parse_probe
+
+    def payload(side_data):
+        return {
+            "format": {"duration": "60"},
+            "streams": [
+                {
+                    "codec_type": "video",
+                    "codec_name": "hevc",
+                    "width": 3840,
+                    "height": 2160,
+                    "side_data_list": side_data,
+                }
+            ],
+        }
+
+    record = {
+        "side_data_type": "DOVI configuration record",
+        "dv_profile": 8,
+        "dv_bl_signal_compatibility_id": 1,
+    }
+    p8 = _parse_probe(payload([record]))
+    assert (p8.dv_profile, p8.dv_bl_compatible) == (8, True)
+    sdr = _parse_probe(payload([]))
+    assert (sdr.dv_profile, sdr.dv_bl_compatible) == (None, None)
+
+
 @pytest.mark.parametrize(
     "name, video",
     [

@@ -345,4 +345,6 @@ def capability_from_request(payload) -> ClientCapability:  # noqa: ANN001
         disc_image=payload.disc_image,
         disc_folder=payload.disc_folder,
         local_tracks=payload.local_tracks,
+        dolby_vision_profiles=frozenset(payload.dolby_vision_profiles),
+        dolby_vision_base_layer_profiles=frozenset(payload.dolby_vision_base_layer_profiles),
     )

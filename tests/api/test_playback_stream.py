@@ -1014,6 +1014,35 @@ def test_stored_disc_image_durations_are_healed_from_the_main_title(client, tmp_
     assert client.portal.call(durations) == [900, 4]
 
 
+def test_stored_dolby_vision_files_get_their_profile_backfilled(client, tmp_path, monkeypatch):
+    """dv_profile 是后加的列：存量杜比视界文件启动后补记（只读文件头），读不出的留空、不乱填"""
+    from movieclaw_api.services.library import dolby_vision_backfill as backfill
+    from movieclaw_api.services.media_probe import VideoColor
+
+    p5 = seed(client, tmp_path, codec="hevc", hdr="Dolby Vision")
+    unreadable = seed(client, tmp_path, codec="hevc", hdr="Dolby Vision")
+    sdr = seed(client, tmp_path, codec="hevc")
+    probed: list[str] = []
+
+    def fake_color(path, *, fallback_hdr=None):
+        # 按 id 顺序读：第一个是 P5，第二个读不出 DOVI 配置记录
+        probed.append(str(path))
+        if len(probed) == 1:
+            return VideoColor(hdr="Dolby Vision", dv_profile=5, dv_backward_compatible=False)
+        return VideoColor(hdr=fallback_hdr)
+
+    monkeypatch.setattr(backfill, "video_color_for", fake_color)
+    assert client.portal.call(backfill.backfill_dolby_vision_profiles) == 1
+    assert len(probed) == 2  # SDR 文件不读
+
+    async def profiles():
+        async with get_database().session() as session:
+            rows = [await session.get(LibraryFile, i) for i in (p5, unreadable, sdr)]
+            return [(row.dv_profile, row.dv_bl_compatible) for row in rows]
+
+    assert client.portal.call(profiles) == [(5, False), (None, None), (None, None)]
+
+
 def test_tv_app_starting_another_file_frees_its_stale_session(client, tmp_path, monkeypatch):
     """电视被强杀没来得及结束播放：同一台电视开下一部片时旧会话当场让出名额，
     不会被「已满」挡住（浏览器可以多开标签页，见上一条，不这么处理）。"""

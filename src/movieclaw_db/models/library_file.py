@@ -225,6 +225,13 @@ class LibraryFile(TimestampMixin, table=True):
     video_codec: str | None = Field(default=None, description="视频编码：hevc/h264/av1/…")
     hdr: str | None = Field(default=None, description="HDR 格式：HDR10/HLG/…；SDR 为 NULL")
     bit_depth: int | None = Field(default=None, description="位深：8/10/12")
+    # 杜比视界：播放决策要按 profile 分（电视能解哪个 profile 就直放；P8 / P7 带兼容基础层的可以只放
+    # HDR10 基础层；P5 的基础层是 IPT-PQ-c2，解不了杜比视界只能服务端色调映射）
+    dv_profile: int | None = Field(default=None, description="杜比视界 profile；非杜比视界为 NULL")
+    dv_bl_compatible: bool | None = Field(
+        default=None,
+        description="杜比视界基础层能否直接解读（HDR10 / SDR / HLG）；非杜比视界为 NULL",
+    )
     duration_seconds: int | None = Field(default=None, description="时长（秒）")
     bit_rate: int | None = Field(default=None, description="总码率（bps）")
     frame_rate: float | None = Field(default=None, description="视频帧率（fps）")
