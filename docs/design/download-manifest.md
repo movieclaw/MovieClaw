@@ -43,3 +43,27 @@ bash scripts/publish-download-manifest.sh v0.32.0
 此脚本从 GitHub 下载该 Release 的所有实际 Mac ZIP、Android APK 及其元数据，生成并补传清单，不需要重新发布服务器。Cloud 在访问时立即返回上次成功同步的缓存；缓存超过 1 小时，在响应发送后异步刷新 GitHub，新清单通过校验并保存后才供后续访问使用，更新下载信息无需重建官网。失败保留持久化的最近成功数据，1 小时后允许重试。首次没有缓存则立即提供 GitHub 发布入口，并安排后台同步，不猜版本或下载地址。
 
 验证：`python3 -m unittest discover -s scripts/tests -p 'test_download_manifest.py'`；Cloud 中运行 `pnpm test:downloads`、`pnpm build && bash scripts/test-download-variants.sh`，以及 `bash scripts/test-download.sh <官网地址>` 核对真实 ZIP 与页面版本。
+
+## 版本信息清单 release.json
+
+官网更新日志和版本邮件读 `release.json`，不解析 Release 正文。发版流水线在转正前生成，说明格式不对会拦下转正；`docs/changelog/` 合入 main 后，`release-notes.yml` 同步正文并重新生成。
+
+```json
+{
+  "schema": 1,
+  "release": "v0.33.0",
+  "requiresRuntime": 19,
+  "imageUpdate": false,
+  "updated": ["server", "iphone", "mac", "transcoder", "android"],
+  "notes": {
+    "en": { "title": "Easier subscriptions, and another way to watch", "summary": "…", "body": "…" },
+    "zh": { "title": "追更少配规则，看片多一种选择", "summary": "…", "body": "…" }
+  }
+}
+```
+
+- `imageUpdate`：`docker/runtime-version` 比上一个 tag 高，旧镜像装不了这一版，要先更新 Docker 镜像。
+- `updated`：服务器每版都算；客户端附件（iphone / mac / transcoder / android / androidtv）的 SHA-256 与上一版不同，或上一版没有，才算这一版重新构建。沿用的旧包是原样复制，不算更新。
+- `notes`：changelog 拆成英文、中文两段，各取「## vX.Y.Z: 标题」、紧随其后的一段摘要和其余正文。发布时 changelog 还没合入则为 `null`。
+
+已发布版本补传：`bash scripts/publish-release-info.sh v0.33.0`（需要完整历史与 tag）。验证：`python3 -m unittest discover -s scripts/tests -p 'test_release_info.py'`，其中会校验 v0.28.0 起所有 changelog 都能拆开。

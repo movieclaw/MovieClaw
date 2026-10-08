@@ -684,6 +684,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.sha }}
+          # release.json 要和上一个 tag 比较运行时版本，需要完整历史与 tag
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -694,11 +696,17 @@ jobs:
           python3 -m unittest discover -s scripts/tests -p 'test_download_manifest.py'
           bash scripts/publish-download-manifest.sh "$RELEASE_TAG"
 
+      # 官网更新日志与版本邮件只读 release.json，不解析 Release 正文。
+      - name: 生成官网的版本信息清单
+        run: |
+          python3 -m unittest discover -s scripts/tests -p 'test_release_info.py'
+          bash scripts/publish-release-info.sh "$RELEASE_TAG"
+
       - name: 校验产物齐全并发布 Release
         run: |
           assets="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json assets --jq '.assets[].name')"
-          required="app-web.tar.gz app-backend.tar.gz manifest.json downloads.json
+          required="app-web.tar.gz app-backend.tar.gz manifest.json downloads.json release.json
             mclaw_linux_amd64.tar.gz mclaw_linux_arm64.tar.gz
             mclaw_darwin_amd64.tar.gz mclaw_darwin_arm64.tar.gz
             mclaw_windows_amd64.zip mclaw_windows_arm64.zip
