@@ -292,7 +292,12 @@ async def _search_one_media(media_id: int, budget: _SearchBudget) -> None:
     if item is None or subscription is None:
         return
 
-    keywords = recall_keywords(item)
+    from movieclaw_api import hooks
+
+    # 插件可以追加别名、按字幕组限定（subscription.search.keywords）
+    keywords = await hooks.search_keywords(
+        item, recall_keywords(item), subscription_id=subscription.id, purpose="wanted"
+    )
     if not keywords:
         # 三个标题字段全空或全是符号（脏数据）。空关键词打到站点上等于"搜全站"，
         # 会把整个索引灌进 site_torrent，比不搜坏得多，所以一次请求都不发。

@@ -250,3 +250,43 @@ def test_declared_job_handlers_cover_stacked_decorators() -> None:
         "library.consolidate-roots",
         "library.transfer-batch",
     ]
+
+
+def test_plugin_can_replace_a_builtin_subscription_stage(make_client) -> None:
+    """订阅链路的定时阶段可以被插件整段替换（docs/design/plugin-phase2b.md §3）。
+
+    插件以同一个 key 覆盖贡献主动搜索任务：生效的是插件的实现，调度照常；插件卸下，
+    内置实现自动恢复（注册表覆盖栈），不需要重启、不丢用户改过的周期。
+    """
+    from movieclaw_api.services.subscription.wanted_search import search_wanted
+    from movieclaw_scheduler.registry import get_task
+
+    async def my_search() -> None:
+        return None
+
+    builtin = get_task("search_wanted")
+    replacement = TaskDefinition(
+        key="search_wanted",
+        title="主动搜索（插件实现）",
+        handler=my_search,
+        default_trigger_type=builtin.default_trigger_type,
+        default_interval_seconds=builtin.default_interval_seconds,
+    )
+
+    @plugin("test.search-engine", title="替换主动搜索")
+    async def engine(ctx) -> None:
+        ctx.contribute(SCHEDULED_TASKS, "search_wanted", replacement, override=True)
+
+    app, client = make_client(scheduler=True)
+    with client:
+        kernel = app.state.kernel
+        apscheduler = get_scheduler()._scheduler
+        assert get_task("search_wanted").handler is search_wanted
+
+        call(client, kernel.mount, Entry("test.search-engine", engine))
+        assert get_task("search_wanted").handler is my_search
+        wait_until(client, _async(lambda: apscheduler.get_job("search_wanted") is not None))
+
+        call(client, kernel.unmount, "test.search-engine")
+        assert get_task("search_wanted").handler is search_wanted
+        wait_until(client, _async(lambda: apscheduler.get_job("search_wanted") is not None))

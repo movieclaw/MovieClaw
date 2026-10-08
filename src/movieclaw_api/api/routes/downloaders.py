@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api import hooks
 from movieclaw_api.api.deps import require_login
 from movieclaw_api.exceptions import BadRequestException, ForbiddenException
 from movieclaw_api.schemas.downloader import (
@@ -274,6 +275,13 @@ async def submit_download(
         # 线索只锚**条目级**目录；锚到库主根/监听目录会波及目录下所有文件
         subtitle=payload.subtitle if entry_level else None,
         downloader_id=payload.downloader_id,
+        route_hint=hooks.DownloaderQuery(
+            site_id=payload.site_id,
+            title=payload.title,
+            media_kind=payload.media_kind,
+            category="movieclaw",
+            tags=("movieclaw-manual",),
+        ),
     )
     assert row.id is not None  # 落库记录必有主键
     if manual_item is not None:

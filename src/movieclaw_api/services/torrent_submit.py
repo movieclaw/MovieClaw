@@ -29,6 +29,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api import hooks
 from movieclaw_api.exceptions import BadRequestException, UpstreamServiceException
 from movieclaw_api.services.site_access import SiteUnavailableError, get_site_access
 from movieclaw_db.models import DownloaderClient, DownloadHint, ManualDownloadIntent, utcnow
@@ -197,6 +198,7 @@ async def submit_torrent(
     known_seasons: Collection[int] | None = None,
     before_submit=None,
     selection_owner: str | None = None,
+    route_hint: hooks.DownloaderQuery | None = None,
     before_resume=None,
 ) -> tuple[SubmitResult, DownloaderClient]:
     """从站点取回种子并提交到下载器，返回（提交结果, 所用下载器记录）。
@@ -231,14 +233,7 @@ async def submit_torrent(
                 "请在「设置 → 下载器」里检查后重试，或改用其他下载器"
             )
     else:
-        result = await session.execute(
-            select(DownloaderClient).where(
-                DownloaderClient.is_default.is_(True),  # type: ignore[attr-defined]
-                DownloaderClient.enabled.is_(True),  # type: ignore[attr-defined]
-                DownloaderClient.status == ConfigStatus.ACTIVE,
-            )
-        )
-        row = result.scalars().first()
+        row = await pick_downloader(session, route_hint)
     if row is None:
         raise BadRequestException("没有可用的默认下载器（请在「设置 → 下载器」里添加并设为默认）")
 
@@ -516,6 +511,38 @@ async def _reclaim_boost_task(
         save_path or "（下载器默认）",
     )
     return submit_result.model_copy(update={"reclaimed_from_boost": True})
+
+
+async def pick_downloader(
+    session: AsyncSession, route_hint: hooks.DownloaderQuery | None = None
+) -> DownloaderClient | None:
+    """没有显式指定下载器时用哪台：先问插件（dl.downloader.select），再取默认。
+
+    插件选中的下载器必须启用且连接验证通过，否则当它没回答。投递与投递预览共用这一个函数，
+    预检结论与实际投递不会分家。
+    """
+    if route_hint is not None and hooks.active(hooks.DOWNLOADER_SELECT):
+        choice = await hooks.bail(hooks.DOWNLOADER_SELECT, route_hint)
+        if choice is not None:
+            row = await session.get(DownloaderClient, choice.downloader_id)
+            if row is not None and row.enabled and row.status == ConfigStatus.ACTIVE:
+                logger.info(
+                    "插件把投递分到下载器「%s」%s",
+                    row.name,
+                    f"：{choice.reason}" if choice.reason else "",
+                )
+                return row
+            logger.warning(
+                "插件选的下载器 #%d 不存在或不可用，改用默认下载器", choice.downloader_id
+            )
+    result = await session.execute(
+        select(DownloaderClient).where(
+            DownloaderClient.is_default.is_(True),  # type: ignore[attr-defined]
+            DownloaderClient.enabled.is_(True),  # type: ignore[attr-defined]
+            DownloaderClient.status == ConfigStatus.ACTIVE,
+        )
+    )
+    return result.scalars().first()
 
 
 async def anchor_manual_download(

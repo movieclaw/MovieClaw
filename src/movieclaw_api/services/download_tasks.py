@@ -21,7 +21,12 @@ from sqlalchemy import and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api.exceptions import NotFoundException, UpstreamServiceException
+from movieclaw_api import hooks
+from movieclaw_api.exceptions import (
+    ConflictException,
+    NotFoundException,
+    UpstreamServiceException,
+)
 from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_db.models import (
     BoostTaskState,
@@ -979,8 +984,19 @@ async def delete_download_task(
     if row is None:
         raise NotFoundException(f"下载器不存在：id={downloader_id}")
 
-    adapter = _adapter_for(repository, row)
     normalized_hash = info_hash.lower()
+    if hooks.active(hooks.TORRENT_BEFORE_DELETE):
+        # 插件可以否决删除（例如 H&R 未达标）：在碰下载器之前问，否决了什么都不做
+        veto = await hooks.bail(
+            hooks.TORRENT_BEFORE_DELETE,
+            hooks.TorrentDeletion(
+                downloader_id=downloader_id, info_hash=normalized_hash, delete_files=delete_files
+            ),
+        )
+        if veto is not None:
+            logger.info("插件否决了删除下载任务 hash=%s：%s", normalized_hash, veto.reason)
+            raise ConflictException(f"插件不允许删除这个下载任务：{veto.reason}")
+    adapter = _adapter_for(repository, row)
     try:
         await adapter.delete_torrent(normalized_hash, delete_files=delete_files)
     except DownloaderException as exc:

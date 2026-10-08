@@ -18,6 +18,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api import hooks
 from movieclaw_api.services.download_health import landing_brake, record_stalled
 from movieclaw_api.services.subscription.matching import (
     covered_units,
@@ -341,7 +342,12 @@ async def run_replacement_search(attempt_id: int, *, force: bool = False) -> boo
             # 给的是「악인전」，中文 PT 站根本不用它命名，于是死种换不出来
             from movieclaw_api.services.subscription.wanted_search import recall_keywords
 
-            keywords = recall_keywords(item)
+            keywords = await hooks.search_keywords(
+                item,
+                recall_keywords(item),
+                subscription_id=attempt.subscription_id,
+                purpose="replacement",
+            )
             # 网络调用前先排一个技术失败兜底，进程中途退出也不会每个 tick 重打站点。
             attempt.status = DownloadAttemptStatus.REPLACEMENT_PENDING
             attempt.last_search_at = now
@@ -540,6 +546,7 @@ async def _try_candidates(
         ),
         reverse=True,
     )
+    accepted = await _apply_plugin_hooks(item, subscription, spec, accepted)
     if not accepted:
         return False
 
@@ -600,6 +607,14 @@ async def _try_candidates(
                     subscription.kind,
                 ),
                 known_seasons=subscription.selected_seasons or None,
+                route_hint=hooks.DownloaderQuery(
+                    site_id=candidate.site_id,
+                    title=candidate.title,
+                    size_bytes=candidate.size_bytes,
+                    media_kind=subscription.kind,
+                    category="movieclaw",
+                    tags=("movieclaw-sub", "movieclaw-replacement"),
+                ),
             )
         except Exception as exc:  # noqa: BLE001 -- 单个候选失败继续尝试下一名
             logger.warning(
@@ -806,6 +821,27 @@ async def _units_have_left_scope(
     return await _has_out_of_scope_attempt_wanted(
         session, attempt, allowed_units=allowed
     )
+
+
+async def _apply_plugin_hooks(item, subscription, spec, accepted: list) -> list:
+    """换源与主流程同一套插件规则（plugin-phase2b.md §2）。
+
+    淘汰的直接跳过（与这里的规则拒绝一样不记动态），剩下的按插件重排。
+    """
+    from movieclaw_api.services.subscription.matching import plugin_rank, plugin_rejections
+    from movieclaw_matcher.smart import candidate_key
+
+    if not accepted:
+        return accepted
+    entries = [(candidate, match, verdict, ()) for candidate, _covered, verdict, match in accepted]
+    covered = {candidate_key(candidate): rows for candidate, rows, _v, _m in accepted}
+    by_key = {candidate_key(entry[0]): entry for entry in accepted}
+    rejected = await plugin_rejections(
+        item, subscription, spec, entries, covered, purpose="replacement"
+    )
+    entries = [e for e in entries if candidate_key(e[0]) not in rejected]
+    entries = await plugin_rank(item, subscription, spec, entries, covered, purpose="replacement")
+    return [by_key[candidate_key(e[0])] for e in entries]
 
 
 async def _excluded_candidates(

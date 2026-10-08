@@ -25,6 +25,7 @@ from sqlmodel import select
 # 注册种子索引检索文本（site_torrent.match_text）的写入维护：订阅链路的写入与
 # 发布预测的预筛都依赖它与源字段一致（见 services/torrent_match_text.py）
 import movieclaw_api.services.torrent_match_text  # noqa: F401
+from movieclaw_api import hooks
 from movieclaw_api.services.subscription.identity_recheck import (
     fetch_external_ids,
     needs_external_id_recheck,
@@ -758,6 +759,8 @@ async def evaluate_and_dispatch(
 
     pools = await candidate_pool(session, contexts, torrents)
     identity_rejections_by_media = {}
+    # 候选覆盖的单元：插件淘汰（subscription.candidates.filter）时按它记订阅动态
+    covered_by_key: dict[int, dict[str, list[WantedItem]]] = {}
     for media_id, ctx in contexts.items():
         pool = await drop_protected_sites(session, pools[media_id])
         for row in pool:
@@ -834,6 +837,9 @@ async def evaluate_and_dispatch(
                 else _NO_UPGRADE_RANK
             )
             accepted.setdefault(media_id, []).append((candidate, match, verdict, upgrade_rank))
+            covered_by_key.setdefault(media_id, {})[candidate_key(candidate)] = (
+                covered or upgrade_covered
+            )
 
     # 第二遍：按条目选优投递。整季包优先（已确认决策）；一个候选投出后，
     # 它覆盖的单元从缺口/洗版清单里划掉，剩余单元继续由次优候选补。
@@ -843,6 +849,9 @@ async def evaluate_and_dispatch(
     # 而纯洗版候选按定义不碰缺口单元，两侧的选优互不干扰。
     for media_id, ctx in contexts.items():
         entries = accepted.get(media_id, [])
+        # 插件规则在核心规则之后再淘汰一轮（plugin-phase2b.md §2）；淘汰原因与核心拒绝一样记动态
+        covered_here = covered_by_key.get(media_id, {})
+        entries = await _plugin_filter(repo, ctx, entries, covered_here, source, summary)
         # 身份证据强度排在洗版档位与评分之前：先要**对的片**，再谈档位和评分。
         # 位置在 is_pack 之后是刻意的——"整季包优先"是既有的已确认决策，本次
         # 只补身份维度，不顺手改包优先的语义
@@ -855,6 +864,9 @@ async def evaluate_and_dispatch(
                 e[0].seeders or 0,
             ),
             reverse=True,
+        )
+        entries = await plugin_rank(
+            ctx.item, ctx.subscription, ctx.spec, entries, covered_here, purpose="wanted"
         )
         # 身份核验先于智能品质/等待决策：被拦截的候选不能占位或消耗等待预算。
         identity_rejections = identity_rejections_by_media.get(media_id, {})
@@ -991,6 +1003,127 @@ async def evaluate_and_dispatch(
             summary.dispatched_units,
         )
     return summary
+
+
+Entry = tuple[TorrentCandidate, IdentityMatch, RuleVerdict, tuple[int, ...]]
+
+
+def _batch(
+    item: MediaItem,
+    subscription: Subscription,
+    spec: object,
+    entries: list[Entry],
+    covered: dict[str, list[WantedItem]],
+    purpose: str,
+) -> hooks.CandidateBatch:
+    def view(
+        candidate: TorrentCandidate, match: IdentityMatch, verdict: RuleVerdict
+    ) -> hooks.CandidateView:
+        key = candidate_key(candidate)
+        attrs = candidate.attrs
+        return hooks.CandidateView(
+            key=key,
+            site_id=candidate.site_id,
+            torrent_id=candidate.torrent_id,
+            title=candidate.title,
+            subtitle=candidate.subtitle or "",
+            size_bytes=candidate.size_bytes,
+            seeders=candidate.seeders,
+            is_free=candidate.is_free,
+            hit_and_run=candidate.hit_and_run,
+            resolution=attrs.resolution,
+            media_source=attrs.media_source,
+            video_codec=attrs.video_codec,
+            hdr=tuple(attrs.hdr),
+            release_group=attrs.release_group,
+            remux=attrs.remux,
+            is_pack=match.is_pack,
+            units=tuple((w.season_number, w.episode_number) for w in covered.get(key, [])),
+            score=verdict.score,
+        )
+
+    return hooks.CandidateBatch(
+        media=hooks.media_brief(item),
+        subscription_id=subscription.id,
+        selection_mode="smart" if isinstance(spec, SmartPolicy) else "rules",
+        purpose=purpose,
+        candidates=tuple(view(c, m, v) for c, m, v, _ in entries),
+    )
+
+
+async def plugin_rejections(
+    item: MediaItem,
+    subscription: Subscription,
+    spec: object,
+    entries: list[Entry],
+    covered: dict[str, list[WantedItem]],
+    *,
+    purpose: str,
+) -> dict[str, hooks.Rejection]:
+    """插件淘汰哪些候选（subscription.candidates.filter）；没有插件在听时不构造任何东西。"""
+    if not entries or not hooks.active(hooks.CANDIDATES_FILTER):
+        return {}
+    batch = _batch(item, subscription, spec, entries, covered, purpose)
+    result = await hooks.waterfall(
+        hooks.CANDIDATES_FILTER, batch, terminal=lambda _batch: hooks.FilterResult()
+    )
+    return {r.key: r for r in result.rejected}
+
+
+async def _plugin_filter(
+    repo: SubscriptionRepository,
+    ctx: MediaContext,
+    entries: list[Entry],
+    covered: dict[str, list[WantedItem]],
+    source: str,
+    summary: MatchSummary,
+) -> list[Entry]:
+    """插件规则在核心规则之后再淘汰一轮：只能淘汰、不能添加，原因与核心拒绝一样记进订阅动态。"""
+    rejected = await plugin_rejections(
+        ctx.item, ctx.subscription, ctx.spec, entries, covered, purpose="wanted"
+    )
+    if not rejected:
+        return entries
+    kept = []
+    for entry in entries:
+        key = candidate_key(entry[0])
+        rejection = rejected.get(key)
+        if rejection is None:
+            kept.append(entry)
+            continue
+        summary.rejected += 1
+        verdict = RuleVerdict(
+            accepted=False,
+            reason_code=f"plugin:{rejection.reason_code}",
+            reason_text=rejection.reason_text,
+        )
+        await _log_rejection(repo, ctx, entry[0], covered.get(key, []), verdict, source)
+    return kept
+
+
+async def plugin_rank(
+    item: MediaItem,
+    subscription: Subscription,
+    spec: object,
+    entries: list[Entry],
+    covered: dict[str, list[WantedItem]],
+    *,
+    purpose: str,
+) -> list[Entry]:
+    """插件重排候选（subscription.candidates.rank）：结果必须是原集合的重排，否则保持核心顺序。"""
+    if len(entries) < 2 or not hooks.active(hooks.CANDIDATES_RANK):
+        return entries
+    batch = _batch(item, subscription, spec, entries, covered, purpose)
+    result = await hooks.waterfall(
+        hooks.CANDIDATES_RANK,
+        batch,
+        terminal=lambda b: hooks.RankResult(order=tuple(c.key for c in b.candidates)),
+    )
+    by_key = {candidate_key(entry[0]): entry for entry in entries}
+    if len(set(result.order)) != len(result.order) or set(result.order) != set(by_key):
+        logger.warning("插件给出的候选顺序不是原候选的重排，已忽略，保持核心顺序")
+        return entries
+    return [by_key[key] for key in result.order]
 
 
 async def _log_rejection(

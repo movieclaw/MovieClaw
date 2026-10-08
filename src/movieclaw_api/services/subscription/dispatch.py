@@ -19,6 +19,7 @@ from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api import hooks
 from movieclaw_api.core.config import get_settings
 from movieclaw_db.models import (
     ActivityType,
@@ -243,6 +244,7 @@ async def dispatch(
                     subtitle=candidate.subtitle if entry_level else None,
                     select_units=selective_units,
                     known_seasons=subscription.selected_seasons or None,
+                    media_kind=item.kind,
                     **submit_options,
                 )
             skipped_files = submit_result.skipped_file_count
@@ -712,14 +714,12 @@ async def preview_dispatch_route(
         # 判断，不能仍偷看默认下载器，否则「预检可投、提交被拒」会重新出现。
         downloader = await session.get(DownloaderClient, downloader_id)
     else:
-        result = await session.execute(
-            select(DownloaderClient).where(
-                DownloaderClient.is_default.is_(True),  # type: ignore[attr-defined]
-                DownloaderClient.enabled.is_(True),  # type: ignore[attr-defined]
-                DownloaderClient.status == ConfigStatus.ACTIVE,
-            )
+        # 与实际投递同一个选择函数（含插件分流），预检结论不会与投递分家
+        from movieclaw_api.services.torrent_submit import pick_downloader
+
+        downloader = await pick_downloader(
+            session, hooks.DownloaderQuery(title=entry_title, media_kind=kind)
         )
-        downloader = result.scalars().first()
 
     mode = decision.mode
     ok = True
@@ -879,6 +879,7 @@ async def _submit_real(
     downloader_id: int | None = None,
     selection_owner: str | None = None,
     before_resume=None,
+    media_kind: str | None = None,
 ):
     """真实投递：委托公共编排（站点取种 → 默认下载器提交，幂等判重）。
 
@@ -904,6 +905,14 @@ async def _submit_real(
         downloader_id=downloader_id,
         selection_owner=selection_owner,
         before_resume=before_resume,
+        route_hint=hooks.DownloaderQuery(
+            site_id=candidate.site_id,
+            title=candidate.title,
+            size_bytes=candidate.size_bytes,
+            media_kind=media_kind,
+            category="movieclaw",
+            tags=("movieclaw-sub",),
+        ),
     )
     return result, row
 
