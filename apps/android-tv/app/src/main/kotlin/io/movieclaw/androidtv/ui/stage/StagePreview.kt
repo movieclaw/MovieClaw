@@ -78,7 +78,13 @@ class StagePreview(
     private var cycle: Job? = null
     private var leaveJob: Job? = null
     private var interrupted = false
-    private var visible = true
+    /** 挂着预告画面的大图层（后出现的在后）与其中被滚走的：画面只给最后出现的那层，它没被滚走才放（同 Apple 端） */
+    private val surfaces = mutableListOf<Any>()
+    private val hiddenSurfaces = mutableSetOf<Any>()
+    var surfaceOwner by mutableStateOf<Any?>(null)
+        private set
+    private val visible: Boolean
+        get() = surfaceOwner?.let { it !in hiddenSurfaces } ?: false
     private var dwellDone = false
     private var loaded = false
     private var started = false
@@ -121,8 +127,24 @@ class StagePreview(
         owners.values.lastOrNull()?.let(::begin)
     }
 
-    fun setVisible(visible: Boolean) {
-        this.visible = visible
+    /** 一层大图出现在屏幕上（页面被压下去算消失） */
+    fun claimSurface(token: Any) {
+        surfaces.remove(token)
+        surfaces.add(token)
+        surfaceOwner = token
+        refresh()
+    }
+
+    fun releaseSurface(token: Any) {
+        surfaces.remove(token)
+        hiddenSurfaces.remove(token)
+        surfaceOwner = surfaces.lastOrNull()
+        refresh()
+    }
+
+    /** 这一层的大图滚走了 / 滚回来了 */
+    fun setSurface(token: Any, visible: Boolean) {
+        if (visible) hiddenSurfaces.remove(token) else hiddenSurfaces.add(token)
         refresh()
     }
 
@@ -249,15 +271,24 @@ class StagePreview(
  */
 @Composable
 fun BoxScope.StagePreviewLayer(preview: StagePreview, mediaItemId: Long, visible: Boolean) {
-    DisposableEffect(visible) {
-        preview.setVisible(visible)
+    val token = remember { Any() }
+    // 压在别的页下面的页面不算在屏幕上（同 tvOS 导航栈里被盖住的页 onDisappear）
+    val pageVisible = io.movieclaw.androidtv.ui.shell.LocalPageVisible.current
+    DisposableEffect(preview, pageVisible) {
+        if (pageVisible) preview.claimSurface(token)
+        onDispose { preview.releaseSurface(token) }
+    }
+    // 重新出现时 release 已把「滚走」记号清掉了，跟着再报一次
+    DisposableEffect(preview, pageVisible, visible) {
+        preview.setSurface(token, visible)
         onDispose { }
     }
     val mine = preview.key == mediaItemId
     val shown = mine && preview.showing
     val alpha by animateFloatAsState(if (shown) 1f else 0f, tween(if (shown) 900 else 1200), label = "preview")
     val exo = preview.player
-    if (mine && exo != null) {
+    // 只有轮到这一层才挂画面：首页与详情页的大图同时在时，两边都挂同一个播放器会抢画面
+    if (mine && exo != null && preview.surfaceOwner === token) {
         ContentFrame(
             player = exo,
             modifier = Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha },
@@ -280,8 +311,11 @@ fun UseStagePreview(preview: StagePreview, request: StagePreview.Request?) {
     val owner = remember { Any() }
     // 页面被压在别的页下面时让出预告，回到屏幕上再接着要（首页 → 详情是同一部就接着放）
     val visible = io.movieclaw.androidtv.ui.shell.LocalPageVisible.current
-    LaunchedEffect(request, visible) {
+    // 与画面层的认领同一拍生效、并且排在它前面（页面里先调这里）：退回来时先按这一页的规则要片段，
+    // 再认领画面，不然上一页没开播的那段会抢先开播
+    DisposableEffect(request, visible) {
         if (visible && request != null) preview.show(request, owner) else preview.leave(owner)
+        onDispose { }
     }
     DisposableEffect(preview) { onDispose { preview.leave(owner) } }
 }
