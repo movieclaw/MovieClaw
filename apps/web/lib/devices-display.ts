@@ -14,6 +14,7 @@ const CLIENT_TYPE_LABEL: Record<string, string> = {
   cli: "命令行 / Agent",
   tvos: "Apple TV",
   macos: "Mac",
+  androidtv: "Android TV",
   manual: "手工令牌",
 };
 
@@ -43,6 +44,15 @@ export function grantSummary(type: string, role: ViewerRole = "admin"): GrantSum
     return {
       title: "将获得：仅限转码",
       body: "这台机器不能查看或修改你的订阅、媒体库和设置。",
+    };
+  }
+  if (type === "androidtv") {
+    // Android TV 扫码登录（docs/design/androidtv-app.md §2）：与 Apple TV 同一口径
+    return {
+      title: role === "member" ? "将获得：这台 Android TV 以你的身份登录" : "将获得：这台 Android TV 以你的超级管理员身份登录",
+      body:
+        "等同你在这台电视上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。" +
+        "只批准你面前这台电视上显示的配对码。",
     };
   }
   if (type === "tvos") {
@@ -172,7 +182,7 @@ const DEVICE_GROUPS: { key: string; label: string }[] = [
  */
 export function deviceGroupKey(kind: string): string {
   if (kind === "web") return "browser";
-  if (kind === "ios" || kind === "tvos" || kind === "macos" || kind === "android") return "app";
+  if (kind === "ios" || kind === "tvos" || kind === "macos" || kind === "android" || kind === "androidtv") return "app";
   if (kind === "jellyfin") return "player";
   return "paired";
 }
@@ -198,7 +208,7 @@ export type DeviceGlyph =
 export function deviceGlyph(kind: string, scope: string): DeviceGlyph {
   if (kind === "worker" || scope === "transcode") return "transcoder";
   if (kind === "ios" || kind === "android") return "phone";
-  if (kind === "tvos") return "tv";
+  if (kind === "tvos" || kind === "androidtv") return "tv";
   if (kind === "macos") return "computer";
   if (kind === "web") return "browser";
   if (kind === "jellyfin") return "player";

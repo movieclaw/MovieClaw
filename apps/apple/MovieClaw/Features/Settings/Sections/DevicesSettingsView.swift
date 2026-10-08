@@ -361,8 +361,8 @@ struct DeviceGroup: Identifiable {
     static func make(_ list: [API.LoginDeviceView]) -> [Self] {
         [
             Self(id: "browser", title: "浏览器", symbol: "globe", items: list.filter { $0.kind == "web" }),
-            Self(id: "app", title: "App", symbol: "apps.iphone", items: list.filter { ["ios", "tvos", "macos", "android"].contains($0.kind) }),
-            Self(id: "paired", title: "命令行与转码器", symbol: "terminal", items: list.filter { !["web", "ios", "tvos", "macos", "android", "jellyfin"].contains($0.kind) }),
+            Self(id: "app", title: "App", symbol: "apps.iphone", items: list.filter { ["ios", "tvos", "macos", "android", "androidtv"].contains($0.kind) }),
+            Self(id: "paired", title: "命令行与转码器", symbol: "terminal", items: list.filter { !["web", "ios", "tvos", "macos", "android", "androidtv", "jellyfin"].contains($0.kind) }),
             Self(id: "player", title: "播放器", symbol: "play.rectangle", items: list.filter { $0.kind == "jellyfin" }),
         ]
     }
@@ -395,6 +395,7 @@ enum DeviceText {
         case "cli": "命令行 / Agent"
         case "tvos": "Apple TV"
         case "macos": "Mac"
+        case "androidtv": "Android TV"
         case "manual": "手工令牌"
         default: "未知类型"
         }
@@ -404,6 +405,13 @@ enum DeviceText {
     static func grant(_ type: String, isAdmin: Bool) -> Grant {
         if type == "worker" {
             return Grant(title: "将获得：仅限转码", body: "这台机器不能查看或修改你的订阅、媒体库和设置。")
+        }
+        if type == "androidtv" {
+            // Android TV 扫码登录（docs/design/androidtv-app.md §2，文案同 Web devices-display.ts）
+            return Grant(
+                title: isAdmin ? "将获得：这台 Android TV 以你的超级管理员身份登录" : "将获得：这台 Android TV 以你的身份登录",
+                body: "等同你在这台电视上输入账号密码登录：它能看到你能看到的媒体库、记录你的观看进度。只批准你面前这台电视上显示的配对码。"
+            )
         }
         if type == "tvos" {
             // Apple TV 扫码登录（docs/design/tvos-app.md §5.1，文案同 Web devices-display.ts）
@@ -447,6 +455,7 @@ enum DeviceText {
         switch device.kind {
         case "ios", "android": return "iphone"
         case "tvos": return "appletv"
+        case "androidtv": return "tv"
         case "macos": return "laptopcomputer"
         case "web": return "globe"
         case "jellyfin": return "play.rectangle"
@@ -461,7 +470,7 @@ enum DeviceText {
         if showOwner { parts.append(device.ownerNickname) }
         let platform = (device.platform ?? "").components(separatedBy: " · ")
             .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
-        let isApp = ["ios", "tvos", "macos", "android"].contains(device.kind)
+        let isApp = ["ios", "tvos", "macos", "android", "androidtv"].contains(device.kind)
         if device.kind != "web", !(isApp && !platform.isEmpty) { parts.append(device.kindLabel) }
         if device.scope == "transcode", device.kind != "worker" { parts.append("仅转码") }
         parts += platform

@@ -146,7 +146,7 @@ class DeviceAuthorizeRequest(BaseModel):
     client_type: str = Field(
         description=(
             "客户端形态：worker（转码 Worker）、cli（命令行 / Agent）、tvos（Apple TV App）、"
-            "macos（Mac App）"
+            "macos（Mac App）、androidtv（Android TV App）"
         )
     )
     client_name: str = Field(
@@ -221,7 +221,7 @@ class DeviceRequestView(BaseModel):
 class DeviceClientInfo(BaseModel):
     """原生 App 登录时自报的设备信息。"""
 
-    kind: Literal["ios", "tvos", "macos", "android"] = Field(description="App 平台")
+    kind: Literal["ios", "tvos", "macos", "android", "androidtv"] = Field(description="App 平台")
     installation_id: str = Field(
         min_length=8,
         max_length=128,

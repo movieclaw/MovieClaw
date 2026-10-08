@@ -43,16 +43,17 @@ WEB_CLIENT_NAME = "MovieClaw Web"
 
 #: 原生 App 与网页共用同一套登录会话与上报接口，只能靠 User-Agent 区分：App 的每个请求都带
 #: ``MovieClaw-<平台>/<版本> (<机型>; <系统> <系统版本>; build <构建号>)``。
-#: 平台 → (客户端名, 认不出机型时的设备名)。Apple TV / Android 版尚未开发，先把名字定下来。
+#: 平台 → (客户端名, 认不出机型时的设备名)。
 _APP_CLIENTS: dict[str, tuple[str, str]] = {
     "iOS": ("MovieClaw iOS", "iPhone"),
     "tvOS": ("MovieClaw Apple TV", "Apple TV"),
     # Mac 的机型位报的是 uname 的 arm64 / x86_64，认不出具体型号，设备名统一叫「Mac」
     "macOS": ("MovieClaw Mac", "Mac"),
     "Android": ("MovieClaw Android", "Android"),
+    "AndroidTV": ("MovieClaw Android TV", "Android TV"),
 }
 _APP_USER_AGENT = re.compile(
-    r"MovieClaw-(?P<platform>iOS|tvOS|macOS|Android)/(?P<version>[0-9A-Za-z._+-]+)"
+    r"MovieClaw-(?P<platform>iOS|tvOS|macOS|AndroidTV|Android)/(?P<version>[0-9A-Za-z._+-]+)"
 )
 _APP_SYSTEM = re.compile(r"\b(?P<os>iOS|iPadOS|tvOS|macOS|Android) (?P<version>[0-9.]+)")
 #: UA 括号里的第一段机型位（Android 报的是 ``Build.MODEL``，如「Pixel 9」）

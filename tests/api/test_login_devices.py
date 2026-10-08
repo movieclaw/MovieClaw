@@ -143,6 +143,30 @@ def test_mac_app_logs_in_as_a_login_device_without_push(client: TestClient) -> N
     assert mac["push"] is None
 
 
+def test_android_tv_app_logs_in_as_its_own_kind(client: TestClient) -> None:
+    """Android TV 是独立客户端（docs/design/androidtv-app.md §6）：登录设备单独一类，
+    「我的设备」里不和安卓手机混在一起。"""
+    resp = TestClient(client.app).post(
+        f"{_AUTH}/device/login",
+        json={
+            **_ADMIN,
+            "client": {
+                "kind": "androidtv",
+                "installation_id": "androidtv-install-0001",
+                "name": "客厅 BRAVIA",
+                "platform": "Android 12 · BRAVIA 4K VH2",
+            },
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    device = resp.json()["data"]["device"]
+    assert (device["kind"], device["kind_label"], device["family"]) == (
+        "androidtv",
+        "Android TV App",
+        "login",
+    )
+
+
 def test_app_login_wrong_password_is_rejected_and_throttled(client: TestClient) -> None:
     anon = TestClient(client.app)
     body = {
