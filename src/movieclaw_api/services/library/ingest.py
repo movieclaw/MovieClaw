@@ -2414,8 +2414,6 @@ async def _ingest_entry(
             release_group=release_attrs.release_group,
             video_codec=file_spec.video_codec if file_spec else None,
             hdr=file_spec.hdr if file_spec else None,
-            dv_profile=file_spec.dv_profile if file_spec else None,
-            dv_bl_compatible=file_spec.dv_bl_compatible if file_spec else None,
             bit_depth=file_spec.bit_depth if file_spec else None,
             audio_streams=list(file_spec.audio_streams) if file_spec else None,
             site_id=stamp_site,
