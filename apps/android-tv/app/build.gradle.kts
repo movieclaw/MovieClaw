@@ -6,6 +6,8 @@ plugins {
 }
 
 val versions = Properties().apply { rootProject.file("version.properties").inputStream().use(::load) }
+require(versions.getProperty("versionName").matches(Regex("\\d+\\.\\d+\\.\\d+"))) { "Android TV versionName 必须为 X.Y.Z" }
+require(versions.getProperty("versionCode").toInt() in 1..2100000000) { "Android TV versionCode 超出允许范围" }
 
 android {
     namespace = "io.movieclaw.androidtv"
@@ -18,8 +20,22 @@ android {
         versionCode = versions.getProperty("versionCode").toInt()
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
+    // 正式签名与手机版共用同一把密钥（ANDROID_KEYSTORE_* 环境变量，发版作业从 GitHub Secrets 解出）；
+    // 没给密钥时（CI、本机）照常出未签名的 release 包
+    val keystore = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
+    signingConfigs {
+        create("release") {
+            if (keystore != null) {
+                storeFile = file(keystore)
+                storePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").get()
+                keyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").get()
+                keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").get()
+            }
+        }
+    }
     buildTypes {
         release {
+            if (keystore != null) signingConfig = signingConfigs.getByName("release")
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")

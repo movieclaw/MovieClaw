@@ -20,7 +20,12 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    if (project.file("src/main/jni/ffmpeg/android-libs").exists()) {
+    val built = project.file("src/main/jni/ffmpeg/android-libs").exists()
+    // 正式包（package-release.sh）必须带 FFmpeg：没编过就失败，不能悄悄发一个没有软解的包
+    if (!built && findProperty("requireFfmpeg") == "true") {
+        throw GradleException("缺 FFmpeg 音频解码库：先运行 native/ffmpeg/build.sh")
+    }
+    if (built) {
         externalNativeBuild { cmake { path = file("src/main/jni/CMakeLists.txt"); version = "3.22.1" } }
         // FFmpeg 的共享库原样打进 APK（JNI 胶水层运行时由系统链接器按 NEEDED 加载它们）
         sourceSets { getByName("main").jniLibs.directories.add("src/main/jni/ffmpeg/android-libs") }

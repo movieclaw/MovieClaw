@@ -9,6 +9,8 @@ Android runner 使用 `aapt2` / `apksigner` 读取真实 APK，生成同名 `.js
 `applicationId`、`version`、`build`（versionCode）、`minimumSdk`、`arch`、
 `asset`、`size`、`sha256`、`signed`、`certificateSha256`。汇总时校验 APK 的大小与
 SHA-256 和 JSON 一致。沿用 APK 必须同时沿用 JSON；缺失或不一致会阻止发布。
+Android TV 的 `MovieClaw-AndroidTV.apk` 同一份契约，`product` 为 `androidtv`、`applicationId` 为
+`io.movieclaw.androidtv`；一个包含 64 / 32 位两种 ARM 架构，`arch` 为 `arm`，另有 `abis` 列表。
 Android 下载入口和工作流见 [Android 发版说明](android-release.md)。
 
 ```json

@@ -207,6 +207,7 @@ GitHub 只允许整次运行结束后再单独重跑某个作业（`gh run rerun
 - [ ] 版本号三处一致（应用发版）
 - [ ] Android 有变化时，已递增 `apps/android/version.properties` 的版本与版本码；
       `android-apk` 成功、正式签名 APK / JSON 在场（详见下节）
+- [ ] Android TV 有变化时，已递增 `apps/android-tv/version.properties`；`android-tv-apk` 结果看一眼（可选附件，失败只告警）
 - [ ] bump 版本号后已跑 `scripts/export-spec.sh`（服务端与 Go CLI 两份 spec）
 - [ ] 本次改动是否触碰运行时依赖？触碰了 → `docker/runtime-version` +1（镜像随发版自动发布）
 - [ ] 改了 Worker 握手协议（`REMOTE_WORKER_PROTOCOL_VERSION` 与 macOS Worker
@@ -247,3 +248,7 @@ applicationId、版本与附件，不预先把尚未实现的产品混入同一�
 
 固定下载地址：`https://github.com/movieclaw/MovieClaw/releases/latest/download/MovieClaw-Android-arm64.apk`。
 APK 是必需附件，缺失时 `publish` 不转正；失败后修复并重跑工作流，不以无签名包或 Exo-only 包绕过。
+
+Android TV：`android-tv-apk` 作业构建或沿用 `MovieClaw-AndroidTV.apk` / `.json`，版本独立
+（`apps/android-tv/version.properties`），签名复用上面同一组 Secrets；目前是可选附件。详见
+`docs/design/android-release.md`「Android TV」。

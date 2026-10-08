@@ -202,6 +202,7 @@ Release（同 NER 模型 `torrent-ner-v1` 的做法），构建时下载 + 校�
 | `apps/android-tv/scripts/gen_api.py` | 接口生成器（白名单），`--check` 进 CI |
 | `apps/android-tv/tests/fixture/fixture.py` | 隔离测试服务器 + 生成测试片 |
 | `.github/workflows/android-tv.yml` | 生成物校验、单测、lint、debug / release 包；`android-tv-ok` 汇总 |
+| `apps/android-tv/scripts/package-release.sh` / `build-release-metadata.py` | 正式签名 APK 与下载元数据；发版作业 `android-tv-apk`（android-release.md「Android TV」） |
 
 工程取舍：Navigation3 要求 minSdk 24，与 §1 的 23 冲突，导航栈自己管（一个栈 + 返回键 + `SaveableStateHolder`）。
 
@@ -366,3 +367,13 @@ HEVC + AC3 MKV）。
 | FFmpeg 音频软解 | `core/ffmpeg`：Media3 1.11.1 的 decoder_ffmpeg 胶水层 + `native/ffmpeg/build.sh` 编的 FFmpeg 6.0.1（LGPL-2.1 共享库，只开音频解码器）；扩展排在系统解码器之后（透传优先）；CI 先编它再出 release 包；「关于」页列出许可、源码与脚本 | 模拟器：E-AC-3、DTS 从档 2 变档 0，播放记录 `decoder=ffmpegLavc60.3.100-eac3 / -dca` |
 | ASS 特效字幕 | ass-media 0.5.1（libass）叠加层渲染（OVERLAY_OPEN_GL，不进视频管线、不影响 HDR），渲染像素封顶 1080p | 《老友记》双语 ASS 的字号 / 颜色 / 描边正确，切 SRT、关字幕正常；ass-media 对着 Media3 1.8 编，升 Media3 时要复验 |
 | 老系统 | Android 6.0 / 8.0 arm64 镜像（电视镜像只有 x86，Apple 芯片跑不了，用手机镜像验系统 API） | 发现并修掉内存溢出（堆上限 48 MB，Exo 默认缓冲约 130 MB）：申请大堆 + 缓冲按堆的 1/4（16～128 MB）；修后首页、详情、ASS、FFmpeg、杜比视界服务端流、35 Mbps 直放都正常 |
+
+### 10.7 发版（2026-10-08）
+
+GitHub `release` 工作流新增 `android-tv-apk` 作业，产出 `MovieClaw-AndroidTV.apk` + `.json`，进 `downloads.json`（`product: androidtv`）。
+版本独立（`version.properties`，首版 `0.1.0 / 1`），签名复用手机版的 `ANDROID_KEYSTORE_*`；目前是可选附件，缺了只告警。
+细节见 [android-release.md](android-release.md)「Android TV」。
+
+验证：本机用临时证书跑 `package-release.sh`，出 22.8 MB 的包（arm64-v8a + armeabi-v7a，v1 + v2 签名），元数据进清单校验通过；
+release 包装到 Android 8.0 镜像：登录 NAS、杜比视界服务端流、E-AC-3 走 FFmpeg 软解（播放记录 `decoder=ffmpegLavc60.3.100-eac3`），
+混淆没剪掉反射加载的 FFmpeg 类。

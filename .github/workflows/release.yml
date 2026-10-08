@@ -13,6 +13,8 @@
 #     下载解压后双击即可打开。
 #   - Android 正式签名 APK（MovieClaw-Android-arm64.apk）与包内版本元数据：
 #     版本独立于服务器/Apple；有改动才重编，否则沿用旧包。缺失时拦截 Release 转正。
+#   - Android TV 正式签名 APK（MovieClaw-AndroidTV.apk）与元数据：独立 App 与版本，与手机版
+#     共用同一把签名密钥；同样按改动重编或沿用，目前是可选附件（缺了只告警）。
 #   Worker / IPA / Mac App 是可选附件：自上一版以来对应代码没变时不重编，
 #   直接沿用上一个 Release 里的同名文件（asset-plan / carry-assets 作业）。
 # 产物上传成功后自动调用 docker-image.yml，同步发布同版本号的
@@ -230,6 +232,8 @@ jobs:
       mac_from: ${{ steps.plan.outputs.mac_from }}
       android_mode: ${{ steps.plan.outputs.android_mode }}
       android_from: ${{ steps.plan.outputs.android_from }}
+      tv_mode: ${{ steps.plan.outputs.tv_mode }}
+      tv_from: ${{ steps.plan.outputs.tv_from }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -265,6 +269,8 @@ jobs:
             ':(exclude)apps/apple/MovieClawMacTests/' | sed 's/^/mac_/' >> "$GITHUB_OUTPUT"
           scripts/release-asset-plan.sh MovieClaw-Android-arm64.apk \
             apps/android .github/workflows/release.yml | sed 's/^/android_/' >> "$GITHUB_OUTPUT"
+          scripts/release-asset-plan.sh MovieClaw-AndroidTV.apk \
+            apps/android-tv .github/workflows/release.yml | sed 's/^/tv_/' >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
   # Android 是必需附件：每次正式 Release 都有可安装的 APK 和固定下载地址。
@@ -327,6 +333,70 @@ jobs:
             apps/android/build/release/MovieClaw-Android-arm64.apk \
             apps/android/build/release/MovieClaw-Android-arm64.json
           echo "Android APK: https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/MovieClaw-Android-arm64.apk" >> "$GITHUB_STEP_SUMMARY"
+
+  # Android TV（apps/android-tv）：独立 App 与版本号（version.properties），签名复用手机版的
+  # ANDROID_KEYSTORE_* 密钥。正式包必须带 FFmpeg 音频软解（两种 ARM 架构），由打包脚本现编。
+  # 目前是可选附件：失败不拦转正，publish 只告警。
+  android-tv-apk:
+    needs: asset-plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      TV_MODE: ${{ needs.asset-plan.outputs.tv_mode }}
+      TV_FROM: ${{ needs.asset-plan.outputs.tv_from }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-java@v4
+        if: env.TV_MODE == 'build'
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+        if: env.TV_MODE == 'build'
+
+      - name: 构建正式签名 Android TV APK
+        if: env.TV_MODE == 'build'
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          : "${ANDROID_KEYSTORE_BASE64:?未配置 Android 正式签名密钥}"
+          # FFmpeg 音频解码库要 NDK 编；CMake 编 JNI 胶水层
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.3.13750724" "cmake;3.22.1" > /dev/null
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/movieclaw-android-tv.p12"
+          umask 077
+          trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
+          bash apps/android-tv/scripts/package-release.sh
+
+      - name: 沿用上一版 Android TV APK 和实际版本信息
+        if: env.TV_MODE == 'carry'
+        run: |
+          mkdir -p apps/android-tv/build/release
+          gh release download "$TV_FROM" --repo "$GITHUB_REPOSITORY" \
+            --pattern 'MovieClaw-AndroidTV.apk' --pattern 'MovieClaw-AndroidTV.json' \
+            --dir apps/android-tv/build/release
+
+      - name: 验证并上传 Android TV 附件
+        run: |
+          python3 scripts/build-download-manifest.py --tag "$RELEASE_TAG" \
+            --directory apps/android-tv/build/release
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            apps/android-tv/build/release/MovieClaw-AndroidTV.apk \
+            apps/android-tv/build/release/MovieClaw-AndroidTV.json
+          echo "Android TV APK: https://github.com/$GITHUB_REPOSITORY/releases/download/$RELEASE_TAG/MovieClaw-AndroidTV.apk" >> "$GITHUB_STEP_SUMMARY"
 
   # 沿用上一版的附件：从上一个 Release 下载同名文件，原样传到本次 Release。
   carry-assets:
@@ -598,10 +668,10 @@ jobs:
   # 终审：产物齐全 + 镜像发布成功后才把 draft Release 转正。
   # 这是发布原子性的落点——转正之前，应用内更新、install-cli.sh 的
   # latest/download、Release 页对用户都不可见，不存在「半成品 Release」。
-  # worker-macos / ios-ipa / mac-app / carry-assets 失败不拦转正（可选附件），但 cli 或镜像失败时 Release
+  # worker-macos / ios-ipa / mac-app / android-tv-apk / carry-assets 失败不拦转正（可选附件），但 cli 或镜像失败时 Release
   # 停在 draft；Android APK 也是必需附件。修复后重跑本工作流即可，全链路可安全重入。
   publish:
-    needs: [cli, android-apk, worker-macos, ios-ipa, mac-app, carry-assets, docker-image]
+    needs: [cli, android-apk, android-tv-apk, worker-macos, ios-ipa, mac-app, carry-assets, docker-image]
     if: ${{ !cancelled() && needs.cli.result == 'success' && needs.android-apk.result == 'success' && needs.docker-image.result == 'success' }}
     # 官网清单从实际 ZIP 读取，macOS runner 还能复核签名和公证。
     runs-on: macos-26
@@ -652,6 +722,9 @@ jobs:
           fi
           if ! echo "$assets" | grep -qx "MovieClaw-macos-arm64.zip"; then
             echo "::warning::缺少 Mac 版 App（可选产物），Release 照常发布；重跑 mac-app 或 carry-assets 作业可补传"
+          fi
+          if ! echo "$assets" | grep -qx "MovieClaw-AndroidTV.apk"; then
+            echo "::warning::缺少 Android TV APK（可选产物），Release 照常发布；重跑 android-tv-apk 作业可补传"
           fi
           gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false
           echo "Release $RELEASE_TAG 已发布"
