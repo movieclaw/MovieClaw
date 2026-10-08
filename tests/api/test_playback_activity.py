@@ -24,6 +24,7 @@ from movieclaw_db.models import (
     MediaItem,
     MediaMetadata,
     PlaybackLog,
+    PlaybackMetric,
     PlaybackState,
 )
 from movieclaw_db.models.base import utcnow
@@ -787,6 +788,61 @@ async def test_stats_ignore_glance_plays(client: TestClient) -> None:
     assert [r["media"]["title"] for r in stats["top_titles"]] == ["认真看完"]
     # 播放记录是日志，每一行照列
     assert len(client.get("/api/v1/playback/history").json()["data"]["entries"]) == 8
+
+
+async def test_finished_is_judged_from_how_far_and_how_much_was_watched(
+    client: TestClient,
+) -> None:
+    """「看完」按这一场播到哪、实际看了多少现算，不看写侧的「已看翻转」：重看到片尾
+    算看完；从开头拖到片尾不算；看半小时就拖到结尾算一场但不算看完。"""
+    movie_id, _ = await _seed_movie_in_library(title="盗梦空间", tmdb_id=27205, library_name="电影")
+    now = utcnow()  # 片长 6000 秒，片尾区从 5400 秒开始
+
+    def log(member: int, start: int, end: int, watched: int, *, flipped: bool) -> PlaybackLog:
+        return PlaybackLog(
+            member_id=member, media_item_id=movie_id, kind="movie", title="x",
+            device_id=f"d{member}", client="Infuse", started_at=now - timedelta(hours=member),
+            last_seen_at=now, ended_at=now, start_position_ms=start, end_position_ms=end,
+            watched_ms=watched, completed=flipped,
+        )
+
+    async with get_database().session() as session:
+        # 重看一部早已看过的片子到片尾：已看不会再翻转，但这一场就是看完了
+        session.add(log(1, 0, 5_900_000, 5_800_000, flipped=False))
+        # 续播点在片尾区前一点，只看了 40 秒就进了片尾：看完，不足一分钟也算一场
+        session.add(log(2, 5_350_000, 5_420_000, 40_000, flipped=True))
+        # 从开头直接拖到片尾：已看翻转了，但只看了 5 秒——不算看完，也不算一场
+        session.add(log(3, 0, 5_990_000, 5_000, flipped=True))
+        # 看了半小时就拖到结尾：算一场，不算看完
+        session.add(log(4, 0, 5_950_000, 1_800_000, flipped=True))
+        await session.commit()
+
+    stats = client.get("/api/v1/playback/stats/watch", params={"days": 7}).json()["data"]
+    assert stats["current"] == {
+        "plays": 3, "watched_ms": 7_640_000, "completed": 2, "active_members": 3
+    }
+    assert {r["member_id"]: r["completed"] for r in stats["by_member"]} == {1: 1, 2: 1, 4: 0}
+    # 播放记录的「看完」同一口径
+    entries = client.get("/api/v1/playback/history").json()["data"]["entries"]
+    assert {e["watched_ms"]: e["completed"] for e in entries} == {
+        5_800_000: True, 40_000: True, 5_000: False, 1_800_000: False
+    }
+
+
+async def test_tier_breakdown_ignores_lab_runs_and_glances(client: TestClient) -> None:
+    """按播放方式与场次同一口径：故障注入实验台的实验、不到一分钟的都不算。"""
+    async with get_database().session() as session:
+        session.add_all(
+            [
+                PlaybackMetric(member_id=0, tier=0, watched_ms=600_000, lab_scenario="faultlab:x"),
+                PlaybackMetric(member_id=0, tier=0, watched_ms=3_000),
+                PlaybackMetric(member_id=0, tier=3, watched_ms=600_000),
+            ]
+        )
+        await session.commit()
+
+    stats = client.get("/api/v1/playback/stats/watch", params={"days": 7}).json()["data"]
+    assert stats["by_tier"] == [{"tier": 3, "label": "硬件转码", "plays": 1}]
 
 
 async def test_previous_period_needs_full_log_coverage(client: TestClient) -> None:

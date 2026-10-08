@@ -46,6 +46,7 @@ from movieclaw_db.models import PlaybackLog, PlaybackMetric
 from movieclaw_db.models.base import utcnow
 from movieclaw_media.models import MediaKind
 from movieclaw_playback import activity
+from movieclaw_playback.progress import MAX_RESUME_PCT
 from movieclaw_playback.state import Unit
 
 #: 顶部作品榜的长度
@@ -58,13 +59,34 @@ _TOP_TITLES = 10
 MIN_PLAY_WATCHED_MS = 60_000
 
 
-def counts_as_play(row: PlaybackLog) -> bool:
-    """这一行算不算一场播放：实际看了至少一分钟，或者在这场里看完了。
+def finished(row: PlaybackLog, duration_ms: int | None) -> bool:
+    """这一场有没有看完：播进了片尾区，而且是看过去的、不是拖过去的。
+
+    不能直接用写侧的 ``completed``：它记的是「已看在这一场翻转」，重看一部已看过的
+    片子看到结尾永远不会翻转（NAS 上播到片尾的 148 行有 40 行因此没算看完）；反过来
+    从开头直接拖到片尾也会翻转（30 天里 30 行看了不到一分钟就「看完」）。所以：
+    - 播进片尾区按片长现算，与续播阈值同一把尺；片长未知时退回写侧的翻转标记；
+    - 实际观看至少覆盖这一场播放跨度的三分之一——跳片头片尾、两三倍速都过得去，
+      看五分钟就拖到结尾过不去。
+    """
+    reached = row.completed or bool(
+        duration_ms
+        and (
+            row.end_position_ms * 100 >= duration_ms * MAX_RESUME_PCT
+            or row.end_position_ms >= duration_ms - 1000
+        )
+    )
+    span = max(row.end_position_ms - row.start_position_ms, 0)
+    return reached and row.watched_ms > 0 and row.watched_ms * 3 >= span
+
+
+def counts_as_play(row: PlaybackLog, duration_ms: int | None) -> bool:
+    """这一行算不算一场播放：实际看了至少一分钟，或者这一场看完了。
 
     看完的不论时长都算：续播点在 88% 的那一场只看最后几十秒，却是把这一集看完的
-    那一场，丢掉它看完率就漏了。
+    那一场，丢掉它看完率就漏了；短片同理。
     """
-    return row.watched_ms >= MIN_PLAY_WATCHED_MS or row.completed
+    return row.watched_ms >= MIN_PLAY_WATCHED_MS or finished(row, duration_ms)
 
 
 def effective_end(row: PlaybackLog, now: datetime) -> datetime | None:
@@ -197,7 +219,7 @@ async def playback_history(
                 end_position_ms=row.end_position_ms,
                 duration_ms=duration_ms,
                 progress_percent=_progress_percent(row.end_position_ms, duration_ms),
-                completed=row.completed,
+                completed=finished(row, duration_ms),
             )
         )
     return PlaybackHistoryView(
@@ -210,7 +232,12 @@ _TIER_LABELS = {0: "直连", 1: "重封装", 2: "音频转码", 3: "硬件转码
 
 
 def _day_series(
-    rows: list[PlaybackLog], *, since: datetime, until: datetime, offset: timedelta
+    rows: list[PlaybackLog],
+    done: set[int],
+    *,
+    since: datetime,
+    until: datetime,
+    offset: timedelta,
 ) -> list[PlaybackStatsDayRow]:
     """按浏览器本地日期分桶，补齐没有播放的日子；行数 = 周期天数 + 1。"""
     buckets: dict[str, dict] = defaultdict(
@@ -220,7 +247,7 @@ def _day_series(
         day = buckets[(row.started_at + offset).strftime("%Y-%m-%d")]
         day["plays"] += 1
         day["watched"] += row.watched_ms
-        day["done"] += int(row.completed)
+        day["done"] += int(row.id in done)
         day["members"].add(row.member_id)
     out: list[PlaybackStatsDayRow] = []
     cursor = (since + offset).date()
@@ -296,11 +323,11 @@ def _favorites(
     return rows
 
 
-def _totals(rows: list[PlaybackLog]) -> PlaybackStatsTotals:
+def _totals(rows: list[PlaybackLog], done: set[int]) -> PlaybackStatsTotals:
     return PlaybackStatsTotals(
         plays=len(rows),
         watched_ms=sum(r.watched_ms for r in rows),
-        completed=sum(int(r.completed) for r in rows),
+        completed=sum(int(r.id in done) for r in rows),
         active_members=len({r.member_id for r in rows}),
     )
 
@@ -328,7 +355,17 @@ async def playback_stats(
     statement = select(PlaybackLog).where(PlaybackLog.started_at >= previous_since)
     if member_id is not None:
         statement = statement.where(PlaybackLog.member_id == member_id)
-    all_rows = [r for r in (await session.execute(statement)).scalars() if counts_as_play(r)]
+    logged = list((await session.execute(statement)).scalars())
+    # 片长判「看完」要用，范围折叠也在这一步；两个周期一次取齐
+    targets, durations = await _targets_for(
+        session, logged, browsable_library_ids=browsable_library_ids, fold_hidden=fold_hidden
+    )
+
+    def unit_duration(row: PlaybackLog) -> int | None:
+        return durations.get((row.media_item_id, row.season_number, row.episode_number))
+
+    finished_ids = {r.id for r in logged if finished(r, unit_duration(r))}  # type: ignore[misc]
+    all_rows = [r for r in logged if counts_as_play(r, unit_duration(r))]
     rows = [r for r in all_rows if r.started_at >= since]
     previous_rows = [r for r in all_rows if r.started_at < since]
     # 上一周期要被日志完整覆盖才能拿来对照：日志从某天才开始记，只覆盖了上期最后两天
@@ -338,9 +375,6 @@ async def playback_stats(
     previous_available = first_logged is not None and first_logged <= previous_since
 
     names = await _member_names(session, {r.member_id for r in rows})
-    targets, _ = await _targets_for(
-        session, rows, browsable_library_ids=browsable_library_ids, fold_hidden=fold_hidden
-    )
 
     by_member: dict[int, list[int]] = defaultdict(lambda: [0, 0, 0])  # plays, watched, completed
     by_client: dict[str, list[int]] = defaultdict(lambda: [0, 0])
@@ -349,7 +383,7 @@ async def playback_stats(
         member = by_member[row.member_id]
         member[0] += 1
         member[1] += row.watched_ms
-        member[2] += int(row.completed)
+        member[2] += int(row.id in finished_ids)
         client = by_client[row.client or "未知客户端"]
         client[0] += 1
         client[1] += row.watched_ms
@@ -368,14 +402,13 @@ async def playback_stats(
         if len(top_titles) < _TOP_TITLES:
             top_titles.append(agg.row(target))
 
-    # 上一周期的最受欢迎只用来对照（「蝉联」还是「上期是谁」），同样按可见范围折叠
-    previous_targets, _ = await _targets_for(
-        session, previous_rows, browsable_library_ids=browsable_library_ids, fold_hidden=fold_hidden
-    )
-
     # 网页播放的档位分解来自播放质量指标（一次播放一行）；Jellyfin 客户端恒为直连
+    # 与场次同一口径：故障注入实验台的实验不算（30 天里七成的指标行是实验），
+    # 不到一分钟的也不算
     metric_statement = select(PlaybackMetric.tier, func.count()).where(
-        PlaybackMetric.created_at >= since
+        PlaybackMetric.created_at >= since,
+        PlaybackMetric.lab_scenario == "",
+        PlaybackMetric.watched_ms >= MIN_PLAY_WATCHED_MS,
     )
     if member_id is not None:
         metric_statement = metric_statement.where(PlaybackMetric.member_id == member_id)
@@ -390,12 +423,12 @@ async def playback_stats(
 
     return PlaybackWatchStatsView(
         days=days,
-        current=_totals(rows),
-        previous=_totals(previous_rows),
+        current=_totals(rows, finished_ids),
+        previous=_totals(previous_rows, finished_ids),
         previous_available=previous_available,
-        by_day=_day_series(rows, since=since, until=now, offset=offset),
+        by_day=_day_series(rows, finished_ids, since=since, until=now, offset=offset),
         previous_by_day=_day_series(
-            previous_rows, since=previous_since, until=since, offset=offset
+            previous_rows, finished_ids, since=previous_since, until=since, offset=offset
         ),
         by_hour=by_hour,
         by_member=sorted(
@@ -424,5 +457,6 @@ async def playback_stats(
         top_titles=top_titles,
         hidden_title_count=hidden_titles,
         favorites=_favorites(titles, targets),
-        previous_favorites=_favorites(_aggregate_titles(previous_rows), previous_targets),
+        # 上一周期的最受欢迎只用来对照（「蝉联」还是「上期是谁」），同样按可见范围折叠
+        previous_favorites=_favorites(_aggregate_titles(previous_rows), targets),
     )
