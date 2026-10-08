@@ -389,6 +389,8 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
         // 1. 画面 + 字幕
         // 换会话（换音轨、换画质、降档）时留着最后一帧，别闪黑
         ContentFrame(player = controller.player, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Fit, keepContentOnReset = true)
+        // ASS 特效字幕（libass 叠加层；选中的不是 ASS 轨时它什么也不画）
+        androidx.compose.ui.viewinterop.AndroidView(factory = controller::assOverlay, modifier = Modifier.fillMaxSize())
         SubtitleLayer(
             overlayUrl = state.overlaySubtitleUrl,
             engineCues = if (state.engineSubtitles) cues else emptyList(),

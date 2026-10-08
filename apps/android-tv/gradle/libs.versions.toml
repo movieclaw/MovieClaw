@@ -40,6 +40,8 @@ media3-exoplayer = { module = "androidx.media3:media3-exoplayer", version.ref = 
 media3-decoder = { module = "androidx.media3:media3-decoder", version.ref = "media3" }
 androidx-annotation = { module = "androidx.annotation:annotation", version = "1.9.1" }
 checker-qual = { module = "org.checkerframework:checker-qual", version = "3.49.3" }
+# ASS 特效字幕（libass 的 Media3 接入，MIT；libass 本身 ISC）。0.5.x 对着 Media3 1.8 编，升级 Media3 时一起验
+ass-media = { module = "io.github.peerless2012:ass-media", version = "0.5.1" }
 media3-exoplayer-hls = { module = "androidx.media3:media3-exoplayer-hls", version.ref = "media3" }
 media3-datasource-okhttp = { module = "androidx.media3:media3-datasource-okhttp", version.ref = "media3" }
 media3-session = { module = "androidx.media3:media3-session", version.ref = "media3" }

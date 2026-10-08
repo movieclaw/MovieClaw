@@ -29,6 +29,14 @@ import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.SeekParameters
+import androidx.media3.extractor.DefaultExtractorsFactory
+import io.github.peerless2012.ass.media.AssHandler
+import io.github.peerless2012.ass.media.AssHandlerConfig
+import io.github.peerless2012.ass.media.kt.withAssMkvSupport
+import io.github.peerless2012.ass.media.kt.withAssSupport
+import io.github.peerless2012.ass.media.parser.AssSubtitleParserFactory
+import io.github.peerless2012.ass.media.type.AssRenderType
+import io.github.peerless2012.ass.media.widget.AssSubtitleView
 import androidx.media3.exoplayer.mediacodec.MediaCodecDecoderException
 import androidx.media3.exoplayer.mediacodec.MediaCodecRenderer
 import androidx.media3.exoplayer.mediacodec.MediaCodecSelector
@@ -147,6 +155,13 @@ class PlaybackController(
             override fun onTransferEnd(source: DataSource, dataSpec: DataSpec, isNetwork: Boolean) = Unit
         })
 
+    /**
+     * ASS / SSA 特效字幕走 libass（ass-media，MIT；§4.3）：叠加层渲染（OVERLAY_OPEN_GL），保留定位、样式与动画，
+     * 不进视频管线——HDR / 杜比视界输出不受影响、不挡界面线程。渲染像素封顶 1080p：4K 电视上省 CPU，字幕仍清楚
+     */
+    private val ass = AssHandler(AssRenderType.OVERLAY_OPEN_GL, AssHandlerConfig(maxRenderPixels = 1920 * 1080))
+    private val assParsers = AssSubtitleParserFactory(ass)
+
     private val exo: ExoPlayer = ExoPlayer.Builder(
         context,
         DefaultRenderersFactory(context)
@@ -157,15 +172,24 @@ class PlaybackController(
             // 这台机器上实测坏过的解码器不再选（DecoderDenylist）
             .setMediaCodecSelector { mime, secure, tunneling ->
                 MediaCodecSelector.DEFAULT.getDecoderInfos(mime, secure, tunneling).filterNot { denylist.isDenied(it.name) }
-            },
+            }
+            .withAssSupport(ass),
     )
-        .setMediaSourceFactory(DefaultMediaSourceFactory(dataSource))
+        .setMediaSourceFactory(
+            // MKV 里的 ASS 轨与外挂的 .ass 都交给 libass 解析（其余字幕照旧走 Exo）
+            DefaultMediaSourceFactory(dataSource, DefaultExtractorsFactory().withAssMkvSupport(assParsers, ass))
+                .setSubtitleParserFactory(assParsers),
+        )
         .setBandwidthMeter(bandwidth)
         .setAudioAttributes(
             AudioAttributes.Builder().setUsage(C.USAGE_MEDIA).setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
             true,
         )
         .build()
+        .also(ass::init)
+
+    /** ASS 字幕的叠加层（界面放在画面上方、与画面同大小） */
+    fun assOverlay(context: Context): android.view.View = AssSubtitleView(context, ass)
 
     /** 交给画面与系统媒体会话的播放器：系统 / 语音助手的播放、暂停、快进都绕回控制器（用户意图、上报都要走同一条路） */
     val player: Player = object : ForwardingPlayer(exo) {

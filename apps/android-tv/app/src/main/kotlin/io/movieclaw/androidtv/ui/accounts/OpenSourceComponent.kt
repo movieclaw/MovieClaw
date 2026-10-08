@@ -25,6 +25,14 @@ data class OpenSourceComponent(
             OpenSourceComponent("Coil", APACHE, "https://github.com/coil-kt/coil", apacheText),
             OpenSourceComponent("ZXing", APACHE, "https://github.com/zxing/zxing", apacheText),
             OpenSourceComponent("思源宋体（Noto Serif SC，欢迎页子集）", "SIL Open Font License 1.1", "https://github.com/notofonts/noto-cjk", listOf("OFL")),
+            OpenSourceComponent("libass-android（ass-media）", "MIT License", "https://github.com/peerless2012/libass-android", listOf("MIT-libass-android")),
+            OpenSourceComponent("libass", "ISC License", "https://github.com/libass/libass", listOf("ISC-libass")),
+            // 以下随 libass.so 静态编入（libass-cmake）；FriBidi 是 LGPL，但 libass.so 是独立可替换的共享库
+            OpenSourceComponent("FreeType", "FreeType License（FTL）", "https://gitlab.freedesktop.org/freetype/freetype", listOf("FTL-FreeType")),
+            OpenSourceComponent("HarfBuzz", "MIT License", "https://github.com/harfbuzz/harfbuzz", listOf("MIT-HarfBuzz")),
+            OpenSourceComponent("FriBidi", "GNU LGPL 2.1 或更新版本", "https://github.com/fribidi/fribidi", listOf("LGPL-2.1")),
+            OpenSourceComponent("fontconfig", "MIT 式许可", "https://gitlab.freedesktop.org/fontconfig/fontconfig", listOf("MIT-fontconfig")),
+            OpenSourceComponent("libunibreak", "zlib 式许可", "https://github.com/adah1972/libunibreak", listOf("Zlib-libunibreak")),
             // 只编了音频解码器，LGPL-2.1，独立共享库动态链接（libavcodec / libavutil / libswresample）
             OpenSourceComponent(
                 "FFmpeg 6.0.1（音频解码）",

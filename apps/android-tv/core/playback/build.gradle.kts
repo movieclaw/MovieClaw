@@ -22,6 +22,7 @@ dependencies {
     implementation(libs.media3.session)
     // FFmpeg 音频软解（能力申报要问它能解什么）
     implementation(project(":core:ffmpeg"))
+    implementation(libs.ass.media)
     implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
 }
