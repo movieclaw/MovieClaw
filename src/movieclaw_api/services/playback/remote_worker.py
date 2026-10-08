@@ -301,6 +301,23 @@ class RemoteWorkerRegistry:
             return False
         return self._select_worker(backend, segment_type, disc=disc) is not None
 
+    def has_busy_worker(self, backend: str = "videotoolbox") -> bool:
+        """有能执行这个后端的 Worker 在线，只是任务名额都占满了（正在排空的不算）。
+
+        决策层据此把「暂时没有空闲硬件」与「根本没有硬件」分开说：前者等一会儿、停掉别的转码
+        就能放，后者要去配显卡——同一句「未检测到硬件」会把人支去查一台好好的转码器。
+        """
+        if not remote_worker_enabled():
+            return False
+        with self._lock:
+            return any(
+                backend in connection.capabilities.backends
+                and len(connection.jobs) >= connection.max_jobs
+                and not connection.draining
+                and self._is_fresh(connection)
+                for connection in self._workers.values()
+            )
+
     def worker_online(self, worker_id: str | None) -> bool:
         """会话等待分片时判断它所属的 Worker 是否仍在线。"""
         if not worker_id:
@@ -930,3 +947,8 @@ def remote_worker_available(
 ) -> bool:
     """供播放决策/执行层同步查询远程硬件是否在线且有空闲槽位（``disc``：还要能读原盘）。"""
     return _registry.has_capable_worker(backend, segment_type, disc=disc)
+
+
+def remote_worker_busy(backend: str = "videotoolbox") -> bool:
+    """远程硬件在线但名额全满（见 ``RemoteWorkerRegistry.has_busy_worker``）。"""
+    return _registry.has_busy_worker(backend)

@@ -99,9 +99,13 @@ def describe(archive: Path) -> dict:
     return entry
 
 
-def describe_android(apk: Path) -> dict:
+def describe_android(
+    apk: Path, product: str = "android", application_id: str = "io.movieclaw.android",
+    arch: str = "arm64",
+) -> dict:
     # 元数据由 Android runner 的 aapt2 / apksigner 从实际 APK 生成；沿用时一起复制。
     # publish 的 macOS runner 不需要再安装 Android SDK，先校验元数据绑定的包未改变。
+    # Android TV 是独立 App（product androidtv），同一份契约；它同时带 64 / 32 位，arch 记 arm。
     entry = json.loads(apk.with_suffix(".json").read_text())
     with apk.open("rb") as stream:
         digest = hashlib.file_digest(stream, "sha256").hexdigest()
@@ -110,9 +114,9 @@ def describe_android(apk: Path) -> dict:
     ):
         raise ValueError(f"{apk.name} 与 Android 下载元数据不一致")
     if (
-        entry.get("product") != "android"
-        or entry.get("applicationId") != "io.movieclaw.android"
-        or entry.get("arch") != "arm64"
+        entry.get("product") != product
+        or entry.get("applicationId") != application_id
+        or entry.get("arch") != arch
         or entry.get("signed") is not True
         or not re.fullmatch(r"\d+\.\d+\.\d+", entry.get("version", ""))
         or not re.fullmatch(r"[0-9a-f]{64}", entry.get("certificateSha256", ""))
@@ -133,6 +137,10 @@ def main() -> None:
     packages = [describe(p) for p in sorted(args.directory.glob("MovieClaw*-macos-*.zip"))]
     packages += [
         describe_android(p) for p in sorted(args.directory.glob("MovieClaw-Android-*.apk"))
+    ]
+    packages += [
+        describe_android(p, "androidtv", "io.movieclaw.androidtv", "arm")
+        for p in sorted(args.directory.glob("MovieClaw-AndroidTV.apk"))
     ]
     manifest = {"schema": 1, "release": args.tag, "packages": packages}
     output = args.directory / "downloads.json"

@@ -59,6 +59,31 @@ libass ISC、libc++ Apache-2.0 with LLVM exception;附件里的 `NOTICE.md` 有�
 2. `local.properties`(机器本地、不入库)加 `nativeLibsUrl=` / `nativeLibsSha256=`
 3. 仓库 `gradle.properties` 里的默认值
 
+### TLS 熵源临时修补
+
+当前已校验的原生附件中，`libmp2.so` 和 `libavformat.so` 的 mbedTLS 熵源错误指向
+`/Device/Null`。Android 上读取失败后，旧 MPV/curl 仍继续 HTTPS 握手，可能调用未初始化的随机回调并导致整个应用退出。
+
+`prepareNativeLibs` 保留 `app/src/main/jniLibs` 下载缓存原样，把库复制到
+`app/build/generated/nativeLibs`。仅对任务中固定 SHA-256 的两份原库，将唯一、NUL 终止的
+`/Device/Null` 等长替换为 `/dev/urandom`，并再次验证修补后的 SHA-256。
+未知哈希、未知库或异常标记会拒绝打包；没有坏标记的库直接复制。
+APK 只从生成目录读取预编译 JNI 库，`-PskipNativeLibsDownload=true` 的离线缓存同样必须经过该任务。
+生成目录的 `entropy-repair-manifest.txt` 记录每个库修补前后的哈希。附件的 ZIP 校验和保持不变，TLS 证书校验保持开启。
+MPV 开流前通过默认 `TrustManagerFactory` 获取 App 平台信任的 X.509 CA，去重后原子写入
+App 私有 PEM 文件，并设置 `tls-verify=yes`、`tls-ca-file`。不直接枚举用户证书库；
+导出或配置失败时停止加载，不会关闭校验或信任所有证书。
+
+离线验证（需要已缓存的已知原生附件）：
+
+```sh
+./gradlew :app:verifyNativeEntropyRepair -PskipNativeLibsDownload=true
+```
+
+验证覆盖两库的实际生成哈希、二次准备幂等、原始缓存与正常库保持不变，以及未知坏库拒绝。
+这是针对已确认附件的短期修补；应由原生库上游正确配置 Android 系统熵源、处理 TLS 初始化失败，
+重建并发布可追溯的新附件及 ZIP 校验和，再移除此兼容修补。
+
 ## 代码结构
 
 ```

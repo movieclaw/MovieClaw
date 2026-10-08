@@ -7,7 +7,7 @@ import {
   boostSummary,
   deliveryColor,
   deliveryDetail,
-  shortDeviceLabel,
+  deviceLabel,
   sortBoostTasks,
   weekdayLabel,
   weeklyDelta,
@@ -57,9 +57,23 @@ test("转码细节只在转码时出现", () => {
   );
 });
 
-test("设备名去掉自家品牌前缀", () => {
-  assert.equal(shortDeviceLabel("MovieClaw Web · Safari · iPhone"), "Web · Safari · iPhone");
-  assert.equal(shortDeviceLabel("Infuse · Apple TV"), "Infuse · Apple TV");
+test("设备名：去掉自家品牌前缀、不重复客户端名", () => {
+  assert.equal(deviceLabel("MovieClaw Web", "Safari · iPhone"), "Web · Safari · iPhone");
+  assert.equal(deviceLabel("Infuse", "Apple TV"), "Infuse · Apple TV");
+  // 设备名以客户端名打头时不重复
+  assert.equal(deviceLabel("MovieClaw Apple TV", "Apple TV · tvOS 27.0"), "Apple TV · tvOS 27.0");
+  assert.equal(deviceLabel("MovieClaw Mac", "Mac · macOS 26.0"), "Mac · macOS 26.0");
+  assert.equal(deviceLabel("MovieClaw Android", "Android 16"), "Android 16");
+  assert.equal(deviceLabel("MovieClaw iOS", "iPhone · iOS 27.0"), "iPhone · iOS 27.0");
+  assert.equal(deviceLabel("MovieClaw Android", "Pixel 9 · Android 16"), "Pixel 9 · Android 16");
+  assert.equal(
+    deviceLabel("MovieClaw Android TV", "BRAVIA 4K VH2 · Android 12"),
+    "Android TV · BRAVIA 4K VH2 · Android 12",
+  );
+  // 只是字面前缀相同不算重复
+  assert.equal(deviceLabel("MovieClaw Android", "AndroidTV"), "Android · AndroidTV");
+  assert.equal(deviceLabel("", ""), "未知设备");
+  assert.equal(deviceLabel("Infuse", ""), "Infuse");
 });
 
 test("7 天涨跌：上一周期不可比时不显示，为 0 时报新增", () => {

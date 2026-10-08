@@ -374,6 +374,15 @@ class ClientCapabilityIn(BaseModel):
     #: 能经目录取流接口读原盘目录：多剪辑原盘给档 0 目录直推（会话的 ``stream_url``
     #: 是目录清单地址，决策带主播放列表名），NAS 不起 ffmpeg
     disc_folder: bool = False
+    #: 能在本机切换内封音轨（Android TV 的 ExoPlayer）：直出原文件时自己选中计划里的那条，
+    #: 服务端不再为「选中的不是默认轨」重封装。浏览器只放默认轨，不申报
+    local_tracks: bool = False
+    #: 能完整呈现的杜比视界 profile（本机杜比视界解码器支持、屏幕支持杜比视界）：原样直通。
+    #: 老客户端不带 = 空 = 杜比视界一律转码（与原来相同）
+    dolby_vision_profiles: list[int] = []
+    #: 解不了杜比视界时能退回基础层播放的 profile（Android TV 的 ExoPlayer 对 P8 改用 HEVC
+    #: 解码器）：基础层兼容且屏幕能直出 HDR 时直通
+    dolby_vision_base_layer_profiles: list[int] = []
 
 
 class PlaybackDecideRequest(BaseModel):

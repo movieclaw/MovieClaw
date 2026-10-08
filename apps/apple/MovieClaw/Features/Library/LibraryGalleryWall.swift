@@ -292,6 +292,7 @@ struct LibraryGalleryWall: View {
                     fetch: fetch,
                     onLeave: { afterDismiss = $0 }
                 )
+                .sheetFeedback()
             }
     }
 
@@ -600,15 +601,14 @@ private struct GalleryLightbox: View {
     @Environment(\.api) private var api
     @Environment(\.dismiss) private var dismiss
     @Environment(Router.self) private var router
-    @State private var note: String?
+    @Environment(Feedback.self) private var feedback
 
     var body: some View {
         LibraryZoomableImage.Lightbox(
             slides: slides,
             index: $index,
             hasMore: feed.hasMore,
-            onReachEnd: { Task { await feed.loadMore(fetch: fetch) } },
-            note: note
+            onReachEnd: { Task { await feed.loadMore(fetch: fetch) } }
         ) {
             if let current {
                 let (group, image) = current
@@ -677,10 +677,8 @@ private struct GalleryLightbox: View {
                 try await feed.setFavorite(group.mediaItemId, next, api: api)
             } catch is CancellationError {
             } catch {
-                // 全屏灯箱盖住了全局 Toast，失败原因就地提示
-                note = error.localizedDescription.isEmpty ? "收藏失败，请稍后重试" : error.localizedDescription
-                try? await Task.sleep(for: .seconds(4))
-                note = nil
+                // 灯箱挂了自己的提示宿主（sheetFeedback），与全 App 同一种顶部提示
+                feedback.error(error.localizedDescription.isEmpty ? "收藏失败，请稍后重试" : error.localizedDescription)
             }
         }
     }

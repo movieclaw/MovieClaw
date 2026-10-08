@@ -54,14 +54,15 @@ def test_legacy_upgrade_and_old_runtime_refusal_then_backup_restore(tmp_path, mo
     shutil.copytree(
         Path(config.get_main_option("script_location")),
         old_scripts,
-        ignore=shutil.ignore_patterns(
-            "__pycache__", "20261007_1200_e7f4a1c9b203_smart_subscription.py",
-            "20261007_1800_f8316ab24d90_smart_lab.py",
-            "20261007_1900_c9a72e4d6b10_remove_smart_lab.py",
-        ),
+        # 旧程序：智能订阅（20261007_1200）及之后的迁移都没有
+        ignore=lambda _dir, names: [
+            n
+            for n in names
+            if n == "__pycache__" or (n[:1].isdigit() and n[:13] >= "20261007_1200")
+        ],
     )
     config.set_main_option("script_location", str(old_scripts))
-    with pytest.raises(CommandError, match="c9a72e4d6b10"):
+    with pytest.raises(CommandError, match="Can't locate revision"):
         command.upgrade(config, "head")
     # 回退恢复完整备份，不删除模式字段或把智能订阅塞进默认规则。
     shutil.copy2(backup, path)

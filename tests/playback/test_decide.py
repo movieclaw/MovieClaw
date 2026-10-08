@@ -1188,6 +1188,19 @@ def test_iso_is_raw_bytes_for_full_decode_players_and_explained_to_browsers():
     assert "ISO" in decision.reason and "Infuse" in decision.suggestion
 
 
+def test_readable_iso_is_remuxed_or_transcoded_for_players_that_need_the_server():
+    """服务端读出了镜像里的正片（iso_source.py 给出 disc_clips）：不再拒绝，与原盘目录一样按
+    常规判定走——编码能直通就换封装，不能就转码；全解码播放器照旧原字节直推。"""
+    readable = media(container="iso", disc_clips=1)
+    decision = decide_playback(readable, SAFARI_MAC, WITH_GPU)
+    assert isinstance(decision, PlaybackPlan)
+    assert decision.tier is not PlaybackTier.DIRECT_PLAY  # ISO 不能整份交给浏览器
+
+    decision = decide_playback(readable, universal_capability(), NO_GPU)
+    assert isinstance(decision, PlaybackPlan)
+    assert decision.tier is PlaybackTier.DIRECT_PLAY
+
+
 def test_fmp4_copy_audio_track_avoids_truehd_and_prefers_same_language():
     """原盘 HLS remux：TrueHD 装不进 fMP4（ffmpeg 视为 experimental），回退到同语言
     的 AC-3 核心；用户点选的可封装轨优先；全都不可封装时原样返回。"""
@@ -1350,3 +1363,136 @@ def test_transcode_plan_carries_the_source_codec():
     assert isinstance(decision, PlaybackPlan)
     assert decision.video.action == "transcode"
     assert decision.video.source_codec == "vc1"
+
+
+# ---------------------------------------------------------------------------
+# 原生播放器申报的容器与本机切轨（Android TV 的 ExoPlayer，docs/design/androidtv-app.md §4.2）
+# ---------------------------------------------------------------------------
+
+EXOPLAYER = ClientCapability(
+    video=(VideoSupport("h264"), VideoSupport("hevc"), VideoSupport("vp9")),
+    audio=(AudioSupport("aac"), AudioSupport("ac3"), AudioSupport("opus")),
+    containers=frozenset({"mp4", "mkv", "webm", "ts", "hls-fmp4"}),
+    mse="none",
+    native_hls=True,
+    local_tracks=True,
+)
+
+
+@pytest.mark.parametrize("container", ["mkv", "webm", "ts"])
+def test_declared_containers_play_the_original_file(container):
+    """原生播放器申报能直接解封装的容器：给档 0 原文件，不在服务端重封装。"""
+    decision = decide_playback(media(container=container), EXOPLAYER, WITH_GPU)
+    assert decision.tier is PlaybackTier.DIRECT_PLAY
+    assert decision.container == "mp4"
+
+
+def test_browsers_still_remux_mkv():
+    """浏览器只申报 mp4 / hls-fmp4：mkv 照旧重封装，现有客户端行为不变。"""
+    assert decide_playback(media(), CHROME_HEVC, WITH_GPU).tier is PlaybackTier.REMUX
+
+
+def test_declared_container_still_checks_codecs():
+    """容器能直连不等于什么都放得了：编码照样由服务端核对。"""
+    decision = decide_playback(media(video_codec="vc1"), EXOPLAYER, WITH_GPU)
+    assert decision.tier is PlaybackTier.HARDWARE_TRANSCODE
+
+
+def test_local_tracks_keep_direct_play_for_a_non_default_track():
+    """本机能切轨的播放器选了非默认轨也直连，计划里带上那条让它自己选中。"""
+    profile = media(audio_tracks=(JPN_AAC, CHI_AAC))
+    picked = decide_playback(profile, EXOPLAYER, WITH_GPU, preferred_audio="embedded:2")
+    assert picked.tier is PlaybackTier.DIRECT_PLAY
+    assert picked.audio.track_ref == "embedded:2"
+    without = ClientCapability(**{**vars(EXOPLAYER), "local_tracks": False})
+    remuxed = decide_playback(profile, without, WITH_GPU, preferred_audio="embedded:2")
+    assert remuxed.tier is PlaybackTier.REMUX
+
+
+def test_declared_container_skips_keyframe_probe():
+    """直连原文件用不上关键帧密度：预热不为它读盘采样。"""
+    assert not needs_keyframe_probe(media(keyframe_interval_s=None), EXOPLAYER, WITH_GPU)
+
+
+def test_hdr_without_free_hardware_says_busy_when_the_remote_transcoder_is_full():
+    """远程转码器在线但名额占满：不说「未检测到硬件」（会把人支去查一台好好的转码器），
+    说正忙、稍候或停掉别的转码。"""
+    from dataclasses import replace
+
+    hdr = media(hdr="HDR10", bit_depth=10, video_codec="hevc")
+    sdr_screen = replace(SAFARI_MAC, hdr_passthrough=False)
+    busy = PlaybackPolicy(hardware_available=False, hardware_busy=True)
+    decision = decide_playback(hdr, sdr_screen, busy)
+    assert isinstance(decision, PlaybackRejected)
+    assert "正忙" in decision.reason and "未检测到" not in decision.reason
+
+    decision = decide_playback(hdr, sdr_screen, NO_GPU)
+    assert isinstance(decision, PlaybackRejected)
+    assert "未检测到可用的硬件加速设备" in decision.reason
+
+
+# ---------------------------------------------------------------------------
+# 杜比视界按 profile（台账有 dv_profile 之后；电视申报能解的 profile、能退回基础层的 profile）
+# ---------------------------------------------------------------------------
+
+from dataclasses import replace as _replace  # noqa: E402
+
+DV_TV = _replace(
+    EXOPLAYER,
+    hdr_passthrough=True,
+    dolby_vision_profiles=frozenset({5, 8}),
+    dolby_vision_base_layer_profiles=frozenset({8}),
+)
+HDR10_TV = _replace(
+    EXOPLAYER, hdr_passthrough=True, dolby_vision_base_layer_profiles=frozenset({8})
+)
+SDR_TV = _replace(EXOPLAYER, dolby_vision_base_layer_profiles=frozenset({8}))
+
+
+def dv(profile, compatible):
+    return media(
+        video_codec="hevc",
+        resolution="2160p",
+        hdr="Dolby Vision",
+        dv_profile=profile,
+        dv_bl_compatible=compatible,
+    )
+
+
+def test_dolby_vision_tv_plays_the_profiles_it_decodes_untouched():
+    for profile, compatible in ((5, False), (8, True)):
+        decision = decide_playback(dv(profile, compatible), DV_TV, WITH_GPU)
+        assert decision.tier is PlaybackTier.DIRECT_PLAY, decision.reason
+        assert "直接解码" in decision.reason
+
+
+def test_hdr10_tv_plays_the_base_layer_of_compatible_profiles():
+    decision = decide_playback(dv(8, True), HDR10_TV, WITH_GPU)
+    assert decision.tier is PlaybackTier.DIRECT_PLAY
+    assert "基础层" in decision.reason
+
+
+def test_profile_5_still_needs_tone_mapping_without_a_dolby_vision_decoder():
+    """P5 的基础层是 IPTPQc2：当 HDR10 放就是绿紫画面"""
+    decision = decide_playback(dv(5, False), HDR10_TV, WITH_GPU)
+    assert decision.tier is PlaybackTier.HARDWARE_TRANSCODE
+    assert decision.video.tone_map is True
+
+
+def test_base_layer_needs_an_hdr_display():
+    decision = decide_playback(dv(8, True), SDR_TV, WITH_GPU)
+    assert decision.tier is PlaybackTier.HARDWARE_TRANSCODE
+    assert decision.video.tone_map is True
+
+
+def test_profile_7_falls_back_only_where_the_client_declares_it():
+    # ExoPlayer 只对 P8（和 P4）改用 HEVC 解码器解基础层，P7 不在申报里：照旧转码
+    assert decide_playback(dv(7, True), HDR10_TV, WITH_GPU).tier is PlaybackTier.HARDWARE_TRANSCODE
+
+
+def test_unknown_profile_and_old_clients_keep_transcoding():
+    """台账没探到 profile、或客户端没申报杜比视界：与原来一样转码，判错就是绿紫画面"""
+    transcode = PlaybackTier.HARDWARE_TRANSCODE
+    assert decide_playback(dv(None, None), DV_TV, WITH_GPU).tier is transcode
+    old_client = _replace(EXOPLAYER, hdr_passthrough=True)
+    assert decide_playback(dv(8, True), old_client, WITH_GPU).tier is transcode

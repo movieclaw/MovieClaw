@@ -189,7 +189,6 @@ public final class AetherPlayback {
     private nonisolated static let engineConfiguration: Void = {
         AetherEngine.vodSegmentTargetSeconds = 2                  // P33
         AetherEngine.vodFirstSegmentTargetSeconds = 1             // P3
-        AetherEngine.servesSegmentsProgressively = true           // P57
         AetherEngine.declaresIndependentMediaSegments = true      // P59
         AetherEngine.seekSnapDecodeBudgetSeconds = 0.2            // P36
         AetherEngine.startSnapDecodeBudgetSeconds = 0.05          // P39
@@ -215,7 +214,7 @@ public final class AetherPlayback {
         return [
             "vodSegmentTargetSeconds": "\(AetherEngine.vodSegmentTargetSeconds)",
             "vodFirstSegmentTargetSeconds": AetherEngine.vodFirstSegmentTargetSeconds.map { "\($0)" } ?? "nil",
-            "servesSegmentsProgressively": "\(AetherEngine.servesSegmentsProgressively)",
+            "progressiveSegmentDelivery": "\(progressiveSegmentDelivery)",
             "declaresIndependentMediaSegments": "\(AetherEngine.declaresIndependentMediaSegments)",
             "seekSnapDecodeBudgetSeconds": "\(AetherEngine.seekSnapDecodeBudgetSeconds)",
             "startSnapDecodeBudgetSeconds": "\(AetherEngine.startSnapDecodeBudgetSeconds)",
@@ -303,10 +302,12 @@ public final class AetherPlayback {
         AetherEngine.skipsDetourOnSlowLink = on
     }
 
-    /// 点播分片边产出边送、分片内每 0.5 秒一个片段（引擎补丁 P57，默认开；对照时关掉）
+    /// 点播分片边产出边送、分片内每 0.5 秒一个片段（上游 7.32.0 的 `LoadOptions.progressiveSegmentDelivery`，
+    /// 源自引擎补丁 P57）。按次装载生效，MovieClaw 默认开；对照时关掉
+    nonisolated(unsafe) private static var progressiveSegmentDelivery = true
+
     public static func setServesSegmentsProgressively(_ on: Bool) {
-        configureEngine()
-        AetherEngine.servesSegmentsProgressively = on
+        progressiveSegmentDelivery = on
     }
 
     /// 点播媒体播放列表也声明分片各自独立，跳转时 AVPlayer 直接要目标段（引擎补丁 P59，默认开；对照时关掉）
@@ -440,6 +441,7 @@ public final class AetherPlayback {
         subtitleView.cues = []
         lastSource = source
         var options = LoadOptions()
+        options.progressiveSegmentDelivery = Self.progressiveSegmentDelivery
         options.sourceCacheKey = sourceCacheKey
         options.forwardBufferSegments = forwardSegments
         options.backwardBufferSegments = backwardSegments

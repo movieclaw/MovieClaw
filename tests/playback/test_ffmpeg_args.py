@@ -239,6 +239,20 @@ def test_audio_transcode_always_aligns_timestamps():
     assert af is not None and "pan=" in af and af.index("pan=") < af.index("aresample=")
 
 
+@pytest.mark.parametrize(("codec", "delay"), [("aac", 1024), ("eac3", 256)])
+def test_vod_audio_transcode_compensates_encoder_delay(codec, delay):
+    """VOD 模式（-copyts）下编码器预填充让第一个音频包的时间戳为负，fMP4 的 tfdt 跟着成负数，
+    ExoPlayer 按规范读无符号数直接拒播。音频整体后移一个预填充，视频时间戳不动。"""
+    transcode = plan(
+        PlaybackTier.AUDIO_TRANSCODE,
+        audio=AudioPlan(action="transcode", track_ref="embedded:0", codec=codec, channels=6),
+    )
+    af = pair(argv_of(transcode, start_number=0), "-af")
+    assert af == f"aresample=async=1,asetpts=PTS+{delay}/SR/TB"
+    # 会话相对模式本来就把音频拉回 0（first_pts=0），不再叠加
+    assert "asetpts" not in pair(argv_of(transcode), "-af")
+
+
 def test_plan_without_audio_track_maps_no_audio():
     argv = argv_of(plan(PlaybackTier.REMUX, audio=AudioPlan(action="copy", track_ref=None)))
     assert not any(a.startswith("0:a") for a in argv)

@@ -469,6 +469,7 @@ def build_hls_command(
     worker_caps: WorkerVideoCaps | None = None,
     progressive: bool = False,
     seek_pad_s: float = 0.5,
+    protocol_whitelist: str | None = None,
 ) -> TranscodeCommand:
     """把播放计划翻成 ffmpeg 命令。档 0（Direct Play）不该走到这里。
 
@@ -561,6 +562,9 @@ def build_hls_command(
     if input_format == "concat":
         # -safe 0：清单里是绝对路径（默认的 safe 模式只认相对路径）
         argv += ["-f", "concat", "-safe", "0"]
+        if protocol_whitelist:
+            # 光盘镜像的段写成 subfile 区间（iso_source.py）：concat 默认只放行 file 协议
+            argv += ["-protocol_whitelist", protocol_whitelist]
     argv += ["-i", source_path]
 
     # 只取一路视频一路音频；字幕流不进输出容器（-sn）——默认旁挂由前端渲染
@@ -895,6 +899,10 @@ def _filter_chain(
     return ",".join(parts)
 
 
+#: 音频编码器开头的预填充采样数（ffmpeg 自带编码器的 initial_padding），见 _audio_args
+_ENCODER_DELAY_SAMPLES = {"aac": 1024, "eac3": 256, "ac3": 256}
+
+
 def _audio_args(plan: PlaybackPlan, *, has_audio: bool, absolute_ts: bool) -> list[str]:
     if not has_audio:
         return []
@@ -919,6 +927,15 @@ def _audio_args(plan: PlaybackPlan, *, has_audio: bool, absolute_ts: bool) -> li
     # 几千秒的静音来「补偿」（实测：从 3393 秒处续播，ffmpeg 埋头填了 17 秒
     # 静音才吐出第一个分片，前端就卡在「正在判断播放方式」）。
     resample = "aresample=async=1" if absolute_ts else "aresample=async=1:first_pts=0"
+    delay = _ENCODER_DELAY_SAMPLES.get(codec.lower(), 0)
+    if absolute_ts and delay:
+        # 编码器开头有一段预填充（AAC 1024、E-AC-3 256 个采样），第一个包的时间戳因此是负的；
+        # -copyts + avoid_negative_ts disabled 下它原样落进分片，fMP4 的 tfdt 成了 -1024。
+        # tfdt 按规范是无符号数：Safari、hls.js 宽容地当有符号读，ExoPlayer（Android TV）
+        # 严格按规范读，直接报「Top bit not zero」起不了播。把音频整体后移一个预填充，
+        # 第一个包落在源片的音频起点上；视频时间戳不动，分片仍是文件时间（seek 重开也一样）。
+        # 代价是音频比原来晚这一个预填充（AAC 48kHz 约 21 毫秒），在唇音同步的容差之内。
+        resample += f",asetpts=PTS+{delay}/SR/TB"
     if plan.audio.downmix:
         args += ["-af", f"{_DOWNMIX_PAN},{resample}"]
     else:

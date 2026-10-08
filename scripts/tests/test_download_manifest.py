@@ -100,6 +100,39 @@ class DownloadManifestTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 module.describe_android(apk)
 
+    def test_android_tv_is_a_separate_package_next_to_the_phone_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            entries = []
+            for name, product, application_id, arch in (
+                ("MovieClaw-Android-arm64.apk", "android", "io.movieclaw.android", "arm64"),
+                ("MovieClaw-AndroidTV.apk", "androidtv", "io.movieclaw.androidtv", "arm"),
+            ):
+                apk = Path(tmp) / name
+                apk.write_bytes(name.encode())
+                entry = {
+                    "product": product, "applicationId": application_id,
+                    "version": "0.1.0", "build": "1", "minimumSdk": 23, "arch": arch,
+                    "asset": name, "signed": True, "certificateSha256": "a" * 64,
+                    "size": apk.stat().st_size,
+                    "sha256": hashlib.sha256(apk.read_bytes()).hexdigest(),
+                }
+                apk.with_suffix(".json").write_text(json.dumps(entry))
+                entries.append(entry)
+            subprocess.run(
+                [sys.executable, str(SCRIPT), "--directory", tmp, "--tag", "v0.34.0"],
+                check=True, capture_output=True,
+            )
+            manifest = json.loads((Path(tmp) / "downloads.json").read_text())
+            self.assertEqual(manifest["packages"], entries)
+            # TV 的元数据换成手机版的 App 身份：拒绝
+            tv = Path(tmp) / "MovieClaw-AndroidTV.json"
+            tv.write_text(json.dumps({**entries[1], "applicationId": "io.movieclaw.android"}))
+            with self.assertRaises(ValueError):
+                module.describe_android(
+                    Path(tmp) / "MovieClaw-AndroidTV.apk",
+                    "androidtv", "io.movieclaw.androidtv", "arm",
+                )
+
     def test_android_requires_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
             apk = Path(tmp) / "MovieClaw-Android-arm64.apk"

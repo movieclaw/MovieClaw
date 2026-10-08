@@ -21,6 +21,7 @@ import logging
 from collections.abc import Callable
 from pathlib import Path
 
+from movieclaw_api.services.library import dvd
 from movieclaw_api.services.library.bluray import (
     MPLS_CLOCK_HZ,
     MplsParseError,
@@ -203,78 +204,22 @@ def _bluray_index(
 def _dvd_index(
     vob_sizes: dict[str, int], read_ifo: Callable[[str], bytes]
 ) -> ContainerIndex | None:
-    """主标题的片长，选法与 App 引擎一致（``DiscReader.dvdTitleSet``）：VIDEO_TS.IFO 的标题表
-    （TT_SRPT）列出的标题集才算标题（读不出、或滤完为空就全算），其中正片内容 VOB（VTS_NN_1～9）
-    总大小最大的是主标题，片长取它 IFO 里最长的那条节目链。两边选的是同一个标题，挑出来的时间
-    才落在引擎播放的那条时间轴上。"""
-    totals: dict[int, int] = {}
-    for name, size in vob_sizes.items():
-        parts = name.removeprefix("VTS_").removesuffix(".VOB").split("_")
-        if len(parts) == 2 and parts[0].isdigit() and parts[1].isdigit() and int(parts[1]) >= 1:
-            totals[int(parts[0])] = totals.get(int(parts[0]), 0) + size
-    try:
-        listed = _title_set_numbers(read_ifo("VIDEO_TS.IFO"))
-    except (KeyError, OSError, UDFError, ValueError):
-        listed = set()
-    totals = {vts: size for vts, size in totals.items() if vts in listed} or totals
-    if not totals:
+    """主标题的片长：主标题与正片节目链的选法见 ``library.dvd``（与 App 引擎一致）。"""
+    main = dvd.main_title_set(vob_sizes, read_ifo)
+    if main is None:
         return None
-    main = min(totals, key=lambda vts: (-totals[vts], vts))
     try:
-        seconds = _longest_pgc_seconds(read_ifo(f"VTS_{main:02d}_0.IFO"))
-    except (KeyError, OSError, UDFError, ValueError) as exc:
+        seconds = dvd.longest_program_chain(read_ifo(f"VTS_{main:02d}_0.IFO")).seconds
+    except (KeyError, OSError, ValueError) as exc:
         logger.info("DVD 主标题 IFO 读不出：VTS_%02d（%s）", main, exc)
         return None
     if seconds <= 0:
         return None
-    return ContainerIndex(
-        container="dvd", file_size=totals[main], duration_s=seconds, keyframes=(), tracks=()
+    size = sum(
+        size
+        for name, size in vob_sizes.items()
+        if name.upper().startswith(f"VTS_{main:02d}_") and not name.upper().endswith("_0.VOB")
     )
-
-
-def _title_set_numbers(data: bytes) -> set[int]:
-    """VIDEO_TS.IFO 标题表（TT_SRPT，扇区号在 0xC4）里各标题所在的标题集号。
-
-    表头 2 字节是标题个数，其后每条 12 字节，第 6 字节是标题集号（VTSN）。
-    """
-    if len(data) < 0xC8 or data[:12] != b"DVDVIDEO-VMG":
-        raise ValueError("不是 VIDEO_TS.IFO")
-    table = int.from_bytes(data[0xC4:0xC8], "big") * 2048
-    if table + 8 > len(data):
-        raise ValueError("标题表越界")
-    count = int.from_bytes(data[table : table + 2], "big")
-    return {
-        data[table + 8 + i * 12 + 6]
-        for i in range(min(count, 99))
-        if table + 8 + i * 12 + 12 <= len(data)
-    }
-
-
-def _longest_pgc_seconds(data: bytes) -> float:
-    """标题集 IFO → 其中最长一条节目链（PGC）的播放时长（秒）。
-
-    IFO 头 0xCC 是节目链信息表（VTS_PGCITI）的扇区号；表头 2 字节是节目链个数，其后每条
-    8 字节（类别 4 字节 + 相对表头的偏移 4 字节）；节目链的 0x04 起 4 字节是 BCD 编码的
-    播放时长：时、分、秒、帧（帧字节最高两位是帧率标志，不计入时长）。
-    """
-    if len(data) < 0xD0 or data[:12] != b"DVDVIDEO-VTS":
-        raise ValueError("不是标题集 IFO")
-    table = int.from_bytes(data[0xCC:0xD0], "big") * 2048
-    if table + 8 > len(data):
-        raise ValueError("节目链信息表越界")
-    count = int.from_bytes(data[table : table + 2], "big")
-    longest = 0.0
-    for i in range(min(count, 999)):
-        entry = table + 8 + i * 8
-        if entry + 8 > len(data):
-            break
-        pgc = table + int.from_bytes(data[entry + 4 : entry + 8], "big")
-        if pgc + 8 > len(data):
-            continue
-        hours, minutes, seconds = (_bcd(b) for b in data[pgc + 4 : pgc + 7])
-        longest = max(longest, hours * 3600 + minutes * 60 + seconds)
-    return longest
-
-
-def _bcd(value: int) -> int:
-    return (value >> 4) * 10 + (value & 0x0F)
+    return ContainerIndex(
+        container="dvd", file_size=size, duration_s=seconds, keyframes=(), tracks=()
+    )

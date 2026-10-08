@@ -23,7 +23,7 @@ class PlaybackLog(MemberScopedMixin, TimestampMixin, table=True):
     - 成员同 ``playback_state`` 的哨兵约定（0=超管），不做外键，删成员时由
       服务层清理；
     - ``watched_ms`` 是按进度心跳的位置增量累加的**实际观看时长**：暂停不计、
-      seek 跳过的区间不计（单次增量超过心跳上限的视为 seek 丢弃），与
+      seek 跳过的区间不计（单次增量按两次上报的墙钟间隔封顶），与
       ``end_position_ms - start_position_ms`` 这个「播到哪」是两个读数；
     - 一行只在开始与停止时明确开合；播放器异常退出不会发停止，``ended_at``
       留空，读侧按 ``last_seen_at`` 超过会话保鲜期视为已结束，写侧在同一设备

@@ -72,6 +72,8 @@ class ClientCapability:
     audio: tuple[AudioSupport, ...] = ()
     # 客户端能直接消费的容器。"mp4"=可 <video src> 直出；"hls-fmp4"=有 MSE 或
     # 原生 HLS，能吃 fMP4 分片。两者都没有的客户端本质上放不了任何东西。
+    # 原生播放器还可以申报 "mkv"、"webm"、"ts" 等：这些容器的文件同样给档 0 原文件直连
+    # （Android TV 的 ExoPlayer，docs/design/androidtv-app.md §4.2）。
     containers: frozenset[str] = field(default_factory=frozenset)
     # 屏幕与浏览器是否支持 HDR 直出（matchMedia('(dynamic-range: high)')）。
     # 为 False 时 HDR 源必须 tone-map 到 SDR，否则画面灰暗发白。
@@ -90,6 +92,14 @@ class ClientCapability:
     disc_image: bool = False
     #: 全解码播放器能经目录取流接口读原盘目录：多剪辑原盘给档 0 目录直推，NAS 不起 ffmpeg
     disc_folder: bool = False
+    #: 播放器能在本机切换内封音轨（ExoPlayer）：直出原文件时它自己选中计划里的那条，
+    #: 不必为了「放的不是默认轨」重封装。浏览器的 <video> 只放默认轨，不能申报
+    local_tracks: bool = False
+    #: 能完整呈现的杜比视界 profile（设备有对应的杜比视界解码器、屏幕支持杜比视界）：原样直通
+    dolby_vision_profiles: frozenset[int] = field(default_factory=frozenset)
+    #: 解不了杜比视界时能退回基础层播放的 profile（ExoPlayer 对 P8 改用 HEVC 解码器解基础层）：
+    #: 基础层兼容、屏幕能直出 HDR 时直通。浏览器解码行为不一，不申报
+    dolby_vision_base_layer_profiles: frozenset[int] = field(default_factory=frozenset)
 
     @property
     def uses_native_hls_player(self) -> bool:

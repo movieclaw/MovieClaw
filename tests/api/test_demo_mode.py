@@ -188,7 +188,7 @@ def test_demo_allows_browsing_login_and_account_switching(client: TestClient, mo
 
 
 @pytest.mark.parametrize("account", [_ADMIN, _MEMBER])
-@pytest.mark.parametrize("client_type", ["tvos", "macos"])
+@pytest.mark.parametrize("client_type", ["tvos", "macos", "androidtv"])
 def test_demo_app_pairing_full_flow(client: TestClient, monkeypatch, account, client_type) -> None:
     """模拟 App 出码、手机批准、App 兑换并访问媒体库，权限跟随批准者。"""
     _provision(client)

@@ -57,6 +57,7 @@ struct TorrentResultsView: View {
         }
         .sheet(item: $actions.sheetHit) { item in
             TorrentActionsSheet(hit: item.hit, actions: actions, grabTarget: grabTarget, showsImages: item.fromGallery)
+                .sheetFeedback()
         }
         .sheet(item: $actions.dialogRequest) { request in
             DownloadTargetSheet(request: request, remembered: actions.prefs.byCategory[request.category]) { result in

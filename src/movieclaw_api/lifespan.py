@@ -191,6 +191,18 @@ def build_lifespan(settings: Settings):
         from movieclaw_api.services.enrich_backfill import start_enrich_backfill
 
         start_enrich_backfill()
+        # 存量光盘镜像的台账片长换成盘内正片时长（ffprobe 对镜像估得离谱，见模块注释）
+        from movieclaw_api.services.library.disc_image_durations import (
+            start_disc_image_duration_heal,
+        )
+
+        start_disc_image_duration_heal()
+        # 存量杜比视界文件补记 profile（播放决策按 profile 分直通 / 基础层 / 转码）
+        from movieclaw_api.services.library.dolby_vision_backfill import (
+            start_dolby_vision_backfill,
+        )
+
+        start_dolby_vision_backfill()
         # 旧版更新提醒清场：更新提醒曾写进「待处理事项」，现已改为侧栏常驻徽标，
         # 存量告警行再无任何路径去消退它，会永远挂在告警面板上（见函数注释）
         from movieclaw_api.services.app_update import (
@@ -402,6 +414,16 @@ def build_lifespan(settings: Settings):
             from movieclaw_api.services.enrich_backfill import close_enrich_backfill
 
             await close_enrich_backfill()
+            from movieclaw_api.services.library.disc_image_durations import (
+                close_disc_image_duration_heal,
+            )
+
+            await close_disc_image_duration_heal()
+            from movieclaw_api.services.library.dolby_vision_backfill import (
+                close_dolby_vision_backfill,
+            )
+
+            await close_dolby_vision_backfill()
             if settings.scheduler_enabled:
                 from movieclaw_api.services.app_update import close_startup_check
                 from movieclaw_api.services.boost_bandwidth import (

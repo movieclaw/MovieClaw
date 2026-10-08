@@ -134,6 +134,9 @@ class MediaProfile:
     video_codec: str | None = None
     resolution: str | None = None
     hdr: str | None = None  # None=SDR / "HDR10" / "HLG" / "HDR10+" / "Dolby Vision"
+    #: 杜比视界 profile 与基础层能否直接解读（台账真值；老台账没探到时 None，按「不知道」保守转码）
+    dv_profile: int | None = None
+    dv_bl_compatible: bool | None = None
     #: 归一化色彩空间标签（"BT.2020" / "BT.709" / "BT.601" / …），来自 ffprobe
     #: 落库的真值。SDR 片同样可能是 BT.2020（10-bit 压制常见），转码要据此决定
     #: 插不插色彩空间转换——只看 hdr 是不够的。
@@ -171,6 +174,9 @@ class PlaybackPolicy:
     software_transcode_enabled: bool = False
     #: 硬件自检（§5.2）的结论。为 False 时档 3 不可用，只能落档 4。
     hardware_available: bool = False
+    #: 没有空闲硬件，但远程转码器在线、只是名额都占满了：此时的「没硬件」是暂时的，
+    #: 提示要说「正忙、稍候」而不是「未检测到硬件」
+    hardware_busy: bool = False
     #: 转码输出的高度上限，超出则降分辨率。
     max_transcode_height: int = 1080
 
@@ -334,13 +340,12 @@ def decide_playback(
     if media.is_strm:
         return _decide_strm(media, failed_tiers)
 
-    # 光盘镜像（ISO）：服务端读不了盘内结构（没有 UDF / ISO9660 解析，ffprobe 读 ISO
-    # 只是碰巧嗅探到盘内字节，规格不可信），换封装、转码都无从谈起——但自己拉原文件的
-    # 全解码播放器未必放不了（Infuse、带 libbluray 的播放器都认 ISO），所以不拦：一律给
-    # 原字节直推，放不放得了由播放器自己决定。申报了能读镜像的（App 的自研引擎）额外标上
-    # disc="image"，它据此按镜像装载（disc-direct-play.md §2.2）。
-    # 只有指望服务端换封装 / 转码的客户端（浏览器）明确告知放不了——服务端确实无能为力，
-    # 与其开一个注定 404 的会话，不如直接说清原因和出路。
+    # 光盘镜像（ISO）：自己拉原文件的全解码播放器（Infuse、带 libbluray 的播放器都认 ISO）
+    # 一律给原字节直推，放不放得了由播放器自己决定；申报了能读镜像的（App 的自研引擎）额外
+    # 标上 disc="image"，它据此按镜像装载（disc-direct-play.md §2.2）。
+    # 指望服务端换封装 / 转码的客户端（Android TV、浏览器）：服务端用只读 UDF 读取器找出
+    # 镜像里正片的字节区间（iso_source.py，决策前由 plan.py 解析，段数进 disc_clips），
+    # 读得出就按原盘目录同一套常规判定走；读不出才明确告知放不了，免得开一个注定失败的会话。
     if media.container == "iso":
         if capability.universal:
             return PlaybackPlan(
@@ -356,11 +361,14 @@ def decide_playback(
                 reason="光盘镜像原字节直推，盘内结构由播放器在本机读取",
                 disc="image" if capability.disc_image else None,
             )
-        return PlaybackRejected(
-            reason="服务端读不了光盘镜像（ISO）的盘内结构，没法为这个播放器换封装或转码",
-            suggestion="请用能直接播放 ISO 的播放器（MovieClaw 的 iOS App、Infuse 等）；"
-            "或把镜像里的 BDMV 目录解出来后重新入库",
-        )
+        # 服务端读出了镜像里的正片（蓝光主片各段 / DVD 正片节目链在镜像上的字节区间，
+        # iso_source.py）：与原盘目录一样按下面的常规判定换封装或转码
+        if media.disc_clips < 1:
+            return PlaybackRejected(
+                reason="服务端读不了这个光盘镜像（ISO）的盘内结构，没法为这个播放器换封装或转码",
+                suggestion="请用能直接播放 ISO 的播放器（MovieClaw 的 iOS / Apple TV App、"
+                "Infuse 等），或把镜像里的正片解出来后重新入库",
+            )
 
     # 2. 恒等快照（全解码播放器）：永远直连，与 jellyfin-compat.md 行为一致。
     #    例外：多剪辑原盘没有单个文件可直连。能读原盘目录的播放器（App 的自研引擎）
@@ -456,7 +464,7 @@ def decide_playback(
 
     # 6–7. 综合定档。
     tier, container, reason, degraded_from = _resolve_tier(
-        media, video_verdict, audio_verdict, policy, failed_tiers
+        media, video_verdict, audio_verdict, policy, failed_tiers, capability=capability
     )
     if isinstance(tier, PlaybackRejected):
         return tier
@@ -530,6 +538,13 @@ class _AudioVerdict:
     needs_remap: bool = False
 
 
+def _no_hardware(policy: PlaybackPolicy) -> str:
+    """「没有可用硬件」的那半句：远程转码器在线但正忙时说清楚是暂时的。"""
+    if policy.hardware_busy:
+        return "但能做色调映射的转码器正忙（转码名额已满），请稍候或停止其它正在转码的播放后重试。"
+    return "但未检测到可用的硬件加速设备。"
+
+
 def _judge_video(
     media: MediaProfile,
     capability: ClientCapability,
@@ -583,10 +598,30 @@ def _judge_video(
             reason=f"按所选画质上限 {max_height}p 转码（源为 {media.resolution}）",
         )
 
-    # HDR 判定。Dolby Vision 一律转码 + tone-map：DV Profile 5 用 IPTPQc2 色彩
-    # 空间，当成普通 HDR10 直通会输出**绿紫画面**（§7-④）；而 media_probe 目前
-    # 只落 "Dolby Vision" 不落 profile，分不出 P5 与自带 HDR10 基础层的 P8，
-    # 因此保守全转。待探测层补齐 dv_profile 后可放开 P8 直通。
+    # HDR 判定。Dolby Vision 按 profile 分：
+    # - 播放设备申报能解这个 profile（电视的杜比视界解码器 + 屏幕支持杜比视界）→ 原样直通；
+    # - 基础层能直接解读（P8 / P7 带 HDR10 基础层）、设备申报会退回基础层、屏幕能直出 HDR
+    #   → 直通，设备只放 HDR10 基础层（丢掉杜比视界的动态元数据，画面正确）；
+    # - 其余（P5 的 IPTPQc2 基础层当成 HDR10 会输出**绿紫画面**，§7-④；或 profile 未知）
+    #   → 转码 + tone-map。
+    if media.hdr == "Dolby Vision" and media.dv_profile is not None:
+        if media.dv_profile in capability.dolby_vision_profiles:
+            return _VideoVerdict(
+                can_copy=True,
+                reason=f"Dolby Vision Profile {media.dv_profile} 由播放设备直接解码",
+            )
+        if (
+            media.dv_bl_compatible
+            and media.dv_profile in capability.dolby_vision_base_layer_profiles
+            and capability.hdr_passthrough
+        ):
+            return _VideoVerdict(
+                can_copy=True,
+                reason=(
+                    f"播放 Dolby Vision Profile {media.dv_profile} 的 HDR10 基础层"
+                    "（设备不能解杜比视界）"
+                ),
+            )
     if media.hdr == "Dolby Vision":
         if not policy.hardware_available:
             return _VideoVerdict(
@@ -594,8 +629,7 @@ def _judge_video(
                 reason="Dolby Vision 需要转换色彩空间才能正确显示",
                 blocked=(
                     "这部片是 Dolby Vision，需要显卡做色调映射才能正常播放，"
-                    "但未检测到可用的硬件加速设备。软件色调映射转 4K 太慢，"
-                    "不予启用。"
+                    f"{_no_hardware(policy)}软件色调映射转 4K 太慢，不予启用。"
                 ),
             )
         return _VideoVerdict(can_copy=False, reason="Dolby Vision 已转换为 SDR 显示")
@@ -607,7 +641,7 @@ def _judge_video(
                 reason=f"{media.hdr} 需要转换为 SDR",
                 blocked=(
                     f"这部片是 {media.hdr}，当前设备不支持 HDR 显示，需要显卡做"
-                    "色调映射；但未检测到可用的硬件加速设备。"
+                    f"色调映射；{_no_hardware(policy)}"
                 ),
             )
         return _VideoVerdict(can_copy=False, reason=f"{media.hdr} 已转换为 SDR 显示")
@@ -760,6 +794,7 @@ def _resolve_tier(
     policy: PlaybackPolicy,
     failed_tiers: frozenset[PlaybackTier],
     *,
+    capability: ClientCapability,
     enforce_keyframe_gate: bool = True,
 ) -> tuple[PlaybackTier | PlaybackRejected, str, str, PlaybackTier | None]:
     """综合定档（§3.3 步骤 6–7）。返回 (档位或拒绝, 容器, 中文理由,
@@ -785,7 +820,10 @@ def _resolve_tier(
 
     if video.can_copy and audio.can_copy:
         container = (media.container or "").lower()
-        if container in DIRECT_PLAY_CONTAINERS and not audio.needs_remap:
+        # 播放器申报能直接解封装的容器（原生播放器的 mkv / ts / webm……）同样直连；
+        # 能在本机切轨的播放器不用为「选中的不是默认轨」重封装
+        direct = container in DIRECT_PLAY_CONTAINERS or container in capability.containers
+        if direct and (not audio.needs_remap or capability.local_tracks):
             tier = PlaybackTier.DIRECT_PLAY
         elif audio.needs_remap:
             # 直出档整份文件交给 <video>，浏览器只会放容器里的默认轨——我们
@@ -1042,6 +1080,7 @@ def needs_keyframe_probe(
         audio_verdict,
         policy,
         failed_tiers,
+        capability=capability,
         enforce_keyframe_gate=False,
     )
     return tier in (PlaybackTier.REMUX, PlaybackTier.AUDIO_TRANSCODE)

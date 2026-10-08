@@ -367,6 +367,8 @@ async def test_scene_c_a_wrong_film_that_slips_through_leaves_a_trace_on_import(
         resolution="1080p",
         video_codec="h264",
         hdr=None,
+        dv_profile=None,
+        dv_bl_compatible=None,
         bit_depth=8,
         duration_seconds=88 * 60,
         bit_rate=None,

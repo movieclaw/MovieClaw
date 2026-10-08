@@ -93,9 +93,15 @@ enum WatchFormat {
         return "S\(TaskCenter.pad2(media.seasonNumber))E\(TaskCenter.pad2(media.episodeNumber))"
     }
 
+    /// 客户端 · 设备名（对齐 Web `deviceLabel`）：自家客户端的「MovieClaw 」品牌前缀没有信息量，去掉；
+    /// 设备名里已有某段以客户端名打头时不再重复（「Apple TV」+「Apple TV · tvOS 27.0」→「Apple TV · tvOS 27.0」，
+    /// 「iOS」+「iPhone · iOS 27.0」→「iPhone · iOS 27.0」）
     static func deviceLabel(client: String, deviceName: String) -> String {
-        if !client.isEmpty, !deviceName.isEmpty, client != deviceName { return "\(client) · \(deviceName)" }
-        return deviceName.isEmpty ? (client.isEmpty ? "未知设备" : client) : deviceName
+        let name = client.hasPrefix("MovieClaw ") ? String(client.dropFirst("MovieClaw ".count)) : client
+        if deviceName.isEmpty { return name.isEmpty ? "未知设备" : name }
+        let repeats = deviceName.components(separatedBy: " · ").contains { $0 == name || $0.hasPrefix("\(name) ") }
+        if name.isEmpty || repeats { return deviceName }
+        return "\(name) · \(deviceName)"
     }
 
     /// 可跳详情的前提：有落点库且在超管的可浏览范围内（否则详情接口 404）
@@ -213,7 +219,7 @@ struct ActivityPlaybackSessionRow: View {
             ActivityPoster(media: session.media, width: 48, height: 70)
             VStack(alignment: .leading, spacing: 5) {
                 ActivityTitleText(media: session.media)
-                Text(WatchFormat.metaLine([session.memberName, Self.shortDevice(device)]))
+                Text(WatchFormat.metaLine([session.memberName, device]))
                     .font(.footnote).foregroundStyle(Theme.textMuted).lineLimit(1)
                 statusLine
                 if let delivery = session.delivery, let detail = Self.deliveryDetail(delivery) {
@@ -255,11 +261,6 @@ struct ActivityPlaybackSessionRow: View {
 
     private func end(_ device: String) {
         actions.end(deviceId: session.deviceId, label: device, api: api, feedback: feedback, store: store)
-    }
-
-    /// 「MovieClaw Web · Safari · iPhone」→「Web · Safari · iPhone」：自家客户端的品牌前缀没有信息量
-    static func shortDevice(_ label: String) -> String {
-        label.hasPrefix("MovieClaw ") ? String(label.dropFirst("MovieClaw ".count)) : label
     }
 
     /// 转码细节：输出规格 · 在哪转、用什么转；直连没有细节

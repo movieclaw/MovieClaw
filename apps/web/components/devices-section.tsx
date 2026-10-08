@@ -236,7 +236,7 @@ export function DevicesSection() {
           <span className="min-w-0 flex-1">
             <span className="block text-body font-medium text-[var(--text)]">批准新设备登录</span>
             <span className="mt-0.5 block text-caption leading-5 text-[var(--text-faint)]">
-              Apple TV、Mac、命令行或转码器显示配对码后，到批准页输入
+              Apple TV、Android TV、Mac、命令行或转码器显示配对码后，到批准页输入
             </span>
           </span>
           <ChevronRightIcon className="size-4 shrink-0 text-[var(--text-faint)] transition-transform group-hover:translate-x-0.5" />

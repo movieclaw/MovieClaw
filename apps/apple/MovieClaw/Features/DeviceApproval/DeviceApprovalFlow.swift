@@ -106,7 +106,7 @@ struct DeviceApprovalFlow: View {
     @ViewBuilder
     private var inputContent: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("输入 Apple TV、Mac、命令行或转码器上显示的配对码，或者扫它旁边的二维码。")
+            Text("输入 Apple TV、Android TV、Mac、命令行或转码器上显示的配对码，或者扫它旁边的二维码。")
                 .font(.subheadline).foregroundStyle(.secondary)
         }
         VStack(alignment: .leading, spacing: 8) {
@@ -312,6 +312,7 @@ struct DeviceApprovalFlow: View {
     private static func symbol(_ clientType: String) -> String {
         switch clientType {
         case "tvos": "appletv.fill"
+        case "androidtv": "tv.fill"
         case "macos": "macwindow"
         case "cli": "terminal.fill"
         case "worker": "cpu"

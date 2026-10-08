@@ -2825,6 +2825,8 @@ async def _refresh_known_row(
                 row.resolution = spec.resolution
                 row.video_codec = spec.video_codec
                 row.hdr = spec.hdr
+                row.dv_profile = spec.dv_profile
+                row.dv_bl_compatible = spec.dv_bl_compatible
                 row.bit_depth = spec.bit_depth
                 row.duration_seconds = spec.duration_seconds
                 row.bit_rate = spec.bit_rate
@@ -3069,6 +3071,8 @@ async def _ingest_file(
             resolution=spec.resolution if spec else None,
             video_codec=spec.video_codec if spec else None,
             hdr=spec.hdr if spec else None,
+            dv_profile=spec.dv_profile if spec else None,
+            dv_bl_compatible=spec.dv_bl_compatible if spec else None,
             bit_depth=spec.bit_depth if spec else None,
             duration_seconds=spec.duration_seconds if spec else None,
             bit_rate=spec.bit_rate if spec else None,

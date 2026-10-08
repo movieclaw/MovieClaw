@@ -30,7 +30,7 @@ const NOW = Date.parse("2026-08-29T12:00:00Z");
 const ago = (ms) => new Date(NOW - ms).toISOString();
 
 test("权限说明说人话，不出现内部权限名", () => {
-  for (const type of ["worker", "cli", "manual", "什么鬼"]) {
+  for (const type of ["worker", "cli", "manual", "androidtv", "什么鬼"]) {
     for (const role of ["admin", "member"]) {
       const { title, body } = grantSummary(type, role);
       const text = `${title}${body}`;
@@ -150,6 +150,7 @@ test("空组保留；不认识的新类型与服务端同口径归入配对类",
   assert.deepEqual(groupDevices([]).map((group) => group.devices.length), [0, 0, 0, 0]);
   assert.equal(deviceGroupKey("android"), "app");
   assert.equal(deviceGroupKey("tvos"), "app");
+  assert.equal(deviceGroupKey("androidtv"), "app");
   assert.equal(deviceGroupKey("未来的新客户端"), "paired");
 });
 
@@ -267,6 +268,7 @@ test("没有长连接的设备仍按最近 5 分钟有没有用过", () => {
 test("设备图标按形态挑，转码凭证一律是转码器", () => {
   assert.equal(deviceGlyph("ios", "full"), "phone");
   assert.equal(deviceGlyph("tvos", "full"), "tv");
+  assert.equal(deviceGlyph("androidtv", "full"), "tv");
   assert.equal(deviceGlyph("web", "full"), "browser");
   assert.equal(deviceGlyph("worker", "transcode"), "transcoder");
   assert.equal(deviceGlyph("manual", "transcode"), "transcoder");

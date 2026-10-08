@@ -21,7 +21,7 @@ import re
 import shutil
 import subprocess
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from movieclaw_api.services.library.layout import IMAGE_EXTS
@@ -80,6 +80,10 @@ class MediaSpec:
     bit_rate: int | None
     frame_rate: float | None = None
     color_space: str | None = None
+    #: 杜比视界的 profile（5 / 7 / 8 …）与基础层能否直接解读（P8 / P7 带 HDR10 / SDR 基础层为 True，
+    #: P5 的 IPT-PQ-c2 基础层为 False）；不是杜比视界、或容器里没有 DOVI 配置记录时 None
+    dv_profile: int | None = None
+    dv_bl_compatible: bool | None = None
     audio_streams: list[dict] = field(default_factory=list)
     subtitle_streams: list[dict] = field(default_factory=list)
     # 容器级内容日期标签（本地来源条目的"内容时间"来源，docs/design/
@@ -142,7 +146,25 @@ def probe_media(path: str | Path) -> MediaSpec | None:
         payload = json.loads(proc.stdout)
     except json.JSONDecodeError:
         return None
-    return _parse_probe(payload, include_mpegts_pids=Path(path).suffix.lower() == ".m2ts")
+    spec = _parse_probe(payload, include_mpegts_pids=Path(path).suffix.lower() == ".m2ts")
+    if Path(path).suffix.lower() == ".iso":
+        spec = _with_disc_image_duration(spec, path)
+    return spec
+
+
+def _with_disc_image_duration(spec: MediaSpec, path: str | Path) -> MediaSpec:
+    """光盘镜像的片长换成盘内正片的时长（蓝光主播放列表 / DVD 正片节目链）。
+
+    ffprobe 对整个镜像估的片长常常离谱（NAS 实测一集 DVD 记成 4 秒、一部蓝光多出一小时），
+    「继续观看」的进度、片长显示都按台账算。读不出盘内结构就保留 ffprobe 的值。
+    """
+    # 延迟导入：播放源模块依赖面大，探测模块保持轻量
+    from movieclaw_api.services.playback.iso_source import iso_disc_source
+
+    source = iso_disc_source(path)
+    if source is None or source.duration_s <= 0:
+        return spec
+    return replace(spec, duration_seconds=round(source.duration_s))
 
 
 
@@ -636,11 +658,16 @@ def _parse_probe(payload: dict, *, include_mpegts_pids: bool = False) -> MediaSp
     codec = None
     hdr = None
     bit_depth = None
+    dv_profile: int | None = None
+    dv_bl_compatible: bool | None = None
     if video is not None:
         codec = video.get("codec_name")
         resolution = _resolution_label(video.get("width"), video.get("height"))
         hdr = _hdr_label(video)
         bit_depth = _bit_depth(video)
+        dv_profile, compatible = _dv_info(video)
+        if dv_profile is not None:
+            dv_bl_compatible = compatible
 
     streams = payload.get("streams", [])
     fmt_tags = {str(k).lower(): v for k, v in (fmt.get("tags") or {}).items()}
@@ -657,6 +684,8 @@ def _parse_probe(payload: dict, *, include_mpegts_pids: bool = False) -> MediaSp
             else None
         ),
         color_space=_color_space_label(video) if video else None,
+        dv_profile=dv_profile,
+        dv_bl_compatible=dv_bl_compatible,
         audio_streams=[
             _audio_stream_info(s, include_pid=include_mpegts_pids)
             for s in streams

@@ -1121,11 +1121,11 @@ export function WatchStatsPanel({
         />
         <BreakdownPanel
           title="按播放方式"
-          note="仅网页播放；Jellyfin 客户端恒为直连"
+          note="仅 MovieClaw 网页与 App 播放；Jellyfin 客户端恒为直连"
           total={tierTotal}
           unit="种"
           formatValue={(v) => `${v} 场`}
-          emptyText="本周期没有网页播放；Jellyfin 客户端不经过转码，不在这里分解"
+          emptyText="本周期没有 MovieClaw 网页与 App 播放；Jellyfin 客户端不经过转码，不在这里分解"
           rows={stats.by_tier.map((row) => ({
             key: String(row.tier),
             label: row.label,

@@ -27,8 +27,10 @@ from pathlib import Path
 
 from movieclaw_api.services.library.bluray import (
     MPLS_CLOCK_HZ,
+    ClpiParseError,
     MplsPlaylist,
     disc_playlist_stale,
+    parse_clpi_keyframes,
     read_clpi_keyframes,
     read_main_playlist,
 )
@@ -43,12 +45,30 @@ CONCAT_LIST_NAME = "source.concat"
 
 @dataclass(frozen=True)
 class DiscClip:
-    """主播放列表里的一段：哪个 m2ts、播哪一截（45 kHz 时间戳）。"""
+    """主播放列表里的一段：哪个 m2ts、播哪一截（45 kHz 时间戳）。
+
+    光盘镜像（ISO）里的段没有自己的文件：``path`` 是镜像，``byte_ranges`` 是这段在镜像里的
+    各个 ``(起始字节, 结束字节)``（结束不含），按顺序首尾相接就是这段的字节——双层盘在换层处
+    断开、交错存放的盘断成上千截。ffmpeg 经 ``subfile``（多截再套 ``concat``）协议读、远程
+    Worker 按区间取。``timed=False`` 的段（DVD 正片）没有播放列表时间，清单里只写时长、不写
+    IN/OUT——VOB 自带连续的时间戳，按 IN/OUT 裁会裁错。
+    """
 
     clip_id: str
     path: Path
     in_time: int
     out_time: int
+    byte_ranges: tuple[tuple[int, int], ...] | None = None
+    timed: bool = True
+
+    @property
+    def read_url(self) -> str:
+        """ffmpeg 读这一段的地址：普通剪辑是文件路径，镜像里的段是 ``subfile`` 区间，
+        断成多截时用 ``concat`` 协议按字节拼起来（可按字节跳转，seek 不受影响）。"""
+        if self.byte_ranges is None:
+            return str(self.path)
+        parts = [f"subfile,,start,{a},end,{b},,:{self.path}" for a, b in self.byte_ranges]
+        return parts[0] if len(parts) == 1 else "concat:" + "|".join(parts)
 
     @property
     def duration_s(self) -> float:
@@ -62,6 +82,10 @@ class DiscSource:
     disc_dir: Path
     playlist_name: str
     clips: tuple[DiscClip, ...]
+    #: 镜像里读出的各剪辑 CLPI（剪辑 id → 字节）：镜像里的文件没有路径可读，关键帧表从这里取
+    clpi: dict[str, bytes] | None = None
+    #: 光盘镜像来源："bluray" / "dvd"；None = 原盘目录
+    image: str | None = None
 
     @property
     def duration_s(self) -> float:
@@ -96,12 +120,13 @@ class DiscSource:
         """
         lines = ["ffconcat version 1.0"]
         for index, clip in enumerate(self.clips):
-            target = entry(index, clip) if entry is not None else str(clip.path)
+            target = entry(index, clip) if entry is not None else clip.read_url
             escaped = target.replace("'", "'\\''")
             lines.append(f"file '{escaped}'")
             lines.extend(f"option {key} {value}" for key, value in options)
-            lines.append(f"inpoint {clip.in_time / MPLS_CLOCK_HZ:.6f}")
-            lines.append(f"outpoint {clip.out_time / MPLS_CLOCK_HZ:.6f}")
+            if clip.timed:
+                lines.append(f"inpoint {clip.in_time / MPLS_CLOCK_HZ:.6f}")
+                lines.append(f"outpoint {clip.out_time / MPLS_CLOCK_HZ:.6f}")
             lines.append(f"duration {clip.duration_s:.6f}")
         return "\n".join(lines) + "\n"
 
@@ -116,7 +141,9 @@ class DiscSource:
         times: list[float] = []
         offset = 0.0
         for clip in self.clips:
-            pts_list = read_clpi_keyframes(clip.path)
+            if not clip.timed:
+                return None
+            pts_list = self._clip_keyframes(clip)
             if pts_list is None:
                 logger.warning(
                     "原盘关键帧索引不可用（CLPI 缺失或无 EP_map）：%s，VOD 分片退回会话式播放",
@@ -139,6 +166,23 @@ class DiscSource:
         _keyframe_cache[self._cache_key] = index
         return index
 
+    @property
+    def uses_subfile(self) -> bool:
+        """清单里有镜像区间：ffmpeg 要放行 ``subfile`` 与 ``concat`` 协议（清单默认只开 file）。"""
+        return any(clip.byte_ranges is not None for clip in self.clips)
+
+    def _clip_keyframes(self, clip: DiscClip) -> list[int] | None:
+        if self.clpi is None:
+            return read_clpi_keyframes(clip.path)
+        data = self.clpi.get(clip.clip_id)
+        if data is None:
+            return None
+        try:
+            return parse_clpi_keyframes(data) or None
+        except ClpiParseError as exc:
+            logger.warning("镜像里的 CLPI 关键帧表解析失败：%s（%s）", clip.clip_id, exc)
+            return None
+
     def keyframe_interval_s(self) -> float | None:
         """平均关键帧间隔（秒）——决策引擎判断能否 remux 的输入（web-player.md §3.5）。"""
         index = self.keyframe_index()
@@ -153,6 +197,10 @@ class DiscSource:
             self.playlist_name,
             tuple((c.clip_id, c.in_time, c.out_time) for c in self.clips),
         )
+
+    def __hash__(self) -> int:
+        # clpi 是字典，dataclass 自动生成的哈希会因它报错；身份由剪辑序列决定
+        return hash(self._cache_key)
 
 
 #: 关键帧表缓存：一张盘的 EP_map 只有几十 KB，但在 NFS 上逐段读也是网络往返；

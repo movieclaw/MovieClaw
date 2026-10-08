@@ -43,11 +43,13 @@ from movieclaw_api.services.image_variants import (
 )
 from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_api.services.playback import remote_config as remote_transcode_config
-from movieclaw_api.services.playback.disc_source import disc_source_for_file
 from movieclaw_api.services.playback.ffmpeg_args import (
     REMOTE_IO_TIMEOUT_US,
     REMOTE_RECONNECT_OPTIONS,
     remote_read_options,
+)
+from movieclaw_api.services.playback.iso_source import (
+    transcode_disc_source as resolve_transcode_disc,
 )
 from movieclaw_api.services.playback.remote_signing import verify_remote_grant
 from movieclaw_api.services.playback.remote_worker import (
@@ -73,6 +75,7 @@ from movieclaw_db.repositories.media_repo import MediaItemRepository
 from movieclaw_events import new_ulid
 from movieclaw_playback.streaming import (
     DisconnectAwareFileResponse,
+    FileWindowResponse,
     container_mime_type,
     is_strm,
 )
@@ -576,7 +579,7 @@ async def transcode_disc_source(
     每段逐个带上断线续读参数——命令行上的 ``-reconnect`` 只管清单这一个输入。
     """
     file = await _remote_source_file(session_id, token, session)
-    disc = disc_source_for_file(file) if file.is_disc() else None
+    disc = await asyncio.to_thread(resolve_transcode_disc, file) if file.is_disc() else None
     if disc is None:
         raise NotFoundException("这个远程转码会话的源不是可读的原盘")
     token_query = quote(token or "", safe="")
@@ -617,12 +620,22 @@ async def transcode_disc_clip(
 ):
     """原盘清单里第 ``index`` 段剪辑（m2ts）的 Range 读取。"""
     file = await _remote_source_file(session_id, token, session)
-    disc = disc_source_for_file(file) if file.is_disc() else None
+    disc = await asyncio.to_thread(resolve_transcode_disc, file) if file.is_disc() else None
     if disc is None or index >= len(disc.clips):
         raise NotFoundException("原盘剪辑不存在")
-    path = disc.clips[index].path
+    clip = disc.clips[index]
+    path = clip.path
     if not path.is_file():
         raise _missing_source(session_id, file, path)
+    if clip.byte_ranges is not None:
+        # 光盘镜像里的剪辑：镜像上的几截字节拼成一个独立文件供出（iso_source.py）
+        return FileWindowResponse(
+            path,
+            windows=clip.byte_ranges,
+            media_type="video/MP2T" if disc.image == "bluray" else "video/MP2P",
+            headers={"Cache-Control": "no-store"},
+            probe=_source_read_marks(session_id, request, clip=index),
+        )
     return DisconnectAwareFileResponse(
         path,
         media_type="video/MP2T",

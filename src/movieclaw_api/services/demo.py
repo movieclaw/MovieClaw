@@ -58,7 +58,7 @@ ALLOWED_WRITE_OPERATIONS: frozenset[str] = frozenset(
         "auth.login",
         "auth.logout",
         "auth.device.login",  # 原生 App 用账号密码换设备令牌
-        # Apple TV / Mac 扫码登录；服务层另检查只接受 tvos / macos，不能借此签发命令行或转码器凭据。
+        # 原生 App 扫码登录；服务层限制客户端类型，不能借此签发命令行或转码器凭据。
         "auth.device.authorize",
         "auth.device.token",
         "auth.devices.approve",
@@ -179,10 +179,10 @@ def is_demo_mode() -> bool:
 
 def ensure_app_pairing_allowed(client_type: str) -> None:
     """公开演示站仅允许原生 App 扫码登录，其他配对凭据继续拒绝。"""
-    if is_demo_mode() and client_type not in {"tvos", "macos"}:
+    if is_demo_mode() and client_type not in {"tvos", "macos", "androidtv"}:
         raise AppException(
             code=DEMO_READ_ONLY_CODE,
-            message="演示站仅支持 Apple TV 和 Mac 扫码登录，不开放命令行或转码器配对",
+            message="演示站仅支持 Apple TV、Android TV 和 Mac 扫码登录，不开放命令行或转码器配对",
             status_code=403,
         )
 
@@ -335,6 +335,7 @@ _DEVICE_KIND_LABELS = {
     "tvos": "Apple TV",
     "macos": "Mac 设备",
     "android": "Android 设备",
+    "androidtv": "Android TV",
     "cli": "命令行",
     "worker": "转码器",
     "manual": "手工令牌",

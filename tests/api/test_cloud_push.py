@@ -650,9 +650,9 @@ def test_registration_refreshes_app_version(client: TestClient, world: World) ->
     assert version() == "0.3.0"
 
 
-@pytest.mark.parametrize("kind", ["tvos", "macos"])
+@pytest.mark.parametrize("kind", ["tvos", "macos", "androidtv"])
 def test_apps_without_push_get_no_push_hint(client: TestClient, world: World, kind: str) -> None:
-    """Apple TV 与 Mac 版本期不接推送：设备页不挂「还没有开启通知」，也不能登记。"""
+    """Apple TV、Mac、Android TV 本期不接推送：设备页不挂「还没有开启通知」，也不能登记。"""
     _connect(client, world)
     bearer = _app_login(client, _ADMIN, installation=f"inst-{kind}", name=f"{kind} 设备", kind=kind)
     listed = _data(client.get("/api/v1/auth/devices"))

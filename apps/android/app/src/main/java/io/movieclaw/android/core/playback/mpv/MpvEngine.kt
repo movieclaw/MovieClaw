@@ -136,6 +136,14 @@ class MpvEngine(private val context: Context) : PlayerEngine {
                 if (handle != 0L) applyCoreOptions()
             }
             if (handle != 0L) {
+                // 原生 TLS 不会自动读取 Android 平台 CA；任何失败都不能降级为关闭校验。
+                val verify = MpvNative.nativeSetProperty(handle, "tls-verify", "yes")
+                val ca = MpvTlsTrust.systemBundle(context)
+                if (!verify || ca == null || !MpvNative.nativeSetProperty(handle, "tls-ca-file", ca.absolutePath)) {
+                    android.util.Log.w("McMpv", "TLS 平台信任配置失败，停止加载")
+                    MpvNative.nativeCommand(handle, "stop")
+                    return@runWhenSurface
+                }
                 if (surfaceView.width > 0 && surfaceView.height > 0) {
                     MpvNative.nativeSetProperty(
                         handle,

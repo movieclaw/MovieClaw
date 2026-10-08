@@ -13,6 +13,9 @@
 #
 # 对应 Release 尚不存在的文件（例如提前合入下个版本的 changelog）会被
 # 跳过，等 Release 创建后再次触碰该文件即可同步。
+#
+# 同步正文后重新生成该版本的 release.json（scripts/publish-release-info.sh），
+# 官网更新日志读的是这份按语言拆好的清单。
 # =============================================================================
 name: release-notes
 
@@ -29,6 +32,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # release.json 要和上一个 tag 比较运行时版本，需要完整历史与 tag
+          fetch-depth: 0
 
       - name: 同步 changelog 到对应 Release body
         env:
@@ -40,6 +46,7 @@ jobs:
             if gh release view "$tag" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
               echo "同步 $file → Release $tag"
               gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$file"
+              case "$tag" in v*) bash scripts/publish-release-info.sh "$tag" ;; esac
             else
               echo "跳过 $file：Release $tag 尚不存在"
             fi

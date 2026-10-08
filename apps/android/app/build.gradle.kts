@@ -5,6 +5,11 @@ import java.util.zip.ZipInputStream
 import org.gradle.api.DefaultTask
 import org.gradle.api.provider.Property
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.tasks.InputDirectory
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.Internal
 import org.gradle.api.tasks.OutputDirectory
@@ -179,6 +184,110 @@ abstract class DownloadNativeLibsTask : DefaultTask() {
     }
 }
 
+/** 临时修补已确认的 TLS 熵源错误；只在生成目录操作，下载缓存保持原始字节。 */
+class NativeEntropyRepair {
+    companion object {
+        val hashes = mapOf(
+            "libmp2.so" to (
+                "a27c2a3ed792b40b771b7c3a03cf1fe6a3005e884291941b80d8a542e55cd796" to
+                "c15efdba92c041701de126afa7b4ea8c8293168ab85c3566ed044e2860847a56"
+            ),
+            "libavformat.so" to (
+                "efa329464a4711a053942ee5892b28bf36eb8c91908da03d1e3e3384a51f60ea" to
+                "117fa203930fe9bf4a4088958a791f684636268d1bd4c89d5f6dc8690f197eaf"
+            ),
+        )
+        private val broken = "/Device/Null".toByteArray(Charsets.US_ASCII)
+        private val repaired = "/dev/urandom".toByteArray(Charsets.US_ASCII)
+
+        fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
+            .digest(bytes).joinToString("") { "%02x".format(it) }
+
+        fun repair(name: String, bytes: ByteArray): ByteArray {
+            val offsets = (0..(bytes.size - broken.size)).filter { offset ->
+                broken.indices.all { bytes[offset + it] == broken[it] }
+            }
+            if (offsets.isEmpty()) return bytes
+            val expected = hashes[name]
+                ?: throw GradleException("未知原生库 $name 含错误 TLS 熵源，拒绝打包")
+            if (sha256(bytes) != expected.first || offsets.size != 1 ||
+                bytes.getOrNull(offsets.single() + broken.size) != 0.toByte()
+            ) throw GradleException("$name 熵源修补输入不匹配已验证原库，拒绝打包")
+            val result = bytes.copyOf()
+            repaired.copyInto(result, offsets.single())
+            check(sha256(result) == expected.second) { "$name 熵源修补输出哈希不匹配" }
+            return result
+        }
+
+        fun prepare(source: File, target: File) {
+            target.deleteRecursively()
+            target.mkdirs()
+            val manifest = mutableListOf<String>()
+            if (source.isDirectory) source.walkTopDown().filter { it.isFile && it.extension == "so" }
+                .sortedBy { it.relativeTo(source).path }.forEach { file ->
+                    val relative = file.relativeTo(source).invariantSeparatorsPath
+                    val input = file.readBytes()
+                    val output = repair(file.name, input)
+                    File(target, relative).also { it.parentFile.mkdirs() }.writeBytes(output)
+                    manifest += "$relative ${sha256(input)} -> ${sha256(output)}"
+                }
+            File(target, "entropy-repair-manifest.txt").writeText(manifest.joinToString("\n", postfix = "\n"))
+        }
+    }
+}
+
+abstract class PrepareNativeLibsTask : DefaultTask() {
+    @get:Internal abstract val sourceDir: DirectoryProperty
+    @get:InputFiles @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sourceFiles: ConfigurableFileCollection
+    @get:OutputDirectory abstract val targetDir: DirectoryProperty
+
+    @TaskAction fun prepare() = NativeEntropyRepair.prepare(sourceDir.get().asFile, targetDir.get().asFile)
+}
+
+/** 使用实际生成库验证修补、幂等与拒绝路径，不需要设备或网络。 */
+abstract class VerifyNativeEntropyRepairTask : DefaultTask() {
+    @get:InputDirectory @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val nativeDir: DirectoryProperty
+    @get:OutputDirectory abstract val workDir: DirectoryProperty
+
+    @TaskAction fun verify() {
+        val work = workDir.get().asFile
+        work.deleteRecursively()
+        val source = File(work, "source/arm64-v8a").also { it.mkdirs() }
+        NativeEntropyRepair.hashes.forEach { (name, expected) ->
+            val generated = File(nativeDir.get().asFile, "arm64-v8a/$name")
+            if (!generated.isFile) throw GradleException("验证需要已知 $name 原生库缓存")
+            val bytes = generated.readBytes()
+            check(NativeEntropyRepair.sha256(bytes) == expected.second) { "$name 生成哈希不匹配" }
+            // 由已验证输出恢复原始 fixture，避免把外部二进制加入仓库。
+            val fixed = "/dev/urandom\u0000".toByteArray(Charsets.US_ASCII)
+            val offsets = (0..(bytes.size - fixed.size)).filter { offset ->
+                fixed.indices.all { bytes[offset + it] == fixed[it] }
+            }
+            check(offsets.size == 1)
+            "/Device/Null".toByteArray(Charsets.US_ASCII).copyInto(bytes, offsets.single())
+            check(NativeEntropyRepair.sha256(bytes) == expected.first)
+            File(source, name).writeBytes(bytes)
+        }
+        val healthy = File(source, "healthy.so").also { it.writeBytes(byteArrayOf(1, 2, 3)) }
+        val output = File(work, "prepared")
+        repeat(2) {
+            NativeEntropyRepair.prepare(source.parentFile, output)
+            NativeEntropyRepair.hashes.forEach { (name, expected) ->
+                check(NativeEntropyRepair.sha256(File(output, "arm64-v8a/$name").readBytes()) == expected.second)
+                check(NativeEntropyRepair.sha256(File(source, name).readBytes()) == expected.first)
+            }
+            check(File(output, "arm64-v8a/healthy.so").readBytes().contentEquals(healthy.readBytes()))
+        }
+        val bad = File(source, "libmp2.so").readBytes().also { it[0] = (it[0].toInt() xor 1).toByte() }
+        check(runCatching { NativeEntropyRepair.repair("libmp2.so", bad) }.exceptionOrNull() is GradleException)
+        File(source, "unknown.so").writeBytes("/Device/Null\u0000".toByteArray(Charsets.US_ASCII))
+        check(runCatching { NativeEntropyRepair.prepare(source.parentFile, output) }.exceptionOrNull() is GradleException)
+        logger.lifecycle("TLS 熵源验证通过：两库生成哈希、二次准备幂等、原缓存不变、正常库不变、未知坏库拒绝")
+    }
+}
+
 /**
  * 发布附件地址与校验和（换版本改 gradle.properties 里那两行）。
  * 覆盖优先级：`-P` > `local.properties`（机器本地、不入库）> `gradle.properties` > 这里的默认值
@@ -213,8 +322,25 @@ val downloadNativeLibs = tasks.register<DownloadNativeLibsTask>("downloadNativeL
     workDir.set(layout.buildDirectory.dir("tmp/nativeLibs"))
 }
 
-if (!skipNativeLibsDownload) {
-    tasks.named("preBuild") { dependsOn(downloadNativeLibs) }
+val prepareNativeLibs = tasks.register<PrepareNativeLibsTask>("prepareNativeLibs") {
+    group = "build"
+    description = "复制原生库到生成目录并校验修补已知 TLS 熵源错误"
+    sourceDir.set(layout.projectDirectory.dir("src/main/jniLibs"))
+    sourceFiles.from(fileTree("src/main/jniLibs") { include("**/*.so") })
+    targetDir.set(layout.buildDirectory.dir("generated/nativeLibs"))
+    if (!skipNativeLibsDownload) dependsOn(downloadNativeLibs)
+}
+
+// 下载缓存不直接参与打包；离线 skip 也必须经过相同的校验与修补。
+android.sourceSets.getByName("main").jniLibs.setSrcDirs(listOf(prepareNativeLibs.flatMap { it.targetDir }))
+tasks.named("preBuild") { dependsOn(prepareNativeLibs) }
+
+tasks.register<VerifyNativeEntropyRepairTask>("verifyNativeEntropyRepair") {
+    group = "verification"
+    description = "验证 TLS 熵源生成库、幂等与未知坏库拒绝"
+    dependsOn(prepareNativeLibs)
+    nativeDir.set(prepareNativeLibs.flatMap { it.targetDir })
+    workDir.set(layout.buildDirectory.dir("tmp/verifyNativeEntropyRepair"))
 }
 
 kotlin {

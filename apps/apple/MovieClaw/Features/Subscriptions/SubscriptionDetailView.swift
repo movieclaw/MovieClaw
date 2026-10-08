@@ -103,7 +103,7 @@ struct SubscriptionDetailView: View {
         .polling(every: 5, immediately: true) { await refreshDownloads() }
         .polling(every: 30) { if hasInFlight || detail?.isSmart == true { await reload() } }
         .sheet(item: $sheet, onDismiss: runPendingAction) { sheet in
-            sheetContent(sheet)
+            sheetContent(sheet).sheetFeedback()
         }
         .modifier(SubsConfirmHost(center: confirms))
         .accessibilityIdentifier("subscription-detail")

@@ -58,6 +58,7 @@ struct PhotoWallView: View {
             }
             .fullScreenCover(item: $lightbox) { session in
                 Lightbox(libraryId: libraryId, feed: feed, fetch: fetch, index: session.index)
+                    .sheetFeedback()
             }
     }
 

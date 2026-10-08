@@ -43,18 +43,21 @@ WEB_CLIENT_NAME = "MovieClaw Web"
 
 #: 原生 App 与网页共用同一套登录会话与上报接口，只能靠 User-Agent 区分：App 的每个请求都带
 #: ``MovieClaw-<平台>/<版本> (<机型>; <系统> <系统版本>; build <构建号>)``。
-#: 平台 → (客户端名, 认不出机型时的设备名)。Apple TV / Android 版尚未开发，先把名字定下来。
+#: 平台 → (客户端名, 认不出机型时的设备名)。
 _APP_CLIENTS: dict[str, tuple[str, str]] = {
     "iOS": ("MovieClaw iOS", "iPhone"),
     "tvOS": ("MovieClaw Apple TV", "Apple TV"),
     # Mac 的机型位报的是 uname 的 arm64 / x86_64，认不出具体型号，设备名统一叫「Mac」
     "macOS": ("MovieClaw Mac", "Mac"),
     "Android": ("MovieClaw Android", "Android"),
+    "AndroidTV": ("MovieClaw Android TV", "Android TV"),
 }
 _APP_USER_AGENT = re.compile(
-    r"MovieClaw-(?P<platform>iOS|tvOS|macOS|Android)/(?P<version>[0-9A-Za-z._+-]+)"
+    r"MovieClaw-(?P<platform>iOS|tvOS|macOS|AndroidTV|Android)/(?P<version>[0-9A-Za-z._+-]+)"
 )
 _APP_SYSTEM = re.compile(r"\b(?P<os>iOS|iPadOS|tvOS|macOS|Android) (?P<version>[0-9.]+)")
+#: UA 括号里的第一段机型位（Android 报的是 ``Build.MODEL``，如「Pixel 9」）
+_APP_MODEL = re.compile(r"MovieClaw-[^/]+/\S+ \((?P<model>[^;)]+);")
 
 #: 网页端设备标识的命名空间前缀：与 Jellyfin 设备 id 同在一张注册表里，
 #: 加前缀避免两类标识意外撞车。
@@ -145,6 +148,11 @@ def web_client_info(*, device_id: str, user_agent: str | None) -> ClientInfo:
         device = fallback_device
         if app["platform"] == "iOS":
             device = next((name for needle, name in _PLATFORMS if needle in ua), fallback_device)
+        elif app["platform"].startswith("Android"):
+            # Android 的机型才是有用的设备名；占位的「Android」与客户端名重复
+            model = _APP_MODEL.search(ua)
+            if model is not None and model["model"].strip():
+                device = model["model"].strip()
         system = _APP_SYSTEM.search(ua)
         if system is not None:
             # 设备名与系统名相同（Android）时只写一次：「Android 16」而不是「Android · Android 16」
@@ -167,9 +175,12 @@ def web_client_info(*, device_id: str, user_agent: str | None) -> ClientInfo:
 # 播放日志（playback_log）：每场播放一行
 # ---------------------------------------------------------------------------
 
-#: 单次进度增量的上限：超过它视为 seek 跳过的区间，不计入观看时长。Jellyfin
-#: 客户端心跳最疏也在 30 秒级，网页端 10 秒，留足余量。
-_WATCH_DELTA_CAP_MS = 120_000
+#: 进度增量按墙钟封顶：两次上报之间最多只可能看了「间隔这么久」，多出来的是 seek
+#: 跳过的区间。余量吸收网络抖动（上报晚到一点不该吃掉下一段的观看时长）。
+#: 曾经是「单次增量超过两分钟视为 seek」的固定上限：两分钟以内的来回拖动全被当成
+#: 观看累加（NAS 实测一行 59 秒的播放记了 15 分钟），心跳疏的客户端正常播放超过
+#: 两分钟的一段又被整段丢弃。
+_WATCH_CLOCK_SLACK_MS = 2_000
 
 #: 同一设备同一单元的重复「开始」（seek、暂停后恢复、换源重协商都会再发
 #: Playing）在这个窗口内视为同一场，不另开一行；与实时注册表的保鲜期同值。
@@ -283,8 +294,9 @@ async def _log_progress(
         )
     if position_ms is not None:
         delta = position_ms - row.end_position_ms
-        if 0 < delta <= _WATCH_DELTA_CAP_MS:
-            row.watched_ms += delta
+        if delta > 0:
+            elapsed_ms = int((now - row.last_seen_at).total_seconds() * 1000)
+            row.watched_ms += min(delta, max(elapsed_ms, 0) + _WATCH_CLOCK_SLACK_MS)
         row.end_position_ms = position_ms
     row.last_seen_at = now
     row.updated_at = now
