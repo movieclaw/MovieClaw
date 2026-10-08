@@ -104,6 +104,9 @@ class Event(Contract, Generic[P, R]):
             )
         if delivery is Delivery.DURABLE and mode is not Mode.EMIT:
             raise TypeError(f"事件 {name}：只有 EMIT 事件可以可靠投递")
+        if delivery is Delivery.DURABLE and not callable(getattr(payload, "model_validate", None)):
+            # 可靠事件要落库、重启后还原、将来跨进程：载荷须是冻结的 pydantic 模型
+            raise TypeError(f"可靠事件 {name} 的载荷 {payload.__name__} 须是冻结的 pydantic 模型")
         super().__init__(name, version=version, stability=stability, doc=doc)
         self.mode = mode
         self.payload = payload
@@ -130,7 +133,9 @@ class DurableEventStore(Protocol):
 
 
 DURABLE_EVENTS: ServiceKey[DurableEventStore] = ServiceKey(
-    "kernel/durable-events", doc="可靠事件的存储与投递（第二阶段 A 提供）"
+    "kernel/durable-events",
+    stability=Stability.EXPERIMENTAL,
+    doc="可靠事件的存储与投递：事务内写入、提交后投递、至少一次",
 )
 
 

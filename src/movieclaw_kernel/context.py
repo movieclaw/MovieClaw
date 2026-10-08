@@ -10,9 +10,9 @@ import logging
 from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
-from movieclaw_kernel.contracts import RegistryKey, ServiceKey
+from movieclaw_kernel.contracts import Contract, RegistryKey, ServiceKey, internal_for_third_party
 from movieclaw_kernel.events import DURABLE_EVENTS, Delivery, Event, EventBus
-from movieclaw_kernel.observe import Origin, current_origin
+from movieclaw_kernel.observe import DeliveryInfo, Origin, current_delivery, current_origin
 from movieclaw_kernel.plugin import Plugin
 from movieclaw_kernel.registry import Registry, RegistryChange
 
@@ -49,8 +49,18 @@ class Context(Generic[C]):
         return current_origin.get()
 
     @property
+    def delivery(self) -> DeliveryInfo | None:
+        """正在处理的可靠事件的投递信息；不在可靠事件监听器里时为 ``None``。"""
+        return current_delivery.get()
+
+    @property
     def events(self) -> EventBus:
         return self._kernel.bus
+
+    def _guard(self, contract: Contract) -> None:
+        reason = internal_for_third_party(contract, third_party=self._fiber.third_party)
+        if reason is not None:
+            raise PermissionError(f"插件 {self.entry_id}：{reason}")
 
     # ------------------------------------------------------------------ 服务
     def use(self, key: ServiceKey[T]) -> T:
@@ -64,6 +74,7 @@ class Context(Generic[C]):
 
     def get(self, key: ServiceKey[T]) -> T | None:
         """取可选服务，没有提供方时返回 ``None``。"""
+        self._guard(key)
         return self._kernel.service(key)
 
     def provide(self, key: ServiceKey[T], value: T) -> None:
@@ -71,6 +82,7 @@ class Context(Generic[C]):
 
     # ------------------------------------------------------------------ 注册表
     def registry(self, key: RegistryKey[T]) -> Registry[T]:
+        self._guard(key)
         return self._kernel.registry(key)
 
     def contribute(
@@ -110,6 +122,7 @@ class Context(Generic[C]):
         priority: int = 0,
     ) -> None:
         fiber = self._fiber
+        self._guard(event)
         if event.delivery is Delivery.DURABLE:
             if not id:
                 raise ValueError(f"可靠事件 {event.name} 的监听器必须有稳定 id")

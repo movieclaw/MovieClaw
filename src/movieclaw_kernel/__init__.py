@@ -34,7 +34,14 @@ from movieclaw_kernel.kernel import (
     PluginStateChanged,
     State,
 )
-from movieclaw_kernel.observe import EntryLogFilter, Origin, current_entry, current_origin
+from movieclaw_kernel.observe import (
+    DeliveryInfo,
+    EntryLogFilter,
+    Origin,
+    current_delivery,
+    current_entry,
+    current_origin,
+)
 from movieclaw_kernel.plugin import Entry, Patch, Plugin, plugin
 from movieclaw_kernel.registry import ContributionConflict, Registry, RegistryChange
 
@@ -46,6 +53,7 @@ __all__ = [
     "Context",
     "ContributionConflict",
     "Delivery",
+    "DeliveryInfo",
     "DurableEventStore",
     "Entry",
     "EntryLogFilter",
@@ -66,6 +74,7 @@ __all__ = [
     "ServiceKey",
     "Stability",
     "State",
+    "current_delivery",
     "current_entry",
     "current_origin",
     "plugin",

@@ -27,6 +27,7 @@ from movieclaw_kernel.contracts import (
     ServiceKey,
     check_requires,
     describe,
+    internal_for_third_party,
 )
 from movieclaw_kernel.events import Event, EventBus, Mode
 from movieclaw_kernel.observe import (
@@ -257,6 +258,7 @@ class Kernel:
             if entry.id in self._by_id:
                 raise KernelConfigError(f"条目 id 重复：{entry.id}")
             fiber = self._new_fiber(entry, (next(self._order),))
+            self._check_compat(fiber)
             await self._reconcile()
             return fiber
 
@@ -310,11 +312,26 @@ class Kernel:
                 fiber.state = State.DISABLED
                 fiber.disabled_by = disabled[entry.id]
                 continue
-            reason = check_requires(dict(entry.plugin.requires), third_party=fiber.third_party)
-            if reason is not None:
-                fiber.state = State.INCOMPATIBLE
-                fiber.incompatible = reason
-                logger.warning("插件 %s 与当前版本不兼容：%s", entry.id, reason)
+            self._check_compat(fiber)
+
+    @staticmethod
+    def _check_compat(fiber: Fiber) -> None:
+        """契约版本与稳定性检查：不兼容的条目标 ``INCOMPATIBLE``，永不激活。"""
+        plugin = fiber.plugin
+        reason = check_requires(dict(plugin.requires), third_party=fiber.third_party)
+        if reason is None:
+            reason = next(
+                (
+                    r
+                    for key in (*plugin.inject, *plugin.provides)
+                    if (r := internal_for_third_party(key, third_party=fiber.third_party))
+                ),
+                None,
+            )
+        if reason is not None:
+            fiber.state = State.INCOMPATIBLE
+            fiber.incompatible = reason
+            logger.warning("插件 %s 与当前版本不兼容：%s", fiber.id, reason)
 
     @staticmethod
     def _check_cycles(
@@ -625,6 +642,7 @@ class Kernel:
             "source": fiber.entry.source,
             "parent": fiber.parent.id if fiber.parent else None,
             "provides": [k.name for k in fiber.plugin.provides],
+            "permissions": list(fiber.plugin.permissions),
             "inject": [k.name for k in fiber.plugin.inject],
             "blocked_by": blocked,
             "incompatible": fiber.incompatible,

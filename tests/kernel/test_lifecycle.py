@@ -292,6 +292,49 @@ async def test_third_party_cannot_require_internal_contract() -> None:
     await kernel.stop()
 
 
+async def test_third_party_cannot_inject_or_provide_internal_services() -> None:
+    # 内部服务随时可改：第三方插件即使没写 requires，注入或提供它们也直接判不兼容
+    kernel = Kernel()
+    await kernel.start(
+        [
+            Entry("db", make_provider("db", DB, "conn")),
+            Entry("exp", make_provider("exp", EXP, "x")),
+            Entry("acme.reader", make_consumer("acme.reader", DB), source="acme"),
+            Entry("acme.hijack", make_provider("acme.hijack", CACHE, "c"), source="acme"),
+            Entry("acme.ok", make_consumer("acme.ok", EXP), source="acme"),
+            Entry("builtin.reader", make_consumer("builtin.reader", DB)),
+        ]
+    )
+    assert kernel.fiber("acme.reader").state is State.INCOMPATIBLE
+    assert "test/db 仅供内置" in kernel.fiber("acme.reader").incompatible
+    assert kernel.fiber("acme.hijack").state is State.INCOMPATIBLE
+    assert kernel.fiber("acme.ok").state is State.ACTIVE
+    assert kernel.fiber("builtin.reader").state is State.ACTIVE
+    await kernel.stop()
+
+
+async def test_runtime_mount_runs_compat_checks() -> None:
+    async with KernelHarness() as h:
+        h.provide(DB, "conn")
+        fiber = await h.mount(make_consumer("acme.late", DB), source="acme")
+        assert fiber.state is State.INCOMPATIBLE
+        needs_new = make_consumer("needs-new", requires={"test/exp": "^9.0"})
+        assert (await h.mount(needs_new)).state is State.INCOMPATIBLE
+        await h.unmount(fiber)
+        await h.unmount("needs-new")
+
+
+async def test_permissions_are_declared_and_described() -> None:
+    @plugin("asker", title="a", permissions=("subscriptions.create", "search.*"))
+    async def asker(ctx) -> None: ...
+
+    async with KernelHarness() as h:
+        fiber = await h.mount(asker)
+        assert fiber.plugin.permissions == ("subscriptions.create", "search.*")
+        assert h.kernel.describe(fiber)["permissions"] == ["subscriptions.create", "search.*"]
+        await h.unmount(fiber)
+
+
 async def test_patch_disables_only_disableable_entries(caplog) -> None:
     log: list[str] = []
     kernel = Kernel()

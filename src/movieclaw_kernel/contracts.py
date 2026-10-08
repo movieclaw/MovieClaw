@@ -119,6 +119,13 @@ def check_requires(requires: dict[str, str], *, third_party: bool) -> str | None
     return None
 
 
+def internal_for_third_party(contract: Contract, *, third_party: bool) -> str | None:
+    """第三方插件用到内部契约时返回拒绝原因（§5.1：内部契约随时可改，只给内置插件用）。"""
+    if third_party and contract.stability is Stability.INTERNAL:
+        return f"契约 {contract.name} 仅供内置插件使用"
+    return None
+
+
 def describe(contract: Contract) -> dict[str, Any]:
     return {
         "name": contract.name,

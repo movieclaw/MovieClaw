@@ -39,6 +39,26 @@ class Origin:
 
 SYSTEM = Origin()
 
+
+@dataclass(frozen=True)
+class DeliveryInfo:
+    """可靠事件监听器的投递信息（经 ``ctx.delivery`` 读取）。
+
+    ``origin`` 是**事件发生时**的发起方：插件据此忽略自己引起的事件。消费方以 ``event_id`` 去重
+    （至少一次投递，重试与重放会重复送达）。
+    """
+
+    event_id: str
+    name: str
+    occurred_at: str
+    origin: Origin
+    attempt: int = 1
+
+
+current_delivery: contextvars.ContextVar[DeliveryInfo | None] = contextvars.ContextVar(
+    "movieclaw_kernel_delivery", default=None
+)
+
 current_origin: contextvars.ContextVar[Origin] = contextvars.ContextVar(
     "movieclaw_kernel_origin", default=SYSTEM
 )

@@ -15,6 +15,7 @@ from movieclaw_kernel import (
     PLUGIN_STATE,
     EntryLogFilter,
     RegistryKey,
+    Stability,
     State,
     plugin,
 )
@@ -26,7 +27,8 @@ class Adapter:
     name: str
 
 
-ADAPTERS = RegistryKey("test/adapters", schema=Adapter)
+# 第三方插件也要往里贡献，所以是开放给第三方的实验级注册表
+ADAPTERS = RegistryKey("test/adapters", schema=Adapter, stability=Stability.EXPERIMENTAL)
 
 
 def contributor(name: str, cid: str, item: Adapter, **kw):
@@ -85,6 +87,33 @@ async def test_third_party_ids_are_prefixed() -> None:
         await h.mount(contributor("acme.dl", "aria2", Adapter("aria2")), source="acme")
         assert "acme.dl:aria2" in h.registry(ADAPTERS)
         assert "aria2" not in h.registry(ADAPTERS)
+
+
+async def test_third_party_cannot_touch_internal_registries_or_events() -> None:
+    internal = RegistryKey("test/internal-reg")
+    from movieclaw_kernel import Event, Mode
+
+    hidden = Event("test/internal-event", Mode.EMIT, payload=int)
+
+    @plugin("acme.contrib", title="c")
+    async def contrib(ctx) -> None:
+        ctx.contribute(internal, "x", 1)
+
+    @plugin("acme.listen", title="l")
+    async def listen(ctx) -> None:
+        ctx.on(hidden, lambda v: None)
+
+    async with KernelHarness() as h:
+        for p in (contrib, listen):
+            fiber = await h.mount(p, source="acme")
+            assert fiber.state is State.FAILED
+            assert "仅供内置插件使用" in fiber.error
+            await h.unmount(fiber)
+        # 内置插件不受限
+        builtin = await h.mount(contributor("builtin.contrib", "y", Adapter("y")))
+        assert builtin.state is State.ACTIVE
+        await h.unmount(builtin)
+        assert "x" not in h.registry(internal)
 
 
 async def test_schema_enforced() -> None:

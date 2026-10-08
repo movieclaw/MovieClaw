@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Request
+from pydantic import Field
 
 from movieclaw_api.exceptions import NotFoundException
 from movieclaw_api.schemas.base import BaseModel
@@ -47,6 +48,7 @@ class PluginView(BaseModel):
     parent: str | None
     provides: list[str]
     inject: list[str]
+    permissions: list[str] = Field(default_factory=list, description="插件声明需要的宿主操作")
     blocked_by: list[BlockedBy]
     incompatible: str | None
     disabled_by: str | None

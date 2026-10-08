@@ -10,6 +10,7 @@ import time
 from dataclasses import dataclass
 
 import pytest
+from pydantic import BaseModel, ConfigDict
 
 from movieclaw_kernel import (
     DURABLE_EVENTS,
@@ -38,10 +39,15 @@ class Mutable:
     value: int
 
 
+class Stored(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    value: int
+
+
 NOTICE = Event("test/notice", Mode.EMIT, payload=Item)
 PIPE = Event("test/pipe", Mode.WATERFALL, payload=Batch, result=Batch, timeout=0.2)
 DECIDE = Event("test/decide", Mode.BAIL, payload=Item, result=str, timeout=0.2)
-DURABLE = Event("test/durable", Mode.EMIT, payload=Item, delivery=Delivery.DURABLE)
+DURABLE = Event("test/durable", Mode.EMIT, payload=Stored, delivery=Delivery.DURABLE)
 
 
 def listener_plugin(name: str, event: Event, handler, **kw):
@@ -71,6 +77,12 @@ def test_durable_only_for_emit() -> None:
         Event("test/bad2", Mode.BAIL, payload=Item, delivery=Delivery.DURABLE)
 
 
+def test_durable_payload_must_be_pydantic() -> None:
+    # 可靠事件要落库、重启后还原：冻结 dataclass 不够，须能按 schema 校验还原
+    with pytest.raises(TypeError, match="pydantic"):
+        Event("test/bad3", Mode.EMIT, payload=Item, delivery=Delivery.DURABLE)
+
+
 async def test_wrong_dispatch_mode_and_payload_rejected() -> None:
     async with KernelHarness() as h:
         with pytest.raises(TypeError, match="waterfall"):
@@ -78,7 +90,7 @@ async def test_wrong_dispatch_mode_and_payload_rejected() -> None:
         with pytest.raises(TypeError, match="载荷须是"):
             h.events.emit(NOTICE, Batch(()))
         with pytest.raises(TypeError, match="可靠事件"):
-            h.events.emit(DURABLE, Item(1))
+            h.events.emit(DURABLE, Stored(value=1))
 
 
 # ---------------------------------------------------------------- EMIT
@@ -434,6 +446,42 @@ async def test_durable_listener_waits_for_store() -> None:
         assert subscribed == [("test/durable", "auto", "cascade")]
         await h.unmount(fiber)
         assert unsubscribed == ["cascade"]
+
+
+async def test_durable_listener_reads_delivery_info() -> None:
+    # 存储实现投递时设置 current_delivery；
+    # 监听器经 ctx.delivery 读到事件 id 与「事件发生时的发起方」
+    from movieclaw_kernel import DeliveryInfo, Origin, current_delivery
+
+    seen: list[tuple] = []
+    holder: dict = {}
+
+    class FakeStore:
+        def subscribe(self, event, *, entry_id, listener_id, handler):
+            holder["handler"] = handler
+            return lambda: None
+
+    @plugin("reader", title="r", inject=(DURABLE_EVENTS,))
+    async def reader(ctx) -> None:
+        def on_event(item: Stored) -> None:
+            info = ctx.delivery
+            seen.append((item.value, info.event_id, info.origin.is_plugin("reader")))
+
+        ctx.on(DURABLE, on_event, id="read")
+        assert ctx.delivery is None
+
+    async with KernelHarness() as h:
+        h.provide(DURABLE_EVENTS, FakeStore())
+        fiber = await h.mount(reader)
+        origin = Origin("plugin", "reader")
+        info = DeliveryInfo("01EVT", "test/durable", "2026-10-09T00:00:00Z", origin)
+        token = current_delivery.set(info)
+        try:
+            holder["handler"](Stored(value=7))
+        finally:
+            current_delivery.reset(token)
+        await h.unmount(fiber)
+    assert seen == [(7, "01EVT", True)]
 
 
 async def test_durable_listener_without_inject_fails() -> None:

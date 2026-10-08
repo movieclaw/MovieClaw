@@ -32,6 +32,8 @@ class Plugin:
     apply_timeout: float | None = 30.0
     reloadable: bool = False
     config: type | None = None
+    permissions: tuple[str, ...] = ()
+    """插件需要的宿主操作（operationId，支持 ``领域.*``）。内核只存储、进诊断，由宿主解释。"""
 
     def __repr__(self) -> str:
         return f"Plugin({self.name!r})"
@@ -49,6 +51,7 @@ def plugin(
     apply_timeout: float | None = 30.0,
     reloadable: bool = False,
     config: type | None = None,
+    permissions: tuple[str, ...] = (),
 ) -> Callable[[Apply], Plugin]:
     """把一个 ``async def apply(ctx)`` 声明为插件。
 
@@ -70,6 +73,7 @@ def plugin(
             apply_timeout=None if critical else apply_timeout,
             reloadable=reloadable,
             config=config,
+            permissions=tuple(permissions),
         )
 
     return decorator
