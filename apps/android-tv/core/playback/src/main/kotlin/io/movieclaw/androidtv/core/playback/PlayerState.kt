@@ -76,6 +76,8 @@ data class PlayerState(
     val engineSubtitles: Boolean = false,
     val videoWidth: Int = 0,
     val videoHeight: Int = 0,
+    /** 片源帧率（解出来的格式优先，没有就用台账的）：界面层据此做自动帧率匹配 */
+    val contentFrameRate: Float? = null,
 ) {
     val title: String get() = info?.title ?: "正在播放"
 

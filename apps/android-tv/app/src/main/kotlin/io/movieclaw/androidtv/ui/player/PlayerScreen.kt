@@ -164,6 +164,11 @@ private fun PlayerContent(controller: PlaybackController, state: PlayerState, ht
         onDispose { view.keepScreenOn = false }
     }
 
+    // 自动帧率匹配：片源帧率一确定就切显示模式（换集换了帧率再切一次），离开播放器交还系统
+    val activity = androidx.activity.compose.LocalActivity.current as? io.movieclaw.androidtv.MainActivity
+    LaunchedEffect(state.contentFrameRate) { state.contentFrameRate?.let { activity?.matchFrameRate(it) } }
+    DisposableEffect(activity) { onDispose { activity?.restoreDisplayMode() } }
+
     fun showChrome() {
         chromeVisible = true
         chromeActivity += 1

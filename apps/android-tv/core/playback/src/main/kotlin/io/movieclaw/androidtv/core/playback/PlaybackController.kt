@@ -1492,6 +1492,8 @@ class PlaybackController(
             record?.noteDownlink(bandwidth.bitrateEstimate.toDouble())
         }
         set { copy(speedLabel = PlayerFormat.loadingSpeed(loadingBps)) }
+        val fps = engineFacts.videoFormat?.frameRate?.takeIf { it > 0 } ?: session?.source?.frameRate?.toFloat()
+        if (fps != s.contentFrameRate) set { copy(contentFrameRate = fps) }
         runWatchdogs()
         feedQualitySuggestion()
     }

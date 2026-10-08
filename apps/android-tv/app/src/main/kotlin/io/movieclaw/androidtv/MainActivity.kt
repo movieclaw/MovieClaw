@@ -2,7 +2,12 @@ package io.movieclaw.androidtv
 
 import android.content.Intent
 import android.os.Bundle
+import android.hardware.display.DisplayManager
+import android.os.Build
+import android.view.Display
 import android.view.WindowManager
+import io.movieclaw.androidtv.core.playback.EngineLog
+import io.movieclaw.androidtv.core.playback.FrameRateMatch
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import io.movieclaw.androidtv.system.DeepLink
@@ -27,6 +32,44 @@ class MainActivity : ComponentActivity() {
             intent.getStringExtra("mc_subtitle")?.let { graph.labTracks.tryEmit("subtitle" to it) }
         }
     }
+
+    /**
+     * 自动帧率匹配（androidtv-app.md §4.4）：按片源帧率切显示模式。遵从系统「匹配内容帧率」设置
+     * （Android 12+）：从不 → 不切；仅无缝 → 交给 Media3 自带的无缝切换；始终 → 主动切。更老的系统没有这个设置，主动切
+     */
+    fun matchFrameRate(fps: Float?) {
+        val preference = frameRatePreference()
+        val display = window.decorView.display ?: return
+        val current = display.mode
+        val target = if (preference == FrameRateMatch.Preference.Always) {
+            FrameRateMatch.pick(display.supportedModes.map(::modeOf), modeOf(current), fps)
+        } else {
+            null
+        }
+        EngineLog.add(
+            "display",
+            "帧率匹配 片源 ${fps ?: "?"}fps 设置 $preference 当前 ${modeOf(current)}" + (target?.let { " → 切到 $it" } ?: " → 不切"),
+        )
+        if (target != null) window.attributes = window.attributes.also { it.preferredDisplayModeId = target.id }
+    }
+
+    /** 离开播放器：交还给系统默认的显示模式 */
+    fun restoreDisplayMode() {
+        if (window.attributes.preferredDisplayModeId != 0) {
+            window.attributes = window.attributes.also { it.preferredDisplayModeId = 0 }
+        }
+    }
+
+    private fun frameRatePreference(): FrameRateMatch.Preference {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return FrameRateMatch.Preference.Always
+        return when (getSystemService(DisplayManager::class.java)?.matchContentFrameRateUserPreference) {
+            DisplayManager.MATCH_CONTENT_FRAMERATE_NEVER -> FrameRateMatch.Preference.Never
+            DisplayManager.MATCH_CONTENT_FRAMERATE_SEAMLESSS_ONLY -> FrameRateMatch.Preference.SeamlessOnly
+            else -> FrameRateMatch.Preference.Always
+        }
+    }
+
+    private fun modeOf(mode: Display.Mode) = FrameRateMatch.Mode(mode.modeId, mode.physicalWidth, mode.physicalHeight, mode.refreshRate)
 
     /** 播放器要求常亮时调用（看片不熄屏 / 不进屏保） */
     fun keepScreenOn(on: Boolean) {
