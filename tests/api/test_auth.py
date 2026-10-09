@@ -381,6 +381,8 @@ def fill_path_params(path: str) -> str:
         .replace("{challenge_id}", "test-challenge")
         .replace("{account_id}", "test-bot")
         .replace("{channel}", "weixin")
+        .replace("{channel_id}", "weixin")
+        .replace("{binding_id}", "test-binding")
         .replace("{endpoint_id}", "test-endpoint")
         .replace("{username}", "family")
         .replace("{member_id}", "1")

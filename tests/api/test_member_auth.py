@@ -756,6 +756,8 @@ _PATH_DUMMIES = {
     "{challenge_id}": "test-challenge",
     "{account_id}": "test-bot",
     "{channel}": "weixin",
+    "{channel_id}": "weixin",
+    "{binding_id}": "test-binding",
     "{endpoint_id}": "test-endpoint",
     "{member_id}": "1",
     "{job_id}": "job_test",
