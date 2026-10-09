@@ -15,6 +15,7 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
   <a href="https://demo.movieclaw.io">Live Demo</a> ·
+  <a href="https://movieclaw.io/en/download">Download</a> ·
   <a href="#just-say-the-word-it-handles-the-rest">AI Agent</a> ·
   <a href="#boundaries">Boundaries</a> ·
   <a href="#control-it-from-anywhere">CLI</a> ·
@@ -78,11 +79,17 @@ engine: FFmpeg unpacks, Apple plays.
 - Progress syncs across the web app, the iPhone app, and Infuse, so you pick up wherever you left off.
 - **Clips**: swipe vertically through highlights pulled from your own movies and shows.
 
-**Getting the app**: download `MovieClaw-iOS-unsigned.ipa` from
-[Releases](https://github.com/movieclaw/movieclaw/releases) and sideload it with AltStore,
-SideStore, or Sideloadly using your own Apple ID (iOS 26 or later; sideloaded builds can't
-receive push notifications). A public TestFlight is
-coming. Trackers and download clients are configured in the web app.
+**Getting the apps**: apps for iPhone, Android, Apple TV, Android TV, and Mac are all on the
+[download page](https://movieclaw.io/en/download), with versions, system requirements, and
+install steps for each. The iPhone app is on its way to the App Store. Until then, download
+`MovieClaw-iOS-unsigned.ipa` from [Releases](https://github.com/movieclaw/movieclaw/releases)
+and sideload it with AltStore, SideStore, or Sideloadly using your own Apple ID (iOS 26 or
+later; sideloaded builds can't receive push notifications). Trackers and download clients are
+configured in the web app.
+
+Want an email when a new app launches or a new version ships?
+[Get updates](https://movieclaw.io/en/download#updates) on the website. Sign in, pick an
+email address, and unsubscribe anytime.
 
 The web app is liquid glass: the sidebar, inputs, and floating buttons refract whatever
 background image you choose, with a touch of chromatic aberration at the edges. Swap the
