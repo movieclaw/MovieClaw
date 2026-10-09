@@ -363,6 +363,8 @@ async def login(
         return ok(_member_session_view(identity), message="登录成功")
 
     token, max_age = await _issue_web_session(request, owner_id=0, remember=payload.remember)
+    if demo_service.is_review_username(payload.username):
+        demo_service.remember_review_token(token)
     await _remember_login(
         request, response, token, max_age, Principal(kind="admin", name=identity.username)
     )
@@ -707,6 +709,8 @@ async def device_login(
             ip=client_address(request) or None,
         )
         owners = await _owner_labels(session)
+    if demo_service.is_review_username(payload.username):
+        demo_service.remember_review_token(token)
     assert device.id is not None
     ref = auth_service.DeviceRef(
         id=device.id, kind=device.kind, scope=device.scope, name=device.name

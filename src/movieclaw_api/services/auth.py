@@ -391,6 +391,17 @@ async def authenticate(username: str, password: str) -> AdminAccountSetting | Me
     )
     throttle.ensure_allowed()
 
+    # 公开演示站的审核账号：用户名密码只在部署环境里，对上即以超管身份登录；
+    # 登录路由随后把签发的凭证记进审核名单（demo-site.md §9）
+    if demo_service.is_review_username(username):
+        if demo_service.check_review_password(username, password):
+            throttle.reset()
+            logger.info("审核账号 %s 登录成功（超管身份）", username)
+            return await _load_admin_fresh()
+        throttle.record_failure()
+        logger.warning("登录失败：用户名或密码错误（用户名输入：%s）", username)
+        raise UnauthorizedException("用户名或密码错误")
+
     admin = await _load_admin_fresh()
     if not admin.password_hash:
         raise BadRequestException("系统尚未初始化，请先完成首次引导创建管理员账号")

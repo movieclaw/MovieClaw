@@ -57,7 +57,9 @@ def client(tmp_path, monkeypatch, accounts_file):
     monkeypatch.setenv("SCHEDULER_ENABLED", "false")
     monkeypatch.setenv("TMDB_API_KEY", "test-key-not-used")
     monkeypatch.setenv("MOVIECLAW_DEMO_ACCOUNTS_FILE", str(accounts_file))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.delenv("MOVIECLAW_DEMO_MODE", raising=False)
+    monkeypatch.delenv("MOVIECLAW_DEMO_REVIEW_PASSWORD", raising=False)
     get_settings.cache_clear()
     reset_setting_store()
     reset_secret_box()
@@ -318,8 +320,10 @@ def test_demo_tables_reference_real_operations(client: TestClient) -> None:
     }
     missing_writes = demo_service.ALLOWED_WRITE_OPERATIONS - operations
     missing_reads = set(demo_service.BLOCKED_READ_OPERATIONS) - operations
+    missing_review = set(demo_service.REVIEW_BLOCKED_OPERATIONS) - operations
     assert not missing_writes, f"演示站写白名单里有不存在的接口：{sorted(missing_writes)}"
     assert not missing_reads, f"演示站读黑名单里有不存在的接口：{sorted(missing_reads)}"
+    assert not missing_review, f"审核账号黑名单里有不存在的接口：{sorted(missing_review)}"
 
 
 @pytest.mark.parametrize("account", [_ADMIN, _MEMBER])
@@ -533,3 +537,99 @@ def test_spoofed_seeded_device_only_shows_preset_text() -> None:
         "第三方播放器",
         "访客设备",
     )
+
+
+# ---------------------------------------------------------------------------
+# App Store 审核账号（demo-site.md §9）：私密账号不受只读限制，公开账号照旧
+# ---------------------------------------------------------------------------
+
+_REVIEW = {"username": "appreview", "password": "review-secret-2026"}
+
+
+def _enable_review(monkeypatch) -> None:
+    monkeypatch.setenv("MOVIECLAW_DEMO_REVIEW_PASSWORD", _REVIEW["password"])
+    _enable_demo(monkeypatch)
+
+
+def _app_login(client: TestClient, account: dict) -> httpx.Response:
+    client.cookies.clear()
+    return client.post(
+        f"{_AUTH}/device/login",
+        json={
+            **account,
+            "client": {"kind": "ios", "installation_id": "review-phone", "name": "iPhone"},
+        },
+    )
+
+
+def test_review_account_uses_admin_writes_while_public_stays_read_only(
+    client: TestClient, monkeypatch
+) -> None:
+    admin_cookie, member_id = _provision(client)
+    _enable_review(monkeypatch)
+
+    resp = _app_login(client, _REVIEW)
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["session"]["role"] == "admin"
+    bearer = {"Authorization": f"Bearer {data['token']}"}
+
+    # 公开账号挡住的写操作与敏感读，审核账号都能用
+    created = client.post(
+        "/api/v1/members",
+        json={"username": "reviewer-made", "password": "member-pass-1"},
+        headers=bearer,
+    )
+    assert created.status_code == 200, created.text
+    renamed = client.put(f"/api/v1/members/{member_id}", json={"nickname": "家人"}, headers=bearer)
+    assert renamed.status_code == 200, renamed.text
+    assert client.get("/api/v1/system/logs", headers=bearer).status_code == 200
+    assert client.get("/api/v1/sites/catalog", headers=bearer).status_code == 200
+
+    # 安全底线：预先接好的资源链路与部署的版本，审核账号也动不了
+    for path, wording in [
+        ("/api/v1/downloaders", "预先配置"),
+        ("/api/v1/sites", "预先配置"),
+        ("/api/v1/app/update/apply", "版本"),
+    ]:
+        _assert_demo_denied(client.post(path, json={}, headers=bearer), contains=wording)
+
+    # 网页登录同样认得
+    client.cookies.clear()
+    assert client.post(f"{_AUTH}/login", json={**_REVIEW, "remember": False}).status_code == 200
+    assert client.put(f"{_AUTH}/profile", json={"nickname": "审核"}).status_code == 200
+
+    # 公开的超管照旧只读，看不到日志
+    _use(client, admin_cookie)
+    _assert_demo_denied(
+        client.post("/api/v1/members", json={"username": "evil", "password": "evil-pass-1"}),
+        contains="成员",
+    )
+    _assert_demo_denied(client.get("/api/v1/system/logs"))
+
+
+def test_review_account_survives_restart_and_rejects_wrong_password(
+    client: TestClient, monkeypatch
+) -> None:
+    _provision(client)
+    _enable_review(monkeypatch)
+
+    assert _app_login(client, {**_REVIEW, "password": "wrong-password"}).status_code == 401
+    token = _app_login(client, _REVIEW).json()["data"]["token"]
+
+    # 名单落盘：进程重启（缓存清空）后同一枚凭证仍被认出
+    demo_service.reset_demo_state()
+    resp = client.post(
+        "/api/v1/members",
+        json={"username": "after-restart", "password": "member-pass-1"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_review_account_is_off_without_a_password(client: TestClient, monkeypatch) -> None:
+    _provision(client)
+    _enable_demo(monkeypatch)
+    # 没配审核密码：审核用户名就是个不存在的账号，任何密码都登不上
+    assert _app_login(client, {**_REVIEW, "password": "anything-1"}).status_code == 401
+    assert demo_service.is_review_token("mclaw_anything") is False

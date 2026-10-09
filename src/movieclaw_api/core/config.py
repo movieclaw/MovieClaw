@@ -330,6 +330,11 @@ class Settings(BaseSettings):
     # 登录页公布的演示账号清单（JSON，格式见 demo/accounts.json）；留空则只提示
     # 「演示站只读」而不列账号。放在 data/ 之外，由部署时只读挂载进容器
     demo_accounts_file: str = Field(default="", alias="MOVIECLAW_DEMO_ACCOUNTS_FILE")
+    # App Store 审核账号：不公开、不进仓库，只在部署环境里设置（密码留空即不启用）。
+    # 用它登录等同于超管、且不受只读守卫限制（只留几条安全底线），审核员因此能把
+    # App 里的每个功能真的用一遍；公开账号照旧只读（demo-site.md §9）
+    demo_review_username: str = Field(default="appreview", alias="MOVIECLAW_DEMO_REVIEW_USERNAME")
+    demo_review_password: str = Field(default="", alias="MOVIECLAW_DEMO_REVIEW_PASSWORD")
 
     @field_validator("tmdb_api_base_url")
     @classmethod

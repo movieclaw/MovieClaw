@@ -25,8 +25,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import json
 import logging
+import os
 import time
 from collections import deque
 from functools import lru_cache
@@ -260,6 +263,108 @@ def is_public_account(username: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
+# App Store 审核账号（demo-site.md §9）
+# ---------------------------------------------------------------------------
+# 审核员要把 App 里的每个功能真的用一遍，公开账号的只读守卫做不到。审核账号的
+# 用户名密码只在部署环境里（MOVIECLAW_DEMO_REVIEW_*），不进仓库、不上登录页；
+# 用它登录就是超管，登录时签发的那枚凭证记进审核名单，守卫认出名单里的凭证后
+# 只按 REVIEW_BLOCKED_OPERATIONS 拦几条安全底线。名单存在 data/ 下，每日还原时
+# 随设备行一起清空。存的是凭证的 sha256，不存明文。
+
+#: 审核账号也不能做的事：换掉部署好的演示版本、改动预先接好的演示资源链路
+_REVIEW_PIPELINE_MESSAGE = (
+    "演示服务器的资源站点、下载器与自动入库规则是预先配置好的，不能在这里改动"
+)
+_REVIEW_VERSION_MESSAGE = "演示服务器的版本由部署固定，不能在应用内升级或回退"
+REVIEW_BLOCKED_OPERATIONS: dict[str, str] = {
+    "app.update.apply": _REVIEW_VERSION_MESSAGE,
+    "app.update.rollback": _REVIEW_VERSION_MESSAGE,
+    "app.update.model-apply": _REVIEW_VERSION_MESSAGE,
+    "site.add": _REVIEW_PIPELINE_MESSAGE,
+    "site.update": _REVIEW_PIPELINE_MESSAGE,
+    "site.delete": _REVIEW_PIPELINE_MESSAGE,
+    "dl.add": _REVIEW_PIPELINE_MESSAGE,
+    "dl.update": _REVIEW_PIPELINE_MESSAGE,
+    "dl.delete": _REVIEW_PIPELINE_MESSAGE,
+    "watch.create": _REVIEW_PIPELINE_MESSAGE,
+    "watch.update": _REVIEW_PIPELINE_MESSAGE,
+    "watch.delete": _REVIEW_PIPELINE_MESSAGE,
+}
+
+_REVIEW_SESSIONS_FILE = "demo-review-sessions.json"
+_review_hashes: set[str] | None = None
+
+
+def review_enabled() -> bool:
+    """演示模式下配置了审核密码才启用审核账号。"""
+    settings = get_settings()
+    return (
+        settings.demo_mode
+        and bool(settings.demo_review_password)
+        and bool(settings.demo_review_username.strip())
+    )
+
+
+def is_review_username(username: str) -> bool:
+    """用户名是否是审核账号（大小写不敏感）。"""
+    wanted = get_settings().demo_review_username.strip().lower()
+    return review_enabled() and username.strip().lower() == wanted
+
+
+def check_review_password(username: str, password: str) -> bool:
+    """审核账号的用户名与密码是否都对上（常量时间比较密码）。"""
+    if not is_review_username(username):
+        return False
+    expected = get_settings().demo_review_password.encode()
+    return hmac.compare_digest(password.encode(), expected)
+
+
+def _review_sessions_path() -> Path:
+    return Path(get_settings().data_dir) / _REVIEW_SESSIONS_FILE
+
+
+def _token_hash(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _review_hashes_loaded() -> set[str]:
+    global _review_hashes
+    if _review_hashes is None:
+        try:
+            raw = json.loads(_review_sessions_path().read_text(encoding="utf-8"))
+            _review_hashes = {str(item) for item in raw}
+        except (OSError, ValueError, TypeError):
+            _review_hashes = set()
+    return _review_hashes
+
+
+def remember_review_token(token: str) -> None:
+    """把审核账号登录时签发的凭证记进名单（写临时文件再替换，不留半截文件）。"""
+    hashes = _review_hashes_loaded()
+    hashes.add(_token_hash(token))
+    path = _review_sessions_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(sorted(hashes)), encoding="utf-8")
+    os.replace(tmp, path)
+    logger.info("审核账号已登录（名单内凭证 %d 枚）", len(hashes))
+
+
+def is_review_token(token: str | None) -> bool:
+    """这枚凭证是不是审核账号登录时签发的。"""
+    if not token or not review_enabled():
+        return False
+    return _token_hash(token) in _review_hashes_loaded()
+
+
+def review_rejection_for(method: str, operation_id: str) -> str | None:
+    """审核账号的请求：只拦安全底线，其余一律放行（读接口全部放行）。"""
+    if method.upper() in _SAFE_METHODS:
+        return None
+    return REVIEW_BLOCKED_OPERATIONS.get(operation_id)
+
+
+# ---------------------------------------------------------------------------
 # 登录频率：按来源地址限
 # ---------------------------------------------------------------------------
 # 公开账号不走「按用户名连续失败锁定」（见 is_public_account），但每次登录都要
@@ -318,9 +423,11 @@ def _prune_login_attempts(now: float) -> None:
 
 
 def reset_demo_state() -> None:
-    """仅供测试：清掉账号清单缓存与登录计数。"""
+    """仅供测试：清掉账号清单缓存、登录计数与审核名单缓存。"""
+    global _review_hashes
     _load_accounts_file.cache_clear()
     _login_attempts.clear()
+    _review_hashes = None
 
 
 # ---------------------------------------------------------------------------

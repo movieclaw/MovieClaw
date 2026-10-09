@@ -33,9 +33,19 @@ async def demo_guard(connection: HTTPConnection) -> None:
         )
     route = connection.scope.get("route")
     operation_id = getattr(route, "operation_id", None) or ""
-    reason = demo_service.rejection_for(connection.scope.get("method", "GET"), operation_id)
+    method = connection.scope.get("method", "GET")
+    reason = demo_service.rejection_for(method, operation_id)
+    # 审核账号（demo-site.md §9）：只在要拒绝时才看凭证，公开访客的请求不多付一次计算
+    if reason is not None and demo_service.is_review_token(_presented_token(connection)):
+        reason = demo_service.review_rejection_for(method, operation_id)
     if reason is not None:
         raise AppException(status_code=403, code=demo_service.DEMO_READ_ONLY_CODE, message=reason)
+
+
+def _presented_token(connection: HTTPConnection) -> str | None:
+    """请求带的登录凭证：App 走 Authorization Bearer，网页走会话 Cookie。"""
+    bearer = _extract_bearer(connection.headers.get("authorization"))
+    return bearer or connection.cookies.get(auth_service.SESSION_COOKIE_NAME)
 
 
 def _extract_bearer(authorization: str | None) -> str | None:

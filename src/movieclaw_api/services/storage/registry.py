@@ -465,6 +465,17 @@ DATA_DIRS: tuple[DataDir, ...] = (
         resolve=lambda s: Path(s.data_dir) / "SAFE_MODE",
     ),
     DataDir(
+        key="demo.review_sessions",
+        title="审核账号凭证",
+        summary="公开演示站：审核账号登录签发的凭证摘要",
+        description=(
+            "只在公开演示站（MOVIECLAW_DEMO_MODE）出现：审核账号每次登录签发的凭证 sha256，"
+            "守卫据此放行审核员的操作（docs/design/demo-site.md §9）。删除后审核员重新登录即可。"
+        ),
+        default="data/demo-review-sessions.json",
+        resolve=lambda s: Path(s.data_dir) / "demo-review-sessions.json",
+    ),
+    DataDir(
         key="site_configs",
         title="站点配置",
         summary="用户自行适配的站点 YAML",
