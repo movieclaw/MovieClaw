@@ -66,6 +66,7 @@ async function boostSitesOn(downloaderId: number): Promise<string[]> {
 const TYPE_LABEL: Record<DownloaderClientType, string> = {
   qbittorrent: "qBittorrent",
   transmission: "Transmission",
+  demo: "演示下载器",
 };
 
 /** 各类型的地址占位提示（qB 是 WebUI 地址，Tr 是 RPC 地址，端口不同） */

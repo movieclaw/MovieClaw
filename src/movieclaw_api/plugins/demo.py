@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import os
+from pathlib import Path
 
 from movieclaw_api.plugins.keys import DB, SETTING_STORE
 from movieclaw_kernel import Context, plugin
@@ -25,3 +28,22 @@ async def demo_seed(ctx: Context) -> None:
         await seed_demo_data()
     except Exception:
         logger.exception("演示站数据生成失败，活动页与订阅页会是空的，不影响启动")
+
+
+@plugin("core.demo-site", title="演示资源站目录", reloadable=True)
+async def demo_site(ctx: Context) -> None:
+    # 按种子目录给演示资源站生成 .torrent 与目录清单（文件没变的跳过，首次约十几秒）
+    if not ctx.settings.demo_mode:
+        return
+    from movieclaw_tracker.sites.custom.demo import build_catalog
+
+    # 演示资源站与演示下载器在领域库里，不认识应用配置：按 data 目录补上默认位置
+    data_dir = Path(ctx.settings.data_dir)
+    os.environ.setdefault("MOVIECLAW_DEMO_SITE_DIR", str(data_dir / "demo-site"))
+    os.environ.setdefault("MOVIECLAW_DEMO_DOWNLOADER_STATE", str(data_dir / "demo-downloader.json"))
+
+    try:
+        catalog = await asyncio.to_thread(build_catalog)
+        logger.info("演示资源站目录就绪：%d 部影片", len(catalog))
+    except Exception:
+        logger.exception("演示资源站目录生成失败，站点资源搜索会是空的，不影响启动")

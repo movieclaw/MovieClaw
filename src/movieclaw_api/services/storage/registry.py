@@ -476,6 +476,28 @@ DATA_DIRS: tuple[DataDir, ...] = (
         resolve=lambda s: Path(s.data_dir) / "demo-review-sessions.json",
     ),
     DataDir(
+        key="demo.site",
+        title="演示资源站",
+        summary="公开演示站：演示资源站的种子与目录清单",
+        description=(
+            "只在公开演示站出现：启动时按种子目录生成的 .torrent 与目录清单"
+            "（docs/design/demo-site.md §10）。删除后下次启动自动重建。"
+        ),
+        default="data/demo-site",
+        resolve=lambda s: Path(s.data_dir) / "demo-site",
+    ),
+    DataDir(
+        key="demo.downloader",
+        title="演示下载器",
+        summary="公开演示站：演示下载器的任务状态",
+        description=(
+            "只在公开演示站出现：演示下载器的任务清单与进度（docs/design/demo-site.md §10）。"
+            "删除等于清空演示下载器里的全部任务。"
+        ),
+        default="data/demo-downloader.json",
+        resolve=lambda s: Path(s.data_dir) / "demo-downloader.json",
+    ),
+    DataDir(
         key="site_configs",
         title="站点配置",
         summary="用户自行适配的站点 YAML",

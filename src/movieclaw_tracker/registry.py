@@ -102,6 +102,8 @@ BUILTIN_SITE_CLASSES: dict[str, str] = {
     "sunnypt": "movieclaw_tracker.sites.custom.sunnypt.SunnyPTSite",
     "ourbits": "movieclaw_tracker.sites.custom.ourbits.OurBitsSite",
     "ttg": "movieclaw_tracker.sites.custom.ttg.TTGSite",
+    # 公开演示站的离线资源站（docs/design/demo-site.md §10）
+    "demo": "movieclaw_tracker.sites.custom.demo.DemoSite",
 }
 
 #: 插件注册的站点类（名字 → 类），由插件内核的 SITE_CLASSES 注册表同步进来

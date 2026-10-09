@@ -97,6 +97,7 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         core.scrape_runtime,
         playback.remote_config,
         demo.demo_seed,
+        demo.demo_site,
         core.http_clients,
         core.sites,
         core.site_access,

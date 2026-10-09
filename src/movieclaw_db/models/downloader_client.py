@@ -19,6 +19,7 @@ class ClientType(StrEnum):
 
     QBITTORRENT = "qbittorrent"
     TRANSMISSION = "transmission"
+    DEMO = "demo"
 
 
 class DownloaderClient(TimestampMixin, table=True):

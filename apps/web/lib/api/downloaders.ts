@@ -13,7 +13,7 @@ async function unwrap<T>(promise: Promise<ApiEnvelope<T>>): Promise<T> {
 }
 
 /** 已适配的下载器类型（与后端 movieclaw_db ClientType 对应）。 */
-export type DownloaderClientType = "qbittorrent" | "transmission";
+export type DownloaderClientType = "qbittorrent" | "transmission" | "demo";
 
 /** 连接验证状态（与站点配置共用同一状态机语义）。 */
 export type DownloaderStatus = "pending" | "verifying" | "active" | "failed";

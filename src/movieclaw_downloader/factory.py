@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from movieclaw_downloader.base import BaseDownloader
+from movieclaw_downloader.clients.demo import DemoDownloader
 from movieclaw_downloader.clients.qbittorrent import QBittorrentDownloader
 from movieclaw_downloader.clients.transmission import TransmissionDownloader
 from movieclaw_downloader.exceptions import DownloaderNotSupportedError
@@ -10,6 +11,7 @@ from movieclaw_downloader.models import DownloaderConfig, DownloaderType
 _ADAPTERS: dict[DownloaderType, type[BaseDownloader]] = {
     DownloaderType.QBITTORRENT: QBittorrentDownloader,
     DownloaderType.TRANSMISSION: TransmissionDownloader,
+    DownloaderType.DEMO: DemoDownloader,
 }
 
 

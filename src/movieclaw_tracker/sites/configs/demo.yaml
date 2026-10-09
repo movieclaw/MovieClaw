@@ -1,0 +1,19 @@
+# 演示资源站（只供公开演示站使用，docs/design/demo-site.md §10）
+#
+# 离线站点：只收录开放授权的 Blender 开放电影，不连接任何网络，base_url 只是占位。
+# 实现见 sites/custom/demo.py。演示模式下站点目录只列出本站。
+
+site_id: demo
+display_name: 演示资源站（开放授权影片）
+base_url: https://demo-site.movieclaw.invalid
+framework: api
+custom_class: demo
+
+# 本地读文件，不需要请求间隔
+min_request_interval: 0
+
+auth:
+  supported: [apikey]
+
+# 刷流演示：给出做种考核时长，H&R 标记的种子也能参与（演示种都不标 H&R）
+hr_seed_hours: 24

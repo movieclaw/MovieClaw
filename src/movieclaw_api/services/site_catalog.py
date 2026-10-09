@@ -56,8 +56,13 @@ class SiteCatalogService:
     """
 
     def list_catalog(self) -> list[SiteConfig]:
-        """返回所有可配置站点（按注册顺序）。"""
-        return list_sites()
+        """返回所有可配置站点（按注册顺序）。公开演示站只列演示资源站（demo-site.md §10）。"""
+        from movieclaw_api.services import demo as demo_service
+
+        sites = list_sites()
+        if demo_service.is_demo_mode():
+            return [site for site in sites if site.site_id == demo_service.DEMO_SITE_ID]
+        return sites
 
     def get(self, site_id: str) -> SiteConfig:
         """获取单个站点目录项；站点不存在时抛 404。"""

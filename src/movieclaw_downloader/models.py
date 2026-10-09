@@ -10,6 +10,8 @@ class DownloaderType(StrEnum):
 
     QBITTORRENT = "qbittorrent"
     TRANSMISSION = "transmission"
+    #: 公开演示站的离线演示下载器（clients/demo.py）
+    DEMO = "demo"
 
 
 class DownloaderConfig(BaseModel):

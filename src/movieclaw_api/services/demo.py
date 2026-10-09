@@ -47,6 +47,9 @@ logger = logging.getLogger("movieclaw_api.demo")
 # 「权限不足」（FORBIDDEN），给出不同的提示语气
 DEMO_READ_ONLY_CODE = "DEMO_READ_ONLY"
 
+#: 演示资源站的 site_id（movieclaw_tracker/sites/configs/demo.yaml）
+DEMO_SITE_ID = "demo"
+
 _SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
 
 # ---------------------------------------------------------------------------
