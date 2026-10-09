@@ -1,8 +1,8 @@
 /**
  * 「设置 → 插件」的展示口径（docs/design/plugin-kernel.md §10.2、plugin-page-tiers.md）。
  *
- * 概念：「插件」是总称。MovieClaw 自带的功能都是内置插件，按用户能做什么分三层：功能（用户能感知的
- * 可选功能）、官方插件（随应用提供、可用插件包替换）、系统模块（应用运行所需，平时不展示，出问题才浮出）。
+ * 概念：「插件」是总称。MovieClaw 自带的功能都是内置插件，插件页只展示官方插件（随应用提供、可用插件包
+ * 替换）；其余是系统模块（应用运行所需，平时不展示，出问题才浮出）。
  * 第三方插件由插件包（.mcplugin）安装；本地插件是你在 data/plugins.yaml 里开启的自己的代码。
  *
  * 纯逻辑，单独成文件好用测试锁住（test/plugins-display.test.mjs）：状态 → 文案与颜色、
@@ -80,7 +80,7 @@ export function needsAttention(plugin: PluginInfo): boolean {
 
 function disabledByText(source: string | null): string {
   if (!source) return "已关闭";
-  if (source.startsWith("feature:")) return "已在「设置 → 插件」停用";
+  if (source.startsWith("feature:")) return "已经功能开关停用";
   if (source === "patch") return "已在插件补丁（data/plugins.yaml）中关闭";
   if (source.startsWith("env:")) return `已按环境变量 ${source.slice(4)} 关闭`;
   return "已关闭";
@@ -158,14 +158,7 @@ export function officialSourceText(plugin: PluginInfo): string {
   return isBuiltinPlugin(plugin) ? "内置版本，可用插件包替换" : "已被插件包替换，在「第三方插件」里管理";
 }
 
-export interface FeatureStatus {
-  label: string;
-  tone: Tone;
-  /** 不正常时写清是哪个组成部分、为什么；正常时为 null */
-  detail: string | null;
-}
-
-/** 功能停用了（插件页的开关，或管理员在 plugins.yaml / 环境变量里关掉） */
+/** 功能停用了（经功能开关接口，或管理员在 plugins.yaml / 环境变量里关掉） */
 export function featureOff(feature: PluginFeature): boolean {
   return feature.enabled === false;
 }
@@ -173,32 +166,7 @@ export function featureOff(feature: PluginFeature): boolean {
 /** 停用的说明：被管理员硬覆盖关掉的写原因，开关停用的写是谁停的 */
 export function featureOffText(feature: PluginFeature): string {
   if (feature.locked_by) return feature.locked_by;
-  return feature.changed_by ? `由 ${feature.changed_by} 在插件页停用` : "已在插件页停用";
-}
-
-/** 功能的状态：停用的直接是「已停用」；其余由组成它的内置插件汇总（任一出问题即异常，全部关闭才算关闭） */
-export function featureStatus(feature: PluginFeature, plugins: PluginInfo[]): FeatureStatus {
-  if (featureOff(feature)) {
-    return { label: "已停用", tone: "neutral", detail: featureOffText(feature) };
-  }
-  const members = plugins.filter(
-    (p) => feature.entries.includes(p.id) || (p.parent !== null && feature.entries.includes(p.parent)),
-  );
-  if (members.length === 0) return { label: "未加载", tone: "neutral", detail: null };
-  const problem = members.find(needsAttention);
-  if (problem) {
-    const label = problem.state === "active" ? "运行异常" : pluginStateLabel(problem.state);
-    const tone = problem.state === "pending" || problem.state === "active" ? "warn" : "danger";
-    return { label, tone, detail: `${problem.title}：${pluginDetail(problem)}` };
-  }
-  if (members.every((p) => displayState(p) === "disabled")) {
-    return { label: "已关闭", tone: "neutral", detail: pluginDetail(members[0]) };
-  }
-  const off = members.find((p) => displayState(p) === "disabled");
-  if (off) return { label: "部分关闭", tone: "neutral", detail: `${off.title}：${pluginDetail(off)}` };
-  const busy = members.find((p) => p.state !== "active");
-  if (busy) return { label: pluginStateLabel(busy.state), tone: pluginStateTone(busy.state), detail: null };
-  return { label: "运行中", tone: "ok", detail: null };
+  return feature.changed_by ? `由 ${feature.changed_by} 停用` : "已停用";
 }
 
 /** 页面底部系统模块入口那一行：一共几个、是否都正常 */

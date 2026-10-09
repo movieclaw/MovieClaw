@@ -32,14 +32,12 @@ def test_feature_copy_is_for_users_and_links_stay_on_site() -> None:
 def test_every_builtin_lands_in_exactly_one_tier() -> None:
     bundled = bundled_ids()
     for entry in BUILTIN_MANIFEST:
-        tier = tier_of(entry.id, bundled=bundled)
-        assert tier in ("feature", "official", "system")
-        assert (tier == "feature") == (feature_of(entry.id) is not None)
-    # 随带插件包（可被插件包替换）与它们依赖的中枢是官方插件；核心模块默认是系统模块
+        assert tier_of(entry.id, bundled=bundled) in ("official", "system")
+    # 随带插件包（可被插件包替换）与它们依赖的中枢是官方插件；其余（含功能目录里的）都是系统模块
     for entry_id in (*bundled, *OFFICIAL_HUBS):
         assert tier_of(entry_id, bundled=bundled) == "official"
-    assert tier_of("core.database", bundled=bundled) == "system"
-    assert tier_of("some.new-builtin", bundled=bundled) == "system"
+    for entry_id in ("core.database", "subtitle.gen", "library.ingest-watch", "some.new-builtin"):
+        assert tier_of(entry_id, bundled=bundled) == "system"
 
 
 def test_switchable_features_can_be_stopped_without_side_effects() -> None:

@@ -53,24 +53,18 @@ def test_plugins_endpoint_lists_every_entry_and_contract(env) -> None:
         assert ungrouped == []
         assert by_id["core.database"]["group"] == "基础"
         assert by_id["boost.sentinel"]["group"] == "资源站点与下载"
-        # 插件页分层（docs/design/plugin-page-tiers.md）：每个内置插件恰好一层，非内置不分层
-        assert {p["tier"] for p in body["plugins"] if p["source"] == "builtin"} <= {
-            "feature",
+        # 插件页分层（docs/design/plugin-page-tiers.md）：内置插件只有官方插件与系统模块两层，
+        # 自动入库、AI 字幕这些是 MovieClaw 本身的能力，归系统；非内置不分层
+        assert {p["tier"] for p in body["plugins"] if p["source"] == "builtin"} == {
             "official",
             "system",
         }
-        assert all(p["tier"] for p in body["plugins"] if p["source"] == "builtin")
         assert by_id["channel.weixin"]["tier"] == "official"
         assert by_id["channels.hub"]["tier"] == "official"
         assert by_id["core.database"]["tier"] == "system"
-        assert (by_id["subtitle.gen"]["tier"], by_id["subtitle.gen"]["feature"]) == (
-            "feature",
-            "subtitle-gen",
-        )
-        features = {f["key"]: f for f in body["features"]}
-        assert "agent" not in features  # AI 助手是核心，不在功能目录里
-        assert features["subtitle-gen"]["entries"] == ["subtitle.gen", "subtitle.pgs-warm"]
+        assert by_id["subtitle.gen"]["tier"] == "system"
         assert by_id["agent.runs"]["tier"] == "system"
+        assert "features" not in body
         assert by_id["scheduler"]["state"] == "disabled"
         assert by_id["scheduler"]["disabled_by"] == "env:SCHEDULER_ENABLED"
         assert by_id["boost.sentinel"]["blocked_by"] == [

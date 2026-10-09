@@ -82,9 +82,7 @@ def test_disable_takes_effect_now_survives_restart_and_enables_back(env) -> None
         fiber = app.state.kernel.fiber("jellyfin.discovery")
         assert fiber.state is State.DISABLED
         assert fiber.disabled_by == "feature:jellyfin-discovery"
-        plugins = client.get("/api/v1/app/plugins").json()["data"]
-        listed = {f["key"]: f for f in plugins["features"]}
-        assert listed["jellyfin-discovery"]["enabled"] is False
+        assert by_key(client)["jellyfin-discovery"]["enabled"] is False
 
         reply = switch(client, "jellyfin-discovery", True)
         assert reply.status_code == 200, reply.text

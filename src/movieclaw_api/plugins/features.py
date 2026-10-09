@@ -1,14 +1,16 @@
-"""插件页分层：功能、官方插件、系统模块（docs/design/plugin-page-tiers.md）。
+"""插件页分层与功能目录（docs/design/plugin-page-tiers.md）。
 
-插件页只放用户能做决定的东西。每个内置插件恰好属于一层：
+插件页只放真正的插件。不为了插件而插件：引擎的扩展能力在，但不一下子都给用户。
 
-- ``feature``：用户能感知的可选功能。功能目录 ``FEATURES`` 里写明由哪些插件组成、叫什么、去哪设置、
-  能不能在插件页停用（``switchable``，开关的状态管理见 ``services/plugin_features.py``）；
-- ``official``：随应用提供、能被插件包替换的（随带插件包与它们依赖的通道中枢）；
-- ``system``：其余全部，插件页默认不展示，异常时才浮出。
+分层（每个内置插件恰好一层）：
 
-新增内置插件默认是系统模块；要出现在「功能」里必须显式加进 ``FEATURES``——宁可少展示，
-也不把内部模块误放给用户。AI 助手（``agent.*``）是核心，不进功能目录、不可停用。
+- ``official``：随应用提供、能被插件包替换的（随带插件包与它们依赖的通道中枢），插件页展示；
+- ``system``：其余全部（自动入库、AI 字幕这些也是——它们是 MovieClaw 本身的能力，不是插件），
+  插件页默认不展示，异常时才浮出。
+
+功能目录 ``FEATURES`` 不决定插件页展示什么，只是功能开关的目录：一个功能由哪些插件组成、叫什么、
+能不能停用（``switchable``，状态管理见 ``services/plugin_features.py``）。开关在服务端与接口 / CLI
+可用，网页上不出开关；功能被停用时它的设置页会提示。AI 助手（``agent.*``）是核心，不进功能目录。
 
 可停用的功能须满足（tests/api/test_plugin_features.py 守着）：组成插件都 ``disableable``，
 功能外没有插件依赖它们提供的服务；停用后它在各端的入口要么隐藏、要么明确说「已停用」。
@@ -19,7 +21,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-Tier = Literal["feature", "official", "system"]
+Tier = Literal["official", "system"]
 
 #: 官方插件里除随带插件包之外的成员：随带的 IM 通道都挂在这个中枢上
 OFFICIAL_HUBS: tuple[str, ...] = ("channels.hub",)
@@ -35,7 +37,7 @@ class Feature:
     entries: tuple[str, ...]
     #: 去哪里设置它（站内路径）；没有设置页为 None
     settings_href: str | None = None
-    #: 能不能在插件页停用（停用 = 组成插件全部不运行，运行中生效、重启保持）
+    #: 能不能停用（停用 = 组成插件全部不运行，运行中生效、重启保持）
     switchable: bool = False
 
 
@@ -111,6 +113,4 @@ def tier_of(entry_id: str, *, bundled: set[str]) -> Tier:
     """内置插件属于哪一层。``bundled`` 是随带插件包的条目 id（可被插件包替换）。"""
     if entry_id in bundled or entry_id in OFFICIAL_HUBS:
         return "official"
-    if feature_of(entry_id) is not None:
-        return "feature"
     return "system"

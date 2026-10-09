@@ -7,7 +7,6 @@ import {
   offWithDependency,
   featureOff,
   featureOffText,
-  featureStatus,
   officialPlugins,
   officialSourceText,
   pluginLogsHref,
@@ -155,12 +154,12 @@ test("等待依赖又说不出缺什么时，写等待所依赖的插件", () =>
 });
 
 test("分层：服务器给的为准；旧服务端没给时内置插件当系统模块，第三方不分层", () => {
-  assert.equal(pluginTier(plugin({ tier: "feature" })), "feature");
+  assert.equal(pluginTier(plugin({ tier: "official" })), "official");
   assert.equal(pluginTier(plugin()), "system");
   assert.equal(pluginTier(plugin({ source: "package" })), null);
   const list = [
     plugin({ id: "core.database", tier: "system" }),
-    plugin({ id: "subtitle.gen", tier: "feature" }),
+    plugin({ id: "channel.weixin", tier: "official" }),
     plugin({ id: "old" }),
     plugin({ id: "acme.pkg", source: "package" }),
   ];
@@ -185,45 +184,6 @@ test("官方插件：随带通道与替换它的插件包都在；提供服务�
   );
   assert.equal(officialSourceText(weixin), "内置版本，可用插件包替换");
   assert.equal(officialSourceText(replaced), "已被插件包替换，在「第三方插件」里管理");
-});
-
-test("功能状态由组成插件汇总：任一出问题即异常并写明是谁，全部关闭才算关闭", () => {
-  const feature = {
-    key: "agent",
-    title: "AI 助手",
-    description: "",
-    entries: ["agent.runs", "agent.attachments"],
-    settings_href: "/settings/ai",
-  };
-  const runs = plugin({ id: "agent.runs", title: "Agent 运行注册表" });
-  const attachments = plugin({ id: "agent.attachments", title: "Agent 附件暂存清理" });
-  assert.deepEqual(featureStatus(feature, [runs, attachments, plugin({ id: "other" })]), {
-    label: "运行中",
-    tone: "ok",
-    detail: null,
-  });
-  const failed = { ...attachments, state: "failed", error: "磁盘只读" };
-  assert.deepEqual(featureStatus(feature, [runs, failed]), {
-    label: "启动失败",
-    tone: "danger",
-    detail: "Agent 附件暂存清理：磁盘只读",
-  });
-  const degraded = {
-    ...runs,
-    health: [{ key: "k", ok: false, message: "模型不可用", action_href: null, since: "" }],
-  };
-  assert.equal(featureStatus(feature, [degraded, attachments]).label, "运行异常");
-  const off = (p) => ({ ...p, state: "disabled", disabled_by: "patch" });
-  assert.equal(featureStatus(feature, [off(runs), off(attachments)]).label, "已关闭");
-  assert.deepEqual(featureStatus(feature, [off(runs), attachments]), {
-    label: "部分关闭",
-    tone: "neutral",
-    detail: "Agent 运行注册表：已在插件补丁（data/plugins.yaml）中关闭",
-  });
-  assert.equal(featureStatus(feature, []).label, "未加载");
-  // 子插件跟着父插件算
-  const child = plugin({ id: "agent.runs.child", parent: "agent.runs", state: "failed" });
-  assert.equal(featureStatus(feature, [runs, attachments, child]).tone, "danger");
 });
 
 test("依赖被有意关掉时跟着关闭：不算需要留意，显示为已关闭并写明依赖谁", () => {
@@ -254,7 +214,7 @@ test("依赖被有意关掉时跟着关闭：不算需要留意，显示为已�
   assert.equal(displayState(broken), "pending");
 });
 
-test("功能开关：停用的直接显示已停用并写明谁停的；被管理员硬覆盖关掉的写原因", () => {
+test("功能停用的说明：开关停用的写谁停的，被管理员硬覆盖关掉的写原因", () => {
   const base = {
     key: "arrivals",
     title: "新片到达通知",
@@ -263,19 +223,15 @@ test("功能开关：停用的直接显示已停用并写明谁停的；被管�
     settings_href: null,
     switchable: true,
   };
-  const member = plugin({ id: "push.arrivals", state: "disabled", disabled_by: "feature:arrivals" });
   const off = { ...base, enabled: false, changed_by: "yee", changed_at: "2026-10-09T10:00:00+00:00" };
   assert.equal(featureOff(off), true);
-  assert.deepEqual(featureStatus(off, [member]), {
-    label: "已停用",
-    tone: "neutral",
-    detail: "由 yee 在插件页停用",
-  });
+  assert.equal(featureOffText(off), "由 yee 停用");
   const locked = { ...base, enabled: false, locked_by: "已在 data/plugins.yaml 中关闭" };
   assert.equal(featureOffText(locked), "已在 data/plugins.yaml 中关闭");
-  // 旧服务端没有开关字段：按开着算，状态照常由插件汇总
-  assert.equal(featureOff({ ...base, switchable: undefined }), false);
-  assert.equal(pluginDetail(member), "已在「设置 → 插件」停用");
+  // 旧服务端没有开关字段：按开着算
+  assert.equal(featureOff({ ...base }), false);
+  const member = plugin({ id: "push.arrivals", state: "disabled", disabled_by: "feature:arrivals" });
+  assert.equal(pluginDetail(member), "已经功能开关停用");
 });
 
 test("系统模块入口一行：正常 / 有几个需要留意；日志深链按条目 id 筛", () => {

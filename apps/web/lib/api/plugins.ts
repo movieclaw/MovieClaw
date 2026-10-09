@@ -76,17 +76,15 @@ export interface PluginInfo {
   /** 内置插件的领域分组（系统模块清单内部的分组）；本地 / 第三方插件为 null，旧服务端没有这个字段 */
   group?: string | null;
   /**
-   * 插件页分层（docs/design/plugin-page-tiers.md）：feature 功能 / official 官方插件（可被插件包替换，
-   * 替换它的插件包也算）/ system 系统模块；其余第三方与本地插件为 null，旧服务端没有这个字段
+   * 插件页分层（docs/design/plugin-page-tiers.md）：official 官方插件（可被插件包替换，替换它的插件包
+   * 也算）/ system 系统模块；其余第三方与本地插件为 null，旧服务端没有这个字段
    */
   tier?: PluginTier | null;
-  /** 属于哪个功能（features 里的 key） */
-  feature?: string | null;
 }
 
-export type PluginTier = "feature" | "official" | "system";
+export type PluginTier = "official" | "system";
 
-/** 功能目录里的一项：用户能感知的可选功能，由一个或多个内置插件组成（docs/design/plugin-page-tiers.md） */
+/** 功能目录里的一项（功能开关用；插件页不展示）：由一个或多个内置插件组成（docs/design/plugin-page-tiers.md） */
 export interface PluginFeature {
   key: string;
   title: string;
@@ -95,7 +93,7 @@ export interface PluginFeature {
   entries: string[];
   /** 去哪里设置它（站内路径） */
   settings_href: string | null;
-  /** 能不能在插件页停用；旧服务端没有开关相关字段 */
+  /** 能不能停用（服务端 / 接口可切换，网页不出开关）；旧服务端没有开关相关字段 */
   switchable?: boolean;
   /** 当前是否开启（被停用或被管理员硬覆盖关掉都算关） */
   enabled?: boolean;
@@ -146,8 +144,6 @@ export interface PluginsOverview {
   safe_mode?: PluginSafeMode;
   /** 内置插件分组的展示顺序；旧服务端没有这个字段 */
   groups?: string[];
-  /** 功能目录，按展示顺序；旧服务端没有这个字段 */
-  features?: PluginFeature[];
 }
 
 export async function listPlugins(): Promise<PluginsOverview> {

@@ -15,7 +15,6 @@ from typing import Literal
 from fastapi import APIRouter, File, Request, UploadFile
 from pydantic import Field
 
-from movieclaw_api.api.routes.features import FeatureView
 from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
@@ -72,13 +71,12 @@ class PluginView(BaseModel):
     dispose_ms: float | None
     unsettled: bool
     stats: PluginStats
-    tier: Literal["feature", "official", "system"] | None = Field(
+    tier: Literal["official", "system"] | None = Field(
         default=None,
-        description="内置插件在插件页的分层：功能 / 官方插件（可被插件包替换）/ 系统模块；"
-        "替换随带插件的插件包也是官方插件；其余第三方与本地插件为空"
+        description="内置插件在插件页的分层：官方插件（可被插件包替换，替换它的插件包也算）/ "
+        "系统模块（默认不展示，异常时浮出）；其余第三方与本地插件为空"
         "（docs/design/plugin-page-tiers.md）",
     )
-    feature: str | None = Field(default=None, description="属于哪个功能（features 里的 key）")
     health: list[HealthView] = Field(
         default_factory=list, description="插件自己报告的运行状况（PLUGIN_HEALTH）"
     )
@@ -152,9 +150,6 @@ class SafeModeView(BaseModel):
 
 class PluginsView(BaseModel):
     plugins: list[PluginView]
-    features: list[FeatureView] = Field(
-        default_factory=list, description="功能目录与开关状态：用户能感知的可选功能，按展示顺序"
-    )
     groups: list[str] = Field(default_factory=list, description="内置插件分组的展示顺序")
     contracts: ContractsView
     durable: DurableView | None = Field(
@@ -200,11 +195,9 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
     health = health_service.snapshot() if health_service is not None else {}
     data_service = kernel.service(PLUGIN_DATA)
     data_rows = await data_service.counts() if data_service is not None else {}
-    from movieclaw_api.core.config import get_settings
     from movieclaw_api.plugins.bundled import bundled_ids
-    from movieclaw_api.plugins.features import feature_of, tier_of
+    from movieclaw_api.plugins.features import tier_of
     from movieclaw_api.plugins.manifest import BUILTIN_GROUPS, builtin_group
-    from movieclaw_api.services.plugin_features import feature_views
     from movieclaw_api.services.plugin_runtime import process_entries
 
     bundled = bundled_ids()
@@ -213,8 +206,8 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
         owner = item.get("parent") or item["id"]
         # 替换随带插件包的插件包仍在「官方插件」里那一行（标「已被插件包替换」）
         if item["source"] != "builtin" and owner not in bundled:
-            return {"tier": None, "feature": None}
-        return {"tier": tier_of(owner, bundled=bundled), "feature": feature_of(owner)}
+            return {"tier": None}
+        return {"tier": tier_of(owner, bundled=bundled)}
 
     plugins = [
         {
@@ -241,7 +234,6 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
                 "durable": durable,
                 "safe_mode": safe_mode.current().view(),
                 "groups": [label for label, _ in BUILTIN_GROUPS],
-                "features": feature_views(kernel, get_settings()),
             }
         )
     )
