@@ -38,7 +38,7 @@ struct SettingsSectionView: View {
 }
 
 /// App 不提供的分区（见 SettingsSection.availableInApp）：说明去网页端管理，并给出直达网页对应分区的按钮。
-/// 其他页面里「去站点设置」「去下载器设置」之类的跳转都落到这里，不会打开被隐藏的配置页。
+/// 其他页面里「去站点设置」「去下载器设置」之类的跳转都落到这里。
 private struct WebManagedSectionView: View {
     let section: SettingsSection
     @Environment(\.api) private var api
