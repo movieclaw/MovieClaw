@@ -77,3 +77,17 @@ async def test_list_rotates_free_boost_releases(site) -> None:
     assert (await site.list_torrents(page=2)).items == []
     profile = await site.get_user_profile()
     assert profile.username
+
+
+async def test_boost_release_ids_survive_catalog_changes(site, tmp_path, monkeypatch) -> None:
+    """刷流种的 ID 里带着底片：目录增减后，按旧 ID 取到的仍是同一条种子。"""
+    listed = next(item for item in (await site.list_torrents()).items if item.free)
+    before = await site.download_torrent(listed.download_url)
+    extra = tmp_path / "seeds" / "Wing.It.2023.1080p.WEB-DL.AAC.H.264-BLENDER"
+    extra.mkdir()
+    (extra / "w.mp4").write_bytes(b"w" * 10)
+    (extra / "release.json").write_text(json.dumps({"title": "Wing It!", "year": 2023}))
+    demo.build_catalog()
+    assert await site.download_torrent(listed.download_url) == before
+    detail = await site.get_torrent_detail(listed.download_url)
+    assert detail.title == listed.title

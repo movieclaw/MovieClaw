@@ -188,38 +188,56 @@ def load_catalog(out: Path | None = None) -> list[dict]:
 # ---------------------------------------------------------------------------
 
 
-def _window_start(now: datetime) -> datetime:
-    epoch = datetime(2026, 1, 1)
-    windows = (now - epoch) // BOOST_WINDOW
-    return epoch + windows * BOOST_WINDOW
+#: 时间窗编号的起点（naive UTC）；窗口编号 = 距它的秒数，不经过本地时区换算
+_BOOST_EPOCH = datetime(2026, 1, 1)
+
+
+def _window_id(now: datetime) -> int:
+    windows = (now - _BOOST_EPOCH) // BOOST_WINDOW
+    return int((windows * BOOST_WINDOW).total_seconds())
+
+
+def _boost_entry(base: dict, window_id: int, n: int) -> dict:
+    """一条刷流免费种：由（时间窗, 序号, 底片）完全确定，ID 里带着这三样，
+    之后按 ID 取种子时不受目录增减的影响。"""
+    start = _BOOST_EPOCH + timedelta(seconds=window_id)
+    seed = hashlib.sha256(f"{window_id}:{n}".encode()).digest()
+    size = (1 + seed[0] % 4) * 1024**3 + int.from_bytes(seed[1:4], "big")
+    name = re.sub(r"\.\d{3,4}p\.", ".2160p.", base["name"]).replace("-BLENDER", "-DEMOSEED")
+    return {
+        "torrent_id": f"{_BOOST_PREFIX}{window_id}-{n}-{base['torrent_id']}",
+        "name": name,
+        "size_bytes": size,
+        "title_zh": base.get("title_zh", ""),
+        "upload_time": (start + timedelta(minutes=10 * n)).isoformat(),
+        "leechers": 3 + seed[4] % 18,
+        "seeders": 1 + seed[5] % 4,
+    }
 
 
 def boost_releases(now: datetime | None = None) -> list[dict]:
-    """当前时间窗里的几条免费新种：片名取自目录，体积与 ID 由时间窗确定。"""
+    """当前时间窗里的几条免费新种：片名轮流取自目录，体积与 ID 由时间窗确定。"""
     now = now or datetime.now(UTC).replace(tzinfo=None)
-    start = _window_start(now)
     catalog = load_catalog()
     if not catalog:
         return []
-    window_id = int(start.timestamp())
-    releases = []
-    for n in range(BOOST_PER_WINDOW):
-        base = catalog[(window_id // int(BOOST_WINDOW.total_seconds()) + n) % len(catalog)]
-        seed = hashlib.sha256(f"{window_id}:{n}".encode()).digest()
-        size = (1 + seed[0] % 4) * 1024**3 + int.from_bytes(seed[1:4], "big")
-        name = re.sub(r"\.\d{3,4}p\.", ".2160p.", base["name"]).replace("-BLENDER", "-DEMOSEED")
-        releases.append(
-            {
-                "torrent_id": f"{_BOOST_PREFIX}{window_id}-{n}",
-                "name": name,
-                "size_bytes": size,
-                "title_zh": base.get("title_zh", ""),
-                "upload_time": (start + timedelta(minutes=10 * n)).isoformat(),
-                "leechers": 3 + seed[4] % 18,
-                "seeders": 1 + seed[5] % 4,
-            }
-        )
-    return releases
+    window_id = _window_id(now)
+    turn = window_id // int(BOOST_WINDOW.total_seconds())
+    return [
+        _boost_entry(catalog[(turn + n) % len(catalog)], window_id, n)
+        for n in range(BOOST_PER_WINDOW)
+    ]
+
+
+def find_boost_release(torrent_id: str) -> dict | None:
+    """按 ID 还原一条刷流免费种（ID 形如 boost-<时间窗>-<序号>-<底片 ID>）。"""
+    match = re.fullmatch(rf"{_BOOST_PREFIX}(\d+)-(\d+)-(\w+)", torrent_id)
+    if match is None:
+        return None
+    base = next((e for e in load_catalog() if e["torrent_id"] == match.group(3)), None)
+    if base is None:
+        return None
+    return _boost_entry(base, int(match.group(1)), int(match.group(2)))
 
 
 def _boost_torrent(entry: dict) -> bytes:
@@ -307,7 +325,7 @@ class DemoSite(BaseSite):
         torrent_id = _id_of(url)
         entry = next((e for e in load_catalog() if e["torrent_id"] == torrent_id), None)
         if entry is None:
-            entry = next((e for e in boost_releases() if e["torrent_id"] == torrent_id), None)
+            entry = find_boost_release(torrent_id)
         if entry is None:
             raise ValueError(f"演示资源站没有这条资源：{torrent_id}")
         item = _item(entry, boost=torrent_id.startswith(_BOOST_PREFIX)).model_dump()
@@ -321,9 +339,9 @@ class DemoSite(BaseSite):
     async def download_torrent(self, url: str) -> bytes:
         torrent_id = _id_of(url)
         if torrent_id.startswith(_BOOST_PREFIX):
-            entry = next((e for e in boost_releases() if e["torrent_id"] == torrent_id), None)
+            entry = find_boost_release(torrent_id)
             if entry is None:
-                raise ValueError(f"刷流种已过期：{torrent_id}")
+                raise ValueError(f"演示资源站没有这条刷流种：{torrent_id}")
             return _boost_torrent(entry)
         path = site_dir() / "torrents" / f"{torrent_id}.torrent"
         if not path.is_file():
