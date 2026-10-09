@@ -160,18 +160,25 @@ function groupSummary(plugins: PluginInfo[]): string {
   return problems > 0 ? `${plugins.length} 个 · ${problems} 个需要留意` : `${plugins.length} 个`;
 }
 
+/** 标记胶囊（与媒体库行的胶囊同款）：「核心」用强调色底，「可关闭」用中性描边 */
+const TAG =
+  "inline-flex shrink-0 items-center rounded-full border px-1.5 py-px text-micro font-semibold";
+const TAG_TONE = {
+  核心: "border-[var(--info)]/35 bg-[var(--info)]/[0.14] text-[var(--info)]",
+  可关闭: "border-white/[0.14] bg-white/[0.08] text-white/75",
+} as const;
+
 function BuiltinRow({ plugin }: { plugin: PluginInfo }) {
   const badge = builtinBadge(plugin);
   return (
     <SettingsRow
       label={
-        <span className="flex flex-wrap items-baseline gap-x-2">
+        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
           {plugin.title}
           {badge && (
             <span
-              className={`text-caption font-medium ${
-                badge === "核心" ? "text-[var(--accent)]" : "text-[var(--text-faint)]"
-              }`}
+              className={`${TAG} ${TAG_TONE[badge]}`}
+              title={badge === "核心" ? "应用运行的根基，不能关闭" : "可在 data/plugins.yaml 里关掉，重启生效"}
             >
               {badge}
             </span>
