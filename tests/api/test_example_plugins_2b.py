@@ -137,7 +137,8 @@ def test_keyword_rules_reject_candidates_and_clean_up_with_the_subscription(app_
 
         async with get_database().session() as session:
             await SubscriptionService(session, None).delete_permanently(1)  # type: ignore[arg-type]
-        async with asyncio.timeout(10):
+        # 可靠事件至少投递一次：满载时一次投递失败要等 5 秒重试，给足余量
+        async with asyncio.timeout(30):
             while await rules_rows():
                 await asyncio.sleep(0.05)
 

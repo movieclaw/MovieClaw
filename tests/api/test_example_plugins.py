@@ -77,7 +77,7 @@ def install(data_dir: Path, module: str, patch_yaml: str) -> None:
     (data_dir / "plugins.yaml").write_text(textwrap.dedent(patch_yaml), encoding="utf-8")
 
 
-def wait(client: TestClient, check, timeout: float = 10.0) -> None:
+def wait(client: TestClient, check, timeout: float = 30.0) -> None:
     async def poll() -> None:
         async with asyncio.timeout(timeout):
             while not await check():
