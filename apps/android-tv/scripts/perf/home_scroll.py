@@ -106,13 +106,17 @@ def cpu_idle() -> float:
 
 
 def wait_quiet(min_idle: float) -> None:
-    """宿主机上别的任务把 CPU 吃满时先等：模拟器的 CPU 被抢走，数字会成倍变差，还可能被看门狗杀掉"""
-    waited = 0
-    while (idle := cpu_idle()) < min_idle and waited < 7200:
-        if waited % 300 == 0:
-            print(f"宿主机 CPU 空闲 {idle:.0f}%，等到 {min_idle:.0f}% 以上……", flush=True)
-        time.sleep(20)
-        waited += 20
+    """宿主机上别的任务把 CPU 吃满时先等：模拟器的 CPU 被抢走，数字会成倍变差，还可能被看门狗杀掉。
+    要连续 3 次（约 1 分钟）都达标才开测，突发的负载才不会漏过去"""
+    waited, streak = 0, 0
+    while streak < 3 and waited < 7200:
+        idle = cpu_idle()
+        streak = streak + 1 if idle >= min_idle else 0
+        if streak == 0 and waited % 300 == 0:
+            print(f"宿主机 CPU 空闲 {idle:.0f}%，等到连续 1 分钟 {min_idle:.0f}% 以上……", flush=True)
+        if streak < 3:
+            time.sleep(20)
+            waited += 20
 
 
 def launch(compile_mode: str, settle: float) -> None:
@@ -314,7 +318,7 @@ def main() -> int:
             for label, apk in apks:
                 installed = False
                 for scenario in scenarios:
-                    for attempt in range(3):
+                    for attempt in range(5):
                         try:
                             wait_quiet(args.min_idle)
                             ensure_device(args.avd)
@@ -327,6 +331,10 @@ def main() -> int:
                                 trace = record(f"{label}-{scenario}-{run}", SCENARIOS[scenario], args.out)
                             finally:
                                 set_weak(False)
+                            # 测完再看一眼：测量期间别的任务忙起来了，这一条作废重测
+                            if (after := cpu_idle()) < args.min_idle and attempt < 4:
+                                print(f"[{run}] {label} {scenario}: 测量后宿主机 CPU 空闲只有 {after:.0f}%，作废重测", flush=True)
+                                continue
                             break
                         except subprocess.CalledProcessError as e:
                             print(f"[{run}] {label} {scenario}: adb 失败（{e.returncode}），重试", flush=True)
