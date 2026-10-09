@@ -6,12 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Banner, ErrorBanner, LINK_CLASS, StatusPill } from "@/components/cloud-push-ui";
 import { ChevronRightIcon } from "@/components/icons";
 import { PluginPackagesSection } from "@/components/plugin-packages-section";
-import {
-  SETTINGS_BUTTON_CLASS,
-  SettingsList,
-  SettingsRow,
-  SettingsSection,
-} from "@/components/settings-ui";
+import { SettingsList, SettingsRow, SettingsSection } from "@/components/settings-ui";
 import {
   exitSafeMode,
   listPlugins,
@@ -177,15 +172,6 @@ function SystemProblems({ plugins }: { plugins: PluginInfo[] }) {
   );
 }
 
-function SettingsLink({ href }: { href: string }) {
-  return (
-    <Link href={href as never} className={`${SETTINGS_BUTTON_CLASS} inline-flex items-center gap-0.5`}>
-      设置
-      <ChevronRightIcon className="size-3.5 opacity-60" />
-    </Link>
-  );
-}
-
 /** 行的定位锚点：?module=<条目 id> 按它找行；高亮时描一道强调色的内环 */
 const ROW_ANCHOR =
   "scroll-mt-24 transition-shadow duration-500 data-[highlight=true]:shadow-[inset_0_0_0_2px_var(--accent)]";
@@ -205,7 +191,6 @@ function OfficialSection({ plugins }: { plugins: PluginInfo[] }) {
               description={needsAttention(p) ? pluginDetail(p) : officialSourceText(p)}
             >
               <StatusPill tone={pluginStateTone(displayState(p))} label={pluginStateLabel(displayState(p))} />
-              <SettingsLink href="/settings/im-push" />
             </SettingsRow>
           </div>
         ))}
