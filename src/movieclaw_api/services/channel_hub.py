@@ -323,10 +323,14 @@ class ChannelHub:
         return driver.title if driver is not None else channel_id
 
     async def unbind(self, channel_id: str, account_id: str) -> bool:
-        """解绑：停收发、删凭据行。历史 AI 会话保留在「最近会话」里。"""
-        await self._stop_account(channel_id, account_id)
-        async with get_database().session() as session:
-            return await ChannelAccountRepository(session).delete(channel_id, account_id)
+        """解绑：停收发、删凭据行。历史 AI 会话保留在「最近会话」里。
+
+        与 ``sync`` 互斥：对齐在停账号与删行之间读到这一行的话会把账号又拉起来。
+        """
+        async with self._sync_lock:
+            await self._stop_account(channel_id, account_id)
+            async with get_database().session() as session:
+                return await ChannelAccountRepository(session).delete(channel_id, account_id)
 
     async def accounts(self) -> list[ChannelAccount]:
         async with get_database().session() as session:
@@ -422,8 +426,9 @@ class ChannelHub:
                 bound_user_id=result.bound_user,
                 state=result.state,
             )
-        await self._stop_account(channel_id, result.account_id)
-        await self._start_account(row)
+        async with self._sync_lock:  # 与 sync 互斥，免得同一账号被拉起两次
+            await self._stop_account(channel_id, result.account_id)
+            await self._start_account(row)
         logger.info("通道账号已绑定 channel=%s account=%s", channel_id, result.account_id)
         return row
 
@@ -587,17 +592,18 @@ class ChannelHub:
         幂等：确认流程或新一轮绑定已接管该账号（运行中的句柄不是这个临时句柄）时不做任何事。
         """
         key = (binding.channel_id, temp.id)
-        if self._accounts.get(key) is not temp:
-            return
-        await self._stop_account(*key)
-        async with get_database().session() as session:
-            row = await ChannelAccountRepository(session).get(*key)
-        if row is not None and row.status == ChannelAccountStatus.ACTIVE:
-            try:
-                await self._start_account(row)
-                logger.info("配对未完成，已恢复原账号 channel=%s account=%s", *key)
-            except Exception:  # noqa: BLE001
-                logger.exception("配对未完成后恢复原账号失败 channel=%s account=%s", *key)
+        async with self._sync_lock:
+            if self._accounts.get(key) is not temp:
+                return
+            await self._stop_account(*key)
+            async with get_database().session() as session:
+                row = await ChannelAccountRepository(session).get(*key)
+            if row is not None and row.status == ChannelAccountStatus.ACTIVE:
+                try:
+                    await self._start_account(row)
+                    logger.info("配对未完成，已恢复原账号 channel=%s account=%s", *key)
+                except Exception:  # noqa: BLE001
+                    logger.exception("配对未完成后恢复原账号失败 channel=%s account=%s", *key)
 
 
 async def _noop_save(_cursor: str) -> None:
