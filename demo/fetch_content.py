@@ -331,10 +331,20 @@ def nfo_for(film: dict, transcoded: bool) -> str:
     )
 
 
-def scene_name(film: dict, width: int) -> str:
-    """演示资源站上的发布名（场景风格）：``Spring.2019.1080p.WEB-DL.AAC.H.264-BLENDER``。"""
+def scene_name(film: dict, width: int, height: int) -> str:
+    """演示资源站上的发布名（场景风格）：``Charge.2022.1080p.WEB-DL.AAC.H.264-BLENDER``。
+
+    分辨率标签宽高任一够格就算（宽银幕的 1920×804 仍是 1080p，1024×576 是 576p）。
+    """
     title = re.sub(r"[^0-9A-Za-z]+", ".", film["title"]).strip(".")
-    resolution = "1080p" if width >= 1800 else "720p" if width >= 1200 else "480p"
+    if width >= 1800 or height >= 1000:
+        resolution = "1080p"
+    elif width >= 1200 or height >= 700:
+        resolution = "720p"
+    elif height >= 560:
+        resolution = "576p"
+    else:
+        resolution = "480p"
     return f"{title}.{film['year']}.{resolution}.WEB-DL.AAC.H.264-BLENDER"
 
 
@@ -484,7 +494,7 @@ def _finish_seed_folder(film: dict, folder: Path, stem: str, *, out: Path, tools
     再写一份 release.json 给演示资源站建目录用。"""
     video = next(s for s in ffprobe_info(tools["ffprobe"], folder / f"{stem}.mp4")["streams"]
                  if s["codec_type"] == "video")  # fmt: skip
-    name = scene_name(film, int(video.get("width") or 0))
+    name = scene_name(film, int(video.get("width") or 0), int(video.get("height") or 0))
     for path in folder.iterdir():
         renamed = (
             f"{name}.nfo" if path.name == "movie.nfo" else path.name.replace(stem, name, 1)
