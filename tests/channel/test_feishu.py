@@ -1,6 +1,6 @@
 """飞书 Webhook 通道:凭据解析、签名、响应解析与「即绑即用」流程测试。
 
-用假的 FeishuClient 驱动真实的 ImChannelService + ChannelManager +
+用假的 FeishuClient 驱动真实的飞书驱动 + 通道中枢 + ChannelManager +
 dispatcher 链路,验证绑定即推送的全链路;客户端本身用 MockTransport
 验证报文形状与飞书响应的错误分类。
 """
@@ -20,14 +20,16 @@ import pytest
 from sqlmodel import SQLModel
 
 from movieclaw_channel.adapter import ChannelContext
-from movieclaw_channel.feishu import FeishuAdapter, FeishuApiError, FeishuClient
-from movieclaw_channel.feishu.client import (
+from movieclaw_channel.types import ReplyContext
+from movieclaw_db.engine import dispose_db, init_db
+from movieclaw_plugins.feishu.feishu_channel.adapter import FeishuAdapter
+from movieclaw_plugins.feishu.feishu_channel.client import (
+    FeishuApiError,
+    FeishuClient,
     feishu_account_id,
     normalize_webhook_url,
     parse_credentials,
 )
-from movieclaw_channel.types import ReplyContext
-from movieclaw_db.engine import dispose_db, init_db
 
 _URL = "https://open.feishu.cn/open-apis/bot/v2/hook/abc-123"
 
@@ -224,12 +226,12 @@ async def test_adapter_run_idles_until_stop() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 服务层:即绑即用全链路
+# 驱动 + 通道中枢:即绑即用全链路
 # ---------------------------------------------------------------------------
 
 
 class FakeFeishuClient:
-    """替身客户端:bind_feishu 与 _start_account 各建一个,发送统一记到类列表。"""
+    """替身客户端:校验与运行各建一个,发送统一记到类列表。"""
 
     sent: list[str] = []
     instances: list[FakeFeishuClient] = []
@@ -252,65 +254,49 @@ class FakeFeishuClient:
 
 
 @pytest.fixture
-def _fake_feishu(monkeypatch):
-    """假客户端要同时补到模块名与通道规格两处:bind_feishu 走前者,
-    _start_account 走 _SPECS 里注册的 make_client(与 lifecycle 测试同款)。"""
-    from movieclaw_api.services import im_channel
+def hub(db, monkeypatch):
+    from movieclaw_api.services.channel_hub import ChannelHub
+    from movieclaw_plugins.feishu.feishu_channel import driver
 
     FakeFeishuClient.reset()
-    monkeypatch.setattr(im_channel, "FeishuClient", FakeFeishuClient)
-    monkeypatch.setitem(
-        im_channel._SPECS,
-        "feishu",
-        im_channel._ChannelSpec(
-            channel_id="feishu",
-            display_name="飞书",
-            make_client=FakeFeishuClient,
-            make_adapter=im_channel.FeishuAdapter,
-            validate=im_channel._feishu_reject_pairing,
-        ),
-    )
-    yield
+    monkeypatch.setattr(driver, "FeishuClient", FakeFeishuClient)
+    return ChannelHub(lambda: {"feishu": driver.FeishuDriver()})
 
 
-async def test_bind_feishu_end_to_end(db, _fake_feishu) -> None:
-    from movieclaw_api.services.im_channel import ImChannelService
+async def test_bind_feishu_end_to_end(hub) -> None:
+    from movieclaw_db.engine import get_database
     from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
 
-    service = ImChannelService()
     try:
-        row = await service.bind_feishu(_URL, "s3cret")
-        assert row.channel_id == "feishu"
-        assert row.account_id == "abc-123"
+        binding = await hub.begin_binding("feishu", {"webhook_url": _URL, "secret": "s3cret"})
+        assert (binding.status, binding.account_id) == ("confirmed", "abc-123")
         # 欢迎消息在绑定过程中已发出(连通性校验,群里当场可见)
         assert any("已接入本群" in text for text in FakeFeishuClient.sent)
-        # 通道运行中,且无绑定用户也注册为推送目标
-        await _wait_for(lambda: service.manager.is_running("feishu", "abc-123"))
-        assert "feishu:abc-123" in service._push_targets
-        # 推送经发送泵送达群机器人
-        await service.push_text("hello")
+        await _wait_for(lambda: hub.is_running("feishu", "abc-123"))
+        # 没有绑定用户也是推送目标:推送经发送泵送达群机器人
+        assert await hub.push("hello") == 1
         await _wait_for(lambda: "hello" in FakeFeishuClient.sent)
         # 落库凭据为 JSON 且加密可逆
-        async with db.session() as session:
-            stored = await ChannelAccountRepository(session).get("abc-123")
+        async with get_database().session() as session:
+            stored = await ChannelAccountRepository(session).get("feishu", "abc-123")
         assert stored is not None
-        creds = json.loads(ChannelAccountRepository.decrypted_token(stored))
-        assert creds == {"webhook_url": _URL, "secret": "s3cret"}
+        assert ChannelAccountRepository.credentials(stored) == {
+            "webhook_url": _URL,
+            "secret": "s3cret",
+        }
+        assert json.loads(FakeFeishuClient.instances[-1].token)["secret"] == "s3cret"
     finally:
-        await service.stop()
+        await hub.stop()
 
 
-async def test_bind_feishu_same_bot_rebind_overwrites(db, _fake_feishu) -> None:
-    from movieclaw_api.services.im_channel import ImChannelService
-
-    service = ImChannelService()
+async def test_bind_feishu_same_bot_rebind_overwrites(hub) -> None:
     try:
-        await service.bind_feishu(_URL, "old")
-        await service.bind_feishu(_URL, "new")
+        await hub.begin_binding("feishu", {"webhook_url": _URL, "secret": "old"})
+        await hub.begin_binding("feishu", {"webhook_url": _URL, "secret": "new"})
         rows = await _list_feishu()
         assert [r.account_id for r in rows] == ["abc-123"]
     finally:
-        await service.stop()
+        await hub.stop()
 
 
 async def _list_feishu():
@@ -322,33 +308,23 @@ async def _list_feishu():
     return rows
 
 
-async def test_bind_feishu_then_unbind(db, _fake_feishu) -> None:
-    from movieclaw_api.services.im_channel import ImChannelService
-
-    service = ImChannelService()
+async def test_bind_feishu_then_unbind(hub) -> None:
     try:
-        await service.bind_feishu(_URL, "")
-        assert await service.unbind("feishu", "abc-123") is True
-        assert "feishu:abc-123" not in service._push_targets
-        assert not service.manager.is_running("feishu", "abc-123")
+        await hub.begin_binding("feishu", {"webhook_url": _URL})
+        assert await hub.unbind("feishu", "abc-123") is True
+        assert not hub.is_running("feishu", "abc-123")
+        assert await hub.push("hello") == 0
     finally:
-        await service.stop()
+        await hub.stop()
 
 
-async def test_bind_feishu_rejects_bad_url() -> None:
-    from movieclaw_api.services.im_channel import ImChannelService
-
-    service = ImChannelService()
+async def test_bind_feishu_rejects_bad_url(hub) -> None:
     # 内网地址必须在进入任何网络/落库动作前被拒(SSRF 防线)
-    with pytest.raises(ValueError, match="不合法"):
-        await service.bind_feishu("https://192.168.1.1/open-apis/bot/v2/hook/x1")
-    await service.stop()
-
-
-async def test_begin_binding_rejects_feishu() -> None:
-    from movieclaw_api.services.im_channel import ImChannelService
-
-    service = ImChannelService()
-    with pytest.raises(ValueError, match="配对码"):
-        await service.begin_binding("feishu", "tok-123456")
-    await service.stop()
+    try:
+        with pytest.raises(ValueError, match="不合法"):
+            await hub.begin_binding(
+                "feishu", {"webhook_url": "https://192.168.1.1/open-apis/bot/v2/hook/x1"}
+            )
+        assert FakeFeishuClient.instances == []
+    finally:
+        await hub.stop()

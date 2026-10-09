@@ -611,11 +611,17 @@ async def _observe_attempt(
             return False
 
         if status.completed:
+            # 已完成的记录每轮都会再走到这里：事件只在第一次转为完成时发
+            first_completion = attempt.status != DownloadAttemptStatus.COMPLETED
             attempt.status = DownloadAttemptStatus.COMPLETED
             attempt.completed_at = attempt.completed_at or now
             attempt.last_completed_bytes = current_bytes
             attempt.updated_at = now
             session.add(attempt)
+            if first_completion:
+                from movieclaw_api import domain_events
+
+                await domain_events.record_download_completed(session, attempt)
             await session.commit()
             pending_trials = list(
                 (

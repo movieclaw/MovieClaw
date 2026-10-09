@@ -40,6 +40,13 @@ android {
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
+        // 性能压测用（docs/perf/androidtv-home-scroll-2026-10.md）：与正式包同样混淆优化、不可调试，
+        // 用调试密钥签名（能覆盖安装在已登录的 debug 包上），并允许 perfetto 采样
+        create("benchmark") {
+            initWith(getByName("release"))
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+        }
     }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

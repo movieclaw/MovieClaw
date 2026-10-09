@@ -1489,10 +1489,39 @@ class TransferStatusView(BaseModel):
 class ItemDeleteResultView(BaseModel):
     """条目真实删除的结论。"""
 
-    removed_paths: list[str] = Field(description="实际从磁盘删除的目录/文件")
+    removed_paths: list[str] = Field(description="实际从磁盘删除的目录/文件（演练时为将要删除的）")
     rows_deleted: int
     freed_bytes: int
     errors: list[str] = Field(default_factory=list)
+    dry_run: bool = Field(default=False, description="是否只是演练（什么都没删）")
+
+
+class TorrentRelationView(BaseModel):
+    """条目背后的一个下载器任务（docs/design/plugin-phase2a.md §5.3）。"""
+
+    info_hash: str
+    downloader_id: int | None = Field(description="承载它的下载器；下载器配置已删除时为空")
+    downloader_name: str | None = None
+    title: str | None = None
+    source: str = Field(
+        description="从哪里知道的：subscription（订阅投递）/ manual（手动下载）/ file（文件来源）"
+    )
+    site_id: str | None = None
+    torrent_id: str | None = None
+    owned_by_movieclaw: bool | None = Field(default=None, description="是否由 MovieClaw 投递")
+    hit_and_run: bool | None = Field(default=None, description="投递时观测到的 H&R 状态")
+    status: str | None = Field(default=None, description="订阅下载记录的状态")
+    units: list[list[int]] = Field(default_factory=list, description="覆盖的季集 [[季, 集]]")
+    file_ids: list[int] = Field(default_factory=list, description="库里记着来自这个种子的文件")
+
+
+class ItemRelationsView(BaseModel):
+    """条目关联的订阅与下载器任务。"""
+
+    media_item_id: int
+    subscription_id: int | None = None
+    subscription_status: str | None = None
+    torrents: list[TorrentRelationView] = Field(default_factory=list)
 
 
 class UnidentifiedCandidateView(BaseModel):
@@ -1792,6 +1821,19 @@ class RestorePayload(BaseModel):
     """恢复已忽略的文件：清掉忽略标记，重新参与识别。"""
 
     file_ids: list[int] = Field(min_length=1, description="要恢复识别的已忽略文件 id 数组")
+
+
+class ScanStartPayload(BaseModel):
+    """扫描范围（可选）。"""
+
+    paths: list[str] | None = Field(
+        default=None,
+        description=(
+            "只扫这些路径所在的条目目录（库根下第一级）；不传则整库扫描。"
+            "适合外部工具或插件刚往库里放了内容、只想让这一处入账"
+        ),
+        max_length=200,
+    )
 
 
 class ScanResultView(BaseModel):

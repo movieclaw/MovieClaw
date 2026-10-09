@@ -32,6 +32,14 @@ export default async function SettingsSectionPage({
   if (section === "app" && (await searchParams).tab === "remote") {
     redirect("/settings/playback" as Route);
   }
+  // 「更新与维护」里的「模块」「插件」两个标签已独立成「插件」分区（内置 / 已安装页签），
+  // 旧版服务端发出的通知与书签还带着老链接，跟过去
+  if (section === "app" && (await searchParams).tab === "plugins") {
+    redirect("/settings/plugins?tab=builtin" as Route);
+  }
+  if (section === "app" && (await searchParams).tab === "extensions") {
+    redirect("/settings/plugins" as Route);
+  }
   // 批准设备登录已独立成 /activate：旧版服务端发给设备的链接是 /settings/devices?code=…，跟过去
   if (section === "devices") {
     const code = (await searchParams).code;

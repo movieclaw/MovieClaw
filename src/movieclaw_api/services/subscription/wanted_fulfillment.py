@@ -100,6 +100,16 @@ async def close_fulfilled_wanted(session: AsyncSession, media_item_id: int) -> i
         subscription = await session.get(Subscription, subscription_id)
         if subscription is None or item is None:
             continue
+        from movieclaw_api import domain_events
+
+        # 可靠事件随下面这条入库动态一起提交（plugin-phase2a.md §4）
+        await domain_events.record_subscription_units(
+            session,
+            domain_events.SUBSCRIPTION_FULFILLED,
+            subscription_id=subscription_id,
+            item=item,
+            units=[(w.season_number, w.episode_number) for w in wanted_rows],
+        )
         await repo.add_activity(
             SubscriptionActivity(
                 subscription_id=subscription_id,

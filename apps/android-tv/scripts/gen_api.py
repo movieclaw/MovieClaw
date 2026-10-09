@@ -371,6 +371,8 @@ def load_routes() -> dict[str, RouteInfo]:
         if not isinstance(original, APIRoute):
             continue
         path = ctx.path if ctx is not None else original.path
+        # 路径参数的转换器（{account_id:path}）不属于 URL 模板：与 OpenAPI 一样只留参数名
+        path = re.sub(r"\{(\w+):[^}]+\}", r"{\1}", path)
         if not path.startswith(API_PREFIX):
             continue
         for method in original.methods - {"HEAD"}:

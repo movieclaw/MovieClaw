@@ -5,17 +5,14 @@
 movieclaw_api，也**不主动依赖**各业务领域包——业务任务反过来 import 本包完成注册。
 
 对外暴露：
-- ``register_task``：领域包用它把自己的任务注册进来（引擎与业务分离的关键）。
+- ``register_task``：领域包用它声明自己的任务（引擎与业务分离的关键）。
+- ``contribute_tasks`` / ``SCHEDULED_TASKS``：插件把模块里声明的任务贡献进内核注册表。
 - ``TriggerType``：声明触发方式（interval / cron）。
-- ``SchedulerConfig`` / ``init_scheduler`` / ``get_scheduler``：由 lifespan 初始化与驱动。
+- ``SchedulerConfig`` / ``init_scheduler`` / ``get_scheduler``：由插件内核初始化与驱动。
 
-典型接线（见 movieclaw_api.lifespan）::
-
-    init_scheduler(SchedulerConfig(timezone=..., task_run_retention_days=...))
-    # ……在此之前 import 各领域的任务模块以触发 @register_task……
-    await get_scheduler().start()
-    ...
-    await get_scheduler().shutdown()
+典型接线（见 movieclaw_api.plugins）：领域插件 ``contribute_tasks(ctx, 某任务模块)``；
+调度器插件启动 ``get_scheduler().start()`` 后订阅注册表增删，运行中挂上 / 卸下的插件
+的任务随之排上 / 撤下。没有内核时回落到 ``@register_task`` 的声明目录。
 """
 
 from __future__ import annotations
@@ -23,7 +20,10 @@ from __future__ import annotations
 from movieclaw_db.models.scheduled_task import TriggerType
 from movieclaw_scheduler.config import SchedulerConfig
 from movieclaw_scheduler.registry import (
+    SCHEDULED_TASKS,
     TaskDefinition,
+    bind_registry,
+    contribute_tasks,
     get_task,
     iter_tasks,
     register_task,
@@ -32,9 +32,13 @@ from movieclaw_scheduler.service import (
     SchedulerService,
     get_scheduler,
     init_scheduler,
+    reset_scheduler,
 )
 
 __all__ = [
+    "SCHEDULED_TASKS",
+    "bind_registry",
+    "contribute_tasks",
     "TriggerType",
     "SchedulerConfig",
     "TaskDefinition",
@@ -43,5 +47,6 @@ __all__ = [
     "iter_tasks",
     "SchedulerService",
     "init_scheduler",
+    "reset_scheduler",
     "get_scheduler",
 ]

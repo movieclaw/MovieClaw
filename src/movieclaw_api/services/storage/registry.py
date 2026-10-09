@@ -421,6 +421,50 @@ DATA_DIRS: tuple[DataDir, ...] = (
         resolve=lambda s: Path(s.data_dir) / "models",
     ),
     DataDir(
+        key="plugins.patch",
+        title="插件补丁",
+        summary="禁用内置插件、开启本地插件的开关",
+        description=(
+            "插件补丁（plugins.yaml）：可禁用允许关闭的内置子系统，也是开启本地受信插件、"
+            "批准它调用哪些操作的地方；改动在重启后生效，删除即恢复全部默认。"
+        ),
+        default="data/plugins.yaml",
+        resolve=lambda s: Path(s.data_dir) / "plugins.yaml",
+    ),
+    DataDir(
+        key="plugins.local",
+        title="本地插件",
+        summary="用户自己写的插件代码",
+        description=(
+            "本地受信插件的 Python 代码（docs/design/plugin-phase2a.md §6）。只有在 plugins.yaml "
+            "里写了 local: true 的才会加载。packages/ 是安装的第三方插件包（含安装记录），"
+            "data/ 是各插件自己的文件目录（plugin-phase3.md §3、§6）。"
+        ),
+        default="data/plugins",
+        resolve=lambda s: Path(s.data_dir) / "plugins",
+    ),
+    DataDir(
+        key="plugins.boot",
+        title="插件启动记录",
+        summary="插件安全模式用的启动记录",
+        description=(
+            "记录上一次启动加载了哪些本地 / 第三方插件、有没有稳定运行（plugin-phase3.md §5）；"
+            "据此判断是否进入插件安全模式。删除等于忘掉上次启动的情况，不影响数据。"
+        ),
+        default="data/plugins-boot.json",
+        resolve=lambda s: Path(s.data_dir) / "plugins-boot.json",
+    ),
+    DataDir(
+        key="plugins.safe_mode",
+        title="安全模式开关",
+        summary="放一个 SAFE_MODE 文件即以插件安全模式启动",
+        description=(
+            "存在时本次启动跳过全部本地 / 第三方插件；在「设置 → 插件」退出安全模式会删掉它。"
+        ),
+        default="data/SAFE_MODE",
+        resolve=lambda s: Path(s.data_dir) / "SAFE_MODE",
+    ),
+    DataDir(
         key="site_configs",
         title="站点配置",
         summary="用户自行适配的站点 YAML",

@@ -32,7 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
+import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalGraph
 import io.movieclaw.androidtv.LocalSession
 import io.movieclaw.androidtv.ui.components.McIcons

@@ -20,6 +20,62 @@ nonisolated extension APIClient {
         return try await send("PUT", "/app/config", body: body)
     }
 
+    /// 插件诊断：各插件的状态、启动耗时、失败原因与契约
+    /// `GET /app/plugins`
+    func appPluginsList() async throws -> API.PluginsView {
+        return try await send("GET", "/app/plugins")
+    }
+
+    /// 忽略一条可靠事件死信（不再重放）
+    /// `POST /app/plugins/dead-letters/{letter_id}/dismiss`
+    func appPluginsDeadLettersDismiss(letterId: Int) async throws -> Void {
+        let _: API.JSONValue? = try await send("POST", "/app/plugins/dead-letters/\(letterId)/dismiss")
+    }
+
+    /// 重放一条可靠事件死信：把事件再交给对应插件处理一次
+    /// `POST /app/plugins/dead-letters/{letter_id}/replay`
+    func appPluginsDeadLettersReplay(letterId: Int) async throws -> Void {
+        let _: API.JSONValue? = try await send("POST", "/app/plugins/dead-letters/\(letterId)/replay")
+    }
+
+    /// 插件包：已安装的与等待批准的
+    /// `GET /app/plugins/packages`
+    func appPluginsPackagesList() async throws -> API.PackagesView {
+        return try await send("GET", "/app/plugins/packages")
+    }
+
+    /// 卸载插件包（默认保留插件数据；purge_data=true 连同数据删除）
+    /// `DELETE /app/plugins/packages/{entry_id}`
+    func appPluginsPackagesUninstall(entryId: String, purgeData: Bool? = nil) async throws -> API.PackageUninstallView {
+        var query: [URLQueryItem] = []
+        if let purgeData { query.append(URLQueryItem(name: "purge_data", value: "\(purgeData)")) }
+        return try await send("DELETE", "/app/plugins/packages/\(entryId)", query: query)
+    }
+
+    /// 批准并安装插件包：按申请授予宿主操作，当场加载；激活失败自动回滚
+    /// `POST /app/plugins/packages/{entry_id}/approve`
+    func appPluginsPackagesApprove(entryId: String, body: API.PackageApprove) async throws -> API.PackageResultView {
+        return try await send("POST", "/app/plugins/packages/\(entryId)/approve", body: body)
+    }
+
+    /// 放弃一个等待批准的插件包
+    /// `DELETE /app/plugins/packages/{entry_id}/pending`
+    func appPluginsPackagesDiscard(entryId: String) async throws -> Void {
+        let _: API.JSONValue? = try await send("DELETE", "/app/plugins/packages/\(entryId)/pending")
+    }
+
+    /// 插件包回到上一版
+    /// `POST /app/plugins/packages/{entry_id}/rollback`
+    func appPluginsPackagesRollback(entryId: String) async throws -> API.PackageResultView {
+        return try await send("POST", "/app/plugins/packages/\(entryId)/rollback")
+    }
+
+    /// 退出插件安全模式：当场重新加载被跳过的本地 / 第三方插件
+    /// `POST /app/plugins/safe-mode/exit`
+    func appPluginsSafeModeExit() async throws -> API.SafeModeExitView {
+        return try await send("POST", "/app/plugins/safe-mode/exit")
+    }
+
     /// 修改对外端口（保存后全量重启生效）
     /// `PUT /app/port`
     func appPortSet(body: API.WebPortPayload) async throws -> API.AppConfigView {
@@ -282,7 +338,31 @@ nonisolated extension APIClient {
         return try await send("POST", "/auth/tokens", body: body)
     }
 
-    /// 接入飞书群机器人(粘贴 Webhook 地址,即绑即用)
+    /// IM 通道：可用的通道（来自通道插件）与已绑定的账号
+    /// `GET /channels`
+    func channelsList() async throws -> API.ChannelsView {
+        return try await send("GET", "/channels")
+    }
+
+    /// 发起绑定（表单字段；交互式绑定不带字段）
+    /// `POST /channels/bindings`
+    func channelsBindingsStart(body: API.ChannelBindPayload) async throws -> API.ChannelBindingView {
+        return try await send("POST", "/channels/bindings", body: body)
+    }
+
+    /// 查询绑定状态（前端轮询）
+    /// `GET /channels/bindings/{binding_id}`
+    func channelsBindingsStatus(bindingId: String) async throws -> API.ChannelBindingView {
+        return try await send("GET", "/channels/bindings/\(bindingId)")
+    }
+
+    /// 交互式绑定里提交输入（如微信配对数字）
+    /// `POST /channels/bindings/{binding_id}/input`
+    func channelsBindingsInput(bindingId: String, body: API.ChannelBindingInputPayload) async throws -> API.ChannelBindingView {
+        return try await send("POST", "/channels/bindings/\(bindingId)/input", body: body)
+    }
+
+    /// 接入飞书群机器人（旧接口）
     /// `POST /channels/im/feishu/bindings`
     func channelsImFeishuBind(body: API.FeishuBindPayload) async throws -> API.ImAccountView {
         return try await send("POST", "/channels/im/feishu/bindings", body: body)
@@ -306,58 +386,64 @@ nonisolated extension APIClient {
         return try await send("POST", "/channels/im/push-test", body: body)
     }
 
-    /// 已绑定的 TG/Discord 账号列表
+    /// 已绑定的 Telegram / Discord / 飞书账号列表（旧接口）
     /// `GET /channels/im/{channel}/accounts`
     func channelsImAccountsList(channel: String) async throws -> [API.ImAccountView] {
         return try await send("GET", "/channels/im/\(channel)/accounts")
     }
 
-    /// 解绑 TG/Discord 账号
+    /// 解绑 Telegram / Discord / 飞书账号（旧接口）
     /// `DELETE /channels/im/{channel}/accounts/{account_id}`
     func channelsImAccountsUnbind(channel: String, accountId: String) async throws -> [String: API.JSONValue] {
         return try await send("DELETE", "/channels/im/\(channel)/accounts/\(accountId)")
     }
 
-    /// 发起配对绑定(提交 bot token,返回配对码)
+    /// 发起配对绑定（旧接口）
     /// `POST /channels/im/{channel}/bindings`
     func channelsImBindingsStart(channel: String, body: API.ImBindTokenPayload) async throws -> API.ImBindingView {
         return try await send("POST", "/channels/im/\(channel)/bindings", body: body)
     }
 
-    /// 查询配对状态(前端轮询)
+    /// 查询配对状态（旧接口）
     /// `GET /channels/im/{channel}/bindings/{challenge_id}`
     func channelsImBindingsStatus(channel: String, challengeId: String) async throws -> API.ImBindingView {
         return try await send("GET", "/channels/im/\(channel)/bindings/\(challengeId)")
     }
 
-    /// 已绑定的微信账号列表
+    /// 已绑定的微信账号列表（旧接口）
     /// `GET /channels/weixin/accounts`
     func channelsWeixinAccountsList() async throws -> [API.WeixinAccountView] {
         return try await send("GET", "/channels/weixin/accounts")
     }
 
-    /// 解绑微信账号
+    /// 解绑微信账号（旧接口）
     /// `DELETE /channels/weixin/accounts/{account_id}`
     func channelsWeixinAccountsUnbind(accountId: String) async throws -> [String: API.JSONValue] {
         return try await send("DELETE", "/channels/weixin/accounts/\(accountId)")
     }
 
-    /// 发起微信扫码绑定
+    /// 发起微信扫码绑定（旧接口）
     /// `POST /channels/weixin/bindings`
     func channelsWeixinBindingsStart() async throws -> API.WeixinBindingStartView {
         return try await send("POST", "/channels/weixin/bindings")
     }
 
-    /// 查询绑定状态(前端轮询)
+    /// 查询微信绑定状态（旧接口）
     /// `GET /channels/weixin/bindings/{challenge_id}`
     func channelsWeixinBindingsStatus(challengeId: String) async throws -> API.WeixinBindingStatusView {
         return try await send("GET", "/channels/weixin/bindings/\(challengeId)")
     }
 
-    /// 提交扫码配对数字
+    /// 提交扫码配对数字（旧接口）
     /// `POST /channels/weixin/bindings/{challenge_id}/verify-code`
     func channelsWeixinBindingsVerify(challengeId: String, body: API.WeixinVerifyCodePayload) async throws -> [String: API.JSONValue] {
         return try await send("POST", "/channels/weixin/bindings/\(challengeId)/verify-code", body: body)
+    }
+
+    /// 解绑通道账号（停收发、删凭据；历史对话保留）
+    /// `DELETE /channels/{channel_id}/accounts/{account_id}`
+    func channelsAccountsUnbind(channelId: String, accountId: String) async throws -> [String: API.JSONValue] {
+        return try await send("DELETE", "/channels/\(channelId)/accounts/\(accountId)")
     }
 
     /// MovieClaw Cloud 的连接状态
@@ -651,9 +737,10 @@ nonisolated extension APIClient {
 
     /// 从下载器里删掉一个种子任务，可选连同已下好的文件一起删
     /// `DELETE /downloaders/{downloader_id}/torrents/{info_hash}`
-    func dlTorrentDelete(downloaderId: Int, infoHash: String, deleteFiles: Bool? = nil) async throws -> API.DownloadTaskDeleteView {
+    func dlTorrentDelete(downloaderId: Int, infoHash: String, deleteFiles: Bool? = nil, dryRun: Bool? = nil) async throws -> API.DownloadTaskDeleteView {
         var query: [URLQueryItem] = []
         if let deleteFiles { query.append(URLQueryItem(name: "delete_files", value: "\(deleteFiles)")) }
+        if let dryRun { query.append(URLQueryItem(name: "dry_run", value: "\(dryRun)")) }
         return try await send("DELETE", "/downloaders/\(downloaderId)/torrents/\(infoHash)", query: query)
     }
 
@@ -1270,8 +1357,10 @@ nonisolated extension APIClient {
 
     /// 从磁盘彻底删除条目（整个刮削目录：视频+NFO+海报+字幕一起清除）
     /// `DELETE /libraries/{library_id}/items/{media_item_id}`
-    func libraryItemsDelete(libraryId: Int, mediaItemId: Int) async throws -> API.ItemDeleteResultView {
-        return try await send("DELETE", "/libraries/\(libraryId)/items/\(mediaItemId)")
+    func libraryItemsDelete(libraryId: Int, mediaItemId: Int, dryRun: Bool? = nil) async throws -> API.ItemDeleteResultView {
+        var query: [URLQueryItem] = []
+        if let dryRun { query.append(URLQueryItem(name: "dry_run", value: "\(dryRun)")) }
+        return try await send("DELETE", "/libraries/\(libraryId)/items/\(mediaItemId)", query: query)
     }
 
     /// 条目详情：基本信息 + NFO 本地刮削元数据 + 逐文件真实介质规格
@@ -1308,8 +1397,10 @@ nonisolated extension APIClient {
 
     /// 从磁盘删除条目的单个文件（含同名 NFO/字幕/图片附属文件）
     /// `DELETE /libraries/{library_id}/items/{media_item_id}/files/{file_id}`
-    func libraryItemsDeleteFile(libraryId: Int, mediaItemId: Int, fileId: Int) async throws -> API.ItemDeleteResultView {
-        return try await send("DELETE", "/libraries/\(libraryId)/items/\(mediaItemId)/files/\(fileId)")
+    func libraryItemsDeleteFile(libraryId: Int, mediaItemId: Int, fileId: Int, dryRun: Bool? = nil) async throws -> API.ItemDeleteResultView {
+        var query: [URLQueryItem] = []
+        if let dryRun { query.append(URLQueryItem(name: "dry_run", value: "\(dryRun)")) }
+        return try await send("DELETE", "/libraries/\(libraryId)/items/\(mediaItemId)/files/\(fileId)", query: query)
     }
 
     /// 立即清理一个待回收的文件（真删磁盘）
@@ -1340,6 +1431,12 @@ nonisolated extension APIClient {
     /// `POST /libraries/{library_id}/items/{media_item_id}/reidentifications`
     func libraryItemsReidentify(libraryId: Int, mediaItemId: Int) async throws -> API.ReidentifyResultView {
         return try await send("POST", "/libraries/\(libraryId)/items/\(mediaItemId)/reidentifications")
+    }
+
+    /// 条目背后的订阅与下载器任务（删片前看看会牵动什么）
+    /// `GET /libraries/{library_id}/items/{media_item_id}/relations`
+    func libraryItemsRelations(libraryId: Int, mediaItemId: Int) async throws -> API.ItemRelationsView {
+        return try await send("GET", "/libraries/\(libraryId)/items/\(mediaItemId)/relations")
     }
 
     /// 取消这部影片的分享，链接立刻失效
@@ -1442,8 +1539,8 @@ nonisolated extension APIClient {
 
     /// 扫描该库的根路径，把存量文件识别入账（后台执行）
     /// `POST /libraries/{library_id}/scan`
-    func libraryScanStart(libraryId: Int) async throws -> API.ScanResultView {
-        return try await send("POST", "/libraries/\(libraryId)/scan")
+    func libraryScanStart(libraryId: Int, body: API.ScanStartPayload? = nil) async throws -> API.ScanResultView {
+        return try await send("POST", "/libraries/\(libraryId)/scan", body: body)
     }
 
     /// 停止进行中的扫描（已入账的保留，剩余文件下次扫描继续）
@@ -2603,6 +2700,12 @@ nonisolated extension APIClient {
         return try await send("PUT", "/transcode-worker/config", body: body)
     }
 
+    /// 修改转码器并发上限
+    /// `PUT /transcode-worker/devices/{device_id}/config`
+    func transcodeWorkerConfig(deviceId: Int, body: API.WorkerConfigPayload) async throws -> API.WorkerConfigPayload {
+        return try await send("PUT", "/transcode-worker/devices/\(deviceId)/config", body: body)
+    }
+
     /// 远程转码 Worker 状态
     /// `GET /transcode-worker/status`
     func transcodeStatus() async throws -> [String: API.JSONValue] {
@@ -2662,13 +2765,14 @@ nonisolated extension APIClient {
 }
 
 // 未生成的接口（需在对应模块手写）：
+// - POST /api/v1/app/plugins/packages（multipart 表单上传，需手写）
 // - POST /api/v1/appearance/backdrops（multipart 表单上传，需手写）
 // - GET /api/v1/appearance/backdrops/{backdrop_id}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/auth/avatar（无响应模型：文件流/SSE 等，需手写）
 // - POST /api/v1/auth/avatar（multipart 表单上传，需手写）
 // - GET /api/v1/collections/{collection_id}/cover（无响应模型：文件流/SSE 等，需手写）
-// - GET /api/v1/images/assets/{path:path}（无响应模型：文件流/SSE 等，需手写）
-// - GET /api/v1/images/people/{path:path}（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/images/assets/{path}（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/images/people/{path}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/images/proxy（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/jobs/stream（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/libraries/files/{file_id}/original（无响应模型：文件流/SSE 等，需手写）
@@ -2677,7 +2781,7 @@ nonisolated extension APIClient {
 // - POST /api/v1/libraries/{library_id}/cover（multipart 表单上传，需手写）
 // - GET /api/v1/libraries/{library_id}/items/{media_item_id}/artwork（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/members/{member_id}/avatar（无响应模型：文件流/SSE 等，需手写）
-// - GET /api/v1/playback/files/{file_id}/disc/{relative_path:path}（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/playback/files/{file_id}/disc/{relative_path}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/files/{file_id}/fonts/{name}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/files/{file_id}/stream（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/files/{file_id}/subtitles（无响应模型：文件流/SSE 等，需手写）
@@ -2693,10 +2797,13 @@ nonisolated extension APIClient {
 // - GET /api/v1/sessions/{session_id}/events（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/share/{slug}/artwork（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/share/{slug}/files/{file_id}/thumb（无响应模型：文件流/SSE 等，需手写）
-// - GET /api/v1/share/{slug}/images/assets/{path:path}（无响应模型：文件流/SSE 等，需手写）
-// - GET /api/v1/share/{slug}/images/people/{path:path}（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/share/{slug}/images/assets/{path}（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/share/{slug}/images/people/{path}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/share/{slug}/images/proxy（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/spec（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/subscriptions/smart-profiles/{kind}（无响应模型：文件流/SSE 等，需手写）
+// - PUT /api/v1/subscriptions/smart-profiles/{kind}（无响应模型：文件流/SSE 等，需手写）
+// - POST /api/v1/subscriptions/{subscription_id}/wanted/{wanted_id}/smart-wait（无响应模型：文件流/SSE 等，需手写）
 // - PUT /api/v1/transcode-worker/sessions/{session_id}/artifacts/{name}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/transcode-worker/sessions/{session_id}/clips/{index}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/transcode-worker/sessions/{session_id}/poster（无响应模型：文件流/SSE 等，需手写）

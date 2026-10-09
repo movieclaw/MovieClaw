@@ -47,11 +47,12 @@ class ChannelManager:
     """进程级单例:管理所有通道账号的后台任务。"""
 
     def __init__(self) -> None:
-        self._accounts: dict[str, _AccountRuntime] = {}
+        # 键是 (通道, 账号) 元组：第三方通道 id 带插件前缀（含冒号），拼成字符串再拆会拆错
+        self._accounts: dict[tuple[str, str], _AccountRuntime] = {}
 
     @staticmethod
-    def _key(channel_id: str, account_id: str) -> str:
-        return f"{channel_id}:{account_id}"
+    def _key(channel_id: str, account_id: str) -> tuple[str, str]:
+        return (channel_id, account_id)
 
     def is_running(self, channel_id: str, account_id: str) -> bool:
         rt = self._accounts.get(self._key(channel_id, account_id))
@@ -95,10 +96,10 @@ class ChannelManager:
         dispatcher.start()
         rt.task = asyncio.create_task(
             self._supervise(rt, ctx, on_auth_error),
-            name=f"channel-account-{key}",
+            name=f"channel-account-{key[0]}:{key[1]}",
         )
         self._accounts[key] = rt
-        logger.info("通道账号已启动 %s", key)
+        logger.info("通道账号已启动 %s:%s", *key)
 
     async def _supervise(
         self,
@@ -153,10 +154,9 @@ class ChannelManager:
             with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):
                 await asyncio.wait_for(rt.task, timeout=_GRACEFUL_STOP_TIMEOUT_S)
         await rt.dispatcher.close()
-        logger.info("通道账号已停止 %s", key)
+        logger.info("通道账号已停止 %s:%s", *key)
 
     async def close(self) -> None:
         """进程关闭:停止全部账号。"""
-        for key in list(self._accounts):
-            channel_id, account_id = key.split(":", 1)
+        for channel_id, account_id in list(self._accounts):
             await self.stop_account(channel_id, account_id)

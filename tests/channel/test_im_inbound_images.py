@@ -13,8 +13,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from movieclaw_channel.discord.adapter import DiscordAdapter, _collect_image_attachments
-from movieclaw_channel.telegram.adapter import TelegramAdapter, _collect_image_files
+from movieclaw_plugins.discord.discord_channel.adapter import (
+    DiscordAdapter,
+    _collect_image_attachments,
+)
+from movieclaw_plugins.telegram.telegram_channel.adapter import (
+    TelegramAdapter,
+    _collect_image_files,
+)
 
 _PNG = b"\x89PNG\r\n\x1a\nfake"
 
@@ -197,7 +203,7 @@ async def test_dc_one_failed_attachment_does_not_drop_others() -> None:
 
 def test_dc_cdn_client_never_carries_bot_token() -> None:
     """附件走 CDN 域名,绝不能带 Authorization 头(否则等于把 bot token 送出去)。"""
-    from movieclaw_channel.discord.client import DiscordClient
+    from movieclaw_plugins.discord.discord_channel.client import DiscordClient
 
     client = DiscordClient("super-secret-token")
     assert "authorization" not in {k.lower() for k in client._cdn.headers}

@@ -355,6 +355,11 @@ class LibraryFileRepository:
         existing.source = row.source
         existing.site_id = row.site_id
         existing.torrent_id = row.torrent_id
+        # 来源种子：新的写入知道就更新（同路径被新版本覆盖），不知道（扫描重试）就保留原值，
+        # 否则缺失回归 / 识别重试会把入库时记下的下载器任务抹掉
+        if row.info_hash is not None:
+            existing.info_hash = row.info_hash
+            existing.downloader_id = row.downloader_id
         # 来源快照记的是"第一次怎么进库"：只补空、不覆盖（缺失回归 / 识别重试
         # 走的是扫描，覆盖会把订阅投递改写成"存量扫描发现"）；kept_at 是用户
         # 决定，写路径永远不碰

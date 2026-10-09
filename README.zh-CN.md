@@ -4,7 +4,7 @@
 
 <p align="center">
   一个 MovieClaw，替代一整套影音工具。<br>
-  自带网页与 iPhone 原生 App，内置能自己动手的 AI 助手。<br>
+  自带网页和手机、电视、Mac 上的原生 App，内置能自己动手的 AI 助手。<br>
   数据全在你自己的机器上，个人和家庭使用免费。
 </p>
 
@@ -15,6 +15,7 @@
 <p align="center">
   <a href="#5-分钟跑起来">快速开始</a> ·
   <a href="https://demo.movieclaw.io">在线体验</a> ·
+  <a href="https://movieclaw.io/zh/download">下载</a> ·
   <a href="#说一句它全都搞定">AI 助手</a> ·
   <a href="#boundaries">边界</a> ·
   <a href="#在别的机器上操控它">命令行</a> ·
@@ -61,7 +62,7 @@
 
 ## 自带原生 App，播放不输 Infuse
 
-网页打开就能看，iPhone 上是原生 App。自研播放引擎：FFmpeg 负责拆，Apple 负责播。
+网页打开就能看，手机、电视和 Mac 上都有原生 App。iPhone、Apple TV 和 Mac 用同一套自研播放引擎：FFmpeg 负责拆，Apple 负责播。
 
 <p align="center">
   <img src="docs/images/player.jpg" width="900" alt="iPhone 横屏播放：液态玻璃的播放控制、音轨与字幕、AirPlay 和实时网速">
@@ -75,7 +76,9 @@
 - 进度在网页、App 和 Infuse 之间同步，在哪看都接得上。
 - 「片段」：在片库里竖着滑，从自己的电影和剧集里刷精彩片段。
 
-**怎么装 App**：从 [Releases](https://github.com/movieclaw/movieclaw/releases) 下载 `MovieClaw-iOS-unsigned.ipa`，用 AltStore、SideStore 或 Sideloadly 以自己的 Apple ID 安装，需要 iOS 26 及以上（侧载版收不到推送通知）；TestFlight 公开测试稍后开放。资源站点和下载器在网页端配置。
+**怎么装 App**：iPhone、Android、Apple TV、Android TV 和 Mac 的 App 都汇总在[官网下载页](https://movieclaw.io/zh/download)，各平台的版本、系统要求和安装方法都在那里。iPhone 版正在上架 App Store，现在可以从 [Releases](https://github.com/movieclaw/movieclaw/releases) 下载 `MovieClaw-iOS-unsigned.ipa`，用 AltStore、SideStore 或 Sideloadly 以自己的 Apple ID 安装，需要 iOS 26 及以上（侧载版收不到推送通知）。资源站点和下载器在网页端配置。
+
+想在新 App 上架、发布新版本时收到邮件？在官网[订阅动态](https://movieclaw.io/zh/download#updates)，登录后选好收信邮箱就行，随时可以退订。
 
 网页端是液态玻璃：侧栏、输入框、悬浮按钮会折射你设的背景图，边缘带一点色差。背景图在「设置 → 外观」里换，跨设备访问同一实例保持一致。
 
@@ -132,7 +135,7 @@ MovieClaw 把一个自主的通用 Agent 装进了影音服务器。打理片库
   <tr>
     <td width="50%" valign="top">
       <img src="docs/images/scene-1.jpg" alt="网页上的「接下来继续」，iPhone 上同一部片子显示「继续 10:44」">
-      <p><b>08:30 地铁上</b>：昨晚没看完的，手机上接着看。网页、iPhone 原生 App，还有 Infuse 这类播放器，在哪看都行，进度跟着你走。</p>
+      <p><b>08:30 地铁上</b>：昨晚没看完的，手机上接着看。网页、原生 App，还有 Infuse 这类播放器，在哪看都行，进度跟着你走。</p>
     </td>
     <td width="50%" valign="top">
       <img src="docs/images/scene-2.jpg" alt="iPhone 上的订阅页：刚刚入库的 Coffee Run">

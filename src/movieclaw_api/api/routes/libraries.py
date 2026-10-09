@@ -23,6 +23,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api import domain_events
 from movieclaw_api.api.deps import require_admin, require_login
 from movieclaw_api.api.routes.images import WIDTH_QUERY, requested_width, sized_file
 from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
@@ -45,6 +46,7 @@ from movieclaw_api.schemas.library import (
     IdentityReviewDecision,
     ItemCollectionRef,
     ItemDeleteResultView,
+    ItemRelationsView,
     LastOrganizeView,
     LastScanView,
     LibraryFacetsView,
@@ -87,11 +89,13 @@ from movieclaw_api.schemas.library import (
     ReviewResolvePayload,
     ScanProgressView,
     ScanResultView,
+    ScanStartPayload,
     SeasonEpisodesView,
     SubtitleCueView,
     SubtitleDeleteResultView,
     SubtitlePreviewView,
     SubtitleStreamView,
+    TorrentRelationView,
     TrackDefaultsView,
     TransferMoveView,
     TransferPayload,
@@ -134,6 +138,7 @@ from movieclaw_api.services.library.collections import collections_containing
 from movieclaw_api.services.library.config import LibraryConfigService
 from movieclaw_api.services.library.ingest import _downloader_briefs
 from movieclaw_api.services.library.items import (
+    DeleteResult,
     HomeKind,
     LibraryFilter,
     _wall_count,
@@ -180,6 +185,7 @@ from movieclaw_api.services.library.scan import (
     reidentify_item,
     request_stop_scan,
     scan_progress,
+    scope_entries,
 )
 from movieclaw_api.services.library.series import (
     ensure_series_collections_for_library,
@@ -268,7 +274,7 @@ def _assignment_target(title_ref: str) -> tuple[MediaKind, int]:
 
 def _job_origin(client_name: object) -> str:
     """从统一客户端头识别 Web/CLI；直接调用路由的测试对象安全退回 Web。"""
-    if isinstance(client_name, str) and client_name.lower() in {"web", "cli", "agent"}:
+    if isinstance(client_name, str) and client_name.lower() in {"web", "cli", "agent", "plugin"}:
         return client_name.lower()
     return "web"
 
@@ -1443,11 +1449,21 @@ async def start_scan(
     library_id: int,
     client_name: str | None = Header(default=None, alias="X-MovieClaw-Client"),
     session: AsyncSession = Depends(get_session),
+    payload: ScanStartPayload | None = None,
 ) -> ApiResponse[ScanResultView]:
     """增量扫描：已在台账的文件秒过；新文件走 NFO → 文件名解析 → TMDB
-    识别链，认不出的进「待识别」清单。扫描绝不移动/改名/删除存量文件。"""
+    识别链，认不出的进「待识别」清单。扫描绝不移动/改名/删除存量文件。
+
+    给了 ``paths`` 就只扫这些路径所在的条目目录（与监听触发的扫描同一语义），
+    不在库根之下的路径直接拒绝。"""
     service = LibraryConfigService(session)
     library = await service.get(library_id)
+    scope: list[str] | None = None
+    if payload is not None and payload.paths:
+        try:
+            scope = scope_entries(library, payload.paths)
+        except ValueError as exc:
+            raise BadRequestException(str(exc)) from exc
     phase = busy_phase(library_id)
     if phase is not None:
         raise ConflictException(f"「{library.name}」{PHASE_LABELS[phase]}，请等待完成")
@@ -1456,12 +1472,12 @@ async def start_scan(
     if is_transferring(library_id):
         raise ConflictException(f"「{library.name}」正在转移条目，请等待转移完成后再扫描")
     created = await enqueue_scan_job(
-        session, library_id, library.name, origin=_job_origin(client_name)
+        session, library_id, library.name, origin=_job_origin(client_name), scope_paths=scope
     )
     return ok(
         ScanResultView(
             started=True,
-            message=f"已开始扫描「{library.name}」",
+            message=f"已开始扫描「{library.name}」" + (f"的 {len(scope)} 个目录" if scope else ""),
             job_id=created.job.id,
             created=created.created,
         ),
@@ -3030,6 +3046,63 @@ async def get_item_artwork(
     raise NotFoundException("条目目录里没有本地美术图")
 
 
+@router.get(
+    "/{library_id}/items/{media_item_id}/relations",
+    response_model=ApiResponse[ItemRelationsView],
+    summary="条目背后的订阅与下载器任务（删片前看看会牵动什么）",
+    operation_id="library.items.relations",
+    dependencies=[Depends(require_admin)],
+)
+async def get_item_relations(
+    library_id: int,
+    media_item_id: int,
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[ItemRelationsView]:
+    """从订阅下载记录、手动下载意图和文件来源三处汇总，同一个下载器任务只出现一次。
+
+    只读。``owned_by_movieclaw`` 与 ``hit_and_run`` 是删种前最该看的两个字段：不是 MovieClaw
+    投递的种子、或 H&R 未达标的种子，删了可能违反站点规则。
+    """
+    from movieclaw_api.services.library.relations import item_relations
+
+    await _item_rows(session, library_id, media_item_id)
+    relations = await item_relations(session, media_item_id)
+    return ok(
+        ItemRelationsView(
+            media_item_id=media_item_id,
+            subscription_id=relations.subscription_id,
+            subscription_status=relations.subscription_status,
+            torrents=[
+                TorrentRelationView(
+                    info_hash=t.info_hash,
+                    downloader_id=t.downloader_id,
+                    downloader_name=t.downloader_name,
+                    title=t.title,
+                    source=t.source,
+                    site_id=t.site_id,
+                    torrent_id=t.torrent_id,
+                    owned_by_movieclaw=t.owned_by_movieclaw,
+                    hit_and_run=t.hit_and_run,
+                    status=t.status,
+                    units=[list(u) for u in t.units],
+                    file_ids=list(t.file_ids),
+                )
+                for t in relations.torrents
+            ],
+        )
+    )
+
+
+def _delete_view(result: DeleteResult, *, dry_run: bool = False) -> ItemDeleteResultView:
+    return ItemDeleteResultView(
+        removed_paths=result.removed_paths,
+        rows_deleted=result.rows_deleted,
+        freed_bytes=result.freed_bytes,
+        errors=result.errors,
+        dry_run=dry_run,
+    )
+
+
 @router.delete(
     "/{library_id}/items/{media_item_id}",
     response_model=ApiResponse[ItemDeleteResultView],
@@ -3043,6 +3116,9 @@ async def delete_library_item(
     media_item_id: int,
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
+    dry_run: Annotated[
+        bool, Query(description="只演练：返回将要删除的路径与台账行，不动磁盘和台账")
+    ] = False,
 ) -> ApiResponse[ItemDeleteResultView]:
     """全站唯一会删磁盘文件的接口——与「忽略/清理记录」（只动台账）截然
     不同，调用方必须先向用户明确确认再调用（CLI 已强制 --yes）。删除失败的文件保留台账行。"""
@@ -3050,7 +3126,18 @@ async def delete_library_item(
     library = await service.get(library_id)
     await _assert_not_busy(session, library.name, library_id)
     item, rows = await _item_rows(session, library_id, media_item_id)
-    result = await delete_item_files(session, library, media_item_id, rows)
+    if dry_run:
+        plan = await delete_item_files(session, library, media_item_id, rows, dry_run=True)
+        return ok(
+            _delete_view(plan, dry_run=True),
+            message=(
+                f"演练：「{item.title}」将删除 {len(plan.removed_paths)} 个路径（未删除任何东西）"
+            ),
+        )
+    record_deleted = await domain_events.deletion_recorder(session, library_id, item, rows)
+    result = await delete_item_files(
+        session, library, media_item_id, rows, before_commit=record_deleted
+    )
 
     # 通知下游媒体服务器刷新库（未配置时空转；失败只告警不阻断）
 
@@ -3088,6 +3175,9 @@ async def delete_library_file(
     file_id: int,
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
+    dry_run: Annotated[
+        bool, Query(description="只演练：返回将要删除的路径与台账行，不动磁盘和台账")
+    ] = False,
 ) -> ApiResponse[ItemDeleteResultView]:
     """条目删除的文件级姊妹（多版本洗掉一个 / 删某集重下）——同样会真删
     磁盘，调用方必须先向用户明确确认。该文件是条目在本库的最后一个文件时
@@ -3100,7 +3190,15 @@ async def delete_library_file(
     if row is None:
         raise NotFoundException(f"台账文件不存在或不属于「{item.title}」：id={file_id}")
     file_name = PurePath(row.file_path).name
-    result = await delete_single_file(session, library, row, rows)
+    if dry_run:
+        plan = await delete_single_file(session, library, row, rows, dry_run=True)
+        whole = "（这是最后一个文件，将整条删除）" if len(rows) == 1 else ""
+        return ok(
+            _delete_view(plan, dry_run=True),
+            message=f"演练：「{file_name}」将被删除{whole}（未删除任何东西）",
+        )
+    record_deleted = await domain_events.deletion_recorder(session, library_id, item, rows)
+    result = await delete_single_file(session, library, row, rows, before_commit=record_deleted)
 
     # 与整条目删除同一套善后：通知媒体服务器刷新；条目在所有库都没文件了
     # 且没订阅时连同图片资产一并清掉；磁盘回收挪到响应之后

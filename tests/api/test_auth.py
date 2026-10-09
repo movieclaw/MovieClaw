@@ -383,6 +383,8 @@ def fill_path_params(path: str) -> str:
         .replace("{challenge_id}", "test-challenge")
         .replace("{account_id}", "test-bot")
         .replace("{channel}", "weixin")
+        .replace("{channel_id}", "weixin")
+        .replace("{binding_id}", "test-binding")
         .replace("{endpoint_id}", "test-endpoint")
         .replace("{username}", "family")
         .replace("{member_id}", "1")
@@ -399,6 +401,7 @@ def fill_path_params(path: str) -> str:
         .replace("{relay_id}", "r_test")  # App 推送的自建中继
         .replace("{token}", "no-such-image")  # 推送配图的签名
         .replace("{item_id}", "1")  # 推送「这部剧不再提醒」的条目
+        .replace("{letter_id}", "1")  # 可靠事件死信
     )
 
 

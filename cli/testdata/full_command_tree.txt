@@ -7,6 +7,20 @@
 # 装配完成后的整棵命令树（精选层 + 生成层，含分组名），一行一条命令路径。
 activity
 app
+app plugins
+app plugins dead-letters
+app plugins dead-letters dismiss
+app plugins dead-letters replay
+app plugins list
+app plugins packages
+app plugins packages approve
+app plugins packages discard
+app plugins packages list
+app plugins packages rollback
+app plugins packages uninstall
+app plugins packages upload
+app plugins safe-mode
+app plugins safe-mode exit
 app port
 app port set
 app restart
@@ -53,28 +67,19 @@ auth password update
 auth profile
 auth profile update
 channels
+channels accounts
+channels accounts unbind
+channels bindings
+channels bindings input
+channels bindings start
+channels bindings status
 channels im
-channels im accounts
-channels im accounts list
-channels im accounts unbind
-channels im bindings
-channels im bindings start
-channels im bindings status
-channels im feishu
-channels im feishu bind
 channels im push
 channels im push config
 channels im push config get
 channels im push config update
 channels im push test
-channels weixin
-channels weixin accounts
-channels weixin accounts list
-channels weixin accounts unbind
-channels weixin bindings
-channels weixin bindings start
-channels weixin bindings status
-channels weixin bindings verify
+channels list
 collection
 collection create
 collection delete
@@ -195,6 +200,7 @@ library items purge-file
 library items refresh-metadata
 library items regenerate-chapter-images
 library items reidentify
+library items relations
 library items relax
 library items restore-file
 library items share
@@ -290,6 +296,9 @@ playback history
 playback stats
 playback stats qoe
 playback stats watch
+plugin
+plugin dev
+plugin pack
 rules
 rules create
 rules default

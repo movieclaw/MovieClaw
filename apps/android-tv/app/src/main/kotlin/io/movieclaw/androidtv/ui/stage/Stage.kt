@@ -1,16 +1,14 @@
 package io.movieclaw.androidtv.ui.stage
 
+import android.graphics.ComposeShader
+import android.graphics.PorterDuff
 import android.os.Build
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -18,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -28,18 +27,25 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.LinearGradientShader
+import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -50,11 +56,12 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.tv.material3.Text
+import io.movieclaw.androidtv.ui.components.Text
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.request.ImageRequest
 import io.movieclaw.androidtv.ui.components.MediaBadge
+import io.movieclaw.androidtv.ui.components.ModulatedCrossfade
 import io.movieclaw.androidtv.ui.components.RemoteImage
 import io.movieclaw.androidtv.ui.components.imageUrl
 import io.movieclaw.androidtv.ui.theme.McColors
@@ -72,15 +79,22 @@ data class StageBadge(val text: String, val filled: Boolean)
  * - 首页（[fullImage] = false）：底下垫剧照边缘色（屏幕下沿之外再延伸 600pt 渐变到深炭灰），剧照从屏高 0.4 处渐隐进边缘色；
  *   左侧托字的黑从左 10% 满强度到 65% 淡完；
  * - 详情页（true）：最底下是同一张图的模糊版，剧照不渐隐，左下角一团径向黑托字。
- * [scrollPx] 是所在列表的滚动量（像素）：滚动 [pinnedPt] 以内背景不动，之后整层跟着上移并在 [fadePt] 内淡完。
+ * [scrollPx] 读所在列表的滚动量（像素）：滚动 [pinnedPt] 以内背景不动，之后整层跟着上移并在 [fadePt] 内淡完。
+ * 只在图层 / 绘制阶段读，列表滚动时这里不重组。
  * [preview] 是盖在剧照上的预告画面层（首页 / 详情页的 TVStagePreviewLayer）。
+ *
+ * 这一层铺满整屏、还在不停地动，所以任何时候都不离屏合成（docs/perf/androidtv-home-scroll-2026-10.md）：
+ * - 首页往下滚时的整层淡出：底下正好是纯色页面底，改为在上面盖一层「页面底色 × (1 − 透明度)」，与整层离屏淡出逐像素相同；
+ *   详情页底下是模糊图，仍按整层透明度淡出（这时才离屏）；
+ * - 首页托字的黑用一个合成着色器一遍画完，不再离屏画横向渐变再用纵向渐隐 DstIn；
+ * - 换片时新旧剧照的交叉淡入，透明度直接乘到图片上（单张图，与整层淡入相同）。
  */
 @Composable
 fun StageBackdrop(
     image: String?,
     modifier: Modifier = Modifier,
     fullImage: Boolean = false,
-    scrollPx: Float = 0f,
+    scrollPx: () -> Float = { 0f },
     pinnedPt: Float = 460f,
     fadePt: Float = 700f,
     preview: (@Composable BoxScope.(visible: Boolean) -> Unit)? = null,
@@ -97,14 +111,13 @@ fun StageBackdrop(
         if (!fullImage) StageAnalysis.edgeColor(context, url)?.let { tint = it }
         StageAnalysis.scrimStrength(context, url, corner = fullImage)?.let { strength = it }
     }
-    val animatedTint by animateColorAsState(tint ?: McColors.Page, tween(800), label = "tint")
-    val animatedStrength by animateFloatAsState(strength, tween(400), label = "scrim")
+    // 两个渐变动画的值只在绘制时读（换片时边缘色渐变 0.8 秒，不让整块跟着每帧重组）
+    val animatedTint = animateColorAsState(tint ?: McColors.Page, tween(800), label = "tint")
+    val animatedStrength = animateFloatAsState(strength, tween(400), label = "scrim")
     val ptPx = density * 0.5f
-    val scroll = maxOf(0f, scrollPx)
-    val shift = maxOf(0f, scroll - pinnedPt * ptPx)
-    val alpha = maxOf(0f, 1 - shift / (fadePt * ptPx))
-    val inPlace = scroll <= (pinnedPt + 120) * ptPx
-    val fadeFrom = if (fullImage) 1 - minOf(1f, scroll / (500 * ptPx)) * 0.4f else 0.4f
+    val currentScroll by rememberUpdatedState(scrollPx)
+    val inPlace by remember(pinnedPt, ptPx) { derivedStateOf { maxOf(0f, currentScroll()) <= (pinnedPt + 120) * ptPx } }
+    val fadeFrom = 0.4f
 
     Box(modifier.fillMaxSize().clipToBounds()) {
         if (fullImage) BlurredBackdrop(ambientUrl) else Box(Modifier.fillMaxSize().background(McColors.Page))
@@ -112,26 +125,36 @@ fun StageBackdrop(
             Modifier
                 .fillMaxSize()
                 .graphicsLayer {
+                    val shift = maxOf(0f, maxOf(0f, currentScroll()) - pinnedPt * ptPx)
                     translationY = -shift
-                    this.alpha = alpha
-                    compositingStrategy = CompositingStrategy.Offscreen
-                },
+                    if (fullImage) alpha = maxOf(0f, 1 - shift / (fadePt * ptPx))
+                }
+                .then(
+                    if (fullImage) Modifier else Modifier.drawWithContent {
+                        val shift = maxOf(0f, maxOf(0f, currentScroll()) - pinnedPt * ptPx)
+                        val alpha = maxOf(0f, 1 - shift / (fadePt * ptPx))
+                        if (alpha <= 0f) return@drawWithContent
+                        drawContent()
+                        // 盖住整层画到的范围（屏幕高再往下延伸的那 600pt 边缘色过渡也算上）
+                        if (alpha < 1f) drawRect(McColors.Page, size = Size(size.width, size.height + 600 * ptPx), alpha = 1 - alpha)
+                    },
+                ),
         ) {
             if (!fullImage && tint != null) {
                 // 边缘色铺满首屏，并在屏幕下沿之外再延伸 600pt 渐变到深炭灰：往下滚、背景上移时才露出这段过渡，
                 // 首屏里只有「剧照渐隐进边缘色」一段过渡（两段过渡夹一截平台在真机上会看出横线）
                 Column(Modifier.fillMaxWidth().wrapContentHeight(Alignment.Top, unbounded = true)) {
-                    Box(Modifier.fillMaxWidth().height(1080.pt).background(animatedTint))
-                    Box(Modifier.fillMaxWidth().height(600.pt).background(EasedFade.vertical(EasedFade.stops(animatedTint, 0f, 1f))))
+                    Box(Modifier.fillMaxWidth().height(1080.pt).drawBehind { drawRect(animatedTint.value) })
+                    Box(Modifier.fillMaxWidth().height(600.pt).drawBehind { drawRect(EasedFade.vertical(EasedFade.stops(animatedTint.value, 0f, 1f))) })
                 }
             }
             Box(Modifier.fillMaxWidth().height(1080.pt)) {
-                Crossfade(screenUrl, animationSpec = tween(600), label = "stage") { url ->
+                ModulatedCrossfade(screenUrl, tween(600)) { url ->
                     if (url != null) KenBurnsImage(url)
                 }
                 if (screenUrl != null && preview != null) preview(inPlace)
                 if (!fullImage) {
-                    Box(Modifier.fillMaxSize().background(EasedFade.vertical(EasedFade.rising(animatedTint, fadeFrom))))
+                    Box(Modifier.fillMaxSize().drawBehind { drawRect(EasedFade.vertical(EasedFade.rising(animatedTint.value, fadeFrom))) })
                 }
             }
             if (screenUrl != null) {
@@ -139,26 +162,36 @@ fun StageBackdrop(
                     Canvas(Modifier.fillMaxWidth().height(1080.pt)) {
                         drawRect(
                             Brush.radialGradient(
-                                *EasedFade.stops(Color.Black.copy(alpha = animatedStrength), 0f, 1f),
+                                *EasedFade.stops(Color.Black.copy(alpha = animatedStrength.value), 0f, 1f),
                                 center = Offset(0f, size.height),
                                 radius = 1500 * ptPx,
                             ),
                         )
                     }
                 } else {
-                    // 横向托字黑 × 剧照下沿渐隐：先画横向渐变，再用纵向渐隐当遮罩（DstIn）
-                    Canvas(Modifier.fillMaxWidth().height(1080.pt).graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }) {
-                        drawRect(Brush.horizontalGradient(*EasedFade.stops(Color.Black.copy(alpha = animatedStrength), 0.1f, 0.65f)))
-                        drawRect(
-                            Brush.verticalGradient(*EasedFade.stops(Color.Black, fadeFrom, 1f)),
-                            blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
-                        )
-                    }
+                    // 横向托字黑 × 剧照下沿渐隐：两条渐变用 DstIn 合成成一个着色器，深浅用整笔的透明度给
+                    // （原先是离屏先画横向渐变、再用纵向渐隐 DstIn，结果相同）
+                    Spacer(
+                        Modifier.fillMaxWidth().height(1080.pt).drawWithCache {
+                            val brush = ShaderBrush(
+                                ComposeShader(
+                                    gradient(EasedFade.stops(Color.Black, 0.1f, 0.65f), Offset(size.width, 0f)),
+                                    gradient(EasedFade.stops(Color.Black, fadeFrom, 1f), Offset(0f, size.height)),
+                                    PorterDuff.Mode.DST_IN,
+                                ),
+                            )
+                            onDrawBehind { drawRect(brush, alpha = animatedStrength.value) }
+                        },
+                    )
                 }
             }
         }
     }
 }
+
+/** 从原点到 [to] 的线性渐变着色器（与 Brush.horizontalGradient / verticalGradient 铺满整块时一致） */
+private fun gradient(stops: Array<Pair<Float, Color>>, to: Offset) =
+    LinearGradientShader(Offset.Zero, to, stops.map { it.second }, stops.map { it.first })
 
 private fun withWidth(url: String, w: Int): String {
     val parsed = url.toHttpUrlOrNull() ?: return url
@@ -324,8 +357,6 @@ fun StageBlock(
 /** 两段文字交叉淡入（换片时新旧文字在同一个框里重叠，不跳动） */
 @Composable
 fun <T> CrossfadeInfo(target: T, content: @Composable (T) -> Unit) {
-    AnimatedContent(target, transitionSpec = { fadeIn(tween(450)) togetherWith fadeOut(tween(450)) }, label = "stage-info", contentAlignment = Alignment.BottomStart) {
-        content(it)
-    }
+    ModulatedCrossfade(target, tween(450), contentAlignment = Alignment.BottomStart) { content(it) }
 }
 

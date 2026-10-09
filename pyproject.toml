@@ -119,6 +119,8 @@ movieclaw_api = ["data/spec.json"]
 # 内置技能层（docs/design/agent-skills.md）：Docker 部署整棵 src 拷贝本就带上，
 # 这行给 wheel 形态兜底。
 movieclaw_agent = ["builtin-skills/**/*"]
+# 随应用携带的插件包（docs/design/plugin-channels.md §7）：清单是加载与打包的依据
+movieclaw_plugins = ["*/movieclaw-plugin.toml"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

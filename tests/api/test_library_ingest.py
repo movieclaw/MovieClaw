@@ -2293,6 +2293,8 @@ async def test_manual_download_identity_claim_via_info_hash(db, tmp_path, monkey
     assert str(entry) not in ingest_mod._deferred
     async with db.session() as session:
         assert (await session.execute(select(ManualDownloadIntent))).scalar_one_or_none() is None
+        # 意图用完即删，来源种子落在文件行上（删片联动要靠它找下载器任务）
+        assert (await session.execute(select(LibraryFile))).scalar_one().info_hash == "manualhash"
 
 
 @pytest.mark.asyncio
@@ -2748,6 +2750,59 @@ async def test_shared_folder_file_from_foreign_torrent_gets_no_stamp(db, tmp_pat
         statuses=True,
     )
     assert stamps == {11: ("ssd", "t11"), 12: (None, None)}
+
+
+@pytest.mark.asyncio
+async def test_ingest_records_the_source_torrent_of_each_file(db, tmp_path, monkeypatch):
+    """来源种子与来源戳同源、同粒度：逐文件记到写入它的那次投递；外部种子写的文件不记。"""
+    await _ingest_shared_folder(
+        db,
+        tmp_path,
+        monkeypatch,
+        deliveries={9: ("hash-e09", "t09"), 11: ("hash-e11", "t11")},
+        torrents={"hash-e09": "ep9.mkv", "hash-e11": "ep11.mkv", "hash-foreign": "ep12.mkv"},
+        statuses=True,
+    )
+    async with db.session() as session:
+        rows = (await session.execute(select(LibraryFile))).scalars().all()
+    assert {row.episode_number: row.info_hash for row in rows} == {
+        9: "hash-e09",
+        11: "hash-e11",
+        12: None,
+    }
+
+
+@pytest.mark.asyncio
+async def test_ingest_records_imported_event_for_subscribed_plugins(db, tmp_path, monkeypatch):
+    """有插件订阅「入库完成」时，入库结论提交的同时写下事件：条目、新入账文件（带来源种子）、hash。"""
+    from movieclaw_api.services import durable_events
+    from movieclaw_db.models import DomainEvent, EventConsumer
+
+    async with db.session() as session:
+        session.add(EventConsumer(consumer_id="test:ingest", event_name="library.ingest.imported"))
+        await session.commit()
+    durable_events.reset_subscribed()
+    try:
+        await _ingest_shared_folder(
+            db,
+            tmp_path,
+            monkeypatch,
+            deliveries={9: ("hash-e09", "t09")},
+            torrents={"hash-e09": "ep9.mkv"},
+            statuses=True,
+        )
+        async with db.session() as session:
+            [row] = (await session.execute(select(DomainEvent))).scalars().all()
+    finally:
+        durable_events.reset_subscribed()
+    payload = row.payload
+    assert row.name == "library.ingest.imported"
+    assert payload["media"]["title"] == "测试剧集"
+    assert [(f["season"], f["episode"], f["info_hash"]) for f in payload["files"]] == [
+        (1, 9, "hash-e09")
+    ]
+    assert payload["info_hashes"] == ["hash-e09"]
+    assert payload["staging"] is False and payload["intent_owner"] is None
 
 
 @pytest.mark.asyncio
@@ -4542,3 +4597,63 @@ async def test_reprocessed_entry_same_payload_on_version_name_is_idempotent(
     async with db.session() as session:
         record = (await session.execute(select(IngestEntry))).scalar_one()
     assert record.status == IngestStatus.IMPORTED
+
+
+@pytest.mark.asyncio
+async def test_staged_files_feed_the_ingest_staged_slot(db, tmp_path, monkeypatch):
+    """暂存规则把文件放好后，为流水线槽位 ingest.staged 的每个插件步骤建一个下游任务
+    （plugin-phase2b.md §7），载荷带最终路径与季集；没有步骤时什么都不建。"""
+    from movieclaw_api import pipeline
+    from movieclaw_kernel import Registry
+
+    root, watch, staging = tmp_path / "tv", tmp_path / "watch", tmp_path / "staging"
+    watch.mkdir()
+    staging.mkdir()
+    await _make_library(db, kind=MediaKind.TV, root=root)
+    item = await _make_item(db, kind=MediaKind.TV, title="上云剧集", year=2026)
+    _stub_identify(monkeypatch, item)
+    monkeypatch.setattr(ingest_mod, "probe_media", lambda _path: _FAKE_SPEC)
+    _stub_unit(monkeypatch, lambda file: (1, int(file.stem.removeprefix("ep"))))
+    async with db.session() as session:
+        session.add(
+            ImportWatch(
+                source_path=str(watch), strategy="hardlink", kind="tv", target_path=str(staging)
+            )
+        )
+        await session.commit()
+    entry = watch / "上云剧集 S01"
+    entry.mkdir()
+    (entry / "ep1.mkv").write_bytes(b"episode-1")
+    (entry / "ep2.mkv").write_bytes(b"episode-2")
+
+    steps = Registry(pipeline.INGEST_STEPS)
+    steps.add(
+        "acme.cloud:upload",
+        pipeline.IngestStep(job_type="acme.cloud:upload", title="上传网盘"),
+        entry_id="acme.cloud",
+    )
+    steps.add(
+        "acme.movies:only",
+        pipeline.IngestStep(job_type="acme.movies:only", title="只管电影", kinds=("movie",)),
+        entry_id="acme.movies",
+    )
+    unbind = pipeline.bind_steps(steps)
+    try:
+        async with db.session() as session:
+            rule = (await session.execute(select(ImportWatch))).scalar_one()
+        await ingest_mod._sweep_dir(rule, None, execute_inline=True)
+        await ingest_mod._sweep_dir(rule, None, execute_inline=True)
+    finally:
+        unbind()
+
+    async with db.session() as session:
+        downstream = list(
+            (await session.execute(select(Job).where(Job.job_type.startswith("acme.")))).scalars()
+        )
+    [job] = downstream  # 只管电影的步骤不接剧集
+    assert job.job_type == "acme.cloud:upload" and job.status == JobStatus.QUEUED
+    files = sorted(job.input_data["files"], key=lambda f: f["episode"])
+    assert [(f["season"], f["episode"]) for f in files] == [(1, 1), (1, 2)]
+    assert all(Path(f["path"]).is_relative_to(staging) and Path(f["path"]).exists() for f in files)
+    assert job.input_data["media"]["title"] == "上云剧集"
+    assert job.input_data["rule"]["target_path"] == str(staging)

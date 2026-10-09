@@ -1,17 +1,13 @@
-"""movieclaw_channel —— IM 通道模块(微信为首个实现)。
+"""movieclaw_channel —— IM 通道中枢的内部构件（docs/design/plugin-channels.md §6）。
 
-把外部 IM 平台(微信 iLink Bot 网关等)接入 movieclaw 的 Agent 能力。
-分层设计(docs 讨论定稿):
+各平台的收发与绑定是通道插件（``src/movieclaw_plugins/*``，只依赖 SDK）；这里是所有通道共用、
+插件看不到的部分，由 ``services/channel_hub`` 组装：
 
-- ``types``      平台无关的消息 DTO(入站消息 / 回复上下文 / 出站信封);
-- ``adapter``    通道适配器协议:一个平台只需实现「收消息循环 + 发文本」;
-- ``pusher``     StepReplyPusher:把 AgentRunner 事件流按「步」收敛成离散 IM 消息;
-- ``dispatcher`` 事件驱动的收发解耦:会话串行队列(入站) + 出站发送泵;
-- ``manager``    每账号一个后台任务的生命周期管理(启动/停止/崩溃重启);
-- ``weixin``     微信 iLink 适配器(扫码绑定 / getUpdates 长轮询 / sendMessage)。
-
-依赖方向:本包只依赖 movieclaw_agent 的事件类型,不反向依赖 API 层;
-Agent 的装配(LLM 路由、工具集、会话历史)由 API 服务层以回调注入。
+- ``types``      消息 DTO（定义在 SDK，这里转出沿用）；
+- ``adapter``    中枢内部的适配器协议（通道驱动经 ``_DriverAdapter`` 接进来）；
+- ``pusher``     StepReplyPusher：把 AgentRunner 事件流按「步」收敛成离散 IM 消息；
+- ``dispatcher`` 事件驱动的收发解耦：会话串行队列（入站）+ 出站发送泵；
+- ``manager``    每账号一个后台任务的生命周期管理（启动 / 停止 / 崩溃重启）。
 """
 
 from movieclaw_channel.adapter import ChannelAdapter, ChannelContext

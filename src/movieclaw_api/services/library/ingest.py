@@ -115,6 +115,7 @@ from uuid import uuid4
 from sqlalchemy import String, cast, or_, update
 from sqlmodel import select
 
+from movieclaw_api.pipeline import INGEST_STAGED, StagedFile, enqueue_staged, steps_for
 from movieclaw_api.services import jobs
 from movieclaw_api.services.import_watch_config import rule_target_label
 from movieclaw_api.services.library.bluray import (
@@ -1741,11 +1742,59 @@ async def _ingest_entry(
     unresolved_files: list[str] | None = None
     # 合集已入库的各部作品：合集行没有单一身份，摘要行按这一列数「几部」
     collection_item_ids: list[int] | None = None
+    # 暂存（自定义目录）规则本轮放进暂存目录的文件与订阅 / 手动下载锚定的目标库：
+    # 入库流水线槽位 ingest.staged 按它为插件步骤建下游任务（plugin-phase2b.md §7）
+    staged_files: list[StagedFile] = []
+    staged_library_id: int | None = None
+
+    async def enqueue_staged_steps() -> None:
+        if not staged_files or item is None:
+            return
+        library_id = staged_library_id
+        if library_id is None and steps_for(INGEST_STAGED, item.kind):
+            # 名称识别的身份没有定格的库：按收藏范围路由出「它该进哪个库」交给下游步骤
+            # （暂存规则本身按类型不按库；只算不改，暂存入库的行为不变）
+            from movieclaw_api.services.library.routing import route_for_item
+
+            decision = await route_for_item(session, kind.value, item)
+            library_id = decision.library.id if decision.library is not None else None
+        await enqueue_staged(
+            session,
+            files=staged_files,
+            item=item,
+            rule=rule,
+            library_id=library_id,
+            batch_id=added_batch_id,
+            ingest_job_id=job_context.job_id if job_context is not None else None,
+            info_hashes=[*(matched_hashes or []), *(consumable_hashes or [])],
+        )
+
+    async def record_imported(intent_owner: str | None) -> None:
+        """入库完成的可靠事件（plugin-phase2a.md §4），随入库结论的那次提交成立。"""
+        if item is None or item.id is None:
+            return
+        from movieclaw_api import domain_events
+
+        await domain_events.record_ingest_imported(
+            session,
+            item=item,
+            library_id=dest_library.id if dest_library is not None else None,
+            batch_id=added_batch_id,
+            imported_names=imported_files,
+            info_hashes=[*(matched_hashes or []), *(consumable_hashes or [])],
+            rule_id=rule.id,
+            staging=staging is not None,
+            intent_owner=intent_owner,
+        )
 
     async def conclude(
         status: IngestStatus, message: str, imported: int = 0
     ) -> IngestEntry | _GroupOutcome:
         if grouped:
+            # 电影合集的一部：外层合集落账时一起提交
+            if status is IngestStatus.IMPORTED and imported:
+                await record_imported(None)
+            await enqueue_staged_steps()
             return _GroupOutcome(status, message, imported, item, list(imported_files))
         if status is IngestStatus.IMPORTED and not snap.fingerprint.startswith("ready:"):
             # 整树结论成功 = 条目当前所有文件都已处理：仍挂着的分批 blocked
@@ -1780,6 +1829,7 @@ async def _ingest_entry(
                     entry.name,
                     stale.id,
                 )
+        intent_owner: str | None = None
         if status is IngestStatus.IMPORTED and item is not None and item.id is not None:
             source_hashes = matched_hashes if consumable_hashes is None else consumable_hashes
             hashes = sorted({value.lower() for value in source_hashes or [] if value})
@@ -1797,6 +1847,7 @@ async def _ingest_entry(
                     .all()
                 )
                 for intent in intents:
+                    intent_owner = intent_owner or intent.owner
                     await session.delete(intent)
                     logger.info("手动下载身份锚已随成功入库消费：hash=%s", intent.info_hash)
         # 手动下载的人等的就是这一刻：按种子对上是谁点的，入库结论提交之后推「入库完成」
@@ -1818,6 +1869,10 @@ async def _ingest_entry(
                 )
             except Exception:  # noqa: BLE001
                 logger.exception("对照手动下载的推送对象失败（已忽略）")
+        if status is IngestStatus.IMPORTED:
+            await record_imported(intent_owner)
+        # 不论结论：部分失败的入库也已经把一些文件搬进暂存目录了，重试时它们不会再报
+        await enqueue_staged_steps()
         saved = await _save_record(
             session,
             dest_library,
@@ -2040,6 +2095,20 @@ async def _ingest_entry(
         """某个入库文件的来源戳 (site, torrent)。"""
         return delivery.stamp(entry, file, unit) if delivery is not None else manual_stamp
 
+    def torrent_of(
+        file: Path | None, unit: tuple[int, int] | None
+    ) -> tuple[str | None, int | None]:
+        """某个入库文件来自哪个下载器任务 (info_hash, 下载器)；判不出为 (None, None)。
+
+        与来源戳同源：插件做「删片顺手删种子」时按它定位下载器任务（plugin-phase2a.md §5.1）。
+        """
+        if manual_intent is not None:
+            return manual_intent.info_hash.lower(), manual_intent.downloader_id
+        attempt = delivery.attempt_for(entry, file, unit) if delivery is not None else None
+        if attempt is None:
+            return None, None
+        return attempt.info_hash.lower(), attempt.downloader_id
+
     # 来源快照（docs/design/library-duplicate-files.md §2）：与来源戳同源、同粒度
     # ——订阅投递按文件定位到那次投递，手动下载与监听识别按条目；文案在落账
     # 现场一次成型，之后订阅取消 / 规则删除 / 种子表滚动都不影响它可读
@@ -2237,6 +2306,8 @@ async def _ingest_entry(
             return await conclude(IngestStatus.FAILED, str(exc))
         imported_files.append(final.name)
         if staging is not None:
+            staged_files.append(StagedFile(final, 0, 0, torrent_of(None, None)[0]))
+            staged_library_id = pinned_library_id
             verb = "硬链接" if strategy == "hardlink" else "复制"
             return await conclude(
                 IngestStatus.IMPORTED,
@@ -2247,6 +2318,7 @@ async def _ingest_entry(
         assert dest_library is not None and dest_library.id is not None
         stat = final.stat()
         disc_site, disc_torrent = provenance(None, None)
+        disc_hash, disc_downloader = torrent_of(None, None)
         await repo.upsert_by_path(
             LibraryFile(
                 library_id=dest_library.id,
@@ -2281,6 +2353,8 @@ async def _ingest_entry(
                 identity_source=ledger_identity,
                 site_id=disc_site,
                 torrent_id=disc_torrent,
+                info_hash=disc_hash,
+                downloader_id=disc_downloader,
                 added_batch_id=added_batch_id,
                 origin=origin_for(None, None),
             )
@@ -2406,6 +2480,9 @@ async def _ingest_entry(
         stamp_site, stamp_torrent = provenance(
             file, None if kind is MediaKind.MOVIE else (season, episode)
         )
+        stamp_hash, stamp_downloader = torrent_of(
+            file, None if kind is MediaKind.MOVIE else (season, episode)
+        )
         # 文件属性经 file_attrs 统一格式化——整理侧从台账行取同一组值，
         # 两侧格式化口径一致才算得出同一个名字（命名同源）
         attrs = file_attrs(
@@ -2527,8 +2604,10 @@ async def _ingest_entry(
         relative_name = _relative_entry_file(entry, file)
         imported_files.append(file.name if relative_name in {None, "."} else relative_name)
         if staging is not None:
-            # 自定义目录：文件是"过客"，搬到位即完成，不写库台账
+            # 自定义目录：文件是"过客"，搬到位即完成，不写库台账；交给流水线槽位的下游步骤
             imported += 1
+            staged_files.append(StagedFile(final, season or 0, episode or 0, stamp_hash))
+            staged_library_id = pinned_library_id
             continue
         assert dest_library is not None and dest_library.id is not None
         # stat 落位后的目标文件（跨盘复制时 mtime 与源不同），size/mtime 一次拿全
@@ -2590,6 +2669,8 @@ async def _ingest_entry(
                 identity_doubt=doubt,
                 site_id=stamp_site,
                 torrent_id=stamp_torrent,
+                info_hash=stamp_hash,
+                downloader_id=stamp_downloader,
                 added_batch_id=added_batch_id,
                 origin=origin_for(file, None if kind is MediaKind.MOVIE else (season, episode)),
             )

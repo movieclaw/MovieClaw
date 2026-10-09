@@ -50,7 +50,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.Icon
-import androidx.tv.material3.Text
+import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.LocalSession
 import io.movieclaw.androidtv.core.model.generated.UpNextItemView
 import io.movieclaw.androidtv.ui.components.CaptionMode
@@ -118,7 +118,8 @@ fun HomeScreen() {
     var previewSince by remember { mutableStateOf(0L) }
     var lastInput by remember { mutableStateOf(System.currentTimeMillis()) }
     var wakes by remember { mutableStateOf(0) }
-    var cardTopPx by remember { mutableStateOf<Float?>(null) }
+    // 卡片行顶边在屏幕上的位置：只在决定让位时读。不做成界面状态——滚动时每帧都在变，写状态会让整页每帧重组
+    val cardTop = remember { CardTop() }
 
     // 出现时刷新（从二级页退回来也算，同 Apple 端 .task）、关掉播放器后刷新
     val pageVisible = io.movieclaw.androidtv.ui.shell.LocalPageVisible.current
@@ -145,9 +146,11 @@ fun HomeScreen() {
         }
         return
     }
-    val rows = store.rows.filter { !it.hidden || it.kind == HomeRows.Kind.Libraries }
-    val browsable = libraries.filter { it.viewerAccess && it.kind != "photo" }
-    val pinnedCollections = HomeRows.pinnedCollections(rows)
+    // 行清单只在数据变了时重算：焦点每挪一下首页都会重组，各行拿到同一份清单才能整行跳过
+    val rows = remember(libraries, store.prefs, store.collections) { store.rows.filter { !it.hidden || it.kind == HomeRows.Kind.Libraries } }
+    val otherRows = remember(rows) { rows.filter { it.kind != HomeRows.Kind.UpNext } }
+    val browsable = remember(libraries) { libraries.filter { it.viewerAccess && it.kind != "photo" } }
+    val pinnedCollections = remember(rows) { HomeRows.pinnedCollections(rows) }
     val upNext = if (rows.any { it.kind == HomeRows.Kind.UpNext }) store.upNext.orEmpty() else emptyList()
     val stage = upNext.firstOrNull { it.mediaItemId == stageId } ?: upNext.firstOrNull()
 
@@ -178,7 +181,7 @@ fun HomeScreen() {
     LaunchedEffect(previewing) { if (previewing) previewSince = System.currentTimeMillis() }
     LaunchedEffect(previewing, focus, stage?.mediaItemId, wakes) {
         val onStageCard = stage != null && focus == HomeFocus.Card(stage.mediaItemId)
-        if (!previewing || !onStageCard || cardTopPx == null) {
+        if (!previewing || !onStageCard || cardTop.px == null) {
             rowYielded = false
             return@LaunchedEffect
         }
@@ -188,7 +191,7 @@ fun HomeScreen() {
         rowYielded = true
     }
     val screenPx = 1080 * ptPx
-    val yieldTarget = if (rowYielded) maxOf(0f, screenPx - 56 * ptPx - (cardTopPx ?: screenPx)) else 0f
+    val yieldTarget = if (rowYielded) maxOf(0f, screenPx - 56 * ptPx - (cardTop.px ?: screenPx)) else 0f
     // 沉下去慢而柔，叫回来要快
     val yieldOffset by animateFloatAsState(
         yieldTarget,
@@ -196,7 +199,8 @@ fun HomeScreen() {
         label = "row-yield",
     )
     val yieldAlpha by animateFloatAsState(if (rowYielded) 0f else 1f, if (rowYielded) spring(1f, 48.7f) else spring(0.9f, 246f), label = "row-yield-alpha")
-    val scrollPx = if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 100_000f
+    // 滚动量交给大图背景在图层里读：这里读的话，列表每滚一帧整页都要重组
+    val scrollPx = remember(listState) { { if (listState.firstVisibleItemIndex == 0) listState.firstVisibleItemScrollOffset.toFloat() else 100_000f } }
     LaunchedEffect(listState) {
         snapshotFlow { listState.firstVisibleItemIndex == 0 && listState.firstVisibleItemScrollOffset < 4 }
             .distinctUntilChanged()
@@ -220,15 +224,18 @@ fun HomeScreen() {
         launchFocusPending = false
     }
 
-    fun onFocusChange(new: HomeFocus?) {
-        val old = focus
-        focus = new
-        lastInput = System.currentTimeMillis()
-        when {
-            new is HomeFocus.Card && old !is HomeFocus.Card ->
-                scope.launch { listState.animateScrollToItem(0, (334 * ptPx).toInt()) }
-            old is HomeFocus.Card && (new == HomeFocus.Play || new == HomeFocus.Details) ->
-                scope.launch { listState.animateScrollToItem(0, 0) }
+    // 记住这个回调：各行把它包进自己的焦点回调里，每次重组换一个新的，各行就跳不过重组
+    val onFocusChange: (HomeFocus?) -> Unit = remember(listState, scope, ptPx) {
+        { new ->
+            val old = focus
+            focus = new
+            lastInput = System.currentTimeMillis()
+            when {
+                new is HomeFocus.Card && old !is HomeFocus.Card ->
+                    scope.launch { listState.animateScrollToItem(0, (334 * ptPx).toInt()) }
+                old is HomeFocus.Card && (new == HomeFocus.Play || new == HomeFocus.Details) ->
+                    scope.launch { listState.animateScrollToItem(0, 0) }
+            }
         }
     }
 
@@ -300,7 +307,7 @@ fun HomeScreen() {
                                 Box(
                                     Modifier
                                         .graphicsLayer { alpha = if (current) 1f else yieldAlpha }
-                                        .onGloballyPositioned { if (!rowYielded) cardTopPx = it.positionInRoot().y },
+                                        .onGloballyPositioned { if (!rowYielded) cardTop.px = it.positionInRoot().y },
                                 ) {
                                 if (current && rowYielded && preview != null) PreviewProgressLine(preview, Modifier.offset(y = (-26).pt))
                                 LandscapeCard(
@@ -321,12 +328,12 @@ fun HomeScreen() {
                     }
                 }
             }
-            items(rows.filter { it.kind != HomeRows.Kind.UpNext }, key = { it.id }) { row ->
+            items(otherRows, key = { it.id }) { row ->
                 Box(Modifier.graphicsLayer { translationY = yieldOffset; alpha = yieldAlpha }) {
                 HomeRow(row, store, browsable, pinnedCollections) { focused ->
                     if (focused) {
                         onFocusChange(null)
-                        val index = 1 + rows.filter { it.kind != HomeRows.Kind.UpNext }.indexOfFirst { it.id == row.id }
+                        val index = 1 + otherRows.indexOfFirst { it.id == row.id }
                         scope.launch {
                             // 选中展开的海报行滚到屏幕上方（下面的类型、简介才露得全）；
                             // 库卡、类型卡这种普通行同 tvOS：只滚到整行露全、上下各留一截
@@ -353,6 +360,10 @@ fun HomeScreen() {
             onDismiss = { menuFor = null },
         )
     }
+}
+
+private class CardTop {
+    var px: Float? = null
 }
 
 /** 卡片行让位时露在焦点卡上方的预告进度：416×4 的细线，每 0.25 秒读一次播放位置 */

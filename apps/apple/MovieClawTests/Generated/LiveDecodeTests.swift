@@ -9,6 +9,12 @@ struct LiveDecodeTests {
     @Test func appShow() async throws {
         try await LiveServer.check { try await $0.appShow() }
     }
+    @Test func appPluginsList() async throws {
+        try await LiveServer.check { try await $0.appPluginsList() }
+    }
+    @Test func appPluginsPackagesList() async throws {
+        try await LiveServer.check { try await $0.appPluginsPackagesList() }
+    }
     @Test func appStorageUsage() async throws {
         try await LiveServer.check { try await $0.appStorageUsage() }
     }
@@ -44,6 +50,9 @@ struct LiveDecodeTests {
     }
     @Test func authMe() async throws {
         try await LiveServer.check { try await $0.authMe() }
+    }
+    @Test func channelsList() async throws {
+        try await LiveServer.check { try await $0.channelsList() }
     }
     @Test func channelsImPushConfigGet() async throws {
         try await LiveServer.check { try await $0.channelsImPushConfigGet() }
@@ -188,6 +197,9 @@ struct LiveDecodeTests {
     }
     @Test func scrapeCountries() async throws {
         try await LiveServer.check { try await $0.scrapeCountries() }
+    }
+    @Test func scrapeFanartShow() async throws {
+        try await LiveServer.check { try await $0.scrapeFanartShow() }
     }
     @Test func scrapeLanguages() async throws {
         try await LiveServer.check { try await $0.scrapeLanguages() }

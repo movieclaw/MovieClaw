@@ -13,7 +13,7 @@ var domainHelp = map[string]string{
 	"collection":    "媒体库合集：把一组筛选条件存下来，可自动收录新入库的片，也可固定成一份名单",
 	"discover":      "浏览 TMDB/豆瓣电影与剧集片单，并读取影视条目完整资料",
 	"dl":            "qBittorrent/Transmission 下载器接入与路径映射、种子投递，以及查看和处理下载器里正在跑的任务",
-	"extension":     "浏览器插件 Cookie 同步",
+	"extension":     "浏览器扩展 Cookie 同步",
 	"fs":            "浏览服务器上的目录（填媒体库根路径前先确认路径在服务器上长什么样）",
 	"health":        "API 存活检查",
 	"jobs":          "后台作业查询、事件、等待、取消与重试",

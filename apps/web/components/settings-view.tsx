@@ -8,6 +8,7 @@ import { LiquidGlassButton } from "@/components/liquid-glass";
 
 import { AppPushSection } from "@/components/app-push-section";
 import { AppStorageSection } from "@/components/app-storage-section";
+import { PluginsPage } from "@/components/plugins-section";
 import { ScheduledTasksSection } from "@/components/scheduled-tasks-section";
 import { AppUpdateDot, usePendingUpdate } from "@/components/app-update-entry";
 import { AppUpdateSection } from "@/components/app-update-section";
@@ -263,6 +264,8 @@ export function SettingsPanel({ active }: SettingsPanelProps) {
           <CloudSection />
         ) : section.id === "app" ? (
           <AppSection />
+        ) : section.id === "plugins" ? (
+          <PluginsPage />
         ) : section.id === "mcp" ? (
           <McpSection />
         ) : section.id === "webhook" ? (
@@ -626,6 +629,8 @@ function WatchHistoryCard() {
  *   - 缓存管理：data/ 各目录的占用与清理（AppStorageSection，内容来自后端登记表）；
  *   - 定时任务：后台任务的周期与启停（ScheduledTasksSection）。
  *
+ * 曾经还有「模块」（内置插件状态）与「插件」（插件包管理）两个标签，已独立成
+ * 「系统 → 插件」分区（PluginsPage）；带 ?tab=plugins / extensions 的老链接在路由层重定向。
  * 设置页按功能重组前这里叫「应用」，还塞着外部访问地址与远程转码——前者迁去
  * 「网络」分区（网络配置只留一个家），后者升级为「媒体库」组的「播放」分区。
  * 曾经还有第三个「维护」标签，但它从头到尾只有一颗「重启应用」按钮：为一个

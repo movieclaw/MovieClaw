@@ -170,6 +170,34 @@ class SchedulerService:
             logger.info("定时任务已重排：%s，下次触发：%s", task_key, job.next_run_time)
             return next_run
 
+    async def add_task(self, defn: TaskDefinition) -> None:
+        """运行中新增一个任务（插件挂载时）：补库里的定义，按库中定义排上。
+
+        与启动时同一套规则：库里已有定义（用户改过周期 / 启停）优先于代码默认值。
+        """
+        async with get_database().session() as session:
+            created = await ScheduledTaskRepository(session).create_if_absent(
+                task_key=defn.key,
+                trigger_type=defn.default_trigger_type,
+                interval_seconds=defn.default_interval_seconds,
+                cron_expr=defn.default_cron,
+                enabled=defn.default_enabled,
+            )
+        if created:
+            logger.info("已为新任务播种默认调度：%s（%s）", defn.key, defn.title)
+        await self.reschedule(defn.key)
+
+    async def remove_task(self, task_key: str) -> None:
+        """运行中撤下一个任务（插件卸载时）：摘掉 job，保留库里的定义（保留用户改过的周期）。
+
+        正在执行中的那一轮照常跑完（runner 自己管互斥）。
+        """
+        if self._scheduler.get_job(task_key) is not None:
+            self._scheduler.remove_job(task_key)
+        async with get_database().session() as session:
+            await ScheduledTaskRepository(session).update_next_run(task_key, None)
+        logger.info("定时任务已撤下：%s", task_key)
+
     async def start(self) -> None:
         """启动调度器。应在应用启动（lifespan）时调用一次。
 
@@ -206,6 +234,12 @@ def init_scheduler(config: SchedulerConfig) -> SchedulerService:
     set_scheduler_config(config)
     _scheduler_service = SchedulerService(config)
     return _scheduler_service
+
+
+def reset_scheduler() -> None:
+    """清空全局单例（调度器插件释放时调用）：下次启用重新建一个，而不是复用已关停的。"""
+    global _scheduler_service
+    _scheduler_service = None
 
 
 def try_get_scheduler() -> SchedulerService | None:

@@ -38,7 +38,7 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Glow
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
+import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.core.model.generated.EpisodeView
 import io.movieclaw.androidtv.ui.components.Avatar
 import io.movieclaw.androidtv.ui.components.CardBadge

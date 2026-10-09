@@ -14,6 +14,7 @@ from movieclaw_db.models.base import TimestampMixin, utcnow
 from movieclaw_db.models.cache_entry import CacheEntry
 from movieclaw_db.models.channel_account import ChannelAccount, ChannelAccountStatus
 from movieclaw_db.models.collection import Collection, CollectionItem
+from movieclaw_db.models.domain_event import DomainEvent, EventConsumer, EventDeadLetter
 from movieclaw_db.models.download_hint import DownloadHint
 from movieclaw_db.models.download_target_pref import DownloadTargetPref
 from movieclaw_db.models.downloader_client import ClientType, DownloaderClient
@@ -50,6 +51,7 @@ from movieclaw_db.models.person import MediaItemPerson, Person
 from movieclaw_db.models.playback_log import PlaybackLog
 from movieclaw_db.models.playback_metric import PlaybackMetric
 from movieclaw_db.models.playback_state import PlaybackState
+from movieclaw_db.models.plugin_data import PluginData
 from movieclaw_db.models.push_download_watch import PushDownloadWatch
 from movieclaw_db.models.push_preference import PushPreference
 from movieclaw_db.models.ratio_boost_stat import RatioBoostStat
@@ -109,9 +111,12 @@ __all__ = [
     "TriggerType",
     "AppSetting",
     "ClientType",
+    "DomainEvent",
     "DownloadHint",
     "DownloadTargetPref",
     "DownloaderClient",
+    "EventConsumer",
+    "EventDeadLetter",
     "FileSource",
     "FileState",
     "ImportWatch",
@@ -150,6 +155,7 @@ __all__ = [
     "PushPreference",
     "PlaybackMetric",
     "PlaybackState",
+    "PluginData",
     "MediaSeason",
     "BoostTaskState",
     "Collection",

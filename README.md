@@ -4,7 +4,7 @@
 
 <p align="center">
   One server replaces your entire media stack.<br>
-  A web app and a native iPhone app included, with an AI agent that actually gets things done.<br>
+  A web app plus native apps for your phone, TV, and Mac, with an AI agent that actually gets things done.<br>
   Everything stays on your own hardware. Free for personal and household use.
 </p>
 
@@ -15,6 +15,7 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
   <a href="https://demo.movieclaw.io">Live Demo</a> ·
+  <a href="https://movieclaw.io/en/download">Download</a> ·
   <a href="#just-say-the-word-it-handles-the-rest">AI Agent</a> ·
   <a href="#boundaries">Boundaries</a> ·
   <a href="#control-it-from-anywhere">CLI</a> ·
@@ -63,8 +64,8 @@ All-in-one has its trade-offs, and they're laid out honestly in [Boundaries](#bo
 
 ## Native apps, with playback that rivals Infuse
 
-Watch right in your browser, or in the native iPhone app. Built on its own playback
-engine: FFmpeg unpacks, Apple plays.
+Watch right in your browser, or in native apps on your phone, TV, and Mac. iPhone, Apple TV,
+and Mac share one playback engine of its own: FFmpeg unpacks, Apple plays.
 
 <p align="center">
   <img src="docs/images/player.jpg" width="900" alt="Landscape playback on iPhone: Liquid Glass controls, audio and subtitle tracks, AirPlay, and live download speed">
@@ -75,14 +76,20 @@ engine: FFmpeg unpacks, Apple plays.
 - Dolby Vision and Dolby Atmos; 4K HDR and Blu-ray disc rips play directly.
 - Hardware decoding first, software decoding as the fallback, and transcoding only as a last resort.
 - 4K over cellular starts in a second or two; when your connection can't keep up with the bitrate, it suggests dropping a quality tier.
-- Progress syncs across the web app, the iPhone app, and Infuse, so you pick up wherever you left off.
+- Progress syncs across the web app, the native apps, and Infuse, so you pick up wherever you left off.
 - **Clips**: swipe vertically through highlights pulled from your own movies and shows.
 
-**Getting the app**: download `MovieClaw-iOS-unsigned.ipa` from
-[Releases](https://github.com/movieclaw/movieclaw/releases) and sideload it with AltStore,
-SideStore, or Sideloadly using your own Apple ID (iOS 26 or later; sideloaded builds can't
-receive push notifications). A public TestFlight is
-coming. Trackers and download clients are configured in the web app.
+**Getting the apps**: apps for iPhone, Android, Apple TV, Android TV, and Mac are all on the
+[download page](https://movieclaw.io/en/download), with versions, system requirements, and
+install steps for each. The iPhone app is on its way to the App Store. Until then, download
+`MovieClaw-iOS-unsigned.ipa` from [Releases](https://github.com/movieclaw/movieclaw/releases)
+and sideload it with AltStore, SideStore, or Sideloadly using your own Apple ID (iOS 26 or
+later; sideloaded builds can't receive push notifications). Trackers and download clients are
+configured in the web app.
+
+Want an email when a new app launches or a new version ships?
+[Get updates](https://movieclaw.io/en/download#updates) on the website. Sign in, pick an
+email address, and unsubscribe anytime.
 
 The web app is liquid glass: the sidebar, inputs, and floating buttons refract whatever
 background image you choose, with a touch of chromatic aberration at the edges. Swap the
@@ -164,7 +171,7 @@ handful of services.
   <tr>
     <td width="50%" valign="top">
       <img src="docs/images/scene-1.jpg" alt="Continue Watching in the web app, and the same movie on iPhone ready to resume at 10:44">
-      <p><b>8:30 AM, on the train</b>: pick up last night's movie on your phone. In the browser, in the native iPhone app, or in players like Infuse, your progress comes with you.</p>
+      <p><b>8:30 AM, on the train</b>: pick up last night's movie on your phone. In the browser, in the native apps, or in players like Infuse, your progress comes with you.</p>
     </td>
     <td width="50%" valign="top">
       <img src="docs/images/scene-2.jpg" alt="The Subscriptions screen on iPhone, with Coffee Run just added">

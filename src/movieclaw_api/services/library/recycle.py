@@ -141,7 +141,9 @@ async def recycle_file(
         # 原盘目录不改名：内部可能住着其他在案文件行（监听导入按站点目录
         # 结构落盘的新版本），移动会让那些行的路径悬空；到期清理走
         # purge_file 的爆炸半径保护，账面未清空的目录会被拒绝
-        return _keep_in_place("原盘目录不改名")
+        outcome = _keep_in_place("原盘目录不改名")
+        await _record(session, "trashed", file)
+        return outcome
 
     try:
         trash_dir = _trash_dir_for(src, await _library_roots(session, file.library_id))
@@ -155,7 +157,9 @@ async def recycle_file(
         # （行删了而文件还在，扫描会把它当新文件重新收编）。倒计时照常，
         # 不因一次移动失败失去自动清理承诺
         logger.exception("移入回收站失败，降级为原地待回收：%s", src)
-        return _keep_in_place("移动失败降级")
+        outcome = _keep_in_place("移动失败降级")
+        await _record(session, "trashed", file)
+        return outcome
     # 附属文件（字幕/NFO/图片）跟随主文件进回收站，避免留下无主残留；
     # 恢复时按同一规则搬回
     _move_sidecars(src, target)
@@ -167,6 +171,7 @@ async def recycle_file(
     file.trash_context = context
     file.updated_at = now
     logger.info("文件已移入回收站：%s → %s", src, target)
+    await _record(session, "trashed", file)
     return "moved_to_trash"
 
 
@@ -190,6 +195,8 @@ async def restore_file(session: AsyncSession, file: LibraryFile) -> bool:
         file.file_path = str(target)
     elif not Path(file.file_path).exists():
         return False  # 原地形态文件已消失——留给清理任务收敛，不造在位幽灵
+    # 事件里的原因取进回收站时的记录，要在清掉 trash_context 之前拍
+    await _record(session, "restored", file)
     file.state = FileState.IN_PLACE
     file.trashed_at = None
     file.trash_original_path = None
@@ -199,7 +206,7 @@ async def restore_file(session: AsyncSession, file: LibraryFile) -> bool:
     return True
 
 
-async def purge_file(session: AsyncSession, file: LibraryFile) -> bool:
+async def purge_file(session: AsyncSession, file: LibraryFile, *, reason: str = "manual") -> bool:
     """立即清理：删物理文件 + 删行。做种确认弹窗由 UI 层负责，机制不拦。
 
     原盘目录形态整树删除前先查台账：监听导入按站点原始目录结构落盘，
@@ -229,13 +236,26 @@ async def purge_file(session: AsyncSession, file: LibraryFile) -> bool:
     except OSError:
         logger.exception("清理待回收文件失败：%s", path)
         return False
+    await _record(session, "purged", file, reason=reason)
     await session.delete(file)
     return True
 
 
-async def _has_other_files_under(
-    session: AsyncSession, file: LibraryFile, directory: Path
-) -> bool:
+async def _record(
+    session: AsyncSession, kind: str, file: LibraryFile, *, reason: str | None = None
+) -> None:
+    """回收站的进出与清除发可靠事件（plugin-phase2a.md §4），随调用方的提交成立。"""
+    from movieclaw_api import domain_events
+
+    event = {
+        "trashed": domain_events.LIBRARY_FILE_TRASHED,
+        "restored": domain_events.LIBRARY_FILE_RESTORED,
+        "purged": domain_events.LIBRARY_FILE_PURGED,
+    }[kind]
+    await domain_events.record_recycled(session, event, file, reason=reason)
+
+
+async def _has_other_files_under(session: AsyncSession, file: LibraryFile, directory: Path) -> bool:
     """目录（前缀）之下是否还有其他台账文件行。LIKE 通配符按字面转义。"""
     prefix = str(directory).rstrip("/") + "/"
     escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
@@ -285,7 +305,7 @@ async def purge_due_files() -> None:
             if (
                 file.purge_after is not None
                 and file.purge_after <= now
-                and await purge_file(session, file)
+                and await purge_file(session, file, reason="expired")
             ):
                 purged += 1
         if purged or converged:

@@ -12,6 +12,7 @@ import asyncio
 import logging
 import posixpath
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import PurePosixPath
 from typing import Any
@@ -20,7 +21,12 @@ from sqlalchemy import and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api.exceptions import NotFoundException, UpstreamServiceException
+from movieclaw_api import hooks
+from movieclaw_api.exceptions import (
+    ConflictException,
+    NotFoundException,
+    UpstreamServiceException,
+)
 from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_db.models import (
     BoostTaskState,
@@ -810,25 +816,24 @@ async def set_downloader_limits(
             logger.warning("关闭下载器「%s」连接失败", row.name, exc_info=True)
 
 
-async def delete_download_task(
-    session: AsyncSession,
-    *,
-    downloader_id: int,
-    info_hash: str,
-    delete_files: bool = False,
-) -> None:
-    """从指定下载器删除一个种子任务。
+@dataclass(frozen=True)
+class DeletePlan:
+    """删除下载器任务的演练结果（docs/design/plugin-phase2a.md §5.3）：只读，不碰下载器任务。"""
 
-    下载器 ID 与 infohash 共同定位，避免多下载器场景误删同名任务。默认只
-    移除任务；用户显式选择时才同时删除数据文件。底层删除保持幂等，因此
-    用户确认期间任务恰好自行消失也返回成功。
-    """
-    repository = DownloaderRepository(session)
-    row = await repository.get(downloader_id)
-    if row is None:
-        raise NotFoundException(f"下载器不存在：id={downloader_id}")
+    downloader_name: str
+    exists: bool | None
+    """下载器里有没有这个任务；下载器不可达为 ``None``。"""
+    title: str | None
+    manual_intent: bool
+    """会一并清理手动下载的身份锚。"""
+    requeued_units: list[tuple[int, int]]
+    """会退回「缺资源」、由订阅重新找资源的季集。"""
+    cancelled_attempts: int
+    """会停止观察的订阅下载记录（关联单元已不在订阅范围）。"""
 
-    adapter = create_downloader(
+
+def _adapter_for(repository: DownloaderRepository, row: Any) -> Any:
+    return create_downloader(
         DownloaderConfig(
             type=row.client_type.value,
             url=row.url,
@@ -836,32 +841,12 @@ async def delete_download_task(
             password=repository.decrypted_password(row),
         )
     )
-    normalized_hash = info_hash.lower()
-    try:
-        await adapter.delete_torrent(normalized_hash, delete_files=delete_files)
-    except DownloaderException as exc:
-        logger.warning(
-            "从下载器「%s」删除任务失败：hash=%s error=%s",
-            row.name,
-            normalized_hash,
-            exc.message,
-        )
-        raise UpstreamServiceException(exc.message) from exc
-    finally:
-        try:
-            await adapter.close()
-        except Exception:  # noqa: BLE001 -- 关闭失败不能覆盖已经完成的删除结果
-            logger.warning("关闭下载器「%s」连接失败", row.name, exc_info=True)
 
-    logger.info(
-        "已从下载器「%s」删除任务%s：hash=%s",
-        row.name,
-        "并删除数据文件" if delete_files else "并保留数据文件",
-        normalized_hash,
-    )
-    # 手动意图不是救援工单。用户明确删除下载器任务后，它已不可能再靠该
-    # hash 驱动监听认领，必须同步回收；否则虽然界面不再显示，数据库仍要等
-    # 90 天兜底窗口才清掉孤儿锚。
+
+async def _affected(
+    session: AsyncSession, normalized_hash: str
+) -> tuple[ManualDownloadIntent | None, list[tuple[SubscriptionDownloadAttempt, list[WantedItem]]]]:
+    """删掉这个任务会牵动的手动意图、订阅下载记录与它们仍在域内的工单（只读）。"""
     intent = (
         await session.execute(
             select(ManualDownloadIntent).where(
@@ -869,12 +854,6 @@ async def delete_download_task(
             )
         )
     ).scalar_one_or_none()
-    changed = False
-    if intent is not None:
-        await session.delete(intent)
-        changed = True
-        logger.info("已清理被删除手动任务的身份锚：hash=%s", normalized_hash)
-
     attempts = list(
         (
             await session.execute(
@@ -895,6 +874,7 @@ async def delete_download_task(
         .scalars()
         .all()
     )
+    affected: list[tuple[SubscriptionDownloadAttempt, list[WantedItem]]] = []
     for attempt in attempts:
         source = attempt
         if (
@@ -931,19 +911,132 @@ async def delete_download_task(
                 for target in target_rows
                 if (target.season_number, target.episode_number) in allowed
             ]
+        affected.append((attempt, target_rows))
+    return intent, affected
+
+
+#: 用户删掉主源时当场退回「缺资源」的下载记录状态（试用源裁决中的仍交给巡检）
+_REQUEUE_ON_DELETE = (
+    DownloadAttemptStatus.ACTIVE,
+    DownloadAttemptStatus.REPLACEMENT_PENDING,
+    # 下载完成却无法入库（落点核验失败）的任务，用户删掉它就是放弃
+    # 这份内容：同样当场退回，顺带熄灭"下载完成但无法入库"红灯
+    DownloadAttemptStatus.COMPLETED,
+)
+
+
+async def plan_delete_download_task(
+    session: AsyncSession, *, downloader_id: int, info_hash: str
+) -> DeletePlan:
+    """演练删除：查下载器里的任务与会牵动的订阅状态，不删任务、不改库。"""
+    repository = DownloaderRepository(session)
+    row = await repository.get(downloader_id)
+    if row is None:
+        raise NotFoundException(f"下载器不存在：id={downloader_id}")
+    normalized_hash = info_hash.lower()
+    exists: bool | None
+    title: str | None = None
+    adapter = _adapter_for(repository, row)
+    try:
+        status = await adapter.get_torrent(normalized_hash, include_files=False)
+        exists = status is not None
+        title = status.name if status is not None else None
+    except DownloaderException:
+        exists = None
+    finally:
+        try:
+            await adapter.close()
+        except Exception:  # noqa: BLE001
+            logger.warning("关闭下载器「%s」连接失败", row.name, exc_info=True)
+    intent, affected = await _affected(session, normalized_hash)
+    requeued: list[tuple[int, int]] = []
+    cancelled = 0
+    for attempt, target_rows in affected:
+        if not target_rows:
+            cancelled += 1
+        elif attempt.status in _REQUEUE_ON_DELETE:
+            requeued.extend((w.season_number, w.episode_number) for w in target_rows)
+    return DeletePlan(
+        downloader_name=row.name,
+        exists=exists,
+        title=title,
+        manual_intent=intent is not None,
+        requeued_units=sorted(set(requeued)),
+        cancelled_attempts=cancelled,
+    )
+
+
+async def delete_download_task(
+    session: AsyncSession,
+    *,
+    downloader_id: int,
+    info_hash: str,
+    delete_files: bool = False,
+) -> None:
+    """从指定下载器删除一个种子任务。
+
+    下载器 ID 与 infohash 共同定位，避免多下载器场景误删同名任务。默认只
+    移除任务；用户显式选择时才同时删除数据文件。底层删除保持幂等，因此
+    用户确认期间任务恰好自行消失也返回成功。
+    """
+    repository = DownloaderRepository(session)
+    row = await repository.get(downloader_id)
+    if row is None:
+        raise NotFoundException(f"下载器不存在：id={downloader_id}")
+
+    normalized_hash = info_hash.lower()
+    if hooks.active(hooks.TORRENT_BEFORE_DELETE):
+        # 插件可以否决删除（例如 H&R 未达标）：在碰下载器之前问，否决了什么都不做
+        veto = await hooks.bail(
+            hooks.TORRENT_BEFORE_DELETE,
+            hooks.TorrentDeletion(
+                downloader_id=downloader_id, info_hash=normalized_hash, delete_files=delete_files
+            ),
+        )
+        if veto is not None:
+            logger.info("插件否决了删除下载任务 hash=%s：%s", normalized_hash, veto.reason)
+            raise ConflictException(f"插件不允许删除这个下载任务：{veto.reason}")
+    adapter = _adapter_for(repository, row)
+    try:
+        await adapter.delete_torrent(normalized_hash, delete_files=delete_files)
+    except DownloaderException as exc:
+        logger.warning(
+            "从下载器「%s」删除任务失败：hash=%s error=%s",
+            row.name,
+            normalized_hash,
+            exc.message,
+        )
+        raise UpstreamServiceException(exc.message) from exc
+    finally:
+        try:
+            await adapter.close()
+        except Exception:  # noqa: BLE001 -- 关闭失败不能覆盖已经完成的删除结果
+            logger.warning("关闭下载器「%s」连接失败", row.name, exc_info=True)
+
+    logger.info(
+        "已从下载器「%s」删除任务%s：hash=%s",
+        row.name,
+        "并删除数据文件" if delete_files else "并保留数据文件",
+        normalized_hash,
+    )
+    intent, affected = await _affected(session, normalized_hash)
+    changed = False
+    # 手动意图不是救援工单。用户明确删除下载器任务后，它已不可能再靠该
+    # hash 驱动监听认领，必须同步回收；否则虽然界面不再显示，数据库仍要等
+    # 90 天兜底窗口才清掉孤儿锚。
+    if intent is not None:
+        await session.delete(intent)
+        changed = True
+        logger.info("已清理被删除手动任务的身份锚：hash=%s", normalized_hash)
+
+    for attempt, target_rows in affected:
         if target_rows:
             # 工单仍在域内：用户亲手删掉了它的主源。"消失"在这里是确定事实，
             # 不必等巡检连续三次确认（约 15 分钟）——那段时间里任务中心会先冒出
             # "任务缺失"待办、订阅页提示"种子已不在下载器中"，刚删完就被追问要
             # 处理。能立即退回的（主源、没有试用源在跑）当场退回；试用源裁决中
             # 的仍交给巡检按原有语义处理
-            if attempt.status in (
-                DownloadAttemptStatus.ACTIVE,
-                DownloadAttemptStatus.REPLACEMENT_PENDING,
-                # 下载完成却无法入库（落点核验失败）的任务，用户删掉它就是放弃
-                # 这份内容：同样当场退回，顺带熄灭"下载完成但无法入库"红灯
-                DownloadAttemptStatus.COMPLETED,
-            ):
+            if attempt.status in _REQUEUE_ON_DELETE:
                 from movieclaw_api.services.download_progress import _requeue_missing_attempt
 
                 if await _requeue_missing_attempt(

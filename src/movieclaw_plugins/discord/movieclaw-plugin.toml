@@ -1,0 +1,14 @@
+[plugin]
+id = "channel.discord"
+title = "Discord 通道"
+version = "1.0.0"
+entry = "discord_channel"
+runtime = "process"
+sdk = "^1.0"
+description = "接入你在开发者后台创建的 bot：私信对话 AI 助手、接收推送"
+
+[requires]
+"im-channels" = "^1.0"
+
+[permissions]
+operations = []

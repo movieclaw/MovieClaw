@@ -12,7 +12,7 @@ import base64
 import pytest
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from movieclaw_channel.weixin.media import (
+from movieclaw_plugins.weixin.weixin_channel.media import (
     CDN_BASE_URL,
     collect_image_refs,
     decrypt_image,

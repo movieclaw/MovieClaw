@@ -32,7 +32,7 @@ router = APIRouter(prefix="/extension", tags=["extension"])
 
 
 # ===========================================================================
-# 插件侧接口（需同步令牌鉴权）
+# 扩展侧接口（需同步令牌鉴权）
 # ===========================================================================
 
 
@@ -44,7 +44,7 @@ router = APIRouter(prefix="/extension", tags=["extension"])
     operation_id="extension.ping",
 )
 async def ping() -> ApiResponse[PingResult]:
-    """插件"测试连接"按钮调用：能走到这里即代表地址可达且令牌有效。"""
+    """扩展"测试连接"按钮调用：能走到这里即代表地址可达且令牌有效。"""
     return ok(PingResult(app_name=get_settings().app_name))
 
 
@@ -60,14 +60,14 @@ async def list_cookie_sites(
 ) -> ApiResponse[list[ExtensionSiteView]]:
     """返回所有"支持 cookie 授权"的站点及其匹配域名与当前配置状态。
 
-    插件据此判断"当前标签页所在站点是否被 MovieClaw 支持"，并展示已配置/已可用等状态。
+    扩展据此判断"当前标签页所在站点是否被 MovieClaw 支持"，并展示已配置/已可用等状态。
     """
     catalog = SiteCatalogService()
     configured = {c.site_id: c for c in await CredentialRepository(session).list_all()}
 
     views: list[ExtensionSiteView] = []
     for cfg in catalog.list_catalog():
-        # 只暴露支持 cookie 的站点——API-Key 站点（如 M-Team）不走本插件同步
+        # 只暴露支持 cookie 的站点——API-Key 站点（如 M-Team）不走浏览器扩展同步
         if "cookie" not in cfg.supported_auth_types:
             continue
         cred = configured.get(cfg.site_id)
@@ -96,7 +96,7 @@ async def push_cookies(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[CookieSyncResult]:
-    """接收插件推送的 Cookie，等价于"用户为该站点配置 cookie 凭据"。
+    """接收扩展推送的 Cookie，等价于"用户为该站点配置 cookie 凭据"。
 
     流程：按域名反查站点 → 以 cookie 授权更新凭据（状态重置）→ 同步占位为
     VERIFYING 并在后台异步验证。与手动配置站点走的是同一套校验与验证链路，
@@ -105,7 +105,7 @@ async def push_cookies(
     可能的错误：
     - 域名未匹配到任何受支持站点 → 404。
     - 命中的站点不支持 cookie（如 M-Team 仅 API-Key）→ 400（由 configure 抛出）。
-    - 站点正在验证中（上一次推送尚未验证完）→ 409（插件可稍后重试）。
+    - 站点正在验证中（上一次推送尚未验证完）→ 409（扩展可稍后重试）。
     """
     # cookie 条数（按分号粗略统计），只记数量不记内容，避免登录态泄漏进日志
     cookie_count = len([p for p in payload.cookie.split(";") if p.strip()])
@@ -113,11 +113,11 @@ async def push_cookies(
     catalog = SiteCatalogService()
     site = catalog.find_by_domain(payload.domain)
     if site is None:
-        logger.warning("插件推送的域名未匹配到受支持站点：域名=%s", payload.domain)
+        logger.warning("扩展推送的域名未匹配到受支持站点：域名=%s", payload.domain)
         raise NotFoundException(f"该域名未匹配到任何受支持的站点：{payload.domain}")
 
     logger.info(
-        "收到插件 Cookie 推送：域名=%s → 站点=%s（%s），共 %d 条 Cookie，开始保存并验证",
+        "收到扩展 Cookie 推送：域名=%s → 站点=%s（%s），共 %d 条 Cookie，开始保存并验证",
         payload.domain,
         site.site_id,
         site.display_name,
@@ -155,7 +155,7 @@ async def push_cookies(
     operation_id="extension.token.show",
 )
 async def get_token() -> ApiResponse[SyncTokenView]:
-    """返回当前令牌明文，供用户复制进插件；未启用时 enabled=False。"""
+    """返回当前令牌明文，供用户复制进扩展；未启用时 enabled=False。"""
     setting = await get_sync_setting()
     return ok(
         SyncTokenView(
@@ -191,6 +191,6 @@ async def create_token() -> ApiResponse[SyncTokenView]:
     openapi_extra={"x-cli-dangerous": "confirm"},
 )
 async def delete_token() -> ApiResponse[SyncTokenView]:
-    """撤销令牌、关闭插件同步。此后插件侧接口一律 401。"""
+    """撤销令牌、关闭扩展同步。此后扩展侧接口一律 401。"""
     await revoke_sync_token()
-    return ok(SyncTokenView(enabled=False), message="已关闭插件同步")
+    return ok(SyncTokenView(enabled=False), message="已关闭扩展同步")

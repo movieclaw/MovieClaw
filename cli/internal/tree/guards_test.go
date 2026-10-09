@@ -39,6 +39,18 @@ var knownNonGenerated = []string{
 	"auth.devices.deny",
 	// 让成员在全部设备上下线：同属管理别人的设备，只在网页或 App 的成员管理里做
 	"members.sign-out",
+	// 通道插件化之前的通道接口（docs/design/plugin-channels.md §6）：只为已发布的 App 保留，
+	// 命令行走通用的 channels 命令
+	"channels.weixin.accounts.list",
+	"channels.weixin.accounts.unbind",
+	"channels.weixin.bindings.start",
+	"channels.weixin.bindings.status",
+	"channels.weixin.bindings.verify",
+	"channels.im.accounts.list",
+	"channels.im.accounts.unbind",
+	"channels.im.bindings.start",
+	"channels.im.bindings.status",
+	"channels.im.feishu.bind",
 	"images.asset",
 	"images.proxy",
 	// 演职员本地头像（docs/design/image-sizing.md §4.2）：二进制出图，客户端展示用
@@ -316,6 +328,7 @@ func TestDomainCommandSets(t *testing.T) {
 			"library.items.refresh-metadata",
 			"library.items.regenerate-chapter-images",
 			"library.items.reidentify",
+			"library.items.relations",
 			"library.items.share.create",
 			"library.items.share.get",
 			"library.items.share.revoke",

@@ -12,157 +12,127 @@ async function unwrap<T>(promise: Promise<ApiEnvelope<T>>): Promise<T> {
   return (await promise).data;
 }
 
-/** 已绑定的微信账号（见 schemas.channels.WeixinAccountView）。 */
-export interface WeixinAccount {
+// ---------------------------------------------------------------------------
+// IM 通道（见 api/routes/channels.py；通道来自通道插件，设置页按绑定方式通用渲染）
+// ---------------------------------------------------------------------------
+
+export interface ChannelField {
+  key: string;
+  label: string;
+  /** 凭据类字段：输入框打码 */
+  secret: boolean;
+  placeholder: string;
+  help: string;
+  required: boolean;
+}
+
+/** 一个可用的通道（注册表里有它的驱动）。 */
+export interface ChannelInfo {
+  id: string;
+  title: string;
+  description: string;
+  /** 提供这个通道的插件 */
+  entry_id: string;
+  /** 能收消息（能对话 AI 助手）；false 表示只能推送 */
+  receive: boolean;
+  photo: boolean;
+  binding: {
+    /** form：填表单；flow：插件驱动的交互式流程（如扫码） */
+    kind: "form" | "flow";
+    fields: ChannelField[];
+    /** code：提交后私聊 bot 发 6 位配对码；none：提交即完成 */
+    pairing: "code" | "none";
+    hint: string;
+  };
+}
+
+export interface ChannelAccount {
+  channel_id: string;
   account_id: string;
-  /** 扫码绑定人的微信用户 id（白名单：只有此人能对话） */
+  display_name: string;
+  /** 白名单用户（同时是推送目标）；群机器人为空 */
   bound_user_id: string | null;
-  /** active=正常；stale=凭据失效需重新扫码 */
+  /** active=正常；stale=凭据失效需重新绑定 */
   status: "active" | "stale";
-  /** 当前进程内收发循环是否在运行 */
   running: boolean;
+  /** 提供这个通道的插件没启用（关闭 / 卸载）：账号保留，重新启用后自动恢复 */
+  channel_available: boolean;
   last_error: string | null;
   bound_at: string;
 }
 
-/** 绑定流程状态（见 schemas.channels.WeixinBindingStatusView 的注释）。 */
-export type WeixinBindingStatus =
+export type ChannelBindingStatus =
   | "pending"
   | "scanned"
-  | "need_verify_code"
+  | "need_input"
   | "confirmed"
   | "already_bound"
   | "expired"
   | "failed";
 
-export interface WeixinBindingStart {
-  challenge_id: string;
-  qrcode_url: string;
-  /** 服务端渲染好的二维码 SVG data URL，<img> 直接显示 */
-  qrcode_image: string;
-  message: string;
-}
-
-export interface WeixinBindingSnapshot {
-  challenge_id: string;
-  status: WeixinBindingStatus;
-  message: string;
-  qrcode_url: string;
-  qrcode_image: string;
-  account: WeixinAccount | null;
-}
-
-export function listWeixinAccounts(init?: RequestInit): Promise<WeixinAccount[]> {
-  return unwrap(request<ApiEnvelope<WeixinAccount[]>>("/channels/weixin/accounts", init));
-}
-
-export function startWeixinBinding(): Promise<WeixinBindingStart> {
-  return unwrap(
-    request<ApiEnvelope<WeixinBindingStart>>("/channels/weixin/bindings", { method: "POST" }),
-  );
-}
-
-export function getWeixinBindingStatus(challengeId: string): Promise<WeixinBindingSnapshot> {
-  return unwrap(
-    request<ApiEnvelope<WeixinBindingSnapshot>>(
-      `/channels/weixin/bindings/${encodeURIComponent(challengeId)}`,
-    ),
-  );
-}
-
-export function submitWeixinVerifyCode(
-  challengeId: string,
-  code: string,
-): Promise<Record<string, never>> {
-  return unwrap(
-    request<ApiEnvelope<Record<string, never>>>(
-      `/channels/weixin/bindings/${encodeURIComponent(challengeId)}/verify-code`,
-      { method: "POST", body: JSON.stringify({ code }) },
-    ),
-  );
-}
-
-export function unbindWeixinAccount(accountId: string): Promise<Record<string, never>> {
-  return unwrap(
-    request<ApiEnvelope<Record<string, never>>>(
-      `/channels/weixin/accounts/${encodeURIComponent(accountId)}`,
-      { method: "DELETE" },
-    ),
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Telegram / Discord / 飞书（见 api/routes/channels_im.py）
-// ---------------------------------------------------------------------------
-
-export type ImChannelId = "telegram" | "discord" | "feishu";
-
-/** 已绑定的 TG/Discord/飞书账号（见 schemas.channels.ImAccountView）。 */
-export interface ImAccount {
+/** 绑定状态（发起返回与轮询同一结构）。 */
+export interface ChannelBinding {
+  binding_id: string;
   channel_id: string;
-  account_id: string;
-  /** 完成配对的用户 id（白名单，同时是推送目标） */
-  bound_user_id: string | null;
-  status: "active" | "stale";
-  running: boolean;
-  last_error: string | null;
-  bound_at: string;
-}
-
-/** 配对绑定状态（发起返回与轮询同一结构）。 */
-export interface ImBinding {
-  challenge_id: string;
-  status: "pending" | "confirmed" | "expired" | "failed";
-  /** 面板展示的 6 位配对码：用户私聊 bot 发这串数字完成绑定 */
-  pair_code: string;
-  bot_name: string;
+  /** pairing：等用户发配对码；flow：交互式；done：已完成 */
+  kind: "pairing" | "flow" | "done";
+  status: ChannelBindingStatus;
   message: string;
-  account: ImAccount | null;
+  pair_code: string;
+  /** 要扫的二维码（SVG data URL），会中途刷新 */
+  qr_image: string;
+  /** 二维码内容（原生 App 本地画码用）；旧服务端没有这个字段 */
+  qr?: string;
+  input_label: string | null;
+  account: ChannelAccount | null;
 }
 
-export function listImAccounts(channel: ImChannelId): Promise<ImAccount[]> {
-  return unwrap(request<ApiEnvelope<ImAccount[]>>(`/channels/im/${channel}/accounts`));
+export function listChannels(init?: RequestInit): Promise<{
+  channels: ChannelInfo[];
+  accounts: ChannelAccount[];
+}> {
+  return unwrap(request<ApiEnvelope<{ channels: ChannelInfo[]; accounts: ChannelAccount[] }>>("/channels", init));
 }
 
-export function startImBinding(channel: ImChannelId, token: string): Promise<ImBinding> {
+export function startChannelBinding(
+  channelId: string,
+  fields: Record<string, string> = {},
+): Promise<ChannelBinding> {
   return unwrap(
-    request<ApiEnvelope<ImBinding>>(`/channels/im/${channel}/bindings`, {
+    request<ApiEnvelope<ChannelBinding>>(`/channels/bindings`, {
       method: "POST",
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ channel_id: channelId, fields }),
     }),
   );
 }
 
-export function getImBindingStatus(channel: ImChannelId, challengeId: string): Promise<ImBinding> {
+export function getChannelBinding(bindingId: string): Promise<ChannelBinding> {
   return unwrap(
-    request<ApiEnvelope<ImBinding>>(
-      `/channels/im/${channel}/bindings/${encodeURIComponent(challengeId)}`,
+    request<ApiEnvelope<ChannelBinding>>(`/channels/bindings/${encodeURIComponent(bindingId)}`),
+  );
+}
+
+export function submitChannelBindingInput(
+  bindingId: string,
+  value: string,
+): Promise<ChannelBinding> {
+  return unwrap(
+    request<ApiEnvelope<ChannelBinding>>(
+      `/channels/bindings/${encodeURIComponent(bindingId)}/input`,
+      { method: "POST", body: JSON.stringify({ value }) },
     ),
   );
 }
 
-export function unbindImAccount(
-  channel: ImChannelId,
+export function unbindChannelAccount(
+  channelId: string,
   accountId: string,
 ): Promise<Record<string, never>> {
   return unwrap(
     request<ApiEnvelope<Record<string, never>>>(
-      `/channels/im/${channel}/accounts/${encodeURIComponent(accountId)}`,
+      `/channels/${encodeURIComponent(channelId)}/accounts/${encodeURIComponent(accountId)}`,
       { method: "DELETE" },
     ),
-  );
-}
-
-/**
- * 接入飞书群自定义机器人：粘贴 Webhook 地址即绑即用（服务端发欢迎消息验真，
- * 无配对码、无轮询）。secret 为签名校验密钥，未开启签名校验传空。
- */
-export function startFeishuBinding(webhookUrl: string, secret: string): Promise<ImAccount> {
-  return unwrap(
-    request<ApiEnvelope<ImAccount>>(`/channels/im/feishu/bindings`, {
-      method: "POST",
-      body: JSON.stringify({ webhook_url: webhookUrl, secret }),
-    }),
   );
 }
 

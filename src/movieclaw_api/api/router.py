@@ -1,7 +1,7 @@
 """API 路由总装：按鉴权级别分区挂载（docs/design/member-management.md §3.2）。
 
 ┌─ 公开区 ──── health、auth（登录/初始化本身不能要求登录）
-├─ 插件区 ──── extension 插件侧接口，路由级挂 require_sync_token（独立密钥体系）；
+├─ 扩展区 ──── extension 扩展侧接口，路由级挂 require_sync_token（独立密钥体系）；
 │              其中令牌管理接口（Web 后台用）在路由级挂 require_admin
 ├─ 成员区 ──── 浏览/播放/订阅等使用面，挂载时统一注入 require_login
 │              （成员与管理员都可访问；组内的管理动作在路由级挂 require_admin，
@@ -32,7 +32,7 @@ from movieclaw_api.api.routes.app_update import router as app_update_router
 from movieclaw_api.api.routes.appearance import router as appearance_router
 from movieclaw_api.api.routes.auth import router as auth_router
 from movieclaw_api.api.routes.channels import router as channels_router
-from movieclaw_api.api.routes.channels_im import router as channels_im_router
+from movieclaw_api.api.routes.channels_legacy import router as channels_legacy_router
 from movieclaw_api.api.routes.cloud import router as cloud_router
 from movieclaw_api.api.routes.collections import router as collections_router
 from movieclaw_api.api.routes.discover import router as discover_router
@@ -60,6 +60,7 @@ from movieclaw_api.api.routes.network import router as network_router
 from movieclaw_api.api.routes.people import router as people_router
 from movieclaw_api.api.routes.playback import router as playback_router
 from movieclaw_api.api.routes.playback import stream_router as playback_stream_router
+from movieclaw_api.api.routes.plugins import router as plugins_router
 from movieclaw_api.api.routes.push import admin_router as push_admin_router
 from movieclaw_api.api.routes.push import member_router as push_member_router
 from movieclaw_api.api.routes.push import public_router as push_public_router
@@ -93,7 +94,7 @@ api_router.include_router(shares_public_router)
 # 令牌，地址自带签名（只含一张 TMDB 图片地址和过期时间），签名不对一律 404
 api_router.include_router(push_public_router)
 
-# ---- 插件区（鉴权在各路由上自行声明：插件侧 sync token / 管理侧 login）----
+# ---- 扩展区（鉴权在各路由上自行声明：扩展侧 sync token / 管理侧 login）----
 api_router.include_router(extension_router)
 
 # ---- 外置转码 Worker 数据面 ---------------------------------------------
@@ -163,8 +164,9 @@ _ADMIN_ROUTERS = [
     llm_router,
     session_router,
     agent_skills_router,
+    # 旧版 App 的通道接口（只为已发布的 App 保留，内部走通道中枢）
+    channels_legacy_router,
     channels_router,
-    channels_im_router,
     import_watch_router,
     jobs_router,
     fs_router,
@@ -179,6 +181,8 @@ _ADMIN_ROUTERS = [
     storage_router,
     # 定时任务的周期与启停：改的是全站的后台节奏，管理员专属
     scheduled_tasks_router,
+    # 插件诊断：列出全部插件的状态与失败原因（含内部错误文本），管理员专属
+    plugins_router,
     spec_router,
     # AI 字幕生成消费 LLM 配额（真金白银），G1 管理员专属；成员开放随
     # G2 额度护栏一起评估（docs/design/subtitle-ai-translate.md §6）

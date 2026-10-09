@@ -14,14 +14,14 @@ import { defineConfig } from 'wxt';
  *   因此安装界面【不会】出现"读取您在所有网站上的数据"的吓人警告；只有当用户
  *   在某个站点点击"允许读取本站"时，才弹出一次仅限该站点的授权，且浏览器会记住。
  *
- * 安装检测（Web 后台「浏览器插件」页用）：
- * - key：固定公钥 → 插件 ID 恒为 hhjihoefiocbpmnoohlkmeiaiplpadhj，
+ * 安装检测（Web 后台「浏览器扩展」页用）：
+ * - key：固定公钥 → 扩展 ID 恒为 hhjihoefiocbpmnoohlkmeiaiplpadhj，
  *   无论用户从哪台机器「加载已解压的扩展程序」，ID 都不变（Chrome 由公钥推导 ID）。
- *   注意：改动此 key 会改变插件 ID，Web 端 lib/extension-install.ts 里的常量须同步更新。
+ *   注意：改动此 key 会改变扩展 ID，Web 端 lib/extension-install.ts 里的常量须同步更新。
  * - web_accessible_resources：暴露 movieclaw-marker.json 标记文件，Web 后台通过
- *   fetch chrome-extension://<ID>/movieclaw-marker.json 是否成功来判断插件已安装。
+ *   fetch chrome-extension://<ID>/movieclaw-marker.json 是否成功来判断扩展已安装。
  *   matches 只能写具体域名或 <all_urls>，而 MovieClaw 是自部署、后台域名不可枚举，
- *   故用 <all_urls>（代价是任意网页都能探测到本插件的存在，属可接受的指纹开销）。
+ *   故用 <all_urls>（代价是任意网页都能探测到本扩展的存在，属可接受的指纹开销）。
  */
 export default defineConfig({
   manifest: {

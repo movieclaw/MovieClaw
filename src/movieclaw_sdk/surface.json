@@ -1,0 +1,3370 @@
+{
+  "dl.downloader.select": {
+    "delivery": "live",
+    "doc": "选下载器：按体积 / 站点 / 类型分流（只在没有显式指定时询问；须启用且可用）",
+    "kind": "event",
+    "mode": "bail",
+    "payload": {
+      "properties": {
+        "category": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "media_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "site_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "size_bytes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "tags": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "downloader_id": {
+          "type": "integer"
+        },
+        "reason": {
+          "default": "",
+          "type": "string"
+        }
+      },
+      "required": [
+        "downloader_id"
+      ],
+      "type": "object"
+    },
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "dl.torrent.before-delete": {
+    "delivery": "live",
+    "doc": "删种前否决：例如 H&R 未达标不许删（否决后删除返回 409）",
+    "kind": "event",
+    "mode": "bail",
+    "payload": {
+      "properties": {
+        "delete_files": {
+          "type": "boolean"
+        },
+        "downloader_id": {
+          "type": "integer"
+        },
+        "info_hash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "downloader_id",
+        "info_hash",
+        "delete_files"
+      ],
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason"
+      ],
+      "type": "object"
+    },
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "download.completed": {
+    "delivery": "durable",
+    "doc": "订阅投递的种子下载完成",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "download_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "downloader_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "info_hash": {
+          "type": "string"
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "purpose": {
+          "default": "download",
+          "type": "string"
+        },
+        "save_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "site_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subscription_id": {
+          "type": "integer"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "torrent_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "units": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "subscription_id",
+        "media",
+        "units",
+        "info_hash",
+        "downloader_id"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "host-ops": {
+    "doc": "宿主操作：插件以自己的身份调用本进程的 OpenAPI 操作（按操作授权）",
+    "kind": "service",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "im-channels": {
+    "doc": "IM 通道：插件贡献一个通道驱动（收发与绑定），中枢负责账号、对话与推送",
+    "item": {
+      "class": "ChannelDriver",
+      "methods": {
+        "begin_flow": "(self, accounts: 'list[Account]') -> 'FlowState'",
+        "cancel_flow": "(self, flow_id: 'str') -> 'None'",
+        "flow_input": "(self, flow_id: 'str', value: 'str') -> 'FlowState'",
+        "flow_state": "(self, flow_id: 'str') -> 'FlowState'",
+        "push_target": "(self, account: 'Account') -> 'ReplyContext | None'",
+        "run": "(self, account: 'Account') -> 'None'",
+        "send": "(self, account: 'Account', reply: 'ReplyContext', text: 'str') -> 'None'",
+        "send_photo": "(self, account: 'Account', reply: 'ReplyContext', photo: 'bytes', caption: 'str') -> 'None'",
+        "typing": "(self, account: 'Account', reply: 'ReplyContext', on: 'bool') -> 'None'",
+        "validate": "(self, fields: 'dict[str, str]') -> 'BindResult'"
+      }
+    },
+    "kind": "registry",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "ingest-steps": {
+    "doc": "入库流水线槽位的步骤：暂存完成后为每个步骤建一个挂在入库任务下的持久化任务",
+    "item": {
+      "properties": {
+        "job_type": {
+          "type": "string"
+        },
+        "kinds": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "slot": {
+          "default": "ingest.staged",
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "job_type",
+        "title"
+      ],
+      "type": "object"
+    },
+    "kind": "registry",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "job-handlers": {
+    "doc": "持久化后台任务的处理器（领域插件贡献；第三方插件的任务类型自动带插件 id 前缀）",
+    "item": {
+      "dataclass": "RegisteredJobHandler",
+      "fields": {
+        "definition_versions": "frozenset[int]",
+        "handler": "JobHandler"
+      }
+    },
+    "kind": "registry",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "kernel/durable-events": {
+    "doc": "可靠事件的存储与投递：事务内写入、提交后投递、至少一次",
+    "kind": "service",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "library.file.deleted": {
+    "delivery": "durable",
+    "doc": "条目的部分文件已从磁盘删除",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "FileRef": {
+          "properties": {
+            "downloader_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "episode": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "id": {
+              "type": "integer"
+            },
+            "info_hash": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "library_id": {
+              "type": "integer"
+            },
+            "original_path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "path": {
+              "type": "string"
+            },
+            "season": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "size_bytes": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "library_id",
+            "path"
+          ],
+          "type": "object"
+        },
+        "Links": {
+          "properties": {
+            "subscription_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "subscription_status": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "torrents": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/TorrentRef"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        },
+        "TorrentRef": {
+          "properties": {
+            "downloader_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "hit_and_run": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "info_hash": {
+              "type": "string"
+            },
+            "owned_by_movieclaw": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "shared": {
+              "default": false,
+              "type": "boolean"
+            },
+            "site_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "source": {
+              "type": "string"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "torrent_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "info_hash",
+            "source"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileRef"
+          },
+          "type": "array"
+        },
+        "library_id": {
+          "type": "integer"
+        },
+        "links": {
+          "$ref": "#/$defs/Links"
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "whole_item": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "library_id",
+        "media",
+        "whole_item",
+        "files",
+        "links"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "library.file.purged": {
+    "delivery": "durable",
+    "doc": "回收站里的文件被彻底清除",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "FileRef": {
+          "properties": {
+            "downloader_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "episode": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "id": {
+              "type": "integer"
+            },
+            "info_hash": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "library_id": {
+              "type": "integer"
+            },
+            "original_path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "path": {
+              "type": "string"
+            },
+            "season": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "size_bytes": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "library_id",
+            "path"
+          ],
+          "type": "object"
+        },
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/FileRef"
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trigger_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trigger_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "file",
+        "media"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "library.file.restored": {
+    "delivery": "durable",
+    "doc": "文件从回收站恢复",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "FileRef": {
+          "properties": {
+            "downloader_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "episode": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "id": {
+              "type": "integer"
+            },
+            "info_hash": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "library_id": {
+              "type": "integer"
+            },
+            "original_path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "path": {
+              "type": "string"
+            },
+            "season": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "size_bytes": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "library_id",
+            "path"
+          ],
+          "type": "object"
+        },
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/FileRef"
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trigger_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trigger_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "file",
+        "media"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "library.file.trashed": {
+    "delivery": "durable",
+    "doc": "文件进了回收站",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "FileRef": {
+          "properties": {
+            "downloader_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "episode": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "id": {
+              "type": "integer"
+            },
+            "info_hash": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "library_id": {
+              "type": "integer"
+            },
+            "original_path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "path": {
+              "type": "string"
+            },
+            "season": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "size_bytes": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "library_id",
+            "path"
+          ],
+          "type": "object"
+        },
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "file": {
+          "$ref": "#/$defs/FileRef"
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trigger_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "trigger_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "file",
+        "media"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "library.ingest.imported": {
+    "delivery": "durable",
+    "doc": "下载条目整理入库完成",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "FileRef": {
+          "properties": {
+            "downloader_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "episode": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "id": {
+              "type": "integer"
+            },
+            "info_hash": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "library_id": {
+              "type": "integer"
+            },
+            "original_path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "path": {
+              "type": "string"
+            },
+            "season": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "size_bytes": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "library_id",
+            "path"
+          ],
+          "type": "object"
+        },
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileRef"
+          },
+          "type": "array"
+        },
+        "imported_names": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "info_hashes": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "intent_owner": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "library_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "media": {
+          "$ref": "#/$defs/MediaRef"
+        },
+        "rule_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "staging": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "media",
+        "library_id",
+        "files",
+        "imported_names",
+        "info_hashes"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "library.item.deleted": {
+    "delivery": "durable",
+    "doc": "条目在某个库里的文件已从磁盘全部删除",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "FileRef": {
+          "properties": {
+            "downloader_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "episode": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "id": {
+              "type": "integer"
+            },
+            "info_hash": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "library_id": {
+              "type": "integer"
+            },
+            "original_path": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "path": {
+              "type": "string"
+            },
+            "season": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "size_bytes": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "library_id",
+            "path"
+          ],
+          "type": "object"
+        },
+        "Links": {
+          "properties": {
+            "subscription_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "subscription_status": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "torrents": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/TorrentRef"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        },
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        },
+        "TorrentRef": {
+          "properties": {
+            "downloader_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "hit_and_run": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "info_hash": {
+              "type": "string"
+            },
+            "owned_by_movieclaw": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "shared": {
+              "default": false,
+              "type": "boolean"
+            },
+            "site_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "source": {
+              "type": "string"
+            },
+            "title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "torrent_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "info_hash",
+            "source"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/$defs/FileRef"
+          },
+          "type": "array"
+        },
+        "library_id": {
+          "type": "integer"
+        },
+        "links": {
+          "$ref": "#/$defs/Links"
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "whole_item": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "library_id",
+        "media",
+        "whole_item",
+        "files",
+        "links"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "plugin-data": {
+    "doc": "插件数据：插件自己的状态与挂在实体上的扩展字段（只能读写自己的）",
+    "kind": "service",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "plugin-files": {
+    "doc": "插件文件：按用户批准的路径授权读写文件（进程外插件经描述符传递），交出文件给路由",
+    "kind": "service",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "plugin-health": {
+    "doc": "插件健康：常驻任务报告降级 / 恢复，降级进系统通知与诊断",
+    "kind": "service",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "plugin-routes": {
+    "doc": "插件路由：挂到 /api/v1/plugins/<条目 id>（管理员 / 成员 / 验签公开三区），签发签名链接",
+    "kind": "service",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "scheduled-tasks": {
+    "doc": "可调度的定时任务（领域插件贡献；第三方插件可用 override 整段替换内置任务）",
+    "item": {
+      "dataclass": "TaskDefinition",
+      "fields": {
+        "default_cron": "str | None",
+        "default_enabled": "bool",
+        "default_interval_seconds": "int | None",
+        "default_trigger_type": "TriggerType",
+        "description": "str",
+        "handler": "TaskHandler",
+        "key": "str",
+        "title": "str"
+      }
+    },
+    "kind": "registry",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "site-classes": {
+    "doc": "站点类：插件贡献 BaseSite 子类，站点 YAML 的 custom_class 按贡献 id 引用",
+    "item": null,
+    "kind": "registry",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "site-data-packs": {
+    "doc": "站点数据包：插件贡献一个站点 YAML 目录（优先级：内置 < 数据包 < 用户目录）",
+    "item": null,
+    "kind": "registry",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "subscription.candidates.filter": {
+    "delivery": "live",
+    "doc": "候选淘汰：规则评估之后按插件规则再淘汰（只能淘汰不能添加，淘汰原因写进订阅动态）",
+    "kind": "event",
+    "mode": "waterfall",
+    "payload": {
+      "$defs": {
+        "CandidateView": {
+          "properties": {
+            "hdr": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hit_and_run": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "is_free": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "is_pack": {
+              "default": false,
+              "type": "boolean"
+            },
+            "key": {
+              "type": "string"
+            },
+            "media_source": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "release_group": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "remux": {
+              "default": false,
+              "type": "boolean"
+            },
+            "resolution": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "score": {
+              "default": 0,
+              "type": "integer"
+            },
+            "seeders": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "site_id": {
+              "type": "string"
+            },
+            "size_bytes": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "subtitle": {
+              "default": "",
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "torrent_id": {
+              "type": "string"
+            },
+            "units": {
+              "default": [],
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "video_codec": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "key",
+            "site_id",
+            "torrent_id",
+            "title"
+          ],
+          "type": "object"
+        },
+        "MediaBrief": {
+          "properties": {
+            "english_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "id": {
+              "type": "integer"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/CandidateView"
+          },
+          "type": "array"
+        },
+        "media": {
+          "$ref": "#/$defs/MediaBrief"
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "selection_mode": {
+          "type": "string"
+        },
+        "subscription_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "media",
+        "subscription_id",
+        "selection_mode",
+        "purpose",
+        "candidates"
+      ],
+      "type": "object"
+    },
+    "result": {
+      "$defs": {
+        "Rejection": {
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "reason_code": {
+              "type": "string"
+            },
+            "reason_text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "key",
+            "reason_code",
+            "reason_text"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "rejected": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/Rejection"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "subscription.candidates.rank": {
+    "delivery": "live",
+    "doc": "候选排序：在核心排序的基础上重排（必须是原集合的重排）",
+    "kind": "event",
+    "mode": "waterfall",
+    "payload": {
+      "$defs": {
+        "CandidateView": {
+          "properties": {
+            "hdr": {
+              "default": [],
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "hit_and_run": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "is_free": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "is_pack": {
+              "default": false,
+              "type": "boolean"
+            },
+            "key": {
+              "type": "string"
+            },
+            "media_source": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "release_group": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "remux": {
+              "default": false,
+              "type": "boolean"
+            },
+            "resolution": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "score": {
+              "default": 0,
+              "type": "integer"
+            },
+            "seeders": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "site_id": {
+              "type": "string"
+            },
+            "size_bytes": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "subtitle": {
+              "default": "",
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "torrent_id": {
+              "type": "string"
+            },
+            "units": {
+              "default": [],
+              "items": {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "integer"
+                  },
+                  {
+                    "type": "integer"
+                  }
+                ],
+                "type": "array"
+              },
+              "type": "array"
+            },
+            "video_codec": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "key",
+            "site_id",
+            "torrent_id",
+            "title"
+          ],
+          "type": "object"
+        },
+        "MediaBrief": {
+          "properties": {
+            "english_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "id": {
+              "type": "integer"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "candidates": {
+          "items": {
+            "$ref": "#/$defs/CandidateView"
+          },
+          "type": "array"
+        },
+        "media": {
+          "$ref": "#/$defs/MediaBrief"
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "selection_mode": {
+          "type": "string"
+        },
+        "subscription_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "media",
+        "subscription_id",
+        "selection_mode",
+        "purpose",
+        "candidates"
+      ],
+      "type": "object"
+    },
+    "result": {
+      "properties": {
+        "order": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "order"
+      ],
+      "type": "object"
+    },
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "subscription.created": {
+    "delivery": "durable",
+    "doc": "新建了订阅",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "cleanup_job_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "member_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "previous_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subscription_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "subscription_id",
+        "media"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "subscription.deleted": {
+    "delivery": "durable",
+    "doc": "订阅被删除",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "cleanup_job_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "member_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "previous_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subscription_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "subscription_id",
+        "media"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "subscription.download-started": {
+    "delivery": "durable",
+    "doc": "订阅的种子已真实提交下载器",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "info_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "media": {
+          "$ref": "#/$defs/MediaRef"
+        },
+        "site_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subscription_id": {
+          "type": "integer"
+        },
+        "torrent_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "units": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "upgrade": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "subscription_id",
+        "media",
+        "units"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "subscription.fulfilled": {
+    "delivery": "durable",
+    "doc": "订阅的季集已由媒体库对账确认入库",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "info_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "media": {
+          "$ref": "#/$defs/MediaRef"
+        },
+        "site_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subscription_id": {
+          "type": "integer"
+        },
+        "torrent_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "units": {
+          "items": {
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "type": "array"
+          },
+          "type": "array"
+        },
+        "upgrade": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "subscription_id",
+        "media",
+        "units"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "subscription.search.keywords": {
+    "delivery": "live",
+    "doc": "搜索关键词：在内部推导的关键词基础上追加或替换（核心截到 6 个以内）",
+    "kind": "event",
+    "mode": "waterfall",
+    "payload": {
+      "$defs": {
+        "MediaBrief": {
+          "properties": {
+            "english_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "id": {
+              "type": "integer"
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "keywords": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "media": {
+          "$ref": "#/$defs/MediaBrief"
+        },
+        "purpose": {
+          "type": "string"
+        },
+        "subscription_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "media",
+        "subscription_id",
+        "purpose",
+        "keywords"
+      ],
+      "type": "object"
+    },
+    "result": {
+      "items": {},
+      "type": "array"
+    },
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "subscription.status-changed": {
+    "delivery": "durable",
+    "doc": "订阅状态变化（追踪中 / 已收齐 / 暂停）",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "cleanup_job_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "media": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MediaRef"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "member_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "previous_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "subscription_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "subscription_id",
+        "media"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  }
+}

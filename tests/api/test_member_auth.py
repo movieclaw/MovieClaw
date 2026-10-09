@@ -714,6 +714,7 @@ _MEMBER_ALLOWLIST = {
 
 # 路径参数哑值（与 test_auth.py 的匿名守护测试保持一致）
 _PATH_DUMMIES = {
+    "{letter_id}": "1",  # 可靠事件死信
     "{task_key}": "library_reconcile",
     "{site_id}": "mteam",
     "{history_id}": "1",
@@ -755,6 +756,8 @@ _PATH_DUMMIES = {
     "{challenge_id}": "test-challenge",
     "{account_id}": "test-bot",
     "{channel}": "weixin",
+    "{channel_id}": "weixin",
+    "{binding_id}": "test-binding",
     "{endpoint_id}": "test-endpoint",
     "{member_id}": "1",
     "{job_id}": "job_test",

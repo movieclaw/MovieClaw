@@ -317,11 +317,25 @@ class DownloaderLimitsUpdate(BaseModel):
 
 
 class DownloadTaskDeleteView(BaseModel):
-    """删除下载器任务的结果。"""
+    """删除下载器任务的结果；``dry_run`` 时是演练出的计划（什么都没删）。"""
 
     downloader_id: int
     info_hash: str
     delete_files: bool
+    dry_run: bool = Field(default=False, description="是否只是演练")
+    exists: bool | None = Field(
+        default=None, description="演练：下载器里有没有这个任务；下载器不可达为空"
+    )
+    title: str | None = Field(default=None, description="演练：下载器里的任务名")
+    manual_intent: bool | None = Field(
+        default=None, description="演练：会一并清理手动下载的身份锚"
+    )
+    requeued_units: list[list[int]] | None = Field(
+        default=None, description="演练：会退回「缺资源」、由订阅重新找资源的季集 [[季, 集]]"
+    )
+    cancelled_attempts: int | None = Field(
+        default=None, description="演练：会停止观察的订阅下载记录数（关联单元已不在订阅范围）"
+    )
 
 
 class DownloadTaskReplaceView(BaseModel):

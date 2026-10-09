@@ -95,7 +95,7 @@ __all__ = [
     "SystemBootstrap",
     "is_initialized",
     "mark_initialized",
-    # 浏览器插件同步令牌
+    # 浏览器扩展同步令牌
     "ExtensionSyncSetting",
     "get_sync_setting",
     "generate_sync_token",

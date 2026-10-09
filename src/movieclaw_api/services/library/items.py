@@ -3264,6 +3264,9 @@ async def delete_item_files(
     library: Library,
     media_item_id: int,
     files: list[LibraryFile],
+    *,
+    before_commit: Callable[[set[int]], Awaitable[None]] | None = None,
+    dry_run: bool = False,
 ) -> DeleteResult:
     """把条目从库中**彻底删除**：磁盘上的条目目录（视频+NFO+海报+字幕）
     整个清掉，台账行随之删除。
@@ -3325,6 +3328,26 @@ async def delete_item_files(
             result.errors.append(f"「{path}」不在库根路径之内，已跳过（不删库外文件）")
 
     deleted_row_ids: set[int] = set()
+    by_id = {row.id: row for row in files}
+
+    if dry_run:
+        # 演练（plugin-phase2a.md §5.3）：同一套分组判定，只报告将要删的路径与行，不动磁盘和台账
+        for directory in dirs_to_remove:
+            result.removed_paths.append(str(directory))
+            for row in covered_rows.get(directory, []):
+                assert row.id is not None
+                deleted_row_ids.add(row.id)
+                result.freed_bytes += row.size_bytes
+        for row_id, path in files_to_remove.items():
+            result.removed_paths.append(str(path))
+            deleted_row_ids.add(row_id)
+            result.freed_bytes += by_id[row_id].size_bytes
+        for row in files:
+            if row.state == FileState.MISSING:
+                assert row.id is not None
+                deleted_row_ids.add(row.id)
+        result.rows_deleted = len(deleted_row_ids)
+        return result
 
     for directory in dirs_to_remove:
         ok = await asyncio.to_thread(_discard_tree, directory, staging, result)
@@ -3334,7 +3357,6 @@ async def delete_item_files(
                 deleted_row_ids.add(row.id)
                 result.freed_bytes += row.size_bytes
 
-    by_id = {row.id: row for row in files}
     for row_id, path in files_to_remove.items():
         row = by_id[row_id]
         ok = await asyncio.to_thread(_discard_file_with_sidecars, path, staging, result)
@@ -3354,6 +3376,9 @@ async def delete_item_files(
             await session.delete(row)
     result.rows_deleted = len(deleted_row_ids)
     result.pending_purge = staging.dirs
+    if before_commit is not None:
+        # 删除事件与删行同一次提交成立（plugin-phase2a.md §4）
+        await before_commit(deleted_row_ids)
     await session.commit()
     if result.rows_deleted:
         await LibraryRepository(session).refresh_stats([library.id])
@@ -3375,6 +3400,9 @@ async def delete_single_file(
     library: Library,
     row: LibraryFile,
     item_rows: list[LibraryFile],
+    *,
+    before_commit: Callable[[set[int]], Awaitable[None]] | None = None,
+    dry_run: bool = False,
 ) -> DeleteResult:
     """从磁盘删除条目的**单个文件**（多版本洗版 / 删某一集重下的出口）。
 
@@ -3391,13 +3419,26 @@ async def delete_single_file(
     """
     assert row.media_item_id is not None
     if len(item_rows) == 1:
-        return await delete_item_files(session, library, row.media_item_id, item_rows)
+        return await delete_item_files(
+            session,
+            library,
+            row.media_item_id,
+            item_rows,
+            before_commit=before_commit,
+            dry_run=dry_run,
+        )
 
     result = DeleteResult()
     assert library.id is not None
+    if dry_run and row.state == FileState.MISSING:
+        result.rows_deleted = 1
+        return result
     if row.state == FileState.MISSING:
         await session.delete(row)
         result.rows_deleted = 1
+        if before_commit is not None:
+            assert row.id is not None
+            await before_commit({row.id})
         await session.commit()
         await LibraryRepository(session).refresh_stats([library.id])
         return result
@@ -3418,6 +3459,11 @@ async def delete_single_file(
             )
             return result
 
+    if dry_run:
+        result.removed_paths.append(str(path))
+        result.rows_deleted = 1
+        result.freed_bytes = row.size_bytes
+        return result
     staging = _TrashStaging(roots)
     ok = await asyncio.to_thread(_discard_file_with_sidecars, path, staging, result)
     if ok:
@@ -3425,6 +3471,9 @@ async def delete_single_file(
         result.freed_bytes = row.size_bytes
         result.pending_purge = staging.dirs
         await session.delete(row)
+        if before_commit is not None:
+            assert row.id is not None
+            await before_commit({row.id})
         await session.commit()
         await LibraryRepository(session).refresh_stats([library.id])
         logger.info(

@@ -120,7 +120,7 @@ export default defineBackground(() => {
     }
   }
 
-  /** 出错时在插件图标上打个红色小角标，成功则清除 */
+  /** 出错时在扩展图标上打个红色小角标，成功则清除 */
   function setErrorBadge(hasError: boolean): void {
     chrome.action.setBadgeText({ text: hasError ? '!' : '' });
     if (hasError) chrome.action.setBadgeBackgroundColor({ color: '#dc2626' });

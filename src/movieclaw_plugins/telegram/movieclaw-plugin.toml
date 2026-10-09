@@ -1,0 +1,14 @@
+[plugin]
+id = "channel.telegram"
+title = "Telegram 通道"
+version = "1.0.0"
+entry = "telegram_channel"
+runtime = "process"
+sdk = "^1.0"
+description = "接入你用 @BotFather 创建的 bot：私聊对话 AI 助手、接收推送"
+
+[requires]
+"im-channels" = "^1.0"
+
+[permissions]
+operations = []

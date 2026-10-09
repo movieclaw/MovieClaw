@@ -25,6 +25,7 @@ from sqlalchemy import and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api import domain_events
 from movieclaw_api.exceptions import (
     BadRequestException,
     ForbiddenException,
@@ -309,7 +310,15 @@ async def recompute_subscription_status(
     )
     if subscription.status == new_status:
         return
+    previous = subscription.status
     subscription.status = new_status
+    await domain_events.record_subscription(
+        session,
+        domain_events.SUBSCRIPTION_STATUS_CHANGED,
+        subscription,
+        previous_status=previous,
+        reason="completed" if new_status == SubscriptionStatus.COMPLETED else "reopened",
+    )
     await repo.save(subscription)
     if new_status == SubscriptionStatus.COMPLETED:
         message = "订阅已收齐：期望的内容都已安排完毕，且暂无会新增的内容"
@@ -498,6 +507,7 @@ class SubscriptionService:
             created_message += f"；{route_note}"
         if rule_note:
             created_message += f"；{rule_note}"
+        await self._record(domain_events.SUBSCRIPTION_CREATED, subscription)
         await self._log(
             subscription,
             ActivityType.CREATED,
@@ -954,8 +964,16 @@ class SubscriptionService:
     async def set_paused(self, subscription_id: int, paused: bool) -> Subscription:
         """暂停/恢复。暂停是用户显式状态；恢复后由派生重算落到 active/completed。"""
         subscription = await self._get_or_404(subscription_id)
+        previous = subscription.status
         if paused:
             subscription.status = SubscriptionStatus.PAUSED
+            if previous != subscription.status:
+                await self._record(
+                    domain_events.SUBSCRIPTION_STATUS_CHANGED,
+                    subscription,
+                    previous_status=previous,
+                    reason="paused",
+                )
             await self._repo.save(subscription)
             await self._log(
                 subscription,
@@ -964,6 +982,13 @@ class SubscriptionService:
             )
             return subscription
         subscription.status = SubscriptionStatus.ACTIVE
+        if previous != subscription.status:
+            await self._record(
+                domain_events.SUBSCRIPTION_STATUS_CHANGED,
+                subscription,
+                previous_status=previous,
+                reason="resumed",
+            )
         await self._repo.save(subscription)
         await self._log(subscription, ActivityType.RESUMED, "已恢复追踪")
         item = await self._media_repo_get(subscription.media_item_id)
@@ -1031,6 +1056,7 @@ class SubscriptionService:
                 "订阅 #%d 发起人 #%d 退出，转移给成员 #%d", subscription_id, member_id, heir
             )
             return "你已退出；订阅转由其他关注的家人继续追更"
+        await self._record(domain_events.SUBSCRIPTION_DELETED, subscription, reason="unsubscribed")
         await self._repo.delete(subscription)
         logger.info("成员 #%d 退出并删除无人关注的订阅 #%d", member_id, subscription_id)
         return "已取消订阅"
@@ -1194,6 +1220,12 @@ class SubscriptionService:
                     cleaned.append(f"{len(plan.torrents)} 个下载任务")
                 if delete_library_files and plan.files:
                     cleaned.append(f"{len(plan.files)} 个媒体库文件")
+        await self._record(
+            domain_events.SUBSCRIPTION_DELETED,
+            subscription,
+            reason="deleted",
+            cleanup_job_id=cleanup_job_id,
+        )
         await self._repo.delete(subscription)
         logger.info(
             "管理员已永久删除订阅 #%d%s",
@@ -1518,6 +1550,10 @@ class SubscriptionService:
     # ------------------------------------------------------------------
     # 活动流水（透明化：每个动作落一条中文可读记录）
     # ------------------------------------------------------------------
+
+    async def _record(self, event, subscription: Subscription, **kwargs) -> None:
+        """订阅生命周期的可靠事件（plugin-phase2a.md §4），随接下来那次保存一起提交。"""
+        await domain_events.record_subscription(self._session, event, subscription, **kwargs)
 
     async def _log(
         self,

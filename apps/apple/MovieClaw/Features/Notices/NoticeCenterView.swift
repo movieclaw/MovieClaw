@@ -80,6 +80,12 @@ struct NoticeCenterView: View {
         case "downloader": return "/settings/downloaders"
         case "site": return "/settings/sites"
         case "cloud": return "/settings/cloud"
+        case "plugin":
+            // 插件可以带一个站内路径指向能修它的地方（插件包回滚 → 插件管理页）；没带就去内置插件诊断
+            if let href = notice.payload["action_href"]?.stringValue, href.hasPrefix("/"), !href.hasPrefix("//") {
+                return href
+            }
+            return "/settings/plugins?tab=builtin"
         default: return "/settings"
         }
     }
