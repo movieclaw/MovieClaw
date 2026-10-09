@@ -3,21 +3,9 @@
 每节给最小可用的写法。载荷字段以 `scripts/contracts.py <名字>` 打印的类型为准；
 完整、经过测试的写法见 `references/examples/`（对应文件在每节末尾标出）。
 
-## 0. 需求 → 扩展形态
+## 0. 先选形态
 
-| 用户想要 | 形态 | 契约 |
-|---|---|---|
-| 某事发生后自动做点什么（入库后、删片后、下载完成后、订阅变化后） | 可靠事件监听 + 宿主操作 | `library.*`、`download.completed`、`subscription.*` 事件；`host-ops` |
-| 改订阅的搜索词 / 淘汰或重排候选种子 | 决策钩子（waterfall） | `subscription.search.keywords`、`subscription.candidates.filter`、`subscription.candidates.rank` |
-| 按规则选下载器 / 阻止删除某些种子 | 决策钩子（bail） | `dl.downloader.select`、`dl.torrent.before-delete` |
-| 定期做事（轮询外部片单、定时清理） | 后台循环 `ctx.task` 或定时任务 | `scheduled-tasks` |
-| 入库前后插一个耗时步骤（上传网盘、转码） | 持久化任务处理器 + 流水线步骤 | `job-handlers`、`ingest-steps` |
-| 给外部系统或用户开接口（Webhook 接收、状态查询、签名下载链接） | 插件路由 | `plugin-routes` |
-| 新的 IM 平台 | 通道驱动 | `im-channels` |
-| 新站点 / 一批站点配置 | 站点类 / 站点数据包 | `site-classes`、`site-data-packs` |
-| 记住状态、给订阅等实体挂额外字段 | 插件数据 | `plugin-data` |
-| 读写某个目录的文件 | 插件文件 | `plugin-files` |
-| 常驻任务出问题时提醒用户 | 健康上报 | `plugin-health` |
+需求对应哪种扩展点、哪些还没开放：见 `extension-points.md`。一个插件里组合多个扩展点、何时拆分：见 `composition.md`。
 
 **规则：钩子里只做判断，不产生副作用；副作用放进可靠事件监听或宿主操作。**
 

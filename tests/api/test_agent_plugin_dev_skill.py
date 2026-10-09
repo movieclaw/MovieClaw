@@ -99,6 +99,20 @@ def test_bundled_examples_match_repository_examples() -> None:
     )
 
 
+def test_extension_point_catalog_covers_the_whole_surface() -> None:
+    """扩展点目录逐个列出全部开放契约：契约有增删时文档必须同步（Agent 靠它判断能不能做）。"""
+    import json
+
+    surface = json.loads((_SRC / "movieclaw_sdk" / "surface.json").read_text("utf-8"))
+    catalog = (_SKILL / "references" / "extension-points.md").read_text("utf-8")
+    missing = [
+        name
+        for name in surface
+        if f"`{name}`" not in catalog and f"/ `{name.rsplit('.', 1)[-1]}`" not in catalog
+    ]
+    assert not missing, "extension-points.md 缺少这些契约：" + "、".join(missing)
+
+
 def test_contracts_script_lists_the_whole_surface(tmp_path) -> None:
     import json
 

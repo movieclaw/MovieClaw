@@ -9,19 +9,31 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 插件是一个目录：一份清单 `movieclaw-plugin.toml` + Python 代码，打包成 `.mcplugin`（zip）后安装。
 装上后默认在**独立的低权限进程**里运行，崩溃只伤它自己；装、升级、回滚、卸载都**不用重启**。
 
-本文件是流程与规范；细节按需读 `references/` 下的文件（路径以本技能目录为锚）。
+本文件是判断、流程与规范，**读完再动手**；第 2 节告诉你动手前还必须读哪份参考（路径以本技能目录为锚）。
 
-## 0. 先判断要不要写插件
+## 0. 先判断：要不要写插件、做不做得到
 
 用户说「做一个 / 接入 / 支持 / 能不能自动……」时，先用 `mclaw` 确认系统里确实没有（如 `mclaw channels list`
 看已有通道、`mclaw site --help` 看站点），没有就是要写插件，按本技能走；不要只回答「目前不支持」。
 
 - 用户只是想「做一次某件事」（建订阅、删种子、扫媒体库）→ 直接用 `mclaw` 工具，不要写插件。
 - 想要的效果已有设置项（订阅规则组、命名模板、推送开关）→ 用设置，不要写插件。
-- 需要**持续自动**地响应系统里发生的事、改变系统的决策、给系统加一种新实现（站点、通道、下载后处理），
-  或给外部系统开一个接口 → 才写插件。
+- 需要**持续自动**地响应系统里发生的事、改变系统的决策、给系统加一种新实现，或给外部系统开一个接口 → 写插件。
 
-## 1. 原理速览（必须先懂）
+**能力地图**（逐项清单见 `references/extension-points.md`）：
+
+| 插件能做 | 靠什么 |
+|---|---|
+| 某件事发生后自动做点什么：下载完成、入库完成、删片 / 删文件 / 回收站、订阅新建 / 删除 / 开始下载 / 收齐 / 状态变化 | 可靠事件 |
+| 改变系统的判断：订阅搜索词、淘汰或重排候选种子、选下载器、否决删种 | 决策钩子 |
+| 加一种新实现：IM 通道、站点类 / 站点数据包、定时任务（可整段替换内置的）、后台任务、入库流水线步骤 | 注册表 |
+| 做事与存东西：调用系统操作（与 mclaw 同一份）、存状态、读写批准的目录、开接口（自动成为 mclaw 命令）、报告健康 | 服务 |
+
+**做不到的**：给网页 / App 加界面或设置页、新的下载器类型、新的元数据来源、新的 Webhook 格式、新的站点认证方式、
+替换播放 / 转码 / 媒体库扫描 / 刮削主流程 / AI 助手。**遇到要直说做不到**，并给替代办法
+（`references/extension-points.md` 第 5 节），不要先答应再做到一半。
+
+## 1. 原理速览
 
 | 概念 | 一句话 |
 |---|---|
@@ -33,29 +45,27 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 | 运行位置 | `runtime = "process"`（默认、推荐）独立进程；`inline` 在主进程里运行，需用户单独批准，除非用户明确要求否则不用 |
 | 热插拔 | 插件包安装 / 升级 / 回滚 / 卸载都在运行中完成；新版本起不来时服务器**自动回到上一版** |
 
-深入：`references/architecture.md`。
+**组合与拆分**：一个插件可以同时用多个钩子、事件、注册表、路由；一个插件包只加载一个插件（名字 = 清单 id），
+同生同死。一个插件 = 一件用户能说清楚的事；互不相关、权限差得多、稳定性差得多的事拆成多个插件。
+替换内置东西：同 id 的插件包替换随带通道；注册表里 `override=True` 加原 id 替换某一项。详见 `references/composition.md`。
 
-## 2. 源码地图（照着学）
+## 2. 动手前必须先读
 
 源码根目录（下文记作 `$SRC`）= 本技能目录往上三级；或运行
 `python -c "import movieclaw_sdk, pathlib; print(pathlib.Path(movieclaw_sdk.__file__).parents[1])"`。
-动手前先读与需求最接近的现成代码，**照它的写法写**：
 
-| 想做的事 | 先读 |
+| 你要做的 | 先读（读完再写代码） |
 |---|---|
-| 完整的插件包样板（清单 + 代码） | `templates/starter/`（本技能自带骨架）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_plugins/feishu/`（最短的内置插件包） |
-| 各种扩展形态的真实示例（删片联动、片单订阅、关键字规则、网盘上传、站点包） | `references/examples/`（先读其中的 README） |
-| IM 通道（收发消息、绑定） | `$SRC/movieclaw_sdk/channels.py`（契约）、`$SRC/movieclaw_plugins/{weixin,telegram,discord,feishu}/` |
-| 事件（入库、删除、下载完成、订阅变化） | `$SRC/movieclaw_api/domain_events.py`（可靠事件与载荷） |
-| 决策钩子（改搜索词、筛选 / 排序候选、选下载器、否决删种） | `$SRC/movieclaw_api/hooks.py` |
-| 服务（宿主操作、插件数据、文件、路由、健康） | `$SRC/movieclaw_api/plugins/keys.py`，实现在 `$SRC/movieclaw_api/services/{host_ops,plugin_data,plugin_files,plugin_routes,plugin_health}.py` |
-| 定时任务 / 后台任务处理器 / 入库流水线步骤 | `$SRC/movieclaw_scheduler/registry.py`、`$SRC/movieclaw_api/services/jobs.py`、`$SRC/movieclaw_api/pipeline.py` |
-| 站点适配（站点类、站点数据包） | `$SRC/movieclaw_api/plugins/keys.py` 的 `SITE_CLASSES` / `SITE_DATA_PACKS` |
-| `ctx` 的全部能力 | `$SRC/movieclaw_kernel/context.py`、`$SRC/movieclaw_kernel/plugin.py` |
-| 进程外运行怎么代理 | `$SRC/movieclaw_sdk/runner.py` |
-| 主程序自己的内置插件（只读参考，不要模仿它们用内部服务） | `$SRC/movieclaw_api/plugins/` |
-
-各扩展形态的写法片段：`references/recipes.md`。
+| 任何插件 | `references/extension-points.md`（确认要用的契约存在、没落在「做不到」里）、`templates/starter/` |
+| 事件 / 钩子类（删片联动、关键字规则、选下载器） | `references/recipes.md` 第 1～3 节，对应示例 `references/examples/{delete_cascade,keyword_rules}.py` |
+| IM 通道 | `references/recipes.md` 第 11 节（**选接入方式**）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_sdk/channels.py` 文件头 |
+| 定时 / 后台任务、入库流水线 | `references/recipes.md` 第 6～7 节、`references/examples/{watchlist_feed,cloud_strm}.py` |
+| 开接口、读写文件 | `references/recipes.md` 第 5、8 节、`references/examples/cloud_strm.py` |
+| 站点 | `references/recipes.md` 第 12 节、`references/examples/site_pack/` |
+| 一个插件里放好几件事、替换内置的东西 | `references/composition.md` |
+| 写清单、申请权限 | `references/manifest.md` |
+| 用户问「插件是什么、为什么要批准、会不会搞坏」 | `references/explaining-to-users.md` |
+| 装不上、起不来、没反应 | `references/troubleshooting.md` |
 
 ## 3. 开发流程
 
@@ -66,7 +76,7 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 它的输出（包括配合 grep 得到的计数）不能当作验证结果。
 
 1. **澄清需求**：触发时机（什么事发生时）、要做什么、影响哪些数据、要不要配置。说清楚你打算用哪种扩展形态
-   （`references/recipes.md` 第 0 节有对照表），有歧义先问。
+   （`references/extension-points.md`），做不到的直说并给替代办法；有歧义先问。
    **接外部平台（IM 通道、通知、外部服务）时**：MovieClaw 多半跑在家里的 NAS 上、没有公网地址，平台推不进来。
    首选服务器主动连出去的方式（长轮询、长连接——如企业微信「智能机器人」长连接模式，只要 botId + secret），
    其次是只推送的群机器人 Webhook，需要公网回调地址的方式放最后；给用户的方案里讲清「能不能对话、要不要公网地址、
@@ -146,10 +156,14 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 
 ## 6. 参考资料
 
-| 文件 | 何时读 |
+| 文件 | 内容 |
 |---|---|
-| `references/architecture.md` | 第一次写插件、或需要理解生命周期 / 进程外 / 权限模型时 |
-| `references/manifest.md` | 写清单、申请权限、版本与兼容 |
-| `references/recipes.md` | 选扩展形态、找某种能力的写法 |
-| `references/troubleshooting.md` | 安装失败、加载失败、行为不对 |
-| `templates/starter/` | 骨架原型（`new_plugin.py` 从它生成） |
+| `references/extension-points.md` | 全部开放契约（用途、导入、示例）与「还没开放的 + 替代办法」 |
+| `references/composition.md` | 一个插件组合多个扩展点、何时拆分、替换内置、插件之间配合 |
+| `references/recipes.md` | 每种扩展点的写法片段（第 11 节含 IM 通道的接入方式选择） |
+| `references/manifest.md` | 清单字段、权限、版本区间、安装 / 升级 / 回滚 / 卸载命令 |
+| `references/architecture.md` | 原理：生命周期、进程外运行、权限模型、源码位置 |
+| `references/explaining-to-users.md` | 给用户解释插件、权限、安全、卸载的标准说法 |
+| `references/troubleshooting.md` | 按报错查原因 |
+| `references/examples/` | 6 个经过测试的真实插件（先读 README） |
+| `templates/starter/`、`scripts/` | 骨架；生成骨架、查契约、安装前检查的脚本 |

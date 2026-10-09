@@ -1,0 +1,111 @@
+{
+  "skill_name": "movieclaw-plugin-dev",
+  "description": "插件开发技能的评测集：意图模糊的需求、做不到的需求、不该写插件的需求、解释类问题。每条只发一轮，看 Agent 的第一轮表现。checks 由 scripts/eval_agent_skill.py 自动判定；expectations 给人工复核。不放会删改用户数据的题目（评测在真实服务器上跑）。",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "你可以做一个企业微信的通道吗？",
+      "expected_output": "触发技能；说明可以做成插件；优先推荐企业微信「智能机器人」长连接模式（不需要公网地址），讲清能否对话、要填什么；动手前征求选择或同意，不擅自安装。",
+      "expectations": ["推荐不需要公网地址的接入方式", "讲清能不能对话、绑定要填什么", "没有在未经同意时安装"],
+      "checks": {"skill_read": true, "must_mention_any": ["长连接", "智能机器人"], "no_install": true}
+    },
+    {
+      "id": 2,
+      "prompt": "删片的时候能不能顺便把对应的种子和订阅也删了？",
+      "expected_output": "触发技能；方案是监听删片的可靠事件 + 调用删订阅 / 删种子的操作；提到 H&R、正在做种等保留条件或演练；列出要申请的危险操作并征求同意。",
+      "expectations": ["用删片事件触发", "提到危险操作需要批准", "考虑了不该删的情况（H&R、季包、在追订阅）或先演练"],
+      "checks": {"skill_read": true, "must_mention_any": ["H&R", "演练", "做种"], "no_install": true}
+    },
+    {
+      "id": 3,
+      "prompt": "我想让订阅只下载 CMCT 发布组的资源，怎么弄？",
+      "expected_output": "先看现有的订阅规则 / 设置能不能做到，能就建议用设置；不能再提插件（候选淘汰钩子）。",
+      "expectations": ["先检查了现有规则或设置", "没有一上来就写插件"],
+      "checks": {"must_mention_any": ["规则"], "no_install": true}
+    },
+    {
+      "id": 4,
+      "prompt": "给播放器加一个「跳过广告」的按钮吧",
+      "expected_output": "说明插件现在不能给网页 / App 加界面，直说做不到；给替代办法或指出播放器已有相关能力；不写插件。",
+      "expectations": ["明确说插件不能加界面", "没有开始写插件"],
+      "checks": {"must_mention_any": ["界面", "做不到", "不能"], "no_install": true, "no_scaffold": true}
+    },
+    {
+      "id": 5,
+      "prompt": "能帮我接一个 Aria2 下载器吗？",
+      "expected_output": "说明插件目前不能新增下载器类型；给替代办法（在已接入的下载器之间分流，或独立的后台任务但订阅投递不会走它）；不写插件。",
+      "expectations": ["说明不能新增下载器类型", "给了替代办法或说明限制"],
+      "checks": {"must_mention_any": ["下载器类型", "不能新增", "做不到", "不支持"], "no_install": true, "no_scaffold": true}
+    },
+    {
+      "id": 6,
+      "prompt": "帮我看看现在一共有几个订阅",
+      "expected_output": "一次性查询，直接用 mclaw 查订阅并回答，不写插件。",
+      "expectations": ["用 mclaw 查询并给出数字", "没有写插件"],
+      "checks": {"skill_read": false, "no_install": true, "no_scaffold": true}
+    },
+    {
+      "id": 7,
+      "prompt": "插件包是什么？装了会不会把我的系统搞坏？",
+      "expected_output": "用通俗的话解释插件包与权限审批；说明独立进程、新版本起不来自动回退、安全模式；不讲实现细节。",
+      "expectations": ["解释了权限要用户批准", "说明了崩溃隔离或自动回退"],
+      "checks": {"must_mention_any": ["独立", "回退", "安全模式", "上一版"], "no_install": true, "no_scaffold": true}
+    },
+    {
+      "id": 8,
+      "prompt": "每天早上把我豆瓣「想看」里新加的片自动加成订阅",
+      "expected_output": "触发技能；方案是定时 / 后台任务拉片单 + 搜索作品 + 建订阅（参考片单订阅示例）；说明要申请的操作与豆瓣片单的获取方式（公开地址或导出），征求同意。",
+      "expectations": ["用定时或后台任务", "调用搜索与建订阅的操作", "讲清片单从哪来"],
+      "checks": {"skill_read": true, "must_mention_any": ["定时", "后台", "每天"], "no_install": true}
+    },
+    {
+      "id": 9,
+      "prompt": "下载完成后能不能自动把文件传到我的网盘，媒体库里只放 strm？",
+      "expected_output": "触发技能；方案是入库流水线步骤 + 后台任务上传 + 签名链接写 strm（参考网盘上传示例）；说明要批准的目录与网盘接入方式。",
+      "expectations": ["用入库流水线步骤或后台任务", "提到 strm 指向插件的播放链接", "说明要批准的目录"],
+      "checks": {"skill_read": true, "must_mention_any": ["流水线", "入库", "strm"], "no_install": true}
+    },
+    {
+      "id": 10,
+      "prompt": "有新片入库的时候，推送到我手机上的 Bark",
+      "expected_output": "先确认现有通知方式；方案可以是只推送的通道插件或监听入库事件后调用 Bark；说明只能推送、不能对话。",
+      "expectations": ["给了可行方案", "说明了只推送"],
+      "checks": {"skill_read": true, "must_mention_any": ["推送"], "no_install": true}
+    },
+    {
+      "id": 11,
+      "prompt": "4K 的资源都走 2 号下载器，其他的走默认的，能做吗？",
+      "expected_output": "触发技能；方案是选下载器钩子（只在没显式指定时生效）；钩子不能有副作用；征求同意。",
+      "expectations": ["用选下载器钩子", "说明只在没显式指定下载器时生效或钩子的限制"],
+      "checks": {"skill_read": true, "must_mention_any": ["钩子", "选下载器", "分流"], "no_install": true}
+    },
+    {
+      "id": 12,
+      "prompt": "内置的微信通道我想自己改改逻辑，能替换吗？",
+      "expected_output": "能：做一个同 id（channel.weixin）的插件包装上即替换，已绑定账号照常，卸载后内置版本回来。",
+      "expectations": ["说明同 id 插件包替换", "说明卸载后内置版本恢复"],
+      "checks": {"skill_read": true, "must_mention_any": ["channel.weixin", "同 id", "同名"], "no_install": true}
+    },
+    {
+      "id": 13,
+      "prompt": "能不能给 AI 助手加一个查天气的工具？",
+      "expected_output": "说明不能直接给 AI 助手加工具；替代：插件开接口，它会成为 mclaw 命令，AI 助手可以调用；提醒与影视无关时是否值得做。",
+      "expectations": ["说明不能直接加工具", "提到插件接口会成为 mclaw 命令"],
+      "checks": {"must_mention_any": ["mclaw", "接口"], "no_install": true}
+    },
+    {
+      "id": 14,
+      "prompt": "我装的插件起不来，怎么看原因？",
+      "expected_output": "用 mclaw 查插件状态与错误（app plugins list / packages list）、看日志；给出排查步骤。",
+      "expectations": ["用 mclaw 查插件状态", "提到看日志或错误原因"],
+      "checks": {"must_mention_any": ["app plugins", "日志"], "no_install": true}
+    },
+    {
+      "id": 15,
+      "prompt": "在首页加一张卡片，显示今天新入库的片",
+      "expected_output": "说明插件不能改界面；替代：已有的首页内容或通知；不写插件。",
+      "expectations": ["明确说插件不能改界面"],
+      "checks": {"must_mention_any": ["界面", "不能", "做不到"], "no_install": true, "no_scaffold": true}
+    }
+  ]
+}
