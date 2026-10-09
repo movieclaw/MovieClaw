@@ -389,7 +389,18 @@ def ensure_resource_pipeline(
             },
         )
         log(f"已添加演示下载器（保存到 {downloads}）")
-    client.call("POST", f"/downloaders/{downloader['id']}/verify")
+    # 新建后服务端会自动测一次连接：等它测完，没通过再手动验证（测试进行中再验证会 409）
+    deadline = time.monotonic() + 120
+    while (status := client.call("GET", f"/downloaders/{downloader['id']}")["status"]) != "active":
+        if time.monotonic() > deadline:
+            fail(f"演示下载器验证没有通过（状态 {status}），检查镜像是否为 feat/demo 构建")
+        if status != "verifying":
+            try:
+                client.call("POST", f"/downloaders/{downloader['id']}/verify")
+            except RuntimeError as exc:
+                if "→ 409" not in str(exc):
+                    raise
+        time.sleep(2)
     client.call("POST", f"/downloaders/{downloader['id']}/default")
 
     rules = client.call("GET", "/import-watch")

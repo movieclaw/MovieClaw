@@ -93,3 +93,11 @@ async def test_boost_release_ids_survive_catalog_changes(site, tmp_path, monkeyp
     assert await site.download_torrent(listed.download_url) == before
     detail = await site.get_torrent_detail(listed.download_url)
     assert detail.title == listed.title
+
+
+async def test_boost_releases_never_match_a_film_search(site) -> None:
+    """刷流种会进本地种子索引：名字和副标题都不能带片名，免得被按片名搜到或被订阅抓走。"""
+    boosts = [item for item in (await site.list_torrents()).items if item.free]
+    for item in boosts:
+        text = f"{item.title} {item.subtitle}".lower()
+        assert not any(word in text for word in ("spring", "charge", "春", "冲锋")), text

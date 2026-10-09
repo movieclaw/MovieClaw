@@ -203,12 +203,12 @@ def _boost_entry(base: dict, window_id: int, n: int) -> dict:
     start = _BOOST_EPOCH + timedelta(seconds=window_id)
     seed = hashlib.sha256(f"{window_id}:{n}".encode()).digest()
     size = (1 + seed[0] % 4) * 1024**3 + int.from_bytes(seed[1:4], "big")
-    name = re.sub(r"\.\d{3,4}p\.", ".2160p.", base["name"]).replace("-BLENDER", "-DEMOSEED")
+    # 名字里不带片名：刷流浏览过的种子会进本地种子索引，带片名就会混进审核员按片名
+    # 搜到的结果、被订阅当成资源抓走——而刷流种没有实体文件，下完也入不了库
     return {
         "torrent_id": f"{_BOOST_PREFIX}{window_id}-{n}-{base['torrent_id']}",
-        "name": name,
+        "name": f"MovieClaw.Demo.Seed.{window_id // 3600}.{n + 1}-DEMOSEED",
         "size_bytes": size,
-        "title_zh": base.get("title_zh", ""),
         "upload_time": (start + timedelta(minutes=10 * n)).isoformat(),
         # 供不应求的新种：刷流准入要求 下载者 / (做种者 + 1) ≥ 3，演示种每条都够格
         "leechers": 6 + seed[4] % 15,
@@ -270,7 +270,7 @@ def _item(entry: dict, *, boost: bool = False) -> TorrentListItem:
     return TorrentListItem(
         torrent_id=entry["torrent_id"],
         title=entry["name"],
-        subtitle=subtitle if not boost else f"{entry.get('title_zh', '')} 免费刷流种".strip(),
+        subtitle=subtitle if not boost else "演示站的免费刷流种（只做种，没有影片文件）",
         category=TorrentCategory.MOVIE,
         site_category_name="电影",
         size_bytes=entry["size_bytes"],
