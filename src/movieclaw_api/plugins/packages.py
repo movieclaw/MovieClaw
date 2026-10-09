@@ -328,25 +328,27 @@ def _inline(path: Path, package: Installed) -> Plugin:
     vendor = path / "vendor"
     if vendor.is_dir() and str(vendor) not in sys.path:
         sys.path.append(str(vendor))
-    module = sys.modules.get(name)
-    if module is None:
-        file = path / f"{package.entry}.py"
-        pkg = path / package.entry / "__init__.py"
-        spec = (
-            importlib.util.spec_from_file_location(
-                name, pkg, submodule_search_locations=[str(pkg.parent)]
-            )
-            if pkg.is_file()
-            else importlib.util.spec_from_file_location(name, file)
+    # 每次挂载都按盘上的代码重新导入：模块名不带版本，沿用缓存会让升级、回滚、重装后的包
+    # 照样跑第一次导入的旧代码，直到重启
+    for loaded in [m for m in sys.modules if m == name or m.startswith(f"{name}.")]:
+        del sys.modules[loaded]
+    file = path / f"{package.entry}.py"
+    pkg = path / package.entry / "__init__.py"
+    spec = (
+        importlib.util.spec_from_file_location(
+            name, pkg, submodule_search_locations=[str(pkg.parent)]
         )
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module
-        try:
-            spec.loader.exec_module(module)
-        except BaseException:
-            sys.modules.pop(name, None)
-            raise
+        if pkg.is_file()
+        else importlib.util.spec_from_file_location(name, file)
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
     for value in vars(module).values():
         if isinstance(value, Plugin) and value.name == package.id:
             return dataclasses.replace(

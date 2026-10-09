@@ -237,7 +237,8 @@ class PackageManager:
             pkg.save(self._settings, packages)
             state, error = await self._activate(record)
             if state != State.ACTIVE.value:
-                await self._roll_back(entry_id, version, error or f"激活后状态为 {state}")
+                error = error or f"激活后状态为 {state}"
+                await self._roll_back(entry_id, version, error)
                 return {"status": "rolled_back", "error": error, **self._status(entry_id)}
             self._prune(entry_id)
             self._watch(entry_id, version)
@@ -258,6 +259,11 @@ class PackageManager:
         if self._kernel.fiber(record.id) is not None:
             await self._kernel.unmount(record.id)
         fiber = await self._kernel.mount(pkg.entry_for(self._settings, record))
+        if fiber.state is State.PENDING and not fiber.error:
+            waits = self._kernel.describe(fiber)["blocked_by"]
+            if waits:
+                detail = "、".join(f"{w['key']}（{w['reason']}）" for w in waits)
+                return fiber.state.value, f"一直在等服务：{detail}，检查 inject 是否写对"
         return fiber.state.value, fiber.error
 
     def _status(self, entry_id: str) -> dict[str, Any]:

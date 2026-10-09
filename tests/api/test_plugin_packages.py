@@ -366,3 +366,69 @@ def test_inline_runtime_needs_explicit_consent(data_dir) -> None:
         assert "acme.pkg" not in plugin_runtime.sessions  # 没有起子进程
         assert any(m.startswith("movieclaw_packages.acme_pkg") for m in sys.modules)
         assert chosen(client) == 1
+
+
+def test_inline_upgrade_and_reinstall_run_the_new_code(data_dir) -> None:
+    """进程内的包每次挂载都按盘上的代码重新导入：升级、卸载后重装同版本都不跑旧代码。"""
+    app, client = start()
+    with client:
+        assert upload(client, package(1, runtime="inline")).status_code == 200
+        assert approve(client, "1.0.0", allow_inline=True).json()["data"]["status"] == "active"
+        assert chosen(client) == 1
+
+        assert upload(client, package(2, runtime="inline")).status_code == 200
+        assert approve(client, "2.0.0", allow_inline=True).json()["data"]["status"] == "active"
+        assert chosen(client) == 2
+
+        assert client.delete("/api/v1/app/plugins/packages/acme.pkg").status_code == 200
+        changed = textwrap.dedent(PLUGIN.format(version=7, extra="pass"))
+        assert upload(client, package(2, runtime="inline", source=changed)).status_code == 200
+        assert approve(client, "2.0.0", allow_inline=True).json()["data"]["status"] == "active"
+        assert chosen(client) == 7
+
+
+REGISTRY_IN_INJECT = """
+from movieclaw_sdk import plugin
+from movieclaw_sdk.channels import IM_CHANNELS
+
+
+@plugin("acme.pkg", title="包插件", inject=(IM_CHANNELS,))
+async def apply(ctx) -> None:
+    pass
+"""
+
+
+@pytest.mark.parametrize("runtime", ["process", "inline"])
+def test_registry_written_into_inject_says_how_to_fix(data_dir, runtime) -> None:
+    """把注册表写进 inject：两种运行方式都当场失败，并说清该用 ctx.contribute。"""
+    app, client = start()
+    with client:
+        data = package(1, runtime=runtime, source=REGISTRY_IN_INJECT, operations="")
+        assert upload(client, data).status_code == 200
+        result = approve(client, "1.0.0", operations=(), allow_inline=True).json()["data"]
+        assert result["status"] == "rolled_back"
+        assert "im-channels 是注册表" in result["error"]
+        assert "ctx.contribute" in result["error"]
+
+
+WAITS_FOR_MISSING_SERVICE = """
+from movieclaw_kernel import ServiceKey, Stability
+from movieclaw_sdk import plugin
+
+NEVER = ServiceKey("acme/never-provided", stability=Stability.EXPERIMENTAL)
+
+
+@plugin("acme.pkg", title="包插件", inject=(NEVER,))
+async def apply(ctx) -> None:
+    pass
+"""
+
+
+def test_rollback_names_the_service_a_pending_package_waits_for(data_dir) -> None:
+    app, client = start()
+    with client:
+        data = package(1, runtime="inline", source=WAITS_FOR_MISSING_SERVICE, operations="")
+        assert upload(client, data).status_code == 200
+        result = approve(client, "1.0.0", operations=(), allow_inline=True).json()["data"]
+        assert result["status"] == "rolled_back"
+        assert "acme/never-provided（没有插件提供）" in result["error"]
