@@ -147,6 +147,7 @@ async def _binding_view(hub: ChannelHub, binding_id: str) -> ChannelBindingView:
         message=binding.message,
         pair_code=binding.pair_code,
         qr_image=_qrcode_data_url(binding.qr or ""),
+        qr=binding.qr or "",
         input_label=binding.input_label,
         account=account,
     )

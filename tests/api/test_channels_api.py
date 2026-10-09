@@ -163,6 +163,7 @@ def test_weixin_scan_binding_chat_and_push(app_env) -> None:
         binding = started.json()["data"]
         assert binding["kind"] == "flow"
         assert binding["qr_image"].startswith("data:image/svg+xml;base64,")
+        assert binding["qr"] == "https://weixin.example/qr-1", "原生 App 用二维码内容本地画码"
         binding_id = binding["binding_id"]
 
         def status() -> dict:

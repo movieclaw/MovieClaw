@@ -1,84 +1,9 @@
 import SwiftUI
 
 // IM 推送 →「接入通道」标签（对应 Web `ChannelsTab` + `AddChannelMenu` + `ChannelAccountRowView`）。
-
-/// 全部可接入的通道：微信走扫码，Telegram/Discord 走 bot token + 配对码，飞书贴群机器人 Webhook。
-///
-/// 平台文案集中在这里（Web `CHANNEL_META`，本模块唯一的平台差异落点）：
-/// summary 给「新增通道」菜单，howTo 给绑定弹层顶部，tokenHint 只有需要 bot token 的通道才有。
-enum SettingsBPushChannel: String, CaseIterable, Identifiable {
-    case weixin, telegram, discord, feishu
-
-    var id: String { rawValue }
-
-    var label: String {
-        switch self {
-        case .weixin: "微信"
-        case .telegram: "Telegram"
-        case .discord: "Discord"
-        case .feishu: "飞书"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .weixin: "手机扫码绑定，无需自建机器人"
-        case .telegram: "接入你用 @BotFather 创建的 bot"
-        case .discord: "接入你在开发者后台创建的 bot"
-        case .feishu: "粘贴群机器人 Webhook 地址，即绑即用"
-        }
-    }
-
-    var howTo: String {
-        switch self {
-        case .weixin:
-            "打开手机微信扫描下方二维码。扫码人即唯一可对话的用户，同时也是推送目标。"
-        case .telegram:
-            "在 Telegram 搜索 @BotFather 创建 bot 并复制 token；国内网络请先在「设置 → 网络」为 Telegram 开启代理。"
-        case .discord:
-            "在 discord.com/developers 创建应用 → Bot → Reset Token 复制；国内网络请先在「设置 → 网络」为 Discord 开启代理。"
-        case .feishu:
-            "在飞书群聊「设置 → 群机器人 → 添加机器人」里添加「自定义机器人」，把复制的 Webhook 地址粘贴到下面即可。安全设置建议选「签名校验」，并把密钥一并填入。"
-        }
-    }
-
-    var tokenHint: String {
-        switch self {
-        case .telegram: "从 @BotFather 创建 bot 后获得的 token"
-        case .discord: "Discord 开发者后台 Bot 页面的 token"
-        default: ""
-        }
-    }
-
-    /// 解绑确认框的说明
-    var unbindMessage: String {
-        switch self {
-        case .weixin: "解绑后需重新扫码才能使用。"
-        case .feishu: "解绑后群机器人不再收到推送，需重新粘贴 Webhook 地址。"
-        default: "解绑将删除 bot 凭据并停止通道，需重新配对才能使用。"
-        }
-    }
-
-    /// 绑定成功的 Toast
-    var boundToast: String {
-        self == .feishu ? "\(label) 已接入，去飞书群里看看欢迎消息吧" : "\(label) 已接入，现在就可以给它发消息试试"
-    }
-}
-
-/// 列表行：四个平台的账号归一成同一形状，列表本身不再关心来源差异
-struct SettingsBPushAccountRow: Identifiable {
-    let channel: SettingsBPushChannel
-    let accountId: String
-    /// 完成绑定的用户 id（白名单，同时是推送目标）
-    let boundUserId: String?
-    /// active = 正常；stale = 凭据失效需重新绑定
-    let status: String
-    let running: Bool
-    let lastError: String?
-    let boundAt: String
-
-    var id: String { "\(channel.rawValue):\(accountId)" }
-}
+//
+// 通道来自通道插件（docs/design/plugin-channels.md）：列表、新增菜单、绑定弹层都按 `GET /channels`
+// 返回的通道渲染，不认识具体平台。提供某个通道的插件关掉 / 卸载了，它的账号照常列出、标「插件未启用」。
 
 /// 「接入通道」的全部 Section
 struct SettingsBPushChannelsSections: View {
@@ -86,11 +11,12 @@ struct SettingsBPushChannelsSections: View {
     @Environment(Feedback.self) private var feedback
     @Environment(Router.self) private var router
 
-    @State private var rows: [SettingsBPushAccountRow]?
+    @State private var channels: [API.ChannelView] = []
+    @State private var rows: [API.ChannelAccountView]?
     @State private var error: String?
     @State private var busy = false
     /// 正在绑定的通道（nil = 没开弹层）
-    @State private var binding: SettingsBPushChannel?
+    @State private var binding: API.ChannelView?
     private var probe: LLMCapabilityProbe { .shared }
 
     var body: some View {
@@ -106,7 +32,11 @@ struct SettingsBPushChannelsSections: View {
                 .sheet(item: $binding) { channel in
                     SettingsBPushBindSheet(channel: channel) {
                         binding = nil
-                        feedback.success(channel.boundToast)
+                        feedback.success(
+                            channel.receive
+                                ? "\(channel.title) 已接入，现在就可以给它发消息试试"
+                                : "\(channel.title) 已接入，推送会发到那里"
+                        )
                         Task { await load() }
                     }
                     .sheetFeedback()
@@ -152,7 +82,7 @@ struct SettingsBPushChannelsSections: View {
                 Text(rows == nil ? "加载中…" : rows!.isEmpty ? "还没有接入任何通道。" : "已接入 \(rows!.count) 个账号。")
                     .accessibilityIdentifier("push-channels-count")
                 Spacer()
-                if probe.state != .missing {
+                if !addable.isEmpty {
                     addMenu
                 }
             }
@@ -160,9 +90,14 @@ struct SettingsBPushChannelsSections: View {
         }
     }
 
+    /// 能对话的通道完全由模型驱动：没接模型时菜单里只留只推送的通道
+    private var addable: [API.ChannelView] {
+        channels.filter { probe.state != .missing || !$0.receive }
+    }
+
     private var intro: some View {
         let code: (String) -> Text = { Text(" \($0) ").font(.caption.monospaced()).foregroundStyle(Theme.text) }
-        return Text("接入的通道都是推送目标；微信 / Telegram / Discord 里还能直接和 AI 助手对话：发消息即可搜片、订阅、查进度。发送\(code("/reset"))重置会话，\(code("/stop"))取消正在进行的处理。")
+        return Text("接入的通道都是推送目标；能对话的通道里还能直接和 AI 助手聊：发消息即可搜片、订阅、查进度。发送\(code("/reset"))重置会话，\(code("/stop"))取消正在进行的处理。通道由插件提供，可以在网页的「设置 → 插件」里安装更多通道。")
             .font(.footnote)
             .foregroundStyle(Theme.textMuted)
             .fixedSize(horizontal: false, vertical: true)
@@ -171,14 +106,16 @@ struct SettingsBPushChannelsSections: View {
     /// 「新增通道」菜单：平台名 + 一句话说明，点选即开绑定弹层
     private var addMenu: some View {
         Menu {
-            ForEach(SettingsBPushChannel.allCases) { channel in
+            ForEach(addable) { channel in
                 Button {
                     binding = channel
                 } label: {
-                    Text("新增 \(channel.label) 渠道")
-                    Text(channel.summary)
+                    Text("新增 \(channel.title) 通道")
+                    if !channel.description.isEmpty {
+                        Text(channel.description)
+                    }
                 }
-                .accessibilityIdentifier("push-add-\(channel.rawValue)")
+                .accessibilityIdentifier("push-add-\(channel.id)")
             }
         } label: {
             Label("新增通道", systemImage: "plus")
@@ -197,7 +134,9 @@ struct SettingsBPushChannelsSections: View {
                 .frame(width: 48, height: 48)
                 .background(Color.white.opacity(0.06), in: .rect(cornerRadius: 14))
             Text("还没有接入任何通道").font(.body.weight(.medium))
-            Text("点击右上角「新增通道」，支持微信、Telegram、Discord 和飞书。")
+            Text(channels.isEmpty
+                 ? "没有可用的通道：到网页的「设置 → 插件」看看通道插件是否都关掉了。"
+                 : "点击右上角「新增通道」，支持\(channels.map(\.title).joined(separator: "、"))。")
                 .font(.footnote)
                 .foregroundStyle(Theme.textMuted)
                 .multilineTextAlignment(.center)
@@ -208,15 +147,21 @@ struct SettingsBPushChannelsSections: View {
     }
 
     /// 一行已接入账号：平台名 + 运行状态 + 绑定人 / 失效原因 + 解绑
-    private func accountRow(_ row: SettingsBPushAccountRow) -> some View {
-        let badge: (text: String, tone: SettingsBTone) = row.status == "stale"
-            ? ("需重新绑定", .danger)
-            : row.running ? ("运行中", .ok) : ("未运行", .neutral)
-        let detail: String = row.status == "stale"
-            ? (row.lastError ?? "凭据已失效，请重新绑定")
-            : row.channel == .feishu
-                ? "群机器人 · 绑定于 \(SettingsBFormat.relative(row.boundAt))"
-                : "\(row.boundUserId ?? row.accountId) · 绑定于 \(SettingsBFormat.relative(row.boundAt))"
+    private func title(of row: API.ChannelAccountView) -> String {
+        channels.first { $0.id == row.channelId }?.title ?? row.channelId
+    }
+
+    private func accountRow(_ row: API.ChannelAccountView) -> some View {
+        let badge: (text: String, tone: SettingsBTone) = !row.channelAvailable
+            ? ("插件未启用", .neutral)
+            : row.status == "stale"
+                ? ("需重新绑定", .danger)
+                : row.running ? ("运行中", .ok) : ("未运行", .neutral)
+        let detail: String = !row.channelAvailable
+            ? "提供这个通道的插件已关闭或卸载，账号保留，重新启用后自动恢复"
+            : row.status == "stale"
+                ? (row.lastError ?? "凭据已失效，请重新绑定")
+                : "\(row.boundUserId ?? row.displayName) · 绑定于 \(SettingsBFormat.relative(row.boundAt))"
         return HStack(spacing: 12) {
             Image(systemName: "bubble.left.and.text.bubble.right")
                 .font(.body)
@@ -225,7 +170,7 @@ struct SettingsBPushChannelsSections: View {
                 .background(Color.white.opacity(0.06), in: .rect(cornerRadius: 11))
             VStack(alignment: .leading, spacing: 3) {
                 HStack(spacing: 8) {
-                    Text(row.channel.label).font(.body.weight(.semibold)).lineLimit(1)
+                    Text(title(of: row)).font(.body.weight(.semibold)).lineLimit(1)
                     HStack(spacing: 5) {
                         SettingsBDot(tone: badge.tone, size: 6)
                         Text(badge.text)
@@ -250,44 +195,35 @@ struct SettingsBPushChannelsSections: View {
             .foregroundStyle(Theme.danger)
             .buttonStyle(.glass)
             .disabled(busy)
-            .accessibilityIdentifier("push-unbind-\(row.channel.rawValue)-\(row.accountId)")
+            .accessibilityIdentifier("push-unbind-\(row.channelId)-\(row.accountId)")
         }
         .padding(.vertical, 4)
-        .accessibilityIdentifier("push-account-\(row.channel.rawValue)-\(row.accountId)")
+        .accessibilityIdentifier("push-account-\(row.channelId)-\(row.accountId)")
     }
 
     // MARK: 数据
 
     private func load() async {
         do {
-            // 各平台同源同后端，任一失败都视作整体失败：与其展示半张列表让用户误以为
-            // 「某个通道掉了」，不如明确报错让他重试（同 Web）
-            async let weixin = api.channelsWeixinAccountsList()
-            async let telegram = api.channelsImAccountsList(channel: "telegram")
-            async let discord = api.channelsImAccountsList(channel: "discord")
-            async let feishu = api.channelsImAccountsList(channel: "feishu")
-            let (wx, tg, dc, fs) = try await (weixin, telegram, discord, feishu)
+            let data = try await api.channelsList()
             error = nil
-            rows = wx.map {
-                SettingsBPushAccountRow(channel: .weixin, accountId: $0.accountId, boundUserId: $0.boundUserId,
-                                        status: $0.status, running: $0.running, lastError: $0.lastError, boundAt: $0.boundAt)
-            } + [(SettingsBPushChannel.telegram, tg), (.discord, dc), (.feishu, fs)].flatMap { channel, list in
-                list.map {
-                    SettingsBPushAccountRow(channel: channel, accountId: $0.accountId, boundUserId: $0.boundUserId,
-                                            status: $0.status, running: $0.running, lastError: $0.lastError, boundAt: $0.boundAt)
-                }
-            }
+            channels = data.channels
+            rows = data.accounts
         } catch is CancellationError {
+        } catch let failure as APIError where failure.status == 404 {
+            // 服务器还没有通用的通道接口（插件化之前的版本）
+            error = "服务器版本较旧，升级 MovieClaw 后即可在这里管理通道。"
+            rows = []
         } catch {
             self.error = error.localizedDescription
             rows = []
         }
     }
 
-    private func unbind(_ row: SettingsBPushAccountRow) async {
+    private func unbind(_ row: API.ChannelAccountView) async {
         guard await feedback.confirm(
-            "解绑该 \(row.channel.label) 账号？",
-            message: row.channel.unbindMessage,
+            "解绑该 \(title(of: row)) 账号？",
+            message: "解绑后停止收发、删除凭据，需要重新绑定才能使用；历史对话保留。",
             confirmTitle: "解绑",
             destructive: true
         ) else { return }
@@ -295,11 +231,7 @@ struct SettingsBPushChannelsSections: View {
         error = nil
         defer { busy = false }
         do {
-            if row.channel == .weixin {
-                _ = try await api.channelsWeixinAccountsUnbind(accountId: row.accountId)
-            } else {
-                _ = try await api.channelsImAccountsUnbind(channel: row.channel.rawValue, accountId: row.accountId)
-            }
+            _ = try await api.channelsAccountsUnbind(channelId: row.channelId, accountId: row.accountId)
             await load()
         } catch {
             self.error = error.localizedDescription

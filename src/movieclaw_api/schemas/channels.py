@@ -84,6 +84,8 @@ class ChannelBindingView(BaseModel):
     pair_code: str
     #: 要扫的二维码（SVG data URL）；二维码会中途刷新，每次轮询都以此为准
     qr_image: str
+    #: 二维码内容（原生 App 用系统能力本地画码）；没有二维码时为空串
+    qr: str = ""
     #: need_input 时输入框的说明
     input_label: str | None
     account: ChannelAccountView | None = None

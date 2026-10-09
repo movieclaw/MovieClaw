@@ -81,6 +81,8 @@ export interface ChannelBinding {
   pair_code: string;
   /** 要扫的二维码（SVG data URL），会中途刷新 */
   qr_image: string;
+  /** 二维码内容（原生 App 本地画码用）；旧服务端没有这个字段 */
+  qr?: string;
   input_label: string | null;
   account: ChannelAccount | null;
 }

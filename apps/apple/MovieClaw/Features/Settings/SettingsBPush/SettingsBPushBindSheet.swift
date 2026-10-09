@@ -1,32 +1,39 @@
 import CoreImage.CIFilterBuiltins
 import SwiftUI
 
-/// 「接入通道」绑定弹层（对应 Web `channel-bind-dialog.tsx`）——四个平台共用一层壳。
+/// 「接入通道」绑定弹层（对应 Web `channel-bind-dialog.tsx`）——所有通道共用一层壳。
 ///
-/// 为什么收进弹层：绑定是一次性动作（拿到二维码 / 配对码 → 去客户端确认 → 完成），
-/// 设置页的常态是「看看已经接好了哪些」；只有点「新增通道」才进入这层，绑定成功即关闭并刷新列表。
-///
-/// 流程差异只落在 body 上，外壳（标题 / 指引 / 关闭）一致；各 body 直接产出表单分组，
-/// 轮询 / 自动出码这类副作用只挂在一个常驻行上——列表会把修饰符分发给每一行，挂在整段上会变成多份：
-/// - 微信：进弹层即请求二维码 → 扫码 →（可能）填手机上的配对码 → 完成；
-/// - Telegram / Discord：先填 bot token → 拿 6 位配对码 → 私聊 bot 发码 → 完成；
-/// - 飞书：粘贴群机器人 Webhook 地址 → 服务端发欢迎消息验真 → 即绑即用（无轮询）。
-/// 前两者靠 2 秒一次的状态轮询推进（后端只读内存快照，毫秒级返回），与 Web 同一间隔。
+/// 通道是插件（docs/design/plugin-channels.md §5.2），弹层不认识任何具体平台：按通道声明的
+/// 绑定方式通用渲染。
+/// - 交互式（flow，如微信扫码）：进弹层即发起 → 二维码与状态 → 需要时填输入框（微信手机上显示的
+///   配对数字）→ 完成；
+/// - 表单（form）：按字段渲染输入框 → 提交。带配对码的（Telegram / Discord）显示 6 位码，用户私聊
+///   bot 发码后完成；不带配对的（飞书 Webhook）提交即完成。
+/// 未完成的状态靠 2 秒一次的轮询推进（后端只读内存快照，毫秒级返回），与 Web 同一间隔。
+/// 轮询 / 自动发起这类副作用只挂在一个常驻行上——列表会把修饰符分发给每一行，挂在整段上会变成多份。
 struct SettingsBPushBindSheet: View {
-    let channel: SettingsBPushChannel
+    let channel: API.ChannelView
     /// 绑定完成：由调用方负责关闭弹层并刷新通道列表
     let onBound: () -> Void
 
     var body: some View {
-        SubsSheetScaffold(title: "接入 \(channel.label)", subtitle: channel.howTo, closeTitle: "关闭") {
-            switch channel {
-            case .weixin: SettingsBPushWeixinBody(onBound: onBound)
-            case .feishu: SettingsBPushFeishuBody(onBound: onBound)
-            case .telegram, .discord: SettingsBPushTokenBody(channel: channel, onBound: onBound)
+        SubsSheetScaffold(
+            title: "接入 \(channel.title)",
+            subtitle: channel.binding.hint.isEmpty ? channel.description : channel.binding.hint,
+            closeTitle: "关闭"
+        ) {
+            if channel.binding.kind == "flow" {
+                SettingsBPushFlowBody(channel: channel, onBound: onBound)
+            } else {
+                SettingsBPushFormBody(channel: channel, onBound: onBound)
             }
         }
     }
 }
+
+/// 绑定已完成（交给调用方关弹层）/ 失败需重来
+private let doneStatuses: Set<String> = ["confirmed", "already_bound"]
+private let failedStatuses: Set<String> = ["expired", "failed"]
 
 // MARK: - 共用小件
 
@@ -64,8 +71,8 @@ private struct SettingsBPushInput: View {
 
 /// 本地生成二维码。
 ///
-/// Web 直接显示服务端渲染好的 SVG data URL（`qrcode_image`），iOS 没有现成的 SVG 渲染，
-/// 于是用 CoreImage 把二维码内容（`qrcode_url`，即 SVG 编码的同一串）本地画出来，
+/// Web 直接显示服务端渲染好的 SVG data URL（`qr_image`），iOS 没有现成的 SVG 渲染，
+/// 于是用 CoreImage 把二维码内容（`qr`，即 SVG 编码的同一串）本地画出来，
 /// 最近邻放大保证边缘锐利。
 enum SettingsBPushQRCode {
     static func image(for content: String) -> UIImage? {
@@ -79,27 +86,27 @@ enum SettingsBPushQRCode {
     }
 }
 
-// MARK: - 微信：扫码 + 可选配对码
+// MARK: - 交互式：二维码 + 可选输入
 
-private struct SettingsBPushWeixinBody: View {
+private struct SettingsBPushFlowBody: View {
+    let channel: API.ChannelView
     let onBound: () -> Void
 
     @Environment(\.api) private var api
-    @State private var binding: API.WeixinBindingStatusView?
+    @State private var binding: API.ChannelBindingView?
     @State private var qrImage: UIImage?
-    @State private var verifyCode = ""
+    @State private var value = ""
     @State private var error: String?
     @State private var busy = false
-    /// 进弹层即出码只自动发起一次；失败 / 过期后由用户点按钮重来，不无限重试
+    /// 进弹层即发起只自动一次；失败 / 过期后由用户点按钮重来，不无限重试
     @State private var autoStarted = false
-    @FocusState private var codeFocused: Bool
+    @FocusState private var inputFocused: Bool
 
+    private var failed: Bool { binding.map { failedStatuses.contains($0.status) } ?? false }
     private var polling: Bool {
         guard let status = binding?.status else { return false }
-        return status == "pending" || status == "scanned" || status == "need_verify_code"
+        return !doneStatuses.contains(status) && !failedStatuses.contains(status)
     }
-
-    private var terminal: Bool { binding?.status == "expired" || binding?.status == "failed" }
 
     var body: some View {
         if let error {
@@ -116,27 +123,26 @@ private struct SettingsBPushWeixinBody: View {
                 }
                 .polling(every: 2) { await poll() }
         }
-        // 微信要求补填手机上显示的配对码时才出现
-        if binding?.status == "need_verify_code" {
+        if binding?.status == "need_input" {
             SettingsFormSection {
                 HStack(spacing: 8) {
                     SettingsBPushInput(
-                        placeholder: "手机微信上显示的数字",
-                        text: $verifyCode,
+                        placeholder: binding?.inputLabel ?? "请输入",
+                        text: $value,
                         keyboard: .numberPad,
-                        identifier: "push-weixin-verify-code",
-                        onSubmit: { Task { await submitVerify() } }
+                        identifier: "push-flow-input",
+                        onSubmit: { Task { await submit() } }
                     )
-                    .focused($codeFocused)
-                    Button("确认") { Task { await submitVerify() } }
+                    .focused($inputFocused)
+                    Button("确认") { Task { await submit() } }
                         .font(.subheadline.weight(.semibold))
                         .discoverProminentButton()
-                        .disabled(busy || verifyCode.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityIdentifier("push-weixin-verify-submit")
+                        .disabled(busy || value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityIdentifier("push-flow-submit")
                 }
-                .onAppear { codeFocused = true }
+                .onAppear { inputFocused = true }
             } header: {
-                Text("配对码")
+                Text("还差一步")
             }
         }
     }
@@ -146,7 +152,7 @@ private struct SettingsBPushWeixinBody: View {
         VStack(spacing: 0) {
             if let binding {
                 SettingsBPushStatusCard {
-                    if !terminal {
+                    if !failed, !binding.qr.isEmpty {
                         Group {
                             if let qrImage {
                                 Image(uiImage: qrImage)
@@ -160,21 +166,23 @@ private struct SettingsBPushWeixinBody: View {
                         .frame(width: 176, height: 176)
                         .padding(12)
                         .background(.white, in: .rect(cornerRadius: 16))
-                        .accessibilityLabel("微信绑定二维码")
-                        .accessibilityIdentifier("push-weixin-qrcode")
+                        .accessibilityLabel("\(channel.title)绑定二维码")
+                        .accessibilityIdentifier("push-flow-qrcode")
                     }
                     VStack(spacing: 4) {
-                        Text(binding.status == "scanned" ? "已扫码" : terminal ? "绑定未完成" : "等待扫码")
+                        Text(failed ? "绑定未完成"
+                             : binding.status == "pending" ? "等待扫码"
+                             : binding.status == "need_input" ? "还差一步" : "已扫码")
                             .font(.body.weight(.medium))
-                            .accessibilityIdentifier("push-weixin-status")
+                            .accessibilityIdentifier("push-flow-status")
                         Text(binding.message).font(.subheadline).foregroundStyle(Theme.textMuted)
                     }
-                    if terminal {
-                        Button("重新生成二维码") { Task { await begin() } }
+                    if failed {
+                        Button("重新发起") { Task { await begin() } }
                             .font(.subheadline.weight(.semibold))
                             .discoverProminentButton()
                             .disabled(busy)
-                            .accessibilityIdentifier("push-weixin-regenerate")
+                            .accessibilityIdentifier("push-flow-restart")
                     }
                 }
             } else if busy {
@@ -182,32 +190,33 @@ private struct SettingsBPushWeixinBody: View {
             } else {
                 // 发起失败（网关不可达等）：留一个手动重试入口
                 SettingsBPushStatusCard {
-                    Text("二维码没能生成").font(.body.weight(.medium))
+                    Text("没能发起绑定").font(.body.weight(.medium))
                     Button("重试") { Task { await begin() } }
                         .font(.subheadline.weight(.semibold))
                         .discoverProminentButton()
-                        .accessibilityIdentifier("push-weixin-retry")
+                        .accessibilityIdentifier("push-flow-retry")
                 }
             }
         }
     }
 
+    private func show(_ next: API.ChannelBindingView) {
+        // 二维码会中途刷新：内容变了才重画
+        if next.qr != binding?.qr {
+            qrImage = SettingsBPushQRCode.image(for: next.qr)
+        }
+        binding = next
+    }
+
     private func begin() async {
         error = nil
-        verifyCode = ""
+        value = ""
         busy = true
         defer { busy = false }
         do {
-            let start = try await api.channelsWeixinBindingsStart()
-            binding = API.WeixinBindingStatusView(
-                challengeId: start.challengeId,
-                status: "pending",
-                message: start.message,
-                qrcodeUrl: start.qrcodeUrl,
-                qrcodeImage: start.qrcodeImage,
-                account: nil
-            )
-            qrImage = SettingsBPushQRCode.image(for: start.qrcodeUrl)
+            let started = try await api.channelsBindingsStart(body: .init(channelId: channel.id, fields: [:]))
+            if doneStatuses.contains(started.status) { onBound(); return }
+            show(started)
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription
@@ -216,51 +225,48 @@ private struct SettingsBPushWeixinBody: View {
 
     private func poll() async {
         guard polling, let current = binding else { return }
-        // 轮询失败静默重试（challenge 过期由状态自己表达）
-        guard let snap = try? await api.channelsWeixinBindingsStatus(challengeId: current.challengeId) else { return }
-        if snap.status == "confirmed" || snap.status == "already_bound" {
-            onBound()
-            return
-        }
-        // 二维码过期后服务端会换新码：内容变了才重画
-        if snap.qrcodeUrl != binding?.qrcodeUrl {
-            qrImage = SettingsBPushQRCode.image(for: snap.qrcodeUrl)
-        }
-        binding = snap
+        // 轮询失败静默重试（过期由状态自己表达）
+        guard let snap = try? await api.channelsBindingsStatus(bindingId: current.bindingId) else { return }
+        if doneStatuses.contains(snap.status) { onBound(); return }
+        show(snap)
     }
 
-    private func submitVerify() async {
-        let code = verifyCode.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let current = binding, !code.isEmpty else { return }
+    private func submit() async {
+        let text = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let current = binding, !text.isEmpty else { return }
         busy = true
         error = nil
         defer { busy = false }
         do {
-            _ = try await api.channelsWeixinBindingsVerify(challengeId: current.challengeId, body: .init(code: code))
-            verifyCode = ""
-            // 提交后先把本地状态推回 scanned，等下一次轮询的服务端判定
-            var next = current
-            next.status = "scanned"
-            next.message = "正在校验配对码…"
-            binding = next
+            let next = try await api.channelsBindingsInput(bindingId: current.bindingId, body: .init(value: text))
+            value = ""
+            if doneStatuses.contains(next.status) { onBound(); return }
+            show(next)
         } catch {
             self.error = error.localizedDescription
         }
     }
 }
 
-// MARK: - 飞书：Webhook 地址即绑即用
+// MARK: - 表单：字段 +（可选）配对码
 
-private struct SettingsBPushFeishuBody: View {
+private struct SettingsBPushFormBody: View {
+    let channel: API.ChannelView
     let onBound: () -> Void
 
     @Environment(\.api) private var api
-    @State private var webhookUrl = ""
-    @State private var secret = ""
+    @State private var values: [String: String] = [:]
+    @State private var binding: API.ChannelBindingView?
     @State private var error: String?
     @State private var busy = false
 
-    private var canSubmit: Bool { !busy && !webhookUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+    private var fields: [API.ChannelFieldView] { channel.binding.fields }
+    private var pairing: Bool { channel.binding.pairing == "code" }
+    private var ready: Bool {
+        !busy && fields.allSatisfy { field in
+            !field.required || !(values[field.key] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+    }
 
     var body: some View {
         if let error {
@@ -268,137 +274,98 @@ private struct SettingsBPushFeishuBody: View {
                 SubsNoticeRow(text: error, tone: .error).accessibilityIdentifier("push-bind-error")
             }
         }
-        SettingsFormSection {
-            SettingsBPushInput(
-                placeholder: "https://open.feishu.cn/open-apis/bot/v2/hook/…",
-                text: $webhookUrl,
-                keyboard: .URL,
-                identifier: "push-feishu-webhook",
-                onSubmit: { Task { await bind() } }
-            )
-            // 确认键挂在导航栏右上角（与其它表单弹层一致）；只挂在这一行上，避免分发成多份
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    if busy {
-                        ProgressView().accessibilityLabel("接入中")
-                    } else {
-                        Button("完成接入", systemImage: "checkmark", role: .confirm) { Task { await bind() } }
-                            .discoverProminentButton()
-                            .disabled(!canSubmit)
-                            .accessibilityIdentifier("push-feishu-submit")
-                    }
-                }
-            }
-            SettingsBPushInput(
-                placeholder: "签名密钥（未开启签名校验可留空）",
-                text: $secret,
-                identifier: "push-feishu-secret",
-                onSubmit: { Task { await bind() } }
-            )
-        } footer: {
-            Text("接入成功会立即向群里发一条欢迎消息，收到即说明通道可用。安全设置若选了「自定义关键词」，推送文案需包含该关键词才会送达，建议改用「签名校验」。")
-        }
-    }
-
-    private func bind() async {
-        let url = webhookUrl.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !busy, !url.isEmpty else { return }
-        busy = true
-        error = nil
-        defer { busy = false }
-        do {
-            _ = try await api.channelsImFeishuBind(body: .init(webhookUrl: url, secret: secret.trimmingCharacters(in: .whitespacesAndNewlines)))
-            onBound()
-        } catch {
-            self.error = error.localizedDescription
-        }
-    }
-}
-
-// MARK: - Telegram / Discord：bot token + 配对码
-
-private struct SettingsBPushTokenBody: View {
-    let channel: SettingsBPushChannel
-    let onBound: () -> Void
-
-    @Environment(\.api) private var api
-    @State private var token = ""
-    @State private var binding: API.ImBindingView?
-    @State private var error: String?
-    @State private var busy = false
-
-    private var canSubmit: Bool { !busy && !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
-
-    var body: some View {
-        if let error {
+        if let binding {
             SettingsFormSection {
-                SubsNoticeRow(text: error, tone: .error).accessibilityIdentifier("push-bind-error")
+                pairingRow(binding).polling(every: 2) { await poll() }
             }
-        }
-        SettingsFormSection {
-            mainRow.polling(every: 2) { await poll() }
+        } else {
+            ForEach(Array(fields.enumerated()), id: \.element.key) { index, field in
+                SettingsFormSection {
+                    fieldRow(field, first: index == 0)
+                } header: {
+                    Text(field.required ? field.label : "\(field.label)（选填）")
+                } footer: {
+                    if !field.help.isEmpty { Text(field.help) }
+                }
+            }
         }
     }
 
-    /// 输入 bot token → 拿到配对码后换成配对状态；常驻一行，轮询挂在这里
-    private var mainRow: some View {
-        VStack(spacing: 0) {
-            if let binding {
-                SettingsBPushStatusCard {
-                    if binding.status == "pending" {
-                        Text("私聊 @\(binding.botName) 发送配对码").font(.body.weight(.medium))
-                        Text(binding.pairCode)
-                            .font(.system(size: 32, weight: .bold, design: .monospaced))
-                            .tracking(9)
-                            .foregroundStyle(Theme.accent)
-                            .textSelection(.enabled)
-                            .accessibilityIdentifier("push-pair-code")
-                        Text("10 分钟内有效 · 发码人将成为唯一可对话的用户与推送目标")
-                            .font(.footnote)
-                            .foregroundStyle(Theme.textMuted)
-                    } else {
-                        Text("绑定未完成").font(.body.weight(.medium))
-                        Text(binding.message).font(.subheadline).foregroundStyle(Theme.textMuted)
-                        Button("重新发起") { self.binding = nil }
-                            .font(.subheadline.weight(.semibold))
-                            .discoverProminentButton()
-                            .accessibilityIdentifier("push-token-restart")
-                    }
-                }
+    @ViewBuilder
+    private func fieldRow(_ field: API.ChannelFieldView, first: Bool) -> some View {
+        let text = Binding(
+            mcGet: { values[field.key] ?? "" },
+            set: { values[field.key] = $0 }
+        )
+        Group {
+            if field.secret {
+                SecureField(field.placeholder, text: text)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .onSubmit { Task { await start() } }
             } else {
                 SettingsBPushInput(
-                    placeholder: channel.tokenHint,
-                    text: $token,
-                    mono: true,
-                    identifier: "push-\(channel.rawValue)-token",
+                    placeholder: field.placeholder,
+                    text: text,
+                    identifier: "push-field-\(field.key)",
                     onSubmit: { Task { await start() } }
                 )
             }
         }
+        .accessibilityIdentifier("push-field-\(field.key)")
         .toolbar {
-            if binding == nil {
+            // 确认键挂在导航栏右上角（与其它表单弹层一致）；只挂在第一行上，避免分发成多份
+            if first, binding == nil {
                 ToolbarItem(placement: .confirmationAction) {
                     if busy {
                         ProgressView().accessibilityLabel("校验中")
                     } else {
-                        Button("获取配对码", systemImage: "checkmark", role: .confirm) { Task { await start() } }
-                            .discoverProminentButton()
-                            .disabled(!canSubmit)
-                            .accessibilityIdentifier("push-token-submit")
+                        Button(pairing ? "获取配对码" : "完成接入", systemImage: "checkmark", role: .confirm) {
+                            Task { await start() }
+                        }
+                        .discoverProminentButton()
+                        .disabled(!ready)
+                        .accessibilityIdentifier("push-form-submit")
                     }
                 }
+            }
+        }
+    }
+
+    private func pairingRow(_ binding: API.ChannelBindingView) -> some View {
+        SettingsBPushStatusCard {
+            if binding.status == "pending" {
+                Text(binding.message).font(.body.weight(.medium))
+                Text(binding.pairCode)
+                    .font(.system(size: 32, weight: .bold, design: .monospaced))
+                    .tracking(9)
+                    .foregroundStyle(Theme.accent)
+                    .textSelection(.enabled)
+                    .accessibilityIdentifier("push-pair-code")
+                Text("10 分钟内有效 · 发码人将成为唯一可对话的用户与推送目标")
+                    .font(.footnote)
+                    .foregroundStyle(Theme.textMuted)
+            } else {
+                Text("绑定未完成").font(.body.weight(.medium))
+                Text(binding.message).font(.subheadline).foregroundStyle(Theme.textMuted)
+                Button("重新发起") { self.binding = nil }
+                    .font(.subheadline.weight(.semibold))
+                    .discoverProminentButton()
+                    .accessibilityIdentifier("push-form-restart")
             }
         }
     }
 
     private func start() async {
-        let value = token.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !busy, !value.isEmpty else { return }
+        guard ready else { return }
         busy = true
         error = nil
         defer { busy = false }
+        let trimmed = values.mapValues { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
         do {
-            binding = try await api.channelsImBindingsStart(channel: channel.rawValue, body: .init(token: value))
+            let next = try await api.channelsBindingsStart(body: .init(channelId: channel.id, fields: trimmed))
+            if doneStatuses.contains(next.status) { onBound(); return }
+            binding = next
         } catch {
             self.error = error.localizedDescription
         }
@@ -407,11 +374,8 @@ private struct SettingsBPushTokenBody: View {
     private func poll() async {
         guard let current = binding, current.status == "pending" else { return }
         // 轮询失败静默重试（过期由状态自己表达）
-        guard let snap = try? await api.channelsImBindingsStatus(channel: channel.rawValue, challengeId: current.challengeId) else { return }
-        if snap.status == "confirmed" {
-            onBound()
-            return
-        }
+        guard let snap = try? await api.channelsBindingsStatus(bindingId: current.bindingId) else { return }
+        if doneStatuses.contains(snap.status) { onBound(); return }
         binding = snap
     }
 }

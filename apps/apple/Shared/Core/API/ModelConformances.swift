@@ -25,3 +25,9 @@ nonisolated extension API.JobView: Identifiable {}
 
 // 设置（成员）
 nonisolated extension API.MemberView: Identifiable {}
+
+// 设置（IM 推送：通道来自通道插件，按接口渲染）
+nonisolated extension API.ChannelView: Identifiable {}
+nonisolated extension API.ChannelAccountView: Identifiable {
+    var id: String { "\(channelId)\u{0}\(accountId)" }
+}

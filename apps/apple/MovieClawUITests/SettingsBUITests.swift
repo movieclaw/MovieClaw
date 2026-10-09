@@ -340,6 +340,30 @@ final class SettingsBUITests: XCTestCase {
         snapshot("消息推送-推送内容")
     }
 
+    /// IM 推送的通道来自通道插件：新增菜单按接口列出通道，表单 / 扫码弹层按通道声明的绑定方式渲染。
+    /// 只打开弹层看渲染，不提交（不会真的绑定任何账号）。
+    @MainActor
+    func testPushChannelsRenderFromPlugins() throws {
+        try launch(route: "/settings/im-push")
+        XCTAssertTrue(app.descendants(matching: .any)["push-channels-count"].waitForExistence(timeout: 30), "应显示已接入账号数")
+        tap(app.buttons["push-add-channel"], "新增通道")
+        for channel in ["weixin", "telegram", "discord", "feishu"] {
+            XCTAssertTrue(app.buttons["push-add-\(channel)"].waitForExistence(timeout: 10), "菜单应列出通道 \(channel)")
+        }
+        snapshot("IM 推送-新增菜单")
+        tap(app.buttons["push-add-telegram"], "新增 Telegram")
+        XCTAssertTrue(app.descendants(matching: .any)["push-field-token"].waitForExistence(timeout: 10), "Telegram 表单应有 token 字段")
+        XCTAssertTrue(app.buttons["push-form-submit"].exists, "表单应有提交键（不点）")
+        snapshot("IM 推送-Telegram 表单")
+        tap(app.buttons["sheet-close"], "关闭 Telegram 弹层")
+
+        tap(app.buttons["push-add-channel"], "新增通道")
+        tap(app.buttons["push-add-weixin"], "新增微信")
+        XCTAssertTrue(app.descendants(matching: .any)["push-flow-qrcode"].waitForExistence(timeout: 30), "微信弹层应显示二维码")
+        snapshot("IM 推送-微信扫码")
+        tap(app.buttons["sheet-close"], "关闭微信弹层")
+    }
+
     @MainActor
     func testLLMAndMCPBrowse() throws {
         try launch(route: "/settings/llm")
