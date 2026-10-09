@@ -32,13 +32,13 @@ async def apply(ctx: Context) -> None:
     store = ctx.use(PLUGIN_DATA).scoped(ctx)
 
     async def on_imported(event: IngestImported) -> None:
-        delivery = ctx.delivery                       # 本次投递的信息
-        key = f"seen:{delivery.event_id}" if delivery else None
-        if key and await store.get(key):              # 至少投递一次：按事件 id 去重
+        event_id = ctx.delivery.event_id if ctx.delivery else None   # 本次投递的事件 id
+        seen = await store.get("seen", default=[])
+        if event_id in seen:                          # 至少投递一次：按事件 id 去重
             return
         ctx.logger.info("《%s》入库了 %d 个文件", event.media.title, len(event.files))
-        if key:
-            await store.set(key, True)
+        if event_id:
+            await store.set("seen", [event_id, *seen][:500])   # 只留最近的，别每个事件一个键越攒越多
 
     ctx.on(LIBRARY_INGEST_IMPORTED, on_imported, id="after-import")   # 稳定 id：改了会丢进度
 ```

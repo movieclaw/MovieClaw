@@ -112,6 +112,25 @@ def test_contracts_script_lists_the_whole_surface(tmp_path) -> None:
     assert "class IngestImported" in detail.stdout
 
 
+def test_check_script_accepts_declared_contracts(tmp_path) -> None:
+    """清单 [requires] 写了开放契约：检查通过（契约目录要先加载，不能误报「未知契约」）。"""
+    made = _run(
+        "new_plugin.py", "plugins/me.ok", "--id", "me.ok", "--title", "好插件", cwd=tmp_path
+    )
+    assert made.returncode == 0, made.stdout + made.stderr
+    manifest = tmp_path / "plugins" / "me.ok" / "movieclaw-plugin.toml"
+    manifest.write_text(
+        manifest.read_text("utf-8").replace(
+            '# "library.ingest.imported" = "^1.0"',
+            '"library.ingest.imported" = "^1.0"\n"plugin-routes" = "^1.0"',
+        ),
+        "utf-8",
+    )
+    checked = _run("check_plugin.py", "plugins/me.ok", cwd=tmp_path)
+    assert checked.returncode == 0, checked.stdout + checked.stderr
+    assert "未知契约" not in checked.stdout
+
+
 def test_check_script_catches_typical_mistakes(tmp_path) -> None:
     made = _run(
         "new_plugin.py", "plugins/me.bad", "--id", "me.bad", "--title", "坏插件", cwd=tmp_path

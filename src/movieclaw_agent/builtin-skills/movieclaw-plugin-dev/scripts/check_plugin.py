@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import importlib
 import io
 import json
 import os
@@ -153,6 +154,11 @@ def main(argv: list[str]) -> int:
         check_compat,
         read_archive,
     )
+    from movieclaw_sdk.surface import MODULES
+
+    # 契约在定义它的模块被导入时才登记进目录；先全部导入，否则 [requires] 会被误报为「未知契约」
+    for module_name in MODULES:
+        importlib.import_module(module_name)
 
     # 1. 清单与压缩包
     data = pack(directory)
