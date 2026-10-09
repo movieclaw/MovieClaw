@@ -398,11 +398,17 @@ def test_process_plugin_contributes_job_handlers_steps_and_site_packs(tmp_path, 
 
 ROUTES_PLUGIN = """
 import os
+from typing import Annotated
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
+from pydantic import BaseModel, Field
 
 from movieclaw_api.plugins.keys import PLUGIN_ROUTES
 from movieclaw_sdk import plugin
+
+
+class Settings(BaseModel):
+    place: str | None = Field(default=None, description="默认地点")
 
 
 @plugin("acme.web", title="插件接口", inject=(PLUGIN_ROUTES,))
@@ -413,6 +419,16 @@ async def apply(ctx) -> None:
     @admin.post("/echo/{n}", operation_id="plugins.acme.web.echo")
     async def echo(n: int, body: dict) -> dict:
         return {"n": n, "body": body, "pid": os.getpid()}
+
+    @admin.get("/weather", operation_id="plugins.acme.web.weather")
+    async def weather(
+        place: Annotated[str | None, Query(description="地点")] = None, days: int = 3
+    ) -> dict:
+        return {"place": place, "days": days}
+
+    @admin.post("/settings", operation_id="plugins.acme.web.settings")
+    async def settings(body: Settings) -> dict:
+        return body.model_dump()
 
     public = APIRouter()
 
@@ -457,6 +473,20 @@ def test_process_plugin_routes_are_proxied_with_host_auth(tmp_path, monkeypatch)
             reply = client.post("/api/v1/plugins/acme.web/echo/3", json={"a": 1})
             assert reply.status_code == 200, reply.text
             assert reply.json() == {"n": 3, "body": {"a": 1}, "pid": session.pid}
+            assert client.get(
+                "/api/v1/plugins/acme.web/weather", params={"place": "杭州", "days": 5}
+            ).json() == {"place": "杭州", "days": 5}
+            # 端点的参数与请求体定义进了宿主的接口目录：mclaw 据此生成选项，AI 助手才传得了参
+            paths = app.openapi()["paths"]
+            params = {
+                p["name"]: p for p in paths["/api/v1/plugins/acme.web/weather"]["get"]["parameters"]
+            }
+            assert params["place"]["in"] == "query" and params["place"]["description"] == "地点"
+            assert params["days"]["schema"]["default"] == 3
+            body = paths["/api/v1/plugins/acme.web/settings"]["post"]["requestBody"]
+            schema = body["content"]["application/json"]["schema"]
+            assert "$ref" not in json.dumps(schema)  # 插件的模型不在宿主的 components 里，必须内联
+            assert schema["properties"]["place"]["description"] == "默认地点"
             app.dependency_overrides.clear()
             # 公开区：没签名 404（验签在宿主；签名链接的完整流程见网盘示例的进程外用例）
             assert client.get("/api/v1/plugins/acme.web/blob").status_code == 404

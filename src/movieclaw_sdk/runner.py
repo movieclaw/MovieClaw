@@ -196,6 +196,39 @@ def _contribution(registry: str, item: Any) -> tuple[dict[str, Any], Any]:
     raise NotImplementedError(f"进程外插件暂不能往注册表 {registry} 贡献")
 
 
+def _operations(routes: list[Any]) -> dict[str, dict[str, Any]]:
+    """各路由的参数与请求体定义（引用展开成内联）。
+
+    宿主那边只挂一个通用的转发端点，FastAPI 看不到插件端点的签名；不把定义带过去，
+    接口目录里就没有参数，mclaw 生成不出对应的选项，AI 助手也就传不了参。
+    """
+    from fastapi.openapi.utils import get_openapi
+
+    spec = get_openapi(title="plugin", version="0", routes=routes)
+    schemas = spec.get("components", {}).get("schemas", {})
+
+    def inline(node: Any, depth: int = 0) -> Any:
+        if isinstance(node, list):
+            return [inline(item, depth) for item in node]
+        if not isinstance(node, dict):
+            return node
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/components/schemas/") and depth < 20:
+            return inline(schemas.get(ref.rsplit("/", 1)[1], {}), depth + 1)
+        return {key: inline(value, depth) for key, value in node.items()}
+
+    found: dict[str, dict[str, Any]] = {}
+    for methods in spec.get("paths", {}).values():
+        for operation in methods.values():
+            extra = {
+                key: inline(operation[key])
+                for key in ("description", "parameters", "requestBody")
+                if key in operation
+            }
+            found[operation.get("operationId", "")] = extra
+    return found
+
+
 class _RemotePluginRoutes:
     """插件路由：路由器挂进本进程自己的 ASGI 应用（Unix 套接字）。
 
@@ -209,6 +242,8 @@ class _RemotePluginRoutes:
         from fastapi.routing import APIRoute
 
         prefix = f"/api/v1/plugins/{ctx.entry_id}"
+        api_routes = [route for route in router.routes if isinstance(route, APIRoute)]
+        operations = _operations(api_routes)
         routes = [
             {
                 "path": route.path,
@@ -216,9 +251,9 @@ class _RemotePluginRoutes:
                 "operation_id": route.operation_id,
                 "summary": route.summary,
                 "name": route.name,
+                "openapi": operations.get(route.operation_id) or {},
             }
-            for route in router.routes
-            if isinstance(route, APIRoute)
+            for route in api_routes
         ]
         self._runner.serve_router(router, prefix)
         self._runner.send({"type": "routes", "zone": zone, "routes": routes})

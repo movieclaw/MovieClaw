@@ -648,6 +648,8 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
             summary=route.get("summary"),
             name=route.get("name"),
             response_model=None,
+            # 插件端点的参数 / 请求体定义：进接口目录，mclaw 才有对应的选项
+            openapi_extra=route.get("openapi") or None,
         )
     return router
 
