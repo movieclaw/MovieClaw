@@ -614,8 +614,8 @@ class ChannelHub:
         await self._attach_callback(binding)
         if binding.callback_url:
             binding.message = (
-                f"先把回调地址填到{driver.title}后台，再在{driver.title}上给 "
-                f"@{result.display_name} 发送配对码 {code}"
+                f"先把回调地址填到{driver.title}后台，再在{driver.title}里给"
+                f"「{result.display_name}」发送配对码 {code}"
             )
         self._remember(binding)
         self._spawn(self._pairing_watchdog(binding, temp), "配对超时守护")
