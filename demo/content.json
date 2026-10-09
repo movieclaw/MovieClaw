@@ -21,6 +21,8 @@
   "films": [
     {
       "id": "elephants-dream",
+      "resource_site": true,
+      "imdb_id": "tt0807840",
       "title": "Elephants Dream",
       "year": 2006,
       "tmdb_id": 9761,
@@ -108,8 +110,6 @@
     },
     {
       "id": "spring",
-      "resource_site": true,
-      "imdb_id": "tt9249278",
       "title": "Spring",
       "year": 2019,
       "tmdb_id": 593048,

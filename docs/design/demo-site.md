@@ -225,10 +225,13 @@ SSE 事件流、工具执行、卡片渲染）原样工作：
 
 审核员会试搜索资源、下载、订阅、刷流。演示站接一条**真实运行、但离线**的资源链路：
 
-- **哪些片**：`content.json` 里 `resource_site: true` 的影片（Spring、Charge、Wing It!）不进
+- **哪些片**：`content.json` 里 `resource_site: true` 的影片（Elephants Dream、Charge、Wing It!）不进
   媒体库，由 `fetch_content.py` 整理进媒体根下的种子目录 `_资源站/`，每部一个场景风格命名的
-  文件夹（如 `Spring.2019.1080p.WEB-DL.AAC.H.264-BLENDER/`），内含影片、同名 NFO（带授权
-  署名，入库时随视频一起带走）与 `release.json`；
+  文件夹（如 `Charge.2022.1080p.WEB-DL.AAC.H.264-BLENDER/`），内含影片、同名 NFO（带授权
+  署名，入库时随视频一起带走）与 `release.json`（含 IMDb 编号：资源站把它给出来，订阅匹配
+  才能区分 Charge 与同名同年的 Charge!）。挑片要避开手动下载时认不出来的：Spring 在 TMDB
+  上有两部同名同年的「Spring (2019)」，下载对话框会让审核员在两个一模一样的选项里挑，
+  所以它留在媒体库里；
 - **演示资源站**（`movieclaw_tracker/sites/custom/demo.py`，内置站点类 `demo`）：演示模式
   启动时（插件 `core.demo-site`）给每个文件夹做一枚真实的 v1 私有种子、写目录清单，缓存在
   `data/demo-site/`（文件没变就不重算）。搜索按片名 / 年份匹配目录，列表第一页另带几条按
