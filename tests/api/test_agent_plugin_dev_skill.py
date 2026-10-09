@@ -175,6 +175,28 @@ def test_check_script_catches_typical_mistakes(tmp_path) -> None:
     assert "没有名为 me.bad 的 @plugin" in checked.stdout
 
 
+def test_check_script_rejects_a_registry_in_inject(tmp_path) -> None:
+    """真实会话里出过的错：把 IM_CHANNELS 写进 inject，插件永远等不到这个「服务」。"""
+    made = _run(
+        "new_plugin.py", "plugins/me.chan", "--id", "me.chan", "--title", "通道", cwd=tmp_path
+    )
+    assert made.returncode == 0, made.stdout + made.stderr
+    entry = tmp_path / "plugins" / "me.chan" / "chan.py"
+    source = entry.read_text("utf-8")
+    source = source.replace(
+        "from movieclaw_sdk import Context, plugin",
+        "from movieclaw_sdk import Context, plugin\nfrom movieclaw_sdk.channels import IM_CHANNELS",
+    )
+    source = source.replace(
+        "inject=(PLUGIN_DATA, PLUGIN_ROUTES)", "inject=(PLUGIN_DATA, PLUGIN_ROUTES, IM_CHANNELS)"
+    )
+    entry.write_text(source, "utf-8")
+    checked = _run("check_plugin.py", "plugins/me.chan", cwd=tmp_path)
+    assert checked.returncode == 1
+    # 宿主的 @plugin 也会拦（导入就失败），两种报法都要指明改用 ctx.contribute
+    assert "im-channels" in checked.stdout and "ctx.contribute" in checked.stdout
+
+
 # ---------------------------------------------------------------------- 骨架端到端
 @pytest.fixture
 def data_dir(tmp_path, monkeypatch):

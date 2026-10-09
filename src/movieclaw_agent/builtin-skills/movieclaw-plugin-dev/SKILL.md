@@ -94,7 +94,7 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
    **再自测判断逻辑**：把「该不该处理 / 怎么处理」写成模块顶层的纯函数（如 `verdict(title) -> 原因 | None`），
    在 bash 里 `cd plugins/<id> && python -c "from <模块> import verdict; assert …"` 跑几条**正例和反例**
    （反例 = 看着像但不该命中的，如片名里恰好含这几个字母）。钩子在热路径上、误判会直接影响下载，这步不能省。
-6. **征得用户同意再安装**（第 5 节）。
+6. **征得用户同意再安装**（第 5 节）。问完就结束这一轮、等用户回答；同一轮里提问又接着安装，不算征得同意。
 7. **安装并加载**：`mclaw` 工具执行 `plugin dev plugins/<id> --once`。它会打包（版本自动加 `-dev.<时间戳>`）、
    上传、按清单申请批准、当场加载，成功打印 `✓ … 已加载`。**必须带 `--once`**，否则它会一直监视文件、卡到超时。
 8. **验证**（不验证不算完成）：
@@ -108,6 +108,8 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
      并告诉用户「下次真实发生时会怎样、去哪里看结果」；
    - 日志：`mclaw logs tail --lines 300`，在输出里找插件 id 或它打的日志。**不要加 `-f`**（会一直跟随到超时）。
 9. **迭代**：改代码后重复 5 → 7，每次自动是新的开发版本。
+   **装不上时**：先按报错原文查 `references/troubleshooting.md`。同一个现象连续两次没装上，就停下来向用户报告
+   （报错原文、你的判断、建议的下一步），不要去翻宿主源码、模拟宿主的加载过程。
 10. **正式安装**（用户要长期使用时）：清单里定好正式 `version`，然后
     `plugin pack plugins/<id>` → `app plugins packages upload --file <生成的 .mcplugin>` →
     `app plugins packages approve <id> --version <版本> --operations-json '<与清单一致>' --paths-json '<与清单一致>' --yes`。
@@ -120,7 +122,9 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 
 **必须**
 - 清单 `id` = `@plugin` 名字；`entry` 是模块名（`hello.py` 或 `hello/__init__.py` 的 `hello`）。
-- 用到的服务写进 `inject=(...)`，用到的事件 / 钩子 / 注册表写进清单 `[requires]`（如 `"library.ingest.imported" = "^1.0"`）。
+- `inject=(...)` **只写服务**（`HOST_OPS`、`PLUGIN_DATA`、`PLUGIN_FILES`、`PLUGIN_ROUTES`、`PLUGIN_HEALTH`、`DURABLE_EVENTS`）。
+  注册表（如 `IM_CHANNELS`、`SCHEDULED_TASKS`）在 `apply` 里 `ctx.contribute`，事件 / 钩子用 `ctx.on`，**都不写进 inject**；
+  用到的事件 / 钩子 / 注册表写进清单 `[requires]`（如 `"library.ingest.imported" = "^1.0"`）。
 - 要调用的宿主操作同时写进 `@plugin(permissions=...)` 和清单 `permissions.operations`；
   危险操作（`mclaw` 帮助里带 ⚠ 的）必须逐个列出，不能靠 `领域.*` 覆盖。
 - 可靠事件监听器必须有稳定 `id`（`ctx.on(EVENT, fn, id="xxx")`），并按 `ctx.delivery.event_id` 幂等（至少投递一次）。
@@ -139,6 +143,11 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
   第三方插件会被拒绝，进程外也拿不到。
 - 在 `apply` 里做耗时工作（网络请求、全量扫描）：`apply` 有 30 秒上限，耗时工作放进 `ctx.task`。
 - 修改 `$SRC` 下任何文件、修改本技能目录。插件只写在工作目录的 `plugins/` 下。
+- 自行改成 `runtime = "inline"` 或加 `--allow-inline`。开放的扩展点（含 IM 通道）在独立进程里全部能用；
+  报错看着像在说「只能在主进程里跑」，是你的代码有错（多半是 inject 写错），改代码，不要换运行方式。
+- 重启、停止应用（`app restart` 等）或改服务器上的文件。插件的安装、升级、卸载都不需要重启；
+  服务器上可能有人在播放、下载，重启会打断他们，也会打断你自己。觉得只有重启能解决时，停下来告诉用户。
+- 为了让插件装上而删减用户要的功能（如去掉回调、去掉某种消息）。要删减先说明原因、等用户同意。
 - 使用 `plugin dev` 时不带 `--once`；对不是开发用的服务器反复安装开发版本。
 
 ## 5. 安全与确认

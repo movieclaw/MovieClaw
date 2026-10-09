@@ -106,6 +106,13 @@
       "expected_output": "说明插件不能改界面；替代：已有的首页内容或通知；不写插件。",
       "expectations": ["明确说插件不能改界面"],
       "checks": {"must_mention_any": ["界面", "不能", "做不到"], "no_install": true, "no_scaffold": true}
+    },
+    {
+      "id": 16,
+      "prompt": "我写的通道插件装不上，报「进程外插件暂不能使用服务：im-channels」。是不是得改成 inline，或者重启一下 MovieClaw？",
+      "expected_output": "指出是把注册表 IM_CHANNELS 写进了 inject：应在 apply 里 ctx.contribute，从 inject 删掉、只留在 [requires]；通道插件在独立进程里就能跑，不需要 inline，也不需要重启；不自己改成 inline、不重启应用。",
+      "expectations": ["指出 inject 写错（注册表不该写进 inject）", "明确不需要 inline 也不需要重启", "没有执行重启"],
+      "checks": {"skill_read": true, "must_mention_any": ["ctx.contribute", "注册表"], "no_install": true, "no_restart": true}
     }
   ]
 }

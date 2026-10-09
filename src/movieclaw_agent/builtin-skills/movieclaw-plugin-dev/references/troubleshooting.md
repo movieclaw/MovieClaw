@@ -21,7 +21,7 @@
 | `条目 id … 已被内置插件或本地插件占用` | 换一个 id |
 | `… v<版本> 已经安装` | 同一版本不能重复安装：升 `version`；开发循环 `plugin dev --once` 会自动加后缀 |
 | `批准的宿主操作须与插件申请的完全一致` / `批准的路径授权须与插件申请的完全一致` | `approve` 的 `--operations-json` / `--paths-json` 要和上传返回的申请完全一致 |
-| `这个插件申请在主进程里运行…须单独确认` | `runtime = "inline"`：改回 `process`，或经用户同意后加 `--allow-inline` |
+| `这个插件申请在主进程里运行…须单独确认` | `runtime = "inline"`：改回 `process`。只有用户自己明确要求进程内运行时才加 `--allow-inline` |
 | `plugin dev` 一直不返回 | 没带 `--once`，它在监视文件；中断后带上 `--once` 重来 |
 | `unknown command "plugin"` | 服务器上的 mclaw 太旧，没有开发者命令：改用 `plugin pack` 的等价做法——把目录打成 zip（清单在根部）后 `app plugins packages upload --file`；或请用户升级 MovieClaw |
 
@@ -32,6 +32,9 @@
 | `模块 … 里没有名为 <id> 的插件` | `@plugin("<id>")` 的名字与清单 id 不一致，或 `@plugin` 不在入口模块顶层（不能只在子模块里定义而不导入） |
 | `ModuleNotFoundError` | 依赖没放进 `vendor/`，或用了主程序没有的库；只能用标准库、主程序已有的库（如 `httpx`、`pydantic`、`fastapi`）和 `vendor/` |
 | `没有在 inject 中声明服务 xxx` | `ctx.use(KEY)` 的服务要写进 `@plugin(inject=(KEY,))` |
+| `inject 只能写服务键，xxx 不是服务` | 把注册表 / 事件写进了 inject：注册表用 `ctx.contribute`、事件用 `ctx.on`，从 inject 里删掉 |
+| `进程外插件暂不能使用服务：xxx` | xxx 不是开放给第三方的服务，**或者是注册表被误写进了 inject**（如 `im-channels`）。改代码；**不要因此改成 inline**，开放的扩展点在独立进程里都能用 |
+| `激活后状态为 pending` / `一直在等服务：xxx（没有插件提供）` | inject 里写了一个没人提供的「服务」，几乎都是把注册表写进了 inject；同上处理 |
 | `PermissionError: … 仅供内置插件使用` | 用了内部服务 / 事件，换成开放契约 |
 | `可靠事件 … 的监听器必须有稳定 id` | `ctx.on(EVENT, fn, id="…")` |
 | 启动超时 | `apply` 里做了耗时工作；挪进 `ctx.task(...)` |
@@ -48,6 +51,7 @@
 | 读写文件 `PermissionError` | 路径没在清单 `permissions.paths` 里申请；私有目录用 `files.path("plugin", …)` |
 | 连不上外网 | 没走 `net.http_transport`；或用户的代理规则没覆盖到 |
 | 插件反复崩溃后所有第三方插件都没加载 | 进入了安全模式：修好插件后 `mclaw app plugins safe-mode exit` |
+| 改了代码重装，行为还是旧的 | 旧版本服务器上，进程内（inline）运行的包会沿用第一次导入的代码。用默认的独立进程运行就没有这个问题；**不要为此重启应用**，告诉用户 |
 | `mclaw plugins …` 提示 unknown command | 命令目录还没刷新：先执行一条 mclaw 业务命令（如 `app plugins list`），看到「服务器接口目录已更新」再调；命令由 `operation_id` 按点拆分而来 |
 
 ## 回到干净状态

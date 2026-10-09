@@ -113,7 +113,11 @@ for value in vars(module).values():
                 "name": value.name,
                 "title": value.title,
                 "inject": [
-                    {"name": k.name, "internal": k.stability is Stability.INTERNAL}
+                    {
+                        "name": k.name,
+                        "internal": k.stability is Stability.INTERNAL,
+                        "kind": getattr(k, "kind", ""),
+                    }
                     for k in value.inject
                 ],
                 "permissions": list(value.permissions),
@@ -246,6 +250,11 @@ def main(argv: list[str]) -> int:
         fail(f"入口模块里没有名为 {plugin.id} 的 @plugin（找到：{found}）；@plugin 的名字必须与清单 id 一致")
         return _finish()
     ok(f"找到插件 {match['name']}「{match['title']}」")
+    for key in match["inject"]:
+        if key["kind"] == "registry":
+            fail(f"inject 里写了注册表 {key['name']}：注册表在 apply 里 ctx.contribute(...)，不要写进 inject（只写进清单 [requires]）")
+        elif key["kind"] == "event":
+            fail(f"inject 里写了事件 / 钩子 {key['name']}：在 apply 里 ctx.on(...)，不要写进 inject（只写进清单 [requires]）")
     internal = [k["name"] for k in match["inject"] if k["internal"]]
     if internal:
         fail(f"inject 了内部服务 {'、'.join(internal)}：第三方插件不能用，只能用 contracts.py 列出的服务")
