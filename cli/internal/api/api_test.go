@@ -162,3 +162,17 @@ func TestTokenForPrefersEnv(t *testing.T) {
 		t.Errorf("没用环境变量里的令牌：%q", token)
 	}
 }
+
+// 插件接口用 FastAPI 的 HTTPException 报错（{"detail": "原因"}），原因要直接当错误信息给出。
+func TestPlainDetailErrorBecomesTheMessage(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"detail": "找不到城市：火星"}`))
+	}))
+	t.Cleanup(server.Close)
+	cliErr := requestErr(t, server.URL)
+	if cliErr.Message != "找不到城市：火星" || cliErr.Details != nil {
+		t.Fatalf("错误信息应是 detail 原文：%q %v", cliErr.Message, cliErr.Details)
+	}
+}

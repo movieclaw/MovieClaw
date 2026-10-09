@@ -378,6 +378,10 @@ func (c *Client) parse(resp *http.Response) (any, error) {
 
 	// 非信封 JSON（如 /health）原样返回
 	if resp.StatusCode >= 400 {
+		// 插件接口直接用 FastAPI 的 HTTPException 报错：{"detail": "原因"}，原因就是错误信息
+		if detail := jsonval.Str(jsonval.Object(payload).Get("detail")); detail != "" {
+			return nil, clierr.New("%s", detail)
+		}
 		return nil, clierr.New("请求失败（HTTP %d）", resp.StatusCode).WithDetails(payload)
 	}
 	return payload, nil
