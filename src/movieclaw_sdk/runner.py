@@ -722,6 +722,37 @@ def _die_with_parent() -> None:
         os._exit(0)
 
 
+def _drop_privileges(uid: int | None, gid: int | None) -> None:
+    """切换到非特权用户、清空附加组；做不到就直接退出，绝不以 root 跑插件代码。"""
+    if uid is None:
+        return
+    gid = uid if gid is None else gid
+    try:
+        os.setgroups([])
+        os.setgid(gid)
+        os.setuid(uid)
+    except OSError as exc:
+        print(f"无法切换到用户 {uid}：{exc}", file=sys.stderr)
+        os._exit(78)
+    if os.getuid() != uid or os.geteuid() != uid or os.getgid() != gid:
+        print(f"切换用户后核对失败（uid={os.getuid()}）", file=sys.stderr)
+        os._exit(78)
+
+
+def _limit_resources() -> None:
+    """插件进程给自己加的限制（只能往下调）：文件数、不写 core、让出 CPU。"""
+    with contextlib.suppress(ImportError, ValueError, OSError):
+        import resource
+
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+        want = 1024 if hard == resource.RLIM_INFINITY else min(1024, hard)
+        if soft == resource.RLIM_INFINITY or soft > want:
+            resource.setrlimit(resource.RLIMIT_NOFILE, (want, want))
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    with contextlib.suppress(OSError, AttributeError):
+        os.nice(10)
+
+
 def main(argv: list[str] | None = None) -> int:
     global _PROTOCOL_OUT
     parser = argparse.ArgumentParser(description="MovieClaw 进程外插件运行器")
@@ -730,8 +761,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--entry", required=True, help="条目 id（@plugin 的名字）")
     parser.add_argument("--describe", action="store_true", help="只输出插件声明后退出")
     parser.add_argument("--fd-socket", type=int, default=None, help="宿主递文件描述符用的套接字")
+    parser.add_argument("--uid", type=int, default=None, help="降权到这个用户（宿主是 root 时）")
+    parser.add_argument("--gid", type=int, default=None)
     args = parser.parse_args(argv)
+    # 先降权（导入任何插件代码之前），再设「父进程退出即退出」：内核在 uid 变化时会清掉后者
+    _drop_privileges(args.uid, args.gid)
     _die_with_parent()
+    _limit_resources()
     # 标准输出只留给协议：插件的 print 改到标准错误
     _PROTOCOL_OUT = os.fdopen(os.dup(sys.stdout.fileno()), "wb", buffering=0)
     sys.stdout = sys.stderr

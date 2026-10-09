@@ -27,6 +27,7 @@ import tempfile
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -95,6 +96,37 @@ def _child_env() -> dict[str, str]:
     return env
 
 
+@dataclass
+class Launch:
+    """拉起插件进程的现场：工作目录、环境变量、要切换到的用户（隔离时）。"""
+
+    cwd: Path
+    env: dict[str, str]
+    args: list[str]
+    """交给运行器的降权参数（``--uid`` / ``--gid``）：由插件进程在导入插件代码前自己切换用户。
+
+    不用 ``Popen(user=...)``：应用跑在 uvloop 上，它的子进程接口不支持这些参数。
+    """
+
+
+def _launch(entry_id: str, path: Path, module: str) -> Launch:
+    """宿主是 root 时切换到非特权用户，并改用对它可读的代码副本（plugin_isolation.py）。"""
+    from movieclaw_api import __version__
+    from movieclaw_api.services import plugin_isolation as iso
+
+    env = _child_env()
+    settings = iso.isolation()
+    if not settings.enabled:
+        return Launch(path, env, [])
+    src = iso.stage_source(Path(env["PYTHONPATH"]), __version__)
+    code = iso.stage_plugin(entry_id, path, module)
+    scratch = iso.scratch_dir(entry_id, settings)
+    env.update(PYTHONPATH=str(src), HOME=str(scratch), TMPDIR=str(scratch))
+    if settings.uid == os.geteuid():
+        return Launch(code, env, [])
+    return Launch(code, env, ["--uid", str(settings.uid), "--gid", str(settings.gid)])
+
+
 class Session:
     """一个插件进程：拉起、握手、调用、监管、停止。"""
 
@@ -147,6 +179,10 @@ class Session:
     async def start(self) -> list[dict[str, Any]]:
         """拉起进程并握手，返回插件声明的监听器；插件启动失败抛错（内核据此标 FAILED）。"""
         self._ready = False
+        launch = await asyncio.to_thread(_launch, self.entry_id, self._path, self._module)
+        # 路由套接字：上一个进程（可能是别的用户）留下的文件先清掉，插件用户在 /tmp 里删不了它
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(self.socket)
         # 文件通道：宿主检查授权后打开文件，把描述符经这对套接字递给插件（services/plugin_files.py）
         self._close_fd_channel()
         self._fd_host, child_end = socket.socketpair()
@@ -157,18 +193,19 @@ class Session:
                 "-m",
                 "movieclaw_sdk.runner",
                 "--path",
-                str(self._path),
+                str(launch.cwd),
                 "--module",
                 self._module,
                 "--entry",
                 self.entry_id,
                 "--fd-socket",
                 str(child_end.fileno()),
+                *launch.args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                cwd=str(self._path),
-                env=_child_env(),
+                cwd=str(launch.cwd),
+                env=launch.env,
                 limit=MAX_LINE,
                 pass_fds=(child_end.fileno(),),
             )
@@ -689,7 +726,11 @@ def _open_services() -> dict[str, ServiceKey[Any]]:
 
 
 def describe(path: Path, module: str, entry_id: str) -> dict[str, Any]:
-    """在子进程里读出插件的声明（标题、要注入的服务、宿主操作），主进程不导入插件代码。"""
+    """在子进程里读出插件的声明（标题、要注入的服务、宿主操作），主进程不导入插件代码。
+
+    导入插件代码就会执行它的模块级代码，所以这一步与正式运行同样隔离（同一用户、同一代码副本）。
+    """
+    launch = _launch(entry_id, path, module)
     proc = subprocess.run(
         [
             sys.executable,
@@ -697,16 +738,17 @@ def describe(path: Path, module: str, entry_id: str) -> dict[str, Any]:
             "-m",
             "movieclaw_sdk.runner",
             "--path",
-            str(path),
+            str(launch.cwd),
             "--module",
             module,
             "--entry",
             entry_id,
             "--describe",
+            *launch.args,
         ],
         capture_output=True,
-        cwd=str(path),
-        env=_child_env(),
+        cwd=str(launch.cwd),
+        env=launch.env,
         timeout=DESCRIBE_TIMEOUT,
         check=False,
     )
