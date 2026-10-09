@@ -102,6 +102,7 @@ async def list_channels(session: AsyncSession = Depends(get_session)) -> ApiResp
                     description=driver.description,
                     entry_id=hub.contributor(channel_id),
                     receive=driver.capabilities.receive,
+                    webhook=driver.capabilities.webhook,
                     photo=driver.capabilities.photo,
                     binding=ChannelBindingSpecView(
                         kind=spec.kind,
@@ -150,6 +151,8 @@ async def _binding_view(hub: ChannelHub, binding_id: str) -> ChannelBindingView:
         qr=binding.qr or "",
         input_label=binding.input_label,
         account=account,
+        callback_url=binding.callback_url,
+        callback_note=binding.callback_note,
     )
 
 

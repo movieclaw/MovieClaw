@@ -276,6 +276,8 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
 2. 只推送：群机器人 Webhook（飞书、企业微信群机器人、钉钉群机器人），粘贴地址即可，但不能对话；
 3. 需要公网回调地址的方式（企业微信自建应用、公众号、Slack Events）放最后：用回调端点（第 14 节）收消息，
    选它要先确认用户配了外部访问地址（`mclaw app show`）、并且平台能从公网访问到它。
+   通道驱动声明 `Capabilities(webhook=True)`、实现 `webhook(account, request)`，清单写 `callbacks = ["webhook"]`：
+   中枢在用户绑定时自动发回调地址（绑定结果里给出），解绑即作废。完整示例：`references/examples/wecom-channel/`。
 
 给用户方案时把「能不能对话」「要不要公网地址」「绑定要填什么」讲清楚；平台有几种接入方式而用户没指定时，
 列出对比请用户选，选定后再写。

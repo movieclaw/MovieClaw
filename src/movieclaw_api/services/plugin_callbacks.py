@@ -144,19 +144,54 @@ class PluginCallbacks:
         max_body: int = MAX_BODY,
         timeout: float = TIMEOUT,
     ) -> None:
+        dispose = self.register(
+            ctx.entry_id, name, handler, methods=methods, max_body=max_body, timeout=timeout
+        )
+        ctx.effect(dispose, label=f"callback:{name}")
+
+    def register(
+        self,
+        entry_id: str,
+        name: str,
+        handler: Any,
+        *,
+        methods: tuple[str, ...] = ("POST",),
+        max_body: int = MAX_BODY,
+        timeout: float = TIMEOUT,
+    ) -> Any:
+        """登记端点（宿主内部用，如通道中枢替通道插件登记）；返回撤销函数。"""
         if not NAME.match(name):
             raise ValueError(f"回调端点名 {name} 不合规：小写字母开头，字母、数字、连字符")
-        self._declared(ctx.entry_id, name)
-        key = (ctx.entry_id, name)
+        self._declared(entry_id, name)
+        key = (entry_id, name)
         if key in self._endpoints:
             raise ValueError(f"回调端点 {name} 重复登记")
-        self._endpoints[key] = _Endpoint(
+        endpoint = _Endpoint(
             handler=handler,
             methods=frozenset(m.upper() for m in methods),
             max_body=max(1, min(int(max_body), MAX_BODY)),
             timeout=float(timeout),
         )
-        ctx.effect(lambda: self._endpoints.pop(key, None), label=f"callback:{name}")
+        self._endpoints[key] = endpoint
+
+        def dispose() -> None:
+            if self._endpoints.get(key) is endpoint:
+                del self._endpoints[key]
+
+        return dispose
+
+    async def issue_for(self, entry_id: str, name: str, scope: str) -> Issued:
+        """宿主内部替插件发密钥（如通道绑定时）。"""
+        self._declared(entry_id, name)
+        return await self._issue(entry_id, name, scope)
+
+    async def active(self, entry_id: str, scope: str) -> list[Issued]:
+        """某个归属下还有效的密钥（地址打码）。"""
+        rows = [r for r in await self._rows(entry_id=entry_id) if r.scope == scope]
+        return [
+            Issued(r.id or 0, r.name, r.scope, masked_path(r.entry_id, r.name, r.key_tail), False)
+            for r in rows
+        ]
 
     async def issue(self, ctx: Any, name: str, *, scope: str = "plugin") -> Issued:
         if not NAME.match(name):

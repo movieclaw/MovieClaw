@@ -116,6 +116,14 @@ class RemoteChannelDriver(ChannelDriver):
             "typing", account=ch.account_dict(account), reply=ch.reply_dict(reply), on=on
         )
 
+    async def webhook(self, account: Account, request: Any) -> Any:
+        from movieclaw_sdk.callbacks import request_dict, response_from_dict
+
+        data = await self._call(
+            "webhook", account=ch.account_dict(account), request=request_dict(request)
+        )
+        return response_from_dict(data)
+
     def push_target(self, account: Account) -> ReplyContext | None:
         if account.id in self._targets:
             return self._targets[account.id]

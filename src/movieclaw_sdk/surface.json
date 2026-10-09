@@ -334,12 +334,13 @@
         "send": "(self, account: 'Account', reply: 'ReplyContext', text: 'str') -> 'None'",
         "send_photo": "(self, account: 'Account', reply: 'ReplyContext', photo: 'bytes', caption: 'str') -> 'None'",
         "typing": "(self, account: 'Account', reply: 'ReplyContext', on: 'bool') -> 'None'",
-        "validate": "(self, fields: 'dict[str, str]') -> 'BindResult'"
+        "validate": "(self, fields: 'dict[str, str]') -> 'BindResult'",
+        "webhook": "(self, account: 'Account', request: 'CallbackRequest') -> 'CallbackResponse'"
       }
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.0"
+    "version": "1.1"
   },
   "ingest-steps": {
     "doc": "入库流水线槽位的步骤：暂存完成后为每个步骤建一个挂在入库任务下的持久化任务",

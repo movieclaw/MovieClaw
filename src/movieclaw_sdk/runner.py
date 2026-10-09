@@ -779,6 +779,13 @@ class Runner:
             elif method == "push_target":
                 target = driver.push_target(self._account(cid, payload["account"]))
                 result = ch.reply_dict(target) if target is not None else None
+            elif method == "webhook":
+                from movieclaw_sdk.callbacks import request_from_dict, response_dict
+
+                # 平台回调：用收消息循环里的那个账号句柄，inbound 才回得到中枢
+                account = self._account(cid, payload["account"])
+                response = await driver.webhook(account, request_from_dict(payload["request"]))
+                result = response_dict(response)
             else:
                 account = self._account(cid, payload["account"])
                 reply_to = ch.reply_from(payload["reply"])

@@ -150,6 +150,9 @@ class Binding:
     pending: BindResult | None = None
     #: 交互式：驱动侧的流程 id
     flow_id: str = ""
+    #: 靠平台回调收消息的通道：这个账号的回调地址（只在发出的这一刻有完整地址）与说明
+    callback_url: str | None = None
+    callback_note: str = ""
 
     @property
     def terminal(self) -> bool:
@@ -176,6 +179,8 @@ class ChannelHub:
         self._bindings: dict[str, Binding] = {}
         self._bg_tasks: set[asyncio.Task[None]] = set()
         self._sync_lock = asyncio.Lock()
+        #: 靠平台回调收消息的通道：通道 id → 撤销回调端点登记的函数
+        self._webhooks: dict[str, Callable[[], None]] = {}
 
     # ------------------------------------------------------------------ 生命周期
     def drivers(self) -> dict[str, ChannelDriver]:
@@ -205,6 +210,9 @@ class ChannelHub:
                 with contextlib.suppress(Exception):
                     await self.driver(binding.channel_id).cancel_flow(binding.flow_id)
         self._bindings.clear()
+        for dispose in self._webhooks.values():
+            dispose()
+        self._webhooks.clear()
         await self.manager.close()
         self._accounts.clear()
 
@@ -212,6 +220,7 @@ class ChannelHub:
         """对齐运行中的账号与注册表：有驱动的启动，驱动没了的停掉。"""
         async with self._sync_lock:
             drivers = self._drivers()
+            self._sync_webhooks(drivers)
             for key in list(self._accounts):
                 if key[0] not in drivers:
                     await self._stop_account(*key)
@@ -229,6 +238,81 @@ class ChannelHub:
                     logger.exception(
                         "通道账号启动失败 channel=%s account=%s", row.channel_id, row.account_id
                     )
+
+    def _sync_webhooks(self, drivers: dict[str, ChannelDriver]) -> None:
+        """靠平台回调收消息的通道：替提供它的插件登记 ``webhook`` 回调端点。
+
+        docs/design/plugin-callbacks.md §4.5。
+        """
+        from movieclaw_api.services.plugin_callbacks import get_service
+
+        for channel_id in list(self._webhooks):
+            driver = drivers.get(channel_id)
+            if driver is None or not driver.capabilities.webhook:
+                self._webhooks.pop(channel_id)()
+        service = get_service()
+        if service is None:
+            return
+        for channel_id, driver in drivers.items():
+            if not driver.capabilities.webhook or channel_id in self._webhooks:
+                continue
+            try:
+                self._webhooks[channel_id] = service.register(
+                    self.contributor(channel_id),
+                    WEBHOOK_ENDPOINT,
+                    self._webhook_handler(channel_id),
+                    methods=("GET", "POST"),
+                )
+            except ValueError:
+                logger.warning("通道 %s 的回调端点没能登记", channel_id, exc_info=True)
+
+    def _webhook_handler(self, channel_id: str) -> Callable[[Any], Awaitable[Any]]:
+        async def handle(request: Any) -> Any:
+            from movieclaw_sdk.callbacks import CallbackResponse
+
+            parsed = parse_account_scope(request.scope)
+            if parsed is None or parsed[0] != channel_id:
+                return CallbackResponse(status=404)
+            account = self.running_account(*parsed)
+            if account is None:
+                return CallbackResponse.text("这个账号没有在运行", status=503)
+            return await self.driver(channel_id).webhook(account, request)
+
+        return handle
+
+    async def _attach_callback(self, binding: Binding) -> None:
+        """靠平台回调收消息的通道：给这个账号发回调地址（已有就沿用，平台后台不用重填）。"""
+        from movieclaw_api.services.plugin_callbacks import get_service
+
+        driver = self.driver(binding.channel_id)
+        if not driver.capabilities.webhook or not binding.account_id:
+            return
+        service = get_service()
+        if service is None:
+            raise ValueError("插件回调端点没有启用，靠回调收消息的通道用不了")
+        entry_id = self.contributor(binding.channel_id)
+        scope = account_scope(binding.channel_id, binding.account_id)
+        existing = await service.active(entry_id, scope)
+        if existing:
+            binding.callback_url = existing[0].url
+            binding.callback_note = "沿用之前的回调地址（平台后台不用改）；要换新地址在插件页换"
+            return
+        issued = await service.issue_for(entry_id, WEBHOOK_ENDPOINT, scope)
+        binding.callback_url = issued.url
+        binding.callback_note = (
+            "把这个地址填到平台后台的回调 / 接收消息设置里（只在这次绑定里显示完整地址）"
+            if issued.absolute
+            else "还没配外部访问地址：先在「设置 → 应用设置」里填，地址前面要加上它"
+        )
+
+    async def _revoke_callbacks(self, channel_id: str, account_id: str) -> None:
+        from movieclaw_api.services.plugin_callbacks import get_service
+
+        service = get_service()
+        entry_id = self.contributor(channel_id)
+        if service is None or not entry_id:
+            return
+        await service.revoke_all(entry_id, scope=account_scope(channel_id, account_id))
 
     def schedule_sync(self) -> None:
         """注册表变化的回调是同步的：排一次对齐。"""
@@ -329,6 +413,7 @@ class ChannelHub:
         """
         async with self._sync_lock:
             await self._stop_account(channel_id, account_id)
+            await self._revoke_callbacks(channel_id, account_id)
             async with get_database().session() as session:
                 return await ChannelAccountRepository(session).delete(channel_id, account_id)
 
@@ -393,6 +478,7 @@ class ChannelHub:
             message=f"已接入{driver.title}",
             account_id=row.account_id,
         )
+        await self._attach_callback(binding)
         self._remember(binding)
         return binding
 
@@ -494,6 +580,7 @@ class ChannelHub:
                 binding.message = f"绑定失败：{exc}"
                 return
             binding.account_id = row.account_id
+            await self._attach_callback(binding)
         binding.status = state.status
         binding.message = state.message
 
@@ -524,6 +611,12 @@ class ChannelHub:
             persist=False,
         )
         await self._run_account(temp, pairing=binding)
+        await self._attach_callback(binding)
+        if binding.callback_url:
+            binding.message = (
+                f"先把回调地址填到{driver.title}后台，再在{driver.title}上给 "
+                f"@{result.display_name} 发送配对码 {code}"
+            )
         self._remember(binding)
         self._spawn(self._pairing_watchdog(binding, temp), "配对超时守护")
         return binding
@@ -598,12 +691,33 @@ class ChannelHub:
             await self._stop_account(*key)
             async with get_database().session() as session:
                 row = await ChannelAccountRepository(session).get(*key)
+            if row is None:
+                await self._revoke_callbacks(*key)
             if row is not None and row.status == ChannelAccountStatus.ACTIVE:
                 try:
                     await self._start_account(row)
                     logger.info("配对未完成，已恢复原账号 channel=%s account=%s", *key)
                 except Exception:  # noqa: BLE001
                     logger.exception("配对未完成后恢复原账号失败 channel=%s account=%s", *key)
+
+
+WEBHOOK_ENDPOINT = "webhook"
+
+
+def account_scope(channel_id: str, account_id: str) -> str:
+    """回调密钥的归属：``account:<通道>:<账号>``（两段各自转义，通道 id 里可能有冒号）。"""
+    from urllib.parse import quote
+
+    return f"account:{quote(channel_id, safe='')}:{quote(account_id, safe='')}"
+
+
+def parse_account_scope(scope: str) -> tuple[str, str] | None:
+    from urllib.parse import unquote
+
+    parts = scope.split(":")
+    if len(parts) != 3 or parts[0] != "account":
+        return None
+    return unquote(parts[1]), unquote(parts[2])
 
 
 async def _noop_save(_cursor: str) -> None:

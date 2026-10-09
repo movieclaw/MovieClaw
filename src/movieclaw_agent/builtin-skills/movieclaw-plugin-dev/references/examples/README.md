@@ -11,6 +11,7 @@ CI 里 `tests/api/test_example_plugins*.py` 会把它们装进临时数据目录
 | `cloud_strm.py` | 网盘上传：入库暂存后传到网盘，媒体库里放指向插件的签名 `.strm` | 流水线槽位 `ingest.staged`、任务处理器（断点续传、进度、重试 / 阻塞）、插件路由（验签公开区）与签名链接、宿主操作 `library.get`、`library.scan.start` |
 | `site_pack/` | 站点数据包：把一组自己适配的站点 YAML 打成插件分发 | 站点数据包注册表 `site-data-packs`（包形式的本地插件） |
 | `ntfy-channel/` | 第三方 IM 通道：在 ntfy App 里和 MovieClaw 对话、接收推送 | 通道注册表 `im-channels`（`movieclaw_sdk.channels`，见 `docs/design/plugin-channels.md`）；带清单，可直接 `mclaw plugin pack` 成插件包 |
+| `wecom-channel/` | 回调式 IM 通道：企业微信自建应用，平台把加密消息推到回调地址 | 通道驱动的 `webhook`（`Capabilities(webhook=True)`）、清单 `callbacks = ["webhook"]`、企业微信验签与 AES 解密、应用消息接口发回复、配对码绑定；带清单，可直接打包 |
 
 ## 装到自己的 MovieClaw 上
 
