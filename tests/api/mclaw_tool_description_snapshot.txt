@@ -31,6 +31,7 @@ movieclaw 的官方命令行工具。用于从 TMDB 和豆瓣发现实时热点�
 - download 下载：把上次 search 的结果行号（或明确的站点+链接）投递到下载器，可指定媒体库/保存目录
 - status   部署总览：服务健康、当前身份、客户端/服务端版本与命令目录同步状态
 - activity 现在有什么事：需要处理与进行中的任务数、有几个人在看；口径与网页活动页一致（下载与它触发的入库算一件事）
+- plugins  已装插件提供的能力（如插件加的查天气、查外部服务）：装了带接口的插件才有，有哪些先 --help 现查，如 args="plugins --help"
 
 使用协议：
 - 常用链路：search titles 找片/找剧 → subscriptions create 订阅；search torrents 搜 PT 种子 → download 投递；search library 查已有库存，discover 浏览榜单，library 管理已入库内容；订阅会持续追踪，并在出现符合规则的新资源后自动搜索、下载和整理入库。
