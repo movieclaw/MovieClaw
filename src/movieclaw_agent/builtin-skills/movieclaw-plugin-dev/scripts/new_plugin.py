@@ -14,6 +14,8 @@ import sys
 from pathlib import Path
 
 TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "starter"
+#: 主程序源码根（本脚本上溯四级）：插件不许生成到这里面
+SOURCE_ROOT = Path(__file__).resolve().parents[4]
 
 #: 与服务器清单校验同一规则（movieclaw_api/plugins/packages.py）
 _ID = re.compile(r"^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9_-]*)+$")
@@ -39,7 +41,13 @@ def main(argv: list[str]) -> int:
     if not _MODULE.match(module):
         print(f"✗ 模块名不合规：{module}（用 --module 指定一个 Python 标识符）")
         return 1
-    target: Path = args.target
+    target: Path = args.target.resolve()
+    if target == SOURCE_ROOT or SOURCE_ROOT in target.parents:
+        print(
+            f"✗ {target} 在主程序源码目录里（{SOURCE_ROOT}）。插件要放在工作目录下："
+            "先回到工作目录（不要 cd 进技能目录），用相对路径 plugins/<id>，脚本用绝对路径调用"
+        )
+        return 1
     if target.exists() and any(target.iterdir()):
         print(f"✗ {target} 已存在且不为空，不会覆盖；换个目录或先确认里面的代码不要了")
         return 1

@@ -112,6 +112,15 @@ def test_contracts_script_lists_the_whole_surface(tmp_path) -> None:
     assert "class IngestImported" in detail.stdout
 
 
+def test_scaffold_refuses_to_write_into_the_source_tree(tmp_path) -> None:
+    """Agent cd 进技能目录再用相对路径时，插件会被生成进主程序源码：直接拒绝。"""
+    target = _SKILL / "plugins" / "me.stray"
+    made = _run("new_plugin.py", str(target), "--id", "me.stray", "--title", "误放", cwd=tmp_path)
+    assert made.returncode == 1
+    assert "主程序源码目录" in made.stdout
+    assert not (_SKILL / "plugins").exists()
+
+
 def test_check_script_accepts_declared_contracts(tmp_path) -> None:
     """清单 [requires] 写了开放契约：检查通过（契约目录要先加载，不能误报「未知契约」）。"""
     made = _run(

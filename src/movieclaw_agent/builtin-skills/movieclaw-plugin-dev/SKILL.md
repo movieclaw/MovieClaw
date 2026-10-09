@@ -56,12 +56,15 @@ description: 开发、构建、打包、安装、调试与卸载 MovieClaw 插�
 
 ## 3. 开发流程
 
-工作目录就是 bash / mclaw 的当前目录。每个插件放在 `plugins/<条目 id>/` 下。
+工作目录就是 bash / mclaw 的当前目录。每个插件放在工作目录的 `plugins/<条目 id>/` 下。
+**不要 `cd` 进技能目录或 `$SRC`**：脚本一律用绝对路径调用（`python <技能目录绝对路径>/scripts/xxx.py …`），
+插件路径写相对工作目录的 `plugins/<id>`，否则插件会被生成进主程序源码里。
 **mclaw 命令一律用 mclaw 工具执行**：bash 里没有登录令牌，在 bash 里跑 `mclaw …` 只会报未授权，
 它的输出（包括配合 grep 得到的计数）不能当作验证结果。
 
 1. **澄清需求**：触发时机（什么事发生时）、要做什么、影响哪些数据、要不要配置。说清楚你打算用哪种扩展形态
-   （`references/recipes.md` 第 0 节有对照表），有歧义先问。
+   （`references/recipes.md` 第 0 节有对照表），有歧义先问。**只做用户要求的**：觉得还该多做点什么
+   （多加几个关键词、多记几个字段），作为建议提出来，用户同意再加。
 2. **查契约**：`python <本技能>/scripts/contracts.py` 列出全部开放契约；`python <本技能>/scripts/contracts.py <名字>`
    看某个事件 / 钩子的载荷与返回结构。只能用列出来的契约。要调用的宿主操作用 `mclaw <域> --help` 找，
    操作 id 与命令一一对应（`mclaw subscriptions create` ↔ `subscriptions.create`）。
@@ -71,6 +74,9 @@ description: 开发、构建、打包、安装、调试与卸载 MovieClaw 插�
 4. **写代码**：遵守第 4 节规范。
 5. **本地检查**：`python <本技能>/scripts/check_plugin.py plugins/<id>`。它用服务器同一套逻辑校验清单、契约、
    宿主操作，并真的导入入口模块找 `@plugin`。**有 ✗ 必须先修好**；⚠ 要逐条判断。
+   **再自测判断逻辑**：把「该不该处理 / 怎么处理」写成模块顶层的纯函数（如 `verdict(title) -> 原因 | None`），
+   在 bash 里 `cd plugins/<id> && python -c "from <模块> import verdict; assert …"` 跑几条**正例和反例**
+   （反例 = 看着像但不该命中的，如片名里恰好含这几个字母）。钩子在热路径上、误判会直接影响下载，这步不能省。
 6. **征得用户同意再安装**（第 5 节）。
 7. **安装并加载**：`mclaw` 工具执行 `plugin dev plugins/<id> --once`。它会打包（版本自动加 `-dev.<时间戳>`）、
    上传、按清单申请批准、当场加载，成功打印 `✓ … 已加载`。**必须带 `--once`**，否则它会一直监视文件、卡到超时。
@@ -106,6 +112,9 @@ description: 开发、构建、打包、安装、调试与卸载 MovieClaw 插�
 - 连外网走用户的代理设置：`httpx.AsyncClient(transport=movieclaw_sdk.net.http_transport("<服务名>"))`，清单写 `network = true`。
 - 依赖只能随包放进插件目录的 `vendor/`（纯 Python）；安装时不联网、不跑 pip。
 - 日志用 `ctx.logger`，中文，带上关键 id。
+- 按关键词匹配种子 / 发布名时：英文短词（TC、TS、CAM 这类）必须按**词边界**匹配，
+  如 `re.compile(r"(?<![A-Za-z0-9])TC(?![A-Za-z0-9])", re.I)`，否则 `ts` 会命中 Hits、`cam` 会命中 Cameron；
+  中文词用子串匹配即可。规则列表用元组 / 列表（保持顺序），不要用集合。
 
 **禁止**
 - 在决策钩子里产生副作用（发请求、写数据、调宿主操作）——钩子只做判断；副作用放到可靠事件或宿主操作里。
