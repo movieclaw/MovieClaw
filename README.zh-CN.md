@@ -4,7 +4,7 @@
 
 <p align="center">
   一个 MovieClaw，替代一整套影音工具。<br>
-  自带网页与 iPhone 原生 App，内置能自己动手的 AI 助手。<br>
+  自带网页和手机、电视、Mac 上的原生 App，内置能自己动手的 AI 助手。<br>
   数据全在你自己的机器上，个人和家庭使用免费。
 </p>
 
@@ -62,7 +62,7 @@
 
 ## 自带原生 App，播放不输 Infuse
 
-网页打开就能看，iPhone 上是原生 App。自研播放引擎：FFmpeg 负责拆，Apple 负责播。
+网页打开就能看，手机、电视和 Mac 上都有原生 App。iPhone、Apple TV 和 Mac 用同一套自研播放引擎：FFmpeg 负责拆，Apple 负责播。
 
 <p align="center">
   <img src="docs/images/player.jpg" width="900" alt="iPhone 横屏播放：液态玻璃的播放控制、音轨与字幕、AirPlay 和实时网速">
@@ -135,7 +135,7 @@ MovieClaw 把一个自主的通用 Agent 装进了影音服务器。打理片库
   <tr>
     <td width="50%" valign="top">
       <img src="docs/images/scene-1.jpg" alt="网页上的「接下来继续」，iPhone 上同一部片子显示「继续 10:44」">
-      <p><b>08:30 地铁上</b>：昨晚没看完的，手机上接着看。网页、iPhone 原生 App，还有 Infuse 这类播放器，在哪看都行，进度跟着你走。</p>
+      <p><b>08:30 地铁上</b>：昨晚没看完的，手机上接着看。网页、原生 App，还有 Infuse 这类播放器，在哪看都行，进度跟着你走。</p>
     </td>
     <td width="50%" valign="top">
       <img src="docs/images/scene-2.jpg" alt="iPhone 上的订阅页：刚刚入库的 Coffee Run">
