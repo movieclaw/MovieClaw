@@ -77,7 +77,8 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 `python -c "import movieclaw_sdk, pathlib; print(pathlib.Path(movieclaw_sdk.__file__).parents[1])"`。
 
 第 0 节给方案时只需要 `references/extension-points.md`；下表是**动手写代码前**要读的。
-示例（`references/examples/`）大多是「本地插件」写法（`config=` + `data/plugins.yaml`、从 `movieclaw_kernel` 导入），
+示例插件都在本技能的 `references/examples/`（只有这一处，仓库和容器里没有别的副本）。它们是插件体系的验收插件，
+CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。示例大多是「本地插件」写法（`config=` + `data/plugins.yaml`、从 `movieclaw_kernel` 导入），
 做插件包时以 `templates/starter/` 为准，差别见 `references/examples/README.md`。
 
 | 你要做的 | 先读（读完再写代码） |

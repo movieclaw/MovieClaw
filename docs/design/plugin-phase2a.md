@@ -149,7 +149,7 @@
 
 ## 7. 验收插件（PR A8）
 
-放在 `examples/plugins/`，CI 里以本地受信插件的方式加载、用真实应用生命周期跑端到端测试：
+放在 `src/movieclaw_agent/builtin-skills/movieclaw-plugin-dev/references/examples/`（随插件开发技能分发，Agent 照着写），CI 里以本地受信插件的方式加载、用真实应用生命周期跑端到端测试：
 
 1. **`watchlist_feed`（场景 2.4，外部信号触发订阅）**：定时拉取一个 JSON / 文本片单（URL 或文件），新出现的片名 →
    `search.titles` 解析 → `subscriptions.create`；409 歧义取第一个候选；已处理的片名记在插件状态文件里，重复信号不重复订阅。

@@ -1,6 +1,6 @@
 """网盘上传示例插件端到端（docs/design/plugin-phase2b.md §10 B8，扩展模型 §2.2）。
 
-把 ``examples/plugins/cloud_strm.py`` 当本地受信插件装进临时数据目录，真实应用：入库暂存 → 槽位排出
+把示例插件 ``cloud_strm.py`` 当本地受信插件装进临时数据目录，真实应用：入库暂存 → 槽位排出
 插件的上传任务 → 执行器跑完上传、写签名 ``.strm`` → 只扫这些目录把 ``.strm`` 记账 → 播放器拿
 ``.strm`` 里的地址取流（含 Range），改了签名一律 404。
 """
@@ -33,7 +33,15 @@ from movieclaw_db.engine import get_database
 from movieclaw_db.models import ImportWatch, Job, JobStatus, LibraryFile
 from movieclaw_media.models import MediaKind
 
-EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "plugins"
+EXAMPLES = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "movieclaw_agent"
+    / "builtin-skills"
+    / "movieclaw-plugin-dev"
+    / "references"
+    / "examples"
+)
 UPLOAD = "examples.cloud-strm:upload"
 
 

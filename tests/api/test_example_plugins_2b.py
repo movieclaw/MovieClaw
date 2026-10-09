@@ -1,6 +1,6 @@
 """二 B 的验收插件端到端（docs/design/plugin-phase2b.md §10 B8）。
 
-把 ``examples/plugins/keyword_rules.py`` 当本地受信插件装进临时数据目录，真实应用 + 真实匹配流水线
+把示例插件 ``keyword_rules.py`` 当本地受信插件装进临时数据目录，真实应用 + 真实匹配流水线
 （dry-run 投递）：关键字规则淘汰候选、写进订阅动态，订阅删除时插件清掉自己的扩展字段。
 """
 
@@ -29,7 +29,15 @@ from movieclaw_db.engine import get_database
 from movieclaw_db.models import PluginData
 from movieclaw_media.models import MediaKind
 
-EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "plugins"
+EXAMPLES = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "movieclaw_agent"
+    / "builtin-skills"
+    / "movieclaw-plugin-dev"
+    / "references"
+    / "examples"
+)
 
 
 @pytest.fixture(params=["inline", "process"])

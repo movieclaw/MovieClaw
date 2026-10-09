@@ -1,6 +1,6 @@
 """第三方通道插件（docs/design/plugin-channels.md §8、§10）。
 
-真实应用 + 示例插件 ``examples/plugins/ntfy-channel``（只依赖 SDK 与开放契约），
+真实应用 + 示例插件 ``ntfy-channel``（只依赖 SDK 与开放契约），
 进程内 / 进程外各跑一遍，对着一个本地起的假 ntfy 服务器：
 - 通道出现在通道列表里（带插件前缀的通道 id），表单绑定时往「发消息的主题」发欢迎消息；
 - 往「收消息的主题」发消息 → 插件收到 → 中枢交给 AI 助手（替身）→ 回复发回「发消息的主题」；
@@ -31,7 +31,16 @@ from starlette.routing import Route
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.plugins.local import PACKAGE
 
-EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "plugins" / "ntfy-channel"
+EXAMPLE = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "movieclaw_agent"
+    / "builtin-skills"
+    / "movieclaw-plugin-dev"
+    / "references"
+    / "examples"
+    / "ntfy-channel"
+)
 
 
 class FakeNtfy:

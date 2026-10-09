@@ -2,7 +2,7 @@
 
 技能是给 Agent 读的文档 + 脚本，最容易悄悄过期：
 - 文档里引用的源码路径、技能内文件都必须存在；
-- 随技能携带的示例插件与仓库 examples/plugins 一字不差（示例由 CI 端到端测试守着）；
+- 示例插件只在技能的 references/examples/ 一处（端到端测试 test_example_plugins*.py 等守着）；
 - 骨架脚本生成的插件能通过检查脚本，并能真的打包、上传、批准、在独立进程里加载、调通路由、卸载；
 - 检查脚本能拦下典型错误。
 """
@@ -81,22 +81,6 @@ def test_skill_relative_paths_in_docs_exist() -> None:
             if not (_SKILL / raw.rstrip(".")).exists():
                 missing.append(f"{doc.name}: {raw}")
     assert not missing, "技能文档引用的技能内文件不存在：\n" + "\n".join(missing)
-
-
-def test_bundled_examples_match_repository_examples() -> None:
-    bundled = _SKILL / "references" / "examples"
-    original = _REPO / "examples" / "plugins"
-    drift = [
-        str(path.relative_to(bundled))
-        for path in sorted(bundled.rglob("*"))
-        if path.is_file()
-        and path.name != "README.md"
-        and path.read_bytes() != (original / path.relative_to(bundled)).read_bytes()
-    ]
-    assert not drift, (
-        "技能里的示例插件与 examples/plugins 不一致，请从 examples/plugins 重新复制：\n"
-        + "\n".join(drift)
-    )
 
 
 def test_extension_point_catalog_covers_the_whole_surface() -> None:

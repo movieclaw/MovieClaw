@@ -168,7 +168,7 @@ class ChannelDriver:
 
 ## 8. 示例第三方通道
 
-`examples/plugins/ntfy_channel/`：ntfy 双向通道（订阅一个 topic 收消息、往另一个 topic 发回复），
+`src/movieclaw_agent/builtin-skills/movieclaw-plugin-dev/references/examples/ntfy-channel/`：ntfy 双向通道（订阅一个 topic 收消息、往另一个 topic 发回复），
 表单绑定（服务器地址、收 / 发 topic、可选令牌），不需要任何平台账号。用途：
 
 - 证明第三方只靠 SDK 就能接一个可对话、能收推送的新通道；

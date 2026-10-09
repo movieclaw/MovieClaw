@@ -1,7 +1,7 @@
 """二 A 的验收插件端到端（docs/design/plugin-phase2a.md §7）。
 
-把 ``examples/plugins/`` 里的插件当本地受信插件装进临时数据目录，真实应用、真实鉴权
-（只有测试自己的请求用超管登录，插件经宿主操作用自己的凭证），走完用户场景：
+把示例插件（插件开发技能的 ``references/examples/``）当本地受信插件装进临时数据目录，
+真实应用、真实鉴权（只有测试自己的请求用超管登录，插件经宿主操作用自己的凭证），走完用户场景：
 
 - 删片联动（场景 2.1）：删条目 → 可靠事件 → 插件先删订阅、再删自有且无 H&R 的种子；演练模式不删；
   部分删除时不动在追订阅的季包；
@@ -28,7 +28,15 @@ from movieclaw_api.services import durable_events
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import EventConsumer, Subscription
 
-EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "plugins"
+EXAMPLES = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "movieclaw_agent"
+    / "builtin-skills"
+    / "movieclaw-plugin-dev"
+    / "references"
+    / "examples"
+)
 ADMIN = {"username": "admin", "password": "s3cret-pass"}
 HASH = "c" * 40
 
