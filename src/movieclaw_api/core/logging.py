@@ -102,8 +102,12 @@ class RedactingFormatter(logging.Formatter):
         re.IGNORECASE,
     )
 
+    #: 插件回调地址里的密钥（docs/design/plugin-callbacks.md §4.2）：插件 id 与端点名照常记录
+    _CALLBACK_KEY = re.compile(r"(/api/v1/hooks/[^/\s?#]+/[^/\s?#]+/)[A-Za-z0-9]{8,}")
+
     def format(self, record: logging.LogRecord) -> str:
-        return self._SECRET_PARAM.sub(r"\1***", super().format(record))
+        text = self._SECRET_PARAM.sub(r"\1***", super().format(record))
+        return self._CALLBACK_KEY.sub(r"\1****", text)
 
 
 def configure_logging(

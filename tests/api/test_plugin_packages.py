@@ -468,3 +468,61 @@ def test_installed_legacy_dotted_id_keeps_loading_and_upgrading(data_dir, monkey
     with client:  # 重启后照常加载
         assert installed(client)[legacy]["version"] == "2.0.0"
         assert chosen(client) == 2
+
+
+CALLBACK_PLUGIN = """
+from fastapi import APIRouter
+
+from movieclaw_api.plugins.keys import PLUGIN_ROUTES
+from movieclaw_sdk import plugin
+from movieclaw_sdk.callbacks import PLUGIN_CALLBACKS, CallbackResponse
+
+
+@plugin("acme-pkg", title="包插件", inject=(PLUGIN_CALLBACKS, PLUGIN_ROUTES))
+async def apply(ctx) -> None:
+    callbacks = ctx.use(PLUGIN_CALLBACKS)
+
+    async def on_hook(req):
+        return CallbackResponse.text("pong")
+
+    callbacks.endpoint(ctx, "hook", on_hook, methods=("GET",))
+    router = APIRouter()
+
+    @router.post("/issue", operation_id="plugins.acme-pkg.issue")
+    async def issue() -> dict:
+        return {"url": (await callbacks.issue(ctx, "hook")).url}
+
+    ctx.use(PLUGIN_ROUTES).mount(ctx, router)
+"""
+
+
+def _callback_manifest(declared: str) -> str:
+    return (
+        '[plugin]\nid = "acme-pkg"\ntitle = "包插件"\nversion = "1.0.0"\nentry = "acme_pkg"\n'
+        f"[permissions]\noperations = []\n{declared}"
+    )
+
+
+def test_package_callbacks_need_a_declaration_and_die_with_the_package(data_dir) -> None:
+    """插件包只能开清单里声明（用户批准过）的回调端点；卸载后地址一律失效。"""
+    app, client = start()
+    with client:
+        undeclared = package(1, manifest=_callback_manifest(""), source=CALLBACK_PLUGIN)
+        assert upload(client, undeclared).status_code == 200
+        result = approve(client, "1.0.0", operations=()).json()["data"]
+        assert result["status"] == "rolled_back"
+        assert "没有在清单 [permissions] callbacks 里声明" in result["error"]
+
+        declared = package(
+            1, manifest=_callback_manifest('callbacks = ["hook"]\n'), source=CALLBACK_PLUGIN
+        )
+        uploaded = upload(client, declared).json()["data"]
+        assert uploaded["callbacks"] == ["hook"] and uploaded["new_callbacks"] == ["hook"]
+        assert approve(client, "1.0.0", operations=()).json()["data"]["status"] == "active"
+        assert installed(client)["acme-pkg"]["callbacks"] == ["hook"]
+        url = client.post("/api/v1/plugins/acme-pkg/issue").json()["url"]
+        assert client.get(url).text == "pong"
+
+        assert client.delete("/api/v1/app/plugins/packages/acme-pkg").status_code == 200
+        assert client.get(url).status_code == 404
+        assert client.get("/api/v1/app/plugins/callbacks").json()["data"] == []

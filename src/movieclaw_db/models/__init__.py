@@ -51,6 +51,7 @@ from movieclaw_db.models.person import MediaItemPerson, Person
 from movieclaw_db.models.playback_log import PlaybackLog
 from movieclaw_db.models.playback_metric import PlaybackMetric
 from movieclaw_db.models.playback_state import PlaybackState
+from movieclaw_db.models.plugin_callback import PluginCallback
 from movieclaw_db.models.plugin_data import PluginData
 from movieclaw_db.models.push_download_watch import PushDownloadWatch
 from movieclaw_db.models.push_preference import PushPreference
@@ -155,6 +156,7 @@ __all__ = [
     "PushPreference",
     "PlaybackMetric",
     "PlaybackState",
+    "PluginCallback",
     "PluginData",
     "MediaSeason",
     "BoostTaskState",

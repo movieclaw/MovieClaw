@@ -274,7 +274,8 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
 1. 服务器主动连出去收消息：长轮询（如 Telegram `getUpdates`）、长连接（如 Discord Gateway；企业微信「智能机器人」
    的长连接模式，绑定只要 botId + secret）。能对话、能推送，不需要公网地址——**首选**；
 2. 只推送：群机器人 Webhook（飞书、企业微信群机器人、钉钉群机器人），粘贴地址即可，但不能对话；
-3. 需要公网回调地址的方式（企业微信自建应用的回调、公众号）放最后，选它要先跟用户确认有公网地址。
+3. 需要公网回调地址的方式（企业微信自建应用、公众号、Slack Events）放最后：用回调端点（第 14 节）收消息，
+   选它要先确认用户配了外部访问地址（`mclaw app show`）、并且平台能从公网访问到它。
 
 给用户方案时把「能不能对话」「要不要公网地址」「绑定要填什么」讲清楚；平台有几种接入方式而用户没指定时，
 列出对比请用户选，选定后再写。
@@ -324,3 +325,76 @@ async def save(body: Settings) -> dict:
 或告诉用户怎么填。读取：`await store.get("api_key")`（加密的取出来就是明文）。
 
 宿主操作只覆盖 mclaw 能看到的接口；网页内部用的隐藏接口插件调不了。
+
+## 14. 回调端点：接收外部平台推过来的请求
+
+外部平台按插件交出去的地址调进来：`<外部访问地址>/api/v1/hooks/<条目 id>/<端点名>/<密钥>[/<子路径>]`。
+宿主只管地址（密钥不对一律 404）、方法、请求体上限、频率、剥掉 MovieClaw 的登录 Cookie；
+**不验签、不解析请求体**，请求原样给插件，插件的答复原样回平台。
+
+```python
+from movieclaw_sdk.callbacks import PLUGIN_CALLBACKS, CallbackRequest, CallbackResponse
+
+@plugin("github-notify", title="GitHub 推送", inject=(PLUGIN_CALLBACKS, PLUGIN_DATA, PLUGIN_ROUTES))
+async def apply(ctx):
+    callbacks = ctx.use(PLUGIN_CALLBACKS)
+    store = ctx.use(PLUGIN_DATA).scoped(ctx)
+
+    async def on_push(req: CallbackRequest) -> CallbackResponse:
+        secret = await store.get("webhook_secret")
+        if not secret or not github_ok(req, secret):
+            return CallbackResponse(status=401)              # 记为一次验证失败
+        ctx.logger.info("收到 GitHub 推送：%s", req.header("x-github-event"))
+        return CallbackResponse(status=204)
+
+    callbacks.endpoint(ctx, "push", on_push, methods=("POST",))   # 只能在 apply 里登记
+    # 发地址：一般放在管理员接口里，装好后由你调用、把地址交给用户填到平台后台
+    #   issued = await callbacks.issue(ctx, "push")      # issued.url；absolute 为 False 说明没配外部访问地址
+```
+
+清单：`[permissions] callbacks = ["push"]`（不声明，登记时直接报错；批准安装时会单独列给用户看）。
+
+- `CallbackRequest`：`method`、`subpath`、`query`（多值）、`headers`、`body`（原始字节）、`scope`（这把密钥的归属）、
+  `key_id`；取值用 `req.header("x")`（不分大小写）、`req.param("x")`、`req.text()`、`req.json()`。
+- `CallbackResponse(status, body, headers)`，或 `CallbackResponse.text("…")` / `.json({...})`。
+- 处理函数默认 10 秒超时（超时宿主回 504）；耗时工作交给后台任务（第 7 节）后立即返回。
+- 一个端点可以发多把密钥：`issue(ctx, "push", scope="entity:repo:42")`，处理函数按 `req.scope` 区分；
+  `revoke(ctx, key_id)` 作废，`keys(ctx)` 列出（打码）。用户也能在 `mclaw app plugins callbacks list / rotate / revoke` 管理。
+- 插件卸载时地址全部作废；插件停着时调进来回 503，地址保留。
+
+各平台验签（只用标准库和主程序自带的 `cryptography`）：
+
+```python
+import base64, hashlib, hmac, struct, time
+
+def github_ok(req, secret: str) -> bool:                 # X-Hub-Signature-256
+    want = "sha256=" + hmac.new(secret.encode(), req.body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(want, req.header("x-hub-signature-256") or "")
+
+def telegram_ok(req, secret: str) -> bool:               # setWebhook 时填的 secret_token
+    return hmac.compare_digest(secret, req.header("x-telegram-bot-api-secret-token") or "")
+
+def slack_ok(req, signing_secret: str) -> bool:          # 另：type=url_verification 时回 {"challenge": …}
+    ts = req.header("x-slack-request-timestamp") or "0"
+    if abs(time.time() - int(ts)) > 300:
+        return False
+    base = b"v0:" + ts.encode() + b":" + req.body
+    want = "v0=" + hmac.new(signing_secret.encode(), base, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(want, req.header("x-slack-signature") or "")
+
+def wecom_ok(req, token: str, encrypted: str) -> bool:   # 企业微信：msg_signature
+    parts = sorted([token, req.param("timestamp") or "", req.param("nonce") or "", encrypted])
+    return hashlib.sha1("".join(parts).encode()).hexdigest() == req.param("msg_signature")
+
+def wecom_decrypt(encrypted: str, aes_key: str) -> bytes:   # EncodingAESKey；AES-256-CBC，iv = key[:16]
+    from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
+    key = base64.b64decode(aes_key + "=")
+    raw = Cipher(algorithms.AES(key), modes.CBC(key[:16])).decryptor().update(base64.b64decode(encrypted))
+    raw = raw[: -raw[-1]]                                 # 去 PKCS#7 填充（企业微信按 32 字节块）
+    size = struct.unpack(">I", raw[16:20])[0]             # 16 字节随机串 + 4 字节长度 + 消息 + receiveid
+    return raw[20 : 20 + size]
+```
+
+企业微信配置回调地址时会先发一次 GET（带 `echostr`）：验签后解密 `echostr`，原文作为响应体返回；
+之后的消息是 POST 一段 XML，`Encrypt` 字段按同样方式验签、解密。
+

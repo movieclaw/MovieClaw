@@ -429,6 +429,24 @@ function ReviewDrawer({
             )}
           </dd>
         </div>
+        {(item.callbacks?.length ?? 0) > 0 && (
+          <div>
+            <dt className="mb-1.5 font-medium text-[var(--text)]">开放的回调地址</dt>
+            <dd className="space-y-1.5">
+              <p className="text-[var(--text-muted)]">
+                外部平台（如企业微信、GitHub）不用登录就能往这些地址推消息；地址里带一串密钥，可随时换或作废，卸载即失效。
+              </p>
+              <ul className="space-y-1.5">
+                {item.callbacks?.map((name) => (
+                  <li key={name} className="text-[var(--text)]">
+                    <code>{name}</code>
+                    {upgrade && item.new_callbacks?.includes(name) && newBadge}
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </div>
+        )}
         {Object.keys(item.requires).length > 0 && (
           <div>
             <dt className="mb-1.5 font-medium text-[var(--text)]">依赖的接口</dt>

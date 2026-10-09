@@ -44,6 +44,7 @@ from movieclaw_api.api.routes.extension import router as extension_router
 from movieclaw_api.api.routes.features import router as features_router
 from movieclaw_api.api.routes.fs import router as fs_router
 from movieclaw_api.api.routes.health import router as health_router
+from movieclaw_api.api.routes.hooks import router as hooks_router
 from movieclaw_api.api.routes.images import router as images_router
 from movieclaw_api.api.routes.import_watch import router as import_watch_router
 from movieclaw_api.api.routes.jobs import router as jobs_router
@@ -94,6 +95,9 @@ api_router.include_router(shares_public_router)
 # App 推送的配图（docs/design/cloud-push.md §6）：通知扩展在锁屏时下载，拿不到登录
 # 令牌，地址自带签名（只含一张 TMDB 图片地址和过期时间），签名不对一律 404
 api_router.include_router(push_public_router)
+# 插件回调端点（docs/design/plugin-callbacks.md §4）：外部平台调进来的地址，地址里的密钥就是门票，
+# 没登记、已作废一律 404；不进 OpenAPI（不是 mclaw / AI 助手调的业务接口）
+api_router.include_router(hooks_router)
 
 # ---- 扩展区（鉴权在各路由上自行声明：扩展侧 sync token / 管理侧 login）----
 api_router.include_router(extension_router)

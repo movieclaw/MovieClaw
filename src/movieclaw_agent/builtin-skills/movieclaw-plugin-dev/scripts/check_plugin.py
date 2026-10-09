@@ -243,6 +243,26 @@ def main(argv: list[str]) -> int:
     if not bad:
         ok("全部 .py 文件语法正确")
 
+    # 回调端点：代码里登记 / 发密钥用到的端点名，须在清单 callbacks 里声明（用户批准时看得到）
+    import re
+
+    used_callbacks: set[str] = set()
+    for path in sorted(directory.rglob("*.py")):
+        if "__pycache__" in path.parts or "vendor" in path.relative_to(directory).parts:
+            continue
+        text = path.read_text("utf-8", errors="replace")
+        used_callbacks |= set(
+            re.findall(r"\.(?:endpoint|issue)\(\s*ctx\s*,\s*[\"']([a-z][a-z0-9-]*)[\"']", text)
+        )
+    declared_callbacks = set(manifest.permissions.callbacks)
+    if used_callbacks - declared_callbacks:
+        missing = "、".join(sorted(used_callbacks - declared_callbacks))
+        fail(f"代码里用了回调端点 {missing}，清单 [permissions] callbacks 没声明（装上会启动失败）")
+    elif declared_callbacks:
+        ok(f"回调端点：{sorted(declared_callbacks)}（批准安装时会单独列给用户看）")
+    if declared_callbacks - used_callbacks and used_callbacks:
+        warn(f"清单声明了但代码里没找到的回调端点：{'、'.join(sorted(declared_callbacks - used_callbacks))}")
+
     # 4. 导入入口模块
     result = probe(directory, plugin.entry, plugin.id)
     if result.get("error"):

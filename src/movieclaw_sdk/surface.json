@@ -1892,6 +1892,12 @@
     "stability": "experimental",
     "version": "1.0"
   },
+  "plugin-callbacks": {
+    "doc": "插件回调端点：外部平台能直接调进来的地址，请求原样交给插件（plugin-callbacks.md §4）",
+    "kind": "service",
+    "stability": "experimental",
+    "version": "1.0"
+  },
   "plugin-data": {
     "doc": "插件数据：插件自己的状态与挂在实体上的扩展字段（只能读写自己的）",
     "kind": "service",

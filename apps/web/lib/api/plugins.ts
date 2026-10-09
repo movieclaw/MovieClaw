@@ -191,6 +191,9 @@ export interface PackageRequest {
   operation_details: OperationDetail[];
   paths: PathGrant[];
   new_paths: PathGrant[];
+  /** 要开放的回调端点名：外部平台能不登录直接调进来的地址；旧服务端没有这个字段 */
+  callbacks?: string[];
+  new_callbacks?: string[];
   requires: Record<string, string>;
   installed_version: string | null;
   /** 与随带的内置插件同 id：安装即替换它，卸载后随带版本回来；旧服务端没有这个字段 */
@@ -205,6 +208,8 @@ export interface InstalledPackage {
   operations: string[];
   operation_details: OperationDetail[];
   paths: PathGrant[];
+  /** 开放的回调端点名；旧服务端没有这个字段 */
+  callbacks?: string[];
   previous_version: string | null;
   /** 激活失败过、已自动回滚的版本 */
   bad_versions: string[];

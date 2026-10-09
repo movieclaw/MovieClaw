@@ -274,6 +274,55 @@ class _RemotePluginRoutes:
         )
 
 
+class _RemoteCallbacks:
+    """回调端点：处理函数留在本进程，宿主登记转发函数；发密钥、作废经协议交给宿主。
+
+    只能在 ``apply`` 里登记（和插件路由一样随握手声明给宿主）。
+    """
+
+    def __init__(self, runner: Runner) -> None:
+        self._runner = runner
+
+    def endpoint(
+        self,
+        ctx: Any,
+        name: str,
+        handler: Callable[..., Any],
+        *,
+        methods: tuple[str, ...] = ("POST",),
+        max_body: int = 1024 * 1024,
+        timeout: float = 10.0,
+    ) -> None:
+        if name in ctx._callbacks:
+            raise ValueError(f"回调端点 {name} 重复登记")
+        ctx._callbacks[name] = handler
+        self._runner.send(
+            {
+                "type": "callback",
+                "name": name,
+                "methods": [m.upper() for m in methods],
+                "max_body": int(max_body),
+                "timeout": float(timeout),
+            }
+        )
+
+    async def issue(self, ctx: Any, name: str, *, scope: str = "plugin") -> Any:
+        from movieclaw_sdk.callbacks import issued_from_dict
+
+        return issued_from_dict(
+            await self._runner.rpc("callbacks.issue", {"name": name, "scope": scope})
+        )
+
+    async def revoke(self, ctx: Any, key_id: int) -> None:
+        await self._runner.rpc("callbacks.revoke", {"key_id": int(key_id)})
+
+    async def keys(self, ctx: Any, name: str | None = None) -> list[Any]:
+        from movieclaw_sdk.callbacks import issued_from_dict
+
+        found = await self._runner.rpc("callbacks.keys", {"name": name})
+        return [issued_from_dict(d) for d in found]
+
+
 class _RemoteFiles:
     """文件接口（插件侧）。
 
@@ -338,6 +387,7 @@ _SERVICE_PROXIES: dict[str, Callable[[Runner], Any]] = {
     "plugin-data": _RemotePluginData,
     "plugin-health": _RemotePluginHealth,
     "plugin-routes": _RemotePluginRoutes,
+    "plugin-callbacks": _RemoteCallbacks,
     "plugin-files": _RemotePluginFiles,
 }
 
@@ -370,6 +420,7 @@ class RemoteContext:
         self._handlers: dict[str, tuple[Event[Any, Any], Callable[..., Any]]] = {}
         self._jobs: dict[str, Callable[..., Any]] = {}
         self._channels: dict[str, Any] = {}
+        self._callbacks: dict[str, Callable[..., Any]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
         self._effects: list[Callable[[], Any]] = []
 
@@ -624,6 +675,9 @@ class Runner:
         if message.get("kind") == "channel":
             await self._handle_channel(message)
             return
+        if message.get("kind") == "callback":
+            await self._handle_callback(message)
+            return
         try:
             assert self.ctx is not None
             event, handler = self.ctx._handlers[message["listener"]]
@@ -664,6 +718,24 @@ class Runner:
                 job["delay_seconds"] = exc.delay_seconds
             reply.update(ok=False, error=exc.message, job=job)
         except Exception as exc:  # noqa: BLE001 -- 未知错误：宿主按「未知错误」收敛
+            traceback.print_exc()
+            reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
+        self.send(reply)
+
+    async def _handle_callback(self, message: dict[str, Any]) -> None:
+        """宿主转来一次回调请求（plugin-callbacks.md §4.3）。"""
+        from movieclaw_sdk.callbacks import CallbackResponse, request_from_dict, response_dict
+
+        call_id = message["id"]
+        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        try:
+            assert self.ctx is not None
+            handler = self.ctx._callbacks[message["listener"]]
+            response = await _maybe_await(handler(request_from_dict(message["payload"])))
+            if not isinstance(response, CallbackResponse):
+                raise TypeError("回调处理函数须返回 CallbackResponse")
+            reply.update(ok=True, result=response_dict(response))
+        except Exception as exc:  # noqa: BLE001 -- 原样报给宿主，宿主回 500
             traceback.print_exc()
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
         self.send(reply)

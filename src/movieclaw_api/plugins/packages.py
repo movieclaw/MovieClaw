@@ -122,6 +122,21 @@ class _Permissions(BaseModel):
     operations: list[str] = Field(default_factory=list)
     paths: list[dict[str, str]] = Field(default_factory=list)
     network: bool = False
+    callbacks: list[str] = Field(default_factory=list, max_length=8)
+    """要开放的回调端点名（docs/design/plugin-callbacks.md §4.3）：外部平台能直接调进来的地址。"""
+
+    @field_validator("callbacks")
+    @classmethod
+    def _callbacks(cls, value: list[str]) -> list[str]:
+        from movieclaw_sdk.callbacks import NAME
+
+        bad = [name for name in value if not NAME.match(name)]
+        if bad:
+            names = "、".join(bad)
+            raise ValueError(f"回调端点名 {names} 不合规：小写字母开头，字母、数字、连字符")
+        if len(set(value)) != len(value):
+            raise ValueError("回调端点名重复")
+        return value
 
 
 class Manifest(BaseModel):
@@ -216,6 +231,8 @@ class Installed:
     operations: list[str]
     paths: list[dict[str, str]] = field(default_factory=list)
     """批准的路径授权（``PLUGIN_FILES``）。"""
+    callbacks: list[str] = field(default_factory=list)
+    """批准开放的回调端点名（``PLUGIN_CALLBACKS``）。"""
     previous: dict[str, Any] | None = None
     """上一版的安装记录（version、title、entry、runtime、operations），回滚用。"""
     bad: list[str] = field(default_factory=list)
@@ -230,6 +247,7 @@ class Installed:
             "runtime": self.runtime,
             "operations": list(self.operations),
             "paths": [dict(p) for p in self.paths],
+            "callbacks": list(self.callbacks),
         }
 
 

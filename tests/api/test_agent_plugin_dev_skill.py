@@ -263,3 +263,24 @@ def test_scaffolded_plugin_installs_serves_and_uninstalls(data_dir) -> None:
         assert reply.status_code == 200, reply.text
         assert app.state.kernel.fiber("media-stats") is None
         assert client.get("/api/v1/plugins/media-stats/status").status_code == 404
+
+
+def test_check_script_wants_callbacks_declared(tmp_path) -> None:
+    made = _run("new_plugin.py", "plugins/hooky", "--id", "hooky", "--title", "回调", cwd=tmp_path)
+    assert made.returncode == 0, made.stdout + made.stderr
+    entry = tmp_path / "plugins" / "hooky" / "hooky.py"
+    entry.write_text(
+        entry.read_text("utf-8") + '\n# callbacks.endpoint(ctx, "push", handler)\n', "utf-8"
+    )
+    checked = _run("check_plugin.py", "plugins/hooky", cwd=tmp_path)
+    assert checked.returncode == 1
+    assert "回调端点 push" in checked.stdout
+    manifest = tmp_path / "plugins" / "hooky" / "movieclaw-plugin.toml"
+    manifest.write_text(
+        manifest.read_text("utf-8").replace(
+            "operations = []", 'operations = []\ncallbacks = ["push"]'
+        ),
+        "utf-8",
+    )
+    checked = _run("check_plugin.py", "plugins/hooky", cwd=tmp_path)
+    assert checked.returncode == 0, checked.stdout

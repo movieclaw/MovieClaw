@@ -36,6 +36,7 @@ description = "一句话说明"       # 可选，500 字以内
 operations = ["library.list", "subscriptions.get"]       # 宿主操作 id
 paths = [{ path = "staging", mode = "read" }]            # 路径授权，mode = read | rw
 network = true                                           # 需要直连外网（仅声明）
+callbacks = ["push"]                                     # 要开放的回调端点名（外部平台调进来的地址，见 recipes 第 14 节）
 ```
 
 清单不允许出现未知字段（写错字段名会被拒）。

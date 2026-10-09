@@ -43,6 +43,7 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 | 改变系统的判断：订阅搜索词、淘汰或重排候选种子、选下载器、否决删种 | 决策钩子 |
 | 加一种新实现：IM 通道（含只推送的，如 Bark）、站点类 / 站点数据包、定时任务（可整段替换内置的）、后台任务、入库流水线步骤 | 注册表 |
 | 给 AI 助手加一个能力（查天气、查某个外部服务）、给外部系统开接口 | 插件接口：自动成为 mclaw 命令，AI 助手直接能调 |
+| 接收外部平台推过来的消息（企业微信自建应用回调、GitHub / Slack 推送、Telegram Webhook） | 回调端点：宿主发地址，请求原样交给插件，插件自己验签 |
 | 做事与存东西：调用系统操作（与 mclaw 同一份）、存状态、读写批准的目录、报告健康 | 服务 |
 
 **做不到的**：给网页 / App 加界面、按钮或设置页（包括播放器里的按钮、首页卡片）、新的下载器类型、新的元数据来源、
@@ -87,6 +88,7 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 | 事件 / 钩子类（删片联动、关键字规则、选下载器） | `references/recipes.md` 第 1～3 节，对应示例 `references/examples/{delete_cascade,keyword_rules}.py` |
 | IM 通道 | `references/recipes.md` 第 11 节（**选接入方式**）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_sdk/channels.py` 文件头；只推送的通道再看 `$SRC/movieclaw_plugins/feishu/` |
 | 定时 / 后台任务、入库流水线 | `references/recipes.md` 第 6～7 节、`references/examples/{watchlist_feed,cloud_strm}.py` |
+| 接收外部平台的回调 | `references/recipes.md` 第 14 节 |
 | 开接口（含给 AI 助手加能力）、读写文件 | `references/recipes.md` 第 5、8、10 节、`templates/starter/`、`references/examples/cloud_strm.py` |
 | 插件需要用户填的配置或凭据（账号、地址、Key） | `references/recipes.md` 第 13 节 |
 | 站点 | `references/recipes.md` 第 12 节、`references/examples/site_pack/` |

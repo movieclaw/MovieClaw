@@ -85,6 +85,7 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, An
     approved = set(current.operations) if current else set()
     approved_paths = [dict(p) for p in current.paths] if current else []
     paths = [dict(p) for p in manifest.permissions.paths]
+    approved_callbacks = current.callbacks if current else []
     return {
         "id": plugin.id,
         "title": plugin.title,
@@ -96,6 +97,8 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, An
         "operation_details": operation_details(manifest.permissions.operations),
         "paths": paths,
         "new_paths": [p for p in paths if p not in approved_paths],
+        "callbacks": list(manifest.permissions.callbacks),
+        "new_callbacks": [c for c in manifest.permissions.callbacks if c not in approved_callbacks],
         "requires": manifest.requires,
         "installed_version": current.version if current else None,
         "replaces_builtin": _replaces_builtin(plugin.id),
@@ -133,6 +136,7 @@ class PackageManager:
                     "operations": item.operations,
                     "operation_details": operation_details(item.operations),
                     "paths": item.paths,
+                    "callbacks": item.callbacks,
                     "previous_version": (item.previous or {}).get("version"),
                     "bad_versions": item.bad,
                     "state": fiber.state.value if fiber else "unloaded",
@@ -234,6 +238,7 @@ class PackageManager:
                 runtime=manifest.plugin.runtime,
                 operations=list(requested),
                 paths=requested_paths,
+                callbacks=list(manifest.permissions.callbacks),
                 previous=current.snapshot() if current else None,
                 bad=[v for v in (current.bad if current else []) if v != version],
                 installed_at=pkg.now(),
@@ -365,6 +370,12 @@ class PackageManager:
             packages.pop(entry_id)
             pkg.save(self._settings, packages)
             shutil.rmtree(pkg.root(self._settings) / entry_id, ignore_errors=True)
+            from movieclaw_api.services.plugin_callbacks import get_service
+
+            callbacks = get_service()
+            if callbacks is not None:
+                # 回调地址随插件一起作废：卸载后外部平台再调进来一律 404
+                await callbacks.revoke_all(entry_id)
             await _restore_bundled(self._kernel, entry_id)
             purged = 0
             if purge_data:

@@ -41,6 +41,7 @@
 | `模块 … 里没有名为 <id> 的插件` | `@plugin("<id>")` 的名字与清单 id 不一致，或 `@plugin` 不在入口模块顶层（不能只在子模块里定义而不导入） |
 | `ModuleNotFoundError` | 依赖没放进 `vendor/`，或用了主程序没有的库；只能用标准库、主程序已有的库（如 `httpx`、`pydantic`、`fastapi`）和 `vendor/` |
 | `没有在 inject 中声明服务 xxx` | `ctx.use(KEY)` 的服务要写进 `@plugin(inject=(KEY,))` |
+| `回调端点 x 没有在清单 [permissions] callbacks 里声明` | 清单 `callbacks` 加上端点名，重新打包安装（用户会在批准时看到） |
 | `inject 只能写服务键，xxx 不是服务` | 把注册表 / 事件写进了 inject：注册表用 `ctx.contribute`、事件用 `ctx.on`，从 inject 里删掉 |
 | `进程外插件暂不能使用服务：xxx` | xxx 不是开放给第三方的服务，**或者是注册表被误写进了 inject**（如 `im-channels`）。改代码；**不要因此改成 inline**，开放的扩展点在独立进程里都能用 |
 | `激活后状态为 pending` / `一直在等服务：xxx（没有插件提供）` | inject 里写了一个没人提供的「服务」，几乎都是把注册表写进了 inject；同上处理 |
@@ -61,6 +62,7 @@
 | 连不上外网 | 没走 `net.http_transport`；或用户的代理规则没覆盖到 |
 | 插件反复崩溃后所有第三方插件都没加载 | 进入了安全模式：修好插件后 `mclaw app plugins safe-mode exit` |
 | 改了代码重装，行为还是旧的 | 旧版本服务器上，进程内（inline）运行的包会沿用第一次导入的代码。用默认的独立进程运行就没有这个问题；**不要为此重启应用**，告诉用户 |
+| 外部平台调回调地址拿到 404 / 405 / 413 / 429 / 503 / 504 | 依次是：地址或密钥不对（被作废 / 换过）、方法没在 `methods` 里、请求体超过上限、太频繁、插件没在运行、处理超过超时；`mclaw app plugins callbacks list` 看调用次数与最后状态码 |
 | `mclaw plugins …` 提示 unknown command | 命令目录还没刷新：先执行一条 mclaw 业务命令（如 `app plugins list`），看到「服务器接口目录已更新」再调；命令由 `operation_id` 按点拆分而来 |
 
 ## 回到干净状态

@@ -741,6 +741,7 @@ _PATH_DUMMIES = {
     "{media_item_id}": "1",
     "{rule_id}": "1",
     "{entry_id}": "1",
+    "{key_id}": "1",
     "{file_id}": "1",
     "{device_id}": "no-such-device",
     "{user_code}": "MCLW-TEST",

@@ -11,6 +11,7 @@ from __future__ import annotations
 from movieclaw_api.plugins.keys import (
     DB,
     HOST_OPS,
+    PLUGIN_CALLBACKS,
     PLUGIN_DATA,
     PLUGIN_FILES,
     PLUGIN_HEALTH,
@@ -106,6 +107,23 @@ async def plugin_routes(ctx: Context) -> None:
     ctx.provide(
         PLUGIN_ROUTES, PluginRoutes(host_ops._app, lambda entry_id: PluginStore(db, entry_id))
     )
+
+
+@plugin(
+    "kernel.plugin-callbacks",
+    title="插件回调端点",
+    inject=(DB,),
+    provides=(PLUGIN_CALLBACKS,),
+    disableable=True,
+    reloadable=True,
+)
+async def plugin_callbacks(ctx: Context) -> None:
+    from movieclaw_api.services import plugin_callbacks as callbacks
+
+    service = callbacks.PluginCallbacks(ctx.settings, ctx.use(DB))
+    callbacks.set_service(service)
+    ctx.effect(lambda: callbacks.set_service(None), label="callbacks")
+    ctx.provide(PLUGIN_CALLBACKS, service)
 
 
 @plugin(
