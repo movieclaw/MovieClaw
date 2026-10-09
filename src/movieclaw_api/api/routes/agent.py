@@ -228,6 +228,9 @@ async def _cli_env(session_id: str) -> dict[str, str]:
     """
     settings = get_settings()
     token = await auth_service.issue_agent_token(session_id)
+    if demo_service.is_review_request():
+        # 演示站审核账号（demo-site.md §9）：工具里的 mclaw 调用同样按审核账号放行
+        demo_service.remember_review_agent_token(token, auth_service.AGENT_TOKEN_TTL_SECONDS)
     return {
         "MOVIECLAW_SERVER": f"http://127.0.0.1:{settings.port}",
         "MOVIECLAW_TOKEN": token,
@@ -235,9 +238,21 @@ async def _cli_env(session_id: str) -> dict[str, str]:
 
 
 def _ensure_demo_visible(session_id: str, identity: Principal) -> None:
-    """演示站：会话按登录设备隔离（services/demo_agent.py），别人的会话一律当不存在。"""
-    if demo_service.is_demo_mode() and not demo_agent.is_visible(session_id, identity):
+    """演示站：会话按登录设备隔离（services/demo_agent.py），别人的会话一律当不存在。
+    审核账号只看得见自己开的会话。"""
+    if not demo_service.is_demo_mode():
+        return
+    if demo_service.is_review_request():
+        visible = session_id in demo_service.review_agent_session_ids()
+    else:
+        visible = demo_agent.is_visible(session_id, identity)
+    if not visible:
         raise NotFoundException("Agent 会话不存在")
+
+
+def _scripted_demo() -> bool:
+    """公开访客走预设回复的演示模型；审核账号走部署者配好的真实模型与完整工具。"""
+    return demo_service.is_demo_mode() and not demo_service.is_review_request()
 
 
 async def _accept_user_message(
@@ -262,7 +277,7 @@ async def _accept_user_message(
     # 先组装路由器：内部会校验模型供应商是否已配置，未配置时抛 404。必须在任何
     # 会话记录落盘（转录文件 / 索引行）之前完成——否则校验失败时，前端虽然收到
     # 正确的错误提示，磁盘上却已残留一条空会话，下次刷新侧栏会冒出来。
-    demo = demo_service.is_demo_mode()
+    demo = _scripted_demo()
     if demo:
         demo_agent.ensure_can_send(identity, new_session=not payload.session_id)
     llm_router = demo_agent.router() if demo else await acquire_llm_router(session)
@@ -298,6 +313,8 @@ async def _accept_user_message(
         await repo.create(session_id, title=None)
         if demo:
             demo_agent.claim(session_id, identity)
+        elif demo_service.is_demo_mode():
+            demo_service.remember_review_agent_session(session_id)
         history = []
         existing_entries = []
         entry_count = 0
@@ -534,12 +551,17 @@ async def list_sessions(
     与 compaction。最多返回 200 条，公开协议不披露内部运行编号。
     """
     if demo_service.is_demo_mode():
-        # 演示站：先给这台设备补齐预置对话，再只列它自己看得见的会话
-        await demo_agent.ensure_device_sessions(identity)
+        # 演示站：先给这台设备补齐预置对话，再只列它自己看得见的会话；
+        # 审核账号不要预置对话（那是演示模型的样例），只列它自己开的会话
+        if demo_service.is_review_request():
+            visible = list(demo_service.review_agent_session_ids())
+        else:
+            await demo_agent.ensure_device_sessions(identity)
+            visible = demo_agent.visible_ids(identity)
         rows = (
             await session.execute(
                 select(AgentSession)
-                .where(AgentSession.id.in_(demo_agent.visible_ids(identity)))
+                .where(AgentSession.id.in_(visible))
                 .order_by(AgentSession.updated_at.desc(), AgentSession.created_at.desc())
                 .offset(max(offset, 0))
                 .limit(min(limit, 200))
@@ -685,6 +707,8 @@ async def fork_session(
         else None
     )
     target = await repo.create(header.session_id, title=target_title)
+    if demo_service.is_review_request():
+        demo_service.remember_review_agent_session(header.session_id)
     await repo.touch_after_append(
         header.session_id,
         leaf_uuid=handoff.uuid,
@@ -843,7 +867,7 @@ async def retry_session_message(
     model = _resolve_model_choice(payload.model, target.model)
 
     # 供应商校验和运行所需上下文在删除轨迹前准备完成；下面才进入不可逆阶段。
-    if demo_service.is_demo_mode():
+    if _scripted_demo():
         demo_agent.ensure_can_send(identity, new_session=False)
         llm_router: LlmRouter = demo_agent.router()
         system_prompt = demo_agent.SYSTEM_PROMPT

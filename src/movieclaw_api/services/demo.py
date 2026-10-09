@@ -32,6 +32,7 @@ import logging
 import os
 import time
 from collections import deque
+from contextvars import ContextVar
 from functools import lru_cache
 from pathlib import Path
 
@@ -273,6 +274,10 @@ def is_public_account(username: str) -> bool:
 # 用它登录就是超管，登录时签发的那枚凭证记进审核名单，守卫认出名单里的凭证后
 # 只按 REVIEW_BLOCKED_OPERATIONS 拦几条安全底线。名单存在 data/ 下，每日还原时
 # 随设备行一起清空。存的是凭证的 sha256，不存明文。
+#
+# AI 助手也分开：公开访客用预设回复的演示模型，审核账号用部署者配好的真实模型
+# 和完整工具（demo_agent.py 只服务公开访客）。审核账号开的会话记进同一个名单文件，
+# 它的 Agent 运行令牌也算审核凭证（只记在内存里，随令牌两小时过期）。
 
 #: 审核账号也不能做的事：换掉部署好的演示版本、改动预先接好的演示资源链路
 _REVIEW_PIPELINE_MESSAGE = (
@@ -296,6 +301,9 @@ REVIEW_BLOCKED_OPERATIONS: dict[str, str] = {
 
 _REVIEW_SESSIONS_FILE = "demo-review-sessions.json"
 _review_hashes: set[str] | None = None
+_review_agent_sessions: set[str] = set()
+_review_agent_tokens: dict[str, float] = {}
+_review_request: ContextVar[bool] = ContextVar("demo_review_request", default=False)
 
 
 def review_enabled() -> bool:
@@ -333,31 +341,82 @@ def _token_hash(token: str) -> str:
 def _review_hashes_loaded() -> set[str]:
     global _review_hashes
     if _review_hashes is None:
+        _review_hashes = set()
+        _review_agent_sessions.clear()
         try:
             raw = json.loads(_review_sessions_path().read_text(encoding="utf-8"))
-            _review_hashes = {str(item) for item in raw}
-        except (OSError, ValueError, TypeError):
-            _review_hashes = set()
+        except (OSError, ValueError):
+            raw = []
+        # 早先的名单只是凭证哈希的列表；之后带上审核账号开的 Agent 会话
+        if isinstance(raw, dict):
+            _review_hashes.update(str(item) for item in raw.get("tokens") or [])
+            _review_agent_sessions.update(str(item) for item in raw.get("agent_sessions") or [])
+        elif isinstance(raw, list):
+            _review_hashes.update(str(item) for item in raw)
     return _review_hashes
 
 
-def remember_review_token(token: str) -> None:
-    """把审核账号登录时签发的凭证记进名单（写临时文件再替换，不留半截文件）。"""
-    hashes = _review_hashes_loaded()
-    hashes.add(_token_hash(token))
+def _save_review_state() -> None:
+    """写临时文件再替换，不留半截文件。"""
     path = _review_sessions_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(sorted(hashes)), encoding="utf-8")
+    state = {
+        "tokens": sorted(_review_hashes_loaded()),
+        "agent_sessions": sorted(_review_agent_sessions),
+    }
+    tmp.write_text(json.dumps(state), encoding="utf-8")
     os.replace(tmp, path)
+
+
+def remember_review_token(token: str) -> None:
+    """把审核账号登录时签发的凭证记进名单。"""
+    hashes = _review_hashes_loaded()
+    hashes.add(_token_hash(token))
+    _save_review_state()
     logger.info("审核账号已登录（名单内凭证 %d 枚）", len(hashes))
 
 
+def remember_review_agent_token(token: str, ttl_seconds: float) -> None:
+    """审核账号的 Agent 运行令牌：工具里的 mclaw 调用也按审核账号放行。"""
+    now = time.time()
+    for key in [k for k, exp in _review_agent_tokens.items() if exp < now]:
+        del _review_agent_tokens[key]
+    _review_agent_tokens[_token_hash(token)] = now + ttl_seconds
+
+
 def is_review_token(token: str | None) -> bool:
-    """这枚凭证是不是审核账号登录时签发的。"""
+    """这枚凭证是不是审核账号登录时签发的（或审核账号 Agent 运行的令牌）。"""
     if not token or not review_enabled():
         return False
-    return _token_hash(token) in _review_hashes_loaded()
+    digest = _token_hash(token)
+    if digest in _review_hashes_loaded():
+        return True
+    expires = _review_agent_tokens.get(digest)
+    return expires is not None and expires >= time.time()
+
+
+def mark_review_request(is_review: bool) -> None:
+    """守卫认出审核凭证后标记本次请求，路由里用 is_review_request() 读。"""
+    _review_request.set(is_review)
+
+
+def is_review_request() -> bool:
+    """当前请求是不是审核账号发的（只在演示模式下由守卫标记）。"""
+    return _review_request.get()
+
+
+def remember_review_agent_session(session_id: str) -> None:
+    """审核账号新开的 Agent 会话：只对审核账号可见，重启后仍在。"""
+    _review_hashes_loaded()
+    _review_agent_sessions.add(session_id)
+    _save_review_state()
+
+
+def review_agent_session_ids() -> set[str]:
+    """审核账号开过的全部 Agent 会话。"""
+    _review_hashes_loaded()
+    return set(_review_agent_sessions)
 
 
 def review_rejection_for(method: str, operation_id: str) -> str | None:
@@ -431,6 +490,8 @@ def reset_demo_state() -> None:
     _load_accounts_file.cache_clear()
     _login_attempts.clear()
     _review_hashes = None
+    _review_agent_sessions.clear()
+    _review_agent_tokens.clear()
 
 
 # ---------------------------------------------------------------------------

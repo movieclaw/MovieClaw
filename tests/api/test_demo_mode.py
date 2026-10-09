@@ -633,3 +633,68 @@ def test_review_account_is_off_without_a_password(client: TestClient, monkeypatc
     # 没配审核密码：审核用户名就是个不存在的账号，任何密码都登不上
     assert _app_login(client, {**_REVIEW, "password": "anything-1"}).status_code == 401
     assert demo_service.is_review_token("mclaw_anything") is False
+
+
+def test_review_account_gets_the_real_ai_model_and_its_own_sessions(
+    client: TestClient, monkeypatch
+) -> None:
+    """公开访客用预设回复的演示模型；审核账号用部署者配好的真实模型，会话只对它可见。"""
+    from movieclaw_api.api.routes import agent as agent_routes
+    from movieclaw_api.services import demo_agent
+
+    admin_cookie, _ = _provision(client)
+    _enable_review(monkeypatch)
+    bearer = {"Authorization": f"Bearer {_app_login(client, _REVIEW).json()['data']['token']}"}
+
+    _use(client, admin_cookie)
+    public_models = client.get("/api/v1/llm/models").json()["data"]
+    assert [m["ref"] for m in public_models] == [demo_agent.DEMO_MODEL]
+    _assert_demo_denied(client.post("/api/v1/llm/providers", json={}))
+
+    # 审核账号看到的是真实配置：还没接模型时为空，发消息提示去接入，而不是演示站拒绝
+    client.cookies.clear()
+    assert client.get("/api/v1/llm/models", headers=bearer).json()["data"] == []
+    assert client.get("/api/v1/llm/providers", headers=bearer).json()["data"] == []
+    resp = client.post("/api/v1/sessions", json={"content": "你好"}, headers=bearer)
+    assert resp.status_code == 404 and "模型接入" in resp.json()["message"], resp.text
+
+    # 接好模型后（这里用演示路由器顶替真实供应商）：走真实工具，令牌也算审核凭证
+    issued: list[str] = []
+    real_issue = agent_routes.auth_service.issue_agent_token
+
+    async def _issue(session_id: str) -> str:
+        issued.append(await real_issue(session_id))
+        return issued[-1]
+
+    async def _router(_session):
+        return demo_agent.router()
+
+    monkeypatch.setattr(agent_routes, "acquire_llm_router", _router)
+    monkeypatch.setattr(agent_routes.auth_service, "issue_agent_token", _issue)
+    started = client.post("/api/v1/sessions", json={"content": "你好"}, headers=bearer)
+    assert started.status_code == 202, started.text
+    session_id = started.json()["data"]["session_id"]
+    assert issued and demo_service.is_review_token(issued[0])
+
+    def _listed(**kwargs) -> list[str]:
+        return [s["id"] for s in client.get("/api/v1/sessions", **kwargs).json()["data"]]
+
+    # 审核账号不拿预置对话，只看见自己开的会话；重启后仍在
+    assert _listed(headers=bearer) == [session_id]
+    demo_service.reset_demo_state()
+    assert _listed(headers=bearer) == [session_id]
+    assert client.get(f"/api/v1/sessions/{session_id}", headers=bearer).status_code == 200
+
+    # 公开访客看不见审核账号的会话
+    _use(client, admin_cookie)
+    assert session_id not in _listed()
+    assert client.get(f"/api/v1/sessions/{session_id}").status_code == 404
+
+
+def test_review_agent_tokens_expire(monkeypatch) -> None:
+    _enable_review(monkeypatch)
+    demo_service.remember_review_agent_token("expired-token", ttl_seconds=-1)
+    demo_service.remember_review_agent_token("live-token", ttl_seconds=60)
+    assert demo_service.is_review_token("expired-token") is False
+    assert demo_service.is_review_token("live-token") is True
+    demo_service.reset_demo_state()

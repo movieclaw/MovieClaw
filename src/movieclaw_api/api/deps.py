@@ -34,10 +34,13 @@ async def demo_guard(connection: HTTPConnection) -> None:
     route = connection.scope.get("route")
     operation_id = getattr(route, "operation_id", None) or ""
     method = connection.scope.get("method", "GET")
-    reason = demo_service.rejection_for(method, operation_id)
-    # 审核账号（demo-site.md §9）：只在要拒绝时才看凭证，公开访客的请求不多付一次计算
-    if reason is not None and demo_service.is_review_token(_presented_token(connection)):
+    # 审核账号（demo-site.md §9）：只拦安全底线；标记本次请求，AI 助手等路由据此分流
+    review = demo_service.is_review_token(_presented_token(connection))
+    demo_service.mark_review_request(review)
+    if review:
         reason = demo_service.review_rejection_for(method, operation_id)
+    else:
+        reason = demo_service.rejection_for(method, operation_id)
     if reason is not None:
         raise AppException(status_code=403, code=demo_service.DEMO_READ_ONLY_CODE, message=reason)
 
