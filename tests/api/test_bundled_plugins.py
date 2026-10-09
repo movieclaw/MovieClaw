@@ -196,7 +196,7 @@ def test_weixin_package_replaces_the_bundled_one_and_uninstall_restores_it(env, 
     fake, gateway = ilink
     with make_client() as client:
         kernel = client.app.state.kernel
-        fiber = kernel.fiber("channel.weixin")
+        fiber = kernel.fiber("weixin-channel")
         assert (fiber.entry.source, fiber.state.value) == ("builtin", "active")
 
         async def seed() -> None:
@@ -218,22 +218,22 @@ def test_weixin_package_replaces_the_bundled_one_and_uninstall_restores_it(env, 
         wait(lambda: ("me@im.wechat", "收到：随带版本", "ctx-1") in fake.sent)
 
         # 把随带的插件包原样打包，作为插件包安装：替换随带版本，在独立进程里运行
-        package = bundled.bundled()["channel.weixin"]
+        package = bundled.bundled()["weixin-channel"]
         uploaded = client.post(
             "/api/v1/app/plugins/packages",
             files={"file": ("weixin.mcplugin", pack(package.path), "application/zip")},
         )
         assert uploaded.status_code == 200, uploaded.text
         approved = client.post(
-            "/api/v1/app/plugins/packages/channel.weixin/approve",
+            "/api/v1/app/plugins/packages/weixin-channel/approve",
             json={"version": package.manifest.plugin.version, "operations": []},
         )
         assert approved.status_code == 200, approved.text
         assert approved.json()["data"]["status"] == "active"
-        fiber = kernel.fiber("channel.weixin")
+        fiber = kernel.fiber("weixin-channel")
         assert fiber.entry.source == "package"
         plugins = {p["id"]: p for p in client.get("/api/v1/app/plugins").json()["data"]["plugins"]}
-        assert plugins["channel.weixin"]["runtime"] == "process"
+        assert plugins["weixin-channel"]["runtime"] == "process"
 
         # 通道 id 沿用 weixin，已绑定账号由插件包接着跑
         channels = client.get("/api/v1/channels").json()["data"]
@@ -250,13 +250,13 @@ def test_weixin_package_replaces_the_bundled_one_and_uninstall_restores_it(env, 
 
         # 卸载：随带版本回来，账号照常
         removed = client.delete(
-            "/api/v1/app/plugins/packages/channel.weixin", params={"purge_data": "true"}
+            "/api/v1/app/plugins/packages/weixin-channel", params={"purge_data": "true"}
         )
         assert removed.status_code == 200, removed.text
-        fiber = kernel.fiber("channel.weixin")
+        fiber = kernel.fiber("weixin-channel")
         assert (fiber.entry.source, fiber.state.value) == ("builtin", "active")
         plugins = {p["id"]: p for p in client.get("/api/v1/app/plugins").json()["data"]["plugins"]}
-        assert plugins["channel.weixin"]["runtime"] == "inline"
+        assert plugins["weixin-channel"]["runtime"] == "inline"
         wait(lambda: client.get("/api/v1/channels").json()["data"]["accounts"][0]["running"])
         inbound(fake, "又回到随带版本", 3)
         wait(lambda: ("me@im.wechat", "收到：又回到随带版本", "ctx-3") in fake.sent)
@@ -290,3 +290,98 @@ def test_every_bundled_package_installs_out_of_process_and_restores(env, entry_i
         assert kernel.fiber(entry_id).entry.source == "builtin"
         listed = client.get("/api/v1/channels").json()["data"]["channels"]
         assert channel in {c["id"] for c in listed}
+
+
+def test_legacy_id_replacement_package_still_replaces_the_renamed_bundled_one(
+    env, tmp_path, monkeypatch
+) -> None:
+    """改名前装上的替换包（id 是旧的 channel.telegram，代码里写死了）照样顶替改名后的随带版本。"""
+    import shutil
+
+    from movieclaw_api.plugins import packages as pkg
+
+    package = bundled.bundled()["telegram-channel"]
+    legacy = tmp_path / "legacy-telegram"
+    shutil.copytree(package.path, legacy, ignore=shutil.ignore_patterns("__pycache__"))
+    for path in [legacy / "movieclaw-plugin.toml", *legacy.rglob("*.py")]:
+        path.write_text(
+            path.read_text("utf-8").replace('"telegram-channel"', '"channel.telegram"'), "utf-8"
+        )
+    with make_client() as client:
+        kernel = client.app.state.kernel
+        with monkeypatch.context() as m:  # 模拟改格式之前的安装
+            m.setattr(pkg, "is_legacy_id", lambda _id: False)
+            uploaded = client.post(
+                "/api/v1/app/plugins/packages",
+                files={"file": ("legacy.mcplugin", pack(legacy), "application/zip")},
+            )
+        assert uploaded.status_code == 200, uploaded.text
+        assert uploaded.json()["data"]["replaces_builtin"] is True
+        approved = client.post(
+            "/api/v1/app/plugins/packages/channel.telegram/approve",
+            json={"version": package.manifest.plugin.version, "operations": []},
+        )
+        assert approved.json()["data"]["status"] == "active", approved.text
+        # 随带版本被卸下，不会出现两个 Telegram 通道
+        assert kernel.fiber("telegram-channel") is None
+        listed = client.get("/api/v1/channels").json()["data"]["channels"]
+        assert [c["id"] for c in listed if c["title"] == "Telegram"] == ["telegram"]
+        plugins = {p["id"]: p for p in client.get("/api/v1/app/plugins").json()["data"]["plugins"]}
+        assert plugins["channel.telegram"]["tier"] == "official"
+
+    with make_client() as client:  # 重启：仍是旧 id 的包顶替随带版本
+        kernel = client.app.state.kernel
+        assert kernel.fiber("telegram-channel") is None
+        assert kernel.fiber("channel.telegram").entry.source == "package"
+        removed = client.delete("/api/v1/app/plugins/packages/channel.telegram")
+        assert removed.status_code == 200
+        assert kernel.fiber("telegram-channel").entry.source == "builtin"
+
+
+def test_rows_under_old_bundled_ids_move_to_the_new_ids(env) -> None:
+    """改名前留下的待处理事项、插件数据、消费进度，启动时跟到新 id 上。"""
+    from sqlalchemy import text
+
+    from movieclaw_db.engine import get_database
+
+    with make_client() as client:
+
+        async def seed() -> None:
+            from movieclaw_db.models import PluginData, SystemNotice
+
+            async with get_database().session() as session:
+                session.add(
+                    SystemNotice(
+                        dedupe_key="plugin:channel.weixin",
+                        severity="error",
+                        source="plugin",
+                        title="微信通道启动失败",
+                        message="",
+                        payload={},
+                        status="open",
+                    )
+                )
+                session.add(PluginData(entry_id="channel.weixin", scope="global", key="k", value=1))
+                await session.commit()
+
+        client.portal.call(seed)
+
+    with make_client() as client:  # 重启时迁移
+
+        async def read() -> tuple:
+            async with get_database().session() as session:
+                notice = (
+                    (await session.execute(text("SELECT dedupe_key FROM system_notice")))
+                    .scalars()
+                    .all()
+                )
+                data = (
+                    (await session.execute(text("SELECT entry_id FROM plugin_data")))
+                    .scalars()
+                    .all()
+                )
+                return notice, data
+
+        notices, data = client.portal.call(read)
+        assert "plugin:weixin-channel" in notices and "plugin:channel.weixin" not in notices
+        assert data == ["weixin-channel"]

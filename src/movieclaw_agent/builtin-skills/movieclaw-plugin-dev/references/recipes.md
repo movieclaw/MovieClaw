@@ -15,7 +15,7 @@
 from movieclaw_api.domain_events import LIBRARY_INGEST_IMPORTED, IngestImported
 from movieclaw_kernel import DURABLE_EVENTS
 
-@plugin("me.after-import", title="入库后通知", inject=(DURABLE_EVENTS, PLUGIN_DATA))
+@plugin("after-import", title="入库后通知", inject=(DURABLE_EVENTS, PLUGIN_DATA))
 async def apply(ctx: Context) -> None:
     store = ctx.use(PLUGIN_DATA).scoped(ctx)
 
@@ -93,7 +93,7 @@ ctx.on(hooks.DOWNLOADER_SELECT, pick)
 from movieclaw_api.plugins.keys import HOST_OPS
 from movieclaw_api.services.host_ops import OpsError
 
-@plugin("me.x", title="…", inject=(HOST_OPS,), permissions=("search.titles", "subscriptions.create"))
+@plugin("my-plugin", title="…", inject=(HOST_OPS,), permissions=("search.titles", "subscriptions.create"))
 async def apply(ctx: Context) -> None:
     ops = await ctx.use(HOST_OPS).client(ctx)       # 以插件身份调用，只能用批准过的操作
     try:
@@ -152,7 +152,7 @@ routes.mount(ctx, router)                     # 默认 admin 区 → /api/v1/plu
 - 选区：AI 助手经 mclaw 调用时用的是 Agent 身份（管理员级），admin 区就能调；要让普通成员在网页 / App 里直接调用才放 member 区。
 - 端点参数（查询参数、请求体模型）会进接口目录，变成 mclaw 命令的选项，AI 助手据此传参。
 - 插件路由进入操作目录，因此也是 mclaw 命令：安装后随便执行一条 mclaw 业务命令触发目录刷新（提示「服务器接口目录已更新」），
-  之后 `operation_id` 按点拆成命令调用，如 `plugins.me.hello.status` → `mclaw plugins me hello status`。
+  之后 `operation_id` 按点拆成命令调用，如 `plugins.hello-world.status` → `mclaw plugins hello-world status`。
 
 示例：`references/examples/cloud_strm.py`（公开区 + 签名链接）。
 
@@ -254,7 +254,7 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
     resp = await client.get(url)
 ```
 
-服务名写**条目 id 的最后一段**（`me.douban-wish` → `"douban-wish"`）：独立进程里宿主只为这个名字给出代理设置，
+服务名写**条目 id**（如 `"douban-wish"`）：独立进程里宿主只为这个名字给出代理设置，
 写成别的名字会悄悄直连、不走用户「设置 → 网络与代理」的规则。清单写 `network = true`。
 装之前可以在 bash 里用 curl 请求外部公开接口，核对返回格式再写解析代码（不要带用户的凭据）。
 外部服务出错时捕获 `httpx.HTTPError`，记日志后在接口里 `raise HTTPException(502, detail="天气服务暂时不可用")`，
@@ -320,7 +320,7 @@ async def save(body: Settings) -> dict:
     return {"ok": True}
 ```
 
-装好后这个接口就是 mclaw 命令（`mclaw plugins me <名> settings set --help` 看选项），由你在对话里替用户填，
+装好后这个接口就是 mclaw 命令（`mclaw plugins <条目 id> settings set --help` 看选项），由你在对话里替用户填，
 或告诉用户怎么填。读取：`await store.get("api_key")`（加密的取出来就是明文）。
 
 宿主操作只覆盖 mclaw 能看到的接口；网页内部用的隐藏接口插件调不了。

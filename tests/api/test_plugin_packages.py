@@ -31,7 +31,7 @@ VERSION = {version}
 
 
 @plugin(
-    "acme.pkg",
+    "acme-pkg",
     title="包插件",
     inject=(HOST_OPS, PLUGIN_DATA),
     permissions=("app.plugins.list",),
@@ -72,7 +72,7 @@ def package(
     version: int = 1,
     *,
     extra: str = "pass",
-    entry_id: str = "acme.pkg",
+    entry_id: str = "acme-pkg",
     runtime: str = "process",
     sdk: str = "^1.0",
     requires: str = '"subscription.candidates.filter" = "^1.0"',
@@ -142,7 +142,7 @@ def upload(client, data: bytes):
 
 def approve(client, version: str, operations=("app.plugins.list",), **extra):
     return client.post(
-        "/api/v1/app/plugins/packages/acme.pkg/approve",
+        "/api/v1/app/plugins/packages/acme-pkg/approve",
         json={"version": version, "operations": list(operations), **extra},
     )
 
@@ -161,7 +161,7 @@ def stored(client) -> dict | None:
     from movieclaw_api.services.plugin_data import PluginStore
     from movieclaw_db.engine import get_database
 
-    store = PluginStore(get_database(), "acme.pkg")
+    store = PluginStore(get_database(), "acme-pkg")
     return client.portal.call(lambda: store.get("loaded"))
 
 
@@ -171,7 +171,7 @@ def installed(client) -> dict:
 
 
 def open_notice(client):
-    """插件包 acme.pkg 未消退的回滚通知（没有返回 None）。"""
+    """插件包 acme-pkg 未消退的回滚通知（没有返回 None）。"""
     from sqlmodel import select
 
     from movieclaw_db.engine import get_database
@@ -182,7 +182,7 @@ def open_notice(client):
             return (
                 await session.execute(
                     select(SystemNotice).where(
-                        SystemNotice.dedupe_key == "plugin-package:acme.pkg",
+                        SystemNotice.dedupe_key == "plugin-package:acme-pkg",
                         SystemNotice.status != NoticeStatus.RESOLVED.value,
                     )
                 )
@@ -214,15 +214,15 @@ def test_install_upgrade_rollback_restart_and_uninstall(data_dir) -> None:
         [detail] = view["operation_details"]
         assert detail["id"] == "app.plugins.list" and detail["summary"] and not detail["dangerous"]
         assert client.get("/api/v1/app/plugins/packages").json()["data"]["pending"][0]["id"] == (
-            "acme.pkg"
+            "acme-pkg"
         )
-        assert app.state.kernel.fiber("acme.pkg") is None  # 没批准不加载
+        assert app.state.kernel.fiber("acme-pkg") is None  # 没批准不加载
 
         # 批准的操作必须与申请一致
         assert approve(client, "1.0.0", operations=()).status_code == 400
         result = approve(client, "1.0.0").json()["data"]
         assert result["status"] == "active" and result["version"] == "1.0.0"
-        fiber = app.state.kernel.fiber("acme.pkg")
+        fiber = app.state.kernel.fiber("acme-pkg")
         assert fiber.entry.source == "package" and fiber.plugin.title == "包插件（独立进程）"
         assert chosen(client) == 1
         # 依赖随包携带（vendor/）；宿主操作只拿到批准的那个
@@ -233,9 +233,9 @@ def test_install_upgrade_rollback_restart_and_uninstall(data_dir) -> None:
         result = approve(client, "2.0.0").json()["data"]
         assert result["status"] == "rolled_back" and "缺少配置" in result["error"]
         assert result["version"] == "1.0.0" and result["state"] == "active"
-        assert installed(client)["acme.pkg"]["bad_versions"] == ["2.0.0"]
+        assert installed(client)["acme-pkg"]["bad_versions"] == ["2.0.0"]
         assert chosen(client) == 1
-        assert not (data_dir / "plugins" / "packages" / "acme.pkg" / "2.0.0").exists()
+        assert not (data_dir / "plugins" / "packages" / "acme-pkg" / "2.0.0").exists()
         # 回滚留下一条待处理事项，「去处理」落到插件管理页（网页、App、推送同一套映射）
         from movieclaw_api.services.push.events import notice_path
 
@@ -249,33 +249,33 @@ def test_install_upgrade_rollback_restart_and_uninstall(data_dir) -> None:
         assert chosen(client) == 3
         # 新版本跑起来了：回滚那件事翻篇，通知自动消退
         assert open_notice(client) is None
-        record = installed(client)["acme.pkg"]
+        record = installed(client)["acme-pkg"]
         assert (record["version"], record["previous_version"]) == ("3.0.0", "1.0.0")
-        reply = client.post("/api/v1/app/plugins/packages/acme.pkg/rollback")
+        reply = client.post("/api/v1/app/plugins/packages/acme-pkg/rollback")
         assert reply.json()["data"]["version"] == "1.0.0"
         assert chosen(client) == 1
-        assert installed(client)["acme.pkg"]["previous_version"] == "3.0.0"
+        assert installed(client)["acme-pkg"]["previous_version"] == "3.0.0"
 
     # 重启：已安装的包照常加载，批准的宿主操作照常生效
     app, client = start()
     with client:
-        assert app.state.kernel.fiber("acme.pkg").state.value == "active"
+        assert app.state.kernel.fiber("acme-pkg").state.value == "active"
         assert chosen(client) == 1
         assert stored(client)["ops"] == ["app.plugins.list"]
 
         # 卸载并删数据：进程、目录、数据都不留
-        reply = client.delete("/api/v1/app/plugins/packages/acme.pkg?purge_data=true")
+        reply = client.delete("/api/v1/app/plugins/packages/acme-pkg?purge_data=true")
         assert reply.status_code == 200, reply.text
         assert reply.json()["data"]["purged_rows"] == 1
-        assert app.state.kernel.fiber("acme.pkg") is None
-        assert "acme.pkg" not in plugin_runtime.sessions
-        assert not (data_dir / "plugins" / "packages" / "acme.pkg").exists()
+        assert app.state.kernel.fiber("acme-pkg") is None
+        assert "acme-pkg" not in plugin_runtime.sessions
+        assert not (data_dir / "plugins" / "packages" / "acme-pkg").exists()
         assert chosen(client) is None
         assert stored(client) is None
 
 
 GOOD_MANIFEST = MANIFEST.format(
-    id="acme.pkg",
+    id="acme-pkg",
     version=1,
     runtime="process",
     sdk="^1.0",
@@ -286,8 +286,10 @@ BAD_PACKAGES = {
     "not-zip": (b"not a zip", "不是有效的插件包"),
     "no-manifest": (package(manifest=""), "缺少 movieclaw-plugin.toml"),
     "traversal": (package(files={"../evil.py": "x"}), "不安全的路径"),
-    "reserved-id": (package(entry_id="core.database"), "已被内置插件或本地插件占用"),
+    # 内置条目里不带点的 id（带点的内置条目与插件包 id 格式本就不相交）
+    "reserved-id": (package(entry_id="scheduler"), "已被内置插件或本地插件占用"),
     "bad-id": (package(entry_id="Acme"), "id"),
+    "legacy-id": (package(entry_id="acme.new-plugin"), "旧格式（带点）"),
     "sdk": (package(sdk="^2.0"), "要求 SDK ^2.0"),
     "contract": (package(requires='"no.such.contract" = "^1.0"'), "未知契约"),
     "operation": (package(operations='"no.such.operation"'), "宿主操作 no.such.operation 不存在"),
@@ -315,7 +317,7 @@ def test_symlinks_are_rejected(data_dir) -> None:
         archive.writestr(
             "movieclaw-plugin.toml",
             MANIFEST.format(
-                id="acme.pkg", version=1, runtime="process", sdk="^1.0", requires="", operations=""
+                id="acme-pkg", version=1, runtime="process", sdk="^1.0", requires="", operations=""
             ),
         )
         archive.writestr("acme_pkg.py", "")
@@ -346,12 +348,12 @@ def test_crash_loop_during_grace_period_rolls_back(data_dir) -> None:
         assert upload(client, package(2, source=textwrap.dedent(flaky))).status_code == 200
         # 激活时是好的（进程起来了），随后崩溃成循环 → 宽限期观察到后自动回到 v1
         assert approve(client, "2.0.0").json()["data"]["status"] == "active"
-        wait_for(lambda: installed(client)["acme.pkg"]["version"] == "1.0.0", timeout=60)
-        assert installed(client)["acme.pkg"]["bad_versions"] == ["2.0.0"]
+        wait_for(lambda: installed(client)["acme-pkg"]["version"] == "1.0.0", timeout=60)
+        assert installed(client)["acme-pkg"]["bad_versions"] == ["2.0.0"]
         wait_for(lambda: chosen(client) == 1)
         # 回滚之后直接卸载：通知跟着消退，不留一条再也处理不了的待处理事项
         assert open_notice(client) is not None
-        assert client.delete("/api/v1/app/plugins/packages/acme.pkg").status_code == 200
+        assert client.delete("/api/v1/app/plugins/packages/acme-pkg").status_code == 200
         assert open_notice(client) is None
 
 
@@ -363,7 +365,7 @@ def test_inline_runtime_needs_explicit_consent(data_dir) -> None:
         assert reply.status_code == 400 and "主进程里运行" in reply.json()["message"]
         result = approve(client, "1.0.0", allow_inline=True).json()["data"]
         assert result["status"] == "active"
-        assert "acme.pkg" not in plugin_runtime.sessions  # 没有起子进程
+        assert "acme-pkg" not in plugin_runtime.sessions  # 没有起子进程
         assert any(m.startswith("movieclaw_packages.acme_pkg") for m in sys.modules)
         assert chosen(client) == 1
 
@@ -380,7 +382,7 @@ def test_inline_upgrade_and_reinstall_run_the_new_code(data_dir) -> None:
         assert approve(client, "2.0.0", allow_inline=True).json()["data"]["status"] == "active"
         assert chosen(client) == 2
 
-        assert client.delete("/api/v1/app/plugins/packages/acme.pkg").status_code == 200
+        assert client.delete("/api/v1/app/plugins/packages/acme-pkg").status_code == 200
         changed = textwrap.dedent(PLUGIN.format(version=7, extra="pass"))
         assert upload(client, package(2, runtime="inline", source=changed)).status_code == 200
         assert approve(client, "2.0.0", allow_inline=True).json()["data"]["status"] == "active"
@@ -392,7 +394,7 @@ from movieclaw_sdk import plugin
 from movieclaw_sdk.channels import IM_CHANNELS
 
 
-@plugin("acme.pkg", title="包插件", inject=(IM_CHANNELS,))
+@plugin("acme-pkg", title="包插件", inject=(IM_CHANNELS,))
 async def apply(ctx) -> None:
     pass
 """
@@ -418,7 +420,7 @@ from movieclaw_sdk import plugin
 NEVER = ServiceKey("acme/never-provided", stability=Stability.EXPERIMENTAL)
 
 
-@plugin("acme.pkg", title="包插件", inject=(NEVER,))
+@plugin("acme-pkg", title="包插件", inject=(NEVER,))
 async def apply(ctx) -> None:
     pass
 """
@@ -432,3 +434,37 @@ def test_rollback_names_the_service_a_pending_package_waits_for(data_dir) -> Non
         result = approve(client, "1.0.0", operations=(), allow_inline=True).json()["data"]
         assert result["status"] == "rolled_back"
         assert "acme/never-provided（没有插件提供）" in result["error"]
+
+
+def test_installed_legacy_dotted_id_keeps_loading_and_upgrading(data_dir, monkeypatch) -> None:
+    """改格式前装上的带点 id（代码里写死了）照常加载、照常升级；只有新上传的被拒。"""
+    from movieclaw_api.plugins import packages as pkg
+
+    legacy = "acme.legacy"
+    source = textwrap.dedent(PLUGIN.format(version=1, extra="pass")).replace("acme-pkg", legacy)
+    app, client = start()
+    with client:
+        # 模拟改格式之前的安装：那时带点 id 合法
+        with monkeypatch.context() as m:
+            m.setattr(pkg, "is_legacy_id", lambda _id: False)
+            assert upload(client, package(1, entry_id=legacy, source=source)).status_code == 200
+        reply = client.post(
+            f"/api/v1/app/plugins/packages/{legacy}/approve",
+            json={"version": "1.0.0", "operations": ["app.plugins.list"]},
+        )
+        assert reply.json()["data"]["status"] == "active"
+        assert chosen(client) == 1
+
+        upgraded = source.replace("VERSION = 1", "VERSION = 2")
+        assert upload(client, package(2, entry_id=legacy, source=upgraded)).status_code == 200
+        reply = client.post(
+            f"/api/v1/app/plugins/packages/{legacy}/approve",
+            json={"version": "2.0.0", "operations": ["app.plugins.list"]},
+        )
+        assert reply.json()["data"]["status"] == "active"
+        assert chosen(client) == 2
+
+    app, client = start()
+    with client:  # 重启后照常加载
+        assert installed(client)[legacy]["version"] == "2.0.0"
+        assert chosen(client) == 2

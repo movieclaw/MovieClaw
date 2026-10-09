@@ -41,7 +41,7 @@
 
 - 内核里的内置条目（`core.database`、`library.builtin-collections` 等）**保持带点**，不受此规则约束。
   从此「带点 = 内置条目，不带点 = 插件包」，两个命名空间永不相交，未来新增内置条目不会和已装的插件包撞名；
-- 本地插件（`plugins.yaml`）同样按新规则校验新写的 id，已有的带点 id 照常加载并在诊断里提示改名；
+- 本地插件（`plugins.yaml`，管理员手写）不做格式校验，文档与示例一律用新格式；
 - 不再有强制的命名空间。不同作者起了同名插件，由安装时的 id 冲突检测拦下（已有机制）。
 
 ### 3.2 已装的第三方插件包：带点 id 继续有效
@@ -87,7 +87,7 @@
 | `plugins/packages.py` 的 `_ID` 及错误文案、技能的 `new_plugin.py` | 要求带点 | 新规则；技能骨架、示例、文档里的 id 全部换新格式 |
 | mclaw 命令 | `plugins.me.hello.status` → `mclaw plugins me hello status` | `plugins.me-hello.status` → `mclaw plugins me-hello status`（CLI 不用改） |
 
-示例插件 id 同步改：`examples.ntfy` → `ntfy-example` 等；测试里构造插件包用的 id 一并换新格式，
+示例插件 id 同步改，与入口模块名对应：`delete-cascade`、`watchlist-feed`、`keyword-rules`、`cloud-strm`、`site-pack`、`ntfy-channel`；测试里构造插件包用的 id 一并换新格式，
 另留一条用例守住「已装的带点 id 仍能加载、升级」。
 
 ## 4. 回调端点

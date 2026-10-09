@@ -17,7 +17,7 @@
 开启方式（``data/plugins.yaml``）。另需在 设置 → 应用 里配好「外部访问地址」
 （``.strm`` 里要写完整地址）::
 
-    - id: examples.cloud-strm
+    - id: cloud-strm
       local: true
       config: { cloud_dir: /mnt/cloud/movieclaw }
       grants: [library.get, library.scan.start]
@@ -105,7 +105,7 @@ async def write_strm(files: Any, path: str, url: str) -> None:
 
 
 @plugin(
-    "examples.cloud-strm",
+    "cloud-strm",
     title="网盘上传与 .strm（示例）",
     inject=(HOST_OPS, PLUGIN_DATA, PLUGIN_FILES, PLUGIN_ROUTES),
     permissions=("library.get", "library.scan.start"),

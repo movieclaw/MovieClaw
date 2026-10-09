@@ -1,5 +1,5 @@
 [plugin]
-id = "examples.ntfy"
+id = "ntfy-channel"
 title = "ntfy 通道（示例）"
 version = "1.0.0"
 entry = "ntfy_channel"

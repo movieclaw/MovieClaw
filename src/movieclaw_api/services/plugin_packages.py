@@ -38,13 +38,13 @@ def _reserved(kernel: Kernel, settings: object) -> set[str]:
 
 async def _restore_bundled(kernel: Kernel, entry_id: str) -> None:
     """插件包卸下后，同 id 的随带插件包回来（plugin-channels.md §7）。"""
-    from movieclaw_api.plugins.bundled import bundled, entry
+    from movieclaw_api.plugins.bundled import bundled, canonical, entry
 
-    package = bundled().get(entry_id)
-    if package is None or kernel.fiber(entry_id) is not None:
+    package = bundled().get(canonical(entry_id))
+    if package is None or kernel.fiber(package.id) is not None:
         return
     fiber = await kernel.mount(entry(package))
-    logger.info("随带插件包 %s 已恢复（%s）", entry_id, fiber.state.value)
+    logger.info("随带插件包 %s 已恢复（%s）", package.id, fiber.state.value)
 
 
 def _operations() -> set[str]:
@@ -103,9 +103,9 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, An
 
 
 def _replaces_builtin(entry_id: str) -> bool:
-    from movieclaw_api.plugins.bundled import bundled_ids
+    from movieclaw_api.plugins.bundled import bundled_ids, canonical
 
-    return entry_id in bundled_ids()
+    return canonical(entry_id) in bundled_ids()
 
 
 class PackageManager:
@@ -153,6 +153,11 @@ class PackageManager:
         manifest, archive = pkg.read_archive(data)
         packages = pkg.installed(self._settings)
         current = packages.get(manifest.plugin.id)
+        if current is None and pkg.is_legacy_id(manifest.plugin.id):
+            raise pkg.PackageError(
+                f"插件 id「{manifest.plugin.id}」是旧格式（带点）：新插件的 id 须{pkg.ID_RULE}。"
+                "改清单 id 和代码里 @plugin 的名字后重新打包"
+            )
         reserved = _reserved(self._kernel, self._settings)
         pkg.check_compat(manifest, reserved=reserved, operations=_operations())
         if current is not None and current.version == manifest.plugin.version:
@@ -258,6 +263,12 @@ class PackageManager:
             files.configure(record.id, parse_grants(record.paths))
         if self._kernel.fiber(record.id) is not None:
             await self._kernel.unmount(record.id)
+        from movieclaw_api.plugins.bundled import canonical
+
+        # 旧 id 的替换包（如 channel.weixin）顶替的是改名后的随带条目（weixin-channel）
+        replaced = canonical(record.id)
+        if replaced != record.id and self._kernel.fiber(replaced) is not None:
+            await self._kernel.unmount(replaced)
         fiber = await self._kernel.mount(pkg.entry_for(self._settings, record))
         if fiber.state is State.PENDING and not fiber.error:
             waits = self._kernel.describe(fiber)["blocked_by"]

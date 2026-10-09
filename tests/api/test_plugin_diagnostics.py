@@ -59,7 +59,7 @@ def test_plugins_endpoint_lists_every_entry_and_contract(env) -> None:
             "official",
             "system",
         }
-        assert by_id["channel.weixin"]["tier"] == "official"
+        assert by_id["weixin-channel"]["tier"] == "official"
         assert by_id["channels.hub"]["tier"] == "official"
         assert by_id["core.database"]["tier"] == "system"
         assert by_id["subtitle.gen"]["tier"] == "system"
@@ -108,8 +108,8 @@ def test_failed_plugin_raises_a_notice_and_recovery_resolves_it(env, monkeypatch
         assert "微信网关不可达" in notices[0]["message"]
         assert "设置 → 插件" in notices[0]["message"]
         assert notices[0]["payload"] == {
-            "entry_id": "channel.weixin",
-            "action_href": "/settings/plugins?module=channel.weixin",
+            "entry_id": "weixin-channel",
+            "action_href": "/settings/plugins?module=weixin-channel",
         }
 
     # 修好之后重启：插件恢复运行，告警自动消退

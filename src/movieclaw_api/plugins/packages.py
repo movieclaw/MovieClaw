@@ -3,7 +3,7 @@
 一个插件包是 zip（``.mcplugin``），根目录有 ``movieclaw-plugin.toml``::
 
     [plugin]
-    id = "acme.group-blocklist"     # 全局唯一，小写，须带命名空间（含 .）
+    id = "group-blocklist"          # 全局唯一：小写字母开头，字母、数字、连字符，3～40 位，不含点
     title = "发布组黑名单"
     version = "0.1.0"
     entry = "group_blocklist"       # 模块名：group_blocklist.py 或 group_blocklist/__init__.py
@@ -62,9 +62,19 @@ MAX_ARCHIVE_BYTES = 50 * 1024 * 1024
 MAX_UNPACKED_BYTES = 200 * 1024 * 1024
 MAX_FILES = 5000
 
-_ID = re.compile(r"^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9_-]*)+$")
+#: 插件包 id（docs/design/plugin-callbacks.md §3）：不含点。带点的名字留给内核里的内置条目，
+#: 两边永不相交
+_ID = re.compile(r"^[a-z][a-z0-9-]{1,38}[a-z0-9]$")
+#: 旧格式（带命名空间点）：只认已经装上的插件包——代码里写死了这个 id，宿主不能替它改名
+_LEGACY_ID = re.compile(r"^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9_-]*)+$")
+ID_RULE = "小写字母开头，只用小写字母、数字和连字符，3～40 位，不含点，如 group-blocklist"
+
 _VERSION = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 _MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def is_legacy_id(entry_id: str) -> bool:
+    return not _ID.match(entry_id) and bool(_LEGACY_ID.match(entry_id))
 
 
 class PackageError(ValueError):
@@ -86,8 +96,9 @@ class _Plugin(BaseModel):
     @field_validator("id")
     @classmethod
     def _id(cls, value: str) -> str:
-        if not _ID.match(value):
-            raise ValueError("id 须是小写、带命名空间的形式，如 acme.group-blocklist")
+        # 旧格式在这里放行，是否允许由安装流程按「是否已经装过」决定（is_legacy_id）
+        if not _ID.match(value) and not _LEGACY_ID.match(value):
+            raise ValueError(f"id 须{ID_RULE}")
         return value
 
     @field_validator("version")

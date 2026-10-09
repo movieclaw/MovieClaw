@@ -5,7 +5,7 @@
 `apply` 里想登记多少就登记多少：钩子、可靠事件、多个注册表、路由、后台任务都可以混用。
 
 ```python
-@plugin("me.all-in-one", title="…", inject=(DURABLE_EVENTS, HOST_OPS, PLUGIN_ROUTES, PLUGIN_DATA))
+@plugin("all-in-one", title="…", inject=(DURABLE_EVENTS, HOST_OPS, PLUGIN_ROUTES, PLUGIN_DATA))
 async def apply(ctx):
     ctx.on(CANDIDATES_FILTER, my_filter)                         # 钩子
     ctx.on(LIBRARY_INGEST_IMPORTED, on_imported, id="imported")  # 可靠事件
@@ -47,12 +47,12 @@ async def apply(ctx):
 
 | 想替换 | 做法 | 卸载后 |
 |---|---|---|
-| 整个随带插件包（微信、Telegram、Discord、飞书通道） | 做一个**同 id** 的插件包（如 `channel.weixin`）装上：内置版本被卸下，已绑定的账号直接由新包接管 | 内置版本自动回来 |
+| 整个随带插件包（微信、Telegram、Discord、飞书通道） | 做一个**同 id** 的插件包（如 `weixin-channel`）装上：内置版本被卸下，已绑定的账号直接由新包接管 | 内置版本自动回来 |
 | 注册表里的某一项（如内置的订阅缺口搜索 `search_wanted`、某个站点类） | `ctx.contribute(KEY, "<原 id>", 新实现, override=True)` | 内置实现自动恢复 |
 | 内置站点的配置 | 站点数据包里放同 site_id 的 YAML | 恢复内置配置 |
 
 内置插件（`$SRC/movieclaw_api/plugins/` 里的）不能被同 id 的插件包替换，id 是保留的。
-怎么分：`mclaw app plugins list` 里随带插件包（能替换）的 `tier` 是 `official`（`channel.weixin` 等通道和 `channels.hub`），
+怎么分：`mclaw app plugins list` 里随带插件包（能替换）的 `tier` 是 `official`（`weixin-channel` 等通道和 `channels.hub`），
 内置插件是 `system`；两者的 `source` 都显示 `builtin`，别按 `source` 判断。
 替换随带通道时把 `$SRC/movieclaw_plugins/<名>/` 整个复制到 `plugins/channel.<名>/` 再改：随带包是受信代码，
 写法不一定合第三方规范，复制后补上清单的 `network = true`、连外网改走 `net.http_transport`，再跑 `check_plugin.py`。

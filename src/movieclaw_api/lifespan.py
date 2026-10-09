@@ -7,8 +7,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from movieclaw_api.core.config import Settings
-from movieclaw_api.plugins import packages, safe_mode
-from movieclaw_api.plugins.bundled import load_bundled_entries
+from movieclaw_api.plugins import legacy_ids, packages, safe_mode
+from movieclaw_api.plugins.bundled import canonical, load_bundled_entries
 from movieclaw_api.plugins.local import load_local_entries, local_specs
 from movieclaw_api.plugins.manifest import load_patches, with_bundled
 from movieclaw_kernel import Kernel
@@ -39,6 +39,8 @@ def build_lifespan(settings: Settings):
         # 内置插件 + 用户在 plugins.yaml 里显式开启的本地受信插件（plugins/local.py）+ 已安装的
         # 插件包（plugins/packages.py）。先定安全模式（plugins/safe_mode.py）：上次带着插件没能
         # 稳定运行，这次连插件代码都不导入
+        # 随带插件包改名（channel.weixin → weixin-channel）后的补丁与目录迁移，在读补丁之前
+        legacy_ids.migrate_files(settings)
         local_ids = [spec.id for spec in local_specs(settings) if not spec.disabled]
         safe = safe_mode.decide(settings, [*local_ids, *packages.package_ids(settings)])
         local = (
@@ -48,9 +50,10 @@ def build_lifespan(settings: Settings):
         )
         # 随带的插件包（plugins/bundled.py）也是内置插件；被同 id 插件包替换的跳过（安全模式下插件包
         # 不加载，随带版本照常）
-        replaced = set() if safe.active else set(packages.package_ids(settings))
+        replaced = set() if safe.active else {canonical(i) for i in packages.package_ids(settings)}
         bundled = load_bundled_entries(replaced)
         await kernel.start((*with_bundled(bundled), *local), patches=load_patches(settings))
+        await legacy_ids.migrate_rows(settings)
         logger.info("应用启动完成，数据库就绪")
         safe_mode.schedule_settle(settings)
         try:

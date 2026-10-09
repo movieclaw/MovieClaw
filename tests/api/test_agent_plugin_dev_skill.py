@@ -112,8 +112,8 @@ def test_contracts_script_lists_the_whole_surface(tmp_path) -> None:
 
 def test_scaffold_refuses_to_write_into_the_source_tree(tmp_path) -> None:
     """Agent cd 进技能目录再用相对路径时，插件会被生成进主程序源码：直接拒绝。"""
-    target = _SKILL / "plugins" / "me.stray"
-    made = _run("new_plugin.py", str(target), "--id", "me.stray", "--title", "误放", cwd=tmp_path)
+    target = _SKILL / "plugins" / "stray"
+    made = _run("new_plugin.py", str(target), "--id", "stray", "--title", "误放", cwd=tmp_path)
     assert made.returncode == 1
     assert "主程序源码目录" in made.stdout
     assert not (_SKILL / "plugins").exists()
@@ -122,10 +122,10 @@ def test_scaffold_refuses_to_write_into_the_source_tree(tmp_path) -> None:
 def test_check_script_accepts_declared_contracts(tmp_path) -> None:
     """清单 [requires] 写了开放契约：检查通过（契约目录要先加载，不能误报「未知契约」）。"""
     made = _run(
-        "new_plugin.py", "plugins/me.ok", "--id", "me.ok", "--title", "好插件", cwd=tmp_path
+        "new_plugin.py", "plugins/ok-plugin", "--id", "ok-plugin", "--title", "好插件", cwd=tmp_path
     )
     assert made.returncode == 0, made.stdout + made.stderr
-    manifest = tmp_path / "plugins" / "me.ok" / "movieclaw-plugin.toml"
+    manifest = tmp_path / "plugins" / "ok-plugin" / "movieclaw-plugin.toml"
     manifest.write_text(
         manifest.read_text("utf-8").replace(
             '# "library.ingest.imported" = "^1.0"',
@@ -133,39 +133,35 @@ def test_check_script_accepts_declared_contracts(tmp_path) -> None:
         ),
         "utf-8",
     )
-    checked = _run("check_plugin.py", "plugins/me.ok", cwd=tmp_path)
+    checked = _run("check_plugin.py", "plugins/ok-plugin", cwd=tmp_path)
     assert checked.returncode == 0, checked.stdout + checked.stderr
     assert "未知契约" not in checked.stdout
 
 
 def test_check_script_catches_typical_mistakes(tmp_path) -> None:
-    made = _run(
-        "new_plugin.py", "plugins/me.bad", "--id", "me.bad", "--title", "坏插件", cwd=tmp_path
-    )
+    made = _run("new_plugin.py", "plugins/bad", "--id", "bad", "--title", "坏插件", cwd=tmp_path)
     assert made.returncode == 0, made.stdout + made.stderr
-    plugin_dir = tmp_path / "plugins" / "me.bad"
+    plugin_dir = tmp_path / "plugins" / "bad"
     entry = plugin_dir / "bad.py"
     entry.write_text(
-        entry.read_text("utf-8").replace('PLUGIN_ID = "me.bad"', 'PLUGIN_ID = "me.other"'), "utf-8"
+        entry.read_text("utf-8").replace('PLUGIN_ID = "bad"', 'PLUGIN_ID = "other"'), "utf-8"
     )
     manifest = plugin_dir / "movieclaw-plugin.toml"
     manifest.write_text(
         manifest.read_text("utf-8").replace("operations = []", 'operations = ["no.such-op"]'),
         "utf-8",
     )
-    checked = _run("check_plugin.py", "plugins/me.bad", cwd=tmp_path)
+    checked = _run("check_plugin.py", "plugins/bad", cwd=tmp_path)
     assert checked.returncode == 1
     assert "宿主操作 no.such-op 不存在" in checked.stdout or "读不到宿主操作目录" in checked.stdout
-    assert "没有名为 me.bad 的 @plugin" in checked.stdout
+    assert "没有名为 bad 的 @plugin" in checked.stdout
 
 
 def test_check_script_rejects_a_registry_in_inject(tmp_path) -> None:
     """真实会话里出过的错：把 IM_CHANNELS 写进 inject，插件永远等不到这个「服务」。"""
-    made = _run(
-        "new_plugin.py", "plugins/me.chan", "--id", "me.chan", "--title", "通道", cwd=tmp_path
-    )
+    made = _run("new_plugin.py", "plugins/chan", "--id", "chan", "--title", "通道", cwd=tmp_path)
     assert made.returncode == 0, made.stdout + made.stderr
-    entry = tmp_path / "plugins" / "me.chan" / "chan.py"
+    entry = tmp_path / "plugins" / "chan" / "chan.py"
     source = entry.read_text("utf-8")
     source = source.replace(
         "from movieclaw_sdk import Context, plugin",
@@ -175,7 +171,7 @@ def test_check_script_rejects_a_registry_in_inject(tmp_path) -> None:
         "inject=(PLUGIN_DATA, PLUGIN_ROUTES)", "inject=(PLUGIN_DATA, PLUGIN_ROUTES, IM_CHANNELS)"
     )
     entry.write_text(source, "utf-8")
-    checked = _run("check_plugin.py", "plugins/me.chan", cwd=tmp_path)
+    checked = _run("check_plugin.py", "plugins/chan", cwd=tmp_path)
     assert checked.returncode == 1
     # 宿主的 @plugin 也会拦（导入就失败），两种报法都要指明改用 ctx.contribute
     assert "im-channels" in checked.stdout and "ctx.contribute" in checked.stdout
@@ -221,17 +217,17 @@ def test_scaffolded_plugin_installs_serves_and_uninstalls(data_dir) -> None:
     work.mkdir()
     made = _run(
         "new_plugin.py",
-        "plugins/me.media-stats",
+        "plugins/media-stats",
         "--id",
-        "me.media-stats",
+        "media-stats",
         "--title",
         "媒体统计",
         cwd=work,
     )
     assert made.returncode == 0, made.stdout + made.stderr
-    plugin_dir = work / "plugins" / "me.media-stats"
+    plugin_dir = work / "plugins" / "media-stats"
     assert (plugin_dir / "media_stats.py").is_file()
-    checked = _run("check_plugin.py", "plugins/me.media-stats", cwd=work)
+    checked = _run("check_plugin.py", "plugins/media-stats", cwd=work)
     assert checked.returncode == 0, checked.stdout + checked.stderr
     assert "✗" not in checked.stdout
 
@@ -247,23 +243,23 @@ def test_scaffolded_plugin_installs_serves_and_uninstalls(data_dir) -> None:
     with TestClient(app) as client:
         reply = client.post(
             "/api/v1/app/plugins/packages",
-            files={"file": ("me.media-stats.mcplugin", _zip(plugin_dir), "application/zip")},
+            files={"file": ("media-stats.mcplugin", _zip(plugin_dir), "application/zip")},
         )
         assert reply.status_code == 200, reply.text
         assert reply.json()["data"]["runtime"] == "process"
         result = client.post(
-            "/api/v1/app/plugins/packages/me.media-stats/approve",
+            "/api/v1/app/plugins/packages/media-stats/approve",
             json={"version": "0.1.0", "operations": [], "paths": []},
         ).json()["data"]
         assert result["status"] == "active", result
 
-        status = client.get("/api/v1/plugins/me.media-stats/status")
+        status = client.get("/api/v1/plugins/media-stats/status")
         assert status.status_code == 200, status.text
         body = status.json()
-        assert body["plugin"] == "me.media-stats" and body["loads"] == 1 and body["loaded_at"]
-        assert "me.media-stats" in plugin_runtime.sessions  # 在独立进程里运行
+        assert body["plugin"] == "media-stats" and body["loads"] == 1 and body["loaded_at"]
+        assert "media-stats" in plugin_runtime.sessions  # 在独立进程里运行
 
-        reply = client.delete("/api/v1/app/plugins/packages/me.media-stats?purge_data=true")
+        reply = client.delete("/api/v1/app/plugins/packages/media-stats?purge_data=true")
         assert reply.status_code == 200, reply.text
-        assert app.state.kernel.fiber("me.media-stats") is None
-        assert client.get("/api/v1/plugins/me.media-stats/status").status_code == 404
+        assert app.state.kernel.fiber("media-stats") is None
+        assert client.get("/api/v1/plugins/media-stats/status").status_code == 404

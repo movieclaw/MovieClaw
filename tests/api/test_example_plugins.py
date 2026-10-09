@@ -164,7 +164,7 @@ def login_admin(client: TestClient) -> None:
 
 # ---------------------------------------------------------------------- 删片联动
 CASCADE_YAML = """
-- id: examples.delete-cascade
+- id: delete-cascade
   local: true
   runtime: {runtime}
   config: {{delete_files: true, dry_run: {dry_run}}}
@@ -180,8 +180,8 @@ def test_deleting_a_show_removes_its_subscription_then_its_torrent(
     with client:
         login_admin(client)
         plugins = {p["id"]: p for p in client.get("/api/v1/app/plugins").json()["data"]["plugins"]}
-        assert plugins["examples.delete-cascade"]["state"] == "active"
-        assert plugins["examples.delete-cascade"]["source"] == "local"
+        assert plugins["delete-cascade"]["state"] == "active"
+        assert plugins["delete-cascade"]["source"] == "local"
         wait(client, lambda: consumers_ready(2))
 
         seeded = client.portal.call(lambda: seed_show(get_database(), data_dir, info_hash=HASH))
@@ -232,7 +232,7 @@ def test_deleting_one_episode_keeps_the_season_pack_of_a_followed_show(
 
         async def handled() -> bool:
             async with get_database().session() as session:
-                state = await session.get(EventConsumer, "examples.delete-cascade:file")
+                state = await session.get(EventConsumer, "delete-cascade:file")
             return state is not None and state.cursor > 0
 
         wait(client, handled)
@@ -295,7 +295,7 @@ def test_watchlist_titles_become_subscriptions_once(data_dir, monkeypatch, runti
         data_dir,
         "watchlist_feed",
         f"""
-        - id: examples.watchlist-feed
+        - id: watchlist-feed
           local: true
           runtime: {runtime}
           config: {{source: "{feed}", interval_minutes: 0.01}}
@@ -316,7 +316,7 @@ def test_watchlist_titles_become_subscriptions_once(data_dir, monkeypatch, runti
         # 处理过的片名记在插件数据里
         from movieclaw_api.services.plugin_data import PluginStore
 
-        store = PluginStore(get_database(), "examples.watchlist-feed")
+        store = PluginStore(get_database(), "watchlist-feed")
         assert client.portal.call(lambda: store.get("done")) == ["测试电影"]
     # 处理过的片名不再搜索；搜不到的片名每轮重试
     assert searched.count("测试电影") == 1

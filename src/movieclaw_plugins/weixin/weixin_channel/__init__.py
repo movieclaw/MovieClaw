@@ -10,7 +10,7 @@ from movieclaw_sdk import Context, plugin
 from movieclaw_sdk.channels import IM_CHANNELS
 
 
-@plugin("channel.weixin", title="微信通道", disableable=True, reloadable=True)
+@plugin("weixin-channel", title="微信通道", disableable=True, reloadable=True)
 async def weixin(ctx: Context) -> None:
     from .driver import WeixinDriver
 

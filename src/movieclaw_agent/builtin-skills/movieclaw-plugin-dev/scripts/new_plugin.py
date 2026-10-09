@@ -1,8 +1,8 @@
 """从骨架生成一个插件目录（清单 + 入口模块）。
 
-    python new_plugin.py plugins/me.hello --id me.hello --title "你好" [--description "一句话说明"] [--module hello]
+    python new_plugin.py plugins/hello-world --id hello-world --title "你好" [--description "一句话说明"] [--module hello]
 
-入口模块名缺省取 id 最后一段（连字符换成下划线），如 me.media-stats → media_stats。
+入口模块名缺省由 id 推出（连字符换成下划线），如 media-stats → media_stats。
 目标目录已存在且非空时拒绝（不覆盖已有代码）。
 """
 
@@ -18,26 +18,26 @@ TEMPLATE = Path(__file__).resolve().parent.parent / "templates" / "starter"
 SOURCE_ROOT = Path(__file__).resolve().parents[4]
 
 #: 与服务器清单校验同一规则（movieclaw_api/plugins/packages.py）
-_ID = re.compile(r"^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9_-]*)+$")
+_ID = re.compile(r"^[a-z][a-z0-9-]{1,38}[a-z0-9]$")
 _MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(description="从骨架生成插件目录")
-    parser.add_argument("target", type=Path, help="插件目录，如 plugins/me.hello")
-    parser.add_argument("--id", required=True, help="条目 id：小写、带命名空间，如 me.hello")
+    parser.add_argument("target", type=Path, help="插件目录，如 plugins/hello-world")
+    parser.add_argument("--id", required=True, help="条目 id：小写字母开头，只用小写字母、数字和连字符，3～40 位，不含点，如 hello-world")
     parser.add_argument("--title", required=True, help="中文标题（60 字以内）")
     parser.add_argument("--description", default="", help="一句话说明（500 字以内）")
     parser.add_argument("--module", help="入口模块名，缺省由 id 推出")
     args = parser.parse_args(argv)
 
-    if not _ID.match(args.id) or len(args.id) > 64:
-        print(f"✗ id 不合规：{args.id}（须小写、带命名空间，如 me.hello、acme.media-stats）")
+    if not _ID.match(args.id):
+        print(f"✗ id 不合规：{args.id}（须小写字母开头，只用小写字母、数字和连字符，3～40 位，不含点，如 hello-world、media-stats）")
         return 1
     if not 1 <= len(args.title) <= 60:
         print("✗ title 须是 1～60 个字")
         return 1
-    module = args.module or args.id.rsplit(".", 1)[-1].replace("-", "_")
+    module = args.module or args.id.replace("-", "_")
     if not _MODULE.match(module):
         print(f"✗ 模块名不合规：{module}（用 --module 指定一个 Python 标识符）")
         return 1

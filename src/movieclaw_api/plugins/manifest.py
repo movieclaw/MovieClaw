@@ -48,7 +48,18 @@ BUILTIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("订阅", ("subscription",)),
     ("媒体库", ("library.", "media.", "enrich.")),
     ("播放与字幕", ("playback.", "subtitle.", "jellyfin.")),
-    ("通知与推送", ("channels.", "channel.", "push.", "cloud")),
+    (
+        "通知与推送",
+        (
+            "channels.",
+            "push.",
+            "cloud",
+            "weixin-channel",
+            "telegram-channel",
+            "discord-channel",
+            "feishu-channel",
+        ),
+    ),
     ("AI 助手", ("agent.",)),
     ("插件系统", ("kernel.",)),
 )

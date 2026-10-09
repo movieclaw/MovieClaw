@@ -60,7 +60,7 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 | 概念 | 一句话 |
 |---|---|
 | 插件 | 一个 `@plugin("<id>", ...)` 装饰的 `async def apply(ctx)`。`apply` 只做**登记**（监听事件、贡献注册表、挂路由、起后台任务），登记完就返回 |
-| 条目 id | 全局唯一、小写带命名空间，如 `me.hello`。清单的 `id` 必须与 `@plugin` 的名字**完全一致** |
+| 条目 id | 全局唯一；小写字母开头，只用小写字母、数字和连字符，3～40 位，不含点，如 `hello-world`。清单的 `id` 必须与 `@plugin` 的名字**完全一致** |
 | 契约 | 插件只能用**开放契约**：服务（`ctx.use`）、注册表（`ctx.contribute`）、事件与决策钩子（`ctx.on`）。清单见 `python <本技能>/scripts/contracts.py` |
 | 可撤销 | 经 `ctx` 登记的一切在卸载时自动撤销；自己开的资源用 `ctx.effect(释放函数)` 登记，后台协程一律用 `ctx.task(...)` |
 | 宿主操作 | 插件「做事」= 调用和 `mclaw` 同一份操作目录（如 `subscriptions.create`），清单 `permissions.operations` 申请，用户批准后才有 |
@@ -135,8 +135,8 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
      也可以直接 `grep -n -A8 '"<条目 id>"' <文件>`；
    - 调插件自己的接口：插件路由会进入 mclaw 的命令目录。装好后先随便执行一条 mclaw 业务命令（如上面的
      `app plugins list`），看到「服务器接口目录已更新」后，下一次调用起就能用了：路由的 `operation_id`
-     按点拆成命令，`plugins.me.import-log.recent` → `mclaw plugins me import-log recent`（参数见 `--help`）；
-   - 通道插件：`channels list` 里出现新通道，它的 id 是 `<条目 id>:<贡献 id>`（如 `me.bark:bark`；替换随带通道时沿用原 id）；
+     按点拆成命令，`plugins.import-log.recent` → `mclaw plugins import-log recent`（参数见 `--help`）；
+   - 通道插件：`channels list` 里出现新通道，它的 id 是 `<条目 id>:<贡献 id>`（如 `bark-channel:bark`；替换随带通道时沿用原 id）；
      绑定和试推送的命令看 `channels bindings start --help`、`channels im push --help`，凭据由用户提供；
    - 触发它监听的事件并观察效果。事件不能安全地人为制造时（入库、删片这类会动真实数据的），
      **不要为了验证去改动用户的数据**：确认 `app plugins list` 里它的监听器已挂上（可靠事件会显示消费者），

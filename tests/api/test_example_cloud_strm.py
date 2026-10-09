@@ -42,7 +42,7 @@ EXAMPLES = (
     / "references"
     / "examples"
 )
-UPLOAD = "examples.cloud-strm:upload"
+UPLOAD = "cloud-strm:upload"
 
 
 @pytest.fixture(params=["inline", "process"])
@@ -62,7 +62,7 @@ def app_client(request, tmp_path, monkeypatch):
     (tmp_path / "plugins.yaml").write_text(
         textwrap.dedent(
             f"""
-            - id: examples.cloud-strm
+            - id: cloud-strm
               local: true
               runtime: {request.param}
               config: {{ cloud_dir: "{tmp_path / "cloud"}", chunk_mb: 1 }}
@@ -116,7 +116,7 @@ def test_staged_files_go_to_the_cloud_and_come_back_as_signed_strm(
     from movieclaw_api.settings.app_server import AppServerSetting
 
     app, client = app_client
-    fiber = app.state.kernel.fiber("examples.cloud-strm")
+    fiber = app.state.kernel.fiber("cloud-strm")
     assert fiber.state.value == "active", fiber.error
     db = get_database()
     tv_root, watch, staging = tmp_path / "tv", tmp_path / "watch", tmp_path / "staging"
@@ -180,7 +180,7 @@ def test_staged_files_go_to_the_cloud_and_come_back_as_signed_strm(
 
     # 播放器打开 .strm 里的地址：验签通过取到网盘上的文件，支持 Range
     urls = [p.read_text(encoding="utf-8").strip() for p in strms]
-    prefix = "http://testserver/api/v1/plugins/examples.cloud-strm/play/"
+    prefix = "http://testserver/api/v1/plugins/cloud-strm/play/"
     assert all(u.startswith(prefix) for u in urls)
     assert client.get(urls[0]).content == episodes[1]
     partial = client.get(urls[0], headers={"Range": "bytes=0-8"})

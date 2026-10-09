@@ -9,7 +9,7 @@
 
 开启方式（``data/plugins.yaml``）::
 
-    - id: examples.watchlist-feed
+    - id: watchlist-feed
       local: true
       config:
         source: https://example.com/my-watchlist.json
@@ -51,7 +51,7 @@ def parse_titles(text: str) -> list[str]:
 
 
 @plugin(
-    "examples.watchlist-feed",
+    "watchlist-feed",
     title="片单订阅（示例）",
     inject=(HOST_OPS, PLUGIN_DATA, PLUGIN_FILES),
     permissions=("search.titles", "subscriptions.create"),
@@ -72,7 +72,7 @@ async def watchlist_feed(ctx: Context[Config]) -> None:
 
     async def fetch() -> str:
         if config.source.startswith(("http://", "https://")):
-            # 服务名 = 条目 id 的最后一段，按用户的代理设置走（清单要声明联网）
+            # 服务名 = 条目 id，按用户的代理设置走（清单要声明联网）
             async with httpx.AsyncClient(
                 transport=net.http_transport("watchlist-feed"), timeout=20
             ) as client:

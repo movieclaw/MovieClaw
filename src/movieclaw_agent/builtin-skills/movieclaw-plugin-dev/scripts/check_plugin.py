@@ -1,6 +1,6 @@
 """安装前检查一个插件目录：用服务器同一套逻辑校验，再真的导入入口模块。
 
-    python check_plugin.py plugins/me.hello
+    python check_plugin.py plugins/hello-world
 
 输出 ✓ / ⚠ / ✗。有 ✗ 时退出码为 1，必须修好再安装；⚠ 要逐条判断是否需要处理。
 
@@ -172,6 +172,11 @@ def main(argv: list[str]) -> int:
         fail(f"清单 / 打包：{exc}")
         return 1
     plugin = manifest.plugin
+    from movieclaw_api.plugins.packages import ID_RULE, is_legacy_id
+
+    if is_legacy_id(plugin.id):
+        fail(f"id「{plugin.id}」是旧格式（带点）：新插件的 id 须{ID_RULE}；清单 id 与 @plugin 的名字一起改")
+        return _finish()
     ok(f"清单合规：{plugin.id} v{plugin.version}，入口 {plugin.entry}，运行方式 {plugin.runtime}")
     size_kb = len(data) // 1024
     if len(data) > MAX_ARCHIVE_BYTES:

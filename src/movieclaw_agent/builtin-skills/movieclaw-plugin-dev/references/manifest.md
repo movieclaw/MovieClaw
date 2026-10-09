@@ -6,7 +6,7 @@
 ## 1. 目录结构
 
 ```
-plugins/me.media-stats/
+plugins/media-stats/
 ├── movieclaw-plugin.toml      ← 清单（必须在根部）
 ├── media_stats.py             ← 入口模块（或 media_stats/__init__.py 的包）
 ├── media_stats_helpers.py     ← 其他模块随意
@@ -20,7 +20,7 @@ plugins/me.media-stats/
 
 ```toml
 [plugin]
-id = "me.media-stats"          # 必填。小写带命名空间；= @plugin 的名字
+id = "media-stats"          # 必填。小写字母开头，字母、数字、连字符，不含点；= @plugin 的名字
 title = "媒体统计"              # 必填。1～60 字，管理页显示
 version = "0.1.0"              # 必填。主.次.修订，可带 -后缀（开发循环自动加 -dev.<时间戳>）
 entry = "media_stats"          # 必填。入口模块名（不是路径，不带 .py）

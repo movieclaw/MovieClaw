@@ -14,7 +14,7 @@ YAML 的写法与内置站点完全相同（见 ``src/movieclaw_tracker/sites/co
 
 开启方式（``data/plugins.yaml``）::
 
-    - id: examples.site-pack
+    - id: site-pack
       local: true
 """
 
@@ -28,7 +28,7 @@ from movieclaw_kernel import Context, plugin
 SITES_DIR = Path(__file__).resolve().parent / "sites"
 
 
-@plugin("examples.site-pack", title="站点数据包（示例）")
+@plugin("site-pack", title="站点数据包（示例）")
 async def site_pack(ctx: Context) -> None:
     count = len(list(SITES_DIR.glob("*.yaml")))
     if count == 0:

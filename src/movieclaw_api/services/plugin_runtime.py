@@ -838,11 +838,11 @@ async def _service_handler(ctx: Context, session: Session, names: tuple[str, ...
             await stub.callback(method, params)
             return None
         if method == "net.proxy":
-            # 代理地址可能带账号密码：只回答插件自己的服务名（条目 id 最后一段），别的服务直连
+            # 代理地址可能带账号密码：只回答插件自己的服务名，别的服务直连
             from movieclaw_net import resolve_proxy_url
 
             service = str(params.get("service") or "")
-            if service != session.entry_id.rsplit(".", 1)[-1]:
+            if service not in own_services(session.entry_id):
                 return None
             return resolve_proxy_url(service)
         if method == "routes.sign":
@@ -939,6 +939,23 @@ async def _files_call(session: Session, files: Any, method: str, params: dict[st
 
 
 _tokens = itertools.count(1)
+
+
+def own_services(entry_id: str) -> set[str]:
+    """进程外插件能问代理的服务名：条目 id 本身。
+
+    旧格式（带点）的 id 按最后一段（``channel.telegram`` → ``telegram``）；替换随带通道的插件包
+    沿用随带通道的出口规则（「设置 → 网络与代理」里的 telegram 等）。
+    """
+    from movieclaw_api.plugins.bundled import LEGACY_IDS, canonical
+
+    names = {entry_id}
+    if "." in entry_id:
+        names.add(entry_id.rsplit(".", 1)[-1])
+    legacy = {new: old for old, new in LEGACY_IDS.items()}.get(canonical(entry_id))
+    if legacy is not None:
+        names.add(legacy.rsplit(".", 1)[-1])
+    return names
 
 
 def remote_plugin(

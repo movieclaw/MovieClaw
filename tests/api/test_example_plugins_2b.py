@@ -58,7 +58,7 @@ def app_client(request, tmp_path, monkeypatch):
     (tmp_path / "plugins.yaml").write_text(
         textwrap.dedent(
             """
-            - id: examples.keyword-rules
+            - id: keyword-rules
               local: true
               runtime: {runtime}
               config:
@@ -84,7 +84,7 @@ def test_keyword_rules_reject_candidates_and_clean_up_with_the_subscription(app_
     from movieclaw_api.services.subscription.matching import evaluate_and_dispatch
 
     app, client = app_client
-    fiber = app.state.kernel.fiber("examples.keyword-rules")
+    fiber = app.state.kernel.fiber("keyword-rules")
     assert fiber.state.value == "active", fiber.error
 
     async def scenario() -> tuple[list[str], list[dict]]:

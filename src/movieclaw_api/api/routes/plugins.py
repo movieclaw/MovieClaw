@@ -195,12 +195,12 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
     health = health_service.snapshot() if health_service is not None else {}
     data_service = kernel.service(PLUGIN_DATA)
     data_rows = await data_service.counts() if data_service is not None else {}
-    from movieclaw_api.plugins.bundled import bundled_ids
+    from movieclaw_api.plugins.bundled import replaceable_ids
     from movieclaw_api.plugins.features import tier_of
     from movieclaw_api.plugins.manifest import BUILTIN_GROUPS, builtin_group
     from movieclaw_api.services.plugin_runtime import process_entries
 
-    bundled = bundled_ids()
+    bundled = replaceable_ids()
 
     def layer(item: dict) -> dict:
         owner = item.get("parent") or item["id"]

@@ -162,7 +162,7 @@ def world(request, tmp_path, monkeypatch):
     (tmp_path / "plugins.yaml").write_text(
         textwrap.dedent(
             f"""
-            - id: examples.ntfy
+            - id: ntfy-channel
               local: true
               module: ntfy_channel
               runtime: {request.param}
@@ -211,12 +211,12 @@ def wait(predicate, timeout: float = 10.0) -> None:
 def test_third_party_channel_binds_chats_and_pushes(world, ntfy) -> None:
     fake, server = ntfy
     with make_client() as client:
-        assert client.app.state.kernel.fiber("examples.ntfy").state.value == "active"
+        assert client.app.state.kernel.fiber("ntfy-channel").state.value == "active"
         channels = client.get("/api/v1/channels").json()["data"]["channels"]
         [channel] = [c for c in channels if c["title"] == "ntfy"]
         cid = channel["id"]
         assert cid.endswith("ntfy") and cid != "ntfy", "第三方通道 id 带插件前缀"
-        assert channel["entry_id"] == "examples.ntfy"
+        assert channel["entry_id"] == "ntfy-channel"
         assert [f["key"] for f in channel["binding"]["fields"]] == [
             "server",
             "inbox",

@@ -82,9 +82,9 @@
     {
       "id": 12,
       "prompt": "内置的微信通道我想自己改改逻辑，能替换吗？",
-      "expected_output": "能：做一个同 id（channel.weixin）的插件包装上即替换，已绑定账号照常，卸载后内置版本回来。",
+      "expected_output": "能：做一个同 id（weixin-channel）的插件包装上即替换，已绑定账号照常，卸载后内置版本回来。",
       "expectations": ["说明同 id 插件包替换", "说明卸载后内置版本恢复"],
-      "checks": {"skill_read": true, "must_mention_any": ["channel.weixin", "同 id", "同名"], "no_install": true}
+      "checks": {"skill_read": true, "must_mention_any": ["weixin-channel", "同 id", "同名"], "no_install": true}
     },
     {
       "id": 13,

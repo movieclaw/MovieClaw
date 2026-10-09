@@ -39,7 +39,7 @@ from movieclaw_sdk.channels import (
     ReplyContext,
 )
 
-logger = logging.getLogger("examples.ntfy")
+logger = logging.getLogger("ntfy-channel")
 
 _TOPIC = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 #: 断线后重连的等待（秒）
@@ -48,8 +48,8 @@ RECONNECT_S = 5.0
 MAX_TEXT = 1300
 #: 认这个固定身份为白名单：ntfy 主题没有发送者身份，能往「收消息的主题」发消息的就是你
 USER = "ntfy"
-#: 连外网的服务名 = 条目 id 的最后一段（examples.ntfy → ntfy），按用户的代理设置走
-SERVICE = "ntfy"
+#: 连外网的服务名 = 条目 id，按用户的代理设置走
+SERVICE = "ntfy-channel"
 
 
 def _server(raw: str) -> str:
@@ -174,6 +174,6 @@ class NtfyDriver(ChannelDriver):
         resp.raise_for_status()
 
 
-@plugin("examples.ntfy", title="ntfy 通道（示例）")
+@plugin("ntfy-channel", title="ntfy 通道（示例）")
 async def apply(ctx) -> None:
     ctx.contribute(IM_CHANNELS, "ntfy", NtfyDriver())

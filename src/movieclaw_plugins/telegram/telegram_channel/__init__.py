@@ -9,7 +9,7 @@ from movieclaw_sdk import Context, plugin
 from movieclaw_sdk.channels import IM_CHANNELS
 
 
-@plugin("channel.telegram", title="Telegram 通道", disableable=True, reloadable=True)
+@plugin("telegram-channel", title="Telegram 通道", disableable=True, reloadable=True)
 async def telegram(ctx: Context) -> None:
     from .driver import TelegramDriver
 

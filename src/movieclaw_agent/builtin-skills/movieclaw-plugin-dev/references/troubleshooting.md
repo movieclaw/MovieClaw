@@ -19,7 +19,8 @@
 
 | 现象 | 原因与处理 |
 |---|---|
-| `movieclaw-plugin.toml 的 plugin.id 不合规` | id 须小写带命名空间，如 `me.hello` |
+| `movieclaw-plugin.toml 的 plugin.id 不合规` | id 须小写字母开头，只用小写字母、数字和连字符，3～40 位，不含点，如 `hello-world` |
+| `插件 id「x.y」是旧格式（带点）` | 新插件不能用带点的 id：清单 id 和代码里 `@plugin` 的名字一起改成新格式（如 `x-y`） |
 | `… 的 xxx 不合规：Extra inputs are not permitted` | 清单里有未知字段（拼错了），对照 `references/manifest.md` |
 | `插件包里找不到入口模块` | `entry` 写的是模块名，文件须是 `<entry>.py` 或 `<entry>/__init__.py`，在包根部 |
 | `宿主操作 xxx 不存在` | 操作 id 写错；用 `mclaw <域> --help` 找对应命令，id 与命令一一对应 |

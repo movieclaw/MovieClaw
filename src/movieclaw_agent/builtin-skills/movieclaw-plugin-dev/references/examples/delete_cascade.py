@@ -13,7 +13,7 @@
 
 开启方式（``data/plugins.yaml``；两个删除是危险操作，必须逐个批准）::
 
-    - id: examples.delete-cascade
+    - id: delete-cascade
       local: true
       config: { delete_files: true, dry_run: false }
       grants: [subscriptions.delete, dl.torrent.delete]
@@ -50,7 +50,7 @@ def skip_reason(torrent, *, partial: bool, subscription_id: int | None) -> str |
 
 
 @plugin(
-    "examples.delete-cascade",
+    "delete-cascade",
     title="删片联动清理（示例）",
     inject=(DURABLE_EVENTS, HOST_OPS),
     permissions=("subscriptions.delete", "dl.torrent.delete"),

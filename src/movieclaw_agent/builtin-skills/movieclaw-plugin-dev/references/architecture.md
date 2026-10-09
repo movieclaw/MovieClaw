@@ -22,15 +22,16 @@ MovieClaw 主程序自己就由约 60 个插件拼成（数据库、调度、订
 ```python
 from movieclaw_sdk import Context, plugin
 
-@plugin("me.hello", title="你好", inject=(PLUGIN_DATA,), permissions=("library.list",))
+@plugin("hello-world", title="你好", inject=(PLUGIN_DATA,), permissions=("library.list",))
 async def apply(ctx: Context) -> None:
     ...
 ```
 
 - `@plugin` 声明一个插件：名字（= 条目 id）、标题、要注入的服务、要调用的宿主操作。`apply` 必须是 `async def`。
 - 一次挂载叫一个**条目**。诊断、日志、插件数据、路由前缀都以条目 id 隔离。
-- 条目 id 规则：小写、带命名空间、`^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9_-]*)+$`，如 `me.hello`、`acme.group-blocklist`。
-  不能和内置插件、本地插件撞名；和随带插件包（如 `channel.weixin`）同 id 表示**替换**它。
+- 条目 id 规则：小写字母开头，只用小写字母、数字和连字符，3～40 位，不含点（`^[a-z][a-z0-9-]{1,38}[a-z0-9]$`），如 `hello-world`、`group-blocklist`。
+  带点的名字（如 `core.database`）是内核里的内置条目专用的。改格式前装上的带点 id 插件包照常可用、可升级，新插件不能再用。
+  不能和内置插件、本地插件撞名；和随带插件包（如 `weixin-channel`）同 id 表示**替换**它。
 
 ## 3. 生命周期
 

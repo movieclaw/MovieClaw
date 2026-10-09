@@ -159,7 +159,7 @@ test("分层：服务器给的为准；旧服务端没给时内置插件当系�
   assert.equal(pluginTier(plugin({ source: "package" })), null);
   const list = [
     plugin({ id: "core.database", tier: "system" }),
-    plugin({ id: "channel.weixin", tier: "official" }),
+    plugin({ id: "weixin-channel", tier: "official" }),
     plugin({ id: "old" }),
     plugin({ id: "acme.pkg", source: "package" }),
   ];
@@ -171,16 +171,16 @@ test("分层：服务器给的为准；旧服务端没给时内置插件当系�
 
 test("官方插件：随带通道与替换它的插件包都在；提供服务的中枢只在出问题时露面", () => {
   const hub = plugin({ id: "channels.hub", tier: "official", provides: ["channel-hub"] });
-  const weixin = plugin({ id: "channel.weixin", tier: "official", title: "微信通道" });
-  const replaced = plugin({ id: "channel.telegram", tier: "official", source: "package" });
+  const weixin = plugin({ id: "weixin-channel", tier: "official", title: "微信通道" });
+  const replaced = plugin({ id: "telegram-channel", tier: "official", source: "package" });
   assert.deepEqual(
     officialPlugins([hub, weixin, replaced]).map((p) => p.id),
-    ["channel.weixin", "channel.telegram"],
+    ["weixin-channel", "telegram-channel"],
   );
   const brokenHub = { ...hub, state: "failed", error: "数据库不可用" };
   assert.deepEqual(
     officialPlugins([brokenHub, weixin]).map((p) => p.id),
-    ["channels.hub", "channel.weixin"],
+    ["channels.hub", "weixin-channel"],
   );
   assert.equal(officialSourceText(weixin), "内置版本，可用插件包替换");
   assert.equal(officialSourceText(replaced), "已被插件包替换，在「第三方插件」里管理");
