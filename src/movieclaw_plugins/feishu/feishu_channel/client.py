@@ -12,7 +12,7 @@
     string_to_sign = f"{timestamp}\\n{secret}"   # 时间戳+换行+密钥整体作 HMAC 密钥
     sign = base64(hmac_sha256(key=string_to_sign, msg=b""))
 
-出口走 egress_transport("feishu"):国内网络可直连 open.feishu.cn,默认不代理;
+出口走 net.http_transport("feishu"):国内网络可直连 open.feishu.cn,默认不代理;
 国际版 Lark(open.larksuite.com)用户可在「设置 → 网络」为飞书开启代理。
 """
 
@@ -28,7 +28,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from movieclaw_net import egress_transport
+from movieclaw_sdk import net
 
 #: 404 = 机器人已被移除(Webhook 随之失效),对应通道层的凭据失效语义
 _AUTH_ERROR_STATUS = (404,)
@@ -94,7 +94,7 @@ class FeishuClient:
     def __init__(self, token: str) -> None:
         self._webhook_url, self._secret = parse_credentials(token)
         self._http = httpx.AsyncClient(
-            transport=egress_transport("feishu"),
+            transport=net.http_transport("feishu"),
             timeout=httpx.Timeout(15.0, connect=10.0),
         )
 

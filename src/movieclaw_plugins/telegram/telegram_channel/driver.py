@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from movieclaw_channel.driver_kit import AdapterDriver
-from movieclaw_channel.telegram.adapter import TelegramAdapter
-from movieclaw_channel.telegram.client import TelegramClient
-from movieclaw_sdk.channels import Account, Binding, BindResult, Capabilities, FormField
+from movieclaw_sdk.channels import (
+    Account,
+    AdapterDriver,
+    Binding,
+    BindResult,
+    Capabilities,
+    FormField,
+)
+
+from .adapter import TelegramAdapter
+from .client import TelegramClient
 
 
 class TelegramDriver(AdapterDriver):

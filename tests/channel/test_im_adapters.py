@@ -6,10 +6,10 @@ import asyncio
 
 import pytest
 
-from movieclaw_channel.discord.adapter import DiscordAdapter
-from movieclaw_channel.discord.client import DiscordClient
-from movieclaw_channel.telegram.adapter import TelegramAdapter
-from movieclaw_channel.telegram.client import TelegramClient
+from movieclaw_plugins.discord.discord_channel.adapter import DiscordAdapter
+from movieclaw_plugins.discord.discord_channel.client import DiscordClient
+from movieclaw_plugins.telegram.telegram_channel.adapter import TelegramAdapter
+from movieclaw_plugins.telegram.telegram_channel.client import TelegramClient
 
 
 def _tg_adapter() -> TelegramAdapter:
@@ -140,7 +140,7 @@ async def test_telegram_client_non_json_response() -> None:
     """5xx / 代理错误页返回 HTML：应抛可重试的 TelegramApiError，而非 JSON 解码异常。"""
     import httpx
 
-    from movieclaw_channel.telegram.client import TelegramApiError
+    from movieclaw_plugins.telegram.telegram_channel.client import TelegramApiError
 
     client = TelegramClient("dummy")
     await client._http.aclose()

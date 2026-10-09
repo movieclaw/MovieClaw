@@ -9,17 +9,18 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from movieclaw_channel.driver_kit import AdapterDriver
-from movieclaw_channel.feishu.adapter import FeishuAdapter
-from movieclaw_channel.feishu.client import FeishuClient, feishu_account_id, normalize_webhook_url
 from movieclaw_sdk.channels import (
     Account,
+    AdapterDriver,
     Binding,
     BindResult,
     Capabilities,
     FormField,
     ReplyContext,
 )
+
+from .adapter import FeishuAdapter
+from .client import FeishuClient, feishu_account_id, normalize_webhook_url
 
 WELCOME = "🎉 MovieClaw 已接入本群，订阅投递、入库完成等事件将推送到这里。"
 

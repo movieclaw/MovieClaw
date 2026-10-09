@@ -159,6 +159,10 @@ class ChannelDriver:
 - 实现（H4）：`plugins/bundled.py` 扫描 `src/movieclaw_plugins/*/movieclaw-plugin.toml`，按规范模块名
   `movieclaw_plugins.<目录>.<入口>` 导入、作为内置条目启动；被同 id 插件包替换的跳过（安全模式下插件包不加载，
   随带版本照常）。插件包卸载或首装失败撤销后，`_restore_bundled` 把随带版本挂回来。
+- 网络出口（H5）：Telegram / Discord / 飞书要按「设置 → 网络」走代理，SDK 提供 `movieclaw_sdk.net`
+  （`http_transport(service)` / `await proxy_url(service)`）。主进程里直接用主程序的出口层；独立进程里向宿主
+  询问（约 30 秒复查），宿主只回答插件自己的服务名（条目 id 最后一段），代理地址里的账号密码不会泄给别的插件。
+  「客户端 + 适配器」的驱动骨架（`AdapterDriver` / `ChannelContext`）也放进 SDK，四个通道共用。
 - 通道 id 沿用：第三方贡献的 id 会带插件前缀（`channel.weixin:weixin`），通道中枢对「随带插件包的 id」摘掉前缀，
   替换后的插件包仍以 `weixin` 出现，已绑定的账号对得上。其他第三方插件不能借此冒用内置通道 id。
 

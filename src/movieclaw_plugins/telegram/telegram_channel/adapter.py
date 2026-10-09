@@ -22,16 +22,17 @@ from typing import Any
 
 import httpx
 
-from movieclaw_channel.adapter import ChannelContext
-from movieclaw_channel.telegram.client import TelegramApiError, TelegramClient
-from movieclaw_channel.types import (
+from movieclaw_sdk.channels import (
     ChannelAuthError,
+    ChannelContext,
     InboundImage,
     InboundMessage,
     ReplyContext,
 )
 
-logger = logging.getLogger("movieclaw_channel.telegram.adapter")
+from .client import TelegramApiError, TelegramClient
+
+logger = logging.getLogger("movieclaw_plugins.telegram.adapter")
 
 CHANNEL_ID = "telegram"
 

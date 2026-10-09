@@ -2,7 +2,7 @@
 
 只封装本项目用到的方法(getMe / getUpdates / sendMessage / sendPhoto /
 sendChatAction / getFile + 文件下载),不引入 python-telegram-bot 这类重依赖。出口走
-egress_transport("telegram"):国内部署 api.telegram.org 被墙,用户在
+net.http_transport("telegram"):国内部署 api.telegram.org 被墙,用户在
 「设置 → 网络」勾选 telegram 走代理即可。
 """
 
@@ -13,8 +13,8 @@ from typing import Any
 
 import httpx
 
-from movieclaw_channel.media import MAX_INBOUND_IMAGE_BYTES, download_capped
-from movieclaw_net import egress_transport
+from movieclaw_sdk import net
+from movieclaw_sdk.channels import MAX_INBOUND_IMAGE_BYTES, download_capped
 
 #: 401/404 = bot token 无效或被吊销,对应通道层的凭据失效语义
 _AUTH_ERROR_STATUS = (401, 404)
@@ -37,7 +37,7 @@ class TelegramClient:
         self._file_base = f"https://api.telegram.org/file/bot{token}"
         # 长轮询 50s + 余量;连接池与微信客户端同款「每账号一个」
         self._http = httpx.AsyncClient(
-            transport=egress_transport("telegram"),
+            transport=net.http_transport("telegram"),
             timeout=httpx.Timeout(65.0, connect=10.0),
         )
 

@@ -795,6 +795,13 @@ async def run(args: argparse.Namespace) -> int:
         import socket
 
         runner.fd_socket = socket.socket(fileno=args.fd_socket)
+    from movieclaw_sdk import net
+
+    async def resolve_proxy(service: str) -> str | None:
+        return await runner.rpc("net.proxy", {"service": service})
+
+    # 网络出口（movieclaw_sdk.net）：本进程读不到主程序的代理设置，问宿主
+    net._resolver = resolve_proxy
     runner.send({"type": "hello", "sdk": SDK_VERSION, "pid": os.getpid()})
     init = decode(await reader.readline())
     runner.socket = init.get("socket")

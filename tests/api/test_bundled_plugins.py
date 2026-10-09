@@ -260,3 +260,33 @@ def test_weixin_package_replaces_the_bundled_one_and_uninstall_restores_it(env, 
         wait(lambda: client.get("/api/v1/channels").json()["data"]["accounts"][0]["running"])
         inbound(fake, "又回到随带版本", 3)
         wait(lambda: ("me@im.wechat", "收到：又回到随带版本", "ctx-3") in fake.sent)
+
+
+@pytest.mark.parametrize("entry_id", sorted(bundled.bundled()), ids=str)
+def test_every_bundled_package_installs_out_of_process_and_restores(env, entry_id) -> None:
+    """每个随带插件包都能原样打包、作为插件包在独立进程里跑起来（替换随带版本），卸载即恢复。"""
+    package = bundled.bundled()[entry_id]
+    channel = package.path.name
+    with make_client() as client:
+        kernel = client.app.state.kernel
+        assert kernel.fiber(entry_id).entry.source == "builtin"
+        uploaded = client.post(
+            "/api/v1/app/plugins/packages",
+            files={"file": (f"{entry_id}.mcplugin", pack(package.path), "application/zip")},
+        )
+        assert uploaded.status_code == 200, uploaded.text
+        assert uploaded.json()["data"]["replaces_builtin"] is True
+        approved = client.post(
+            f"/api/v1/app/plugins/packages/{entry_id}/approve",
+            json={"version": package.manifest.plugin.version, "operations": []},
+        )
+        assert approved.json()["data"]["status"] == "active", approved.text
+        fiber = kernel.fiber(entry_id)
+        assert fiber.entry.source == "package"
+        listed = client.get("/api/v1/channels").json()["data"]["channels"]
+        assert channel in {c["id"] for c in listed}, "替换后沿用随带版本的通道 id"
+        removed = client.delete(f"/api/v1/app/plugins/packages/{entry_id}")
+        assert removed.status_code == 200
+        assert kernel.fiber(entry_id).entry.source == "builtin"
+        listed = client.get("/api/v1/channels").json()["data"]["channels"]
+        assert channel in {c["id"] for c in listed}

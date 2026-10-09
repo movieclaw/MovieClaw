@@ -17,6 +17,7 @@ from typing import Any
 
 from movieclaw_sdk.channels import (
     Account,
+    AdapterDriver,
     Binding,
     BindResult,
     Capabilities,
@@ -27,7 +28,6 @@ from movieclaw_sdk.channels import (
 from .adapter import WeixinAdapter
 from .binding import BindingChallenge, BindingResult, WeixinBindingRegistry
 from .client import DEFAULT_BASE_URL, WeixinClient
-from .kit import AdapterDriver
 
 logger = logging.getLogger("movieclaw_plugins.weixin.driver")
 

@@ -14,9 +14,9 @@ from __future__ import annotations
 
 import asyncio
 
-from movieclaw_channel.adapter import ChannelContext
-from movieclaw_channel.feishu.client import FeishuClient
-from movieclaw_channel.types import ReplyContext
+from movieclaw_sdk.channels import ChannelContext, ReplyContext
+
+from .client import FeishuClient
 
 CHANNEL_ID = "feishu"
 

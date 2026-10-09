@@ -2,7 +2,7 @@
 
 只封装用到的接口:校验 token(users/@me)、建私聊频道、发消息(文本/图文)、
 typing、下载入站附件。不引入 discord.py 这类重依赖。出口走
-egress_transport("discord")。
+net.http_transport("discord")（SDK 的网络出口，按「设置 → 网络」的代理设置）。
 """
 
 from __future__ import annotations
@@ -13,8 +13,8 @@ from typing import Any
 
 import httpx
 
-from movieclaw_channel.media import MAX_INBOUND_IMAGE_BYTES, download_capped
-from movieclaw_net import egress_transport
+from movieclaw_sdk import net
+from movieclaw_sdk.channels import MAX_INBOUND_IMAGE_BYTES, download_capped
 
 _API_BASE = "https://discord.com/api/v10"
 
@@ -33,7 +33,7 @@ class DiscordClient:
     def __init__(self, token: str) -> None:
         self.token = token
         self._http = httpx.AsyncClient(
-            transport=egress_transport("discord"),
+            transport=net.http_transport("discord"),
             timeout=httpx.Timeout(30.0, connect=10.0),
             headers={"Authorization": f"Bot {token}"},
         )
@@ -42,7 +42,7 @@ class DiscordClient:
         #: CDN 域名是白送凭据。默认头挂在 client 上会跟着每个请求走,所以这里
         #: 必须另起一个(共享同一出口代理配置)。
         self._cdn = httpx.AsyncClient(
-            transport=egress_transport("discord"),
+            transport=net.http_transport("discord"),
             timeout=httpx.Timeout(30.0, connect=10.0),
         )
         #: user_id → 私聊频道 id 缓存(建私聊频道是幂等接口,缓存只省往返)

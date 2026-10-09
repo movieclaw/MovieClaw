@@ -26,17 +26,18 @@ from typing import Any
 from websockets.asyncio.client import connect
 from websockets.exceptions import ConnectionClosed
 
-from movieclaw_channel.adapter import ChannelContext
-from movieclaw_channel.discord.client import DiscordClient
-from movieclaw_channel.types import (
+from movieclaw_sdk import net
+from movieclaw_sdk.channels import (
     ChannelAuthError,
+    ChannelContext,
     InboundImage,
     InboundMessage,
     ReplyContext,
 )
-from movieclaw_net import resolve_proxy_url
 
-logger = logging.getLogger("movieclaw_channel.discord.adapter")
+from .client import DiscordClient
+
+logger = logging.getLogger("movieclaw_plugins.discord.adapter")
 
 CHANNEL_ID = "discord"
 
@@ -111,7 +112,7 @@ class DiscordAdapter:
 
     async def _connect_once(self, ctx: ChannelContext, stop: asyncio.Event) -> None:
         """一次完整的 Gateway 会话:连接 → Identify → 收事件直到断开或 stop。"""
-        proxy = resolve_proxy_url("discord")
+        proxy = await net.proxy_url("discord")
         # proxy 参数要求 websockets>=14,已在 pyproject 显式声明
         ws_ctx = connect(_GATEWAY_URL, proxy=proxy, open_timeout=15, close_timeout=5)
 

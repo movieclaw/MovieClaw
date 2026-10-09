@@ -835,6 +835,14 @@ async def _service_handler(ctx: Context, session: Session, names: tuple[str, ...
                 raise LookupError("这个插件没有贡献这个通道")
             await stub.callback(method, params)
             return None
+        if method == "net.proxy":
+            # 代理地址可能带账号密码：只回答插件自己的服务名（条目 id 最后一段），别的服务直连
+            from movieclaw_net import resolve_proxy_url
+
+            service = str(params.get("service") or "")
+            if service != session.entry_id.rsplit(".", 1)[-1]:
+                return None
+            return resolve_proxy_url(service)
         if method == "routes.sign":
             from movieclaw_api.plugins.keys import PLUGIN_ROUTES
 

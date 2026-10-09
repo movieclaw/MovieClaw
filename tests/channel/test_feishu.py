@@ -20,14 +20,16 @@ import pytest
 from sqlmodel import SQLModel
 
 from movieclaw_channel.adapter import ChannelContext
-from movieclaw_channel.feishu import FeishuAdapter, FeishuApiError, FeishuClient
-from movieclaw_channel.feishu.client import (
+from movieclaw_channel.types import ReplyContext
+from movieclaw_db.engine import dispose_db, init_db
+from movieclaw_plugins.feishu.feishu_channel.adapter import FeishuAdapter
+from movieclaw_plugins.feishu.feishu_channel.client import (
+    FeishuApiError,
+    FeishuClient,
     feishu_account_id,
     normalize_webhook_url,
     parse_credentials,
 )
-from movieclaw_channel.types import ReplyContext
-from movieclaw_db.engine import dispose_db, init_db
 
 _URL = "https://open.feishu.cn/open-apis/bot/v2/hook/abc-123"
 
@@ -254,7 +256,7 @@ class FakeFeishuClient:
 @pytest.fixture
 def hub(db, monkeypatch):
     from movieclaw_api.services.channel_hub import ChannelHub
-    from movieclaw_channel.feishu import driver
+    from movieclaw_plugins.feishu.feishu_channel import driver
 
     FakeFeishuClient.reset()
     monkeypatch.setattr(driver, "FeishuClient", FakeFeishuClient)

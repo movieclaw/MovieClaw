@@ -1,7 +1,7 @@
 """通道与推送插件（plugin-kernel.md §7）。
 
-IM 通道中枢与各通道（Telegram / Discord / 飞书；微信是随带插件包 movieclaw_plugins/weixin）、
-Cloud、推送中枢、新片到达、Jellyfin 局域网发现。
+IM 通道中枢（各通道是随带的插件包，见 src/movieclaw_plugins）、Cloud、推送中枢、新片到达、
+Jellyfin 局域网发现。
 """
 
 from __future__ import annotations
@@ -63,27 +63,6 @@ async def channel_hub(ctx: Context) -> None:
     ctx.effect(close, label="close-channel-hub")
     await hub.start()
     ctx.provide(CHANNEL_HUB, hub)
-
-
-@plugin("channel.telegram", title="Telegram 通道", disableable=True, reloadable=True)
-async def telegram(ctx: Context) -> None:
-    from movieclaw_channel.telegram.driver import TelegramDriver
-
-    ctx.contribute(IM_CHANNELS, "telegram", TelegramDriver())
-
-
-@plugin("channel.discord", title="Discord 通道", disableable=True, reloadable=True)
-async def discord(ctx: Context) -> None:
-    from movieclaw_channel.discord.driver import DiscordDriver
-
-    ctx.contribute(IM_CHANNELS, "discord", DiscordDriver())
-
-
-@plugin("channel.feishu", title="飞书通道", disableable=True, reloadable=True)
-async def feishu(ctx: Context) -> None:
-    from movieclaw_channel.feishu.driver import FeishuDriver
-
-    ctx.contribute(IM_CHANNELS, "feishu", FeishuDriver())
 
 
 @plugin(

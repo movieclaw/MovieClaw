@@ -23,6 +23,7 @@ import httpx
 
 from movieclaw_sdk.channels import (
     ChannelAuthError,
+    ChannelContext,
     InboundImage,
     InboundMessage,
     ReplyContext,
@@ -33,7 +34,6 @@ from .client import (
     WeixinApiError,
     WeixinClient,
 )
-from .kit import ChannelContext
 from .media import collect_image_refs, decrypt_image
 
 logger = logging.getLogger("movieclaw_plugins.weixin.adapter")

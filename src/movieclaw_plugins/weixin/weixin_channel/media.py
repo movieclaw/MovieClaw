@@ -13,7 +13,7 @@ iLink 的图片不随消息体下发,而是给一条 CDN 引用:
   base64(16 字节原始密钥),以及 base64(32 位 hex 字符串)——两种都要认;
 - 两者都没有:该图是明文直下(不解密)。
 
-网络与 iLink 网关同口径:国内直连,不走 movieclaw_net 的境外代理。
+网络与 iLink 网关同口径:国内直连,不走境外代理。
 """
 
 from __future__ import annotations

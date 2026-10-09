@@ -4,10 +4,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from movieclaw_channel.discord.adapter import DiscordAdapter
-from movieclaw_channel.discord.client import DiscordClient
-from movieclaw_channel.driver_kit import AdapterDriver
-from movieclaw_sdk.channels import Account, Binding, BindResult, Capabilities, FormField
+from movieclaw_sdk.channels import (
+    Account,
+    AdapterDriver,
+    Binding,
+    BindResult,
+    Capabilities,
+    FormField,
+)
+
+from .adapter import DiscordAdapter
+from .client import DiscordClient
 
 
 class DiscordDriver(AdapterDriver):

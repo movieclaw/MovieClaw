@@ -1,0 +1,14 @@
+[plugin]
+id = "channel.feishu"
+title = "飞书通道"
+version = "1.0.0"
+entry = "feishu_channel"
+runtime = "process"
+sdk = "^1.0"
+description = "飞书群自定义机器人：把推送发到群里（不能对话）"
+
+[requires]
+"im-channels" = "^1.0"
+
+[permissions]
+operations = []
