@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 from tests.api.test_agent import _StreamProtocol
 
+from movieclaw_agent.skills import BUILTIN_SKILLS_DIR
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.agent_attachments import reset_agent_attachment_store
 from movieclaw_api.services.agent_sessions import reset_agent_session_store
@@ -140,7 +141,7 @@ def test_user_skill_overrides_builtin(client, skills_dir) -> None:
     prompt = captured_system_prompts[0]
     assert "<description>用户定制版技能创建器</description>" in prompt
     assert str(skills_dir / "skill-creator" / "SKILL.md") in prompt
-    assert "builtin-skills" not in prompt
+    assert str(BUILTIN_SKILLS_DIR / "skill-creator" / "SKILL.md") not in prompt
 
 
 def test_skills_endpoint_lists_merged_layers(client, skills_dir) -> None:
