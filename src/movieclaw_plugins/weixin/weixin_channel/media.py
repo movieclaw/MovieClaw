@@ -27,7 +27,7 @@ from urllib.parse import quote
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-logger = logging.getLogger("movieclaw_channel.weixin.media")
+logger = logging.getLogger("movieclaw_plugins.weixin.media")
 
 #: 默认 CDN 基址(仅在服务端没给 full_url 时用于拼接下载地址)
 CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c"

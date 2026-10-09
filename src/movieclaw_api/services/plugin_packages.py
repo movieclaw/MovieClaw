@@ -26,11 +26,25 @@ MANAGE_HREF = "/settings/plugins"
 
 
 def _reserved(kernel: Kernel, settings: object) -> set[str]:
-    """不能被插件包占用的条目 id：内置插件与本地插件。"""
+    """不能被插件包占用的条目 id：内置插件与本地插件。
+
+    随带的插件包（plugins/bundled.py）不在其列：装同 id 的插件包就是替换它。
+    """
     from movieclaw_api.plugins.local import local_specs
     from movieclaw_api.plugins.manifest import BUILTIN_MANIFEST
 
     return {e.id for e in BUILTIN_MANIFEST} | {s.id for s in local_specs(settings)}
+
+
+async def _restore_bundled(kernel: Kernel, entry_id: str) -> None:
+    """插件包卸下后，同 id 的随带插件包回来（plugin-channels.md §7）。"""
+    from movieclaw_api.plugins.bundled import bundled, entry
+
+    package = bundled().get(entry_id)
+    if package is None or kernel.fiber(entry_id) is not None:
+        return
+    fiber = await kernel.mount(entry(package))
+    logger.info("随带插件包 %s 已恢复（%s）", entry_id, fiber.state.value)
 
 
 def _operations() -> set[str]:
@@ -84,7 +98,14 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, An
         "new_paths": [p for p in paths if p not in approved_paths],
         "requires": manifest.requires,
         "installed_version": current.version if current else None,
+        "replaces_builtin": _replaces_builtin(plugin.id),
     }
+
+
+def _replaces_builtin(entry_id: str) -> bool:
+    from movieclaw_api.plugins.bundled import bundled_ids
+
+    return entry_id in bundled_ids()
 
 
 class PackageManager:
@@ -117,6 +138,7 @@ class PackageManager:
                     "state": fiber.state.value if fiber else "unloaded",
                     "error": fiber.error if fiber else None,
                     "watching": item.id in self._watches,
+                    "replaces_builtin": _replaces_builtin(item.id),
                 }
             )
         waiting = [
@@ -281,6 +303,7 @@ class PackageManager:
         else:
             packages.pop(entry_id)
             pkg.save(self._settings, packages)
+            await _restore_bundled(self._kernel, entry_id)
             message = f"v{failed} 没能正常运行（{reason}），已撤销安装"
         logger.error("插件包 %s：%s", entry_id, message)
         await _notice(entry_id, record.title, message)
@@ -325,6 +348,7 @@ class PackageManager:
             packages.pop(entry_id)
             pkg.save(self._settings, packages)
             shutil.rmtree(pkg.root(self._settings) / entry_id, ignore_errors=True)
+            await _restore_bundled(self._kernel, entry_id)
             purged = 0
             if purge_data:
                 from movieclaw_api.plugins.keys import PLUGIN_DATA

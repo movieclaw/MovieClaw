@@ -25,9 +25,9 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from movieclaw_api.plugins.keys import IM_CHANNELS
 from movieclaw_sdk import plugin
 from movieclaw_sdk.channels import (
+    IM_CHANNELS,
     Account,
     Binding,
     BindResult,

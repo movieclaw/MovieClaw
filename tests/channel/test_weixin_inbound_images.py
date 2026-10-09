@@ -10,7 +10,7 @@ from typing import Any
 
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
-from movieclaw_channel.weixin.adapter import WeixinAdapter
+from movieclaw_plugins.weixin.weixin_channel.adapter import WeixinAdapter
 
 _KEY = bytes(range(16))
 _PLAIN = b"\x89PNG\r\n\x1a\n" + b"fake-image-bytes"

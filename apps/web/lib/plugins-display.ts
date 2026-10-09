@@ -197,6 +197,7 @@ export function isNewGrant(item: PathGrant, added: PathGrant[]): boolean {
 /** 已安装插件包的行内说明：版本、运行方式、权限规模、坏版本、宽限期 */
 export function packageDetail(item: InstalledPackage): string {
   const parts = [`v${item.version}`, runtimeLabel(item.runtime)];
+  if (item.replaces_builtin) parts.push("替换了内置版本，卸载即恢复");
   if (item.operations.length) parts.push(`${item.operations.length} 个宿主操作`);
   if (item.paths.length) parts.push(`${item.paths.length} 个目录授权`);
   if (item.watching) parts.push("刚安装，观察中");

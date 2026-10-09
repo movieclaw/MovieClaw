@@ -1,10 +1,12 @@
 """通道与推送插件（plugin-kernel.md §7）。
 
-IM 通道中枢与各通道（微信 / Telegram / Discord / 飞书）、Cloud、推送中枢、新片到达、
-Jellyfin 局域网发现。
+IM 通道中枢与各通道（Telegram / Discord / 飞书；微信是随带插件包 movieclaw_plugins/weixin）、
+Cloud、推送中枢、新片到达、Jellyfin 局域网发现。
 """
 
 from __future__ import annotations
+
+from typing import Any
 
 from movieclaw_api.plugins.keys import (
     AGENT_RUNS,
@@ -32,9 +34,24 @@ async def channel_hub(ctx: Context) -> None:
     # （docs/design/plugin-channels.md §6）。入站消息驱动 AI 助手，所以依赖 Agent 注册表
     # （关闭时先停通道：掐断在飞长轮询、停会话 worker，再停 Agent）
     registry = ctx.registry(IM_CHANNELS)
+
+    def channels() -> list[tuple[str, str, Any]]:
+        """(通道 id, 提供它的条目, 驱动)。插件包替换随带插件包时沿用随带版本的通道 id：
+        第三方贡献的 id 带插件前缀，这里摘掉，已绑定的账号照常对得上（plugin-channels.md §7）。"""
+        from movieclaw_api.plugins.bundled import bundled_ids
+
+        replaceable = bundled_ids()
+        out = []
+        for c in registry.contributions():
+            cid = c.id
+            if c.entry_id in replaceable and cid.startswith(f"{c.entry_id}:"):
+                cid = cid[len(c.entry_id) + 1 :]
+            out.append((cid, c.entry_id, c.item))
+        return out
+
     hub = ChannelHub(
-        lambda: dict(registry.items()),
-        lambda: {c.id: c.entry_id for c in registry.contributions()},
+        lambda: {cid: item for cid, _entry, item in channels()},
+        lambda: {cid: entry for cid, entry, _item in channels()},
     )
     set_hub(hub)
     ctx.watch(IM_CHANNELS, lambda _change: hub.schedule_sync())
@@ -46,15 +63,6 @@ async def channel_hub(ctx: Context) -> None:
     ctx.effect(close, label="close-channel-hub")
     await hub.start()
     ctx.provide(CHANNEL_HUB, hub)
-
-
-@plugin("channel.weixin", title="微信通道", disableable=True, reloadable=True)
-async def weixin(ctx: Context) -> None:
-    from movieclaw_channel.weixin.driver import WeixinDriver
-
-    driver = WeixinDriver()
-    ctx.effect(driver.close, label="close-weixin")
-    ctx.contribute(IM_CHANNELS, "weixin", driver)
 
 
 @plugin("channel.telegram", title="Telegram 通道", disableable=True, reloadable=True)

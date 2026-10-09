@@ -89,8 +89,8 @@ async def fake_poll(base_url: str, qrcode: str, verify_code: str | None = None) 
 @pytest.fixture
 def app_env(tmp_path, monkeypatch):
     from movieclaw_api.services import channel_agent
-    from movieclaw_channel.weixin import binding, driver
     from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository
+    from movieclaw_plugins.weixin.weixin_channel import binding, driver
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'ch.db'}")
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
@@ -202,8 +202,8 @@ def test_weixin_scan_binding_chat_and_push(app_env) -> None:
     GATEWAY.sent.clear()
     GATEWAY.inbox = None  # 队列绑在上一个应用的事件循环上
     with make_client() as client:
-        accounts = client.get("/api/v1/channels").json()["data"]["accounts"]
-        assert [(a["account_id"], a["running"]) for a in accounts] == [("bot-1", True)]
+        # 微信是随带插件包，中枢在它贡献驱动后对齐启动账号
+        wait(lambda: client.get("/api/v1/channels").json()["data"]["accounts"][0]["running"])
         assert client.post("/api/v1/channels/im/push-test", json={}).status_code == 200
         wait(lambda: any(token == "ctx-1" for _u, _t, token in GATEWAY.sent))
 

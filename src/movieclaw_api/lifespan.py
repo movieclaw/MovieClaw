@@ -8,8 +8,9 @@ from fastapi import FastAPI
 
 from movieclaw_api.core.config import Settings
 from movieclaw_api.plugins import packages, safe_mode
+from movieclaw_api.plugins.bundled import load_bundled_entries
 from movieclaw_api.plugins.local import load_local_entries, local_specs
-from movieclaw_api.plugins.manifest import BUILTIN_MANIFEST, load_patches
+from movieclaw_api.plugins.manifest import load_patches, with_bundled
 from movieclaw_kernel import Kernel
 
 logger = logging.getLogger("movieclaw_api.lifespan")
@@ -45,7 +46,11 @@ def build_lifespan(settings: Settings):
             if safe.active
             else [*load_local_entries(settings), *packages.load_package_entries(settings)]
         )
-        await kernel.start((*BUILTIN_MANIFEST, *local), patches=load_patches(settings))
+        # 随带的插件包（plugins/bundled.py）也是内置插件；被同 id 插件包替换的跳过（安全模式下插件包
+        # 不加载，随带版本照常）
+        replaced = set() if safe.active else set(packages.package_ids(settings))
+        bundled = load_bundled_entries(replaced)
+        await kernel.start((*with_bundled(bundled), *local), patches=load_patches(settings))
         logger.info("应用启动完成，数据库就绪")
         safe_mode.schedule_settle(settings)
         try:

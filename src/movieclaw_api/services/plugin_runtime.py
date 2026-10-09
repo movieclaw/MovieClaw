@@ -953,6 +953,9 @@ def remote_plugin(
     process_entries.add(entry_id)
 
     async def apply(ctx: Context) -> None:
+        # 卸下后（如插件包被卸载、换回同 id 的随带插件包）诊断不能还显示「独立进程」
+        process_entries.add(entry_id)
+        ctx.effect(lambda: process_entries.discard(entry_id), label="forget-runtime")
         session = Session(
             entry_id,
             path=path,

@@ -118,7 +118,7 @@ def test_scheduler_switch_only_affects_scheduler_and_its_dependents(make_client)
 
 
 def test_non_critical_failure_degrades_instead_of_aborting(make_client, monkeypatch) -> None:
-    from movieclaw_channel.weixin import driver
+    from movieclaw_plugins.weixin.weixin_channel import driver
 
     def broken(self) -> None:
         raise ConnectionError("weixin gateway down")

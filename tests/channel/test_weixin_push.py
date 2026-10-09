@@ -10,7 +10,7 @@ from __future__ import annotations
 from typing import Any
 
 from movieclaw_channel.types import InboundMessage, ReplyContext
-from movieclaw_channel.weixin.adapter import CHANNEL_ID, WeixinAdapter
+from movieclaw_plugins.weixin.weixin_channel.adapter import CHANNEL_ID, WeixinAdapter
 
 
 class _StubClient:

@@ -154,7 +154,13 @@ class ChannelDriver:
 - **同 id 动态安装即替换**：装一个与随带包同 id 的插件包（例如新版微信通道），它替换随带版本
   （中枢里的账号照常、不用重新绑定）；卸载后随带版本自动回来。插件页标「已替换内置版本」。
 - 代码约束（测试守）：随带插件包只能 import `movieclaw_sdk` 与 SDK 承诺提供的第三方库
-  （`httpx`、`cryptography`、`pydantic` 等，清单写在 SDK 里），不能 import `movieclaw_api` 等主程序内部。
+  （`httpx`、`cryptography`、`pydantic`、`websockets`，清单在 `tests/api/test_bundled_plugins.py`），
+  不能 import `movieclaw_api` 等主程序内部。通道注册表 `IM_CHANNELS` 因此定义在 `movieclaw_sdk.channels`。
+- 实现（H4）：`plugins/bundled.py` 扫描 `src/movieclaw_plugins/*/movieclaw-plugin.toml`，按规范模块名
+  `movieclaw_plugins.<目录>.<入口>` 导入、作为内置条目启动；被同 id 插件包替换的跳过（安全模式下插件包不加载，
+  随带版本照常）。插件包卸载或首装失败撤销后，`_restore_bundled` 把随带版本挂回来。
+- 通道 id 沿用：第三方贡献的 id 会带插件前缀（`channel.weixin:weixin`），通道中枢对「随带插件包的 id」摘掉前缀，
+  替换后的插件包仍以 `weixin` 出现，已绑定的账号对得上。其他第三方插件不能借此冒用内置通道 id。
 
 ## 8. 示例第三方通道
 

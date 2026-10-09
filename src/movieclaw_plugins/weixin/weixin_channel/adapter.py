@@ -21,21 +21,22 @@ from typing import Any
 
 import httpx
 
-from movieclaw_channel.adapter import ChannelContext
-from movieclaw_channel.types import (
+from movieclaw_sdk.channels import (
     ChannelAuthError,
     InboundImage,
     InboundMessage,
     ReplyContext,
 )
-from movieclaw_channel.weixin.client import (
+
+from .client import (
     STALE_TOKEN_ERRCODE,
     WeixinApiError,
     WeixinClient,
 )
-from movieclaw_channel.weixin.media import collect_image_refs, decrypt_image
+from .kit import ChannelContext
+from .media import collect_image_refs, decrypt_image
 
-logger = logging.getLogger("movieclaw_channel.weixin.adapter")
+logger = logging.getLogger("movieclaw_plugins.weixin.adapter")
 
 CHANNEL_ID = "weixin"
 

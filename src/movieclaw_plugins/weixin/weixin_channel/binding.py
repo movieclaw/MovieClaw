@@ -26,9 +26,9 @@ import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 
-from movieclaw_channel.weixin.client import DEFAULT_BASE_URL, fetch_qrcode, poll_qr_status
+from .client import DEFAULT_BASE_URL, fetch_qrcode, poll_qr_status
 
-logger = logging.getLogger("movieclaw_channel.weixin.binding")
+logger = logging.getLogger("movieclaw_plugins.weixin.binding")
 
 #: 一次绑定 challenge 的总时限(超时置 expired)
 _CHALLENGE_TTL_S = 5 * 60

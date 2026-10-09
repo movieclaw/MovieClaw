@@ -12,7 +12,9 @@ from __future__ import annotations
 from typing import Any
 
 from movieclaw_kernel import RegistryKey, ServiceKey, Stability
-from movieclaw_sdk.channels import ChannelDriver
+
+# IM 通道注册表定义在 SDK（通道插件只依赖 SDK），这里转出给主程序沿用
+from movieclaw_sdk.channels import IM_CHANNELS as IM_CHANNELS
 
 DB: ServiceKey[Any] = ServiceKey("db", doc="数据库引擎（迁移完成后提供）")
 SECRETS: ServiceKey[Any] = ServiceKey("secrets", doc="凭据加解密器")
@@ -52,12 +54,6 @@ SITE_DATA_PACKS: RegistryKey[Any] = RegistryKey(
     "site-data-packs",
     stability=Stability.EXPERIMENTAL,
     doc="站点数据包：插件贡献一个站点 YAML 目录（优先级：内置 < 数据包 < 用户目录）",
-)
-IM_CHANNELS: RegistryKey[Any] = RegistryKey(
-    "im-channels",
-    stability=Stability.EXPERIMENTAL,
-    schema=ChannelDriver,
-    doc="IM 通道：插件贡献一个通道驱动（收发与绑定），中枢负责账号、对话与推送",
 )
 CHANNEL_HUB: ServiceKey[Any] = ServiceKey("channel-hub", doc="IM 通道中枢")
 PLUGIN_FILES: ServiceKey[Any] = ServiceKey(

@@ -307,6 +307,9 @@ class PackageRequestView(BaseModel):
     new_paths: list[dict[str, str]] = Field(description="相比当前已安装版本新增的路径申请")
     requires: dict[str, str]
     installed_version: str | None
+    replaces_builtin: bool = Field(
+        default=False, description="与随带的内置插件同 id：安装即替换它，卸载后随带版本回来"
+    )
 
 
 class InstalledPackageView(BaseModel):
@@ -322,6 +325,9 @@ class InstalledPackageView(BaseModel):
     state: str
     error: str | None
     watching: bool = Field(description="是否还在安装后的宽限期观察中")
+    replaces_builtin: bool = Field(
+        default=False, description="替换了随带的内置插件；卸载后随带版本回来"
+    )
 
 
 class PackagesView(BaseModel):

@@ -23,9 +23,9 @@ from typing import Any
 
 import httpx
 
-from movieclaw_channel.media import MAX_INBOUND_IMAGE_BYTES, download_capped
+from movieclaw_sdk.channels import MAX_INBOUND_IMAGE_BYTES, download_capped
 
-logger = logging.getLogger("movieclaw_channel.weixin.client")
+logger = logging.getLogger("movieclaw_plugins.weixin.client")
 
 DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com"
 

@@ -4,16 +4,15 @@
 ``ChannelDriver``。白名单、会话串行、AI 助手、长消息拆分、主动推送、账号存储、设置页都由主程序的
 通道中枢负责，插件不用管::
 
-    from movieclaw_api.plugins.keys import IM_CHANNELS
     from movieclaw_sdk import plugin
-    from movieclaw_sdk.channels import Binding, ChannelDriver, FormField
+    from movieclaw_sdk.channels import IM_CHANNELS, Binding, ChannelDriver, FormField
 
     class Ntfy(ChannelDriver):
         title = "ntfy"
         binding = Binding.form((FormField("topic", "订阅主题"),))
         ...
 
-    @plugin("acme.ntfy", title="ntfy 通道", inject=(IM_CHANNELS,))
+    @plugin("acme.ntfy", title="ntfy 通道")
     async def apply(ctx):
         ctx.contribute(IM_CHANNELS, "ntfy", Ntfy())
 
@@ -28,6 +27,8 @@ from dataclasses import dataclass, field
 from typing import Any, Literal
 
 import httpx
+
+from movieclaw_kernel import RegistryKey, Stability
 
 logger = logging.getLogger("movieclaw_sdk.channels")
 
@@ -282,6 +283,15 @@ class ChannelDriver:
         if not account.bound_user:
             return None
         return ReplyContext(account.channel_id, account.id, account.bound_user)
+
+
+#: 通道插件往这个注册表贡献驱动（贡献 id 即通道 id；第三方插件自动带插件 id 前缀）
+IM_CHANNELS: RegistryKey[ChannelDriver] = RegistryKey(
+    "im-channels",
+    stability=Stability.EXPERIMENTAL,
+    schema=ChannelDriver,
+    doc="IM 通道：插件贡献一个通道驱动（收发与绑定），中枢负责账号、对话与推送",
+)
 
 
 # ---------------------------------------------------------------------- 工具

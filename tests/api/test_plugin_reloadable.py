@@ -53,11 +53,12 @@ def app_client(tmp_path, monkeypatch):
 
 
 def test_every_non_critical_builtin_plugin_is_marked_reloadable() -> None:
+    from movieclaw_api.plugins.bundled import load_bundled_entries
     from movieclaw_api.plugins.manifest import BUILTIN_MANIFEST
 
     unmarked = [
         e.id
-        for e in BUILTIN_MANIFEST
+        for e in (*BUILTIN_MANIFEST, *load_bundled_entries(set()))
         if not e.plugin.critical and not e.plugin.reloadable and e.id not in NOT_RELOADABLE
     ]
     assert unmarked == [], "非关键插件须证明可重载（或在 NOT_RELOADABLE 写明原因）"

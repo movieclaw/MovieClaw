@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from pathlib import Path
 
 import yaml
@@ -64,6 +65,16 @@ def builtin_group(entry_id: str) -> str | None:
     return None
 
 
+def with_bundled(bundled: Sequence[Entry]) -> tuple[Entry, ...]:
+    """把随带插件包的内置条目插在通道中枢后面（微信通道原来的位置）。
+
+    启动按清单顺序、停机反过来：放在末尾会让它们最先停，打乱「转码会话最先停」等停机约束。
+    """
+    entries = list(BUILTIN_MANIFEST)
+    at = next(i for i, e in enumerate(entries) if e.id == "channels.hub") + 1
+    return (*entries[:at], *bundled, *entries[at:])
+
+
 #: 补丁文件（docs/design/plugin-kernel.md §10.3）：放在数据目录根下，随数据卷持久化
 PATCH_FILE = "plugins.yaml"
 
@@ -107,7 +118,6 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         library.library_watch,
         library.ingest_watch,
         delivery.channel_hub,
-        delivery.weixin,
         delivery.telegram,
         delivery.discord,
         delivery.feishu,

@@ -15,10 +15,6 @@ import logging
 import time
 from typing import Any
 
-from movieclaw_channel.driver_kit import AdapterDriver
-from movieclaw_channel.weixin.adapter import WeixinAdapter
-from movieclaw_channel.weixin.binding import BindingChallenge, BindingResult, WeixinBindingRegistry
-from movieclaw_channel.weixin.client import DEFAULT_BASE_URL, WeixinClient
 from movieclaw_sdk.channels import (
     Account,
     Binding,
@@ -28,7 +24,12 @@ from movieclaw_sdk.channels import (
     ReplyContext,
 )
 
-logger = logging.getLogger("movieclaw_channel.weixin.driver")
+from .adapter import WeixinAdapter
+from .binding import BindingChallenge, BindingResult, WeixinBindingRegistry
+from .client import DEFAULT_BASE_URL, WeixinClient
+from .kit import AdapterDriver
+
+logger = logging.getLogger("movieclaw_plugins.weixin.driver")
 
 #: 「正在输入」保活间隔（秒），对齐 openclaw 的 5s 续期
 TYPING_KEEPALIVE_S = 5.0

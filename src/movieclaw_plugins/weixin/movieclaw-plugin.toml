@@ -1,0 +1,14 @@
+[plugin]
+id = "channel.weixin"
+title = "微信通道"
+version = "1.0.0"
+entry = "weixin_channel"
+runtime = "process"
+sdk = "^1.0"
+description = "用微信扫码绑定：在微信里对话 AI 助手、接收推送（iLink 网关）"
+
+[requires]
+"im-channels" = "^1.0"
+
+[permissions]
+operations = []

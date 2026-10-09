@@ -231,4 +231,9 @@ test("已安装插件包的行内说明", () => {
     packageDetail(item),
     "v1.2.0 · 独立进程 · 1 个宿主操作 · 刚安装，观察中 · 已拦下的坏版本：1.1.0",
   );
+  // 替换随带内置插件的包：说清卸载即恢复
+  assert.equal(
+    packageDetail({ ...item, operations: [], watching: false, bad_versions: [], replaces_builtin: true }),
+    "v1.2.0 · 独立进程 · 替换了内置版本，卸载即恢复",
+  );
 });

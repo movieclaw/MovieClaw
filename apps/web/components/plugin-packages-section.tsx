@@ -341,7 +341,13 @@ function ReviewDrawer({
       onClose={onClose}
       title={`${upgrade ? "升级" : "安装"}「${item.title}」v${item.version}`}
       description={item.description || undefined}
-      hint={upgrade ? `当前 v${item.installed_version}；起不来会自动回到它` : undefined}
+      hint={
+        upgrade
+          ? `当前 v${item.installed_version}；起不来会自动回到它`
+          : item.replaces_builtin
+            ? "与内置插件同 id：安装后替换内置版本（已绑定的账号、数据照常沿用），卸载即恢复内置版本"
+            : undefined
+      }
       actions={
         <>
           <button

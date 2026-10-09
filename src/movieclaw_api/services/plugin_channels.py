@@ -75,6 +75,8 @@ class RemoteChannelDriver(ChannelDriver):
 
     # ---- 运行
     async def run(self, account: Account) -> None:
+        from movieclaw_api.services.plugin_runtime import PluginProcessGone, RemoteCallError
+
         self.accounts[account.id] = account
         try:
             target = await self._call("push_target", account=ch.account_dict(account))
@@ -82,6 +84,12 @@ class RemoteChannelDriver(ChannelDriver):
             await self._call(
                 "run", timeout=None, cancel=account.stopping, account=ch.account_dict(account)
             )
+        except (RemoteCallError, PluginProcessGone):
+            # 账号在停，或插件正被卸下（进程先退、中枢随后才停账号）：被取消、进程退出都是
+            # 正常收尾，不算故障
+            if account.stopping.is_set() or getattr(self._session, "_stopping", False):
+                return
+            raise
         finally:
             if self.accounts.get(account.id) is account:
                 del self.accounts[account.id]

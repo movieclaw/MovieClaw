@@ -74,7 +74,7 @@ def _plugin_notices(client: TestClient) -> list[dict]:
 
 
 def test_failed_plugin_raises_a_notice_and_recovery_resolves_it(env, monkeypatch) -> None:
-    from movieclaw_channel.weixin import driver
+    from movieclaw_plugins.weixin.weixin_channel import driver
 
     real_init = driver.WeixinDriver.__init__
 

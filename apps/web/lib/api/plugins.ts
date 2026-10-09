@@ -148,6 +148,8 @@ export interface PackageRequest {
   new_paths: PathGrant[];
   requires: Record<string, string>;
   installed_version: string | null;
+  /** 与随带的内置插件同 id：安装即替换它，卸载后随带版本回来；旧服务端没有这个字段 */
+  replaces_builtin?: boolean;
 }
 
 export interface InstalledPackage {
@@ -165,6 +167,8 @@ export interface InstalledPackage {
   error: string | null;
   /** 还在安装后的宽限期观察中（这段时间崩溃会自动回滚） */
   watching: boolean;
+  /** 替换了随带的内置插件；旧服务端没有这个字段 */
+  replaces_builtin?: boolean;
 }
 
 export interface PackagesOverview {
