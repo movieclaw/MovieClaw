@@ -1,11 +1,11 @@
 /**
- * 插件本地配置（chrome.storage.local）：后端连接、全局自动同步开关、已同步站点、同步结果。
+ * 扩展本地配置（chrome.storage.local）：后端连接、全局自动同步开关、已同步站点、同步结果。
  */
 
 export interface BackendConfig {
   /** MovieClaw 后端地址，如 http://localhost:8000 */
   backendUrl: string;
-  /** 后端「浏览器插件同步」里生成的令牌 */
+  /** 后端「浏览器扩展同步」里生成的令牌 */
   syncToken: string;
   /** 全局开关：已同步过的站点，是否在后台随 Cookie 变化自动保持最新 */
   autoSyncEnabled: boolean;

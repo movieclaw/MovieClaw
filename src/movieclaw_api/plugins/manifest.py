@@ -38,6 +38,32 @@ from movieclaw_kernel import Entry, Patch
 
 logger = logging.getLogger("movieclaw_api.plugins.manifest")
 
+#: 内置插件按功能分组（设置 → 插件 → 内置）。按条目 id 匹配：``xxx.`` 是前缀，其余是整段名字
+#: （自身或 ``名字.`` 开头的子条目）；先到先得。新增内置插件忘了归组，
+#: tests/api/test_plugin_diagnostics.py 会失败。
+BUILTIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("基础", ("core.", "jobs", "scheduler", "storage.", "app-update", "selfheal.")),
+    ("资源站点与下载", ("tracker.", "downloads", "boost")),
+    ("订阅", ("subscription",)),
+    ("媒体库", ("library.", "media.", "enrich.")),
+    ("播放与字幕", ("playback.", "subtitle.", "jellyfin.")),
+    ("通知与推送", ("channel.", "push.", "cloud")),
+    ("AI 助手", ("agent.",)),
+    ("插件系统", ("kernel.",)),
+)
+
+
+def builtin_group(entry_id: str) -> str | None:
+    for label, patterns in BUILTIN_GROUPS:
+        for pattern in patterns:
+            if pattern.endswith("."):
+                if entry_id.startswith(pattern):
+                    return label
+            elif entry_id == pattern or entry_id.startswith(f"{pattern}."):
+                return label
+    return None
+
+
 #: 补丁文件（docs/design/plugin-kernel.md §10.3）：放在数据目录根下，随数据卷持久化
 PATCH_FILE = "plugins.yaml"
 

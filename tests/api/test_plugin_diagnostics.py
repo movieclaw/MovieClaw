@@ -1,4 +1,4 @@
-"""运行模块诊断、启动失败提醒、禁用补丁（docs/design/plugin-kernel.md §9、§10、§12.3）。
+"""内置插件诊断、启动失败提醒、禁用补丁（docs/design/plugin-kernel.md §9、§10、§12.3）。
 
 走真实应用：
 - ``GET /app/plugins`` 列出全部内置插件与契约；
@@ -47,6 +47,12 @@ def test_plugins_endpoint_lists_every_entry_and_contract(env) -> None:
         assert by_id["core.database"]["state"] == "active"
         assert by_id["core.database"]["critical"] is True
         assert by_id["core.database"]["apply_ms"] > 0
+        # 每个内置插件都归进了「设置 → 插件 → 内置」的某个分组（新增内置插件别忘了归组）
+        assert body["groups"][0] == "基础"
+        ungrouped = [p["id"] for p in body["plugins"] if p["group"] not in body["groups"]]
+        assert ungrouped == []
+        assert by_id["core.database"]["group"] == "基础"
+        assert by_id["boost.sentinel"]["group"] == "资源站点与下载"
         assert by_id["scheduler"]["state"] == "disabled"
         assert by_id["scheduler"]["disabled_by"] == "env:SCHEDULER_ENABLED"
         assert by_id["boost.sentinel"]["blocked_by"] == [
@@ -83,7 +89,11 @@ def test_failed_plugin_raises_a_notice_and_recovery_resolves_it(env, monkeypatch
         assert len(notices) == 1
         assert notices[0]["title"] == "「微信通道」启动失败"
         assert "微信网关不可达" in notices[0]["message"]
-        assert notices[0]["payload"] == {"entry_id": "channel.weixin"}
+        assert "设置 → 插件 → 内置" in notices[0]["message"]
+        assert notices[0]["payload"] == {
+            "entry_id": "channel.weixin",
+            "action_href": "/settings/plugins?tab=builtin",
+        }
 
     # 修好之后重启：插件恢复运行，告警自动消退
     monkeypatch.setattr(weixin_channel, "init_weixin_channel", real_init)

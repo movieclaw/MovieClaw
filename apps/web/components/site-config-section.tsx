@@ -349,7 +349,7 @@ export function SiteConfigSection() {
             </div>
           </SettingsSection>
 
-          {/* 浏览器插件：站点 Cookie 同步的配套工具 */}
+          {/* 浏览器扩展：站点 Cookie 同步的配套工具 */}
           <ExtensionCard />
         </div>
       )}
@@ -1527,10 +1527,10 @@ function SiteForm({ title, item, site, header, onSubmit, onClose }: SiteFormProp
               <label className="mb-1.5 block text-sub font-medium text-[var(--text-muted)]">
                 {fm.label}
               </label>
-              {/* Cookie 恰是插件的用武之地：就地提一句，不打断手动粘贴的用户 */}
+              {/* Cookie 恰是扩展的用武之地：就地提一句，不打断手动粘贴的用户 */}
               {field === "cookie" && (
                 <p className="mb-1.5 text-caption text-[var(--text-faint)]">
-                  手动粘贴的 Cookie 过期后需重填；推荐用本页下方的 MovieClaw 浏览器插件自动同步。
+                  手动粘贴的 Cookie 过期后需重填；推荐用本页下方的 MovieClaw 浏览器扩展自动同步。
                 </p>
               )}
               {fm.kind === "textarea" ? (

@@ -8,7 +8,7 @@ movieclaw 的官方命令行工具。用于从 TMDB 和豆瓣发现实时热点�
 - collection 媒体库合集（把一组筛选条件存下来：可自动收录以后新入库的片，也可固定成一份名单；成员与海报墙同一份口径，Jellyfin 客户端里同样看得到）
 - discover 发现电影/剧集（来自 TMDB、豆瓣的实时热点、热映/待上映/在播、热门、高分、口碑及地区/类型片单；list-collections 列片单，browse-collection 浏览片单，get-title-details 看资料/演职员/剧照/相关推荐）
 - dl       qBittorrent/Transmission 下载器与投递（接入/验证/启停/设默认实例，配置保存路径与路径映射，预演落点并提交种子；tasks 汇总所有下载器里正在跑的任务及其对应的影片/集与订阅——「我的剧下到哪了」看这里，torrent replace 给卡住的下载换源、torrent delete 删任务）
-- extension Chromium 浏览器插件 Cookie 同步（管理同步令牌/支持站点，把页面中的 httpOnly 站点 Cookie 安全同步到服务端）
+- extension Chromium 浏览器扩展 Cookie 同步（管理同步令牌/支持站点，把页面中的 httpOnly 站点 Cookie 安全同步到服务端）
 - health   API 存活检查（通常优先用顶级 status 查看更完整的部署状态）
 - jobs     后台作业（按来源/状态/类型查询，查看事件与执行器健康，等待/取消/重试；订阅的在途下载进度看 subscriptions list-active-downloads）
 - library  本地电影/剧集媒体库（建库与默认路由，扫描和规范命名入库；查看库存条目与物理文件，处理待识别/错识别/缺失内容，并管理元数据、图片、字幕和跨库转移；list 默认只列当前身份可浏览的库（与网页首页一致），用户明确要看全部可管理的库时加 --scope all；organize-files 按 scrape 里配的命名模板把存量文件批量改名归位，可反复执行；items share 把一部影片生成公开链接发给没有账号的人看，有效期最长 30 天、可加密码、随时撤回）

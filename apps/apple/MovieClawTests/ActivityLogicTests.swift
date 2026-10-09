@@ -126,17 +126,17 @@ struct ActivityLogicTests {
             "payload": [:], "created_at": "", "updated_at": "",
         ])
         #expect(NoticeCenterView.href(cloud) == "/settings/cloud")
-        // 插件：带站内路径就去那里（插件包回滚 → 插件管理页），否则去模块诊断；外站地址不认
+        // 插件：带站内路径就去那里（插件包回滚 → 插件管理页），否则去内置插件诊断；外站地址不认
         let rolledBack: API.NoticeView = decode([
             "id": 4, "severity": "warning", "source": "plugin", "title": "t", "message": "m",
-            "payload": ["action_href": "/settings/app?tab=extensions"], "created_at": "", "updated_at": "",
+            "payload": ["action_href": "/settings/plugins"], "created_at": "", "updated_at": "",
         ])
-        #expect(NoticeCenterView.href(rolledBack) == "/settings/app?tab=extensions")
+        #expect(NoticeCenterView.href(rolledBack) == "/settings/plugins")
         let failed: API.NoticeView = decode([
             "id": 5, "severity": "warning", "source": "plugin", "title": "t", "message": "m",
             "payload": ["action_href": "//evil.example"], "created_at": "", "updated_at": "",
         ])
-        #expect(NoticeCenterView.href(failed) == "/settings/app?tab=plugins")
+        #expect(NoticeCenterView.href(failed) == "/settings/plugins?tab=builtin")
     }
 
     /// 播放设备名：去「MovieClaw 」品牌前缀、设备名以客户端名打头时不重复（口径同 Web `deviceLabel`）

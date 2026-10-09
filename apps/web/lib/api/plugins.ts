@@ -9,7 +9,7 @@ interface ApiEnvelope<T> {
 }
 
 // ---------------------------------------------------------------------------
-// 运行模块（设置 → 更新与维护 → 模块；docs/design/plugin-kernel.md §10）
+// 插件诊断（设置 → 插件 → 内置；docs/design/plugin-kernel.md §10）
 // 后端每个子系统都是插件内核上的一个内置插件；这里只读地看它们的状态。
 // ---------------------------------------------------------------------------
 
@@ -70,6 +70,8 @@ export interface PluginInfo {
   data_rows?: number;
   /** inline：主进程里运行；process：独立进程。旧服务端没有这个字段 */
   runtime?: "inline" | "process";
+  /** 内置插件的功能分组（设置 → 插件 → 内置）；本地 / 第三方插件为 null，旧服务端没有这个字段 */
+  group?: string | null;
 }
 
 export interface PluginHealth {
@@ -95,6 +97,8 @@ export interface PluginsOverview {
   plugins: PluginInfo[];
   /** 旧服务端没有这个字段 */
   safe_mode?: PluginSafeMode;
+  /** 内置插件分组的展示顺序；旧服务端没有这个字段 */
+  groups?: string[];
 }
 
 export async function listPlugins(): Promise<PluginsOverview> {
@@ -112,7 +116,7 @@ export async function exitSafeMode(): Promise<Record<string, string>> {
 }
 
 // ---------------------------------------------------------------------------
-// 插件包（设置 → 更新与维护 → 插件；docs/design/plugin-phase3.md §3）
+// 插件包（设置 → 插件 → 已安装；docs/design/plugin-phase3.md §3）
 // ---------------------------------------------------------------------------
 
 export interface PathGrant {

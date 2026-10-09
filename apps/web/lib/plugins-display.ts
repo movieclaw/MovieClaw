@@ -1,5 +1,9 @@
 /**
- * 「模块」页签的展示口径（docs/design/plugin-kernel.md §10.2）。
+ * 「设置 → 插件」的展示口径（docs/design/plugin-kernel.md §10.2）。
+ *
+ * 概念：「插件」是总称。MovieClaw 自带的功能都是内置插件（标「核心」的不能关闭，标「可关闭」的
+ * 能在 data/plugins.yaml 里关掉）；第三方插件由插件包（.mcplugin）安装；本地插件是你在
+ * data/plugins.yaml 里开启的自己的代码。
  *
  * 纯逻辑，单独成文件好用测试锁住（test/plugins-display.test.mjs）：状态 → 文案与颜色、
  * 「为什么没起来」的一句话、哪些需要留意、列表排序。这里的措辞直接上屏。
@@ -68,7 +72,7 @@ export function pluginDetail(plugin: PluginInfo): string {
     case "incompatible":
       return plugin.incompatible ?? "与当前版本不兼容";
     case "pending": {
-      if (plugin.blocked_by.length === 0) return "等待所依赖的模块就绪";
+      if (plugin.blocked_by.length === 0) return "等待所依赖的插件就绪";
       return plugin.blocked_by.map((b) => `缺少 ${b.key}：${b.reason}`).join("；");
     }
     case "disabled":
@@ -101,6 +105,39 @@ export function sortPlugins(plugins: PluginInfo[]): PluginInfo[] {
   return [...attention, ...rest];
 }
 
+/** MovieClaw 自带的内置插件 */
+export function isBuiltinPlugin(plugin: PluginInfo): boolean {
+  return plugin.source === "builtin";
+}
+
+/** 内置插件的标记：核心（不能关闭）/ 可关闭（data/plugins.yaml 里关掉）；两者都不是的不标 */
+export function builtinBadge(plugin: PluginInfo): "核心" | "可关闭" | null {
+  if (plugin.critical) return "核心";
+  if (plugin.disableable) return "可关闭";
+  return null;
+}
+
+export interface PluginGroup {
+  label: string;
+  plugins: PluginInfo[];
+}
+
+/**
+ * 内置插件按功能分组：组序与归属由服务器给（groups / group）；没有归属的（旧服务端，
+ * 或新插件漏了归组）收进末尾的「其他」。组内需要留意的在前。
+ */
+export function groupBuiltins(plugins: PluginInfo[], groups: string[] = []): PluginGroup[] {
+  const builtins = plugins.filter(isBuiltinPlugin);
+  const known = new Set(groups);
+  const result = groups.map((label) => ({
+    label,
+    plugins: sortPlugins(builtins.filter((p) => p.group === label)),
+  }));
+  const other = builtins.filter((p) => !p.group || !known.has(p.group));
+  if (other.length > 0) result.push({ label: "其他", plugins: sortPlugins(other) });
+  return result.filter((group) => group.plugins.length > 0);
+}
+
 /** 用户在 plugins.yaml 里开启的本地受信插件（进程内运行，权限与主程序相同） */
 export function isLocalPlugin(plugin: PluginInfo): boolean {
   return plugin.source === "local";
@@ -113,16 +150,14 @@ export function localPluginRuntimes(plugins: PluginInfo[]): { inline: number; pr
   return { inline: locals.length - process, process };
 }
 
-/** 分区副标题：一共几个、几个在运行、几个出问题、几个是本地插件 */
+/** 内置页签的概况：一共几个、几个在运行、几个出问题、几个已关闭 */
 export function pluginsSummary(plugins: PluginInfo[]): string {
   const active = plugins.filter((p) => p.state === "active").length;
   const problems = plugins.filter(needsAttention).length;
   const disabled = plugins.filter((p) => p.state === "disabled").length;
-  const local = plugins.filter(isLocalPlugin).length;
-  const parts = [`${plugins.length} 个模块`, `${active} 个运行中`];
+  const parts = [`${plugins.length} 个内置插件`, `${active} 个运行中`];
   if (problems > 0) parts.push(`${problems} 个需要留意`);
   if (disabled > 0) parts.push(`${disabled} 个已关闭`);
-  if (local > 0) parts.push(`其中 ${local} 个是本地插件`);
   return parts.join(" · ");
 }
 

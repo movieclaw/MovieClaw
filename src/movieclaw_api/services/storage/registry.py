@@ -458,7 +458,9 @@ DATA_DIRS: tuple[DataDir, ...] = (
         key="plugins.safe_mode",
         title="安全模式开关",
         summary="放一个 SAFE_MODE 文件即以插件安全模式启动",
-        description="存在时本次启动跳过全部本地 / 第三方插件；在「模块」页退出安全模式会删掉它。",
+        description=(
+            "存在时本次启动跳过全部本地 / 第三方插件；在「设置 → 插件」退出安全模式会删掉它。"
+        ),
         default="data/SAFE_MODE",
         resolve=lambda s: Path(s.data_dir) / "SAFE_MODE",
     ),

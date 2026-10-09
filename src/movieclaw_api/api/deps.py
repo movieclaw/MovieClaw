@@ -24,7 +24,7 @@ def _extract_bearer(authorization: str | None) -> str | None:
 
 
 async def require_sync_token(authorization: str | None = Header(default=None)) -> None:
-    """插件侧接口的鉴权依赖：校验请求头里的同步令牌。
+    """扩展侧接口的鉴权依赖：校验请求头里的同步令牌。
 
     校验流程：
     1. 后端从未生成令牌（同步未启用）→ 401，提示先去后台生成令牌。
@@ -98,7 +98,7 @@ async def require_login(
     - CLI / 产品内 Agent：``Authorization: Bearer <令牌>``——PAT 长期令牌
       或 Agent 短时效签名令牌，同一验签入口。
 
-    全站默认拒绝的执行点——除公开白名单与插件侧接口外，所有路由都必须挂
+    全站默认拒绝的执行点——除公开白名单与浏览器扩展侧接口外，所有路由都必须挂
     本依赖（api/router.py 按组挂载，tests 里有守护测试兜底防漏挂）。
     未登录 / 会话过期 / 令牌无效统一 401。授权（管理员/能力开关）不在
     这里判——挂 ``require_admin`` 或在服务层消费 Principal。

@@ -197,7 +197,7 @@ async function refresh() {
     hidePill();
     if (!isConfigured(config)) showAction('go-settings', '去设置后端');
     else hideAction();
-    setHint('请在站点网页上打开本插件。');
+    setHint('请在站点网页上打开本扩展。');
     return;
   }
 

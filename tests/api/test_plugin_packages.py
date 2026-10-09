@@ -241,7 +241,7 @@ def test_install_upgrade_rollback_restart_and_uninstall(data_dir) -> None:
 
         notice = open_notice(client)
         assert notice is not None and "缺少配置" in notice.message
-        assert notice_path(notice.source, notice.payload) == "/settings/app?tab=extensions"
+        assert notice_path(notice.source, notice.payload) == "/settings/plugins"
 
         # 正常升级到 v3，再手动回到 v1
         assert upload(client, package(3)).status_code == 200
@@ -286,7 +286,7 @@ BAD_PACKAGES = {
     "not-zip": (b"not a zip", "不是有效的插件包"),
     "no-manifest": (package(manifest=""), "缺少 movieclaw-plugin.toml"),
     "traversal": (package(files={"../evil.py": "x"}), "不安全的路径"),
-    "reserved-id": (package(entry_id="core.database"), "已被内置模块或本地插件占用"),
+    "reserved-id": (package(entry_id="core.database"), "已被内置插件或本地插件占用"),
     "bad-id": (package(entry_id="Acme"), "id"),
     "sdk": (package(sdk="^2.0"), "要求 SDK ^2.0"),
     "contract": (package(requires='"no.such.contract" = "^1.0"'), "未知契约"),

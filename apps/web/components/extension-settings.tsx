@@ -24,9 +24,9 @@ import {
 import { formatDateTime } from "@/lib/time";
 
 /**
- * 浏览器插件小节：嵌在「资源站点」分区底部（插件是站点 Cookie 同步的配套工具，
+ * 浏览器扩展小节：嵌在「资源站点」分区底部（扩展是站点 Cookie 同步的配套工具，
  * 不单设分区）。两行：
- * - 插件本身：安装状态 + 「安装插件」——Chrome 政策不允许商店外插件一键
+ * - 扩展本身：安装状态 + 「安装扩展」——Chrome 政策不允许商店外扩展一键
  *   静默安装，必须手动加载，四步指引收在弹窗里讲清楚，不平铺占版面；
  * - 同步令牌：设完即用、极少回访的配置，收进弹窗里管理。
  * 各站点的同步与验证状态直接看上方站点列表，不在这里重复展示。
@@ -45,7 +45,7 @@ export function ExtensionCard() {
 
   return (
     <SettingsSection
-      title="浏览器插件"
+      title="浏览器扩展"
       description="在站点页面一键读取登录 Cookie（含 httpOnly）并同步到本服务，免去手动复制粘贴，还能随 Cookie 变化自动保持最新。"
     >
       <SettingsList>
@@ -55,10 +55,10 @@ export function ExtensionCard() {
               <PuzzleIcon className="size-[18px]" />
             </span>
           }
-          label="MovieClaw 浏览器插件"
+          label="MovieClaw 浏览器扩展"
           description={
             installed
-              ? "打开站点页面，点浏览器工具栏的 MovieClaw 图标即可同步；首次使用先生成同步令牌填入插件。"
+              ? "打开站点页面，点浏览器工具栏的 MovieClaw 图标即可同步；首次使用先生成同步令牌填入扩展。"
               : "支持 Chrome / Edge 等 Chromium 内核浏览器。"
           }
         >
@@ -76,13 +76,13 @@ export function ExtensionCard() {
               className={`${SETTINGS_BUTTON_CLASS} flex items-center gap-1.5`}
             >
               <DownloadIcon className="size-4" />
-              安装插件
+              安装扩展
             </button>
           )}
         </SettingsRow>
         <SettingsRow
           label="同步令牌"
-          description="在插件的设置里填入此令牌，即可把站点 Cookie 同步到本服务。"
+          description="在扩展的设置里填入此令牌，即可把站点 Cookie 同步到本服务。"
         >
           <button
             type="button"
@@ -109,8 +109,8 @@ export function ExtensionCard() {
 }
 
 /**
- * 安装指引弹窗：四步明确操作。Chrome 政策不允许商店外插件静默安装，
- * 下载后须在 chrome://extensions 手动加载——步骤只在用户点「安装插件」
+ * 安装指引弹窗：四步明确操作。Chrome 政策不允许商店外扩展静默安装，
+ * 下载后须在 chrome://extensions 手动加载——步骤只在用户点「安装扩展」
  * 时才展开，不在卡面平铺。
  */
 function InstallModal({
@@ -126,7 +126,7 @@ function InstallModal({
     {
       text: (
         <>
-          下载插件包并解压，得到{" "}
+          下载安装包并解压，得到{" "}
           <code className="rounded bg-white/[0.06] px-1 font-mono text-sub">chrome-mv3</code>{" "}
           文件夹。
         </>
@@ -138,7 +138,7 @@ function InstallModal({
           className={`${SETTINGS_PRIMARY_BUTTON_CLASS} flex w-fit items-center gap-1.5`}
         >
           <DownloadIcon className="size-4" />
-          下载插件包
+          下载安装包
         </a>
       ),
     },
@@ -157,7 +157,7 @@ function InstallModal({
       text: <>点「加载已解压的扩展程序」，选择第 1 步解压出的文件夹。</>,
     },
     {
-      text: <>生成同步令牌并填入插件设置，之后切回本页会自动识别为「已安装」。</>,
+      text: <>生成同步令牌并填入扩展设置，之后切回本页会自动识别为「已安装」。</>,
       action: (
         <button
           type="button"
@@ -172,12 +172,12 @@ function InstallModal({
   ];
 
   return (
-    <Modal open={open} onClose={onClose} label="安装浏览器插件" width="lg">
+    <Modal open={open} onClose={onClose} label="安装浏览器扩展" width="lg">
       <div className="space-y-4 p-6">
         <div>
-          <h2 className="text-title font-bold text-[var(--text)]">安装浏览器插件</h2>
+          <h2 className="text-title font-bold text-[var(--text)]">安装浏览器扩展</h2>
           <p className="mt-1 text-sub leading-5 text-[var(--text-muted)]">
-            按下面四步操作，全程约一分钟。Chrome 应用商店政策不允许商店外插件一键安装，
+            按下面四步操作，全程约一分钟。Chrome 应用商店政策不允许商店外扩展一键安装，
             所以需要手动加载一次，之后升级会自动提示。
           </p>
         </div>
@@ -243,7 +243,7 @@ function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
       token?.enabled &&
       !(await confirm({
         title: "重新生成同步令牌？",
-        description: "重新生成将使旧令牌立即失效，已配置的插件需要更新令牌。",
+        description: "重新生成将使旧令牌立即失效，已配置的扩展需要更新令牌。",
         confirmLabel: "重新生成",
         tone: "danger",
       }))
@@ -265,7 +265,7 @@ function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
     if (
       !(await confirm({
         title: "关闭 Cookie 同步？",
-        description: "关闭同步将撤销令牌，所有插件都将无法再同步。",
+        description: "关闭同步将撤销令牌，所有扩展都将无法再同步。",
         confirmLabel: "关闭同步",
         tone: "danger",
       }))
@@ -290,7 +290,7 @@ function TokenModal({ open, onClose }: { open: boolean; onClose: () => void }) {
           <div>
             <h2 className="text-title font-bold text-[var(--text)]">同步令牌</h2>
             <p className="mt-1 text-sub leading-5 text-[var(--text-muted)]">
-              在浏览器插件的设置里填入此令牌，即可把站点 Cookie 同步到本服务。令牌长期有效，除非你重新生成。
+              在浏览器扩展的设置里填入此令牌，即可把站点 Cookie 同步到本服务。令牌长期有效，除非你重新生成。
             </p>
           </div>
           <StatusDot on={Boolean(token?.enabled)} />

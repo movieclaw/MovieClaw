@@ -68,7 +68,7 @@
 
 - 服务 `PLUGIN_HEALTH`（实验级）：`health.report(ctx, key, ok=False, message=..., action_href=...)`。
 - 降级 → 系统通知（warning，键 `plugin:<id>:health:<key>`，与启动失败的 `plugin:<id>` 分开）；恢复 → 消退。
-- 当前健康进诊断接口（每个插件的 `health` 列表），网页「模块」页签显示。
+- 当前健康进诊断接口（每个插件的 `health` 列表），网页「设置 → 插件 → 内置」显示（原「模块」页签）。
 - 前端通知跳转在 `payload.action_href` 存在且是站内路径时优先使用。
 
 ## 6. 站点提供方与数据包（PR B5）

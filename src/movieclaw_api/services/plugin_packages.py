@@ -21,12 +21,12 @@ logger = logging.getLogger("movieclaw_api.plugin_packages")
 GRACE_SECONDS = 120.0
 GRACE_POLL = 2.0
 NOTICE_PREFIX = "plugin-package:"
-#: 回滚通知「去处理」落到插件管理页（设置 → 更新与维护 → 插件）
-MANAGE_HREF = "/settings/app?tab=extensions"
+#: 回滚通知「去处理」落到插件管理页（设置 → 插件 → 已安装）
+MANAGE_HREF = "/settings/plugins"
 
 
 def _reserved(kernel: Kernel, settings: object) -> set[str]:
-    """不能被插件包占用的条目 id：内置模块与本地插件。"""
+    """不能被插件包占用的条目 id：内置插件与本地插件。"""
     from movieclaw_api.plugins.local import local_specs
     from movieclaw_api.plugins.manifest import BUILTIN_MANIFEST
 
@@ -187,7 +187,7 @@ class PackageManager:
                 raise pkg.PackageError(
                     "这个插件申请在主进程里运行，拥有与主程序相同的系统权限，须单独确认"
                 )
-            # 重新检查一遍：上传之后内置模块 / 本地插件 / 契约可能变了
+            # 重新检查一遍：上传之后内置插件 / 本地插件 / 契约可能变了
             pkg.check_compat(
                 manifest,
                 reserved=_reserved(self._kernel, self._settings),

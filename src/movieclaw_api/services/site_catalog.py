@@ -76,7 +76,7 @@ class SiteCatalogService:
             )
         return config
 
-    # -- 域名匹配（供浏览器插件按域名反查站点）-----------------------------
+    # -- 域名匹配（供浏览器扩展按域名反查站点）-----------------------------
 
     @staticmethod
     def site_domain(config: SiteConfig) -> str:

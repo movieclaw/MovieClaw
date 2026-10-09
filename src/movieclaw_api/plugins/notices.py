@@ -24,6 +24,7 @@ NOTICE_PREFIX = "plugin:"
 async def plugin_notices(ctx: Context) -> None:
     from sqlmodel import select
 
+    from movieclaw_api.plugins.manifest import builtin_group
     from movieclaw_api.services.system_notice import resolve_notices, upsert_notice
     from movieclaw_db.engine import get_database
     from movieclaw_db.models import NoticeSeverity, NoticeStatus, SystemNotice
@@ -43,6 +44,10 @@ async def plugin_notices(ctx: Context) -> None:
     async def on_state(change: PluginStateChanged) -> None:
         key = f"{NOTICE_PREFIX}{change.entry_id}"
         if change.state == "failed":
+            # 内置插件去「内置」页签看原因；本地 / 第三方插件在「已安装」页签
+            builtin = builtin_group(change.entry_id) is not None
+            where = "设置 → 插件 → 内置" if builtin else "设置 → 插件"
+            href = "/settings/plugins?tab=builtin" if builtin else "/settings/plugins"
             async with get_database().session() as session:
                 await upsert_notice(
                     session,
@@ -52,9 +57,12 @@ async def plugin_notices(ctx: Context) -> None:
                     title=f"「{change.title or change.entry_id}」启动失败",
                     message=(
                         f"{change.error or '未知原因'}。其余功能不受影响；"
-                        "修复后重启应用即可恢复，详情见「设置 → 更新与维护 → 模块」。"
+                        f"修复后重启应用即可恢复，详情见「{where}」。"
                     ),
-                    payload={"entry_id": change.entry_id},
+                    payload={
+                        "entry_id": change.entry_id,
+                        "action_href": href,
+                    },
                 )
             open_keys.add(key)
         elif change.state in ("active", "disabled") and key in open_keys:
@@ -88,7 +96,7 @@ async def publish_safe_mode(mode) -> None:
             source="plugin",
             title="已进入插件安全模式",
             message=(
-                f"{mode.reason}。本次跳过的插件：{skipped}。排查后到「设置 → 更新与维护 → 模块」"
+                f"{mode.reason}。本次跳过的插件：{skipped}。排查后到「设置 → 插件」"
                 "退出安全模式，被跳过的插件会当场重新加载。"
             ),
             payload={"skipped": mode.skipped, "forced": mode.forced},

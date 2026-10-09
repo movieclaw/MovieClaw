@@ -27,6 +27,7 @@ import {
   WandIcon,
   UserCircleIcon,
   PlugIcon,
+  PuzzleIcon,
 } from "@/components/icons";
 
 type Icon = ComponentType<SVGProps<SVGSVGElement>>;
@@ -172,12 +173,12 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
     ],
   },
   {
-    // 组内按资源接入链路排序：订阅规则（消费整条链路）→ 站点（含插件
+    // 组内按资源接入链路排序：订阅规则（消费整条链路）→ 站点（含浏览器扩展
     // Cookie 同步）→ 下载器 → 自动入库（下载完成的收尾）。
     label: "资源与下载",
     items: [
       { id: "subscription", label: "订阅规则", description: "管理智能选择偏好与自定义规则", icon: BookmarkIcon },
-      { id: "sites", label: "资源站点", description: "站点接入与鉴权、搜索分类、插件 Cookie 同步", icon: ServerIcon },
+      { id: "sites", label: "资源站点", description: "站点接入与鉴权、搜索分类、浏览器扩展 Cookie 同步", icon: ServerIcon },
       { id: "downloaders", label: "下载器", description: "qBittorrent / Transmission 接入", icon: DownloadCircleIcon },
       { id: "import-watch", label: "自动入库", description: "监听下载目录，下载完成后自动整理进媒体库", icon: FolderGearIcon },
     ],
@@ -214,7 +215,9 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
   },
   {
     // 装完配一次/出问题才碰的低频运维项，沉底。MovieClaw Cloud 是整台服务器的一次性
-    // 连接，以后云端的能力（远程访问等）都挂在它下面，所以放这里而不是推送旁边
+    // 连接，以后云端的能力（远程访问等）都挂在它下面，所以放这里而不是推送旁边。
+    // 「插件」独立成分区：第三方插件的安装管理与内置插件的运行状态都在这里，
+    // 不再藏在「更新与维护」的页签里（概念见 lib/plugins-display.ts 文件头）
     label: "系统",
     items: [
       {
@@ -224,6 +227,12 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
         icon: CloudIcon,
       },
       { id: "app", label: "更新与维护", description: "版本更新与应用重启", icon: GearsIcon },
+      {
+        id: "plugins",
+        label: "插件",
+        description: "安装第三方插件，查看内置插件的运行状态",
+        icon: PuzzleIcon,
+      },
       { id: "network", label: "网络", description: "代理、镜像与外部访问地址，解决 TMDB 等不可达", icon: GlobeIcon },
       { id: "logs", label: "系统日志", description: "后端运行日志，按天存档", icon: TerminalIcon },
     ],

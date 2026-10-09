@@ -1,4 +1,4 @@
-"""运行模块诊断（设置 → 更新与维护 → 模块；docs/design/plugin-kernel.md §10）。
+"""内置插件诊断（设置 → 插件 → 内置；docs/design/plugin-kernel.md §10）。
 
 后端的每个子系统都是插件内核上的一个内置插件。这里只读地列出每个插件的状态、启动耗时、
 失败原因、缺失的依赖与运行指标，外加全部契约（服务、注册表、事件）——排查「某个功能
@@ -72,6 +72,9 @@ class PluginView(BaseModel):
         default_factory=list, description="插件自己报告的运行状况（PLUGIN_HEALTH）"
     )
     data_rows: int = Field(default=0, description="插件数据行数（PLUGIN_DATA）")
+    group: str | None = Field(
+        default=None, description="内置插件的功能分组（设置 → 插件 → 内置）；本地 / 第三方插件为空"
+    )
     runtime: str = Field(
         default="inline", description="inline：主进程里运行；process：独立进程（第三阶段）"
     )
@@ -138,6 +141,7 @@ class SafeModeView(BaseModel):
 
 class PluginsView(BaseModel):
     plugins: list[PluginView]
+    groups: list[str] = Field(default_factory=list, description="内置插件分组的展示顺序")
     contracts: ContractsView
     durable: DurableView | None = Field(
         default=None, description="可靠事件的消费进度与死信；投递插件未运行时为空"
@@ -168,7 +172,7 @@ def _durable_store(request: Request):
 @router.get(
     "",
     response_model=ApiResponse[PluginsView],
-    summary="运行模块：各内置插件的状态、启动耗时、失败原因与契约",
+    summary="插件诊断：各插件的状态、启动耗时、失败原因与契约",
     operation_id="app.plugins.list",
 )
 async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
@@ -182,6 +186,7 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
     health = health_service.snapshot() if health_service is not None else {}
     data_service = kernel.service(PLUGIN_DATA)
     data_rows = await data_service.counts() if data_service is not None else {}
+    from movieclaw_api.plugins.manifest import BUILTIN_GROUPS, builtin_group
     from movieclaw_api.services.plugin_runtime import process_entries
 
     plugins = [
@@ -190,6 +195,11 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
             "health": health.get(item["id"], []),
             "data_rows": data_rows.get(item["id"], 0),
             "runtime": "process" if item["id"] in process_entries else "inline",
+            "group": (
+                builtin_group(item.get("parent") or item["id"])
+                if item["source"] == "builtin"
+                else None
+            ),
         }
         for item in kernel.snapshot()
     ]
@@ -202,6 +212,7 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
                 "contracts": kernel.contracts(),
                 "durable": durable,
                 "safe_mode": safe_mode.current().view(),
+                "groups": [label for label, _ in BUILTIN_GROUPS],
             }
         )
     )

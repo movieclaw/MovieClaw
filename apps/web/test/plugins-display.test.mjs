@@ -3,7 +3,9 @@ import test from "node:test";
 
 import {
   degradedHealth,
+  builtinBadge,
   formatMs,
+  groupBuiltins,
   isLocalPlugin,
   isNewGrant,
   localPluginRuntimes,
@@ -23,7 +25,7 @@ function plugin(overrides = {}) {
   return {
     id: "x",
     plugin: "x",
-    title: "某模块",
+    title: "某插件",
     state: "active",
     critical: false,
     disableable: false,
@@ -112,7 +114,7 @@ test("需要留意的排在前面，其余保持启动顺序；关闭不算需�
     ["c", "d", "a", "b"],
   );
   assert.equal(needsAttention(list[1]), false);
-  assert.equal(pluginsSummary(list), "4 个模块 · 1 个运行中 · 2 个需要留意 · 1 个已关闭");
+  assert.equal(pluginsSummary(list), "4 个内置插件 · 1 个运行中 · 2 个需要留意 · 1 个已关闭");
 });
 
 test("启动最慢只列 100 毫秒以上的前几名", () => {
@@ -136,7 +138,41 @@ test("本地插件单独计数并可识别", () => {
   ];
   assert.equal(isLocalPlugin(list[1]), true);
   assert.equal(isLocalPlugin(list[0]), false);
-  assert.equal(pluginsSummary(list), "3 个模块 · 2 个运行中 · 1 个需要留意 · 其中 2 个是本地插件");
+});
+
+test("等待依赖又说不出缺什么时，写等待所依赖的插件", () => {
+  assert.equal(pluginDetail(plugin({ state: "pending" })), "等待所依赖的插件就绪");
+});
+
+test("内置插件标记：核心不能关、可关闭能关，都不是的不标", () => {
+  assert.equal(builtinBadge(plugin({ critical: true })), "核心");
+  assert.equal(builtinBadge(plugin({ disableable: true })), "可关闭");
+  assert.equal(builtinBadge(plugin()), null);
+});
+
+test("内置插件按服务器给的组序分组，组内需要留意的在前；没归属的进「其他」，非内置的不进", () => {
+  const list = [
+    plugin({ id: "core.database", group: "基础" }),
+    plugin({ id: "downloads", group: "资源站点与下载" }),
+    plugin({ id: "jobs", group: "基础", state: "failed" }),
+    plugin({ id: "mystery" }),
+    plugin({ id: "acme.watch", source: "local" }),
+    plugin({ id: "acme.pkg", source: "package" }),
+  ];
+  const groups = groupBuiltins(list, ["基础", "订阅", "资源站点与下载"]);
+  assert.deepEqual(
+    groups.map((g) => [g.label, g.plugins.map((p) => p.id)]),
+    [
+      ["基础", ["jobs", "core.database"]],
+      ["资源站点与下载", ["downloads"]],
+      ["其他", ["mystery"]],
+    ],
+  );
+  // 旧服务端没有分组：全部收进「其他」
+  assert.deepEqual(
+    groupBuiltins(list).map((g) => g.label),
+    ["其他"],
+  );
 });
 
 test("本地插件区分进程内与独立进程（旧服务端没有 runtime 按进程内算）", () => {

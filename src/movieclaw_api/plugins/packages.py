@@ -169,7 +169,7 @@ def check_compat(manifest: Manifest, *, reserved: set[str], operations: set[str]
 
     plugin = manifest.plugin
     if plugin.id in reserved:
-        raise PackageError(f"条目 id {plugin.id} 已被内置模块或本地插件占用")
+        raise PackageError(f"条目 id {plugin.id} 已被内置插件或本地插件占用")
     try:
         sdk_ok = satisfies(plugin.sdk, Version.parse(SDK_VERSION))
     except ValueError as exc:

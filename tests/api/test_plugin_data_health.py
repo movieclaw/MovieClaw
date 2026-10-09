@@ -131,14 +131,14 @@ def test_health_degraded_raises_notice_and_recovery_resolves(app_client) -> None
     run(
         client,
         lambda: health.degraded(
-            "token", "Trakt 令牌已过期", action_href="/settings/app?tab=plugins"
+            "token", "Trakt 令牌已过期", action_href="/settings/plugins?tab=builtin"
         ),
     )
     run(client, lambda: health.degraded("token", "Trakt 令牌已过期"))  # 重复报告不刷新通知
     [notice] = run(client, lambda: _notices("plugin:acme.trakt:health:"))
     assert notice.status == NoticeStatus.ACTIVE.value
     assert notice.source == "plugin" and "令牌已过期" in notice.message
-    assert notice.payload["action_href"] == "/settings/app?tab=plugins"
+    assert notice.payload["action_href"] == "/settings/plugins?tab=builtin"
 
     plugins = {p["id"]: p for p in client.get("/api/v1/app/plugins").json()["data"]["plugins"]}
     [item] = plugins["acme.trakt"]["health"]

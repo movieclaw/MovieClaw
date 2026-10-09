@@ -18,7 +18,6 @@ import {
   approvePackage,
   discardPackage,
   listPackages,
-  listPlugins,
   rollbackPackage,
   uninstallPackage,
   uploadPackage,
@@ -27,8 +26,8 @@ import {
   type PluginInfo,
 } from "@/lib/api/plugins";
 import {
-  isLocalPlugin,
   isNewGrant,
+  localPluginRuntimes,
   packageDetail,
   pathGrantLabel,
   pluginStateLabel,
@@ -37,15 +36,21 @@ import {
 } from "@/lib/plugins-display";
 
 /**
- * 设置 → 更新与维护 → 插件：第三方插件包的上传、批准、回滚、卸载（docs/design/plugin-phase3.md §3、C8）。
+ * 设置 → 插件 → 已安装：第三方插件包的上传、批准、回滚、卸载（docs/design/plugin-phase3.md §3、C8）。
  *
  * 上传只校验并进「待批准」；批准前在抽屉里逐项看清它要什么（宿主操作、目录、运行方式），
- * 批准即安装并当场加载，起不来服务器会自动回到上一版。本地插件（plugins.yaml）只读列出。
+ * 批准即安装并当场加载，起不来服务器会自动回到上一版。本地插件（plugins.yaml）只读列出，
+ * 它们的状态来自页面共用的插件列表（PluginsPage），装卸之后经 onChanged 一起刷新。
  */
-export function PluginPackagesSection() {
+export function PluginPackagesSection({
+  locals,
+  onChanged,
+}: {
+  locals: PluginInfo[];
+  onChanged: () => void;
+}) {
   const [installed, setInstalled] = useState<InstalledPackage[] | null>(null);
   const [pending, setPending] = useState<PackageRequest[]>([]);
-  const [locals, setLocals] = useState<PluginInfo[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [reviewing, setReviewing] = useState<PackageRequest | null>(null);
@@ -54,15 +59,19 @@ export function PluginPackagesSection() {
   const toast = useToast();
 
   const reload = useCallback(() => {
-    Promise.all([listPackages(), listPlugins()])
-      .then(([packages, overview]) => {
+    listPackages()
+      .then((packages) => {
         setInstalled(packages.installed);
         setPending(packages.pending);
-        setLocals(overview.plugins.filter(isLocalPlugin));
         setError(null);
       })
       .catch((err: unknown) => setError(err instanceof Error ? err.message : "加载失败"));
   }, []);
+  // 装卸、回滚之后插件状态变了：插件包列表与页面共用的插件列表一起刷新
+  const refresh = useCallback(() => {
+    reload();
+    onChanged();
+  }, [reload, onChanged]);
   useEffect(() => {
     reload();
   }, [reload]);
@@ -71,9 +80,9 @@ export function PluginPackagesSection() {
   const watching = installed?.some((item) => item.watching) ?? false;
   useEffect(() => {
     if (!watching) return;
-    const timer = window.setInterval(reload, 5000);
+    const timer = window.setInterval(refresh, 5000);
     return () => window.clearInterval(timer);
-  }, [watching, reload]);
+  }, [watching, refresh]);
 
   const run = useCallback(
     async (action: () => Promise<void>) => {
@@ -84,10 +93,10 @@ export function PluginPackagesSection() {
         toast.error(err instanceof Error ? err.message : "操作失败");
       } finally {
         setBusy(false);
-        reload();
+        refresh();
       }
     },
-    [reload, toast],
+    [refresh, toast],
   );
 
   const onFile = (file: File | undefined) => {
@@ -153,7 +162,7 @@ export function PluginPackagesSection() {
       {error && <ErrorBanner>{error}</ErrorBanner>}
 
       <SettingsSection
-        title="插件"
+        title="第三方插件"
         description={installed ? `${installed.length} 个已安装` : undefined}
         action={
           <>
@@ -210,7 +219,7 @@ export function PluginPackagesSection() {
           {installed === null ? (
             !error && <p className="px-1 text-sub text-[var(--text-muted)]">正在加载…</p>
           ) : installed.length === 0 ? (
-            <p className="px-1 text-sub text-[var(--text-muted)]">还没有安装插件包。</p>
+            <p className="px-1 text-sub text-[var(--text-muted)]">还没有安装第三方插件。</p>
           ) : (
             <SettingsList>
               {installed.map((item) => (
@@ -252,6 +261,7 @@ export function PluginPackagesSection() {
           title="本地插件"
           description="你在 data/plugins.yaml 里开启的插件，在那里管理，改动重启后生效。"
         >
+          <LocalRuntimeNote locals={locals} />
           <SettingsList>
             {locals.map((p) => (
               <SettingsRow
@@ -280,6 +290,22 @@ export function PluginPackagesSection() {
           })
         }
       />
+    </div>
+  );
+}
+
+/** 本地插件是你自己的代码：提醒哪些在主进程里运行（与主程序同权限）、怎么关 */
+function LocalRuntimeNote({ locals }: { locals: PluginInfo[] }) {
+  const runtimes = localPluginRuntimes(locals);
+  return (
+    <div className="mb-3">
+      <Banner tone="warn">
+        {runtimes.inline > 0 &&
+          `${runtimes.inline} 个在应用进程里运行，拥有与主程序相同的系统权限——只开启你信任的代码。`}
+        {runtimes.process > 0 &&
+          `${runtimes.process} 个在独立进程里运行：崩溃、卡死只影响它自己，拿不到主密钥等敏感配置。`}
+        要关掉某个本地插件：在 data/plugins.yaml 里去掉它的 local 或加上 disabled: true，重启生效。
+      </Banner>
     </div>
   );
 }
