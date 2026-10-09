@@ -86,15 +86,39 @@ export interface PluginInfo {
 
 export type PluginTier = "feature" | "official" | "system";
 
-/** 功能目录里的一项：用户能感知的可选功能，由一个或多个内置插件组成 */
+/** 功能目录里的一项：用户能感知的可选功能，由一个或多个内置插件组成（docs/design/plugin-page-tiers.md） */
 export interface PluginFeature {
   key: string;
   title: string;
   description: string;
   /** 组成这个功能的内置插件条目 id */
   entries: string[];
-  /** 去哪里设置 / 开关它（站内路径） */
+  /** 去哪里设置它（站内路径） */
   settings_href: string | null;
+  /** 能不能在插件页停用；旧服务端没有开关相关字段 */
+  switchable?: boolean;
+  /** 当前是否开启（被停用或被管理员硬覆盖关掉都算关） */
+  enabled?: boolean;
+  /** 被 data/plugins.yaml / 环境变量关掉的原因：开关锁住 */
+  locked_by?: string | null;
+  /** 停用时间与停用人；开启着为 null */
+  changed_at?: string | null;
+  changed_by?: string | null;
+}
+
+/** 功能目录与开关状态（成员也能读：停用的功能各端不出入口） */
+export async function listFeatures(): Promise<PluginFeature[]> {
+  return (await request<ApiEnvelope<PluginFeature[]>>("/app/features")).data;
+}
+
+/** 停用 / 开启一个功能：运行中生效，重启后保持（管理员） */
+export async function setFeatureEnabled(key: string, enabled: boolean): Promise<PluginFeature> {
+  return (
+    await request<ApiEnvelope<PluginFeature>>(`/app/features/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    })
+  ).data;
 }
 
 export interface PluginHealth {

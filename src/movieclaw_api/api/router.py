@@ -41,6 +41,7 @@ from movieclaw_api.api.routes.discover import ui_router as discovery_ui_router
 from movieclaw_api.api.routes.downloaders import router as downloaders_router
 from movieclaw_api.api.routes.downloaders import submit_router as download_submit_router
 from movieclaw_api.api.routes.extension import router as extension_router
+from movieclaw_api.api.routes.features import router as features_router
 from movieclaw_api.api.routes.fs import router as fs_router
 from movieclaw_api.api.routes.health import router as health_router
 from movieclaw_api.api.routes.images import router as images_router
@@ -131,6 +132,9 @@ _MEMBER_ROUTERS = [
     # 我的通知（docs/design/cloud-push.md §7.3）：每个人只管自己的开关和设备；
     # App 登记只接受 App 类设备自己的凭证（服务层判定）
     push_member_router,
+    # 功能开关（docs/design/plugin-page-tiers.md §6）：各端都要知道哪些功能停用了好隐藏入口；
+    # 切换在路由级挂 require_admin
+    features_router,
 ]
 for _router in _MEMBER_ROUTERS:
     api_router.include_router(_router, dependencies=[Depends(require_login)])

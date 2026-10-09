@@ -13,6 +13,7 @@ import { DirectoryPicker } from "@/components/directory-picker";
 import { useConfirm } from "@/components/feedback";
 import { FolderIcon, PlusIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
+import { FeatureOffNotice } from "@/components/feature-off-notice";
 import {
   SETTINGS_BUTTON_CLASS,
   SETTINGS_PRIMARY_BUTTON_CLASS,
@@ -132,6 +133,9 @@ export function ImportWatchSection() {
 
   return (
     <div className="space-y-10">
+      <FeatureOffNotice feature="ingest-watch">
+        停用期间不会监听下载目录，下载完成的文件不会自动整理入库。
+      </FeatureOffNotice>
       <p className="px-1 text-ui leading-6 text-[var(--text-muted)]">
         监听下载目录，其中<strong className="font-medium text-white/80">下载完成</strong>
         的内容（下载器确认完成，或文件持续静默且探测通过）自动识别、按「标题 (年份)」规范命名

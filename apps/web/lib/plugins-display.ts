@@ -80,6 +80,7 @@ export function needsAttention(plugin: PluginInfo): boolean {
 
 function disabledByText(source: string | null): string {
   if (!source) return "已关闭";
+  if (source.startsWith("feature:")) return "已在「设置 → 插件」停用";
   if (source === "patch") return "已在插件补丁（data/plugins.yaml）中关闭";
   if (source.startsWith("env:")) return `已按环境变量 ${source.slice(4)} 关闭`;
   return "已关闭";
@@ -164,8 +165,22 @@ export interface FeatureStatus {
   detail: string | null;
 }
 
-/** 功能的状态：由组成它的内置插件汇总（任一出问题即异常，全部关闭才算关闭） */
+/** 功能停用了（插件页的开关，或管理员在 plugins.yaml / 环境变量里关掉） */
+export function featureOff(feature: PluginFeature): boolean {
+  return feature.enabled === false;
+}
+
+/** 停用的说明：被管理员硬覆盖关掉的写原因，开关停用的写是谁停的 */
+export function featureOffText(feature: PluginFeature): string {
+  if (feature.locked_by) return feature.locked_by;
+  return feature.changed_by ? `由 ${feature.changed_by} 在插件页停用` : "已在插件页停用";
+}
+
+/** 功能的状态：停用的直接是「已停用」；其余由组成它的内置插件汇总（任一出问题即异常，全部关闭才算关闭） */
 export function featureStatus(feature: PluginFeature, plugins: PluginInfo[]): FeatureStatus {
+  if (featureOff(feature)) {
+    return { label: "已停用", tone: "neutral", detail: featureOffText(feature) };
+  }
   const members = plugins.filter(
     (p) => feature.entries.includes(p.id) || (p.parent !== null && feature.entries.includes(p.parent)),
   );

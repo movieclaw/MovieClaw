@@ -15,6 +15,7 @@ from typing import Literal
 from fastapi import APIRouter, File, Request, UploadFile
 from pydantic import Field
 
+from movieclaw_api.api.routes.features import FeatureView
 from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
@@ -149,18 +150,10 @@ class SafeModeView(BaseModel):
     forced: str | None = Field(description="env / file：手动强制；空：自动进入或未进入")
 
 
-class FeatureView(BaseModel):
-    key: str
-    title: str
-    description: str
-    entries: list[str] = Field(description="组成这个功能的内置插件条目 id")
-    settings_href: str | None = Field(description="去哪里设置 / 开关它（站内路径）")
-
-
 class PluginsView(BaseModel):
     plugins: list[PluginView]
     features: list[FeatureView] = Field(
-        default_factory=list, description="功能目录：用户能感知的可选功能，按展示顺序"
+        default_factory=list, description="功能目录与开关状态：用户能感知的可选功能，按展示顺序"
     )
     groups: list[str] = Field(default_factory=list, description="内置插件分组的展示顺序")
     contracts: ContractsView
@@ -207,9 +200,11 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
     health = health_service.snapshot() if health_service is not None else {}
     data_service = kernel.service(PLUGIN_DATA)
     data_rows = await data_service.counts() if data_service is not None else {}
+    from movieclaw_api.core.config import get_settings
     from movieclaw_api.plugins.bundled import bundled_ids
-    from movieclaw_api.plugins.features import FEATURES, feature_of, tier_of
+    from movieclaw_api.plugins.features import feature_of, tier_of
     from movieclaw_api.plugins.manifest import BUILTIN_GROUPS, builtin_group
+    from movieclaw_api.services.plugin_features import feature_views
     from movieclaw_api.services.plugin_runtime import process_entries
 
     bundled = bundled_ids()
@@ -246,16 +241,7 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
                 "durable": durable,
                 "safe_mode": safe_mode.current().view(),
                 "groups": [label for label, _ in BUILTIN_GROUPS],
-                "features": [
-                    {
-                        "key": f.key,
-                        "title": f.title,
-                        "description": f.description,
-                        "entries": list(f.entries),
-                        "settings_href": f.settings_href,
-                    }
-                    for f in FEATURES
-                ],
+                "features": feature_views(kernel, get_settings()),
             }
         )
     )

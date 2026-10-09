@@ -5,6 +5,8 @@ import {
   degradedHealth,
   displayState,
   offWithDependency,
+  featureOff,
+  featureOffText,
   featureStatus,
   officialPlugins,
   officialSourceText,
@@ -250,6 +252,30 @@ test("依赖被有意关掉时跟着关闭：不算需要留意，显示为已�
   assert.equal(needsAttention(broken), true);
   assert.equal(needsAttention(legacy), true);
   assert.equal(displayState(broken), "pending");
+});
+
+test("功能开关：停用的直接显示已停用并写明谁停的；被管理员硬覆盖关掉的写原因", () => {
+  const base = {
+    key: "arrivals",
+    title: "新片到达通知",
+    description: "",
+    entries: ["push.arrivals"],
+    settings_href: null,
+    switchable: true,
+  };
+  const member = plugin({ id: "push.arrivals", state: "disabled", disabled_by: "feature:arrivals" });
+  const off = { ...base, enabled: false, changed_by: "yee", changed_at: "2026-10-09T10:00:00+00:00" };
+  assert.equal(featureOff(off), true);
+  assert.deepEqual(featureStatus(off, [member]), {
+    label: "已停用",
+    tone: "neutral",
+    detail: "由 yee 在插件页停用",
+  });
+  const locked = { ...base, enabled: false, locked_by: "已在 data/plugins.yaml 中关闭" };
+  assert.equal(featureOffText(locked), "已在 data/plugins.yaml 中关闭");
+  // 旧服务端没有开关字段：按开着算，状态照常由插件汇总
+  assert.equal(featureOff({ ...base, switchable: undefined }), false);
+  assert.equal(pluginDetail(member), "已在「设置 → 插件」停用");
 });
 
 test("系统模块入口一行：正常 / 有几个需要留意；日志深链按条目 id 筛", () => {

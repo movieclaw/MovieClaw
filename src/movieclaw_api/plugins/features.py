@@ -2,12 +2,16 @@
 
 插件页只放用户能做决定的东西。每个内置插件恰好属于一层：
 
-- ``feature``：用户能感知的可选功能。功能目录 ``FEATURES`` 里写明由哪些插件组成、叫什么、去哪设置；
+- ``feature``：用户能感知的可选功能。功能目录 ``FEATURES`` 里写明由哪些插件组成、叫什么、去哪设置、
+  能不能在插件页停用（``switchable``，开关的状态管理见 ``services/plugin_features.py``）；
 - ``official``：随应用提供、能被插件包替换的（随带插件包与它们依赖的通道中枢）；
 - ``system``：其余全部，插件页默认不展示，异常时才浮出。
 
 新增内置插件默认是系统模块；要出现在「功能」里必须显式加进 ``FEATURES``——宁可少展示，
-也不把内部模块误放给用户。
+也不把内部模块误放给用户。AI 助手（``agent.*``）是核心，不进功能目录、不可停用。
+
+可停用的功能须满足（tests/api/test_plugin_features.py 守着）：组成插件都 ``disableable``，
+功能外没有插件依赖它们提供的服务；停用后它在各端的入口要么隐藏、要么明确说「已停用」。
 """
 
 from __future__ import annotations
@@ -29,18 +33,13 @@ class Feature:
     description: str
     #: 组成这个功能的内置插件条目 id
     entries: tuple[str, ...]
-    #: 去哪里设置 / 开关它（站内路径）；没有设置页为 None
+    #: 去哪里设置它（站内路径）；没有设置页为 None
     settings_href: str | None = None
+    #: 能不能在插件页停用（停用 = 组成插件全部不运行，运行中生效、重启保持）
+    switchable: bool = False
 
 
 FEATURES: tuple[Feature, ...] = (
-    Feature(
-        "agent",
-        "AI 助手",
-        "在网页、App 和 IM 里用对话完成搜片、订阅、整理媒体库",
-        ("agent.runs", "agent.session-index", "agent.attachments"),
-        "/settings/ai",
-    ),
     Feature(
         "subtitle-gen",
         "AI 字幕生成",
@@ -54,6 +53,7 @@ FEATURES: tuple[Feature, ...] = (
         "监听下载目录，下载完成后自动整理进媒体库",
         ("library.ingest-watch",),
         "/settings/import-watch",
+        switchable=True,
     ),
     Feature(
         "library-watch",
@@ -61,6 +61,7 @@ FEATURES: tuple[Feature, ...] = (
         "媒体库目录有变化时自动增量扫描；在每个媒体库的编辑里开关",
         ("library.watch",),
         "/library/manage",
+        switchable=True,
     ),
     Feature(
         "boost",
@@ -75,6 +76,7 @@ FEATURES: tuple[Feature, ...] = (
         "媒体库有新片入库时推送通知",
         ("push.arrivals",),
         "/settings/notifications",
+        switchable=True,
     ),
     Feature(
         "cloud",
@@ -88,10 +90,16 @@ FEATURES: tuple[Feature, ...] = (
         "Jellyfin 局域网发现",
         "让 Infuse 等 Jellyfin 客户端在局域网里自动找到这台服务器",
         ("jellyfin.discovery",),
+        switchable=True,
     ),
 )
 
 _FEATURE_OF: dict[str, str] = {entry: f.key for f in FEATURES for entry in f.entries}
+_BY_KEY: dict[str, Feature] = {f.key: f for f in FEATURES}
+
+
+def feature(key: str) -> Feature | None:
+    return _BY_KEY.get(key)
 
 
 def feature_of(entry_id: str) -> str | None:

@@ -22,6 +22,7 @@ import { LibraryShares } from "@/components/library-shares";
 import { listShares } from "@/lib/api/shares";
 import { Modal } from "@/components/modal";
 import { PageNav } from "@/components/page-nav";
+import { FeatureOffNotice } from "@/components/feature-off-notice";
 import { useBackNavigation } from "@/lib/back-navigation";
 import {
   type MediaLibrary,
@@ -473,6 +474,11 @@ export function LibraryManageView() {
             libraries.length > 0 &&
             summary.busy === 0 &&
             summary.attention === 0 && <span className="text-[var(--text-faint)]">一切正常</span>}
+        </div>
+        <div className="mt-4 empty:hidden">
+          <FeatureOffNotice feature="library-watch">
+            停用期间媒体库不会实时响应目录变化，各库的「实时监控」开关暂不生效，改由定时对账兜底。
+          </FeatureOffNotice>
         </div>
       </div>
 

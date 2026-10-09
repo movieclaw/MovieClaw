@@ -40,3 +40,29 @@ def test_every_builtin_lands_in_exactly_one_tier() -> None:
         assert tier_of(entry_id, bundled=bundled) == "official"
     assert tier_of("core.database", bundled=bundled) == "system"
     assert tier_of("some.new-builtin", bundled=bundled) == "system"
+
+
+def test_switchable_features_can_be_stopped_without_side_effects() -> None:
+    """可停用的功能：组成插件都允许关闭、能运行中重载，功能外没有插件依赖它们提供的服务。"""
+    by_id = {e.id: e for e in BUILTIN_MANIFEST}
+    for feature in (f for f in FEATURES if f.switchable):
+        members = [by_id[entry] for entry in feature.entries]
+        for entry in members:
+            assert entry.plugin.disableable, f"{entry.id} 须 disableable 才能放进可停用的功能"
+            assert entry.plugin.reloadable, f"{entry.id} 须 reloadable 才能运行中切换"
+            assert not entry.plugin.critical
+        provided = {key.name for entry in members for key in entry.plugin.provides}
+        outside = [
+            e.id
+            for e in BUILTIN_MANIFEST
+            if e.id not in feature.entries and any(k.name in provided for k in e.plugin.inject)
+        ]
+        assert outside == [], f"停用「{feature.title}」会连带 {outside}"
+
+
+def test_ai_assistant_is_core_not_a_feature() -> None:
+    """AI 助手是核心：不在功能目录里，也不能被补丁关掉。"""
+    by_id = {e.id: e for e in BUILTIN_MANIFEST}
+    for entry_id in ("agent.runs", "agent.session-index", "agent.attachments"):
+        assert feature_of(entry_id) is None
+        assert not by_id[entry_id].plugin.disableable

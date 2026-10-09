@@ -700,6 +700,7 @@ _MEMBER_ALLOWLIST = {
     ("POST", "/api/v1/subscriptions/{subscription_id}/wanted/{wanted_id}/smart-wait"),
     # App 推送（docs/design/cloud-push.md §7.3）：每个人只管自己的通知开关、设备状态、
     # 测试通知；App 登记只认这台设备自己的凭证（服务层判定，网页会话登记不了）
+    ("GET", "/api/v1/app/features"),
     ("GET", "/api/v1/push/me"),
     ("PUT", "/api/v1/push/me/preferences"),
     ("POST", "/api/v1/push/me/test"),

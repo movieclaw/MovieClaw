@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Banner, ErrorBanner, LINK_CLASS, StatusPill } from "@/components/cloud-push-ui";
+import { Banner, ErrorBanner, LINK_CLASS, StatusPill, Toggle } from "@/components/cloud-push-ui";
+import { useToast } from "@/components/feedback";
 import { ChevronRightIcon } from "@/components/icons";
 import { PluginPackagesSection } from "@/components/plugin-packages-section";
 import {
@@ -15,11 +16,13 @@ import {
 import {
   exitSafeMode,
   listPlugins,
+  setFeatureEnabled,
   type PluginFeature,
   type PluginInfo,
   type PluginsOverview,
 } from "@/lib/api/plugins";
 import { TONE_COLOR } from "@/lib/cloud-push-display";
+import { refreshFeatures } from "@/lib/features";
 import {
   displayState,
   featureStatus,
@@ -42,7 +45,8 @@ import {
 /**
  * 设置 → 插件（系统组）：只放用户能做决定的东西（docs/design/plugin-page-tiers.md）。
  *
- *   - 功能：用户能感知的可选功能，状态由组成它的内置插件汇总，开关在各自的设置页；
+ *   - 功能：用户能感知的可选功能，状态由组成它的内置插件汇总；可停用的带开关（运行中生效、
+ *     重启保持；被 plugins.yaml / 环境变量关掉的锁住并写原因），细项在各自的设置页；
  *   - 官方插件：随应用提供、可用插件包替换的（现在是 IM 通道）；
  *   - 第三方插件 / 本地插件：插件包的上传、批准、回滚、卸载（PluginPackagesSection）；
  *   - 系统模块：应用运行所需，平时只在页面底部留一行入口；出问题时浮到页面顶部。
@@ -141,7 +145,11 @@ export function PluginsPage() {
         !error && <p className="px-1 text-sub text-[var(--text-muted)]">正在加载…</p>
       ) : (
         <>
-          <FeaturesSection features={overview?.features ?? []} plugins={plugins} />
+          <FeaturesSection
+            features={overview?.features ?? []}
+            plugins={plugins}
+            onChanged={reload}
+          />
           <OfficialSection plugins={officialPlugins(plugins)} />
         </>
       )}
@@ -196,27 +204,60 @@ const ROW_ANCHOR =
 function FeaturesSection({
   features,
   plugins,
+  onChanged,
 }: {
   features: PluginFeature[];
   plugins: PluginInfo[];
+  onChanged: () => void;
 }) {
+  const toast = useToast();
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const toggle = useCallback(
+    (feature: PluginFeature, enabled: boolean) => {
+      setBusy(feature.key);
+      setFeatureEnabled(feature.key, enabled)
+        .then((view) => toast.success(`「${view.title}」已${view.enabled ? "开启" : "停用"}`))
+        .catch((err: unknown) => toast.error(err instanceof Error ? err.message : "切换失败"))
+        // 成败都重读：失败时把开关拨回服务端的真实状态；成功时各页面的「已停用」提示一起更新
+        .finally(() => {
+          setBusy(null);
+          onChanged();
+          void refreshFeatures();
+        });
+    },
+    [toast, onChanged],
+  );
+
   if (features.length === 0) return null;
   return (
     <SettingsSection
       title="功能"
-      description="MovieClaw 自带的可选功能，在各自的设置页里配置和开关。"
+      description="MovieClaw 自带的可选功能。停用后当场生效、重启后保持，细项在各自的设置页里调。"
     >
       <SettingsList>
         {features.map((feature) => {
           const status = featureStatus(feature, plugins);
+          // 可停用的：开关本身表明开 / 关，胶囊只在出问题时露面；不可停用的始终显示运行状态
+          const showPill = !feature.switchable || status.tone === "warn" || status.tone === "danger";
           return (
             <div key={feature.key} data-plugin-ids={feature.entries.join(" ")} className={ROW_ANCHOR}>
               <SettingsRow
                 label={feature.title}
                 description={status.detail ?? feature.description}
               >
-                <StatusPill tone={status.tone} label={status.label} />
+                {showPill && <StatusPill tone={status.tone} label={status.label} />}
                 {feature.settings_href && <SettingsLink href={feature.settings_href} />}
+                {feature.switchable && (
+                  <span title={feature.locked_by ?? undefined}>
+                    <Toggle
+                      checked={feature.enabled !== false}
+                      label={`${feature.enabled === false ? "开启" : "停用"}「${feature.title}」`}
+                      disabled={busy !== null || Boolean(feature.locked_by)}
+                      onChange={(next) => toggle(feature, next)}
+                    />
+                  </span>
+                )}
               </SettingsRow>
             </div>
           );

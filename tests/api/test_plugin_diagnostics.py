@@ -68,12 +68,9 @@ def test_plugins_endpoint_lists_every_entry_and_contract(env) -> None:
             "subtitle-gen",
         )
         features = {f["key"]: f for f in body["features"]}
-        assert features["agent"]["title"] == "AI 助手"
-        assert features["agent"]["entries"] == [
-            "agent.runs",
-            "agent.session-index",
-            "agent.attachments",
-        ]
+        assert "agent" not in features  # AI 助手是核心，不在功能目录里
+        assert features["subtitle-gen"]["entries"] == ["subtitle.gen", "subtitle.pgs-warm"]
+        assert by_id["agent.runs"]["tier"] == "system"
         assert by_id["scheduler"]["state"] == "disabled"
         assert by_id["scheduler"]["disabled_by"] == "env:SCHEDULER_ENABLED"
         assert by_id["boost.sentinel"]["blocked_by"] == [
