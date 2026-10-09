@@ -73,6 +73,7 @@ const TYPE_LABEL: Record<DownloaderClientType, string> = {
 const URL_PLACEHOLDER: Record<DownloaderClientType, string> = {
   qbittorrent: "http://192.168.1.10:8080",
   transmission: "http://192.168.1.10:9091",
+  demo: "http://demo.local",
 };
 
 /** 需要轮询测试进度的中间态 */
