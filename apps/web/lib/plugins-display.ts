@@ -5,7 +5,7 @@
  * 「为什么没起来」的一句话、哪些需要留意、列表排序。这里的措辞直接上屏。
  */
 
-import type { PluginInfo, PluginState } from "@/lib/api/plugins";
+import type { InstalledPackage, PathGrant, PluginInfo, PluginState } from "@/lib/api/plugins";
 import type { Tone } from "@/lib/cloud-push-display";
 
 const STATE_LABEL: Record<PluginState, string> = {
@@ -132,4 +132,39 @@ export function slowestStarts(plugins: PluginInfo[], limit = 3): PluginInfo[] {
     .filter((p) => p.apply_ms !== null && p.apply_ms >= 100)
     .sort((a, b) => (b.apply_ms ?? 0) - (a.apply_ms ?? 0))
     .slice(0, limit);
+}
+
+// ---------------------------------------------------------------- 插件包（管理页）
+
+/** 路径授权 → 给人看的说明（别名见 docs/design/plugin-phase3.md §6.2） */
+export function pathGrantLabel(grant: PathGrant): string {
+  const mode = grant.mode === "rw" ? "读写" : "只读";
+  const path = grant.path;
+  let where: string;
+  if (path === "library") where = "全部媒体库";
+  else if (path.startsWith("library:")) where = `媒体库 #${path.slice("library:".length)}`;
+  else if (path === "staging") where = "导入规则的自定义目录";
+  else if (path === "plugin") where = "插件自己的目录";
+  else where = path;
+  return `${where}（${mode}）`;
+}
+
+/** 运行方式：独立进程是默认且安全的；主进程运行与主程序同权限 */
+export function runtimeLabel(runtime: string | undefined): string {
+  return runtime === "inline" ? "主进程（与主程序同权限）" : "独立进程";
+}
+
+/** 升级时新增的申请：批准页高亮 */
+export function isNewGrant(item: PathGrant, added: PathGrant[]): boolean {
+  return added.some((p) => p.path === item.path && p.mode === item.mode);
+}
+
+/** 已安装插件包的行内说明：版本、运行方式、权限规模、坏版本、宽限期 */
+export function packageDetail(item: InstalledPackage): string {
+  const parts = [`v${item.version}`, runtimeLabel(item.runtime)];
+  if (item.operations.length) parts.push(`${item.operations.length} 个宿主操作`);
+  if (item.paths.length) parts.push(`${item.paths.length} 个目录授权`);
+  if (item.watching) parts.push("刚安装，观察中");
+  if (item.bad_versions.length) parts.push(`已拦下的坏版本：${item.bad_versions.join("、")}`);
+  return parts.join(" · ");
 }

@@ -110,3 +110,129 @@ export async function exitSafeMode(): Promise<Record<string, string>> {
     )
   ).data.mounted;
 }
+
+// ---------------------------------------------------------------------------
+// 插件包（设置 → 更新与维护 → 插件；docs/design/plugin-phase3.md §3）
+// ---------------------------------------------------------------------------
+
+export interface PathGrant {
+  /** library / library:<id> / staging / plugin / 绝对路径 */
+  path: string;
+  mode: "read" | "rw" | string;
+}
+
+export interface OperationDetail {
+  id: string;
+  /** 这个操作做什么（中文） */
+  summary: string;
+  /** 危险操作（删除、改配置等）：批准页标红 */
+  dangerous: boolean;
+}
+
+export interface PackageRequest {
+  id: string;
+  title: string;
+  version: string;
+  description: string;
+  /** process：独立进程；inline：主进程里运行（须单独确认） */
+  runtime: string;
+  operations: string[];
+  /** 相比当前已安装版本新增的申请 */
+  new_operations: string[];
+  operation_details: OperationDetail[];
+  paths: PathGrant[];
+  new_paths: PathGrant[];
+  requires: Record<string, string>;
+  installed_version: string | null;
+}
+
+export interface InstalledPackage {
+  id: string;
+  title: string;
+  version: string;
+  runtime: string;
+  operations: string[];
+  operation_details: OperationDetail[];
+  paths: PathGrant[];
+  previous_version: string | null;
+  /** 激活失败过、已自动回滚的版本 */
+  bad_versions: string[];
+  state: PluginState | "unloaded";
+  error: string | null;
+  /** 还在安装后的宽限期观察中（这段时间崩溃会自动回滚） */
+  watching: boolean;
+}
+
+export interface PackagesOverview {
+  installed: InstalledPackage[];
+  pending: PackageRequest[];
+}
+
+export interface PackageResult {
+  /** active / rolled_back / … */
+  status: string;
+  version: string | null;
+  state: string;
+  error: string | null;
+}
+
+export async function listPackages(): Promise<PackagesOverview> {
+  return (await request<ApiEnvelope<PackagesOverview>>("/app/plugins/packages")).data;
+}
+
+export async function uploadPackage(file: File): Promise<PackageRequest> {
+  const form = new FormData();
+  form.append("file", file, file.name);
+  return (
+    await request<ApiEnvelope<PackageRequest>>("/app/plugins/packages", {
+      method: "POST",
+      body: form,
+    })
+  ).data;
+}
+
+/** 批准：宿主操作与路径须与插件申请的完全一致（显式同意），进程内运行须 allowInline */
+export async function approvePackage(
+  pending: PackageRequest,
+  allowInline: boolean,
+): Promise<PackageResult> {
+  return (
+    await request<ApiEnvelope<PackageResult>>(
+      `/app/plugins/packages/${encodeURIComponent(pending.id)}/approve`,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          version: pending.version,
+          operations: pending.operations,
+          paths: pending.paths,
+          allow_inline: allowInline,
+        }),
+      },
+    )
+  ).data;
+}
+
+export async function discardPackage(id: string): Promise<void> {
+  await request<ApiEnvelope<null>>(
+    `/app/plugins/packages/${encodeURIComponent(id)}/pending`,
+    { method: "DELETE" },
+  );
+}
+
+export async function rollbackPackage(id: string): Promise<PackageResult> {
+  return (
+    await request<ApiEnvelope<PackageResult>>(
+      `/app/plugins/packages/${encodeURIComponent(id)}/rollback`,
+      { method: "POST" },
+    )
+  ).data;
+}
+
+export async function uninstallPackage(id: string, purgeData: boolean): Promise<number> {
+  return (
+    await request<ApiEnvelope<{ purged_rows: number }>>(
+      `/app/plugins/packages/${encodeURIComponent(id)}?purge_data=${purgeData}`,
+      { method: "DELETE" },
+    )
+  ).data.purged_rows;
+}

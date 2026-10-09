@@ -189,6 +189,9 @@ def test_install_upgrade_rollback_restart_and_uninstall(data_dir) -> None:
         assert view["operations"] == ["app.plugins.list"]
         assert view["new_operations"] == ["app.plugins.list"]
         assert view["runtime"] == "process" and view["installed_version"] is None
+        # 批准页逐项列出：中文说明 + 是否危险
+        [detail] = view["operation_details"]
+        assert detail["id"] == "app.plugins.list" and detail["summary"] and not detail["dangerous"]
         assert client.get("/api/v1/app/plugins/packages").json()["data"]["pending"][0]["id"] == (
             "acme.pkg"
         )

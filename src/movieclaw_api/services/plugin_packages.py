@@ -37,6 +37,33 @@ def _operations() -> set[str]:
     return set(_operation_index())
 
 
+def operation_details(patterns: list[str]) -> list[dict[str, Any]]:
+    """宿主操作 → 给人看的说明（管理页的批准抽屉逐项列出，危险操作标红）。"""
+    from movieclaw_api.services.host_ops import _operation_index
+
+    index = _operation_index()
+    details: list[dict[str, Any]] = []
+    for pattern in patterns:
+        if pattern.endswith(".*"):
+            details.append(
+                {
+                    "id": pattern,
+                    "summary": f"「{pattern[:-2]}」领域的全部非危险操作",
+                    "dangerous": False,
+                }
+            )
+            continue
+        op = index.get(pattern)
+        details.append(
+            {
+                "id": pattern,
+                "summary": (op.summary if op is not None else "") or pattern,
+                "dangerous": bool(op is not None and op.dangerous),
+            }
+        )
+    return details
+
+
 def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, Any]:
     plugin = manifest.plugin
     approved = set(current.operations) if current else set()
@@ -50,6 +77,7 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, An
         "runtime": plugin.runtime,
         "operations": manifest.permissions.operations,
         "new_operations": [op for op in manifest.permissions.operations if op not in approved],
+        "operation_details": operation_details(manifest.permissions.operations),
         "paths": paths,
         "new_paths": [p for p in paths if p not in approved_paths],
         "requires": manifest.requires,
@@ -80,6 +108,7 @@ class PackageManager:
                     "version": item.version,
                     "runtime": item.runtime,
                     "operations": item.operations,
+                    "operation_details": operation_details(item.operations),
                     "paths": item.paths,
                     "previous_version": (item.previous or {}).get("version"),
                     "bad_versions": item.bad,

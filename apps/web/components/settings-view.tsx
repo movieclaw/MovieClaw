@@ -8,6 +8,7 @@ import { LiquidGlassButton } from "@/components/liquid-glass";
 
 import { AppPushSection } from "@/components/app-push-section";
 import { AppStorageSection } from "@/components/app-storage-section";
+import { PluginPackagesSection } from "@/components/plugin-packages-section";
 import { PluginsSection } from "@/components/plugins-section";
 import { ScheduledTasksSection } from "@/components/scheduled-tasks-section";
 import { AppUpdateDot, usePendingUpdate } from "@/components/app-update-entry";
@@ -632,7 +633,10 @@ function AppSection() {
   // ?tab=storage 深链直达缓存管理，切换时写回地址栏（见 useTabParam）。旧的
   // ?tab=maintain 不再是合法值，会落到默认的「版本与更新」——重启入口正好在那；
   // 旧的 ?tab=remote 深链在路由层重定向到 /settings/playback，到不了这里。
-  const [tab, setTab] = useTabParam(["update", "storage", "tasks", "plugins"] as const, "update");
+  const [tab, setTab] = useTabParam(
+    ["update", "storage", "tasks", "plugins", "extensions"] as const,
+    "update",
+  );
   // 本分区只对管理员渲染（成员的分区清单里没有 app），无需再按角色关轮询
   const pendingUpdate = usePendingUpdate();
   const tabs = [
@@ -648,6 +652,8 @@ function AppSection() {
     { id: "storage" as const, label: "缓存管理" },
     { id: "tasks" as const, label: "定时任务" },
     { id: "plugins" as const, label: "模块" },
+    // 第三方插件包的管理（上传、批准、回滚、卸载）；「模块」保持只读诊断
+    { id: "extensions" as const, label: "插件" },
   ];
 
   return (
@@ -657,6 +663,7 @@ function AppSection() {
       {tab === "storage" && <AppStorageSection />}
       {tab === "tasks" && <ScheduledTasksSection />}
       {tab === "plugins" && <PluginsSection />}
+      {tab === "extensions" && <PluginPackagesSection />}
     </div>
   );
 }

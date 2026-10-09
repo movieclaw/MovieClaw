@@ -5,12 +5,16 @@ import {
   degradedHealth,
   formatMs,
   isLocalPlugin,
+  isNewGrant,
   localPluginRuntimes,
   needsAttention,
+  packageDetail,
+  pathGrantLabel,
   pluginDetail,
   pluginStateLabel,
   pluginStateTone,
   pluginsSummary,
+  runtimeLabel,
   slowestStarts,
   sortPlugins,
 } from "../lib/plugins-display.ts";
@@ -159,3 +163,36 @@ test("插件报告的降级算需要留意，并写进行内说明", () => {
   assert.equal(needsAttention(plugin()), false);
 });
 
+
+test("路径授权与运行方式说清楚给人看", () => {
+  assert.equal(pathGrantLabel({ path: "library", mode: "read" }), "全部媒体库（只读）");
+  assert.equal(pathGrantLabel({ path: "library:3", mode: "rw" }), "媒体库 #3（读写）");
+  assert.equal(pathGrantLabel({ path: "staging", mode: "rw" }), "导入规则的自定义目录（读写）");
+  assert.equal(pathGrantLabel({ path: "/mnt/cloud", mode: "read" }), "/mnt/cloud（只读）");
+  assert.equal(runtimeLabel("process"), "独立进程");
+  assert.equal(runtimeLabel(undefined), "独立进程");
+  assert.equal(runtimeLabel("inline"), "主进程（与主程序同权限）");
+  assert.equal(isNewGrant({ path: "staging", mode: "rw" }, [{ path: "staging", mode: "rw" }]), true);
+  assert.equal(isNewGrant({ path: "staging", mode: "read" }, [{ path: "staging", mode: "rw" }]), false);
+});
+
+test("已安装插件包的行内说明", () => {
+  const item = {
+    id: "acme.x",
+    title: "X",
+    version: "1.2.0",
+    runtime: "process",
+    operations: ["a.b"],
+    operation_details: [],
+    paths: [],
+    previous_version: "1.0.0",
+    bad_versions: ["1.1.0"],
+    state: "active",
+    error: null,
+    watching: true,
+  };
+  assert.equal(
+    packageDetail(item),
+    "v1.2.0 · 独立进程 · 1 个宿主操作 · 刚安装，观察中 · 已拦下的坏版本：1.1.0",
+  );
+});

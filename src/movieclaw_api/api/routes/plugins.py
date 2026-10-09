@@ -277,6 +277,12 @@ async def dismiss_dead_letter(letter_id: int, request: Request) -> ApiResponse[N
 
 
 # ---------------------------------------------------------------------- 插件包（第三阶段 C5）
+class OperationDetailView(BaseModel):
+    id: str
+    summary: str = Field(description="这个操作做什么（中文）")
+    dangerous: bool = Field(description="危险操作（删除、改配置等），批准页标红")
+
+
 class PackageRequestView(BaseModel):
     id: str
     title: str
@@ -285,6 +291,7 @@ class PackageRequestView(BaseModel):
     runtime: str = Field(description="process：独立进程；inline：主进程里运行（须单独确认）")
     operations: list[str] = Field(description="插件申请的宿主操作")
     new_operations: list[str] = Field(description="相比当前已安装版本新增的申请")
+    operation_details: list[OperationDetailView] = Field(default_factory=list)
     paths: list[dict[str, str]] = Field(description="插件申请的路径授权（path、mode）")
     new_paths: list[dict[str, str]] = Field(description="相比当前已安装版本新增的路径申请")
     requires: dict[str, str]
@@ -297,6 +304,7 @@ class InstalledPackageView(BaseModel):
     version: str
     runtime: str
     operations: list[str]
+    operation_details: list[OperationDetailView] = Field(default_factory=list)
     paths: list[dict[str, str]]
     previous_version: str | None
     bad_versions: list[str] = Field(description="激活失败过、已自动回滚的版本")
