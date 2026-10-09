@@ -1,14 +1,17 @@
 """Android TV 首页滑动压测（docs/perf/androidtv-home-scroll-2026-10.md）。
 
-每个场景：强停 App → 冷启动进首页 → 等首屏就绪 → 开 perfetto → 设备上按脚本发遥控器按键 → 停 perfetto →
-拉回 trace 用 trace_processor 算指标。多个 --apk 时逐轮交替安装运行（ABAB），抵消机器负载漂移。
+每个场景：强停 App → 冷启动进首页 → 等首屏就绪 → 开 perfetto → 设备上按脚本发遥控器按键 →
+停 perfetto → 拉回 trace 用 trace_processor 算指标。
+多个 --apk 时逐轮交替安装运行（ABAB），抵消机器负载漂移。
 
-前提：模拟器已用 debug 包登录测试服务器（tests/fixture/fixture.py start + tests/perf/seed_home.py），
+前提：模拟器已用 debug 包登录测试服务器
+（tests/fixture/fixture.py start + tests/perf/seed_home.py），
 被测包是 benchmark 构建（与正式包同样 R8 优化、不可调试、可被 perfetto 采样，覆盖安装不丢登录）。
-依赖：pip install perfetto（trace_processor 的 Python 封装）。同时连着多台设备时先设 ANDROID_SERIAL。
+依赖：pip install perfetto（trace_processor 的 Python 封装）。
+同时连着多台设备时先设 ANDROID_SERIAL。
 
-  python apps/android-tv/scripts/perf/home_scroll.py --apk base=/tmp/base.apk --apk new=app-benchmark.apk \
-      --runs 3 --weak --out /tmp/atv-perf
+  python apps/android-tv/scripts/perf/home_scroll.py \
+      --apk base=/tmp/base.apk --apk new=app-benchmark.apk --runs 3 --weak --out /tmp/atv-perf
 
 --weak：测量期间把模拟器进程压到 Mac 的能效核上（taskpolicy -b），CPU 慢 4～9 倍，接近低端电视盒子。
 --compile：verify（默认，等同刚装完 / 刚升级、全靠 JIT）或 speed-profile（后台编译过基线配置之后）。
@@ -41,10 +44,20 @@ SCENARIOS = {
     "idle": "sleep 6; ",
     "v-step": keys("DPAD_DOWN", 14, STEP) + "sleep 1; " + keys("DPAD_UP", 14, STEP),
     "v-hold": keys("DPAD_DOWN", 14, HOLD) + "sleep 1.5; " + keys("DPAD_UP", 14, HOLD),
-    "h-step-upnext": keys("DPAD_DOWN", 1, 1) + keys("DPAD_RIGHT", 12, STEP) + keys("DPAD_LEFT", 12, STEP),
-    "h-hold-upnext": keys("DPAD_DOWN", 1, 1) + keys("DPAD_RIGHT", 16, HOLD) + "sleep 1.5; " + keys("DPAD_LEFT", 16, HOLD),
-    "h-step-shelf": keys("DPAD_DOWN", 2, 1) + keys("DPAD_RIGHT", 10, STEP) + keys("DPAD_LEFT", 10, STEP),
-    "h-hold-shelf": keys("DPAD_DOWN", 2, 1) + keys("DPAD_RIGHT", 12, HOLD) + "sleep 1.5; " + keys("DPAD_LEFT", 12, HOLD),
+    "h-step-upnext": keys("DPAD_DOWN", 1, 1)
+    + keys("DPAD_RIGHT", 12, STEP)
+    + keys("DPAD_LEFT", 12, STEP),
+    "h-hold-upnext": keys("DPAD_DOWN", 1, 1)
+    + keys("DPAD_RIGHT", 16, HOLD)
+    + "sleep 1.5; "
+    + keys("DPAD_LEFT", 16, HOLD),
+    "h-step-shelf": keys("DPAD_DOWN", 2, 1)
+    + keys("DPAD_RIGHT", 10, STEP)
+    + keys("DPAD_LEFT", 10, STEP),
+    "h-hold-shelf": keys("DPAD_DOWN", 2, 1)
+    + keys("DPAD_RIGHT", 12, HOLD)
+    + "sleep 1.5; "
+    + keys("DPAD_LEFT", 12, HOLD),
 }
 
 TRACE_CONFIG = f"""
@@ -52,10 +65,12 @@ buffers {{ size_kb: 131072 fill_policy: RING_BUFFER }}
 buffers {{ size_kb: 4096 fill_policy: RING_BUFFER }}
 data_sources {{ config {{ name: "linux.ftrace" target_buffer: 0 ftrace_config {{
   ftrace_events: "sched/sched_switch" ftrace_events: "sched/sched_wakeup"
-  atrace_categories: "gfx" atrace_categories: "view" atrace_categories: "input" atrace_categories: "dalvik"
+  atrace_categories: "gfx" atrace_categories: "view"
+  atrace_categories: "input" atrace_categories: "dalvik"
   atrace_apps: "{PKG}" }} }} }}
 data_sources {{ config {{ name: "android.surfaceflinger.frametimeline" target_buffer: 0 }} }}
-data_sources {{ config {{ name: "linux.process_stats" target_buffer: 1 process_stats_config {{ scan_all_processes_on_start: true }} }} }}
+data_sources {{ config {{ name: "linux.process_stats" target_buffer: 1
+  process_stats_config {{ scan_all_processes_on_start: true }} }} }}
 duration_ms: 90000
 """
 
@@ -66,7 +81,9 @@ def adb(*args: str, check: bool = True, capture: bool = True) -> str:
 
 
 def qemu_pid() -> str | None:
-    out = subprocess.run(["pgrep", "-f", "qemu-system"], capture_output=True, text=True).stdout.split()
+    out = subprocess.run(
+        ["pgrep", "-f", "qemu-system"], capture_output=True, text=True
+    ).stdout.split()
     return out[0] if out else None
 
 
@@ -86,9 +103,22 @@ def ensure_device(avd: str | None) -> None:
     port = serial.rsplit("-", 1)[-1]
     print(f"设备掉线，重新启动模拟器 {avd} ……", flush=True)
     subprocess.Popen(
-        ["caffeinate", "-dims", str(Path.home() / "Library/Android/sdk/emulator/emulator"), "-avd", avd, "-port", port,
-         "-no-snapshot", "-no-boot-anim", "-crash-report-mode", "never"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True,
+        [
+            "caffeinate",
+            "-dims",
+            str(Path.home() / "Library/Android/sdk/emulator/emulator"),
+            "-avd",
+            avd,
+            "-port",
+            port,
+            "-no-snapshot",
+            "-no-boot-anim",
+            "-crash-report-mode",
+            "never",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True,
     )
     for _ in range(200):
         if adb("shell", "getprop", "sys.boot_completed", check=False).strip() == "1":
@@ -99,9 +129,14 @@ def ensure_device(avd: str | None) -> None:
 
 
 def cpu_idle() -> float:
-    """宿主机此刻的 CPU 空闲百分比（top 采两次取后一次；负载平均值反应慢，还把等 IO 的进程算进去）"""
-    out = subprocess.run(["top", "-l", "2", "-n", "0", "-s", "1"], capture_output=True, text=True).stdout
-    lines = [l for l in out.splitlines() if l.startswith("CPU usage")]
+    """宿主机此刻的 CPU 空闲百分比。
+
+    top 采两次取后一次；负载平均值反应慢，还把等 IO 的进程算进去。
+    """
+    out = subprocess.run(
+        ["top", "-l", "2", "-n", "0", "-s", "1"], capture_output=True, text=True
+    ).stdout
+    lines = [line for line in out.splitlines() if line.startswith("CPU usage")]
     return float(lines[-1].rsplit(",", 1)[1].split("%")[0]) if lines else 100.0
 
 
@@ -113,7 +148,9 @@ def wait_quiet(min_idle: float) -> None:
         idle = cpu_idle()
         streak = streak + 1 if idle >= min_idle else 0
         if streak == 0 and waited % 300 == 0:
-            print(f"宿主机 CPU 空闲 {idle:.0f}%，等到连续 1 分钟 {min_idle:.0f}% 以上……", flush=True)
+            print(
+                f"宿主机 CPU 空闲 {idle:.0f}%，等到连续 1 分钟 {min_idle:.0f}% 以上……", flush=True
+            )
         if streak < 3:
             time.sleep(20)
             waited += 20
@@ -128,10 +165,17 @@ def launch(compile_mode: str, settle: float) -> None:
 
 def record(name: str, script: str, out: Path) -> Path:
     remote = f"/data/misc/perfetto-traces/{name}.pftrace"
-    pid = subprocess.run(
-        ["adb", "shell", f"perfetto --txt -c - -o {remote} --background"],
-        input=TRACE_CONFIG, capture_output=True, text=True, check=True,
-    ).stdout.strip().splitlines()[-1]
+    pid = (
+        subprocess.run(
+            ["adb", "shell", f"perfetto --txt -c - -o {remote} --background"],
+            input=TRACE_CONFIG,
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        .stdout.strip()
+        .splitlines()[-1]
+    )
     time.sleep(1.0)
     adb("shell", script)
     time.sleep(1.5)
@@ -161,13 +205,16 @@ def analyze(path: Path, scenario: str) -> dict:
     def rows(sql: str) -> list:
         return list(tp.query(sql))
 
-    proc = rows(f"select upid, pid from process where name = '{PKG}' order by start_ts desc limit 1")[0]
+    proc = rows(
+        f"select upid, pid from process where name = '{PKG}' order by start_ts desc limit 1"
+    )[0]
     upid, pid = proc.upid, proc.pid
     main = rows(f"select utid from thread where tid = {pid}")[0].utid
     rt = rows(f"select utid from thread where upid = {upid} and name = 'RenderThread'")[0].utid
     bounds = rows("select min(ts) a, max(ts + dur) b from slice")[0]
     inputs = rows(
-        f"select min(s.ts) a, max(s.ts + s.dur) b from slice s join thread_track tt on s.track_id = tt.id "
+        f"select min(s.ts) a, max(s.ts + s.dur) b from slice s "
+        f"join thread_track tt on s.track_id = tt.id "
         f"where tt.utid = {main} and s.name like 'EarlyPostImeInputStage%'"
     )[0]
     if scenario == "idle" or inputs.a is None:
@@ -179,16 +226,22 @@ def analyze(path: Path, scenario: str) -> dict:
 
     def thread_slices(utid: int, like: str) -> list:
         return rows(
-            f"select s.id, s.ts, s.dur, s.name from slice s join thread_track tt on s.track_id = tt.id "
-            f"where tt.utid = {utid} and s.depth = 0 and s.name like '{like}' and s.ts >= {start} and s.ts < {end} order by s.ts"
+            f"select s.id, s.ts, s.dur, s.name from slice s "
+            f"join thread_track tt on s.track_id = tt.id "
+            f"where tt.utid = {utid} and s.depth = 0 and s.name like '{like}' "
+            f"and s.ts >= {start} and s.ts < {end} order by s.ts"
         )
 
     def running(utid: int, frames: list) -> dict[int, float]:
-        """每个帧切片期间这条线程真正占着 CPU 的毫秒数（按调度记录求交集；等缓冲区、等锁的时间不算）"""
+        """每个帧切片期间这条线程真正占着 CPU 的毫秒数。
+
+        按调度记录求交集；等缓冲区、等锁的时间不算。
+        """
         if not frames:
             return {}
         res = rows(
-            f"select s.id, sum(max(0, min(s.ts + s.dur, sc.ts + sc.dur) - max(s.ts, sc.ts))) run from slice s "
+            f"select s.id, sum(max(0, min(s.ts + s.dur, sc.ts + sc.dur) - max(s.ts, sc.ts))) run "
+            f"from slice s "
             f"join sched sc on sc.utid = {utid} and sc.ts < s.ts + s.dur and sc.ts + sc.dur > s.ts "
             f"where s.id in ({','.join(str(f.id) for f in frames)}) group by s.id"
         )
@@ -200,23 +253,29 @@ def analyze(path: Path, scenario: str) -> dict:
     ui_ms = [ui_run.get(f.id, 0.0) for f in frames_ui]
     rt_ms = [rt_run.get(f.id, 0.0) for f in frames_rt]
     # 每帧 CPU：按 vsync 编号把主线程与渲染线程对上
-    rt_by_vsync = {f.name.split()[-1]: ms for f, ms in zip(frames_rt, rt_ms)}
-    cpu_ms = [ui + rt_by_vsync.get(f.name.split()[-1], 0.0) for f, ui in zip(frames_ui, ui_ms)]
+    rt_by_vsync = {f.name.split()[-1]: ms for f, ms in zip(frames_rt, rt_ms, strict=True)}
+    cpu_ms = [
+        ui + rt_by_vsync.get(f.name.split()[-1], 0.0)
+        for f, ui in zip(frames_ui, ui_ms, strict=True)
+    ]
 
-    # 掉帧（Android 官方口径）：SurfaceFlinger 帧时间线判 App 没在截止时间前交帧（App Deadline Missed）。
+    # 掉帧（Android 官方口径）：SurfaceFlinger 帧时间线判 App 没在截止时间前交帧
+    # （App Deadline Missed）。
     # 不用相邻两帧的呈现间隔：模拟器的宿主合成本身有抖动，静置时也会有一成帧间隔超时
     actual = rows(
-        f"select a.ts + a.dur - e.ts - e.dur over, a.jank_type j, a.ts + a.dur e from actual_frame_timeline_slice a "
+        f"select a.ts + a.dur - e.ts - e.dur over, a.jank_type j, a.ts + a.dur e "
+        f"from actual_frame_timeline_slice a "
         f"join expected_frame_timeline_slice e using (upid, surface_frame_token) "
         f"where a.upid = {upid} and a.ts >= {start} and a.ts < {end} order by a.ts"
     )
     late = [a.over / 1e6 for a in actual if a.j and "App Deadline Missed" in a.j]
     ends = [a.e for a in actual]
-    gaps = [(b - a) / 1e6 for a, b in zip(ends, ends[1:]) if b - a < 250e6]
+    gaps = [(b - a) / 1e6 for a, b in zip(ends, ends[1:], strict=False) if b - a < 250e6]
 
     def total(like: str, utid: int = main) -> tuple[int, float]:
         r = rows(
-            f"select count(*) n, coalesce(sum(s.dur), 0) d from slice s join thread_track tt on s.track_id = tt.id "
+            f"select count(*) n, coalesce(sum(s.dur), 0) d from slice s "
+            f"join thread_track tt on s.track_id = tt.id "
             f"where tt.utid = {utid} and s.name like '{like}' and s.ts >= {start} and s.ts < {end}"
         )[0]
         return r.n, r.d / 1e6
@@ -225,7 +284,8 @@ def analyze(path: Path, scenario: str) -> dict:
     draw_ops, _ = total("%Op", rt)
     save_layers, _ = total("alpha caused saveLayer%", rt)
     layer_renders = rows(
-        f"select count(*) n from slice p join descendant_slice(p.id) d where p.name = 'flush layers' "
+        f"select count(*) n from slice p join descendant_slice(p.id) d "
+        f"where p.name = 'flush layers' "
         f"and d.name like '%OpsTask::onExecute%' and p.ts >= {start} and p.ts < {end}"
     )[0].n
     recompose_n, recompose_ms = total("Recomposer:recompose")
@@ -262,9 +322,19 @@ def analyze(path: Path, scenario: str) -> dict:
 
 
 COLUMNS = [
-    ("fps", "帧/秒"), ("jank_pct", "超时帧%"), ("hitch_ms_s", "超时ms/s"), ("max_late_ms", "最长超时ms"),
-    ("cpu_p50", "CPU p50"), ("cpu_p90", "p90"), ("cpu_p99", "p99"), ("ui_over_16", "主线程>16ms"),
-    ("passes_per_frame", "渲染遍/帧"), ("ops_per_frame", "绘制调用/帧"), ("offscreen_per_frame", "离屏/帧"), ("recompose_ms_s", "重组ms/s"), ("cpu_ms_s", "CPU ms/s"),
+    ("fps", "帧/秒"),
+    ("jank_pct", "超时帧%"),
+    ("hitch_ms_s", "超时ms/s"),
+    ("max_late_ms", "最长超时ms"),
+    ("cpu_p50", "CPU p50"),
+    ("cpu_p90", "p90"),
+    ("cpu_p99", "p99"),
+    ("ui_over_16", "主线程>16ms"),
+    ("passes_per_frame", "渲染遍/帧"),
+    ("ops_per_frame", "绘制调用/帧"),
+    ("offscreen_per_frame", "离屏/帧"),
+    ("recompose_ms_s", "重组ms/s"),
+    ("cpu_ms_s", "CPU ms/s"),
 ]
 
 
@@ -289,23 +359,38 @@ def summarize(results: list[dict]) -> str:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--apk", action="append", default=[], help="标签=路径，可多个（交替运行）；不给就测已装的包")
+    ap.add_argument(
+        "--apk", action="append", default=[], help="标签=路径，可多个（交替运行）；不给就测已装的包"
+    )
     ap.add_argument("--runs", type=int, default=3)
     ap.add_argument("--scenario", action="append", choices=list(SCENARIOS), help="默认全部")
     ap.add_argument("--weak", action="store_true", help="测量期间模拟器只用能效核")
     ap.add_argument("--compile", default="verify", choices=["verify", "speed-profile", "speed"])
     ap.add_argument("--settle", type=float, default=8.0, help="冷启动后等首屏就绪的秒数")
     ap.add_argument("--out", type=Path, default=Path("/tmp/atv-perf"))
-    ap.add_argument("--min-idle", type=float, default=40, help="宿主机 CPU 空闲低于这个百分比就先等（默认 40）")
+    ap.add_argument(
+        "--min-idle", type=float, default=40, help="宿主机 CPU 空闲低于这个百分比就先等（默认 40）"
+    )
     ap.add_argument("--avd", help="设备掉线时用这个模拟器名重新启动（不给就直接退出）")
-    ap.add_argument("--reanalyze", type=Path, help="不录，只重新分析这个目录里已有的 trace（<标签>-<场景>-<轮>.pftrace）")
+    ap.add_argument(
+        "--reanalyze",
+        type=Path,
+        help="不录，只重新分析这个目录里已有的 trace（<标签>-<场景>-<轮>.pftrace）",
+    )
     args = ap.parse_args()
     if args.reanalyze:
         results = []
         for trace in sorted(args.reanalyze.glob("*.pftrace")):
             label, rest = trace.stem.split("-", 1)
             scenario, run = rest.rsplit("-", 1)
-            results.append({"label": label, "scenario": scenario, "run": int(run), "metrics": analyze(trace, scenario)})
+            results.append(
+                {
+                    "label": label,
+                    "scenario": scenario,
+                    "run": int(run),
+                    "metrics": analyze(trace, scenario),
+                }
+            )
         print(summarize(results))
         return 0
     args.out.mkdir(parents=True, exist_ok=True)
@@ -328,29 +413,48 @@ def main() -> int:
                             launch(args.compile, args.settle)
                             set_weak(args.weak)
                             try:
-                                trace = record(f"{label}-{scenario}-{run}", SCENARIOS[scenario], args.out)
+                                trace = record(
+                                    f"{label}-{scenario}-{run}", SCENARIOS[scenario], args.out
+                                )
                             finally:
                                 set_weak(False)
                             # 测完再看一眼：测量期间别的任务忙起来了，这一条作废重测
                             if (after := cpu_idle()) < args.min_idle and attempt < 4:
-                                print(f"[{run}] {label} {scenario}: 测量后宿主机 CPU 空闲只有 {after:.0f}%，作废重测", flush=True)
+                                print(
+                                    f"[{run}] {label} {scenario}: "
+                                    f"测量后宿主机 CPU 空闲只有 {after:.0f}%，作废重测",
+                                    flush=True,
+                                )
                                 continue
                             break
                         except subprocess.CalledProcessError as e:
-                            print(f"[{run}] {label} {scenario}: adb 失败（{e.returncode}），重试", flush=True)
+                            print(
+                                f"[{run}] {label} {scenario}: adb 失败（{e.returncode}），重试",
+                                flush=True,
+                            )
                             installed = False
                     else:
                         raise SystemExit(f"{label} {scenario} 连续失败")
                     metrics = analyze(trace, scenario)
                     entry = {
-                        "label": label, "scenario": scenario, "run": run, "weak": args.weak, "compile": args.compile,
-                        # 宿主机负载：同一台 Mac 上别的任务忙起来时数字会整体变差，只比较同一时段交替跑出的结果
-                        "load1": round(os.getloadavg()[0], 1), "idle": round(cpu_idle()), "metrics": metrics,
+                        "label": label,
+                        "scenario": scenario,
+                        "run": run,
+                        "weak": args.weak,
+                        "compile": args.compile,
+                        # 宿主机负载：同一台 Mac 上别的任务忙起来时数字会整体变差，
+                        # 只比较同一时段交替跑出的结果
+                        "load1": round(os.getloadavg()[0], 1),
+                        "idle": round(cpu_idle()),
+                        "metrics": metrics,
                     }
                     results.append(entry)
                     with log.open("a") as f:
                         f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-                    print(f"[{run}] {label} {scenario}: {json.dumps(metrics, ensure_ascii=False)}", flush=True)
+                    print(
+                        f"[{run}] {label} {scenario}: {json.dumps(metrics, ensure_ascii=False)}",
+                        flush=True,
+                    )
     finally:
         set_weak(False)
     table = summarize(results)

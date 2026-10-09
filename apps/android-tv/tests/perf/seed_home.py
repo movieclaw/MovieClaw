@@ -17,7 +17,9 @@ import fixture as fx  # noqa: E402
 
 
 def place_all() -> tuple[int, int]:
-    movies = [k.split("/")[1] for k in fx.CATALOG if k.startswith("movie/") and k.split("/")[1].isdigit()]
+    movies = [
+        k.split("/")[1] for k in fx.CATALOG if k.startswith("movie/") and k.split("/")[1].isdigit()
+    ]
     for mid in movies:
         movie = fx.CATALOG[f"movie/{mid}"]
         name = f"{movie['title']} ({movie['release_date'][:4]})"
@@ -32,7 +34,11 @@ def place_all() -> tuple[int, int]:
         for key in [k for k in fx.CATALOG if k.startswith(f"tv/{tid}/season/")]:
             season = int(key.rsplit("/", 1)[1])
             for ep in fx.CATALOG[key]["episodes"]:
-                _link(folder / f"Season {season:02d}" / f"{show['name']} S{season:02d}E{ep['episode_number']:02d}.mkv")
+                _link(
+                    folder
+                    / f"Season {season:02d}"
+                    / f"{show['name']} S{season:02d}E{ep['episode_number']:02d}.mkv"
+                )
     return len(movies), len(series)
 
 
@@ -58,13 +64,25 @@ def main() -> int:
 
     device = "fixture-perf-0001"
     for i, item in enumerate(films[:10]):
-        body = {"media_item_id": item["media_item_id"], "event": "stop", "position_ms": 60_000 + i * 15_000}
+        body = {
+            "media_item_id": item["media_item_id"],
+            "event": "stop",
+            "position_ms": 60_000 + i * 15_000,
+        }
         admin.call("POST", "/playback/progress", {"device_id": device, **body})
     for item in shows[:5]:
-        body = {"media_item_id": item["media_item_id"], "season_number": 1, "episode_number": 1, "event": "stop", "position_ms": 120_000}
+        body = {
+            "media_item_id": item["media_item_id"],
+            "season_number": 1,
+            "episode_number": 1,
+            "event": "stop",
+            "position_ms": 120_000,
+        }
         admin.call("POST", "/playback/progress", {"device_id": device, **body})
     for item in films[10:20] + shows[5:7]:
-        admin.call("POST", "/playback/marks", {"media_item_id": item["media_item_id"], "favorite": True})
+        admin.call(
+            "POST", "/playback/marks", {"media_item_id": item["media_item_id"], "favorite": True}
+        )
 
     prefs = admin.call("GET", "/ui/preferences")
     lib_rows = [{"id": f"lib:{lib['id']}"} for lib in libs.values()]
