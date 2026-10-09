@@ -48,6 +48,7 @@
 | 读写文件 `PermissionError` | 路径没在清单 `permissions.paths` 里申请；私有目录用 `files.path("plugin", …)` |
 | 连不上外网 | 没走 `net.http_transport`；或用户的代理规则没覆盖到 |
 | 插件反复崩溃后所有第三方插件都没加载 | 进入了安全模式：修好插件后 `mclaw app plugins safe-mode exit` |
+| `mclaw plugins …` 提示 unknown command | 命令目录还没刷新：先执行一条 mclaw 业务命令（如 `app plugins list`），看到「服务器接口目录已更新」再调；命令由 `operation_id` 按点拆分而来 |
 
 ## 回到干净状态
 

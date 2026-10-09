@@ -150,7 +150,8 @@ routes.mount(ctx, router)                     # 默认 admin 区 → /api/v1/plu
 - `operation_id` 必须以 `plugins.<条目 id>.` 开头；鉴权由宿主注入，插件绕不开。
 - 端点参数 / 返回值的类型要在**模块顶层**导入（进程外运行时宿主要能解析）；入口模块尽量不要写
   `from __future__ import annotations`。
-- 插件路由进入操作目录：安装后 `mclaw` 可能需要一次命令刷新才出现；验证时也可以看日志或插件数据。
+- 插件路由进入操作目录，因此也是 mclaw 命令：安装后随便执行一条 mclaw 业务命令触发目录刷新（提示「服务器接口目录已更新」），
+  之后 `operation_id` 按点拆成命令调用，如 `plugins.me.hello.status` → `mclaw plugins me hello status`。
 
 示例：`references/examples/cloud_strm.py`（公开区 + 签名链接）。
 
