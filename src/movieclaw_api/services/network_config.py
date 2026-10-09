@@ -222,7 +222,7 @@ async def _probe_target(service: str, session: AsyncSession) -> tuple[str, dict[
         if not accounts:
             raise BadRequestException(f"尚未绑定 {channel_name} bot，无法测试")
         try:
-            token = ChannelAccountRepository.decrypted_token(accounts[0])
+            token = ChannelAccountRepository.credentials(accounts[0])["token"]
         except Exception as exc:  # noqa: BLE001 -- 凭据损坏时返回可操作的中文错误
             raise BadRequestException(
                 f"{channel_name} bot 凭据不可用，请重新绑定"

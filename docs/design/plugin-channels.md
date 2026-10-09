@@ -134,13 +134,17 @@ class ChannelDriver:
 | 接口 | 作用 |
 |---|---|
 | `GET /channels` | 通道列表（标题、能力、绑定方式、是否可用）+ 各自账号 |
-| `POST /channels/{channel}/bindings` | 表单绑定（字段）或开始交互式绑定 |
+| `POST /channels/bindings` | 表单绑定（通道 + 字段）或开始交互式绑定 |
 | `GET /channels/bindings/{id}` | 绑定状态（前端轮询） |
 | `POST /channels/bindings/{id}/input` | 交互式绑定里提交输入（微信配对数字） |
 | `DELETE /channels/{channel}/accounts/{account_id}` | 解绑（`x-cli-dangerous`） |
 
-旧接口：`/channels/im/push-config`、`/channels/im/push-test` 保留（已发布的 iOS 在用）；
-`/channels/weixin/*`、`/channels/im/{accounts,bindings,feishu}` 在网页切到新接口后删除。
+旧接口：`/channels/im/push-config`、`/channels/im/push-test` 保留（已发布的 iOS 在用）。
+`/channels/weixin/*`、`/channels/im/{channel}/{accounts,bindings}`、`/channels/im/feishu/bindings`
+是已发布的 iPhone / Mac App「IM 推送」页在用的绑定接口：保留原路径与原形状、内部转给中枢、不进命令行
+（`api/routes/channels_legacy.py`）；App 改用通用接口（同时能显示第三方通道）并发版后删除。
+发起绑定的通用接口是 `POST /channels/bindings`（通道 id 放在请求体里），避免与旧的
+`POST /channels/weixin/bindings` 同形冲突。
 
 ## 7. 随应用携带的插件包
 
@@ -165,7 +169,8 @@ class ChannelDriver:
 | 步 | 内容 | 验证 |
 |---|---|---|
 | H1 | SDK 通道类型 + `im-channels` 注册表 + 通道中枢 + 账号表迁移 + 新接口；四个通道先以进程内驱动形式接上（代码暂留原处） | 现有通道测试全部改走中枢仍通过；迁移测试（旧行 → 新列，绑定照常）；关掉通道插件接口不 500 |
-| H2 | 网页通用通道设置页（列表、表单 / 配对码 / 扫码三种绑定对话框、推送开关）切到新接口，删旧接口 | 网页单测 + 浏览器走查 |
+| H2 | 网页通用通道设置页（列表、表单 / 配对码 / 扫码三种绑定对话框、推送开关）切到新接口；旧绑定接口改成转给中枢的兼容层（已发布的 App 在用） | 网页单测 + 浏览器走查 + 旧接口兼容测试 |
+| H2b | iPhone / Mac App「IM 推送」页改用通用接口（能显示第三方通道），发版后删兼容层 | App 单测 + 模拟器走查 |
 | H3 | 运行器支持 `im-channels`（桩、账号句柄回调、取消调用）+ ntfy 示例插件 | 进程内 / 进程外各跑一遍：绑定、对话（假 LLM）、推送、停账号 |
 | H4 | 随带插件包机制 + 同 id 替换；微信迁成 `movieclaw_plugins/weixin`（只依赖 SDK） | import 约束测试；CI 打包微信 → 动态安装替换随带版本 → 假 iLink 服务器跑通扫码绑定、对话、推送；卸载恢复 |
 | H5 | Telegram / Discord / 飞书 迁成随带插件包 | 同上，各自的假服务器测试 |

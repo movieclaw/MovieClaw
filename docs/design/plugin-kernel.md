@@ -546,7 +546,7 @@ import 的 7 个）；调度器自己的内置任务随它一起不在。
 | 22 | `library.watch` | — | DB | | 媒体库实时监控 |
 | 23 | `library.ingest-watch` | — | DB | | 下载监听导入 |
 | 24 | `channel.weixin` | — | AGENT_RUNS | | 微信通道 |
-| 25 | `channel.im` | — | AGENT_RUNS | | Telegram / Discord / 飞书 |
+| 25 | `channel.im` | — | AGENT_RUNS | | Telegram / Discord / 飞书（后改为 `channels.hub` 中枢 + 每个通道一个插件，见 plugin-channels.md） |
 | 26 | `cloud` | `CLOUD` | EGRESS | | MovieClaw Cloud 续签循环 |
 | 27 | `push.hub` | `PUSH_HUB` | DB | | 释放：`hub.stop()` |
 | 28 | `push.channels-refresh` | — | CLOUD | | 推送通道能力快照刷新 |
@@ -722,7 +722,7 @@ schema（第二阶段）、`SEARCH_RESULTS` 事件（第二阶段）、打包格
 
 - 第一阶段只认 `disabled`；未知 id 打 warning 并忽略。
 - 只有 `disableable=True` 的插件能被禁用，关键插件永远不能。第一阶段打开的范围：`jellyfin.discovery`、
-  `channel.weixin`、`channel.im`、`cloud`、`push.arrivals`、`library.watch`、`library.ingest-watch`、
+  `channel.weixin`、`channel.im`（后拆成 `channel.telegram` / `channel.discord` / `channel.feishu`）、`cloud`、`push.arrivals`、`library.watch`、`library.ingest-watch`、
   `boost`，以及由环境变量映射的 `scheduler`。标准是「禁用后，调用到它的接口给出明确的降级结果，而不是 500」，
   逐个核对后才打开。
 - 改补丁需要重启生效；运行中启停在第二阶段，只对 `reloadable` 的插件开放。

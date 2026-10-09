@@ -6,7 +6,7 @@
  * 两类设定按胶囊标签分开（与「更新与维护」「外观」分区同一交互语言），因为它们
  * 回答的是两个完全不同的问题，动线不该缠在一起：
  *   - 接入通道：我接了哪些账号？——一张跨平台的统一列表 +「新增通道」菜单，
- *     绑定流程收进弹窗（见 channel-bind-dialog）；
+ *     绑定流程收进弹窗（见 channel-bind-dialog）；通道来自通道插件，按接口渲染；
  *   - 推送内容：什么事件会推给我？——事件开关 + 一键测试推送。
  *
  * 旧版把微信 / Telegram / Discord 三块绑定表单和推送开关平铺在一页里：
@@ -19,13 +19,11 @@ import { useCallback, useEffect, useState } from "react";
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 
-import {
-  CHANNEL_KINDS,
-  CHANNEL_META,
-  ChannelBindDialog,
-  type ChannelKind,
-} from "@/components/channel-bind-dialog";
-import { ErrorBanner, StatusPill, Toggle } from "@/components/cloud-push-ui";
+import type { Route } from "next";
+import Link from "next/link";
+
+import { ChannelBindDialog } from "@/components/channel-bind-dialog";
+import { ErrorBanner, LINK_CLASS, StatusPill, Toggle } from "@/components/cloud-push-ui";
 import { useConfirm, useToast } from "@/components/feedback";
 import { ChatIcon, PlusIcon } from "@/components/icons";
 import { LlmSetupNotice, useLlmConfigured } from "@/components/llm-gate";
@@ -39,14 +37,13 @@ import {
   SettingsTabs,
 } from "@/components/settings-ui";
 import {
+  type ChannelAccount,
+  type ChannelInfo,
   type ChannelPushConfig,
-  type ImChannelId,
   getChannelPushConfig,
-  listImAccounts,
-  listWeixinAccounts,
+  listChannels,
   sendChannelPushTest,
-  unbindImAccount,
-  unbindWeixinAccount,
+  unbindChannelAccount,
   updateChannelPushConfig,
 } from "@/lib/api/channels";
 import { formatRelativeTime } from "@/lib/time";
@@ -70,45 +67,28 @@ export function ImPushSection() {
 
 /* —— 接入通道：跨平台统一列表 + 新增菜单 —— */
 
-/** 列表行：三个平台的账号归一成同一形状，列表本身不再关心来源差异。 */
-interface ChannelAccountRow {
-  channel: ChannelKind;
-  account_id: string;
-  /** 完成绑定的用户 id（白名单，同时是推送目标） */
-  bound_user_id: string | null;
-  status: "active" | "stale";
-  running: boolean;
-  last_error: string | null;
-  bound_at: string;
-}
-
+/**
+ * 通道来自通道插件（docs/design/plugin-channels.md）：列表与「新增通道」菜单都按接口返回的
+ * 通道渲染，不认识具体平台。提供某个通道的插件关掉 / 卸载了，它的账号照常列出、标「未启用」，
+ * 重新启用后自动恢复。
+ */
 function ChannelsTab() {
   const llmConfigured = useLlmConfigured();
   const confirm = useConfirm();
   const toast = useToast();
-  const [rows, setRows] = useState<ChannelAccountRow[] | null>(null);
+  const [channels, setChannels] = useState<ChannelInfo[]>([]);
+  const [rows, setRows] = useState<ChannelAccount[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // 正在绑定的通道（null = 没开弹窗）
-  const [binding, setBinding] = useState<ChannelKind | null>(null);
+  const [binding, setBinding] = useState<ChannelInfo | null>(null);
 
   const load = useCallback(async () => {
     setError(null);
     try {
-      // 各平台同源同后端，任一失败都视作整体失败：与其展示半张列表让用户
-      // 误以为"某个通道掉了"，不如明确报错让他重试
-      const [weixin, telegram, discord, feishu] = await Promise.all([
-        listWeixinAccounts(),
-        listImAccounts("telegram"),
-        listImAccounts("discord"),
-        listImAccounts("feishu"),
-      ]);
-      setRows([
-        ...weixin.map((a) => ({ ...a, channel: "weixin" as const })),
-        ...telegram.map((a) => ({ ...a, channel: "telegram" as const })),
-        ...discord.map((a) => ({ ...a, channel: "discord" as const })),
-        ...feishu.map((a) => ({ ...a, channel: "feishu" as const })),
-      ]);
+      const data = await listChannels();
+      setChannels(data.channels);
+      setRows(data.accounts);
     } catch (e) {
       setError((e as Error).message);
       setRows([]);
@@ -119,17 +99,16 @@ function ChannelsTab() {
     void load();
   }, [load]);
 
-  async function handleUnbind(row: ChannelAccountRow) {
-    const label = CHANNEL_META[row.channel].label;
+  const byId = new Map(channels.map((c) => [c.id, c]));
+  // 能对话的通道完全由模型驱动：没接模型时菜单里只留只推送的通道
+  const addable = channels.filter((c) => llmConfigured !== false || !c.receive);
+
+  async function handleUnbind(row: ChannelAccount) {
+    const title = byId.get(row.channel_id)?.title ?? row.channel_id;
     if (
       !(await confirm({
-        title: `解绑该 ${label} 账号？`,
-        description:
-          row.channel === "weixin"
-            ? "解绑后需重新扫码才能使用。"
-            : row.channel === "feishu"
-              ? "解绑后群机器人不再收到推送，需重新粘贴 Webhook 地址。"
-              : "解绑将删除 bot 凭据并停止通道，需重新配对才能使用。",
+        title: `解绑该 ${title} 账号？`,
+        description: "解绑后停止收发、删除凭据，需要重新绑定才能使用；历史对话保留。",
         confirmLabel: "解绑",
         tone: "danger",
       }))
@@ -138,8 +117,7 @@ function ChannelsTab() {
     setBusy(true);
     setError(null);
     try {
-      if (row.channel === "weixin") await unbindWeixinAccount(row.account_id);
-      else await unbindImAccount(row.channel as ImChannelId, row.account_id);
+      await unbindChannelAccount(row.channel_id, row.account_id);
       await load();
     } catch (e) {
       setError((e as Error).message);
@@ -149,20 +127,25 @@ function ChannelsTab() {
   }
 
   const loading = rows == null;
+  const titles = channels.map((c) => c.title).join("、");
 
   return (
     <div className="space-y-10">
       <div className="space-y-4">
         <p className="text-sub leading-6 text-[var(--text-muted)]">
-          接入的通道都是推送目标；微信 / Telegram / Discord 里还能直接和 AI 助手对话：发消息即可搜片、订阅、查进度。
+          接入的通道都是推送目标；能对话的通道里还能直接和 AI 助手聊：发消息即可搜片、订阅、查进度。
           发送
           <span className="mx-1 rounded bg-white/[0.08] px-1.5 py-0.5 text-caption">/reset</span>
           重置会话，
           <span className="mx-1 rounded bg-white/[0.08] px-1.5 py-0.5 text-caption">/stop</span>
-          取消正在进行的处理。
+          取消正在进行的处理。通道由插件提供，在
+          <Link href={"/settings/plugins" as Route} className={`mx-1 ${LINK_CLASS}`}>
+            设置 → 插件
+          </Link>
+          里可以安装更多通道。
         </p>
 
-        {/* 前置门禁：对话完全由模型驱动，未接入模型时隐藏新增入口并引导 */}
+        {/* 前置门禁：对话完全由模型驱动，未接入模型时引导（只推送的通道不受影响） */}
         {llmConfigured === false && <LlmSetupNotice feature="通道中的 AI 对话能力" />}
 
         {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -174,7 +157,9 @@ function ChannelsTab() {
           loading ? "加载中…" : rows.length > 0 ? `已接入 ${rows.length} 个账号` : undefined
         }
         action={
-          llmConfigured !== false && <AddChannelMenu onPick={setBinding} disabled={loading} />
+          addable.length > 0 && (
+            <AddChannelMenu channels={addable} onPick={setBinding} disabled={loading} />
+          )
         }
       >
         {loading ? (
@@ -187,18 +172,18 @@ function ChannelsTab() {
             icon={<ChatIcon className="size-5" />}
             title="还没有接入任何通道"
             description={
-              // 没接模型时新增入口是藏起来的，文案不能再指向它
-              llmConfigured === false
-                ? "接入 AI 模型后即可新增微信、Telegram、Discord 和飞书通道。"
-                : "点「新增通道」接入，支持微信、Telegram、Discord 和飞书。"
+              channels.length === 0
+                ? "没有可用的通道：到「设置 → 插件」看看通道插件是否都关掉了。"
+                : `点「新增通道」接入，支持${titles}。`
             }
           />
         ) : (
           <SettingsList>
             {rows.map((row) => (
               <ChannelAccountRowView
-                key={`${row.channel}:${row.account_id}`}
+                key={`${row.channel_id}:${row.account_id}`}
                 row={row}
+                channel={byId.get(row.channel_id)}
                 busy={busy}
                 onUnbind={() => void handleUnbind(row)}
               />
@@ -212,13 +197,13 @@ function ChannelsTab() {
           channel={binding}
           onClose={() => setBinding(null)}
           onBound={() => {
-            const label = CHANNEL_META[binding].label;
+            const done = binding;
             setBinding(null);
             void load();
             toast.success(
-              binding === "feishu"
-                ? `${label} 已接入，去飞书群里看看欢迎消息吧`
-                : `${label} 已接入，现在就可以给它发消息试试`,
+              done.receive
+                ? `${done.title} 已接入，现在就可以给它发消息试试`
+                : `${done.title} 已接入，推送会发到那里`,
             );
           }}
         />
@@ -227,12 +212,14 @@ function ChannelsTab() {
   );
 }
 
-/** 「新增通道」下拉菜单：平台名 + 一句话说明，点选即开绑定弹窗。 */
+/** 「新增通道」下拉菜单：通道名 + 一句话说明，点选即开绑定弹窗。 */
 function AddChannelMenu({
+  channels,
   onPick,
   disabled,
 }: {
-  onPick: (channel: ChannelKind) => void;
+  channels: ChannelInfo[];
+  onPick: (channel: ChannelInfo) => void;
   disabled: boolean;
 }) {
   return (
@@ -254,41 +241,44 @@ function AddChannelMenu({
           collisionPadding={12}
           className="menu-surface z-50 min-w-[14rem] p-1"
         >
-          {CHANNEL_KINDS.map((channel) => {
-            const meta = CHANNEL_META[channel];
-            return (
-              <DropdownMenu.Item
-                key={channel}
-                onSelect={() => onPick(channel)}
-                className="glass-row nav-item cursor-pointer flex-col !items-start gap-0 px-3 py-2 outline-none data-[highlighted]:!bg-[var(--glass-fill-hover)] data-[highlighted]:!text-[var(--text)]"
-              >
-                <span className="text-sub font-medium">新增 {meta.label} 渠道</span>
-                <span className="text-caption text-[var(--text-faint)]">{meta.summary}</span>
-              </DropdownMenu.Item>
-            );
-          })}
+          {channels.map((channel) => (
+            <DropdownMenu.Item
+              key={channel.id}
+              onSelect={() => onPick(channel)}
+              className="glass-row nav-item cursor-pointer flex-col !items-start gap-0 px-3 py-2 outline-none data-[highlighted]:!bg-[var(--glass-fill-hover)] data-[highlighted]:!text-[var(--text)]"
+            >
+              <span className="text-sub font-medium">新增 {channel.title} 通道</span>
+              {channel.description && (
+                <span className="text-caption text-[var(--text-faint)]">{channel.description}</span>
+              )}
+            </DropdownMenu.Item>
+          ))}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
   );
 }
 
-/** 一行已接入账号：平台名 + 运行状态 + 绑定人 / 失效原因 + 解绑。 */
+/** 一行已接入账号：通道名 + 运行状态 + 绑定人 / 失效原因 + 解绑。 */
 function ChannelAccountRowView({
   row,
+  channel,
   busy,
   onUnbind,
 }: {
-  row: ChannelAccountRow;
+  row: ChannelAccount;
+  channel: ChannelInfo | undefined;
   busy: boolean;
   onUnbind: () => void;
 }) {
-  const pill =
-    row.status === "stale"
+  const pill = !row.channel_available
+    ? { label: "插件未启用", tone: "neutral" as const }
+    : row.status === "stale"
       ? { label: "需重新绑定", tone: "danger" as const }
       : row.running
         ? { label: "运行中", tone: "ok" as const }
         : { label: "未运行", tone: "neutral" as const };
+  const who = row.bound_user_id ?? row.display_name;
 
   return (
     <SettingsRow
@@ -299,17 +289,17 @@ function ChannelAccountRowView({
       }
       label={
         <span className="flex items-center gap-2">
-          <span className="truncate">{CHANNEL_META[row.channel].label}</span>
+          <span className="truncate">{channel?.title ?? row.channel_id}</span>
           <StatusPill tone={pill.tone} label={pill.label} />
         </span>
       }
       description={
         <span className="block truncate">
-          {row.status === "stale"
-            ? (row.last_error ?? "凭据已失效，请重新绑定")
-            : row.channel === "feishu"
-              ? `群机器人 · 绑定于 ${formatRelativeTime(row.bound_at)}`
-              : `${row.bound_user_id ?? row.account_id} · 绑定于 ${formatRelativeTime(row.bound_at)}`}
+          {!row.channel_available
+            ? "提供这个通道的插件已关闭或卸载，账号保留，重新启用后自动恢复"
+            : row.status === "stale"
+              ? (row.last_error ?? "凭据已失效，请重新绑定")
+              : `${who} · 绑定于 ${formatRelativeTime(row.bound_at)}`}
         </span>
       }
     >

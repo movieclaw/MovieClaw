@@ -1,10 +1,15 @@
-"""IM 通道接口(微信绑定与账号管理)。
+"""IM 通道接口（docs/design/plugin-channels.md §6）。
 
-前端(设置 → AI → 微信绑定)交互流程:
-1. 进页面先 GET accounts:非空 → 只展示列表;为空 → 自动 POST bindings 出码;
-2. 拿到 challenge_id 后每 1-2 秒 GET bindings/{id} 轮询状态;
-3. need_verify_code → 页面弹输入框,POST verify-code 后继续轮询;
-4. confirmed → 二维码消失,刷新列表(此时通道已在收发,扫码人可直接对话)。
+通道是插件：列表来自注册表 ``im-channels``，设置页按每个通道声明的绑定方式通用渲染。
+
+- 表单绑定：``POST /channels/bindings`` 带通道与字段；``pairing=code`` 的（Telegram / Discord）
+  返回 6 位配对码，用户私聊 bot 发码，前端轮询 ``GET /channels/bindings/{id}`` 等 confirmed；
+  不带配对的（飞书 Webhook）当场完成；
+- 交互式绑定（微信扫码）：``POST`` 不带字段开始，轮询拿二维码与状态，需要时
+  ``POST /channels/bindings/{id}/input`` 提交手机上的配对数字。
+
+通道插件没启用时它的账号照常列出（``channel_available=false``），绑定 / 解绑给出明确提示，不报 500。
+推送开关与测试推送仍在 ``/channels/im/*``（已发布的 iOS 在用）。
 """
 
 from __future__ import annotations
@@ -17,152 +22,249 @@ import qrcode.image.svg
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.exceptions import (
+    BadRequestException,
+    ConflictException,
+    NotFoundException,
+    ServiceUnavailableException,
+)
 from movieclaw_api.schemas.channels import (
-    WeixinAccountView,
-    WeixinBindingStartView,
-    WeixinBindingStatusView,
-    WeixinVerifyCodePayload,
+    ChannelAccountView,
+    ChannelBindingInputPayload,
+    ChannelBindingSpecView,
+    ChannelBindingView,
+    ChannelBindPayload,
+    ChannelFieldView,
+    ChannelPushConfigView,
+    ChannelsView,
+    ChannelView,
+    PushTestPayload,
 )
 from movieclaw_api.schemas.response import ApiResponse, ok
-from movieclaw_api.services.weixin_channel import get_weixin_channel
-from movieclaw_channel.weixin.adapter import CHANNEL_ID
+from movieclaw_api.services.channel_hub import ChannelHub, ChannelUnavailable, get_hub
+from movieclaw_api.services.channel_push import push_to_all_channels
+from movieclaw_api.settings import ChannelPushSetting, get_setting_store
 from movieclaw_db.engine import get_session
+from movieclaw_db.models.channel_account import ChannelAccount
 from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
 from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository
 
-router = APIRouter(prefix="/channels/weixin", tags=["channels"])
+router = APIRouter(prefix="/channels", tags=["channels"])
 
 
 @lru_cache(maxsize=8)
 def _qrcode_data_url(content: str) -> str:
-    """把二维码内容渲染成 SVG data URL,前端 <img> 直接显示。
-
-    纯 Python SVG 路径(不依赖 pillow);缓存最近几张——同一 challenge 的
-    poll 每 1-2 秒来一次,内容不变时不必重复编码。
-    """
+    """二维码内容 → SVG data URL（纯 Python）；同一绑定每秒轮询，内容不变不重复编码。"""
     if not content:
         return ""
     img = qrcode.make(content, image_factory=qrcode.image.svg.SvgPathImage, box_size=12)
     return "data:image/svg+xml;base64," + base64.b64encode(img.to_string()).decode()
 
 
+def _hub() -> ChannelHub:
+    hub = get_hub()
+    if hub is None:
+        raise ServiceUnavailableException("IM 通道中枢没有运行，请到「设置 → 插件 → 内置」查看原因")
+    return hub
+
+
+def _account_view(row: ChannelAccount, hub: ChannelHub | None) -> ChannelAccountView:
+    available = hub is not None and row.channel_id in hub.drivers()
+    return ChannelAccountView(
+        channel_id=row.channel_id,
+        account_id=row.account_id,
+        display_name=row.display_name or row.account_id,
+        bound_user_id=row.bound_user_id,
+        status=row.status,
+        running=bool(hub and hub.is_running(row.channel_id, row.account_id)),
+        channel_available=available,
+        last_error=row.last_error,
+        bound_at=row.created_at,
+    )
+
+
 @router.get(
-    "/accounts",
-    response_model=ApiResponse[list[WeixinAccountView]],
-    summary="已绑定的微信账号列表",
-    operation_id="channels.weixin.accounts.list",
+    "",
+    response_model=ApiResponse[ChannelsView],
+    summary="IM 通道：可用的通道（来自通道插件）与已绑定的账号",
+    operation_id="channels.list",
 )
-async def list_weixin_accounts(
-    session: AsyncSession = Depends(get_session),
-) -> ApiResponse[list[WeixinAccountView]]:
-    service = get_weixin_channel()
-    rows = await ChannelAccountRepository(session).list_by_channel(CHANNEL_ID)
-    return ok(
-        [
-            WeixinAccountView.from_model(
-                row, running=service.manager.is_running(CHANNEL_ID, row.account_id)
+async def list_channels(session: AsyncSession = Depends(get_session)) -> ApiResponse[ChannelsView]:
+    hub = get_hub()
+    channels: list[ChannelView] = []
+    if hub is not None:
+        for channel_id, driver in hub.drivers().items():
+            spec = driver.binding
+            channels.append(
+                ChannelView(
+                    id=channel_id,
+                    title=driver.title or channel_id,
+                    description=driver.description,
+                    entry_id=hub.contributor(channel_id),
+                    receive=driver.capabilities.receive,
+                    photo=driver.capabilities.photo,
+                    binding=ChannelBindingSpecView(
+                        kind=spec.kind,
+                        fields=[
+                            ChannelFieldView(
+                                key=f.key,
+                                label=f.label,
+                                secret=f.secret,
+                                placeholder=f.placeholder,
+                                help=f.help,
+                                required=f.required,
+                            )
+                            for f in spec.fields
+                        ],
+                        pairing=spec.pairing,
+                        hint=spec.hint,
+                    ),
+                )
             )
-            for row in rows
-        ]
+    rows = await ChannelAccountRepository(session).list_all()
+    return ok(ChannelsView(channels=channels, accounts=[_account_view(r, hub) for r in rows]))
+
+
+async def _binding_view(hub: ChannelHub, binding_id: str) -> ChannelBindingView:
+    binding = hub.binding(binding_id)
+    if binding is None:
+        raise NotFoundException("绑定不存在或已过期，请重新发起")
+    account = None
+    if binding.status == "confirmed" and binding.account_id:
+        from movieclaw_db.engine import get_database
+
+        async with get_database().session() as session:
+            row = await ChannelAccountRepository(session).get(
+                binding.channel_id, binding.account_id
+            )
+        if row is not None:
+            account = _account_view(row, hub)
+    return ChannelBindingView(
+        binding_id=binding.binding_id,
+        channel_id=binding.channel_id,
+        kind=binding.kind,
+        status=binding.status,
+        message=binding.message,
+        pair_code=binding.pair_code,
+        qr_image=_qrcode_data_url(binding.qr or ""),
+        input_label=binding.input_label,
+        account=account,
     )
 
 
 @router.post(
     "/bindings",
-    response_model=ApiResponse[WeixinBindingStartView],
+    response_model=ApiResponse[ChannelBindingView],
     status_code=201,
-    summary="发起微信扫码绑定",
-    operation_id="channels.weixin.bindings.start",
+    summary="发起绑定（表单字段；交互式绑定不带字段）",
+    operation_id="channels.bindings.start",
 )
-async def start_weixin_binding(
+async def start_binding(
+    payload: ChannelBindPayload,
     session: AsyncSession = Depends(get_session),
-) -> ApiResponse[WeixinBindingStartView]:
-    """获取二维码并启动后台状态轮询;前端拿 challenge_id 开始 poll。
-
-    前置:必须已配置 AI 模型——微信侧对话完全由模型驱动,没配置时绑定了
-    也无法使用,不如在入口拦下并引导去设置(与 acquire_llm_router 同口径,
-    只看是否已配置,连通性验证失败仍放行由运行时报错)。
-    """
-    if not await LlmProviderRepository(session).has_any():
+) -> ApiResponse[ChannelBindingView]:
+    hub = _hub()
+    channel_id = payload.channel_id
+    try:
+        driver = hub.driver(channel_id)
+    except ChannelUnavailable as exc:
+        raise ConflictException(str(exc)) from exc
+    # 能对话的通道完全由 AI 模型驱动：没配模型时绑定了也用不了，在入口拦下并引导去设置
+    if driver.capabilities.receive and not await LlmProviderRepository(session).has_any():
         raise BadRequestException(
-            "微信绑定需要先完成 AI 模型配置:请先在「设置 → AI 模型」接入模型供应商,再进行绑定"
+            "绑定需要先完成 AI 模型配置：请先在「设置 → 模型接入」接入模型供应商，再进行绑定"
         )
     try:
-        challenge = await get_weixin_channel().binding.begin()
-    except Exception as exc:  # noqa: BLE001 -- 网关不可达等,转成中文业务错误
-        raise BadRequestException(f"发起微信绑定失败:{exc}") from exc
-    return ok(
-        WeixinBindingStartView(
-            challenge_id=challenge.challenge_id,
-            qrcode_url=challenge.qrcode_url,
-            qrcode_image=_qrcode_data_url(challenge.qrcode_url),
-            message=challenge.message,
-        ),
-        message="绑定已发起",
-    )
+        binding = await hub.begin_binding(channel_id, payload.fields)
+    except ValueError as exc:
+        raise BadRequestException(str(exc)) from exc
+    except ChannelUnavailable as exc:
+        raise ConflictException(str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 -- 网关不可达等，转成中文业务错误
+        raise BadRequestException(f"发起绑定失败：{exc}") from exc
+    return ok(await _binding_view(hub, binding.binding_id), message="绑定已发起")
 
 
 @router.get(
-    "/bindings/{challenge_id}",
-    response_model=ApiResponse[WeixinBindingStatusView],
-    summary="查询绑定状态(前端轮询)",
-    operation_id="channels.weixin.bindings.status",
+    "/bindings/{binding_id}",
+    response_model=ApiResponse[ChannelBindingView],
+    summary="查询绑定状态（前端轮询）",
+    operation_id="channels.bindings.status",
 )
-async def get_weixin_binding_status(
-    challenge_id: str,
-    session: AsyncSession = Depends(get_session),
-) -> ApiResponse[WeixinBindingStatusView]:
-    service = get_weixin_channel()
-    challenge = service.binding.get(challenge_id)
-    if challenge is None:
-        raise NotFoundException("绑定流程不存在或已过期,请重新发起")
+async def get_binding(binding_id: str) -> ApiResponse[ChannelBindingView]:
+    return ok(await _binding_view(_hub(), binding_id))
 
-    account_view: WeixinAccountView | None = None
-    if challenge.status == "confirmed" and challenge.result is not None:
-        row = await ChannelAccountRepository(session).get(challenge.result.bot_id)
-        if row is not None:
-            account_view = WeixinAccountView.from_model(
-                row, running=service.manager.is_running(CHANNEL_ID, row.account_id)
-            )
+
+@router.post(
+    "/bindings/{binding_id}/input",
+    response_model=ApiResponse[ChannelBindingView],
+    summary="交互式绑定里提交输入（如微信配对数字）",
+    operation_id="channels.bindings.input",
+)
+async def submit_binding_input(
+    binding_id: str, payload: ChannelBindingInputPayload
+) -> ApiResponse[ChannelBindingView]:
+    hub = _hub()
+    try:
+        await hub.binding_input(binding_id, payload.value.strip())
+    except LookupError as exc:
+        raise NotFoundException(str(exc)) from exc
+    return ok(await _binding_view(hub, binding_id))
+
+
+@router.delete(
+    "/{channel_id}/accounts/{account_id}",
+    response_model=ApiResponse[dict],
+    summary="解绑通道账号（停收发、删凭据；历史对话保留）",
+    operation_id="channels.accounts.unbind",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def unbind_account(channel_id: str, account_id: str) -> ApiResponse[dict]:
+    if not await _hub().unbind(channel_id, account_id):
+        raise NotFoundException("账号不存在")
+    return ok({}, message="已解绑")
+
+
+# ---------------------------------------------------------------------- 推送（路径不变）
+
+
+@router.post(
+    "/im/push-test",
+    response_model=ApiResponse[dict],
+    summary="向所有已绑定通道发送测试推送",
+    operation_id="channels.im.push.test",
+)
+async def send_test_push(payload: PushTestPayload) -> ApiResponse[dict]:
+    text = payload.text.strip() or "📣 这是一条来自 MovieClaw 的测试推送。收到说明通道工作正常！"
+    sent = await push_to_all_channels(text)
+    if sent == 0:
+        raise BadRequestException("没有可推送的通道账号：请先完成绑定且确保通道在运行")
+    return ok({"sent": sent}, message=f"已推送到 {sent} 个账号")
+
+
+@router.get(
+    "/im/push-config",
+    response_model=ApiResponse[ChannelPushConfigView],
+    summary="读取推送内容开关",
+    operation_id="channels.im.push.config.get",
+)
+async def get_push_config() -> ApiResponse[ChannelPushConfigView]:
+    setting = await get_setting_store().get(ChannelPushSetting)
     return ok(
-        WeixinBindingStatusView(
-            challenge_id=challenge.challenge_id,
-            status=challenge.status,
-            message=challenge.message,
-            qrcode_url=challenge.qrcode_url,
-            qrcode_image=_qrcode_data_url(challenge.qrcode_url),
-            account=account_view,
+        ChannelPushConfigView(
+            push_dispatch=setting.push_dispatch, push_imported=setting.push_imported
         )
     )
 
 
-@router.post(
-    "/bindings/{challenge_id}/verify-code",
-    response_model=ApiResponse[dict],
-    summary="提交扫码配对数字",
-    operation_id="channels.weixin.bindings.verify",
+@router.put(
+    "/im/push-config",
+    response_model=ApiResponse[ChannelPushConfigView],
+    summary="保存推送内容开关",
+    operation_id="channels.im.push.config.update",
 )
-async def submit_weixin_verify_code(
-    challenge_id: str, payload: WeixinVerifyCodePayload
-) -> ApiResponse[dict]:
-    accepted = get_weixin_channel().binding.submit_verify_code(challenge_id, payload.code)
-    if not accepted:
-        raise NotFoundException("绑定流程不存在或已结束,请重新发起")
-    return ok({}, message="配对码已提交,正在校验")
-
-
-@router.delete(
-    "/accounts/{account_id}",
-    response_model=ApiResponse[dict],
-    summary="解绑微信账号",
-    operation_id="channels.weixin.accounts.unbind",
-    # 解绑删除凭据、停止通道,须二次确认(CLI 据此决定 --yes 门槛)
-    openapi_extra={"x-cli-dangerous": "confirm"},
-)
-async def unbind_weixin_account(account_id: str) -> ApiResponse[dict]:
-    """停止收发循环并删除凭据;之后该 bot 需重新扫码才能使用。"""
-    removed = await get_weixin_channel().unbind(account_id)
-    if not removed:
-        raise NotFoundException("账号不存在或已解绑")
-    return ok({}, message="已解绑")
+async def update_push_config(payload: ChannelPushConfigView) -> ApiResponse[ChannelPushConfigView]:
+    await get_setting_store().set(
+        ChannelPushSetting(push_dispatch=payload.push_dispatch, push_imported=payload.push_imported)
+    )
+    return ok(payload, message="推送设置已保存")

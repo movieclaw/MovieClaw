@@ -41,19 +41,14 @@ auth bootstrap status
 auth me
 auth password update
 auth profile update
-channels im accounts list
-channels im accounts unbind
-channels im bindings start
-channels im bindings status
-channels im feishu bind
+channels accounts unbind
+channels bindings input
+channels bindings start
+channels bindings status
 channels im push config get
 channels im push config update
 channels im push test
-channels weixin accounts list
-channels weixin accounts unbind
-channels weixin bindings start
-channels weixin bindings status
-channels weixin bindings verify
+channels list
 collection create
 collection delete
 collection get

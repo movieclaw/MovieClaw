@@ -67,28 +67,19 @@ auth password update
 auth profile
 auth profile update
 channels
+channels accounts
+channels accounts unbind
+channels bindings
+channels bindings input
+channels bindings start
+channels bindings status
 channels im
-channels im accounts
-channels im accounts list
-channels im accounts unbind
-channels im bindings
-channels im bindings start
-channels im bindings status
-channels im feishu
-channels im feishu bind
 channels im push
 channels im push config
 channels im push config get
 channels im push config update
 channels im push test
-channels weixin
-channels weixin accounts
-channels weixin accounts list
-channels weixin accounts unbind
-channels weixin bindings
-channels weixin bindings start
-channels weixin bindings status
-channels weixin bindings verify
+channels list
 collection
 collection create
 collection delete

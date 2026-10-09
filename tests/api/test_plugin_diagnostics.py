@@ -74,14 +74,14 @@ def _plugin_notices(client: TestClient) -> list[dict]:
 
 
 def test_failed_plugin_raises_a_notice_and_recovery_resolves_it(env, monkeypatch) -> None:
-    from movieclaw_api.services import weixin_channel
+    from movieclaw_channel.weixin import driver
 
-    real_init = weixin_channel.init_weixin_channel
+    real_init = driver.WeixinDriver.__init__
 
-    async def broken() -> None:
+    def broken(self) -> None:
         raise ConnectionError("微信网关不可达")
 
-    monkeypatch.setattr(weixin_channel, "init_weixin_channel", broken)
+    monkeypatch.setattr(driver.WeixinDriver, "__init__", broken)
     _, client = make_admin_client()
     with client:
         client.portal.call(client.app.state.kernel.bus.drain)  # type: ignore[attr-defined]
@@ -96,7 +96,7 @@ def test_failed_plugin_raises_a_notice_and_recovery_resolves_it(env, monkeypatch
         }
 
     # 修好之后重启：插件恢复运行，告警自动消退
-    monkeypatch.setattr(weixin_channel, "init_weixin_channel", real_init)
+    monkeypatch.setattr(driver.WeixinDriver, "__init__", real_init)
     _, client = make_admin_client()
     with client:
         client.portal.call(client.app.state.kernel.bus.drain)  # type: ignore[attr-defined]

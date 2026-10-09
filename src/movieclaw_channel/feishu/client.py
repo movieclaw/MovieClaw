@@ -3,7 +3,7 @@
 与 Telegram/Discord 的 bot 不同,飞书自定义机器人是纯推送出口:用户在飞书群
 「设置 → 群机器人 → 添加机器人 → 自定义机器人」里拿到一个 Webhook 地址,
 对它 POST JSON 即可向群里发消息——没有 bot 身份、收不到消息,也因此绑定
-不需要配对码,粘贴地址即完成(见 services/im_channel.py::bind_feishu)。
+不需要配对码,粘贴地址即完成(见 feishu/driver.py)。
 
 凭据存储约定:channel_account.token 列(SecretBox 加密)存 JSON
 ``{"webhook_url": ..., "secret": ...}``,裸 URL 亦兼容(等价于无签名)。

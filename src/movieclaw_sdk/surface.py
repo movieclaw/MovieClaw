@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import importlib
+import inspect
 import json
 import sys
 from pathlib import Path
@@ -49,6 +50,15 @@ def _schema(tp: Any) -> Any:
                 "dataclass": tp.__name__,
                 "fields": {f.name: str(f.type) for f in dataclasses.fields(tp)},
             }
+        if inspect.isclass(tp):
+            # 插件要实现的基类（如通道驱动）：公开方法的签名就是契约
+            methods = {
+                name: str(inspect.signature(member))
+                for name, member in sorted(vars(tp).items())
+                if not name.startswith("_") and inspect.isfunction(member)
+            }
+            if methods:
+                return {"class": tp.__name__, "methods": methods}
         return {"type": getattr(tp, "__name__", repr(tp))}
 
 

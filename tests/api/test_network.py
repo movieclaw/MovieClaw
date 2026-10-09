@@ -236,8 +236,8 @@ def test_test_endpoint_probes_telegram_discord_and_webhook(client, monkeypatch):
     monkeypatch.setattr(ChannelAccountRepository, "list_by_channel", one_account)
     monkeypatch.setattr(
         ChannelAccountRepository,
-        "decrypted_token",
-        lambda row: "test-bot-token",
+        "credentials",
+        lambda row: {"token": "test-bot-token"},
     )
 
     class FakeSettingStore:

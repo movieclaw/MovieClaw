@@ -1,36 +1,81 @@
 """通道与推送插件（plugin-kernel.md §7）。
 
-微信、IM、Cloud、推送中枢、新片到达、Jellyfin 局域网发现。
+IM 通道中枢与各通道（微信 / Telegram / Discord / 飞书）、Cloud、推送中枢、新片到达、
+Jellyfin 局域网发现。
 """
 
 from __future__ import annotations
 
-from movieclaw_api.plugins.keys import AGENT_RUNS, CLOUD, DB, EGRESS, PUSH_HUB
+from movieclaw_api.plugins.keys import (
+    AGENT_RUNS,
+    CHANNEL_HUB,
+    CLOUD,
+    DB,
+    EGRESS,
+    IM_CHANNELS,
+    PUSH_HUB,
+)
 from movieclaw_kernel import Context, plugin
 
 
-@plugin("channel.weixin", title="微信通道", inject=(AGENT_RUNS,), disableable=True, reloadable=True)
-async def weixin(ctx: Context) -> None:
-    from movieclaw_api.services.weixin_channel import close_weixin_channel, init_weixin_channel
-
-    # 拉起所有已绑定账号的收发循环；入站消息要驱动 Agent，所以依赖 Agent 注册表
-    # （关闭时先停通道：掐断在飞长轮询、停会话 worker，再停 Agent）
-    await init_weixin_channel()
-    ctx.effect(close_weixin_channel, label="close-weixin")
-
-
 @plugin(
-    "channel.im",
-    title="Telegram / Discord / 飞书",
-    inject=(AGENT_RUNS,),
-    disableable=True,
+    "channels.hub",
+    title="IM 通道中枢",
+    inject=(DB, AGENT_RUNS),
+    provides=(CHANNEL_HUB,),
     reloadable=True,
 )
-async def im_channels(ctx: Context) -> None:
-    from movieclaw_api.services.im_channel import close_im_channels, init_im_channels
+async def channel_hub(ctx: Context) -> None:
+    from movieclaw_api.services.channel_hub import ChannelHub, set_hub
 
-    await init_im_channels()
-    ctx.effect(close_im_channels, label="close-im")
+    # 通道列表 = 注册表现取：通道插件装上 / 关掉 / 卸载，中枢跟着启停账号
+    # （docs/design/plugin-channels.md §6）。入站消息驱动 AI 助手，所以依赖 Agent 注册表
+    # （关闭时先停通道：掐断在飞长轮询、停会话 worker，再停 Agent）
+    registry = ctx.registry(IM_CHANNELS)
+    hub = ChannelHub(
+        lambda: dict(registry.items()),
+        lambda: {c.id: c.entry_id for c in registry.contributions()},
+    )
+    set_hub(hub)
+    ctx.watch(IM_CHANNELS, lambda _change: hub.schedule_sync())
+
+    async def close() -> None:
+        set_hub(None)
+        await hub.stop()
+
+    ctx.effect(close, label="close-channel-hub")
+    await hub.start()
+    ctx.provide(CHANNEL_HUB, hub)
+
+
+@plugin("channel.weixin", title="微信通道", disableable=True, reloadable=True)
+async def weixin(ctx: Context) -> None:
+    from movieclaw_channel.weixin.driver import WeixinDriver
+
+    driver = WeixinDriver()
+    ctx.effect(driver.close, label="close-weixin")
+    ctx.contribute(IM_CHANNELS, "weixin", driver)
+
+
+@plugin("channel.telegram", title="Telegram 通道", disableable=True, reloadable=True)
+async def telegram(ctx: Context) -> None:
+    from movieclaw_channel.telegram.driver import TelegramDriver
+
+    ctx.contribute(IM_CHANNELS, "telegram", TelegramDriver())
+
+
+@plugin("channel.discord", title="Discord 通道", disableable=True, reloadable=True)
+async def discord(ctx: Context) -> None:
+    from movieclaw_channel.discord.driver import DiscordDriver
+
+    ctx.contribute(IM_CHANNELS, "discord", DiscordDriver())
+
+
+@plugin("channel.feishu", title="飞书通道", disableable=True, reloadable=True)
+async def feishu(ctx: Context) -> None:
+    from movieclaw_channel.feishu.driver import FeishuDriver
+
+    ctx.contribute(IM_CHANNELS, "feishu", FeishuDriver())
 
 
 @plugin(

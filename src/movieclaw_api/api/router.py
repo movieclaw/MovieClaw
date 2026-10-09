@@ -32,7 +32,7 @@ from movieclaw_api.api.routes.app_update import router as app_update_router
 from movieclaw_api.api.routes.appearance import router as appearance_router
 from movieclaw_api.api.routes.auth import router as auth_router
 from movieclaw_api.api.routes.channels import router as channels_router
-from movieclaw_api.api.routes.channels_im import router as channels_im_router
+from movieclaw_api.api.routes.channels_legacy import router as channels_legacy_router
 from movieclaw_api.api.routes.cloud import router as cloud_router
 from movieclaw_api.api.routes.collections import router as collections_router
 from movieclaw_api.api.routes.discover import router as discover_router
@@ -164,8 +164,9 @@ _ADMIN_ROUTERS = [
     llm_router,
     session_router,
     agent_skills_router,
+    # 旧版 App 的通道接口（只为已发布的 App 保留，内部走通道中枢）
+    channels_legacy_router,
     channels_router,
-    channels_im_router,
     import_watch_router,
     jobs_router,
     fs_router,

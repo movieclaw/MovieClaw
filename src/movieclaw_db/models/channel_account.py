@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from sqlalchemy import Column, Text
+from sqlalchemy import Column, Index, Text
 from sqlmodel import Field
 
 from movieclaw_db.models.base import TimestampMixin
@@ -21,7 +21,12 @@ class ChannelAccountStatus(StrEnum):
 
 
 class ChannelAccount(TimestampMixin, table=True):
-    """IM 通道账号表:一行 = 一个已绑定的 bot 账号(微信为首个通道)。
+    """IM 通道账号表:一行 = 一个已绑定的通道账号(docs/design/plugin-channels.md §6)。
+
+    通道插件化之后，凭据与插件私有状态是通用形态：``token`` 存加密的凭据 JSON（各通道字段不同，
+    中枢不解读），``state`` 存插件私有状态 JSON（微信的游标与会话令牌、Telegram 的 offset）。
+    旧行（插件化之前绑定的）``token`` 是裸凭据、``cursor`` / ``context_token`` 是单独的列，
+    由 Repository 读取时按旧形态解释（惰性迁移，不需要在迁移脚本里解密）。
 
     安全:``token`` 经 SecretBox 加密后落库(``enc::`` 前缀密文),
     加解密统一在 Repository 层完成,与站点凭据/LLM Key 同款约定。
@@ -41,22 +46,29 @@ class ChannelAccount(TimestampMixin, table=True):
     """
 
     __tablename__ = "channel_account"
+    __table_args__ = (
+        Index("uq_channel_account_channel_account", "channel_id", "account_id", unique=True),
+    )
 
     id: int | None = Field(default=None, primary_key=True)
-    channel_id: str = Field(index=True, description="通道类型:weixin")
-    account_id: str = Field(unique=True, description="平台侧账号 id(微信 ilink_bot_id)")
-    token: str = Field(description="平台凭据(SecretBox 加密密文)")
-    base_url: str = Field(description="平台网关地址(绑定时服务端指定的就近接入)")
+    channel_id: str = Field(index=True, description="通道 id（注册表 im-channels 的贡献 id）")
+    account_id: str = Field(index=True, description="平台侧账号 id（同一通道内唯一）")
+    display_name: str | None = Field(default=None, description="账号展示名（bot 名、群名）")
+    state: str | None = Field(
+        default=None, sa_column=Column(Text), description="插件私有状态 JSON（中枢不解读）"
+    )
+    token: str = Field(description="凭据 JSON 的 SecretBox 密文(旧行是裸凭据)")
+    base_url: str = Field(default="", description="旧行的微信网关地址(新行并入凭据,留空)")
     bound_user_id: str | None = Field(
         default=None, description="扫码绑定人的平台用户 id(即白名单)"
     )
     cursor: str | None = Field(
-        default=None, sa_column=Column(Text), description="收消息增量游标(get_updates_buf)"
+        default=None, sa_column=Column(Text), description="旧行的收消息游标(新行在 state 里)"
     )
     context_token: str | None = Field(
         default=None,
         sa_column=Column(Text),
-        description="最近一次入站消息的会话令牌(仅微信,主动推送复用它定位会话)",
+        description="旧行的微信会话令牌(新行在 state 里)",
     )
     status: ChannelAccountStatus = Field(
         default=ChannelAccountStatus.ACTIVE, description="账号状态(active/stale)"

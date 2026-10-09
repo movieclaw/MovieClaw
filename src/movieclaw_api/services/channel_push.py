@@ -12,8 +12,8 @@
 竖图会跟着缩放导致不同推送显示大小不一;横图天然顶满气泡最大宽度,
 渲染规格恒定(Telegram 实测结论,2026-08)。
 
-微信通道的绑定用户与 TG/Discord 一样从 channel_account.bound_user_id 取,
-出站统一经各账号 dispatcher 的发送泵(顺序与限流集中一处)。
+推送目标由各通道驱动给出(默认绑定人;群机器人是整个群),出站统一经各账号
+dispatcher 的发送泵(顺序与限流集中一处),见 services/channel_hub.py。
 """
 
 from __future__ import annotations
@@ -21,11 +21,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-
-from movieclaw_channel.types import OutboundEnvelope, ReplyContext
-from movieclaw_db.engine import get_database
-from movieclaw_db.models.channel_account import ChannelAccountStatus
-from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
 
 logger = logging.getLogger("movieclaw_api.channel_push")
 
@@ -48,44 +43,13 @@ def tmdb_push_image_url(backdrop_path: str | None, poster_path: str | None) -> s
 
 
 async def push_to_all_channels(text: str, photo: bytes | None = None) -> int:
-    """推送到所有通道(微信 + Telegram + Discord + 飞书),返回入队的账号数。"""
-    count = 0
+    """推送到所有通道账号（经通道中枢扇出），返回入队的账号数；中枢没运行时为 0。"""
+    from movieclaw_api.services.channel_hub import get_hub
 
-    # IM 通道(telegram/discord/飞书):服务内存里有现成的推送地址簿
-    try:
-        from movieclaw_api.services.im_channel import get_im_channels
-
-        count += await get_im_channels().push_text(text, photo=photo)
-    except RuntimeError:
-        pass  # 服务未初始化(启动早期/测试)
-
-    # 微信通道:从库里取绑定用户,经运行中的 dispatcher 入队
-    # (photo 照常带上,微信 adapter 无发图能力时发送泵自动退纯文本)
-    try:
-        from movieclaw_api.services.weixin_channel import get_weixin_channel
-        from movieclaw_channel.weixin.adapter import CHANNEL_ID as WEIXIN_CHANNEL_ID
-
-        service = get_weixin_channel()
-        async with get_database().session() as session:
-            rows = await ChannelAccountRepository(session).list_by_channel(WEIXIN_CHANNEL_ID)
-        for row in rows:
-            bound = (row.bound_user_id or "").strip()
-            if not bound or row.status != ChannelAccountStatus.ACTIVE:
-                continue
-            dispatcher = service.manager.get_dispatcher(WEIXIN_CHANNEL_ID, row.account_id)
-            if dispatcher is None:
-                continue
-            reply = ReplyContext(
-                channel_id=WEIXIN_CHANNEL_ID, account_id=row.account_id, user_id=bound
-            )
-            await dispatcher.push_outbound(
-                OutboundEnvelope(reply=reply, text=text, origin="push", photo=photo)
-            )
-            count += 1
-    except RuntimeError:
-        pass
-
-    return count
+    hub = get_hub()
+    if hub is None:
+        return 0
+    return await hub.push(text, photo=photo)
 
 
 # 推送配图的统一宽度:手机通知大图约 360 点宽 × 3 倍屏

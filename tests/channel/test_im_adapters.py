@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import time
+
+import pytest
 
 from movieclaw_channel.discord.adapter import DiscordAdapter
 from movieclaw_channel.discord.client import DiscordClient
@@ -135,20 +136,22 @@ class TestDiscordHandshakeRejection:
         assert calls == 1
 
 
-class TestPairChallengeExpiry:
-    def test_expired_challenge_flips_status(self) -> None:
-        from movieclaw_api.services.im_channel import ImChannelService, PairChallenge
+async def test_telegram_client_non_json_response() -> None:
+    """5xx / 代理错误页返回 HTML：应抛可重试的 TelegramApiError，而非 JSON 解码异常。"""
+    import httpx
 
-        service = ImChannelService()
-        challenge = PairChallenge(
-            challenge_id="c1",
-            channel_id="telegram",
-            pair_code="123456",
-            bot_id="b1",
-            bot_name="bot",
-            expires_at=time.monotonic() - 1,  # 已过期
+    from movieclaw_channel.telegram.client import TelegramApiError
+
+    client = TelegramClient("dummy")
+    await client._http.aclose()
+    client._http = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(502, text="<html>Bad Gateway</html>")
         )
-        service._challenges["c1"] = challenge
-        got = service.get_challenge("c1")
-        assert got is not None
-        assert got.status == "expired"
+    )
+    try:
+        with pytest.raises(TelegramApiError) as exc_info:
+            await client.get_me()
+        assert not exc_info.value.auth_failed
+    finally:
+        await client.aclose()

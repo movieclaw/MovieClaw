@@ -1,6 +1,6 @@
 """show_media_cards 工具的装配开关（docs/design/agent-generative-ui.md §2）。
 
-卡片只有网页会话能画：开关默认关、网页会话显式开、IM/微信通道的受限工具集
+卡片只有网页会话能画：开关默认关、网页会话显式开、IM 通道的受限工具集
 永远不含它——三条各一个守护测试，新接通道忘了关也会被拦下。
 """
 
@@ -10,7 +10,7 @@ import inspect
 
 from movieclaw_agent.tools.media_ui import TOOL_NAME
 from movieclaw_api.api.routes import agent as agent_routes
-from movieclaw_api.services import im_channel, weixin_channel
+from movieclaw_api.services import channel_agent
 
 
 def _names(tools) -> set[str]:
@@ -35,9 +35,8 @@ def test_web_session_paths_opt_in_explicitly() -> None:
     assert all("generative_ui=True" in line for line in calls), calls
 
 
-def test_im_and_weixin_channels_never_carry_the_tool() -> None:
-    """IM/微信通道无法渲染卡片：受限工具集里不允许出现绘制工具（连 import 都不该有）。"""
-    for module in (im_channel, weixin_channel):
-        source = inspect.getsource(module)
-        assert "make_media_ui_tool" not in source, module.__name__
-        assert "generative_ui=True" not in source, module.__name__
+def test_im_channels_never_carry_the_tool() -> None:
+    """IM 通道无法渲染卡片：所有通道共用的受限工具集里不允许出现绘制工具（连 import 都不该有）。"""
+    source = inspect.getsource(channel_agent)
+    assert "make_media_ui_tool" not in source
+    assert "generative_ui=True" not in source

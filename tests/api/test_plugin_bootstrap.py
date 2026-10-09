@@ -86,8 +86,7 @@ def test_shutdown_order_keeps_lifespan_constraints(make_client) -> None:
 
     assert order[0] == "playback.transcode", "转码会话最先停（killpg 整组）"
     before("playback.transcode", "playback.remote-workers")
-    before("channel.weixin", "agent.runs")
-    before("channel.im", "agent.runs")
+    before("channels.hub", "agent.runs")
     before("push.arrivals", "push.hub")
     before("push.channels-refresh", "cloud")
     before("library.skip-segments", "jobs")
@@ -119,12 +118,12 @@ def test_scheduler_switch_only_affects_scheduler_and_its_dependents(make_client)
 
 
 def test_non_critical_failure_degrades_instead_of_aborting(make_client, monkeypatch) -> None:
-    from movieclaw_api.services import weixin_channel
+    from movieclaw_channel.weixin import driver
 
-    async def broken() -> None:
+    def broken(self) -> None:
         raise ConnectionError("weixin gateway down")
 
-    monkeypatch.setattr(weixin_channel, "init_weixin_channel", broken)
+    monkeypatch.setattr(driver.WeixinDriver, "__init__", broken)
     app, client = make_client()
     with client:
         kernel = app.state.kernel
