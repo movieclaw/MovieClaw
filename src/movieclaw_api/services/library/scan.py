@@ -3127,6 +3127,9 @@ async def _ingest_file(
             external_subtitles=external_subtitles,
             media_source=scanned_media_source(attrs, container) if profile.scraped else None,
             release_group=attrs.release_group if profile.scraped else None,
+            # 扫描不知道入库前的原名，以发现时的文件名为准（只补空不覆盖，
+            # 已有快照的行重扫不变）；命名模板 {release_name} 的取值
+            release_name=file.stem,
             source=FileSource.SCANNED,
             info_hash=torrent[0] if torrent else None,
             downloader_id=torrent[1] if torrent else None,
