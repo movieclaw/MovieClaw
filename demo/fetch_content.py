@@ -62,6 +62,8 @@ RETRIES = 6
 # 超出的来源（比如 Charge 是 1608p）即便已是 H.264 也重新编码，免得小带宽的
 # VPS 被一两路播放占满；重编码用 CRF 控画质、maxrate / bufsize 封顶码率
 MAX_WIDTH, MAX_HEIGHT = 1920, 1080
+#: 演示资源站的种子目录（媒体根下，不属于任何媒体库；容器里是 /media/_资源站）
+SEED_DIR = "_资源站"
 # 触发重编码的码率：明显超标才重编码。MKV 往往不单报视频码率，只能用含音频的
 # 整体码率兜底（Sintel 的 720p 就这样被算成 6.1 Mbps）；为这点出入整片重编码
 # 既损画质、在 2 核的机器上又要跑几十分钟，不划算
@@ -329,12 +331,38 @@ def nfo_for(film: dict, transcoded: bool) -> str:
     )
 
 
+def scene_name(film: dict, width: int) -> str:
+    """演示资源站上的发布名（场景风格）：``Spring.2019.1080p.WEB-DL.AAC.H.264-BLENDER``。"""
+    title = re.sub(r"[^0-9A-Za-z]+", ".", film["title"]).strip(".")
+    resolution = "1080p" if width >= 1800 else "720p" if width >= 1200 else "480p"
+    return f"{title}.{film['year']}.{resolution}.WEB-DL.AAC.H.264-BLENDER"
+
+
+def _seed_folder(out: Path, film: dict) -> Path | None:
+    """已整理好的种子文件夹（演示资源站的影片按发布名放，名字里带分辨率，只能按前缀找）。"""
+    prefix = re.sub(r"[^0-9A-Za-z]+", ".", film["title"]).strip(".") + f".{film['year']}."
+    base = out / SEED_DIR
+    if not base.is_dir():
+        return None
+    return next((p for p in base.iterdir() if p.is_dir() and p.name.startswith(prefix)), None)
+
+
 def prepare_film(film: dict, *, out: Path, cache: Path, lock: Lock, tools: dict) -> None:
-    library = next(lib for lib in CONTENT["libraries"] if lib["name"] == film["library"])
+    # 演示资源站的影片（resource_site）不进媒体库：放进种子目录，留给审核员去搜、去订阅
+    # （docs/design/demo-site.md §10）
+    seeded = bool(film.get("resource_site"))
     stem = f"{safe_name(film['title'])} ({film['year']})"
-    folder = out / library["dir"] / f"{stem} {{tmdb-{film['tmdb_id']}}}"
+    if seeded:
+        existing = _seed_folder(out, film)
+        if existing and (existing / "release.json").exists():
+            log(f"跳过 {existing.name}：已整理过")
+            return
+        folder = out / SEED_DIR / f".{film['id']}.staging"
+    else:
+        library = next(lib for lib in CONTENT["libraries"] if lib["name"] == film["library"])
+        folder = out / library["dir"] / f"{stem} {{tmdb-{film['tmdb_id']}}}"
     target = folder / f"{stem}.mp4"
-    if target.exists() and (folder / "movie.nfo").exists():
+    if not seeded and target.exists() and (folder / "movie.nfo").exists():
         log(f"跳过 {stem}：已整理过")
         return
     log(f"影片 {stem}（{film['license']}，来自 {film['source']['mirror_of']}）")
@@ -446,7 +474,42 @@ def prepare_film(film: dict, *, out: Path, cache: Path, lock: Lock, tools: dict)
 
     (folder / "movie.nfo").write_text(nfo_for(film, transcode), encoding="utf-8")
     tmp.rename(target)
+    if seeded:
+        target = _finish_seed_folder(film, folder, stem, out=out, tools=tools)
     log(f"  完成：{target.relative_to(out)}（{target.stat().st_size // CHUNK} MB）")
+
+
+def _finish_seed_folder(film: dict, folder: Path, stem: str, *, out: Path, tools: dict) -> Path:
+    """种子文件夹按发布名命名：文件都改成发布名打头（NFO 同名，入库时随视频一起带走署名），
+    再写一份 release.json 给演示资源站建目录用。"""
+    video = next(s for s in ffprobe_info(tools["ffprobe"], folder / f"{stem}.mp4")["streams"]
+                 if s["codec_type"] == "video")  # fmt: skip
+    name = scene_name(film, int(video.get("width") or 0))
+    for path in folder.iterdir():
+        renamed = (
+            f"{name}.nfo" if path.name == "movie.nfo" else path.name.replace(stem, name, 1)
+        )
+        path.rename(folder / renamed)
+    (folder / "release.json").write_text(
+        json.dumps(
+            {
+                "title": film["title"],
+                "title_zh": film.get("title_zh", ""),
+                "year": film["year"],
+                "tmdb_id": film["tmdb_id"],
+                # 资源站给出影片编号：订阅匹配靠它区分同名同年的片（如 Charge 与 Charge!）
+                "imdb_id": film.get("imdb_id"),
+                "license": film["license"],
+                "attribution": film["attribution"],
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    final = folder.parent / name
+    folder.rename(final)
+    return final / f"{name}.mp4"
 
 
 # ---------------------------------------------------------------------------

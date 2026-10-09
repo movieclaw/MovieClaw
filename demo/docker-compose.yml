@@ -32,6 +32,9 @@ services:
       - ./data:/app/data
       # 只读：即便哪条路漏了，也删不掉、改不了演示内容
       - ./media:/media:ro
+      # 可写工作目录（demo-site.md §10）：演示下载器的下载目录与新入库影片的落点，
+      # 每日还原时清空
+      - ./workspace:/workspace
       - ./accounts.json:/demo/accounts.json:ro
     environment:
       - TZ=Asia/Shanghai
@@ -40,6 +43,12 @@ services:
       # 演示模式：全站只读、登录页公布账号、访客之间信息脱敏、应用内更新失效
       - MOVIECLAW_DEMO_MODE=${MOVIECLAW_DEMO_MODE:-true}
       - MOVIECLAW_DEMO_ACCOUNTS_FILE=/demo/accounts.json
+      # 演示资源站的种子目录与演示下载器的默认下载目录（demo-site.md §10）
+      - MOVIECLAW_DEMO_SEED_DIR=/media/_资源站
+      - MOVIECLAW_DEMO_DOWNLOAD_DIR=/workspace/downloads
+      # App Store 审核账号：只写在 .env 里，不进仓库；密码留空即不启用（demo-site.md §9）
+      - MOVIECLAW_DEMO_REVIEW_USERNAME=${MOVIECLAW_DEMO_REVIEW_USERNAME:-appreview}
+      - MOVIECLAW_DEMO_REVIEW_PASSWORD=${MOVIECLAW_DEMO_REVIEW_PASSWORD:-}
       # 公网只走 HTTPS（Caddy 终结 TLS），会话 Cookie 只经 https 传输
       - SESSION_COOKIE_SECURE=true
       # 运行日志里有访客 IP：只留 7 天

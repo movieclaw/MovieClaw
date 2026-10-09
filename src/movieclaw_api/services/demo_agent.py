@@ -358,12 +358,21 @@ async def _plan_subscribe(films: list[_Film]) -> list[_Step]:
                 },
             )
         )
+    from movieclaw_tracker.sites.custom.demo import load_catalog
+
+    waiting = "、".join(entry["title"] for entry in load_catalog() if entry.get("title"))
+    tail = (
+        f"这台演示站接的是一个只收开放授权影片的演示资源站：{waiting} 这几部 Blender "
+        "开放电影还没入库，订阅其中一部，就能看到从找到资源、下载到入库的整个过程，"
+        "几分钟后它会出现在「电影」库里。"
+        if waiting
+        else "上面这些订阅都是演示数据。"
+    )
     steps.append(
         _Step(
             "可以。订阅就是为这个准备的：在「发现」里找到想看的片，点「订阅」，之后一有"
             "资源就会自动下载、改名、刮削、入库，你什么都不用管；剧集会一直追到新集出齐。\n\n"
-            "不过这里是演示站，没有接入下载器和资源站点，所以订阅面板能打开、能预检，"
-            "但不会真的下载。上面这些订阅都是演示数据。"
+            + tail
         )
     )
     return steps

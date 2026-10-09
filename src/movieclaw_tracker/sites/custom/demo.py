@@ -161,6 +161,7 @@ def build_catalog(seeds: Path | None = None, out: Path | None = None) -> list[di
             title_zh=meta.get("title_zh", ""),
             title=meta.get("title", ""),
             year=meta.get("year"),
+            imdb_id=meta.get("imdb_id"),
             license=meta.get("license", ""),
             # 上架时间：建目录时按序往前排，列表里有新有旧
             upload_time=(datetime.now(UTC) - timedelta(days=index))
@@ -313,6 +314,7 @@ class DemoSite(BaseSite):
         return TorrentDetail(
             **{key: value for key, value in item.items() if key in TorrentDetail.model_fields},
             description=entry.get("license", ""),
+            imdb_id=entry.get("imdb_id"),
             file_list=[f["path"] for f in entry.get("files", [])],
         )
 

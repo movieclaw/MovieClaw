@@ -2,7 +2,9 @@
 """给一台全新的 MovieClaw 建好演示站（docs/design/demo-site.md §5）。
 
 按 demo/accounts.json 建超管与成员（几种典型角色），按 demo/content.json 建媒体库、
-等扫描与刮削完成、建一个跨库精选合集，最后逐个验证公开账号能登录。
+等扫描与刮削完成、建一个跨库精选合集，接好演示资源站、演示下载器与自动入库
+（审核员能真的搜索、下载、订阅那几部留在资源站里的开放授权影片，demo-site.md §10），
+最后逐个验证公开账号能登录。
 
 **必须在演示模式关闭、且 Caddy 停止时运行**：演示模式的只读守卫会拒绝建库、建成员；
 而非演示模式的实例若经 Caddy 暴露在公网，任何人都能抢注超管。标准流程是
@@ -13,7 +15,8 @@ docker compose down → 只以普通模式启动 movieclaw → 跑本脚本 → 
 只依赖 Python 标准库，在宿主机或 MovieClaw 镜像里都能跑。
 
 用法：
-    python3 demo/provision.py --server http://127.0.0.1:3000 --media-root /media
+    python3 demo/provision.py --server http://127.0.0.1:3000 --media-root /media \\
+        --workspace /workspace
 """
 
 from __future__ import annotations
@@ -38,6 +41,19 @@ BUSY_JOB_STATUSES = {"queued", "running", "cancelling", "retry_wait"}
 # 演示站的媒体目录只读挂载：刮削结果只进 data/，不往媒体目录写海报与 NFO
 READ_ONLY_SCRAPE = {"mirror_images": False, "mirror_nfo": False, "mirror_episode_thumbs": False}
 COLLECTION_NAME = "Blender 开放电影"
+# 演示资源链路（demo-site.md §10）：只读的媒体目录之外，下载与新入库落在可写的工作目录
+DEMO_SITE_ID = "demo"
+DOWNLOADER_NAME = "演示下载器"
+# 智能订阅偏好：演示片都是 1080p WEB-DL，不等更好的版本，订了马上能看到完整流程
+SMART_PREFERENCES = {
+    "resolution": "1080p",
+    "source": "web-dl",
+    "wait_seconds": 0,
+    "allow_upgrade": False,
+    "strict_resolution": False,
+}
+# 刷流：给演示下载器一个够用的预算，在池种子只模拟做种、不落盘
+BOOST_BUDGET_BYTES = 50 * 1024**3
 
 
 def log(message: str) -> None:
@@ -150,18 +166,30 @@ def ensure_admin(client: Client, admin: dict, nickname: str) -> None:
     client.call("PUT", "/auth/profile", {"nickname": nickname})
 
 
-def ensure_libraries(client: Client, content: dict, media_root: str) -> dict[str, dict]:
+def resource_site_libraries(content: dict) -> set[str]:
+    """留在演示资源站里的影片所属的库：这些库要多一个可写的主根，新入库落在那里。"""
+    return {film["library"] for film in content["films"] if film.get("resource_site")}
+
+
+def ensure_libraries(
+    client: Client, content: dict, media_root: str, workspace: str
+) -> dict[str, dict]:
     existing = {lib["name"]: lib for lib in client.call("GET", "/libraries")}
+    writable = resource_site_libraries(content)
     for spec in content["libraries"]:
         if spec["name"] in existing:
             log(f"媒体库「{spec['name']}」已存在，跳过")
             continue
         kind = spec["kind"]
+        roots = [f"{media_root.rstrip('/')}/{spec['dir']}"]
+        if spec["name"] in writable:
+            # 主根（第一个）是新入库的落点：收下载入库的库把可写的工作目录放在最前面
+            roots.insert(0, f"{workspace.rstrip('/')}/library/{spec['dir']}")
         body = {
             "name": spec["name"],
             "kind": kind,
             "source": "local" if kind in ("photo", "video") else "tmdb",
-            "root_paths": [f"{media_root.rstrip('/')}/{spec['dir']}"],
+            "root_paths": roots,
             "exclude_from_home": bool(spec.get("exclude_from_home", False)),
             # 演示站的片子不会变：不需要实时监控，省掉 inotify 资源
             "realtime_watch": False,
@@ -203,6 +231,8 @@ def wait_for_background_work(client: Client, names: list[str], timeout: int) -> 
 def expected_counts(content: dict) -> dict[str, int]:
     expected: dict[str, int] = {}
     for film in content["films"]:
+        if film.get("resource_site"):
+            continue
         expected[film["library"]] = expected.get(film["library"], 0) + 1
     expected[content["photos"]["library"]] = len(content["photos"]["items"])
     return expected
@@ -317,6 +347,88 @@ def ensure_collection(client: Client, content: dict, libraries: dict[str, dict])
         log(f"已补齐合集「{COLLECTION_NAME}」（{len(item_ids)} 部）")
 
 
+def ensure_resource_pipeline(
+    client: Client, content: dict, libraries: dict[str, dict], workspace: str
+) -> None:
+    """接好演示资源站 → 演示下载器 → 自动入库，并设好智能订阅偏好与刷流（demo-site.md §10）。"""
+    target_names = resource_site_libraries(content)
+    if not target_names:
+        log("content.json 里没有留在资源站的影片，跳过演示资源链路")
+        return
+    if len(target_names) > 1:
+        fail(f"留在资源站的影片只能属于同一个库，现在分散在：{sorted(target_names)}")
+    library = libraries[next(iter(target_names))]
+    downloads = f"{workspace.rstrip('/')}/downloads"
+
+    sites = {site["site_id"]: site for site in client.call("GET", "/sites")}
+    if DEMO_SITE_ID not in sites:
+        client.call(
+            "POST",
+            "/sites",
+            {"site_id": DEMO_SITE_ID, "auth_type": "apikey", "api_key": "demo", "enabled": True},
+        )
+        log("已接入演示资源站")
+    deadline = time.monotonic() + 120
+    while (status := client.call("GET", f"/sites/{DEMO_SITE_ID}")["status"]) != "active":
+        if status == "failed" or time.monotonic() > deadline:
+            fail(f"演示资源站验证没有通过（状态 {status}），检查镜像是否为 feat/demo 构建")
+        time.sleep(2)
+
+    downloaders = {d["name"]: d for d in client.call("GET", "/downloaders")}
+    downloader = downloaders.get(DOWNLOADER_NAME)
+    if downloader is None:
+        downloader = client.call(
+            "POST",
+            "/downloaders",
+            {
+                "name": DOWNLOADER_NAME,
+                "client_type": "demo",
+                "url": "http://demo-downloader.local",
+                "save_path": downloads,
+                "enabled": True,
+            },
+        )
+        log(f"已添加演示下载器（保存到 {downloads}）")
+    client.call("POST", f"/downloaders/{downloader['id']}/verify")
+    client.call("POST", f"/downloaders/{downloader['id']}/default")
+
+    rules = client.call("GET", "/import-watch")
+    if not any(rule["source_path"].rstrip("/") == downloads for rule in rules):
+        client.call(
+            "POST",
+            "/import-watch",
+            {
+                "source_path": downloads,
+                "strategy": "copy",
+                "library_id": library["id"],
+                "process_existing": False,
+            },
+        )
+        log(f"已添加自动入库规则：{downloads} → 媒体库「{library['name']}」")
+
+    for kind in ("movie", "tv"):
+        current = client.call("GET", f"/subscriptions/smart-profiles/{kind}")
+        if current.get("preferences") != SMART_PREFERENCES:
+            client.call(
+                "PUT",
+                f"/subscriptions/smart-profiles/{kind}",
+                {"revision": current["revision"], "preferences": SMART_PREFERENCES},
+            )
+    log("智能订阅偏好：1080p WEB-DL，不额外等待")
+
+    client.call(
+        "PATCH",
+        f"/sites/{DEMO_SITE_ID}/ratio-boost",
+        {
+            "enabled": True,
+            "budget_bytes": BOOST_BUDGET_BYTES,
+            "hold_days": 1,
+            "downloader_id": downloader["id"],
+        },
+    )
+    log("演示资源站已开启刷流（免费种只模拟做种，不占磁盘）")
+
+
 def verify_public_accounts(server: str, accounts: dict) -> None:
     """用每个公开账号实际登录一次，确认登录页上写的账号密码都能用；随即注销这台「设备」。"""
     for account in accounts["accounts"]:
@@ -331,6 +443,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="给全新的 MovieClaw 建好演示站")
     parser.add_argument("--server", default="http://127.0.0.1:3000")
     parser.add_argument("--media-root", default="/media", help="媒体根目录在容器里的路径")
+    parser.add_argument(
+        "--workspace", default="/workspace", help="可写工作目录在容器里的路径（下载与新入库）"
+    )
     parser.add_argument("--accounts", type=Path, default=HERE / "accounts.json")
     parser.add_argument("--content", type=Path, default=HERE / "content.json")
     parser.add_argument("--timeout", type=int, default=3600, help="等待后台任务的上限（秒）")
@@ -347,13 +462,14 @@ def main() -> None:
     log(f"等待服务就绪：{args.server}")
     wait_until_healthy(client, timeout=600)
     ensure_admin(client, admin, accounts.get("admin", {}).get("nickname", admin["username"]))
-    ensure_libraries(client, content, args.media_root)
+    ensure_libraries(client, content, args.media_root, args.workspace)
     wait_for_background_work(
         client, [lib["name"] for lib in content["libraries"]], timeout=args.timeout
     )
     libraries = settle_library_counts(client, content, timeout=args.timeout)
     ensure_members(client, accounts, libraries)
     ensure_collection(client, content, libraries)
+    ensure_resource_pipeline(client, content, libraries, args.workspace)
     # 建合集会触发封面拼贴等后台任务，等它们也跑完再打快照
     wait_for_background_work(
         client, [lib["name"] for lib in content["libraries"]], timeout=args.timeout

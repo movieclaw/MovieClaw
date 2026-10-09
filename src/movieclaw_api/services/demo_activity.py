@@ -30,7 +30,7 @@ import zlib
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.services import demo as demo_service
@@ -266,8 +266,21 @@ async def _seed_subscriptions(
     imported: dict[int, datetime],
     rng: random.Random,
 ) -> int:
-    """整体重建订阅：演示站访客不能建订阅，表里的订阅全是这里造的。"""
-    await session.execute(delete(Subscription))  # 工单、时间线、关注随外键级联删除
+    """重建演示订阅：只替换上次造的那批（创建记录带 ``demo_seed`` 标记）。
+
+    公开访客建不了订阅，但审核账号能（demo-site.md §9）：它建的真订阅原样保留，
+    已有真订阅的片子也不再造一条假的。
+    """
+    seeded = select(SubscriptionActivity.subscription_id).where(
+        SubscriptionActivity.type == ActivityType.CREATED,
+        func.json_extract(SubscriptionActivity.payload, "$.demo_seed") == 1,
+    )
+    # 工单、时间线、关注随外键级联删除
+    await session.execute(delete(Subscription).where(Subscription.id.in_(seeded)))
+    real_items = set(
+        (await session.execute(select(Subscription.media_item_id))).scalars().all()
+    )
+    units = [u for u in units if u.item_id not in real_items]
     rule_set = await RuleSetService(session).ensure_default()
     family = members.get("family")
     ordered = sorted(units, key=lambda u: imported[u.item_id])
@@ -320,7 +333,7 @@ async def _seed_subscriptions(
                     wanted_item_id=wanted.id if kind == ActivityType.IMPORTED else None,
                     type=kind,
                     message=message,
-                    payload={},
+                    payload={"demo_seed": True} if kind == ActivityType.CREATED else {},
                     created_at=at,
                     updated_at=at,
                 )

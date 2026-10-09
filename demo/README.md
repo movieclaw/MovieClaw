@@ -94,7 +94,13 @@ cd /srv/movieclaw-demo
 cat > .env <<'EOF'
 DEMO_DOMAIN=demo.example.com
 MOVIECLAW_DEMO_IMAGE=movieclaw:demo-<sha>
+# App Store 审核账号（docs/design/demo-site.md §9）：只写在这里、只给审核员，不进仓库
+MOVIECLAW_DEMO_REVIEW_USERNAME=appreview
+MOVIECLAW_DEMO_REVIEW_PASSWORD=<随机长密码>
 EOF
+chmod 600 .env
+# 可写工作目录：演示下载器的下载目录与新入库影片的落点（demo-site.md §10）
+mkdir -p workspace/downloads workspace/library/电影
 ```
 
 域名的 A 记录先指到这台服务器，80/443 端口放行（Caddy 要用它们申请证书）。
@@ -121,15 +127,17 @@ docker run --rm --cpus 1.5 --entrypoint python -v "$PWD:/work" -w /work "$MOVIEC
 docker compose down
 # 只起 movieclaw（它只监听 127.0.0.1:3000，没有 Caddy 就进不来公网）
 MOVIECLAW_DEMO_MODE=false docker compose up -d movieclaw
-python3 provision.py --server http://127.0.0.1:3000 --media-root /media
+python3 provision.py --server http://127.0.0.1:3000 --media-root /media --workspace /workspace
 # 服务器上没有 python3 时，借镜像里的：
 # docker run --rm --network host --entrypoint python -v "$PWD:/work" -w /work \
-#     "$MOVIECLAW_DEMO_IMAGE" provision.py --server http://127.0.0.1:3000 --media-root /media
+#     "$MOVIECLAW_DEMO_IMAGE" provision.py --server http://127.0.0.1:3000 --media-root /media \
+#     --workspace /workspace
 ```
 
 脚本会等扫描、TMDB 刮削、缩略图与进度条预览都生成完（十来分钟），期间可以重跑，
-已完成的步骤会跳过。最后应当看到每个库「已识别 N / 期望 N」、4 个账号都能登录和
-「建站完成」。
+已完成的步骤会跳过。随后接好演示资源站、演示下载器、自动入库规则、智能订阅偏好与刷流
+（demo-site.md §10）。最后应当看到每个库「已识别 N / 期望 N」、4 个账号都能登录和
+「建站完成」。留在资源站里的 3 部片不计入「电影」库的期望数。
 
 - 任何一个库的条目数与清单不符，脚本会报错退出（退出码非 0）：**这时不要打快照**，
   按提示修好（多半是 TMDB 访问不了或媒体目录没准备好）后重跑；
@@ -196,7 +204,7 @@ DEMO_MEM_LIMIT=1536m       # 与其他服务共用机器时调小
 ```bash
 docker compose down
 MOVIECLAW_DEMO_MODE=false DEMO_HTTP_PORT=3199 docker compose up -d movieclaw
-python3 provision.py --server http://127.0.0.1:3199 --media-root /media
+python3 provision.py --server http://127.0.0.1:3199 --media-root /media --workspace /workspace
 ./reset.sh snapshot        # 以演示模式在 DEMO_HTTP_PORT 上重建容器并自检
 ```
 
@@ -247,10 +255,32 @@ nginx -t && systemctl reload nginx
 - [ ] 图片库按月分组，点开大图正常；
 - [ ] 「我的订阅」有订阅、「刚刚入库」有卡片；活动页有正在播放、最近播放与观看统计；
 - [ ] 小朋友账号只看得到「动画短片」「图片」；朋友账号只看得到「电影」；
-- [ ] iOS App 填 `https://<域名>` 能登录、能播放、能逛「发现」，订阅确认时显示同样的提示；
+- [ ] iOS App 填 `https://<域名>` 能用公开账号登录、能播放、能逛「发现」，订阅确认时显示同样的提示；
+- [ ] iOS App 用审核账号登录（见下文「App Store 审核」），逐项走一遍那一节的清单；
 - [ ] `https://<域名>/docs`、`/api/v1/openapi.json` 返回 404；
 - [ ] 登录后在同一个浏览器打开 `https://<域名>/api/v1/spec`，返回 403（演示站不开放
       完整接口清单）。
+
+## App Store 审核
+
+审核员用**审核账号**（`.env` 里的 `MOVIECLAW_DEMO_REVIEW_*`），不是登录页上的公开账号：
+它就是超管，App 里的每个功能都能真的用（docs/design/demo-site.md §9）。提审时：
+
+- 「App 审核信息 → 登录信息」填审核账号的用户名与密码；
+- 备注里写明：首屏先点「连接服务器」填 `https://<域名>`，再登录；本 App 不提供任何内容，
+  需要连接用户自己部署的 MovieClaw；审核服务器上的媒体库、资源站只有开放授权的 Blender
+  开放电影；资源站里留了 Spring、Charge、Wing It! 三部没入库，可以搜索下载或订阅，几分钟后
+  会自动出现在「电影」库里；
+- 审核期间每天的还原照常进行，审核员留下的订阅、下载、改动第二天会被清掉。
+
+上线前用审核账号在 iPhone 上自己走一遍：
+
+- [ ] 搜索里有「站点资源」，搜 `Spring` 有结果；点下载能选保存位置，提交后「活动」里能看到
+      进度，一两分钟后完成，「电影」库里多出 Spring；
+- [ ] 在「发现」或搜索里找到 Charge，点订阅，几分钟内订阅详情走到「已收齐」，影片出现在库里；
+- [ ] 「活动」里有刷流做种（演示资源站的免费种），上传量在增长；
+- [ ] 新建 / 修改 / 删除一个成员、改一项设置、取消一个任务都能成功；系统日志能打开；
+- [ ] 同时用公开的 admin 账号登录，上面这些写操作仍然提示「演示站……」。
 
 ## 改内容 / 改账号
 
@@ -266,7 +296,7 @@ nginx -t && systemctl reload nginx
    docker compose down
    rm -rf data golden-data.tar.gz
    MOVIECLAW_DEMO_MODE=false docker compose up -d movieclaw
-   python3 provision.py --server http://127.0.0.1:3000 --media-root /media
+   python3 provision.py --server http://127.0.0.1:3000 --media-root /media --workspace /workspace
    ./reset.sh snapshot
    ```
 

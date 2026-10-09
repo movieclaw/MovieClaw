@@ -54,6 +54,14 @@ else
     exit 1
 fi
 
+# 清空可写工作目录（demo-site.md §10）：演示下载器下好的数据与新入库的影片。
+# 库目录本身（workspace/library/<库名>/）留着，它是媒体库的主根；只删里面的条目。
+reset_workspace() {
+    mkdir -p workspace/downloads workspace/library
+    find workspace/downloads -mindepth 1 -delete
+    find workspace/library -mindepth 2 -maxdepth 2 -exec rm -rf {} +
+}
+
 # 以演示模式启动 movieclaw → 自检 → 启动 Caddy。自检不过就全部停掉并报错退出。
 start_demo() {
     docker compose up -d movieclaw
@@ -105,6 +113,8 @@ case "${1:-}" in
         [[ -d data ]] || { echo "当前目录下没有 data/，先完成建站" >&2; exit 1; }
         SERVICE_STOPPED=1
         docker compose stop movieclaw
+        # 快照里的数据库没有任何下载与新入库记录，工作目录也要对齐成空的
+        reset_workspace
         tar -czf "$SNAPSHOT.tmp" data
         mv "$SNAPSHOT.tmp" "$SNAPSHOT"
         SERVICE_STOPPED=0
@@ -123,6 +133,7 @@ case "${1:-}" in
         mv data data.previous
         mv data.restoring/data data
         rmdir data.restoring
+        reset_workspace
         SERVICE_STOPPED=0
         start_demo
         rm -rf data.previous

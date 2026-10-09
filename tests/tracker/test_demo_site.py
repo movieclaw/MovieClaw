@@ -19,7 +19,7 @@ def site(tmp_path, monkeypatch):
     for name, meta in [
         (
             "Spring.2019.1080p.WEB-DL.AAC.H.264-BLENDER",
-            {"title": "Spring", "title_zh": "春", "year": 2019},
+            {"title": "Spring", "title_zh": "春", "year": 2019, "imdb_id": "tt9249278"},
         ),
         (
             "Charge.2022.1080p.WEB-DL.AAC.H.264-BLENDER",
@@ -62,6 +62,9 @@ async def test_torrents_are_real_and_stable(site, tmp_path) -> None:
     assert demo.build_catalog()[0]["info_hash"] == catalog[0]["info_hash"]
     detail = await site.get_torrent_detail(f"download.php?id={catalog[0]['torrent_id']}")
     assert detail.file_list == [f["path"] for f in catalog[0]["files"]]
+    # 资源站给出影片编号：订阅靠它区分同名同年的片
+    spring = next(e for e in catalog if e["title"] == "Spring")
+    assert (await site.get_torrent_detail(f"id={spring['torrent_id']}")).imdb_id == "tt9249278"
 
 
 async def test_list_rotates_free_boost_releases(site) -> None:

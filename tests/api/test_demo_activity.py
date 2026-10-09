@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services import demo_activity
+from movieclaw_api.services.rule_sets import RuleSetService
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
 from movieclaw_db.models import (
@@ -99,6 +100,33 @@ async def test_seeded_data_is_plausible_and_idempotent(db) -> None:
     assert any(s.is_favorite for s in states)
     assert any(s.position_ms > 0 and not s.played for s in states), "「继续观看」需要续播点"
 
+
+
+async def test_reseeding_keeps_real_subscriptions(db) -> None:
+    """审核账号建的真订阅（demo-site.md §9）：当天重启重建演示数据时原样保留，
+    那部片也不再另造一条假订阅。"""
+    async with db.session() as session:
+        first_item = (await session.execute(select(MediaItem.id).order_by(MediaItem.id))).scalar()
+        rule_set = await RuleSetService(session).ensure_default()
+        real = Subscription(
+            media_item_id=first_item,
+            kind="movie",
+            selected_seasons=[],
+            follow_future=False,
+            rule_set_id=rule_set.id,
+        )
+        session.add(real)
+        await session.commit()
+        real_id = real.id
+
+    await demo_activity.seed_demo_data(NOW)
+    await demo_activity.seed_demo_data(NOW)
+
+    async with db.session() as session:
+        subs = (await session.execute(select(Subscription))).scalars().all()
+    assert real_id in {s.id for s in subs}
+    assert [s.media_item_id for s in subs].count(first_item) == 1
+    assert len(subs) == 6
 
 async def test_live_sessions_are_deterministic_and_within_runtime(db) -> None:
     await demo_activity.seed_demo_data(NOW)

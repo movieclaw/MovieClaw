@@ -1,5 +1,5 @@
 {
-  "_comment": "演示站内容清单（docs/design/demo-site.md）。只收开放授权作品：影片为 CC BY，图片为 CC0。fetch_content.py 按此下载、校验、整理成媒体库目录；provision.py 按 libraries 建库；CREDITS.md 由 fetch_content.py --credits 生成。",
+  "_comment": "演示站内容清单（docs/design/demo-site.md）。只收开放授权作品：影片为 CC BY，图片为 CC0。fetch_content.py 按此下载、校验、整理成媒体库目录；provision.py 按 libraries 建库；resource_site 为 true 的影片不进媒体库，放进演示资源站的种子目录（_资源站），留给审核员搜索、订阅（demo-site.md §10）；CREDITS.md 由 fetch_content.py --credits 生成。",
   "libraries": [
     {
       "name": "电影",
@@ -108,6 +108,8 @@
     },
     {
       "id": "spring",
+      "resource_site": true,
+      "imdb_id": "tt9249278",
       "title": "Spring",
       "year": 2019,
       "tmdb_id": 593048,
@@ -125,6 +127,8 @@
     },
     {
       "id": "charge",
+      "resource_site": true,
+      "imdb_id": "tt24787066",
       "title": "Charge",
       "year": 2022,
       "tmdb_id": 1062079,
@@ -141,6 +145,8 @@
     },
     {
       "id": "wing-it",
+      "resource_site": true,
+      "imdb_id": "tt29100749",
       "title": "Wing It!",
       "year": 2023,
       "tmdb_id": 1177628,
