@@ -6,6 +6,8 @@ import android.os.Build
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -26,7 +28,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.remember
@@ -68,7 +69,6 @@ import io.movieclaw.androidtv.ui.theme.McMetrics
 import io.movieclaw.androidtv.ui.theme.McType
 import io.movieclaw.androidtv.ui.theme.pt
 import io.movieclaw.androidtv.ui.theme.ptSp
-import kotlinx.coroutines.delay
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 
 /** 片源标签：实心（分辨率）/ 描边（HDR、音频） */
@@ -198,31 +198,19 @@ private fun withWidth(url: String, w: Int): String {
     return parsed.newBuilder().setQueryParameter("w", w.toString()).build().toString()
 }
 
-/**
- * 一张铺满整屏的剧照：出现后 40 秒线性推近到 1.06 倍（Ken Burns），每换一部从头开始。
- * 推近每秒只更新 10 次：40 秒放大 6%，1920 宽的画面边缘每次挪不到 0.15 像素，看不出台阶；
- * 逐帧更新的话整屏每帧都要重画，首页静置时也一直满帧在画（docs/perf/androidtv-home-scroll-2026-10.md）。
- */
+/** 一张铺满整屏的剧照：出现后 40 秒线性推近到 1.06 倍（Ken Burns），每换一部从头开始 */
 @Composable
 private fun KenBurnsImage(url: String) {
-    val zoom = remember(url) { mutableFloatStateOf(1f) }
-    LaunchedEffect(url) {
-        val start = System.nanoTime()
-        while (true) {
-            val progress = minOf(1f, (System.nanoTime() - start) / 40e9f)
-            zoom.floatValue = 1 + (McMetrics.StageZoom - 1) * progress
-            if (progress >= 1f) break
-            delay(100)
-        }
-    }
+    val zoom = remember(url) { Animatable(1f) }
+    LaunchedEffect(url) { zoom.animateTo(McMetrics.StageZoom, tween(40_000, easing = LinearEasing)) }
     AsyncImage(
         model = ImageRequest.Builder(LocalContext.current).data(url).build(),
         contentDescription = null,
         contentScale = ContentScale.Crop,
         alignment = Alignment.TopCenter,
         modifier = Modifier.fillMaxSize().clipToBounds().graphicsLayer {
-            scaleX = zoom.floatValue
-            scaleY = zoom.floatValue
+            scaleX = zoom.value
+            scaleY = zoom.value
         },
     )
 }
