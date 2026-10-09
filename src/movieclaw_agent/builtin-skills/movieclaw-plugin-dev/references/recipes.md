@@ -256,6 +256,15 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
 样板：`references/examples/ntfy-channel/`（最小第三方通道）、`$SRC/movieclaw_plugins/feishu/`（最短的内置通道）、
 `$SRC/movieclaw_plugins/weixin/`（扫码交互流程）。契约说明在 `$SRC/movieclaw_sdk/channels.py` 文件头。
 
+**选接入方式**：MovieClaw 多半跑在家里的 NAS 上，没有公网地址，平台推不进来。按这个顺序选：
+
+1. 服务器主动连出去收消息：长轮询（如 Telegram `getUpdates`）、长连接（如 Discord Gateway；企业微信「智能机器人」
+   的长连接模式，绑定只要 botId + secret）。能对话、能推送，不需要公网地址——**首选**；
+2. 只推送：群机器人 Webhook（飞书、企业微信群机器人、钉钉群机器人），粘贴地址即可，但不能对话；
+3. 需要公网回调地址的方式（企业微信自建应用的回调、公众号）放最后，选它要先跟用户确认有公网地址。
+
+给用户方案时把「能不能对话」「要不要公网地址」「绑定要填什么」讲清楚。
+
 ## 12. 站点
 
 - 一批站点 YAML：`ctx.contribute(SITE_DATA_PACKS, "sites", <目录 Path>)`，YAML 写法同
