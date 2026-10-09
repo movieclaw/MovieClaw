@@ -10,6 +10,7 @@ CI 里 `tests/api/test_example_plugins*.py` 会把它们装进临时数据目录
 | `keyword_rules.py` | 关键字规则：给订阅加「必须包含 / 排除」关键字与额外搜索词 | 决策钩子 `subscription.candidates.filter` / `subscription.search.keywords`、插件数据（订阅扩展字段）、可靠事件 `subscription.deleted` |
 | `cloud_strm.py` | 网盘上传：入库暂存后传到网盘，媒体库里放指向插件的签名 `.strm` | 流水线槽位 `ingest.staged`、任务处理器（断点续传、进度、重试 / 阻塞）、插件路由（验签公开区）与签名链接、宿主操作 `library.get`、`library.scan.start` |
 | `site_pack/` | 站点数据包：把一组自己适配的站点 YAML 打成插件分发 | 站点数据包注册表 `site-data-packs`（包形式的本地插件） |
+| `ntfy-channel/` | 第三方 IM 通道：在 ntfy App 里和 MovieClaw 对话、接收推送 | 通道注册表 `im-channels`（`movieclaw_sdk.channels`，见 `docs/design/plugin-channels.md`）；带清单，可直接 `mclaw plugin pack` 成插件包 |
 
 ## 装到自己的 MovieClaw 上
 
@@ -103,3 +104,18 @@ mclaw app plugins packages approve acme.group-blocklist --version 0.1.0 \
 ```
 
 能用哪些契约、它们的载荷长什么样：`python -m movieclaw_sdk.surface`（与 `src/movieclaw_sdk/surface.json` 相同）。
+
+## 写一个 IM 通道插件
+
+通道插件只管一个平台「怎么收、怎么发、怎么绑定」，往注册表 `im-channels` 贡献一个 `ChannelDriver`（`movieclaw_sdk.channels`）；
+白名单、会话、AI 助手、长消息拆分、推送、账号存储、设置页都由 MovieClaw 的通道中枢负责。最小骨架见 `ntfy-channel/ntfy_channel.py`：
+
+- `binding`：`Binding.form(字段…)` 表单绑定（`pairing="code"` 时由中枢生成 6 位配对码，适合 Telegram 这类 bot），
+  或 `Binding.flow()` 交互式绑定（自己实现 `begin_flow` / `flow_state` / `flow_input`，比如扫码）；
+- `validate(fields)` 校验表单、返回账号 id、展示名与凭据（凭据由中枢加密保存，启动账号时交还给你）；
+- `run(account)` 收消息循环：归一化后 `await account.inbound(InboundMessage(...))`，游标等私有状态用
+  `await account.save_state({...})` 存，`account.stopping` 置位就退出；凭据失效抛 `ChannelAuthError`；
+- `send(account, reply, text)` 发一条文本（中枢已按 `capabilities.max_text_len` 拆好）。
+
+同一份代码当本地插件（主进程里运行）或插件包（独立进程里运行）都能用，绑定后出现在「设置 → IM 推送」。
+

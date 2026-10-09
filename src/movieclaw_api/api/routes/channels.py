@@ -212,8 +212,9 @@ async def submit_binding_input(
     return ok(await _binding_view(hub, binding_id))
 
 
+# 账号 id 由通道插件定，可能带斜杠（如 ntfy 的「服务器/主题」）：最后一段按路径匹配
 @router.delete(
-    "/{channel_id}/accounts/{account_id}",
+    "/{channel_id}/accounts/{account_id:path}",
     response_model=ApiResponse[dict],
     summary="解绑通道账号（停收发、删凭据；历史对话保留）",
     operation_id="channels.accounts.unbind",

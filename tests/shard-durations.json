@@ -26,6 +26,7 @@
  "tests/api/test_avatar.py": 1.1,
  "tests/api/test_bluray_clpi.py": 0.0,
  "tests/api/test_boost_bandwidth.py": 0.0,
+ "tests/api/test_channel_plugin_ntfy.py": 6.5,
  "tests/api/test_channels_api.py": 8.1,
  "tests/api/test_chapter_images.py": 6.0,
  "tests/api/test_client_address.py": 0.0,

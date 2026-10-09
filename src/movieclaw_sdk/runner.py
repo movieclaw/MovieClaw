@@ -44,6 +44,9 @@ logger = logging.getLogger("movieclaw_sdk.runner")
 
 _UNSET: Any = object()
 
+#: 宿主取消一次调用后的宽限期（秒）：收消息循环先看到停止信号自行退出，过期再强制取消
+CANCEL_GRACE = 5.0
+
 #: 正在处理的宿主调用（事件 / 钩子）：插件在其中发起的服务调用带上它，宿主据此沿用发起方与因果链
 _current_call: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "movieclaw_sdk_call", default=None
@@ -185,6 +188,11 @@ def _contribution(registry: str, item: Any) -> tuple[dict[str, Any], Any]:
         return dataclasses.asdict(item), None
     if registry == "site-data-packs":
         return {"path": str(Path(item).resolve())}, None
+    if registry == "im-channels":
+        from movieclaw_sdk.channels import driver_spec
+
+        # 驱动留在本进程：宿主登记一个桩，收发与绑定经协议调回来（plugin-channels.md §5.3）
+        return driver_spec(item), item
     raise NotImplementedError(f"进程外插件暂不能往注册表 {registry} 贡献")
 
 
@@ -326,6 +334,7 @@ class RemoteContext:
         self.logger = logging.getLogger(f"movieclaw_plugin.{entry_id}")
         self._handlers: dict[str, tuple[Event[Any, Any], Callable[..., Any]]] = {}
         self._jobs: dict[str, Callable[..., Any]] = {}
+        self._channels: dict[str, Any] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
         self._effects: list[Callable[[], Any]] = []
 
@@ -384,6 +393,8 @@ class RemoteContext:
         data, local = _contribution(key.name, item)
         if key.name == "job-handlers":
             self._jobs[id] = local
+        if key.name == "im-channels":
+            self._channels[id] = local
         self._runner.send(
             {
                 "type": "contribute",
@@ -408,6 +419,35 @@ class RemoteContext:
                 logger.exception("插件清理函数出错")
 
 
+class _RemoteAccount:
+    """插件进程里的通道账号句柄：字段来自宿主，回调经协议回到宿主的中枢。"""
+
+    def __init__(self, runner: Runner, channel: str, data: dict[str, Any]) -> None:
+        self._runner = runner
+        self._channel = channel
+        self.channel_id = data["channel_id"]
+        self.id = data["id"]
+        self.display_name = data["display_name"]
+        self.bound_user = data.get("bound_user")
+        self.credentials = dict(data.get("credentials") or {})
+        self.state = dict(data.get("state") or {})
+        self.stopping = asyncio.Event()
+
+    async def inbound(self, message: Any) -> None:
+        from movieclaw_sdk.channels import message_dict
+
+        await self._runner.rpc(
+            "channel.inbound",
+            {"channel": self._channel, "account": self.id, "message": message_dict(message)},
+        )
+
+    async def save_state(self, patch: dict[str, Any]) -> None:
+        self.state.update(patch)
+        await self._runner.rpc(
+            "channel.save_state", {"channel": self._channel, "account": self.id, "patch": patch}
+        )
+
+
 class Runner:
     def __init__(self, writer: Any) -> None:
         self._writer = writer
@@ -415,6 +455,12 @@ class Runner:
         self._rpc_ids = itertools.count(1)
         self._nexts: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._calls: set[asyncio.Task[Any]] = set()
+        #: 调用 id → 处理它的任务（宿主可以取消一次调用，如停掉通道账号的收消息循环）
+        self._call_tasks: dict[str, asyncio.Task[Any]] = {}
+        #: 调用 id → 取消时先置位的停止信号（给收消息循环一个体面退出的机会）
+        self._stoppers: dict[str, asyncio.Event] = {}
+        #: (通道, 账号) → 正在运行的账号句柄
+        self._accounts: dict[tuple[str, str], Any] = {}
         self.ctx: RemoteContext | None = None
         self.socket: str | None = None
         self.fd_socket: Any = None
@@ -540,6 +586,9 @@ class Runner:
         if message.get("kind") == "job":
             await self._handle_job(message)
             return
+        if message.get("kind") == "channel":
+            await self._handle_channel(message)
+            return
         try:
             assert self.ctx is not None
             event, handler = self.ctx._handlers[message["listener"]]
@@ -584,6 +633,97 @@ class Runner:
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
         self.send(reply)
 
+    async def _handle_channel(self, message: dict[str, Any]) -> None:
+        """宿主调通道驱动的一个方法（plugin-channels.md §5.3）。"""
+        from movieclaw_sdk import channels as ch
+
+        call_id = message["id"]
+        cid = message["listener"]
+        payload = message["payload"]
+        method = payload["method"]
+        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        try:
+            assert self.ctx is not None
+            driver = self.ctx._channels[cid]
+            result: Any = None
+            if method == "validate":
+                result = ch.bind_result_dict(await driver.validate(payload["fields"]))
+            elif method == "begin_flow":
+                accounts = [_RemoteAccount(self, cid, a) for a in payload["accounts"]]
+                result = ch.flow_dict(await driver.begin_flow(accounts))
+            elif method == "flow_state":
+                result = ch.flow_dict(await driver.flow_state(payload["flow_id"]))
+            elif method == "flow_input":
+                state = await driver.flow_input(payload["flow_id"], payload["value"])
+                result = ch.flow_dict(state)
+            elif method == "cancel_flow":
+                await driver.cancel_flow(payload["flow_id"])
+            elif method == "run":
+                account = _RemoteAccount(self, cid, payload["account"])
+                key = (cid, account.id)
+                self._accounts[key] = account
+                self._stoppers[call_id] = account.stopping
+                try:
+                    await driver.run(account)
+                finally:
+                    self._stoppers.pop(call_id, None)
+                    if self._accounts.get(key) is account:
+                        del self._accounts[key]
+            elif method == "push_target":
+                target = driver.push_target(self._account(cid, payload["account"]))
+                result = ch.reply_dict(target) if target is not None else None
+            else:
+                account = self._account(cid, payload["account"])
+                reply_to = ch.reply_from(payload["reply"])
+                if method == "send":
+                    await driver.send(account, reply_to, payload["text"])
+                elif method == "send_photo":
+                    import base64
+
+                    photo = base64.b64decode(payload["photo"])
+                    await driver.send_photo(account, reply_to, photo, payload["caption"])
+                elif method == "typing":
+                    await driver.typing(account, reply_to, bool(payload["on"]))
+                else:
+                    raise ValueError(f"未知的通道方法 {method}")
+            reply.update(ok=True, result=result)
+        except asyncio.CancelledError:
+            reply.update(ok=False, error="已取消", error_kind="cancelled")
+        except Exception as exc:  # noqa: BLE001 -- 原样报给宿主，由宿主还原成对应异常
+            kind = (
+                "auth"
+                if isinstance(exc, ch.ChannelAuthError)
+                else "value"
+                if isinstance(exc, ValueError)
+                else "error"
+            )
+            message_text = str(exc) if kind != "error" else f"{type(exc).__name__}: {exc}"
+            reply.update(ok=False, error=message_text, error_kind=kind)
+        self.send(reply)
+
+    def _account(self, cid: str, data: dict[str, Any]) -> Any:
+        """收发用的账号句柄：账号在运行就用运行中的那个（驱动可能在它身上记了状态）。"""
+        live = self._accounts.get((cid, data["id"]))
+        return live if live is not None else _RemoteAccount(self, cid, data)
+
+    def _cancel(self, call_id: str) -> None:
+        """宿主要停一次调用：先置停止信号，宽限期过了还没结束再强制取消。"""
+        stopper = self._stoppers.get(call_id)
+        task = self._call_tasks.get(call_id)
+        if stopper is not None:
+            stopper.set()
+        if task is None:
+            return
+
+        async def force() -> None:
+            await asyncio.sleep(CANCEL_GRACE if stopper is not None else 0)
+            if not task.done():
+                task.cancel()
+
+        helper = asyncio.get_running_loop().create_task(force())
+        self._calls.add(helper)
+        helper.add_done_callback(self._calls.discard)
+
     def _next_for(self, call_id: str, event: Event[Any, Any]) -> Callable[..., Any]:
         async def next_(new_value: Any = _UNSET) -> Any:
             future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
@@ -608,9 +748,14 @@ class Runner:
             message = decode(line)
             kind = message["type"]
             if kind == "call":
+                call_id = message["id"]
                 task = asyncio.get_running_loop().create_task(self._handle_call(message))
                 self._calls.add(task)
+                self._call_tasks[call_id] = task
                 task.add_done_callback(self._calls.discard)
+                task.add_done_callback(lambda _t, i=call_id: self._call_tasks.pop(i, None))
+            elif kind == "cancel":
+                self._cancel(message["id"])
             elif kind == "next_result":
                 future = self._nexts.pop(message["id"], None)
                 if future is not None and not future.done():

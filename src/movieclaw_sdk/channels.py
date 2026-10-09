@@ -315,3 +315,150 @@ async def download_capped(
                 raise MediaDownloadError(f"{label}超过 {max_bytes // (1024 * 1024)}MB 上限")
             chunks.append(chunk)
     return b"".join(chunks)
+
+
+# ---------------------------------------------------------------------- 线上格式
+# 进程外运行时，宿主与插件进程之间用 JSON 传这些结构（图片字节走 base64）。
+
+
+def driver_spec(driver: ChannelDriver) -> dict[str, Any]:
+    caps = driver.capabilities
+    spec = driver.binding
+    return {
+        "title": driver.title,
+        "description": driver.description,
+        "capabilities": {
+            "receive": caps.receive,
+            "photo": caps.photo,
+            "typing": caps.typing,
+            "max_text_len": caps.max_text_len,
+        },
+        "binding": {
+            "kind": spec.kind,
+            "pairing": spec.pairing,
+            "hint": spec.hint,
+            "fields": [
+                {
+                    "key": f.key,
+                    "label": f.label,
+                    "secret": f.secret,
+                    "placeholder": f.placeholder,
+                    "help": f.help,
+                    "required": f.required,
+                }
+                for f in spec.fields
+            ],
+        },
+    }
+
+
+def spec_parts(data: dict[str, Any]) -> tuple[Capabilities, Binding]:
+    b = data["binding"]
+    return Capabilities(**data["capabilities"]), Binding(
+        kind=b["kind"],
+        pairing=b["pairing"],
+        hint=b["hint"],
+        fields=tuple(FormField(**f) for f in b["fields"]),
+    )
+
+
+def account_dict(account: Account) -> dict[str, Any]:
+    return {
+        "channel_id": account.channel_id,
+        "id": account.id,
+        "display_name": account.display_name,
+        "bound_user": account.bound_user,
+        "credentials": dict(account.credentials),
+        "state": dict(account.state),
+    }
+
+
+def reply_dict(reply: ReplyContext) -> dict[str, Any]:
+    return {
+        "channel_id": reply.channel_id,
+        "account_id": reply.account_id,
+        "user_id": reply.user_id,
+        "token": dict(reply.token),
+    }
+
+
+def reply_from(data: dict[str, Any]) -> ReplyContext:
+    return ReplyContext(data["channel_id"], data["account_id"], data["user_id"], data["token"])
+
+
+def message_dict(message: InboundMessage) -> dict[str, Any]:
+    import base64
+
+    return {
+        "channel_id": message.channel_id,
+        "account_id": message.account_id,
+        "user_id": message.user_id,
+        "text": message.text,
+        "reply": reply_dict(message.reply),
+        "provider_message_id": message.provider_message_id,
+        "timestamp_ms": message.timestamp_ms,
+        "images": [
+            {"data": base64.b64encode(i.data).decode(), "name": i.name} for i in message.images
+        ],
+    }
+
+
+def message_from(data: dict[str, Any]) -> InboundMessage:
+    import base64
+
+    return InboundMessage(
+        channel_id=data["channel_id"],
+        account_id=data["account_id"],
+        user_id=data["user_id"],
+        text=data["text"],
+        reply=reply_from(data["reply"]),
+        provider_message_id=data["provider_message_id"],
+        timestamp_ms=int(data.get("timestamp_ms") or 0),
+        images=tuple(
+            InboundImage(base64.b64decode(i["data"]), i.get("name") or "图片")
+            for i in data.get("images") or ()
+        ),
+    )
+
+
+def bind_result_dict(result: BindResult) -> dict[str, Any]:
+    return {
+        "account_id": result.account_id,
+        "display_name": result.display_name,
+        "credentials": dict(result.credentials),
+        "bound_user": result.bound_user,
+        "state": dict(result.state),
+    }
+
+
+def bind_result_from(data: dict[str, Any]) -> BindResult:
+    return BindResult(
+        account_id=data["account_id"],
+        display_name=data["display_name"],
+        credentials=dict(data["credentials"]),
+        bound_user=data.get("bound_user"),
+        state=dict(data.get("state") or {}),
+    )
+
+
+def flow_dict(state: FlowState) -> dict[str, Any]:
+    return {
+        "flow_id": state.flow_id,
+        "status": state.status,
+        "message": state.message,
+        "qr": state.qr,
+        "input_label": state.input_label,
+        "result": bind_result_dict(state.result) if state.result is not None else None,
+    }
+
+
+def flow_from(data: dict[str, Any]) -> FlowState:
+    result = data.get("result")
+    return FlowState(
+        flow_id=data["flow_id"],
+        status=data["status"],
+        message=data.get("message") or "",
+        qr=data.get("qr"),
+        input_label=data.get("input_label"),
+        result=bind_result_from(result) if result else None,
+    )

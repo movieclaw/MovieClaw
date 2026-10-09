@@ -80,9 +80,20 @@ class RemoteCallError(RuntimeError):
     ``job`` 是任务处理器抛出的控制异常（重试 / 阻塞 / 失败 / 取消）的结构化描述。
     """
 
-    def __init__(self, message: str, *, job: dict[str, Any] | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        job: dict[str, Any] | None = None,
+        kind: str | None = None,
+        detail: str = "",
+    ) -> None:
         super().__init__(message)
         self.job = job
+        #: 插件侧的错误类别（通道驱动：auth 凭据失效 / value 参数不对 / cancelled / error）
+        self.kind = kind
+        #: 插件给出的原始错误信息（不带「插件 x 处理失败」前缀，可以直接给用户看）
+        self.detail = detail or message
 
 
 def _child_env() -> dict[str, str]:
@@ -146,6 +157,8 @@ class Session:
         """正在子进程里执行的任务：调用编号 → 宿主这边真实的 ``JobContext``。"""
         self.rpc_handler: RpcFn | None = None
         self.contributions: list[dict[str, Any]] = []
+        self.channels: dict[str, Any] = {}
+        """这个插件贡献的通道：贡献 id → 宿主侧的驱动桩（plugin_channels.py）。"""
         self.routes: list[dict[str, Any]] = []
         self._fd_host: socket.socket | None = None
         self.files: Any = None
@@ -390,6 +403,8 @@ class Session:
         *,
         timeout: float | None = CALL_TIMEOUT,
         job: Any = None,
+        kind: str | None = None,
+        cancel: asyncio.Event | None = None,
     ) -> Any:
         if not self.online:
             raise PluginProcessGone(f"插件 {self.entry_id} 的进程不在运行")
@@ -408,6 +423,8 @@ class Session:
         if job is not None:
             self.jobs[call_id] = job
             message.update(kind="job", job_id=job.job_id)
+        elif kind is not None:
+            message["kind"] = kind
         delivery = current_delivery.get()
         if delivery is not None:
             message["delivery"] = {
@@ -421,17 +438,31 @@ class Session:
                 },
                 "attempt": delivery.attempt,
             }
+        watcher: asyncio.Task[None] | None = None
+        if cancel is not None:
+            # 调用方要停（如通道账号停止）：告诉插件取消这次调用，插件体面退出后照常回复
+            async def relay() -> None:
+                await cancel.wait()
+                with contextlib.suppress(PluginProcessGone):
+                    await self._send({"type": "cancel", "id": call_id})
+
+            watcher = asyncio.get_running_loop().create_task(relay())
         try:
             await self._send(message)
             reply = await asyncio.wait_for(future, timeout)
         finally:
+            if watcher is not None:
+                watcher.cancel()
             self._pending.pop(call_id, None)
             self._nexts.pop(call_id, None)
             self._contexts.pop(call_id, None)
             self.jobs.pop(call_id, None)
         if not reply.get("ok"):
             raise RemoteCallError(
-                f"插件 {self.entry_id} 处理失败：{reply.get('error')}", job=reply.get("job")
+                f"插件 {self.entry_id} 处理失败：{reply.get('error')}",
+                job=reply.get("job"),
+                kind=reply.get("error_kind"),
+                detail=str(reply.get("error") or ""),
             )
         return reply.get("result")
 
@@ -667,6 +698,14 @@ def _contribution(session: Session, contribution: dict[str, Any]) -> tuple[Any, 
         return jobs.JOB_HANDLERS, jobs.RegisteredJobHandler(
             handler, frozenset(int(v) for v in item["versions"])
         )
+    if registry == "im-channels":
+        from movieclaw_api.plugins.keys import IM_CHANNELS
+        from movieclaw_api.services.plugin_channels import RemoteChannelDriver
+
+        stub = session.channels.get(cid)
+        if stub is None:
+            stub = session.channels[cid] = RemoteChannelDriver(session, cid, item)
+        return IM_CHANNELS, stub
     if registry == INGEST_STEPS.name:
         return INGEST_STEPS, IngestStep(
             job_type=item["job_type"],
@@ -790,6 +829,12 @@ async def _service_handler(ctx: Context, session: Session, names: tuple[str, ...
                 return await context.cancel_requested()
         if method.startswith("files."):
             return await _files_call(session, need(files, PLUGIN_FILES.name), method, params)
+        if method.startswith("channel."):
+            stub = session.channels.get(params.get("channel") or "")
+            if stub is None:
+                raise LookupError("这个插件没有贡献这个通道")
+            await stub.callback(method, params)
+            return None
         if method == "routes.sign":
             from movieclaw_api.plugins.keys import PLUGIN_ROUTES
 

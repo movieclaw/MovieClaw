@@ -206,7 +206,7 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
         description: "给 iPhone、iPad 上的 MovieClaw App 发通知",
         icon: AppBadgeIcon,
       },
-      { id: "im-push", label: "IM 推送", description: "微信 / Telegram / Discord / 飞书 推送与 AI 对话", icon: ChatBubblesIcon },
+      { id: "im-push", label: "IM 推送", description: "微信、Telegram 等 IM 通道的推送与 AI 对话，可装插件接入更多通道", icon: ChatBubblesIcon },
       { id: "webhook", label: "Webhook", description: "向外部服务推送播放、收藏等事件", icon: PaperplaneIcon },
       { id: "llm", label: "模型接入", description: "接入 OpenAI、百炼等模型供应商，可同时接入多家", icon: SparklesIcon },
       { id: "mcp", label: "MCP 服务", description: "把 movieclaw 的能力开放给 Claude Code、Cursor 等 AI 客户端", icon: PlugIcon },
