@@ -331,11 +331,13 @@ def notice_path(source: str, payload: dict) -> str:
         subscription_id = payload.get("subscription_id")
         return f"/subscriptions/{subscription_id}" if subscription_id else "/subscriptions"
     if source == "plugin":
-        # 插件可以带一个站内路径指向能修它的地方（插件包回滚 → 插件管理页）；没带就去内置插件诊断
+        # 插件可以带一个站内路径指向能修它的地方（插件包回滚 → 插件管理页）；没带就定位到
+        # 插件页里它那一行（docs/design/plugin-page-tiers.md §4.1）
         href = payload.get("action_href")
         if isinstance(href, str) and href.startswith("/") and not href.startswith("//"):
             return href
-        return "/settings/plugins?tab=builtin"
+        entry_id = payload.get("entry_id")
+        return f"/settings/plugins?module={entry_id}" if entry_id else "/settings/plugins"
     return {
         "ingest": "/settings/import-watch",
         "downloader": "/settings/downloaders",

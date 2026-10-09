@@ -53,10 +53,36 @@ def test_plugins_endpoint_lists_every_entry_and_contract(env) -> None:
         assert ungrouped == []
         assert by_id["core.database"]["group"] == "基础"
         assert by_id["boost.sentinel"]["group"] == "资源站点与下载"
+        # 插件页分层（docs/design/plugin-page-tiers.md）：每个内置插件恰好一层，非内置不分层
+        assert {p["tier"] for p in body["plugins"] if p["source"] == "builtin"} <= {
+            "feature",
+            "official",
+            "system",
+        }
+        assert all(p["tier"] for p in body["plugins"] if p["source"] == "builtin")
+        assert by_id["channel.weixin"]["tier"] == "official"
+        assert by_id["channels.hub"]["tier"] == "official"
+        assert by_id["core.database"]["tier"] == "system"
+        assert (by_id["subtitle.gen"]["tier"], by_id["subtitle.gen"]["feature"]) == (
+            "feature",
+            "subtitle-gen",
+        )
+        features = {f["key"]: f for f in body["features"]}
+        assert features["agent"]["title"] == "AI 助手"
+        assert features["agent"]["entries"] == [
+            "agent.runs",
+            "agent.session-index",
+            "agent.attachments",
+        ]
         assert by_id["scheduler"]["state"] == "disabled"
         assert by_id["scheduler"]["disabled_by"] == "env:SCHEDULER_ENABLED"
         assert by_id["boost.sentinel"]["blocked_by"] == [
-            {"key": "scheduler", "reason": "提供方 scheduler 状态为 disabled"}
+            {
+                "key": "scheduler",
+                "reason": "提供方 scheduler 状态为 disabled",
+                "provider": "scheduler",
+                "provider_state": "disabled",
+            }
         ]
 
         services = {c["name"]: c for c in body["contracts"]["services"]}
@@ -89,10 +115,10 @@ def test_failed_plugin_raises_a_notice_and_recovery_resolves_it(env, monkeypatch
         assert len(notices) == 1
         assert notices[0]["title"] == "「微信通道」启动失败"
         assert "微信网关不可达" in notices[0]["message"]
-        assert "设置 → 插件 → 内置" in notices[0]["message"]
+        assert "设置 → 插件" in notices[0]["message"]
         assert notices[0]["payload"] == {
             "entry_id": "channel.weixin",
-            "action_href": "/settings/plugins?tab=builtin",
+            "action_href": "/settings/plugins?module=channel.weixin",
         }
 
     # 修好之后重启：插件恢复运行，告警自动消退

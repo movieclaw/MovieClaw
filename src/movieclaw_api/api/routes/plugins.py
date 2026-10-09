@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, File, Request, UploadFile
 from pydantic import Field
@@ -24,6 +25,8 @@ router = APIRouter(prefix="/app/plugins", tags=["app"])
 class BlockedBy(BaseModel):
     key: str
     reason: str
+    provider: str | None = Field(default=None, description="提供这个服务的插件；没有插件提供为空")
+    provider_state: str | None = Field(default=None, description="提供方当前的状态")
 
 
 class PluginStats(BaseModel):
@@ -68,6 +71,13 @@ class PluginView(BaseModel):
     dispose_ms: float | None
     unsettled: bool
     stats: PluginStats
+    tier: Literal["feature", "official", "system"] | None = Field(
+        default=None,
+        description="内置插件在插件页的分层：功能 / 官方插件（可被插件包替换）/ 系统模块；"
+        "替换随带插件的插件包也是官方插件；其余第三方与本地插件为空"
+        "（docs/design/plugin-page-tiers.md）",
+    )
+    feature: str | None = Field(default=None, description="属于哪个功能（features 里的 key）")
     health: list[HealthView] = Field(
         default_factory=list, description="插件自己报告的运行状况（PLUGIN_HEALTH）"
     )
@@ -139,8 +149,19 @@ class SafeModeView(BaseModel):
     forced: str | None = Field(description="env / file：手动强制；空：自动进入或未进入")
 
 
+class FeatureView(BaseModel):
+    key: str
+    title: str
+    description: str
+    entries: list[str] = Field(description="组成这个功能的内置插件条目 id")
+    settings_href: str | None = Field(description="去哪里设置 / 开关它（站内路径）")
+
+
 class PluginsView(BaseModel):
     plugins: list[PluginView]
+    features: list[FeatureView] = Field(
+        default_factory=list, description="功能目录：用户能感知的可选功能，按展示顺序"
+    )
     groups: list[str] = Field(default_factory=list, description="内置插件分组的展示顺序")
     contracts: ContractsView
     durable: DurableView | None = Field(
@@ -186,12 +207,24 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
     health = health_service.snapshot() if health_service is not None else {}
     data_service = kernel.service(PLUGIN_DATA)
     data_rows = await data_service.counts() if data_service is not None else {}
+    from movieclaw_api.plugins.bundled import bundled_ids
+    from movieclaw_api.plugins.features import FEATURES, feature_of, tier_of
     from movieclaw_api.plugins.manifest import BUILTIN_GROUPS, builtin_group
     from movieclaw_api.services.plugin_runtime import process_entries
+
+    bundled = bundled_ids()
+
+    def layer(item: dict) -> dict:
+        owner = item.get("parent") or item["id"]
+        # 替换随带插件包的插件包仍在「官方插件」里那一行（标「已被插件包替换」）
+        if item["source"] != "builtin" and owner not in bundled:
+            return {"tier": None, "feature": None}
+        return {"tier": tier_of(owner, bundled=bundled), "feature": feature_of(owner)}
 
     plugins = [
         {
             **item,
+            **layer(item),
             "health": health.get(item["id"], []),
             "data_rows": data_rows.get(item["id"], 0),
             "runtime": "process" if item["id"] in process_entries else "inline",
@@ -213,6 +246,16 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
                 "durable": durable,
                 "safe_mode": safe_mode.current().view(),
                 "groups": [label for label, _ in BUILTIN_GROUPS],
+                "features": [
+                    {
+                        "key": f.key,
+                        "title": f.title,
+                        "description": f.description,
+                        "entries": list(f.entries),
+                        "settings_href": f.settings_href,
+                    }
+                    for f in FEATURES
+                ],
             }
         )
     )

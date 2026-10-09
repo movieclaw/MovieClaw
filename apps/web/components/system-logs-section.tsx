@@ -165,9 +165,12 @@ export function SystemLogsSection() {
   /** 「加载全部」后的 tail 口径（0=全量），自动刷新沿用同一口径 */
   const tailRef = useRef<number | undefined>(undefined);
 
-  // 首帧从 localStorage 恢复刷新频率（避免 SSR/水合不一致，放在 effect 里）
+  // 首帧从 localStorage 恢复刷新频率（避免 SSR/水合不一致，放在 effect 里）；
+  // ?q= 预填筛选（插件页的「查看日志」按条目 id 深链过来）
   useEffect(() => {
     setRefreshMs(loadRefreshInterval());
+    const q = new URLSearchParams(window.location.search).get("q");
+    if (q) setQuery(q);
   }, []);
 
   /** 拉取某天内容。silent 为 true 时不动 loading 态（自动刷新不闪屏） */

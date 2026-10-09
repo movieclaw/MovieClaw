@@ -9,7 +9,7 @@ interface ApiEnvelope<T> {
 }
 
 // ---------------------------------------------------------------------------
-// 插件诊断（设置 → 插件 → 内置；docs/design/plugin-kernel.md §10）
+// 插件诊断（设置 → 插件；docs/design/plugin-kernel.md §10、plugin-page-tiers.md）
 // 后端每个子系统都是插件内核上的一个内置插件；这里只读地看它们的状态。
 // ---------------------------------------------------------------------------
 
@@ -28,6 +28,9 @@ export interface PluginBlockedBy {
   key: string;
   /** 为什么缺：没有插件提供 / 提供方某状态 */
   reason: string;
+  /** 提供这个服务的插件与它的状态；没有插件提供为 null，旧服务端没有这两个字段 */
+  provider?: string | null;
+  provider_state?: PluginState | null;
 }
 
 export interface PluginStats {
@@ -70,8 +73,28 @@ export interface PluginInfo {
   data_rows?: number;
   /** inline：主进程里运行；process：独立进程。旧服务端没有这个字段 */
   runtime?: "inline" | "process";
-  /** 内置插件的功能分组（设置 → 插件 → 内置）；本地 / 第三方插件为 null，旧服务端没有这个字段 */
+  /** 内置插件的领域分组（系统模块清单内部的分组）；本地 / 第三方插件为 null，旧服务端没有这个字段 */
   group?: string | null;
+  /**
+   * 插件页分层（docs/design/plugin-page-tiers.md）：feature 功能 / official 官方插件（可被插件包替换，
+   * 替换它的插件包也算）/ system 系统模块；其余第三方与本地插件为 null，旧服务端没有这个字段
+   */
+  tier?: PluginTier | null;
+  /** 属于哪个功能（features 里的 key） */
+  feature?: string | null;
+}
+
+export type PluginTier = "feature" | "official" | "system";
+
+/** 功能目录里的一项：用户能感知的可选功能，由一个或多个内置插件组成 */
+export interface PluginFeature {
+  key: string;
+  title: string;
+  description: string;
+  /** 组成这个功能的内置插件条目 id */
+  entries: string[];
+  /** 去哪里设置 / 开关它（站内路径） */
+  settings_href: string | null;
 }
 
 export interface PluginHealth {
@@ -99,6 +122,8 @@ export interface PluginsOverview {
   safe_mode?: PluginSafeMode;
   /** 内置插件分组的展示顺序；旧服务端没有这个字段 */
   groups?: string[];
+  /** 功能目录，按展示顺序；旧服务端没有这个字段 */
+  features?: PluginFeature[];
 }
 
 export async function listPlugins(): Promise<PluginsOverview> {

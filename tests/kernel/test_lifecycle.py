@@ -87,7 +87,9 @@ async def test_missing_provider_stays_pending_with_reason() -> None:
     fiber = kernel.fiber("lonely")
     assert fiber.state is State.PENDING
     info = kernel.describe(fiber)
-    assert info["blocked_by"] == [{"key": "test/cache", "reason": "没有插件提供"}]
+    assert info["blocked_by"] == [
+        {"key": "test/cache", "reason": "没有插件提供", "provider": None, "provider_state": None}
+    ]
     await kernel.stop()
 
 
@@ -103,6 +105,7 @@ async def test_failed_provider_reason_is_reported() -> None:
     info = kernel.describe(kernel.fiber("user"))
     assert info["state"] == "pending"
     assert info["blocked_by"][0]["reason"] == "提供方 bad-db 状态为 failed"
+    assert info["blocked_by"][0]["provider_state"] == "failed"
     await kernel.stop()
 
 

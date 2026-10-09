@@ -3,7 +3,15 @@ import test from "node:test";
 
 import {
   degradedHealth,
-  builtinBadge,
+  displayState,
+  offWithDependency,
+  featureStatus,
+  officialPlugins,
+  officialSourceText,
+  pluginLogsHref,
+  pluginTier,
+  systemModules,
+  systemModulesLine,
   formatMs,
   groupBuiltins,
   isLocalPlugin,
@@ -114,7 +122,7 @@ test("需要留意的排在前面，其余保持启动顺序；关闭不算需�
     ["c", "d", "a", "b"],
   );
   assert.equal(needsAttention(list[1]), false);
-  assert.equal(pluginsSummary(list), "4 个内置插件 · 1 个运行中 · 2 个需要留意 · 1 个已关闭");
+  assert.equal(pluginsSummary(list), "4 个系统模块 · 1 个运行中 · 2 个需要留意 · 1 个已关闭");
 });
 
 test("启动最慢只列 100 毫秒以上的前几名", () => {
@@ -144,10 +152,115 @@ test("等待依赖又说不出缺什么时，写等待所依赖的插件", () =>
   assert.equal(pluginDetail(plugin({ state: "pending" })), "等待所依赖的插件就绪");
 });
 
-test("内置插件标记：核心不能关、可关闭能关，都不是的不标", () => {
-  assert.equal(builtinBadge(plugin({ critical: true })), "核心");
-  assert.equal(builtinBadge(plugin({ disableable: true })), "可关闭");
-  assert.equal(builtinBadge(plugin()), null);
+test("分层：服务器给的为准；旧服务端没给时内置插件当系统模块，第三方不分层", () => {
+  assert.equal(pluginTier(plugin({ tier: "feature" })), "feature");
+  assert.equal(pluginTier(plugin()), "system");
+  assert.equal(pluginTier(plugin({ source: "package" })), null);
+  const list = [
+    plugin({ id: "core.database", tier: "system" }),
+    plugin({ id: "subtitle.gen", tier: "feature" }),
+    plugin({ id: "old" }),
+    plugin({ id: "acme.pkg", source: "package" }),
+  ];
+  assert.deepEqual(
+    systemModules(list).map((p) => p.id),
+    ["core.database", "old"],
+  );
+});
+
+test("官方插件：随带通道与替换它的插件包都在；提供服务的中枢只在出问题时露面", () => {
+  const hub = plugin({ id: "channels.hub", tier: "official", provides: ["channel-hub"] });
+  const weixin = plugin({ id: "channel.weixin", tier: "official", title: "微信通道" });
+  const replaced = plugin({ id: "channel.telegram", tier: "official", source: "package" });
+  assert.deepEqual(
+    officialPlugins([hub, weixin, replaced]).map((p) => p.id),
+    ["channel.weixin", "channel.telegram"],
+  );
+  const brokenHub = { ...hub, state: "failed", error: "数据库不可用" };
+  assert.deepEqual(
+    officialPlugins([brokenHub, weixin]).map((p) => p.id),
+    ["channels.hub", "channel.weixin"],
+  );
+  assert.equal(officialSourceText(weixin), "内置版本，可用插件包替换");
+  assert.equal(officialSourceText(replaced), "已被插件包替换，在「第三方插件」里管理");
+});
+
+test("功能状态由组成插件汇总：任一出问题即异常并写明是谁，全部关闭才算关闭", () => {
+  const feature = {
+    key: "agent",
+    title: "AI 助手",
+    description: "",
+    entries: ["agent.runs", "agent.attachments"],
+    settings_href: "/settings/ai",
+  };
+  const runs = plugin({ id: "agent.runs", title: "Agent 运行注册表" });
+  const attachments = plugin({ id: "agent.attachments", title: "Agent 附件暂存清理" });
+  assert.deepEqual(featureStatus(feature, [runs, attachments, plugin({ id: "other" })]), {
+    label: "运行中",
+    tone: "ok",
+    detail: null,
+  });
+  const failed = { ...attachments, state: "failed", error: "磁盘只读" };
+  assert.deepEqual(featureStatus(feature, [runs, failed]), {
+    label: "启动失败",
+    tone: "danger",
+    detail: "Agent 附件暂存清理：磁盘只读",
+  });
+  const degraded = {
+    ...runs,
+    health: [{ key: "k", ok: false, message: "模型不可用", action_href: null, since: "" }],
+  };
+  assert.equal(featureStatus(feature, [degraded, attachments]).label, "运行异常");
+  const off = (p) => ({ ...p, state: "disabled", disabled_by: "patch" });
+  assert.equal(featureStatus(feature, [off(runs), off(attachments)]).label, "已关闭");
+  assert.deepEqual(featureStatus(feature, [off(runs), attachments]), {
+    label: "部分关闭",
+    tone: "neutral",
+    detail: "Agent 运行注册表：已在插件补丁（data/plugins.yaml）中关闭",
+  });
+  assert.equal(featureStatus(feature, []).label, "未加载");
+  // 子插件跟着父插件算
+  const child = plugin({ id: "agent.runs.child", parent: "agent.runs", state: "failed" });
+  assert.equal(featureStatus(feature, [runs, attachments, child]).tone, "danger");
+});
+
+test("依赖被有意关掉时跟着关闭：不算需要留意，显示为已关闭并写明依赖谁", () => {
+  const sentinel = plugin({
+    id: "boost.sentinel",
+    state: "pending",
+    blocked_by: [
+      {
+        key: "scheduler",
+        reason: "提供方 scheduler 状态为 disabled",
+        provider: "scheduler",
+        provider_state: "disabled",
+      },
+    ],
+  });
+  assert.equal(offWithDependency(sentinel), true);
+  assert.equal(needsAttention(sentinel), false);
+  assert.equal(displayState(sentinel), "disabled");
+  assert.equal(pluginDetail(sentinel), "依赖的 scheduler 已关闭，跟着停用");
+  // 依赖坏了（失败）、旧服务端没给结构化字段：仍是等待依赖、需要留意
+  const broken = plugin({
+    state: "pending",
+    blocked_by: [{ key: "db", reason: "提供方 core.database 状态为 failed", provider: "core.database", provider_state: "failed" }],
+  });
+  const legacy = plugin({ state: "pending", blocked_by: [{ key: "scheduler", reason: "提供方 scheduler 状态为 disabled" }] });
+  assert.equal(needsAttention(broken), true);
+  assert.equal(needsAttention(legacy), true);
+  assert.equal(displayState(broken), "pending");
+});
+
+test("系统模块入口一行：正常 / 有几个需要留意；日志深链按条目 id 筛", () => {
+  const list = [plugin({ id: "a" }), plugin({ id: "b" })];
+  assert.deepEqual(systemModulesLine(list), { text: "另有 2 个系统模块，运行正常", tone: "ok" });
+  const broken = [plugin({ id: "a" }), plugin({ id: "b", state: "failed" })];
+  assert.deepEqual(systemModulesLine(broken), {
+    text: "另有 2 个系统模块，其中 1 个需要留意",
+    tone: "warn",
+  });
+  assert.equal(pluginLogsHref(plugin({ id: "core.database" })), "/settings/logs?q=core.database");
 });
 
 test("内置插件按服务器给的组序分组，组内需要留意的在前；没归属的进「其他」，非内置的不进", () => {

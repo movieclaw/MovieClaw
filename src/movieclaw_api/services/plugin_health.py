@@ -5,7 +5,7 @@
 ::
 
     health = ctx.use(PLUGIN_HEALTH).reporter(ctx)
-    await health.degraded("trakt", "Trakt 令牌已过期", action_href="/settings/plugins?tab=builtin")
+    await health.degraded("trakt", "Trakt 令牌已过期", action_href="/settings/plugins")
     await health.ok("trakt")
 
 降级 → 系统通知（warning，键 ``plugin:<条目 id>:health:<键>``，与启动失败的
