@@ -90,7 +90,6 @@ async def authenticate_by_name(request: Request) -> JSONResponse:
         device.updated_at = utcnow()
         await session.commit()
     if newcomer:
-        from movieclaw_api.api.client_address import client_address
         from movieclaw_api.services.push import events as push_events
 
         push_events.new_device(
