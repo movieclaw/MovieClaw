@@ -1,6 +1,6 @@
 ---
 name: movieclaw-plugin-dev
-description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时使用，不管用户有没有说「插件」。典型说法：「做一个企业微信 / 钉钉 / Slack / Bark 通道」「接入某某平台」「能不能支持某某站点」「下载完 / 入库后 / 删片后自动做某事」「按自己的规则淘汰种子」「定时去拉某个片单」「给 AI 助手加个查某某的能力」「给外部系统开个接口」。这类需求先判断现有功能能否做到，做不到的靠写插件（.mcplugin）实现；本技能覆盖从判断、开发、打包、安装、验证到卸载的全过程，也用于升级、回滚、排查已装的插件，以及回答「插件是什么、要批准什么、安不安全」这类问题。
+description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时使用，不管用户有没有说「插件」。典型说法：「做一个企业微信 / 钉钉 / Slack / Bark 通道」「接入某某平台」「能不能支持某某站点」「下载完 / 入库后 / 删片后自动做某事」「按订阅规则组表达不了的规则淘汰种子」「定时去拉某个片单」「给 AI 助手加个查某某的能力」「给外部系统开个接口」。这类需求先判断现有功能能否做到，做不到的靠写插件（.mcplugin）实现；本技能覆盖从判断、开发、打包、安装、验证到卸载的全过程，也用于升级、回滚、排查已装的插件，以及回答「插件是什么、要批准什么、安不安全」这类问题。
 ---
 
 # MovieClaw 插件开发
@@ -84,7 +84,7 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 |---|---|
 | 任何插件 | `references/extension-points.md`（确认要用的契约存在、没落在「做不到」里）、`templates/starter/` |
 | 事件 / 钩子类（删片联动、关键字规则、选下载器） | `references/recipes.md` 第 1～3 节，对应示例 `references/examples/{delete_cascade,keyword_rules}.py` |
-| IM 通道 | `references/recipes.md` 第 11 节（**选接入方式**）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_sdk/channels.py` 文件头 |
+| IM 通道 | `references/recipes.md` 第 11 节（**选接入方式**）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_sdk/channels.py` 文件头；只推送的通道再看 `$SRC/movieclaw_plugins/feishu/` |
 | 定时 / 后台任务、入库流水线 | `references/recipes.md` 第 6～7 节、`references/examples/{watchlist_feed,cloud_strm}.py` |
 | 开接口（含给 AI 助手加能力）、读写文件 | `references/recipes.md` 第 5、8、10 节、`templates/starter/`、`references/examples/cloud_strm.py` |
 | 插件需要用户填的配置或凭据（账号、地址、Key） | `references/recipes.md` 第 13 节 |
@@ -129,7 +129,8 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
    - `mclaw app plugins list`：找到条目 id（`id` 字段），`state` 应为 `active`，失败时看 `error`。
      这条输出很长（全部内置条目），会被截断；截断提示里给了完整输出的文件路径，用 bash 筛：
      `python -c "import json; d=json.load(open('<文件>')); [print(e['id'], e['state'], e['source'], e.get('error')) for e in d['plugins'] if e['source'] == 'package']"`
-     （第三方插件包 `source` 是 `package`；随带的通道插件 `tier` 是 `official`）；
+     （第三方插件包 `source` 是 `package`，本地插件是 `local`；随带的通道插件 `tier` 是 `official`）。
+     也可以直接 `grep -n -A8 '"<条目 id>"' <文件>`；
    - 调插件自己的接口：插件路由会进入 mclaw 的命令目录。装好后先随便执行一条 mclaw 业务命令（如上面的
      `app plugins list`），看到「服务器接口目录已更新」后，下一次调用起就能用了：路由的 `operation_id`
      按点拆成命令，`plugins.me.import-log.recent` → `mclaw plugins me import-log recent`（参数见 `--help`）；
@@ -157,7 +158,7 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 - 清单 `id` = `@plugin` 名字；`entry` 是模块名（`hello.py` 或 `hello/__init__.py` 的 `hello`）。
 - `inject=(...)` **只写服务**（`HOST_OPS`、`PLUGIN_DATA`、`PLUGIN_FILES`、`PLUGIN_ROUTES`、`PLUGIN_HEALTH`、`DURABLE_EVENTS`）。
   注册表（如 `IM_CHANNELS`、`SCHEDULED_TASKS`）在 `apply` 里 `ctx.contribute`，事件 / 钩子用 `ctx.on`，**都不写进 inject**；
-  用到的事件 / 钩子 / 注册表写进清单 `[requires]`（如 `"library.ingest.imported" = "^1.0"`）。
+  用到的事件 / 钩子 / 注册表写进清单 `[requires]`（如 `"library.ingest.imported" = "^1.0"`）；只用服务时 `[requires]` 可以留空。
 - 要调用的宿主操作同时写进 `@plugin(permissions=...)` 和清单 `permissions.operations`；
   危险操作（`mclaw` 帮助里带 ⚠ 的）必须逐个列出，不能靠 `领域.*` 覆盖。
 - 可靠事件监听器必须有稳定 `id`（`ctx.on(EVENT, fn, id="xxx")`），并且**幂等**（至少投递一次，同一事件可能来两次）：

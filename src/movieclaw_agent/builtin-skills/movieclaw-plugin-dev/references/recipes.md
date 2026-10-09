@@ -148,6 +148,7 @@ routes.mount(ctx, router)                     # 默认 admin 区 → /api/v1/plu
 - `operation_id` 必须以 `plugins.<条目 id>.` 开头；鉴权由宿主注入，插件绕不开。
 - 端点参数 / 返回值的类型要在**模块顶层**导入（进程外运行时宿主要能解析）；入口模块尽量不要写
   `from __future__ import annotations`。
+- 报错用 `raise HTTPException(status_code=404, detail="找不到城市：xx")`：`detail` 的原文就是用户 / AI 助手在 mclaw 里看到的错误信息，写成人话。
 - 选区：AI 助手经 mclaw 调用时用的是 Agent 身份（管理员级），admin 区就能调；要让普通成员在网页 / App 里直接调用才放 member 区。
 - 端点参数（查询参数、请求体模型）会进接口目录，变成 mclaw 命令的选项，AI 助手据此传参。
 - 插件路由进入操作目录，因此也是 mclaw 命令：安装后随便执行一条 mclaw 业务命令触发目录刷新（提示「服务器接口目录已更新」），
@@ -256,6 +257,8 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
 服务名写**条目 id 的最后一段**（`me.douban-wish` → `"douban-wish"`）：独立进程里宿主只为这个名字给出代理设置，
 写成别的名字会悄悄直连、不走用户「设置 → 网络与代理」的规则。清单写 `network = true`。
 装之前可以在 bash 里用 curl 请求外部公开接口，核对返回格式再写解析代码（不要带用户的凭据）。
+外部服务出错时捕获 `httpx.HTTPError`，记日志后在接口里 `raise HTTPException(502, detail="天气服务暂时不可用")`，
+不要把堆栈抛给用户；后台循环里则记日志、下一轮再试。
 
 ## 11. IM 通道
 
@@ -280,7 +283,9 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
 默认实现只推给绑定人，不覆盖就会静默发不出去。参考 `$SRC/movieclaw_plugins/feishu/`。
 
 **通知类需求优先做通道插件**：主程序的推送开关（`mclaw channels im push config get`）已经决定推哪些事件
-（入库、开始下载、收齐……），通道插件只管「发到哪」，用户在设置里统一开关。只有要推的事件不在开关里时，
+（入库、开始下载、收齐……），通道插件只管「发到哪」，用户在设置里统一开关。开关对所有通道一起生效：
+用户只想收其中一种时，提醒他其他开着的也会推过来，要不要关由他定。随带通道（如飞书）的清单没写 `network = true`、
+直接用 httpx——它们是受信代码，第三方通道照着写时要补上联网声明、改走 `net.http_transport`。只有要推的事件不在开关里时，
 才监听可靠事件自己发请求。
 
 各平台的协议细节（地址、鉴权、心跳、消息格式）技能里没有：先用 curl 查平台公开文档核对，或请用户提供文档；

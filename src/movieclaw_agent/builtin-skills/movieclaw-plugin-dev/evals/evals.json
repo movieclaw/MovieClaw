@@ -89,9 +89,9 @@
     {
       "id": 13,
       "prompt": "能不能给 AI 助手加一个查天气的工具？",
-      "expected_output": "说明不能直接给 AI 助手加工具；替代：插件开接口，它会成为 mclaw 命令，AI 助手可以调用；提醒与影视无关时是否值得做。",
+      "expected_output": "说明可以用插件接口给 AI 助手加能力（会成为 mclaw 命令）；先给方案并请用户选数据源等，不在这一轮写代码或安装。",
       "expectations": ["说明不能直接加工具", "提到插件接口会成为 mclaw 命令"],
-      "checks": {"must_mention_any": ["mclaw", "接口"], "no_install": true}
+      "checks": {"must_mention_any": ["mclaw", "接口"], "no_install": true, "no_scaffold": true}
     },
     {
       "id": 14,
