@@ -69,3 +69,37 @@ async def after_import(ctx):
 
 可订阅的事件见 `src/movieclaw_api/domain_events.py`；可调用的操作就是 `mclaw` 命令行能用的那些（同一份 OpenAPI 目录），
 操作 id 与命令一一对应，例如 `mclaw subscriptions create` ↔ `subscriptions.create`。
+
+## 打包与开发循环（第三方插件包）
+
+插件包是一个目录加一份清单 `movieclaw-plugin.toml`（格式见 `docs/design/plugin-phase3.md` §2）：
+
+```toml
+[plugin]
+id = "acme.group-blocklist"
+title = "发布组黑名单"
+version = "0.1.0"
+entry = "group_blocklist"      # group_blocklist.py 或 group_blocklist/__init__.py
+runtime = "process"            # 默认：独立进程、非特权用户
+sdk = "^1.0"
+
+[requires]
+"subscription.candidates.filter" = "^1.0"
+
+[permissions]
+operations = ["search.titles"]
+paths = [{ path = "staging", mode = "read" }]
+```
+
+依赖放进 `vendor/`（安装时不联网）。然后：
+
+```bash
+mclaw plugin pack ./group-blocklist          # 打成 acme.group-blocklist-0.1.0.mcplugin
+mclaw plugin dev  ./group-blocklist          # 连到服务器：一改就重新打包、上传、批准、加载
+mclaw app plugins packages upload --file acme.group-blocklist-0.1.0.mcplugin   # 正式安装
+mclaw app plugins packages approve acme.group-blocklist --version 0.1.0 \
+    --operations-json '["search.titles"]' \
+    --paths-json '[{"path": "staging", "mode": "read"}]' --yes   # 批准须与申请完全一致
+```
+
+能用哪些契约、它们的载荷长什么样：`python -m movieclaw_sdk.surface`（与 `src/movieclaw_sdk/surface.json` 相同）。

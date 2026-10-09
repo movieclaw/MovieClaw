@@ -305,6 +305,9 @@ playback history
 playback stats
 playback stats qoe
 playback stats watch
+plugin
+plugin dev
+plugin pack
 rules
 rules create
 rules default
