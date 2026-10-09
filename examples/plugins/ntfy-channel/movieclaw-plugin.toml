@@ -12,3 +12,4 @@ description = "第三方通道示例：在 ntfy 里和 MovieClaw 对话、接收
 
 [permissions]
 operations = []
+network = true

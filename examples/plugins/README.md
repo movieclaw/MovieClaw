@@ -117,7 +117,7 @@ mclaw app plugins packages approve acme.group-blocklist --version 0.1.0 \
   `await account.save_state({...})` 存，`account.stopping` 置位就退出；凭据失效抛 `ChannelAuthError`；
 - `send(account, reply, text)` 发一条文本（中枢已按 `capabilities.max_text_len` 拆好）。
 
-- 连外网要按用户的代理设置走：`httpx.AsyncClient(transport=net.http_transport("<服务名>"))`（`movieclaw_sdk.net`）；
+- 连外网要按用户的代理设置走：`httpx.AsyncClient(transport=net.http_transport("<服务名>"))`（`movieclaw_sdk.net`；服务名 = 条目 id 的最后一段，如 `examples.ntfy` → `ntfy`）；
   已有「客户端 + 适配器」代码的，可以直接继承 SDK 的 `AdapterDriver`。
 
 同一份代码当本地插件（主进程里运行）或插件包（独立进程里运行）都能用，绑定后出现在「设置 → IM 推送」。

@@ -63,14 +63,24 @@ ctx.on(hooks.CANDIDATES_FILTER, filter_candidates)
 第一个说了算（bail）：返回结果 = 接管，返回 `None` = 不管。
 
 ```python
+TV_DOWNLOADER = 2   # 先用 `mclaw dl list` 确认这个下载器真的存在，id 以那里为准
+
 def pick(query: hooks.DownloaderQuery) -> hooks.DownloaderChoice | None:
     if query.media_kind == "tv":
-        return hooks.DownloaderChoice(downloader_id=2, reason="剧集走 2 号下载器")
+        return hooks.DownloaderChoice(downloader_id=TV_DOWNLOADER, reason="剧集走 2 号下载器")
     return None
 
 ctx.on(hooks.DOWNLOADER_SELECT, pick)
 # 否决删种：ctx.on(hooks.TORRENT_BEFORE_DELETE, fn)，fn 返回 hooks.Veto(reason="…") 即否决
 ```
+
+选下载器钩子**只在调用方没有指定下载器时**才会被问；各场景拿到的字段不同，按画质 / 体积分流前先看这张表：
+
+| 场景（`tags`） | `title` | `size_bytes` | `site_id` |
+|---|---|---|---|
+| 订阅自动投递（`movieclaw-sub`）、换源（再加 `movieclaw-replacement`） | 种子发布名 | 有 | 有 |
+| 手动下载（`movieclaw-manual`） | 提交时带的标题，不一定是发布名 | 无 | 有 |
+| 投递预览 | 片名 | 无 | 可能无 |
 
 钩子在热路径上：要快，不发网络请求；需要的数据提前在后台准备好存在内存或插件数据里。
 监听器抛错 / 超时 / 返回类型不对时按「不存在」处理，连续失败会被熔断。
@@ -138,6 +148,8 @@ routes.mount(ctx, router)                     # 默认 admin 区 → /api/v1/plu
 - `operation_id` 必须以 `plugins.<条目 id>.` 开头；鉴权由宿主注入，插件绕不开。
 - 端点参数 / 返回值的类型要在**模块顶层**导入（进程外运行时宿主要能解析）；入口模块尽量不要写
   `from __future__ import annotations`。
+- 选区：AI 助手经 mclaw 调用时用的是 Agent 身份（管理员级），admin 区就能调；要让普通成员在网页 / App 里直接调用才放 member 区。
+- 端点参数（查询参数、请求体模型）会进接口目录，变成 mclaw 命令的选项，AI 助手据此传参。
 - 插件路由进入操作目录，因此也是 mclaw 命令：安装后随便执行一条 mclaw 业务命令触发目录刷新（提示「服务器接口目录已更新」），
   之后 `operation_id` 按点拆成命令调用，如 `plugins.me.hello.status` → `mclaw plugins me hello status`。
 
@@ -175,6 +187,8 @@ ctx.contribute(SCHEDULED_TASKS, "cleanup", TaskDefinition(
     key=f"{ctx.entry_id}.cleanup", title="清理过期记录", handler=cleanup,
     default_trigger_type=TriggerType.INTERVAL, default_interval_seconds=3600,
 ))
+# 每天固定时间用 cron（按服务器的调度时区，默认 Asia/Shanghai）：
+#   default_trigger_type=TriggerType.CRON, default_cron="0 8 * * *"
 ```
 
 ## 7. 持久化任务与入库流水线
@@ -193,6 +207,12 @@ async def upload(context: JobContext, data: dict) -> dict:
 ctx.contribute(JOB_HANDLERS, "upload", RegisteredJobHandler(upload, frozenset({1})))
 ctx.contribute(INGEST_STEPS, "upload", IngestStep(job_type=f"{ctx.entry_id}:upload", title="上传网盘"))
 ```
+
+入库流水线步骤的前提（缺一个就不会触发，给用户方案时先用 mclaw 查齐）：
+
+- 下载要经「监听导入」规则入库，且规则的目标是**自定义目录（暂存）**——步骤只处理暂存完成的文件（`mclaw watch list`、`watch create --help`）；
+- 文件归哪个媒体库由系统按收藏范围决定，`library_id` 可能为空（`mclaw library list`）；
+- 要写出可从外面访问的链接（如 strm 里的播放地址），先设好外部访问地址（`mclaw app show` / `app set --help`）。
 
 示例：`references/examples/cloud_strm.py`。
 
@@ -233,7 +253,9 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
     resp = await client.get(url)
 ```
 
-服务名用插件自己的名字；会按用户「设置 → 网络与代理」的规则走代理。清单写 `network = true`。
+服务名写**条目 id 的最后一段**（`me.douban-wish` → `"douban-wish"`）：独立进程里宿主只为这个名字给出代理设置，
+写成别的名字会悄悄直连、不走用户「设置 → 网络与代理」的规则。清单写 `network = true`。
+装之前可以在 bash 里用 curl 请求外部公开接口，核对返回格式再写解析代码（不要带用户的凭据）。
 
 ## 11. IM 通道
 
@@ -251,7 +273,18 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
 2. 只推送：群机器人 Webhook（飞书、企业微信群机器人、钉钉群机器人），粘贴地址即可，但不能对话；
 3. 需要公网回调地址的方式（企业微信自建应用的回调、公众号）放最后，选它要先跟用户确认有公网地址。
 
-给用户方案时把「能不能对话」「要不要公网地址」「绑定要填什么」讲清楚。
+给用户方案时把「能不能对话」「要不要公网地址」「绑定要填什么」讲清楚；平台有几种接入方式而用户没指定时，
+列出对比请用户选，选定后再写。
+
+**只推送的通道**（群机器人、Bark 这类没有「绑定人」的）必须覆盖 `push_target(account)`，返回推送目标；
+默认实现只推给绑定人，不覆盖就会静默发不出去。参考 `$SRC/movieclaw_plugins/feishu/`。
+
+**通知类需求优先做通道插件**：主程序的推送开关（`mclaw channels im push config get`）已经决定推哪些事件
+（入库、开始下载、收齐……），通道插件只管「发到哪」，用户在设置里统一开关。只有要推的事件不在开关里时，
+才监听可靠事件自己发请求。
+
+各平台的协议细节（地址、鉴权、心跳、消息格式）技能里没有：先用 curl 查平台公开文档核对，或请用户提供文档；
+不要凭记忆写协议。
 
 ## 12. 站点
 
@@ -259,3 +292,30 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
   `$SRC/movieclaw_tracker/sites/configs/_template.yaml`。示例 `references/examples/site_pack/`。
 - 新的站点框架：继承站点基类，`ctx.contribute(SITE_CLASSES, "<类 id>", 类)`，YAML 的 `custom_class` 引用这个 id。
   参考 `$SRC/movieclaw_tracker/sites/custom/` 下现有的站点类。
+
+## 13. 用户要填的配置与凭据
+
+插件包没有设置页，`config=` 加 `data/plugins.yaml` 是本地插件的写法，插件包用不了。用户要填的值（账号 ID、地址、Key）：
+
+- 固定不变、不敏感的，写成模块顶层常量，在方案里告诉用户；
+- 要用户提供或以后会改的，开一个管理员接口写进插件数据，凭据用 `secret=True` 加密存：
+
+```python
+from pydantic import BaseModel
+
+class Settings(BaseModel):
+    douban_id: str
+    api_key: str | None = None
+
+@router.post("/settings", operation_id=f"plugins.{ctx.entry_id}.settings.set", summary="保存设置")
+async def save(body: Settings) -> dict:
+    await store.set("douban_id", body.douban_id)
+    if body.api_key:
+        await store.set("api_key", body.api_key, secret=True)
+    return {"ok": True}
+```
+
+装好后这个接口就是 mclaw 命令（`mclaw plugins me <名> settings set --help` 看选项），由你在对话里替用户填，
+或告诉用户怎么填。读取：`await store.get("api_key")`（加密的取出来就是明文）。
+
+宿主操作只覆盖 mclaw 能看到的接口；网页内部用的隐藏接口插件调不了。

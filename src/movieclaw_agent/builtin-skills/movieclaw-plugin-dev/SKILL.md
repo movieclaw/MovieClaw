@@ -1,6 +1,6 @@
 ---
 name: movieclaw-plugin-dev
-description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时使用，不管用户有没有说「插件」。典型说法：「做一个企业微信 / 钉钉 / Slack / Bark 通道」「接入某某平台」「能不能支持某某站点」「下载完 / 入库后 / 删片后自动做某事」「订阅只要某字幕组」「定时去拉某个片单」「给外部系统开个接口」。这类需求在 MovieClaw 里靠写插件（.mcplugin）实现，本技能覆盖从判断、开发、打包、安装、验证到卸载的全过程；也用于升级、回滚、排查已装的插件。
+description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时使用，不管用户有没有说「插件」。典型说法：「做一个企业微信 / 钉钉 / Slack / Bark 通道」「接入某某平台」「能不能支持某某站点」「下载完 / 入库后 / 删片后自动做某事」「按自己的规则淘汰种子」「定时去拉某个片单」「给 AI 助手加个查某某的能力」「给外部系统开个接口」。这类需求先判断现有功能能否做到，做不到的靠写插件（.mcplugin）实现；本技能覆盖从判断、开发、打包、安装、验证到卸载的全过程，也用于升级、回滚、排查已装的插件，以及回答「插件是什么、要批准什么、安不安全」这类问题。
 ---
 
 # MovieClaw 插件开发
@@ -13,12 +13,27 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 
 ## 0. 先判断：要不要写插件、做不做得到
 
-用户说「做一个 / 接入 / 支持 / 能不能自动……」时，先用 `mclaw` 确认系统里确实没有（如 `mclaw channels list`
-看已有通道、`mclaw site --help` 看站点），没有就是要写插件，按本技能走；不要只回答「目前不支持」。
+**先分流**：
 
+- 用户只是问插件是什么、要批准什么、安不安全、怎么卸载 → 读 `references/explaining-to-users.md` 照着答，不走开发流程。
 - 用户只是想「做一次某件事」（建订阅、删种子、扫媒体库）→ 直接用 `mclaw` 工具，不要写插件。
-- 想要的效果已有设置项（订阅规则组、命名模板、推送开关）→ 用设置，不要写插件。
-- 需要**持续自动**地响应系统里发生的事、改变系统的决策、给系统加一种新实现，或给外部系统开一个接口 → 写插件。
+- 想要的效果**已有功能或设置**能做到 → 用现有的，不要写插件。先按下表查；查到「已有但只覆盖一部分」时，
+  先讲清已有的能做到哪、剩下的部分能不能用插件补。
+- 需要**持续自动**地响应系统里发生的事、改变系统的决策、给系统加一种新实现，或开一个接口（给 AI 助手或外部系统用）→ 写插件。
+  确认系统里确实没有之后，不要只回答「目前不支持」：对照下面的能力地图和「做不到的」，能做就按本技能走，做不到就直说。
+
+**先查系统里有没有**（都用 mclaw 工具）：
+
+| 需求 | 查什么 |
+|---|---|
+| 通道、消息推送 | `channels list`（输出很长，只看各项 `id` / `title`）；已经会推哪些事件：`channels im push config get` |
+| 下载器 | `dl list` 看已接入的；支持哪些类型看 `dl add --help`（只有 qBittorrent、Transmission） |
+| 订阅只要 / 不要某些资源（制作组、分辨率、HDR、字幕、体积、免费） | `rules update --help`：订阅规则组都能设（如制作组白名单），规则组表达不了的才用钩子 |
+| 站点 | `site list`、`site --help` |
+| 播放器跳过片头、片尾、广告、预告 | 内置：剧集库的片段识别，`library update --help` 的 `--detect-media-segments` |
+| 首页显示什么 | `ui prefs show`：首页行可以选某个库、合集或类型，每个库都有按入库时间排的「最近添加」 |
+| 某件事发生后是否已有插件在处理 | `app plugins list -o table` 的 `durable` 一行看消费者 |
+| 有没有装过某个插件 | `app plugins packages list` |
 
 **能力地图**（逐项清单见 `references/extension-points.md`）：
 
@@ -26,12 +41,19 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 |---|---|
 | 某件事发生后自动做点什么：下载完成、入库完成、删片 / 删文件 / 回收站、订阅新建 / 删除 / 开始下载 / 收齐 / 状态变化 | 可靠事件 |
 | 改变系统的判断：订阅搜索词、淘汰或重排候选种子、选下载器、否决删种 | 决策钩子 |
-| 加一种新实现：IM 通道、站点类 / 站点数据包、定时任务（可整段替换内置的）、后台任务、入库流水线步骤 | 注册表 |
-| 做事与存东西：调用系统操作（与 mclaw 同一份）、存状态、读写批准的目录、开接口（自动成为 mclaw 命令）、报告健康 | 服务 |
+| 加一种新实现：IM 通道（含只推送的，如 Bark）、站点类 / 站点数据包、定时任务（可整段替换内置的）、后台任务、入库流水线步骤 | 注册表 |
+| 给 AI 助手加一个能力（查天气、查某个外部服务）、给外部系统开接口 | 插件接口：自动成为 mclaw 命令，AI 助手直接能调 |
+| 做事与存东西：调用系统操作（与 mclaw 同一份）、存状态、读写批准的目录、报告健康 | 服务 |
 
-**做不到的**：给网页 / App 加界面或设置页、新的下载器类型、新的元数据来源、新的 Webhook 格式、新的站点认证方式、
-替换播放 / 转码 / 媒体库扫描 / 刮削主流程 / AI 助手。**遇到要直说做不到**，并给替代办法
+**做不到的**：给网页 / App 加界面、按钮或设置页（包括播放器里的按钮、首页卡片）、新的下载器类型、新的元数据来源、
+新的 Webhook 格式、新的站点认证方式、替换播放 / 转码 / 媒体库扫描 / 刮削主流程、改 AI 助手本身。
+**遇到要直说做不到**，并给替代办法：先给用户能直接用的现成功能（上表），再给插件能做的部分
 （`references/extension-points.md` 第 5 节），不要先答应再做到一半。
+
+**用户问「能不能……」「可以做……吗」时**，先给方案，不要直接动手：能不能做、怎么做、要申请什么权限、
+用户要配合准备什么（账号、凭据、先接入的下载器 / 站点 / 媒体库等前置条件——先用 mclaw 查缺哪些）。
+有要用户选的（接入方式、取舍、阈值）或前置条件不满足 → 到这里结束这一轮，等用户回答。
+需求明确、只有一种合理做法时，可以先写好并检查、自测，再问要不要安装。
 
 ## 1. 原理速览
 
@@ -54,15 +76,20 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 源码根目录（下文记作 `$SRC`）= 本技能目录往上三级；或运行
 `python -c "import movieclaw_sdk, pathlib; print(pathlib.Path(movieclaw_sdk.__file__).parents[1])"`。
 
+第 0 节给方案时只需要 `references/extension-points.md`；下表是**动手写代码前**要读的。
+示例（`references/examples/`）大多是「本地插件」写法（`config=` + `data/plugins.yaml`、从 `movieclaw_kernel` 导入），
+做插件包时以 `templates/starter/` 为准，差别见 `references/examples/README.md`。
+
 | 你要做的 | 先读（读完再写代码） |
 |---|---|
 | 任何插件 | `references/extension-points.md`（确认要用的契约存在、没落在「做不到」里）、`templates/starter/` |
 | 事件 / 钩子类（删片联动、关键字规则、选下载器） | `references/recipes.md` 第 1～3 节，对应示例 `references/examples/{delete_cascade,keyword_rules}.py` |
 | IM 通道 | `references/recipes.md` 第 11 节（**选接入方式**）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_sdk/channels.py` 文件头 |
 | 定时 / 后台任务、入库流水线 | `references/recipes.md` 第 6～7 节、`references/examples/{watchlist_feed,cloud_strm}.py` |
-| 开接口、读写文件 | `references/recipes.md` 第 5、8 节、`references/examples/cloud_strm.py` |
+| 开接口（含给 AI 助手加能力）、读写文件 | `references/recipes.md` 第 5、8、10 节、`templates/starter/`、`references/examples/cloud_strm.py` |
+| 插件需要用户填的配置或凭据（账号、地址、Key） | `references/recipes.md` 第 13 节 |
 | 站点 | `references/recipes.md` 第 12 节、`references/examples/site_pack/` |
-| 一个插件里放好几件事、替换内置的东西 | `references/composition.md` |
+| 一个插件里放好几件事、替换内置的东西 | `references/composition.md`（替换随带通道：把 `$SRC/movieclaw_plugins/<名>/` 复制到 `plugins/channel.<名>/` 再改） |
 | 写清单、申请权限 | `references/manifest.md` |
 | 用户问「插件是什么、为什么要批准、会不会搞坏」 | `references/explaining-to-users.md` |
 | 装不上、起不来、没反应 | `references/troubleshooting.md` |
@@ -99,14 +126,20 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
    上传、按清单申请批准、当场加载，成功打印 `✓ … 已加载`。**必须带 `--once`**，否则它会一直监视文件、卡到超时。
 8. **验证**（不验证不算完成）：
    - `mclaw app plugins packages list`：插件在 `installed` 里，版本对；
-   - `mclaw app plugins list`：找到条目 id（`id` 字段），`state` 应为 `active`，失败时看 `error`；
+   - `mclaw app plugins list`：找到条目 id（`id` 字段），`state` 应为 `active`，失败时看 `error`。
+     这条输出很长（全部内置条目），会被截断；截断提示里给了完整输出的文件路径，用 bash 筛：
+     `python -c "import json; d=json.load(open('<文件>')); [print(e['id'], e['state'], e['source'], e.get('error')) for e in d['plugins'] if e['source'] == 'package']"`
+     （第三方插件包 `source` 是 `package`；随带的通道插件 `tier` 是 `official`）；
    - 调插件自己的接口：插件路由会进入 mclaw 的命令目录。装好后先随便执行一条 mclaw 业务命令（如上面的
      `app plugins list`），看到「服务器接口目录已更新」后，下一次调用起就能用了：路由的 `operation_id`
      按点拆成命令，`plugins.me.import-log.recent` → `mclaw plugins me import-log recent`（参数见 `--help`）；
+   - 通道插件：`channels list` 里出现新通道，它的 id 是 `<条目 id>:<贡献 id>`（如 `me.bark:bark`；替换随带通道时沿用原 id）；
+     绑定和试推送的命令看 `channels bindings start --help`、`channels im push --help`，凭据由用户提供；
    - 触发它监听的事件并观察效果。事件不能安全地人为制造时（入库、删片这类会动真实数据的），
      **不要为了验证去改动用户的数据**：确认 `app plugins list` 里它的监听器已挂上（可靠事件会显示消费者），
      并告诉用户「下次真实发生时会怎样、去哪里看结果」；
-   - 日志：`mclaw logs tail --lines 300`，在输出里找插件 id 或它打的日志。**不要加 `-f`**（会一直跟随到超时）。
+   - 日志：用 bash 在运行日志目录（系统提示词「环境」里给了路径）的当天文件里找条目 id，
+     如 `grep -n '<条目 id>' <日志目录>/movieclaw-$(date +%F).log | tail -50`；进程外插件的日志也汇总在这里。
 9. **迭代**：改代码后重复 5 → 7，每次自动是新的开发版本。
    **装不上时**：先按报错原文查 `references/troubleshooting.md`。同一个现象连续两次没装上，就停下来向用户报告
    （报错原文、你的判断、建议的下一步），不要去翻宿主源码、模拟宿主的加载过程。
@@ -127,11 +160,14 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
   用到的事件 / 钩子 / 注册表写进清单 `[requires]`（如 `"library.ingest.imported" = "^1.0"`）。
 - 要调用的宿主操作同时写进 `@plugin(permissions=...)` 和清单 `permissions.operations`；
   危险操作（`mclaw` 帮助里带 ⚠ 的）必须逐个列出，不能靠 `领域.*` 覆盖。
-- 可靠事件监听器必须有稳定 `id`（`ctx.on(EVENT, fn, id="xxx")`），并按 `ctx.delivery.event_id` 幂等（至少投递一次）。
+- 可靠事件监听器必须有稳定 `id`（`ctx.on(EVENT, fn, id="xxx")`），并且**幂等**（至少投递一次，同一事件可能来两次）：
+  按 `ctx.delivery.event_id` 去重（`recipes.md` 第 1 节），或者做的事本身重复执行也没影响
+  （删除类：对象已经不在了按成功处理，见 `examples/delete_cascade.py`）。
 - 后台循环用 `ctx.task(coro, name=...)`，循环里捕获异常并记日志后继续，`CancelledError` 要原样抛出。
 - 持久状态存插件数据（`PLUGIN_DATA`），读写文件走文件接口（`PLUGIN_FILES`）并在清单 `paths` 里申请。
 - 连外网走用户的代理设置：`httpx.AsyncClient(transport=movieclaw_sdk.net.http_transport("<服务名>"))`，清单写 `network = true`。
-- 依赖只能随包放进插件目录的 `vendor/`（纯 Python）；安装时不联网、不跑 pip。
+- 主程序自带的库可以直接 import（如 `httpx`、`websockets`、`pydantic`、`fastapi`、`cryptography`、`parsel`、`pyyaml`）；
+  别的依赖只能随包放进插件目录的 `vendor/`（纯 Python）；安装时不联网、不跑 pip。
 - 日志用 `ctx.logger`，中文，带上关键 id。
 - 按关键词匹配种子 / 发布名时：英文短词（TC、TS、CAM 这类）必须按**词边界**匹配，
   如 `re.compile(r"(?<![A-Za-z0-9])TC(?![A-Za-z0-9])", re.I)`，否则 `ts` 会命中 Hits、`cam` 会命中 Cameron；
@@ -157,6 +193,9 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 - 安装前向用户列出：条目 id、要做什么、申请的宿主操作（标出危险操作）、路径、是否联网、运行方式。
   **用户明确同意后才执行第 3 节第 7、10 步**。用户在本次对话里已经明确说过「直接装」的，视为同意。
 - 申请最小权限：只列真正会调用的操作；能用演练（`dry_run`）验证的危险操作先演练。
+- 不可恢复、又有取舍的行为（删种时连数据文件一起删会影响做种和分享率、覆盖文件、批量改订阅）不要替用户定默认值，
+  列出选项请用户选。
+- 装好后还要用户给凭据才能用的（通道绑定、外部服务的 Key），在征求安装同意的同一轮里一起说明要准备什么。
 - 卸载、回滚、清除数据：用户已经明确要求的，直接执行并在结果里说明影响，不要再问一遍；
   是你自己提议的，先说明影响、等用户同意。
 - 不要把用户的凭据写进插件代码或清单；需要凭据时用插件数据的 `secret=True` 存。
