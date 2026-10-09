@@ -94,6 +94,7 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 | 写清单、申请权限 | `references/manifest.md` |
 | 用户问「插件是什么、为什么要批准、会不会搞坏」 | `references/explaining-to-users.md` |
 | 装不上、起不来、没反应 | `references/troubleshooting.md` |
+| 想看系统自己怎么做：内置插件、各模块、某个事件 / 钩子在哪被调用、字段实际填什么 | `references/architecture.md` 第 7 节（源码地图） |
 
 ## 3. 开发流程
 

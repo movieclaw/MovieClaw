@@ -84,16 +84,69 @@ async def apply(ctx: Context) -> None:
 - 插件包目前**没有用户可改的配置**（`ctx.config` 只有配置模型的默认值）。需要用户可调的参数时：
   先用常量；或挂一个管理员路由让用户写进插件数据；或请用户告诉你值后改代码发新版本。
 
-## 7. 主程序源码在哪
+## 7. 主程序源码在哪（源码地图）
+
+`$SRC` = 本技能目录往上三级。想确认系统自己怎么做、某个事件 / 钩子在哪被调用、载荷里的字段实际填的是什么、
+内置功能是怎么实现的，就按下面的表去读。读源码是为了**弄清行为、借鉴写法**：内置代码会直接用数据库、仓储层、
+内部服务，第三方插件用不了，照抄前先对照 `extension-points.md` 换成开放契约。
+（装插件失败时不在此列：按 SKILL.md 第 3 节，同一现象失败两次就停下来报告，不要靠翻源码排障。）
+
+**插件体系**
 
 | 位置 | 内容 |
 |---|---|
 | `$SRC/movieclaw_kernel/` | 内核：`plugin`、`Context`、事件总线、契约与版本、测试工具 `KernelHarness` |
-| `$SRC/movieclaw_sdk/` | 给插件用的 SDK：`plugin` / `Context` 再导出、IM 通道契约、网络出口、进程外运行器、契约表面 |
-| `$SRC/movieclaw_plugins/` | 随应用携带的插件包（四个 IM 通道），与第三方插件包同格式，最好的完整样板 |
-| `$SRC/movieclaw_api/plugins/` | 主程序的内置插件与插件管理（清单校验 `packages.py`、随带包 `bundled.py`、服务键 `keys.py`） |
-| `$SRC/movieclaw_api/domain_events.py`、`hooks.py`、`pipeline.py` | 领域事件、决策钩子、入库流水线槽位 |
-| `$SRC/movieclaw_api/services/plugin_*.py`、`host_ops.py` | 插件用到的各服务的实现（看方法签名） |
-| 本技能 `references/examples/` | 设计验收用的示例插件（删片联动、片单订阅、关键字规则、网盘上传、ntfy 通道） |
+| `$SRC/movieclaw_sdk/` | 给插件用的 SDK：`plugin` / `Context` 再导出、IM 通道契约 `channels.py`、网络出口 `net.py`、进程外运行器 `runner.py`、契约表面 `surface.json` |
+| `$SRC/movieclaw_plugins/` | 随应用携带的插件包（微信、Telegram、Discord、飞书），与第三方插件包同格式，最好的完整样板 |
+| `$SRC/movieclaw_api/plugins/` | 主程序的内置插件与插件管理，见下表 |
+| `$SRC/movieclaw_api/services/plugin_*.py`、`host_ops.py` | 插件用到的各服务的实现（看方法签名）；`plugin_runtime.py` 是进程外运行的宿主侧 |
+| 本技能 `references/examples/` | 插件体系的验收插件（删片联动、片单订阅、关键字规则、网盘上传、站点数据包、ntfy 通道），CI 真实运行 |
+
+**内置插件**（`$SRC/movieclaw_api/plugins/`，产品功能都以插件形式挂在内核上）
+
+| 文件 | 管什么 |
+|---|---|
+| `core.py` | 数据库、加密、配置、网络出口、刮削偏好、HTTP 客户端、站点 |
+| `domains.py` | 把各领域声明的内置定时任务、后台任务处理器贡献进注册表——和第三方插件贡献任务是同一种方式 |
+| `library.py` | 媒体库：内置合集、存量回填、实时监控、下载监听导入、搜索索引、片头补算 |
+| `playback.py` | 播放 |
+| `scheduling.py` | 调度器与后台任务执行器 |
+| `delivery.py` | IM 通道中枢与推送 |
+| `agent.py` | AI 助手的运行注册表、会话索引、附件清理 |
+| `events.py` | 可靠事件投递与宿主操作（插件扩展底座） |
+| `manifest.py` | 内置插件清单（启动顺序、开关） |
+| `packages.py`、`bundled.py`、`local.py` | 第三方插件包、随带插件包、本地插件的加载 |
+| `safe_mode.py`、`notices.py` | 安全模式；插件启动失败转成待处理事项 |
+| `keys.py` | 内置服务键一览 |
+
+**扩展点在系统里的位置**（看系统何时调用、传什么、默认怎么做）
+
+| 扩展点 | 去读 |
+|---|---|
+| 可靠事件（下载完成、入库、删片、订阅……） | 定义与发出：`$SRC/movieclaw_api/domain_events.py`（`record_*` 函数，grep 函数名找调用处） |
+| 订阅搜索词、淘汰 / 重排候选 | `$SRC/movieclaw_api/services/subscription/matching.py`（`hooks.waterfall` 调用处）；订阅规则组的内置过滤在 `$SRC/movieclaw_matcher/` |
+| 选下载器 | `$SRC/movieclaw_api/services/torrent_submit.py`（各投递路径构造 `DownloaderQuery` 的地方） |
+| 否决删种 | `$SRC/movieclaw_api/services/download_tasks.py` |
+| 定时任务 | 注册机制 `$SRC/movieclaw_scheduler/registry.py`；内置任务用 `@register_task`，如订阅缺口搜索 `$SRC/movieclaw_api/services/subscription/wanted_search.py` |
+| 后台任务、入库流水线 | `$SRC/movieclaw_api/services/jobs.py`、`$SRC/movieclaw_api/pipeline.py`；内置任务如 `$SRC/movieclaw_api/services/library/organize.py` |
+| 站点类、站点配置 | `$SRC/movieclaw_tracker/sites/custom/`、`$SRC/movieclaw_tracker/sites/configs/` |
+| IM 通道 | 契约 `$SRC/movieclaw_sdk/channels.py`；中枢 `$SRC/movieclaw_channel/` |
+
+**其他领域模块**（需求涉及时去看它现在怎么做）
+
+| 位置 | 内容 |
+|---|---|
+| `$SRC/movieclaw_api/services/` | 业务服务层：订阅、媒体库、下载任务、推送、刷流…… |
+| `$SRC/movieclaw_api/api/routes/` | 全部接口（也就是 mclaw 命令与宿主操作的来源） |
+| `$SRC/movieclaw_downloader/` | 下载器适配（qBittorrent、Transmission） |
+| `$SRC/movieclaw_tracker/` | PT 站点：登录、搜索、解析 |
+| `$SRC/movieclaw_matcher/` | 订阅与规则共用的资源匹配 |
+| `$SRC/movieclaw_enrich/` | 从种子标题推导分辨率、季集、制作组等属性 |
+| `$SRC/movieclaw_media/` | TMDB 元数据 |
+| `$SRC/movieclaw_playback/` | 播放领域：观看状态、进度判定、取流 |
+| `$SRC/movieclaw_scheduler/` | 定时任务调度 |
+| `$SRC/movieclaw_net/` | 统一网络出口（代理规则） |
+| `$SRC/movieclaw_db/` | 数据模型与持久化 |
+| `$SRC/movieclaw_agent/` | AI 助手执行层（工具、技能、提示词） |
 
 已安装的插件包在数据目录 `plugins/packages/<id>/<版本>/`，当前版本记在 `plugins/packages/state.json`。
