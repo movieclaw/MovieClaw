@@ -292,6 +292,7 @@ def test_watchlist_titles_become_subscriptions_once(data_dir, monkeypatch, runti
           runtime: {runtime}
           config: {{source: "{feed}", interval_minutes: 0.01}}
           grants: [search.titles, subscriptions.create]
+          paths: [{{path: "{data_dir}", mode: read}}]
         """,
     )
     app, client = start(data_dir)
@@ -304,7 +305,10 @@ def test_watchlist_titles_become_subscriptions_once(data_dir, monkeypatch, runti
 
         wait(client, subscribed)
         assert client.portal.call(subscription_count) == 1
-    state = data_dir / "plugins" / ".state" / "examples.watchlist-feed.json"
-    assert json.loads(state.read_text(encoding="utf-8")) == ["测试电影"]
+        # 处理过的片名记在插件数据里
+        from movieclaw_api.services.plugin_data import PluginStore
+
+        store = PluginStore(get_database(), "examples.watchlist-feed")
+        assert client.portal.call(lambda: store.get("done")) == ["测试电影"]
     # 处理过的片名不再搜索；搜不到的片名每轮重试
     assert searched.count("测试电影") == 1

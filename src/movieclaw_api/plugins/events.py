@@ -8,7 +8,14 @@
 
 from __future__ import annotations
 
-from movieclaw_api.plugins.keys import DB, HOST_OPS, PLUGIN_DATA, PLUGIN_HEALTH, PLUGIN_ROUTES
+from movieclaw_api.plugins.keys import (
+    DB,
+    HOST_OPS,
+    PLUGIN_DATA,
+    PLUGIN_FILES,
+    PLUGIN_HEALTH,
+    PLUGIN_ROUTES,
+)
 from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
 
 
@@ -99,3 +106,25 @@ async def plugin_routes(ctx: Context) -> None:
     ctx.provide(
         PLUGIN_ROUTES, PluginRoutes(host_ops._app, lambda entry_id: PluginStore(db, entry_id))
     )
+
+
+@plugin(
+    "kernel.plugin-files",
+    title="插件文件",
+    inject=(DB,),
+    provides=(PLUGIN_FILES,),
+    disableable=True,
+    reloadable=True,
+)
+async def plugin_files(ctx: Context) -> None:
+    from movieclaw_api.plugins import packages
+    from movieclaw_api.plugins.local import local_specs
+    from movieclaw_api.services.plugin_files import PluginFilesService, parse_grants
+
+    service = PluginFilesService(ctx.use(DB), getattr(ctx.settings, "data_dir", "./data"))
+    # 用户批准的路径：本地插件在 plugins.yaml，插件包在安装记录
+    for spec in local_specs(ctx.settings):
+        service.configure(spec.id, spec.paths)
+    for package in packages.installed(ctx.settings).values():
+        service.configure(package.id, parse_grants(package.paths))
+    ctx.provide(PLUGIN_FILES, service)

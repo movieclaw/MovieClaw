@@ -231,11 +231,71 @@ class _RemotePluginRoutes:
         )
 
 
+class _RemoteFiles:
+    """文件接口（插件侧）。
+
+    ``open`` 由宿主检查授权后打开，文件描述符经专用套接字递过来，插件直接读写。
+    """
+
+    def __init__(self, runner: Runner, entry_id: str, data_dir: str) -> None:
+        self._runner = runner
+        self.entry_id = entry_id
+        self._private = Path(data_dir) / "plugins" / "data" / entry_id
+
+    async def open(self, path: Any, mode: str = "rb") -> Any:
+        if "b" not in mode:
+            raise ValueError("只支持二进制模式（rb / wb / ab / r+b）")
+        reply = await self._runner.rpc("files.open", {"path": os.fspath(path), "mode": mode})
+        fd = await self._runner.receive_fd(reply["token"])
+        return os.fdopen(fd, mode)
+
+    async def stat(self, path: Any) -> dict[str, Any] | None:
+        return await self._runner.rpc("files.stat", {"path": os.fspath(path)})
+
+    async def exists(self, path: Any) -> bool:
+        return await self.stat(path) is not None
+
+    async def listdir(self, path: Any) -> list[str]:
+        return list(await self._runner.rpc("files.listdir", {"path": os.fspath(path)}))
+
+    async def makedirs(self, path: Any) -> None:
+        await self._runner.rpc("files.makedirs", {"path": os.fspath(path)})
+
+    async def rename(self, src: Any, dst: Any) -> None:
+        await self._runner.rpc("files.rename", {"src": os.fspath(src), "dst": os.fspath(dst)})
+
+    async def remove(self, path: Any) -> None:
+        await self._runner.rpc("files.remove", {"path": os.fspath(path)})
+
+    def path(self, alias: str, *parts: str) -> str:
+        if alias != "plugin":
+            raise ValueError("path() 只支持 plugin 别名")
+        return str(self._private.joinpath(*parts))
+
+    def response(self, path: Any) -> Any:
+        """路由里交出文件：只回一个响应头，宿主代理检查授权后自己发送（插件碰不到字节）。"""
+        from urllib.parse import quote
+
+        from starlette.responses import Response
+
+        # 响应头只能是 latin-1：路径（常含中文）按百分号编码，宿主侧解码
+        return Response(status_code=200, headers={"X-MovieClaw-Sendfile": quote(os.fspath(path))})
+
+
+class _RemotePluginFiles:
+    def __init__(self, runner: Runner) -> None:
+        self._runner = runner
+
+    def scoped(self, ctx: Any) -> _RemoteFiles:
+        return _RemoteFiles(self._runner, ctx.entry_id, ctx.settings.data_dir)
+
+
 _SERVICE_PROXIES: dict[str, Callable[[Runner], Any]] = {
     "host-ops": _RemoteHostOps,
     "plugin-data": _RemotePluginData,
     "plugin-health": _RemotePluginHealth,
     "plugin-routes": _RemotePluginRoutes,
+    "plugin-files": _RemotePluginFiles,
 }
 
 
@@ -357,9 +417,30 @@ class Runner:
         self._calls: set[asyncio.Task[Any]] = set()
         self.ctx: RemoteContext | None = None
         self.socket: str | None = None
+        self.fd_socket: Any = None
+        self._fds: dict[str, int] = {}
+        self._fd_waiters: dict[str, asyncio.Future[int]] = {}
+        self._fd_lock = asyncio.Lock()
         self._app: Any = None
         self._server: Any = None
         self._serving: asyncio.Task[Any] | None = None
+
+    async def receive_fd(self, token: str) -> int:
+        """收宿主递来的文件描述符（宿主先发描述符、再回 RPC，同一条套接字上按序到达）。"""
+        import socket
+
+        if self.fd_socket is None:
+            raise RuntimeError("宿主没有为这个插件建立文件通道")
+        async with self._fd_lock:
+            while token not in self._fds:
+                message, fds, _flags, _addr = await asyncio.to_thread(
+                    socket.recv_fds, self.fd_socket, 128, 1
+                )
+                if not message:
+                    raise RuntimeError("文件通道已关闭")
+                for got in fds:
+                    self._fds[message.decode()] = got
+            return self._fds.pop(token)
 
     def serve_router(self, router: Any, prefix: str) -> None:
         """第一次挂路由时在宿主指定的 Unix 套接字上起 ASGI 服务；之后的路由器挂到同一个应用上。"""
@@ -426,6 +507,10 @@ class Runner:
         error = reply.get("error") or {}
         if error.get("kind") == "value":
             raise ValueError(error.get("message") or "参数不对")
+        if error.get("kind") == "permission":
+            raise PermissionError(error.get("message") or "没有授权")
+        if error.get("kind") == "not_found":
+            raise FileNotFoundError(error.get("message") or "文件不存在")
         if error.get("kind") == "ops":
             from movieclaw_api.services.host_ops import OpsError
 
@@ -561,6 +646,10 @@ async def run(args: argparse.Namespace) -> int:
     reader = asyncio.StreamReader(limit=MAX_LINE)
     await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
     runner = Runner(_PROTOCOL_OUT)
+    if args.fd_socket is not None:
+        import socket
+
+        runner.fd_socket = socket.socket(fileno=args.fd_socket)
     runner.send({"type": "hello", "sdk": SDK_VERSION, "pid": os.getpid()})
     init = decode(await reader.readline())
     runner.socket = init.get("socket")
@@ -583,7 +672,14 @@ async def run(args: argparse.Namespace) -> int:
         await found.apply(runner.ctx)
         await runner.wait_serving()
     except Exception as exc:  # noqa: BLE001 -- 启动失败报给宿主，由内核标 FAILED
-        runner.send({"type": "failed", "error": f"{type(exc).__name__}: {exc}"})
+        runner.send(
+            {
+                "type": "failed",
+                "error": f"{type(exc).__name__}: {exc}",
+                "error_type": type(exc).__name__,
+                "error_message": str(exc),
+            }
+        )
         traceback.print_exc()
         serving.cancel()
         return 1
@@ -633,6 +729,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--module", required=True)
     parser.add_argument("--entry", required=True, help="条目 id（@plugin 的名字）")
     parser.add_argument("--describe", action="store_true", help="只输出插件声明后退出")
+    parser.add_argument("--fd-socket", type=int, default=None, help="宿主递文件描述符用的套接字")
     args = parser.parse_args(argv)
     _die_with_parent()
     # 标准输出只留给协议：插件的 print 改到标准错误

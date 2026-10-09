@@ -285,6 +285,8 @@ class PackageRequestView(BaseModel):
     runtime: str = Field(description="process：独立进程；inline：主进程里运行（须单独确认）")
     operations: list[str] = Field(description="插件申请的宿主操作")
     new_operations: list[str] = Field(description="相比当前已安装版本新增的申请")
+    paths: list[dict[str, str]] = Field(description="插件申请的路径授权（path、mode）")
+    new_paths: list[dict[str, str]] = Field(description="相比当前已安装版本新增的路径申请")
     requires: dict[str, str]
     installed_version: str | None
 
@@ -295,6 +297,7 @@ class InstalledPackageView(BaseModel):
     version: str
     runtime: str
     operations: list[str]
+    paths: list[dict[str, str]]
     previous_version: str | None
     bad_versions: list[str] = Field(description="激活失败过、已自动回滚的版本")
     state: str
@@ -314,6 +317,9 @@ class PackageApprove(BaseModel):
     )
     allow_inline: bool = Field(
         default=False, description="插件申请在主进程里运行时，须显式确认（与主程序同权限）"
+    )
+    paths: list[dict[str, str]] = Field(
+        default_factory=list, description="批准的路径授权，须与插件申请的完全一致"
     )
 
 
@@ -383,7 +389,11 @@ async def approve_package(
 
     try:
         result = await _packages(request).approve(
-            entry_id, body.version, operations=body.operations, allow_inline=body.allow_inline
+            entry_id,
+            body.version,
+            operations=body.operations,
+            allow_inline=body.allow_inline,
+            paths=body.paths,
         )
     except LookupError as exc:
         raise NotFoundException(str(exc)) from exc

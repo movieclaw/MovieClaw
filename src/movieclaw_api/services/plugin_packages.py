@@ -40,6 +40,8 @@ def _operations() -> set[str]:
 def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, Any]:
     plugin = manifest.plugin
     approved = set(current.operations) if current else set()
+    approved_paths = [dict(p) for p in current.paths] if current else []
+    paths = [dict(p) for p in manifest.permissions.paths]
     return {
         "id": plugin.id,
         "title": plugin.title,
@@ -48,6 +50,8 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, An
         "runtime": plugin.runtime,
         "operations": manifest.permissions.operations,
         "new_operations": [op for op in manifest.permissions.operations if op not in approved],
+        "paths": paths,
+        "new_paths": [p for p in paths if p not in approved_paths],
         "requires": manifest.requires,
         "installed_version": current.version if current else None,
     }
@@ -76,6 +80,7 @@ class PackageManager:
                     "version": item.version,
                     "runtime": item.runtime,
                     "operations": item.operations,
+                    "paths": item.paths,
                     "previous_version": (item.previous or {}).get("version"),
                     "bad_versions": item.bad,
                     "state": fiber.state.value if fiber else "unloaded",
@@ -105,9 +110,7 @@ class PackageManager:
                 shutil.rmtree(stale, ignore_errors=True)
             target = pkg.pending_dir(self._settings, manifest.plugin.id, manifest.plugin.version)
             await asyncio.to_thread(pkg.extract, archive, target)
-        logger.info(
-            "插件包 %s v%s 已上传，等待批准", manifest.plugin.id, manifest.plugin.version
-        )
+        logger.info("插件包 %s v%s 已上传，等待批准", manifest.plugin.id, manifest.plugin.version)
         return _view(manifest, current)
 
     async def discard(self, entry_id: str) -> None:
@@ -120,7 +123,13 @@ class PackageManager:
 
     # ------------------------------------------------------------------ 批准
     async def approve(
-        self, entry_id: str, version: str, *, operations: list[str], allow_inline: bool
+        self,
+        entry_id: str,
+        version: str,
+        *,
+        operations: list[str],
+        allow_inline: bool,
+        paths: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """用户批准：安装并当场挂载；激活失败自动回滚。返回挂载结果。"""
         async with self._lock:
@@ -134,6 +143,14 @@ class PackageManager:
                 raise pkg.PackageError(
                     "批准的宿主操作须与插件申请的完全一致："
                     + ("、".join(requested) if requested else "（不申请任何操作）")
+                )
+            requested_paths = [dict(p) for p in manifest.permissions.paths]
+            given = [{"path": p["path"], "mode": p.get("mode", "read")} for p in paths or []]
+            want = [{"path": p["path"], "mode": p.get("mode", "read")} for p in requested_paths]
+            if sorted(map(str, given)) != sorted(map(str, want)):
+                raise pkg.PackageError(
+                    "批准的路径授权须与插件申请的完全一致："
+                    + ("、".join(f"{p['path']}（{p['mode']}）" for p in want) or "（不申请路径）")
                 )
             if manifest.plugin.runtime == "inline" and not allow_inline:
                 raise pkg.PackageError(
@@ -158,6 +175,7 @@ class PackageManager:
                 entry=manifest.plugin.entry,
                 runtime=manifest.plugin.runtime,
                 operations=list(requested),
+                paths=requested_paths,
                 previous=current.snapshot() if current else None,
                 bad=[v for v in (current.bad if current else []) if v != version],
                 installed_at=pkg.now(),
@@ -174,11 +192,15 @@ class PackageManager:
             return {"status": "active", "error": None, **self._status(entry_id)}
 
     async def _activate(self, record: pkg.Installed) -> tuple[str, str | None]:
-        from movieclaw_api.plugins.keys import HOST_OPS
+        from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_FILES
+        from movieclaw_api.services.plugin_files import parse_grants
 
         host = self._kernel.service(HOST_OPS)
         if host is not None:
             host.configure(record.id, grants=record.operations)
+        files = self._kernel.service(PLUGIN_FILES)
+        if files is not None:
+            files.configure(record.id, parse_grants(record.paths))
         if self._kernel.fiber(record.id) is not None:
             await self._kernel.unmount(record.id)
         fiber = await self._kernel.mount(pkg.entry_for(self._settings, record))
@@ -239,9 +261,10 @@ class PackageManager:
             if record is None:
                 raise LookupError(f"没有安装插件包 {entry_id}")
             previous = record.previous
-            if not previous or not pkg.version_dir(
-                self._settings, entry_id, previous["version"]
-            ).is_dir():
+            if (
+                not previous
+                or not pkg.version_dir(self._settings, entry_id, previous["version"]).is_dir()
+            ):
                 raise pkg.PackageError("没有可以回退的上一版")
             self._cancel_watch(entry_id)
             swapped = pkg.Installed(

@@ -20,6 +20,7 @@ import itertools
 import json
 import logging
 import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -114,6 +115,9 @@ class Session:
         self.rpc_handler: RpcFn | None = None
         self.contributions: list[dict[str, Any]] = []
         self.routes: list[dict[str, Any]] = []
+        self._fd_host: socket.socket | None = None
+        self.files: Any = None
+        """宿主侧这个条目的 ``PluginFiles``（插件注入了 PLUGIN_FILES 时才有）。"""
         # Unix 套接字路径有长度上限（macOS 104 字节）：放在临时目录、用短哈希命名
         digest = hashlib.sha1(f"{entry_id}:{os.getpid()}".encode()).hexdigest()[:12]
         self.socket = str(Path(tempfile.gettempdir()) / f"mcp-{digest}.sock")
@@ -143,24 +147,33 @@ class Session:
     async def start(self) -> list[dict[str, Any]]:
         """拉起进程并握手，返回插件声明的监听器；插件启动失败抛错（内核据此标 FAILED）。"""
         self._ready = False
-        self._proc = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-s",
-            "-m",
-            "movieclaw_sdk.runner",
-            "--path",
-            str(self._path),
-            "--module",
-            self._module,
-            "--entry",
-            self.entry_id,
-            stdin=asyncio.subprocess.PIPE,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            cwd=str(self._path),
-            env=_child_env(),
-            limit=MAX_LINE,
-        )
+        # 文件通道：宿主检查授权后打开文件，把描述符经这对套接字递给插件（services/plugin_files.py）
+        self._close_fd_channel()
+        self._fd_host, child_end = socket.socketpair()
+        try:
+            self._proc = await asyncio.create_subprocess_exec(
+                sys.executable,
+                "-s",
+                "-m",
+                "movieclaw_sdk.runner",
+                "--path",
+                str(self._path),
+                "--module",
+                self._module,
+                "--entry",
+                self.entry_id,
+                "--fd-socket",
+                str(child_end.fileno()),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                cwd=str(self._path),
+                env=_child_env(),
+                limit=MAX_LINE,
+                pass_fds=(child_end.fileno(),),
+            )
+        finally:
+            child_end.close()
         self._readers = [
             asyncio.get_running_loop().create_task(self._pump_stderr(self._proc)),
         ]
@@ -212,7 +225,7 @@ class Session:
                 self.title = message.get("title")
                 return declarations
             elif kind == "failed":
-                raise RuntimeError(message.get("error") or "插件启动失败")
+                raise _remote_error(message)
             else:
                 raise RuntimeError(f"插件进程握手期间发来意外的消息：{kind}")
 
@@ -302,6 +315,10 @@ class Session:
                     "message": exc.message,
                     "details": exc.details,
                 }
+            elif isinstance(exc, PermissionError):
+                error = {"kind": "permission", "message": str(exc)}
+            elif isinstance(exc, FileNotFoundError):
+                error = {"kind": "not_found", "message": str(exc)}
             elif isinstance(exc, ValueError):
                 error = {"kind": "value", "message": str(exc)}
             else:
@@ -309,6 +326,16 @@ class Session:
             reply.update(ok=False, error=error)
         with contextlib.suppress(PluginProcessGone):
             await self._send(reply)
+
+    async def send_fd(self, token: str, fd: int) -> None:
+        if self._fd_host is None:
+            raise PluginProcessGone("文件通道已关闭")
+        await asyncio.to_thread(socket.send_fds, self._fd_host, [token.encode()], [fd])
+
+    def _close_fd_channel(self) -> None:
+        if self._fd_host is not None:
+            self._fd_host.close()
+            self._fd_host = None
 
     def _fail_pending(self, exc: Exception) -> None:
         for future in self._pending.values():
@@ -425,6 +452,7 @@ class Session:
             task.cancel()
         await asyncio.gather(*self._readers, return_exceptions=True)
         self._fail_pending(PluginProcessGone("插件已卸载"))
+        self._close_fd_channel()
         with contextlib.suppress(FileNotFoundError):
             os.unlink(self.socket)
 
@@ -433,6 +461,15 @@ class Session:
         if proc is not None and proc.returncode is None:
             proc.kill()
             await proc.wait()
+
+
+def _remote_error(message: dict[str, Any]) -> Exception:
+    """插件进程里的启动异常，按原类型名在宿主重建（诊断里显示 ``ValueError: …`` 而不是套两层）。"""
+    name = message.get("error_type")
+    text = message.get("error_message")
+    if isinstance(name, str) and name.isidentifier() and isinstance(text, str):
+        return type(name, (RuntimeError,), {})(text)
+    return RuntimeError(message.get("error") or "插件启动失败")
 
 
 def _shape(session: Session, declarations: list[dict[str, Any]]) -> set[Any]:
@@ -485,7 +522,9 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
             message=f"插件 {session.entry_id} 暂时不可用（进程不在运行或正在重启），请稍后再试",
         )
 
-    async def forward(request: Request) -> StreamingResponse:
+    from movieclaw_api.services.plugin_files import SENDFILE_HEADER, sendfile
+
+    async def forward(request: Request) -> Any:
         if not session.online:
             raise unavailable()
         client = httpx.AsyncClient(
@@ -509,6 +548,17 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
         except BaseException:
             await client.aclose()
             raise
+        sendfile_path = response.headers.get(SENDFILE_HEADER)
+        if sendfile_path is not None:
+            from urllib.parse import unquote
+
+            sendfile_path = unquote(sendfile_path)
+            # 插件只交出了路径：宿主检查读授权后自己发送（支持 Range），插件碰不到字节
+            await response.aclose()
+            await client.aclose()
+            if session.files is None:
+                raise unavailable()
+            return await sendfile(session.files, sendfile_path)
 
         async def close() -> None:
             await response.aclose()
@@ -529,6 +579,7 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
             operation_id=route["operation_id"],
             summary=route.get("summary"),
             name=route.get("name"),
+            response_model=None,
         )
     return router
 
@@ -619,9 +670,16 @@ def _proxy(session: Session, declaration: dict[str, Any]) -> tuple[Any, Callable
 
 def _open_services() -> dict[str, ServiceKey[Any]]:
     """进程外插件能用的服务（插件侧有对应的代理，见 ``movieclaw_sdk.runner``）。"""
-    from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_HEALTH, PLUGIN_ROUTES
+    from movieclaw_api.plugins.keys import (
+        HOST_OPS,
+        PLUGIN_DATA,
+        PLUGIN_FILES,
+        PLUGIN_HEALTH,
+        PLUGIN_ROUTES,
+    )
 
     return {
+        PLUGIN_FILES.name: PLUGIN_FILES,
         HOST_OPS.name: HOST_OPS,
         PLUGIN_DATA.name: PLUGIN_DATA,
         PLUGIN_HEALTH.name: PLUGIN_HEALTH,
@@ -663,9 +721,11 @@ _MISSING: Any = object()
 
 async def _service_handler(ctx: Context, session: Session, names: tuple[str, ...]) -> RpcFn:
     """插件在子进程里调宿主服务时，宿主这边代它执行（以它自己的上下文、凭证与数据作用域）。"""
-    from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_HEALTH
+    from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_FILES, PLUGIN_HEALTH
 
     client = await ctx.use(HOST_OPS).client(ctx) if HOST_OPS.name in names else None
+    files = ctx.use(PLUGIN_FILES).scoped(ctx) if PLUGIN_FILES.name in names else None
+    session.files = files
     store = ctx.use(PLUGIN_DATA).scoped(ctx) if PLUGIN_DATA.name in names else None
     health = ctx.use(PLUGIN_HEALTH).reporter(ctx) if PLUGIN_HEALTH.name in names else None
 
@@ -686,6 +746,8 @@ async def _service_handler(ctx: Context, session: Session, names: tuple[str, ...
                 return await context.current_progress()
             if method == "job.cancel_requested":
                 return await context.cancel_requested()
+        if method.startswith("files."):
+            return await _files_call(session, need(files, PLUGIN_FILES.name), method, params)
         if method == "routes.sign":
             from movieclaw_api.plugins.keys import PLUGIN_ROUTES
 
@@ -736,6 +798,50 @@ async def _service_handler(ctx: Context, session: Session, names: tuple[str, ...
         raise LookupError(f"未知的服务调用：{method}")
 
     return handle
+
+
+_OPEN_FLAGS = {
+    "rb": os.O_RDONLY,
+    "wb": os.O_WRONLY | os.O_CREAT | os.O_TRUNC,
+    "ab": os.O_WRONLY | os.O_CREAT | os.O_APPEND,
+    "r+b": os.O_RDWR,
+    "w+b": os.O_RDWR | os.O_CREAT | os.O_TRUNC,
+    "a+b": os.O_RDWR | os.O_CREAT | os.O_APPEND,
+}
+
+
+async def _files_call(session: Session, files: Any, method: str, params: dict[str, Any]) -> Any:
+    """进程外插件的文件请求：检查授权由 ``PluginFiles`` 做；``open`` 打开后把描述符递过去。"""
+    if method == "files.open":
+        mode = params.get("mode") or "rb"
+        flags = _OPEN_FLAGS.get(mode.replace("br", "rb"))
+        if flags is None:
+            raise ValueError(f"不支持的打开模式：{mode}")
+        real = await files.check(params["path"], write=mode != "rb")
+        fd = await asyncio.to_thread(os.open, real, flags | os.O_CLOEXEC, 0o644)
+        token = f"f{next(_tokens)}"
+        try:
+            await session.send_fd(token, fd)
+        finally:
+            os.close(fd)
+        return {"token": token}
+    if method == "files.stat":
+        return await files.stat(params["path"])
+    if method == "files.listdir":
+        return await files.listdir(params["path"])
+    if method == "files.makedirs":
+        await files.makedirs(params["path"])
+        return None
+    if method == "files.rename":
+        await files.rename(params["src"], params["dst"])
+        return None
+    if method == "files.remove":
+        await files.remove(params["path"])
+        return None
+    raise LookupError(f"未知的文件请求：{method}")
+
+
+_tokens = itertools.count(1)
 
 
 def remote_plugin(

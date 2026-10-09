@@ -25,6 +25,17 @@ CI 里 `tests/api/test_example_plugins*.py` 会把它们装进临时数据目录
 
 3. 重启。设置 → 更新与维护 →「模块」里能看到它，标着「本地插件」。
 
+插件读写文件一律经文件接口（`PLUGIN_FILES`），只能碰 `paths` 里批准过的目录（`docs/design/plugin-phase3.md` §6.2）：
+
+```yaml
+   paths:
+     - { path: /mnt/cloud/movieclaw, mode: rw }   # 绝对路径
+     - { path: staging, mode: rw }               # 导入规则的自定义目录
+     - { path: library, mode: read }             # 全部媒体库根目录（library:<id> 只批一个库）
+```
+
+插件自己的目录（`files.path("plugin", ...)`）总是可读写；持久状态更推荐存插件数据（`PLUGIN_DATA`）。
+
 本地插件默认在应用进程里运行，拥有与主程序相同的系统权限——只开启你信任的代码。
 加上 `runtime: process` 改为在独立进程里运行（`docs/design/plugin-phase3.md` §4）：插件崩溃、卡死只伤它自己，
 主进程按退避自动重启它；子进程拿不到主密钥、数据库地址等环境变量。进程外已支持事件与决策钩子、

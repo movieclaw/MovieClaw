@@ -59,6 +59,10 @@ def app_client(request, tmp_path, monkeypatch):
               runtime: {request.param}
               config: {{ cloud_dir: "{tmp_path / "cloud"}", chunk_mb: 1 }}
               grants: [library.get, library.scan.start]
+              paths:
+                - {{ path: "{tmp_path / "cloud"}", mode: rw }}
+                - {{ path: staging, mode: rw }}
+                - {{ path: library, mode: rw }}
             """
         ),
         encoding="utf-8",
@@ -177,7 +181,7 @@ def test_staged_files_go_to_the_cloud_and_come_back_as_signed_strm(
     assert client.get(urls[0].split("?")[0]).status_code == 404
 
 
-def test_upload_resumes_from_the_part_file(tmp_path) -> None:
+def test_copy_resumes_from_the_part_file(tmp_path) -> None:
     sys.path.insert(0, str(EXAMPLES))
     try:
         cloud_strm = importlib.import_module("cloud_strm")
@@ -188,9 +192,9 @@ def test_upload_resumes_from_the_part_file(tmp_path) -> None:
     source.write_bytes(bytes(range(256)) * 100)
     target = tmp_path / "cloud" / "a.mkv"
     target.parent.mkdir()
-    # 上一次传到一半断了：.part 里有前 1000 字节
-    (target.parent / "a.mkv.part").write_bytes(source.read_bytes()[:1000])
-    cloud_strm.upload_file(source, target, 4096)
-    assert target.read_bytes() == source.read_bytes()
-    assert not (target.parent / "a.mkv.part").exists()
+    # 上一次传到一半断了：.part 里有前 1000 字节，从第 1000 字节接着传
+    part = target.parent / "a.mkv.part"
+    part.write_bytes(source.read_bytes()[:1000])
+    cloud_strm.copy_from(source.open("rb"), part.open("ab"), 1000, 4096)
+    assert part.read_bytes() == source.read_bytes()
     assert cloud_strm.file_id("剧/S01/e1.mkv") == cloud_strm.file_id("剧/S01/e1.mkv")

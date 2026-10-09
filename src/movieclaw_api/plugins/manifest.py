@@ -51,6 +51,7 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         events.plugin_data,
         events.plugin_health,
         events.plugin_routes,
+        events.plugin_files,
         core.secrets,
         core.setting_store,
         notices.plugin_notices,
@@ -108,7 +109,7 @@ def patch_file(settings: object) -> Path:
 
 #: 补丁条目认识的字段：disabled 关掉一个条目；其余是本地受信插件的开启与批准（plugins/local.py）
 _PATCH_FIELDS = frozenset(
-    {"id", "disabled", "local", "module", "config", "grants", "act_as", "runtime"}
+    {"id", "disabled", "local", "module", "config", "grants", "act_as", "runtime", "paths"}
 )
 
 

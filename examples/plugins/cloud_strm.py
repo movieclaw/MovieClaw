@@ -21,6 +21,10 @@
       local: true
       config: { cloud_dir: /mnt/cloud/movieclaw }
       grants: [library.get, library.scan.start]
+      paths:   # 文件接口的路径授权（docs/design/plugin-phase3.md §6.2）
+        - { path: /mnt/cloud/movieclaw, mode: rw }
+        - { path: staging, mode: rw }   # 读暂存文件、上传后删掉暂存副本
+        - { path: library, mode: rw }   # 在媒体库里写 .strm
 """
 
 from __future__ import annotations
@@ -32,12 +36,12 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter
-from fastapi.responses import FileResponse
+from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from movieclaw_api.exceptions import NotFoundException
 from movieclaw_api.pipeline import INGEST_STEPS, IngestStep
-from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_ROUTES
+from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_FILES, PLUGIN_ROUTES
 from movieclaw_api.services.host_ops import OpsError
 from movieclaw_api.services.jobs import (
     JOB_HANDLERS,
@@ -60,36 +64,50 @@ def file_id(relative: str) -> str:
     return hashlib.sha256(relative.encode("utf-8")).hexdigest()[:20]
 
 
-def upload_file(source: Path, target: Path, chunk: int) -> None:
-    """分块上传，旁路 ``.part`` 文件记录进度：中断后从已传的字节继续，传完才改名为正式文件。"""
-    if target.exists() and target.stat().st_size == source.stat().st_size:
-        return
-    target.parent.mkdir(parents=True, exist_ok=True)
-    part = target.with_name(target.name + ".part")
-    done = part.stat().st_size if part.exists() else 0
-    with source.open("rb") as src, part.open("ab") as dst:
-        src.seek(done)
+def copy_from(src: Any, dst: Any, offset: int, chunk: int) -> None:
+    """从 ``offset`` 起把 ``src`` 追加到 ``dst``（两个都是已打开的二进制文件），落盘后返回。"""
+    with src, dst:
+        src.seek(offset)
         while block := src.read(chunk):
             dst.write(block)
         dst.flush()
         os.fsync(dst.fileno())
-    os.replace(part, target)
 
 
-def write_strm(path: Path, url: str) -> None:
-    """临时文件 + 改名：扫描永远看不到写了一半的 .strm。"""
-    if path.exists() and path.read_text(encoding="utf-8").strip() == url:
+async def upload_file(files: Any, source: str, target: str, chunk: int) -> None:
+    """分块上传，旁路 ``.part`` 文件记录进度：中断后从已传的字节继续，传完才改名为正式文件。"""
+    size = (await files.stat(source))["size"]
+    existing = await files.stat(target)
+    if existing is not None and existing["size"] == size:
         return
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f".{path.name}.tmp")
-    tmp.write_text(url + "\n", encoding="utf-8")
-    os.replace(tmp, path)
+    await files.makedirs(os.path.dirname(target))
+    part = f"{target}.part"
+    done = (await files.stat(part) or {}).get("size", 0)
+    src = await files.open(source, "rb")
+    dst = await files.open(part, "ab")
+    await asyncio.to_thread(copy_from, src, dst, done, chunk)
+    await files.rename(part, target)
+
+
+async def write_strm(files: Any, path: str, url: str) -> None:
+    """临时文件 + 改名：扫描永远看不到写了一半的 .strm。"""
+    if await files.exists(path):
+        current = await files.open(path, "rb")
+        with current:
+            if (await asyncio.to_thread(current.read)).decode("utf-8").strip() == url:
+                return
+    await files.makedirs(os.path.dirname(path))
+    tmp = os.path.join(os.path.dirname(path), f".{os.path.basename(path)}.tmp")
+    out = await files.open(tmp, "wb")
+    with out:
+        await asyncio.to_thread(out.write, (url + "\n").encode("utf-8"))
+    await files.rename(tmp, path)
 
 
 @plugin(
     "examples.cloud-strm",
     title="网盘上传与 .strm（示例）",
-    inject=(HOST_OPS, PLUGIN_DATA, PLUGIN_ROUTES),
+    inject=(HOST_OPS, PLUGIN_DATA, PLUGIN_FILES, PLUGIN_ROUTES),
     permissions=("library.get", "library.scan.start"),
     config=Config,
 )
@@ -97,6 +115,8 @@ async def cloud_strm(ctx: Context[Config]) -> None:
     config = ctx.config
     cloud = Path(config.cloud_dir)
     store = ctx.use(PLUGIN_DATA).scoped(ctx)
+    # 文件一律经文件接口：读暂存、写网盘、写 .strm 都要在 plugins.yaml 的 paths 里批准过
+    files = ctx.use(PLUGIN_FILES).scoped(ctx)
     routes = ctx.use(PLUGIN_ROUTES)
     ops = await ctx.use(HOST_OPS).client(ctx)
     log = ctx.logger
@@ -109,13 +129,12 @@ async def cloud_strm(ctx: Context[Config]) -> None:
         operation_id=f"plugins.{ctx.entry_id}.play",
         summary="播放网盘上的文件（.strm 指向这里）",
     )
-    async def play(fid: str) -> FileResponse:
+    async def play(fid: str) -> Response:
         relative = await store.get(f"file:{fid}")
-        path = cloud / relative if relative else None
-        if path is None or not path.is_file():
+        if relative is None:
             raise NotFoundException("网盘上找不到这个文件")
-        # 真实网盘：在这里换出新鲜直链，return RedirectResponse(link, status_code=302)
-        return FileResponse(path)
+        # 交出文件由宿主发送（支持 Range）；真实网盘在这里换出新鲜直链后 302 跳转
+        return files.response(cloud / relative)
 
     routes.mount(ctx, router, zone="public")
 
@@ -130,17 +149,21 @@ async def cloud_strm(ctx: Context[Config]) -> None:
             raise JobRetry(f"读取媒体库失败：{exc.message}", delay_seconds=60) from exc
         root = Path(library["primary_root"])
         staging = Path(data["rule"]["target_path"])
-        files = data["files"]
+        batch = data["files"]
         written: list[str] = []
-        for index, item in enumerate(files, start=1):
+        for index, item in enumerate(batch, start=1):
             source = Path(item["path"])
             relative = source.relative_to(staging).as_posix()
-            strm = (root / relative).with_suffix(".strm")
-            if source.exists():
+            strm = str((root / relative).with_suffix(".strm"))
+            if await files.exists(source):
                 try:
-                    await asyncio.to_thread(
-                        upload_file, source, cloud / relative, config.chunk_mb * 1024 * 1024
+                    await upload_file(
+                        files, str(source), str(cloud / relative), config.chunk_mb * 1024 * 1024
                     )
+                except PermissionError as exc:
+                    raise JobBlocked(
+                        f"{exc}；请在 plugins.yaml 的 paths 里批准网盘目录、staging 与 library"
+                    ) from exc
                 except OSError as exc:
                     raise JobRetry(f"上传 {source.name} 失败：{exc}", delay_seconds=60) from exc
                 fid = file_id(relative)
@@ -152,19 +175,19 @@ async def cloud_strm(ctx: Context[Config]) -> None:
                         str(exc),
                         actions=[{"type": "open_settings", "label": "去配置", "target": "app"}],
                     ) from exc
-                write_strm(strm, url)
+                await write_strm(files, strm, url)
                 if not config.keep_staged:
-                    source.unlink()
-            elif not strm.exists():
+                    await files.remove(source)
+            elif not await files.exists(strm):
                 raise JobBlocked(f"暂存文件不见了，也没有写出 .strm：{source}")
             # 否则是重试：这个文件上一轮已经传完、写好了
-            written.append(str(strm))
+            written.append(strm)
             await context.update_progress(
                 mode="determinate",
                 phase="upload",
-                message=f"已上传 {index}/{len(files)}：{source.name}",
+                message=f"已上传 {index}/{len(batch)}：{source.name}",
                 current=index,
-                total=len(files),
+                total=len(batch),
             )
         scope = sorted({str(Path(p).parent) for p in written})
         try:

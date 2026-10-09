@@ -47,6 +47,8 @@ class LocalSpec:
     disabled: bool = False
     runtime: str = "inline"
     """``inline``：主进程里运行；``process``：独立进程（docs/design/plugin-phase3.md §4）。"""
+    paths: tuple[Any, ...] = ()
+    """批准的路径授权（``PLUGIN_FILES``），见 services/plugin_files.py。"""
 
 
 def plugins_dir(settings: object) -> Path:
@@ -71,6 +73,13 @@ def local_specs(settings: object) -> list[LocalSpec]:
         grants = item.get("grants") or []
         act_as = item.get("act_as")
         runtime = item.get("runtime") or "inline"
+        try:
+            from movieclaw_api.services.plugin_files import parse_grants
+
+            paths = parse_grants(item.get("paths"))
+        except ValueError as exc:
+            logger.warning("本地插件 %s 的 paths 不合规（%s），已跳过", entry_id, exc)
+            continue
         if (
             runtime not in ("inline", "process")
             or not isinstance(module, str)
@@ -95,6 +104,7 @@ def local_specs(settings: object) -> list[LocalSpec]:
                 act_as=act_as,
                 disabled=bool(item.get("disabled", False)),
                 runtime=runtime,
+                paths=paths,
             )
         )
     return specs

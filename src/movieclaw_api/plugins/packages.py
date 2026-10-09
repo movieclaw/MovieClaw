@@ -179,6 +179,12 @@ def check_compat(manifest: Manifest, *, reserved: set[str], operations: set[str]
     reason = check_requires(manifest.requires, third_party=True)
     if reason:
         raise PackageError(f"契约不兼容：{reason}")
+    from movieclaw_api.services.plugin_files import parse_grants
+
+    try:
+        parse_grants(manifest.permissions.paths)
+    except ValueError as exc:
+        raise PackageError(f"路径授权不合规：{exc}") from exc
     for pattern in manifest.permissions.operations:
         if pattern.endswith(".*"):
             domain = pattern[:-2] + "."
@@ -197,6 +203,8 @@ class Installed:
     entry: str
     runtime: str
     operations: list[str]
+    paths: list[dict[str, str]] = field(default_factory=list)
+    """批准的路径授权（``PLUGIN_FILES``）。"""
     previous: dict[str, Any] | None = None
     """上一版的安装记录（version、title、entry、runtime、operations），回滚用。"""
     bad: list[str] = field(default_factory=list)
@@ -210,6 +218,7 @@ class Installed:
             "entry": self.entry,
             "runtime": self.runtime,
             "operations": list(self.operations),
+            "paths": [dict(p) for p in self.paths],
         }
 
 
