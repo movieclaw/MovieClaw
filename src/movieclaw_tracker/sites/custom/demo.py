@@ -210,8 +210,9 @@ def _boost_entry(base: dict, window_id: int, n: int) -> dict:
         "size_bytes": size,
         "title_zh": base.get("title_zh", ""),
         "upload_time": (start + timedelta(minutes=10 * n)).isoformat(),
-        "leechers": 3 + seed[4] % 18,
-        "seeders": 1 + seed[5] % 4,
+        # 供不应求的新种：刷流准入要求 下载者 / (做种者 + 1) ≥ 3，演示种每条都够格
+        "leechers": 6 + seed[4] % 15,
+        "seeders": 1,
     }
 
 

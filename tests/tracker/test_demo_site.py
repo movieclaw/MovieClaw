@@ -72,6 +72,8 @@ async def test_list_rotates_free_boost_releases(site) -> None:
     boosts = [item for item in page.items if item.free]
     assert len(boosts) == demo.BOOST_PER_WINDOW
     assert all(item.leechers >= 1 and item.download_volume_factor == 0 for item in boosts)
+    # 刷流准入的供需门槛（ratio_boost._MIN_ADMIT_SCORE）：每条都得够格，否则审核员看不到刷流
+    assert all(item.leechers / (item.seeders + 1) >= 3 for item in boosts)
     torrent = await site.download_torrent(boosts[0].download_url)
     assert len(compute_info_hash(torrent)) == 40
     assert (await site.list_torrents(page=2)).items == []
