@@ -21,6 +21,8 @@ logger = logging.getLogger("movieclaw_api.plugin_packages")
 GRACE_SECONDS = 120.0
 GRACE_POLL = 2.0
 NOTICE_PREFIX = "plugin-package:"
+#: 回滚通知「去处理」落到插件管理页（设置 → 更新与维护 → 插件）
+MANAGE_HREF = "/settings/app?tab=extensions"
 
 
 def _reserved(kernel: Kernel, settings: object) -> set[str]:
@@ -217,6 +219,7 @@ class PackageManager:
                 return {"status": "rolled_back", "error": error, **self._status(entry_id)}
             self._prune(entry_id)
             self._watch(entry_id, version)
+            await _resolve_notice(entry_id)
             logger.info("插件包 %s v%s 已安装并运行", entry_id, version)
             return {"status": "active", "error": None, **self._status(entry_id)}
 
@@ -306,6 +309,8 @@ class PackageManager:
             packages[entry_id] = swapped
             pkg.save(self._settings, packages)
             state, error = await self._activate(swapped)
+            if state == State.ACTIVE.value:
+                await _resolve_notice(entry_id)
             return {"status": state, "error": error, **self._status(entry_id)}
 
     # ------------------------------------------------------------------ 卸载
@@ -327,6 +332,7 @@ class PackageManager:
                 service = self._kernel.service(PLUGIN_DATA)
                 if service is not None:
                     purged = await service.purge(entry_id)
+            await _resolve_notice(entry_id)
             logger.info("插件包 %s 已卸载（删除数据 %d 行）", entry_id, purged)
             return {"purged_rows": purged}
 
@@ -382,7 +388,19 @@ async def _notice(entry_id: str, title: str, message: str) -> None:
                 source="plugin",
                 title=f"插件「{title}」已自动回滚",
                 message=message,
-                payload={"entry_id": entry_id},
+                payload={"entry_id": entry_id, "action_href": MANAGE_HREF},
             )
     except Exception:  # noqa: BLE001 -- 通知写不进去不影响回滚本身
         logger.exception("插件包回滚通知写入失败")
+
+
+async def _resolve_notice(entry_id: str) -> None:
+    """回滚过的问题已经翻篇（新版本跑起来了、手动换了版本、卸载了）：消退那条通知。"""
+    from movieclaw_api.services.system_notice import resolve_notices
+    from movieclaw_db.engine import get_database
+
+    try:
+        async with get_database().session() as session:
+            await resolve_notices(session, dedupe_key=f"{NOTICE_PREFIX}{entry_id}")
+    except Exception:  # noqa: BLE001 -- 消退失败不影响安装 / 卸载本身
+        logger.exception("插件包通知消退失败")

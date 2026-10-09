@@ -170,6 +170,27 @@ def installed(client) -> dict:
     return {p["id"]: p for p in data["installed"]}
 
 
+def open_notice(client):
+    """插件包 acme.pkg 未消退的回滚通知（没有返回 None）。"""
+    from sqlmodel import select
+
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import NoticeStatus, SystemNotice
+
+    async def query():
+        async with get_database().session() as session:
+            return (
+                await session.execute(
+                    select(SystemNotice).where(
+                        SystemNotice.dedupe_key == "plugin-package:acme.pkg",
+                        SystemNotice.status != NoticeStatus.RESOLVED.value,
+                    )
+                )
+            ).scalar()
+
+    return client.portal.call(query)
+
+
 def wait_for(predicate, timeout: float = 30.0) -> None:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -215,11 +236,19 @@ def test_install_upgrade_rollback_restart_and_uninstall(data_dir) -> None:
         assert installed(client)["acme.pkg"]["bad_versions"] == ["2.0.0"]
         assert chosen(client) == 1
         assert not (data_dir / "plugins" / "packages" / "acme.pkg" / "2.0.0").exists()
+        # 回滚留下一条待处理事项，「去处理」落到插件管理页（网页、App、推送同一套映射）
+        from movieclaw_api.services.push.events import notice_path
+
+        notice = open_notice(client)
+        assert notice is not None and "缺少配置" in notice.message
+        assert notice_path(notice.source, notice.payload) == "/settings/app?tab=extensions"
 
         # 正常升级到 v3，再手动回到 v1
         assert upload(client, package(3)).status_code == 200
         assert approve(client, "3.0.0").json()["data"]["status"] == "active"
         assert chosen(client) == 3
+        # 新版本跑起来了：回滚那件事翻篇，通知自动消退
+        assert open_notice(client) is None
         record = installed(client)["acme.pkg"]
         assert (record["version"], record["previous_version"]) == ("3.0.0", "1.0.0")
         reply = client.post("/api/v1/app/plugins/packages/acme.pkg/rollback")
@@ -320,6 +349,10 @@ def test_crash_loop_during_grace_period_rolls_back(data_dir) -> None:
         wait_for(lambda: installed(client)["acme.pkg"]["version"] == "1.0.0", timeout=60)
         assert installed(client)["acme.pkg"]["bad_versions"] == ["2.0.0"]
         wait_for(lambda: chosen(client) == 1)
+        # 回滚之后直接卸载：通知跟着消退，不留一条再也处理不了的待处理事项
+        assert open_notice(client) is not None
+        assert client.delete("/api/v1/app/plugins/packages/acme.pkg").status_code == 200
+        assert open_notice(client) is None
 
 
 def test_inline_runtime_needs_explicit_consent(data_dir) -> None:
