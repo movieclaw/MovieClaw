@@ -45,6 +45,10 @@ async def host_ops(ctx: Context) -> None:
     host = service.HostOps(service._app)
     # 用户在 plugins.yaml 里给本地插件的批准（grants、act_as）
     configure_host_ops(host, ctx.settings)
+    # 插件包：用户在安装时批准的宿主操作（plugins/packages.py）
+    from movieclaw_api.plugins import packages
+
+    packages.configure_host_ops(host, ctx.settings)
     ctx.provide(HOST_OPS, host)
 
 

@@ -70,8 +70,16 @@ overlay 更新同一套「版本目录 + 原子切链」做法）。
    系统通知说明原因；坏版本打标记，不再自动尝试。
 5. **卸载**：释放条目、删版本目录；插件数据（`plugin_data`、签名密钥）默认保留，「连同数据删除」需要单独确认。
 
-接口：`app.plugins.packages.{list,install,approve,upgrade,rollback,uninstall}`（管理员、危险操作逐个确认），CLI 自动获得
-`mclaw plugins packages …` 命令；网页入口放在现有「模块」诊断页，演进成插件管理页（不涉及第四阶段的界面扩展点）。
+接口：`app.plugins.packages.{list,upload,approve,discard,rollback,uninstall}`（管理员；批准、回滚、卸载是危险操作，
+命令行逐次确认），CLI 自动获得 `mclaw app plugins packages …` 命令（上传走 `--file`）；网页入口在 C8。
+
+C5 实现要点：
+
+- 批准结果与安装记录存在 `data/plugins/packages/state.json`，不写用户手写的 `plugins.yaml`；上一版以完整快照保存，回滚不依赖再解析清单。
+- 批准时宿主操作须与插件申请的**完全一致**（显式同意，不能多也不能少）；申请进程内运行须额外 `allow_inline=true`。批准前重新做一遍兼容检查。
+- 自动回滚两条路径：挂载即失败（启动报错、读不出声明）；或挂上后 2 分钟宽限期内进入失败 / 进程崩溃到停止重启。回滚后坏版本记入 `bad_versions`、目录删除、发一条待处理事项；首次安装失败则撤销安装记录。
+- 只保留当前版与上一版两个目录。进程内运行的包按 `movieclaw_packages.<条目 id>.<模块>` 导入，避免与别的包重名；`vendor/` 加入导入路径。
+- 启动时加载已安装的包（来源记为 `package`，按第三方对待），计入安全模式；安全模式退出时一并挂回。
 
 ## 4. 进程外运行器
 

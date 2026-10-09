@@ -12,6 +12,13 @@ app plugins dead-letters
 app plugins dead-letters dismiss
 app plugins dead-letters replay
 app plugins list
+app plugins packages
+app plugins packages approve
+app plugins packages discard
+app plugins packages list
+app plugins packages rollback
+app plugins packages uninstall
+app plugins packages upload
 app plugins safe-mode
 app plugins safe-mode exit
 app port

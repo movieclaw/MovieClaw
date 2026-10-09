@@ -147,3 +147,12 @@ class PluginDataService:
                 select(PluginData.entry_id, func.count()).group_by(PluginData.entry_id)
             )
             return {entry: count for entry, count in rows.all()}
+
+    async def purge(self, entry_id: str) -> int:
+        """删除一个条目的全部数据（卸载插件包时用户选择「连同数据删除」）。"""
+        async with self._db.session() as session:
+            result = await session.execute(
+                delete(PluginData).where(PluginData.entry_id == entry_id)
+            )
+            await session.commit()
+            return result.rowcount or 0

@@ -11,10 +11,10 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, File, Request, UploadFile
 from pydantic import Field
 
-from movieclaw_api.exceptions import ConflictException, NotFoundException
+from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
 
@@ -217,7 +217,7 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
 async def exit_safe_mode(request: Request) -> ApiResponse[SafeModeExitView]:
     """插件若再把应用拖垮，下次启动会重新进入安全模式。"""
     from movieclaw_api.core.config import get_settings
-    from movieclaw_api.plugins import safe_mode
+    from movieclaw_api.plugins import packages, safe_mode
     from movieclaw_api.plugins.local import load_local_entries, local_specs
     from movieclaw_api.plugins.notices import publish_safe_mode
 
@@ -226,13 +226,14 @@ async def exit_safe_mode(request: Request) -> ApiResponse[SafeModeExitView]:
         raise ConflictException("当前没有处于安全模式")
     settings = get_settings()
     ids = [spec.id for spec in local_specs(settings) if not spec.disabled]
+    ids += packages.package_ids(settings)
     try:
         safe_mode.exit_safe_mode(settings, ids)
     except PermissionError as exc:
         raise ConflictException(str(exc)) from exc
     await publish_safe_mode(safe_mode.current())
     mounted: dict[str, str] = {}
-    for entry in load_local_entries(settings):
+    for entry in (*load_local_entries(settings), *packages.load_package_entries(settings)):
         if kernel.fiber(entry.id) is None:
             mounted[entry.id] = (await kernel.mount(entry)).state.value
     safe_mode.schedule_settle(settings)
@@ -273,3 +274,172 @@ async def dismiss_dead_letter(letter_id: int, request: Request) -> ApiResponse[N
     except LookupError as exc:
         raise NotFoundException(str(exc)) from exc
     return ok(None, message="已忽略")
+
+
+# ---------------------------------------------------------------------- 插件包（第三阶段 C5）
+class PackageRequestView(BaseModel):
+    id: str
+    title: str
+    version: str
+    description: str
+    runtime: str = Field(description="process：独立进程；inline：主进程里运行（须单独确认）")
+    operations: list[str] = Field(description="插件申请的宿主操作")
+    new_operations: list[str] = Field(description="相比当前已安装版本新增的申请")
+    requires: dict[str, str]
+    installed_version: str | None
+
+
+class InstalledPackageView(BaseModel):
+    id: str
+    title: str
+    version: str
+    runtime: str
+    operations: list[str]
+    previous_version: str | None
+    bad_versions: list[str] = Field(description="激活失败过、已自动回滚的版本")
+    state: str
+    error: str | None
+    watching: bool = Field(description="是否还在安装后的宽限期观察中")
+
+
+class PackagesView(BaseModel):
+    installed: list[InstalledPackageView]
+    pending: list[PackageRequestView] = Field(description="已上传、等待批准的包")
+
+
+class PackageApprove(BaseModel):
+    version: str
+    operations: list[str] = Field(
+        default_factory=list, description="批准的宿主操作，须与插件申请的完全一致"
+    )
+    allow_inline: bool = Field(
+        default=False, description="插件申请在主进程里运行时，须显式确认（与主程序同权限）"
+    )
+
+
+class PackageResultView(BaseModel):
+    status: str = Field(description="active / rolled_back / failed 等")
+    version: str | None
+    state: str
+    error: str | None = None
+
+
+class PackageUninstallView(BaseModel):
+    purged_rows: int
+
+
+def _packages(request: Request):
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.services.plugin_packages import PackageManager
+
+    kernel = _kernel(request)
+    manager = getattr(request.app.state, "package_manager", None)
+    if manager is None or manager.kernel is not kernel:
+        manager = PackageManager(kernel, get_settings())
+        request.app.state.package_manager = manager
+    return manager
+
+
+@router.get(
+    "/packages",
+    response_model=ApiResponse[PackagesView],
+    summary="插件包：已安装的与等待批准的",
+    operation_id="app.plugins.packages.list",
+)
+async def list_packages(request: Request) -> ApiResponse[PackagesView]:
+    return ok(PackagesView.model_validate(_packages(request).overview()))
+
+
+@router.post(
+    "/packages",
+    response_model=ApiResponse[PackageRequestView],
+    summary="上传插件包（.mcplugin）：校验后进入待批准，返回它申请的权限",
+    operation_id="app.plugins.packages.upload",
+)
+async def upload_package(
+    request: Request, file: UploadFile = File(...)
+) -> ApiResponse[PackageRequestView]:
+    from movieclaw_api.plugins.packages import MAX_ARCHIVE_BYTES, PackageError
+
+    data = await file.read(MAX_ARCHIVE_BYTES + 1)
+    try:
+        view = await _packages(request).upload(data)
+    except PackageError as exc:
+        raise BadRequestException(str(exc)) from exc
+    return ok(PackageRequestView.model_validate(view), message="已上传，等待批准")
+
+
+@router.post(
+    "/packages/{entry_id}/approve",
+    response_model=ApiResponse[PackageResultView],
+    summary="批准并安装插件包：按申请授予宿主操作，当场加载；激活失败自动回滚",
+    operation_id="app.plugins.packages.approve",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def approve_package(
+    entry_id: str, body: PackageApprove, request: Request
+) -> ApiResponse[PackageResultView]:
+    from movieclaw_api.plugins.packages import PackageError
+
+    try:
+        result = await _packages(request).approve(
+            entry_id, body.version, operations=body.operations, allow_inline=body.allow_inline
+        )
+    except LookupError as exc:
+        raise NotFoundException(str(exc)) from exc
+    except PackageError as exc:
+        raise BadRequestException(str(exc)) from exc
+    view = PackageResultView.model_validate(result)
+    message = "已安装并运行" if view.status == "active" else f"没能运行，已回滚：{view.error}"
+    return ok(view, message=message)
+
+
+@router.delete(
+    "/packages/{entry_id}/pending",
+    response_model=ApiResponse[None],
+    summary="放弃一个等待批准的插件包",
+    operation_id="app.plugins.packages.discard",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def discard_package(entry_id: str, request: Request) -> ApiResponse[None]:
+    try:
+        await _packages(request).discard(entry_id)
+    except LookupError as exc:
+        raise NotFoundException(str(exc)) from exc
+    return ok(None, message="已放弃")
+
+
+@router.post(
+    "/packages/{entry_id}/rollback",
+    response_model=ApiResponse[PackageResultView],
+    summary="插件包回到上一版",
+    operation_id="app.plugins.packages.rollback",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def rollback_package(entry_id: str, request: Request) -> ApiResponse[PackageResultView]:
+    from movieclaw_api.plugins.packages import PackageError
+
+    try:
+        result = await _packages(request).rollback(entry_id)
+    except LookupError as exc:
+        raise NotFoundException(str(exc)) from exc
+    except PackageError as exc:
+        raise ConflictException(str(exc)) from exc
+    return ok(PackageResultView.model_validate(result), message="已回到上一版")
+
+
+@router.delete(
+    "/packages/{entry_id}",
+    response_model=ApiResponse[PackageUninstallView],
+    summary="卸载插件包（默认保留插件数据；purge_data=true 连同数据删除）",
+    operation_id="app.plugins.packages.uninstall",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def uninstall_package(
+    entry_id: str, request: Request, purge_data: bool = False
+) -> ApiResponse[PackageUninstallView]:
+    try:
+        result = await _packages(request).uninstall(entry_id, purge_data=purge_data)
+    except LookupError as exc:
+        raise NotFoundException(str(exc)) from exc
+    return ok(PackageUninstallView.model_validate(result), message="已卸载")

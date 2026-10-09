@@ -640,6 +640,10 @@ def main(argv: list[str] | None = None) -> int:
     sys.stdout = sys.stderr
     logging.basicConfig(level=logging.INFO, stream=sys.stderr, format="%(levelname)s %(message)s")
     sys.path.insert(0, args.path)
+    # 插件包随包携带的依赖（docs/design/plugin-phase3.md §2：安装时不跑 pip）
+    vendor = Path(args.path) / "vendor"
+    if vendor.is_dir():
+        sys.path.insert(1, str(vendor))
     if args.describe:
         return describe(args)
     return asyncio.run(run(args))
