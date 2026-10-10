@@ -51,6 +51,9 @@ class SiteSearchStatus(BaseModel):
     # 该站从发起到返回（或失败）的耗时。失败站的耗时尤其有诊断价值：
     # 十几秒后才失败的基本是超时，秒失败的多半是认证/解析问题。
     elapsed_ms: int | None = None
+    # 该站明确告知后面还有没有页（站点适配器的 has_more）；None = 不确定或失败。
+    # 客户端在所有站都为 False 时收起「加载更多」，有一个不确定就照常显示
+    has_more: bool | None = None
 
 
 class SearchResponse(BaseModel):

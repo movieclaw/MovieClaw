@@ -10440,6 +10440,7 @@ nonisolated extension API {
         var count: Int
         var error: String?
         var elapsedMs: Int?
+        var hasMore: Bool?
 
         enum CodingKeys: String, CodingKey {
             case siteId = "site_id"
@@ -10447,6 +10448,7 @@ nonisolated extension API {
             case count
             case error
             case elapsedMs = "elapsed_ms"
+            case hasMore = "has_more"
         }
     }
 

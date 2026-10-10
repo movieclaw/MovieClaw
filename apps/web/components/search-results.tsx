@@ -39,6 +39,7 @@ import {
   type DownloadTargetPref,
 } from "@/lib/api/downloaders";
 import { platformLabel } from "@/lib/platforms";
+import { noMorePages } from "@/lib/search-pages";
 import {
   getTorrentSearchHistoryResults,
   streamSearchTorrents,
@@ -932,6 +933,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
           }
           case "done":
             setTotalElapsedMs(event.data.elapsed_ms);
+            if (noMorePages(event.data.sites)) setExhausted(true);
             setPhase("done");
             break;
         }
@@ -1011,9 +1013,11 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
     const controller = new AbortController();
     auxAbortsRef.current.add(controller);
     let added = 0;
+    let lastPage = false;
     streamSearchTorrents(
       { keyword: query.keyword, scope: query.scope, page: next },
       (event) => {
+        if (event.type === "done") lastPage = noMorePages(event.data.sites);
         if (event.type !== "site_result") return;
         const d = event.data;
         setItems((prev) => {
@@ -1029,7 +1033,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
       .then(() => {
         if (controller.signal.aborted) return;
         setPage(next);
-        if (added === 0) setExhausted(true);
+        if (added === 0 || lastPage) setExhausted(true);
       })
       .catch(() => undefined)
       .finally(() => {

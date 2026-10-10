@@ -85,6 +85,8 @@ class TorrentListPage(BaseModel):
     items: list[TorrentListItem]
     page: int
     total_pages: int | None = None
+    # 同 SearchResult.has_more：站点能确定后面还有没有页时填写，None = 不确定
+    has_more: bool | None = None
 
 
 class TorrentDetail(BaseModel):
@@ -136,6 +138,9 @@ class SearchResult(BaseModel):
     page: int
     total_pages: int | None = None
     total_results: int | None = None
+    # 站点能确定后面还有没有页时填写；None = 不确定。客户端只在各站都明确 False 时收起「加载更多」，
+    # total_pages 不能代替它：NexusPHP 单页时解析不出页数、部分站点页码从 0 起，拿它判断会提前截断
+    has_more: bool | None = None
 
 
 class UserProfile(BaseModel):

@@ -31,17 +31,21 @@ class _FakeSite:
         items: list[TorrentListItem] | None = None,
         error: Exception | None = None,
         delay: float = 0.0,
+        has_more: bool | None = None,
     ):
         self._items = items or []
         self._error = error
         self._delay = delay
+        self._has_more = has_more
 
     async def search(self, query: SearchQuery) -> SearchResult:
         if self._delay:
             await asyncio.sleep(self._delay)
         if self._error is not None:
             raise self._error
-        return SearchResult(items=self._items, page=query.page, total_pages=1)
+        return SearchResult(
+            items=self._items, page=query.page, total_pages=1, has_more=self._has_more
+        )
 
 
 class _FakeManager:
@@ -228,3 +232,24 @@ def test_stream_no_history_skips_recording(client: TestClient, monkeypatch) -> N
     assert events[-1][0] == "done"  # 搜索本身正常完成
 
     assert client.get("/api/v1/search/history").json()["data"] == []
+
+
+def test_stream_reports_whether_each_site_has_more_pages(
+    client: TestClient, monkeypatch
+) -> None:
+    """站点明确说没有下一页时 done 里带 has_more=False；说不准的站为 null，失败的站也是 null。"""
+    _wire(
+        monkeypatch,
+        {
+            "demo": _FakeSite(items=[_item("d1", "Charge")], has_more=False),
+            "mteam": _FakeSite(items=[_item("m1", "Charge")]),
+            "ttg": _FakeSite(error=RuntimeError("超时")),
+        },
+    )
+    resp = client.get("/api/v1/search/torrents/stream", params={"keyword": "Charge"})
+    done = _parse_sse(resp.text)[-1][1]
+    assert {s["site_id"]: s["has_more"] for s in done["sites"]} == {
+        "demo": False,
+        "mteam": None,
+        "ttg": None,
+    }
