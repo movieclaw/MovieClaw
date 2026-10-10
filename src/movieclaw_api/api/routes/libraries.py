@@ -170,6 +170,7 @@ from movieclaw_api.services.library.items import (
     kind_library_ids,
     local_item_artwork,
     purge_staged_deletions,
+    season_resume_episode,
 )
 from movieclaw_api.services.library.layout import IMAGE_EXTS, entry_dir_of
 from movieclaw_api.services.library.mounts import library_on_network_mount
@@ -2849,6 +2850,7 @@ async def list_item_episodes(
         SeasonEpisodesView(
             season_number=season_number,
             episodes=[episode_view(e) for e in episodes],
+            resume_episode=season_resume_episode(episodes),
         )
     )
 

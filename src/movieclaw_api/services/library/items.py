@@ -2661,6 +2661,28 @@ class EpisodeInfo:
     position_ms: int = 0
     played: bool = False
     progress_percent: int | None = None  # 1~99；完成态由 played 单独表达
+    last_played_at: datetime | None = None  # 只供 season_resume_episode 定锚点，不出接口
+
+
+def season_resume_episode(infos: list[EpisodeInfo]) -> int | None:
+    """这一季「接着看」的那一集：分集区按它锁定集段、默认选中它。
+
+    与首页「接下来继续」同一条规则（``services/playback_up_next``）：锚点是本季
+    最近播放的那一集；它没看完（或看完后重看到一半）就是它，看完了就往后找第一个
+    没看完且有片源的。往后都看完了停在锚点本身——不回头去找当年跳过的某一集，
+    长剧里「第一个没看过的」可能在几百集之前。本季没播放过返回 None（客户端
+    落第一集没看过的）。
+    """
+    played = [info for info in infos if info.last_played_at is not None]
+    if not played:
+        return None
+    anchor = max(played, key=lambda info: (info.last_played_at, info.episode_number))
+    for info in infos:
+        if info.episode_number < anchor.episode_number or not info.owned:
+            continue
+        if not info.played or info.position_ms > 0:
+            return info.episode_number
+    return anchor.episode_number
 
 
 def episode_view(info: EpisodeInfo) -> EpisodeView:
@@ -2823,6 +2845,7 @@ async def build_season_episodes(
                 continue
             info.played = row.played
             info.position_ms = row.position_ms
+            info.last_played_at = row.last_played_at
             if row.position_ms > 0:
                 # 百分比的分母与首页「最近观看」同口径：在位文件实测时长优先，
                 # 其次分集刮削时长；clamp 到 1~99——完成态由 played 单独表达

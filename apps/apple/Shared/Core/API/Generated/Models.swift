@@ -10112,10 +10112,13 @@ nonisolated extension API {
     struct SeasonEpisodesView: Codable, Hashable, Sendable {
         var seasonNumber: Int
         var episodes: [API.EpisodeView]
+        /// 本季接着看的那一集（与首页「接下来继续」同规则：最近播放的一集，看完了取往后第一个没看完且有片源的）；分集区按它锁定集段、默认选中。本季没播放过为 null
+        var resumeEpisode: Int?
 
         enum CodingKeys: String, CodingKey {
             case seasonNumber = "season_number"
             case episodes
+            case resumeEpisode = "resume_episode"
         }
     }
 

@@ -11,7 +11,12 @@ from datetime import datetime
 import pytest_asyncio
 
 from movieclaw_api.core.config import get_settings
-from movieclaw_api.services.library.items import build_season_episodes, episode_view
+from movieclaw_api.services.library.items import (
+    EpisodeInfo,
+    build_season_episodes,
+    episode_view,
+    season_resume_episode,
+)
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
 from movieclaw_db.models import (
@@ -155,3 +160,123 @@ async def test_percent_falls_back_to_episode_runtime(db) -> None:
 
         episodes = await build_season_episodes(session, show, files, 1, member_id=7)
         assert episodes[0].progress_percent == 50
+
+
+def _info(
+    number: int,
+    *,
+    played: bool = False,
+    position_ms: int = 0,
+    at: int | None = None,
+    owned: bool = True,
+) -> EpisodeInfo:
+    """一集的装配结果；``at`` 是「几号播放的」，None = 没播放过。"""
+    return EpisodeInfo(
+        episode_number=number,
+        owned=owned,
+        played=played,
+        position_ms=position_ms,
+        last_played_at=datetime(2026, 9, at, 20, 0) if at is not None else None,
+    )
+
+
+def test_resume_episode_none_when_season_never_played() -> None:
+    assert season_resume_episode([_info(1), _info(2)]) is None
+
+
+def test_resume_episode_stays_on_unfinished_anchor() -> None:
+    """最近播放的那集没看完 → 就是它，不跳下一集。"""
+    infos = [_info(1, played=True, at=1), _info(2, position_ms=60_000, at=2), _info(3)]
+    assert season_resume_episode(infos) == 2
+
+
+def test_resume_episode_moves_past_finished_anchor_and_missing_files() -> None:
+    """锚点看完了 → 往后第一个没看完且有片源的，缺集跳过。"""
+    infos = [
+        _info(1, played=True, at=1),
+        _info(2, played=True, at=2),
+        _info(3, owned=False),
+        _info(4),
+    ]
+    assert season_resume_episode(infos) == 4
+
+
+def test_resume_episode_not_pulled_back_by_skipped_or_abandoned_episodes() -> None:
+    """长剧里当年跳过的第 3 集、看了一半弃掉的第 120 集都在锚点之前，不能把人拽回去。"""
+    infos = [_info(n, played=True, at=1) for n in range(1, 1051) if n not in (3, 120)]
+    infos += [_info(3), _info(120, position_ms=600_000, at=2), _info(1050 + 1)]
+    infos.sort(key=lambda i: i.episode_number)
+    infos[1049] = _info(1050, played=True, at=9)  # 最近一次看完的是第 1050 集
+    assert season_resume_episode(infos) == 1051
+
+
+def test_resume_episode_rewatch_in_progress_counts_as_unfinished() -> None:
+    """看完后又重看到一半（played 仍为真、带续播点）→ 停在这一集。"""
+    infos = [_info(1, played=True, position_ms=30_000, at=3), _info(2)]
+    assert season_resume_episode(infos) == 1
+
+
+def test_resume_episode_falls_back_to_anchor_when_rest_is_watched() -> None:
+    """锚点往后都看完了 → 停在锚点本身，不回头找更早没看的。"""
+    infos = [_info(1), _info(2, played=True, at=5), _info(3, played=True, at=4)]
+    assert season_resume_episode(infos) == 2
+
+
+async def test_assembler_feeds_resume_episode(db) -> None:
+    """装配器带出最近播放时间，接口层据此算出锚点；别的成员的播放不算数。"""
+    async with db.session() as session:
+        repo = LibraryRepository(session)
+        library = await repo.create(name="剧集库", kind="tv", root_paths=["/tv"])
+        show = MediaItem(kind="tv", tmdb_id=203, title="锚点剧", original_title="A")
+        session.add(show)
+        await session.flush()
+        assert library.id and show.id
+        files = [_file(library.id, show.id, e) for e in (1, 2, 3, 4)]
+        session.add_all(files)
+        session.add_all(
+            MediaEpisode(media_item_id=show.id, season_number=1, episode_number=e)
+            for e in (1, 2, 3, 4)
+        )
+        session.add_all(
+            [
+                PlaybackState(
+                    member_id=7,
+                    media_item_id=show.id,
+                    season_number=1,
+                    episode_number=1,
+                    position_ms=300_000,
+                    play_count=1,
+                    last_played_at=datetime(2026, 9, 1, 20, 0),
+                ),
+                PlaybackState(
+                    member_id=7,
+                    media_item_id=show.id,
+                    season_number=1,
+                    episode_number=2,
+                    played=True,
+                    play_count=1,
+                    last_played_at=datetime(2026, 9, 2, 20, 0),
+                ),
+                PlaybackState(
+                    member_id=8,
+                    media_item_id=show.id,
+                    season_number=1,
+                    episode_number=4,
+                    played=True,
+                    play_count=1,
+                    last_played_at=datetime(2026, 9, 3, 20, 0),
+                ),
+            ]
+        )
+        await session.commit()
+
+        episodes = await build_season_episodes(session, show, files, 1, member_id=7)
+        assert season_resume_episode(episodes) == 3
+        assert (
+            season_resume_episode(await build_season_episodes(session, show, files, 1, member_id=8))
+            == 4
+        )
+        assert (
+            season_resume_episode(await build_season_episodes(session, show, files, 1, member_id=9))
+            is None
+        )

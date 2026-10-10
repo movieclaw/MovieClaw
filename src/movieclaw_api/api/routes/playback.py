@@ -77,7 +77,11 @@ from movieclaw_api.services.library.access import (
     assert_library_visible,
     visible_library_ids,
 )
-from movieclaw_api.services.library.items import build_season_episodes, episode_view
+from movieclaw_api.services.library.items import (
+    build_season_episodes,
+    episode_view,
+    season_resume_episode,
+)
 from movieclaw_api.services.media_probe import probe_keyframe_before
 from movieclaw_api.services.playback import marks as playback_marks
 from movieclaw_api.services.playback import metrics, qoe, track_memory, trickplay, video_cues
@@ -2668,6 +2672,7 @@ async def get_playback_item_episodes(
         SeasonEpisodesView(
             season_number=season_number,
             episodes=[episode_view(e) for e in episodes],
+            resume_episode=season_resume_episode(episodes),
         )
     )
 

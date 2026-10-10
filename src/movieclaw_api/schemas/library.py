@@ -1173,6 +1173,13 @@ class SeasonEpisodesView(BaseModel):
 
     season_number: int
     episodes: list[EpisodeView]
+    resume_episode: int | None = Field(
+        default=None,
+        description=(
+            "本季接着看的那一集（与首页「接下来继续」同规则：最近播放的一集，看完了取往后"
+            "第一个没看完且有片源的）；分集区按它锁定集段、默认选中。本季没播放过为 null"
+        ),
+    )
 
 
 class ArtworkCandidateView(BaseModel):

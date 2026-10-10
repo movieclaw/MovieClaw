@@ -2221,6 +2221,10 @@ data class ScrimUiPrefs(
 data class SeasonEpisodesView(
     @SerialName("season_number") val seasonNumber: Long = 0,
     @SerialName("episodes") val episodes: List<EpisodeView> = emptyList(),
+    /**
+     * 本季接着看的那一集（与首页「接下来继续」同规则：最近播放的一集，看完了取往后第一个没看完且有片源的）；分集区按它锁定集段、默认选中。本季没播放过为 null
+     */
+    @SerialName("resume_episode") val resumeEpisode: Long? = null,
 )
 
 /**
