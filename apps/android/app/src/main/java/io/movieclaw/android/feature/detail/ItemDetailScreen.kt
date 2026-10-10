@@ -650,7 +650,7 @@ class ItemDetailViewModel @Inject constructor(
             ?: return Result.failure(IllegalStateException("尚未连接服务器"))
         return runCatching {
             apiFactory.forOrigin(origin).deleteLibraryFile(libraryId, itemId, fileId, options).dataOrThrow()
-        }
+        }.onSuccess { io.movieclaw.android.core.model.LibraryMarksBus.bump() }
     }
 
     /** 删除前预览（附加选项）；取不到不挡删除，只是这次没有附加选项 */
@@ -675,7 +675,7 @@ class ItemDetailViewModel @Inject constructor(
             ?: return Result.failure(IllegalStateException("尚未连接服务器"))
         return runCatching {
             apiFactory.forOrigin(origin).restoreLibraryFile(libraryId, itemId, fileId).dataOrThrow()
-        }.map { }
+        }.map { io.movieclaw.android.core.model.LibraryMarksBus.bump() }
     }
 
     /** 立即清理一个待回收的文件（真删磁盘，不等保留期） */
@@ -684,7 +684,7 @@ class ItemDetailViewModel @Inject constructor(
             ?: return Result.failure(IllegalStateException("尚未连接服务器"))
         return runCatching {
             apiFactory.forOrigin(origin).purgeLibraryFile(libraryId, itemId, fileId).dataOrThrow()
-        }.map { }
+        }.map { io.movieclaw.android.core.model.LibraryMarksBus.bump() }
     }
 }
 
