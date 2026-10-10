@@ -11,12 +11,6 @@ enum SessionPrewarm {
         // 首页的快照：冷启动落在首页时当场读完，第一帧就是上次的完整首页，随后静默刷新
         let owner = PageSnapshots.owner(server: server, username: session.username)
         LibraryHomeStore.shared.adopt(owner: owner, synchronously: landing == .home)
-        // 发现、订阅的快照在后台读（与 iPhone 版 SessionPrewarm 同一口径）
-        DiscoverSnapshots.adopt(owner: owner, synchronously: false)
-        if Permissions(session: session).canSubscribe {
-            SubscriptionIndex.shared.adopt(api: APIClient(server: server), owner: session.username)
-            SubscriptionsHomeFeed.shared.adopt(owner: owner)
-        }
     }
 
     /// 冷启动的落点：首页；调试参数可指定

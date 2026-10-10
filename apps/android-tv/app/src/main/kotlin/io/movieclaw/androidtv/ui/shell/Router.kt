@@ -8,7 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 
-/** 侧边栏的页签（TVNavigation.swift MainTab）。发现 / 订阅暂不出现（同 Apple 端 showsDiscoverAndSubscriptions = false） */
+/** 侧边栏的页签（TVNavigation.swift MainTab）。发现 / 订阅暂不提供（同 Apple TV 版，docs/design/tvos-app.md §3.3） */
 enum class MainTab { Account, Search, Home }
 
 /** 压在页签上的二级页（AppRoute） */

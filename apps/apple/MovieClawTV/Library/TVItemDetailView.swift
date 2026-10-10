@@ -490,8 +490,7 @@ struct TVItemDetailView: View {
     }
 
     /// 作品系列一行（2026-10-04 用户要求）：电影往下滑的第一行，整个系列按上映顺序排，标题旁写「已有 7 / 共 8」。
-    /// 这一部标「本片」，按下回首屏（播放按钮就在那）；库里没有的置灰标「未入库」，按下不做事——
-    /// 电视上订阅暂时收起（TVMainView.showsDiscoverAndSubscriptions），以后可改成去订阅。
+    /// 这一部标「本片」，按下回首屏（播放按钮就在那）；库里没有的置灰标「未入库」，不能选中（同 Mac 版）。
     /// 往下进这一行落在「本片」上，看得出这一部排第几
     private func seriesRow(_ series: API.CollectionSeriesView) -> some View {
         TVShelf(title: series.seriesName ?? "系列", detail: "已有 \(series.ownedCount) / 共 \(series.total)") {
@@ -511,6 +510,7 @@ struct TVItemDetailView: View {
                     }
                 }
                 .opacity(missing ? 0.45 : 1)
+                .disabled(missing)
                 .focused($lowerFocus, equals: .seriesPart(part.tmdbId))
             }
         }
