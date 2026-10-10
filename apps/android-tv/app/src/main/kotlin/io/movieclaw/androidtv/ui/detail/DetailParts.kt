@@ -23,6 +23,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -100,9 +101,15 @@ internal fun PillButton(
     }
 }
 
-/** 季的胶囊（TVSeasonTabStyle）：28 半粗、内边 30/12；焦点白底黑字放大 1.08，选中的季垫白 20% 底 */
+/** 锚点（接着看）的橙色：集段页签的点、「接着看」标签、面板格子的描边与进度 */
+internal val ResumeOrange = Color(0xFFFFB340)
+
+/**
+ * 季的胶囊（TVSeasonTabStyle）：28 半粗、内边 30/12；焦点白底黑字放大 1.08，选中的季垫白 20% 底。
+ * 集段页签也用它，[dot] 是锚点所在的段右上角的橙点
+ */
 @Composable
-internal fun SeasonTab(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun SeasonTab(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, dot: Boolean = false) {
     Surface(
         onClick = onClick,
         modifier = modifier.layerFocus(),
@@ -118,13 +125,16 @@ internal fun SeasonTab(label: String, selected: Boolean, onClick: () -> Unit, mo
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f, pressedScale = 1.08f),
         glow = ClickableSurfaceDefaults.glow(),
     ) {
-        Text(label, style = McType.size(28, FontWeight.SemiBold), modifier = Modifier.padding(horizontal = 30.pt, vertical = 12.pt))
+        Box {
+            Text(label, style = McType.size(28, FontWeight.SemiBold), modifier = Modifier.padding(horizontal = 30.pt, vertical = 12.pt))
+            if (dot) Box(Modifier.align(Alignment.TopEnd).padding(top = 8.pt, end = 12.pt).size(10.pt).background(ResumeOrange, CircleShape))
+        }
     }
 }
 
 /**
  * 一集（TVEpisodeCard）：剧照 416×234（左下片长或看到哪、进度条，看完的标「已看」）+ 第几集、集名、四行简介、首播日期。
- * 焦点效果只在剧照上；缺集整张 45% 不透明。
+ * 焦点效果只在剧照上；缺集整张 45% 不透明。[resume] 是这一季的锚点（接着看的那一集），左上角标橙色「接着看」
  */
 @Composable
 internal fun EpisodeCard(
@@ -134,6 +144,7 @@ internal fun EpisodeCard(
     onLongClick: () -> Unit,
     modifier: Modifier = Modifier,
     onFocus: (Boolean) -> Unit = {},
+    resume: Boolean = false,
 ) {
     val width = McMetrics.LandscapeWidth
     val number = episode.episodeNumber
@@ -142,7 +153,8 @@ internal fun EpisodeCard(
             Box(Modifier.fillMaxSize()) {
                 RemoteImage(episode.stillUrl, 416f, Modifier.fillMaxSize(), zoom = McMetrics.FocusZoom, placeholder = "第 $number 集")
                 StillBand(episode, runtimeMinutes, Modifier.align(Alignment.BottomStart))
-                if (episode.played) CardBadge("已看", Modifier.align(Alignment.TopStart))
+                if (resume) ResumeTag(Modifier.align(Alignment.TopStart))
+                else if (episode.played) CardBadge("已看", Modifier.align(Alignment.TopStart))
             }
         }
         Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(6.pt)) {
@@ -163,6 +175,21 @@ internal fun EpisodeCard(
             )
         }
     }
+}
+
+/** 剧照左上的「接着看」：橙底黑字，位置同 [CardBadge] */
+@Composable
+private fun ResumeTag(modifier: Modifier) {
+    Text(
+        "接着看",
+        style = McType.Caption2.copy(fontWeight = FontWeight.Bold),
+        color = Color.Black,
+        modifier = modifier
+            .padding(12.pt)
+            .background(ResumeOrange, RoundedCornerShape(8.pt))
+            .padding(horizontal = 12.pt, vertical = 4.pt)
+            .testTag("resume-tag"),
+    )
 }
 
 /** 剧照左下：▶ 片长（看了一半写「看到 m:ss」、压进度条） */

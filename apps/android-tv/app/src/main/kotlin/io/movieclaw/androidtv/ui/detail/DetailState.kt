@@ -70,6 +70,18 @@ internal class DetailState(
     /** 每次换季（或首次读到分集）+1：分集横排据此滚到要落焦点的那一集 */
     var browseScrollRequest by mutableIntStateOf(0)
         private set
+    /** 下半截那一季服务端给的锚点（resume_episode）；没播放过或旧服务端为 null */
+    var browseResume by mutableStateOf<Long?>(null)
+        private set
+    /** 刷新后锚点变了 +1：分集横排跳到 [browseJumpTarget]，焦点在横排里就跟过去 */
+    var browseJumpRequest by mutableIntStateOf(0)
+        private set
+    var browseJumpTarget: Long? = null
+        private set
+    /** 分集横排现在停在哪一集（焦点所在、或刚跳过去的那一集）：段页签的「当前段」跟着它，从上面的页签往下进横排落在它 */
+    var rowEpisode by mutableStateOf<Long?>(null)
+    /** 首屏那一季上次读到的锚点：刷新后变了就改讲新锚点 */
+    private var stageResume: Long? = null
     var watched by mutableStateOf<PlaybackStateView?>(null)
         private set
     /** 电影所属的作品系列；没有、只有一部或拉不到上游档案时为 null */
@@ -100,8 +112,12 @@ internal class DetailState(
         get() {
             val selected = selectedEpisode
             if (browseSeason == season && selected != null) return selected.episodeNumber
-            return DetailLogic.resumeEpisode(browseEpisodes)?.episodeNumber
+            return browseAnchor
         }
+
+    /** 下半截那一季接着看的那一集（服务端锚点优先，没有退回客户端规则） */
+    val browseAnchor: Long?
+        get() = EpisodeRanges.anchor(browseEpisodes, browseResume)?.episodeNumber
 
     suspend fun reload(upNext: Pair<Long, Long>?) {
         val fresh = try {
@@ -119,6 +135,7 @@ internal class DetailState(
                 loadEpisodes(start, keepSelection = false, preferred = upNext?.takeIf { it.first == start }?.second)
                 browseSeason = start
                 browseEpisodes = episodes
+                browseResume = stageResume
                 browseScrollRequest++
             }
         }
@@ -142,34 +159,49 @@ internal class DetailState(
         series = result?.takeIf { it.available && it.parts.size > 1 }
     }
 
-    /** 读首屏那一季的分集；不保留选择时选指定的那一集，没有就接着看的那一集 */
+    /**
+     * 读首屏那一季的分集；不保留选择时选指定的那一集，没有就接着看的那一集。
+     * 刷新后锚点变了（看完 1050 → 1051）：不管保不保留、指定没指定，都改讲新锚点
+     */
     suspend fun loadEpisodes(number: Long, keepSelection: Boolean, preferred: Long? = null) {
         val result = attempt { api.libraryItemsListEpisodes(libraryId, itemId, number) } ?: return
+        val anchorMoved = season == number && anchorMoved(stageResume, result.resumeEpisode)
         season = number
         episodes = result.episodes
+        stageResume = result.resumeEpisode
         val current = selectedEpisode
-        if (keepSelection && current != null) {
+        if (keepSelection && current != null && !anchorMoved) {
             result.episodes.firstOrNull { it.episodeNumber == current.episodeNumber }?.let {
                 selectedEpisode = it
                 return
             }
         }
-        selectedEpisode = DetailLogic.chooseEpisode(result.episodes, preferred)
+        selectedEpisode = DetailLogic.chooseEpisode(result.episodes, preferred.takeUnless { anchorMoved }, result.resumeEpisode)
     }
+
+    /** 同一季重读后服务端锚点换了一集（长季短季都算） */
+    private fun anchorMoved(before: Long?, after: Long?): Boolean = after != null && after != before
 
     /** 下半截换一季：分集横排换成那一季，滚到那一季接着看的那一集 */
     suspend fun loadBrowse(number: Long) {
         val result = attempt { api.libraryItemsListEpisodes(libraryId, itemId, number) } ?: return
         browseSeason = number
         browseEpisodes = result.episodes
+        browseResume = result.resumeEpisode
         browseScrollRequest++
     }
 
-    /** 只换下半截的进度，不动滚动位置（播完退回来、标记已看之后） */
+    /** 只换下半截的进度，不动滚动位置（播完退回来、标记已看之后）；锚点变了就跳到新锚点 */
     suspend fun refreshBrowse() {
         val number = browseSeason ?: return
         val result = attempt { api.libraryItemsListEpisodes(libraryId, itemId, number) } ?: return
+        val moved = anchorMoved(browseResume, result.resumeEpisode)
         browseEpisodes = result.episodes
+        browseResume = result.resumeEpisode
+        if (moved) {
+            browseJumpTarget = result.resumeEpisode
+            browseJumpRequest++
+        }
     }
 
     /** 上一次拉续播点时是哪一集：同一集再拉（退回页面时）保留现有值，不闪「播放」 */

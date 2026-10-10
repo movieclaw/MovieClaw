@@ -156,6 +156,9 @@ class DetailLogicTest {
         assertEquals(6L, DetailLogic.chooseEpisode(list, 6)?.episodeNumber)
         assertEquals(2L, DetailLogic.chooseEpisode(list, 9)?.episodeNumber)
         assertEquals(2L, DetailLogic.chooseEpisode(list, null)?.episodeNumber)
+        // 服务端锚点优先于客户端扫描；指定的那一集仍在它前面
+        assertEquals(6L, DetailLogic.chooseEpisode(list, null, resume = 6)?.episodeNumber)
+        assertEquals(1L, DetailLogic.chooseEpisode(list, 1, resume = 6)?.episodeNumber)
     }
 
     @Test
@@ -219,6 +222,8 @@ class DetailLogicTest {
         assertEquals(164, DetailLogic.lowerGap(isMovie = true, hasSeries = false))
         assertEquals(330, DetailLogic.lowerScreenTop(true))
         assertEquals(250, DetailLogic.lowerScreenTop(false))
+        assertEquals(330, DetailLogic.lowerScreenTop(false, hasRangeTabs = true))
+        assertEquals(410, DetailLogic.lowerScreenTop(true, hasRangeTabs = true))
         assertEquals("特别篇", DetailLogic.seasonLabel(0))
         assertEquals("第 3 季", DetailLogic.seasonLabel(3))
     }

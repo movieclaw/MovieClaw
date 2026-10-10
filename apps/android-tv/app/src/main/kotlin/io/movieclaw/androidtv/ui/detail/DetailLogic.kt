@@ -108,9 +108,9 @@ object DetailLogic {
             ?: episodes.firstOrNull()
     }
 
-    /** 首屏讲哪一集：指定的那一集（「接下来继续」给的 / 刚播的）→ 接着看的那一集 */
-    fun chooseEpisode(episodes: List<EpisodeView>, preferred: Long?): EpisodeView? =
-        preferred?.let { number -> episodes.firstOrNull { it.episodeNumber == number } } ?: resumeEpisode(episodes)
+    /** 首屏讲哪一集：指定的那一集（「接下来继续」给的 / 刚播的）→ 接着看的那一集（服务端给的锚点 [resume] 优先） */
+    fun chooseEpisode(episodes: List<EpisodeView>, preferred: Long?, resume: Long? = null): EpisodeView? =
+        preferred?.let { number -> episodes.firstOrNull { it.episodeNumber == number } } ?: EpisodeRanges.anchor(episodes, resume)
 
     /** 能不能播：电影看有没有在位文件，剧集看首屏这一集有没有片源 */
     fun canPlay(detail: LibraryItemDetailView, selectedEpisode: EpisodeView?): Boolean =
@@ -147,8 +147,9 @@ object DetailLogic {
     /** 首屏下沿（918）到下半截的距离：剧集 82（露分集剧照上沿）、有系列的电影 20、没有系列的电影 164（什么都不露） */
     fun lowerGap(isMovie: Boolean, hasSeries: Boolean): Int = if (!isMovie) 82 else if (hasSeries) 20 else 164
 
-    /** 下半截滑上来后第一行在屏幕上的 y：有选季 330，没有 250 */
-    fun lowerScreenTop(hasSeasonTabs: Boolean): Int = if (hasSeasonTabs) 330 else 250
+    /** 下半截滑上来后第一行在屏幕上的 y：250，有选季、有集段页签各往下让 80 */
+    fun lowerScreenTop(hasSeasonTabs: Boolean, hasRangeTabs: Boolean = false): Int =
+        250 + (if (hasSeasonTabs) 80 else 0) + (if (hasRangeTabs) 80 else 0)
 
     /** 分集卡剧照左下的字：看了一半写「看到 m:ss」，否则片长 */
     fun episodeBandText(episode: EpisodeView, runtimeMinutes: Long?): String? = when {

@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -39,6 +40,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -47,6 +49,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Constraints
 import io.movieclaw.androidtv.ui.components.Text
@@ -119,7 +125,8 @@ fun ItemDetailScreen(libraryId: Long, itemId: Long) {
     }
 
     val scroll = rememberScrollState()
-    Box(Modifier.fillMaxSize().onFocusChanged { pageFocused = it.hasFocus }) {
+    // testTagsAsResourceId：端到端验收用 uiautomator 按 testTag 找控件
+    Box(Modifier.fillMaxSize().semantics { testTagsAsResourceId = true }.onFocusChanged { pageFocused = it.hasFocus }) {
         DetailBackdrop(itemId, state.detail, scroll)
         val detail = state.detail
         when {
@@ -173,7 +180,9 @@ private fun DetailContent(state: DetailState, detail: LibraryItemDetailView, scr
     val ptPx = LocalDensity.current.density * 0.5f
     val isMovie = state.isMovie
     val series = state.series
-    val screenTop = DetailLogic.lowerScreenTop(state.hasSeasonTabs)
+    // 分段的长季（> 50 集）：选季下面一排集段页签，横排仍是整季
+    val ranges = remember(state.browseEpisodes) { EpisodeRanges.ranges(state.browseEpisodes) }
+    val screenTop = DetailLogic.lowerScreenTop(state.hasSeasonTabs, ranges.isNotEmpty())
     val gap = DetailLogic.lowerGap(isMovie, series != null)
     val lowerPx by rememberUpdatedState((918 + gap - screenTop) * ptPx)
 
@@ -205,6 +214,29 @@ private fun DetailContent(state: DetailState, detail: LibraryItemDetailView, scr
     }
     val rowSpec = remember(ptPx) { MarginBringIntoViewSpec(80 * ptPx) }
     val lowerShown = { scroll.value >= lowerPx * 0.5f }
+    // 换季后集段页签出现 / 消失，下半截的顶跟着挪：焦点在顶上那一截时直接吸到新位置
+    LaunchedEffect(screenTop) {
+        if (zone.zone == DetailZone.Top) scroll.animateScrollTo(lowerPx.toInt())
+    }
+
+    val rowState = rememberLazyListState()
+    // 在哪个段页签上按确认打开了「全部分集」面板；null 是没开
+    var panelFrom by remember { mutableStateOf<Int?>(null) }
+    // 横排直接定位到某一集（换段、从面板选集、锚点变了）：不播一长段滚动动画；[focus] 时焦点跟过去
+    fun jumpRow(number: Long, focus: Boolean) {
+        state.rowEpisode = number
+        val index = state.browseEpisodes.indexOfFirst { it.episodeNumber == number }
+        if (index < 0) return
+        scope.launch {
+            rowState.scrollToItem(index)
+            if (focus) {
+                repeat(5) {
+                    delay(16)
+                    if (req("ep:$number").tryFocus()) return@launch
+                }
+            }
+        }
+    }
 
     // 内容出来 0.2 秒后焦点还不在页面里：落回记下的那一处，没有就放到主按钮（不能播就放收藏）
     LaunchedEffect(Unit) {
@@ -260,7 +292,21 @@ private fun DetailContent(state: DetailState, detail: LibraryItemDetailView, scr
                 Box(Modifier.fillMaxWidth().heightIn(min = (1080 - screenTop).pt)) {
                     Column(verticalArrangement = Arrangement.spacedBy(44.pt)) {
                         if (hasEpisodes) {
-                            EpisodeRow(state, detail, { k -> Modifier.track(k, zoneOf("episodes")) }, { req(it) })
+                            EpisodeRow(
+                                state = state,
+                                detail = detail,
+                                listState = rowState,
+                                segmented = ranges.isNotEmpty(),
+                                fromStage = { zone.zone == DetailZone.Stage },
+                                jumpRow = ::jumpRow,
+                                // 页签还没随下半截滑出来（不接焦点）时按几何就近，照旧回首屏
+                                above = {
+                                    if (!lowerShown()) FocusRequester.Default
+                                    else req("range:${max(0, EpisodeRanges.position(state.rowEpisode ?: state.entryEpisode, ranges))}")
+                                },
+                                track = { k -> Modifier.track(k, zoneOf("episodes")) },
+                                req = { req(it) },
+                            )
                         }
                         if (series != null) {
                             SeriesRow(
@@ -316,11 +362,38 @@ private fun DetailContent(state: DetailState, detail: LibraryItemDetailView, scr
                         track = { k -> Modifier.track(k, DetailZone.Top) },
                         req = { req(it) },
                         scope = { block -> scope.launch { block() } },
+                        ranges = ranges,
+                        onRangeFocus = { jumpRow(EpisodeRanges.entry(ranges[it], state.browseAnchor), focus = false) },
+                        onRangeOpen = { panelFrom = it },
                     )
                 }
                 Spacer(Modifier.height(80.pt))
             }
         }
+    }
+    // 全部分集：盖满整屏，焦点关在里面；返回键回到打开它的段页签，选一集回到横排的那一集
+    val from = panelFrom
+    if (from != null && ranges.isNotEmpty()) {
+        EpisodePanel(
+            title = state.browseSeason?.let(DetailLogic::seasonLabel),
+            episodes = state.browseEpisodes,
+            ranges = ranges,
+            anchor = state.browseAnchor,
+            startRange = from,
+            onPick = { number ->
+                panelFrom = null
+                jumpRow(number, focus = true)
+            },
+            onClose = {
+                panelFrom = null
+                scope.launch {
+                    repeat(5) {
+                        delay(16)
+                        if (req("range:$from").tryFocus()) return@launch
+                    }
+                }
+            },
+        )
     }
 }
 
@@ -394,7 +467,7 @@ private fun StageActions(
     }
 }
 
-/** 下半截顶上：居中的片名（620×110，文字 52），多季时下面一排选季 */
+/** 下半截顶上：居中的片名（620×110，文字 52），多季时下面一排选季，分段的长季再一排集段页签 */
 @Composable
 private fun LowerHeader(
     state: DetailState,
@@ -404,52 +477,138 @@ private fun LowerHeader(
     track: (String) -> Modifier,
     req: (String) -> FocusRequester,
     scope: (suspend () -> Unit) -> Unit,
+    ranges: List<EpisodeRange>,
+    onRangeFocus: (Int) -> Unit,
+    onRangeOpen: (Int) -> Unit,
 ) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(36.pt)) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.BottomCenter) {
             TitleArt(detail.title, detail.logoUrl, maxWidthPt = 620, maxHeightPt = 110, textSizePt = 52, alignment = Alignment.BottomCenter)
         }
-        if (state.hasSeasonTabs) {
-            // 焦点停在哪一季 0.25 秒，下面就换成哪一季（一路划过去不逐季加载）
-            var focusedSeason by remember { mutableStateOf<Long?>(null) }
-            LaunchedEffect(focusedSeason) {
-                val number = focusedSeason ?: return@LaunchedEffect
-                if (number == state.browseSeason) return@LaunchedEffect
-                delay(250)
-                state.loadBrowse(number)
+        // 选季与集段页签贴在一起（各自上下 12 的内边就是两排的间距）
+        Column {
+            if (state.hasSeasonTabs) {
+                // 焦点停在哪一季 0.25 秒，下面就换成哪一季（一路划过去不逐季加载）
+                var focusedSeason by remember { mutableStateOf<Long?>(null) }
+                LaunchedEffect(focusedSeason) {
+                    val number = focusedSeason ?: return@LaunchedEffect
+                    if (number == state.browseSeason) return@LaunchedEffect
+                    delay(250)
+                    state.loadBrowse(number)
+                }
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .focusSection { state.browseSeason?.let { req("season:$it") } }
+                        .focusGroup()
+                        .horizontalScroll(rememberScrollState())
+                        .padding(horizontal = McMetrics.Edge, vertical = 12.pt),
+                    horizontalArrangement = Arrangement.spacedBy(16.pt),
+                ) {
+                    detail.seasons.forEach { number ->
+                        SeasonTab(
+                            label = DetailLogic.seasonLabel(number),
+                            selected = number == state.browseSeason,
+                            onClick = { scope { state.loadBrowse(number) } },
+                            modifier = track("season:$number")
+                                .testTag("season-tab:$number")
+                                .focusProperties {
+                                    this.canFocus = canFocus()
+                                    // 有集段页签时往下直接到当前段（理由同集段页签往上）
+                                    if (ranges.isNotEmpty()) {
+                                        down = req("range:${max(0, EpisodeRanges.position(state.rowEpisode ?: state.entryEpisode, ranges))}")
+                                    }
+                                }
+                                .onFocusChanged {
+                                    if (it.isFocused) focusedSeason = number else if (focusedSeason == number) focusedSeason = null
+                                },
+                        )
+                    }
+                }
             }
-            Row(
-                Modifier
-                    .fillMaxWidth()
-                    .focusSection { state.browseSeason?.let { req("season:$it") } }
-                    .focusGroup()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = McMetrics.Edge, vertical = 12.pt),
-                horizontalArrangement = Arrangement.spacedBy(16.pt),
-            ) {
-                detail.seasons.forEach { number ->
-                    SeasonTab(
-                        label = DetailLogic.seasonLabel(number),
-                        selected = number == state.browseSeason,
-                        onClick = { scope { state.loadBrowse(number) } },
-                        modifier = track("season:$number")
-                            .focusProperties { this.canFocus = canFocus() }
-                            .onFocusChanged {
-                                if (it.isFocused) focusedSeason = number else if (focusedSeason == number) focusedSeason = null
-                            },
-                    )
+            if (ranges.isNotEmpty()) {
+                RangeTabs(state, ranges, canFocus, track, req, onRangeFocus, onRangeOpen) {
+                    state.browseSeason?.takeIf { state.hasSeasonTabs }?.let { req("season:$it") }
                 }
             }
         }
     }
 }
 
-/** 分集横排：剧照 + 第几集、集名、四行简介、首播日期；进来落在接着看的那一集，并把它排在行首边距处 */
+/**
+ * 集段页签（「1–50」「1151–1186」）：当前段（横排停在的那一集所在的段）垫白底，锚点所在的段带橙点。
+ * 焦点移到哪一段，横排就跳到那一段的入口集（同「焦点移到哪一季，下面就换成哪一季」）；在页签上按确认打开「全部分集」
+ */
 @Composable
-private fun EpisodeRow(state: DetailState, detail: LibraryItemDetailView, track: (String) -> Modifier, req: (String) -> FocusRequester) {
+private fun RangeTabs(
+    state: DetailState,
+    ranges: List<EpisodeRange>,
+    canFocus: () -> Boolean,
+    track: (String) -> Modifier,
+    req: (String) -> FocusRequester,
+    onRangeFocus: (Int) -> Unit,
+    onRangeOpen: (Int) -> Unit,
+    above: () -> FocusRequester?,
+) {
+    val current = EpisodeRanges.position(state.rowEpisode ?: state.entryEpisode, ranges)
+    val anchorRange = EpisodeRanges.position(state.browseAnchor, ranges)
+    val tabsState = rememberLazyListState()
+    var tabsFocused by remember { mutableStateOf(false) }
+    // 焦点不在页签上时（横排往右走跨了段）当前段跟着滚进来
+    LaunchedEffect(current) {
+        if (!tabsFocused && current >= 0) tabsState.scrollToItem(max(0, current - 3))
+    }
+    LazyRow(
+        state = tabsState,
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("range-tabs")
+            .onFocusChanged { tabsFocused = it.hasFocus }
+            .focusSection { req("range:${max(0, current)}") }
+            .focusGroup(),
+        contentPadding = PaddingValues(horizontal = McMetrics.Edge, vertical = 12.pt),
+        horizontalArrangement = Arrangement.spacedBy(16.pt),
+    ) {
+        itemsIndexed(ranges, key = { _, range -> range.index }) { index, range ->
+            SeasonTab(
+                label = range.label,
+                selected = index == current,
+                dot = index == anchorRange,
+                onClick = { onRangeOpen(index) },
+                modifier = track("range:$index")
+                    .testTag("range-tab:$index")
+                    .semantics { selected = index == current }
+                    .focusProperties {
+                        this.canFocus = canFocus()
+                        // 有选季时往上直接到当前季（首屏按钮滑走后在几何上和两排胶囊叠着，就近会越过选季回首屏）
+                        above()?.let { up = it }
+                    }
+                    // 从横排往上进来落在当前段，不跳；左右换到别的段才跳
+                    .onFocusChanged { if (it.isFocused && index != current) onRangeFocus(index) },
+            )
+        }
+    }
+}
+
+/**
+ * 分集横排：剧照 + 第几集、集名、四行简介、首播日期；进来落在接着看的那一集，并把它排在行首边距处。
+ * 锚点卡标「接着看」（本季有观看记录时）。分段的长季（[segmented]）横排仍是整季连续的：从首屏下来落在锚点（或指定集），
+ * 从上面的页签下来落在横排停在的那一集；那一集滚出去没组合时先直接定位再给焦点
+ */
+@Composable
+private fun EpisodeRow(
+    state: DetailState,
+    detail: LibraryItemDetailView,
+    listState: LazyListState,
+    segmented: Boolean,
+    fromStage: () -> Boolean,
+    jumpRow: (Long, Boolean) -> Unit,
+    above: () -> FocusRequester,
+    track: (String) -> Modifier,
+    req: (String) -> FocusRequester,
+) {
     val router = LocalRouter.current
     val scope = rememberCoroutineScope()
-    val listState = rememberLazyListState()
     val episodes = state.browseEpisodes
     // 只在换季（或首次读到分集）时滚；从上层退回来时保留原来的滚动位置
     var handledRequest by rememberSaveable { mutableIntStateOf(-1) }
@@ -457,12 +616,46 @@ private fun EpisodeRow(state: DetailState, detail: LibraryItemDetailView, track:
         if (state.browseScrollRequest == handledRequest) return@LaunchedEffect
         handledRequest = state.browseScrollRequest
         val entry = state.entryEpisode ?: return@LaunchedEffect
+        state.rowEpisode = entry
         val index = state.browseEpisodes.indexOfFirst { it.episodeNumber == entry }
         if (index >= 0) listState.scrollToItem(index)
     }
+    // 播完 / 标记后锚点变了（看完 1050 → 1051）：横排跳到新锚点，焦点在横排里就跟过去
+    var rowFocused by remember { mutableStateOf(false) }
+    var handledJump by rememberSaveable { mutableIntStateOf(state.browseJumpRequest) }
+    LaunchedEffect(state.browseJumpRequest) {
+        if (state.browseJumpRequest == handledJump) return@LaunchedEffect
+        handledJump = state.browseJumpRequest
+        state.browseJumpTarget?.let { jumpRow(it, rowFocused) }
+    }
+    val tagged = EpisodeRanges.resumeTag(episodes, state.browseResume)
+    // 长季：从首屏下来落在锚点（或指定集），从上面的页签、下面的行进来落在横排停在的那一集
+    fun entryTarget(): Long? = if (fromStage()) state.entryEpisode else state.rowEpisode ?: state.entryEpisode
     LazyRow(
         state = listState,
-        modifier = Modifier.fillMaxWidth().focusSection { state.entryEpisode?.let { req("ep:$it") } }.focusGroup(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("episode-row")
+            .onFocusChanged { rowFocused = it.hasFocus }
+            .then(
+                if (!segmented) {
+                    Modifier.focusSection { state.entryEpisode?.let { req("ep:$it") } }
+                } else {
+                    // 同 focusSection，另外：要落的那一集滚出去没组合出来（长季里先跳去别的段了），取消这次几何就近，先直接定位再给焦点
+                    Modifier.focusProperties {
+                        onEnter = {
+                            val vertical = requestedFocusDirection == FocusDirection.Up || requestedFocusDirection == FocusDirection.Down
+                            val target = entryTarget()
+                            if (vertical && target != null && !req("ep:$target").tryFocus()) {
+                                cancelFocusChange()
+                                jumpRow(target, true)
+                            }
+                        }
+                        onExit = { if (requestedFocusDirection == FocusDirection.Right) cancelFocusChange() }
+                    }
+                },
+            )
+            .focusGroup(),
         contentPadding = PaddingValues(horizontal = McMetrics.Edge, vertical = 20.pt),
         horizontalArrangement = Arrangement.spacedBy(McMetrics.CardSpacing),
         verticalAlignment = Alignment.Top,
@@ -479,7 +672,12 @@ private fun EpisodeRow(state: DetailState, detail: LibraryItemDetailView, track:
                     // tvOS 是长按弹「标为已看 / 标为未看」一项菜单，这里长按直接切换
                     if (episode.owned) scope.launch { state.markEpisode(episode, !episode.played) }
                 },
-                modifier = track("ep:${episode.episodeNumber}"),
+                modifier = track("ep:${episode.episodeNumber}")
+                    .testTag("ep:${episode.episodeNumber}")
+                    // 长季往上直接到当前段页签：首屏按钮滑走后在几何上和页签叠着，就近会越过页签回首屏
+                    .then(if (segmented) Modifier.focusProperties { up = above() } else Modifier),
+                onFocus = { if (it) state.rowEpisode = episode.episodeNumber },
+                resume = episode.episodeNumber == tagged,
             )
         }
     }
