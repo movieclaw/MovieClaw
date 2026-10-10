@@ -206,3 +206,56 @@ Preview         = { available: bool, reason?: str, lines: [ {text, tone: info|wa
 1. 后续任务失败时推送到手机，成功不推（成功的结果在删除弹窗和任务中心里看）。
 2. 删除参与方本轮只给系统模块用（契约先标 `INTERNAL`），下载模块用稳一个版本后再升 `EXPERIMENTAL` 开放给插件。
 3. Android 的删除选项后补（它目前只有删单文件），不随批次 4。
+
+## 10. 入库桥拆分（后续批次的设计，2026-10-10）
+
+### 10.1 现状
+
+批次 1～4 之后，媒体库仍有一批代码直接读获取领域（订阅、下载、手动下载意图）的表与服务，集中在入库与扫描里：
+
+| 桥接块 | 位置 | 做什么 |
+|---|---|---|
+| A 完成判定 | `ingest.py` `_downloader_briefs` / `_torrent_verdict` / `_completed_file_batch` 等 | 问下载器条目是否下完、哪些文件能拿 |
+| B 托管认领 / 重投 | `_has_managed_download_claim` / `_redelivered_since` | 订阅或手动下载认领的条目先等；重投后重处理 |
+| C 在库画质 | `_covered_by_library` | 原地下载的在库行按订阅下载记录取画质 |
+| D 身份线索 | `_wanted_identity` / `_manual_download_identity`；扫描的 `_load_hints` | 订阅投递 / 手动下载 / 字幕提示给出条目身份与目标库 |
+| E 来源 | `_DeliveryProvenance` / `origin_for` / `record_source`；扫描的 `_download_for` | 站点、种子编号（命名变量 `{site}`）、来源文案、种子关联 |
+| F 去重阶梯 | `_specs_for_subscriptions` | 订阅规则的画质阶梯与投递记录的画质 |
+| G 入库后 | `close_fulfilled_wanted`、`push.downloads`、消费手动意图 | 关工单、推送下载完成、清意图 |
+| 其他 | `claim.py` / `scan.py` 的 `reopen_unfulfilled_wanted(lost_sources)`；`origin.py`；`duplicates.py` 的规则与在途洗版；`transfer.py` 改订阅目标库；路由的 `_seeding_root_names` | 身份变化后重开工单、来源文案、去重排序、做种提示 |
+
+### 10.2 设计：一个服务，两侧各管一半
+
+媒体库定义领域中立的接口 `AcquisitionBridge`（`services/library/acquisition.py`），获取领域实现它
+（`services/acquisition_bridge.py`，由 `downloads` 系统模块提供成内核服务）。媒体库只经接口取信息、发通知，
+不 import 任何获取领域的表与服务。**没有实现时用空实现**：什么都不知道、什么都不做——媒体库退化为纯本地库
+（扫描、整理、播放照常）。
+
+选服务（`ServiceKey`，单一提供方）而不是注册表或决策钩子：获取领域只有一个；入库是主流程，错误要照常抛出，
+不能像决策钩子那样超时 / 出错就静默当成「不知道」。
+
+接口按入库与扫描的阶段划分，入参出参只有媒体库自己的概念（路径、文件 id、条目、单元、画质快照）：
+
+| 阶段 | 方法 | 返回 |
+|---|---|---|
+| 条目要不要处理 | `entry_gate(path)` | 下完了没、哪些文件可拿、是否被托管认领要等、重投后是否重处理 |
+| 识别前 | `identity_hint(path, hashes)`；扫描 `scan_hints(library)` | 条目、目标库、可信度（精确 / 推断 / 手动）、来源种类 |
+| 写台账前 | `file_provenance(entry, file, unit)`；扫描 `scan_provenance(library)` | 站点标签（命名 `{site}`）、来源文案快照、来源记录（种子、下载器） |
+| 去重 | `quality_context(item, unit, rows)` | 在库行的权威画质、规则阶梯 |
+| 写台账后 | `files_recorded(rows, provenance)` | 记来源（下载领域的表） |
+| 入库后 | `ingested(result)` | 关工单、推送、清意图 |
+| 身份变了 | `identity_changed(changes)` | 关 / 重开工单（丢失的来源由获取领域按文件 id 自己查） |
+| 读时 | `describe_origins(file_ids)`、`paths_in_use(paths)` | 旧行的来源文案、做种中的路径（整理 / 转移提示） |
+| 转移后 | `item_moved(item, from_library, to_library)` | 订阅改目标库 |
+
+### 10.3 分批
+
+| 批次 | 内容 | 守护 |
+|---|---|---|
+| 5 | 接口与空实现、服务绑定；读时两项（来源文案、做种路径）与转移后通知 | `test_library_origin`、`test_library_preflight`、`test_library_batch_transfer`、`test_library_transfer` |
+| 6 | 身份变化（claim / 扫描重识别的关 / 重开工单），`lost_sources` 改由获取领域按文件 id 查；`site_id` / `torrent_id` 读者（洗版）改读来源表 | `test_wanted_fulfillment`、`test_library_item_detail`、`test_upgrade_*` |
+| 7 | 扫描：来源与字幕提示 | `test_library_provenance`、`test_library_scan_hints`、`test_library_scan` |
+| 8 | 入库：完成判定、托管认领、身份线索、来源、画质、入库后 | `test_library_ingest*`、`test_smart_*`、`test_push_*`、e2e 手动下载身份 |
+
+每批独立 PR，只搬代码与改调用点，不改行为；测试里打桩的内部函数随代码搬家改路径。
+
