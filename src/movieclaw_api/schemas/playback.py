@@ -828,8 +828,10 @@ class PlaybackPolicyView(BaseModel):
     trickplay_enabled: bool = True
     #: 转码产物是否保留供续播、重看复用（§B）。关闭即会话结束即删。
     transcode_cache_enabled: bool = True
-    #: 片段预切（docs/design/reels.md §8）：预告与刷片放预先切好的 1080p 小文件
-    reel_clips_enabled: bool = False
+    #: 片段预切（docs/design/reels.md §8）：预告与刷片放预先切好的 1080p 小文件。
+    #: 声明成可空：生成的 Swift / Kotlin 模型把非空字段当必有，新 App 连老服务器（没有这一项）
+    #: 时整个策略解码失败，连软件转码的同意弹窗都会坏
+    reel_clips_enabled: bool | None = False
     #: 片段预切进度（开关开着才有）：电影与剧集一共几部、切好了几部、队列状态
     reel_clips_progress: ReelClipProgressView | None = None
     #: 实测结果而非配置项——用户改不了自己有没有显卡。前端据此说明
