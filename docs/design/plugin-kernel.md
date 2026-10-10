@@ -542,7 +542,7 @@ import 的 7 个）；调度器自己的内置任务随它一起不在。
 | 18 | `downloads` | — | SITE_ACCESS | | 贡献下载进度、种子同步、种子匹配、媒体刷新任务 |
 | 19 | `boost` | — | SITE_ACCESS | | 贡献刷流任务；子插件（依赖 SCHEDULER）：带宽哨兵 |
 | 20 | `subscription` | — | SITE_ACCESS | | 贡献智能调度、缺口搜索、洗版任务；取消订阅清理处理器 |
-| 21 | `library.core` | — | DB | | 贡献扫描、导入、NFO 回填、回收站、系列回填任务；扫描、导入、整理、转移、批量转移、章节、片头、重复文件处理器 |
+| 21 | `library.core` | — | DB | | 贡献扫描、导入、NFO 回填、回收站、系列回填任务；扫描、导入、整理、转移、批量转移、章节、片头、重复文件、片段预切处理器 |
 | 22 | `library.watch` | — | DB | | 媒体库实时监控 |
 | 23 | `library.ingest-watch` | — | DB | | 下载监听导入 |
 | 24 | `channel.weixin` | — | AGENT_RUNS | | 微信通道 |

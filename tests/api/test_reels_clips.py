@@ -44,7 +44,20 @@ def clip_client(client, tmp_path, monkeypatch):  # noqa: F811
     clips._queues.clear()
     # 后台工作协程默认不跑：接口用例只看「排进了哪一档」；真切的用例自己放开
     monkeypatch.setattr(clips, "_start_worker", lambda _queue: None)
+    monkeypatch.setattr(clips, "_JOB_POLL_S", 0.05)
     yield client
+    # 预切作业在测试里不会自己跑完（工作协程是空操作）：先取消、等它停稳再关应用。
+    # 直接关会在它写进度的半途打断，留下 SQLite 写锁，下一个用例起不来
+    from movieclaw_api.services import jobs
+
+    async def active() -> list:
+        async with get_database().session() as session:
+            rows = await jobs.list_jobs(session, active_only=True, job_type=clips.JOB_TYPE)
+            for job in rows:
+                await jobs.request_cancel(session, job.id, requested_by="test")
+            return rows
+
+    wait_for(lambda: not client.portal.call(active))
     clips._queues.clear()
 
 
@@ -71,6 +84,27 @@ def settle(tc) -> None:
             await asyncio.sleep(0.02)
 
     tc.portal.call(wait)
+
+
+def wait_for(check, timeout: float = 10.0):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        value = check()
+        if value:
+            return value
+        time.sleep(0.05)
+    raise AssertionError(f"等不到预期状态（最后一次：{value!r}）")
+
+
+def clip_jobs(tc, **params) -> list[dict]:
+    resp = tc.get("/api/v1/jobs", params={"job_type": clips.JOB_TYPE, **params})
+    assert resp.status_code == 200, resp.text
+    return resp.json()["data"]["items"]
+
+
+def planned(tc) -> clips.ClipQueue:
+    """等预切作业被领取、排好队。"""
+    return wait_for(lambda: (q := queue_of(tc)).planned and q)
 
 
 async def _chosen(item_id: int) -> tuple[LibraryFile, str]:
@@ -120,9 +154,8 @@ def test_switch_is_off_by_default_and_clip_capable_apps_get_originals(clip_clien
 def test_enabling_plans_the_whole_library_and_reports_progress(clip_client, tmp_path):
     ids = seed(clip_client, tmp_path, movies=3, episodes=2, extras=False)
     data = enable(clip_client)
-    settle(clip_client)
     assert data["reel_clips_enabled"] is True
-    queue = queue_of(clip_client)
+    queue = planned(clip_client)
     assert set(queue.queued) == {*ids["movies"], ids["show"]}
     progress = clip_client.get("/api/v1/playback/policy").json()["data"]["reel_clips_progress"]
     assert progress == {"ready": 0, "total": 4, "state": "running"}
@@ -143,10 +176,124 @@ def test_recently_watched_titles_are_cut_first(clip_client, tmp_path, monkeypatc
 
     clip_client.portal.call(watch)
     enable(clip_client)
-    settle(clip_client)
-    queue = queue_of(clip_client)
+    queue = planned(clip_client)
     assert list(queue.tiers[clips.TIER_HOME]) == [watched]
     assert set(queue.tiers[clips.TIER_LIBRARY]) == set(ids["movies"]) - {watched}
+
+
+# --- 任务中心作业（断开续跑） -------------------------------------------------------
+
+
+def _job(tc, **params) -> dict:
+    return wait_for(lambda: next(iter(clip_jobs(tc, **params)), None))
+
+
+def _call(tc, fn):
+    async def run():
+        return fn()
+
+    return tc.portal.call(run)
+
+
+def test_enabling_creates_a_job_that_reports_progress_and_finishes(clip_client, tmp_path):
+    ids = seed(clip_client, tmp_path, movies=3, episodes=0, extras=False)
+    enable(clip_client)
+    job = _job(clip_client, active_only=True)
+    assert job["subject"] == "片段预切" and job["origin"] == "user"
+    planned(clip_client)
+    wait_for(lambda: _job(clip_client)["progress"]["total"] == 3)
+    make_clip(clip_client, ids["movies"][1])
+    job = wait_for(lambda: (j := _job(clip_client))["progress"]["current"] == 1 and j)
+    assert job["progress"]["message"] == "已切 1 / 3 部"
+    assert job["progress"]["details"]["remaining"] == 3
+    # 工作协程切完了剩下的：作业收尾，报这一轮新切了几部
+    for item in (ids["movies"][0], ids["movies"][2]):
+        make_clip(clip_client, item)
+    _call(clip_client, lambda: clips.get_queue().clear())
+    job = wait_for(lambda: (j := _job(clip_client))["status"] == "succeeded" and j)
+    assert job["result"]["message"] == "新切 3 部，共 3 / 3 部有片段"
+
+
+def test_cancelling_in_the_task_center_stops_this_round_but_keeps_the_switch(clip_client, tmp_path):
+    ids = seed(clip_client, tmp_path, movies=3, episodes=0, extras=False)
+    enable(clip_client)
+    queue = planned(clip_client)
+    # 工作协程正在切其中一部
+    _call(clip_client, lambda: setattr(queue, "current", queue.pop(clips.TIER_OTHER)))
+    cutting = queue.current[0]
+    rest = [i for i in ids["movies"] if i != cutting]
+    job = _job(clip_client, active_only=True)
+    assert clip_client.post(f"/api/v1/jobs/{job['id']}/cancel").status_code == 200
+    wait_for(lambda: _job(clip_client)["status"] == "cancelled")
+    # 排着的清掉；正在切的那部叫停且不放回队列
+    assert queue.pending == 1 and not queue.queued
+    assert queue.preempt and queue.drop_current
+    policy = clip_client.get("/api/v1/playback/policy").json()["data"]
+    assert policy["reel_clips_enabled"] is True
+    # 开关还开着：眼前要看的照样排档 0；但刷片不会自动再开一轮整库
+    queue.current = None
+    _call(clip_client, queue.planned_pools.clear)
+    assert preview(clip_client, rest[0], modes="seek,clip") is None
+    assert list(queue.tiers[clips.TIER_NOW]) == [rest[0]]
+    feed(clip_client, modes="seek,clip")
+    settle(clip_client)
+    assert clip_jobs(clip_client, active_only=True) == []
+    # 任务中心「重新执行」：再排一轮
+    assert clip_client.post(f"/api/v1/jobs/{job['id']}/retry").status_code == 200
+    wait_for(lambda: set(queue.queued) == set(ids["movies"]))
+    assert "film" not in queue.user_cancelled
+
+
+def test_switching_off_cancels_the_job(clip_client, tmp_path):
+    seed(clip_client, tmp_path, movies=2, episodes=0, extras=False)
+    enable(clip_client)
+    planned(clip_client)
+    enable(clip_client, False)
+    job = wait_for(lambda: (j := _job(clip_client))["status"] == "cancelled" and j)
+    assert job["cancel_requested_by"].startswith("system:")  # 前端不给「重新执行」
+    assert queue_of(clip_client).pending == 0
+
+
+def test_job_resumes_after_a_restart_and_skips_cut_titles(clip_client, tmp_path, monkeypatch):
+    """服务重启 / 应用内更新：作业退回队列，起来后自动续跑，跳过切好的，不耗重试次数。"""
+    from movieclaw_api.services import jobs
+
+    ids = seed(clip_client, tmp_path, movies=3, episodes=0, extras=False)
+    enable(clip_client)
+    planned(clip_client)
+    make_clip(clip_client, ids["movies"][0])
+    clip_client.portal.call(jobs.close_job_dispatcher)
+    job = _job(clip_client)
+    assert job["status"] == "queued"
+    assert job["progress"]["message"] == "服务正在重启，启动后会自动继续"
+    # 进程重启：内存里的队列、登记表都没了
+    clips._queues.clear()
+    monkeypatch.setattr(clips, "_registry", clips._Registry())
+    clip_client.portal.call(jobs.init_job_dispatcher)
+    queue = planned(clip_client)
+    assert set(queue.queued) == set(ids["movies"][1:])
+    job = wait_for(lambda: (j := _job(clip_client))["progress"]["current"] == 1 and j)
+    assert job["status"] == "running" and job["attempt"] == 1
+    # 收尾时「新切」按整份作业算（重启前切的那部也算）
+    for item in ids["movies"][1:]:
+        make_clip(clip_client, item)
+    _call(clip_client, lambda: clips.get_queue().clear())
+    job = wait_for(lambda: (j := _job(clip_client))["status"] == "succeeded" and j)
+    assert job["result"]["message"] == "新切 3 部，共 3 / 3 部有片段"
+
+
+def test_no_new_job_when_nothing_is_left_to_cut(clip_client, tmp_path):
+    ids = seed(clip_client, tmp_path, movies=2, episodes=0, extras=False)
+    for item in ids["movies"]:
+        make_clip(clip_client, item)
+    enable(clip_client)
+    job = wait_for(lambda: (j := _job(clip_client))["status"] == "succeeded" and j)
+    assert job["result"]["message"] == "新切 0 部，共 2 / 2 部有片段"
+    # 之后刷片核对整库：没有要补的就不留一条空作业
+    _call(clip_client, queue_of(clip_client).planned_pools.clear)
+    feed(clip_client, modes="seek,clip")
+    settle(clip_client)
+    assert len(clip_jobs(clip_client)) == 1
 
 
 # --- 刷片 ------------------------------------------------------------------------
@@ -222,7 +369,7 @@ def test_nothing_cut_yet_gives_an_empty_page_with_progress(clip_client, tmp_path
 def test_replaced_source_file_is_not_served_and_gets_recut(clip_client, tmp_path):
     ids = seed(clip_client, tmp_path, movies=2, episodes=0, extras=False)
     enable(clip_client)
-    settle(clip_client)
+    planned(clip_client)
     info = make_clip(clip_client, ids["movies"][0])
 
     async def replace_file() -> None:
@@ -243,7 +390,7 @@ def test_replaced_source_file_is_not_served_and_gets_recut(clip_client, tmp_path
 def test_preview_serves_the_clip_or_queues_it_first(clip_client, tmp_path):
     ids = seed(clip_client, tmp_path, movies=2, episodes=0, extras=False)
     enable(clip_client)
-    settle(clip_client)
+    planned(clip_client)
     ready, missing = ids["movies"]
     info = make_clip(clip_client, ready)
     # 切好的：放小文件；预告不开字幕；续播回忆不再做，source=resume 也放精彩片段
@@ -366,8 +513,13 @@ def test_command_follows_the_spec(tmp_path):
     assert "-af loudnorm=I=-23:TP=-2:LRA=9,afade=t=in:d=0.15,afade=t=out:st=44.500:d=0.5" in joined
     assert "-movflags +faststart" in joined and cmd[-1].endswith("out.mp4")
     silent = clips.build_command(
-        input_args=["-i", "x"], duration_s=30, chain=["null"], fps=None, source_fps=24.0,
-        audio_map=None, dest=tmp_path / "o.mp4",
+        input_args=["-i", "x"],
+        duration_s=30,
+        chain=["null"],
+        fps=None,
+        source_fps=24.0,
+        audio_map=None,
+        dest=tmp_path / "o.mp4",
     )
     assert "-c:a" not in silent and "-g 48" in " ".join(silent)
 

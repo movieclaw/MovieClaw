@@ -40,6 +40,7 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   "library.chapter_images": "生成章节",
   "library.skip_segments": "识别片头片尾",
   "media.skip_segments": "识别片头片尾",
+  "reels.clips": "预切片段",
   "library.organize": "整理媒体库文件",
   "library.transfer": "转移媒体库条目",
   "library.ingest": "自动整理入库",

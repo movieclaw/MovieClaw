@@ -19,6 +19,9 @@ MP4 + faststart。
 
 **开关**：设置 → 播放「片段预切」（``PlaybackPolicySetting.reel_clips_enabled``，默认关）。
 关掉即停，已切的留着（设置页问删不删）。
+
+**任务中心**：整库补切是一份持久化作业（``JOB_TYPE``）：排队、报进度、被取消时清掉这一轮。
+服务重启后作业自动续跑，重新排队时跳过已切的（§8.5）。
 """
 
 from __future__ import annotations
@@ -32,6 +35,7 @@ import re
 import shutil
 import tempfile
 import time
+import uuid
 from collections import deque
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -42,6 +46,7 @@ from typing import Any
 from sqlalchemy import select
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.services import jobs
 from movieclaw_api.services.library import skip_segments
 from movieclaw_api.services.library.thumbs import build_filter_chains
 from movieclaw_api.services.media_probe import VideoColor, video_color_for
@@ -78,6 +83,9 @@ HOME_RECENT_DAYS = 30
 HOME_RECENT_ADDED = 40
 #: 整库排队多久重排一轮：扫描新入库的片不经过入库钩子，靠它补上（只排没切过的，很便宜）
 REPLAN_S = 3600.0
+#: 作业多久刷新一次进度、查一次取消
+_JOB_POLL_S = 3.0
+JOB_TYPE = "reels.clips"
 #: 等让路时多久重看一次播放状态；切的过程中多久看一次要不要停
 _YIELD_POLL_S = 10.0
 _RUN_POLL_S = 5.0
@@ -387,7 +395,9 @@ async def generate(
     )
     folder = clips_root() / str(file.id)
     await asyncio.to_thread(folder.mkdir, parents=True, exist_ok=True)
-    part = folder / f".{segment.start_ms}-v{CLIP_VERSION}.mp4.part"
+    # 每次一个新名字：进程被硬杀时 ffmpeg 子进程还会写一会儿，续跑重切同一部不能和它写同一个文件
+    # （残留的临时文件由下一次 install 清掉）
+    part = folder / f".{segment.start_ms}-v{CLIP_VERSION}.{uuid.uuid4().hex[:8]}.mp4.part"
     input_args, listing = await _input_args(file, segment.start_ms / 1000)
     try:
         errors = []
@@ -581,6 +591,15 @@ class ClipQueue:
         #: 排过整库的池子（"film" / "video"）→ 排的时刻；第一轮排完后 ``planned`` 才为真
         self.planned_pools: dict[str, float] = {}
         self.planned = False
+        #: 正在切的那部的片名（作业进度里显示）、本进程里切不了的累计数
+        self.current_title: str | None = None
+        self.failed = 0
+        #: 正在切的这段被叫停后不放回队列（作业被取消、开关关掉）
+        self.drop_current = False
+        #: 在任务中心取消过整库预切的池子：本进程内不再自动开新一轮（新片入库照样单独补切）
+        self.user_cancelled: set[str] = set()
+        #: 本进程里确认切不出来的条目（没文件、只有 strm、挑不出段、片源坏）：重新排队时跳过
+        self.settled: set[int] = set()
 
     def put(self, item_id: int, tier: int) -> None:
         old = self.queued.get(item_id)
@@ -631,6 +650,21 @@ class ClipQueue:
             tier.clear()
         self.queued.clear()
 
+    def remaining(self, tiers: set[int]) -> int:
+        """这几档还剩几部没切（含正在切的那部）。"""
+        left = sum(len(self.tiers[t]) for t in tiers)
+        return left + (1 if self.current is not None and self.current[1] in tiers else 0)
+
+    def drop(self, tiers: set[int]) -> None:
+        """清掉这几档排着的；正在切的属于这几档就叫停、不放回队列。档 0（眼前请求）不动。"""
+        for t in tiers:
+            for item_id in self.tiers[t]:
+                self.queued.pop(item_id, None)
+            self.tiers[t].clear()
+        if self.current is not None and self.current[1] in tiers:
+            self.drop_current = True
+            self.preempt = True
+
 
 _queues: dict[asyncio.AbstractEventLoop, ClipQueue] = {}
 
@@ -662,17 +696,21 @@ async def _work(queue: ClipQueue) -> None:
                 await asyncio.wait_for(queue.wake.wait(), _YIELD_POLL_S)
             continue
         queue.paused = None
-        queue.current, queue.preempt = job, False
+        queue.current, queue.preempt, queue.drop_current = job, False, False
         try:
             await _process(queue, *job)
         except _Stopped:
-            queue.requeue_front(*job)
+            if queue.drop_current:
+                queue.drop_current = False
+            else:
+                queue.requeue_front(*job)
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001 —— 一部切坏了不能拖垮队列
             logger.exception("片段预切失败：条目 %s", job[0])
         finally:
             queue.current = None
+            queue.current_title = None
 
 
 def _should_stop(queue: ClipQueue, tier: int):
@@ -691,20 +729,30 @@ async def _process(queue: ClipQueue, item_id: int, tier: int) -> None:
         libraries = await _clip_libraries(session)
         files = (await feed._files_of(session, [item_id], list(libraries))).get(item_id, [])
     if not files:
+        queue.settled.add(item_id)
         return
     kind = feed.unit_kind(libraries.get(files[0].library_id, "movie"))
     chosen = feed.choose_file(files, kind)
     if chosen is None or _failed_before(chosen) or is_strm(chosen.file_path):
+        queue.settled.add(item_id)
         return
     segment = await segments.get_segment(feed._file_ref(chosen, kind))
-    if segment is None or ready_clip(chosen, segment) is not None:
+    if segment is None:
+        queue.settled.add(item_id)
         return
+    if ready_clip(chosen, segment) is not None:
+        return
+    async with get_database().session() as session:
+        item = await session.get(MediaItem, item_id)
+        queue.current_title = item.title if item else f"条目 #{item_id}"
     started = time.monotonic()
     try:
         info = await generate(chosen, segment, should_stop=_should_stop(queue, tier))
     except ClipError as exc:
         logger.warning("片段预切：条目 %s 文件 %s 切不了（%s）", item_id, chosen.id, exc)
         _mark_failed(chosen, str(exc))
+        queue.failed += 1
+        queue.settled.add(item_id)
         return
     logger.info(
         "片段预切：条目 %s（档 %s）%.1f 秒，%.1f MB",
@@ -741,52 +789,167 @@ async def request_now(media_item_id: int) -> None:
 
 
 def ensure_planned(*, video: bool = False) -> None:
-    """开关开着时第一次用到片段：排一轮整库（只排没切过的）。``video`` 另排「其他」库。"""
+    """开关开着时用到片段：确保有一份「片段预切」作业在补切没切过的（``video`` 连「其他」库一起）。
+
+    同一池子一小时最多核对一次；在任务中心取消过的，本进程内不再自动开新一轮。
+    """
     queue = get_queue()
-    key = "video" if video else "film"
+    key = _pool_key(video)
     last = queue.planned_pools.get(key)
-    if last is not None and time.monotonic() - last < REPLAN_S:
+    if key in queue.user_cancelled or (last is not None and time.monotonic() - last < REPLAN_S):
         return
     queue.planned_pools[key] = time.monotonic()
-    task = asyncio.create_task(_plan(queue, video=video))
-    _tasks.add(task)
-    task.add_done_callback(_tasks.discard)
+    _spawn(_ensure_job(video=video))
 
 
 _tasks: set[asyncio.Task[Any]] = set()
 
 
-async def _plan(queue: ClipQueue, *, video: bool) -> None:
+def _spawn(coro) -> None:
+    task = asyncio.create_task(coro)
+    _tasks.add(task)
+    task.add_done_callback(_tasks.discard)
+
+
+def _pool_key(video: bool) -> str:
+    return "video" if video else "film"
+
+
+async def _plan_items(*, video: bool) -> tuple[list[tuple[int, int]], list[int]]:
+    """这一池子还没切的（按先后排好、带档位）与池子里全部条目。
+
+    跳过切好的和本进程里已经确认切不出来的（没有文件、只有 strm、挑不出段、片源坏）。
+    """
     from movieclaw_api.services.library.access import NO_CONTENT_LIMIT
     from movieclaw_api.services.reels import feed
 
+    queue = get_queue()
+    async with get_database().session() as session:
+        libraries = {
+            lid: kind
+            for lid, kind in (await _clip_libraries(session)).items()
+            if (kind == "video") == video and kind in ("movie", "tv", "video")
+        }
+        if not libraries:
+            return [], []
+        pool = await feed._title_pool(session, libraries, NO_CONTENT_LIMIT, None, 0)
+        home = set() if video else await _home_items(session)
+        ordered = feed.weighted_order(
+            pool, await feed._ratings_of(session, [i for i, _ in pool]), seed=0
+        )
+    ready = ready_item_ids() | queue.settled
+    tier = TIER_OTHER if video else TIER_LIBRARY
+    todo = [
+        (item_id, TIER_HOME if item_id in home else tier)
+        for item_id, _kind in ordered
+        if item_id not in ready
+    ]
+    return todo, [item_id for item_id, _ in pool]
+
+
+async def _ensure_job(*, video: bool) -> None:
     try:
-        async with get_database().session() as session:
-            libraries = {
-                lid: kind
-                for lid, kind in (await _clip_libraries(session)).items()
-                if (kind == "video") == video and kind in ("movie", "tv", "video")
-            }
-            if not libraries:
-                return
-            pool = await feed._title_pool(session, libraries, NO_CONTENT_LIMIT, None, 0)
-            home = set() if video else await _home_items(session)
-            ordered = feed.weighted_order(
-                pool, await feed._ratings_of(session, [i for i, _ in pool]), seed=0
-            )
-        ready = ready_item_ids()
-        tier = TIER_OTHER if video else TIER_LIBRARY
-        for item_id, _kind in ordered:
-            if item_id in ready:
-                continue
-            queue.put(item_id, TIER_HOME if item_id in home else tier)
-        _cleanup_orphans_later(video)
-        logger.info("片段预切：排队 %d 部（%s）", queue.pending, "其他" if video else "电影 / 剧集")
+        if not await enabled():
+            return
+        todo, _pool = await _plan_items(video=video)
+        if todo:
+            await enqueue_job(video=video)
+        else:
+            get_queue().planned = True
     except Exception:  # noqa: BLE001
-        logger.warning("片段预切：整库排队失败", exc_info=True)
-    finally:
-        queue.planned = True
-        _start_worker(queue)
+        logger.warning("片段预切：建作业失败", exc_info=True)
+
+
+async def enqueue_job(*, video: bool = False, origin: str = "system") -> jobs.CreateJobResult:
+    """排一份整库预切作业（同池子同时只有一份）。真正切的是进程内的单路队列，作业负责
+    排队、在任务中心报进度、被取消时清掉这一轮；服务重启后作业自动续跑，重新排队时跳过已切的。"""
+    async with get_database().session() as session:
+        result = await jobs.create_job(
+            session,
+            job_type=JOB_TYPE,
+            subject="片段预切（其他）" if video else "片段预切",
+            input_data={"video": video},
+            resources=[jobs.ResourceRef("reels_clips", _pool_key(video), "context")],
+            dedupe_key=f"{JOB_TYPE}:{_pool_key(video)}",
+            conflict_policy="return_existing",
+            handler_revision=f"{JOB_TYPE}.v1",
+            max_attempts=3,
+            priority=-10,
+            origin=origin,
+            progress=jobs.default_progress("等待开始预切片段"),
+        )
+    jobs.wake_job_dispatcher()
+    return result
+
+
+async def _cancel_jobs(reason: str) -> None:
+    async with get_database().session() as session:
+        for job in await jobs.list_jobs(session, active_only=True, job_type=JOB_TYPE):
+            await jobs.request_cancel(
+                session, job.id, requested_by="system:reel-clips-disabled", reason=reason
+            )
+
+
+@jobs.register_job_handler(JOB_TYPE)
+async def _run_job(context: jobs.JobContext, input_data: dict[str, Any]) -> dict[str, Any]:
+    video = bool(input_data.get("video"))
+    if not await enabled():
+        return {"message": "片段预切没有打开，本次未处理"}
+    queue = get_queue()
+    key = _pool_key(video)
+    queue.user_cancelled.discard(key)
+    todo, pool = await _plan_items(video=video)
+    for item_id, tier in todo:
+        queue.put(item_id, tier)
+    queue.planned = True
+    _start_worker(queue)
+    _cleanup_orphans_later(video)
+    logger.info("片段预切：排队 %d 部（%s）", len(todo), "其他" if video else "电影 / 剧集")
+    tiers = {TIER_OTHER} if video else {TIER_HOME, TIER_LIBRARY}
+    members = set(pool)
+    # 续跑（重启后重领）时接着上一段的起点数，「新切 N 部」算的是整份作业
+    resumed = (await context.current_progress()).get("details") or {}
+    ready_before = resumed.get("ready_at_start")
+    if not isinstance(ready_before, int):
+        ready_before = len(members & ready_item_ids())
+    failed_before = queue.failed
+    last: tuple[Any, ...] | None = None
+    while True:
+        if await context.cancel_requested():
+            queue.drop(tiers)
+            if await enabled():  # 用户在任务中心取消：开关不动，本进程内不再自动开新一轮
+                queue.user_cancelled.add(key)
+            await context.raise_if_cancelled()
+        ready = len(members & ready_item_ids())
+        left = queue.remaining(tiers)
+        if left == 0:
+            break
+        paused = queue.paused if queue.current is None else None
+        # 只在变了时写：每次写都留一条作业事件，一部要切一两分钟，不必每 3 秒记一笔
+        now = (ready, left, paused, queue.current_title)
+        if now != last:
+            last = now
+            await context.update_progress(
+                mode="determinate",
+                phase="paused" if paused else "cutting",
+                message=f"{paused}，预切暂停中（已切 {ready} / {len(members)} 部）"
+                if paused
+                else f"已切 {ready} / {len(members)} 部",
+                current=ready,
+                total=len(members),
+                details={
+                    "remaining": left,
+                    "current_title": queue.current_title,
+                    "ready_at_start": ready_before,
+                },
+            )
+        await asyncio.sleep(_JOB_POLL_S)
+    ready = len(members & ready_item_ids())
+    failed = queue.failed - failed_before
+    message = f"新切 {max(0, ready - ready_before)} 部，共 {ready} / {len(members)} 部有片段"
+    if failed:
+        message += f"；{failed} 部片源切不了"
+    return {"message": message, "ready": ready, "total": len(members), "failed": failed}
 
 
 async def _home_items(session) -> set[int]:
@@ -835,18 +998,24 @@ async def enqueue_ingested(media_item_id: int) -> None:
 def on_file_changed(media_item_id: int) -> None:
     """入库 / 洗版换了文件：开关开着就排进档 1（调用方已确认开关）。"""
     queue = get_queue()
+    queue.settled.discard(media_item_id)
     queue.put(media_item_id, TIER_HOME)
     _start_worker(queue)
 
 
 async def start() -> None:
-    """打开开关：排一轮整库并开始切。"""
-    ensure_planned()
-    _start_worker(get_queue())
+    """打开开关：排一份整库预切作业（任务中心可见）。"""
+    queue = get_queue()
+    queue.user_cancelled.clear()
+    queue.planned_pools["film"] = time.monotonic()
+    await enqueue_job(origin="user")
 
 
 async def stop() -> None:
-    """关掉开关：清队列、停掉正在切的那一段。"""
+    """关掉开关：取消预切作业、清队列、停掉正在切的那一段。"""
+    # 先取消作业再清队列：反过来作业会先看到队列空了自己「完成」，与取消请求互相覆盖状态
+    with contextlib.suppress(Exception):
+        await _cancel_jobs("片段预切已关闭")
     queue = get_queue()
     queue.clear()
     queue.planned_pools.clear()

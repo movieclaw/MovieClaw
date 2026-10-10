@@ -218,6 +218,7 @@ extension TaskCenter {
         "library.chapter_images": "生成章节",
         "library.skip_segments": "识别片头片尾",
         "media.skip_segments": "识别片头片尾",
+        "reels.clips": "预切片段",
         "library.organize": "整理媒体库文件",
         "library.transfer": "转移媒体库条目",
         "library.ingest": "自动整理入库",
@@ -246,6 +247,7 @@ extension TaskCenter {
         "subtitle.generate": "正在生成字幕", "library.scan": "正在扫描", "library.metadata.refresh": "正在刷新媒体库元数据",
         "media.metadata.refresh": "正在刷新元数据", "library.chapter_images": "正在生成章节", "library.organize": "正在整理文件",
         "library.skip_segments": "正在识别片头片尾", "media.skip_segments": "正在识别片头片尾",
+        "reels.clips": "正在预切片段",
         "library.transfer": "正在转移文件", "library.ingest": "正在入库",
     ]
 
@@ -253,6 +255,7 @@ extension TaskCenter {
         "subtitle.generate": "字幕生成", "library.scan": "扫描", "library.metadata.refresh": "元数据刷新",
         "media.metadata.refresh": "元数据刷新", "library.chapter_images": "章节生成", "library.organize": "文件整理",
         "library.skip_segments": "片头片尾识别", "media.skip_segments": "片头片尾识别",
+        "reels.clips": "片段预切",
         "library.transfer": "文件转移", "library.ingest": "入库",
     ]
 

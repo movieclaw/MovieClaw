@@ -90,6 +90,7 @@ internal fun jobTypeLabel(jobType: String): String = when (jobType) {
     "media.metadata.refresh" -> "刷新条目元数据"
     "library.chapter_images" -> "生成章节"
     "library.skip_segments", "media.skip_segments" -> "识别片头片尾"
+    "reels.clips" -> "预切片段"
     "library.organize" -> "整理媒体库文件"
     "library.transfer" -> "转移媒体库条目"
     "library.ingest" -> "自动整理入库"
@@ -120,6 +121,7 @@ internal fun activeJobStatus(job: JobView): String = if (job.status == "running"
         "media.metadata.refresh" -> "正在刷新元数据"
         "library.chapter_images" -> "正在生成章节"
         "library.skip_segments", "media.skip_segments" -> "正在识别片头片尾"
+        "reels.clips" -> "正在预切片段"
         "library.organize" -> "正在整理文件"
         "library.transfer" -> "正在转移文件"
         "library.ingest" -> "正在入库"
@@ -138,6 +140,7 @@ private val COMPLETED_JOB_ACTIONS = mapOf(
     "library.chapter_images" to "章节生成",
     "library.skip_segments" to "片头片尾识别",
     "media.skip_segments" to "片头片尾识别",
+    "reels.clips" to "片段预切",
     "library.organize" to "文件整理",
     "library.transfer" to "文件转移",
     "library.ingest" to "入库",

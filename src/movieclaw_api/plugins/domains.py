@@ -70,7 +70,7 @@ async def subscription(ctx: Context) -> None:
 
 @plugin("library.core", title="媒体库", inject=(DB,), reloadable=True)
 async def library_core(ctx: Context) -> None:
-    """媒体库后台工作：扫描对账、整理改名、条目转移、回收站清理、章节图、片头识别和查重复文件。"""
+    """媒体库后台工作：扫描对账、整理改名、条目转移、回收站清理、章节图、片头识别、查重复文件和片段预切。"""
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.library import (
         batch_transfer,
@@ -85,6 +85,7 @@ async def library_core(ctx: Context) -> None:
         skip_segments,
         transfer,
     )
+    from movieclaw_api.services.reels import clips
     from movieclaw_scheduler import contribute_tasks
 
     contribute_tasks(ctx, ingest, nfo_backfill, recycle, scan, series_backfill)
@@ -100,6 +101,7 @@ async def library_core(ctx: Context) -> None:
         chapters,
         skip_segments,
         duplicate_scan,
+        clips,
     )
 
 
