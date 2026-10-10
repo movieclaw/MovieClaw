@@ -68,7 +68,8 @@ class TorrentRef(_Frozen):
     owned_by_movieclaw: bool | None = None
     hit_and_run: bool | None = None
     shared: bool = False
-    """这个种子还供着本次没删的文件（季包删了一集）：删种会连带毁掉它们。"""
+    """这个种子还供着本次没删的文件：季包删了一集，或合集 / 季包还拆在别的条目、别的库、
+    没识别的文件里。删种会连带毁掉它们。"""
 
 
 class Links(_Frozen):
@@ -288,7 +289,9 @@ async def deletion_recorder(
             )
             if not whole and not touches:
                 continue
-            keeps_files = any(fid not in deleted_ids for fid in link.file_ids)
+            keeps_files = bool(link.other_file_ids) or any(
+                fid not in deleted_ids for fid in link.file_ids
+            )
             keeps_units = not whole and bool(link.units) and not set(link.units) <= deleted_units
             torrents.append(
                 TorrentRef(

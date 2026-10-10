@@ -43,7 +43,7 @@ def skip_reason(torrent, *, partial: bool, subscription_id: int | None) -> str |
     if torrent.hit_and_run:
         return "有 H&R 考核风险"
     if torrent.shared:
-        return "还供着没删的文件（季包）"
+        return "还供着没删的文件（季包删了一集，或合集还拆在别的条目里）"
     if partial and subscription_id is not None and torrent.source == "subscription":
         return "属于在追的订阅（删了会重新下载这几集）"
     return None

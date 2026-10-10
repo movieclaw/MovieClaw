@@ -4,7 +4,7 @@
 真实应用、真实鉴权（只有测试自己的请求用超管登录，插件经宿主操作用自己的凭证），走完用户场景：
 
 - 删片联动（场景 2.1）：删条目 → 可靠事件 → 插件先删订阅、再删自有且无 H&R 的种子；演练模式不删；
-  部分删除时不动在追订阅的季包；
+  部分删除时不动在追订阅的季包；合集种子还供着别的条目时不删；
 - 片单订阅（场景 2.4）：片单里的新片名 → 搜索 → 订阅；重复出现不重复订阅。
 """
 
@@ -20,7 +20,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import func, select
-from tests.api.test_domain_events import seed_show
+from tests.api.test_domain_events import seed_shared_pack, seed_show
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.plugins.local import PACKAGE
@@ -237,6 +237,32 @@ def test_deleting_one_episode_keeps_the_season_pack_of_a_followed_show(
 
         wait(client, handled)
         assert client.portal.call(subscription_count) == 1
+    assert downloader.deleted == []
+
+
+def test_deleting_one_movie_keeps_a_collection_torrent_other_items_still_use(
+    data_dir, downloader, runtime
+) -> None:
+    """合集种子拆进了两部电影：删其中一部，种子还供着另一部，不能删（删了另一部的文件也没了）。"""
+    install(data_dir, "delete_cascade", CASCADE_YAML.format(dry_run="false", runtime=runtime))
+    app, client = start(data_dir)
+    with client:
+        login_admin(client)
+        wait(client, lambda: consumers_ready(2))
+        seeded = client.portal.call(
+            lambda: seed_shared_pack(
+                get_database(), data_dir, other_identified=True, info_hash=HASH
+            )
+        )
+        resp = client.delete(f"/api/v1/libraries/{seeded['library_id']}/items/{seeded['item_id']}")
+        assert resp.status_code == 200, resp.text
+
+        async def handled() -> bool:
+            async with get_database().session() as session:
+                state = await session.get(EventConsumer, "delete-cascade:item")
+            return state is not None and state.cursor > 0
+
+        wait(client, handled)
     assert downloader.deleted == []
 
 

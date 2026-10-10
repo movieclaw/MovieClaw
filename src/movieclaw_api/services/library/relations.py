@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -45,7 +45,10 @@ class TorrentLink:
     units: tuple[Unit, ...] = ()
     """覆盖的季集；空 = 未知或整部（电影）。"""
     file_ids: tuple[int, ...] = ()
-    """媒体库里记着来自这个种子的文件。"""
+    """媒体库里记着来自这个种子的文件（本条目的）。"""
+    other_file_ids: tuple[int, ...] = ()
+    """同一个种子还供着的**别的**文件：其他条目、没识别的文件，跨库。合集 / 季包拆进了
+    几个条目时，删这个种子会连带毁掉它们。"""
 
 
 @dataclass(frozen=True)
@@ -179,9 +182,28 @@ async def item_relations(session: AsyncSession, media_item_id: int) -> ItemRelat
             )
         )
 
+    # 同一个种子还供着哪些别的文件（任何条目、任何库，含没识别的行）
+    hashes = {h for _, h in links}
+    others: dict[str, list[int]] = {}
+    if hashes:
+        rows = (
+            await session.execute(
+                select(LibraryFile.id, LibraryFile.info_hash).where(
+                    LibraryFile.info_hash.in_(hashes),  # type: ignore[union-attr]
+                    (LibraryFile.media_item_id != media_item_id)  # type: ignore[arg-type]
+                    | LibraryFile.media_item_id.is_(None),  # type: ignore[union-attr]
+                )
+            )
+        ).all()
+        for row in rows:
+            others.setdefault(row.info_hash.lower(), []).append(row.id)
+
     return ItemRelations(
         media_item_id=media_item_id,
         subscription_id=subscription.id if subscription is not None else None,
         subscription_status=subscription.status if subscription is not None else None,
-        torrents=list(links.values()),
+        torrents=[
+            replace(link, other_file_ids=tuple(sorted(others.get(link.info_hash, ()))))
+            for link in links.values()
+        ],
     )

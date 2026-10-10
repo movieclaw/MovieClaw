@@ -1513,6 +1513,12 @@ class TorrentRelationView(BaseModel):
     status: str | None = Field(default=None, description="订阅下载记录的状态")
     units: list[list[int]] = Field(default_factory=list, description="覆盖的季集 [[季, 集]]")
     file_ids: list[int] = Field(default_factory=list, description="库里记着来自这个种子的文件")
+    other_file_ids: list[int] = Field(
+        default_factory=list,
+        description=(
+            "同一个种子还供着的别的文件（其他条目 / 没识别的文件，跨库）；非空时删种会连带毁掉它们"
+        ),
+    )
 
 
 class ItemRelationsView(BaseModel):

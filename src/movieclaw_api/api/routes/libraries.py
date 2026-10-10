@@ -3086,6 +3086,7 @@ async def get_item_relations(
                     status=t.status,
                     units=[list(u) for u in t.units],
                     file_ids=list(t.file_ids),
+                    other_file_ids=list(t.other_file_ids),
                 )
                 for t in relations.torrents
             ],

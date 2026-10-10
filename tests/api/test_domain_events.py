@@ -197,6 +197,83 @@ async def test_deleting_whole_item_records_item_deleted(db, tmp_path) -> None:
     assert not seeded["paths"][0].exists()
 
 
+async def seed_shared_pack(
+    db, tmp_path: Path, *, other_identified: bool, info_hash: str = "d" * 40
+) -> dict:
+    """一个合集种子拆进了两行：本条目一部电影 + 另一行（另一部电影，或没识别的文件）。"""
+    root = tmp_path / "media" / "movies"
+    root.mkdir(parents=True)
+    mine = root / "电影甲 (2001).mkv"
+    other = root / "电影乙 (2003).mkv"
+    mine.write_bytes(b"a")
+    other.write_bytes(b"b")
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="电影库", kind="movie", root_paths=[str(root)]
+        )
+        downloader = DownloaderClient(name="qb", client_type="qbittorrent", url="http://qb")
+        first = MediaItem(
+            kind="movie", tmdb_id=11, title="电影甲", original_title="Movie A", year=2001
+        )
+        second = MediaItem(
+            kind="movie", tmdb_id=12, title="电影乙", original_title="Movie B", year=2003
+        )
+        session.add_all([downloader, first, second])
+        await session.flush()
+        rows = []
+        for item_id, path in ((first.id, mine), (second.id if other_identified else None, other)):
+            row = LibraryFile(
+                library_id=library.id,
+                media_item_id=item_id,
+                file_path=str(path),
+                size_bytes=1,
+                source=FileSource.IMPORTED,
+                info_hash=info_hash,
+                downloader_id=downloader.id,
+            )
+            session.add(row)
+            rows.append(row)
+        await session.commit()
+        return {
+            "library_id": library.id,
+            "item_id": first.id,
+            "other_file_id": rows[1].id,
+        }
+
+
+@pytest.mark.parametrize("other_identified", [True, False])
+async def test_torrent_shared_with_other_items_is_marked_shared(
+    db, tmp_path, other_identified
+) -> None:
+    """合集种子还供着别的条目（或没识别的文件）：删了种子会毁掉它们，必须标 shared。"""
+    seeded = await seed_shared_pack(db, tmp_path, other_identified=other_identified)
+    await subscribe(db, de.LIBRARY_ITEM_DELETED)
+    async with db.session() as session:
+        await delete_library_item(
+            seeded["library_id"], seeded["item_id"], BackgroundTasks(), session
+        )
+    [event] = await recorded(db)
+    assert event["whole_item"] is True
+    [torrent] = event["links"]["torrents"]
+    assert torrent["info_hash"] == "d" * 40
+    assert torrent["shared"] is True
+
+
+async def test_relations_list_files_of_other_items_on_the_same_torrent(db, tmp_path) -> None:
+    from movieclaw_api.api.routes.libraries import get_item_relations
+    from movieclaw_api.services.library.relations import item_relations
+
+    seeded = await seed_shared_pack(db, tmp_path, other_identified=True)
+    async with db.session() as session:
+        relations = await item_relations(session, seeded["item_id"])
+        reply = await get_item_relations(seeded["library_id"], seeded["item_id"], session)
+    [torrent] = relations.torrents
+    assert torrent.other_file_ids == (seeded["other_file_id"],)
+    # 插件经「查条目关联」接口自己判断时看得到同样的信息
+    [view] = reply.data.torrents
+    assert view.other_file_ids == [seeded["other_file_id"]]
+
+
 async def test_failed_disk_delete_records_nothing(db, tmp_path, monkeypatch) -> None:
     # 磁盘删除失败的行保留台账：事件只描述真正删掉的，什么都没删就不发
     import movieclaw_api.services.library.items as items_mod
