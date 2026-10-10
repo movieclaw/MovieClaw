@@ -113,8 +113,13 @@ def wecom():
 @pytest.fixture(params=["inline", "process"])
 def world(request, tmp_path, monkeypatch):
     from movieclaw_api.services import channel_agent
+    from movieclaw_api.settings import reset_setting_store
+    from movieclaw_db.crypto import reset_secret_box
     from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository
 
+    # 配置存储是进程级的：同一进程里先跑的测试若设过对外地址，回调地址会带上它
+    reset_setting_store()
+    reset_secret_box()
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'wecom.db'}")
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
     monkeypatch.setenv("SITE_CONFIGS_DIR", str(tmp_path / "site-configs"))
@@ -147,6 +152,8 @@ def world(request, tmp_path, monkeypatch):
     yield request.param
     for name in [m for m in sys.modules if m == PACKAGE or m.startswith(PACKAGE + ".")]:
         del sys.modules[name]
+    reset_setting_store()
+    reset_secret_box()
     get_settings.cache_clear()
 
 
