@@ -922,7 +922,7 @@ data class LibraryFileView(
      */
     @SerialName("state") val state: String = "",
     /**
-     * 待回收的预计自动清理时间；null 且 trashed = 做种保护，不自动删
+     * 待回收的预计自动清理时间；null = 不自动删（2026-08-17 之前的旧数据）
      */
     @SerialName("purge_after") val purgeAfter: String? = null,
     /**
