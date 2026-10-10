@@ -125,7 +125,8 @@ class SessionView(BaseModel):
     # 定可选）：App 连没有这个字段的老服务器时解码不能失败。服务端恒输出 true / false
     demo: bool | None = Field(
         default=False,
-        description="是否是公开演示站（全站只读）：客户端据此隐藏演示站不开放的入口",
+        description="是否是公开演示站的只读会话（审核账号与正式部署恒为 false）："
+        "网页据此显示只读说明，不再摆出服务端会拒绝的操作",
     )
 
 
