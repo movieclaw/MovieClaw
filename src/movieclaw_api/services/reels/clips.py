@@ -51,8 +51,8 @@ from movieclaw_playback.streaming import is_strm
 
 logger = logging.getLogger("movieclaw_api.reels.clips")
 
-#: 规格变了就 +1：旧片段全部作废重切
-CLIP_VERSION = 1
+#: 规格变了就 +1：旧片段全部作废重切（2：加响度统一与首尾淡入淡出）
+CLIP_VERSION = 2
 MAX_WIDTH = 1920
 MAX_FPS = 30.0
 CRF = 23
@@ -60,6 +60,13 @@ MAXRATE_KBPS = 5000
 BUFSIZE_KBPS = 10000
 PRESET = "faster"
 AUDIO_KBPS = 128
+#: 响度统一（EBU R128）：-23 LUFS 接近电影原片的对白响度（-24～-27），
+#: 点「接着看」切回原片时音量不会突然掉一截；不用流媒体常见的 -16，那会比原片响一大截。
+#: LRA 适度收窄片段内部的动态，对白和爆炸声别差太多
+LOUDNORM = "loudnorm=I=-23:TP=-2:LRA=9"
+#: 首尾淡入淡出（秒）：开头防爆音，结尾防戛然而止。电视端另有 1.5 秒音量渐入，不冲突
+FADE_IN_S = 0.15
+FADE_OUT_S = 0.5
 GOP_SECONDS = 2
 #: 一段最多切多久：4K 源软解约 1～2 倍实时，45 秒一段正常一分钟内，卡死的进程到点就杀
 FFMPEG_TIMEOUT_S = 15 * 60
@@ -149,7 +156,20 @@ def build_command(
         "bt709",
     ]
     if audio_map:
-        args += ["-c:a", "aac", "-b:a", f"{AUDIO_KBPS}k", "-ac", "2"]
+        fade_at = max(0.0, duration_s - FADE_OUT_S)
+        args += [
+            "-af",
+            f"{LOUDNORM},afade=t=in:d={FADE_IN_S},afade=t=out:st={fade_at:.3f}:d={FADE_OUT_S}",
+            "-c:a",
+            "aac",
+            "-b:a",
+            f"{AUDIO_KBPS}k",
+            "-ac",
+            "2",
+            # loudnorm 内部按 192 kHz 处理，输出要显式回到 48 kHz
+            "-ar",
+            "48000",
+        ]
     args += ["-sn", "-dn", "-map_metadata", "-1", "-movflags", "+faststart", "-f", "mp4", str(dest)]
     return args
 

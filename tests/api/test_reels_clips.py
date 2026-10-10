@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shutil
 import subprocess
 import time
@@ -360,7 +361,9 @@ def test_command_follows_the_spec(tmp_path):
     assert "bwdif,scale='min(1920,iw)':-2:flags=lanczos,format=yuv420p,fps=30" in joined
     assert "-c:v libx264 -preset faster -crf 23 -maxrate 5000k -bufsize 10000k" in joined
     assert "-g 60 -keyint_min 60" in joined
-    assert "-map 0:a:1? " in joined and "-c:a aac -b:a 128k -ac 2" in joined
+    assert "-map 0:a:1? " in joined and "-c:a aac -b:a 128k -ac 2 -ar 48000" in joined
+    # 响度统一到 -23 LUFS，首尾淡入淡出（结尾 0.5 秒）
+    assert "-af loudnorm=I=-23:TP=-2:LRA=9,afade=t=in:d=0.15,afade=t=out:st=44.500:d=0.5" in joined
     assert "-movflags +faststart" in joined and cmd[-1].endswith("out.mp4")
     silent = clips.build_command(
         input_args=["-i", "x"], duration_s=30, chain=["null"], fps=None, source_fps=24.0,
@@ -425,7 +428,15 @@ async def test_real_clip_matches_the_spec(tmp_path, monkeypatch, hdr):
     assert (video["codec_name"], video["width"], video["height"]) == ("h264", 1920, 1080)
     assert video["profile"] == "High" and video["pix_fmt"] == "yuv420p"
     assert video["r_frame_rate"] == "25/1"
-    assert (audio["codec_name"], audio["channels"]) == ("aac", 2)
+    assert (audio["codec_name"], audio["channels"], audio["sample_rate"]) == ("aac", 2, "48000")
+    # 响度统一：整段积分响度落在 -23 LUFS 附近（源是正弦波测试音）
+    loud = subprocess.run(
+        ["ffmpeg", "-nostdin", "-i", str(info.path), "-af", "ebur128", "-f", "null", "-"],
+        capture_output=True,
+        text=True,
+    ).stderr
+    integrated = float(re.findall(r"I:\s+(-?[\d.]+) LUFS", loud)[-1])
+    assert -25.5 <= integrated <= -20.5, integrated
     assert abs(float(probe["format"]["duration"]) - 30.0) < 0.5
     data = info.path.read_bytes()
     assert data.index(b"moov") < data.index(b"mdat")  # faststart
@@ -435,8 +446,8 @@ async def test_real_clip_matches_the_spec(tmp_path, monkeypatch, hdr):
     again = await clips.generate(file, moved)
     assert not info.path.exists() and again.path.is_file()
     assert sorted(p.name for p in again.path.parent.iterdir()) == [
-        "30000-v1.mp4",
-        "30000-v1.mp4.json",
+        f"30000-v{clips.CLIP_VERSION}.mp4",
+        f"30000-v{clips.CLIP_VERSION}.mp4.json",
     ]
 
 
