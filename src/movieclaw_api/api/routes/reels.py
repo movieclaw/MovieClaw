@@ -37,7 +37,7 @@ from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.items import LibraryFilter
 from movieclaw_api.services.playback.signing import verify_stream_token
-from movieclaw_api.services.reels import clips
+from movieclaw_api.services.reels import clip_tip, clips
 from movieclaw_api.services.reels.facets import build_reel_facets
 from movieclaw_api.services.reels.feed import build_feed, record_events
 from movieclaw_api.services.reels.preview import build_preview
@@ -88,6 +88,8 @@ async def get_reel_feed(
         filters=filters,
         kind=kind,
     )
+    if page.items and page.clips is None:
+        clip_tip.note_played_without_clips()
     return ok(
         ReelFeedView(
             seed=page.seed,
@@ -153,6 +155,8 @@ async def get_reel_preview(
         episode=episode,
         modes={m.strip() for m in modes.split(",") if m.strip()},
     )
+    if item is not None and item["play"]["mode"] != "clip":
+        clip_tip.note_played_without_clips()
     return ok(item)  # type: ignore[arg-type]
 
 

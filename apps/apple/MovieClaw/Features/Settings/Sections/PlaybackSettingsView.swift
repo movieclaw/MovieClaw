@@ -7,6 +7,8 @@ struct PlaybackSettingsView: View {
     @State private var policy: API.PlaybackPolicyView?
     @State private var policyError: String?
     @State private var policyBusy = false
+    /// 关「片段预切」前查到的已切片段；非空时弹「要不要一并删除」
+    @State private var clipsToDrop: API.ReelClipStatsView?
     @State private var config: Loadable<API.RemoteTranscodeConfigView> = .loading
     @State private var editing = false
     @State private var showingPairing = false
@@ -24,6 +26,15 @@ struct PlaybackSettingsView: View {
         .task { await loadPolicy() }
         .task { await loadConfig() }
         .polling(every: 5, immediately: true) { await pollStatus() }
+        .polling(every: 15) { await refreshClipProgress() }
+        .confirmationDialog("关闭片段预切？", isPresented: Binding(mcGet: { clipsToDrop != nil }, set: { if !$0 { clipsToDrop = nil } }),
+                            titleVisibility: .visible, presenting: clipsToDrop) { stats in
+            Button("关闭，保留片段") { Task { await savePolicy(clips: false) } }
+            Button("关闭并删除 \(stats.count) 个片段（\(Formatters.bytes(stats.bytes))）", role: .destructive) {
+                Task { await savePolicy(clips: false, purgeClips: true) }
+            }
+            Button("取消", role: .cancel) { }
+        } message: { _ in Text("关闭后预告和刷片改回直接播放原片，后台不再切新的片段。保留的片段在重新打开后可直接使用。") }
         .sheet(isPresented: $editing) {
             if let value = config.value {
                 RemoteTranscodeEditor(config: value) { saved in
@@ -72,6 +83,14 @@ struct PlaybackSettingsView: View {
                 .disabled(policyBusy).accessibilityIdentifier("playback-transcode-cache")
             } footer: {
                 Text(policy.transcodeCacheEnabled ? "续播、重看时复用已转码内容。按可用空间自动限额，24 小时未用自动清理，也可在「更新与维护 → 缓存管理」中清空。" : "播放结束后删除分片，再次播放时重新转码。")
+            }
+            SettingsFormSection {
+                Toggle("片段预切", isOn: Binding(mcGet: { policy.reelClipsEnabled ?? false }, set: { value in
+                    Task { await toggleClips(value) }
+                }))
+                .disabled(policyBusy).accessibilityIdentifier("playback-reel-clips")
+            } footer: {
+                Text(Self.clipsFooter(enabled: policy.reelClipsEnabled ?? false, progress: policy.reelClipsProgress))
             }
         } else if policyError == nil { SettingsFormSection { SettingsLoadingRow() } }
     }
@@ -162,15 +181,53 @@ struct PlaybackSettingsView: View {
         catch { policyError = error.localizedDescription }
     }
 
-    private func savePolicy(trickplay: Bool? = nil, cache: Bool? = nil) async {
+    private func savePolicy(trickplay: Bool? = nil, cache: Bool? = nil, clips: Bool? = nil, purgeClips: Bool = false) async {
         guard !policyBusy, let previous = policy else { return }
         var optimistic = previous
         if let trickplay { optimistic.trickplayEnabled = trickplay }
         if let cache { optimistic.transcodeCacheEnabled = cache }
+        if let clips { optimistic.reelClipsEnabled = clips }
         policy = optimistic; policyBusy = true; policyError = nil
         defer { policyBusy = false }
-        do { policy = try await api.playbackPolicySet(body: .init(trickplayEnabled: trickplay, transcodeCacheEnabled: cache)) }
-        catch { policy = previous; policyError = error.localizedDescription }
+        do { policy = try await api.playbackPolicySet(body: .init(trickplayEnabled: trickplay, transcodeCacheEnabled: cache, reelClipsEnabled: clips)) }
+        catch { policy = previous; policyError = error.localizedDescription; return }
+        if purgeClips {
+            do { _ = try await api.reelsClipsClear() } catch { policyError = error.localizedDescription }
+        }
+    }
+
+    /// 关闭时若已有切好的片段，先问要不要一并删除（同 Web reel-clips-toggle-section）
+    private func toggleClips(_ next: Bool) async {
+        guard !next else { return await savePolicy(clips: true) }
+        do {
+            let stats = try await api.reelsClipsStats()
+            if stats.count > 0 { clipsToDrop = stats } else { await savePolicy(clips: false) }
+        } catch { policyError = error.localizedDescription }
+    }
+
+    /// 开着且还在切时刷新进度
+    private func refreshClipProgress() async {
+        guard !policyBusy, let current = policy, current.reelClipsEnabled == true,
+              current.reelClipsProgress?.state != "done" else { return }
+        if let latest = try? await api.playbackPolicyShow(), !policyBusy { policy = latest }
+    }
+
+    /// 片段预切的说明：关着讲开启的好处，开着写进度（文案同 Web reel-clips-toggle-section）
+    static func clipsFooter(enabled: Bool, progress: API.ReelClipProgressView?) -> String {
+        guard enabled else {
+            return "后台把每部影片的精彩片段提前转成 1080p 小文件。开启后，电视首页和详情页的大图预告起播快、不卡顿，"
+                + "刷片更流畅，外网刷片也不用实时转码。首次开启要在后台处理一段时间（有人观看时自动暂停），每部约占 20 MB。"
+        }
+        guard let progress else { return "正在准备……" }
+        switch progress.state {
+        case "done":
+            let skipped = progress.total - progress.ready
+            return skipped > 0
+                ? "已切好 \(progress.ready) 部，其余 \(skipped) 部无法预切（网盘文件或片子太短）；新入库的会自动补切"
+                : "已切好全部 \(progress.ready) 部；新入库的会自动补切"
+        case "paused": return "已切好 \(progress.ready) / \(progress.total) 部，有人在观看，暂停中"
+        default: return "已切好 \(progress.ready) / \(progress.total) 部，正在后台处理；没切好的预告先显示剧照"
+        }
     }
 
     private func loadConfig() async { await Loadable.load(into: $config) { try await api.transcodeConfigShow() } }

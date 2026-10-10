@@ -19,17 +19,17 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Path
 from pydantic import Field
-from sqlalchemy import delete, func
-from sqlalchemy.dialects.sqlite import insert
+from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.api.deps import require_login
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
+from movieclaw_api.services import tips
 from movieclaw_api.services.auth import Principal
 from movieclaw_db.engine import get_session
-from movieclaw_db.models import TipEvent, TipRecord, utcnow
+from movieclaw_db.models import TipEvent, TipRecord
 
 router = APIRouter(prefix="/tips", tags=["tips"])
 
@@ -93,16 +93,6 @@ def _record_view(row: TipRecord) -> TipRecordView:
     )
 
 
-async def _load_record(session: AsyncSession, owner: int, tip_id: str) -> TipRecord:
-    return (
-        await session.execute(
-            select(TipRecord)
-            .where(TipRecord.member_id == owner, TipRecord.tip_id == tip_id)
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one()
-
-
 @router.get(
     "/state",
     response_model=ApiResponse[TipStateView],
@@ -142,32 +132,7 @@ async def donate_event(
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[TipEventView]:
-    owner, now = principal.owner_id, utcnow()
-    await session.execute(
-        insert(TipEvent)
-        .values(
-            member_id=owner,
-            event_id=event_id,
-            count=1,
-            first_at=now,
-            last_at=now,
-            created_at=now,
-            updated_at=now,
-        )
-        .on_conflict_do_update(
-            index_elements=["member_id", "event_id"],
-            set_={"count": TipEvent.count + 1, "last_at": now, "updated_at": now},
-        )
-    )
-    await session.commit()
-    row = (
-        await session.execute(
-            select(TipEvent)
-            .where(TipEvent.member_id == owner, TipEvent.event_id == event_id)
-            .execution_options(populate_existing=True)
-        )
-    ).scalar_one()
-    return ok(_event_view(row))
+    return ok(_event_view(await tips.donate(session, principal.owner_id, event_id)))
 
 
 @router.post(
@@ -182,30 +147,7 @@ async def record_display(
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[TipRecordView]:
-    owner, now = principal.owner_id, utcnow()
-    await session.execute(
-        insert(TipRecord)
-        .values(
-            member_id=owner,
-            tip_id=tip_id,
-            display_count=1,
-            first_displayed_at=now,
-            last_displayed_at=now,
-            created_at=now,
-            updated_at=now,
-        )
-        .on_conflict_do_update(
-            index_elements=["member_id", "tip_id"],
-            set_={
-                "display_count": TipRecord.display_count + 1,
-                "first_displayed_at": func.coalesce(TipRecord.first_displayed_at, now),
-                "last_displayed_at": now,
-                "updated_at": now,
-            },
-        )
-    )
-    await session.commit()
-    return ok(_record_view(await _load_record(session, owner, tip_id)))
+    return ok(_record_view(await tips.record_display(session, principal.owner_id, tip_id)))
 
 
 @router.post(
@@ -221,27 +163,8 @@ async def invalidate_tip(
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[TipRecordView]:
-    owner, now = principal.owner_id, utcnow()
     reason = (payload or InvalidateTipRequest()).reason
-    await session.execute(
-        insert(TipRecord)
-        .values(
-            member_id=owner,
-            tip_id=tip_id,
-            display_count=0,
-            invalidated_at=now,
-            invalidated_reason=reason,
-            created_at=now,
-            updated_at=now,
-        )
-        .on_conflict_do_update(
-            index_elements=["member_id", "tip_id"],
-            set_={"invalidated_at": now, "invalidated_reason": reason, "updated_at": now},
-            where=TipRecord.invalidated_at.is_(None),
-        )
-    )
-    await session.commit()
-    return ok(_record_view(await _load_record(session, owner, tip_id)))
+    return ok(_record_view(await tips.invalidate(session, principal.owner_id, tip_id, reason)))
 
 
 @router.delete(

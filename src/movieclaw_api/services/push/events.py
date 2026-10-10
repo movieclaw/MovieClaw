@@ -511,3 +511,25 @@ def new_version(*, version: str, compatible: bool) -> None:
         )
 
     notify("new_version", {0}, build, collapse=("update", "app"))
+
+
+# ----------------------------------------------------------------------
+# 使用建议（管理员）
+# ----------------------------------------------------------------------
+
+
+@_never_raise
+def reel_clips_suggested() -> None:
+    """开关关着时有人刷片、放了大图预告：建议管理员开启片段预切（调用方保证只调一次）。"""
+
+    async def build(_session: AsyncSession, _member_id: int) -> AlertContent:
+        return AlertContent(
+            title="开启片段预切，预告和刷片更流畅",
+            body="家里已经有人在刷片或看电视大图预告了。在「设置 → 播放」打开片段预切，"
+            "起播更快、不卡顿。",
+            open="/settings/playback",
+            thread="tips",
+            source="server",
+        )
+
+    notify("usage_tip", {0}, build, collapse=("tip", "reel-clips"))

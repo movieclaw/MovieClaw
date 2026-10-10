@@ -20,6 +20,7 @@ import {
   PlusIcon,
 } from "@/components/icons";
 import { MediaRow } from "@/components/media-row";
+import { ReelClipsTip } from "@/components/reel-clips-tip";
 import { TopBarMenu } from "@/components/top-bar-menu";
 import type { PosterCardAction } from "@/components/poster-card";
 import { UpNextRow } from "@/components/up-next-row";
@@ -659,6 +660,8 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
           )}
         </div>
       </div>
+
+      <ReelClipsTip className="page-inset-mx mt-4" />
 
       {libraries === null && !failed && (
         <div className="mt-16 flex items-center justify-center gap-2.5 text-ui text-[var(--text-muted)]">

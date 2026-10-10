@@ -150,6 +150,7 @@ from movieclaw_api.services.playback_favorites import (
 )
 from movieclaw_api.services.playback_stats import playback_history, playback_stats
 from movieclaw_api.services.playback_up_next import up_next_items
+from movieclaw_api.services.reels import clip_tip
 from movieclaw_api.services.reels import clips as reel_clips
 from movieclaw_api.services.tmdb_images import tmdb_image_url
 from movieclaw_api.settings import PlaybackPolicySetting
@@ -2736,6 +2737,7 @@ async def save_playback_policy(
         # 片段预切：打开即排整库开始切，关掉即停（已切的留着，删不删由设置页另问）
         if changes.get("reel_clips_enabled") is True and not stored.reel_clips_enabled:
             await reel_clips.start()
+            await clip_tip.invalidate("action_performed")
         elif changes.get("reel_clips_enabled") is False and stored.reel_clips_enabled:
             await reel_clips.stop()
     return ok(await _policy_view())

@@ -85,6 +85,14 @@ PUSH_EVENTS: tuple[PushEvent, ...] = (
         default=True,
         admin_only=True,
     ),
+    PushEvent(
+        "usage_tip",
+        "使用建议",
+        "发现有设置能改善体验时（比如家里有人在用刷片、电视大图预告，建议开启片段预切），每条只提醒一次",
+        group="管理员",
+        default=True,
+        admin_only=True,
+    ),
 )
 
 EVENTS_BY_KEY = {event.key: event for event in PUSH_EVENTS}

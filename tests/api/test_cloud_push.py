@@ -1393,6 +1393,37 @@ def test_new_version_pushed_once(client: TestClient, world: World) -> None:
     assert "new_version" not in keys
 
 
+def test_reel_clips_suggestion_pushed_to_admin(client: TestClient, world: World) -> None:
+    from movieclaw_api.services.push import events
+
+    _connect(client, world)
+    _create_member(client)
+    admin_bearer = _app_login(client, _ADMIN, installation="tip-admin-1", name="管理员手机")
+    member_bearer = _app_login(client, _MEMBER, installation="tip-member-1", name="家人手机")
+    _, admin_key = _register(client, admin_bearer, token="a7" * 32)
+    _register(client, member_bearer, token="b7" * 32)
+    relay = world.relays["push.test"]
+    relay.messages.clear()
+
+    _in_app(client, events.reel_clips_suggested)
+    _wait(lambda: len(relay.messages) >= 1)
+    time.sleep(0.3)
+    assert [m["token"] for m in relay.messages] == ["a7" * 32]  # 只推管理员
+    plain = _open(relay.messages[-1], admin_key)
+    assert plain["title"] == "开启片段预切，预告和刷片更流畅"
+    assert plain["open"] == "/settings/playback"
+
+    # 管理员能关掉「使用建议」，成员看不到这个开关
+    _data(client.put("/api/v1/push/me/preferences", json={"events": {"usage_tip": False}}))
+    _in_app(client, events.reel_clips_suggested)
+    time.sleep(0.5)
+    assert len(relay.messages) == 1
+    keys = {
+        e["key"] for e in _data(_as_app(client, member_bearer, "GET", "/api/v1/push/me"))["events"]
+    }
+    assert "usage_tip" not in keys
+
+
 def _notify(client: TestClient, members: set[int], title: str) -> None:
     """在应用的事件循环里推一条简单的「入库完成」（只看收件人、偏好和设备）。"""
     from movieclaw_api.services.push.notify import AlertContent, notify

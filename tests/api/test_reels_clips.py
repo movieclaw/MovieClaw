@@ -494,3 +494,103 @@ def test_end_to_end_preview_queues_cuts_then_serves_the_clip(clip_client, tmp_pa
     data = feed(clip_client, modes="seek,clip")
     assert [i["title"]["media_item_id"] for i in data["items"]] == [item_id]
     assert data["clips"]["ready"] == 1
+
+
+# --- 「开启片段预切」建议（docs/design/tips.md 服务端代记的事件）-------------------
+
+
+@pytest.fixture
+def tip_client(clip_client, monkeypatch):
+    from movieclaw_api.services.push import events as push_events
+    from movieclaw_api.services.reels import clip_tip
+
+    clip_tip.reset_state()
+    pushed: list[int] = []
+    monkeypatch.setattr(push_events, "reel_clips_suggested", lambda: pushed.append(1))
+    clip_client.pushed = pushed
+    yield clip_client
+    clip_tip.reset_state()
+
+
+def settle_tip(tc) -> None:
+    from movieclaw_api.services.push import dispatcher
+
+    async def wait() -> None:
+        for _ in range(100):
+            if not dispatcher._tasks:
+                return
+            await asyncio.sleep(0.02)
+
+    tc.portal.call(wait)
+
+
+def tip_state(tc) -> tuple[dict, dict]:
+    data = tc.get("/api/v1/tips/state").json()["data"]
+    events = {e["event_id"]: e for e in data["events"]}
+    records = {t["tip_id"]: t for t in data["tips"]}
+    return events.get("reels.played-without-clips", {}), records.get("playback.reel-clips", {})
+
+
+def test_reels_without_clips_suggest_the_switch_once(tip_client, tmp_path):
+    from movieclaw_api.services.reels import clip_tip
+
+    ids = seed(tip_client, tmp_path, movies=2, episodes=0, extras=False)
+    assert tip_state(tip_client) == ({}, {})
+    feed(tip_client)  # 手机刷片放了原片
+    settle_tip(tip_client)
+    event, _ = tip_state(tip_client)
+    assert event["count"] == 1
+    assert tip_client.pushed == [1]
+
+    # 同一进程里之后的刷片、预告不再写库
+    feed(tip_client)
+    preview(tip_client, ids["movies"][0])
+    settle_tip(tip_client)
+    assert tip_state(tip_client)[0]["count"] == 1
+
+    # 重启后再记一次，但只推第一次
+    clip_tip.reset_state()
+    preview(tip_client, ids["movies"][0])  # 电视大图预告
+    settle_tip(tip_client)
+    assert tip_state(tip_client)[0]["count"] == 2
+    assert tip_client.pushed == [1]
+
+
+def test_enabling_the_switch_retires_the_suggestion(tip_client, tmp_path):
+    from movieclaw_api.services.reels import clip_tip
+
+    ids = seed(tip_client, tmp_path, movies=1, episodes=0, extras=False)
+    preview(tip_client, ids["movies"][0])
+    settle_tip(tip_client)
+    enable(tip_client)
+    settle(tip_client)
+    _, record = tip_state(tip_client)
+    assert record["invalidated_reason"] == "action_performed"
+
+    # 关掉之后再有人放原片：已作废，不再记、不再推
+    enable(tip_client, False)
+    clip_tip.reset_state()
+    preview(tip_client, ids["movies"][0])
+    settle_tip(tip_client)
+    assert tip_state(tip_client)[0]["count"] == 1
+    assert tip_client.pushed == [1]
+
+
+def test_old_apps_with_the_switch_on_retire_the_suggestion(tip_client, tmp_path):
+    """本功能上线前就开着开关：老 App 放原片时直接作废，不提示也不推。"""
+    from movieclaw_api.settings.playback import PlaybackPolicySetting
+    from movieclaw_api.settings.store import get_setting_store
+
+    ids = seed(tip_client, tmp_path, movies=1, episodes=0, extras=False)
+
+    async def turn_on() -> None:
+        store = get_setting_store()
+        stored = await store.get(PlaybackPolicySetting)
+        await store.set(stored.model_copy(update={"reel_clips_enabled": True}))
+
+    tip_client.portal.call(turn_on)
+    assert preview(tip_client, ids["movies"][0], modes="seek")["play"]["mode"] == "seek"
+    settle_tip(tip_client)
+    event, record = tip_state(tip_client)
+    assert event == {} and record["invalidated_reason"] == "action_performed"
+    assert tip_client.pushed == []

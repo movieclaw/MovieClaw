@@ -79,6 +79,8 @@ struct ShellLogicTests {
             == .settingsSection(.importWatch, query: ["suggest": "auto", "kinds": "movie,tv"]))
         #expect(AppRoute(webPath: "/settings/app?tab=storage") == .settingsSection(.app, query: ["tab": "storage"]))
         #expect(AppRoute(webPath: "/settings/app?tab=remote") == .settingsSection(.playback))
+        // 「使用建议」推送（开启片段预切）点开的地址
+        #expect(AppRoute(webPath: "/settings/playback") == .settingsSection(.playback))
         // Web 把旧「搜索」分区重定向到 /settings/sites（不带页签）
         #expect(AppRoute(webPath: "/settings/search") == .settingsSection(.sites))
     }

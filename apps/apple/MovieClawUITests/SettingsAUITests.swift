@@ -638,8 +638,9 @@ final class SettingsAUITests: XCTestCase {
         let policy = try probe.getObject("/playback/policy")
         let trick = policy["trickplay_enabled"] as? Bool ?? true
         let cache = policy["transcode_cache_enabled"] as? Bool ?? true
+        let clips = policy["reel_clips_enabled"] as? Bool ?? false
         restorers.append(("播放策略", {
-            _ = try probe.request("PUT", "/playback/policy", body: ["trickplay_enabled": trick, "transcode_cache_enabled": cache])
+            _ = try probe.request("PUT", "/playback/policy", body: ["trickplay_enabled": trick, "transcode_cache_enabled": cache, "reel_clips_enabled": clips])
         }))
 
         for (id, key, original) in [("playback-trickplay", "trickplay_enabled", trick), ("playback-transcode-cache", "transcode_cache_enabled", cache)] {
@@ -647,6 +648,21 @@ final class SettingsAUITests: XCTestCase {
             XCTAssertTrue(waitUntil(15) { (try? probe.getObject("/playback/policy"))?[key] as? Bool == !original }, "\(key) 应已切换")
             toggleSafely(app, id)
             XCTAssertTrue(waitUntil(15) { (try? probe.getObject("/playback/policy"))?[key] as? Bool == original }, "\(key) 应已恢复")
+        }
+
+        // 片段预切（「使用建议」推送点开就到这里）：打开后服务端作废网页上的提示；关闭时有切好的片段要先选删不删
+        for target in [!clips, clips] {
+            toggleSafely(app, "playback-reel-clips")
+            if !target {
+                let keep = app.buttons["关闭，保留片段"]
+                if keep.waitForExistence(timeout: 5) { tapSafely(app, keep, "关闭，保留片段") }
+            }
+            XCTAssertTrue(waitUntil(15) { (try? probe.getObject("/playback/policy"))?["reel_clips_enabled"] as? Bool == target }, "片段预切应为 \(target)")
+            if target {
+                snapshot("播放-片段预切已开")
+                let tips = (try? probe.getObject("/tips/state"))?["tips"] as? [[String: Any]] ?? []
+                XCTAssertNotNil(tips.first { $0["tip_id"] as? String == "playback.reel-clips" }?["invalidated_at"] as? String, "打开后提示应作废")
+            }
         }
 
         // 远程转码：只看，不保存
