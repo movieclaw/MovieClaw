@@ -371,7 +371,8 @@ private struct ReelPage: View {
                 if !expanded {
                     // 横带下方一行：画质在左、全屏观看在右（2026-09-30 用户调整：原来画质压在横带右下角，看着怪）
                     HStack(spacing: 10) {
-                        qualityMenu
+                        // 预切片段本身就是 1080p 小文件，选画质不起作用：不显示这个胶囊
+                        if item.play.mode != "clip" { qualityMenu }
                         fullscreenButton
                     }
                     // 只改亮度不隐藏：按钮始终在原位、暗着也能点。调暗靠降文字与描边的颜色（`controlsAlpha`），
