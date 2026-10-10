@@ -106,26 +106,26 @@ TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple 
   审核员看英文，界面是简体中文，按钮名后面括注英文）：
 
 ```text
-MovieClaw is the iPhone client for MovieClaw, a self-hosted media server that people install on their own hardware (a NAS, a home computer or a private server). Source code: https://github.com/movieclaw/MovieClaw. It works like Plex / Jellyfin / Infuse clients, plus the library-automation features of Sonarr / Radarr companion apps. The interface is in Simplified Chinese; English translations of labels are in parentheses.
+MovieClaw is the iPhone client for MovieClaw, a self-hosted media server that people install on their own hardware, such as a NAS. Source code: https://github.com/movieclaw/MovieClaw. It works like Plex / Jellyfin / Infuse clients, plus the library-automation features of Sonarr / Radarr companion apps. The interface is in Simplified Chinese; English translations of labels are in parentheses.
 
 PREVIOUS REVIEW (5.6)
 Last time we mistakenly supplied a read-only public demo account, so the server refused some actions. Nothing in the app is hidden; please see our reply in Resolution Center. This time the review account has full access.
 
 CONTENT AND RESPONSIBILITY
-We do not provide, host or sell any movies, TV shows or torrent files, and we run no index or catalog of them. The app only connects to the server the user runs. Like Prowlarr, the server software only includes integration rules describing how to talk to various sites; it ships with no content, no accounts and no active source. A site is used only after the user adds a site they are a member of with their own account, and users are responsible for having the rights to what they download. Search, download and subscription in the app are remote commands to the user's own server. No media or torrent files are transferred to or from the iPhone, the app only streams video from that server, and it contains no BitTorrent or other peer-to-peer code.
+We do not provide, host or sell any movies, TV shows or torrent files, and we run no index or catalog of them. Like Prowlarr, the server software only includes integration rules describing how to talk to various sites; it ships with no content, no accounts and no active source. A site is used only after the user adds a site they are a member of with their own account, and users are responsible for having the rights to what they download. Search, download and subscription in the app are remote commands to the user's own server. No media or torrent files are transferred to or from the iPhone, the app only streams video from that server, and it contains no BitTorrent or other peer-to-peer code.
 
 SIGN IN
 On first launch tap "连接服务器" (Connect to server), enter https://demo.movieclaw.io, then use the review account in Sign-In Information (full administrator access).
 
 DEMO SERVER
-The library holds only Creative Commons Blender films and public-domain images. For search, download and subscription it has a demo resource site listing only CC-licensed Blender films (Elephants Dream, Charge and Wing It! are not in the library yet) and a demo download client that simulates transfers on the server. No peer-to-peer traffic happens; the seeding figures and the household playback shown in Activity are simulated.
+The library holds only Creative Commons Blender films. For search, download and subscription it has a demo resource site listing only CC-licensed Blender films (Elephants Dream, Charge and Wing It! are not in the library yet) and a demo download client that simulates transfers on the server. No peer-to-peer traffic happens; the seeding figures and the household playback shown in Activity are simulated.
 
 WHAT TO TRY
 1. Play: "媒体库" (Library), open a film, tap the play button.
 2. Search and download: tap the magnifier at the top right, search "Elephants", choose "站点资源" (Site results), tap the result, "下载" (Download), then "下载到「电影」" (Download to Movies). The transfer shows in "活动" (Activity); about a minute later the film is in Library → 电影 (Movies).
 3. Subscribe: search "Charge", open it under "影视" (Titles), tap "订阅追踪" (Subscribe), then "确认订阅" (Confirm). Within a few minutes the server downloads it and the subscription shows as completed in "订阅" (Subscriptions). Wing It! is a spare for another try.
 4. Seeding: "活动" (Activity) → "刷流做种" (Seeding).
-5. AI assistant: "我的" (Me) → "新会话" (New session). Before the first message, the app explains that messages and the library data the assistant looks up are sent by the user's server to the AI provider its owner configured (named on screen), and asks for consent. The app never contacts an AI provider itself.
+5. AI assistant: "我的" (Me) → "新会话" (New session). Before the first message, the app explains that messages and the library data the assistant looks up are sent by the user's server to the AI provider its owner configured, and asks for consent. The app never contacts an AI provider itself.
 6. Settings: "我的 → 服务器设置" (Me → Server settings) manages members, devices, notifications and playback. One-time server setup (download sources, download clients, import rules) is done in the server's web console on every platform because it needs large forms; to see it, open https://demo.movieclaw.io in Safari and sign in with the review account (not the public visitor accounts listed there). On the demo these settings are locked.
 7. Accounts: there is no public sign-up. Server accounts are created and deleted by the server owner in Server settings → "成员" (Members). The optional MovieClaw Cloud (push notifications, Server settings → MovieClaw Cloud) creates an account on our website; the same page links to "管理或删除 MovieClaw 账号" (Manage or delete MovieClaw account).
 
@@ -151,9 +151,20 @@ If anything is unclear, we would be glad to explain on a call.
 ```
 
   写备注和回复的几条经验：
-  - **字数**：「备注」栏上限 4000 字符，超了粘不进去。改完量一下：
-    `awk '/^## 4\./,/^## 5\./' docs/design/ios-release.md | awk '/^```text/{n++;f=(n==1);next}/^```/{f=0}f' | wc -m`
-    （只量第一个代码块，即备注；回复审核没有这个限制，但也别太长）。
+  - **字数**：「备注」栏上限 4000，超了粘不进去。中文按钮名在 UTF-8 里每个占 3 字节，为防按字节计，
+    字符数和 UTF-8 字节数都控制在 4000 以内。改完在仓库根目录量一下（第一个代码块是备注，
+    第二个是回复审核；回复没有这个限制，但也别太长）：
+
+    ```bash
+    python3 - <<'EOF'
+    import re
+    s = open("docs/design/ios-release.md", encoding="utf-8").read()
+    sec = s[s.index("## 4. "):s.index("## 5. ")]
+    for b in re.findall(r"^```text\n(.*?)\n```$", sec, flags=re.S | re.M):
+        print(len(b), "字符,", len(b.encode("utf-8")), "字节")
+    EOF
+    ```
+
   - **纯文本**：备注和回复都不渲染 Markdown，`**加粗**` 会原样显示成星号，小标题用大写英文。
   - **每句话都要经得起对照源码**：备注里附了源码链接，审核员可能去翻。服务端自带各站点的接入规则
     （`sites/configs/`，不含内容和账号），所以不笼统写「没有任何资源来源」，而是写清「只有接入规则、
