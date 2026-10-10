@@ -12,10 +12,15 @@
     class Aria2(BaseDownloader):
         ...
 
+    # 添加下载器的表单按它画；字段只能取 url / username / password
+    class Connection(BaseModel):
+        url: str = Field(title="RPC 地址", examples=["http://192.168.1.10:6800/jsonrpc"])
+        password: SecretStr | None = Field(None, title="RPC 密钥")   # 不要用户名就不写这栏
+
     @plugin("aria2-downloader", title="Aria2 下载器")
     async def apply(ctx):
         ctx.contribute(DOWNLOADER_ADAPTERS, "aria2", DownloaderAdapter(
-            type="aria2", title="Aria2", factory=Aria2, url_label="RPC 地址"))
+            type="aria2", title="Aria2", factory=Aria2, connection=Connection))
 
 同一份适配器既能在主进程里运行，也能在独立进程里运行（宿主经代理调用它的方法）。
 qBittorrent、Transmission 是随应用提供的官方插件（``src/movieclaw_plugins/``），可作参考。

@@ -11,10 +11,24 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Any
+
+from pydantic import BaseModel, Field, SecretStr
 
 from movieclaw_downloader.base import BaseDownloader
 from movieclaw_downloader.models import DownloaderConfig
 from movieclaw_kernel import Registry, RegistryKey, Stability
+
+#: 下载器配置里存连接参数的三栏；适配器的连接模型只能从这三个里取
+CONNECTION_FIELDS = ("url", "username", "password")
+
+
+class Connection(BaseModel):
+    """默认的连接参数：地址（必填）+ 用户名、密码（未开鉴权可留空）。"""
+
+    url: str = Field(title="地址", examples=["http://192.168.1.10:8080"])
+    username: str | None = Field(None, title="用户名", description="未开鉴权可留空")
+    password: SecretStr | None = Field(None, title="密码", description="未开鉴权可留空")
 
 
 @dataclass(frozen=True)
@@ -24,12 +38,29 @@ class DownloaderAdapter:
     title: str
     """给人看的名字，如「qBittorrent」。"""
     factory: Callable[[DownloaderConfig], BaseDownloader]
-    url_label: str = "地址"
-    """配置表单里地址一栏的叫法，如「WebUI 地址」「RPC 地址」。"""
-    url_placeholder: str = ""
-    needs_username: bool = True
-    """是否要用户名（有的下载器只要密码或令牌）。"""
+    connection: type[BaseModel] | dict[str, Any] | None = None
+    """连接参数长什么样（pydantic 模型）。
+
+    字段只能取 ``url`` / ``username`` / ``password``，``url`` 必须有；
+    用 ``title`` / ``description`` / ``examples`` 写各栏的叫法与示例，不需要的栏不写。
+    不填用 :class:`Connection`。进程外运行时宿主拿到的是它的 JSON Schema（dict）。
+    """
     help: str = ""
+
+    def __post_init__(self) -> None:
+        connection = self.connection
+        if connection is None:
+            return
+        if isinstance(connection, dict):
+            names = set((connection.get("properties") or {}).keys())
+        else:
+            names = set(getattr(connection, "model_fields", {}))
+        extra = names - set(CONNECTION_FIELDS)
+        if extra or "url" not in names:
+            raise ValueError(
+                f"下载器 {self.type} 的连接参数只能取 {'、'.join(CONNECTION_FIELDS)}，且必须有 url"
+                + (f"（多了 {'、'.join(sorted(extra))}）" if extra else "")
+            )
 
 
 DOWNLOADER_ADAPTERS: RegistryKey[DownloaderAdapter] = RegistryKey(

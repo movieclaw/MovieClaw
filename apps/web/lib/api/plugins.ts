@@ -433,6 +433,7 @@ export interface SchemaField {
   minLength?: number;
   maxLength?: number;
   format?: string;
+  examples?: string[];
   writeOnly?: boolean;
   "x-multiline"?: boolean;
 }

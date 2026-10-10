@@ -16,7 +16,8 @@
 | 名字 | 说明 |
 |---|---|
 | `BaseDownloader` | 适配器基类：提交、查询、列表、删除、改目录、选文件、恢复、限速、测试连接、关闭 |
-| `DownloaderAdapter` | 登记项：`type`（存进下载器配置的类型值，全局唯一）、`title`、`factory(config)`、`url_label`、`url_placeholder`、`needs_username`、`help` |
+| `DownloaderAdapter` | 登记项：`type`（存进下载器配置的类型值，全局唯一）、`title`、`factory(config)`、`connection`、`help` |
+| `connection` | 连接参数的 pydantic 模型（`plugin-phase4.md` §2 的 Schema 子集）：字段只能取 `url` / `username` / `password`（下载器配置已有的三栏），`url` 必须有；用 `title` / `description` / `examples` 写各栏的叫法与示例，不要的栏不写。添加下载器的表单按它画；不填用默认模型。三栏装不下的参数（目前没有真实需要）届时照 IM 通道账号的做法加一列加密 JSON |
 | `DOWNLOADER_ADAPTERS` | 注册表键 |
 | 数据模型与异常 | `DownloaderConfig`、`DownloadRequest`、`TorrentStatus`……、`DownloaderException` 一族 |
 
@@ -26,7 +27,7 @@
 
 - `downloader_client.client_type` 列本来就是字符串，不需迁移；模型、接口里的类型从枚举放开成字符串。
 - 新建 / 修改下载器时校验类型要有已登记的适配器，否则 400 并列出可用类型。
-- `GET /downloaders/types`（`dl.types.list`）：可用的下载器类型。网页按它渲染类型选择与地址一栏；旧服务端没有这个接口时
+- `GET /downloaders/types`（`dl.types.list`）：可用的下载器类型与连接参数 Schema（同时给出由它推出的 `url_label` 等旧字段供旧客户端）。网页按它渲染类型选择与地址、用户名、密码三栏；旧服务端没有这个接口时
   网页回落到内置两种。iOS 生成模型里类型本来就是字符串，旧版 App 遇到新类型照常解码。
 - 适配器插件没装 / 没在运行时，用这种类型的下载器报「下载器类型尚未支持」，配置保留，插件回来即恢复。
 

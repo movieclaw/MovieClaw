@@ -444,9 +444,12 @@ class DownloaderTypeView(BaseModel):
 
     type: str = Field(description="配置下载器时填的类型值，如 qbittorrent")
     title: str = Field(description="名字，如 qBittorrent")
-    url_label: str = Field(description="配置表单里地址一栏的叫法，如「WebUI 地址」")
-    url_placeholder: str = Field(description="地址示例")
-    needs_username: bool = Field(description="是否需要用户名")
+    connection: dict = Field(
+        description="连接参数的界面描述（JSON Schema 子集，字段取自 url / username / password）"
+    )
+    url_label: str = Field(description="地址一栏的叫法（由 connection 推出，供旧客户端）")
+    url_placeholder: str = Field(description="地址示例（由 connection 推出，供旧客户端）")
+    needs_username: bool = Field(description="是否有用户名一栏（由 connection 推出，供旧客户端）")
     help: str = Field(description="补充说明")
 
 
@@ -458,20 +461,24 @@ class DownloaderTypeView(BaseModel):
 )
 async def list_downloader_types() -> ApiResponse[list[DownloaderTypeView]]:
     from movieclaw_downloader.registry import adapters
+    from movieclaw_sdk.config_schema import connection_schema
 
-    return ok(
-        [
+    views = []
+    for a in adapters().values():
+        schema = connection_schema(a)
+        url = schema["properties"]["url"]
+        views.append(
             DownloaderTypeView(
                 type=a.type,
                 title=a.title,
-                url_label=a.url_label,
-                url_placeholder=a.url_placeholder,
-                needs_username=a.needs_username,
-                help=a.help,
+                connection=schema,
+                url_label=url.get("title") or "地址",
+                url_placeholder=(url.get("examples") or [""])[0],
+                needs_username="username" in schema["properties"],
+                help=a.help or url.get("description") or "",
             )
-            for a in adapters().values()
-        ]
-    )
+        )
+    return ok(views)
 
 
 @router.get(

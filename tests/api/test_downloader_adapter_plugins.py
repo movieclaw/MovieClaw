@@ -24,6 +24,8 @@ from movieclaw_downloader.models import DownloaderLimits
 ADMIN = {"username": "admin", "password": "s3cret-pass"}
 
 PLUGIN = """
+from pydantic import BaseModel, Field, SecretStr
+
 from movieclaw_sdk import plugin
 from movieclaw_sdk.downloaders import (
     DOWNLOADER_ADAPTERS,
@@ -102,12 +104,19 @@ class Memory(BaseDownloader):
         pass
 
 
+class MemoryConnection(BaseModel):
+    url: str = Field(title="随便填", examples=["mem://local"])
+    password: SecretStr | None = Field(None, title="令牌")
+
+
 @plugin("memory-downloader", title="内存下载器")
 async def apply(ctx) -> None:
     ctx.contribute(
         DOWNLOADER_ADAPTERS,
         "memory",
-        DownloaderAdapter(type="memory", title="内存下载器", factory=Memory, url_label="随便填"),
+        DownloaderAdapter(
+            type="memory", title="内存下载器", factory=Memory, connection=MemoryConnection
+        ),
     )
 """
 
@@ -165,6 +174,13 @@ def test_types_come_from_plugins_and_gate_the_config(client) -> None:
     assert {"qbittorrent", "transmission", "memory"} <= set(types)
     assert types["qbittorrent"]["url_label"] == "WebUI 地址"
     assert types["memory"]["title"] == "内存下载器"
+    # 连接参数由插件声明：叫法、示例、不要用户名（进程内外一样）
+    memory = types["memory"]
+    assert memory["url_label"] == "随便填" and memory["url_placeholder"] == "mem://local"
+    assert memory["needs_username"] is False
+    assert set(memory["connection"]["properties"]) == {"url", "password"}
+    assert memory["connection"]["properties"]["password"]["writeOnly"] is True
+    assert types["transmission"]["help"] == "路径缺省时自动补全为 /transmission/rpc"
 
     base = {"url": "http://x", "username": None, "password": None, "save_path": None}
     created = client.post(
@@ -227,3 +243,21 @@ def test_every_method_goes_through_the_adapter(client) -> None:
     assert out["again"] is (client.runtime == "process")
     assert out["error"] == "下载器里没有这个任务"
     assert out["missing"] is None
+
+
+def test_connection_fields_are_limited_to_the_stored_columns() -> None:
+    """连接参数只能落进下载器配置已有的三栏；多出来的字段没处存，登记时就拒绝。"""
+    from pydantic import BaseModel
+
+    from movieclaw_downloader.registry import DownloaderAdapter
+
+    class Extra(BaseModel):
+        url: str
+        api_secret: str = ""
+
+    class NoUrl(BaseModel):
+        password: str = ""
+
+    for model in (Extra, NoUrl):
+        with pytest.raises(ValueError, match="必须有 url"):
+            DownloaderAdapter(type="x", title="X", factory=object, connection=model)  # type: ignore[arg-type]

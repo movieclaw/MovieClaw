@@ -1,3 +1,4 @@
+import type { ConfigSchema } from "@/lib/api/plugins";
 import { request } from "@/lib/http";
 
 /** 后端统一响应信封（见 movieclaw_api.schemas.response.ApiResponse） */
@@ -24,6 +25,11 @@ export interface DownloaderTypeInfo {
   url_placeholder: string;
   needs_username: boolean;
   help: string;
+  /**
+   * 连接参数的界面描述（JSON Schema 子集，字段取自 url / username / password）：
+   * 表单各栏的叫法、示例、要不要以它为准；旧服务端没有这一项时用上面几个字段
+   */
+  connection?: ConfigSchema;
 }
 
 /** 旧服务端没有类型接口时的兜底：内置的两种 */

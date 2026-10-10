@@ -29,6 +29,7 @@ _KEEP = (
     "exclusiveMinimum",
     "exclusiveMaximum",
     "format",
+    "examples",
 )
 
 
@@ -111,3 +112,13 @@ def _field(name: str, prop: dict[str, Any], defs: dict[str, Any]) -> dict[str, A
     if nullable:
         out["type"] = [out["type"], "null"]
     return out
+
+
+def connection_schema(adapter: Any) -> dict[str, Any]:
+    """下载器适配器的连接参数 Schema：进程外拿到的已经是 dict，模型现转，没声明用默认模型。"""
+    from movieclaw_downloader.registry import Connection
+
+    connection = getattr(adapter, "connection", None)
+    if isinstance(connection, dict):
+        return connection
+    return config_schema(connection or Connection)

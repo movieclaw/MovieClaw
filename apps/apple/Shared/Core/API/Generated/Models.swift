@@ -2831,11 +2831,13 @@ nonisolated extension API {
         var type: String
         /// 名字，如 qBittorrent
         var title: String
-        /// 配置表单里地址一栏的叫法，如「WebUI 地址」
+        /// 连接参数的界面描述（JSON Schema 子集，字段取自 url / username / password）
+        var connection: [String: API.JSONValue]
+        /// 地址一栏的叫法（由 connection 推出，供旧客户端）
         var urlLabel: String
-        /// 地址示例
+        /// 地址示例（由 connection 推出，供旧客户端）
         var urlPlaceholder: String
-        /// 是否需要用户名
+        /// 是否有用户名一栏（由 connection 推出，供旧客户端）
         var needsUsername: Bool
         /// 补充说明
         var help: String
@@ -2843,6 +2845,7 @@ nonisolated extension API {
         enum CodingKeys: String, CodingKey {
             case type
             case title
+            case connection
             case urlLabel = "url_label"
             case urlPlaceholder = "url_placeholder"
             case needsUsername = "needs_username"

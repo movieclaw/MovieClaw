@@ -744,9 +744,7 @@ def _contribution(session: Session, contribution: dict[str, Any]) -> tuple[Any, 
             type=item["type"],
             title=item["title"],
             factory=lambda config: RemoteDownloader(session, cid, config),
-            url_label=item.get("url_label") or "地址",
-            url_placeholder=item.get("url_placeholder") or "",
-            needs_username=bool(item.get("needs_username", True)),
+            connection=item.get("connection"),
             help=item.get("help") or "",
         )
     if registry == INGEST_STEPS.name:

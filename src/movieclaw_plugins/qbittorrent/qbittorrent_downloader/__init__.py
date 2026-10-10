@@ -6,18 +6,26 @@
 
 from __future__ import annotations
 
+from pydantic import BaseModel, Field, SecretStr
+
 from movieclaw_sdk import Context, plugin
 from movieclaw_sdk.downloaders import DOWNLOADER_ADAPTERS, DownloaderAdapter
 
 from .client import QBittorrentDownloader
 
+
+# 连接参数：添加下载器的表单按它画（叫法、示例、说明）
+class Connection(BaseModel):
+    url: str = Field(title="WebUI 地址", examples=["http://192.168.1.10:8080"])
+    username: str | None = Field(None, title="用户名", description="未开鉴权可留空")
+    password: SecretStr | None = Field(None, title="密码", description="未开鉴权可留空")
+
+
 ADAPTER = DownloaderAdapter(
     type="qbittorrent",
     title="qBittorrent",
     factory=QBittorrentDownloader,
-    url_label="WebUI 地址",
-    url_placeholder="http://192.168.1.10:8080",
-    help="",
+    connection=Connection,
 )
 
 

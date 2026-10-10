@@ -86,6 +86,45 @@ function useDownloaderTypes(): DownloaderTypeInfo[] {
   return types;
 }
 
+interface ConnectionField {
+  label: string;
+  placeholder?: string;
+  help?: string;
+}
+
+/**
+ * 表单里地址 / 用户名 / 密码三栏怎么画：以下载器插件声明的连接参数（connection）为准，
+ * 没声明（旧服务端）时退回 url_label / needs_username。不要的栏为 null。
+ */
+function connectionFields(info: DownloaderTypeInfo): {
+  url: ConnectionField;
+  username: ConnectionField | null;
+  password: ConnectionField | null;
+} {
+  const props = info.connection?.properties;
+  const required = new Set(info.connection?.required ?? ["url"]);
+  const label = (name: string, fallback: string) => {
+    const title = props?.[name]?.title || fallback;
+    return required.has(name) ? title : `${title}（可选）`;
+  };
+  if (!props) {
+    return {
+      url: { label: info.url_label, placeholder: info.url_placeholder, help: info.help },
+      username: info.needs_username ? { label: "用户名（可选）" } : null,
+      password: { label: "密码（可选）" },
+    };
+  }
+  return {
+    url: {
+      label: props.url?.title || info.url_label,
+      placeholder: props.url?.examples?.[0] ?? info.url_placeholder,
+      help: info.help || props.url?.description,
+    },
+    username: props.username ? { label: label("username", "用户名") } : null,
+    password: props.password ? { label: label("password", "密码") } : null,
+  };
+}
+
 function typeInfo(types: DownloaderTypeInfo[], type: DownloaderClientType): DownloaderTypeInfo {
   return (
     types.find((t) => t.type === type) ?? {
@@ -965,6 +1004,8 @@ function DownloaderForm({
     downloader?.client_type ?? "qbittorrent",
   );
   const info = typeInfo(types, clientType);
+  // 地址 / 用户名 / 密码三栏按下载器插件声明的连接参数画（叫法、示例、要不要、可不可选）
+  const fields = connectionFields(info);
   const [name, setName] = useState(downloader?.name ?? "");
   const [url, setUrl] = useState(downloader?.url ?? "");
   const [username, setUsername] = useState(downloader?.username ?? "");
@@ -1013,8 +1054,9 @@ function DownloaderForm({
       name: name.trim(),
       client_type: clientType,
       url: url.trim(),
-      username: username.trim() || null,
-      password: password || null,
+      // 这种下载器不要的栏不提交（切换类型后残留的值不带过去）
+      username: fields.username ? username.trim() || null : null,
+      password: fields.password ? password || null : null,
       save_path: savePath.trim() || null,
       path_mappings: mappings.length
         ? mappings.map((m) => ({ local: m.local.trim(), remote: m.remote.trim() }))
@@ -1090,44 +1132,50 @@ function DownloaderForm({
         </div>
 
         <div>
-          <label className={labelClass}>{info.url_label}</label>
+          <label className={labelClass}>{fields.url.label}</label>
           <input
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder={info.url_placeholder}
+            placeholder={fields.url.placeholder}
             autoComplete="off"
             className={inputClass}
           />
-          {info.help && (
-            <p className="mt-1 text-caption text-[var(--text-faint)]">{info.help}</p>
+          {fields.url.help && (
+            <p className="mt-1 text-caption text-[var(--text-faint)]">{fields.url.help}</p>
           )}
         </div>
 
-        {/* 凭证：未开鉴权的下载器可整体留空 */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={labelClass}>用户名（可选）</label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              autoComplete="off"
-              className={inputClass}
-            />
+        {/* 凭证：只画这种下载器要的栏；未开鉴权的可留空 */}
+        {(fields.username || fields.password) && (
+          <div className={`grid gap-3 ${fields.username && fields.password ? "grid-cols-2" : ""}`}>
+            {fields.username && (
+              <div>
+                <label className={labelClass}>{fields.username.label}</label>
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  autoComplete="off"
+                  className={inputClass}
+                />
+              </div>
+            )}
+            {fields.password && (
+              <div>
+                <label className={labelClass}>{fields.password.label}</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder={downloader ? "出于安全，请重新填写" : ""}
+                  autoComplete="new-password"
+                  className={inputClass}
+                />
+              </div>
+            )}
           </div>
-          <div>
-            <label className={labelClass}>密码（可选）</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder={downloader ? "出于安全，请重新填写" : ""}
-              autoComplete="new-password"
-              className={inputClass}
-            />
-          </div>
-        </div>
+        )}
 
         <div>
           <label className={labelClass}>默认保存目录（可选）</label>

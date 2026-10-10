@@ -197,13 +197,14 @@ def _contribution(registry: str, item: Any) -> tuple[dict[str, Any], Any]:
             "applies_to": sorted(item.applies_to),
         }, item
     if registry == "downloader-adapters":
+        from movieclaw_sdk.config_schema import connection_schema
+
         # 适配器留在本进程：宿主登记一个代理，下载器的每个方法经协议调回来
         return {
             "type": item.type,
             "title": item.title,
-            "url_label": item.url_label,
-            "url_placeholder": item.url_placeholder,
-            "needs_username": item.needs_username,
+            # 连接参数的 Schema：模型留在本进程，宿主只要它的描述
+            "connection": connection_schema(item),
             "help": item.help,
         }, item
     if registry == "im-channels":
