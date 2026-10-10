@@ -33,6 +33,11 @@ async def downloads(ctx: Context) -> None:
     from movieclaw_api.services.library.delete_participants import LIBRARY_DELETE_PARTICIPANTS
 
     contribute_job_handlers(ctx, remove_source)
+    # 媒体库与获取领域之间的接口（library-boundary.md §10）：媒体库经它要信息、发通知
+    from movieclaw_api.services.acquisition_bridge import Acquisition
+    from movieclaw_api.services.library import acquisition
+
+    ctx.effect(acquisition.bind(Acquisition()), label="unbind-acquisition")
     ctx.contribute(
         LIBRARY_DELETE_PARTICIPANTS, remove_source.PARTICIPANT_ID, remove_source.PARTICIPANT
     )

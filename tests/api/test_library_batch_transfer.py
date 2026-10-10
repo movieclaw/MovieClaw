@@ -54,7 +54,7 @@ async def _no_downstream(monkeypatch):
     monkeypatch.setattr(
         "movieclaw_api.services.media_server_notify.notify_media_server_refresh", _noop
     )
-    monkeypatch.setattr("movieclaw_api.api.routes.libraries._downloader_briefs", _no_briefs)
+    monkeypatch.setattr("movieclaw_api.services.library.ingest._downloader_briefs", _no_briefs)
 
 
 def _make_movie(root, name: str):

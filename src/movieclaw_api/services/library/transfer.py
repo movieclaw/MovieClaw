@@ -58,6 +58,7 @@ from sqlmodel import select
 
 from movieclaw_api.exceptions import BadRequestException, ConflictException
 from movieclaw_api.services import jobs
+from movieclaw_api.services.library import acquisition
 from movieclaw_api.services.library.config import sanitize_folder_name
 from movieclaw_api.services.library.fsops import rename_no_replace
 from movieclaw_api.services.library.layout import entry_dir_of, entry_dirs, is_disc_dir
@@ -70,7 +71,7 @@ from movieclaw_api.services.library.profile import profile_of
 from movieclaw_api.services.library.sidecar import find_sidecars
 from movieclaw_api.services.task_state import TaskState
 from movieclaw_db.engine import get_database
-from movieclaw_db.models import FileState, Library, LibraryFile, MediaItem, Subscription, utcnow
+from movieclaw_db.models import FileState, Library, LibraryFile, MediaItem, utcnow
 from movieclaw_db.models.media_item import MediaSource
 from movieclaw_db.repositories.library_file_repo import LibraryFileRepository
 from movieclaw_db.repositories.library_repo import LibraryRepository
@@ -689,18 +690,11 @@ async def _transfer(
                 _prune_emptied_dirs, dirty_parents, [r.rstrip("/") for r in source.root_paths]
             )
 
-        # 订阅一并改挂目标库：不然下一集下载完又按旧库投递，用户刚搬完就被打回原形
+        # 跟随条目的东西（订阅的目标库）一并改挂：交给获取领域（library-boundary.md §10）
         if summary.files_relocated:
-            subscription = (
-                await session.execute(
-                    select(Subscription).where(Subscription.media_item_id == plan.media_item_id)
-                )
-            ).scalar_one_or_none()
-            if subscription is not None and subscription.library_id != plan.target_library_id:
-                subscription.library_id = plan.target_library_id
-                subscription.updated_at = utcnow()
-                await session.commit()
-                summary.subscription_moved = True
+            summary.subscription_moved = await acquisition.current().item_moved(
+                session, plan.media_item_id, plan.target_library_id
+            )
 
             # 条目身份随迁：本地锚改到新库新路径 + 刮削归属改挂目标库
             await _relocate_item_identity(session, plan, target, summary)

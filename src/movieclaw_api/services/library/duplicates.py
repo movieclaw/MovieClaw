@@ -42,7 +42,8 @@ from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api.services.library.origin import derive_origins, origin_of
+from movieclaw_api.services.library import acquisition
+from movieclaw_api.services.library.origin import origin_of
 from movieclaw_api.services.library.recycle import recycle_file
 from movieclaw_db.models import FileState, LibraryFile, MediaItem, RuleSet, Subscription, utcnow
 from movieclaw_db.models.library import Library
@@ -582,7 +583,7 @@ async def detect_duplicates(
         stats |= await asyncio.to_thread(_stat_many, paths[start : start + _STAT_CHUNK])
         await _tick(report_progress, "fingerprint", "比对文件指纹", len(stats), len(paths))
     inode = {r.id or -1: stats.get(r.file_path) for r in flat}
-    origins = await derive_origins(session, flat)
+    origins = await acquisition.current().describe_origins(session, flat)
     # 「建议保留」要给每个文件跑一遍发布名解析（ONNX NER）。它是纯 CPU 的活，
     # 留在事件循环上会把整个 API 占死：万级台账实测占住 57 秒，期间健康探针
     # 全部超时、后台任务租约心跳续不上，扫描被判超时后又被接管重跑一遍。

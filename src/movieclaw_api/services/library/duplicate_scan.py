@@ -38,6 +38,7 @@ from sqlmodel import select
 
 from movieclaw_api.services import jobs
 from movieclaw_api.services.foreground import yield_to_foreground
+from movieclaw_api.services.library import acquisition
 from movieclaw_api.services.library.duplicates import (
     DupFile,
     DupItem,
@@ -49,7 +50,7 @@ from movieclaw_api.services.library.duplicates import (
     recycle_extras,
     unparsed_tv_episode,
 )
-from movieclaw_api.services.library.origin import derive_origins, origin_of
+from movieclaw_api.services.library.origin import origin_of
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
     FileState,
@@ -379,7 +380,9 @@ async def _hydrate(
             stale.append(row.id or 0)
             continue
         fresh[row.id or 0] = files
-    origins = await derive_origins(session, [f for files in fresh.values() for f in files])
+    origins = await acquisition.current().describe_origins(
+        session, [f for files in fresh.values() for f in files]
+    )
     units: dict[int, DupUnit] = {}
     for row in rows:
         files = fresh.get(row.id or 0)

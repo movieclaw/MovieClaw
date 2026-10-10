@@ -13,14 +13,12 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
 from movieclaw_api.core.config import get_settings
-from movieclaw_api.services.library.origin import (
+from movieclaw_api.services.acquisition_origin import (
     derive_origins,
     manual_download_origin,
-    origin_of,
-    scan_origin,
     subscription_origin,
-    watch_import_origin,
 )
+from movieclaw_api.services.library.origin import origin_of, scan_origin, watch_import_origin
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
 from movieclaw_db.models import FileSource, LibraryFile, MediaItem, RuleSet, Subscription, utcnow
@@ -306,3 +304,52 @@ async def test_item_detail_exposes_origin(client, db, tmp_path):
         "detail": "HDSky · qb",
     }
     assert files[0]["kept_at"] is None
+
+
+def test_app_binds_acquisition_and_item_detail_derives_origin(tmp_path, monkeypatch) -> None:
+    """真实应用：downloads 模块绑定获取领域，条目详情里旧行（无 origin）的来源由它推导。
+
+    关停后解绑，媒体库回到空实现。
+    """
+    from fastapi.testclient import TestClient
+    from sqlmodel import select
+    from tests.api.test_domain_events import seed_show
+
+    from movieclaw_api.api.deps import require_admin, require_login
+    from movieclaw_api.app import create_app
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.services.acquisition_bridge import Acquisition
+    from movieclaw_api.services.auth import Principal
+    from movieclaw_api.services.library import acquisition
+    from movieclaw_db.engine import get_database
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'origin.db'}")
+    monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
+    monkeypatch.setenv("SITE_CONFIGS_DIR", str(tmp_path / "site-configs"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    get_settings.cache_clear()
+    app = create_app()
+    admin = Principal(kind="admin", name="tester")
+    app.dependency_overrides[require_admin] = lambda: admin
+    app.dependency_overrides[require_login] = lambda: admin
+    try:
+        with TestClient(app) as client:
+            assert isinstance(acquisition.current(), Acquisition)
+            seeded = client.portal.call(seed_show, get_database(), tmp_path)
+
+            async def stamp() -> None:  # 旧版入库行只有 (站点, 种子) 来源戳
+                async with get_database().session() as session:
+                    for model in (LibraryFile, SubscriptionDownloadAttempt):
+                        for row in (await session.execute(select(model))).scalars():
+                            row.site_id, row.torrent_id = "hdsky", "42"
+                    await session.commit()
+
+            client.portal.call(stamp)
+            resp = client.get(f"/api/v1/libraries/{seeded['library_id']}/items/{seeded['item_id']}")
+            assert resp.status_code == 200, resp.text
+            kinds = {f["origin"]["kind"] for f in resp.json()["data"]["files"]}
+        assert kinds == {"subscription"}
+        assert isinstance(acquisition.current(), acquisition.NullBridge)
+    finally:
+        get_settings.cache_clear()

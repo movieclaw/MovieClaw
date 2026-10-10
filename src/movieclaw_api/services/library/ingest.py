@@ -117,6 +117,11 @@ from sqlmodel import select
 
 from movieclaw_api.pipeline import INGEST_STAGED, StagedFile, enqueue_staged, steps_for
 from movieclaw_api.services import jobs
+from movieclaw_api.services.acquisition_origin import (
+    load_origin_context,
+    manual_download_origin,
+    subscription_origin,
+)
 from movieclaw_api.services.download_sources import record_source
 from movieclaw_api.services.import_watch_config import rule_target_label
 from movieclaw_api.services.library.bluray import (
@@ -143,12 +148,7 @@ from movieclaw_api.services.library.naming import (
     movie_file_name,
     season_dir_name,
 )
-from movieclaw_api.services.library.origin import (
-    load_origin_context,
-    manual_download_origin,
-    subscription_origin,
-    watch_import_origin,
-)
+from movieclaw_api.services.library.origin import watch_import_origin
 from movieclaw_api.services.library.profile import kind_label, profile_for
 from movieclaw_api.services.library.resolve import verify_resolve
 from movieclaw_api.services.library.scan import disc_main_stream, extras_marker, guess_evidence

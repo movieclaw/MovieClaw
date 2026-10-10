@@ -115,10 +115,10 @@ from movieclaw_api.schemas.library_search import LibrarySearchView
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services import jobs, media_scrape
 from movieclaw_api.services.auth import Principal
+from movieclaw_api.services.library import acquisition, source_annotation
 from movieclaw_api.services.library import chapters as chapters_mod
 from movieclaw_api.services.library import claim as library_claim
 from movieclaw_api.services.library import skip_segments as skip_segments_mod
-from movieclaw_api.services.library import source_annotation
 from movieclaw_api.services.library.access import (
     ContentLimit,
     assert_item_visible,
@@ -149,7 +149,6 @@ from movieclaw_api.services.library.delete_participants import check_options as 
 from movieclaw_api.services.library.delete_participants import (
     preview_options as preview_delete_options,
 )
-from movieclaw_api.services.library.ingest import _downloader_briefs
 from movieclaw_api.services.library.items import (
     DeleteResult,
     HomeKind,
@@ -181,7 +180,7 @@ from movieclaw_api.services.library.organize import (
     last_organize,
     organize_progress,
 )
-from movieclaw_api.services.library.origin import derive_origins, origin_of
+from movieclaw_api.services.library.origin import origin_of
 from movieclaw_api.services.library.preflight import (
     CONFLICT_LABELS,
     MAX_SELECTION,
@@ -2492,7 +2491,7 @@ def _file_view(
 ) -> LibraryFileView:
     """台账行 → 详情页文件视图：内封字幕轨与外挂字幕文件合并成一份清单。
 
-    ``origins`` 是旧行（origin 为空）的读时推导结果（``derive_origins``），
+    ``origins`` 是旧行（origin 为空）的读时推导结果（获取领域的 ``describe_origins``），
     有落库快照的行不看它。``chapters_enabled`` 是所在库的「生成章节」开关：
     关着时章节给 None——详情页与分享页（它投影的就是这份视图）都不出章节横排，
     台账里探到的章节与已生成的图原样留着，重新打开开关即恢复。``defaults`` 是这个成员
@@ -2751,7 +2750,7 @@ async def get_library_item(
         seasons = sorted({s for s in meta_seasons if s > 0} | owned_seasons)
 
     assert item.id is not None
-    origins = await derive_origins(session, rows)
+    origins = await acquisition.current().describe_origins(session, rows)
     # 文件区标「默认」的是这个成员起播时真会放的那条（本集记着的 > 沿用上一集 > 默认轨策略），
     # 不再是片源的默认旗标：观看状态一次查询取完整个条目，其余是内存计算
     watch_states = await playback_state.get_states(session, [media_item_id], member_id=member_id)
@@ -3657,17 +3656,8 @@ async def _batch_transfer_context(
 
 
 async def _seeding_root_names() -> set[str] | None:
-    """下载器当前的落盘根名集合；下载器不可达时返回 None（如实报"无法确认"）。
-
-    用途是识别「下载器直接做种库内路径」这种非常规部署：那种部署下库里的
-    条目目录名就是下载器的落盘根名，搬走（哪怕是同盘 rename）都会让做种任务
-    找不到文件。按正常方式入库的库（复制或硬链接）目录名是规范化过的
-    ``标题 (年份)``，与种子原名不同，不会命中。
-    """
-    briefs = await _downloader_briefs()
-    if briefs is None:
-        return None
-    return {b.content_name for b in briefs if getattr(b, "content_name", "")}
+    """外部下载器正在用的落盘根名（获取领域给，见 acquisition.paths_in_use）；None = 无法确认。"""
+    return await acquisition.current().paths_in_use()
 
 
 @router.post(
