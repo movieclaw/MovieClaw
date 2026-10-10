@@ -877,21 +877,34 @@ private struct MacRangeEdgeCard: View {
     @State private var hovering = false
 
     var body: some View {
-        Button(action: action) {
-            VStack(spacing: 6) {
-                Image(systemName: symbol).font(.system(size: 15, weight: .bold))
-                Text(title).font(.system(size: 12, weight: .semibold))
-                Text(range.label).font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
+        // 下面垫一块与分集卡文字区等高的空白：横排是懒加载的，行高按排在最前的这张小卡估，
+        // 小卡只有剧照高的话整行被算矮，下一块（「信息」）会压到分集卡的简介上（2026-10-10 实测）
+        VStack(alignment: .leading, spacing: 9) {
+            Button(action: action) {
+                VStack(spacing: 6) {
+                    Image(systemName: symbol).font(.system(size: 15, weight: .bold))
+                    Text(title).font(.system(size: 12, weight: .semibold))
+                    Text(range.label).font(.system(size: 11)).monospacedDigit().foregroundStyle(.secondary)
+                }
+                .foregroundStyle(.white.opacity(hovering ? 1 : 0.8))
+                .frame(width: 120, height: MacMetrics.landscapeWidth * 9 / 16)
+                .background(.white.opacity(hovering ? 0.12 : 0.06), in: .rect(cornerRadius: MacMetrics.cardCorner))
+                .overlay { RoundedRectangle(cornerRadius: MacMetrics.cardCorner).strokeBorder(.white.opacity(0.12), lineWidth: 0.5) }
+                .contentShape(.rect)
             }
-            .foregroundStyle(.white.opacity(hovering ? 1 : 0.8))
-            .frame(width: 120, height: MacMetrics.landscapeWidth * 9 / 16)
-            .background(.white.opacity(hovering ? 0.12 : 0.06), in: .rect(cornerRadius: MacMetrics.cardCorner))
-            .overlay { RoundedRectangle(cornerRadius: MacMetrics.cardCorner).strokeBorder(.white.opacity(0.12), lineWidth: 0.5) }
-            .contentShape(.rect)
+            .buttonStyle(MacCardButtonStyle())
+            .onHover { inside in withAnimation(.easeOut(duration: 0.15)) { hovering = inside } }
+            .help("\(title)：第 \(range.label) 集")
+            // 同 MacEpisodeCard 的文字区：集号、集名、三行简介、首播日期
+            VStack(alignment: .leading, spacing: 3) {
+                Text(verbatim: " ").font(.system(size: 11, weight: .semibold))
+                Text(verbatim: " ").font(.system(size: 13, weight: .semibold))
+                Color.clear.frame(height: 46)
+                Text(verbatim: " ").font(.system(size: 11))
+            }
+            .hidden()
+            .accessibilityHidden(true)
         }
-        .buttonStyle(MacCardButtonStyle())
-        .onHover { inside in withAnimation(.easeOut(duration: 0.15)) { hovering = inside } }
-        .help("\(title)：第 \(range.label) 集")
     }
 }
 
