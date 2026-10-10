@@ -76,7 +76,7 @@ import { useSubscribeEntry } from "@/components/subscribe-entry";
 import { LIBRARY_KIND_LABELS } from "@/lib/media-types";
 import { getDiscoveryReturnPath } from "@/lib/discovery-return-path";
 import { scopeOfMediaKind } from "@/lib/categories";
-import { buildSearchPath } from "@/lib/search-url";
+import { buildSearchPath, titleSearchAlso } from "@/lib/search-url";
 import { formatBytes, formatRuntimeMinutes, formatVideoResolution } from "@/lib/format";
 import { formatClock } from "@/lib/player/timeline";
 import { USER_LOWEST_SOURCE, mediaSourceDisplayLabel } from "@/lib/media-source-annotation";
@@ -683,7 +683,11 @@ export function LibraryItemDetailView({
       scraped={detail.source === "tmdb"}
       readsNfo={detail.kind === "video"}
       scraping={scrapingNow}
-      searchHref={buildSearchPath({ keyword: detail.title, scope: scopeOfMediaKind(detail.kind) }) as Route}
+      searchHref={buildSearchPath({
+        keyword: detail.title,
+        also: titleSearchAlso(detail.english_title, detail.original_title),
+        scope: scopeOfMediaKind(detail.kind),
+      }) as Route}
       // 加入合集：任何能看到这部片的人都能把它扔进自己的单子
       onAddToCollection={() => setAddToCollectionOpen(true)}
       // 分享仅超管（media-share.md §2.1）；照片库条目不分享（分享页是影片页）

@@ -294,7 +294,11 @@ struct MediaDetailView: View {
                     }
                     if showSearch {
                         Button {
-                            router.push(.search(.init(q: item.title, scope: SearchScope.ofMediaKind(item.mediaType ?? parts.mediaType).encoded)))
+                            router.push(.search(.init(
+                                q: item.title,
+                                also: SearchScope.titleSearchAlso(info.englishTitle, item.originalTitle),
+                                scope: SearchScope.ofMediaKind(item.mediaType ?? parts.mediaType).encoded
+                            )))
                         } label: {
                             Label("搜索资源", systemImage: "magnifyingglass").heroActionLabel()
                         }

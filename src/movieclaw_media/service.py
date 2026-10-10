@@ -42,6 +42,7 @@ from movieclaw_media.models import (
     MediaSource,
     MediaVideo,
 )
+from movieclaw_media.library import _english_title, _translation_index
 from movieclaw_media.tmdb import TmdbClient, TmdbError
 
 logger = logging.getLogger("movieclaw_media.service")
@@ -656,7 +657,8 @@ class MediaDiscoverService:
 
     async def _build_detail(self, kind: MediaKind, tmdb_id: int) -> MediaDetail:
         genre_map = await self._genre_map(kind)
-        # append_to_response：演职员/相似推荐/图片集/预告片随详情一次请求带回，省四次往返。
+        # append_to_response：演职员/相似推荐/图片集/预告片随详情一次请求带回，省四次往返；
+        # translations 取英文名——「搜索资源」拿它和中文名、原名一起搜（同订阅召回词）。
         # include_image_language / include_video_language 必须显式给：默认按 language
         # 过滤会把素材滤到几乎没有——剧照大多不带语言标注（null），海报按语言分版本，
         # 而预告片九成只有英文版，只要 zh-CN 的话绝大多数影片会一条都没有。
@@ -665,7 +667,7 @@ class MediaDiscoverService:
             f"{kind.value}/{tmdb_id}",
             {
                 "language": self._language,
-                "append_to_response": "credits,recommendations,images,videos",
+                "append_to_response": "credits,recommendations,images,videos,translations",
                 "include_image_language": f"{primary_language},en,null",
                 "include_video_language": f"{primary_language},en,null",
             },
@@ -684,9 +686,11 @@ class MediaDiscoverService:
         collection = await self._movie_collection(data, kind, genre_map)
         backdrops, posters = self._images(data)
         backdrop_path = data.get("backdrop_path")
+        facts = self._facts(data, kind)
+        facts.english_title = _english_title(data, _translation_index(data))
         return MediaDetail(
             card=card,
-            facts=self._facts(data, kind),
+            facts=facts,
             videos=self._videos(data),
             backdrops=backdrops,
             posters=posters,

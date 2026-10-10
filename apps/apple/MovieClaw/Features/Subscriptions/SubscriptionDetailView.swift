@@ -308,7 +308,12 @@ struct SubscriptionDetailView: View {
             if showManual {
                 // 到站点资源搜索里挑一条种子直接投给本订阅（跳过规则组限制）；按订阅类型收窄到剧集/电影分类
                 Button {
-                    router.push(.search(.init(q: detail.media.title, scope: SearchScope.ofMediaKind(detail.media.kind).encoded, forSubscription: detail.id)))
+                    router.push(.search(.init(
+                        q: detail.media.title,
+                        also: SearchScope.titleSearchAlso(detail.media.englishTitle, detail.media.originalTitle),
+                        scope: SearchScope.ofMediaKind(detail.media.kind).encoded,
+                        forSubscription: detail.id
+                    )))
                 } label: {
                     actionLabel("手动选种", systemImage: "magnifyingglass")
                 }

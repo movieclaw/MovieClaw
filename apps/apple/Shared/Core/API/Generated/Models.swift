@@ -2063,6 +2063,8 @@ nonisolated extension API {
         var network: String?
         var aliases: [String]
         var sourceUrl: String?
+        /// 国际英文名；豆瓣条目没有，为 null
+        var englishTitle: String?
 
         enum CodingKeys: String, CodingKey {
             case directors
@@ -2074,6 +2076,7 @@ nonisolated extension API {
             case network
             case aliases
             case sourceUrl = "source_url"
+            case englishTitle = "english_title"
         }
     }
 
@@ -4900,6 +4903,8 @@ nonisolated extension API {
         var doubanId: String?
         var title: String
         var originalTitle: String
+        /// 国际英文名；「搜索资源」与中文名、原名一起搜
+        var englishTitle: String?
         var year: Int?
         var posterUrl: String?
         var backdropUrl: String?
@@ -4938,6 +4943,7 @@ nonisolated extension API {
             case doubanId = "douban_id"
             case title
             case originalTitle = "original_title"
+            case englishTitle = "english_title"
             case year
             case posterUrl = "poster_url"
             case backdropUrl = "backdrop_url"
@@ -5935,6 +5941,8 @@ nonisolated extension API {
         var doubanId: String?
         var title: String
         var originalTitle: String
+        /// 国际英文名；「手动选种」与中文名、原名一起搜
+        var englishTitle: String?
         var year: Int?
         /// 完整海报 URL（按配置的图床基址拼好）
         var posterUrl: String?
@@ -5951,6 +5959,7 @@ nonisolated extension API {
             case doubanId = "douban_id"
             case title
             case originalTitle = "original_title"
+            case englishTitle = "english_title"
             case year
             case posterUrl = "poster_url"
             case backdropUrl = "backdrop_url"
@@ -9799,6 +9808,7 @@ nonisolated extension API {
     struct SearchHistoryItem: Codable, Hashable, Sendable {
         var id: Int
         var keyword: String
+        var alsoKeywords: [String]?
         var vertical: String
         var label: String?
         var categories: [String]
@@ -9811,6 +9821,7 @@ nonisolated extension API {
         enum CodingKeys: String, CodingKey {
             case id
             case keyword
+            case alsoKeywords = "also_keywords"
             case vertical
             case label
             case categories
@@ -9857,6 +9868,7 @@ nonisolated extension API {
     /// 本次搜索的范围。
     struct SearchResponse: Codable, Hashable, Sendable {
         var keyword: String
+        var alsoKeywords: [String]?
         var label: String?
         var categories: [String]
         var total: Int
@@ -9865,6 +9877,7 @@ nonisolated extension API {
 
         enum CodingKeys: String, CodingKey {
             case keyword
+            case alsoKeywords = "also_keywords"
             case label
             case categories
             case total
@@ -11672,6 +11685,7 @@ nonisolated extension API {
         var vertical: String
         var historyId: Int
         var keyword: String
+        var alsoKeywords: [String]?
         var label: String?
         var categories: [String]
         var siteIds: [String]
@@ -11685,6 +11699,7 @@ nonisolated extension API {
             case vertical
             case historyId = "history_id"
             case keyword
+            case alsoKeywords = "also_keywords"
             case label
             case categories
             case siteIds = "site_ids"

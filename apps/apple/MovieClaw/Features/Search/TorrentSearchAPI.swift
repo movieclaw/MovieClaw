@@ -6,7 +6,8 @@ import Foundation
 /// 快的站点先出结果。事件载荷在后台解码（一个站点一次可能上百条），调用方拿到的是强类型事件。
 /// 与 Web 一样用一次性流而不是会自动重连的 EventSource：搜索是一次性动作，失败由用户显式重试。
 nonisolated enum TorrentStreamEvent: Sendable {
-    case start(sites: [TorrentStreamSite])
+    /// `alsoKeywords`：后端清洗去重后实际同搜的词（只搜主词时为空）
+    case start(sites: [TorrentStreamSite], alsoKeywords: [String])
     case siteStart(TorrentStreamSite)
     case siteResult(siteId: String, siteName: String, count: Int, elapsedMs: Int, items: [API.TorrentHit])
     case siteError(siteId: String, siteName: String, error: String, elapsedMs: Int)
@@ -25,6 +26,13 @@ nonisolated struct TorrentStreamSite: Decodable, Hashable, Sendable {
 
 private nonisolated struct StreamStartPayload: Decodable {
     var sites: [TorrentStreamSite]
+    /// 旧版服务端没有该字段
+    var alsoKeywords: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case sites
+        case alsoKeywords = "also_keywords"
+    }
 }
 
 private nonisolated struct StreamResultPayload: Decodable {
@@ -72,8 +80,10 @@ private nonisolated struct StreamDonePayload: Decodable {
 nonisolated extension APIClient {
     /// 流式跨站搜索；取消消费方的 Task 即断开连接。
     /// 与 Web 一样是一次性流（不自动重连），失败由用户显式重试。切行规则见 `SSELineParser`。
-    func torrentSearchStream(keyword: String, scope: SearchScope, page: Int = 1) -> AsyncThrowingStream<TorrentStreamEvent, Error> {
-        let source = events("/search/torrents/stream", query: scope.queryItems(keyword: keyword, page: page))
+    /// `also`：同搜词（英文名/原名），每站与主词一起搜、按种子合并
+    func torrentSearchStream(keyword: String, also: [String] = [], scope: SearchScope, page: Int = 1) -> AsyncThrowingStream<TorrentStreamEvent, Error> {
+        let query = scope.queryItems(keyword: keyword, page: page) + also.map { URLQueryItem(name: "also_keywords", value: $0) }
+        let source = events("/search/torrents/stream", query: query)
         return AsyncThrowingStream { continuation in
             let task = Task { @Sendable in
                 do {
@@ -94,7 +104,8 @@ nonisolated extension APIClient {
         do {
             switch event.event {
             case "start":
-                return .start(sites: try event.decode(StreamStartPayload.self).sites)
+                let p = try event.decode(StreamStartPayload.self)
+                return .start(sites: p.sites, alsoKeywords: p.alsoKeywords ?? [])
             case "site_start":
                 return .siteStart(try event.decode(TorrentStreamSite.self))
             case "site_result":

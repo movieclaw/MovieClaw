@@ -182,7 +182,7 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
     (keyword: string, scope: SearchScope, options?: SearchSubmitOptions) => {
       router.push(
         buildSearchPath(
-          { keyword, scope, snapshotId: options?.snapshotId },
+          { keyword, also: options?.also, scope, snapshotId: options?.snapshotId },
           options?.vertical,
         ) as Route,
       );

@@ -2308,9 +2308,10 @@ nonisolated extension APIClient {
 
     /// 跨站点并发搜索种子资源（关键词留空 = 按分类浏览各站种子列表）
     /// `GET /search/torrents`
-    func searchTorrents(keyword: String? = nil, categories: [API.TorrentCategory]? = nil, sites: [String]? = nil, label: String? = nil, noHistory: Bool? = nil, posterMode: Bool? = nil, page: Int? = nil) async throws -> API.SearchResponse {
+    func searchTorrents(keyword: String? = nil, alsoKeywords: [String]? = nil, categories: [API.TorrentCategory]? = nil, sites: [String]? = nil, label: String? = nil, noHistory: Bool? = nil, posterMode: Bool? = nil, page: Int? = nil) async throws -> API.SearchResponse {
         var query: [URLQueryItem] = []
         if let keyword { query.append(URLQueryItem(name: "keyword", value: "\(keyword)")) }
+        for value in alsoKeywords ?? [] { query.append(URLQueryItem(name: "also_keywords", value: "\(value)")) }
         for value in categories ?? [] { query.append(URLQueryItem(name: "categories", value: "\(value)")) }
         for value in sites ?? [] { query.append(URLQueryItem(name: "sites", value: "\(value)")) }
         if let label { query.append(URLQueryItem(name: "label", value: "\(label)")) }

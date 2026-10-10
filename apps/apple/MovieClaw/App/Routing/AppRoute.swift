@@ -85,6 +85,8 @@ enum AppRoute: Hashable {
     /// 搜索页参数（对应 /search 的查询串）
     struct SearchQuery: Hashable {
         var q: String = ""
+        /// 同搜词：与 q 一起搜、结果按站点合并（详情页「搜索资源」带上英文名/原名，同 Web 的 also 参数）
+        var also: [String] = []
         /// media | torrents | library；nil 表示按权限取第一个可用分区
         var tab: String?
         var scope: String?

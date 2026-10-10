@@ -232,7 +232,7 @@ struct SearchResultsView: View {
     }
 
     private func rebuildTorrentModel() {
-        torrentModel = TorrentSearchModel(keyword: keyword, scope: scope, snapshotId: torrentSnapshot)
+        torrentModel = TorrentSearchModel(keyword: keyword, also: query.also, scope: scope, snapshotId: torrentSnapshot)
     }
 }
 

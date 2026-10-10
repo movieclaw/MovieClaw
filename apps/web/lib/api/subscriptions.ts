@@ -27,6 +27,8 @@ export interface SubscriptionMedia {
   douban_id: string | null;
   title: string;
   original_title: string;
+  /** 国际英文名：「手动选种」与中文名、原名一起搜；老服务端没有该字段 */
+  english_title?: string | null;
   year: number | null;
   poster_url: string | null;
   /** 宽幅剧照（TMDB w1280，沉浸场景可升 original）；老版本服务端没有这个字段 */

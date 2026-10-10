@@ -116,6 +116,8 @@ export interface SiteSearchStatus {
 /** 跨站聚合搜索结果（见 schemas.search.SearchResponse）。 */
 export interface SearchResponse {
   keyword: string;
+  /** 同搜词回显（后端清洗去重后）；只搜主词时为 null */
+  also_keywords?: string[] | null;
   /** 请求方传入的展示名回显（分类中文名/预设名）；null=全部 */
   label: string | null;
   /** 分类组合回显；空=不限分类 */
@@ -129,6 +131,8 @@ export interface SearchResponse {
 export interface SearchHistoryItem {
   id: number;
   keyword: string;
+  /** 同搜词快照（英文名/原名）：点历史重搜时原样带上；null=只搜主词（老服务端没有该字段） */
+  also_keywords?: string[] | null;
   /** 搜索垂直；公开契约使用与 CLI 一致的领域名。 */
   vertical: "titles" | "torrents";
   /** 展示名快照（分类中文名/预设名）；null=全部 */
@@ -165,6 +169,8 @@ export interface TorrentSearchHistoryResults {
   vertical: "torrents";
   history_id: number;
   keyword: string;
+  /** 同搜词快照；null=只搜主词 */
+  also_keywords?: string[] | null;
   label: string | null;
   categories: TorrentCategory[];
   site_ids: string[];
@@ -349,6 +355,8 @@ export function searchLibrary(params: { q: string; cursor?: string }): Promise<L
 
 export interface SearchParams {
   keyword: string;
+  /** 同搜词：每站与 keyword 一起搜、按种子合并（后端去重、连主词至多 3 个） */
+  also?: string[];
   /** 搜索范围（标签换算而来）；不传等同「全部」 */
   scope?: SearchScope;
   page?: number;
@@ -359,19 +367,20 @@ export interface SearchParams {
  * 单站失败不影响整体，其原因见 `sites[].error`。
  */
 export function searchTorrents(
-  { keyword, scope, page }: SearchParams,
+  { keyword, also, scope, page }: SearchParams,
   init?: RequestInit,
 ): Promise<SearchResponse> {
   return unwrap(
     request<ApiEnvelope<SearchResponse>>(
-      `/search/torrents?${searchParamsOf({ keyword, scope, page })}`,
+      `/search/torrents?${searchParamsOf({ keyword, also, scope, page })}`,
       init,
     ),
   );
 }
 
-function searchParamsOf({ keyword, scope, page }: SearchParams): URLSearchParams {
+function searchParamsOf({ keyword, also, scope, page }: SearchParams): URLSearchParams {
   const params = new URLSearchParams({ keyword });
+  for (const word of also ?? []) params.append("also_keywords", word);
   for (const c of scope?.categories ?? []) params.append("categories", c);
   for (const s of scope?.siteIds ?? []) params.append("sites", s);
   if (scope?.label) params.set("label", scope.label);
@@ -394,6 +403,8 @@ export interface SearchStreamSite {
 /** `start` 事件：宣告本次搜索的范围与参与站点。 */
 export interface SearchStreamStart {
   keyword: string;
+  /** 实际同搜的词（后端清洗去重后），结果页据此写「另含」；只搜主词时为 null */
+  also_keywords?: string[] | null;
   label: string | null;
   categories: TorrentCategory[];
   page: number;

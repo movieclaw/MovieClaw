@@ -685,7 +685,9 @@ struct LibraryItemDetailView: View {
         let canShare = permissions.isAdmin && detail.kind != "photo"
         return Menu {
             if permissions.canSearch {
-                Button("搜索资源") { router.push(.search(.init(q: detail.title, scope: SearchScope.ofMediaKind(detail.kind).encoded))) }
+                Button("搜索资源") {
+                    router.push(.search(.init(q: detail.title, also: SearchScope.titleSearchAlso(detail.englishTitle, detail.originalTitle), scope: SearchScope.ofMediaKind(detail.kind).encoded)))
+                }
             }
             Button("加入合集…") { sheet = .addToCollection }
             if canShare {

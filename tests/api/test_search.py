@@ -273,3 +273,127 @@ def test_search_items_carry_enriched_attrs(client: TestClient, monkeypatch) -> N
     assert attrs["release_group"] == "CHD"
     # H&R 未配置选择器时保持三态里的"未知"，不误报成"无考核"
     assert data["items"][0]["hit_and_run"] is None
+
+
+class _ByKeywordSite:
+    """按关键词返回不同结果的假站点；``fail`` 里的词抛错。记录收到的关键词顺序。"""
+
+    def __init__(
+        self,
+        by_keyword: dict[str, list[TorrentListItem]],
+        fail: set[str] | None = None,
+        has_more: dict[str, bool | None] | None = None,
+    ):
+        self._by_keyword = by_keyword
+        self._fail = fail or set()
+        self._has_more = has_more or {}
+        self.keywords: list[str] = []
+
+    async def search(self, query: SearchQuery) -> SearchResult:
+        self.keywords.append(query.keyword)
+        if query.keyword in self._fail:
+            raise RuntimeError("boom")
+        return SearchResult(
+            items=self._by_keyword.get(query.keyword, []),
+            page=query.page,
+            total_pages=1,
+            has_more=self._has_more.get(query.keyword),
+        )
+
+
+def test_also_keywords_are_searched_per_site_and_merged(client: TestClient, monkeypatch) -> None:
+    """详情页带英文名/原名同搜：每站依次搜每个词，同一种子只留一条，合并成该站一份结果。"""
+    mteam = _ByKeywordSite(
+        {
+            "沙丘": [_item("m1", "沙丘 Dune 2021")],
+            "Dune": [_item("m1", "沙丘 Dune 2021"), _item("m2", "Dune.2021.2160p")],
+        }
+    )
+    # 只认英文名的站：主词零结果，靠同搜词召回
+    english_only = _ByKeywordSite({"Dune": [_item("e1", "Dune.2021.1080p")]})
+    _wire(monkeypatch, {"mteam": mteam, "ttg": english_only})
+
+    data = client.get(
+        "/api/v1/search/torrents",
+        params={"keyword": "沙丘", "also_keywords": ["Dune", "Dune"]},
+    ).json()["data"]
+
+    assert mteam.keywords == ["沙丘", "Dune"]
+    assert english_only.keywords == ["沙丘", "Dune"]
+    assert data["also_keywords"] == ["Dune"]
+    assert sorted(i["torrent_id"] for i in data["items"]) == ["e1", "m1", "m2"]
+    assert {s["site_id"]: s["count"] for s in data["sites"]} == {"mteam": 2, "ttg": 1}
+
+
+def test_also_keywords_are_deduped_against_keyword_and_capped(
+    client: TestClient, monkeypatch
+) -> None:
+    """按归一化形式去重（大小写/分隔符不同不算新词），与主词重复的丢掉，连主词至多 3 个。"""
+    site = _ByKeywordSite({})
+    _wire(monkeypatch, {"mteam": site})
+
+    data = client.get(
+        "/api/v1/search/torrents",
+        params={
+            "keyword": "Dune Part Two",
+            "also_keywords": ["dune.part.two", " ", "沙丘2", "Dune: Deux", "第四个词"],
+        },
+    ).json()["data"]
+
+    assert data["also_keywords"] == ["沙丘2", "Dune: Deux"]
+    assert site.keywords == ["Dune Part Two", "沙丘2", "Dune: Deux"]
+
+
+def test_also_keywords_partial_failure_keeps_site_ok(client: TestClient, monkeypatch) -> None:
+    """一个词失败、别的词成功：该站算成功；所有词都失败才降级为该站失败。"""
+    partial = _ByKeywordSite({"沙丘": [_item("p1", "沙丘")]}, fail={"Dune"})
+    broken = _ByKeywordSite({}, fail={"沙丘", "Dune"})
+    _wire(monkeypatch, {"mteam": partial, "ttg": broken})
+
+    data = client.get(
+        "/api/v1/search/torrents", params={"keyword": "沙丘", "also_keywords": ["Dune"]}
+    ).json()["data"]
+
+    statuses = {s["site_id"]: s for s in data["sites"]}
+    assert statuses["mteam"]["error"] is None
+    assert statuses["mteam"]["count"] == 1
+    assert statuses["ttg"]["error"] is not None
+    assert statuses["ttg"]["count"] == 0
+    assert broken.keywords == ["沙丘", "Dune"]
+
+
+def test_also_keywords_has_more_is_true_if_any_keyword_has_more(
+    client: TestClient, monkeypatch
+) -> None:
+    """翻页口径：任一个词还有下一页就是 True；没有 True 但有不确定的就是 None。"""
+    _wire(
+        monkeypatch,
+        {
+            "mteam": _ByKeywordSite({}, has_more={"沙丘": False, "Dune": True}),
+            "ttg": _ByKeywordSite({}, has_more={"沙丘": False, "Dune": None}),
+            "hdsky": _ByKeywordSite({}, has_more={"沙丘": False, "Dune": False}),
+        },
+    )
+
+    data = client.get(
+        "/api/v1/search/torrents", params={"keyword": "沙丘", "also_keywords": ["Dune"]}
+    ).json()["data"]
+
+    assert {s["site_id"]: s["has_more"] for s in data["sites"]} == {
+        "mteam": True,
+        "ttg": None,
+        "hdsky": False,
+    }
+
+
+def test_browse_ignores_also_keywords(client: TestClient, monkeypatch) -> None:
+    site = _FakeSite(items=[_item("b1", "最新")])
+    _wire(monkeypatch, {"mteam": site})
+
+    data = client.get(
+        "/api/v1/search/torrents", params={"keyword": "", "also_keywords": ["Dune"]}
+    ).json()["data"]
+
+    assert site.last_query is None
+    assert site.last_browse is not None
+    assert data["also_keywords"] is None

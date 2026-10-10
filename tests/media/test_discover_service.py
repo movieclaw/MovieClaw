@@ -560,6 +560,40 @@ async def test_detail_requests_multilingual_videos() -> None:
     assert params["include_video_language"] == "zh,en,null"
 
 
+async def test_detail_carries_english_title_from_translations() -> None:
+    """「搜索资源」要拿英文名同搜：译名随详情同一次请求带回（不多打一次 TMDB）。
+    韩语片的原名是韩文，英文名只能从译名里取。"""
+    detail_response = {
+        **_MOVIE_DETAIL,
+        "original_title": "악인전",
+        "original_language": "ko",
+        "translations": {
+            "translations": [
+                {"iso_639_1": "zh", "iso_3166_1": "CN", "data": {"title": "恶人传"}},
+                {
+                    "iso_639_1": "en",
+                    "iso_3166_1": "US",
+                    "data": {"title": "The Gangster, the Cop, the Devil"},
+                },
+            ]
+        },
+    }
+    client = StubTmdbClient({"genre/movie/list": _GENRES, "movie/603": detail_response})
+    svc = MediaDiscoverService(client, image_base_url=_IMAGE_BASE)
+    detail = await svc.media_detail(MediaKind.MOVIE, 603)
+
+    assert detail.facts.english_title == "The Gangster, the Cop, the Devil"
+    params = next(params for path, params in client.calls if path == "movie/603")
+    assert "translations" in params["append_to_response"].split(",")
+    assert sum(1 for path, _ in client.calls if path == "movie/603") == 1
+
+
+async def test_detail_without_translations_has_no_english_title() -> None:
+    svc = _service({"movie/603": _MOVIE_DETAIL})
+    detail = await svc.media_detail(MediaKind.MOVIE, 603)
+    assert detail.facts.english_title is None
+
+
 async def test_detail_without_videos_is_empty() -> None:
     """上游没有 videos 字段（豆瓣来源、老缓存）时安静返回空列表。"""
     svc = _service({"movie/603": _MOVIE_DETAIL})

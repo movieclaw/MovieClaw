@@ -71,7 +71,7 @@ import { formatBytes, formatDuration } from "@/lib/format";
 import { imageUrl } from "@/lib/image-proxy";
 import { seasonsWithIndeterminate } from "@/lib/media-source-annotation";
 import { shouldShowResourceTiming } from "@/lib/resource-timing";
-import { buildSearchPath } from "@/lib/search-url";
+import { buildSearchPath, titleSearchAlso } from "@/lib/search-url";
 import { subscriptionStatusMeta } from "@/lib/subscription-ui";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
@@ -549,6 +549,8 @@ export function SubscriptionInspectorView({
                   href={
                     `${buildSearchPath({
                       keyword: detail.media.title,
+                      // 英文名/原名一起搜，与订阅自己的召回词一致
+                      also: titleSearchAlso(detail.media.english_title, detail.media.original_title),
                       scope: scopeOfMediaKind(detail.media.kind),
                     })}&for_sub=${detail.id}` as Route
                   }

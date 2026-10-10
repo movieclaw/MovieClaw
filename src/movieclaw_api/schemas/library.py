@@ -1086,6 +1086,9 @@ class LibraryItemDetailView(BaseModel):
     douban_id: str | None
     title: str
     original_title: str
+    english_title: str | None = Field(
+        default=None, description="国际英文名；「搜索资源」与中文名、原名一起搜"
+    )
     year: int | None
     poster_url: str | None
     backdrop_url: str | None

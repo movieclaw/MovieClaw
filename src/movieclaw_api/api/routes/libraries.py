@@ -2788,6 +2788,7 @@ async def get_library_item(
             douban_id=item.douban_id,
             title=item.title,
             original_title=item.original_title,
+            english_title=item.english_title,
             year=item.year,
             poster_url=poster_url,
             backdrop_url=backdrop_url,

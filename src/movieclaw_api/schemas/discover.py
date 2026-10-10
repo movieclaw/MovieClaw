@@ -180,6 +180,9 @@ class DiscoveredTitleMetadata(BaseModel):
     network: str | None = None
     aliases: list[str] = Field(default_factory=list)
     source_url: str | None = None
+    english_title: str | None = Field(
+        default=None, description="国际英文名；豆瓣条目没有，为 null"
+    )
 
 
 class DiscoveredTitleCollectionView(BaseModel):

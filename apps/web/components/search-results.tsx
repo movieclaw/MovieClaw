@@ -93,6 +93,8 @@ import { useScrollRestoration } from "@/lib/use-scroll-restoration";
  */
 export interface SearchQuery {
   keyword: string;
+  /** 同搜词：与 keyword 一起搜、结果按站点合并（详情页「搜索资源」带上英文名/原名） */
+  also?: string[];
   /** 搜索范围（标签换算而来）：展示名 + 分类/站点组合 */
   scope: SearchScope;
   /**
@@ -105,7 +107,7 @@ export interface SearchQuery {
 export interface SearchResultsProps {
   query: SearchQuery;
   /** 发起实时搜索（快照提示条的「重新搜索」按钮）；不传则不渲染该按钮。 */
-  onResearch?: (keyword: string, scope: SearchScope) => void;
+  onResearch?: (keyword: string, scope: SearchScope, also?: string[]) => void;
   /** 手动选种模式（URL 的 for_sub 参数）：每条资源多一颗「投给订阅」按钮，
    *  点击直接投给该订阅（跳过规则组过滤，身份匹配照常）。 */
   grabForSubscriptionId?: number | null;
@@ -772,7 +774,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
   const isNf = useTheme().structural;
   const silverMobile = useIsMobile() && !isNf;
   const scrollRef = useScrollRestoration(
-    `search:torrent:${query.keyword}:${query.scope.label ?? "all"}:${query.scope.categories.join(",")}:${query.scope.siteIds.join(",")}:${query.snapshotId ?? "live"}`,
+    `search:torrent:${query.keyword}:${(query.also ?? []).join("|")}:${query.scope.label ?? "all"}:${query.scope.categories.join(",")}:${query.scope.siteIds.join(",")}:${query.snapshotId ?? "live"}`,
   );
   const [phase, setPhase] = useState<Phase>("connecting");
   // 手动选种模式：拉一次订阅标题供横幅与按钮提示；订阅不存在则静默退出该模式
@@ -800,6 +802,8 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
   const [siteProgress, setSiteProgress] = useState<SiteProgress[]>([]);
   // 整次搜索的总耗时（done 事件 / 快照回放），站点状态弹层的汇总行展示
   const [totalElapsedMs, setTotalElapsedMs] = useState<number | null>(null);
+  // 实际同搜的词：以后端回显为准（URL 里的词经它去重后可能变少），标题旁写「另含」
+  const [alsoSearched, setAlsoSearched] = useState<string[]>([]);
   // 快照预览态：非空 = 当前展示的是历史快照（值为快照生成时间，供提示条换算年龄）
   const [snapshotAt, setSnapshotAt] = useState<string | null>(null);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
@@ -852,6 +856,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
     setItems([]);
     setSiteProgress([]);
     setTotalElapsedMs(null);
+    setAlsoSearched([]);
     setSnapshotAt(null);
     setFilters(emptyFilters());
     setPage(1);
@@ -883,6 +888,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
             })),
           );
           setTotalElapsedMs(snap.elapsed_ms ?? null);
+          setAlsoSearched(snap.also_keywords ?? []);
           setSnapshotAt(snap.snapshot_at);
           setPhase("done");
         })
@@ -903,11 +909,12 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
       );
 
     streamSearchTorrents(
-      { keyword: query.keyword, scope: query.scope },
+      { keyword: query.keyword, also: query.also, scope: query.scope },
       (event) => {
         switch (event.type) {
           case "start":
             setPhase("streaming");
+            setAlsoSearched(event.data.also_keywords ?? []);
             setSiteProgress(
               event.data.sites.map((s) => ({
                 ...s,
@@ -964,7 +971,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
     const controller = new AbortController();
     auxAbortsRef.current.add(controller);
     streamSearchTorrents(
-      { keyword: query.keyword, scope: { ...query.scope, siteIds: [siteId] } },
+      { keyword: query.keyword, also: query.also, scope: { ...query.scope, siteIds: [siteId] } },
       (event) => {
         if (event.type === "site_result") {
           const d = event.data;
@@ -1015,7 +1022,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
     let added = 0;
     let lastPage = false;
     streamSearchTorrents(
-      { keyword: query.keyword, scope: query.scope, page: next },
+      { keyword: query.keyword, also: query.also, scope: query.scope, page: next },
       (event) => {
         if (event.type === "done") lastPage = noMorePages(event.data.sites);
         if (event.type !== "site_result") return;
@@ -1138,6 +1145,15 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
               {query.keyword ? `“${query.keyword}”` : "最新资源"}
             </h1>
           )}
+          {/* 详情页带来的同搜词（英文名/原名）：结果是几个词合并的，写明免得困惑 */}
+          {alsoSearched.length > 0 && (
+            <span
+              title="与这些名字一起搜索，结果已按站点合并"
+              className="text-on-image min-w-0 truncate text-sub text-[rgba(243,245,249,0.6)]"
+            >
+              另含 {alsoSearched.join(" · ")}
+            </span>
+          )}
           {!silverMobile && query.scope.label && (
             <span className="rounded-full bg-black/30 px-2.5 py-0.5 text-caption text-[var(--accent)] backdrop-blur-sm">
               {query.scope.label}
@@ -1182,7 +1198,7 @@ export function SearchResults({ query, onResearch, grabForSubscriptionId }: Sear
                 {onResearch && (
                   <button
                     type="button"
-                    onClick={() => onResearch(query.keyword, query.scope)}
+                    onClick={() => onResearch(query.keyword, query.scope, query.also)}
                     className="btn-accent rounded-full px-2.5 py-1 text-caption font-medium"
                   >
                     重新搜索

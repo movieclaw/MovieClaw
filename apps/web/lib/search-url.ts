@@ -11,6 +11,8 @@ import {
  *
  * 参数表：
  *   q        关键词（缺失时必须有 browse=1，否则视为无效搜索）
+ *   also     同搜词（可重复）：与 q 一起搜、结果按站点合并（详情页「搜索资源」带上
+ *            英文名/原名）；去重与数量上限由后端定
  *   browse   "1" = 浏览模式：不带关键词，按分类逛各站种子列表页
  *            （关键词非空时不出现——有词就是搜索）
  *   tab      垂直类别："media" = 影视条目（豆瓣）/ "library" = 媒体库；
@@ -32,6 +34,7 @@ export function buildSearchPath(query: SearchQuery, vertical?: SearchVertical): 
   // 后者会让「手改地址删掉 q」这种误操作静默变成一次跨站浏览。
   if (query.keyword) params.set("q", query.keyword);
   else params.set("browse", "1");
+  if (query.keyword) for (const word of query.also ?? []) params.append("also", word);
   if (vertical === "media" || vertical === "library") params.set("tab", vertical);
   const { scope } = query;
   if (scope.label) params.set("label", scope.label);
@@ -41,6 +44,17 @@ export function buildSearchPath(query: SearchQuery, vertical?: SearchVertical): 
   if (scope.skipHistory) params.set("private", "1");
   if (query.snapshotId != null) params.set("snapshot", String(query.snapshotId));
   return `/search?${params.toString()}`;
+}
+
+/**
+ * 详情页「搜索资源」的同搜词：英文名 + 原名（主词是中文名），与订阅的召回词同一套
+ * （services/subscription/wanted_search.recall_keywords）。空值丢掉，重复的由后端去重。
+ */
+export function titleSearchAlso(
+  englishTitle: string | null | undefined,
+  originalTitle: string | null | undefined,
+): string[] {
+  return [englishTitle, originalTitle].filter((w): w is string => !!w?.trim());
 }
 
 /**
@@ -57,12 +71,14 @@ export function parseSearchQuery(params: URLSearchParams): SearchQuery | null {
     .filter((c): c is TorrentCategory => c in CATEGORY_LABEL);
   const siteIds = (params.get("sites") ?? "").split(",").filter(Boolean);
 
+  const also = params.getAll("also").map((w) => w.trim()).filter(Boolean);
   const snapshotRaw = params.get("snapshot");
   const snapshotId =
     snapshotRaw != null && /^\d+$/.test(snapshotRaw) ? Number(snapshotRaw) : undefined;
 
   return {
     keyword,
+    also: keyword && also.length > 0 ? also : undefined,
     scope: {
       label: params.get("label"),
       categories,

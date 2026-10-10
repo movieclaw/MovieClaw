@@ -72,6 +72,8 @@ export interface SearchSubmitOptions {
   vertical?: SearchVertical;
   /** 非空 = 预览该条历史的结果快照（点历史记录进入），而非发起实时搜索 */
   snapshotId?: number;
+  /** 同搜词（点历史回放时带回该条记录的英文名/原名） */
+  also?: string[];
 }
 
 export interface SearchCommandProps {
@@ -491,7 +493,7 @@ function SearchPalette({
         posterMode: item.poster_mode,
         skipHistory: false,
       },
-      { vertical: "torrent", snapshotId },
+      { vertical: "torrent", snapshotId, also: item.also_keywords ?? undefined },
     );
   };
 
@@ -1233,7 +1235,7 @@ function HistoryVariantRow({
         className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2 text-left"
       >
         <span className="min-w-0 flex-1 truncate text-sub text-[var(--text-muted)]">
-          {item.vertical === "titles" ? "影视" : `资源 · ${item.label ?? "全部"}`}
+          {item.vertical === "titles" ? "影视" : `资源 · ${item.label ?? "全部"}${alsoSuffix(item)}`}
         </span>
         {item.has_snapshot && (
           <span className="shrink-0 rounded-md bg-[var(--info-soft)]/15 px-1.5 py-0.5 text-micro text-[var(--info-text-2)]">
@@ -1272,6 +1274,11 @@ function HistoryTypeBadges({ item }: { item: SearchHistoryItem }) {
           {item.label}
         </span>
       )}
+      {!isMedia && !!item.also_keywords?.length && (
+        <span className="min-w-0 truncate rounded-md bg-white/[0.07] px-1.5 py-0.5 text-micro text-[var(--text-muted)]">
+          另含 {item.also_keywords?.join(" / ")}
+        </span>
+      )}
     </>
   );
 }
@@ -1279,7 +1286,12 @@ function HistoryTypeBadges({ item }: { item: SearchHistoryItem }) {
 /** 记录的范围：「影视」「资源」「资源 · 电影」（同 iOS SearchHomeView.scopeLabel）。 */
 function historyScopeLabel(item: SearchHistoryItem): string {
   if (item.vertical === "titles") return "影视";
-  return item.label ? `资源 · ${item.label}` : "资源";
+  return (item.label ? `资源 · ${item.label}` : "资源") + alsoSuffix(item);
+}
+
+/** 详情页带英文名/原名同搜的记录，与只搜片名的同词记录区分开：「 · 另含 Dune」。 */
+function alsoSuffix(item: SearchHistoryItem): string {
+  return item.also_keywords?.length ? ` · 另含 ${item.also_keywords.join(" / ")}` : "";
 }
 
 /** 记录的时间与快照：「4 小时前 · 快照」（同 iOS SearchHomeView.detailLine）。 */

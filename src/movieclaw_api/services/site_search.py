@@ -48,10 +48,38 @@ from movieclaw_db.engine import get_database
 from movieclaw_db.models.site_credential import ConfigStatus, SiteCredential
 from movieclaw_db.repositories.credential_repo import CredentialRepository
 from movieclaw_enrich import enrich
+from movieclaw_matcher import normalize_title
 from movieclaw_tracker.models import SearchQuery, TorrentCategory, TorrentListItem
 from movieclaw_tracker.registry import SiteNotFoundError, get_site_config
 
 logger = logging.getLogger("movieclaw_api.site_search")
+
+#: 一次搜索最多几个词（主词 + 同搜词）。与订阅召回词同口径（英文名/中文名/原名），
+#: 每多一个词每站就多一次请求，3 个已覆盖站点命名的全部常见写法
+MAX_SEARCH_KEYWORDS = 3
+
+
+def also_keywords_of(keyword: str, also: list[str] | None) -> list[str]:
+    """同搜词清洗：去空白，按匹配内核的归一化形式去重（含与主词重复的），至多补齐到
+    ``MAX_SEARCH_KEYWORDS`` 个。浏览模式（主词为空）没有同搜词。
+
+    去重口径与订阅的 ``recall_keywords`` 一致：大小写/分隔符的差异不值得多打一次站点，
+    但下发原样文本——站点搜索吃的是原文。
+    """
+    if not keyword:
+        return []
+    seen = {normalize_title(keyword)}
+    picked: list[str] = []
+    for raw in also or []:
+        text = raw.strip()
+        key = normalize_title(text)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        picked.append(text)
+        if len(picked) >= MAX_SEARCH_KEYWORDS - 1:
+            break
+    return picked
 
 
 def _build_hits(site_id: str, name: str, items: list[TorrentListItem]) -> list[TorrentHit]:
@@ -101,6 +129,7 @@ async def _fetch_one(
     cred: SiteCredential,
     *,
     keyword: str,
+    also_keywords: list[str] | None = None,
     categories: list[TorrentCategory] | None = None,
     page: int = 1,
 ) -> tuple[list[TorrentHit], SiteSearchStatus]:
@@ -116,38 +145,67 @@ async def _fetch_one(
 
     成功与失败的状态里都带 ``elapsed_ms``：失败站的耗时尤其有诊断价值
     （十几秒后才失败的基本是超时，秒失败的多半是认证/解析问题）。
+
+    **同搜词**（``also_keywords``，详情页「搜索资源」带上英文名/原名）：在本站内**依次**
+    搜主词和每个同搜词，按种子 id 合并成一份结果——对外仍是这个站的一次结果，事件与
+    载荷结构不变。依次而非并发：对同一站点同时打几次搜索页更容易撞上站点限流。
+    任一个词成功即算成功（失败的词只记日志）；全部失败才降级为该站失败。
+    ``has_more``：任一个词明确还有下一页即为 True，否则有一个不确定就是 None。
     """
     site_id = cred.site_id
     name = _display_name(site_id)
     started = time.monotonic()
     elapsed = lambda: int((time.monotonic() - started) * 1000)  # noqa: E731
-    try:
-        site = await get_site_access().get(site_id)  # 已认证共享实例，勿 close
-        if keyword:
-            result = await site.search(
-                SearchQuery(keyword=keyword, categories=categories or None, page=page)
+    terms = [keyword, *(also_keywords or [])] if keyword else [""]
+    items: list[TorrentListItem] = []
+    seen: set[str] = set()
+    pages_more: list[bool | None] = []
+    reason: str | None = None
+    for term in terms:
+        try:
+            site = await get_site_access().get(site_id)  # 已认证共享实例，勿 close
+            if term:
+                result = await site.search(
+                    SearchQuery(keyword=term, categories=categories or None, page=page)
+                )
+                found, has_more = result.items, result.has_more
+            else:
+                listed = await site.list_torrents(categories=categories or None, page=page)
+                found, has_more = listed.items, listed.has_more
+        except Exception as exc:  # noqa: BLE001 —— 单站失败必须隔离，不能拖垮整次搜索
+            reason = reason or friendly_error(exc)
+            logger.warning(
+                "站点 %s %s失败：%s",
+                site_id,
+                f"搜索「{term}」" if term else "浏览种子列表",
+                friendly_error(exc),
             )
-            items, has_more = result.items, result.has_more
-        else:
-            listed = await site.list_torrents(categories=categories or None, page=page)
-            items, has_more = listed.items, listed.has_more
-        # 给每条结果挂上来源站点标识 + 扩充属性；扩充含 NER 推理，整批进工作线程
-        hits = await asyncio.to_thread(_build_hits, site_id, name, items)
-        return hits, SiteSearchStatus(
-            site_id=site_id,
-            site_name=name,
-            count=len(hits),
-            elapsed_ms=elapsed(),
-            has_more=has_more,
-        )
-    except Exception as exc:  # noqa: BLE001 —— 单站失败必须隔离，不能拖垮整次搜索
-        reason = friendly_error(exc)
-        logger.warning(
-            "站点 %s %s失败：%s", site_id, "搜索" if keyword else "浏览种子列表", reason
-        )
+            continue
+        pages_more.append(has_more)
+        for item in found:
+            if item.torrent_id not in seen:
+                seen.add(item.torrent_id)
+                items.append(item)
+    if not pages_more:  # 每个词都失败了
         return [], SiteSearchStatus(
             site_id=site_id, site_name=name, count=0, error=reason, elapsed_ms=elapsed()
         )
+    try:
+        # 给每条结果挂上来源站点标识 + 扩充属性；扩充含 NER 推理，整批进工作线程
+        hits = await asyncio.to_thread(_build_hits, site_id, name, items)
+    except Exception as exc:  # noqa: BLE001 —— 同上，富化失败也只算这一站失败
+        reason = friendly_error(exc)
+        logger.warning("站点 %s 结果处理失败：%s", site_id, reason)
+        return [], SiteSearchStatus(
+            site_id=site_id, site_name=name, count=0, error=reason, elapsed_ms=elapsed()
+        )
+    return hits, SiteSearchStatus(
+        site_id=site_id,
+        site_name=name,
+        count=len(hits),
+        elapsed_ms=elapsed(),
+        has_more=True if True in pages_more else None if None in pages_more else False,
+    )
 
 
 async def stream_search_all_sites(
@@ -158,6 +216,7 @@ async def stream_search_all_sites(
     page: int = 1,
     allowed_site_ids: set[str] | None = None,
     exclude_protected: bool = False,
+    also_keywords: list[str] | None = None,
 ) -> AsyncIterator[tuple[str, BaseModel]]:
     """流式跨站搜索：按「站点实际完成的先后」逐个产出事件，供 SSE 端点直接转发。
 
@@ -183,7 +242,11 @@ async def stream_search_all_sites(
     :param exclude_protected: 排除开了保护开关的站点。**订阅链路专用**
         （缺口搜索/死种换源传 True）——受保护站点不被订阅自动拉种，但用户
         主动搜索照常，见 docs/design/site-protection-ratio-boost.md。
+    :param also_keywords: 同搜词（如详情页带上的英文名/原名），每站与主词一起搜、按种子
+        合并成该站的一份结果（见 ``_fetch_one``）。经 ``also_keywords_of`` 清洗去重，
+        清洗后的结果在 ``start`` 事件里回显；浏览模式忽略。
     """
+    also_keywords = also_keywords_of(keyword, also_keywords)
     sites = await _active_sites()
     if exclude_protected:
         sites = [c for c in sites if not c.protected]
@@ -198,6 +261,7 @@ async def stream_search_all_sites(
         "start",
         SearchStreamStart(
             keyword=keyword,
+            also_keywords=also_keywords or None,
             label=label,
             categories=[c.value for c in categories] if categories else [],
             page=page,
@@ -211,7 +275,13 @@ async def stream_search_all_sites(
     # 扇出并发：先建齐所有任务再逐个宣告 site_start，各站从此刻起同时在跑
     tasks = [
         asyncio.create_task(
-            _fetch_one(c, keyword=keyword, categories=categories, page=page)
+            _fetch_one(
+                c,
+                keyword=keyword,
+                also_keywords=also_keywords,
+                categories=categories,
+                page=page,
+            )
         )
         for c in sites
     ]
@@ -273,6 +343,7 @@ async def search_all_sites(
     page: int = 1,
     allowed_site_ids: set[str] | None = None,
     exclude_protected: bool = False,
+    also_keywords: list[str] | None = None,
 ) -> SearchResponse:
     """并发搜索可用站点并合并结果（阻塞版：等全部站点返回后一次性给出）。
 
@@ -289,8 +360,12 @@ async def search_all_sites(
         page=page,
         allowed_site_ids=allowed_site_ids,
         exclude_protected=exclude_protected,
+        also_keywords=also_keywords,
     ):
-        if event == "site_result":
+        if event == "start":
+            assert isinstance(payload, SearchStreamStart)
+            also_keywords = payload.also_keywords or []
+        elif event == "site_result":
             assert isinstance(payload, SiteStreamResult)
             items.extend(payload.items)
         elif event == "done":
@@ -299,6 +374,7 @@ async def search_all_sites(
 
     return SearchResponse(
         keyword=keyword,
+        also_keywords=also_keywords or None,
         label=label,
         categories=[c.value for c in categories] if categories else [],
         total=len(items),

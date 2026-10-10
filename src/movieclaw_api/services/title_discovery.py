@@ -414,6 +414,7 @@ def title_details_from_legacy(
             network=facts.network,
             aliases=facts.aliases,
             source_url=facts.source_url,
+            english_title=facts.english_title,
         ),
         backdrop_original_url=detail.backdrop_url,
         videos=detail.videos,

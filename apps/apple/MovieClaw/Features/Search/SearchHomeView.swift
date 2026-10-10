@@ -470,7 +470,9 @@ struct SearchHomeView: View {
     /// 记录的范围：「影视」「资源」「资源 · 电影」
     private func scopeLabel(_ item: API.SearchHistoryItem) -> String {
         if item.vertical == "titles" { return "影视" }
-        return item.label.map { "资源 · \($0)" } ?? "资源"
+        // 详情页带英文名/原名同搜的记录，与只搜片名的同词记录区分开（同 Web historyScopeLabel）
+        let also = item.alsoKeywords.map { $0.isEmpty ? "" : " · 另含 \($0.joined(separator: " / "))" } ?? ""
+        return (item.label.map { "资源 · \($0)" } ?? "资源") + also
     }
 
     /// 记录的时间与快照：「4 小时前 · 快照」
@@ -572,7 +574,7 @@ struct SearchHomeView: View {
         }
         // 还原发起搜索时的图览模式；能出现在历史里的搜索本来就不是无痕的
         let scope = SearchScope(label: item.label, categories: item.categories, siteIds: item.siteIds, posterMode: item.posterMode)
-        router.push(.search(.init(q: item.keyword, tab: nil, scope: scope.encoded, snapshot: snapshot)))
+        router.push(.search(.init(q: item.keyword, also: item.alsoKeywords ?? [], tab: nil, scope: scope.encoded, snapshot: snapshot)))
     }
 
     /// 从结果页点搜索词胶囊回来：填回关键词、切回当时的垂直与范围，弹出键盘等用户改词

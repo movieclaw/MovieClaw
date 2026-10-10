@@ -106,7 +106,8 @@ struct TorrentResultsView: View {
     }
 
     /// 结果状态行：左边条数，右边站点状态；快照回放时下面再给一行快照时间与「重新搜索」。
-    /// 关键词不在这里重复——顶栏正中的搜索词胶囊已经写着（见 `SearchResultsView`）
+    /// 关键词不在这里重复——顶栏正中的搜索词胶囊已经写着（见 `SearchResultsView`）；
+    /// 详情页带来的同搜词（英文名/原名）胶囊里没有，单独一行写「另含」，结果是几个词合并的
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 8) {
@@ -123,6 +124,12 @@ struct TorrentResultsView: View {
                 if !model.sites.isEmpty {
                     siteSummaryButton
                 }
+            }
+            if !model.alsoSearched.isEmpty {
+                Text("另含 \(model.alsoSearched.joined(separator: " · "))")
+                    .font(.caption)
+                    .lineLimit(1)
+                    .accessibilityIdentifier("torrent-also-keywords")
             }
             if let snapshotAt = model.snapshotAt, model.phase == .done {
                 HStack(spacing: 8) {

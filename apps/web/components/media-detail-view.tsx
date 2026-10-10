@@ -38,7 +38,7 @@ import { useBackNavigation } from "@/lib/back-navigation";
 import { useBackdrop } from "@/lib/backdrop";
 import { buildDiscoveryReturnPath } from "@/lib/discovery-return-path";
 import { scopeOfMediaKind } from "@/lib/categories";
-import { buildSearchPath } from "@/lib/search-url";
+import { buildSearchPath, titleSearchAlso } from "@/lib/search-url";
 import { useDoubanAppHref } from "@/lib/douban-app-link";
 import { IMAGE_ASPECT, tmdbImageForWidth, tmdbTierWidth, withImageWidth } from "@/lib/image-proxy";
 import { useResolvedTheme } from "@/themes/registry";
@@ -567,9 +567,14 @@ export function MediaDetailView({
                 </button>
               ))}
               {/* 搜索资源：不订阅、只想手动找种子下一次的直达口（此前只能回 ⌘K 重打片名）；
-                  按影片类型收窄到剧集/电影分类，免得同名的另一类资源混进来 */}
+                  按影片类型收窄到剧集/电影分类，免得同名的另一类资源混进来；
+                  英文名/原名一起搜（同订阅），只认英文名的站点也能搜到 */}
               {showSearchButton && <Link
-                href={buildSearchPath({ keyword: item.title, scope: scopeOfMediaKind(item.type) }) as Route}
+                href={buildSearchPath({
+                  keyword: item.title,
+                  also: titleSearchAlso(detail?.info.englishTitle, item.originalTitle),
+                  scope: scopeOfMediaKind(item.type),
+                }) as Route}
                 className={`btn-glass flex h-10 items-center gap-2 bg-white/10 px-5 text-ui font-medium backdrop-blur-md transition hover:bg-white/15 ${actionSize}`}
               >
                 <SearchIcon className="size-4" />

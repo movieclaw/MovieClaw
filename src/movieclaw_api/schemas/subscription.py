@@ -57,6 +57,9 @@ class MediaBrief(BaseModel):
     douban_id: str | None
     title: str
     original_title: str
+    english_title: str | None = Field(
+        default=None, description="国际英文名；「手动选种」与中文名、原名一起搜"
+    )
     year: int | None
     poster_url: str | None = Field(description="完整海报 URL（按配置的图床基址拼好）")
     backdrop_url: str | None = Field(
@@ -80,6 +83,7 @@ class MediaBrief(BaseModel):
             douban_id=item.douban_id,
             title=item.title,
             original_title=item.original_title,
+            english_title=item.english_title,
             year=item.year,
             poster_url=(
                 asset_url(poster_file)

@@ -94,8 +94,8 @@ export default function SearchPage() {
   };
 
   // 快照提示条的「重新搜索」：切回实时搜索（丢掉 snapshot 参数）
-  const handleResearch = (keyword: string, scope: SearchScope) => {
-    router.push(buildSearchPath({ keyword, scope }) as Route);
+  const handleResearch = (keyword: string, scope: SearchScope, also?: string[]) => {
+    router.push(buildSearchPath({ keyword, also, scope }) as Route);
   };
 
   /**
@@ -104,7 +104,7 @@ export default function SearchPage() {
    * 手动选种模式（for_sub）要留着——从收窄的分类放宽到「全部」不能丢了投递目标。
    */
   const switchScope = (scope: SearchScope) => {
-    const path = buildSearchPath({ keyword: query.keyword, scope });
+    const path = buildSearchPath({ keyword: query.keyword, also: query.also, scope });
     const forSub = grabForSubscriptionId != null ? `&for_sub=${grabForSubscriptionId}` : "";
     router.push(`${path}${forSub}` as Route);
   };
@@ -145,7 +145,7 @@ function SearchVerticals({
   grabForSubscriptionId: number | null;
   onSwitch: (target: SearchVertical) => void;
   onScopeSwitch: (scope: SearchScope) => void;
-  onResearch: (keyword: string, scope: SearchScope) => void;
+  onResearch: (keyword: string, scope: SearchScope, also?: string[]) => void;
 }) {
   const { visibleTabs } = useSearchPrefs();
   const searchAccess = useSearchAccess();

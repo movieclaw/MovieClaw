@@ -66,6 +66,9 @@ class SearchResponse(BaseModel):
     """
 
     keyword: str
+    # 同搜词（清洗去重后）：与 keyword 一起搜、结果已合并；只搜主词时为 null。
+    # 可空而非空列表：旧版服务端没有该字段，客户端按可选解码才能新旧兼容
+    also_keywords: list[str] | None = None
     label: str | None
     categories: list[str]
     total: int
@@ -95,6 +98,8 @@ class SearchStreamStart(BaseModel):
     """``start`` 事件：宣告本次搜索的范围与参与站点，前端据此渲染进度占位。"""
 
     keyword: str
+    # 同搜词（清洗去重后，见 SearchResponse.also_keywords）；只搜主词时为 null
+    also_keywords: list[str] | None = None
     label: str | None
     categories: list[str]
     page: int
@@ -193,6 +198,8 @@ class SearchHistoryItem(BaseModel):
 
     id: int
     keyword: str
+    # 同搜词快照：与 keyword 一起搜的英文名/原名；点历史重搜时原样带上，null=只搜主词
+    also_keywords: list[str] | None = None
     vertical: Literal["titles", "torrents"]
     label: str | None  # 展示名快照（分类中文名/预设名）；None=全部
     categories: list[str]  # 分类组合快照；空=不限分类
@@ -216,6 +223,7 @@ class SearchHistoryItem(BaseModel):
         return cls(
             id=row.id,
             keyword=row.keyword,
+            also_keywords=json.loads(row.also_keywords_json) if row.also_keywords_json else None,
             # 数据库存量值保持不变；公开契约使用可直接读懂的复数领域名。
             vertical="titles" if row.vertical == "media" else "torrents",
             label=row.label,
@@ -239,6 +247,7 @@ class TorrentSearchHistoryResultsView(BaseModel):
     vertical: Literal["torrents"] = "torrents"
     history_id: int
     keyword: str
+    also_keywords: list[str] | None = None  # 同搜词快照；null=只搜主词
     label: str | None
     categories: list[str]  # 分类组合快照；空=不限分类
     site_ids: list[str]  # 站点组合快照；空=全部站点

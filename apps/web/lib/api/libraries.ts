@@ -1525,6 +1525,8 @@ export interface LibraryItemDetail {
   douban_id: string | null;
   title: string;
   original_title: string;
+  /** 国际英文名：「搜索资源」与中文名、原名一起搜；老服务端没有该字段 */
+  english_title?: string | null;
   year: number | null;
   poster_url: string | null;
   backdrop_url: string | null;

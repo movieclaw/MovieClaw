@@ -191,6 +191,9 @@ class MediaFacts(BaseModel):
     network: str | None = Field(default=None, description="播出平台（仅剧集）")
     aliases: list[str] = Field(default_factory=list, description="别名/其他译名")
     source_url: str | None = Field(default=None, description="来源站条目地址")
+    english_title: str | None = Field(
+        default=None, description="国际英文名（TMDB 译名）；豆瓣没有该数据，恒为 None"
+    )
 
 
 class MediaImage(BaseModel):

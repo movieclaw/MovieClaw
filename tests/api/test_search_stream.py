@@ -253,3 +253,50 @@ def test_stream_reports_whether_each_site_has_more_pages(
         "mteam": None,
         "ttg": None,
     }
+
+
+class _ByKeywordSite:
+    """按关键词返回不同结果的假站点。"""
+
+    def __init__(self, by_keyword: dict[str, list[TorrentListItem]]):
+        self._by_keyword = by_keyword
+
+    async def search(self, query: SearchQuery) -> SearchResult:
+        return SearchResult(
+            items=self._by_keyword.get(query.keyword, []), page=query.page, total_pages=1
+        )
+
+
+def test_stream_also_keywords_merge_into_one_site_result(
+    client: TestClient, monkeypatch
+) -> None:
+    """同搜词不改变事件结构：start 回显清洗后的同搜词，每站仍只一个 site_result（已合并），
+    历史记下同搜词，快照回放也带回它们。"""
+    _wire(
+        monkeypatch,
+        {
+            "mteam": _ByKeywordSite(
+                {"沙丘": [_item("m1", "沙丘")], "Dune": [_item("m1", "沙丘"), _item("m2", "Dune")]}
+            )
+        },
+    )
+
+    resp = client.get(
+        "/api/v1/search/torrents/stream",
+        params={"keyword": "沙丘", "also_keywords": ["Dune", "沙丘"]},
+    )
+    events = _parse_sse(resp.text)
+
+    assert events[0][0] == "start"
+    assert events[0][1]["also_keywords"] == ["Dune"]
+    results = [data for name, data in events if name == "site_result"]
+    assert len(results) == 1
+    assert results[0]["count"] == 2
+    assert events[-1] == ("done", events[-1][1])
+    assert events[-1][1]["total"] == 2
+
+    history = client.get("/api/v1/search/history").json()["data"]
+    assert history[0]["also_keywords"] == ["Dune"]
+    snapshot = client.get(f"/api/v1/search/history/{history[0]['id']}/results").json()["data"]
+    assert snapshot["also_keywords"] == ["Dune"]
+    assert snapshot["total"] == 2

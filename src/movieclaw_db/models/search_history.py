@@ -49,6 +49,11 @@ class SearchHistory(MemberScopedMixin, TimestampMixin, table=True):
     site_ids_json: str | None = Field(
         default=None, description="站点组合快照（归一化 JSON）；None=全部站点"
     )
+    # 同搜词：详情页「搜索资源」与主词一起搜的英文名/原名（JSON 数组串，保序）；
+    # None=只搜了主词。属于「搜什么」，参与去重键，点历史重搜时原样带上。
+    also_keywords_json: str | None = Field(
+        default=None, description="同搜词（JSON 数组）；None=只搜主词"
+    )
     # 该 (keyword, 组合快照) 的累计搜索次数。
     search_count: int = Field(default=1, description="累计搜索次数")
     # 图览模式快照：发起搜索时的展示模式偏好（来自自定义分类的 poster_mode）。
