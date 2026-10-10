@@ -47,3 +47,11 @@ class PlaybackPolicySetting(SettingSchema):
             "占用；关闭后不再生成新预览，已生成的照常可用，重新打开即恢复。"
         ),
     )
+    reel_clips_enabled: bool = Field(
+        default=False,
+        description=(
+            "片段预切（docs/design/reels.md §8）：后台把每部影片挑好的那一段预先切成 1080p "
+            "小文件，电视大图预告与刷片放它，不再每次从片库直推原画。默认关闭：开启后要在"
+            "后台把全库处理一遍（有人观看时自动让路），并占用约每部 20 MB 的空间。"
+        ),
+    )

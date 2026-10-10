@@ -2405,6 +2405,10 @@ async def _ingest_entry(
         from movieclaw_api.services.library.skip_segments import enqueue_ingested_item
 
         await enqueue_ingested_item(session, dest_library, item.id, item.title)
+        # 预切片段（docs/design/reels.md §8）：新片会出现在首页「最近添加」，排进档 1
+        from movieclaw_api.services.reels.clips import enqueue_ingested
+
+        await enqueue_ingested(item.id)
 
     verb = "硬链接" if strategy == "hardlink" else "复制"
     if imported:
@@ -2705,6 +2709,7 @@ async def _ingest_raw_drop(
         await session.commit()
         from movieclaw_api.services.library.chapters import enqueue_ingested_item_chapter_images
         from movieclaw_api.services.library.skip_segments import enqueue_ingested_item
+        from movieclaw_api.services.reels.clips import enqueue_ingested
 
         for item_id, item_title in new_items:
             # 缩略图属于锦上添花：作业内顺手做完，后台 tick 则丢给事件循环
@@ -2723,6 +2728,7 @@ async def _ingest_raw_drop(
             # 章节图与上面的封面同理，只是慢得多，交给条目作业在后台跑
             await enqueue_ingested_item_chapter_images(session, library, item_id, item_title)
             await enqueue_ingested_item(session, library, item_id, item_title)
+            await enqueue_ingested(item_id)
     if imported:
         return (
             first_item,

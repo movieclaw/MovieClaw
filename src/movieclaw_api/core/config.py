@@ -164,6 +164,11 @@ class Settings(BaseSettings):
     # 刷片挑点结果：每个文件一份 JSON（片段起止、预取范围），按 file_id 命名
     # （重建只需再读一遍容器索引，一部片零点几秒）。
     reels_cache_dir: str = Field(default="./data/cache/reels", alias="MOVIECLAW_REELS_CACHE_DIR")
+    # 预切片段（docs/design/reels.md §8）：每部片挑好的那一段切成的 1080p MP4，一段十几到二十几 MB，
+    # 全库约 20 GB；按文件 id 分目录，旁边一份 JSON 记来源文件的大小与修改时间
+    reels_clips_dir: str = Field(
+        default="./data/cache/reels-clips", alias="MOVIECLAW_REELS_CLIPS_DIR"
+    )
     # MKV 精简索引：只含视频轨索引点的 Cues，随播放会话下发，App 起播时不必再下原索引
     # （docs/design/playback-qoe.md §9.12）。每个文件一份几 KB～几十 KB 的记录，按 file_id 命名。
     playback_cues_cache_dir: str = Field(

@@ -96,12 +96,30 @@ class ReelSubtitleView(BaseModel):
 
 
 class ReelPlayView(BaseModel):
-    """怎么放这一条。mode=seek：自研引擎打开原片、从 segment.start_ms 起播。"""
+    """怎么放这一条。mode=seek：自研引擎打开原片、从 segment.start_ms 起播；
+    mode=clip：放预切好的小文件（clip_url，从 0 起播，第 0 秒对应原片 segment.start_ms）。"""
 
-    mode: str = Field(description="放法：seek=从原片中间起播（一期仅此一种）")
-    stream_url: str | None = Field(
-        default=None, description="seek：原片取流地址（带 /api/v1 的相对路径，含令牌）"
+    mode: str = Field(
+        description=(
+            "放法：seek=从原片中间起播；clip=放预切好的片段文件"
+            "（App 用 modes 声明会放才会收到）"
+        )
     )
+    stream_url: str | None = Field(
+        default=None,
+        description=(
+            "原片取流地址（带 /api/v1 的相对路径，含令牌）。seek 从它起播；"
+            "clip 时给「接着看」转正片用"
+        ),
+    )
+    clip_url: str | None = Field(
+        default=None,
+        description=(
+            "clip：预切片段地址（带 /api/v1 的相对路径，含令牌，支持 Range）。"
+            "1080p H.264 SDR + AAC 立体声的 MP4，系统播放器直接放"
+        ),
+    )
+    clip_size_bytes: int | None = Field(default=None, description="clip：片段文件大小")
     size_bytes: int | None = Field(
         default=None, description="seek：原片大小（片源字节缓存的键要用）"
     )
@@ -131,11 +149,32 @@ class ReelItemView(BaseModel):
     play: ReelPlayView
 
 
+class ReelClipProgressView(BaseModel):
+    """片段预切的进度（只在开关开着、App 会放 clip 时给）。"""
+
+    ready: int = Field(description="当前筛选下切好了几部（刷片只出这些）")
+    total: int = Field(description="当前筛选下一共几部")
+    state: Literal["running", "paused", "done"] = Field(
+        description="running 还在切 / paused 因播放暂停 / done 能切的都切完了（剩下的切不了）"
+    )
+
+
 class ReelFeedView(BaseModel):
     seed: int = Field(description="这次刷片的随机种子，翻页时原样带回")
     next_offset: int = Field(description="下一页的 offset")
     has_more: bool = Field(description="后面还有没有")
     items: list[ReelItemView] = Field(default_factory=list)
+    clips: ReelClipProgressView | None = Field(
+        default=None,
+        description="片段预切进度；None = 没开预切（或 App 不会放 clip），刷的是原片",
+    )
+
+
+class ReelClipStatsView(BaseModel):
+    """已切片段的总量（关掉「片段预切」前问要不要删）。"""
+
+    count: int = Field(description="切好的片段数")
+    bytes: int = Field(description="占用的磁盘空间（字节）")
 
 
 class ReelFacetsView(BaseModel):

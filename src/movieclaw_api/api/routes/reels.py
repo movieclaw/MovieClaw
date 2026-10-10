@@ -10,6 +10,9 @@
   （``source=resume``），详情页放挑好的那一段（``source=highlight``），放不了返回 null。
 - ``POST /reels/events``：App 攒一批刷片事件报上来，只落 ``reel_event`` 表，
   不写观看记录。
+- 片段预切（docs/design/reels.md §8）：``GET /reels/clips/{file_id}/{start_ms}.mp4``
+  按 Range 出切好的小文件（令牌同原片取流，不登记播放活动）；``GET /reels/clips/stats``
+  与 ``DELETE /reels/clips`` 给设置页「关掉时要不要删」用（管理员）。
 """
 
 from __future__ import annotations
@@ -19,9 +22,11 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends, Path, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from movieclaw_api.api.deps import require_login
+from movieclaw_api.api.deps import require_admin, require_login
 from movieclaw_api.api.routes.libraries import _filter_params
+from movieclaw_api.exceptions import NotFoundException
 from movieclaw_api.schemas.reels import (
+    ReelClipStatsView,
     ReelEventBatch,
     ReelEventResult,
     ReelFacetsView,
@@ -31,10 +36,13 @@ from movieclaw_api.schemas.reels import (
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.items import LibraryFilter
+from movieclaw_api.services.playback.signing import verify_stream_token
+from movieclaw_api.services.reels import clips
 from movieclaw_api.services.reels.facets import build_reel_facets
 from movieclaw_api.services.reels.feed import build_feed, record_events
 from movieclaw_api.services.reels.preview import build_preview
 from movieclaw_db.engine import get_session
+from movieclaw_playback.streaming import DisconnectAwareFileResponse
 
 router = APIRouter(prefix="/reels", tags=["reels"])
 
@@ -58,7 +66,10 @@ async def get_reel_feed(
     seed: Annotated[int | None, Query(ge=0, description="随机种子；第一页不传")] = None,
     offset: Annotated[int, Query(ge=0, description="从抽样顺序的第几部开始")] = 0,
     limit: Annotated[int, Query(ge=1, le=20, description="这一页最多几条")] = 10,
-    modes: Annotated[str, Query(description="App 会放的方式，逗号分隔；一期只有 seek")] = "seek",
+    modes: Annotated[
+        str,
+        Query(description="App 会放的方式，逗号分隔：seek 原片起播 / clip 预切片段"),
+    ] = "seek",
     kind: KindParam = None,
     filters: Annotated[LibraryFilter, Depends(_filter_params)] = None,  # type: ignore[assignment]
     principal: Principal = Depends(require_login),
@@ -80,6 +91,7 @@ async def get_reel_feed(
             next_offset=page.next_offset,
             has_more=page.has_more,
             items=page.items,  # type: ignore[arg-type]
+            clips=page.clips,  # type: ignore[arg-type]
         )
     )
 
@@ -119,13 +131,72 @@ async def get_reel_preview(
     ] = "highlight",
     season: Annotated[int, Query(ge=0, description="resume 的季号（电影 0）")] = 0,
     episode: Annotated[int, Query(ge=0, description="resume 的集号（电影 0）")] = 0,
+    modes: Annotated[
+        str,
+        Query(
+            description="App 会放的方式，逗号分隔。带 clip 且开了片段预切时只给切好的片段"
+            "（没切好返回 null 并排队去切），source 一律按 highlight"
+        ),
+    ] = "seek",
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[ReelItemView | None]:
     item = await build_preview(
-        session, principal, media_item_id, source=source, season=season, episode=episode
+        session,
+        principal,
+        media_item_id,
+        source=source,
+        season=season,
+        episode=episode,
+        modes={m.strip() for m in modes.split(",") if m.strip()},
     )
     return ok(item)  # type: ignore[arg-type]
+
+
+@router.get(
+    "/clips/stats",
+    response_model=ApiResponse[ReelClipStatsView],
+    summary="片段预切：已切片段的数量与占用空间",
+    operation_id="reels.clips.stats",
+    dependencies=[Depends(require_admin)],
+    openapi_extra={"x-cli-hidden": True},
+)
+async def get_clip_stats() -> ApiResponse[ReelClipStatsView]:
+    return ok(ReelClipStatsView(**clips.stats()))
+
+
+@router.delete(
+    "/clips",
+    response_model=ApiResponse[ReelClipStatsView],
+    summary="片段预切：删除全部已切片段",
+    operation_id="reels.clips.clear",
+    dependencies=[Depends(require_admin)],
+    openapi_extra={"x-cli-hidden": True, "x-cli-dangerous": "destructive"},
+)
+async def delete_clips() -> ApiResponse[ReelClipStatsView]:
+    """先停队列再整目录删除；返回删掉前的统计。开关开着时下次用到片段会重新排队。"""
+    return ok(ReelClipStatsView(**await clips.delete_all()))
+
+
+@router.get(
+    "/clips/{file_id}/{start_ms}.mp4",
+    summary="片段预切：按 Range 取切好的片段",
+    operation_id="reels.clips.stream",
+    openapi_extra={"x-cli-hidden": True},
+)
+async def stream_clip(
+    file_id: Annotated[int, Path()],
+    start_ms: Annotated[int, Path()],
+    token: Annotated[str, Query()],
+):
+    """令牌与原片取流同一种（按文件签发）。不登记播放活动：预告、刷片不算「有人在看」，
+    否则在首页浏览反而会让后台预切停下来让路。"""
+    if await verify_stream_token(token, file_id=file_id) is None:
+        raise NotFoundException("播放地址无效或已过期")
+    info = clips.clip_for_file(file_id, start_ms)
+    if info is None:
+        raise NotFoundException("片段不存在或已过期")
+    return DisconnectAwareFileResponse(info.path, media_type="video/mp4")
 
 
 @router.post(

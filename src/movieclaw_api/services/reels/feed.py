@@ -79,6 +79,7 @@ from movieclaw_api.services.people_images import avatar_url
 from movieclaw_api.services.playback import marks as playback_marks
 from movieclaw_api.services.playback.signing import issue_stream_token
 from movieclaw_api.services.playback_up_next import _progress_percent, _runtime_ms
+from movieclaw_api.services.reels import clips
 from movieclaw_api.services.reels.segments import (
     FileRef,
     ReelSegment,
@@ -109,8 +110,10 @@ PAGE_BUDGET_S = 3.0
 SCAN_FACTOR = 3
 #: 剧集太短（片花、预告）不抽。不能定太高：《小猪佩奇》一集只有 5 分钟左右
 MIN_EPISODE_SECONDS = 120
-#: App 目前会放的方式
+#: App 会放的方式：从原片中间起播 / 预切好的片段文件
+#: （开了「片段预切」才出，docs/design/reels.md §8）
 MODE_SEEK = "seek"
+MODE_CLIP = "clip"
 
 _warm_tasks: set[asyncio.Task[Any]] = set()
 
@@ -131,6 +134,8 @@ class ReelPage:
     next_offset: int
     has_more: bool
     items: list[dict[str, Any]] = field(default_factory=list)
+    #: 片段预切进度（clip 模式才有）
+    clips: dict[str, Any] | None = None
 
 
 # --- 抽样 ------------------------------------------------------------------------
@@ -412,7 +417,8 @@ async def build_feed(
 ) -> ReelPage:
     """组一页。``modes`` 里没有本服务能出的放法时返回空页；``filters`` / ``kind`` 收窄抽样池。"""
     seed = seed if seed is not None else secrets.randbelow(2**31)
-    if MODE_SEEK not in modes:
+    clip_mode = MODE_CLIP in modes and await clips.enabled()
+    if MODE_SEEK not in modes and not clip_mode:
         return ReelPage(seed=seed, next_offset=offset, has_more=False)
     reel_pool = await pool_libraries(session, principal, kind)
     libraries = reel_pool.libraries
@@ -424,6 +430,8 @@ async def build_feed(
     content_limit = await content_limit_for(session, principal)
     pool = await _title_pool(session, libraries, content_limit, filters, member_id)
     pool = weighted_order(pool, await _ratings_of(session, [i for i, _ in pool]), seed)
+    if clip_mode:
+        return await _clip_page(session, pool, offset, limit, seed, reel_pool, member_id)
 
     window = pool[offset : offset + limit * SCAN_FACTOR]
     candidates = await _choose_candidates(session, window, list(libraries))
@@ -450,6 +458,53 @@ async def build_feed(
     items = await _assemble(session, page, member_id)
     _warm_stills([i["title"]["backdrop_url"] or i["cover_url"] for i in items[:WARM_STILLS]])
     return ReelPage(seed=seed, next_offset=next_offset, has_more=has_more, items=items)
+
+
+async def _clip_page(
+    session: AsyncSession,
+    pool: list[tuple[int, str]],
+    offset: int,
+    limit: int,
+    seed: int,
+    reel_pool: ReelPool,
+    member_id: int,
+) -> ReelPage:
+    """clip 模式的一页：顺着同一个抽样顺序往后，只挑切好的。
+
+    偏移仍按完整的抽样顺序算（不先把池子筛成「切好的」再分页）：中途又切好了几部，
+    排在已经刷过的位置之前的这次就不出，之后的照常出——同一次刷片不会重复、不会跳漏。
+    切好的片段一定有挑点缓存，不用现算，也不用预读、预热（小文件本身就快）。
+    """
+    clips.ensure_planned(video=reel_pool.video)
+    progress = clips.progress([item_id for item_id, _ in pool])
+    ready = clips.ready_item_ids()
+    window, index = [], offset
+    while index < len(pool) and len(window) < limit:
+        if pool[index][0] in ready:
+            window.append(pool[index])
+        index += 1
+    page: list[ReelCandidate] = []
+    infos: dict[int, clips.ClipInfo] = {}
+    for candidate in await _choose_candidates(session, window, list(reel_pool.libraries)):
+        segment = cached_segment(_file_ref(candidate.file, candidate.kind))
+        info = (
+            clips.ready_clip(candidate.file, segment)  # type: ignore[arg-type]
+            if isinstance(segment, ReelSegment)
+            else None
+        )
+        if info is None:
+            # 挑点重算过、换了版本：这一部要重切，这次先不出
+            clips.on_file_changed(candidate.media_item_id)
+            continue
+        candidate.segment = segment  # type: ignore[assignment]
+        infos[info.file_id] = info
+        page.append(candidate)
+    has_more = any(item_id in ready for item_id, _ in pool[index:])
+    items = await _assemble(session, page, member_id, clips_by_file=infos)
+    _warm_stills([i["title"]["backdrop_url"] or i["cover_url"] for i in items[:WARM_STILLS]])
+    return ReelPage(
+        seed=seed, next_offset=index, has_more=has_more, items=items, clips=progress
+    )
 
 
 async def _segments_within_budget(
@@ -714,8 +769,13 @@ def _asset_url(rel: str | None) -> str | None:
 
 
 async def _assemble(
-    session: AsyncSession, candidates: list[ReelCandidate], member_id: int
+    session: AsyncSession,
+    candidates: list[ReelCandidate],
+    member_id: int,
+    *,
+    clips_by_file: dict[int, clips.ClipInfo] | None = None,
 ) -> list[dict[str, Any]]:
+    """把候选装成接口条目。``clips_by_file`` 里有的文件按 clip 放（预切片段），其余按 seek。"""
     if not candidates:
         return []
     item_ids = sorted({c.media_item_id for c in candidates})
@@ -782,6 +842,7 @@ async def _assemble(
             else await playback_marks.get_state(session, played_target, member_id=member_id)
         )
         token = await issue_stream_token(member_id=member_id, file_id=int(file.id or 0))
+        clip = (clips_by_file or {}).get(int(file.id or 0))
         disc = disc_delivery(file)
         # 光盘的字幕清单是服务端按整盘探测的，与引擎读到的盘内轨对不上序号；strm 抽不了字幕窗口
         subtitle_ordinal = (
@@ -836,14 +897,19 @@ async def _assemble(
                     "method": segment.method,
                 },
                 "play": {
-                    "mode": MODE_SEEK,
+                    "mode": MODE_CLIP if clip else MODE_SEEK,
                     "stream_url": f"/api/v1/playback/files/{file.id}/stream?token={token}",
+                    "clip_url": f"{clip.url_path}?token={token}" if clip else None,
+                    "clip_size_bytes": clip.size_bytes if clip else None,
                     "size_bytes": file.size_bytes,
                     "disc": disc,
                     # 镜像的音轨清单服务端读不出盘内结构、不可信：交给引擎按盘上的默认音轨起播
                     "audio_ordinal": None if disc == "image" else choose_audio(file.audio_streams),
                     "subtitle": subtitle,
-                    "prefetch": [
+                    # 小文件不用预取原片字节
+                    "prefetch": []
+                    if clip
+                    else [
                         {"offset": r.offset, "length": r.length, "purpose": r.purpose}
                         for r in segment.prefetch
                     ],
