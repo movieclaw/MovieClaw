@@ -1,6 +1,6 @@
 """第三方通道插件（docs/design/plugin-channels.md §8、§10）。
 
-真实应用 + 示例插件 ``examples/plugins/ntfy-channel``（只依赖 SDK 与开放契约），
+真实应用 + 示例插件 ``ntfy-channel``（只依赖 SDK 与开放契约），
 进程内 / 进程外各跑一遍，对着一个本地起的假 ntfy 服务器：
 - 通道出现在通道列表里（带插件前缀的通道 id），表单绑定时往「发消息的主题」发欢迎消息；
 - 往「收消息的主题」发消息 → 插件收到 → 中枢交给 AI 助手（替身）→ 回复发回「发消息的主题」；
@@ -31,7 +31,16 @@ from starlette.routing import Route
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.plugins.local import PACKAGE
 
-EXAMPLE = Path(__file__).resolve().parents[2] / "examples" / "plugins" / "ntfy-channel"
+EXAMPLE = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "movieclaw_agent"
+    / "builtin-skills"
+    / "movieclaw-plugin-dev"
+    / "references"
+    / "examples"
+    / "ntfy-channel"
+)
 
 
 class FakeNtfy:
@@ -153,7 +162,7 @@ def world(request, tmp_path, monkeypatch):
     (tmp_path / "plugins.yaml").write_text(
         textwrap.dedent(
             f"""
-            - id: examples.ntfy
+            - id: ntfy-channel
               local: true
               module: ntfy_channel
               runtime: {request.param}
@@ -202,12 +211,12 @@ def wait(predicate, timeout: float = 10.0) -> None:
 def test_third_party_channel_binds_chats_and_pushes(world, ntfy) -> None:
     fake, server = ntfy
     with make_client() as client:
-        assert client.app.state.kernel.fiber("examples.ntfy").state.value == "active"
+        assert client.app.state.kernel.fiber("ntfy-channel").state.value == "active"
         channels = client.get("/api/v1/channels").json()["data"]["channels"]
         [channel] = [c for c in channels if c["title"] == "ntfy"]
         cid = channel["id"]
         assert cid.endswith("ntfy") and cid != "ntfy", "第三方通道 id 带插件前缀"
-        assert channel["entry_id"] == "examples.ntfy"
+        assert channel["entry_id"] == "ntfy-channel"
         assert [f["key"] for f in channel["binding"]["fields"]] == [
             "server",
             "inbox",

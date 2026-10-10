@@ -562,7 +562,9 @@ export function LibraryView({ hero }: { hero?: ReactNode }) {
             <h3 className="text-on-image page-inset text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
               {rowTitle(row)}
             </h3>
-            <HScroller className="mt-3 gap-4 pb-1 pt-1 page-inset max-md:gap-3">
+            {/* pt-2 是类型格悬停上浮（-translate-y-1.5 = 6px）的头部余量：横滚容器
+                overflow-x-auto 会连带裁纵向溢出，与海报行（media-row）同一规矩 */}
+            <HScroller className="mt-3 gap-4 pb-1 pt-2 page-inset max-md:gap-3">
               {genres.map((genre) => (
                 <GenreTile
                   key={genre.value}

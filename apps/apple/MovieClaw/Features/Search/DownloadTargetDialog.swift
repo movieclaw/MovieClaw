@@ -312,7 +312,9 @@ struct DownloadTargetSheet: View {
             showOther = !canResolve || (remembered != nil && remembered?.kind != "smart")
             if remembered?.kind == "smart" { downloaderId = remembered?.downloaderId }
             if canResolve {
-                await runPreflight(downloaderId: remembered?.kind == "smart" ? remembered?.downloaderId : nil, candidate: nil, hint: request.hint, initial: true)
+                // 不挂在 .task 上：弹窗入场时会被移除再挂回一次，.task 随之取消，而 initialized 挡住了重试
+                let rememberedId = remembered?.kind == "smart" ? remembered?.downloaderId : nil
+                await Task { await runPreflight(downloaderId: rememberedId, candidate: nil, hint: request.hint, initial: true) }.value
             }
             autoSelect()
         }

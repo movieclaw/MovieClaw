@@ -69,8 +69,11 @@ export function MediaRow({
 
       {/* m-row：稳定钩子类，供 Netflix 主题的移动端行卡宽断点规则定位
           （globals.css 的 html[data-theme="netflix"] .m-row > div）；
-          银玻璃不命中该作用域，卡宽维持下方工具类取值 */}
-      <HScroller className={`m-row gap-4 pb-1 pt-1 max-md:gap-3 ${insetClassName}`}>
+          银玻璃不命中该作用域，卡宽维持下方工具类取值。
+          pt-2 是海报卡悬停上浮（-translate-y-1.5 = 6px）的头部余量：横滚容器
+          overflow-x-auto 会连带裁纵向溢出，pt-1 只有 4px，上浮时卡片顶部的
+          圆角会被削掉一截 */}
+      <HScroller className={`m-row gap-4 pb-1 pt-2 max-md:gap-3 ${insetClassName}`}>
         {row.items.map((item) => (
           <div
             key={`${row.id}-${item.id}`}

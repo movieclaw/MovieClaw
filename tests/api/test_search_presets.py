@@ -61,13 +61,13 @@ def _preset(name: str = "热门影剧", **overrides) -> dict:
 
 
 def test_default_tabs(client: TestClient) -> None:
-    """从未配置时返回默认：常用四类可见且排前，成人等隐藏，无预设。"""
+    """从未配置时返回默认：常用四类可见且排前，其余隐藏，无预设；成人不是内置分类。"""
     tabs = _get_presets(client)
     assert all(t["type"] == "category" for t in tabs)
     assert [t["id"] for t in tabs[:4]] == ["movie", "tv", "documentary", "anime"]
     assert all(t["visible"] for t in tabs[:4])
     hidden = {t["id"]: t["visible"] for t in tabs[4:]}
-    assert hidden == {"music": False, "game": False, "av": False, "other": False}
+    assert hidden == {"music": False, "game": False, "other": False}
 
 
 def test_save_mixed_tabs_persists(client: TestClient) -> None:
@@ -174,17 +174,32 @@ def test_missing_builtin_backfilled(client: TestClient) -> None:
         "/api/v1/search/presets",
         json={
             "presets": [
-                {"type": "category", "id": "av", "visible": True},
+                {"type": "category", "id": "music", "visible": True},
                 _preset("MT", site_ids=["mteam"]),
             ]
         },
     )
     assert resp.status_code == 200
     saved = resp.json()["data"]["presets"]
-    # av + 预设 + 补齐的 7 个内置分类
-    assert len(saved) == 9
-    assert saved[0] == {"type": "category", "id": "av", "visible": True}
+    # music + 预设 + 补齐的 6 个内置分类
+    assert len(saved) == 8
+    assert saved[0] == {"type": "category", "id": "music", "visible": True}
     assert saved[1]["type"] == "preset"
     categories = [t["id"] for t in saved if t["type"] == "category"]
-    assert len(categories) == 8
+    assert len(categories) == 7
     assert next(t for t in saved if t.get("id") == "movie")["visible"] is True
+
+
+def test_adult_is_not_a_builtin_tab(client: TestClient) -> None:
+    """成人不是内置分类：以前打开过的开关保存 / 读取时都会被去掉；自定义分类仍可勾选它。"""
+    tabs = _get_presets(client)
+    adult_preset = _preset("自选", categories=["av"])
+    resp = client.put(
+        "/api/v1/search/presets",
+        json={"presets": [{"type": "category", "id": "av", "visible": True}, *tabs, adult_preset]},
+    )
+    assert resp.status_code == 200
+    saved = resp.json()["data"]["presets"]
+    assert not any(t["type"] == "category" and t["id"] == "av" for t in saved)
+    assert next(t for t in saved if t["type"] == "preset")["categories"] == ["av"]
+    assert not any(t["type"] == "category" and t["id"] == "av" for t in _get_presets(client))

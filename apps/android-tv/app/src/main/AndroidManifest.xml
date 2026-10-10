@@ -33,6 +33,18 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+            <!-- 普通启动器入口：**必须单独一个 filter**。国产电视（小米 MiTV 的
+                 com.mitv.tvhome、海信/TCL/创维等自家桌面）用系统的 LauncherApps
+                 列应用，只认 CATEGORY_LAUNCHER——只声明 LEANBACK_LAUNCHER 时应用能装
+                 能跑，但桌面/应用列表里哪都找不到。两个类别写进同一个 filter 也不行：
+                 类别匹配要求 intent 带上 filter 里写的全部类别，那样普通 LAUNCHER
+                 intent 与 Google TV 桌面的 LEANBACK intent 会同时匹配不上。
+                 Google 认证的 Android TV 桌面只索引 LEANBACK_LAUNCHER，多这一条不会
+                 出现重复图标。 -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
             <!-- 「继续观看」与深链：movieclaw://play/<条目>?season=&episode=、movieclaw://item/<库>/<条目> -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />

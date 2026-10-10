@@ -160,6 +160,7 @@ class Session:
         self.channels: dict[str, Any] = {}
         """这个插件贡献的通道：贡献 id → 宿主侧的驱动桩（plugin_channels.py）。"""
         self.routes: list[dict[str, Any]] = []
+        self.callbacks: list[dict[str, Any]] = []
         self._fd_host: socket.socket | None = None
         self.files: Any = None
         """宿主侧这个条目的 ``PluginFiles``（插件注入了 PLUGIN_FILES 时才有）。"""
@@ -259,6 +260,7 @@ class Session:
         declarations: list[dict[str, Any]] = []
         self.contributions = []
         self.routes = []
+        self.callbacks = []
         while True:
             message = await self._read(proc)
             kind = message["type"]
@@ -268,6 +270,8 @@ class Session:
                 self.contributions.append(message)
             elif kind == "routes":
                 self.routes.append(message)
+            elif kind == "callback":
+                self.callbacks.append(message)
             elif kind == "rpc":
                 # 插件在 apply 里就要用宿主服务（拿宿主操作凭证、读插件数据）
                 asyncio.get_running_loop().create_task(self._run_rpc(message))
@@ -550,6 +554,7 @@ def _shape(session: Session, declarations: list[dict[str, Any]]) -> set[Any]:
             for m in session.routes
             for r in m["routes"]
         }
+        | {("callback", c["name"]) for c in session.callbacks}
     )
 
 
@@ -648,6 +653,8 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
             summary=route.get("summary"),
             name=route.get("name"),
             response_model=None,
+            # 插件端点的参数 / 请求体定义：进接口目录，mclaw 才有对应的选项
+            openapi_extra=route.get("openapi") or None,
         )
     return router
 
@@ -744,10 +751,33 @@ def _proxy(session: Session, declaration: dict[str, Any]) -> tuple[Any, Callable
     return event, call
 
 
+def _callback_proxy(ctx: Context, session: Session, declared: dict[str, Any]) -> None:
+    """子进程登记的回调端点：宿主这边登记一个转发函数，请求经协议交给插件进程处理。"""
+    from movieclaw_api.plugins.keys import PLUGIN_CALLBACKS
+    from movieclaw_sdk.callbacks import request_dict, response_from_dict
+
+    name = declared["name"]
+
+    async def forward(request: Any) -> Any:
+        # 超时由回调服务统一控制（wait_for 取消这次调用）
+        data = await session.call(name, request_dict(request), timeout=None, kind="callback")
+        return response_from_dict(data)
+
+    ctx.use(PLUGIN_CALLBACKS).endpoint(
+        ctx,
+        name,
+        forward,
+        methods=tuple(declared.get("methods") or ("POST",)),
+        max_body=int(declared.get("max_body") or 0) or 1024 * 1024,
+        timeout=float(declared.get("timeout") or 10.0),
+    )
+
+
 def _open_services() -> dict[str, ServiceKey[Any]]:
     """进程外插件能用的服务（插件侧有对应的代理，见 ``movieclaw_sdk.runner``）。"""
     from movieclaw_api.plugins.keys import (
         HOST_OPS,
+        PLUGIN_CALLBACKS,
         PLUGIN_DATA,
         PLUGIN_FILES,
         PLUGIN_HEALTH,
@@ -755,6 +785,7 @@ def _open_services() -> dict[str, ServiceKey[Any]]:
     )
 
     return {
+        PLUGIN_CALLBACKS.name: PLUGIN_CALLBACKS,
         PLUGIN_FILES.name: PLUGIN_FILES,
         HOST_OPS.name: HOST_OPS,
         PLUGIN_DATA.name: PLUGIN_DATA,
@@ -836,13 +867,31 @@ async def _service_handler(ctx: Context, session: Session, names: tuple[str, ...
             await stub.callback(method, params)
             return None
         if method == "net.proxy":
-            # 代理地址可能带账号密码：只回答插件自己的服务名（条目 id 最后一段），别的服务直连
+            # 代理地址可能带账号密码：只回答插件自己的服务名，别的服务直连
             from movieclaw_net import resolve_proxy_url
 
             service = str(params.get("service") or "")
-            if service != session.entry_id.rsplit(".", 1)[-1]:
+            if service not in own_services(session.entry_id):
                 return None
             return resolve_proxy_url(service)
+        if method.startswith("callbacks."):
+            from movieclaw_api.plugins.keys import PLUGIN_CALLBACKS
+            from movieclaw_sdk.callbacks import issued_dict
+
+            callbacks = need(
+                ctx.use(PLUGIN_CALLBACKS) if PLUGIN_CALLBACKS.name in names else None,
+                PLUGIN_CALLBACKS.name,
+            )
+            if method == "callbacks.issue":
+                issued = await callbacks.issue(
+                    ctx, str(params["name"]), scope=str(params.get("scope") or "plugin")
+                )
+                return issued_dict(issued)
+            if method == "callbacks.revoke":
+                await callbacks.revoke(ctx, int(params["key_id"]))
+                return None
+            if method == "callbacks.keys":
+                return [issued_dict(i) for i in await callbacks.keys(ctx, params.get("name"))]
         if method == "routes.sign":
             from movieclaw_api.plugins.keys import PLUGIN_ROUTES
 
@@ -939,6 +988,23 @@ async def _files_call(session: Session, files: Any, method: str, params: dict[st
 _tokens = itertools.count(1)
 
 
+def own_services(entry_id: str) -> set[str]:
+    """进程外插件能问代理的服务名：条目 id 本身。
+
+    旧格式（带点）的 id 按最后一段（``channel.telegram`` → ``telegram``）；替换随带通道的插件包
+    沿用随带通道的出口规则（「设置 → 网络与代理」里的 telegram 等）。
+    """
+    from movieclaw_api.plugins.bundled import LEGACY_IDS, canonical
+
+    names = {entry_id}
+    if "." in entry_id:
+        names.add(entry_id.rsplit(".", 1)[-1])
+    legacy = {new: old for old, new in LEGACY_IDS.items()}.get(canonical(entry_id))
+    if legacy is not None:
+        names.add(legacy.rsplit(".", 1)[-1])
+    return names
+
+
 def remote_plugin(
     entry_id: str,
     *,
@@ -987,6 +1053,8 @@ def remote_plugin(
                 ctx.use(PLUGIN_ROUTES).mount(
                     ctx, _route_proxy(session, mounted["routes"]), zone=mounted["zone"]
                 )
+        for declared in session.callbacks:
+            _callback_proxy(ctx, session, declared)
         for contribution in session.contributions:
             key, item = _contribution(session, contribution)
             ctx.contribute(

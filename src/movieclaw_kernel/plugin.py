@@ -61,6 +61,10 @@ def plugin(
     def decorator(fn: Apply) -> Plugin:
         if not inspect.iscoroutinefunction(fn):
             raise TypeError(f"插件 {name} 的 apply 必须是 async 函数")
+        for label, keys in (("inject", inject), ("provides", provides)):
+            for key in keys:
+                if not isinstance(key, ServiceKey):
+                    raise TypeError(_not_a_service(name, label, key))
         return Plugin(
             name=name,
             title=title,
@@ -77,6 +81,22 @@ def plugin(
         )
 
     return decorator
+
+
+def _not_a_service(name: str, label: str, key: object) -> str:
+    """``inject`` / ``provides`` 只收服务键；写进事件、钩子、注册表时直接说清该怎么写。
+
+    不在这里拦住的话，内核会一直等一个没人提供的「服务」，插件卡在待启动、说不出原因。
+    """
+    kind = getattr(key, "kind", None)
+    key_name = getattr(key, "name", repr(key))
+    hint = {
+        "registry": f"{key_name} 是注册表：在 apply 里 ctx.contribute(...) 即可",
+        "event": f"{key_name} 是事件 / 钩子：在 apply 里 ctx.on(...) 即可",
+    }.get(kind or "", "")
+    return f"插件 {name} 的 {label} 只能写服务键，{key_name} 不是服务" + (
+        f"（{hint}，不要写进 {label}；用到的契约写进清单 [requires]）" if hint else ""
+    )
 
 
 @dataclass(frozen=True)

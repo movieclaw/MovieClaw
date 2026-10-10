@@ -1,5 +1,5 @@
 [plugin]
-id = "channel.feishu"
+id = "feishu-channel"
 title = "飞书通道"
 version = "1.0.0"
 entry = "feishu_channel"

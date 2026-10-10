@@ -560,7 +560,7 @@ export function MediaDetailView({
                 <button
                   type="button"
                   onClick={openSubscribe}
-                  className={`btn-accent flex h-10 items-center gap-2 rounded-full px-5 text-ui font-semibold ${actionSize}`}
+                  className={`btn-accent media-cta flex h-10 items-center gap-2 rounded-full px-5 text-ui font-semibold ${actionSize}`}
                 >
                   <BellIcon className="size-4" />
                   订阅追踪
@@ -774,7 +774,7 @@ function TrailerRow({ title, videos }: { title: string; videos: MediaVideo[] }) 
         预告片
       </h2>
 
-      <HScroller className="-mx-1 gap-3 px-1 pb-1 pt-1">
+      <HScroller className="-mx-1 gap-3 px-1 pt-1.5 pb-1">
         {videos.map((video) => (
           <TrailerCard key={video.key} video={video} title={title} onPlay={() => setPlaying(video)} />
         ))}
@@ -1059,7 +1059,7 @@ function PhotoWall({
           onScroll={updateEdges}
           // overscroll-x-contain：滑到行的尽头后不把剩余动量甩给外层纵向滚动
           // （同 HScroller 的处理，触屏上「滑到头带动整页跳一下」即由此而来）
-          className="scroll-none -mx-1 flex gap-3 overflow-x-auto overscroll-x-contain px-1 pb-1 pt-1"
+          className="scroll-none -mx-1 flex gap-3 overflow-x-auto overscroll-x-contain px-1 pt-1.5 pb-1"
         >
           {active.images.map((img, i) => (
             <PhotoCard

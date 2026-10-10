@@ -89,6 +89,9 @@ function hasAbnormalLabel(item: LibraryItem): boolean {
 }
 
 
+/** 海报卡悬停上浮的头部余量（px）：卡片 -translate-y-1.5 = 6px，留 2px 缓冲。 */
+const LIFT_HEADROOM_PX = 8;
+
 /** 库存格：真实拥有的作品。点击进**媒体库条目详情**（本地刮削信息 +
  *  片源规格 + 条目操作），不再复用发现页的 TMDB 详情；格下标注库存概况。
  *
@@ -174,11 +177,26 @@ export const InventoryCell = memo(function InventoryCell({
     // 那层 shadow-[0_10px_28px] 因此被裁在格子边界上。去掉之后投影会漫到相邻
     // 格子上——实测整墙 6~9% 的像素跟着变。那是既有观感的一部分，这次只做性能，
     // 不顺手改画面（要放开投影是另一件事，得单独看效果）
+    //
+    // contain:paint 同样裁掉海报卡悬停上浮的顶部（6px），圆角被削——用
+    // 「负 margin + 等值 padding」把裁剪盒向上探进 28px 的行距里：内容位置
+    // 不动、外尺寸不变（margin 抵消 padding，grid 行高与探针测得的文字区
+    // 都不受影响），上浮的顶部落在自己的 padding 区里不再被裁。探针格
+    // （measuring）不带这份补偿：它量的文字区高度直接决定整面墙的行几何，
+    // 必须保持与改造前逐字节同构。
     <div
       // 位置锚点：会话内的滚动恢复（lib/use-scroll-restoration.ts）与跨会话的
       // 「回到上次位置」（lib/library-wall-recall.ts）都按它认这一屏是哪几部
       data-library-item-id={measuring ? undefined : item.media_item_id}
-      style={{ contain: "paint" }}
+      style={
+        measuring
+          ? { contain: "paint" }
+          : {
+              contain: "paint",
+              paddingTop: LIFT_HEADROOM_PX,
+              marginTop: -LIFT_HEADROOM_PX,
+            }
+      }
     >
       {/* 后台正在处理的那一格自己点亮：进度面板/胶囊列的是总数或片名，
           海报墙上也要能一眼看到"正在弄这部"，否则用户得在两处之间对片名 */}

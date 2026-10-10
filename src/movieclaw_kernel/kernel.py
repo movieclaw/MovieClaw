@@ -629,7 +629,15 @@ class Kernel:
                     reason = "没有插件提供"
                 else:
                     reason = f"提供方 {provider.id} 状态为 {provider.state.value}"
-                blocked.append({"key": name, "reason": reason})
+                blocked.append(
+                    {
+                        "key": name,
+                        "reason": reason,
+                        # 结构化的提供方：界面据此区分「依赖坏了」与「依赖被有意关掉」
+                        "provider": provider.id if provider else None,
+                        "provider_state": provider.state.value if provider else None,
+                    }
+                )
         breakers = [listener.breaker.state for listener in self.bus.owned_by(fiber.id)]
         return {
             "id": fiber.id,

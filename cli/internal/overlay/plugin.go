@@ -341,8 +341,14 @@ func devInstall(client *api.Client, dir string, allowInline bool) error {
 		output.Info("✓ %s v%s 已加载（%s）", manifest.ID, manifest.Version, time.Now().Format("15:04:05"))
 		return nil
 	}
-	return clierr.New("v%s 没能运行，服务器已回到 v%s：%s", manifest.Version,
-		jsonval.Str(jsonval.At(result, "version")), jsonval.Str(jsonval.At(result, "error")))
+	reason := jsonval.Str(jsonval.At(result, "error"))
+	if reason == "" {
+		reason = "状态为 " + jsonval.Str(jsonval.At(result, "state"))
+	}
+	if previous := jsonval.Str(jsonval.At(result, "version")); previous != "" {
+		return clierr.New("v%s 没能运行，服务器已回到 v%s：%s", manifest.Version, previous, reason)
+	}
+	return clierr.New("v%s 没能运行，已撤销安装：%s", manifest.Version, reason)
 }
 
 // nonNil 让空列表序列化成 []，而不是 null（服务器的请求模型不收 null）。

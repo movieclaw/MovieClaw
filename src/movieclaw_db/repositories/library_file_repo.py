@@ -349,7 +349,7 @@ class LibraryFileRepository:
         if not existing.media_source_manual:
             existing.media_source = row.media_source
         existing.release_group = row.release_group
-        # 原始文件名同来源快照：只补空不覆盖（缺失回归走扫描，扫描不知道原名）
+        # 原始文件名同来源快照：只补空不覆盖（缺失回归走扫描，扫描只知道当前文件名）
         if existing.release_name is None:
             existing.release_name = row.release_name
         existing.source = row.source

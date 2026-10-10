@@ -17,19 +17,20 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -41,15 +42,19 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
@@ -116,8 +121,10 @@ fun McLiquidTabBar(
     val count = icons.size
     if (count == 0) return
 
-    // 收缩过渡：底边不动、顶边下来（网页 --tabbar-h 54→44 的口径）
-    val mini by animateFloatAsState(
+    // 收缩过渡：底边不动、顶边下来（网页 --tabbar-h 54→44 的口径）。
+    // 只在布局/图层阶段读它（传 lambda 下去）：560ms 过渡里每帧重组整条底栏 + 玻璃逐帧换尺寸，
+    // 开液态玻璃后滚动一起步就掉帧（实机反馈）
+    val miniState = animateFloatAsState(
         targetValue = if (TabBarMinimize.minimized) 1f else 0f,
         animationSpec = tween(560, easing = CubicBezierEasing(0.32f, 1.25f, 0.4f, 1f)),
         label = "liquid-minimize",
@@ -131,12 +138,9 @@ fun McLiquidTabBar(
                 .height(McMetrics.tabBarHeight + 8.dp)
                 .align(Alignment.BottomCenter),
         ) {
-            val capW = lerp(maxWidth, 44.dp, mini)
-            val capH = lerp(McMetrics.tabBarHeight, 44.dp, mini)
             LiquidCapsule(
-                capW = capW,
-                capH = capH,
-                mini = mini,
+                fullW = maxWidth,
+                mini = { miniState.value },
                 count = count,
                 icons = icons,
                 labels = labels,
@@ -154,9 +158,8 @@ fun McLiquidTabBar(
 
 @Composable
 private fun androidx.compose.foundation.layout.BoxScope.LiquidCapsule(
-    capW: Dp,
-    capH: Dp,
-    mini: Float,
+    fullW: Dp,
+    mini: () -> Float,
     count: Int,
     icons: List<ImageVector>,
     labels: List<String>,
@@ -168,6 +171,9 @@ private fun androidx.compose.foundation.layout.BoxScope.LiquidCapsule(
     dots: Map<Int, TabDot>,
     hazeState: dev.chrisbanes.haze.HazeState?,
 ) {
+    // 只在越过一半时变一次：收起/展开的切换点（页签浮现、指示器淡出跟它走）
+    val collapsed by remember { derivedStateOf { mini() > 0.5f } }
+
     // 手势闭包里只能读这两个包装值：pointerInput 不重启就不换闭包，直接捕获参数会拿到
     // 底栏首次组装时的旧值（「拖不回起始页」的根因）
     val latestSelected by rememberUpdatedState(selectedIndex)
@@ -205,7 +211,13 @@ private fun androidx.compose.foundation.layout.BoxScope.LiquidCapsule(
     Box(
         Modifier
             .align(Alignment.BottomStart)
-            .size(width = capW, height = capH)
+            .layout { measurable, _ ->
+                val m = mini()
+                val w = lerp(fullW, 44.dp, m).roundToPx()
+                val h = lerp(McMetrics.tabBarHeight, 44.dp, m).roundToPx()
+                val placeable = measurable.measure(Constraints.fixed(w, h))
+                layout(w, h) { placeable.place(0, 0) }
+            }
             .graphicsLayer {
                 // 按压鼓起 2%（网页 data-pressed）
                 val s = if (pressed) 1.02f else 1f
@@ -303,40 +315,46 @@ private fun androidx.compose.foundation.layout.BoxScope.LiquidCapsule(
                     },
                 )
                 .background(GlassCapsule)
-                .drawWithContent {
-                    drawContent()
+                // 边缘高光线：光从左上打来——左上主高光、右下回光、上沿偏亮的纵向渐变。
+                // 渐变按尺寸缓存，只在尺寸变了才重建
+                .drawWithCache {
                     val w = size.width
                     val h = size.height
                     val stroke = Stroke(width = 1.dp.toPx())
                     val corner = CornerRadius(h / 2f)
-                    // 边缘高光线：光从左上打来——左上主高光、右下回光、上沿偏亮的纵向渐变
-                    drawRoundRect(
-                        Brush.radialGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.62f), Color.Transparent),
-                            center = Offset(w * 0.12f, 0f),
-                            radius = 90.dp.toPx(),
-                        ),
-                        size = size, style = stroke, cornerRadius = corner,
+                    val topLeft = Brush.radialGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.62f), Color.Transparent),
+                        center = Offset(w * 0.12f, 0f),
+                        radius = 90.dp.toPx(),
                     )
-                    drawRoundRect(
-                        Brush.radialGradient(
-                            colors = listOf(Color.White.copy(alpha = 0.34f), Color.Transparent),
-                            center = Offset(w * 0.88f, h),
-                            radius = 90.dp.toPx(),
-                        ),
-                        size = size, style = stroke, cornerRadius = corner,
+                    val bottomRight = Brush.radialGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.34f), Color.Transparent),
+                        center = Offset(w * 0.88f, h),
+                        radius = 90.dp.toPx(),
                     )
-                    drawRoundRect(
-                        Brush.verticalGradient(
-                            0f to Color.White.copy(alpha = 0.30f),
-                            0.45f to Color.White.copy(alpha = 0.07f),
-                            0.60f to Color.White.copy(alpha = 0.05f),
-                            1f to Color.White.copy(alpha = 0.16f),
-                        ),
-                        size = size, style = stroke, cornerRadius = corner,
+                    val vertical = Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = 0.30f),
+                        0.45f to Color.White.copy(alpha = 0.07f),
+                        0.60f to Color.White.copy(alpha = 0.05f),
+                        1f to Color.White.copy(alpha = 0.16f),
                     )
-                    // 按压辉光：触点处由内发亮
-                    if (glow.value > 0.01f) {
+                    onDrawWithContent {
+                        drawContent()
+                        drawRoundRect(topLeft, size = size, style = stroke, cornerRadius = corner)
+                        drawRoundRect(bottomRight, size = size, style = stroke, cornerRadius = corner)
+                        drawRoundRect(vertical, size = size, style = stroke, cornerRadius = corner)
+                    }
+                },
+        )
+        // 按压辉光：触点处由内发亮。**单独一层**画在玻璃上面——画在玻璃层里的话，
+        // 辉光 520ms 熄灭的每一帧都会让整块背景模糊重新渲染一遍
+        Box(
+            Modifier
+                .matchParentSize()
+                .clip(RoundedCornerShape(999.dp))
+                .drawBehind {
+                    val g = glow.value
+                    if (g > 0.01f) {
                         drawRect(
                             Brush.radialGradient(
                                 listOf(
@@ -347,28 +365,35 @@ private fun androidx.compose.foundation.layout.BoxScope.LiquidCapsule(
                                 center = glowCenter,
                                 radius = 72.dp.toPx(),
                             ),
-                            alpha = glow.value,
+                            alpha = g,
                         )
                     }
                 },
         )
         /* ── 页签层：收起时向当前格收拢并糊掉（blur 是 API 31+ 的 RenderEffect，低版本只剩缩放淡出） ── */
-        BoxWithConstraints(
+        Box(
             Modifier
                 .matchParentSize()
                 .padding(3.dp)
-                // **只在收起时挂 blur**：RenderEffect 会把内容装进按节点尺寸定界的图层，
-                // 常态挂着它，拖动/抬起时探出页签层的部分会被图层边缘切平——
-                // 胶囊上下被「裁平」的根因（实机截图：右侧一条平直竖切边）。收起时胶囊已淡出，无碍
-                .then(if (mini > 0.01f) Modifier.blur(((6f * mini).coerceAtLeast(0.1f)).dp) else Modifier)
                 .graphicsLayer {
-                    alpha = 1f - mini
-                    scaleX = 1f - 0.18f * mini
-                    scaleY = 1f - 0.18f * mini
+                    val m = mini()
+                    alpha = 1f - m
+                    scaleX = 1f - 0.18f * m
+                    scaleY = 1f - 0.18f * m
                     transformOrigin = TransformOrigin((selectedIndex + 0.5f) / count, 0.5f)
+                    // **只在收起时挂模糊**：RenderEffect 会把内容装进按节点尺寸定界的图层，
+                    // 常态挂着它，拖动/抬起时探出页签层的部分会被图层边缘切平——
+                    // 胶囊上下被「裁平」的根因（实机截图：右侧一条平直竖切边）。收起时胶囊已淡出，无碍。
+                    // 在图层阶段设置而不是挂 Modifier.blur：后者半径每帧变就每帧重组
+                    renderEffect = if (m > 0.01f && android.os.Build.VERSION.SDK_INT >= 31) {
+                        val r = 6.dp.toPx() * m
+                        BlurEffect(r, r, TileMode.Decal)
+                    } else null
                 },
         ) {
-            val tabsW = maxWidth
+            // 页签层宽按**展开时**的宽算（胶囊宽 − 两侧 3dp）：按实时宽算的话，收起过渡里
+            // 宽度每帧在变，整层页签跟着每帧重组、弹簧协程每帧重启
+            val tabsW = fullW - 6.dp
             val cellWpx = with(LocalDensity.current) { (tabsW / count).toPx() }
 
             // 弹簧：欠阻尼 + 可打断。目标是「按压预览的那格；没有预览时是选中格」——
@@ -416,13 +441,13 @@ private fun androidx.compose.foundation.layout.BoxScope.LiquidCapsule(
                 }
             }
 
-            val indicatorAlpha by animateFloatAsState(if (mini > 0.5f) 0f else 1f, tween(160), label = "pill-alpha")
+            val indicatorAlpha by animateFloatAsState(if (collapsed) 0f else 1f, tween(160), label = "pill-alpha")
             // 选中胶囊：**一格宽**（网页 `width: calc(100% / var(--count))`）——
             // 这里必须显式给宽，不能 matchParentSize（那样是一条全宽亮条在平移，实机踩过）
             Box(
                 Modifier
-                    .width(tabsW / count)
-                    .fillMaxSize()
+                    .fillMaxWidth(1f / count)
+                    .fillMaxHeight()
                     .graphicsLayer {
                         translationX = pillX
                         val stretch = if (pillMoving || dragActive) {
@@ -454,8 +479,8 @@ private fun androidx.compose.foundation.layout.BoxScope.LiquidCapsule(
             Row(Modifier.matchParentSize()) {
                 repeat(count) { i ->
                     val appear by animateFloatAsState(
-                        targetValue = if (mini > 0.5f) 0f else 1f,
-                        animationSpec = tween(300, delayMillis = if (mini > 0.5f) 0 else i * 22),
+                        targetValue = if (collapsed) 0f else 1f,
+                        animationSpec = tween(300, delayMillis = if (collapsed) 0 else i * 22),
                         label = "tab-appear-$i",
                     )
                     Box(
@@ -508,8 +533,9 @@ private fun androidx.compose.foundation.layout.BoxScope.LiquidCapsule(
                 .align(Alignment.CenterStart)
                 .size(40.dp)
                 .graphicsLayer {
-                    alpha = mini
-                    val s = 0.6f + 0.4f * mini
+                    val m = mini()
+                    alpha = m
+                    val s = 0.6f + 0.4f * m
                     scaleX = s; scaleY = s
                 }
                 .clickable(
@@ -551,13 +577,6 @@ private fun androidx.compose.foundation.layout.BoxScope.ShadowedIcon(
 /** 7dp 状态点 + 2dp 深描边；live 点带 1.6s 呼吸扩散环（网页 .glass-tabbar__badge） */
 @Composable
 private fun androidx.compose.foundation.layout.BoxScope.StatusDot(dot: TabDot, livePulse: Boolean) {
-    val transition = rememberInfiniteTransition(label = "dot-ping")
-    val ping by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1600, easing = CubicBezierEasing(0f, 0f, 0.2f, 1f))),
-        label = "dot-ping-value",
-    )
     Box(
         Modifier
             .align(Alignment.Center)
@@ -566,14 +585,23 @@ private fun androidx.compose.foundation.layout.BoxScope.StatusDot(dot: TabDot, l
     ) {
         Box(Modifier.fillMaxSize().clip(CircleShape).background(Color(0xEA1C1E23)))
         if (livePulse) {
+            // 无限动画只给 live 点开（以前任何状态点都在跑，且在组合里读值 = 永远每帧重组）
+            val transition = rememberInfiniteTransition(label = "dot-ping")
+            val ping = transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(1600, easing = CubicBezierEasing(0f, 0f, 0.2f, 1f))),
+                label = "dot-ping-value",
+            )
             Box(
                 Modifier
                     .align(Alignment.Center)
                     .size(7.dp)
                     .graphicsLayer {
-                        scaleX = 1f + 1.2f * ping
-                        scaleY = 1f + 1.2f * ping
-                        alpha = (1f - ping) * 0.6f
+                        val p = ping.value
+                        scaleX = 1f + 1.2f * p
+                        scaleY = 1f + 1.2f * p
+                        alpha = (1f - p) * 0.6f
                     }
                     .clip(CircleShape)
                     .background(dot.color),

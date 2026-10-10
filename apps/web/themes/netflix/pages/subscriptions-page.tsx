@@ -461,7 +461,8 @@ function ComingSoonCard({
       className={`group block shrink-0 cursor-pointer outline-none ${COMING_CARD_W}`}
       aria-label={`查看《${group.mediaTitle}》的订阅详情，${dayLabel}${group.episodeLabel ? ` ${group.episodeLabel}` : ""}`}
     >
-      <div className="relative aspect-video overflow-hidden rounded-[4px] bg-[#181818] ring-1 ring-white/[0.06] transition-all duration-150 group-hover:ring-white/30">
+      {/* 6px 与全站卡片同一档（rounded-* 换档后的卡角；4px 是控件档） */}
+      <div className="relative aspect-video overflow-hidden rounded-[6px] bg-[#181818] ring-1 ring-white/[0.06] transition-all duration-150 group-hover:ring-white/30">
         {posterUrl ? (
           <>
             {/* 模糊铺底与中央海报同一宽度（海报约 72 宽 = 卡高 126 × 86% × 2/3），
@@ -544,7 +545,8 @@ function SubscriptionPosterRow({
           {subscriptions.length} 部
         </span>
       </div>
-      <HScroller className="m-row gap-4 px-[4vw] pb-1 pt-1 max-md:gap-3">
+      {/* pt-2：海报卡悬停上浮 6px 的头部余量（media-row 同一规矩），缺了会削顶角 */}
+      <HScroller className="m-row gap-4 px-[4vw] pb-1 pt-2 max-md:gap-3">
         {subscriptions.map((sub) => (
           <div
             key={sub.id}

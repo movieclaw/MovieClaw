@@ -10,11 +10,17 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Literal
 
 from fastapi import APIRouter, File, Request, UploadFile
 from pydantic import Field
 
-from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
+from movieclaw_api.exceptions import (
+    BadRequestException,
+    ConflictException,
+    NotFoundException,
+    ServiceUnavailableException,
+)
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
 
@@ -24,6 +30,8 @@ router = APIRouter(prefix="/app/plugins", tags=["app"])
 class BlockedBy(BaseModel):
     key: str
     reason: str
+    provider: str | None = Field(default=None, description="提供这个服务的插件；没有插件提供为空")
+    provider_state: str | None = Field(default=None, description="提供方当前的状态")
 
 
 class PluginStats(BaseModel):
@@ -68,6 +76,12 @@ class PluginView(BaseModel):
     dispose_ms: float | None
     unsettled: bool
     stats: PluginStats
+    tier: Literal["official", "system"] | None = Field(
+        default=None,
+        description="内置插件在插件页的分层：官方插件（可被插件包替换，替换它的插件包也算）/ "
+        "系统模块（默认不展示，异常时浮出）；其余第三方与本地插件为空"
+        "（docs/design/plugin-page-tiers.md）",
+    )
     health: list[HealthView] = Field(
         default_factory=list, description="插件自己报告的运行状况（PLUGIN_HEALTH）"
     )
@@ -186,12 +200,24 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
     health = health_service.snapshot() if health_service is not None else {}
     data_service = kernel.service(PLUGIN_DATA)
     data_rows = await data_service.counts() if data_service is not None else {}
+    from movieclaw_api.plugins.bundled import replaceable_ids
+    from movieclaw_api.plugins.features import tier_of
     from movieclaw_api.plugins.manifest import BUILTIN_GROUPS, builtin_group
     from movieclaw_api.services.plugin_runtime import process_entries
+
+    bundled = replaceable_ids()
+
+    def layer(item: dict) -> dict:
+        owner = item.get("parent") or item["id"]
+        # 替换随带插件包的插件包仍在「官方插件」里那一行（标「已被插件包替换」）
+        if item["source"] != "builtin" and owner not in bundled:
+            return {"tier": None}
+        return {"tier": tier_of(owner, bundled=bundled)}
 
     plugins = [
         {
             **item,
+            **layer(item),
             "health": health.get(item["id"], []),
             "data_rows": data_rows.get(item["id"], 0),
             "runtime": "process" if item["id"] in process_entries else "inline",
@@ -305,6 +331,11 @@ class PackageRequestView(BaseModel):
     operation_details: list[OperationDetailView] = Field(default_factory=list)
     paths: list[dict[str, str]] = Field(description="插件申请的路径授权（path、mode）")
     new_paths: list[dict[str, str]] = Field(description="相比当前已安装版本新增的路径申请")
+    callbacks: list[str] = Field(
+        default_factory=list,
+        description="要开放的回调端点名：外部平台能不登录直接调进来的地址，批准页单独列出",
+    )
+    new_callbacks: list[str] = Field(default_factory=list, description="相比当前已安装版本新增的")
     requires: dict[str, str]
     installed_version: str | None
     replaces_builtin: bool = Field(
@@ -320,6 +351,7 @@ class InstalledPackageView(BaseModel):
     operations: list[str]
     operation_details: list[OperationDetailView] = Field(default_factory=list)
     paths: list[dict[str, str]]
+    callbacks: list[str] = Field(default_factory=list, description="开放的回调端点名")
     previous_version: str | None
     bad_versions: list[str] = Field(description="激活失败过、已自动回滚的版本")
     state: str
@@ -478,3 +510,85 @@ async def uninstall_package(
     except LookupError as exc:
         raise NotFoundException(str(exc)) from exc
     return ok(PackageUninstallView.model_validate(result), message="已卸载")
+
+
+# ---------------------------------------------------- 回调端点（plugin-callbacks.md §4.4）
+class CallbackKeyView(BaseModel):
+    id: int
+    entry_id: str = Field(description="插件条目 id")
+    endpoint: str = Field(description="端点名")
+    scope: str = Field(description="归属：plugin / account:<通道>:<账号> / entity:<类型>:<id>")
+    url: str = Field(description="地址（密钥打码；要完整地址就换一个新的）")
+    created_at: datetime
+    running: bool = Field(description="插件在运行、端点已登记（否则调进来回 503）")
+    calls: int = Field(description="本次启动以来的调用次数")
+    failures: int = Field(description="本次启动以来插件回 401 / 403 的次数（验证没通过）")
+    last_called_at: datetime | None
+    last_status: int | None
+
+
+class CallbackIssuedView(BaseModel):
+    id: int
+    endpoint: str
+    scope: str
+    url: str = Field(description="完整地址，填到平台后台；只在这里出现一次")
+    absolute: bool = Field(
+        description="是否带上了外部访问地址；为 false 时要先在设置里配外部访问地址"
+    )
+
+
+def _callbacks():  # noqa: ANN202 -- 回调底座关着时 503
+    from movieclaw_api.services.plugin_callbacks import get_service
+
+    service = get_service()
+    if service is None:
+        raise ServiceUnavailableException("插件回调端点没有启用")
+    return service
+
+
+@router.get(
+    "/callbacks",
+    response_model=ApiResponse[list[CallbackKeyView]],
+    summary="插件开放的回调地址（外部平台调进来的地址，密钥打码）",
+    operation_id="app.plugins.callbacks.list",
+)
+async def list_callbacks(plugin: str | None = None) -> ApiResponse[list[CallbackKeyView]]:
+    rows = await _callbacks().overview(plugin)
+    return ok([CallbackKeyView.model_validate(r) for r in rows])
+
+
+@router.post(
+    "/callbacks/{key_id}/rotate",
+    response_model=ApiResponse[CallbackIssuedView],
+    summary="换一个回调地址：旧地址立即失效，返回新地址（要重新填到平台后台）",
+    operation_id="app.plugins.callbacks.rotate",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def rotate_callback(key_id: int) -> ApiResponse[CallbackIssuedView]:
+    try:
+        issued = await _callbacks().rotate(key_id)
+    except LookupError as exc:
+        raise NotFoundException(str(exc)) from exc
+    view = CallbackIssuedView(
+        id=issued.id,
+        endpoint=issued.endpoint,
+        scope=issued.scope,
+        url=issued.url,
+        absolute=issued.absolute,
+    )
+    return ok(view, message="已换新地址，旧地址已失效")
+
+
+@router.delete(
+    "/callbacks/{key_id}",
+    response_model=ApiResponse[None],
+    summary="作废一个回调地址（外部平台再调进来一律 404）",
+    operation_id="app.plugins.callbacks.revoke",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def revoke_callback(key_id: int) -> ApiResponse[None]:
+    try:
+        await _callbacks().revoke_id(key_id)
+    except LookupError as exc:
+        raise NotFoundException(str(exc)) from exc
+    return ok(None, message="已作废")

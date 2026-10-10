@@ -1,6 +1,6 @@
 """二 B 的验收插件端到端（docs/design/plugin-phase2b.md §10 B8）。
 
-把 ``examples/plugins/keyword_rules.py`` 当本地受信插件装进临时数据目录，真实应用 + 真实匹配流水线
+把示例插件 ``keyword_rules.py`` 当本地受信插件装进临时数据目录，真实应用 + 真实匹配流水线
 （dry-run 投递）：关键字规则淘汰候选、写进订阅动态，订阅删除时插件清掉自己的扩展字段。
 """
 
@@ -29,7 +29,15 @@ from movieclaw_db.engine import get_database
 from movieclaw_db.models import PluginData
 from movieclaw_media.models import MediaKind
 
-EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "plugins"
+EXAMPLES = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "movieclaw_agent"
+    / "builtin-skills"
+    / "movieclaw-plugin-dev"
+    / "references"
+    / "examples"
+)
 
 
 @pytest.fixture(params=["inline", "process"])
@@ -50,7 +58,7 @@ def app_client(request, tmp_path, monkeypatch):
     (tmp_path / "plugins.yaml").write_text(
         textwrap.dedent(
             """
-            - id: examples.keyword-rules
+            - id: keyword-rules
               local: true
               runtime: {runtime}
               config:
@@ -76,7 +84,7 @@ def test_keyword_rules_reject_candidates_and_clean_up_with_the_subscription(app_
     from movieclaw_api.services.subscription.matching import evaluate_and_dispatch
 
     app, client = app_client
-    fiber = app.state.kernel.fiber("examples.keyword-rules")
+    fiber = app.state.kernel.fiber("keyword-rules")
     assert fiber.state.value == "active", fiber.error
 
     async def scenario() -> tuple[list[str], list[dict]]:

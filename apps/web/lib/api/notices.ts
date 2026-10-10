@@ -63,9 +63,12 @@ export function noticeHref(notice: SystemNotice): string {
     // 降级可以带一个站内路径，指向能修它的地方（docs/design/plugin-phase2b.md §5）
     case "plugin": {
       const href = notice.payload.action_href;
-      return typeof href === "string" && href.startsWith("/") && !href.startsWith("//")
-        ? href
-        : "/settings/plugins?tab=builtin";
+      if (typeof href === "string" && href.startsWith("/") && !href.startsWith("//")) return href;
+      // 没带路径：定位到插件页里它那一行（docs/design/plugin-page-tiers.md §4.1）
+      const entry = notice.payload.entry_id;
+      return typeof entry === "string" && entry
+        ? `/settings/plugins?module=${encodeURIComponent(entry)}`
+        : "/settings/plugins";
     }
     default:
       return "/settings";

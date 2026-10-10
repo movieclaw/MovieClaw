@@ -9,7 +9,7 @@ from movieclaw_sdk import Context, plugin
 from movieclaw_sdk.channels import IM_CHANNELS
 
 
-@plugin("channel.discord", title="Discord 通道", disableable=True, reloadable=True)
+@plugin("discord-channel", title="Discord 通道", disableable=True, reloadable=True)
 async def discord(ctx: Context) -> None:
     from .driver import DiscordDriver
 

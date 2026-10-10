@@ -127,11 +127,11 @@ def test_non_critical_failure_degrades_instead_of_aborting(make_client, monkeypa
     app, client = make_client()
     with client:
         kernel = app.state.kernel
-        weixin = kernel.fiber("channel.weixin")
+        weixin = kernel.fiber("weixin-channel")
         assert weixin.state is State.FAILED
         assert weixin.error == "ConnectionError: weixin gateway down"
         states = _states(app)
-        assert [k for k, v in states.items() if v is not State.ACTIVE] == ["channel.weixin"]
+        assert [k for k, v in states.items() if v is not State.ACTIVE] == ["weixin-channel"]
         assert client.get("/api/v1/health").status_code == 200
 
 

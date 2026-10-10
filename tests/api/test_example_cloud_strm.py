@@ -1,6 +1,6 @@
 """网盘上传示例插件端到端（docs/design/plugin-phase2b.md §10 B8，扩展模型 §2.2）。
 
-把 ``examples/plugins/cloud_strm.py`` 当本地受信插件装进临时数据目录，真实应用：入库暂存 → 槽位排出
+把示例插件 ``cloud_strm.py`` 当本地受信插件装进临时数据目录，真实应用：入库暂存 → 槽位排出
 插件的上传任务 → 执行器跑完上传、写签名 ``.strm`` → 只扫这些目录把 ``.strm`` 记账 → 播放器拿
 ``.strm`` 里的地址取流（含 Range），改了签名一律 404。
 """
@@ -33,8 +33,16 @@ from movieclaw_db.engine import get_database
 from movieclaw_db.models import ImportWatch, Job, JobStatus, LibraryFile
 from movieclaw_media.models import MediaKind
 
-EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "plugins"
-UPLOAD = "examples.cloud-strm:upload"
+EXAMPLES = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "movieclaw_agent"
+    / "builtin-skills"
+    / "movieclaw-plugin-dev"
+    / "references"
+    / "examples"
+)
+UPLOAD = "cloud-strm:upload"
 
 
 @pytest.fixture(params=["inline", "process"])
@@ -54,7 +62,7 @@ def app_client(request, tmp_path, monkeypatch):
     (tmp_path / "plugins.yaml").write_text(
         textwrap.dedent(
             f"""
-            - id: examples.cloud-strm
+            - id: cloud-strm
               local: true
               runtime: {request.param}
               config: {{ cloud_dir: "{tmp_path / "cloud"}", chunk_mb: 1 }}
@@ -108,7 +116,7 @@ def test_staged_files_go_to_the_cloud_and_come_back_as_signed_strm(
     from movieclaw_api.settings.app_server import AppServerSetting
 
     app, client = app_client
-    fiber = app.state.kernel.fiber("examples.cloud-strm")
+    fiber = app.state.kernel.fiber("cloud-strm")
     assert fiber.state.value == "active", fiber.error
     db = get_database()
     tv_root, watch, staging = tmp_path / "tv", tmp_path / "watch", tmp_path / "staging"
@@ -172,7 +180,7 @@ def test_staged_files_go_to_the_cloud_and_come_back_as_signed_strm(
 
     # 播放器打开 .strm 里的地址：验签通过取到网盘上的文件，支持 Range
     urls = [p.read_text(encoding="utf-8").strip() for p in strms]
-    prefix = "http://testserver/api/v1/plugins/examples.cloud-strm/play/"
+    prefix = "http://testserver/api/v1/plugins/cloud-strm/play/"
     assert all(u.startswith(prefix) for u in urls)
     assert client.get(urls[0]).content == episodes[1]
     partial = client.get(urls[0], headers={"Range": "bytes=0-8"})

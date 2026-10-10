@@ -37,14 +37,16 @@ import androidx.compose.material.icons.rounded.Remove
 import androidx.compose.material.icons.rounded.Brightness6
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.ClosedCaption
+import androidx.compose.material.icons.rounded.SkipNext
+import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Forward10
+import androidx.compose.material.icons.automirrored.rounded.PlaylistPlay
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.Lock
 import androidx.compose.material.icons.rounded.LockOpen
 import androidx.compose.material.icons.rounded.Pause
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.PlayArrow
-import androidx.compose.material.icons.rounded.Replay10
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.AlertDialog
@@ -102,6 +104,7 @@ import io.movieclaw.android.core.designsystem.GlassCapsule
 import io.movieclaw.android.core.designsystem.McType
 import io.movieclaw.android.core.designsystem.Success
 import io.movieclaw.android.core.designsystem.TextMuted
+import io.movieclaw.android.core.model.EpisodeView
 import io.movieclaw.android.core.model.PlaybackSessionView
 import io.movieclaw.android.core.model.PlaybackDecisionView
 import io.movieclaw.android.core.network.ApiFactory
@@ -213,6 +216,18 @@ class PlayerViewModel @Inject constructor(
                         ?.let { UpNext(nextSeason, it.episodeNumber, it.name.orEmpty(), fileIdOf(nextSeason, it.episodeNumber)) }
                 }
         }.getOrNull()
+    }
+
+    suspend fun episodeSeasons(target: PlayTarget): List<Int> {
+        val origin = sessionRepository.ui.value.origin ?: error("尚未连接服务器")
+        return (apiFactory.forOrigin(origin).libraryItemDetail(target.libraryId, target.mediaItemId)
+            .dataOrThrow().seasons + target.seasonNumber).distinct().sorted()
+    }
+
+    suspend fun seasonEpisodes(target: PlayTarget, season: Int): List<EpisodeView> {
+        val origin = sessionRepository.ui.value.origin ?: error("尚未连接服务器")
+        return apiFactory.forOrigin(origin).seasonEpisodes(target.libraryId, target.mediaItemId, season)
+            .dataOrThrow().episodes.sortedBy { it.episodeNumber }
     }
 
     fun playNext(upNext: UpNext) {
@@ -365,6 +380,8 @@ fun PlayerScreen(onExit: () -> Unit, vm: PlayerViewModel = hiltViewModel()) {
                 qualityOptions = vm.qualityOptions(),
                 onSelectQuality = vm::selectQuality,
                 onPlayNext = vm::playNext,
+                loadSeasons = vm::episodeSeasons,
+                loadEpisodes = vm::seasonEpisodes,
                 onExit = { vm.exit(); onExit() },
                 subStyle = subStyle,
                 onSubStyle = vm::updateSubtitleStyle,
@@ -390,6 +407,8 @@ private fun PlayingSurface(
     qualityOptions: List<PlayerViewModel.QualityOption>,
     onSelectQuality: (PlayerViewModel.QualityOption) -> Unit,
     onPlayNext: (PlayerViewModel.UpNext) -> Unit,
+    loadSeasons: suspend (PlayTarget) -> List<Int>,
+    loadEpisodes: suspend (PlayTarget, Int) -> List<EpisodeView>,
     onExit: () -> Unit,
     subStyle: io.movieclaw.android.core.playback.SubtitleStyle,
     onSubStyle: ((io.movieclaw.android.core.playback.SubtitleStyle) -> io.movieclaw.android.core.playback.SubtitleStyle) -> Unit,
@@ -424,6 +443,7 @@ private fun PlayingSurface(
     // 有菜单开着就**不许自动隐藏控制层**：菜单是控制层的子节点，控制层一收，
     // 菜单跟着消失——表现就是"没动它自己突然隐藏了"（用户反馈）
     var menuOpen by remember { mutableStateOf(false) }
+    var episodePickerOpen by remember(controller) { mutableStateOf(false) }
     // 跳转后给读数一段宽限期：Exo 的 seek 不是瞬时完成，立刻读回来的还是**旧位置**，
     // 小球就会"跳回原处再挪过来"（用户原话"落点位置会跳"）。宽限期内先按落点显示，
     // 等播放器真的追上来（或超时）再交回真实读数。
@@ -489,8 +509,21 @@ private fun PlayingSurface(
         }
     }
 
+    if (episodePickerOpen) {
+        PlayerEpisodePicker(
+            target = controller.target,
+            loadSeasons = loadSeasons,
+            loadEpisodes = loadEpisodes,
+            onDismiss = { episodePickerOpen = false },
+            onSelect = { season, episode ->
+                episodePickerOpen = false
+                onPlayNext(PlayerViewModel.UpNext(season, episode.episodeNumber, episode.name.orEmpty()))
+            },
+        )
+    }
+
     // 控制层常显条件(iOS):暂停中 / 拖动中 / 调节中
-    val mustStayVisible = !playing || scrubbing || adjusting || menuOpen
+    val mustStayVisible = !playing || scrubbing || adjusting || menuOpen || episodePickerOpen
     var chromeActivity by remember { mutableIntStateOf(0) }
     LaunchedEffect(chromeVisible, mustStayVisible, chromeActivity) {
         if (chromeVisible && !mustStayVisible) {
@@ -974,7 +1007,7 @@ private fun PlayingSurface(
         // 字幕还没放完画面就被抢走）：8 秒倒计时、连播 ≤3 集、任何用户操作清零（人半睡着时
         // 别让 NAS 白转一晚上）。倒计时 = 「立即播放」按钮本身的填充。
         if (upNextShowing) {
-            val nextArmed = upNext != null && inFileOutro && autoNextStreak < 3
+            val nextArmed = upNext != null && inFileOutro && autoNextStreak < 3 && !episodePickerOpen
             // A：片尾卡一露头就**预热下一集**的字幕（内封轨）。整轨要服务端通读整部片
             // （实测 5.7 GB / 39.7 秒），而卡最早只在结束前 40 秒出现——这段时间正好把
             // 下一集的抽取跑掉，切过去就是缓存命中（0.01 秒）。
@@ -996,7 +1029,7 @@ private fun PlayingSurface(
             // 语义照 iOS `advanceAutoNext`：**暂停冻住、播完照走**；未武装时进度清零。
             // 进度按**帧时钟**推进，每帧只加「这一帧真实流逝的时间」（暂停的那一帧不加）：
             // 早先是 100 毫秒跳 1/80，一格一格看得见台阶（用户反馈「不丝滑」）。
-            LaunchedEffect(upNextShowing, inFileOutro, upNext?.episodeNumber, upNextDismissed, locked) {
+            LaunchedEffect(upNextShowing, inFileOutro, upNext?.episodeNumber, upNextDismissed, locked, episodePickerOpen) {
                 autoNextProgress = 0f
                 if (!nextArmed) return@LaunchedEffect
                 var lastFrameNs: Long? = null
@@ -1033,7 +1066,7 @@ private fun PlayingSurface(
                     autoNextStreak = 0
                     upNextDismissed = true
                 },
-                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 96.dp),
+                modifier = Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 120.dp),
             )
         }
 
@@ -1130,6 +1163,43 @@ private fun PlayingSurface(
                         .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.78f))))
                         .padding(top = 8.dp, bottom = 12.dp),
                 ) {
+                    PlayerBottomControls(
+                        series = controller.target.kind == "tv",
+                        hasNext = upNext != null,
+                        onNext = { upNext?.let { autoNextStreak = 0; onPlayNext(it) } },
+                        onEpisodes = { episodePickerOpen = true; autoNextStreak = 0 },
+                        tracks = {
+                            TrackMenuButton(
+                                icon = Icons.Rounded.GraphicEq,
+                                label = "音轨",
+                                options = controller.audioOptions(),
+                                selectedRef = selectedAudioRef,
+                                includeOff = false,
+                                onSelect = controller::selectAudio,
+                                onExpandedChange = { menuOpen = it },
+                            )
+                            TrackMenuButton(
+                                icon = Icons.Rounded.ClosedCaption,
+                                label = "字幕",
+                                options = controller.subtitleOptions(),
+                                selectedRef = selectedSubtitleRef,
+                                includeOff = true,
+                                onSelect = controller::selectSubtitle,
+                                onExpandedChange = { menuOpen = it },
+                                // 样式行**永远显示**：以前按"有没有选中字幕"决定显不显示，
+                                // 关闭字幕时菜单就只剩上半截，看着像没显示全（用户反馈）
+                                styleEditor = {
+                                    SubtitleStyleEditor(
+                                        style = subStyle,
+                                        onChange = onSubStyle,
+                                        subtitleActive = !selectedSubtitleRef.isNullOrEmpty() && selectedSubtitleRef != "off",
+                                    )
+                                },
+                            )
+                        },
+                        speed = { SpeedChip(controller) },
+                    )
+                    Spacer(Modifier.height(10.dp))
                     // 进度条（实测：左右内距 35、轨 3px 白 30%、句柄 11 白点）
                     // BoxWithConstraints：句柄要按**真实条宽**摆，不能按固定 dp 猜
                     BoxWithConstraints(
@@ -1193,6 +1263,19 @@ private fun PlayingSurface(
                                 .clip(RoundedCornerShape(3.dp))
                                 .background(AccentStrong),
                         )
+                        // 片头结束点与播放位置使用相同的文件时间和条宽；没有识别结果就不画。
+                        if (totalMs > 0) {
+                            state.session.segments.orEmpty().filter {
+                                it.type == "intro" && it.startMs >= 0 && it.endMs > it.startMs && it.endMs < totalMs
+                            }.forEach { segment ->
+                                val markerSize = 5.dp
+                                Box(
+                                    Modifier.align(Alignment.CenterStart)
+                                        .offset(x = travel * (segment.endMs.toFloat() / totalMs) + (handleSize - markerSize) / 2)
+                                        .size(markerSize).clip(CircleShape).background(Color.White),
+                                )
+                            }
+                        }
                         Box(
                             Modifier
                                 .align(Alignment.CenterStart)
@@ -1215,69 +1298,112 @@ private fun PlayingSurface(
                             color = Color.White.copy(alpha = 0.7f),
                         )
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        IconButton(onClick = { seekByRelative(-10_000) }) {
-                            Icon(Icons.Rounded.Replay10, contentDescription = "后退 10 秒", tint = Color.White)
-                        }
-                        IconButton(
-                            onClick = {
-                                autoNextStreak = 0   // 用户操作清零自动连播计数
-                                controller.setPlaying(!playing)
-                            },
-                            modifier = Modifier
-                                .size(56.dp)
-                                .background(Color.White.copy(alpha = 0.14f), CircleShape),
-                        ) {
-                            Icon(
-                                if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                                contentDescription = if (playing) "暂停" else "播放",
-                                tint = Color.White,
-                                modifier = Modifier.size(30.dp),
-                            )
-                        }
-                        IconButton(onClick = { seekByRelative(10_000) }) {
-                            Icon(Icons.Rounded.Forward10, contentDescription = "前进 10 秒", tint = Color.White)
-                        }
-                        TrackMenuButton(
-                            icon = Icons.Rounded.GraphicEq,
-                            label = "音轨",
-                            options = controller.audioOptions(),
-                            selectedRef = selectedAudioRef,
-                            includeOff = false,
-                            onSelect = controller::selectAudio,
-                            onExpandedChange = { menuOpen = it },
-                        )
-                        TrackMenuButton(
-                            icon = Icons.Rounded.ClosedCaption,
-                            label = "字幕",
-                            options = controller.subtitleOptions(),
-                            selectedRef = selectedSubtitleRef,
-                            includeOff = true,
-                            onSelect = controller::selectSubtitle,
-                            onExpandedChange = { menuOpen = it },
-                            // 样式行**永远显示**：以前按"有没有选中字幕"决定显不显示，
-                            // 关闭字幕时菜单就只剩上半截，看着像没显示全（用户反馈）
-                            styleEditor = {
-                                SubtitleStyleEditor(
-                                    style = subStyle,
-                                    onChange = onSubStyle,
-                                    subtitleActive = !selectedSubtitleRef.isNullOrEmpty() && selectedSubtitleRef != "off",
-                                )
-                            },
-                        )
-                        Spacer(Modifier.weight(1f))
-                        SpeedChip(controller)
-                    }
                 }
             }
+            PlayerCenterControls(
+                playing = playing,
+                onToggle = { autoNextStreak = 0; controller.setPlaying(!playing) },
+                onSeekBack = { autoNextStreak = 0; seekByRelative(-10_000) },
+                onSeekForward = { autoNextStreak = 0; seekByRelative(10_000) },
+                modifier = Modifier.align(Alignment.Center),
+            )
         }
     }
 }
 
+
+/**
+ * 中央走带区（iOS 同款）：后退 10 秒 · 播放/暂停 · 前进 10 秒，整组在画面正中，
+ * 玻璃底与左缘锁屏键一致（38% 黑），亮画面上也看得清。
+ */
+@Composable
+internal fun PlayerCenterControls(
+    playing: Boolean,
+    onToggle: () -> Unit,
+    onSeekBack: () -> Unit,
+    onSeekForward: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(36.dp),
+    ) {
+        CenterGlassButton(Icons.Rounded.Replay10, "后退 10 秒", 56.dp, 30.dp, onSeekBack)
+        CenterGlassButton(
+            if (playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
+            if (playing) "暂停" else "播放",
+            72.dp, 40.dp, onToggle,
+        )
+        CenterGlassButton(Icons.Rounded.Forward10, "前进 10 秒", 56.dp, 30.dp, onSeekForward)
+    }
+}
+
+@Composable
+private fun CenterGlassButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    size: androidx.compose.ui.unit.Dp,
+    iconSize: androidx.compose.ui.unit.Dp,
+    onClick: () -> Unit,
+) {
+    Box(
+        Modifier
+            .size(size)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.38f))
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(icon, contentDescription = label, tint = Color.White, modifier = Modifier.size(iconSize))
+    }
+}
+
+/**
+ * 进度条上方的工具行：左胶囊 = 音轨 / 字幕，右胶囊 = 下一集 / 选集 / 倍速（电影只有倍速）。
+ * 两侧与进度条共用 35dp 边距。
+ */
+@Composable
+internal fun PlayerBottomControls(
+    series: Boolean,
+    hasNext: Boolean,
+    onNext: () -> Unit,
+    onEpisodes: () -> Unit,
+    tracks: @Composable () -> Unit,
+    speed: @Composable () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 35.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        GlassPill { tracks() }
+        Spacer(Modifier.weight(1f))
+        GlassPill {
+            if (series) {
+                IconButton(onClick = onNext, enabled = hasNext) {
+                    Icon(Icons.Rounded.SkipNext, contentDescription = "下一集",
+                        tint = Color.White.copy(alpha = if (hasNext) 1f else 0.35f))
+                }
+                IconButton(onClick = onEpisodes) {
+                    Icon(Icons.AutoMirrored.Rounded.PlaylistPlay, contentDescription = "选集", tint = Color.White)
+                }
+            }
+            speed()
+        }
+    }
+}
+
+@Composable
+private fun GlassPill(content: @Composable () -> Unit) {
+    Row(
+        Modifier
+            .height(44.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.38f))
+            .padding(horizontal = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) { content() }
+}
 
 /** 圆形玻璃图标键(锁屏/解锁):44 边 = 系统最小触控尺寸,玻璃底 38% 黑 */
 @Composable

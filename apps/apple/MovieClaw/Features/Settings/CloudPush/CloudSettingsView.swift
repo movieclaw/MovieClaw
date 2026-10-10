@@ -156,6 +156,12 @@ private struct CloudSettingsContent: View {
                     Label("隐私与上报信息", systemImage: "hand.raised")
                 }
             }
+            if let url = Self.accountSettingsURL(cloudURL: status.cloudUrl) {
+                Link(destination: url) {
+                    Label("管理或删除 MovieClaw 账号", systemImage: "person.crop.circle")
+                }
+                .accessibilityIdentifier("cloud-account-settings")
+            }
             if status.customCloudUrl {
                 SettingsBValueRow(label: "云端地址", value: status.cloudUrl, mono: true)
             }
@@ -260,6 +266,10 @@ private struct CloudSettingsContent: View {
             if let url = Self.reportsInfoURL(cloudURL: status.cloudUrl) {
                 Link("隐私与上报信息", destination: url)
             }
+            if let url = Self.accountSettingsURL(cloudURL: status.cloudUrl) {
+                Link("管理或删除 MovieClaw 账号", destination: url)
+                    .accessibilityIdentifier("cloud-account-settings")
+            }
         } header: {
             Text("隐私")
         } footer: {
@@ -326,15 +336,29 @@ private struct CloudSettingsContent: View {
         return "给登录了这台服务器的手机发通知，每天最多 \(day) 条"
     }
 
-    /// 官网隐私政策里「你的服务器会发给我们什么」那一节：官网地址由云端地址去掉开头的 `api.` 得出（同网页 cloudSiteOrigin）
+    /// 官网隐私政策里「你的服务器会发给我们什么」那一节
     static func reportsInfoURL(cloudURL: String) -> URL? {
+        siteURL(cloudURL: cloudURL, path: "/zh/privacy", fragment: "server-reports")
+    }
+
+    /// 官网的账号设置页：登录方式、登录设备与删除账号都在这里。连接 Cloud 时会在官网注册账号，
+    /// App 里要能直达删除账号的地方（App Store 审核条款 5.1.1(v)）
+    static func accountSettingsURL(cloudURL: String) -> URL? {
+        siteURL(cloudURL: cloudURL, path: "/zh/settings", fragment: nil)
+    }
+
+    /// 官网地址由云端地址去掉开头的 `api.` 得出（同网页 cloudSiteOrigin）；云端地址不可用时落到官方官网
+    private static func siteURL(cloudURL: String, path: String, fragment: String?) -> URL? {
         guard var components = URLComponents(string: cloudURL), let host = components.host,
               components.scheme == "https" || components.scheme == "http"
-        else { return URL(string: "https://movieclaw.io/zh/privacy#server-reports") }
+        else {
+            let anchor: String = fragment.map { "#" + $0 } ?? ""
+            return URL(string: "https://movieclaw.io" + path + anchor)
+        }
         components.host = host.hasPrefix("api.") ? String(host.dropFirst(4)) : host
-        components.path = "/zh/privacy"
+        components.path = path
         components.query = nil
-        components.fragment = "server-reports"
+        components.fragment = fragment
         return components.url
     }
 }

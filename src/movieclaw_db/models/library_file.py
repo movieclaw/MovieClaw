@@ -313,7 +313,8 @@ class LibraryFile(TimestampMixin, table=True):
     release_group: str | None = Field(default=None, description="发布组")
     # 入库时源文件的原始文件名（不含扩展名），命名模板 {release_name} 的取值。
     # 整理改名后当前文件名就不是它了，所以必须在入库现场落下来；存量扫描
-    # 发现的文件不知道原名，为 NULL
+    # 不知道入库前的原名，取发现时的文件名。旧版本扫描的行为 NULL，整理时
+    # 以当前文件名补上
     release_name: str | None = Field(default=None, description="入库时的原始文件名（不含扩展名）")
 
     # -- 来源与追溯 ----------------------------------------------------------

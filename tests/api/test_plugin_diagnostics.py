@@ -53,10 +53,27 @@ def test_plugins_endpoint_lists_every_entry_and_contract(env) -> None:
         assert ungrouped == []
         assert by_id["core.database"]["group"] == "基础"
         assert by_id["boost.sentinel"]["group"] == "资源站点与下载"
+        # 插件页分层（docs/design/plugin-page-tiers.md）：内置插件只有官方插件与系统模块两层，
+        # 自动入库、AI 字幕这些是 MovieClaw 本身的能力，归系统；非内置不分层
+        assert {p["tier"] for p in body["plugins"] if p["source"] == "builtin"} == {
+            "official",
+            "system",
+        }
+        assert by_id["weixin-channel"]["tier"] == "official"
+        assert by_id["channels.hub"]["tier"] == "official"
+        assert by_id["core.database"]["tier"] == "system"
+        assert by_id["subtitle.gen"]["tier"] == "system"
+        assert by_id["agent.runs"]["tier"] == "system"
+        assert "features" not in body
         assert by_id["scheduler"]["state"] == "disabled"
         assert by_id["scheduler"]["disabled_by"] == "env:SCHEDULER_ENABLED"
         assert by_id["boost.sentinel"]["blocked_by"] == [
-            {"key": "scheduler", "reason": "提供方 scheduler 状态为 disabled"}
+            {
+                "key": "scheduler",
+                "reason": "提供方 scheduler 状态为 disabled",
+                "provider": "scheduler",
+                "provider_state": "disabled",
+            }
         ]
 
         services = {c["name"]: c for c in body["contracts"]["services"]}
@@ -89,10 +106,10 @@ def test_failed_plugin_raises_a_notice_and_recovery_resolves_it(env, monkeypatch
         assert len(notices) == 1
         assert notices[0]["title"] == "「微信通道」启动失败"
         assert "微信网关不可达" in notices[0]["message"]
-        assert "设置 → 插件 → 内置" in notices[0]["message"]
+        assert "设置 → 插件" in notices[0]["message"]
         assert notices[0]["payload"] == {
-            "entry_id": "channel.weixin",
-            "action_href": "/settings/plugins?tab=builtin",
+            "entry_id": "weixin-channel",
+            "action_href": "/settings/plugins?module=weixin-channel",
         }
 
     # 修好之后重启：插件恢复运行，告警自动消退

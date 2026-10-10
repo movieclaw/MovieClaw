@@ -1,5 +1,5 @@
 [plugin]
-id = "channel.telegram"
+id = "telegram-channel"
 title = "Telegram 通道"
 version = "1.0.0"
 entry = "telegram_channel"

@@ -154,7 +154,7 @@ def test_weixin_scan_binding_chat_and_push(app_env) -> None:
             "feishu": ("form", "none"),
         }
         entries = {c["id"]: c["entry_id"] for c in listed["channels"]}
-        assert entries["weixin"] == "channel.weixin"
+        assert entries["weixin"] == "weixin-channel"
         assert listed["accounts"] == []
 
         GATEWAY.qr_statuses = [{"status": "scaned"}, {"status": "need_verifycode"}]
@@ -218,6 +218,7 @@ def test_disabled_channel_plugin_is_reported_not_500(app_env) -> None:
     from movieclaw_db.engine import get_database
     from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
 
+    # 旧 id（随带通道改名前写的补丁）：启动时迁移成新 id，照样生效
     (app_env / "plugins.yaml").write_text(
         textwrap.dedent(
             """
@@ -228,6 +229,7 @@ def test_disabled_channel_plugin_is_reported_not_500(app_env) -> None:
         encoding="utf-8",
     )
     with make_client() as client:
+        assert "id: weixin-channel" in (app_env / "plugins.yaml").read_text(encoding="utf-8")
 
         async def seed() -> None:
             async with get_database().session() as session:

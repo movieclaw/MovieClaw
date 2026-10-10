@@ -38,9 +38,9 @@ async def channel_hub(ctx: Context) -> None:
     def channels() -> list[tuple[str, str, Any]]:
         """(通道 id, 提供它的条目, 驱动)。插件包替换随带插件包时沿用随带版本的通道 id：
         第三方贡献的 id 带插件前缀，这里摘掉，已绑定的账号照常对得上（plugin-channels.md §7）。"""
-        from movieclaw_api.plugins.bundled import bundled_ids
+        from movieclaw_api.plugins.bundled import replaceable_ids
 
-        replaceable = bundled_ids()
+        replaceable = replaceable_ids()
         out = []
         for c in registry.contributions():
             cid = c.id

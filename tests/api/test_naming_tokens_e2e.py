@@ -370,11 +370,57 @@ async def test_organize_fills_episode_title(db, tmp_path):
     assert summary.errors == []
     target = root / "龙之家族 (2022)" / "Season 01" / "龙之家族 S01E02 叛逆王子.mkv"
     assert target.read_bytes() == b"v"
-    # 存量扫描的文件没有来源与原名：{site}/{release_name} 渲染为空，不报错不留残渣
+    # 旧版本扫描的行没有原名快照：首次改名时把改名前的文件名落成原名（issue #698）
+    async with db.session() as session:
+        row = (await session.execute(select(LibraryFile))).scalars().one()
+    assert row.release_name == "x"
+    # 存量扫描的文件没有来源：{site} 渲染为空，不报错不留残渣；{release_name} 取原名
     _apply_setting(
         naming_episode_file=(
             "{title} S{season:02d}E{episode:02d} {episode_title} [{site}] {release_name}"
         )
     )
     summary = await organize_library(library_id)
+    assert (summary.renamed, summary.already_ok) == (1, 0)
+    assert (target.parent / "龙之家族 S01E02 叛逆王子 x.mkv").read_bytes() == b"v"
+    summary = await organize_library(library_id)
     assert (summary.renamed, summary.already_ok) == (0, 1)
+
+
+@pytest.mark.asyncio
+async def test_release_name_falls_back_to_current_name_for_legacy_rows(db, tmp_path):
+    """issue #698：旧版本扫描的行 release_name 为 NULL，模板只有 {release_name}
+    时以当前文件名为准，原地不动，而不是改成「未命名」。"""
+    _apply_setting(naming_movie_file="{release_name}")
+    root = tmp_path / "movies"
+    root.mkdir()
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="电影库", kind="movie", root_paths=[str(root)]
+        )
+        library_id = library.id
+        item = MediaItem(
+            kind="movie", tmdb_id=438631, title="沙丘", original_title="Dune", year=2021
+        )
+        session.add(item)
+        await session.commit()
+        await session.refresh(item)
+        src = root / "沙丘 (2021)" / "Dune.2021.2160p.BluRay.mkv"
+        src.parent.mkdir()
+        src.write_bytes(b"m")
+        session.add(
+            LibraryFile(
+                library_id=library_id,
+                media_item_id=item.id,
+                file_path=str(src),
+                size_bytes=1,
+                source=FileSource.SCANNED,
+                state=FileState.IN_PLACE,
+            )
+        )
+        await session.commit()
+
+    summary = await organize_library(library_id)
+    assert summary.errors == []
+    assert (summary.renamed, summary.already_ok) == (0, 1)
+    assert src.read_bytes() == b"m"

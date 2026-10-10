@@ -117,7 +117,7 @@ export function UpNextRow({
             行同一布局，分区自己的操作长在分区上 */}
         <WatchHistoryMenu libraries={libraries} onCleared={onCleared} />
       </div>
-      <HScroller className={`mt-3 gap-4 pb-2 pt-1 ${insetClassName} max-md:gap-3`}>
+      <HScroller className={`mt-3 gap-4 pb-2 pt-1.5 ${insetClassName} max-md:gap-3`}>
         {items.map((item) => <UpNextCard key={item.media_item_id} item={item} />)}
       </HScroller>
     </section>

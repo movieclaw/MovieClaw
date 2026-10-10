@@ -230,7 +230,7 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
       {
         id: "plugins",
         label: "插件",
-        description: "安装第三方插件，查看内置插件的运行状态",
+        description: "官方插件与第三方插件的安装和运行状态",
         icon: PuzzleIcon,
       },
       { id: "network", label: "网络", description: "代理、镜像与外部访问地址，解决 TMDB 等不可达", icon: GlobeIcon },

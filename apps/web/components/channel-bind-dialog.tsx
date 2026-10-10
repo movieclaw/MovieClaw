@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { CopyButton } from "@/components/copy-button";
 import { Modal } from "@/components/modal";
 import {
   SETTINGS_BUTTON_CLASS,
@@ -67,6 +68,25 @@ export function ChannelBindDialog({ channel, onClose, onBound }: ChannelBindDial
         </div>
       </div>
     </Modal>
+  );
+}
+
+/** 回调地址：靠平台回调收消息的通道（如企业微信自建应用）要填到平台后台。 */
+function CallbackAddress({ binding }: { binding: ChannelBinding }) {
+  if (!binding.callback_url) return null;
+  return (
+    <div className="w-full space-y-2 rounded-xl border border-white/[0.08] bg-black/[0.28] px-4 py-3 text-left">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-sub font-medium text-[var(--text)]">回调地址</span>
+        <CopyButton text={binding.callback_url} label="复制" className={SETTINGS_BUTTON_CLASS} />
+      </div>
+      <p className="break-all font-mono text-caption text-[var(--text)] select-all">
+        {binding.callback_url}
+      </p>
+      {binding.callback_note && (
+        <p className="text-caption leading-5 text-[var(--text-faint)]">{binding.callback_note}</p>
+      )}
+    </div>
   );
 }
 
@@ -253,7 +273,8 @@ function FormBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
         Object.entries(values).map(([key, value]) => [key, value.trim()]),
       );
       const next = await startChannelBinding(channel.id, trimmed);
-      if (DONE.has(next.status)) onBound();
+      // 回调式通道直接接入完成时，先把回调地址给用户看、复制，再关弹窗
+      if (DONE.has(next.status) && !next.callback_url) onBound();
       else setBinding(next);
     } catch (e) {
       setError((e as Error).message);
@@ -313,8 +334,17 @@ function FormBindBody({ channel, onBound }: { channel: ChannelInfo; onBound: () 
     <div className="space-y-4">
       {error && <ErrorBanner message={error} />}
       <div className="flex flex-col items-center gap-3 rounded-2xl bg-white/[0.03] px-6 py-8 text-center">
-        {binding.status === "pending" ? (
+        {DONE.has(binding.status) ? (
           <>
+            <p className="text-body font-medium text-[var(--text)]">{binding.message}</p>
+            <CallbackAddress binding={binding} />
+            <button type="button" onClick={onBound} className={SETTINGS_PRIMARY_BUTTON_CLASS}>
+              完成
+            </button>
+          </>
+        ) : binding.status === "pending" ? (
+          <>
+            <CallbackAddress binding={binding} />
             <p className="text-body font-medium text-[var(--text)]">{binding.message}</p>
             <p className="select-all font-mono text-[32px] font-bold tracking-[0.3em] text-[var(--accent)]">
               {binding.pair_code}

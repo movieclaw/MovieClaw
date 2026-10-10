@@ -10,7 +10,7 @@
 
 开启方式（``data/plugins.yaml``；规则的初始值写在配置里，按订阅 id）::
 
-    - id: examples.keyword-rules
+    - id: keyword-rules
       local: true
       config:
         rules:
@@ -53,7 +53,7 @@ def verdict(rules: Rules, title: str, subtitle: str) -> str | None:
 
 
 @plugin(
-    "examples.keyword-rules",
+    "keyword-rules",
     title="关键字规则（示例）",
     inject=(PLUGIN_DATA, DURABLE_EVENTS),
     config=Config,

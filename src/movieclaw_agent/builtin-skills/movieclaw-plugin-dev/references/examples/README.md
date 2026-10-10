@@ -11,6 +11,7 @@ CI 里 `tests/api/test_example_plugins*.py` 会把它们装进临时数据目录
 | `cloud_strm.py` | 网盘上传：入库暂存后传到网盘，媒体库里放指向插件的签名 `.strm` | 流水线槽位 `ingest.staged`、任务处理器（断点续传、进度、重试 / 阻塞）、插件路由（验签公开区）与签名链接、宿主操作 `library.get`、`library.scan.start` |
 | `site_pack/` | 站点数据包：把一组自己适配的站点 YAML 打成插件分发 | 站点数据包注册表 `site-data-packs`（包形式的本地插件） |
 | `ntfy-channel/` | 第三方 IM 通道：在 ntfy App 里和 MovieClaw 对话、接收推送 | 通道注册表 `im-channels`（`movieclaw_sdk.channels`，见 `docs/design/plugin-channels.md`）；带清单，可直接 `mclaw plugin pack` 成插件包 |
+| `wecom-channel/` | 回调式 IM 通道：企业微信自建应用，平台把加密消息推到回调地址 | 通道驱动的 `webhook`（`Capabilities(webhook=True)`）、清单 `callbacks = ["webhook"]`、企业微信验签与 AES 解密、应用消息接口发回复、配对码绑定；带清单，可直接打包 |
 
 ## 装到自己的 MovieClaw 上
 
@@ -18,7 +19,7 @@ CI 里 `tests/api/test_example_plugins*.py` 会把它们装进临时数据目录
 2. 在数据目录的 `plugins.yaml` 里显式开启，并批准它要调用的操作：
 
    ```yaml
-   - id: examples.delete-cascade
+   - id: delete-cascade
      local: true
      config: { delete_files: true, dry_run: true }   # 先演练，看日志确认无误再关掉 dry_run
      grants: [subscriptions.delete, dl.torrent.delete]
@@ -53,7 +54,7 @@ from movieclaw_kernel import DURABLE_EVENTS, plugin
 
 
 @plugin(
-    "me.after-import",                      # 条目 id，与 plugins.yaml 里的 id 一致
+    "after-import",                      # 条目 id，与 plugins.yaml 里的 id 一致
     title="入库后做点什么",
     inject=(DURABLE_EVENTS, HOST_OPS),      # 只能用实验级以上的契约
     permissions=("library.scan.start",),    # 需要的宿主操作；危险操作必须逐个列出
@@ -77,7 +78,7 @@ async def after_import(ctx):
 
 ```toml
 [plugin]
-id = "acme.group-blocklist"
+id = "group-blocklist"
 title = "发布组黑名单"
 version = "0.1.0"
 entry = "group_blocklist"      # group_blocklist.py 或 group_blocklist/__init__.py
@@ -95,10 +96,10 @@ paths = [{ path = "staging", mode = "read" }]
 依赖放进 `vendor/`（安装时不联网）。然后：
 
 ```bash
-mclaw plugin pack ./group-blocklist          # 打成 acme.group-blocklist-0.1.0.mcplugin
+mclaw plugin pack ./group-blocklist          # 打成 group-blocklist-0.1.0.mcplugin
 mclaw plugin dev  ./group-blocklist          # 连到服务器：一改就重新打包、上传、批准、加载
-mclaw app plugins packages upload --file acme.group-blocklist-0.1.0.mcplugin   # 正式安装
-mclaw app plugins packages approve acme.group-blocklist --version 0.1.0 \
+mclaw app plugins packages upload --file group-blocklist-0.1.0.mcplugin   # 正式安装
+mclaw app plugins packages approve group-blocklist --version 0.1.0 \
     --operations-json '["search.titles"]' \
     --paths-json '[{"path": "staging", "mode": "read"}]' --yes   # 批准须与申请完全一致
 ```
@@ -117,7 +118,7 @@ mclaw app plugins packages approve acme.group-blocklist --version 0.1.0 \
   `await account.save_state({...})` 存，`account.stopping` 置位就退出；凭据失效抛 `ChannelAuthError`；
 - `send(account, reply, text)` 发一条文本（中枢已按 `capabilities.max_text_len` 拆好）。
 
-- 连外网要按用户的代理设置走：`httpx.AsyncClient(transport=net.http_transport("<服务名>"))`（`movieclaw_sdk.net`）；
+- 连外网要按用户的代理设置走：`httpx.AsyncClient(transport=net.http_transport("<服务名>"))`（`movieclaw_sdk.net`；服务名 = 条目 id，如 `ntfy-channel`）；
   已有「客户端 + 适配器」代码的，可以直接继承 SDK 的 `AdapterDriver`。
 
 同一份代码当本地插件（主进程里运行）或插件包（独立进程里运行）都能用，绑定后出现在「设置 → IM 推送」。

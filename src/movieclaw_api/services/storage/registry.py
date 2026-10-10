@@ -455,6 +455,17 @@ DATA_DIRS: tuple[DataDir, ...] = (
         resolve=lambda s: Path(s.data_dir) / "plugins-boot.json",
     ),
     DataDir(
+        key="plugins.features",
+        title="功能开关",
+        summary="在「设置 → 插件」停用了哪些功能",
+        description=(
+            "只记停用了的功能（谁、什么时候）；重启后保持（docs/design/plugin-page-tiers.md §6）。"
+            "删除等于把可停用的功能全部重新开启。"
+        ),
+        default="data/plugins-features.json",
+        resolve=lambda s: Path(s.data_dir) / "plugins-features.json",
+    ),
+    DataDir(
         key="plugins.safe_mode",
         title="安全模式开关",
         summary="放一个 SAFE_MODE 文件即以插件安全模式启动",

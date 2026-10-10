@@ -26,7 +26,7 @@ import { useSearchPrefs } from "@/lib/search-prefs";
 import { nanoid } from "nanoid";
 
 /**
- * 拖拽排序的进行时状态。列表行数有限（8 个内置分类 + 至多 20 个预设），
+ * 拖拽排序的进行时状态。列表行数有限（7 个内置分类 + 至多 20 个预设），
  * 指针移动时整组重渲染的开销可忽略，直接放 useState 里换取
  * 「其余行实时让位」的动画简洁性。
  *
@@ -57,7 +57,6 @@ interface DragState {
  * 电影/剧集这类一望即知的不加，避免整列说明文字变成噪音。
  */
 const CATEGORY_HINT: Partial<Record<TorrentCategory, string>> = {
-  av: "默认隐藏；打开后搜索面板会出现「成人」分类",
   other:
     "兜底分类：站点上归不进以上类别的分区（软件、电子书、体育、综艺等，各站范围不同）",
 };

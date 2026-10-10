@@ -21,12 +21,14 @@ class PlaybackControllerTest {
     private class Engine : PlayerEngine {
         val opens = mutableListOf<EngineSource>()
         var released = false
+        var position = 42_000L
+        var lastSeek: Long? = null
         override fun open(source: EngineSource, sidecars: List<Sidecar>) { opens += source }
-        override fun positionMs() = 42_000L
+        override fun positionMs() = position
         override fun durationMs() = 100_000L
         override fun isPlaying() = !released
         override fun setPlaying(playing: Boolean) {}
-        override fun seekTo(playerMs: Long) {}
+        override fun seekTo(playerMs: Long) { lastSeek = playerMs }
         override fun seekBy(deltaMs: Long) {}
         override fun setSpeed(speed: Float) {}
         override fun release() { released = true }
@@ -37,10 +39,11 @@ class PlaybackControllerTest {
         val reports = mutableListOf<PlaybackProgressRequest>()
         var stopGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
         var committed: PlaybackStateView? = null
+        var segments: List<PlaybackSegmentView>? = null
         override suspend fun startSession(request: PlaybackSessionRequest): PlaybackSessionView {
             starts += request
             return PlaybackSessionView(PlaybackDecisionView("ready", fileId = 5),
-                sessionId = "s${starts.size}", streamUrl = "/index.m3u8", startMs = request.startMs ?: 0)
+                sessionId = "s${starts.size}", streamUrl = "/index.m3u8", startMs = request.startMs ?: 0, segments = segments)
         }
         override suspend fun reportProgress(request: PlaybackProgressRequest): PlaybackStateView? {
             reports += request
@@ -51,6 +54,25 @@ class PlaybackControllerTest {
         override suspend fun stop(sessionId: String) { stops += sessionId }
         override suspend fun enableSoftwareTranscode() = true
     }
+    @Test fun previewSkipUsesFileTimeAndPreservesTheFollowingContent() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val engine = Engine()
+        val preview = PlaybackSegmentView("preview", 40_000, 60_000)
+        val endpoint = Endpoint().apply { segments = listOf(preview) }
+        val controller = PlaybackController(RuntimeEnvironment.getApplication(), endpoint, "device",
+            PlayTarget(379, 3, "tv", "仙逆", startMs = 10_000), "https://example.com", engineFactory = { engine })
+        try {
+            val ready = controller.negotiate() as PlaybackController.Negotiation.Ready
+            controller.start(ready.session)
+            assertEquals(preview, controller.activeSkipSegment())
+            assertEquals("跳过预告", controller.skipLabel(preview))
+            controller.seekToFileMs(preview.endMs)
+            assertEquals(50_000L, engine.lastSeek)
+            engine.position = 47_000 // 文件时间 57s：最后 3s 不再显示跳过按钮。
+            assertNull(controller.activeSkipSegment())
+        } finally { controller.dispose(); runCurrent(); Dispatchers.resetMain() }
+    }
+
     @Test fun expiredHeartbeatRecoversAndExitStopsPollingWithoutRecreatingEngine() = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         val endpoint = Endpoint()

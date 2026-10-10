@@ -261,7 +261,8 @@ def _build_plan_sync(
             bit_depth=row.bit_depth,
             audio_streams=row.audio_streams,
             site_id=row.site_id,
-            release_name=row.release_name,
+            # 旧版本扫描进来的行没有快照：以当前文件名为准（执行改名时落库）
+            release_name=row.release_name or src.stem,
         )
         if kind is MediaKind.MOVIE:
             target = (
@@ -589,6 +590,10 @@ async def _organize(
                 continue
             # 改名成功立即随迁台账：中途失败不会留下账实不符的批量烂摊子
             if not ledger_done:
+                # 改名前把当前文件名落成原名快照：改完它就不在了，下次整理
+                # {release_name} 还得用它（与计划时的取值一致）
+                if row.release_name is None:
+                    row.release_name = src.stem
                 container = dst.suffix.lstrip(".").lower() or None
                 await repo.relocate(
                     action.file_id, file_path=action.target_path, container=container

@@ -59,6 +59,26 @@ def bundled_ids() -> set[str]:
     return set(bundled())
 
 
+#: 随带插件包的旧 id（带点，docs/design/plugin-callbacks.md §3.3）→ 现在的 id。用户之前装的同 id
+#: 替换包代码里写死了旧 id、照旧运行，靠这张表认出它替换的是哪个随带插件包
+LEGACY_IDS = {
+    "channel.weixin": "weixin-channel",
+    "channel.telegram": "telegram-channel",
+    "channel.discord": "discord-channel",
+    "channel.feishu": "feishu-channel",
+}
+
+
+def canonical(entry_id: str) -> str:
+    """旧的随带插件包 id 换成现在的；其他 id 原样返回。"""
+    return LEGACY_IDS.get(entry_id, entry_id)
+
+
+def replaceable_ids() -> set[str]:
+    """能替换随带插件包的条目 id：随带的现 id，加上旧 id（旧 id 的替换包）。"""
+    return bundled_ids() | set(LEGACY_IDS)
+
+
 def entry(package: Bundled) -> Entry:
     module = importlib.import_module(package.module)
     for value in vars(module).values():

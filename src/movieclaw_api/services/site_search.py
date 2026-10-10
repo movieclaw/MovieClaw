@@ -127,14 +127,18 @@ async def _fetch_one(
             result = await site.search(
                 SearchQuery(keyword=keyword, categories=categories or None, page=page)
             )
-            items = result.items
+            items, has_more = result.items, result.has_more
         else:
             listed = await site.list_torrents(categories=categories or None, page=page)
-            items = listed.items
+            items, has_more = listed.items, listed.has_more
         # 给每条结果挂上来源站点标识 + 扩充属性；扩充含 NER 推理，整批进工作线程
         hits = await asyncio.to_thread(_build_hits, site_id, name, items)
         return hits, SiteSearchStatus(
-            site_id=site_id, site_name=name, count=len(hits), elapsed_ms=elapsed()
+            site_id=site_id,
+            site_name=name,
+            count=len(hits),
+            elapsed_ms=elapsed(),
+            has_more=has_more,
         )
     except Exception as exc:  # noqa: BLE001 —— 单站失败必须隔离，不能拖垮整次搜索
         reason = friendly_error(exc)

@@ -1,5 +1,5 @@
 [plugin]
-id = "channel.weixin"
+id = "weixin-channel"
 title = "微信通道"
 version = "1.0.0"
 entry = "weixin_channel"

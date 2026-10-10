@@ -3,7 +3,16 @@ import test from "node:test";
 
 import {
   degradedHealth,
-  builtinBadge,
+  displayState,
+  offWithDependency,
+  featureOff,
+  featureOffText,
+  officialPlugins,
+  officialSourceText,
+  pluginLogsHref,
+  pluginTier,
+  systemModules,
+  systemModulesLine,
   formatMs,
   groupBuiltins,
   isLocalPlugin,
@@ -114,7 +123,7 @@ test("需要留意的排在前面，其余保持启动顺序；关闭不算需�
     ["c", "d", "a", "b"],
   );
   assert.equal(needsAttention(list[1]), false);
-  assert.equal(pluginsSummary(list), "4 个内置插件 · 1 个运行中 · 2 个需要留意 · 1 个已关闭");
+  assert.equal(pluginsSummary(list), "4 个系统模块 · 1 个运行中 · 2 个需要留意 · 1 个已关闭");
 });
 
 test("启动最慢只列 100 毫秒以上的前几名", () => {
@@ -144,10 +153,96 @@ test("等待依赖又说不出缺什么时，写等待所依赖的插件", () =>
   assert.equal(pluginDetail(plugin({ state: "pending" })), "等待所依赖的插件就绪");
 });
 
-test("内置插件标记：核心不能关、可关闭能关，都不是的不标", () => {
-  assert.equal(builtinBadge(plugin({ critical: true })), "核心");
-  assert.equal(builtinBadge(plugin({ disableable: true })), "可关闭");
-  assert.equal(builtinBadge(plugin()), null);
+test("分层：服务器给的为准；旧服务端没给时内置插件当系统模块，第三方不分层", () => {
+  assert.equal(pluginTier(plugin({ tier: "official" })), "official");
+  assert.equal(pluginTier(plugin()), "system");
+  assert.equal(pluginTier(plugin({ source: "package" })), null);
+  const list = [
+    plugin({ id: "core.database", tier: "system" }),
+    plugin({ id: "weixin-channel", tier: "official" }),
+    plugin({ id: "old" }),
+    plugin({ id: "acme.pkg", source: "package" }),
+  ];
+  assert.deepEqual(
+    systemModules(list).map((p) => p.id),
+    ["core.database", "old"],
+  );
+});
+
+test("官方插件：随带通道与替换它的插件包都在；提供服务的中枢只在出问题时露面", () => {
+  const hub = plugin({ id: "channels.hub", tier: "official", provides: ["channel-hub"] });
+  const weixin = plugin({ id: "weixin-channel", tier: "official", title: "微信通道" });
+  const replaced = plugin({ id: "telegram-channel", tier: "official", source: "package" });
+  assert.deepEqual(
+    officialPlugins([hub, weixin, replaced]).map((p) => p.id),
+    ["weixin-channel", "telegram-channel"],
+  );
+  const brokenHub = { ...hub, state: "failed", error: "数据库不可用" };
+  assert.deepEqual(
+    officialPlugins([brokenHub, weixin]).map((p) => p.id),
+    ["channels.hub", "weixin-channel"],
+  );
+  assert.equal(officialSourceText(weixin), "内置版本，可用插件包替换");
+  assert.equal(officialSourceText(replaced), "已被插件包替换，在「第三方插件」里管理");
+});
+
+test("依赖被有意关掉时跟着关闭：不算需要留意，显示为已关闭并写明依赖谁", () => {
+  const sentinel = plugin({
+    id: "boost.sentinel",
+    state: "pending",
+    blocked_by: [
+      {
+        key: "scheduler",
+        reason: "提供方 scheduler 状态为 disabled",
+        provider: "scheduler",
+        provider_state: "disabled",
+      },
+    ],
+  });
+  assert.equal(offWithDependency(sentinel), true);
+  assert.equal(needsAttention(sentinel), false);
+  assert.equal(displayState(sentinel), "disabled");
+  assert.equal(pluginDetail(sentinel), "依赖的 scheduler 已关闭，跟着停用");
+  // 依赖坏了（失败）、旧服务端没给结构化字段：仍是等待依赖、需要留意
+  const broken = plugin({
+    state: "pending",
+    blocked_by: [{ key: "db", reason: "提供方 core.database 状态为 failed", provider: "core.database", provider_state: "failed" }],
+  });
+  const legacy = plugin({ state: "pending", blocked_by: [{ key: "scheduler", reason: "提供方 scheduler 状态为 disabled" }] });
+  assert.equal(needsAttention(broken), true);
+  assert.equal(needsAttention(legacy), true);
+  assert.equal(displayState(broken), "pending");
+});
+
+test("功能停用的说明：开关停用的写谁停的，被管理员硬覆盖关掉的写原因", () => {
+  const base = {
+    key: "arrivals",
+    title: "新片到达通知",
+    description: "",
+    entries: ["push.arrivals"],
+    settings_href: null,
+    switchable: true,
+  };
+  const off = { ...base, enabled: false, changed_by: "yee", changed_at: "2026-10-09T10:00:00+00:00" };
+  assert.equal(featureOff(off), true);
+  assert.equal(featureOffText(off), "由 yee 停用");
+  const locked = { ...base, enabled: false, locked_by: "已在 data/plugins.yaml 中关闭" };
+  assert.equal(featureOffText(locked), "已在 data/plugins.yaml 中关闭");
+  // 旧服务端没有开关字段：按开着算
+  assert.equal(featureOff({ ...base }), false);
+  const member = plugin({ id: "push.arrivals", state: "disabled", disabled_by: "feature:arrivals" });
+  assert.equal(pluginDetail(member), "已经功能开关停用");
+});
+
+test("系统模块入口一行：正常 / 有几个需要留意；日志深链按条目 id 筛", () => {
+  const list = [plugin({ id: "a" }), plugin({ id: "b" })];
+  assert.deepEqual(systemModulesLine(list), { text: "另有 2 个系统模块，运行正常", tone: "ok" });
+  const broken = [plugin({ id: "a" }), plugin({ id: "b", state: "failed" })];
+  assert.deepEqual(systemModulesLine(broken), {
+    text: "另有 2 个系统模块，其中 1 个需要留意",
+    tone: "warn",
+  });
+  assert.equal(pluginLogsHref(plugin({ id: "core.database" })), "/settings/logs?q=core.database");
 });
 
 test("内置插件按服务器给的组序分组，组内需要留意的在前；没归属的进「其他」，非内置的不进", () => {

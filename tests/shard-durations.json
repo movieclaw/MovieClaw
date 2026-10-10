@@ -12,6 +12,7 @@
  "tests/api/test_agent_attachments_api.py": 5.9,
  "tests/api/test_agent_hydration.py": 0.0,
  "tests/api/test_agent_model_choice.py": 2.6,
+ "tests/api/test_agent_plugin_dev_skill.py": 6.7,
  "tests/api/test_agent_resilience.py": 25.1,
  "tests/api/test_agent_runs.py": 0.0,
  "tests/api/test_agent_sessions.py": 15.1,

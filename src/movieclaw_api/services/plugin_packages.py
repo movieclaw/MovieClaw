@@ -38,13 +38,13 @@ def _reserved(kernel: Kernel, settings: object) -> set[str]:
 
 async def _restore_bundled(kernel: Kernel, entry_id: str) -> None:
     """插件包卸下后，同 id 的随带插件包回来（plugin-channels.md §7）。"""
-    from movieclaw_api.plugins.bundled import bundled, entry
+    from movieclaw_api.plugins.bundled import bundled, canonical, entry
 
-    package = bundled().get(entry_id)
-    if package is None or kernel.fiber(entry_id) is not None:
+    package = bundled().get(canonical(entry_id))
+    if package is None or kernel.fiber(package.id) is not None:
         return
     fiber = await kernel.mount(entry(package))
-    logger.info("随带插件包 %s 已恢复（%s）", entry_id, fiber.state.value)
+    logger.info("随带插件包 %s 已恢复（%s）", package.id, fiber.state.value)
 
 
 def _operations() -> set[str]:
@@ -85,6 +85,7 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, An
     approved = set(current.operations) if current else set()
     approved_paths = [dict(p) for p in current.paths] if current else []
     paths = [dict(p) for p in manifest.permissions.paths]
+    approved_callbacks = current.callbacks if current else []
     return {
         "id": plugin.id,
         "title": plugin.title,
@@ -96,6 +97,8 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, An
         "operation_details": operation_details(manifest.permissions.operations),
         "paths": paths,
         "new_paths": [p for p in paths if p not in approved_paths],
+        "callbacks": list(manifest.permissions.callbacks),
+        "new_callbacks": [c for c in manifest.permissions.callbacks if c not in approved_callbacks],
         "requires": manifest.requires,
         "installed_version": current.version if current else None,
         "replaces_builtin": _replaces_builtin(plugin.id),
@@ -103,9 +106,9 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, An
 
 
 def _replaces_builtin(entry_id: str) -> bool:
-    from movieclaw_api.plugins.bundled import bundled_ids
+    from movieclaw_api.plugins.bundled import bundled_ids, canonical
 
-    return entry_id in bundled_ids()
+    return canonical(entry_id) in bundled_ids()
 
 
 class PackageManager:
@@ -133,6 +136,7 @@ class PackageManager:
                     "operations": item.operations,
                     "operation_details": operation_details(item.operations),
                     "paths": item.paths,
+                    "callbacks": item.callbacks,
                     "previous_version": (item.previous or {}).get("version"),
                     "bad_versions": item.bad,
                     "state": fiber.state.value if fiber else "unloaded",
@@ -153,6 +157,11 @@ class PackageManager:
         manifest, archive = pkg.read_archive(data)
         packages = pkg.installed(self._settings)
         current = packages.get(manifest.plugin.id)
+        if current is None and pkg.is_legacy_id(manifest.plugin.id):
+            raise pkg.PackageError(
+                f"插件 id「{manifest.plugin.id}」是旧格式（带点）：新插件的 id 须{pkg.ID_RULE}。"
+                "改清单 id 和代码里 @plugin 的名字后重新打包"
+            )
         reserved = _reserved(self._kernel, self._settings)
         pkg.check_compat(manifest, reserved=reserved, operations=_operations())
         if current is not None and current.version == manifest.plugin.version:
@@ -229,6 +238,7 @@ class PackageManager:
                 runtime=manifest.plugin.runtime,
                 operations=list(requested),
                 paths=requested_paths,
+                callbacks=list(manifest.permissions.callbacks),
                 previous=current.snapshot() if current else None,
                 bad=[v for v in (current.bad if current else []) if v != version],
                 installed_at=pkg.now(),
@@ -237,7 +247,8 @@ class PackageManager:
             pkg.save(self._settings, packages)
             state, error = await self._activate(record)
             if state != State.ACTIVE.value:
-                await self._roll_back(entry_id, version, error or f"激活后状态为 {state}")
+                error = error or f"激活后状态为 {state}"
+                await self._roll_back(entry_id, version, error)
                 return {"status": "rolled_back", "error": error, **self._status(entry_id)}
             self._prune(entry_id)
             self._watch(entry_id, version)
@@ -257,7 +268,18 @@ class PackageManager:
             files.configure(record.id, parse_grants(record.paths))
         if self._kernel.fiber(record.id) is not None:
             await self._kernel.unmount(record.id)
+        from movieclaw_api.plugins.bundled import canonical
+
+        # 旧 id 的替换包（如 channel.weixin）顶替的是改名后的随带条目（weixin-channel）
+        replaced = canonical(record.id)
+        if replaced != record.id and self._kernel.fiber(replaced) is not None:
+            await self._kernel.unmount(replaced)
         fiber = await self._kernel.mount(pkg.entry_for(self._settings, record))
+        if fiber.state is State.PENDING and not fiber.error:
+            waits = self._kernel.describe(fiber)["blocked_by"]
+            if waits:
+                detail = "、".join(f"{w['key']}（{w['reason']}）" for w in waits)
+                return fiber.state.value, f"一直在等服务：{detail}，检查 inject 是否写对"
         return fiber.state.value, fiber.error
 
     def _status(self, entry_id: str) -> dict[str, Any]:
@@ -348,6 +370,12 @@ class PackageManager:
             packages.pop(entry_id)
             pkg.save(self._settings, packages)
             shutil.rmtree(pkg.root(self._settings) / entry_id, ignore_errors=True)
+            from movieclaw_api.services.plugin_callbacks import get_service
+
+            callbacks = get_service()
+            if callbacks is not None:
+                # 回调地址随插件一起作废：卸载后外部平台再调进来一律 404
+                await callbacks.revoke_all(entry_id)
             await _restore_bundled(self._kernel, entry_id)
             purged = 0
             if purge_data:

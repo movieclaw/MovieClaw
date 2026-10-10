@@ -196,6 +196,39 @@ def _contribution(registry: str, item: Any) -> tuple[dict[str, Any], Any]:
     raise NotImplementedError(f"进程外插件暂不能往注册表 {registry} 贡献")
 
 
+def _operations(routes: list[Any]) -> dict[str, dict[str, Any]]:
+    """各路由的参数与请求体定义（引用展开成内联）。
+
+    宿主那边只挂一个通用的转发端点，FastAPI 看不到插件端点的签名；不把定义带过去，
+    接口目录里就没有参数，mclaw 生成不出对应的选项，AI 助手也就传不了参。
+    """
+    from fastapi.openapi.utils import get_openapi
+
+    spec = get_openapi(title="plugin", version="0", routes=routes)
+    schemas = spec.get("components", {}).get("schemas", {})
+
+    def inline(node: Any, depth: int = 0) -> Any:
+        if isinstance(node, list):
+            return [inline(item, depth) for item in node]
+        if not isinstance(node, dict):
+            return node
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/components/schemas/") and depth < 20:
+            return inline(schemas.get(ref.rsplit("/", 1)[1], {}), depth + 1)
+        return {key: inline(value, depth) for key, value in node.items()}
+
+    found: dict[str, dict[str, Any]] = {}
+    for methods in spec.get("paths", {}).values():
+        for operation in methods.values():
+            extra = {
+                key: inline(operation[key])
+                for key in ("description", "parameters", "requestBody")
+                if key in operation
+            }
+            found[operation.get("operationId", "")] = extra
+    return found
+
+
 class _RemotePluginRoutes:
     """插件路由：路由器挂进本进程自己的 ASGI 应用（Unix 套接字）。
 
@@ -209,6 +242,8 @@ class _RemotePluginRoutes:
         from fastapi.routing import APIRoute
 
         prefix = f"/api/v1/plugins/{ctx.entry_id}"
+        api_routes = [route for route in router.routes if isinstance(route, APIRoute)]
+        operations = _operations(api_routes)
         routes = [
             {
                 "path": route.path,
@@ -216,9 +251,9 @@ class _RemotePluginRoutes:
                 "operation_id": route.operation_id,
                 "summary": route.summary,
                 "name": route.name,
+                "openapi": operations.get(route.operation_id) or {},
             }
-            for route in router.routes
-            if isinstance(route, APIRoute)
+            for route in api_routes
         ]
         self._runner.serve_router(router, prefix)
         self._runner.send({"type": "routes", "zone": zone, "routes": routes})
@@ -237,6 +272,55 @@ class _RemotePluginRoutes:
             "routes.sign",
             {"path": path, "params": params, "expires_in": expires_in, "absolute": absolute},
         )
+
+
+class _RemoteCallbacks:
+    """回调端点：处理函数留在本进程，宿主登记转发函数；发密钥、作废经协议交给宿主。
+
+    只能在 ``apply`` 里登记（和插件路由一样随握手声明给宿主）。
+    """
+
+    def __init__(self, runner: Runner) -> None:
+        self._runner = runner
+
+    def endpoint(
+        self,
+        ctx: Any,
+        name: str,
+        handler: Callable[..., Any],
+        *,
+        methods: tuple[str, ...] = ("POST",),
+        max_body: int = 1024 * 1024,
+        timeout: float = 10.0,
+    ) -> None:
+        if name in ctx._callbacks:
+            raise ValueError(f"回调端点 {name} 重复登记")
+        ctx._callbacks[name] = handler
+        self._runner.send(
+            {
+                "type": "callback",
+                "name": name,
+                "methods": [m.upper() for m in methods],
+                "max_body": int(max_body),
+                "timeout": float(timeout),
+            }
+        )
+
+    async def issue(self, ctx: Any, name: str, *, scope: str = "plugin") -> Any:
+        from movieclaw_sdk.callbacks import issued_from_dict
+
+        return issued_from_dict(
+            await self._runner.rpc("callbacks.issue", {"name": name, "scope": scope})
+        )
+
+    async def revoke(self, ctx: Any, key_id: int) -> None:
+        await self._runner.rpc("callbacks.revoke", {"key_id": int(key_id)})
+
+    async def keys(self, ctx: Any, name: str | None = None) -> list[Any]:
+        from movieclaw_sdk.callbacks import issued_from_dict
+
+        found = await self._runner.rpc("callbacks.keys", {"name": name})
+        return [issued_from_dict(d) for d in found]
 
 
 class _RemoteFiles:
@@ -303,6 +387,7 @@ _SERVICE_PROXIES: dict[str, Callable[[Runner], Any]] = {
     "plugin-data": _RemotePluginData,
     "plugin-health": _RemotePluginHealth,
     "plugin-routes": _RemotePluginRoutes,
+    "plugin-callbacks": _RemoteCallbacks,
     "plugin-files": _RemotePluginFiles,
 }
 
@@ -335,6 +420,7 @@ class RemoteContext:
         self._handlers: dict[str, tuple[Event[Any, Any], Callable[..., Any]]] = {}
         self._jobs: dict[str, Callable[..., Any]] = {}
         self._channels: dict[str, Any] = {}
+        self._callbacks: dict[str, Callable[..., Any]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
         self._effects: list[Callable[[], Any]] = []
 
@@ -589,6 +675,9 @@ class Runner:
         if message.get("kind") == "channel":
             await self._handle_channel(message)
             return
+        if message.get("kind") == "callback":
+            await self._handle_callback(message)
+            return
         try:
             assert self.ctx is not None
             event, handler = self.ctx._handlers[message["listener"]]
@@ -633,6 +722,24 @@ class Runner:
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
         self.send(reply)
 
+    async def _handle_callback(self, message: dict[str, Any]) -> None:
+        """宿主转来一次回调请求（plugin-callbacks.md §4.3）。"""
+        from movieclaw_sdk.callbacks import CallbackResponse, request_from_dict, response_dict
+
+        call_id = message["id"]
+        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        try:
+            assert self.ctx is not None
+            handler = self.ctx._callbacks[message["listener"]]
+            response = await _maybe_await(handler(request_from_dict(message["payload"])))
+            if not isinstance(response, CallbackResponse):
+                raise TypeError("回调处理函数须返回 CallbackResponse")
+            reply.update(ok=True, result=response_dict(response))
+        except Exception as exc:  # noqa: BLE001 -- 原样报给宿主，宿主回 500
+            traceback.print_exc()
+            reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
+        self.send(reply)
+
     async def _handle_channel(self, message: dict[str, Any]) -> None:
         """宿主调通道驱动的一个方法（plugin-channels.md §5.3）。"""
         from movieclaw_sdk import channels as ch
@@ -672,6 +779,13 @@ class Runner:
             elif method == "push_target":
                 target = driver.push_target(self._account(cid, payload["account"]))
                 result = ch.reply_dict(target) if target is not None else None
+            elif method == "webhook":
+                from movieclaw_sdk.callbacks import request_from_dict, response_dict
+
+                # 平台回调：用收消息循环里的那个账号句柄，inbound 才回得到中枢
+                account = self._account(cid, payload["account"])
+                response = await driver.webhook(account, request_from_dict(payload["request"]))
+                result = response_dict(response)
             else:
                 account = self._account(cid, payload["account"])
                 reply_to = ch.reply_from(payload["reply"])

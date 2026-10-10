@@ -237,3 +237,21 @@ async def test_third_party_override_replaces_the_original_id() -> None:
         await h.unmount(third)
         assert h.registry(ADAPTERS).get("aria2") == Adapter("builtin")
         await h.unmount(builtin)
+
+
+def test_inject_only_takes_service_keys() -> None:
+    """注册表、事件写进 inject 会让插件永远等一个没人提供的服务；声明时就拦住并说清怎么改。"""
+    from movieclaw_kernel import Event, Mode, RegistryKey, plugin
+
+    registry = RegistryKey("test/decl-registry")
+    event = Event("test/decl-event", Mode.EMIT, payload=str)
+
+    async def apply(ctx) -> None:
+        pass
+
+    with pytest.raises(TypeError, match=r"test/decl-registry 是注册表.*ctx\.contribute"):
+        plugin("p.reg", title="r", inject=(registry,))(apply)
+    with pytest.raises(TypeError, match=r"test/decl-event 是事件 / 钩子.*ctx\.on"):
+        plugin("p.evt", title="e", inject=(event,))(apply)
+    with pytest.raises(TypeError, match="provides 只能写服务键"):
+        plugin("p.prov", title="p", provides=(registry,))(apply)

@@ -7,7 +7,14 @@
 # 装配完成后的整棵命令树（精选层 + 生成层，含分组名），一行一条命令路径。
 activity
 app
+app features
+app features list
+app features set
 app plugins
+app plugins callbacks
+app plugins callbacks list
+app plugins callbacks revoke
+app plugins callbacks rotate
 app plugins dead-letters
 app plugins dead-letters dismiss
 app plugins dead-letters replay

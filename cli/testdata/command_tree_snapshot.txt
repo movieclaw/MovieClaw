@@ -1,3 +1,8 @@
+app features list
+app features set
+app plugins callbacks list
+app plugins callbacks revoke
+app plugins callbacks rotate
 app plugins dead-letters dismiss
 app plugins dead-letters replay
 app plugins list

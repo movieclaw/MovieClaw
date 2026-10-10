@@ -34,6 +34,10 @@ class ChannelView(BaseModel):
     entry_id: str = Field(description="提供这个通道的插件")
     receive: bool = Field(description="能收消息（能对话 AI 助手）；false 表示只能推送")
     photo: bool = Field(description="推送能带配图")
+    webhook: bool = Field(
+        default=False,
+        description="靠平台回调收消息：绑定后要把给出的回调地址填到平台后台，且服务器要能从外网访问",
+    )
     binding: ChannelBindingSpecView
 
 
@@ -89,6 +93,10 @@ class ChannelBindingView(BaseModel):
     #: need_input 时输入框的说明
     input_label: str | None
     account: ChannelAccountView | None = None
+    #: 靠平台回调收消息的通道：这个账号的回调地址（发出时是完整地址，沿用旧地址时密钥打码）
+    callback_url: str | None = None
+    #: 回调地址的说明（填到哪、是否要先配外部访问地址）
+    callback_note: str = ""
 
 
 class PushTestPayload(BaseModel):

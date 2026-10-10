@@ -284,6 +284,36 @@ def _repair_unpaired_tool_messages(
     return repaired
 
 
+#: 空助手消息的占位正文：只有思考、没有正文与工具调用的助手消息（流式中途被取消落盘的半截）
+INTERRUPTED_REPLY_TEXT = "（这一轮回复被中断，没有产出内容）"
+
+
+def _fill_empty_assistant_messages(
+    session_id: str, messages: list[ChatMessage]
+) -> list[ChatMessage]:
+    """读取侧防线：给既无正文、也无工具调用的助手消息补一句占位正文。
+
+    运行在流式中途被取消（用户停止、服务重启）时，收尾会把已显示的半截定稿落盘；
+    半截里若只有思考，发回供应商时思考被协议层丢弃，就成了一条空的助手消息——
+    Kimi 等供应商对此直接 400，整个会话从此续不上。补正文而不是删除：保住一问一答的
+    交替（部分供应商要求），也让模型知道上一轮是被打断的。只改内存里的投影，不回写文件。
+    """
+    filled: list[ChatMessage] = []
+    for message in messages:
+        if message.role == "assistant" and not message.tool_calls and not message.text().strip():
+            parts = list(message.content) if isinstance(message.content, list) else []
+            filled.append(
+                message.model_copy(
+                    update={"content": [*parts, TextPart(text=INTERRUPTED_REPLY_TEXT)]}
+                )
+            )
+        else:
+            filled.append(message)
+    if any(m is not f for m, f in zip(messages, filled, strict=True)):
+        logger.info("会话 %s 重建上下文时给被中断的空回复补了占位正文", session_id)
+    return filled
+
+
 def _last_context_boundary_index(
     entries: list[SessionMessageEntry | SessionCompactionEntry | SessionHandoffEntry],
 ) -> int:
@@ -638,7 +668,9 @@ class AgentSessionStore:
                 *entries[last].replacement_history,
                 *(e.message for e in entries[last + 1 :] if isinstance(e, SessionMessageEntry)),
             ]
-        return _repair_unpaired_tool_messages(session_id, messages)
+        return _fill_empty_assistant_messages(
+            session_id, _repair_unpaired_tool_messages(session_id, messages)
+        )
 
     def summarize(self, session_id: str) -> SessionSummary:
         """扫描单个会话文件生成索引摘要。"""

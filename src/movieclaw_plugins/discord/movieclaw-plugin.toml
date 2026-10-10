@@ -1,5 +1,5 @@
 [plugin]
-id = "channel.discord"
+id = "discord-channel"
 title = "Discord 通道"
 version = "1.0.0"
 entry = "discord_channel"

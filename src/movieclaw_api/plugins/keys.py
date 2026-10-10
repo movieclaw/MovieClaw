@@ -14,6 +14,7 @@ from typing import Any
 from movieclaw_kernel import RegistryKey, ServiceKey, Stability
 
 # IM 通道注册表定义在 SDK（通道插件只依赖 SDK），这里转出给主程序沿用
+from movieclaw_sdk.callbacks import PLUGIN_CALLBACKS as PLUGIN_CALLBACKS
 from movieclaw_sdk.channels import IM_CHANNELS as IM_CHANNELS
 
 DB: ServiceKey[Any] = ServiceKey("db", doc="数据库引擎（迁移完成后提供）")

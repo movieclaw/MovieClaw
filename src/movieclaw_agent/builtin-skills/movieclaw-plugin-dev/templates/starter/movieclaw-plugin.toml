@@ -1,0 +1,17 @@
+[plugin]
+id = "__PLUGIN_ID__"
+title = "__PLUGIN_TITLE__"
+version = "0.1.0"
+entry = "__MODULE__"
+runtime = "process"          # 独立进程运行（推荐）；"inline" 要用户单独批准
+sdk = "^1.0"
+description = "__PLUGIN_DESCRIPTION__"
+
+[requires]
+# 用到的事件 / 钩子 / 注册表写在这里，名字与版本见 scripts/contracts.py，例如：
+# "library.ingest.imported" = "^1.0"
+
+[permissions]
+operations = []              # 要调用的宿主操作（与 mclaw 命令一一对应），危险操作必须逐个列出
+# paths = [{ path = "staging", mode = "read" }]   # 要读写的目录
+# network = true                                  # 要直连外网时声明

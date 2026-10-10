@@ -274,7 +274,7 @@ function NetflixBillboard({
         {addedLabel && (
           <p className="text-on-image mt-1 text-caption text-[var(--text-muted)]">{addedLabel}</p>
         )}
-        {/* 按钮组：▶ 播放（白底黑字）· ⓘ 详情（灰底）· ✦ 问 AI（ghost）。
+        {/* 按钮组：▶ 播放（品牌红）· ⓘ 详情（灰底）· ✦ 问 AI（ghost）。
             移动端可换行（320px 视口三颗排不下）且保持 44px 触控高度——
             billboard 按钮组是最高频的操作区，max-md:h-9 的 36px 偏小 */}
         <div className="mt-4 flex items-center gap-2.5 max-md:mt-3.5 max-md:flex-wrap">
@@ -282,7 +282,7 @@ function NetflixBillboard({
             <button
               type="button"
               onClick={() => router.push(playHref)}
-              className="flex h-10 items-center gap-2 rounded-[4px] bg-white px-5 text-[15px] font-bold text-black transition-colors hover:bg-white/75 max-md:h-11 max-md:px-4"
+              className="media-cta flex h-10 items-center gap-2 rounded-[4px] bg-white px-5 text-[15px] font-bold text-black transition-colors hover:bg-white/75 max-md:h-11 max-md:px-4"
             >
               <PlayIcon className="size-5" fill="currentColor" />
               播放

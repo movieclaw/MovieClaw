@@ -9,7 +9,7 @@ from movieclaw_sdk import Context, plugin
 from movieclaw_sdk.channels import IM_CHANNELS
 
 
-@plugin("channel.feishu", title="飞书通道", disableable=True, reloadable=True)
+@plugin("feishu-channel", title="飞书通道", disableable=True, reloadable=True)
 async def feishu(ctx: Context) -> None:
     from .driver import FeishuDriver
 

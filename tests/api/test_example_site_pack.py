@@ -1,6 +1,6 @@
 """站点数据包示例插件端到端（docs/design/plugin-phase2b.md §10 B8）。
 
-把 ``examples/plugins/site_pack/`` 当本地受信插件（包形式）装进临时数据目录，真实应用：
+把示例插件 ``site_pack/`` 当本地受信插件（包形式）装进临时数据目录，真实应用：
 站点目录接口出现数据包里的站点；停用插件站点消失、内置站点不受影响；
 用户目录里同 site_id 的配置覆盖数据包。
 """
@@ -18,7 +18,15 @@ from fastapi.testclient import TestClient
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.plugins.local import PACKAGE
 
-EXAMPLES = Path(__file__).resolve().parents[2] / "examples" / "plugins"
+EXAMPLES = (
+    Path(__file__).resolve().parents[2]
+    / "src"
+    / "movieclaw_agent"
+    / "builtin-skills"
+    / "movieclaw-plugin-dev"
+    / "references"
+    / "examples"
+)
 
 
 @pytest.fixture
@@ -33,7 +41,7 @@ def app_client(tmp_path, monkeypatch):
     (tmp_path / "plugins.yaml").write_text(
         textwrap.dedent(
             """
-            - id: examples.site-pack
+            - id: site-pack
               local: true
             """
         ),
@@ -69,14 +77,14 @@ def test_site_pack_adds_sites_and_user_configs_still_win(app_client, tmp_path) -
 
     app, client = app_client
     kernel = app.state.kernel
-    assert kernel.fiber("examples.site-pack").state.value == "active"
+    assert kernel.fiber("site-pack").state.value == "active"
     sites = catalog(client)
     assert sites["examplept"]["display_name"] == "Example PT（数据包示例）"
     assert get_site_config("examplept").site_class is NexusPHPSite
     builtin = set(sites) - {"examplept"}
     assert {"mteam", "hdsky"} <= builtin
 
-    client.portal.call(kernel.disable, "examples.site-pack")
+    client.portal.call(kernel.disable, "site-pack")
     sites = catalog(client)
     assert "examplept" not in sites
     assert set(sites) == builtin
@@ -88,5 +96,5 @@ def test_site_pack_adds_sites_and_user_configs_still_win(app_client, tmp_path) -
     (user_dir / "examplept.yaml").write_text(
         user.replace("Example PT（数据包示例）", "我改过的 Example"), encoding="utf-8"
     )
-    client.portal.call(kernel.enable, "examples.site-pack")
+    client.portal.call(kernel.enable, "site-pack")
     assert catalog(client)["examplept"]["display_name"] == "我改过的 Example"

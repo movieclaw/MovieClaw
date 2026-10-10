@@ -128,7 +128,8 @@ export function scopeOfMediaKind(kind: string): SearchScope {
 }
 
 /**
- * 默认标签列表：常用四类可见，其余（音乐/游戏/成人/其他）隐藏，无预设。
+ * 默认标签列表：常用四类可见，其余（音乐/游戏/其他）隐藏，无预设。
+ * 「成人」不是内置分类（没有一键打开的开关），只能在自定义分类里勾选。
  * 与后端 settings.schemas.default_search_tabs 保持一致——
  * 后端拉取失败时前端以此兜底，行为与历史版本硬编码的标签相同。
  */
@@ -140,7 +141,6 @@ export const DEFAULT_SEARCH_TABS: SearchTab[] = (
     ["anime", true],
     ["music", false],
     ["game", false],
-    ["av", false],
     ["other", false],
   ] as const
 ).map(([id, visible]) => ({ type: "category", id, visible }));

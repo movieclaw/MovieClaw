@@ -117,8 +117,9 @@ final class TorrentSearchModel {
                     recompute()
                 case let .siteError(siteId, _, error, elapsed):
                     patch(siteId) { $0.state = .error; $0.error = error; $0.elapsedMs = elapsed }
-                case let .done(_, elapsed, _):
+                case let .done(_, elapsed, statuses):
                     totalElapsedMs = elapsed
+                    if Self.noMorePages(statuses) { exhausted = true }
                     phase = .done
                 }
             }
@@ -171,10 +172,12 @@ final class TorrentSearchModel {
         loadingMore = true
         runAux { [weak self] in
             var added = 0
+            var lastPage = false
             var completed = false
             do {
                 for try await event in api.torrentSearchStream(keyword: self?.keyword ?? "", scope: self?.scope ?? .all, page: next) {
                     guard let self else { return }
+                    if case let .done(_, _, statuses) = event { lastPage = Self.noMorePages(statuses) }
                     if case let .siteResult(_, _, _, _, hits) = event {
                         let seen = Set(items.map { "\($0.siteId)/\($0.torrentId)" })
                         let fresh = hits.filter { !seen.contains("\($0.siteId)/\($0.torrentId)") }
@@ -191,9 +194,15 @@ final class TorrentSearchModel {
             loadingMore = false
             if completed {
                 page = next
-                if added == 0 { exhausted = true }
+                if added == 0 || lastPage { exhausted = true }
             }
         }
+    }
+
+    /// 各站都明确说没有下一页（失败或说不准的站不算）→ 不再显示「加载更多」。
+    /// 真实站点多半不报（has_more 为空），照旧靠「加载一页没有新条目」判断到底
+    nonisolated static func noMorePages(_ statuses: [API.SiteSearchStatus]) -> Bool {
+        !statuses.isEmpty && statuses.allSatisfy { $0.error == nil && $0.hasMore == false }
     }
 
     private func runAux(_ body: @escaping () async -> Void) {

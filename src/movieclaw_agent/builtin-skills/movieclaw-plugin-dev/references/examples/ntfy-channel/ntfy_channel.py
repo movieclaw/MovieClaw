@@ -25,7 +25,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from movieclaw_sdk import plugin
+from movieclaw_sdk import net, plugin
 from movieclaw_sdk.channels import (
     IM_CHANNELS,
     Account,
@@ -39,7 +39,7 @@ from movieclaw_sdk.channels import (
     ReplyContext,
 )
 
-logger = logging.getLogger("examples.ntfy")
+logger = logging.getLogger("ntfy-channel")
 
 _TOPIC = re.compile(r"^[A-Za-z0-9_-]{1,64}$")
 #: 断线后重连的等待（秒）
@@ -48,6 +48,8 @@ RECONNECT_S = 5.0
 MAX_TEXT = 1300
 #: 认这个固定身份为白名单：ntfy 主题没有发送者身份，能往「收消息的主题」发消息的就是你
 USER = "ntfy"
+#: 连外网的服务名 = 条目 id，按用户的代理设置走
+SERVICE = "ntfy-channel"
 
 
 def _server(raw: str) -> str:
@@ -108,7 +110,9 @@ class NtfyDriver(ChannelDriver):
     async def run(self, account: Account) -> None:
         creds = account.credentials
         url = f"{creds['server']}/{creds['inbox']}/json"
-        async with httpx.AsyncClient(timeout=httpx.Timeout(10.0, read=None)) as client:
+        async with httpx.AsyncClient(
+            transport=net.http_transport(SERVICE), timeout=httpx.Timeout(10.0, read=None)
+        ) as client:
             while not account.stopping.is_set():
                 listen = asyncio.ensure_future(self._listen(client, url, account))
                 stop = asyncio.ensure_future(account.stopping.wait())
@@ -163,13 +167,13 @@ class NtfyDriver(ChannelDriver):
     async def _publish(self, credentials: dict[str, str], text: str) -> None:
         url = f"{credentials['server']}/{credentials['outbox']}"
         headers = {**_headers(credentials), "Title": "MovieClaw", "Markdown": "yes"}
-        async with httpx.AsyncClient(timeout=15.0) as client:
+        async with httpx.AsyncClient(transport=net.http_transport(SERVICE), timeout=15.0) as client:
             resp = await client.post(url, content=text.encode(), headers=headers)
         if resp.status_code in (401, 403):
             raise ValueError("ntfy 拒绝了访问令牌")
         resp.raise_for_status()
 
 
-@plugin("examples.ntfy", title="ntfy 通道（示例）")
+@plugin("ntfy-channel", title="ntfy 通道（示例）")
 async def apply(ctx) -> None:
     ctx.contribute(IM_CHANNELS, "ntfy", NtfyDriver())

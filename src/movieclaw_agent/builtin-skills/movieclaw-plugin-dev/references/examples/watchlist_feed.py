@@ -3,12 +3,13 @@
 片单可以是一个 URL（JSON 数组、``{"titles": [...]}`` 或一行一个片名的纯文本），也可以是本机文件
 （经文件接口读取，须在 ``paths`` 里批准它所在的目录）。
 每轮把没处理过的片名交给宿主操作 ``search.titles`` 解析成作品，再 ``subscriptions.create`` 订阅：
-豆瓣条目对应多个 TMDB 条目时（409）取第一个候选；创建订阅本身对同一作品幂等。
+剧集要订哪几季、豆瓣条目对应多个 TMDB 条目（409）时选哪个，都是用户的取舍：不替用户猜，记进插件数据
+（``pending``）并写日志，交给用户在订阅页或对话里定。创建订阅本身对同一作品幂等。
 处理过的片名记在插件数据里（``PLUGIN_DATA``），重复信号不会重复订阅。
 
 开启方式（``data/plugins.yaml``）::
 
-    - id: examples.watchlist-feed
+    - id: watchlist-feed
       local: true
       config:
         source: https://example.com/my-watchlist.json
@@ -28,6 +29,7 @@ from pydantic import BaseModel, Field
 from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_FILES
 from movieclaw_api.services.host_ops import OpsError
 from movieclaw_kernel import Context, plugin
+from movieclaw_sdk import net
 
 
 class Config(BaseModel):
@@ -49,7 +51,7 @@ def parse_titles(text: str) -> list[str]:
 
 
 @plugin(
-    "examples.watchlist-feed",
+    "watchlist-feed",
     title="片单订阅（示例）",
     inject=(HOST_OPS, PLUGIN_DATA, PLUGIN_FILES),
     permissions=("search.titles", "subscriptions.create"),
@@ -70,13 +72,23 @@ async def watchlist_feed(ctx: Context[Config]) -> None:
 
     async def fetch() -> str:
         if config.source.startswith(("http://", "https://")):
-            async with httpx.AsyncClient(timeout=20) as client:
+            # 服务名 = 条目 id，按用户的代理设置走（清单要声明联网）
+            async with httpx.AsyncClient(
+                transport=net.http_transport("watchlist-feed"), timeout=20
+            ) as client:
                 response = await client.get(config.source)
                 response.raise_for_status()
                 return response.text
         source = await files.open(config.source, "rb")
         with source:
             return (await asyncio.to_thread(source.read)).decode("utf-8")
+
+    async def hold(title: str, reason: str, refs: list[str]) -> str:
+        """要用户定的：记下来，不再自动处理。"""
+        pending = await store.get("pending", default={})
+        pending[title] = {"reason": reason, "candidates": refs}
+        await store.set("pending", pending)
+        return f"{reason}，已记下等你确认（候选：{'、'.join(refs)}）"
 
     async def subscribe(title: str) -> str | None:
         """返回结果描述；找不到作品返回 None（下一轮再试）。"""
@@ -87,16 +99,16 @@ async def watchlist_feed(ctx: Context[Config]) -> None:
         if not candidates:
             return None
         title_ref = candidates[0]["title_ref"]
+        if candidates[0].get("media_type") == "tv":
+            # 剧集必须选季（selected_seasons）或只追新集（follow_future），否则创建直接 400
+            return await hold(title, "是剧集，要选订阅哪几季", [title_ref])
         try:
             created = await ops.call("subscriptions.create", {"title_ref": title_ref})
         except OpsError as exc:
             if exc.code != "SUBSCRIPTION_TARGET_AMBIGUOUS" or not exc.details:
                 raise
-            # 豆瓣条目对应多个 TMDB 条目：取第一个候选，并保留豆瓣来源
-            created = await ops.call(
-                "subscriptions.create",
-                {"title_ref": exc.details[0]["title_ref"], "source_title_ref": title_ref},
-            )
+            refs = [c["title_ref"] for c in exc.details]
+            return await hold(title, "对应多部作品", refs)
         subscription = (created or {}).get("subscription") or {}
         return f"已订阅（#{subscription.get('id')}）"
 

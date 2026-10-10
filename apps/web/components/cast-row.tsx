@@ -69,7 +69,8 @@ export function CastRow({
       <h2 className="text-on-image mb-3 text-body-lg font-semibold tracking-[-0.01em] text-[var(--text)]">
         {title}
       </h2>
-      <HScroller className="-mx-1 gap-3 px-1 pb-1">
+      {/* pt-1.5：演职员卡悬停上浮 4px 的头部余量（横滚容器连带裁纵向溢出，削顶角） */}
+      <HScroller className="-mx-1 gap-3 px-1 pt-1.5 pb-1">
         {/* 同一个人可能出现多次（一人分饰两角；也可能既是导演又是演员），
             姓名+岗位不足以唯一，附加下标兜底。 */}
         {cast.map((person, index) => (

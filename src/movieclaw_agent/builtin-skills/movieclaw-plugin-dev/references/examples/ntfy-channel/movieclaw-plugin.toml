@@ -1,5 +1,5 @@
 [plugin]
-id = "examples.ntfy"
+id = "ntfy-channel"
 title = "ntfy 通道（示例）"
 version = "1.0.0"
 entry = "ntfy_channel"
@@ -12,3 +12,4 @@ description = "第三方通道示例：在 ntfy 里和 MovieClaw 对话、接收
 
 [permissions]
 operations = []
+network = true

@@ -402,6 +402,7 @@ def fill_path_params(path: str) -> str:
         .replace("{token}", "no-such-image")  # 推送配图的签名
         .replace("{item_id}", "1")  # 推送「这部剧不再提醒」的条目
         .replace("{letter_id}", "1")  # 可靠事件死信
+        .replace("{key_id}", "1")  # 插件回调地址
     )
 
 

@@ -3,7 +3,7 @@
 一个插件包是 zip（``.mcplugin``），根目录有 ``movieclaw-plugin.toml``::
 
     [plugin]
-    id = "acme.group-blocklist"     # 全局唯一，小写，须带命名空间（含 .）
+    id = "group-blocklist"          # 全局唯一：小写字母开头，字母、数字、连字符，3～40 位，不含点
     title = "发布组黑名单"
     version = "0.1.0"
     entry = "group_blocklist"       # 模块名：group_blocklist.py 或 group_blocklist/__init__.py
@@ -62,9 +62,19 @@ MAX_ARCHIVE_BYTES = 50 * 1024 * 1024
 MAX_UNPACKED_BYTES = 200 * 1024 * 1024
 MAX_FILES = 5000
 
-_ID = re.compile(r"^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9_-]*)+$")
+#: 插件包 id（docs/design/plugin-callbacks.md §3）：不含点。带点的名字留给内核里的内置条目，
+#: 两边永不相交
+_ID = re.compile(r"^[a-z][a-z0-9-]{1,38}[a-z0-9]$")
+#: 旧格式（带命名空间点）：只认已经装上的插件包——代码里写死了这个 id，宿主不能替它改名
+_LEGACY_ID = re.compile(r"^[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9_-]*)+$")
+ID_RULE = "小写字母开头，只用小写字母、数字和连字符，3～40 位，不含点，如 group-blocklist"
+
 _VERSION = re.compile(r"^\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?$")
 _MODULE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def is_legacy_id(entry_id: str) -> bool:
+    return not _ID.match(entry_id) and bool(_LEGACY_ID.match(entry_id))
 
 
 class PackageError(ValueError):
@@ -86,8 +96,9 @@ class _Plugin(BaseModel):
     @field_validator("id")
     @classmethod
     def _id(cls, value: str) -> str:
-        if not _ID.match(value):
-            raise ValueError("id 须是小写、带命名空间的形式，如 acme.group-blocklist")
+        # 旧格式在这里放行，是否允许由安装流程按「是否已经装过」决定（is_legacy_id）
+        if not _ID.match(value) and not _LEGACY_ID.match(value):
+            raise ValueError(f"id 须{ID_RULE}")
         return value
 
     @field_validator("version")
@@ -111,6 +122,21 @@ class _Permissions(BaseModel):
     operations: list[str] = Field(default_factory=list)
     paths: list[dict[str, str]] = Field(default_factory=list)
     network: bool = False
+    callbacks: list[str] = Field(default_factory=list, max_length=8)
+    """要开放的回调端点名（docs/design/plugin-callbacks.md §4.3）：外部平台能直接调进来的地址。"""
+
+    @field_validator("callbacks")
+    @classmethod
+    def _callbacks(cls, value: list[str]) -> list[str]:
+        from movieclaw_sdk.callbacks import NAME
+
+        bad = [name for name in value if not NAME.match(name)]
+        if bad:
+            names = "、".join(bad)
+            raise ValueError(f"回调端点名 {names} 不合规：小写字母开头，字母、数字、连字符")
+        if len(set(value)) != len(value):
+            raise ValueError("回调端点名重复")
+        return value
 
 
 class Manifest(BaseModel):
@@ -205,6 +231,8 @@ class Installed:
     operations: list[str]
     paths: list[dict[str, str]] = field(default_factory=list)
     """批准的路径授权（``PLUGIN_FILES``）。"""
+    callbacks: list[str] = field(default_factory=list)
+    """批准开放的回调端点名（``PLUGIN_CALLBACKS``）。"""
     previous: dict[str, Any] | None = None
     """上一版的安装记录（version、title、entry、runtime、operations），回滚用。"""
     bad: list[str] = field(default_factory=list)
@@ -219,6 +247,7 @@ class Installed:
             "runtime": self.runtime,
             "operations": list(self.operations),
             "paths": [dict(p) for p in self.paths],
+            "callbacks": list(self.callbacks),
         }
 
 
@@ -328,25 +357,27 @@ def _inline(path: Path, package: Installed) -> Plugin:
     vendor = path / "vendor"
     if vendor.is_dir() and str(vendor) not in sys.path:
         sys.path.append(str(vendor))
-    module = sys.modules.get(name)
-    if module is None:
-        file = path / f"{package.entry}.py"
-        pkg = path / package.entry / "__init__.py"
-        spec = (
-            importlib.util.spec_from_file_location(
-                name, pkg, submodule_search_locations=[str(pkg.parent)]
-            )
-            if pkg.is_file()
-            else importlib.util.spec_from_file_location(name, file)
+    # 每次挂载都按盘上的代码重新导入：模块名不带版本，沿用缓存会让升级、回滚、重装后的包
+    # 照样跑第一次导入的旧代码，直到重启
+    for loaded in [m for m in sys.modules if m == name or m.startswith(f"{name}.")]:
+        del sys.modules[loaded]
+    file = path / f"{package.entry}.py"
+    pkg = path / package.entry / "__init__.py"
+    spec = (
+        importlib.util.spec_from_file_location(
+            name, pkg, submodule_search_locations=[str(pkg.parent)]
         )
-        assert spec is not None and spec.loader is not None
-        module = importlib.util.module_from_spec(spec)
-        sys.modules[name] = module
-        try:
-            spec.loader.exec_module(module)
-        except BaseException:
-            sys.modules.pop(name, None)
-            raise
+        if pkg.is_file()
+        else importlib.util.spec_from_file_location(name, file)
+    )
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
     for value in vars(module).values():
         if isinstance(value, Plugin) and value.name == package.id:
             return dataclasses.replace(

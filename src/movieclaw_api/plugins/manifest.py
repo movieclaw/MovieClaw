@@ -49,7 +49,18 @@ BUILTIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("订阅", ("subscription",)),
     ("媒体库", ("library.", "media.", "enrich.")),
     ("播放与字幕", ("playback.", "subtitle.", "jellyfin.")),
-    ("通知与推送", ("channels.", "channel.", "push.", "cloud")),
+    (
+        "通知与推送",
+        (
+            "channels.",
+            "push.",
+            "cloud",
+            "weixin-channel",
+            "telegram-channel",
+            "discord-channel",
+            "feishu-channel",
+        ),
+    ),
     ("AI 助手", ("agent.",)),
     ("插件系统", ("kernel.",)),
 )
@@ -89,6 +100,7 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         events.plugin_data,
         events.plugin_health,
         events.plugin_routes,
+        events.plugin_callbacks,
         events.plugin_files,
         core.secrets,
         core.setting_store,
@@ -138,8 +150,14 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
 
 
 def load_patches(settings: object) -> list[Patch]:
-    """补丁层：环境变量开关 + ``data/plugins.yaml``。改补丁需要重启生效。"""
-    return env_patches(settings) + file_patches(settings)
+    """补丁层：插件页停用的功能 + 环境变量开关 + ``data/plugins.yaml``。
+
+    改 yaml / 环境变量需要重启生效；功能开关在运行中切换（services/plugin_features.py），
+    这里只负责重启后保持。功能补丁排最前：同一插件被几处都关时，诊断显示管理员那一处。
+    """
+    from movieclaw_api.services.plugin_features import feature_patches
+
+    return feature_patches(settings) + env_patches(settings) + file_patches(settings)
 
 
 def patch_file(settings: object) -> Path:

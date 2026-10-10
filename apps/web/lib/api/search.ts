@@ -109,6 +109,8 @@ export interface SiteSearchStatus {
   error: string | null;
   /** 该站从发起到返回/失败的耗时（毫秒）；老快照数据可能为 null */
   elapsed_ms: number | null;
+  /** 该站明确告知后面还有没有页；null / 缺省 = 不确定（老服务器没有这个字段） */
+  has_more?: boolean | null;
 }
 
 /** 跨站聚合搜索结果（见 schemas.search.SearchResponse）。 */

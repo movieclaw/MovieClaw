@@ -9,7 +9,7 @@ interface ApiEnvelope<T> {
 }
 
 // ---------------------------------------------------------------------------
-// 插件诊断（设置 → 插件 → 内置；docs/design/plugin-kernel.md §10）
+// 插件诊断（设置 → 插件；docs/design/plugin-kernel.md §10、plugin-page-tiers.md）
 // 后端每个子系统都是插件内核上的一个内置插件；这里只读地看它们的状态。
 // ---------------------------------------------------------------------------
 
@@ -28,6 +28,9 @@ export interface PluginBlockedBy {
   key: string;
   /** 为什么缺：没有插件提供 / 提供方某状态 */
   reason: string;
+  /** 提供这个服务的插件与它的状态；没有插件提供为 null，旧服务端没有这两个字段 */
+  provider?: string | null;
+  provider_state?: PluginState | null;
 }
 
 export interface PluginStats {
@@ -70,8 +73,50 @@ export interface PluginInfo {
   data_rows?: number;
   /** inline：主进程里运行；process：独立进程。旧服务端没有这个字段 */
   runtime?: "inline" | "process";
-  /** 内置插件的功能分组（设置 → 插件 → 内置）；本地 / 第三方插件为 null，旧服务端没有这个字段 */
+  /** 内置插件的领域分组（系统模块清单内部的分组）；本地 / 第三方插件为 null，旧服务端没有这个字段 */
   group?: string | null;
+  /**
+   * 插件页分层（docs/design/plugin-page-tiers.md）：official 官方插件（可被插件包替换，替换它的插件包
+   * 也算）/ system 系统模块；其余第三方与本地插件为 null，旧服务端没有这个字段
+   */
+  tier?: PluginTier | null;
+}
+
+export type PluginTier = "official" | "system";
+
+/** 功能目录里的一项（功能开关用；插件页不展示）：由一个或多个内置插件组成（docs/design/plugin-page-tiers.md） */
+export interface PluginFeature {
+  key: string;
+  title: string;
+  description: string;
+  /** 组成这个功能的内置插件条目 id */
+  entries: string[];
+  /** 去哪里设置它（站内路径） */
+  settings_href: string | null;
+  /** 能不能停用（服务端 / 接口可切换，网页不出开关）；旧服务端没有开关相关字段 */
+  switchable?: boolean;
+  /** 当前是否开启（被停用或被管理员硬覆盖关掉都算关） */
+  enabled?: boolean;
+  /** 被 data/plugins.yaml / 环境变量关掉的原因：开关锁住 */
+  locked_by?: string | null;
+  /** 停用时间与停用人；开启着为 null */
+  changed_at?: string | null;
+  changed_by?: string | null;
+}
+
+/** 功能目录与开关状态（成员也能读：停用的功能各端不出入口） */
+export async function listFeatures(): Promise<PluginFeature[]> {
+  return (await request<ApiEnvelope<PluginFeature[]>>("/app/features")).data;
+}
+
+/** 停用 / 开启一个功能：运行中生效，重启后保持（管理员） */
+export async function setFeatureEnabled(key: string, enabled: boolean): Promise<PluginFeature> {
+  return (
+    await request<ApiEnvelope<PluginFeature>>(`/app/features/${encodeURIComponent(key)}`, {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    })
+  ).data;
 }
 
 export interface PluginHealth {
@@ -146,6 +191,9 @@ export interface PackageRequest {
   operation_details: OperationDetail[];
   paths: PathGrant[];
   new_paths: PathGrant[];
+  /** 要开放的回调端点名：外部平台能不登录直接调进来的地址；旧服务端没有这个字段 */
+  callbacks?: string[];
+  new_callbacks?: string[];
   requires: Record<string, string>;
   installed_version: string | null;
   /** 与随带的内置插件同 id：安装即替换它，卸载后随带版本回来；旧服务端没有这个字段 */
@@ -160,6 +208,8 @@ export interface InstalledPackage {
   operations: string[];
   operation_details: OperationDetail[];
   paths: PathGrant[];
+  /** 开放的回调端点名；旧服务端没有这个字段 */
+  callbacks?: string[];
   previous_version: string | null;
   /** 激活失败过、已自动回滚的版本 */
   bad_versions: string[];

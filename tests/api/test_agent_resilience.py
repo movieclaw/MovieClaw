@@ -82,6 +82,34 @@ def test_build_history_repairs_unpaired_in_memory_only(tmp_path) -> None:
     assert len(store.read(sid)[1]) == entry_count_before
 
 
+def test_build_history_fills_a_reply_interrupted_before_any_text(tmp_path) -> None:
+    """流式中途被取消、半截里只有思考：续聊时不能把空的助手消息发给供应商（Kimi 会 400）。
+
+    现场复现：服务重启打断了一轮回复，转录里留下 finish_reason=aborted、只有思考的助手消息；
+    用户点「继续」后整个会话报 "the message ... with role 'assistant' must not be empty"。
+    """
+    from movieclaw_api.services.agent_sessions import INTERRUPTED_REPLY_TEXT
+    from movieclaw_llm.models import ThinkingPart
+
+    store = AgentSessionStore(tmp_path)
+    sid = store.create().session_id
+    store.append(sid, ChatMessage(role="user", content="做一个企业微信通道"))
+    aborted = ChatResponse(content=None, thinking="先看看现有通道……", finish_reason="aborted")
+    store.append(sid, aborted.to_message(), finish_reason="aborted")
+    store.append(sid, ChatMessage(role="user", content="继续"))
+    entry_count_before = len(store.read(sid)[1])
+
+    history = store.build_history(sid)
+
+    assert [m.role for m in history] == ["user", "assistant", "user"]
+    assert history[1].text() == INTERRUPTED_REPLY_TEXT
+    assert any(isinstance(p, ThinkingPart) for p in history[1].content)
+    # 有正文或工具调用的助手消息原样保留；只改投影，不回写文件
+    assert len(store.read(sid)[1]) == entry_count_before
+    sid2 = _orphan_session(store)
+    assert store.build_history(sid2)[1].text() == ""
+
+
 # ---------------------------------------------------------------------------
 # 注册表：终态钩子的时序与 reason 判定
 # ---------------------------------------------------------------------------

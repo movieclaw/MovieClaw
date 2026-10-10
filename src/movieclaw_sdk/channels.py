@@ -30,6 +30,7 @@ from typing import Any, Literal
 import httpx
 
 from movieclaw_kernel import RegistryKey, Stability
+from movieclaw_sdk.callbacks import CallbackRequest, CallbackResponse
 
 logger = logging.getLogger("movieclaw_sdk.channels")
 
@@ -122,6 +123,9 @@ class Capabilities:
     typing: bool = False
     #: 单条文本的长度上限，超长由中枢按段落拆分
     max_text_len: int = 2000
+    #: 靠平台回调收消息（实现了 ``webhook``）：绑定时中枢给这个账号发回调地址，用户填到平台后台
+    #: （docs/design/plugin-callbacks.md §4.5）。插件包须在清单里声明 ``callbacks = ["webhook"]``
+    webhook: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -279,6 +283,15 @@ class ChannelDriver:
         """开 / 关「正在输入」（``capabilities.typing``）。失败只该记日志，不能抛给中枢。"""
         return None
 
+    async def webhook(self, account: Account, request: CallbackRequest) -> CallbackResponse:
+        """平台推过来的一次请求（``capabilities.webhook``）。
+
+        宿主按回调地址找到账号后原样交来：驱动按平台规则验签、解密，把消息经
+        ``account.inbound`` 交给中枢，再返回平台要的答复（如企业微信回 ``echostr``、
+        消息回 ``success``）。验签不过回 401 / 403（宿主记为验证失败）。
+        """
+        raise NotImplementedError
+
     def push_target(self, account: Account) -> ReplyContext | None:
         """主动推送发给谁：默认是绑定人；没有绑定人的通道（群机器人）覆盖它。"""
         if not account.bound_user:
@@ -361,6 +374,7 @@ class AdapterDriver(ChannelDriver):
 #: 通道插件往这个注册表贡献驱动（贡献 id 即通道 id；第三方插件自动带插件 id 前缀）
 IM_CHANNELS: RegistryKey[ChannelDriver] = RegistryKey(
     "im-channels",
+    version="1.1",  # 1.1：驱动可选实现 webhook（平台回调收消息）
     stability=Stability.EXPERIMENTAL,
     schema=ChannelDriver,
     doc="IM 通道：插件贡献一个通道驱动（收发与绑定），中枢负责账号、对话与推送",
@@ -415,6 +429,7 @@ def driver_spec(driver: ChannelDriver) -> dict[str, Any]:
             "photo": caps.photo,
             "typing": caps.typing,
             "max_text_len": caps.max_text_len,
+            "webhook": caps.webhook,
         },
         "binding": {
             "kind": spec.kind,

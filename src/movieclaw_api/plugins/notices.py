@@ -44,10 +44,11 @@ async def plugin_notices(ctx: Context) -> None:
     async def on_state(change: PluginStateChanged) -> None:
         key = f"{NOTICE_PREFIX}{change.entry_id}"
         if change.state == "failed":
-            # 内置插件去「内置」页签看原因；本地 / 第三方插件在「已安装」页签
+            # 内置插件定位到插件页里它那一行（系统模块平时折叠，带 module 参数会展开并定位，
+            # docs/design/plugin-page-tiers.md §4.1）；本地 / 第三方插件在同一页的列表里
             builtin = builtin_group(change.entry_id) is not None
-            where = "设置 → 插件 → 内置" if builtin else "设置 → 插件"
-            href = "/settings/plugins?tab=builtin" if builtin else "/settings/plugins"
+            where = "设置 → 插件"
+            href = f"/settings/plugins?module={change.entry_id}" if builtin else "/settings/plugins"
             async with get_database().session() as session:
                 await upsert_notice(
                     session,

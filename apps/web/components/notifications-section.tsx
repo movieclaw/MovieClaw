@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Banner, ErrorBanner, LINK_CLASS, Toggle } from "@/components/cloud-push-ui";
 import { useToast } from "@/components/feedback";
+import { FeatureOffNotice } from "@/components/feature-off-notice";
 import {
   SETTINGS_BUTTON_CLASS,
   SettingsList,
@@ -164,6 +165,9 @@ export function NotificationsSection() {
 
   return (
     <div className="space-y-10">
+      <FeatureOffNotice feature="arrivals">
+        停用期间不会推送「媒体库有新片」，下面对它的设置暂不生效。
+      </FeatureOffNotice>
       {!view.instance_ready &&
         (view.is_admin ? (
           <Banner

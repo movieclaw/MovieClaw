@@ -3355,3 +3355,58 @@ def test_series_dir_name_beats_truncated_ner_title(tmp_path, monkeypatch) -> Non
     empty = root / "国产剧" / "庆余年" / "S01E01.mkv"
     evidence = scan_mod.guess_evidence(MediaKind.TV, root, empty)
     assert evidence is not None and evidence.title == "庆余年"
+
+
+async def test_scanned_files_keep_scan_time_name_for_release_name(db, tmp_path) -> None:
+    """issue #698：存量扫描发现的文件以扫描时的文件名作 {release_name}。
+
+    此前扫描建行不落 release_name，模板只有 {release_name} 时整理把文件全改成
+    「未命名」。这里走真实扫描 + 真实整理：先按默认模板改名，再切到
+    {release_name}，文件要回到扫描时的名字。
+    """
+    import movieclaw_api.services.scrape_config as scrape_cfg
+    from movieclaw_api.services.library.organize import build_organize_plan, organize_library
+    from movieclaw_api.settings import MetadataScrapeSetting
+
+    root = _make_tv_library(tmp_path)
+    async with db.session() as session:
+        library = await LibraryRepository(session).create(
+            name="剧集库", kind="tv", root_paths=[str(root)]
+        )
+    await scan_library(library.id)
+
+    async with db.session() as session:
+        files = list((await session.execute(select(LibraryFile))).scalars().all())
+        assert {f.release_name for f in files} == {
+            "测试剧集.S01E01.1080p",
+            "测试剧集.S01E02.1080p",
+            "zzqx",
+        }
+
+    scrape_cfg.reset_scrape_config()
+    try:
+        # 模板只有 {release_name}：扫描来的文件已经叫这个名字，整理预览不该动它们
+        scrape_cfg._current_scrape = MetadataScrapeSetting(naming_episode_file="{release_name}")
+        async with db.session() as session:
+            refreshed = await session.get(Library, library.id)
+            plan = await build_organize_plan(session, refreshed)
+        assert plan.renames == []
+        assert plan.already_ok == 2
+
+        # 先按规范名改一轮，再切回 {release_name}：原名来自扫描快照，不是当前文件名
+        scrape_cfg._current_scrape = MetadataScrapeSetting()
+        first = await organize_library(library.id)
+        assert first.errors == [] and first.renamed == 2
+        season_dir = root / "测试剧集 (2024)" / "Season 01"
+        assert not (season_dir / "测试剧集.S01E01.1080p.mkv").exists()
+
+        scrape_cfg._current_scrape = MetadataScrapeSetting(naming_episode_file="{release_name}")
+        second = await organize_library(library.id)
+        assert second.errors == [] and second.renamed == 2
+        assert sorted(p.name for p in season_dir.glob("*.mkv")) == [
+            "测试剧集.S01E01.1080p.mkv",
+            "测试剧集.S01E02.1080p.mkv",
+        ]
+        assert (season_dir / "测试剧集.S01E01.1080p.mkv").read_bytes() == b"e1"
+    finally:
+        scrape_cfg.reset_scrape_config()

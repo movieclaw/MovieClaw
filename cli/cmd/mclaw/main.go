@@ -8,6 +8,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"os"
@@ -167,11 +168,20 @@ func report(err error) int {
 			fmt.Fprintf(os.Stderr, "提示：%s\n", cliErr.Hint)
 		}
 		if cliErr.Details != nil {
-			fmt.Fprintf(os.Stderr, "详情：%v\n", cliErr.Details)
+			fmt.Fprintf(os.Stderr, "详情：%s\n", detailsText(cliErr.Details))
 		}
 		return int(cliErr.ExitCode)
 	}
 	// cobra 的参数解析错误 → 退出码 2（用法错误）
 	fmt.Fprintf(os.Stderr, "错误：%v\n", err)
 	return int(clierr.Usage)
+}
+
+// detailsText 把错误详情写成 JSON（%v 会把有序对象打成 &{[键] map[…]} 这种内部结构）。
+func detailsText(details any) string {
+	data, err := json.Marshal(details)
+	if err != nil {
+		return fmt.Sprintf("%v", details)
+	}
+	return string(data)
 }

@@ -36,6 +36,8 @@ export interface ChannelInfo {
   /** 能收消息（能对话 AI 助手）；false 表示只能推送 */
   receive: boolean;
   photo: boolean;
+  /** 靠平台回调收消息：绑定后要把回调地址填到平台后台；旧服务端没有这个字段 */
+  webhook?: boolean;
   binding: {
     /** form：填表单；flow：插件驱动的交互式流程（如扫码） */
     kind: "form" | "flow";
@@ -85,6 +87,9 @@ export interface ChannelBinding {
   qr?: string;
   input_label: string | null;
   account: ChannelAccount | null;
+  /** 靠平台回调收消息的通道：这个账号的回调地址（发出时是完整地址）；旧服务端没有这个字段 */
+  callback_url?: string | null;
+  callback_note?: string;
 }
 
 export function listChannels(init?: RequestInit): Promise<{
