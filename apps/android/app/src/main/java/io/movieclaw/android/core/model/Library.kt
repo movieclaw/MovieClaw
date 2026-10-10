@@ -132,7 +132,7 @@ data class LibraryFileView(
     val state: String = "in_place",
     /** 文件当前不在磁盘（missing 标记）：台账还在、文件没了 */
     val missing: Boolean = false,
-    /** 待回收：预计自动清理时间；null = 做种保护中（不自动清理） */
+    /** 待回收：预计自动清理时间；null = 不自动清理（2026-08-17 之前的旧数据） */
     val purgeAfter: String? = null,
     val trashNote: String? = null,
     /** 来源快照：这个文件是怎么进库的 */

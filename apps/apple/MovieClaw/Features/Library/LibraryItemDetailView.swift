@@ -907,7 +907,7 @@ struct LibraryItemDetailView: View {
         guard await feedback.confirm(
             "立即清理「\(file.fileName)」？",
             message: seeding
-                ? "该文件处于做种保护，可能仍被下载器做种。清理会从磁盘删除文件并可能中断做种任务（PT 站请留意保种要求），此操作不可恢复。"
+                ? "该文件留在原位置（原盘目录或没能移入回收站），清理会直接从磁盘删除，此操作不可恢复。若它仍被下载器做种，清理会中断做种任务（PT 站请留意保种要求）。"
                 : "将立即从回收站删除该文件，不再等待保留期，此操作不可恢复。",
             confirmTitle: "立即清理", destructive: true
         ) else { return }
@@ -1291,7 +1291,7 @@ struct LibraryFileRow: View {
     }
 
     static func purgeCountdown(_ raw: String?) -> String {
-        guard let raw else { return "做种保护中，不自动清理" }
+        guard let raw else { return "不自动清理" }
         guard let date = Formatters.date(raw) else { return "即将自动清理" }
         let ms = date.timeIntervalSinceNow * 1000
         if ms <= 0 { return "即将自动清理" }

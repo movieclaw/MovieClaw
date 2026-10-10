@@ -383,14 +383,14 @@ class LibraryFile(TimestampMixin, table=True):
     trashed_at: datetime | None = Field(
         default=None, description="进入待回收的时间；仅 state=trashed 时有意义"
     )
-    # NULL 且 state=trashed = 做种保护形态：文件仍在原位（file_path 未变）
+    # NULL 且 state=trashed = 原地待回收：原盘目录或移动失败，文件仍在原位（file_path 未变）
     trash_original_path: str | None = Field(
         default=None,
         sa_column=Column(Text, nullable=True),
         description="移入回收站前的原路径（恢复用）；NULL=文件未被移动（原地待回收）",
     )
     purge_after: datetime | None = Field(
-        default=None, description="预计自动删除时间；NULL=不自动删（做种保护/等联动）"
+        default=None, description="预计自动删除时间；NULL=不自动删（2026-08-17 之前的旧数据）"
     )
     trash_context: dict | None = Field(
         default=None,

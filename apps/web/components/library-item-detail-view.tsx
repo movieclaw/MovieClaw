@@ -427,7 +427,7 @@ export function LibraryItemDetailView({
   const edgeColor = useHeroEdgeColor(silverHero ? mobileHeroSrc : undefined, heroEl);
 
   // 待回收行的恢复 / 立即清理（library-file-recycle.md §7）。
-  // 恢复是可逆动作直接执行；清理真删磁盘，做种保护形态额外讲清断种风险
+  // 恢复是可逆动作直接执行；清理真删磁盘，原地待回收的额外讲清断种风险
   const restoreTrashedFile = useCallback(
     async (file: LibraryItemFile) => {
       try {
@@ -446,7 +446,7 @@ export function LibraryItemDetailView({
       const ok = await confirm({
         title: `立即清理「${file.file_name}」？`,
         description: seeding
-          ? "该文件处于做种保护，可能仍被下载器做种。清理会从磁盘删除文件并可能中断做种任务（PT 站请留意保种要求），此操作不可恢复。"
+          ? "该文件留在原位置（原盘目录或没能移入回收站），清理会直接从磁盘删除，此操作不可恢复。若它仍被下载器做种，清理会中断做种任务（PT 站请留意保种要求）。"
           : "将立即从回收站删除该文件，不再等待保留期，此操作不可恢复。",
         confirmLabel: "立即清理",
         cancelLabel: "先不",
@@ -2070,7 +2070,7 @@ function FileSection({
 
 /** 待回收行的倒计时文案：直读 purge_after，展示精度与清理周期无关。 */
 function purgeCountdown(purgeAfter: string | null): string {
-  if (!purgeAfter) return "做种保护中，不自动清理";
+  if (!purgeAfter) return "不自动清理";
   const ms = new Date(purgeAfter).getTime() - Date.now();
   if (ms <= 0) return "即将自动清理";
   const days = Math.floor(ms / 86_400_000);

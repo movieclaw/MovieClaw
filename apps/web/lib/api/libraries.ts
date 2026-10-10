@@ -1421,7 +1421,7 @@ export interface LibraryItemFile {
   missing: boolean;
   /** 生命周期：in_place 在位 / missing 缺失 / trashed 待回收 */
   state: "in_place" | "missing" | "trashed";
-  /** 待回收的预计自动清理时间；null 且 trashed = 做种保护，不自动删 */
+  /** 待回收的预计自动清理时间；null = 不自动删（2026-08-17 之前的旧数据） */
   purge_after: string | null;
   /** 待回收原因（中文整句，含触发方） */
   trash_note: string | null;
@@ -1720,7 +1720,7 @@ export function restoreLibraryFile(
   );
 }
 
-/** 立即清理待回收的文件（真删磁盘；做种保护形态需先向用户确认断种风险）。 */
+/** 立即清理待回收的文件（真删磁盘；原地待回收的需先向用户确认断种风险）。 */
 export function purgeLibraryFile(
   libraryId: number,
   mediaItemId: number,

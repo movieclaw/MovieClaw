@@ -2222,7 +2222,7 @@ private fun PurgeFileDialog(file: LibraryFileView, onDismiss: () -> Unit, onConf
         title = { Text("立即清理「${file.fileName}」？", style = McType.bodySemibold, color = TextPrimary) },
         text = {
             Text(
-                if (seeding) "该文件处于做种保护，可能仍被下载器做种。清理会从磁盘删除文件并可能中断做种任务（PT 站请留意保种要求），此操作不可恢复。"
+                if (seeding) "该文件留在原位置（原盘目录或没能移入回收站），清理会直接从磁盘删除，此操作不可恢复。若它仍被下载器做种，清理会中断做种任务（PT 站请留意保种要求）。"
                 else "将立即从回收站删除该文件，不再等待保留期，此操作不可恢复。",
                 style = McType.sub,
                 color = TextMuted,
@@ -2277,9 +2277,9 @@ private fun mediaSourceLabel(file: LibraryFileView): String {
     return label + if (file.mediaSourceManual && source != "user-lowest") "（人工标注）" else ""
 }
 
-/** 待回收的清理倒计时（iOS `purgeCountdown` 逐字同款）：null = 做种保护中，不自动清理 */
+/** 待回收的清理倒计时（iOS `purgeCountdown` 逐字同款）：null = 不自动清理（旧数据） */
 private fun purgeCountdown(raw: String?): String {
-    if (raw == null) return "做种保护中，不自动清理"
+    if (raw == null) return "不自动清理"
     val instant = runCatching { java.time.OffsetDateTime.parse(raw).toInstant() }
         .recoverCatching { java.time.Instant.parse(raw) }
         .getOrNull() ?: return "即将自动清理"
