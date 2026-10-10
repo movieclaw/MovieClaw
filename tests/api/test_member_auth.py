@@ -643,6 +643,8 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/playback/files/{file_id}/disc"),
     ("GET", "/api/v1/playback/files/{file_id}/disc/{relative_path}"),
     ("GET", "/api/v1/playback/files/{file_id}/subtitles"),
+    # 预切片段（reels.md §8）：同原文件直出，只凭签名 token（按文件签发）
+    ("GET", "/api/v1/reels/clips/{file_id}/{start_ms}.mp4"),
     ("GET", "/api/v1/playback/files/{file_id}/fonts"),
     ("GET", "/api/v1/playback/files/{file_id}/fonts/{name}"),
     ("GET", "/api/v1/playback/files/{file_id}/trickplay"),
@@ -716,6 +718,7 @@ _MEMBER_ALLOWLIST = {
 # 路径参数哑值（与 test_auth.py 的匿名守护测试保持一致）
 _PATH_DUMMIES = {
     "{letter_id}": "1",  # 可靠事件死信
+    "{start_ms}": "0",  # 预切片段的起点
     "{task_key}": "library_reconcile",
     "{site_id}": "mteam",
     "{history_id}": "1",

@@ -294,6 +294,8 @@ _PUBLIC_ALLOWLIST = {
     ("GET", "/api/v1/playback/files/{file_id}/disc"),
     ("GET", "/api/v1/playback/files/{file_id}/disc/{relative_path}"),
     ("GET", "/api/v1/playback/files/{file_id}/subtitles"),
+    # 预切片段（reels.md §8）：系统播放器按 Range 取，同原文件直出只凭签名 token
+    ("GET", "/api/v1/reels/clips/{file_id}/{start_ms}.mp4"),
     ("GET", "/api/v1/playback/files/{file_id}/fonts"),
     ("GET", "/api/v1/playback/files/{file_id}/fonts/{name}"),
     ("GET", "/api/v1/playback/files/{file_id}/trickplay"),
@@ -400,6 +402,7 @@ def fill_path_params(path: str) -> str:
         .replace("{token}", "no-such-image")  # 推送配图的签名
         .replace("{item_id}", "1")  # 推送「这部剧不再提醒」的条目
         .replace("{letter_id}", "1")  # 可靠事件死信
+        .replace("{start_ms}", "0")  # 预切片段的起点
         .replace("{key_id}", "1")  # 插件回调地址
     )
 
