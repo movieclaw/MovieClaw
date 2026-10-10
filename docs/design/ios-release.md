@@ -109,7 +109,7 @@ TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple 
 MovieClaw is the iPhone client for MovieClaw, a self-hosted media server that people install on their own hardware (a NAS, a home computer or a private server). Source code: https://github.com/movieclaw/MovieClaw. It works like Plex / Jellyfin / Infuse clients, plus the library-automation features of Sonarr / Radarr companion apps. The interface is in Simplified Chinese; English translations of labels are in parentheses.
 
 CONTENT AND RESPONSIBILITY
-We do not provide, host or sell any movies, TV shows or torrent files, and we run no index or catalog of them. The app only connects to the server the user runs. The server software includes connectors for download sources, like Sonarr / Radarr / Prowlarr, but none is active by default: users add sites they are members of with their own accounts, and they are responsible for having the rights to what they download. Search, download and subscription in the app are remote commands to the user's own server. No media or torrent files are transferred to or from the iPhone, the app only streams video from that server, and it contains no BitTorrent or other peer-to-peer code.
+We do not provide, host or sell any movies, TV shows or torrent files, and we run no index or catalog of them. The app only connects to the server the user runs. Like Prowlarr, the server software only includes integration rules describing how to talk to various sites; it ships with no content, no accounts and no active source. A site is used only after the user adds a site they are a member of with their own account, and users are responsible for having the rights to what they download. Search, download and subscription in the app are remote commands to the user's own server. No media or torrent files are transferred to or from the iPhone, the app only streams video from that server, and it contains no BitTorrent or other peer-to-peer code.
 
 SIGN IN
 On first launch tap "连接服务器" (Connect to server), enter https://demo.movieclaw.io, then use the review account in Sign-In Information. It has full administrator access. Every user gets the same build and the same features.
@@ -140,7 +140,7 @@ We believe the Guideline 5.6 finding came from a misunderstanding caused by the 
 
 The app has no hidden, dormant or remotely enabled features and does not detect reviewers; every user gets the same build and the same features. We now provide a dedicated review account with full administrator access (see Sign-In Information) on a demo server where search, download, subscription, seeding and the AI assistant all work end to end. The review notes walk through each feature step by step.
 
-We do not provide, host or sell any content. MovieClaw is software that users run on their own hardware; download sources are added by users with their own accounts, and none is active by default. The demo server contains only Creative Commons Blender films, and its downloads are simulated without any peer-to-peer traffic.
+We do not provide, host or sell any content. MovieClaw is software that users run on their own hardware. Like Prowlarr, it only includes integration rules for talking to sites, with no content, no accounts and no active source; a site is used only after users add one they are a member of with their own account. The demo server contains only Creative Commons Blender films, and its downloads are simulated without any peer-to-peer traffic.
 
 If anything is unclear, we would be glad to explain on a call.
 ```
@@ -150,9 +150,9 @@ If anything is unclear, we would be glad to explain on a call.
     `awk '/^## 4\./,/^## 5\./' docs/design/ios-release.md | awk '/^```text/{n++;f=(n==1);next}/^```/{f=0}f' | wc -m`
     （只量第一个代码块，即备注；回复审核没有这个限制，但也别太长）。
   - **纯文本**：备注和回复都不渲染 Markdown，`**加粗**` 会原样显示成星号，小标题用大写英文。
-  - **每句话都要经得起对照源码**：备注里附了源码链接，审核员可能去翻。服务端内置了各站点的连接器，
-    就不能写「没有任何资源来源」，要写「内置连接器、默认一个都不启用、用户用自己的账号添加」。
-    App、演示站、文档里的说法要一致。
+  - **每句话都要经得起对照源码**：备注里附了源码链接，审核员可能去翻。服务端自带各站点的接入规则
+    （`sites/configs/`，不含内容和账号），所以不笼统写「没有任何资源来源」，而是写清「只有接入规则、
+    不含内容与账号、默认不启用、用户用自己的账号添加」。App、演示站、文档里的说法要一致。
   - **首屏**是「连接服务器」而不是账号密码框，**不写明先填服务器地址，审核员会卡住**。
   - **按钮名照抄界面**：备注里的每个中文按钮名都要和 App 当前文字一致，界面改了要同步改备注；
     提审前用审核账号按备注逐步点一遍。
