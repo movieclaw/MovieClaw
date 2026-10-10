@@ -26,6 +26,16 @@ async def downloads(ctx: Context) -> None:
         ctx, download_progress, torrent_sync, torrent_matcher, media_refresh, download_sources
     )
 
+    # 删片时「同时删除下载任务和源文件」：媒体库删除参与方（library-boundary.md §4）
+    from movieclaw_api.services import remove_source
+    from movieclaw_api.services.jobs import contribute_job_handlers
+    from movieclaw_api.services.library.delete_participants import LIBRARY_DELETE_PARTICIPANTS
+
+    contribute_job_handlers(ctx, remove_source)
+    ctx.contribute(
+        LIBRARY_DELETE_PARTICIPANTS, remove_source.PARTICIPANT_ID, remove_source.PARTICIPANT
+    )
+
 
 @plugin("boost", title="自动刷分享率", inject=(SITE_ACCESS,), disableable=True, reloadable=True)
 async def boost(ctx: Context) -> None:
