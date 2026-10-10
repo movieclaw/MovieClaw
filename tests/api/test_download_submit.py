@@ -130,6 +130,19 @@ def test_submit_success(client) -> None:
     assert req.tags == ["movieclaw-manual"]
 
 
+def test_submit_drops_the_ingest_downloader_listing_cache(client) -> None:
+    """提交前缓存的概览里还没有这颗种子；不作废的话，提交后 15 秒内落盘的条目会被判成
+    「还在下载」挂起 5 分钟（秒完成 / 已存在 / 辅种）。"""
+    import time
+
+    from movieclaw_api.services import acquisition_ingest
+
+    _add_default_downloader(client)
+    acquisition_ingest._briefs_cache = (time.monotonic(), [])
+    assert client.post("/api/v1/downloaders/submit", json=_SUBMIT).status_code == 200
+    assert acquisition_ingest._briefs_cache[0] == float("-inf")
+
+
 def test_submit_with_library_derives_save_path(client) -> None:
     """带入库目标：保存目录 = 库主根/标题 (年份)，覆盖下载器默认目录。"""
     _add_default_downloader(client)

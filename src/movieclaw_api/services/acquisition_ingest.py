@@ -55,6 +55,16 @@ _BRIEFS_TTL_SECONDS = 15.0
 _briefs_cache: tuple[float, list | None] = (float("-inf"), None)
 
 
+def invalidate_downloader_briefs() -> None:
+    """刚向下载器提交了种子：丢掉概览缓存。
+
+    否则提交前取到的概览（还没有这颗种子）会在 15 秒内被复用——秒完成 / 已存在 / 辅种
+    这类提交后立刻落盘的条目会被投递台账判成「还在下载」，挂起一整轮轮询（5 分钟）。
+    """
+    global _briefs_cache
+    _briefs_cache = (float("-inf"), None)
+
+
 async def downloader_briefs() -> list | None:
     """全部可用下载器的种子概览（带短缓存）。
 

@@ -291,6 +291,10 @@ async def submit_torrent(
                 paused=select_units is not None,
             )
         )
+        # 下载器里多了一颗种子：入库用的下载器概览缓存作废，落盘后第一轮巡检就能认出它
+        from movieclaw_api.services.acquisition_ingest import invalidate_downloader_briefs
+
+        invalidate_downloader_briefs()
         # 「已存在」且是刷流引擎自己抢下的种子 → 接管：把数据迁到本次请求
         # 的目标目录（否则文件留在刷流目录，入库监听永远看不见），台账转出。
         # 迁移失败不连累提交——留给刷流的认领转出兜底，订阅按"非自有任务"
