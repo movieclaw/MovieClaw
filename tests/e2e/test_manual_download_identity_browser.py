@@ -403,12 +403,19 @@ def test_unidentified_torrent_confirm_then_auto_import(stack) -> None:  # noqa: 
         _wait_for(imported, timeout=120, what="监听导入按身份锚把《繁花》收进国产剧", interval=2)
         items = api(page, "get", f"/libraries/{cn['id']}/items")["data"]
         assert [i["title"] for i in items] == ["繁花"]
-        entries = api(page, "get", f"/import-watch/{rule['id']}/entries")["data"]
+
+        # 条目行由入库当场提交，监听导入台账要到作业收尾才写：等它落下再断言
+        def ledger():
+            data = api(page, "get", f"/import-watch/{rule['id']}/entries")["data"]
+            return data if data["counts"].get("imported") else None
+
+        entries = _wait_for(ledger, timeout=30, what="监听导入台账记下入库结论", interval=1)
         assert entries["counts"].get("imported") == 1, entries
         assert not entries["counts"].get("pending"), entries
         assert list(dirs["cn_shows"].rglob("*.mkv")), "文件应已整理进国产剧目录"
         page.goto(f"{base}/library/{cn['id']}")
-        expect(page.locator("[data-library-item-id]")).to_have_count(1)
+        # next dev 首次打开这一页要现编译，默认 5 秒偶尔不够
+        expect(page.locator("[data-library-item-id]")).to_have_count(1, timeout=30_000)
         page.screenshot(path=str(shots / "03-imported.png"))
 
         # ---- 连身份都没解析出来的种子：同样按搜索词给候选 ----

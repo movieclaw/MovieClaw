@@ -118,6 +118,7 @@ os.environ["TMDB_API_BASE_URL"] = f"http://127.0.0.1:{_tmdb_port}/3"
 
 import uvicorn  # noqa: E402
 
+import movieclaw_api.services.acquisition_ingest as acquisition_ingest_mod  # noqa: E402
 import movieclaw_api.services.downloader_config as downloader_config_mod  # noqa: E402
 import movieclaw_api.services.library.ingest as ingest_mod  # noqa: E402
 import movieclaw_api.services.library.scan as scan_mod  # noqa: E402
@@ -132,6 +133,11 @@ from movieclaw_downloader.models import (  # noqa: E402
 )
 
 ingest_mod.QUIET_SECONDS = 0
+# 下载器概览短缓存：建规则时补扫拿到的空列表（种子还没提交）别被提交后的那次巡检复用，
+# 否则条目被投递台账判成「还在下载」挂起 5 分钟（真实环境里最多晚一轮轮询，测试等不起）
+acquisition_ingest_mod._BRIEFS_TTL_SECONDS = 0
+# 假字节视频：本机装了 ffprobe 时入库前终检会判它损坏；按「没装 ffprobe」放行
+ingest_mod.ffprobe_available = lambda: False
 scan_mod.NEW_FILE_QUIET_SECONDS = 0
 
 _DL_LOG = Path(os.environ["E2E_DL_LOG"])

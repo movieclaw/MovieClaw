@@ -207,6 +207,7 @@ Preview         = { available: bool, reason?: str, lines: [ {text, tone: info|wa
 2. 删除参与方本轮只给系统模块用（契约先标 `INTERNAL`），下载模块用稳一个版本后再升 `EXPERIMENTAL` 开放给插件。
    ——2026-10-10 已开放：契约 `EXPERIMENTAL`，独立进程插件的预览经协议调回插件进程。
 3. Android 的删除选项后补（它目前只有删单文件），不随批次 4。
+   ——2026-10-10 已补（#738）：删单文件弹窗带附加选项与后续任务跟进。
 
 ## 10. 入库桥拆分（后续批次的设计，2026-10-10）
 
@@ -260,3 +261,19 @@ Preview         = { available: bool, reason?: str, lines: [ {text, tone: info|wa
 
 每批独立 PR，只搬代码与改调用点，不改行为；测试里打桩的内部函数随代码搬家改路径。
 
+### 10.4 实施结果（2026-10-10）
+
+批次 5～8 已实施（#735，及其后的批次 6～8 PR）。与 10.2 的出入：
+
+- 绑定用模块级的 `acquisition.bind()` / `current()`，由 `downloads` 系统模块以 `ctx.effect` 绑定、卸载时解绑，
+  没有走 `ServiceKey`：调用点遍布同步与异步代码，取服务要经内核上下文不方便；单一提供方、错误照常抛出这两条不变。
+  测试默认绑定真实实现（`tests/conftest.py`），验证「纯本地库」的用例自己清掉绑定。
+- 逐文件来历合成一个对象：`entry_delivery()` 返回 `EntryDelivery`，按条目内相对路径与单元回答来源戳（命名 `{site}`）、
+  下载任务、来源快照、投递定格的画质、去重阶梯，台账写好后 `file_recorded()` 记来源。
+- 另加的读写点：`item_rules` / `units_in_upgrade`（去重排序）、`source_annotated`（人工标注片源后工单快照跟上）、
+  `title_hints` / `download_roots` / `file_recorded`（扫描）。
+- 库文件画质快照的构造（`snapshot_from_file`）属于媒体库，搬到 `services/library/quality.py`。
+- 洗版验证读来源戳改读下载领域的来源表（`stamps_for_files`）。
+
+`tests/api/test_library_boundary.py` 钉死 `services/library/` 不 import 订阅、下载、手动下载、推送的模块与表。
+剩下的只有兼容列：`library_file` 的 `info_hash` / `downloader_id` 双写与删除事件的 `links`，下一版删。
