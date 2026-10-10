@@ -2369,6 +2369,7 @@ async def _ingest_entry(
             site_id=disc_site,
             torrent_id=disc_torrent,
         )
+        await session.commit()  # 同台账行（upsert_by_path 当场提交）
         await LibraryRepository(session).refresh_stats([dest_library.id])
         # 系列合集：这部片如果属于某个系列，补齐它在本库的那一行（幂等）
         await ensure_series_collections_for_item(session, item.id)
@@ -2693,6 +2694,7 @@ async def _ingest_entry(
             site_id=stamp_site,
             torrent_id=stamp_torrent,
         )
+        await session.commit()  # 同台账行（upsert_by_path 当场提交）
         imported += 1
 
     if imported and staging is None:

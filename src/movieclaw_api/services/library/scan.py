@@ -3159,6 +3159,8 @@ async def _ingest_file(
             site_id=None,
             torrent_id=None,
         )
+        # 台账行由 upsert_by_path 当场提交；来源记录同样当场提交，不靠后续写入顺带
+        await session.commit()
     if item_id is not None:
         # 库存对账：单元在库成立即关闭对应的订阅工单（订阅止于投递，
         # 完成状态由库存推导；文件回归同样适用）

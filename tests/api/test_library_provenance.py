@@ -281,3 +281,24 @@ def test_migration_backfills_source_torrent_from_attempts(tmp_path, monkeypatch)
     assert rows[scanned] == (None, None)
     assert owners == ["manual"]
     get_settings.cache_clear()
+
+
+async def test_scan_commits_the_source_right_away(db, tmp_path, monkeypatch) -> None:
+    """来源记录当场提交，不靠扫描后段顺带提交：没有 ffprobe 时补探整段跳过，
+    之前就这样把最后一个文件的来源丢了（CI 上复现）。"""
+    from movieclaw_api.services import media_probe
+
+    monkeypatch.setattr(media_probe, "ffprobe_available", lambda: False)
+    root = tmp_path / "media" / "tv"
+    pack = root / "Test.Show.S01.1080p"
+    pack.mkdir(parents=True)
+    (pack / "Test.Show.S01E01.1080p.mkv").write_bytes(b"e1")
+    await _seed_sources(db, root)
+    async with db.session() as session:
+        library = (await LibraryRepository(session).list_all())[0]
+    await scan_mod.scan_library(library.id)
+
+    async with db.session() as session:
+        [row] = (await session.execute(select(LibraryFile))).scalars()
+        [source] = (await session.execute(select(DownloadFileSource))).scalars()
+    assert source.library_file_id == row.id and source.info_hash == "packhash"
