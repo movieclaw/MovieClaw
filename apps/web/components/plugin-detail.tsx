@@ -17,12 +17,8 @@ import {
   ChevronRightIcon,
   ClockIcon,
   FolderGearIcon,
-  FolderIcon,
   GearIcon,
-  GlobeIcon,
-  OpenIcon,
   ServerIcon,
-  ShieldIcon,
   TerminalIcon,
 } from "@/components/icons";
 import {
@@ -454,28 +450,22 @@ function Fact({
   title,
   detail,
   href,
-  tone,
 }: {
   icon: ComponentType<{ className?: string }>;
   title: ReactNode;
   detail?: ReactNode;
   /** 有对应设置页时，行尾给一个文字链接 */
   href?: string | null;
-  tone?: "warn" | "ok";
 }) {
-  const color =
-    tone === "warn" ? "text-[var(--warn)]" : tone === "ok" ? "text-[var(--ok)]" : "text-[var(--text-muted)]";
   return (
     <li className="flex items-start gap-3">
-      <span className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] ${color}`}>
+      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-[var(--text-muted)]">
         <Icon className="size-[18px]" />
       </span>
       <div className="min-w-0 flex-1 pt-1">
         <p className="text-body leading-snug text-[var(--text)]">{title}</p>
         {detail && (
-          <p className={`mt-0.5 text-caption leading-5 ${tone === "warn" ? "text-[var(--warn)]" : "text-[var(--text-muted)]"}`}>
-            {detail}
-          </p>
+          <p className="mt-0.5 text-caption leading-5 text-[var(--text-muted)]">{detail}</p>
         )}
       </div>
       {href && (
@@ -493,7 +483,7 @@ function Fact({
 
 /**
  * 权限：第三方插件最要紧的信任信息。只列清单里真实申请、安装时批准的项，没申请的不列
- * 「无」；危险的排前面并标色。官方与系统模块是随应用提供的受信代码。
+ * 「无」；每项按风险分级（LEVELS）标色，高的排前面。官方与系统模块是随应用提供的受信代码。
  */
 function Permissions({ detail }: { detail: PluginDetail }) {
   const pkg = detail.package;
@@ -509,44 +499,62 @@ function Permissions({ detail }: { detail: PluginDetail }) {
       </SettingsSection>
     );
   }
-  const ops = [...pkg.operations].sort((a, b) => Number(b.dangerous) - Number(a.dangerous));
-  const inline = detail.plugin.runtime === "inline";
-  const empty = ops.length === 0 && pkg.paths.length === 0 && !detail.network && pkg.callbacks.length === 0 && !inline;
+  const grants: Grant[] = [];
+  if (detail.plugin.runtime === "inline") {
+    grants.push({ level: "high", title: "在主程序里运行", detail: "与主程序同权限，不受下面这些限制" });
+  }
+  for (const op of pkg.operations) {
+    grants.push({ level: op.dangerous ? "high" : "low", title: op.summary });
+  }
+  for (const grant of pkg.paths) {
+    grants.push({ level: grant.mode === "rw" ? "medium" : "low", title: `访问${pathGrantLabel(grant)}` });
+  }
+  if (pkg.callbacks.length > 0) {
+    grants.push({
+      level: "medium",
+      title: `开放回调地址：${pkg.callbacks.join("、")}`,
+      detail: "外部平台不用登录就能调进来，地址见下方",
+    });
+  }
+  if (detail.network) grants.push({ level: "low", title: "访问外部网络", detail: "走你的代理设置" });
+  grants.sort((a, b) => LEVELS[a.level].order - LEVELS[b.level].order);
   return (
     <SettingsSection title="权限" description="安装时你批准的，它只能做这些。">
-      <FactList>
-        {inline && (
-          <Fact icon={ShieldIcon} tone="warn" title="在主程序里运行" detail="与主程序同权限，不受下面这些限制" />
-        )}
-        {ops.map((op) => (
-          <Fact
-            key={op.id}
-            icon={GearIcon}
-            tone={op.dangerous ? "warn" : undefined}
-            title={op.summary}
-            detail={op.dangerous ? "危险操作" : undefined}
+      <ul className="space-y-3.5 px-1">
+        {grants.length === 0 ? (
+          <GrantRow
+            grant={{ level: "none", title: "不需要额外权限", detail: "不调用系统操作、不联网，只读写它自己的目录" }}
           />
-        ))}
-        {pkg.paths.map((grant) => (
-          <Fact key={`${grant.path}:${grant.mode}`} icon={FolderIcon} title={`访问${pathGrantLabel(grant)}`} />
-        ))}
-        {pkg.callbacks.length > 0 && (
-          <Fact
-            icon={OpenIcon}
-            title={`开放回调地址：${pkg.callbacks.join("、")}`}
-            detail="外部平台不用登录就能调进来，地址见下方"
-          />
+        ) : (
+          grants.map((g) => <GrantRow key={g.title} grant={g} />)
         )}
-        {detail.network && <Fact icon={GlobeIcon} title="访问外部网络" detail="走你的代理设置" />}
-        {empty && (
-          <Fact
-            icon={ShieldIcon}
-            tone="ok"
-            title="不需要额外权限"
-            detail="不调用系统操作、不联网，只读写它自己的目录"
-          />
-        )}
-      </FactList>
+      </ul>
     </SettingsSection>
+  );
+}
+
+/** 权限的风险等级：按权限的种类与模式定，不按插件 */
+const LEVELS = {
+  high: { order: 0, label: "高风险", color: "var(--danger)" },
+  medium: { order: 1, label: "需留意", color: "var(--warn)" },
+  low: { order: 2, label: "低风险", color: "var(--ok)" },
+  none: { order: 3, label: "无风险", color: "var(--ok)" },
+} as const;
+
+type Grant = { level: keyof typeof LEVELS; title: string; detail?: string };
+
+function GrantRow({ grant }: { grant: Grant }) {
+  const level = LEVELS[grant.level];
+  return (
+    <li className="flex items-start gap-3">
+      <span className="mt-[0.55em] size-2 shrink-0 rounded-full" style={{ background: level.color }} />
+      <div className="min-w-0 flex-1">
+        <p className="text-body leading-snug text-[var(--text)]">{grant.title}</p>
+        <p className="mt-0.5 text-caption leading-5 text-[var(--text-muted)]">
+          <span style={{ color: level.color }}>{level.label}</span>
+          {grant.detail && ` · ${grant.detail}`}
+        </p>
+      </div>
+    </li>
   );
 }
