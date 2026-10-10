@@ -1067,9 +1067,26 @@ export interface PlaybackPolicy {
   trickplay_enabled: boolean;
   /** 转码产物保留供续播、重看复用（§B）；关闭即会话结束即删 */
   transcode_cache_enabled: boolean;
+  /** 片段预切（docs/design/reels.md §8）：预告与刷片放预先切好的 1080p 小文件 */
+  reel_clips_enabled: boolean;
+  /** 片段预切进度（开关开着才有） */
+  reel_clips_progress: ReelClipProgress | null;
   /** 实测结果而非配置项——用户改不了自己有没有显卡 */
   hardware_available: boolean;
   hw_backends: string[];
+}
+
+/** 片段预切进度：电影与剧集一共几部、切好了几部；state 为 paused 时是在给播放让路 */
+export interface ReelClipProgress {
+  ready: number;
+  total: number;
+  state: "running" | "paused" | "done";
+}
+
+/** 已切片段的总量（关开关前问要不要删） */
+export interface ReelClipStats {
+  count: number;
+  bytes: number;
 }
 
 /** 读取播放策略当前取值（设置页「播放」分区展示用）。 */
@@ -1080,11 +1097,27 @@ export async function fetchPlaybackPolicy(): Promise<PlaybackPolicy> {
 
 /** 按字段增量保存：没给的项保持原值，不会覆盖别处刚改的设置。 */
 export async function savePlaybackPolicy(
-  changes: Partial<Omit<PlaybackPolicy, "hardware_available" | "hw_backends">>,
+  changes: Partial<
+    Omit<PlaybackPolicy, "hardware_available" | "hw_backends" | "reel_clips_progress">
+  >,
 ): Promise<PlaybackPolicy> {
   const response = await request<ApiEnvelope<PlaybackPolicy>>("/playback/policy", {
     method: "PUT",
     body: JSON.stringify(changes),
+  });
+  return response.data;
+}
+
+/** 已切片段的数量与占用空间。 */
+export async function fetchReelClipStats(): Promise<ReelClipStats> {
+  const response = await request<ApiEnvelope<ReelClipStats>>("/reels/clips/stats");
+  return response.data;
+}
+
+/** 删除全部已切片段；返回删掉前的统计。 */
+export async function deleteReelClips(): Promise<ReelClipStats> {
+  const response = await request<ApiEnvelope<ReelClipStats>>("/reels/clips", {
+    method: "DELETE",
   });
   return response.data;
 }

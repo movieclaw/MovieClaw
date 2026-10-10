@@ -10,6 +10,7 @@ import { AppPushSection } from "@/components/app-push-section";
 import { AppStorageSection } from "@/components/app-storage-section";
 import { PluginDetailView } from "@/components/plugin-detail";
 import { PluginsPage } from "@/components/plugins-section";
+import { ReelClipsToggleRow } from "@/components/reel-clips-toggle-section";
 import { ScheduledTasksSection } from "@/components/scheduled-tasks-section";
 import { AppUpdateDot, usePendingUpdate } from "@/components/app-update-entry";
 import { AppUpdateSection } from "@/components/app-update-section";
@@ -670,7 +671,7 @@ function AppSection() {
 /**
  * —— 播放分区（媒体库组）——
  *
- * 住户：进度条预览与转码缓存两颗开关（合成「播放体验」一组）、远程转码
+ * 住户：进度条预览、转码缓存、片段预切三颗开关（合成「播放体验」一组）、远程转码
  * （原「应用 → 远程转码」标签迁来）。
  * 按功能命名为「播放」而不是按实现叫「远程转码」：转码策略、字幕偏好等
  * 播放域设置都落在这里，分区不用再改名。Worker 的审批与吊销仍在
@@ -688,6 +689,7 @@ function PlaybackSection() {
         <SettingsList>
           <TrickplayToggleRow />
           <TranscodeCacheToggleRow />
+          <ReelClipsToggleRow />
         </SettingsList>
       </SettingsSection>
       <RemoteTranscodeSection
