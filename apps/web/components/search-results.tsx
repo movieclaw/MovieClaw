@@ -2690,7 +2690,7 @@ function SiteStatusSummary({
         <>
           {/* 点击空白处关闭（与筛选弹层同款交互） */}
           <div className="fixed inset-0 z-20" onClick={() => setOpen(false)} />
-          <div className="solid-popover absolute right-0 top-full z-30 mt-2 w-[320px] max-w-[82vw] rounded-2xl border border-white/[0.12] bg-[rgba(14,16,22,0.94)] p-2 shadow-2xl backdrop-blur-2xl">
+          <div className="solid-popover absolute right-0 top-full z-30 mt-2 max-h-[60dvh] w-[320px] max-w-[82vw] overflow-y-auto rounded-2xl border border-white/[0.12] bg-[rgba(14,16,22,0.94)] p-2 shadow-2xl backdrop-blur-2xl">
             {details}
           </div>
         </>
