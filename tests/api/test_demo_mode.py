@@ -572,7 +572,10 @@ def test_review_account_uses_admin_writes_while_public_stays_read_only(
     assert resp.status_code == 200, resp.text
     data = resp.json()["data"]
     assert data["session"]["role"] == "admin"
+    # 审核账号按普通服务器呈现：网页据 demo 标记藏资源搜索、挂只读横幅
+    assert data["session"]["demo"] is False
     bearer = {"Authorization": f"Bearer {data['token']}"}
+    assert client.get(f"{_AUTH}/me", headers=bearer).json()["data"]["demo"] is False
 
     # 公开账号挡住的写操作与敏感读，审核账号都能用
     created = client.post(
@@ -596,11 +599,13 @@ def test_review_account_uses_admin_writes_while_public_stays_read_only(
 
     # 网页登录同样认得
     client.cookies.clear()
-    assert client.post(f"{_AUTH}/login", json={**_REVIEW, "remember": False}).status_code == 200
+    web = client.post(f"{_AUTH}/login", json={**_REVIEW, "remember": False})
+    assert web.status_code == 200 and web.json()["data"]["demo"] is False
     assert client.put(f"{_AUTH}/profile", json={"nickname": "审核"}).status_code == 200
 
     # 公开的超管照旧只读，看不到日志
     _use(client, admin_cookie)
+    assert client.get(f"{_AUTH}/me").json()["data"]["demo"] is True
     _assert_demo_denied(
         client.post("/api/v1/members", json={"username": "evil", "password": "evil-pass-1"}),
         contains="成员",

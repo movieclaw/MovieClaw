@@ -127,7 +127,8 @@ def _session_view(account: AdminAccountSetting) -> SessionView:
         avatar_url=_avatar_url(),
         role="admin",
         capabilities=SessionCapabilities(),
-        demo=demo_service.is_demo_mode(),
+        # 审核账号（demo-site.md §9）按普通服务器呈现：网页不藏资源搜索、不挂只读横幅
+        demo=demo_service.is_demo_mode() and not demo_service.is_review_request(),
     )
 
 
@@ -365,6 +366,7 @@ async def login(
     token, max_age = await _issue_web_session(request, owner_id=0, remember=payload.remember)
     if demo_service.is_review_username(payload.username):
         demo_service.remember_review_token(token)
+        demo_service.mark_review_request(True)
     await _remember_login(
         request, response, token, max_age, Principal(kind="admin", name=identity.username)
     )
@@ -711,6 +713,7 @@ async def device_login(
         owners = await _owner_labels(session)
     if demo_service.is_review_username(payload.username):
         demo_service.remember_review_token(token)
+        demo_service.mark_review_request(True)
     assert device.id is not None
     ref = auth_service.DeviceRef(
         id=device.id, kind=device.kind, scope=device.scope, name=device.name
