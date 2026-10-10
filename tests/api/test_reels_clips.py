@@ -280,8 +280,11 @@ def test_stats_disable_keeps_files_and_delete_clears_them(clip_client, tmp_path)
     assert stats == {"count": 1, "bytes": 1000}
     enable(clip_client, False)
     assert info.path.is_file()  # 关掉不删，设置页另问
+    make_clip(clip_client, ids["movies"][1], payload=b"y" * 10)
+    # 重新打开：留着的立即可用；全切好了就是完成，不因整库排队还在跑报「还在切」
+    assert enable(clip_client)["reel_clips_progress"] == {"ready": 2, "total": 2, "state": "done"}
     resp = clip_client.delete("/api/v1/reels/clips")
-    assert resp.json()["data"] == {"count": 1, "bytes": 1000}
+    assert resp.json()["data"] == {"count": 2, "bytes": 1010}
     assert not info.path.exists()
     assert clip_client.get("/api/v1/reels/clips/stats").json()["data"] == {"count": 0, "bytes": 0}
 

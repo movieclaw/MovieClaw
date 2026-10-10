@@ -75,10 +75,11 @@
     ".next-subinspector/types/**/*.ts",
     ".next-tapguard/types/**/*.ts",
     ".next-transfer/types/**/*.ts",
+    ".next-uidev/types/**/*.ts",
     ".next-wishbtn/types/**/*.ts",
     ".next/types/**/*.ts",
     "next-env.d.ts",
-    ".next-uidev/types/**/*.ts"
+    ".next-clips/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

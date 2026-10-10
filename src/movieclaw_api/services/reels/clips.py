@@ -810,9 +810,7 @@ async def library_progress() -> dict[str, Any]:
 def progress(pool_item_ids: Sequence[int]) -> dict[str, Any]:
     """这个池子（刷片当前筛选）切好了几部，队列在不在动。"""
     ready = ready_item_ids()
-    queue = get_queue()
-    return {
-        "ready": sum(1 for i in pool_item_ids if i in ready),
-        "total": len(pool_item_ids),
-        "state": queue.state(),
-    }
+    done = sum(1 for i in pool_item_ids if i in ready)
+    # 全切好了就是完成：刚重新打开开关时整库排队还在跑，不该显示「还在切」
+    state = "done" if pool_item_ids and done >= len(pool_item_ids) else get_queue().state()
+    return {"ready": done, "total": len(pool_item_ids), "state": state}
