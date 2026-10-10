@@ -219,10 +219,18 @@ _DEFAULT_VISIBLE_CATEGORIES: tuple[TorrentCategory, ...] = (
 )
 
 
+# 内置分类：搜索分类栏里可以显隐、排序的那组。「成人」不在其中——不给它一个一键打开的
+# 开关；确实要搜的，在自定义分类里勾选（TorrentCategory 仍保留它，站点分区映射要用）
+_BUILTIN_CATEGORIES: tuple[TorrentCategory, ...] = tuple(
+    c for c in TorrentCategory if c is not TorrentCategory.AV
+)
+
+
 def default_search_tabs() -> list[SearchTab]:
-    """默认标签列表：常用四类可见，其余（音乐/游戏/成人/其他）隐藏、排在末尾。"""
+    """默认标签列表：常用四类可见，其余内置分类（音乐/游戏/其他）隐藏、排在末尾。"""
     visible = set(_DEFAULT_VISIBLE_CATEGORIES)
-    ordered = list(_DEFAULT_VISIBLE_CATEGORIES) + [c for c in TorrentCategory if c not in visible]
+    hidden = [c for c in _BUILTIN_CATEGORIES if c not in visible]
+    ordered = list(_DEFAULT_VISIBLE_CATEGORIES) + hidden
     return [SearchCategoryTab(id=c.value, visible=c in visible) for c in ordered]
 
 
@@ -239,8 +247,8 @@ class SearchPreferencesSetting(SettingSchema):
 def normalize_search_tabs(tabs: list[SearchTab]) -> list[SearchTab]:
     """把任意来源的标签列表校正为「内置全量、无重复、无未知项」的规范形态。
 
-    - 内置分类：未知值丢弃、重复保留首个、缺失的按默认可见性补到末尾——
-      保证内置分类永远是完整集合，枚举演进无需数据修复；
+    - 内置分类：未知值与不属于内置分类的值（如成人）丢弃、重复保留首个、缺失的按默认
+      可见性补到末尾——保证内置分类永远是完整集合，枚举演进无需数据修复；
     - 自定义分类：按预设 id 去重（保留首个），预设内的分类值去掉未知项与重复；
       site_ids 只做去重，不校验存在性（站点目录演进/站点被删时保留原值，
       搜索时自动跳过不可用站点即可，存在性校验在 API 保存入口做）。
@@ -248,13 +256,14 @@ def normalize_search_tabs(tabs: list[SearchTab]) -> list[SearchTab]:
     读与写都过这一道，混排顺序原样保留。
     """
     valid_categories = {c.value for c in TorrentCategory}
+    builtin_categories = {c.value for c in _BUILTIN_CATEGORIES}
     default_visible = {c.value for c in _DEFAULT_VISIBLE_CATEGORIES}
     result: list[SearchTab] = []
     seen_categories: set[str] = set()
     seen_presets: set[str] = set()
     for tab in tabs:
         if isinstance(tab, SearchCategoryTab):
-            if tab.id in valid_categories and tab.id not in seen_categories:
+            if tab.id in builtin_categories and tab.id not in seen_categories:
                 seen_categories.add(tab.id)
                 result.append(tab)
         else:
@@ -269,7 +278,7 @@ def normalize_search_tabs(tabs: list[SearchTab]) -> list[SearchTab]:
                     }
                 )
             )
-    for cat in TorrentCategory:
+    for cat in _BUILTIN_CATEGORIES:
         if cat.value not in seen_categories:
             result.append(SearchCategoryTab(id=cat.value, visible=cat.value in default_visible))
     return result

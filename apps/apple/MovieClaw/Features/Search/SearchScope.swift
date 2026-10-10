@@ -227,10 +227,10 @@ enum SearchTab: Hashable {
         return false
     }
 
-    /// 默认标签（与后端 default_search_tabs 一致）：常用四类可见
+    /// 默认标签（与后端 default_search_tabs 一致）：常用四类可见；成人不是内置分类
     static let defaults: [SearchTab] = [
         ("movie", true), ("tv", true), ("documentary", true), ("anime", true),
-        ("music", false), ("game", false), ("av", false), ("other", false),
+        ("music", false), ("game", false), ("other", false),
     ].map { .category(id: $0.0, visible: $0.1) }
 }
 
