@@ -40,6 +40,10 @@ def app_client(tmp_path, monkeypatch):
     app = create_app()
     with TestClient(app) as client:
         yield app, client
+    # 配置存储是进程级的：这里设过对外地址，不清掉会让同一进程里后跑的用例拿到绝对地址
+    from movieclaw_api.settings import reset_setting_store
+
+    reset_setting_store()
     get_settings.cache_clear()
     durable_events.reset_state()
 

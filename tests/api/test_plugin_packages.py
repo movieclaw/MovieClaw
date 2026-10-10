@@ -351,8 +351,9 @@ def test_crash_loop_during_grace_period_rolls_back(data_dir) -> None:
         wait_for(lambda: installed(client)["acme-pkg"]["version"] == "1.0.0", timeout=60)
         assert installed(client)["acme-pkg"]["bad_versions"] == ["2.0.0"]
         wait_for(lambda: chosen(client) == 1)
-        # 回滚之后直接卸载：通知跟着消退，不留一条再也处理不了的待处理事项
-        assert open_notice(client) is not None
+        # 回滚之后直接卸载：通知跟着消退，不留一条再也处理不了的待处理事项。
+        # 回滚先存版本记录、激活旧版，最后才写通知：等它写进来再往下走
+        wait_for(lambda: open_notice(client) is not None)
         assert client.delete("/api/v1/app/plugins/packages/acme-pkg").status_code == 200
         assert open_notice(client) is None
 
