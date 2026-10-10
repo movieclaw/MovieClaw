@@ -258,7 +258,7 @@ def test_demo_blocks_sensitive_reads(client: TestClient, monkeypatch) -> None:
     _assert_demo_denied(client.get("/api/v1/fs/browse", params={"path": "/"}))
     _assert_demo_denied(client.get("/api/v1/system/logs"))
     _assert_demo_denied(client.get("/api/v1/extension/token"))
-    _assert_demo_denied(client.get("/api/v1/sites/catalog"), contains="PT")
+    _assert_demo_denied(client.get("/api/v1/sites/catalog"), contains="只读")
     # 完整接口清单：公开账号登录后就能拿，等于绕开了关闭的 /docs
     _assert_demo_denied(client.get("/api/v1/spec"))
 
@@ -272,7 +272,7 @@ def test_demo_blocks_sensitive_reads(client: TestClient, monkeypatch) -> None:
         assert demo_service.rejection_for(method, operation) is None, operation
     _assert_demo_denied(
         client.post("/api/v1/subscriptions", json={"title_ref": "tmdb:movie:1"}),
-        contains="不会真的订阅",
+        contains="不能真的订阅",
     )
 
 

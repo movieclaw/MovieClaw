@@ -26,9 +26,10 @@ export interface AppPermissions {
 
 export function permissionsFor(session: SessionView): AppPermissions {
   const isAdmin = session.role === "admin";
-  // 公开演示站（docs/design/demo-site.md）不接 PT 站点：资源站搜索与一键下载对谁都
-  // 不开放，超管也一样；影视与媒体库搜索继续按 useSearchAccess 的分区授权显示。
-  // 订阅入口照常显示，确认订阅时由后端说明演示站不会真的下载
+  // 公开演示站的只读会话（docs/design/demo-site.md，session.demo）：服务端会拒绝资源站搜索
+  // 与一键下载，这里就不摆这两个入口（公开超管也一样）；影视与媒体库搜索按 useSearchAccess
+  // 的分区授权显示，订阅入口照常显示、确认时由后端说明只读。审核账号的会话不带 demo 标记，
+  // 与正式部署完全一样
   const demo = session.demo === true;
   const canSubscribe = isAdmin || session.capabilities.allow_subscribe;
   const canSearch = isAdmin || session.capabilities.allow_search;
