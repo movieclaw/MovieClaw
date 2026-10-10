@@ -678,3 +678,56 @@ async def show_plugin(entry_id: str, request: Request) -> ApiResponse[PluginDeta
         raise NotFoundException(f"没有插件 {entry_id}")
     detail = await plugin_detail(kernel, get_settings(), entry_id, item.model_dump(mode="json"))
     return ok(PluginDetailView.model_validate({"plugin": item, **detail}))
+
+
+# ---------------------------------------------------------------------- 通用设置
+class PluginSettingsView(BaseModel):
+    """插件通用设置（docs/design/plugin-phase4.md §3）。"""
+
+    editable: bool = Field(description="能否在界面上修改")
+    reason: str | None = Field(
+        default=None, description="不能修改的原因（例如配置里有界面不支持的类型）；没有配置为空"
+    )
+    settings_schema: dict | None = Field(
+        default=None,
+        alias="schema",
+        description="参数的界面描述（JSON Schema 子集）；敏感字段带 writeOnly",
+    )
+    values: dict = Field(default_factory=dict, description="当前值（不含敏感字段）")
+    secrets_set: list[str] = Field(default_factory=list, description="已设置过的敏感字段")
+
+
+class PluginSettingsPayload(BaseModel):
+    values: dict = Field(description="要保存的值；敏感字段留空表示不改；没给的字段保持原值")
+
+
+@router.get(
+    "/{entry_id}/settings",
+    response_model=ApiResponse[PluginSettingsView],
+    response_model_by_alias=True,
+    summary="插件通用设置：参数的界面描述与当前值（敏感字段只告诉是否已设置）",
+    operation_id="app.plugins.settings.show",
+)
+async def show_plugin_settings(entry_id: str, request: Request) -> ApiResponse[PluginSettingsView]:
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.services import plugin_settings
+
+    data = plugin_settings.view(_kernel(request), get_settings(), entry_id)
+    return ok(PluginSettingsView.model_validate(data))
+
+
+@router.put(
+    "/{entry_id}/settings",
+    response_model=ApiResponse[PluginSettingsView],
+    response_model_by_alias=True,
+    summary="保存插件通用设置并重启插件；重启失败会恢复原设置并报原因",
+    operation_id="app.plugins.settings.update",
+)
+async def update_plugin_settings(
+    entry_id: str, payload: PluginSettingsPayload, request: Request
+) -> ApiResponse[PluginSettingsView]:
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.services import plugin_settings
+
+    data = await plugin_settings.update(_kernel(request), get_settings(), entry_id, payload.values)
+    return ok(PluginSettingsView.model_validate(data), message="设置已保存，插件已按新设置重启")

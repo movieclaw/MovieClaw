@@ -404,9 +404,9 @@ def entry_for(settings: object, package: Installed) -> Entry:
                 title=f"{declared['title']}（独立进程）",
                 path=path,
                 module=package.entry,
-                config={},
                 inject=tuple(declared["inject"]),
                 permissions=tuple(declared["permissions"]),
+                config_description=declared.get("config"),
             )
     except Exception as exc:  # noqa: BLE001 -- 包出什么错都只影响它自己
         logger.warning("插件包 %s v%s 无法加载：%s", package.id, package.version, exc)

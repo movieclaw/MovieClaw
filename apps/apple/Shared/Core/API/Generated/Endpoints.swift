@@ -114,6 +114,18 @@ nonisolated extension APIClient {
         return try await send("GET", "/app/plugins/\(entryId)")
     }
 
+    /// 插件通用设置：参数的界面描述与当前值（敏感字段只告诉是否已设置）
+    /// `GET /app/plugins/{entry_id}/settings`
+    func appPluginsSettingsShow(entryId: String) async throws -> API.PluginSettingsView {
+        return try await send("GET", "/app/plugins/\(entryId)/settings")
+    }
+
+    /// 保存插件通用设置并重启插件；重启失败会恢复原设置并报原因
+    /// `PUT /app/plugins/{entry_id}/settings`
+    func appPluginsSettingsUpdate(entryId: String, body: API.PluginSettingsPayload) async throws -> API.PluginSettingsView {
+        return try await send("PUT", "/app/plugins/\(entryId)/settings", body: body)
+    }
+
     /// 修改对外端口（保存后全量重启生效）
     /// `PUT /app/port`
     func appPortSet(body: API.WebPortPayload) async throws -> API.AppConfigView {

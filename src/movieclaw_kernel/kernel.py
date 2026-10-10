@@ -16,7 +16,7 @@ import itertools
 import logging
 import time
 import traceback
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from enum import StrEnum
 from typing import Any, TypeVar
@@ -151,8 +151,11 @@ class Kernel:
         clock: Callable[[], float] = time.monotonic,
         dispose_timeout: float = 10.0,
         slow_apply_warning: float = 2.0,
+        config_overlay: Callable[[str], Mapping[str, Any]] | None = None,
     ) -> None:
         self.settings = settings
+        #: 条目 id → 叠在清单配置上的值（宿主的界面设置，docs/design/plugin-phase4.md §3）
+        self.config_overlay = config_overlay
         self.dispose_timeout = dispose_timeout
         self.slow_apply_warning = slow_apply_warning
         self.bus = EventBus(clock)
@@ -456,10 +459,11 @@ class Kernel:
             logger.warning("插件 %s 启动较慢：%.0f 毫秒", fiber.id, fiber.stats.apply_ms)
         self._announce(fiber)
 
-    @staticmethod
-    def _build_config(fiber: Fiber) -> Any:
+    def _build_config(self, fiber: Fiber) -> Any:
         cfg_type = fiber.plugin.config
         raw = dict(fiber.entry.config or {})
+        if self.config_overlay is not None:
+            raw.update(self.config_overlay(fiber.id) or {})
         if cfg_type is None:
             return raw or None
         validate = getattr(cfg_type, "model_validate", None)

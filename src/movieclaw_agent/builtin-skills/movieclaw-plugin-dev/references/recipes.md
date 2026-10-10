@@ -303,30 +303,30 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
 
 ## 13. 用户要填的配置与凭据
 
-插件包没有设置页，`config=` 加 `data/plugins.yaml` 是本地插件的写法，插件包用不了。用户要填的值（账号 ID、地址、Key）：
-
-- 固定不变、不敏感的，写成模块顶层常量，在方案里告诉用户；
-- 要用户提供或以后会改的，开一个管理员接口写进插件数据，凭据用 `secret=True` 加密存：
+用户要填的值（账号 ID、地址、间隔、Key），写成配置模型交给 `@plugin(config=...)`：插件详情页会自动出现
+「设置」表单，用户保存后插件按新值重启，`ctx.config` 拿到的就是模型实例。插件包、本地插件、独立进程都一样。
 
 ```python
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, SecretStr
 
 class Settings(BaseModel):
-    douban_id: str
-    api_key: str | None = None
+    douban_id: str = Field("", title="豆瓣用户 ID", description="个人主页地址里的那串数字")
+    interval: int = Field(3600, ge=300, title="拉取间隔（秒）")
+    api_key: SecretStr | None = Field(None, title="API Key")   # 敏感：加密存、界面不回显
 
-@router.post("/settings", operation_id=f"plugins.{ctx.entry_id}.settings.set", summary="保存设置")
-async def save(body: Settings) -> dict:
-    await store.set("douban_id", body.douban_id)
-    if body.api_key:
-        await store.set("api_key", body.api_key, secret=True)
-    return {"ok": True}
+@plugin("acme-feed", title="片单同步", config=Settings)
+async def apply(ctx) -> None:
+    key = ctx.config.api_key.get_secret_value() if ctx.config.api_key else None
 ```
 
-装好后这个接口就是 mclaw 命令（`mclaw plugins <条目 id> settings set --help` 看选项），由你在对话里替用户填，
-或告诉用户怎么填。读取：`await store.get("api_key")`（加密的取出来就是明文）。
+- 每个字段写 `title`（表单上的名字）和 `description`（一句说明）；不写 `title` 会显示字段名。
+- 界面只认这些类型：布尔、字符串（可用 `Enum` 给候选值）、整数、数字、字符串列表，以及它们的可选形式；
+  多行文本加 `json_schema_extra={"multiline": True}`，敏感字段用 `SecretStr`。
+  嵌套对象、字典等界面编辑不了：插件照常运行，设置页说明原因，只能改 `data/plugins.yaml`（本地插件）。
+- 约束（`ge`、`le`、`min_length`、`pattern`）写在 `Field` 里：保存前用你的模型校验，错误按字段标题用中文提示。
+- 值只在启动时读一次，改了会重启插件，不用自己监听变化。
 
-宿主操作只覆盖 mclaw 能看到的接口；网页内部用的隐藏接口插件调不了。
+按实体存的数据（每条订阅一份规则）不是配置，用插件数据（第 4 节，作用域 `subscription:<id>`）。
 
 ## 14. 回调端点：接收外部平台推过来的请求
 

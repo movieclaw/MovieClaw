@@ -232,9 +232,9 @@ def _remote(root: Path, spec: LocalSpec) -> Plugin:
             title=f"{declared['title']}（独立进程）",
             path=root,
             module=spec.module,
-            config=spec.config,
             inject=tuple(declared["inject"]),
             permissions=tuple(declared["permissions"]),
+            config_description=declared.get("config"),
         )
     except Exception as exc:  # noqa: BLE001 -- 本地代码出什么错都只影响它自己
         logger.warning("本地插件 %s 无法以独立进程运行：%s", spec.id, exc)

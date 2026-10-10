@@ -8299,6 +8299,37 @@ nonisolated extension API {
         }
     }
 
+    struct PluginSettingsPayload: Codable, Hashable, Sendable {
+        /// 要保存的值；敏感字段留空表示不改；没给的字段保持原值
+        var values: [String: API.JSONValue]
+
+        enum CodingKeys: String, CodingKey {
+            case values
+        }
+    }
+
+    /// 插件通用设置（docs/design/plugin-phase4.md §3）。
+    struct PluginSettingsView: Codable, Hashable, Sendable {
+        /// 能否在界面上修改
+        var editable: Bool
+        /// 不能修改的原因（例如配置里有界面不支持的类型）；没有配置为空
+        var reason: String?
+        /// 参数的界面描述（JSON Schema 子集）；敏感字段带 writeOnly
+        var schema: [String: API.JSONValue]?
+        /// 当前值（不含敏感字段）
+        var values: [String: API.JSONValue]
+        /// 已设置过的敏感字段
+        var secretsSet: [String]
+
+        enum CodingKeys: String, CodingKey {
+            case editable
+            case reason
+            case schema
+            case values
+            case secretsSet = "secrets_set"
+        }
+    }
+
     struct PluginSourceView: Codable, Hashable, Sendable {
         /// 源码位置：应用源码按 src/… 显示（系统模块带行号），数据目录里的按 data/…
         var path: String

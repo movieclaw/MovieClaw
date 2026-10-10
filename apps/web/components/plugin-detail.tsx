@@ -7,6 +7,7 @@ import { type ComponentType, type ReactNode, useCallback, useEffect, useState } 
 
 import { Banner, ErrorBanner, LINK_CLASS, StatusPill } from "@/components/cloud-push-ui";
 import { CopyButton } from "@/components/copy-button";
+import { fieldType, parseValue, SchemaForm, unsupportedField } from "@/components/schema-form";
 import { useConfirm, useToast } from "@/components/feedback";
 import {
   ActivityIcon,
@@ -26,6 +27,8 @@ import {
 import {
   SETTINGS_BUTTON_CLASS,
   SETTINGS_DANGER_BUTTON_CLASS,
+  SETTINGS_PRIMARY_BUTTON_CLASS,
+  SettingsCard,
   SettingsList,
   SettingsMoreMenu,
   SettingsRow,
@@ -34,11 +37,14 @@ import {
 import {
   dismissDeadLetter,
   getPluginDetail,
+  getPluginSettings,
   type PluginDetail,
+  type PluginSettings,
   replayDeadLetter,
   revokeCallback,
   rollbackPackage,
   rotateCallback,
+  savePluginSettings,
   uninstallPackage,
 } from "@/lib/api/plugins";
 import { formatBytes } from "@/lib/format";
@@ -248,6 +254,8 @@ export function PluginDetailView({ id }: { id: string }) {
           </SettingsList>
         )}
       </SettingsSection>
+
+      <PluginSettingsSection id={detail.plugin.id} />
 
       <Permissions detail={detail} />
 
@@ -639,5 +647,123 @@ function GrantRow({ grant }: { grant: Grant }) {
         </>
       }
     />
+  );
+}
+
+/**
+ * 插件通用设置（docs/design/plugin-phase4.md §3）：插件的配置模型画成表单，保存后插件按新设置重启。
+ * 没有配置的插件不出这一节；配置里有界面不支持的类型时说明原因（去 plugins.yaml 改）。
+ */
+function PluginSettingsSection({ id }: { id: string }) {
+  const toast = useToast();
+  const [settings, setSettings] = useState<PluginSettings | null>(null);
+  const [draft, setDraft] = useState<Record<string, unknown>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const adopt = useCallback((next: PluginSettings) => {
+    setSettings(next);
+    const initial: Record<string, unknown> = {};
+    for (const [name, field] of Object.entries(next.schema?.properties ?? {})) {
+      if (field.writeOnly) {
+        initial[name] = "";
+        continue;
+      }
+      const value = next.values[name];
+      initial[name] =
+        fieldType(field).kind === "array" && Array.isArray(value)
+          ? value.join("\n")
+          : value;
+    }
+    setDraft(initial);
+  }, []);
+
+  useEffect(() => {
+    getPluginSettings(id)
+      .then(adopt)
+      .catch(() => setSettings(null));
+  }, [id, adopt]);
+
+  if (!settings || (!settings.editable && !settings.reason)) return null;
+  if (!settings.editable || !settings.schema) {
+    return (
+      <SettingsSection title="设置">
+        <p className="px-1 text-sub leading-6 text-[var(--text-muted)]">
+          这个插件的设置不能在界面上修改：{settings.reason}。请在数据目录的
+          plugins.yaml 里修改。
+        </p>
+      </SettingsSection>
+    );
+  }
+  const schema = settings.schema;
+  const stale = unsupportedField(schema);
+  if (stale) {
+    return (
+      <SettingsSection title="设置">
+        <ErrorBanner>
+          这个插件的设置需要更新的网页才能显示，请刷新页面后重试。
+        </ErrorBanner>
+      </SettingsSection>
+    );
+  }
+
+  const save = async () => {
+    const values: Record<string, unknown> = {};
+    for (const [name, field] of Object.entries(schema.properties)) {
+      const value = draft[name];
+      if (field.writeOnly) {
+        if (typeof value === "string" && value !== "") values[name] = value;
+        continue;
+      }
+      values[name] =
+        typeof value === "string" ? parseValue(field, value) : value;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      adopt(await savePluginSettings(id, values));
+      toast.success("设置已保存，插件已按新设置重启");
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <SettingsSection title="设置">
+      <SettingsCard
+        title={
+          schema.title && schema.title !== "Config" ? schema.title : "插件设置"
+        }
+        hint={
+          error ? (
+            <span className="text-[var(--danger)]">{error}</span>
+          ) : (
+            "保存后插件会按新设置重启"
+          )
+        }
+        action={
+          <button
+            type="button"
+            className={SETTINGS_PRIMARY_BUTTON_CLASS}
+            disabled={saving}
+            onClick={() => void save()}
+          >
+            {saving ? "保存中…" : "保存"}
+          </button>
+        }
+      >
+        <SchemaForm
+          schema={schema}
+          values={draft}
+          secretsSet={settings.secrets_set}
+          disabled={saving}
+          onChange={(name, value) =>
+            setDraft((prev) => ({ ...prev, [name]: value }))
+          }
+        />
+      </SettingsCard>
+    </SettingsSection>
   );
 }

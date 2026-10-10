@@ -1049,6 +1049,8 @@ async def run(args: argparse.Namespace) -> int:
 
 
 def describe(args: argparse.Namespace) -> int:
+    from movieclaw_sdk.config_schema import describe_config
+
     """只读出插件的声明（宿主据此构造内核条目），不运行它。"""
     found = _find_plugin(args.module, args.entry)
     _PROTOCOL_OUT.write(
@@ -1058,9 +1060,29 @@ def describe(args: argparse.Namespace) -> int:
                 "title": found.title,
                 "inject": [key.name for key in found.inject],
                 "permissions": list(found.permissions),
+                # 参数的界面描述（JSON Schema 子集）；主进程不导入插件代码，只能由这里报上去
+                "config": describe_config(found.config),
             }
         )
     )
+    return 0
+
+
+def validate_config(args: argparse.Namespace) -> int:
+    """用插件自己的配置模型校验一份配置（宿主保存界面设置前调用），输出 pydantic 的错误列表。"""
+    import json
+
+    from pydantic import ValidationError
+
+    found = _find_plugin(args.module, args.entry)
+    config = json.loads(sys.stdin.read() or "{}")
+    errors: list[dict[str, Any]] = []
+    if found.config is not None:
+        try:
+            found.config.model_validate(config)
+        except ValidationError as exc:
+            errors = json.loads(exc.json(include_url=False, include_input=False))
+    _PROTOCOL_OUT.write(encode({"type": "validate", "errors": errors}))
     return 0
 
 
@@ -1121,6 +1143,9 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--module", required=True)
     parser.add_argument("--entry", required=True, help="条目 id（@plugin 的名字）")
     parser.add_argument("--describe", action="store_true", help="只输出插件声明后退出")
+    parser.add_argument(
+        "--validate", action="store_true", help="用插件的配置模型校验标准输入里的配置后退出"
+    )
     parser.add_argument("--fd-socket", type=int, default=None, help="宿主递文件描述符用的套接字")
     parser.add_argument("--uid", type=int, default=None, help="降权到这个用户（宿主是 root 时）")
     parser.add_argument("--gid", type=int, default=None)
@@ -1140,6 +1165,8 @@ def main(argv: list[str] | None = None) -> int:
         sys.path.insert(1, str(vendor))
     if args.describe:
         return describe(args)
+    if args.validate:
+        return validate_config(args)
     return asyncio.run(run(args))
 
 

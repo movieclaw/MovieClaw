@@ -13,6 +13,8 @@ app plugins packages rollback
 app plugins packages uninstall
 app plugins packages upload
 app plugins safe-mode exit
+app plugins settings show
+app plugins settings update
 app plugins show
 app port set
 app restart

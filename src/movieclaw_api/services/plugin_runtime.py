@@ -68,6 +68,10 @@ RpcFn = Callable[[str, dict[str, Any], str | None], Awaitable[Any]]
 sessions: dict[str, Session] = {}
 #: 以独立进程运行的条目（诊断页据此区分「进程内 / 独立进程」）
 process_entries: set[str] = set()
+#: 进程外插件的配置描述（``describe_config`` 的结果），条目 id → 描述
+config_descriptions: dict[str, dict[str, Any] | None] = {}
+#: 进程外插件的代码位置（目录、模块），校验设置时另起子进程用
+process_specs: dict[str, tuple[Path, str]] = {}
 
 
 class PluginProcessGone(RuntimeError):
@@ -860,6 +864,44 @@ def describe(path: Path, module: str, entry_id: str) -> dict[str, Any]:
     return json.loads(proc.stdout.decode("utf-8").splitlines()[-1])
 
 
+def validate_config(entry_id: str, config: dict[str, Any]) -> list[dict[str, Any]]:
+    """在子进程里用插件自己的配置模型校验一份配置，返回 pydantic 的错误列表（空 = 合规）。
+
+    与 ``describe`` 同样隔离：主进程不导入插件代码。保存界面设置前先校验，填错不必重启插件才发现。
+    """
+    spec = process_specs.get(entry_id)
+    if spec is None:
+        return []
+    path, module = spec
+    launch = _launch(entry_id, path, module)
+    proc = subprocess.run(
+        [
+            sys.executable,
+            "-s",
+            "-m",
+            "movieclaw_sdk.runner",
+            "--path",
+            str(launch.cwd),
+            "--module",
+            module,
+            "--entry",
+            entry_id,
+            "--validate",
+            *launch.args,
+        ],
+        input=json.dumps(config, ensure_ascii=False).encode("utf-8"),
+        capture_output=True,
+        cwd=str(launch.cwd),
+        env=launch.env,
+        timeout=DESCRIBE_TIMEOUT,
+        check=False,
+    )
+    if proc.returncode != 0:
+        tail = proc.stderr.decode("utf-8", "replace").strip().splitlines()[-1:] or ["无输出"]
+        raise RuntimeError(f"校验插件设置失败：{tail[0]}")
+    return json.loads(proc.stdout.decode("utf-8").splitlines()[-1]).get("errors") or []
+
+
 _MISSING: Any = object()
 
 
@@ -1043,9 +1085,9 @@ def remote_plugin(
     title: str,
     path: Path,
     module: str,
-    config: Any,
     inject: tuple[str, ...] = (),
     permissions: tuple[str, ...] = (),
+    config_description: dict[str, Any] | None = None,
 ) -> Plugin:
     """进程外运行的插件条目：代码在子进程里，内核里只有代理。
 
@@ -1057,6 +1099,9 @@ def remote_plugin(
     if unknown:
         raise ValueError(f"进程外插件暂不能使用服务：{'、'.join(unknown)}")
     process_entries.add(entry_id)
+    # 配置模型在子进程里，主进程只拿到它的描述（describe）；界面设置据此渲染
+    config_descriptions[entry_id] = config_description
+    process_specs[entry_id] = (path, module)
 
     async def apply(ctx: Context) -> None:
         # 卸下后（如插件包被卸载、换回同 id 的随带插件包）诊断不能还显示「独立进程」
@@ -1066,7 +1111,8 @@ def remote_plugin(
             entry_id,
             path=path,
             module=module,
-            config=config,
+            # 内核合并好的配置（清单配置 + 界面设置），每次启动现读：改设置后重启即生效
+            config=dict(ctx.config or {}),
             data_dir=getattr(ctx.settings, "data_dir", "./data"),
         )
         session.rpc_handler = await _service_handler(ctx, session, inject)

@@ -79,7 +79,7 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 
 第 0 节给方案时只需要 `references/extension-points.md`；下表是**动手写代码前**要读的。
 示例插件都在本技能的 `references/examples/`（只有这一处，仓库和容器里没有别的副本）。它们是插件体系的验收插件，
-CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。示例大多是「本地插件」写法（`config=` + `data/plugins.yaml`、从 `movieclaw_kernel` 导入），
+CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。示例大多是「本地插件」写法（`data/plugins.yaml`、从 `movieclaw_kernel` 导入），
 做插件包时以 `templates/starter/` 为准，差别见 `references/examples/README.md`。
 
 | 你要做的 | 先读（读完再写代码） |
@@ -89,6 +89,7 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 | IM 通道 | `references/recipes.md` 第 11 节（**选接入方式**）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_sdk/channels.py` 文件头；只推送的通道再看 `$SRC/movieclaw_plugins/feishu/`；靠平台回调收消息的看 `references/examples/wecom-channel/` |
 | 定时 / 后台任务、入库流水线 | `references/recipes.md` 第 6～7 节、`references/examples/{watchlist_feed,cloud_strm}.py` |
 | 接收外部平台的回调 | `references/recipes.md` 第 14 节 |
+| 用户要填的设置（账号、Key、间隔） | `references/recipes.md` 第 13 节 |
 | 开接口（含给 AI 助手加能力）、读写文件 | `references/recipes.md` 第 5、8、10 节、`templates/starter/`、`references/examples/cloud_strm.py` |
 | 插件需要用户填的配置或凭据（账号、地址、Key） | `references/recipes.md` 第 13 节 |
 | 站点 | `references/recipes.md` 第 12 节、`references/examples/site_pack/` |

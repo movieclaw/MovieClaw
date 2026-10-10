@@ -416,3 +416,66 @@ export async function replayDeadLetter(id: number): Promise<void> {
 export async function dismissDeadLetter(id: number): Promise<void> {
   await request(`/app/plugins/dead-letters/${id}/dismiss`, { method: "POST" });
 }
+
+// ---------------------------------------------------------------------------
+// 插件通用设置（docs/design/plugin-phase4.md §3）
+
+/** JSON Schema 子集里的一个字段（movieclaw_sdk/config_schema.py） */
+export interface SchemaField {
+  type: string | string[];
+  title?: string;
+  description?: string;
+  default?: unknown;
+  enum?: string[];
+  items?: { type: string };
+  minimum?: number;
+  maximum?: number;
+  minLength?: number;
+  maxLength?: number;
+  format?: string;
+  writeOnly?: boolean;
+  "x-multiline"?: boolean;
+}
+
+export interface ConfigSchema {
+  type: "object";
+  title?: string;
+  properties: Record<string, SchemaField>;
+  required?: string[];
+}
+
+export interface PluginSettings {
+  /** 能否在界面上修改 */
+  editable: boolean;
+  /** 不能修改的原因（配置里有界面不支持的类型）；没有配置为 null */
+  reason: string | null;
+  schema: ConfigSchema | null;
+  /** 当前值（不含敏感字段） */
+  values: Record<string, unknown>;
+  /** 已设置过的敏感字段 */
+  secrets_set: string[];
+}
+
+export async function getPluginSettings(id: string): Promise<PluginSettings> {
+  return (
+    await request<ApiEnvelope<PluginSettings>>(
+      `/app/plugins/${encodeURIComponent(id)}/settings`,
+    )
+  ).data;
+}
+
+/** 保存并重启插件；敏感字段留空表示不改。重启失败服务端会恢复原设置并报原因 */
+export async function savePluginSettings(
+  id: string,
+  values: Record<string, unknown>,
+): Promise<PluginSettings> {
+  return (
+    await request<ApiEnvelope<PluginSettings>>(
+      `/app/plugins/${encodeURIComponent(id)}/settings`,
+      {
+        method: "PUT",
+        body: JSON.stringify({ values }),
+      },
+    )
+  ).data;
+}
