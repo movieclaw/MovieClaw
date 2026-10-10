@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +38,23 @@ class AcquisitionBridge(Protocol):
         """条目的文件整体转移到了另一个库：跟随它的东西（订阅的目标库）一并改挂。返回是否有东西跟着改了。"""
         ...
 
+    async def identity_changed(
+        self,
+        session: AsyncSession,
+        *,
+        gained: Collection[int],
+        displaced: Collection[int] = (),
+        moved_file_ids: Collection[int] = (),
+    ) -> None:
+        """文件归属变了：``gained`` 的条目有单元在库了；
+        ``displaced`` 的条目因身份改正（认领、复核拍板、重新识别）丢了单元，
+        ``moved_file_ids`` 是改挂走的文件。
+
+        ``displaced`` 只能来自单条目粒度、用户意图的身份变更；全量扫描标 missing、用户删文件都不算
+        （盘掉线不该让整库订阅重下）。
+        """
+        ...
+
 
 class NullBridge:
     """没有获取领域：媒体库作为纯本地库运行。"""
@@ -54,6 +71,16 @@ class NullBridge:
         self, session: AsyncSession, media_item_id: int, target_library_id: int
     ) -> bool:
         return False
+
+    async def identity_changed(
+        self,
+        session: AsyncSession,
+        *,
+        gained: Collection[int],
+        displaced: Collection[int] = (),
+        moved_file_ids: Collection[int] = (),
+    ) -> None:
+        return None
 
 
 _NULL = NullBridge()

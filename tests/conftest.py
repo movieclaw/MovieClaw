@@ -469,3 +469,16 @@ def _fresh_cover_memos(monkeypatch):
 
     monkeypatch.setattr(cover, "_memos", {})
     monkeypatch.setattr(cover, "_render_tasks", {})
+
+
+@pytest.fixture(autouse=True)
+def _acquisition_bound(monkeypatch):
+    """媒体库与获取领域之间的接口按生产形态绑好（library-boundary.md §10）。
+
+    生产环境里 ``downloads`` 系统模块总会绑定；直接调服务、不起应用的用例也要有同样的行为
+    （认领后关 / 退工单、转移后改挂订阅……）。验证「纯本地库」的用例自己绑 ``NullBridge``。
+    """
+    from movieclaw_api.services.acquisition_bridge import Acquisition
+    from movieclaw_api.services.library import acquisition
+
+    monkeypatch.setattr(acquisition, "_bound", Acquisition())

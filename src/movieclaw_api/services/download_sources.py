@@ -249,6 +249,25 @@ class FileTorrent:
     """同一个种子还供着的、还在媒体库里的别的文件（任何条目、任何库）；非空时删种会连带毁掉它们。"""
 
 
+async def stamps_for_files(
+    session: AsyncSession, file_ids: list[int]
+) -> dict[int, tuple[str, str | None]]:
+    """这些库文件来自站点上的哪个种子：{文件 id: (站点, 种子编号)}，只含有站点的。"""
+    if not file_ids:
+        return {}
+    rows = await session.execute(
+        select(
+            DownloadFileSource.library_file_id,
+            DownloadFileSource.site_id,
+            DownloadFileSource.torrent_id,
+        ).where(
+            DownloadFileSource.library_file_id.in_(file_ids),  # type: ignore[attr-defined]
+            DownloadFileSource.site_id.is_not(None),  # type: ignore[union-attr]
+        )
+    )
+    return {file_id: (site, torrent) for file_id, site, torrent in rows.all()}
+
+
 async def torrents_for_files(session: AsyncSession, file_ids: list[int]) -> list[FileTorrent]:
     """这些库文件来自哪些下载器任务。只读；删除后（文件行已没了）照样能查。"""
     if not file_ids:

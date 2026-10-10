@@ -564,14 +564,20 @@ def _provably_below(snapshot, spec) -> bool:
 # 入库验证：实测说了算（quality-upgrade.md §6.3）
 # ---------------------------------------------------------------------------
 
-def _file_from_attempt(file: LibraryFile, attempt: SubscriptionDownloadAttempt) -> bool:
+def _file_from_attempt(
+    file: LibraryFile,
+    attempt: SubscriptionDownloadAttempt,
+    stamps: dict[int, tuple[str, str | None]],
+) -> bool:
     """该库文件是否来自这次洗版投递。
 
-    首选入库来源精确匹配（监听导入会带 site/torrent）；扫描收编的文件没有
-    来源信息，退而按时间关联（attempt 创建之后才出现的文件）。
+    首选入库来源精确匹配（监听导入会带 site/torrent，记在下载领域的来源记录
+    ``stamps`` 里）；扫描收编的文件没有来源信息，退而按时间关联（attempt
+    创建之后才出现的文件）。
     """
-    if file.site_id and attempt.site_id:
-        return file.site_id == attempt.site_id and file.torrent_id == attempt.torrent_id
+    stamp = stamps.get(file.id or 0)
+    if stamp and attempt.site_id:
+        return stamp == (attempt.site_id, attempt.torrent_id)
     return file.created_at is not None and attempt.created_at is not None and (
         file.created_at >= attempt.created_at
     )
@@ -735,6 +741,10 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
     files_by_unit: dict[tuple[int, int], list[LibraryFile]] = {}
     for file in files:
         files_by_unit.setdefault((file.season_number, file.episode_number), []).append(file)
+    # 文件来自哪个站点种子：下载领域的来源记录（library-boundary.md §5）
+    from movieclaw_api.services.download_sources import stamps_for_files
+
+    stamps = await stamps_for_files(session, [f.id for f in files if f.id is not None])
 
     # 已证伪 attempt 的来源集合：它们的文件（回收站失败残留 / 意外重复入库）
     # 必须隔离清理，绝不参与最优选择——否则证伪文件会借文件名解析
@@ -777,8 +787,8 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
         quarantine = [
             f
             for f in unit_files
-            if f.site_id
-            and (wanted.subscription_id, f.site_id, f.torrent_id) in failed_sources
+            if (stamp := stamps.get(f.id or 0))
+            and (wanted.subscription_id, *stamp) in failed_sources
         ]
         if quarantine and len(quarantine) < len(unit_files):
             for file in quarantine:
@@ -804,7 +814,7 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
             unit_attempts, key=lambda a: (a.created_at or utcnow(), a.id or 0), reverse=True
         ):
             if att.site_id and any(
-                f.site_id == att.site_id and f.torrent_id == att.torrent_id
+                stamps.get(f.id or 0) == (att.site_id, att.torrent_id)
                 for f in files_by_unit.get(unit, [])
             ):
                 attempt = att
@@ -840,7 +850,11 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
         snapshots_by_file: dict[int, QualitySnapshot] = {}
         for file in unit_files:
             name_attrs = None
-            if attempt is not None and attempt.quality and _file_from_attempt(file, attempt):
+            if (
+                attempt is not None
+                and attempt.quality
+                and _file_from_attempt(file, attempt, stamps)
+            ):
                 name_attrs = QualitySnapshot.model_validate(attempt.quality)
             from movieclaw_matcher.smart import SmartPolicy
 
@@ -896,7 +910,7 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                 ),
             )
             trash_paths: list[str] = []
-            if attempt is not None and _file_from_attempt(best_file, attempt):
+            if attempt is not None and _file_from_attempt(best_file, attempt, stamps):
                 wanted.info_hash = attempt.info_hash
                 attempt.status = DownloadAttemptStatus.IMPORTED
                 attempt.cleanup_note = "洗版完成：新版本已入库"
@@ -1012,13 +1026,13 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                 new_label,
             )
         elif attempt is not None and any(
-            _file_from_attempt(f, attempt) for f in unit_files
+            _file_from_attempt(f, attempt, stamps) for f in unit_files
         ):
             # ---- 洗版投递的文件已入库但不构成升级：区分"造假"与"被抢先" ----
             now = utcnow()
             trash_paths = []
-            from_attempt = [f for f in unit_files if _file_from_attempt(f, attempt)]
-            others = [f for f in unit_files if not _file_from_attempt(f, attempt)]
+            from_attempt = [f for f in unit_files if _file_from_attempt(f, attempt, stamps)]
+            others = [f for f in unit_files if not _file_from_attempt(f, attempt, stamps)]
             if attempt.manual:
                 # 手动选种（§13.8）：用户显式挑的文件绝不能被系统丢弃。
                 # 未能证明更优 → 新旧版本共存保留，不计熔断、不进排除清单。

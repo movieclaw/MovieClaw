@@ -10,6 +10,7 @@ import pytest_asyncio
 from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.services.download_sources import record_source
 from movieclaw_api.services.subscription.wanted_fulfillment import close_fulfilled_wanted
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
@@ -626,21 +627,30 @@ async def test_refuted_residue_file_quarantined_not_reborn(db, tmp_path):
                 last_progress_at=utcnow(),
             )
         )
-        session.add(
-            LibraryFile(
-                library_id=library.id,
-                media_item_id=item_id,
-                season_number=1,
-                episode_number=1,
-                file_path=str(residue),
-                size_bytes=4,
-                source=FileSource.IMPORTED,
-                site_id="site-a",
-                torrent_id="fake1",
-                resolution="1080p",
-                media_source="Blu-ray",  # 文件名/来源声称高档——不能被采信
-                bit_rate=6_000_000,
-            )
+        residue_row = LibraryFile(
+            library_id=library.id,
+            media_item_id=item_id,
+            season_number=1,
+            episode_number=1,
+            file_path=str(residue),
+            size_bytes=4,
+            source=FileSource.IMPORTED,
+            site_id="site-a",
+            torrent_id="fake1",
+            resolution="1080p",
+            media_source="Blu-ray",  # 文件名/来源声称高档——不能被采信
+            bit_rate=6_000_000,
+        )
+        session.add(residue_row)
+        await session.flush()
+        # 入库同时把来源记进下载领域的来源记录（library-boundary.md §5），洗版验证从那里读
+        await record_source(
+            session,
+            residue_row.id,
+            info_hash="fakehash",
+            downloader_id=None,
+            site_id="site-a",
+            torrent_id="fake1",
         )
         await session.commit()
         await close_fulfilled_wanted(session, item_id)

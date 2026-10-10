@@ -26,7 +26,6 @@ from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException
 from movieclaw_api.schemas.library import TransferPayload
 from movieclaw_api.services import jobs
-from movieclaw_api.services.acquisition_bridge import Acquisition
 from movieclaw_api.services.library import acquisition
 from movieclaw_api.services.library import transfer as transfer_svc
 from movieclaw_db.engine import dispose_db, get_database, init_db
@@ -188,23 +187,15 @@ async def test_transfer_moves_directory_and_reassigns_ledger(db, tmp_path) -> No
 
 
 async def test_transfer_reassigns_subscription(db, tmp_path) -> None:
-    """订阅一并改挂目标库——否则下一集下载完又按旧库投递，白搬一场。
-
-    改挂订阅是获取领域经媒体库接口做的（library-boundary.md §10）：
-    这里直接调服务、没起应用，手动绑上。
-    """
+    """订阅一并改挂目标库——否则下一集下载完又按旧库投递，白搬一场。"""
     source_id, target_id, item_id, _entry, _root = await _setup(
         db, tmp_path, with_subscription=True
     )
-    unbind = acquisition.bind(Acquisition())
-    try:
-        async with get_database().session() as session:
-            await transfer_library_item(
-                source_id, item_id, TransferPayload(target_library_id=target_id), session=session
-            )
-        summary = await _drain_transfer(source_id, target_id)
-    finally:
-        unbind()
+    async with get_database().session() as session:
+        await transfer_library_item(
+            source_id, item_id, TransferPayload(target_library_id=target_id), session=session
+        )
+    summary = await _drain_transfer(source_id, target_id)
 
     assert summary.subscription_moved is True
     async with get_database().session() as session:
@@ -214,8 +205,11 @@ async def test_transfer_reassigns_subscription(db, tmp_path) -> None:
     assert sub.library_id == target_id
 
 
-async def test_unbound_acquisition_moves_files_and_leaves_subscription(db, tmp_path) -> None:
+async def test_unbound_acquisition_moves_files_and_leaves_subscription(
+    db, tmp_path, monkeypatch
+) -> None:
     """获取领域没绑定（纯本地库）时转移照常完成，只是没人改挂订阅。"""
+    monkeypatch.setattr(acquisition, "_bound", None)
     source_id, target_id, item_id, _entry, _root = await _setup(
         db, tmp_path, with_subscription=True
     )

@@ -60,6 +60,7 @@ from sqlmodel import select
 from movieclaw_api.services import jobs
 from movieclaw_api.services.download_sources import record_source
 from movieclaw_api.services.foreground import yield_to_foreground
+from movieclaw_api.services.library import acquisition
 from movieclaw_api.services.library.bluray import (
     disc_playlist_record,
     disc_playlist_stale,
@@ -1361,9 +1362,8 @@ async def _scan(
                 age = now_ts - (await asyncio.to_thread(file.stat)).st_mtime
             except OSError:
                 age = NEW_FILE_QUIET_SECONDS  # 瞬时消失/不可读：交给后续流程处理
-            if (
-                -NEW_FILE_QUIET_SECONDS <= age < NEW_FILE_QUIET_SECONDS
-                and (is_disc or file.suffix.lower() != STRM_EXT)
+            if -NEW_FILE_QUIET_SECONDS <= age < NEW_FILE_QUIET_SECONDS and (
+                is_disc or file.suffix.lower() != STRM_EXT
             ):
                 summary.deferred += 1
                 remaining = NEW_FILE_QUIET_SECONDS - age
@@ -3163,10 +3163,8 @@ async def _ingest_file(
         await session.commit()
     if item_id is not None:
         # 库存对账：单元在库成立即关闭对应的订阅工单（订阅止于投递，
-        # 完成状态由库存推导；文件回归同样适用）
-        from movieclaw_api.services.subscription import close_fulfilled_wanted
-
-        await close_fulfilled_wanted(session, item_id)
+        # 完成状态由库存推导；文件回归同样适用）——工单归获取领域
+        await acquisition.current().identity_changed(session, gained={item_id})
 
 
 # ---------------------------------------------------------------------------
@@ -4595,7 +4593,7 @@ async def _reidentify(
         state.total = len(rows)
         new_ids: set[int] = set()
         displaced: set[int] = set()
-        lost_sources: set[tuple[str, str]] = set()
+        moved_file_ids: list[int] = []
         for done, row in enumerate(rows, start=1):
             state.processed = done
             if row.state != FileState.IN_PLACE:
@@ -4644,8 +4642,8 @@ async def _reidentify(
                     (item.id, season_number, episode_number),  # type: ignore[arg-type]
                 )
                 displaced.add(row.media_item_id)
-                if row.site_id and row.torrent_id:
-                    lost_sources.add((row.site_id, row.torrent_id))
+                if row.id is not None:
+                    moved_file_ids.append(row.id)
             row.media_item_id = item.id if item is not None else None
             row.unidentified_reason = reason if keep_failure else None
             row.unidentified_code = identified.code if keep_failure else None
@@ -4671,20 +4669,18 @@ async def _reidentify(
             summary.changed = new_id != media_item_id
             new_item = await session.get(MediaItem, new_id)
             summary.new_title = new_item.title if new_item is not None else None
-            # 库存对账：单元归属的新条目若有订阅工单，在库成立即关闭
-            from movieclaw_api.services.subscription import close_fulfilled_wanted
-
-            await close_fulfilled_wanted(session, new_id)
         elif new_ids:
             # 分裂成多个条目（如剧集目录混入了别的剧）：不给单一跳转目标
             summary.changed = True
-        # 库存对账的另一半：被腾空的旧条目单元已不在库，工单退回继续找。
-        # 重新识别是用户主动翻案（白名单内的身份变更事件），与全量扫描把
-        # 文件标 missing 完全不同，见 reopen_unfulfilled_wanted 的文档
-        for displaced_id in displaced:
-            from movieclaw_api.services.subscription import reopen_unfulfilled_wanted
-
-            await reopen_unfulfilled_wanted(session, displaced_id, lost_sources=lost_sources)
+        # 库存对账（两个方向，交获取领域）：单一新条目的单元在库成立、关工单；
+        # 被腾空的旧条目单元已不在库，工单退回继续找。重新识别是用户主动翻案
+        # （白名单内的身份变更事件），与全量扫描把文件标 missing 完全不同
+        await acquisition.current().identity_changed(
+            session,
+            gained={summary.new_media_item_id} if summary.new_media_item_id else set(),
+            displaced=displaced,
+            moved_file_ids=moved_file_ids,
+        )
         await LibraryRepository(session).refresh_stats([library_id])
     logger.info(
         "媒体库 #%s 条目 #%s 重新识别完成：%d 个文件（识别 %d / 待识别 %d），新身份 %s%s",

@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Collection
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,3 +55,31 @@ class Acquisition:
         subscription.updated_at = utcnow()
         await session.commit()
         return True
+
+    async def identity_changed(
+        self,
+        session: AsyncSession,
+        *,
+        gained: Collection[int],
+        displaced: Collection[int] = (),
+        moved_file_ids: Collection[int] = (),
+    ) -> None:
+        """库存对账的两个方向：新条目的单元在库成立、关工单；被腾空的旧条目工单退回继续找。
+
+        退回时把改挂走的文件原先的来源种子一并记进负面记忆（见 ``reopen_unfulfilled_wanted``），
+        来源按文件 id 从下载领域的来源记录里查。
+        """
+        from movieclaw_api.services.download_sources import stamps_for_files
+        from movieclaw_api.services.subscription import (
+            close_fulfilled_wanted,
+            reopen_unfulfilled_wanted,
+        )
+
+        for item_id in gained:
+            await close_fulfilled_wanted(session, item_id)
+        if not displaced:
+            return
+        stamps = await stamps_for_files(session, list(moved_file_ids))
+        lost_sources = {(site, torrent) for site, torrent in stamps.values() if torrent}
+        for item_id in displaced:
+            await reopen_unfulfilled_wanted(session, item_id, lost_sources=lost_sources)
