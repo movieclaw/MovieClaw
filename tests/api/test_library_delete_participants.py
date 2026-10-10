@@ -157,7 +157,8 @@ def test_preview_lists_the_plan_linked_bytes_and_options(client, tmp_path) -> No
     assert data["plan"]["dry_run"] is True and data["plan"]["rows_deleted"] == 2
     # 第一集是硬链接：只删库文件不会释放它
     assert data["linked_bytes"] == 2
-    options = {o["key"]: o for o in data["options"]}
+    # 只看测试模块登记的（内置的下载模块也登记了一个，在 test_remove_source.py 里测）
+    options = {o["key"]: o for o in data["options"] if o["key"].startswith("test-participants:")}
     assert set(options) == {
         "test-participants:ok",
         "test-participants:slow",
