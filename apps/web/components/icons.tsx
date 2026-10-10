@@ -501,12 +501,6 @@ export const VideoIcon = (p: IconProps) => (
     <path d="m16 10 5-2.5v9L16 14" />
   </Base>
 );
-export const CodeIcon = (p: IconProps) => (
-  <Base {...p}>
-    <path d="m8 7-5 5 5 5M16 7l5 5-5 5M13.5 4.5l-3 15" />
-  </Base>
-);
-
 export const FolderIcon = (p: IconProps) => (
   <Base {...p}>
     <path d="M3 7a2 2 0 0 1 2-2h4l2.2 2.5H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />

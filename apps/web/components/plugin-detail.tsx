@@ -3,7 +3,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type ComponentType, useCallback, useEffect, useState } from "react";
+import { type ComponentType, type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { Banner, ErrorBanner, LINK_CLASS, StatusPill } from "@/components/cloud-push-ui";
 import { CopyButton } from "@/components/copy-button";
@@ -16,7 +16,6 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
-  CodeIcon,
   FolderGearIcon,
   FolderIcon,
   GearIcon,
@@ -420,56 +419,120 @@ export function PluginDetailView({ id }: { id: string }) {
         </SettingsSection>
       )}
 
-      <details className="group rounded-xl border border-[var(--line)] px-4 py-3">
-        <summary className="cursor-pointer text-sub text-[var(--text-muted)] hover:text-[var(--text)]">
-          技术信息（排查问题时用）
-        </summary>
-        <dl className="mt-3 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-caption">
-          <TechRow label="条目 id" value={p.id} />
-          <TechRow label="来源" value={p.source} />
-          <TechRow label="运行方式" value={runtimeLabel(p.runtime)} />
-          <TechRow label="启动耗时" value={p.apply_ms != null ? formatMs(p.apply_ms) : "—"} />
-          <TechRow label="用到的服务" value={p.inject.join("、") || "—"} />
-          <TechRow label="提供的服务" value={p.provides.join("、") || "—"} />
-          <TechRow label="宿主操作" value={(p.permissions ?? []).join("、") || "—"} />
-          <TechRow
-            label="处理统计"
-            value={`平均 ${formatMs(p.stats.handler_avg_ms)} · 失败 ${p.stats.failures} · 超时 ${p.stats.timeouts} · 熔断 ${p.stats.breaker}`}
-          />
-          {detail.children.length > 0 && <TechRow label="子条目" value={detail.children.join("、")} />}
-        </dl>
-      </details>
-
-      {detail.source && <SourceFooter source={detail.source} />}
+      <Diagnostics detail={detail} />
     </div>
   );
 }
 
-/** 页脚：源码在哪（入口名称 + 所在路径），淡色小字，不抢正文 */
-function SourceFooter({ source }: { source: NonNullable<PluginDetail["source"]> }) {
+/**
+ * 诊断信息（排查问题时用，默认收起）：源码位置、运行情况、依赖与授权。
+ * 源码位置只在这里出现一次；值用等宽字，列表用小标签，空的写「—」。
+ */
+function Diagnostics({ detail }: { detail: PluginDetail }) {
+  const p = detail.plugin;
+  const source = detail.source;
   return (
-    <footer className="space-y-1.5 px-1 font-mono text-caption text-[var(--text-faint)]">
-      {source.entry && (
-        <p className="flex items-center gap-2">
-          <CodeIcon className="size-3.5 shrink-0" />
-          <span className="min-w-0 break-all">{source.entry}</span>
-        </p>
-      )}
-      <p className="flex items-center gap-2">
-        <FolderIcon className="size-3.5 shrink-0" />
-        <span className="min-w-0 break-all">{source.path}</span>
-        <CopyButton text={source.path} className="shrink-0" />
-      </p>
-    </footer>
+    <details className="group css-glass overflow-hidden !rounded-xl">
+      <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sub text-[var(--text-muted)] hover:text-[var(--text)] [&::-webkit-details-marker]:hidden">
+        <span className="flex-1 font-medium">诊断信息</span>
+        <span className="text-caption text-[var(--text-faint)]">排查问题时用</span>
+        <ChevronRightIcon className="size-4 text-[var(--text-faint)] transition-transform group-open:rotate-90" />
+      </summary>
+      <div className="divide-y divide-[var(--line)] border-t border-[var(--line)]">
+        {source && (
+          <DiagGroup title="代码">
+            <DiagRow label="位置" mono>
+              <span className="flex items-start gap-1.5">
+                <span className="min-w-0 break-all">{source.path}</span>
+                <CopyButton text={source.path} className="-my-0.5 shrink-0" />
+              </span>
+            </DiagRow>
+            {source.entry && (
+              <DiagRow label="入口" mono>
+                {source.entry}
+              </DiagRow>
+            )}
+          </DiagGroup>
+        )}
+        <DiagGroup title="运行">
+          <DiagRow label="条目 id" mono>
+            {p.id}
+          </DiagRow>
+          <DiagRow label="来源">{SOURCE_LABEL[p.source] ?? p.source}</DiagRow>
+          <DiagRow label="运行方式">{runtimeLabel(p.runtime)}</DiagRow>
+          <DiagRow label="启动耗时">{p.apply_ms != null ? formatMs(p.apply_ms) : "—"}</DiagRow>
+          <DiagRow label="处理">
+            平均 {formatMs(p.stats.handler_avg_ms)} · 失败 {p.stats.failures} 次 · 超时{" "}
+            {p.stats.timeouts} 次 · {BREAKER_LABEL[p.stats.breaker] ?? p.stats.breaker}
+          </DiagRow>
+        </DiagGroup>
+        <DiagGroup title="依赖与授权">
+          <DiagRow label="用到的服务" mono>
+            <Chips items={p.inject} />
+          </DiagRow>
+          <DiagRow label="提供的服务" mono>
+            <Chips items={p.provides} />
+          </DiagRow>
+          <DiagRow label="宿主操作" mono>
+            <Chips items={p.permissions ?? []} />
+          </DiagRow>
+          {detail.children.length > 0 && (
+            <DiagRow label="子条目" mono>
+              <Chips items={detail.children} />
+            </DiagRow>
+          )}
+        </DiagGroup>
+      </div>
+    </details>
   );
 }
 
-function TechRow({ label, value }: { label: string; value: string }) {
+function DiagGroup({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <>
+    <section className="px-4 py-3">
+      <h3 className="mb-1.5 text-caption font-medium text-[var(--text-faint)]">{title}</h3>
+      <dl className="space-y-1.5">{children}</dl>
+    </section>
+  );
+}
+
+function DiagRow({
+  label,
+  mono = false,
+  children,
+}: {
+  label: string;
+  /** 代码类的值（路径、id、服务名）用等宽字；中文说明不用，免得字距发散 */
+  mono?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-[5.5rem_1fr] gap-x-3 text-caption leading-5">
       <dt className="text-[var(--text-faint)]">{label}</dt>
-      <dd className="break-all font-mono text-[var(--text-muted)]">{value}</dd>
-    </>
+      <dd className={`min-w-0 break-all text-[var(--text-muted)] ${mono ? "font-mono" : ""}`}>
+        {children}
+      </dd>
+    </div>
+  );
+}
+
+const SOURCE_LABEL: Record<string, string> = { builtin: "内置", local: "本地插件" };
+const BREAKER_LABEL: Record<string, string> = {
+  closed: "未熔断",
+  open: "已熔断（暂停调用）",
+  "half-open": "试探恢复中",
+};
+
+function Chips({ items }: { items: readonly string[] }) {
+  if (items.length === 0) return <>—</>;
+  return (
+    <span className="flex flex-wrap gap-1">
+      {items.map((item) => (
+        <span key={item} className="rounded-md bg-white/[0.05] px-1.5 py-px">
+          {item}
+        </span>
+      ))}
+    </span>
   );
 }
 
