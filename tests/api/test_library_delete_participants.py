@@ -246,3 +246,16 @@ def test_without_options_nothing_changes(client, tmp_path) -> None:
     assert resp.json()["data"]["follow_ups"] == []
     assert call(client, job_count) == 0
     assert not seeded["paths"][0].exists()
+
+
+def test_deletion_event_carries_the_chosen_options(client, tmp_path) -> None:
+    from tests.api.test_domain_events import recorded, subscribe
+
+    from movieclaw_api import domain_events as de
+
+    seeded = seed(client, tmp_path)
+    call(client, subscribe, get_database(), de.LIBRARY_ITEM_DELETED)
+    resp = client.delete(base(seeded), params={"options": "test-participants:ok"})
+    assert resp.status_code == 200, resp.text
+    [event] = call(client, recorded, get_database(), "library.item.deleted")
+    assert event["options"] == ["test-participants:ok"]

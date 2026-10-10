@@ -3248,7 +3248,9 @@ async def delete_library_item(
     keys = await _checked_options(
         _delete_request(library_id, item, rows, whole=True), "item", options
     )
-    record_deleted = await domain_events.deletion_recorder(session, library_id, item, rows)
+    record_deleted = await domain_events.deletion_recorder(
+        session, library_id, item, rows, options=keys
+    )
     follow_ups: list[dict[str, str]] = []
     result = await delete_item_files(
         session,
@@ -3319,7 +3321,9 @@ async def delete_library_file(
     keys = await _checked_options(
         _delete_request(library_id, item, targets, whole=len(rows) == 1), "file", options
     )
-    record_deleted = await domain_events.deletion_recorder(session, library_id, item, rows)
+    record_deleted = await domain_events.deletion_recorder(
+        session, library_id, item, rows, options=keys
+    )
     follow_ups: list[dict[str, str]] = []
     result = await delete_single_file(
         session,

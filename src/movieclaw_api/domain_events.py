@@ -52,11 +52,14 @@ class FileRef(_Frozen):
     """在回收站里时，进回收站之前的路径。"""
     size_bytes: int | None = None
     info_hash: str | None = None
+    """**即将移除**（下一版本）：种子关联归下载领域，改用 ``dl.file-sources.list`` 按文件 id 查
+    （docs/design/library-boundary.md §3.6）。"""
     downloader_id: int | None = None
+    """**即将移除**，同 ``info_hash``。"""
 
 
 class TorrentRef(_Frozen):
-    """与条目相关的下载器任务。"""
+    """与条目相关的下载器任务。**即将移除**（下一版本），随 ``LibraryDeleted.links``。"""
 
     info_hash: str
     downloader_id: int | None = None
@@ -79,13 +82,22 @@ class Links(_Frozen):
 
 
 class LibraryDeleted(_Frozen):
-    """从磁盘删除了条目在某个库里的全部文件（``whole_item``）或其中一部分。"""
+    """从磁盘删除了条目在某个库里的全部文件（``whole_item``）或其中一部分。
+
+    只该有媒体库自己的事实（docs/design/library-boundary.md §3.6）。种子与订阅归别的领域：
+    按 ``files[].id`` 调 ``dl.file-sources.list`` 查来源种子（文件删了也能查），按 ``media.id``
+    调 ``subscriptions.list`` 查订阅。``links`` 与 ``FileRef`` 上的种子字段本版照填、下一版本移除。
+    """
 
     library_id: int
     media: MediaRef | None
     whole_item: bool
     files: tuple[FileRef, ...]
     links: Links
+    """**即将移除**（下一版本）：见上。"""
+    options: tuple[str, ...] = ()
+    """这次删除勾了哪些删除选项（删除参与方的键，如 ``downloads:remove-source``）；
+    其他端发起的删除不带选项，为空。"""
 
 
 class LibraryFileRecycled(_Frozen):
@@ -156,10 +168,11 @@ class SubscriptionUnits(_Frozen):
     upgrade: bool = False
 
 
-def _event(name: str, payload: type, doc: str) -> Event[Any, Any]:
+def _event(name: str, payload: type, doc: str, *, version: str = "1.0") -> Event[Any, Any]:
     return Event(
         name,
         Mode.EMIT,
+        version=version,
         payload=payload,
         delivery=Delivery.DURABLE,
         stability=Stability.EXPERIMENTAL,
@@ -167,10 +180,16 @@ def _event(name: str, payload: type, doc: str) -> Event[Any, Any]:
     )
 
 
+# 1.1：加 options；links 与 FileRef 的种子字段标为即将移除（library-boundary.md §3.6）
 LIBRARY_ITEM_DELETED = _event(
-    "library.item.deleted", LibraryDeleted, "条目在某个库里的文件已从磁盘全部删除"
+    "library.item.deleted",
+    LibraryDeleted,
+    "条目在某个库里的文件已从磁盘全部删除",
+    version="1.1",
 )
-LIBRARY_FILE_DELETED = _event("library.file.deleted", LibraryDeleted, "条目的部分文件已从磁盘删除")
+LIBRARY_FILE_DELETED = _event(
+    "library.file.deleted", LibraryDeleted, "条目的部分文件已从磁盘删除", version="1.1"
+)
 LIBRARY_FILE_TRASHED = _event("library.file.trashed", LibraryFileRecycled, "文件进了回收站")
 LIBRARY_FILE_RESTORED = _event("library.file.restored", LibraryFileRecycled, "文件从回收站恢复")
 LIBRARY_FILE_PURGED = _event("library.file.purged", LibraryFileRecycled, "回收站里的文件被彻底清除")
@@ -257,7 +276,12 @@ async def _media(session: AsyncSession, media_item_id: int | None) -> MediaRef |
 
 
 async def deletion_recorder(
-    session: AsyncSession, library_id: int, item: Any, rows: list[Any]
+    session: AsyncSession,
+    library_id: int,
+    item: Any,
+    rows: list[Any],
+    *,
+    options: list[str] | tuple[str, ...] = (),
 ) -> Callable[[set[int]], Awaitable[None]] | None:
     """删条目 / 删文件前调用：先把关联拍好（删完就查不到了），返回「按实际删掉的行写事件」的回调。
 
@@ -316,6 +340,7 @@ async def deletion_recorder(
                 subscription_status=relations.subscription_status,
                 torrents=tuple(torrents),
             ),
+            options=tuple(options),
         )
         await durable_events.record(
             session, LIBRARY_ITEM_DELETED if whole else LIBRARY_FILE_DELETED, payload
