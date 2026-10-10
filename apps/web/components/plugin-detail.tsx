@@ -16,7 +16,9 @@ import {
   ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
+  CodeIcon,
   FolderGearIcon,
+  FolderIcon,
   GearIcon,
   ServerIcon,
   TerminalIcon,
@@ -199,16 +201,6 @@ export function PluginDetailView({ id }: { id: string }) {
             <p className="text-sub text-[var(--text-muted)]">{pluginDetail(p)}</p>
           )}
           <p className="text-caption text-[var(--text-faint)]">{meta.join(" · ")}</p>
-          {detail.source && (
-            <div className="flex items-start gap-2 text-caption text-[var(--text-faint)]">
-              <span className="shrink-0">源码</span>
-              <span className="min-w-0 break-all font-mono">
-                <span className="block">{detail.source.path}</span>
-                {detail.source.entry && <span className="block">{detail.source.entry}</span>}
-              </span>
-              <CopyButton text={detail.source.path} className="shrink-0 -mt-0.5" />
-            </div>
-          )}
         </div>
       </div>
 
@@ -440,7 +432,28 @@ export function PluginDetailView({ id }: { id: string }) {
           {detail.children.length > 0 && <TechRow label="子条目" value={detail.children.join("、")} />}
         </dl>
       </details>
+
+      {detail.source && <SourceFooter source={detail.source} />}
     </div>
+  );
+}
+
+/** 页脚：源码在哪（入口名称 + 所在路径），淡色小字，不抢正文 */
+function SourceFooter({ source }: { source: NonNullable<PluginDetail["source"]> }) {
+  return (
+    <footer className="space-y-1.5 px-1 font-mono text-caption text-[var(--text-faint)]">
+      {source.entry && (
+        <p className="flex items-center gap-2">
+          <CodeIcon className="size-3.5 shrink-0" />
+          <span className="min-w-0 break-all">{source.entry}</span>
+        </p>
+      )}
+      <p className="flex items-center gap-2">
+        <FolderIcon className="size-3.5 shrink-0" />
+        <span className="min-w-0 break-all">{source.path}</span>
+        <CopyButton text={source.path} className="shrink-0" />
+      </p>
+    </footer>
   );
 }
 
