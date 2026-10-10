@@ -1,6 +1,6 @@
 # 插件回调端点与插件 id 格式
 
-> 状态：设计稿（2026-10-10），待评审。前置阅读：`plugin-kernel.md`、`plugin-phase2b.md` §8（插件路由与签名链接）、
+> 状态：**已实施**（#715，2026-10-10）。前置阅读：`plugin-kernel.md`、`plugin-phase2b.md` §8（插件路由与签名链接）、
 > `plugin-channels.md`（IM 通道）、`plugin-phase3.md`（插件包）。
 
 ## 1. 背景
