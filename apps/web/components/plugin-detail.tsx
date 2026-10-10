@@ -14,7 +14,6 @@ import {
   BellIcon,
   BranchIcon,
   ChatBubblesIcon,
-  ChevronLeftIcon,
   ChevronRightIcon,
   ClockIcon,
   FolderGearIcon,
@@ -112,21 +111,9 @@ export function PluginDetailView({ id }: { id: string }) {
     }
   };
 
-  // 桌面端回列表的入口；手机端页顶的返回键已回到插件列表，不再重复
-  const back = (
-    <Link
-      href={"/settings/plugins" as Route}
-      className="inline-flex items-center gap-1 text-sub max-md:hidden text-[var(--text-muted)] hover:text-[var(--text)]"
-    >
-      <ChevronLeftIcon className="size-4" />
-      插件
-    </Link>
-  );
-
   if (detail == null) {
     return (
       <div className="space-y-6">
-        {back}
         {error ? <ErrorBanner>{error}</ErrorBanner> : <p className="text-sub text-[var(--text-muted)]">正在加载…</p>}
       </div>
     );
@@ -192,7 +179,6 @@ export function PluginDetailView({ id }: { id: string }) {
   return (
     <div className="space-y-10">
       <div className="space-y-4">
-        {back}
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">
             {/* 内核给独立进程的条目标题加了「（独立进程）」后缀；运行方式已在下面的元信息里 */}
