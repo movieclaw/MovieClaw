@@ -377,6 +377,8 @@ export interface PluginDetail {
   data_rows: number;
   /** 插件私有目录占用（字节） */
   disk_bytes: number;
+  /** 插件私有目录（旧服务端没有这个字段） */
+  data_path?: string | null;
   children: string[];
   /** 源码在哪（旧服务端没有这个字段） */
   source?: {

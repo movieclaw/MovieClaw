@@ -219,7 +219,11 @@ export function PluginDetailView({ id }: { id: string }) {
       <SettingsSection title="它做什么">
         {detail.adds.length === 0 ? (
           <p className="px-1 text-sub text-[var(--text-muted)]">
-            {detail.kind === "system" ? "这是应用内部的基础能力，没有直接对外的功能。" : "目前没有对外的功能。"}
+            {state !== "active"
+              ? "插件没在运行，看不到它登记的功能；运行起来后这里会列出来。"
+              : detail.kind === "system"
+                ? "这是应用内部的基础能力，没有直接对外的功能。"
+                : "目前没有对外的功能。"}
           </p>
         ) : (
           <SettingsList>
@@ -377,20 +381,23 @@ export function PluginDetailView({ id }: { id: string }) {
       )}
 
       <SettingsSection title="存储">
-        <SettingsList>
-          <SettingsRow
-            label="插件数据"
-            description={
-              detail.kind === "package"
-                ? "卸载时默认保留，重新安装后接着用；它改过的系统数据（比如建过的订阅）不会被撤销"
-                : undefined
-            }
-          >
-            <span className="text-sub text-[var(--text-muted)]">
-              {detail.data_rows} 条 · {formatBytes(detail.disk_bytes)}
-            </span>
-          </SettingsRow>
-        </SettingsList>
+        <div className="space-y-1.5 px-1">
+          <p className="text-sub text-[var(--text-muted)]">
+            已存 <span className="tnum text-[var(--text)]">{detail.data_rows}</span> 条数据，私有目录占用{" "}
+            <span className="tnum text-[var(--text)]">{formatBytes(detail.disk_bytes)}</span>
+          </p>
+          {detail.data_path && (
+            <p className="flex items-center gap-2 font-mono text-caption text-[var(--text-faint)]">
+              <FolderIcon className="size-3.5 shrink-0" />
+              <span className="min-w-0 break-all">{detail.data_path}</span>
+            </p>
+          )}
+          {detail.kind === "package" && (
+            <p className="text-caption leading-5 text-[var(--text-faint)]">
+              卸载时默认保留，重新安装后接着用；它改过的系统数据（比如建过的订阅）不会被撤销
+            </p>
+          )}
+        </div>
       </SettingsSection>
 
       {pkg && (

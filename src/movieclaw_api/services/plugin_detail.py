@@ -268,7 +268,12 @@ def _source(
         from movieclaw_api.plugins import packages as pkg
 
         folder = pkg.version_dir(settings, entry_id, record.version)
-        return {"path": _display_path(folder, settings), "entry": None}
+        try:
+            manifest = tomllib.loads((folder / pkg.MANIFEST).read_text("utf-8"))
+            entry = str(manifest["plugin"]["entry"])
+        except (OSError, KeyError, tomllib.TOMLDecodeError):
+            entry = None
+        return {"path": _display_path(folder, settings), "entry": entry}
     if kind == "official" and shipped is not None:
         return {
             "path": _display_path(shipped.path, settings),
@@ -397,6 +402,7 @@ async def plugin_detail(kernel: Kernel, settings: Any, entry_id: str, item: dict
         "callbacks": await callbacks.overview(entry_id) if callbacks is not None else [],
         "data_rows": data_rows,
         "disk_bytes": disk_bytes,
+        "data_path": _display_path(folder, settings),
         "children": [c["id"] for c in children],
         "source": _source(kernel, settings, entry_id, kind, record, shipped),
     }

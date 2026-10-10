@@ -651,6 +651,9 @@ class PluginDetailView(BaseModel):
     callbacks: list[CallbackKeyView] = Field(description="它开放的回调地址（密钥打码）")
     data_rows: int
     disk_bytes: int = Field(description="插件私有目录占用（字节）")
+    data_path: str | None = Field(
+        default=None, description="插件私有目录（data/plugins/data/<id>）"
+    )
     children: list[str] = Field(description="它的子条目")
     source: PluginSourceView | None = Field(default=None, description="源码在哪")
 

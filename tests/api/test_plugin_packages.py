@@ -527,3 +527,14 @@ def test_package_callbacks_need_a_declaration_and_die_with_the_package(data_dir)
         assert client.delete("/api/v1/app/plugins/packages/acme-pkg").status_code == 200
         assert client.get(url).status_code == 404
         assert client.get("/api/v1/app/plugins/callbacks").json()["data"] == []
+
+
+def test_package_details_say_where_the_code_and_data_live(data_dir) -> None:
+    app, client = start()
+    with client:
+        assert upload(client, package(1)).status_code == 200
+        assert approve(client, "1.0.0").json()["data"]["status"] == "active"
+        detail = client.get("/api/v1/app/plugins/acme-pkg").json()["data"]
+    assert detail["source"]["path"] == "data/plugins/packages/acme-pkg/1.0.0"
+    assert detail["source"]["entry"]
+    assert detail["data_path"] == "data/plugins/data/acme-pkg"
