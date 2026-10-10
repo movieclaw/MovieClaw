@@ -144,6 +144,11 @@ export function PluginDetailView({ id }: { id: string }) {
     if (!pkg?.previous_version) return;
     const ok = await confirm({
       title: `回到上一版 v${pkg.previous_version}？`,
+      bullets: [
+        `代码换回 v${pkg.previous_version}，当场重新加载`,
+        "权限也回到当时批准的那套",
+        "插件数据不变；想再换回来，再点一次即可",
+      ],
       confirmLabel: "回到上一版",
     });
     if (!ok) return;
