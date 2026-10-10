@@ -1502,7 +1502,8 @@ class ItemDeleteResultView(BaseModel):
     freed_bytes: int
     errors: list[str] = Field(default_factory=list)
     dry_run: bool = Field(default=False, description="是否只是演练（什么都没删）")
-    follow_ups: list[DeleteFollowUpView] = Field(
+    # 标成可空：客户端按「可能没有」生成，新版 App 连旧服务端（返回里没有这个字段）照常解码
+    follow_ups: list[DeleteFollowUpView] | None = Field(
         default_factory=list,
         description="勾选的删除选项各建了一个后续任务，删除提交后执行；按 job_id 跟进结果",
     )
