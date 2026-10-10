@@ -175,6 +175,8 @@ def _adds(
         prefix_task = f"plugin:{fiber.id}:"
         for name in sorted({t.get_name() for t in fiber.tasks if not t.done()}):
             label = name[len(prefix_task) :] if name.startswith(prefix_task) else name
+            if label.startswith("_"):
+                continue  # 宿主替插件挂的内部任务（如独立进程的看护），不是插件提供的能力
             out.append(
                 {
                     "kind": "background",

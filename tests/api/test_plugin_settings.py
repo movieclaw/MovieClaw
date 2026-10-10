@@ -226,3 +226,9 @@ def test_plugins_without_config_have_nothing_to_edit(client) -> None:
         "values": {},
         "secrets_set": [],
     }
+
+
+def test_host_runtime_tasks_are_not_listed_as_capabilities(client) -> None:
+    """独立进程插件的看护任务是宿主替它挂的，不是插件的能力，详情页「插件能力」里不出现。"""
+    adds = client.get("/api/v1/app/plugins/acme-sync").json()["data"]["adds"]
+    assert not [a for a in adds if "supervise" in a["title"]], adds

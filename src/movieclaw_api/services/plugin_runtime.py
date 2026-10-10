@@ -1142,7 +1142,8 @@ def remote_plugin(
                 priority=int(contribution.get("priority", 0)),
                 override=bool(contribution.get("override")),
             )
-        ctx.task(session.supervise(), name="supervise")
+        # 下划线开头 = 宿主替插件挂的内部任务，不算插件的能力（详情页不列）
+        ctx.task(session.supervise(), name="_supervise")
         sessions[entry_id] = session
         ctx.effect(lambda: sessions.pop(entry_id, None), label="forget-session")
 
