@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 from fastapi.testclient import TestClient
 
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.plugins.local import PACKAGE
 from movieclaw_api.services import durable_events
 
 PLUGIN = """
@@ -71,6 +74,10 @@ def app_env(tmp_path, monkeypatch):
     folder.mkdir(parents=True)
     (folder / "cache.bin").write_bytes(b"x" * 2048)
     yield tmp_path
+    # 和别的本地插件用例一样卸掉导入的插件模块：不清的话，同一进程里后跑的
+    # 「进程外插件不在宿主里导入」断言会把这里留下的模块当成违规（分组运行时稳定复现）
+    for name in [m for m in sys.modules if m == PACKAGE or m.startswith(PACKAGE + ".")]:
+        del sys.modules[name]
     durable_events.reset_state()
     get_settings.cache_clear()
 
