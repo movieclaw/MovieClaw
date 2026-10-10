@@ -436,7 +436,7 @@ async def test_real_clip_matches_the_spec(tmp_path, monkeypatch, hdr):
         text=True,
     ).stderr
     integrated = float(re.findall(r"I:\s+(-?[\d.]+) LUFS", loud)[-1])
-    assert -25.5 <= integrated <= -20.5, integrated
+    assert -24.2 <= integrated <= -21.8, integrated  # 第二遍补偿后落在目标 ±1 LU 内
     assert abs(float(probe["format"]["duration"]) - 30.0) < 0.5
     data = info.path.read_bytes()
     assert data.index(b"moov") < data.index(b"mdat")  # faststart

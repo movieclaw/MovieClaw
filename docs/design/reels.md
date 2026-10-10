@@ -349,7 +349,7 @@ HDR，焦点动画跟着掉帧。NAS（Ryzen V1500B，**无核显**）实时转�
 | 画面 | 宽不超过 1920、保持比例（不放大）；帧率超过 30 的减半（60→30、50→25） |
 | 编码 | H.264 High，`-preset faster -crf 23 -maxrate 5M -bufsize 10M`，关键帧 2 秒，`yuv420p` |
 | 色彩 | SDR BT.709。HDR / 杜比视界走封面抓帧同一套色彩决策（`thumbs.build_filter_chains`，`tonemapx`）：P5 只给映射链，映射不了就不切 |
-| 音频 | 与刷片同一条音轨（`choose_audio`），AAC-LC 立体声 128 kbps；响度统一到 -23 LUFS（`loudnorm`，LRA 9，接近电影原片的对白响度，「接着看」切回原片不突兀），首尾 0.15 / 0.5 秒淡入淡出 |
+| 音频 | 与刷片同一条音轨（`choose_audio`），AAC-LC 立体声 128 kbps；响度统一到 -23 LUFS（`loudnorm`，LRA 9，接近电影原片的对白响度，「接着看」切回原片不突兀），首尾 0.15 / 0.5 秒淡入淡出；切完实测小片响度，偏差超过 1 LU 就补一次增益并限峰（单遍 loudnorm 在 45 秒片段上 NAS 实测偏差到 3 LU） |
 | 封装 | MP4，`+faststart`（索引在文件头） |
 | 字幕 | 不压进画面。文字字幕沿用片段字幕窗口（`ReelSubtitleView.url`），App 按 `segment.start_ms` 换算到小片时间；图形字幕（PGS）没有——与外网转码刷片同一口径 |
 | 体积 | 一段 45 秒约 14～28 MB；全库（电影 + 剧集约 940 部）约 20 GB |

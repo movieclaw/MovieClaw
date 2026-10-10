@@ -28,6 +28,7 @@ import contextlib
 import json
 import logging
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -412,7 +413,51 @@ async def generate(
     finally:
         if listing is not None:
             listing.unlink(missing_ok=True)
+    if _audio_map(file):
+        await _correct_loudness(part)
     return await install(file, segment, part)
+
+
+#: 切完后实测响度离目标超过这么多（LU）就整体补一次增益
+LOUDNESS_TOLERANCE = 1.0
+LOUDNESS_TARGET = -23.0
+#: 补增益后的限峰（线性幅值，约 -2 dBTP）
+LIMIT = 0.79
+
+
+async def _correct_loudness(part: Path) -> None:
+    """第二遍：量小片自己的积分响度，偏差超过 1 LU 就按差值调增益并限峰，视频原样复制。
+
+    ``loudnorm`` 单遍是边听边调，45 秒的短片段常收敛不到位（NAS 实测偏差到 3 LU，连着刷听得出来）。
+    这一步只读本地十几 MB 的小文件，零点几秒，不再读片库。
+    """
+    probe = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-nostdin", "-i", str(part), "-map", "0:a:0", "-af", "ebur128", "-f", "null", "-",
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+    )  # fmt: skip
+    _, err = await probe.communicate()
+    found = re.findall(r"I:\s+(-?[\d.]+) LUFS", err.decode("utf-8", "replace"))
+    if not found:
+        return
+    gain = LOUDNESS_TARGET - float(found[-1])
+    if abs(gain) <= LOUDNESS_TOLERANCE:
+        return
+    fixed = part.with_name(part.name + ".loud")
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-nostdin", "-v", "error", "-y", "-i", str(part),
+        "-map", "0:v:0", "-map", "0:a:0", "-c:v", "copy",
+        "-af", f"volume={gain:.2f}dB,alimiter=limit={LIMIT}:level=false",
+        "-c:a", "aac", "-b:a", f"{AUDIO_KBPS}k", "-ar", "48000",
+        "-movflags", "+faststart", "-f", "mp4", str(fixed),
+        stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.PIPE,
+    )  # fmt: skip
+    _, err = await proc.communicate()
+    if proc.returncode == 0 and fixed.is_file() and fixed.stat().st_size > 0:
+        os.replace(fixed, part)
+    else:
+        fixed.unlink(missing_ok=True)
+        detail = err.decode("utf-8", "replace")[-200:]
+        logger.warning("片段预切：响度补偿失败，保留单遍结果（%s）", detail)
 
 
 async def install(file: LibraryFile, segment: ReelSegment, part: Path) -> ClipInfo:
