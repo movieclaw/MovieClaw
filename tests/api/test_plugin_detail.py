@@ -182,7 +182,14 @@ def test_infrastructure_modules_describe_themselves(app_env) -> None:
     """不往注册表登记的基础模块：介绍取入口函数自己的说明，能力里列出它提供的服务。"""
     with start() as client:
         registries = detail(client, "core.registries")
-        assert registries["description"].startswith("把内核里的两张注册表绑定为")
+        # 就是入口函数说明文字的第一段（写在代码里，不另维护）
+        import inspect
+
+        from movieclaw_api.plugins.core import registries as entry
+
+        first = inspect.getdoc(entry.apply).split("\n\n", 1)[0]
+        assert registries["description"] == " ".join(x.strip() for x in first.splitlines())
+        assert registries["description"]
         database = detail(client, "core.database")
         assert {
             "kind": "service",
