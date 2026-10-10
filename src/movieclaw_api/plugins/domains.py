@@ -13,6 +13,7 @@ from movieclaw_kernel import Context, plugin
 
 @plugin("downloads", title="下载与种子同步", inject=(SITE_ACCESS,), reloadable=True)
 async def downloads(ctx: Context) -> None:
+    """定时同步各站新种并匹配订阅，盯下载进度、死种自动换源，删片时可一并删除下载任务与源文件。"""
     from movieclaw_api.services import (
         download_progress,
         download_sources,
@@ -39,6 +40,7 @@ async def downloads(ctx: Context) -> None:
 
 @plugin("boost", title="自动刷分享率", inject=(SITE_ACCESS,), disableable=True, reloadable=True)
 async def boost(ctx: Context) -> None:
+    """自动刷分享率：盯住站点的免费种第一时间下载做种，在预算内自动汰换。"""
     from movieclaw_api.services import ratio_boost
     from movieclaw_scheduler import contribute_tasks
 
@@ -47,6 +49,7 @@ async def boost(ctx: Context) -> None:
 
 @plugin("subscription", title="订阅", inject=(SITE_ACCESS,), reloadable=True)
 async def subscription(ctx: Context) -> None:
+    """定时为订阅搜索缺失内容、到期择优下载，并在取消订阅时清理相应的下载任务与文件。"""
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.subscription import (
         cleanup,
@@ -62,6 +65,7 @@ async def subscription(ctx: Context) -> None:
 
 @plugin("library.core", title="媒体库", inject=(DB,), reloadable=True)
 async def library_core(ctx: Context) -> None:
+    """媒体库后台工作：扫描对账、整理改名、条目转移、回收站清理、章节图、片头识别和查重复文件。"""
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.library import (
         batch_transfer,
@@ -96,6 +100,7 @@ async def library_core(ctx: Context) -> None:
 
 @plugin("media.scrape", title="元数据刷新", inject=(DB,), reloadable=True)
 async def media_scrape(ctx: Context) -> None:
+    """执行元数据刷新任务（单个条目或整库），从 TMDB 重新拉取简介、演职员与图片。"""
     from movieclaw_api.services import media_scrape as module
     from movieclaw_api.services.jobs import contribute_job_handlers
 
@@ -104,6 +109,7 @@ async def media_scrape(ctx: Context) -> None:
 
 @plugin("subtitle.gen", title="AI 字幕生成", inject=(DB,), reloadable=True)
 async def subtitle_gen(ctx: Context) -> None:
+    """执行 AI 字幕生成任务：挑选源字幕，用 AI 模型翻译并检查质量，生成新的字幕文件。"""
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.subtitle_gen import tasks
 

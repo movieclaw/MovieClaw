@@ -29,6 +29,7 @@ from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
     reloadable=True,
 )
 async def durable_events(ctx: Context) -> None:
+    """把系统事件（如删除影片）可靠地送达订阅它的插件：先存库再投递，插件停用恢复后补投。"""
     from movieclaw_api.services.durable_events import DurableEvents
 
     store = DurableEvents(ctx.use(DB))
@@ -45,6 +46,7 @@ async def durable_events(ctx: Context) -> None:
     reloadable=True,
 )
 async def host_ops(ctx: Context) -> None:
+    """让插件在用户批准的权限范围内调用系统功能，例如搜索影片、创建订阅。"""
     from movieclaw_api.plugins.local import configure_host_ops
     from movieclaw_api.services import host_ops as service
 
@@ -69,6 +71,7 @@ async def host_ops(ctx: Context) -> None:
     reloadable=True,
 )
 async def plugin_data(ctx: Context) -> None:
+    """为每个插件提供独立的数据存储，插件只能读写自己的数据，敏感值可加密保存。"""
     from movieclaw_api.services.plugin_data import PluginDataService
 
     ctx.provide(PLUGIN_DATA, PluginDataService(ctx.use(DB)))
@@ -83,6 +86,7 @@ async def plugin_data(ctx: Context) -> None:
     reloadable=True,
 )
 async def plugin_health(ctx: Context) -> None:
+    """让插件上报自身状态（如令牌过期、外部服务连不上），异常时生成系统通知，恢复后自动消除。"""
     from movieclaw_api.services.plugin_health import PluginHealthService
 
     ctx.provide(PLUGIN_HEALTH, PluginHealthService(ctx.use(DB)))
@@ -97,6 +101,7 @@ async def plugin_health(ctx: Context) -> None:
     reloadable=True,
 )
 async def plugin_routes(ctx: Context) -> None:
+    """让插件提供自己的网页接口，并生成带签名的免登录链接（如 .strm 里的播放地址）。"""
     from movieclaw_api.services import host_ops
     from movieclaw_api.services.plugin_data import PluginStore
     from movieclaw_api.services.plugin_routes import PluginRoutes
@@ -118,6 +123,7 @@ async def plugin_routes(ctx: Context) -> None:
     reloadable=True,
 )
 async def plugin_callbacks(ctx: Context) -> None:
+    """为插件开设供外部平台回调的地址（如聊天平台推送消息），每个地址带独立密钥，可单独作废。"""
     from movieclaw_api.services import plugin_callbacks as callbacks
 
     service = callbacks.PluginCallbacks(ctx.settings, ctx.use(DB))
@@ -135,6 +141,7 @@ async def plugin_callbacks(ctx: Context) -> None:
     reloadable=True,
 )
 async def plugin_files(ctx: Context) -> None:
+    """让插件在用户批准的目录范围内读写文件（如媒体库、导入目录），越界访问一律拒绝。"""
     from movieclaw_api.plugins import packages
     from movieclaw_api.plugins.local import local_specs
     from movieclaw_api.services.plugin_files import PluginFilesService, parse_grants

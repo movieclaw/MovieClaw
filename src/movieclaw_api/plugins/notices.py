@@ -22,6 +22,7 @@ NOTICE_PREFIX = "plugin:"
 
 @plugin("kernel.notices", title="插件故障提醒", inject=(DB, SETTING_STORE), reloadable=True)
 async def plugin_notices(ctx: Context) -> None:
+    """插件启动失败时生成待处理事项并推送给管理员，恢复后自动消除；进入安全模式时也会提醒。"""
     from sqlmodel import select
 
     from movieclaw_api.plugins.manifest import builtin_group

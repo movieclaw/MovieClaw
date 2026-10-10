@@ -21,6 +21,7 @@ logger = logging.getLogger("movieclaw_api.plugins.core")
 
 @plugin("core.database", title="数据库", provides=(DB,), critical=True)
 async def database(ctx: Context) -> None:
+    """打开应用数据库，启动时自动升级表结构；几乎所有功能都依赖它。"""
     from movieclaw_db.engine import dispose_db, init_db, refresh_query_statistics
 
     settings = ctx.settings
@@ -44,7 +45,9 @@ async def database(ctx: Context) -> None:
 
 @plugin("core.registries", title="任务与处理器注册表", critical=True)
 async def registries(ctx: Context) -> None:
-    """把内核里的两张注册表绑定为当前生效的定时任务表与后台任务处理器表，并把事件总线交给决策钩子。
+    """汇总各模块登记的定时任务和后台任务类型，让调度器与任务执行器知道有哪些活可干。
+
+    把内核里的两张注册表绑定为当前生效的定时任务表与后台任务处理器表，并把事件总线交给决策钩子。
 
     绑定之后，调度器、执行器、定时任务接口都只认插件贡献的项；解绑（内核关闭）后回落到
     模块声明目录，命令行工具与单独驱动引擎的测试照常工作。处理器表一变就唤醒执行器，
@@ -81,6 +84,7 @@ async def registries(ctx: Context) -> None:
 
 @plugin("core.secrets", title="凭据加密", provides=(SECRETS,), critical=True)
 async def secrets(ctx: Context) -> None:
+    """准备加密密钥：站点登录凭据等敏感信息都加密后才存入数据库。"""
     from movieclaw_db.crypto import init_secret_box
 
     settings = ctx.settings
@@ -95,6 +99,7 @@ async def secrets(ctx: Context) -> None:
     critical=True,
 )
 async def setting_store(ctx: Context) -> None:
+    """负责保存和读取系统设置，设置页里的各项配置都经由它存取。"""
     from movieclaw_api.settings import init_setting_store
 
     # 首次空库启动时 app_setting 表已由迁移建好，读取缺记录返回默认值（空库也能进引导页）
@@ -109,6 +114,7 @@ async def setting_store(ctx: Context) -> None:
     critical=True,
 )
 async def egress(ctx: Context) -> None:
+    """按「网络与代理」设置，为系统的对外请求选择直连或走代理。"""
     from movieclaw_api.services.network_egress import load_network_egress
 
     # 须在任何出网客户端首次构造前生效
@@ -117,6 +123,7 @@ async def egress(ctx: Context) -> None:
 
 @plugin("core.scrape-runtime", title="刮削与发现偏好", inject=(SETTING_STORE,), critical=True)
 async def scrape_runtime(ctx: Context) -> None:
+    """启动时载入刮削偏好（语言优先级、选图、院线地区），供元数据刮削和发现页使用。"""
     from movieclaw_api.services.scrape_config import load_scrape_runtime
 
     # 语言优先级、选图偏好、院线地区：须在刮削管线与发现页服务首次使用前生效
@@ -125,7 +132,9 @@ async def scrape_runtime(ctx: Context) -> None:
 
 @plugin("core.http-clients", title="共享 HTTP 客户端", inject=(EGRESS,), reloadable=True)
 async def http_clients(ctx: Context) -> None:
-    """发现页服务与图片代理的客户端是懒建的单例，这里只负责在关闭时释放。
+    """管理发现页与图片代理共用的网络连接，关闭应用时统一释放。
+
+    发现页服务与图片代理的客户端是懒建的单例，这里只负责在关闭时释放。
 
     激活得早，因此释放得晚：Agent、站点等用到它们的子系统都先于它停下。
     """
@@ -138,6 +147,7 @@ async def http_clients(ctx: Context) -> None:
 
 @plugin("tracker.sites", title="站点目录", provides=(SITES,), critical=True)
 async def sites(ctx: Context) -> None:
+    """加载 PT 站点目录（内置、插件提供和用户自定义的站点配置），决定系统支持哪些站点。"""
     import movieclaw_tracker
     from movieclaw_api.plugins.keys import SITE_CLASSES, SITE_DATA_PACKS
     from movieclaw_tracker import load_all_sites
@@ -177,6 +187,7 @@ async def sites(ctx: Context) -> None:
     critical=True,
 )
 async def site_access(ctx: Context) -> None:
+    """维护各 PT 站点的登录会话，供种子同步、搜索和下载复用，不必每次操作都重新登录。"""
     from movieclaw_api.services.site_access import init_site_access
 
     # 进程级单例，持有每站已认证的共享客户端；须在调度器之前（种子同步任务依赖它）
@@ -187,7 +198,9 @@ async def site_access(ctx: Context) -> None:
 
 @plugin("selfheal.credentials", title="凭据状态自愈", inject=(DB, SECRETS), reloadable=True)
 async def selfheal_credentials(ctx: Context) -> None:
-    """重启自愈：清理上次遗留的「验证中」状态；存量明文凭据一次性加密（均幂等）。"""
+    """启动时复位上次卡在「验证中」的站点与 AI 模型配置，并加密遗留的明文站点凭据。
+
+    重启自愈：清理上次遗留的「验证中」状态；存量明文凭据一次性加密（均幂等）。"""
     from movieclaw_db.engine import get_database
     from movieclaw_db.repositories.credential_repo import CredentialRepository
     from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository

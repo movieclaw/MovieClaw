@@ -20,6 +20,7 @@ logger = logging.getLogger("movieclaw_api.plugins.scheduling")
 
 @plugin("app-update.startup-check", title="启动后检查更新", inject=(SCHEDULER,), reloadable=True)
 async def app_update_startup_check(ctx: Context) -> None:
+    """Docker 部署时，启动几分钟后检查一次有无新版本，以便尽快发现更新。"""
     from movieclaw_api.services.app_update import close_startup_check, start_startup_check
 
     # 启动后的更新首查（延迟数分钟）：容器重启后尽快感知新版；非 Docker 部署内部自动跳过。
@@ -30,6 +31,7 @@ async def app_update_startup_check(ctx: Context) -> None:
 
 @plugin("app-update", title="应用更新", inject=(DB,), reloadable=True)
 async def app_update(ctx: Context) -> None:
+    """每天检查是否有新版本，并在启动时清理旧版更新留下的过期记录。"""
     from movieclaw_api.services import app_update as module
     from movieclaw_scheduler import contribute_tasks
 
@@ -53,6 +55,7 @@ async def app_update(ctx: Context) -> None:
     reloadable=True,
 )
 async def scheduler(ctx: Context) -> None:
+    """按设定的时间运行各模块的定时任务，并自动清理过期的执行记录和缓存。"""
     from movieclaw_scheduler import (
         SCHEDULED_TASKS,
         SchedulerConfig,
@@ -101,6 +104,7 @@ async def scheduler(ctx: Context) -> None:
     "boost.sentinel", title="刷流带宽哨兵", inject=(SCHEDULER,), disableable=True, reloadable=True
 )
 async def boost_sentinel(ctx: Context) -> None:
+    """刷流下载时实时盯住上行带宽，必要时给下载限速，保证上传不被拖垮。"""
     from movieclaw_api.services.boost_bandwidth import (
         close_boost_bandwidth_sentinel,
         init_boost_bandwidth_sentinel,
@@ -113,6 +117,7 @@ async def boost_sentinel(ctx: Context) -> None:
 
 @plugin("jobs", title="持久化任务执行器", inject=(DB,), provides=(JOBS,), reloadable=True)
 async def jobs(ctx: Context) -> None:
+    """执行排队的后台任务（如入库、刮削、字幕生成），进度存入数据库，重启后可接着做。"""
     from movieclaw_api.services.jobs import close_job_dispatcher, init_job_dispatcher
 
     # 只领取注册表里有处理器的任务类型；关闭时在安全边界暂停并退回数据库队列，须早于数据库释放

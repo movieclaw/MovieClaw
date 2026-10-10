@@ -28,6 +28,7 @@ from movieclaw_kernel import Context, plugin
     reloadable=True,
 )
 async def channel_hub(ctx: Context) -> None:
+    """连接已配置的聊天通道（如 Telegram、飞书、微信），把收到的消息交给 AI 助手处理并回复。"""
     from movieclaw_api.services.channel_hub import ChannelHub, set_hub
 
     # 通道列表 = 注册表现取：通道插件装上 / 关掉 / 卸载，中枢跟着启停账号
@@ -74,6 +75,7 @@ async def channel_hub(ctx: Context) -> None:
     reloadable=True,
 )
 async def cloud(ctx: Context) -> None:
+    """连接 MovieClaw Cloud（用于手机推送等）；未连接时不会向云端发送任何请求。"""
     from movieclaw_api.services.cloud import close_cloud_service, init_cloud_service
 
     # 已连接就起续签循环；未连接时对云端不发任何请求（docs/design/cloud-push.md §2、§3）
@@ -84,6 +86,7 @@ async def cloud(ctx: Context) -> None:
 
 @plugin("push.hub", title="推送事件中枢", inject=(DB,), provides=(PUSH_HUB,), reloadable=True)
 async def push_hub(ctx: Context) -> None:
+    """推送消息的统一出口：汇集各类通知事件（如新片入库），整理后推送到手机。"""
     from movieclaw_api.services.push import hub
 
     # 中枢懒启动（第一次 emit 时建队列和消费者），这里只负责关停：
@@ -94,6 +97,7 @@ async def push_hub(ctx: Context) -> None:
 
 @plugin("push.channels-refresh", title="推送通道能力快照", inject=(CLOUD,), reloadable=True)
 async def push_channels_refresh(ctx: Context) -> None:
+    """每半小时检查推送通道的信息是否过期并刷新，让手机推送选对通道。"""
     from movieclaw_api.services.push.channels import start_refresh_loop, stop_refresh_loop
 
     # 推送通道的能力快照（/v1/info）每半小时检查一次是否过期
@@ -105,6 +109,7 @@ async def push_channels_refresh(ctx: Context) -> None:
     "push.arrivals", title="媒体库有新片", inject=(PUSH_HUB, DB), disableable=True, reloadable=True
 )
 async def push_arrivals(ctx: Context) -> None:
+    """媒体库有新片入库时推送到手机：后台每两分钟检查一次新入库的内容。"""
     from movieclaw_api.services.push import arrivals
 
     # 每两分钟看一眼台账里新出现的行；先于推送中枢停下
@@ -114,6 +119,7 @@ async def push_arrivals(ctx: Context) -> None:
 
 @plugin("jellyfin.discovery", title="Jellyfin 局域网发现", disableable=True, reloadable=True)
 async def jellyfin_discovery(ctx: Context) -> None:
+    """在局域网内应答 Jellyfin 客户端的自动发现，客户端不必手填地址就能找到本服务器。"""
     from movieclaw_jellyfin.udp import start_discovery, stop_discovery
 
     # UDP 7359；开关关闭 / 端口被占时内部自行降级

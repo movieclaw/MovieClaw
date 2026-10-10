@@ -11,7 +11,9 @@ from movieclaw_kernel import Context, plugin
 
 @plugin("library.builtin-collections", title="内置合集自愈", inject=(DB,), reloadable=True)
 async def builtin_collections(ctx: Context) -> None:
-    """给每个库补齐内置合集（现在只有「我的收藏」），幂等。
+    """启动时给每个媒体库补齐内置合集「我的收藏」。
+
+    给每个库补齐内置合集（现在只有「我的收藏」），幂等。
 
     做成启动自愈而不是一次性迁移：迁移只补得到「迁移那一刻已经存在」的库，此后任何绕过
     建库接口写进来的库（导入、测试夹具、手工 SQL）都会缺这一行。每个库一次 SELECT，可忽略。
@@ -32,6 +34,7 @@ async def builtin_collections(ctx: Context) -> None:
 
 @plugin("enrich.backfill", title="扩充属性重算", inject=(DB,), reloadable=True)
 async def enrich_backfill(ctx: Context) -> None:
+    """种子识别规则升级后，启动时在后台把已缓存的站点种子按新规则重新识别一遍。"""
     from movieclaw_api.services.enrich_backfill import (
         close_enrich_backfill,
         start_enrich_backfill,
@@ -44,6 +47,7 @@ async def enrich_backfill(ctx: Context) -> None:
 
 @plugin("library.disc-image-durations", title="光盘镜像片长修正", inject=(DB,), reloadable=True)
 async def disc_image_durations(ctx: Context) -> None:
+    """启动后在后台修正光盘镜像（ISO）记错的片长，避免一开播就算看完、进度显示不对。"""
     from movieclaw_api.services.library.disc_image_durations import (
         close_disc_image_duration_heal,
         start_disc_image_duration_heal,
@@ -58,6 +62,7 @@ async def disc_image_durations(ctx: Context) -> None:
     "library.dolby-vision-backfill", title="杜比视界 profile 补记", inject=(DB,), reloadable=True
 )
 async def dolby_vision_backfill(ctx: Context) -> None:
+    """启动后在后台为早先入库的杜比视界文件补记格式信息，让播放时能选对直接播放还是转码。"""
     from movieclaw_api.services.library.dolby_vision_backfill import (
         close_dolby_vision_backfill,
         start_dolby_vision_backfill,
@@ -70,6 +75,7 @@ async def dolby_vision_backfill(ctx: Context) -> None:
 
 @plugin("library.watch", title="媒体库实时监控", inject=(DB,), disableable=True, reloadable=True)
 async def library_watch(ctx: Context) -> None:
+    """监控媒体库目录，新文件落地后自动入账；删除、改名也会及时同步。"""
     from movieclaw_api.services.library.watch import close_library_watcher, init_library_watcher
 
     # 库根路径文件事件 → 去抖 → 增量扫描；watchdog 缺失 / 根路径未就绪时降级为对账任务兜底。
@@ -83,6 +89,7 @@ async def library_watch(ctx: Context) -> None:
     "library.ingest-watch", title="下载监听导入", inject=(DB,), disableable=True, reloadable=True
 )
 async def ingest_watch(ctx: Context) -> None:
+    """监听下载目录，把下载完成的内容自动识别，再硬链接或复制进媒体库（或指定目录）。"""
     from movieclaw_api.services.library.ingest import close_ingest_watcher, init_ingest_watcher
 
     # 监听目录文件事件 → 去抖 → 完成检测 → 创建持久化 Job；watchdog 缺失时降级为兜底巡检
@@ -92,6 +99,7 @@ async def ingest_watch(ctx: Context) -> None:
 
 @plugin("library.search-index", title="媒体库搜索索引", inject=(JOBS,), reloadable=True)
 async def search_index(ctx: Context) -> None:
+    """维护媒体库搜索用的名称索引（含拼音），作品新增或改名后在后台自动更新。"""
     from movieclaw_api.services.jobs import contribute_job_handlers
     from movieclaw_api.services.library import search_index as module
 
@@ -104,6 +112,7 @@ async def search_index(ctx: Context) -> None:
 
 @plugin("library.skip-segments", title="片头识别启动补算", inject=(JOBS,), reloadable=True)
 async def skip_segments_recovery(ctx: Context) -> None:
+    """启动后检查哪些媒体库的片头片尾识别需要重算（如算法升级），排进后台任务。"""
     from movieclaw_api.services.library.skip_segments import enqueue_pending_libraries
 
     # 算法升级后旧识别结果须主动重算；后台只排持久化任务，不在启动期间读 NAS。

@@ -235,7 +235,7 @@ def _adds(
 
 
 def _doc_summary(kernel: Kernel, entry_id: str) -> str:
-    """系统模块没有清单描述：用入口函数自己的说明文字第一段（写代码时就写好的，不另维护文案）。"""
+    """没有清单描述时：用入口函数自己的说明文字第一段（写代码时就写好的，不另维护文案）。"""
     import inspect
 
     fiber = kernel.fiber(entry_id)
@@ -396,7 +396,8 @@ async def plugin_detail(kernel: Kernel, settings: Any, entry_id: str, item: dict
     elif shipped is not None:
         description = shipped.manifest.plugin.description
         version = shipped.manifest.plugin.version
-    if not description and kind == "system":
+    if not description:
+        # 没有清单描述（系统模块、个别官方中枢、没写描述的本地插件）：用入口函数的说明文字
         description = _doc_summary(kernel, entry_id)
 
     accounts: dict[str, int] = {}
