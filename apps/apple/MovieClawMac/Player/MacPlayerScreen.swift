@@ -41,6 +41,7 @@ private struct MacPlayerHost: View {
     @State private var controller: PlaybackController?
     @State private var window = MacPlayerWindow()
     @State private var volume = MacPlayerVolume()
+    @AppStorage(MacPlayerWindow.floatsOnTopKey) private var floatsOnTop = true
 
     var body: some View {
         ZStack {
@@ -55,6 +56,7 @@ private struct MacPlayerHost: View {
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("mac-player")
         .onAppear(perform: attach)
+        .onChange(of: floatsOnTop, initial: true) { _, value in window.floatsOnTop = value }
         .onDisappear {
             // 仍在呈现同一个播放请求：只是视图被重建，控制器保留
             if router.player?.id == request.id { return }

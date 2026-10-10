@@ -4,11 +4,14 @@ import SwiftUI
 // 播放器与 AppKit 打交道的几块：拿到所在窗口（全屏）、跟踪指针、音量记忆、播放时不让显示器睡眠。
 // 都是 Mac 独有的，iPhone / Apple TV 版没有对应物，所以不放进 Shared。
 
-/// 播放器所在的窗口：全屏进出。（播放器打开时主界面把窗口工具栏整个藏起，系统标题栏连同红绿灯都不显示；
+/// 播放器所在的窗口：全屏进出、置顶。（播放器打开时主界面把窗口工具栏整个藏起，系统标题栏连同红绿灯都不显示；
 /// 窗口模式下控制层左上角另画一组原生红绿灯（`MacWindowControls`），关闭播放器靠返回按钮、Esc 与 ⌘.）
 ///
 /// 全屏取舍：退出播放器时「播放期间进的全屏」一并退掉，回到原来的窗口；打开播放器之前窗口就已经是全屏的，
 /// 关掉播放器后保持全屏（那是用户自己对整个 App 的选择，不归播放器管）。
+///
+/// 置顶：播放期间窗口浮在所有窗口（含别的 App）前面，边看边干别的不会被盖住；菜单栏「窗口 › 播放时置顶」可关，默认开、
+/// 记在本机。全屏时不置顶（全屏有自己的空间，浮动层级只会让别的 App 的窗口切不过来），关掉播放器回到普通层级。
 @MainActor
 @Observable
 final class MacPlayerWindow {
@@ -23,6 +26,12 @@ final class MacPlayerWindow {
     private var fittedVideo: CGSize?
     @ObservationIgnored private var observers: [NSObjectProtocol] = []
 
+    /// 「播放时置顶」开关（菜单栏「窗口」里），播放器读出来设给这里
+    static let floatsOnTopKey = "movieclaw.mac.player.floatsOnTop"
+    var floatsOnTop = true {
+        didSet { updateLevel() }
+    }
+
     func attach(_ window: NSWindow?) {
         guard let window, window !== self.window else { return }
         detachObservers()
@@ -35,11 +44,17 @@ final class MacPlayerWindow {
                 MainActor.assumeIsolated {
                     guard let self else { return }
                     self.isFullScreen = value
+                    self.updateLevel()
                     // 播放中退出全屏：回到的是进全屏前的窗口，重新贴合画面
                     if !value, let video = self.fittedVideo { self.fit(to: video) }
                 }
             })
         }
+        updateLevel()
+    }
+
+    private func updateLevel() {
+        window?.level = floatsOnTop && !isFullScreen ? .floating : .normal
     }
 
     func toggleFullScreen() {
@@ -109,9 +124,11 @@ final class MacPlayerWindow {
         return frame
     }
 
-    /// 离开播放器：停止观察
+    /// 离开播放器：停止观察，窗口回到普通层级
     func detach() {
         detachObservers()
+        window?.level = .normal
+        window = nil
     }
 
     /// 鼠标是否正在这个窗口里（只有这时才隐藏指针：鼠标在别的窗口 / 别的 App 上时不能把它藏掉）

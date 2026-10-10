@@ -20,6 +20,7 @@ import SwiftUI
 ///     hover 640 300                 鼠标移到这一点（触发悬停效果）；hoverid <无障碍标识>
 ///     key space / key left / key f / key escape / key cmd+f   往窗口发一个按键
 ///     type 文字                     往当前焦点输入文字
+///     menu 窗口 播放时置顶          点菜单栏里这一项（合成的点击进不了菜单栏）；windows 列出各窗口层级
 ///     dump tree                     控件树（标识、标签、角色、位置）→ mc-debug/shots/tree.txt
 ///     hscroll 700 300 200           在这一点横向滚动（模拟触控板左右轻扫，正数 = 手指往左划）
 ///     wait 1.5                      等一会儿再执行下一条
@@ -157,8 +158,16 @@ final class MacDebugDriver {
             }
         case "windows":
             for (index, window) in NSApp.windows.enumerated() {
-                log("窗口 \(index) \(type(of: window)) 「\(window.title)」 可见=\(window.isVisible) \(Int(window.frame.width))×\(Int(window.frame.height)) sheets=\(window.sheets.count) 子窗口=\(window.childWindows?.count ?? 0)")
+                log("窗口 \(index) \(type(of: window)) 「\(window.title)」 可见=\(window.isVisible) 层级=\(window.level.rawValue) \(Int(window.frame.width))×\(Int(window.frame.height)) sheets=\(window.sheets.count) 子窗口=\(window.childWindows?.count ?? 0)")
             }
+        case "menu":
+            // menu <菜单> <项>：按标题找到菜单项，走菜单自己的触发路径（同用户点击）
+            let titles = arg.split(separator: " ", maxSplits: 1).map(String.init)
+            guard titles.count == 2, let menu = NSApp.mainMenu?.item(withTitle: titles[0])?.submenu else { return log("找不到菜单「\(arg)」") }
+            menu.update()
+            guard let index = menu.items.firstIndex(where: { $0.title == titles[1] }) else { return log("找不到菜单项「\(arg)」") }
+            menu.performActionForItem(at: index)
+            log("点菜单「\(arg)」")
         case "press":
             // press <标题>：在所有窗口里找这个标题的原生按钮（提醒框、sheet 里的 NSButton）直接触发。
             // 不在前台的 App 里，合成的点击会被原生按钮当成「激活窗口」吞掉

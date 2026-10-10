@@ -3,13 +3,15 @@ import SwiftUI
 /// 菜单栏（docs/design/macos-app.md §3.3）：Mac 用户习惯从菜单栏与快捷键找功能，侧边栏能做的事在这里都有一份。
 /// - 「MovieClaw › 关于 MovieClaw」打开关于窗口（版本、开源许可）；
 /// - 「前往」：首页 ⌘1、我的收藏 ⌘2、各个媒体库 ⌘3…、搜索 ⌘F、返回 ⌘[；
-/// - 「账号」：切换到本机登录过的其他账号、添加账号、退出登录。
+/// - 「账号」：切换到本机登录过的其他账号、添加账号、退出登录；
+/// - 「窗口 › 播放时置顶」：播放期间窗口浮在所有窗口前面（默认开，见 `MacPlayerWindow`）。
 /// 播放器里的快捷键（空格、←→、F……）由播放器自己处理（`MacPlayerScreen`）。
 struct MacCommands: Commands {
     let model: AppModel
     @FocusedValue(\.macRouter) private var router
     @FocusedValue(\.macFocusSearch) private var focusSearch
     @Environment(\.openWindow) private var openWindow
+    @AppStorage(MacPlayerWindow.floatsOnTopKey) private var floatsOnTop = true
 
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
@@ -40,6 +42,10 @@ struct MacCommands: Commands {
             Button("搜索") { focusSearch?() }
                 .keyboardShortcut("f")
                 .disabled(focusSearch == nil)
+        }
+        CommandGroup(after: .windowSize) {
+            Divider()
+            Toggle("播放时置顶", isOn: $floatsOnTop)
         }
         CommandMenu("账号") {
             if case .ready = model.phase {
