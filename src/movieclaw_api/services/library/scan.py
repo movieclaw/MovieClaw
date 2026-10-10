@@ -58,7 +58,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.services import jobs
-from movieclaw_api.services.download_sources import record_source
 from movieclaw_api.services.foreground import yield_to_foreground
 from movieclaw_api.services.library import acquisition
 from movieclaw_api.services.library.bluray import (
@@ -112,7 +111,6 @@ from movieclaw_api.services.subtitle_gen.extract import cache_dir as subtitle_ca
 from movieclaw_api.services.task_state import TaskState
 from movieclaw_db.engine import get_database, refresh_query_statistics
 from movieclaw_db.models import (
-    DownloadHint,
     FileSource,
     FileState,
     Job,
@@ -121,10 +119,8 @@ from movieclaw_db.models import (
     Library,
     LibraryDirSnapshot,
     LibraryFile,
-    ManualDownloadIntent,
     MediaItem,
     MediaMetadata,
-    SubscriptionDownloadAttempt,
     utcnow,
 )
 from movieclaw_db.models.library_file import (
@@ -1042,8 +1038,9 @@ async def _scan(
         episodes_cache: dict[Path, int | None] = {}
         # 下载线索：手动下载提交时锚定的「条目目录 → 副标题」（拼音名种子的救赎）
         hints = await _load_hints(session)
-        # 原地下载的来源种子：下载记录的「保存目录/内容名」→ 下载器任务（plugin-phase2a.md §5.1）
-        downloads = await _load_download_roots(session)
+        # 原地下载的来源种子：下载记录的「保存目录/内容名」→ 下载器任务（plugin-phase2a.md §5.1），
+        # 由获取领域给（library-boundary.md §10）
+        downloads = await acquisition.current().download_roots(session)
         # 一轮扫描里首次发现的所有文件共享批次号。已存在/回归的台账行不会
         # 覆盖原批次，因此「最近添加」只描述真正的新入账，不把重扫冒充新增。
         added_batch_id = uuid4().hex
@@ -2932,7 +2929,7 @@ async def _ingest_file(
     *,
     is_disc: bool = False,
     hint: _SubtitleHint | None = None,
-    torrent: tuple[str, int | None] | None = None,
+    torrent: object | None = None,
     existing: LibraryFile | None = None,
     dir_names: list[str] | None = None,
     added_batch_id: str,
@@ -3132,8 +3129,10 @@ async def _ingest_file(
             # 已有快照的行重扫不变）；命名模板 {release_name} 的取值
             release_name=file.stem,
             source=FileSource.SCANNED,
-            info_hash=torrent[0] if torrent else None,
-            downloader_id=torrent[1] if torrent else None,
+            # 兼容列双写（下一版删，library-boundary.md §5）：在那之前按获取领域现在的标记形态
+            # (info_hash, 下载器) 读；删掉以后媒体库不再解读标记
+            info_hash=torrent[0] if torrent else None,  # type: ignore[index]
+            downloader_id=torrent[1] if torrent else None,  # type: ignore[index]
             added_batch_id=added_batch_id,
             origin=origin,
             # 临时本地身份的行同时带着"为什么没认出"：清单与角标据此表达
@@ -3149,16 +3148,10 @@ async def _ingest_file(
         # 同路径旧行调用方已经持有（扫描开场的整库快照），不必再查一次
         existing=existing,
     )
-    if torrent:
-        # 原地下载按下载记录的保存路径反查到的来源（种子关联归下载领域，library-boundary.md §5）
-        await record_source(
-            session,
-            scanned_row.id,
-            info_hash=torrent[0],
-            downloader_id=torrent[1],
-            site_id=None,
-            torrent_id=None,
-        )
+    if torrent is not None:
+        # 原地下载按下载记录的保存路径反查到的来源：交获取领域记下（种子关联归下载领域，
+        # library-boundary.md §5）
+        await acquisition.current().file_recorded(session, scanned_row.id, torrent)
         # 台账行由 upsert_by_path 当场提交；来源记录同样当场提交，不靠后续写入顺带
         await session.commit()
     if item_id is not None:
@@ -3707,14 +3700,12 @@ class _SubtitleHint:
 
 
 async def _load_hints(session) -> dict[str, _SubtitleHint]:
-    """加载全部下载线索（不解析），按规范化后的目录建索引，供 _hint_for 逐级上溯查找。"""
-    rows = (
-        await session.execute(
-            select(DownloadHint.save_path, DownloadHint.subtitle).order_by(DownloadHint.id)
-        )
-    ).all()
+    """加载全部下载线索（不解析），按规范化后的目录建索引，供 _hint_for 逐级上溯查找。
+
+    线索由获取领域给（library-boundary.md §10）；没有获取领域时没有线索。
+    """
     hints: dict[str, _SubtitleHint] = {}
-    for save_path, subtitle in rows:
+    for save_path, subtitle in await acquisition.current().title_hints(session):
         # 与旧的「Path(save_path.rstrip("/")) in file.parents」判定同一口径（去尾斜杠、
         # 折叠重复分隔符；"/" 规范成 "." 永不命中）；规范化后重名的线索保留先写入的
         # 一条，与旧排序的结果一致
@@ -3722,33 +3713,11 @@ async def _load_hints(session) -> dict[str, _SubtitleHint]:
     return hints
 
 
-async def _load_download_roots(session) -> dict[str, tuple[str, int | None]]:
-    """下载器任务的内容根（``保存目录/内容名``）→ (info_hash, 下载器)。
+def _download_for(file: Path, roots: dict[str, object]) -> object | None:
+    """文件或某层上级目录正是某个下载器任务的内容根 → 该任务的来源标记。
 
-    原地下载（直接下进库根）的文件由扫描入账，作用域里没有种子信息；按订阅下载记录与手动下载意图
-    记下的落点反查，插件才能在删片时找到对应的下载器任务。同一内容根投递过多次取最新一次。
+    单文件种子的内容根是文件本身。
     """
-    roots: dict[str, tuple[str, int | None]] = {}
-    for model in (SubscriptionDownloadAttempt, ManualDownloadIntent):
-        rows = (
-            await session.execute(
-                select(model.save_path, model.download_name, model.info_hash, model.downloader_id)
-                .where(model.save_path.is_not(None), model.download_name.is_not(None))
-                .order_by(model.id.desc())
-            )
-        ).all()
-        for save_path, download_name, info_hash, downloader_id in rows:
-            if not save_path or not download_name:
-                continue
-            key = str(Path(save_path.rstrip("/")) / download_name)
-            roots.setdefault(key, (info_hash.lower(), downloader_id))
-    return roots
-
-
-def _download_for(
-    file: Path, roots: dict[str, tuple[str, int | None]]
-) -> tuple[str, int | None] | None:
-    """文件或某层上级目录正是某个下载器任务的内容根 → 该任务（单文件种子的内容根是文件本身）。"""
     if not roots:
         return None
     for candidate in (file, *file.parents):

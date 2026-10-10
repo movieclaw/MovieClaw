@@ -9,12 +9,20 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_db.models import LibraryFile, Subscription, utcnow
+from movieclaw_db.models import (
+    DownloadHint,
+    LibraryFile,
+    ManualDownloadIntent,
+    Subscription,
+    SubscriptionDownloadAttempt,
+    utcnow,
+)
 
 
 class Acquisition:
@@ -83,3 +91,47 @@ class Acquisition:
         lost_sources = {(site, torrent) for site, torrent in stamps.values() if torrent}
         for item_id in displaced:
             await reopen_unfulfilled_wanted(session, item_id, lost_sources=lost_sources)
+
+    async def title_hints(self, session: AsyncSession) -> list[tuple[str, str]]:
+        """手动下载提交时锚定的「条目目录 → 副标题」（拼音名种子靠它认出中文片名）。"""
+        rows = await session.execute(
+            select(DownloadHint.save_path, DownloadHint.subtitle).order_by(DownloadHint.id)
+        )
+        return [(save_path, subtitle) for save_path, subtitle in rows.all()]
+
+    async def download_roots(self, session: AsyncSession) -> dict[str, object]:
+        """下载器任务的内容根（``保存目录/内容名``）→ (info_hash, 下载器)。
+
+        原地下载（直接下进库根）的文件由扫描入账，作用域里没有种子信息；按订阅下载记录与手动下载意图
+        记下的落点反查，删片时才能找到对应的下载器任务。同一内容根投递过多次取最新一次。
+        """
+        roots: dict[str, object] = {}
+        for model in (SubscriptionDownloadAttempt, ManualDownloadIntent):
+            rows = (
+                await session.execute(
+                    select(
+                        model.save_path, model.download_name, model.info_hash, model.downloader_id
+                    )
+                    .where(model.save_path.is_not(None), model.download_name.is_not(None))
+                    .order_by(model.id.desc())
+                )
+            ).all()
+            for save_path, download_name, info_hash, downloader_id in rows:
+                if not save_path or not download_name:
+                    continue
+                key = str(Path(save_path.rstrip("/")) / download_name)
+                roots.setdefault(key, (info_hash.lower(), downloader_id))
+        return roots
+
+    async def file_recorded(self, session: AsyncSession, file_id: int, token: object) -> None:
+        from movieclaw_api.services.download_sources import record_source
+
+        info_hash, downloader_id = token  # type: ignore[misc]
+        await record_source(
+            session,
+            file_id,
+            info_hash=info_hash,
+            downloader_id=downloader_id,
+            site_id=None,
+            torrent_id=None,
+        )

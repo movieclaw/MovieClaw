@@ -17,6 +17,7 @@ from sqlmodel import select
 
 import movieclaw_api.services.library.scan as scan_mod
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.services.acquisition_bridge import Acquisition
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import _build_config, run_migrations
 from movieclaw_db.models import (
@@ -103,7 +104,7 @@ async def test_download_roots_map_pack_folders_and_single_files(db, tmp_path) ->
     root = tmp_path / "media" / "tv"
     await _seed_sources(db, root)
     async with db.session() as session:
-        roots = await scan_mod._load_download_roots(session)
+        roots = await Acquisition().download_roots(session)
     pack = root / "Test.Show.S01.1080p"
     assert scan_mod._download_for(pack / "Season 1" / "E01.mkv", roots) == ("packhash", 1)
     assert scan_mod._download_for(root / "Test.Movie.2024.mkv", roots) == ("moviehash", 1)
@@ -141,6 +142,26 @@ async def test_scan_records_source_torrent_of_inplace_downloads(db, tmp_path) ->
     assert sources[pack_row.id].info_hash == "packhash"
     assert sources[pack_row.id].downloader_id == 1
     assert rows["Unrelated.Show.S01E01.mkv"].id not in sources
+
+
+async def test_scan_without_acquisition_records_no_source(db, tmp_path, monkeypatch) -> None:
+    """没有获取领域（纯本地库）：扫描照常入账，只是不知道来源、不记来源。"""
+    from movieclaw_api.services.library import acquisition
+
+    monkeypatch.setattr(acquisition, "_bound", None)
+    root = tmp_path / "media" / "tv"
+    pack = root / "Test.Show.S01.1080p"
+    pack.mkdir(parents=True)
+    (pack / "Test.Show.S01E01.1080p.mkv").write_bytes(b"e1")
+    await _seed_sources(db, root)
+    async with db.session() as session:
+        library = (await LibraryRepository(session).list_all())[0]
+    await scan_mod.scan_library(library.id)
+
+    async with db.session() as session:
+        [row] = (await session.execute(select(LibraryFile))).scalars().all()
+        assert row.info_hash is None
+        assert (await session.execute(select(DownloadFileSource))).first() is None
 
 
 async def test_rescan_does_not_erase_recorded_source(db, tmp_path) -> None:

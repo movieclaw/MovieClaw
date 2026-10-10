@@ -55,6 +55,21 @@ class AcquisitionBridge(Protocol):
         """
         ...
 
+    async def title_hints(self, session: AsyncSession) -> list[tuple[str, str]]:
+        """目录 → 一段描述文字（如种子副标题），按写入先后：扫描识别落在该目录下的文件时参考。"""
+        ...
+
+    async def download_roots(self, session: AsyncSession) -> dict[str, object]:
+        """外部软件直接下进库里的内容根（``保存目录/内容名``）→ 不透明的来源标记。
+
+        扫描按路径匹配到某个内容根时，入账后把标记交回 ``file_recorded``；媒体库不解读标记。
+        """
+        ...
+
+    async def file_recorded(self, session: AsyncSession, file_id: int, token: object) -> None:
+        """扫描入账的文件落在 ``download_roots`` 的某个内容根下：获取领域记下它的来源。"""
+        ...
+
 
 class NullBridge:
     """没有获取领域：媒体库作为纯本地库运行。"""
@@ -80,6 +95,15 @@ class NullBridge:
         displaced: Collection[int] = (),
         moved_file_ids: Collection[int] = (),
     ) -> None:
+        return None
+
+    async def title_hints(self, session: AsyncSession) -> list[tuple[str, str]]:
+        return []
+
+    async def download_roots(self, session: AsyncSession) -> dict[str, object]:
+        return {}
+
+    async def file_recorded(self, session: AsyncSession, file_id: int, token: object) -> None:
         return None
 
 
