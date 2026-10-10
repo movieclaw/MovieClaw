@@ -92,10 +92,11 @@ export function PluginDetailView({ id }: { id: string }) {
     }
   };
 
+  // 桌面端回列表的入口；手机端页顶的返回键已回到插件列表，不再重复
   const back = (
     <Link
       href={"/settings/plugins" as Route}
-      className="inline-flex items-center gap-1 text-sub text-[var(--text-muted)] hover:text-[var(--text)]"
+      className="inline-flex items-center gap-1 text-sub max-md:hidden text-[var(--text-muted)] hover:text-[var(--text)]"
     >
       <ChevronLeftIcon className="size-4" />
       插件

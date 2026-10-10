@@ -175,6 +175,8 @@ export function SettingsPanel({ active, item }: SettingsPanelProps) {
   const section =
     allowed.find((s) => s.id === active) ?? allowed[0] ?? settingsSections[0];
   const Icon = section.icon;
+  // 手机端页顶的返回条已有分区名：订阅分区自带头部，子详情页（插件详情）有自己的标题
+  const hideHeadOnMobile = section.id === "subscription" || item != null;
 
   // 兜底展示的同时把地址替换成实际分区：URL 与内容一致、侧栏高亮不落空，
   // 刷新/分享当前页也不会再落回一个自己看不到的地址
@@ -207,7 +209,7 @@ export function SettingsPanel({ active, item }: SettingsPanelProps) {
       >
         {/* Netflix 移动端：分区名已由页顶的 NetflixSettingsNav（返回键 + 分区
             名）呈现，这里的大图标头在窄屏上重复占位（globals.css 按主题隐藏） */}
-        <header className={`settings-panel-head flex items-center gap-4 ${section.id === "subscription" ? "max-md:hidden" : ""}`}>
+        <header className={`settings-panel-head flex items-center gap-4 ${hideHeadOnMobile ? "max-md:hidden" : ""}`}>
           <span className="icon-chip size-12 !rounded-2xl">
             <Icon className="size-[22px]" />
           </span>
@@ -229,7 +231,7 @@ export function SettingsPanel({ active, item }: SettingsPanelProps) {
         </header>
 
         {/* 发丝分隔线：左亮右隐的渐变，呼应玻璃边缘的受光 */}
-        <div className={`settings-panel-head mb-8 mt-7 h-px bg-gradient-to-r from-white/[0.14] via-white/[0.06] to-transparent ${section.id === "subscription" ? "max-md:hidden" : ""}`} />
+        <div className={`settings-panel-head mb-8 mt-7 h-px bg-gradient-to-r from-white/[0.14] via-white/[0.06] to-transparent ${hideHeadOnMobile ? "max-md:hidden" : ""}`} />
 
         {section.id === "overview" ? (
           <SettingsOverviewSection />

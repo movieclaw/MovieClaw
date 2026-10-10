@@ -270,7 +270,8 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
   );
 
   // 移动端主区内容：设置路由挂「返回 + 标题」条（/settings 是分区列表页，
-  // /settings/[x] 是分区内容页，返回链固定 /settings/[x] → /settings → /my），
+  // /settings/[x] 是分区内容页，/settings/[x]/[y] 是分区里的详情页（插件详情），
+  // 返回链固定 /settings/[x]/[y] → /settings/[x] → /settings → /my），
   // 其余路由原样。两个主题的移动端共用这一段（设置返回条与列表页是基础实现）。
   const mobileMainContent =
     isSettings && MobileSettingsNav ? (
@@ -288,7 +289,9 @@ function AppShellBody({ children }: { children: React.ReactNode }) {
           backHref={
             (isSettingsIndex || (!isNetflix && activeSettings === "profile")
               ? "/my"
-              : "/settings") as Route
+              : pathname.split("/")[3]
+                ? `/settings/${activeSettings}`
+                : "/settings") as Route
           }
           historyBack={isSettingsIndex && !isNetflix}
         />
