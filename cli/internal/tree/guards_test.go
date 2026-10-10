@@ -177,6 +177,10 @@ var knownNonGenerated = []string{
 	"reels.events",
 	// Apple TV 大图停留后原地放的那一段，只有电视首页 / 详情页用
 	"reels.preview",
+	// 预切片段（reels.md §8）：系统播放器按 Range 取的小文件，以及设置页关开关时的统计与清空
+	"reels.clips.stream",
+	"reels.clips.stats",
+	"reels.clips.clear",
 	// MovieClaw Cloud 与 App 推送（docs/design/cloud-push.md）：连接要在官网批准、看配对码，
 	// 推送通道、通知开关、App 登记都是设置页和 App 的事，命令行没有对应形态
 	"cloud.status",

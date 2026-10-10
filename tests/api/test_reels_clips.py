@@ -297,6 +297,9 @@ def test_registry_is_rebuilt_from_disk_after_a_restart(clip_client, tmp_path, mo
     monkeypatch.setattr(clips, "_registry", clips._Registry())  # 进程重启
     assert clips.ready_item_ids() == {ids["movies"][0]}
     assert clips.clip_for_file(info.file_id, info.start_ms) == info
+    # 存储页清空了缓存目录：登记表跟着认，刷片不再出它
+    info.path.unlink()
+    assert clips.ready_item_ids() == set()
 
 
 # --- 队列与规格（纯逻辑） -----------------------------------------------------------

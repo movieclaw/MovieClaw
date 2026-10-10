@@ -264,7 +264,12 @@ def ready_clip(file: LibraryFile, segment: ReelSegment) -> ClipInfo | None:
 
 
 def ready_item_ids() -> set[int]:
+    """切好的条目。顺手剔除文件已经不在的（存储页清空过缓存、手动删过目录）：
+    一千来次 stat，毫秒级。"""
     _registry.ensure()
+    gone = [item for item, info in _registry.by_item.items() if not info.path.is_file()]
+    for item in gone:
+        del _registry.by_item[item]
     return set(_registry.by_item)
 
 

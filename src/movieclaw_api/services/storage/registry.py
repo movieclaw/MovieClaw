@@ -244,6 +244,23 @@ DATA_DIRS: tuple[DataDir, ...] = (
         busy=_staging_dirs,
     ),
     DataDir(
+        key="cache.reels-clips",
+        title="预切片段",
+        summary="预告与刷片放的 1080p 小片段",
+        description=(
+            "开了「设置 → 播放 → 片段预切」后，后台为每部片挑好的那一段切成的 1080p 小文件，"
+            "电视大图预告与刷片直接放它，一段十几到二十几 MB。清空后预告先显示剧照、"
+            "刷片暂时没有可刷的；开关开着时后台会重新切"
+            "（全库要在空闲时跑很久，有人观看时自动暂停）。"
+        ),
+        default="data/cache/reels-clips",
+        resolve=lambda s: Path(s.reels_clips_dir),
+        group=Group.CACHE,
+        rebuild_cost=RebuildCost.EXPENSIVE,
+        clearable=True,
+        orphans=_orphans_by_id("LibraryFile"),
+    ),
+    DataDir(
         key="cache.reels",
         title="刷片挑点",
         summary="刷片为每个文件挑出的片段位置",
