@@ -258,6 +258,25 @@ class AcquisitionBridge(Protocol):
         """入库成功、结论提交之前：获取领域收尾（随同一次提交）。"""
         ...
 
+    # ---- 去重排序与人工标注（其他读写点）
+    async def item_rules(
+        self, session: AsyncSession, item_ids: set[int]
+    ) -> dict[int, tuple[RuleSetSpec, bool]]:
+        """{条目 id: (版本偏好阶梯, 是否保留新旧共存)}——只有获取领域管着的条目有。"""
+        ...
+
+    async def units_in_upgrade(
+        self, session: AsyncSession, item_ids: set[int]
+    ) -> set[tuple[int, int, int]]:
+        """新版本正在取来、还没裁决的 (条目, 季, 集)：去重别抢先清理。"""
+        ...
+
+    async def source_annotated(
+        self, session: AsyncSession, media_item_id: int, sources: dict[tuple[int, int], str]
+    ) -> int:
+        """这些单元的最优文件被人工标注了片源 {(季, 集): 片源}；返回跟着改了几处。不提交。"""
+        ...
+
 
 class NullBridge:
     """没有获取领域：媒体库作为纯本地库运行。"""
@@ -332,6 +351,21 @@ class NullBridge:
 
     async def ingested(self, session: AsyncSession, facts: IngestedFacts) -> AfterIngest:
         return AfterIngest()
+
+    async def item_rules(
+        self, session: AsyncSession, item_ids: set[int]
+    ) -> dict[int, tuple[RuleSetSpec, bool]]:
+        return {}
+
+    async def units_in_upgrade(
+        self, session: AsyncSession, item_ids: set[int]
+    ) -> set[tuple[int, int, int]]:
+        return set()
+
+    async def source_annotated(
+        self, session: AsyncSession, media_item_id: int, sources: dict[tuple[int, int], str]
+    ) -> int:
+        return 0
 
 
 _NULL = NullBridge()

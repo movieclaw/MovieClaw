@@ -24,14 +24,18 @@ from movieclaw_api.services.library.acquisition import (
     TaskFiles,
 )
 from movieclaw_db.models import (
+    DownloadAttemptStatus,
     DownloadHint,
     LibraryFile,
     ManualDownloadIntent,
+    RuleSet,
     Subscription,
     SubscriptionDownloadAttempt,
+    WantedItem,
+    WantedStatus,
     utcnow,
 )
-from movieclaw_matcher import QualitySnapshot
+from movieclaw_matcher import QualitySnapshot, RuleSetSpec
 
 
 class Acquisition:
@@ -208,3 +212,95 @@ class Acquisition:
         from movieclaw_api.services import acquisition_ingest
 
         return await acquisition_ingest.ingested(session, facts)
+
+    # ---- 去重排序与人工标注
+    async def item_rules(
+        self, session: AsyncSession, item_ids: set[int]
+    ) -> dict[int, tuple[RuleSetSpec, bool]]:
+        """订阅的规则组：版本偏好阶梯与「保留共存」（upgrade_keep_old）。"""
+        rows = (
+            await session.execute(
+                select(Subscription.media_item_id, RuleSet.spec)
+                .join(RuleSet, RuleSet.id == Subscription.rule_set_id)  # type: ignore[arg-type]
+                .where(Subscription.media_item_id.in_(item_ids))  # type: ignore[union-attr]
+            )
+        ).all()
+        out: dict[int, tuple[RuleSetSpec, bool]] = {}
+        for item_id, spec_json in rows:
+            try:
+                spec = RuleSetSpec.model_validate(spec_json or {})
+            except ValueError:
+                spec = RuleSetSpec()
+            out[int(item_id)] = (spec, bool(spec.upgrade_keep_old))
+        return out
+
+    async def units_in_upgrade(
+        self, session: AsyncSession, item_ids: set[int]
+    ) -> set[tuple[int, int, int]]:
+        """洗版投递在途（与 upgrade.run_upgrade 的 in_flight 口径一致）的单元。"""
+        in_flight = (
+            DownloadAttemptStatus.ACTIVE,
+            DownloadAttemptStatus.REPLACEMENT_PENDING,
+            DownloadAttemptStatus.TRIAL,
+            DownloadAttemptStatus.CLEANUP_PENDING,
+            DownloadAttemptStatus.COMPLETED,
+        )
+        rows = (
+            await session.execute(
+                select(Subscription.media_item_id, SubscriptionDownloadAttempt.units)
+                .join(
+                    Subscription,
+                    Subscription.id == SubscriptionDownloadAttempt.subscription_id,  # type: ignore[arg-type]
+                )
+                .where(
+                    Subscription.media_item_id.in_(item_ids),  # type: ignore[union-attr]
+                    SubscriptionDownloadAttempt.purpose == "upgrade",
+                    SubscriptionDownloadAttempt.status.in_(in_flight),  # type: ignore[attr-defined]
+                )
+            )
+        ).all()
+        out: set[tuple[int, int, int]] = set()
+        for item_id, units in rows:
+            for u in units or []:
+                if isinstance(u, list) and len(u) == 2:
+                    out.add((int(item_id), int(u[0]), int(u[1])))
+        return out
+
+    async def source_annotated(
+        self, session: AsyncSession, media_item_id: int, sources: dict[tuple[int, int], str]
+    ) -> int:
+        """已入库工单的画质快照跟上人工标注的片源（media-source-annotation.md）。
+
+        NULL 交给既有回填（会用已标注的台账行构建）；
+        ``{}`` 哨兵意味着当时无在位文件，同样不在此修补。
+        人工标注片源即否定 Remux：显式写 False 而不是删键——快照落库一律全键（§16.2）。
+        """
+        if not sources:
+            return 0
+        wanted_rows = (
+            (
+                await session.execute(
+                    select(WantedItem)
+                    .join(Subscription, Subscription.id == WantedItem.subscription_id)
+                    .where(
+                        Subscription.media_item_id == media_item_id,
+                        WantedItem.status == WantedStatus.IMPORTED,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        now = utcnow()
+        changed = 0
+        for wanted in wanted_rows:
+            media_source = sources.get((wanted.season_number, wanted.episode_number))
+            if media_source is None or not wanted.quality:
+                continue
+            quality = dict(wanted.quality)
+            quality["media_source"] = media_source
+            quality["remux"] = False
+            wanted.quality = quality
+            wanted.updated_at = now
+            changed += 1
+        return changed

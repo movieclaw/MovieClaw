@@ -21,11 +21,9 @@ from sqlalchemy import or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.services.library import acquisition
 from movieclaw_db.models import (
     LibraryFile,
-    Subscription,
-    WantedItem,
-    WantedStatus,
     utcnow,
 )
 from movieclaw_matcher import USER_LOWEST_SOURCE
@@ -113,42 +111,13 @@ async def annotate_media_source(
     for file in unit_files:
         by_unit.setdefault((file.season_number, file.episode_number), []).append(file)
 
-    wanted_rows = (
-        (
-            await session.execute(
-                select(WantedItem)
-                .join(Subscription, Subscription.id == WantedItem.subscription_id)
-                .where(
-                    Subscription.media_item_id == media_item_id,
-                    WantedItem.status == WantedStatus.IMPORTED,
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    snapshots = 0
-    for wanted in wanted_rows:
-        if wanted.season_number != season_number:
-            continue
-        # NULL 交给既有回填（会用已标注的 library_file 构建）；{} 哨兵
-        # 意味着当时无在位文件，同样不在此修补
-        if not wanted.quality:
-            continue
-        candidates = by_unit.get((wanted.season_number, wanted.episode_number))
-        if not candidates:
-            continue
+    # 各单元最优文件（与工单快照同一把尺）若是人工标注的，交获取领域把工单快照的片源跟上
+    sources: dict[tuple[int, int], str] = {}
+    for unit, candidates in by_unit.items():
         best = max(candidates, key=_file_sort_key)
-        if not best.media_source_manual:
-            continue
-        quality = dict(wanted.quality)
-        quality["media_source"] = best.media_source
-        # 人工标注片源即否定 Remux；显式写 False 而不是删键——快照落库一律
-        # 全键，删键会破坏这个不变量（§16.2）
-        quality["remux"] = False
-        wanted.quality = quality
-        wanted.updated_at = now
-        snapshots += 1
+        if best.media_source_manual and best.media_source is not None:
+            sources[unit] = best.media_source
+    snapshots = await acquisition.current().source_annotated(session, media_item_id, sources)
 
     await session.commit()
     return {"files": len(files), "snapshots": snapshots}
