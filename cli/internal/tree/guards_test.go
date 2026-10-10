@@ -314,6 +314,7 @@ func TestDomainCommandSets(t *testing.T) {
 			"library.items.annotate-media-source",
 			"library.items.delete",
 			"library.items.delete-file",
+			"library.items.delete-preview",
 			"library.items.facets",
 			"library.items.purge-file",
 			"library.items.restore-file",

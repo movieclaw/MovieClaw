@@ -135,6 +135,7 @@ library identification restore-files
 library items annotate-media-source
 library items delete
 library items delete-file
+library items delete-preview
 library items facets
 library items get
 library items get-transfer-status

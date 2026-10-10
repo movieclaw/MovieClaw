@@ -957,7 +957,7 @@ class LibraryFileView(BaseModel):
     )
     purge_after: datetime | None = Field(
         default=None,
-        description="待回收的预计自动清理时间；null 且 trashed = 做种保护，不自动删",
+        description="待回收的预计自动清理时间；null = 不自动删（2026-08-17 之前的旧数据）",
     )
     trash_note: str | None = Field(
         default=None,
@@ -1486,6 +1486,14 @@ class TransferStatusView(BaseModel):
         return value.isoformat()
 
 
+class DeleteFollowUpView(BaseModel):
+    """一个勾选的删除选项建出的后续任务（docs/design/library-boundary.md §3.4）。"""
+
+    option: str = Field(description="删除选项的键，如 downloads:remove-source")
+    label: str
+    job_id: str
+
+
 class ItemDeleteResultView(BaseModel):
     """条目真实删除的结论。"""
 
@@ -1494,6 +1502,41 @@ class ItemDeleteResultView(BaseModel):
     freed_bytes: int
     errors: list[str] = Field(default_factory=list)
     dry_run: bool = Field(default=False, description="是否只是演练（什么都没删）")
+    follow_ups: list[DeleteFollowUpView] = Field(
+        default_factory=list,
+        description="勾选的删除选项各建了一个后续任务，删除提交后执行；按 job_id 跟进结果",
+    )
+
+
+class DeletePreviewLineView(BaseModel):
+    text: str
+    tone: Literal["info", "warn", "danger"] = "info"
+
+
+class DeleteOptionView(BaseModel):
+    """删除弹窗里的一个附加选项（别的模块登记的删除参与方）；默认一律不勾。"""
+
+    key: str = Field(description="勾选时传给删除接口 options 的键")
+    label: str
+    help: str = Field(description="后果说明")
+    available: bool = Field(description="这次能不能勾")
+    reason: str | None = Field(default=None, description="不能勾的原因")
+    lines: list[DeletePreviewLineView] = Field(
+        default_factory=list, description="勾上会发生什么（按这次要删的文件算）"
+    )
+
+
+class ItemDeletePreviewView(BaseModel):
+    """删除前的完整预览：媒体库自己的计划 + 各删除选项。"""
+
+    whole_item: bool = Field(description="是否整部删除（删单文件但它是最后一个文件时也是）")
+    plan: ItemDeleteResultView = Field(description="媒体库将删除的路径与台账行（演练）")
+    linked_bytes: int = Field(
+        description=(
+            "要删的文件里与别处是同一份数据（硬链接）的字节数：只删库文件不会释放这部分空间"
+        )
+    )
+    options: list[DeleteOptionView] = Field(default_factory=list)
 
 
 class TorrentRelationView(BaseModel):

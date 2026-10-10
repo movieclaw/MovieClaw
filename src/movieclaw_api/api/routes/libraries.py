@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import mimetypes
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from pathlib import Path, PurePath
 from typing import Annotated, Literal
@@ -40,11 +41,15 @@ from movieclaw_api.schemas.library import (
     ClaimPayload,
     ConsolidateRootsPayload,
     ConsolidateRootsPreviewView,
+    DeleteFollowUpView,
+    DeleteOptionView,
+    DeletePreviewLineView,
     DetachPayload,
     DirectorView,
     FileOriginView,
     IdentityReviewDecision,
     ItemCollectionRef,
+    ItemDeletePreviewView,
     ItemDeleteResultView,
     ItemRelationsView,
     LastOrganizeView,
@@ -136,6 +141,16 @@ from movieclaw_api.services.library.batch_transfer import (
 )
 from movieclaw_api.services.library.collections import collections_containing
 from movieclaw_api.services.library.config import LibraryConfigService
+from movieclaw_api.services.library.delete_participants import (
+    DeleteFile,
+    DeleteRequest,
+    enqueue_follow_ups,
+)
+from movieclaw_api.services.library.delete_participants import OptionError as DeleteOptionError
+from movieclaw_api.services.library.delete_participants import check_options as check_delete_options
+from movieclaw_api.services.library.delete_participants import (
+    preview_options as preview_delete_options,
+)
 from movieclaw_api.services.library.ingest import _downloader_briefs
 from movieclaw_api.services.library.items import (
     DeleteResult,
@@ -3104,6 +3119,150 @@ def _delete_view(result: DeleteResult, *, dry_run: bool = False) -> ItemDeleteRe
     )
 
 
+# ---------------------------------------------------------------------- 删除参与方
+# 别的模块在删除时的附加选项（docs/design/library-boundary.md §3）。媒体库只知道「有人给了个
+# 选项、用户勾了没」：预览时问一遍，删除时核对勾选、在同一次提交里为它们建后续任务。
+
+_OPTIONS_QUERY = Query(
+    description=(
+        "勾选的删除选项（逗号分隔的键，来自删除预览接口）；不传 = 都不勾。"
+        "选项不存在或这次不可用时返回 400"
+    )
+)
+
+
+def _delete_request(
+    library_id: int, item: MediaItem, rows: list[LibraryFile], *, whole: bool
+) -> DeleteRequest:
+    assert item.id is not None
+    return DeleteRequest(
+        library_id=library_id,
+        media_item_id=item.id,
+        title=item.title,
+        whole_item=whole,
+        files=tuple(
+            DeleteFile(
+                id=row.id,
+                path=row.file_path,
+                season=row.season_number,
+                episode=row.episode_number,
+                size_bytes=row.size_bytes or 0,
+            )
+            for row in rows
+            if row.id is not None
+        ),
+    )
+
+
+def _linked_bytes(paths: list[str]) -> int:
+    """要删的文件里与别处是同一份数据（硬链接，链接数 > 1）的字节数。只看文件系统，不问来源。"""
+    total = 0
+    for raw in paths:
+        path = Path(raw)
+        try:
+            targets = [f for f in path.rglob("*") if f.is_file()] if path.is_dir() else [path]
+            for target in targets:
+                st = target.stat()
+                if st.st_nlink > 1:
+                    total += st.st_size
+        except OSError:
+            continue
+    return total
+
+
+async def _checked_options(request: DeleteRequest, scope: str, raw: str | None) -> list[str]:
+    keys = [k.strip() for k in (raw or "").split(",") if k.strip()]
+    try:
+        return await check_delete_options(request, scope, keys)
+    except DeleteOptionError as exc:
+        raise BadRequestException(str(exc)) from exc
+
+
+def _with_follow_ups(
+    session: AsyncSession,
+    record_deleted: Callable[[set[int]], Awaitable[None]] | None,
+    library_id: int,
+    item: MediaItem,
+    rows: list[LibraryFile],
+    keys: list[str],
+    scope: str,
+    sink: list[dict[str, str]],
+) -> Callable[[set[int]], Awaitable[None]] | None:
+    """删除提交前：先写删除事件，再为勾选的选项建后续任务（只带实际删掉的文件）。"""
+    if not keys:
+        return record_deleted
+
+    async def before_commit(deleted_ids: set[int]) -> None:
+        if record_deleted is not None:
+            await record_deleted(deleted_ids)
+        deleted = [row for row in rows if row.id in deleted_ids]
+        if not deleted:
+            return
+        request = _delete_request(
+            library_id, item, deleted, whole=len(deleted) == len(rows)
+        )
+        sink.extend(await enqueue_follow_ups(session, request, keys, scope))
+
+    return before_commit
+
+
+@router.get(
+    "/{library_id}/items/{media_item_id}/delete-preview",
+    response_model=ApiResponse[ItemDeletePreviewView],
+    summary="删除前预览：媒体库将删除什么，以及删除弹窗里的附加选项（各自勾上会发生什么）",
+    operation_id="library.items.delete-preview",
+    dependencies=[Depends(require_admin)],
+)
+async def preview_library_delete(
+    library_id: int,
+    media_item_id: int,
+    session: AsyncSession = Depends(get_session),
+    file_id: Annotated[
+        int | None, Query(description="只删这个文件时传它；不传 = 删除整部")
+    ] = None,
+) -> ApiResponse[ItemDeletePreviewView]:
+    """只读。附加选项来自别的模块（例：下载模块的「同时删除下载任务和源文件」），默认一律不勾；
+    勾选时把选项的键传给删除接口的 ``options``。"""
+    service = LibraryConfigService(session)
+    library = await service.get(library_id)
+    item, rows = await _item_rows(session, library_id, media_item_id)
+    if file_id is None:
+        scope, targets = "item", rows
+        plan = await delete_item_files(session, library, media_item_id, rows, dry_run=True)
+    else:
+        row = next((r for r in rows if r.id == file_id), None)
+        if row is None:
+            raise NotFoundException(f"台账文件不存在或不属于「{item.title}」：id={file_id}")
+        scope, targets = "file", rows if len(rows) == 1 else [row]
+        plan = await delete_single_file(session, library, row, rows, dry_run=True)
+    whole = len(targets) == len(rows)
+    request = _delete_request(library_id, item, targets, whole=whole)
+    present = [r.file_path for r in targets if r.state != FileState.MISSING]
+    linked = await asyncio.to_thread(_linked_bytes, present)
+    options = await preview_delete_options(request, scope)
+    return ok(
+        ItemDeletePreviewView(
+            whole_item=whole,
+            plan=_delete_view(plan, dry_run=True),
+            linked_bytes=linked,
+            options=[
+                DeleteOptionView(
+                    key=o.key,
+                    label=o.label,
+                    help=o.help,
+                    available=o.preview.available,
+                    reason=o.preview.reason,
+                    lines=[
+                        DeletePreviewLineView(text=line.text, tone=line.tone)
+                        for line in o.preview.lines
+                    ],
+                )
+                for o in options
+            ],
+        )
+    )
+
+
 @router.delete(
     "/{library_id}/items/{media_item_id}",
     response_model=ApiResponse[ItemDeleteResultView],
@@ -3120,6 +3279,7 @@ async def delete_library_item(
     dry_run: Annotated[
         bool, Query(description="只演练：返回将要删除的路径与台账行，不动磁盘和台账")
     ] = False,
+    options: Annotated[str | None, _OPTIONS_QUERY] = None,
 ) -> ApiResponse[ItemDeleteResultView]:
     """全站唯一会删磁盘文件的接口——与「忽略/清理记录」（只动台账）截然
     不同，调用方必须先向用户明确确认再调用（CLI 已强制 --yes）。删除失败的文件保留台账行。"""
@@ -3135,9 +3295,19 @@ async def delete_library_item(
                 f"演练：「{item.title}」将删除 {len(plan.removed_paths)} 个路径（未删除任何东西）"
             ),
         )
+    keys = await _checked_options(
+        _delete_request(library_id, item, rows, whole=True), "item", options
+    )
     record_deleted = await domain_events.deletion_recorder(session, library_id, item, rows)
+    follow_ups: list[dict[str, str]] = []
     result = await delete_item_files(
-        session, library, media_item_id, rows, before_commit=record_deleted
+        session,
+        library,
+        media_item_id,
+        rows,
+        before_commit=_with_follow_ups(
+            session, record_deleted, library_id, item, rows, keys, "item", follow_ups
+        ),
     )
 
     # 通知下游媒体服务器刷新库（未配置时空转；失败只告警不阻断）
@@ -3149,12 +3319,8 @@ async def delete_library_item(
     # 真正的磁盘回收：文件已 rename 出媒体库，慢 IO 挪到响应之后做
     background_tasks.add_task(purge_staged_deletions, result.pending_purge)
 
-    view = ItemDeleteResultView(
-        removed_paths=result.removed_paths,
-        rows_deleted=result.rows_deleted,
-        freed_bytes=result.freed_bytes,
-        errors=result.errors,
-    )
+    view = _delete_view(result)
+    view.follow_ups = [DeleteFollowUpView(**f) for f in follow_ups]
     if result.errors:
         message = f"「{item.title}」部分删除失败：{'；'.join(result.errors)}"
     else:
@@ -3179,6 +3345,7 @@ async def delete_library_file(
     dry_run: Annotated[
         bool, Query(description="只演练：返回将要删除的路径与台账行，不动磁盘和台账")
     ] = False,
+    options: Annotated[str | None, _OPTIONS_QUERY] = None,
 ) -> ApiResponse[ItemDeleteResultView]:
     """条目删除的文件级姊妹（多版本洗掉一个 / 删某集重下）——同样会真删
     磁盘，调用方必须先向用户明确确认。该文件是条目在本库的最后一个文件时
@@ -3198,8 +3365,21 @@ async def delete_library_file(
             _delete_view(plan, dry_run=True),
             message=f"演练：「{file_name}」将被删除{whole}（未删除任何东西）",
         )
+    targets = rows if len(rows) == 1 else [row]
+    keys = await _checked_options(
+        _delete_request(library_id, item, targets, whole=len(rows) == 1), "file", options
+    )
     record_deleted = await domain_events.deletion_recorder(session, library_id, item, rows)
-    result = await delete_single_file(session, library, row, rows, before_commit=record_deleted)
+    follow_ups: list[dict[str, str]] = []
+    result = await delete_single_file(
+        session,
+        library,
+        row,
+        rows,
+        before_commit=_with_follow_ups(
+            session, record_deleted, library_id, item, rows, keys, "file", follow_ups
+        ),
+    )
 
     # 与整条目删除同一套善后：通知媒体服务器刷新；条目在所有库都没文件了
     # 且没订阅时连同图片资产一并清掉；磁盘回收挪到响应之后
@@ -3207,12 +3387,8 @@ async def delete_library_file(
     background_tasks.add_task(media_scrape.cleanup_orphan_items, [media_item_id])
     background_tasks.add_task(purge_staged_deletions, result.pending_purge)
 
-    view = ItemDeleteResultView(
-        removed_paths=result.removed_paths,
-        rows_deleted=result.rows_deleted,
-        freed_bytes=result.freed_bytes,
-        errors=result.errors,
-    )
+    view = _delete_view(result)
+    view.follow_ups = [DeleteFollowUpView(**f) for f in follow_ups]
     if result.errors:
         message = f"「{file_name}」删除失败：{'；'.join(result.errors)}"
     elif len(rows) == 1:
@@ -3266,7 +3442,7 @@ async def purge_library_file(
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[dict]:
     """回收机制的「立即清理」：不等保留期，删物理文件 + 删台账行。
-    做种保护形态（原地待回收）的清理可能中断做种——确认弹窗由前端负责，
+    原地待回收（原盘目录 / 移动失败）的清理直接删原位置，可能中断做种——确认弹窗由前端负责，
     调用方必须先向用户明确确认。"""
     from movieclaw_api.services.library.recycle import purge_file
 

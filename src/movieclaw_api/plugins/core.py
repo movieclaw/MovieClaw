@@ -52,12 +52,20 @@ async def registries(ctx: Context) -> None:
     """
     from movieclaw_api import hooks, pipeline
     from movieclaw_api.services import jobs
+    from movieclaw_api.services.library import delete_participants
     from movieclaw_scheduler import SCHEDULED_TASKS, bind_registry
 
     hooks.bind_bus(ctx.events)
     ctx.effect(lambda: hooks.unbind_bus(ctx.events), label="unbind-hooks")
     # 流水线槽位的步骤表（pipeline.py）：入库任务按它为插件步骤建下游任务
     ctx.effect(pipeline.bind_steps(ctx.registry(pipeline.INGEST_STEPS)), label="unbind-steps")
+    # 删除参与方（library-boundary.md §3）：删除弹窗的附加选项与勾选后的后续任务
+    ctx.effect(
+        delete_participants.bind_participants(
+            ctx.registry(delete_participants.LIBRARY_DELETE_PARTICIPANTS)
+        ),
+        label="unbind-delete-participants",
+    )
 
     ctx.effect(bind_registry(ctx.registry(SCHEDULED_TASKS)), label="unbind-scheduled-tasks")
     ctx.effect(
