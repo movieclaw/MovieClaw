@@ -6,7 +6,7 @@ CI 里 `tests/api/test_example_plugins*.py` 会把它们装进临时数据目录
 | 文件 | 场景 | 用到的能力 |
 |---|---|---|
 | `delete_cascade.py` | 删片联动：删了片子，顺手删订阅和下载器任务 | 可靠事件 `library.item.deleted` / `library.file.deleted`、宿主操作 `subscriptions.delete`、`dl.torrent.delete`（含演练） |
-| `watchlist_feed.py` | 片单订阅：外部片单里新出现的片名自动订阅 | 后台任务、宿主操作 `search.titles`、`subscriptions.create` |
+| `watchlist_feed.py` | 片单订阅：外部片单里新出现的片名自动订阅（为了验收测试能秒级触发，用的是后台循环 + 配置里的间隔；正式插件的周期性同步按 `recipes.md` 第 6 节贡献定时任务） | 后台任务、宿主操作 `search.titles`、`subscriptions.create` |
 | `keyword_rules.py` | 关键字规则：给订阅加「必须包含 / 排除」关键字与额外搜索词 | 决策钩子 `subscription.candidates.filter` / `subscription.search.keywords`、插件数据（订阅扩展字段）、可靠事件 `subscription.deleted` |
 | `cloud_strm.py` | 网盘上传：入库暂存后传到网盘，媒体库里放指向插件的签名 `.strm` | 流水线槽位 `ingest.staged`、任务处理器（断点续传、进度、重试 / 阻塞）、插件路由（验签公开区）与签名链接、宿主操作 `library.get`、`library.scan.start` |
 | `site_pack/` | 站点数据包：把一组自己适配的站点 YAML 打成插件分发 | 站点数据包注册表 `site-data-packs`（包形式的本地插件） |
@@ -41,7 +41,7 @@ CI 里 `tests/api/test_example_plugins*.py` 会把它们装进临时数据目录
 本地插件默认在应用进程里运行，拥有与主程序相同的系统权限——只开启你信任的代码。
 加上 `runtime: process` 改为在独立进程里运行（`docs/design/plugin-phase3.md` §4）：插件崩溃、卡死只伤它自己，
 主进程按退避自动重启它；子进程拿不到主密钥、数据库地址等环境变量。进程外已支持事件与决策钩子、
-可靠事件、宿主操作、插件数据、健康上报，以及往任务处理器、入库槽位、站点数据包贡献、插件路由与签名链接
+可靠事件、宿主操作、插件数据、健康上报，以及往任务处理器、定时任务、入库槽位、站点数据包、删除选项、下载器、IM 通道贡献、插件路由与签名链接
 ——这里全部示例都能直接这样跑。
 不在 `plugins.yaml` 里开启的文件不会被执行；要关掉，去掉 `local: true` 或加上 `disabled: true` 再重启。
 

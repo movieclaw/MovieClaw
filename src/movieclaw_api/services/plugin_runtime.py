@@ -709,6 +709,23 @@ def _contribution(session: Session, contribution: dict[str, Any]) -> tuple[Any, 
         return jobs.JOB_HANDLERS, jobs.RegisteredJobHandler(
             handler, frozenset(int(v) for v in item["versions"])
         )
+    if registry == "scheduled-tasks":
+        from movieclaw_scheduler import SCHEDULED_TASKS, TaskDefinition, TriggerType
+
+        async def run() -> None:
+            # 到点调回插件进程；进程不在、出错都抛给调度器，记为这次执行失败
+            await session.call(cid, {}, timeout=None, kind="scheduled-task")
+
+        return SCHEDULED_TASKS, TaskDefinition(
+            key=item["key"],
+            title=item["title"],
+            handler=run,
+            default_trigger_type=TriggerType(item["default_trigger_type"]),
+            default_interval_seconds=item.get("default_interval_seconds"),
+            default_cron=item.get("default_cron"),
+            default_enabled=bool(item.get("default_enabled", True)),
+            description=item.get("description") or "",
+        )
     if registry == "im-channels":
         from movieclaw_api.plugins.keys import IM_CHANNELS
         from movieclaw_api.services.plugin_channels import RemoteChannelDriver

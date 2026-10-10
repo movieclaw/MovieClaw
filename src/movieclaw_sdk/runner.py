@@ -184,6 +184,19 @@ def _contribution(registry: str, item: Any) -> tuple[dict[str, Any], Any]:
     """注册表贡献项 → （发给宿主的数据，留在本进程的东西）。只开放纯数据项与任务处理器。"""
     if registry == "job-handlers":
         return {"versions": sorted(item.definition_versions)}, item.handler
+    if registry == "scheduled-tasks":
+        # 处理函数留在本进程：宿主登记一个代理任务，到点经协议调回来
+        return {
+            "key": item.key,
+            "title": item.title,
+            "default_trigger_type": str(
+                getattr(item.default_trigger_type, "value", item.default_trigger_type)
+            ),
+            "default_interval_seconds": item.default_interval_seconds,
+            "default_cron": item.default_cron,
+            "default_enabled": item.default_enabled,
+            "description": item.description,
+        }, item.handler
     if registry == "ingest-steps":
         return dataclasses.asdict(item), None
     if registry == "site-data-packs":
@@ -438,6 +451,7 @@ class RemoteContext:
         self.logger = logging.getLogger(f"movieclaw_plugin.{entry_id}")
         self._handlers: dict[str, tuple[Event[Any, Any], Callable[..., Any]]] = {}
         self._jobs: dict[str, Callable[..., Any]] = {}
+        self._scheduled: dict[str, Callable[..., Any]] = {}
         self._channels: dict[str, Any] = {}
         self._participants: dict[str, Any] = {}
         self._downloaders: dict[str, Any] = {}
@@ -502,6 +516,8 @@ class RemoteContext:
         data, local = _contribution(key.name, item)
         if key.name == "job-handlers":
             self._jobs[id] = local
+        if key.name == "scheduled-tasks":
+            self._scheduled[id] = local
         if key.name == "im-channels":
             self._channels[id] = local
         if key.name == "library.delete-participants":
@@ -699,6 +715,9 @@ class Runner:
         if message.get("kind") == "job":
             await self._handle_job(message)
             return
+        if message.get("kind") == "scheduled-task":
+            await self._handle_scheduled(message)
+            return
         if message.get("kind") == "channel":
             await self._handle_channel(message)
             return
@@ -751,6 +770,19 @@ class Runner:
                 job["delay_seconds"] = exc.delay_seconds
             reply.update(ok=False, error=exc.message, job=job)
         except Exception as exc:  # noqa: BLE001 -- 未知错误：宿主按「未知错误」收敛
+            traceback.print_exc()
+            reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
+        self.send(reply)
+
+    async def _handle_scheduled(self, message: dict[str, Any]) -> None:
+        """定时任务到点（宿主的调度器触发），跑插件的处理函数。"""
+        call_id = message["id"]
+        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        try:
+            assert self.ctx is not None
+            await _maybe_await(self.ctx._scheduled[message["listener"]]())
+            reply.update(ok=True, result=None)
+        except Exception as exc:  # noqa: BLE001 -- 出错原样报给宿主，由调度器记为这次执行失败
             traceback.print_exc()
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
         self.send(reply)

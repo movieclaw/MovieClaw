@@ -303,7 +303,7 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
 
 ## 13. 用户要填的配置与凭据
 
-用户要填的值（账号 ID、地址、间隔、Key），写成配置模型交给 `@plugin(config=...)`：插件详情页会自动出现
+用户要填的值（账号 ID、地址、Key），写成配置模型交给 `@plugin(config=...)`：插件详情页会自动出现
 「设置」表单，用户保存后插件按新值重启，`ctx.config` 拿到的就是模型实例。插件包、本地插件、独立进程都一样。
 
 ```python
@@ -311,7 +311,6 @@ from pydantic import BaseModel, Field, SecretStr
 
 class Settings(BaseModel):
     douban_id: str = Field("", title="豆瓣用户 ID", description="个人主页地址里的那串数字")
-    interval: int = Field(3600, ge=300, title="拉取间隔（秒）")
     api_key: SecretStr | None = Field(None, title="API Key")   # 敏感：加密存、界面不回显
 
 @plugin("acme-feed", title="片单同步", config=Settings)
@@ -325,6 +324,9 @@ async def apply(ctx) -> None:
   嵌套对象、字典等界面编辑不了：插件照常运行，设置页说明原因，只能改 `data/plugins.yaml`（本地插件）。
 - 约束（`ge`、`le`、`min_length`、`pattern`）写在 `Field` 里：保存前用你的模型校验，错误按字段标题用中文提示。
 - 值只在启动时读一次，改了会重启插件，不用自己监听变化。
+- 没填完（比如还没给 Key）时插件要照常加载、只记一条日志说明去哪填，别抛异常。
+- **周期性的工作不要在配置里放「间隔」**：贡献定时任务（第 6 节），用户在「设置 → 定时任务」里统一调周期、
+  暂停、立即运行，和系统自己的定时任务在一处。
 
 按实体存的数据（每条订阅一份规则）不是配置，用插件数据（第 4 节，作用域 `subscription:<id>`）。
 

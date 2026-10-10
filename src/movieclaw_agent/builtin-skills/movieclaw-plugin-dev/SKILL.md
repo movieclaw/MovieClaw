@@ -89,7 +89,6 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 | IM 通道 | `references/recipes.md` 第 11 节（**选接入方式**）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_sdk/channels.py` 文件头；只推送的通道再看 `$SRC/movieclaw_plugins/feishu/`；靠平台回调收消息的看 `references/examples/wecom-channel/` |
 | 定时 / 后台任务、入库流水线 | `references/recipes.md` 第 6～7 节、`references/examples/{watchlist_feed,cloud_strm}.py` |
 | 接收外部平台的回调 | `references/recipes.md` 第 14 节 |
-| 用户要填的设置（账号、Key、间隔） | `references/recipes.md` 第 13 节 |
 | 开接口（含给 AI 助手加能力）、读写文件 | `references/recipes.md` 第 5、8、10 节、`templates/starter/`、`references/examples/cloud_strm.py` |
 | 插件需要用户填的配置或凭据（账号、地址、Key） | `references/recipes.md` 第 13 节 |
 | 站点 | `references/recipes.md` 第 12 节、`references/examples/site_pack/` |
@@ -204,7 +203,7 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 - 装好后还要用户给凭据才能用的（通道绑定、外部服务的 Key），在征求安装同意的同一轮里一起说明要准备什么。
 - 卸载、回滚、清除数据：用户已经明确要求的，直接执行并在结果里说明影响，不要再问一遍；
   是你自己提议的，先说明影响、等用户同意。
-- 不要把用户的凭据写进插件代码或清单；需要凭据时用插件数据的 `secret=True` 存。
+- 不要把用户的凭据写进插件代码或清单；凭据写进配置模型（`SecretStr`），用户在插件的「设置」里填（`references/recipes.md` 第 13 节）。
 - **绝不设法获取或截获登录凭据**：不读 mclaw 的配置 / 环境变量里的令牌，不用 strace、抓包、本地代理截请求头，
   不绕过鉴权直接 curl 需要登录的接口。mclaw 调不到的接口，就换上面的正规验证方式，或请用户在网页里打开确认。
 

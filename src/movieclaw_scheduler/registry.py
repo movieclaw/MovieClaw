@@ -128,9 +128,16 @@ def register_task(
 
 
 def get_task(key: str) -> TaskDefinition | None:
-    """按 key 取当前生效的任务定义；未注册返回 None。"""
+    """按任务 key 取当前生效的任务定义；未注册返回 None。
+
+    注册表按贡献 id 存，第三方插件的贡献 id 带插件前缀（``acme:sync``），与任务 key（``acme.sync``）
+    不同——所以按定义里的 key 找，不能拿 key 当贡献 id。
+    """
     if _bound is not None:
-        return _bound.get(key)
+        definition = _bound.get(key)
+        if definition is not None and definition.key == key:
+            return definition
+        return next((d for _, d in _bound.items() if d.key == key), None)
     return _REGISTRY.get(key)
 
 
