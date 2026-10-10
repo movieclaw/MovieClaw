@@ -10,7 +10,9 @@
 媒体库只知道「有人给了个选项、用户勾了没」。请求里只有媒体库自己的事实（文件 id、路径、季集、
 大小），参与方按文件 id 查它自己的数据（谁的数据谁清理：媒体库删文件不级联删别人的记录）。
 
-契约先标 ``INTERNAL``，只给系统模块用；下载模块用稳后再开放给插件（§9）。
+契约 ``EXPERIMENTAL``：第三方插件也能登记（下载模块先用稳一版后开放，§9）。
+独立进程运行的插件同样可用：预览经协议调回插件进程（宿主侧限时照旧），后续任务走已支持进程外的任务处理器。第三方插件的
+``job_type`` 要带插件 id 前缀（如 ``acme-backup:cleanup``），与它登记的任务处理器一致。
 """
 
 from __future__ import annotations
@@ -85,7 +87,7 @@ class DeleteParticipant:
 LIBRARY_DELETE_PARTICIPANTS: RegistryKey[DeleteParticipant] = RegistryKey(
     "library.delete-participants",
     schema=DeleteParticipant,
-    stability=Stability.INTERNAL,
+    stability=Stability.EXPERIMENTAL,
     doc="删除影片 / 文件时的附加选项：勾选项 + 只读预览 + 勾选后的后续任务",
 )
 

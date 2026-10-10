@@ -46,6 +46,7 @@ tests 守着：契约有增删时本文必须同步）。每个都是「实验�
 | `scheduled-tasks` | 周期任务（出现在「定时任务」里，用户可调周期）；可 override 整段替换内置任务（如订阅缺口搜索 `search_wanted`） | `from movieclaw_scheduler import SCHEDULED_TASKS` | — |
 | `job-handlers` | 持久化后台任务（断点续传、进度、重试 / 阻塞） | `from movieclaw_api.services.jobs import JOB_HANDLERS` | `cloud_strm.py` |
 | `ingest-steps` | 入库流水线里插一个步骤（暂存完成后，如上传网盘） | `from movieclaw_api.pipeline import INGEST_STEPS` | `cloud_strm.py` |
+| `library.delete-participants` | 删除影片 / 文件的弹窗里加一个勾选项（默认不勾）：只读预览说清后果，用户勾了才建后续任务（`job_type` 带插件 id 前缀，如 `f"{ctx.entry_id}:cleanup"`，同时登记同名任务处理器）。适合「删片时顺带删网盘备份 / 外部记录」；要删下载任务和源文件用内置选项，不用自己写 | `from movieclaw_api.services.library.delete_participants import LIBRARY_DELETE_PARTICIPANTS, DeleteParticipant, Preview, PreviewLine` | `$SRC/movieclaw_api/services/remove_source.py` |
 
 ## 4. 服务：插件可用的能力
 

@@ -713,6 +713,25 @@ def _contribution(session: Session, contribution: dict[str, Any]) -> tuple[Any, 
         if stub is None:
             stub = session.channels[cid] = RemoteChannelDriver(session, cid, item)
         return IM_CHANNELS, stub
+    if registry == "library.delete-participants":
+        from movieclaw_api.services.library import delete_participants as dp
+
+        async def preview(request: dp.DeleteRequest) -> dp.Preview:
+            data = await session.call(
+                cid,
+                request.model_dump(mode="json"),
+                timeout=dp.PREVIEW_TIMEOUT,
+                kind="delete-preview",
+            )
+            return dp.Preview.model_validate(data)
+
+        return dp.LIBRARY_DELETE_PARTICIPANTS, dp.DeleteParticipant(
+            label=item["label"],
+            help=item["help"],
+            preview=preview,
+            job_type=item["job_type"],
+            applies_to=frozenset(item.get("applies_to") or ("item", "file")),
+        )
     if registry == INGEST_STEPS.name:
         return INGEST_STEPS, IngestStep(
             job_type=item["job_type"],

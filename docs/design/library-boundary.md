@@ -205,4 +205,5 @@ Preview         = { available: bool, reason?: str, lines: [ {text, tone: info|wa
 
 1. 后续任务失败时推送到手机，成功不推（成功的结果在删除弹窗和任务中心里看）。
 2. 删除参与方本轮只给系统模块用（契约先标 `INTERNAL`），下载模块用稳一个版本后再升 `EXPERIMENTAL` 开放给插件。
+   ——2026-10-10 已开放：契约 `EXPERIMENTAL`，独立进程插件的预览经协议调回插件进程。
 3. Android 的删除选项后补（它目前只有删单文件），不随批次 4。

@@ -188,6 +188,14 @@ def _contribution(registry: str, item: Any) -> tuple[dict[str, Any], Any]:
         return dataclasses.asdict(item), None
     if registry == "site-data-packs":
         return {"path": str(Path(item).resolve())}, None
+    if registry == "library.delete-participants":
+        # 预览函数留在本进程：宿主登记一个代理，打开删除弹窗时经协议调回来
+        return {
+            "label": item.label,
+            "help": item.help,
+            "job_type": item.job_type,
+            "applies_to": sorted(item.applies_to),
+        }, item
     if registry == "im-channels":
         from movieclaw_sdk.channels import driver_spec
 
@@ -420,6 +428,7 @@ class RemoteContext:
         self._handlers: dict[str, tuple[Event[Any, Any], Callable[..., Any]]] = {}
         self._jobs: dict[str, Callable[..., Any]] = {}
         self._channels: dict[str, Any] = {}
+        self._participants: dict[str, Any] = {}
         self._callbacks: dict[str, Callable[..., Any]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
         self._effects: list[Callable[[], Any]] = []
@@ -481,6 +490,8 @@ class RemoteContext:
             self._jobs[id] = local
         if key.name == "im-channels":
             self._channels[id] = local
+        if key.name == "library.delete-participants":
+            self._participants[id] = local
         self._runner.send(
             {
                 "type": "contribute",
@@ -678,6 +689,9 @@ class Runner:
         if message.get("kind") == "callback":
             await self._handle_callback(message)
             return
+        if message.get("kind") == "delete-preview":
+            await self._handle_delete_preview(message)
+            return
         try:
             assert self.ctx is not None
             event, handler = self.ctx._handlers[message["listener"]]
@@ -719,6 +733,23 @@ class Runner:
             reply.update(ok=False, error=exc.message, job=job)
         except Exception as exc:  # noqa: BLE001 -- 未知错误：宿主按「未知错误」收敛
             traceback.print_exc()
+            reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
+        self.send(reply)
+
+    async def _handle_delete_preview(self, message: dict[str, Any]) -> None:
+        """宿主要删除参与方的预览（library-boundary.md §3.2）：只读，按这次要删的文件说明后果。"""
+        from movieclaw_api.services.library.delete_participants import DeleteRequest, Preview
+
+        call_id = message["id"]
+        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        try:
+            assert self.ctx is not None
+            participant = self.ctx._participants[message["listener"]]
+            preview = await participant.preview(DeleteRequest.model_validate(message["payload"]))
+            if not isinstance(preview, Preview):
+                raise TypeError("删除参与方的预览须返回 Preview")
+            reply.update(ok=True, result=preview.model_dump(mode="json"))
+        except Exception as exc:  # noqa: BLE001 -- 预览出错原样报给宿主，宿主把选项置为不可勾
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
         self.send(reply)
 
