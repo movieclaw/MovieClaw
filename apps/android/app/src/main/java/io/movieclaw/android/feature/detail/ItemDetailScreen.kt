@@ -108,7 +108,10 @@ import io.movieclaw.android.core.designsystem.Warning
 import io.movieclaw.android.core.model.EpisodeView
 import io.movieclaw.android.core.model.LibraryItemDetailView
 import io.movieclaw.android.core.model.LibraryFileView
+import io.movieclaw.android.core.model.DeleteFollowUpView
+import io.movieclaw.android.core.model.ItemDeletePreviewView
 import io.movieclaw.android.core.model.ItemDeleteResultView
+import io.movieclaw.android.core.model.JobView
 import io.movieclaw.android.core.network.ApiFactory
 import io.movieclaw.android.core.network.dataOrThrow
 import io.movieclaw.android.core.network.friendlyMessage
@@ -117,6 +120,8 @@ import io.movieclaw.android.core.session.SessionRepository
 import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 import androidx.compose.runtime.DisposableEffect
 import io.movieclaw.android.feature.activity.LlmGate
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -637,12 +642,31 @@ class ItemDetailViewModel @Inject constructor(
      * 从磁盘删除一个文件（回收站语义由服务端定）。
      * 返回结果交给调用方：`errors` 为空 + 「这是最后一个文件」= 整条目已删，要离开详情页。
      */
-    suspend fun deleteFile(fileId: Long): Result<io.movieclaw.android.core.model.ItemDeleteResultView> {
+    suspend fun deleteFile(
+        fileId: Long,
+        options: String? = null,
+    ): Result<io.movieclaw.android.core.model.ItemDeleteResultView> {
         val origin = repository.ui.value.origin
             ?: return Result.failure(IllegalStateException("尚未连接服务器"))
         return runCatching {
-            apiFactory.forOrigin(origin).deleteLibraryFile(libraryId, itemId, fileId).dataOrThrow()
+            apiFactory.forOrigin(origin).deleteLibraryFile(libraryId, itemId, fileId, options).dataOrThrow()
         }
+    }
+
+    /** 删除前预览（附加选项）；取不到不挡删除，只是这次没有附加选项 */
+    suspend fun deletePreview(fileId: Long): Result<io.movieclaw.android.core.model.ItemDeletePreviewView> {
+        val origin = repository.ui.value.origin
+            ?: return Result.failure(IllegalStateException("尚未连接服务器"))
+        return runCatching {
+            apiFactory.forOrigin(origin).deletePreview(libraryId, itemId, fileId).dataOrThrow()
+        }
+    }
+
+    /** 后续任务的当前状态 */
+    suspend fun job(jobId: String): Result<io.movieclaw.android.core.model.JobView> {
+        val origin = repository.ui.value.origin
+            ?: return Result.failure(IllegalStateException("尚未连接服务器"))
+        return runCatching { apiFactory.forOrigin(origin).job(jobId).dataOrThrow() }
     }
 
     /** 把待回收的文件恢复为在位版本 */
@@ -836,7 +860,9 @@ fun ItemDetailScreen(
                 file = file,
                 isLast = readyDetail.files.size == 1,
                 onDismiss = { trashTarget = null },
-                run = { vm.deleteFile(file.id) },
+                run = { options -> vm.deleteFile(file.id, options) },
+                loadOptions = { vm.deletePreview(file.id) },
+                loadJob = { jobId -> vm.job(jobId) },
                 onFinished = { deletedItem ->
                     trashTarget = null
                     // 最后一个文件删成功 = 整条目已删：离开详情页（iOS `onItemDeleted: leaveToLibrary`）
@@ -2036,20 +2062,36 @@ private fun DeleteFileSheet(
     file: LibraryFileView,
     isLast: Boolean,
     onDismiss: () -> Unit,
-    run: suspend () -> Result<ItemDeleteResultView>,
+    run: suspend (options: String?) -> Result<ItemDeleteResultView>,
+    loadOptions: suspend () -> Result<ItemDeletePreviewView>,
+    loadJob: suspend (jobId: String) -> Result<JobView>,
     onFinished: (deletedItem: Boolean) -> Unit,
 ) {
     var confirmed by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<ItemDeleteResultView?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
+    // 附加选项：打开时取一次删除预览；默认一律不勾；取不到不挡删除（缺失文件不问）
+    var preview by remember { mutableStateOf<ItemDeletePreviewView?>(null) }
+    var previewFailed by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(emptySet<String>()) }
+    LaunchedEffect(file.id) {
+        if (!file.missing) {
+            loadOptions().onSuccess { preview = it }.onFailure { previewFailed = true }
+        }
+    }
     val scope = rememberCoroutineScope()
     androidx.compose.material3.ModalBottomSheet(
         onDismissRequest = { if (!busy && result == null) onDismiss() },
         containerColor = Color(0xFF15161A),
         contentColor = TextPrimary,
     ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = McMetrics.pagePadding, vertical = 4.dp)) {
+        // 附加选项是别的模块登记的、条数不定：内容超出一屏时可滚，删除按钮不会被挤出屏幕
+        Column(
+            Modifier.fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = McMetrics.pagePadding, vertical = 4.dp),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Icon(Icons.Rounded.Delete, contentDescription = null, tint = Danger, modifier = Modifier.size(18.dp))
                 Text("删除文件", style = McType.bodySemibold, color = TextPrimary)
@@ -2099,6 +2141,10 @@ private fun DeleteFileSheet(
                 }
                 Spacer(Modifier.height(10.dp))
                 Text("已清理 ${done.rowsDeleted} 条台账，释放 ${McFormat.bytes(done.freedBytes)}。", fontSize = 13.sp, color = TextMuted)
+                done.followUps.orEmpty().forEach { item ->
+                    Spacer(Modifier.height(10.dp))
+                    DeleteFollowUpRow(item, loadJob)
+                }
                 Spacer(Modifier.height(16.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                     DangerButton("完成") { onFinished(isLast && done.errors.isEmpty()) }
@@ -2175,6 +2221,16 @@ private fun DeleteFileSheet(
                     color = TextFaint,
                     lineHeight = 16.sp,
                 )
+                if (!file.missing) {
+                    Spacer(Modifier.height(12.dp))
+                    DeleteOptionsSection(
+                        preview = preview,
+                        failed = previewFailed,
+                        selected = selected,
+                        enabled = !busy,
+                        onToggle = { key -> selected = if (key in selected) selected - key else selected + key },
+                    )
+                }
                 Spacer(Modifier.height(14.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Checkbox(
@@ -2199,7 +2255,7 @@ private fun DeleteFileSheet(
                         scope.launch {
                             busy = true
                             error = null
-                            run()
+                            run(selected.sorted().joinToString(",").ifEmpty { null })
                                 .onSuccess { result = it }
                                 .onFailure { error = friendlyMessage(it) }
                             busy = false
@@ -2209,6 +2265,114 @@ private fun DeleteFileSheet(
                 Spacer(Modifier.height(12.dp))
             }
         }
+    }
+}
+
+/**
+ * 删除单的附加选项（iOS `DeleteOptionsSection`、Web `library-delete-options.tsx` 同款）：
+ * 来自别的模块登记的删除参与方，媒体库不认识它们；不可勾的显示原因，勾上会发生什么逐行说明。
+ */
+@Composable
+private fun DeleteOptionsSection(
+    preview: ItemDeletePreviewView?,
+    failed: Boolean,
+    selected: Set<String>,
+    enabled: Boolean,
+    onToggle: (String) -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        when {
+            failed -> Text("附加选项暂时加载不出来，这次只删除媒体库文件。", fontSize = 11.sp, color = TextFaint)
+            preview == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(Modifier.size(12.dp), strokeWidth = 1.5.dp, color = TextFaint)
+                Spacer(Modifier.width(8.dp))
+                Text("正在检查关联的下载任务…", fontSize = 11.sp, color = TextFaint)
+            }
+            else -> {
+                if (preview.linkedBytes > 0) {
+                    Text(
+                        "其中 ${McFormat.bytes(preview.linkedBytes)} 与别处的文件是同一份数据（硬链接）：只删媒体库文件不会释放这部分空间。",
+                        fontSize = 13.sp,
+                        color = Color.White.copy(alpha = 0.7f),
+                        lineHeight = 19.sp,
+                    )
+                }
+                preview.options.forEach { option ->
+                    val on = option.available && option.key in selected
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color.White.copy(alpha = 0.03f))
+                            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+                            .padding(start = 4.dp, end = 14.dp, top = 4.dp, bottom = 12.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = on,
+                                onCheckedChange = { onToggle(option.key) },
+                                enabled = option.available && enabled,
+                                colors = CheckboxDefaults.colors(checkedColor = Danger, uncheckedColor = TextFaint),
+                            )
+                            Column(Modifier.alpha(if (option.available) 1f else 0.5f)) {
+                                Text(option.label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+                                if (option.help.isNotEmpty()) {
+                                    Text(option.help, fontSize = 11.sp, color = TextFaint, lineHeight = 16.sp)
+                                }
+                            }
+                        }
+                        Column(Modifier.padding(start = 44.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            if (option.available) {
+                                option.lines.forEach { line ->
+                                    Text(
+                                        line.text,
+                                        fontSize = 12.sp,
+                                        lineHeight = 17.sp,
+                                        color = when (line.tone) {
+                                            "warn" -> Warning
+                                            "danger" -> Danger
+                                            else -> Color.White.copy(alpha = 0.7f)
+                                        },
+                                    )
+                                }
+                            } else {
+                                Text("这次不能勾选：${option.reason ?: "不可用"}", fontSize = 12.sp, color = TextMuted)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** 结果步：勾选的选项在后台跑，当场跟进到结束（失败了去「活动 → 任务」重试） */
+@Composable
+private fun DeleteFollowUpRow(item: DeleteFollowUpView, loadJob: suspend (String) -> Result<JobView>) {
+    var job by remember { mutableStateOf<JobView?>(null) }
+    LaunchedEffect(item.jobId) {
+        while (true) {
+            loadJob(item.jobId).onSuccess { job = it }
+            if (job?.status in setOf("succeeded", "failed", "cancelled")) break
+            delay(1500)
+        }
+    }
+    val current = job
+    val message = when (current?.status) {
+        "succeeded" -> (current.result?.get("message") as? JsonPrimitive)?.contentOrNull ?: "已完成"
+        "failed" -> "没能完成：${current.error?.message?.ifEmpty { null } ?: "未知原因"}。可在「活动 → 任务」里重试"
+        "cancelled" -> "已取消"
+        else -> "正在处理…"
+    }
+    Column(
+        Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color.White.copy(alpha = 0.03f))
+            .border(1.dp, Color.White.copy(alpha = 0.08f), RoundedCornerShape(12.dp))
+            .padding(14.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(item.label, fontSize = 14.sp, fontWeight = FontWeight.Medium, color = TextPrimary)
+        Text(message, fontSize = 12.sp, color = if (current?.status == "failed") Danger else TextMuted)
     }
 }
 

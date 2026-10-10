@@ -153,6 +153,47 @@ data class ItemDeleteResultView(
     val rowsDeleted: Int = 0,
     val freedBytes: Long = 0,
     val errors: List<String> = emptyList(),
+    /** 勾选的附加选项建的后续任务（旧服务端没有这个字段） */
+    val followUps: List<DeleteFollowUpView>? = null,
+)
+
+/** 勾选的附加选项在后台跑的任务（服务端 `DeleteFollowUpView`） */
+@Serializable
+data class DeleteFollowUpView(
+    val option: String = "",
+    val label: String = "",
+    val jobId: String,
+)
+
+/** 附加选项预览里的一行说明；tone = info / warn / danger */
+@Serializable
+data class DeletePreviewLineView(
+    val text: String,
+    val tone: String = "info",
+)
+
+/**
+ * 删除弹窗的附加选项（服务端 `DeleteOptionView`，docs/design/library-boundary.md §3）：
+ * 来自别的模块登记的删除参与方（如下载模块的「同时删除下载任务和源文件」），媒体库不认识它们
+ */
+@Serializable
+data class DeleteOptionView(
+    val key: String,
+    val label: String,
+    val help: String = "",
+    val available: Boolean = true,
+    /** 不可勾时的原因 */
+    val reason: String? = null,
+    val lines: List<DeletePreviewLineView> = emptyList(),
+)
+
+/** 删除前预览（服务端 `ItemDeletePreviewView`）：附加选项与硬链接字节 */
+@Serializable
+data class ItemDeletePreviewView(
+    val wholeItem: Boolean = false,
+    /** 与别处是同一份数据（硬链接）的字节：只删媒体库文件不会释放这部分空间 */
+    val linkedBytes: Long = 0,
+    val options: List<DeleteOptionView> = emptyList(),
 )
 
 @Serializable

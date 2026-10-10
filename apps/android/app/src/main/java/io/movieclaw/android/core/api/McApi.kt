@@ -552,7 +552,18 @@ interface McApi {
         @Path("libraryId") libraryId: Long,
         @Path("mediaItemId") mediaItemId: Long,
         @Path("fileId") fileId: Long,
+        /** 勾选的附加选项键（逗号分隔）；没勾不传，旧服务端不认识也不受影响 */
+        @Query("options") options: String? = null,
     ): McEnvelope<io.movieclaw.android.core.model.ItemDeleteResultView>
+
+    /** 删除前预览：删除弹窗里的附加选项（各自勾上会发生什么）。只读 */
+    @GET("libraries/{libraryId}/items/{mediaItemId}/delete-preview")
+    suspend fun deletePreview(
+        @Path("libraryId") libraryId: Long,
+        @Path("mediaItemId") mediaItemId: Long,
+        /** 只删这个文件时传；不传 = 删除整部 */
+        @Query("file_id") fileId: Long? = null,
+    ): McEnvelope<io.movieclaw.android.core.model.ItemDeletePreviewView>
 
     /** 立即清理一个待回收的文件（真删磁盘，不等保留期） */
     @POST("libraries/{libraryId}/items/{mediaItemId}/files/{fileId}/purge")
@@ -878,6 +889,10 @@ interface McApi {
         @Query("status") status: String? = null,
         @Query("limit") limit: Int? = null,
     ): McEnvelope<JobListView>
+
+    /** 单个任务的当前状态（删除附加选项的后续任务等跟进用） */
+    @GET("jobs/{jobId}")
+    suspend fun job(@Path("jobId") jobId: String): McEnvelope<JobView>
 
     /** 停止任务：返回 `{cancelled, job}`，job 是停止请求之后的任务快照 */
     @POST("jobs/{jobId}/cancel")
