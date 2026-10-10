@@ -124,3 +124,54 @@ def test_official_channel_and_system_module(app_env) -> None:
         scheduler = detail(client, "scheduler")
         assert scheduler["kind"] == "system"
         assert client.get("/api/v1/app/plugins/no-such-plugin").status_code == 404
+
+
+def test_every_registration_shows_up_without_a_list_to_maintain(app_env) -> None:
+    """详情不维护注册表清单：内置下载模块登记的删除选项、以及一个全新的注册表，都能显示。"""
+    from dataclasses import dataclass
+    from functools import partial
+
+    from movieclaw_kernel import Entry, RegistryKey, Stability, plugin
+
+    @dataclass(frozen=True)
+    class Widget:
+        label: str
+
+    widgets = RegistryKey(
+        "test.widgets", schema=Widget, stability=Stability.INTERNAL, doc="测试小部件"
+    )
+
+    @plugin("test-widgets", title="测试小部件")
+    async def widget_plugin(ctx) -> None:
+        ctx.contribute(widgets, "spinner", Widget("转圈的小部件"))
+
+    with start() as client:
+        downloads = detail(client, "downloads")
+        assert (
+            "delete",
+            "删除影片时的选项「同时删除下载任务和源文件」",
+        ) in {(a["kind"], a["title"]) for a in downloads["adds"]}
+
+        kernel = client.app.state.kernel
+        client.portal.call(partial(kernel.mount, Entry("test-widgets", widget_plugin)))
+        [added] = detail(client, "test-widgets")["adds"]
+        assert added == {
+            "kind": "other",
+            "title": "转圈的小部件",
+            "detail": "测试小部件",
+            "href": None,
+        }
+
+
+def test_detail_says_where_the_code_lives(app_env) -> None:
+    with start() as client:
+        system = detail(client, "downloads")["source"]
+        assert system["path"].startswith("src/movieclaw_api/plugins/domains.py:")
+        assert system["entry"] == "movieclaw_api.plugins.domains.downloads"
+
+        local = detail(client, "acme-detail")["source"]
+        assert local == {"path": "data/plugins/acme_detail.py", "entry": "acme_detail"}
+
+        official = detail(client, "weixin-channel")["source"]
+        assert official["path"].startswith("src/") and "weixin" in official["path"]
+        assert official["entry"]

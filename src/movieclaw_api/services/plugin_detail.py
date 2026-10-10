@@ -61,6 +61,7 @@ def _adds(
     from movieclaw_api.pipeline import INGEST_STEPS
     from movieclaw_api.plugins.keys import IM_CHANNELS, SITE_CLASSES, SITE_DATA_PACKS
     from movieclaw_api.services.jobs import JOB_HANDLERS
+    from movieclaw_api.services.library.delete_participants import LIBRARY_DELETE_PARTICIPANTS
     from movieclaw_scheduler import SCHEDULED_TASKS
 
     out: list[dict] = []
@@ -120,6 +121,43 @@ def _adds(
                     "href": "/settings/sites",
                 }
             )
+    for c in kernel.registry(LIBRARY_DELETE_PARTICIPANTS).contributions():
+        if _owned(entry_id, c.entry_id):
+            out.append(
+                {
+                    "kind": "delete",
+                    "title": f"删除影片时的选项「{_item_label(c)}」",
+                    "detail": "删除影片 / 文件的弹窗里可以勾选，默认不勾",
+                    "href": None,
+                }
+            )
+    # 其余注册表：不维护清单，凡是它登记过的都列出来，用注册表契约自己的说明。
+    # 以后新加的注册表不改这里也能显示（上面几种只是换成更好读的说法）
+    known = {
+        key.name
+        for key in (
+            IM_CHANNELS,
+            SCHEDULED_TASKS,
+            INGEST_STEPS,
+            JOB_HANDLERS,
+            SITE_DATA_PACKS,
+            SITE_CLASSES,
+            LIBRARY_DELETE_PARTICIPANTS,
+        )
+    }
+    for registry in kernel.registries():
+        if registry.key.name in known:
+            continue
+        for c in registry.contributions():
+            if _owned(entry_id, c.entry_id):
+                out.append(
+                    {
+                        "kind": "other",
+                        "title": _item_label(c),
+                        "detail": registry.key.doc or registry.key.name,
+                        "href": None,
+                    }
+                )
     # 插件接口：每条都是 mclaw 命令，AI 助手能直接调用（插件路由挂在宿主的插件路由器上）
     from movieclaw_api.services.plugin_routes import host_router
 
@@ -154,8 +192,30 @@ def _adds(
             seen.add(key)
             unique.append(item)
     # 先列它带来的功能，再列什么时候被触发，最后是会影响哪些判断
-    order = ["channel", "task", "ingest", "job", "site", "command", "trigger", "decision"]
+    order = [
+        "channel",
+        "task",
+        "ingest",
+        "job",
+        "site",
+        "delete",
+        "other",
+        "command",
+        "trigger",
+        "decision",
+    ]
     return sorted(unique, key=lambda item: order.index(item["kind"]))
+
+
+def _item_label(contribution: Any) -> str:
+    """登记项的人话名字：它自己的 label / title / name，没有就用登记 id（去掉插件前缀）。"""
+    for attr in ("label", "title", "name"):
+        value = getattr(contribution.item, attr, None)
+        if isinstance(value, str) and value:
+            return value
+    prefix = f"{contribution.entry_id}:"
+    cid = contribution.id
+    return cid[len(prefix) :] if cid.startswith(prefix) else cid
 
 
 def _event_title(name: str) -> str:
@@ -180,6 +240,62 @@ def _listener_view(event: Event[Any, Any]) -> dict:
         "title": f"会影响：{doc}",
         "detail": "在系统做这个判断时参与决定",
         "href": None,
+    }
+
+
+def _display_path(path: Path, settings: Any) -> str:
+    """给人看的路径：数据目录里的按 data/… 显示，应用源码按 src/… 显示（部署目录各不相同）。"""
+    path = path.resolve()
+    data = Path(getattr(settings, "data_dir", "./data")).resolve()
+    try:
+        return f"data/{path.relative_to(data).as_posix()}"
+    except ValueError:
+        pass
+    parts = path.parts
+    if "src" in parts:
+        index = len(parts) - 1 - parts[::-1].index("src")
+        return "/".join(parts[index:])
+    return str(path)
+
+
+def _source(
+    kernel: Kernel, settings: Any, entry_id: str, kind: str, record: Any, shipped: Any
+) -> dict | None:
+    """源码在哪：系统模块是入口函数，官方插件是随带的插件包目录，插件包是安装目录，本地插件是文件。"""
+    import inspect
+
+    if kind == "package" and record is not None:
+        from movieclaw_api.plugins import packages as pkg
+
+        folder = pkg.version_dir(settings, entry_id, record.version)
+        return {"path": _display_path(folder, settings), "entry": None}
+    if kind == "official" and shipped is not None:
+        return {"path": _display_path(shipped.path, settings), "entry": shipped.module}
+    if kind == "local":
+        from movieclaw_api.plugins.local import local_specs, plugins_dir
+
+        spec = next((s for s in local_specs(settings) if s.id == entry_id), None)
+        if spec is not None:
+            root = plugins_dir(settings)
+            target = root / f"{spec.module}.py"
+            if not target.exists():
+                target = root / spec.module
+            return {"path": _display_path(target, settings), "entry": spec.module}
+        return None
+    fiber = kernel.fiber(entry_id)
+    if fiber is None:
+        return None
+    apply = inspect.unwrap(fiber.entry.plugin.apply)
+    try:
+        file = inspect.getsourcefile(apply)
+        line = inspect.getsourcelines(apply)[1]
+    except (OSError, TypeError):
+        return None
+    if file is None:
+        return None
+    return {
+        "path": f"{_display_path(Path(file), settings)}:{line}",
+        "entry": f"{apply.__module__}.{apply.__qualname__}",
     }
 
 
@@ -278,4 +394,5 @@ async def plugin_detail(kernel: Kernel, settings: Any, entry_id: str, item: dict
         "data_rows": data_rows,
         "disk_bytes": disk_bytes,
         "children": [c["id"] for c in children],
+        "source": _source(kernel, settings, entry_id, kind, record, shipped),
     }

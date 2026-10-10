@@ -597,7 +597,10 @@ async def revoke_callback(key_id: int) -> ApiResponse[None]:
 # ---------------------------------------------------- 插件详情（设置 → 插件 → 点一个插件）
 class AddedView(BaseModel):
     kind: str = Field(
-        description="channel / task / ingest / job / site / command / trigger / decision"
+        description=(
+            "channel / task / ingest / job / site / delete（删除时的选项）/ other（其他登记）"
+            " / command / trigger / decision"
+        )
     )
     title: str = Field(description="人话：它给系统加了什么、什么时候被触发、会影响什么")
     detail: str
@@ -623,6 +626,15 @@ class DetailDeadLetterView(DeadLetterView):
     title: str = Field(description="事件的人话名字")
 
 
+class PluginSourceView(BaseModel):
+    path: str = Field(
+        description="源码位置：应用源码按 src/… 显示（系统模块带行号），数据目录里的按 data/…"
+    )
+    entry: str | None = Field(
+        default=None, description="入口：系统模块是函数，官方 / 本地插件是模块"
+    )
+
+
 class PluginDetailView(BaseModel):
     plugin: PluginView
     kind: Literal["official", "package", "local", "system"] = Field(
@@ -639,6 +651,7 @@ class PluginDetailView(BaseModel):
     data_rows: int
     disk_bytes: int = Field(description="插件私有目录占用（字节）")
     children: list[str] = Field(description="它的子条目")
+    source: PluginSourceView | None = Field(default=None, description="源码在哪")
 
 
 @router.get(

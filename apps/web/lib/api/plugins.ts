@@ -378,6 +378,13 @@ export interface PluginDetail {
   /** 插件私有目录占用（字节） */
   disk_bytes: number;
   children: string[];
+  /** 源码在哪（旧服务端没有这个字段） */
+  source?: {
+    /** 应用源码按 src/… 显示（系统模块带行号），数据目录里的按 data/… */
+    path: string;
+    /** 入口：系统模块是函数，官方 / 本地插件是模块 */
+    entry: string | null;
+  } | null;
 }
 
 export async function getPluginDetail(id: string): Promise<PluginDetail> {

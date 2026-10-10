@@ -20,6 +20,7 @@ import {
   GearIcon,
   ServerIcon,
   TerminalIcon,
+  TrashIcon,
 } from "@/components/icons";
 import {
   SETTINGS_BUTTON_CLASS,
@@ -198,6 +199,16 @@ export function PluginDetailView({ id }: { id: string }) {
             <p className="text-sub text-[var(--text-muted)]">{pluginDetail(p)}</p>
           )}
           <p className="text-caption text-[var(--text-faint)]">{meta.join(" · ")}</p>
+          {detail.source && (
+            <div className="flex items-start gap-2 text-caption text-[var(--text-faint)]">
+              <span className="shrink-0">源码</span>
+              <span className="min-w-0 break-all font-mono">
+                <span className="block">{detail.source.path}</span>
+                {detail.source.entry && <span className="block">{detail.source.entry}</span>}
+              </span>
+              <CopyButton text={detail.source.path} className="shrink-0 -mt-0.5" />
+            </div>
+          )}
         </div>
       </div>
 
@@ -452,6 +463,7 @@ const ADD_ICON: Record<string, ComponentType<{ className?: string }>> = {
   command: TerminalIcon,
   trigger: BellIcon,
   decision: BranchIcon,
+  delete: TrashIcon,
 };
 
 /** 行尾的「查看 ›」：说明性的行不做成整行可点，跳转只占这几个字 */

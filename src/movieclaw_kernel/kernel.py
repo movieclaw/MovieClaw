@@ -175,6 +175,10 @@ class Kernel:
         hit = self._services.get(key.name)
         return hit[0] if hit else None
 
+    def registries(self) -> list[Registry[Any]]:
+        """当前所有注册表（诊断用：插件详情据此列出插件登记过的全部东西，不维护清单）。"""
+        return list(self._registries.values())
+
     def registry(self, key: RegistryKey[T]) -> Registry[T]:
         reg = self._registries.get(key.name)
         if reg is None:
