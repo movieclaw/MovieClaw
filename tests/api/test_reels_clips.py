@@ -169,7 +169,8 @@ def test_clip_mode_feed_only_has_cut_titles(clip_client, tmp_path):
     # 「接着看」还要原片地址；segment 仍是原片时间轴
     assert play["stream_url"].startswith(f"/api/v1/playback/files/{info.file_id}/stream?token=")
     assert data["items"][0]["segment"]["start_ms"] == info.start_ms
-    # 小文件按 Range 出
+    # 小文件按 Range 出；系统播放器带不了登录凭据，只凭地址里的签名令牌就能取
+    clip_client.cookies.clear()
     resp = clip_client.get(play["clip_url"], headers={"Range": "bytes=0-7"})
     assert resp.status_code == 206
     assert resp.content == b"MP4CLIP!"

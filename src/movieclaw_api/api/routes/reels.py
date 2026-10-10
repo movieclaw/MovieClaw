@@ -45,6 +45,9 @@ from movieclaw_db.engine import get_session
 from movieclaw_playback.streaming import DisconnectAwareFileResponse
 
 router = APIRouter(prefix="/reels", tags=["reels"])
+#: 取流字节面（公开区，挂载时不注入登录鉴权）：系统播放器按 Range 取片段，带不了登录凭据，
+#: 只认查询参数里的签名令牌——同 ``playback.stream_router`` 的原文件直出
+clip_stream_router = APIRouter(prefix="/reels", tags=["reels"])
 
 #: 「电影 / 剧集 / 其他」这一维：媒体库筛选没有它（一个库本来就只有一种），刷片是混着抽的。
 #: 不传 = 电影 + 剧集；「其他」（video）不混进默认，要主动选，选了之后只剩观看状态可筛
@@ -178,7 +181,7 @@ async def delete_clips() -> ApiResponse[ReelClipStatsView]:
     return ok(ReelClipStatsView(**await clips.delete_all()))
 
 
-@router.get(
+@clip_stream_router.get(
     "/clips/{file_id}/{start_ms}.mp4",
     summary="片段预切：按 Range 取切好的片段",
     operation_id="reels.clips.stream",

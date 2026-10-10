@@ -67,6 +67,7 @@ from movieclaw_api.api.routes.plugins import router as plugins_router
 from movieclaw_api.api.routes.push import admin_router as push_admin_router
 from movieclaw_api.api.routes.push import member_router as push_member_router
 from movieclaw_api.api.routes.push import public_router as push_public_router
+from movieclaw_api.api.routes.reels import clip_stream_router as reels_clip_stream_router
 from movieclaw_api.api.routes.reels import router as reels_router
 from movieclaw_api.api.routes.rule_sets import router as rule_sets_router
 from movieclaw_api.api.routes.scheduled_tasks import router as scheduled_tasks_router
@@ -149,6 +150,8 @@ for _router in _MEMBER_ROUTERS:
 # 404。必须挂在成员区的 playback_router **之后**：它的 /sessions/{id}/{name}
 # 是分片兜底路由，先挂会把成员区的 /sessions/{id}/diagnostics 抢走
 api_router.include_router(playback_stream_router)
+# 预切片段（docs/design/reels.md §8）：同上，系统播放器取片段只带签名 token
+api_router.include_router(reels_clip_stream_router)
 
 # 一键下载：从下载器配置面单独拆出，按 allow_direct_download 放行成员；
 # 成员版在处理器内强制自动路由（拒绝手选目录/指定下载器，不回显路径）
