@@ -201,6 +201,12 @@ var knownNonGenerated = []string{
 	"push.me.registration.set",
 	"push.me.registration.delete",
 	"push.images.get",
+	// 使用提示（docs/design/tips.md）：各端界面内部的提示状态，CLI 无消费方
+	"tips.state.show",
+	"tips.state.reset",
+	"tips.events.donate",
+	"tips.displays.record",
+	"tips.invalidate",
 }
 
 // TestNonGeneratedEndpointsAreAllKnown 强制新端点显式表态：进命令树，或登记豁免。

@@ -373,6 +373,8 @@ def fill_path_params(path: str) -> str:
         .replace("{file_id}", "1")
         .replace("{token_id}", "1")
         .replace("{notice_id}", "1")
+        .replace("{event_id}", "x")
+        .replace("{tip_id}", "x")
         .replace("{run_id}", "test-run")
         .replace("{session_id}", "test-session")
         .replace("{day}", "2026-01-01")

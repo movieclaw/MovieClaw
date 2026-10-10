@@ -95,6 +95,7 @@ from movieclaw_db.models.subscription import (
 from movieclaw_db.models.subscription_activity import ActivityType, SubscriptionActivity
 from movieclaw_db.models.subtitle_auto_mute import SubtitleAutoMute
 from movieclaw_db.models.system_notice import NoticeSeverity, NoticeStatus, SystemNotice
+from movieclaw_db.models.tip import TipEvent, TipRecord
 
 __all__ = [
     "TimestampMixin",
@@ -191,6 +192,8 @@ __all__ = [
     "TorrentSource",
     "SiteUserProfile",
     "SystemNotice",
+    "TipEvent",
+    "TipRecord",
     "NoticeSeverity",
     "NoticeStatus",
 ]

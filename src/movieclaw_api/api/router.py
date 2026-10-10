@@ -80,6 +80,7 @@ from movieclaw_api.api.routes.storage import router as storage_router
 from movieclaw_api.api.routes.subscriptions import router as subscriptions_router
 from movieclaw_api.api.routes.subtitle_gen import router as subtitle_gen_router
 from movieclaw_api.api.routes.system_notices import router as system_notices_router
+from movieclaw_api.api.routes.tips import router as tips_router
 from movieclaw_api.api.routes.transcode_worker import router as transcode_worker_router
 from movieclaw_api.api.routes.ui import router as ui_router
 from movieclaw_api.api.routes.webhook import router as webhook_router
@@ -137,6 +138,8 @@ _MEMBER_ROUTERS = [
     # 我的通知（docs/design/cloud-push.md §7.3）：每个人只管自己的开关和设备；
     # App 登记只接受 App 类设备自己的凭证（服务层判定）
     push_member_router,
+    # 使用提示（docs/design/tips.md）：每个人自己的事件计数与提示展示/作废记录
+    tips_router,
     # 功能开关（docs/design/plugin-page-tiers.md §6）：各端都要知道哪些功能停用了好隐藏入口；
     # 切换在路由级挂 require_admin
     features_router,

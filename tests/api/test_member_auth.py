@@ -713,12 +713,20 @@ _MEMBER_ALLOWLIST = {
     ("DELETE", "/api/v1/push/me/registration"),
     # 推送配图：公开区（地址自带签名），成员自然可达
     ("GET", "/api/v1/push/images/{token}"),
+    # 使用提示（docs/design/tips.md）：只读写自己的事件计数与提示记录（按 owner_id 存）
+    ("GET", "/api/v1/tips/state"),
+    ("DELETE", "/api/v1/tips/state"),
+    ("POST", "/api/v1/tips/events/{event_id}"),
+    ("POST", "/api/v1/tips/{tip_id}/displays"),
+    ("POST", "/api/v1/tips/{tip_id}/invalidate"),
 }
 
 # 路径参数哑值（与 test_auth.py 的匿名守护测试保持一致）
 _PATH_DUMMIES = {
     "{letter_id}": "1",  # 可靠事件死信
     "{task_key}": "library_reconcile",
+    "{event_id}": "x",
+    "{tip_id}": "x",
     "{site_id}": "mteam",
     "{history_id}": "1",
     "{backdrop_id}": "f" * 32,
