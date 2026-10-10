@@ -1769,22 +1769,16 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
       .then((result) => {
         if (cancelled) return;
         setData(result);
-        // 最近观看入口优先选中目标集；目标已不在库时安全回退到第一集在库内容。
+        // 最近观看入口优先选中目标集；目标已不在库时落在接着看的那一集（锚点）。
         const requested =
           season === requestedSeason && initialEpisode != null
             ? result.episodes.find(
                 (episode) => episode.episode_number === initialEpisode && episode.owned,
               )
             : undefined;
-        // 分段的长季落在接着看的那一集（锚点）；不分段的季保持原样：第一集在库内容
-        if (episodeRanges(result.episodes.map((e) => e.episode_number)).length > 0) {
-          const target = requested?.episode_number ?? seasonAnchor(result);
-          rowScrollTarget.current = target;
-          setSelected(target);
-          return;
-        }
-        const first = requested ?? result.episodes.find((e) => e.owned) ?? result.episodes[0];
-        setSelected(first?.episode_number ?? null);
+        const target = requested?.episode_number ?? seasonAnchor(result);
+        rowScrollTarget.current = target;
+        setSelected(target);
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
@@ -1807,7 +1801,7 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
 
   // Hero 的对勾改了当前集的观看状态：只换分集数据（进度条 / 绿色对勾跟上），
   // 不走上面那条会重置选中集的加载路径。首次渲染（refreshKey=0）不拉。
-  // 分段的长季锚点变了（看完 1050 → 1051）就选中新锚点、段跟过去；没变不动用户的浏览。
+  // 锚点变了（看完 1050 → 1051）就选中新锚点、段跟过去；没变不动用户的浏览。
   useEffect(() => {
     if (!refreshKey) return;
     let cancelled = false;
@@ -1819,11 +1813,7 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
       .then((result) => {
         if (cancelled || result.season_number !== season) return;
         setData(result);
-        if (
-          previousResume !== undefined &&
-          result.resume_episode !== previousResume &&
-          episodeRanges(result.episodes.map((e) => e.episode_number)).length > 0
-        ) {
+        if (previousResume !== undefined && result.resume_episode !== previousResume) {
           const anchor = seasonAnchor(result);
           rowScrollTarget.current = anchor;
           setSelected(anchor);
