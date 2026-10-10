@@ -272,7 +272,9 @@ class _HangingBashProtocol(_StreamProtocol):
             )
             return
         tc = ToolCall(
-            id="call_hang", name="bash", arguments={"command": f"sleep 987654 # {_MARKER}"}
+            # 标记必须留在进程命令行里：写成注释的话，shell 遇到单条命令会直接 exec 成 sleep，
+            # 注释随之消失、pgrep 找不到（macOS 的 bash 就是这样）；组合命令迫使 shell 留着
+            id="call_hang", name="bash", arguments={"command": f"sleep 987654 && : {_MARKER}"}
         )
         yield ChatStreamEvent(type="toolcall_end", tool_call=tc, partial=snap)
         yield ChatStreamEvent(

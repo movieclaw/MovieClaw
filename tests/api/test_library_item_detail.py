@@ -180,6 +180,9 @@ def _fake_tmdb():
 @pytest_asyncio.fixture
 async def db(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'detail.db'}")
+    # 图片资产目录也放进临时目录：默认的 ./data/metadata 是 xdist 各进程共用的，别的进程的
+    # 刮削用例会给同号条目写回资产，孤儿清理「资产目录已删」的断言因此偶发失败
+    monkeypatch.setenv("METADATA_DIR", str(tmp_path / "metadata"))
     get_settings.cache_clear()
     init_db(get_settings().database_url, echo=False)
     await run_migrations()
