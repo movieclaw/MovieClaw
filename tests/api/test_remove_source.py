@@ -182,7 +182,7 @@ def test_whole_item_delete_removes_the_torrent_and_its_data(client, tmp_path, do
     assert found["available"] is True and found["label"] == "同时删除下载任务和源文件"
     texts = [line["text"] for line in found["lines"]]
     assert any("下载器「qb」" in t and "Test.Show.S01.1080p" in t for t in texts)
-    assert any("硬链接" in t for t in texts)
+    assert any("空间才真正腾出来" in t for t in texts)
     assert any("订阅还在追" in t for t in texts)
     assert found["lines"][-1] == {"text": "源文件删除后不可恢复", "tone": "danger"}
 

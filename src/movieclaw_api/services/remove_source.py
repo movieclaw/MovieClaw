@@ -157,7 +157,8 @@ async def preview(request: DeleteRequest) -> Preview:
             if plan.exists is None:
                 lines.append(
                     PreviewLine(
-                        text=f"{where}暂时连不上：删除后会在任务中心重试「{_name(torrent)}」",
+                        text=f"{where}暂时连不上，确认不了「{_name(torrent)}」还在不在；"
+                        "删不掉时可在「活动 → 任务」里重试",
                         tone="warn",
                     )
                 )
@@ -169,11 +170,8 @@ async def preview(request: DeleteRequest) -> Preview:
     if not deletable:
         return Preview(available=False, reason=kept[0] if len(kept) == 1 else "；".join(kept))
     if _hardlinked(request):
-        lines.append(
-            PreviewLine(
-                text="库文件与下载目录里的源文件是同一份数据（硬链接）：只删库文件不释放空间，勾上才真正腾出来"
-            )
-        )
+        # 媒体库的预览已经说了「只删库文件不释放空间」，这里只说勾上之后的事
+        lines.append(PreviewLine(text="下载目录里的那份会一起删掉，空间才真正腾出来"))
     else:
         lines.append(PreviewLine(text="下载目录里的源文件会一起删除"))
     if tracking:
