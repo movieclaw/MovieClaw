@@ -28,7 +28,7 @@ from movieclaw_db.models.plugin_data import PluginData
 ADMIN = {"username": "admin", "password": "s3cret-pass"}
 KEY = "acme-backup:backup"
 
-PLUGIN = '''
+PLUGIN = """
 from movieclaw_api.plugins.keys import PLUGIN_DATA
 from movieclaw_api.services.jobs import JOB_HANDLERS, RegisteredJobHandler
 from movieclaw_api.services.library.delete_participants import (
@@ -45,10 +45,8 @@ async def apply(ctx) -> None:
     data = ctx.use(PLUGIN_DATA).scoped(ctx)
 
     async def preview(request):
-        return Preview(
-            available=True,
-            lines=(PreviewLine(text=f"网盘里《{request.title}》的 {len(request.files)} 个备份会一起删除"),),
-        )
+        text = f"网盘里《{request.title}》的 {len(request.files)} 个备份会一起删除"
+        return Preview(available=True, lines=(PreviewLine(text=text),))
 
     async def cleanup(context, payload):
         files = payload["request"]["files"]
@@ -66,7 +64,7 @@ async def apply(ctx) -> None:
             job_type=f"{ctx.entry_id}:cleanup",
         ),
     )
-'''
+"""
 
 
 @pytest.fixture(params=["inline", "process"])
