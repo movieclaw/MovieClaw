@@ -291,7 +291,7 @@ def _snapshots_many(rows: list[LibraryFile]) -> dict[int, QualitySnapshot]:
     扫描是几千次：放在循环上就是几十秒的独占。只读已加载的行属性、不碰
     session，所以换线程是安全的。
     """
-    from movieclaw_api.services.subscription.upgrade import snapshot_from_file
+    from movieclaw_api.services.library.quality import snapshot_from_file
 
     return {r.id or -1: snapshot_from_file(r, None) for r in rows}
 

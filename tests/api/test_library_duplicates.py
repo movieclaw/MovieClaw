@@ -974,7 +974,7 @@ async def test_name_parsing_never_runs_on_the_event_loop(client, db, tmp_path, m
     """
     import threading
 
-    from movieclaw_api.services.subscription import upgrade as upgrade_mod
+    from movieclaw_api.services.library import quality as upgrade_mod
 
     loop_thread = threading.get_ident()
     seen: list[int] = []

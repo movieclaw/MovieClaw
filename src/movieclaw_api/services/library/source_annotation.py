@@ -83,7 +83,7 @@ async def annotate_media_source(
     幂等：重复标注同值无副作用；改标（如 WEB-DL → WEBRip）就是再调一次
     ——人工行始终在标注范围内。只改内存行并 commit，不触发搜索。
     """
-    from movieclaw_api.services.subscription.upgrade import _file_sort_key
+    from movieclaw_api.services.library.quality import file_sort_key as _file_sort_key
 
     files = await list_annotation_candidates(
         session, media_item_id=media_item_id, season_number=season_number

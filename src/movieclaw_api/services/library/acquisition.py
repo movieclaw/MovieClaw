@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -18,7 +18,8 @@ from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from movieclaw_db.models import LibraryFile
+from movieclaw_db.models import LibraryFile, MediaItem
+from movieclaw_matcher import QualitySnapshot, RuleSetSpec
 
 
 @dataclass(frozen=True)
@@ -38,6 +39,118 @@ class TaskFiles:
     info_hash: str
     completed: bool
     files: tuple[TaskFile, ...]
+
+
+@dataclass(frozen=True)
+class IdentityHint:
+    """获取领域对入库条目身份的说法：投递 / 手动下载时就定下的条目与目标库。"""
+
+    item: MediaItem
+    library_id: int | None
+    source: str  # "subscription" | "manual"：台账的身份来源分档
+    token: object = None  # 交回 ``entry_delivery``，媒体库不解读
+
+
+class EntryDelivery(Protocol):
+    """一个入库条目的来历：逐文件回答它来自哪、去重按什么画质与规则比。
+
+    ``path`` 是条目内相对路径（整条目 / 原盘目录为 None）；``unit`` 是 (季, 集)，电影为 None。
+    """
+
+    #: 身份证据强度："exact_id" = 外部 ID 精确命中；None = 猜的或没有
+    confidence: str | None
+
+    def stamp(
+        self, path: str | None, unit: tuple[int, int] | None
+    ) -> tuple[str | None, str | None]:
+        """(站点, 种子编号)；命名模板 ``{site}`` 的取值。判不出为 (None, None)。"""
+        ...
+
+    def task_of(
+        self, path: str | None, unit: tuple[int, int] | None
+    ) -> tuple[str | None, int | None]:
+        """来自哪个下载任务 (任务标识, 下载器)；判不出为 (None, None)。"""
+        ...
+
+    def origin(self, path: str | None, unit: tuple[int, int] | None) -> dict | None:
+        """来源快照（台账 ``origin``）；None = 获取领域不知道，媒体库按监听导入记。"""
+        ...
+
+    def name_quality(
+        self, path: str | None, unit: tuple[int, int] | None
+    ) -> QualitySnapshot | None:
+        """投递时定格的发布名解析；None = 按条目名解析。"""
+        ...
+
+    def rule_spec(self, path: str | None, unit: tuple[int, int] | None) -> RuleSetSpec | None:
+        """去重比较用的档位阶梯；None = 中性阶梯。"""
+        ...
+
+    async def file_recorded(
+        self,
+        session: AsyncSession,
+        file_id: int,
+        path: str | None,
+        unit: tuple[int, int] | None,
+    ) -> None:
+        """台账行写好了：获取领域记下它的来源。"""
+        ...
+
+
+class NoDelivery:
+    """获取领域对这个条目一无所知（或没有获取领域）。"""
+
+    confidence: str | None = None
+
+    def stamp(
+        self, path: str | None, unit: tuple[int, int] | None
+    ) -> tuple[str | None, str | None]:
+        return None, None
+
+    def task_of(
+        self, path: str | None, unit: tuple[int, int] | None
+    ) -> tuple[str | None, int | None]:
+        return None, None
+
+    def origin(self, path: str | None, unit: tuple[int, int] | None) -> dict | None:
+        return None
+
+    def name_quality(
+        self, path: str | None, unit: tuple[int, int] | None
+    ) -> QualitySnapshot | None:
+        return None
+
+    def rule_spec(self, path: str | None, unit: tuple[int, int] | None) -> RuleSetSpec | None:
+        return None
+
+    async def file_recorded(
+        self,
+        session: AsyncSession,
+        file_id: int,
+        path: str | None,
+        unit: tuple[int, int] | None,
+    ) -> None:
+        return None
+
+
+@dataclass(frozen=True)
+class IngestedFacts:
+    """一次入库成功的事实，交获取领域收尾（关工单之外的：清手动下载意图、推送）。"""
+
+    item_id: int | None
+    library_id: int | None
+    matched: list[str]  # 条目匹配到的全部任务标识
+    consumable: list[str] | None  # 分批入库时本批已可收尾的任务；整条目为 None
+    batch_id: str
+    imported: bool  # 本轮确有新文件入库
+
+
+@dataclass
+class AfterIngest:
+    """获取领域收尾的结果：``owner`` 是发起手动下载的人；``announce`` 在入库结论提交后调用。"""
+
+    owner: str | None = None
+    announce: Callable[[], None] = lambda: None
 
 
 class AcquisitionBridge(Protocol):
@@ -115,6 +228,36 @@ class AcquisitionBridge(Protocol):
         """``since`` 之后同一任务又被重新投递且仍在途：入库的旧结论已过时，要重新处理。"""
         ...
 
+    # ---- 入库：身份线索、来历、画质、收尾（入库桥块 C～G）
+    async def identity_hint(
+        self, session: AsyncSession, info_hashes: list[str]
+    ) -> IdentityHint | None:
+        """这些下载任务投递时就定下的条目身份；没有返回 None（媒体库自己按名称识别）。"""
+        ...
+
+    async def entry_delivery(
+        self,
+        session: AsyncSession,
+        info_hashes: list[str],
+        hint: IdentityHint | None,
+        *,
+        item_title: str,
+        strategy: str,
+        file_writers: Callable[[], Awaitable[dict[str, frozenset[str]]]],
+    ) -> EntryDelivery:
+        """条目的来历。``file_writers`` 按需取「条目内相对路径 → 写入它的任务标识」作逐文件证据。"""
+        ...
+
+    async def delivered_quality(
+        self, session: AsyncSession, rows: list[LibraryFile]
+    ) -> dict[int, QualitySnapshot]:
+        """在库文件投递时定格的发布名解析：{文件 id: 快照}；没有的不给。"""
+        ...
+
+    async def ingested(self, session: AsyncSession, facts: IngestedFacts) -> AfterIngest:
+        """入库成功、结论提交之前：获取领域收尾（随同一次提交）。"""
+        ...
+
 
 class NullBridge:
     """没有获取领域：媒体库作为纯本地库运行。"""
@@ -164,6 +307,31 @@ class NullBridge:
         self, session: AsyncSession, entry: Path, since: datetime, info_hashes: list[str]
     ) -> bool:
         return False
+
+    async def identity_hint(
+        self, session: AsyncSession, info_hashes: list[str]
+    ) -> IdentityHint | None:
+        return None
+
+    async def entry_delivery(
+        self,
+        session: AsyncSession,
+        info_hashes: list[str],
+        hint: IdentityHint | None,
+        *,
+        item_title: str,
+        strategy: str,
+        file_writers: Callable[[], Awaitable[dict[str, frozenset[str]]]],
+    ) -> EntryDelivery:
+        return NoDelivery()
+
+    async def delivered_quality(
+        self, session: AsyncSession, rows: list[LibraryFile]
+    ) -> dict[int, QualitySnapshot]:
+        return {}
+
+    async def ingested(self, session: AsyncSession, facts: IngestedFacts) -> AfterIngest:
+        return AfterIngest()
 
 
 _NULL = NullBridge()

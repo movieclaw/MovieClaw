@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Collection
+from collections.abc import Awaitable, Callable, Collection
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -16,7 +16,13 @@ from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api.services.library.acquisition import TaskFiles
+from movieclaw_api.services.library.acquisition import (
+    AfterIngest,
+    EntryDelivery,
+    IdentityHint,
+    IngestedFacts,
+    TaskFiles,
+)
 from movieclaw_db.models import (
     DownloadHint,
     LibraryFile,
@@ -25,6 +31,7 @@ from movieclaw_db.models import (
     SubscriptionDownloadAttempt,
     utcnow,
 )
+from movieclaw_matcher import QualitySnapshot
 
 
 class Acquisition:
@@ -160,3 +167,44 @@ class Acquisition:
         from movieclaw_api.services import acquisition_ingest
 
         return await acquisition_ingest.redelivered_since(session, entry.name, since, info_hashes)
+
+    # ---- 入库桥块 C～G
+    async def identity_hint(
+        self, session: AsyncSession, info_hashes: list[str]
+    ) -> IdentityHint | None:
+        from movieclaw_api.services import acquisition_ingest
+
+        return await acquisition_ingest.identity_hint(session, info_hashes)
+
+    async def entry_delivery(
+        self,
+        session: AsyncSession,
+        info_hashes: list[str],
+        hint: IdentityHint | None,
+        *,
+        item_title: str,
+        strategy: str,
+        file_writers: Callable[[], Awaitable[dict[str, frozenset[str]]]],
+    ) -> EntryDelivery:
+        from movieclaw_api.services import acquisition_ingest
+
+        return await acquisition_ingest.entry_delivery(
+            session,
+            info_hashes,
+            hint,
+            item_title=item_title,
+            strategy=strategy,
+            file_writers=file_writers,
+        )
+
+    async def delivered_quality(
+        self, session: AsyncSession, rows: list[LibraryFile]
+    ) -> dict[int, QualitySnapshot]:
+        from movieclaw_api.services import acquisition_ingest
+
+        return await acquisition_ingest.delivered_quality(session, rows)
+
+    async def ingested(self, session: AsyncSession, facts: IngestedFacts) -> AfterIngest:
+        from movieclaw_api.services import acquisition_ingest
+
+        return await acquisition_ingest.ingested(session, facts)
