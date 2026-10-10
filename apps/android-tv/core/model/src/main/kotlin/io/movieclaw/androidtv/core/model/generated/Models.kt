@@ -1009,6 +1009,10 @@ data class LibraryItemDetailView(
     @SerialName("douban_id") val doubanId: String? = null,
     @SerialName("title") val title: String = "",
     @SerialName("original_title") val originalTitle: String = "",
+    /**
+     * 国际英文名；「搜索资源」与中文名、原名一起搜
+     */
+    @SerialName("english_title") val englishTitle: String? = null,
     @SerialName("year") val year: Long? = null,
     @SerialName("poster_url") val posterUrl: String? = null,
     @SerialName("backdrop_url") val backdropUrl: String? = null,
