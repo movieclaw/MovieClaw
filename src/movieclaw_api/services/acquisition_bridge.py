@@ -9,12 +9,14 @@
 from __future__ import annotations
 
 from collections.abc import Collection
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.services.library.acquisition import TaskFiles
 from movieclaw_db.models import (
     DownloadHint,
     LibraryFile,
@@ -41,9 +43,9 @@ class Acquisition:
         按正常方式入库的库（复制或硬链接）目录名是规范化过的 ``标题 (年份)``，
         与种子原名不同，不会命中。
         """
-        from movieclaw_api.services.library import ingest
+        from movieclaw_api.services import acquisition_ingest
 
-        briefs = await ingest._downloader_briefs()
+        briefs = await acquisition_ingest.downloader_briefs()
         if briefs is None:
             return None
         return {b.content_name for b in briefs if getattr(b, "content_name", "")}
@@ -135,3 +137,26 @@ class Acquisition:
             site_id=None,
             torrent_id=None,
         )
+
+    # ---- 入库桥块 A、B：经模块属性调用（而非 from-import 绑定名），测试可打桩
+    async def download_tasks(self) -> list | None:
+        from movieclaw_api.services import acquisition_ingest
+
+        return await acquisition_ingest.downloader_briefs()
+
+    async def task_files(self, matches: list) -> list[TaskFiles] | None:
+        from movieclaw_api.services import acquisition_ingest
+
+        return await acquisition_ingest.task_files(matches)
+
+    async def managed_claim(self, session: AsyncSession, entry: Path) -> bool:
+        from movieclaw_api.services import acquisition_ingest
+
+        return await acquisition_ingest.has_managed_download_claim(session, entry)
+
+    async def redelivered_since(
+        self, session: AsyncSession, entry: Path, since: datetime, info_hashes: list[str]
+    ) -> bool:
+        from movieclaw_api.services import acquisition_ingest
+
+        return await acquisition_ingest.redelivered_since(session, entry.name, since, info_hashes)

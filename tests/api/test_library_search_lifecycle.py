@@ -15,7 +15,7 @@ import pytest_asyncio
 from sqlmodel import select
 
 from movieclaw_api.core.config import get_settings
-from movieclaw_api.services import jobs, media_scrape
+from movieclaw_api.services import acquisition_ingest, jobs, media_scrape
 from movieclaw_api.services.library import ingest, scan
 from movieclaw_api.services.library.recycle import recycle_file
 from movieclaw_api.services.library.search_index import refresh_index_batch
@@ -75,7 +75,7 @@ async def db(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest, "QUIET_SECONDS", 0)
     for attr in ("_stability", "_deferred", "_failed_retry", "_last_swept"):
         monkeypatch.setattr(ingest, attr, {})
-    monkeypatch.setattr(ingest, "_briefs_cache", (float("-inf"), None))
+    monkeypatch.setattr(acquisition_ingest, "_briefs_cache", (float("-inf"), None))
 
     async def no_assets(*_args, **_kwargs):
         return None

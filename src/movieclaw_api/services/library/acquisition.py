@@ -11,11 +11,33 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Collection
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_db.models import LibraryFile
+
+
+@dataclass(frozen=True)
+class TaskFile:
+    """外部下载任务里的一个文件。"""
+
+    source: Path | None  # 本机路径；翻译不了（路径映射缺失、异常相对路径）为 None
+    selected: bool  # 任务要下这个文件
+    size_bytes: int
+    completed: bool  # 这个文件已写完
+
+
+@dataclass(frozen=True)
+class TaskFiles:
+    """一个外部下载任务的文件清单。``info_hash`` 是任务标识（小写）。"""
+
+    info_hash: str
+    completed: bool
+    files: tuple[TaskFile, ...]
 
 
 class AcquisitionBridge(Protocol):
@@ -70,6 +92,29 @@ class AcquisitionBridge(Protocol):
         """扫描入账的文件落在 ``download_roots`` 的某个内容根下：获取领域记下它的来源。"""
         ...
 
+    # ---- 入库：条目要不要处理（入库桥块 A、B）
+    async def download_tasks(self) -> list | None:
+        """外部下载任务概览（每项有 ``name``、``content_name``、``completed``、``info_hash``）。
+
+        ``[]`` = 确实没有任务；``None`` = 有下载器但现在问不到——
+        调用方必须保守等待，不能拿静默窗口猜完成。
+        """
+        ...
+
+    async def task_files(self, matches: list) -> list[TaskFiles] | None:
+        """``download_tasks`` 里这几项的文件清单；任一拿不到返回 None。"""
+        ...
+
+    async def managed_claim(self, session: AsyncSession, entry: Path) -> bool:
+        """条目是 MovieClaw 自己投递、还没下完的（下载器概览暂时漏掉也算）：先等，别抢着入库。"""
+        ...
+
+    async def redelivered_since(
+        self, session: AsyncSession, entry: Path, since: datetime, info_hashes: list[str]
+    ) -> bool:
+        """``since`` 之后同一任务又被重新投递且仍在途：入库的旧结论已过时，要重新处理。"""
+        ...
+
 
 class NullBridge:
     """没有获取领域：媒体库作为纯本地库运行。"""
@@ -105,6 +150,20 @@ class NullBridge:
 
     async def file_recorded(self, session: AsyncSession, file_id: int, token: object) -> None:
         return None
+
+    async def download_tasks(self) -> list | None:
+        return []
+
+    async def task_files(self, matches: list) -> list[TaskFiles] | None:
+        return None
+
+    async def managed_claim(self, session: AsyncSession, entry: Path) -> bool:
+        return False
+
+    async def redelivered_since(
+        self, session: AsyncSession, entry: Path, since: datetime, info_hashes: list[str]
+    ) -> bool:
+        return False
 
 
 _NULL = NullBridge()

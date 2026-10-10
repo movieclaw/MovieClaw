@@ -22,6 +22,7 @@ from tests.api.test_library_ingest import _stub_unit
 import movieclaw_api.services.library.ingest as ingest_mod
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException
+from movieclaw_api.services import acquisition_ingest
 from movieclaw_api.services.import_watch_config import (
     ImportWatchConfigService,
     resolve_dispatch_rule,
@@ -63,7 +64,7 @@ async def db(tmp_path, monkeypatch):
     await run_migrations()
     monkeypatch.setattr(ingest_mod, "_stability", {})
     monkeypatch.setattr(ingest_mod, "QUIET_SECONDS", 0)
-    monkeypatch.setattr(ingest_mod, "_briefs_cache", (float("-inf"), None))
+    monkeypatch.setattr(acquisition_ingest, "_briefs_cache", (float("-inf"), None))
     yield get_database()
     await dispose_db()
     get_settings.cache_clear()
@@ -195,7 +196,7 @@ async def test_target_rule_claimed_identity_keeps_wanted_open(db, tmp_path, monk
     async def briefs():
         return [brief]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
     _stub_unit(monkeypatch, lambda file: (1, 1))
 
     entry = watch / "Cryptic.Anime.S01"

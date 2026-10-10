@@ -102,12 +102,10 @@ import hashlib
 import json
 import logging
 import os
-import re
 import shutil
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field, replace
-from difflib import SequenceMatcher
 from pathlib import Path, PurePosixPath
 from typing import NamedTuple
 from uuid import uuid4
@@ -124,6 +122,8 @@ from movieclaw_api.services.acquisition_origin import (
 )
 from movieclaw_api.services.download_sources import record_source
 from movieclaw_api.services.import_watch_config import rule_target_label
+from movieclaw_api.services.library import acquisition
+from movieclaw_api.services.library.acquisition import TaskFile, TaskFiles
 from movieclaw_api.services.library.bluray import (
     disc_playlist_record,
     enrich_spec_with_clpi,
@@ -164,7 +164,6 @@ from movieclaw_api.services.media_probe import (
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
     ACTIVE_JOB_STATUSES,
-    DownloaderClient,
     FileSource,
     ImportWatch,
     IngestEntry,
@@ -181,7 +180,6 @@ from movieclaw_db.models import (
     SubscriptionDownloadAttempt,
     utcnow,
 )
-from movieclaw_db.models.manual_download_intent import MANUAL_DOWNLOAD_INTENT_TTL
 from movieclaw_db.models.scheduled_task import TriggerType
 from movieclaw_db.repositories.library_file_repo import LibraryFileRepository
 from movieclaw_db.repositories.library_repo import LibraryRepository
@@ -209,8 +207,6 @@ QUIET_SECONDS = 300
 DEFERRED_POLL_SECONDS = 300
 # 失败条目的重试退避：指纹没变化时每小时才重试一次（避免反复打 TMDB）
 FAILED_RETRY_SECONDS = 3600
-# 下载器种子概览的缓存：一轮事件风暴中的多个目录巡检共享一次 API 调用
-_BRIEFS_TTL_SECONDS = 15.0
 # Job 复制每个安全停止点最多写 64 MiB。块太小会让 SQLite 进度事件膨胀，
 # 太大又会让取消/更新等待过久；NAS 上 64 MiB 通常在数秒内完成。
 _INGEST_COPY_CHUNK_BYTES = 64 * 1024 * 1024
@@ -276,8 +272,6 @@ _failed_retry: dict[str, float] = {}
 _last_swept: dict[str, float] = {}
 # 巡检串行锁：事件驱动与兜底巡检可能同时到达同一目录，串行化防同条目双处理
 _sweep_lock = asyncio.Lock()
-# 下载器种子概览缓存：(取样时刻, 概览列表或 None=不可用)
-_briefs_cache: tuple[float, list | None] = (float("-inf"), None)
 
 
 class IngestError(Exception):
@@ -818,7 +812,7 @@ async def _sweep_dir(
     if not root.is_dir():
         return  # 目录未就绪（挂载中/配置超前）：不告警刷屏，下轮再看
     async with _sweep_lock:
-        briefs = await _downloader_briefs()
+        briefs = await acquisition.current().download_tasks()
         try:
             entries = sorted(e for e in root.iterdir() if not e.name.startswith("."))
         except OSError as exc:
@@ -978,196 +972,17 @@ async def refresh_source_notice(session, source_path: str, present: set[str] | N
     )
 
 
-async def _downloader_briefs() -> list | None:
-    """全部可用下载器的种子概览（带短缓存）。
-
-    ``[]`` 表示没有配置下载器或可达下载器确实没有任务；``None`` 只表示
-    配置过下载器但本轮全部不可达。后者必须 fail closed，不能拿静默窗口
-    猜完成——API 短暂失联正是未完成文件被提前入库的根因。
-    """
-    global _briefs_cache
-    now = time.monotonic()
-    cached_at, cached = _briefs_cache
-    if now - cached_at < _BRIEFS_TTL_SECONDS:
-        return cached
-    # 局部导入：复用订阅管线的"可用下载器"口径，避免模块加载期的重依赖
-    from movieclaw_api.services.download_progress import _usable_downloaders
-    from movieclaw_downloader import create_downloader
-
-    db = get_database()
-    async with db.session() as session:
-        enabled_exists = (
-            await session.execute(
-                select(DownloaderClient.id).where(DownloaderClient.enabled.is_(True))  # type: ignore[union-attr]
-            )
-        ).first() is not None
-        downloaders = await _usable_downloaders(session)
-    if not downloaders:
-        # 没有启用任何下载器才表示“确实没有权威状态源”。启用中的配置若仍在
-        # pending/verifying/failed，则只是当前不可用，必须和连接异常一样
-        # fail closed；否则服务启动的验证窗口会把预分配文件误当成已完成。
-        result = None if enabled_exists else []
-        _briefs_cache = (now, result)
-        return result
-    briefs: list = []
-    all_ok = True
-    for row, config in downloaders:
-        adapter = create_downloader(config)
-        try:
-            briefs.extend(await adapter.list_torrents())
-        except Exception as exc:  # noqa: BLE001 -- 继续关闭/检查其余连接后整体降级
-            all_ok = False
-            logger.warning("列出下载器「%s」的种子失败：%s", row.name, exc)
-        finally:
-            await adapter.close()
-    # 任一台缺席时，这份列表都不能证明“某目录不属于下载任务”。宁可让所有
-    # 未决条目暂等，也不能用另一台的成功响应替失联下载器作否定判断。
-    result = briefs if all_ok else None
-    _briefs_cache = (now, result)
-    return result
-
-
-def _claim_path_matches(entry: Path, save_path: str | None) -> bool:
-    """持久化投递路径是否覆盖当前监听条目；旧行无路径时按真实名称认领。"""
-    if not save_path:
-        return True
-    expected = Path(os.path.normpath(save_path))
-    actual = Path(os.path.normpath(str(entry)))
-    return expected in {actual, actual.parent}
-
-
-def _download_name_matches(entry_name: str, recorded_name: str | None) -> bool:
-    """兼容站点标题与下载器内容名的轻微差异，不做宽松片名猜测。"""
-    if not recorded_name:
-        return False
-    if entry_name == recorded_name:
-        return True
-    compact_entry = re.sub(r"[^a-z0-9]+", "", entry_name.lower())
-    compact_recorded = re.sub(r"[^a-z0-9]+", "", recorded_name.lower())
-    if compact_entry == compact_recorded:
-        return True
-    if min(len(compact_entry), len(compact_recorded)) < 20:
-        return False
-    years_entry = set(re.findall(r"(?:19|20)\d{2}", compact_entry))
-    years_recorded = set(re.findall(r"(?:19|20)\d{2}", compact_recorded))
-    if years_entry and years_recorded and not years_entry.intersection(years_recorded):
-        return False
-    return SequenceMatcher(None, compact_entry, compact_recorded).ratio() >= 0.90
-
-
-async def _has_managed_download_claim(session, entry: Path) -> bool:
-    """条目是否仍由 MovieClaw 投递台账管理，即使下载器概览暂时漏掉它。"""
-    from movieclaw_db.models import (
-        DownloadAttemptStatus,
-        SiteTorrent,
-        SubscriptionDownloadAttempt,
-    )
-
-    manual = list(
-        (
-            await session.execute(
-                select(ManualDownloadIntent, SiteTorrent.title)
-                .outerjoin(
-                    SiteTorrent,
-                    (SiteTorrent.site_id == ManualDownloadIntent.site_id)
-                    & (SiteTorrent.torrent_id == ManualDownloadIntent.torrent_id),
-                )
-                .where(
-                    ManualDownloadIntent.created_at >= utcnow() - MANUAL_DOWNLOAD_INTENT_TTL,  # type: ignore[arg-type]
-                    or_(
-                        ManualDownloadIntent.download_name == entry.name,
-                        ManualDownloadIntent.download_name.is_(None),  # type: ignore[union-attr]
-                        ManualDownloadIntent.download_name == "",
-                    ),
-                )
-            )
-        ).all()
-    )
-    if any(
-        _claim_path_matches(entry, intent.save_path)
-        and (
-            _download_name_matches(entry.name, intent.download_name)
-            or _download_name_matches(entry.name, site_title)
-        )
-        for intent, site_title in manual
-    ):
-        return True
-
-    active = (
-        DownloadAttemptStatus.ACTIVE,
-        DownloadAttemptStatus.REPLACEMENT_PENDING,
-        DownloadAttemptStatus.TRIAL,
-        DownloadAttemptStatus.CLEANUP_PENDING,
-        DownloadAttemptStatus.COMPLETED,
-    )
-    attempts = list(
-        (
-            await session.execute(
-                select(SubscriptionDownloadAttempt).where(
-                    SubscriptionDownloadAttempt.status.in_(active),  # type: ignore[union-attr]
-                    or_(
-                        SubscriptionDownloadAttempt.download_name == entry.name,
-                        SubscriptionDownloadAttempt.download_name.is_(None),  # type: ignore[union-attr]
-                        SubscriptionDownloadAttempt.download_name == "",
-                    ),
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return any(
-        _claim_path_matches(entry, row.save_path)
-        and (
-            _download_name_matches(entry.name, row.download_name)
-            or _download_name_matches(entry.name, row.torrent_title)
-        )
-        for row in attempts
-    )
-
-
 async def _redelivered_since(session, record: IngestEntry, info_hashes: list[str]) -> bool:
-    """台账下结论之后，订阅又把同一颗种子重新投递、且投递仍在途：旧结论已过时。
+    """台账下结论之后，同一任务又被重新投递、且投递仍在途：旧结论已过时（问获取领域）。
 
-    台账按「条目路径 + 指纹」幂等：已入库/已跳过且指纹没变就不再处理。但结论所
-    依据的现实会变——用户把入库的文件删了、作品随之被清掉，之后重新订阅，仍在
-    下载器里做种的同一颗种子被原样再投递一次。指纹没变，旧台账于是永远短路，新
-    工单停在「已投递」、投递停在「已完成」，谁也不报警（NAS 实测《恶人传》）。
-
-    判据刻意只认「晚于台账结论的在途投递」：重跑会刷新 ``attempted_at``，同一次
-    投递不会反复触发；正常流程里投递总是先于入库结论，也不会误触发。
+    台账按「条目路径 + 指纹」幂等：已入库/已跳过且指纹没变就不再处理。但结论所依据的现实会变——
+    用户把入库的文件删了、之后重新订阅，同一颗种子被原样再投递一次，旧台账就会永远短路。
     """
-    from movieclaw_db.models import DownloadAttemptStatus, SubscriptionDownloadAttempt
-
     if record.status not in (IngestStatus.IMPORTED, IngestStatus.SKIPPED) or not info_hashes:
         return False
-    hashes = sorted({h for value in info_hashes if value for h in (value, value.lower())})
-    attempt_id = (
-        await session.execute(
-            select(SubscriptionDownloadAttempt.id)
-            .where(
-                SubscriptionDownloadAttempt.info_hash.in_(hashes),  # type: ignore[union-attr]
-                SubscriptionDownloadAttempt.status.in_(  # type: ignore[attr-defined]
-                    (
-                        DownloadAttemptStatus.ACTIVE,
-                        DownloadAttemptStatus.REPLACEMENT_PENDING,
-                        DownloadAttemptStatus.TRIAL,
-                        DownloadAttemptStatus.COMPLETED,
-                    )
-                ),
-                SubscriptionDownloadAttempt.created_at > record.attempted_at,  # type: ignore[operator]
-            )
-            .limit(1)
-        )
-    ).scalar_one_or_none()
-    if attempt_id is None:
-        return False
-    logger.info(
-        "「%s」在上次入库结论之后又被订阅投递（投递 #%s），旧结论已过时，重新入库",
-        Path(record.entry_path).name,
-        attempt_id,
+    return await acquisition.current().redelivered_since(
+        session, Path(record.entry_path), record.attempted_at, info_hashes
     )
-    return True
 
 
 def _match_briefs(entry_name: str, briefs: list | None) -> list:
@@ -1189,50 +1004,6 @@ def _torrent_verdict(matches: list) -> str | None:
     return "complete" if all(b.completed for b in matches) else "downloading"
 
 
-async def _matched_torrent_statuses(matches: list) -> list[tuple[object, object]] | None:
-    """补查同名种子的文件状态；任一详情缺失时返回 None，调用方保守等待。"""
-    from movieclaw_api.services.download_progress import _query_torrent, _usable_downloaders
-
-    if any(not brief.info_hash for brief in matches):
-        return None  # 没有 hash 的轻量记录无法形成可复核的文件证据
-    hashes = sorted({str(brief.info_hash).lower() for brief in matches if brief.info_hash})
-    if len(hashes) != len(matches):
-        return None  # 重复 hash 的概览不应产生互相矛盾的文件写入证据
-    db = get_database()
-    async with db.session() as session:
-        downloaders = await _usable_downloaders(session)
-    if not downloaders:
-        return None
-    details: list[tuple[object, object]] = []
-    for info_hash in hashes:
-        found = await _query_torrent(info_hash, downloaders)
-        if found is None:
-            return None
-        details.append(found)
-    return details
-
-
-def _torrent_file_source(downloader, status, torrent_file) -> Path | None:  # noqa: ANN001
-    """把下载器文件路径翻译到 MovieClaw 视角；异常相对路径直接拒绝。"""
-    from movieclaw_api.services.torrent_submit import translate_to_local
-
-    local_dir = translate_to_local(status.save_path, downloader.path_mappings)
-    if not local_dir:
-        return None
-    relative = PurePosixPath(str(torrent_file.path).replace("\\", "/"))
-    if relative.is_absolute() or not relative.parts or ".." in relative.parts:
-        return None
-    return Path(local_dir).joinpath(*relative.parts)
-
-
-def _torrent_file_completed(status, torrent_file) -> bool:  # noqa: ANN001
-    """只认下载器完成字节；旧适配器缺字段时仅整种完成可兜底。"""
-    if status.completed:
-        return True
-    completed_bytes = torrent_file.completed_bytes
-    return completed_bytes is not None and completed_bytes >= torrent_file.size_bytes
-
-
 async def _completed_file_batch(entry: Path, matches: list) -> _DownloadFileBatch:
     """计算同目录下载中的安全文件交集。
 
@@ -1240,21 +1011,21 @@ async def _completed_file_batch(entry: Path, matches: list) -> _DownloadFileBatc
     完成，并且磁盘大小与每份下载器证据一致，才进入本批。详情读取失败时
     返回空批，继续沿用原来的整目录等待语义。
     """
-    details = await _matched_torrent_statuses(matches)
+    details = await acquisition.current().task_files(matches)
     if not details:
         return _DownloadFileBatch(files=(), consumable_hashes=())
 
-    writers: dict[str, list[tuple[object, object]]] = {}
+    writers: dict[str, list[tuple[TaskFiles, TaskFile]]] = {}
     video_paths_by_hash: dict[str, set[str]] = {}
-    status_by_hash: dict[str, object] = {}
-    for downloader, status in details:
-        info_hash = str(status.info_hash).lower()
-        status_by_hash[info_hash] = status
+    status_by_hash: dict[str, TaskFiles] = {}
+    for task in details:
+        info_hash = task.info_hash
+        status_by_hash[info_hash] = task
         mapped_selected = 0
-        for torrent_file in status.files:
-            if not torrent_file.selected:
+        for task_file in task.files:
+            if not task_file.selected:
                 continue
-            source = _torrent_file_source(downloader, status, torrent_file)
+            source = task_file.source
             if source is None:
                 continue
             relative = _relative_entry_file(entry, source)
@@ -1272,11 +1043,11 @@ async def _completed_file_batch(entry: Path, matches: list) -> _DownloadFileBatc
                 marker in lower for marker in _IGNORE_MARKERS
             ):
                 continue
-            writers.setdefault(relative, []).append((status, torrent_file))
+            writers.setdefault(relative, []).append((task, task_file))
             video_paths_by_hash.setdefault(info_hash, set()).add(relative)
         # 同名未完成种子存在、却无法还原它在本条目内写哪些文件时，不能证明
         # 任何路径与它不重叠，整批保守等待。
-        if not status.completed and mapped_selected == 0:
+        if not task.completed and mapped_selected == 0:
             return _DownloadFileBatch(files=(), consumable_hashes=())
 
     ready: list[_ReadyDownloadFile] = []
@@ -1288,18 +1059,16 @@ async def _completed_file_batch(entry: Path, matches: list) -> _DownloadFileBatc
             actual_size = source.stat().st_size
         except OSError:
             continue
-        expected_sizes = {int(file.size_bytes) for _status, file in references}
+        expected_sizes = {file.size_bytes for _task, file in references}
         if len(expected_sizes) != 1 or actual_size not in expected_sizes:
             continue
-        if not all(_torrent_file_completed(status, file) for status, file in references):
+        if not all(file.completed for _task, file in references):
             continue
         ready.append(
             _ReadyDownloadFile(
                 relative_path=relative,
                 size_bytes=actual_size,
-                info_hashes=tuple(
-                    sorted({str(status.info_hash).lower() for status, _file in references})
-                ),
+                info_hashes=tuple(sorted({task.info_hash for task, _file in references})),
             )
         )
 
@@ -1351,7 +1120,7 @@ async def _deferred_flipped(prefix: str) -> bool:
     paths = [p for p in _deferred if p.startswith(prefix)]
     if not paths:
         return False
-    briefs = await _downloader_briefs()
+    briefs = await acquisition.current().download_tasks()
     if briefs is None:
         return False
     db = get_database()
@@ -1520,7 +1289,7 @@ async def _process_entry(
         if record is not None and record.status == IngestStatus.IGNORED:
             _failed_retry.pop(path_str, None)  # 失败后被人工忽略：不再退避重试
             return  # 用户拍板（或存量基线）永久忽略：指纹变化也不复活，恢复走接口
-        if verdict is None and await _has_managed_download_claim(session, entry):
+        if verdict is None and await acquisition.current().managed_claim(session, entry):
             # 可达 API 偶尔在重启/恢复窗口返回空列表，或展示名尚未同步。真实
             # 投递名与落点已持久化时继续 fail closed，避免第二条误放行路径。
             _stability.pop(path_str, None)
@@ -3278,22 +3047,23 @@ async def _load_delivery_provenance(
 async def _entry_file_hashes(entry: Path) -> dict[str, frozenset[str]]:
     """按下载器文件清单反推条目内每个文件由哪些种子写入；拿不到证据返回空表。"""
     try:
-        matches = _match_briefs(entry.name, await _downloader_briefs())
-        details = await _matched_torrent_statuses(matches) if matches else None
+        bridge = acquisition.current()
+        matches = _match_briefs(entry.name, await bridge.download_tasks())
+        details = await bridge.task_files(matches) if matches else None
     except Exception as exc:  # noqa: BLE001 -- 来源戳是附加信息，下载器故障不能拖垮入库
         logger.warning(
             "读取下载器文件清单失败，「%s」的来源戳改按投递的集号推断：%s", entry.name, exc
         )
         return {}
     writers: dict[str, set[str]] = {}
-    for downloader, status in details or []:
-        for torrent_file in status.files or ():
-            if not torrent_file.selected:
+    for task in details or []:
+        for task_file in task.files:
+            if not task_file.selected:
                 continue
-            source = _torrent_file_source(downloader, status, torrent_file)
+            source = task_file.source
             relative = _relative_entry_file(entry, source) if source is not None else None
             if relative is not None:
-                writers.setdefault(relative, set()).add(str(status.info_hash).lower())
+                writers.setdefault(relative, set()).add(task.info_hash)
     return {path: frozenset(hashes) for path, hashes in writers.items()}
 
 
@@ -4360,7 +4130,7 @@ async def _execute_ingest_job(
         phase_count=4,
         details={**persisted_details, "rule_id": rule_id, "entry_name": entry.name},
     )
-    briefs = await _downloader_briefs()
+    briefs = await acquisition.current().download_tasks()
     if briefs is None:
         raise jobs.JobRetry(
             "下载器当前不可达，无法确认条目已经完整；恢复连接后自动继续",
@@ -4375,7 +4145,7 @@ async def _execute_ingest_job(
         )
     if verdict is None:
         async with db.session() as session:
-            if await _has_managed_download_claim(session, entry):
+            if await acquisition.current().managed_claim(session, entry):
                 raise jobs.JobRetry(
                     "下载器暂未返回该受管任务，等待状态同步后自动继续",
                     delay_seconds=DEFERRED_POLL_SECONDS,
@@ -4887,7 +4657,7 @@ async def claim_entry(
     if not entry.exists():
         raise BadRequestException("条目已不在源目录（可能已被删除），无法认领")
     snap = await asyncio.to_thread(_snapshot, entry)
-    briefs = await _downloader_briefs()
+    briefs = await acquisition.current().download_tasks()
     matches = _match_briefs(entry.name, briefs)
     if snap.has_marker or _torrent_verdict(matches) == "downloading":
         raise BadRequestException("条目似乎还在下载中（存在未完成标记文件），请等下载完成再认领")

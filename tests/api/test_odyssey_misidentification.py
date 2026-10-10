@@ -26,6 +26,7 @@ from sqlmodel import select
 
 import movieclaw_api.services.library.ingest as ingest_mod
 from movieclaw_api.core.config import get_settings
+from movieclaw_api.services import acquisition_ingest
 from movieclaw_api.services.download_sources import record_source
 from movieclaw_api.services.media_library import MediaLibraryService
 from movieclaw_api.services.subscription import SubscriptionService
@@ -382,7 +383,7 @@ async def test_scene_c_a_wrong_film_that_slips_through_leaves_a_trace_on_import(
     monkeypatch.setattr(ingest_mod, "probe_media", lambda p: short)
     monkeypatch.setattr(ingest_mod, "_stability", {})
     monkeypatch.setattr(ingest_mod, "QUIET_SECONDS", 0)
-    monkeypatch.setattr(ingest_mod, "_briefs_cache", (float("-inf"), None))
+    monkeypatch.setattr(acquisition_ingest, "_briefs_cache", (float("-inf"), None))
 
     async def identify_none(session, kind, watch_root, main, spec):
         return None
@@ -399,7 +400,7 @@ async def test_scene_c_a_wrong_film_that_slips_through_leaves_a_trace_on_import(
             )
         ]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
 
     entry = watch / TORRENT_TITLE
     entry.mkdir()

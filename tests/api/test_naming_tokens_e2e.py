@@ -19,7 +19,7 @@ from sqlmodel import select
 
 import movieclaw_api.services.library.ingest as ingest_mod
 from movieclaw_api.core.config import get_settings
-from movieclaw_api.services import jobs
+from movieclaw_api.services import acquisition_ingest, jobs
 from movieclaw_api.services.library.organize import organize_library
 from movieclaw_api.services.scrape_config import reset_scrape_config
 from movieclaw_api.settings import MetadataScrapeSetting
@@ -77,7 +77,7 @@ async def db(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest_mod, "_failed_retry", {})
     monkeypatch.setattr(ingest_mod, "_last_swept", {})
     monkeypatch.setattr(ingest_mod, "QUIET_SECONDS", 0)
-    monkeypatch.setattr(ingest_mod, "_briefs_cache", (float("-inf"), None))
+    monkeypatch.setattr(acquisition_ingest, "_briefs_cache", (float("-inf"), None))
     monkeypatch.setattr(ingest_mod, "probe_media", lambda _p: _SPEC)
     yield get_database()
     await jobs.close_job_dispatcher()
@@ -173,7 +173,7 @@ async def test_ingest_renders_every_new_token_and_organize_agrees(db, tmp_path, 
     async def briefs():
         return [TorrentBrief(name=release, content_name=release, completed=True, info_hash="hotd")]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
     entry = watch / release
     entry.mkdir()
     for ep in (1, 2):
@@ -271,7 +271,7 @@ async def test_release_name_only_ingest_and_organize(db, tmp_path, monkeypatch, 
             )
         ]
 
-    monkeypatch.setattr(ingest_mod, "_downloader_briefs", briefs)
+    monkeypatch.setattr(acquisition_ingest, "downloader_briefs", briefs)
     entry = watch / "release"
     entry.mkdir()
     for release in releases:

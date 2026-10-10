@@ -28,7 +28,7 @@ import movieclaw_api.services.media_scrape as scrape_mod
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import BadRequestException
 from movieclaw_api.schemas.library import LibraryView
-from movieclaw_api.services import jobs
+from movieclaw_api.services import acquisition_ingest, jobs
 from movieclaw_api.services.library import items as items_mod
 from movieclaw_api.services.library.config import LibraryConfigService, derive_save_path
 from movieclaw_api.services.library.organize import build_organize_plan
@@ -115,7 +115,7 @@ async def db(tmp_path, monkeypatch):
     monkeypatch.setattr(ingest_mod, "_failed_retry", {})
     monkeypatch.setattr(ingest_mod, "_last_swept", {})
     monkeypatch.setattr(ingest_mod, "QUIET_SECONDS", 0)
-    monkeypatch.setattr(ingest_mod, "_briefs_cache", (float("-inf"), None))
+    monkeypatch.setattr(acquisition_ingest, "_briefs_cache", (float("-inf"), None))
     yield get_database()
     await jobs.close_job_dispatcher()
     await dispose_db()
