@@ -337,7 +337,8 @@ nonisolated extension APIClient {
         seed: Int?, offset: Int, limit: Int, filter: LibraryFilter, kind: String?
     ) async throws -> API.ReelFeedView {
         try await reelsFeed(
-            seed: seed, offset: offset, limit: limit, modes: "seek", kind: kind,
+            // 会放预切片段：服务端开了「片段预切」就只出切好的（docs/design/reels.md §8），没开照旧出原片
+            seed: seed, offset: offset, limit: limit, modes: "seek,clip", kind: kind,
             g: filter.qG, c: filter.qC, d: filter.qD, w: filter.watch, ratingGte: filter.ratingGte,
             rt: filter.qRt, lang: filter.qLang, res: filter.qRes, hdr: filter.hdr, stock: filter.qStock,
             seriesKeys: filter.qSeries

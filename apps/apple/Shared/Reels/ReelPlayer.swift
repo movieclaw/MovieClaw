@@ -49,6 +49,9 @@ final class ReelPlayer {
     let maxHeight: Int?
     /// 实际在放服务端转码流
     private(set) var transcoding = false
+    /// 在放预切片段（`play.mode == "clip"`，docs/design/reels.md §8）：服务端切好的 1080p 小文件，
+    /// 第 0 秒就是原片的片段起点；不开转码会话，字幕走片段字幕文件（同转码流）
+    var isClip: Bool { item.play.mode == "clip" }
     private var sessionId: String?
     private var scope: PlaybackAPI?
     private var loadTask: Task<Void, Never>?
@@ -126,7 +129,10 @@ final class ReelPlayer {
         loadedAt = .now
         stageMs = [:]
         loadingMeter.reset()
-        if let maxHeight {
+        if isClip {
+            // 小文件本身就是 1080p，画质上限不用再转码
+            loadClip(api: api, autoplay: autoplay, from: from)
+        } else if let maxHeight {
             loadTask = Task {
                 await previous?.value
                 await startTranscode(api: api, maxHeight: maxHeight, autoplay: autoplay, from: from)
@@ -180,6 +186,22 @@ final class ReelPlayer {
         default:
             load(.file(url), autoplay: autoplay, from: from)
         }
+    }
+
+    /// 预切片段：时间原点是片段起点（引擎时间 + 起点 = 原片时间，进度、终点、事件、「接着看」都照原片算）
+    private func loadClip(api: APIClient, autoplay: Bool, from: Double?) {
+        guard let raw = item.play.clipUrl, let url = api.server.resolve(raw) else {
+            state = .failed("这一条缺少片段地址")
+            return
+        }
+        transcoding = false
+        timeOrigin = startSeconds
+        let subtitles = clipSubtitles(server: api.server)
+        subtitleApplied = subtitles.isEmpty
+        core.setSubtitleDelay(-timeOrigin)
+        core.load(source: .file(url), start: max(0, (from ?? startSeconds) - timeOrigin), autoplay: autoplay,
+                  headers: ["User-Agent": APIClient.userAgent], externalSubtitles: subtitles,
+                  switchesDisplayMode: !stagePreview)
     }
 
     private func load(_ source: AetherPlayback.Source, autoplay: Bool, from: Double?) {
@@ -426,10 +448,10 @@ final class ReelPlayer {
     }
 
     /// 原文件：内封字幕按同类型顺序对位（与播放器页 `NativeEngine.selectSubtitle` 同一口径）；
-    /// 转码流：选装载时交给引擎的那份片段字幕
+    /// 转码流、预切片段：选装载时交给引擎的那份片段字幕
     private func applySubtitle() {
         guard !subtitleApplied else { return }
-        if transcoding {
+        if transcoding || isClip {
             guard let clip = core.subtitleTracks.filter(\.isExternal).min(by: { $0.id < $1.id }) else { return }
             subtitleApplied = true
             core.selectSubtitleTrack(id: clip.id)

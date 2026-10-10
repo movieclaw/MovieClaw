@@ -6,6 +6,8 @@ import SwiftUI
 ///
 /// - **放哪一段**由服务端定（`GET /reels/preview/{id}`）：首页从续播点往前倒 30 秒放到续播点（帮人回忆、不剧透），
 ///   详情页放刷片挑好的那一段（剧集固定第二集）。放法与刷片一样，用同一个 `ReelPlayer` 从原片中间起播，不写观看记录；
+/// - **开了「片段预切」**（服务端设置，docs/design/reels.md §8）：首页、详情都放精彩片段的预切小文件，用系统播放器
+///   （`TVStageClipPlayer`）放，不开自研引擎、不读原片；还没切好服务端返回 null，一直是剧照，下次划回来切好了就放；
 /// - **节奏**：大图换到一部就开始计停留，同时取片段地址、补下起点附近的字节、把播放器装载到起点停着；
 ///   停满 `dwell` 秒且装好了才开播——画面淡入 0.9 秒，声音 1.5 秒内从 0 渐入（原片中间常是一句对白或一声爆炸）；
 /// - **跟着「大图上是哪一部」走，不跟页面走**：从首页按「详情」进同一部，详情页接过同一个播放器，视频不断；
@@ -60,7 +62,7 @@ final class TVStagePreview {
     @ObservationIgnored private var surfaces: [UUID] = []
     @ObservationIgnored private var hiddenSurfaces: Set<UUID> = []
     @ObservationIgnored private var interruptions: Set<Interruption> = []
-    @ObservationIgnored private var player: ReelPlayer?
+    @ObservationIgnored private var player: TVStagePlayback?
     @ObservationIgnored private var cycle: Task<Void, Never>?
     @ObservationIgnored private var volumeRamp: Task<Void, Never>?
     @ObservationIgnored private var pendingLeave: Task<Void, Never>?
@@ -183,8 +185,9 @@ final class TVStagePreview {
         let clock = ContinuousClock()
         let shownAt = clock.now
         async let dwell: Void? = try? Task.sleep(for: Self.dwell)
+        // 声明会放预切片段：服务端开了「片段预切」就只给切好的小文件（没切好为 null），没开照旧给原片
         let fetched = try? await api.reelsPreview(mediaItemId: request.mediaItemId, source: request.source.rawValue,
-                                                  season: request.season, episode: request.episode)
+                                                  season: request.season, episode: request.episode, modes: "seek,clip")
         guard !Task.isCancelled, let item = fetched ?? nil else { return }
         // 停稳一小会儿再补字节、建播放器：一路按方向键划过去时只取了地址，不白下索引（几 MB）
         let elapsed = clock.now - shownAt
@@ -199,8 +202,11 @@ final class TVStagePreview {
     }
 
     private func startPlayer(_ item: API.ReelItemView, api: APIClient) {
-        guard let player = try? ReelPlayer(item: item, stagePreview: true) else { return }
-        player.core.volume = 0
+        let made: TVStagePlayback? = item.play.mode == "clip"
+            ? TVStageClipPlayer(item: item, api: api)
+            : try? ReelPlayer(item: item, stagePreview: true)
+        guard let player = made else { return }
+        player.volume = 0
         player.onStateChange = { [weak self] state in self?.handle(state) }
         player.onFirstFrame = { [weak self] in
             self?.framed = true
@@ -210,7 +216,7 @@ final class TVStagePreview {
             guard let self, !self.loaded else { return }
             #if DEBUG
             // 开发期：量预起耗时（装载发出 → 停在起点）与引擎各阶段，模拟器 / 真机日志里核对各种片源起播快不快
-            if let player {
+            if let player = player as? ReelPlayer {
                 let stages = player.stageMs.sorted { $0.value < $1.value }.map { "\($0.key)=\($0.value)" }.joined(separator: " ")
                 NSLog("[TVStagePreview] 预起完成 %@ disc=%@ start=%.1fs 引擎位置=%.1fs 引擎片长=%.0fs｜%@", item.title.name,
                       item.play.disc ?? "file", Double(item.segment.startMs) / 1000, player.core.currentTime, player.core.duration ?? -1, stages)
@@ -220,9 +226,9 @@ final class TVStagePreview {
             self.startIfReady()
         }
         self.player = player
-        engineView = player.core.view
+        engineView = player.view
         // 装载到起点停着（预起）：开播时只差「播放」
-        player.start(api: api, autoplay: false)
+        player.preroll(api: api)
     }
 
     private func handle(_ state: ReelPlayer.State) {
@@ -256,13 +262,13 @@ final class TVStagePreview {
     }
 
     /// 声音 1.5 秒内从 0 渐入到原音量
-    private func rampVolume(_ player: ReelPlayer) {
+    private func rampVolume(_ player: TVStagePlayback) {
         volumeRamp?.cancel()
         volumeRamp = Task { [weak player] in
             for step in 1 ... 15 {
                 try? await Task.sleep(for: .milliseconds(100))
                 guard !Task.isCancelled, let player else { return }
-                player.core.volume = Float(step) / 15
+                player.volume = Float(step) / 15
             }
         }
     }
@@ -285,7 +291,8 @@ final class TVStagePreview {
     private func prefetch(_ item: API.ReelItemView, api: APIClient) {
         // 和播放器的打开、探测并行，把索引与起点的头 1 MB 先下进片源字节缓存（同刷片的冷起播补字节）；
         // 进正片播放器时同一个文件的字节也直接复用
-        guard let raw = item.play.streamUrl, let url = api.server.resolve(raw),
+        // 预切片段是十几 MB 的小文件，不用补字节
+        guard item.play.mode != "clip", let raw = item.play.streamUrl, let url = api.server.resolve(raw),
               let key = ReelPlayer.cacheKey(for: item) else { return }
         AetherPlayback.preconnect(url: url, headers: ["User-Agent": APIClient.userAgent])
         for range in item.play.prefetch where range.purpose == "index" || range.purpose == "start" {

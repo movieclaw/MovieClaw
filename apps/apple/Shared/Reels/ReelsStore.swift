@@ -35,6 +35,11 @@ final class ReelsStore {
     /// 服务器还没有片段接口（版本比 App 旧，`/reels` 返回 404）：页面提示升级服务器，而不是报「加载失败」
     private(set) var serverOutdated = false
     private(set) var exhausted = false
+    /// 服务端开了「片段预切」时的进度（docs/design/reels.md §8）：只出切好的，空态与刷到底的提示读它；
+    /// nil = 没开预切，刷的是原片
+    private(set) var clips: API.ReelClipProgressView?
+    /// 刷到底时末尾那一页（「没有更多了」）的标识：滑到它就像滑走了一条，收掉当前的播放器
+    static let endPageID = "reels-end"
     private(set) var player: ReelPlayer?
     private(set) var playerState: ReelPlayer.State = .loading
     private(set) var firstFrameShown = false
@@ -153,8 +158,9 @@ final class ReelsStore {
             seed = page.seed
             nextOffset = page.nextOffset
             exhausted = !page.hasMore
+            clips = page.clips
             let known = Set(items.map(\.id))
-            let fresh = page.items.filter { $0.play.mode == "seek" && !known.contains($0.id) }
+            let fresh = page.items.filter { ["seek", "clip"].contains($0.play.mode) && !known.contains($0.id) }
             // 第一条的剧照马上要显示：随列表一起拉（服务端返回这一页时已在后台压好前 3 张）
             if items.isEmpty, let first = fresh.first, let url = stillURL(for: first) {
                 FirstScreenImages.warm([url], urgent: true)
@@ -179,6 +185,10 @@ final class ReelsStore {
 
     /// 滑动停稳：当前条变了就换播放器。下一条预起好了（`standby`）就直接接着放，否则现建引擎
     func settle() {
+        if currentID == Self.endPageID {
+            leaveCurrent(deferTeardown: true)
+            return
+        }
         guard let id = currentID, player?.item.id != id,
               let index = items.firstIndex(where: { $0.id == id }) else { return }
         // 旧的先停声、稍后再拆：拆引擎要在主线程上花几十毫秒，正赶在滑动收尾时会顿一下

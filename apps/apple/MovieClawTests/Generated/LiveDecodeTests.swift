@@ -192,6 +192,9 @@ struct LiveDecodeTests {
     @Test func reelsFeed() async throws {
         try await LiveServer.check { try await $0.reelsFeed() }
     }
+    @Test func reelsClipsStats() async throws {
+        try await LiveServer.check { try await $0.reelsClipsStats() }
+    }
     @Test func reelsFacets() async throws {
         try await LiveServer.check { try await $0.reelsFacets() }
     }

@@ -318,11 +318,12 @@ class McApi(private val transport: ApiTransport) {
     }
 
     /** 大图预告：一部片停留后原地播放的那一段（`GET /reels/preview/{media_item_id}`） */
-    suspend fun reelsPreview(mediaItemId: Long, source: String? = null, season: Long? = null, episode: Long? = null): ReelItemView? {
+    suspend fun reelsPreview(mediaItemId: Long, source: String? = null, season: Long? = null, episode: Long? = null, modes: String? = null): ReelItemView? {
         val query = buildList<Pair<String, String>> {
             source?.let { add("source" to it.toString()) }
             season?.let { add("season" to it.toString()) }
             episode?.let { add("episode" to it.toString()) }
+            modes?.let { add("modes" to it.toString()) }
         }
         return transport.send("GET", "/reels/preview/${mediaItemId}", query, null, serializer<ReelItemView?>(), enveloped = true)
     }

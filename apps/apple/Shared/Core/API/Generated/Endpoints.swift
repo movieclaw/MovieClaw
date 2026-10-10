@@ -2153,6 +2153,18 @@ nonisolated extension APIClient {
         return try await send("GET", "/reels", query: query)
     }
 
+    /// 片段预切：删除全部已切片段
+    /// `DELETE /reels/clips`
+    func reelsClipsClear() async throws -> API.ReelClipStatsView {
+        return try await send("DELETE", "/reels/clips")
+    }
+
+    /// 片段预切：已切片段的数量与占用空间
+    /// `GET /reels/clips/stats`
+    func reelsClipsStats() async throws -> API.ReelClipStatsView {
+        return try await send("GET", "/reels/clips/stats")
+    }
+
     /// 刷片：上报事件
     /// `POST /reels/events`
     func reelsEvents(body: API.ReelEventBatch) async throws -> API.ReelEventResult {
@@ -2180,11 +2192,12 @@ nonisolated extension APIClient {
 
     /// 大图预告：一部片停留后原地播放的那一段
     /// `GET /reels/preview/{media_item_id}`
-    func reelsPreview(mediaItemId: Int, source: String? = nil, season: Int? = nil, episode: Int? = nil) async throws -> API.ReelItemView? {
+    func reelsPreview(mediaItemId: Int, source: String? = nil, season: Int? = nil, episode: Int? = nil, modes: String? = nil) async throws -> API.ReelItemView? {
         var query: [URLQueryItem] = []
         if let source { query.append(URLQueryItem(name: "source", value: "\(source)")) }
         if let season { query.append(URLQueryItem(name: "season", value: "\(season)")) }
         if let episode { query.append(URLQueryItem(name: "episode", value: "\(episode)")) }
+        if let modes { query.append(URLQueryItem(name: "modes", value: "\(modes)")) }
         return try await send("GET", "/reels/preview/\(mediaItemId)", query: query)
     }
 
@@ -2867,6 +2880,7 @@ nonisolated extension APIClient {
 // - GET /api/v1/playback/sessions/{session_id}/sub{index}.m3u8（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/sessions/{session_id}/{name}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/push/images/{token}（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/reels/clips/{file_id}/{start_ms}.mp4（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/search/torrents/stream（无响应模型：文件流/SSE 等，需手写）
 // - POST /api/v1/sessions/attachments（multipart 表单上传，需手写）
 // - GET /api/v1/sessions/{session_id}/attachments/{attachment_id}（无响应模型：文件流/SSE 等，需手写）

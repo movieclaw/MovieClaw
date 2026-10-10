@@ -1804,6 +1804,7 @@ data class PlaybackPolicyPayload(
     @SerialName("software_transcode_enabled") val softwareTranscodeEnabled: Boolean? = null,
     @SerialName("trickplay_enabled") val trickplayEnabled: Boolean? = null,
     @SerialName("transcode_cache_enabled") val transcodeCacheEnabled: Boolean? = null,
+    @SerialName("reel_clips_enabled") val reelClipsEnabled: Boolean? = null,
 )
 
 /**
@@ -1816,6 +1817,8 @@ data class PlaybackPolicyView(
     @SerialName("software_transcode_enabled") val softwareTranscodeEnabled: Boolean = false,
     @SerialName("trickplay_enabled") val trickplayEnabled: Boolean = false,
     @SerialName("transcode_cache_enabled") val transcodeCacheEnabled: Boolean = false,
+    @SerialName("reel_clips_enabled") val reelClipsEnabled: Boolean? = null,
+    @SerialName("reel_clips_progress") val reelClipsProgress: ReelClipProgressView? = null,
     @SerialName("hardware_available") val hardwareAvailable: Boolean = false,
     @SerialName("hw_backends") val hwBackends: List<String> = emptyList(),
 )
@@ -1945,6 +1948,25 @@ data class ReelByteRangeView(
     @SerialName("purpose") val purpose: String = "",
 )
 
+/**
+ * 片段预切的进度（只在开关开着、App 会放 clip 时给）。
+ */
+@Serializable
+data class ReelClipProgressView(
+    /**
+     * 当前筛选下切好了几部（刷片只出这些）
+     */
+    @SerialName("ready") val ready: Long = 0,
+    /**
+     * 当前筛选下一共几部
+     */
+    @SerialName("total") val total: Long = 0,
+    /**
+     * running 还在切 / paused 因播放暂停 / done 能切的都切完了（剩下的切不了）
+     */
+    @SerialName("state") val state: String = "",
+)
+
 @Serializable
 data class ReelEpisodeView(
     /**
@@ -1997,18 +2019,27 @@ data class ReelPersonView(
 )
 
 /**
- * 怎么放这一条。mode=seek：自研引擎打开原片、从 segment.start_ms 起播。
+ * 怎么放这一条。mode=seek：自研引擎打开原片、从 segment.start_ms 起播；
+ * mode=clip：放预切好的小文件（clip_url，从 0 起播，第 0 秒对应原片 segment.start_ms）。
  */
 @Serializable
 data class ReelPlayView(
     /**
-     * 放法：seek=从原片中间起播（一期仅此一种）
+     * 放法：seek=从原片中间起播；clip=放预切好的片段文件（App 用 modes 声明会放才会收到）
      */
     @SerialName("mode") val mode: String = "",
     /**
-     * seek：原片取流地址（带 /api/v1 的相对路径，含令牌）
+     * 原片取流地址（带 /api/v1 的相对路径，含令牌）。seek 从它起播；clip 时给「接着看」转正片用
      */
     @SerialName("stream_url") val streamUrl: String? = null,
+    /**
+     * clip：预切片段地址（带 /api/v1 的相对路径，含令牌，支持 Range）。1080p H.264 SDR + AAC 立体声的 MP4，系统播放器直接放
+     */
+    @SerialName("clip_url") val clipUrl: String? = null,
+    /**
+     * clip：片段文件大小
+     */
+    @SerialName("clip_size_bytes") val clipSizeBytes: Long? = null,
     /**
      * seek：原片大小（片源字节缓存的键要用）
      */

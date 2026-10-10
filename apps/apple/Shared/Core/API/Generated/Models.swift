@@ -7849,11 +7849,13 @@ nonisolated extension API {
         var softwareTranscodeEnabled: Bool?
         var trickplayEnabled: Bool?
         var transcodeCacheEnabled: Bool?
+        var reelClipsEnabled: Bool?
 
         enum CodingKeys: String, CodingKey {
             case softwareTranscodeEnabled = "software_transcode_enabled"
             case trickplayEnabled = "trickplay_enabled"
             case transcodeCacheEnabled = "transcode_cache_enabled"
+            case reelClipsEnabled = "reel_clips_enabled"
         }
     }
 
@@ -7864,6 +7866,8 @@ nonisolated extension API {
         var softwareTranscodeEnabled: Bool
         var trickplayEnabled: Bool
         var transcodeCacheEnabled: Bool
+        var reelClipsEnabled: Bool?
+        var reelClipsProgress: API.ReelClipProgressView?
         var hardwareAvailable: Bool
         var hwBackends: [String]
 
@@ -7871,6 +7875,8 @@ nonisolated extension API {
             case softwareTranscodeEnabled = "software_transcode_enabled"
             case trickplayEnabled = "trickplay_enabled"
             case transcodeCacheEnabled = "transcode_cache_enabled"
+            case reelClipsEnabled = "reel_clips_enabled"
+            case reelClipsProgress = "reel_clips_progress"
             case hardwareAvailable = "hardware_available"
             case hwBackends = "hw_backends"
         }
@@ -9051,6 +9057,35 @@ nonisolated extension API {
         }
     }
 
+    /// 片段预切的进度（只在开关开着、App 会放 clip 时给）。
+    struct ReelClipProgressView: Codable, Hashable, Sendable {
+        /// 当前筛选下切好了几部（刷片只出这些）
+        var ready: Int
+        /// 当前筛选下一共几部
+        var total: Int
+        /// running 还在切 / paused 因播放暂停 / done 能切的都切完了（剩下的切不了）
+        var state: String
+
+        enum CodingKeys: String, CodingKey {
+            case ready
+            case total
+            case state
+        }
+    }
+
+    /// 已切片段的总量（关掉「片段预切」前问要不要删）。
+    struct ReelClipStatsView: Codable, Hashable, Sendable {
+        /// 切好的片段数
+        var count: Int
+        /// 占用的磁盘空间（字节）
+        var bytes: Int
+
+        enum CodingKeys: String, CodingKey {
+            case count
+            case bytes
+        }
+    }
+
     struct ReelEpisodeView: Codable, Hashable, Sendable {
         /// 季号
         var season: Int
@@ -9163,12 +9198,15 @@ nonisolated extension API {
         /// 后面还有没有
         var hasMore: Bool
         var items: [API.ReelItemView]
+        /// 片段预切进度；None = 没开预切（或 App 不会放 clip），刷的是原片
+        var clips: API.ReelClipProgressView?
 
         enum CodingKeys: String, CodingKey {
             case seed
             case nextOffset = "next_offset"
             case hasMore = "has_more"
             case items
+            case clips
         }
     }
 
@@ -9205,12 +9243,17 @@ nonisolated extension API {
         }
     }
 
-    /// 怎么放这一条。mode=seek：自研引擎打开原片、从 segment.start_ms 起播。
+    /// 怎么放这一条。mode=seek：自研引擎打开原片、从 segment.start_ms 起播；
+    /// mode=clip：放预切好的小文件（clip_url，从 0 起播，第 0 秒对应原片 segment.start_ms）。
     struct ReelPlayView: Codable, Hashable, Sendable {
-        /// 放法：seek=从原片中间起播（一期仅此一种）
+        /// 放法：seek=从原片中间起播；clip=放预切好的片段文件（App 用 modes 声明会放才会收到）
         var mode: String
-        /// seek：原片取流地址（带 /api/v1 的相对路径，含令牌）
+        /// 原片取流地址（带 /api/v1 的相对路径，含令牌）。seek 从它起播；clip 时给「接着看」转正片用
         var streamUrl: String?
+        /// clip：预切片段地址（带 /api/v1 的相对路径，含令牌，支持 Range）。1080p H.264 SDR + AAC 立体声的 MP4，系统播放器直接放
+        var clipUrl: String?
+        /// clip：片段文件大小
+        var clipSizeBytes: Int?
         /// seek：原片大小（片源字节缓存的键要用）
         var sizeBytes: Int?
         /// seek：光盘的交付方式（同正片会话 decision.disc）——image=光盘镜像，stream_url 是镜像原字节；folder=原盘目录（BDMV / VIDEO_TS），按 GET /playback/files/{file_id}/disc 的清单（含主播放列表）逐个文件取；None=普通文件
@@ -9225,6 +9268,8 @@ nonisolated extension API {
         enum CodingKeys: String, CodingKey {
             case mode
             case streamUrl = "stream_url"
+            case clipUrl = "clip_url"
+            case clipSizeBytes = "clip_size_bytes"
             case sizeBytes = "size_bytes"
             case disc
             case audioOrdinal = "audio_ordinal"
