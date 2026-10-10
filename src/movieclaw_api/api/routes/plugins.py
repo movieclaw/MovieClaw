@@ -631,7 +631,8 @@ class PluginSourceView(BaseModel):
         description="源码位置：应用源码按 src/… 显示（系统模块带行号），数据目录里的按 data/…"
     )
     entry: str | None = Field(
-        default=None, description="入口：系统模块是函数，官方 / 本地插件是模块"
+        default=None,
+        description="入口名称：系统模块是函数名（如 downloads()），官方 / 本地插件是入口模块名",
     )
 
 

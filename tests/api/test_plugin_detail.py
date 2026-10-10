@@ -167,11 +167,11 @@ def test_detail_says_where_the_code_lives(app_env) -> None:
     with start() as client:
         system = detail(client, "downloads")["source"]
         assert system["path"].startswith("src/movieclaw_api/plugins/domains.py:")
-        assert system["entry"] == "movieclaw_api.plugins.domains.downloads"
+        assert system["entry"] == "downloads()"
 
         local = detail(client, "acme-detail")["source"]
         assert local == {"path": "data/plugins/acme_detail.py", "entry": "acme_detail"}
 
         official = detail(client, "weixin-channel")["source"]
         assert official["path"].startswith("src/") and "weixin" in official["path"]
-        assert official["entry"]
+        assert official["entry"] and "." not in official["entry"]

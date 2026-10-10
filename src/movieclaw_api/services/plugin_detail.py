@@ -270,7 +270,10 @@ def _source(
         folder = pkg.version_dir(settings, entry_id, record.version)
         return {"path": _display_path(folder, settings), "entry": None}
     if kind == "official" and shipped is not None:
-        return {"path": _display_path(shipped.path, settings), "entry": shipped.module}
+        return {
+            "path": _display_path(shipped.path, settings),
+            "entry": shipped.manifest.plugin.entry,
+        }
     if kind == "local":
         from movieclaw_api.plugins.local import local_specs, plugins_dir
 
@@ -293,9 +296,10 @@ def _source(
         return None
     if file is None:
         return None
+    # 名称只放函数名：模块就是 path 里那个文件，再写一遍点号形式像是第二个路径
     return {
         "path": f"{_display_path(Path(file), settings)}:{line}",
-        "entry": f"{apply.__module__}.{apply.__qualname__}",
+        "entry": f"{apply.__qualname__}()",
     }
 
 
