@@ -1589,6 +1589,9 @@ export interface LibraryEpisode {
 export interface SeasonEpisodes {
   season_number: number;
   episodes: LibraryEpisode[];
+  /** 本季接着看的那一集（同首页「接下来继续」规则），分集区按它锁定集段；本季没播放过、
+   *  分享页（访客没有观看记录）为 null */
+  resume_episode: number | null;
 }
 
 /** 剧集条目一季的分集清单（分集横滚区数据源）。 */

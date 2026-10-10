@@ -91,6 +91,14 @@ import { invalidateLibraryDetailSnapshot } from "@/lib/library-detail-snapshot";
 import { refreshItemConfirm, rereadItemNfoConfirm } from "@/lib/library-confirm";
 import { usePermissions } from "@/lib/permissions";
 import { formatDateTime, formatRelativeTime } from "@/lib/time";
+import {
+  type EpisodeRange,
+  episodeRangeLabel,
+  episodeRanges,
+  rangeContaining,
+  rangeEntry,
+  seasonAnchor,
+} from "@/lib/episode-ranges";
 import { useTheme } from "@/lib/ui-prefs";
 import { usePageTitle } from "@/lib/use-page-title";
 import { useVisiblePolling } from "@/lib/use-visible-polling";
@@ -1742,8 +1750,13 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
   const [data, setData] = useState<SeasonEpisodes | null>(null);
   const [failed, setFailed] = useState(false);
   const [selected, setSelected] = useState<number | null>(null);
+  const [panelOpen, setPanelOpen] = useState(false);
   const sectionRef = useRef<HTMLElement>(null);
   const initialEpisodeScrolled = useRef(false);
+  // 程序改选中集（进页、换段、面板点格子、锚点变了）后要把横排滚到它；
+  // 用户在横排里直接点卡不滚
+  const rowScrollTarget = useRef<number | null>(null);
+  const [rowScrollNonce, setRowScrollNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -1763,6 +1776,13 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
                 (episode) => episode.episode_number === initialEpisode && episode.owned,
               )
             : undefined;
+        // 分段的长季落在接着看的那一集（锚点）；不分段的季保持原样：第一集在库内容
+        if (episodeRanges(result.episodes.map((e) => e.episode_number)).length > 0) {
+          const target = requested?.episode_number ?? seasonAnchor(result);
+          rowScrollTarget.current = target;
+          setSelected(target);
+          return;
+        }
         const first = requested ?? result.episodes.find((e) => e.owned) ?? result.episodes[0];
         setSelected(first?.episode_number ?? null);
       })
@@ -1787,15 +1807,27 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
 
   // Hero 的对勾改了当前集的观看状态：只换分集数据（进度条 / 绿色对勾跟上），
   // 不走上面那条会重置选中集的加载路径。首次渲染（refreshKey=0）不拉。
+  // 分段的长季锚点变了（看完 1050 → 1051）就选中新锚点、段跟过去；没变不动用户的浏览。
   useEffect(() => {
     if (!refreshKey) return;
     let cancelled = false;
+    const previousResume = data?.season_number === season ? data.resume_episode : undefined;
     (fetchEpisodes
       ? fetchEpisodes(detail.media_item_id, season)
       : getItemEpisodes(libraryId, detail.media_item_id, season)
     )
       .then((result) => {
-        if (!cancelled && result.season_number === season) setData(result);
+        if (cancelled || result.season_number !== season) return;
+        setData(result);
+        if (
+          previousResume !== undefined &&
+          result.resume_episode !== previousResume &&
+          episodeRanges(result.episodes.map((e) => e.episode_number)).length > 0
+        ) {
+          const anchor = seasonAnchor(result);
+          rowScrollTarget.current = anchor;
+          setSelected(anchor);
+        }
       })
       // 拉不到就保持旧数据，下次换季自然刷新
       .catch(() => undefined);
@@ -1843,6 +1875,50 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
   );
   const ownedCount = data ? data.episodes.filter((e) => e.owned).length : 0;
 
+  // 长季分段（超过 50 集）：横排只放选中集所在的那一段；≤50 集 ranges 为空，一切照旧
+  const ranges = useMemo(
+    () => (data ? episodeRanges(data.episodes.map((e) => e.episode_number)) : []),
+    [data],
+  );
+  const anchor = useMemo(
+    () => (data && ranges.length > 0 ? seasonAnchor(data) : null),
+    [data, ranges],
+  );
+  const currentRange =
+    ranges.length > 0
+      ? ((selected != null ? rangeContaining(ranges, selected) : undefined) ?? ranges[0])
+      : null;
+  const currentRangePos = currentRange ? ranges.indexOf(currentRange) : -1;
+  const rowEpisodes = useMemo(
+    () =>
+      data && currentRange
+        ? data.episodes.filter(
+            (e) => e.episode_number >= currentRange.first && e.episode_number <= currentRange.last,
+          )
+        : (data?.episodes ?? []),
+    [data, currentRange],
+  );
+  const selectEpisode = (episodeNumber: number) => {
+    rowScrollTarget.current = episodeNumber;
+    setSelected(episodeNumber);
+    // 选的就是当前集（面板里点回原来那一格）时 selected 不变，靠它触发滚动
+    setRowScrollNonce((n) => n + 1);
+  };
+  // 手动换段：段里有锚点选锚点，否则段首
+  const selectRange = (range: EpisodeRange) => selectEpisode(rangeEntry(range, anchor));
+
+  // 程序改了选中集：横排（只横向，不带动整页纵向滚动）把那张卡滚到中间
+  useEffect(() => {
+    const target = rowScrollTarget.current;
+    if (target == null || target !== selected) return;
+    const card = sectionRef.current?.querySelector<HTMLElement>(
+      `[data-episode-number="${target}"]`,
+    );
+    if (!card) return;
+    rowScrollTarget.current = null;
+    centerInScroller(card);
+  }, [selected, rowEpisodes, rowScrollNonce]);
+
   // Hero 的简介、文件、分辨率和轨道必须与分集区保持同一选择；数据加载或
   // 换季期间先清空，避免短暂显示上一季上一集的信息。
   useEffect(() => {
@@ -1880,12 +1956,33 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
             {seasonLabel(season, ownedSeasons.has(season))}
           </span>
         )}
-        {data && (
-          <span className="tnum text-sub text-[var(--text-faint)]">
-            在库 {ownedCount} / {data.episodes.length} 集
-          </span>
-        )}
+        {data &&
+          (ranges.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => setPanelOpen(true)}
+              className="tnum ml-auto flex shrink-0 items-center gap-0.5 text-sub text-[var(--text-muted)] transition hover:text-white"
+            >
+              全部 {data.episodes.length} 集
+              <ChevronRightIcon className="size-3.5" />
+            </button>
+          ) : (
+            <span className="tnum text-sub text-[var(--text-faint)]">
+              在库 {ownedCount} / {data.episodes.length} 集
+            </span>
+          ))}
       </div>
+
+      {/* 集段胶囊：选中段实心，锚点段右上角橙点 */}
+      {data && ranges.length > 0 && (
+        <EpisodeRangeChips
+          ranges={ranges}
+          active={currentRange}
+          anchor={anchor}
+          onSelect={selectRange}
+          className="mb-3"
+        />
+      )}
 
       {failed && (
         <p className="text-sub text-[var(--text-muted)]">分集信息加载失败，请稍后重试。</p>
@@ -1901,17 +1998,264 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
           走 HScroller 以复用发现页海报行的左右翻页钮，避免用户看不出这行可横滑。 */}
       {data && (
         <HScroller className="-mx-1 gap-3 px-1 pb-1 pt-1">
-          {data.episodes.map((episode) => (
+          {currentRangePos > 0 && (
+            <RangeEdgeCard
+              dir={-1}
+              range={ranges[currentRangePos - 1]}
+              onSelect={selectRange}
+            />
+          )}
+          {rowEpisodes.map((episode) => (
             <EpisodeCard
               key={episode.episode_number}
               episode={episode}
               selected={episode.episode_number === selected}
+              resume={episode.episode_number === anchor}
               onSelect={() => setSelected(episode.episode_number)}
             />
           ))}
+          {currentRangePos >= 0 && currentRangePos < ranges.length - 1 && (
+            <RangeEdgeCard
+              dir={1}
+              range={ranges[currentRangePos + 1]}
+              onSelect={selectRange}
+            />
+          )}
         </HScroller>
       )}
+
+      {panelOpen && data && (
+        <AllEpisodesPanel
+          episodes={data.episodes}
+          ranges={ranges}
+          anchor={anchor}
+          selected={selected}
+          ownedCount={ownedCount}
+          onClose={() => setPanelOpen(false)}
+          onPick={(episodeNumber) => {
+            setPanelOpen(false);
+            selectEpisode(episodeNumber);
+          }}
+        />
+      )}
     </section>
+  );
+}
+
+/** 把横滚容器里的某一项滚到容器中间；只动容器自己的 scrollLeft，不带动整页 */
+function centerInScroller(item: HTMLElement) {
+  const scroller = item.parentElement;
+  if (!scroller) return;
+  const box = scroller.getBoundingClientRect();
+  const rect = item.getBoundingClientRect();
+  scroller.scrollLeft += rect.left - box.left - (box.width - rect.width) / 2;
+}
+
+/** 集段胶囊横排：选中段实心，锚点所在段右上角橙点（只标这一种状态） */
+function EpisodeRangeChips({
+  ranges,
+  active,
+  anchor,
+  onSelect,
+  className = "",
+}: {
+  ranges: EpisodeRange[];
+  active: EpisodeRange | null;
+  anchor: number | null;
+  onSelect: (range: EpisodeRange) => void;
+  className?: string;
+}) {
+  const anchorRange = anchor != null ? rangeContaining(ranges, anchor) : undefined;
+  const rowRef = useRef<HTMLDivElement>(null);
+  // 选中段的胶囊滚到中间（打开、换段都跟上）
+  useEffect(() => {
+    const chip = rowRef.current?.querySelector<HTMLElement>(
+      `[data-range-index="${active?.index}"]`,
+    );
+    if (chip) centerInScroller(chip);
+  }, [active?.index]);
+  return (
+    <div ref={rowRef} className={className}>
+      <HScroller className="-mx-1 gap-2 px-1 py-0.5">
+        {ranges.map((range) => {
+          const on = range.index === active?.index;
+          return (
+            <button
+              key={range.index}
+              type="button"
+              data-range-index={range.index}
+              aria-pressed={on}
+              onClick={() => onSelect(range)}
+              className={`tnum relative shrink-0 whitespace-nowrap rounded-full px-3 py-1.5 text-sub transition ${
+                on
+                  ? "bg-white font-semibold text-black"
+                  : "bg-white/[0.06] text-[var(--text-muted)] hover:bg-white/[0.1] hover:text-white"
+              }`}
+            >
+              {episodeRangeLabel(range)}
+              {range.index === anchorRange?.index && (
+                <span
+                  aria-label="接着看在这一段"
+                  className="absolute right-1.5 top-1 size-1.5 rounded-full bg-[#ffb340]"
+                />
+              )}
+            </button>
+          );
+        })}
+      </HScroller>
+    </div>
+  );
+}
+
+/** 横排首尾的「← 上一段 / 下一段 →」小卡，高度与分集剧照对齐 */
+function RangeEdgeCard({
+  dir,
+  range,
+  onSelect,
+}: {
+  dir: -1 | 1;
+  range: EpisodeRange;
+  onSelect: (range: EpisodeRange) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(range)}
+      className="tnum flex h-[112.5px] w-[96px] shrink-0 flex-col items-center justify-center gap-0.5 self-start rounded-xl bg-white/[0.04] text-caption text-[var(--text-muted)] ring-1 ring-white/[0.08] transition hover:text-white hover:ring-white/35"
+    >
+      <span>{dir === -1 ? "← 上一段" : "下一段 →"}</span>
+      <span className="text-[var(--text-faint)]">{episodeRangeLabel(range)}</span>
+    </button>
+  );
+}
+
+/**
+ * 「全部分集」面板：一排段胶囊 + 数字宫格（网页 10 列、手机 5 列）。
+ * 打开时落在锚点所在的段，锚点格子描橙边并滚到可见；点格子由调用方关面板、选中那一集。
+ */
+function AllEpisodesPanel({
+  episodes,
+  ranges,
+  anchor,
+  selected,
+  ownedCount,
+  onClose,
+  onPick,
+}: {
+  episodes: LibraryEpisode[];
+  ranges: EpisodeRange[];
+  anchor: number | null;
+  selected: number | null;
+  ownedCount: number;
+  onClose: () => void;
+  onPick: (episodeNumber: number) => void;
+}) {
+  const [range, setRange] = useState(
+    () => (anchor != null ? rangeContaining(ranges, anchor) : undefined) ?? ranges[0],
+  );
+  const gridRef = useRef<HTMLDivElement>(null);
+  const cells = episodes.filter(
+    (e) => e.episode_number >= range.first && e.episode_number <= range.last,
+  );
+
+  // 锚点在这一段就把它滚到宫格中间（第 50 集在宫格最底下，不滚看不见）
+  useEffect(() => {
+    const grid = gridRef.current;
+    const hit = grid?.querySelector<HTMLElement>("[data-anchor]");
+    if (!grid) return;
+    if (!hit) {
+      grid.scrollTop = 0;
+      return;
+    }
+    const box = grid.getBoundingClientRect();
+    const rect = hit.getBoundingClientRect();
+    grid.scrollTop += rect.top - box.top - (box.height - rect.height) / 2;
+  }, [range]);
+
+  return (
+    <Modal open onClose={onClose} label="全部分集" width="2xl" panelClassName="flex max-h-[80vh] flex-col">
+      <div className="flex items-center gap-2 px-5 pb-1 pt-4">
+        <h2 className="text-body-lg font-semibold text-[var(--text)]">全部分集</h2>
+        <span className="tnum text-caption text-[var(--text-faint)]">
+          在库 {ownedCount} / {episodes.length}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          className="ml-auto text-sub text-[var(--text-muted)] transition hover:text-white"
+        >
+          完成
+        </button>
+      </div>
+      <EpisodeRangeChips
+        ranges={ranges}
+        active={range}
+        anchor={anchor}
+        onSelect={setRange}
+        className="px-5 pt-2"
+      />
+      <div
+        ref={gridRef}
+        className="grid min-h-0 flex-1 grid-cols-10 content-start gap-2 overflow-y-auto scroll-thin px-5 pb-5 pt-3 max-md:grid-cols-5"
+      >
+        {cells.map((episode) => (
+          <EpisodeCell
+            key={episode.episode_number}
+            episode={episode}
+            anchor={episode.episode_number === anchor}
+            selected={episode.episode_number === selected}
+            onPick={() => onPick(episode.episode_number)}
+          />
+        ))}
+      </div>
+    </Modal>
+  );
+}
+
+/** 宫格的一格：已看 ✓、看了一半底部进度条、缺集虚线、锚点橙边、选中实心 */
+function EpisodeCell({
+  episode,
+  anchor,
+  selected,
+  onPick,
+}: {
+  episode: LibraryEpisode;
+  anchor: boolean;
+  selected: boolean;
+  onPick: () => void;
+}) {
+  const progress = episode.position_ms > 0 ? (episode.progress_percent ?? null) : null;
+  return (
+    <button
+      type="button"
+      data-cell-episode={episode.episode_number}
+      data-anchor={anchor ? "" : undefined}
+      aria-pressed={selected}
+      aria-label={`第 ${episode.episode_number} 集${episode.owned ? "" : "（缺集）"}${
+        episode.played ? "（已看完）" : ""
+      }`}
+      onClick={onPick}
+      className={`tnum relative h-11 overflow-hidden rounded-[10px] text-ui transition ${
+        selected
+          ? "bg-white font-semibold text-black"
+          : !episode.owned
+            ? "border border-dashed border-white/[0.18] text-[var(--text-faint)] hover:border-white/35"
+            : episode.played
+              ? "bg-white/[0.03] text-[var(--text-muted)] hover:bg-white/[0.08]"
+              : "bg-white/[0.07] text-[var(--text)] hover:bg-white/[0.12]"
+      } ${anchor ? "shadow-[inset_0_0_0_2px_#ffb340]" : ""}`}
+    >
+      {episode.episode_number}
+      {episode.played && (
+        <CheckIcon className="pointer-events-none absolute right-1 top-1 size-2.5 stroke-[3] text-[var(--ok)]" />
+      )}
+      {progress != null && (
+        <span
+          className="pointer-events-none absolute bottom-0 left-0 h-[3px] bg-[var(--accent-2)]"
+          style={{ width: `${progress}%` }}
+        />
+      )}
+    </button>
   );
 }
 
@@ -1923,10 +2267,13 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
 function EpisodeCard({
   episode,
   selected,
+  resume = false,
   onSelect,
 }: {
   episode: LibraryEpisode;
   selected: boolean;
+  /** 接着看的那一集（只在分段的长季标）：左上角「接着看」 */
+  resume?: boolean;
   onSelect: () => void;
 }) {
   // 看完 = 满条绿；看一半 = 百分比蓝；有记录但算不出百分比（无时长）给
@@ -1963,6 +2310,11 @@ function EpisodeCard({
             </span>
           }
         />
+        {resume && (
+          <span className="pointer-events-none absolute left-1.5 top-1.5 rounded bg-[#ffb340] px-1.5 py-px text-micro font-bold text-black">
+            接着看
+          </span>
+        )}
         {/* 右上角状态位：缺集与已看对勾同排（看过之后文件丢了两者会同时出现） */}
         {(!episode.owned || episode.played) && (
           <div className="pointer-events-none absolute right-1.5 top-1.5 flex items-center gap-1">
