@@ -20,10 +20,42 @@ nonisolated extension APIClient {
         return try await send("PUT", "/app/config", body: body)
     }
 
+    /// 功能目录与开关状态（停用的功能各端不出入口）
+    /// `GET /app/features`
+    func appFeaturesList() async throws -> [API.FeatureView] {
+        return try await send("GET", "/app/features")
+    }
+
+    /// 停用 / 开启一个功能：运行中生效，重启后保持
+    /// `PUT /app/features/{key}`
+    func appFeaturesSet(key: String, body: API.FeatureSwitchPayload) async throws -> API.FeatureView {
+        return try await send("PUT", "/app/features/\(key)", body: body)
+    }
+
     /// 插件诊断：各插件的状态、启动耗时、失败原因与契约
     /// `GET /app/plugins`
     func appPluginsList() async throws -> API.PluginsView {
         return try await send("GET", "/app/plugins")
+    }
+
+    /// 插件开放的回调地址（外部平台调进来的地址，密钥打码）
+    /// `GET /app/plugins/callbacks`
+    func appPluginsCallbacksList(plugin: String? = nil) async throws -> [API.CallbackKeyView] {
+        var query: [URLQueryItem] = []
+        if let plugin { query.append(URLQueryItem(name: "plugin", value: "\(plugin)")) }
+        return try await send("GET", "/app/plugins/callbacks", query: query)
+    }
+
+    /// 作废一个回调地址（外部平台再调进来一律 404）
+    /// `DELETE /app/plugins/callbacks/{key_id}`
+    func appPluginsCallbacksRevoke(keyId: Int) async throws -> Void {
+        let _: API.JSONValue? = try await send("DELETE", "/app/plugins/callbacks/\(keyId)")
+    }
+
+    /// 换一个回调地址：旧地址立即失效，返回新地址（要重新填到平台后台）
+    /// `POST /app/plugins/callbacks/{key_id}/rotate`
+    func appPluginsCallbacksRotate(keyId: Int) async throws -> API.CallbackIssuedView {
+        return try await send("POST", "/app/plugins/callbacks/\(keyId)/rotate")
     }
 
     /// 忽略一条可靠事件死信（不再重放）
@@ -661,6 +693,14 @@ nonisolated extension APIClient {
     /// `POST /downloaders`
     func dlAdd(body: API.DownloaderPayload) async throws -> API.DownloaderView {
         return try await send("POST", "/downloaders", body: body)
+    }
+
+    /// 这些媒体库文件来自哪些下载器任务（文件已删除也能查，删片后清理用）
+    /// `GET /downloaders/file-sources`
+    func dlFileSourcesList(fileIds: String) async throws -> [API.FileTorrentView] {
+        var query: [URLQueryItem] = []
+        query.append(URLQueryItem(name: "file_ids", value: "\(fileIds)"))
+        return try await send("GET", "/downloaders/file-sources", query: query)
     }
 
     /// 识别手动搜索结果并预演媒体库与监听导入投递目录
@@ -1357,9 +1397,10 @@ nonisolated extension APIClient {
 
     /// 从磁盘彻底删除条目（整个刮削目录：视频+NFO+海报+字幕一起清除）
     /// `DELETE /libraries/{library_id}/items/{media_item_id}`
-    func libraryItemsDelete(libraryId: Int, mediaItemId: Int, dryRun: Bool? = nil) async throws -> API.ItemDeleteResultView {
+    func libraryItemsDelete(libraryId: Int, mediaItemId: Int, dryRun: Bool? = nil, options: String? = nil) async throws -> API.ItemDeleteResultView {
         var query: [URLQueryItem] = []
         if let dryRun { query.append(URLQueryItem(name: "dry_run", value: "\(dryRun)")) }
+        if let options { query.append(URLQueryItem(name: "options", value: "\(options)")) }
         return try await send("DELETE", "/libraries/\(libraryId)/items/\(mediaItemId)", query: query)
     }
 
@@ -1387,6 +1428,14 @@ nonisolated extension APIClient {
         return try await send("POST", "/libraries/\(libraryId)/items/\(mediaItemId)/chapter-images")
     }
 
+    /// 删除前预览：媒体库将删除什么，以及删除弹窗里的附加选项（各自勾上会发生什么）
+    /// `GET /libraries/{library_id}/items/{media_item_id}/delete-preview`
+    func libraryItemsDeletePreview(libraryId: Int, mediaItemId: Int, fileId: Int? = nil) async throws -> API.ItemDeletePreviewView {
+        var query: [URLQueryItem] = []
+        if let fileId { query.append(URLQueryItem(name: "file_id", value: "\(fileId)")) }
+        return try await send("GET", "/libraries/\(libraryId)/items/\(mediaItemId)/delete-preview", query: query)
+    }
+
     /// 剧集条目一季的分集清单（集名/简介/剧照 + 拥有状态，分集横滚区数据源）
     /// `GET /libraries/{library_id}/items/{media_item_id}/episodes`
     func libraryItemsListEpisodes(libraryId: Int, mediaItemId: Int, seasonNumber: Int) async throws -> API.SeasonEpisodesView {
@@ -1397,9 +1446,10 @@ nonisolated extension APIClient {
 
     /// 从磁盘删除条目的单个文件（含同名 NFO/字幕/图片附属文件）
     /// `DELETE /libraries/{library_id}/items/{media_item_id}/files/{file_id}`
-    func libraryItemsDeleteFile(libraryId: Int, mediaItemId: Int, fileId: Int, dryRun: Bool? = nil) async throws -> API.ItemDeleteResultView {
+    func libraryItemsDeleteFile(libraryId: Int, mediaItemId: Int, fileId: Int, dryRun: Bool? = nil, options: String? = nil) async throws -> API.ItemDeleteResultView {
         var query: [URLQueryItem] = []
         if let dryRun { query.append(URLQueryItem(name: "dry_run", value: "\(dryRun)")) }
+        if let options { query.append(URLQueryItem(name: "options", value: "\(options)")) }
         return try await send("DELETE", "/libraries/\(libraryId)/items/\(mediaItemId)/files/\(fileId)", query: query)
     }
 
@@ -2524,9 +2574,10 @@ nonisolated extension APIClient {
 
     /// 列出当前账号可见的电影和剧集订阅
     /// `GET /subscriptions`
-    func subscriptionsList(kind: String? = nil) async throws -> [API.SubscriptionView] {
+    func subscriptionsList(kind: String? = nil, mediaItemId: Int? = nil) async throws -> [API.SubscriptionView] {
         var query: [URLQueryItem] = []
         if let kind { query.append(URLQueryItem(name: "kind", value: "\(kind)")) }
+        if let mediaItemId { query.append(URLQueryItem(name: "media_item_id", value: "\(mediaItemId)")) }
         return try await send("GET", "/subscriptions", query: query)
     }
 

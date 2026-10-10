@@ -9,6 +9,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
+import { DeleteFollowUps, DeleteOptions, useDeletePreview } from "@/components/library-delete-options";
 import { AddToCollectionDialog } from "@/components/add-to-collection-dialog";
 import { useHeroEdgeColor } from "@/lib/hero-edge-color";
 import { ArtworkPickerDialog } from "@/components/artwork-picker-dialog";
@@ -2651,12 +2652,15 @@ function DeleteDialog({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ItemDeleteResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const deletePreview = useDeletePreview(open, libraryId, detail.media_item_id);
 
   useEffect(() => {
     if (open) {
       setConfirmed(false);
       setResult(null);
       setError(null);
+      setSelected(new Set());
     }
   }, [open]);
 
@@ -2664,7 +2668,7 @@ function DeleteDialog({
     setBusy(true);
     setError(null);
     try {
-      setResult(await deleteLibraryItem(libraryId, detail.media_item_id));
+      setResult(await deleteLibraryItem(libraryId, detail.media_item_id, [...selected]));
     } catch (err) {
       setError(err instanceof Error ? err.message : "删除失败，请稍后重试");
     } finally {
@@ -2700,6 +2704,7 @@ function DeleteDialog({
             <p className="mt-3 text-sub text-[var(--text-muted)]">
               已清理 {result.rows_deleted} 条台账，释放 {formatBytes(result.freed_bytes)}。
             </p>
+            <DeleteFollowUps items={result.follow_ups ?? []} />
             <div className="mt-5 flex justify-end">
               <button
                 type="button"
@@ -2735,6 +2740,13 @@ function DeleteDialog({
                 </p>
               ))}
             </div>
+            <DeleteOptions
+              preview={deletePreview.preview}
+              error={deletePreview.error}
+              selected={selected}
+              onToggle={(key) => setSelected((prev) => toggled(prev, key))}
+              disabled={busy}
+            />
             <label className="mt-4 flex cursor-pointer items-start gap-2.5 text-sub leading-6 text-white/80">
               <input
                 type="checkbox"
@@ -2797,6 +2809,8 @@ function DeleteFileDialog({
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<ItemDeleteResult | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const deletePreview = useDeletePreview(file != null, libraryId, detail.media_item_id, file?.id);
   // 条目在本库只剩这一行台账（含 missing 行）→ 后端会升级为整条目删除
   const isLast = detail.files.length === 1;
 
@@ -2805,6 +2819,7 @@ function DeleteFileDialog({
       setConfirmed(false);
       setResult(null);
       setError(null);
+      setSelected(new Set());
     }
   }, [file]);
 
@@ -2814,7 +2829,7 @@ function DeleteFileDialog({
     setBusy(true);
     setError(null);
     try {
-      setResult(await deleteLibraryFile(libraryId, detail.media_item_id, file.id));
+      setResult(await deleteLibraryFile(libraryId, detail.media_item_id, file.id, [...selected]));
     } catch (err) {
       setError(err instanceof Error ? err.message : "删除失败，请稍后重试");
     } finally {
@@ -2852,6 +2867,7 @@ function DeleteFileDialog({
             <p className="mt-3 text-sub text-[var(--text-muted)]">
               已清理 {result.rows_deleted} 条台账，释放 {formatBytes(result.freed_bytes)}。
             </p>
+            <DeleteFollowUps items={result.follow_ups ?? []} />
             <div className="mt-5 flex justify-end">
               <button
                 type="button"
@@ -2906,6 +2922,15 @@ function DeleteFileDialog({
             <p className="mt-3 text-caption leading-5 text-[var(--text-faint)]">
               若该作品有订阅且删除后此单元不再有其他拷贝，订阅会将其视为缺失并自动重新下载。
             </p>
+            {!file.missing && (
+              <DeleteOptions
+                preview={deletePreview.preview}
+                error={deletePreview.error}
+                selected={selected}
+                onToggle={(key) => setSelected((prev) => toggled(prev, key))}
+                disabled={busy}
+              />
+            )}
             <label className="mt-4 flex cursor-pointer items-start gap-2.5 text-sub leading-6 text-white/80">
               <input
                 type="checkbox"
@@ -2943,6 +2968,13 @@ function DeleteFileDialog({
       </div>
     </Modal>
   );
+}
+
+function toggled(set: Set<string>, key: string): Set<string> {
+  const next = new Set(set);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  return next;
 }
 
 /** 「合集」那一行最多摆几个，再多的收进「还有 N 个」。 */

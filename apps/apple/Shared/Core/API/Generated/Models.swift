@@ -521,10 +521,16 @@ nonisolated extension API {
     struct BlockedBy: Codable, Hashable, Sendable {
         var key: String
         var reason: String
+        /// 提供这个服务的插件；没有插件提供为空
+        var provider: String?
+        /// 提供方当前的状态
+        var providerState: String?
 
         enum CodingKeys: String, CodingKey {
             case key
             case reason
+            case provider
+            case providerState = "provider_state"
         }
     }
 
@@ -690,6 +696,59 @@ nonisolated extension API {
         }
     }
 
+    struct CallbackIssuedView: Codable, Hashable, Sendable {
+        var id: Int
+        var endpoint: String
+        var scope: String
+        /// 完整地址，填到平台后台；只在这里出现一次
+        var url: String
+        /// 是否带上了外部访问地址；为 false 时要先在设置里配外部访问地址
+        var absolute: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case endpoint
+            case scope
+            case url
+            case absolute
+        }
+    }
+
+    struct CallbackKeyView: Codable, Hashable, Sendable {
+        var id: Int
+        /// 插件条目 id
+        var entryId: String
+        /// 端点名
+        var endpoint: String
+        /// 归属：plugin / account:<通道>:<账号> / entity:<类型>:<id>
+        var scope: String
+        /// 地址（密钥打码；要完整地址就换一个新的）
+        var url: String
+        var createdAt: String
+        /// 插件在运行、端点已登记（否则调进来回 503）
+        var running: Bool
+        /// 本次启动以来的调用次数
+        var calls: Int
+        /// 本次启动以来插件回 401 / 403 的次数（验证没通过）
+        var failures: Int
+        var lastCalledAt: String?
+        var lastStatus: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case entryId = "entry_id"
+            case endpoint
+            case scope
+            case url
+            case createdAt = "created_at"
+            case running
+            case calls
+            case failures
+            case lastCalledAt = "last_called_at"
+            case lastStatus = "last_status"
+        }
+    }
+
     /// 目录项：一个系统支持的可配置站点。
     struct CatalogItem: Codable, Hashable, Sendable {
         var siteId: String
@@ -827,6 +886,8 @@ nonisolated extension API {
         var qr: String
         var inputLabel: String?
         var account: API.ChannelAccountView?
+        var callbackUrl: String?
+        var callbackNote: String
 
         enum CodingKeys: String, CodingKey {
             case bindingId = "binding_id"
@@ -839,6 +900,8 @@ nonisolated extension API {
             case qr
             case inputLabel = "input_label"
             case account
+            case callbackUrl = "callback_url"
+            case callbackNote = "callback_note"
         }
     }
 
@@ -885,6 +948,8 @@ nonisolated extension API {
         var receive: Bool
         /// 推送能带配图
         var photo: Bool
+        /// 靠平台回调收消息：绑定后要把给出的回调地址填到平台后台，且服务器要能从外网访问
+        var webhook: Bool
         var binding: API.ChannelBindingSpecView
 
         enum CodingKeys: String, CodingKey {
@@ -894,6 +959,7 @@ nonisolated extension API {
             case entryId = "entry_id"
             case receive
             case photo
+            case webhook
             case binding
         }
     }
@@ -1552,6 +1618,54 @@ nonisolated extension API {
             case error
             case attempts
             case createdAt = "created_at"
+        }
+    }
+
+    /// 一个勾选的删除选项建出的后续任务（docs/design/library-boundary.md §3.4）。
+    struct DeleteFollowUpView: Codable, Hashable, Sendable {
+        /// 删除选项的键，如 downloads:remove-source
+        var option: String
+        var label: String
+        var jobId: String
+
+        enum CodingKeys: String, CodingKey {
+            case option
+            case label
+            case jobId = "job_id"
+        }
+    }
+
+    /// 删除弹窗里的一个附加选项（别的模块登记的删除参与方）；默认一律不勾。
+    struct DeleteOptionView: Codable, Hashable, Sendable {
+        /// 勾选时传给删除接口 options 的键
+        var key: String
+        var label: String
+        /// 后果说明
+        var help: String
+        /// 这次能不能勾
+        var available: Bool
+        /// 不能勾的原因
+        var reason: String?
+        /// 勾上会发生什么（按这次要删的文件算）
+        var lines: [API.DeletePreviewLineView]
+
+        enum CodingKeys: String, CodingKey {
+            case key
+            case label
+            case help
+            case available
+            case reason
+            case lines
+        }
+    }
+
+    struct DeletePreviewLineView: Codable, Hashable, Sendable {
+        var text: String
+        var tone: String
+
+        enum CodingKeys: String, CodingKey {
+            case text
+            case tone
         }
     }
 
@@ -3280,6 +3394,48 @@ nonisolated extension API {
         }
     }
 
+    struct FeatureSwitchPayload: Codable, Hashable, Sendable {
+        /// true 开启，false 停用
+        var enabled: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case enabled
+        }
+    }
+
+    struct FeatureView: Codable, Hashable, Sendable {
+        var key: String
+        var title: String
+        var description: String
+        /// 组成这个功能的内置插件条目 id
+        var entries: [String]
+        /// 去哪里设置它（站内路径）
+        var settingsHref: String?
+        /// 能不能在插件页停用
+        var switchable: Bool
+        /// 当前是否开启（被停用或被管理员硬覆盖关掉都算关）
+        var enabled: Bool
+        /// 被 data/plugins.yaml / 环境变量关掉时的原因：开关锁住，要在那里改回来
+        var lockedBy: String?
+        /// 停用时间（ISO 8601 UTC）；开启着为空
+        var changedAt: String?
+        /// 谁停用的；开启着为空
+        var changedBy: String?
+
+        enum CodingKeys: String, CodingKey {
+            case key
+            case title
+            case description
+            case entries
+            case settingsHref = "settings_href"
+            case switchable
+            case enabled
+            case lockedBy = "locked_by"
+            case changedAt = "changed_at"
+            case changedBy = "changed_by"
+        }
+    }
+
     struct FeishuBindPayload: Codable, Hashable, Sendable {
         /// 飞书自定义机器人 Webhook 地址
         var webhookUrl: String
@@ -3305,6 +3461,41 @@ nonisolated extension API {
             case kind
             case label
             case detail
+        }
+    }
+
+    /// 一组媒体库文件背后的一个下载器任务（docs/design/library-boundary.md §5）。
+    struct FileTorrentView: Codable, Hashable, Sendable {
+        var infoHash: String
+        /// 承载它的下载器；下载器配置已删除时为空
+        var downloaderId: Int?
+        var downloaderName: String?
+        /// 种子标题（订阅投递的才知道）
+        var title: String?
+        /// subscription（订阅投递）/ file（只有文件来源记录）
+        var source: String
+        /// 投递它的订阅
+        var subscriptionId: Int?
+        /// 是否 MovieClaw 投递的；不是或不知道时删种前要格外小心
+        var ownedByMovieclaw: Bool?
+        /// 是否有 H&R 考核风险
+        var hitAndRun: Bool?
+        /// 问到的文件里来自这个种子的
+        var fileIds: [Int]
+        /// 同一个种子还供着的、还在媒体库里的别的文件；非空时删种会连带毁掉它们
+        var otherFileIds: [Int]
+
+        enum CodingKeys: String, CodingKey {
+            case infoHash = "info_hash"
+            case downloaderId = "downloader_id"
+            case downloaderName = "downloader_name"
+            case title
+            case source
+            case subscriptionId = "subscription_id"
+            case ownedByMovieclaw = "owned_by_movieclaw"
+            case hitAndRun = "hit_and_run"
+            case fileIds = "file_ids"
+            case otherFileIds = "other_file_ids"
         }
     }
 
@@ -3993,6 +4184,8 @@ nonisolated extension API {
         var operations: [String]
         var operationDetails: [API.OperationDetailView]
         var paths: [[String: String]]
+        /// 开放的回调端点名
+        var callbacks: [String]
         var previousVersion: String?
         /// 激活失败过、已自动回滚的版本
         var badVersions: [String]
@@ -4011,6 +4204,7 @@ nonisolated extension API {
             case operations
             case operationDetails = "operation_details"
             case paths
+            case callbacks
             case previousVersion = "previous_version"
             case badVersions = "bad_versions"
             case state
@@ -4034,6 +4228,24 @@ nonisolated extension API {
         }
     }
 
+    /// 删除前的完整预览：媒体库自己的计划 + 各删除选项。
+    struct ItemDeletePreviewView: Codable, Hashable, Sendable {
+        /// 是否整部删除（删单文件但它是最后一个文件时也是）
+        var wholeItem: Bool
+        /// 媒体库将删除的路径与台账行（演练）
+        var plan: API.ItemDeleteResultView
+        /// 要删的文件里与别处是同一份数据（硬链接）的字节数：只删库文件不会释放这部分空间
+        var linkedBytes: Int
+        var options: [API.DeleteOptionView]
+
+        enum CodingKeys: String, CodingKey {
+            case wholeItem = "whole_item"
+            case plan
+            case linkedBytes = "linked_bytes"
+            case options
+        }
+    }
+
     /// 条目真实删除的结论。
     struct ItemDeleteResultView: Codable, Hashable, Sendable {
         /// 实际从磁盘删除的目录/文件（演练时为将要删除的）
@@ -4043,6 +4255,8 @@ nonisolated extension API {
         var errors: [String]
         /// 是否只是演练（什么都没删）
         var dryRun: Bool
+        /// 勾选的删除选项各建了一个后续任务，删除提交后执行；按 job_id 跟进结果
+        var followUps: [API.DeleteFollowUpView]?
 
         enum CodingKeys: String, CodingKey {
             case removedPaths = "removed_paths"
@@ -4050,6 +4264,7 @@ nonisolated extension API {
             case freedBytes = "freed_bytes"
             case errors
             case dryRun = "dry_run"
+            case followUps = "follow_ups"
         }
     }
 
@@ -4523,7 +4738,7 @@ nonisolated extension API {
         var missing: Bool
         /// 生命周期：in_place 在位 / missing 缺失 / trashed 待回收
         var state: String
-        /// 待回收的预计自动清理时间；null 且 trashed = 做种保护，不自动删
+        /// 待回收的预计自动清理时间；null = 不自动删（2026-08-17 之前的旧数据）
         var purgeAfter: String?
         /// 待回收原因（中文整句，含触发方），文件区直接展示
         var trashNote: String?
@@ -6661,6 +6876,10 @@ nonisolated extension API {
         var paths: [[String: String]]
         /// 相比当前已安装版本新增的路径申请
         var newPaths: [[String: String]]
+        /// 要开放的回调端点名：外部平台能不登录直接调进来的地址，批准页单独列出
+        var callbacks: [String]
+        /// 相比当前已安装版本新增的
+        var newCallbacks: [String]
         var requires: [String: String]
         var installedVersion: String?
         /// 与随带的内置插件同 id：安装即替换它，卸载后随带版本回来
@@ -6677,6 +6896,8 @@ nonisolated extension API {
             case operationDetails = "operation_details"
             case paths
             case newPaths = "new_paths"
+            case callbacks
+            case newCallbacks = "new_callbacks"
             case requires
             case installedVersion = "installed_version"
             case replacesBuiltin = "replaces_builtin"
@@ -7957,6 +8178,8 @@ nonisolated extension API {
         var disposeMs: Double?
         var unsettled: Bool
         var stats: API.PluginStats
+        /// 内置插件在插件页的分层：官方插件（可被插件包替换，替换它的插件包也算）/ 系统模块（默认不展示，异常时浮出）；其余第三方与本地插件为空（docs/design/plugin-page-tiers.md）
+        var tier: String?
         /// 插件自己报告的运行状况（PLUGIN_HEALTH）
         var health: [API.HealthView]
         /// 插件数据行数（PLUGIN_DATA）
@@ -7987,6 +8210,7 @@ nonisolated extension API {
             case disposeMs = "dispose_ms"
             case unsettled
             case stats
+            case tier
             case health
             case dataRows = "data_rows"
             case group
@@ -11420,6 +11644,8 @@ nonisolated extension API {
         var units: [[Int]]
         /// 库里记着来自这个种子的文件
         var fileIds: [Int]
+        /// 同一个种子还供着的别的文件（其他条目 / 没识别的文件，跨库）；非空时删种会连带毁掉它们
+        var otherFileIds: [Int]
 
         enum CodingKeys: String, CodingKey {
             case infoHash = "info_hash"
@@ -11434,6 +11660,7 @@ nonisolated extension API {
             case status
             case units
             case fileIds = "file_ids"
+            case otherFileIds = "other_file_ids"
         }
     }
 

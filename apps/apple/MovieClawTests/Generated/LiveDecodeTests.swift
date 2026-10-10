@@ -9,8 +9,14 @@ struct LiveDecodeTests {
     @Test func appShow() async throws {
         try await LiveServer.check { try await $0.appShow() }
     }
+    @Test func appFeaturesList() async throws {
+        try await LiveServer.check { try await $0.appFeaturesList() }
+    }
     @Test func appPluginsList() async throws {
         try await LiveServer.check { try await $0.appPluginsList() }
+    }
+    @Test func appPluginsCallbacksList() async throws {
+        try await LiveServer.check { try await $0.appPluginsCallbacksList() }
     }
     @Test func appPluginsPackagesList() async throws {
         try await LiveServer.check { try await $0.appPluginsPackagesList() }

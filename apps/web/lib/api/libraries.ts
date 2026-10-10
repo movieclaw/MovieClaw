@@ -1627,6 +1627,57 @@ export interface ItemDeleteResult {
   rows_deleted: number;
   freed_bytes: number;
   errors: string[];
+  /** 勾选的删除选项各建了一个后续任务，删除提交后执行（旧服务端没有这个字段） */
+  follow_ups?: DeleteFollowUp[];
+}
+
+export interface DeleteFollowUp {
+  option: string;
+  label: string;
+  job_id: string;
+}
+
+export interface DeletePreviewLine {
+  text: string;
+  tone: "info" | "warn" | "danger";
+}
+
+/** 删除弹窗里的附加选项（别的模块登记的删除参与方，如下载模块的「同时删除下载任务和源文件」）；默认一律不勾 */
+export interface DeleteOption {
+  key: string;
+  label: string;
+  help: string;
+  available: boolean;
+  reason: string | null;
+  lines: DeletePreviewLine[];
+}
+
+/** 删除前预览：媒体库自己的计划 + 附加选项（docs/design/library-boundary.md §3） */
+export interface ItemDeletePreview {
+  whole_item: boolean;
+  plan: ItemDeleteResult;
+  /** 要删的文件里与别处是同一份数据（硬链接）的字节数：只删库文件不会释放这部分空间 */
+  linked_bytes: number;
+  options: DeleteOption[];
+}
+
+export function getDeletePreview(
+  libraryId: number,
+  mediaItemId: number,
+  fileId?: number,
+): Promise<ItemDeletePreview> {
+  const query = fileId != null ? `?file_id=${fileId}` : "";
+  return unwrap(
+    request<ApiEnvelope<ItemDeletePreview>>(
+      `/libraries/${libraryId}/items/${mediaItemId}/delete-preview${query}`,
+    ),
+  );
+}
+
+function optionsQuery(options: string[] | undefined): string {
+  return options && options.length > 0
+    ? `?options=${encodeURIComponent(options.join(","))}`
+    : "";
 }
 
 /** 条目详情：基本信息 + NFO 本地刮削元数据 + 逐文件真实介质规格。 */
@@ -1693,11 +1744,13 @@ export function deleteExternalSubtitle(
 export function deleteLibraryItem(
   libraryId: number,
   mediaItemId: number,
+  options?: string[],
 ): Promise<ItemDeleteResult> {
   return unwrap(
-    request<ApiEnvelope<ItemDeleteResult>>(`/libraries/${libraryId}/items/${mediaItemId}`, {
-      method: "DELETE",
-    }),
+    request<ApiEnvelope<ItemDeleteResult>>(
+      `/libraries/${libraryId}/items/${mediaItemId}${optionsQuery(options)}`,
+      { method: "DELETE" },
+    ),
   );
 }
 
@@ -1738,10 +1791,11 @@ export function deleteLibraryFile(
   libraryId: number,
   mediaItemId: number,
   fileId: number,
+  options?: string[],
 ): Promise<ItemDeleteResult> {
   return unwrap(
     request<ApiEnvelope<ItemDeleteResult>>(
-      `/libraries/${libraryId}/items/${mediaItemId}/files/${fileId}`,
+      `/libraries/${libraryId}/items/${mediaItemId}/files/${fileId}${optionsQuery(options)}`,
       { method: "DELETE" },
     ),
   );

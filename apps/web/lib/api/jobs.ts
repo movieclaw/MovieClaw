@@ -101,6 +101,11 @@ export async function listJobs(options: {
   return response.data.items;
 }
 
+export async function getJob(jobId: string): Promise<JobView> {
+  const response = await request<ApiEnvelope<JobView>>(`/jobs/${jobId}`);
+  return response.data;
+}
+
 export async function cancelJob(jobId: string): Promise<JobView> {
   const response = await request<ApiEnvelope<{ cancelled: boolean; job: JobView }>>(
     `/jobs/${jobId}/cancel`,

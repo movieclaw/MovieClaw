@@ -23,6 +23,7 @@ struct DeleteItemSheet: View {
     @State private var busy = false
     @State private var result: API.ItemDeleteResultView?
     @State private var error: String?
+    @State private var options = DeleteOptionsState()
 
     var body: some View {
         NavigationStack {
@@ -56,6 +57,9 @@ struct DeleteItemSheet: View {
         .presentationDetents([.large])
         .interactiveDismissDisabled(busy || result != nil)
         .task { await load() }
+        .task {
+            options = await .load { try await api.libraryItemsDeletePreview(libraryId: libraryId, mediaItemId: mediaItemId) }
+        }
     }
 
     @ViewBuilder
@@ -76,6 +80,9 @@ struct DeleteItemSheet: View {
 
         PathListBox(paths: detail.entryDirs.isEmpty ? detail.files.map(\.filePath) : detail.entryDirs, folderIcon: true)
             .padding(.top, 16)
+
+        DeleteOptionsSection(state: $options, disabled: busy)
+            .padding(.top, 12)
 
         AcknowledgeToggle(isOn: $confirmed, text: "我已明白：以上目录及其中全部文件将被永久删除，无法恢复。")
             .padding(.top, 16)
@@ -112,7 +119,7 @@ struct DeleteItemSheet: View {
         error = nil
         defer { busy = false }
         do {
-            result = try await api.libraryItemsDelete(libraryId: libraryId, mediaItemId: mediaItemId)
+            result = try await api.libraryItemsDelete(libraryId: libraryId, mediaItemId: mediaItemId, options: options.query)
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription.isEmpty ? "删除失败，请稍后重试" : error.localizedDescription
@@ -148,6 +155,7 @@ struct DeleteFileSheet: View {
     @State private var busy = false
     @State private var result: API.ItemDeleteResultView?
     @State private var error: String?
+    @State private var options = DeleteOptionsState()
 
     var body: some View {
         NavigationStack {
@@ -185,6 +193,12 @@ struct DeleteFileSheet: View {
         .presentationDetents([.large])
         .interactiveDismissDisabled(busy || result != nil)
         .task { await load() }
+        .task {
+            guard !file.missing else { return }
+            options = await .load {
+                try await api.libraryItemsDeletePreview(libraryId: libraryId, mediaItemId: mediaItemId, fileId: file.id)
+            }
+        }
     }
 
     @ViewBuilder
@@ -240,6 +254,11 @@ struct DeleteFileSheet: View {
             .foregroundStyle(Theme.textFaint)
             .padding(.top, 12)
 
+        if !file.missing {
+            DeleteOptionsSection(state: $options, disabled: busy)
+                .padding(.top, 12)
+        }
+
         AcknowledgeToggle(
             isOn: $confirmed,
             text: "我已明白：\(isLast ? "整个条目目录及其中全部文件" : "该文件及其同名附属文件")将被永久删除，无法恢复。"
@@ -285,7 +304,9 @@ struct DeleteFileSheet: View {
         error = nil
         defer { busy = false }
         do {
-            result = try await api.libraryItemsDeleteFile(libraryId: libraryId, mediaItemId: mediaItemId, fileId: file.id)
+            result = try await api.libraryItemsDeleteFile(
+                libraryId: libraryId, mediaItemId: mediaItemId, fileId: file.id, options: options.query
+            )
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription.isEmpty ? "删除失败，请稍后重试" : error.localizedDescription
@@ -336,6 +357,167 @@ private struct DeleteResultView: View {
             Text("已清理 \(result.rowsDeleted) 条台账，释放 \(Formatters.bytes(result.freedBytes))。")
                 .font(.subheadline)
                 .foregroundStyle(Theme.textMuted)
+            ForEach(result.followUps ?? [], id: \.jobId) { FollowUpRow(item: $0) }
+        }
+    }
+}
+
+// MARK: - 附加选项（Web `library-delete-options.tsx`，docs/design/library-boundary.md §3）
+
+/// 删除弹窗的附加选项：来自别的模块登记的删除参与方（如下载模块的「同时删除下载任务和源文件」），
+/// 媒体库不认识它们。打开弹层时取一次删除预览；默认一律不勾；预览取不到不挡删除，只是这次没有附加选项。
+struct DeleteOptionsState {
+    var preview: API.ItemDeletePreviewView?
+    var failed = false
+    var selected: Set<String> = []
+
+    /// 勾选的键，传给删除接口；没勾为 nil（旧服务端不认识这个参数也不受影响）
+    var query: String? { selected.isEmpty ? nil : selected.sorted().joined(separator: ",") }
+
+    static func load(_ fetch: () async throws -> API.ItemDeletePreviewView) async -> DeleteOptionsState {
+        var state = DeleteOptionsState()
+        do {
+            state.preview = try await fetch()
+        } catch {
+            state.failed = !(error is CancellationError)
+        }
+        return state
+    }
+}
+
+private struct DeleteOptionsSection: View {
+    @Binding var state: DeleteOptionsState
+    let disabled: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if state.failed {
+                Text("附加选项暂时加载不出来，这次只删除媒体库文件。")
+                    .font(.caption)
+                    .foregroundStyle(Theme.textFaint)
+            } else if let preview = state.preview {
+                if preview.linkedBytes > 0 {
+                    Text("其中 \(Text(Formatters.bytes(preview.linkedBytes)).bold()) 与别处的文件是同一份数据（硬链接）：只删媒体库文件不会释放这部分空间。")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.7))
+                        .monospacedDigit()
+                }
+                ForEach(preview.options, id: \.key) { option in
+                    DeleteOptionRow(
+                        option: option,
+                        isOn: state.selected.contains(option.key),
+                        disabled: disabled
+                    ) {
+                        if state.selected.contains(option.key) {
+                            state.selected.remove(option.key)
+                        } else {
+                            state.selected.insert(option.key)
+                        }
+                    }
+                }
+            } else {
+                HStack(spacing: 8) {
+                    ProgressView().controlSize(.small)
+                    Text("正在检查关联的下载任务…")
+                }
+                .font(.caption)
+                .foregroundStyle(Theme.textFaint)
+            }
+        }
+    }
+}
+
+private struct DeleteOptionRow: View {
+    let option: API.DeleteOptionView
+    let isOn: Bool
+    let disabled: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button(action: toggle) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Image(systemName: isOn && option.available ? "checkmark.square.fill" : "square")
+                        .foregroundStyle(isOn && option.available ? Theme.danger : Theme.textMuted)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(option.label).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text)
+                        if !option.help.isEmpty {
+                            Text(option.help).font(.caption).foregroundStyle(Theme.textFaint)
+                        }
+                    }
+                    .multilineTextAlignment(.leading)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .expandedHitArea(vertical: 6)
+            }
+            .buttonStyle(.plain)
+            .disabled(!option.available || disabled)
+            .opacity(option.available ? 1 : 0.5)
+
+            VStack(alignment: .leading, spacing: 2) {
+                if option.available {
+                    ForEach(option.lines, id: \.text) { line in
+                        Text(line.text).foregroundStyle(Self.color(line.tone))
+                    }
+                } else {
+                    Text("这次不能勾选：\(option.reason ?? "不可用")").foregroundStyle(Theme.textMuted)
+                }
+            }
+            .font(.caption)
+            .padding(.leading, 28)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.03), in: .rect(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.08)))
+    }
+
+    private static func color(_ tone: String) -> Color {
+        switch tone {
+        case "warn": Theme.warning
+        case "danger": Theme.danger
+        default: .white.opacity(0.7)
+        }
+    }
+}
+
+/// 结果页：勾选的选项在后台跑，当场跟进到结束（失败了去「活动 → 任务」重试）
+private struct FollowUpRow: View {
+    let item: API.DeleteFollowUpView
+
+    @Environment(\.api) private var api
+    @State private var job: API.JobView?
+
+    private static let terminal: Set<String> = ["succeeded", "failed", "cancelled"]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(item.label).font(.subheadline.weight(.medium)).foregroundStyle(Theme.text)
+            Text(message).font(.caption).foregroundStyle(job?.status == "failed" ? Theme.danger : Theme.textMuted)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.03), in: .rect(cornerRadius: 12))
+        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.white.opacity(0.08)))
+        .task { await poll() }
+    }
+
+    private var message: String {
+        switch job?.status {
+        case "succeeded": job?.result?["message"]?.stringValue ?? "已完成"
+        case "failed": "没能完成：\(job?.error?["message"]?.stringValue ?? "未知原因")。可在「活动 → 任务」里重试"
+        case "cancelled": "已取消"
+        default: "正在处理…"
+        }
+    }
+
+    private func poll() async {
+        while !Task.isCancelled {
+            if let value = try? await api.jobsShow(jobId: item.jobId) {
+                job = value
+                if Self.terminal.contains(value.status) { return }
+            }
+            try? await Task.sleep(for: .seconds(1.5))
         }
     }
 }
