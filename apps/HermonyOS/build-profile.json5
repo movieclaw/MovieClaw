@@ -1,0 +1,56 @@
+{
+  "app": {
+    "signingConfigs": [
+      {
+        "name": "default",
+        "type": "HarmonyOS",
+        "material": {
+          "certpath": "/Users/dongshu/.ohos/config/default_Movie_Claw_8mOs1o88kcYafrc9K7j-hE9fBMyWi1acGT-cvSQ_1OY=.cer",
+          "keyAlias": "debugKey",
+          "keyPassword": "0000001BCF80256800C4EF4E50C24D663679BB07D305EDCC8BBD36421A9BEE13A5A18E5EB53AB6E6CF99CE",
+          "profile": "/Users/dongshu/.ohos/config/default_Movie_Claw_8mOs1o88kcYafrc9K7j-hE9fBMyWi1acGT-cvSQ_1OY=.p7b",
+          "signAlg": "SHA256withECDSA",
+          "storeFile": "/Users/dongshu/.ohos/config/default_Movie_Claw_8mOs1o88kcYafrc9K7j-hE9fBMyWi1acGT-cvSQ_1OY=.p12",
+          "storePassword": "0000001B9268A2910F9753F7682133C2D31A55AADAFB43E932EBC435E2767B90EBC9BA7E556F185BD44849"
+        }
+      }
+    ],
+    "products": [
+      {
+        "name": "default",
+        "signingConfig": "default",
+        "targetSdkVersion": "6.1.1(24)",
+        "compatibleSdkVersion": "6.1.1(24)",
+        "runtimeOS": "HarmonyOS",
+        "buildOption": {
+          "strictMode": {
+            "caseSensitiveCheck": true,
+            "useNormalizedOHMUrl": true
+          }
+        }
+      }
+    ],
+    "buildModeSet": [
+      {
+        "name": "debug",
+      },
+      {
+        "name": "release"
+      }
+    ]
+  },
+  "modules": [
+    {
+      "name": "entry",
+      "srcPath": "./entry",
+      "targets": [
+        {
+          "name": "default",
+          "applyToProducts": [
+            "default"
+          ]
+        }
+      ]
+    }
+  ]
+}

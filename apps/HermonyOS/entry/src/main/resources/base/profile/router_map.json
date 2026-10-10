@@ -1,0 +1,164 @@
+{
+  "routerMap": [
+    {
+      "name": "libraryDetail",
+      "pageSourceFile": "src/main/ets/library/LibraryDetailPage.ets",
+      "buildFunction": "LibraryDetailBuilder"
+    },
+    {
+      "name": "allCollections",
+      "pageSourceFile": "src/main/ets/library/AllCollectionsPage.ets",
+      "buildFunction": "AllCollectionsBuilder"
+    },
+    {
+      "name": "libraryItem",
+      "pageSourceFile": "src/main/ets/library/LibraryItemDetailPage.ets",
+      "buildFunction": "LibraryItemBuilder"
+    },
+    {
+      "name": "discoverDetail",
+      "pageSourceFile": "src/main/ets/discover/DiscoverDetailPage.ets",
+      "buildFunction": "DiscoverDetailBuilder"
+    },
+    {
+      "name": "person",
+      "pageSourceFile": "src/main/ets/discover/PersonDetailPage.ets",
+      "buildFunction": "PersonDetailBuilder"
+    },
+    {
+      "name": "discoveredPerson",
+      "pageSourceFile": "src/main/ets/discover/DiscoveredPersonPage.ets",
+      "buildFunction": "DiscoveredPersonBuilder"
+    },
+    {
+      "name": "search",
+      "pageSourceFile": "src/main/ets/search/SearchPage.ets",
+      "buildFunction": "SearchBuilder"
+    },
+    {
+      "name": "searchResults",
+      "pageSourceFile": "src/main/ets/search/SearchResultsPage.ets",
+      "buildFunction": "SearchResultsBuilder"
+    },
+    {
+      "name": "profile",
+      "pageSourceFile": "src/main/ets/settings/ProfilePage.ets",
+      "buildFunction": "ProfileBuilder"
+    },
+    {
+      "name": "subscriptionDetail",
+      "pageSourceFile": "src/main/ets/subscriptions/SubscriptionDetailPage.ets",
+      "buildFunction": "SubscriptionDetailBuilder"
+    },
+    {
+      "name": "mediaSourceAnnotation",
+      "pageSourceFile": "src/main/ets/subscriptions/MediaSourceAnnotationPage.ets",
+      "buildFunction": "MediaSourceAnnotationBuilder"
+    },
+    {
+      "name": "upgradeRun",
+      "pageSourceFile": "src/main/ets/subscriptions/UpgradeRunPage.ets",
+      "buildFunction": "UpgradeRunBuilder"
+    },
+    {
+      "name": "subscriptionWall",
+      "pageSourceFile": "src/main/ets/subscriptions/SubscriptionWallPage.ets",
+      "buildFunction": "SubscriptionWallBuilder"
+    },
+    {
+      "name": "ruleSetEditor",
+      "pageSourceFile": "src/main/ets/subscriptions/RuleSetEditorPage.ets",
+      "buildFunction": "RuleSetEditorBuilder"
+    },
+    {
+      "name": "collectionDetail",
+      "pageSourceFile": "src/main/ets/library/CollectionDetailPage.ets",
+      "buildFunction": "CollectionDetailBuilder"
+    },
+    {
+      "name": "issueDrawer",
+      "pageSourceFile": "src/main/ets/library/IssueDrawerPage.ets",
+      "buildFunction": "IssueDrawerBuilder"
+    },
+    {
+      "name": "libraryCreate",
+      "pageSourceFile": "src/main/ets/library/LibraryCreatePage.ets",
+      "buildFunction": "LibraryCreateBuilder"
+    },
+    {
+      "name": "favorites",
+      "pageSourceFile": "src/main/ets/library/FavoritesPage.ets",
+      "buildFunction": "FavoritesBuilder"
+    },
+    {
+      "name": "settings",
+      "pageSourceFile": "src/main/ets/settings/SettingsIndexPage.ets",
+      "buildFunction": "SettingsBuilder"
+    },
+    {
+      "name": "settingsSection",
+      "pageSourceFile": "src/main/ets/settings/SettingsSectionPage.ets",
+      "buildFunction": "SettingsSectionBuilder"
+    },
+    {
+      "name": "player",
+      "pageSourceFile": "src/main/ets/player/PlayerPage.ets",
+      "buildFunction": "PlayerBuilder"
+    },
+    {
+      "name": "chat",
+      "pageSourceFile": "src/main/ets/agent/ChatPage.ets",
+      "buildFunction": "ChatBuilder"
+    },
+    {
+      "name": "torrents",
+      "pageSourceFile": "src/main/ets/search/TorrentResultsPage.ets",
+      "buildFunction": "TorrentResultsBuilder"
+    },
+    {
+      "name": "reels",
+      "pageSourceFile": "src/main/ets/reels/ReelsPage.ets",
+      "buildFunction": "ReelsBuilder"
+    },
+    {
+      "name": "about",
+      "pageSourceFile": "src/main/ets/about/AboutPage.ets",
+      "buildFunction": "AboutBuilder"
+    },
+    {
+      "name": "recycleBin",
+      "pageSourceFile": "src/main/ets/library/RecycleBinPage.ets",
+      "buildFunction": "RecycleBinBuilder"
+    },
+    {
+      "name": "duplicates",
+      "pageSourceFile": "src/main/ets/library/DuplicatesPage.ets",
+      "buildFunction": "DuplicatesBuilder"
+    },
+    {
+      "name": "notices",
+      "pageSourceFile": "src/main/ets/notices/NoticeCenterPage.ets",
+      "buildFunction": "NoticeCenterBuilder"
+    },
+    {
+      "name": "activityTasks",
+      "pageSourceFile": "src/main/ets/activity/ActivityTasksPage.ets",
+      "buildFunction": "ActivityTasksBuilder"
+    },
+    {
+      "name": "activityPlays",
+      "pageSourceFile": "src/main/ets/activity/ActivityPlaysPage.ets",
+      "buildFunction": "ActivityPlaysBuilder"
+    },
+    {
+      "name": "activityStats",
+      "pageSourceFile": "src/main/ets/activity/ActivityStatsPage.ets",
+      "buildFunction": "ActivityStatsBuilder"
+    },
+    {
+      "name": "sharePage",
+      "pageSourceFile": "src/main/ets/share/SharePage.ets",
+      "buildFunction": "SharePageBuilder"
+    }
+  ]
+}
