@@ -235,6 +235,8 @@ data class EpisodeView(
 data class SeasonEpisodesView(
     val seasonNumber: Int = 0,
     val episodes: List<EpisodeView> = emptyList(),
+    /** 本季「接着看」的那一集（服务端 `season_resume_episode`）；没播放过 / 老服务端 / 分享页为 null */
+    val resumeEpisode: Int? = null,
 )
 
 /* ---------------- 筛选面板与跳转索引(P2) ---------------- */

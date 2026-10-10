@@ -142,6 +142,10 @@ import io.movieclaw.android.core.model.PlaybackStateView
 import io.movieclaw.android.core.model.PlaybackMarksRequest
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.flow.update
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTagsAsResourceId
 
 @HiltViewModel
 class ItemDetailViewModel @Inject constructor(
@@ -158,6 +162,8 @@ class ItemDetailViewModel @Inject constructor(
     data class Detail(
         val item: LibraryItemDetailView,
         val episodes: Map<Int, List<EpisodeView>> = emptyMap(),
+        /** 每季「接着看」的锚点（服务端 resume_episode，没有就退回客户端原规则，见 [EpisodeRanges.anchor]） */
+        val anchors: Map<Int, Int?> = emptyMap(),
     )
 
     private val _state = MutableStateFlow<Loadable<Detail>>(Loadable.Loading)
@@ -182,6 +188,7 @@ class ItemDetailViewModel @Inject constructor(
     /** 初始选中（= 服务端续播那一集，iOS 由路由 `?season=&episode=` 带进来，这里由详情自己算） */
     private var seedUnit: SelectedUnit? = null
     private var episodesBySeason: Map<Int, List<EpisodeView>> = emptyMap()
+    private var anchorsBySeason: Map<Int, Int?> = emptyMap()
 
     val origin: String? get() = repository.ui.value.origin
 
@@ -487,23 +494,18 @@ class ItemDetailViewModel @Inject constructor(
             try {
                 val api = apiFactory.forOrigin(origin)
                 val detail = api.libraryItemDetail(libraryId, itemId).dataOrThrow()
-                val episodes = if (detail.kind == "tv") {
-                    detail.seasons.associateWith { season ->
-                        api.seasonEpisodes(libraryId, itemId, season).dataOrThrow().episodes
-                    }
-                } else {
-                    emptyMap()
-                }
-                _state.value = Loadable.Ready(Detail(detail, episodes))
+                val (episodes, anchors) = fetchSeasons(detail)
+                _state.value = Loadable.Ready(Detail(detail, episodes, anchors))
                 episodesBySeason = episodes
-                // 初始选中：服务端续播那一个单元（跨季第一个没看的在库集）。
+                anchorsBySeason = anchors
+                // 初始选中：续播那一季的锚点（长剧分段 §3「进详情页」：段锁在它所在的段）。
                 // 季的回退链照 iOS `SeasonEpisodesSection.currentSeason`：
                 // 续播那季 → 第一个在库的季 → 第一个季
                 val seed = pickResumeEpisode(detail, episodes).takeIf { it.second > 0 }
                     ?: detail.seasons.firstOrNull()?.let { season ->
                         episodes[season]?.firstOrNull()?.let { Triple(season, it.episodeNumber, it.name) }
                     }
-                seedUnit = seed?.let { SelectedUnit(it.first, it.second) }
+                seedUnit = seed?.let { SelectedUnit(it.first, anchors[it.first] ?: it.second) }
                 val ownedSeasons = detail.files.map { it.seasonNumber }.toSet()
                 _selectedSeason.value = seed?.first?.takeIf { episodes.containsKey(it) }
                     ?: detail.seasons.firstOrNull { it in ownedSeasons }
@@ -520,18 +522,50 @@ class ItemDetailViewModel @Inject constructor(
 
     /**
      * 换季：**连带把选中集切到这一季**（iOS `SeasonEpisodesSection.load(reset:)` 同口径）——
-     * 优先「初始续播那一集」（若正好是这一季且在库）、否则这一季第一个没看的在库集、
-     * 再次第一个在库集、最后第一集。只换季不换集的话，播放键会拿「第 3 季 + 第 1 季的那一集」
+     * 落在这一季的锚点（服务端 resume_episode；没有就第一个看了一半的 → 第一个没看的 → 第一集，
+     * 有片源的优先）。只换季不换集的话，播放键会拿「第 3 季 + 第 1 季的那一集」
      * 去起播，服务端找不到就退回第一季——现象与用户报的完全一致。
      */
     fun selectSeason(season: Int) {
         _selectedSeason.value = season
-        val list = episodesBySeason[season].orEmpty()
-        val picked = seedUnit?.takeIf { it.season == season && list.any { e -> e.episodeNumber == it.episode && e.owned } }?.episode
-            ?: list.firstOrNull { !it.played && it.owned }?.episodeNumber
-            ?: list.firstOrNull { it.owned }?.episodeNumber
-            ?: list.firstOrNull()?.episodeNumber
+        val picked = anchorsBySeason[season]
         if (picked != null) _selectedEpisode.value = SelectedUnit(season, picked)
+    }
+
+    /** 手动换段：段里有锚点选锚点，否则段首（段跟着选中集走，不单独存） */
+    fun selectRange(season: Int, range: EpisodeRanges.Range) {
+        _selectedEpisode.value = SelectedUnit(season, EpisodeRanges.entryOf(range, anchorsBySeason[season]))
+    }
+
+    /** 拉每一季的分集，并按 resume_episode 算出每季锚点 */
+    private suspend fun fetchSeasons(
+        detail: LibraryItemDetailView,
+    ): Pair<Map<Int, List<EpisodeView>>, Map<Int, Int?>> {
+        if (detail.kind != "tv") return emptyMap<Int, List<EpisodeView>>() to emptyMap()
+        val api = apiFactory.forOrigin(origin ?: return emptyMap<Int, List<EpisodeView>>() to emptyMap())
+        val views = detail.seasons.associateWith { season ->
+            api.seasonEpisodes(libraryId, itemId, season).dataOrThrow()
+        }
+        return views.mapValues { it.value.episodes } to
+            views.mapValues { EpisodeRanges.anchor(it.value.episodes, it.value.resumeEpisode) }
+    }
+
+    /**
+     * 播放回来 / 回到前台：静默重拉分集（不闪加载态）。当前季锚点变了（看完 1050 → 1051）
+     * 就选中新锚点、段跟着锁过去；没变就不动，保留用户在别的段的浏览。
+     */
+    fun refreshEpisodes() {
+        val ready = (_state.value as? Loadable.Ready)?.value ?: return
+        viewModelScope.launch {
+            val (episodes, anchors) = runCatching { fetchSeasons(ready.item) }.getOrNull() ?: return@launch
+            val current = (_state.value as? Loadable.Ready)?.value ?: return@launch
+            _state.value = Loadable.Ready(current.copy(episodes = episodes, anchors = anchors))
+            episodesBySeason = episodes
+            anchorsBySeason = anchors
+            val season = _selectedSeason.value ?: return@launch
+            EpisodeRanges.afterRefresh(current.anchors[season], anchors[season])
+                ?.let { _selectedEpisode.value = SelectedUnit(season, it) }
+        }
     }
 
     /** 点某一集 = 选中它（播放键、续播点、已看、版本都跟着走，iOS 同款） */
@@ -735,6 +769,11 @@ fun ItemDetailScreen(
         }
     }
 
+    // 播放回来 / 回到前台：静默重拉分集，锚点变了就把选中与集段锁到新锚点（长剧分段 §3）
+    androidx.lifecycle.compose.LifecycleEventEffect(androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+        vm.refreshEpisodes()
+    }
+
     // 只在换条目时拉一次标记（marks 自身变化不能再触发，否则死循环）
     val loadedItemId = (state as? Loadable.Ready)?.value?.item?.mediaItemId
     LaunchedEffect(loadedItemId) {
@@ -806,6 +845,8 @@ fun ItemDetailScreen(
                         // 分集横滚的选中与滚动定位跟着「选中单元」走（受控，不再各存一份）
                         selectedEpisode = selectedUnit?.takeIf { it.season == selectedSeason }?.episode,
                         onPickEpisode = { ep -> vm.selectEpisode(selectedSeason ?: 0, ep) },
+                        anchor = s.value.anchors[selectedSeason],
+                        onPickRange = { range -> vm.selectRange(selectedSeason ?: 0, range) },
                         origin = origin,
                         onPlay = onPlay,
                         libraryId = libraryId,
@@ -1572,6 +1613,10 @@ private fun SeasonSection(
     /** 选中的集号（受控：来自 VM 的选中单元，不再各存一份） */
     selectedEpisode: Int?,
     onPickEpisode: (Int) -> Unit,
+    /** 本季「接着看」的锚点（长剧分段：橙点、「接着看」标、面板落点都以它为准） */
+    anchor: Int?,
+    /** 手动换段（段胶囊 / 横排两头的「上一段 / 下一段」） */
+    onPickRange: (EpisodeRanges.Range) -> Unit,
     origin: String?,
     onPlay: (PlayTarget) -> Unit,
     libraryId: Long,
@@ -1582,7 +1627,15 @@ private fun SeasonSection(
         val name = if (season == 0) "特别篇" else "第 $season 季"
         if (season in ownedSeasons) name else "$name · 未入库"
     }
-    Column(Modifier.padding(vertical = 6.dp)) {
+    // 长剧分段（docs/design/long-season-episode-ranges.md §4）：本季超过 50 集才分段，
+    // 当前段 = 选中那一集所在的段（换段总会连带选中段里的一集，所以不必单独存）
+    val list = episodes[selected] ?: emptyList()
+    val picked = selectedEpisode ?: list.firstOrNull()?.episodeNumber
+    val ranges = remember(list) { EpisodeRanges.of(list) }
+    val segmented = ranges.isNotEmpty()
+    val currentRange = ranges.firstOrNull { picked != null && picked in it } ?: ranges.firstOrNull()
+    var allSheet by remember { mutableStateOf(false) }
+    Column(Modifier.padding(vertical = 6.dp).semantics { testTagsAsResourceId = true }) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
@@ -1641,9 +1694,22 @@ private fun SeasonSection(
             } else {
                 Text(activeSeason?.let(seasonLabel) ?: "", style = McType.sub, color = TextMuted)
             }
-            // 「在库 X / Y 集」（网页/iOS 都有这一行）：一眼看出这一季收了多少
+            // 「在库 X / Y 集」（网页/iOS 都有这一行）：一眼看出这一季收了多少；
+            // 分段时这个位置换成「全部 N 集 ›」（在库数挪进面板标题）
             val seasonEpisodes = episodes[selected].orEmpty()
-            if (seasonEpisodes.isNotEmpty()) {
+            if (segmented) {
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "全部 ${seasonEpisodes.size} 集 ›",
+                    style = McType.caption,
+                    color = TextMuted,
+                    modifier = Modifier
+                        .testTag("ep-all-button")
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { allSheet = true }
+                        .padding(start = 8.dp, top = 5.dp, bottom = 5.dp),
+                )
+            } else if (seasonEpisodes.isNotEmpty()) {
                 Spacer(Modifier.width(10.dp))
                 Text(
                     "在库 ${seasonEpisodes.count { it.owned }} / ${seasonEpisodes.size} 集",
@@ -1653,16 +1719,35 @@ private fun SeasonSection(
             }
         }
 
-        // 分集横滚卡：一季一屏，点一集 = 选中它（播放是详情页那颗播放键，选中的集就是它要播的）
-        val list = episodes[selected] ?: emptyList()
-        val picked = selectedEpisode ?: list.firstOrNull()?.episodeNumber
+        // 段胶囊：横滑，选中段实心、锚点段右上角橙点
+        if (segmented && currentRange != null) {
+            Spacer(Modifier.height(12.dp))
+            EpisodeRangeChips(
+                ranges = ranges,
+                current = currentRange.index,
+                anchor = anchor,
+                onPick = onPickRange,
+                tagPrefix = "ep-range-chip",
+            )
+        }
+
+        // 分集横滚卡：一季一屏（分段时只放当前段），点一集 = 选中它（播放是详情页那颗播放键，选中的集就是它要播的）
+        val shown = currentRange?.episodes ?: list
+        // 「接着看」只标有观看记录的季：一集都没碰过的季，锚点只是退回规则落的第一集，标了是噪音
+        val watched = list.any { it.played || it.positionMs > 0 }
+        val prevRange = currentRange?.let { c -> ranges.getOrNull(ranges.indexOf(c) - 1) }
+        val nextRange = currentRange?.let { c -> ranges.getOrNull(ranges.indexOf(c) + 1) }
         Spacer(Modifier.height(12.dp))
         val strip = rememberLazyListState()
-        // 进页/换季时把选中那一集滚到可见处（续播进来的那一集常常在列表深处，
-        // 不滚的话得手动滑几十屏；网页/iOS 同样会滚到当前集）
-        LaunchedEffect(selected, list.size, picked) {
-            val index = list.indexOfFirst { it.episodeNumber == picked }
-            if (index > 0) strip.animateScrollToItem((index - 1).coerceAtLeast(0))
+        // 进页/换季/换段时把选中那一集滚到可见处（续播进来的那一集常常在列表深处，
+        // 不滚的话得手动滑几十屏；网页/iOS 同样会滚到当前集）。选中的是第一张也要滚回开头——
+        // 换季/换段后横排还停在旧位置（比如 120 集那季的第 70 张），新选中的第 1 集就看不见了
+        LaunchedEffect(selected, currentRange?.index, list.size, picked) {
+            val index = shown.indexOfFirst { it.episodeNumber == picked }
+            if (index >= 0) {
+                val item = index + (if (prevRange != null) 1 else 0)
+                strip.animateScrollToItem((item - 1).coerceAtLeast(0))
+            }
         }
         LazyRow(
             state = strip,
@@ -1670,15 +1755,33 @@ private fun SeasonSection(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
             modifier = Modifier.fillMaxWidth(),
         ) {
-            items(list, key = { it.episodeNumber }) { episode ->
+            prevRange?.let { range ->
+                item(key = "prev") { RangeEdgeCard("← 上一段", range, "ep-edge-prev") { onPickRange(range) } }
+            }
+            items(shown, key = { it.episodeNumber }) { episode ->
                 EpisodeCard(
                     episode = episode,
                     selected = episode.episodeNumber == picked,
                     origin = origin,
                     onSelect = { onPickEpisode(episode.episodeNumber) },
+                    resumeTag = watched && episode.episodeNumber == anchor,
                 )
             }
+            nextRange?.let { range ->
+                item(key = "next") { RangeEdgeCard("下一段 →", range, "ep-edge-next") { onPickRange(range) } }
+            }
         }
+    }
+
+    if (allSheet && segmented) {
+        AllEpisodesSheet(
+            episodes = list,
+            ranges = ranges,
+            anchor = anchor,
+            selected = picked,
+            onPick = { ep -> allSheet = false; onPickEpisode(ep) },
+            onDismiss = { allSheet = false },
+        )
     }
 }
 
@@ -1695,11 +1798,15 @@ private fun EpisodeCard(
     selected: Boolean,
     origin: String?,
     onSelect: () -> Unit,
+    /** 锚点那张卡左上角标「接着看」（本季有观看记录才标，长短季一样；橙点 / 面板橙边不受此限） */
+    resumeTag: Boolean = false,
 ) {
     val progress = if (episode.played) 100f else episode.progressPercent?.toFloat()
     Column(
         Modifier
             .width(200.dp)
+            .testTag("ep-card-${episode.episodeNumber}")
+            .semantics { this.selected = selected }
             .clickable(onClick = onSelect)
             .then(if (episode.owned) Modifier else Modifier.alpha(0.45f)),
     ) {
@@ -1732,6 +1839,7 @@ private fun EpisodeCard(
                     }
                 },
             )
+            if (resumeTag) ResumeTag(Modifier.align(Alignment.TopStart).padding(6.dp))
             // 右上角状态位：缺集与已看对勾同排（看过之后文件丢了两者会同时出现）
             if (!episode.owned || episode.played) {
                 Row(
