@@ -25,6 +25,7 @@ from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from movieclaw_cache import AsyncTTLCache
+from movieclaw_media.library import _english_title, _translation_index
 from movieclaw_media.models import (
     DiscoverLayout,
     DiscoverRowStub,
@@ -42,7 +43,6 @@ from movieclaw_media.models import (
     MediaSource,
     MediaVideo,
 )
-from movieclaw_media.library import _english_title, _translation_index
 from movieclaw_media.tmdb import TmdbClient, TmdbError
 
 logger = logging.getLogger("movieclaw_media.service")
