@@ -51,7 +51,6 @@ from movieclaw_api.schemas.library import (
     ItemCollectionRef,
     ItemDeletePreviewView,
     ItemDeleteResultView,
-    ItemRelationsView,
     LastOrganizeView,
     LastScanView,
     LibraryFacetsView,
@@ -100,7 +99,6 @@ from movieclaw_api.schemas.library import (
     SubtitleDeleteResultView,
     SubtitlePreviewView,
     SubtitleStreamView,
-    TorrentRelationView,
     TrackDefaultsView,
     TransferMoveView,
     TransferPayload,
@@ -3059,54 +3057,6 @@ async def get_item_artwork(
             headers={"Cache-Control": "private, max-age=3600"},
         )
     raise NotFoundException("条目目录里没有本地美术图")
-
-
-@router.get(
-    "/{library_id}/items/{media_item_id}/relations",
-    response_model=ApiResponse[ItemRelationsView],
-    summary="条目背后的订阅与下载器任务（删片前看看会牵动什么）",
-    operation_id="library.items.relations",
-    dependencies=[Depends(require_admin)],
-)
-async def get_item_relations(
-    library_id: int,
-    media_item_id: int,
-    session: AsyncSession = Depends(get_session),
-) -> ApiResponse[ItemRelationsView]:
-    """从订阅下载记录、手动下载意图和文件来源三处汇总，同一个下载器任务只出现一次。
-
-    只读。``owned_by_movieclaw`` 与 ``hit_and_run`` 是删种前最该看的两个字段：不是 MovieClaw
-    投递的种子、或 H&R 未达标的种子，删了可能违反站点规则。
-    """
-    from movieclaw_api.services.library.relations import item_relations
-
-    await _item_rows(session, library_id, media_item_id)
-    relations = await item_relations(session, media_item_id)
-    return ok(
-        ItemRelationsView(
-            media_item_id=media_item_id,
-            subscription_id=relations.subscription_id,
-            subscription_status=relations.subscription_status,
-            torrents=[
-                TorrentRelationView(
-                    info_hash=t.info_hash,
-                    downloader_id=t.downloader_id,
-                    downloader_name=t.downloader_name,
-                    title=t.title,
-                    source=t.source,
-                    site_id=t.site_id,
-                    torrent_id=t.torrent_id,
-                    owned_by_movieclaw=t.owned_by_movieclaw,
-                    hit_and_run=t.hit_and_run,
-                    status=t.status,
-                    units=[list(u) for u in t.units],
-                    file_ids=list(t.file_ids),
-                    other_file_ids=list(t.other_file_ids),
-                )
-                for t in relations.torrents
-            ],
-        )
-    )
 
 
 def _delete_view(result: DeleteResult, *, dry_run: bool = False) -> ItemDeleteResultView:

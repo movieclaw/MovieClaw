@@ -119,6 +119,8 @@ dl add
 dl default
 dl default set
 dl delete
+dl file-sources
+dl file-sources list
 dl limits
 dl limits set
 dl list

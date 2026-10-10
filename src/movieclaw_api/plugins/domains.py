@@ -15,13 +15,16 @@ from movieclaw_kernel import Context, plugin
 async def downloads(ctx: Context) -> None:
     from movieclaw_api.services import (
         download_progress,
+        download_sources,
         media_refresh,
         torrent_matcher,
         torrent_sync,
     )
     from movieclaw_scheduler import contribute_tasks
 
-    contribute_tasks(ctx, download_progress, torrent_sync, torrent_matcher, media_refresh)
+    contribute_tasks(
+        ctx, download_progress, torrent_sync, torrent_matcher, media_refresh, download_sources
+    )
 
 
 @plugin("boost", title="自动刷分享率", inject=(SITE_ACCESS,), disableable=True, reloadable=True)

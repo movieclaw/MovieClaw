@@ -38,6 +38,7 @@ from movieclaw_api.api.routes.collections import router as collections_router
 from movieclaw_api.api.routes.discover import router as discover_router
 from movieclaw_api.api.routes.discover import search_router as title_search_router
 from movieclaw_api.api.routes.discover import ui_router as discovery_ui_router
+from movieclaw_api.api.routes.download_sources import router as download_sources_router
 from movieclaw_api.api.routes.downloaders import router as downloaders_router
 from movieclaw_api.api.routes.downloaders import submit_router as download_submit_router
 from movieclaw_api.api.routes.extension import router as extension_router
@@ -168,6 +169,9 @@ _ADMIN_ROUTERS = [
     system_notices_router,
     # 诊断工单内含下载器地址、路径与订阅明细，与告警同为管理员视角
     agent_handoff_router,
+    # 条目背后的订阅与下载器任务（路径沿用 /libraries/…/relations，种子关联归下载领域）；
+    # 排在下载器路由前：/downloaders/file-sources 不能被 /downloaders/{downloader_id} 先接走
+    download_sources_router,
     downloaders_router,
     llm_router,
     session_router,

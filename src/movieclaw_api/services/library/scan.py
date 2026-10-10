@@ -58,6 +58,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.services import jobs
+from movieclaw_api.services.download_sources import record_source
 from movieclaw_api.services.foreground import yield_to_foreground
 from movieclaw_api.services.library.bluray import (
     disc_playlist_record,
@@ -3099,7 +3100,7 @@ async def _ingest_file(
         [] if is_disc else await discover_external_subtitles_async(file, dir_names)
     )
     assert library.id is not None
-    await repo.upsert_by_path(
+    scanned_row = await repo.upsert_by_path(
         LibraryFile(
             library_id=library.id,
             media_item_id=item_id,
@@ -3148,6 +3149,16 @@ async def _ingest_file(
         # 同路径旧行调用方已经持有（扫描开场的整库快照），不必再查一次
         existing=existing,
     )
+    if torrent:
+        # 原地下载按下载记录的保存路径反查到的来源（种子关联归下载领域，library-boundary.md §5）
+        await record_source(
+            session,
+            scanned_row.id,
+            info_hash=torrent[0],
+            downloader_id=torrent[1],
+            site_id=None,
+            torrent_id=None,
+        )
     if item_id is not None:
         # 库存对账：单元在库成立即关闭对应的订阅工单（订阅止于投递，
         # 完成状态由库存推导；文件回归同样适用）

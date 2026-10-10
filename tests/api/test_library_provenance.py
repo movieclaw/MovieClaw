@@ -21,6 +21,7 @@ from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import _build_config, run_migrations
 from movieclaw_db.models import (
     DownloaderClient,
+    DownloadFileSource,
     FileSource,
     LibraryFile,
     ManualDownloadIntent,
@@ -130,6 +131,16 @@ async def test_scan_records_source_torrent_of_inplace_downloads(db, tmp_path) ->
     assert rows["Test.Show.S01E01.1080p.mkv"].info_hash == "packhash"
     assert rows["Test.Show.S01E01.1080p.mkv"].downloader_id == 1
     assert rows["Unrelated.Show.S01E01.mkv"].info_hash is None
+    # 种子关联归下载领域（library-boundary.md §5）：扫描同时记一份，不知道来源的不记
+    async with db.session() as session:
+        sources = {
+            s.library_file_id: s
+            for s in (await session.execute(select(DownloadFileSource))).scalars()
+        }
+    pack_row = rows["Test.Show.S01E01.1080p.mkv"]
+    assert sources[pack_row.id].info_hash == "packhash"
+    assert sources[pack_row.id].downloader_id == 1
+    assert rows["Unrelated.Show.S01E01.mkv"].id not in sources
 
 
 async def test_rescan_does_not_erase_recorded_source(db, tmp_path) -> None:

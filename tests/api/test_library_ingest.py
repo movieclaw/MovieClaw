@@ -2294,7 +2294,13 @@ async def test_manual_download_identity_claim_via_info_hash(db, tmp_path, monkey
     async with db.session() as session:
         assert (await session.execute(select(ManualDownloadIntent))).scalar_one_or_none() is None
         # 意图用完即删，来源种子落在文件行上（删片联动要靠它找下载器任务）
-        assert (await session.execute(select(LibraryFile))).scalar_one().info_hash == "manualhash"
+        row = (await session.execute(select(LibraryFile))).scalar_one()
+        assert row.info_hash == "manualhash"
+        # 种子关联归下载领域（library-boundary.md §5）：入库桥同时记一份
+        from movieclaw_db.models import DownloadFileSource
+
+        source = (await session.execute(select(DownloadFileSource))).scalar_one()
+        assert source.library_file_id == row.id and source.info_hash == "manualhash"
 
 
 @pytest.mark.asyncio

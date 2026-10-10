@@ -485,6 +485,9 @@ async def pipeline_health_check(
 )
 async def list_subscriptions(
     kind: str | None = Query(default=None, description="movie / tv，缺省全部"),
+    media_item_id: int | None = Query(
+        default=None, description="只看这个媒体条目的订阅（如删除事件里的 media.id）"
+    ),
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[list[SubscriptionView]]:
@@ -494,6 +497,8 @@ async def list_subscriptions(
         kind=kind,
         member_id=None if principal.is_admin else principal.member_id,
     )
+    if media_item_id is not None:
+        rows = [row for row in rows if row[1].id == media_item_id]
     # 收录信息必须以元数据季骨架 + 媒体库实际在位文件为准，不能复用工单进度：
     # 创建订阅前已经在库的集不会生成工单，用工单数会把真实库存漏掉。
     tv_item_ids = list(

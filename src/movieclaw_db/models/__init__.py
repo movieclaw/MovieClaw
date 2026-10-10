@@ -15,6 +15,7 @@ from movieclaw_db.models.cache_entry import CacheEntry
 from movieclaw_db.models.channel_account import ChannelAccount, ChannelAccountStatus
 from movieclaw_db.models.collection import Collection, CollectionItem
 from movieclaw_db.models.domain_event import DomainEvent, EventConsumer, EventDeadLetter
+from movieclaw_db.models.download_file_source import DownloadFileSource
 from movieclaw_db.models.download_hint import DownloadHint
 from movieclaw_db.models.download_target_pref import DownloadTargetPref
 from movieclaw_db.models.downloader_client import ClientType, DownloaderClient
@@ -113,6 +114,7 @@ __all__ = [
     "AppSetting",
     "ClientType",
     "DomainEvent",
+    "DownloadFileSource",
     "DownloadHint",
     "DownloadTargetPref",
     "DownloaderClient",

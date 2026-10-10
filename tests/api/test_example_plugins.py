@@ -168,7 +168,7 @@ CASCADE_YAML = """
   local: true
   runtime: {runtime}
   config: {{delete_files: true, dry_run: {dry_run}}}
-  grants: [subscriptions.delete, dl.torrent.delete]
+  grants: [dl.file-sources.list, subscriptions.list, subscriptions.delete, dl.torrent.delete]
 """
 
 

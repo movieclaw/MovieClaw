@@ -76,6 +76,22 @@ async def recorded(db, name: str | None = None) -> list[dict]:
         ]
 
 
+async def record_sources(session, rows: list[LibraryFile]) -> None:
+    """像入库桥一样把来源记到下载领域（library-boundary.md §5）。"""
+    from movieclaw_api.services.download_sources import record_source
+
+    await session.flush()
+    for row in rows:
+        await record_source(
+            session,
+            row.id,
+            info_hash=row.info_hash,
+            downloader_id=row.downloader_id,
+            site_id=row.site_id,
+            torrent_id=row.torrent_id,
+        )
+
+
 async def seed_show(db, tmp_path: Path, *, info_hash: str = "packhash") -> dict:
     """一部剧两集，季包由订阅投递（自有、非 H&R）；第二集的文件另记着一个来源种子。"""
     root = tmp_path / "media" / "tv"
@@ -126,6 +142,7 @@ async def seed_show(db, tmp_path: Path, *, info_hash: str = "packhash") -> dict:
             )
             session.add(row)
             rows.append(row)
+        await record_sources(session, rows)
         await session.commit()
         return {
             "library_id": library.id,
@@ -233,6 +250,7 @@ async def seed_shared_pack(
             )
             session.add(row)
             rows.append(row)
+        await record_sources(session, rows)
         await session.commit()
         return {
             "library_id": library.id,
@@ -260,8 +278,8 @@ async def test_torrent_shared_with_other_items_is_marked_shared(
 
 
 async def test_relations_list_files_of_other_items_on_the_same_torrent(db, tmp_path) -> None:
-    from movieclaw_api.api.routes.libraries import get_item_relations
-    from movieclaw_api.services.library.relations import item_relations
+    from movieclaw_api.api.routes.download_sources import get_item_relations
+    from movieclaw_api.services.download_sources import item_relations
 
     seeded = await seed_shared_pack(db, tmp_path, other_identified=True)
     async with db.session() as session:

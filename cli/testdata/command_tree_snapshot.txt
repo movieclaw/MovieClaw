@@ -78,6 +78,7 @@ discover region show
 dl add
 dl default set
 dl delete
+dl file-sources list
 dl limits
 dl limits set
 dl list

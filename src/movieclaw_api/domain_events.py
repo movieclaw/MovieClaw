@@ -62,7 +62,7 @@ class TorrentRef(_Frozen):
     downloader_id: int | None = None
     title: str | None = None
     source: str
-    """``subscription`` / ``manual`` / ``file``，见 services/library/relations.py。"""
+    """``subscription`` / ``manual`` / ``file``，见 services/download_sources.py。"""
     site_id: str | None = None
     torrent_id: str | None = None
     owned_by_movieclaw: bool | None = None
@@ -268,7 +268,7 @@ async def deletion_recorder(
         or await durable_events.wanted(session, LIBRARY_FILE_DELETED)
     ):
         return None
-    from movieclaw_api.services.library.relations import item_relations
+    from movieclaw_api.services.download_sources import item_relations
 
     relations = await item_relations(session, item.id)
     snapshots = {row.id: file_ref(row) for row in rows}

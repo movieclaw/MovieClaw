@@ -117,6 +117,7 @@ from sqlmodel import select
 
 from movieclaw_api.pipeline import INGEST_STAGED, StagedFile, enqueue_staged, steps_for
 from movieclaw_api.services import jobs
+from movieclaw_api.services.download_sources import record_source
 from movieclaw_api.services.import_watch_config import rule_target_label
 from movieclaw_api.services.library.bluray import (
     disc_playlist_record,
@@ -2319,7 +2320,7 @@ async def _ingest_entry(
         stat = final.stat()
         disc_site, disc_torrent = provenance(None, None)
         disc_hash, disc_downloader = torrent_of(None, None)
-        await repo.upsert_by_path(
+        disc_row = await repo.upsert_by_path(
             LibraryFile(
                 library_id=dest_library.id,
                 media_item_id=item.id,
@@ -2358,6 +2359,15 @@ async def _ingest_entry(
                 added_batch_id=added_batch_id,
                 origin=origin_for(None, None),
             )
+        )
+        # 种子关联归下载领域（library-boundary.md §5）；台账旧列本版仍双写，供回滚
+        await record_source(
+            session,
+            disc_row.id,
+            info_hash=disc_hash,
+            downloader_id=disc_downloader,
+            site_id=disc_site,
+            torrent_id=disc_torrent,
         )
         await LibraryRepository(session).refresh_stats([dest_library.id])
         # 系列合集：这部片如果属于某个系列，补齐它在本库的那一行（幂等）
@@ -2637,7 +2647,7 @@ async def _ingest_entry(
                 doubt["expected_minutes"],
                 final.name,
             )
-        await repo.upsert_by_path(
+        file_row = await repo.upsert_by_path(
             LibraryFile(
                 library_id=dest_library.id,
                 media_item_id=item.id,
@@ -2674,6 +2684,14 @@ async def _ingest_entry(
                 added_batch_id=added_batch_id,
                 origin=origin_for(file, None if kind is MediaKind.MOVIE else (season, episode)),
             )
+        )
+        await record_source(
+            session,
+            file_row.id,
+            info_hash=stamp_hash,
+            downloader_id=stamp_downloader,
+            site_id=stamp_site,
+            torrent_id=stamp_torrent,
         )
         imported += 1
 
