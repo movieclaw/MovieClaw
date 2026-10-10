@@ -312,15 +312,20 @@ class DemoSite(BaseSite):
         categories: list[TorrentCategory] | None = None,
         page: int = 1,
     ) -> TorrentListPage:
+        # 只有一页：明确告诉客户端没有下一页（has_more），不显示点了也是空的「加载更多」
         if page > 1:
-            return TorrentListPage(items=[], page=page, total_pages=1)
+            return TorrentListPage(items=[], page=page, total_pages=1, has_more=False)
         items = [_item(entry, boost=True) for entry in boost_releases()]
         items += [_item(entry) for entry in load_catalog()]
-        return TorrentListPage(items=items, page=1, total_pages=1)
+        return TorrentListPage(items=items, page=1, total_pages=1, has_more=False)
 
     async def search(self, query: SearchQuery) -> SearchResult:
+        if query.page > 1:
+            return SearchResult(items=[], page=query.page, total_pages=1, has_more=False)
         hits = [_item(entry) for entry in load_catalog() if _matches(entry, query.keyword)]
-        return SearchResult(items=hits, page=1, total_pages=1, total_results=len(hits))
+        return SearchResult(
+            items=hits, page=1, total_pages=1, total_results=len(hits), has_more=False
+        )
 
     async def get_torrent_detail(self, url: str) -> TorrentDetail:
         torrent_id = _id_of(url)

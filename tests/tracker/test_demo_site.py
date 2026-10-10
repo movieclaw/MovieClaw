@@ -77,6 +77,11 @@ async def test_list_rotates_free_boost_releases(site) -> None:
     torrent = await site.download_torrent(boosts[0].download_url)
     assert len(compute_info_hash(torrent)) == 40
     assert (await site.list_torrents(page=2)).items == []
+    # 只有一页：明确说没有下一页，客户端据此不显示「加载更多」
+    assert page.has_more is False
+    first = await site.search(SearchQuery(keyword="spring"))
+    assert first.has_more is False and first.items
+    assert (await site.search(SearchQuery(keyword="spring", page=2))).items == []
     profile = await site.get_user_profile()
     assert profile.username
 
