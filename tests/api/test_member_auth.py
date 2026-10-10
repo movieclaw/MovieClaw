@@ -693,6 +693,8 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/subscriptions/{subscription_id}/active-downloads"),
     ("PATCH", "/api/v1/subscriptions/{subscription_id}/tracking-state"),
     ("PATCH", "/api/v1/subscriptions/{subscription_id}/follow-future"),
+    # 集数提示的忽略与自动续订同口径：订阅能力 + 归属校验（路由内 assert_can_manage）
+    ("POST", "/api/v1/subscriptions/{subscription_id}/episode-hints/dismiss"),
     ("POST", "/api/v1/subscriptions/{subscription_id}/missing-resource-searches"),
     # 一轮洗版与「立即搜索」同口径：订阅能力 + 归属校验（路由内 assert_can_manage）
     ("POST", "/api/v1/subscriptions/{subscription_id}/upgrade-runs"),

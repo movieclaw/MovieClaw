@@ -56,6 +56,8 @@ class ActivityType(StrEnum):
     UPGRADE_VERIFY_FAILED = "upgrade_verify_failed"  # 洗版候选实测证伪，已排除
     # 入库规格核验（services/subscription/spec_audit.py）
     SPEC_MISMATCH = "spec_mismatch"  # 入库文件实测规格与种子声称不符
+    # 集数证据（services/subscription/episode_floor.py）
+    EPISODE_HINT = "episode_hint"  # 站点/豆瓣显示本季集数多于 TMDB，待用户确认
 
 
 class SubscriptionActivity(TimestampMixin, table=True):

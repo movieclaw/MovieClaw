@@ -448,6 +448,16 @@ class DoubanDiscoverService:
             lambda: self._build_detail(douban_id),
         )
 
+    async def episode_count(self, douban_id: str) -> int | None:
+        """豆瓣标注的集数（剧集季条目）；没有或不是剧集时为 None。走详情持久缓存。"""
+        data = await self._client.detail(douban_id)
+        count = data.get("episodes_count") or data.get("webisode_count")
+        try:
+            number = int(count)
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
+
     async def _celebrity_people(self, douban_id: str) -> dict[str, Any]:
         """取带头像的导演和演员；这一跳失败只降级演职员条，不影响其余详情。"""
         try:

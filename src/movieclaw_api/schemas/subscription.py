@@ -158,6 +158,14 @@ class ResolveCandidateView(BaseModel):
         )
 
 
+class DoubanEpisodesView(BaseModel):
+    """订阅弹层的豆瓣集数提示：豆瓣说本季比 TMDB 录的多。"""
+
+    season_number: int
+    douban_count: int
+    tmdb_count: int = Field(description="TMDB 已录到的最大集号")
+
+
 class PrepareView(BaseModel):
     """预检结果三态：ready 可直接渲染弹层；ambiguous 先让用户选候选；
     not_found 提示该条目暂无法订阅。"""
@@ -180,6 +188,13 @@ class PrepareView(BaseModel):
         ),
     )
     candidates: list[ResolveCandidateView] = Field(default_factory=list)
+    douban_episodes: DoubanEpisodesView | None = Field(
+        default=None,
+        description=(
+            "从豆瓣条目订阅、且豆瓣集数多于 TMDB 已录集数时给出（issue #640）；"
+            "弹层据此提示「按豆瓣集数追」，确认后随创建请求带 episode_floors"
+        ),
+    )
 
 
 class DispatchPreviewView(BaseModel):
@@ -272,6 +287,13 @@ class SubscriptionCreatePayload(BaseModel):
     library_id: int | None = Field(default=None, description="入库目标库；缺省用该类型默认库")
     selection_mode: Literal["rules", "smart"] = "rules"
     smart_profile_revision: int | None = Field(default=None, ge=1)
+    episode_floors: dict[int, int] | None = Field(
+        default=None,
+        description=(
+            "每季集数下限 {季号: 集数}：TMDB 少录集数时按这个数追，超出部分先占位"
+            '（如 {"1": 27}）；不超过 TMDB 已录集数的季忽略'
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_selection_mode(self):
@@ -299,6 +321,17 @@ class SubscriptionUpdatePayload(BaseModel):
         default=None,
         description="换入库目标库；显式传 null=清除指定、改回按默认库路由；不传=不变",
     )
+    episode_floors: dict[int, int] | None = Field(
+        default=None,
+        description=(
+            '整体替换每季集数下限 {季号: 集数}，如 {"1": 27}；传 {} 清除、'
+            "改回以 TMDB 为准；不传=不变"
+        ),
+    )
+
+
+class EpisodeHintDismissPayload(BaseModel):
+    season_number: int = Field(description="忽略哪一季的集数提示")
 
 
 class SubscriptionTrackingState(StrEnum):
@@ -745,6 +778,9 @@ class WantedView(BaseModel):
     upgrade: WantedUpgradeView | None = None
     selection_state: dict | None = None
     selection_version: int = 0
+    # 集数下限展开的占位集：TMDB 还没录这一集（issue #640）。可空：旧服务端没有
+    # 这个字段，客户端生成器会把带默认值的字段当必有
+    provisional: bool | None = None
 
     @field_serializer(
         "next_search_at", "last_search_at", "grabbed_at", "downloaded_at", "imported_at"
@@ -783,8 +819,37 @@ class WantedView(BaseModel):
         )
 
 
+class EpisodeSeasonView(BaseModel):
+    """「调整集数」编辑器的一行：订阅范围内的一季。"""
+
+    season_number: int
+    tmdb_count: int = Field(description="TMDB 已录到的最大集号")
+    floor: int | None = Field(default=None, description="已设的集数下限；null=以 TMDB 为准")
+
+
+class EpisodeHintView(BaseModel):
+    """待确认的集数提示：站点或豆瓣显示本季比现在追的更多集。"""
+
+    season_number: int
+    tmdb_count: int
+    floor: int | None = None
+    suggested: int = Field(description="建议集数（站点与豆瓣证据取大）")
+    site_episode: int | None = Field(default=None, description="站点种子出现的最大集号")
+    site_title: str | None = Field(default=None, description="给出该集号的种子标题")
+    douban_count: int | None = Field(default=None, description="豆瓣标注的集数")
+
+
 class SubscriptionDetailView(SubscriptionView):
     wanted: list[WantedView] = Field(default_factory=list)
+    # 两个新列表可空：旧服务端没有，客户端生成器会把带默认值的字段当必有
+    episode_seasons: list[EpisodeSeasonView] | None = Field(
+        default=None,
+        description="剧集订阅范围内各季的 TMDB 集数与集数下限；电影为 null",
+    )
+    episode_hints: list[EpisodeHintView] | None = Field(
+        default=None,
+        description="待确认的集数提示；有提示时订阅不会判「已收齐」；电影为 null",
+    )
     can_manage: bool = Field(
         default=True,
         description=(

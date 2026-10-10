@@ -45,6 +45,7 @@ import {
 import { useSubscribeEntry } from "@/components/subscribe-entry";
 import { SubscriptionAdjustDialog } from "@/components/subscription-adjust-dialog";
 import { SubscriptionCancelDialog } from "@/components/subscription-cancel-dialog";
+import { EpisodeFloorDialog, EpisodeHintBanner } from "@/components/subscription-episode-floor";
 import { UpgradeRunDialog } from "@/components/upgrade-run-dialog";
 import {
   deleteSubscriptionPermanently,
@@ -119,6 +120,7 @@ export function SubscriptionInspectorView({
   const [busy, setBusy] = useState(false);
   const [switchingRule, setSwitchingRule] = useState(false);
   const [adjusting, setAdjusting] = useState(false);
+  const [editingEpisodes, setEditingEpisodes] = useState(false);
   const [upgradeRunning, setUpgradeRunning] = useState(autoOpenUpgradeRun);
   const [managing, setManaging] = useState(false);
   // 管理员取消订阅：弹窗里选"要不要连种子/媒体库文件一起删"
@@ -282,6 +284,8 @@ export function SubscriptionInspectorView({
         ? `${meta.label} · ${upgradingText}`
         : meta.label;
   const isMovie = detail.media.kind === "movie";
+  // 「调整集数」只对有季可调的剧集订阅出现（旧服务端没有 episode_seasons 也就不出现）
+  const canEditEpisodes = canTune && !isMovie && (detail.episode_seasons?.length ?? 0) > 0;
   // imageUrl 而非 cachedImageUrl：订阅对象已入库时海报是本地资产的相对路径
   const poster = detail.media.poster_url ? imageUrl(detail.media.poster_url) : null;
 
@@ -573,6 +577,7 @@ export function SubscriptionInspectorView({
                       canManageSubscriptions={canManageSubscriptions}
                       followFuture={isMovie ? null : detail.follow_future}
                       onAdjust={() => setAdjusting(true)}
+                      onAdjustEpisodes={canEditEpisodes ? () => setEditingEpisodes(true) : undefined}
                       onUpgradeRun={() => setUpgradeRunning(true)}
                       onToggleFollowFuture={() => void toggleFollowFuture()}
                       onSwitchRule={detail.selection_mode === "smart" ? undefined : () => setSwitchingRule(true)}
@@ -598,6 +603,14 @@ export function SubscriptionInspectorView({
 
       {/* —— 2. 单视图主体：搜索轮次摘要 → 按季分组的集履历 → 排查记录 —— */}
       <div className="mt-7 space-y-4">
+        <EpisodeHintBanner
+          detail={detail}
+          canTune={canTune}
+          onChanged={() => {
+            reload();
+            refreshSubscriptions();
+          }}
+        />
         <SmartSubscriptionStatus detail={detail} />
         <SearchRoundBar activities={activities} wanted={detail.wanted} />
         <WantedBreakdown
@@ -637,6 +650,14 @@ export function SubscriptionInspectorView({
             setManaging(false);
             setAdjusting(true);
           }}
+          onAdjustEpisodes={
+            canEditEpisodes
+              ? () => {
+                  setManaging(false);
+                  setEditingEpisodes(true);
+                }
+              : undefined
+          }
           onUpgradeRun={() => {
             setManaging(false);
             setUpgradeRunning(true);
@@ -666,6 +687,18 @@ export function SubscriptionInspectorView({
           onClose={() => setAdjusting(false)}
           onSaved={() => {
             setAdjusting(false);
+            reload();
+            refreshSubscriptions();
+          }}
+        />
+      )}
+
+      {canEditEpisodes && editingEpisodes && (
+        <EpisodeFloorDialog
+          detail={detail}
+          onClose={() => setEditingEpisodes(false)}
+          onSaved={() => {
+            setEditingEpisodes(false);
             reload();
             refreshSubscriptions();
           }}
@@ -721,6 +754,8 @@ interface SubscriptionManageActionsProps {
   /** null 表示电影订阅，不展示没有业务语义的自动续订动作。 */
   followFuture: boolean | null;
   onAdjust: () => void;
+  /** 打开「调整集数」弹层；undefined=不展示（电影 / 无权调整） */
+  onAdjustEpisodes?: () => void;
   /** 打开「洗一轮版」弹层（quality-upgrade.md §13.5 的订阅详情入口） */
   onUpgradeRun: () => void;
   onToggleFollowFuture: () => void;
@@ -740,6 +775,7 @@ function SubscriptionManageMenu({
   canManageSubscriptions,
   followFuture,
   onAdjust,
+  onAdjustEpisodes,
   onUpgradeRun,
   onToggleFollowFuture,
   onSwitchRule,
@@ -773,6 +809,11 @@ function SubscriptionManageMenu({
           {canTune && (
             <DropdownMenu.Item onSelect={onAdjust} className={itemClass}>
               调整订阅…
+            </DropdownMenu.Item>
+          )}
+          {onAdjustEpisodes && (
+            <DropdownMenu.Item onSelect={onAdjustEpisodes} className={itemClass}>
+              调整集数…
             </DropdownMenu.Item>
           )}
           {canTune && (
@@ -832,6 +873,7 @@ function SubscriptionManageSheet({
   followFuture,
   onClose,
   onAdjust,
+  onAdjustEpisodes,
   onUpgradeRun,
   onToggleFollowFuture,
   onSwitchRule,
@@ -853,6 +895,9 @@ function SubscriptionManageSheet({
         <SheetSection>
           {canTune && (
             <SheetRow icon={<PencilIcon className={icon} />} label="调整订阅" chevron onClick={onAdjust} />
+          )}
+          {onAdjustEpisodes && (
+            <SheetRow icon={<ListIcon className={icon} />} label="调整集数" chevron onClick={onAdjustEpisodes} />
           )}
           {canTune && (
             <SheetRow
@@ -908,6 +953,12 @@ function SubscriptionManageSheet({
           {canTune && (
             <button type="button" onClick={onAdjust} className={rowClass}>
               <span>调整订阅</span>
+              <span aria-hidden className="text-white/35">›</span>
+            </button>
+          )}
+          {onAdjustEpisodes && (
+            <button type="button" onClick={onAdjustEpisodes} className={rowClass}>
+              <span>调整集数</span>
               <span aria-hidden className="text-white/35">›</span>
             </button>
           )}
@@ -1682,6 +1733,9 @@ function milestonesOf(
         ? { lab: "上映", state: "now", time: "", det: "上映日期未公布，定档后自动排队" }
         : { lab: "上映", state: "done", time: "", det: "已定档或已上映" },
     );
+  } else if (!w.air_date && w.provisional) {
+    // 集数下限的占位集：TMDB 没录、播没播不知道，已在照常搜索（issue #640）
+    M.push({ lab: "播出", state: "done", time: "", det: "TMDB 未收录这一集，按设置的集数追踪" });
   } else if (!w.air_date) {
     M.push({ lab: "播出", state: "now", time: "", det: "播出日期未公布，定档后自动排队" });
   } else {

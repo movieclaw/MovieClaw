@@ -219,6 +219,30 @@ async def load_season_titles(session: AsyncSession, media_item_id: int) -> tuple
     )
 
 
+async def media_identity(
+    session: AsyncSession, item: MediaItem, *, season_numbers: tuple[int, ...]
+) -> MediaIdentity:
+    """条目的内核身份切片（缺口匹配与集数证据探测共用同一口径）。"""
+    assert item.id is not None
+    season_titles = await load_season_titles(session, item.id)
+    # 片长：体积÷片长 的反证要用（§6）。冷门片 TMDB 常缺，缺了反证自动跳过
+    runtime_minutes = (
+        await session.execute(
+            select(MediaMetadata.runtime_minutes).where(MediaMetadata.media_item_id == item.id)
+        )
+    ).scalar_one_or_none()
+    return MediaIdentity(
+        kind=item.kind,
+        year=item.year,
+        aliases=tuple(item.aliases),
+        imdb_id=item.imdb_id,
+        douban_id=item.douban_id,
+        season_numbers=season_numbers,
+        season_titles=season_titles,
+        runtime_minutes=runtime_minutes,
+    )
+
+
 async def _ensure_context(
     session: AsyncSession,
     contexts: dict[int, MediaContext],
@@ -233,27 +257,10 @@ async def _ensure_context(
     item = await session.get(MediaItem, media_item_id)
     if item is None:  # 外键保证下理论不可达
         return None
-    season_titles = await load_season_titles(session, media_item_id)
-    # 片长：体积÷片长 的反证要用（§6）。冷门片 TMDB 常缺，缺了反证自动跳过
-    runtime_minutes = (
-        await session.execute(
-            select(MediaMetadata.runtime_minutes).where(
-                MediaMetadata.media_item_id == media_item_id
-            )
-        )
-    ).scalar_one_or_none()
     ctx = MediaContext(
         item=item,
-        identity=MediaIdentity(
-            kind=item.kind,
-            year=item.year,
-            aliases=tuple(item.aliases),
-            imdb_id=item.imdb_id,
-            douban_id=item.douban_id,
-            season_numbers=(),  # 先占位，收集完工单后统一回填
-            season_titles=season_titles,
-            runtime_minutes=runtime_minutes,
-        ),
+        # 季号先占位，收集完工单后统一回填
+        identity=await media_identity(session, item, season_numbers=()),
         subscription=subscription,
         spec=spec,
         open_wanted={},
@@ -599,17 +606,29 @@ def covered_units(
             return not require_dated
         return w.air_date <= published
 
+    def _declared(w: WantedItem) -> bool:
+        # 「全 N 集」声明兜住未定档单元（多为超出 TMDB 的占位集，issue #640）：
+        # 它们没有播出日期可比发布时间，包里有没有只能信标题声明的总集数。
+        # 只在能确定声明指向哪一季时采信——多季包的"全 N 集"说不清是哪季的
+        total = match.declared_total
+        return w.air_date is None and total is not None and 0 < w.episode_number <= total
+
     if match.is_complete_series:
         # 全集包不承诺特别篇（season 0 的具体集）：市面上的"全集/合集"几乎
         # 从不收录 SP/短剧集，赌它包含的代价是工单挂上一个永远等不来的种子
         # （真实教训：绝命毒师全集包 62 个文件全是 S01-S05 正剧，S00 工单
         # 以 grabbed 卡死"等待入库"）。特别篇只信显式声明——标题写明 S00/SP
         # 时走 episodes / pack_seasons 通道覆盖。电影单元 (0, 0) 不受影响。
+        regular_seasons = {s for s, _ in open_units if s != 0}
+        single_season = len(regular_seasons) == 1
         return [
             w
             for w in open_units.values()
             if not (w.season_number == 0 and w.episode_number > 0)
-            and _airable(w, require_dated=True)
+            and (
+                _airable(w, require_dated=True)
+                or (single_season and w.season_number != 0 and _declared(w))
+            )
         ]
     result = [
         w
@@ -617,10 +636,13 @@ def covered_units(
         if key in match.episodes and _airable(w, require_dated=False)
     ]
     if match.pack_seasons:
+        single_pack = len(match.pack_seasons) == 1
         result.extend(
             w
             for (season, _), w in open_units.items()
-            if season in match.pack_seasons and w not in result and _airable(w, require_dated=True)
+            if season in match.pack_seasons
+            and w not in result
+            and (_airable(w, require_dated=True) or (single_pack and _declared(w)))
         )
     return result
 
@@ -746,6 +768,11 @@ async def evaluate_and_dispatch(
 
     summary = MatchSummary(torrents_seen=len(torrents))
     torrents = await drop_protected_sites(session, torrents)
+    # 集数证据要看"缺口已清零"的订阅：TMDB 少录集数的剧恰恰停在这一步，
+    # 下面的缺口上下文根本不会装载它们（issue #640）
+    from movieclaw_api.services.subscription.episode_floor import record_episode_overflow
+
+    await record_episode_overflow(session, torrents, subscription_ids=subscription_ids)
     contexts = await load_match_context(session, subscription_ids=subscription_ids)
     if not contexts:
         return summary

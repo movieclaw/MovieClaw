@@ -171,6 +171,7 @@ async def materialize_owned_wanted(
     只改内存行 + flush、不 commit（跟随调用方事务）。返回新建的行。
     """
     from movieclaw_api.services.subscription.core import expected_units
+    from movieclaw_api.services.subscription.episode_floor import floors_of
     from movieclaw_db.repositories.library_file_repo import LibraryFileRepository
     from movieclaw_db.repositories.media_repo import MediaItemRepository
     from movieclaw_media.models import MediaKind
@@ -182,6 +183,7 @@ async def materialize_owned_wanted(
         episodes,
         list(subscription.selected_seasons),
         subscription.follow_future,
+        floors_of(subscription),
     )
     owned = await LibraryFileRepository(session).owned_units(subscription.media_item_id)
     existing = {

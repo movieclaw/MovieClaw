@@ -307,6 +307,10 @@ async def _scrape(
         recompute_subscription_status,
         refresh_release_forecasts,
     )
+    from movieclaw_api.services.subscription.episode_floor import (
+        floors_of,
+        refresh_douban_evidence,
+    )
 
     def _phase(text: str) -> None:
         steps = _LOCAL_STEPS if text in _LOCAL_STEPS else _TMDB_STEPS
@@ -385,9 +389,16 @@ async def _scrape(
         if subscription is not None and kind is MediaKind.TV:
             episodes = await repo.list_episodes(media_item_id)
             expected = expected_units(
-                kind, episodes, list(subscription.selected_seasons), subscription.follow_future
+                kind,
+                episodes,
+                list(subscription.selected_seasons),
+                subscription.follow_future,
+                floors_of(subscription),
             )
             await _grow_and_sync(session, subscription, item, expected, known_keys)
+            # 豆瓣集数随刷新复查（详情走持久缓存，不额外打豆瓣）：TMDB 少录的
+            # 剧在判「已收齐」之前，还有机会被豆瓣证据拦下来提示用户
+            await refresh_douban_evidence(session, subscription, item)
             await recompute_subscription_status(session, subscription, item)
             # 新集出现或 air_date 改档后立即重建目标快照。快照内带 target_air_date，
             # 即使本次刷新中断，读取端也不会使用旧档期的预测。

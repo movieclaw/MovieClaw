@@ -152,6 +152,23 @@ class Subscription(TimestampMixin, table=True):
         description="active / paused / completed（见 SubscriptionStatus 注释）",
     )
 
+    # -- 集数下限（issue #640，docs/design/subscription-episode-floor.md）------
+    # TMDB 常少录国产剧的集数（6 集 vs 实际 27 集），E 只认 TMDB 的集就会提前
+    # 收工。下限是用户确认过的「本季至少 N 集」，超出 TMDB 的部分展开成占位
+    # 单元；TMDB 补全后同号单元自然接上、下限随之失效。证据是系统观察到的
+    # 「可能不止这么多集」（站点种子声明的集号、豆瓣集数），只用来提示，
+    # 不经用户确认绝不改 E。
+    episode_floors: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON(none_as_null=True), nullable=True),
+        description="用户确认的每季集数下限 {季号: 集数}；NULL=未设置",
+    )
+    episode_evidence: dict | None = Field(
+        default=None,
+        sa_column=Column(JSON(none_as_null=True), nullable=True),
+        description="集数证据（站点集号/豆瓣集数/已忽略值），只用于提示",
+    )
+
     # -- 归属（docs/design/member-management.md §3.5）-----------------------
     # NULL = 超管发起。成员被删除时外键 SET NULL——订阅自动转为超管发起，
     # 绝不连带删除订阅与下载任务（资源是全家的）。

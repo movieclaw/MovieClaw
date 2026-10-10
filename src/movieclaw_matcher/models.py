@@ -500,6 +500,10 @@ class IdentityMatch:
     # 是否存在同名同年孪生条目等上下文，那些内核拿不到，交给消费侧
     # （docs/design/identity-confidence.md §5.2）
     id_conflict: str | None = None
+    # 包种子声明的总集数（"全 27 集" 的 27），只在整季/全集包上带。TMDB 少录
+    # 集数时，超出部分的占位单元没有播出日期、过不了发布时间上限，只能靠这个
+    # 声明判断包里有没有它（issue #640）
+    declared_total: int | None = None
 
 
 @dataclass(frozen=True)

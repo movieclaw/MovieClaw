@@ -100,6 +100,8 @@ export function SubscribeDialog({
   const [libraries, setLibraries] = useState<MediaLibrary[]>([]);
   const [selectedSeasons, setSelectedSeasons] = useState<Set<number>>(new Set());
   const [followFuture, setFollowFuture] = useState(false);
+  // 豆瓣集数多于 TMDB 时（issue #640）：用户确认后按豆瓣集数追，默认不改
+  const [useDoubanEpisodes, setUseDoubanEpisodes] = useState(false);
   const [ruleSetId, setRuleSetId] = useState<number | null>(null);
   const [selectionMode, setSelectionMode] = useState<"smart" | "rules">("smart");
   const [smartProfile, setSmartProfile] = useState<SmartProfile | null>(null);
@@ -259,6 +261,13 @@ export function SubscribeDialog({
     void runPrepare({ ...target, titleRef: candidate.title_ref });
   };
 
+  // 豆瓣集数提示只对勾选了的那一季（或开着自动续订）有意义
+  const doubanEpisodes =
+    prepared?.douban_episodes &&
+    (selectedSeasons.has(prepared.douban_episodes.season_number) || followFuture)
+      ? prepared.douban_episodes
+      : null;
+
   const submit = async () => {
     if (!target || !prepared?.media) return;
     setBusy(true);
@@ -276,6 +285,9 @@ export function SubscribeDialog({
         selection_mode: selectionMode,
         smart_profile_revision: selectionMode === "smart" ? smartProfile?.revision : undefined,
         library_id: canManageSubscriptions ? libraryId : null,
+        ...(doubanEpisodes && useDoubanEpisodes
+          ? { episode_floors: { [doubanEpisodes.season_number]: doubanEpisodes.douban_count } }
+          : {}),
       });
       onChanged?.();
       if (upgradeMode) {
@@ -436,6 +448,14 @@ export function SubscribeDialog({
         <SheetToggleRow label="自动续订" description="新集与新季自动加入追踪" checked={followFuture} onChange={setFollowFuture} />
       </div>}
       {selectedSeasons.size === 0 && !followFuture && <p className="px-4 pb-3 text-sub text-[var(--warn)]">请选择至少一季，或开启自动续订。</p>}
+      {doubanEpisodes && <div className="border-t border-[var(--line)]">
+        <SheetToggleRow
+          label={`按豆瓣集数追（${doubanEpisodes.douban_count} 集）`}
+          description={`豆瓣显示第 ${doubanEpisodes.season_number} 季共 ${doubanEpisodes.douban_count} 集，TMDB 只录了 ${doubanEpisodes.tmdb_count} 集；打开后超出部分先占位追踪`}
+          checked={useDoubanEpisodes}
+          onChange={setUseDoubanEpisodes}
+        />
+      </div>}
     </section>}
 
     {(!upgradeMode || canManageSubscriptions) && <section aria-label="更多订阅选项">

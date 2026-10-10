@@ -635,6 +635,7 @@ def _derive_units(
             is_pack=True,
             confidence=confidence,
             matched_alias=alias,
+            declared_total=attrs.episodes_total,
         )
 
     if attrs.complete is True:
@@ -643,6 +644,7 @@ def _derive_units(
             is_pack=True,
             confidence=confidence,
             matched_alias=alias,
+            declared_total=attrs.episodes_total,
         )
 
     # 剧集但没有任何季集信息：身份可能成立，但落不到具体单元，不可用

@@ -2688,6 +2688,12 @@ nonisolated extension APIClient {
         return try await send("GET", "/subscriptions/\(subscriptionId)/activities", query: query)
     }
 
+    /// 忽略一条剧集订阅的集数提示，继续以 TMDB 集数为准
+    /// `POST /subscriptions/{subscription_id}/episode-hints/dismiss`
+    func subscriptionsDismissEpisodeHint(subscriptionId: Int, body: API.EpisodeHintDismissPayload) async throws -> API.SubscriptionDetailView {
+        return try await send("POST", "/subscriptions/\(subscriptionId)/episode-hints/dismiss", body: body)
+    }
+
     /// 开启或关闭一条剧集订阅的自动续订
     /// `PATCH /subscriptions/{subscription_id}/follow-future`
     func subscriptionsSetFollowFuture(subscriptionId: Int, body: API.SubscriptionFollowFuturePayload) async throws -> API.SubscriptionDetailView {

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Query
@@ -23,7 +24,11 @@ from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.schemas.subscription import (
     ActivityView,
     DispatchPreviewView,
+    DoubanEpisodesView,
     DownloadUnitView,
+    EpisodeHintDismissPayload,
+    EpisodeHintView,
+    EpisodeSeasonView,
     GrabPayload,
     GrabResultView,
     MediaBrief,
@@ -62,6 +67,14 @@ from movieclaw_api.services.subscription import (
     forecast_refresh_pending,
     recent_arrivals,
 )
+from movieclaw_api.services.subscription.episode_floor import (
+    floors_of,
+    pending_hints,
+    refresh_douban_evidence_soon,
+    season_episode_max,
+    set_douban_ref,
+    tracks_season,
+)
 from movieclaw_api.services.subscription.smart_profiles import save_profile
 from movieclaw_api.services.title_discovery import (
     get_title_discovery_service,
@@ -77,7 +90,7 @@ from movieclaw_media.library import ResolveStatus
 from movieclaw_media.models import MediaKind, MediaSource
 
 router = APIRouter(prefix="/subscriptions", tags=["subscriptions"])
-
+logger = logging.getLogger("movieclaw_api.routes.subscriptions")
 
 
 class SmartProfilePayload(BaseModel):
@@ -195,6 +208,32 @@ async def _detail_view(
     )
     view.forecast_pending = forecast_refresh_pending(view.media.media_item_id)
     view.can_manage = can_manage
+    if sub.kind == MediaKind.TV.value and item.id is not None:
+        # 集数下限与提示（issue #640）：编辑器要看每季 TMDB 录了几集，
+        # 占位集（超出 TMDB 的）在追踪明细里如实标出
+        known_max = await season_episode_max(session, item.id)
+        floors = floors_of(sub)
+        view.episode_seasons = [
+            EpisodeSeasonView(
+                season_number=season, tmdb_count=known_max.get(season, 0), floor=floors.get(season)
+            )
+            for season in sorted(set(known_max) | set(floors))
+            if season != 0 and tracks_season(sub, season)
+        ]
+        view.episode_hints = [
+            EpisodeHintView(
+                season_number=hint.season_number,
+                tmdb_count=hint.known_count,
+                floor=hint.floor,
+                suggested=hint.suggested,
+                site_episode=hint.site_episode,
+                site_title=hint.site_title,
+                douban_count=hint.douban_count,
+            )
+            for hint in pending_hints(sub, known_max)
+        ]
+        for row in view.wanted:
+            row.provisional = row.episode_number > known_max.get(row.season_number, 0)
     if sub.selection_mode == "smart":
         from movieclaw_api.services.subscription.smart_profiles import read_policy
         from movieclaw_api.services.subscription.smart_runtime import runtime_settings
@@ -236,6 +275,11 @@ async def _prepare_resolved_target(
     item, seasons, existing = await service.prepare(kind, tmdb_id, douban_id=douban_id)
 
     assert item.id is not None
+    douban_episodes = (
+        await _douban_episodes(session, item.id, douban_id, seasons, suggested_season)
+        if douban_id is not None and kind is MediaKind.TV
+        else None
+    )
     owned = await LibraryFileRepository(session).owned_units(item.id)
     aired_units = await MediaItemRepository(session).aired_units_many(
         [item.id], include_specials=True
@@ -266,7 +310,41 @@ async def _prepare_resolved_target(
             and any(row.season_number == suggested_season for row in seasons)
             else []
         ),
+        douban_episodes=douban_episodes,
     )
+
+
+def _douban_season(seasons: list, suggested_season: int | None) -> int | None:
+    """豆瓣条目对应的 TMDB 季：收敛给出的季，或单季剧的唯一正季；多季剧对不上就不比。"""
+    numbers = {row.season_number for row in seasons}
+    if suggested_season is not None and suggested_season in numbers:
+        return suggested_season
+    regular = [n for n in numbers if n != 0]
+    return regular[0] if len(regular) == 1 else None
+
+
+async def _douban_episodes(
+    session: AsyncSession,
+    media_item_id: int,
+    douban_id: str,
+    seasons: list,
+    suggested_season: int | None,
+) -> DoubanEpisodesView | None:
+    """豆瓣集数多于 TMDB 已录集数时的弹层提示（豆瓣详情刚在收敛时拉过，走缓存）。"""
+    season = _douban_season(seasons, suggested_season)
+    if season is None:
+        return None
+    from movieclaw_api.services.media_discover import get_douban_media_service
+
+    try:
+        count = await get_douban_media_service().episode_count(douban_id)
+    except Exception:  # noqa: BLE001 -- 提示是锦上添花，豆瓣不可用照常订阅
+        logger.warning("订阅弹层取豆瓣集数失败：%s", douban_id, exc_info=True)
+        return None
+    known = (await season_episode_max(session, media_item_id)).get(season, 0)
+    if count is None or count <= known:
+        return None
+    return DoubanEpisodesView(season_number=season, douban_count=count, tmdb_count=known)
 
 
 async def _preview_title_ref(
@@ -412,8 +490,22 @@ async def create_subscription(
         member_id=principal.member_id if is_member else None,
         selection_mode=payload.selection_mode,
         smart_profile_revision=payload.smart_profile_revision,
+        episode_floors=payload.episode_floors,
     )
     assert subscription.id is not None
+    if kind is MediaKind.TV:
+        # 豆瓣按季拆条目，豆瓣 ID 对应 TMDB 哪一季只有此刻知道：记下来，
+        # 之后元数据刷新才能拿豆瓣集数对照（issue #640）
+        douban_season = _douban_season(prepared.seasons, (prepared.suggested_seasons or [None])[0])
+        if (
+            douban_id
+            and douban_season is not None
+            and not (subscription.episode_evidence or {}).get("douban_ref")
+        ):
+            set_douban_ref(subscription, douban_id, douban_season)
+            session.add(subscription)
+            await session.commit()
+        refresh_douban_evidence_soon(subscription.id)
     sub, item, wanted = await service.detail(subscription.id)
     resource_timings = await service.resource_timings(subscription.id)
     return ok(
@@ -768,6 +860,7 @@ async def update_subscription(
         library_id=(
             payload.library_id if admin and "library_id" in payload.model_fields_set else ...
         ),
+        episode_floors=payload.episode_floors,
     )
     sub, item, wanted = await service.detail(subscription_id)
     resource_timings = await service.resource_timings(subscription_id)
@@ -925,6 +1018,32 @@ async def set_subscription_tracking_state(
         state=payload.state,
         principal=principal,
         session=session,
+    )
+
+
+@router.post(
+    "/{subscription_id}/episode-hints/dismiss",
+    response_model=ApiResponse[SubscriptionDetailView],
+    summary="忽略一条剧集订阅的集数提示，继续以 TMDB 集数为准",
+    operation_id="subscriptions.dismiss-episode-hint",
+)
+async def dismiss_subscription_episode_hint(
+    subscription_id: int,
+    payload: EpisodeHintDismissPayload,
+    principal: Principal = Depends(require_subscribe_capability),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[SubscriptionDetailView]:
+    """站点或豆瓣的集数证据判断错了（如动画绝对集号）时用；更大的新证据仍会再提示。"""
+    service = _service(session)
+    await service.assert_can_manage(
+        subscription_id, None if principal.is_admin else principal.member_id
+    )
+    await service.dismiss_episode_hint(subscription_id, payload.season_number)
+    sub, item, wanted = await service.detail(subscription_id)
+    resource_timings = await service.resource_timings(subscription_id)
+    return ok(
+        await _detail_view(session, sub, item, wanted, resource_timings),
+        message="已忽略集数提示",
     )
 
 

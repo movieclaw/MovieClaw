@@ -2385,6 +2385,20 @@ nonisolated extension API {
         }
     }
 
+    /// 订阅弹层的豆瓣集数提示：豆瓣说本季比 TMDB 录的多。
+    struct DoubanEpisodesView: Codable, Hashable, Sendable {
+        var seasonNumber: Int
+        var doubanCount: Int
+        /// TMDB 已录到的最大集号
+        var tmdbCount: Int
+
+        enum CodingKeys: String, CodingKey {
+            case seasonNumber = "season_number"
+            case doubanCount = "douban_count"
+            case tmdbCount = "tmdb_count"
+        }
+    }
+
     /// 手动提交下载的请求体：搜索结果里的一条种子。
     /// site_id + download_url 均来自搜索接口返回的 TorrentHit，后端凭它们
     /// 带站点登录态取回 .torrent 字节再递交下载器。
@@ -3275,6 +3289,55 @@ nonisolated extension API {
             case url
             case createdAt = "created_at"
             case lastUsedAt = "last_used_at"
+        }
+    }
+
+    struct EpisodeHintDismissPayload: Codable, Hashable, Sendable {
+        /// 忽略哪一季的集数提示
+        var seasonNumber: Int
+
+        enum CodingKeys: String, CodingKey {
+            case seasonNumber = "season_number"
+        }
+    }
+
+    /// 待确认的集数提示：站点或豆瓣显示本季比现在追的更多集。
+    struct EpisodeHintView: Codable, Hashable, Sendable {
+        var seasonNumber: Int
+        var tmdbCount: Int
+        var floor: Int?
+        /// 建议集数（站点与豆瓣证据取大）
+        var suggested: Int
+        /// 站点种子出现的最大集号
+        var siteEpisode: Int?
+        /// 给出该集号的种子标题
+        var siteTitle: String?
+        /// 豆瓣标注的集数
+        var doubanCount: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case seasonNumber = "season_number"
+            case tmdbCount = "tmdb_count"
+            case floor
+            case suggested
+            case siteEpisode = "site_episode"
+            case siteTitle = "site_title"
+            case doubanCount = "douban_count"
+        }
+    }
+
+    /// 「调整集数」编辑器的一行：订阅范围内的一季。
+    struct EpisodeSeasonView: Codable, Hashable, Sendable {
+        var seasonNumber: Int
+        /// TMDB 已录到的最大集号
+        var tmdbCount: Int
+        /// 已设的集数下限；null=以 TMDB 为准
+        var floor: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case seasonNumber = "season_number"
+            case tmdbCount = "tmdb_count"
+            case floor
         }
     }
 
@@ -8497,6 +8560,8 @@ nonisolated extension API {
         /// 建议预勾选的季号。豆瓣把剧集按季拆条目，用户点进「中餐厅 第十季」要订的就是那一季；这里给出收敛通路用首播日期定案的 TMDB 季号（与豆瓣季号未必相同）。为空表示无可信结论，前端按原默认规则勾选
         var suggestedSeasons: [Int]
         var candidates: [API.ResolveCandidateView]
+        /// 从豆瓣条目订阅、且豆瓣集数多于 TMDB 已录集数时给出（issue #640）；弹层据此提示「按豆瓣集数追」，确认后随创建请求带 episode_floors
+        var doubanEpisodes: API.DoubanEpisodesView?
 
         enum CodingKeys: String, CodingKey {
             case status
@@ -8506,6 +8571,7 @@ nonisolated extension API {
             case movieOwned = "movie_owned"
             case suggestedSeasons = "suggested_seasons"
             case candidates
+            case doubanEpisodes = "douban_episodes"
         }
     }
 
@@ -11093,6 +11159,8 @@ nonisolated extension API {
         var libraryId: Int?
         var selectionMode: String?
         var smartProfileRevision: Int?
+        /// 每季集数下限 {季号: 集数}：TMDB 少录集数时按这个数追，超出部分先占位（如 {"1": 27}）；不超过 TMDB 已录集数的季忽略
+        var episodeFloors: [String: Int]?
 
         enum CodingKeys: String, CodingKey {
             case titleRef = "title_ref"
@@ -11103,6 +11171,7 @@ nonisolated extension API {
             case libraryId = "library_id"
             case selectionMode = "selection_mode"
             case smartProfileRevision = "smart_profile_revision"
+            case episodeFloors = "episode_floors"
         }
     }
 
@@ -11147,6 +11216,10 @@ nonisolated extension API {
         var createdAt: String
         var updatedAt: String
         var wanted: [API.WantedView]
+        /// 剧集订阅范围内各季的 TMDB 集数与集数下限；电影为 null
+        var episodeSeasons: [API.EpisodeSeasonView]?
+        /// 待确认的集数提示；有提示时订阅不会判「已收齐」；电影为 null
+        var episodeHints: [API.EpisodeHintView]?
         /// 当前观看者能否调整这条订阅（改季、暂停、立即搜索、洗版、手动选种）：超管与发起人为 true；只关注不发起的成员为 false，只能取消关注
         var canManage: Bool
         /// 资源发布时间预测正在后台刷新（订阅创建/调整/恢复后的几秒内）；为 true 时 wanted[].release_forecast 可能还是旧值或空值，稍后重取即可
@@ -11168,6 +11241,8 @@ nonisolated extension API {
             case createdAt = "created_at"
             case updatedAt = "updated_at"
             case wanted
+            case episodeSeasons = "episode_seasons"
+            case episodeHints = "episode_hints"
             case canManage = "can_manage"
             case forecastPending = "forecast_pending"
         }
@@ -11281,12 +11356,15 @@ nonisolated extension API {
         var ruleSetId: Int?
         /// 换入库目标库；显式传 null=清除指定、改回按默认库路由；不传=不变
         var libraryId: Int?
+        /// 整体替换每季集数下限 {季号: 集数}，如 {"1": 27}；传 {} 清除、改回以 TMDB 为准；不传=不变
+        var episodeFloors: [String: Int]?
 
         enum CodingKeys: String, CodingKey {
             case selectedSeasons = "selected_seasons"
             case followFuture = "follow_future"
             case ruleSetId = "rule_set_id"
             case libraryId = "library_id"
+            case episodeFloors = "episode_floors"
         }
     }
 
@@ -12829,6 +12907,7 @@ nonisolated extension API {
         var upgrade: API.WantedUpgradeView?
         var selectionState: [String: API.JSONValue]?
         var selectionVersion: Int?
+        var provisional: Bool?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -12851,6 +12930,7 @@ nonisolated extension API {
             case upgrade
             case selectionState = "selection_state"
             case selectionVersion = "selection_version"
+            case provisional
         }
     }
 

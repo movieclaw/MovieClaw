@@ -147,14 +147,20 @@ async def grab_manual(
             .scalars()
             .all()
         }
+    # TMDB 少录集数时手选新集也会撞到这里（issue #640）：告诉用户出路
+    floor_tip = (
+        "；若这部剧实际集数比 TMDB 记录的多，可在「管理订阅 → 调整集数」里补上"
+        if item.kind == "tv"
+        else ""
+    )
     if not open_wanted and not upgrade_pool:
         if spec is None or spec.upgrade_source is None:
             raise BadRequestException(
                 f"《{item.title}》当前没有缺口——所有追踪项都已投递或入库。"
-                "若想手选替换已入库的版本，请先给订阅换用配置了洗版目标的规则组"
+                f"若想手选替换已入库的版本，请先给订阅换用配置了洗版目标的规则组{floor_tip}"
             )
         raise BadRequestException(
-            f"《{item.title}》当前没有缺口，也没有已入库的追踪项可供替换"
+            f"《{item.title}》当前没有缺口，也没有已入库的追踪项可供替换{floor_tip}"
         )
 
     # attrs 是前端原样回传的解析结果：结构不合法（陈旧客户端/字段漂移）不算
@@ -219,7 +225,7 @@ async def grab_manual(
         )
         raise BadRequestException(
             f"该种子识别为{_match_text(match)}，但可投递的追踪项是 {target_text}"
-            f"{'…' if len(targets) > 8 else ''}——没有可满足的追踪项"
+            f"{'…' if len(targets) > 8 else ''}——没有可满足的追踪项{floor_tip}"
         )
     upgrade_labels: tuple[str, str] | None = None
     if upgrade_covered:

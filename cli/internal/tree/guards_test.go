@@ -273,6 +273,7 @@ func TestDomainCommandSets(t *testing.T) {
 			"subscriptions.cleanup-seasons",
 			"subscriptions.create",
 			"subscriptions.delete",
+			"subscriptions.dismiss-episode-hint",
 			"subscriptions.download-selected-torrent",
 			"subscriptions.get",
 			"subscriptions.get-smart-profile",
