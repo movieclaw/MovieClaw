@@ -1870,10 +1870,9 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
     () => (data ? episodeRanges(data.episodes.map((e) => e.episode_number)) : []),
     [data],
   );
-  const anchor = useMemo(
-    () => (data && ranges.length > 0 ? seasonAnchor(data) : null),
-    [data, ranges],
-  );
+  const anchor = useMemo(() => (data ? seasonAnchor(data) : null), [data]);
+  // 「接着看」只标有观看记录的季：一集都没碰过的季，锚点只是退回规则落的第一集，标了是噪音
+  const watched = data?.episodes.some((e) => e.played || e.position_ms > 0) ?? false;
   const currentRange =
     ranges.length > 0
       ? ((selected != null ? rangeContaining(ranges, selected) : undefined) ?? ranges[0])
@@ -2000,7 +1999,7 @@ export function SeasonEpisodesSection<F extends { id: number; season_number: num
               key={episode.episode_number}
               episode={episode}
               selected={episode.episode_number === selected}
-              resume={episode.episode_number === anchor}
+              resume={watched && episode.episode_number === anchor}
               onSelect={() => setSelected(episode.episode_number)}
             />
           ))}
