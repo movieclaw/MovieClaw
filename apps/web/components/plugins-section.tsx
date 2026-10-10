@@ -23,6 +23,7 @@ import {
   officialPlugins,
   officialSourceText,
   pluginDetail,
+  pluginHref,
   pluginLogsHref,
   pluginStateLabel,
   pluginStateTone,
@@ -157,7 +158,9 @@ function SystemProblems({ plugins }: { plugins: PluginInfo[] }) {
       <ul className="mt-1 space-y-1.5">
         {plugins.map((p) => (
           <li key={p.id} className="text-sub leading-5">
-            <span className="font-medium text-[var(--text)]">{p.title}</span>
+            <Link href={pluginHref(p.id) as never} className={LINK_CLASS}>
+              {p.title}
+            </Link>
             <span className="text-[var(--text-muted)]">：{pluginDetail(p)}</span>{" "}
             <Link href={pluginLogsHref(p) as never} className={`${LINK_CLASS} whitespace-nowrap`}>
               查看日志
@@ -189,6 +192,7 @@ function OfficialSection({ plugins }: { plugins: PluginInfo[] }) {
             <SettingsRow
               label={p.title}
               description={needsAttention(p) ? pluginDetail(p) : officialSourceText(p)}
+              href={pluginHref(p.id)}
             >
               <StatusPill tone={pluginStateTone(displayState(p))} label={pluginStateLabel(displayState(p))} />
             </SettingsRow>
@@ -254,6 +258,7 @@ function SystemModules({
                         </span>
                       }
                       description={pluginDetail(p)}
+                      href={pluginHref(p.id)}
                     >
                       <StatusPill tone={pluginStateTone(displayState(p))} label={pluginStateLabel(displayState(p))} />
                     </SettingsRow>

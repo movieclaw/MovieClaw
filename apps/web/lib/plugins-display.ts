@@ -179,6 +179,11 @@ export function systemModulesLine(modules: PluginInfo[]): { text: string; tone: 
 }
 
 /** 「查看日志」：系统日志页按条目 id 预填筛选 */
+/** 插件详情页（设置 → 插件 → 点一个插件） */
+export function pluginHref(id: string): string {
+  return `/settings/plugins/${encodeURIComponent(id)}`;
+}
+
 export function pluginLogsHref(plugin: PluginInfo): string {
   return `/settings/logs?q=${encodeURIComponent(plugin.id)}`;
 }

@@ -12,9 +12,11 @@
  */
 
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import type { Route } from "next";
+import Link from "next/link";
 import { Fragment, type ReactNode } from "react";
 
-import { CheckIcon, MoreIcon, XIcon } from "@/components/icons";
+import { CheckIcon, ChevronRightIcon, MoreIcon, XIcon } from "@/components/icons";
 import { Modal } from "@/components/modal";
 import { useTheme } from "@/lib/ui-prefs";
 
@@ -84,6 +86,7 @@ export function SettingsRow({
   leading,
   error,
   children,
+  href,
 }: {
   label: ReactNode;
   description?: ReactNode;
@@ -93,20 +96,38 @@ export function SettingsRow({
   error?: string | null;
   /** 行尾控件或动作 */
   children?: ReactNode;
+  /** 点行进详情页：名称与说明区域成为链接，行尾控件照常可点 */
+  href?: string;
 }) {
+  const text = (
+    <>
+      <div className="text-body font-medium text-[var(--text)]">{label}</div>
+      {description && (
+        <div className="mt-0.5 text-caption leading-5 text-[var(--text-faint)]">
+          {description}
+        </div>
+      )}
+      {error && <p className="mt-1 text-sub text-[var(--danger)]">{error}</p>}
+    </>
+  );
   return (
-    <div className="flex min-h-[56px] items-center gap-4 px-4 py-3">
+    <div
+      className={`flex min-h-[56px] items-center gap-4 px-4 py-3 ${href ? "transition-colors hover:bg-white/[0.03]" : ""}`}
+    >
       {leading}
-      <div className="min-w-0 flex-1">
-        <div className="text-body font-medium text-[var(--text)]">{label}</div>
-        {description && (
-          <div className="mt-0.5 text-caption leading-5 text-[var(--text-faint)]">
-            {description}
-          </div>
-        )}
-        {error && <p className="mt-1 text-sub text-[var(--danger)]">{error}</p>}
-      </div>
+      {href ? (
+        <Link href={href as Route} className="group min-w-0 flex-1">
+          {text}
+        </Link>
+      ) : (
+        <div className="min-w-0 flex-1">{text}</div>
+      )}
       {children != null && <div className="flex shrink-0 items-center gap-2">{children}</div>}
+      {href && (
+        <Link href={href as Route} aria-hidden tabIndex={-1} className="shrink-0">
+          <ChevronRightIcon className="size-4 text-[var(--text-faint)]" />
+        </Link>
+      )}
     </div>
   );
 }

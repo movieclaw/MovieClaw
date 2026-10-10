@@ -28,6 +28,7 @@ app plugins packages uninstall
 app plugins packages upload
 app plugins safe-mode
 app plugins safe-mode exit
+app plugins show
 app port
 app port set
 app restart

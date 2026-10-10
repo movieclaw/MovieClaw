@@ -592,3 +592,70 @@ async def revoke_callback(key_id: int) -> ApiResponse[None]:
     except LookupError as exc:
         raise NotFoundException(str(exc)) from exc
     return ok(None, message="已作废")
+
+
+# ---------------------------------------------------- 插件详情（设置 → 插件 → 点一个插件）
+class AddedView(BaseModel):
+    kind: str = Field(
+        description="channel / task / ingest / job / site / command / trigger / decision"
+    )
+    title: str = Field(description="人话：它给系统加了什么、什么时候被触发、会影响什么")
+    detail: str
+    href: str | None = Field(default=None, description="去哪里看 / 调整（站内路径）")
+
+
+class PluginPackageDetailView(BaseModel):
+    version: str
+    installed_at: float | None = Field(description="安装时间（Unix 秒）")
+    previous_version: str | None = Field(description="能回到的上一版")
+    bad_versions: list[str] = Field(description="起不来、已自动回滚过的版本")
+    operations: list[OperationDetailView] = Field(description="批准它调用的系统操作")
+    paths: list[dict[str, str]] = Field(description="批准它读写的目录")
+    callbacks: list[str] = Field(description="批准它开放的回调端点")
+    replaces_builtin: bool
+
+
+class DetailConsumerView(DurableConsumerView):
+    title: str = Field(description="事件的人话名字")
+
+
+class DetailDeadLetterView(DeadLetterView):
+    title: str = Field(description="事件的人话名字")
+
+
+class PluginDetailView(BaseModel):
+    plugin: PluginView
+    kind: Literal["official", "package", "local", "system"] = Field(
+        description="official：随应用提供；package：第三方插件包；local：本地插件；system：系统模块"
+    )
+    description: str
+    version: str | None
+    network: bool | None = Field(description="是否声明了联网（插件包才有）")
+    package: PluginPackageDetailView | None
+    adds: list[AddedView] = Field(description="装了它，系统多了什么")
+    consumers: list[DetailConsumerView] = Field(description="它订阅的可靠事件与积压")
+    dead_letters: list[DetailDeadLetterView] = Field(description="它没处理成功、搁置下来的事件")
+    callbacks: list[CallbackKeyView] = Field(description="它开放的回调地址（密钥打码）")
+    data_rows: int
+    disk_bytes: int = Field(description="插件私有目录占用（字节）")
+    children: list[str] = Field(description="它的子条目")
+
+
+@router.get(
+    "/{entry_id}",
+    response_model=ApiResponse[PluginDetailView],
+    summary="插件详情：它是什么、状态、权限、给系统加了什么、最近的处理情况与存储",
+    operation_id="app.plugins.show",
+)
+async def show_plugin(entry_id: str, request: Request) -> ApiResponse[PluginDetailView]:
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.services.plugin_detail import plugin_detail
+
+    kernel = _kernel(request)
+    listed = (await list_plugins(request)).data
+    assert listed is not None
+    item = next((p for p in listed.plugins if p.id == entry_id), None)
+    if item is None:
+        raise NotFoundException(f"没有插件 {entry_id}")
+    detail = await plugin_detail(kernel, get_settings(), entry_id, item.model_dump(mode="json"))
+    return ok(PluginDetailView.model_validate({"plugin": item, **detail}))

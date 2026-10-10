@@ -30,6 +30,7 @@ import {
   localPluginRuntimes,
   packageDetail,
   pathGrantLabel,
+  pluginHref,
   pluginStateLabel,
   pluginStateTone,
   runtimeLabel,
@@ -228,6 +229,7 @@ export function PluginPackagesSection({
                   label={item.title}
                   description={packageDetail(item)}
                   error={item.state === "active" ? null : item.error}
+                  href={pluginHref(item.id)}
                 >
                   <StatusPill
                     tone={item.state === "unloaded" ? "neutral" : pluginStateTone(item.state)}
@@ -269,6 +271,7 @@ export function PluginPackagesSection({
                 label={p.title}
                 description={`${p.id} · ${runtimeLabel(p.runtime)}`}
                 error={p.state === "failed" ? p.error : null}
+                href={pluginHref(p.id)}
               >
                 <StatusPill tone={pluginStateTone(p.state)} label={pluginStateLabel(p.state)} />
               </SettingsRow>

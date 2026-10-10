@@ -8,6 +8,7 @@ import { LiquidGlassButton } from "@/components/liquid-glass";
 
 import { AppPushSection } from "@/components/app-push-section";
 import { AppStorageSection } from "@/components/app-storage-section";
+import { PluginDetailView } from "@/components/plugin-detail";
 import { PluginsPage } from "@/components/plugins-section";
 import { ScheduledTasksSection } from "@/components/scheduled-tasks-section";
 import { AppUpdateDot, usePendingUpdate } from "@/components/app-update-entry";
@@ -157,9 +158,11 @@ export function SettingsSidebar({ active, onSelect, onBack }: SettingsSidebarPro
  */
 export interface SettingsPanelProps {
   active: string;
+  /** 分区内的子页面（现在只有插件详情：/settings/plugins/<条目 id>） */
+  item?: string;
 }
 
-export function SettingsPanel({ active }: SettingsPanelProps) {
+export function SettingsPanel({ active, item }: SettingsPanelProps) {
   // 成员直达管理分区地址（书签/手输 URL，含裸 /settings 服务端兜底到的概览）
   // 时回退到首个可见分区——界面兜底，真正的安全边界在后端 403
   const { session } = useSession();
@@ -265,7 +268,7 @@ export function SettingsPanel({ active }: SettingsPanelProps) {
         ) : section.id === "app" ? (
           <AppSection />
         ) : section.id === "plugins" ? (
-          <PluginsPage />
+          item ? <PluginDetailView id={item} /> : <PluginsPage />
         ) : section.id === "mcp" ? (
           <McpSection />
         ) : section.id === "webhook" ? (

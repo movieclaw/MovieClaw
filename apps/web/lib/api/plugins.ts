@@ -58,6 +58,8 @@ export interface PluginInfo {
   parent: string | null;
   provides: string[];
   inject: string[];
+  /** 插件声明需要的宿主操作；旧服务端没有这个字段 */
+  permissions?: string[];
   blocked_by: PluginBlockedBy[];
   incompatible: string | null;
   /** 谁禁用的：patch（data/plugins.yaml）/ env:XXX（环境变量） */
@@ -293,4 +295,115 @@ export async function uninstallPackage(id: string, purgeData: boolean): Promise<
       { method: "DELETE" },
     )
   ).data.purged_rows;
+}
+
+/* —— 插件详情（设置 → 插件 → 点一个插件） —— */
+
+/** 装了这个插件，系统多了什么（已翻成人话） */
+export interface PluginAdded {
+  /** channel / task / ingest / job / site / command / trigger / decision */
+  kind: string;
+  title: string;
+  detail: string;
+  /** 去哪里看 / 调整（站内路径） */
+  href: string | null;
+}
+
+export interface PluginDurableConsumer {
+  consumer_id: string;
+  event: string;
+  /** 事件的人话名字 */
+  title: string;
+  active: boolean;
+  /** 尚未处理的事件数 */
+  backlog: number;
+  /** 当前事件已失败的次数（0 = 正常） */
+  attempts: number;
+  next_attempt_at: string | null;
+  last_error: string | null;
+}
+
+export interface PluginDeadLetter {
+  id: number;
+  consumer_id: string;
+  event: string;
+  /** 事件的人话名字 */
+  title: string;
+  event_id: string;
+  error: string;
+  attempts: number;
+  created_at: string;
+}
+
+export interface PluginCallbackKey {
+  id: number;
+  entry_id: string;
+  endpoint: string;
+  scope: string;
+  /** 地址（密钥打码） */
+  url: string;
+  created_at: string;
+  running: boolean;
+  calls: number;
+  /** 插件回 401 / 403 的次数（验证没通过） */
+  failures: number;
+  last_called_at: string | null;
+  last_status: number | null;
+}
+
+export interface PluginDetail {
+  plugin: PluginInfo;
+  /** official：随应用提供；package：第三方插件包；local：本地插件；system：系统模块 */
+  kind: "official" | "package" | "local" | "system";
+  description: string;
+  version: string | null;
+  /** 是否声明了联网（插件包才有） */
+  network: boolean | null;
+  package: {
+    version: string;
+    /** 安装时间（Unix 秒） */
+    installed_at: number | null;
+    previous_version: string | null;
+    bad_versions: string[];
+    operations: OperationDetail[];
+    paths: PathGrant[];
+    callbacks: string[];
+    replaces_builtin: boolean;
+  } | null;
+  adds: PluginAdded[];
+  consumers: PluginDurableConsumer[];
+  dead_letters: PluginDeadLetter[];
+  callbacks: PluginCallbackKey[];
+  data_rows: number;
+  /** 插件私有目录占用（字节） */
+  disk_bytes: number;
+  children: string[];
+}
+
+export async function getPluginDetail(id: string): Promise<PluginDetail> {
+  return (await request<ApiEnvelope<PluginDetail>>(`/app/plugins/${encodeURIComponent(id)}`)).data;
+}
+
+/** 换一个回调地址：旧地址立即失效，返回新地址全文（只出现这一次） */
+export async function rotateCallback(keyId: number): Promise<{ url: string; absolute: boolean }> {
+  return (
+    await request<ApiEnvelope<{ url: string; absolute: boolean }>>(
+      `/app/plugins/callbacks/${keyId}/rotate`,
+      { method: "POST" },
+    )
+  ).data;
+}
+
+export async function revokeCallback(keyId: number): Promise<void> {
+  await request(`/app/plugins/callbacks/${keyId}`, { method: "DELETE" });
+}
+
+/** 把搁置的事件再交给插件处理一次 */
+export async function replayDeadLetter(id: number): Promise<void> {
+  await request(`/app/plugins/dead-letters/${id}/replay`, { method: "POST" });
+}
+
+/** 忽略搁置的事件（不再处理） */
+export async function dismissDeadLetter(id: number): Promise<void> {
+  await request(`/app/plugins/dead-letters/${id}/dismiss`, { method: "POST" });
 }
