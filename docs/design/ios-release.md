@@ -108,14 +108,17 @@ TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple 
 ```text
 MovieClaw is the iPhone client for MovieClaw, a self-hosted media server that people install on their own hardware (a NAS, a home computer or a private server). Source code: https://github.com/movieclaw/MovieClaw. It works like Plex / Jellyfin / Infuse clients, plus the library-automation features of Sonarr / Radarr companion apps. The interface is in Simplified Chinese; English translations of labels are in parentheses.
 
+PREVIOUS REVIEW (5.6)
+Last time we mistakenly supplied a read-only public demo account, so the server refused some actions. Nothing in the app is hidden; please see our reply in Resolution Center. This time the review account has full access.
+
 CONTENT AND RESPONSIBILITY
 We do not provide, host or sell any movies, TV shows or torrent files, and we run no index or catalog of them. The app only connects to the server the user runs. Like Prowlarr, the server software only includes integration rules describing how to talk to various sites; it ships with no content, no accounts and no active source. A site is used only after the user adds a site they are a member of with their own account, and users are responsible for having the rights to what they download. Search, download and subscription in the app are remote commands to the user's own server. No media or torrent files are transferred to or from the iPhone, the app only streams video from that server, and it contains no BitTorrent or other peer-to-peer code.
 
 SIGN IN
-On first launch tap "连接服务器" (Connect to server), enter https://demo.movieclaw.io, then use the review account in Sign-In Information. It has full administrator access. Every user gets the same build and the same features.
+On first launch tap "连接服务器" (Connect to server), enter https://demo.movieclaw.io, then use the review account in Sign-In Information (full administrator access).
 
 DEMO SERVER
-The library holds only Creative Commons Blender open movies and public-domain images. To try search, download and subscription, it has a demo resource site that lists only CC-licensed Blender films (Elephants Dream, Charge and Wing It! are not in the library yet) and a demo download client that simulates transfers on the server. No peer-to-peer traffic happens; the seeding figures and the household playback shown in Activity are simulated.
+The library holds only Creative Commons Blender films and public-domain images. For search, download and subscription it has a demo resource site listing only CC-licensed Blender films (Elephants Dream, Charge and Wing It! are not in the library yet) and a demo download client that simulates transfers on the server. No peer-to-peer traffic happens; the seeding figures and the household playback shown in Activity are simulated.
 
 WHAT TO TRY
 1. Play: "媒体库" (Library), open a film, tap the play button.
@@ -123,22 +126,24 @@ WHAT TO TRY
 3. Subscribe: search "Charge", open it under "影视" (Titles), tap "订阅追踪" (Subscribe), then "确认订阅" (Confirm). Within a few minutes the server downloads it and the subscription shows as completed in "订阅" (Subscriptions). Wing It! is a spare for another try.
 4. Seeding: "活动" (Activity) → "刷流做种" (Seeding).
 5. AI assistant: "我的" (Me) → "新会话" (New session). Before the first message, the app explains that messages and the library data the assistant looks up are sent by the user's server to the AI provider its owner configured (named on screen), and asks for consent. The app never contacts an AI provider itself.
-6. Settings: "我的 → 服务器设置" (Me → Server settings) manages members, devices, notifications and playback. One-time server setup (download sources, download clients, import rules) is done in the server's web console on every platform because it needs large forms: open https://demo.movieclaw.io in Safari and sign in with the same review account (not the public visitor accounts listed on that login page) to see it. On the demo these few settings are locked so the demo keeps working.
+6. Settings: "我的 → 服务器设置" (Me → Server settings) manages members, devices, notifications and playback. One-time server setup (download sources, download clients, import rules) is done in the server's web console on every platform because it needs large forms; to see it, open https://demo.movieclaw.io in Safari and sign in with the review account (not the public visitor accounts listed there). On the demo these settings are locked.
 7. Accounts: there is no public sign-up. Server accounts are created and deleted by the server owner in Server settings → "成员" (Members). The optional MovieClaw Cloud (push notifications, Server settings → MovieClaw Cloud) creates an account on our website; the same page links to "管理或删除 MovieClaw 账号" (Manage or delete MovieClaw account).
 
 TECHNICAL
-Arbitrary loads: most servers run on a home network over plain HTTP (e.g. http://192.168.1.10:3000). Background audio: continued playback and Picture in Picture.
+Arbitrary loads: home servers often use plain HTTP on the LAN. Background audio: playback and Picture in Picture.
 ```
 
 - **回复审核（Resolution Center）**：被拒后重新提交时，在拒审消息下回复。上次是 5.6，用下面这段；
   以后被别的条款拒，照这个结构写：先说明原因，再说改了什么、去哪里看。
 
 ```text
-Hello, and thank you for the review.
+Hello, and thank you for reviewing MovieClaw.
 
-We believe the Guideline 5.6 finding came from a misunderstanding caused by the account we supplied. It was the shared, read-only visitor account of our public demo website, so when you tried to search, download or subscribe, the demo server refused with messages such as "演示站不会真的订阅和下载" ("the demo site does not actually subscribe or download"). Those refusals came from that public account's read-only mode on the server, not from the app.
+We are sorry for the confusion in the previous review. It was a mistake on our side, not an attempt to hide anything. For that review we supplied the shared visitor account of our public demo website. Because its password is published on the website for anyone to try, that account is read-only on the server. So when you tried to search, download or subscribe, the demo server refused with messages such as "演示站不会真的订阅和下载" ("the demo site does not actually subscribe or download"). Those refusals came from that public account on our demo server, not from the app; the features were present in the build you reviewed.
 
-The app has no hidden, dormant or remotely enabled features and does not detect reviewers; every user gets the same build and the same features. We now provide a dedicated review account with full administrator access (see Sign-In Information) on a demo server where search, download, subscription, seeding and the AI assistant all work end to end. The review notes walk through each feature step by step.
+We never intended to conceal any functionality from App Review. The app has no hidden, dormant or remotely enabled features and does not detect reviewers; every user gets the same build and the same features.
+
+To correct our mistake, we now provide a dedicated review account with full administrator access (see Sign-In Information) on a demo server where search, download, subscription, seeding and the AI assistant all work end to end, and the review notes walk through each feature step by step.
 
 We do not provide, host or sell any content. MovieClaw is software that users run on their own hardware. Like Prowlarr, it only includes integration rules for talking to sites, with no content, no accounts and no active source; a site is used only after users add one they are a member of with their own account. The demo server contains only Creative Commons Blender films, and its downloads are simulated without any peer-to-peer traffic.
 
@@ -156,6 +161,7 @@ If anything is unclear, we would be glad to explain on a call.
   - **首屏**是「连接服务器」而不是账号密码框，**不写明先填服务器地址，审核员会卡住**。
   - **按钮名照抄界面**：备注里的每个中文按钮名都要和 App 当前文字一致，界面改了要同步改备注；
     提审前用审核账号按备注逐步点一遍。
+  - **「PREVIOUS REVIEW (5.6)」一段只在回应这次拒审时保留**，过审后的提交删掉，省下的字数留给新功能。
   - **演示用的片只能用一次**：Elephants Dream、Charge 被审核员下载 / 订阅后就进库了。重新提交前
     用 `reset.sh restore` 还原演示站，还原后要重新用审核账号接入 AI 模型（模型配置不在快照里）。
   - **审核期间不改审核账号密码、不重启演示站换数据**，否则审核员登录会失效；审核可能持续几天。
