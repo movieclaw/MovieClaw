@@ -215,7 +215,7 @@ export function PluginDetailView({ id }: { id: string }) {
         </Banner>
       )}
 
-      <SettingsSection title="它做什么">
+      <SettingsSection title="插件能力">
         {detail.adds.length === 0 ? (
           <p className="px-1 text-sub text-[var(--text-muted)]">
             {state !== "active"
@@ -536,7 +536,7 @@ function Chips({ items }: { items: readonly string[] }) {
   );
 }
 
-/** 「它做什么」每类登记的图标（按类别，不按插件） */
+/** 「插件能力」每类登记的图标（按类别，不按插件） */
 const ADD_ICON: Record<string, ComponentType<{ className?: string }>> = {
   channel: ChatBubblesIcon,
   task: ClockIcon,
@@ -547,6 +547,8 @@ const ADD_ICON: Record<string, ComponentType<{ className?: string }>> = {
   trigger: BellIcon,
   decision: BranchIcon,
   delete: TrashIcon,
+  service: ServerIcon,
+  background: ActivityIcon,
 };
 
 /** 行尾的「查看 ›」：说明性的行不做成整行可点，跳转只占这几个字 */

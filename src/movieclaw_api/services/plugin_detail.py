@@ -158,6 +158,31 @@ def _adds(
                         "href": None,
                     }
                 )
+    # 提供的服务：基础设施类的系统模块（数据库、注册表、事件投递……）主要靠这个对外
+    fiber = kernel.fiber(entry_id)
+    if fiber is not None:
+        for key in fiber.entry.plugin.provides:
+            out.append(
+                {
+                    "kind": "service",
+                    "title": f"提供服务「{key.doc or key.name}」",
+                    "detail": f"别的插件可以用 {key.name}",
+                    "href": None,
+                }
+            )
+    # 常驻后台工作（ctx.task 起的协程：目录监控、定时汇总、自愈巡检……），随插件运行
+    if fiber is not None:
+        prefix_task = f"plugin:{fiber.id}:"
+        for name in sorted({t.get_name() for t in fiber.tasks if not t.done()}):
+            label = name[len(prefix_task) :] if name.startswith(prefix_task) else name
+            out.append(
+                {
+                    "kind": "background",
+                    "title": f"常驻后台工作「{label}」",
+                    "detail": "随插件一直运行，停用插件即停止",
+                    "href": None,
+                }
+            )
     # 插件接口：每条都是 mclaw 命令，AI 助手能直接调用（插件路由挂在宿主的插件路由器上）
     from movieclaw_api.services.plugin_routes import host_router
 
@@ -198,6 +223,8 @@ def _adds(
         "ingest",
         "job",
         "site",
+        "service",
+        "background",
         "delete",
         "other",
         "command",
@@ -205,6 +232,18 @@ def _adds(
         "decision",
     ]
     return sorted(unique, key=lambda item: order.index(item["kind"]))
+
+
+def _doc_summary(kernel: Kernel, entry_id: str) -> str:
+    """系统模块没有清单描述：用入口函数自己的说明文字第一段（写代码时就写好的，不另维护文案）。"""
+    import inspect
+
+    fiber = kernel.fiber(entry_id)
+    if fiber is None:
+        return ""
+    doc = inspect.getdoc(inspect.unwrap(fiber.entry.plugin.apply)) or ""
+    first = doc.split("\n\n", 1)[0]
+    return " ".join(line.strip() for line in first.splitlines()).strip()
 
 
 def _item_label(contribution: Any) -> str:
@@ -357,6 +396,8 @@ async def plugin_detail(kernel: Kernel, settings: Any, entry_id: str, item: dict
     elif shipped is not None:
         description = shipped.manifest.plugin.description
         version = shipped.manifest.plugin.version
+    if not description and kind == "system":
+        description = _doc_summary(kernel, entry_id)
 
     accounts: dict[str, int] = {}
     try:

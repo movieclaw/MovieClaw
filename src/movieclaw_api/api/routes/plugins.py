@@ -598,7 +598,9 @@ async def revoke_callback(key_id: int) -> ApiResponse[None]:
 class AddedView(BaseModel):
     kind: str = Field(
         description=(
-            "channel / task / ingest / job / site / delete（删除时的选项）/ other（其他登记）"
+            "channel / task / ingest / job / site / service（提供的服务）"
+            " / background（常驻后台工作）/ delete（删除时的选项）"
+            " / other（其他登记）"
             " / command / trigger / decision"
         )
     )

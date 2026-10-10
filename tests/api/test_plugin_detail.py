@@ -176,3 +176,17 @@ def test_detail_says_where_the_code_lives(app_env) -> None:
         official = detail(client, "weixin-channel")["source"]
         assert official["path"].startswith("src/") and "weixin" in official["path"]
         assert official["entry"] and "." not in official["entry"]
+
+
+def test_infrastructure_modules_describe_themselves(app_env) -> None:
+    """不往注册表登记的基础模块：介绍取入口函数自己的说明，能力里列出它提供的服务。"""
+    with start() as client:
+        registries = detail(client, "core.registries")
+        assert registries["description"].startswith("把内核里的两张注册表绑定为")
+        database = detail(client, "core.database")
+        assert {
+            "kind": "service",
+            "title": "提供服务「数据库引擎（迁移完成后提供）」",
+            "detail": "别的插件可以用 db",
+            "href": None,
+        } in database["adds"]
