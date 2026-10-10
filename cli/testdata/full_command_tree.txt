@@ -136,6 +136,8 @@ dl tasks
 dl torrent
 dl torrent delete
 dl torrent replace
+dl types
+dl types list
 dl update
 dl verify
 download

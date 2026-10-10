@@ -148,6 +148,23 @@ nonisolated extension API {
         }
     }
 
+    struct AddedView: Codable, Hashable, Sendable {
+        /// channel / task / ingest / job / site / service（提供的服务） / background（常驻后台工作）/ delete（删除时的选项） / other（其他登记） / command / trigger / decision
+        var kind: String
+        /// 人话：它给系统加了什么、什么时候被触发、会影响什么
+        var title: String
+        var detail: String
+        /// 去哪里看 / 调整（站内路径）
+        var href: String?
+
+        enum CodingKeys: String, CodingKey {
+            case kind
+            case title
+            case detail
+            case href
+        }
+    }
+
     /// 网页手工创建令牌（给没有人能按批准的无人值守环境）。
     struct ApiTokenCreateRequest: Codable, Hashable, Sendable {
         /// 令牌名字，如 'nas-cron'，便于识别与注销
@@ -1109,12 +1126,6 @@ nonisolated extension API {
         }
     }
 
-    /// 下载器类型。取值与 ``movieclaw_downloader.DownloaderType`` 一一对应。
-    /// 此处独立定义而非直接 import —— movieclaw_db 是纯存储层，
-    /// 不反向依赖领域库（与 SiteCredential 不依赖 tracker 同理）。
-    typealias ClientType = String
-    // 取值：'qbittorrent', 'transmission'
-
     struct CloudConnectionView: Codable, Hashable, Sendable {
         var instanceId: String
         var instanceName: String
@@ -1701,6 +1712,56 @@ nonisolated extension API {
 
         enum CodingKeys: String, CodingKey {
             case fileIds = "file_ids"
+        }
+    }
+
+    struct DetailConsumerView: Codable, Hashable, Sendable {
+        /// <条目 id>:<监听器 id>
+        var consumerId: String
+        var event: String
+        /// 订阅它的插件当前是否在运行
+        var active: Bool
+        /// 尚未处理的事件数
+        var backlog: Int
+        /// 当前事件已失败的次数（0 = 正常）
+        var attempts: Int
+        var nextAttemptAt: String?
+        var lastError: String?
+        /// 事件的人话名字
+        var title: String
+
+        enum CodingKeys: String, CodingKey {
+            case consumerId = "consumer_id"
+            case event
+            case active
+            case backlog
+            case attempts
+            case nextAttemptAt = "next_attempt_at"
+            case lastError = "last_error"
+            case title
+        }
+    }
+
+    struct DetailDeadLetterView: Codable, Hashable, Sendable {
+        var id: Int
+        var consumerId: String
+        var event: String
+        var eventId: String
+        var error: String
+        var attempts: Int
+        var createdAt: String
+        /// 事件的人话名字
+        var title: String
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case consumerId = "consumer_id"
+            case event
+            case eventId = "event_id"
+            case error
+            case attempts
+            case createdAt = "created_at"
+            case title
         }
     }
 
@@ -2509,7 +2570,7 @@ nonisolated extension API {
     struct DownloadTaskSourceView: Codable, Hashable, Sendable {
         var id: Int
         var name: String
-        var clientType: API.ClientType
+        var clientType: String
         var status: String
         var message: String?
         var taskCount: Int
@@ -2585,7 +2646,7 @@ nonisolated extension API {
         var name: String?
         var downloaderId: Int?
         var downloaderName: String?
-        var downloaderType: API.ClientType?
+        var downloaderType: String?
         var progress: Double?
         var sizeBytes: Int?
         var dlspeedBytes: Int?
@@ -2727,8 +2788,8 @@ nonisolated extension API {
     struct DownloaderPayload: Codable, Hashable, Sendable {
         /// 下载器名称（全局唯一）
         var name: String
-        /// 下载器类型：qbittorrent / transmission
-        var clientType: API.ClientType
+        /// 下载器类型：qbittorrent / transmission / 插件登记的类型（见 dl.types.list）
+        var clientType: String
         /// 下载器地址，如 http://192.168.1.10:8080
         var url: String
         /// 登录用户名（未开鉴权可留空）
@@ -2764,11 +2825,36 @@ nonisolated extension API {
         }
     }
 
+    /// 一种可接入的下载器（由官方 / 第三方下载器插件登记，docs/design/downloader-adapters.md）。
+    struct DownloaderTypeView: Codable, Hashable, Sendable {
+        /// 配置下载器时填的类型值，如 qbittorrent
+        var type: String
+        /// 名字，如 qBittorrent
+        var title: String
+        /// 配置表单里地址一栏的叫法，如「WebUI 地址」
+        var urlLabel: String
+        /// 地址示例
+        var urlPlaceholder: String
+        /// 是否需要用户名
+        var needsUsername: Bool
+        /// 补充说明
+        var help: String
+
+        enum CodingKeys: String, CodingKey {
+            case type
+            case title
+            case urlLabel = "url_label"
+            case urlPlaceholder = "url_placeholder"
+            case needsUsername = "needs_username"
+            case help
+        }
+    }
+
     /// 下载器配置的对外视图（**脱敏**：绝不回传密码）。
     struct DownloaderView: Codable, Hashable, Sendable {
         var id: Int
         var name: String
-        var clientType: API.ClientType
+        var clientType: String
         var url: String
         var username: String?
         /// 提交下载时的默认保存目录
@@ -8136,6 +8222,92 @@ nonisolated extension API {
             case hiddenTitleCount = "hidden_title_count"
             case favorites
             case previousFavorites = "previous_favorites"
+        }
+    }
+
+    struct PluginDetailView: Codable, Hashable, Sendable {
+        var plugin: API.PluginView
+        /// official：随应用提供；package：第三方插件包；local：本地插件；system：系统模块
+        var kind: String
+        var description: String
+        var version: String?
+        /// 是否声明了联网（插件包才有）
+        var network: Bool?
+        var package: API.PluginPackageDetailView?
+        /// 装了它，系统多了什么
+        var adds: [API.AddedView]
+        /// 它订阅的可靠事件与积压
+        var consumers: [API.DetailConsumerView]
+        /// 它没处理成功、搁置下来的事件
+        var deadLetters: [API.DetailDeadLetterView]
+        /// 它开放的回调地址（密钥打码）
+        var callbacks: [API.CallbackKeyView]
+        var dataRows: Int
+        /// 插件私有目录占用（字节）
+        var diskBytes: Int
+        /// 插件私有目录（data/plugins/data/<id>）
+        var dataPath: String?
+        /// 它的子条目
+        var children: [String]
+        /// 源码在哪
+        var source: API.PluginSourceView?
+
+        enum CodingKeys: String, CodingKey {
+            case plugin
+            case kind
+            case description
+            case version
+            case network
+            case package
+            case adds
+            case consumers
+            case deadLetters = "dead_letters"
+            case callbacks
+            case dataRows = "data_rows"
+            case diskBytes = "disk_bytes"
+            case dataPath = "data_path"
+            case children
+            case source
+        }
+    }
+
+    struct PluginPackageDetailView: Codable, Hashable, Sendable {
+        var version: String
+        /// 安装时间（Unix 秒）
+        var installedAt: Double?
+        /// 能回到的上一版
+        var previousVersion: String?
+        /// 起不来、已自动回滚过的版本
+        var badVersions: [String]
+        /// 批准它调用的系统操作
+        var operations: [API.OperationDetailView]
+        /// 批准它读写的目录
+        var paths: [[String: String]]
+        /// 批准它开放的回调端点
+        var callbacks: [String]
+        var replacesBuiltin: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case version
+            case installedAt = "installed_at"
+            case previousVersion = "previous_version"
+            case badVersions = "bad_versions"
+            case operations
+            case paths
+            case callbacks
+            case replacesBuiltin = "replaces_builtin"
+        }
+    }
+
+    struct PluginSourceView: Codable, Hashable, Sendable {
+        /// 源码位置：应用源码按 src/… 显示（系统模块带行号），数据目录里的按 data/…
+        var path: String
+        /// 入口名称：系统模块是函数名（如 downloads()），官方 / 本地插件是入口模块名
+        var entry: String?
+
+        enum CodingKeys: String, CodingKey {
+            case path
+            case entry
         }
     }
 

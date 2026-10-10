@@ -12,11 +12,11 @@ import logging
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from movieclaw_api.exceptions import ConflictException, NotFoundException
+from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
 from movieclaw_api.services.download_health import adopt_landing_groups
 from movieclaw_api.services.downloader_paths import PathProbe, probe_mappings, summarize
 from movieclaw_db.engine import get_database
-from movieclaw_db.models.downloader_client import ClientType, DownloaderClient
+from movieclaw_db.models.downloader_client import DownloaderClient
 from movieclaw_db.models.site_credential import ConfigStatus
 from movieclaw_db.repositories.downloader_repo import DownloaderRepository
 from movieclaw_downloader import DownloaderConfig, DownloaderException, create_downloader
@@ -61,11 +61,24 @@ class DownloaderConfigService:
         if existing is not None and existing.id != exclude_id:
             raise ConflictException(f"名称「{name}」已被使用，请换一个")
 
+    @staticmethod
+    def _assert_type_known(client_type: str) -> None:
+        """类型要有已登记的适配器（官方插件或第三方插件提供）；没有就说清楚有哪些。"""
+        from movieclaw_downloader.registry import adapters
+
+        known = adapters()
+        if client_type not in known:
+            names = "、".join(f"{a.title}（{t}）" for t, a in known.items()) or "无"
+            raise BadRequestException(
+                f"没有「{client_type}」这种下载器：可用的类型有 {names}。"
+                "其他下载器需要先安装对应的下载器插件"
+            )
+
     async def create(
         self,
         *,
         name: str,
-        client_type: ClientType,
+        client_type: str,
         url: str,
         username: str | None,
         password: str | None,
@@ -74,6 +87,7 @@ class DownloaderConfigService:
         enabled: bool = True,
     ) -> DownloaderClient:
         """新增下载器配置（状态置 PENDING，等待异步测试连接）。"""
+        self._assert_type_known(client_type)
         await self._assert_name_available(name)
         return await self._repo.create(
             name=name,
@@ -91,7 +105,7 @@ class DownloaderConfigService:
         downloader_id: int,
         *,
         name: str,
-        client_type: ClientType,
+        client_type: str,
         url: str,
         username: str | None,
         password: str | None,
@@ -102,6 +116,8 @@ class DownloaderConfigService:
         """整体更新下载器配置；不存在抛 404，正在验证中抛 409。"""
         row = await self.get(downloader_id)
         self._assert_not_verifying(row)
+        if client_type != row.client_type:
+            self._assert_type_known(client_type)
         await self._assert_name_available(name, exclude_id=downloader_id)
         updated = await self._repo.update(
             downloader_id,
@@ -211,7 +227,7 @@ async def verify_downloader(downloader_id: int) -> None:
             return
 
         config = DownloaderConfig(
-            type=row.client_type.value,
+            type=row.client_type,
             url=row.url,
             username=row.username,
             password=repo.decrypted_password(row),
@@ -235,7 +251,7 @@ async def verify_downloader(downloader_id: int) -> None:
         finally:
             await downloader.close()
 
-        logger.info("下载器连接测试通过：%s（%s %s）", row.name, info.type.value, info.version)
+        logger.info("下载器连接测试通过：%s（%s %s）", row.name, info.type, info.version)
         # API 通了，再体检路径映射：两者是独立的故障面，绿灯必须两者都过才算数。
         # 只在连接成功后做——连接都不通时路径结论没有意义，也别让两种失败互相遮盖
         probes = probe_mappings(row.path_mappings)

@@ -269,7 +269,7 @@ async def submit_torrent(
     # 4. 提交（幂等，重复种子不报错）
     repo = DownloaderRepository(session)
     config = DownloaderConfig(
-        type=row.client_type.value,
+        type=row.client_type,
         url=row.url,
         username=row.username,
         password=repo.decrypted_password(row),

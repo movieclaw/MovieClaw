@@ -108,6 +108,12 @@ nonisolated extension APIClient {
         return try await send("POST", "/app/plugins/safe-mode/exit")
     }
 
+    /// 插件详情：它是什么、状态、权限、给系统加了什么、最近的处理情况与存储
+    /// `GET /app/plugins/{entry_id}`
+    func appPluginsShow(entryId: String) async throws -> API.PluginDetailView {
+        return try await send("GET", "/app/plugins/\(entryId)")
+    }
+
     /// 修改对外端口（保存后全量重启生效）
     /// `PUT /app/port`
     func appPortSet(body: API.WebPortPayload) async throws -> API.AppConfigView {
@@ -731,6 +737,12 @@ nonisolated extension APIClient {
     /// `GET /downloaders/tasks`
     func dlTasks() async throws -> API.DownloadTaskListView {
         return try await send("GET", "/downloaders/tasks")
+    }
+
+    /// 能接入哪些下载器（由下载器插件登记；装了新的下载器插件这里就多一种）
+    /// `GET /downloaders/types`
+    func dlTypesList() async throws -> [API.DownloaderTypeView] {
+        return try await send("GET", "/downloaders/types")
     }
 
     /// 删除下载器配置

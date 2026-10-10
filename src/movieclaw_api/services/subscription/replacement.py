@@ -248,7 +248,7 @@ async def _torrent_exists_on_downloader(
     repo = DownloaderRepository(session)
     adapter = create_downloader(
         DownloaderConfig(
-            type=downloader.client_type.value,
+            type=downloader.client_type,
             url=downloader.url,
             username=downloader.username,
             password=repo.decrypted_password(downloader),
@@ -714,7 +714,7 @@ async def _remove_just_submitted_task(
     repo = DownloaderRepository(session)
     adapter = create_downloader(
         DownloaderConfig(
-            type=downloader.client_type.value,
+            type=downloader.client_type,
             url=downloader.url,
             username=downloader.username,
             password=repo.decrypted_password(downloader),
@@ -1157,7 +1157,7 @@ async def reconcile_pending_cleanup(attempt_id: int) -> bool:
         repo = DownloaderRepository(session)
         adapter = create_downloader(
             DownloaderConfig(
-                type=downloader.client_type.value,
+                type=downloader.client_type,
                 url=downloader.url,
                 username=downloader.username,
                 password=repo.decrypted_password(downloader),
@@ -1305,7 +1305,7 @@ async def _cleanup_failed_trial(
             repo = DownloaderRepository(session)
             adapter = create_downloader(
                 DownloaderConfig(
-                    type=downloader.client_type.value,
+                    type=downloader.client_type,
                     url=downloader.url,
                     username=downloader.username,
                     password=repo.decrypted_password(downloader),
@@ -1408,7 +1408,7 @@ async def _cleanup_replaced_attempt(
     repo = DownloaderRepository(session)
     adapter = create_downloader(
         DownloaderConfig(
-            type=downloader.client_type.value,
+            type=downloader.client_type,
             url=downloader.url,
             username=downloader.username,
             password=repo.decrypted_password(downloader),
@@ -1498,7 +1498,7 @@ async def _converge_upgraded_old_attempt(
     repo = DownloaderRepository(session)
     adapter = create_downloader(
         DownloaderConfig(
-            type=downloader.client_type.value,
+            type=downloader.client_type,
             url=downloader.url,
             username=downloader.username,
             password=repo.decrypted_password(downloader),

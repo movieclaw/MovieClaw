@@ -18,7 +18,10 @@ import {
 } from "@/components/settings-ui";
 import {
   type ConfiguredDownloader,
+  BUILTIN_DOWNLOADER_TYPES,
   type DownloaderClientType,
+  type DownloaderTypeInfo,
+  listDownloaderTypes,
   type DownloaderLimits,
   type DownloaderPayload,
   type DownloaderStatus,
@@ -62,17 +65,39 @@ async function boostSitesOn(downloaderId: number): Promise<string[]> {
   }
 }
 
-/** 下载器类型 → 展示名 */
-const TYPE_LABEL: Record<DownloaderClientType, string> = {
-  qbittorrent: "qBittorrent",
-  transmission: "Transmission",
-};
+/**
+ * 可接入的下载器类型：由下载器插件登记（官方的 qBittorrent / Transmission，或第三方插件），
+ * 服务端给出名字、地址叫法与示例。整页共用一份，取一次。
+ */
+let typesCache: Promise<DownloaderTypeInfo[]> | null = null;
 
-/** 各类型的地址占位提示（qB 是 WebUI 地址，Tr 是 RPC 地址，端口不同） */
-const URL_PLACEHOLDER: Record<DownloaderClientType, string> = {
-  qbittorrent: "http://192.168.1.10:8080",
-  transmission: "http://192.168.1.10:9091",
-};
+function useDownloaderTypes(): DownloaderTypeInfo[] {
+  const [types, setTypes] = useState<DownloaderTypeInfo[]>(BUILTIN_DOWNLOADER_TYPES);
+  useEffect(() => {
+    let alive = true;
+    typesCache ??= listDownloaderTypes();
+    void typesCache.then((value) => {
+      if (alive) setTypes(value);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return types;
+}
+
+function typeInfo(types: DownloaderTypeInfo[], type: DownloaderClientType): DownloaderTypeInfo {
+  return (
+    types.find((t) => t.type === type) ?? {
+      type,
+      title: type,
+      url_label: "地址",
+      url_placeholder: "",
+      needs_username: true,
+      help: "这种下载器的插件没装或没在运行",
+    }
+  );
+}
 
 /** 需要轮询测试进度的中间态 */
 const IN_PROGRESS: DownloaderStatus[] = ["pending", "verifying"];
@@ -85,6 +110,7 @@ const IN_PROGRESS: DownloaderStatus[] = ["pending", "verifying"];
  * 直到 active / failed。搜索结果里的"提交下载"以这里配置的实例为目标。
  */
 export function DownloaderConfigSection() {
+  const types = useDownloaderTypes();
   const [downloaders, setDownloaders] = useState<ConfiguredDownloader[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -205,7 +231,7 @@ export function DownloaderConfigSection() {
           <SettingsEmpty
             icon={<DownloadIcon className="size-5" />}
             title="还没有接入任何下载器"
-            description="点「添加下载器」接入，支持 qBittorrent 和 Transmission。"
+            description={`点「添加下载器」接入，支持 ${types.map((t) => t.title).join("、")}；装下载器插件可以接入更多。`}
           />
         ) : (
           <div className="css-glass divide-y divide-[var(--line)] overflow-hidden !rounded-xl">
@@ -286,6 +312,7 @@ function DownloaderRow({
   onRefresh,
   onError,
 }: DownloaderRowProps) {
+  const types = useDownloaderTypes();
   const confirm = useConfirm();
   const [busy, setBusy] = useState(false);
   const [limitsOpen, setLimitsOpen] = useState(false);
@@ -318,7 +345,7 @@ function DownloaderRow({
 
   // 副标题：类型 + 版本 + 上次检查时间（失败原因另起一行红字，不挤在这里）
   const subtitle = [
-    TYPE_LABEL[downloader.client_type],
+    typeInfo(types, downloader.client_type).title,
     downloader.version,
     downloader.last_checked_at ? `上次检查 ${formatRelativeTime(downloader.last_checked_at)}` : null,
   ]
@@ -933,9 +960,11 @@ function DownloaderForm({
 }: DownloaderFormProps) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const types = useDownloaderTypes();
   const [clientType, setClientType] = useState<DownloaderClientType>(
     downloader?.client_type ?? "qbittorrent",
   );
+  const info = typeInfo(types, clientType);
   const [name, setName] = useState(downloader?.name ?? "");
   const [url, setUrl] = useState(downloader?.url ?? "");
   const [username, setUsername] = useState(downloader?.username ?? "");
@@ -1034,15 +1063,15 @@ function DownloaderForm({
         <div>
           <label className={labelClass}>下载器类型</label>
           <div className="flex flex-wrap gap-2">
-            {(Object.keys(TYPE_LABEL) as DownloaderClientType[]).map((t) => (
+            {types.map((t) => (
               <button
-                key={t}
+                key={t.type}
                 type="button"
-                onClick={() => setClientType(t)}
-                data-active={clientType === t}
+                onClick={() => setClientType(t.type)}
+                data-active={clientType === t.type}
                 className="glass-row nav-item !w-auto px-3 py-1.5 text-sub font-medium"
               >
-                {TYPE_LABEL[t]}
+                {t.title}
               </button>
             ))}
           </div>
@@ -1061,17 +1090,18 @@ function DownloaderForm({
         </div>
 
         <div>
-          <label className={labelClass}>
-            {clientType === "qbittorrent" ? "WebUI 地址" : "RPC 地址"}
-          </label>
+          <label className={labelClass}>{info.url_label}</label>
           <input
             type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder={URL_PLACEHOLDER[clientType]}
+            placeholder={info.url_placeholder}
             autoComplete="off"
             className={inputClass}
           />
+          {info.help && (
+            <p className="mt-1 text-caption text-[var(--text-faint)]">{info.help}</p>
+          )}
         </div>
 
         {/* 凭证：未开鉴权的下载器可整体留空 */}

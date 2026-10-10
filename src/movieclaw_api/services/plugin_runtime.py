@@ -732,6 +732,19 @@ def _contribution(session: Session, contribution: dict[str, Any]) -> tuple[Any, 
             job_type=item["job_type"],
             applies_to=frozenset(item.get("applies_to") or ("item", "file")),
         )
+    if registry == "downloader-adapters":
+        from movieclaw_api.services.plugin_downloaders import RemoteDownloader
+        from movieclaw_downloader.registry import DOWNLOADER_ADAPTERS, DownloaderAdapter
+
+        return DOWNLOADER_ADAPTERS, DownloaderAdapter(
+            type=item["type"],
+            title=item["title"],
+            factory=lambda config: RemoteDownloader(session, cid, config),
+            url_label=item.get("url_label") or "地址",
+            url_placeholder=item.get("url_placeholder") or "",
+            needs_username=bool(item.get("needs_username", True)),
+            help=item.get("help") or "",
+        )
     if registry == INGEST_STEPS.name:
         return INGEST_STEPS, IngestStep(
             job_type=item["job_type"],

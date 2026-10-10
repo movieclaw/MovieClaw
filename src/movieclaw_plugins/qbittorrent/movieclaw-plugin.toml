@@ -1,0 +1,15 @@
+[plugin]
+id = "qbittorrent-downloader"
+title = "qBittorrent 下载器"
+version = "1.0.0"
+entry = "qbittorrent_downloader"
+runtime = "process"
+sdk = "^1.0"
+description = "接入 qBittorrent：提交、查询、删除下载任务，同步做种状态"
+
+[requires]
+"downloader-adapters" = "^1.0"
+
+[permissions]
+operations = []
+network = true

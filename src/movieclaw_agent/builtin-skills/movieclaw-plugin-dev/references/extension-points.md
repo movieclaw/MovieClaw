@@ -41,6 +41,7 @@ tests 守着：契约有增删时本文必须同步）。每个都是「实验�
 | 契约 | 能做什么 | 导入 | 示例 |
 |---|---|---|---|
 | `im-channels` | 接一个新的消息平台（收发、绑定），账号 / 白名单 / AI 对话 / 推送由主程序负责 | `from movieclaw_sdk.channels import IM_CHANNELS` | `examples/ntfy-channel/`、`$SRC/movieclaw_plugins/` |
+| `downloader-adapters` | 接一款新的下载软件（Deluge、Aria2……）：继承 `BaseDownloader` 实现提交 / 查询 / 删除等方法，登记 `DownloaderAdapter`；配置、路径映射、订阅投递、做种同步由主程序负责，独立进程也能跑 | `from movieclaw_sdk.downloaders import DOWNLOADER_ADAPTERS, BaseDownloader, DownloaderAdapter` | `$SRC/movieclaw_plugins/qbittorrent/`、`$SRC/movieclaw_plugins/transmission/` |
 | `site-classes` | 新的站点框架（`BaseSite` 子类），站点 YAML 的 `custom_class` 引用它 | `from movieclaw_api.plugins.keys import SITE_CLASSES` | `$SRC/movieclaw_tracker/sites/custom/` |
 | `site-data-packs` | 一批站点 YAML 打成插件分发（同 site_id 覆盖内置） | `… import SITE_DATA_PACKS` | `examples/site_pack/` |
 | `scheduled-tasks` | 周期任务（出现在「定时任务」里，用户可调周期）；可 override 整段替换内置任务（如订阅缺口搜索 `search_wanted`） | `from movieclaw_scheduler import SCHEDULED_TASKS` | — |

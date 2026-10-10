@@ -44,7 +44,10 @@ logger = logging.getLogger("movieclaw_api.plugins.manifest")
 #: tests/api/test_plugin_diagnostics.py 会失败。
 BUILTIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("基础", ("core.", "jobs", "scheduler", "storage.", "app-update", "selfheal.")),
-    ("资源站点与下载", ("tracker.", "downloads", "boost")),
+    (
+        "资源站点与下载",
+        ("tracker.", "downloads", "boost", "qbittorrent-downloader", "transmission-downloader"),
+    ),
     ("订阅", ("subscription",)),
     ("媒体库", ("library.", "media.", "enrich.")),
     ("播放与字幕", ("playback.", "subtitle.", "jellyfin.")),
@@ -76,14 +79,24 @@ def builtin_group(entry_id: str) -> str | None:
     return None
 
 
+#: 下载器适配插件（随带包 id 以此结尾）：要排在 ``downloads`` 等用到下载器的模块前面，
+#: 否则启动那一刻（入库监控的首次扫描）找不到适配器
+_DOWNLOADER_SUFFIX = "-downloader"
+
+
 def with_bundled(bundled: Sequence[Entry]) -> tuple[Entry, ...]:
-    """把随带插件包的内置条目插在通道中枢后面（微信通道原来的位置）。
+    """把随带插件包的内置条目插进清单：下载器适配插件插在 ``downloads`` 前面，其余插在通道中枢
+    后面（微信通道原来的位置）。
 
     启动按清单顺序、停机反过来：放在末尾会让它们最先停，打乱「转码会话最先停」等停机约束。
     """
+    downloaders = [e for e in bundled if e.id.endswith(_DOWNLOADER_SUFFIX)]
+    others = [e for e in bundled if not e.id.endswith(_DOWNLOADER_SUFFIX)]
     entries = list(BUILTIN_MANIFEST)
+    at = next(i for i, e in enumerate(entries) if e.id == "downloads")
+    entries[at:at] = downloaders
     at = next(i for i, e in enumerate(entries) if e.id == "channels.hub") + 1
-    return (*entries[:at], *bundled, *entries[at:])
+    return (*entries[:at], *others, *entries[at:])
 
 
 #: 补丁文件（docs/design/plugin-kernel.md §10.3）：放在数据目录根下，随数据卷持久化

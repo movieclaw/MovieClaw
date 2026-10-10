@@ -23,17 +23,14 @@ from transmission_rpc.error import (
     TransmissionError,
 )
 
-from movieclaw_downloader.base import BaseDownloader
-from movieclaw_downloader.exceptions import (
+from movieclaw_sdk.downloaders import (
+    BaseDownloader,
     DownloaderAuthError,
     DownloaderConnectError,
     DownloaderDeleteError,
-    DownloaderSubmitError,
-)
-from movieclaw_downloader.models import (
     DownloaderInfo,
     DownloaderLimits,
-    DownloaderType,
+    DownloaderSubmitError,
     DownloadRequest,
     SubmitResult,
     TorrentBrief,
@@ -393,9 +390,7 @@ class TransmissionDownloader(BaseDownloader):
                 else None
             ),
             upload_limit_bytes=(
-                int(f.get("speed-limit-up", 0)) * 1000
-                if f.get("speed-limit-up-enabled")
-                else None
+                int(f.get("speed-limit-up", 0)) * 1000 if f.get("speed-limit-up-enabled") else None
             ),
             alt_speed_enabled=bool(f.get("alt-speed-enabled")),
             queue_enabled=bool(f.get("download-queue-enabled")),
@@ -479,7 +474,6 @@ class TransmissionDownloader(BaseDownloader):
         with _translate_errors(self.config.url):
             client.start_torrent(info_hash.lower())
 
-
     async def test_connection(self) -> DownloaderInfo:
         return await asyncio.to_thread(self._test_connection_sync)
 
@@ -487,7 +481,7 @@ class TransmissionDownloader(BaseDownloader):
         client = self._client()
         with _translate_errors(self.config.url):
             session = client.get_session()
-        return DownloaderInfo(type=DownloaderType.TRANSMISSION, version=session.version)
+        return DownloaderInfo(type="transmission", version=session.version)
 
     async def close(self) -> None:
         # transmission-rpc 无显式登出/断开接口，丢弃引用即可

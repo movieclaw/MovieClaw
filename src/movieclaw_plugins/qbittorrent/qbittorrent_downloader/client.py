@@ -15,17 +15,14 @@ from contextlib import contextmanager
 
 import qbittorrentapi
 
-from movieclaw_downloader.base import BaseDownloader
-from movieclaw_downloader.exceptions import (
+from movieclaw_sdk.downloaders import (
+    BaseDownloader,
     DownloaderAuthError,
     DownloaderConnectError,
     DownloaderDeleteError,
-    DownloaderSubmitError,
-)
-from movieclaw_downloader.models import (
     DownloaderInfo,
     DownloaderLimits,
-    DownloaderType,
+    DownloaderSubmitError,
     DownloadRequest,
     SubmitResult,
     TorrentBrief,
@@ -534,7 +531,7 @@ class QBittorrentDownloader(BaseDownloader):
         with _translate_errors(self.config.url):
             client.auth_log_in()
             version = client.app_version()
-        return DownloaderInfo(type=DownloaderType.QBITTORRENT, version=version)
+        return DownloaderInfo(type="qbittorrent", version=version)
 
     async def close(self) -> None:
         """释放本实例对共享客户端的引用。

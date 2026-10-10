@@ -6,7 +6,7 @@ from typing import Literal
 from pydantic import Field, field_serializer, field_validator, model_validator
 
 from movieclaw_api.schemas.base import BaseModel
-from movieclaw_db.models.downloader_client import ClientType, DownloaderClient
+from movieclaw_db.models.downloader_client import DownloaderClient
 from movieclaw_db.models.site_credential import ConfigStatus
 
 
@@ -44,7 +44,7 @@ class DownloaderView(BaseModel):
 
     id: int
     name: str
-    client_type: ClientType
+    client_type: str
     url: str
     username: str | None = None
     save_path: str | None = Field(default=None, description="提交下载时的默认保存目录")
@@ -206,7 +206,7 @@ class DownloadTaskView(BaseModel):
     name: str | None
     downloader_id: int | None
     downloader_name: str | None
-    downloader_type: ClientType | None
+    downloader_type: str | None
     progress: float | None = Field(default=None, ge=0, le=1)
     size_bytes: int | None = None
     dlspeed_bytes: int | None = None
@@ -269,7 +269,7 @@ class DownloadTaskSourceView(BaseModel):
 
     id: int
     name: str
-    client_type: ClientType
+    client_type: str
     status: Literal["active", "disabled", "unavailable", "error"]
     message: str | None = None
     task_count: int = 0
@@ -354,7 +354,9 @@ class DownloaderPayload(BaseModel):
     """
 
     name: str = Field(min_length=1, max_length=50, description="下载器名称（全局唯一）")
-    client_type: ClientType = Field(description="下载器类型：qbittorrent / transmission")
+    client_type: str = Field(
+        description="下载器类型：qbittorrent / transmission / 插件登记的类型（见 dl.types.list）"
+    )
     url: str = Field(description="下载器地址，如 http://192.168.1.10:8080")
     username: str | None = Field(default=None, description="登录用户名（未开鉴权可留空）")
     password: str | None = Field(default=None, description="登录密码（未开鉴权可留空）")

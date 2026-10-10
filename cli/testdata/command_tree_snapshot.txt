@@ -91,6 +91,7 @@ dl target-prefs list
 dl tasks
 dl torrent delete
 dl torrent replace
+dl types list
 dl update
 dl verify
 extension cookies push

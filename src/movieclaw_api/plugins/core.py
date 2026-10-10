@@ -62,6 +62,10 @@ async def registries(ctx: Context) -> None:
     ctx.effect(lambda: hooks.unbind_bus(ctx.events), label="unbind-hooks")
     # 流水线槽位的步骤表（pipeline.py）：入库任务按它为插件步骤建下游任务
     ctx.effect(pipeline.bind_steps(ctx.registry(pipeline.INGEST_STEPS)), label="unbind-steps")
+    # 下载器适配器（downloader-adapters.md）：下载器类型由官方 / 第三方插件登记
+    from movieclaw_downloader.registry import DOWNLOADER_ADAPTERS, bind_adapters
+
+    ctx.effect(bind_adapters(ctx.registry(DOWNLOADER_ADAPTERS)), label="unbind-downloader-adapters")
     # 删除参与方（library-boundary.md §3）：删除弹窗的附加选项与勾选后的后续任务
     ctx.effect(
         delete_participants.bind_participants(

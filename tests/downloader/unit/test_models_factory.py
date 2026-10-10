@@ -6,9 +6,10 @@ import pytest
 from pydantic import ValidationError
 
 from movieclaw_downloader import create_downloader
-from movieclaw_downloader.clients.qbittorrent import QBittorrentDownloader
-from movieclaw_downloader.clients.transmission import TransmissionDownloader
+from movieclaw_downloader.exceptions import DownloaderNotSupportedError
 from movieclaw_downloader.models import DownloaderConfig, DownloaderType, DownloadRequest
+from movieclaw_plugins.qbittorrent.qbittorrent_downloader.client import QBittorrentDownloader
+from movieclaw_plugins.transmission.transmission_downloader.client import TransmissionDownloader
 
 
 class TestDownloadRequestValidation:
@@ -36,6 +37,8 @@ class TestFactory:
         config = DownloaderConfig(type=DownloaderType.TRANSMISSION, url="http://localhost:9091")
         assert isinstance(create_downloader(config), TransmissionDownloader)
 
-    def test_unknown_type_rejected_by_model(self):
-        with pytest.raises(ValidationError):
-            DownloaderConfig(type="aria2", url="http://localhost:6800")
+    def test_unknown_type_rejected_by_factory(self):
+        """类型是开放的字符串（插件可以登记新的下载器）；没有对应适配器时由工厂拒绝。"""
+        config = DownloaderConfig(type="aria2", url="http://localhost:6800")
+        with pytest.raises(DownloaderNotSupportedError):
+            create_downloader(config)

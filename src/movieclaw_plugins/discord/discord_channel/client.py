@@ -78,9 +78,7 @@ class DiscordClient:
         (官方文档:客户端拿到的签名链接是可用的),我们在收消息循环里立即
         下载,不存链接、不做续签。
         """
-        return await download_capped(
-            self._cdn, url, max_bytes=max_bytes, label="Discord 附件"
-        )
+        return await download_capped(self._cdn, url, max_bytes=max_bytes, label="Discord 附件")
 
     async def get_me(self) -> dict[str, Any]:
         return await self._call("GET", "/users/@me")

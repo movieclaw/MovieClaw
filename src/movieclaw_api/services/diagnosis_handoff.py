@@ -108,7 +108,7 @@ async def _downloader_lines(session: AsyncSession, downloader_id: int | None) ->
     if row is None:
         return [f"- 下载器 #{downloader_id} 已不存在"]
     lines = [
-        f"- 下载器「{row.name}」#{row.id}：{row.client_type.value} {row.version or ''} @ {row.url}",
+        f"- 下载器「{row.name}」#{row.id}：{row.client_type} {row.version or ''} @ {row.url}",
         f"  连接状态 {row.status.value}，启用={row.enabled}，最近测试 {_dt(row.last_checked_at)}"
         + (f"，最近错误：{row.last_error}" if row.last_error else ""),
         f"  路径映射：{_brief(row.path_mappings or [])}",

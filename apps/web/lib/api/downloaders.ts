@@ -12,8 +12,47 @@ async function unwrap<T>(promise: Promise<ApiEnvelope<T>>): Promise<T> {
   return (await promise).data;
 }
 
-/** 已适配的下载器类型（与后端 movieclaw_db ClientType 对应）。 */
-export type DownloaderClientType = "qbittorrent" | "transmission";
+/** 下载器类型值：内置 qbittorrent / transmission，下载器插件可以登记新的（见 listDownloaderTypes）。 */
+export type DownloaderClientType = string;
+
+/** 一种可接入的下载器（由官方 / 第三方下载器插件登记，docs/design/downloader-adapters.md）。 */
+export interface DownloaderTypeInfo {
+  type: string;
+  title: string;
+  /** 配置表单里地址一栏的叫法，如「WebUI 地址」 */
+  url_label: string;
+  url_placeholder: string;
+  needs_username: boolean;
+  help: string;
+}
+
+/** 旧服务端没有类型接口时的兜底：内置的两种 */
+export const BUILTIN_DOWNLOADER_TYPES: DownloaderTypeInfo[] = [
+  {
+    type: "qbittorrent",
+    title: "qBittorrent",
+    url_label: "WebUI 地址",
+    url_placeholder: "http://192.168.1.10:8080",
+    needs_username: true,
+    help: "",
+  },
+  {
+    type: "transmission",
+    title: "Transmission",
+    url_label: "RPC 地址",
+    url_placeholder: "http://192.168.1.10:9091",
+    needs_username: true,
+    help: "路径缺省时自动补全为 /transmission/rpc",
+  },
+];
+
+export async function listDownloaderTypes(): Promise<DownloaderTypeInfo[]> {
+  try {
+    return await unwrap(request<ApiEnvelope<DownloaderTypeInfo[]>>("/downloaders/types"));
+  } catch {
+    return BUILTIN_DOWNLOADER_TYPES;
+  }
+}
 
 /** 连接验证状态（与站点配置共用同一状态机语义）。 */
 export type DownloaderStatus = "pending" | "verifying" | "active" | "failed";

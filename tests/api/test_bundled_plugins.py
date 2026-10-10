@@ -29,7 +29,17 @@ from movieclaw_api.core.config import get_settings
 from movieclaw_api.plugins import bundled
 
 #: 随带插件包能 import 的第三方库（SDK 承诺提供的运行环境）
-ALLOWED = {"movieclaw_sdk", "movieclaw_kernel", "httpx", "cryptography", "pydantic", "websockets"}
+ALLOWED = {
+    "movieclaw_sdk",
+    "movieclaw_kernel",
+    "httpx",
+    "cryptography",
+    "pydantic",
+    "websockets",
+    # 下载器插件的协议库（应用依赖里带着，SDK 承诺提供）
+    "qbittorrentapi",
+    "transmission_rpc",
+}
 
 
 def pack(path: Path) -> bytes:
@@ -262,6 +272,13 @@ def test_weixin_package_replaces_the_bundled_one_and_uninstall_restores_it(env, 
         wait(lambda: ("me@im.wechat", "收到：又回到随带版本", "ctx-3") in fake.sent)
 
 
+def provided(client) -> set[str]:
+    """随带插件包提供的东西：消息通道 id，或下载器类型值（包目录名与它们一致）。"""
+    channels = client.get("/api/v1/channels").json()["data"]["channels"]
+    types = client.get("/api/v1/downloaders/types").json()["data"]
+    return {c["id"] for c in channels} | {t["type"] for t in types}
+
+
 @pytest.mark.parametrize("entry_id", sorted(bundled.bundled()), ids=str)
 def test_every_bundled_package_installs_out_of_process_and_restores(env, entry_id) -> None:
     """每个随带插件包都能原样打包、作为插件包在独立进程里跑起来（替换随带版本），卸载即恢复。"""
@@ -283,13 +300,11 @@ def test_every_bundled_package_installs_out_of_process_and_restores(env, entry_i
         assert approved.json()["data"]["status"] == "active", approved.text
         fiber = kernel.fiber(entry_id)
         assert fiber.entry.source == "package"
-        listed = client.get("/api/v1/channels").json()["data"]["channels"]
-        assert channel in {c["id"] for c in listed}, "替换后沿用随带版本的通道 id"
+        assert channel in provided(client), "替换后沿用随带版本的通道 id / 下载器类型"
         removed = client.delete(f"/api/v1/app/plugins/packages/{entry_id}")
         assert removed.status_code == 200
         assert kernel.fiber(entry_id).entry.source == "builtin"
-        listed = client.get("/api/v1/channels").json()["data"]["channels"]
-        assert channel in {c["id"] for c in listed}
+        assert channel in provided(client)
 
 
 def test_legacy_id_replacement_package_still_replaces_the_renamed_bundled_one(

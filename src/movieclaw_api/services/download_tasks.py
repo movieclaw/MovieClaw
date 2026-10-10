@@ -772,7 +772,7 @@ async def _open_downloader_adapter(session: AsyncSession, downloader_id: int):
         raise NotFoundException(f"下载器不存在：id={downloader_id}")
     adapter = create_downloader(
         DownloaderConfig(
-            type=row.client_type.value,
+            type=row.client_type,
             url=row.url,
             username=row.username,
             password=repository.decrypted_password(row),
@@ -835,7 +835,7 @@ class DeletePlan:
 def _adapter_for(repository: DownloaderRepository, row: Any) -> Any:
     return create_downloader(
         DownloaderConfig(
-            type=row.client_type.value,
+            type=row.client_type,
             url=row.url,
             username=row.username,
             password=repository.decrypted_password(row),
@@ -1159,7 +1159,7 @@ async def download_task_snapshot(session: AsyncSession) -> dict[str, list[dict[s
             # 来源区给出可读错误，而不是让其它下载器的健康任务一起消失。
             adapter = create_downloader(
                 DownloaderConfig(
-                    type=row.client_type.value,
+                    type=row.client_type,
                     url=row.url,
                     username=row.username,
                     password=repository.decrypted_password(row),

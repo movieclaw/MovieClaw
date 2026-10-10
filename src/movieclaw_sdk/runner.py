@@ -196,6 +196,16 @@ def _contribution(registry: str, item: Any) -> tuple[dict[str, Any], Any]:
             "job_type": item.job_type,
             "applies_to": sorted(item.applies_to),
         }, item
+    if registry == "downloader-adapters":
+        # 适配器留在本进程：宿主登记一个代理，下载器的每个方法经协议调回来
+        return {
+            "type": item.type,
+            "title": item.title,
+            "url_label": item.url_label,
+            "url_placeholder": item.url_placeholder,
+            "needs_username": item.needs_username,
+            "help": item.help,
+        }, item
     if registry == "im-channels":
         from movieclaw_sdk.channels import driver_spec
 
@@ -429,6 +439,9 @@ class RemoteContext:
         self._jobs: dict[str, Callable[..., Any]] = {}
         self._channels: dict[str, Any] = {}
         self._participants: dict[str, Any] = {}
+        self._downloaders: dict[str, Any] = {}
+        #: 按（登记 id, 连接配置）缓存的适配器实例：复用登录态与连接，close 时丢掉
+        self._downloader_instances: dict[tuple[str, str], Any] = {}
         self._callbacks: dict[str, Callable[..., Any]] = {}
         self._tasks: set[asyncio.Task[Any]] = set()
         self._effects: list[Callable[[], Any]] = []
@@ -492,6 +505,8 @@ class RemoteContext:
             self._channels[id] = local
         if key.name == "library.delete-participants":
             self._participants[id] = local
+        if key.name == "downloader-adapters":
+            self._downloaders[id] = local
         self._runner.send(
             {
                 "type": "contribute",
@@ -692,6 +707,9 @@ class Runner:
         if message.get("kind") == "delete-preview":
             await self._handle_delete_preview(message)
             return
+        if message.get("kind") == "downloader":
+            await self._handle_downloader(message)
+            return
         try:
             assert self.ctx is not None
             event, handler = self.ctx._handlers[message["listener"]]
@@ -750,6 +768,52 @@ class Runner:
                 raise TypeError("删除参与方的预览须返回 Preview")
             reply.update(ok=True, result=preview.model_dump(mode="json"))
         except Exception as exc:  # noqa: BLE001 -- 预览出错原样报给宿主，宿主把选项置为不可勾
+            reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
+        self.send(reply)
+
+    async def _handle_downloader(self, message: dict[str, Any]) -> None:
+        """宿主调下载器适配器的一个方法（downloader-adapters.md §4）。"""
+        import json
+
+        from movieclaw_sdk import downloaders as dl
+
+        call_id = message["id"]
+        cid = message["listener"]
+        payload = message["payload"]
+        method, args = payload["method"], payload.get("args") or {}
+        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        try:
+            assert self.ctx is not None
+            key = (cid, json.dumps(payload["config"], sort_keys=True))
+            instance = self.ctx._downloader_instances.get(key)
+            if method == "close":
+                if instance is not None:
+                    del self.ctx._downloader_instances[key]
+                    await instance.close()
+                reply.update(ok=True, result=None)
+                self.send(reply)
+                return
+            if instance is None:
+                adapter = self.ctx._downloaders[cid]
+                instance = adapter.factory(dl.DownloaderConfig.model_validate(payload["config"]))
+                self.ctx._downloader_instances[key] = instance
+            if method == "submit":
+                args = {"request": dl.request_from_dict(args["request"])}
+            elif method == "set_limits":
+                args = {"limits": dl.DownloaderLimits.model_validate(args["limits"])}
+            result = await getattr(instance, method)(**args)
+            if isinstance(result, list):
+                result = [
+                    r.model_dump(mode="json") if hasattr(r, "model_dump") else r for r in result
+                ]
+            elif isinstance(result, tuple):
+                result = list(result)
+            elif hasattr(result, "model_dump"):
+                result = result.model_dump(mode="json")
+            reply.update(ok=True, result=result)
+        except dl.DownloaderException as exc:
+            reply.update(ok=False, error=exc.message, error_kind=type(exc).__name__)
+        except Exception as exc:  # noqa: BLE001 -- 未知错误原样报给宿主
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
         self.send(reply)
 

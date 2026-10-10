@@ -10,7 +10,6 @@ from types import SimpleNamespace
 import pytest
 from transmission_rpc.error import TransmissionAuthError, TransmissionConnectError
 
-from movieclaw_downloader.clients.transmission import TransmissionDownloader
 from movieclaw_downloader.exceptions import (
     DownloaderAuthError,
     DownloaderConnectError,
@@ -18,6 +17,7 @@ from movieclaw_downloader.exceptions import (
 )
 from movieclaw_downloader.models import DownloaderConfig, DownloaderType, DownloadRequest
 from movieclaw_downloader.torrent import compute_info_hash
+from movieclaw_plugins.transmission.transmission_downloader.client import TransmissionDownloader
 
 TORRENT_BYTES = (
     b"d4:infod6:lengthi1024e4:name8:test.mkv12:piece lengthi16384e6:pieces20:"

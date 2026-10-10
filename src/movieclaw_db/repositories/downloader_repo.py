@@ -5,7 +5,7 @@ from sqlmodel import select
 
 from movieclaw_db.crypto import get_secret_box
 from movieclaw_db.models.base import utcnow
-from movieclaw_db.models.downloader_client import ClientType, DownloaderClient
+from movieclaw_db.models.downloader_client import DownloaderClient
 from movieclaw_db.models.site_credential import ConfigStatus
 
 
@@ -59,7 +59,7 @@ class DownloaderRepository:
         self,
         *,
         name: str,
-        client_type: ClientType,
+        client_type: str,
         url: str,
         username: str | None,
         password: str | None,
@@ -93,7 +93,7 @@ class DownloaderRepository:
         downloader_id: int,
         *,
         name: str,
-        client_type: ClientType,
+        client_type: str,
         url: str,
         username: str | None,
         password: str | None,

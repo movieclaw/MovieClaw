@@ -4,11 +4,13 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Path, Query
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api import hooks
 from movieclaw_api.api.deps import require_login
 from movieclaw_api.exceptions import BadRequestException, ForbiddenException
+from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.downloader import (
     DownloaderLimitsUpdate,
     DownloaderLimitsView,
@@ -435,6 +437,41 @@ async def forget_target_pref(
     """
     await DownloadTargetPrefRepository(session).delete(_member_scope(principal), category)
     return ok(None, message="已清除该分类的保存位置记忆")
+
+
+class DownloaderTypeView(BaseModel):
+    """一种可接入的下载器（由官方 / 第三方下载器插件登记，docs/design/downloader-adapters.md）。"""
+
+    type: str = Field(description="配置下载器时填的类型值，如 qbittorrent")
+    title: str = Field(description="名字，如 qBittorrent")
+    url_label: str = Field(description="配置表单里地址一栏的叫法，如「WebUI 地址」")
+    url_placeholder: str = Field(description="地址示例")
+    needs_username: bool = Field(description="是否需要用户名")
+    help: str = Field(description="补充说明")
+
+
+@router.get(
+    "/types",
+    response_model=ApiResponse[list[DownloaderTypeView]],
+    summary="能接入哪些下载器（由下载器插件登记；装了新的下载器插件这里就多一种）",
+    operation_id="dl.types.list",
+)
+async def list_downloader_types() -> ApiResponse[list[DownloaderTypeView]]:
+    from movieclaw_downloader.registry import adapters
+
+    return ok(
+        [
+            DownloaderTypeView(
+                type=a.type,
+                title=a.title,
+                url_label=a.url_label,
+                url_placeholder=a.url_placeholder,
+                needs_username=a.needs_username,
+                help=a.help,
+            )
+            for a in adapters().values()
+        ]
+    )
 
 
 @router.get(

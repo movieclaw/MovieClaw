@@ -133,8 +133,7 @@ class FeishuClient:
         msg = str(data.get("msg") or data.get("StatusMessage") or code)
         if code == _SIGN_MISMATCH_CODE:
             raise FeishuApiError(
-                "签名校验失败:机器人开启了签名校验但密钥不匹配,"
-                "请解绑后重新接入并核对签名密钥",
+                "签名校验失败:机器人开启了签名校验但密钥不匹配,请解绑后重新接入并核对签名密钥",
                 auth_failed=True,
             )
         # 飞书报文是「Key Words Not Found」(带空格):归一后比对,避免误判成普通拒收

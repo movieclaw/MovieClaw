@@ -6,7 +6,7 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class DownloaderType(StrEnum):
-    """已适配的下载器类型。"""
+    """内置的两种下载器类型（类型值本身是开放的字符串：插件可以登记新的，见 registry.py）。"""
 
     QBITTORRENT = "qbittorrent"
     TRANSMISSION = "transmission"
@@ -21,7 +21,8 @@ class DownloaderConfig(BaseModel):
       （路径缺省时自动补全为 ``/transmission/rpc``）
     """
 
-    type: DownloaderType
+    type: str
+    """下载器类型值（如 ``qbittorrent``），对应一个已登记的适配器。"""
     url: str
     username: str | None = None
     password: str | None = None
@@ -84,7 +85,7 @@ class SubmitResult(BaseModel):
 class DownloaderInfo(BaseModel):
     """连接测试返回的下载器信息。"""
 
-    type: DownloaderType
+    type: str
     version: str
 
 

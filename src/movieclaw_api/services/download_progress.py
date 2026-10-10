@@ -181,7 +181,7 @@ async def _usable_downloaders(
             (
                 row,
                 DownloaderConfig(
-                    type=row.client_type.value,
+                    type=row.client_type,
                     url=row.url,
                     username=row.username,
                     password=repo.decrypted_password(row),

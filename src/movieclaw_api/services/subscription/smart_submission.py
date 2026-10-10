@@ -247,7 +247,7 @@ async def reconcile_remote(session, intent):
         raise conflict()
     adapter = create_downloader(
         DownloaderConfig(
-            type=row.client_type.value,
+            type=row.client_type,
             url=row.url,
             username=row.username,
             password=DownloaderRepository.decrypted_password(row),
