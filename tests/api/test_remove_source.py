@@ -265,3 +265,49 @@ def test_failed_delete_fails_the_job_and_raises_a_notice(client, tmp_path, downl
     assert "没能全部删除" in notice.title and "媒体库文件已删除" in notice.message
     # 失败时留着来源记录，重试还用得上
     assert sorted(call(client, sources)) == sorted(seeded["file_ids"])
+
+
+async def split_into_two_reposts() -> None:
+    """追更的剧：第二集来自同名季包的又一次重发（hash 不同、名字相同）。"""
+    async with get_database().session() as session:
+        attempt = (await session.execute(select(SubscriptionDownloadAttempt))).scalars().first()
+        session.add(
+            SubscriptionDownloadAttempt(
+                subscription_id=attempt.subscription_id,
+                downloader_id=attempt.downloader_id,
+                info_hash="d" * 40,
+                torrent_title=attempt.torrent_title,
+                units=[[1, 2]],
+                owned_by_movieclaw=True,
+                hit_and_run=False,
+                last_progress_at=attempt.last_progress_at,
+            )
+        )
+        last = (
+            (
+                await session.execute(
+                    select(DownloadFileSource).order_by(DownloadFileSource.library_file_id.desc())
+                )
+            )
+            .scalars()
+            .first()
+        )
+        last.info_hash = "d" * 40
+        await session.commit()
+
+
+def test_reposts_of_the_same_pack_are_listed_once(client, tmp_path, downloader) -> None:
+    seeded = seed_linked_show(client, tmp_path)
+    call(client, split_into_two_reposts)
+    found = option(client, seeded)
+    deletes = [line["text"] for line in found["lines"] if "删除「" in line["text"]]
+    assert deletes == ["下载器「qb」：删除「Test.Show.S01.1080p」（2 个任务）"]
+
+    resp = client.delete(base(seeded), params={"options": KEY})
+    [follow] = resp.json()["data"]["follow_ups"]
+    wait_until(
+        client, lambda: call(client, job_status, follow["job_id"]) == JobStatus.SUCCEEDED.value
+    )
+    assert sorted(h for h, _ in downloader.deleted) == ["c" * 40, "d" * 40]
+    job = call(client, job_row, follow["job_id"])
+    assert "已删除 2 个下载任务和源文件：Test.Show.S01.1080p（2 个任务）" in job.result["message"]

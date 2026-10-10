@@ -101,6 +101,16 @@ async def _assess(
     return [(t, await _skip_reason(session, t, request)) for t in torrents]
 
 
+def _counted(items: list[tuple[str, str]]) -> list[tuple[str, str]]:
+    """同一句合并成一行，重复的注明「（N 个任务）」；保持首次出现的顺序。"""
+    counts: dict[tuple[str, str], int] = {}
+    for item in items:
+        counts[item] = counts.get(item, 0) + 1
+    return [
+        (text if n == 1 else f"{text}（{n} 个任务）", tone) for (text, tone), n in counts.items()
+    ]
+
+
 def _hardlinked(request: DeleteRequest) -> bool:
     """要删的库文件里有没有和别处是同一份数据的（硬链接）。只看文件系统。"""
     for file in request.files:
@@ -135,6 +145,7 @@ async def preview(request: DeleteRequest) -> Preview:
                 reason="没找到对应的下载任务（扫描进来的文件或来源已不可考），只会删除媒体库文件",
             )
         lines: list[PreviewLine] = []
+        found: list[tuple[str, str]] = []
         deletable: list[FileTorrent] = []
         kept: list[str] = []
         for torrent, reason in assessed:
@@ -155,20 +166,24 @@ async def preview(request: DeleteRequest) -> Preview:
             deletable.append(torrent)
             where = f"下载器「{plan.downloader_name}」"
             if plan.exists is None:
-                lines.append(
-                    PreviewLine(
-                        text=f"{where}暂时连不上，确认不了「{_name(torrent)}」还在不在；"
+                found.append(
+                    (
+                        f"{where}暂时连不上，确认不了「{_name(torrent)}」还在不在；"
                         "删不掉时可在「活动 → 任务」里重试",
-                        tone="warn",
+                        "warn",
                     )
                 )
             else:
-                lines.append(PreviewLine(text=f"{where}：删除「{plan.title or _name(torrent)}」"))
+                found.append((f"{where}：删除「{plan.title or _name(torrent)}」", "info"))
         tracking = await _subscription_tracking(session, deletable)
 
-    lines.extend(PreviewLine(text=text, tone="warn") for text in kept)
+    # 追更的剧常是同名季包重发多次（hash 不同、名字相同）：同一句只列一次，后面注明个数
+    lines.extend(PreviewLine(text=text, tone=tone) for text, tone in _counted(found))
+    kept_lines = [text for text, _ in _counted([(k, "warn") for k in kept])]
+    lines.extend(PreviewLine(text=text, tone="warn") for text in kept_lines)
     if not deletable:
-        return Preview(available=False, reason=kept[0] if len(kept) == 1 else "；".join(kept))
+        reason = kept_lines[0] if len(kept_lines) == 1 else "；".join(kept_lines)
+        return Preview(available=False, reason=reason)
     if _hardlinked(request):
         # 媒体库的预览已经说了「只删库文件不释放空间」，这里只说勾上之后的事
         lines.append(PreviewLine(text="下载目录里的那份会一起删掉，空间才真正腾出来"))
@@ -225,8 +240,9 @@ async def run_remove_source(context: jobs.JobContext, input_data: dict[str, Any]
 
     parts = []
     if removed:
-        parts.append(f"已删除 {len(removed)} 个下载任务和源文件：{'、'.join(removed)}")
-    parts.extend(kept)
+        names = "、".join(text for text, _ in _counted([(name, "") for name in removed]))
+        parts.append(f"已删除 {len(removed)} 个下载任务和源文件：{names}")
+    parts.extend(text for text, _ in _counted([(k, "") for k in kept]))
     if failures:
         message = "；".join([*parts, *failures])
         async with db.session() as session:
