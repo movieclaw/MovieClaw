@@ -26,7 +26,7 @@ version = "0.1.0"              # 必填。主.次.修订，可带 -后缀（开�
 entry = "media_stats"          # 必填。入口模块名（不是路径，不带 .py）
 runtime = "process"            # process（默认）| inline（需单独批准）
 sdk = "^1.0"                   # 要求的 movieclaw_sdk 版本区间
-description = "一句话说明"       # 可选，500 字以内
+description = "一句话说明"       # 可选，500 字以内；展示在「设置 → 插件」详情页给用户看，写它能做什么，别写文档路径、开发备注
 
 [requires]                     # 用到的契约 = 版本区间；名字见 scripts/contracts.py
 "library.ingest.imported" = "^1.0"

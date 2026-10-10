@@ -3,7 +3,7 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { type ComponentType, type ReactNode, useCallback, useEffect, useState } from "react";
+import { type ComponentType, useCallback, useEffect, useState } from "react";
 
 import { Banner, ErrorBanner, LINK_CLASS, StatusPill } from "@/components/cloud-push-ui";
 import { CopyButton } from "@/components/copy-button";
@@ -186,13 +186,13 @@ export function PluginDetailView({ id }: { id: string }) {
             <h2 className="text-title font-semibold text-[var(--text)]">{p.title.replace(/（独立进程）$/, "")}</h2>
             <StatusPill tone={pluginStateTone(state)} label={pluginStateLabel(state)} />
           </div>
-          <p className="text-caption text-[var(--text-faint)]">{meta.join(" · ")}</p>
+          {detail.description && (
+            <p className="text-body leading-relaxed text-[var(--text-muted)]">{detail.description}</p>
+          )}
           {state !== "active" && !needsAttention(p) && (
             <p className="text-sub text-[var(--text-muted)]">{pluginDetail(p)}</p>
           )}
-          {detail.description && (
-            <p className="text-sub leading-relaxed text-[var(--text-muted)]">{detail.description}</p>
-          )}
+          <p className="text-caption text-[var(--text-faint)]">{meta.join(" · ")}</p>
         </div>
       </div>
 
@@ -214,18 +214,27 @@ export function PluginDetailView({ id }: { id: string }) {
             {detail.kind === "system" ? "这是应用内部的基础能力，没有直接对外的功能。" : "目前没有对外的功能。"}
           </p>
         ) : (
-          <FactList>
-            {detail.adds.map((a, index) => (
-              <Fact
-                key={`${a.kind}:${a.title}`}
-                icon={ADD_ICON[a.kind] ?? GearIcon}
-                title={a.kind === "command" ? <code className="font-mono text-sub">{a.title}</code> : a.title}
-                detail={a.detail || undefined}
-                // 同一个去处（几个定时任务都去「定时任务」）只在第一条给链接
-                href={detail.adds.findIndex((b) => b.href === a.href) === index ? a.href : null}
-              />
-            ))}
-          </FactList>
+          <SettingsList>
+            {detail.adds.map((a, index) => {
+              const Icon = ADD_ICON[a.kind] ?? GearIcon;
+              // 同一个去处（几个定时任务都去「定时任务」）只在第一条给链接
+              const href = detail.adds.findIndex((b) => b.href === a.href) === index ? a.href : null;
+              return (
+                <SettingsRow
+                  key={`${a.kind}:${a.title}`}
+                  leading={
+                    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-[var(--text-muted)]">
+                      <Icon className="size-[18px]" />
+                    </span>
+                  }
+                  label={a.kind === "command" ? <code className="font-mono text-sub">{a.title}</code> : a.title}
+                  description={a.detail || undefined}
+                >
+                  {href && <GoLink href={href} />}
+                </SettingsRow>
+              );
+            })}
+          </SettingsList>
         )}
       </SettingsSection>
 
@@ -440,44 +449,16 @@ const ADD_ICON: Record<string, ComponentType<{ className?: string }>> = {
   decision: BranchIcon,
 };
 
-/** 不带卡片的条目列表：说明性的内容，不做成整行可点的按钮 */
-function FactList({ children }: { children: ReactNode }) {
-  return <ul className="space-y-4 px-1">{children}</ul>;
-}
-
-function Fact({
-  icon: Icon,
-  title,
-  detail,
-  href,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  title: ReactNode;
-  detail?: ReactNode;
-  /** 有对应设置页时，行尾给一个文字链接 */
-  href?: string | null;
-}) {
+/** 行尾的「查看 ›」：说明性的行不做成整行可点，跳转只占这几个字 */
+function GoLink({ href }: { href: string }) {
   return (
-    <li className="flex items-start gap-3">
-      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] text-[var(--text-muted)]">
-        <Icon className="size-[18px]" />
-      </span>
-      <div className="min-w-0 flex-1 pt-1">
-        <p className="text-body leading-snug text-[var(--text)]">{title}</p>
-        {detail && (
-          <p className="mt-0.5 text-caption leading-5 text-[var(--text-muted)]">{detail}</p>
-        )}
-      </div>
-      {href && (
-        <Link
-          href={href as Route}
-          className="mt-1 inline-flex shrink-0 items-center text-sub text-[var(--accent)] hover:opacity-80"
-        >
-          查看
-          <ChevronRightIcon className="size-3.5" />
-        </Link>
-      )}
-    </li>
+    <Link
+      href={href as Route}
+      className="inline-flex items-center text-sub text-[var(--accent)] hover:opacity-80"
+    >
+      查看
+      <ChevronRightIcon className="size-3.5" />
+    </Link>
   );
 }
 
@@ -513,14 +494,14 @@ function Permissions({ detail }: { detail: PluginDetail }) {
     grants.push({
       level: "medium",
       title: `开放回调地址：${pkg.callbacks.join("、")}`,
-      detail: "外部平台不用登录就能调进来，地址见下方",
+      detail: `外部平台不用登录就能调进来${detail.callbacks.length > 0 ? "，地址见下方" : ""}`,
     });
   }
   if (detail.network) grants.push({ level: "low", title: "访问外部网络", detail: "走你的代理设置" });
   grants.sort((a, b) => LEVELS[a.level].order - LEVELS[b.level].order);
   return (
     <SettingsSection title="权限" description="安装时你批准的，它只能做这些。">
-      <ul className="space-y-3.5 px-1">
+      <SettingsList>
         {grants.length === 0 ? (
           <GrantRow
             grant={{ level: "none", title: "不需要额外权限", detail: "不调用系统操作、不联网，只读写它自己的目录" }}
@@ -528,7 +509,7 @@ function Permissions({ detail }: { detail: PluginDetail }) {
         ) : (
           grants.map((g) => <GrantRow key={g.title} grant={g} />)
         )}
-      </ul>
+      </SettingsList>
     </SettingsSection>
   );
 }
@@ -546,15 +527,15 @@ type Grant = { level: keyof typeof LEVELS; title: string; detail?: string };
 function GrantRow({ grant }: { grant: Grant }) {
   const level = LEVELS[grant.level];
   return (
-    <li className="flex items-start gap-3">
-      <span className="mt-[0.55em] size-2 shrink-0 rounded-full" style={{ background: level.color }} />
-      <div className="min-w-0 flex-1">
-        <p className="text-body leading-snug text-[var(--text)]">{grant.title}</p>
-        <p className="mt-0.5 text-caption leading-5 text-[var(--text-muted)]">
+    <SettingsRow
+      leading={<span className="size-2 shrink-0 rounded-full" style={{ background: level.color }} />}
+      label={grant.title}
+      description={
+        <>
           <span style={{ color: level.color }}>{level.label}</span>
           {grant.detail && ` · ${grant.detail}`}
-        </p>
-      </div>
-    </li>
+        </>
+      }
+    />
   );
 }
