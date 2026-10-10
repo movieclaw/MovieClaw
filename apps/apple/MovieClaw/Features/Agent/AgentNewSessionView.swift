@@ -18,6 +18,7 @@ struct AgentNewSessionView: View {
     @State private var llmConfigured: Bool?
     @State private var creating = false
     @State private var error: String?
+    @State private var askingConsent = false
 
     var body: some View {
         let locked = llmConfigured == false
@@ -59,6 +60,9 @@ struct AgentNewSessionView: View {
             .navigationTitle("新会话")
             .navigationBarTitleDisplayMode(.inline)
             .toolbarVisibility(.hidden, for: .tabBar)
+            .sheet(isPresented: $askingConsent) {
+                AgentAIConsentSheet(providers: AgentAIConsent.providers(modelOptions), onAgree: send)
+            }
             .task {
                 async let configured = AgentCatalog.llmConfigured(api: api)
                 async let options = AgentCatalog.modelOptions(api: api)
@@ -74,7 +78,16 @@ struct AgentNewSessionView: View {
         next.save()
     }
 
+    /// 第一次发给 AI 前先说明去向、取得同意（AgentAIConsent）
     private func submit() {
+        guard AgentAIConsent.granted else {
+            askingConsent = true
+            return
+        }
+        send()
+    }
+
+    private func send() {
         let message = draft.message
         let images = draft.images.map { AgentTurnImage(attachmentId: $0.attachmentId, name: $0.name) }
         creating = true

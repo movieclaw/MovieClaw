@@ -154,13 +154,20 @@ TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple 
   > 5. AI assistant: "我的" (Me) → "最近会话" (Recent sessions) → "新会话" (New session). It answers
   >    questions about the user's own library and can act on it. It uses the language model that the
   >    server owner configured on their own server; the app never talks to an AI provider directly.
-  >    A model is configured for the review account on the demo server.
+  >    Before the first message is sent, the app explains that messages, images and the library data
+  >    the assistant looks up are sent by the user's server to the AI provider configured by the server
+  >    owner (naming that provider), and asks for consent. A model is configured for the review
+  >    account on the demo server.
   > 6. Administration: "我的 → 设置" (Me → Settings) manages members, devices, notifications, playback
   >    and other server settings. One-time server setup (adding resource sites, download clients and
   >    import rules) is done in the server's web console, on iOS and Android alike, because it needs
   >    large forms and drag-to-reorder lists. This is a product design decision, not a review
   >    restriction: open https://demo.movieclaw.io in Safari and sign in with the same account to see
   >    it. On the demo server these few settings are locked so the demo keeps working.
+  > 7. MovieClaw Cloud (optional, for push notifications): "我的 → 设置 → MovieClaw Cloud". Connecting
+  >    creates a MovieClaw account on our website (Sign in with Apple, Google or email). The same page
+  >    links to "管理或删除 MovieClaw 账号" (Manage or delete MovieClaw account), where the account can
+  >    be deleted at any time.
   >
   > **Technical notes.** Local networking / arbitrary loads: most users run the server on their home
   > LAN over plain HTTP (e.g. http://192.168.1.10:3000), so the app must reach LAN addresses without

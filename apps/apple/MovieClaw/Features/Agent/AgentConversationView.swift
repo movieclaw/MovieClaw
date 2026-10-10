@@ -32,6 +32,7 @@ struct AgentConversationView: View {
     /// 正在改写的提问（message_id）
     @State private var retryTarget: String?
     @State private var retrying = false
+    @State private var askingConsent = false
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var nearBottom = true
     /// 进入会话后的贴底期。懒加载列表的内容高度是边渲染边算的：首帧只估出一小段
@@ -77,6 +78,9 @@ struct AgentConversationView: View {
                 return .systemAction
             })
             .tracksSubscriptionIndex()
+            .sheet(isPresented: $askingConsent) {
+                AgentAIConsentSheet(providers: AgentAIConsent.providers(modelOptions), onAgree: send)
+            }
             .task(id: sessionId) {
                 // 第一次出现由上面的抢跑负责；之后每次重新出现（从子页面返回）再刷新一次轨迹
                 if kickoff.consumeFirstAppearance() { return }
@@ -277,7 +281,16 @@ struct AgentConversationView: View {
         }
     }
 
+    /// 第一次发给 AI 前先说明去向、取得同意（AgentAIConsent）
     private func submit() {
+        guard AgentAIConsent.granted else {
+            askingConsent = true
+            return
+        }
+        send()
+    }
+
+    private func send() {
         let message = draft.message
         let images = draft.images.map { AgentTurnImage(attachmentId: $0.attachmentId, name: $0.name) }
         guard let target = retryTarget else {
