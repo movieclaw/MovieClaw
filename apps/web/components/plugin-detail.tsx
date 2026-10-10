@@ -3,12 +3,28 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { type ComponentType, type ReactNode, useCallback, useEffect, useState } from "react";
 
 import { Banner, ErrorBanner, LINK_CLASS, StatusPill } from "@/components/cloud-push-ui";
 import { CopyButton } from "@/components/copy-button";
 import { useConfirm, useToast } from "@/components/feedback";
-import { ChevronLeftIcon } from "@/components/icons";
+import {
+  ActivityIcon,
+  BellIcon,
+  BranchIcon,
+  ChatBubblesIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  ClockIcon,
+  FolderGearIcon,
+  FolderIcon,
+  GearIcon,
+  GlobeIcon,
+  OpenIcon,
+  ServerIcon,
+  ShieldIcon,
+  TerminalIcon,
+} from "@/components/icons";
 import {
   SETTINGS_BUTTON_CLASS,
   SETTINGS_DANGER_BUTTON_CLASS,
@@ -118,6 +134,11 @@ export function PluginDetailView({ id }: { id: string }) {
   const meta = [
     KIND_LABEL[detail.kind],
     detail.version ? `v${detail.version}` : null,
+    detail.kind === "package" || detail.kind === "local"
+      ? detail.plugin.runtime === "inline"
+        ? "主进程"
+        : "独立进程"
+      : null,
     pkg?.installed_at ? `安装于 ${formatDateTime(new Date(pkg.installed_at * 1000).toISOString())}` : null,
     pkg?.replaces_builtin ? "替换了内置版本，卸载即恢复" : null,
   ].filter(Boolean);
@@ -165,7 +186,8 @@ export function PluginDetailView({ id }: { id: string }) {
         {back}
         <div className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-title font-semibold text-[var(--text)]">{p.title}</h2>
+            {/* 内核给独立进程的条目标题加了「（独立进程）」后缀；运行方式已在下面的元信息里 */}
+            <h2 className="text-title font-semibold text-[var(--text)]">{p.title.replace(/（独立进程）$/, "")}</h2>
             <StatusPill tone={pluginStateTone(state)} label={pluginStateLabel(state)} />
           </div>
           <p className="text-caption text-[var(--text-faint)]">{meta.join(" · ")}</p>
@@ -190,22 +212,24 @@ export function PluginDetailView({ id }: { id: string }) {
         </Banner>
       )}
 
-      <SettingsSection title="它给系统加了什么" description="装了它之后多出来的功能、它在什么时候被触发、会影响哪些判断。">
+      <SettingsSection title="它做什么">
         {detail.adds.length === 0 ? (
           <p className="px-1 text-sub text-[var(--text-muted)]">
             {detail.kind === "system" ? "这是应用内部的基础能力，没有直接对外的功能。" : "目前没有对外的功能。"}
           </p>
         ) : (
-          <SettingsList>
-            {detail.adds.map((a) => (
-              <SettingsRow
+          <FactList>
+            {detail.adds.map((a, index) => (
+              <Fact
                 key={`${a.kind}:${a.title}`}
-                label={a.kind === "command" ? <code className="font-mono text-sub">{a.title}</code> : a.title}
-                description={a.detail || undefined}
-                href={a.href ?? undefined}
+                icon={ADD_ICON[a.kind] ?? GearIcon}
+                title={a.kind === "command" ? <code className="font-mono text-sub">{a.title}</code> : a.title}
+                detail={a.detail || undefined}
+                // 同一个去处（几个定时任务都去「定时任务」）只在第一条给链接
+                href={detail.adds.findIndex((b) => b.href === a.href) === index ? a.href : null}
               />
             ))}
-          </SettingsList>
+          </FactList>
         )}
       </SettingsSection>
 
@@ -408,7 +432,69 @@ function TechRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-/** 权限：第三方插件最要紧的信任信息；官方与系统模块是随应用提供的受信代码 */
+/** 「它做什么」每类登记的图标（按类别，不按插件） */
+const ADD_ICON: Record<string, ComponentType<{ className?: string }>> = {
+  channel: ChatBubblesIcon,
+  task: ClockIcon,
+  ingest: FolderGearIcon,
+  job: ActivityIcon,
+  site: ServerIcon,
+  command: TerminalIcon,
+  trigger: BellIcon,
+  decision: BranchIcon,
+};
+
+/** 不带卡片的条目列表：说明性的内容，不做成整行可点的按钮 */
+function FactList({ children }: { children: ReactNode }) {
+  return <ul className="space-y-4 px-1">{children}</ul>;
+}
+
+function Fact({
+  icon: Icon,
+  title,
+  detail,
+  href,
+  tone,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  title: ReactNode;
+  detail?: ReactNode;
+  /** 有对应设置页时，行尾给一个文字链接 */
+  href?: string | null;
+  tone?: "warn" | "ok";
+}) {
+  const color =
+    tone === "warn" ? "text-[var(--warn)]" : tone === "ok" ? "text-[var(--ok)]" : "text-[var(--text-muted)]";
+  return (
+    <li className="flex items-start gap-3">
+      <span className={`mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-white/[0.06] ${color}`}>
+        <Icon className="size-[18px]" />
+      </span>
+      <div className="min-w-0 flex-1 pt-1">
+        <p className="text-body leading-snug text-[var(--text)]">{title}</p>
+        {detail && (
+          <p className={`mt-0.5 text-caption leading-5 ${tone === "warn" ? "text-[var(--warn)]" : "text-[var(--text-muted)]"}`}>
+            {detail}
+          </p>
+        )}
+      </div>
+      {href && (
+        <Link
+          href={href as Route}
+          className="mt-1 inline-flex shrink-0 items-center text-sub text-[var(--accent)] hover:opacity-80"
+        >
+          查看
+          <ChevronRightIcon className="size-3.5" />
+        </Link>
+      )}
+    </li>
+  );
+}
+
+/**
+ * 权限：第三方插件最要紧的信任信息。只列清单里真实申请、安装时批准的项，没申请的不列
+ * 「无」；危险的排前面并标色。官方与系统模块是随应用提供的受信代码。
+ */
 function Permissions({ detail }: { detail: PluginDetail }) {
   const pkg = detail.package;
   if (!pkg) {
@@ -423,42 +509,44 @@ function Permissions({ detail }: { detail: PluginDetail }) {
       </SettingsSection>
     );
   }
+  const ops = [...pkg.operations].sort((a, b) => Number(b.dangerous) - Number(a.dangerous));
+  const inline = detail.plugin.runtime === "inline";
+  const empty = ops.length === 0 && pkg.paths.length === 0 && !detail.network && pkg.callbacks.length === 0 && !inline;
   return (
-    <SettingsSection title="权限" description="安装时你批准给它的；它只能做这些事。">
-      <SettingsList>
-        <SettingsRow
-          label="能调用的操作"
-          description={
-            pkg.operations.length === 0 ? (
-              "不调用任何系统操作"
-            ) : (
-              <span className="flex flex-col gap-1">
-                {pkg.operations.map((op) => (
-                  <span key={op.id} className={op.dangerous ? "text-[var(--danger)]" : undefined}>
-                    {op.summary}
-                    {op.dangerous && "（危险操作）"}
-                  </span>
-                ))}
-              </span>
-            )
-          }
-        />
-        <SettingsRow
-          label="能读写的目录"
-          description={pkg.paths.length === 0 ? "只用它自己的目录" : pkg.paths.map(pathGrantLabel).join("；")}
-        />
-        <SettingsRow
-          label="联网"
-          description={detail.network ? "会访问外部网络（按你的代理设置走）" : "不联网"}
-        />
-        <SettingsRow label="运行方式" description={runtimeLabel(detail.plugin.runtime)} />
+    <SettingsSection title="权限" description="安装时你批准的，它只能做这些。">
+      <FactList>
+        {inline && (
+          <Fact icon={ShieldIcon} tone="warn" title="在主程序里运行" detail="与主程序同权限，不受下面这些限制" />
+        )}
+        {ops.map((op) => (
+          <Fact
+            key={op.id}
+            icon={GearIcon}
+            tone={op.dangerous ? "warn" : undefined}
+            title={op.summary}
+            detail={op.dangerous ? "危险操作" : undefined}
+          />
+        ))}
+        {pkg.paths.map((grant) => (
+          <Fact key={`${grant.path}:${grant.mode}`} icon={FolderIcon} title={`访问${pathGrantLabel(grant)}`} />
+        ))}
         {pkg.callbacks.length > 0 && (
-          <SettingsRow
-            label="开放的回调端点"
-            description={`${pkg.callbacks.join("、")}：外部平台不用登录就能调进来的地址`}
+          <Fact
+            icon={OpenIcon}
+            title={`开放回调地址：${pkg.callbacks.join("、")}`}
+            detail="外部平台不用登录就能调进来，地址见下方"
           />
         )}
-      </SettingsList>
+        {detail.network && <Fact icon={GlobeIcon} title="访问外部网络" detail="走你的代理设置" />}
+        {empty && (
+          <Fact
+            icon={ShieldIcon}
+            tone="ok"
+            title="不需要额外权限"
+            detail="不调用系统操作、不联网，只读写它自己的目录"
+          />
+        )}
+      </FactList>
     </SettingsSection>
   );
 }
