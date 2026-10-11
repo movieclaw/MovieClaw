@@ -19,6 +19,17 @@ import movieclaw_api.services.media_extract as media_extract
 from movieclaw_db.models import FileSource, FileState, LibraryFile
 
 
+@pytest.fixture(autouse=True)
+def _no_cue_extraction(monkeypatch):
+    """这里的用例测整片通读的单飞、取消与失败记忆，按事件循环的轮次计时；按字幕索引读取
+    的快路径要进线程、占真实时间，在这里一律当作「不适用」（它另见 test_subtitle_cues）。"""
+
+    async def not_applicable(_pending) -> bool:
+        return False
+
+    monkeypatch.setattr(media_extract, "_run_sparse_extraction", not_applicable)
+
+
 def make_file(video: Path, codec: str = "subrip") -> LibraryFile:
     return LibraryFile(
         id=7,
@@ -246,9 +257,8 @@ async def test_a_failed_track_is_not_retried_on_every_poll(video: Path, monkeypa
 
     file = make_file(video)
     assert media_extract.schedule_extraction(file, 0) is True
-    # 整片抽取前先在线程里试一次按字幕索引读取（不是 MKV 立即放弃），要等真实时间
-    for _ in range(200):
-        await asyncio.sleep(0.01)
+    for _ in range(10):
+        await asyncio.sleep(0)
         if media_extract.extraction_failed(file, 0):
             break
 
