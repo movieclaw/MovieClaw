@@ -284,9 +284,15 @@ test('saved home rows determine pinned collections and complete walls, while gen
   await openDesktop(page, request, { homeRows: [{ id:'row:selected',collection_id:8,sort:'title',order:'asc',name:'我的精选' }, {id:'favorites',hidden:true}] });
   await expect(page.locator('[data-home-row]').first()).toHaveAttribute('data-home-row','row:selected');
   await expect(page.locator('[data-home-row="favorites"]')).toHaveCount(0);
-  await expect(page.locator('#collectionNav [data-collection-id="8"]')).toBeVisible();
+  await expect(page.locator('#collectionNav')).toHaveCount(0);
+  await expect(page.locator('.sidebar .nav-section-label', { hasText: '合集' })).toHaveCount(0);
+  await expect(page.locator('#libraryNav [data-library-id="1"]')).toBeVisible();
+  await expect(page.locator('.collection-tile[data-open-collection="8"]')).toBeVisible();
   await expect(page.locator('.continue-card')).toHaveCount(1);
   await expect(page.locator('.library-tile')).toHaveCount(2);
+  await page.locator('.collection-tile[data-open-collection="8"]').click();
+  await expect(page.locator('.page-title')).toHaveText('测试合集');
+  await page.locator('[data-page="home"]').click();
   await page.locator('[data-home-row="row:selected"] .see-all-card').click();
   await expect(page.locator('.page-title')).toHaveText('我的精选');
   await expect(page.locator('#posterGrid .poster-card')).toHaveCount(60);

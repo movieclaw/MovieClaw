@@ -904,25 +904,6 @@ const App = {
       });
     });
 
-    const colNav = document.getElementById('collectionNav');
-    // 只显示用户/内置合集，过滤掉自动生成的"系列"合集
-    // CollectionView.kind: "user" | "builtin" | "series"
-    const userCollections = HomeRows.pinned(this.homeRows || []);
-    colNav.innerHTML = userCollections.map(col => `
-      <a class="nav-item" data-collection-id="${Number(col.id)}" href="#" aria-label="${escapeHtml(col.name)}" title="${escapeHtml(col.name)}">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>
-        <span>${escapeHtml(col.name)}</span>
-        ${col.item_count != null ? `<span class="badge">${Number(col.item_count)}</span>` : ''}
-      </a>
-    `).join('');
-
-    colNav.querySelectorAll('.nav-item').forEach(item => {
-      item.addEventListener('click', (e) => {
-        e.preventDefault();
-        const id = parseInt(item.dataset.collectionId);
-        this.selectTab('collection', { collectionId: id });
-      });
-    });
     window.DesktopCatalog?.nav();
     const account = document.getElementById('accountButton');
     if (account) {
