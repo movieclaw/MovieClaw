@@ -246,8 +246,9 @@ async def test_a_failed_track_is_not_retried_on_every_poll(video: Path, monkeypa
 
     file = make_file(video)
     assert media_extract.schedule_extraction(file, 0) is True
-    for _ in range(10):
-        await asyncio.sleep(0)
+    # 整片抽取前先在线程里试一次按字幕索引读取（不是 MKV 立即放弃），要等真实时间
+    for _ in range(200):
+        await asyncio.sleep(0.01)
         if media_extract.extraction_failed(file, 0):
             break
 

@@ -6,12 +6,17 @@
 （头部解析）落在同一块里。
 
 服务端不认 Range（回 200 整个文件）时直接报错，绝不顺着把整片读下来。
+
+请求走进程内共享的连接池（keep-alive）：按索引抽字幕要发上千个小请求，网盘 CDN 多是
+https，每个请求都重新握手的话光 TLS 就要一两百毫秒。
 """
 
 from __future__ import annotations
 
-import urllib.request
+import threading
 from types import TracebackType
+
+import httpx
 
 #: 每次请求至少取这么多：Matroska 头部的 SeekHead、Tracks、Info 都在开头几十 KB 里
 _MIN_FETCH = 64 * 1024
@@ -83,15 +88,32 @@ class RemoteRangeFile:
         self._block_start = start
 
     def _request(self, start: int, length: int) -> bytes:
-        request = urllib.request.Request(
-            self._url, headers={"Range": f"bytes={start}-{start + length - 1}"}
-        )
-        with urllib.request.urlopen(request, timeout=self._timeout) as response:
-            if response.status != 206:
-                raise OSError(f"远端不支持按区间读取（HTTP {response.status}）")
-            total = (response.headers.get("Content-Range") or "").rpartition("/")[2]
-            if total.isdigit():
-                self.size = int(total)
-            # 网盘直链常是「签名地址 302 到 CDN」：后续的读直接打最终地址，不再每次绕一圈
-            self._url = response.geturl()
-            return response.read(length)
+        headers = {"Range": f"bytes={start}-{start + length - 1}"}
+        try:
+            with _client().stream("GET", self._url, headers=headers, timeout=self._timeout) as r:
+                if r.status_code != 206:
+                    raise OSError(f"远端不支持按区间读取（HTTP {r.status_code}）")
+                total = (r.headers.get("Content-Range") or "").rpartition("/")[2]
+                if total.isdigit():
+                    self.size = int(total)
+                # 网盘直链常是「签名地址 302 到 CDN」：后续的读直接打最终地址，不再每次绕一圈
+                self._url = str(r.url)
+                return r.read()[:length]
+        except httpx.HTTPError as exc:
+            raise OSError(f"远端读取失败：{exc}") from exc
+
+
+_CLIENT: httpx.Client | None = None
+_CLIENT_LOCK = threading.Lock()
+
+
+def _client() -> httpx.Client:
+    """进程内共享的连接池（线程安全）。跟随跳转；代理按环境变量（与 ffmpeg 一致）。"""
+    global _CLIENT
+    with _CLIENT_LOCK:
+        if _CLIENT is None:
+            _CLIENT = httpx.Client(
+                follow_redirects=True,
+                limits=httpx.Limits(max_connections=16, max_keepalive_connections=16),
+            )
+        return _CLIENT

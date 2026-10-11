@@ -245,7 +245,7 @@ def _read_element_at(f, offset: int, expected_id: int) -> tuple[bytes, int]:
         # Cues 在第 186 亿字节、文件只有 118 亿字节）。不拦的话下面解析空字节会越界
         raise ValueError(
             f"元素 0x{expected_id:X} 应在第 {offset} 字节，文件却只有 "
-            f"{os.fstat(f.fileno()).st_size} 字节：文件不完整，可能下载或复制时中断了"
+            f"{f.seek(0, os.SEEK_END)} 字节：文件不完整，可能下载或复制时中断了"
         )
     element_id, p, _ = _vint(header, 0, keep_marker=True)
     if element_id != expected_id:
