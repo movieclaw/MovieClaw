@@ -13,7 +13,8 @@
 .catalog-field input,.catalog-toolbar input { box-sizing:border-box; width:100%; min-width:0; padding:10px 12px; background:var(--bg-tertiary,#24262e); color:var(--text); border:1px solid var(--glass-border); border-radius:8px; font:inherit; }
 .catalog-toolbar>input { width:220px; }
 .catalog-toolbar form { display:flex; gap:8px; min-width:180px; flex:1; }
-.catalog-toolbar form input { width:100%; }
+.catalog-toolbar form input { width:100%; flex:1; }
+.catalog-toolbar form button { flex-shrink:0; white-space:nowrap; }
 .catalog-field .select-trigger { width:100%; min-width:120px; }
 .catalog-muted { color:var(--text-secondary); font-size:13px; line-height:1.65; }
 .catalog-navigation-settings small { display:block; }
