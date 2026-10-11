@@ -791,9 +791,12 @@ export async function fetchPlaybackDiagnostics(
  * 会话续命，兼探活。用户关页面不会发任何信号，服务端的超时回收是唯一可靠
  * 兜底，所以播放中必须定时喂这个。
  *
- * 返回值分三态，**调用方必须区分**：
+ * 返回值分四态，**调用方必须区分**：
  *
  * - `true`  —— 会话还在；
+ * - `"failed"` —— 会话还在，但服务端已判它的本机转码起不来（起步即退出、一段都没
+ *   产出，issue #763）。这一档在这台服务器上放不了，该直接降档——干等分片 404 要被
+ *   层层重试拖十几分钟；
  * - `false` —— 服务端明确说它没了（404，多半是页面被浏览器冻在后台、心跳
  *   被节流到喂不上，会话让巡检回收了）。此时继续放下去只会卡在「正在缓冲」，
  *   要原地重开一个会话；
@@ -803,13 +806,13 @@ export async function fetchPlaybackDiagnostics(
 export async function pingPlaybackSession(
   sessionId: string,
   scope: PlaybackApiScope = DEFAULT_PLAYBACK_SCOPE,
-): Promise<boolean | null> {
+): Promise<boolean | "failed" | null> {
   try {
-    await request<ApiEnvelope<unknown>>(
+    const res = await request<ApiEnvelope<{ failed?: boolean }>>(
       `${scope.base}/sessions/${encodeURIComponent(sessionId)}/ping`,
       { method: "POST" },
     );
-    return true;
+    return res.data?.failed ? "failed" : true;
   } catch (error) {
     return error instanceof HttpError && error.status === 404 ? false : null;
   }

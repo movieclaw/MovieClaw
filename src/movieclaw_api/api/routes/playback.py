@@ -1487,11 +1487,24 @@ async def ping_playback_session(
     session_id: Annotated[str, Path()],
     principal: Principal = Depends(require_login),
 ) -> ApiResponse[dict]:
-    """续命。用户关页面不会发任何信号，超时回收是唯一可靠兜底。"""
+    """续命。用户关页面不会发任何信号，超时回收是唯一可靠兜底。
+
+    ``failed``：本机转码已被判死（起步即退出、一段都没产出，issue #763）。这一档在这台
+    机器上放不了，客户端据此直接降档——分片 404 在播放器那边要层层重试十几分钟才会
+    走到降档。远程 Worker 断线不算：那是连接问题，照旧由客户端同档重连。"""
     member_id = principal.member_id if principal.member_id is not None else 0
-    if not get_session_manager().ping(session_id, member_id=member_id):
+    manager = get_session_manager()
+    if not manager.ping(session_id, member_id=member_id):
         raise NotFoundException("会话不存在或已结束")
-    return ok({"alive": True})
+    session = manager.get(session_id, member_id=member_id)
+    failed = session is not None and session.state == "failed" and not session.remote
+    return ok(
+        {
+            "alive": True,
+            "failed": failed,
+            "error": _diagnostic_error(session.error) if failed and session else None,
+        }
+    )
 
 
 @router.delete(

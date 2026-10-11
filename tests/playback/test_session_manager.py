@@ -13,6 +13,7 @@ trap 只 kill API 进程，不会连坐孙子进程；不做这条，每次后�
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import signal
 import time
@@ -2024,6 +2025,56 @@ async def test_writer_that_never_produces_segment_is_not_restarted_forever(
         assert await manager.ensure_segment(session, 5) is None
         assert time.monotonic() - again < 1.0
         assert len(spawns) <= 3
+    finally:
+        await manager.shutdown()
+
+
+#: 模拟 issue #763：VAAPI 链路过了 0.3 秒的快速失败窗口才死，一段都没产出。
+#: 关键报错在倒数第五行之前，末尾几行只是连带的「编码器打不开」。
+DIES_AFTER_FAST_FAIL_WINDOW = """
+import sys, time
+time.sleep(0.6)
+for line in [
+    "[Parsed_tonemap_vaapi_0 @ 0x1] VAAPI driver doesn't support HDR",
+    "[vf#0:0 @ 0x2] Error while filtering: Function not implemented",
+    "[vf#0:0 @ 0x2] Terminating thread with return code -38 (Function not implemented)",
+    "[vost#0:0/h264_vaapi @ 0x3] Could not open encoder before EOF",
+    "[vost#0:0/h264_vaapi @ 0x3] Task finished with error code: -22 (Invalid argument)",
+    "[vost#0:0/h264_vaapi @ 0x3] Terminating thread with return code -22 (Invalid argument)",
+    "[out#0/hls @ 0x4] Nothing was written into output file",
+]:
+    print(line, file=sys.stderr)
+sys.exit(218)
+"""
+
+
+@pytest.mark.asyncio
+async def test_writer_dying_before_first_segment_fails_the_session(manager, monkeypatch, caplog):
+    """回归 issue #763：硬件转码命令起步即退出（过了快速失败窗口，开会话那一步没抓到），
+    一段都没产出。旧逻辑把第 0 段标成「产不出来」后会话仍是 ready：分片秒回 404、
+    init.mp4 每次干等 15 秒，播放器对着死会话缓冲了 4 分多钟也不降档，日志还把原因
+    说成「源文件比台账时长短」。现在判会话失败、带上完整 stderr，init 立即 404。"""
+    install_fake(monkeypatch, DIES_AFTER_FAST_FAIL_WINDOW)
+    monkeypatch.setattr(TranscodeSessionManager, "_SEGMENT_WAIT_S", 10.0)
+    session = await manager.start(
+        make_plan(), source_path="/m/a.mkv", member_id=0, segment_plan=_boundaries(800)
+    )
+    try:
+        assert session.state == "ready"  # 快速失败窗口内还活着
+        with caplog.at_level(logging.WARNING, logger=session_mod.logger.name):
+            started = time.monotonic()
+            assert await manager.ensure_segment(session, 0) is None
+            assert time.monotonic() - started < 5.0
+            # 异常退出那行由 stderr 读取任务记，与分片等待并行：等它落地再看
+            assert await wait_until(
+                lambda: any("异常退出" in r.getMessage() for r in caplog.records)
+            )
+        assert session.state == "failed"
+        # 真正的原因（倒数第七行）进了会话错误与日志，不再只剩末尾的连带报错
+        assert "doesn't support HDR" in (session.error or "")
+        exit_logs = [r.getMessage() for r in caplog.records if "异常退出" in r.getMessage()]
+        assert all("doesn't support HDR" in m for m in exit_logs)
+        assert not any("比台账时长短" in r.getMessage() for r in caplog.records)
     finally:
         await manager.shutdown()
 

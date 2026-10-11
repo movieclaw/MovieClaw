@@ -16,6 +16,7 @@ import errno
 import itertools
 import re
 import threading
+import time
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -595,6 +596,38 @@ def test_session_lifecycle_playlist_segment_ping_stop(client, tmp_path):
     # 停掉之后 playlist 与心跳都应 404
     assert client.get(data["stream_url"]).status_code == 404
     assert client.post(f"{_PB}/sessions/{session_id}/ping").status_code == 404
+
+
+def test_ping_reports_a_locally_failed_session_so_the_client_steps_down(client, tmp_path):
+    """回归 issue #763：本机转码起步即退出、会话被判死后，心跳要把「失败」告诉客户端，
+    并且 init.mp4 不再每次干等 15 秒——否则播放器对着死会话缓冲好几分钟也不降档。
+    远程 Worker 断线不算本机失败：那是连接问题，照旧交给客户端同档重连。"""
+    file_id = seed(client, tmp_path, container="mkv")
+    data = start_session(client, file_id)
+    session_id = data["session_id"]
+    token = data["stream_url"].split("token=")[1]
+
+    healthy = client.post(f"{_PB}/sessions/{session_id}/ping").json()["data"]
+    assert healthy == {"alive": True, "failed": False, "error": None}
+
+    session = get_session_manager().get(session_id)
+    (session.directory / "init.mp4").unlink(missing_ok=True)
+    session.state = "failed"
+    session.error = "转码进程起步即退出、一段都没产出：Function not implemented"
+    failed = client.post(f"{_PB}/sessions/{session_id}/ping").json()["data"]
+    assert failed["alive"] is True
+    assert failed["failed"] is True
+    assert "Function not implemented" in failed["error"]
+
+    started = time.monotonic()
+    init = client.get(f"{_PB}/sessions/{session_id}/init.mp4?token={token}")
+    assert init.status_code == 404
+    assert time.monotonic() - started < 2.0
+
+    session.remote = True
+    remote = client.post(f"{_PB}/sessions/{session_id}/ping").json()["data"]
+    assert remote["failed"] is False
+    session.remote = False
 
 
 def test_full_decode_client_gets_the_original_file_without_a_session(client, tmp_path):

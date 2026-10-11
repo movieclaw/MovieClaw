@@ -2469,6 +2469,14 @@ export function VideoPlayer(props: VideoPlayerProps) {
       probing = true;
       try {
         const alive = await pingPlaybackSession(sessionId, apiRef.current);
+        if (alive === "failed") {
+          // 服务端已判本机转码起不来（issue #763）：这一档放不了，按「确定解不了」降档。
+          // 记成网络问题会先同档重开两次，每次都是同一条起不来的命令
+          if (sessionIdRef.current === sessionId) {
+            handleFailureRef.current("服务端转码起步即失败", "decode-final");
+          }
+          return;
+        }
         // null = 这次请求本身失败（断网/5xx），不能据此判定会话没了
         if (alive !== false) return;
         // 探活途中会话已经换了（换字幕烧录/换音轨/换画质重开）：这个 404
