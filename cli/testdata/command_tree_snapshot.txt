@@ -1,5 +1,7 @@
 app features list
 app features set
+app plugins bundled restore
+app plugins bundled uninstall
 app plugins callbacks list
 app plugins callbacks revoke
 app plugins callbacks rotate
@@ -16,6 +18,7 @@ app plugins safe-mode exit
 app plugins settings show
 app plugins settings update
 app plugins show
+app plugins switch
 app port set
 app restart
 app set

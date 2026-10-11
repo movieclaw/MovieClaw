@@ -11,6 +11,9 @@ app features
 app features list
 app features set
 app plugins
+app plugins bundled
+app plugins bundled restore
+app plugins bundled uninstall
 app plugins callbacks
 app plugins callbacks list
 app plugins callbacks revoke
@@ -32,6 +35,7 @@ app plugins settings
 app plugins settings show
 app plugins settings update
 app plugins show
+app plugins switch
 app port
 app port set
 app restart
