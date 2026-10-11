@@ -56,7 +56,8 @@ async def apply(ctx: Context) -> None:
 | `inline` | 主程序进程里 | 与主程序相同 | 只有用户明确要求、且插件确实需要（极低延迟）时；安装须单独批准 |
 
 进程外运行时，宿主为插件生成代理：`ctx.use(...)` 的服务、`ctx.on` 的监听器、`ctx.contribute` 的贡献项、
-挂的路由都经标准输入输出上的协议转发（`$SRC/movieclaw_sdk/runner.py`）。所以：
+挂的路由都经 HTTP（Unix 套接字）转发：插件调宿主走宿主的插件网关，宿主调插件走插件进程里的控制服务
+（`$SRC/movieclaw_sdk/runner.py`、`rpc.py`）。所以：
 
 - 载荷、返回值要能 JSON 序列化（契约里的类型都满足）；
 - 贡献项若是对象（如通道驱动），它的方法会被远程调用，方法必须是 `async`；

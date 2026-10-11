@@ -1,11 +1,15 @@
-"""进程外运行器（插件侧，docs/design/plugin-phase3.md §4）。
+"""进程外运行器（插件侧，docs/design/plugin-phase3.md §4、plugin-ipc-http.md）。
 
 宿主以 ``python -s -m movieclaw_sdk.runner --path <插件目录> --module <模块> --entry <条目 id>``
-拉起本进程，经标准输入输出交换协议消息。插件代码照常写 ``@plugin`` 和 ``ctx.on(...)``，拿到的是
-``RemoteContext``：声明经协议告诉宿主，宿主在真实的内核上下文里登记代理；事件、钩子调用再经协议
-送回这里执行。
+拉起本进程，stdin 写一行引导信息（配置、网关地址与令牌）后关闭。插件代码照常写 ``@plugin`` 和
+``ctx.on(...)``，拿到的是 ``RemoteContext``，与内核 ``Context`` 同名同签名：
 
-插件自己的 ``print`` 会被改到标准错误（宿主按行收进日志），标准输出只留给协议。
+- 插件调宿主：经宿主的插件网关（HTTP over Unix 套接字），服务按契约生成代理，宿主操作直接请求接口；
+- 宿主调插件：插件跑完 ``apply`` 后，有导出（监听器、贡献项、回调、路由）就在宿主绑定好的套接字上
+  起服务，``/_mc/`` 是控制服务，其余是插件路由；然后经网关报就绪，一次带上全部声明；
+- 释放：宿主发 ``SIGTERM``，这里执行 ``ctx.dispose()`` 后退出。
+
+插件自己的 ``print`` 会被改到标准错误；stdout 与 stderr 都只是日志，宿主按行收进日志。
 """
 
 from __future__ import annotations
@@ -16,6 +20,7 @@ import contextlib
 import contextvars
 import dataclasses
 import importlib
+import json
 import logging
 import os
 import sys
@@ -36,7 +41,7 @@ from movieclaw_kernel import (
     Plugin,
     ServiceKey,
 )
-from movieclaw_sdk import SDK_VERSION, rpc
+from movieclaw_sdk import rpc
 from movieclaw_sdk.http import UnixHttp
 from movieclaw_sdk.ops import (
     OperationRef,
@@ -46,13 +51,15 @@ from movieclaw_sdk.ops import (
     iter_sse,
     parse_response,
 )
-from movieclaw_sdk.protocol import MAX_LINE, decode, dump, encode, known_events, load
+from movieclaw_sdk.protocol import dump, encode, known_events, load
 from movieclaw_sdk.rpc import RpcClient, ServiceProxy
 from movieclaw_sdk.services import SERVICES
 
 logger = logging.getLogger("movieclaw_sdk.runner")
 
 _UNSET: Any = object()
+#: 宿主调进来时带的调用号（ASGI 里请求头是小写字节串）
+_CALL_HEADER = rpc.CALL_HEADER.lower().encode()
 
 #: 宿主取消一次调用后的宽限期（秒）：收消息循环先看到停止信号自行退出，过期再强制取消
 CANCEL_GRACE = 5.0
@@ -340,7 +347,7 @@ class _RemotePluginRoutes:
             for route in api_routes
         ]
         self._runner.serve_router(router, prefix)
-        self._runner.send({"type": "routes", "zone": zone, "routes": routes})
+        self._runner.declare("routes", {"zone": zone, "routes": routes})
         return prefix
 
     async def sign(
@@ -379,14 +386,14 @@ class _RemoteCallbacks:
         if name in ctx._callbacks:
             raise ValueError(f"回调端点 {name} 重复登记")
         ctx._callbacks[name] = handler
-        self._runner.send(
+        self._runner.declare(
+            "callbacks",
             {
-                "type": "callback",
                 "name": name,
                 "methods": [m.upper() for m in methods],
                 "max_body": int(max_body),
                 "timeout": float(timeout),
-            }
+            },
         )
 
     async def issue(self, ctx: Any, name: str, *, scope: str = "plugin") -> Any:
@@ -531,7 +538,7 @@ class RemoteContext:
         if key in self._handlers:
             raise ValueError(f"监听器 id 重复：{key}")
         self._handlers[key] = (event, handler)
-        self._runner.send({"type": "on", "event": event.name, "id": key, "priority": priority})
+        self._runner.declare("listeners", {"event": event.name, "id": key, "priority": priority})
 
     def task(self, coro: Coroutine[Any, Any, Any], *, name: str) -> asyncio.Task[Any]:
         task = asyncio.get_running_loop().create_task(coro, name=f"plugin:{self.entry_id}:{name}")
@@ -575,15 +582,15 @@ class RemoteContext:
             self._participants[id] = local
         if key.name == "downloader-adapters":
             self._downloaders[id] = local
-        self._runner.send(
+        self._runner.declare(
+            "contributions",
             {
-                "type": "contribute",
                 "registry": key.name,
                 "id": id,
                 "item": data,
                 "priority": priority,
                 "override": override,
-            }
+            },
         )
 
     async def dispose(self) -> None:
@@ -628,12 +635,18 @@ class _RemoteAccount:
 
 
 class Runner:
-    def __init__(self, writer: Any) -> None:
-        self._writer = writer
+    def __init__(self) -> None:
         #: 宿主网关的客户端（引导信息到了才建）
         self.host: RpcClient | None = None
         self._services: dict[str, ServiceProxy] = {}
-        self._nexts: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        #: apply 期间收集的声明，就绪时一次报给宿主（之后不能再声明）
+        self.declarations: dict[str, list[dict[str, Any]]] = {
+            "listeners": [],
+            "contributions": [],
+            "routes": [],
+            "callbacks": [],
+        }
+        self._declared = False
         self._calls: set[asyncio.Task[Any]] = set()
         #: 调用 id → 处理它的任务（宿主可以取消一次调用，如停掉通道账号的收消息循环）
         self._call_tasks: dict[str, asyncio.Task[Any]] = {}
@@ -669,34 +682,60 @@ class Runner:
                     self._fds[message.decode()] = got
             return self._fds.pop(token)
 
+    def declare(self, kind: str, item: dict[str, Any]) -> None:
+        if self._declared:
+            raise RuntimeError("只能在 apply 里声明（插件已经就绪）")
+        self.declarations[kind].append(item)
+
+    @property
+    def exporting(self) -> bool:
+        """宿主有没有东西要调进来（没有就不开服务）。纯数据贡献（入库步骤、站点数据包）不算。"""
+        declared = self.declarations
+        data_only = {"ingest-steps", "site-data-packs"}
+        return bool(
+            declared["listeners"]
+            or declared["routes"]
+            or declared["callbacks"]
+            or any(c["registry"] not in data_only for c in declared["contributions"])
+        )
+
     def serve_router(self, router: Any, prefix: str) -> None:
-        """第一次挂路由时在宿主绑定好的套接字上起 ASGI 服务；之后的路由器挂到同一个应用上。"""
+        """插件路由挂进本进程的 FastAPI 应用（第一次挂时才导入 FastAPI）。"""
         from fastapi import FastAPI
 
-        if self.listen_fd is None:
-            raise RuntimeError("宿主没有为这个插件分配路由套接字")
         if self._app is None:
-            import uvicorn
-
             self._app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
-            config = uvicorn.Config(
-                self._app, fd=self.listen_fd, lifespan="off", log_level="warning", access_log=False
-            )
-            self._server = uvicorn.Server(config)
-            self._serving = asyncio.get_running_loop().create_task(self._server.serve())
         self._app.include_router(router, prefix=prefix)
 
-    async def wait_serving(self) -> None:
-        if self._server is None:
-            return
+    async def start_serving(self) -> None:
+        """在宿主绑定好的套接字上起服务：``/_mc/`` 是控制服务，其余是插件路由。"""
+        import socket
+
+        import uvicorn
+
+        if self.listen_fd is None:
+            raise RuntimeError("宿主没有为这个插件分配套接字")
+        config = uvicorn.Config(
+            self.asgi,
+            interface="asgi3",
+            lifespan="off",
+            log_level="warning",
+            access_log=False,
+            timeout_keep_alive=300,
+        )
+        config.load()
+        self._server = uvicorn.Server(config)
+        sock = socket.socket(fileno=self.listen_fd)
+        # 不用 serve()：它会接管 SIGTERM，而 SIGTERM 是宿主请插件释放的信号
+        self._serving = asyncio.get_running_loop().create_task(self._server._serve(sockets=[sock]))
         deadline = time.monotonic() + 15
         while not self._server.started:
-            if self._serving is not None and self._serving.done():
+            if self._serving.done():
                 self._serving.result()
-                raise RuntimeError("插件路由服务没有起来")
+                raise RuntimeError("插件服务没有起来")
             if time.monotonic() > deadline:
-                raise RuntimeError("插件路由服务 15 秒内没有起来")
-            await asyncio.sleep(0.02)
+                raise RuntimeError("插件服务 15 秒内没有起来")
+            await asyncio.sleep(0.01)
 
     async def stop_serving(self) -> None:
         if self._server is not None:
@@ -705,9 +744,74 @@ class Runner:
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(self._serving, 5)
 
-    def send(self, message: dict[str, Any]) -> None:
-        self._writer.write(encode(message))
-        self._writer.flush()
+    async def asgi(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        """按路径分流；请求带的调用号放进上下文，处理期间发出的宿主调用原样带回。"""
+        if scope["type"] != "http":
+            return
+        for name, value in scope.get("headers") or ():
+            if name == _CALL_HEADER:
+                rpc.current_call.set(value.decode("latin-1"))
+                break
+        if scope["path"].startswith("/_mc/"):
+            await self._control(scope, receive, send)
+        elif self._app is not None:
+            await self._app(scope, receive, send)
+        else:
+            await _respond(send, 404, {"code": "NOT_FOUND", "message": "没有这个地址"})
+
+    async def _control(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
+        """宿主调进来：``POST /_mc/{kind}/{target}``，或体面停止一次调用 ``/_mc/cancel``。
+
+        处理结果（含插件处理失败）都是 200 + 结果信封，与宿主侧还原异常的口径一致；
+        宿主断开（超时、取消）就取消这次处理。
+        """
+        from urllib.parse import unquote
+
+        body = b""
+        while True:
+            message = await receive()
+            body += message.get("body", b"")
+            if not message.get("more_body"):
+                break
+        data = json.loads(body) if body else {}
+        kind, _, target = scope["path"][len("/_mc/") :].partition("/")
+        if kind == "cancel":
+            self._cancel(str(data.get("call") or ""))
+            await _respond(send, 200, {})
+            return
+        call_id = rpc.current_call.get() or ""
+        task = asyncio.get_running_loop().create_task(
+            self._handle_call(
+                {
+                    "id": call_id,
+                    "kind": None if kind == "listener" else kind,
+                    "listener": unquote(target),
+                    "payload": data.get("payload"),
+                    "job_id": data.get("job_id"),
+                    "delivery": data.get("delivery"),
+                }
+            )
+        )
+        self._call_tasks[call_id] = task
+
+        async def watch() -> None:
+            # 宿主走了（超时、取消）：按取消处理（通道收消息循环先给体面退出的机会）
+            while (await receive())["type"] != "http.disconnect":
+                pass
+            self._cancel(call_id)
+
+        watcher = asyncio.get_running_loop().create_task(watch())
+        try:
+            reply = await task
+        except asyncio.CancelledError:
+            if not task.cancelled():
+                raise
+            reply = {"ok": False, "error": "已取消", "error_kind": "cancelled"}
+        finally:
+            watcher.cancel()
+            self._call_tasks.pop(call_id, None)
+        with contextlib.suppress(Exception):
+            await _respond(send, 200, reply)
 
     def service(self, name: str) -> ServiceProxy:
         """宿主导出的一个服务（按契约生成的远程代理）。"""
@@ -736,24 +840,16 @@ class Runner:
                     attempt=delivery["attempt"],
                 )
             )
-        if message.get("kind") == "job":
-            await self._handle_job(message)
-            return
-        if message.get("kind") == "scheduled-task":
-            await self._handle_scheduled(message)
-            return
-        if message.get("kind") == "channel":
-            await self._handle_channel(message)
-            return
-        if message.get("kind") == "callback":
-            await self._handle_callback(message)
-            return
-        if message.get("kind") == "delete-preview":
-            await self._handle_delete_preview(message)
-            return
-        if message.get("kind") == "downloader":
-            await self._handle_downloader(message)
-            return
+        handler = {
+            "job": self._handle_job,
+            "scheduled-task": self._handle_scheduled,
+            "channel": self._handle_channel,
+            "callback": self._handle_callback,
+            "delete-preview": self._handle_delete_preview,
+            "downloader": self._handle_downloader,
+        }.get(message.get("kind") or "")
+        if handler is not None:
+            return await handler(message)
         try:
             assert self.ctx is not None
             event, handler = self.ctx._handlers[message["listener"]]
@@ -763,23 +859,18 @@ class Runner:
             else:
                 result = await _maybe_await(handler(payload))
             data = dump(event.result, result) if event.mode is not Mode.EMIT else None
-            self.send({"type": "reply", "id": call_id, "ok": True, "result": data})
+            return {"ok": True, "result": data}
         except Exception as exc:  # noqa: BLE001 -- 监听器出错原样报给宿主，由宿主按内核规则处理
-            self.send(
-                {
-                    "type": "reply",
-                    "id": call_id,
-                    "ok": False,
-                    "error": f"{type(exc).__name__}: {exc}",
-                    "traceback": traceback.format_exc(limit=8),
-                }
-            )
+            return {
+                "ok": False,
+                "error": f"{type(exc).__name__}: {exc}",
+                "traceback": traceback.format_exc(limit=8),
+            }
 
     async def _handle_job(self, message: dict[str, Any]) -> None:
         from movieclaw_api.services.jobs import JobCancelled, JobControlError, JobRetry
 
-        call_id = message["id"]
-        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        reply: dict[str, Any] = {}
         try:
             assert self.ctx is not None
             handler = self.ctx._jobs[message["listener"]]
@@ -796,12 +887,11 @@ class Runner:
         except Exception as exc:  # noqa: BLE001 -- 未知错误：宿主按「未知错误」收敛
             traceback.print_exc()
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
-        self.send(reply)
+        return reply
 
     async def _handle_scheduled(self, message: dict[str, Any]) -> None:
         """定时任务到点（宿主的调度器触发），跑插件的处理函数。"""
-        call_id = message["id"]
-        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        reply: dict[str, Any] = {}
         try:
             assert self.ctx is not None
             await _maybe_await(self.ctx._scheduled[message["listener"]]())
@@ -809,14 +899,13 @@ class Runner:
         except Exception as exc:  # noqa: BLE001 -- 出错原样报给宿主，由调度器记为这次执行失败
             traceback.print_exc()
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
-        self.send(reply)
+        return reply
 
     async def _handle_delete_preview(self, message: dict[str, Any]) -> None:
         """宿主要删除参与方的预览（library-boundary.md §3.2）：只读，按这次要删的文件说明后果。"""
         from movieclaw_api.services.library.delete_participants import DeleteRequest, Preview
 
-        call_id = message["id"]
-        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        reply: dict[str, Any] = {}
         try:
             assert self.ctx is not None
             participant = self.ctx._participants[message["listener"]]
@@ -826,7 +915,7 @@ class Runner:
             reply.update(ok=True, result=preview.model_dump(mode="json"))
         except Exception as exc:  # noqa: BLE001 -- 预览出错原样报给宿主，宿主把选项置为不可勾
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
-        self.send(reply)
+        return reply
 
     async def _handle_downloader(self, message: dict[str, Any]) -> None:
         """宿主调下载器适配器的一个方法（downloader-adapters.md §4）。"""
@@ -834,11 +923,10 @@ class Runner:
 
         from movieclaw_sdk import downloaders as dl
 
-        call_id = message["id"]
         cid = message["listener"]
         payload = message["payload"]
         method, args = payload["method"], payload.get("args") or {}
-        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        reply: dict[str, Any] = {}
         try:
             assert self.ctx is not None
             key = (cid, json.dumps(payload["config"], sort_keys=True))
@@ -848,8 +936,7 @@ class Runner:
                     del self.ctx._downloader_instances[key]
                     await instance.close()
                 reply.update(ok=True, result=None)
-                self.send(reply)
-                return
+                return reply
             if instance is None:
                 adapter = self.ctx._downloaders[cid]
                 instance = adapter.factory(dl.DownloaderConfig.model_validate(payload["config"]))
@@ -872,14 +959,13 @@ class Runner:
             reply.update(ok=False, error=exc.message, error_kind=type(exc).__name__)
         except Exception as exc:  # noqa: BLE001 -- 未知错误原样报给宿主
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
-        self.send(reply)
+        return reply
 
     async def _handle_callback(self, message: dict[str, Any]) -> None:
         """宿主转来一次回调请求（plugin-callbacks.md §4.3）。"""
         from movieclaw_sdk.callbacks import CallbackResponse, request_from_dict, response_dict
 
-        call_id = message["id"]
-        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        reply: dict[str, Any] = {}
         try:
             assert self.ctx is not None
             handler = self.ctx._callbacks[message["listener"]]
@@ -890,7 +976,7 @@ class Runner:
         except Exception as exc:  # noqa: BLE001 -- 原样报给宿主，宿主回 500
             traceback.print_exc()
             reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
-        self.send(reply)
+        return reply
 
     async def _handle_channel(self, message: dict[str, Any]) -> None:
         """宿主调通道驱动的一个方法（plugin-channels.md §5.3）。"""
@@ -900,7 +986,7 @@ class Runner:
         cid = message["listener"]
         payload = message["payload"]
         method = payload["method"]
-        reply: dict[str, Any] = {"type": "reply", "id": call_id}
+        reply: dict[str, Any] = {}
         try:
             assert self.ctx is not None
             driver = self.ctx._channels[cid]
@@ -965,7 +1051,7 @@ class Runner:
             )
             message_text = str(exc) if kind != "error" else f"{type(exc).__name__}: {exc}"
             reply.update(ok=False, error=message_text, error_kind=kind)
-        self.send(reply)
+        return reply
 
     def _account(self, cid: str, data: dict[str, Any]) -> Any:
         """收发用的账号句柄：账号在运行就用运行中的那个（驱动可能在它身上记了状态）。"""
@@ -992,46 +1078,21 @@ class Runner:
 
     def _next_for(self, call_id: str, event: Event[Any, Any]) -> Callable[..., Any]:
         async def next_(new_value: Any = _UNSET) -> Any:
-            future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
-            self._nexts[call_id] = future
-            message: dict[str, Any] = {"type": "next", "id": call_id}
-            if new_value is not _UNSET:
-                message["payload"] = dump(event.payload, new_value)
-            self.send(message)
-            reply = await future
-            if not reply.get("ok"):
-                raise RuntimeError(reply.get("error") or "下游处理失败")
-            return load(event.result, reply.get("result"))
+            hooks = self.service("hooks")
+            if new_value is _UNSET:
+                result = await hooks.next()
+            else:
+                result = await hooks.next(payload=dump(event.payload, new_value), replace=True)
+            return load(event.result, result)
 
         return next_
 
-    # ------------------------------------------------------------------ 主循环
-    async def serve(self, reader: asyncio.StreamReader) -> int:
-        while True:
-            line = await reader.readline()
-            if not line:
-                return 0  # 宿主关了管道：宿主没了，跟着退出
-            message = decode(line)
-            kind = message["type"]
-            if kind == "call":
-                call_id = message["id"]
-                task = asyncio.get_running_loop().create_task(self._handle_call(message))
-                self._calls.add(task)
-                self._call_tasks[call_id] = task
-                task.add_done_callback(self._calls.discard)
-                task.add_done_callback(lambda _t, i=call_id: self._call_tasks.pop(i, None))
-            elif kind == "cancel":
-                self._cancel(message["id"])
-            elif kind == "next_result":
-                future = self._nexts.pop(message["id"], None)
-                if future is not None and not future.done():
-                    future.set_result(message)
-            elif kind == "dispose":
-                if self.ctx is not None:
-                    await self.ctx.dispose()
-                await self.stop_serving()
-                self.send({"type": "disposed"})
-                return 0
+
+async def _respond(send: Any, status: int, body: Any) -> None:
+    data = json.dumps(body, ensure_ascii=False, separators=(",", ":")).encode()
+    headers = [(b"content-type", b"application/json"), (b"content-length", str(len(data)).encode())]
+    await send({"type": "http.response.start", "status": status, "headers": headers})
+    await send({"type": "http.response.body", "body": data})
 
 
 async def _maybe_await(value: Any) -> Any:
@@ -1048,24 +1109,16 @@ def _find_plugin(module_name: str, entry_id: str) -> Plugin:
     raise LookupError(f"模块 {module_name} 里没有名为 {entry_id} 的插件")
 
 
-async def run(args: argparse.Namespace) -> int:
+async def run(args: argparse.Namespace, init: dict[str, Any]) -> int:
+    """跑插件：apply → 有导出就起服务 → 经网关报就绪 → 等 SIGTERM（或宿主没了）→ 清理退出。"""
+    import signal
+
     loop = asyncio.get_running_loop()
-    reader = asyncio.StreamReader(limit=MAX_LINE)
-    await loop.connect_read_pipe(lambda: asyncio.StreamReaderProtocol(reader), sys.stdin)
-    runner = Runner(_PROTOCOL_OUT)
+    runner = Runner()
     if args.fd_socket is not None:
         import socket
 
         runner.fd_socket = socket.socket(fileno=args.fd_socket)
-    from movieclaw_sdk import net
-
-    async def resolve_proxy(service: str) -> str | None:
-        return await runner.service("net").proxy(service=service)
-
-    # 网络出口（movieclaw_sdk.net）：本进程读不到主程序的代理设置，问宿主
-    net._resolver = resolve_proxy
-    runner.send({"type": "hello", "sdk": SDK_VERSION, "pid": os.getpid()})
-    init = decode(await reader.readline())
     runner.listen_fd = args.listen_fd
     runner.host = RpcClient(
         UnixHttp(
@@ -1074,8 +1127,16 @@ async def run(args: argparse.Namespace) -> int:
         ),
         "/api/v1/plugin-runtime",
     )
-    # apply 里可能已经要调宿主服务（读插件数据、拿宿主操作凭证）：先开始收消息
-    serving = loop.create_task(runner.serve(reader))
+    from movieclaw_sdk import net
+
+    async def resolve_proxy(service: str) -> str | None:
+        return await runner.service("net").proxy(service=service)
+
+    # 网络出口（movieclaw_sdk.net）：本进程读不到主程序的代理设置，问宿主
+    net._resolver = resolve_proxy
+    stop = asyncio.Event()
+    loop.add_signal_handler(signal.SIGTERM, stop.set)
+    session = runner.service("session")
     try:
         found = _find_plugin(args.module, args.entry)
         config = init.get("config")
@@ -1091,21 +1152,31 @@ async def run(args: argparse.Namespace) -> int:
             init.get("data_dir") or "./data",
         )
         await found.apply(runner.ctx)
-        await runner.wait_serving()
+        runner._declared = True
+        serving = runner.exporting
+        if serving:
+            await runner.start_serving()
     except Exception as exc:  # noqa: BLE001 -- 启动失败报给宿主，由内核标 FAILED
-        runner.send(
-            {
-                "type": "failed",
-                "error": f"{type(exc).__name__}: {exc}",
-                "error_type": type(exc).__name__,
-                "error_message": str(exc),
-            }
-        )
         traceback.print_exc()
-        serving.cancel()
+        with contextlib.suppress(Exception):
+            await session.failed(error_type=type(exc).__name__, error_message=str(exc))
         return 1
-    runner.send({"type": "ready", "title": found.title})
-    return await serving
+    await session.ready(title=found.title, serving=serving, **runner.declarations)
+    watcher = loop.create_task(_watch_parent(stop))
+    await stop.wait()
+    watcher.cancel()
+    await runner.ctx.dispose()
+    await runner.stop_serving()
+    await runner.host.aclose()
+    return 0
+
+
+async def _watch_parent(stop: asyncio.Event) -> None:
+    """宿主没了就收工（Linux 另有内核的父进程退出信号；macOS 开发时靠这里）。"""
+    parent = os.getppid()
+    while os.getppid() == parent:
+        await asyncio.sleep(1.0)
+    stop.set()
 
 
 def describe(args: argparse.Namespace) -> int:
@@ -1228,7 +1299,9 @@ def main(argv: list[str] | None = None) -> int:
         return describe(args)
     if args.validate:
         return validate_config(args)
-    return asyncio.run(run(args))
+    # 引导信息：宿主写一行就关掉 stdin（令牌不放环境变量，同一用户的插件能读彼此的 environ）
+    init = json.loads(sys.stdin.readline() or "{}")
+    return asyncio.run(run(args, init))
 
 
 if __name__ == "__main__":

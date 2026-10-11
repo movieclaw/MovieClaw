@@ -113,8 +113,36 @@ class ChannelsApi(Protocol):
     async def save_state(self, channel: str, account: str, patch: dict[str, Any]) -> None: ...
 
 
-#: 服务名 → 契约。网关只导出插件声明过的服务（``net``、``job``、``channels`` 总是可用）
+class SessionApi(Protocol):
+    """进程生命周期：插件跑完 ``apply`` 报就绪（一次带上全部声明），或报启动失败。"""
+
+    async def ready(
+        self,
+        title: str,
+        listeners: list[dict[str, Any]],
+        contributions: list[dict[str, Any]],
+        routes: list[dict[str, Any]],
+        callbacks: list[dict[str, Any]],
+        serving: bool,
+    ) -> None: ...
+
+    async def failed(self, error_type: str, error_message: str) -> None: ...
+
+
+class HooksApi(Protocol):
+    """瀑布钩子里插件调 ``next()``：宿主替它跑下游（按调用号找到这次钩子调用）。
+
+    ``replace`` 为真时把 ``payload`` 换给下游，否则下游拿原载荷。
+    """
+
+    async def next(self, payload: Any = None, replace: bool = False) -> Any: ...
+
+
+#: 服务名 → 契约。网关只导出插件声明过的服务（``session``、``hooks``、``net``、``job``、
+#: ``channels`` 总是可用）
 SERVICES: dict[str, type] = {
+    "session": SessionApi,
+    "hooks": HooksApi,
     "data": DataApi,
     "health": HealthApi,
     "callbacks": CallbacksApi,

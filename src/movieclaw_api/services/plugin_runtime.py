@@ -30,6 +30,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 from fastapi import Request
 from fastapi.responses import StreamingResponse
@@ -43,7 +44,9 @@ from movieclaw_kernel import (
     ServiceKey,
     current_delivery,
 )
-from movieclaw_sdk.protocol import MAX_LINE, decode, dump, encode, known_events, load
+from movieclaw_sdk.http import UnixHttp
+from movieclaw_sdk.protocol import dump, known_events, load
+from movieclaw_sdk.rpc import CALL_HEADER
 
 logger = logging.getLogger("movieclaw_api.plugin_runtime")
 
@@ -188,7 +191,7 @@ class Session:
         self._module = module
         self._config = config
         self._proc: asyncio.subprocess.Process | None = None
-        self._pending: dict[str, asyncio.Future[dict[str, Any]]] = {}
+        self._handshake: asyncio.Future[dict[str, Any]] | None = None
         self._nexts: dict[str, NextFn] = {}
         self._contexts: dict[str, contextvars.Context] = {}
         self.jobs: dict[str, Any] = {}
@@ -205,6 +208,7 @@ class Session:
         self.callbacks: list[dict[str, Any]] = []
         self._fd_host: socket.socket | None = None
         self._http: Any = None
+        self._control_http: UnixHttp | None = None
         self.files: Any = None
         """宿主侧这个条目的 ``PluginFiles``（插件注入了 PLUGIN_FILES 时才有）。"""
         # Unix 套接字路径有长度上限（macOS 104 字节）：放在临时目录、用短哈希命名
@@ -217,6 +221,8 @@ class Session:
         self._crashes: deque[float] = deque()
         self.declarations: list[dict[str, Any]] = []
         self.title: str | None = None
+        self.serving = False
+        """插件进程有没有起服务（没有导出——只跑后台任务、只往外调宿主——就不起）。"""
 
     @property
     def online(self) -> bool:
@@ -253,10 +259,18 @@ class Session:
         client, self._http = self._http, None
         if client is not None:
             await client.aclose()
+        control, self._control_http = self._control_http, None
+        if control is not None:
+            await control.aclose()
 
     # ------------------------------------------------------------------ 启动
     async def start(self) -> list[dict[str, Any]]:
-        """拉起进程并握手，返回插件声明的监听器；插件启动失败抛错（内核据此标 FAILED）。"""
+        """拉起进程、等它就绪，返回插件声明的监听器；插件启动失败抛错（内核据此标 FAILED）。
+
+        引导信息（配置、网关地址与令牌）经 stdin 写一行就关闭：令牌不放环境变量，所有插件是同一个
+        用户，能读彼此的 ``/proc/<pid>/environ``。插件跑完 ``apply`` 经网关报就绪
+        （``session.ready``），一次带上全部声明。stdout 与 stderr 都只是日志。
+        """
         self._ready = False
         await self._close_http()
         launch = await asyncio.to_thread(_launch, self.entry_id, self._path, self._module)
@@ -268,6 +282,7 @@ class Session:
         # 文件通道：宿主检查授权后打开文件，把描述符经这对套接字递给插件（services/plugin_files.py）
         self._close_fd_channel()
         self._fd_host, child_end = socket.socketpair()
+        self._handshake = asyncio.get_running_loop().create_future()
         try:
             self._proc = await asyncio.create_subprocess_exec(
                 sys.executable,
@@ -287,137 +302,104 @@ class Session:
                 *launch.args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.STDOUT,
                 cwd=str(launch.cwd),
                 env=launch.env,
-                limit=MAX_LINE,
                 pass_fds=(child_end.fileno(), listener.fileno()),
             )
         finally:
             child_end.close()
             listener.close()
-        self._readers = [
-            asyncio.get_running_loop().create_task(self._pump_stderr(self._proc)),
-        ]
+        proc = self._proc
+        self._readers = [asyncio.get_running_loop().create_task(self._pump_logs(proc))]
         try:
-            declarations = await asyncio.wait_for(self._handshake(self._proc), HANDSHAKE_TIMEOUT)
+            assert proc.stdin is not None
+            proc.stdin.write(
+                json.dumps(
+                    {
+                        "entry_id": self.entry_id,
+                        "config": self._config,
+                        "data_dir": self._data_dir,
+                        # 插件调宿主走网关（HTTP over Unix 套接字），令牌只在网关上有效
+                        "gateway": self.gateway,
+                        "token": self.token,
+                    },
+                    ensure_ascii=False,
+                ).encode()
+                + b"\n"
+            )
+            await proc.stdin.drain()
+            proc.stdin.close()
+            exited = asyncio.ensure_future(proc.wait())
+            done, _ = await asyncio.wait(
+                {self._handshake, exited},
+                timeout=HANDSHAKE_TIMEOUT,
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if self._handshake not in done:
+                exited.cancel()
+                if exited in done:
+                    raise PluginProcessGone(f"插件进程启动期间退出（退出码 {proc.returncode}）")
+                raise TimeoutError(f"插件 {self.entry_id} {HANDSHAKE_TIMEOUT:.0f} 秒内没有就绪")
+            exited.cancel()
+            ready = self._handshake.result()
         except BaseException:
             await self._kill()
             raise
-        self._readers.append(asyncio.get_running_loop().create_task(self._pump_stdout(self._proc)))
+        self.title = ready.get("title")
+        self.serving = bool(ready.get("serving"))
+        self.contributions = list(ready.get("contributions") or [])
+        self.routes = list(ready.get("routes") or [])
+        self.callbacks = list(ready.get("callbacks") or [])
+        declarations = list(ready.get("listeners") or [])
         self._ready = True
         logger.info(
             "插件 %s 已在独立进程中运行（pid %s，%d 个监听器）",
             self.entry_id,
-            self._proc.pid,
+            proc.pid,
             len(declarations),
         )
         return declarations
 
-    async def _handshake(self, proc: asyncio.subprocess.Process) -> list[dict[str, Any]]:
-        assert proc.stdout is not None
-        hello = await self._read(proc)
-        if hello["type"] != "hello":
-            raise RuntimeError(f"插件进程握手失败：期望 hello，收到 {hello['type']}")
-        await self._send(
-            {
-                "type": "init",
-                "entry_id": self.entry_id,
-                "config": self._config,
-                "data_dir": self._data_dir,
-                # 插件调宿主走网关（HTTP over Unix 套接字），令牌只在网关上有效
-                "gateway": self.gateway,
-                "token": self.token,
-            }
-        )
-        declarations: list[dict[str, Any]] = []
-        self.contributions = []
-        self.routes = []
-        self.callbacks = []
-        while True:
-            message = await self._read(proc)
-            kind = message["type"]
-            if kind == "on":
-                declarations.append(message)
-            elif kind == "contribute":
-                self.contributions.append(message)
-            elif kind == "routes":
-                self.routes.append(message)
-            elif kind == "callback":
-                self.callbacks.append(message)
-            elif kind == "ready":
-                self.title = message.get("title")
-                return declarations
-            elif kind == "failed":
-                raise _remote_error(message)
-            else:
-                raise RuntimeError(f"插件进程握手期间发来意外的消息：{kind}")
+    def handshake(self, ready: dict[str, Any] | None, error: Exception | None = None) -> None:
+        """插件经网关报就绪 / 启动失败（``session`` 服务）。"""
+        future = self._handshake
+        if future is None or future.done():
+            raise RuntimeError("插件已经报过就绪")
+        if error is not None:
+            future.set_exception(error)
+        else:
+            future.set_result(ready or {})
 
-    async def _read(self, proc: asyncio.subprocess.Process) -> dict[str, Any]:
-        assert proc.stdout is not None
-        line = await proc.stdout.readline()
-        if not line:
-            code = await proc.wait()
-            raise PluginProcessGone(f"插件进程启动期间退出（退出码 {code}）")
-        return decode(line)
-
-    async def _send(self, message: dict[str, Any]) -> None:
-        proc = self._proc
-        if proc is None or proc.stdin is None or proc.returncode is not None:
-            raise PluginProcessGone("插件进程不在运行")
-        proc.stdin.write(encode(message))
-        try:
-            await proc.stdin.drain()
-        except (BrokenPipeError, ConnectionResetError) as exc:
-            raise PluginProcessGone("插件进程不在运行") from exc
-
-    # ------------------------------------------------------------------ 读取
-    async def _pump_stderr(self, proc: asyncio.subprocess.Process) -> None:
-        assert proc.stderr is not None
-        while line := await proc.stderr.readline():
-            logger.info("[%s] %s", self.entry_id, line.decode("utf-8", "replace").rstrip())
-
-    async def _pump_stdout(self, proc: asyncio.subprocess.Process) -> None:
+    async def _pump_logs(self, proc: asyncio.subprocess.Process) -> None:
+        """插件的 stdout / stderr（合在一起）按行收进宿主日志；读到头说明进程退出了。"""
         assert proc.stdout is not None
         try:
             while line := await proc.stdout.readline():
-                message = decode(line)
-                kind = message["type"]
-                if kind == "reply":
-                    future = self._pending.pop(message["id"], None)
-                    if future is not None and not future.done():
-                        future.set_result(message)
-                elif kind == "next":
-                    asyncio.get_running_loop().create_task(self._run_next(message))
-                elif kind == "disposed":
-                    pass
-                else:
-                    logger.warning("插件 %s 发来意外的消息：%s", self.entry_id, kind)
-        except ValueError:
-            logger.exception("插件 %s 发来无法解析的消息，断开", self.entry_id)
-            await self._kill()
+                logger.info("[%s] %s", self.entry_id, line.decode("utf-8", "replace").rstrip())
         finally:
             if proc is self._proc:
                 self._ready = False
-                self._fail_pending(PluginProcessGone("插件进程已退出"))
-
-    async def _run_next(self, message: dict[str, Any]) -> None:
-        call_id = message["id"]
-        run = self._nexts.pop(call_id, None)
-        reply: dict[str, Any] = {"type": "next_result", "id": call_id}
-        if run is None:
-            reply.update(ok=False, error="这次调用已经结束")
-        else:
-            try:
-                reply.update(ok=True, result=await run(message.get("payload", _UNSET)))
-            except Exception as exc:  # noqa: BLE001 -- 下游出错原样告诉插件
-                reply.update(ok=False, error=f"{type(exc).__name__}: {exc}")
-        with contextlib.suppress(PluginProcessGone):
-            await self._send(reply)
 
     def call_context(self, call: str) -> contextvars.Context | None:
         """宿主调插件时的上下文快照（插件经网关带回调用号时，在它里面处理请求）。"""
         return self._contexts.get(call)
+
+    def track(self) -> str:
+        """登记一个调用上下文快照，返回调用号（反代路由请求时用；结束后 ``untrack``）。"""
+        call_id = str(next(self._ids))
+        self._contexts[call_id] = contextvars.copy_context()
+        return call_id
+
+    def untrack(self, call_id: str) -> None:
+        self._contexts.pop(call_id, None)
+
+    async def run_next(self, call_id: str, payload: Any) -> Any:
+        """钩子里插件调 ``next()``：替它跑下游（``hooks`` 服务）。"""
+        run = self._nexts.get(call_id)
+        if run is None:
+            raise LookupError("这次调用已经结束")
+        return await run(payload)
 
     async def send_fd(self, token: str, fd: int) -> None:
         if self._fd_host is None:
@@ -429,12 +411,11 @@ class Session:
             self._fd_host.close()
             self._fd_host = None
 
-    def _fail_pending(self, exc: Exception) -> None:
-        for future in self._pending.values():
-            if not future.done():
-                future.set_exception(exc)
-        self._pending.clear()
-        self._nexts.clear()
+    def _control(self) -> UnixHttp:
+        """宿主调插件控制服务的客户端（每个进程一个连接池）。"""
+        if self._control_http is None:
+            self._control_http = UnixHttp(self.socket, timeout=None)
+        return self._control_http
 
     # ------------------------------------------------------------------ 调用
     async def call(
@@ -448,28 +429,25 @@ class Session:
         kind: str | None = None,
         cancel: asyncio.Event | None = None,
     ) -> Any:
+        """调插件导出的一个目标：``POST /_mc/{kind}/{target}``，请求头带调用号。
+
+        超时、宿主侧取消都是断开连接（插件随之取消处理）；``cancel`` 是体面停止：先请插件
+        自己收尾（``/_mc/cancel``），照常等它回复。
+        """
         if not self.online:
             raise PluginProcessGone(f"插件 {self.entry_id} 的进程不在运行")
         call_id = str(next(self._ids))
-        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
-        self._pending[call_id] = future
         self._contexts[call_id] = contextvars.copy_context()
         if run_next is not None:
             self._nexts[call_id] = run_next
-        message: dict[str, Any] = {
-            "type": "call",
-            "id": call_id,
-            "listener": listener,
-            "payload": payload,
-        }
+        body: dict[str, Any] = {"payload": payload}
         if job is not None:
             self.jobs[call_id] = job
-            message.update(kind="job", job_id=job.job_id)
-        elif kind is not None:
-            message["kind"] = kind
+            kind = "job"
+            body["job_id"] = job.job_id
         delivery = current_delivery.get()
         if delivery is not None:
-            message["delivery"] = {
+            body["delivery"] = {
                 "event_id": delivery.event_id,
                 "name": delivery.name,
                 "occurred_at": delivery.occurred_at,
@@ -480,22 +458,35 @@ class Session:
                 },
                 "attempt": delivery.attempt,
             }
+        headers = {CALL_HEADER: call_id}
+        path = f"/_mc/{kind or 'listener'}/{quote(listener, safe='')}"
         watcher: asyncio.Task[None] | None = None
         if cancel is not None:
-            # 调用方要停（如通道账号停止）：告诉插件取消这次调用，插件体面退出后照常回复
+
             async def relay() -> None:
                 await cancel.wait()
-                with contextlib.suppress(PluginProcessGone):
-                    await self._send({"type": "cancel", "id": call_id})
+                with contextlib.suppress(Exception):
+                    await self._control().request(
+                        "POST", "/_mc/cancel", json={"call": call_id}, timeout=5.0
+                    )
 
             watcher = asyncio.get_running_loop().create_task(relay())
         try:
-            await self._send(message)
-            reply = await asyncio.wait_for(future, timeout)
+            response = await self._control().request(
+                "POST", path, json=body, headers=headers, timeout=timeout
+            )
+            try:
+                reply = response.json() or {}
+            except ValueError:
+                reply = {}
+            if response.status_code >= 400:
+                message = reply.get("message") or f"HTTP {response.status_code}"
+                reply = {"ok": False, "error": message}
+        except (ConnectionError, OSError) as exc:
+            raise PluginProcessGone(f"插件 {self.entry_id} 的进程不在运行") from exc
         finally:
             if watcher is not None:
                 watcher.cancel()
-            self._pending.pop(call_id, None)
             self._nexts.pop(call_id, None)
             self._contexts.pop(call_id, None)
             self.jobs.pop(call_id, None)
@@ -545,23 +536,19 @@ class Session:
             backoff = 1.0
 
     async def stop(self) -> None:
+        """释放：``SIGTERM`` 请插件自己清理（``ctx.dispose()``）后退出，宽限期过了 ``SIGKILL``。"""
         self._stopping = True
         proc = self._proc
         if proc is not None and proc.returncode is None:
-            with contextlib.suppress(PluginProcessGone, asyncio.TimeoutError):
-                await self._send({"type": "dispose"})
+            proc.terminate()
+            try:
                 await asyncio.wait_for(proc.wait(), STOP_GRACE)
-            if proc.returncode is None:
-                proc.terminate()
-                try:
-                    await asyncio.wait_for(proc.wait(), STOP_GRACE)
-                except TimeoutError:
-                    proc.kill()
-                    await proc.wait()
+            except TimeoutError:
+                proc.kill()
+                await proc.wait()
         for task in self._readers:
             task.cancel()
         await asyncio.gather(*self._readers, return_exceptions=True)
-        self._fail_pending(PluginProcessGone("插件已卸载"))
         await self._close_http()
         self._close_fd_channel()
         with contextlib.suppress(FileNotFoundError):
@@ -596,6 +583,8 @@ def _shape(session: Session, declarations: list[dict[str, Any]]) -> set[Any]:
         | {("callback", c["name"]) for c in session.callbacks}
     )
 
+
+_CALL_HEADER = CALL_HEADER.lower()
 
 #: 不跨跳转发的头（逐跳头与由传输层重新生成的头）
 #: 不转给插件进程的请求头：用户的登录凭据。宿主已经验过身份，插件拿到原始凭据就能越过授权冒充用户
@@ -643,11 +632,17 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
         if not session.online:
             raise unavailable()
         client = session.http()
+        # 这次请求的调用号：插件的路由处理函数里再调宿主服务时带回来，宿主按它恢复上下文
+        # （外部请求里同名的头一律丢掉，伪造不了）
+        call_id = session.track()
         headers = [
             (k, v)
             for k, v in request.headers.items()
-            if k.lower() not in _HOP_HEADERS and k.lower() not in _CREDENTIAL_HEADERS
+            if k.lower() not in _HOP_HEADERS
+            and k.lower() not in _CREDENTIAL_HEADERS
+            and k.lower() != _CALL_HEADER
         ]
+        headers.append((CALL_HEADER, call_id))
         upstream = client.build_request(
             request.method,
             request.url.path,
@@ -658,7 +653,11 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
         try:
             response = await client.send(upstream, stream=True)
         except httpx.TransportError as exc:
+            session.untrack(call_id)
             raise unavailable() from exc
+        except BaseException:
+            session.untrack(call_id)
+            raise
         sendfile_path = response.headers.get(SENDFILE_HEADER)
         if sendfile_path is not None:
             from urllib.parse import unquote
@@ -666,15 +665,20 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
             sendfile_path = unquote(sendfile_path)
             # 插件只交出了路径：宿主检查读授权后自己发送（支持 Range），插件碰不到字节
             await response.aclose()
+            session.untrack(call_id)
             if session.files is None:
                 raise unavailable()
             return await sendfile(session.files, sendfile_path)
+
+        async def close() -> None:
+            await response.aclose()
+            session.untrack(call_id)
 
         return StreamingResponse(
             response.aiter_raw(),
             status_code=response.status_code,
             headers={k: v for k, v in response.headers.items() if k.lower() not in _HOP_HEADERS},
-            background=BackgroundTask(response.aclose),
+            background=BackgroundTask(close),
         )
 
     for route in routes:
@@ -1139,8 +1143,53 @@ class _Channels:
         )
 
 
+class _Session:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    async def ready(
+        self,
+        title: str,
+        listeners: list[dict[str, Any]],
+        contributions: list[dict[str, Any]],
+        routes: list[dict[str, Any]],
+        callbacks: list[dict[str, Any]],
+        serving: bool,
+    ) -> None:
+        self._session.handshake(
+            {
+                "title": title,
+                "listeners": listeners,
+                "contributions": contributions,
+                "routes": routes,
+                "callbacks": callbacks,
+                "serving": serving,
+            }
+        )
+
+    async def failed(self, error_type: str, error_message: str) -> None:
+        self._session.handshake(
+            None, _remote_error({"error_type": error_type, "error_message": error_message})
+        )
+
+
+class _Hooks:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    async def next(self, payload: Any = None, replace: bool = False) -> Any:
+        from movieclaw_api.services.plugin_gateway import current_call
+
+        call = current_call.get()
+        if call is None:
+            raise LookupError("只能在钩子调用里调 next()")
+        return await self._session.run_next(call, payload if replace else _UNSET)
+
+
 #: 服务名 → 宿主实现（与 movieclaw_sdk.services.SERVICES 一一对应，测试守护签名一致）
 EXPORTS: dict[str, type] = {
+    "session": _Session,
+    "hooks": _Hooks,
     "data": _Data,
     "health": _Health,
     "callbacks": _Callbacks,
@@ -1170,6 +1219,8 @@ async def _exports(ctx: Context, session: Session, names: tuple[str, ...]) -> di
     from movieclaw_api.services.auth import PluginGrant, issue_plugin_token, revoke_plugin_token
 
     exports: dict[str, Any] = {
+        "session": _Session(session),
+        "hooks": _Hooks(session),
         "net": _Net(session.entry_id),
         "job": _Job(session),
         "channels": _Channels(session),

@@ -227,6 +227,75 @@ def test_process_plugin_startup_failure_marks_the_entry_failed(tmp_path, monkeyp
         get_settings.cache_clear()
 
 
+QUIET_PLUGIN = """
+import asyncio
+
+from movieclaw_api.plugins.keys import PLUGIN_DATA
+from movieclaw_sdk import plugin
+
+
+@plugin("acme.quiet", title="只跑后台任务", inject=(PLUGIN_DATA,))
+async def apply(ctx) -> None:
+    store = ctx.use(PLUGIN_DATA).scoped(ctx)
+
+    async def tick() -> None:
+        while True:
+            await asyncio.sleep(60)
+
+    async def farewell() -> None:
+        # 释放时还能经网关调宿主服务
+        await store.set("disposed", True)
+
+    ctx.task(tick(), name="tick")
+    ctx.effect(farewell, label="farewell")
+"""
+
+
+def test_plugins_without_exports_do_not_serve_and_dispose_on_sigterm(tmp_path, monkeypatch):
+    """没有导出的插件不起服务；卸载是 SIGTERM，插件的清理照常执行（plugin-ipc-http.md §4.1）。"""
+    from sqlmodel import select
+
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import PluginData
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'quiet.db'}")
+    monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
+    monkeypatch.setenv("SITE_CONFIGS_DIR", str(tmp_path / "site-configs"))
+    monkeypatch.setenv("MOVIECLAW_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("SCHEDULER_ENABLED", "false")
+    get_settings.cache_clear()
+    durable_events.reset_state()
+    (tmp_path / "plugins").mkdir()
+    (tmp_path / "plugins" / "acme_quiet.py").write_text(QUIET_PLUGIN, encoding="utf-8")
+    (tmp_path / "plugins.yaml").write_text(
+        "- id: acme.quiet\n  local: true\n  module: acme_quiet\n  runtime: process\n",
+        encoding="utf-8",
+    )
+    from movieclaw_api.app import create_app
+
+    app = create_app()
+
+    async def disposed() -> list:
+        async with get_database().session() as session:
+            rows = await session.execute(
+                select(PluginData).where(PluginData.entry_id == "acme.quiet")
+            )
+            return [(row.key, row.value) for row in rows.scalars()]
+
+    try:
+        with TestClient(app) as client:
+            assert app.state.kernel.fiber("acme.quiet").state.value == "active"
+            session = plugin_runtime.sessions["acme.quiet"]
+            assert session.online and not session.serving
+            proc = session._proc
+            client.portal.call(app.state.kernel.unmount, "acme.quiet")
+            assert proc.returncode == 0  # 体面退出，不是被强杀
+            assert client.portal.call(disposed) == [("disposed", True)]
+    finally:
+        durable_events.reset_state()
+        get_settings.cache_clear()
+
+
 def test_crash_loop_stops_restarting_and_reports(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'loop.db'}")
     monkeypatch.setenv("SECRET_KEY_FILE", str(tmp_path / ".secret_key"))
