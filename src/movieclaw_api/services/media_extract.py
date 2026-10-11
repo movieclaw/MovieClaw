@@ -51,6 +51,7 @@ from pathlib import Path
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_db.models import LibraryFile
+from movieclaw_playback.streaming import is_strm, media_input
 
 logger = logging.getLogger("movieclaw_api.media_extract")
 
@@ -205,8 +206,22 @@ def _job_key(spec: _ExtractionSpec, index: int) -> _JobKey:
     return (str(spec.video), index, str(spec.out_path))
 
 
+def _ffmpeg_input(video: Path) -> list[str]:
+    """``-i`` 及其前面的输入选项。网盘（strm）条目读现解析出的直链（不合法就照旧给占位
+    文件，ffmpeg 报读不出来，按抽取失败处理）。"""
+    source = media_input(str(video))
+    if source is None:
+        return ["-i", str(video)]
+    url, options = source
+    return [*options, "-i", url]
+
+
 def _extract_timeout(video: Path) -> float:
-    """按体积估算通读上限：下限 EXTRACT_TIMEOUT，封顶 _MAX_EXTRACT_TIMEOUT。"""
+    """按体积估算通读上限：下限 EXTRACT_TIMEOUT，封顶 _MAX_EXTRACT_TIMEOUT。
+
+    网盘（strm）条目看不出体积（占位文件只有一行地址），直接给封顶值。"""
+    if is_strm(str(video)):
+        return _MAX_EXTRACT_TIMEOUT
     try:
         size = video.stat().st_size
     except OSError:
@@ -335,7 +350,7 @@ def _codec_args(spec: _ExtractionSpec) -> list[str]:
 def _extract_command(spec: _ExtractionSpec, index: int, tmp_path: Path) -> list[str]:
     return [
         "ffmpeg", "-nostdin", "-v", "error", "-y",
-        "-i", str(spec.video),
+        *_ffmpeg_input(spec.video),
         "-map", f"0:s:{index}",
         *_codec_args(spec),
         str(tmp_path),
@@ -353,7 +368,7 @@ def _batch_command(
     argv = [
         "ffmpeg", "-nostdin", "-v", "error", "-y",
         "-progress", str(progress_path), "-nostats",
-        "-i", str(video),
+        *_ffmpeg_input(video),
     ]
     for index, spec, tmp_path in outputs:
         argv += ["-map", f"0:s:{index}", *_codec_args(spec), str(tmp_path)]
@@ -812,7 +827,7 @@ def _extract_window(spec: _WindowSpec) -> ExtractedTrack | None:
     argv = [
         "ffmpeg", "-nostdin", "-v", "error", "-y",
         "-ss", str(spec.start_s), "-t", str(spec.end_s - spec.start_s),
-        "-i", str(spec.video),
+        *_ffmpeg_input(spec.video),
         "-copyts",
         "-map", f"0:s:{spec.index}", "-c:s", "copy", "-f", spec.fmt,
         str(tmp_path),

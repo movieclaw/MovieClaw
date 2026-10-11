@@ -16,7 +16,7 @@ from urllib.parse import quote
 import anyio
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, WebSocket
 from fastapi import Path as PathParam
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.requests import ClientDisconnect
 from starlette.websockets import WebSocketDisconnect
@@ -78,6 +78,7 @@ from movieclaw_playback.streaming import (
     FileWindowResponse,
     container_mime_type,
     is_strm,
+    resolve_strm_url,
 )
 
 logger = logging.getLogger("movieclaw_api.playback.transcode_worker")
@@ -454,7 +455,7 @@ async def _remote_source_file(
     ):
         raise NotFoundException("远程转码会话不存在")
     file = await session.get(LibraryFile, grant.file_id)
-    if file is None or is_strm(file.file_path):
+    if file is None:
         raise NotFoundException("远程转码源文件不存在")
     return file
 
@@ -544,8 +545,18 @@ async def transcode_source(
     token: Annotated[str | None, Query()] = None,
     session: AsyncSession = Depends(get_session),
 ):
-    """给 Worker 提供支持 Range 的源文件读取；不允许读取 strm 占位文件。"""
+    """给 Worker 提供支持 Range 的源文件读取。
+
+    网盘（strm）条目跳转到网盘直链：Worker 直接从网盘取源，不经 NAS 中转。Worker 的
+    取源代理与 ffmpeg 都跟随跳转，跳转后照常按 Range 取；每次取数都经这里现读 strm，
+    直链过期了也能拿到新的。
+    """
     file = await _remote_source_file(session_id, token, session)
+    if is_strm(file.file_path):
+        remote = resolve_strm_url(file.file_path)
+        if remote is None:
+            raise NotFoundException("网盘直链无效")
+        return RedirectResponse(remote, status_code=302)
     if file.is_disc():
         # 原盘是目录，没有单一源文件；新版 Worker 读 source.ffconcat，走不到这里
         raise NotFoundException("原盘没有单一源文件，请改读 source.ffconcat 清单")

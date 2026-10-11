@@ -465,12 +465,47 @@ def test_direct_play_releases_the_db_connection_before_streaming(client, tmp_pat
 
 
 def test_strm_entry_redirects_to_cloud_url(client, tmp_path):
-    """strm 只允许直连，服务器零流量（硬边界 2）。"""
-    file_id = seed(client, tmp_path, container="strm", strm=True)
-    url = start_session(client, file_id)["stream_url"]
-    resp = client.get(url, follow_redirects=False)
+    """网盘条目能直出时取流 302 到网盘直链，字节不经服务器。"""
+    file_id = seed(client, tmp_path, container="mp4", strm=True)
+    data = start_session(client, file_id)
+    assert data["session_id"] is None
+    resp = client.get(data["stream_url"], follow_redirects=False)
     assert resp.status_code == 302
     assert resp.headers["location"] == "https://pan.example.com/a.mkv"
+
+
+def test_unprobed_strm_entry_still_redirects(client, tmp_path):
+    """读不出规格的网盘条目（探测失败）乐观直连，与原来的行为一致。"""
+    file_id = seed(client, tmp_path, container="strm", codec=None, strm=True)
+    data = start_session(client, file_id)
+    assert data["decision"]["tier"] == 0
+    resp = client.get(data["stream_url"], follow_redirects=False)
+    assert resp.status_code == 302
+
+
+def test_probed_strm_mkv_remuxes_from_the_cloud_url(client, tmp_path, monkeypatch):
+    """浏览器认不了的容器：服务端开换封装会话，ffmpeg 直接读网盘直链。"""
+    builds = []
+
+    def capture_build(plan, *, source_path, session_dir, input_options=(), **_kwargs):
+        builds.append((source_path, list(input_options)))
+        playlist = Path(session_dir) / "index.m3u8"
+        return TranscodeCommand(
+            argv=["python3", "-c", FAKE_FFMPEG, str(playlist)],
+            playlist_path=playlist,
+            init_path=Path(session_dir) / "init.mp4",
+        )
+
+    monkeypatch.setattr(session_mod, "build_hls_command", capture_build)
+    # 虚构直链读不出 Cues：走会话相对模式，不去碰网络
+    monkeypatch.setattr(routes_playback, "read_keyframe_index", lambda *_a, **_k: None)
+    file_id = seed(client, tmp_path, container="mkv", strm=True)
+    data = start_session(client, file_id)
+    assert data["decision"]["tier"] == 1, data["decision"]
+    assert data["session_id"]
+    source, options = builds[0]
+    assert source == "https://pan.example.com/a.mkv"
+    assert "-protocol_whitelist" in options
 
 
 # ---------------------------------------------------------------------------
@@ -1291,6 +1326,20 @@ def test_remote_source_supports_range_without_mounting_nas(client, tmp_path):
     assert response.status_code == 206
     assert response.content == b"FAKE-MEDIA-BYTES"
     assert response.headers["accept-ranges"] == "bytes"
+
+
+def test_remote_source_redirects_strm_to_the_cloud_url(client, tmp_path):
+    """网盘条目交给远程 Worker 时，取源跳转到网盘直链：Worker 直接从网盘取，不经 NAS。"""
+    file_id = seed(client, tmp_path, container="mkv", strm=True)
+    grants = _install_remote_session(client, tmp_path, file_id)
+    response = client.get(
+        f"/api/v1/transcode-worker/sessions/{grants['session_id']}/source"
+        f"?token={grants['source']}",
+        headers={"Range": "bytes=0-15"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 302
+    assert response.headers["location"] == "https://pan.example.com/a.mkv"
 
 
 def test_remote_disc_source_is_an_ffconcat_of_clip_urls(client, tmp_path):

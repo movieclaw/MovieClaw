@@ -69,6 +69,7 @@ from movieclaw_events import new_ulid
 from movieclaw_playback import activity
 from movieclaw_playback.decide import PlaybackPlan, PlaybackTier
 from movieclaw_playback.hls_vod import SegmentPlan
+from movieclaw_playback.streaming import is_strm, media_input
 
 logger = logging.getLogger("movieclaw_api.playback.session")
 
@@ -1023,9 +1024,17 @@ class TranscodeSessionManager:
     def _local_command(self, session: TranscodeSession, *, start_number: int | None):
         """本地 ffmpeg 命令：起播与 seek 重启共用一处装配，输入形态在这里分叉。"""
         # 只在 concat 形态下才传 input_format：普通文件的调用形状保持不变
-        extra: dict[str, str] = {}
+        extra: dict[str, Any] = {}
         source_path = session.source_path
-        if session.concat_list is not None:
+        if is_strm(source_path):
+            # 网盘（strm）条目：ffmpeg 直接读直链。每轮（含 seek 重启）都现读 strm——直链多带
+            # 时效签名，开播时解析的那条可能已经过期；缓存指纹仍按 strm 文件算（cache.py）
+            source = media_input(source_path)
+            if source is None:
+                session.error = "网盘直链无效（strm 文件里没有可用的 http/https 地址）"
+                raise SessionStartError(session.error)
+            source_path, extra["input_options"] = source
+        elif session.concat_list is not None:
             source_path = str(session.directory / CONCAT_LIST_NAME)
             extra["input_format"] = "concat"
             if "'subfile," in session.concat_list or "'concat:subfile," in session.concat_list:

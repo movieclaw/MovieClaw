@@ -306,18 +306,21 @@ const SOURCE_MISSING_SUGGESTION =
   "文件可能被移动或删除了。可以回到条目页重新扫描媒体库，或换一个版本播放。";
 
 /**
- * 探片源：取 1 个字节（Range: bytes=0-0），5 秒超时。返回 HTTP 状态；请求本身没成功（断网、
- * 超时）返回 null。结论由 failure-policy.ts 的 sourceProbeVerdict 判。
+ * 探片源：取 1 个字节（Range: bytes=0-0），5 秒超时。返回 HTTP 状态；服务端跳转到网盘直链
+ * （strm 条目）返回 "redirect"，不跟过去；请求本身没成功（断网、超时）返回 null。结论由
+ * failure-policy.ts 的 sourceProbeVerdict 判。
  */
-async function probeSourceStatus(url: string): Promise<number | null> {
+async function probeSourceStatus(url: string): Promise<number | "redirect" | null> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), 5_000);
   try {
     const response = await fetch(url, {
       headers: { Range: "bytes=0-0" },
       cache: "no-store",
+      redirect: "manual",
       signal: controller.signal,
     });
+    if (response.type === "opaqueredirect") return "redirect";
     void response.body?.cancel().catch(() => undefined);
     return response.status;
   } catch {
@@ -473,6 +476,8 @@ export function VideoPlayer(props: VideoPlayerProps) {
   const failureInFlightRef = useRef(false);
   /** 探片源循环的代号：换集、卸载、开始新的一轮时递增，旧循环醒来发现对不上就退出 */
   const reconnectSeqRef = useRef(0);
+  /** 最近一次探片源看到的是跳转（直出的是网盘直链）：重开用完就降档走服务端中转 */
+  const remoteSourceRef = useRef(false);
   /** 重开会话失败后的退避计时器 */
   const sessionRetryTimerRef = useRef<number | null>(null);
   /**
@@ -1441,8 +1446,10 @@ export function VideoPlayer(props: VideoPlayerProps) {
       const url = resolveStreamUrl(streamUrl);
       void (async () => {
         for (;;) {
-          const verdict = sourceProbeVerdict(await probeSourceStatus(url));
+          const status = await probeSourceStatus(url);
           if (reconnectSeqRef.current !== seq) return;
+          remoteSourceRef.current = status === "redirect";
+          const verdict = sourceProbeVerdict(status);
           if (verdict === "reachable") {
             failureInFlightRef.current = false;
             dispatch({ type: "restart", startMs: positionMs });
@@ -1514,6 +1521,7 @@ export function VideoPlayer(props: VideoPlayerProps) {
       const response = decideFailure({
         cause,
         playsOriginalFile,
+        remoteSource: playsOriginalFile && remoteSourceRef.current,
         copyVideo,
         // 额度只在真要用时才扣
         restartAllowed: cause === "network" && networkBudgetRef.current.allowRestart(),

@@ -21,6 +21,11 @@ const table = [
   [{ ...base, cause: "network" }, "reconnect", "断线：同档原地重开"],
   [{ ...base, cause: "network", playsOriginalFile: true }, "reconnect", "直出断线：等片源取得到再重开"],
   [{ ...base, cause: "network", restartAllowed: false, playsOriginalFile: true }, "fail-network", "直出一直连不上：错误页"],
+  [
+    { ...base, cause: "network", restartAllowed: false, playsOriginalFile: true, remoteSource: true },
+    "step-down",
+    "网盘直链连不上：降档由服务端读直链",
+  ],
   [{ ...base, cause: "network", restartAllowed: false }, "step-down", "服务端流反复重开都没出画：这一档的问题"],
   // 片源不在了：降档也读不了同一个文件
   [{ ...base, cause: "source-missing" }, "fail-source-missing", "404：错误页说明"],
@@ -74,6 +79,7 @@ test("探片源：2xx / 令牌过期算取得到，404 是文件不在，其余�
   assert.equal(sourceProbeVerdict(404), "missing");
   assert.equal(sourceProbeVerdict(503), "unreachable");
   assert.equal(sourceProbeVerdict(null), "unreachable");
+  assert.equal(sourceProbeVerdict("redirect"), "reachable");
 });
 
 test("重开会话请求失败：断网、超时、限流、5xx 值得退避再试，4xx 是明确拒绝", () => {

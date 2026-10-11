@@ -21,6 +21,7 @@ import re
 import shutil
 import subprocess
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -96,14 +97,20 @@ class MediaSpec:
     # 元素 {"start_ms", "end_ms", "title"}，结构见 ``_chapter_info``；有效章节
     # （内嵌不足两个时按时长合成）由 library/chapters.py 决定，这里只记事实
     chapters: list[dict] = field(default_factory=list)
+    #: ffprobe 认出的封装格式（``format_name``，如 ``matroska,webm``）。本地文件的容器
+    #: 按扩展名记，用不上它；网盘直链的地址常常看不出扩展名，靠它定容器
+    format_name: str | None = None
 
 
-def probe_media(path: str | Path) -> MediaSpec | None:
+def probe_media(path: str | Path, *, input_args: Sequence[str] = ()) -> MediaSpec | None:
     """探测单个媒体文件；ffprobe 缺失或探测失败返回 None（调用方规格置 NULL）。
 
     图片文件（扩展名在 ``IMAGE_EXTS``）分派给 ``probe_image``：不起 ffprobe
     子进程，用 Pillow 只读文件头。两者返回**同一个** ``MediaSpec``，下游的
     入账、内容时间回落、预取、失败记忆、退避补探全部不用区分。
+
+    ``input_args`` 放在输入前（探测网盘直链时的协议白名单与断线续读，见
+    ``streaming.strm_input_args``）。
     """
     global _missing_warned
     if Path(path).suffix.lower() in IMAGE_EXTS:
@@ -121,6 +128,7 @@ def probe_media(path: str | Path) -> MediaSpec | None:
                 # 章节顺带一起读（docs/design/video-chapters.md §4.5）：章节在
                 # 容器头里，与流信息同一次读取，零额外 IO
                 "-show_chapters",
+                *input_args,
                 str(path),
             ],
             capture_output=True,
@@ -450,7 +458,9 @@ def probe_keyframe_interval(path: str | Path, duration_seconds: int | None) -> f
     if cached is not None:
         return cached
     value = _index_keyframe_interval(path, duration_seconds)
-    if value is None:
+    if value is None and path.suffix.lower() != ".strm":
+        # 网盘直链不做码流采样：三段各 30 秒的码流要从网盘现拉，4K 片是几百 MB、
+        # 起播前白等十几秒。读不出索引（Matroska Cues）就按未知处理——不换封装、改转码
         value = _probe_keyframe_interval(str(path), duration_seconds)
     if value is not None:
         if len(_keyframe_cache) >= _KEYFRAME_CACHE_MAX:
@@ -472,7 +482,7 @@ def _index_keyframe_interval(path: Path, duration_seconds: int | None) -> float 
     （残缺的 Cues 说明不了全片），平均间隔要在直通门槛以内——Cues 只可能比
     实际关键帧稀（有的封装器每隔几秒才记一个），稀了就老老实实采样核实。
     """
-    if path.suffix.lower() not in {".mkv", ".webm", ".mp4", ".m4v", ".mov"}:
+    if path.suffix.lower() not in {".mkv", ".webm", ".mp4", ".m4v", ".mov", ".strm"}:
         return None
     index = read_keyframe_index(path, allow_ffprobe=False)
     if index is None or len(index.times_s) < 2:
@@ -699,6 +709,7 @@ def _parse_probe(payload: dict, *, include_mpegts_pids: bool = False) -> MediaSp
         tag_date=_first_tag(fmt_tags, "date", "originaldate", "date_released"),
         creation_time=_first_tag(fmt_tags, "creation_time", "com.apple.quicktime.creationdate"),
         chapters=parse_chapters(payload.get("chapters")),
+        format_name=fmt.get("format_name") or None,
     )
 
 

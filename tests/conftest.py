@@ -427,6 +427,21 @@ def _offline_tmdb_singleton(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _offline_strm_probe(request, monkeypatch):
+    """网盘（strm）条目播放前的按需探测（strm_probe）在测试里一律当作探测失败。
+
+    用例里 strm 写的都是虚构直链（pan.example.com），真去探就是一次外网请求加十几秒
+    超时；探测失败时决策退回乐观直连，与这些用例原本的预期一致。按用例清空失败记忆。
+    集成测试要真探（本地仿网盘服务），跳过打桩。
+    """
+    from movieclaw_api.services.playback import strm_probe
+
+    monkeypatch.setattr(strm_probe, "_failed_at", {})
+    if not request.node.get_closest_marker("integration"):
+        monkeypatch.setattr(strm_probe, "probe_media", lambda *_a, **_k: None)
+
+
+@pytest.fixture(autouse=True)
 def _offline_image_proxy(monkeypatch):
     """刮削管线的图片资产下载在测试环境一律快速失败（不访问外网图床）。
 

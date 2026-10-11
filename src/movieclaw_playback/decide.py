@@ -324,20 +324,19 @@ def decide_playback(
     ``max_height`` 是用户在播放器里选的画质上限（§10 预案的「手动选清晰度」，
     弱网救急用）。语义是**上限而不是目标**：源分辨率不超它就照常直通——
     直通是无损的，比转出来的同分辨率画质更好也更省资源；超了才强制转码降
-    到该高度。None = 自动（不限制）。strm 与 universal 分支不受它影响：
-    前者禁止转码（硬边界 2），后者是全解码客户端自己拉流。
+    到该高度。None = 自动（不限制）。universal 分支与未探测到规格的 strm
+    不受它影响：前者是全解码客户端自己拉流，后者无从判断、只能乐观直连。
 
     ``preferred_subtitle`` 是**用户选中的字幕轨**（None/"off" 与文本轨都是
     no-op）。只有当它指向本文件的**内封 PGS 轨**时才改变决策：视频强制转码、
     字幕烧录进画面（Emby 语义的「字幕压制」）。这是硬边界 1 唯一的例外，
-    由用户的显式选择触发；文本字幕永远旁挂，视频策略不因它变。strm 与
-    universal 分支同样不受影响——前者禁转码，位图字幕退回前端 canvas 渲染。
+    由用户的显式选择触发；文本字幕永远旁挂，视频策略不因它变。universal
+    分支与未探测到规格的 strm 同样不受影响，位图字幕退回前端 canvas 渲染。
     """
-    # 1. strm 网盘条目：硬规则分支，只允许直连（硬边界 2）。
-    #    一旦允许转码，服务端就得先把云端内容拉下来再转，直接推翻
-    #    strm-workflow.md 的「零网盘流量」，且用户点一部网盘 4K 就能同时打爆
-    #    NAS 上行与网盘流量额度，还完全无感。
-    if media.is_strm:
+    # 1. 网盘（strm）条目：播放时按需探测过规格的，与本地文件走同一套判定——服务端的
+    #    ffmpeg 直接读直链换封装 / 转码（docs/design/strm-playback.md）。探测不到规格
+    #    （直链失效、ffprobe 缺失）才走这里：无从判断，乐观直连
+    if _unprobed_strm(media):
         return _decide_strm(media, failed_tiers)
 
     # 光盘镜像（ISO）：自己拉原文件的全解码播放器（Infuse、带 libbluray 的播放器都认 ISO）
@@ -945,10 +944,10 @@ def plan_capped_transcode(
     ``CAPPED_COPY_AUDIO_CODECS`` 就 copy，否则多声道转 E-AC-3（最多 5.1）、
     立体声转 AAC。
     """
-    if media.is_strm:
+    if _unprobed_strm(media):
         return PlaybackRejected(
-            reason="网盘（strm）条目不支持转码：转码要先把云端内容拉到服务器。",
-            suggestion="请在播放器里选择原画直连播放。",
+            reason="读不出这个网盘（strm）条目的视频规格，无法转码。",
+            suggestion="检查 strm 里的直链是否还有效，或在播放器里选择原画直连播放。",
         )
     if media.disc_clips > 0:
         return PlaybackRejected(
@@ -1062,7 +1061,7 @@ def needs_keyframe_probe(
     时，调用方才启动有存储开销的 ffprobe。这个预判不会把未经探测的结果交给
     用户，最终的 ``decide_playback`` 仍会执行原有的保守门槛。
     """
-    if media.is_strm or capability.universal:
+    if _unprobed_strm(media) or capability.universal:
         return False
 
     video_verdict = _judge_video(media, capability, policy, max_height)
@@ -1249,21 +1248,26 @@ def plan_subtitles(media: MediaProfile) -> tuple[SubtitlePlan, ...]:
 # ---------------------------------------------------------------------------
 
 
+def _unprobed_strm(media: MediaProfile) -> bool:
+    """网盘（strm）条目且没有探测到规格（播放前的按需探测失败了）。"""
+    return media.is_strm and media.video_codec is None
+
+
 def _decide_strm(
     media: MediaProfile, failed_tiers: frozenset[PlaybackTier]
 ) -> PlaybackDecision:
-    """strm 网盘条目：只允许档 0（硬边界 2）。
+    """没探测到规格的 strm 网盘条目：只能乐观直连。
 
-    strm 通常没有探测数据（media_probe 不探云端内容，保持零网盘流量），
-    所以这里不做能力比对——乐观把直链交给浏览器，播不了再由降档回路
-    带着失败标记回来，届时明确告知而不是偷偷起转码。
+    规格是播放前按需探测直链得到的；探测失败多半是直链失效或服务器连不上网盘，
+    服务端自己也读不了它，换封装 / 转码无从谈起。乐观把直链交给播放器，播不了
+    再由降档回路带着失败标记回来，届时明确告知。
     """
     if PlaybackTier.DIRECT_PLAY in failed_tiers:
         return PlaybackRejected(
-            reason="这是网盘（strm）条目，浏览器无法直接播放它的编码格式。",
+            reason="这个网盘（strm）条目放不了：服务器读不出它的视频规格，播放器也直接播放不了。",
             suggestion=(
-                "网盘条目不支持转码播放（转码需要先把云端内容下载到服务器，"
-                "会消耗大量网盘流量）。请用 Infuse、VidHub 等第三方播放器打开。"
+                "检查 strm 文件里的直链是否还有效、服务器能否访问网盘，或用 Infuse、"
+                "VidHub 等第三方播放器打开。"
             ),
         )
     return PlaybackPlan(
@@ -1275,7 +1279,7 @@ def _decide_strm(
             _preferred_audio(media.audio_tracks) if media.audio_tracks else None
         ),
         subtitles=plan_subtitles(media),
-        reason="网盘条目直连云端播放，服务器零流量",
+        reason="网盘条目直连云端播放（服务器未能读出规格）",
     )
 
 

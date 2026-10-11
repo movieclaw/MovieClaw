@@ -397,8 +397,14 @@ async def media_activity_overview(
         # 播放方式认台账里的文件形态，不靠"是否已经看到字节"倒推——上报先于
         # 取流到达是常态，用字节推断会把刚开播的本地文件误标成网盘直链。
         # 没有在位台账行（条目刚被删/改）才退回字节证据。
+        transcode = _pick_transcode(
+            transcodes.get(play.device_id, []), ctx.file.id if ctx.file else None
+        )
         if ctx.file is not None:
-            streaming = not is_strm(ctx.file.file_path)
+            # 网盘（strm）条目直出是 302 到网盘、字节不经服务器；换封装 / 转码时由服务端会话供流
+            streaming = not is_strm(ctx.file.file_path) or (
+                transcode is not None and transcode.file_id == ctx.file.id
+            )
         else:
             streaming = play.local_streamed or bool(device_meters)
         session_views.append(
@@ -438,12 +444,7 @@ async def media_activity_overview(
                 ),
                 connections=len(device_meters),
                 file=_file_spec(ctx.file),
-                delivery=_delivery_view(
-                    _pick_transcode(
-                        transcodes.get(play.device_id, []), ctx.file.id if ctx.file else None
-                    ),
-                    streaming=streaming,
-                ),
+                delivery=_delivery_view(transcode, streaming=streaming),
                 started_at=play.started_at,
                 last_report_at=play.last_report_at,
             )

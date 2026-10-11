@@ -71,6 +71,7 @@ from movieclaw_api.services.playback.session import (
     get_session_manager,
 )
 from movieclaw_api.services.playback.signing import issue_stream_token, verify_stream_token
+from movieclaw_api.services.playback.strm_probe import ensure_strm_spec
 from movieclaw_api.services.playback.track_context import files_with_contexts, track_context
 from movieclaw_api.settings import PlaybackPolicySetting
 from movieclaw_api.settings.store import get_setting_store
@@ -311,6 +312,9 @@ async def playback_info(
     selected = _select_source(files, media_source_id, item_id)
     if not selected:
         return JSONResponse({"MediaSources": [], "ErrorCode": "NoCompatibleStream"})
+    # 网盘（strm）版本第一次播放时现探规格并落库（strm_probe）：码率协商、音轨字幕都要它
+    for f in selected:
+        await ensure_strm_spec(f)
     # 播放协商是唯一现读 strm 的场景：直链多带时效签名，须现读现用；
     # 解析失败的版本剔除，全部失败按"无可播源"应答
     pairs = [(f, s) for f in selected if (s := media_source_dto(f, resolve_strm=True))]
@@ -328,11 +332,11 @@ async def playback_info(
             session, unit, member_id=identity.device.member_id
         )
     play_session_id = secrets.token_hex(16)
-    # 策略（硬件自检 + 软转开关）只在有普通本地文件时读一次：strm 与原盘
-    # 不走码率协商，纯 strm 条目不为此碰硬件探测
+    # 策略（硬件自检 + 软转开关）只在有非原盘文件时读一次：原盘不走码率协商；
+    # 网盘（strm）版本与本地文件一样协商（服务端的 ffmpeg 直接读直链）
     policy = (
         await _load_policy_for(negotiation.segment_container)
-        if any(not f.is_disc() and not is_strm(f.file_path) for f, _ in pairs)
+        if any(not f.is_disc() for f, _ in pairs)
         else None
     )
     for f, source in pairs:
@@ -343,7 +347,7 @@ async def playback_info(
             _apply_disc_transcoding(
                 source, f, ref, identity.device.token, play_session_id, audio_stream_index
             )
-        elif policy is not None and not is_strm(f.file_path):
+        elif policy is not None:
             _apply_transcode_negotiation(
                 source, f, ref, identity.device.token, play_session_id, negotiation, policy
             )
@@ -963,8 +967,7 @@ async def video_hls_master(
     if not selected:
         raise not_found()
     f = selected[0]
-    if f.id is None or is_strm(f.file_path):
-        # strm 只直连（硬边界：转码要先把云端内容拉到服务器）
+    if f.id is None:
         raise not_found()
     if activity.device_ended(identity.device.device_id):
         raise bad_request_text("播放已被管理员结束")

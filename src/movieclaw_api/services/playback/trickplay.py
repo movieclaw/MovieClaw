@@ -37,6 +37,7 @@ from pathlib import Path
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.settings import PlaybackPolicySetting, get_setting_store
 from movieclaw_db.models import LibraryFile
+from movieclaw_playback.streaming import media_input
 
 logger = logging.getLogger("movieclaw_api.playback.trickplay")
 
@@ -154,6 +155,11 @@ def generate(file: LibraryFile) -> TrickplayIndex | None:
     video = Path(file.file_path)
     if not video.is_file():
         return None
+    # 网盘（strm）条目读现解析出的直链（与本地文件同样按 4 倍实时限速通读）
+    source = media_input(file.file_path)
+    if source is None:
+        return None
+    input_url, input_options = source
 
     out_dir = trickplay_dir(file_id)
     staging = out_dir.with_name(f".{out_dir.name}.{uuid.uuid4().hex}.part")
@@ -170,7 +176,8 @@ def generate(file: LibraryFile) -> TrickplayIndex | None:
                 # 元凶（§6.10）。4 倍 = 24Mbps 的片约 12MB/s，千兆网口一成，
                 # 两小时片约 30 分钟出图——缩略图晚点完全可以接受。
                 "-readrate", "4",
-                "-i", str(video),
+                *input_options,
+                "-i", input_url,
                 "-an", "-sn", "-dn",
                 "-vf", f"fps=1/{INTERVAL_S},scale={THUMB_WIDTH}:-2,tile={COLUMNS}x{ROWS}",
                 "-qscale:v", "5",

@@ -316,6 +316,57 @@ async def test_strm_session_reports_remote_play_method(client: TestClient) -> No
     assert data["sessions"][0]["rate_bytes_per_second"] is None
 
 
+async def test_relayed_strm_session_reports_server_delivery(client: TestClient, tmp_path) -> None:
+    """网盘条目由服务端换封装 / 转码时，字节经服务器：标注 local 并给出处理方式。"""
+    from movieclaw_api.services.playback.session import TranscodeSession, get_session_manager
+    from movieclaw_playback.decide import (
+        AudioPlan,
+        PlaybackPlan,
+        PlaybackTier,
+        VideoPlan,
+    )
+
+    async with get_database().session() as session:
+        movie = MediaItem(
+            kind="movie", tmdb_id=27205, title="盗梦空间", original_title="Inception", year=2010,
+            aliases=[],
+        )  # fmt: skip
+        library = Library(name="网盘库", kind="movie", root_paths=["/media/cloud"])
+        session.add_all([movie, library])
+        await session.commit()
+        row = LibraryFile(
+            library_id=library.id,
+            media_item_id=movie.id,
+            file_path="/media/cloud/inception.strm",
+            source="scanned",
+        )
+        session.add(row)
+        await session.commit()
+        movie_id, file_id = movie.id, row.id
+
+    plan = PlaybackPlan(
+        tier=PlaybackTier.REMUX,
+        file_id=file_id,
+        container="hls-fmp4",
+        video=VideoPlan(action="copy", codec="h264"),
+        audio=AudioPlan(action="copy", track_ref="embedded:0"),
+        reason="MKV 容器已重封装为 fMP4",
+    )
+    manager = get_session_manager()
+    manager._sessions["relay"] = TranscodeSession(
+        id="relay", file_id=file_id, member_id=0, tier=PlaybackTier.REMUX,
+        directory=tmp_path / "relay", start_ms=0, plan=plan, device_id="dev-6", state="ready",
+    )  # fmt: skip
+    try:
+        info = ClientInfo(name="网页", device_name="Chrome", device_id="dev-6", version="1")
+        activity.report_start("dev-6", member_id=0, client=info, unit=(movie_id, 0, 0))
+        view = client.get("/api/v1/playback/activity").json()["data"]["sessions"][0]
+        assert view["play_method"] == "local"
+        assert view["delivery"]["mode"] != "direct"
+    finally:
+        manager._sessions.pop("relay", None)
+
+
 async def test_download_progress_counts_resume_offset(client: TestClient) -> None:
     """断点续传：进度从 Range 起点续算，不把已下好的部分算回 0。"""
     async with get_database().session() as session:

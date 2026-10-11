@@ -38,6 +38,7 @@ from movieclaw_api.services.media_extract import (
     window_format,
 )
 from movieclaw_db.models import LibraryFile
+from movieclaw_playback.streaming import media_input
 from movieclaw_playback.subtitles import SubtitleRef
 
 logger = logging.getLogger("movieclaw_api.playback.subtitles")
@@ -146,20 +147,30 @@ def extract_embedded_fonts(file: LibraryFile) -> list[str]:
     video = Path(file.file_path)
     if shutil.which("ffmpeg") is None or not video.is_file():
         return []
-    attachments = _list_font_attachments(video)
+    # 网盘（strm）条目读直链：附件在 Matroska 头部，读的是开头一小段
+    source = media_input(file.file_path)
+    if source is None:
+        return []
+    url, input_options = source
+    attachments = _list_font_attachments(url, input_options)
     if not attachments:
         out_dir.mkdir(parents=True, exist_ok=True)  # 记住「这部片没有字体」，别每次重探
         return []
 
     staging = out_dir.with_name(f".{out_dir.name}.{uuid.uuid4().hex}.part")
     staging.mkdir(parents=True, exist_ok=True)
-    # 一条命令抽全部附件：每个附件单独起一次 ffmpeg 要把容器读 N 遍。
+    # 一条命令抽全部附件：每个附件单独起一次 ffmpeg 要把容器读 N 遍。附件在打开输入时就
+    # 写出了，输出侧 ``-t 0`` 让它随即收工——不加的话 ffmpeg 会把整片解码一遍再退出，
+    # 网盘条目等于把整片从网盘拉下来
     dump_args: list[str] = []
     for index, name in attachments:
         dump_args += [f"-dump_attachment:t:{index}", str(staging / name)]
     try:
         proc = subprocess.run(
-            ["ffmpeg", "-v", "error", "-y", *dump_args, "-i", str(video), "-f", "null", "-"],
+            [
+                "ffmpeg", "-v", "error", "-y", *dump_args,
+                *input_options, "-i", url, "-t", "0", "-f", "null", "-",
+            ],  # fmt: skip
             capture_output=True,
             timeout=_EXTRACT_TIMEOUT,
         )
@@ -184,7 +195,7 @@ def extract_embedded_fonts(file: LibraryFile) -> list[str]:
     return written
 
 
-def _list_font_attachments(video: Path) -> list[tuple[int, str]]:
+def _list_font_attachments(video: str, input_options: list[str]) -> list[tuple[int, str]]:
     """列出字体附件的 (附件流序号, 安全文件名)。
 
     序号是「第几条附件流」——与 ffmpeg 的 ``-dump_attachment:t:<k>`` 同源，
@@ -195,7 +206,7 @@ def _list_font_attachments(video: Path) -> list[tuple[int, str]]:
             [
                 "ffprobe", "-v", "error", "-print_format", "json",
                 "-select_streams", "t", "-show_entries", "stream_tags=filename,mimetype",
-                str(video),
+                *input_options, video,
             ],
             capture_output=True,
             timeout=_EXTRACT_TIMEOUT,

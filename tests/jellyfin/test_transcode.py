@@ -569,8 +569,8 @@ def test_transcode_unavailable_falls_back_to_direct_play(
 def test_strm_and_hdr_without_gpu_never_transcode(
     client: TestClient, seeded: dict, transcode_env: list
 ) -> None:
-    """预播种的电影：strm 版本永远直连；HDR10 本地版本无显卡时拒绝软件 tone-map，
-    同样回落直连。"""
+    """预播种的电影：strm 版本读不出规格（测试里探测一律失败）只能直连；HDR10 本地版本
+    无显卡时拒绝软件 tone-map，同样回落直连。"""
     _enable_software_transcode(client)
     guid = item_guid(seeded["movie"])
     auth = _auth(client)
@@ -581,6 +581,56 @@ def test_strm_and_hdr_without_gpu_never_transcode(
         assert source["SupportsDirectPlay"] is True, source["Protocol"]
         assert source["SupportsTranscoding"] is False
         assert "TranscodingUrl" not in source
+
+
+def test_probed_strm_transcodes_from_the_cloud_url(
+    client: TestClient, seeded: dict, media_root: Path, transcode_env: list
+) -> None:
+    """探测到规格的网盘（strm）版本与本地文件一样协商限码率转码，ffmpeg 直接读网盘直链。"""
+    _enable_software_transcode(client)
+    path = media_root / "Heat (1995)" / "Heat.1995.1080p.strm"
+    path.parent.mkdir(parents=True)
+    path.write_text("https://pan.example.com/d/heat.mkv?sign=1\n")
+
+    async def _insert() -> int:
+        async with get_database().session() as session:
+            item = MediaItem(
+                kind="movie", tmdb_id=949, title="盗火线", original_title="Heat", year=1995
+            )
+            session.add(item)
+            await session.flush()
+            session.add(
+                LibraryFile(
+                    library_id=seeded["movie_lib"],
+                    media_item_id=item.id,
+                    file_path=str(path),
+                    size_bytes=path.stat().st_size,
+                    container="mkv",
+                    resolution="1080p",
+                    video_codec="h264",
+                    duration_seconds=170 * 60,
+                    bit_rate=8_000_000,
+                    audio_streams=[{"codec": "aac", "channels": 2, "default": True}],
+                    subtitle_streams=[],
+                    external_subtitles=[],
+                    source=FileSource.SCANNED,
+                )
+            )
+            await session.commit()
+            return item.id
+
+    guid = item_guid(client.portal.call(_insert))  # type: ignore[attr-defined]
+    auth = _auth(client)
+    ms = client.post(
+        f"/Items/{guid}/PlaybackInfo", params={**auth, "MaxStreamingBitrate": 3_000_000}
+    ).json()["MediaSources"][0]
+    assert ms["Protocol"] == "Http"
+    assert ms["SupportsDirectPlay"] is False and ms["SupportsTranscoding"] is True
+    master = client.get(ms["TranscodingUrl"], headers={"Authorization": AUTH_HEADER})
+    assert master.status_code == 200, master.text
+    call = transcode_env[-1]
+    assert call["source_path"] == "https://pan.example.com/d/heat.mkv?sign=1"
+    assert "-protocol_whitelist" in call["input_options"]
 
 
 def test_progress_keeps_session_alive_and_active_encodings_stops_it(

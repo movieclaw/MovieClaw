@@ -174,12 +174,12 @@ def test_universal_capability_always_direct_play(profile):
 
 
 # ---------------------------------------------------------------------------
-# strm：硬边界 2，只允许直连
+# strm 网盘条目（docs/design/strm-playback.md）：探测到规格就与本地文件同一套判定
 # ---------------------------------------------------------------------------
 
 
-def test_strm_always_direct_play():
-    """strm 通常没有探测数据，乐观直连；服务器零流量。"""
+def test_unprobed_strm_plays_direct_optimistically():
+    """没探测到规格（直链失效、ffprobe 缺失）无从判断：乐观直连。"""
     decision = decide_playback(
         MediaProfile(file_id=7, is_strm=True), CHROME_NO_HEVC, WITH_GPU
     )
@@ -187,17 +187,49 @@ def test_strm_always_direct_play():
     assert decision.tier is PlaybackTier.DIRECT_PLAY
 
 
-def test_strm_never_transcodes_even_after_failure():
-    """strm 直连失败后是明确拒绝，绝不偷偷起转码（会打爆网盘流量）。"""
+def test_unprobed_strm_rejected_after_direct_failure():
+    """没有规格的 strm 直连也失败：服务端同样读不了它，明确告知去查直链。"""
     decision = decide_playback(
-        MediaProfile(file_id=7, is_strm=True, video_codec="vc1"),
+        MediaProfile(file_id=7, is_strm=True),
         CHROME_NO_HEVC,
         WITH_GPU,
         failed_tiers=frozenset({PlaybackTier.DIRECT_PLAY}),
     )
     assert isinstance(decision, PlaybackRejected)
     assert "网盘" in decision.reason
-    assert decision.suggestion
+    assert "直链" in decision.suggestion
+
+
+@pytest.mark.parametrize(
+    ("profile", "capability", "tier"),
+    [
+        (media(is_strm=True, container="mp4"), CHROME_NO_HEVC, PlaybackTier.DIRECT_PLAY),
+        (media(is_strm=True), CHROME_NO_HEVC, PlaybackTier.REMUX),
+        (
+            media(is_strm=True, container="mp4", audio_tracks=(DTS_51,)),
+            CHROME_NO_HEVC,
+            PlaybackTier.AUDIO_TRANSCODE,
+        ),
+        (media(is_strm=True, video_codec="hevc"), CHROME_NO_HEVC, PlaybackTier.HARDWARE_TRANSCODE),
+    ],
+)
+def test_probed_strm_follows_local_file_rules(profile, capability, tier):
+    """探测到规格的 strm 与本地文件同档：容器不认就换封装、音轨不认就转音频、解不了就转码。"""
+    decision = decide_playback(profile, capability, WITH_GPU)
+    assert isinstance(decision, PlaybackPlan)
+    assert decision.tier is tier
+
+
+def test_probed_strm_steps_down_after_direct_failure():
+    """浏览器连不上网盘（直出失败）：降档由服务端读直链，而不是拒绝。"""
+    decision = decide_playback(
+        media(is_strm=True, container="mp4"),
+        CHROME_NO_HEVC,
+        WITH_GPU,
+        failed_tiers=frozenset({PlaybackTier.DIRECT_PLAY}),
+    )
+    assert isinstance(decision, PlaybackPlan)
+    assert decision.tier is not PlaybackTier.DIRECT_PLAY
 
 
 # ---------------------------------------------------------------------------
@@ -937,16 +969,20 @@ def test_quality_cap_combines_with_admin_limit():
     assert plan.video.height == 720
 
 
-def test_quality_cap_does_not_touch_strm():
-    """strm 禁止转码（硬边界 2），画质上限对它不生效。"""
-    plan = decide_playback(
-        media(is_strm=True, container="strm", resolution="2160p"),
-        CHROME_NO_HEVC,
-        WITH_GPU,
-        max_height=480,
+def test_quality_cap_applies_to_probed_strm_only():
+    """探测到规格的 strm 照常按画质上限转码；没有规格的无从转码，仍旧直连。"""
+    capped = decide_playback(
+        media(is_strm=True, resolution="2160p"), CHROME_NO_HEVC, WITH_GPU, max_height=480
     )
-    assert isinstance(plan, PlaybackPlan)
-    assert plan.tier is PlaybackTier.DIRECT_PLAY
+    assert isinstance(capped, PlaybackPlan)
+    assert capped.video.action == "transcode"
+    assert capped.video.height == 480
+
+    unprobed = decide_playback(
+        MediaProfile(file_id=7, is_strm=True), CHROME_NO_HEVC, WITH_GPU, max_height=480
+    )
+    assert isinstance(unprobed, PlaybackPlan)
+    assert unprobed.tier is PlaybackTier.DIRECT_PLAY
 
 
 def test_copy_audio_plan_carries_codec_and_channels():
@@ -970,7 +1006,7 @@ def test_copy_audio_plan_carries_codec_and_channels():
     assert universal_decision.audio.codec == "ac3"
 
     strm_decision = decide_playback(
-        media(is_strm=True, audio_tracks=(AC3_51,)), CHROME_HEVC, WITH_GPU
+        MediaProfile(file_id=7, is_strm=True, audio_tracks=(AC3_51,)), CHROME_HEVC, WITH_GPU
     )
     assert isinstance(strm_decision, PlaybackPlan)
     assert strm_decision.audio.codec == "ac3"
@@ -1032,8 +1068,8 @@ def test_stale_pgs_ref_is_ignored():
     assert decision.tier is PlaybackTier.REMUX
 
 
-def test_strm_ignores_pgs_selection():
-    """strm 禁转码（硬边界 2）优先级更高：选中 PGS 也不烧，仍旧直连。"""
+def test_probed_strm_burns_selected_pgs():
+    """探测到规格的 strm 与本地文件一样：选中 PGS 就转码烧录。"""
     decision = decide_playback(
         media(is_strm=True, container="mp4", **PGS_MEDIA_KW),
         CHROME_NO_HEVC,
@@ -1041,8 +1077,8 @@ def test_strm_ignores_pgs_selection():
         preferred_subtitle="embedded:1",
     )
     assert isinstance(decision, PlaybackPlan)
-    assert decision.video.action == "copy"
-    assert decision.video.burn_subtitle is None
+    assert decision.video.action == "transcode"
+    assert decision.video.burn_subtitle is not None
 
 
 def test_unrelated_failure_history_is_not_marked_as_degraded():
@@ -1313,12 +1349,13 @@ def test_capped_transcode_max_height_and_software_fallback():
     [
         (media(), NO_GPU, "软件转码未开启"),
         (media(hdr="HDR10"), NO_GPU_SOFT_ON, "色调映射"),
-        (media(is_strm=True), WITH_GPU, "strm"),
+        (MediaProfile(file_id=7, is_strm=True), WITH_GPU, "strm"),
         (media(container="bluray", disc_clips=1), WITH_GPU, "原盘"),
     ],
 )
 def test_capped_transcode_rejections(profile, policy, keyword):
-    """拒绝的四种情形都要给出中文理由：协议层据此回落直连并写日志。"""
+    """拒绝的四种情形都要给出中文理由：协议层据此回落直连并写日志。
+    strm 只有探测不到规格时才拒绝（探测到的与本地文件一样能转）。"""
     from movieclaw_playback.decide import plan_capped_transcode
 
     decision = plan_capped_transcode(profile, policy)

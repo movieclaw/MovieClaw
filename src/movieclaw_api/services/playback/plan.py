@@ -22,6 +22,7 @@ from movieclaw_api.services.playback.hwprobe import hardware_available
 from movieclaw_api.services.playback.iso_source import iso_disc_source
 from movieclaw_api.services.playback.limits import MAX_TRANSCODE_HEIGHT
 from movieclaw_api.services.playback.remote_worker import remote_worker_busy
+from movieclaw_api.services.playback.strm_probe import ensure_strm_spec
 from movieclaw_api.services.playback.track_context import track_contexts
 from movieclaw_api.settings import PlaybackPolicySetting
 from movieclaw_api.settings.store import get_setting_store
@@ -104,6 +105,9 @@ async def decide_for_files(
     policy = await load_policy()
     decisions = []
     for file in files:
+        # 网盘（strm）条目扫库时不探规格，第一次播放在这里现探并落库（strm_probe）：
+        # 有了真实编码，才能和本地文件一样选直出 / 换封装 / 转码
+        await ensure_strm_spec(file)
         # 关键帧密度只服务于档 1/2 的视频复制。先用不需要源片 IO 的纯判定
         # 判断候选是否可能落在这两个档位；iOS 4K 硬转、软件转码和 Direct
         # Play 都直接跳过，避免为最终不会使用的安全信息等待慢存储。

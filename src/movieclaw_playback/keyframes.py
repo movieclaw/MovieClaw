@@ -20,6 +20,10 @@ seek 时拿错分片。采样估出的平均间隔（media_probe）只够回答�
   与 ffmpeg 不一致的风险（stss 登记了解析器不认的帧、多段编辑表等）由那边自行识别后
   交回 ffprobe 兜底。
 - **其余容器（TS 等）**：没有索引可读，只能 ffprobe 列视频包挑关键帧（要通读文件）。
+- **网盘直链（strm）**：按 HTTP Range 读同样的索引（``remote_range``）——Matroska 的 Cues
+  三四个请求；MP4 的 moov 加 16 个关键帧样本的抽检（每个样本一个请求）。其余容器要通读，
+  从网盘现拉等不起，返回 None：转码档用不着索引，换封装档退回会话相对模式
+  （docs/design/strm-playback.md）。读不出的结论记十分钟，别每次开会话都白跑一轮请求。
 """
 
 from __future__ import annotations
@@ -35,8 +39,11 @@ from pathlib import Path
 
 from movieclaw_playback.container_index import (
     read_mp4_keyframes_checked,
+    read_remote_mp4_keyframes,
     verify_all_mp4_keyframes,
 )
+from movieclaw_playback.remote_range import RemoteRangeFile
+from movieclaw_playback.streaming import STRM_EXT, resolve_strm_url
 
 logger = logging.getLogger("movieclaw_playback.keyframes")
 
@@ -61,6 +68,12 @@ _TRACK_ENTRY = 0xAE
 _TRACK_NUMBER = 0xD7
 _TRACK_TYPE = 0x83
 _TRACK_TYPE_VIDEO = 1
+
+#: MP4 / MOV 文件开头常见的顶层 box（网盘直链看不出扩展名，按文件头认）
+_MP4_TOP_LEVEL_BOXES = frozenset({b"ftyp", b"moov", b"mdat", b"free", b"wide", b"skip"})
+#: 网盘直链读不出索引的结论记多久（秒）：(strm 路径, mtime, 大小) → 记下的时刻
+_REMOTE_UNINDEXED_TTL_S = 600.0
+_remote_unindexed: dict[tuple[str, int, int], float] = {}
 
 
 @dataclass(frozen=True)
@@ -128,7 +141,9 @@ def _read_keyframe_index(
 ) -> KeyframeIndex | None:
     suffix = path.suffix.lower()
     try:
-        if suffix in {".mkv", ".webm"}:
+        if suffix == STRM_EXT:
+            times = _read_remote_keyframes(path, key)
+        elif suffix in {".mkv", ".webm"}:
             times = _read_matroska_cues(path)
         else:
             times = None
@@ -195,104 +210,129 @@ def _read_uint(data: bytes, start: int, end: int) -> int:
 def _read_matroska_cues(path: Path) -> list[float]:
     """从 mkv 的 SeekHead 定位 Cues 与 Info，解出关键帧时间表（秒）。"""
     with path.open("rb") as f:
-        # 头部读 64KB：EBML 头 + Segment 头 + SeekHead 一定在这里面
-        head = f.read(65536)
-        pos = 0
-        element_id, pos = _read_vint(head, pos, keep_marker=True)
-        if element_id != _EBML_HEADER:
-            raise ValueError("不是 Matroska 文件")
-        size, pos = _read_vint(head, pos, keep_marker=False)
-        pos += size
-        element_id, pos = _read_vint(head, pos, keep_marker=True)
-        if element_id != _SEGMENT:
-            raise ValueError("缺少 Segment 元素")
-        _, pos = _read_vint(head, pos, keep_marker=False)
-        segment_start = pos  # SeekHead 的偏移都相对这里
+        return _matroska_cues(f)
 
-        # SeekHead：id → 相对偏移
-        offsets: dict[int, int] = {}
-        for element_id, body_start, body_end in _iter_children(head, pos, len(head)):
-            if element_id != _SEEK_HEAD:
-                # SeekHead 总在 Segment 最前面；遇到第一个别的元素就停
-                break
-            for child_id, c_start, c_end in _iter_children(head, body_start, body_end):
-                if child_id != _SEEK:
-                    continue
-                target_id = target_pos = None
-                for f_id, f_start, f_end in _iter_children(head, c_start, c_end):
-                    if f_id == _SEEK_ID:
-                        target_id = _read_uint(head, f_start, f_end)
-                    elif f_id == _SEEK_POSITION:
-                        target_pos = _read_uint(head, f_start, f_end)
-                if target_id is not None and target_pos is not None:
-                    offsets[target_id] = target_pos
-        if _CUES not in offsets:
-            raise ValueError("SeekHead 里没有 Cues（此文件缺关键帧索引）")
 
-        # 视频轨号：Cues 里混着音频/字幕轨的 CuePoint（mkvmerge 会为多轨写
-        # cue），不按轨过滤会把索引搅密好几倍，分片边界全错。
-        video_tracks: set[int] = set()
-        if _TRACKS in offsets:
-            f.seek(segment_start + offsets[_TRACKS])
-            tracks = f.read(65536)
-            p = 0
-            element_id, p = _read_vint(tracks, p, keep_marker=True)
-            size, p = _read_vint(tracks, p, keep_marker=False)
-            for child_id, c_start, c_end in _iter_children(
-                tracks, p, min(p + size, len(tracks))
-            ):
-                if child_id != _TRACK_ENTRY:
-                    continue
-                number = kind = None
-                for f_id, f_start, f_end in _iter_children(tracks, c_start, c_end):
-                    if f_id == _TRACK_NUMBER:
-                        number = _read_uint(tracks, f_start, f_end)
-                    elif f_id == _TRACK_TYPE:
-                        kind = _read_uint(tracks, f_start, f_end)
-                if kind == _TRACK_TYPE_VIDEO and number is not None:
-                    video_tracks.add(number)
+def _read_remote_keyframes(path: Path, key: tuple[str, int, int]) -> list[float] | None:
+    """网盘直链（strm）的关键帧：Matroska 读 Cues、MP4 读样本表；其余容器返回 None。"""
+    failed_at = _remote_unindexed.get(key)
+    if failed_at is not None and time.monotonic() - failed_at < _REMOTE_UNINDEXED_TTL_S:
+        return None
+    url = resolve_strm_url(path)
+    times = None
+    if url is not None and url.lower().startswith(("http://", "https://")):
+        try:
+            with RemoteRangeFile(url) as f:
+                head = f.read(8)
+                f.seek(0)
+                if head[:4] == _EBML_HEADER.to_bytes(4, "big"):
+                    times = _matroska_cues(f)
+                elif head[4:8] in _MP4_TOP_LEVEL_BOXES and f.size is not None:
+                    times = read_remote_mp4_keyframes(f, f.size, str(path))
+        except (OSError, ValueError, IndexError):
+            times = None
+    if not times:
+        _remote_unindexed[key] = time.monotonic()
+    return times
 
-        timestamp_scale = 1_000_000  # EBML 默认：每 tick 1ms
-        if _INFO in offsets:
-            f.seek(segment_start + offsets[_INFO])
-            info = f.read(4096)
-            p = 0
-            element_id, p = _read_vint(info, p, keep_marker=True)
-            size, p = _read_vint(info, p, keep_marker=False)
-            for child_id, c_start, c_end in _iter_children(info, p, min(p + size, len(info))):
-                if child_id == _TIMESTAMP_SCALE:
-                    timestamp_scale = _read_uint(info, c_start, c_end)
 
-        # Cues 整块读进来（几十 KB~几 MB）
-        f.seek(segment_start + offsets[_CUES])
-        header = f.read(16)
-        p = 0
-        element_id, p = _read_vint(header, p, keep_marker=True)
-        if element_id != _CUES:
-            raise ValueError("SeekHead 指向的位置不是 Cues")
-        size, p = _read_vint(header, p, keep_marker=False)
-        f.seek(segment_start + offsets[_CUES])
-        cues = f.read(p + size)
+def _matroska_cues(f) -> list[float]:  # noqa: ANN001 — 本地文件或 RemoteRangeFile
+    # 头部读 64KB：EBML 头 + Segment 头 + SeekHead 一定在这里面
+    head = f.read(65536)
+    pos = 0
+    element_id, pos = _read_vint(head, pos, keep_marker=True)
+    if element_id != _EBML_HEADER:
+        raise ValueError("不是 Matroska 文件")
+    size, pos = _read_vint(head, pos, keep_marker=False)
+    pos += size
+    element_id, pos = _read_vint(head, pos, keep_marker=True)
+    if element_id != _SEGMENT:
+        raise ValueError("缺少 Segment 元素")
+    _, pos = _read_vint(head, pos, keep_marker=False)
+    segment_start = pos  # SeekHead 的偏移都相对这里
 
-        times: list[float] = []
-        for child_id, c_start, c_end in _iter_children(cues, p, len(cues)):
-            if child_id != _CUE_POINT:
+    # SeekHead：id → 相对偏移
+    offsets: dict[int, int] = {}
+    for element_id, body_start, body_end in _iter_children(head, pos, len(head)):
+        if element_id != _SEEK_HEAD:
+            # SeekHead 总在 Segment 最前面；遇到第一个别的元素就停
+            break
+        for child_id, c_start, c_end in _iter_children(head, body_start, body_end):
+            if child_id != _SEEK:
                 continue
-            cue_time = None
-            is_video = not video_tracks  # Tracks 解析失败时不过滤，聊胜于无
-            for f_id, f_start, f_end in _iter_children(cues, c_start, c_end):
-                if f_id == _CUE_TIME:
-                    cue_time = _read_uint(cues, f_start, f_end)
-                elif f_id == _CUE_TRACK_POSITIONS:
-                    for g_id, g_start, g_end in _iter_children(cues, f_start, f_end):
-                        if g_id == _CUE_TRACK:
-                            if _read_uint(cues, g_start, g_end) in video_tracks:
-                                is_video = True
-                            break
-            if is_video and cue_time is not None:
-                times.append(cue_time * timestamp_scale / 1_000_000_000)
-        # 同一时间可能有多条（多视频轨/重复 cue），去重再排序
-        return sorted(set(times))
+            target_id = target_pos = None
+            for f_id, f_start, f_end in _iter_children(head, c_start, c_end):
+                if f_id == _SEEK_ID:
+                    target_id = _read_uint(head, f_start, f_end)
+                elif f_id == _SEEK_POSITION:
+                    target_pos = _read_uint(head, f_start, f_end)
+            if target_id is not None and target_pos is not None:
+                offsets[target_id] = target_pos
+    if _CUES not in offsets:
+        raise ValueError("SeekHead 里没有 Cues（此文件缺关键帧索引）")
+
+    # 视频轨号：Cues 里混着音频/字幕轨的 CuePoint（mkvmerge 会为多轨写
+    # cue），不按轨过滤会把索引搅密好几倍，分片边界全错。
+    video_tracks: set[int] = set()
+    if _TRACKS in offsets:
+        f.seek(segment_start + offsets[_TRACKS])
+        tracks = f.read(65536)
+        p = 0
+        element_id, p = _read_vint(tracks, p, keep_marker=True)
+        size, p = _read_vint(tracks, p, keep_marker=False)
+        for child_id, c_start, c_end in _iter_children(tracks, p, min(p + size, len(tracks))):
+            if child_id != _TRACK_ENTRY:
+                continue
+            number = kind = None
+            for f_id, f_start, f_end in _iter_children(tracks, c_start, c_end):
+                if f_id == _TRACK_NUMBER:
+                    number = _read_uint(tracks, f_start, f_end)
+                elif f_id == _TRACK_TYPE:
+                    kind = _read_uint(tracks, f_start, f_end)
+            if kind == _TRACK_TYPE_VIDEO and number is not None:
+                video_tracks.add(number)
+
+    timestamp_scale = 1_000_000  # EBML 默认：每 tick 1ms
+    if _INFO in offsets:
+        f.seek(segment_start + offsets[_INFO])
+        info = f.read(4096)
+        p = 0
+        element_id, p = _read_vint(info, p, keep_marker=True)
+        size, p = _read_vint(info, p, keep_marker=False)
+        for child_id, c_start, c_end in _iter_children(info, p, min(p + size, len(info))):
+            if child_id == _TIMESTAMP_SCALE:
+                timestamp_scale = _read_uint(info, c_start, c_end)
+
+    # Cues 整块读进来（几十 KB~几 MB）
+    f.seek(segment_start + offsets[_CUES])
+    header = f.read(16)
+    p = 0
+    element_id, p = _read_vint(header, p, keep_marker=True)
+    if element_id != _CUES:
+        raise ValueError("SeekHead 指向的位置不是 Cues")
+    size, p = _read_vint(header, p, keep_marker=False)
+    f.seek(segment_start + offsets[_CUES])
+    cues = f.read(p + size)
+
+    times: list[float] = []
+    for child_id, c_start, c_end in _iter_children(cues, p, len(cues)):
+        if child_id != _CUE_POINT:
+            continue
+        cue_time = None
+        is_video = not video_tracks  # Tracks 解析失败时不过滤，聊胜于无
+        for f_id, f_start, f_end in _iter_children(cues, c_start, c_end):
+            if f_id == _CUE_TIME:
+                cue_time = _read_uint(cues, f_start, f_end)
+            elif f_id == _CUE_TRACK_POSITIONS:
+                for g_id, g_start, g_end in _iter_children(cues, f_start, f_end):
+                    if g_id == _CUE_TRACK:
+                        if _read_uint(cues, g_start, g_end) in video_tracks:
+                            is_video = True
+                        break
+        if is_video and cue_time is not None:
+            times.append(cue_time * timestamp_scale / 1_000_000_000)
+    # 同一时间可能有多条（多视频轨/重复 cue），去重再排序
+    return sorted(set(times))
 
 
 # --- 其余容器：ffprobe ------------------------------------------------------
@@ -373,7 +413,8 @@ def schedule_background_index(path: str | Path, *, delay_s: float = FULL_CHECK_D
         not verify
         and key not in _index_cache
         and key not in _background_failed
-        and path.suffix.lower() not in {".mkv", ".webm"}
+        # 网盘直链（strm）不在后台通读：那是把整片从网盘拉一遍
+        and path.suffix.lower() not in {".mkv", ".webm", STRM_EXT}
         and stat.st_size <= BACKGROUND_INDEX_MAX_BYTES
     )
     if not (verify or build):

@@ -43,6 +43,11 @@ export interface FailureInput {
   cause: FailureCause;
   /** 在直出原文件（档 0，没有服务端会话） */
   playsOriginalFile: boolean;
+  /**
+   * 直出的是网盘直链（取流地址 302 到网盘，探片源时看到的是跳转）。浏览器连不上网盘
+   * 不等于服务器连不上：同档重开用完就降档，改由服务端读直链换封装 / 转码
+   */
+  remoteSource?: boolean;
   /** 视频直通（copy）：直出 / 换封装 / 音频单转，降档就丢原画 */
   copyVideo: boolean;
   /** 连接类失败还能同档重开（NetworkRestartBudget 没用完） */
@@ -56,8 +61,8 @@ export function decideFailure(input: FailureInput): FailureResponse {
     case "network":
       if (input.restartAllowed) return "reconnect";
       // 服务端流连续重开都没出画：多半是这一档的换封装 / 转码出了问题，按「这一档放不了」往下走；
-      // 原文件直出连不上就是连不上，换什么都一样
-      return input.playsOriginalFile ? "fail-network" : "step-down";
+      // 原文件直出连不上就是连不上，换什么都一样——网盘直链除外（见 remoteSource）
+      return input.playsOriginalFile && !input.remoteSource ? "fail-network" : "step-down";
     case "source-missing":
       return "fail-source-missing";
     case "decode":
@@ -142,8 +147,11 @@ export type SourceProbeVerdict = "reachable" | "missing" | "unreachable";
 /**
  * 探片源的 HTTP 状态 → 结论。`null` = 请求本身没成功（断网、超时）。
  * 401 / 403 算取得到：令牌过期了，开新会话换张令牌就取得到。
+ * `"redirect"` = 服务端把取流跳转到了网盘直链（strm 条目）：服务器在、条目在，算取得到——
+ * 不跟着跳到网盘去探，跨域的网盘地址不给 CORS，fetch 跟过去只会报错。
  */
-export function sourceProbeVerdict(status: number | null): SourceProbeVerdict {
+export function sourceProbeVerdict(status: number | "redirect" | null): SourceProbeVerdict {
+  if (status === "redirect") return "reachable";
   if (status === null) return "unreachable";
   if ((status >= 200 && status < 300) || status === 401 || status === 403) return "reachable";
   if (status === 404) return "missing";

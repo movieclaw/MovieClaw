@@ -36,6 +36,7 @@ from __future__ import annotations
 import logging
 import os
 import struct
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -956,6 +957,8 @@ def _mp4_nero_chapters(data: bytes, body_start: int) -> tuple[tuple[float, str |
 
 #: 抽检的关键帧样本数上限与并发数：每个样本是一次几 KB 的随机读
 _VERIFY_MAX = 128
+#: 网盘直链上抽检的样本数：每个样本是一次 Range 请求，抽得少一些
+_REMOTE_VERIFY_MAX = 16
 _VERIFY_WORKERS = 32
 #: 每个样本先读这么多字节找第一个视频 NAL；SEI / 参数集特别大时再读一次大的
 _VERIFY_READ = 8192
@@ -993,54 +996,92 @@ def verify_all_mp4_keyframes(path: str | Path, *, workers: int = 4) -> bool:
     return _read_mp4_keyframes(Path(path), verify_limit=None, workers=workers) is not None
 
 
+def read_remote_mp4_keyframes(f, file_size: int, label: str) -> list[float] | None:  # noqa: ANN001
+    """网盘直链上的 MP4 / MOV 关键帧时间（``f`` 是 ``remote_range.RemoteRangeFile``）。
+
+    与本地同一套读表与抽检，只是抽检的样本少（每个样本是一次 Range 请求）、并发低（家用的
+    直链服务监听队列可能很浅，8 路并发实测会被重置连接）。读不出、抽检对不上时返回 None——
+    调用方据此不给索引，不会给出可能错位的结果。
+    """
+    try:
+        result = _mp4_keyframes_from(
+            f, file_size, f.pread, label, verify_limit=_REMOTE_VERIFY_MAX, workers=4
+        )
+    except (OSError, ValueError, IndexError, struct.error) as exc:
+        logger.info("网盘 MP4 关键帧表读取失败：%s（%s）", label, exc)
+        return None
+    return None if result is None else result[0]
+
+
 def _read_mp4_keyframes(
     path: Path, *, verify_limit: int | None, workers: int
 ) -> tuple[list[float], bool] | None:
     try:
         file_size = path.stat().st_size
         with path.open("rb") as f:
-            data, _, _, _ = _read_moov(f, file_size)
-            track = _first_video_track(data)
-            if track is None:
-                return None
-            if track["codec"] in _H264_SAMPLE_ENTRIES:
-                is_key = _h264_access_unit_is_key
-            elif track["codec"] in _HEVC_SAMPLE_ENTRIES:
-                is_key = _hevc_access_unit_is_key
-            else:
-                return None
-            tables = track["tables"]
-            if b"stss" not in tables or track["nal_length_size"] is None:
-                return None
-            edit = _mp4_simple_edit(track)
-            if edit is None:
-                return None
-            media_time, empty_ticks = edit
-            dts = _mp4_sample_times(track)
-            cts = _mp4_composition_offsets(track, len(dts))
-            sizes = _mp4_sample_sizes(track, len(dts))
-            offsets = _mp4_sample_offsets(track, sizes)
-            s = tables[b"stss"][0]
-            count = struct.unpack_from(">I", data, s + 4)[0]
-            usable = min(len(dts), len(offsets))
-            sync = [i - 1 for i in struct.unpack_from(f">{count}I", data, s + 8) if 0 < i <= usable]
-            if not sync:
-                return None
-            picks = sync if verify_limit is None else _evenly_spaced(sync, verify_limit)
-            failure = _verify_sync_samples(
-                f.fileno(), picks, offsets, sizes, track["nal_length_size"], is_key, workers
+            fd = f.fileno()
+            result = _mp4_keyframes_from(
+                f,
+                file_size,
+                lambda size, offset: os.pread(fd, size, offset),
+                str(path),
+                verify_limit=verify_limit,
+                workers=workers,
             )
-            if failure is not None:
-                index, verdict = failure
-                logger.info(
-                    "MP4 关键帧表与码流不一致，改用 ffprobe 列关键帧：%s（第 %d 个样本%s）",
-                    path,
-                    index + 1,
-                    "不是 IDR / IRAP 帧" if verdict is False else "读不出视频数据",
-                )
-                return None
     except (OSError, ValueError, IndexError, struct.error) as exc:
         logger.info("MP4 关键帧表读取失败，改用 ffprobe：%s（%s）", path, exc)
+        return None
+    return result
+
+
+def _mp4_keyframes_from(
+    f,  # noqa: ANN001 — 本地文件或 RemoteRangeFile
+    file_size: int,
+    read_at: Callable[[int, int], bytes],
+    label: str,
+    *,
+    verify_limit: int | None,
+    workers: int,
+) -> tuple[list[float], bool] | None:
+    data, _, _, _ = _read_moov(f, file_size)
+    track = _first_video_track(data)
+    if track is None:
+        return None
+    if track["codec"] in _H264_SAMPLE_ENTRIES:
+        is_key = _h264_access_unit_is_key
+    elif track["codec"] in _HEVC_SAMPLE_ENTRIES:
+        is_key = _hevc_access_unit_is_key
+    else:
+        return None
+    tables = track["tables"]
+    if b"stss" not in tables or track["nal_length_size"] is None:
+        return None
+    edit = _mp4_simple_edit(track)
+    if edit is None:
+        return None
+    media_time, empty_ticks = edit
+    dts = _mp4_sample_times(track)
+    cts = _mp4_composition_offsets(track, len(dts))
+    sizes = _mp4_sample_sizes(track, len(dts))
+    offsets = _mp4_sample_offsets(track, sizes)
+    s = tables[b"stss"][0]
+    count = struct.unpack_from(">I", data, s + 4)[0]
+    usable = min(len(dts), len(offsets))
+    sync = [i - 1 for i in struct.unpack_from(f">{count}I", data, s + 8) if 0 < i <= usable]
+    if not sync:
+        return None
+    picks = sync if verify_limit is None else _evenly_spaced(sync, verify_limit)
+    failure = _verify_sync_samples(
+        read_at, picks, offsets, sizes, track["nal_length_size"], is_key, workers
+    )
+    if failure is not None:
+        index, verdict = failure
+        logger.info(
+            "MP4 关键帧表与码流不一致，改用 ffprobe 列关键帧：%s（第 %d 个样本%s）",
+            label,
+            index + 1,
+            "不是 IDR / IRAP 帧" if verdict is False else "读不出视频数据",
+        )
         return None
     scale = track["timescale"]
     if media_time >= scale:
@@ -1184,7 +1225,7 @@ def _evenly_spaced(items: list[int], limit: int) -> list[int]:
 
 
 def _verify_sync_samples(
-    fd: int,
+    read_at: Callable[[int, int], bytes],
     picks: list[int],
     offsets: list[int],
     sizes: list[int],
@@ -1193,10 +1234,10 @@ def _verify_sync_samples(
     workers: int,
 ) -> tuple[int, bool | None] | None:
     """并发检查关键帧样本：全部是 ffmpeg 眼里的关键帧返回 None，否则返回第一个不是的
-    (样本下标, 判定)。用 pread 共享同一个文件描述符，不动文件位置。"""
+    (样本下标, 判定)。``read_at(字节数, 偏移)`` 不动文件位置（本地是共享描述符的 pread）。"""
 
     def check(i: int) -> tuple[int, bool | None]:
-        return i, _sample_is_key(fd, offsets[i], sizes[i], length_size, is_key)
+        return i, _sample_is_key(read_at, offsets[i], sizes[i], length_size, is_key)
 
     with ThreadPoolExecutor(max_workers=max(1, min(workers, len(picks)))) as pool:
         for i, verdict in pool.map(check, picks):
@@ -1205,10 +1246,12 @@ def _verify_sync_samples(
     return None
 
 
-def _sample_is_key(fd: int, offset: int, size: int, length_size: int, is_key) -> bool | None:
+def _sample_is_key(
+    read_at: Callable[[int, int], bytes], offset: int, size: int, length_size: int, is_key
+) -> bool | None:
     """读一个样本的开头判断它是不是 ffmpeg 眼里的关键帧；None = 读到的字节里没有视频 NAL。"""
     for budget in (_VERIFY_READ, _VERIFY_READ_MAX):
-        buf = os.pread(fd, min(size, budget), offset)
+        buf = read_at(min(size, budget), offset)
         verdict = is_key(buf, length_size)
         if verdict is not None or len(buf) >= size:
             return verdict

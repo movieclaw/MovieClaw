@@ -5,8 +5,9 @@
 - strm 占位文件：读第一个非空、非 ``#`` 开头的行，**只接受
   http/https/rtsp/rtp 绝对 URI**——File 协议/相对路径必须拒绝，否则 strm
   就成了任意本地文件读取漏洞（对齐 Jellyfin ProbeProvider.FetchShortcutInfo
-  与 BaseItem.cs:1191-1194 的安全语义）。播放走 302 重定向，不做反向代理
-  （零网盘流量，docs/design/jellyfin-compat.md 6.4）。
+  与 BaseItem.cs:1191-1194 的安全语义）。直出走 302 重定向，不做反向代理；
+  换封装 / 转码时由服务端的 ffmpeg 直接读直链（``strm_input_args``，
+  docs/design/strm-playback.md）。
 """
 
 from __future__ import annotations
@@ -36,6 +37,20 @@ logger = logging.getLogger("movieclaw_playback.streaming")
 STRM_EXT = ".strm"
 
 _ALLOWED_STRM_SCHEMES = {"http", "https", "rtsp", "rtp"}
+
+#: ffmpeg / ffprobe 读网盘直链时只放行网络协议。直链来自库里的文本文件，远端若回一份
+#: 播放列表或清单，ffmpeg 默认会照着打开里面写的地址——不放行 file，就读不到服务器本地文件。
+#: ``httpproxy``：环境里设了 http_proxy 时 ffmpeg 经它连 http 地址，不放行就一律读不了。
+STRM_PROTOCOL_WHITELIST = "http,https,httpproxy,tcp,tls,crypto,rtsp,rtp,udp"
+
+#: 读直链的断线续读：网盘 CDN 中途断开是常态，不续读就会被 ffmpeg 当成读到了片尾。
+#: ``rw_timeout``（微秒）让卡死的连接按超时断开后走续读，而不是让会话永远挂着。
+_STRM_HTTP_OPTIONS = (
+    "-reconnect", "1",
+    "-reconnect_on_network_error", "1",
+    "-reconnect_delay_max", "10",
+    "-rw_timeout", "30000000",
+)
 
 # 一个播放器设备在停止播放后，可能仍保留若干 HTTP Range 连接。它们不一定马上
 # 触发 TCP disconnect，不能只靠 Request.is_disconnected() 才停止读盘。
@@ -526,3 +541,25 @@ def resolve_strm_url(file_path: str | Path) -> str | None:
         )
         return None
     return None
+
+
+def strm_input_args(url: str) -> list[str]:
+    """ffmpeg / ffprobe 读网盘直链 ``url`` 时要放在 ``-i`` 前的输入选项。"""
+    args = ["-protocol_whitelist", STRM_PROTOCOL_WHITELIST]
+    if urlsplit(url).scheme.lower() in {"http", "https"}:
+        args += _STRM_HTTP_OPTIONS
+    return args
+
+
+def media_input(file_path: str) -> tuple[str, list[str]] | None:
+    """ffmpeg / ffprobe 读这个台账文件时的（输入地址, ``-i`` 前的输入选项）。
+
+    本地文件就是路径本身、没有额外选项；strm 是**现读**出的网盘直链（直链多带时效签名，
+    每次起 ffmpeg 都重读）。strm 内容不合法返回 None。
+    """
+    if not is_strm(file_path):
+        return file_path, []
+    url = resolve_strm_url(file_path)
+    if url is None:
+        return None
+    return url, strm_input_args(url)
