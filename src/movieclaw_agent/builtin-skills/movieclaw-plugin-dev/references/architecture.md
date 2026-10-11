@@ -73,7 +73,7 @@ async def apply(ctx: Context) -> None:
   危险操作（删除、清理这类，`mclaw` 帮助里带 ⚠）必须逐个列出。
 - 插件以自己的身份调用：`ops = await ctx.use(HOST_OPS).client(ctx)`，`await ops.call("<操作 id>", {参数})`。
   没批准的操作调用时报权限错误。失败抛 `OpsError(status, code, message, details)`
-  （`from movieclaw_api.services.host_ops import OpsError`）。
+  （`from movieclaw_sdk.ops import OpsError`）。
 - 文件：清单 `permissions.paths` 申请目录（绝对路径，或 `staging` / `library` / `library:<id>` 这类别名），
   经 `PLUGIN_FILES` 读写；插件自己的目录 `files.path("plugin", ...)` 总是可读写。
 - 网络：`permissions.network = true` 只是声明给用户看；连外网要走用户的代理设置（`movieclaw_sdk.net.http_transport`）。

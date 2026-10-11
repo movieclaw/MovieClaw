@@ -33,8 +33,8 @@ from pydantic import BaseModel, Field
 
 from movieclaw_api.domain_events import LIBRARY_FILE_DELETED, LIBRARY_ITEM_DELETED, LibraryDeleted
 from movieclaw_api.plugins.keys import HOST_OPS
-from movieclaw_api.services.host_ops import OpsError
 from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
+from movieclaw_sdk.ops import OpsError
 
 
 class Config(BaseModel):

@@ -29,7 +29,7 @@ def build_lifespan(settings: Settings):
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from movieclaw_api.plugins import settings_store
-        from movieclaw_api.services import host_ops
+        from movieclaw_api.services import host_ops, plugin_gateway
 
         # 界面保存的插件设置叠在清单配置上（docs/design/plugin-phase4.md §3）
         kernel = Kernel(settings=settings, config_overlay=settings_store.overlay(settings))
@@ -67,6 +67,8 @@ def build_lifespan(settings: Settings):
                 await manager.close()
                 del app.state.package_manager
             await kernel.stop()
+            # 插件进程都停了才关网关：插件释放时还可能调宿主服务
+            await plugin_gateway.gateway.stop()
             host_ops.unbind_app(app)
             # 正常停机：这次启动没有把应用拖垮
             safe_mode.mark_settled(settings)

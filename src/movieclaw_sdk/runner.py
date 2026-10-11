@@ -16,14 +16,13 @@ import contextlib
 import contextvars
 import dataclasses
 import importlib
-import itertools
 import logging
 import os
 import sys
 import time
 import traceback
 import types
-from collections.abc import Callable, Coroutine
+from collections.abc import AsyncIterator, Callable, Coroutine
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +36,19 @@ from movieclaw_kernel import (
     Plugin,
     ServiceKey,
 )
-from movieclaw_sdk import SDK_VERSION
+from movieclaw_sdk import SDK_VERSION, rpc
+from movieclaw_sdk.http import UnixHttp
+from movieclaw_sdk.ops import (
+    OperationRef,
+    OpsError,
+    SseEvent,
+    build_request,
+    iter_sse,
+    parse_response,
+)
 from movieclaw_sdk.protocol import MAX_LINE, decode, dump, encode, known_events, load
+from movieclaw_sdk.rpc import RpcClient, ServiceProxy
+from movieclaw_sdk.services import SERVICES
 
 logger = logging.getLogger("movieclaw_sdk.runner")
 
@@ -47,28 +57,44 @@ _UNSET: Any = object()
 #: 宿主取消一次调用后的宽限期（秒）：收消息循环先看到停止信号自行退出，过期再强制取消
 CANCEL_GRACE = 5.0
 
-#: 正在处理的宿主调用（事件 / 钩子）：插件在其中发起的服务调用带上它，宿主据此沿用发起方与因果链
-_current_call: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "movieclaw_sdk_call", default=None
-)
 _current_delivery: contextvars.ContextVar[DeliveryInfo | None] = contextvars.ContextVar(
     "movieclaw_sdk_delivery", default=None
 )
 
 
-class RemoteServiceError(RuntimeError):
-    pass
+# ---------------------------------------------------------------------- 服务门面
+# 与进程内服务同名同签名；底下是按契约生成的远程代理（movieclaw_sdk.services / rpc），经网关调宿主。
+#: 宿主操作的默认时限（与进程内一致）
+_OPS_TIMEOUT = 60.0
 
 
-# ---------------------------------------------------------------------- 服务代理
 class _RemoteOpsClient:
-    def __init__(self, runner: Runner, entry_id: str, operations: list[str]) -> None:
+    """宿主操作：直接请求宿主的标准接口（网关上），鉴权、授权、审计都走宿主现有链路。"""
+
+    def __init__(self, runner: Runner, entry_id: str, refs: list[OperationRef]) -> None:
         self._runner = runner
         self.entry_id = entry_id
-        self.operations = frozenset(operations)
+        self._refs = {ref.operation_id: ref for ref in refs}
+        self.operations = frozenset(self._refs)
 
     def allowed(self, operation_id: str) -> bool:
         return operation_id in self.operations
+
+    def _request(
+        self, operation_id: str, arguments: dict[str, Any] | None
+    ) -> tuple[OperationRef, str, dict[str, Any], Any]:
+        ref = self._refs.get(operation_id)
+        if ref is None:
+            raise OpsError(
+                403, "PLUGIN_OPERATION_DENIED", f"插件没有获得调用 {operation_id} 的授权"
+            )
+        try:
+            path, query, body = build_request(
+                ref.path, ref.arg_locations, ref.required, arguments or {}, label=operation_id
+            )
+        except ValueError as exc:
+            raise OpsError(400, "INVALID_ARGUMENTS", str(exc)) from exc
+        return ref, path, query, body
 
     async def call(
         self,
@@ -77,9 +103,36 @@ class _RemoteOpsClient:
         *,
         timeout: float | None = None,
     ) -> Any:
-        return await self._runner.rpc(
-            "ops.call", {"operation_id": operation_id, "arguments": arguments, "timeout": timeout}
+        ref, path, query, body = self._request(operation_id, arguments)
+        if ref.stream:
+            raise OpsError(400, "STREAM_OPERATION", f"{operation_id} 是流式操作，请用 stream()")
+        host = self._runner.host
+        assert host is not None
+        response = await host.http.request(
+            ref.method.upper(),
+            path,
+            params=query or None,
+            json=body,
+            headers=host.headers(),
+            timeout=timeout if timeout is not None else _OPS_TIMEOUT,
         )
+        return parse_response(response.status_code, response.text)
+
+    async def stream(
+        self, operation_id: str, arguments: dict[str, Any] | None = None
+    ) -> AsyncIterator[SseEvent]:
+        """流式操作（SSE）：逐个产出事件；迭代器关闭即断开。"""
+        ref, path, query, body = self._request(operation_id, arguments)
+        host = self._runner.host
+        assert host is not None
+        async with host.http.stream(
+            ref.method.upper(), path, params=query or None, json=body, headers=host.headers()
+        ) as response:
+            if response.status_code >= 400:
+                text = (await response.aread()).decode("utf-8", "replace")
+                parse_response(response.status_code, text)
+            async for event in iter_sse(response.aiter_lines()):
+                yield event
 
 
 class _RemoteHostOps:
@@ -87,34 +140,32 @@ class _RemoteHostOps:
         self._runner = runner
 
     async def client(self, ctx: Any, *, timeout: float | None = None) -> _RemoteOpsClient:
-        reply = await self._runner.rpc("ops.client", {})
-        return _RemoteOpsClient(self._runner, ctx.entry_id, reply["operations"])
+        refs = await self._runner.service("ops").operations()
+        return _RemoteOpsClient(self._runner, ctx.entry_id, refs)
 
 
 class _RemoteStore:
     def __init__(self, runner: Runner, entry_id: str) -> None:
-        self._runner = runner
+        self._api = runner.service("data")
         self.entry_id = entry_id
 
     async def get(self, key: str, *, scope: str = "global", default: Any = None) -> Any:
-        found = await self._runner.rpc("data.get", {"key": key, "scope": scope})
-        return found["value"] if found["found"] else default
+        found = await self._api.get(key=key, scope=scope)
+        return found.value if found.found else default
 
     async def set(
         self, key: str, value: Any, *, scope: str = "global", secret: bool = False
     ) -> None:
-        await self._runner.rpc(
-            "data.set", {"key": key, "value": value, "scope": scope, "secret": secret}
-        )
+        await self._api.set(key=key, value=value, scope=scope, secret=secret)
 
     async def delete(self, key: str, *, scope: str = "global") -> bool:
-        return bool(await self._runner.rpc("data.delete", {"key": key, "scope": scope}))
+        return await self._api.delete(key=key, scope=scope)
 
     async def items(self, *, scope: str = "global") -> dict[str, Any]:
-        return dict(await self._runner.rpc("data.items", {"scope": scope}))
+        return await self._api.items(scope=scope)
 
     async def scopes(self, key: str, *, entity: str | None = None) -> dict[str, Any]:
-        return dict(await self._runner.rpc("data.scopes", {"key": key, "entity": entity}))
+        return await self._api.scopes(key=key, entity=entity)
 
 
 class _RemotePluginData:
@@ -127,15 +178,13 @@ class _RemotePluginData:
 
 class _RemoteHealth:
     def __init__(self, runner: Runner) -> None:
-        self._runner = runner
+        self._api = runner.service("health")
 
     async def degraded(self, key: str, message: str, *, action_href: str | None = None) -> None:
-        await self._runner.rpc(
-            "health.degraded", {"key": key, "message": message, "action_href": action_href}
-        )
+        await self._api.degraded(key=key, message=message, action_href=action_href)
 
     async def ok(self, key: str, message: str = "") -> None:
-        await self._runner.rpc("health.ok", {"key": key, "message": message})
+        await self._api.ok(key=key, message=message)
 
 
 class _RemotePluginHealth:
@@ -147,10 +196,13 @@ class _RemotePluginHealth:
 
 
 class RemoteJobContext:
-    """进程外任务处理器拿到的 ``JobContext``：进度、取消查询经协议交给宿主的真实上下文。"""
+    """进程外任务处理器拿到的 ``JobContext``。
+
+    进度、取消查询交给宿主的真实上下文（网关按调用号找到）。
+    """
 
     def __init__(self, runner: Runner, job_id: str) -> None:
-        self._runner = runner
+        self._api = runner.service("job")
         self.job_id = job_id
         self._last_progress_write = time.monotonic() - 3600.0
 
@@ -162,13 +214,13 @@ class RemoteJobContext:
         return True
 
     async def update_progress(self, **progress: Any) -> None:
-        await self._runner.rpc("job.update_progress", progress)
+        await self._api.update_progress(progress=progress)
 
     async def current_progress(self) -> dict[str, Any]:
-        return dict(await self._runner.rpc("job.current_progress", {}) or {})
+        return dict(await self._api.current_progress() or {})
 
     async def cancel_requested(self) -> bool:
-        return bool(await self._runner.rpc("job.cancel_requested", {}))
+        return bool(await self._api.cancel_requested())
 
     async def raise_if_cancelled(self) -> None:
         from movieclaw_api.services.jobs import JobCancelled
@@ -300,9 +352,8 @@ class _RemotePluginRoutes:
         expires_in: int | None = None,
         absolute: bool = False,
     ) -> str:
-        return await self._runner.rpc(
-            "routes.sign",
-            {"path": path, "params": params, "expires_in": expires_in, "absolute": absolute},
+        return await self._runner.service("routes").sign(
+            path=path, params=params, expires_in=expires_in, absolute=absolute
         )
 
 
@@ -341,17 +392,16 @@ class _RemoteCallbacks:
     async def issue(self, ctx: Any, name: str, *, scope: str = "plugin") -> Any:
         from movieclaw_sdk.callbacks import issued_from_dict
 
-        return issued_from_dict(
-            await self._runner.rpc("callbacks.issue", {"name": name, "scope": scope})
-        )
+        issued = await self._runner.service("callbacks").issue(name=name, scope=scope)
+        return issued_from_dict(issued)
 
     async def revoke(self, ctx: Any, key_id: int) -> None:
-        await self._runner.rpc("callbacks.revoke", {"key_id": int(key_id)})
+        await self._runner.service("callbacks").revoke(key_id=int(key_id))
 
     async def keys(self, ctx: Any, name: str | None = None) -> list[Any]:
         from movieclaw_sdk.callbacks import issued_from_dict
 
-        found = await self._runner.rpc("callbacks.keys", {"name": name})
+        found = await self._runner.service("callbacks").keys(name=name)
         return [issued_from_dict(d) for d in found]
 
 
@@ -363,33 +413,34 @@ class _RemoteFiles:
 
     def __init__(self, runner: Runner, entry_id: str, data_dir: str) -> None:
         self._runner = runner
+        self._api = runner.service("files")
         self.entry_id = entry_id
         self._private = Path(data_dir) / "plugins" / "data" / entry_id
 
     async def open(self, path: Any, mode: str = "rb") -> Any:
         if "b" not in mode:
             raise ValueError("只支持二进制模式（rb / wb / ab / r+b）")
-        reply = await self._runner.rpc("files.open", {"path": os.fspath(path), "mode": mode})
-        fd = await self._runner.receive_fd(reply["token"])
+        token = await self._api.open(path=os.fspath(path), mode=mode)
+        fd = await self._runner.receive_fd(token)
         return os.fdopen(fd, mode)
 
     async def stat(self, path: Any) -> dict[str, Any] | None:
-        return await self._runner.rpc("files.stat", {"path": os.fspath(path)})
+        return await self._api.stat(path=os.fspath(path))
 
     async def exists(self, path: Any) -> bool:
         return await self.stat(path) is not None
 
     async def listdir(self, path: Any) -> list[str]:
-        return list(await self._runner.rpc("files.listdir", {"path": os.fspath(path)}))
+        return list(await self._api.listdir(path=os.fspath(path)))
 
     async def makedirs(self, path: Any) -> None:
-        await self._runner.rpc("files.makedirs", {"path": os.fspath(path)})
+        await self._api.makedirs(path=os.fspath(path))
 
     async def rename(self, src: Any, dst: Any) -> None:
-        await self._runner.rpc("files.rename", {"src": os.fspath(src), "dst": os.fspath(dst)})
+        await self._api.rename(src=os.fspath(src), dst=os.fspath(dst))
 
     async def remove(self, path: Any) -> None:
-        await self._runner.rpc("files.remove", {"path": os.fspath(path)})
+        await self._api.remove(path=os.fspath(path))
 
     def path(self, alias: str, *parts: str) -> str:
         if alias != "plugin":
@@ -565,23 +616,23 @@ class _RemoteAccount:
     async def inbound(self, message: Any) -> None:
         from movieclaw_sdk.channels import message_dict
 
-        await self._runner.rpc(
-            "channel.inbound",
-            {"channel": self._channel, "account": self.id, "message": message_dict(message)},
+        await self._runner.service("channels").inbound(
+            channel=self._channel, account=self.id, message=message_dict(message)
         )
 
     async def save_state(self, patch: dict[str, Any]) -> None:
         self.state.update(patch)
-        await self._runner.rpc(
-            "channel.save_state", {"channel": self._channel, "account": self.id, "patch": patch}
+        await self._runner.service("channels").save_state(
+            channel=self._channel, account=self.id, patch=patch
         )
 
 
 class Runner:
     def __init__(self, writer: Any) -> None:
         self._writer = writer
-        self._rpcs: dict[str, asyncio.Future[dict[str, Any]]] = {}
-        self._rpc_ids = itertools.count(1)
+        #: 宿主网关的客户端（引导信息到了才建）
+        self.host: RpcClient | None = None
+        self._services: dict[str, ServiceProxy] = {}
         self._nexts: dict[str, asyncio.Future[dict[str, Any]]] = {}
         self._calls: set[asyncio.Task[Any]] = set()
         #: 调用 id → 处理它的任务（宿主可以取消一次调用，如停掉通道账号的收消息循环）
@@ -658,45 +709,19 @@ class Runner:
         self._writer.write(encode(message))
         self._writer.flush()
 
-    async def rpc(self, method: str, params: dict[str, Any]) -> Any:
-        """请宿主执行一次服务调用（宿主操作、插件数据、健康上报）。"""
-        rpc_id = f"r{next(self._rpc_ids)}"
-        future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
-        self._rpcs[rpc_id] = future
-        try:
-            self.send(
-                {
-                    "type": "rpc",
-                    "id": rpc_id,
-                    "call": _current_call.get(),
-                    "method": method,
-                    "params": params,
-                }
-            )
-            reply = await future
-        finally:
-            self._rpcs.pop(rpc_id, None)
-        if reply.get("ok"):
-            return reply.get("result")
-        error = reply.get("error") or {}
-        if error.get("kind") == "value":
-            raise ValueError(error.get("message") or "参数不对")
-        if error.get("kind") == "permission":
-            raise PermissionError(error.get("message") or "没有授权")
-        if error.get("kind") == "not_found":
-            raise FileNotFoundError(error.get("message") or "文件不存在")
-        if error.get("kind") == "ops":
-            from movieclaw_api.services.host_ops import OpsError
-
-            raise OpsError(
-                error["status"], error["code"], error["message"], error.get("details") or None
-            )
-        raise RemoteServiceError(error.get("message") or "宿主服务调用失败")
+    def service(self, name: str) -> ServiceProxy:
+        """宿主导出的一个服务（按契约生成的远程代理）。"""
+        proxy = self._services.get(name)
+        if proxy is None:
+            if self.host is None:
+                raise RuntimeError("宿主网关还没连上")
+            proxy = self._services[name] = ServiceProxy(self.host, name, SERVICES[name])
+        return proxy
 
     # ------------------------------------------------------------------ 调用
     async def _handle_call(self, message: dict[str, Any]) -> None:
         call_id = message["id"]
-        _current_call.set(call_id)
+        rpc.current_call.set(call_id)
         delivery = message.get("delivery")
         if delivery is not None:
             origin = delivery["origin"]
@@ -1001,10 +1026,6 @@ class Runner:
                 future = self._nexts.pop(message["id"], None)
                 if future is not None and not future.done():
                     future.set_result(message)
-            elif kind == "rpc_result":
-                future = self._rpcs.pop(message["id"], None)
-                if future is not None and not future.done():
-                    future.set_result(message)
             elif kind == "dispose":
                 if self.ctx is not None:
                     await self.ctx.dispose()
@@ -1039,13 +1060,20 @@ async def run(args: argparse.Namespace) -> int:
     from movieclaw_sdk import net
 
     async def resolve_proxy(service: str) -> str | None:
-        return await runner.rpc("net.proxy", {"service": service})
+        return await runner.service("net").proxy(service=service)
 
     # 网络出口（movieclaw_sdk.net）：本进程读不到主程序的代理设置，问宿主
     net._resolver = resolve_proxy
     runner.send({"type": "hello", "sdk": SDK_VERSION, "pid": os.getpid()})
     init = decode(await reader.readline())
     runner.listen_fd = args.listen_fd
+    runner.host = RpcClient(
+        UnixHttp(
+            init["gateway"],
+            headers={"Authorization": f"Bearer {init['token']}", "X-MovieClaw-Client": "plugin"},
+        ),
+        "/api/v1/plugin-runtime",
+    )
     # apply 里可能已经要调宿主服务（读插件数据、拿宿主操作凭证）：先开始收消息
     serving = loop.create_task(runner.serve(reader))
     try:

@@ -770,6 +770,8 @@ _DEVICE_MAX_PENDING_PER_IP = 5
 _DEVICE_MAX_PENDING_TOTAL = 20
 #: 配对码字母表：去掉 0/O/1/I 等易混淆字符，人要念得出、抄得对。
 _USER_CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+
+
 def _hash_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
@@ -832,6 +834,16 @@ def issue_plugin_token(grant: PluginGrant, *, member_id: int | None = None) -> s
 
 def revoke_plugin_token(token: str) -> None:
     _plugin_tokens.pop(token, None)
+
+
+#: 插件网关请求的 ASGI scope 标记：插件令牌只在带这个标记的请求上有效（plugin_gateway.py）
+PLUGIN_GATEWAY_SCOPE = "movieclaw.plugin_gateway"
+
+
+def plugin_entry(token: str) -> str | None:
+    """插件令牌属于哪个条目；不是有效的插件令牌返回 ``None``。"""
+    credential = _plugin_tokens.get(token) if token.startswith(PLUGIN_TOKEN_PREFIX) else None
+    return credential.grant.entry_id if credential is not None else None
 
 
 async def _plugin_principal(token: str) -> Principal:

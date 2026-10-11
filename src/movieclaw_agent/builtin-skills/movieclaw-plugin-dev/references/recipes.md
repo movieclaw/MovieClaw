@@ -91,7 +91,7 @@ ctx.on(hooks.DOWNLOADER_SELECT, pick)
 
 ```python
 from movieclaw_api.plugins.keys import HOST_OPS
-from movieclaw_api.services.host_ops import OpsError
+from movieclaw_sdk.ops import OpsError
 
 @plugin("my-plugin", title="…", inject=(HOST_OPS,), permissions=("search.titles", "subscriptions.create"))
 async def apply(ctx: Context) -> None:

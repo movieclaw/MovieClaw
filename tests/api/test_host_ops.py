@@ -98,15 +98,25 @@ def test_plugin_cannot_issue_credentials(app_client) -> None:
     with pytest.raises(OpsError) as hidden:
         call(client, ops, "auth.tokens.create", {"name": "x"})
     assert hidden.value.code == "UNKNOWN_OPERATION"
-    # 二、就算绕过目录直接带凭证请求，插件主体也不是「交互式」的
+    # 二、插件凭证只在插件网关上有效：从网络入口带它一律 401
+    headers = {"Authorization": f"Bearer {ops._token}"}
+    resp = client.post("/api/v1/auth/tokens", json={"name": "x"}, headers=headers)
+    assert resp.status_code == 401
+    # 三、就算经网关绕过目录直接请求，插件主体也不是「交互式」的
     grant = PluginGrant(entry_id="test.minter", operations=frozenset({"auth.tokens.create"}))
     assert not Principal(kind="admin", name="plugin:test.minter", plugin=grant).interactive
-    resp = client.post(
-        "/api/v1/auth/tokens",
-        json={"name": "x"},
-        headers={"Authorization": f"Bearer {ops._token}"},
-    )
-    assert resp.status_code == 403
+
+    async def via_gateway() -> int:
+        import httpx
+
+        from movieclaw_api.services.plugin_gateway import gateway_asgi
+
+        transport = httpx.ASGITransport(app=gateway_asgi(app))
+        async with httpx.AsyncClient(transport=transport, base_url="http://plugin") as http:
+            reply = await http.post("/api/v1/auth/tokens", json={"name": "x"}, headers=headers)
+            return reply.status_code
+
+    assert client.portal.call(via_gateway) == 403
 
 
 def test_credential_dies_with_the_plugin(app_client) -> None:

@@ -62,7 +62,6 @@ _ENV_KEEP = ("PATH", "LANG", "LC_ALL", "TZ", "HOME", "TMPDIR")
 _UNSET: Any = object()
 
 NextFn = Callable[[Any], Awaitable[Any]]
-RpcFn = Callable[[str, dict[str, Any], str | None], Awaitable[Any]]
 
 #: 正在运行的插件进程（诊断与测试用）
 sessions: dict[str, Session] = {}
@@ -194,7 +193,11 @@ class Session:
         self._contexts: dict[str, contextvars.Context] = {}
         self.jobs: dict[str, Any] = {}
         """正在子进程里执行的任务：调用编号 → 宿主这边真实的 ``JobContext``。"""
-        self.rpc_handler: RpcFn | None = None
+        self.exports: dict[str, Any] = {}
+        """导出给插件的宿主服务：服务名 → 实现（网关按契约分发，plugin_gateway.py）。"""
+        self.token: str | None = None
+        """这个条目的网关令牌（只在网关上有效）。"""
+        self.gateway: str | None = None
         self.contributions: list[dict[str, Any]] = []
         self.channels: dict[str, Any] = {}
         """这个插件贡献的通道：贡献 id → 宿主侧的驱动桩（plugin_channels.py）。"""
@@ -257,6 +260,10 @@ class Session:
         self._ready = False
         await self._close_http()
         launch = await asyncio.to_thread(_launch, self.entry_id, self._path, self._module)
+        from movieclaw_api.services import host_ops
+        from movieclaw_api.services.plugin_gateway import gateway
+
+        self.gateway = await gateway.ensure(host_ops._app)
         listener = _listen(self.socket)
         # 文件通道：宿主检查授权后打开文件，把描述符经这对套接字递给插件（services/plugin_files.py）
         self._close_fd_channel()
@@ -318,6 +325,9 @@ class Session:
                 "entry_id": self.entry_id,
                 "config": self._config,
                 "data_dir": self._data_dir,
+                # 插件调宿主走网关（HTTP over Unix 套接字），令牌只在网关上有效
+                "gateway": self.gateway,
+                "token": self.token,
             }
         )
         declarations: list[dict[str, Any]] = []
@@ -335,9 +345,6 @@ class Session:
                 self.routes.append(message)
             elif kind == "callback":
                 self.callbacks.append(message)
-            elif kind == "rpc":
-                # 插件在 apply 里就要用宿主服务（拿宿主操作凭证、读插件数据）
-                asyncio.get_running_loop().create_task(self._run_rpc(message))
             elif kind == "ready":
                 self.title = message.get("title")
                 return declarations
@@ -382,10 +389,6 @@ class Session:
                         future.set_result(message)
                 elif kind == "next":
                     asyncio.get_running_loop().create_task(self._run_next(message))
-                elif kind == "rpc":
-                    # 在发起这次调用的事件的上下文里执行：发起方、因果链、可靠事件的投递信息原样沿用
-                    context = self._contexts.get(message.get("call") or "")
-                    asyncio.get_running_loop().create_task(self._run_rpc(message), context=context)
                 elif kind == "disposed":
                     pass
                 else:
@@ -412,37 +415,9 @@ class Session:
         with contextlib.suppress(PluginProcessGone):
             await self._send(reply)
 
-    async def _run_rpc(self, message: dict[str, Any]) -> None:
-        reply: dict[str, Any] = {"type": "rpc_result", "id": message["id"]}
-        try:
-            if self.rpc_handler is None:
-                raise RuntimeError("宿主没有为这个插件提供服务")
-            result = await self.rpc_handler(
-                message["method"], message.get("params") or {}, message.get("call")
-            )
-            reply.update(ok=True, result=result)
-        except Exception as exc:  # noqa: BLE001 -- 原样告诉插件，由插件决定怎么处理
-            from movieclaw_api.services.host_ops import OpsError
-
-            if isinstance(exc, OpsError):
-                error = {
-                    "kind": "ops",
-                    "status": exc.status,
-                    "code": exc.code,
-                    "message": exc.message,
-                    "details": exc.details,
-                }
-            elif isinstance(exc, PermissionError):
-                error = {"kind": "permission", "message": str(exc)}
-            elif isinstance(exc, FileNotFoundError):
-                error = {"kind": "not_found", "message": str(exc)}
-            elif isinstance(exc, ValueError):
-                error = {"kind": "value", "message": str(exc)}
-            else:
-                error = {"kind": "service", "message": f"{type(exc).__name__}: {exc}"}
-            reply.update(ok=False, error=error)
-        with contextlib.suppress(PluginProcessGone):
-            await self._send(reply)
+    def call_context(self, call: str) -> contextvars.Context | None:
+        """宿主调插件时的上下文快照（插件经网关带回调用号时，在它里面处理请求）。"""
+        return self._contexts.get(call)
 
     async def send_fd(self, token: str, fd: int) -> None:
         if self._fd_host is None:
@@ -974,117 +949,79 @@ def validate_config(entry_id: str, config: dict[str, Any]) -> list[dict[str, Any
 _MISSING: Any = object()
 
 
-async def _service_handler(ctx: Context, session: Session, names: tuple[str, ...]) -> RpcFn:
-    """插件在子进程里调宿主服务时，宿主这边代它执行（以它自己的上下文、凭证与数据作用域）。"""
-    from movieclaw_api.plugins.keys import HOST_OPS, PLUGIN_DATA, PLUGIN_FILES, PLUGIN_HEALTH
+# ---------------------------------------------------------------------- 导出给插件的服务
+# 每个类实现 movieclaw_sdk.services 里的一个契约；网关按契约校验参数后调用（plugin_gateway.py）。
+# 都以插件自己的上下文、凭证与数据作用域执行。
 
-    client = await ctx.use(HOST_OPS).client(ctx) if HOST_OPS.name in names else None
-    files = ctx.use(PLUGIN_FILES).scoped(ctx) if PLUGIN_FILES.name in names else None
-    session.files = files
-    store = ctx.use(PLUGIN_DATA).scoped(ctx) if PLUGIN_DATA.name in names else None
-    health = ctx.use(PLUGIN_HEALTH).reporter(ctx) if PLUGIN_HEALTH.name in names else None
 
-    def need(service: Any, name: str) -> Any:
-        if service is None:
-            raise LookupError(f"服务 {name} 没有在 inject 里声明")
-        return service
+class _Data:
+    def __init__(self, store: Any) -> None:
+        self._store = store
 
-    async def handle(method: str, params: dict[str, Any], call: str | None) -> Any:
-        if method.startswith("job."):
-            context = session.jobs.get(call or "")
-            if context is None:
-                raise LookupError("只能在任务处理器里汇报任务进度")
-            if method == "job.update_progress":
-                await context.update_progress(**params)
-                return None
-            if method == "job.current_progress":
-                return await context.current_progress()
-            if method == "job.cancel_requested":
-                return await context.cancel_requested()
-        if method.startswith("files."):
-            return await _files_call(session, need(files, PLUGIN_FILES.name), method, params)
-        if method.startswith("channel."):
-            stub = session.channels.get(params.get("channel") or "")
-            if stub is None:
-                raise LookupError("这个插件没有贡献这个通道")
-            await stub.callback(method, params)
-            return None
-        if method == "net.proxy":
-            # 代理地址可能带账号密码：只回答插件自己的服务名，别的服务直连
-            from movieclaw_net import resolve_proxy_url
+    async def get(self, key: str, scope: str = "global") -> Any:
+        from movieclaw_sdk.services import StoredValue
 
-            service = str(params.get("service") or "")
-            if service not in own_services(session.entry_id):
-                return None
-            return resolve_proxy_url(service)
-        if method.startswith("callbacks."):
-            from movieclaw_api.plugins.keys import PLUGIN_CALLBACKS
-            from movieclaw_sdk.callbacks import issued_dict
+        value = await self._store.get(key, scope=scope, default=_MISSING)
+        return StoredValue(found=value is not _MISSING, value=None if value is _MISSING else value)
 
-            callbacks = need(
-                ctx.use(PLUGIN_CALLBACKS) if PLUGIN_CALLBACKS.name in names else None,
-                PLUGIN_CALLBACKS.name,
-            )
-            if method == "callbacks.issue":
-                issued = await callbacks.issue(
-                    ctx, str(params["name"]), scope=str(params.get("scope") or "plugin")
-                )
-                return issued_dict(issued)
-            if method == "callbacks.revoke":
-                await callbacks.revoke(ctx, int(params["key_id"]))
-                return None
-            if method == "callbacks.keys":
-                return [issued_dict(i) for i in await callbacks.keys(ctx, params.get("name"))]
-        if method == "routes.sign":
-            from movieclaw_api.plugins.keys import PLUGIN_ROUTES
+    async def set(self, key: str, value: Any, scope: str = "global", secret: bool = False) -> None:
+        await self._store.set(key, value, scope=scope, secret=secret)
 
-            return await ctx.use(PLUGIN_ROUTES).sign(
-                ctx,
-                params["path"],
-                params=params.get("params"),
-                expires_in=params.get("expires_in"),
-                absolute=bool(params.get("absolute")),
-            )
-        if method == "ops.client":
-            return {"operations": sorted(need(client, HOST_OPS.name).operations)}
-        if method == "ops.call":
-            return await need(client, HOST_OPS.name).call(
-                params["operation_id"], params.get("arguments"), timeout=params.get("timeout")
-            )
-        if method.startswith("data."):
-            data = need(store, PLUGIN_DATA.name)
-            scope = params.get("scope") or "global"
-            if method == "data.get":
-                value = await data.get(params["key"], scope=scope, default=_MISSING)
-                return {
-                    "found": value is not _MISSING,
-                    "value": None if value is _MISSING else value,
-                }
-            if method == "data.set":
-                await data.set(
-                    params["key"],
-                    params.get("value"),
-                    scope=scope,
-                    secret=bool(params.get("secret")),
-                )
-                return None
-            if method == "data.delete":
-                return await data.delete(params["key"], scope=scope)
-            if method == "data.items":
-                return await data.items(scope=scope)
-            if method == "data.scopes":
-                return await data.scopes(params["key"], entity=params.get("entity"))
-        if method == "health.degraded":
-            await need(health, PLUGIN_HEALTH.name).degraded(
-                params["key"], params["message"], action_href=params.get("action_href")
-            )
-            return None
-        if method == "health.ok":
-            await need(health, PLUGIN_HEALTH.name).ok(params["key"], params.get("message") or "")
-            return None
-        raise LookupError(f"未知的服务调用：{method}")
+    async def delete(self, key: str, scope: str = "global") -> bool:
+        return await self._store.delete(key, scope=scope)
 
-    return handle
+    async def items(self, scope: str = "global") -> dict[str, Any]:
+        return await self._store.items(scope=scope)
+
+    async def scopes(self, key: str, entity: str | None = None) -> dict[str, Any]:
+        return await self._store.scopes(key, entity=entity)
+
+
+class _Health:
+    def __init__(self, reporter: Any) -> None:
+        self._reporter = reporter
+
+    async def degraded(self, key: str, message: str, action_href: str | None = None) -> None:
+        await self._reporter.degraded(key, message, action_href=action_href)
+
+    async def ok(self, key: str, message: str = "") -> None:
+        await self._reporter.ok(key, message)
+
+
+class _Callbacks:
+    def __init__(self, ctx: Context, callbacks: Any) -> None:
+        self._ctx = ctx
+        self._callbacks = callbacks
+
+    async def issue(self, name: str, scope: str = "plugin") -> dict[str, Any]:
+        from movieclaw_sdk.callbacks import issued_dict
+
+        return issued_dict(await self._callbacks.issue(self._ctx, name, scope=scope))
+
+    async def revoke(self, key_id: int) -> None:
+        await self._callbacks.revoke(self._ctx, key_id)
+
+    async def keys(self, name: str | None = None) -> list[dict[str, Any]]:
+        from movieclaw_sdk.callbacks import issued_dict
+
+        return [issued_dict(i) for i in await self._callbacks.keys(self._ctx, name)]
+
+
+class _Routes:
+    def __init__(self, ctx: Context, routes: Any) -> None:
+        self._ctx = ctx
+        self._routes = routes
+
+    async def sign(
+        self,
+        path: str,
+        params: dict[str, str] | None = None,
+        expires_in: int | None = None,
+        absolute: bool = False,
+    ) -> str:
+        return await self._routes.sign(
+            self._ctx, path, params=params, expires_in=expires_in, absolute=absolute
+        )
 
 
 _OPEN_FLAGS = {
@@ -1095,40 +1032,170 @@ _OPEN_FLAGS = {
     "w+b": os.O_RDWR | os.O_CREAT | os.O_TRUNC,
     "a+b": os.O_RDWR | os.O_CREAT | os.O_APPEND,
 }
+_fd_tokens = itertools.count(1)
 
 
-async def _files_call(session: Session, files: Any, method: str, params: dict[str, Any]) -> Any:
-    """进程外插件的文件请求：检查授权由 ``PluginFiles`` 做；``open`` 打开后把描述符递过去。"""
-    if method == "files.open":
-        mode = params.get("mode") or "rb"
+class _Files:
+    """检查授权由 ``PluginFiles`` 做。
+
+    ``open`` 打开后把描述符经 socketpair 递过去，返回配对用的令牌。
+    """
+
+    def __init__(self, session: Session, files: Any) -> None:
+        self._session = session
+        self._files = files
+
+    async def open(self, path: str, mode: str = "rb") -> str:
         flags = _OPEN_FLAGS.get(mode.replace("br", "rb"))
         if flags is None:
             raise ValueError(f"不支持的打开模式：{mode}")
-        real = await files.check(params["path"], write=mode != "rb")
+        real = await self._files.check(path, write=mode != "rb")
         fd = await asyncio.to_thread(os.open, real, flags | os.O_CLOEXEC, 0o644)
-        token = f"f{next(_tokens)}"
+        token = f"f{next(_fd_tokens)}"
         try:
-            await session.send_fd(token, fd)
+            await self._session.send_fd(token, fd)
         finally:
             os.close(fd)
-        return {"token": token}
-    if method == "files.stat":
-        return await files.stat(params["path"])
-    if method == "files.listdir":
-        return await files.listdir(params["path"])
-    if method == "files.makedirs":
-        await files.makedirs(params["path"])
-        return None
-    if method == "files.rename":
-        await files.rename(params["src"], params["dst"])
-        return None
-    if method == "files.remove":
-        await files.remove(params["path"])
-        return None
-    raise LookupError(f"未知的文件请求：{method}")
+        return token
+
+    async def stat(self, path: str) -> dict[str, Any] | None:
+        return await self._files.stat(path)
+
+    async def listdir(self, path: str) -> list[str]:
+        return await self._files.listdir(path)
+
+    async def makedirs(self, path: str) -> None:
+        await self._files.makedirs(path)
+
+    async def rename(self, src: str, dst: str) -> None:
+        await self._files.rename(src, dst)
+
+    async def remove(self, path: str) -> None:
+        await self._files.remove(path)
 
 
-_tokens = itertools.count(1)
+class _Ops:
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    async def operations(self) -> list[Any]:
+        from movieclaw_api.services.host_ops import operation_ref
+
+        index = self._client._index
+        return [operation_ref(index[o]) for o in sorted(self._client.operations) if o in index]
+
+
+class _Net:
+    def __init__(self, entry_id: str) -> None:
+        self._entry_id = entry_id
+
+    async def proxy(self, service: str) -> str | None:
+        # 代理地址可能带账号密码：只回答插件自己的服务名，别的服务直连
+        from movieclaw_net import resolve_proxy_url
+
+        return resolve_proxy_url(service) if service in own_services(self._entry_id) else None
+
+
+class _Job:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def _context(self) -> Any:
+        from movieclaw_api.services.plugin_gateway import current_call
+
+        context = self._session.jobs.get(current_call.get() or "")
+        if context is None:
+            raise LookupError("只能在任务处理器里汇报任务进度")
+        return context
+
+    async def update_progress(self, progress: dict[str, Any]) -> None:
+        await self._context().update_progress(**progress)
+
+    async def current_progress(self) -> dict[str, Any]:
+        return await self._context().current_progress()
+
+    async def cancel_requested(self) -> bool:
+        return await self._context().cancel_requested()
+
+
+class _Channels:
+    def __init__(self, session: Session) -> None:
+        self._session = session
+
+    def _stub(self, channel: str) -> Any:
+        stub = self._session.channels.get(channel)
+        if stub is None:
+            raise LookupError("这个插件没有贡献这个通道")
+        return stub
+
+    async def inbound(self, channel: str, account: str, message: dict[str, Any]) -> None:
+        await self._stub(channel).callback(
+            "channel.inbound", {"account": account, "message": message}
+        )
+
+    async def save_state(self, channel: str, account: str, patch: dict[str, Any]) -> None:
+        await self._stub(channel).callback(
+            "channel.save_state", {"account": account, "patch": patch}
+        )
+
+
+#: 服务名 → 宿主实现（与 movieclaw_sdk.services.SERVICES 一一对应，测试守护签名一致）
+EXPORTS: dict[str, type] = {
+    "data": _Data,
+    "health": _Health,
+    "callbacks": _Callbacks,
+    "routes": _Routes,
+    "files": _Files,
+    "ops": _Ops,
+    "net": _Net,
+    "job": _Job,
+    "channels": _Channels,
+}
+
+
+async def _exports(ctx: Context, session: Session, names: tuple[str, ...]) -> dict[str, Any]:
+    """插件声明了哪些服务就导出哪些；网络、任务上下文、通道回调总是导出（各自再校验）。
+
+    同时为这个条目签好网关令牌：注入了宿主操作的，令牌带操作授权（含 ``act_as``）；
+    没有的，令牌只能调运行时接口。
+    """
+    from movieclaw_api.plugins.keys import (
+        HOST_OPS,
+        PLUGIN_CALLBACKS,
+        PLUGIN_DATA,
+        PLUGIN_FILES,
+        PLUGIN_HEALTH,
+        PLUGIN_ROUTES,
+    )
+    from movieclaw_api.services.auth import PluginGrant, issue_plugin_token, revoke_plugin_token
+
+    exports: dict[str, Any] = {
+        "net": _Net(session.entry_id),
+        "job": _Job(session),
+        "channels": _Channels(session),
+    }
+    if HOST_OPS.name in names:
+        client = await ctx.use(HOST_OPS).client(ctx)
+        session.token = client.token
+        exports["ops"] = _Ops(client)
+    else:
+        session.token = issue_plugin_token(
+            PluginGrant(entry_id=ctx.entry_id, operations=frozenset())
+        )
+        token = session.token
+        ctx.effect(lambda: revoke_plugin_token(token), label="revoke-plugin-token")
+    if PLUGIN_FILES.name in names:
+        session.files = ctx.use(PLUGIN_FILES).scoped(ctx)
+        exports["files"] = _Files(session, session.files)
+    if PLUGIN_DATA.name in names:
+        exports["data"] = _Data(ctx.use(PLUGIN_DATA).scoped(ctx))
+    if PLUGIN_HEALTH.name in names:
+        exports["health"] = _Health(ctx.use(PLUGIN_HEALTH).reporter(ctx))
+    if PLUGIN_CALLBACKS.name in names:
+        exports["callbacks"] = _Callbacks(ctx, ctx.use(PLUGIN_CALLBACKS))
+    if PLUGIN_ROUTES.name in names:
+        exports["routes"] = _Routes(ctx, ctx.use(PLUGIN_ROUTES))
+    return exports
 
 
 def own_services(entry_id: str) -> set[str]:
@@ -1184,7 +1251,10 @@ def remote_plugin(
             config=dict(ctx.config or {}),
             data_dir=getattr(ctx.settings, "data_dir", "./data"),
         )
-        session.rpc_handler = await _service_handler(ctx, session, inject)
+        session.exports = await _exports(ctx, session, inject)
+        # 先登记再拉起：插件在 apply 里就会经网关调宿主服务，网关按条目找会话
+        sessions[entry_id] = session
+        ctx.effect(lambda: sessions.pop(entry_id, None), label="forget-session")
         declarations = await session.start()
         session.declarations = declarations
         ctx.effect(session.stop, label="stop-process")
@@ -1213,8 +1283,6 @@ def remote_plugin(
             )
         # 下划线开头 = 宿主替插件挂的内部任务，不算插件的能力（详情页不列）
         ctx.task(session.supervise(), name="_supervise")
-        sessions[entry_id] = session
-        ctx.effect(lambda: sessions.pop(entry_id, None), label="forget-session")
 
     return Plugin(
         name=entry_id,

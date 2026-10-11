@@ -29,6 +29,7 @@ from typing import Any
 import httpx
 
 from movieclaw_api.services.auth import PluginGrant, issue_plugin_token, revoke_plugin_token
+from movieclaw_sdk.ops import OperationRef, OpsError, parse_response
 
 logger = logging.getLogger("movieclaw_api.host_ops")
 
@@ -51,19 +52,6 @@ def unbind_app(app: Any) -> None:
         _app = None
 
 
-class OpsError(Exception):
-    """宿主操作失败：HTTP 状态、错误码、可读原因与明细（与接口的错误响应同构）。"""
-
-    def __init__(
-        self, status: int, code: str, message: str, details: list[dict[str, Any]] | None = None
-    ) -> None:
-        super().__init__(f"{code}（{status}）：{message}")
-        self.status = status
-        self.code = code
-        self.message = message
-        self.details = details or []
-
-
 @dataclass
 class _EntrySettings:
     grants: frozenset[str] | None = None
@@ -73,13 +61,22 @@ class _EntrySettings:
 
 @lru_cache(maxsize=1)
 def _operation_index() -> dict[str, Any]:
-    """操作目录：与 CLI / MCP 同一份基线 spec、同一入选口径（有 operationId、非隐藏、非流式）。
+    """操作目录：与 CLI / MCP 同一份基线 spec、同一入选口径（有 operationId、非隐藏）。
+
+    流式操作（``x-cli-stream``，如跟随 Agent 会话）也在目录里，标 ``stream``：进程外插件经网关
+    直接订阅，授权时与危险操作一样必须逐个列出（plugin-ipc-http.md §12）。
 
     读构建期导出的基线（部署产物里一定有，且与代码同版），不现场 ``app.openapi()``：
     现算整份 spec 在 NAS 上要好几秒，而插件第一次拿凭证正是在启动过程中。
     """
+    from dataclasses import asdict
+
     from movieclaw_api.services.spec_catalog import load_spec
-    from movieclaw_mcp.catalog import _build_operation
+    from movieclaw_mcp.catalog import Operation, _build_operation
+
+    @dataclass(frozen=True)
+    class StreamOperation(Operation):
+        stream: bool = True
 
     spec = load_spec()
     index: dict[str, Any] = {}
@@ -88,23 +85,38 @@ def _operation_index() -> dict[str, Any]:
             if method not in _HTTP_METHODS or not isinstance(op, dict):
                 continue
             operation_id = op.get("operationId") or ""
-            if not operation_id or op.get("x-cli-hidden") or op.get("x-cli-stream"):
+            if not operation_id or op.get("x-cli-hidden"):
                 continue
             built = _build_operation(spec, path, method, op)
             if built is not None:
-                index[operation_id] = built
+                index[operation_id] = (
+                    StreamOperation(**asdict(built)) if op.get("x-cli-stream") else built
+                )
     return index
 
 
 def expand_grants(patterns: Iterable[str], index: dict[str, Any]) -> frozenset[str]:
-    """把声明展开成具体 operationId：``领域.*`` 只覆盖非危险操作，危险操作必须逐个列出。"""
+    """把声明展开成具体 operationId：``领域.*`` 只覆盖非危险、非流式操作，其余必须逐个列出。"""
     exact = {p for p in patterns if not p.endswith(".*")}
     domains = {p[:-2] for p in patterns if p.endswith(".*")}
     allowed: set[str] = set()
     for operation_id, op in index.items():
-        if operation_id in exact or (op.domain in domains and not op.dangerous):
+        wildcard = op.domain in domains and not op.dangerous and not getattr(op, "stream", False)
+        if operation_id in exact or wildcard:
             allowed.add(operation_id)
     return frozenset(allowed)
+
+
+def operation_ref(op: Any) -> OperationRef:
+    """插件拼请求用的操作引用（进程外插件经网关直接请求 ``/api/v1``）。"""
+    return OperationRef(
+        operation_id=op.operation_id,
+        method=op.method,
+        path=op.path,
+        arg_locations=dict(op.arg_locations),
+        required=tuple(op.required),
+        stream=bool(getattr(op, "stream", False)),
+    )
 
 
 class HostOps:
@@ -185,6 +197,11 @@ class OpsClient:
     operations: frozenset[str]
     timeout: float = DEFAULT_TIMEOUT
 
+    @property
+    def token(self) -> str:
+        """这个条目的插件令牌（进程外插件经网关直接请求接口时用）。"""
+        return self._token
+
     def allowed(self, operation_id: str) -> bool:
         return operation_id in self.operations
 
@@ -204,13 +221,18 @@ class OpsClient:
         op = self._index.get(operation_id)
         if op is None:
             raise OpsError(404, "UNKNOWN_OPERATION", f"没有这个操作：{operation_id}")
+        if getattr(op, "stream", False):
+            raise OpsError(400, "STREAM_OPERATION", f"{operation_id} 是流式操作，请用 stream()")
         try:
             path, query, body = build_request(op, arguments or {})
         except ValueError as exc:
             raise OpsError(400, "INVALID_ARGUMENTS", str(exc)) from exc
 
         async def send() -> httpx.Response:
-            transport = httpx.ASGITransport(app=self._app, raise_app_exceptions=False)
+            from movieclaw_api.services.plugin_gateway import gateway_asgi
+
+            # 套网关这一层：插件令牌只在网关请求上有效（进程内插件也一样）
+            transport = httpx.ASGITransport(app=gateway_asgi(self._app), raise_app_exceptions=False)
             async with httpx.AsyncClient(
                 transport=transport, base_url=_BASE_URL, timeout=timeout or self.timeout
             ) as client:
@@ -239,17 +261,4 @@ class OpsClient:
             response.status_code,
             elapsed,
         )
-        try:
-            payload = response.json()
-        except ValueError:
-            payload = {"message": response.text[:500]}
-        if response.status_code >= 400:
-            if not isinstance(payload, dict):
-                payload = {}
-            raise OpsError(
-                response.status_code,
-                str(payload.get("code") or "HTTP_ERROR"),
-                str(payload.get("message") or f"请求失败（HTTP {response.status_code}）"),
-                payload.get("details") if isinstance(payload.get("details"), list) else None,
-            )
-        return payload.get("data") if isinstance(payload, dict) and "data" in payload else payload
+        return parse_response(response.status_code, response.text)
