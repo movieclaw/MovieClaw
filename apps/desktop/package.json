@@ -1,6 +1,6 @@
 {
   "name": "movieclaw-desktop-regression",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "scripts": {
     "test:unit": "node --test tests/*.test.cjs",

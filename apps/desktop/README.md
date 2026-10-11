@@ -10,6 +10,8 @@ Movie and episode details support selecting a file version, audio track and subt
 
 Server discovery, cookie login and account switching work with existing servers. Native device login and QR pairing require the server to advertise `windows` in `/auth/bootstrap.native_device_kinds`; compatible server support is outside this client contribution. QR entry points are temporarily hidden while deployed servers lack Windows pairing support. Native tokens use Windows Credential Manager and persisted cookies use Windows-user DPAPI encryption.
 
+Version 1.0.2 adds opt-in Discovery and My Subscriptions. Enable each entry in Settings → Navigation; preferences are scoped to this computer, server and account. Browse TMDB/Douban, title details and people; subscribe with smart preferences or server rules. Monitor download/import stages, weekly arrivals, tracking, season selection and safe cleanup. Features depend on the deployed server APIs and account permissions. Site/downloader configuration opens the server Web settings.
+
 ## Build and test
 
 Development requires Windows x64, PowerShell 7, Node.js 22, Python 3.12, Rust with the `x86_64-pc-windows-msvc` target, Visual Studio C++ Build Tools and 7-Zip. Desktop CI pins exact tool/runtime versions.

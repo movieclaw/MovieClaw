@@ -12,6 +12,8 @@ function uiIcon(name) {
     right: '<path d="m10 6 6 6-6 6"/>',
     down: '<path d="m7 10 5 5 5-5"/>',
     close: '<path d="m6 6 12 12M18 6 6 18"/>',
+    bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/>',
+    compass: '<circle cx="12" cy="12" r="9"/><path d="m16 8-3 5-5 3 3-5z"/>',
     account: '<circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/>',
   };
   return `<svg class="ui-icon" aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name] || ''}</svg>`;
@@ -422,6 +424,7 @@ const App = {
       clearTimeout(pairing.timer); clearInterval(pairing.countdown);
       await (pairing.cancelPromise ||= API.cancelPairing(pairing.id));
     }
+    window.DesktopCatalog?.reset();
     document.getElementById('accountPanel')?.remove();
     document.getElementById('cardMenu')?.remove();
     this._changingContext = true;
@@ -429,6 +432,7 @@ const App = {
     this._sessionSequence = (this._sessionSequence || 0) + 1;
     this._startupController?.abort();
     this._sessionController?.abort();
+    window.DesktopCatalog?.dispose();
     window.DesktopSubtitles?.dispose();
     this._pageController?.abort();
     this.viewGeneration++;
@@ -531,6 +535,7 @@ const App = {
 
   renderConnectionState(phase, message) {
     this._authPending = true;
+    window.DesktopCatalog?.dispose();
     window.DesktopSubtitles?.dispose();
     this._pageController?.abort();
     this._wallObserver?.disconnect();
@@ -557,6 +562,7 @@ const App = {
 
   // ===== 登录 =====
   renderLogin({ setup = false, addAccount = false, username = '', message = '' } = {}) {
+    window.DesktopCatalog?.dispose();
     window.DesktopSubtitles?.dispose();
     this._pageController?.abort();
     this._wallObserver?.disconnect();
@@ -915,6 +921,7 @@ const App = {
         this.selectTab('collection', { collectionId: id });
       });
     });
+    window.DesktopCatalog?.nav();
     const account = document.getElementById('accountButton');
     if (account) {
       const name = this.session?.nickname || this.session?.username || '账号';
@@ -956,9 +963,11 @@ const App = {
   async navigate(page, params = {}, pushHistory = true) {
     const started = window.performance?.now();
     if (this._authPending) return;
+    if (window.DesktopCatalog?.pages.has(page) && !window.DesktopCatalog.enabled(page)) { page = 'home'; params = {}; pushHistory = false; this.selectedTab = 'home'; }
     DesktopSelect.close();
     const previous = this.captureRoute();
     this._searchData = null;
+    window.DesktopCatalog?.dispose();
     window.DesktopSubtitles?.dispose();
     this._pageController?.abort();
     this._wallObserver?.disconnect();
@@ -978,6 +987,10 @@ const App = {
     const content = document.getElementById('content');
 
     switch (page) {
+      case 'discover': case 'discoverCollection': case 'discoverDetail': case 'discoverPerson':
+      case 'subscriptions': case 'subscriptionDetail':
+        await window.DesktopCatalog.render(page, content, params, generation);
+        break;
       case 'home':
         await this.renderHome(content, generation);
         break;
@@ -2517,6 +2530,7 @@ const App = {
 
     DesktopSelect.enhance(container);
     // 事件绑定
+    window.DesktopCatalog?.settings(container);
     document.getElementById('btnCheckUpdates')?.addEventListener('click', () => window.DesktopUpdates?.check());
     document.getElementById('btnAbout')?.addEventListener('click', () => this.showAbout());
     document.getElementById('setAutoNext')?.addEventListener('change', (e) => {

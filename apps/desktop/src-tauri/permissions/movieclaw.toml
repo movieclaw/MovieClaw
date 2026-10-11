@@ -39,6 +39,11 @@ description = "Opens AI settings on the configured MovieClaw server"
 commands.allow = ["open_server_ai_settings"]
 
 [[permission]]
+identifier = "allow-open-catalog-link"
+description = "Open trusted catalog source, trailer or configured server settings pages"
+commands.allow = ["open_catalog_link"]
+
+[[permission]]
 identifier = "allow-proxy-api"
 description = "Allows proxying API requests to the MovieClaw server"
 commands.allow = ["proxy_api"]

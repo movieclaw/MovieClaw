@@ -18,6 +18,29 @@ pub fn open_server_ai_settings() -> Result<(), String> {
     open::that(target).map_err(|e| format!("打开浏览器失败: {e}"))
 }
 
+// Catalog pages may open server configuration or public metadata/trailer pages.
+// Never pass an arbitrary scheme, credential-bearing URL or shell text to the OS.
+fn catalog_link_allowed(server: &str, target: &str) -> Result<Url, String> {
+    let base = validate_http_url(server)?;
+    let url = validate_http_url(target)?;
+    let prefix = base.path().trim_end_matches('/');
+    let relative = url.path().strip_prefix(prefix).unwrap_or("");
+    let server_page = url_in_server_scope(&base, &url)
+        && matches!(relative, "/settings/sites" | "/settings/downloaders" | "/settings/import-watch" | "/library");
+    let public_page = url.scheme() == "https" && url.host_str().is_some_and(|host| {
+        ["themoviedb.org", "douban.com", "youtube.com", "youtu.be"].iter()
+            .any(|domain| host == *domain || host.ends_with(&format!(".{domain}")))
+    });
+    if !server_page && !public_page { return Err("此链接不是支持的服务器配置或影视资料页面".into()); }
+    Ok(url)
+}
+
+#[tauri::command]
+pub fn open_catalog_link(url: String) -> Result<(), String> {
+    let target = catalog_link_allowed(&get_server_url()?, &url)?;
+    open::that(target.as_str()).map_err(|e| format!("打开浏览器失败: {e}"))
+}
+
 #[cfg(test)]
 mod ai_settings_tests {
     use super::*;
@@ -27,6 +50,15 @@ mod ai_settings_tests {
         assert_eq!(server_ai_settings_url("http://nas.example:3000").unwrap(), "http://nas.example:3000/settings/llm");
         assert!(server_ai_settings_url("file:///C:/Windows").is_err());
         assert!(server_ai_settings_url("https://user:secret@nas.example").is_err());
+    }
+    #[test]
+    fn catalog_links_limit_server_paths_and_public_hosts() {
+        let server = "http://nas.example:3000/movieclaw";
+        assert!(catalog_link_allowed(server, "http://nas.example:3000/movieclaw/settings/downloaders").is_ok());
+        assert!(catalog_link_allowed(server, "https://www.youtube.com/watch?v=abc").is_ok());
+        for url in ["file:///C:/Windows", "javascript:alert(1)", "https://user:secret@youtube.com/watch", "https://youtube.com.evil.example/watch", "http://nas.example:3000/settings/downloaders", "http://nas.example:3000/movieclaw/api/v1/auth/logout"] {
+            assert!(catalog_link_allowed(server, url).is_err(), "{url}");
+        }
     }
 }
 

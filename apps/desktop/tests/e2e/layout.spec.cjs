@@ -286,8 +286,8 @@ for (const width of [1280, 900, 640]) {
     await page.locator('[data-page="settings"]').click();
     await expect(page.locator('#accountList .settings-row')).toHaveCount(2);
     const cards=page.locator('.settings-body > .settings-card');
-    await expect(cards).toHaveCount(4);
-    const [playback,server,accounts,about]=await Promise.all([0,1,2,3].map(i=>cards.nth(i).boundingBox()));
+    await expect(cards).toHaveCount(5);
+    const [playback,server,accounts,navigation,about]=await Promise.all([0,1,2,3,4].map(i=>cards.nth(i).boundingBox()));
     const content=await page.locator('#content').boundingBox();
     expect(Math.abs(playback.x-content.x-(content.x+content.width-playback.x-playback.width))).toBeLessThanOrEqual(1);
     expect(Math.abs(server.width-accounts.width)).toBeLessThanOrEqual(1);
@@ -299,6 +299,8 @@ for (const width of [1280, 900, 640]) {
       expect(accounts.y).toBeGreaterThan(server.y+server.height);
     }
     expect(about.y).toBeGreaterThan(accounts.y+accounts.height);
+    expect(navigation.width).toBe(playback.width);
+    expect(about.y).toBeGreaterThan(navigation.y+navigation.height);
     const sub=await page.locator('#setSubLangTrigger').boundingBox();
     const audio=await page.locator('#setAudioLangTrigger').boundingBox();
     expect(sub.width).toBe(audio.width);

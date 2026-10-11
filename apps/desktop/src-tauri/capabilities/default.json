@@ -27,6 +27,7 @@
     "allow-open-download-page",
     "allow-open-release-page",
     "allow-open-server-ai-settings",
+    "allow-open-catalog-link",
     "allow-proxy-api",
     "allow-get-server-url",
     "allow-has-embedded-player",

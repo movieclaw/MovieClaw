@@ -102,7 +102,7 @@ http.createServer(async (req, res) => {
       const { command, args } = await bodyOf(req);
       state.nativeRequests ||= []; state.nativeRequests.push({ command, username: args.username, pairingId: args.pairingId });
       const status = () => ({ mode: state.nativeAuth === 'cookie' ? 'cookie' : 'device', initialized: state.initialized,
-        session: state.authenticated ? { username: state.username || 'fixture', role: state.role || 'admin' } : null,
+        session: state.authenticated ? { username: state.username || 'fixture', role: state.role || 'admin', capabilities: state.capabilities || {} } : null,
         accounts: state.savedAccounts || [{ username: state.username || 'fixture', nickname: '当前账号', active: state.authenticated, authenticated: state.authenticated }],
         pairing_supported: state.nativeAuth !== 'cookie', compatibility_reason: state.nativeAuth === 'cookie' ? '服务器尚不支持 Windows 设备登录，请升级服务器。' : null, context_generation: 1 });
       if (command === 'native_auth_status') return json(res, status());
@@ -166,10 +166,11 @@ http.createServer(async (req, res) => {
       }
       if (!body?.username || !body?.password) return json(res, { message: '密码错误' }, 401);
       state.authenticated = true; state.username = body.username;
-      return json(res, ok({ username: state.username, role: state.role || 'admin', capabilities: [] }));
+      return json(res, ok({ username: state.username, role: state.role || 'admin', capabilities: state.capabilities || {} }));
     }
     if (!state.authenticated) return json(res, { message: '需要登录' }, 401);
-    if (route === '/auth/me') return json(res, ok({ username: state.username || 'fixture', role: state.role || 'admin', capabilities: [] }));
+    if (state.catalog && await require('./catalog-fixture.cjs')({route,req,res,state,url,body,json,ok})) return;
+    if (route === '/auth/me') return json(res, ok({ username: state.username || 'fixture', role: state.role || 'admin', capabilities: state.capabilities || {} }));
     if (route === '/auth/accounts') return json(res, ok([
       { username: state.username || 'fixture', nickname: '当前账号', role: state.role || 'admin', active: true },
       { username: 'second', nickname: '另一个账号', role: 'member', active: false },

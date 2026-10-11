@@ -323,6 +323,7 @@ fn main() {
             updater::open_download_page,
             updater::open_release_page,
             connect::open_server_ai_settings,
+            connect::open_catalog_link,
             updater::verified::download_update,
             updater::verified::cancel_update_download,
             updater::verified::install_downloaded_update,
