@@ -37,7 +37,9 @@ from pathlib import Path
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.settings import PlaybackPolicySetting, get_setting_store
 from movieclaw_db.models import LibraryFile
-from movieclaw_playback.streaming import is_strm
+from movieclaw_playback.remote_range import RemoteRangeFile
+from movieclaw_playback.streaming import is_strm, resolve_strm
+from movieclaw_playback.subtitle_cues import build_keyframe_mkv
 
 logger = logging.getLogger("movieclaw_api.playback.trickplay")
 
@@ -56,6 +58,10 @@ THUMB_WIDTH = 320
 _GENERATE_TIMEOUT = 7200.0
 
 _SHEET_PATTERN = "sprite_%03d.jpg"
+#: 网盘条目按索引取出的关键帧小 MKV（生成完即删）
+_SPARSE_NAME = "keyframes.mkv"
+#: 网盘上按索引取关键帧的并发
+_SPARSE_WORKERS = 16
 _INDEX_NAME = "index.json"
 
 #: 正在生成的文件 id，避免同一部片被并发触发多次生成。
@@ -148,10 +154,9 @@ def generate(file: LibraryFile) -> TrickplayIndex | None:
         return existing
     if shutil.which("ffmpeg") is None or not file.duration_seconds:
         return None
-    if file.is_disc() or is_strm(file.file_path):
+    if file.is_disc():
         # 原盘的 file_path 是目录，抽帧要通读整张盘（Jellyfin 同样跳过原盘的
-        # trickplay）；网盘（strm）条目同理——抽帧要把整片从网盘拉一遍（Jellyfin 也跳过）。
-        # 没有预览不影响播放
+        # trickplay）；没有预览不影响播放
         return None
     video = Path(file.file_path)
     if not video.is_file():
@@ -160,19 +165,29 @@ def generate(file: LibraryFile) -> TrickplayIndex | None:
     out_dir = trickplay_dir(file_id)
     staging = out_dir.with_name(f".{out_dir.name}.{uuid.uuid4().hex}.part")
     staging.mkdir(parents=True, exist_ok=True)
+    if is_strm(file.file_path):
+        # 网盘（strm）条目不通读：按 MKV 索引只取每 10 秒最近的一个关键帧，拼成小 MKV
+        # 再抽图（一集几 MB 到几十 MB，原来要把整片拉一遍；Jellyfin 对 strm 直接跳过）。
+        # 不是 MKV、没有索引就没有预览
+        sparse = _sparse_keyframes(file, staging)
+        if sparse is None:
+            shutil.rmtree(staging, ignore_errors=True)
+            return None
+        source = ["-i", str(sparse)]
+    else:
+        # 读入限速（4 倍实时）：skip_frame 只省解码不省 IO，不限速的话
+        # demuxer 会以磁盘/网络的极限速度通读整个容器，跟同一块盘上的
+        # 首片转码/直通取流抢 IO——「首次起播卡缓冲、重进就好」的头号
+        # 元凶（§6.10）。4 倍 = 24Mbps 的片约 12MB/s，千兆网口一成，
+        # 两小时片约 30 分钟出图——缩略图晚点完全可以接受。
+        source = ["-readrate", "4", "-i", str(video)]
     try:
         proc = subprocess.run(
             [
                 "ffmpeg", "-v", "error", "-y",
                 # 只解关键帧：缩略图不需要精确到帧，快一两个数量级
                 "-skip_frame", "nokey",
-                # 读入限速（4 倍实时）：skip_frame 只省解码不省 IO，不限速的话
-                # demuxer 会以磁盘/网络的极限速度通读整个容器，跟同一块盘上的
-                # 首片转码/直通取流抢 IO——「首次起播卡缓冲、重进就好」的头号
-                # 元凶（§6.10）。4 倍 = 24Mbps 的片约 12MB/s，千兆网口一成，
-                # 两小时片约 30 分钟出图——缩略图晚点完全可以接受。
-                "-readrate", "4",
-                "-i", str(video),
+                *source,
                 "-an", "-sn", "-dn",
                 "-vf", f"fps=1/{INTERVAL_S},scale={THUMB_WIDTH}:-2,tile={COLUMNS}x{ROWS}",
                 "-qscale:v", "5",
@@ -186,6 +201,7 @@ def generate(file: LibraryFile) -> TrickplayIndex | None:
         logger.warning("缩略图生成超时（%.0f 秒）：%s", _GENERATE_TIMEOUT, video)
         return None
 
+    (staging / _SPARSE_NAME).unlink(missing_ok=True)
     sheets = sorted(p.name for p in staging.glob("sprite_*.jpg") if p.stat().st_size > 0)
     if not sheets:
         shutil.rmtree(staging, ignore_errors=True)
@@ -216,6 +232,30 @@ def generate(file: LibraryFile) -> TrickplayIndex | None:
     return index
 
 
+def _sparse_keyframes(file: LibraryFile, staging: Path) -> Path | None:
+    """（阻塞）网盘直链上每 ``INTERVAL_S`` 秒取一个关键帧拼成的小 MKV；拼不出返回 None。"""
+    link = resolve_strm(file.file_path)
+    if link is None or not link.url.lower().startswith(("http://", "https://")):
+        return None
+    times = [float(t) for t in range(0, file.duration_seconds or 0, INTERVAL_S)]
+    try:
+        with RemoteRangeFile(link.url, headers=link.headers) as f:
+            if f.read(4) != b"\x1a\x45\xdf\xa3" or f.size is None:
+                return None
+            data = build_keyframe_mkv(
+                f, f.pread, f.size, file.file_path,
+                times_s=times, spacing_s=INTERVAL_S, workers=_SPARSE_WORKERS,
+            )  # fmt: skip
+    except (OSError, ValueError, IndexError) as exc:
+        logger.info("网盘条目按索引取关键帧失败，不生成缩略图：%s（%s）", file.file_path, exc)
+        return None
+    if data is None:
+        return None
+    target = staging / _SPARSE_NAME
+    target.write_bytes(data)
+    return target
+
+
 def schedule(file: LibraryFile, *, delay_s: float = 0) -> None:
     """后台生成，不阻塞调用方。同一部片并发触发只做一次。
 
@@ -230,8 +270,6 @@ def schedule(file: LibraryFile, *, delay_s: float = 0) -> None:
     照常可读，重新打开即恢复），全部触发点都经过这里，一处拦截全覆盖。
     """
     file_id = file.id or 0
-    if is_strm(file.file_path):
-        return  # 网盘条目不生成（见 generate）
     if file_id in _in_flight or load_index(file_id) is not None:
         return
     _in_flight.add(file_id)

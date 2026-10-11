@@ -19,6 +19,7 @@ Emby 都是这么做的。可 mkvmerge 默认给**每一条字幕**都写一个 
 
 from __future__ import annotations
 
+import bisect
 import logging
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -60,6 +61,9 @@ _SIMPLE_BLOCK = 0xA3
 _BLOCK_GROUP = 0xA0
 _BLOCK = 0xA1
 _TRACK_TYPE_SUBTITLE = 17
+_TRACK_TYPE_VIDEO = 1
+#: 视频关键帧先读这么多（1080p 一帧几十到几百 KB，4K 更大，超出再补读）
+_KEYFRAME_PROBE = 512 * 1024
 #: Segment 用「未知长度」：小 MKV 是一次写完的，不需要回填
 _UNKNOWN_SIZE = b"\x01\xff\xff\xff\xff\xff\xff\xff"
 
@@ -98,18 +102,33 @@ class SubtitleTracks:
     start_s: float
 
 
-def build_subtitle_mkv(
+@dataclass(frozen=True)
+class _Track:
+    number: int
+    kind: int
+    codec: bytes
+    entry: bytes  # 整个 TrackEntry 元素（原样拷贝进小 MKV）
+
+
+@dataclass(frozen=True)
+class _Head:
+    """拼小 MKV 要用的原文件头部信息。"""
+
+    ebml_header: bytes
+    info: bytes
+    scale: int  # TimestampScale：每刻多少纳秒
+    start: int  # 第一个 Cluster 的时间戳（刻）
+    segment_start: int
+    cues_at: int
+    tracks: tuple[_Track, ...]
+
+
+def _read_head(
     f,  # noqa: ANN001 — 可 seek/read 的文件对象（本地文件或 RemoteRangeFile）
     read_at: Callable[[int, int], bytes],
     file_size: int,
     label: str,
-    *,
-    workers: int,
-) -> SubtitleTracks | None:
-    """读出全部字幕轨的块，拼成只含字幕轨的 MKV；索引不全或对不上时返回 None。
-
-    ``read_at(字节数, 偏移)`` 要能多线程并发调用（本地是 pread，远端是 Range 请求）。
-    """
+) -> _Head | None:
     segment_start, positions, first_cluster = _matroska_layout(f, file_size, Path(label))
     if _TRACKS not in positions or _CUES not in positions or first_cluster is None:
         return None
@@ -132,10 +151,8 @@ def build_subtitle_mkv(
     start = _cluster_timestamp(read_at, first_cluster)
     if start is None:
         return None
-
     tracks_data, body = _read_element_at(f, positions[_TRACKS], _TRACKS)
-    entries: list[tuple[int, bytes]] = []
-    probes: dict[int, int] = {}
+    tracks: list[_Track] = []
     for child_id, c_start, c_end in _children(tracks_data, body, len(tracks_data)):
         if child_id != _TRACK_ENTRY:
             continue
@@ -148,33 +165,121 @@ def build_subtitle_mkv(
                 kind = _uint(tracks_data, g_start, g_end)
             elif g_id == _CODEC_ID:
                 codec = bytes(tracks_data[g_start:g_end])
-        if kind == _TRACK_TYPE_SUBTITLE and number is not None:
-            entries.append((number, _ebml_element(_TRACK_ENTRY, tracks_data[c_start:c_end])))
-            probes[number] = _BITMAP_BLOCK_PROBE if codec in _BITMAP_CODECS else _BLOCK_PROBE
-    if not entries:
-        return None
+        if number is not None and kind is not None:
+            entry = _ebml_element(_TRACK_ENTRY, tracks_data[c_start:c_end])
+            tracks.append(_Track(number, kind, codec, entry))
+    return _Head(
+        ebml_header=ebml_header,
+        info=info,
+        scale=scale,
+        start=start,
+        segment_start=segment_start,
+        cues_at=positions[_CUES],
+        tracks=tuple(tracks),
+    )
 
-    numbers = {number for number, _ in entries}
-    cues = _subtitle_cues(f, positions[_CUES], segment_start, numbers)
+
+def _assemble(head: _Head, entries: list[bytes], blocks: list[tuple[int, bytes]]) -> bytes:
+    """原 EBML 头 + 原 Info + 只含 entries 的 Tracks + 每块一个 Cluster（时间戳, 块）。"""
+    clusters = bytearray()
+    for time, block in blocks:
+        payload = _ebml_element(_CLUSTER_TIMESTAMP, _ebml_uint(time)) + block
+        clusters += _ebml_element(_CLUSTER, payload)
+    tracks = _ebml_element(_TRACKS, b"".join(entries))
+    return bytes(
+        head.ebml_header + _SEGMENT.to_bytes(4, "big") + _UNKNOWN_SIZE + head.info + tracks
+        + clusters
+    )  # fmt: skip
+
+
+def build_subtitle_mkv(
+    f,  # noqa: ANN001 — 可 seek/read 的文件对象（本地文件或 RemoteRangeFile）
+    read_at: Callable[[int, int], bytes],
+    file_size: int,
+    label: str,
+    *,
+    workers: int,
+) -> SubtitleTracks | None:
+    """读出全部字幕轨的块，拼成只含字幕轨的 MKV；索引不全或对不上时返回 None。
+
+    ``read_at(字节数, 偏移)`` 要能多线程并发调用（本地是 pread，远端是 Range 请求）。
+    """
+    head = _read_head(f, read_at, file_size, label)
+    if head is None:
+        return None
+    subtitles = [t for t in head.tracks if t.kind == _TRACK_TYPE_SUBTITLE]
+    if not subtitles:
+        return None
+    probes = {
+        t.number: _BITMAP_BLOCK_PROBE if t.codec in _BITMAP_CODECS else _BLOCK_PROBE
+        for t in subtitles
+    }
+    numbers = set(probes)
+    cues = _track_cues(f, head.cues_at, head.segment_start, numbers)
     if cues is None or {cue.track for cue in cues} != numbers:
         return None
     blocks = _fetch_blocks(read_at, cues, file_size, probes, workers=workers)
     if blocks is None:
         logger.info("字幕块与索引对不上，退回整片读取：%s", label)
         return None
-
     # 按块在原文件里的位置排：ffmpeg 通读时就是这个顺序。同一时刻常有好几个块（PGS 一个
     # 清屏、一个显示），按时间排会打乱它们的先后（NAS 实测 PGS 轨因此对不上）
-    clusters = bytearray()
-    for cue, (_start, block) in sorted(zip(cues, blocks, strict=True), key=lambda x: x[1][0]):
-        payload = _ebml_element(_CLUSTER_TIMESTAMP, _ebml_uint(cue.time)) + block
-        clusters += _ebml_element(_CLUSTER, payload)
-    tracks = _ebml_element(_TRACKS, b"".join(entry for _, entry in entries))
-    data = ebml_header + _SEGMENT.to_bytes(4, "big") + _UNKNOWN_SIZE + info + tracks + clusters
+    ordered = sorted(zip(cues, blocks, strict=True), key=lambda x: x[1][0])
+    data = _assemble(
+        head, [t.entry for t in subtitles], [(cue.time, block) for cue, (_, block) in ordered]
+    )
     counts: dict[int, int] = {}
     for cue in cues:
         counts[cue.track] = counts.get(cue.track, 0) + 1
-    return SubtitleTracks(data=bytes(data), blocks=counts, start_s=start * scale / 1e9)
+    return SubtitleTracks(data=data, blocks=counts, start_s=head.start * head.scale / 1e9)
+
+
+def build_keyframe_mkv(
+    f,  # noqa: ANN001 — 可 seek/read 的文件对象（本地文件或 RemoteRangeFile）
+    read_at: Callable[[int, int], bytes],
+    file_size: int,
+    label: str,
+    *,
+    times_s: list[float],
+    spacing_s: float,
+    workers: int,
+) -> bytes | None:
+    """进度条缩略图用：每个时间点取它之前最近的一个视频关键帧，拼成只含视频轨的小 MKV。
+
+    第 i 帧放在 ``i × spacing_s`` 秒，ffmpeg 按 ``fps=1/spacing_s`` 取帧就是一张缩略图对应
+    一个时间点。关键帧可以单独解码，只读这些块（1080p 一帧几百 KB），不用把整片拉下来。
+    没有视频轨、视频轨没有索引时返回 None。
+    """
+    head = _read_head(f, read_at, file_size, label)
+    if head is None:
+        return None
+    video = next((t for t in head.tracks if t.kind == _TRACK_TYPE_VIDEO), None)
+    if video is None:
+        return None
+    cues = _track_cues(f, head.cues_at, head.segment_start, {video.number})
+    if not cues:
+        return None
+    cues.sort(key=lambda cue: cue.time)
+    cue_times = [(cue.time - head.start) * head.scale / 1e9 for cue in cues]
+    picks = [cues[max(0, bisect.bisect_right(cue_times, t) - 1)] for t in times_s]
+    unique = list(dict.fromkeys(picks))
+    # 先取第一帧量出关键帧的大致体积，其余按它的 1.5 倍探：1080p 一帧几十 KB，4K 上 MB，
+    # 统一按大的探会多读几倍（网盘上就是白白多拉流量），按小的探每帧都要补读一次
+    first = _fetch_blocks(
+        read_at, unique[:1], file_size, {video.number: _KEYFRAME_PROBE}, workers=1
+    )
+    if first is None:
+        return None
+    probe = max(64 * 1024, len(first[0][1]) * 3 // 2)
+    rest = _fetch_blocks(read_at, unique[1:], file_size, {video.number: probe}, workers=workers)
+    if rest is None and len(unique) > 1:
+        return None
+    fetched = first + (rest or [])
+    by_cue = {cue: block for cue, (_, block) in zip(unique, fetched, strict=True)}
+    ticks = spacing_s * 1e9 / head.scale
+    return _assemble(
+        head, [video.entry], [(round(i * ticks), by_cue[cue]) for i, cue in enumerate(picks)]
+    )
 
 
 def _cluster_timestamp(read_at: Callable[[int, int], bytes], cluster: int) -> int | None:
@@ -195,7 +300,7 @@ def _cluster_timestamp(read_at: Callable[[int, int], bytes], cluster: int) -> in
     return None
 
 
-def _subtitle_cues(f, cues_at: int, segment_start: int, numbers: set[int]) -> list[_Cue] | None:  # noqa: ANN001
+def _track_cues(f, cues_at: int, segment_start: int, numbers: set[int]) -> list[_Cue] | None:  # noqa: ANN001
     data, body = _read_element_at(f, cues_at, _CUES)
     cues: list[_Cue] = []
     for child_id, c_start, c_end in _children(data, body, len(data)):
@@ -239,6 +344,8 @@ def _fetch_blocks(
     字段的字节数，先读第一个 Cluster 的头学到它，其余照用；某个块按它解析不对，再单独读
     那个 Cluster 的头重算——长度字段的写法在同一个文件里几乎总是一样的。
     """
+    if not cues:
+        return []
     header_len = _cluster_header_length(read_at, cues[0].cluster)
     if header_len is None:
         return None

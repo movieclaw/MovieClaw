@@ -52,10 +52,10 @@ def test_reads_only_the_subtitle_blocks():
 
 def test_missing_cues_falls_back(monkeypatch):
     """某条字幕轨在 Cues 里没有索引点：不走快路径（宁可整片读，不能漏字幕）。"""
-    real = subtitle_cues._subtitle_cues
+    real = subtitle_cues._track_cues
     monkeypatch.setattr(
         subtitle_cues,
-        "_subtitle_cues",
+        "_track_cues",
         lambda *a: [cue for cue in real(*a) if cue.track != 3],
     )
     assert _build(FIXTURE) is None
@@ -63,7 +63,7 @@ def test_missing_cues_falls_back(monkeypatch):
 
 def test_block_of_another_track_is_rejected(monkeypatch):
     """索引指向的块不是这条轨的（解析错位）：返回 None，不拼出错的字幕。"""
-    real = subtitle_cues._subtitle_cues
+    real = subtitle_cues._track_cues
 
     def swapped(*args):
         cues = real(*args)
@@ -71,7 +71,7 @@ def test_block_of_another_track_is_rejected(monkeypatch):
         other = 5 - first.track  # 2 ↔ 3
         return [dataclasses.replace(first, track=other), *cues[1:]]
 
-    monkeypatch.setattr(subtitle_cues, "_subtitle_cues", swapped)
+    monkeypatch.setattr(subtitle_cues, "_track_cues", swapped)
     assert _build(FIXTURE) is None
 
 

@@ -7,9 +7,13 @@
 from __future__ import annotations
 
 import asyncio
+import re
 import shutil
 import subprocess
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
@@ -134,18 +138,68 @@ def test_missing_video_is_none(tmp_path, monkeypatch):
     assert trickplay.generate(make_file(tmp_path / "gone.mp4")) is None
 
 
-def test_strm_items_are_skipped(tmp_path, monkeypatch):
-    """网盘（strm）条目不生成：抽帧要把整片从网盘拉一遍（Jellyfin 同样跳过）。"""
+@pytest.fixture
+def strm_server(tmp_path):
+    """回环上的仿网盘（只认 Range），根目录是 tmp_path/cloud。"""
+    root = tmp_path / "cloud"
+    root.mkdir()
+    served = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args) -> None:
+            pass
+
+        def do_GET(self) -> None:  # noqa: N802
+            data = (root / self.path.lstrip("/")).read_bytes()
+            match = re.match(r"bytes=(\d+)-(\d*)", self.headers.get("Range") or "")
+            start = int(match.group(1)) if match else 0
+            end = int(match.group(2)) if match and match.group(2) else len(data) - 1
+            body = data[start : end + 1]
+            served.append(len(body))
+            self.send_response(206)
+            self.send_header("Content-Range", f"bytes {start}-{end}/{len(data)}")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield SimpleNamespace(root=root, url=f"http://127.0.0.1:{server.server_port}", served=served)
+    server.shutdown()
+    server.server_close()
+
+
+def test_strm_that_is_not_matroska_gets_no_thumbnails(tmp_path, monkeypatch, strm_server):
+    """网盘条目不通读：不是 MKV（没有索引可按）就没有预览，ffmpeg 一次都不起。"""
     monkeypatch.chdir(tmp_path)
+    (strm_server.root / "a.mp4").write_bytes(b"\x00\x00\x00\x20ftypisom" + b"\x00" * 4096)
     strm = tmp_path / "a.strm"
-    strm.write_text("https://pan.example.com/a.mkv\n")
-    file = make_file(strm)
+    strm.write_text(f"{strm_server.url}/a.mp4\n")
     ran = []
     monkeypatch.setattr(trickplay.subprocess, "run", lambda *a, **k: ran.append(a))
-    assert trickplay.generate(file) is None
-    trickplay._in_flight.clear()
-    trickplay.schedule(file)
-    assert ran == [] and trickplay._in_flight == set()
+    assert trickplay.generate(make_file(strm)) is None
+    assert ran == []
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="需要系统 ffmpeg")
+def test_strm_thumbnails_read_only_keyframes(tmp_path, monkeypatch, strm_server):
+    """网盘 MKV：按索引只取每 10 秒最近的关键帧，照样出雪碧图与索引。"""
+    monkeypatch.chdir(tmp_path)
+    video = strm_server.root / "a.mkv"
+    subprocess.run(
+        ["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+         "testsrc2=size=320x180:rate=25:duration=60", "-c:v", "libx264", "-preset", "ultrafast",
+         "-g", "50", "-pix_fmt", "yuv420p", str(video)],  # fmt: skip
+        check=True,
+        timeout=120,
+    )
+    strm = tmp_path / "a.strm"
+    strm.write_text(f"{strm_server.url}/a.mkv\n")
+    index = trickplay.generate(make_file(strm, duration=60))
+    assert index is not None and index.count == 6
+    assert sum(strm_server.served) < video.stat().st_size
+    assert not (trickplay.trickplay_dir(1) / "keyframes.mkv").exists()
 
 
 def test_schedule_is_deduplicated(tmp_path, monkeypatch):
