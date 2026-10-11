@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -83,6 +84,14 @@ def job_status(client: TestClient, job_id: str) -> str:
     return client.portal.call(run)
 
 
+def wait_for_cancelled(client: TestClient, job_id: str) -> None:
+    # 任务可能已被 dispatcher 领取，取消请求需要等处理器的安全停止点。
+    deadline = time.monotonic() + 10
+    while (status := job_status(client, job_id)) != "cancelled":
+        assert time.monotonic() < deadline, f"任务 {job_id} 未取消，当前状态：{status}"
+        time.sleep(0.05)
+
+
 def test_disable_cancels_jobs_survives_restart_and_enables_back(env) -> None:
     app, client = make_client()
     with client:
@@ -101,7 +110,7 @@ def test_disable_cancels_jobs_survives_restart_and_enables_back(env) -> None:
         fiber = app.state.kernel.fiber(OFFICIAL)
         assert fiber.state is State.DISABLED and fiber.disabled_by == "switch"
         assert saved(env)["disabled"][OFFICIAL]["by"] == "tester"
-        assert job_status(client, mine) == "cancelled"
+        wait_for_cancelled(client, mine)
         assert job_status(client, other) != "cancelled"
         # 再停一次是无操作
         assert switch(client, OFFICIAL, False).status_code == 200
@@ -124,7 +133,7 @@ def test_uninstall_restart_and_restore(env) -> None:
         assert reply.status_code == 200, reply.text
         assert reply.json()["data"] == {"cancelled_jobs": 1, "purged_rows": 0}
         assert app.state.kernel.fiber(OFFICIAL) is None
-        assert job_status(client, job) == "cancelled"
+        wait_for_cancelled(client, job)
         removed = listing(client)["removed"]
         assert [r["id"] for r in removed] == [OFFICIAL]
         assert removed[0]["title"] and removed[0]["removed_by"] == "tester"

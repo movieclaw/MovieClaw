@@ -71,7 +71,9 @@ class CliReleaseTest(unittest.TestCase):
             )
             # 仅将安装落点重定向到临时目录，不改实际安装脚本。
             move = tools / "mv"
-            move.write_text(f'#!/bin/sh\nexec "{shutil.which("mv")}" "$1" "$CLI_TEST_INSTALL/mclaw"\n')
+            move.write_text(
+                f'#!/bin/sh\nexec "{shutil.which("mv")}" "$1" "$CLI_TEST_INSTALL/mclaw"\n'
+            )
             uname.chmod(0o755)
             move.chmod(0o755)
             installed = root / "installed"
