@@ -134,6 +134,20 @@ def test_missing_video_is_none(tmp_path, monkeypatch):
     assert trickplay.generate(make_file(tmp_path / "gone.mp4")) is None
 
 
+def test_strm_items_are_skipped(tmp_path, monkeypatch):
+    """网盘（strm）条目不生成：抽帧要把整片从网盘拉一遍（Jellyfin 同样跳过）。"""
+    monkeypatch.chdir(tmp_path)
+    strm = tmp_path / "a.strm"
+    strm.write_text("https://pan.example.com/a.mkv\n")
+    file = make_file(strm)
+    ran = []
+    monkeypatch.setattr(trickplay.subprocess, "run", lambda *a, **k: ran.append(a))
+    assert trickplay.generate(file) is None
+    trickplay._in_flight.clear()
+    trickplay.schedule(file)
+    assert ran == [] and trickplay._in_flight == set()
+
+
 def test_schedule_is_deduplicated(tmp_path, monkeypatch):
     """同一部片被并发触发只该生成一次——否则几路 ffmpeg 同时读同一个大文件。"""
     monkeypatch.chdir(tmp_path)

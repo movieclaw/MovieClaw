@@ -37,7 +37,7 @@ from pathlib import Path
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.settings import PlaybackPolicySetting, get_setting_store
 from movieclaw_db.models import LibraryFile
-from movieclaw_playback.streaming import media_input
+from movieclaw_playback.streaming import is_strm
 
 logger = logging.getLogger("movieclaw_api.playback.trickplay")
 
@@ -148,18 +148,14 @@ def generate(file: LibraryFile) -> TrickplayIndex | None:
         return existing
     if shutil.which("ffmpeg") is None or not file.duration_seconds:
         return None
-    if file.is_disc():
+    if file.is_disc() or is_strm(file.file_path):
         # 原盘的 file_path 是目录，抽帧要通读整张盘（Jellyfin 同样跳过原盘的
-        # trickplay）；没有预览不影响播放
+        # trickplay）；网盘（strm）条目同理——抽帧要把整片从网盘拉一遍（Jellyfin 也跳过）。
+        # 没有预览不影响播放
         return None
     video = Path(file.file_path)
     if not video.is_file():
         return None
-    # 网盘（strm）条目读现解析出的直链（与本地文件同样按 4 倍实时限速通读）
-    source = media_input(file.file_path)
-    if source is None:
-        return None
-    input_url, input_options = source
 
     out_dir = trickplay_dir(file_id)
     staging = out_dir.with_name(f".{out_dir.name}.{uuid.uuid4().hex}.part")
@@ -176,8 +172,7 @@ def generate(file: LibraryFile) -> TrickplayIndex | None:
                 # 元凶（§6.10）。4 倍 = 24Mbps 的片约 12MB/s，千兆网口一成，
                 # 两小时片约 30 分钟出图——缩略图晚点完全可以接受。
                 "-readrate", "4",
-                *input_options,
-                "-i", input_url,
+                "-i", str(video),
                 "-an", "-sn", "-dn",
                 "-vf", f"fps=1/{INTERVAL_S},scale={THUMB_WIDTH}:-2,tile={COLUMNS}x{ROWS}",
                 "-qscale:v", "5",
@@ -235,6 +230,8 @@ def schedule(file: LibraryFile, *, delay_s: float = 0) -> None:
     照常可读，重新打开即恢复），全部触发点都经过这里，一处拦截全覆盖。
     """
     file_id = file.id or 0
+    if is_strm(file.file_path):
+        return  # 网盘条目不生成（见 generate）
     if file_id in _in_flight or load_index(file_id) is not None:
         return
     _in_flight.add(file_id)
