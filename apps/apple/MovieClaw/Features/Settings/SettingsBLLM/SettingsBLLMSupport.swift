@@ -69,6 +69,15 @@ enum SettingsBLLMFormat {
     }
 
     /// 供应商提示：固定端点显示域名，其余说明接入方式（Web providerHint）
+    /// API 协议的展示名（与 Web PROTOCOL_LABELS 一致）
+    static func protocolLabel(_ id: String) -> String {
+        switch id {
+        case "openai_chat": return "Chat Completions"
+        case "openai_responses": return "Responses API"
+        default: return id
+        }
+    }
+
     static func providerHint(_ preset: API.LlmPresetView) -> String {
         if preset.id == "bailian" { return "聚合 Qwen / DeepSeek / Kimi / GLM" }
         if preset.id == "openai" { return "官方端点，可配代理" }

@@ -115,6 +115,7 @@ async def create_llm_provider(
         default_model=payload.default_model,
         extra_models=payload.extra_models,
         user_agent=payload.user_agent,
+        api_protocol=payload.api_protocol,
     )
     assert row.id is not None
     row = await service.start_verification(row.id)
@@ -159,6 +160,10 @@ async def update_llm_provider(
         default_model=payload.default_model,
         extra_models=payload.extra_models,
         user_agent=payload.user_agent,
+        # 请求没带该字段（老客户端）时沿用原值，不能当成「清空」
+        api_protocol=(
+            payload.api_protocol if "api_protocol" in payload.model_fields_set else ...
+        ),
     )
     row = await service.start_verification(provider_id)
     background_tasks.add_task(verify_llm_provider, provider_id)

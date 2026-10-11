@@ -17,6 +17,7 @@ import {
   SettingsSection,
 } from "@/components/settings-ui";
 import {
+  type LlmApiProtocol,
   type LlmModelInfo,
   type LlmPreset,
   type LlmProviderConfig,
@@ -250,6 +251,7 @@ function ProviderRow({
     config.base_url ?? preset?.base_url ?? "官方默认",
     `测试模型 ${config.default_model}`,
     config.user_agent ? `UA ${config.user_agent}` : null,
+    config.api_protocol ? PROTOCOL_LABELS[config.api_protocol] : null,
   ]
     .filter(Boolean)
     .join(" · ");
@@ -412,7 +414,13 @@ function LlmProviderForm({
   );
   const [baseUrl, setBaseUrl] = useState(config?.base_url ?? "");
   const [userAgent, setUserAgent] = useState(config?.user_agent ?? "");
-  const [advancedOpen, setAdvancedOpen] = useState(Boolean(config?.user_agent));
+  // 空串 = 跟随预设默认协议（不落库，预设升级默认协议时自动跟上）
+  const [apiProtocol, setApiProtocol] = useState<LlmApiProtocol | "">(
+    config?.api_protocol ?? "",
+  );
+  const [advancedOpen, setAdvancedOpen] = useState(
+    Boolean(config?.user_agent || config?.api_protocol),
+  );
   // 出于安全后端不回传 Key；编辑时留空沿用原 Key
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
@@ -452,6 +460,9 @@ function LlmProviderForm({
   // 端点没有预设默认值 = 用户自定义接入点（OpenAI 可配镜像 / 通用兼容端点），
   // 只有这类才需要端点与 User-Agent 输入；官方固定渠道两者都不展示
   const canCustomizeEndpoint = !preset?.base_url;
+  // 协议可切换的预设（OpenAI / 通用兼容端点）才展示协议选择
+  const protocolOptions = preset?.selectable_protocols ?? [];
+  const canChooseProtocol = protocolOptions.length > 1;
   // 新增模型的必填校验：id / 上下文 / 最大输出；开思考则思考预算也必填；
   // 档位直传制至少声明一档（空声明 = 没有菜单，等于没声明）
   const draftValid =
@@ -545,6 +556,7 @@ function LlmProviderForm({
       // 端点固定的官方渠道不开放 UA 配置，一律回传 null，避免切换供应商后
       // 残留上一个自定义端点的 UA
       user_agent: (canCustomizeEndpoint && userAgent.trim()) || null,
+      api_protocol: (canChooseProtocol && apiProtocol) || null,
       api_key: apiKey.trim() || null,
       // 连接测试模型由服务端取目录第一个；官方渠道不回传自定义目录
       extra_models: extras,
@@ -576,6 +588,7 @@ function LlmProviderForm({
             setProviderType(nextProvider);
             setBaseUrl("");
             setUserAgent("");
+            setApiProtocol("");
             setAdvancedOpen(false);
             setAddingCustom(false);
           }}
@@ -673,7 +686,7 @@ function LlmProviderForm({
           )}
         </div>
 
-        {/* User-Agent 是排障用低频字段，默认折叠以缩短主流程。 */}
+        {/* API 协议与 User-Agent 都是低频字段，默认折叠以缩短主流程。 */}
         {canCustomizeEndpoint && (
           <details
             className="group rounded-xl border border-white/[0.07] bg-white/[0.025]"
@@ -683,32 +696,58 @@ function LlmProviderForm({
             <summary className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-3 px-3.5 py-2 text-sub font-medium text-[var(--text-muted)] [&::-webkit-details-marker]:hidden">
               高级设置
               <span className="text-caption font-normal text-[var(--text-faint)] group-open:hidden">
-                User-Agent
+                {canChooseProtocol ? "API 协议 · User-Agent" : "User-Agent"}
               </span>
               <span className="hidden text-caption font-normal text-[var(--text-faint)] group-open:inline">
                 收起
               </span>
             </summary>
-            <div className="border-t border-white/[0.06] px-3.5 pb-3.5 pt-3">
-              <label className={labelClass}>User-Agent（可选）</label>
-              <input
-                type="text"
-                value={userAgent}
-                onChange={(e) => setUserAgent(e.target.value)}
-                // 占位符直接展示留空时实际发送的 SDK 自带 UA（后端按 SDK 版本现算）。
-                placeholder={preset?.default_user_agent ?? "留空使用 SDK 默认标识"}
-                className={inputClass}
-                {...NO_AUTOFILL}
-              />
-              <p
-                className={`mt-1.5 text-caption leading-relaxed ${
-                  userAgentValid ? "text-[var(--text-faint)]" : "text-[#ff6b6b]"
-                }`}
-              >
-                {userAgentValid
-                  ? "仅当网关或 WAF 对请求标识有要求时填写，留空使用上方显示的 SDK 默认值。"
-                  : "只能包含可打印的 ASCII 字符（不能含换行或中文）。"}
-              </p>
+            <div className="space-y-4 border-t border-white/[0.06] px-3.5 pb-3.5 pt-3">
+              {canChooseProtocol && (
+                <div>
+                  <label htmlFor="llm-api-protocol" className={labelClass}>
+                    API 协议
+                  </label>
+                  <select
+                    id="llm-api-protocol"
+                    value={apiProtocol || preset?.protocol || protocolOptions[0]}
+                    onChange={(e) => setApiProtocol(e.target.value as LlmApiProtocol)}
+                    className={`${inputClass} cursor-pointer`}
+                  >
+                    {protocolOptions.map((id) => (
+                      <option key={id} value={id}>
+                        {PROTOCOL_LABELS[id]}
+                        {id === preset?.protocol ? "（默认）" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
+                    GPT-5.6 等推理模型要在调用工具时调节思维链强度，需选 Responses
+                    API；端点不支持 /v1/responses 时选 Chat Completions。
+                  </p>
+                </div>
+              )}
+              <div>
+                <label className={labelClass}>User-Agent（可选）</label>
+                <input
+                  type="text"
+                  value={userAgent}
+                  onChange={(e) => setUserAgent(e.target.value)}
+                  // 占位符直接展示留空时实际发送的 SDK 自带 UA（后端按 SDK 版本现算）。
+                  placeholder={preset?.default_user_agent ?? "留空使用 SDK 默认标识"}
+                  className={inputClass}
+                  {...NO_AUTOFILL}
+                />
+                <p
+                  className={`mt-1.5 text-caption leading-relaxed ${
+                    userAgentValid ? "text-[var(--text-faint)]" : "text-[#ff6b6b]"
+                  }`}
+                >
+                  {userAgentValid
+                    ? "仅当网关或 WAF 对请求标识有要求时填写，留空使用上方显示的 SDK 默认值。"
+                    : "只能包含可打印的 ASCII 字符（不能含换行或中文）。"}
+                </p>
+              </div>
             </div>
           </details>
         )}
@@ -995,6 +1034,11 @@ function LlmProviderForm({
 }
 
 /** 供应商卡片的副标题：固定端点显示域名，其余说明接入方式。 */
+const PROTOCOL_LABELS: Record<LlmApiProtocol, string> = {
+  openai_chat: "Chat Completions",
+  openai_responses: "Responses API",
+};
+
 function providerHint(preset: LlmPreset): string {
   if (preset.id === "bailian") return "聚合 Qwen / DeepSeek / Kimi / GLM";
   if (preset.id === "openai") return "官方端点，可配代理";

@@ -61,6 +61,7 @@ class LlmProviderRepository:
         default_model: str,
         extra_models: list[dict] | None = None,
         user_agent: str | None = None,
+        api_protocol: str | None = None,
     ) -> LlmProvider:
         """新增实例。"""
         row = LlmProvider(
@@ -71,6 +72,7 @@ class LlmProviderRepository:
             default_model=default_model,
             extra_models=extra_models,
             user_agent=user_agent,
+            api_protocol=api_protocol,
         )
         self._session.add(row)
         await self._session.commit()
@@ -88,6 +90,7 @@ class LlmProviderRepository:
         default_model: str,
         extra_models: list[dict] | None = None,
         user_agent: str | None = None,
+        api_protocol: str | None = None,
     ) -> LlmProvider | None:
         """整体覆盖一个实例的接入配置；不存在返回 None。``api_key`` 为 None 时沿用原 Key。
 
@@ -104,6 +107,7 @@ class LlmProviderRepository:
         row.default_model = default_model
         row.extra_models = extra_models
         row.user_agent = user_agent
+        row.api_protocol = api_protocol
         row.status = ConfigStatus.PENDING
         row.last_error = None
         row.available_models = None

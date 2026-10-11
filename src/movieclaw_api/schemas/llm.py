@@ -28,6 +28,14 @@ class LlmPresetView(BaseModel):
     requires_base_url: bool
     #: 用户不覆盖 User-Agent 时实际发送的 SDK 自带 UA（设置页占位提示用）
     default_user_agent: str = Field(default_factory=_sdk_default_user_agent)
+    # 两个协议字段可空：客户端生成器把非空响应字段当必有，旧服务端不返回时
+    # 新客户端会整体解码失败
+    protocol: str | None = Field(
+        default=None, description="默认 API 协议：openai_chat / openai_responses"
+    )
+    selectable_protocols: list[str] | None = Field(
+        default=None, description="实例可切换的协议（含默认）；空或 null = 不可切换，隐藏选择器"
+    )
     models: list[ModelInfo] = Field(default_factory=list)
 
     @classmethod
@@ -37,6 +45,8 @@ class LlmPresetView(BaseModel):
             display_name=preset.display_name,
             base_url=preset.base_url,
             requires_base_url=preset.requires_base_url,
+            protocol=preset.protocol,
+            selectable_protocols=preset.selectable_protocols,
             models=preset.models,
         )
 
@@ -50,6 +60,9 @@ class LlmProviderView(BaseModel):
     base_url: str | None = None
     user_agent: str | None = Field(
         default=None, description="自定义 User-Agent；null 表示用 SDK 默认 UA"
+    )
+    api_protocol: str | None = Field(
+        default=None, description="选用的 API 协议；null 表示跟随预设默认（见预设 protocol）"
     )
     default_model: str = Field(description="连接测试用的模型 id（目录里第一个）")
     status: ConfigStatus
@@ -83,6 +96,7 @@ class LlmProviderView(BaseModel):
             provider_type=row.provider_type,
             base_url=row.base_url,
             user_agent=row.user_agent,
+            api_protocol=row.api_protocol,
             default_model=row.default_model,
             status=row.status,
             usable=row.status == ConfigStatus.ACTIVE,
@@ -163,6 +177,11 @@ class LlmProviderPayload(BaseModel):
         max_length=200,
         description="自定义 User-Agent 请求头（留空使用 openai SDK 自带 UA）",
     )
+    api_protocol: str | None = Field(
+        default=None,
+        description="API 协议：openai_chat（Chat Completions）/ openai_responses（Responses API）；"
+        "留空跟随预设默认，仅预设 selectable_protocols 非空时可选。编辑时不传沿用原值",
+    )
     api_key: str | None = Field(
         default=None,
         description="API Key；新增必填，编辑时留空沿用原 Key（改了供应商类型或端点须重填）",
@@ -180,7 +199,14 @@ class LlmProviderPayload(BaseModel):
     )
 
     @field_validator(
-        "name", "provider_type", "base_url", "user_agent", "api_key", "default_model", mode="before"
+        "name",
+        "provider_type",
+        "base_url",
+        "user_agent",
+        "api_protocol",
+        "api_key",
+        "default_model",
+        mode="before",
     )
     @classmethod
     def _strip(cls, value: str | None) -> str | None:

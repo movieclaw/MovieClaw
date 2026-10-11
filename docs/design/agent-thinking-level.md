@@ -113,6 +113,12 @@ thinking_control:
 - **toggle**：菜单 = 默认/关；关 → 该方言的关闭编码（如
   `thinking:{type:"disabled"}`）。
 
+走 `openai_responses` 协议的实例（OpenAI 预设默认，兼容端点可选）复用同一
+翻译：effort 制的 `reasoning_effort` 改写为 `reasoning.effort`，其余方言原样
+并入请求体。原因是 GPT-5.6 在 Chat Completions 上不允许函数工具与非 none 的
+`reasoning_effort` 同时出现（issue #768），Agent 每轮都带工具，档位只能在
+Responses API 上生效。
+
 **fail-closed**：未声明 `thinking_control` 的模型无菜单、档位永不落请求。
 `supports_thinking` 回归单一职责（是否会输出 reasoning_content），不再
 兼职暗示可控性。用户 `extra_body` 里显式写的同名参数**优先于**翻译结果

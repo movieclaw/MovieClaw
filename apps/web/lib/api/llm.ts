@@ -67,8 +67,15 @@ export interface LlmPreset {
   requires_base_url: boolean;
   /** 用户不覆盖 User-Agent 时实际发送的 SDK 自带 UA（输入框占位提示） */
   default_user_agent: string;
+  /** 默认 API 协议（旧服务端不返回） */
+  protocol?: LlmApiProtocol | null;
+  /** 实例可切换的协议（含默认）；空或缺省 = 不可切换，隐藏选择器 */
+  selectable_protocols?: LlmApiProtocol[] | null;
   models: LlmModelInfo[];
 }
+
+/** 线协议：Chat Completions / Responses API（GPT-5.6 带工具调思考强度需后者） */
+export type LlmApiProtocol = "openai_chat" | "openai_responses";
 
 /** 一个已接入的供应商实例（见 schemas.llm.LlmProviderView，脱敏无 API Key）。 */
 export interface LlmProviderConfig {
@@ -79,6 +86,8 @@ export interface LlmProviderConfig {
   base_url: string | null;
   /** 自定义 User-Agent；null 表示用 SDK 自带 UA */
   user_agent: string | null;
+  /** 选用的 API 协议；null 表示跟随预设默认 */
+  api_protocol?: LlmApiProtocol | null;
   /** 连接测试用的模型（目录里第一个，服务端自动填） */
   default_model: string;
   status: LlmProviderStatus;
@@ -102,6 +111,8 @@ export interface LlmProviderPayload {
   base_url?: string | null;
   /** 自定义 User-Agent：留空（null）使用 SDK 自带 UA */
   user_agent?: string | null;
+  /** API 协议：null 跟随预设默认；不传则编辑时沿用原值 */
+  api_protocol?: LlmApiProtocol | null;
   /** 新增必填；编辑时留空（null）沿用原 Key，但改了类型或端点须重填 */
   api_key?: string | null;
   /** 连接测试模型；留空由服务端取目录第一个 */

@@ -27,7 +27,7 @@ from movieclaw_llm.models import (
     LlmProviderConfig,
     ModelInfo,
 )
-from movieclaw_llm.protocols import PROTOCOLS
+from movieclaw_llm.protocols import build_protocol
 from movieclaw_llm.providers import get_preset
 
 logger = logging.getLogger(__name__)
@@ -128,10 +128,7 @@ class LlmRouter:
         if cached and cached[0] == fingerprint:
             return cached[1]
         preset = get_preset(config.provider_type)
-        protocol_cls = PROTOCOLS.get(preset.protocol)
-        if protocol_cls is None:
-            raise LlmRoutingError(f"预设「{preset.id}」引用了未实现的协议「{preset.protocol}」")
-        client = protocol_cls(config, preset)
+        client = build_protocol(config, preset)
         self._clients[config.name] = (fingerprint, client)
         return client
 

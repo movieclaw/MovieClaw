@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
+from types import EllipsisType
 from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -44,7 +45,7 @@ from movieclaw_db.models.site_credential import ConfigStatus
 from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository
 from movieclaw_llm import ChatMessage, ChatRequest, LlmError, LlmRouter, ModelInfo, ModelSettings
 from movieclaw_llm.models import LlmProviderConfig, ProviderPreset
-from movieclaw_llm.protocols import PROTOCOLS
+from movieclaw_llm.protocols import build_protocol
 from movieclaw_llm.providers import get_preset, list_presets
 
 logger = logging.getLogger("movieclaw_api.llm_config")
@@ -66,6 +67,7 @@ def to_domain_config(row: LlmProvider, api_key: str) -> LlmProviderConfig:
         default_model=row.default_model,
         extra_models=[ModelInfo.model_validate(m) for m in row.extra_models or []],
         user_agent=row.user_agent,
+        api_protocol=row.api_protocol,
     )
 
 
@@ -362,6 +364,7 @@ class LlmConfigService:
         base_url: str | None,
         default_model: str | None,
         extra_models: list[ModelInfo],
+        api_protocol: str | None = None,
         exclude_id: int | None = None,
     ) -> str:
         """新增与编辑共用的入参校验，返回实际使用的连接测试模型 id。
@@ -377,6 +380,13 @@ class LlmConfigService:
             raise BadRequestException(str(exc)) from exc
         if preset.requires_base_url and not base_url:
             raise BadRequestException(f"接入「{preset.display_name}」必须填写 API 端点地址")
+        if api_protocol is not None and api_protocol not in (
+            preset.selectable_protocols or [preset.protocol]
+        ):
+            raise BadRequestException(
+                f"「{preset.display_name}」不支持协议「{api_protocol}」，"
+                f"可选：{'、'.join(preset.selectable_protocols or [preset.protocol])}"
+            )
         if not preset.models:
             if not extra_models:
                 raise BadRequestException(
@@ -403,6 +413,7 @@ class LlmConfigService:
         default_model: str | None = None,
         extra_models: list[ModelInfo] | None = None,
         user_agent: str | None = None,
+        api_protocol: str | None = None,
     ) -> LlmProvider:
         """新增实例。状态置 PENDING，等待后台验证。"""
         if not api_key:
@@ -414,6 +425,7 @@ class LlmConfigService:
             base_url=base_url,
             default_model=default_model,
             extra_models=extras,
+            api_protocol=api_protocol,
         )
         before = build_model_options(await self._repo.list_all())
         row = await self._repo.create(
@@ -424,6 +436,7 @@ class LlmConfigService:
             default_model=test_model,
             extra_models=[m.model_dump() for m in extras] or None,
             user_agent=user_agent,
+            api_protocol=api_protocol,
         )
         await reconcile_defaults(await self._repo.list_all(), before)
         return row
@@ -439,16 +452,22 @@ class LlmConfigService:
         default_model: str | None = None,
         extra_models: list[ModelInfo] | None = None,
         user_agent: str | None = None,
+        api_protocol: str | None | EllipsisType = ...,
     ) -> LlmProvider:
         """整体覆盖一个实例的接入配置。不存在抛 404，正在验证中抛 409。
 
         ``api_key`` 为 None 时沿用原 Key；但类型或端点变了必须重填——
         否则只改个端点就能把已存的 Key 发到任意地址。
+
+        ``api_protocol`` 为 ``...`` 表示请求没带这个字段（不认识它的老客户端），
+        沿用原值；换了供应商类型时原值未必还合法，回到跟随预设默认。
         """
         row = await self.get(provider_id)
         self._assert_not_verifying(row)
         if not api_key and (provider_type != row.provider_type or base_url != row.base_url):
             raise BadRequestException("更换了供应商类型或 API 端点，请重新填写 API Key")
+        if api_protocol is ...:
+            api_protocol = row.api_protocol if provider_type == row.provider_type else None
         extras = extra_models or []
         test_model = await self._validate(
             name=name,
@@ -456,6 +475,7 @@ class LlmConfigService:
             base_url=base_url,
             default_model=default_model,
             extra_models=extras,
+            api_protocol=api_protocol,
             exclude_id=provider_id,
         )
         before = build_model_options(await self._repo.list_all())
@@ -468,6 +488,7 @@ class LlmConfigService:
             default_model=test_model,
             extra_models=[m.model_dump() for m in extras] or None,
             user_agent=user_agent,
+            api_protocol=api_protocol,
         )
         assert updated is not None  # 上面 get 已确认存在
         # 实例改名或目录改动会改变引用的拼写，按稳定身份改写设定
@@ -556,7 +577,7 @@ async def verify_llm_provider(provider_id: int) -> None:
         config = to_domain_config(row, repo.decrypted_api_key(row))
         config.timeout_seconds = _TEST_TIMEOUT
         preset = get_preset(row.provider_type)
-        protocol = PROTOCOLS[preset.protocol](config, preset)
+        protocol = build_protocol(config, preset)
         try:
             await protocol.chat(
                 ChatRequest(

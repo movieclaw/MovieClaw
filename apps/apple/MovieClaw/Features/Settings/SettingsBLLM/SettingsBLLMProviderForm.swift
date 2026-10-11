@@ -28,6 +28,8 @@ struct SettingsBLLMProviderForm: View {
     @State private var providerType: String
     @State private var baseUrl: String
     @State private var userAgent: String
+    /// 空串 = 跟随预设默认协议（不编码，后端沿用原值或用默认）
+    @State private var apiProtocol: String
     @State private var advancedOpen: Bool
     @State private var apiKey = ""
     @State private var showApiKey = false
@@ -49,7 +51,8 @@ struct SettingsBLLMProviderForm: View {
         _providerType = State(initialValue: provider?.providerType ?? "bailian")
         _baseUrl = State(initialValue: provider?.baseUrl ?? "")
         _userAgent = State(initialValue: provider?.userAgent ?? "")
-        _advancedOpen = State(initialValue: provider?.userAgent != nil)
+        _apiProtocol = State(initialValue: provider?.apiProtocol ?? "")
+        _advancedOpen = State(initialValue: provider?.userAgent != nil || provider?.apiProtocol != nil)
         _extraModels = State(initialValue: provider?.extraModels ?? [])
     }
 
@@ -62,6 +65,9 @@ struct SettingsBLLMProviderForm: View {
     private var needBaseUrl: Bool { preset?.requiresBaseUrl ?? false }
     /// 端点没有预设默认值 = 用户自定义接入点，只有这类才需要端点与 User-Agent 输入
     private var canCustomizeEndpoint: Bool { preset?.baseUrl == nil }
+    /// 协议可切换的预设（OpenAI / 通用兼容端点）才展示协议选择
+    private var protocolOptions: [String] { preset?.selectableProtocols ?? [] }
+    private var canChooseProtocol: Bool { protocolOptions.count > 1 }
 
     /// 无内置目录的端点：把其它预设目录的模型也纳入可添加（换端点时模型名与参数往往一致）
     private var borrowedGroups: [(label: String, models: [API.ModelInfo])] {
@@ -107,6 +113,7 @@ struct SettingsBLLMProviderForm: View {
     private var dirty: Bool {
         name != (provider?.name ?? "") || providerType != (provider?.providerType ?? "bailian")
             || baseUrl != (provider?.baseUrl ?? "") || userAgent != (provider?.userAgent ?? "")
+            || apiProtocol != (provider?.apiProtocol ?? "")
             || !apiKey.isEmpty || extraModels != (provider?.extraModels ?? [])
             || (addingCustom && draft != SettingsBLLMModelDraft())
     }
@@ -151,6 +158,7 @@ struct SettingsBLLMProviderForm: View {
             // 换供应商：端点 / UA / 高级设置 / 参数子表单都与上一家无关，一并清掉
             baseUrl = ""
             userAgent = ""
+            apiProtocol = ""
             advancedOpen = false
             addingCustom = false
         }
@@ -211,9 +219,28 @@ struct SettingsBLLMProviderForm: View {
 
             apiKeyField
 
-            // User-Agent 是排障用低频字段，默认折叠以缩短主流程
+            // API 协议与 User-Agent 都是低频字段，默认折叠以缩短主流程
             if canCustomizeEndpoint {
                 DisclosureGroup(isExpanded: $advancedOpen) {
+                    if canChooseProtocol {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Picker("API 协议", selection: Binding(
+                                mcGet: { apiProtocol.isEmpty ? (preset?.protocol ?? protocolOptions[0]) : apiProtocol },
+                                set: { apiProtocol = $0 }
+                            )) {
+                                ForEach(protocolOptions, id: \.self) { id in
+                                    Text(SettingsBLLMFormat.protocolLabel(id) + (id == preset?.protocol ? "（默认）" : ""))
+                                        .tag(id)
+                                }
+                            }
+                            .pickerStyle(.menu)
+                            .accessibilityIdentifier("llm-form-api-protocol")
+                            Text("GPT-5.6 等推理模型要在调用工具时调节思维链强度，需选 Responses API；端点不支持 /v1/responses 时选 Chat Completions。")
+                                .font(.caption)
+                                .foregroundStyle(Theme.textFaint)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
                     VStack(alignment: .leading, spacing: 6) {
                         Text("User-Agent（可选）").font(.subheadline).foregroundStyle(Theme.textMuted)
                         // 占位符直接展示留空时实际发送的 SDK 自带 UA（后端按 SDK 版本现算）
@@ -234,7 +261,8 @@ struct SettingsBLLMProviderForm: View {
                         Text("高级设置")
                         Spacer()
                         if !advancedOpen {
-                            Text("User-Agent").font(.caption).foregroundStyle(Theme.textFaint)
+                            Text(canChooseProtocol ? "API 协议 · User-Agent" : "User-Agent")
+                                .font(.caption).foregroundStyle(Theme.textFaint)
                         }
                     }
                 }
@@ -467,6 +495,8 @@ struct SettingsBLLMProviderForm: View {
             baseUrl: trimmedBaseUrl.isEmpty ? nil : trimmedBaseUrl,
             // 端点固定的官方渠道不开放 UA 配置，一律回传 null
             userAgent: canCustomizeEndpoint && !trimmedUA.isEmpty ? trimmedUA : nil,
+            // 没选过就不编码：新增跟随预设默认，编辑沿用原值
+            apiProtocol: canChooseProtocol && !apiProtocol.isEmpty ? apiProtocol : nil,
             // 留空不编码：编辑时沿用原 Key
             apiKey: apiKey.trimmingCharacters(in: .whitespaces).isEmpty ? nil : apiKey.trimmingCharacters(in: .whitespaces),
             // 连接测试模型由服务端取目录第一个；官方渠道不回传自定义目录

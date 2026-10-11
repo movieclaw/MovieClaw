@@ -3,7 +3,8 @@
 分层设计（参考 pi-ai 的「协议 / 供应商」两层分离）：
 
 - ``models``     统一的请求/响应/流式事件模型，供应商无关，全部可 JSON 序列化；
-- ``protocols``  API 协议实现（当前只有 openai_chat，覆盖所有 OpenAI 兼容端点）；
+- ``protocols``  API 协议实现（openai_chat 覆盖所有 OpenAI 兼容端点，
+                 openai_responses 对接 OpenAI Responses API）；
 - ``providers``  供应商预设注册表（yaml 预置 base_url / 兼容性标志 / 模型目录）；
 - ``router``     路由层：按 model 引用解析供应商实例并分发请求，未来 agent
                  的所有 LLM 调用都从这里进出。
@@ -32,6 +33,7 @@ from movieclaw_llm.models import (
     LlmProviderConfig,
     ModelInfo,
     ModelSettings,
+    NativeOutput,
     ProviderInfo,
     TextPart,
     ThinkingControl,
@@ -63,6 +65,7 @@ __all__ = [
     "LlmServerError",
     "ModelInfo",
     "ModelSettings",
+    "NativeOutput",
     "ProviderInfo",
     "TextPart",
     "ThinkingControl",

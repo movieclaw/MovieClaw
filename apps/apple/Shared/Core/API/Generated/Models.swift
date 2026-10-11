@@ -5699,6 +5699,10 @@ nonisolated extension API {
         var baseUrl: String?
         var requiresBaseUrl: Bool
         var defaultUserAgent: String
+        /// 默认 API 协议：openai_chat / openai_responses
+        var `protocol`: String?
+        /// 实例可切换的协议（含默认）；空或 null = 不可切换，隐藏选择器
+        var selectableProtocols: [String]?
         var models: [API.ModelInfo]
 
         enum CodingKeys: String, CodingKey {
@@ -5707,6 +5711,8 @@ nonisolated extension API {
             case baseUrl = "base_url"
             case requiresBaseUrl = "requires_base_url"
             case defaultUserAgent = "default_user_agent"
+            case `protocol`
+            case selectableProtocols = "selectable_protocols"
             case models
         }
     }
@@ -5722,6 +5728,8 @@ nonisolated extension API {
         var baseUrl: String?
         /// 自定义 User-Agent 请求头（留空使用 openai SDK 自带 UA）
         var userAgent: String?
+        /// API 协议：openai_chat（Chat Completions）/ openai_responses（Responses API）；留空跟随预设默认，仅预设 selectable_protocols 非空时可选。编辑时不传沿用原值
+        var apiProtocol: String?
         /// API Key；新增必填，编辑时留空沿用原 Key（改了供应商类型或端点须重填）
         var apiKey: String?
         /// 连接测试用的模型 id；留空取目录里第一个（预设目录或自定义目录）
@@ -5734,6 +5742,7 @@ nonisolated extension API {
             case providerType = "provider_type"
             case baseUrl = "base_url"
             case userAgent = "user_agent"
+            case apiProtocol = "api_protocol"
             case apiKey = "api_key"
             case defaultModel = "default_model"
             case extraModels = "extra_models"
@@ -5749,6 +5758,8 @@ nonisolated extension API {
         var baseUrl: String?
         /// 自定义 User-Agent；null 表示用 SDK 默认 UA
         var userAgent: String?
+        /// 选用的 API 协议；null 表示跟随预设默认（见预设 protocol）
+        var apiProtocol: String?
         /// 连接测试用的模型 id（目录里第一个）
         var defaultModel: String
         var status: API.ConfigStatus
@@ -5770,6 +5781,7 @@ nonisolated extension API {
             case providerType = "provider_type"
             case baseUrl = "base_url"
             case userAgent = "user_agent"
+            case apiProtocol = "api_protocol"
             case defaultModel = "default_model"
             case status
             case usable

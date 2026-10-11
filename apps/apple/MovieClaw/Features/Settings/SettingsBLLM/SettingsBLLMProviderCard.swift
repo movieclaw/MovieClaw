@@ -29,6 +29,9 @@ struct SettingsBLLMProviderCard: View {
                 SettingsBValueRow(label: "API 端点", value: provider.baseUrl ?? preset?.baseUrl ?? "官方默认", mono: true)
                 SettingsBValueRow(label: "连接测试模型", value: provider.defaultModel, mono: true)
                 if let ua = provider.userAgent { SettingsBValueRow(label: "User-Agent", value: ua, mono: true) }
+                if let proto = provider.apiProtocol {
+                    SettingsBValueRow(label: "API 协议", value: SettingsBLLMFormat.protocolLabel(proto))
+                }
                 if !provider.extraModels.isEmpty {
                     LabeledContent("自定义模型", value: "\(provider.extraModels.count) 个")
                 }

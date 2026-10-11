@@ -2,16 +2,23 @@
 # 目录只维护当前主力模型（GPT-5.6 系列，2026-07-09 发布，截至 2026-09-01
 # 仍为最新一代），数据以官方文档为准（developers.openai.com/api/docs/models，
 # 核实于 2026-09-01）；用户可通过实例配置的 extra_models 补录未收录的模型。
-# 仅 Responses API 可用的 gpt-5.6-cyber 不收录（Chat Completions 不支持）。
+# 仅 Responses API 可用的 gpt-5.6-cyber 暂不收录（切回 Chat Completions 的实例用不了）。
+#
+# 默认走 Responses API：GPT-5.6 在 Chat Completions 上不允许函数工具与非 none
+# 的 reasoning_effort 同时出现（issue #768），Agent 每轮都带工具，思考档位
+# 只能在 Responses 上生效。填了自定义 base_url 的中转若不支持 /v1/responses，
+# 可在实例上切回 Chat Completions（selectable_protocols）。
 #
 # supports_thinking 语义是"思考内容是否通过 API 字段返回"——GPT-5.6 的
-# 推理过程不通过 Chat Completions 返回，故标 false、无思考预算。但推理
-# 强度可控：reasoning_effort 支持 none/low/medium(默认)/high/xhigh/max
-# （5.6 系不含 API 全集里的 minimal），按 effort 方言声明档位菜单，
-# none 即关闭走 supports_off。
+# 推理过程只在请求推理摘要时返回，而摘要要求组织完成实名验证（未验证直接
+# 400），协议层不主动请求，故标 false、无思考预算。推理强度可控：
+# reasoning_effort 支持 none/low/medium(默认)/high/xhigh/max（5.6 系不含 API
+# 全集里的 minimal；luna 实测不支持 max，见 issue #768），按 effort 方言声明
+# 档位菜单，none 即关闭走 supports_off。
 id: openai
 display_name: OpenAI
-protocol: openai_chat
+protocol: openai_responses
+selectable_protocols: [openai_responses, openai_chat]
 base_url: null
 compat:
   thinking_field: null
@@ -50,6 +57,6 @@ models:
     supports_thinking: false
     thinking_control:
       kind: effort
-      levels: [low, medium, high, xhigh, max]
+      levels: [low, medium, high, xhigh]
       supports_off: true
     modalities: [text, image]

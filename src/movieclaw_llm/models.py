@@ -77,6 +77,20 @@ class ToolCall(BaseModel):
     parse_error: str | None = None
 
 
+class NativeOutput(BaseModel):
+    """供应商原生输出条目的不透明快照（目前只有 Responses 协议产出）。
+
+    Responses API 的推理模型在多步工具调用之间需要拿回上一步的推理条目
+    （store=false 时是 encrypted_content 密文）才能接着想，否则每步都从头
+    推理、效果与 token 都吃亏。这些条目只对**产出它的同一实例、同一模型**
+    有意义（密文绑定账号与模型），换了任何一个就按普通历史重建、不回放。
+    """
+
+    provider: str  # 产出它的供应商实例名
+    model: str  # 产出它的模型 id
+    items: list[dict] = Field(default_factory=list)  # response.output 原样条目
+
+
 class ChatMessage(BaseModel):
     """对话消息。四种角色覆盖完整的 agent loop 往返：
 
@@ -91,6 +105,8 @@ class ChatMessage(BaseModel):
     tool_calls: list[ToolCall] | None = None  # 仅 assistant
     tool_call_id: str | None = None  # 仅 tool
     name: str | None = None  # 仅 tool：工具名
+    #: 仅 assistant：供应商原生输出快照，同实例同模型时原样回放（见 NativeOutput）
+    native_output: NativeOutput | None = None
 
     def text(self) -> str:
         """提取纯文本正文（忽略图片与思考块），便于日志与降级场景。"""
@@ -169,6 +185,7 @@ class ChatResponse(BaseModel):
     model: str = ""  # 实际执行的模型 id
     provider: str = ""  # 实际执行的供应商实例名
     error: str | None = None  # finish_reason=error 时的中文错误说明
+    native_output: NativeOutput | None = None  # 原生输出快照，随 to_message 进历史
 
     def to_message(self) -> ChatMessage:
         """转成 assistant 历史消息，直接追加回对话上下文（agent loop 用）。"""
@@ -178,7 +195,12 @@ class ChatResponse(BaseModel):
         if self.content:
             parts.append(TextPart(text=self.content))
         content: str | list[ContentPart] = parts if self.thinking else (self.content or "")
-        return ChatMessage(role="assistant", content=content, tool_calls=self.tool_calls)
+        return ChatMessage(
+            role="assistant",
+            content=content,
+            tool_calls=self.tool_calls,
+            native_output=self.native_output,
+        )
 
 
 StreamEventType = Literal[
@@ -320,7 +342,10 @@ class ProviderPreset(BaseModel):
 
     id: str
     display_name: str
-    protocol: str  # 协议实现 id，当前仅 openai_chat
+    protocol: str  # 默认协议实现 id：openai_chat / openai_responses
+    #: 实例可切换的协议（含默认）；空 = 固定用 protocol。可自填端点的预设
+    #: 才开放切换——中转站对 /v1/responses 的支持参差不齐
+    selectable_protocols: list[str] = Field(default_factory=list)
     base_url: str | None = None  # None 表示用 SDK 默认或必须由用户配置
     #: base_url 是否必须由用户提供（通用兼容端点没有可用的默认值）
     requires_base_url: bool = False
@@ -348,6 +373,8 @@ class LlmProviderConfig(BaseModel):
     #: 自定义 User-Agent 请求头。None = 用 openai SDK 自带的 UA；
     #: 自建网关 / 反代前置 WAF 常按 UA 放行或限流，这里给用户一个覆盖口子。
     user_agent: str | None = None
+    #: 实例选用的协议；None = 跟随预设默认（预设升级默认协议时自动跟上）
+    api_protocol: str | None = None
 
     @field_validator("name")
     @classmethod

@@ -329,6 +329,7 @@ private fun LlmProviderCard(
             InfoRow("API 端点", provider.baseUrl ?: preset?.baseUrl ?: "官方默认")
             InfoRow("连接测试模型", provider.defaultModel)
             provider.userAgent?.takeIf { it.isNotBlank() }?.let { InfoRow("User-Agent", it) }
+            provider.apiProtocol?.let { InfoRow("API 协议", protocolLabel(it)) }
             Spacer(Modifier.height(12.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 CardAction("编辑配置", onClick = onEdit)
