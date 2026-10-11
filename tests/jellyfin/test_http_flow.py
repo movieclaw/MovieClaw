@@ -9,6 +9,7 @@ import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 
@@ -764,6 +765,87 @@ def test_lan_strm_is_presented_as_local_and_relayed(
         head = client.head(f"/Videos/{guid}/stream", params=params, follow_redirects=False)
         assert head.status_code == 200 and head.content == b""
         assert head.headers["content-length"] == str(len(body))
+    finally:
+        server.shutdown()
+        server.server_close()
+
+
+def test_local_path_strm_is_presented_and_served_as_a_local_file(
+    client: TestClient, seeded: dict, media_root: Path, tmp_path: Path
+) -> None:
+    """strm 里写的是服务器挂载目录里的路径（CloudDrive2 / rclone）：按本地文件呈现与直出，
+    大小与文件名都是真实文件的。"""
+    body = bytes(range(256)) * 32
+    target = tmp_path / "CloudNAS" / "115" / "电影" / "盗梦空间.2010.1080p.mkv"
+    target.parent.mkdir(parents=True)
+    target.write_bytes(body)
+    strm = media_root / "Inception (2010)" / "Inception.2010.1080p.strm"
+    strm.write_text(f"{target}\n")
+    token = jf_login(client)
+    guid = item_guid(seeded["movie"])
+    info = client.post(f"/Items/{guid}/PlaybackInfo", params={"ApiKey": token}).json()
+    local = next(s for s in info["MediaSources"] if s["Path"].endswith(".strm"))
+    assert local["Protocol"] == "File" and local["IsRemote"] is False
+    assert local["Size"] == len(body) and local["Container"] == "mkv"
+    params = {"ApiKey": token, "static": "true", "mediaSourceId": local["Id"]}
+    resp = client.get(f"/Videos/{guid}/stream", params=params, headers={"Range": "bytes=32-63"})
+    assert resp.status_code == 206 and resp.content == body[32:64]
+    head = client.head(f"/Videos/{guid}/stream", params=params)
+    assert head.status_code == 200 and head.headers["content-length"] == str(len(body))
+    download = client.get(
+        f"/Items/{guid}/Download", params={"ApiKey": token, "mediaSourceId": local["Id"]}
+    )
+    assert download.status_code == 200 and download.content == body
+    assert (
+        "%E7%9B%97%E6%A2%A6%E7%A9%BA%E9%97%B4.2010.1080p.mkv"
+        in download.headers["content-disposition"]
+    )
+
+    strm.write_text("/etc/passwd\n")
+    info = client.post(f"/Items/{guid}/PlaybackInfo", params={"ApiKey": token}).json()
+    assert all(not s["Path"].endswith(".strm") for s in info["MediaSources"])
+
+
+def test_lan_302_service_strm_sends_the_player_to_the_cloud_cdn(
+    client: TestClient, seeded: dict, media_root: Path
+) -> None:
+    """内网 302 服务（MoviePilot 的 115 插件一类）：取流时服务端带着播放器的 UA 替它跟跳转，
+    把播放器 302 到网盘 CDN，片子不经服务器。"""
+    seen: list[str | None] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args) -> None:
+            pass
+
+        def do_GET(self) -> None:  # noqa: N802
+            seen.append(self.headers.get("User-Agent"))
+            self.send_response(302)
+            ua = quote(self.headers.get("User-Agent") or "", safe="")
+            self.send_header("Location", f"https://cdn.cloud-mock.com/a.mkv?ua={ua}")
+            self.end_headers()
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        strm = media_root / "Inception (2010)" / "Inception.2010.1080p.strm"
+        port = server.server_port
+        strm.write_text(
+            f"http://127.0.0.1:{port}/api/v1/plugin/P115StrmHelper/redirect_url?pickcode=x\n"
+        )
+        token = jf_login(client)
+        guid = item_guid(seeded["movie"])
+        info = client.post(f"/Items/{guid}/PlaybackInfo", params={"ApiKey": token}).json()
+        lan = next(s for s in info["MediaSources"] if s["Path"].endswith(".strm"))
+        assert lan["Protocol"] == "File"  # 播放器连不上内网地址：走 /Videos/{id}/stream
+        resp = client.get(
+            f"/Videos/{guid}/stream",
+            params={"ApiKey": token, "static": "true", "mediaSourceId": lan["Id"]},
+            headers={"User-Agent": "Infuse-Direct/8.1"},
+            follow_redirects=False,
+        )
+        assert resp.status_code == 302
+        assert resp.headers["location"] == "https://cdn.cloud-mock.com/a.mkv?ua=Infuse-Direct%2F8.1"
+        assert seen[-1] == "Infuse-Direct/8.1"  # 取流那一跳带的是播放器的 UA
     finally:
         server.shutdown()
         server.server_close()

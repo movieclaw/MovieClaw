@@ -1,6 +1,8 @@
 # 网盘（strm）条目的播放：与本地文件同等体验——设计
 
 > 状态：已实现（2026-10-11）。源起：issue #601（「增加播放器播放 strm 302 能力」）。
+> 同日补：strm 内容兼容（服务器本地路径、编码容错、内网 302 服务替播放器跟跳转，§1.1、§7.1），
+> 源起用户反馈 CloudDrive2 挂载路径的 strm 被拒。
 > 关联：[web-player.md](web-player.md)（本文撤销其 §0.2 硬边界 2）、
 > [jellyfin-transcode.md](jellyfin-transcode.md)（撤销 §0 第 3 条的 strm 部分）、
 > [strm-workflow.md](strm-workflow.md)（strm 怎么进媒体库）。
@@ -32,8 +34,17 @@ strm 只是「源在网盘」，播放链路的每一环都按本地文件做，
 | 内封字幕 / 字体 / 缩略图 | ffmpeg 读文件 | ffmpeg 读直链（§6） |
 | Jellyfin 限码率转码 | 协商 + master.m3u8 | 同样协商（先按需探测） |
 
-读源的唯一入口是 `streaming.media_input(file_path)`：本地文件返回路径本身；strm **每次**
-现读文件里的直链（直链多带时效签名，seek 重启也重读），附上 `strm_input_args`：
+strm 有两层含义，代码里分开：
+
+- **「云端条目」策略**看 `is_strm(file_path)`（按扩展名，不读文件）：扫描不探规格、不做整片
+  通读的后台活（刷片预切、整片抽字幕、ffprobe 通读关键帧）。指向挂载目录的本地路径也守这条——
+  挂载背后多半是网盘，通读就是把整片拉一遍；
+- **「字节在哪」**看 `streaming.parse_strm` 的结果（§1.1）：`StrmLink`（远端地址 + 请求头）或
+  `Path`（本地视频文件）。直出、ffmpeg 输入（`media_input` / `strm_source_input`）、按索引稀疏读
+  （`open_strm_range`：远端 `RemoteRangeFile`、本地 `LocalRangeFile`，接口相同）都只在这里分叉。
+
+读源的入口是 `streaming.media_input(file_path)`：本地文件返回路径本身；strm **每次**
+现读文件（直链多带时效签名，seek 重启也重读）——本地路径给真实文件，直链附上 `strm_input_args`：
 
 - `-protocol_whitelist http,https,httpproxy,tcp,tls,crypto,rtsp,rtp,udp`：直链来自库里的
   文本文件，远端若回一份清单，ffmpeg 默认会照着打开里面写的地址——不放行 `file`，就读不到
@@ -43,6 +54,34 @@ strm 只是「源在网盘」，播放链路的每一环都按本地文件做，
 
 缓存指纹、失败记忆、实时进度等仍按 strm 文件本身（路径 + mtime）记——strm 内容变了
 （换了直链）指纹自然变。
+
+### 1.1 strm 里能写什么（`streaming.parse_strm`）
+
+2026-10 调研了 Emby / Jellyfin / Kodi / Infuse 怎么读 strm、国内各家生成工具（alist / OpenList、
+CloudDrive2、AutoFilm、MoviePilot 的 P115StrmHelper / P123StrmHelper / CloudStrm、qmediasync、
+p115nano302、SmartStrm、Symedia、CMS）实际写进去什么，按并集兼容：
+
+- 取第一个非空、非 `#` 开头的行（`#EXTM3U` / `#EXTINF` / `#KODIPROP` 都跳过）；UTF-8 容忍 BOM
+  与 CRLF，读不成 UTF-8 的按 GB18030（Windows 中文工具）；
+- `http/https/rtsp/rtp://`：远端地址，**原样保留不重新编码**——各家写法五花八门（原样中文与空格、
+  逐段编码、整段编码的 `%2F`、签名里的 `=:`、`+` 当空格、`http://host:8000?pickcode=` 没有路径、
+  `user:pass@host`），都要原样交给对端。请求头的两种 Kodi 写法见 §9；
+- 不带 `scheme://` 的是**服务器本地路径**（CloudDrive2 / rclone 挂载；Emby、Kodi 支持，Symedia、
+  CMS 本地模式、CloudStrm 本地模式、qmediasync 本地驱动、P115StrmHelper 接管挂载都这么写）：绝对
+  路径、`file://`（主机只能空或 localhost）、相对 strm 所在目录的路径（Kodi 写法）；原样找不到时按
+  URL 解码后再找一次（有的工具把路径编码了写）。解析到真实位置（展开软链）后必须是**存在的普通
+  文件、扩展名是视频**（媒体库视频扩展名 + iso），否则拒绝；
+- 其余一律拒绝并给出原因（日志、开会话 / 取流的错误信息、探测失败原因都是这句话）：`smb://` /
+  `nfs://`（请先挂载到服务器）、`rtmp://`、Windows 路径（`D:\`、`\\NAS\`）、`redirect115&…`
+  这类只有某个 302 反代认识的伪地址、挂载掉线找不到文件。
+
+本地路径的安全边界：strm 能写任意路径就成了任意文件读取。Jellyfin 10.11.7 因一条「上传字幕路径
+穿越写出 strm → 指向数据库读出 → 提权」的漏洞链（GHSA-j2hf-x4q5-47j3，9.9 分）整个禁掉了本地路径；
+我们不禁，但只认视频文件——数据库、密钥、系统文件都过不了（软链改名成 .mkv 也一样，判的是解析后
+的真实文件）。不限定在媒体库目录里：挂载目录本来就在库外。
+
+不做路径映射：容器里看到的挂载路径必须与 strm 里写的一致（docker 按同一路径映射挂载目录），
+对不上时错误信息直接说「容器里的路径与 strm 里写的不一致」。
 
 ## 2. 按需探测（`services/playback/strm_probe.py`）
 
@@ -109,7 +148,21 @@ VOD 列表（web-player.md §12）的直通档要全片关键帧表。`RemoteRan
 - 直出的是网盘直链且同档重开用完：**降档**，由服务端读直链换封装 / 转码。浏览器连不上
   网盘（直链是内网地址、https 页面里的 http 直链）不等于服务器连不上。
 
-### 7.1 内网直链由服务端转发（`streaming.strm_needs_relay` / `RemoteRelayResponse`）
+### 7.1 内网直链：先替播放器跟跳转，出不去才转发（`streaming.strm_redirect_target`）
+
+内网地址多半不是片子本身，而是一个 302 服务（MoviePilot 的 P115StrmHelper、p115nano302、
+qmediasync、alist 115 存储的 `/d/`）：它只负责换出网盘 CDN 直链。整条流都转发会把片子全压在
+服务器上行上（NAS 常见上行只有几 MB/s）。所以直出时先由服务端**带着播放器自己的 User-Agent**
+（115 一类直链与 UA 绑定）替它跟跳转（带 `Range: bytes=0-0`，只取响应头，最多 5 跳）：跳到播放器
+连得上的地址就把播放器 302 过去，片子不经服务器——go-emby2openlist、MediaWarp 一类 302 反代同一
+思路；一路都是内网、或者内网服务自己出字节（alist 本地存储的 `/p/`、CD2 的 `/static`）、或者连不上，
+才按下面转发。strm 写了请求头、地址里带账号密码的不跟跳转，直接转发（播放器不会带这些头，浏览器
+拒绝带凭据的媒体地址）。
+
+服务端自己读源（探测、换封装 / 转码、读索引）不受影响：ffmpeg 与 `RemoteRangeFile` 都自己跟跳转，
+用的是自己的 UA，同一次读取里前后一致。
+
+#### 转发（`streaming.strm_needs_relay` / `RemoteRelayResponse`）
 
 MoviePilot、alist 一类工具常把 strm 写成 `http://127.0.0.1:5244/d/...`、`http://alist:5244/d/...`
 或 `http://192.168.x.x/...`：只在服务器所在的网络里连得上，302 给外网的浏览器、电视、Mac 转码器
@@ -144,6 +197,23 @@ ffmpeg / ffprobe 的用例标 integration）、`test_decide.py` 的 strm 段、
 | 直链是内网地址（浏览器连不上、服务器连得上） | 档 0 失败 → 自动降到档 1 由服务端中转，VOD 列表（moov 经 Range 读出），续播点接着放，拖动正常 |
 | Jellyfin（Infuse 形态）限 2 Mbps | PlaybackInfo 给 TranscodingUrl，档 3 转 480p，首段与中段分片正常 |
 
+兼容矩阵（`tests/api/test_strm_compat.py`）：起一个仿网盘生态的 HTTP 服务——alist `/d/`（115 存储
+302 到 CDN、本地存储 302 到自己的 `/p/`）、CD2 `/static`（整段编码路径）、P115StrmHelper / P123StrmHelper /
+p115nano302 / qmediasync 的 302、SmartStrm 的 Basic 认证（带质询头）、与 UA 绑定且会过期的网盘
+CDN——按 §1.1 每种写法走真实取流 / 探测接口：内网 302 服务都把播放器送到 CDN 且服务端问路时带的是
+播放器的 UA、播放器拿着 CDN 地址用自己的 UA 能取到字节（换个 UA 403）；自己出字节的服务转发；公网
+地址原样 302 不重编码；各种编码 / 格式；本地路径六种写法按本地文件直出、换封装时 ffmpeg 直接读挂载
+文件；十几种该拒绝的内容逐条给出原因、读不到密钥与数据库；过期直链的探测失败原因是「HTTP 403，请
+重新生成 strm」；真 ffprobe 按每种写法读出规格；本地路径 strm 的关键帧 / 字幕块按索引读与本地文件
+一致。Jellyfin 侧（`tests/jellyfin/test_http_flow.py`）：本地路径的 PlaybackInfo / 取流 / HEAD /
+下载，内网 302 服务的取流 302。
+
+真实进程端到端（2026-10-11，隔离后端 + 仿网盘生态 + 真扫描「其他」库）：14 种写法（9 种工具形态的
+地址 + 本地绝对路径 / `file://` / 相对路径 / BOM+CRLF / GB18030）在「全解码播放器直出」（ffprobe
+带 Infuse 的 UA 当播放器）与「浏览器换封装」（ffmpeg 拉 HLS）两条链路全部播放成功、首播探出规格，
+扫描期间对网盘零请求；4 种该拒绝的给出原因。同一脚本对照改动前的代码：本地路径类 5 种全部失败、
+拒绝原因一律是「网盘直链无效」，302 服务从没见过播放器的 UA（整片经服务器转发）。
+
 ## 9. 已知边界
 
 - App（iOS / Mac / Apple TV）声明全解码，网盘条目照旧直连；Android TV 与网页一样按
@@ -153,4 +223,9 @@ ffmpeg / ffprobe 的用例标 integration）、`test_decide.py` 的 strm 段、
   行、地址后的 `|User-Agent=…&Referer=…`）会带给服务端的每一种读取（ffprobe / ffmpeg 的
   `-user_agent` / `-headers`、按 Range 读索引与字幕、转发），这样的直链一律由服务端转发
   （302 出去的播放器不会带这些头）。头名只收字母数字与连字符、值里不许有换行，防注入；
-- 没有字幕索引的 MKV（片库约 2%）与 MP4 内封字幕，第一次选字幕仍要通读全片。
+- 没有字幕索引的 MKV（片库约 2%）与 MP4 内封字幕，第一次选字幕仍要通读全片；
+- 本地路径的 strm 直出时字节经服务器（挂载 → 服务器 → 播放器），与 Emby 不加 302 反代时一样。
+  要让播放器直接连网盘，得把挂载路径翻译成直链（CD2 的 gRPC `GetMountPoints` + `GetDownloadUrlPath`
+  能自动做到，302 反代靠手配前缀映射），留待有需要时再做；
+- 服务端替播放器跟跳转不缓存结果：播放器每条 Range 连接都会问一次 302 服务（局域网内一次往返；
+  302 服务自己多半有缓存）。

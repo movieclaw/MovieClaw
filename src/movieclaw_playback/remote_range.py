@@ -13,7 +13,9 @@ https，每个请求都重新握手的话光 TLS 就要一两百毫秒。
 
 from __future__ import annotations
 
+import os
 import threading
+from pathlib import Path
 from types import TracebackType
 
 import httpx
@@ -110,6 +112,40 @@ class RemoteRangeFile:
                 return r.read()[:length]
         except httpx.HTTPError as exc:
             raise OSError(f"远端读取失败：{exc}") from exc
+
+
+class LocalRangeFile:
+    """本地文件套上 ``RemoteRangeFile`` 同一套接口（strm 指向挂载目录里的文件时用）。"""
+
+    def __init__(self, path: str | Path) -> None:
+        self._file = open(path, "rb")  # noqa: SIM115 — 由 close / with 收尾
+        self.size: int | None = os.fstat(self._file.fileno()).st_size
+
+    def __enter__(self) -> LocalRangeFile:
+        return self
+
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc: BaseException | None,
+        tb: TracebackType | None,
+    ) -> None:
+        self.close()
+
+    def close(self) -> None:
+        self._file.close()
+
+    def tell(self) -> int:
+        return self._file.tell()
+
+    def seek(self, offset: int, whence: int = 0) -> int:
+        return self._file.seek(offset, whence)
+
+    def read(self, n: int) -> bytes:
+        return self._file.read(n)
+
+    def pread(self, length: int, offset: int) -> bytes:
+        return os.pread(self._file.fileno(), length, offset)
 
 
 _CLIENT: httpx.Client | None = None

@@ -2227,10 +2227,17 @@ def media_source_dto(f: LibraryFile, *, resolve_strm: bool = False) -> dict[str,
             link = read_strm(f.file_path)
             if link is None:
                 return None
+            if isinstance(link, Path):
+                # 指向服务器挂载目录里的文件：按本地文件呈现，播放器走 /Videos/{id}/stream
+                source["Protocol"] = "File"
+                source["IsRemote"] = False
+                source["Size"] = link.stat().st_size
+                source["Container"] = f.container or link.suffix.lstrip(".").lower()
+                return {k: v for k, v in source.items() if v is not None}
             url = link.url
             if strm_needs_relay(url, link.headers):
                 # 内网 / 回环 / 容器服务名的直链客户端连不上：按本地文件呈现，播放器走
-                # /Videos/{id}/stream，由服务端转发（streaming.strm_needs_relay）
+                # /Videos/{id}/stream，由服务端替它跟跳转或转发（streaming.strm_redirect_target）
                 source["Protocol"] = "File"
                 source["IsRemote"] = False
                 if f.container and f.container != "strm":

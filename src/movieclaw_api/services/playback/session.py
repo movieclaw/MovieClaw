@@ -69,7 +69,7 @@ from movieclaw_events import new_ulid
 from movieclaw_playback import activity
 from movieclaw_playback.decide import PlaybackPlan, PlaybackTier
 from movieclaw_playback.hls_vod import SegmentPlan
-from movieclaw_playback.streaming import is_strm, media_input
+from movieclaw_playback.streaming import StrmError, is_strm, parse_strm, strm_source_input
 
 logger = logging.getLogger("movieclaw_api.playback.session")
 
@@ -1027,13 +1027,15 @@ class TranscodeSessionManager:
         extra: dict[str, Any] = {}
         source_path = session.source_path
         if is_strm(source_path):
-            # 网盘（strm）条目：ffmpeg 直接读直链。每轮（含 seek 重启）都现读 strm——直链多带
-            # 时效签名，开播时解析的那条可能已经过期；缓存指纹仍按 strm 文件算（cache.py）
-            source = media_input(source_path)
-            if source is None:
-                session.error = "网盘直链无效（strm 文件里没有可用的 http/https 地址）"
-                raise SessionStartError(session.error)
-            source_path, extra["input_options"] = source
+            # 网盘（strm）条目：ffmpeg 直接读直链（或 strm 指向的挂载文件）。每轮（含 seek
+            # 重启）都现读 strm——直链多带时效签名，开播时解析的那条可能已经过期；缓存指纹仍按
+            # strm 文件算（cache.py）
+            try:
+                source = parse_strm(source_path)
+            except StrmError as exc:
+                session.error = f"strm 用不了：{exc}"
+                raise SessionStartError(session.error) from exc
+            source_path, extra["input_options"] = strm_source_input(source)
         elif session.concat_list is not None:
             source_path = str(session.directory / CONCAT_LIST_NAME)
             extra["input_format"] = "concat"

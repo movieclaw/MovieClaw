@@ -174,14 +174,15 @@ from movieclaw_playback.streaming import (
     ClientDisconnected,
     DisconnectAwareFileResponse,
     RemoteRelayResponse,
+    StrmError,
     StrmLink,
     await_unless_disconnected,
     container_mime_type,
     direct_play_byte_patches,
     is_strm,
+    parse_strm,
     register_device_stream,
-    resolve_strm,
-    strm_needs_relay,
+    strm_redirect_target,
     unregister_device_stream,
 )
 from movieclaw_playback.subtitles import (
@@ -2000,17 +2001,26 @@ async def stream_library_file(
     # 就能耗尽连接池（5 + 溢出 10），整个服务的接口一起卡 30 秒超时（2026-09-27 NAS 实测）。
     # 往下只用已读出的列，不再访问数据库。
     await session.close()
-    if is_strm(file.file_path):
-        link = resolve_strm(file.file_path)
-        if link is None:
-            raise NotFoundException("网盘直链无效")
-        if strm_needs_relay(link.url, link.headers):
-            # 内网 / 回环 / 容器服务名的直链、或要带请求头的直链：播放器自己取不了，
-            # 服务端按 Range 原样转发
-            return _metered_relay_response(request, grant, file, link)
-        return RedirectResponse(link.url, status_code=302)
     path = PathLib(file.file_path)
     media_type = container_mime_type(file.container)
+    size_bytes = None
+    if is_strm(file.file_path):
+        try:
+            source = parse_strm(file.file_path)
+        except StrmError as exc:
+            raise NotFoundException(f"strm 用不了：{exc}") from exc
+        if isinstance(source, StrmLink):
+            target = await strm_redirect_target(source, request.headers.get("user-agent"))
+            if target is None:
+                # 内网 / 回环 / 容器服务名、跟跳转也落不到外面的直链，或要带请求头的直链：
+                # 播放器自己取不了，服务端按 Range 原样转发
+                return _metered_relay_response(request, grant, file, source)
+            return RedirectResponse(target, status_code=302)
+        # 指向挂载目录里的文件：往下与本地文件同样直出（台账的大小是 strm 文本的，没探过
+        # 规格时容器也是空的，都按真实文件来）
+        path = source
+        media_type = container_mime_type(file.container or path.suffix)
+        size_bytes = path.stat().st_size
     if file.is_disc() and (file.container or "") != "iso":
         # 原盘目录只有单剪辑主片才有「原文件」可直出（disc-playback.md §3.3）。多剪辑由
         # 能读目录的播放器走目录直推（下面的 /disc 接口），其余客户端在决策层已被导向
@@ -2026,7 +2036,9 @@ async def stream_library_file(
         raise NotFoundException("文件已不在磁盘上")
     # hev1 标签的 HEVC MP4 在 Safari 上直出必败，流里把标签改成 hvc1（#430）
     byte_patches = await direct_play_byte_patches(path, file.container, file.video_codec)
-    return _metered_file_response(request, grant, file, path, media_type, byte_patches=byte_patches)
+    return _metered_file_response(
+        request, grant, file, path, media_type, byte_patches=byte_patches, size_bytes=size_bytes
+    )
 
 
 def _metered_file_response(

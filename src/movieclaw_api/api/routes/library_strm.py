@@ -60,18 +60,20 @@ class StrmProbeView(BaseModel):
 
 
 def _container_of(file_path: str) -> str | None:
-    """直链的容器：双后缀文件名（foo.mkv.strm）直接看出来，否则读 .strm 看直链路径的后缀。"""
+    """直链的容器：双后缀文件名（foo.mkv.strm）直接看出来，否则读 .strm 看直链（或指向的
+    本地文件）路径的后缀。"""
     from movieclaw_api.services.playback.strm_probe import URL_CONTAINERS
-    from movieclaw_playback.streaming import resolve_strm_url
+    from movieclaw_playback.streaming import strm_location
 
     known = URL_CONTAINERS | {"iso"}
     inner = PurePosixPath(PurePosixPath(file_path).stem).suffix.lower().lstrip(".")
     if inner in known:
         return inner
-    url = resolve_strm_url(file_path)
-    if url is None:
+    location = strm_location(file_path)
+    if location is None:
         return None
-    suffix = PurePosixPath(urlsplit(url).path).suffix.lower().lstrip(".")
+    path = location if location.startswith("/") else urlsplit(location).path
+    suffix = PurePosixPath(path).suffix.lower().lstrip(".")
     return suffix if suffix in known else None
 
 

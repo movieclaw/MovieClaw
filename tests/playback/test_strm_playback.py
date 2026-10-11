@@ -31,8 +31,8 @@ from movieclaw_playback.streaming import (
     STRM_PROTOCOL_WHITELIST,
     media_input,
     resolve_strm,
-    resolve_strm_url,
     strm_input_args,
+    strm_location,
     strm_needs_relay,
 )
 
@@ -199,7 +199,7 @@ def test_strm_headers_from_kodi_lines_and_url_suffix(tmp_path):
         "X-Token": "abc def",
         "Cookie": "UID=1",
     }
-    assert resolve_strm_url(strm) == "https://cdn.example.com/a.mkv?t=1"
+    assert strm_location(strm) == "https://cdn.example.com/a.mkv?t=1"
     # 要带请求头的直链一律服务端转发：302 出去的播放器不会带这些头
     assert strm_needs_relay(link.url, link.headers) is True
     assert strm_needs_relay(link.url) is False
@@ -255,7 +255,7 @@ def test_local_transcode_command_reads_the_strm_url(tmp_path):
     assert argv.index("-reconnect") < i
 
     strm.write_text("not a url\n")
-    with pytest.raises(Exception, match="网盘直链无效"):
+    with pytest.raises(Exception, match="strm 用不了"):
         TranscodeSessionManager(tmp_path / "cache")._local_command(session, start_number=0)
 
 

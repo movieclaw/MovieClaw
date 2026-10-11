@@ -2,13 +2,16 @@
 
 - 本地文件：交给 Starlette FileResponse（原生 Range/206/If-Range/HEAD），
   Content-Type 按容器查表；
-- strm 占位文件：读第一个非空、非 ``#`` 开头的行，**只接受
-  http/https/rtsp/rtp 绝对 URI**——File 协议/相对路径必须拒绝，否则 strm
-  就成了任意本地文件读取漏洞（对齐 Jellyfin ProbeProvider.FetchShortcutInfo
-  与 BaseItem.cs:1191-1194 的安全语义）。直出走 302 重定向；直链是播放器
-  多半连不上的内网 / 回环 / 容器服务名地址时，改由服务端按 Range 原样转发
-  （``strm_needs_relay`` / ``RemoteRelayResponse``）。换封装 / 转码时由服务端的
-  ffmpeg 直接读直链（``strm_input_args``，docs/design/strm-playback.md）。
+- strm 占位文件：读第一个非空、非 ``#`` 开头的行（``parse_strm``）。两种内容：
+  - http/https/rtsp/rtp 地址（网盘直链、302 服务）：直出走 302；播放器多半连不上的
+    内网 / 回环 / 容器服务名地址先由服务端替播放器跟跳转（``strm_redirect_target``），
+    落不到播放器连得上的地址才按 Range 原样转发（``RemoteRelayResponse``）。换封装 /
+    转码时由服务端的 ffmpeg 直接读直链（``strm_input_args``）；
+  - 服务器本地路径（CloudDrive2 / rclone 挂载，Emby / Kodi 的写法；绝对路径、
+    ``file://``、相对 strm 所在目录的路径）：解析成真实文件后与本地文件同样取字节。
+    只认存在的视频文件——strm 能写任意路径就成了任意文件读取（Jellyfin 10.11.7 因此
+    整个禁掉本地路径，GHSA-j2hf-x4q5-47j3），限定视频扩展名后数据库、密钥都读不到。
+  见 docs/design/strm-playback.md。
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from secrets import token_hex
 from typing import TypeVar
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import parse_qsl, unquote, urlsplit
 
 import anyio
 import httpx
@@ -36,12 +39,23 @@ from movieclaw_playback.mp4_sample_entry import (
     apply_byte_patches,
     hev1_to_hvc1_patches,
 )
+from movieclaw_playback.remote_range import LocalRangeFile, RemoteRangeFile
 
 logger = logging.getLogger("movieclaw_playback.streaming")
 
 STRM_EXT = ".strm"
 
 _ALLOWED_STRM_SCHEMES = {"http", "https", "rtsp", "rtp"}
+
+#: strm 指向本地文件时只认这些扩展名（媒体库视频扩展名 + 光盘镜像）
+_LOCAL_TARGET_EXTS = frozenset(
+    {
+        ".mkv", ".mp4", ".avi", ".ts", ".m2ts", ".wmv", ".mov", ".flv", ".rmvb",
+        ".mpg", ".mpeg", ".m4v", ".webm", ".iso",
+    }
+)  # fmt: skip
+_URI_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*)://")
+_WINDOWS_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
 
 #: ffmpeg / ffprobe 读网盘直链时只放行网络协议。直链来自库里的文本文件，远端若回一份
 #: 播放列表或清单，ffmpeg 默认会照着打开里面写的地址——不放行 file，就读不到服务器本地文件。
@@ -539,22 +553,35 @@ _VLC_HEADER_OPTIONS = {
 _HEADER_NAME = re.compile(r"^[A-Za-z0-9-]{1,64}$")
 
 
-def resolve_strm(file_path: str | Path) -> StrmLink | None:
-    """读 strm 文件内容解析出远程播放地址与请求头；不合法返回 None。
+class StrmError(ValueError):
+    """strm 内容用不了；``str(exc)`` 是给用户看的原因。"""
 
-    取第一个非空且不以 ``#`` 开头的行；仅接受白名单 scheme 的绝对 URI。
-    每次播放现读文件——strm 内容可能是带时效签名的直链，不缓存。
 
-    请求头两种 Kodi 写法都认（115 一类网盘按 User-Agent 校验直链）：地址前的
-    ``#EXTVLCOPT:http-user-agent=…`` / ``http-referrer=…`` 行，与地址后的
-    ``|User-Agent=…&Referer=…``（值按 URL 编码）。头名只收字母数字与连字符、值里不许有
-    换行——它们会原样进 ffmpeg 的 ``-headers``，放进换行就能注入别的头。
+def parse_strm(file_path: str | Path) -> StrmLink | Path:
+    """读 strm 文件解析出播放源：远端地址（``StrmLink``）或本地视频文件（``Path``）。
+
+    取第一个非空且不以 ``#`` 开头的行；UTF-8（容忍 BOM），读不成 UTF-8 的按 GB18030
+    （Windows 中文工具的默认编码）。每次播放现读文件——strm 内容可能是带时效签名的直链，
+    不缓存。用不了抛 ``StrmError``（带原因）。
+
+    远端地址只认 http/https/rtsp/rtp。请求头两种 Kodi 写法都认（115 一类网盘按
+    User-Agent 校验直链）：地址前的 ``#EXTVLCOPT:http-user-agent=…`` /
+    ``http-referrer=…`` 行，与地址后的 ``|User-Agent=…&Referer=…``（值按 URL 编码）。
+    头名只收字母数字与连字符、值里不许有换行——它们会原样进 ffmpeg 的 ``-headers``，
+    放进换行就能注入别的头。地址原样保留、不重新编码：生成工具写的中文、``%2F``、
+    签名里的 ``=:`` 都要原样交给对端。
+
+    不带 ``scheme://`` 的是本地路径（``_local_target``）。
     """
+    path = Path(file_path)
     try:
-        text = Path(file_path).read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        logger.warning("strm 文件读取失败：%s", file_path)
-        return None
+        data = path.read_bytes()
+    except OSError as exc:
+        raise StrmError(f"strm 文件读取失败（{exc.strerror or exc}）") from exc
+    try:
+        text = data.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = data.decode("gb18030", errors="replace")
     headers: dict[str, str] = {}
     for line in text.splitlines():
         candidate = line.strip()
@@ -566,18 +593,67 @@ def resolve_strm(file_path: str | Path) -> StrmLink | None:
             continue
         if not candidate or candidate.startswith("#"):
             continue
-        url, _, suffix = candidate.partition("|")
-        scheme = urlsplit(url).scheme.lower()
+        match = _URI_SCHEME.match(candidate)
+        scheme = match.group(1).lower() if match else ""
+        if scheme == "file":
+            return _local_target(_file_uri_path(candidate), path)
+        if not scheme:
+            return _local_target(candidate, path)
         if scheme not in _ALLOWED_STRM_SCHEMES:
-            logger.warning(
-                "strm 内容不是允许的远程地址（仅接受 http/https/rtsp/rtp），已拒绝：%s",
-                file_path,
+            raise StrmError(
+                f"不支持 {scheme}:// 地址（只认 http/https/rtsp/rtp 直链，或服务器上的本地路径；"
+                "共享目录请先挂载到服务器再写挂载路径）"
             )
-            return None
+        url, _, suffix = candidate.partition("|")
         for name, value in parse_qsl(suffix, keep_blank_values=False):
             _add_header(headers, name.strip(), value.strip())
         return StrmLink(url=url, headers=headers)
-    return None
+    raise StrmError("strm 文件里没有播放地址")
+
+
+def _file_uri_path(uri: str) -> str:
+    parts = urlsplit(uri)
+    if parts.netloc not in ("", "localhost"):
+        raise StrmError(f"file:// 地址指向了别的主机（{parts.netloc}），服务器读不到")
+    return unquote(parts.path)
+
+
+def _local_target(written: str, strm_path: Path) -> Path:
+    """strm 里写的本地路径 → 真实的视频文件。
+
+    相对路径按 strm 所在目录解析（Kodi 的写法）。解析到真实位置（展开软链）后必须是
+    存在的普通文件、扩展名是视频——数据库、密钥、系统文件都过不了这一关。有的生成工具把
+    路径按 URL 编码写进去，原样找不到时再按解码后的找一次。
+    """
+    if _WINDOWS_PATH.match(written):
+        raise StrmError(
+            f"strm 里是 Windows 路径（{written}），服务器上用不了，请写服务器上的挂载路径"
+        )
+    tried: list[str] = []
+    for raw in dict.fromkeys((written, unquote(written))):
+        candidate = Path(raw) if raw.startswith("/") else strm_path.parent / raw
+        tried.append(str(candidate))
+        try:
+            target = candidate.resolve(strict=True)
+        except (OSError, RuntimeError):
+            continue
+        if target.suffix.lower() not in _LOCAL_TARGET_EXTS or not target.is_file():
+            raise StrmError(f"strm 指向的不是视频文件：{raw}")
+        return target
+    if Path(written).suffix.lower() not in _LOCAL_TARGET_EXTS:
+        raise StrmError(f"strm 内容既不是 http/https/rtsp/rtp 地址，也不是视频文件路径：{written}")
+    raise StrmError(
+        f"找不到 strm 指向的本地文件（挂载没上线，或容器里的路径与 strm 里写的不一致）：{tried[0]}"
+    )
+
+
+def resolve_strm(file_path: str | Path) -> StrmLink | Path | None:
+    """``parse_strm`` 的不抛异常版：用不了记一条带原因的日志，返回 None。"""
+    try:
+        return parse_strm(file_path)
+    except StrmError as exc:
+        logger.warning("strm 用不了：%s（%s）", exc, file_path)
+        return None
 
 
 def _add_header(headers: dict[str, str], name: str, value: str) -> None:
@@ -585,10 +661,12 @@ def _add_header(headers: dict[str, str], name: str, value: str) -> None:
         headers[name] = value
 
 
-def resolve_strm_url(file_path: str | Path) -> str | None:
-    """strm 里的远程地址（不含请求头）；不合法返回 None。见 ``resolve_strm``。"""
-    link = resolve_strm(file_path)
-    return link.url if link is not None else None
+def strm_location(file_path: str | Path) -> str | None:
+    """strm 指向哪里：远端地址（不含请求头），或本地文件的真实路径；用不了返回 None。"""
+    source = resolve_strm(file_path)
+    if source is None:
+        return None
+    return str(source) if isinstance(source, Path) else source.url
 
 
 def strm_input_args(url: str, headers: dict[str, str] | None = None) -> list[str]:
@@ -607,15 +685,51 @@ def strm_input_args(url: str, headers: dict[str, str] | None = None) -> list[str
 def media_input(file_path: str) -> tuple[str, list[str]] | None:
     """ffmpeg / ffprobe 读这个台账文件时的（输入地址, ``-i`` 前的输入选项）。
 
-    本地文件就是路径本身、没有额外选项；strm 是**现读**出的网盘直链（直链多带时效签名，
-    每次起 ffmpeg 都重读）。strm 内容不合法返回 None。
+    本地文件就是路径本身、没有额外选项；strm 每次起 ffmpeg 都**现读**（直链多带时效
+    签名）：远端是直链加网络协议选项，本地路径是它指向的真实文件。strm 用不了返回 None。
     """
     if not is_strm(file_path):
         return file_path, []
-    link = resolve_strm(file_path)
-    if link is None:
+    source = resolve_strm(file_path)
+    return None if source is None else strm_source_input(source)
+
+
+def strm_source_input(source: StrmLink | Path) -> tuple[str, list[str]]:
+    """``parse_strm`` 的结果 → ffmpeg / ffprobe 的（输入地址, ``-i`` 前的输入选项）。"""
+    if isinstance(source, Path):
+        return str(source), []
+    return source.url, strm_input_args(source.url, source.headers)
+
+
+def strm_link_status(link: StrmLink) -> int | None:
+    """（阻塞）直链现在的 HTTP 状态码（只取响应头）；不是 http、连不上返回 None。
+
+    读不出规格时用来分辨「直链过期 / 没权限」与「网盘连不上、格式不支持」。
+    """
+    if urlsplit(link.url).scheme.lower() not in {"http", "https"}:
         return None
-    return link.url, strm_input_args(link.url, link.headers)
+    headers = {**link.headers, "Range": "bytes=0-0"}
+    try:
+        with (
+            httpx.Client(follow_redirects=True, timeout=10.0) as client,
+            client.stream("GET", link.url, headers=headers) as response,
+        ):
+            return response.status_code
+    except httpx.HTTPError:
+        return None
+
+
+def open_strm_range(file_path: str | Path) -> RemoteRangeFile | LocalRangeFile | None:
+    """按区间读 strm 指向的文件（读索引、抽稀疏关键帧 / 字幕块用）；读不了返回 None。
+
+    远端只认 http/https（要 Range）；本地路径打开真实文件。两者接口相同，调用方不用分。
+    """
+    source = resolve_strm(file_path)
+    if isinstance(source, Path):
+        return LocalRangeFile(source)
+    if source is None or urlsplit(source.url).scheme.lower() not in {"http", "https"}:
+        return None
+    return RemoteRangeFile(source.url, headers=source.headers)
 
 
 #: 播放器多半连不上的主机名后缀（局域网 mDNS、路由器本地域名）
@@ -627,7 +741,8 @@ _SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
 def strm_needs_relay(url: str, headers: dict[str, str] | None = None) -> bool:
     """这条网盘直链要不要由服务端转发，而不是 302 给播放器。
 
-    strm 里写了请求头（``resolve_strm``）的一律转发：302 出去的播放器不会带这些头。
+    strm 里写了请求头（``parse_strm``）、地址里带账号密码（``user:pass@host``，SmartStrm
+    的 WebDAV 写法）的一律转发：302 出去的播放器不会带这些头，浏览器也拒绝带凭据的媒体地址。
 
     回环、私网、链路本地地址与单标签 / 局域网主机名（容器服务名 ``alist``、``nas.local``）
     只在服务器所在的网络里连得上：MoviePilot 一类工具常把 strm 写成
@@ -638,7 +753,7 @@ def strm_needs_relay(url: str, headers: dict[str, str] | None = None) -> bool:
     parts = urlsplit(url)
     if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
         return False
-    if headers:
+    if headers or parts.username:
         return True
     host = parts.hostname.lower()
     try:
@@ -651,6 +766,46 @@ def strm_needs_relay(url: str, headers: dict[str, str] | None = None) -> bool:
         or ip.is_link_local
         or (ip.version == 4 and ip in _SHARED_ADDRESS_SPACE)
     )
+
+
+#: 替播放器跟跳转最多几跳（alist 的 /d → /p、302 服务 → 网盘 CDN，常见的都在三跳以内）
+_MAX_REDIRECT_HOPS = 5
+
+
+async def strm_redirect_target(link: StrmLink, user_agent: str | None) -> str | None:
+    """直出 strm 时把播放器 302 到哪；None 表示要由服务端转发（``RemoteRelayResponse``）。
+
+    播放器连得上的地址原样 302。内网地址（``strm_needs_relay``）多半是网盘 302 服务
+    （MoviePilot 的 P115StrmHelper、alist ``/d/``……）：服务端带着播放器自己的 User-Agent
+    替它跟跳转（115 一类直链与 User-Agent 绑定），跳到播放器连得上的地址就把播放器 302
+    过去，整片不经服务器——go-emby2openlist、MediaWarp 一类 302 反代同一思路。一路都是
+    内网、或者内网服务自己出字节（alist 本地代理、CD2 ``/static``）才转发。strm 写了请求头
+    的一律转发：302 出去的播放器不会带这些头。只取响应头：带 ``Range: bytes=0-0``，
+    自己出字节的服务也只回一个字节。
+    """
+    if not strm_needs_relay(link.url, link.headers):
+        return link.url
+    if link.headers or urlsplit(link.url).scheme.lower() not in {"http", "https"}:
+        return None
+    headers = {"Range": "bytes=0-0"}
+    if user_agent:
+        headers["User-Agent"] = user_agent
+    url = httpx.URL(link.url)
+    client = httpx.AsyncClient(follow_redirects=False, trust_env=False, timeout=10.0)
+    async with client:
+        for _ in range(_MAX_REDIRECT_HOPS):
+            try:
+                async with client.stream("GET", url, headers=headers) as response:
+                    location = response.headers.get("location") if response.is_redirect else None
+            except httpx.HTTPError as exc:
+                logger.info("替播放器跟跳转失败，改由服务端转发：%s（%s）", link.url, exc)
+                return None
+            if not location:
+                return None
+            url = url.join(location)
+            if not strm_needs_relay(str(url)):
+                return str(url)
+    return None
 
 
 #: 转发时透传给播放器的上游响应头

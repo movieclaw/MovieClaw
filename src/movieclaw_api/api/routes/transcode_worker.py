@@ -77,10 +77,12 @@ from movieclaw_playback.streaming import (
     DisconnectAwareFileResponse,
     FileWindowResponse,
     RemoteRelayResponse,
+    StrmError,
+    StrmLink,
     container_mime_type,
     is_strm,
-    resolve_strm,
-    strm_needs_relay,
+    parse_strm,
+    strm_redirect_target,
 )
 
 logger = logging.getLogger("movieclaw_api.playback.transcode_worker")
@@ -551,24 +553,30 @@ async def transcode_source(
 
     网盘（strm）条目跳转到网盘直链：Worker 直接从网盘取源，不经 NAS 中转。Worker 的
     取源代理与 ffmpeg 都跟随跳转，跳转后照常按 Range 取；每次取数都经这里现读 strm，
-    直链过期了也能拿到新的。
+    直链过期了也能拿到新的。strm 指向 NAS 挂载目录里的文件时与本地文件同样出字节。
     """
     file = await _remote_source_file(session_id, token, session)
+    path = Path(file.file_path)
     if is_strm(file.file_path):
-        link = resolve_strm(file.file_path)
-        if link is None:
-            raise NotFoundException("网盘直链无效")
-        if strm_needs_relay(link.url, link.headers):
-            # 回环 / 容器服务名的直链 Worker 连不上（它在另一台机器上），要带请求头的直链
-            # Worker 也不知道该带什么：NAS 原样转发
-            return RemoteRelayResponse(
-                link.url, range_header=request.headers.get("range"), upstream_headers=link.headers
-            )
-        return RedirectResponse(link.url, status_code=302)
-    if file.is_disc():
+        try:
+            source = parse_strm(file.file_path)
+        except StrmError as exc:
+            raise NotFoundException(f"strm 用不了：{exc}") from exc
+        if isinstance(source, StrmLink):
+            target = await strm_redirect_target(source, request.headers.get("user-agent"))
+            if target is None:
+                # 回环 / 容器服务名的直链 Worker 连不上（它在另一台机器上），要带请求头的直链
+                # Worker 也不知道该带什么：NAS 原样转发
+                return RemoteRelayResponse(
+                    source.url,
+                    range_header=request.headers.get("range"),
+                    upstream_headers=source.headers,
+                )
+            return RedirectResponse(target, status_code=302)
+        path = source
+    elif file.is_disc():
         # 原盘是目录，没有单一源文件；新版 Worker 读 source.ffconcat，走不到这里
         raise NotFoundException("原盘没有单一源文件，请改读 source.ffconcat 清单")
-    path = Path(file.file_path)
     if not path.is_file():
         raise _missing_source(session_id, file, path)
     return DisconnectAwareFileResponse(

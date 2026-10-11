@@ -127,12 +127,13 @@ from movieclaw_playback.profile import media_profile_from_file
 from movieclaw_playback.streaming import (
     DisconnectAwareFileResponse,
     RemoteRelayResponse,
+    StrmLink,
     container_mime_type,
     direct_play_byte_patches,
     is_strm,
     register_device_stream,
     resolve_strm,
-    strm_needs_relay,
+    strm_redirect_target,
     unregister_device_stream,
 )
 from movieclaw_playback.subtitles import (
@@ -682,28 +683,34 @@ async def video_stream(
         raise not_found()
     f = selected[0]
 
-    if is_strm(f.file_path):
-        link = resolve_strm(f.file_path)
-        if link is None:
-            raise not_found()
-        if strm_needs_relay(link.url, link.headers):
-            # 内网 / 回环 / 容器服务名的直链、或要带请求头的直链：播放器自己取不了，
-            # 服务端按 Range 原样转发
-            session_stopped, byte_sink, on_close = await _register_stream(
-                request, identity, ref, f, name=Path(f.file_path).name
-            )
-            return RemoteRelayResponse(
-                link.url,
-                range_header=request.headers.get("range"),
-                upstream_headers=link.headers,
-                session_stopped=session_stopped,
-                byte_sink=byte_sink,
-                on_close=on_close,
-            )
-        # 302 直链：HEAD 同样 302、不塞 body；重定向目标自己支持 Range
-        return RedirectResponse(link.url, status_code=302)
-
     path = Path(f.file_path)
+    size_bytes = f.size_bytes
+    if is_strm(f.file_path):
+        source = resolve_strm(f.file_path)
+        if source is None:
+            raise not_found()
+        if isinstance(source, StrmLink):
+            target = await strm_redirect_target(source, request.headers.get("user-agent"))
+            if target is None:
+                # 内网 / 回环 / 容器服务名、跟跳转也落不到外面的直链，或要带请求头的直链：
+                # 播放器自己取不了，服务端按 Range 原样转发
+                session_stopped, byte_sink, on_close = await _register_stream(
+                    request, identity, ref, f, name=path.name
+                )
+                return RemoteRelayResponse(
+                    source.url,
+                    range_header=request.headers.get("range"),
+                    upstream_headers=source.headers,
+                    session_stopped=session_stopped,
+                    byte_sink=byte_sink,
+                    on_close=on_close,
+                )
+            # 302 直链：HEAD 同样 302、不塞 body；重定向目标自己支持 Range
+            return RedirectResponse(target, status_code=302)
+        # 指向挂载目录里的文件：往下与本地文件同样直出（大小按真实文件）
+        path = source
+        size_bytes = path.stat().st_size
+
     # MIME 优先级对齐 StreamingHelpers：URL 后缀 → ?container= query → 真实容器
     media_type = container_mime_type(
         container or request.query_params.get("container") or f.container or path.suffix
@@ -729,7 +736,7 @@ async def video_stream(
     # 用自带解码器的 Infuse 之流两种标签都认，不受影响
     byte_patches = await direct_play_byte_patches(path, f.container, f.video_codec)
     session_stopped, byte_sink, on_close = await _register_stream(
-        request, identity, ref, f, name=path.name
+        request, identity, ref, f, name=path.name, size_bytes=size_bytes
     )
     return DisconnectAwareFileResponse(
         path,
@@ -742,7 +749,13 @@ async def video_stream(
 
 
 async def _register_stream(
-    request: Request, identity: RequestIdentity, ref: EntityRef, f: LibraryFile, *, name: str
+    request: Request,
+    identity: RequestIdentity,
+    ref: EntityRef,
+    f: LibraryFile,
+    *,
+    name: str,
+    size_bytes: int | None = None,
 ) -> tuple[asyncio.Event, Callable[[int], None], Callable[[], None]]:
     """登记一条取流：返回（停止信号, 字节计量, 收尾回调）。磁盘直出与网盘直链转发共用。"""
     # 停止播放并不保证客户端立刻关闭 Range 连接。按已认证设备登记这条流，
@@ -766,7 +779,7 @@ async def _register_stream(
         unit=unit,
         file_id=f.id,
         file_name=name,
-        size_bytes=f.size_bytes,
+        size_bytes=size_bytes if size_bytes is not None else f.size_bytes,
         client=_identity_client(identity),
     )
 
@@ -809,18 +822,22 @@ async def download_item(
         raise not_found()
     f = selected[0]
 
-    if is_strm(f.file_path):
-        link = resolve_strm(f.file_path)
-        if link is None:
-            raise not_found()
-        if strm_needs_relay(link.url, link.headers):
-            # 内网直链、要带请求头的直链客户端取不了：与取流同样由服务端转发
-            return RemoteRelayResponse(
-                link.url, range_header=request.headers.get("range"), upstream_headers=link.headers
-            )
-        return RedirectResponse(link.url, status_code=302)
-
     path = Path(f.file_path)
+    if is_strm(f.file_path):
+        source = resolve_strm(f.file_path)
+        if source is None:
+            raise not_found()
+        if isinstance(source, StrmLink):
+            target = await strm_redirect_target(source, request.headers.get("user-agent"))
+            if target is None:
+                # 播放器取不了的直链：与取流同样由服务端转发
+                return RemoteRelayResponse(
+                    source.url,
+                    range_header=request.headers.get("range"),
+                    upstream_headers=source.headers,
+                )
+            return RedirectResponse(target, status_code=302)
+        path = source  # 指向挂载目录里的文件：按本地文件下载
     if f.is_disc() or not path.is_file():
         # 原盘是目录，没有"一个文件"可下（CanDownload 已恒 false，这里是兜底）
         raise not_found()
@@ -836,7 +853,7 @@ async def download_item(
         unit=_stream_unit(ref),
         file_id=f.id,
         file_name=path.name,
-        size_bytes=f.size_bytes,
+        size_bytes=path.stat().st_size if is_strm(f.file_path) else f.size_bytes,
         client=_identity_client(identity),
         start_offset=_range_start(request),
     )

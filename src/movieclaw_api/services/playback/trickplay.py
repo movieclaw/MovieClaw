@@ -37,8 +37,7 @@ from pathlib import Path
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.settings import PlaybackPolicySetting, get_setting_store
 from movieclaw_db.models import LibraryFile
-from movieclaw_playback.remote_range import RemoteRangeFile
-from movieclaw_playback.streaming import is_strm, resolve_strm
+from movieclaw_playback.streaming import is_strm, open_strm_range
 from movieclaw_playback.subtitle_cues import build_keyframe_mkv
 
 logger = logging.getLogger("movieclaw_api.playback.trickplay")
@@ -233,13 +232,13 @@ def generate(file: LibraryFile) -> TrickplayIndex | None:
 
 
 def _sparse_keyframes(file: LibraryFile, staging: Path) -> Path | None:
-    """（阻塞）网盘直链上每 ``INTERVAL_S`` 秒取一个关键帧拼成的小 MKV；拼不出返回 None。"""
-    link = resolve_strm(file.file_path)
-    if link is None or not link.url.lower().startswith(("http://", "https://")):
-        return None
+    """（阻塞）网盘条目上每 ``INTERVAL_S`` 秒取一个关键帧拼成的小 MKV；拼不出返回 None。"""
     times = [float(t) for t in range(0, file.duration_seconds or 0, INTERVAL_S)]
     try:
-        with RemoteRangeFile(link.url, headers=link.headers) as f:
+        reader = open_strm_range(file.file_path)
+        if reader is None:
+            return None
+        with reader as f:
             if f.read(4) != b"\x1a\x45\xdf\xa3" or f.size is None:
                 return None
             data = build_keyframe_mkv(

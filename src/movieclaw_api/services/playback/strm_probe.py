@@ -26,7 +26,15 @@ from movieclaw_api.services.media_probe import PROBE_SCHEMA_VERSION, MediaSpec, 
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import LibraryFile, StrmProbeState
 from movieclaw_db.models.base import utcnow
-from movieclaw_playback.streaming import is_strm, media_input, resolve_strm_url
+from movieclaw_playback.streaming import (
+    StrmError,
+    StrmLink,
+    is_strm,
+    parse_strm,
+    strm_link_status,
+    strm_location,
+    strm_source_input,
+)
 
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
@@ -72,14 +80,19 @@ def backoff_after(failures: int) -> timedelta:
 
 
 def strm_target(url: str) -> str:
-    """直链的主机 + 路径：签名、时效参数在查询串里，换了它们还是同一个文件。"""
+    """直链的主机 + 路径：签名、时效参数在查询串里，换了它们还是同一个文件。
+
+    strm 指向本地文件时 ``url`` 是它的真实路径，原样就是它的身份。"""
+    if url.startswith("/"):
+        return url
     parts = urlsplit(url)
     return f"{parts.netloc.lower()}{parts.path}"
 
 
 def strm_container(url: str, format_name: str | None) -> str | None:
-    """网盘直链的容器（与台账 ``container`` 列同一套扩展名口径）。"""
-    suffix = PurePosixPath(urlsplit(url).path).suffix.lower().lstrip(".")
+    """网盘直链（或 strm 指向的本地文件）的容器（与台账 ``container`` 列同一套扩展名口径）。"""
+    path = url if url.startswith("/") else urlsplit(url).path
+    suffix = PurePosixPath(path).suffix.lower().lstrip(".")
     if suffix in URL_CONTAINERS:
         return suffix
     return _FORMAT_CONTAINERS.get((format_name or "").split(",")[0])
@@ -158,20 +171,20 @@ async def _probe_once(file_id: int, file_path: str) -> _Outcome:
 
 
 async def _probe_and_store(file_id: int, file_path: str) -> _Outcome:
-    source = media_input(file_path)
-    if source is None:
+    try:
+        source = parse_strm(file_path)
+    except StrmError as exc:
         _failed_at[file_path] = time.monotonic()
-        return await _record_failure(file_id, file_path, None, "strm 文件里没有可用的直链")
-    url, input_args = source
+        logger.warning("strm 用不了：%s（%s）", exc, file_path)
+        return await _record_failure(file_id, file_path, None, str(exc))
+    url, input_args = strm_source_input(source)
     started = time.perf_counter()
     spec = await asyncio.to_thread(probe_media, url, input_args=input_args)
     elapsed = time.perf_counter() - started
     if spec is None or spec.video_codec is None:
         _failed_at[file_path] = time.monotonic()
         logger.warning("网盘条目探测失败（%.1f 秒），按乐观直连处理：%s", elapsed, file_path)
-        reason = (
-            "读不出媒体信息（直链失效、网盘连不上或格式不支持）" if spec is None else "没有视频流"
-        )
+        reason = await _failure_reason(source) if spec is None else "没有视频流"
         return await _record_failure(file_id, file_path, url, reason)
     _failed_at.pop(file_path, None)
     values = _spec_values(spec, strm_container(url, spec.format_name))
@@ -200,6 +213,16 @@ async def _probe_and_store(file_id: int, file_path: str) -> _Outcome:
         spec.resolution or "",
     )
     return _Outcome(values)
+
+
+async def _failure_reason(source: StrmLink | Path) -> str:
+    """读不出媒体信息时给用户看的原因：直链过期 / 没权限要提示重新生成 strm。"""
+    if isinstance(source, Path):
+        return "读不出媒体信息（挂载掉线或文件损坏、格式不支持）"
+    status = await asyncio.to_thread(strm_link_status, source)
+    if status in (401, 403, 404, 410):
+        return f"直链已失效或无权访问（HTTP {status}），请重新生成 strm"
+    return "读不出媒体信息（直链失效、网盘连不上或格式不支持）"
 
 
 async def _record_failure(file_id: int, file_path: str, url: str | None, reason: str) -> _Outcome:
@@ -280,7 +303,7 @@ async def refresh_rewritten_strm(session: AsyncSession, row: LibraryFile, file: 
     row.size_bytes = st.st_size
     row.file_mtime_ns = st.st_mtime_ns
     row.updated_at = utcnow()
-    url = resolve_strm_url(file)
+    url = strm_location(file)
     state = await session.get(StrmProbeState, row.id) if row.id is not None else None
     if url is not None and state is not None and state.target == strm_target(url):
         return True

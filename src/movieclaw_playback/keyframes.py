@@ -42,8 +42,7 @@ from movieclaw_playback.container_index import (
     read_remote_mp4_keyframes,
     verify_all_mp4_keyframes,
 )
-from movieclaw_playback.remote_range import RemoteRangeFile
-from movieclaw_playback.streaming import STRM_EXT, resolve_strm
+from movieclaw_playback.streaming import STRM_EXT, open_strm_range
 
 logger = logging.getLogger("movieclaw_playback.keyframes")
 
@@ -214,23 +213,26 @@ def _read_matroska_cues(path: Path) -> list[float]:
 
 
 def _read_remote_keyframes(path: Path, key: tuple[str, int, int]) -> list[float] | None:
-    """网盘直链（strm）的关键帧：Matroska 读 Cues、MP4 读样本表；其余容器返回 None。"""
+    """网盘条目（strm）的关键帧：Matroska 读 Cues、MP4 读样本表；其余容器返回 None。
+
+    strm 指向挂载目录里的本地文件时同样只读索引（MP4 抽检样本、不通读）：挂载背后多半
+    是网盘，通读就是把整片拉一遍。"""
     failed_at = _remote_unindexed.get(key)
     if failed_at is not None and time.monotonic() - failed_at < _REMOTE_UNINDEXED_TTL_S:
         return None
-    link = resolve_strm(path)
     times = None
-    if link is not None and link.url.lower().startswith(("http://", "https://")):
-        try:
-            with RemoteRangeFile(link.url, headers=link.headers) as f:
+    try:
+        reader = open_strm_range(path)
+        if reader is not None:
+            with reader as f:
                 head = f.read(8)
                 f.seek(0)
                 if head[:4] == _EBML_HEADER.to_bytes(4, "big"):
                     times = _matroska_cues(f)
                 elif head[4:8] in _MP4_TOP_LEVEL_BOXES and f.size is not None:
                     times = read_remote_mp4_keyframes(f, f.size, str(path))
-        except (OSError, ValueError, IndexError):
-            times = None
+    except (OSError, ValueError, IndexError):
+        times = None
     if not times:
         _remote_unindexed[key] = time.monotonic()
     return times
