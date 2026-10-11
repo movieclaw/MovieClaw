@@ -218,8 +218,8 @@ GitHub 只允许整次运行结束后再单独重跑某个作业（`gh run rerun
       （按 Worker 自报能力派发）时，同样要在提示框里写明「请下载新版转码器」
 - [ ] 数据库迁移向前兼容（alembic 迁移是单向的，用户回退靠自动备份）
 - [ ] Release 产物齐全：publish 作业已自动校验（应用三件套 + mclaw 六平台
-      归档 `mclaw_{linux,darwin}_{amd64,arm64}.tar.gz`、
-      `mclaw_windows_{amd64,arm64}.zip`、`checksums.txt`，启用签名时含
+      归档 `mclaw_cli_{linux,darwin}_{amd64,arm64}.tar.gz`、
+      `mclaw_cli_windows_{amd64,arm64}.zip`、`checksums.txt`，启用签名时含
       `.sig`），人工只需确认 release 工作流全绿、Release 已从 draft 转正；
       worker-macos 作业红了 → Worker zip 缺失，重跑该作业补传；
       ios-ipa 作业红了 → `MovieClaw-iOS-unsigned.ipa` 缺失，重跑该作业补传；

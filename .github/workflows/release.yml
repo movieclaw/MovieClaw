@@ -211,7 +211,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
-            cli/dist/mclaw_*.tar.gz cli/dist/mclaw_*.zip cli/dist/checksums.txt
+            cli/dist/mclaw_cli_*.tar.gz cli/dist/mclaw_cli_*.zip cli/dist/checksums.txt
 
   # 客户端附件这次重编还是沿用上一版，判断规则见脚本头注释。
   # 单独一个 ubuntu 作业先判断，沿用时 macOS runner 一台都不用起。
@@ -707,9 +707,9 @@ jobs:
           assets="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --json assets --jq '.assets[].name')"
           required="app-web.tar.gz app-backend.tar.gz manifest.json downloads.json release.json
-            mclaw_linux_amd64.tar.gz mclaw_linux_arm64.tar.gz
-            mclaw_darwin_amd64.tar.gz mclaw_darwin_arm64.tar.gz
-            mclaw_windows_amd64.zip mclaw_windows_arm64.zip
+            mclaw_cli_linux_amd64.tar.gz mclaw_cli_linux_arm64.tar.gz
+            mclaw_cli_darwin_amd64.tar.gz mclaw_cli_darwin_arm64.tar.gz
+            mclaw_cli_windows_amd64.zip mclaw_cli_windows_arm64.zip
             checksums.txt MovieClaw-Android-arm64.apk MovieClaw-Android-arm64.json"
           if [ -n "$RELEASE_SIGNING_KEY" ]; then
             required="$required manifest.json.sig"

@@ -39,7 +39,7 @@ $arch = switch ($env:PROCESSOR_ARCHITECTURE) {
     default { throw "不支持的架构：$env:PROCESSOR_ARCHITECTURE（仅 amd64/arm64）" }
 }
 
-$asset = "mclaw_windows_$arch.zip"
+$asset = "mclaw_cli_windows_$arch.zip"
 $url = if ($Version -eq 'latest') {
     "$DownloadBase/latest/download/$asset"
 } else {
@@ -53,7 +53,14 @@ try {
     try {
         Invoke-WebRequest -Uri $url -OutFile (Join-Path $tmp $asset) -UseBasicParsing
     } catch {
-        throw "下载失败：$url（网络不通，或该版本没有这个平台的产物）"
+        # 历史 Release 的附件还没有 cli 标识。
+        $asset = "mclaw_windows_$arch.zip"
+        $url = "$($url -replace '/[^/]+$', '')/$asset"
+        try {
+            Invoke-WebRequest -Uri $url -OutFile (Join-Path $tmp $asset) -UseBasicParsing
+        } catch {
+            throw "下载失败：$url（网络不通，或该版本没有这个平台的产物）"
+        }
     }
 
     # 校验和随 Release 一起发布；取不到就跳过——网络受限的用户不该因为多取

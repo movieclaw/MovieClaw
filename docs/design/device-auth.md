@@ -661,11 +661,11 @@ CI 里，每多一个运行时前置就多一批装不上的人。
          → 从 Release 下载对应平台的二进制、校验 sha256
          → 装进 /usr/local/bin（Windows 是用户级 PATH），
            GUI 应用与后台任务也能调到
-次通道   直接从 Release 页下载 mclaw_<os>_<arch>.tar.gz 解压
+次通道   直接从 Release 页下载 mclaw_cli_<os>_<arch>.tar.gz 解压
 第三     Docker 镜像内置（现状不变，docker exec 零安装）
 ```
 
-命名规则 `mclaw_{os}_{arch}.{tar.gz|zip}` 是两个安装脚本与 `.goreleaser.yaml`
+命名规则 `mclaw_cli_{os}_{arch}.{tar.gz|zip}` 是两个安装脚本与 `.goreleaser.yaml`
 之间的契约，改动要三处同步。
 
 ### 6.5 第一次配对：地址从哪来

@@ -32,7 +32,7 @@ builds:
 
 archives:
   # 命名规则是安装脚本的契约，改了要同步改两个脚本
-  - name_template: "mclaw_{{ .Os }}_{{ .Arch }}"
+  - name_template: "mclaw_cli_{{ .Os }}_{{ .Arch }}"
     formats: [tar.gz]
     format_overrides:
       - goos: windows

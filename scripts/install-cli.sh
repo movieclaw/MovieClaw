@@ -35,7 +35,7 @@ case "$(uname -m)" in
     *) die "不支持的架构：$(uname -m)（仅 amd64/arm64）" ;;
 esac
 
-ASSET="mclaw_${OS}_${ARCH}.tar.gz"
+ASSET="mclaw_cli_${OS}_${ARCH}.tar.gz"
 if [ "$VERSION" = latest ]; then
     URL="$BASE/latest/download/$ASSET"
 else
@@ -46,8 +46,13 @@ fi
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 say "正在下载 mclaw（$OS/$ARCH）…"
-curl -fsSL --retry 3 -o "$TMP/$ASSET" "$URL" \
-    || die "下载失败：$URL（网络不通，或该版本没有这个平台的产物）"
+if ! curl -fsSL --retry 3 -o "$TMP/$ASSET" "$URL"; then
+    # 历史 Release 的附件还没有 cli 标识。
+    ASSET="mclaw_${OS}_${ARCH}.tar.gz"
+    URL="${URL%/*}/$ASSET"
+    curl -fsSL --retry 3 -o "$TMP/$ASSET" "$URL" \
+        || die "下载失败：$URL（网络不通，或该版本没有这个平台的产物）"
+fi
 
 # 校验和随 Release 一起发布；取不到就跳过——网络受限的用户不该因为多取一个
 # 文件失败而装不上，但取得到就必须对得上。
