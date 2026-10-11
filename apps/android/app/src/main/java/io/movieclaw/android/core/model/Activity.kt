@@ -61,6 +61,8 @@ data class JobResourceView(
 data class JobView(
     val id: String,
     val jobType: String = "",
+    /** 任务类型显示名（插件任务由服务端给出）；旧服务端没有，内置类型用本地文案 */
+    val jobTypeLabel: String? = null,
     val subject: String? = null,
     val status: String = "",
     val progress: JobProgress = JobProgress(),

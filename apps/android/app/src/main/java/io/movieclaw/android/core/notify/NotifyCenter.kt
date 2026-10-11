@@ -24,6 +24,7 @@ import io.movieclaw.android.MainActivity
 import io.movieclaw.android.core.network.ApiFactory
 import io.movieclaw.android.core.network.dataOrThrow
 import io.movieclaw.android.core.session.SessionRepository
+import io.movieclaw.android.feature.activity.jobTypeLabel
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.flow.first
 
@@ -267,7 +268,7 @@ class NotifyWorker(appContext: Context, params: WorkerParameters) : CoroutineWor
                     if (was != null && was != job.status && bad) {
                         val text = listOfNotNull(
                             job.subject?.takeIf { it.isNotBlank() },
-                            job.jobType.takeIf { it.isNotBlank() },
+                            jobTypeLabel(job).takeIf { it.isNotBlank() },
                             job.error?.message?.takeIf { it.isNotBlank() },
                         ).joinToString(" · ")
                         Notifier.post(

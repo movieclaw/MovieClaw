@@ -324,7 +324,11 @@ extension TaskCenter {
         string(job.progress.details, key) ?? string(job.inputData, key)
     }
 
-    static func jobTypeLabel(_ job: API.JobView) -> String { jobTypeLabels[job.jobType] ?? job.jobType }
+    /// 任务类型的显示名：内置类型用本地文案，插件任务用服务端给的名字（`job_type_label`），都没有显示原始类型。
+    /// 与 Web `jobTypeLabel`（components/job-center.tsx）同一顺序
+    static func jobTypeLabel(_ job: API.JobView) -> String {
+        jobTypeLabels[job.jobType] ?? nonEmpty(job.jobTypeLabel) ?? job.jobType
+    }
 
     /// Job 的错误信息（error.message）
     static func errorMessage(_ job: API.JobView) -> String? { string(job.error, "message") }

@@ -16,10 +16,10 @@ struct ActivityLogicTests {
     private func job(
         id: String = "j1", type: String = "library.scan", status: String = "succeeded", dismissed: Bool = false,
         message: String = "", subject: String? = nil, resources: [[String: String]] = [], details: [String: Any] = [:],
-        cancelledBy: String? = nil, updated: String = "2026-09-25T10:00:00+00:00"
+        cancelledBy: String? = nil, updated: String = "2026-09-25T10:00:00+00:00", typeLabel: String? = nil
     ) -> API.JobView {
         decode([
-            "id": id, "job_type": type, "subject": nn(subject), "definition_version": 1, "handler_revision": "x",
+            "id": id, "job_type": type, "job_type_label": nn(typeLabel), "subject": nn(subject), "definition_version": 1, "handler_revision": "x",
             "status": status, "input_data": [:], "result": NSNull(), "error": NSNull(), "usage": [:],
             "progress": ["mode": "determinate", "phase": "completed", "message": message, "details": details],
             "resources": resources.map { ["resource_type": $0["type"]!, "resource_id": $0["id"]!, "relation": "target"] },
@@ -45,6 +45,17 @@ struct ActivityLogicTests {
             "media_item_id": nn(mediaItemId), "media_title": "深渊无间", "media_kind": "tv",
             "plan": nn(plan), "subscriptions": subscriptions, "can_replace": canReplace,
         ])
+    }
+
+    @Test func jobTypeLabelPrefersLocalThenServerName() {
+        // 内置类型：本地文案（服务端没给名字的老版本也一样）
+        #expect(TaskCenter.jobTypeLabel(job(type: "library.scan")) == "扫描媒体库")
+        // 插件任务：服务端给的名字；历史标题也用它
+        let plugin = job(type: "strm-prefetch:backfill", status: "succeeded", typeLabel: "网盘规格预探")
+        #expect(TaskCenter.jobTypeLabel(plugin) == "网盘规格预探")
+        #expect(TaskCenter.historicalJobTitle(plugin) == "网盘规格预探完成")
+        // 都没有：原始类型
+        #expect(TaskCenter.jobTypeLabel(job(type: "acme:sync", typeLabel: "")) == "acme:sync")
     }
 
     @Test func attentionAndDismissed() {

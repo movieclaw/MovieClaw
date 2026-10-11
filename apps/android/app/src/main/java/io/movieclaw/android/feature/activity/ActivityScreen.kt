@@ -207,8 +207,8 @@ fun ActivityScreen(
                             AttentionCard(
                                 // 需要处理的卡片：标题给作品名、副行给任务类型的人话名
                                 // （以前副行是 `library.skip_segments` 这种原始键）
-                                title = job.subject ?: jobTypeLabel(job.jobType),
-                                subtitle = jobTypeLabel(job.jobType),
+                                title = job.subject ?: jobTypeLabel(job),
+                                subtitle = jobTypeLabel(job),
                                 reason = job.error?.message?.takeIf { it.isNotBlank() }
                                     ?: job.progress.message.ifBlank { "任务失败" },
                                 meta = "第 ${job.attempt}/${job.maxAttempts} 次尝试",
@@ -933,7 +933,7 @@ internal fun JobCard(job: JobView, onCancel: () -> Unit, onRetry: () -> Unit, on
                 Box(Modifier.size(7.dp).background(color, CircleShape))
                 Spacer(Modifier.width(8.dp))
                 Text(
-                    job.subject ?: jobTypeLabel(job.jobType),
+                    job.subject ?: jobTypeLabel(job),
                     fontSize = 13.sp,
                     fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
