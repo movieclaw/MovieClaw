@@ -1,0 +1,282 @@
+[
+  {
+    "id": 16308,
+    "title": "王冠",
+    "season": 1,
+    "episode": 1,
+    "source_size": 11194838889,
+    "start": 316.782,
+    "end": 390.714,
+    "transition": [
+      385.28,
+      385.52
+    ],
+    "evidence": "Independent dense source frames: last title card then street establishing shot; interval in file seconds. OCR replay is not a pixel-level test.",
+    "frames": [
+      {
+        "req": 378.0,
+        "t": 378.0,
+        "accurate": true,
+        "luma": 15.4,
+        "lines": [
+          [
+            "CROWN",
+            0.284375,
+            0.43703703703703706,
+            0.7145833333333333,
+            0.5592592592592592
+          ]
+        ],
+        "corners": null
+      },
+      {
+        "req": 380.0,
+        "t": 380.0,
+        "accurate": true,
+        "luma": 15.6,
+        "lines": [
+          [
+            "'WOLFERTON SPLASH'",
+            0.36875,
+            0.4444444444444444,
+            0.634375,
+            0.48333333333333334
+          ]
+        ],
+        "corners": null
+      },
+      {
+        "req": 381.214,
+        "t": 381.24,
+        "accurate": true,
+        "luma": 15.2,
+        "lines": [
+          [
+            "WRITTENB Y",
+            0.446875,
+            0.5111111111111111,
+            0.5583333333333333,
+            0.5481481481481482
+          ],
+          [
+            "PETER MORGAN",
+            0.3958333333333333,
+            0.5444444444444444,
+            0.6072916666666667,
+            0.5888888888888889
+          ],
+          [
+            "'WOLFERTON SPLASH'",
+            0.3697916666666667,
+            0.4425925925925926,
+            0.6354166666666666,
+            0.48703703703703705
+          ]
+        ],
+        "corners": null
+      },
+      {
+        "req": 382.0,
+        "t": 382.0,
+        "accurate": true,
+        "luma": 15.1,
+        "lines": [
+          [
+            "WRITTENB Y",
+            0.446875,
+            0.5111111111111111,
+            0.5583333333333333,
+            0.5481481481481482
+          ],
+          [
+            "PETER MORGAN",
+            0.3958333333333333,
+            0.5444444444444444,
+            0.6072916666666667,
+            0.5888888888888889
+          ],
+          [
+            "'WOLFERTON SPLASH'",
+            0.3697916666666667,
+            0.4425925925925926,
+            0.6354166666666666,
+            0.48703703703703705
+          ]
+        ],
+        "corners": null
+      },
+      {
+        "req": 384.0,
+        "t": 384.0,
+        "accurate": true,
+        "luma": 13.3,
+        "lines": [
+          [
+            "DIRECTEDBY",
+            0.446875,
+            0.46296296296296297,
+            0.5645833333333333,
+            0.5
+          ],
+          [
+            "STEPHEN DALDRY",
+            0.384375,
+            0.4981481481481482,
+            0.6239583333333333,
+            0.5407407407407407
+          ]
+        ],
+        "corners": null
+      },
+      {
+        "req": 385.0,
+        "t": 385.0,
+        "accurate": true,
+        "luma": 12.2,
+        "lines": [
+          [
+            "DIRECTEDBY",
+            0.446875,
+            0.4648148148148148,
+            0.5645833333333333,
+            0.5
+          ],
+          [
+            "STEPHENDALDRY",
+            0.3854166666666667,
+            0.4981481481481482,
+            0.6229166666666667,
+            0.5388888888888889
+          ]
+        ],
+        "corners": null
+      },
+      {
+        "req": 386.0,
+        "t": 386.0,
+        "accurate": true,
+        "luma": 36.6,
+        "lines": [],
+        "corners": null
+      },
+      {
+        "req": 387.0,
+        "t": 387.0,
+        "accurate": true,
+        "luma": 38.2,
+        "lines": [],
+        "corners": null
+      },
+      {
+        "req": 388.0,
+        "t": 388.0,
+        "accurate": true,
+        "luma": 39.5,
+        "lines": [],
+        "corners": null
+      },
+      {
+        "req": 390.0,
+        "t": 390.0,
+        "accurate": true,
+        "luma": 37.5,
+        "lines": [],
+        "corners": null
+      },
+      {
+        "req": 392.0,
+        "t": 392.0,
+        "accurate": true,
+        "luma": 39.9,
+        "lines": [],
+        "corners": null
+      }
+    ],
+    "boundary_evidence": "2026-10-11: accurate frames every 0.25 s, last credit at 385.280 / first story at 385.520; round3/precise/16308-0.jpg"
+  },
+  {
+    "id": 16317,
+    "title": "王冠",
+    "season": 1,
+    "episode": 6,
+    "source_size": 11511636730,
+    "start": 227.494,
+    "end": 301.302,
+    "transition": [
+      295,
+      296
+    ],
+    "evidence": "Independent dense source frames: last title card then street establishing shot; interval in file seconds. OCR replay is not a pixel-level test.",
+    "frames": [
+      {
+        "req": 291.802,
+        "t": 291.84000000000003,
+        "accurate": true,
+        "luma": 14.8,
+        "lines": [
+          [
+            "WRITTEN B Y",
+            0.446875,
+            0.5111111111111111,
+            0.5583333333333333,
+            0.5481481481481482
+          ],
+          [
+            "GELIGNITE'",
+            0.42916666666666664,
+            0.4425925925925926,
+            0.5760416666666667,
+            0.48518518518518516
+          ],
+          [
+            "PETER MORGAN",
+            0.3958333333333333,
+            0.5444444444444444,
+            0.6072916666666667,
+            0.5888888888888889
+          ]
+        ],
+        "corners": null
+      },
+      {
+        "req": 294.802,
+        "t": 294.84000000000003,
+        "accurate": true,
+        "luma": 11.9,
+        "lines": [
+          [
+            "DIRECTEDBY",
+            0.440625,
+            0.46296296296296297,
+            0.5583333333333333,
+            0.5
+          ],
+          [
+            "JULIAN JARROLD",
+            0.38333333333333336,
+            0.4981481481481482,
+            0.61875,
+            0.5407407407407407
+          ]
+        ],
+        "corners": null
+      },
+      {
+        "req": 297.802,
+        "t": 297.84000000000003,
+        "accurate": true,
+        "luma": 109.9,
+        "lines": [],
+        "corners": null
+      },
+      {
+        "req": 300.802,
+        "t": 300.84000000000003,
+        "accurate": true,
+        "luma": 110.6,
+        "lines": [],
+        "corners": null
+      }
+    ]
+  }
+]

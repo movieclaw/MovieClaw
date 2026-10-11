@@ -22,6 +22,7 @@
 少跳了片尾曲；除非起点那一帧有对白字幕，才说明那里还是剧情。
 
 音频片尾前面首尾相接、也跨集重复的一截（``extend_lead``，§2.16）只在画面一直是暗画面时接上。
+没有这种重复音频候选时，``extend_credits`` 只接连续黑底文字名单，规则与评测见 §2.18。
 """
 
 from __future__ import annotations
@@ -90,17 +91,27 @@ class Frame:
         return any(CREDIT_KEYWORDS.search(text) for text, *_ in self.content())
 
     @property
+    def ad(self) -> bool:
+        """完整广告角标是反证；四角范围留出片源黑边，不把正文里的广告二字当角标。"""
+        return any(text.strip() in {"广告", "廣告"} for text in self.corners or []) or any(
+            text.strip() in {"广告", "廣告"}
+            and (x1 < 0.25 or x0 > 0.75)
+            and (y1 < 0.25 or y0 > 0.75)
+            for text, x0, y0, x1, y1 in self.lines
+        )
+
+    @property
     def strong(self) -> bool:
         """确定是演职员表：有职务关键词，或满屏名单（6 行以上）。
 
         美剧 A的演员名单页只有人名、没有职务，12 秒抽一帧时带关键词的帧可能只有一帧。
         """
-        return self.keyword or len(self.content()) >= 6
+        return not self.ad and (self.keyword or len(self.content()) >= 6)
 
     @property
     def credits(self) -> bool:
         """有演职员表：职务关键词，或三行以上的字（滚动的人名列表常常一屏都是名字）。"""
-        return self.keyword or len(self.content()) >= 3
+        return not self.ad and (self.keyword or len(self.content()) >= 3)
 
     @property
     def subtitle(self) -> bool:
@@ -127,7 +138,7 @@ class Frame:
     @property
     def neutral(self) -> bool:
         """暗画面上没有演职员表：纯黑过场，或出品公司标志、片尾卡（黑底上一两行字）。"""
-        return self.dark and not self.credits
+        return self.dark and not self.credits and not self.ad
 
     @property
     def story(self) -> bool:
@@ -144,6 +155,8 @@ class OutroDecision:
 
     segment: tuple[float, float] | None
     reason: str
+    #: None 沿用距离规则；False 明确保护片尾后内容，即使剩余不足 5 秒也不能直接下一集。
+    to_end: bool | None = None
 
 
 async def refine_outro(
@@ -190,7 +203,14 @@ async def _find_credits_on_black(duration: float, observe: Observe) -> OutroDeci
     # 演职员表之后只剩黑场、出品公司标志：一直放到结尾
     to_end = duration - last.t <= TAIL_SLACK_S or (tail and all(f.neutral for f in tail))
     end = duration if to_end else last.t + BISECT_PRECISION_S
-    return OutroDecision((start, end), "黑底演职员表")
+    if to_end:
+        closing = await observe(duration - 0.5, True)
+        if closing is not None and last.t < closing.t < duration:
+            tail.append(closing)
+    dialogue = next((f for f in tail if f.ad or (f.subtitle and not f.credits)), None)
+    if dialogue is not None:
+        end = await _bisect(last.t, dialogue.t, observe, lambda f: f.dark_credits, find_first=False)
+    return OutroDecision((start, end), "黑底演职员表", to_end=bool(to_end and dialogue is None))
 
 
 def _credits_run(frames: list[Frame]) -> tuple[int, int] | None:
@@ -234,32 +254,133 @@ async def extend_lead(lead: float, start: float, observe: Observe) -> float:
     """
 
     def black(frame: Frame) -> bool:
-        return not frame.subtitle and (frame.luma < LEAD_DARK_LUMA or frame.dark_credits)
+        return (
+            not frame.ad
+            and not frame.subtitle
+            and (frame.luma < LEAD_DARK_LUMA or frame.dark_credits)
+        )
 
     good = start
     bad: float | None = None
     t = start - 2.0
     while t > lead:
         frame = await observe(t, False)
-        if frame is None:
+        # 长 GOP 可能反复落到已确认区间，不能跳过这段证据空洞后仅凭起点黑场接整段。
+        if frame is not None and frame.t >= good:
+            frame = await observe(t, True)
+        if frame is None or frame.t >= good:
             bad = t
             break
-        # 只解关键帧拿到的是请求点之后的帧，可能已落进音频片尾里，不算证据
-        if frame.t < start:
-            if not black(frame):
-                bad = frame.t
-                break
-            good = min(good, frame.t)
+        if not black(frame):
+            bad = frame.t
+            break
+        good = frame.t
         t -= LEAD_STEP_S
     if bad is None:
         # 最后一个抽样点与前段起点之间还没看过：贴着起点取精确帧
         frame = await observe(lead + 0.5, True)
-        if frame is not None and black(frame):
-            return lead
+        if frame is not None and lead <= frame.t < good and black(frame):
+            # 音频边界与画面转场可能错开，不能把已确认帧之前的半秒也算作黑场。
+            return frame.t
         bad = lead + 0.5
     if good >= start or bad >= good:
         return start
     return await _bisect(bad, good, observe, black, find_first=True)
+
+
+async def extend_credits(start: float, observe: Observe) -> float:
+    """没有重复音频前段时，仅接连续的黑底演职员表，最多往前 90 秒。
+
+    至少两张不同时间的强文字证据；纯黑、厂标、取帧失败都中断，不能靠暗场跨过剧情。
+    这是比 ``extend_lead`` 更严格的条件，因为没有跨集重复音频佐证。
+    """
+    good, bad = start, start
+    strong = 0
+    t = start - 2.0
+    floor = max(0.0, start - 90.0)
+    while t >= floor:
+        frame = await observe(t, False)
+        if frame is not None and frame.t >= good:
+            frame = await observe(t, True)
+        if frame is None or frame.t >= good:
+            bad = t
+            break
+        if not frame.dark_credits:
+            bad = frame.t
+            break
+        good = frame.t
+        strong += frame.strong
+        t -= LEAD_STEP_S
+    if strong < 2:
+        return start
+    if bad < good:
+        return await _bisect(bad, good, observe, lambda f: f.dark_credits, find_first=True)
+    return good
+
+
+async def extend_credits_past_logos(
+    start: float, end: float, duration: float, observe: Observe
+) -> float:
+    """配音名单前隔着厂标时，复用片尾扫描找完整名单；保留已经核对过的终点。
+
+    只在连续文字回溯没有进展时调用。新增区间里的取帧失败、剧情、对白和广告都阻止
+    合并；小于二分精度的变化不采用。扫描窗口以外的更早片尾仍可能遗漏。
+    """
+    if start <= max(duration * 0.6, duration - SCAN_MAX_S) + BISECT_PRECISION_S:
+        return start
+    observations: list[tuple[float, Frame | None]] = []
+
+    async def scan(t: float, accurate: bool) -> Frame | None:
+        frame = await observe(t, accurate)
+        observations.append((t, frame))
+        return frame
+
+    decision = await _find_credits_on_black(duration, scan)
+    if decision.segment is None or not decision.to_end:
+        return start
+    earlier, found_end = decision.segment
+    if earlier >= start - BISECT_PRECISION_S or found_end < end:
+        return start
+    for t, frame in observations:
+        if earlier <= (frame.t if frame is not None else t) < start and (
+            frame is None or frame.story or frame.ad or (frame.subtitle and not frame.credits)
+        ):
+            return start
+    return earlier
+
+
+async def trim_intro_end(start: float, end: float, observe: Observe) -> float:
+    """音乐延续进正文时，收紧黑底文字片头的终点；无明确文字转场证据就保持。
+
+    最后半秒已是明亮非名单画面，且此前有两处连续强黑底名单，才回到最后确认的名单帧。
+    全部取精确帧，不能用后移关键帧把片头内的动画误判为正文。
+    """
+    last = await observe(end - 0.5, True)
+    if last is None or not last.story or last.credits:
+        return end
+    bad = last.t
+    good: float | None = None
+    strong = 0
+    for offset in (3.5, 6.5, 9.5, 12.5):
+        t = end - offset
+        if t <= start:
+            break
+        frame = await observe(t, True)
+        if frame is None or frame.t >= bad:
+            return end
+        if frame.dark_credits and frame.strong:
+            if good is None:
+                good = frame.t
+            strong += 1
+            if strong == 2:
+                return await _bisect(good, bad, observe, lambda f: f.dark_credits, find_first=False)
+        elif good is not None:
+            break
+        elif frame.story and not frame.credits:
+            bad = frame.t
+        else:
+            break
+    return end
 
 
 async def _check_audio_outro(
@@ -269,21 +390,34 @@ async def _check_audio_outro(
     length = end - start
     to_end = duration - end <= TO_END_SLACK_S
     probes: list[Frame] = []
+
+    async def inside(t: float, accurate: bool = False) -> Frame | None:
+        frame = await observe(t, accurate)
+        if frame is not None and not start <= frame.t < end and not accurate:
+            frame = await observe(t, True)
+        return frame if frame is not None and start <= frame.t < end else None
+
     # 不到结尾的片尾要查终点处是不是已回到剧情：贴着终点前 0.5 秒取精确帧
     # （日本动画 A E01 演职员表最后一张卡后 1.5 秒就是剧情）
     last = (end - 2.0, False) if to_end else (end - 0.5, True)
     for t, accurate in ((start + 2.0, False), (start + length / 2, False), last):
-        frame = await observe(t, accurate)
+        frame = await inside(t, accurate)
         if frame is not None:
             probes.append(frame)
     if not any(f.credits for f in probes):
         for t in (start + length / 4, start + length * 3 / 4):
-            frame = await observe(t, False)
+            frame = await inside(t)
             if frame is not None:
                 probes.append(frame)
     probes.sort(key=lambda f: f.t)
+    first_ad = next((f for f in probes if f.ad), None)
     credit_frames = [f for f in probes if f.credits and not f.subtitle]
+    if first_ad is not None:
+        # 已看到广告就不能跨过去用后面的多行商品文案为整段背书。
+        credit_frames = [f for f in credit_frames if f.t < first_ad.t]
     if not credit_frames:
+        if any(f.ad for f in probes):
+            return OutroDecision(None, "片尾里只有广告反证、没有演职员表：否决")
         outside: list[Frame] = []
         t = end + 8.0
         while t < duration - 1.0 and len(outside) < 4:
@@ -308,12 +442,28 @@ async def _check_audio_outro(
             find_first=True,
         )
         notes.append(f"起点 {start:.0f}→{new_start:.0f}（有对白字幕）")
-    last_probe = probes[-1]
-    returned_to_story = last_probe.story and not last_probe.credits
-    if not to_end and last_probe.t > credit_frames[-1].t and returned_to_story:
+    last_probe = first_ad or probes[-1]
+    if to_end:
+        # 「下一集」还会跳过音频终点之后的几秒，必须检查文件末尾的对白反证。
+        closing = await observe(duration - 0.5, True)
+        if (
+            closing is not None
+            and first_ad is None
+            and last_probe.t <= closing.t < duration
+            and (closing.subtitle or closing.ad)
+            and not closing.credits
+        ):
+            last_probe = closing
+    returned_to_story = (
+        last_probe.story or last_probe.subtitle or last_probe.ad
+    ) and not last_probe.credits
+    if (
+        (not to_end or last_probe.subtitle or last_probe.ad)
+        and last_probe.t > credit_frames[-1].t
+        and returned_to_story
+    ):
         # 终点前已回到剧情（不是演职员表、也不是纯黑）：截到演职员表结束处。
-        # 只对不到结尾的片尾做：放到结尾的片尾最后几秒常是平台标识、版权卡，
-        # 截掉会让客户端从「自动下一集」退成「跳过片尾」按钮
+        # 放到结尾的片尾常跟平台标识，不能只凭亮度截掉；但对白字幕仍是反证。
         last_credit = await _bisect(
             credit_frames[-1].t,
             last_probe.t,
@@ -321,11 +471,12 @@ async def _check_audio_outro(
             lambda f: f.credits and not f.subtitle,
             find_first=False,
         )
-        new_end = min(end, last_credit + 1.0)
+        new_end = min(end, last_credit)
+        to_end = False
         notes.append(f"终点 {end:.0f}→{new_end:.0f}（演职员表后回到剧情）")
     if new_end - new_start < 10.0:
         return OutroDecision(None, "修正后不足 10 秒：否决")
-    return OutroDecision((new_start, new_end), "；".join(notes) or "演职员表确认")
+    return OutroDecision((new_start, new_end), "；".join(notes) or "演职员表确认", to_end=to_end)
 
 
 async def _bisect(

@@ -17,6 +17,67 @@ import pytest
 from movieclaw_playback import skip_segments as K
 
 SD = K.HASH_SECONDS
+CORPUS = Path(__file__).parent / "fixtures" / "skip_segments"
+
+
+@pytest.mark.parametrize(
+    "season",
+    json.loads((CORPUS / "nas-corpus-v9.json").read_text()),
+    ids=lambda s: f"{s['title']}-S{s['season']}",
+)
+@pytest.mark.parametrize("scope", ["full", "first3", "first6", "alternating", "reversed"])
+def test_real_corpus_preserves_v9_core_with_partial_seasons(season, scope) -> None:
+    """整季、追更、缺集都与 v9 核心结果一致；这是兼容性基线，不是人工准确率真值。"""
+    expected = season["expected"]["full" if scope == "reversed" else scope]
+    with np.load(CORPUS / "nas-corpus-v9.npz") as data:
+        episodes = [
+            K.Episode(
+                f["id"],
+                f["episode"],
+                f["duration"],
+                {
+                    name: K.Window(data[f"{f['id']}_{name}"], start)
+                    for name, start in f["starts"].items()
+                },
+            )
+            for f in season["files"]
+            if str(f["id"]) in expected
+        ]
+    if scope == "reversed":
+        episodes.reverse()
+    actual = {
+        str(fid): [{k: v for k, v in s.as_dict().items() if k != "lead_start_ms"} for s in segs]
+        for fid, segs in K.detect_season(episodes).items()
+    }
+    assert actual == expected
+
+
+def test_lead_and_core_share_cache_without_changing_each_other() -> None:
+    episodes = nas_outro_episodes("schooled")
+    core_first, lead_first = K._Season(episodes), K._Season(episodes)
+    for episode in episodes:
+        core = core_first.raw_segments(episode, "outro")
+        lead = core_first.raw_segments(episode, "outro", lead=True)
+        assert lead_first.raw_segments(episode, "outro", lead=True) == lead
+        assert lead_first.raw_segments(episode, "outro") == core
+
+
+@pytest.mark.xfail(strict=True, reason="王冠 S01E01：386 秒已回到剧情，音频片头终点仍为 390.7 秒")
+def test_real_intro_must_not_cover_story_after_title_sequence():
+    manifest = json.loads((CORPUS / "nas-crown-intro.json").read_text())
+    with np.load(CORPUS / "nas-crown-intro.npz") as data:
+        episodes = [
+            K.Episode(
+                f["episode"],
+                f["episode"],
+                f["duration"],
+                {"intro": K.Window(data[str(f["episode"])], 0.0)},
+            )
+            for f in manifest
+        ]
+    segments = K.detect_season(episodes)[1]
+    assert any(s.kind == "intro" for s in segments)
+    assert all(K._overlap((s.start, s.end), (386.0, 398.0)) == 0 for s in segments)
 
 
 def frames(seconds: float) -> int:

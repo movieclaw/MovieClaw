@@ -10,6 +10,10 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
+
+import pytest
 
 from movieclaw_playback import credits as C
 
@@ -48,6 +52,55 @@ def run(timeline, outro=None, duration=DURATION):
     return decision, calls
 
 
+def ad_frame(t: float, luma: float = 85) -> C.Frame:
+    # 实片广告角标位于画面左上，含黑边时 y 可超过 0.16。
+    return C.Frame(t, luma, [("广告", 0.14, 0.15, 0.20, 0.21), *credits_frame(t).lines])
+
+
+def test_explicit_ad_label_overrides_many_lines_and_credit_words():
+    frame = ad_frame(100, 6)
+    assert not frame.credits
+    assert not frame.strong
+    assert not frame.neutral
+    assert not C.Frame(100, 6, credits_frame(100).lines, corners=["广告"]).credits
+    # 正文讨论“广告”、名单中的广告部门，都不是角标。
+    assert C.Frame(100, 6, [("广告", 0.4, 0.4, 0.6, 0.5), *credits_frame(100).lines]).credits
+    assert C.Frame(
+        100, 6, [("广告制作", 0.14, 0.15, 0.20, 0.21), *credits_frame(100).lines]
+    ).credits
+
+
+@pytest.mark.parametrize("audio", [False, True])
+def test_explicit_ad_cannot_become_an_outro(audio):
+    decision, _ = run(lambda t: ad_frame(t, 6), (2800, 3000) if audio else None)
+    assert decision.segment is None
+
+
+@pytest.mark.parametrize("audio", [False, True])
+def test_ad_after_credits_cannot_trigger_next_episode(audio):
+    def timeline(t):
+        if t >= 2992:
+            return ad_frame(t, 6)
+        return credits_frame(t) if t >= 2800 else story_frame(t)
+
+    decision, _ = run(timeline, (2800, 3000) if audio else None)
+    assert decision.segment is not None
+    assert 2989 <= decision.segment[1] <= 2992
+    assert decision.to_end is False
+
+
+def test_ad_in_middle_cannot_be_bridged_by_later_credit_like_text():
+    def timeline(t):
+        if 2900 <= t < 2910:
+            return ad_frame(t)
+        return credits_frame(t)
+
+    decision, _ = run(timeline, (2800, 3000))
+    assert decision.segment is not None
+    assert 2897 <= decision.segment[1] <= 2900
+    assert decision.to_end is False
+
+
 def test_credits_on_black_become_the_outro_without_audio() -> None:
     """美剧 A：片尾配乐每集不同，音频找不到；最后 78 秒是黑底演职员表。"""
 
@@ -64,6 +117,22 @@ def test_credits_on_black_become_the_outro_without_audio() -> None:
     assert abs(start - (DURATION - 78)) <= C.BISECT_PRECISION_S
     assert end == DURATION
     assert len(calls) <= 15
+
+
+@pytest.mark.parametrize("accurate_missing", [False, True])
+def test_credits_after_audio_outro_cannot_validate_it(accurate_missing) -> None:
+    """长 GOP 落到区间之后的名单，不能证明区间内的重复配乐是片尾。"""
+    calls = []
+
+    async def observe(t, accurate):
+        calls.append((t, accurate))
+        if t >= 2948 or not accurate:
+            return credits_frame(max(t, 2950))
+        return None if accurate_missing else story_frame(t)
+
+    decision = asyncio.run(C.refine_outro((2920, 2940), DURATION, observe))
+    assert decision.segment is None
+    assert (2922, True) in calls
 
 
 def test_credits_over_story_are_not_skippable() -> None:
@@ -172,6 +241,23 @@ def test_outro_running_to_the_end_is_not_trimmed_by_a_closing_card() -> None:
     assert decision.segment == outro
 
 
+@pytest.mark.parametrize("audio", [False, True])
+@pytest.mark.parametrize("tail_seconds", [1, 2, 8])
+def test_dialogue_after_credits_is_protected_even_near_eof(audio, tail_seconds) -> None:
+    """最后八秒重回有对白剧情，接近 EOF 不能覆盖已看到的反证。"""
+    boundary = DURATION - tail_seconds
+
+    def timeline(t):
+        if t < DURATION - 80 or t >= boundary:
+            return story_frame(t, subtitle=True)
+        return credits_frame(t)
+
+    decision, _ = run(timeline, (DURATION - 80, DURATION) if audio else None)
+    assert decision.segment is not None
+    assert boundary - C.BISECT_PRECISION_S <= decision.segment[1] <= boundary
+    assert decision.to_end is False
+
+
 def test_start_moves_only_when_dialogue_is_still_on_screen() -> None:
     """起点处还有对白字幕才往后挪；片尾曲开头几秒没字的动画不挪（日本动画 A片尾曲）。"""
     credits_start = DURATION - 140
@@ -188,6 +274,26 @@ def test_start_moves_only_when_dialogue_is_still_on_screen() -> None:
         return credits_frame(t) if t >= credits_start else story_frame(t)
 
     decision, _ = run(silent_animation, outro)
+    assert decision.segment == outro
+
+
+@pytest.mark.xfail(strict=True, reason="晚到的滚动姓名仍会被当对白；回查方案在实片中有回归")
+def test_late_keyframe_does_not_replace_the_outro_start_context() -> None:
+    """深夜食堂：晚到的滚动姓名不是片尾起点仍有对白的证据。"""
+    outro = (2800.0, 2999.0)
+
+    async def observe(t, accurate):
+        if t < 2805:
+            if accurate:
+                return black_frame(t)
+            return C.Frame(
+                2810.0,
+                20,
+                [("田中圭", 0.58, 0.35, 0.77, 0.43), ("村川絵梨", 0.58, 0.92, 0.77, 1.0)],
+            )
+        return credits_frame(t)
+
+    decision = asyncio.run(C.refine_outro(outro, DURATION, observe))
     assert decision.segment == outro
 
 
@@ -211,7 +317,7 @@ def run_lead(timeline, lead=2800.0, start=2865.0):
 def test_dark_lead_before_audio_outro_is_joined() -> None:
     """铁拳教育：配音名单前的黑底韩文演职员表（识别不出字）是暗画面，整截接上。"""
     new, calls = run_lead(black_frame)
-    assert new == 2800.0
+    assert new == 2800.5
     assert len(calls) <= 7
 
 
@@ -238,13 +344,26 @@ def test_dark_scene_with_dialogue_subtitles_is_not_joined() -> None:
 def test_full_page_credits_brighter_than_near_black_are_joined() -> None:
     """黑暗荣耀：满屏白字名单平均亮度 10～12，不算近黑，但认得出是黑底演职员表。"""
     new, _ = run_lead(lambda t: C.Frame(t, 11.0, credits_frame(t).lines))
-    assert new == 2800.0
+    assert new == 2800.5
 
 
 def test_night_scene_darker_than_story_threshold_is_not_joined() -> None:
     """金粉世家 E37 片尾前的夜戏亮度 18～20：比一般剧情暗，但不是黑底，不接。"""
     new, _ = run_lead(lambda t: C.Frame(t, 19.0, []))
     assert new == 2865.0
+
+
+def test_lead_keeps_story_before_the_first_confirmed_black_frame() -> None:
+    async def observe(t: float, accurate: bool) -> C.Frame:
+        actual = t + 0.04
+        return story_frame(actual) if actual < 2800.3 else black_frame(actual)
+
+    assert asyncio.run(C.extend_lead(2800, 2865, observe)) == 2800.54
+
+
+def test_lead_boundary_probe_inside_audio_outro_cannot_extend_it() -> None:
+    new, _ = run_lead(black_frame, lead=2864.8)
+    assert new == 2865
 
 
 def test_keyframes_landing_inside_audio_outro_are_not_evidence() -> None:
@@ -257,3 +376,182 @@ def test_keyframes_landing_inside_audio_outro_are_not_evidence() -> None:
         return credits_frame(actual) if actual >= 2865.0 else story_frame(actual)
 
     assert asyncio.run(C.extend_lead(2800.0, 2865.0, observe)) == 2865.0
+
+
+def test_late_keyframes_cannot_bridge_story_after_a_black_opening() -> None:
+    """长 GOP：前段起点黑场，中间是剧情；后移到片尾的关键帧不能证明中间可跳。"""
+
+    async def observe(t: float, accurate: bool) -> C.Frame:
+        if not accurate:
+            return credits_frame(2866.0)
+        return black_frame(t) if t < 2802 else story_frame(t)
+
+    assert asyncio.run(C.extend_lead(2800.0, 2865.0, observe)) == 2865.0
+
+
+def test_failed_lead_probe_does_not_cross_the_unknown_interval() -> None:
+    new, _ = run_lead(lambda t: None if t < 2845 else black_frame(t))
+    assert 2845 <= new < 2848
+
+
+def test_first_lead_probe_failure_keeps_audio_start() -> None:
+    new, _ = run_lead(lambda t: None)
+    assert new == 2865.0
+
+
+def run_credit_lead(timeline):
+    async def observe(t, accurate):
+        return timeline(t)
+
+    return asyncio.run(C.extend_credits(2865.0, observe))
+
+
+def test_credits_before_audio_start_do_not_need_repeated_music() -> None:
+    new = run_credit_lead(lambda t: credits_frame(t) if t >= 2800 else story_frame(t))
+    assert 2800 <= new <= 2803
+
+
+def test_credit_lead_requires_two_strong_pages() -> None:
+    assert run_credit_lead(lambda t: credits_frame(t) if t > 2855 else black_frame(t)) == 2865
+    assert run_credit_lead(lambda t: credits_frame(t, keyword=False)) == 2865
+
+
+def test_credit_lead_does_not_bridge_black_story_or_a_missing_frame() -> None:
+    for gap in (black_frame, story_frame, lambda t: None):
+        new = run_credit_lead(lambda t, gap=gap: gap(t) if 2820 <= t <= 2835 else credits_frame(t))
+        assert 2835 < new <= 2838
+
+
+def test_credit_lead_rejects_dark_dialogue_bright_credits_and_logos() -> None:
+    for timeline in (
+        black_frame,
+        logo_frame,
+        lambda t: C.Frame(t, 5, story_frame(t, subtitle=True).lines),
+        lambda t: C.Frame(t, 90, credits_frame(t).lines),
+    ):
+        assert run_credit_lead(timeline) == 2865
+
+
+def test_credit_lead_late_keyframes_cannot_count_as_distinct_evidence() -> None:
+    async def observe(t, accurate):
+        return story_frame(t) if accurate else credits_frame(2866)
+
+    assert asyncio.run(C.extend_credits(2865, observe)) == 2865
+
+
+@pytest.mark.parametrize("gap", ["logo", "missing", "dialogue", "story", "ad"])
+def test_credit_run_extension_does_not_cross_negative_or_missing_evidence(gap):
+    async def observe(t, accurate):
+        if t < 2750:
+            return story_frame(t)
+        if 2810 <= t < 2825:
+            return {
+                "logo": logo_frame(t),
+                "missing": None,
+                "dialogue": C.Frame(t, 4, story_frame(t, subtitle=True).lines),
+                "story": story_frame(t),
+                "ad": ad_frame(t, 4),
+            }[gap]
+        return credits_frame(t)
+
+    earlier = asyncio.run(C.extend_credits_past_logos(2865, 2995, 3000, observe))
+    if gap == "logo":
+        assert 2750 <= earlier <= 2753
+    else:
+        assert earlier > 2825
+
+
+def test_credit_run_extension_cannot_change_a_verified_tail_boundary():
+    async def observe(t, accurate):
+        if t < 2750 or t > 2990:
+            return story_frame(t, subtitle=True)
+        return credits_frame(t)
+
+    assert asyncio.run(C.extend_credits_past_logos(2865, 2990, 3000, observe)) == 2865
+
+
+def test_credit_run_extension_ignores_changes_within_search_precision():
+    async def observe(t, accurate):
+        return credits_frame(t) if t >= 2864 else story_frame(t)
+
+    assert asyncio.run(C.extend_credits_past_logos(2865, 3000, 3000, observe)) == 2865
+
+
+def test_credit_run_extension_does_not_scan_when_start_precedes_search_window():
+    async def observe(t, accurate):
+        pytest.fail("扫描窗口不可能提供更早起点")
+
+    assert asyncio.run(C.extend_credits_past_logos(2700, 3000, 3000, observe)) == 2700
+
+
+def test_intro_music_continuing_into_story_is_trimmed_after_title_cards():
+    async def observe(t, accurate):
+        assert accurate
+        return credits_frame(t) if t < 386 else story_frame(t)
+
+    end = asyncio.run(C.trim_intro_end(316.78, 390.71, observe))
+    assert 383 <= end < 386
+
+
+def test_intro_end_without_two_dark_credit_observations_is_kept():
+    for timeline in (
+        story_frame,
+        black_frame,
+        lambda t: credits_frame(t) if 383 < t < 386 else story_frame(t),
+        lambda t: C.Frame(t, 90, credits_frame(t).lines),
+        lambda t: None,
+    ):
+
+        async def observe(t, accurate, timeline=timeline):
+            return timeline(t)
+
+        assert asyncio.run(C.trim_intro_end(316.78, 390.71, observe)) == 390.71
+
+
+@pytest.mark.parametrize(
+    "case",
+    json.loads(
+        (
+            Path(__file__).parent / "fixtures/skip_segments/nas-intro-credit-boundaries.json"
+        ).read_text()
+    ),
+    ids=lambda c: f"intro-{c['id']}",
+)
+def test_real_intro_title_cards_end_before_the_first_story_frame(case):
+    async def observe(t, accurate):
+        assert accurate
+        for f in sorted(case["frames"], key=lambda f: abs(f["req"] - t)):
+            if f["accurate"] and abs(f["t"] - t) <= 0.3:
+                return C.Frame(f["t"], f["luma"], f["lines"])
+        return None
+
+    end = asyncio.run(C.trim_intro_end(case["start"], case["end"], observe))
+    last_card, first_story = case["transition"]
+    assert last_card - C.BISECT_PRECISION_S <= end < first_story
+    assert end < case["end"]
+
+
+@pytest.mark.parametrize(
+    "case",
+    json.loads(
+        (Path(__file__).parent / "fixtures/skip_segments/nas-credit-leads.json").read_text()
+    ),
+    ids=lambda c: f"{c['title']}-{c['id']}",
+)
+def test_real_ocr_credit_leads_keep_visual_safety_bounds(case):
+    """真实抽帧/OCR 观测回放；保护下界来自每秒画面核对，不是旧算法黄金输出。"""
+
+    async def observe(t, accurate):
+        frames = sorted(
+            case["frames"],
+            key=lambda f: (abs(f["req"] - t), f["accurate"] != accurate, abs(f["t"] - t)),
+        )
+        for f in frames:
+            if (accurate and f["accurate"] and abs(f["t"] - t) <= 0.3) or (
+                not accurate and abs(f["req"] - t) <= 1.5
+            ):
+                return C.Frame(f["t"], f["luma"], f["lines"])
+        return None
+
+    start = asyncio.run(C.extend_credits(case["start"], observe))
+    assert case["safe_start"] <= start <= case["start"] - case["min_gain"]

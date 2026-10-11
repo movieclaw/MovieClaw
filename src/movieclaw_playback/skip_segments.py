@@ -82,7 +82,7 @@ HEAD_ZONE_S = 60.0
 ADJACENT_S = 3.0
 #: 算法版本：改了上面任何规则就加一，服务端据此把旧结果全部重算一遍
 #: （7：候选位移按升序遍历，等长共享段的取舍确定下来；8：服务端按画面演职员表修正片尾；
-#: 9：服务端按画面文字给开头段标广告、片尾后单独标出下集预告；10：片尾带出首尾相接的前段候选）
+#: 9：服务端按画面文字标广告、预告；10：片尾带出前段候选、按连续名单前扩、固定比对/缓存选择）
 ALGO_VERSION = 10
 
 _POPCOUNT8 = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
@@ -278,7 +278,8 @@ class _Season:
     """一季的比对上下文：缓存两两比对结果（A 比 B 与 B 比 A 只算一次）。"""
 
     def __init__(self, episodes: Sequence[Episode]):
-        self.episodes = list(episodes)
+        # 两两比对会缓存反向结果，首次计算的方向必须固定；与服务端查询顺序一致。
+        self.episodes = sorted(episodes, key=lambda e: (e.episode, e.file_id))
         self._pairs: dict[tuple[int, int, str], list[tuple[tuple[float, float], float]]] = {}
         self._indexes: dict[tuple[int, str], ValueIndex] = {}
 

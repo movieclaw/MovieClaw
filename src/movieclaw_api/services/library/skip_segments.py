@@ -820,7 +820,7 @@ def _fingerprint_readable(file_id: int, *, check_audio_selection: bool = False) 
 # ---------------------------------------------------------------------------
 
 #: 帧观测缓存的格式版本：抽帧尺寸、OCR 模型或文字归一化变了就加一，旧缓存作废
-FRAMES_VERSION = 1
+FRAMES_VERSION = 2  # v1 是整帧平均亮度，不能用于密集白字的背景亮度修正
 #: 抽帧宽度：960 宽的画面上演职员表的小字仍可读，识别耗时约为 1920 宽的三分之一
 _FRAME_WIDTH = 960
 #: 找广告角标时的抽帧宽度：角标在 960 宽上只有约 20 像素、笔画一两个像素，放大也补不回细节
@@ -1012,7 +1012,7 @@ class _FrameProbe:
     """一个文件的抽帧 + 识别，带磁盘缓存。
 
     缓存同时记请求时间和实际时间：关键帧请求按请求时间 ±1.5 秒复用（同一个请求点每次都拿到
-    同一个关键帧）；精确请求按实际时间 ±0.3 秒复用，不拿关键帧顶替。
+    同一个关键帧）；精确请求按实际时间 ±0.3 秒复用。两种模式不互相顶替。
     """
 
     def __init__(self, file: LibraryFile, engine: _OcrPool):
@@ -1039,9 +1039,14 @@ class _FrameProbe:
         self, t: float, accurate: bool, corners: bool = False
     ) -> credits_logic.Frame | None:
         """抽 t 处的一帧并识别；``corners`` 为真时连四角一起识别（找广告角标，多 0.6 秒）。"""
-        for req, cached_accurate, frame in self.frames:
+        # 精确请求优先，随后取最近请求：缓存按时间排序落盘，不能让前面的近邻帧
+        # 抢走已有的同点观测（精确边界帧和后移的关键帧可能分属剧情/演职员表）。
+        for req, cached_accurate, frame in sorted(
+            self.frames,
+            key=lambda item: (abs(item[0] - t), item[1] != accurate, abs(item[2].t - t)),
+        ):
             hit = (accurate and cached_accurate and abs(frame.t - t) <= 0.3) or (
-                not accurate and abs(req - t) <= 1.5
+                not accurate and not cached_accurate and abs(req - t) <= 1.5
             )
             if hit and (not corners or frame.corners is not None):
                 return frame
@@ -1133,7 +1138,29 @@ async def _refine_episode(
     audio = (outro["start_ms"] / 1000, outro["end_ms"] / 1000) if outro else None
     probe = _FrameProbe(file, engine)
     notes: list[str] = []
+    seen_ad = False
+
+    async def observe_outro(t: float, accurate: bool) -> credits_logic.Frame | None:
+        nonlocal seen_ad
+        frame = await probe.observe(t, accurate)
+        if frame is not None:
+            # 已有广告反证时，二分遇到的多行商品文案不能冒充名单；按需放大角标。
+            if seen_ad and frame.credits:
+                frame = await probe.observe(t, accurate, corners=True)
+            if frame is not None and frame.ad:
+                seen_ad = True
+        return frame
+
     try:
+        for segment in segments:
+            if segment.get("type") == "intro":
+                old_end = segment["end_ms"] / 1000
+                end = await credits_logic.trim_intro_end(
+                    segment["start_ms"] / 1000, old_end, probe.observe
+                )
+                if end < old_end:
+                    segment["end_ms"] = round(end * 1000)
+                    notes.append(f"片头终点 {old_end:.1f}→{end:.1f}（文字卡后已回正文）")
         candidate = audio
         if audio is not None and outro and outro.get("lead_start_ms") is not None:
             start = await credits_logic.extend_lead(
@@ -1142,8 +1169,28 @@ async def _refine_episode(
             if start < audio[0]:
                 candidate = (start, audio[1])
                 notes.append(f"片尾起点 {audio[0]:.0f}→{start:.0f}（前段是暗画面）")
-        decision = await credits_logic.refine_outro(candidate, duration, probe.observe)
-        if decision.segment != audio:
+        decision = await credits_logic.refine_outro(candidate, duration, observe_outro)
+        # 先核对声音结果，避免前面的演职员表把本来应否决的音频区间重新变成片尾。
+        if (
+            audio is not None
+            and outro.get("lead_start_ms") is None
+            and decision.segment is not None
+        ):
+            start, end = decision.segment
+            earlier = await credits_logic.extend_credits(start, probe.observe)
+            if earlier == start:
+                earlier = await credits_logic.extend_credits_past_logos(
+                    start, end, duration, observe_outro
+                )
+            if earlier < start:
+                decision = credits_logic.OutroDecision(
+                    (earlier, end), "向前接黑底演职员表", to_end=decision.to_end
+                )
+        if decision.segment != audio or (
+            outro is not None
+            and decision.to_end is not None
+            and decision.to_end != outro.get("to_end", False)
+        ):
             notes.append(f"片尾：{decision.reason}")
         segments = [s for s in segments if s.get("type") != "outro"]
         if decision.segment is not None:
@@ -1154,7 +1201,9 @@ async def _refine_episode(
                     "start_ms": int(round(start * 1000)),
                     "end_ms": int(round(end * 1000)),
                     "support": int(outro.get("support", 0)) if outro else 0,
-                    "to_end": duration - end <= 5.0,
+                    "to_end": decision.to_end
+                    if decision.to_end is not None
+                    else duration - end <= 5.0,
                 }
             )
             if duration - end > 5.0:

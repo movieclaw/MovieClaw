@@ -11,6 +11,8 @@ import asyncio
 import json
 import os
 import re
+import shutil
+import subprocess
 import time
 from functools import partial
 from pathlib import Path
@@ -1617,7 +1619,6 @@ def test_truncated_fingerprint_is_rebuilt_in_library_job(client, tmp_path, monke
 def test_credits_refinement_rewrites_outro_in_database(client, tmp_path, monkeypatch) -> None:
     """整季识别后按画面修正片尾：改写的区间落库，其余集保持声音结果。"""
     ids = call(client, _seed, tmp_path)
-    first = ids["files"][0]
     seen: list[tuple[float, float] | None] = []
 
     async def fake_refine(outro, duration, observe):
@@ -1630,10 +1631,12 @@ def test_credits_refinement_rewrites_outro_in_database(client, tmp_path, monkeyp
     monkeypatch.setattr(skip_segments.credits_logic, "refine_outro", fake_refine)
     call(client, skip_segments.analyze_season, ids["show"], 1)
     states = call(client, _states)
-    outro = next(s for s in states[first].segments if s["type"] == "outro")
-    assert (outro["start_ms"], outro["end_ms"], outro["to_end"]) == (2_600_000, 2_650_000, False)
-    other = next(s for s in states[ids["files"][1]].segments if s["type"] == "outro")
-    assert other["to_end"] and other["end_ms"] > 2_690_000
+    outros = [next(s for s in states[f].segments if s["type"] == "outro") for f in ids["files"]]
+    # 各集并发核对，最先完成的未必是第一集；只允许恰好一集采用替身给出的修正。
+    changed = [s for s in outros if s["end_ms"] == 2_650_000]
+    assert len(changed) == 1
+    assert (changed[0]["start_ms"], changed[0]["to_end"]) == (2_600_000, False)
+    assert all(s["to_end"] and s["end_ms"] > 2_690_000 for s in outros if s is not changed[0])
     assert len(seen) == len(ids["files"]) and all(o is not None for o in seen)
 
 
@@ -1651,10 +1654,99 @@ def test_frame_check_failure_keeps_audio_result(client, tmp_path, monkeypatch) -
     assert all(any(s["type"] == "outro" for s in states[f].segments) for f in ids["files"])
 
 
-@pytest.mark.parametrize("with_ocr", [True, False])
-def test_outro_lead_is_joined_only_after_frame_check(
-    client, tmp_path, monkeypatch, with_ocr
-) -> None:
+@pytest.mark.parametrize("gap", ["logo", "story", "dialogue", "missing", "ad"])
+def test_earlier_credit_run_feeds_playback_without_crossing_unknown_content(
+    client, tmp_path, monkeypatch, gap
+):
+    """合成指纹/真实检测进程 → 观测回放 → 存储/会话；厂标前名单须有连续证据。"""
+    ids = call(client, _seed, tmp_path)
+    first = ids["files"][0]
+    audio = {}
+    real = skip_segments._run_detection
+
+    async def detection(episodes):
+        response = await real(episodes)
+        audio.update(next(s for s in response["results"][str(first)] if s["type"] == "outro"))
+        return response
+
+    async def observe(self, t, accurate=False, corners=False):
+        if self.file.id != first:
+            return None
+        start = audio["start_ms"] / 1000
+        if t < start - 80:
+            return credits_logic.Frame(t, 80)
+        if start - 32 <= t < start - 20 and gap != "logo":
+            if gap == "missing":
+                return None
+            if gap == "story":
+                return credits_logic.Frame(t, 80)
+            if gap == "dialogue":
+                return credits_logic.Frame(t, 4, [("还没说完", 0.4, 0.88, 0.6, 0.93)])
+            return credits_logic.Frame(t, 4, [("广告", 0.1, 0.1, 0.2, 0.15)])
+        if start - 6 <= t < start + 2:
+            return credits_logic.Frame(t, 4, [("STUDIO", 0.4, 0.4, 0.6, 0.5)])
+        return credits_logic.Frame(t, 8, [("Executive Producer", 0.3, 0.4, 0.7, 0.5)])
+
+    monkeypatch.setattr(skip_segments, "_run_detection", detection)
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: object())
+    monkeypatch.setattr(skip_segments._FrameProbe, "observe", observe)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    stored = next(s for s in call(client, _states)[first].segments if s["type"] == "outro")
+    if gap == "logo":
+        assert audio["start_ms"] - 80_000 <= stored["start_ms"] <= audio["start_ms"] - 77_000
+    else:
+        assert stored["start_ms"] >= audio["start_ms"] - 20_000
+    assert stored["end_ms"] == audio["end_ms"]
+    delivered = next(s for s in start_session(client, first)["segments"] if s["type"] == "outro")
+    assert delivered["start_ms"] == stored["start_ms"]
+    response = client.get(
+        f"/MediaSegments/{episode_guid(ids['show'], 1, 1)}", params={"ApiKey": jf_token(client)}
+    )
+    assert response.status_code == 200
+    jf = next(s for s in response.json()["Items"] if s["Type"] == "Outro")
+    assert jf["StartTicks"] == stored["start_ms"] * 10_000
+
+
+def test_intro_title_card_boundary_feeds_playback(client, tmp_path, monkeypatch):
+    """检测子进程的音乐终点跨入剧情，精确文字帧修正后落库并下发相同终点。"""
+    ids = call(client, _seed, tmp_path)
+    real = skip_segments._run_detection
+    ends = {}
+
+    async def detection(episodes):
+        response = await real(episodes)
+        for fid, segments in response["results"].items():
+            ends[int(fid)] = next(s["end_ms"] / 1000 for s in segments if s["type"] == "intro")
+        return response
+
+    async def observe(self, t, accurate=False):
+        end = ends[self.file.id]
+        if end - 12 < t < end - 4:
+            return credits_logic.Frame(t, 12, [("Directed by", 0.3, 0.4, 0.7, 0.5)])
+        return credits_logic.Frame(t, 80, [])
+
+    monkeypatch.setattr(skip_segments, "_run_detection", detection)
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: object())
+    monkeypatch.setattr(skip_segments._FrameProbe, "observe", observe)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    first = ids["files"][0]
+    stored = next(s for s in call(client, _states)[first].segments if s["type"] == "intro")
+    assert (ends[first] - 7) * 1000 <= stored["end_ms"] < (ends[first] - 4) * 1000
+    delivered = next(s for s in start_session(client, first)["segments"] if s["type"] == "intro")
+    assert delivered["end_ms"] == stored["end_ms"]
+    response = client.get(
+        f"/MediaSegments/{episode_guid(ids['show'], 1, 1)}", params={"ApiKey": jf_token(client)}
+    )
+    assert response.status_code == 200
+    jf = next(s for s in response.json()["Items"] if s["Type"] == "Intro")
+    assert jf["EndTicks"] == stored["end_ms"] * 10_000
+
+
+@pytest.mark.parametrize(
+    "mode",
+    ["black", "lead_story", "no_model", "short", "error", "unchanged", "missing", "long_gop"],
+)
+def test_outro_lead_is_joined_only_after_frame_check(client, tmp_path, monkeypatch, mode) -> None:
     """片尾前段候选（lead_start_ms）是暗画面才接上；没做画面核对就不接，候选字段不落库。"""
     ids = call(client, _seed, tmp_path)
     first = ids["files"][0]
@@ -1669,23 +1761,305 @@ def test_outro_lead_is_joined_only_after_frame_check(
         return response
 
     async def black_frame(path, t, accurate, width=960):
-        return np.zeros((54, 96, 3), dtype=np.uint8), t
+        if mode == "error":
+            raise RuntimeError("画面核对失败")
+        if mode == "missing":
+            return None
+        if mode == "lead_story":
+            actual = t + 0.04
+            luma = 85 if actual < lead_ms[0] / 1000 + 0.3 else 0
+            return np.full((54, 96, 3), luma, dtype=np.uint8), actual
+        return np.full((54, 96, 3), 85 if mode == "unchanged" else 0, dtype=np.uint8), t
 
     class Engine:
         async def recognize(self, img, corners):
             return float(img.mean()), [], None
 
     monkeypatch.setattr(skip_segments, "_run_detection", detection_with_lead)
-    monkeypatch.setattr(skip_segments, "_grab_frame", black_frame)
-    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: Engine() if with_ocr else None)
+    if mode == "long_gop":
+        if shutil.which("ffmpeg") is None:
+            pytest.skip("需要 ffmpeg 验证真实长 GOP 解码")
+        media = tmp_path / "long-gop.mp4"
+        # 前段只有开头两秒是黑场，随后是剧情；下一个关键帧已在片尾中。
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-v",
+                "error",
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=black:s=96x54:r=1:d={DURATION}",
+                "-vf",
+                "drawbox=color=white:t=fill:enable='between(t,2522,2579)'",
+                "-c:v",
+                "libx264",
+                "-g",
+                "10000",
+                "-sc_threshold",
+                "0",
+                "-force_key_frames",
+                "2581",
+                "-pix_fmt",
+                "yuv420p",
+                str(media),
+            ],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+
+        async def use_media():
+            async with get_database().session() as session:
+                file = await session.get(LibraryFile, first)
+                file.file_path = str(media)
+                session.add(file)
+                await session.commit()
+
+        call(client, use_media)
+        frame = call(client, skip_segments._grab_frame, str(media), 2578.0, False)
+        assert frame is not None and frame[1] >= 2580
+    else:
+        monkeypatch.setattr(skip_segments, "_grab_frame", black_frame)
+    if mode == "short":
+        monkeypatch.setattr(skip_segments, "_MIN_FRAME_DURATION_S", DURATION + 1)
+    monkeypatch.setattr(
+        skip_segments, "_ocr_engine", lambda: None if mode == "no_model" else Engine()
+    )
     call(client, skip_segments.analyze_season, ids["show"], 1)
     states = call(client, _states)
     assert all("lead_start_ms" not in s for st in states.values() for s in st.segments or [])
     outro = next(s for s in states[first].segments if s["type"] == "outro")
-    if with_ocr:
-        assert outro["start_ms"] == lead_ms[0]
+    if mode == "black":
+        assert outro["start_ms"] == lead_ms[0] + 500
+    elif mode == "lead_story":
+        assert outro["start_ms"] == lead_ms[0] + 540
     else:
         assert outro["start_ms"] == lead_ms[0] + 60_000
+    delivered = start_session(client, first)["segments"]
+    assert all("lead_start_ms" not in s for s in delivered)
+    assert next(s for s in delivered if s["type"] == "outro")["start_ms"] == outro["start_ms"]
+    response = client.get(
+        f"/MediaSegments/{episode_guid(ids['show'], 1, 1)}", params={"ApiKey": jf_token(client)}
+    )
+    assert response.status_code == 200
+    jf_outro = next(s for s in response.json()["Items"] if s["Type"] == "Outro")
+    assert jf_outro["StartTicks"] == outro["start_ms"] * 10_000
+
+
+@pytest.mark.parametrize("audio", [False, True, "ends_before_dialogue"])
+@pytest.mark.parametrize("tail_seconds", [1, 2, 8])
+@pytest.mark.parametrize("tail_kind", ["dialogue", "ad"])
+def test_dialogue_near_eof_disables_next_episode_skip(
+    client, tmp_path, monkeypatch, audio, tail_seconds, tail_kind
+):
+    """合成指纹/真实检测子进程 → 帧观测回放 → 库与客户端，片尾后的对白不能触发下一集。"""
+    ids = call(client, _seed, tmp_path)
+    first = ids["files"][0]
+    boundary = DURATION - tail_seconds
+    real = skip_segments._run_detection
+
+    async def detection(episodes):
+        result = await real(episodes)
+        if not audio:
+            result["results"][str(first)] = [
+                s for s in result["results"][str(first)] if s["type"] != "outro"
+            ]
+        elif audio == "ends_before_dialogue":
+            outro = next(s for s in result["results"][str(first)] if s["type"] == "outro")
+            outro["end_ms"] = (DURATION - 4) * 1000
+            outro["to_end"] = True
+        return result
+
+    async def observe(self, t, accurate=False, corners=False):
+        if self.file.id != first:
+            return None
+        if DURATION - 120 <= t < boundary:
+            return credits_logic.Frame(t, 8, [("Executive Producer", 0.3, 0.4, 0.7, 0.5)])
+        if t >= boundary and tail_kind == "ad":
+            return credits_logic.Frame(
+                t,
+                8,
+                [("广告", 0.14, 0.15, 0.20, 0.21), ("Music Phone", 0.3, 0.4, 0.7, 0.5)],
+            )
+        return credits_logic.Frame(t, 80, [("你明天还来吗", 0.4, 0.88, 0.6, 0.93)])
+
+    monkeypatch.setattr(skip_segments, "_run_detection", detection)
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: object())
+    monkeypatch.setattr(skip_segments._FrameProbe, "observe", observe)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    stored = next(s for s in call(client, _states)[first].segments if s["type"] == "outro")
+    assert (
+        (boundary - credits_logic.BISECT_PRECISION_S) * 1000 <= stored["end_ms"] <= boundary * 1000
+    )
+    assert not stored["to_end"]
+    delivered = next(s for s in start_session(client, first)["segments"] if s["type"] == "outro")
+    assert delivered["end_ms"] == stored["end_ms"] and not delivered["to_end"]
+    response = client.get(
+        f"/MediaSegments/{episode_guid(ids['show'], 1, 1)}", params={"ApiKey": jf_token(client)}
+    )
+    assert response.status_code == 200
+    jf = next(s for s in response.json()["Items"] if s["Type"] == "Outro")
+    assert jf["EndTicks"] == stored["end_ms"] * 10_000
+
+
+@pytest.mark.xfail(strict=True, reason="起点姓名/对白混淆未修复，不能仅改取帧位置")
+def test_outro_start_context_survives_publication(client, tmp_path, monkeypatch):
+    """真实检测 → 观测回放 → 数据库/播放会话，晚到的滚动姓名不能推迟正确起点。"""
+    ids = call(client, _seed, tmp_path)
+    first = ids["files"][0]
+    audio = {}
+    real = skip_segments._run_detection
+
+    async def detection(episodes):
+        result = await real(episodes)
+        audio.update(next(s for s in result["results"][str(first)] if s["type"] == "outro"))
+        return result
+
+    async def observe(self, t, accurate=False):
+        if self.file.id != first:
+            return None
+        start = audio["start_ms"] / 1000
+        if t < start:
+            return credits_logic.Frame(t, 80)
+        if t < start + 5:
+            if accurate:
+                return credits_logic.Frame(t, 1)
+            return credits_logic.Frame(
+                start + 10,
+                20,
+                [("田中圭", 0.58, 0.35, 0.77, 0.43), ("村川絵梨", 0.58, 0.92, 0.77, 1.0)],
+            )
+        return credits_logic.Frame(t, 8, [("Executive Producer", 0.3, 0.4, 0.7, 0.5)])
+
+    monkeypatch.setattr(skip_segments, "_run_detection", detection)
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: object())
+    monkeypatch.setattr(skip_segments._FrameProbe, "observe", observe)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    stored = next(s for s in call(client, _states)[first].segments if s["type"] == "outro")
+    assert stored["start_ms"] == audio["start_ms"]
+    delivered = next(s for s in start_session(client, first)["segments"] if s["type"] == "outro")
+    assert delivered == {k: v for k, v in stored.items() if k != "support"}
+
+
+def test_outside_keyframe_cannot_publish_a_false_outro(client, tmp_path, monkeypatch):
+    """真实长 GOP 解码 → 画面规则（OCR 替身）→ 存储/会话，区间外名单不能背书。"""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("需要 ffmpeg 验证真实长 GOP 解码")
+    ids = call(client, _seed, tmp_path)
+    first = ids["files"][0]
+    media = tmp_path / "outside-credits.mp4"
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"color=white:s=96x54:r=1:d={DURATION}",
+            "-vf",
+            "drawbox=color=black:t=fill:enable='gte(t,2548)'",
+            "-c:v",
+            "libx264",
+            "-g",
+            "10000",
+            "-sc_threshold",
+            "0",
+            "-force_key_frames",
+            "2548",
+            "-pix_fmt",
+            "yuv420p",
+            str(media),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+
+    async def use_media():
+        async with get_database().session() as session:
+            file = await session.get(LibraryFile, first)
+            file.file_path = str(media)
+            await session.commit()
+
+    real = skip_segments._run_detection
+
+    async def detection(episodes):
+        result = await real(episodes)
+        outro = next(s for s in result["results"][str(first)] if s["type"] == "outro")
+        outro.update(start_ms=2_520_000, end_ms=2_540_000, to_end=False)
+        return result
+
+    class Engine:
+        async def recognize(self, img, corners):
+            luma = float(img.mean())
+            lines = [("Executive Producer", 0.3, 0.4, 0.7, 0.5)] if luma < 10 else []
+            return luma, lines, None
+
+    call(client, use_media)
+    frame = call(client, skip_segments._grab_frame, str(media), 2522, False)
+    assert frame is not None and frame[1] >= 2548
+    monkeypatch.setattr(skip_segments, "_run_detection", detection)
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: Engine())
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    assert all(s["type"] != "outro" for s in call(client, _states)[first].segments)
+    assert all(s["type"] != "outro" for s in start_session(client, first)["segments"])
+    response = client.get(
+        f"/MediaSegments/{episode_guid(ids['show'], 1, 1)}", params={"ApiKey": jf_token(client)}
+    )
+    assert response.status_code == 200
+    assert all(s["Type"] != "Outro" for s in response.json()["Items"])
+
+
+@pytest.mark.parametrize("rejected", [False, True])
+def test_continuous_credits_without_lead_feed_playback(client, tmp_path, monkeypatch, rejected):
+    """合成指纹/真实检测子进程 → 帧观测替身 → 库和客户端；前置名单不能复活否决结果。"""
+    ids = call(client, _seed, tmp_path)
+    first = ids["files"][0]
+    real = skip_segments._run_detection
+    starts = {}
+
+    async def detection(episodes):
+        result = await real(episodes)
+        for fid, segments in result["results"].items():
+            outro = next(s for s in segments if s["type"] == "outro")
+            assert "lead_start_ms" not in outro
+            starts[int(fid)] = outro["start_ms"] / 1000
+            if rejected:
+                outro["end_ms"] = outro["start_ms"] + 60_000
+                outro["to_end"] = False
+        return result
+
+    async def observe(self, t, accurate=False):
+        start = starts[self.file.id]
+        is_credit = t >= start - 60
+        if rejected and start <= t < start + 65:
+            is_credit = False
+        lines = [("Executive Producer", 0.3, 0.4, 0.7, 0.5)] if is_credit else []
+        return credits_logic.Frame(t, 6 if is_credit else 85, lines)
+
+    monkeypatch.setattr(skip_segments, "_run_detection", detection)
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: object())
+    monkeypatch.setattr(skip_segments._FrameProbe, "observe", observe)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    stored = call(client, _states)[first].segments
+    delivered = start_session(client, first)["segments"]
+    response = client.get(
+        f"/MediaSegments/{episode_guid(ids['show'], 1, 1)}", params={"ApiKey": jf_token(client)}
+    )
+    assert response.status_code == 200
+    jf = [s for s in response.json()["Items"] if s["Type"] == "Outro"]
+    if rejected:
+        assert not any(s["type"] == "outro" for s in stored + delivered)
+        assert jf == []
+    else:
+        outro = next(s for s in stored if s["type"] == "outro")
+        assert (starts[first] - 60) * 1000 <= outro["start_ms"] <= (starts[first] - 57) * 1000
+        assert next(s for s in delivered if s["type"] == "outro") == {
+            k: v for k, v in outro.items() if k != "support"
+        }
+        assert jf[0]["StartTicks"] == outro["start_ms"] * 10_000
 
 
 def test_frame_probe_caches_observations(client, tmp_path, monkeypatch) -> None:
@@ -1717,12 +2091,189 @@ def test_frame_probe_caches_observations(client, tmp_path, monkeypatch) -> None:
         again = skip_segments._FrameProbe(file, Engine())
         await again.observe(100.4, False)
         await again.observe(101.1, True)
+        # 旧版记录的是平均亮度，升级后必须重新取帧计算，不能复用旧观测。
+        cache_path = skip_segments.frames_path(file.id)
+        old = json.loads(cache_path.read_text())
+        old["v"] = skip_segments.FRAMES_VERSION - 1
+        cache_path.write_text(json.dumps(old))
+        upgraded = skip_segments._FrameProbe(file, Engine())
+        await upgraded.observe(100.0, False)
         file.size_bytes = 456
         replaced = skip_segments._FrameProbe(file, Engine())
         await replaced.observe(100.0, False)
 
     client.portal.call(scenario)  # type: ignore[attr-defined]
-    assert grabs == [(100.0, False), (101.0, True), (100.0, False)]
+    assert grabs == [(100.0, False), (101.0, True), (100.0, False), (100.0, False)]
+
+
+def test_precise_cache_cannot_replace_a_missing_keyframe(client, tmp_path, monkeypatch):
+    """片尾后扫描留下的精确帧不能改变下一次音频片尾核对的关键帧结果。"""
+    from types import SimpleNamespace
+
+    calls = []
+
+    async def grab(path, t, accurate, width=960):
+        calls.append((t, accurate))
+        if not accurate:
+            return None
+        return np.zeros((2, 2, 3), dtype=np.uint8), t
+
+    class Engine:
+        async def recognize(self, img, corners):
+            return 4.0, [("の物語。", 0.3, 0.85, 0.7, 0.91)], None
+
+    monkeypatch.setattr(skip_segments, "_grab_frame", grab)
+    file = SimpleNamespace(id=7, file_path=str(tmp_path / "x.mkv"), size_bytes=123)
+
+    async def scenario():
+        probe = skip_segments._FrameProbe(file, Engine())
+        assert await probe.observe(1508.858, False) is None
+        assert await probe.observe(1508.941, True) is not None
+        probe.save()
+        warm = skip_segments._FrameProbe(file, Engine())
+        assert await warm.observe(1508.858, False) is None
+
+    client.portal.call(scenario)
+    assert calls == [(1508.858, False), (1508.941, True), (1508.858, False)]
+
+
+@pytest.mark.parametrize(
+    "source",
+    json.loads(
+        (
+            Path(__file__).parents[1]
+            / "playback/fixtures/skip_segments/nas-earlier-credit-runs.json"
+        ).read_text()
+    ),
+    ids=lambda case: str(case["id"]),
+)
+def test_earlier_run_real_observations_are_stable_after_saving_cache(client, monkeypatch, source):
+    """真实 OCR 观测回放：找回厂标前名单，扫描新增的精确帧不能改变第二次分析。"""
+    from types import SimpleNamespace
+
+    frames = source["frames"]
+
+    async def grab(path, t, accurate, width=960):
+        for request in source["failed_requests"]:
+            if abs(request["requested"] - t) < 0.001 and request["accurate"] == accurate:
+                return None
+        for i, frame in enumerate(frames):
+            if abs(frame["req"] - t) < 0.001 and frame["accurate"] == accurate:
+                return np.full((2, 2, 3), i, dtype=np.uint8), frame["t"]
+        raise AssertionError(f"未记录的抽帧请求：{t}, {accurate}")
+
+    class Engine:
+        async def recognize(self, img, corners):
+            frame = frames[int(img[0, 0, 0])]
+            return frame["luma"], frame["lines"], frame["corners"]
+
+    monkeypatch.setattr(skip_segments, "_grab_frame", grab)
+    file = SimpleNamespace(
+        id=source["id"],
+        file_path="observation-replay",
+        size_bytes=source["size"],
+        duration_seconds=source["duration"],
+    )
+
+    async def scenario():
+        cold = await skip_segments._refine_episode(
+            file, source["segments"], Engine(), chinese=False
+        )
+        warm = await skip_segments._refine_episode(
+            file, source["segments"], Engine(), chinese=False
+        )
+        assert (cold if cold is not None else source["segments"]) == source["expected"]
+        assert warm == cold
+
+    client.portal.call(scenario)
+
+
+def test_real_credit_observations_survive_warm_cache(client, tmp_path, monkeypatch):
+    """货币崛起 E01：精确边界帧不能抢走同一请求已缓存的关键帧，导致第二次整段片尾消失。"""
+    from types import SimpleNamespace
+
+    path = (
+        Path(__file__).parents[1] / "playback/fixtures/skip_segments/nas-money-credits-frames.json"
+    )
+    source = json.loads(path.read_text())
+    frames = source["frames"]
+
+    async def grab(path, t, accurate, width=960):
+        for i, frame in enumerate(frames):
+            if abs(frame["req"] - t) < 0.01 and frame["accurate"] == accurate:
+                return np.full((2, 2, 3), i, dtype=np.uint8), frame["t"]
+        raise AssertionError(f"未记录的抽帧请求：{t}, {accurate}")
+
+    class Engine:
+        async def recognize(self, img, corners):
+            f = frames[int(img[0, 0, 0])]
+            return f["luma"], f["lines"], f["corners"]
+
+    monkeypatch.setattr(skip_segments, "_grab_frame", grab)
+    file = SimpleNamespace(
+        id=14300, file_path="observation-replay", size_bytes=source["size"], duration_seconds=2849.0
+    )
+
+    async def scenario():
+        cold = await skip_segments._refine_episode(file, [], Engine(), chinese=False)
+        assert cold is not None and len(cold) == 1 and cold[0]["type"] == "outro"
+        warm = await skip_segments._refine_episode(file, [], Engine(), chinese=False)
+        assert warm == cold
+
+    client.portal.call(scenario)
+
+
+@pytest.mark.parametrize(
+    "source",
+    json.loads(
+        (
+            Path(__file__).parents[1] / "playback/fixtures/skip_segments/nas-outro-ad-frames.json"
+        ).read_text()
+    ),
+    ids=lambda case: str(case["id"]),
+)
+def test_real_ad_observations_reject_outro_in_cold_and_warm_cache(client, monkeypatch, source):
+    """圆桌派两集：商品文案不能确认片尾；整帧漏角标时放大补识别，缓存前后结论一致。"""
+    from types import SimpleNamespace
+
+    frames = source["frames"]
+
+    async def grab(path, t, accurate, width=960):
+        if any(
+            abs(f["req"] - t) < 0.01 and f["accurate"] == accurate
+            for f in source.get("failed_requests", [])
+        ):
+            return None
+        matches = [
+            (abs(f["req"] - t), i)
+            for i, f in enumerate(frames)
+            if f["accurate"] == accurate
+            and (f["corners"] is not None) == (width == skip_segments._CORNER_FRAME_WIDTH)
+        ]
+        distance, i = min(matches)
+        assert distance < 0.01, f"未记录的抽帧请求：{t}, {accurate}"
+        return np.full((2, 2, 3), i, dtype=np.uint8), frames[i]["t"]
+
+    class Engine:
+        async def recognize(self, img, corners):
+            f = frames[int(img[0, 0, 0])]
+            return f["luma"], f["lines"], f["corners"]
+
+    monkeypatch.setattr(skip_segments, "_grab_frame", grab)
+    file = SimpleNamespace(
+        id=source["id"],
+        file_path="observation-replay",
+        size_bytes=source["size"],
+        duration_seconds=source["duration"],
+    )
+
+    async def scenario():
+        cold = await skip_segments._refine_episode(file, source["segments"], Engine(), chinese=True)
+        assert cold is not None and not any(s["type"] == "outro" for s in cold)
+        warm = await skip_segments._refine_episode(file, source["segments"], Engine(), chinese=True)
+        assert warm == cold
+
+    client.portal.call(scenario)
 
 
 def test_frame_refinement_labels_ads_only_for_chinese_titles(client, tmp_path, monkeypatch) -> None:

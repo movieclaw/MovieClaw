@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 
@@ -29,6 +30,64 @@ def test_missing_models_degrade_to_none(tmp_path) -> None:
     (tmp_path / ocr.DET_MODEL).write_bytes(b"not a model")
     (tmp_path / ocr.REC_MODEL).write_bytes(b"not a model")
     assert ocr.OcrEngine.load(tmp_path) is None
+
+
+def test_dense_white_names_do_not_make_a_black_background_bright():
+    img = np.full((200, 400, 3), 5, dtype=np.uint8)
+    lines = []
+    for y in range(20, 180, 20):
+        img[y : y + 10, 30:370:2] = 220
+        lines.append(ocr.TextLine("NAME", 1.0, (0.075, y / 200, 0.925, (y + 10) / 200)))
+    assert img.mean() > 28
+    assert ocr.frame_luma(img, lines) == pytest.approx(5)
+
+
+def test_text_does_not_turn_bright_or_dim_story_into_black_credits():
+    lines = [
+        ocr.TextLine("NAME", 1.0, (0.4, y / 200, 0.6, (y + 5) / 200)) for y in range(20, 180, 20)
+    ]
+    for background in (27, 85, 230):
+        img = np.full((200, 400, 3), background, dtype=np.uint8)
+        for line in lines:
+            _, y0, _, y1 = line.box
+            img[int(y0 * 200) : int(y1 * 200), 160:240] = 220
+        assert ocr.frame_luma(img, lines) == pytest.approx(float(img.mean()))
+
+
+def test_oversized_text_boxes_cannot_hide_the_whole_picture():
+    img = np.zeros((200, 400, 3), dtype=np.uint8)
+    img[10:190] = 120
+    lines = [ocr.TextLine("NAME", 1.0, (0, 0.05, 1, 0.95))] * 6
+    assert ocr.frame_luma(img, lines) == pytest.approx(float(img.mean()))
+
+
+def test_black_text_on_white_paper_is_not_removed_as_white_names():
+    img = np.zeros((200, 400, 3), dtype=np.uint8)
+    img[:, 150:250] = 220
+    lines = []
+    for y in range(20, 180, 20):
+        img[y : y + 5, 160:240:3] = 0
+        lines.append(ocr.TextLine("正文资料", 1.0, (0.4, y / 200, 0.6, (y + 5) / 200)))
+    assert ocr.frame_luma(img, lines) == pytest.approx(float(img.mean()))
+
+
+_BACKGROUND_FIXTURES = Path(__file__).parent / "fixtures/skip_segments"
+
+
+@pytest.mark.parametrize(
+    "case",
+    json.loads((_BACKGROUND_FIXTURES / "nas-credit-backgrounds.json").read_text()),
+    ids=lambda c: c["key"],
+)
+def test_real_dense_credits_and_book_page_backgrounds(case):
+    with np.load(_BACKGROUND_FIXTURES / "nas-credit-backgrounds.npz") as data:
+        img = data[case["key"]]
+    lines = [ocr.TextLine(x[0], 1.0, tuple(x[1:])) for x in case["lines"]]
+    assert img.mean() >= 28
+    luma = ocr.frame_luma(img, lines)
+    assert (luma < 28) == case["expected_dark"]
+    if not case["expected_dark"]:
+        assert luma == pytest.approx(float(img.mean()))
 
 
 def _model_dir() -> Path | None:
