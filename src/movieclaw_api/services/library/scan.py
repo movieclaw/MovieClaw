@@ -1329,6 +1329,7 @@ async def _scan(
                     dir_files.get(str(file.parent)),
                     is_disc=is_disc,
                     check_media_change=(backfill_existing_specs or path_str in reprobe_paths),
+                    session=session,
                 ):
                     rows_refreshed += 1
                 # 本地来源：此前标题来自文件名推断，目录里新出现了 sidecar NFO
@@ -2821,6 +2822,7 @@ async def _refresh_known_row(
     *,
     is_disc: bool,
     check_media_change: bool,
+    session: AsyncSession | None = None,
 ) -> bool:
     """秒过行的增量刷新：外挂字幕重发现 +（点名时）视频变化重探。
 
@@ -2830,8 +2832,9 @@ async def _refresh_known_row(
       不触碰视频本体；旧行（NULL）顺带回填。原盘条目恒 []（§2.1）；
     - 视频变化重探（§2.4）：只在 ``check_media_change`` 时 stat 视频本体，
       (size, mtime) 确认变化才 ffprobe；**探测成功才回写**规格与新鲜度键
-      ——半截写入的替换文件探测会失败，保留旧值让下一轮重试。strm 无
-      媒体流，不参与重探。
+      ——半截写入的替换文件探测会失败，保留旧值让下一轮重试。strm 不在扫描里
+      探网盘，只看 .strm 是否被改写：直链换了文件就清空规格，交给首播 / 预探重探
+      （plugin-strm-prefetch.md §4）。
     """
     changed = False
     if is_disc:
@@ -2844,6 +2847,11 @@ async def _refresh_known_row(
         changed = True
 
     is_strm = not is_disc and file.suffix.lower() == STRM_EXT
+    if check_media_change and is_strm and session is not None:
+        from movieclaw_api.services.playback.strm_probe import refresh_rewritten_strm
+
+        if await refresh_rewritten_strm(session, row, file):
+            changed = True
     if check_media_change and not is_disc and not is_strm:
         try:
             st = await asyncio.to_thread(file.stat)

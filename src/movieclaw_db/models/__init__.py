@@ -83,6 +83,7 @@ from movieclaw_db.models.smart_subscription import (
     SmartProfile,
     SmartSeason,
 )
+from movieclaw_db.models.strm_probe_state import StrmProbeState
 from movieclaw_db.models.subscription import (
     DownloadAttemptStatus,
     Subscription,
@@ -186,6 +187,7 @@ __all__ = [
     "SubscriptionActivity",
     "SubtitleAutoMute",
     "SearchHistory",
+    "StrmProbeState",
     "SiteTorrent",
     "SiteTorrentSwarmSample",
     "SiteSyncCursor",
