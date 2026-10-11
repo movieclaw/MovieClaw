@@ -431,6 +431,9 @@ class ScanSummary:
     # 本轮被换下的旧条目（临时本地身份转正、身份改挂）：台账收口后交给
     # 孤儿清理（对外接口不暴露）
     reanchored_item_ids: set[int] = field(default_factory=set)
+    # 本轮新入账的文件（新文件与失联回归）：(行 id, 条目, 季, 集, 是否 strm)；扫描收尾
+    # 发一次 ``library.files.added`` 给插件（对外接口不暴露）
+    added_files: list[tuple[int, int | None, int, int, bool]] = field(default_factory=list)
 
 
 @dataclass
@@ -455,12 +458,32 @@ class RootPathReconcilePreview:
     disk_files_to_delete: int = 0
 
 
+def emit_files_added(library_id: int, added: list[tuple[int, int | None, int, int, bool]]) -> None:
+    """新入账的文件告诉插件（实时事件 ``library.files.added``，plugin-strm-prefetch.md §3）。"""
+    if not added:
+        return
+    from movieclaw_api import hooks
+    from movieclaw_sdk.library import LIBRARY_FILES_ADDED, AddedFile, FilesAdded
+
+    hooks.emit(
+        LIBRARY_FILES_ADDED,
+        lambda: FilesAdded(
+            library_id=library_id,
+            files=tuple(
+                AddedFile(id=i, media_item_id=m, season=s, episode=e, strm=strm)
+                for i, m, s, e, strm in added
+            ),
+        ),
+    )
+
+
 def scan_summary_payload(summary: ScanSummary) -> dict[str, object]:
     """生成可持久化的扫描结论；内部调度字段不进入 Job JSON。"""
     payload = asdict(summary)
     payload.pop("recheck_delay_seconds", None)
     payload.pop("identified_item_ids", None)
     payload.pop("reanchored_item_ids", None)
+    payload.pop("added_files", None)
     return payload
 
 
@@ -857,6 +880,7 @@ async def scan_library(
         return summary
     finally:
         _scan_tasks.finish(library_id, result=(utcnow(), summary))
+        emit_files_added(library_id, summary.added_files)
         # 暂缓过文件的扫描要自己安排补扫：写入结束后不会再有事件叫醒我们
         # （手动停止的不自动补扫——用户的意图是"别扫了"）
         if summary.deferred and not summary.cancelled and finished_normally:
@@ -3156,6 +3180,9 @@ async def _ingest_file(
         # 同路径旧行调用方已经持有（扫描开场的整库快照），不必再查一次
         existing=existing,
     )
+    if scanned_row.id is not None and (existing is None or existing.state == FileState.MISSING):
+        strm = not is_disc and file.suffix.lower() == STRM_EXT
+        summary.added_files.append((scanned_row.id, item_id, season, episode, strm))
     if torrent is not None:
         # 原地下载按下载记录的保存路径反查到的来源：交获取领域记下（种子关联归下载领域，
         # library-boundary.md §5）

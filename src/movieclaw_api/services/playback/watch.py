@@ -414,7 +414,26 @@ async def record_start(
     await session.commit()
     event = await build_playback_event(session, "playback.started", unit, row, client=client)
     emit_events([event] if event is not None else [])
+    _emit_started(unit, member_id=member_id, client=client, file_id=file_id)
     return row
+
+
+def _emit_started(unit: Unit, *, member_id: int, client: ClientInfo, file_id: int | None) -> None:
+    """插件的实时事件（plugin-strm-prefetch.md §3）：例如预探下一集。"""
+    from movieclaw_api import hooks
+    from movieclaw_sdk.library import PLAYBACK_STARTED, PlaybackStarted
+
+    hooks.emit(
+        PLAYBACK_STARTED,
+        lambda: PlaybackStarted(
+            media_item_id=unit[0],
+            season=unit[1],
+            episode=unit[2],
+            file_id=file_id,
+            member_id=member_id,
+            client=client.name or None,
+        ),
+    )
 
 
 async def record_progress(

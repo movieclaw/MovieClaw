@@ -48,6 +48,17 @@ def active(event: Event[Any, Any]) -> bool:
     return _bus is not None and bool(_bus.listeners(event))
 
 
+def emit(event: Event[P, Any], build: Callable[[], P]) -> None:
+    """发一个实时事件（发完即忘）；没有插件在听就连载荷都不构造。"""
+    if not active(event):
+        return
+    assert _bus is not None
+    try:
+        _bus.emit(event, build())
+    except Exception:  # noqa: BLE001 -- 通知插件出错不能拖垮业务
+        logger.exception("实时事件 %s 发送失败", event.name)
+
+
 async def waterfall(
     event: Event[P, R], payload: P, *, terminal: Callable[[P], R | Awaitable[R]]
 ) -> R:

@@ -1364,6 +1364,69 @@
     "stability": "experimental",
     "version": "1.0"
   },
+  "library.files.added": {
+    "delivery": "live",
+    "doc": "媒体库新入账了文件（实时）",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "AddedFile": {
+          "properties": {
+            "episode": {
+              "type": "integer"
+            },
+            "id": {
+              "type": "integer"
+            },
+            "media_item_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "season": {
+              "type": "integer"
+            },
+            "strm": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "id",
+            "media_item_id",
+            "season",
+            "episode",
+            "strm"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "files": {
+          "items": {
+            "$ref": "#/$defs/AddedFile"
+          },
+          "type": "array"
+        },
+        "library_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "library_id",
+        "files"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
   "library.ingest.imported": {
     "delivery": "durable",
     "doc": "下载条目整理入库完成",
@@ -1913,6 +1976,160 @@
     "result": null,
     "stability": "experimental",
     "version": "1.1"
+  },
+  "library.item.favorited": {
+    "delivery": "live",
+    "doc": "条目收藏状态变化（实时）",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "properties": {
+        "episode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "favorite": {
+          "type": "boolean"
+        },
+        "media_item_id": {
+          "type": "integer"
+        },
+        "member_id": {
+          "type": "integer"
+        },
+        "season": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "media_item_id",
+        "member_id",
+        "favorite"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "library.item.viewed": {
+    "delivery": "live",
+    "doc": "有人打开了条目详情（实时）",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "properties": {
+        "client": {
+          "type": "string"
+        },
+        "episode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "media_item_id": {
+          "type": "integer"
+        },
+        "member_id": {
+          "type": "integer"
+        },
+        "season": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "media_item_id",
+        "member_id",
+        "client"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "playback.started": {
+    "delivery": "live",
+    "doc": "有人开始播放（实时）",
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "properties": {
+        "client": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "episode": {
+          "type": "integer"
+        },
+        "file_id": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "media_item_id": {
+          "type": "integer"
+        },
+        "member_id": {
+          "type": "integer"
+        },
+        "season": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "media_item_id",
+        "season",
+        "episode",
+        "file_id",
+        "member_id"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
   },
   "plugin-callbacks": {
     "doc": "插件回调端点：外部平台能直接调进来的地址，请求原样交给插件（plugin-callbacks.md §4）",

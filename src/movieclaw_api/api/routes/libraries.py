@@ -2627,6 +2627,18 @@ async def get_library_item(
         user_agent=user_agent,
         context=track_context,
     )
+    # 插件的实时事件（plugin-strm-prefetch.md §3）：例如把网盘条目的前几集先探好
+    from movieclaw_api import hooks
+    from movieclaw_sdk.library import LIBRARY_ITEM_VIEWED, ItemViewed
+
+    hooks.emit(
+        LIBRARY_ITEM_VIEWED,
+        lambda: ItemViewed(
+            media_item_id=media_item_id,
+            member_id=principal.member_id if principal.member_id is not None else 0,
+            client="web",
+        ),
+    )
     # 章节场景图懒触发（docs/design/video-chapters.md §4.5）：有在位文件的图
     # 还没抓齐就后台抓这一个条目，前端按 chapters_pending 轮询几轮把图补上——
     # 升级后第一次打开旧条目不用等整库作业排到它。判据与整库作业同源

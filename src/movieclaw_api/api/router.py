@@ -55,6 +55,7 @@ from movieclaw_api.api.routes.libraries import search_router as library_search_r
 from movieclaw_api.api.routes.libraries import showcase_router as library_showcase_router
 from movieclaw_api.api.routes.library_duplicates import router as library_duplicates_router
 from movieclaw_api.api.routes.library_recycle import router as library_recycle_router
+from movieclaw_api.api.routes.library_strm import router as library_strm_router
 from movieclaw_api.api.routes.llm import router as llm_router
 from movieclaw_api.api.routes.logs import router as logs_router
 from movieclaw_api.api.routes.mcp import router as mcp_router
@@ -201,6 +202,8 @@ _ADMIN_ROUTERS = [
     scheduled_tasks_router,
     # 插件诊断：列出全部插件的状态与失败原因（含内部错误文本），管理员专属
     plugins_router,
+    # 网盘条目规格探测（预探插件、CLI、MCP 共用）：会对外发网盘请求，管理员专属
+    library_strm_router,
     spec_router,
     # AI 字幕生成消费 LLM 配额（真金白银），G1 管理员专属；成员开放随
     # G2 额度护栏一起评估（docs/design/subtitle-ai-translate.md §6）

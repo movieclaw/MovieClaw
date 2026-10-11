@@ -364,6 +364,8 @@ func TestDomainCommandSets(t *testing.T) {
 			"library.scan.start",
 			"library.scan.stop",
 			"library.set-default",
+			"library.strm.list-pending",
+			"library.strm.probe",
 			"library.subtitles.calibrate-timing",
 			"library.subtitles.delete",
 			"library.subtitles.generate",

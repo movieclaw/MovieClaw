@@ -210,3 +210,17 @@ async def set_favorite(
     event = await build_favorite_event(session, unit, favorite=favorite, client=client)
     if event is not None:
         emit_events([event])
+    from movieclaw_api import hooks
+    from movieclaw_sdk.library import LIBRARY_ITEM_FAVORITED, ItemFavorited
+
+    # 插件的实时事件（plugin-strm-prefetch.md §3）；整季 / 整部的哨兵 -1 写成「不限」
+    hooks.emit(
+        LIBRARY_ITEM_FAVORITED,
+        lambda: ItemFavorited(
+            media_item_id=unit[0],
+            season=unit[1] if unit[1] >= 0 else None,
+            episode=unit[2] if unit[2] >= 0 else None,
+            member_id=member_id,
+            favorite=favorite,
+        ),
+    )

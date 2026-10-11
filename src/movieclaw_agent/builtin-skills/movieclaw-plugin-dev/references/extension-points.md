@@ -21,6 +21,16 @@ tests 守着：契约有增删时本文必须同步）。每个都是「实验�
 | `subscription.fulfilled` | 订阅的季集已确认入库 | 收齐提醒、外部片单打勾 | `… import SUBSCRIPTION_FULFILLED` | — |
 | `subscription.status-changed` | 追踪中 / 已收齐 / 暂停 | 状态同步 | `… import SUBSCRIPTION_STATUS_CHANGED` | — |
 
+**实时事件**：发完即忘（插件不在、积压满了就丢），不用 inject `DURABLE_EVENTS`。只适合「现在值得做点什么」的提示，
+该做的事要能从数据库里的事实补回来（例如按待探列表补探）。
+
+| 契约 | 什么时候发生 | 典型用途 | 导入 | 示例 |
+|---|---|---|---|---|
+| `library.files.added` | 媒体库新入账了文件（扫描一轮发一次，下载入库每个条目一次） | 新文件来了就处理（预探、生成东西） | `from movieclaw_sdk.library import LIBRARY_FILES_ADDED` | — |
+| `playback.started` | 网页或 Jellyfin 客户端开始播放 | 预取下一集、播放联动 | `… import PLAYBACK_STARTED` | — |
+| `library.item.favorited` | 收藏 / 取消收藏 | 收藏即准备好整部 | `… import LIBRARY_ITEM_FAVORITED` | — |
+| `library.item.viewed` | 打开条目详情（网页详情页、Jellyfin 取条目） | 用户可能要看了，先准备 | `… import LIBRARY_ITEM_VIEWED` | — |
+
 ## 2. 决策钩子：改变系统的判断
 
 **只做判断、不许有副作用**（不发请求、不写数据、不调宿主操作）；要快（在搜索 / 投递的热路径上）。

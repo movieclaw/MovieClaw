@@ -37,7 +37,7 @@ logger = logging.getLogger("movieclaw_api.playback.strm_probe")
 _FAILURE_COOLDOWN_S = 60.0
 
 #: 直链路径能看出容器时以它为准（与本地文件按扩展名记容器同一口径）
-_URL_CONTAINERS = frozenset(
+URL_CONTAINERS = frozenset(
     {"mkv", "mp4", "m4v", "mov", "webm", "ts", "m2ts", "avi", "wmv", "flv", "mpg", "mpeg"}
 )
 #: 看不出时按 ffprobe 的封装格式名（逗号分隔的第一项）
@@ -80,7 +80,7 @@ def strm_target(url: str) -> str:
 def strm_container(url: str, format_name: str | None) -> str | None:
     """网盘直链的容器（与台账 ``container`` 列同一套扩展名口径）。"""
     suffix = PurePosixPath(urlsplit(url).path).suffix.lower().lstrip(".")
-    if suffix in _URL_CONTAINERS:
+    if suffix in URL_CONTAINERS:
         return suffix
     return _FORMAT_CONTAINERS.get((format_name or "").split(",")[0])
 

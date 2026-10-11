@@ -10654,6 +10654,8 @@ nonisolated extension API {
         var createdAt: String
         /// 会话最近活动时间（ISO 8601 UTC）
         var updatedAt: String
+        /// 会话归属：空 = 网页 / 管理员发起；plugin:<条目 id> = 插件发起的会话
+        var owner: String?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -10663,6 +10665,7 @@ nonisolated extension API {
             case running
             case createdAt = "created_at"
             case updatedAt = "updated_at"
+            case owner
         }
     }
 
@@ -11273,6 +11276,65 @@ nonisolated extension API {
             case dirs
             case unregistered
             case computedAt = "computed_at"
+        }
+    }
+
+    struct StrmPendingFile: Codable, Hashable, Sendable {
+        var fileId: Int
+        var libraryId: Int
+        var mediaItemId: Int?
+        var season: Int
+        var episode: Int
+        /// 直链看得出的容器（后缀）；看不出为空
+        var container: String?
+        /// 入账时间
+        var createdAt: String
+
+        enum CodingKeys: String, CodingKey {
+            case fileId = "file_id"
+            case libraryId = "library_id"
+            case mediaItemId = "media_item_id"
+            case season
+            case episode
+            case container
+            case createdAt = "created_at"
+        }
+    }
+
+    struct StrmPendingView: Codable, Hashable, Sendable {
+        var items: [API.StrmPendingFile]
+        /// 符合条件的待探文件数（不计排除的容器）
+        var total: Int
+        /// 下一页的游标；没有了为空
+        var nextCursor: String?
+
+        enum CodingKeys: String, CodingKey {
+            case items
+            case total
+            case nextCursor = "next_cursor"
+        }
+    }
+
+    struct StrmProbeView: Codable, Hashable, Sendable {
+        var fileId: Int
+        /// probed：这次探出了规格；ready：本来就有；failed：没探成；backoff：还在失败退避期没探；not_strm：不是网盘条目
+        var status: String
+        /// 没探成的原因
+        var error: String?
+        /// 失败退避到什么时候
+        var nextRetryAt: String?
+        var container: String?
+        var videoCodec: String?
+        var resolution: String?
+
+        enum CodingKeys: String, CodingKey {
+            case fileId = "file_id"
+            case status
+            case error
+            case nextRetryAt = "next_retry_at"
+            case container
+            case videoCodec = "video_codec"
+            case resolution
         }
     }
 

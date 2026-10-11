@@ -2114,6 +2114,7 @@ async def _ingest_entry(
     owned_units = await repo.owned_units(item.id) if staging is not None else set()
 
     imported = 0
+    added_files: list[tuple[int, int | None, int, int, bool]] = []
     skipped_owned = 0
     total_bytes = sum(file.stat().st_size for file in files)
     completed_bytes = 0
@@ -2359,9 +2360,15 @@ async def _ingest_entry(
         )
         await session.commit()  # 同台账行（upsert_by_path 当场提交）
         imported += 1
+        if file_row.id is not None:
+            strm = final.suffix.lower() == ".strm"
+            added_files.append((file_row.id, item.id, season, episode, strm))
 
     if imported and staging is None:
         assert dest_library is not None and dest_library.id is not None
+        from movieclaw_api.services.library.scan import emit_files_added
+
+        emit_files_added(dest_library.id, added_files)
         # 监听入库不经过存量扫描；条目文件全部落账后在同一写路径刷新一次
         # 快照，避免首页要等下一轮定时扫描才看到新库存。
         await LibraryRepository(session).refresh_stats([dest_library.id])

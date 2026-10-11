@@ -1643,6 +1643,28 @@ nonisolated extension APIClient {
         return try await send("POST", "/libraries/\(libraryId)/scan/stop")
     }
 
+    /// 探一个网盘条目的规格（默认遵守失败退避）
+    /// `POST /library-strm/files/{file_id}/probe`
+    func libraryStrmProbe(fileId: Int, respectBackoff: Bool? = nil) async throws -> API.StrmProbeView {
+        var query: [URLQueryItem] = []
+        if let respectBackoff { query.append(URLQueryItem(name: "respect_backoff", value: "\(respectBackoff)")) }
+        return try await send("POST", "/library-strm/files/\(fileId)/probe", query: query)
+    }
+
+    /// 还没探过规格的网盘条目（不含失败退避期内的）
+    /// `GET /library-strm/pending`
+    func libraryStrmListPending(libraryId: Int? = nil, mediaItemId: Int? = nil, season: Int? = nil, excludeContainers: [String]? = nil, order: String? = nil, limit: Int? = nil, cursor: String? = nil) async throws -> API.StrmPendingView {
+        var query: [URLQueryItem] = []
+        if let libraryId { query.append(URLQueryItem(name: "library_id", value: "\(libraryId)")) }
+        if let mediaItemId { query.append(URLQueryItem(name: "media_item_id", value: "\(mediaItemId)")) }
+        if let season { query.append(URLQueryItem(name: "season", value: "\(season)")) }
+        for value in excludeContainers ?? [] { query.append(URLQueryItem(name: "exclude_containers", value: "\(value)")) }
+        if let order { query.append(URLQueryItem(name: "order", value: "\(order)")) }
+        if let limit { query.append(URLQueryItem(name: "limit", value: "\(limit)")) }
+        if let cursor { query.append(URLQueryItem(name: "cursor", value: "\(cursor)")) }
+        return try await send("GET", "/library-strm/pending", query: query)
+    }
+
     /// 查看 AI 设定（各用途的默认模型）
     /// `GET /llm/defaults`
     func llmDefaultsShow() async throws -> API.LlmDefaultsView {
