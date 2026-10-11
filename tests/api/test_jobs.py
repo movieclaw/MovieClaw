@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import sqlite3
 from datetime import timedelta
 
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from movieclaw_api.api.deps import require_admin
 from movieclaw_api.app import create_app
@@ -325,6 +326,32 @@ async def test_expired_lease_is_recovered_and_next_claim_gets_new_token(job_db) 
         row = await jobs.get_job(session, job_id)
     assert row is not None
     assert row.progress["phase"] != "stale"
+
+
+async def test_startup_recovery_tolerates_locked_database(job_db, monkeypatch) -> None:
+    """用户 NAS 日志：启动时回收过期租约撞上 database is locked，整个应用起不来，
+    还被入口脚本计成启动失败、把好版本标坏。启动期这一步要容忍，交给调度循环重试。"""
+    real_recover = jobs.JobDispatcher._recover_expired_jobs
+    calls = 0
+    recovered = asyncio.Event()
+
+    async def locked_once(self) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise OperationalError(
+                "DELETE FROM job_lock", {}, sqlite3.OperationalError("database is locked")
+            )
+        await real_recover(self)
+        recovered.set()
+
+    monkeypatch.setattr(jobs.JobDispatcher, "_recover_expired_jobs", locked_once)
+    dispatcher = jobs.JobDispatcher(max_parallel=1)
+    await dispatcher.start()
+    try:
+        await asyncio.wait_for(recovered.wait(), timeout=2)
+    finally:
+        await dispatcher.close()
 
 
 async def test_retry_blocked_job_requeues_in_place(job_db) -> None:

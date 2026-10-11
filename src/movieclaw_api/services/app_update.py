@@ -25,6 +25,7 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import base64
 import binascii
@@ -735,6 +736,49 @@ def _validate_layout(version_dir: Path) -> None:
             raise RuntimeError(f"更新产物解包后布局异常（缺少 {rel}），已放弃本次更新")
 
 
+def _declared_revisions(alembic_dir: Path) -> set[str]:
+    """一个版本产物里全部迁移脚本声明的 revision。只做语法解析、不执行脚本：
+    装之前不能在当前进程里跑另一个版本的代码。"""
+    revisions: set[str] = set()
+    for script in (alembic_dir / "versions").glob("*.py"):
+        for node in ast.parse(script.read_text(encoding="utf-8")).body:
+            if isinstance(node, ast.Assign):
+                targets, value = node.targets, node.value
+            elif isinstance(node, ast.AnnAssign):
+                targets, value = [node.target], node.value
+            else:
+                continue
+            if (
+                any(isinstance(t, ast.Name) and t.id == "revision" for t in targets)
+                and isinstance(value, ast.Constant)
+                and isinstance(value.value, str)
+            ):
+                revisions.add(value.value)
+    return revisions
+
+
+def _ensure_database_known(version_dir: Path, version: str) -> None:
+    """装之前确认新版本认识数据库当前的迁移位置。
+
+    迁移只向前，正式版本之间新版必然认识旧版的迁移位置；认不出来说明库被
+    自行修改过的代码或非正式版本迁移过。这时装上去新版本启动必挂、连续失败
+    被标坏，用户白白经历一轮重启回落——不如在切换前就拦下并讲清原因。
+    """
+    db_path = _db_path()
+    if db_path is None or not db_path.is_file():
+        return
+    rev = _read_alembic_rev(db_path)
+    if rev is None:
+        return
+    if rev not in _declared_revisions(version_dir / "backend" / "alembic"):
+        raise RuntimeError(
+            f"数据库当前的迁移位置「{rev}」不在 v{version} 的迁移记录里，装上后新版本"
+            "不认识这个数据库、无法启动，已放弃本次更新。通常是数据库被自行修改过的"
+            "代码或非正式版本迁移过：请先把数据库恢复到正式版本的状态"
+            "（data/updates/backup 下有历史备份）再更新"
+        )
+
+
 def _db_path() -> Path | None:
     """SQLite 数据库文件路径；非 SQLite 部署返回 None。"""
     url = get_settings().database_url
@@ -892,10 +936,16 @@ def _apply_downloaded(
 
     _progress.set("applying", "正在解包并安装新版本……", target_version=version)
     shutil.rmtree(partial_dir, ignore_errors=True)
-    _extract(download_dir / "app-backend.tar.gz", partial_dir / "backend")
-    _extract(download_dir / "app-web.tar.gz", partial_dir / "web")
-    (partial_dir / _MANIFEST_NAME).write_bytes(manifest["raw"])
-    _validate_layout(partial_dir)
+    try:
+        _extract(download_dir / "app-backend.tar.gz", partial_dir / "backend")
+        _extract(download_dir / "app-web.tar.gz", partial_dir / "web")
+        (partial_dir / _MANIFEST_NAME).write_bytes(manifest["raw"])
+        _validate_layout(partial_dir)
+        _ensure_database_known(partial_dir, version)
+    except BaseException:
+        # 半成品别留在 versions/ 下：版本清理会把它当成一个版本占掉保留名额
+        shutil.rmtree(partial_dir, ignore_errors=True)
+        raise
     (partial_dir / _RELEASE_INFO_NAME).write_text(
         json.dumps(
             {

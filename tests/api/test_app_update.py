@@ -69,14 +69,26 @@ def _tar_bytes(members: dict[str, bytes]) -> bytes:
     return buf.getvalue()
 
 
-def _make_manifest(download_dir: Path, version: str = "0.2.0") -> dict:
-    """按 build-release-artifacts.sh 的产物布局伪造一套下载完成的文件。"""
+def _make_manifest(
+    download_dir: Path,
+    version: str = "0.2.0",
+    revisions: tuple[str, ...] = ("rev-old", "rev-live", "rev-new", "rev-abc"),
+) -> dict:
+    """按 build-release-artifacts.sh 的产物布局伪造一套下载完成的文件。
+
+    ``revisions``：产物迁移目录里声明的迁移号（安装前要核对它认不认识现库）。"""
     backend = _tar_bytes(
         {
             "src/movieclaw_api/main.py": b"# main",
             "src/movieclaw_api/data/spec.json": b"{}",
             "alembic.ini": b"[alembic]",
             "alembic/env.py": b"# env",
+            **{
+                f"alembic/versions/{i:04d}_{rev}.py": (
+                    f'revision: str = "{rev}"\ndown_revision = None\n'.encode()
+                )
+                for i, rev in enumerate(revisions)
+            },
         }
     )
     web = _tar_bytes({"apps/web/server.js": b"// server"})
@@ -261,6 +273,40 @@ def test_apply_rejects_incomplete_layout(updates_dir, tmp_path):
     with pytest.raises(RuntimeError, match="布局异常"):
         app_update._apply_downloaded(manifest, tmp_path / "dl")
     assert not (updates_dir / "current").exists()
+    assert not (updates_dir / "versions" / "v0.2.0.partial").exists()
+
+
+def test_apply_rejects_database_the_new_version_does_not_know(updates_dir, tmp_path):
+    """用户反馈：库被自改代码写进了官方没有的迁移号，装上新版后启动必挂、连好版本
+    都被连带标坏。安装前就要拦下：不切指针、不留备份，原版本照常运行。"""
+    db = Path(get_settings().database_url.split(":///", 1)[1])
+    _make_db(db, "a3f7c2d1b8e4")
+    manifest = _make_manifest(tmp_path / "dl", "0.2.0", revisions=("rev-old", "rev-live"))
+
+    with pytest.raises(RuntimeError, match="a3f7c2d1b8e4.*不在 v0.2.0 的迁移记录里"):
+        app_update._apply_downloaded(manifest, tmp_path / "dl")
+    assert not (updates_dir / "current").exists()
+    assert not (updates_dir / "versions" / "v0.2.0").exists()
+    assert not (updates_dir / "versions" / "v0.2.0.partial").exists()
+    assert not list((updates_dir / "backup").glob("*.db"))
+
+
+def test_apply_accepts_database_the_new_version_knows(updates_dir, tmp_path):
+    db = Path(get_settings().database_url.split(":///", 1)[1])
+    _make_db(db, "rev-live")
+    manifest = _make_manifest(tmp_path / "dl", "0.2.0", revisions=("rev-old", "rev-live"))
+
+    app_update._apply_downloaded(manifest, tmp_path / "dl")
+    assert Path(updates_dir / "current").resolve().name == "v0.2.0"
+
+
+def test_declared_revisions_match_alembic_on_real_migrations():
+    """安装前的核对只做语法解析（不执行新版本代码），必须与 alembic 自己读出的一致。"""
+    from alembic.script import ScriptDirectory
+
+    alembic_dir = Path(__file__).resolve().parents[2] / "alembic"
+    expected = {s.revision for s in ScriptDirectory(str(alembic_dir)).walk_revisions()}
+    assert app_update._declared_revisions(alembic_dir) == expected
 
 
 # ---------------------------------------------------------------------------

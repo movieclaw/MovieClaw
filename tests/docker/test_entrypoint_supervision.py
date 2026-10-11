@@ -379,6 +379,23 @@ def _read_last_exit(env: dict[str, str]) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
+def _install_current_overlay(data_dir: Path, version: str) -> None:
+    """装一个 runtime 匹配、布局完整的 overlay 并设为 current。"""
+    overlay = data_dir / "updates" / "versions" / f"v{version}"
+    (overlay / "backend" / "src" / "movieclaw_api").mkdir(parents=True)
+    (overlay / "backend" / "src" / "movieclaw_api" / "main.py").touch()
+    (overlay / "backend" / "alembic.ini").touch()
+    (overlay / "web" / "apps" / "web").mkdir(parents=True)
+    (overlay / "web" / "apps" / "web" / "server.js").touch()
+    (overlay / "manifest.json").write_text(
+        json.dumps({"schema": 1, "version": version, "requires_runtime": 6}),
+        encoding="utf-8",
+    )
+    current = data_dir / "updates" / "current"
+    current.parent.mkdir(parents=True, exist_ok=True)
+    current.symlink_to(overlay)
+
+
 def test_web_starts_only_after_api_is_ready(entrypoint_env: dict[str, str]) -> None:
     """后端在 lifespan 中延迟时，前端不得提前监听或开始反代。"""
     entrypoint_env["FAKE_API_MODE"] = "serve"
@@ -537,19 +554,7 @@ def test_startup_restart_codes_mark_bad_overlay_and_fall_back(
 ) -> None:
     """坏 overlay 连续以 42 退出时，必须被标坏并回落到镜像基线。"""
     data_dir = Path(entrypoint_env["MOVIECLAW_DATA_DIR"])
-    overlay = data_dir / "updates" / "versions" / "v1.0.0"
-    (overlay / "backend" / "src" / "movieclaw_api").mkdir(parents=True)
-    (overlay / "backend" / "src" / "movieclaw_api" / "main.py").touch()
-    (overlay / "backend" / "alembic.ini").touch()
-    (overlay / "web" / "apps" / "web").mkdir(parents=True)
-    (overlay / "web" / "apps" / "web" / "server.js").touch()
-    (overlay / "manifest.json").write_text(
-        json.dumps({"schema": 1, "version": "1.0.0", "requires_runtime": 6}),
-        encoding="utf-8",
-    )
-    current = data_dir / "updates" / "current"
-    current.parent.mkdir(parents=True, exist_ok=True)
-    current.symlink_to(overlay)
+    _install_current_overlay(data_dir, "1.0.0")
 
     entrypoint_env["FAKE_API_MODE"] = "restart-twice"
     entrypoint_env["FAKE_API_STATE_FILE"] = str(data_dir / "restart-count")
@@ -563,6 +568,35 @@ def test_startup_restart_codes_mark_bad_overlay_and_fall_back(
 
     assert (data_dir / "updates" / "state" / "bad-1.0.0").is_file()
     assert "标记为坏版本并回落" in output
+
+
+def test_baseline_failure_forgets_bad_overlay_marks(entrypoint_env: dict[str, str]) -> None:
+    """用户实例：慢机上把唯一认库的 overlay 误标坏，之后基线因不认识数据库而起不来，
+    容器永远卡在基线。基线都失败时坏版本判定已不可信，必须清掉，下一轮重新尝试。"""
+    data_dir = Path(entrypoint_env["MOVIECLAW_DATA_DIR"])
+    _install_current_overlay(data_dir, "1.0.0")
+    entrypoint_env["FAKE_API_MODE"] = "exit"
+    entrypoint_env["FAKE_API_EXIT_CODE"] = "3"
+    process = _start_entrypoint(entrypoint_env)
+    output, _ = process.communicate(timeout=15)
+
+    assert process.returncode == 3
+    # overlay 两次启动失败 → 标坏回落 → 基线也失败 → 标记被清掉
+    assert "标记为坏版本并回落" in output
+    assert "清除之前的坏版本标记" in output
+    state = data_dir / "updates" / "state"
+    assert not list(state.glob("bad-*"))
+    assert not list(state.glob("failures-*"))
+    # 下一轮（Docker 拉起）重新采用该 overlay
+    resolved = subprocess.run(
+        ["bash", str(_ENTRYPOINT), "resolve"],
+        env=entrypoint_env,
+        text=True,
+        capture_output=True,
+        check=True,
+    ).stdout
+    assert "source=overlay" in resolved
+    assert "version=1.0.0" in resolved
 
 
 def test_runtime_restart_keeps_web_alive(entrypoint_env: dict[str, str]) -> None:

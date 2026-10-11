@@ -64,7 +64,10 @@ API_STARTUP_TIMEOUT_SECONDS="${MOVIECLAW_API_STARTUP_TIMEOUT_SECONDS:-300}"
 # 设置页请求重启时应用已运行过，后端应很快恢复；单独使用较短的等待窗口，
 # 失败后直接走完整启动/回退，避免前端长时间处于无后端可用的状态。
 API_RESTART_TIMEOUT_SECONDS="${MOVIECLAW_API_RESTART_TIMEOUT_SECONDS:-60}"
-WEB_STARTUP_TIMEOUT_SECONDS="${MOVIECLAW_WEB_STARTUP_TIMEOUT_SECONDS:-60}"
+# 前端就绪超时同样计为 overlay 启动失败，必须给慢机器留足余量：实测有用户的机器上
+# Next 从拉起到就绪要 67 秒（与后端启动期任务抢 CPU），旧值 60 秒把好版本连续判超时
+# 标成了坏版本。等待期间 nginx 回占位页，多等几十秒没有代价。
+WEB_STARTUP_TIMEOUT_SECONDS="${MOVIECLAW_WEB_STARTUP_TIMEOUT_SECONDS:-180}"
 HEALTHCHECK_INTERVAL_SECONDS="${MOVIECLAW_HEALTHCHECK_INTERVAL_SECONDS:-10}"
 HEALTHCHECK_FAILURE_THRESHOLD="${MOVIECLAW_HEALTHCHECK_FAILURE_THRESHOLD:-6}"
 SHUTDOWN_GRACE_SECONDS="${MOVIECLAW_SHUTDOWN_GRACE_SECONDS:-20}"
@@ -702,6 +705,19 @@ handle_startup_failure() {
     return 0
 }
 
+# 基线是最后的兜底：连它都起不来，问题多半不在某个版本本身（慢机超时、数据库
+# 被别的版本迁移过、环境故障），之前的坏版本判定已不可信。留着标记，这台机器就
+# 只剩起不来的基线可选，再也回不到认得这个库的版本——用户实例：慢机上前端超时
+# 把唯一认库的 overlay 标坏，之后容器永远卡在基线报迁移错误，只能手动删标记。
+# 清掉标记，让 Docker 拉起的下一轮重新评估；真坏的版本会再次被标出来。
+forget_bad_overlays_if_baseline_failed() {
+    [ "$ACTIVE_SOURCE" = "baseline" ] || return 0
+    local markers=("$STATE_DIR"/bad-*)
+    [ -e "${markers[0]}" ] || return 0
+    echo "[entrypoint] 镜像内置版本也无法启动：清除之前的坏版本标记，容器重启后重新尝试已安装的版本。" >&2
+    rm -f "$STATE_DIR"/bad-* "$STATE_DIR"/failures-*
+}
+
 # 收到停止信号时把所有子进程（前后端、看门狗、占位页）都带走，确保容器干净退出。
 # SHUTTING_DOWN 标志让主循环把「停机导致的进程退出」与故障区分开——
 # 否则 overlay 启动后 60 秒内 docker stop 会被误计为一次「启动失败」，
@@ -729,6 +745,7 @@ boot_until_running() {
         if handle_startup_failure "$START_FAILURE_UPTIME" "$START_FAILURE_IS_TIMEOUT"; then
             continue
         fi
+        forget_bad_overlays_if_baseline_failed
         return 1
     done
 }

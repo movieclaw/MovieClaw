@@ -20,7 +20,7 @@ from types import ModuleType
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import delete, func, update
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -1066,11 +1066,18 @@ class JobDispatcher:
         self._last_recovery = 0.0
 
     async def start(self) -> None:
-        await self._recover_expired_jobs()
-        await purge_expired_jobs()
-        now = time.monotonic()
-        self._last_cleanup = now
-        self._last_recovery = now
+        # 调度循环会定期重做这两步。启动期并发写多，慢盘上 SQLite 偶发 database is
+        # locked：为一次可重试的清理让整个应用起不来（还会被入口脚本计成启动失败、
+        # 把好版本标坏）不值，记一笔交给循环立刻重试
+        try:
+            await self._recover_expired_jobs()
+            await purge_expired_jobs()
+            done = time.monotonic()
+        except OperationalError:
+            logger.warning("启动时回收过期任务失败（数据库忙），交给调度循环重试", exc_info=True)
+            done = float("-inf")
+        self._last_cleanup = done
+        self._last_recovery = done
         self._loop_task = asyncio.create_task(self._run_loop(), name="job-dispatcher")
         logger.info("持久化任务执行器已启动：owner=%s parallel=%d", self.owner, self.max_parallel)
 
