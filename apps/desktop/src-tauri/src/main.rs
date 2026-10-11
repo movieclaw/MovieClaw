@@ -322,6 +322,7 @@ fn main() {
             updater::check_for_updates,
             updater::open_download_page,
             updater::open_release_page,
+            connect::open_server_ai_settings,
             updater::verified::download_update,
             updater::verified::cancel_update_download,
             updater::verified::install_downloaded_update,

@@ -91,7 +91,7 @@ const DesktopSelect = {
       } else if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); this.close(true); }
       else if (event.key === 'Tab') this.close(true);
     });
-    document.body.appendChild(menu);
+    (trigger.closest('dialog') || document.body).appendChild(menu);
     trigger.setAttribute('aria-expanded', 'true');
     this.position();
     (menu.querySelector('[aria-selected="true"]') || menu.firstElementChild)?.focus({ preventScroll: true });
@@ -429,6 +429,7 @@ const App = {
     this._sessionSequence = (this._sessionSequence || 0) + 1;
     this._startupController?.abort();
     this._sessionController?.abort();
+    window.DesktopSubtitles?.dispose();
     this._pageController?.abort();
     this.viewGeneration++;
     this._playbackSeq = (this._playbackSeq || 0) + 1;
@@ -530,6 +531,7 @@ const App = {
 
   renderConnectionState(phase, message) {
     this._authPending = true;
+    window.DesktopSubtitles?.dispose();
     this._pageController?.abort();
     this._wallObserver?.disconnect();
     this.viewGeneration++;
@@ -555,6 +557,7 @@ const App = {
 
   // ===== 登录 =====
   renderLogin({ setup = false, addAccount = false, username = '', message = '' } = {}) {
+    window.DesktopSubtitles?.dispose();
     this._pageController?.abort();
     this._wallObserver?.disconnect();
     this.viewGeneration++;
@@ -581,7 +584,7 @@ const App = {
             <button type="submit" class="login-btn" id="loginBtn">${setup ? '创建管理员' : '登录'}</button>
             <div class="login-error" id="loginError">${escapeHtml(message)}</div>
           </form>
-          ${!setup ? '<button class="btn-secondary" id="loginPairing">扫码登录</button>' : ''}
+
           ${!setup && API.nativeAuthStatus?.accounts?.length ? '<button class="text-button" id="loginChooseAccount">使用已保存账号</button>' : ''}
           ${API.nativeAuthStatus?.mode === 'cookie' ? `<p class="login-subtitle">兼容登录 · ${escapeHtml(API.nativeAuthStatus.compatibility_reason || '服务器使用 Cookie 登录')}</p>` : ''}
           <button class="btn-secondary" id="loginChangeServer">更换服务器</button>
@@ -956,6 +959,7 @@ const App = {
     DesktopSelect.close();
     const previous = this.captureRoute();
     this._searchData = null;
+    window.DesktopSubtitles?.dispose();
     this._pageController?.abort();
     this._wallObserver?.disconnect();
     this._wallContext = null;
@@ -1582,6 +1586,7 @@ const App = {
           <div class="detail-lower">
             <div id="detailSeasonArea"></div>
             <div id="detailSeriesArea"></div>
+            <section id="detailTracks" class="detail-section"></section>
             ${cast.length ? this.shelfHtml('演职员', null, 'cast-row', cast.map(p => this.personCardHtml(p)).join('')) : ''}
             ${info.collections?.length ? `
               <div class="detail-section">
@@ -1596,9 +1601,31 @@ const App = {
         </div>
       `;
 
+      const trackPanel = window.DesktopSubtitles?.mount({
+        host: document.getElementById('detailTracks'), api, session: this.session,
+        alive: () => this.isCurrent(generation), signal: this._pageController?.signal,
+        refresh: async () => {
+          const response = await api.getItemDetail(params.libraryId, mediaId);
+          if (!this.isCurrent(generation)) return;
+          info.files = (response?.data || response).files || [];
+          renderStage();
+        },
+      });
+      const updateTracks = () => {
+        const key = isMovie ? 'movie' : `${st.season}:${st.episode?.episode_number}`;
+        const files = (info.files || []).filter(file => file.state === 'in_place' &&
+          (isMovie || Number(file.season_number) === Number(st.season) && Number(file.episode_number) === Number(st.episode?.episode_number)));
+        trackPanel?.setFiles(files, key);
+      };
+      const selectedTracks = (season, episode) => {
+        const key = isMovie ? 'movie' : `${season}:${episode}`;
+        return trackPanel?.selection(key) || {};
+      };
+
       // ---- 头图（Logo / 画质标签 / 第几集 / 简介 / 按钮）----
       const renderStage = () => {
         if (!this.isCurrent(generation)) return;
+        updateTracks();
         const ep = st.episode;
         const overview = (isMovie ? plot : (ep?.overview || plot) || '').trim();
         const position = st.watched?.position_ms || 0;
@@ -1728,7 +1755,7 @@ const App = {
           // library_id 必传：startPlayback 自动选集用它查详情判断 kind；
           // files/kind 也带上：能力申报分级要用 files 判片源吃不吃得下，
           // kind 让起播链不必再为「是不是剧集」查一遍详情
-          this.startPlayback({ media_item_id: mediaId, title: info.title, library_id: params.libraryId, startMs, files: info.files, kind: info.kind });
+          this.startPlayback({ media_item_id: mediaId, title: info.title, library_id: params.libraryId, startMs, files: info.files, kind: info.kind, ...selectedTracks() });
           return;
         }
         const useSeason = season ?? st.season;
@@ -1753,6 +1780,7 @@ const App = {
           // 同季剧集表：播放器的上一集/下一集与自动下一集都按它算（服务端会话不带
           // next_episode，PlaybackSessionView 里压根没这个字段）
           episodes: st.browseEpisodes,
+          ...selectedTracks(useSeason, useEp.episode_number),
         });
       };
 
@@ -1847,6 +1875,7 @@ const App = {
         st.season = season;
         st.episode = ep;
         st.browseRange = EpisodeRanges.index(ep.episode_number);
+        renderStage();
         loadUnitResume();
         renderEpisodeShelf();
       };
@@ -2461,15 +2490,9 @@ const App = {
           </div>
           <div class="settings-actions">
             <button class="btn-secondary" id="btnAddAccount">添加账号</button>
-            <button class="btn-secondary" id="btnQRLogin">QR 配对登录</button>
+
           </div>
-          <div id="qrArea" style="margin-top:12px;display:none">
-            <div id="qrCode" style="text-align:center;padding:20px;background:var(--surface-inset);border-radius:var(--radius-md)">
-              <div style="font-size:13px;color:var(--text-secondary)">请使用手机扫码配对</div>
-              <div id="qrCodeData" style="margin:12px 0;font-family:monospace;font-size:20px;letter-spacing:4px;color:var(--accent)"></div>
-              <div style="font-size:12px;color:var(--text-tertiary)">在 MovieClaw 服务器「设备管理」中扫描或输入配对码</div>
-            </div>
-          </div>
+
         </div>
 
         <div class="settings-card settings-about">

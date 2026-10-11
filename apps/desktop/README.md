@@ -1,12 +1,14 @@
 # MovieClaw Desktop for Windows
 
-A Windows x64 client built with Tauri, Rust and WebView2, with bundled mpv playback. It connects to a separately deployed MovieClaw server. The interface is embedded in the executable; the desktop application has an independent version (currently 1.0.0).
+A Windows x64 client built with Tauri, Rust and WebView2, with bundled mpv playback. It connects to a separately deployed MovieClaw server. The interface is embedded in the executable; the desktop application has an independent version (currently 1.0.1).
 
 ## Features
 
 Library browsing, search, favorites, movie and episode details, resume/progress synchronization, audio and subtitle tracks, keyboard controls, fullscreen with original-ratio or cropped-fill modes, playback diagnostics and read speed. Windows integration includes media keys/SMTC, picture in picture, window restoration and sleep inhibition during playback. Playback controls hide after three idle seconds and reappear on mouse movement.
 
-Server discovery, cookie login and account switching work with existing servers. Native device login and QR pairing require the server to advertise `windows` in `/auth/bootstrap.native_device_kinds`; compatible server support is outside this client contribution. Native tokens use Windows Credential Manager and persisted cookies use Windows-user DPAPI encryption.
+Movie and episode details support selecting a file version, audio track and subtitle before playback. Administrators can preview and generate single-language or bilingual AI subtitles through the existing server APIs, restore task progress, cancel or retry jobs, and select completed subtitles. Generation uses reference subtitles and a configured server AI model; PGS OCR requires server support. Audio transcription without reference subtitles is not included. Arrow keys seek and adjust volume, with the current volume synchronized in the playback controls.
+
+Server discovery, cookie login and account switching work with existing servers. Native device login and QR pairing require the server to advertise `windows` in `/auth/bootstrap.native_device_kinds`; compatible server support is outside this client contribution. QR entry points are temporarily hidden while deployed servers lack Windows pairing support. Native tokens use Windows Credential Manager and persisted cookies use Windows-user DPAPI encryption.
 
 ## Build and test
 

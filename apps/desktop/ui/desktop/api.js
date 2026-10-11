@@ -181,6 +181,24 @@ const API = {
     return this.request(`/libraries/${libraryId}/items/${itemId}/episodes${qs}`);
   },
 
+  subtitlePreview(fileId, options, signal) {
+    const query = new URLSearchParams();
+    for (const key of ['target_language', 'secondary_language', 'source_candidate_key']) {
+      if (options[key]) query.set(key, options[key]);
+    }
+    return this.request(`/libraries/files/${fileId}/subtitles/generation-preview?${query}`, { signal });
+  },
+  generateSubtitles(fileId, body) {
+    return this.request(`/libraries/files/${fileId}/subtitles/generations`, { method: 'POST', body });
+  },
+  subtitleJobs(fileId) {
+    return this.request('/jobs?' + new URLSearchParams({ job_type: 'subtitle.generate', resource_type: 'library_file', resource_id: fileId, limit: 20 }));
+  },
+  getJob(id) { return this.request(`/jobs/${encodeURIComponent(id)}`); },
+  cancelJob(id) { return this.request(`/jobs/${encodeURIComponent(id)}/cancel`, { method: 'POST' }); },
+  retryJob(id) { return this.request(`/jobs/${encodeURIComponent(id)}/retry`, { method: 'POST' }); },
+  llmProviders() { return this.request('/llm/providers'); },
+
   // ===== 合集 =====
   listCollections() {
     return this.request('/collections');

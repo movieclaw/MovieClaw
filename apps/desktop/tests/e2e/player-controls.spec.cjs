@@ -1,6 +1,43 @@
 const { test, expect } = require('@playwright/test');
 const { openDesktop, browseLibrary, state } = require('./helpers.cjs');
 
+test('volume arrows restore controls and keep the slider, percent and mute state in sync', async ({page,request}) => {
+  await nativeTracks(page,request);
+  await page.evaluate(()=>{Player.engSetVolume(.5);Player.hideControls();});
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(()=>property(page,'volume')).toBe(60);
+  await expect(page.locator('#playerControls')).toHaveCSS('opacity','1');
+  await expect(page.locator('#volumeSlider')).toHaveValue('0.6');
+  await expect(page.locator('#playerVolumeValue')).toHaveText('60%');
+  await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#volumeSlider')).toHaveValue('0.5');
+  await expect(page.locator('#playerVolumeValue')).toHaveText('50%');
+  await page.keyboard.press('m');
+  await expect(page.locator('#playerVolumeValue')).toHaveText('静音');
+  await expect(page.locator('#volumeSlider')).toHaveValue('0');
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(()=>property(page,'mute')).toBe(false);
+  await expect(page.locator('#playerVolumeValue')).toHaveText('60%');
+  for(let i=0;i<12;i++) await page.keyboard.press('ArrowDown');
+  await expect(page.locator('#playerVolumeValue')).toHaveText('静音');
+  await expect(page.locator('#volumeSlider')).toHaveValue('0');
+  await page.evaluate(()=>window.__fixture.emit('movieclaw:player-input',{instanceId:Player.mpvInstanceId,args:['movieclaw-input','volume','0.1']}));
+  await expect(page.locator('#playerVolumeValue')).toHaveText('10%');
+  await expect(page.locator('#volumeSlider')).toHaveValue('0.1');
+  await expect(page.locator('#playerControls')).toHaveCSS('opacity','0',{timeout:6000});
+});
+
+test('native volume snapshots refresh visible feedback without keeping controls awake',async({page,request})=>{
+  await nativeTracks(page,request);
+  await page.evaluate(()=>{Player.hideControls();window.__fixture.props.volume=35;window.__fixture.props.mute=false;});
+  await expect(page.locator('#volumeSlider')).toHaveValue('0.35');
+  await expect(page.locator('#playerVolumeValue')).toHaveText('35%');
+  await expect(page.locator('#playerControls')).toHaveCSS('opacity','0');
+  await page.evaluate(()=>{window.__fixture.props.mute=true;});
+  await expect(page.locator('#playerVolumeValue')).toHaveText('静音');
+  await expect(page.locator('#iconMute')).toHaveCSS('display','block');
+});
+
 test('native controls hide after startup and resume, and return on mouse movement', async ({page,request}) => {
   await nativeTracks(page,request);
   await expect(page.locator('#playerControls')).toHaveCSS('opacity','0',{timeout:6000});

@@ -26,6 +26,7 @@
     "allow-check-for-updates",
     "allow-open-download-page",
     "allow-open-release-page",
+    "allow-open-server-ai-settings",
     "allow-proxy-api",
     "allow-get-server-url",
     "allow-has-embedded-player",

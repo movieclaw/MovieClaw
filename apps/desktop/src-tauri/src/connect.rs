@@ -2,6 +2,34 @@ use serde::{Deserialize, Serialize};
 use std::{fs, path::PathBuf};
 use url::Url;
 
+fn server_ai_settings_url(server: &str) -> Result<String, String> {
+    validate_http_url(server)?;
+    let mut url = Url::parse(server).map_err(|_| "服务器地址无效")?;
+    let path = format!("{}/settings/llm", url.path().trim_end_matches('/'));
+    url.set_path(&path);
+    url.set_query(None);
+    url.set_fragment(None);
+    Ok(url.to_string())
+}
+
+#[tauri::command]
+pub fn open_server_ai_settings() -> Result<(), String> {
+    let target = server_ai_settings_url(&get_server_url()?)?;
+    open::that(target).map_err(|e| format!("打开浏览器失败: {e}"))
+}
+
+#[cfg(test)]
+mod ai_settings_tests {
+    use super::*;
+    #[test]
+    fn configured_server_settings_keep_the_deployment_prefix() {
+        assert_eq!(server_ai_settings_url("https://nas.example/movieclaw/").unwrap(), "https://nas.example/movieclaw/settings/llm");
+        assert_eq!(server_ai_settings_url("http://nas.example:3000").unwrap(), "http://nas.example:3000/settings/llm");
+        assert!(server_ai_settings_url("file:///C:/Windows").is_err());
+        assert!(server_ai_settings_url("https://user:secret@nas.example").is_err());
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ConnectResult {
     pub ok: bool,

@@ -102,7 +102,7 @@ http.createServer(async (req, res) => {
       const { command, args } = await bodyOf(req);
       state.nativeRequests ||= []; state.nativeRequests.push({ command, username: args.username, pairingId: args.pairingId });
       const status = () => ({ mode: state.nativeAuth === 'cookie' ? 'cookie' : 'device', initialized: state.initialized,
-        session: state.authenticated ? { username: state.username || 'fixture', role: 'admin' } : null,
+        session: state.authenticated ? { username: state.username || 'fixture', role: state.role || 'admin' } : null,
         accounts: state.savedAccounts || [{ username: state.username || 'fixture', nickname: '当前账号', active: state.authenticated, authenticated: state.authenticated }],
         pairing_supported: state.nativeAuth !== 'cookie', compatibility_reason: state.nativeAuth === 'cookie' ? '服务器尚不支持 Windows 设备登录，请升级服务器。' : null, context_generation: 1 });
       if (command === 'native_auth_status') return json(res, status());
@@ -166,18 +166,52 @@ http.createServer(async (req, res) => {
       }
       if (!body?.username || !body?.password) return json(res, { message: '密码错误' }, 401);
       state.authenticated = true; state.username = body.username;
-      return json(res, ok({ username: state.username, role: 'admin', capabilities: [] }));
+      return json(res, ok({ username: state.username, role: state.role || 'admin', capabilities: [] }));
     }
     if (!state.authenticated) return json(res, { message: '需要登录' }, 401);
-    if (route === '/auth/me') return json(res, ok({ username: state.username || 'fixture', role: 'admin', capabilities: [] }));
+    if (route === '/auth/me') return json(res, ok({ username: state.username || 'fixture', role: state.role || 'admin', capabilities: [] }));
     if (route === '/auth/accounts') return json(res, ok([
-      { username: state.username || 'fixture', nickname: '当前账号', role: 'admin', active: true },
+      { username: state.username || 'fixture', nickname: '当前账号', role: state.role || 'admin', active: true },
       { username: 'second', nickname: '另一个账号', role: 'member', active: false },
     ]));
     if (route === '/auth/accounts/switch') {
       if (Object.keys(body || {}).join() !== 'username') return json(res, { message: '必须按 username 切换' }, 422);
       state.username = body.username;
       return json(res, ok({ username: state.username, role: 'member' }));
+    }
+    if (route === '/llm/providers') return json(res,ok(state.noLlm ? [] : [{id:1,name:'fixture'}]));
+    if (route === '/jobs') return json(res,ok({items:(state.jobs || []).filter(job => Number(job.input_data?.file_id) === Number(url.searchParams.get('resource_id')))}));
+    const preview = route.match(/^\/libraries\/files\/(\d+)\/subtitles\/generation-preview$/);
+    if (preview) {
+      if (state.previewDelay) await new Promise(resolve=>setTimeout(resolve,state.previewDelay));
+      if (state.previewUnsupported) return json(res,{message:'unsupported'},404);
+      return json(res,ok({candidates:[{kind:'embedded',key:'0',language:'eng',format:'srt',selectable:true,reasons:['原始参考字幕']}],selected_source_key:url.searchParams.get('source_candidate_key') || 'embedded:0',estimated_tokens:2000,event_count:100,output_filename:'fixture.ai.chs.srt',warnings:[],blocker:null,...state.generationPreview}));
+    }
+    const generation = route.match(/^\/libraries\/files\/(\d+)\/subtitles\/generations$/);
+    if (generation && req.method === 'POST') {
+      if (state.role === 'member') return json(res,{message:'需要管理员'},403);
+      if (state.generationFailure) return json(res,{message:'服务器模型不可用'},503);
+      const fileId=Number(generation[1]);
+      state.generationRequests ||= []; state.generationRequests.push({fileId,...body});
+      const existing=(state.jobs || []).find(job=>job.input_data.file_id===fileId && ['queued','running','blocked'].includes(job.status));
+      if (existing) return json(res,ok(existing),202);
+      const job={id:'subtitle-'+((state.jobs || []).length+1),job_type:'subtitle.generate',status:'queued',input_data:{file_id:fileId,...body},resources:[{resource_type:'library_file',resource_id:String(fileId)}],progress:{message:'任务已入队',percent:null}};
+      state.jobs ||= []; state.jobs.unshift(job);return json(res,ok(job),202);
+    }
+    const jobRoute=route.match(/^\/jobs\/([^/]+)(?:\/(cancel|retry))?$/);
+    if (jobRoute) {
+      const job=(state.jobs || []).find(job=>job.id===jobRoute[1]);
+      if (!job) return json(res,{message:'任务不存在'},404);
+      if (jobRoute[2]==='cancel') {job.status='cancelled';job.progress.message='任务已取消';return json(res,ok({cancelled:true,job}));}
+      if (jobRoute[2]==='retry') {job.status='queued';job.progress.message='重新排队';return json(res,ok({created:true,job}));}
+      if (state.jobStates?.length) {job.status=state.jobStates.shift();job.progress={message:job.status==='succeeded'?'字幕生成完成':'正在翻译',percent:job.status==='succeeded'?100:45};}
+      if (job.status==='succeeded') {
+        for (const files of Object.values(state.mediaFiles || {})) for (const entry of files) {
+          if (entry.id!==job.input_data.file_id || entry.subtitle_streams.some(stream=>stream.file_name==='fixture.ai.chs.srt')) continue;
+          entry.subtitle_streams.push({external:true,file_name:'fixture.ai.chs.srt',codec:'srt',language:'chs'});
+        }
+      }
+      return json(res,ok(job));
     }
     if (route === '/libraries') return json(res, ok(state.libraries || [{ id: 1, name: '测试媒体库', kind: 'movie', stats: { item_count: state.itemCount || 245 } }]));
     if (/^\/libraries\/\d+\/cover$/.test(route)) {
@@ -217,7 +251,7 @@ http.createServer(async (req, res) => {
     if (route === '/playback/resume') return json(res, ok({ season_number: 3, episode_number: 2, position_ms: 300000, duration_ms: 3600000 }));
     if (/^\/libraries\/1\/items\/\d+$/.test(route)) {
       const n = Number(route.split('/').pop());
-      return json(res, ok({ ...item(n), files: [file(n)], local_meta: { plot: '测试简介', genres: [], runtime_minutes: 60, actors: [{ name: '测试演员', tmdb_person_id: 9, thumb_url: state.images ? '/fixture-images/good.png' : null }] }, collections: [] }));
+      return json(res, ok({ ...item(n), files: state.mediaFiles?.[n] || [file(n)], local_meta: { plot: '测试简介', genres: [], runtime_minutes: 60, actors: [{ name: '测试演员', tmdb_person_id: 9, thumb_url: state.images ? '/fixture-images/good.png' : null }] }, collections: [] }));
     }
     if (route.endsWith('/episodes')) {
       const season = Number(url.searchParams.get('season_number') || 3);

@@ -37,7 +37,7 @@ mod tests {
     #[test]
     fn about_contains_release_identity_and_readable_bundled_notices() {
         let info = get_about_info();
-        assert_eq!(info.version, "1.0.0");
+        assert_eq!(info.version, env!("CARGO_PKG_VERSION"));
         assert!(info.revision == "unknown" || info.revision.len() == 40);
         assert_eq!(info.components.len(), 7);
         assert!(info.components.iter().all(|component| component.source.starts_with("https://github.com/") && component.text.len() > 500));

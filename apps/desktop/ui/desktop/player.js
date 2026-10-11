@@ -627,6 +627,9 @@ const Player = {
         this.engSetVolume(parseFloat(volSlider.value));
       });
     }
+    this.video.addEventListener('volumechange', () => {
+      if (this.activeEngine === 'html5') this.updateVolumeIcon();
+    });
 
     // 全屏
     document.getElementById('btnFullscreen')?.addEventListener('click', () => this.toggleFullscreen());
@@ -2215,11 +2218,14 @@ const Player = {
     if (this.isMpv()) {
       if (this.mpvState) this.mpvState.volume = vol;
       this.mpvCmd(['set_property', 'volume', Math.round(vol * 100)]);
+      if (this.engMuted() !== (vol === 0)) this.engSetMuted(vol === 0);
     } else if (this.video) {
       this.video.volume = vol;
       this.video.muted = vol === 0;
     }
     this.updateVolumeIcon();
+    this.showControls();
+    this.autoHideControls();
   },
 
   engSetMuted(muted) {
@@ -2230,6 +2236,8 @@ const Player = {
       this.video.muted = !!muted;
     }
     this.updateVolumeIcon();
+    this.showControls();
+    this.autoHideControls();
   },
 
   // One Rust actor observes properties; JS reads its last complete snapshot.
@@ -2262,6 +2270,7 @@ const Player = {
         }
         if (typeof v.volume === 'number') this.mpvState.volume = v.volume / 100;
         if (typeof v.mute === 'boolean') this.mpvState.muted = v.mute;
+        this.updateVolumeIcon();
         if (typeof v.speed === 'number') this.mpvState.speed = v.speed;
         this.mpvState.aid = v.aid; this.mpvState.sid = v.sid;
         this.mpvState.bufferedAhead = Number(v['demuxer-cache-duration']) || 0;
@@ -2727,8 +2736,6 @@ const Player = {
   toggleMute() {
     const next = !this.engMuted();
     this.engSetMuted(next);
-    const slider = document.getElementById('volumeSlider');
-    if (slider) slider.value = next ? 0 : this.engVolume();
   },
 
   isFullscreen() {
@@ -2944,6 +2951,15 @@ const Player = {
       : (!this.video || this.video.muted || this.video.volume === 0);
     if (vol) vol.style.display = isMuted ? 'none' : '';
     if (mute) mute.style.display = isMuted ? '' : 'none';
+    const volume = isMuted ? 0 : Math.max(0, Math.min(1, this.engVolume()));
+    const percent = Math.round(volume * 100);
+    const slider = document.getElementById('volumeSlider');
+    if (slider) {
+      slider.value = String(volume);
+      slider.setAttribute('aria-valuetext', isMuted ? '静音' : `${percent}%`);
+    }
+    const label = document.getElementById('playerVolumeValue');
+    if (label) label.textContent = isMuted ? '静音' : `${percent}%`;
   },
 
   beginAttempt(context) {

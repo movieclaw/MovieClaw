@@ -343,7 +343,7 @@ test('native welcome chooses a saved account and keeps device credential materia
 
 test('native QR waits for approval, retries a denial and enters the approved account', async ({ page, request }) => {
   await openDesktop(page,request,{nativeAuth:true,authenticated:false,savedAccounts:[],pairStatuses:['denied','pending','approved']});
-  await page.locator('#loginPairing').click(); await expect(page.locator('#pairingCode svg')).toBeVisible();
+  await expect(page.locator('#loginPairing')).toHaveCount(0); await page.evaluate(()=>App.renderPairing()); await expect(page.locator('#pairingCode svg')).toBeVisible();
   await expect(page.locator('#pairingCode')).toContainText('FIX-1234');
   await expect(page.locator('#pairingStatus')).toContainText('被拒绝'); await page.locator('#pairingRetry').click();
   await expect(page.locator('#heroBanner')).toBeVisible();
@@ -356,7 +356,7 @@ test('native QR waits for approval, retries a denial and enters the approved acc
 
 test('an expired QR can be regenerated and cancel retires an in-flight approval before password login', async ({ page, request }) => {
   await openDesktop(page,request,{nativeAuth:true,authenticated:false,savedAccounts:[],pairExpires:1.2,pairDelay:1500,pairStatuses:['approved']});
-  await page.locator('#loginPairing').click(); await expect(page.locator('#pairingStatus')).toContainText('过期');
+  await expect(page.locator('#loginPairing')).toHaveCount(0); await page.evaluate(()=>App.renderPairing()); await expect(page.locator('#pairingStatus')).toContainText('过期');
   await expect(page.locator('#pairingRetry')).toBeVisible();
   await page.locator('#pairingCancel').click(); await expect(page.locator('#loginForm')).toBeVisible();
   await page.waitForTimeout(1800); expect((await state(request)).authenticated).toBe(false);
@@ -365,7 +365,7 @@ test('an expired QR can be regenerated and cancel retires an in-flight approval 
 
 test('old servers give a specific QR upgrade explanation while native password compatibility remains usable', async ({ page, request }) => {
   await openDesktop(page,request,{nativeAuth:'cookie',authenticated:false,savedAccounts:[]});
-  await page.locator('#loginPairing').click(); await expect(page.locator('#appNotice')).toContainText('尚不支持 Windows');
+  await expect(page.locator('#loginPairing')).toHaveCount(0); await page.evaluate(()=>App.renderPairing()); await expect(page.locator('#appNotice')).toContainText('尚不支持 Windows');
   await page.locator('#loginUser').fill('fixture'); await page.locator('#loginPass').fill('fixture-password'); await page.locator('#loginBtn').click();
   await expect(page.locator('#heroBanner')).toBeVisible();
   expect((await state(request)).nativeRequests.some(r=>r.command==='native_password_login')).toBe(true);

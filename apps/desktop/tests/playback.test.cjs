@@ -999,3 +999,18 @@ test('probed DVD bitmap subtitles are unavailable with an accurate reason instea
   h.P.sessionData.source.subtitle_codecs = [];
   assert.equal(h.P.buildSubtitleTracks().unavailable.length, 0);
 });
+
+test('HTML5 volume feedback follows external media changes and adjustment reveals controls', () => {
+  const h=harness();
+  const slider={value:'1',setAttribute(name,value){this[name]=value;}};
+  const label={textContent:''};
+  h.elements.set('volumeSlider',slider);h.elements.set('playerVolumeValue',label);
+  h.P.activeEngine='html5';h.video.paused=false;
+  h.video.volume=.4;h.video.emit('volumechange');
+  assert.equal(Number(slider.value),.4);assert.equal(label.textContent,'40%');
+  h.P.hideControls();h.P.engSetVolume(.5);
+  assert.equal(label.textContent,'50%');assert.equal(h.P.controlsVisible,true);
+  h.P.engSetMuted(true);assert.equal(label.textContent,'静音');assert.equal(Number(slider.value),0);
+  h.P.engSetVolume(.6);assert.equal(h.video.muted,false);assert.equal(label.textContent,'60%');
+  h.video.volume=.2;h.video.emit('volumechange');assert.equal(label.textContent,'20%');
+});
