@@ -97,6 +97,8 @@ background under **Settings → Appearance**, and it stays consistent on every d
 connected to the same instance.
 
 
+Windows client development is available in [`apps/desktop`](apps/desktop/README.md), using Tauri/WebView2 and bundled mpv. See its build, packaging and validation requirements before distributing a Windows build.
+
 ## Just say the word. It handles the rest.
 
 MovieClaw puts an autonomous, general-purpose AI agent inside your media server.

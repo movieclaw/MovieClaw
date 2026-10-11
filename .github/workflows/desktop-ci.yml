@@ -1,0 +1,123 @@
+name: Desktop CI
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [main, feat/windows-desktop, 'codex/**']
+    paths: ['apps/desktop/**', '.github/workflows/desktop-ci.yml']
+  pull_request:
+    paths: ['apps/desktop/**', '.github/workflows/desktop-ci.yml']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  verify:
+    name: Windows x64 tests and packages
+    runs-on: windows-2022
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12.9'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.23.3'
+          cache: npm
+          cache-dependency-path: apps/desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.99.0'
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+          cache-on-failure: true
+      - name: Install locked JavaScript tools
+        run: npm ci
+      - name: Record CI smoke environment
+        run: ./scripts/probe-environment.ps1
+      - name: Verify pinned mpv before compiling Rust
+        run: |
+          ./scripts/prepare-runtime.ps1
+          ./scripts/mpv-preflight.ps1
+      - name: JavaScript contracts
+        run: npm run test:unit
+      - name: Install browser for E2E
+        run: npx playwright install chromium
+      - name: Browser E2E (DOM and HTTP contracts)
+        run: npm run test:e2e
+      - name: Browser fixture performance (separate from native hardware)
+        run: npx playwright test -c playwright.perf.config.cjs
+      - name: Rust tests (real local HTTP, redirects, Range and cancellation)
+        run: |
+          $env:MOVIECLAW_MPV_RUNTIME = (Resolve-Path './dist/runtime/mpv').Path
+          ./scripts/build.ps1 -Tests
+      - name: Build packages and native smoke
+        run: ./scripts/package.ps1 -InstallSmoke
+      - name: Native process and CPU codec baseline (hosted VM)
+        run: ./scripts/native-performance.ps1 -PackageDirectory ./dist/portable
+      - name: Upload verified distributables
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-packages-${{ github.sha }}
+          path: |
+            apps/desktop/dist/MovieClaw-Desktop-*-Setup-x64.exe
+            apps/desktop/dist/MovieClaw-Desktop-*-portable-x64.zip
+            apps/desktop/dist/SHA256SUMS.txt
+            apps/desktop/dist/release-manifest.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-diagnostics-${{ github.sha }}
+          path: |
+            apps/desktop/test-results
+            apps/desktop/playwright-report
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload CI smoke environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-environment-${{ github.sha }}
+          path: |
+            apps/desktop/dist/smoke-environment.json
+            apps/desktop/dist/dependency-audit.json
+            apps/desktop/dist/offline-webview2.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload browser performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-browser-performance-${{ github.sha }}
+          path: |
+            apps/desktop/dist/browser-performance.json
+            apps/desktop/dist/fixture-home.png
+            apps/desktop/test-results
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload native performance evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-native-performance-${{ github.sha }}
+          path: apps/desktop/dist/native-performance.json
+          if-no-files-found: warn
+          retention-days: 14

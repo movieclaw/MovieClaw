@@ -1,0 +1,31 @@
+[package]
+name = "movieclaw-desktop"
+version = "1.0.0"
+edition = "2021"
+description = "MovieClaw Desktop — Windows 桌面客户端（WebView2 + mpv）"
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon", "image-png", "image-ico"] }
+tauri-plugin-shell = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-http = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+url = "2"
+open = "5"
+raw-window-handle = "0.6"
+reqwest = { version = "0.12.28", default-features = false, features = ["rustls-tls", "json"] }
+tokio = { version = "1", features = ["macros", "time", "sync", "net", "io-util"] }
+tokio-util = { version = "0.7", features = ["rt"] }
+base64 = "0.22"
+cookie = "0.18"
+sha2 = "0.10.9"
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Foundation", "Media", "Storage_Streams", "Win32_Foundation", "Win32_System_Power", "Win32_System_WinRT", "Win32_UI_WindowsAndMessaging", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]

@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "scope": "physical-windows-and-macos",
+  "version": "REPLACE_AFTER_REAL_TESTING",
+  "revision": "REPLACE_WITH_THE_EXACT_TESTED_40_CHARACTER_COMMIT",
+  "windows": {"machine_id": "", "os": "", "gpu": "", "driver": ""},
+  "macos": {"machine_id": "", "model": "", "os": ""},
+  "artifact_sha256": {},
+  "checks": {
+    "embedded_render": {"status": "pending", "evidence_url": ""},
+    "first_frame_seek": {"status": "pending", "evidence_url": ""},
+    "hardware_decode": {"status": "pending", "evidence_url": ""},
+    "hdr_sdr": {"status": "pending", "evidence_url": ""},
+    "audio_passthrough": {"status": "pending", "evidence_url": ""},
+    "dpi_multimonitor": {"status": "pending", "evidence_url": ""},
+    "power_media_keys": {"status": "pending", "evidence_url": ""},
+    "window_restore": {"status": "pending", "evidence_url": ""},
+    "resume_twenty_cycles": {"status": "pending", "evidence_url": ""},
+    "windows_macos_performance": {"status": "pending", "evidence_url": ""}
+  }
+}

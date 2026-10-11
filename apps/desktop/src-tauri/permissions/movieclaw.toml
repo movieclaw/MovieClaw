@@ -1,0 +1,247 @@
+[[permission]]
+identifier = "allow-save-server-url"
+description = "Allows saving the server URL to config"
+commands.allow = ["save_server_url"]
+
+[[permission]]
+identifier = "allow-load-server-url"
+description = "Allows loading the server URL from config"
+commands.allow = ["load_server_url"]
+
+[[permission]]
+identifier = "allow-clear-server-url"
+description = "Allows clearing the saved server URL"
+commands.allow = ["clear_server_url"]
+
+[[permission]]
+identifier = "allow-probe-server"
+description = "Allows probing a server for health check"
+commands.allow = ["probe_server"]
+
+[[permission]]
+identifier = "allow-check-for-updates"
+description = "Allows checking for software updates from GitHub"
+commands.allow = ["check_for_updates"]
+
+[[permission]]
+identifier = "allow-open-download-page"
+description = "Allows opening the download page in browser"
+commands.allow = ["open_download_page"]
+
+[[permission]]
+identifier = "allow-open-release-page"
+description = "Allows opening the release page in browser"
+commands.allow = ["open_release_page"]
+
+[[permission]]
+identifier = "allow-proxy-api"
+description = "Allows proxying API requests to the MovieClaw server"
+commands.allow = ["proxy_api"]
+
+[[permission]]
+identifier = "allow-get-server-url"
+description = "Allows reading the configured server URL"
+commands.allow = ["get_server_url"]
+
+[[permission]]
+identifier = "allow-has-embedded-player"
+description = "Allows checking whether an embedded mpv player is available"
+commands.allow = ["has_embedded_player"]
+
+[[permission]]
+identifier = "allow-launch-embedded-player"
+description = "Allows launching the embedded mpv player"
+commands.allow = ["launch_embedded_player"]
+
+[[permission]]
+identifier = "allow-resize-embedded-player"
+description = "Allows resizing the embedded player window"
+commands.allow = ["resize_embedded_player"]
+
+[[permission]]
+identifier = "allow-set-embedded-player-visible"
+description = "Allows showing/hiding the embedded player"
+commands.allow = ["set_embedded_player_visible"]
+
+[[permission]]
+identifier = "allow-stop-embedded-player"
+description = "Allows stopping the embedded player"
+commands.allow = ["stop_embedded_player"]
+
+[[permission]]
+identifier = "allow-send-mpv-command-embedded"
+description = "Allows sending commands to the embedded mpv player"
+commands.allow = ["send_mpv_command_embedded"]
+
+[[permission]]
+identifier = "allow-get-main-window-hwnd"
+description = "Allows getting the main window handle for embedding"
+commands.allow = ["get_main_window_hwnd"]
+
+[[permission]]
+identifier = "allow-discover-servers"
+description = "Allows discovering MovieClaw servers on the local network"
+commands.allow = ["discover_servers"]
+
+[[permission]]
+identifier = "default"
+description = "Default permissions for MovieClaw Desktop"
+permissions = [
+    "allow-save-server-url",
+    "allow-load-server-url",
+    "allow-clear-server-url",
+    "allow-probe-server",
+    "allow-check-for-updates",
+    "allow-open-download-page",
+    "allow-open-release-page",
+    "allow-proxy-api",
+    "allow-get-server-url",
+    "allow-has-embedded-player",
+    "allow-launch-embedded-player",
+    "allow-resize-embedded-player",
+    "allow-set-embedded-player-visible",
+    "allow-stop-embedded-player",
+    "allow-send-mpv-command-embedded",
+    "allow-get-main-window-hwnd",
+    "allow-discover-servers"
+]
+
+[[permission]]
+identifier = "allow-cancel-proxy-request"
+description = "Allows cancel_proxy_request"
+commands.allow = ["cancel_proxy_request"]
+
+[[permission]]
+identifier = "allow-complete-shutdown"
+description = "Allows complete_shutdown"
+commands.allow = ["complete_shutdown"]
+
+[[permission]]
+identifier = "allow-get-app-version"
+description = "Allows get_app_version"
+commands.allow = ["get_app_version"]
+
+[[permission]]
+identifier = "allow-get-about-info"
+description = "Reads local build identity and bundled open-source notices"
+commands.allow = ["get_about_info"]
+
+[[permission]]
+identifier = "allow-get-embedded-player-status"
+description = "Allows get_embedded_player_status"
+commands.allow = ["get_embedded_player_status"]
+
+[[permission]]
+identifier = "allow-native-auth-status"
+description = "Allows native_auth_status"
+commands.allow = ["native_auth_status"]
+
+
+[[permission]]
+identifier = "allow-native-password-login"
+description = "Allows native_password_login"
+commands.allow = ["native_password_login"]
+
+
+[[permission]]
+identifier = "allow-native-select-account"
+description = "Allows native_select_account"
+commands.allow = ["native_select_account"]
+
+
+[[permission]]
+identifier = "allow-native-remove-account"
+description = "Allows native_remove_account"
+commands.allow = ["native_remove_account"]
+
+
+[[permission]]
+identifier = "allow-native-logout"
+description = "Allows native_logout"
+commands.allow = ["native_logout"]
+
+
+[[permission]]
+identifier = "allow-native-pair-begin"
+description = "Allows native_pair_begin"
+commands.allow = ["native_pair_begin"]
+
+
+[[permission]]
+identifier = "allow-native-pair-poll"
+description = "Allows native_pair_poll"
+commands.allow = ["native_pair_poll"]
+
+
+[[permission]]
+identifier = "allow-native-pair-cancel"
+description = "Allows native_pair_cancel"
+commands.allow = ["native_pair_cancel"]
+
+
+[[permission]]
+identifier = "allow-grant-media-stream"
+description = "Allows grant_media_stream"
+commands.allow = ["grant_media_stream"]
+
+
+[[permission]]
+identifier = "allow-release-media-stream"
+description = "Allows release_media_stream"
+commands.allow = ["release_media_stream"]
+
+
+[[permission]]
+identifier = "allow-get-embedded-player-state"
+description = "Allows get_embedded_player_state"
+commands.allow = ["get_embedded_player_state"]
+
+[[permission]]
+identifier = "allow-native-ready"
+description = "Allows the local UI to signal bridge readiness"
+commands.allow = ["native_ready"]
+
+[[permission]]
+identifier = "allow-renew-media-stream"
+description = "Allows renewing an active media capability"
+commands.allow = ["renew_media_stream"]
+
+[[permission]]
+identifier = "allow-begin-native-playback"
+description = "Register an identified playback with Windows platform services"
+commands.allow = ["begin_native_playback"]
+
+[[permission]]
+identifier = "allow-update-native-playback"
+description = "Update current playback timeline, power and window state"
+commands.allow = ["update_native_playback"]
+
+[[permission]]
+identifier = "allow-end-native-playback"
+description = "Release current playback platform services and restore window"
+commands.allow = ["end_native_playback"]
+
+[[permission]]
+identifier = "allow-set-native-picture-in-picture"
+description = "Enter or leave the identified native player's compact window"
+commands.allow = ["set_native_picture_in_picture"]
+
+[[permission]]
+identifier = "allow-download-update"
+description = "Download an exact stable MovieClaw release with integrity verification"
+commands.allow = ["download_update"]
+
+[[permission]]
+identifier = "allow-cancel-update-download"
+description = "Cancel an identified update transfer and clean temporary data"
+commands.allow = ["cancel_update_download"]
+
+[[permission]]
+identifier = "allow-install-downloaded-update"
+description = "Install an integrity-verified update with explicit unsigned-package policy"
+commands.allow = ["install_downloaded_update"]
+
+[[permission]]
+identifier = "allow-open-downloaded-update"
+description = "Reveal a verified portable update for manual installation"
+commands.allow = ["open_downloaded_update"]

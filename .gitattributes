@@ -2,3 +2,6 @@
 # 出来的 .sh 转成 CRLF，烧进镜像后 entrypoint/自检脚本以 127(not found) 崩溃。
 # 声明 eol=lf 后 git archive 不再受 autocrlf 影响，docker build 可放心用。
 *.sh text eol=lf
+
+# Preserve the pinned QR encoder bytes across Windows checkouts.
+apps/desktop/ui/desktop/qrcodegen.js text eol=lf -whitespace

@@ -1,0 +1,14 @@
+{
+  "name": "movieclaw-desktop-regression",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test:unit": "node --test tests/*.test.cjs",
+    "test:e2e": "playwright test",
+    "test": "npm run test:unit && npm run test:e2e"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.0",
+    "@tauri-apps/cli": "2.12.1"
+  }
+}
