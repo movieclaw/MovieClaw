@@ -578,8 +578,7 @@ struct TVTitleArt: View {
     var body: some View {
         if let logoURL {
             // Logo 等比装进框里，有效宽最多就是框宽
-            LazyImage(request: ImageRequest(url: logoURL.imageWidth(ImageWidth.points(size.width)),
-                                            processors: [.resize(width: size.width * 1.8)])) { state in
+            LazyImage(request: Self.request(logoURL, size: size)) { state in
                 if let image = state.image {
                     image.resizable()
                         .aspectRatio(contentMode: .fit)
@@ -595,6 +594,11 @@ struct TVTitleArt: View {
         } else {
             titleText
         }
+    }
+
+    /// Logo 的取图请求（预载时用同一个请求才命中内存缓存）
+    static func request(_ logoURL: URL, size: CGSize) -> ImageRequest {
+        ImageRequest(url: logoURL.imageWidth(ImageWidth.points(size.width)), processors: [.resize(width: size.width * 1.8)])
     }
 
     private var titleText: some View {

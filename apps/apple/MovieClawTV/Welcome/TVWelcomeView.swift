@@ -469,7 +469,11 @@ struct TVProfileAvatarFocus<Content: View>: View {
                 Circle().strokeBorder(.white, lineWidth: focused ? 6 : 0)
             }
             .scaleEffect(focused ? TVMetrics.avatarFocusZoom : 1)
-            .shadow(color: .black.opacity(focused ? 0.55 : 0), radius: 28, y: 14)
+            // 投影只在获得焦点时显形（见 `TVFocusShadow`）：演职员一行十几个头像，没焦点的不再每帧离屏算投影
+            .background {
+                TVFocusShadow(focused: focused, shape: Circle(), opacity: 0.55, radius: 28, y: 14,
+                              scale: focused ? TVMetrics.avatarFocusZoom : 1)
+            }
             .animation(.easeOut(duration: 0.2), value: focused)
     }
 }

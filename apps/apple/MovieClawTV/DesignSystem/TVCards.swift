@@ -304,7 +304,10 @@ struct TVGenreCard: View {
                         .strokeBorder(.white.opacity(isFocused ? 0.88 : 0), lineWidth: 3)
                 }
                 .scaleEffect(isFocused ? 1.07 : 1)
-                .shadow(color: .black.opacity(isFocused ? 0.4 : 0), radius: 18, y: 12)
+                .background {
+                    TVFocusShadow(focused: isFocused, cornerRadius: 20 * width / 416, style: .continuous,
+                                  opacity: 0.4, radius: 18, y: 12, scale: isFocused ? 1.07 : 1)
+                }
                 .animation(reduceMotion ? nil : .easeOut(duration: 0.23), value: isFocused)
                 .preference(key: TVRowFocusKey.self, value: isFocused)
         }
@@ -469,6 +472,45 @@ private struct TVCardLabel<Art: View>: View {
     }
 }
 
+/// 卡片获得焦点时的投影：挂在卡片底下一块同形状的黑底上，只在获得焦点时显形（整层透明度跟着焦点渐变）。
+/// 不直接 `.shadow` 在卡片上、没焦点时把颜色调成透明：那样每张没焦点的卡照样每帧离屏算一遍投影
+/// （2026-10-11 模拟器量：类型行左右换卡 GPU 每秒 63→10 毫秒）；透明度为 0 的层系统不画。
+/// 黑底与卡片同形状、垫在卡片正下方，卡片不透明时看不见它，投影的轮廓与原先挂在卡片上的一样
+/// 卡片获得焦点会放大的（类型卡、头像），`scale` 传同一个放大倍数：黑底先跟着放大、再投影，与原先投在放大后的卡片上一样
+struct TVFocusShadow<S: InsettableShape>: View {
+    let focused: Bool
+    let shape: S
+    let opacity: Double
+    let radius: CGFloat
+    let y: CGFloat
+    var scale: CGFloat = 1
+
+    init(focused: Bool, shape: S, opacity: Double, radius: CGFloat, y: CGFloat, scale: CGFloat = 1) {
+        self.focused = focused
+        self.shape = shape
+        self.opacity = opacity
+        self.radius = radius
+        self.y = y
+        self.scale = scale
+    }
+
+    var body: some View {
+        shape
+            .fill(.black)
+            .scaleEffect(scale)
+            .shadow(color: .black.opacity(opacity), radius: radius, y: y)
+            .opacity(focused ? 1 : 0)
+    }
+}
+
+extension TVFocusShadow where S == RoundedRectangle {
+    init(focused: Bool, cornerRadius: CGFloat, style: RoundedCornerStyle = .circular, opacity: Double, radius: CGFloat, y: CGFloat,
+         scale: CGFloat = 1) {
+        self.init(focused: focused, shape: RoundedRectangle(cornerRadius: cornerRadius, style: style),
+                  opacity: opacity, radius: radius, y: y, scale: scale)
+    }
+}
+
 /// 一行里有没有卡片拿着焦点（任何一张拿着就是 true）
 struct TVRowFocusKey: PreferenceKey {
     static let defaultValue = false
@@ -503,7 +545,16 @@ struct TVShelf<Content: View>: View {
     var detail: String?
     /// 收起行标题（占位不变）：首页大图预告开播、卡片行让位时用
     var titleHidden = false
-    @ViewBuilder let content: () -> Content
+    /// 这一行的卡片：在上层重算时建好存下来，不存闭包——存闭包的话焦点进出这一行（行标题亮暗）都要重跑一遍、
+    /// 整行卡片跟着重建（2026-10-11 模拟器：首页上下换行时主线程一下 30 多毫秒）
+    let content: Content
+
+    init(title: String, detail: String? = nil, titleHidden: Bool = false, @ViewBuilder content: () -> Content) {
+        self.title = title
+        self.detail = detail
+        self.titleHidden = titleHidden
+        self.content = content()
+    }
 
     /// 焦点在不在这一行：在就把行标题点亮，不在就压暗（同系统 Apple TV App：眼睛自然落在当前这一行）
     @State private var rowFocused = false
@@ -528,7 +579,7 @@ struct TVShelf<Content: View>: View {
             .opacity(titleHidden ? 0 : 1)
             ScrollView(.horizontal) {
                 LazyHStack(alignment: .top, spacing: TVMetrics.cardSpacing) {
-                    content()
+                    content
                 }
                 .padding(.horizontal, TVMetrics.edge)
                 .padding(.vertical, 20)

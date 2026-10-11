@@ -1,10 +1,13 @@
+import Nuke
 import SwiftUI
 
 /// 首页海报行的「选中展开」（同 Netflix 电视版，2026-10-04 用户定）：
 ///
 /// - 平时一排竖海报，不挂字（海报自带片名）；
-/// - 焦点停在哪张，它就展开成同高的横版剧照卡（16:9），左下角片名 Logo（没有 Logo 写大字片名），
-///   并且停在行首——往右按，上一张收回海报、下一张展开，整行跟着左移；
+/// - 焦点所在的那一部在行首展开成同高的横版剧照卡（16:9），左下角片名 Logo（没有 Logo 写大字片名）；
+/// - 展开位固定在行首、大小不变（2026-10-11 用户定，同 Netflix）：往右按，展开位里直接换成下一部，后面的海报整体往左
+///   平移一格；不再每按一下都让上一张收回、下一张展开。原先两张卡同时做宽度动画，动画的每一帧整行都要重新排版，
+///   左右换海报时主线程、GPU 都吃紧；现在宽度与滚动位置在同一帧里直接到位，只有海报平移这一个位移动画；
 /// - 行下面写「电影 · 剧情 · 喜剧 · 2006 · 1 小时 49 分钟 · PG-13」与两行简介，只在焦点所在的那一行出现。
 ///
 /// 为什么替换掉「选中时片名浮在卡片下方」：那行字挤在行间空隙里，上下都贴着别的东西，用户看着拥挤；
@@ -18,8 +21,17 @@ struct TVShowcaseShelf<Trailing: View>: View {
     /// 焦点进 / 出这一行（首页据此把这一行滚到屏幕上方，让下面的说明露全）
     var onRowFocus: (Bool) -> Void = { _ in }
     let open: (TVShowcaseEntry) -> Void
-    /// 行末尾的「查看全部」
-    @ViewBuilder let trailing: () -> Trailing
+    /// 行末尾的「查看全部」：建好存下来（不存闭包），行重算时不跟着重建
+    let trailing: Trailing
+
+    init(title: String, entries: [TVShowcaseEntry], onRowFocus: @escaping (Bool) -> Void = { _ in },
+         open: @escaping (TVShowcaseEntry) -> Void, @ViewBuilder trailing: () -> Trailing) {
+        self.title = title
+        self.entries = entries
+        self.onRowFocus = onRowFocus
+        self.open = open
+        self.trailing = trailing()
+    }
 
     @Environment(\.api) private var api
     @FocusState private var focused: Int?
@@ -31,6 +43,8 @@ struct TVShowcaseShelf<Trailing: View>: View {
     @State private var trailingFocused = false
     /// 最后停在「查看全部」上：从它点进海报墙、返回时焦点要回到它，入口就是它
     @State private var leftAtTrailing = false
+    /// 展开位后面那些海报的平移：换一部的那一帧排版已经到位，先把它们放回原来的位置，再滑过来
+    @State private var slide: CGFloat = 0
 
     private var store: TVShowcaseStore { .shared }
     private var rowFocused: Bool { focused != nil || trailingFocused }
@@ -44,8 +58,11 @@ struct TVShowcaseShelf<Trailing: View>: View {
     }
     /// 行尾留白：最后一部展开后也能滚到行首（同 Netflix），不然最后几部只能挤在右边
     private static var trailingMargin: CGFloat { 1920 - TVMetrics.edge - TVMetrics.showcaseExpandedWidth }
+    /// 换一部时后面的海报平移一格的距离
+    private static var step: CGFloat { TVMetrics.showcasePosterWidth + TVMetrics.cardSpacing }
 
     var body: some View {
+        let expandedIndex = expanded.flatMap { id in entries.firstIndex { $0.id == id } }
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.system(size: 32, weight: .semibold))
@@ -55,18 +72,21 @@ struct TVShowcaseShelf<Trailing: View>: View {
             ScrollViewReader { proxy in
                 ScrollView(.horizontal) {
                     LazyHStack(alignment: .top, spacing: TVMetrics.cardSpacing) {
-                        ForEach(entries) { entry in
+                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                             TVShowcaseCard(entry: entry, detail: store.details[entry.id], expanded: expanded == entry.id) {
                                 open(entry)
                             }
+                            .equatable()
                             .focused($focused, equals: entry.id)
                             // 焦点不在这一行时只留「上次停的那张」可选：从上下行按过来，系统只能落到它身上。
                             // （`defaultFocus` 在这里不生效：系统照样按位置挑离得最近的那张）
                             .disabled(!rowFocused && (leftAtTrailing || entry.id != entryPoint))
+                            .offset(x: expandedIndex.map { index > $0 } == true ? slide : 0)
                             .id(entry.id)
                         }
-                        trailing()
+                        trailing
                             .disabled(!rowFocused && !leftAtTrailing)
+                            .offset(x: expandedIndex != nil ? slide : 0)
                             .onPreferenceChange(TVRowFocusKey.self) { isFocused in
                                 trailingFocused = isFocused
                                 if isFocused { leftAtTrailing = true }
@@ -78,9 +98,29 @@ struct TVShowcaseShelf<Trailing: View>: View {
                 }
                 .scrollClipDisabled()
                 .scrollIndicators(.hidden)
-                .onChange(of: focused) { _, new in
-                    guard let new else { return }
-                    withAnimation(.easeInOut(duration: 0.3)) { proxy.scrollTo(new, anchor: Self.leadingAnchor) }
+                .onChange(of: focused) { old, new in
+                    if let new {
+                        remembered = new
+                        leftAtTrailing = false
+                    }
+                    // 宽度、滚动位置在同一帧里直接到位：展开位停在行首、大小不变，里面换成新的这一部
+                    let from = old.flatMap { id in entries.firstIndex { $0.id == id } }
+                    let to = new.flatMap { id in entries.firstIndex { $0.id == id } }
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) {
+                        expanded = new
+                        if let new { proxy.scrollTo(new, anchor: Self.leadingAnchor) }
+                        // 后面的海报先放回原来的位置（往右按是右边一格，往左按是左边一格）
+                        if let from, let to, from != to { slide = to > from ? Self.step : -Self.step } else { slide = 0 }
+                    }
+                    if slide != 0 {
+                        // 等放回原位的那一帧画出来再滑：同一次更新里改两遍，中间值画不出来、也就没有动画
+                        DispatchQueue.main.async {
+                            withAnimation(.easeOut(duration: 0.25)) { slide = 0 }
+                        }
+                    }
+                    if let to { prefetch(around: to) }
                 }
             }
             // 新旧两段说明叠在同一个框里交叉淡入：放在 VStack 里会上下并排、把整行撑高一下
@@ -97,19 +137,24 @@ struct TVShowcaseShelf<Trailing: View>: View {
         .task(id: entries.map(\.id)) {
             store.load(entries.map(\.id), api: api)
         }
-        .onChange(of: focused) { _, new in
-            if let new {
-                remembered = new
-                leftAtTrailing = false
-            }
-            withAnimation(.easeInOut(duration: 0.3)) { expanded = new }
-        }
         .onChange(of: rowFocused) { _, focused in onRowFocus(focused) }
+    }
+
+    /// 预载展开位前后几部要用的剧照、Logo（与 `TVShowcaseCard` 取图同一个请求，命中内存缓存）
+    private func prefetch(around index: Int) {
+        let neighbours = [index - 1, index + 1, index + 2].filter { entries.indices.contains($0) }.map { entries[$0] }
+        var requests: [ImageRequest] = []
+        for entry in neighbours {
+            let detail = store.details[entry.id]
+            if let url = TVShowcaseCard.backdropURL(entry, detail, api: api) { requests.append(ImageRequest(url: url)) }
+            if let logo = api.image(detail?.logoUrl) { requests.append(TVTitleArt.request(logo, size: TVShowcaseCard.logoSize)) }
+        }
+        store.prefetcher.startPrefetching(with: requests)
     }
 }
 
 /// 海报行里的一部（海报墙条目 / 收藏条目归一成这一种）
-struct TVShowcaseEntry: Identifiable {
+struct TVShowcaseEntry: Identifiable, Equatable {
     /// 媒体条目 id
     let id: Int
     let title: String
@@ -123,8 +168,9 @@ struct TVShowcaseEntry: Identifiable {
     let seasonCount: Int
 }
 
-/// 一张卡：平时竖海报，展开时同高的横版剧照 + 左下 Logo。宽度变化带动画，海报与剧照交叉淡入
-private struct TVShowcaseCard: View {
+/// 一张卡：平时竖海报，展开时同高的横版剧照 + 左下 Logo（宽度直接到位，见 `TVShowcaseShelf`）。
+/// 按值比较、不比按下的动作（它只在按下时调用行给的闭包）：行重算时没变的卡不重画
+private struct TVShowcaseCard: View, Equatable {
     let entry: TVShowcaseEntry
     let detail: API.LibraryItemShowcaseView?
     let expanded: Bool
@@ -132,16 +178,27 @@ private struct TVShowcaseCard: View {
 
     @Environment(\.api) private var api
 
+    static let logoSize = CGSize(width: 380, height: 120)
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.entry == rhs.entry && lhs.detail == rhs.detail && lhs.expanded == rhs.expanded
+    }
+
+    /// 展开时的剧照：展开接口给的优先，列表里带的兜底，再没有用海报
+    static func backdropURL(_ entry: TVShowcaseEntry, _ detail: API.LibraryItemShowcaseView?, api: APIClient) -> URL? {
+        api.image(detail?.backdropUrl ?? entry.backdropURL ?? entry.posterURL, width: ImageWidth.tvCard(TVMetrics.showcaseExpandedWidth))
+    }
+
     var body: some View {
         Button(action: action) {
             ZStack(alignment: .bottomLeading) {
+                // 海报一直留着、展开时盖上剧照：收回时不用重建海报
                 RemoteImage(url: api.image(entry.posterURL, width: ImageWidth.tvCard(TVMetrics.showcasePosterWidth)), placeholderText: entry.title)
                     .frame(width: TVMetrics.showcasePosterWidth, height: TVMetrics.showcaseHeight)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
                     .opacity(expanded ? 0 : 1)
                 if expanded {
                     backdrop
-                        .transition(.opacity)
                 }
             }
             .frame(width: expanded ? TVMetrics.showcaseExpandedWidth : TVMetrics.showcasePosterWidth,
@@ -155,14 +212,11 @@ private struct TVShowcaseCard: View {
     /// 展开态：剧照铺满，左下角压一层渐暗再放 Logo（剧照亮的时候 Logo 也看得清）
     private var backdrop: some View {
         ZStack(alignment: .bottomLeading) {
-            RemoteImage(url: api.image(detail?.backdropUrl ?? entry.backdropURL ?? entry.posterURL,
-                                  width: ImageWidth.tvCard(TVMetrics.showcaseExpandedWidth)),
-                        placeholderText: entry.title)
+            RemoteImage(url: Self.backdropURL(entry, detail, api: api), placeholderText: entry.title)
                 .frame(width: TVMetrics.showcaseExpandedWidth, height: TVMetrics.showcaseHeight)
             LinearGradient(stops: [.init(color: .black.opacity(0.7), location: 0), .init(color: .clear, location: 0.55)],
                            startPoint: .bottomLeading, endPoint: .topTrailing)
-            TVTitleArt(title: entry.title, logoURL: api.image(detail?.logoUrl),
-                       size: CGSize(width: 380, height: 120), textSize: 52)
+            TVTitleArt(title: entry.title, logoURL: api.image(detail?.logoUrl), size: Self.logoSize, textSize: 52)
                 .padding(.leading, 36)
                 .padding(.bottom, 32)
                 .shadow(color: .black.opacity(0.4), radius: 8, y: 2)
@@ -184,13 +238,16 @@ private struct TVShowcaseButtonStyle: ButtonStyle {
 
         var body: some View {
             configuration.label
-                .overlay {
-                    RoundedRectangle(cornerRadius: TVMetrics.cardCorner)
-                        .strokeBorder(.white.opacity(isFocused ? 0.9 : 0.14), lineWidth: isFocused ? 4 : 1)
+                // 焦点动画只管描边与投影：卡片展开、收回的宽度要直接到位（见 `TVShowcaseShelf`），不能被它带着动
+                .animation(.easeOut(duration: 0.2)) { content in
+                    content
+                        .background { TVFocusShadow(focused: isFocused, cornerRadius: TVMetrics.cardCorner, opacity: 0.55, radius: 26, y: 16) }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: TVMetrics.cardCorner)
+                                .strokeBorder(.white.opacity(isFocused ? 0.9 : 0.14), lineWidth: isFocused ? 4 : 1)
+                        }
                 }
-                .shadow(color: .black.opacity(isFocused ? 0.55 : 0), radius: 26, y: 16)
                 .scaleEffect(configuration.isPressed ? 0.98 : 1)
-                .animation(.easeOut(duration: 0.2), value: isFocused)
                 .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
         }
     }
@@ -241,6 +298,8 @@ final class TVShowcaseStore {
 
     private(set) var details: [Int: API.LibraryItemShowcaseView] = [:]
     @ObservationIgnored private var requested: Set<Int> = []
+    /// 预载展开卡要用的剧照与 Logo（左右相邻的几部）：焦点挪过去时直接从内存出图，换的那一下不露空底
+    @ObservationIgnored let prefetcher = ImagePrefetcher()
 
     /// 取这一行里还没取过的那几部。请求放在自己的任务里，不跟着调用方取消：行在懒加载列表里一滚出屏幕，
     /// 它的 `.task` 就被取消，请求跟着断掉的话这批 id 已记为取过、再也不补取——展开卡没有 Logo、
