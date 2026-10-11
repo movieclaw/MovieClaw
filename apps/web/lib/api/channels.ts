@@ -149,24 +149,3 @@ export function sendChannelPushTest(text?: string): Promise<{ sent: number }> {
     }),
   );
 }
-
-/** 推送内容开关（哪些系统事件会推送到已绑定通道）。 */
-export interface ChannelPushConfig {
-  /** 订阅命中并投递下载时推送 */
-  push_dispatch: boolean;
-  /** 下载完成整理入库时推送 */
-  push_imported: boolean;
-}
-
-export function getChannelPushConfig(): Promise<ChannelPushConfig> {
-  return unwrap(request<ApiEnvelope<ChannelPushConfig>>(`/channels/im/push-config`));
-}
-
-export function updateChannelPushConfig(config: ChannelPushConfig): Promise<ChannelPushConfig> {
-  return unwrap(
-    request<ApiEnvelope<ChannelPushConfig>>(`/channels/im/push-config`, {
-      method: "PUT",
-      body: JSON.stringify(config),
-    }),
-  );
-}

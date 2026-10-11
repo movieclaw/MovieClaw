@@ -158,7 +158,7 @@ export const settingsSectionGroups: SettingsSectionGroup[] = [
       {
         id: "notifications",
         label: "通知",
-        description: "选你想在手机上收到的通知",
+        description: "选你想收到的通知，手机 App 和 IM 都按这里推送",
         icon: BellBadgeIcon,
       },
       { id: "appearance", label: "外观", description: "首页背景与界面质感", icon: PaletteIcon },

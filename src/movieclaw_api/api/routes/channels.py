@@ -43,7 +43,6 @@ from movieclaw_api.schemas.channels import (
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.channel_hub import ChannelHub, ChannelUnavailable, get_hub
 from movieclaw_api.services.channel_push import push_to_all_channels
-from movieclaw_api.settings import ChannelPushSetting, get_setting_store
 from movieclaw_db.engine import get_session
 from movieclaw_db.models.channel_account import ChannelAccount
 from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
@@ -247,19 +246,28 @@ async def send_test_push(payload: PushTestPayload) -> ApiResponse[dict]:
     return ok({"sent": sent}, message=f"已推送到 {sent} 个账号")
 
 
+# IM 推什么已并入「账号 → 通知」（cloud-push.md §5）：IM 账号都归管理员，这两个开关就是
+# 管理员的「开始下载」「入库完成」。新网页、新 App 不再调用，留给已发布的 App。
+_LEGACY_EVENTS = {"push_dispatch": "download_started", "push_imported": "imported"}
+
+
+async def _legacy_push_config(session: AsyncSession) -> ChannelPushConfigView:
+    from movieclaw_api.services.push import preferences
+
+    effective = await preferences.effective(session, 0)
+    return ChannelPushConfigView(**{k: effective[e] for k, e in _LEGACY_EVENTS.items()})
+
+
 @router.get(
     "/im/push-config",
     response_model=ApiResponse[ChannelPushConfigView],
     summary="读取推送内容开关",
     operation_id="channels.im.push.config.get",
 )
-async def get_push_config() -> ApiResponse[ChannelPushConfigView]:
-    setting = await get_setting_store().get(ChannelPushSetting)
-    return ok(
-        ChannelPushConfigView(
-            push_dispatch=setting.push_dispatch, push_imported=setting.push_imported
-        )
-    )
+async def get_push_config(
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[ChannelPushConfigView]:
+    return ok(await _legacy_push_config(session))
 
 
 @router.put(
@@ -268,8 +276,15 @@ async def get_push_config() -> ApiResponse[ChannelPushConfigView]:
     summary="保存推送内容开关",
     operation_id="channels.im.push.config.update",
 )
-async def update_push_config(payload: ChannelPushConfigView) -> ApiResponse[ChannelPushConfigView]:
-    await get_setting_store().set(
-        ChannelPushSetting(push_dispatch=payload.push_dispatch, push_imported=payload.push_imported)
+async def update_push_config(
+    payload: ChannelPushConfigView, session: AsyncSession = Depends(get_session)
+) -> ApiResponse[ChannelPushConfigView]:
+    from movieclaw_api.services.push import preferences
+
+    await preferences.update(
+        session,
+        0,
+        {e: getattr(payload, k) for k, e in _LEGACY_EVENTS.items()},
+        is_admin=True,
     )
-    return ok(payload, message="推送设置已保存")
+    return ok(await _legacy_push_config(session), message="推送设置已保存")

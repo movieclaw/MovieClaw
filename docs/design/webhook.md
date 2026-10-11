@@ -94,7 +94,7 @@
 | `webhook.test` | 设置页「发送测试」，载荷为示例数据 | P1 |
 
 预留域（本期不实现，列出仅为验证目录设计的可扩展性；事件名接入时定稿）：
-`subscription.*`（开始下载/订阅入库，产生点即现有 `notify_channels` 调用旁——
+`subscription.*`（开始下载/订阅入库，产生点即通知事件（当时的 `notify_channels`）调用旁——
 `services/subscription/dispatch.py:192`、`wanted_fulfillment.py:89`）、
 `library.*`（新入库）、`system.*`（更新完成等）。
 
@@ -446,7 +446,7 @@ started/stopped/completed/favorited，签名校验通过。
 ### P3（预留域接入示范）
 
 订阅域（`subscription.*`）作为第一个非播放域接入，验证「builder + 目录一行 +
-emit 一行」的扩展承诺；产生点与现有 `notify_channels` 调用相邻。
+emit 一行」的扩展承诺；产生点与通知事件调用相邻。
 
 ## 7. 风险与对策
 

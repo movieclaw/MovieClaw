@@ -216,6 +216,8 @@ export interface MyPushView {
   library_ids: number[] | null;
   /** 静音了的片，最近静音的在前；旧服务器没有这个字段 */
   muted_items?: MyPushMutedItem[] | null;
+  /** 我绑定的 IM 账号数（IM 也按这里的开关推送）；旧服务器没有这个字段 */
+  im_accounts?: number | null;
 }
 
 export interface PushTestResult {

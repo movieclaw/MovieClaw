@@ -1,11 +1,14 @@
 import SwiftUI
 
-// IM 推送 →「接入通道」标签（对应 Web `ChannelsTab` + `AddChannelMenu` + `ChannelAccountRowView`）。
+// IM 推送页（对应 Web `ImPushSection` + `AddChannelMenu` + `ChannelAccountRowView`）。
+//
+// 「推什么」不在这里：IM 只是通知的一个渠道，和手机 App 一样按「设置 → 通知」的开关推
+// （docs/design/cloud-push.md §5）。这里只管接了哪些账号，外加一键测试推送。
 //
 // 通道来自通道插件（docs/design/plugin-channels.md）：列表、新增菜单、绑定弹层都按 `GET /channels`
 // 返回的通道渲染，不认识具体平台。提供某个通道的插件关掉 / 卸载了，它的账号照常列出、标「插件未启用」。
 
-/// 「接入通道」的全部 Section
+/// IM 推送页的全部 Section
 struct SettingsBPushChannelsSections: View {
     @Environment(\.api) private var api
     @Environment(Feedback.self) private var feedback
@@ -15,6 +18,7 @@ struct SettingsBPushChannelsSections: View {
     @State private var rows: [API.ChannelAccountView]?
     @State private var error: String?
     @State private var busy = false
+    @State private var pushBusy = false
     /// 正在绑定的通道（nil = 没开弹层）
     @State private var binding: API.ChannelView?
     private var probe: LLMCapabilityProbe { .shared }
@@ -55,6 +59,10 @@ struct SettingsBPushChannelsSections: View {
                         .accessibilityIdentifier("push-llm-setup")
                 }
             }
+            NavigationLink(value: AppRoute.settingsSection(.notifications)) {
+                Label("收哪些通知", systemImage: SettingsSection.notifications.systemImage)
+            }
+            .accessibilityIdentifier("push-notifications-link")
             if let error {
                 SettingsBNotice(text: error, tone: .danger)
                     .accessibilityIdentifier("push-channels-error")
@@ -88,6 +96,24 @@ struct SettingsBPushChannelsSections: View {
             }
             .textCase(nil)
         }
+
+        // 测试推送：验证已接入通道确实能收到消息
+        if let rows, !rows.isEmpty {
+            SettingsFormSection {
+                HStack(spacing: 12) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("测试推送").font(.body.weight(.medium))
+                        Text("向所有已接入通道发送一条测试消息").font(.caption).foregroundStyle(Theme.textFaint)
+                    }
+                    Spacer(minLength: 8)
+                    SettingsBAsyncButton("发送测试") { await testPush() }
+                        .font(.subheadline.weight(.medium))
+                        .buttonStyle(.glass)
+                        .disabled(pushBusy)
+                        .accessibilityIdentifier("push-test")
+                }
+            }
+        }
     }
 
     /// 能对话的通道完全由模型驱动：没接模型时菜单里只留只推送的通道
@@ -97,7 +123,7 @@ struct SettingsBPushChannelsSections: View {
 
     private var intro: some View {
         let code: (String) -> Text = { Text(" \($0) ").font(.caption.monospaced()).foregroundStyle(Theme.text) }
-        return Text("接入的通道都是推送目标；能对话的通道里还能直接和 AI 助手聊：发消息即可搜片、订阅、查进度。发送\(code("/reset"))重置会话，\(code("/stop"))取消正在进行的处理。通道由插件提供，可以在网页的「设置 → 插件」里安装更多通道。")
+        return Text("接入的通道是你的通知渠道，收哪些通知和手机 App 一样，在「通知」里设置。能对话的通道里还能直接和 AI 助手聊：发消息即可搜片、订阅、查进度。发送\(code("/reset"))重置会话，\(code("/stop"))取消正在进行的处理。通道由插件提供，可以在网页的「设置 → 插件」里安装更多通道。")
             .font(.footnote)
             .foregroundStyle(Theme.textMuted)
             .fixedSize(horizontal: false, vertical: true)
@@ -217,6 +243,17 @@ struct SettingsBPushChannelsSections: View {
         } catch {
             self.error = error.localizedDescription
             rows = []
+        }
+    }
+
+    private func testPush() async {
+        pushBusy = true
+        defer { pushBusy = false }
+        do {
+            let result = try await api.channelsImPushTest(body: .init(text: ""))
+            feedback.success("已推送到 \(result["sent"]?.intValue ?? 0) 个账号，去客户端看看吧")
+        } catch {
+            feedback.error(error.localizedDescription)
         }
     }
 

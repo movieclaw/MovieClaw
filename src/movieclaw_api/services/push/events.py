@@ -164,13 +164,8 @@ def download_started(
     detail: str,
     upgrade: bool,
     skip_member_id: int | None = None,
-    source: str = "",
-    spec: str = "",
 ) -> None:
-    """订阅找到资源、交给下载器了。``skip_member_id``：手动选种时点下载的人，不推给他。
-
-    ``source``、``spec`` 是 IM 消息里的来源与规格（App 推送不用）。
-    """
+    """订阅找到资源、交给下载器了。``skip_member_id``：手动选种时点下载的人，不推给他。"""
     from movieclaw_api.services.push.hub import Started, emit
 
     emit(
@@ -181,8 +176,6 @@ def download_started(
             detail=detail,
             upgrade=upgrade,
             skip_member_id=skip_member_id,
-            source=source,
-            spec=spec,
         )
     )
 

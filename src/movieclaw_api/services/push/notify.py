@@ -12,6 +12,9 @@
 （services/push/outbox.py，cloud-push.md §4.1），由它连着的实时连接送出。偏好、
 收件人筛选和中继完全一样，不会多收也不会少收。
 
+绑定了 IM 的人，同一份文案也发到他的 IM 账号（services/push/im.py）：IM 只是一个渠道，
+推什么同样按「账号 → 通知」的偏好来。
+
 全程在后台任务里，任何失败只记日志。
 """
 
@@ -25,7 +28,7 @@ from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api.services.push import crypto, outbox, preferences, registration
+from movieclaw_api.services.push import crypto, im, outbox, preferences, registration
 from movieclaw_api.services.push.dispatcher import Outcome, Outgoing, build_message, deliver, spawn
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import LoginDevice, Member, utcnow
@@ -161,10 +164,11 @@ def _stream_payload(
 
 @dataclass
 class Prepared:
-    """一次推送算出来的结果：要交给中继的，和已经写进实时通知发件箱的。"""
+    """一次推送算出来的结果：要交给中继的、已经写进实时通知发件箱的、要发到 IM 的。"""
 
     relay: list[Outgoing] = field(default_factory=list)
     stream: list[Outcome] = field(default_factory=list)
+    im: list[im.ImMessage] = field(default_factory=list)
 
 
 def _deliverable(device: LoginDevice) -> bool:
@@ -202,10 +206,12 @@ async def prepare(
     build: ContentBuilder,
     exclude_device_ids: frozenset[int] = frozenset(),
     collapse: tuple[str, str] | None = None,
+    to_im: bool = True,
 ) -> Prepared:
     """算出这次要发的每一条。``event`` 为 None 表示不看偏好（测试推送）。
 
     中继的已加密、待发出；实时通知设备的直接写进发件箱、提交并唤醒在线连接。
+    ``to_im``：也发到收件人的 IM 账号（剧卡的进度更新不发，IM 消息不能原地替换）。
     """
     recipients = (
         await preferences.wants(session, member_ids, event) if event is not None else member_ids
@@ -223,7 +229,8 @@ async def prepare(
         for d in await registration.stream_devices(session, member_ids=recipients)
         if d.id is not None and d.id not in exclude_device_ids
     ]
-    if not devices and not streams:
+    im_members = sorted(recipients & im.owners()) if to_im else []
+    if not devices and not streams and not im_members:
         return Prepared()
     server = await server_identity()
     names = await _account_names(session, {d.member_id for d in devices + streams})
@@ -309,7 +316,14 @@ async def prepare(
         await session.commit()
         for item in queued:
             outbox.wake(item.device_id)
-    return Prepared(relay=outgoing, stream=queued)
+    im_messages: list[im.ImMessage] = []
+    for member_id in im_members:
+        if member_id not in contents:
+            contents[member_id] = await build(session, member_id)
+        content = contents[member_id]
+        if content is not None:
+            im_messages.append(im.render(member_id, content))
+    return Prepared(relay=outgoing, stream=queued, im=im_messages)
 
 
 def notify(
@@ -319,11 +333,13 @@ def notify(
     *,
     exclude_device_ids: frozenset[int] = frozenset(),
     collapse: tuple[str, str] | None = None,
+    to_im: bool = True,
 ) -> None:
     """业务侧唯一入口：后台推送，不阻塞、不抛错。
 
     ``build(session, member_id)`` 给每个收件人写文案；返回 None 表示这个人不该收到。
     查询都在后台任务自己的会话里做，调用方的会话提交之后就可以关掉。
+    ``to_im`` 见 ``prepare``。
     """
 
     async def _run() -> None:
@@ -339,19 +355,22 @@ def notify(
                     build=build,
                     exclude_device_ids=exclude_device_ids,
                     collapse=collapse,
+                    to_im=to_im,
                 )
-            if not prepared.relay and not prepared.stream:
+            if not prepared.relay and not prepared.stream and not prepared.im:
                 return
-            outcomes = prepared.stream + await deliver(prepared.relay)
+            outcomes = (
+                prepared.stream + await deliver(prepared.relay) + await im.deliver(prepared.im)
+            )
             logger.info(
-                "App 推送「%s」：%s",
+                "推送「%s」：%s",
                 preferences.EVENTS_BY_KEY[event].title
                 if event in preferences.EVENTS_BY_KEY
                 else event,
                 "、".join(f"{o.device_name}={o.result}" for o in outcomes),
             )
         except Exception:  # noqa: BLE001 -- 推送绝不能影响业务主链路
-            logger.exception("App 推送失败（已忽略）")
+            logger.exception("推送失败（已忽略）")
 
     spawn(_run())
 
@@ -369,4 +388,4 @@ async def send_test(member_id: int) -> list[Outcome]:
 
     async with get_database().session() as session:
         prepared = await prepare(session, event=None, member_ids={member_id}, build=build)
-    return prepared.stream + await deliver(prepared.relay)
+    return prepared.stream + await deliver(prepared.relay) + await im.deliver(prepared.im)

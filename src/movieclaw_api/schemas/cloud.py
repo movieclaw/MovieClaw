@@ -213,6 +213,10 @@ class MyPushView(BaseModel):
         default=None,
         description="静音了的片（长按通知「这部剧不再提醒」），最近静音的在前",
     )
+    # 可空：同上
+    im_accounts: int | None = Field(
+        default=None, description="我在运行的 IM 账号数（IM 也按这里的开关推送）"
+    )
 
 
 class PushPreferencesRequest(BaseModel):

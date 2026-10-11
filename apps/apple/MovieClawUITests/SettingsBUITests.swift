@@ -335,9 +335,10 @@ final class SettingsBUITests: XCTestCase {
         try launch(route: "/settings/im-push")
         XCTAssertTrue(app.descendants(matching: .any)["push-channels-count"].waitForExistence(timeout: 30)
             || app.descendants(matching: .any)["push-channels-empty"].exists, "应显示已接入账号数或空态")
-        tap(app.segmentedControls["push-tab"].buttons["推送内容"], "推送内容页签")
-        XCTAssertTrue(app.buttons["push-test"].waitForExistence(timeout: 20), "推送内容页应有测试推送（不点）")
-        snapshot("消息推送-推送内容")
+        // 推什么并入「通知」：这里只留入口，不再有推送内容开关
+        XCTAssertTrue(app.descendants(matching: .any)["push-notifications-link"].exists, "应有去「通知」的入口")
+        XCTAssertFalse(app.segmentedControls["push-tab"].exists, "不再分「推送内容」页签")
+        snapshot("消息推送")
     }
 
     /// IM 推送的通道来自通道插件：新增菜单按接口列出通道，表单 / 扫码弹层按通道声明的绑定方式渲染。

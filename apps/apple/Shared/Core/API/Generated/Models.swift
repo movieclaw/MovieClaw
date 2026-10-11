@@ -6777,6 +6777,8 @@ nonisolated extension API {
         var attention: [API.PushAttentionView]
         /// 静音了的片（长按通知「这部剧不再提醒」），最近静音的在前
         var mutedItems: [API.PushMutedItemView]?
+        /// 我在运行的 IM 账号数（IM 也按这里的开关推送）
+        var imAccounts: Int?
 
         enum CodingKeys: String, CodingKey {
             case instanceReady = "instance_ready"
@@ -6787,6 +6789,7 @@ nonisolated extension API {
             case libraryIds = "library_ids"
             case attention
             case mutedItems = "muted_items"
+            case imAccounts = "im_accounts"
         }
     }
 

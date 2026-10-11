@@ -225,9 +225,7 @@ class Show:
 
         self.call(go)
 
-    def grab(
-        self, episodes: range | list[int], *, source: str = "来自 hdsky 的「余红旧事 S01」"
-    ) -> None:
+    def grab(self, episodes: range | list[int]) -> None:
         """订阅投递了一个种子（和 dispatch 一样：工单标已投递，再投「开始下载」事件）。"""
         from sqlmodel import select
 
@@ -259,8 +257,6 @@ class Show:
                 units=[(1, e) for e in wanted],
                 detail="2160p",
                 upgrade=False,
-                source=source,
-                spec="2160p · WEB-DL",
             )
             await hub.drain()
 
@@ -371,14 +367,7 @@ def test_season_pack_is_one_card_that_rings_twice(
 ) -> None:  # type: ignore[no-untyped-def]
     """33 集季包：开始下载（不响）→ 可以先看了（响）→ 进度（不响）→ 第 1 季已全部入库（响）。"""
     admin_key, member_key, _, admin_bearer = phones
-    im: list[str] = []
-
-    async def record_im(text: str, photo: bytes | None = None) -> int:
-        im.append(text)
-        return 1
-
-    monkeypatch.setattr("movieclaw_api.services.channel_push.push_to_all_channels", record_im)
-    monkeypatch.setattr("movieclaw_api.services.channel_push._fetch_image", _no_image)
+    im = FakeImHub(monkeypatch, owners={0})
     # 管理员打开了「开始下载」（默认关），家人没开
     _data(
         _as_app(
@@ -393,7 +382,7 @@ def test_season_pack_is_one_card_that_rings_twice(
     show.seed(episodes=33)
 
     # 10:08 两个种子先后投递（单集种 + 剩下的季包），30 秒内合成一条「开始下载」
-    show.grab(range(1, 2), source="来自 hdsky 的「余红旧事 E01」")
+    show.grab(range(1, 2))
     show.advance(10)
     show.grab(range(2, 34))
     show.advance(30)
@@ -404,10 +393,9 @@ def test_season_pack_is_one_card_that_rings_twice(
     assert plain["thread"] == f"item-{show.item_id}"
     assert not _rings(started) and started["aps"]["interruption-level"] == "passive"
     assert _mine(world, MEMBER_TOKEN) == []  # 家人没开「开始下载」
-    _wait(lambda: len(im) == 1)
-    assert im[0] == (
-        "📥 开始下载:《余红旧事》(2026) 第 1 季第 1–33 集\n来自 2 个资源\n2160p · WEB-DL"
-    )
+    # IM 是管理员的另一个渠道：同一份文案，按管理员的偏好发
+    _wait(lambda: len(im.sent) == 1)
+    assert im.sent[0] == (0, "余红旧事 开始下载\n第 1 季第 1–33 集 · 2160p，第一批下好就告诉你")
 
     # 10:16 第一批 10 集入库：还有 23 集在路上，先不发；15 分钟时发「可以先看了」
     show.advance(8 * 60)
@@ -462,15 +450,44 @@ def test_season_pack_is_one_card_that_rings_twice(
     member = _expect(world, MEMBER_TOKEN, 3)
     assert [_rings(m) for m in member] == [True, False, True]
     assert len({m["collapse_id"] for m in member}) == 1
-    # IM：开始下载、可以先看、全部入库，进度不发
-    _wait(lambda: len(im) == 3)
-    assert im[1] == "🎬 可以先看了:《余红旧事》(2026) 第 1 季第 1–10 集已入库，其余 23 集还在下载"
-    assert im[2] == "🎬 已入库:《余红旧事》(2026) 第 1 季已全部入库（33 集）"
+    # IM：开始下载、可以先看、全部入库，进度不发（IM 消息不能原地替换）
+    _wait(lambda: len(im.sent) == 3)
+    time.sleep(0.3)
+    assert im.sent[1:] == [
+        (0, "余红旧事 可以先看了\n第 1–10 集已入库，其余 23 集还在下载"),
+        (0, "余红旧事 第 1 季已全部入库\n33 集都能看了，点开从第 1 集开始"),
+    ]
 
     # 收尾后再报同一批（对账重跑）不会再响
     show.land([])
     show.advance(10 * 60)
     _expect(world, ADMIN_TOKEN, 4)
+
+
+class FakeImHub:
+    """替换 IM 通道中枢：``owners`` 是有 IM 账号的成员，发出的记在 ``sent``（成员, 文本）。"""
+
+    def __init__(self, monkeypatch, *, owners: set[int]) -> None:  # type: ignore[no-untyped-def]
+        self.owners = owners
+        self.sent: list[tuple[int | None, str]] = []
+        self.photos: list[bytes | None] = []
+        monkeypatch.setattr("movieclaw_api.services.channel_hub.get_hub", lambda: self)
+        monkeypatch.setattr("movieclaw_api.services.channel_push.fetch_image", _no_image)
+
+    def account_owners(self) -> set[int]:
+        return set(self.owners)
+
+    def account_count(self, member_id: int) -> int:
+        return 1 if member_id in self.owners else 0
+
+    async def push(
+        self, text: str, photo: bytes | None = None, *, member_id: int | None = None
+    ) -> int:
+        if member_id is not None and member_id not in self.owners:
+            return 0
+        self.sent.append((member_id, text))
+        self.photos.append(photo)
+        return 1
 
 
 async def _no_image(_url: str) -> None:
@@ -621,6 +638,74 @@ def test_missing_episodes_are_named(
     assert plain["title"] == "余红旧事 第 1–30 集已入库"
     assert plain["body"] == "第 31–33 集还没找到资源，找到了再告诉你"
     assert plain["grid"] == {"season": 1, "cells": "d" * 30 + "mmm"}
+
+
+def test_im_follows_owner_preferences(
+    client: TestClient, world: World, clock: FakeClock, phones, monkeypatch
+) -> None:  # type: ignore[no-untyped-def]
+    """IM 只是一个人的一个渠道：推不推按这个人的通知偏好，文案是他自己那张卡。"""
+    _, _, member_bearer, admin_bearer = phones
+    im = FakeImHub(monkeypatch, owners={0, 1})
+    # 管理员关掉了「入库完成」；家人保持默认
+    _data(
+        _as_app(
+            client,
+            admin_bearer,
+            "PUT",
+            "/api/v1/push/me/preferences",
+            json={"events": {"imported": False}},
+        )
+    )
+    show = Show(client, clock)
+    show.seed(episodes=2)
+    show.grab([1, 2])
+    show.advance(60)
+    show.land([1, 2])
+    show.advance(2 * 60)
+    _expect(world, MEMBER_TOKEN, 1)
+    _wait(lambda: len(im.sent) == 1)
+    time.sleep(0.3)
+    assert im.sent == [(1, "余红旧事 第 1 季已全部入库\n2 集都能看了，点开从第 1 集开始")]
+
+    # 洗版完成默认关：谁的 IM 都不发；家人打开后只发给家人
+    def upgrade(episode: int) -> None:
+        from movieclaw_api.services.push import events as push_events
+
+        push_events.upgraded(
+            subscription_id=show.subscription_id,
+            item_id=show.item_id,
+            unit=(1, episode),
+            old_label="1080p",
+            new_label="2160p",
+        )
+
+    show.call(_in_loop, upgrade, 1)
+    show.advance(2 * 60)
+    time.sleep(0.3)
+    assert len(im.sent) == 1
+    _data(
+        _as_app(
+            client,
+            member_bearer,
+            "PUT",
+            "/api/v1/push/me/preferences",
+            json={"events": {"upgraded": True}},
+        )
+    )
+    show.call(_in_loop, upgrade, 2)
+    show.advance(2 * 60)
+    _wait(lambda: len(im.sent) == 2)
+    member_id, text = im.sent[1]
+    assert member_id == 1 and text.startswith("洗版完成：余红旧事\n")
+    assert text.endswith("1080p → 2160p")
+
+
+async def _in_loop(fn, *args) -> None:  # type: ignore[no-untyped-def]
+    """在应用的事件循环里调（推送事件中枢只在有事件循环时收事件）。"""
+    from movieclaw_api.services.push import hub
+
+    fn(*args)
+    await hub.drain()
 
 
 # ----------------------------------------------------------------------

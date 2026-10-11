@@ -581,7 +581,7 @@ async def dispatch(
     )
     await recompute_subscription_status(session, subscription, item)
 
-    # App 推送与 IM 通道（微信/TG/Discord）：只投一个事件，按剧合并、写文案都在推送事件中枢里
+    # 通知（App 与 IM）：只投一个事件，按剧合并、写文案都在推送事件中枢里
     # 做，不占投递链路（docs/design/cloud-push.md §5.1）
     if not dry_run:
         from movieclaw_api.services.push import events as push_events
@@ -594,10 +594,8 @@ async def dispatch(
             upgrade=bool(upgrade_rows and not claimed),
             # 手动选种：点下载的人自己不用提醒
             skip_member_id=actor_member_id,
-            source=f"来自 {candidate.site_id} 的「{candidate.title[:60]}」",
-            spec=spec_text,
         )
-        # 事件 Webhook(与 IM 推送同点位:种子已真实提交,事件即事实)
+        # 事件 Webhook(与通知同点位:种子已真实提交,事件即事实)
         from movieclaw_api.services.subscription.events import build_download_started_event
         from movieclaw_api.services.webhook import emit_events
 

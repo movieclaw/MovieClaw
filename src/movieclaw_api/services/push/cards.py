@@ -17,8 +17,8 @@
 在一张卡上（收尾后 6 小时内再报同一集的不再推）。只是「媒体库有新片」来的（不是自己订阅、
 下载的）安静送达。
 
-**IM 通道**（微信、TG、Discord）也走同一套合并，按整台服务器算：只在「开始下载」和响铃的
-那几刻发（可以先看 / 全部到齐 / 卡住），进度不发。
+**IM** 是同一个人的另一个渠道：这个人的卡发出去时也发到他的 IM（notify 里按偏好筛），
+只是进度更新不发——IM 消息不能原地替换，每次进度都会是新的一条。
 """
 
 from __future__ import annotations
@@ -64,8 +64,8 @@ RECENT_S = 6 * 3600.0
 #: 一条汇总里点名的片数
 NAMED_IN_SUMMARY = 3
 
-#: 卡的键：(成员, 条目)；成员为 None 是 IM 通道（整台服务器一份）
-Key = tuple[int | None, int]
+#: 卡的键：(成员, 条目)
+Key = tuple[int, int]
 
 
 @dataclass
@@ -77,9 +77,6 @@ class Card:
     started_pending: bool = False
     detail: str = ""
     upgrade: bool = False
-    #: IM：每个投递的种子一行来源，规格取最后一个
-    sources: list[str] = field(default_factory=list)
-    spec: str = ""
     subscription_id: int | None = None
     arrived: list[Unit] = field(default_factory=list)
     first_arrival: float | None = None
@@ -94,7 +91,7 @@ class Card:
     due: float | None = None
 
     @property
-    def member_id(self) -> int | None:
+    def member_id(self) -> int:
         return self.key[0]
 
     @property
@@ -167,7 +164,7 @@ async def _on_started(event: Started) -> None:
         members = await subscribers(event.subscription_id)(session)
         members.discard(event.skip_member_id)  # type: ignore[arg-type]
         audience = await _audience(session, members, event.item_id, None)
-    for member_id in [*audience, None]:
+    for member_id in audience:
         card = _card((member_id, event.item_id))
         card.started.extend(u for u in event.units if u not in card.started)
         card.started_at = hub.now()
@@ -175,9 +172,6 @@ async def _on_started(event: Started) -> None:
         card.detail = event.detail or card.detail
         card.upgrade = event.upgrade
         card.subscription_id = card.subscription_id or event.subscription_id
-        if member_id is None and event.source:
-            card.sources.append(event.source)
-            card.spec = event.spec or card.spec
         if not card.arrived:
             _wake(card, card.started_at + STARTED_QUIET_S)
 
@@ -190,7 +184,6 @@ async def _on_imported(event: Imported) -> None:
         audience = await _audience(session, members, event.item_id, "imported")
     for member_id in audience:
         _arrive((member_id, event.item_id), list(event.units), loud=True, sub=event.subscription_id)
-    _arrive((None, event.item_id), list(event.units), loud=True, sub=event.subscription_id)
 
 
 async def _on_downloaded(event: Downloaded) -> None:
@@ -272,10 +265,7 @@ def _remember(member_id: int, item_id: int, units: list[Unit]) -> None:
 
 def _arrive(key: Key, units: list[Unit], *, loud: bool, sub: int | None = None) -> None:
     member_id, item_id = key
-    if member_id is not None:
-        units = _fresh(member_id, item_id, units)
-    else:
-        units = list(dict.fromkeys(units or [(0, 0)]))
+    units = _fresh(member_id, item_id, units)
     card = _cards.get(key)
     new = [u for u in units if card is None or u not in card.arrived]
     if not new:
@@ -400,17 +390,11 @@ def _snapshot(
 def _close(card: Card) -> None:
     _cancel(card)
     _cards.pop(card.key, None)
-    if card.member_id is not None and card.arrived:
+    if card.arrived:
         _remember(card.member_id, card.item_id, card.arrived)
 
 
 def _send(card: Card, snap: Snapshot) -> None:
-    if card.member_id is None:
-        if snap.phase != "progress":
-            from movieclaw_api.services.push.dispatcher import spawn
-
-            spawn(_send_im(snap, list(card.sources), card.spec))
-        return
     from movieclaw_api.services.push.notify import notify
 
     member_id = card.member_id
@@ -422,76 +406,13 @@ def _send(card: Card, snap: Snapshot) -> None:
     async def build(session: AsyncSession, recipient: int):  # type: ignore[no-untyped-def]
         return await card_content.build(session, recipient, snap)
 
-    notify(event, {member_id}, build, collapse=("card", f"{member_id}:{card.item_id}"))
-
-
-# ----------------------------------------------------------------------
-# IM 通道
-# ----------------------------------------------------------------------
-
-
-async def _send_im(snap: Snapshot, sources: list[str], spec: str) -> None:
-    from movieclaw_api.services.channel_push import notify_channels, tmdb_push_image_url
-    from movieclaw_db.models import MediaItem
-
-    try:
-        async with get_database().session() as session:
-            item = await session.get(MediaItem, snap.item_id)
-            if item is None:
-                return
-            text = await _im_text(session, item, snap, sources, spec)
-        if text:
-            notify_channels(
-                text,
-                event="dispatch" if snap.phase == "started" else "imported",
-                image_url=tmdb_push_image_url(item.backdrop_path, item.poster_path),
-            )
-    except Exception:  # noqa: BLE001 -- 推送绝不能影响业务
-        logger.exception("IM 通道推送失败（已忽略）")
-
-
-async def _im_text(
-    session: AsyncSession, item, snap: Snapshot, sources: list[str], spec: str
-) -> str:  # type: ignore[no-untyped-def]
-    name = f"《{item.title}》" + (f"({item.year}) " if item.year else "")
-    arrived = sorted(set(snap.arrived))
-    if snap.phase == "started":
-        verb = "开始洗版下载" if snap.upgrade else "开始下载"
-        label = units_text(sorted(set(snap.started)))
-        lines = [f"📥 {verb}:{name}{label}".rstrip()]
-        if len(sources) == 1:
-            lines.append(sources[0])
-        elif sources:
-            lines.append(f"来自 {len(sources)} 个资源")
-        if spec:
-            lines.append(spec)
-        return "\n".join(lines)
-    if item.kind != "tv" or not arrived or arrived == [(0, 0)]:
-        return f"🎬 已入库:{name}".rstrip()
-    totals = await card_content.season_totals(session, snap.item_id)
-    label = units_text(arrived, totals=totals)
-    if snap.phase == "partial":
-        return f"🎬 可以先看了:{name}{label}已入库，其余 {len(snap.inflight)} 集还在下载"
-    if snap.phase == "stuck":
-        return f"🎬 已入库:{name}{label}\n{units_text(snap.inflight)}还没下好"
-    seasons = {s for s, _ in arrived}
-    if len(seasons) == 1:
-        season = next(iter(seasons))
-        total = totals.get(season, 0)
-        available = await card_content.in_place_units(session, 0, snap.item_id)
-        if (
-            total
-            and len(arrived) > 1
-            and all((season, e) in available for e in range(1, total + 1))
-        ):
-            from movieclaw_api.services.push.labels import season_name
-
-            return f"🎬 已入库:{name}{season_name(season)}已全部入库（{total} 集）"
-    text = f"🎬 已入库:{name}{label}"
-    missing = sorted(u for u in snap.missing if u[0] in seasons)
-    if missing:
-        text += f"\n{units_text(missing)}还没找到资源"
-    return text
+    notify(
+        event,
+        {member_id},
+        build,
+        collapse=("card", f"{member_id}:{card.item_id}"),
+        to_im=snap.phase != "progress",
+    )
 
 
 # ----------------------------------------------------------------------
@@ -527,7 +448,7 @@ def _on_upgraded(event: Upgraded) -> None:
 
 
 async def _flush_upgrade(subscription_id: int) -> None:
-    from movieclaw_api.services.channel_push import notify_channels, tmdb_push_image_url
+    from movieclaw_api.services.channel_push import tmdb_push_image_url
     from movieclaw_api.services.push.events import (
         _display_title,
         _lazy_image,
@@ -551,13 +472,7 @@ async def _flush_upgrade(subscription_id: int) -> None:
     pairs = set(merging.changes.values())
     # 每集都是同样的升级就写出来；各不相同只说换成了更好的版本
     change = " → ".join(next(iter(pairs))) if len(pairs) == 1 else ""
-    image_url = tmdb_push_image_url(item.backdrop_path, item.poster_path)
-    notify_channels(
-        f"✨ 已洗版:《{item.title}》{label}" + (f"\n{change}" if change else ""),
-        event="upgraded",
-        image_url=image_url,
-    )
-    image = _lazy_image(image_url)
+    image = _lazy_image(tmdb_push_image_url(item.backdrop_path, item.poster_path))
     name = _display_title(item.title, item.year)
 
     async def build(_session: AsyncSession, _member_id: int) -> AlertContent:

@@ -399,9 +399,13 @@ export function attentionLine(item: Pick<MyPushAttention, "device_name" | "statu
 }
 
 /** 测试按钮旁的说明：发给几台；一台都没有时告诉人设备从哪来。 */
-export function testTargetHint(readyDevices: number): string {
-  return readyDevices > 0
-    ? `发给你的 ${readyDevices} 台设备`
+export function testTargetHint(readyDevices: number, imAccounts = 0): string {
+  const targets = [
+    readyDevices > 0 ? `${readyDevices} 台设备` : "",
+    imAccounts > 0 ? `${imAccounts} 个 IM 账号` : "",
+  ].filter(Boolean);
+  return targets.length > 0
+    ? `发给你的 ${targets.join("和 ")}`
     : "还没有能收到通知的设备：用 MovieClaw App 登录后会出现";
 }
 
@@ -419,11 +423,17 @@ export function summarizePushTest(result: PushTestResult): {
     .map((r) => `${r.device_name}：${r.message?.trim() || "没有发出去"}`)
     .join("；");
   if (result.sent > 0) {
+    // IM 也是通知渠道，回执里单说（device_id 为 im），不算进「台设备」
+    const im = result.results.some((r) => r.device_id === "im" && r.result === "ok");
+    const devices = result.sent - (im ? 1 : 0);
+    const target = [devices > 0 ? `${devices} 台设备` : "", im ? "IM" : ""]
+      .filter(Boolean)
+      .join("和 ");
     return {
       tone: "success",
       message: notes
-        ? `测试通知已发给 ${result.sent} 台设备。${notes}`
-        : `测试通知已发给 ${result.sent} 台设备，看看手机吧`,
+        ? `测试通知已发给 ${target}。${notes}`
+        : `测试通知已发给 ${target}，${devices > 0 ? "看看手机吧" : "去 IM 看看吧"}`,
     };
   }
   return {

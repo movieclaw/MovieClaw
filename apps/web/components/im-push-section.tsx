@@ -3,11 +3,11 @@
 /**
  * 「IM 推送」设置分区（原名「消息推送」，与「App 推送」并列后改名以示区分）。
  *
- * 两类设定按胶囊标签分开（与「更新与维护」「外观」分区同一交互语言），因为它们
- * 回答的是两个完全不同的问题，动线不该缠在一起：
- *   - 接入通道：我接了哪些账号？——一张跨平台的统一列表 +「新增通道」菜单，
- *     绑定流程收进弹窗（见 channel-bind-dialog）；通道来自通道插件，按接口渲染；
- *   - 推送内容：什么事件会推给我？——事件开关 + 一键测试推送。
+ * 这里只回答「我接了哪些账号」：一张跨平台的统一列表 +「新增通道」菜单，绑定流程收进
+ * 弹窗（见 channel-bind-dialog）；通道来自通道插件，按接口渲染。另有一键测试推送。
+ *
+ * 「推什么」不在这里：IM 只是通知的一个渠道，和手机 App 一样按「账号 → 通知」的开关推
+ * （docs/design/cloud-push.md §5）。原先的「推送内容」标签已并入那里。
  *
  * 旧版把微信 / Telegram / Discord 三块绑定表单和推送开关平铺在一页里：
  * 只接了一个通道也要滚过另外两块空态与说明，推送开关被夹在中间；进页面
@@ -23,7 +23,7 @@ import type { Route } from "next";
 import Link from "next/link";
 
 import { ChannelBindDialog } from "@/components/channel-bind-dialog";
-import { ErrorBanner, LINK_CLASS, StatusPill, Toggle } from "@/components/cloud-push-ui";
+import { ErrorBanner, LINK_CLASS, StatusPill } from "@/components/cloud-push-ui";
 import { useConfirm, useToast } from "@/components/feedback";
 import { ChatIcon, PlusIcon } from "@/components/icons";
 import { LlmSetupNotice, useLlmConfigured } from "@/components/llm-gate";
@@ -34,45 +34,22 @@ import {
   SettingsList,
   SettingsRow,
   SettingsSection,
-  SettingsTabs,
 } from "@/components/settings-ui";
 import {
   type ChannelAccount,
   type ChannelInfo,
-  type ChannelPushConfig,
-  getChannelPushConfig,
   listChannels,
   sendChannelPushTest,
   unbindChannelAccount,
-  updateChannelPushConfig,
 } from "@/lib/api/channels";
 import { formatRelativeTime } from "@/lib/time";
-import { useTabParam } from "@/lib/use-tab-param";
-
-export function ImPushSection() {
-  // ?tab=content 深链直达推送内容，切换写回地址栏（useTabParam，全设置页同一套）
-  const [tab, setTab] = useTabParam(["channels", "content"] as const, "channels");
-  const tabs = [
-    { id: "channels" as const, label: "接入通道" },
-    { id: "content" as const, label: "推送内容" },
-  ];
-
-  return (
-    <div className="space-y-6">
-      <SettingsTabs tabs={tabs} value={tab} onChange={setTab} />
-      {tab === "channels" ? <ChannelsTab /> : <PushContentTab />}
-    </div>
-  );
-}
-
-/* —— 接入通道：跨平台统一列表 + 新增菜单 —— */
 
 /**
  * 通道来自通道插件（docs/design/plugin-channels.md）：列表与「新增通道」菜单都按接口返回的
  * 通道渲染，不认识具体平台。提供某个通道的插件关掉 / 卸载了，它的账号照常列出、标「未启用」，
  * 重新启用后自动恢复。
  */
-function ChannelsTab() {
+export function ImPushSection() {
   const llmConfigured = useLlmConfigured();
   const confirm = useConfirm();
   const toast = useToast();
@@ -80,6 +57,7 @@ function ChannelsTab() {
   const [rows, setRows] = useState<ChannelAccount[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [pushBusy, setPushBusy] = useState(false);
   // 正在绑定的通道（null = 没开弹窗）
   const [binding, setBinding] = useState<ChannelInfo | null>(null);
 
@@ -126,6 +104,18 @@ function ChannelsTab() {
     }
   }
 
+  async function handleTestPush() {
+    setPushBusy(true);
+    try {
+      const { sent } = await sendChannelPushTest();
+      toast.success(`已推送到 ${sent} 个账号，去客户端看看吧`);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setPushBusy(false);
+    }
+  }
+
   const loading = rows == null;
   const titles = channels.map((c) => c.title).join("、");
 
@@ -133,7 +123,11 @@ function ChannelsTab() {
     <div className="space-y-10">
       <div className="space-y-4">
         <p className="text-sub leading-6 text-[var(--text-muted)]">
-          接入的通道都是推送目标；能对话的通道里还能直接和 AI 助手聊：发消息即可搜片、订阅、查进度。
+          接入的通道是你的通知渠道，收哪些通知和手机 App 一样，在
+          <Link href={"/settings/notifications" as Route} className={`mx-1 ${LINK_CLASS}`}>
+            账号 → 通知
+          </Link>
+          里设置。能对话的通道里还能直接和 AI 助手聊：发消息即可搜片、订阅、查进度。
           发送
           <span className="mx-1 rounded bg-white/[0.08] px-1.5 py-0.5 text-caption">/reset</span>
           重置会话，
@@ -191,6 +185,24 @@ function ChannelsTab() {
           </SettingsList>
         )}
       </SettingsSection>
+
+      {/* 测试推送：验证已接入通道确实能收到消息 */}
+      {rows != null && rows.length > 0 && (
+        <SettingsSection title="测试">
+          <SettingsList>
+            <SettingsRow label="测试推送" description="向所有已接入通道发送一条测试消息">
+              <button
+                type="button"
+                disabled={pushBusy}
+                onClick={() => void handleTestPush()}
+                className={SETTINGS_BUTTON_CLASS}
+              >
+                {pushBusy ? "发送中…" : "发送"}
+              </button>
+            </SettingsRow>
+          </SettingsList>
+        </SettingsSection>
+      )}
 
       {binding && (
         <ChannelBindDialog
@@ -307,93 +319,5 @@ function ChannelAccountRowView({
         解绑
       </button>
     </SettingsRow>
-  );
-}
-
-/* —— 推送内容：事件开关 + 测试推送 —— */
-
-function PushContentTab() {
-  const toast = useToast();
-  const [config, setConfig] = useState<ChannelPushConfig | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [pushBusy, setPushBusy] = useState(false);
-
-  useEffect(() => {
-    getChannelPushConfig()
-      .then(setConfig)
-      .catch((e) => setError((e as Error).message));
-  }, []);
-
-  async function handleToggle(key: keyof ChannelPushConfig, value: boolean) {
-    if (config == null) return;
-    const next = { ...config, [key]: value };
-    setConfig(next); // 乐观更新，失败回滚
-    setError(null);
-    try {
-      await updateChannelPushConfig(next);
-    } catch (e) {
-      setConfig(config);
-      setError((e as Error).message);
-    }
-  }
-
-  async function handleTestPush() {
-    setPushBusy(true);
-    try {
-      const { sent } = await sendChannelPushTest();
-      toast.success(`已推送到 ${sent} 个账号，去客户端看看吧`);
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setPushBusy(false);
-    }
-  }
-
-  const rows: { key: keyof ChannelPushConfig; label: string; desc: string }[] = [
-    { key: "push_dispatch", label: "开始下载", desc: "订阅命中资源并提交下载器时" },
-    { key: "push_imported", label: "入库完成", desc: "下载完成整理进媒体库时" },
-  ];
-
-  return (
-    <div className="space-y-10">
-      {error && <ErrorBanner>{error}</ErrorBanner>}
-
-      <SettingsSection
-        title="推送事件"
-        description="对所有已接入通道统一生效——关掉某个事件，任何通道都不会再收到它。"
-      >
-        {config == null ? (
-          <div className="h-[112px] animate-pulse rounded-xl bg-white/[0.04]" />
-        ) : (
-          <SettingsList>
-            {rows.map((row) => (
-              <SettingsRow key={row.key} label={row.label} description={row.desc}>
-                <Toggle
-                  checked={config[row.key]}
-                  label={`${row.label}推送`}
-                  onChange={(v) => void handleToggle(row.key, v)}
-                />
-              </SettingsRow>
-            ))}
-          </SettingsList>
-        )}
-      </SettingsSection>
-
-      {/* 测试推送：验证已接入通道确实能收到系统事件 */}
-      <SettingsSection title="测试">
-        <SettingsList>
-          <SettingsRow label="测试推送" description="向所有已接入通道发送一条测试消息">
-            <button
-              type="button"
-              disabled={pushBusy}
-              onClick={() => void handleTestPush()}
-              className={SETTINGS_BUTTON_CLASS}
-            >
-              {pushBusy ? "发送中…" : "发送"}
-            </button>
-          </SettingsRow>
-        </SettingsList>
-      </SettingsSection>
-    </div>
   );
 }

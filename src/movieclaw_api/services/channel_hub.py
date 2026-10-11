@@ -7,7 +7,7 @@
 - 绑定：表单（可带配对码）与插件驱动的交互式流程两种；
 - 收发：复用 ``movieclaw_channel`` 的 manager / dispatcher（白名单、去重、会话串行、拆分、重试），
   驱动经 ``_DriverAdapter`` 接进去；入站消息交给 AI 助手（``channel_agent``）；
-- 主动推送：扇出到所有在运行、有推送目标的账号。
+- 主动推送：发到某个成员的账号（推什么由通知决定，services/push/im.py）；测试推送发给所有账号。
 
 通道插件不在了（关闭 / 卸载），它的账号仍在库里，设置页显示「通道插件未启用」，接口不报错。
 """
@@ -70,8 +70,11 @@ class HostAccount(Account):
         credentials: dict[str, str],
         state: dict[str, Any],
         persist: bool = True,
+        member_id: int = 0,
     ) -> None:
         self.channel_id = channel_id
+        #: 归属成员（0=超管）：主动推送按这个人的通知偏好发
+        self.member_id = member_id
         self.id = account_id
         self.display_name = display_name
         self.bound_user = bound_user
@@ -344,6 +347,7 @@ class ChannelHub:
             bound_user=(row.bound_user_id or "").strip() or None,
             credentials=ChannelAccountRepository.credentials(row),
             state=ChannelAccountRepository.state(row),
+            member_id=row.member_id,
         )
         await self._run_account(account)
 
@@ -417,16 +421,31 @@ class ChannelHub:
             async with get_database().session() as session:
                 return await ChannelAccountRepository(session).delete(channel_id, account_id)
 
+    def account_owners(self) -> set[int]:
+        """在运行的账号归属于哪些成员（通知的 IM 渠道据此判断谁有 IM 可收）。"""
+        return {account.member_id for account in self._accounts.values()}
+
+    def account_count(self, member_id: int) -> int:
+        """这个人在运行的账号数（「账号 → 通知」的测试按钮与实际发送同一口径）。"""
+        return sum(1 for account in self._accounts.values() if account.member_id == member_id)
+
     async def accounts(self) -> list[ChannelAccount]:
         async with get_database().session() as session:
             return await ChannelAccountRepository(session).list_all()
 
     # ------------------------------------------------------------------ 推送
-    async def push(self, text: str, photo: bytes | None = None) -> int:
-        """把一条文本（可附图）推给所有在运行、有推送目标的账号；返回送达队列的账号数。"""
+    async def push(
+        self, text: str, photo: bytes | None = None, *, member_id: int | None = None
+    ) -> int:
+        """把一条文本（可附图）推给在运行、有推送目标的账号；返回送达队列的账号数。
+
+        ``member_id``：只推这个人的账号；None = 所有账号（IM 推送页的测试推送）。
+        """
         count = 0
         drivers = self._drivers()
         for (channel_id, account_id), account in list(self._accounts.items()):
+            if member_id is not None and account.member_id != member_id:
+                continue
             driver = drivers.get(channel_id)
             dispatcher = self.manager.get_dispatcher(channel_id, account_id)
             if driver is None or dispatcher is None:

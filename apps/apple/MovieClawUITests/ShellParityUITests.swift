@@ -197,11 +197,5 @@ final class ShellParityUITests: XCTestCase {
         XCTAssertTrue(app5.navigationBars["缓存管理"].waitForExistence(timeout: 20), "?tab=storage 应直达缓存管理")
         snapshot("深链-缓存管理")
         app5.terminate()
-
-        let app6 = try launch(route: "/settings/im-push?tab=content")
-        let push = app6.segmentedControls["push-tab"]
-        XCTAssertTrue(push.waitForExistence(timeout: 20))
-        XCTAssertTrue(push.buttons["推送内容"].isSelected, "?tab=content 应直达推送内容")
-        snapshot("深链-推送内容")
     }
 }

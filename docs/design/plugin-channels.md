@@ -49,9 +49,9 @@
 | 收消息后的处理：去重、白名单、`/stop` `/reset`、同会话串行、跨会话限流、图片聚合 | 中枢 | 现 `ChannelDispatcher`，原样复用 |
 | AI 助手对接：受限工具集、会话持久化、分步回复、「思考中💭」回执、图片附件 | 中枢 | 现在微信和 IM 各写一份，合成一份 |
 | 发送：出站队列、长消息拆分、失败重试、图文退纯文本 | 中枢 | 现发送泵，原样复用；调用插件的 `send` / `send_photo` |
-| 主动推送：按事件开关、配图、扇出到所有账号 | 中枢 | 遍历注册表里的通道，不再写死平台 |
+| 主动推送：配图、按归属成员发到他的账号 | 中枢 | 推什么由通知决定（cloud-push.md §5.2），中枢只管送 |
 | 配对码绑定（Telegram / Discord 这类「填 token，私聊 bot 发 6 位码」） | 中枢 | 通用流程，插件只需提供 `validate` |
-| 设置页：通道列表、账号、绑定对话框、推送开关、测试推送 | 中枢 | 按插件声明的绑定方式通用渲染，插件不带界面 |
+| 设置页：通道列表、账号、绑定对话框、测试推送 | 中枢 | 按插件声明的绑定方式通用渲染，插件不带界面 |
 | 平台协议：收消息循环、发文字 / 图片、「正在输入」 | 插件 | |
 | 绑定步骤：校验 token、扫码状态机（微信） | 插件 | |
 | 平台私有状态：游标、微信 context_token、typing 票据 | 插件 | 经账号句柄的 `state` 存取，中枢只负责持久化、不解读 |
@@ -139,7 +139,8 @@ class ChannelDriver:
 | `POST /channels/bindings/{id}/input` | 交互式绑定里提交输入（微信配对数字） |
 | `DELETE /channels/{channel}/accounts/{account_id}` | 解绑（`x-cli-dangerous`） |
 
-旧接口：`/channels/im/push-config`、`/channels/im/push-test` 保留（已发布的 iOS 在用）。
+旧接口：`/channels/im/push-config`、`/channels/im/push-test` 保留（已发布的 iOS 在用）；push-config 现在读写
+管理员的通知偏好（cloud-push.md §5.2）。
 `/channels/weixin/*`、`/channels/im/{channel}/{accounts,bindings}`、`/channels/im/feishu/bindings`
 是已发布的 iPhone / Mac App「IM 推送」页在用的绑定接口：保留原路径与原形状、内部转给中枢、不进命令行
 （`api/routes/channels_legacy.py`）；App 改用通用接口（同时能显示第三方通道）并发版后删除。

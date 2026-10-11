@@ -128,8 +128,11 @@ async def build_view(session: AsyncSession, principal: Principal) -> MyPushView:
             muted.append(
                 PushMutedItemView(id=item_id, title=item.title, year=item.year, kind=item.kind)
             )
+    from movieclaw_api.services.push import im
+
     return MyPushView(
         muted_items=muted,
+        im_accounts=im.count(principal.owner_id),
         instance_ready=any(c.usable for c in channels) or bool(streams),
         is_admin=principal.is_admin,
         events=events,
@@ -229,7 +232,7 @@ async def test(principal: Principal) -> PushTestView:
         sent=sum(1 for o in outcomes if o.result in ("ok", "queued")),
         results=[
             PushTestResultView(
-                device_id=f"ld-{o.device_id}",
+                device_id="im" if o.channel_id == "im" else f"ld-{o.device_id}",
                 device_name=o.device_name,
                 result=o.result,
                 message=o.message or ("已送达苹果推送服务" if o.result == "ok" else ""),

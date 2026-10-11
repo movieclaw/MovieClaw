@@ -197,7 +197,28 @@ def test_weixin_scan_binding_chat_and_push(app_env) -> None:
         pushed = client.post("/api/v1/channels/im/push-test", json={"text": "新片入库"})
         assert pushed.status_code == 200 and pushed.json()["data"]["sent"] == 1
         wait(lambda: ("me@im.wechat", "新片入库", "ctx-1") in GATEWAY.sent)
-        assert client.get("/api/v1/channels/im/push-config").status_code == 200
+
+        # IM 是通知的一个渠道：账号归管理员，「账号 → 通知」看得到它，测试通知也发到这里
+        assert client.get("/api/v1/push/me").json()["data"]["im_accounts"] == 1
+        tested = client.post("/api/v1/push/me/test")
+        assert tested.status_code == 200, tested.text
+        assert {"device_id": "im", "result": "ok"}.items() <= tested.json()["data"]["results"][
+            -1
+        ].items()
+        test_text = "测试通知\n能看到这条，说明这台设备能收到这台服务器的通知。"
+        wait(lambda: ("me@im.wechat", test_text, "ctx-1") in GATEWAY.sent)
+
+        # 旧的「推送内容」开关（已发布的 App 在用）就是管理员的通知偏好
+        legacy = client.get("/api/v1/channels/im/push-config").json()["data"]
+        assert legacy == {"push_dispatch": False, "push_imported": True}
+        saved = client.put(
+            "/api/v1/channels/im/push-config",
+            json={"push_dispatch": True, "push_imported": False},
+        )
+        assert saved.json()["data"] == {"push_dispatch": True, "push_imported": False}
+        mine = client.get("/api/v1/push/me").json()["data"]
+        events = {e["key"]: e["enabled"] for e in mine["events"]}
+        assert events["download_started"] is True and events["imported"] is False
 
     # 重启后照常：凭据、会话令牌从库里读回，账号自动拉起
     GATEWAY.sent.clear()

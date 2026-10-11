@@ -40,9 +40,6 @@ class Started:
     detail: str
     upgrade: bool
     skip_member_id: int | None = None
-    #: IM 消息里的来源（「来自 hdsky 的『…』」）与规格
-    source: str = ""
-    spec: str = ""
 
 
 @dataclass(frozen=True)

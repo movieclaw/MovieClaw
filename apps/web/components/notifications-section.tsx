@@ -3,7 +3,8 @@
 /**
  * 「账号 → 通知」分区（docs/design/cloud-push.md §1、§5、§7.3、§8；交互稿 4.2）。
  *
- * 每个人只管自己收哪些手机通知，以及给自己发一条测试通知。设备只在「账号 → 设备」
+ * 每个人只管自己收哪些通知，以及给自己发一条测试通知。手机 App 和绑定的 IM 都按这里的开关推
+ * （IM 只是一个渠道，docs/design/cloud-push.md §5）。设备只在「账号 → 设备」
  * 一个地方管：这里不列设备，只有自己有设备收不到时顶部出一条提示，点进设备页。
  * 成员只有这一个入口，不需要知道云、中继这些概念。
  *
@@ -244,10 +245,13 @@ export function NotificationsSection() {
 
       <SettingsSection title="测试">
         <SettingsList>
-          <SettingsRow label="发送测试通知" description={testTargetHint(view.ready_devices)}>
+          <SettingsRow
+            label="发送测试通知"
+            description={testTargetHint(view.ready_devices, view.im_accounts ?? 0)}
+          >
             <button
               type="button"
-              disabled={testing || view.ready_devices === 0}
+              disabled={testing || (view.ready_devices === 0 && !view.im_accounts)}
               onClick={() => void sendTest()}
               className={SETTINGS_BUTTON_CLASS}
             >
