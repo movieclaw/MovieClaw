@@ -111,6 +111,41 @@ def _child_env() -> dict[str, str]:
     return env
 
 
+_socket_root: Path | None = None
+
+
+def _socket_dir() -> Path:
+    """路由套接字所在目录：``mkdtemp`` 原子创建、只有宿主用户能进（0700）。
+
+    插件进程不需要知道路径（监听描述符由宿主递过去），所以目录可以对它们完全关闭；
+    公共临时目录里的固定文件名则可能被别的插件抢先占住或删掉换成自己的。
+    """
+    global _socket_root
+    if _socket_root is None or not _socket_root.is_dir():
+        _socket_root = Path(tempfile.mkdtemp(prefix="mcp-"))
+    return _socket_root
+
+
+def _listen(path: str) -> socket.socket:
+    """宿主替插件绑定路由套接字，监听描述符交给插件进程（运行器的 ``--listen-fd``）。
+
+    所有插件进程是同一个非特权用户：若由插件自己绑定（uvicorn 会把权限改成 0666），任何插件
+    都能直连别的插件的套接字，绕过宿主在代理路由上注入的鉴权与验签。宿主绑定后文件归宿主、
+    权限 0600，目录也只有宿主进得去，只有宿主的反向代理连得上。
+    """
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(path)
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        sock.bind(path)
+        os.chmod(path, 0o600)
+        sock.listen(128)
+    except BaseException:
+        sock.close()
+        raise
+    return sock
+
+
 @dataclass
 class Launch:
     """拉起插件进程的现场：工作目录、环境变量、要切换到的用户（隔离时）。"""
@@ -170,7 +205,7 @@ class Session:
         """宿主侧这个条目的 ``PluginFiles``（插件注入了 PLUGIN_FILES 时才有）。"""
         # Unix 套接字路径有长度上限（macOS 104 字节）：放在临时目录、用短哈希命名
         digest = hashlib.sha1(f"{entry_id}:{os.getpid()}".encode()).hexdigest()[:12]
-        self.socket = str(Path(tempfile.gettempdir()) / f"mcp-{digest}.sock")
+        self.socket = str(_socket_dir() / f"{digest}.sock")
         self._ids = itertools.count(1)
         self._readers: list[asyncio.Task[Any]] = []
         self._stopping = False
@@ -198,9 +233,7 @@ class Session:
         """拉起进程并握手，返回插件声明的监听器；插件启动失败抛错（内核据此标 FAILED）。"""
         self._ready = False
         launch = await asyncio.to_thread(_launch, self.entry_id, self._path, self._module)
-        # 路由套接字：上一个进程（可能是别的用户）留下的文件先清掉，插件用户在 /tmp 里删不了它
-        with contextlib.suppress(FileNotFoundError):
-            os.unlink(self.socket)
+        listener = _listen(self.socket)
         # 文件通道：宿主检查授权后打开文件，把描述符经这对套接字递给插件（services/plugin_files.py）
         self._close_fd_channel()
         self._fd_host, child_end = socket.socketpair()
@@ -218,6 +251,8 @@ class Session:
                 self.entry_id,
                 "--fd-socket",
                 str(child_end.fileno()),
+                "--listen-fd",
+                str(listener.fileno()),
                 *launch.args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
@@ -225,10 +260,11 @@ class Session:
                 cwd=str(launch.cwd),
                 env=launch.env,
                 limit=MAX_LINE,
-                pass_fds=(child_end.fileno(),),
+                pass_fds=(child_end.fileno(), listener.fileno()),
             )
         finally:
             child_end.close()
+            listener.close()
         self._readers = [
             asyncio.get_running_loop().create_task(self._pump_stderr(self._proc)),
         ]
@@ -258,7 +294,6 @@ class Session:
                 "entry_id": self.entry_id,
                 "config": self._config,
                 "data_dir": self._data_dir,
-                "socket": self.socket,
             }
         )
         declarations: list[dict[str, Any]] = []
@@ -563,6 +598,9 @@ def _shape(session: Session, declarations: list[dict[str, Any]]) -> set[Any]:
 
 
 #: 不跨跳转发的头（逐跳头与由传输层重新生成的头）
+#: 不转给插件进程的请求头：用户的登录凭据。宿主已经验过身份，插件拿到原始凭据就能越过授权冒充用户
+_CREDENTIAL_HEADERS = frozenset({"authorization", "cookie"})
+
 _HOP_HEADERS = frozenset(
     {
         "connection",
@@ -609,7 +647,11 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
             base_url="http://plugin",
             timeout=httpx.Timeout(30.0, read=None),
         )
-        headers = [(k, v) for k, v in request.headers.items() if k.lower() not in _HOP_HEADERS]
+        headers = [
+            (k, v)
+            for k, v in request.headers.items()
+            if k.lower() not in _HOP_HEADERS and k.lower() not in _CREDENTIAL_HEADERS
+        ]
         upstream = client.build_request(
             request.method,
             request.url.path,

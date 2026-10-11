@@ -591,7 +591,8 @@ class Runner:
         #: (通道, 账号) → 正在运行的账号句柄
         self._accounts: dict[tuple[str, str], Any] = {}
         self.ctx: RemoteContext | None = None
-        self.socket: str | None = None
+        self.listen_fd: int | None = None
+        """宿主绑定好的路由监听套接字（``--listen-fd``）：插件不自己绑定，别的插件就连不上它。"""
         self.fd_socket: Any = None
         self._fds: dict[str, int] = {}
         self._fd_waiters: dict[str, asyncio.Future[int]] = {}
@@ -618,19 +619,17 @@ class Runner:
             return self._fds.pop(token)
 
     def serve_router(self, router: Any, prefix: str) -> None:
-        """第一次挂路由时在宿主指定的 Unix 套接字上起 ASGI 服务；之后的路由器挂到同一个应用上。"""
+        """第一次挂路由时在宿主绑定好的套接字上起 ASGI 服务；之后的路由器挂到同一个应用上。"""
         from fastapi import FastAPI
 
-        if self.socket is None:
+        if self.listen_fd is None:
             raise RuntimeError("宿主没有为这个插件分配路由套接字")
         if self._app is None:
             import uvicorn
 
             self._app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
-            with contextlib.suppress(FileNotFoundError):
-                os.unlink(self.socket)
             config = uvicorn.Config(
-                self._app, uds=self.socket, lifespan="off", log_level="warning", access_log=False
+                self._app, fd=self.listen_fd, lifespan="off", log_level="warning", access_log=False
             )
             self._server = uvicorn.Server(config)
             self._serving = asyncio.get_running_loop().create_task(self._server.serve())
@@ -1046,7 +1045,7 @@ async def run(args: argparse.Namespace) -> int:
     net._resolver = resolve_proxy
     runner.send({"type": "hello", "sdk": SDK_VERSION, "pid": os.getpid()})
     init = decode(await reader.readline())
-    runner.socket = init.get("socket")
+    runner.listen_fd = args.listen_fd
     # apply 里可能已经要调宿主服务（读插件数据、拿宿主操作凭证）：先开始收消息
     serving = loop.create_task(runner.serve(reader))
     try:
@@ -1180,6 +1179,7 @@ def main(argv: list[str] | None = None) -> int:
         "--validate", action="store_true", help="用插件的配置模型校验标准输入里的配置后退出"
     )
     parser.add_argument("--fd-socket", type=int, default=None, help="宿主递文件描述符用的套接字")
+    parser.add_argument("--listen-fd", type=int, default=None, help="宿主绑定好的路由监听套接字")
     parser.add_argument("--uid", type=int, default=None, help="降权到这个用户（宿主是 root 时）")
     parser.add_argument("--gid", type=int, default=None)
     args = parser.parse_args(argv)

@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import os
+import stat
+import subprocess
 import sys
 import textwrap
 import time
@@ -20,6 +22,7 @@ from movieclaw_api import hooks
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.plugins.local import PACKAGE
 from movieclaw_api.services import durable_events, plugin_runtime
+from movieclaw_api.services.plugin_isolation import isolation
 
 PLUGIN = """
 import os
@@ -400,7 +403,7 @@ ROUTES_PLUGIN = """
 import os
 from typing import Annotated
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel, Field
 
 from movieclaw_api.plugins.keys import PLUGIN_ROUTES
@@ -419,6 +422,10 @@ async def apply(ctx) -> None:
     @admin.post("/echo/{n}", operation_id="plugins.acme.web.echo")
     async def echo(n: int, body: dict) -> dict:
         return {"n": n, "body": body, "pid": os.getpid()}
+
+    @admin.get("/headers", operation_id="plugins.acme.web.headers")
+    async def headers(request: Request) -> list[str]:
+        return sorted(request.headers.keys())
 
     @admin.get("/weather", operation_id="plugins.acme.web.weather")
     async def weather(
@@ -473,6 +480,22 @@ def test_process_plugin_routes_are_proxied_with_host_auth(tmp_path, monkeypatch)
             reply = client.post("/api/v1/plugins/acme.web/echo/3", json={"a": 1})
             assert reply.status_code == 200, reply.text
             assert reply.json() == {"n": 3, "body": {"a": 1}, "pid": session.pid}
+            # 用户的登录凭据不转给插件进程（宿主已验过身份）；别的请求头照常
+            seen = client.get(
+                "/api/v1/plugins/acme.web/headers",
+                headers={
+                    "Authorization": "Bearer mcp_secret",
+                    "Cookie": "movieclaw_session=secret",
+                    "X-Trace": "1",
+                },
+            ).json()
+            assert "authorization" not in seen and "cookie" not in seen
+            assert "x-trace" in seen
+            # 路由套接字由宿主绑定：文件 0600、目录 0700，别的插件进程连不上也删不掉
+            assert stat.S_IMODE(os.stat(session.socket).st_mode) == 0o600
+            assert stat.S_IMODE(os.stat(os.path.dirname(session.socket)).st_mode) == 0o700
+            if isolation().enabled:
+                assert other_uid_cannot_connect(session.socket, isolation().uid)
             assert client.get(
                 "/api/v1/plugins/acme.web/weather", params={"place": "杭州", "days": 5}
             ).json() == {"place": "杭州", "days": 5}
@@ -503,6 +526,23 @@ def test_process_plugin_routes_are_proxied_with_host_auth(tmp_path, monkeypatch)
     finally:
         durable_events.reset_state()
         get_settings.cache_clear()
+
+
+def other_uid_cannot_connect(path: str, uid: int) -> bool:
+    """以插件进程的用户身份连路由套接字：应当被内核拒绝（宿主以 root 运行、开启隔离时）。"""
+    probe = textwrap.dedent(
+        f"""
+        import os, socket, sys
+        os.setgroups([]); os.setgid({uid}); os.setuid({uid})
+        s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        try:
+            s.connect({path!r})
+        except PermissionError:
+            sys.exit(0)
+        sys.exit(1)
+        """
+    )
+    return subprocess.run([sys.executable, "-c", probe], check=False).returncode == 0
 
 
 def test_diagnostics_tell_process_plugins_apart(app_client) -> None:
