@@ -255,6 +255,48 @@ final class TVFlowUITests: XCTestCase {
         snapshot("40-search-results")
     }
 
+    // MARK: 播放器的左右键：点按跳 10 秒，按住连续快进 / 快退
+
+    /// 要一部够长的片（≥ 10 分钟），按住几秒能走出一两分钟
+    @MainActor
+    func testPlayerArrowHoldScrub() throws {
+        let item = try XCTUnwrap(env["MC_TEST_LONG_ITEM"], "需提供 ≥ 10 分钟的片源（MC_TEST_LONG_ITEM）")
+        let app = launchSignedIn(["-mcRoute", "/play/\(item)"])
+        waitForPlayback(app)
+        TVRemote.press(.up)
+        let start = try position(app)
+
+        TVRemote.press(.right)
+        let afterTap = try position(app)
+        XCTAssertTrue((8 ... 15).contains(afterTap - start), "点按右键应前进约 10 秒：\(start) → \(afterTap)")
+
+        // 按住 3 秒：0.4 秒起步，20× 走 1.6 秒、40× 走 1 秒 ≈ 72 秒
+        TVRemote.remote.press(.right, forDuration: 3)
+        let afterHold = try position(app)
+        XCTAssertGreaterThan(afterHold - afterTap, 45, "按住右键 3 秒应连续快进一分钟上下：\(afterTap) → \(afterHold)")
+        XCTAssertLessThan(afterHold - afterTap, 110, "按住 3 秒快进得太多：\(afterTap) → \(afterHold)")
+        snapshot("55-after-hold-forward")
+
+        // 按住左 2 秒：20× 走 1.6 秒 ≈ 32 秒
+        TVRemote.remote.press(.left, forDuration: 2)
+        let afterRewind = try position(app)
+        XCTAssertGreaterThan(afterHold - afterRewind, 20, "按住左键 2 秒应连续快退：\(afterHold) → \(afterRewind)")
+        XCTAssertLessThan(afterHold - afterRewind, 50, "按住左键 2 秒快退得太多：\(afterHold) → \(afterRewind)")
+        XCTAssertTrue(app.element("tv-player").exists, "长按不该退出播放器")
+    }
+
+    /// 进度条上的当前时间（秒）：无障碍标签是「片名, 当前, -剩余」，取第一个时间
+    @MainActor
+    private func position(_ app: XCUIApplication, file: StaticString = #filePath, line: UInt = #line) throws -> Int {
+        let bar = app.element("tv-player-transport")
+        XCTAssertTrue(bar.waitForExistence(timeout: 5), "进度条没有出来", file: file, line: line)
+        // 跳转落地、时间刷新要一会儿
+        sleep(2)
+        let label = bar.label
+        let match = try XCTUnwrap(label.firstMatch(of: /(?:(\d+):)?(\d{1,2}):(\d{2})/), "进度条标签里没有时间：\(label)", file: file, line: line)
+        return (match.1.flatMap { Int($0) } ?? 0) * 3600 + Int(match.2)! * 60 + Int(match.3)!
+    }
+
     // MARK: 播放器的信息面板
 
     /// 多音轨、多字幕的 MKV：下滑出面板 → 有字幕与音轨两页 → 选一条字幕 → 返回键收起面板 → 再按返回退出

@@ -102,6 +102,10 @@ private struct TVPlayerContent: View {
     @State private var panel: TVPlayerPanelTab?
     @State private var scrubMs: Int?
     @State private var scrubBase = 0
+    /// 正按着的左右键：true = 右；nil = 没按
+    @State private var arrowHeld: Bool?
+    /// 按住左右键的连续快进 / 快退：当前速度（片内秒数 / 秒，带方向）；nil = 不在长按拖动
+    @State private var holdRate: Int?
     @State private var trickplay = TrickplayImages()
 
     var body: some View {
@@ -147,6 +151,8 @@ private struct TVPlayerContent: View {
         .background {
             TVSwipeScrubber(enabled: scrubEnabled, onHorizontal: handleScrub, onVertical: handleVerticalSwipe)
                 .frame(width: 0, height: 0)
+            TVArrowPresses(enabled: arrowsEnabled, onDown: arrowDown, onUp: arrowUp)
+                .frame(width: 0, height: 0)
         }
         .animation(.easeInOut(duration: 0.25), value: chromeVisible)
         .animation(.easeInOut(duration: 0.25), value: panel)
@@ -184,6 +190,12 @@ private struct TVPlayerContent: View {
             try? await Task.sleep(for: .milliseconds(120))
             guard !Task.isCancelled else { return }
             focus = isModal ? .dialog : (contextualFocusTarget ?? .surface)
+        }
+        .task(id: arrowHeld) {
+            guard let forward = arrowHeld else { return }
+            try? await Task.sleep(for: .seconds(TVHoldScrub.threshold))
+            guard !Task.isCancelled else { return }
+            await holdScrub(forward: forward)
         }
         .task(id: autoHideKey) {
             // 控制层 4 秒无操作自动收起；暂停、拖动、面板打开、出错时一直显示
@@ -246,7 +258,7 @@ private struct TVPlayerContent: View {
                     }
                 }
             Spacer(minLength: 0)
-            TVTransportBar(controller: controller, trickplay: trickplay, scrubMs: scrubMs)
+            TVTransportBar(controller: controller, trickplay: trickplay, scrubMs: scrubMs, scrubRate: holdRate)
                 .padding(.horizontal, 80)
                 .padding(.bottom, 60)
                 .background(alignment: .bottom) {
@@ -355,6 +367,11 @@ private struct TVPlayerContent: View {
         focus == .surface && panel == nil && !isModal && controller.session != nil
     }
 
+    /// 左右键在焦点落在画面上时归播放器（同 `onMoveCommand` 原来的范围）；长按途中不因焦点变化半路丢掉
+    private var arrowsEnabled: Bool {
+        arrowHeld != nil || (focus == .surface && panel == nil && !isModal)
+    }
+
     // MARK: 遥控器
 
     private func showChrome() {
@@ -372,18 +389,59 @@ private struct TVPlayerContent: View {
     private func handleMove(_ direction: MoveCommandDirection) {
         controller.noteUserActivity()
         switch direction {
-        case .left:
-            controller.seek(by: -10, source: .remote)
-            showChrome()
-        case .right:
-            controller.seek(by: 10, source: .remote)
-            showChrome()
+        case .left, .right:
+            // 点按 / 长按要看松开的时刻，由 TVArrowPresses 处理（arrowDown / arrowUp）
+            break
         case .down:
             openPanel()
         case .up:
             showChrome()
         @unknown default:
             break
+        }
+    }
+
+    private func arrowDown(_ forward: Bool) {
+        controller.noteUserActivity()
+        arrowHeld = forward
+    }
+
+    /// 松开左右键：没按到长按门槛 = 点按，跳 10 秒；长按拖动中 = 跳到落点
+    private func arrowUp() {
+        guard let forward = arrowHeld else { return }
+        arrowHeld = nil
+        controller.noteUserActivity()
+        if holdRate != nil {
+            holdRate = nil
+            if let scrubMs { controller.seek(toFileMs: scrubMs, source: .scrub) }
+            scrubMs = nil
+        } else {
+            controller.seek(by: forward ? 10 : -10, source: .remote)
+        }
+        showChrome()
+    }
+
+    /// 按住左右键过了门槛：播放头按时间加速走（预览缩略图跟着，画面能便宜跟就跟），松手才真正跳
+    private func holdScrub(forward: Bool) async {
+        // 触控板正在滑动拖进度时不抢
+        guard scrubMs == nil, let duration = controller.timelineDurationMs else { return }
+        let start = controller.timelineStartMs
+        scrubBase = controller.positionMs
+        var target = Double(scrubBase)
+        scrubMs = scrubBase
+        let began = ContinuousClock.now
+        var last = began
+        while !Task.isCancelled, arrowHeld == forward {
+            let now = ContinuousClock.now
+            let rate = TVHoldScrub.rate(heldFor: (now - began) / .seconds(1))
+            holdRate = forward ? rate : -rate
+            target += Double(holdRate ?? 0) * 1000 * ((now - last) / .seconds(1))
+            target = min(max(Double(start), target), Double(start + duration))
+            last = now
+            scrubMs = Int(target)
+            controller.scrubFollow(toFileMs: Int(target))
+            showChrome()
+            try? await Task.sleep(for: .milliseconds(100))
         }
     }
 
@@ -402,6 +460,8 @@ private struct TVPlayerContent: View {
         guard let duration = controller.timelineDurationMs else { return }
         let start = controller.timelineStartMs
         let sweepMs = min(15 * 60_000, max(60_000, duration / 5))
+        // 正在按住左右键快进：这次滑动多半是按边缘时手指带出来的，不算
+        guard holdRate == nil else { return }
         switch phase {
         case .began:
             controller.noteUserActivity()
@@ -425,6 +485,9 @@ private struct TVPlayerContent: View {
     private func back() {
         controller.noteUserActivity()
         if scrubMs != nil {
+            // 长按快进途中按返回：同样回到原处，之后松开左右键也不再跳
+            arrowHeld = nil
+            holdRate = nil
             scrubMs = nil
             controller.seek(toFileMs: scrubBase, source: .scrub)
             return
@@ -445,6 +508,22 @@ private struct TVPlayerContent: View {
             return
         }
         exit()
+    }
+}
+
+/// 按住左右键连续快进 / 快退的节奏：按住 0.4 秒起步（短于这个算点按，跳 10 秒），
+/// 速度每 2 秒翻一倍：20× → 40× → 80× → 160×（片内秒数 / 秒）。两小时的片子按住十来秒能走完大半，
+/// 起步又不至于快到对不准
+enum TVHoldScrub {
+    static let threshold = 0.4
+
+    static func rate(heldFor seconds: Double) -> Int {
+        switch seconds {
+        case ..<2: 20
+        case ..<4: 40
+        case ..<6: 80
+        default: 160
+        }
     }
 }
 
