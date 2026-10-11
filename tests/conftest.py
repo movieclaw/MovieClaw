@@ -427,6 +427,24 @@ def _offline_tmdb_singleton(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_strm_prefetch_by_default(request, monkeypatch):
+    """随带插件「网盘规格预探」在测试里默认停用（启动补丁层关掉它）。
+
+    它一启动就为没探过的 strm 排后台补探：读文件行、探测、写退避记录。夹具里的 strm（如
+    Jellyfin 的 pan.example.com）会让每个用例都多出这串后台查询与写入——统计 SQL 的用例被污染，
+    别的用例平白多了写锁竞争。专测它的用例标 ``@pytest.mark.strm_prefetch``。
+    """
+    if request.node.get_closest_marker("strm_prefetch"):
+        return
+    from movieclaw_api import lifespan
+    from movieclaw_kernel import Patch
+
+    original = lifespan.load_patches
+    off = Patch("strm-prefetch", disabled=True, source="test")
+    monkeypatch.setattr(lifespan, "load_patches", lambda settings: [*original(settings), off])
+
+
+@pytest.fixture(autouse=True)
 def _offline_strm_probe(request, monkeypatch):
     """网盘（strm）条目播放前的按需探测（strm_probe）在测试里一律当作探测失败。
 

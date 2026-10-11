@@ -15,6 +15,9 @@ from fastapi.testclient import TestClient
 from movieclaw_api.core.config import get_settings
 from movieclaw_kernel import State
 
+# 全部内置插件都要在跑（含随带的网盘规格预探，测试默认停用它，见 tests/conftest.py）
+pytestmark = pytest.mark.strm_prefetch
+
 
 @pytest.fixture
 def make_client(tmp_path, monkeypatch):

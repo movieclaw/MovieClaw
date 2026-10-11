@@ -21,6 +21,9 @@ from fastapi.testclient import TestClient
 from movieclaw_api.core.config import get_settings
 from movieclaw_kernel import State
 
+# 全部内置插件都要在跑（含随带的网盘规格预探，测试默认停用它，见 tests/conftest.py）
+pytestmark = pytest.mark.strm_prefetch
+
 #: 非关键但不能运行中重载的内置插件（条目 id → 原因）。目前没有。
 NOT_RELOADABLE: dict[str, str] = {}
 

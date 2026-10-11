@@ -19,6 +19,8 @@ from movieclaw_api.services import durable_events
 from movieclaw_api.services.media_probe import MediaSpec
 from movieclaw_api.services.playback import strm_probe
 
+pytestmark = pytest.mark.strm_prefetch
+
 ID = "strm-prefetch"
 SPEC = MediaSpec("1080p", "h264", None, 8, 30, 4_000_000)
 

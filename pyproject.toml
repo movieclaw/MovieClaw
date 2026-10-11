@@ -130,6 +130,7 @@ asyncio_mode = "auto"
 markers = [
   "integration: 依赖真实网络或 cookie 的集成测试，CI 中可用 -m 'not integration' 跳过",
   "real_password_hash: 使用生产 Argon2 参数的专项测试，不启用低成本测试 hasher",
+  "strm_prefetch: 需要随带插件「网盘规格预探」运行的测试（其余测试默认停用它）",
 ]
 
 [tool.ruff]
