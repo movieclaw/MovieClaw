@@ -64,6 +64,12 @@ def app_client(binary, tmp_path, monkeypatch, caplog):
     reset_agent_session_store()
     reset_agent_attachment_store()
     monkeypatch.setitem(PROTOCOLS, "openai_chat", _EchoProtocol)
+    # 大模型路由是进程级单例，配置指纹不变就复用已建好的客户端：换一个新的，
+    # 免得沿用同一进程里前面测试建的（另一个假协议）
+    from movieclaw_api.services import llm_config
+    from movieclaw_llm import LlmRouter
+
+    monkeypatch.setattr(llm_config, "_runtime_router", LlmRouter())
     gate.set()
     target = tmp_path / "plugins" / "go_a2a" / "bridge"
     target.parent.mkdir(parents=True)
