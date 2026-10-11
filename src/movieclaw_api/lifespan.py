@@ -29,7 +29,7 @@ def build_lifespan(settings: Settings):
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from movieclaw_api.plugins import settings_store
-        from movieclaw_api.services import host_ops, plugin_gateway
+        from movieclaw_api.services import host_ops, plugin_gateway, plugin_switches
 
         # 界面保存的插件设置叠在清单配置上（docs/design/plugin-phase4.md §3）
         kernel = Kernel(settings=settings, config_overlay=settings_store.overlay(settings))
@@ -51,9 +51,9 @@ def build_lifespan(settings: Settings):
             else [*load_local_entries(settings), *packages.load_package_entries(settings)]
         )
         # 随带的插件包（plugins/bundled.py）也是内置插件；被同 id 插件包替换的跳过（安全模式下插件包
-        # 不加载，随带版本照常）
+        # 不加载，随带版本照常），在插件页卸载了的跳过（services/plugin_switches.py）
         replaced = set() if safe.active else {canonical(i) for i in packages.package_ids(settings)}
-        bundled = load_bundled_entries(replaced)
+        bundled = load_bundled_entries(replaced, plugin_switches.removed_ids(settings))
         await kernel.start((*with_bundled(bundled), *local), patches=load_patches(settings))
         await legacy_ids.migrate_rows(settings)
         logger.info("应用启动完成，数据库就绪")

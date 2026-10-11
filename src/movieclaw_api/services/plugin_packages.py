@@ -36,14 +36,21 @@ def _reserved(kernel: Kernel, settings: object) -> set[str]:
     return {e.id for e in BUILTIN_MANIFEST} | {s.id for s in local_specs(settings)}
 
 
-async def _restore_bundled(kernel: Kernel, entry_id: str) -> None:
-    """插件包卸下后，同 id 的随带插件包回来（plugin-channels.md §7）。"""
+async def _restore_bundled(kernel: Kernel, settings: object, entry_id: str) -> None:
+    """插件包卸下后，同 id 的随带插件包回来（plugin-channels.md §7）；随带包已被卸载的不回来，
+    已被停用的回来后照旧停用（plugin-strm-prefetch.md §1）。"""
     from movieclaw_api.plugins.bundled import bundled, canonical, entry
+    from movieclaw_api.services import plugin_switches
 
     package = bundled().get(canonical(entry_id))
     if package is None or kernel.fiber(package.id) is not None:
         return
+    switches = plugin_switches.read_switches(settings)
+    if package.id in switches.removed:
+        return
     fiber = await kernel.mount(entry(package))
+    if package.id in switches.disabled:
+        await kernel.disable(package.id, source=plugin_switches.SOURCE)
     logger.info("随带插件包 %s 已恢复（%s）", package.id, fiber.state.value)
 
 
@@ -344,7 +351,7 @@ class PackageManager:
         else:
             packages.pop(entry_id)
             pkg.save(self._settings, packages)
-            await _restore_bundled(self._kernel, entry_id)
+            await _restore_bundled(self._kernel, self._settings, entry_id)
             message = f"v{failed} 没能正常运行（{reason}），已撤销安装"
         logger.error("插件包 %s：%s", entry_id, message)
         await _notice(entry_id, record.title, message)
@@ -384,8 +391,13 @@ class PackageManager:
             if entry_id not in packages:
                 raise LookupError(f"没有安装插件包 {entry_id}")
             self._cancel_watch(entry_id)
+            from movieclaw_api.services.plugin_switches import cancel_plugin_jobs, forget
+
+            await cancel_plugin_jobs(self._kernel, entry_id, reason="插件已卸载")
             if self._kernel.fiber(entry_id) is not None:
                 await self._kernel.unmount(entry_id)
+            if not _replaces_builtin(entry_id):
+                forget(self._settings, entry_id)
             packages.pop(entry_id)
             pkg.save(self._settings, packages)
             shutil.rmtree(pkg.root(self._settings) / entry_id, ignore_errors=True)
@@ -395,7 +407,7 @@ class PackageManager:
             if callbacks is not None:
                 # 回调地址随插件一起作废：卸载后外部平台再调进来一律 404
                 await callbacks.revoke_all(entry_id)
-            await _restore_bundled(self._kernel, entry_id)
+            await _restore_bundled(self._kernel, self._settings, entry_id)
             purged = 0
             if purge_data:
                 from movieclaw_api.plugins.keys import PLUGIN_DATA

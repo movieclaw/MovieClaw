@@ -273,6 +273,9 @@ struct LiveDecodeTests {
     @Test func noticesList() async throws {
         try await LiveServer.check { try await $0.noticesList() }
     }
+    @Test func tipsStateShow() async throws {
+        try await LiveServer.check { try await $0.tipsStateShow() }
+    }
     @Test func transcodeConfigShow() async throws {
         try await LiveServer.check { try await $0.transcodeConfigShow() }
     }

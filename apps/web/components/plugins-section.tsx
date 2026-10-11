@@ -6,12 +6,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Banner, ErrorBanner, LINK_CLASS, StatusPill } from "@/components/cloud-push-ui";
 import { ChevronRightIcon } from "@/components/icons";
 import { PluginPackagesSection } from "@/components/plugin-packages-section";
-import { SettingsList, SettingsRow, SettingsSection } from "@/components/settings-ui";
+import { SETTINGS_BUTTON_CLASS, SettingsList, SettingsRow, SettingsSection } from "@/components/settings-ui";
+import { useToast } from "@/components/feedback";
 import {
   exitSafeMode,
   listPlugins,
   type PluginInfo,
   type PluginsOverview,
+  type RemovedPlugin,
+  restoreBundled,
 } from "@/lib/api/plugins";
 import { TONE_COLOR } from "@/lib/cloud-push-display";
 import {
@@ -135,7 +138,11 @@ export function PluginsPage() {
         !error && <p className="px-1 text-sub text-[var(--text-muted)]">正在加载…</p>
       ) : (
         <>
-          <OfficialSection plugins={officialPlugins(plugins)} />
+          <OfficialSection
+            plugins={officialPlugins(plugins)}
+            removed={overview?.removed ?? []}
+            onChanged={reload}
+          />
         </>
       )}
       <PluginPackagesSection locals={plugins?.filter(isLocalPlugin) ?? []} onChanged={reload} />
@@ -179,12 +186,32 @@ function SystemProblems({ plugins }: { plugins: PluginInfo[] }) {
 const ROW_ANCHOR =
   "scroll-mt-24 transition-shadow duration-500 data-[highlight=true]:shadow-[inset_0_0_0_2px_var(--accent)]";
 
-function OfficialSection({ plugins }: { plugins: PluginInfo[] }) {
-  if (plugins.length === 0) return null;
+function OfficialSection({
+  plugins,
+  removed,
+  onChanged,
+}: {
+  plugins: PluginInfo[];
+  removed: RemovedPlugin[];
+  onChanged: () => void;
+}) {
+  const toast = useToast();
+  const [restoring, setRestoring] = useState<string | null>(null);
+  if (plugins.length === 0 && removed.length === 0) return null;
+  const restore = (item: RemovedPlugin) => {
+    setRestoring(item.id);
+    restoreBundled(item.id)
+      .then(() => {
+        toast.success(`「${item.title}」已恢复`);
+        onChanged();
+      })
+      .catch((err: unknown) => toast.error(err instanceof Error ? err.message : "恢复失败"))
+      .finally(() => setRestoring(null));
+  };
   return (
     <SettingsSection
       title="官方插件"
-      description="随 MovieClaw 提供的插件。装一个同名的插件包就能替换内置版本，卸载即恢复；也可以安装第三方插件接入更多平台。"
+      description="随 MovieClaw 提供的插件，可以停用或卸载，卸了随时能恢复。装一个同名的插件包就能替换内置版本；也可以安装第三方插件接入更多平台。"
     >
       <SettingsList>
         {plugins.map((p) => (
@@ -195,6 +222,21 @@ function OfficialSection({ plugins }: { plugins: PluginInfo[] }) {
               href={pluginHref(p.id)}
             >
               <StatusPill tone={pluginStateTone(displayState(p))} label={pluginStateLabel(displayState(p))} />
+            </SettingsRow>
+          </div>
+        ))}
+        {removed.map((item) => (
+          <div key={item.id} data-plugin-ids={item.id} className={ROW_ANCHOR}>
+            <SettingsRow label={item.title} description={item.description || "已卸载，随时可以恢复"}>
+              <StatusPill tone="neutral" label="已卸载" />
+              <button
+                type="button"
+                disabled={restoring !== null}
+                className={SETTINGS_BUTTON_CLASS}
+                onClick={() => restore(item)}
+              >
+                {restoring === item.id ? "正在恢复…" : "恢复"}
+              </button>
             </SettingsRow>
           </div>
         ))}

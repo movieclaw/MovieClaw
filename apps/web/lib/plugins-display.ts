@@ -80,6 +80,7 @@ export function needsAttention(plugin: PluginInfo): boolean {
 
 function disabledByText(source: string | null): string {
   if (!source) return "已关闭";
+  if (source === "switch") return "已停用";
   if (source.startsWith("feature:")) return "已经功能开关停用";
   if (source === "patch") return "已在插件补丁（data/plugins.yaml）中关闭";
   if (source.startsWith("env:")) return `已按环境变量 ${source.slice(4)} 关闭`;

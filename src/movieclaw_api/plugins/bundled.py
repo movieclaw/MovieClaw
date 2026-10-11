@@ -87,10 +87,14 @@ def entry(package: Bundled) -> Entry:
     raise LookupError(f"随带插件包 {package.id} 的入口 {package.module} 里没有这个插件")
 
 
-def load_bundled_entries(replaced: set[str]) -> list[Entry]:
-    """随带插件包的内置条目；``replaced`` 里的（已被同 id 插件包替换的）跳过。"""
-    entries = [entry(p) for p in bundled().values() if p.id not in replaced]
+def load_bundled_entries(replaced: set[str], removed: set[str] = frozenset()) -> list[Entry]:
+    """随带插件包的内置条目；``replaced`` 里的（已被同 id 插件包替换的）与 ``removed`` 里的
+    （在插件页卸载了的）跳过。"""
+    entries = [entry(p) for p in bundled().values() if p.id not in replaced | removed]
     skipped = sorted(bundled_ids() & replaced)
     if skipped:
         logger.info("随带插件包已被同 id 插件包替换：%s", "、".join(skipped))
+    gone = sorted((bundled_ids() & removed) - replaced)
+    if gone:
+        logger.info("随带插件包已卸载：%s", "、".join(gone))
     return entries

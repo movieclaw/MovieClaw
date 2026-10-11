@@ -44,6 +44,8 @@ import {
   rollbackPackage,
   rotateCallback,
   savePluginSettings,
+  setPluginEnabled,
+  uninstallBundled,
   uninstallPackage,
 } from "@/lib/api/plugins";
 import { formatBytes } from "@/lib/format";
@@ -153,21 +155,46 @@ export function PluginDetailView({ id }: { id: string }) {
     });
   };
 
+  const switchOff = async () => {
+    const ok = await confirm({
+      title: `停用「${p.title}」？`,
+      bullets: ["当场停止运行，重启后也不运行", "取消它排着的后台任务", "设置与数据保留，随时可以再启用"],
+      confirmLabel: "停用",
+    });
+    if (!ok) return;
+    await run(async () => {
+      await setPluginEnabled(p.id, false);
+      toast.success("已停用");
+    });
+  };
+
+  const switchOn = () =>
+    run(async () => {
+      await setPluginEnabled(p.id, true);
+      toast.success("已启用");
+    });
+
   const uninstall = async () => {
+    const official = pkg == null;
     const result = await confirm({
       title: `卸载「${p.title}」？`,
-      bullets: ["停止并移除插件", "撤销它的权限，回调地址一起作废", "删除已安装的版本文件"],
+      bullets: official
+        ? ["停止并移除插件，取消它排着的后台任务", "随应用提供，随时可以在插件页的官方插件里恢复"]
+        : ["停止并移除插件，取消它排着的后台任务", "撤销它的权限，回调地址一起作废", "删除已安装的版本文件"],
       confirmLabel: "卸载",
       tone: "danger",
       checkbox: {
         label: "连同插件数据一起删除",
-        description: "它保存的设置与状态；不勾则保留，重新安装后接着用。",
+        description: official
+          ? "它保存的设置与状态；不勾则保留，恢复后接着用。"
+          : "它保存的设置与状态；不勾则保留，重新安装后接着用。",
       },
     });
     if (!result.ok) return;
     setBusy(true);
     try {
-      await uninstallPackage(p.id, result.checked);
+      if (official) await uninstallBundled(p.id, result.checked);
+      else await uninstallPackage(p.id, result.checked);
       toast.success("已卸载");
       router.push("/settings/plugins" as Route);
     } catch (e) {
@@ -385,27 +412,59 @@ export function PluginDetailView({ id }: { id: string }) {
               <span className="min-w-0 break-all">{detail.data_path}</span>
             </p>
           )}
-          {detail.kind === "package" && (
+          {(detail.kind === "package" || p.removable) && (
             <p className="text-caption leading-5 text-[var(--text-faint)]">
-              卸载时默认保留，重新安装后接着用；它改过的系统数据（比如建过的订阅）不会被撤销
+              卸载时默认保留，{p.removable ? "恢复" : "重新安装"}后接着用；它改过的系统数据（比如建过的订阅）不会被撤销
             </p>
           )}
         </div>
       </SettingsSection>
 
-      {pkg && (
+      {(pkg || p.switchable) && (
         <SettingsSection title="操作">
           <div className="flex flex-wrap gap-3">
-            {pkg.previous_version && (
+            {p.switchable &&
+              (p.state === "disabled" ? (
+                <button
+                  type="button"
+                  disabled={busy || p.locked_by != null}
+                  className={SETTINGS_PRIMARY_BUTTON_CLASS}
+                  onClick={() => void switchOn()}
+                >
+                  启用
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy || p.locked_by != null}
+                  className={SETTINGS_BUTTON_CLASS}
+                  onClick={() => void switchOff()}
+                >
+                  停用
+                </button>
+              ))}
+            {pkg?.previous_version && (
               <button type="button" disabled={busy} className={SETTINGS_BUTTON_CLASS} onClick={() => void rollback()}>
                 回到上一版 v{pkg.previous_version}
               </button>
             )}
-            <button type="button" disabled={busy} className={SETTINGS_DANGER_BUTTON_CLASS} onClick={() => void uninstall()}>
-              卸载
-            </button>
+            {(pkg || p.removable) && (
+              <button
+                type="button"
+                disabled={busy || p.locked_by != null}
+                className={SETTINGS_DANGER_BUTTON_CLASS}
+                onClick={() => void uninstall()}
+              >
+                卸载
+              </button>
+            )}
           </div>
-          {pkg.bad_versions.length > 0 && (
+          {p.locked_by && (
+            <p className="mt-3 px-1 text-caption text-[var(--text-faint)]">
+              {p.locked_by}，要在那里改回来并重启应用
+            </p>
+          )}
+          {pkg && pkg.bad_versions.length > 0 && (
             <p className="mt-3 px-1 text-caption text-[var(--text-faint)]">
               起不来、已自动回退过的版本：{pkg.bad_versions.map((v) => `v${v}`).join("、")}
             </p>

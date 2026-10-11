@@ -114,6 +114,26 @@ nonisolated extension APIClient {
         return try await send("GET", "/app/plugins/\(entryId)")
     }
 
+    /// 卸载官方插件（随时能恢复）；默认保留插件数据，purge_data=true 连同数据删除
+    /// `DELETE /app/plugins/{entry_id}/bundled`
+    func appPluginsBundledUninstall(entryId: String, purgeData: Bool? = nil) async throws -> API.BundledUninstallView {
+        var query: [URLQueryItem] = []
+        if let purgeData { query.append(URLQueryItem(name: "purge_data", value: "\(purgeData)")) }
+        return try await send("DELETE", "/app/plugins/\(entryId)/bundled", query: query)
+    }
+
+    /// 恢复卸载了的官方插件：当场加载
+    /// `POST /app/plugins/{entry_id}/bundled/restore`
+    func appPluginsBundledRestore(entryId: String) async throws -> API.PluginSwitchView {
+        return try await send("POST", "/app/plugins/\(entryId)/bundled/restore")
+    }
+
+    /// 停用 / 启用插件（官方插件与插件包）：运行中生效，重启后保持；停用会取消它的后台任务
+    /// `PUT /app/plugins/{entry_id}/enabled`
+    func appPluginsSwitch(entryId: String, body: API.PluginSwitchPayload) async throws -> API.PluginSwitchView {
+        return try await send("PUT", "/app/plugins/\(entryId)/enabled", body: body)
+    }
+
     /// 插件通用设置：参数的界面描述与当前值（敏感字段只告诉是否已设置）
     /// `GET /app/plugins/{entry_id}/settings`
     func appPluginsSettingsShow(entryId: String) async throws -> API.PluginSettingsView {
@@ -2781,6 +2801,36 @@ nonisolated extension APIClient {
     /// `POST /system/notices/{notice_id}/dismiss`
     func noticesDismiss(noticeId: Int) async throws -> Void {
         let _: API.JSONValue? = try await send("POST", "/system/notices/\(noticeId)/dismiss")
+    }
+
+    /// 记一次用户行为（计数 +1）
+    /// `POST /tips/events/{event_id}`
+    func tipsEventsDonate(eventId: String) async throws -> API.TipEventView {
+        return try await send("POST", "/tips/events/\(eventId)")
+    }
+
+    /// 重置我的提示状态（所有提示重新按条件出现）
+    /// `DELETE /tips/state`
+    func tipsStateReset() async throws -> Void {
+        let _: API.JSONValue? = try await send("DELETE", "/tips/state")
+    }
+
+    /// 我的提示状态（事件计数 + 各提示的展示/作废记录）
+    /// `GET /tips/state`
+    func tipsStateShow() async throws -> API.TipStateView {
+        return try await send("GET", "/tips/state")
+    }
+
+    /// 记一次提示展示（展示次数 +1）
+    /// `POST /tips/{tip_id}/displays`
+    func tipsDisplaysRecord(tipId: String) async throws -> API.TipRecordView {
+        return try await send("POST", "/tips/\(tipId)/displays")
+    }
+
+    /// 作废一条提示（以后不再出现；已作废的保留第一次的原因）
+    /// `POST /tips/{tip_id}/invalidate`
+    func tipsInvalidate(tipId: String, body: API.InvalidateTipRequest? = nil) async throws -> API.TipRecordView {
+        return try await send("POST", "/tips/\(tipId)/invalidate", body: body)
     }
 
     /// 读取远程转码配置

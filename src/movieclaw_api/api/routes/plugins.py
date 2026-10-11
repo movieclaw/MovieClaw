@@ -2,7 +2,8 @@
 
 后端的每个子系统都是插件内核上的一个内置插件。这里只读地列出每个插件的状态、启动耗时、
 失败原因、缺失的依赖与运行指标，外加全部契约（服务、注册表、事件）——排查「某个功能
-怎么没起来」「启动为什么慢」时看这一页。禁用插件走 ``data/plugins.yaml``，重启生效。
+怎么没起来」「启动为什么慢」时看这一页。官方插件与插件包可以在这里停用 / 启用，官方插件还能
+卸载 / 恢复（services/plugin_switches.py）；其余插件禁用走 ``data/plugins.yaml``，重启生效。
 
 可靠事件（docs/design/plugin-phase2a.md §2）的消费进度与死信也在这里：死信可以重放或忽略。
 """
@@ -12,9 +13,10 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Request, UploadFile
 from pydantic import Field
 
+from movieclaw_api.api.deps import require_admin
 from movieclaw_api.exceptions import (
     BadRequestException,
     ConflictException,
@@ -23,6 +25,7 @@ from movieclaw_api.exceptions import (
 )
 from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.response import ApiResponse, ok
+from movieclaw_api.services.auth import Principal
 
 router = APIRouter(prefix="/app/plugins", tags=["app"])
 
@@ -92,6 +95,26 @@ class PluginView(BaseModel):
     runtime: str = Field(
         default="inline", description="inline：主进程里运行；process：独立进程（第三阶段）"
     )
+    switchable: bool = Field(
+        default=False,
+        description="能在插件页停用 / 启用（官方插件与已安装的插件包；"
+        "docs/design/plugin-strm-prefetch.md §1）",
+    )
+    removable: bool = Field(
+        default=False, description="是官方插件、能在插件页卸载（代码随应用携带，卸了能恢复）"
+    )
+    locked_by: str | None = Field(
+        default=None,
+        description="被 data/plugins.yaml / 环境变量关掉时的原因：停用开关锁住，要在那里改回来",
+    )
+
+
+class RemovedPluginView(BaseModel):
+    id: str
+    title: str
+    description: str
+    removed_at: str = Field(description="卸载时间（ISO 8601 UTC）")
+    removed_by: str | None
 
 
 class ContributionView(BaseModel):
@@ -161,6 +184,9 @@ class PluginsView(BaseModel):
         default=None, description="可靠事件的消费进度与死信；投递插件未运行时为空"
     )
     safe_mode: SafeModeView = Field(description="插件安全模式（docs/design/plugin-phase3.md §5）")
+    removed: list[RemovedPluginView] = Field(
+        default_factory=list, description="在插件页卸载了的官方插件（可恢复）"
+    )
 
 
 class SafeModeExitView(BaseModel):
@@ -200,12 +226,28 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
     health = health_service.snapshot() if health_service is not None else {}
     data_service = kernel.service(PLUGIN_DATA)
     data_rows = await data_service.counts() if data_service is not None else {}
-    from movieclaw_api.plugins.bundled import replaceable_ids
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.plugins.bundled import bundled_ids, replaceable_ids
     from movieclaw_api.plugins.features import tier_of
     from movieclaw_api.plugins.manifest import BUILTIN_GROUPS, builtin_group
+    from movieclaw_api.plugins.packages import package_ids
+    from movieclaw_api.services import plugin_switches
     from movieclaw_api.services.plugin_runtime import process_entries
 
+    settings = get_settings()
     bundled = replaceable_ids()
+    official = bundled_ids()
+    installed = set(package_ids(settings))
+
+    def switch(item: dict) -> dict:
+        own = item["id"] in official or item["id"] in installed
+        if item.get("parent") or not own or not item["disableable"]:
+            return {}
+        return {
+            "switchable": True,
+            "removable": item["source"] == "builtin" and item["id"] in official,
+            "locked_by": plugin_switches.admin_lock(kernel.fiber(item["id"])),
+        }
 
     def layer(item: dict) -> dict:
         owner = item.get("parent") or item["id"]
@@ -218,6 +260,7 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
         {
             **item,
             **layer(item),
+            **switch(item),
             "health": health.get(item["id"], []),
             "data_rows": data_rows.get(item["id"], 0),
             "runtime": "process" if item["id"] in process_entries else "inline",
@@ -239,6 +282,7 @@ async def list_plugins(request: Request) -> ApiResponse[PluginsView]:
                 "durable": durable,
                 "safe_mode": safe_mode.current().view(),
                 "groups": [label for label, _ in BUILTIN_GROUPS],
+                "removed": plugin_switches.removed_views(settings),
             }
         )
     )
@@ -510,6 +554,95 @@ async def uninstall_package(
     except LookupError as exc:
         raise NotFoundException(str(exc)) from exc
     return ok(PackageUninstallView.model_validate(result), message="已卸载")
+
+
+# ---------------------------------------------- 停用 / 卸载（plugin-strm-prefetch.md §1）
+class PluginSwitchPayload(BaseModel):
+    enabled: bool = Field(description="true 启用，false 停用")
+
+
+class PluginSwitchView(BaseModel):
+    id: str
+    state: str = Field(description="切换后的状态")
+
+
+class BundledUninstallView(BaseModel):
+    cancelled_jobs: int = Field(description="取消了的后台任务数")
+    purged_rows: int = Field(description="删除的插件数据行数（没勾选删除数据为 0）")
+
+
+def _switch_error(exc):  # noqa: ANN001, ANN202
+    from movieclaw_api.exceptions import AppException
+
+    return AppException(status_code=exc.status, code=exc.code, message=exc.message)
+
+
+@router.put(
+    "/{entry_id}/enabled",
+    response_model=ApiResponse[PluginSwitchView],
+    summary="停用 / 启用插件（官方插件与插件包）：运行中生效，重启后保持；停用会取消它的后台任务",
+    operation_id="app.plugins.switch",
+)
+async def switch_plugin(
+    entry_id: str,
+    payload: PluginSwitchPayload,
+    request: Request,
+    principal: Principal = Depends(require_admin),
+) -> ApiResponse[PluginSwitchView]:
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.services.plugin_switches import PluginSwitchError, set_enabled
+
+    kernel = _kernel(request)
+    try:
+        await set_enabled(kernel, get_settings(), entry_id, payload.enabled, actor=principal.name)
+    except PluginSwitchError as exc:
+        raise _switch_error(exc) from exc
+    fiber = kernel.fiber(entry_id)
+    state = fiber.state.value if fiber is not None else "disposed"
+    message = "已启用" if payload.enabled else "已停用"
+    return ok(PluginSwitchView(id=entry_id, state=state), message=message)
+
+
+@router.delete(
+    "/{entry_id}/bundled",
+    response_model=ApiResponse[BundledUninstallView],
+    summary="卸载官方插件（随时能恢复）；默认保留插件数据，purge_data=true 连同数据删除",
+    operation_id="app.plugins.bundled.uninstall",
+    openapi_extra={"x-cli-dangerous": "confirm"},
+)
+async def uninstall_bundled(
+    entry_id: str,
+    request: Request,
+    purge_data: bool = False,
+    principal: Principal = Depends(require_admin),
+) -> ApiResponse[BundledUninstallView]:
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.services import plugin_switches
+
+    try:
+        result = await plugin_switches.uninstall_bundled(
+            _kernel(request), get_settings(), entry_id, purge_data=purge_data, actor=principal.name
+        )
+    except plugin_switches.PluginSwitchError as exc:
+        raise _switch_error(exc) from exc
+    return ok(BundledUninstallView.model_validate(result), message="已卸载")
+
+
+@router.post(
+    "/{entry_id}/bundled/restore",
+    response_model=ApiResponse[PluginSwitchView],
+    summary="恢复卸载了的官方插件：当场加载",
+    operation_id="app.plugins.bundled.restore",
+)
+async def restore_bundled(entry_id: str, request: Request) -> ApiResponse[PluginSwitchView]:
+    from movieclaw_api.core.config import get_settings
+    from movieclaw_api.services import plugin_switches
+
+    try:
+        state = await plugin_switches.restore_bundled(_kernel(request), get_settings(), entry_id)
+    except plugin_switches.PluginSwitchError as exc:
+        raise _switch_error(exc) from exc
+    return ok(PluginSwitchView(id=entry_id, state=state), message="已恢复")
 
 
 # ---------------------------------------------------- 回调端点（plugin-callbacks.md §4.4）

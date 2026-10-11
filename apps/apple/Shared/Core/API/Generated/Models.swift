@@ -689,6 +689,18 @@ nonisolated extension API {
         }
     }
 
+    struct BundledUninstallView: Codable, Hashable, Sendable {
+        /// 取消了的后台任务数
+        var cancelledJobs: Int
+        /// 删除的插件数据行数（没勾选删除数据为 0）
+        var purgedRows: Int
+
+        enum CodingKeys: String, CodingKey {
+            case cancelledJobs = "cancelled_jobs"
+            case purgedRows = "purged_rows"
+        }
+    }
+
     struct CalibratePayload: Codable, Hashable, Sendable {
         var filename: String
 
@@ -4372,6 +4384,14 @@ nonisolated extension API {
         }
     }
 
+    struct InvalidateTipRequest: Codable, Hashable, Sendable {
+        var reason: String?
+
+        enum CodingKeys: String, CodingKey {
+            case reason
+        }
+    }
+
     /// 作品详情页那一行「合集」的一项：只要名字和落点。
     /// **刻意不带封面与成员数**。合集封面是从成员海报里借的——在《千与千寻》
     /// 的页面上摆「日本动画」的封面卡，那张图很可能就是《千与千寻》自己；
@@ -5718,7 +5738,8 @@ nonisolated extension API {
     }
 
     /// 新增 / 编辑 LLM 供应商实例的请求体。
-    /// API Key 出于安全不回显，编辑时需要重新填写。
+    /// API Key 出于安全不回显：编辑时留空沿用原 Key；但改了供应商类型或端点
+    /// 必须重填，免得旧 Key 被发往新地址。
     struct LlmProviderPayload: Codable, Hashable, Sendable {
         /// 实例名（全局唯一，不含斜杠），如「官方 OpenAI」
         var name: String
@@ -8455,6 +8476,26 @@ nonisolated extension API {
         }
     }
 
+    struct PluginSwitchPayload: Codable, Hashable, Sendable {
+        /// true 启用，false 停用
+        var enabled: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case enabled
+        }
+    }
+
+    struct PluginSwitchView: Codable, Hashable, Sendable {
+        var id: String
+        /// 切换后的状态
+        var state: String
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case state
+        }
+    }
+
     struct PluginView: Codable, Hashable, Sendable {
         var id: String
         var plugin: String
@@ -8487,6 +8528,12 @@ nonisolated extension API {
         var group: String?
         /// inline：主进程里运行；process：独立进程（第三阶段）
         var runtime: String
+        /// 能在插件页停用 / 启用（官方插件与已安装的插件包；docs/design/plugin-strm-prefetch.md §1）
+        var switchable: Bool
+        /// 是官方插件、能在插件页卸载（代码随应用携带，卸了能恢复）
+        var removable: Bool
+        /// 被 data/plugins.yaml / 环境变量关掉时的原因：停用开关锁住，要在那里改回来
+        var lockedBy: String?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -8514,6 +8561,9 @@ nonisolated extension API {
             case dataRows = "data_rows"
             case group
             case runtime
+            case switchable
+            case removable
+            case lockedBy = "locked_by"
         }
     }
 
@@ -8526,6 +8576,8 @@ nonisolated extension API {
         var durable: API.DurableView?
         /// 插件安全模式（docs/design/plugin-phase3.md §5）
         var safeMode: API.SafeModeView
+        /// 在插件页卸载了的官方插件（可恢复）
+        var removed: [API.RemovedPluginView]
 
         enum CodingKeys: String, CodingKey {
             case plugins
@@ -8533,6 +8585,7 @@ nonisolated extension API {
             case contracts
             case durable
             case safeMode = "safe_mode"
+            case removed
         }
     }
 
@@ -9717,6 +9770,23 @@ nonisolated extension API {
             case maxArtifactBytes = "max_artifact_bytes"
             case ready
             case issues
+        }
+    }
+
+    struct RemovedPluginView: Codable, Hashable, Sendable {
+        var id: String
+        var title: String
+        var description: String
+        /// 卸载时间（ISO 8601 UTC）
+        var removedAt: String
+        var removedBy: String?
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case title
+            case description
+            case removedAt = "removed_at"
+            case removedBy = "removed_by"
         }
     }
 
@@ -11647,6 +11717,51 @@ nonisolated extension API {
         enum CodingKeys: String, CodingKey {
             case type
             case text
+        }
+    }
+
+    /// 一种行为事件的累计情况。
+    struct TipEventView: Codable, Hashable, Sendable {
+        var eventId: String
+        var count: Int
+        var firstAt: String
+        var lastAt: String
+
+        enum CodingKeys: String, CodingKey {
+            case eventId = "event_id"
+            case count
+            case firstAt = "first_at"
+            case lastAt = "last_at"
+        }
+    }
+
+    /// 一条提示的展示与作废情况；没出现在列表里的提示 = 从没展示过、仍有效。
+    struct TipRecordView: Codable, Hashable, Sendable {
+        var tipId: String
+        var displayCount: Int
+        var firstDisplayedAt: String?
+        var lastDisplayedAt: String?
+        var invalidatedAt: String?
+        var invalidatedReason: String?
+
+        enum CodingKeys: String, CodingKey {
+            case tipId = "tip_id"
+            case displayCount = "display_count"
+            case firstDisplayedAt = "first_displayed_at"
+            case lastDisplayedAt = "last_displayed_at"
+            case invalidatedAt = "invalidated_at"
+            case invalidatedReason = "invalidated_reason"
+        }
+    }
+
+    /// 一个人的全部提示状态，各端启动时拉一次。
+    struct TipStateView: Codable, Hashable, Sendable {
+        var events: [API.TipEventView]
+        var tips: [API.TipRecordView]
+
+        enum CodingKeys: String, CodingKey {
+            case events
+            case tips
         }
     }
 

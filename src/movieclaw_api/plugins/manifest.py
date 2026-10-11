@@ -161,14 +161,21 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
 
 
 def load_patches(settings: object) -> list[Patch]:
-    """补丁层：插件页停用的功能 + 环境变量开关 + ``data/plugins.yaml``。
+    """补丁层：插件页停用的插件与功能 + 环境变量开关 + ``data/plugins.yaml``。
 
-    改 yaml / 环境变量需要重启生效；功能开关在运行中切换（services/plugin_features.py），
-    这里只负责重启后保持。功能补丁排最前：同一插件被几处都关时，诊断显示管理员那一处。
+    改 yaml / 环境变量需要重启生效；插件与功能开关在运行中切换（services/plugin_switches.py、
+    services/plugin_features.py），这里只负责重启后保持。开关补丁排最前：同一插件被几处都关时，
+    诊断显示管理员那一处。
     """
     from movieclaw_api.services.plugin_features import feature_patches
+    from movieclaw_api.services.plugin_switches import switch_patches
 
-    return feature_patches(settings) + env_patches(settings) + file_patches(settings)
+    return (
+        switch_patches(settings)
+        + feature_patches(settings)
+        + env_patches(settings)
+        + file_patches(settings)
+    )
 
 
 def patch_file(settings: object) -> Path:

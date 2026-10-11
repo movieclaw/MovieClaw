@@ -62,7 +62,7 @@ export interface PluginInfo {
   permissions?: string[];
   blocked_by: PluginBlockedBy[];
   incompatible: string | null;
-  /** 谁禁用的：patch（data/plugins.yaml）/ env:XXX（环境变量） */
+  /** 谁禁用的：switch（插件页停用）/ feature:XXX（功能开关）/ patch（data/plugins.yaml）/ env:XXX（环境变量） */
   disabled_by: string | null;
   error: string | null;
   apply_ms: number | null;
@@ -82,6 +82,21 @@ export interface PluginInfo {
    * 也算）/ system 系统模块；其余第三方与本地插件为 null，旧服务端没有这个字段
    */
   tier?: PluginTier | null;
+  /** 能在插件页停用 / 启用（官方插件与插件包）；旧服务端没有这个字段 */
+  switchable?: boolean;
+  /** 官方插件，能在插件页卸载（随时能恢复） */
+  removable?: boolean;
+  /** 被 data/plugins.yaml / 环境变量关掉的原因：停用开关锁住 */
+  locked_by?: string | null;
+}
+
+/** 在插件页卸载了的官方插件（可恢复） */
+export interface RemovedPlugin {
+  id: string;
+  title: string;
+  description: string;
+  removed_at: string;
+  removed_by: string | null;
 }
 
 export type PluginTier = "official" | "system";
@@ -146,6 +161,8 @@ export interface PluginsOverview {
   safe_mode?: PluginSafeMode;
   /** 内置插件分组的展示顺序；旧服务端没有这个字段 */
   groups?: string[];
+  /** 卸载了的官方插件；旧服务端没有这个字段 */
+  removed?: RemovedPlugin[];
 }
 
 export async function listPlugins(): Promise<PluginsOverview> {
@@ -300,6 +317,29 @@ export async function uninstallPackage(id: string, purgeData: boolean): Promise<
 /* —— 插件详情（设置 → 插件 → 点一个插件） —— */
 
 /** 装了这个插件，系统多了什么（已翻成人话） */
+/** 停用 / 启用插件（官方插件与插件包）：运行中生效，重启后保持；停用会取消它的后台任务 */
+export async function setPluginEnabled(id: string, enabled: boolean): Promise<void> {
+  await request(`/app/plugins/${encodeURIComponent(id)}/enabled`, {
+    method: "PUT",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+/** 卸载官方插件（代码随应用携带，随时能恢复）；返回删除的数据行数 */
+export async function uninstallBundled(id: string, purgeData: boolean): Promise<number> {
+  return (
+    await request<ApiEnvelope<{ cancelled_jobs: number; purged_rows: number }>>(
+      `/app/plugins/${encodeURIComponent(id)}/bundled?purge_data=${purgeData}`,
+      { method: "DELETE" },
+    )
+  ).data.purged_rows;
+}
+
+/** 恢复卸载了的官方插件：当场加载 */
+export async function restoreBundled(id: string): Promise<void> {
+  await request(`/app/plugins/${encodeURIComponent(id)}/bundled/restore`, { method: "POST" });
+}
+
 export interface PluginAdded {
   /** channel / task / ingest / job / site / command / trigger / decision */
   kind: string;
