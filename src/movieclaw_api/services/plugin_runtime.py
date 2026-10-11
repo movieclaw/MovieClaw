@@ -27,7 +27,7 @@ import tempfile
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -744,7 +744,7 @@ def _contribution(session: Session, contribution: dict[str, Any]) -> tuple[Any, 
                 raise _job_error(exc) from exc
 
         return jobs.JOB_HANDLERS, jobs.RegisteredJobHandler(
-            handler, frozenset(int(v) for v in item["versions"])
+            handler, frozenset(int(v) for v in item["versions"]), title=item.get("title")
         )
     if registry == "scheduled-tasks":
         from movieclaw_scheduler import SCHEDULED_TASKS, TaskDefinition, TriggerType
@@ -872,10 +872,12 @@ def _open_services() -> dict[str, ServiceKey[Any]]:
         PLUGIN_HEALTH,
         PLUGIN_ROUTES,
     )
+    from movieclaw_sdk.jobs import PLUGIN_JOBS
 
     return {
         AGENT.name: AGENT,
         PLUGIN_CALLBACKS.name: PLUGIN_CALLBACKS,
+        PLUGIN_JOBS.name: PLUGIN_JOBS,
         PLUGIN_FILES.name: PLUGIN_FILES,
         HOST_OPS.name: HOST_OPS,
         PLUGIN_DATA.name: PLUGIN_DATA,
@@ -996,6 +998,32 @@ class _Data:
 
     async def scopes(self, key: str, entity: str | None = None) -> dict[str, Any]:
         return await self._store.scopes(key, entity=entity)
+
+
+class _Jobs:
+    def __init__(self, jobs: Any) -> None:
+        self._jobs = jobs
+
+    async def create(
+        self,
+        job_type: str,
+        input: dict[str, Any] | None = None,
+        subject: str | None = None,
+        priority: int = 0,
+        dedupe_key: str | None = None,
+        resources: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        from movieclaw_sdk.jobs import ResourceRef
+
+        ref = await self._jobs.create(
+            job_type,
+            input=input,
+            subject=subject,
+            priority=priority,
+            dedupe_key=dedupe_key,
+            resources=[ResourceRef(**r) for r in resources or ()],
+        )
+        return asdict(ref)
 
 
 class _Health:
@@ -1215,6 +1243,7 @@ EXPORTS: dict[str, type] = {
     "ops": _Ops,
     "net": _Net,
     "job": _Job,
+    "jobs": _Jobs,
     "channels": _Channels,
     "agent": PluginAgent,
 }
@@ -1236,6 +1265,7 @@ async def _exports(ctx: Context, session: Session, names: tuple[str, ...]) -> di
         PLUGIN_ROUTES,
     )
     from movieclaw_api.services.auth import PluginGrant, issue_plugin_token, revoke_plugin_token
+    from movieclaw_sdk.jobs import PLUGIN_JOBS
 
     exports: dict[str, Any] = {
         "session": _Session(session),
@@ -1259,6 +1289,8 @@ async def _exports(ctx: Context, session: Session, names: tuple[str, ...]) -> di
         exports["files"] = _Files(session, session.files)
     if PLUGIN_DATA.name in names:
         exports["data"] = _Data(ctx.use(PLUGIN_DATA).scoped(ctx))
+    if PLUGIN_JOBS.name in names:
+        exports["jobs"] = _Jobs(ctx.use(PLUGIN_JOBS).scoped(ctx))
     if PLUGIN_HEALTH.name in names:
         exports["health"] = _Health(ctx.use(PLUGIN_HEALTH).reporter(ctx))
     if PLUGIN_CALLBACKS.name in names:

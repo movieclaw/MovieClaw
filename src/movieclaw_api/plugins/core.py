@@ -80,7 +80,7 @@ async def registries(ctx: Context) -> None:
     )
 
     def on_handlers_changed(change) -> None:
-        jobs.note_job_type(change.id)
+        jobs.note_job_type(change.id, title=getattr(change.item, "title", None))
         jobs.wake_job_dispatcher()
 
     ctx.watch(jobs.JOB_HANDLERS, on_handlers_changed)

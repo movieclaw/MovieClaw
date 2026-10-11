@@ -106,6 +106,21 @@ class JobApi(Protocol):
     async def cancel_requested(self) -> bool: ...
 
 
+class JobsApi(Protocol):
+    """插件建自己的后台任务（``PLUGIN_JOBS``）。``resources`` 每项 ``{resource_type, resource_id,
+    relation}``；返回 ``{id, job_type, status, created}``。"""
+
+    async def create(
+        self,
+        job_type: str,
+        input: dict[str, Any] | None = None,
+        subject: str | None = None,
+        priority: int = 0,
+        dedupe_key: str | None = None,
+        resources: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]: ...
+
+
 class ChannelsApi(Protocol):
     """通道驱动回调中枢：收到消息、保存账号状态。"""
 
@@ -152,6 +167,7 @@ SERVICES: dict[str, type] = {
     "ops": OpsApi,
     "net": NetApi,
     "job": JobApi,
+    "jobs": JobsApi,
     "channels": ChannelsApi,
     "agent": AgentApi,
 }

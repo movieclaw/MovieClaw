@@ -7,7 +7,7 @@ import Link from "next/link";
 
 import {
   JOB_STATUS_LABELS,
-  JOB_TYPE_LABELS,
+  jobTypeLabel,
   JobCard,
   jobDetailItems,
   TaskActionsMenu,
@@ -759,7 +759,7 @@ function historicalJobTitle(job: JobView): string {
   const result =
     job.status === "cancelled" ? "已取消" : job.status === "failed" ? "未完成" : "完成";
   if (identity && action) return `${identity}${action}${result}`;
-  return `${identity || JOB_TYPE_LABELS[job.job_type] || job.job_type}${result}`;
+  return `${identity || jobTypeLabel(job)}${result}`;
 }
 
 function historicalJobSummary(job: JobView): string {
@@ -790,7 +790,7 @@ function ActiveJobFeedItem({
   const percent = job.progress.percent;
   const amount = jobProgressAmount(job);
   const cancellable = job.status !== "cancelling";
-  const title = jobFeedIdentity(job) || JOB_TYPE_LABELS[job.job_type] || job.job_type;
+  const title = jobFeedIdentity(job) || jobTypeLabel(job);
   // 元数据刷新的图片记账（新下载 / 沿用 / 失败）；其余类型的过程信息已在摘要里
   const details = job.job_type.includes("metadata.refresh") ? jobDetailItems(job) : [];
   return (
@@ -2514,7 +2514,7 @@ export function ActiveJobRow({ job }: { job: JobView }) {
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
           <span className="min-w-0 truncate text-ui font-semibold text-[var(--text)]">
-            {jobFeedIdentity(job) || JOB_TYPE_LABELS[job.job_type] || job.job_type}
+            {jobFeedIdentity(job) || jobTypeLabel(job)}
           </span>
           {percent != null && (
             <span className="tnum ml-auto shrink-0 text-sub font-semibold text-[var(--text-muted)]">

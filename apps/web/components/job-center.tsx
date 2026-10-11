@@ -46,6 +46,11 @@ export const JOB_TYPE_LABELS: Record<string, string> = {
   "library.ingest": "自动整理入库",
 };
 
+/** 任务类型的显示名：内置类型用本地文案，插件任务用服务端给的名字，都没有显示原始类型 */
+export function jobTypeLabel(job: Pick<JobView, "job_type" | "job_type_label">): string {
+  return JOB_TYPE_LABELS[job.job_type] || job.job_type_label || job.job_type;
+}
+
 export const JOB_STATUS_LABELS: Record<string, string> = {
   queued: "排队中",
   running: "进行中",
@@ -477,8 +482,8 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
     job.progress.phase_index != null && job.progress.phase_count != null
       ? `${job.progress.phase_index}/${job.progress.phase_count}`
       : null;
-  const jobTypeLabel = JOB_TYPE_LABELS[job.job_type] || job.job_type;
-  const title = job.subject || jobTypeLabel;
+  const typeLabel = jobTypeLabel(job);
+  const title = job.subject || typeLabel;
   const completedSubtitleLanguage =
     job.status === "succeeded" ? subtitleLanguageLabel(job) : null;
   const completedLibraryScan =
@@ -624,7 +629,7 @@ export function JobCard({ job, onNavigate }: { job: JobView; onNavigate: () => v
                 Netflix 主题自动取实线灰 */}
             {job.subject && (
               <span className="shrink-0 rounded-md border border-[var(--line)] bg-white/[0.045] px-1.5 py-0.5 text-micro font-medium text-white/55">
-                {jobTypeLabel}
+                {typeLabel}
               </span>
             )}
             <h3 className="min-w-0 text-ui font-semibold leading-5 text-white/90">
@@ -842,7 +847,7 @@ function DismissJobDialog({
 }) {
   const muteLabel = AUTO_RECREATED_JOB_TYPES[job.job_type];
   const [muteSource, setMuteSource] = useState(muteLabel != null);
-  const title = job.subject || JOB_TYPE_LABELS[job.job_type] || job.job_type;
+  const title = job.subject || jobTypeLabel(job);
 
   return (
     <Modal open onClose={busy ? () => {} : onClose} label="忽略任务" topmost>

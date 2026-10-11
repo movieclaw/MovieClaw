@@ -32,6 +32,7 @@ MODULES = (
     "movieclaw_api.plugins.keys",
     "movieclaw_api.pipeline",
     "movieclaw_api.services.jobs",
+    "movieclaw_sdk.jobs",
     "movieclaw_scheduler",
 )
 

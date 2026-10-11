@@ -45,7 +45,7 @@ tests 守着：契约有增删时本文必须同步）。每个都是「实验�
 | `site-classes` | 新的站点框架（`BaseSite` 子类），站点 YAML 的 `custom_class` 引用它 | `from movieclaw_api.plugins.keys import SITE_CLASSES` | `$SRC/movieclaw_tracker/sites/custom/` |
 | `site-data-packs` | 一批站点 YAML 打成插件分发（同 site_id 覆盖内置） | `… import SITE_DATA_PACKS` | `examples/site_pack/` |
 | `scheduled-tasks` | 周期任务（出现在「定时任务」里，用户可调周期）；可 override 整段替换内置任务（如订阅缺口搜索 `search_wanted`） | `from movieclaw_scheduler import SCHEDULED_TASKS` | — |
-| `job-handlers` | 持久化后台任务（断点续传、进度、重试 / 阻塞） | `from movieclaw_api.services.jobs import JOB_HANDLERS` | `cloud_strm.py` |
+| `job-handlers` | 持久化后台任务（断点续传、进度、重试 / 阻塞）；类型写成 `<插件 id>:<名字>`，`title=` 是任务中心里显示的名字；插件停用 / 卸载时它的任务被取消 | `from movieclaw_sdk.jobs import JOB_HANDLERS, RegisteredJobHandler` | `cloud_strm.py` |
 | `ingest-steps` | 入库流水线里插一个步骤（暂存完成后，如上传网盘） | `from movieclaw_api.pipeline import INGEST_STEPS` | `cloud_strm.py` |
 | `library.delete-participants` | 删除影片 / 文件的弹窗里加一个勾选项（默认不勾）：只读预览说清后果，用户勾了才建后续任务（`job_type` 带插件 id 前缀，如 `f"{ctx.entry_id}:cleanup"`，同时登记同名任务处理器）。适合「删片时顺带删网盘备份 / 外部记录」；要删下载任务和源文件用内置选项，不用自己写 | `from movieclaw_api.services.library.delete_participants import LIBRARY_DELETE_PARTICIPANTS, DeleteParticipant, Preview, PreviewLine` | `$SRC/movieclaw_api/services/remove_source.py` |
 
@@ -60,6 +60,7 @@ tests 守着：契约有增删时本文必须同步）。每个都是「实验�
 | `plugin-files` | 读写用户批准的目录；插件私有目录总能用；路由里交出文件 | `… import PLUGIN_FILES` | `cloud_strm.py` |
 | `plugin-routes` | 开接口：`/api/v1/plugins/<id>/…`，管理员 / 成员 / 签名公开三区，可签发不过期链接。**接口会自动成为 mclaw 命令**，AI 助手也能调 | `… import PLUGIN_ROUTES` | `cloud_strm.py`、`templates/starter/` |
 | `plugin-health` | 常驻任务报告降级 / 恢复，降级进系统通知与诊断 | `… import PLUGIN_HEALTH` | — |
+| `plugin-jobs` | 建自己的后台任务（只能建自己登记的任务类型）：`ctx.use(PLUGIN_JOBS).scoped(ctx).create("<id>:sync", input=…, priority=…, dedupe_key=…)`，同去重键还在进行的直接返回它；优先级高的先领 | `from movieclaw_sdk.jobs import PLUGIN_JOBS` | `$SRC/movieclaw_sdk/jobs.py` 文件头 |
 | `plugin-callbacks` | 回调端点：外部平台（企业微信、GitHub、Slack、Telegram……）能直接调进来的地址，请求原样交给插件，**插件自己验签**；清单 `callbacks` 声明端点名 | `from movieclaw_sdk.callbacks import PLUGIN_CALLBACKS` | `recipes.md` 第 14 节 |
 | `agent` | 驱动 AI 助手跑一轮对话：`ask` 同步等结果，`start` 后 `events()` 逐事件流式（可续传）；只看得到自己建的会话。权限串 `agent:none` / `agent:mclaw` / `agent:full`（工具档位，插件包最高 `mclaw`），用户批准才生效 | `from movieclaw_api.plugins.keys import AGENT` | `recipes.md` 第 15 节 |
 | `kernel/durable-events` | 可靠事件的投递（监听可靠事件时 inject 它） | `from movieclaw_kernel import DURABLE_EVENTS` | `delete_cascade.py` |

@@ -13,7 +13,7 @@ import contextlib
 import logging
 import time
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from types import ModuleType
@@ -35,7 +35,17 @@ from movieclaw_db.models import (
     JobStatus,
     utcnow,
 )
-from movieclaw_kernel import RegistryKey, Stability
+from movieclaw_sdk.jobs import (
+    JOB_HANDLERS,
+    JobBlocked,
+    JobCancelled,
+    JobControlError,
+    JobFailed,
+    JobHandler,
+    JobRetry,
+    RegisteredJobHandler,
+    ResourceRef,
+)
 
 if TYPE_CHECKING:
     from movieclaw_kernel import Context, Registry
@@ -69,94 +79,9 @@ _SECRET_INPUT_KEYS = {
 
 
 @dataclass(frozen=True)
-class ResourceRef:
-    """领域资源中性引用；前端可据此把任务聚合到库、条目或文件。"""
-
-    resource_type: str
-    resource_id: str | int
-    relation: str = "target"
-
-
-@dataclass(frozen=True)
 class CreateJobResult:
     job: Job
     created: bool
-
-
-class JobControlError(Exception):
-    """处理器主动给执行器的结构化结论，绝不把内部异常文本直接暴露。"""
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str,
-        actions: list[dict[str, Any]] | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.message = message
-        self.code = code
-        self.actions = actions or []
-        self.details = details or {}
-
-    def as_error(self) -> dict[str, Any]:
-        return {
-            "code": self.code,
-            "message": self.message,
-            "details": self.details,
-            "actions": self.actions,
-        }
-
-
-class JobFailed(JobControlError):
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str = "JOB_FAILED",
-        actions: list[dict[str, Any]] | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, code=code, actions=actions, details=details)
-
-
-class JobBlocked(JobControlError):
-    def __init__(
-        self,
-        message: str,
-        *,
-        code: str = "JOB_BLOCKED",
-        actions: list[dict[str, Any]] | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message, code=code, actions=actions, details=details)
-
-
-class JobRetry(JobControlError):
-    def __init__(
-        self,
-        message: str,
-        *,
-        delay_seconds: int = 15,
-        code: str = "JOB_RETRY",
-        actions: list[dict[str, Any]] | None = None,
-    ) -> None:
-        super().__init__(message, code=code, actions=actions)
-        self.delay_seconds = max(1, delay_seconds)
-
-
-class JobCancelled(Exception):
-    """处理器已在安全边界响应取消。"""
-
-
-JobHandler = Callable[["JobContext", dict[str, Any]], Awaitable[dict[str, Any] | None]]
-
-
-@dataclass(frozen=True)
-class RegisteredJobHandler:
-    handler: JobHandler
-    definition_versions: frozenset[int]
 
 
 # 声明目录：job_type -> 处理器。模块导入时由 @register_job_handler 填充。
@@ -166,13 +91,6 @@ class RegisteredJobHandler:
 # 启用时任务留在队列里等，而不是被领走后报「请更新版本」；没有内核时（单独驱动执行器的测试、
 # 命令行工具）回落到这份声明目录，行为与以前一致。
 _handlers: dict[str, RegisteredJobHandler] = {}
-
-JOB_HANDLERS: RegistryKey[RegisteredJobHandler] = RegistryKey(
-    "job-handlers",
-    schema=RegisteredJobHandler,
-    stability=Stability.EXPERIMENTAL,
-    doc="持久化后台任务的处理器（领域插件贡献；第三方插件的任务类型自动带插件 id 前缀）",
-)
 
 _bound_handlers: Registry[RegisteredJobHandler] | None = None
 
@@ -201,8 +119,21 @@ def resolve_job_handler(job_type: str) -> RegisteredJobHandler | None:
 _known_types: set[str] = set()
 
 
-def note_job_type(job_type: str) -> None:
+#: 任务类型 → 任务中心显示的名字（处理器贡献时登记；插件停用后仍记得，已取消的任务照样有名字）
+_type_titles: dict[str, str] = {}
+
+
+def note_job_type(job_type: str, *, title: str | None = None) -> None:
     _known_types.add(job_type)
+    if title:
+        _type_titles[job_type] = title
+
+
+def job_type_label(job_type: str) -> str | None:
+    """任务类型在任务中心显示的名字；处理器没给名字的为 ``None``（显示端各自兜底）。"""
+    registration = resolve_job_handler(job_type) or _handlers.get(job_type)
+    title = getattr(registration, "title", None)
+    return title or _type_titles.get(job_type)
 
 
 def claimable_job_types() -> list[str] | None:
@@ -240,7 +171,7 @@ def contribute_job_handlers(ctx: Context, *modules: ModuleType) -> None:
             raise ValueError(f"模块 {module.__name__} 没有声明任何后台任务处理器")
         for job_type, registration in declared:
             ctx.contribute(JOB_HANDLERS, job_type, registration)
-            note_job_type(job_type)
+            note_job_type(job_type, title=registration.title)
 
 
 def register_job_handler(

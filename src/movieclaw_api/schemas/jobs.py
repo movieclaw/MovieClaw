@@ -32,6 +32,10 @@ class JobResourceView(BaseModel):
 class JobView(BaseModel):
     id: str
     job_type: str
+    job_type_label: str | None = Field(
+        default=None,
+        description="任务类型在任务中心显示的名字（插件任务由处理器给出）；没有时显示端自己兜底",
+    )
     subject: str | None
     definition_version: int
     handler_revision: str

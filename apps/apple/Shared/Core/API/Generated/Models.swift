@@ -4617,6 +4617,8 @@ nonisolated extension API {
     struct JobView: Codable, Hashable, Sendable {
         var id: String
         var jobType: String
+        /// 任务类型在任务中心显示的名字（插件任务由处理器给出）；没有时显示端自己兜底
+        var jobTypeLabel: String?
         var subject: String?
         var definitionVersion: Int
         var handlerRevision: String
@@ -4654,6 +4656,7 @@ nonisolated extension API {
         enum CodingKeys: String, CodingKey {
             case id
             case jobType = "job_type"
+            case jobTypeLabel = "job_type_label"
             case subject
             case definitionVersion = "definition_version"
             case handlerRevision = "handler_revision"

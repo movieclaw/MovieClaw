@@ -39,6 +39,8 @@ export interface JobResource {
 export interface JobView {
   id: string;
   job_type: string;
+  /** 任务类型显示名（插件任务由处理器给出）；旧服务端没有这个字段 */
+  job_type_label?: string | null;
   subject: string | null;
   definition_version: number;
   handler_revision: string;

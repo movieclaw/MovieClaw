@@ -386,12 +386,13 @@
       "dataclass": "RegisteredJobHandler",
       "fields": {
         "definition_versions": "frozenset[int]",
-        "handler": "JobHandler"
+        "handler": "JobHandler",
+        "title": "str | None"
       }
     },
     "kind": "registry",
     "stability": "experimental",
-    "version": "1.0"
+    "version": "1.1"
   },
   "kernel/durable-events": {
     "doc": "可靠事件的存储与投递：事务内写入、提交后投递、至少一次",
@@ -1933,6 +1934,12 @@
   },
   "plugin-health": {
     "doc": "插件健康：常驻任务报告降级 / 恢复，降级进系统通知与诊断",
+    "kind": "service",
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "plugin-jobs": {
+    "doc": "插件建自己的后台任务（只能建本插件贡献的任务类型，去重键按插件隔离）",
     "kind": "service",
     "stability": "experimental",
     "version": "1.0"

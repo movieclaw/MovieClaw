@@ -183,6 +183,41 @@ class _RemotePluginData:
         return _RemoteStore(self._runner, ctx.entry_id)
 
 
+class _RemoteJobs:
+    def __init__(self, runner: Runner) -> None:
+        self._api = runner.service("jobs")
+
+    async def create(
+        self,
+        job_type: str,
+        *,
+        input: dict[str, Any] | None = None,
+        subject: str | None = None,
+        priority: int = 0,
+        dedupe_key: str | None = None,
+        resources: Any = (),
+    ) -> Any:
+        from movieclaw_sdk.jobs import JobRef
+
+        found = await self._api.create(
+            job_type=job_type,
+            input=input,
+            subject=subject,
+            priority=priority,
+            dedupe_key=dedupe_key,
+            resources=[dataclasses.asdict(r) for r in resources],
+        )
+        return JobRef(**found)
+
+
+class _RemotePluginJobs:
+    def __init__(self, runner: Runner) -> None:
+        self._runner = runner
+
+    def scoped(self, ctx: Any) -> _RemoteJobs:
+        return _RemoteJobs(self._runner)
+
+
 class _RemoteHealth:
     def __init__(self, runner: Runner) -> None:
         self._api = runner.service("health")
@@ -230,7 +265,7 @@ class RemoteJobContext:
         return bool(await self._api.cancel_requested())
 
     async def raise_if_cancelled(self) -> None:
-        from movieclaw_api.services.jobs import JobCancelled
+        from movieclaw_sdk.jobs import JobCancelled
 
         if await self.cancel_requested():
             raise JobCancelled()
@@ -242,7 +277,8 @@ class RemoteJobContext:
 def _contribution(registry: str, item: Any) -> tuple[dict[str, Any], Any]:
     """注册表贡献项 → （发给宿主的数据，留在本进程的东西）。只开放纯数据项与任务处理器。"""
     if registry == "job-handlers":
-        return {"versions": sorted(item.definition_versions)}, item.handler
+        title = getattr(item, "title", None)
+        return {"versions": sorted(item.definition_versions), "title": title}, item.handler
     if registry == "scheduled-tasks":
         # 处理函数留在本进程：宿主登记一个代理任务，到点经协议调回来
         return {
@@ -490,6 +526,7 @@ _SERVICE_PROXIES: dict[str, Callable[[Runner], Any]] = {
     "plugin-routes": _RemotePluginRoutes,
     "plugin-callbacks": _RemoteCallbacks,
     "plugin-files": _RemotePluginFiles,
+    "plugin-jobs": _RemotePluginJobs,
 }
 
 
@@ -879,7 +916,7 @@ class Runner:
             }
 
     async def _handle_job(self, message: dict[str, Any]) -> None:
-        from movieclaw_api.services.jobs import JobCancelled, JobControlError, JobRetry
+        from movieclaw_sdk.jobs import JobCancelled, JobControlError, JobRetry
 
         reply: dict[str, Any] = {}
         try:

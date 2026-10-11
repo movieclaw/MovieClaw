@@ -118,8 +118,10 @@ class Context(Generic[C]):
         # 第三方贡献自动加插件 id 前缀，避免撞名；内置贡献保留原 id（库里存着这些 key）。
         # 例外是显式覆盖（override=True）：第三方明确要替换某个已有贡献（例如整段替换内置的
         # 订阅定时阶段），必须用原 id 才能压进同一个覆盖栈；卸载时内置实现自动恢复
-        prefixed = fiber.third_party and not override
-        cid = f"{fiber.id}:{contribution_id}" if prefixed else contribution_id
+        # 已写全前缀（``<插件 id>:<名字>``）的不再重复加：随带版与同 id 的替换包贡献出同样的 id
+        prefix = f"{fiber.id}:"
+        prefixed = fiber.third_party and not override and not contribution_id.startswith(prefix)
+        cid = f"{prefix}{contribution_id}" if prefixed else contribution_id
         remove = self.registry(key).add(
             cid,
             item,

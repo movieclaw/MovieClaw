@@ -2057,6 +2057,114 @@
         }
       }
     },
+    "/api/v1/plugin-runtime/jobs/create": {
+      "post": {
+        "operationId": "jobs.create",
+        "tags": [
+          "jobs"
+        ],
+        "summary": "jobs.create",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "job_type": {
+                    "type": "string"
+                  },
+                  "input": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": true,
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "subject": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "priority": {
+                    "type": "integer"
+                  },
+                  "dedupe_key": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "resources": {
+                    "anyOf": [
+                      {
+                        "items": {
+                          "additionalProperties": true,
+                          "type": "object"
+                        },
+                        "type": "array"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "job_type"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/plugin-runtime/net/proxy": {
       "post": {
         "operationId": "net.proxy",

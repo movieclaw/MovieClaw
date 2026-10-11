@@ -66,6 +66,7 @@ def _job_view(job: Job, resources: list[JobResource], *, slim_input: bool = Fals
     return JobView(
         id=job.id,
         job_type=job.job_type,
+        job_type_label=jobs.job_type_label(job.job_type),
         subject=job.subject,
         definition_version=job.definition_version,
         handler_revision=job.handler_revision,
