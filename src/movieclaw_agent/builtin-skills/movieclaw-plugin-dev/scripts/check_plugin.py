@@ -295,10 +295,18 @@ def main(argv: list[str]) -> int:
         )
     else:
         ok(f"宿主操作申请：{sorted(declared) or '无'}")
-    if "host-ops" in {k["name"] for k in match["inject"]} and not declared:
+    injected = {k["name"] for k in match["inject"]}
+    # agent:<档位> 是调用 AI 助手的授权（经 AGENT 服务），不算宿主操作
+    operations = {d for d in declared if not d.startswith("agent:")}
+    agent_grants = declared - operations
+    if "host-ops" in injected and not operations:
         warn("inject 了 HOST_OPS 但没有申请任何宿主操作，调用会被拒绝")
-    if declared and "host-ops" not in {k["name"] for k in match["inject"]}:
+    if operations and "host-ops" not in injected:
         warn("申请了宿主操作但没有 inject HOST_OPS，拿不到调用入口")
+    if agent_grants and "agent" not in injected:
+        warn("申请了 agent:<档位> 但没有 inject AGENT，拿不到 AI 助手入口")
+    if "agent" in injected and not agent_grants:
+        warn("inject 了 AGENT 但没有申请 agent:<档位>（agent:none / agent:mclaw），调用会被拒绝")
     used = set(result.get("contracts_used") or [])
     missing = sorted(used - set(manifest.requires))
     if missing:

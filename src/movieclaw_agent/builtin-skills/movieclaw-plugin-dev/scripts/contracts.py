@@ -36,8 +36,18 @@ _HANDLER = {
 def collect() -> dict[str, tuple[str, str, object]]:
     """契约名 → (模块, 变量名, 契约对象)。"""
     found: dict[str, tuple[str, str, object]] = {}
-    # SDK 里定义的契约（如 IM_CHANNELS）优先报 SDK 的导入路径：通道插件只依赖 SDK
-    for module_name in ("movieclaw_sdk.channels", *MODULES):
+    # SDK 里定义的契约（IM_CHANNELS、HOST_OPS、AGENT、PLUGIN_JOBS、实时事件……）优先报 SDK 的导入路径：
+    # 随带插件包只依赖 SDK，主程序那边的同名对象只是转出
+    sdk = (
+        "movieclaw_sdk.channels",
+        "movieclaw_sdk.callbacks",
+        "movieclaw_sdk.ops",
+        "movieclaw_sdk.agent",
+        "movieclaw_sdk.jobs",
+        "movieclaw_sdk.library",
+        "movieclaw_sdk.downloaders",
+    )
+    for module_name in (*sdk, *MODULES):
         module = importlib.import_module(module_name)
         for var, value in vars(module).items():
             if (

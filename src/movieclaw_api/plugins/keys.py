@@ -13,7 +13,8 @@ from typing import Any
 
 from movieclaw_kernel import RegistryKey, ServiceKey, Stability
 
-# IM 通道注册表定义在 SDK（通道插件只依赖 SDK），这里转出给主程序沿用
+# 开放给插件的契约定义在 SDK（随带插件包只依赖 SDK），这里转出给主程序沿用
+from movieclaw_sdk.agent import AGENT as AGENT
 from movieclaw_sdk.callbacks import PLUGIN_CALLBACKS as PLUGIN_CALLBACKS
 from movieclaw_sdk.channels import IM_CHANNELS as IM_CHANNELS
 from movieclaw_sdk.ops import HOST_OPS as HOST_OPS
@@ -36,14 +37,6 @@ PLUGIN_DATA: ServiceKey[Any] = ServiceKey(
     "plugin-data",
     stability=Stability.EXPERIMENTAL,
     doc="插件数据：插件自己的状态与挂在实体上的扩展字段（只能读写自己的）",
-)
-AGENT: ServiceKey[Any] = ServiceKey(
-    "agent",
-    stability=Stability.EXPERIMENTAL,
-    doc=(
-        "AI 助手：插件经用户授权驱动 Agent 跑一轮对话，"
-        "同步等结果或逐事件流式消费（只看得到自己的会话）"
-    ),
 )
 PLUGIN_HEALTH: ServiceKey[Any] = ServiceKey(
     "plugin-health",

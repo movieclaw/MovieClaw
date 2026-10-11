@@ -13,7 +13,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
 from pydantic import Field
 
 from movieclaw_api.api.deps import require_admin
@@ -547,7 +547,11 @@ async def rollback_package(entry_id: str, request: Request) -> ApiResponse[Packa
     openapi_extra={"x-cli-dangerous": "confirm"},
 )
 async def uninstall_package(
-    entry_id: str, request: Request, purge_data: bool = False
+    entry_id: str,
+    request: Request,
+    purge_data: bool = Query(
+        default=False, description="连同插件数据、界面保存的设置与私有目录一起删除（默认保留）"
+    ),
 ) -> ApiResponse[PackageUninstallView]:
     try:
         result = await _packages(request).uninstall(entry_id, purge_data=purge_data)
@@ -613,7 +617,9 @@ async def switch_plugin(
 async def uninstall_bundled(
     entry_id: str,
     request: Request,
-    purge_data: bool = False,
+    purge_data: bool = Query(
+        default=False, description="连同插件数据、界面保存的设置与私有目录一起删除（默认保留）"
+    ),
     principal: Principal = Depends(require_admin),
 ) -> ApiResponse[BundledUninstallView]:
     from movieclaw_api.core.config import get_settings

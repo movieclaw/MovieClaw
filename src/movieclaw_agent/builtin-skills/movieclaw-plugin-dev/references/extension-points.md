@@ -12,7 +12,7 @@ tests 守着：契约有增删时本文必须同步）。每个都是「实验�
 | 契约 | 什么时候发生 | 典型用途 | 导入 | 示例 |
 |---|---|---|---|---|
 | `download.completed` | 订阅投递的种子下载完成 | 下载完通知、校验、搬运 | `from movieclaw_api.domain_events import DOWNLOAD_COMPLETED` | — |
-| `library.ingest.imported` | 下载条目整理入库完成 | 入库后通知、同步到别处、记账 | `… import LIBRARY_INGEST_IMPORTED` | — |
+| `library.ingest.imported` | 下载条目整理入库完成（载荷 `imported_names` 是整理前的原始文件名：按命名模板改名后 TC、CAM 这类发布标记通常就没了，按发布名判断的看它） | 入库后通知、同步到别处、记账 | `… import LIBRARY_INGEST_IMPORTED` | — |
 | `library.item.deleted` | 一部作品在某个库里的文件全部删除 | 删片联动：删订阅、删种子 | `… import LIBRARY_ITEM_DELETED` | `delete_cascade.py` |
 | `library.file.deleted` | 部分文件被删（删了几集） | 同上，部分删除 | `… import LIBRARY_FILE_DELETED` | `delete_cascade.py` |
 | `library.file.trashed` / `restored` / `purged` | 文件进回收站 / 恢复 / 彻底清除 | 回收站联动 | `… import LIBRARY_FILE_TRASHED` 等 | — |
@@ -20,6 +20,10 @@ tests 守着：契约有增删时本文必须同步）。每个都是「实验�
 | `subscription.download-started` | 订阅的种子真实提交下载器 | 下载开始提醒 | `… import SUBSCRIPTION_DOWNLOAD_STARTED` | — |
 | `subscription.fulfilled` | 订阅的季集已确认入库 | 收齐提醒、外部片单打勾 | `… import SUBSCRIPTION_FULFILLED` | — |
 | `subscription.status-changed` | 追踪中 / 已收齐 / 暂停 | 状态同步 | `… import SUBSCRIPTION_STATUS_CHANGED` | — |
+
+**「新文件入库后做事」选哪个**：只关心下载后整理入库的、而且必须每次都处理 → 可靠事件 `library.ingest.imported`
+（带原始文件名）；手动扫描、实时监控进库的也要覆盖 → 实时事件 `library.files.added`（只有文件 id，标题、路径用宿主操作查；
+可能漏，要能按库里的事实补做）。两个都要时可以都订阅、用插件数据按文件 id 去重。
 
 **实时事件**：发完即忘（插件不在、积压满了就丢），不用 inject `DURABLE_EVENTS`。只适合「现在值得做点什么」的提示，
 该做的事要能从数据库里的事实补回来（例如按待探列表补探）。
@@ -65,14 +69,14 @@ tests 守着：契约有增删时本文必须同步）。每个都是「实验�
 
 | 契约 | 作用 | 导入 | 示例 |
 |---|---|---|---|
-| `host-ops` | 以插件身份调用系统操作（与 mclaw 同一份目录，`subscriptions.create` ↔ `mclaw subscriptions create`），只能调批准过的 | `from movieclaw_api.plugins.keys import HOST_OPS` | `watchlist_feed.py`、`delete_cascade.py` |
-| `plugin-data` | 插件自己的键值状态；可挂在实体上（`entity_scope("subscription", id)`）；`secret=True` 加密 | `… import PLUGIN_DATA` | `keyword_rules.py` |
+| `host-ops` | 以插件身份调用系统操作（与 mclaw 同一份目录，`subscriptions.create` ↔ `mclaw subscriptions create`），只能调批准过的 | `from movieclaw_sdk.ops import HOST_OPS` | `watchlist_feed.py`、`delete_cascade.py` |
+| `plugin-data` | 插件自己的键值状态；可挂在实体上（`entity_scope("subscription", id)`）；`secret=True` 加密 | `from movieclaw_api.plugins.keys import PLUGIN_DATA` | `keyword_rules.py` |
 | `plugin-files` | 读写用户批准的目录；插件私有目录总能用；路由里交出文件 | `… import PLUGIN_FILES` | `cloud_strm.py` |
 | `plugin-routes` | 开接口：`/api/v1/plugins/<id>/…`，管理员 / 成员 / 签名公开三区，可签发不过期链接。**接口会自动成为 mclaw 命令**，AI 助手也能调 | `… import PLUGIN_ROUTES` | `cloud_strm.py`、`templates/starter/` |
 | `plugin-health` | 常驻任务报告降级 / 恢复，降级进系统通知与诊断 | `… import PLUGIN_HEALTH` | — |
-| `plugin-jobs` | 建自己的后台任务（只能建自己登记的任务类型）：`ctx.use(PLUGIN_JOBS).scoped(ctx).create("<id>:sync", input=…, priority=…, dedupe_key=…)`，同去重键还在进行的直接返回它；优先级高的先领 | `from movieclaw_sdk.jobs import PLUGIN_JOBS` | `$SRC/movieclaw_sdk/jobs.py` 文件头 |
+| `plugin-jobs` | 建自己的后台任务（只能建自己登记的任务类型）：`ctx.use(PLUGIN_JOBS).scoped(ctx).create("<id>:sync", input=…, priority=…, dedupe_key=…)`，同去重键还在进行的直接返回它；优先级高的先领 | `from movieclaw_sdk.jobs import PLUGIN_JOBS` | `recipes.md` 第 7、16 节、`$SRC/movieclaw_plugins/strm_prefetch/` |
 | `plugin-callbacks` | 回调端点：外部平台（企业微信、GitHub、Slack、Telegram……）能直接调进来的地址，请求原样交给插件，**插件自己验签**；清单 `callbacks` 声明端点名 | `from movieclaw_sdk.callbacks import PLUGIN_CALLBACKS` | `recipes.md` 第 14 节 |
-| `agent` | 驱动 AI 助手跑一轮对话：`ask` 同步等结果，`start` 后 `events()` 逐事件流式（可续传）；只看得到自己建的会话。权限串 `agent:none` / `agent:mclaw` / `agent:full`（工具档位，插件包最高 `mclaw`），用户批准才生效 | `from movieclaw_api.plugins.keys import AGENT` | `recipes.md` 第 15 节 |
+| `agent` | 驱动 AI 助手跑一轮对话：`ask` 同步等结果，`start` 后 `events()` 逐事件流式（可续传）；只看得到自己建的会话。权限串 `agent:none` / `agent:mclaw` / `agent:full`（工具档位，插件包最高 `mclaw`），用户批准才生效 | `from movieclaw_sdk.agent import AGENT` | `recipes.md` 第 15 节、`examples/go-a2a-bridge/` |
 | `kernel/durable-events` | 可靠事件的投递（监听可靠事件时 inject 它） | `from movieclaw_kernel import DURABLE_EVENTS` | `delete_cascade.py` |
 
 另有 `movieclaw_sdk.net.http_transport("<服务名>")`：连外网按用户的代理设置走（清单写 `network = true`）。

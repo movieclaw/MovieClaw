@@ -90,8 +90,7 @@ ctx.on(hooks.DOWNLOADER_SELECT, pick)
 ## 3. 调用宿主操作
 
 ```python
-from movieclaw_api.plugins.keys import HOST_OPS
-from movieclaw_sdk.ops import OpsError
+from movieclaw_sdk.ops import HOST_OPS, OpsError
 
 @plugin("my-plugin", title="…", inject=(HOST_OPS,), permissions=("search.titles", "subscriptions.create"))
 async def apply(ctx: Context) -> None:
@@ -194,19 +193,55 @@ ctx.contribute(SCHEDULED_TASKS, "cleanup", TaskDefinition(
 
 ## 7. 持久化任务与入库流水线
 
-耗时、要断点续传 / 进度 / 重试的工作做成持久化任务；挂到入库流水线的槽位上，每批暂存完成的文件建一个任务。
+耗时、要断点续传 / 进度 / 重试 / 能在任务中心看到和取消的工作做成持久化任务：插件登记**处理器**，
+需要时用 `PLUGIN_JOBS` **自己建任务**；排队、按优先级领取、重启后接着跑、在任务中心展示都由主程序负责。
+
+```python
+from movieclaw_sdk.jobs import (
+    JOB_HANDLERS, PLUGIN_JOBS, JobBlocked, JobContext, JobRetry, RegisteredJobHandler, ResourceRef,
+)
+
+SYNC = "my-sync:sync"   # 任务类型一律写全「<插件 id>:<名字>」：建任务、登记处理器用同一个字符串
+
+async def sync(context: JobContext, data: dict) -> dict:
+    total = len(data["items"])
+    done = (await context.current_progress()).get("current") or 0   # 断点：重启后从这里接着做
+    for index in range(done, total):
+        await context.raise_if_cancelled()          # 每一步之间检查取消（插件停用 / 卸载会取消它的任务）
+        ...                                         # 临时失败 raise JobRetry("…", delay_seconds=60)；要用户处理 raise JobBlocked("…")
+        if index + 1 == total or context.progress_due():
+            await context.update_progress(mode="determinate", phase="sync", message=f"已同步 {index + 1} 个",
+                                          current=index + 1, total=total)
+    return {"synced": total}
+
+@plugin("my-sync", title="同步", inject=(PLUGIN_JOBS,))
+async def apply(ctx: Context) -> None:
+    # title 是任务中心里显示的名字（不写就显示原始类型）
+    ctx.contribute(JOB_HANDLERS, SYNC, RegisteredJobHandler(sync, frozenset({1}), title="同步收藏"))
+    jobs = ctx.use(PLUGIN_JOBS).scoped(ctx)
+    ref = await jobs.create(
+        SYNC,
+        input={"items": [...]},                     # 不能放密钥（被拒）；放配置引用
+        subject="沙丘2",                            # 可选：任务中心的标题（做的是谁，如片名）；不写就显示 title
+        priority=-10,                               # 后台慢慢做用负数；要插队的用 0（高的先被领取）
+        dedupe_key="all",                           # 同一去重键还在进行时直接返回它（ref.created 为 False）
+        resources=[ResourceRef("media_item", 42, "context")],   # 任务中心按它归到条目下；"target" 会独占加锁
+    )
+```
+
+- 只能建**自己登记的**任务类型；去重键只在本插件内有效。
+- 清单 `[requires]` 写 `"job-handlers" = "^1.1"`（用了 `title`）；`PLUGIN_JOBS` 是服务，写进 `inject` 即可。
+- 任务里别 `asyncio.sleep` 很久不检查取消：要歇就分段歇、每段之间 `await context.cancel_requested()`。
+- 停用 / 卸载插件时它的活动任务会被取消；去重拿回来的若是 `status == "cancelling"` 的旧任务，等它结束再建
+  （否则它一结束就没有下一轮了）。
+
+挂到入库流水线的槽位上，每批暂存完成的文件由系统建一个任务：
 
 ```python
 from movieclaw_api.pipeline import INGEST_STEPS, IngestStep
-from movieclaw_api.services.jobs import JOB_HANDLERS, JobBlocked, JobContext, JobRetry, RegisteredJobHandler
 
-async def upload(context: JobContext, data: dict) -> dict:
-    # 临时失败 raise JobRetry("…", delay_seconds=60)；需要用户处理 raise JobBlocked("…")
-    await context.update_progress(mode="determinate", phase="upload", message="…", current=1, total=3)
-    return {"done": True}
-
-ctx.contribute(JOB_HANDLERS, "upload", RegisteredJobHandler(upload, frozenset({1})))
-ctx.contribute(INGEST_STEPS, "upload", IngestStep(job_type=f"{ctx.entry_id}:upload", title="上传网盘"))
+ctx.contribute(JOB_HANDLERS, "my-cloud:upload", RegisteredJobHandler(upload, frozenset({1}), title="上传网盘"))
+ctx.contribute(INGEST_STEPS, "upload", IngestStep(job_type="my-cloud:upload", title="上传网盘"))
 ```
 
 入库流水线步骤的前提（缺一个就不会触发，给用户方案时先用 mclaw 查齐）：
@@ -215,7 +250,7 @@ ctx.contribute(INGEST_STEPS, "upload", IngestStep(job_type=f"{ctx.entry_id}:uplo
 - 文件归哪个媒体库由系统按收藏范围决定，`library_id` 可能为空（`mclaw library list`）；
 - 要写出可从外面访问的链接（如 strm 里的播放地址），先设好外部访问地址（`mclaw app show` / `app set --help`）。
 
-示例：`references/examples/cloud_strm.py`。
+示例：`references/examples/cloud_strm.py`（入库流水线）；`$SRC/movieclaw_plugins/strm_prefetch/`（自己建任务、插队）。
 
 ## 8. 读写文件
 
@@ -407,47 +442,148 @@ def wecom_decrypt(encrypted: str, aes_key: str) -> bytes:   # EncodingAESKey；A
 插件可以让 AI 助手跑一轮对话，同步等结果或逐事件流式消费。典型用法是协议适配：插件开一个接口，
 把对端的请求转成一轮对话，再把回复（含流式）转回对端格式。
 
+**先定对端怎么进来**（最关键的取舍；用户已经说清「只聊天」或「要它操作」的直接按对应行做，没说的给方案时讲清、让用户选）：
+
+| 对端要做什么 | 接口挂在 | 对端拿什么调 | 说明 |
+|---|---|---|---|
+| **只聊天**（闲聊、凭模型自己的知识推荐，不查也不动系统） | 公开区 `zone="public"` | 插件签发的**签名链接** | 最小权限：公开区里的调用一律不带工具（**查不了片库、订阅、下载**），链接泄露也动不了系统；用一条管理员区接口把链接交给用户（`mclaw plugins <id> link`） |
+| 要让 AI 助手**查或替它操作**（问片库、建订阅、查下载） | 管理员区 `zone="admin"` | 用户在网页建的**个人令牌** | 令牌等于管理员权限，只给完全信任的系统；工具档位按授权 `agent:mclaw` |
+
 ```python
-from fastapi import APIRouter, HTTPException
+import json
+
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import StreamingResponse
+from pydantic import BaseModel
 
-from movieclaw_api.plugins.keys import AGENT, PLUGIN_ROUTES
+from movieclaw_api.plugins.keys import PLUGIN_DATA, PLUGIN_ROUTES
 from movieclaw_sdk import plugin
-from movieclaw_sdk.agent import AgentBusy, AgentNotGranted
+from movieclaw_sdk.agent import (
+    AGENT, AgentBusy, AgentNotGranted, AgentSessionNotFound, AgentUnavailable,
+)
 
-@plugin("acme-bridge", inject=(AGENT, PLUGIN_ROUTES), permissions=("agent:mclaw",))
+PLUGIN_ID = "acme-chat"
+
+
+class Ask(BaseModel):          # 请求体模型放模块顶层（第 5 节）
+    text: str
+    session_id: str | None = None
+
+
+@plugin(PLUGIN_ID, title="外部聊天接口", inject=(AGENT, PLUGIN_ROUTES, PLUGIN_DATA),
+        permissions=("agent:none",))   # 只聊天
 async def apply(ctx):
     agent = ctx.use(AGENT).scoped(ctx)
-    router = APIRouter()
+    routes = ctx.use(PLUGIN_ROUTES)
+    store = ctx.use(PLUGIN_DATA).scoped(ctx)
+    public, admin = APIRouter(), APIRouter()
 
-    @router.post("/ask", operation_id="plugins.acme-bridge.ask")
-    async def ask(body: dict):
+    async def check_version(request: Request) -> None:
+        # 链接里带一个插件自己存的版本号：换版本号，旧链接全部作废（签名本身不能单独吊销）
+        if request.query_params.get("v") != str(await store.get("link_version", default=1)):
+            raise HTTPException(404)
+
+    async def begin(body: Ask):
+        """开始一轮；把异常翻成 HTTP 状态（流式接口必须在开始推流**之前**处理完）。"""
         try:
-            reply = await agent.ask(body["text"], session_id=body.get("session_id"), timeout=120)
-        except AgentBusy as exc:
+            return await agent.start(body.text, session_id=body.session_id, tools="none",
+                                     instructions="你在回答外部系统，回复要简洁。")
+        except AgentBusy as exc:                 # 这个会话正在跑 / 本插件已有 2 轮：不排队
             raise HTTPException(409, str(exc))
+        except AgentSessionNotFound:             # 对端带了不存在（或不是本插件建）的 session_id
+            raise HTTPException(404, "会话不存在")
+        except (AgentUnavailable, AgentNotGranted) as exc:   # 没配模型供应商 / 没授权
+            raise HTTPException(503, str(exc))
+
+    @public.post("/ask", operation_id=f"plugins.{PLUGIN_ID}.ask")
+    async def ask(body: Ask, request: Request):
+        await check_version(request)
+        reply = await (await begin(body)).result(120)        # 同步：等这一轮跑完（超时取消）
         return {"session_id": reply.session_id, "status": reply.status, "text": reply.text}
 
-    @router.post("/stream", operation_id="plugins.acme-bridge.stream")
-    async def stream(body: dict):
-        turn = await agent.start(body["text"], instructions="你在回答外部系统，回复要简洁。")
+    @public.post("/stream", operation_id=f"plugins.{PLUGIN_ID}.stream")
+    async def stream(body: Ask, request: Request):
+        await check_version(request)
+        turn = await begin(body)
 
         async def frames():
             async for event in turn.events():          # text / tool / done / error / cancelled
-                yield f"event: {event.type}\ndata: {event.model_dump_json()}\n\n"
+                if event.type == "text":               # 只转增量文字和终态，不把内部字段原样给对端
+                    yield f"event: text\ndata: {json.dumps({'delta': event.delta}, ensure_ascii=False)}\n\n"
+                elif event.reply is not None:
+                    data = {"session_id": event.reply.session_id, "text": event.reply.text}
+                    yield f"event: {event.type}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
         return StreamingResponse(frames(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache, no-transform"})
 
-    ctx.use(PLUGIN_ROUTES).mount(ctx, router, zone="admin")
+    @admin.get("/link", operation_id=f"plugins.{PLUGIN_ID}.link")
+    async def link():
+        """签名绑定路径：每个公开接口各签一条。"""
+        v = {"v": str(await store.get("link_version", default=1))}
+        try:
+            return {path: await routes.sign(ctx, f"/{path}", params=v, absolute=True)
+                    for path in ("ask", "stream")}
+        except ValueError:                             # 没配外部访问地址：给相对地址，提醒用户拼上
+            return {path: await routes.sign(ctx, f"/{path}", params=v) for path in ("ask", "stream")}
+
+    @admin.post("/rotate-link", operation_id=f"plugins.{PLUGIN_ID}.rotate-link")
+    async def rotate():
+        await store.set("link_version", int(await store.get("link_version", default=1)) + 1)
+        return await link()
+
+    routes.mount(ctx, public, zone="public")
+    routes.mount(ctx, admin, zone="admin")
 ```
 
-- **授权**：清单 `permissions.operations` 写 `agent:none`（纯对话）或 `agent:mclaw`（可调服务操作）；
-  插件包不能申请 `agent:full`。用户批准时它被标为危险项。代表成员运行（`act_as`）的插件不能用。
+- **授权**：清单 `permissions.operations` 写 `agent:none`（纯对话）或 `agent:mclaw`（可调服务操作），与
+  `@plugin(permissions=...)` 一致；插件包不能申请 `agent:full`。用户批准时它被标为危险项。代表成员运行（`act_as`）的插件不能用。
+- **先查模型**：服务器没接入模型供应商时每次都报 `AgentUnavailable`；给方案前用 `mclaw llm providers list` 查。
+  没接不影响写代码和本地检查，在征求安装同意的那一轮提醒用户先去「设置 → 模型接入」配好。
+- **外部访问地址**：`mclaw app show` 看 `external_url`；为空时签出来的是相对链接，告诉用户对端要自己在前面补上
+  MovieClaw 的地址（如 `http://NAS的IP:3000`），或者去「设置 → 应用」填好外部访问地址。
+- **签名绑定路径**：每个公开接口要单独签一条链接，拿 `/ask` 的链接去调 `/stream` 会 404。
+- **自测**：转换逻辑（拼帧、解析对端请求）写成纯函数在 bash 里自测；接口本身装好后用 `mclaw plugins <id> link`
+  取链接、`curl` 实调验证（没配模型时应得到 503 和「请先接入模型」的提示）。
 - **会话**：插件建的会话只归它自己，`agent.sessions()` 列出、`session_id=` 续写、`agent.delete()` 删除；
   外部协议的会话标识（如 A2A 的 contextId）和 `session_id` 的对应关系存进插件数据。
 - **流式**：`turn.events(after=上次的 seq)` 续传；迭代器关了不会取消运行（对端断线后可以 `agent.attach(session_id)`
   重新订阅），要取消显式 `await turn.cancel()`。工具的参数和输出不给插件。
 - **护栏**：同时最多 2 轮，满了报 `AgentBusy`（不排队）；挂在成员区、公开区路由或回调端点里的调用一律不带工具；
   由 AI 助手引起的调用（例如 AI 助手调了你的接口）不能再发起 AI 助手，报 `AgentNotGranted`。
+- 回调端点（第 14 节）要在 10 秒内答复，不适合等一轮对话；外部平台推消息进来要 AI 回复的，回调里先应答、
+  再用 `ctx.task` 跑对话并经平台的发送接口回复。
 
+## 16. 实时事件：用户正要用的先准备好
+
+`movieclaw_sdk.library` 的四个实时事件（新文件入账、开始播放、收藏、打开详情）发完即忘：插件不在、积压满了
+就丢。适合「现在值得提前做点什么」——预取下一集、先准备好要看的条目。**漏了不能出错**：该做的事要能从
+数据库里的事实补回来（定时或启动时按待办补做），事件只负责让相关的先做。
+
+```python
+from movieclaw_sdk.library import LIBRARY_FILES_ADDED, PLAYBACK_STARTED, FilesAdded, PlaybackStarted
+
+@plugin("my-prefetch", title="预取", inject=(PLUGIN_JOBS,))
+async def apply(ctx: Context) -> None:
+    jobs = ctx.use(PLUGIN_JOBS).scoped(ctx)
+
+    async def on_play(event: PlaybackStarted) -> None:
+        # 插队：只排一个高优先级的小任务，监听器里不做耗时的事
+        await jobs.create("my-prefetch:item", priority=0,
+                          input={"media_item_id": event.media_item_id, "after_episode": event.episode},
+                          dedupe_key=f"item:{event.media_item_id}:{event.season}")
+
+    async def on_added(event: FilesAdded) -> None:
+        await jobs.create("my-prefetch:backfill", priority=-10, dedupe_key="backfill")   # 慢慢补
+
+    ctx.on(PLAYBACK_STARTED, on_play, id="play")      # 不用 inject DURABLE_EVENTS（那是可靠事件的）
+    ctx.on(LIBRARY_FILES_ADDED, on_added, id="added")
+```
+
+- 清单 `[requires]` 写用到的事件，如 `"playback.started" = "^1.0"`。
+- 和可靠事件的分别：可靠事件（第 1 节）随业务提交写库、至少投递一次，适合「发生了就必须处理」的事（删片联动）；
+  实时事件不落库、不重投，适合提示。
+- 载荷是快照、字段少（条目 / 季集 / 文件 id、成员）：要标题等更多信息用宿主操作查。
+
+完整示例：`$SRC/movieclaw_plugins/strm_prefetch/`（网盘规格预探：后台补探 + 播放 / 收藏 / 打开详情时插队，
+探测本身调宿主操作 `library.strm.*`）。

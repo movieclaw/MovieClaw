@@ -16,6 +16,7 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 **先分流**：
 
 - 用户只是问插件是什么、要批准什么、安不安全、怎么卸载 → 读 `references/explaining-to-users.md` 照着答，不走开发流程。
+- 用户要停用 / 启用 / 卸载 / 恢复某个插件（含官方插件）→ 第 3 节第 12 步，不走开发流程。
 - 用户只是想「做一次某件事」（建订阅、删种子、扫媒体库）→ 直接用 `mclaw` 工具，不要写插件。
 - 想要的效果**已有功能或设置**能做到 → 用现有的，不要写插件。先按下表查；查到「已有但只覆盖一部分」时，
   先讲清已有的能做到哪、剩下的部分能不能用插件补。
@@ -88,6 +89,8 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 | 事件 / 钩子类（删片联动、关键字规则、选下载器） | `references/recipes.md` 第 1～3 节，对应示例 `references/examples/{delete_cascade,keyword_rules}.py` |
 | IM 通道 | `references/recipes.md` 第 11 节（**选接入方式**）、`references/examples/ntfy-channel/`、`$SRC/movieclaw_sdk/channels.py` 文件头；只推送的通道再看 `$SRC/movieclaw_plugins/feishu/`；靠平台回调收消息的看 `references/examples/wecom-channel/` |
 | 定时 / 后台任务、入库流水线 | `references/recipes.md` 第 6～7 节、`references/examples/{watchlist_feed,cloud_strm}.py` |
+| 用户正要用的先准备好（开始播放预取下一集、收藏 / 打开详情先处理、新文件入库后慢慢补） | `references/recipes.md` 第 7、16 节（实时事件 + 插件自己建后台任务），完整示例 `$SRC/movieclaw_plugins/strm_prefetch/` |
+| 驱动 AI 助手（把外部协议 / 平台的请求转成一轮对话、自动化） | `references/recipes.md` 第 15 节（**先定对端怎么进来**：只聊天用公开区签名链接，要操作系统才用管理员区 + 令牌；先 `mclaw llm providers list` 确认接了模型）；非 Python 写法看 `references/examples/go-a2a-bridge/` |
 | 接收外部平台的回调 | `references/recipes.md` 第 14 节 |
 | 开接口（含给 AI 助手加能力）、读写文件 | `references/recipes.md` 第 5、8、10 节、`templates/starter/`、`references/examples/cloud_strm.py` |
 | 插件需要用户填的配置或凭据（账号、地址、Key） | `references/recipes.md` 第 13 节 |
@@ -153,6 +156,15 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
     `app plugins packages approve <id> --version <版本> --operations-json '<与清单一致>' --paths-json '<与清单一致>' --yes`。
 11. **卸载**：`app plugins packages uninstall <id> --yes`（默认保留插件数据；用户要求清干净才加 `--purge-data`）。卸载后再查一次 `app plugins list`，确认条目已消失；替换内置插件的包卸载后内置版本自动回来。
     回到上一版：`app plugins packages rollback <id> --yes`。
+12. **停用 / 官方插件**：插件包与官方插件（随应用提供的，如通道、下载器、网盘规格预探）都能临时停用：
+    `app plugins switch <id> --enabled=false`（启用：`--enabled=true`；布尔参数必须带 `=`），运行中生效、重启后保持，
+    **停用会取消它排着的后台任务**（插件任务的类型以 `<id>:` 开头，停用前可用 `jobs list --active-only` 看有没有在跑的）。
+    条目 id 从 `app plugins list` 的完整输出里筛：官方插件 `tier` 是 `official`、可停用的 `switchable` 为真
+    （`python -c "import json; d=json.load(open('<文件>')); [print(e['id'], e['title'], e['state']) for e in d['plugins'] if e.get('switchable')]"`）。
+    网页上的位置：「设置 → 插件」，官方插件在最上面一组，点进去「操作」里有停用 / 卸载。
+    官方插件还能卸载：`app plugins bundled uninstall <id> --yes`（加 `--purge-data` 连数据删），随时
+    `app plugins bundled restore <id>` 装回；已卸载的在 `app plugins list` 的 `removed` 里。被 `plugins.yaml` / 环境变量
+    关掉的插件开关是锁住的（`locked_by` 写明原因），要用户去那里改。
 
 命令参数以 `mclaw <命令> --help` 为准，报错时先看 `--help` 再重试。排查：`references/troubleshooting.md`。
 
@@ -160,9 +172,11 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 
 **必须**
 - 清单 `id` = `@plugin` 名字；`entry` 是模块名（`hello.py` 或 `hello/__init__.py` 的 `hello`）。
-- `inject=(...)` **只写服务**（`HOST_OPS`、`PLUGIN_DATA`、`PLUGIN_FILES`、`PLUGIN_ROUTES`、`PLUGIN_HEALTH`、`DURABLE_EVENTS`）。
+- `inject=(...)` **只写服务**（`HOST_OPS`、`PLUGIN_DATA`、`PLUGIN_FILES`、`PLUGIN_ROUTES`、`PLUGIN_HEALTH`、`PLUGIN_JOBS`、
+  `AGENT`、`DURABLE_EVENTS`）。插件包代码优先从 SDK 导入（`movieclaw_sdk.ops` 的 `HOST_OPS`、`movieclaw_sdk.jobs`、
+  `movieclaw_sdk.agent` 的 `AGENT`、`movieclaw_sdk.library` 的实时事件）。
   注册表（如 `IM_CHANNELS`、`SCHEDULED_TASKS`）在 `apply` 里 `ctx.contribute`，事件 / 钩子用 `ctx.on`，**都不写进 inject**；
-  用到的事件 / 钩子 / 注册表写进清单 `[requires]`（如 `"library.ingest.imported" = "^1.0"`）；只用服务时 `[requires]` 可以留空。
+  用到的事件 / 钩子 / 注册表写进清单 `[requires]`（如 `"library.ingest.imported" = "^1.0"`）；服务写不写进 `[requires]` 都行（写了就锁定版本，如 `"plugin-jobs" = "^1.0"`）；只用服务时 `[requires]` 可以留空。
 - 要调用的宿主操作同时写进 `@plugin(permissions=...)` 和清单 `permissions.operations`；
   危险操作（`mclaw` 帮助里带 ⚠ 的）必须逐个列出，不能靠 `领域.*` 覆盖。
 - 可靠事件监听器必须有稳定 `id`（`ctx.on(EVENT, fn, id="xxx")`），并且**幂等**（至少投递一次，同一事件可能来两次）：
@@ -201,8 +215,9 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 - 不可恢复、又有取舍的行为（删种时连数据文件一起删会影响做种和分享率、覆盖文件、批量改订阅）不要替用户定默认值，
   列出选项请用户选。
 - 装好后还要用户给凭据才能用的（通道绑定、外部服务的 Key），在征求安装同意的同一轮里一起说明要准备什么。
-- 卸载、回滚、清除数据：用户已经明确要求的，直接执行并在结果里说明影响，不要再问一遍；
-  是你自己提议的，先说明影响、等用户同意。
+- 停用、卸载、回滚、清除数据：用户已经明确要求的（「帮我关掉 / 不想用了 / 卸了它」），直接执行并在结果里说明影响，
+  不要再问一遍；只是问「能不能关、怎么关」的，讲清办法和影响，问要不要现在做。是你自己提议的，先说明影响、等用户同意。
+  「暂时不用」做停用（随时启用），「不要了」才卸载。
 - 不要把用户的凭据写进插件代码或清单；凭据写进配置模型（`SecretStr`），用户在插件的「设置」里填（`references/recipes.md` 第 13 节）。
 - **绝不设法获取或截获登录凭据**：不读 mclaw 的配置 / 环境变量里的令牌，不用 strace、抓包、本地代理截请求头，
   不绕过鉴权直接 curl 需要登录的接口。mclaw 调不到的接口，就换上面的正规验证方式，或请用户在网页里打开确认。

@@ -2,6 +2,8 @@
 
 插件写法（进程内、进程外一样）::
 
+    from movieclaw_sdk.agent import AGENT
+
     @plugin("acme-a2a", inject=(AGENT,), permissions=("agent:mclaw",))
     async def apply(ctx):
         agent = ctx.use(AGENT).scoped(ctx)
@@ -15,7 +17,8 @@
   工具的参数与输出不给插件（Agent 以管理员身份运行，输出可能含路径等信息）；
 - 迭代器关闭不会取消运行（外部断线后可以 ``attach`` 续上）；要取消显式调 ``cancel()``。
 
-本模块只依赖 pydantic，进程外插件导入它很轻。
+本模块只依赖 pydantic 与插件内核，进程外插件导入它很轻；只依赖 SDK 的插件（随带插件包）
+也从这里取 ``AGENT``。
 """
 
 from __future__ import annotations
@@ -25,12 +28,22 @@ from typing import Any, Literal, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
+from movieclaw_kernel import ServiceKey, Stability
 from movieclaw_sdk import rpc
 
 #: 工具档位，从低到高
 TOOL_TIERS: tuple[str, ...] = ("none", "mclaw", "full")
 #: 授权用的权限串前缀：``agent:<档位>``
 PERMISSION_PREFIX = "agent:"
+
+AGENT: ServiceKey[Any] = ServiceKey(
+    "agent",
+    stability=Stability.EXPERIMENTAL,
+    doc=(
+        "AI 助手：插件经用户授权驱动 Agent 跑一轮对话，"
+        "同步等结果或逐事件流式消费（只看得到自己的会话）"
+    ),
+)
 
 
 class AgentNotGranted(PermissionError):
