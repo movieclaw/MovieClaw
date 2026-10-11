@@ -180,6 +180,7 @@ from movieclaw_playback.streaming import (
     container_mime_type,
     direct_play_byte_patches,
     is_strm,
+    local_strm_container,
     parse_strm,
     register_device_stream,
     strm_redirect_target,
@@ -2002,8 +2003,7 @@ async def stream_library_file(
     # 往下只用已读出的列，不再访问数据库。
     await session.close()
     path = PathLib(file.file_path)
-    media_type = container_mime_type(file.container)
-    size_bytes = None
+    container = file.container
     if is_strm(file.file_path):
         try:
             source = parse_strm(file.file_path)
@@ -2016,11 +2016,10 @@ async def stream_library_file(
                 # 播放器自己取不了，服务端按 Range 原样转发
                 return _metered_relay_response(request, grant, file, source)
             return RedirectResponse(target, status_code=302)
-        # 指向挂载目录里的文件：往下与本地文件同样直出（台账的大小是 strm 文本的，没探过
-        # 规格时容器也是空的，都按真实文件来）
+        # 指向挂载目录里的文件：往下与本地文件同样直出
         path = source
-        media_type = container_mime_type(file.container or path.suffix)
-        size_bytes = path.stat().st_size
+        container = local_strm_container(file.container, path)
+    media_type = container_mime_type(container)
     if file.is_disc() and (file.container or "") != "iso":
         # 原盘目录只有单剪辑主片才有「原文件」可直出（disc-playback.md §3.3）。多剪辑由
         # 能读目录的播放器走目录直推（下面的 /disc 接口），其余客户端在决策层已被导向
@@ -2034,8 +2033,10 @@ async def stream_library_file(
         media_type = container_mime_type("m2ts")
     if not path.exists():
         raise NotFoundException("文件已不在磁盘上")
+    # strm 指向的本地文件：台账的大小是 strm 文本的，按真实文件
+    size_bytes = path.stat().st_size if is_strm(file.file_path) else None
     # hev1 标签的 HEVC MP4 在 Safari 上直出必败，流里把标签改成 hvc1（#430）
-    byte_patches = await direct_play_byte_patches(path, file.container, file.video_codec)
+    byte_patches = await direct_play_byte_patches(path, container, file.video_codec)
     return _metered_file_response(
         request, grant, file, path, media_type, byte_patches=byte_patches, size_bytes=size_bytes
     )

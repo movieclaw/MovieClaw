@@ -147,6 +147,8 @@ class _Ecosystem:
         elif path.startswith("/static/http/"):  # CD2：路径整段编码在最后，自己出字节
             assert "%2F" in raw, raw  # 编码过的斜杠必须原样到达
             self._serve(h, path.rpartition("/")[2], head=head)
+        elif path == "/weird/ftp":  # 内网服务跳到非 http 地址
+            redirect("ftp://ftp.example.com/a.mkv")
         elif path.startswith("/smartstrm/"):
             expected = "Basic " + base64.b64encode(b"user:p@ss").decode()
             if h.headers.get("Authorization") != expected:
@@ -314,6 +316,30 @@ def test_credentials_in_a_public_url_are_never_handed_to_the_player(client, tmp_
     assert resp.status_code != 302
 
 
+def test_follow_verdict_is_reused_across_range_requests(client, tmp_path, eco):
+    """拖进度一次就是几条 Range 请求：同一个播放器只问一次内网服务；换个 UA（直链与 UA 绑定）
+    要重新问。"""
+    eco.add(_NAME, BODY, pickcode=_PC)
+    file_id = seed(
+        client, tmp_path, container="mp4", strm=True, strm_url=f"{eco.base}?pickcode={_PC}"
+    )
+    url = start_session(client, file_id)["stream_url"]
+    for rng in ("bytes=0-99", "bytes=500-599", "bytes=1000-"):
+        resp = client.get(
+            url, headers={"Range": rng, "User-Agent": "VidHub/2"}, follow_redirects=False
+        )
+        assert resp.status_code == 302
+    assert [r.ua for r in eco.requests_to("/?pickcode=")] == ["VidHub/2"]
+    other = client.get(url, headers={"User-Agent": "SenPlayer/6"}, follow_redirects=False)
+    assert eco.sig(_NAME, "SenPlayer/6") in other.headers["location"]
+    assert [r.ua for r in eco.requests_to("/?pickcode=")] == ["VidHub/2", "SenPlayer/6"]
+
+
+def test_lan_redirect_to_a_non_http_scheme_is_not_handed_to_the_player(client, tmp_path, eco):
+    resp = _play(client, tmp_path, f"{eco.base}/weird/ftp")
+    assert resp.status_code != 302 and "ftp://" not in resp.headers.get("location", "")
+
+
 def test_lan_302_service_down_falls_back_to_relay_and_reports_bad_gateway(client, tmp_path):
     resp = _play(
         client,
@@ -416,6 +442,20 @@ def test_local_path_strm_is_served_like_a_local_file(client, tmp_path, mount, fo
     assert resp.headers["content-range"] == f"bytes 0-99/{len(BODY)}"
 
 
+def test_unprobed_local_path_strm_is_served_with_the_real_container(client, tmp_path, mount):
+    """没探过规格（台账容器记的是 strm、探测也失败了）：按真实文件的扩展名给 Content-Type。"""
+    file_id = seed(client, tmp_path, container="strm", codec=None, strm=True, strm_url=str(mount))
+    resp = client.get(start_session(client, file_id)["stream_url"], headers={"Range": "bytes=0-9"})
+    assert resp.status_code == 206 and resp.headers["content-type"] == "video/x-matroska"
+
+
+def test_huge_binary_file_named_strm_is_rejected_without_reading_it_all(tmp_path):
+    strm = tmp_path / "oops.strm"
+    strm.write_bytes(b"\x00\xff" * (8 << 20))  # 16 MB 二进制
+    with pytest.raises(StrmError):
+        parse_strm(strm)
+
+
 def test_local_path_strm_full_read(client, tmp_path, mount):
     file_id = seed(client, tmp_path, container="mp4", strm=True, strm_url=str(mount))
     resp = client.get(start_session(client, file_id)["stream_url"])
@@ -467,6 +507,10 @@ def test_local_path_strm_remux_reads_the_mount_file_directly(client, tmp_path, m
         ("/CloudNAS/115/不存在.mkv", "找不到"),
         ("file://otherhost/a.mkv", "别的主机"),
         ("#EXTM3U\n# 只有注释", "没有播放地址"),
+        ("http://[bad/a.mkv", "地址格式不对"),
+        ("http://pan.example.com:99999/a.mkv", "地址格式不对"),
+        ("http://nas\u3000x/a.mkv", "地址格式不对"),  # 主机名里有全角空格
+        ("/mnt/a\x00b.mkv", "找不到"),  # 误起名成 .strm 的二进制文件里有 NUL
     ],
 )
 def test_unusable_strm_is_rejected_with_a_reason(client, tmp_path, content, reason):

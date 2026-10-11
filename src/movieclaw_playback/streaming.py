@@ -21,6 +21,7 @@ import ipaddress
 import logging
 import os
 import re
+import time
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -54,6 +55,8 @@ _LOCAL_TARGET_EXTS = frozenset(
         ".mpg", ".mpeg", ".m4v", ".webm", ".iso",
     }
 )  # fmt: skip
+#: strm 只读开头这么多字节：真 strm 是一两行文本，误起名成 .strm 的大文件不能整个读进内存
+_STRM_MAX_BYTES = 64 * 1024
 _URI_SCHEME = re.compile(r"^([A-Za-z][A-Za-z0-9+.-]*)://")
 _WINDOWS_PATH = re.compile(r"^(?:[A-Za-z]:[\\/]|\\\\)")
 
@@ -575,7 +578,8 @@ def parse_strm(file_path: str | Path) -> StrmLink | Path:
     """
     path = Path(file_path)
     try:
-        data = path.read_bytes()
+        with path.open("rb") as f:
+            data = f.read(_STRM_MAX_BYTES)
     except OSError as exc:
         raise StrmError(f"strm 文件读取失败（{exc.strerror or exc}）") from exc
     try:
@@ -605,6 +609,11 @@ def parse_strm(file_path: str | Path) -> StrmLink | Path:
                 "共享目录请先挂载到服务器再写挂载路径）"
             )
         url, _, suffix = candidate.partition("|")
+        try:  # 主机、端口写坏了在这里报，别让下游各处抛 500
+            urlsplit(url).port  # noqa: B018
+            httpx.URL(url)
+        except (ValueError, httpx.InvalidURL) as exc:
+            raise StrmError(f"strm 里的地址格式不对（{exc}）：{url}") from exc
         for name, value in parse_qsl(suffix, keep_blank_values=False):
             _add_header(headers, name.strip(), value.strip())
         return StrmLink(url=url, headers=headers)
@@ -635,7 +644,7 @@ def _local_target(written: str, strm_path: Path) -> Path:
         tried.append(str(candidate))
         try:
             target = candidate.resolve(strict=True)
-        except (OSError, RuntimeError):
+        except (OSError, RuntimeError, ValueError):  # ValueError：路径里有 NUL
             continue
         if target.suffix.lower() not in _LOCAL_TARGET_EXTS or not target.is_file():
             raise StrmError(f"strm 指向的不是视频文件：{raw}")
@@ -659,6 +668,14 @@ def resolve_strm(file_path: str | Path) -> StrmLink | Path | None:
 def _add_header(headers: dict[str, str], name: str, value: str) -> None:
     if _HEADER_NAME.match(name) and value and not any(c in value for c in "\r\n"):
         headers[name] = value
+
+
+def local_strm_container(container: str | None, target: Path) -> str:
+    """strm 指向本地文件时的容器：探过规格用台账的，没探过（台账记的是 ``strm``）按真实文件的
+    扩展名。"""
+    if container and container != "strm":
+        return container
+    return target.suffix.lower().lstrip(".")
 
 
 def strm_location(file_path: str | Path) -> str | None:
@@ -711,7 +728,7 @@ def strm_link_status(link: StrmLink) -> int | None:
     headers = {**link.headers, "Range": "bytes=0-0"}
     try:
         with (
-            httpx.Client(follow_redirects=True, timeout=10.0) as client,
+            httpx.Client(follow_redirects=True, timeout=5.0) as client,
             client.stream("GET", link.url, headers=headers) as response,
         ):
             return response.status_code
@@ -753,7 +770,7 @@ def strm_needs_relay(url: str, headers: dict[str, str] | None = None) -> bool:
     parts = urlsplit(url)
     if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
         return False
-    if headers or parts.username:
+    if headers or "@" in parts.netloc:
         return True
     host = parts.hostname.lower()
     try:
@@ -770,6 +787,11 @@ def strm_needs_relay(url: str, headers: dict[str, str] | None = None) -> bool:
 
 #: 替播放器跟跳转最多几跳（alist 的 /d → /p、302 服务 → 网盘 CDN，常见的都在三跳以内）
 _MAX_REDIRECT_HOPS = 5
+#: 跟跳转的结论记多久（秒）：播放器拖进度一次就是几条 Range 请求，不该每条都再问一遍内网服务；
+#: 网盘直链的时效以小时计，一分钟内复用不会过期
+_REDIRECT_TTL_S = 60.0
+_REDIRECT_CACHE_MAX = 256
+_redirect_cache: dict[tuple[str, str | None], tuple[float, str | None]] = {}
 
 
 async def strm_redirect_target(link: StrmLink, user_agent: str | None) -> str | None:
@@ -781,30 +803,44 @@ async def strm_redirect_target(link: StrmLink, user_agent: str | None) -> str | 
     过去，整片不经服务器——go-emby2openlist、MediaWarp 一类 302 反代同一思路。一路都是
     内网、或者内网服务自己出字节（alist 本地代理、CD2 ``/static``）才转发。strm 写了请求头
     的一律转发：302 出去的播放器不会带这些头。只取响应头：带 ``Range: bytes=0-0``，
-    自己出字节的服务也只回一个字节。
+    自己出字节的服务也只回一个字节。结论按（地址, UA）记一分钟。
     """
     if not strm_needs_relay(link.url, link.headers):
         return link.url
     if link.headers or urlsplit(link.url).scheme.lower() not in {"http", "https"}:
         return None
+    key = (link.url, user_agent)
+    cached = _redirect_cache.get(key)
+    if cached is not None and cached[0] > time.monotonic():
+        return cached[1]
+    target = await _follow_to_reachable(link, user_agent)
+    if len(_redirect_cache) >= _REDIRECT_CACHE_MAX:
+        _redirect_cache.clear()
+    _redirect_cache[key] = (time.monotonic() + _REDIRECT_TTL_S, target)
+    return target
+
+
+async def _follow_to_reachable(link: StrmLink, user_agent: str | None) -> str | None:
     headers = {"Range": "bytes=0-0"}
     if user_agent:
         headers["User-Agent"] = user_agent
     url = httpx.URL(link.url)
-    client = httpx.AsyncClient(follow_redirects=False, trust_env=False, timeout=10.0)
+    client = httpx.AsyncClient(follow_redirects=False, trust_env=False, timeout=5.0)
     async with client:
         for _ in range(_MAX_REDIRECT_HOPS):
             try:
                 async with client.stream("GET", url, headers=headers) as response:
                     location = response.headers.get("location") if response.is_redirect else None
-            except httpx.HTTPError as exc:
+                if not location:
+                    return None
+                url = url.join(location)
+                if url.scheme not in ("http", "https"):
+                    return None
+                if not strm_needs_relay(str(url)):
+                    return str(url)
+            except (httpx.HTTPError, httpx.InvalidURL, ValueError) as exc:
                 logger.info("替播放器跟跳转失败，改由服务端转发：%s（%s）", link.url, exc)
                 return None
-            if not location:
-                return None
-            url = url.join(location)
-            if not strm_needs_relay(str(url)):
-                return str(url)
     return None
 
 

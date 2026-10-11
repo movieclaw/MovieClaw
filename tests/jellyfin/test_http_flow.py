@@ -770,6 +770,21 @@ def test_lan_strm_is_presented_as_local_and_relayed(
         server.server_close()
 
 
+async def _reset_strm_spec(strm: Path) -> None:
+    """把 strm 行改成扫描入账时的样子：容器记 ``strm``、没有规格（片子是假字节，探测读不出）。"""
+    from sqlmodel import select
+
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.models import LibraryFile
+
+    async with get_database().session() as session:
+        row = (
+            await session.execute(select(LibraryFile).where(LibraryFile.file_path == str(strm)))
+        ).scalar_one()
+        row.container, row.video_codec = "strm", None
+        await session.commit()
+
+
 def test_local_path_strm_is_presented_and_served_as_a_local_file(
     client: TestClient, seeded: dict, media_root: Path, tmp_path: Path
 ) -> None:
@@ -800,6 +815,14 @@ def test_local_path_strm_is_presented_and_served_as_a_local_file(
         "%E7%9B%97%E6%A2%A6%E7%A9%BA%E9%97%B4.2010.1080p.mkv"
         in download.headers["content-disposition"]
     )
+
+    # 没探过规格（台账容器是 strm）：容器按真实文件报
+    client.portal.call(_reset_strm_spec, strm)  # type: ignore[attr-defined]
+    info = client.post(f"/Items/{guid}/PlaybackInfo", params={"ApiKey": token}).json()
+    local = next(s for s in info["MediaSources"] if s["Path"].endswith(".strm"))
+    assert local["Container"] == "mkv"
+    resp = client.get(f"/Videos/{guid}/stream", params=params, headers={"Range": "bytes=0-9"})
+    assert resp.headers["content-type"] == "video/x-matroska"
 
     strm.write_text("/etc/passwd\n")
     info = client.post(f"/Items/{guid}/PlaybackInfo", params={"ApiKey": token}).json()

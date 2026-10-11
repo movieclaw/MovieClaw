@@ -131,6 +131,7 @@ from movieclaw_playback.streaming import (
     container_mime_type,
     direct_play_byte_patches,
     is_strm,
+    local_strm_container,
     register_device_stream,
     resolve_strm,
     strm_redirect_target,
@@ -684,7 +685,7 @@ async def video_stream(
     f = selected[0]
 
     path = Path(f.file_path)
-    size_bytes = f.size_bytes
+    file_container = f.container
     if is_strm(f.file_path):
         source = resolve_strm(f.file_path)
         if source is None:
@@ -707,13 +708,13 @@ async def video_stream(
                 )
             # 302 直链：HEAD 同样 302、不塞 body；重定向目标自己支持 Range
             return RedirectResponse(target, status_code=302)
-        # 指向挂载目录里的文件：往下与本地文件同样直出（大小按真实文件）
+        # 指向挂载目录里的文件：往下与本地文件同样直出
         path = source
-        size_bytes = path.stat().st_size
+        file_container = local_strm_container(f.container, path)
 
     # MIME 优先级对齐 StreamingHelpers：URL 后缀 → ?container= query → 真实容器
     media_type = container_mime_type(
-        container or request.query_params.get("container") or f.container or path.suffix
+        container or request.query_params.get("container") or file_container or path.suffix
     )
     if f.is_disc() and (f.container or "") != "iso":
         # 原盘（disc-playback.md §3.3）：单剪辑主片直接按 m2ts 供流；多剪辑
@@ -734,7 +735,9 @@ async def video_stream(
         raise not_found()
     # hev1 标签的 HEVC MP4 在 AVPlayer 系播放器上直出必败，流里改成 hvc1（#430）；
     # 用自带解码器的 Infuse 之流两种标签都认，不受影响
-    byte_patches = await direct_play_byte_patches(path, f.container, f.video_codec)
+    byte_patches = await direct_play_byte_patches(path, file_container, f.video_codec)
+    # strm 指向的本地文件：台账的大小是 strm 文本的，按真实文件
+    size_bytes = path.stat().st_size if is_strm(f.file_path) else None
     session_stopped, byte_sink, on_close = await _register_stream(
         request, identity, ref, f, name=path.name, size_bytes=size_bytes
     )
@@ -859,7 +862,11 @@ async def download_item(
     )
     return DisconnectAwareFileResponse(
         path,
-        media_type=container_mime_type(f.container or path.suffix),
+        media_type=container_mime_type(
+            local_strm_container(f.container, path)
+            if is_strm(f.file_path)
+            else f.container or path.suffix
+        ),
         filename=path.name if is_download else None,
         byte_sink=meter.add,
         on_close=lambda: activity.unregister_stream(meter),

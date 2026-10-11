@@ -2162,8 +2162,8 @@ def media_source_dto(f: LibraryFile, *, resolve_strm: bool = False) -> dict[str,
     from movieclaw_jellyfin.ids import media_source_guid
 
     # 别名：本函数的布尔参数就叫 resolve_strm，同名导入会把它覆盖成恒真的函数对象
+    from movieclaw_playback.streaming import local_strm_container, strm_needs_relay
     from movieclaw_playback.streaming import resolve_strm as read_strm
-    from movieclaw_playback.streaming import strm_needs_relay
 
     streams = media_streams_dto(f)
     audio_streams = [s for s in streams if s["Type"] == "Audio"]
@@ -2229,10 +2229,13 @@ def media_source_dto(f: LibraryFile, *, resolve_strm: bool = False) -> dict[str,
                 return None
             if isinstance(link, Path):
                 # 指向服务器挂载目录里的文件：按本地文件呈现，播放器走 /Videos/{id}/stream
+                try:
+                    source["Size"] = link.stat().st_size
+                except OSError:
+                    return None  # 挂载刚掉线：剔除这个版本，与读不出 strm 一样
                 source["Protocol"] = "File"
                 source["IsRemote"] = False
-                source["Size"] = link.stat().st_size
-                source["Container"] = f.container or link.suffix.lstrip(".").lower()
+                source["Container"] = local_strm_container(f.container, link)
                 return {k: v for k, v in source.items() if v is not None}
             url = link.url
             if strm_needs_relay(url, link.headers):
