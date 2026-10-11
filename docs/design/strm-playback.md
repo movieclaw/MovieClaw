@@ -116,7 +116,8 @@ MoviePilot、alist 一类工具常把 strm 写成 `http://127.0.0.1:5244/d/...`�
   Jellyfin 的 PlaybackInfo 把这类版本按本地文件呈现（Protocol=File），播放器就会走服务端取流；
 - 与磁盘直出同一套断连检测、停止信号与活动页计量；上游一律 GET（预签名直链常常只签了 GET），
   HEAD 只回头；上游不走代理；
-- 播放器换成服务端拿字节，客户端一行不改——App、Android TV 的「连不上网盘」也一并解决。
+- 播放器换成服务端拿字节，客户端一行不改——App、Android TV 的「连不上网盘」也一并解决；
+- strm 里写了请求头的直链同样转发（见 §9 请求头）。
 
 ## 8. 验证
 
@@ -141,6 +142,8 @@ ffmpeg / ffprobe 的用例标 integration）、`test_decide.py` 的 strm 段、
 - App（iOS / Mac / Apple TV）声明全解码，网盘条目照旧直连；Android TV 与网页一样按
   真实规格换封装 / 转码。内网直链由服务端转发（§7.1），各端都连得上；公网直链对某个播放端
   不可达时，只有网页会降档走服务端，App 与 Android TV 的失败策略未改；
-- 不支持按网盘要求定制请求头（如 115 要求的 User-Agent）：服务端 ffmpeg 用 `Lavf` UA，
-  浏览器 / App 用各自的 UA，与以前一样；
+- 请求头：strm 里按 Kodi 写法给的头（`#EXTVLCOPT:http-user-agent=…` / `http-referrer=…`
+  行、地址后的 `|User-Agent=…&Referer=…`）会带给服务端的每一种读取（ffprobe / ffmpeg 的
+  `-user_agent` / `-headers`、按 Range 读索引与字幕、转发），这样的直链一律由服务端转发
+  （302 出去的播放器不会带这些头）。头名只收字母数字与连字符、值里不许有换行，防注入；
 - 没有字幕索引的 MKV（片库约 2%）与 MP4 内封字幕，第一次选字幕仍要通读全片。

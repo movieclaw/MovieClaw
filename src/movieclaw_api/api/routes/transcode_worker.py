@@ -79,7 +79,7 @@ from movieclaw_playback.streaming import (
     RemoteRelayResponse,
     container_mime_type,
     is_strm,
-    resolve_strm_url,
+    resolve_strm,
     strm_needs_relay,
 )
 
@@ -555,13 +555,16 @@ async def transcode_source(
     """
     file = await _remote_source_file(session_id, token, session)
     if is_strm(file.file_path):
-        remote = resolve_strm_url(file.file_path)
-        if remote is None:
+        link = resolve_strm(file.file_path)
+        if link is None:
             raise NotFoundException("网盘直链无效")
-        if strm_needs_relay(remote):
-            # 回环 / 容器服务名的直链 Worker 连不上（它在另一台机器上）：NAS 原样转发
-            return RemoteRelayResponse(remote, range_header=request.headers.get("range"))
-        return RedirectResponse(remote, status_code=302)
+        if strm_needs_relay(link.url, link.headers):
+            # 回环 / 容器服务名的直链 Worker 连不上（它在另一台机器上），要带请求头的直链
+            # Worker 也不知道该带什么：NAS 原样转发
+            return RemoteRelayResponse(
+                link.url, range_header=request.headers.get("range"), upstream_headers=link.headers
+            )
+        return RedirectResponse(link.url, status_code=302)
     if file.is_disc():
         # 原盘是目录，没有单一源文件；新版 Worker 读 source.ffconcat，走不到这里
         raise NotFoundException("原盘没有单一源文件，请改读 source.ffconcat 清单")

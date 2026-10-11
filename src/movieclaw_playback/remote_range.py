@@ -25,8 +25,17 @@ _MIN_FETCH = 64 * 1024
 class RemoteRangeFile:
     """只读、可 seek 的远端文件。``size`` 在第一次读之后可用（来自 Content-Range）。"""
 
-    def __init__(self, url: str, *, timeout: float = 15.0, min_fetch: int = _MIN_FETCH) -> None:
+    def __init__(
+        self,
+        url: str,
+        *,
+        headers: dict[str, str] | None = None,
+        timeout: float = 15.0,
+        min_fetch: int = _MIN_FETCH,
+    ) -> None:
         self._url = url
+        #: strm 里写的请求头（User-Agent / Referer 等，``streaming.resolve_strm``）
+        self._headers = dict(headers or {})
         self._timeout = timeout
         self._min_fetch = min_fetch
         self._pos = 0
@@ -88,7 +97,7 @@ class RemoteRangeFile:
         self._block_start = start
 
     def _request(self, start: int, length: int) -> bytes:
-        headers = {"Range": f"bytes={start}-{start + length - 1}"}
+        headers = {**self._headers, "Range": f"bytes={start}-{start + length - 1}"}
         try:
             with _client().stream("GET", self._url, headers=headers, timeout=self._timeout) as r:
                 if r.status_code != 206:

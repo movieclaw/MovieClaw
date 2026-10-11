@@ -174,12 +174,13 @@ from movieclaw_playback.streaming import (
     ClientDisconnected,
     DisconnectAwareFileResponse,
     RemoteRelayResponse,
+    StrmLink,
     await_unless_disconnected,
     container_mime_type,
     direct_play_byte_patches,
     is_strm,
     register_device_stream,
-    resolve_strm_url,
+    resolve_strm,
     strm_needs_relay,
     unregister_device_stream,
 )
@@ -2000,13 +2001,14 @@ async def stream_library_file(
     # 往下只用已读出的列，不再访问数据库。
     await session.close()
     if is_strm(file.file_path):
-        remote = resolve_strm_url(file.file_path)
-        if remote is None:
+        link = resolve_strm(file.file_path)
+        if link is None:
             raise NotFoundException("网盘直链无效")
-        if strm_needs_relay(remote):
-            # 内网 / 回环 / 容器服务名的直链：播放器多半连不上，服务端按 Range 原样转发
-            return _metered_relay_response(request, grant, file, remote)
-        return RedirectResponse(remote, status_code=302)
+        if strm_needs_relay(link.url, link.headers):
+            # 内网 / 回环 / 容器服务名的直链、或要带请求头的直链：播放器自己取不了，
+            # 服务端按 Range 原样转发
+            return _metered_relay_response(request, grant, file, link)
+        return RedirectResponse(link.url, status_code=302)
     path = PathLib(file.file_path)
     media_type = container_mime_type(file.container)
     if file.is_disc() and (file.container or "") != "iso":
@@ -2063,14 +2065,15 @@ def _metered_file_response(
     )
 
 
-def _metered_relay_response(request: Request, grant, file: LibraryFile, url: str) -> Response:
+def _metered_relay_response(request: Request, grant, file: LibraryFile, link: StrmLink) -> Response:
     """转发网盘直链（``strm_needs_relay``），与磁盘直出同一套设备流与活动页登记。"""
     probe = qoe.serve_probe(grant.attempt_id)
     stream = _register_play_stream(request, grant, file, name=PathLib(file.file_path).name)
     session_stopped, byte_sink, on_close = stream if stream is not None else (None, None, None)
     return RemoteRelayResponse(
-        url,
+        link.url,
         range_header=request.headers.get("range"),
+        upstream_headers=link.headers,
         session_stopped=session_stopped,
         byte_sink=byte_sink,
         on_close=on_close,

@@ -27,7 +27,14 @@ from movieclaw_db.repositories.library_repo import LibraryRepository
 from movieclaw_playback.decide import AudioPlan, PlaybackPlan, PlaybackTier, VideoPlan
 from movieclaw_playback.keyframes import read_keyframe_index
 from movieclaw_playback.remote_range import RemoteRangeFile
-from movieclaw_playback.streaming import STRM_PROTOCOL_WHITELIST, media_input, strm_input_args
+from movieclaw_playback.streaming import (
+    STRM_PROTOCOL_WHITELIST,
+    media_input,
+    resolve_strm,
+    resolve_strm_url,
+    strm_input_args,
+    strm_needs_relay,
+)
 
 needs_ffmpeg = pytest.mark.skipif(
     shutil.which("ffmpeg") is None or shutil.which("ffprobe") is None,
@@ -41,6 +48,7 @@ class _CloudDrive:
     def __init__(self, root: Path) -> None:
         self.root = root
         self.requests: list[tuple[str, str | None]] = []
+        self.agents: list[str | None] = []
         self.served_bytes = 0
         drive = self
 
@@ -50,6 +58,7 @@ class _CloudDrive:
 
             def do_GET(self) -> None:  # noqa: N802
                 drive.requests.append((self.path, self.headers.get("Range")))
+                drive.agents.append(self.headers.get("User-Agent"))
                 path, _, _ = self.path.partition("?")
                 if path.startswith("/d/"):
                     self.send_response(302)
@@ -170,6 +179,51 @@ def test_media_input_reads_strm_url_with_network_only_options(tmp_path):
     bad = tmp_path / "bad.strm"
     bad.write_text("file:///etc/passwd\n")
     assert media_input(str(bad)) is None
+
+
+def test_strm_headers_from_kodi_lines_and_url_suffix(tmp_path):
+    """两种 Kodi 写法都认：#EXTVLCOPT 行与地址后的 ``|头=值``（值按 URL 编码）。"""
+    strm = tmp_path / "a.strm"
+    strm.write_text(
+        "#EXTM3U\n"
+        "#EXTVLCOPT:http-user-agent=Mozilla/5.0 115Browser/27.0\n"
+        "#EXTVLCOPT:http-referrer=https://115.com/\n"
+        "https://cdn.example.com/a.mkv?t=1|X-Token=abc%20def&Cookie=UID%3D1\n"
+    )
+    link = resolve_strm(strm)
+    assert link is not None
+    assert link.url == "https://cdn.example.com/a.mkv?t=1"
+    assert link.headers == {
+        "User-Agent": "Mozilla/5.0 115Browser/27.0",
+        "Referer": "https://115.com/",
+        "X-Token": "abc def",
+        "Cookie": "UID=1",
+    }
+    assert resolve_strm_url(strm) == "https://cdn.example.com/a.mkv?t=1"
+    # 要带请求头的直链一律服务端转发：302 出去的播放器不会带这些头
+    assert strm_needs_relay(link.url, link.headers) is True
+    assert strm_needs_relay(link.url) is False
+
+    args = strm_input_args(link.url, link.headers)
+    assert args[args.index("-user_agent") + 1] == "Mozilla/5.0 115Browser/27.0"
+    assert args[args.index("-headers") + 1] == (
+        "Referer: https://115.com/\r\nX-Token: abc def\r\nCookie: UID=1\r\n"
+    )
+
+
+def test_strm_headers_reject_injection(tmp_path):
+    """头值里的换行（编码过的也算）会在 ffmpeg -headers 里注入别的头：整条丢掉。"""
+    strm = tmp_path / "a.strm"
+    strm.write_text("https://cdn.example.com/a.mkv|X-A=1%0D%0AEvil: 1&Bad Name=2&X-Ok=3\n")
+    link = resolve_strm(strm)
+    assert link is not None and link.headers == {"X-Ok": "3"}
+
+
+def test_remote_range_file_sends_strm_headers(drive):
+    (drive.root / "blob.bin").write_bytes(b"x" * 8192)
+    with RemoteRangeFile(drive.url("blob.bin"), headers={"User-Agent": "115Browser"}) as f:
+        f.read(16)
+    assert drive.agents[-1] == "115Browser"
 
 
 def test_rtsp_strm_gets_no_http_only_options():

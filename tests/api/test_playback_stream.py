@@ -1357,6 +1357,7 @@ _LAN_BYTES = bytes(range(256)) * 64
 def lan_drive():
     """回环地址上的仿网盘：只认 Range，``/missing`` 回 404。"""
     seen: list[tuple[str, str | None]] = []
+    agents: list[str | None] = []
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_args) -> None:
@@ -1364,6 +1365,7 @@ def lan_drive():
 
         def do_GET(self) -> None:  # noqa: N802
             seen.append((self.path, self.headers.get("Range")))
+            agents.append(self.headers.get("User-Agent"))
             if self.path.startswith("/missing"):
                 self.send_error(404)
                 return
@@ -1382,7 +1384,7 @@ def lan_drive():
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    yield SimpleNamespace(url=f"http://127.0.0.1:{server.server_port}", seen=seen)
+    yield SimpleNamespace(url=f"http://127.0.0.1:{server.server_port}", seen=seen, agents=agents)
     server.shutdown()
     server.server_close()
 
@@ -1420,6 +1422,15 @@ def test_lan_strm_is_relayed_with_range(client, tmp_path, lan_drive):
 
     gone = seed(client, tmp_path, container="mp4", strm=True, strm_url=f"{lan_drive.url}/missing")
     assert client.get(start_session(client, gone)["stream_url"]).status_code == 404
+
+
+def test_strm_request_headers_are_forwarded_by_the_relay(client, tmp_path, lan_drive):
+    """strm 里写了 User-Agent：一律服务端转发，上游收到的是 strm 指定的头。"""
+    lan = f"{lan_drive.url}/d/a.mp4|User-Agent=115Browser%2F27"
+    file_id = seed(client, tmp_path, container="mp4", strm=True, strm_url=lan)
+    resp = client.get(start_session(client, file_id)["stream_url"], headers={"Range": "bytes=0-9"})
+    assert resp.status_code == 206 and resp.content == _LAN_BYTES[:10]
+    assert lan_drive.agents[-1] == "115Browser/27"
 
 
 def test_remote_worker_source_relays_lan_strm(client, tmp_path, lan_drive):

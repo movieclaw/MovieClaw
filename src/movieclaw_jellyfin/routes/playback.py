@@ -131,7 +131,7 @@ from movieclaw_playback.streaming import (
     direct_play_byte_patches,
     is_strm,
     register_device_stream,
-    resolve_strm_url,
+    resolve_strm,
     strm_needs_relay,
     unregister_device_stream,
 )
@@ -683,23 +683,25 @@ async def video_stream(
     f = selected[0]
 
     if is_strm(f.file_path):
-        url = resolve_strm_url(f.file_path)
-        if url is None:
+        link = resolve_strm(f.file_path)
+        if link is None:
             raise not_found()
-        if strm_needs_relay(url):
-            # 内网 / 回环 / 容器服务名的直链：播放器多半连不上，服务端按 Range 原样转发
+        if strm_needs_relay(link.url, link.headers):
+            # 内网 / 回环 / 容器服务名的直链、或要带请求头的直链：播放器自己取不了，
+            # 服务端按 Range 原样转发
             session_stopped, byte_sink, on_close = await _register_stream(
                 request, identity, ref, f, name=Path(f.file_path).name
             )
             return RemoteRelayResponse(
-                url,
+                link.url,
                 range_header=request.headers.get("range"),
+                upstream_headers=link.headers,
                 session_stopped=session_stopped,
                 byte_sink=byte_sink,
                 on_close=on_close,
             )
         # 302 直链：HEAD 同样 302、不塞 body；重定向目标自己支持 Range
-        return RedirectResponse(url, status_code=302)
+        return RedirectResponse(link.url, status_code=302)
 
     path = Path(f.file_path)
     # MIME 优先级对齐 StreamingHelpers：URL 后缀 → ?container= query → 真实容器
@@ -808,13 +810,15 @@ async def download_item(
     f = selected[0]
 
     if is_strm(f.file_path):
-        url = resolve_strm_url(f.file_path)
-        if url is None:
+        link = resolve_strm(f.file_path)
+        if link is None:
             raise not_found()
-        if strm_needs_relay(url):
-            # 内网直链客户端连不上：与取流同样由服务端转发
-            return RemoteRelayResponse(url, range_header=request.headers.get("range"))
-        return RedirectResponse(url, status_code=302)
+        if strm_needs_relay(link.url, link.headers):
+            # 内网直链、要带请求头的直链客户端取不了：与取流同样由服务端转发
+            return RemoteRelayResponse(
+                link.url, range_header=request.headers.get("range"), upstream_headers=link.headers
+            )
+        return RedirectResponse(link.url, status_code=302)
 
     path = Path(f.file_path)
     if f.is_disc() or not path.is_file():

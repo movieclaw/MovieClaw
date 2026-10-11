@@ -23,7 +23,7 @@ from movieclaw_api.services.media_probe import PROBE_SCHEMA_VERSION, MediaSpec, 
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import LibraryFile
 from movieclaw_db.models.base import utcnow
-from movieclaw_playback.streaming import is_strm, resolve_strm_url, strm_input_args
+from movieclaw_playback.streaming import is_strm, media_input
 
 logger = logging.getLogger("movieclaw_api.playback.strm_probe")
 
@@ -89,12 +89,13 @@ async def ensure_strm_spec(file: LibraryFile) -> bool:
 
 
 async def _probe_and_store(file_id: int, file_path: str) -> dict[str, Any] | None:
-    url = resolve_strm_url(file_path)
-    if url is None:
+    source = media_input(file_path)
+    if source is None:
         _failed_at[file_path] = time.monotonic()
         return None
+    url, input_args = source
     started = time.perf_counter()
-    spec = await asyncio.to_thread(probe_media, url, input_args=strm_input_args(url))
+    spec = await asyncio.to_thread(probe_media, url, input_args=input_args)
     elapsed = time.perf_counter() - started
     if spec is None or spec.video_codec is None:
         _failed_at[file_path] = time.monotonic()

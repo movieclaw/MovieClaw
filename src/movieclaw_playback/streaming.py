@@ -17,11 +17,13 @@ import asyncio
 import ipaddress
 import logging
 import os
+import re
 from collections.abc import Awaitable, Callable, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
 from secrets import token_hex
 from typing import TypeVar
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlsplit
 
 import anyio
 import httpx
@@ -520,37 +522,85 @@ def is_strm(file_path: str) -> bool:
     return file_path.lower().endswith(STRM_EXT)
 
 
-def resolve_strm_url(file_path: str | Path) -> str | None:
-    """读 strm 文件内容解析出远程播放地址；不合法返回 None。
+@dataclass(frozen=True)
+class StrmLink:
+    """strm 文件解析出的远程地址与取它要带的请求头。"""
+
+    url: str
+    headers: dict[str, str] = field(default_factory=dict)
+
+
+#: Kodi / VLC 写法 ``#EXTVLCOPT:http-user-agent=…`` 的选项名 → 请求头名
+_VLC_HEADER_OPTIONS = {
+    "http-user-agent": "User-Agent",
+    "http-referrer": "Referer",
+    "http-referer": "Referer",
+}
+_HEADER_NAME = re.compile(r"^[A-Za-z0-9-]{1,64}$")
+
+
+def resolve_strm(file_path: str | Path) -> StrmLink | None:
+    """读 strm 文件内容解析出远程播放地址与请求头；不合法返回 None。
 
     取第一个非空且不以 ``#`` 开头的行；仅接受白名单 scheme 的绝对 URI。
     每次播放现读文件——strm 内容可能是带时效签名的直链，不缓存。
+
+    请求头两种 Kodi 写法都认（115 一类网盘按 User-Agent 校验直链）：地址前的
+    ``#EXTVLCOPT:http-user-agent=…`` / ``http-referrer=…`` 行，与地址后的
+    ``|User-Agent=…&Referer=…``（值按 URL 编码）。头名只收字母数字与连字符、值里不许有
+    换行——它们会原样进 ffmpeg 的 ``-headers``，放进换行就能注入别的头。
     """
     try:
         text = Path(file_path).read_text(encoding="utf-8", errors="replace")
     except OSError:
         logger.warning("strm 文件读取失败：%s", file_path)
         return None
+    headers: dict[str, str] = {}
     for line in text.splitlines():
         candidate = line.strip()
+        if candidate.upper().startswith("#EXTVLCOPT:"):
+            option, _, value = candidate[len("#EXTVLCOPT:") :].partition("=")
+            name = _VLC_HEADER_OPTIONS.get(option.strip().lower())
+            if name is not None:
+                _add_header(headers, name, value.strip())
+            continue
         if not candidate or candidate.startswith("#"):
             continue
-        scheme = urlsplit(candidate).scheme.lower()
-        if scheme in _ALLOWED_STRM_SCHEMES:
-            return candidate
-        logger.warning(
-            "strm 内容不是允许的远程地址（仅接受 http/https/rtsp/rtp），已拒绝：%s",
-            file_path,
-        )
-        return None
+        url, _, suffix = candidate.partition("|")
+        scheme = urlsplit(url).scheme.lower()
+        if scheme not in _ALLOWED_STRM_SCHEMES:
+            logger.warning(
+                "strm 内容不是允许的远程地址（仅接受 http/https/rtsp/rtp），已拒绝：%s",
+                file_path,
+            )
+            return None
+        for name, value in parse_qsl(suffix, keep_blank_values=False):
+            _add_header(headers, name.strip(), value.strip())
+        return StrmLink(url=url, headers=headers)
     return None
 
 
-def strm_input_args(url: str) -> list[str]:
-    """ffmpeg / ffprobe 读网盘直链 ``url`` 时要放在 ``-i`` 前的输入选项。"""
+def _add_header(headers: dict[str, str], name: str, value: str) -> None:
+    if _HEADER_NAME.match(name) and value and not any(c in value for c in "\r\n"):
+        headers[name] = value
+
+
+def resolve_strm_url(file_path: str | Path) -> str | None:
+    """strm 里的远程地址（不含请求头）；不合法返回 None。见 ``resolve_strm``。"""
+    link = resolve_strm(file_path)
+    return link.url if link is not None else None
+
+
+def strm_input_args(url: str, headers: dict[str, str] | None = None) -> list[str]:
+    """ffmpeg / ffprobe 读网盘直链 ``url`` 时要放在 ``-i`` 前的输入选项（含 strm 里的请求头）。"""
     args = ["-protocol_whitelist", STRM_PROTOCOL_WHITELIST]
     if urlsplit(url).scheme.lower() in {"http", "https"}:
         args += _STRM_HTTP_OPTIONS
+        extra = dict(headers or {})
+        if user_agent := extra.pop("User-Agent", None):
+            args += ["-user_agent", user_agent]
+        if extra:
+            args += ["-headers", "".join(f"{k}: {v}\r\n" for k, v in extra.items())]
     return args
 
 
@@ -562,10 +612,10 @@ def media_input(file_path: str) -> tuple[str, list[str]] | None:
     """
     if not is_strm(file_path):
         return file_path, []
-    url = resolve_strm_url(file_path)
-    if url is None:
+    link = resolve_strm(file_path)
+    if link is None:
         return None
-    return url, strm_input_args(url)
+    return link.url, strm_input_args(link.url, link.headers)
 
 
 #: 播放器多半连不上的主机名后缀（局域网 mDNS、路由器本地域名）
@@ -574,8 +624,10 @@ _LOCAL_SUFFIXES = (".local", ".lan", ".internal", ".localdomain", ".home.arpa")
 _SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
 
 
-def strm_needs_relay(url: str) -> bool:
+def strm_needs_relay(url: str, headers: dict[str, str] | None = None) -> bool:
     """这条网盘直链要不要由服务端转发，而不是 302 给播放器。
+
+    strm 里写了请求头（``resolve_strm``）的一律转发：302 出去的播放器不会带这些头。
 
     回环、私网、链路本地地址与单标签 / 局域网主机名（容器服务名 ``alist``、``nas.local``）
     只在服务器所在的网络里连得上：MoviePilot 一类工具常把 strm 写成
@@ -586,6 +638,8 @@ def strm_needs_relay(url: str) -> bool:
     parts = urlsplit(url)
     if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
         return False
+    if headers:
+        return True
     host = parts.hostname.lower()
     try:
         ip = ipaddress.ip_address(host)
@@ -628,6 +682,7 @@ class RemoteRelayResponse(Response):
         url: str,
         *,
         range_header: str | None = None,
+        upstream_headers: dict[str, str] | None = None,
         session_stopped: asyncio.Event | None = None,
         on_close: Callable[[], None] | None = None,
         byte_sink: Callable[[int], None] | None = None,
@@ -636,6 +691,7 @@ class RemoteRelayResponse(Response):
         super().__init__()
         self._url = url
         self._range = range_header
+        self._upstream_headers = dict(upstream_headers or {})
         self._session_stopped = session_stopped
         self._on_close = on_close
         self._byte_sink = byte_sink
@@ -665,7 +721,9 @@ class RemoteRelayResponse(Response):
         watcher = asyncio.ensure_future(self._watch_disconnect(receive))
         started = False
         try:
-            headers = {"Range": self._range} if self._range else {}
+            headers = dict(self._upstream_headers)
+            if self._range:
+                headers["Range"] = self._range
             client = httpx.AsyncClient(
                 follow_redirects=True, trust_env=False, timeout=httpx.Timeout(30.0, read=60.0)
             )

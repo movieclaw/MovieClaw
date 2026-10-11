@@ -43,7 +43,7 @@ from movieclaw_playback.container_index import (
     verify_all_mp4_keyframes,
 )
 from movieclaw_playback.remote_range import RemoteRangeFile
-from movieclaw_playback.streaming import STRM_EXT, resolve_strm_url
+from movieclaw_playback.streaming import STRM_EXT, resolve_strm
 
 logger = logging.getLogger("movieclaw_playback.keyframes")
 
@@ -218,11 +218,11 @@ def _read_remote_keyframes(path: Path, key: tuple[str, int, int]) -> list[float]
     failed_at = _remote_unindexed.get(key)
     if failed_at is not None and time.monotonic() - failed_at < _REMOTE_UNINDEXED_TTL_S:
         return None
-    url = resolve_strm_url(path)
+    link = resolve_strm(path)
     times = None
-    if url is not None and url.lower().startswith(("http://", "https://")):
+    if link is not None and link.url.lower().startswith(("http://", "https://")):
         try:
-            with RemoteRangeFile(url) as f:
+            with RemoteRangeFile(link.url, headers=link.headers) as f:
                 head = f.read(8)
                 f.seek(0)
                 if head[:4] == _EBML_HEADER.to_bytes(4, "big"):

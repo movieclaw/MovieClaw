@@ -56,7 +56,7 @@ from pathlib import Path
 from movieclaw_api.core.config import get_settings
 from movieclaw_db.models import LibraryFile
 from movieclaw_playback.remote_range import RemoteRangeFile
-from movieclaw_playback.streaming import is_strm, media_input
+from movieclaw_playback.streaming import is_strm, media_input, resolve_strm
 from movieclaw_playback.subtitle_cues import SubtitleTracks, build_subtitle_mkv
 
 logger = logging.getLogger("movieclaw_api.media_extract")
@@ -763,19 +763,16 @@ async def _run_ffmpeg(pending: list[tuple[int, _ExtractionSpec]], progress_path:
 
 def _sparse_tracks(video: Path) -> SubtitleTracks | None:
     """（阻塞）按 Cues 读出全部字幕轨的块；不是 MKV、索引不全、读失败都返回 None。"""
-    source = media_input(str(video))
-    if source is None:
-        return None
-    target, _ = source
     try:
         if is_strm(str(video)):
-            if not target.lower().startswith(("http://", "https://")):
+            link = resolve_strm(video)
+            if link is None or not link.url.lower().startswith(("http://", "https://")):
                 return None
-            with RemoteRangeFile(target) as f:
+            with RemoteRangeFile(link.url, headers=link.headers) as f:
                 if f.read(4) != _EBML_MAGIC or f.size is None:
                     return None
                 return build_subtitle_mkv(f, f.pread, f.size, str(video), workers=_REMOTE_WORKERS)
-        with open(target, "rb") as f:
+        with open(video, "rb") as f:
             if f.read(4) != _EBML_MAGIC:
                 return None  # 不是 MKV（MP4 的 mov_text 等）：直接整片抽，不记日志
             fd = f.fileno()

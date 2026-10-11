@@ -2160,7 +2160,7 @@ def media_source_dto(f: LibraryFile, *, resolve_strm: bool = False) -> dict[str,
     而浏览场景根本用不到直链，Path 保留 strm 占位路径即可。
     """
     from movieclaw_jellyfin.ids import media_source_guid
-    from movieclaw_playback.streaming import resolve_strm_url, strm_needs_relay
+    from movieclaw_playback.streaming import resolve_strm, strm_needs_relay
 
     streams = media_streams_dto(f)
     audio_streams = [s for s in streams if s["Type"] == "Audio"]
@@ -2221,10 +2221,11 @@ def media_source_dto(f: LibraryFile, *, resolve_strm: bool = False) -> dict[str,
         source["Protocol"] = "Http"
         source["IsRemote"] = True
         if resolve_strm:
-            url = resolve_strm_url(f.file_path)
-            if url is None:
+            link = resolve_strm(f.file_path)
+            if link is None:
                 return None
-            if strm_needs_relay(url):
+            url = link.url
+            if strm_needs_relay(url, link.headers):
                 # 内网 / 回环 / 容器服务名的直链客户端连不上：按本地文件呈现，播放器走
                 # /Videos/{id}/stream，由服务端转发（streaming.strm_needs_relay）
                 source["Protocol"] = "File"
