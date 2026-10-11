@@ -138,6 +138,8 @@ export interface AgentConversation {
   turns: AgentTurn[];
   /** 详情是否已从服务端回放；false 表示只有列表摘要壳 */
   loaded: boolean;
+  /** 会话归属：插件发起的是 "plugin:<条目 id>"，侧栏据此标出来源 */
+  owner?: string | null;
   /** 从旧会话续开时的来源快照；只用于展示来源，实际上下文由服务端持久化。 */
   handoff?: {
     sourceSessionId: string;
@@ -334,6 +336,7 @@ function conversationFromSummary(summary: SessionSummary): AgentConversation {
     running: summary.running,
     turns: [],
     loaded: false,
+    owner: summary.owner ?? null,
   };
 }
 
@@ -366,6 +369,7 @@ function conversationFromDetail(detail: SessionTranscript): AgentConversation {
     running,
     turns,
     loaded: true,
+    owner: summary.owner ?? null,
     handoff:
       handoffEntry?.type === "handoff"
         ? {

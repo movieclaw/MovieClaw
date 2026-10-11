@@ -35,6 +35,7 @@ from movieclaw_kernel.kernel import (
     State,
 )
 from movieclaw_kernel.observe import (
+    AGENT_MARK,
     DeliveryInfo,
     EntryLogFilter,
     Origin,
@@ -46,6 +47,7 @@ from movieclaw_kernel.plugin import Entry, Patch, Plugin, plugin
 from movieclaw_kernel.registry import ContributionConflict, Registry, RegistryChange
 
 __all__ = [
+    "AGENT_MARK",
     "DURABLE_EVENTS",
     "KERNEL_READY",
     "PLUGIN_STATE",

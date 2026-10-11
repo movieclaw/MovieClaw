@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -234,8 +235,17 @@ async def _accept_user_message(
     payload: SessionStartPayload,
     identity: Principal,
     session: AsyncSession,
+    *,
+    owner: str | None = None,
+    tool_profile: ToolProfile = "web",
+    instructions: str | None = None,
+    max_steps: int | None = None,
 ) -> ApiResponse[SessionMessageAcceptedView]:
     """持久化一条用户消息、创建后台运行并返回消息编号。
+
+    ``owner`` / ``tool_profile`` / ``instructions`` / ``max_steps`` 给插件驱动 Agent 用
+    （services/plugin_agent.py，docs/design/plugin-agent.md）：会话归属、工具档位、
+    追加在系统提示词后的说明、步数上限。网页调用全部取默认。
 
     ``run_id`` 只服务于进程内任务调度、心跳和事件日志，不进入公开协议。
     后续消息的上下文始终从服务端转录重建，调用方无需也不能注入历史。
@@ -279,9 +289,9 @@ async def _accept_user_message(
         _, existing_entries = store.read(session_id)
         entry_count = len(existing_entries)
     else:
-        header = store.create()
+        header = store.create(owner=owner)
         session_id = header.session_id
-        await repo.create(session_id, title=None)
+        await repo.create(session_id, title=None, owner=owner)
         history = []
         existing_entries = []
         entry_count = 0
@@ -307,7 +317,34 @@ async def _accept_user_message(
         history=history,
         entry_count=entry_count,
         llm_router=llm_router,
+        owner=owner,
+        tool_profile=tool_profile,
+        instructions=instructions,
+        max_steps=max_steps,
     )
+
+
+#: 工具档位：web = 网页会话（含卡片绘制）；full = bash / 文件 / mclaw；mclaw = 只有服务操作
+#: （与 IM 通道同一套受限工具）；none = 不带工具
+ToolProfile = Literal["web", "full", "mclaw", "none"]
+
+
+async def _profile_tools(
+    profile: ToolProfile, session_id: str, owner: str | None
+) -> list[AgentTool]:
+    """按档位构建工具集。令牌按会话签发，所以要在会话建好之后现建。"""
+    if profile == "none":
+        return []
+    if profile == "mclaw":
+        from movieclaw_api.services.channel_agent import _restricted_tools
+
+        # 受限工具集的工作目录按来源隔开（插件各用各的）
+        return await _restricted_tools(session_id, owner or "web")
+    cli_env = await _cli_env(session_id)
+    if profile == "web":
+        return get_agent_tools(cli_env, generative_ui=True)
+    # full：插件驱动的会话没有网页界面，卡片画不出来（docs/design/agent-generative-ui.md §2）
+    return get_agent_tools(cli_env)
 
 
 def _resolve_model_choice(requested: str, inherited: str | None) -> str | None:
@@ -332,6 +369,10 @@ async def _launch_user_message(
     thinking_level: str | None = None,
     tools: list[AgentTool] | None = None,
     system_prompt: str | None = None,
+    owner: str | None = None,
+    tool_profile: ToolProfile = "web",
+    instructions: str | None = None,
+    max_steps: int | None = None,
 ) -> ApiResponse[SessionMessageAcceptedView]:
     """在已校验的会话链尾追加用户消息并启动后台处理。
 
@@ -340,11 +381,14 @@ async def _launch_user_message(
     悬空引用，落盘失败最多留下可回收的孤儿文件。
     """
     actual_tools = (
-        tools
-        if tools is not None
-        else get_agent_tools(await _cli_env(session_id), generative_ui=True)
+        tools if tools is not None else await _profile_tools(tool_profile, session_id, owner)
     )
-    actual_system_prompt = system_prompt or await _agent_system_prompt()
+    # 技能清单要靠 read 工具加载正文：只有带 read 的档位（web / full）用含清单的提示词
+    actual_system_prompt = system_prompt or (
+        await _agent_system_prompt() if tool_profile in ("web", "full") else build_system_prompt()
+    )
+    if instructions:
+        actual_system_prompt = f"{actual_system_prompt}\n\n{instructions}"
     # 显式技能调用：把 /skill:名字 占位符展开为技能正文块（docs/design/
     # agent-skills.md §9）。展开结果入转录（内容冻结在调用时刻）；已展开
     # 文本不含裸 token，retry 复用旧文本时这里天然是 no-op。
@@ -385,6 +429,7 @@ async def _launch_user_message(
         tools=actual_tools,
         on_message=recorder.on_message,
         on_compaction=recorder.on_compaction,
+        **({"max_steps": max_steps} if max_steps is not None else {}),
     )
     params = AgentStartParams(
         input=input_for_run,

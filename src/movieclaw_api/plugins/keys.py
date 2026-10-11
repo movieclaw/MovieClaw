@@ -41,6 +41,14 @@ PLUGIN_DATA: ServiceKey[Any] = ServiceKey(
     stability=Stability.EXPERIMENTAL,
     doc="插件数据：插件自己的状态与挂在实体上的扩展字段（只能读写自己的）",
 )
+AGENT: ServiceKey[Any] = ServiceKey(
+    "agent",
+    stability=Stability.EXPERIMENTAL,
+    doc=(
+        "AI 助手：插件经用户授权驱动 Agent 跑一轮对话，"
+        "同步等结果或逐事件流式消费（只看得到自己的会话）"
+    ),
+)
 PLUGIN_HEALTH: ServiceKey[Any] = ServiceKey(
     "plugin-health",
     stability=Stability.EXPERIMENTAL,

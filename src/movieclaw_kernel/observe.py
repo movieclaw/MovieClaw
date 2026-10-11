@@ -14,6 +14,9 @@ from dataclasses import dataclass, field
 
 #: 因果链长度上限：插件之间经事件互相触发超过这个深度即拒绝分发
 MAX_CAUSE_DEPTH = 8
+#: 因果链里的「最初由 Agent 发起」标记（docs/design/plugin-agent.md §7）：Agent 的请求把它放在链首，
+#: 之后经事件、插件、宿主操作一路原样带着（可靠事件随行持久化），插件据此不能再发起 Agent
+AGENT_MARK = "@agent"
 
 current_entry: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "movieclaw_kernel_entry", default=None
@@ -31,6 +34,11 @@ class Origin:
 
     def is_plugin(self, entry_id: str) -> bool:
         return self.kind == "plugin" and self.id == entry_id
+
+    @property
+    def via_agent(self) -> bool:
+        """这串操作最初是不是 Agent 发起的。"""
+        return AGENT_MARK in self.chain
 
     def caused_by(self, event_name: str, *, entry_id: str) -> Origin:
         """该条目处理 ``event_name`` 时，它的后续动作的发起方。"""

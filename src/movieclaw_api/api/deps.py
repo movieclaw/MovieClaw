@@ -10,7 +10,7 @@ from movieclaw_api.exceptions import AppException, ForbiddenException, Unauthori
 from movieclaw_api.services import auth as auth_service
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.settings.schemas import get_sync_setting
-from movieclaw_kernel import Origin, current_origin
+from movieclaw_kernel import AGENT_MARK, Origin, current_origin
 
 
 def _extract_bearer(authorization: str | None) -> str | None:
@@ -83,6 +83,10 @@ def _attribute(principal: Principal) -> None:
     origin = current_origin.get()
     if principal.plugin is not None:
         current_origin.set(Origin(kind="plugin", id=principal.plugin.entry_id, chain=origin.chain))
+    elif principal.kind == "agent":
+        # Agent 的工具调用：链首打上标记，之后经事件、插件一路带着，插件据此不能再发起 Agent
+        chain = origin.chain if AGENT_MARK in origin.chain else (AGENT_MARK, *origin.chain)
+        current_origin.set(Origin(kind="agent", id=principal.name, chain=chain))
     elif origin.kind == "system" and not origin.chain:
         if principal.kind == "member":
             current_origin.set(Origin(kind="member", id=str(principal.member_id)))

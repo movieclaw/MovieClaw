@@ -141,6 +141,11 @@ class HostOps:
             grants=frozenset(grants) if grants is not None else None, act_as=act_as
         )
 
+    def approval(self, entry_id: str) -> tuple[frozenset[str] | None, str | None]:
+        """用户对这个条目的批准：（批准的授权，``None`` = 没配置；代表的成员用户名）。"""
+        settings = self._settings.get(entry_id, _EntrySettings())
+        return settings.grants, settings.act_as
+
     def granted(self, ctx: Any) -> frozenset[str]:
         requested = tuple(ctx.permissions)
         if ctx.third_party:

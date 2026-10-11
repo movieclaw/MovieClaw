@@ -191,6 +191,9 @@ class SessionSummary(BaseModel):
     running: bool = Field(description="当前是否有仍在处理的用户消息")
     created_at: datetime = Field(description="会话创建时间（ISO 8601 UTC）")
     updated_at: datetime = Field(description="会话最近活动时间（ISO 8601 UTC）")
+    owner: str | None = Field(
+        description="会话归属：空 = 网页 / 管理员发起；plugin:<条目 id> = 插件发起的会话"
+    )
 
     @field_serializer("created_at", "updated_at")
     def _serialize_utc(self, value: datetime | None) -> str | None:
@@ -207,6 +210,7 @@ class SessionSummary(BaseModel):
             running=running,
             created_at=row.created_at,
             updated_at=row.updated_at,
+            owner=row.owner,
         )
 
 

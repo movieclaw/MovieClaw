@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextvars
 import hashlib
 import hmac
 import re
@@ -37,6 +38,12 @@ from fastapi.routing import APIRoute
 from movieclaw_api.exceptions import NotFoundException
 
 Zone = Literal["admin", "member", "public"]
+
+#: 这次请求从插件的哪个区进来（回调端点记为 ``callback``）。插件驱动 Agent 时据此封顶工具档位：
+#: 只有管理员区按授权档位，成员区、公开区、回调端点进来的一律不带工具（plugin-agent.md §6）
+current_zone: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "movieclaw_plugin_zone", default=None
+)
 
 #: 宿主路由器：挂在 /api/v1 下（api/router.py），插件路由按条目 id 加前缀挂到它上面
 host_router = APIRouter(prefix="/plugins")
@@ -85,12 +92,18 @@ class PluginRoutes:
             guard = require_login
         else:
             guard = self._verifier(entry_id)
+
+        async def mark_zone() -> None:
+            # 异步依赖与处理函数在同一个任务里：设的上下文变量处理函数看得到；
+            # 进程外插件的反代在这里登记调用上下文，同样带着它
+            current_zone.set(zone)
+
         before = list(host_router.routes)
         host_router.include_router(
             router,
             prefix=f"/{entry_id}",
             tags=[f"plugin:{entry_id}"],
-            dependencies=[Depends(guard)],
+            dependencies=[Depends(guard), Depends(mark_zone)],
         )
         added = [r for r in host_router.routes if r not in before]
         self._changed()

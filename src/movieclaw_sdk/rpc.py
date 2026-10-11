@@ -143,9 +143,19 @@ _RAISE: dict[str, Callable[[str], BaseException]] = {
 }
 
 
+#: 契约自己定义的异常（如 Agent 忙），按注册顺序优先于内置类型匹配
+_CUSTOM: list[tuple[type[BaseException], str, int]] = []
+
+
+def register_error(cls: type[BaseException], code: str, status: int) -> None:
+    """登记一种契约异常：两端按 ``code`` 还原成同一个类型（定义它的模块导入时调用）。"""
+    _CUSTOM.insert(0, (cls, code, status))
+    _RAISE[code] = cls
+
+
 def error_of(exc: BaseException) -> tuple[int, dict[str, Any]]:
     """异常 → (HTTP 状态, 错误体)。"""
-    for cls, code, status in _ERRORS:
+    for cls, code, status in (*_CUSTOM, *_ERRORS):
         if isinstance(exc, cls):
             return status, {"code": code, "message": str(exc) or cls.__name__}
     return 500, {"code": "SERVICE_ERROR", "message": f"{type(exc).__name__}: {exc}"}

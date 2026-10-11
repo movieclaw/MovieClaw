@@ -162,6 +162,8 @@ export interface SessionSummary {
   running: boolean;
   created_at: string;
   updated_at: string;
+  /** 会话归属：null = 网页 / 管理员发起；"plugin:<条目 id>" = 插件发起（docs/design/plugin-agent.md） */
+  owner: string | null;
 }
 
 export interface SessionTranscript {

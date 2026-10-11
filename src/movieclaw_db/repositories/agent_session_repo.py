@@ -34,18 +34,24 @@ class AgentSessionRepository:
     async def get(self, session_id: str) -> AgentSession | None:
         return await self._session.get(AgentSession, session_id)
 
-    async def list_recent(self, *, limit: int = 50, offset: int = 0) -> list[AgentSession]:
-        """按最后活跃时间（updated_at）倒序分页。"""
+    async def list_recent(
+        self, *, limit: int = 50, offset: int = 0, owner: str | None = None
+    ) -> list[AgentSession]:
+        """按最后活跃时间（updated_at）倒序分页；给了 ``owner`` 就只列这个归属的。"""
+        stmt = select(AgentSession)
+        if owner is not None:
+            stmt = stmt.where(AgentSession.owner == owner)
         stmt = (
-            select(AgentSession)
-            .order_by(AgentSession.updated_at.desc(), AgentSession.created_at.desc())
+            stmt.order_by(AgentSession.updated_at.desc(), AgentSession.created_at.desc())
             .offset(offset)
             .limit(limit)
         )
         return list((await self._session.execute(stmt)).scalars().all())
 
-    async def create(self, session_id: str, *, title: str | None) -> AgentSession:
-        row = AgentSession(id=session_id, title=title)
+    async def create(
+        self, session_id: str, *, title: str | None, owner: str | None = None
+    ) -> AgentSession:
+        row = AgentSession(id=session_id, title=title, owner=owner)
         self._session.add(row)
         await self._session.commit()
         return row
@@ -154,12 +160,13 @@ class AgentSessionRepository:
             await self._session.commit()
 
     async def rebuild(
-        self, summaries: list[tuple[str, str, int, str | None, str | None, str | None]]
+        self,
+        summaries: list[tuple[str, str, int, str | None, str | None, str | None, str | None]],
     ) -> int:
         """用文件扫描结果整体校准索引，返回修正的行数。
 
         入参为 (session_id, created_at_iso, entry_count, leaf_uuid, title,
-        last_prompt) 元组列表。规则：
+        last_prompt, owner) 元组列表。规则：
         - 文件有、行没有 → 补行（created_at 取文件头时间）；
         - 行有、文件没有 → 删行（文件才是事实源）；
         - 都有但 entry_count / leaf_uuid 不一致 → 按文件覆盖。
@@ -171,7 +178,8 @@ class AgentSessionRepository:
         }
         changed = 0
         seen: set[str] = set()
-        for session_id, created_iso, entry_count, leaf_uuid, title, last_prompt in summaries:
+        for summary in summaries:
+            session_id, created_iso, entry_count, leaf_uuid, title, last_prompt, owner = summary
             seen.add(session_id)
             row = existing.get(session_id)
             if row is None:
@@ -182,10 +190,15 @@ class AgentSessionRepository:
                     last_prompt=last_prompt,
                     entry_count=entry_count,
                     leaf_uuid=leaf_uuid,
+                    owner=owner,
                 )
                 self._session.add(row)
                 changed += 1
                 continue
+            if row.owner != owner:
+                row.owner = owner
+                self._session.add(row)
+                changed += 1
             if row.entry_count != entry_count or row.leaf_uuid != leaf_uuid:
                 row.entry_count = entry_count
                 row.leaf_uuid = leaf_uuid

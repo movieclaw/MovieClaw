@@ -413,6 +413,7 @@ function RecentSessions({
                 key={c.id}
                 title={c.title}
                 running={c.running}
+                owner={c.owner}
                 time={formatRelativeTime(new Date(c.updatedAt).toISOString())}
                 active={activeNav === c.id}
                 onClick={() => onSelect(c.id)}
@@ -461,6 +462,7 @@ function Section({
 function RunRow({
   title,
   running,
+  owner,
   time,
   active,
   onClick,
@@ -471,6 +473,8 @@ function RunRow({
 }: {
   title: string;
   running: boolean;
+  /** 插件发起的会话（"plugin:<条目 id>"）在时间前标一个「插件」 */
+  owner?: string | null;
   time: string;
   active: boolean;
   onClick: () => void;
@@ -538,6 +542,16 @@ function RunRow({
         <span className="flex-1 overflow-hidden whitespace-nowrap text-ui font-medium text-[var(--text)] [mask-image:linear-gradient(to_right,#000_calc(100%_-_16px),transparent)]">
           {title}
         </span>
+        {owner?.startsWith("plugin:") && (
+          <span
+            title={`由插件 ${owner.slice("plugin:".length)} 发起`}
+            className={`shrink-0 text-caption text-[var(--text-faint)] transition-opacity duration-200 ${
+              open ? "opacity-0" : "group-hover/run:opacity-0"
+            }`}
+          >
+            插件
+          </span>
+        )}
         {/* 行尾相对时间。桌面端悬停/菜单打开时让位给 ⋯ 按钮（两者占同一块地方）；
             移动端 ⋯ 恒定可见（.touch-reveal），改用右外边距给它留出位置。 */}
         <span

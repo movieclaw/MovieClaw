@@ -472,7 +472,18 @@ class _RemotePluginFiles:
         return _RemoteFiles(self._runner, ctx.entry_id, ctx.settings.data_dir)
 
 
+class _RemoteAgentService:
+    def __init__(self, runner: Runner) -> None:
+        self._runner = runner
+
+    def scoped(self, ctx: Any) -> Any:
+        from movieclaw_sdk.agent import AgentClient
+
+        return AgentClient(self._runner.service("agent"))
+
+
 _SERVICE_PROXIES: dict[str, Callable[[Runner], Any]] = {
+    "agent": _RemoteAgentService,
     "host-ops": _RemoteHostOps,
     "plugin-data": _RemotePluginData,
     "plugin-health": _RemotePluginHealth,

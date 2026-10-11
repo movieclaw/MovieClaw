@@ -82,6 +82,9 @@ class SessionHeader(BaseModel):
     version: int = SESSION_FORMAT_VERSION
     session_id: str
     created_at: str
+    #: 会话归属：空 = 网页 / 管理员；``plugin:<条目 id>`` = 插件建的会话（plugin-agent.md §8）。
+    #: 建会话时定下、此后不变，所以放头行；索引重建据此回填
+    owner: str | None = None
 
 
 class SessionMessageEntry(BaseModel):
@@ -172,6 +175,7 @@ class SessionSummary(BaseModel):
     last_prompt: str | None
     #: 最后一条 entry 的时间戳（文件为空时取头的 created_at）
     last_timestamp: str
+    owner: str | None = None
 
 
 def dehydrate_message(message: ChatMessage) -> ChatMessage:
@@ -418,11 +422,12 @@ class AgentSessionStore:
     # ------------------------------------------------------------------
     # 写入
     # ------------------------------------------------------------------
-    def create(self, session_id: str | None = None) -> SessionHeader:
+    def create(self, session_id: str | None = None, *, owner: str | None = None) -> SessionHeader:
         """新建会话文件并写入头行，返回头信息。"""
         header = SessionHeader(
             session_id=session_id or uuid_mod.uuid4().hex,
             created_at=_now_iso(),
+            owner=owner,
         )
         path = self.path(header.session_id)
         self._root.mkdir(parents=True, exist_ok=True)
@@ -703,6 +708,7 @@ class AgentSessionStore:
             title=handoff_title or (user_texts[0][:PREVIEW_MAX_CHARS] if user_texts else None),
             last_prompt=user_texts[-1][:PREVIEW_MAX_CHARS] if user_texts else None,
             last_timestamp=entries[-1].timestamp if entries else header.created_at,
+            owner=header.owner,
         )
 
     def scan_all(self) -> list[SessionSummary]:

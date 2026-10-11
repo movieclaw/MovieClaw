@@ -35,6 +35,7 @@ from urllib.parse import quote
 from fastapi import Request
 from fastapi.responses import StreamingResponse
 
+from movieclaw_api.services.plugin_agent import PluginAgent
 from movieclaw_kernel import (
     DURABLE_EVENTS,
     Context,
@@ -860,6 +861,7 @@ def _callback_proxy(ctx: Context, session: Session, declared: dict[str, Any]) ->
 def _open_services() -> dict[str, ServiceKey[Any]]:
     """进程外插件能用的服务（插件侧有对应的代理，见 ``movieclaw_sdk.runner``）。"""
     from movieclaw_api.plugins.keys import (
+        AGENT,
         HOST_OPS,
         PLUGIN_CALLBACKS,
         PLUGIN_DATA,
@@ -869,6 +871,7 @@ def _open_services() -> dict[str, ServiceKey[Any]]:
     )
 
     return {
+        AGENT.name: AGENT,
         PLUGIN_CALLBACKS.name: PLUGIN_CALLBACKS,
         PLUGIN_FILES.name: PLUGIN_FILES,
         HOST_OPS.name: HOST_OPS,
@@ -1199,6 +1202,7 @@ EXPORTS: dict[str, type] = {
     "net": _Net,
     "job": _Job,
     "channels": _Channels,
+    "agent": PluginAgent,
 }
 
 
@@ -1209,6 +1213,7 @@ async def _exports(ctx: Context, session: Session, names: tuple[str, ...]) -> di
     没有的，令牌只能调运行时接口。
     """
     from movieclaw_api.plugins.keys import (
+        AGENT,
         HOST_OPS,
         PLUGIN_CALLBACKS,
         PLUGIN_DATA,
@@ -1246,6 +1251,8 @@ async def _exports(ctx: Context, session: Session, names: tuple[str, ...]) -> di
         exports["callbacks"] = _Callbacks(ctx, ctx.use(PLUGIN_CALLBACKS))
     if PLUGIN_ROUTES.name in names:
         exports["routes"] = _Routes(ctx, ctx.use(PLUGIN_ROUTES))
+    if AGENT.name in names:
+        exports["agent"] = ctx.use(AGENT).for_entry(ctx)
     return exports
 
 

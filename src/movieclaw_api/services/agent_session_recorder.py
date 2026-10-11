@@ -223,6 +223,7 @@ async def rebuild_agent_session_index() -> None:
                         s.leaf_uuid,
                         s.title,
                         s.last_prompt,
+                        s.owner,
                     )
                     for s in summaries
                 ]

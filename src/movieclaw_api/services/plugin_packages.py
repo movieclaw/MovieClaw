@@ -53,13 +53,32 @@ def _operations() -> set[str]:
     return set(_operation_index())
 
 
+_AGENT_TIERS = {
+    "none": "不带工具，纯对话",
+    "mclaw": "可调用服务操作",
+    "full": "可执行命令、读写文件",
+}
+
+
 def operation_details(patterns: list[str]) -> list[dict[str, Any]]:
     """宿主操作 → 给人看的说明（管理页的批准抽屉逐项列出，危险操作标红）。"""
     from movieclaw_api.services.host_ops import _operation_index
+    from movieclaw_sdk.agent import PERMISSION_PREFIX
 
     index = _operation_index()
     details: list[dict[str, Any]] = []
     for pattern in patterns:
+        if pattern.startswith(PERMISSION_PREFIX):
+            tier = pattern[len(PERMISSION_PREFIX) :]
+            details.append(
+                {
+                    "id": pattern,
+                    "summary": f"调用 AI 助手（{_AGENT_TIERS.get(tier, tier)}）：以管理员身份运行、"
+                    "按模型用量计费，插件可以把回复转给它自己的调用方",
+                    "dangerous": True,
+                }
+            )
+            continue
         if pattern.endswith(".*"):
             details.append(
                 {

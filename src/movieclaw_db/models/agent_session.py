@@ -41,3 +41,5 @@ class AgentSession(TimestampMixin, table=True):
     last_heartbeat_at: datetime | None = Field(
         default=None, description="运行心跳时间（naive UTC）"
     )
+    # 会话归属（与 JSONL 头行一致，重建时回填）：空 = 网页 / 管理员；plugin:<条目 id> = 插件建的
+    owner: str | None = Field(default=None, index=True, description="会话归属")

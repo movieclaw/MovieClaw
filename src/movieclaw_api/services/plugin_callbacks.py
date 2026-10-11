@@ -296,6 +296,10 @@ class PluginCallbacks:
         )
         stats.calls += 1
         stats.last_called_at = utcnow()
+        from movieclaw_api.services.plugin_routes import current_zone
+
+        # 外部平台调进来的：插件在这里面驱动 Agent 时不带工具（plugin-agent.md §6）
+        zone = current_zone.set("callback")
         try:
             response = await asyncio.wait_for(endpoint.handler(request), endpoint.timeout)
         except TimeoutError:
@@ -305,6 +309,8 @@ class PluginCallbacks:
             stats.last_status = 500
             logger.exception("插件 %s 的回调端点 %s 处理出错", entry_id, name)
             raise CallbackError(500, "插件处理出错") from None
+        finally:
+            current_zone.reset(zone)
         if not isinstance(response, CallbackResponse):
             stats.last_status = 500
             logger.error("插件 %s 的回调端点 %s 没有返回 CallbackResponse", entry_id, name)

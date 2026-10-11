@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from movieclaw_api.plugins.keys import AGENT_RUNS, DB
+from movieclaw_api.plugins.keys import AGENT, AGENT_RUNS, DB, HOST_OPS
 from movieclaw_kernel import Context, plugin
 
 
@@ -39,3 +39,19 @@ async def agent_attachments(ctx: Context) -> None:
 
     # 回收上传后从未发送的过期图片附件（staging 区，24h TTL），兜住「长期没人上传」的场景
     get_agent_attachment_store().cleanup_staging()
+
+
+@plugin(
+    "agent.invoke",
+    title="插件调用 AI 助手",
+    inject=(AGENT_RUNS, HOST_OPS),
+    provides=(AGENT,),
+    disableable=True,
+    reloadable=True,
+)
+async def agent_invoke(ctx: Context) -> None:
+    """让插件在用户批准的权限内驱动 AI 助手：同步等结果或逐事件流式消费（如协议适配插件）。"""
+    from movieclaw_api.services.plugin_agent import AgentService
+
+    # 授权与代表谁沿用宿主操作那份用户批准（plugins.yaml 的 grants、插件包安装时的批准）
+    ctx.provide(AGENT, AgentService(ctx.use(HOST_OPS)))

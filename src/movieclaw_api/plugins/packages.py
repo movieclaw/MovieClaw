@@ -211,7 +211,14 @@ def check_compat(manifest: Manifest, *, reserved: set[str], operations: set[str]
         parse_grants(manifest.permissions.paths)
     except ValueError as exc:
         raise PackageError(f"路径授权不合规：{exc}") from exc
+    from movieclaw_sdk.agent import PERMISSION_PREFIX
+
     for pattern in manifest.permissions.operations:
+        if pattern.startswith(PERMISSION_PREFIX):
+            # 调用 AI 助手（plugin-agent.md §5）：插件包最高 mclaw，能执行命令的不交给下载来的包
+            if pattern not in ("agent:none", "agent:mclaw"):
+                raise PackageError(f"插件包只能申请 agent:none 或 agent:mclaw（当前 {pattern}）")
+            continue
         if pattern.endswith(".*"):
             domain = pattern[:-2] + "."
             if not any(op.startswith(domain) for op in operations):

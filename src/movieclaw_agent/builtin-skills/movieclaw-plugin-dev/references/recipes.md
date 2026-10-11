@@ -402,3 +402,52 @@ def wecom_decrypt(encrypted: str, aes_key: str) -> bytes:   # EncodingAESKey；A
 企业微信配置回调地址时会先发一次 GET（带 `echostr`）：验签后解密 `echostr`，原文作为响应体返回；
 之后的消息是 POST 一段 XML，`Encrypt` 字段按同样方式验签、解密。
 
+## 15. 驱动 AI 助手（协议适配、自动化）
+
+插件可以让 AI 助手跑一轮对话，同步等结果或逐事件流式消费。典型用法是协议适配：插件开一个接口，
+把对端的请求转成一轮对话，再把回复（含流式）转回对端格式。
+
+```python
+from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
+
+from movieclaw_api.plugins.keys import AGENT, PLUGIN_ROUTES
+from movieclaw_sdk import plugin
+from movieclaw_sdk.agent import AgentBusy, AgentNotGranted
+
+@plugin("acme-bridge", inject=(AGENT, PLUGIN_ROUTES), permissions=("agent:mclaw",))
+async def apply(ctx):
+    agent = ctx.use(AGENT).scoped(ctx)
+    router = APIRouter()
+
+    @router.post("/ask", operation_id="plugins.acme-bridge.ask")
+    async def ask(body: dict):
+        try:
+            reply = await agent.ask(body["text"], session_id=body.get("session_id"), timeout=120)
+        except AgentBusy as exc:
+            raise HTTPException(409, str(exc))
+        return {"session_id": reply.session_id, "status": reply.status, "text": reply.text}
+
+    @router.post("/stream", operation_id="plugins.acme-bridge.stream")
+    async def stream(body: dict):
+        turn = await agent.start(body["text"], instructions="你在回答外部系统，回复要简洁。")
+
+        async def frames():
+            async for event in turn.events():          # text / tool / done / error / cancelled
+                yield f"event: {event.type}\ndata: {event.model_dump_json()}\n\n"
+
+        return StreamingResponse(frames(), media_type="text/event-stream",
+                                 headers={"Cache-Control": "no-cache, no-transform"})
+
+    ctx.use(PLUGIN_ROUTES).mount(ctx, router, zone="admin")
+```
+
+- **授权**：清单 `permissions.operations` 写 `agent:none`（纯对话）或 `agent:mclaw`（可调服务操作）；
+  插件包不能申请 `agent:full`。用户批准时它被标为危险项。代表成员运行（`act_as`）的插件不能用。
+- **会话**：插件建的会话只归它自己，`agent.sessions()` 列出、`session_id=` 续写、`agent.delete()` 删除；
+  外部协议的会话标识（如 A2A 的 contextId）和 `session_id` 的对应关系存进插件数据。
+- **流式**：`turn.events(after=上次的 seq)` 续传；迭代器关了不会取消运行（对端断线后可以 `agent.attach(session_id)`
+  重新订阅），要取消显式 `await turn.cancel()`。工具的参数和输出不给插件。
+- **护栏**：同时最多 2 轮，满了报 `AgentBusy`（不排队）；挂在成员区、公开区路由或回调端点里的调用一律不带工具；
+  由 AI 助手引起的调用（例如 AI 助手调了你的接口）不能再发起 AI 助手，报 `AgentNotGranted`。
+

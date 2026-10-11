@@ -51,6 +51,11 @@ class Context(Generic[C]):
         return self._fiber.plugin.permissions
 
     @property
+    def source(self) -> str:
+        """条目来源：``builtin`` / ``local``（本地受信插件）/ ``package``（插件包）等。"""
+        return self._fiber.entry.source
+
+    @property
     def third_party(self) -> bool:
         """非内置来源（本地受信插件、将来的第三方插件）。"""
         return self._fiber.third_party

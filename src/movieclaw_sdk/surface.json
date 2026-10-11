@@ -1,4 +1,10 @@
 {
+  "agent": {
+    "doc": "AI 助手：插件经用户授权驱动 Agent 跑一轮对话，同步等结果或逐事件流式消费（只看得到自己的会话）",
+    "kind": "service",
+    "stability": "experimental",
+    "version": "1.0"
+  },
   "dl.downloader.select": {
     "delivery": "live",
     "doc": "选下载器：按体积 / 站点 / 类型分流（只在没有显式指定时询问；须启用且可用）",
@@ -691,6 +697,13 @@
             }
           ]
         },
+        "options": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "whole_item": {
           "type": "boolean"
         }
@@ -706,7 +719,7 @@
     },
     "result": null,
     "stability": "experimental",
-    "version": "1.0"
+    "version": "1.1"
   },
   "library.file.purged": {
     "delivery": "durable",
@@ -1876,6 +1889,13 @@
             }
           ]
         },
+        "options": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "whole_item": {
           "type": "boolean"
         }
@@ -1891,7 +1911,7 @@
     },
     "result": null,
     "stability": "experimental",
-    "version": "1.0"
+    "version": "1.1"
   },
   "plugin-callbacks": {
     "doc": "插件回调端点：外部平台能直接调进来的地址，请求原样交给插件（plugin-callbacks.md §4）",

@@ -11,6 +11,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict
 
+from movieclaw_sdk.agent import AgentApi
 from movieclaw_sdk.ops import OperationRef
 
 
@@ -152,4 +153,5 @@ SERVICES: dict[str, type] = {
     "net": NetApi,
     "job": JobApi,
     "channels": ChannelsApi,
+    "agent": AgentApi,
 }
