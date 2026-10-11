@@ -3,6 +3,11 @@
 插件调宿主操作就是一次普通的 HTTP 请求：按操作目录里的路径与参数落点拼请求，
 结果取响应里的 ``data``。
 这里的函数只依赖标准库，宿主的进程内调用（``host_ops``）、MCP 与进程外插件共用同一份实现。
+
+服务键 ``HOST_OPS`` 也定义在这里：只依赖 SDK 的插件（随带插件包）据此注入宿主操作::
+
+    ops = await ctx.use(HOST_OPS).client(ctx)
+    data = await ops.call("library.strm.list-pending", {"limit": 1})
 """
 
 from __future__ import annotations
@@ -12,7 +17,15 @@ from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
+from movieclaw_kernel import ServiceKey, Stability
+
 ArgLocation = Literal["path", "query", "body"]
+
+HOST_OPS: ServiceKey[Any] = ServiceKey(
+    "host-ops",
+    stability=Stability.EXPERIMENTAL,
+    doc="宿主操作：插件以自己的身份调用本进程的 OpenAPI 操作（按操作授权）",
+)
 
 
 class OpsError(Exception):

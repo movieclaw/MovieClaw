@@ -1,0 +1,15 @@
+[plugin]
+id = "strm-prefetch"
+title = "网盘规格预探"
+version = "1.0.0"
+entry = "strm_prefetch"
+runtime = "process"
+sdk = "^1.0"
+description = "提前在后台探好网盘（strm）条目的格式与音轨字幕：首播不用现等，详情页直接有规格；看到下一集、收藏、打开详情时优先探"
+
+[requires]
+"job-handlers" = "^1.1"
+"plugin-jobs" = "^1.0"
+
+[permissions]
+operations = ["library.strm.list-pending", "library.strm.probe"]

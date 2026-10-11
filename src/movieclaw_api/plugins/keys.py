@@ -16,6 +16,7 @@ from movieclaw_kernel import RegistryKey, ServiceKey, Stability
 # IM 通道注册表定义在 SDK（通道插件只依赖 SDK），这里转出给主程序沿用
 from movieclaw_sdk.callbacks import PLUGIN_CALLBACKS as PLUGIN_CALLBACKS
 from movieclaw_sdk.channels import IM_CHANNELS as IM_CHANNELS
+from movieclaw_sdk.ops import HOST_OPS as HOST_OPS
 
 DB: ServiceKey[Any] = ServiceKey("db", doc="数据库引擎（迁移完成后提供）")
 SECRETS: ServiceKey[Any] = ServiceKey("secrets", doc="凭据加解密器")
@@ -31,11 +32,6 @@ JOBS: ServiceKey[Any] = ServiceKey("jobs", doc="持久化后台任务执行器")
 REMOTE_WORKERS: ServiceKey[Any] = ServiceKey("remote-workers", doc="远程转码 Worker 注册表")
 
 # ---- 开放给第三方插件的服务（实验级，docs/design/plugin-phase2a.md）----
-HOST_OPS: ServiceKey[Any] = ServiceKey(
-    "host-ops",
-    stability=Stability.EXPERIMENTAL,
-    doc="宿主操作：插件以自己的身份调用本进程的 OpenAPI 操作（按操作授权）",
-)
 PLUGIN_DATA: ServiceKey[Any] = ServiceKey(
     "plugin-data",
     stability=Stability.EXPERIMENTAL,

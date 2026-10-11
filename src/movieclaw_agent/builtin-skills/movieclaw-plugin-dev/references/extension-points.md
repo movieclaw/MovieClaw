@@ -26,10 +26,10 @@ tests 守着：契约有增删时本文必须同步）。每个都是「实验�
 
 | 契约 | 什么时候发生 | 典型用途 | 导入 | 示例 |
 |---|---|---|---|---|
-| `library.files.added` | 媒体库新入账了文件（扫描一轮发一次，下载入库每个条目一次） | 新文件来了就处理（预探、生成东西） | `from movieclaw_sdk.library import LIBRARY_FILES_ADDED` | — |
-| `playback.started` | 网页或 Jellyfin 客户端开始播放 | 预取下一集、播放联动 | `… import PLAYBACK_STARTED` | — |
-| `library.item.favorited` | 收藏 / 取消收藏 | 收藏即准备好整部 | `… import LIBRARY_ITEM_FAVORITED` | — |
-| `library.item.viewed` | 打开条目详情（网页详情页、Jellyfin 取条目） | 用户可能要看了，先准备 | `… import LIBRARY_ITEM_VIEWED` | — |
+| `library.files.added` | 媒体库新入账了文件（扫描一轮发一次，下载入库每个条目一次） | 新文件来了就处理（预探、生成东西） | `from movieclaw_sdk.library import LIBRARY_FILES_ADDED` | `$SRC/movieclaw_plugins/strm_prefetch/` |
+| `playback.started` | 网页或 Jellyfin 客户端开始播放 | 预取下一集、播放联动 | `… import PLAYBACK_STARTED` | 同上 |
+| `library.item.favorited` | 收藏 / 取消收藏 | 收藏即准备好整部 | `… import LIBRARY_ITEM_FAVORITED` | 同上 |
+| `library.item.viewed` | 打开条目详情（网页详情页、Jellyfin 取条目） | 用户可能要看了，先准备 | `… import LIBRARY_ITEM_VIEWED` | 同上 |
 
 ## 2. 决策钩子：改变系统的判断
 

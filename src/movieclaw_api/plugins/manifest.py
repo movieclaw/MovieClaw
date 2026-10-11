@@ -50,7 +50,7 @@ BUILTIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     ("订阅", ("subscription",)),
     ("媒体库", ("library.", "media.", "enrich.")),
-    ("播放与字幕", ("playback.", "subtitle.", "jellyfin.")),
+    ("播放与字幕", ("playback.", "subtitle.", "jellyfin.", "strm-prefetch")),
     (
         "通知与推送",
         (
