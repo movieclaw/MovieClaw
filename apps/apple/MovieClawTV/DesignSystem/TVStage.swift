@@ -24,7 +24,7 @@ struct TVStageBackdrop: View {
     /// 列表滚动这么多以内背景不动：首页 460（焦点在首屏底下那一行时的滚动量，实测约 400，大图还跟着焦点换）；
     /// 详情页 0（往下按整页滑到选集，剧照跟着内容一起滚走）
     var pinnedScroll: CGFloat = 460
-    /// 超过上面那段之后，再滚这么多剧照淡完
+    /// 超过上面那段之后，再滚这么多剧照淡完（详情页是滑到下半截的滚动量：停在下半截时剧照正好淡完）
     var fadeDistance: CGFloat = 700
     /// 边缘色在屏幕下沿之外再延伸这么高，在里面渐变到深炭灰
     static let tailHeight: CGFloat = 600
@@ -55,6 +55,13 @@ struct TVStageBackdrop: View {
     /// 剧照从屏高的哪儿开始渐隐到下沿：首页 0.4（露出底下的边缘色，卡片行落在上面）；详情页静止时 1（原图不渐隐），
     /// 往下滑、剧照跟着往上走时逐渐提到 0.6，不在屏幕中间露出一道硬边
     private var fadeFrom: CGFloat { fullImage ? 1 - min(1, scrollOffset / 500) * 0.4 : 0.4 }
+    /// 剧照整层的不透明度：跟着列表滚走时淡出。淡到 2% 以下直接按 0——哪怕只剩一点点，整层（遮罩、模糊、合成组）
+    /// 每帧也都要在 4K 下离屏合成一遍；只有真正为 0 时系统才不画它（2026-10-11 模拟器量：详情页停在下半截时
+    /// 剧照还剩 26%，左右换集时 GPU 多花近两倍）
+    private var stageOpacity: Double {
+        let opacity = Double(max(0, 1 - max(0, scrollOffset - pinnedScroll) / fadeDistance))
+        return opacity < 0.02 ? 0 : opacity
+    }
 
     var body: some View {
         ZStack {
@@ -85,7 +92,7 @@ struct TVStageBackdrop: View {
                 // 压不住底下同样半透明的剧照，开播后下半部分透出剧照的残影（2026-10-06 用户真机反馈）
                 ZStack(alignment: .top) {
                     if let url {
-                        TVStageImage(url: url)
+                        TVStageImage(url: url, zooming: stageOpacity > 0)
                             .id(url)
                             .transition(.opacity)
                     }
@@ -139,7 +146,7 @@ struct TVStageBackdrop: View {
             // 这一层只有剧照那么高、被居中摆放，上下各露出 24 点底色（2026-10-03 实测）
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             .offset(y: -max(0, scrollOffset - pinnedScroll))
-            .opacity(Double(max(0, 1 - max(0, scrollOffset - pinnedScroll) / fadeDistance)))
+            .opacity(stageOpacity)
         }
         .animation(.easeInOut(duration: 0.6), value: url)
         .animation(.easeInOut(duration: 0.8), value: tint?.description)
@@ -159,6 +166,9 @@ struct TVStageBackdrop: View {
 /// 下沿渐隐、托字的黑（`TVStageScrim`）都不在这里：它们要连同盖在剧照上的大图预告一起套
 private struct TVStageImage: View {
     let url: URL
+    /// 整层看得见才推近：淡完（详情页停在下半截、首页往下看别的行）就停下归位，回来从头再推。
+    /// 推近是 SwiftUI 动画，走着的时候每帧都要在主线程上重算、整层重画
+    var zooming = true
     @State private var zoom: CGFloat = 1
 
     var body: some View {
@@ -178,8 +188,22 @@ private struct TVStageImage: View {
             }
             .clipped()
             .onAppear {
-                withAnimation(.linear(duration: 40)) { zoom = TVMetrics.stageZoom }
+                if zooming { startZoom() }
             }
+            .onChange(of: zooming) { _, zooming in
+                if zooming {
+                    startZoom()
+                } else {
+                    // 不带动画地设回去，把还在走的推近一并停掉（这时整层已经淡完，看不出跳变）
+                    var transaction = Transaction()
+                    transaction.disablesAnimations = true
+                    withTransaction(transaction) { zoom = 1 }
+                }
+            }
+    }
+
+    private func startZoom() {
+        withAnimation(.linear(duration: 40)) { zoom = TVMetrics.stageZoom }
     }
 
     /// 剧照（连同预告）、托字的黑共用的下沿渐隐：屏高 `from` 以上保持原样，一路平滑淡到屏幕下沿，卡片行落在渐隐的部分上
@@ -630,6 +654,9 @@ struct TVBlurredBackdrop: View {
     /// 剧照地址（按 `TVMetrics.blurredBackdropWidth` 取的小图）；nil 只铺电视底色与渐暗
     let url: URL?
 
+    /// 模糊在几分之一的大小上做（见 `body`）
+    private static let downscale: CGFloat = 4
+
     var body: some View {
         ZStack {
             Color.tvPage
@@ -639,9 +666,18 @@ struct TVBlurredBackdrop: View {
                 // （2026-10-04 真机：影人页左边、顶上各露一条底下的页面）
                 Color.clear
                     .overlay {
-                        RemoteImage(url: url, placeholderText: "")
-                            .blur(radius: 50)
-                            .opacity(0.45)
+                        // 不直接在整屏图上实时模糊：那样页面一动（详情页往下滑时剧照上还盖着同一份做渐隐）每帧都要在 4K 下
+                        // 重新算两遍，真机 GPU 每帧约 50 毫秒、滑动明显掉帧（2026-10-11 Apple TV 4K 二代实测，去掉模糊约 20 毫秒）。
+                        // 改成在四分之一大小上模糊、栅格化成一张静态图再放大铺满：只在换图时算一次，之后就是普通贴图。
+                        // 模糊后本来就没有细节，放大回来与原先几乎逐像素相同（模拟器截图对比差 ≤1 级，竖版海报的边缘也一样）
+                        GeometryReader { proxy in
+                            RemoteImage(url: url, placeholderText: "")
+                                .frame(width: proxy.size.width / Self.downscale, height: proxy.size.height / Self.downscale)
+                                .blur(radius: 50 / Self.downscale)
+                                .drawingGroup()
+                                .scaleEffect(Self.downscale, anchor: .topLeading)
+                        }
+                        .opacity(0.45)
                     }
                     .id(url)
                     .transition(.opacity)

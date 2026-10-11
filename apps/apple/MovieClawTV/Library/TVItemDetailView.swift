@@ -38,9 +38,13 @@ struct TVItemDetailView: View {
     @State private var browseRanges: [EpisodeRange] = []
     /// 下半截那一季看过（任一集已看或有续播点）：一集没碰过的季不标「接着看」，焦点照样落在锚点（第一集）上
     @State private var browseWatched = false
-    /// 分集横排停在哪一集：焦点在横排里就是焦点那一集，在段页签上换段、从面板挑集时跳到那一集；
-    /// 从上面进横排落在它上面，段页签的「当前段」也跟着它
+    /// 分集横排停在哪一集：焦点离开横排时是最后停的那一集（横排里一路走时只在跨段时更新，见 `TVEpisodeRow`），
+    /// 在段页签上换段、从面板挑集时跳到那一集；从上面进横排落在它上面，段页签的「当前段」也跟着它
     @State private var rowEpisode: Int?
+    /// 程序把焦点交给横排的某一集（面板挑集、锚点变了）：横排自己的焦点状态接过去（见 `TVEpisodeRow`）
+    @State private var rowFocusRequest: TVRowFocusRequest?
+    /// 横排回报焦点停在哪一集（不参与界面刷新）
+    @State private var rowFocus = TVLowerRowFocus()
     /// 「全部分集」面板：打开时落在哪一段（nil 为没开）
     @State private var panelRange: EpisodeRange?
     /// 从面板挑了一集、焦点还没落到横排那一集上：这期间焦点先回到段页签，不能按「换段」把横排跳走
@@ -65,6 +69,9 @@ struct TVItemDetailView: View {
     @FocusState private var actionFocus: DetailAction?
     /// 回首屏的接应点拿到了焦点（见 `stageReturnCatcher`）
     @FocusState private var catcherFocused: Bool
+    /// 下半截的选季、段页签、合集按钮。分集、演职员、系列这几行横滑卡片的焦点各行自己管（`TVEpisodeRow` 等）：
+    /// 挂在页面上的话，焦点每在卡片间挪一下整页就重算一遍（带闭包的卡片全部重跑），真机上左右换集明显发顿
+    /// （2026-10-11 模拟器量：每下主线程连续忙 26ms，收进行里后 12ms）
     @FocusState private var lowerFocus: LowerFocus?
     /// 在下半截点播的那一集：播完退回详情时首屏改讲它，而不是进来时那一集
     @State private var playedElsewhere: (season: Int, episode: Int)?
@@ -72,15 +79,11 @@ struct TVItemDetailView: View {
     @State private var previewOwner = UUID()
 
     private enum DetailAction { case play, restart, favorite, played }
-    private enum LowerFocus: Hashable {
+    fileprivate enum LowerFocus: Hashable {
         case season(Int)
         /// 段页签（按段序号）
         case range(Int)
-        case episode(Int)
-        case person(Int)
         case collection(Int)
-        /// 系列里的一部（按 TMDB id，库里没有的也能停焦点）
-        case seriesPart(Int)
     }
 
     private var isMovie: Bool { detail?.kind != "tv" }
@@ -88,8 +91,9 @@ struct TVItemDetailView: View {
     var body: some View {
         ZStack {
             // 剧照原图按 16:9 铺满整屏，只在左下角罩一团中性的黑托字（见 TVStageBackdrop.fullImage）；
-            // 往下滑时剧照跟着内容滚走，露出同一张剧照的模糊版（与海报墙同一套背景）
-            TVStageBackdrop(pinnedScroll: 0, fadeDistance: 900, url: backdropURL, tint: nil, scroll: scroll, fullImage: true,
+            // 往下滑时剧照跟着内容滚走，露出同一张剧照的模糊版（与海报墙同一套背景）。滑到下半截时剧照正好淡完：
+            // 原先淡出距离 900，停在下半截还剩约 26%（几乎看不见），却让整层遮罩、模糊每帧照样离屏重画
+            TVStageBackdrop(pinnedScroll: 0, fadeDistance: lowerScroll, url: backdropURL, tint: nil, scroll: scroll, fullImage: true,
                             ambientURL: api.image(detail?.backdropUrl ?? detail?.posterUrl,
                                                   width: ImageWidth.points(TVMetrics.blurredBackdropWidth)),
                             previewKey: itemId)
@@ -115,7 +119,7 @@ struct TVItemDetailView: View {
         .task(id: detail != nil) {
             guard detail != nil else { return }
             try? await Task.sleep(for: .milliseconds(200))
-            if actionFocus == nil, lowerFocus == nil { actionFocus = canPlay ? .play : .favorite }
+            if actionFocus == nil, lowerFocus == nil, rowFocus.episode == nil { actionFocus = canPlay ? .play : .favorite }
         }
         // 焦点停在哪一季，下面就换成哪一季（停稳 0.25 秒再换，一路划过去不逐季加载）
         .task(id: lowerFocus) {
@@ -124,23 +128,12 @@ struct TVItemDetailView: View {
             guard !Task.isCancelled else { return }
             await loadBrowse(number)
         }
-        // 焦点在横排里走到哪一集，段页签的「当前段」就跟到哪一段；焦点移到别的段页签，横排跳到那一段的入口集
-        // （锚点或段首）——同「焦点移到哪一季，下面就换成哪一季」，只是不用读网络，直接跳
+        // 焦点移到别的段页签，横排跳到那一段的入口集（锚点或段首）——同「焦点移到哪一季，下面就换成哪一季」，
+        // 只是不用读网络，直接跳。焦点在横排里走到哪一集由横排自己记（`rowEpisode`），段页签的「当前段」跟着它
         .onChange(of: lowerFocus) { _, focus in
-            switch focus {
-            case let .episode(number):
-                rowEpisode = number
-                if pendingRowFocus == number {
-                    pendingRowFocus = nil
-                    resnapLower()
-                }
-            case let .range(index):
-                guard pendingRowFocus == nil, index != currentRange?.index,
-                      let range = browseRanges.first(where: { $0.index == index }) else { return }
-                jumpRow(to: EpisodeRanges.entry(of: range, anchor: browseAnchor))
-            default:
-                break
-            }
+            guard case let .range(index) = focus, pendingRowFocus == nil, index != currentRange?.index,
+                  let range = browseRanges.first(where: { $0.index == index }) else { return }
+            jumpRow(to: EpisodeRanges.entry(of: range, anchor: browseAnchor))
         }
         .fullScreenCover(item: $panelRange) { range in
             TVEpisodeRangePanel(
@@ -160,10 +153,10 @@ struct TVItemDetailView: View {
             for delay in [350, 150, 200, 300, 500] {
                 try? await Task.sleep(for: .milliseconds(delay))
                 guard !Task.isCancelled, panelRange == nil else { continue }
-                if lowerFocus == .episode(number) { break }
-                lowerFocus = .episode(number)
+                if rowFocus.episode == number { break }
+                rowFocusRequest = TVRowFocusRequest(episode: number, token: (rowFocusRequest?.token ?? 0) + 1)
             }
-            // 焦点落上了（`onChange` 清掉了它、这个任务随之取消）由 `resnapLower` 放开闸门；一直没落上就在这里放开
+            // 焦点落上了（`rowArrived` 清掉了它、这个任务随之取消）由 `resnapLower` 放开闸门；一直没落上就在这里放开
             guard !Task.isCancelled else { return }
             snapGate.holdsLower = false
             pendingRowFocus = nil
@@ -400,23 +393,13 @@ struct TVItemDetailView: View {
                 episodeRow
             }
             if let series {
-                seriesRow(series)
+                TVSeriesRow(series: series, libraryId: libraryId, itemId: itemId) { backToStage() }
+                    .equatable()
             }
             let people = Self.castPeople(detail)
             if !people.isEmpty {
-                TVShelf(title: "演职员") {
-                    ForEach(Array(people.enumerated()), id: \.offset) { index, person in
-                        TVPersonCard(name: person.name, role: person.role, avatarURL: api.image(person.avatar, width: TVPersonCard.imageWidth())) {
-                            // 没有 TMDB 影人 id 的（NFO 里只有姓名的导演）没有影人页，按确认不跳转
-                            guard let id = person.personId else { return }
-                            router.push(.person(tmdbId: id, name: person.name, avatar: person.avatar, fromItem: itemId))
-                        }
-                        .focused($lowerFocus, equals: .person(index))
-                        .accessibilityIdentifier(person.personId.map { "tv-cast-\($0)" } ?? "tv-cast-none")
-                    }
-                }
-                // 电影（没有系列一行时）从按钮往下直接进这一行：落在第一位（导演）。这一行在首屏外，系统按几何就近挑会落到中间某一位
-                .defaultFocus($lowerFocus, .person(0), priority: .userInitiated)
+                TVCastRow(people: people, itemId: itemId)
+                    .equatable()
             }
             if !otherCollections(detail).isEmpty {
                 collectionsRow(detail)
@@ -439,7 +422,7 @@ struct TVItemDetailView: View {
                     .overlay(alignment: .trailing) { rangeHint }
             }
             if hasRangeTabs {
-                rangeTabs
+                TVRangeTabs(ranges: browseRanges, anchor: browseAnchor, rowEpisode: $rowEpisode, focus: $lowerFocus) { panelRange = $0 }
                     .padding(.top, hasSeasonTabs ? 4 : 36)
             }
         }
@@ -523,44 +506,6 @@ struct TVItemDetailView: View {
         .defaultFocus($lowerFocus, browseSeason.map(LowerFocus.season), priority: .userInitiated)
     }
 
-    /// 段页签（长剧集，docs/design/long-season-episode-ranges.md §5）：「1–50」「51–100」……一排胶囊，横排停在的那一段垫浅底、
-    /// 锚点所在的段右上角一个橙点。焦点移到哪一段，横排跳到那一段的入口集（`onChange(of: lowerFocus)`）；
-    /// 按确认打开「全部分集」面板，落在这一段
-    private var rangeTabs: some View {
-        ScrollViewReader { proxy in
-            ScrollView(.horizontal) {
-                HStack(spacing: 14) {
-                    ForEach(browseRanges) { range in
-                        let current = range.index == currentRange?.index
-                        let anchored = browseAnchor.map(range.contains) ?? false
-                        Button(range.label) { panelRange = range }
-                            .buttonStyle(TVRangeTabStyle(current: current, anchored: anchored))
-                            // 从横排往上回来落在当前段：只放它能接焦点（`defaultFocus` 在横滑行上不灵，同首页海报行的入口卡）。
-                            // 落在别的段上会把横排跳走
-                            .disabled(!rangeTabsFocused && !current)
-                            .focused($lowerFocus, equals: .range(range.index))
-                            .id(range.index)
-                            .accessibilityValue([current ? "当前" : nil, anchored ? "接着看" : nil].compactMap { $0 }.joined(separator: "，"))
-                            .accessibilityIdentifier("tv-range-\(range.first)")
-                    }
-                }
-                .padding(.horizontal, TVMetrics.edge)
-                .padding(.vertical, 12)
-            }
-            .scrollClipDisabled()
-            .scrollIndicators(.hidden)
-            .focusSection()
-            // 在横排里走过段的边界、从面板挑了别的段的集：把当前段滚进来（焦点在段页签上时系统自己滚）
-            .onChange(of: currentRange?.index) { _, index in
-                guard let index, !rangeTabsFocused else { return }
-                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(index, anchor: .center) }
-            }
-            .onAppear {
-                if let index = currentRange?.index { proxy.scrollTo(index, anchor: .center) }
-            }
-        }
-    }
-
     /// 焦点在段页签上时，右上方（片名或选季那一行的右端）提示按确认能看这一段的全部分集——首屏不加按钮，入口就是这里
     private var rangeHint: some View {
         Text("按确认查看这一段的全部分集")
@@ -577,43 +522,26 @@ struct TVItemDetailView: View {
         return false
     }
 
-    /// 分集横排：剧照（片长或剩多久、进度）+ 第几集、集名、四行简介、首播日期（同系统 Apple TV App）。
-    /// 长剧集也是整季连续的一排（懒加载），往右一直走自然跨段；锚点那张标「接着看」
+    /// 分集横排（`TVEpisodeRow`）：焦点、停在哪一集都由它自己管，页面只在程序交焦点、跳集时介入
     private var episodeRow: some View {
-        ScrollView(.horizontal) {
-            LazyHStack(alignment: .top, spacing: TVMetrics.cardSpacing) {
-                ForEach(browseEpisodes, id: \.episodeNumber) { episode in
-                    TVEpisodeCard(
-                        episode: episode,
-                        imageURL: api.image(episode.stillUrl, width: ImageWidth.tvCard(TVMetrics.landscapeWidth)),
-                        runtimeMinutes: detail?.localMeta?.runtimeMinutes,
-                        resumeTag: browseWatched && episode.episodeNumber == browseAnchor
-                    ) {
-                        guard episode.owned, let browseSeason else { return }
-                        router.play(PlayRequest(mediaItemId: itemId, season: browseSeason, episode: episode.episodeNumber))
-                    }
-                    .contextMenu {
-                        if episode.owned {
-                            Button(episode.played ? "标为未看" : "标为已看") {
-                                Task { await markEpisode(episode, played: !episode.played) }
-                            }
-                        }
-                    }
-                    .focused($lowerFocus, equals: .episode(episode.episodeNumber))
-                    .accessibilityIdentifier("tv-episode-\(episode.episodeNumber)")
-                }
-            }
-            .scrollTargetLayout()
-            .padding(.horizontal, TVMetrics.edge)
-            .padding(.vertical, 20)
-        }
-        .scrollClipDisabled()
-        .scrollIndicators(.hidden)
-        .scrollPosition($episodeScroll)
-        .focusSection()
-        // 往下进分集落在横排停在的那一集（进页面、换季时是接着看的那一集，换段时是那一段的入口集），不按位置挑第一集
-        .defaultFocus($lowerFocus, rowEpisode.map(LowerFocus.episode), priority: .userInitiated)
-        .onAppear { scrollEpisodesToEntry() }
+        TVEpisodeRow(
+            episodes: browseEpisodes, anchor: browseAnchor, showsResumeTag: browseWatched,
+            runtimeMinutes: detail?.localMeta?.runtimeMinutes, ranges: browseRanges,
+            rowEpisode: $rowEpisode, scrollPosition: $episodeScroll, focusRequest: rowFocusRequest, report: rowFocus,
+            play: { episode in
+                guard episode.owned, let browseSeason else { return }
+                router.play(PlayRequest(mediaItemId: itemId, season: browseSeason, episode: episode.episodeNumber))
+            },
+            togglePlayed: { episode in Task { await markEpisode(episode, played: !episode.played) } },
+            arrived: { number in rowArrived(number) }
+        )
+    }
+
+    /// 焦点落到横排的某一集：程序正要交给它的那一集到了，放开闸门、把整页摆回下半截的顶
+    private func rowArrived(_ number: Int) {
+        guard pendingRowFocus == number else { return }
+        pendingRowFocus = nil
+        resnapLower()
     }
 
     /// 「所属合集」：一排文字按钮，按下进那个合集的海报墙。试过做成与库卡片同样的封面卡（2026-10-04），
@@ -631,35 +559,6 @@ struct TVItemDetailView: View {
         }
         .padding(.horizontal, TVMetrics.edge)
         .focusSection()
-    }
-
-    /// 作品系列一行（2026-10-04 用户要求）：电影往下滑的第一行，整个系列按上映顺序排，标题旁写「已有 7 / 共 8」。
-    /// 这一部标「本片」，按下回首屏（播放按钮就在那）；库里没有的置灰标「未入库」，不能选中（同 Mac 版）。
-    /// 往下进这一行落在「本片」上，看得出这一部排第几
-    private func seriesRow(_ series: API.CollectionSeriesView) -> some View {
-        TVShelf(title: series.seriesName ?? "系列", detail: "已有 \(series.ownedCount) / 共 \(series.total)") {
-            ForEach(series.parts, id: \.tmdbId) { part in
-                let current = part.mediaItemId == itemId
-                let missing = part.mediaItemId == nil
-                TVPosterCard(
-                    title: part.title,
-                    subtitle: part.releaseDate.map { String($0.prefix(4)) },
-                    imageURL: api.image(part.posterUrl, width: ImageWidth.tvCard(TVMetrics.posterWidth)),
-                    badge: current ? "本片" : missing ? "未入库" : nil
-                ) {
-                    if current {
-                        backToStage()
-                    } else if let id = part.mediaItemId {
-                        router.push(.item(libraryId: libraryId, itemId: id))
-                    }
-                }
-                .opacity(missing ? 0.45 : 1)
-                .disabled(missing)
-                .focused($lowerFocus, equals: .seriesPart(part.tmdbId))
-            }
-        }
-        .defaultFocus($lowerFocus, series.parts.first { $0.mediaItemId == itemId }.map { .seriesPart($0.tmdbId) },
-                      priority: .userInitiated)
     }
 
     /// 「所属合集」里不再列系列本身：上面已经有系列一行了
@@ -717,7 +616,7 @@ struct TVItemDetailView: View {
 
     /// 让一张分集卡停在行首边距处的锚点：卡上这一点与可见区同一点对齐，
     /// x 满足「卡的左边 = 可见区左边 + 边距」（卡 416 宽、屏 1920 宽）
-    private static let firstCardAnchor = UnitPoint(x: TVMetrics.edge / (1920 - TVMetrics.landscapeWidth), y: 0.5)
+    fileprivate static let firstCardAnchor = UnitPoint(x: TVMetrics.edge / (1920 - TVMetrics.landscapeWidth), y: 0.5)
 
     /// 首屏右下角的演职员：「导演 某某」「主演 某某、某某」，标签灰、人名白；没有就不画
     @ViewBuilder
@@ -749,15 +648,23 @@ struct TVItemDetailView: View {
             .lineLimit(1)
     }
 
-    typealias CastPerson = (name: String, role: String?, avatar: String?, personId: Int?)
+    struct CastPerson: Equatable {
+        let name: String
+        let role: String?
+        let avatar: String?
+        let personId: Int?
+    }
 
     /// 演职员：导演在前（结构化的优先，没有就退回姓名），演员跟着，同 iPhone 版。带 TMDB 影人 id 的能进影人页
     static func castPeople(_ detail: API.LibraryItemDetailView) -> [CastPerson] {
         guard let meta = detail.localMeta else { return [] }
         let directors: [CastPerson] = meta.directorCredits.isEmpty
-            ? Array(NSOrderedSet(array: meta.directors)).compactMap { $0 as? String }.map { ($0, "导演", nil, nil) }
-            : meta.directorCredits.map { ($0.name, "导演", $0.thumbUrl, $0.tmdbPersonId) }
-        return directors + meta.actors.map { ($0.name, $0.role.map { "饰 \($0)" }, $0.thumbUrl, $0.tmdbPersonId) }
+            ? Array(NSOrderedSet(array: meta.directors)).compactMap { $0 as? String }
+                .map { CastPerson(name: $0, role: "导演", avatar: nil, personId: nil) }
+            : meta.directorCredits.map { CastPerson(name: $0.name, role: "导演", avatar: $0.thumbUrl, personId: $0.tmdbPersonId) }
+        return directors + meta.actors.map {
+            CastPerson(name: $0.name, role: $0.role.map { "饰 \($0)" }, avatar: $0.thumbUrl, personId: $0.tmdbPersonId)
+        }
     }
 
     // MARK: 派生
@@ -973,7 +880,8 @@ struct TVItemDetailView: View {
 /// 跟着滚动显隐的一层：首屏的文字与按钮滑走时淡出，下半截顶上的片名与选季滑下来时淡入。
 /// 越过一半才能接焦点——两层在屏幕顶上会叠在一起（下半截只往上滚了不到一屏，首屏底下要露出它的第一行），
 /// 都能接焦点的话会互相抢。淡出的那层不接焦点后，系统从下半截往上找不到去处，由 `backToStage` 接手。
-/// 只这一层读滚动距离，滚动时不重算整页
+/// 只这一层读滚动距离，滚动时不重算整页。里面的内容在页面重算时建好存下来（不存闭包）：存闭包的话滚动的每一帧
+/// 都要重跑一遍，首屏整块（含遍历全部文件的画质标签）跟着每帧重算（2026-10-11 模拟器采样）
 private struct TVScrollGate<Content: View>: View {
     let scroll: TVStageScroll
     /// true：下半截的那层（滑下来淡入）；false：首屏那层（滑走淡出）
@@ -984,15 +892,248 @@ private struct TVScrollGate<Content: View>: View {
     var forceEnabled = false
     /// 跟着滚动淡入淡出；接应点本身看不见，不淡（透明度为 0 的视图系统不给焦点）
     var fades = true
-    @ViewBuilder let content: () -> Content
+    let content: Content
+
+    init(scroll: TVStageScroll, showsWhenLower: Bool, threshold: CGFloat, forceEnabled: Bool = false, fades: Bool = true,
+         @ViewBuilder content: () -> Content) {
+        self.scroll = scroll
+        self.showsWhenLower = showsWhenLower
+        self.threshold = threshold
+        self.forceEnabled = forceEnabled
+        self.fades = fades
+        self.content = content()
+    }
 
     private var progress: Double { Double(min(1, max(0, scroll.offset / threshold))) }
 
     var body: some View {
         let shown = showsWhenLower ? max(0, progress - 0.5) * 2 : max(0, 1 - progress / 0.6)
-        content()
+        content
             .opacity(fades ? shown : 1)
             .disabled(!forceEnabled && (showsWhenLower ? progress < 0.5 : progress > 0.5))
+    }
+}
+
+/// 程序要把焦点交给横排的哪一集；`token` 每次加一，同一集重试也算一次新的请求
+private struct TVRowFocusRequest: Equatable {
+    let episode: Int
+    let token: Int
+}
+
+/// 横排回报焦点停在哪一集（nil 为不在横排里）。普通引用、不可观察：只给页面在闭包、任务里读，不让页面跟着焦点重算
+private final class TVLowerRowFocus {
+    var episode: Int?
+}
+
+/// 分集横排：剧照（片长或剩多久、进度）+ 第几集、集名、四行简介、首播日期（同系统 Apple TV App）。
+/// 长剧集也是整季连续的一排（懒加载），往右一直走自然跨段；锚点那张标「接着看」。
+/// 焦点由这一行自己的 `@FocusState` 管：焦点每挪一下只重算这一行，卡片（`TVEpisodeCard`）按值比较、没变就不重画。
+/// 焦点状态、卡片的 `.focused`、`defaultFocus` 三者要在同一个视图里：卡片拆进子视图的话（不管 `defaultFocus` 放哪层），
+/// 代码把横排跳到别的段之后再往下进来，`defaultFocus` 压不过系统对这一行上次焦点的记忆，按位置落到正下方那张
+/// （2026-10-11 长剧集用例实测）
+private struct TVEpisodeRow: View {
+    let episodes: [API.EpisodeView]
+    let anchor: Int?
+    let showsResumeTag: Bool
+    let runtimeMinutes: Int?
+    /// 段（长剧集才有）：横排里走过段的边界时要更新 `rowEpisode`
+    let ranges: [EpisodeRange]
+    /// 横排停在哪一集：焦点离开横排时是最后停的那一集（在横排里走过段的边界时也跟上）；页面在换季、换段、
+    /// 从面板挑集时改它。从上面进横排落在它上面
+    @Binding var rowEpisode: Int?
+    /// 横排的滚动位置：行是惰性的，屏幕外的卡还没建出来，焦点要落过去得先滚到它
+    @Binding var scrollPosition: ScrollPosition
+    let focusRequest: TVRowFocusRequest?
+    let report: TVLowerRowFocus
+    let play: (API.EpisodeView) -> Void
+    let togglePlayed: (API.EpisodeView) -> Void
+    /// 焦点落到了某一集
+    let arrived: (Int) -> Void
+
+    @FocusState private var focused: Int?
+    @Environment(\.api) private var api
+
+    var body: some View {
+        ScrollView(.horizontal) {
+            LazyHStack(alignment: .top, spacing: TVMetrics.cardSpacing) {
+                ForEach(episodes, id: \.episodeNumber) { episode in
+                    TVEpisodeCard(
+                        episode: episode,
+                        imageURL: api.image(episode.stillUrl, width: ImageWidth.tvCard(TVMetrics.landscapeWidth)),
+                        runtimeMinutes: runtimeMinutes,
+                        resumeTag: showsResumeTag && episode.episodeNumber == anchor
+                    ) {
+                        play(episode)
+                    }
+                    .equatable()
+                    .contextMenu {
+                        if episode.owned {
+                            Button(episode.played ? "标为未看" : "标为已看") { togglePlayed(episode) }
+                        }
+                    }
+                    .focused($focused, equals: episode.episodeNumber)
+                    .accessibilityIdentifier("tv-episode-\(episode.episodeNumber)")
+                }
+            }
+            .scrollTargetLayout()
+            .padding(.horizontal, TVMetrics.edge)
+            .padding(.vertical, 20)
+        }
+        .scrollClipDisabled()
+        .scrollIndicators(.hidden)
+        .scrollPosition($scrollPosition)
+        .focusSection()
+        // 往下进分集落在横排停在的那一集（进页面、换季时是接着看的那一集，换段时是那一段的入口集），不按位置挑第一集
+        .defaultFocus($focused, rowEpisode, priority: .userInitiated)
+        .onChange(of: focused) { last, number in
+            report.episode = number
+            guard let number else {
+                // 离开横排：记下停在哪一集，从上下再进来落在它上面
+                if let last, rowEpisode != last { rowEpisode = last }
+                return
+            }
+            // 横排里一路走时不写：写一次这一行就多重算一遍。只有跨了段（段页签的「当前段」要跟着换）才写
+            if !ranges.isEmpty, EpisodeRanges.range(containing: number, in: ranges)?.index
+                != rowEpisode.flatMap({ EpisodeRanges.range(containing: $0, in: ranges) })?.index {
+                rowEpisode = number
+            }
+            arrived(number)
+        }
+        .onChange(of: focusRequest) { _, request in
+            if let request { focused = request.episode }
+        }
+        // 打开页面时行还没建出来，出现时再滚一次
+        .onAppear {
+            if let rowEpisode { scrollPosition.scrollTo(id: rowEpisode, anchor: TVItemDetailView.firstCardAnchor) }
+        }
+    }
+}
+
+/// 演职员一行：焦点由这一行自己管，按值比较（人没变就不重画），焦点在头像间挪动不惊动页面
+private struct TVCastRow: View, Equatable {
+    let people: [TVItemDetailView.CastPerson]
+    let itemId: Int
+
+    @Environment(\.api) private var api
+    @Environment(TVRouter.self) private var router
+    @FocusState private var focused: Int?
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.people == rhs.people && lhs.itemId == rhs.itemId }
+
+    var body: some View {
+        TVShelf(title: "演职员") {
+            ForEach(Array(people.enumerated()), id: \.offset) { index, person in
+                TVPersonCard(name: person.name, role: person.role, avatarURL: api.image(person.avatar, width: TVPersonCard.imageWidth())) {
+                    // 没有 TMDB 影人 id 的（NFO 里只有姓名的导演）没有影人页，按确认不跳转
+                    guard let id = person.personId else { return }
+                    router.push(.person(tmdbId: id, name: person.name, avatar: person.avatar, fromItem: itemId))
+                }
+                .focused($focused, equals: index)
+                .accessibilityIdentifier(person.personId.map { "tv-cast-\($0)" } ?? "tv-cast-none")
+            }
+        }
+        // 电影（没有系列一行时）从按钮往下直接进这一行：落在第一位（导演）。这一行在首屏外，系统按几何就近挑会落到中间某一位
+        .defaultFocus($focused, 0, priority: .userInitiated)
+    }
+}
+
+/// 作品系列一行（2026-10-04 用户要求）：电影往下滑的第一行，整个系列按上映顺序排，标题旁写「已有 7 / 共 8」。
+/// 这一部标「本片」，按下回首屏（播放按钮就在那）；库里没有的置灰标「未入库」，不能选中（同 Mac 版）。
+/// 往下进这一行落在「本片」上，看得出这一部排第几。焦点由这一行自己管（同 `TVCastRow`）
+private struct TVSeriesRow: View, Equatable {
+    let series: API.CollectionSeriesView
+    let libraryId: Int
+    let itemId: Int
+    /// 按下「本片」：回首屏
+    let backToStage: () -> Void
+
+    @Environment(\.api) private var api
+    @Environment(TVRouter.self) private var router
+    @FocusState private var focused: Int?
+
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.series == rhs.series && lhs.libraryId == rhs.libraryId && lhs.itemId == rhs.itemId
+    }
+
+    var body: some View {
+        TVShelf(title: series.seriesName ?? "系列", detail: "已有 \(series.ownedCount) / 共 \(series.total)") {
+            ForEach(series.parts, id: \.tmdbId) { part in
+                let current = part.mediaItemId == itemId
+                let missing = part.mediaItemId == nil
+                TVPosterCard(
+                    title: part.title,
+                    subtitle: part.releaseDate.map { String($0.prefix(4)) },
+                    imageURL: api.image(part.posterUrl, width: ImageWidth.tvCard(TVMetrics.posterWidth)),
+                    badge: current ? "本片" : missing ? "未入库" : nil
+                ) {
+                    if current {
+                        backToStage()
+                    } else if let id = part.mediaItemId {
+                        router.push(.item(libraryId: libraryId, itemId: id))
+                    }
+                }
+                .opacity(missing ? 0.45 : 1)
+                .disabled(missing)
+                .focused($focused, equals: part.tmdbId)
+            }
+        }
+        .defaultFocus($focused, series.parts.first { $0.mediaItemId == itemId }?.tmdbId, priority: .userInitiated)
+    }
+}
+
+/// 段页签（长剧集，docs/design/long-season-episode-ranges.md §5）：「1–50」「51–100」……一排胶囊，横排停在的那一段垫浅底、
+/// 锚点所在的段右上角一个橙点。焦点移到哪一段，横排跳到那一段的入口集（页面的 `onChange(of: lowerFocus)`）；
+/// 按确认打开「全部分集」面板，落在这一段。它读横排停在哪一集（`rowEpisode`），单独成一个视图：
+/// 横排里换集时只重算它，不重算整页
+private struct TVRangeTabs: View {
+    let ranges: [EpisodeRange]
+    let anchor: Int?
+    @Binding var rowEpisode: Int?
+    let focus: FocusState<TVItemDetailView.LowerFocus?>.Binding
+    let open: (EpisodeRange) -> Void
+
+    private var currentRange: EpisodeRange? {
+        rowEpisode.flatMap { EpisodeRanges.range(containing: $0, in: ranges) }
+    }
+
+    private var tabsFocused: Bool {
+        if case .range = focus.wrappedValue { return true }
+        return false
+    }
+
+    var body: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal) {
+                HStack(spacing: 14) {
+                    ForEach(ranges) { range in
+                        let current = range.index == currentRange?.index
+                        let anchored = anchor.map(range.contains) ?? false
+                        Button(range.label) { open(range) }
+                            .buttonStyle(TVRangeTabStyle(current: current, anchored: anchored))
+                            // 从横排往上回来落在当前段：只放它能接焦点（`defaultFocus` 在横滑行上不灵，同首页海报行的入口卡）。
+                            // 落在别的段上会把横排跳走
+                            .disabled(!tabsFocused && !current)
+                            .focused(focus, equals: .range(range.index))
+                            .id(range.index)
+                            .accessibilityValue([current ? "当前" : nil, anchored ? "接着看" : nil].compactMap { $0 }.joined(separator: "，"))
+                            .accessibilityIdentifier("tv-range-\(range.first)")
+                    }
+                }
+                .padding(.horizontal, TVMetrics.edge)
+                .padding(.vertical, 12)
+            }
+            .scrollClipDisabled()
+            .scrollIndicators(.hidden)
+            .focusSection()
+            // 在横排里走过段的边界、从面板挑了别的段的集：把当前段滚进来（焦点在段页签上时系统自己滚）
+            .onChange(of: currentRange?.index) { _, index in
+                guard let index, !tabsFocused else { return }
+                withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo(index, anchor: .center) }
+            }
+            .onAppear {
+                if let index = currentRange?.index { proxy.scrollTo(index, anchor: .center) }
+            }
+        }
     }
 }
 
@@ -1046,13 +1187,19 @@ private struct TVDetailSnap: ScrollTargetBehavior {
 
 /// 一集：剧照（左下角片长或剩多久，看了一半的压进度条，看完的标「已看」，接着看的那一集标「接着看」）+ 第几集、集名、
 /// 四行简介、首播日期。简介固定占四行高，一排卡的日期对齐在同一条线上（同系统 Apple TV App 的分集卡）
-private struct TVEpisodeCard: View {
+private struct TVEpisodeCard: View, Equatable {
     let episode: API.EpisodeView
     let imageURL: URL?
     let runtimeMinutes: Int?
     /// 接着看的那一集（长剧集里没开始看的下一集也认得出来）
     var resumeTag = false
     let action: () -> Void
+
+    /// 按值比较、不比按下的动作（它只在按下时读页面的状态，不会过时）：焦点在横排里挪动、横排重算时，没变的卡不重画
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        lhs.episode == rhs.episode && lhs.imageURL == rhs.imageURL && lhs.runtimeMinutes == rhs.runtimeMinutes
+            && lhs.resumeTag == rhs.resumeTag
+    }
 
     private let width = TVMetrics.landscapeWidth
 

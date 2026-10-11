@@ -67,12 +67,26 @@ final class TVStagePreview {
     @ObservationIgnored private var volumeRamp: Task<Void, Never>?
     @ObservationIgnored private var pendingLeave: Task<Void, Never>?
     @ObservationIgnored private var playerClosedWait: Task<Void, Never>?
+    /// 看不见 / 又看得见之后，等滚动停下再真正暂停、续播（见 `refresh`）
+    @ObservationIgnored private var settle: Task<Void, Never>?
+    /// `settle` 要把播放器对齐到「看得见 / 看不见」哪一边（同一边不重排：播放状态来回变也不把暂停一直往后推）
+    @ObservationIgnored private var settleTarget: Bool?
+    /// 看不见了、先静了音还没真停
+    @ObservationIgnored private var muted = false
+    /// 最近一次焦点移动（任意页面）：真正的暂停、续播挑用户停手的空当做（见 `refresh`）
+    @ObservationIgnored private var lastFocusMove = ContinuousClock.now
     @ObservationIgnored private var prefetches: [Task<Void, Never>] = []
     @ObservationIgnored private var dwellDone = false
     @ObservationIgnored private var loaded = false
     @ObservationIgnored private var started = false
     @ObservationIgnored private var ended = false
     @ObservationIgnored private var framed = false
+
+    private init() {
+        NotificationCenter.default.addObserver(forName: UIFocusSystem.didUpdateNotification, object: nil, queue: .main) { _ in
+            MainActor.assumeIsolated { TVStagePreview.shared.lastFocusMove = .now }
+        }
+    }
 
     /// 这一段放到哪儿了（0～1）：首页卡片行让位时露出的那条进度线读它。播放器的位置不是可观察的，读的一方自己定时刷新
     var progress: Double { player?.progress ?? 0 }
@@ -273,7 +287,16 @@ final class TVStagePreview {
         }
     }
 
-    /// 可见性变了：看不见就暂停，回来接着放（还没开播的，回来时停留够了就开播）
+    /// 看不见 / 又看得见之后多久才真正暂停、续播：盖过详情页整页滑动的动画（约 0.4 秒）
+    private static let settleDelay: Duration = .milliseconds(600)
+    /// 还要等焦点停了这么久：焦点动画、横排滚动都走完了，主线程堵一下看不出来
+    private static let focusIdle: Duration = .milliseconds(800)
+
+    /// 可见性变了：看不见就暂停，回来接着放（还没开播的，回来时停留够了就开播）。
+    /// 暂停、续播都要在主线程上同步等系统音频（`FigAudioQueuePause`），一下就是几十毫秒；可见性又正是在滑动途中变的
+    /// （详情页往下滑过 120 点），当场做就卡在滑动动画中间（2026-10-11 模拟器采样）。所以看不见时先静音、画面照常淡出，
+    /// 等滑动停下、用户也停手了（焦点不再动，一路往右换集时先不碰）再真正暂停；回来时还没真停的只把声音渐回来，
+    /// 已经停了的也这样等一会儿再续播
     private func refresh() {
         let shouldShow = started && framed && !ended && visible
         if showing != shouldShow { showing = shouldShow }
@@ -281,10 +304,34 @@ final class TVStagePreview {
             startIfReady()
             return
         }
-        if visible {
-            if player.state == .paused { player.play() }
-        } else if player.state == .playing || player.state == .buffering {
-            player.pause()
+        let playing = player.state == .playing || player.state == .buffering
+        if !visible, playing, !muted {
+            volumeRamp?.cancel()
+            player.volume = 0
+            muted = true
+        } else if visible, playing, muted {
+            muted = false
+            rampVolume(player)
+        }
+        guard settleTarget != visible || settle == nil else { return }
+        settle?.cancel()
+        settleTarget = visible
+        settle = Task { [weak self, weak player] in
+            try? await Task.sleep(for: Self.settleDelay)
+            while !Task.isCancelled, let self, ContinuousClock.now - self.lastFocusMove < Self.focusIdle {
+                try? await Task.sleep(for: .milliseconds(150))
+            }
+            guard !Task.isCancelled, let self else { return }
+            self.settle = nil
+            guard let player, player === self.player, self.started, !self.ended else { return }
+            if self.visible {
+                guard player.state == .paused else { return }
+                player.play()
+                self.muted = false
+                self.rampVolume(player)
+            } else if player.state == .playing || player.state == .buffering {
+                player.pause()
+            }
         }
     }
 
@@ -309,6 +356,10 @@ final class TVStagePreview {
         cycle?.cancel()
         cycle = nil
         volumeRamp?.cancel()
+        settle?.cancel()
+        settle = nil
+        settleTarget = nil
+        muted = false
         prefetches.forEach { $0.cancel() }
         prefetches = []
         if let old = player {
