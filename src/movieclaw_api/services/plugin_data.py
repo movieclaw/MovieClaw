@@ -18,6 +18,7 @@ import re
 from typing import Any
 
 from sqlalchemy import delete, func, select
+from sqlalchemy.dialects.sqlite import insert
 
 from movieclaw_db.engine import Database
 from movieclaw_db.models import PluginData, utcnow
@@ -64,18 +65,25 @@ class PluginStore:
             from movieclaw_db.crypto import get_secret_box
 
             stored = {"enc": get_secret_box().encrypt(text)}
+        now = utcnow()
+        # 一条语句完成「有则改、无则插」：先查再插在并发写同一个键时会撞唯一约束
+        statement = (
+            insert(PluginData)
+            .values(
+                entry_id=self.entry_id,
+                scope=scope,
+                key=key,
+                value=stored,
+                secret=secret,
+                updated_at=now,
+            )
+            .on_conflict_do_update(
+                index_elements=["entry_id", "scope", "key"],
+                set_={"value": stored, "secret": secret, "updated_at": now},
+            )
+        )
         async with self._db.session() as session:
-            row = await session.scalar(self._query(scope, key))
-            if row is None:
-                session.add(
-                    PluginData(
-                        entry_id=self.entry_id, scope=scope, key=key, value=stored, secret=secret
-                    )
-                )
-            else:
-                row.value = stored
-                row.secret = secret
-                row.updated_at = utcnow()
+            await session.execute(statement)
             await session.commit()
 
     async def delete(self, key: str, *, scope: str = GLOBAL) -> bool:

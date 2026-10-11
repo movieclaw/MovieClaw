@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import select
@@ -106,6 +108,26 @@ def test_plugin_data_is_isolated_scoped_and_secret(app_client) -> None:
     run(client, scenario)
     plugins = {p["id"]: p for p in client.get("/api/v1/app/plugins").json()["data"]["plugins"]}
     assert plugins["acme.a"]["data_rows"] == 3 and plugins["acme.b"]["data_rows"] == 1
+
+
+def test_concurrent_writes_to_one_key_do_not_collide(app_client) -> None:
+    """并发写同一个新键：曾经先查再插，第二个写入撞唯一约束（压测 16 路并发时约 0.5% 失败）。"""
+    app, client = app_client
+    store = mount(app, client, "acme.race", (PLUGIN_DATA,))["store"]
+
+    async def scenario() -> None:
+        await asyncio.gather(*(store.set(f"k{i % 4}", i) for i in range(200)))
+        await asyncio.gather(*(store.set("secret", {"n": i}, secret=True) for i in range(20)))
+        values = await store.items()
+        assert set(values) == {"k0", "k1", "k2", "k3", "secret"}
+        assert all(values[f"k{j}"] % 4 == j for j in range(4))
+        async with get_database().session() as session:
+            rows = (
+                await session.execute(select(PluginData).where(PluginData.entry_id == "acme.race"))
+            ).scalars()
+            assert len(list(rows)) == 5
+
+    run(client, scenario)
 
 
 def test_plugin_data_survives_reload(app_client) -> None:
