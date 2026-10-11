@@ -13,13 +13,15 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Iterable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from movieclaw_api.services import durable_events
 from movieclaw_kernel import Delivery, Event, Mode, Stability
+
+if TYPE_CHECKING:
+    # 写库辅助只在宿主里用；事件定义要能被进程外插件轻量导入（不带数据库层，约省 70 MB）
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 Unit = tuple[int, int]
 
@@ -256,6 +258,8 @@ async def record_lazy(
     build: Callable[[], Awaitable[Any]],
 ) -> bool:
     """没有订阅者就连快照都不拍；有才构造载荷并写入（随调用方的下一次提交成立）。"""
+    from movieclaw_api.services import durable_events
+
     if not await durable_events.wanted(session, event):
         return False
     payload = await build()
@@ -287,6 +291,8 @@ async def deletion_recorder(
 
     没有插件订阅删除事件时返回 ``None``，删除路径上没有任何额外查询。
     """
+    from movieclaw_api.services import durable_events
+
     if not (
         await durable_events.wanted(session, LIBRARY_ITEM_DELETED)
         or await durable_events.wanted(session, LIBRARY_FILE_DELETED)
