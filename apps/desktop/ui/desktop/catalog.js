@@ -52,7 +52,7 @@ window.DesktopCatalog = (() => {
   class CatalogView {
     constructor(host, generation, params) {
       this.host = host; this.generation = generation; this.params = {...params}; this.owner = identity();
-      this.signal = App._pageController.signal; this.api = App.pageAPI; this.disposed = false;
+      this.signal = App._pageController.signal; this.api = App.pageAPI; this.disposed = false; this.rowSnapshots=new Map(); this.snapshotPending=new Set(); this.snapshotQueue=[]; this.snapshotWorkers=0;
       this.signal.addEventListener('abort', () => this.dispose(), {once:true});
     }
     alive() { return !this.disposed && identity() === this.owner && App.isCurrent(this.generation); }
@@ -103,7 +103,7 @@ window.DesktopCatalog = (() => {
       host.querySelectorAll('[data-subscribe-ref]').forEach(button => button.onclick = () => this.subscribe(button.dataset.subscribeRef));
       host.querySelectorAll('[data-person]').forEach(button => button.onclick = () => App.navigate('discoverPerson',{id:Number(button.dataset.person)}));
     }
-    dispose() { this.disposed = true; clearTimeout(this.timer); this.closeDialog(); }
+    dispose() { this.disposed = true; this.downloadObserver?.disconnect(); clearTimeout(this.timer); this.closeDialog(); }
     closeDialog() { this.dialogController?.abort(); clearTimeout(this.dialogTimer); this.dialog?.close(); this.dialog?.remove(); this.dialog = null; this.dialogEpoch = (this.dialogEpoch || 0) + 1; }
     dialogBox(title) {
       this.closeDialog();
@@ -152,6 +152,7 @@ window.DesktopCatalog = (() => {
         } else {
           const manifest = await this.request(`/ui/discovery/${kind}?provider=${provider}`);
           this.host.innerHTML = `<div class="catalog-page"><h1>发现</h1>${this.discoveryControls()}<div id="discoverySections"></div></div>`;
+          this.finish();this.bindDiscoveryControls();
           const sections = this.host.querySelector('#discoverySections');
           for (const section of manifest.sections || []) {
             const holder = document.createElement('section'); holder.className = 'catalog-section';
@@ -256,8 +257,29 @@ window.DesktopCatalog = (() => {
       this.host.querySelector('#subscriptionSummary').innerHTML=[['正在追踪',counts.active],['正在下载的单元',counts.downloading],['已入库的单元',counts.imported],['等待资源的单元',counts.wanted]].map(([name,value])=>`<div><strong>${value}</strong><span>${name}</span></div>`).join('');
       const host=this.host.querySelector('#subscriptionList'), rows=this.filteredSubscriptions();
       host.className=this.params.layout==='poster' ? 'catalog-grid' : 'catalog-subscription-list';
-      replaceContentPreservingImages(host,rows.map(sub=>`<button class="catalog-subscription ${this.params.layout==='poster'?'catalog-subscription-poster':''}" data-subscription="${Number(sub.id)}">${picture(sub.media.poster_url)}<div><strong>${html(sub.media.title)}</strong><small>${html(sub.media.kind==='tv' ? (sub.selected_seasons || []).map(n=>`第 ${n} 季`).join(' · ') || '剧集' : '电影')} · ${html(statusNames[sub.status] || sub.status)}</small><progress max="${Math.max(1,Number(sub.progress?.total || 0))}" value="${Number(sub.progress?.imported || 0)}" aria-label="入库进度"></progress><small>${html(progress(sub))}</small></div>${uiIcon('right')}</button>`).join('') || '<div class="empty-state">没有匹配的订阅。开启“发现”后可以浏览和订阅影片。</div>');
-      this.bindTitles(host);
+      replaceContentPreservingImages(host,rows.map(sub=>`<button class="catalog-subscription ${this.params.layout==='poster'?'catalog-subscription-poster':''}" data-subscription="${Number(sub.id)}">${picture(sub.media.poster_url)}<div><strong>${html(sub.media.title)}</strong><small>${html(sub.media.kind==='tv' ? (sub.selected_seasons || []).map(n=>`第 ${n} 季`).join(' · ') || '剧集' : '电影')} · ${html(statusNames[sub.status] || sub.status)}</small><progress max="${Math.max(1,Number(sub.progress?.total || 0))}" value="${Number(sub.progress?.imported || 0)}" aria-label="入库进度"></progress><small>${html(progress(sub))}</small>${sub.progress?.grabbed?`<small data-download-summary="${sub.id}">${html(this.rowSnapshots.get(sub.id) || '正在读取下载进度…')}</small>`:''}</div>${uiIcon('right')}</button>`).join('') || '<div class="empty-state">没有匹配的订阅。开启“发现”后可以浏览和订阅影片。</div>');
+      this.bindTitles(host);this.observeDownloads(host);
+    }
+    observeDownloads(host) {
+      this.downloadObserver?.disconnect();
+      this.downloadObserver=new IntersectionObserver(entries=>{for(const entry of entries)if(entry.isIntersecting){const id=Number(entry.target.dataset.downloadSummary);this.downloadObserver.unobserve(entry.target);if(!this.snapshotPending.has(id)){this.snapshotPending.add(id);this.snapshotQueue.push(id);}}this.drainDownloads();},{root:document.getElementById('content')});
+      host.querySelectorAll('[data-download-summary]').forEach(row=>this.downloadObserver.observe(row));
+    }
+    drainDownloads() {
+      while(this.alive() && this.snapshotWorkers<2 && this.snapshotQueue.length){
+        const id=this.snapshotQueue.shift();this.snapshotWorkers++;
+        (async()=>{try {
+          if(document.hidden || !document.hasFocus() || document.getElementById('playerView')?.hidden===false)return;
+          const rows=await this.optional(`/subscriptions/${id}/active-downloads`);
+          const text=rows===null?'服务器暂不提供下载快照':rows.length?rows.map(row=>this.downloadText(row)).join('；'):'暂无在途下载，等待服务器状态确认';
+          this.rowSnapshots.set(id,text);const label=this.host.querySelector(`[data-download-summary="${id}"]`);if(label)label.textContent=text;
+        }catch(error){if(this.alive())this.host.querySelector(`[data-download-summary="${id}"]`)?.replaceChildren(document.createTextNode('进度暂不可用，点击查看详情'));}
+        finally{this.snapshotWorkers--;this.snapshotPending.delete(id);this.drainDownloads();}})();
+      }
+    }
+    downloadText(row) {
+      if(row.state==='completed')return `${percent(row.progress)} · 下载已完成，等待服务器入库确认`;
+      return `${percent(row.progress)} · ${statusNames[row.state] || row.state} · ${bytes(row.dlspeed_bytes)}/s · 预计 ${eta(row.eta_seconds)}`;
     }
     renderSchedule() {
       if(!this.alive())return;
@@ -325,8 +347,8 @@ window.DesktopCatalog = (() => {
       host.innerHTML=(d.wanted || []).map(unit=>{
         const download=(this.downloads || []).find(row=>row.info_hash && row.info_hash===unit.info_hash);
         const chain=[['播出',unit.air_date],['搜索',unit.last_search_at],['投递',unit.grabbed_at],['下载',unit.downloaded_at],['入库',unit.imported_at]];
-        const smart=unit.selection_state;
-        return `<article class="catalog-unit"><div class="catalog-unit-heading"><strong>${d.media.kind==='tv'?`S${Number(unit.season_number)}E${Number(unit.episode_number)}`:'影片'}</strong><span>${html(statusNames[unit.status] || unit.status)}</span>${unit.upgrade?.active?'<span>洗版中</span>':''}</div><ol class="catalog-chain">${chain.map(([name,date])=>`<li class="${date?'recorded':''}"><strong>${name}</strong><small>${html(date?time(date):'等待')}</small></li>`).join('')}</ol>${download?`<div class="catalog-download"><progress max="1" value="${Number(download.progress || 0)}" aria-label="下载进度"></progress><span>${percent(download.progress)} · ${html(statusNames[download.state] || download.state)} · ${bytes(download.dlspeed_bytes)}/s · 预计 ${eta(download.eta_seconds)}</span>${download.error_message?`<p class="catalog-error">${html(download.error_message)}</p>`:''}</div>`:''}${unit.last_reject_reason?`<p class="catalog-muted">最近未采用：${html(unit.last_reject_reason)}</p>`:''}${unit.grab_title?`<p class="catalog-muted">已投递：${html(unit.grab_title)}</p>`:''}${unit.upgrade?`<p class="catalog-muted">${html(unit.upgrade.current_label)} → ${html(unit.upgrade.target_label)}${unit.upgrade.indeterminate?' · 当前版本规格尚无法确认':''}</p>`:''}${smart?`<p class="catalog-muted">${html(smart.wait_explanation || smart.reason)}${smart.deadline?' · 等待至 '+html(time(smart.deadline)):''}</p>${d.can_manage && permissions().subscribe?`<div class="catalog-actions"><button class="text-button" data-smart-wanted="${unit.id}" data-smart-action="extend">再等待 30 分钟</button>${smart.candidate_key?`<button class="text-button" data-smart-wanted="${unit.id}" data-smart-action="choose">采用当前候选</button>`:''}</div>`:''}`:''}</article>`;
+        const smart=unit.selection_state,stage={grabbed:2,downloaded:3,imported:4}[unit.status] ?? -1;
+        return `<article class="catalog-unit"><div class="catalog-unit-heading"><strong>${d.media.kind==='tv'?`S${Number(unit.season_number)}E${Number(unit.episode_number)}`:'影片'}</strong><span>${html(unit.status==='grabbed' && download?.state==='completed'?'下载已完成 · 待入库确认':statusNames[unit.status] || unit.status)}</span>${unit.upgrade?.active?'<span>洗版中</span>':''}</div><ol class="catalog-chain">${chain.map(([name,date],index)=>`<li class="${date || stage>=index?'recorded':''}"><strong>${name}</strong><small>${html(date?time(date):stage>=index?'时间未记录':'等待')}</small></li>`).join('')}</ol>${download?`<div class="catalog-download"><progress max="1" value="${Number(download.progress || 0)}" aria-label="下载进度"></progress><span>${html(this.downloadText(download))}</span>${download.error_message?`<p class="catalog-error">${html(download.error_message)}</p>`:''}</div>`:''}${unit.last_reject_reason?`<p class="catalog-muted">最近未采用：${html(unit.last_reject_reason)}</p>`:''}${unit.grab_title?`<p class="catalog-muted">已投递：${html(unit.grab_title)}</p>`:''}${unit.upgrade?`<p class="catalog-muted">${html(unit.upgrade.current_label)} → ${html(unit.upgrade.target_label)}${unit.upgrade.indeterminate?' · 当前版本规格尚无法确认':''}</p>`:''}${smart?`<p class="catalog-muted">${html(smart.wait_explanation || smart.reason)}${smart.deadline?' · 等待至 '+html(time(smart.deadline)):''}</p>${d.can_manage && permissions().subscribe?`<div class="catalog-actions"><button class="text-button" data-smart-wanted="${unit.id}" data-smart-action="extend">再等待 30 分钟</button>${smart.candidate_key?`<button class="text-button" data-smart-wanted="${unit.id}" data-smart-action="choose">采用当前候选</button>`:''}</div>`:''}`:''}</article>`;
       }).join('') || '<div class="empty-state">暂无追踪单元</div>';
       if(focusKey)host.querySelector(`[data-smart-wanted="${focusKey.id}"][data-smart-action="${focusKey.action}"]`)?.focus({preventScroll:true});
       host.querySelectorAll('[data-smart-wanted]').forEach(button=>button.onclick=()=>{

@@ -44,7 +44,7 @@ module.exports=async({route,req,res,state,url,body,json,ok})=>{
  const subMatch=route.match(/^\/subscriptions\/(\d+)(.*)$/);
  if(subMatch){
   const id=Number(subMatch[1]),tail=subMatch[2],row=state.catalogRows.find(r=>r.id===id);if(!row)return error('订阅不存在',404);
-  if(tail==='/active-downloads')return send([{info_hash:'hash',state:state.catalogDownloadError?'error':'downloading',progress:0.55,dlspeed_bytes:2097152,eta_seconds:240,error_message:state.catalogDownloadError?'下载器离线':null}]);
+  if(tail==='/active-downloads')return send([{info_hash:'hash',state:state.catalogDownloadComplete?'completed':state.catalogDownloadError?'error':'downloading',progress:state.catalogDownloadComplete?1:0.55,dlspeed_bytes:2097152,eta_seconds:39960,error_message:state.catalogDownloadError?'下载器离线':null}]);
   if(tail==='/activities')return send([{id:1,message:'已投递下载，等待入库',created_at:'2026-10-11T10:00:00Z'}]);
   if(tail==='/removal-preview')return send({torrent_count:2,library_file_count:1,library_bytes:1048576,hit_and_run_count:1,retained_cross_season:[{title:'跨季包',seasons:[1,2]}]});
   if(state.catalogReadOnly && req.method!=='GET')return error('不能管理其他成员的订阅',403);
