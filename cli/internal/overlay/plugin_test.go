@@ -133,3 +133,37 @@ func TestDirFingerprintChangesWithContent(t *testing.T) {
 		t.Fatal("__pycache__ 变化不应触发重装")
 	}
 }
+
+func TestBuildExecPluginPackageKeepsTheExecutable(t *testing.T) {
+	dir := t.TempDir()
+	manifest := "[plugin]\nid = \"go-demo\"\nversion = \"0.1.0\"\nruntime = \"exec\"\n" +
+		"command = \"bin/bridge\"\nplatforms = [\"linux/amd64\"]\n"
+	if err := os.WriteFile(filepath.Join(dir, "movieclaw-plugin.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := buildPluginPackage(dir, ""); err == nil || !strings.Contains(err.Error(), "bin/bridge") {
+		t.Fatalf("缺可执行文件应报错并点名，实际 %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "bin", "bridge"), []byte("\x7fELF"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data, read, err := buildPluginPackage(dir, "")
+	if err != nil {
+		t.Fatalf("打包失败：%v", err)
+	}
+	if read.Runtime != "exec" || read.Command != "bin/bridge" || read.Entry != "" {
+		t.Fatalf("清单读错了：%+v", read)
+	}
+	archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range archive.File {
+		if file.Name == "bin/bridge" && file.Mode()&0o111 == 0 {
+			t.Fatalf("可执行位丢了：%v", file.Mode())
+		}
+	}
+}

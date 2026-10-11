@@ -74,7 +74,7 @@ process_entries: set[str] = set()
 #: 进程外插件的配置描述（``describe_config`` 的结果），条目 id → 描述
 config_descriptions: dict[str, dict[str, Any] | None] = {}
 #: 进程外插件的代码位置（目录、模块），校验设置时另起子进程用
-process_specs: dict[str, tuple[Path, str]] = {}
+process_specs: dict[str, tuple[Path, str, str | None]] = {}
 
 
 class PluginProcessGone(RuntimeError):
@@ -184,12 +184,20 @@ class Session:
     """一个插件进程：拉起、握手、调用、监管、停止。"""
 
     def __init__(
-        self, entry_id: str, *, path: Path, module: str, config: Any, data_dir: str = "./data"
+        self,
+        entry_id: str,
+        *,
+        path: Path,
+        module: str,
+        config: Any,
+        data_dir: str = "./data",
+        command: str | None = None,
     ) -> None:
         self.entry_id = entry_id
         self._data_dir = str(Path(data_dir).resolve())
         self._path = path
         self._module = module
+        self._command = command
         self._config = config
         self._proc: asyncio.subprocess.Process | None = None
         self._handshake: asyncio.Future[dict[str, Any]] | None = None
@@ -286,21 +294,16 @@ class Session:
         self._handshake = asyncio.get_running_loop().create_future()
         try:
             self._proc = await asyncio.create_subprocess_exec(
-                sys.executable,
-                "-s",
-                "-m",
-                "movieclaw_sdk.runner",
-                "--path",
-                str(launch.cwd),
-                "--module",
-                self._module,
-                "--entry",
-                self.entry_id,
-                "--fd-socket",
-                str(child_end.fileno()),
-                "--listen-fd",
-                str(listener.fileno()),
-                *launch.args,
+                *_argv(
+                    launch,
+                    self.entry_id,
+                    self._module,
+                    self._command,
+                    "--fd-socket",
+                    str(child_end.fileno()),
+                    "--listen-fd",
+                    str(listener.fileno()),
+                ),
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.STDOUT,
@@ -882,27 +885,51 @@ def _open_services() -> dict[str, ServiceKey[Any]]:
     }
 
 
-def describe(path: Path, module: str, entry_id: str) -> dict[str, Any]:
+def _argv(
+    launch: Launch, entry_id: str, module: str, command: str | None, *extra: str
+) -> list[str]:
+    """拉起插件的命令行。
+
+    Python 插件走运行器；非 Python 插件（``exec``，plugin-ipc-http.md §9）先过可信启动器：
+    它降权、设资源限制与父进程退出信号后 ``execve`` 插件——不可信的二进制不能指望它自己降权。
+    约定与运行器一致：``--describe`` / ``--validate`` / ``--fd-socket`` / ``--listen-fd``。
+    """
+    if command is not None:
+        program = str(launch.cwd / command)
+        return [
+            sys.executable,
+            "-s",
+            "-m",
+            "movieclaw_sdk.launch",
+            *launch.args,
+            "--",
+            program,
+            *extra,
+        ]
+    return [
+        sys.executable,
+        "-s",
+        "-m",
+        "movieclaw_sdk.runner",
+        "--path",
+        str(launch.cwd),
+        "--module",
+        module,
+        "--entry",
+        entry_id,
+        *extra,
+        *launch.args,
+    ]
+
+
+def describe(path: Path, module: str, entry_id: str, command: str | None = None) -> dict[str, Any]:
     """在子进程里读出插件的声明（标题、要注入的服务、宿主操作），主进程不导入插件代码。
 
     导入插件代码就会执行它的模块级代码，所以这一步与正式运行同样隔离（同一用户、同一代码副本）。
     """
     launch = _launch(entry_id, path, module)
     proc = subprocess.run(
-        [
-            sys.executable,
-            "-s",
-            "-m",
-            "movieclaw_sdk.runner",
-            "--path",
-            str(launch.cwd),
-            "--module",
-            module,
-            "--entry",
-            entry_id,
-            "--describe",
-            *launch.args,
-        ],
+        _argv(launch, entry_id, module, command, "--describe"),
         capture_output=True,
         cwd=str(launch.cwd),
         env=launch.env,
@@ -923,23 +950,10 @@ def validate_config(entry_id: str, config: dict[str, Any]) -> list[dict[str, Any
     spec = process_specs.get(entry_id)
     if spec is None:
         return []
-    path, module = spec
+    path, module, command = spec
     launch = _launch(entry_id, path, module)
     proc = subprocess.run(
-        [
-            sys.executable,
-            "-s",
-            "-m",
-            "movieclaw_sdk.runner",
-            "--path",
-            str(launch.cwd),
-            "--module",
-            module,
-            "--entry",
-            entry_id,
-            "--validate",
-            *launch.args,
-        ],
+        _argv(launch, entry_id, module, command, "--validate"),
         input=json.dumps(config, ensure_ascii=False).encode("utf-8"),
         capture_output=True,
         cwd=str(launch.cwd),
@@ -1282,11 +1296,12 @@ def remote_plugin(
     inject: tuple[str, ...] = (),
     permissions: tuple[str, ...] = (),
     config_description: dict[str, Any] | None = None,
+    command: str | None = None,
 ) -> Plugin:
     """进程外运行的插件条目：代码在子进程里，内核里只有代理。
 
     ``inject`` / ``permissions`` 来自插件自己的声明（``describe``），宿主据此注入服务、
-    发宿主操作授权。
+    发宿主操作授权。``command`` 是非 Python 插件的可执行文件（相对插件目录）。
     """
     services = _open_services()
     unknown = [name for name in inject if name not in services]
@@ -1295,7 +1310,7 @@ def remote_plugin(
     process_entries.add(entry_id)
     # 配置模型在子进程里，主进程只拿到它的描述（describe）；界面设置据此渲染
     config_descriptions[entry_id] = config_description
-    process_specs[entry_id] = (path, module)
+    process_specs[entry_id] = (path, module, command)
 
     async def apply(ctx: Context) -> None:
         # 卸下后（如插件包被卸载、换回同 id 的随带插件包）诊断不能还显示「独立进程」
@@ -1308,6 +1323,7 @@ def remote_plugin(
             # 内核合并好的配置（清单配置 + 界面设置），每次启动现读：改设置后重启即生效
             config=dict(ctx.config or {}),
             data_dir=getattr(ctx.settings, "data_dir", "./data"),
+            command=command,
         )
         session.exports = await _exports(ctx, session, inject)
         # 先登记再拉起：插件在 apply 里就会经网关调宿主服务，网关按条目找会话

@@ -255,6 +255,7 @@ class PackageManager:
                 title=manifest.plugin.title,
                 entry=manifest.plugin.entry,
                 runtime=manifest.plugin.runtime,
+                command=manifest.plugin.command,
                 operations=list(requested),
                 paths=requested_paths,
                 callbacks=list(manifest.permissions.callbacks),

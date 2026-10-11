@@ -56,11 +56,15 @@ type pluginManifest struct {
 	ID      string
 	Version string
 	Entry   string
+	// Runtime 为 exec 时是非 Python 插件：没有入口模块，Command 是包里的可执行文件
+	Runtime string
+	Command string
 }
 
 var tomlString = regexp.MustCompile(`^\s*([A-Za-z_][A-Za-z0-9_-]*)\s*=\s*"([^"]*)"\s*(#.*)?$`)
 
-// readPluginManifest 读出 [plugin] 段的 id / version / entry，并检查入口模块在不在。
+// readPluginManifest 读出 [plugin] 段的 id / version / entry（exec 插件是 command），
+// 并检查入口模块（或可执行文件）在不在。
 func readPluginManifest(dir string) (pluginManifest, error) {
 	var manifest pluginManifest
 	file, err := os.Open(filepath.Join(dir, pluginManifestName))
@@ -88,15 +92,29 @@ func readPluginManifest(dir string) (pluginManifest, error) {
 				manifest.Version = match[2]
 			case "entry":
 				manifest.Entry = match[2]
+			case "runtime":
+				manifest.Runtime = match[2]
+			case "command":
+				manifest.Command = match[2]
 			}
 		}
 	}
-	for name, value := range map[string]string{
-		"id": manifest.ID, "version": manifest.Version, "entry": manifest.Entry,
-	} {
+	required := map[string]string{"id": manifest.ID, "version": manifest.Version}
+	if manifest.Runtime == "exec" {
+		required["command"] = manifest.Command
+	} else {
+		required["entry"] = manifest.Entry
+	}
+	for name, value := range required {
 		if value == "" {
 			return manifest, clierr.Usagef("%s 的 [plugin] 段缺少 %s", pluginManifestName, name)
 		}
+	}
+	if manifest.Runtime == "exec" {
+		if !fileExists(filepath.Join(dir, filepath.FromSlash(manifest.Command))) {
+			return manifest, clierr.Usagef("找不到可执行文件 %s（先按服务器平台编译好）", manifest.Command)
+		}
+		return manifest, nil
 	}
 	module := filepath.Join(dir, manifest.Entry+".py")
 	pkg := filepath.Join(dir, manifest.Entry, "__init__.py")
@@ -163,14 +181,22 @@ func buildPluginPackage(dir, version string) ([]byte, pluginManifest, error) {
 	var buf bytes.Buffer
 	archive := zip.NewWriter(&buf)
 	for _, rel := range files {
-		content, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(rel)))
+		path := filepath.Join(dir, filepath.FromSlash(rel))
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return nil, manifest, clierr.Usagef("读取 %s 失败：%v", rel, err)
+		}
+		info, err := os.Stat(path)
 		if err != nil {
 			return nil, manifest, clierr.Usagef("读取 %s 失败：%v", rel, err)
 		}
 		if rel == pluginManifestName && version != "" {
 			content = manifestVersion.ReplaceAll(content, []byte(`${1}"`+version+`"`))
 		}
-		writer, err := archive.CreateHeader(&zip.FileHeader{Name: rel, Method: zip.Deflate})
+		header := &zip.FileHeader{Name: rel, Method: zip.Deflate}
+		// 带上权限位：非 Python 插件的可执行文件解出来还能执行
+		header.SetMode(info.Mode())
+		writer, err := archive.CreateHeader(header)
 		if err != nil {
 			return nil, manifest, clierr.New("打包失败：%v", err)
 		}

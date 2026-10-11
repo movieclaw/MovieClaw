@@ -47,7 +47,7 @@ from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from movieclaw_kernel import Entry, Plugin
 from movieclaw_kernel.contracts import Version, check_requires, satisfies
@@ -88,8 +88,11 @@ class _Plugin(BaseModel):
     id: str = Field(max_length=64)
     title: str = Field(min_length=1, max_length=60)
     version: str
-    entry: str
-    runtime: Literal["process", "inline"] = "process"
+    entry: str = ""
+    runtime: Literal["process", "inline", "exec"] = "process"
+    #: 非 Python 插件（``exec``，plugin-ipc-http.md §9）：包里的可执行文件与它支持的平台
+    command: str | None = None
+    platforms: list[str] = Field(default_factory=list)
     sdk: str = "^1.0"
     description: str = Field(default="", max_length=500)
 
@@ -111,9 +114,24 @@ class _Plugin(BaseModel):
     @field_validator("entry")
     @classmethod
     def _entry(cls, value: str) -> str:
-        if not _MODULE.match(value):
+        if value and not _MODULE.match(value):
             raise ValueError("entry 须是模块名（如 group_blocklist）")
         return value
+
+    @model_validator(mode="after")
+    def _runtime_fields(self) -> _Plugin:
+        if self.runtime != "exec":
+            if not self.entry:
+                raise ValueError("entry 必填（入口模块名，如 group_blocklist）")
+            return self
+        parts = (self.command or "").split("/")
+        if not self.command or any(not p or p in (".", "..") for p in parts):
+            raise ValueError(
+                "runtime = exec 须给 command（包内可执行文件的相对路径，如 bin/bridge）"
+            )
+        if not self.platforms:
+            raise ValueError('runtime = exec 须给 platforms（如 ["linux/amd64", "linux/arm64"]）')
+        return self
 
 
 class _Permissions(BaseModel):
@@ -184,9 +202,25 @@ def read_archive(data: bytes) -> tuple[Manifest, zipfile.ZipFile]:
         raise PackageError(f"{MANIFEST} 的 {where} 不合规：{first['msg']}") from exc
     entry = manifest.plugin.entry
     names = set(archive.namelist())
-    if f"{entry}.py" not in names and f"{entry}/__init__.py" not in names:
+    if manifest.plugin.runtime == "exec":
+        if manifest.plugin.command not in names:
+            raise PackageError(f"插件包里找不到可执行文件 {manifest.plugin.command}")
+        here = current_platform()
+        if here not in manifest.plugin.platforms:
+            supported = "、".join(manifest.plugin.platforms)
+            raise PackageError(f"插件包只支持 {supported}，这台服务器是 {here}")
+    elif f"{entry}.py" not in names and f"{entry}/__init__.py" not in names:
         raise PackageError(f"插件包里找不到入口模块 {entry}.py 或 {entry}/__init__.py")
     return manifest, archive
+
+
+def current_platform() -> str:
+    """这台服务器的平台，写法与清单的 platforms 一致：``linux/amd64``、``darwin/arm64``。"""
+    import platform
+
+    machine = platform.machine().lower()
+    arch = {"x86_64": "amd64", "amd64": "amd64", "aarch64": "arm64", "arm64": "arm64"}
+    return f"{sys.platform.removesuffix('2')}/{arch.get(machine, machine)}"
 
 
 def check_compat(manifest: Manifest, *, reserved: set[str], operations: set[str]) -> None:
@@ -236,6 +270,8 @@ class Installed:
     entry: str
     runtime: str
     operations: list[str]
+    command: str | None = None
+    """``exec`` 插件包的可执行文件（相对版本目录）。"""
     paths: list[dict[str, str]] = field(default_factory=list)
     """批准的路径授权（``PLUGIN_FILES``）。"""
     callbacks: list[str] = field(default_factory=list)
@@ -252,6 +288,7 @@ class Installed:
             "title": self.title,
             "entry": self.entry,
             "runtime": self.runtime,
+            "command": self.command,
             "operations": list(self.operations),
             "paths": [dict(p) for p in self.paths],
             "callbacks": list(self.callbacks),
@@ -339,6 +376,9 @@ def extract(archive: zipfile.ZipFile, target: Path) -> None:
             dest.parent.mkdir(parents=True, exist_ok=True)
             with archive.open(info) as src, dest.open("wb") as out:
                 shutil.copyfileobj(src, out)
+            # zip 里记着可执行位（非 Python 插件的二进制）：解出来要保留
+            if (info.external_attr >> 16) & 0o111:
+                os.chmod(dest, 0o755)
         if target.exists():
             shutil.rmtree(target)
         os.replace(tmp, target)
@@ -405,12 +445,16 @@ def entry_for(settings: object, package: Installed) -> Entry:
         else:
             from movieclaw_api.services.plugin_runtime import describe, remote_plugin
 
-            declared = describe(path, package.entry, package.id)
+            if package.command is not None:
+                # 打包时没记可执行位的也能跑：可执行文件由清单指名
+                os.chmod(path / package.command, 0o755)
+            declared = describe(path, package.entry, package.id, package.command)
             plugin = remote_plugin(
                 package.id,
                 title=f"{declared['title']}（独立进程）",
                 path=path,
                 module=package.entry,
+                command=package.command,
                 inject=tuple(declared["inject"]),
                 permissions=tuple(declared["permissions"]),
                 config_description=declared.get("config"),

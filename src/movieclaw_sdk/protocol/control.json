@@ -1,0 +1,298 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MovieClaw 插件控制服务（宿主调插件）",
+    "version": "1",
+    "description": "插件在 --listen-fd 交来的套接字上起 HTTP/1.1 服务（只在有监听器、贡献项、回调或路由时起）；插件路由挂在同一个服务的 /api/v1/plugins/<条目 id>/… 下。超时、宿主取消 = 断开连接，插件应随之取消处理。启动：stdin 一行 Bootstrap；声明：--describe 输出 Describe；释放：SIGTERM。"
+  },
+  "paths": {
+    "/_mc/{kind}/{target}": {
+      "post": {
+        "operationId": "call",
+        "summary": "调用插件导出的一个目标",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "listener",
+                "job",
+                "scheduled-task",
+                "callback",
+                "channel",
+                "downloader",
+                "delete-preview"
+              ]
+            }
+          },
+          {
+            "name": "target",
+            "in": "path",
+            "required": true,
+            "description": "就绪时声明的监听器 id / 贡献项 id / 回调端点名",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-MovieClaw-Call",
+            "in": "header",
+            "required": true,
+            "description": "调用号：处理这次调用期间发给网关的请求原样带上",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "结果信封",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallReply"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/_mc/cancel": {
+      "post": {
+        "operationId": "cancel",
+        "summary": "体面停止一次调用（先置停止信号，宽限期后强制取消；原请求照常回复）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Cancel"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "已收到"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Bootstrap": {
+        "description": "宿主拉起插件后往 stdin 写的一行 JSON（之后 stdin 关闭）。",
+        "properties": {
+          "entry_id": {
+            "title": "Entry Id",
+            "type": "string"
+          },
+          "config": {
+            "additionalProperties": true,
+            "description": "插件配置（清单配置叠上界面设置）",
+            "title": "Config",
+            "type": "object"
+          },
+          "data_dir": {
+            "title": "Data Dir",
+            "type": "string"
+          },
+          "gateway": {
+            "description": "宿主网关的 Unix 套接字路径",
+            "title": "Gateway",
+            "type": "string"
+          },
+          "token": {
+            "description": "插件令牌（Bearer），只在网关上有效",
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "entry_id",
+          "config",
+          "data_dir",
+          "gateway",
+          "token"
+        ],
+        "title": "Bootstrap",
+        "type": "object"
+      },
+      "CallBody": {
+        "properties": {
+          "payload": {
+            "description": "载荷：事件 / 钩子按契约的载荷模型，其余按各贡献项约定",
+            "title": "Payload"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "任务处理器：宿主侧的任务编号",
+            "title": "Job Id"
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "可靠事件的投递信息",
+            "title": "Delivery"
+          }
+        },
+        "required": [
+          "payload"
+        ],
+        "title": "CallBody",
+        "type": "object"
+      },
+      "CallReply": {
+        "description": "处理结果信封：插件处理失败也是 200，宿主按 ``error_kind`` / ``job`` 还原异常。",
+        "properties": {
+          "ok": {
+            "title": "Ok",
+            "type": "boolean"
+          },
+          "result": {
+            "default": null,
+            "title": "Result"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          },
+          "error_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error Kind"
+          },
+          "job": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Job"
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "title": "CallReply",
+        "type": "object"
+      },
+      "Cancel": {
+        "properties": {
+          "call": {
+            "description": "要体面停止的调用号",
+            "title": "Call",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call"
+        ],
+        "title": "Cancel",
+        "type": "object"
+      },
+      "Describe": {
+        "description": "``<插件> --describe`` 在 stdout 输出的最后一行 JSON。",
+        "properties": {
+          "type": {
+            "default": "describe",
+            "title": "Type",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "inject": {
+            "description": "要用的服务（如 agent、plugin-routes、plugin-data）",
+            "items": {
+              "type": "string"
+            },
+            "title": "Inject",
+            "type": "array"
+          },
+          "permissions": {
+            "description": "申请的授权（宿主操作 id、agent:<档位>）",
+            "items": {
+              "type": "string"
+            },
+            "title": "Permissions",
+            "type": "array"
+          },
+          "config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "配置表单（JSON Schema 子集）",
+            "title": "Config"
+          }
+        },
+        "required": [
+          "title",
+          "inject",
+          "permissions"
+        ],
+        "title": "Describe",
+        "type": "object"
+      }
+    }
+  }
+}

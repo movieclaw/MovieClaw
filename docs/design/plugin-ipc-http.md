@@ -1,6 +1,6 @@
 # 插件进程间通信改走 HTTP
 
-> 状态：**I1～I3 已实施**（2026-10-11），I4、I5 进行中；实施中的调整见 §13。前置阅读：`plugin-phase3.md`（进程外运行器）、`plugin-kernel.md` §5.3（可跨进程约束）、
+> 状态：**已实施**（2026-10-11，I1～I5）；实施中的调整见 §13。前置阅读：`plugin-phase3.md`（进程外运行器）、`plugin-kernel.md` §5.3（可跨进程约束）、
 > `plugin-phase2a.md` §3（插件主体与宿主操作）、`plugin-callbacks.md`。文中 `文件:行号` 均指 `7c6d19ec`。
 > 相关：#774（路由套接字只许宿主连接）。
 
@@ -210,7 +210,7 @@ movieclaw_sdk/
 
 验收：1～4 不低于现状，5 解决，6 符合 §4.5 的实测量级。
 
-## 9. 非 Python 插件（下一期，本稿只定接口）
+## 9. 非 Python 插件
 
 - **协议**：§3 的通用调用 + `gateway.json` / `control.json` + 引导行（§4.1），版本号 `protocol`。
 - **清单**：`runtime = "exec"`、`command = "bin/acme"`、`platforms = ["linux/amd64", "linux/arm64"]`、`protocol = 1`；
@@ -313,4 +313,15 @@ Python 3.14），NAS 为生产容器（Linux 4.4，8 核，Python 3.12，root �
    （Linux 有内核的父进程退出信号）。
 6. **流式宿主操作**进了插件目录（逐个授权），`OpsClient.stream()` 产出 SSE 事件。`session.start` / `retry`
    仍不对插件开放：插件驱动 Agent 走专用服务（`plugin-agent.md`）。
+7. **协议文档**入库在 `movieclaw_sdk/protocol/`（`gateway.json`、`control.json`），由 `python -m movieclaw_sdk.protocol_spec
+   --write` 从契约生成，`tests/kernel/test_protocol_spec.py` 守护一致。引导行、`--describe` 输出、控制端点的结果信封
+   都在 `control.json` 的 components 里。
+8. **`exec` 运行时**：本地插件 `plugins.yaml` 写 `runtime: exec` + `command: <子目录>/<可执行文件>`；插件包清单写
+   `runtime = "exec"`、`command`、`platforms`（安装时与 `linux/amd64` 这类当前平台比对），`entry` 不再必填。
+   宿主拉起 `python -m movieclaw_sdk.launch [--uid --gid] -- <程序>`：降权、资源限制、父进程退出信号后 `execve`。
+   zip 不保证带可执行位，解包时按 zip 里的权限位恢复，加载时再对 `command` 补一次；`mclaw plugin pack` 认 exec 清单、
+   写入权限位。
+9. **Go 示范**：插件开发技能的 `examples/go-a2a-bridge`（只用标准库），A2A 的 `message/send` / `message/stream`
+   与 Agent Card，`contextId` 即会话编号，转来的请求原样带回调用号（入口区封顶、递归闸照样生效）。
+   `tests/api/test_plugin_exec.py` 拉起真实的 Go 进程走完整链路；CI 的 Python 作业预编好二进制并做 gofmt / vet。
 

@@ -1,0 +1,11 @@
+[plugin]
+id = "go-a2a-bridge"
+title = "A2A 桥（Go）"
+version = "0.1.0"
+runtime = "exec"                                 # 非 Python 插件：独立进程跑 command
+command = "bin/bridge"                           # 包里的可执行文件
+platforms = ["linux/amd64", "linux/arm64"]       # 打包时按这些平台各编一份，或只编服务器那一种
+description = "把 A2A（Agent-to-Agent）协议的请求转成 MovieClaw AI 助手的对话，支持流式。"
+
+[permissions]
+operations = ["agent:mclaw"]                     # 调用 AI 助手（可调用服务操作）；安装时用户批准

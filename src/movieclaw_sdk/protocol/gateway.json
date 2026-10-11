@@ -1,0 +1,2708 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "MovieClaw 插件网关（插件调宿主）",
+    "version": "1",
+    "description": "HTTP/1.1 over Unix 套接字（引导行的 gateway）。每个请求带 Authorization: Bearer <token>；处理宿主调用期间发出的请求还要原样带上 X-MovieClaw-Call。宿主操作直接请求 /api/v1/… 原接口。"
+  },
+  "paths": {
+    "/api/v1/plugin-runtime/agent/attach": {
+      "post": {
+        "operationId": "agent.attach",
+        "tags": [
+          "agent"
+        ],
+        "summary": "agent.attach",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "session_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "session_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/AgentTurnRef"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/agent/cancel": {
+      "post": {
+        "operationId": "agent.cancel",
+        "tags": [
+          "agent"
+        ],
+        "summary": "agent.cancel",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "session_id": {
+                    "type": "string"
+                  },
+                  "message_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "message_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/agent/delete": {
+      "post": {
+        "operationId": "agent.delete",
+        "tags": [
+          "agent"
+        ],
+        "summary": "agent.delete",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "session_id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "session_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/agent/events": {
+      "post": {
+        "operationId": "agent.events",
+        "tags": [
+          "agent"
+        ],
+        "summary": "agent.events",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "session_id": {
+                    "type": "string"
+                  },
+                  "message_id": {
+                    "type": "string"
+                  },
+                  "after": {
+                    "type": "integer"
+                  },
+                  "include_thinking": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "message_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "流式",
+            "content": {
+              "application/x-ndjson": {
+                "schema": {
+                  "type": "object",
+                  "description": "一行一个：{v: 元素}；出错以 {error: …} 结束",
+                  "properties": {
+                    "v": {
+                      "description": "一轮里的一个事件。``seq`` 单调递增，用来续传（``events(after=seq)``）。\n\n- ``text`` / ``thinking``：``delta`` 是增量文字（思考仅在 ``include_thinking`` 时给）；\n- ``tool``：``tool`` 是工具开始 / 结束；\n- ``compacted``：上下文被压缩；\n- ``done`` / ``error`` / ``cancelled``：终态，``reply`` 是这一轮的结果。",
+                      "properties": {
+                        "seq": {
+                          "title": "Seq",
+                          "type": "integer"
+                        },
+                        "type": {
+                          "enum": [
+                            "text",
+                            "thinking",
+                            "tool",
+                            "compacted",
+                            "done",
+                            "error",
+                            "cancelled"
+                          ],
+                          "title": "Type",
+                          "type": "string"
+                        },
+                        "delta": {
+                          "anyOf": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null,
+                          "title": "Delta"
+                        },
+                        "tool": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/ToolStep"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        },
+                        "reply": {
+                          "anyOf": [
+                            {
+                              "$ref": "#/components/schemas/AgentReply"
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "default": null
+                        }
+                      },
+                      "required": [
+                        "seq",
+                        "type"
+                      ],
+                      "title": "TurnEvent",
+                      "type": "object"
+                    },
+                    "error": {
+                      "$ref": "#/components/schemas/ErrorBody"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/agent/result": {
+      "post": {
+        "operationId": "agent.result",
+        "tags": [
+          "agent"
+        ],
+        "summary": "agent.result",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "session_id": {
+                    "type": "string"
+                  },
+                  "message_id": {
+                    "type": "string"
+                  },
+                  "timeout": {
+                    "anyOf": [
+                      {
+                        "type": "number"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "cancel_on_timeout": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "session_id",
+                  "message_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "一轮的结果。``status``：done / error / cancelled / timeout。",
+                  "properties": {
+                    "session_id": {
+                      "title": "Session Id",
+                      "type": "string"
+                    },
+                    "message_id": {
+                      "title": "Message Id",
+                      "type": "string"
+                    },
+                    "status": {
+                      "enum": [
+                        "done",
+                        "error",
+                        "cancelled",
+                        "timeout"
+                      ],
+                      "title": "Status",
+                      "type": "string"
+                    },
+                    "text": {
+                      "default": "",
+                      "title": "Text",
+                      "type": "string"
+                    },
+                    "finish_reason": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Finish Reason"
+                    },
+                    "model": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Model"
+                    },
+                    "usage": {
+                      "anyOf": [
+                        {
+                          "additionalProperties": {
+                            "type": "integer"
+                          },
+                          "type": "object"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Usage"
+                    },
+                    "error": {
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ],
+                      "default": null,
+                      "title": "Error"
+                    }
+                  },
+                  "required": [
+                    "session_id",
+                    "message_id",
+                    "status"
+                  ],
+                  "title": "AgentReply",
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/agent/sessions": {
+      "post": {
+        "operationId": "agent.sessions",
+        "tags": [
+          "agent"
+        ],
+        "summary": "agent.sessions",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "limit": {
+                    "type": "integer"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AgentSessionInfo"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/agent/start": {
+      "post": {
+        "operationId": "agent.start",
+        "tags": [
+          "agent"
+        ],
+        "summary": "agent.start",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "content": {
+                    "type": "string"
+                  },
+                  "session_id": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "tools": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "instructions": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "model": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "thinking_level": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "content"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "session_id": {
+                      "title": "Session Id",
+                      "type": "string"
+                    },
+                    "message_id": {
+                      "title": "Message Id",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "session_id",
+                    "message_id"
+                  ],
+                  "title": "AgentTurnRef",
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/callbacks/issue": {
+      "post": {
+        "operationId": "callbacks.issue",
+        "tags": [
+          "callbacks"
+        ],
+        "summary": "callbacks.issue",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/callbacks/keys": {
+      "post": {
+        "operationId": "callbacks.keys",
+        "tags": [
+          "callbacks"
+        ],
+        "summary": "callbacks.keys",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/callbacks/revoke": {
+      "post": {
+        "operationId": "callbacks.revoke",
+        "tags": [
+          "callbacks"
+        ],
+        "summary": "callbacks.revoke",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key_id": {
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "key_id"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/channels/inbound": {
+      "post": {
+        "operationId": "channels.inbound",
+        "tags": [
+          "channels"
+        ],
+        "summary": "channels.inbound",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "channel": {
+                    "type": "string"
+                  },
+                  "account": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "channel",
+                  "account",
+                  "message"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/channels/save_state": {
+      "post": {
+        "operationId": "channels.save_state",
+        "tags": [
+          "channels"
+        ],
+        "summary": "channels.save_state",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "channel": {
+                    "type": "string"
+                  },
+                  "account": {
+                    "type": "string"
+                  },
+                  "patch": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "channel",
+                  "account",
+                  "patch"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/data/delete": {
+      "post": {
+        "operationId": "data.delete",
+        "tags": [
+          "data"
+        ],
+        "summary": "data.delete",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/data/get": {
+      "post": {
+        "operationId": "data.get",
+        "tags": [
+          "data"
+        ],
+        "summary": "data.get",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "scope": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "found": {
+                      "title": "Found",
+                      "type": "boolean"
+                    },
+                    "value": {
+                      "default": null,
+                      "title": "Value"
+                    }
+                  },
+                  "required": [
+                    "found"
+                  ],
+                  "title": "StoredValue",
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/data/items": {
+      "post": {
+        "operationId": "data.items",
+        "tags": [
+          "data"
+        ],
+        "summary": "data.items",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "scope": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/data/scopes": {
+      "post": {
+        "operationId": "data.scopes",
+        "tags": [
+          "data"
+        ],
+        "summary": "data.scopes",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "entity": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "key"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/data/set": {
+      "post": {
+        "operationId": "data.set",
+        "tags": [
+          "data"
+        ],
+        "summary": "data.set",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "value": {},
+                  "scope": {
+                    "type": "string"
+                  },
+                  "secret": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "key",
+                  "value"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/files/listdir": {
+      "post": {
+        "operationId": "files.listdir",
+        "tags": [
+          "files"
+        ],
+        "summary": "files.listdir",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/files/makedirs": {
+      "post": {
+        "operationId": "files.makedirs",
+        "tags": [
+          "files"
+        ],
+        "summary": "files.makedirs",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/files/open": {
+      "post": {
+        "operationId": "files.open",
+        "tags": [
+          "files"
+        ],
+        "summary": "files.open",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "mode": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/files/remove": {
+      "post": {
+        "operationId": "files.remove",
+        "tags": [
+          "files"
+        ],
+        "summary": "files.remove",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/files/rename": {
+      "post": {
+        "operationId": "files.rename",
+        "tags": [
+          "files"
+        ],
+        "summary": "files.rename",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "src": {
+                    "type": "string"
+                  },
+                  "dst": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "src",
+                  "dst"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/files/stat": {
+      "post": {
+        "operationId": "files.stat",
+        "tags": [
+          "files"
+        ],
+        "summary": "files.stat",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/health/degraded": {
+      "post": {
+        "operationId": "health.degraded",
+        "tags": [
+          "health"
+        ],
+        "summary": "health.degraded",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  },
+                  "action_href": {
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  }
+                },
+                "required": [
+                  "key",
+                  "message"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/health/ok": {
+      "post": {
+        "operationId": "health.ok",
+        "tags": [
+          "health"
+        ],
+        "summary": "health.ok",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/hooks/next": {
+      "post": {
+        "operationId": "hooks.next",
+        "tags": [
+          "hooks"
+        ],
+        "summary": "hooks.next",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "payload": {},
+                  "replace": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/job/cancel_requested": {
+      "post": {
+        "operationId": "job.cancel_requested",
+        "tags": [
+          "job"
+        ],
+        "summary": "job.cancel_requested",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/job/current_progress": {
+      "post": {
+        "operationId": "job.current_progress",
+        "tags": [
+          "job"
+        ],
+        "summary": "job.current_progress",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/job/update_progress": {
+      "post": {
+        "operationId": "job.update_progress",
+        "tags": [
+          "job"
+        ],
+        "summary": "job.update_progress",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "progress": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "progress"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/net/proxy": {
+      "post": {
+        "operationId": "net.proxy",
+        "tags": [
+          "net"
+        ],
+        "summary": "net.proxy",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "service": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "service"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/ops/operations": {
+      "post": {
+        "operationId": "ops.operations",
+        "tags": [
+          "ops"
+        ],
+        "summary": "ops.operations",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/OperationRef"
+                  },
+                  "type": "array"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/routes/sign": {
+      "post": {
+        "operationId": "routes.sign",
+        "tags": [
+          "routes"
+        ],
+        "summary": "routes.sign",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "path": {
+                    "type": "string"
+                  },
+                  "params": {
+                    "anyOf": [
+                      {
+                        "additionalProperties": {
+                          "type": "string"
+                        },
+                        "type": "object"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "expires_in": {
+                    "anyOf": [
+                      {
+                        "type": "integer"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "absolute": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "path"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/session/failed": {
+      "post": {
+        "operationId": "session.failed",
+        "tags": [
+          "session"
+        ],
+        "summary": "session.failed",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "error_type": {
+                    "type": "string"
+                  },
+                  "error_message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "error_type",
+                  "error_message"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plugin-runtime/session/ready": {
+      "post": {
+        "operationId": "session.ready",
+        "tags": [
+          "session"
+        ],
+        "summary": "session.ready",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string"
+                  },
+                  "listeners": {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "contributions": {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "routes": {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "callbacks": {
+                    "items": {
+                      "additionalProperties": true,
+                      "type": "object"
+                    },
+                    "type": "array"
+                  },
+                  "serving": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "title",
+                  "listeners",
+                  "contributions",
+                  "routes",
+                  "callbacks",
+                  "serving"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "返回值",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "null"
+                }
+              }
+            }
+          },
+          "4XX": {
+            "description": "参数不对、没有授权、不存在",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "服务出错",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentReply": {
+        "description": "一轮的结果。``status``：done / error / cancelled / timeout。",
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "done",
+              "error",
+              "cancelled",
+              "timeout"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "text": {
+            "default": "",
+            "title": "Text",
+            "type": "string"
+          },
+          "finish_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Finish Reason"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Model"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "integer"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Usage"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Error"
+          }
+        },
+        "required": [
+          "session_id",
+          "message_id",
+          "status"
+        ],
+        "title": "AgentReply",
+        "type": "object"
+      },
+      "AgentSessionInfo": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Title"
+          },
+          "last_prompt": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Last Prompt"
+          },
+          "running": {
+            "default": false,
+            "title": "Running",
+            "type": "boolean"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AgentSessionInfo",
+        "type": "object"
+      },
+      "AgentTurnRef": {
+        "properties": {
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "message_id"
+        ],
+        "title": "AgentTurnRef",
+        "type": "object"
+      },
+      "ErrorBody": {
+        "properties": {
+          "code": {
+            "description": "错误码（如 PERMISSION_DENIED、AGENT_BUSY），两端按它还原成同一种异常",
+            "title": "Code",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorBody",
+        "type": "object"
+      },
+      "OperationRef": {
+        "description": "插件拿到的一个可调用操作：拼请求所需的最少信息。",
+        "properties": {
+          "operation_id": {
+            "title": "Operation Id",
+            "type": "string"
+          },
+          "method": {
+            "title": "Method",
+            "type": "string"
+          },
+          "path": {
+            "title": "Path",
+            "type": "string"
+          },
+          "arg_locations": {
+            "additionalProperties": {
+              "enum": [
+                "path",
+                "query",
+                "body"
+              ],
+              "type": "string"
+            },
+            "title": "Arg Locations",
+            "type": "object"
+          },
+          "required": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Required",
+            "type": "array"
+          },
+          "stream": {
+            "default": false,
+            "title": "Stream",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation_id",
+          "method",
+          "path"
+        ],
+        "title": "OperationRef",
+        "type": "object"
+      },
+      "ToolStep": {
+        "properties": {
+          "phase": {
+            "enum": [
+              "start",
+              "end"
+            ],
+            "title": "Phase",
+            "type": "string"
+          },
+          "call_id": {
+            "title": "Call Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "is_error": {
+            "default": false,
+            "title": "Is Error",
+            "type": "boolean"
+          },
+          "elapsed_ms": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Elapsed Ms"
+          }
+        },
+        "required": [
+          "phase",
+          "call_id",
+          "name"
+        ],
+        "title": "ToolStep",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "plugin": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "security": [
+    {
+      "plugin": []
+    }
+  ]
+}

@@ -24,7 +24,7 @@ id = "media-stats"          # 必填。小写字母开头，字母、数字、�
 title = "媒体统计"              # 必填。1～60 字，管理页显示
 version = "0.1.0"              # 必填。主.次.修订，可带 -后缀（开发循环自动加 -dev.<时间戳>）
 entry = "media_stats"          # 必填。入口模块名（不是路径，不带 .py）
-runtime = "process"            # process（默认）| inline（需单独批准）
+runtime = "process"            # process（默认）| inline（需单独批准）| exec（非 Python 插件，见下）
 sdk = "^1.0"                   # 要求的 movieclaw_sdk 版本区间
 description = "一句话说明"       # 可选，500 字以内；展示在「设置 → 插件」详情页给用户看，写它能做什么，别写文档路径、开发备注
 
@@ -40,6 +40,21 @@ callbacks = ["push"]                                     # 要开放的回调端
 ```
 
 清单不允许出现未知字段（写错字段名会被拒）。
+
+
+**非 Python 插件**（Go、Rust 等，`runtime = "exec"`）：不写 `entry`，改写包里的可执行文件和它支持的平台。
+宿主先经可信启动器降权，再执行它；协议见 `$SRC/movieclaw_sdk/protocol/`（`gateway.json`、`control.json`），
+完整示例是 `examples/go-a2a-bridge/`（用 Go 写的 A2A 桥，驱动 AI 助手）。
+
+```toml
+[plugin]
+id = "go-a2a-bridge"
+title = "A2A 桥（Go）"
+version = "0.1.0"
+runtime = "exec"
+command = "bin/bridge"                        # 包内可执行文件（打包前编好，按服务器平台编译）
+platforms = ["linux/amd64", "linux/arm64"]    # 必填；与服务器平台不符的包装不上
+```
 
 ## 3. 版本区间写法
 
