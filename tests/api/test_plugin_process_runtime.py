@@ -496,6 +496,11 @@ def test_process_plugin_routes_are_proxied_with_host_auth(tmp_path, monkeypatch)
             assert stat.S_IMODE(os.stat(os.path.dirname(session.socket)).st_mode) == 0o700
             if isolation().enabled:
                 assert other_uid_cannot_connect(session.socket, isolation().uid)
+            # 反代复用连接池：不再每个请求新建客户端
+            pooled = session.http()
+            for _ in range(3):
+                assert client.post("/api/v1/plugins/acme.web/echo/1", json={}).status_code == 200
+            assert session.http() is pooled
             assert client.get(
                 "/api/v1/plugins/acme.web/weather", params={"place": "杭州", "days": 5}
             ).json() == {"place": "杭州", "days": 5}
@@ -523,6 +528,7 @@ def test_process_plugin_routes_are_proxied_with_host_auth(tmp_path, monkeypatch)
             assert client.post("/api/v1/plugins/acme.web/echo/1", json={}).json()["pid"] == (
                 session.pid
             )
+            assert session.http() is not pooled  # 连到旧进程的连接随重启丢弃
     finally:
         durable_events.reset_state()
         get_settings.cache_clear()

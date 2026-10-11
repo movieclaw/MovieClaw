@@ -201,6 +201,7 @@ class Session:
         self.routes: list[dict[str, Any]] = []
         self.callbacks: list[dict[str, Any]] = []
         self._fd_host: socket.socket | None = None
+        self._http: Any = None
         self.files: Any = None
         """宿主侧这个条目的 ``PluginFiles``（插件注入了 PLUGIN_FILES 时才有）。"""
         # Unix 套接字路径有长度上限（macOS 104 字节）：放在临时目录、用短哈希命名
@@ -228,10 +229,33 @@ class Session:
     def pid(self) -> int | None:
         return self._proc.pid if self._proc is not None else None
 
+    def http(self) -> Any:
+        """反代插件路由用的客户端：每个进程一个连接池。
+
+        不能每个请求新建：创建客户端要加载证书、建 SSL 上下文，本机实测 3.6 毫秒，
+        而且占着宿主主循环，插件路由一忙，整个宿主跟着卡。
+        """
+        if self._http is None:
+            import httpx
+
+            self._http = httpx.AsyncClient(
+                transport=httpx.AsyncHTTPTransport(uds=self.socket),
+                base_url="http://plugin",
+                timeout=httpx.Timeout(30.0, read=None),
+            )
+        return self._http
+
+    async def _close_http(self) -> None:
+        """丢掉连到旧进程的连接（重启、卸载时），下次用时按新进程重建。"""
+        client, self._http = self._http, None
+        if client is not None:
+            await client.aclose()
+
     # ------------------------------------------------------------------ 启动
     async def start(self) -> list[dict[str, Any]]:
         """拉起进程并握手，返回插件声明的监听器；插件启动失败抛错（内核据此标 FAILED）。"""
         self._ready = False
+        await self._close_http()
         launch = await asyncio.to_thread(_launch, self.entry_id, self._path, self._module)
         listener = _listen(self.socket)
         # 文件通道：宿主检查授权后打开文件，把描述符经这对套接字递给插件（services/plugin_files.py）
@@ -563,6 +587,7 @@ class Session:
             task.cancel()
         await asyncio.gather(*self._readers, return_exceptions=True)
         self._fail_pending(PluginProcessGone("插件已卸载"))
+        await self._close_http()
         self._close_fd_channel()
         with contextlib.suppress(FileNotFoundError):
             os.unlink(self.socket)
@@ -642,11 +667,7 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
     async def forward(request: Request) -> Any:
         if not session.online:
             raise unavailable()
-        client = httpx.AsyncClient(
-            transport=httpx.AsyncHTTPTransport(uds=session.socket),
-            base_url="http://plugin",
-            timeout=httpx.Timeout(30.0, read=None),
-        )
+        client = session.http()
         headers = [
             (k, v)
             for k, v in request.headers.items()
@@ -662,11 +683,7 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
         try:
             response = await client.send(upstream, stream=True)
         except httpx.TransportError as exc:
-            await client.aclose()
             raise unavailable() from exc
-        except BaseException:
-            await client.aclose()
-            raise
         sendfile_path = response.headers.get(SENDFILE_HEADER)
         if sendfile_path is not None:
             from urllib.parse import unquote
@@ -674,20 +691,15 @@ def _route_proxy(session: Session, routes: list[dict[str, Any]]) -> Any:
             sendfile_path = unquote(sendfile_path)
             # 插件只交出了路径：宿主检查读授权后自己发送（支持 Range），插件碰不到字节
             await response.aclose()
-            await client.aclose()
             if session.files is None:
                 raise unavailable()
             return await sendfile(session.files, sendfile_path)
-
-        async def close() -> None:
-            await response.aclose()
-            await client.aclose()
 
         return StreamingResponse(
             response.aiter_raw(),
             status_code=response.status_code,
             headers={k: v for k, v in response.headers.items() if k.lower() not in _HOP_HEADERS},
-            background=BackgroundTask(close),
+            background=BackgroundTask(response.aclose),
         )
 
     for route in routes:
