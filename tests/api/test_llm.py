@@ -292,6 +292,60 @@ def test_update_instance_reverifies(client) -> None:
     assert _captured_configs[-1].name == "百炼-改名"
 
 
+def test_create_requires_api_key(client) -> None:
+    c, _ = client
+    payload = {k: v for k, v in _PAYLOAD.items() if k != "api_key"}
+    for body in (payload, {**payload, "api_key": "  "}):
+        r = c.post("/api/v1/llm/providers", json=body)
+        assert r.status_code == 400, r.text
+        assert "API Key" in r.json()["message"]
+    assert _list(c) == []
+
+
+def test_update_blank_api_key_keeps_existing(client) -> None:
+    """编辑只改名/模型时 API Key 留空（不传或空串）沿用原 Key。"""
+    c, db_file = client
+    created = c.post("/api/v1/llm/providers", json=_PAYLOAD).json()["data"]
+    stored = sqlite3.connect(db_file).execute("SELECT api_key FROM llm_provider").fetchone()[0]
+    payload = {k: v for k, v in _PAYLOAD.items() if k != "api_key"}
+    for i, body in enumerate(
+        ({**payload, "name": "百炼-a"}, {**payload, "name": "百炼-b", "api_key": ""})
+    ):
+        r = c.put(f"/api/v1/llm/providers/{created['id']}", json=body)
+        assert r.status_code == 200, (i, r.text)
+        assert _first(c)["status"] == "active"
+        assert _captured_configs[-1].api_key == "sk-live-123456"
+    # 密文原样未动（没有被重新加密成别的值）
+    row = sqlite3.connect(db_file).execute("SELECT name, api_key FROM llm_provider").fetchone()
+    assert row == ("百炼-b", stored)
+
+
+def test_update_endpoint_change_requires_api_key(client) -> None:
+    """改了端点或类型却不重填 Key → 400，防止已存的 Key 被发往新地址。"""
+    c, _ = client
+    created = c.post("/api/v1/llm/providers", json=_PAYLOAD).json()["data"]
+    payload = {k: v for k, v in _PAYLOAD.items() if k != "api_key"}
+    for body in (
+        {**payload, "base_url": "https://evil.example.com/v1"},
+        {**payload, "provider_type": "openai", "default_model": None},
+    ):
+        r = c.put(f"/api/v1/llm/providers/{created['id']}", json=body)
+        assert r.status_code == 400, r.text
+        assert "重新填写 API Key" in r.json()["message"]
+    assert _first(c)["base_url"] is None
+    # 端点、类型都没变 → 留空照常保存
+    r = c.put(f"/api/v1/llm/providers/{created['id']}", json=payload)
+    assert r.status_code == 200, r.text
+    # 重填了 Key 就允许换端点
+    r = c.put(
+        f"/api/v1/llm/providers/{created['id']}",
+        json={**payload, "base_url": "https://new.example.com/v1", "api_key": "sk-new"},
+    )
+    assert r.status_code == 200, r.text
+    assert _captured_configs[-1].api_key == "sk-new"
+    assert _captured_configs[-1].base_url == "https://new.example.com/v1"
+
+
 def test_model_options_bare_ids_when_unique(client) -> None:
     """只有一家时清单里全是裸 id；智能体默认模型（未设定时兜底到测试模型）带 is_default。"""
     c, _ = client

@@ -5719,8 +5719,8 @@ nonisolated extension API {
         var baseUrl: String?
         /// 自定义 User-Agent 请求头（留空使用 openai SDK 自带 UA）
         var userAgent: String?
-        /// API Key
-        var apiKey: String
+        /// API Key；新增必填，编辑时留空沿用原 Key（改了供应商类型或端点须重填）
+        var apiKey: String?
         /// 连接测试用的模型 id；留空取目录里第一个（预设目录或自定义目录）
         var defaultModel: String?
         /// 自定义模型目录 JSON 数组，元素形如 {"id":"模型id","context_window":131072,"max_output_tokens":8192}（openai_compat 端点至少一条）

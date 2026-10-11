@@ -77,10 +77,14 @@ internal fun LlmProviderFormSheet(
     var addModelOpen by remember { mutableStateOf(false) }
     var localError by remember { mutableStateOf<String?>(null) }
     val customEndpoint = preset != null && preset.baseUrl == null
+    // 编辑时 Key 可留空沿用；但类型或端点变了必须重填（与后端同一判据），免得旧 Key 被发往新地址
+    val apiKeyRequired = existing == null || presetId != existing.providerType ||
+        baseUrl.trim().trimEnd('/').ifEmpty { null } != existing.baseUrl
 
     fun validate(): String? = when {
         name.contains("/") -> "实例名不能包含斜杠 /。"
-        apiKey.isBlank() -> "请填写 API Key。"
+        apiKeyRequired && apiKey.isBlank() ->
+            if (existing == null) "请填写 API Key。" else "更换了供应商或 API 端点，请重新填写 API Key。"
         customEndpoint && !(baseUrl.startsWith("http://") || baseUrl.startsWith("https://")) ->
             "请填写以 http:// 或 https:// 开头的完整 API 端点。"
         customEndpoint && customModels.isEmpty() -> "请至少添加一个模型（接入后才有模型可用）。"
@@ -169,9 +173,9 @@ internal fun LlmProviderFormSheet(
 
                 // ── API Key ──
                 FormField(
-                    label = "API Key *",
+                    label = if (apiKeyRequired) "API Key *" else "API Key",
                     value = apiKey,
-                    placeholder = if (existing == null) "sk-…" else "出于安全，请重新填写",
+                    placeholder = if (apiKeyRequired) "sk-…" else "留空保持原密钥不变",
                     onChange = { apiKey = it },
                     trailing = {
                         Text(
@@ -182,7 +186,10 @@ internal fun LlmProviderFormSheet(
                     },
                 )
                 if (existing != null) {
-                    Text("已保存的密钥不会回显，修改其他配置时也需要重新填写。", style = McType.caption, color = TextFaint)
+                    Text(
+                        if (apiKeyRequired) "更换了供应商或 API 端点，需要重新填写密钥。" else "已保存的密钥不会回显；留空则继续使用原密钥。",
+                        style = McType.caption, color = TextFaint,
+                    )
                 }
 
                 // ── 高级设置：User-Agent ──
@@ -253,7 +260,7 @@ internal fun LlmProviderFormSheet(
                                         providerType = presetId,
                                         baseUrl = baseUrl.takeIf { it.isNotBlank() },
                                         userAgent = userAgent.takeIf { it.isNotBlank() },
-                                        apiKey = apiKey,
+                                        apiKey = apiKey.takeIf { it.isNotBlank() },
                                         defaultModel = customModels.firstOrNull()?.id,
                                         extraModels = if (customEndpoint) customModels else emptyList(),
                                     ),

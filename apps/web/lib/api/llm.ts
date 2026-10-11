@@ -102,7 +102,8 @@ export interface LlmProviderPayload {
   base_url?: string | null;
   /** 自定义 User-Agent：留空（null）使用 SDK 自带 UA */
   user_agent?: string | null;
-  api_key: string;
+  /** 新增必填；编辑时留空（null）沿用原 Key，但改了类型或端点须重填 */
+  api_key?: string | null;
   /** 连接测试模型；留空由服务端取目录第一个 */
   default_model?: string | null;
   /** 自定义模型目录（openai_compat 端点至少一条，每条带齐参数） */

@@ -399,12 +399,14 @@ class LlmConfigService:
         name: str,
         provider_type: str,
         base_url: str | None,
-        api_key: str,
+        api_key: str | None,
         default_model: str | None = None,
         extra_models: list[ModelInfo] | None = None,
         user_agent: str | None = None,
     ) -> LlmProvider:
         """新增实例。状态置 PENDING，等待后台验证。"""
+        if not api_key:
+            raise BadRequestException("请填写 API Key")
         extras = extra_models or []
         test_model = await self._validate(
             name=name,
@@ -433,14 +435,20 @@ class LlmConfigService:
         name: str,
         provider_type: str,
         base_url: str | None,
-        api_key: str,
+        api_key: str | None,
         default_model: str | None = None,
         extra_models: list[ModelInfo] | None = None,
         user_agent: str | None = None,
     ) -> LlmProvider:
-        """整体覆盖一个实例的接入配置。不存在抛 404，正在验证中抛 409。"""
+        """整体覆盖一个实例的接入配置。不存在抛 404，正在验证中抛 409。
+
+        ``api_key`` 为 None 时沿用原 Key；但类型或端点变了必须重填——
+        否则只改个端点就能把已存的 Key 发到任意地址。
+        """
         row = await self.get(provider_id)
         self._assert_not_verifying(row)
+        if not api_key and (provider_type != row.provider_type or base_url != row.base_url):
+            raise BadRequestException("更换了供应商类型或 API 端点，请重新填写 API Key")
         extras = extra_models or []
         test_model = await self._validate(
             name=name,

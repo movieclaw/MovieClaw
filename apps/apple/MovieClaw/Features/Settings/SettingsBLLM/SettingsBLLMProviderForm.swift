@@ -75,6 +75,14 @@ struct SettingsBLLMProviderForm: View {
     private var trimmedBaseUrl: String { baseUrl.trimmingCharacters(in: .whitespaces) }
     private var trimmedUA: String { userAgent.trimmingCharacters(in: .whitespaces) }
 
+    /// 编辑时 Key 可留空沿用；但类型或端点变了必须重填（与后端同一判据），免得旧 Key 被发往新地址
+    private var apiKeyRequired: Bool {
+        guard let provider else { return true }
+        var url = trimmedBaseUrl
+        while url.hasSuffix("/") { url.removeLast() }
+        return providerType != provider.providerType || (url.isEmpty ? nil : url) != provider.baseUrl
+    }
+
     private var baseUrlValid: Bool {
         if trimmedBaseUrl.isEmpty { return !needBaseUrl }
         return trimmedBaseUrl.range(of: #"^https?://.+"#, options: .regularExpression) != nil
@@ -87,7 +95,9 @@ struct SettingsBLLMProviderForm: View {
 
     private var submitHint: String? {
         if name.contains("/") { return "实例名不能包含斜杠 /。" }
-        if apiKey.trimmingCharacters(in: .whitespaces).isEmpty { return "请填写 API Key。" }
+        if apiKeyRequired && apiKey.trimmingCharacters(in: .whitespaces).isEmpty {
+            return provider == nil ? "请填写 API Key。" : "更换了供应商或 API 端点，请重新填写 API Key。"
+        }
         if !baseUrlValid { return "请填写以 http:// 或 https:// 开头的完整 API 端点。" }
         if isCustomEndpoint && extras.isEmpty { return "请至少添加一个模型（接入后才有模型可用）。" }
         if !userAgentValid { return "User-Agent 包含不支持的字符，请检查高级设置。" }
@@ -236,13 +246,13 @@ struct SettingsBLLMProviderForm: View {
     /// API Key：默认遮罩，右侧「显示 / 隐藏」切换；不回显已保存的密钥
     private var apiKeyField: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("API Key *").font(.subheadline).foregroundStyle(Theme.textMuted)
+            Text(apiKeyRequired ? "API Key *" : "API Key").font(.subheadline).foregroundStyle(Theme.textMuted)
             HStack {
                 Group {
                     if showApiKey {
-                        TextField(provider == nil ? "sk-…" : "出于安全，请重新填写", text: $apiKey)
+                        TextField(apiKeyRequired ? "sk-…" : "留空保持原密钥不变", text: $apiKey)
                     } else {
-                        SecureField(provider == nil ? "sk-…" : "出于安全，请重新填写", text: $apiKey)
+                        SecureField(apiKeyRequired ? "sk-…" : "留空保持原密钥不变", text: $apiKey)
                     }
                 }
                 .font(.body.monospaced())
@@ -257,7 +267,7 @@ struct SettingsBLLMProviderForm: View {
                     .accessibilityIdentifier("llm-form-api-key-toggle")
             }
             if provider != nil {
-                Text("已保存的密钥不会回显，修改其他配置时也需要重新填写。")
+                Text(apiKeyRequired ? "更换了供应商或 API 端点，需要重新填写密钥。" : "已保存的密钥不会回显；留空则继续使用原密钥。")
                     .font(.caption)
                     .foregroundStyle(Theme.textFaint)
                     .fixedSize(horizontal: false, vertical: true)
@@ -457,7 +467,8 @@ struct SettingsBLLMProviderForm: View {
             baseUrl: trimmedBaseUrl.isEmpty ? nil : trimmedBaseUrl,
             // 端点固定的官方渠道不开放 UA 配置，一律回传 null
             userAgent: canCustomizeEndpoint && !trimmedUA.isEmpty ? trimmedUA : nil,
-            apiKey: apiKey.trimmingCharacters(in: .whitespaces),
+            // 留空不编码：编辑时沿用原 Key
+            apiKey: apiKey.trimmingCharacters(in: .whitespaces).isEmpty ? nil : apiKey.trimmingCharacters(in: .whitespaces),
             // 连接测试模型由服务端取目录第一个；官方渠道不回传自定义目录
             defaultModel: nil,
             extraModels: extras.map(\.settingsBLLMInput)

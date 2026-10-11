@@ -75,7 +75,8 @@ data class LlmProviderPayload(
     val providerType: String,
     val baseUrl: String? = null,
     val userAgent: String? = null,
-    val apiKey: String,
+    /** 新增必填；编辑时 null 沿用原 Key（改了类型或端点须重填） */
+    val apiKey: String? = null,
     val defaultModel: String? = null,
     val extraModels: List<LlmModelInfo> = emptyList(),
 )

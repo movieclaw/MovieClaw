@@ -148,7 +148,7 @@ async def update_llm_provider(
     background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[LlmProviderView]:
-    """整体覆盖接入配置（API Key 需重新填写）。"""
+    """整体覆盖接入配置（API Key 留空沿用原 Key；改了类型或端点须重填）。"""
     service = LlmConfigService(session)
     await service.update(
         provider_id,

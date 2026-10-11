@@ -413,7 +413,7 @@ function LlmProviderForm({
   const [baseUrl, setBaseUrl] = useState(config?.base_url ?? "");
   const [userAgent, setUserAgent] = useState(config?.user_agent ?? "");
   const [advancedOpen, setAdvancedOpen] = useState(Boolean(config?.user_agent));
-  // 出于安全后端不回传 Key，编辑时需重新填写
+  // 出于安全后端不回传 Key；编辑时留空沿用原 Key
   const [apiKey, setApiKey] = useState("");
   const [showApiKey, setShowApiKey] = useState(false);
   // 自定义模型目录（随配置持久化）：无内置目录的兼容端点靠它定义可用模型
@@ -443,6 +443,12 @@ function LlmProviderForm({
   const borrowedModels = borrowedGroups.flatMap((g) => g.models);
 
   const needBaseUrl = preset?.requires_base_url ?? false;
+  // 编辑时 Key 可留空沿用；但类型或端点变了必须重填（与后端同一判据），
+  // 免得旧 Key 被发往新地址
+  const apiKeyRequired =
+    !config ||
+    providerType !== config.provider_type ||
+    (baseUrl.trim().replace(/\/+$/, "") || null) !== (config.base_url ?? null);
   // 端点没有预设默认值 = 用户自定义接入点（OpenAI 可配镜像 / 通用兼容端点），
   // 只有这类才需要端点与 User-Agent 输入；官方固定渠道两者都不展示
   const canCustomizeEndpoint = !preset?.base_url;
@@ -465,8 +471,10 @@ function LlmProviderForm({
   const submitHint =
     name.includes("/")
       ? "实例名不能包含斜杠 /。"
-      : apiKey.trim().length === 0
-      ? "请填写 API Key。"
+      : apiKeyRequired && apiKey.trim().length === 0
+      ? config
+        ? "更换了供应商或 API 端点，请重新填写 API Key。"
+        : "请填写 API Key。"
       : !baseUrlValid
         ? "请填写以 http:// 或 https:// 开头的完整 API 端点。"
         : isCustomEndpoint && extras.length === 0
@@ -537,7 +545,7 @@ function LlmProviderForm({
       // 端点固定的官方渠道不开放 UA 配置，一律回传 null，避免切换供应商后
       // 残留上一个自定义端点的 UA
       user_agent: (canCustomizeEndpoint && userAgent.trim()) || null,
-      api_key: apiKey.trim(),
+      api_key: apiKey.trim() || null,
       // 连接测试模型由服务端取目录第一个；官方渠道不回传自定义目录
       extra_models: extras,
     })
@@ -633,7 +641,7 @@ function LlmProviderForm({
         )}
 
         <div>
-          <label className={labelClass}>API Key *</label>
+          <label className={labelClass}>API Key{apiKeyRequired ? " *" : ""}</label>
           {/* text + CSS 圆点遮罩：视觉等同密码框，但浏览器不识别为密码，
               不会触发「保存密码 / 自动填充」弹窗。 */}
           <div className="relative">
@@ -641,7 +649,7 @@ function LlmProviderForm({
               type="text"
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
-              placeholder={config ? "出于安全，请重新填写" : "sk-…"}
+              placeholder={apiKeyRequired ? "sk-…" : "留空保持原密钥不变"}
               className={`${inputClass} pr-16 ${
                 showApiKey ? "" : "[-webkit-text-security:disc]"
               }`}
@@ -658,7 +666,9 @@ function LlmProviderForm({
           </div>
           {config && (
             <p className="mt-1.5 text-caption leading-relaxed text-[var(--text-faint)]">
-              已保存的密钥不会回显，修改其他配置时也需要重新填写。
+              {apiKeyRequired
+                ? "更换了供应商或 API 端点，需要重新填写密钥。"
+                : "已保存的密钥不会回显；留空则继续使用原密钥。"}
             </p>
           )}
         </div>

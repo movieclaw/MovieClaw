@@ -149,7 +149,8 @@ class LlmDefaultsPayload(BaseModel):
 class LlmProviderPayload(BaseModel):
     """新增 / 编辑 LLM 供应商实例的请求体。
 
-    API Key 出于安全不回显，编辑时需要重新填写。
+    API Key 出于安全不回显：编辑时留空沿用原 Key；但改了供应商类型或端点
+    必须重填，免得旧 Key 被发往新地址。
     """
 
     name: str = Field(
@@ -162,7 +163,10 @@ class LlmProviderPayload(BaseModel):
         max_length=200,
         description="自定义 User-Agent 请求头（留空使用 openai SDK 自带 UA）",
     )
-    api_key: str = Field(min_length=1, description="API Key")
+    api_key: str | None = Field(
+        default=None,
+        description="API Key；新增必填，编辑时留空沿用原 Key（改了供应商类型或端点须重填）",
+    )
     default_model: str | None = Field(
         default=None,
         description="连接测试用的模型 id；留空取目录里第一个（预设目录或自定义目录）",
