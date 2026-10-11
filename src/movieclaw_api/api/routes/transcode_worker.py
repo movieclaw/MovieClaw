@@ -76,9 +76,11 @@ from movieclaw_events import new_ulid
 from movieclaw_playback.streaming import (
     DisconnectAwareFileResponse,
     FileWindowResponse,
+    RemoteRelayResponse,
     container_mime_type,
     is_strm,
     resolve_strm_url,
+    strm_needs_relay,
 )
 
 logger = logging.getLogger("movieclaw_api.playback.transcode_worker")
@@ -556,6 +558,9 @@ async def transcode_source(
         remote = resolve_strm_url(file.file_path)
         if remote is None:
             raise NotFoundException("网盘直链无效")
+        if strm_needs_relay(remote):
+            # 回环 / 容器服务名的直链 Worker 连不上（它在另一台机器上）：NAS 原样转发
+            return RemoteRelayResponse(remote, range_header=request.headers.get("range"))
         return RedirectResponse(remote, status_code=302)
     if file.is_disc():
         # 原盘是目录，没有单一源文件；新版 Worker 读 source.ffconcat，走不到这里

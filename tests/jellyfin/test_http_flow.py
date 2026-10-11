@@ -5,6 +5,11 @@
 
 from __future__ import annotations
 
+import re
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 from jellyfin.helpers import ADMIN, AUTH_HEADER, jf_login
@@ -715,6 +720,53 @@ def test_stream_strm_redirects_without_proxy(client: TestClient, seeded: dict) -
         follow_redirects=False,
     )
     assert head.status_code == 302
+
+
+def test_lan_strm_is_presented_as_local_and_relayed(
+    client: TestClient, seeded: dict, media_root: Path
+) -> None:
+    """回环 / 内网直链客户端连不上：PlaybackInfo 按本地文件呈现（播放器走 /Videos/stream），
+    取流由服务端按 Range 转发，HEAD 只回头。"""
+    body = bytes(range(256)) * 16
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args) -> None:
+            pass
+
+        def do_GET(self) -> None:  # noqa: N802
+            match = re.match(r"bytes=(\d+)-(\d*)", self.headers.get("Range") or "")
+            start = int(match.group(1)) if match else 0
+            end = int(match.group(2)) if match and match.group(2) else len(body) - 1
+            chunk = body[start : end + 1]
+            self.send_response(206 if match else 200)
+            self.send_header("Content-Length", str(len(chunk)))
+            if match:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{len(body)}")
+            self.end_headers()
+            self.wfile.write(chunk)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        strm = media_root / "Inception (2010)" / "Inception.2010.1080p.strm"
+        strm.write_text(f"http://127.0.0.1:{server.server_port}/d/inception.mp4\n")
+        token = jf_login(client)
+        guid = item_guid(seeded["movie"])
+        info = client.post(f"/Items/{guid}/PlaybackInfo", params={"ApiKey": token}).json()
+        lan = next(s for s in info["MediaSources"] if s["Path"].endswith(".strm"))
+        assert lan["Protocol"] == "File" and lan["IsRemote"] is False
+        params = {"ApiKey": token, "static": "true", "mediaSourceId": lan["Id"]}
+        resp = client.get(
+            f"/Videos/{guid}/stream", params=params, headers={"Range": "bytes=16-31"},
+            follow_redirects=False,
+        )  # fmt: skip
+        assert resp.status_code == 206 and resp.content == body[16:32]
+        head = client.head(f"/Videos/{guid}/stream", params=params, follow_redirects=False)
+        assert head.status_code == 200 and head.content == b""
+        assert head.headers["content-length"] == str(len(body))
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_download_local_file_with_attachment(client: TestClient, seeded: dict) -> None:

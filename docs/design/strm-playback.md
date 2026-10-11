@@ -25,7 +25,7 @@ strm 只是「源在网盘」，播放链路的每一环都按本地文件做，
 |---|---|---|
 | 规格（编码、时长、音轨、字幕） | 扫描时 ffprobe 落库 | 扫描不碰网盘；**第一次播放时**按需探测直链并落库（§2） |
 | 决策 | 判定引擎 | 同一套判定；只有探测不到规格时乐观直连（§3） |
-| 档 0 直出 | FileResponse + Range | 302 到网盘直链（不变） |
+| 档 0 直出 | FileResponse + Range | 302 到网盘直链；内网 / 回环 / 容器服务名的直链由服务端按 Range 转发（§7.1） |
 | 档 1～4 会话 | ffmpeg `-i 路径` | ffmpeg `-i 直链` + 协议白名单 + 断线续读（§4） |
 | 关键帧索引（VOD 列表） | 读 Cues / moov | 同样的读法，按 HTTP Range（§5） |
 | 远程 Worker 取源 | NAS 按 Range 出字节 | 取源接口 302 到直链，Worker 直接从网盘取（§4） |
@@ -102,6 +102,22 @@ VOD 列表（web-player.md §12）的直通档要全片关键帧表。`RemoteRan
 - 直出的是网盘直链且同档重开用完：**降档**，由服务端读直链换封装 / 转码。浏览器连不上
   网盘（直链是内网地址、https 页面里的 http 直链）不等于服务器连不上。
 
+### 7.1 内网直链由服务端转发（`streaming.strm_needs_relay` / `RemoteRelayResponse`）
+
+MoviePilot、alist 一类工具常把 strm 写成 `http://127.0.0.1:5244/d/...`、`http://alist:5244/d/...`
+或 `http://192.168.x.x/...`：只在服务器所在的网络里连得上，302 给外网的浏览器、电视、Mac 转码器
+就是连不上。这类地址（回环、私网、链路本地、100.64/10、单标签与 `.local` / `.lan` 等主机名）
+不再 302，由服务端按播放器的 Range 原样转发（不起 ffmpeg，借鉴 Jellyfin 的
+`GetStaticRemoteStreamResult`）；公网地址照旧 302，服务器零流量。
+
+- 只看地址本身，不看请求方：容器桥接网络里看到的客户端地址常常都是网关，靠它分内外网不可靠；
+  局域网里的播放器多走一跳服务器，代价只是局域网带宽；
+- 覆盖全部取流入口：网页直出、Jellyfin 的 `/Videos/{id}/stream` 与下载、远程 Worker 取源；
+  Jellyfin 的 PlaybackInfo 把这类版本按本地文件呈现（Protocol=File），播放器就会走服务端取流；
+- 与磁盘直出同一套断连检测、停止信号与活动页计量；上游一律 GET（预签名直链常常只签了 GET），
+  HEAD 只回头；上游不走代理；
+- 播放器换成服务端拿字节，客户端一行不改——App、Android TV 的「连不上网盘」也一并解决。
+
 ## 8. 验证
 
 单测：`tests/playback/test_strm_playback.py`（仿网盘 HTTP 服务：302 + 只认 Range；真
@@ -123,8 +139,8 @@ ffmpeg / ffprobe 的用例标 integration）、`test_decide.py` 的 strm 段、
 ## 9. 已知边界
 
 - App（iOS / Mac / Apple TV）声明全解码，网盘条目照旧直连；Android TV 与网页一样按
-  真实规格换封装 / 转码。「直链对播放端不可达就降档走服务端」只在网页播放器做了，
-  App 与 Android TV 的失败策略本次未改；
+  真实规格换封装 / 转码。内网直链由服务端转发（§7.1），各端都连得上；公网直链对某个播放端
+  不可达时，只有网页会降档走服务端，App 与 Android TV 的失败策略未改；
 - 不支持按网盘要求定制请求头（如 115 要求的 User-Agent）：服务端 ffmpeg 用 `Lavf` UA，
   浏览器 / App 用各自的 UA，与以前一样；
 - 没有字幕索引的 MKV（片库约 2%）与 MP4 内封字幕，第一次选字幕仍要通读全片。

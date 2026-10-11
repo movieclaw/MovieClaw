@@ -25,6 +25,7 @@ import asyncio
 import logging
 import re
 import secrets
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
 
@@ -125,11 +126,13 @@ from movieclaw_playback.hls_vod import (
 from movieclaw_playback.profile import media_profile_from_file
 from movieclaw_playback.streaming import (
     DisconnectAwareFileResponse,
+    RemoteRelayResponse,
     container_mime_type,
     direct_play_byte_patches,
     is_strm,
     register_device_stream,
     resolve_strm_url,
+    strm_needs_relay,
     unregister_device_stream,
 )
 from movieclaw_playback.subtitles import (
@@ -683,6 +686,18 @@ async def video_stream(
         url = resolve_strm_url(f.file_path)
         if url is None:
             raise not_found()
+        if strm_needs_relay(url):
+            # 内网 / 回环 / 容器服务名的直链：播放器多半连不上，服务端按 Range 原样转发
+            session_stopped, byte_sink, on_close = await _register_stream(
+                request, identity, ref, f, name=Path(f.file_path).name
+            )
+            return RemoteRelayResponse(
+                url,
+                range_header=request.headers.get("range"),
+                session_stopped=session_stopped,
+                byte_sink=byte_sink,
+                on_close=on_close,
+            )
         # 302 直链：HEAD 同样 302、不塞 body；重定向目标自己支持 Range
         return RedirectResponse(url, status_code=302)
 
@@ -711,6 +726,23 @@ async def video_stream(
     # hev1 标签的 HEVC MP4 在 AVPlayer 系播放器上直出必败，流里改成 hvc1（#430）；
     # 用自带解码器的 Infuse 之流两种标签都认，不受影响
     byte_patches = await direct_play_byte_patches(path, f.container, f.video_codec)
+    session_stopped, byte_sink, on_close = await _register_stream(
+        request, identity, ref, f, name=path.name
+    )
+    return DisconnectAwareFileResponse(
+        path,
+        media_type=media_type,
+        session_stopped=session_stopped,
+        byte_sink=byte_sink,
+        on_close=on_close,
+        byte_patches=byte_patches,
+    )
+
+
+async def _register_stream(
+    request: Request, identity: RequestIdentity, ref: EntityRef, f: LibraryFile, *, name: str
+) -> tuple[asyncio.Event, Callable[[int], None], Callable[[], None]]:
+    """登记一条取流：返回（停止信号, 字节计量, 收尾回调）。磁盘直出与网盘直链转发共用。"""
     # 停止播放并不保证客户端立刻关闭 Range 连接。按已认证设备登记这条流，
     # 让 /Sessions/Playing/Stopped 能主动停止读盘；TCP 断连仍是第二道兜底。
     device_id = identity.device.device_id
@@ -731,7 +763,7 @@ async def video_stream(
         member_id=identity.device.member_id,
         unit=unit,
         file_id=f.id,
-        file_name=path.name,
+        file_name=name,
         size_bytes=f.size_bytes,
         client=_identity_client(identity),
     )
@@ -740,14 +772,7 @@ async def video_stream(
         unregister_device_stream(device_id, session_stopped)
         activity.unregister_stream(meter)
 
-    return DisconnectAwareFileResponse(
-        path,
-        media_type=media_type,
-        session_stopped=session_stopped,
-        byte_sink=meter.add,
-        on_close=_close,
-        byte_patches=byte_patches,
-    )
+    return session_stopped, meter.add, _close
 
 
 @router.get("/Items/{item_id}/Download")
@@ -786,6 +811,9 @@ async def download_item(
         url = resolve_strm_url(f.file_path)
         if url is None:
             raise not_found()
+        if strm_needs_relay(url):
+            # 内网直链客户端连不上：与取流同样由服务端转发
+            return RemoteRelayResponse(url, range_header=request.headers.get("range"))
         return RedirectResponse(url, status_code=302)
 
     path = Path(f.file_path)

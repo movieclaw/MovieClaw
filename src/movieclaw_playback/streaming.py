@@ -5,14 +5,16 @@
 - strm 占位文件：读第一个非空、非 ``#`` 开头的行，**只接受
   http/https/rtsp/rtp 绝对 URI**——File 协议/相对路径必须拒绝，否则 strm
   就成了任意本地文件读取漏洞（对齐 Jellyfin ProbeProvider.FetchShortcutInfo
-  与 BaseItem.cs:1191-1194 的安全语义）。直出走 302 重定向，不做反向代理；
-  换封装 / 转码时由服务端的 ffmpeg 直接读直链（``strm_input_args``，
-  docs/design/strm-playback.md）。
+  与 BaseItem.cs:1191-1194 的安全语义）。直出走 302 重定向；直链是播放器
+  多半连不上的内网 / 回环 / 容器服务名地址时，改由服务端按 Range 原样转发
+  （``strm_needs_relay`` / ``RemoteRelayResponse``）。换封装 / 转码时由服务端的
+  ffmpeg 直接读直链（``strm_input_args``，docs/design/strm-playback.md）。
 """
 
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import logging
 import os
 from collections.abc import Awaitable, Callable, Sequence
@@ -22,8 +24,9 @@ from typing import TypeVar
 from urllib.parse import urlsplit
 
 import anyio
+import httpx
 from starlette.datastructures import MutableHeaders
-from starlette.responses import FileResponse
+from starlette.responses import FileResponse, Response
 from starlette.types import Message, Receive, Scope, Send
 
 from movieclaw_playback.mp4_sample_entry import (
@@ -563,3 +566,144 @@ def media_input(file_path: str) -> tuple[str, list[str]] | None:
     if url is None:
         return None
     return url, strm_input_args(url)
+
+
+#: 播放器多半连不上的主机名后缀（局域网 mDNS、路由器本地域名）
+_LOCAL_SUFFIXES = (".local", ".lan", ".internal", ".localdomain", ".home.arpa")
+#: 运营商级 NAT / Tailscale 一类的地址段：ipaddress 不算它 private，外面同样连不上
+_SHARED_ADDRESS_SPACE = ipaddress.ip_network("100.64.0.0/10")
+
+
+def strm_needs_relay(url: str) -> bool:
+    """这条网盘直链要不要由服务端转发，而不是 302 给播放器。
+
+    回环、私网、链路本地地址与单标签 / 局域网主机名（容器服务名 ``alist``、``nas.local``）
+    只在服务器所在的网络里连得上：MoviePilot 一类工具常把 strm 写成
+    ``http://127.0.0.1:5244/d/...`` 或 ``http://alist:5244/d/...``，302 给外网的浏览器、
+    电视就是连不上。判断只看地址本身，不看请求方——容器桥接网络里看到的客户端地址
+    常常都是网关，靠它分内外网不可靠；局域网里的播放器多走一跳服务器，代价只是局域网带宽。
+    """
+    parts = urlsplit(url)
+    if parts.scheme.lower() not in {"http", "https"} or not parts.hostname:
+        return False
+    host = parts.hostname.lower()
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return host == "localhost" or "." not in host or host.endswith(_LOCAL_SUFFIXES)
+    return (
+        ip.is_loopback
+        or ip.is_private
+        or ip.is_link_local
+        or (ip.version == 4 and ip in _SHARED_ADDRESS_SPACE)
+    )
+
+
+#: 转发时透传给播放器的上游响应头
+_RELAY_HEADERS = (
+    "content-type",
+    "content-length",
+    "content-range",
+    "accept-ranges",
+    "last-modified",
+    "etag",
+    "content-encoding",
+)
+
+
+class RemoteRelayResponse(Response):
+    """把网盘直链按播放器的 Range 原样转发（不起 ffmpeg）——Jellyfin 的
+    ``GetStaticRemoteStreamResult`` 同一思路。
+
+    断连、播放器上报停止、字节计量与 ``DisconnectAwareFileResponse`` 同一套：响应开始时起一个
+    后台任务等 ``http.disconnect``，每块只做一次同步检查；上游的 Content-Length 原样透传，提前
+    停止时不补结束帧、交给服务器关连接。上游一律用 GET（预签名直链常常只签了 GET），播放器
+    发的 HEAD 只回响应头。上游不走代理：要转发的都是内网地址。
+    """
+
+    chunk_size = 1024 * 1024
+
+    def __init__(
+        self,
+        url: str,
+        *,
+        range_header: str | None = None,
+        session_stopped: asyncio.Event | None = None,
+        on_close: Callable[[], None] | None = None,
+        byte_sink: Callable[[int], None] | None = None,
+        probe=None,  # noqa: ANN001 — qoe.serve_probe 的返回值
+    ) -> None:
+        super().__init__()
+        self._url = url
+        self._range = range_header
+        self._session_stopped = session_stopped
+        self._on_close = on_close
+        self._byte_sink = byte_sink
+        self._probe = probe
+        self._disconnected = asyncio.Event()
+        self._bytes = 0
+        self._stopped_early = False
+
+    def _should_stop(self) -> bool:
+        stopped = (
+            self._session_stopped is not None and self._session_stopped.is_set()
+        ) or self._disconnected.is_set()
+        if stopped and not self._stopped_early:
+            self._stopped_early = True
+            logger.info("播放器已断开或上报停止，停止转发网盘直链（已转发 %d 字节）", self._bytes)
+        return stopped
+
+    async def _watch_disconnect(self, receive: Receive) -> None:
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                self._disconnected.set()
+                return
+            await asyncio.sleep(0)
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        watcher = asyncio.ensure_future(self._watch_disconnect(receive))
+        started = False
+        try:
+            headers = {"Range": self._range} if self._range else {}
+            client = httpx.AsyncClient(
+                follow_redirects=True, trust_env=False, timeout=httpx.Timeout(30.0, read=60.0)
+            )
+            async with client, client.stream("GET", self._url, headers=headers) as upstream:
+                relayed = [
+                    (name.encode(), value.encode())
+                    for name in _RELAY_HEADERS
+                    if (value := upstream.headers.get(name)) is not None
+                ]
+                await send(
+                    {
+                        "type": "http.response.start",
+                        "status": upstream.status_code,
+                        "headers": relayed,
+                    }
+                )
+                started = True
+                if scope.get("method") == "HEAD" or upstream.status_code >= 400:
+                    await send({"type": "http.response.body", "body": b"", "more_body": False})
+                    return
+                async for chunk in upstream.aiter_raw(self.chunk_size):
+                    if self._should_stop():
+                        return
+                    if self._probe is not None:
+                        self._probe.first_chunk()
+                    self._bytes += len(chunk)
+                    if self._byte_sink is not None:
+                        self._byte_sink(len(chunk))
+                    await send({"type": "http.response.body", "body": chunk, "more_body": True})
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+        except httpx.HTTPError as exc:
+            logger.warning("转发网盘直链失败：%s", exc)
+            if not started:
+                await send({"type": "http.response.start", "status": 502, "headers": []})
+                await send({"type": "http.response.body", "body": b"", "more_body": False})
+        finally:
+            watcher.cancel()
+            if self._probe is not None:
+                self._probe.finish(self._bytes, disconnected=self._stopped_early)
+            if self._on_close is not None:
+                self._on_close()

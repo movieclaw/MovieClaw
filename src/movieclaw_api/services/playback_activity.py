@@ -401,9 +401,12 @@ async def media_activity_overview(
             transcodes.get(play.device_id, []), ctx.file.id if ctx.file else None
         )
         if ctx.file is not None:
-            # 网盘（strm）条目直出是 302 到网盘、字节不经服务器；换封装 / 转码时由服务端会话供流
-            streaming = not is_strm(ctx.file.file_path) or (
-                transcode is not None and transcode.file_id == ctx.file.id
+            # 网盘（strm）条目直出是 302 到网盘、字节不经服务器；换封装 / 转码时由服务端会话供流，
+            # 内网直链由服务端转发时有登记的取流（device_meters）
+            streaming = (
+                not is_strm(ctx.file.file_path)
+                or (transcode is not None and transcode.file_id == ctx.file.id)
+                or bool(device_meters)
             )
         else:
             streaming = play.local_streamed or bool(device_meters)

@@ -14,7 +14,10 @@ from __future__ import annotations
 import asyncio
 import errno
 import itertools
+import re
+import threading
 from functools import partial
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
@@ -135,6 +138,7 @@ async def _seed(
     duration_seconds: int = 600,
     hdr: str | None = None,
     resolution: str = "1080p",
+    strm_url: str = "https://pan.example.com/a.mkv",
 ) -> int:
     """建库 + 建条目 + 落一个真实存在的文件，返回 library_file.id。
 
@@ -146,7 +150,7 @@ async def _seed(
     media_root.mkdir(exist_ok=True)
     name = f"movie{n}.strm" if strm else f"movie{n}.{container}"
     path = media_root / name
-    path.write_text("https://pan.example.com/a.mkv\n") if strm else path.write_bytes(
+    path.write_text(f"{strm_url}\n") if strm else path.write_bytes(
         data if data is not None else b"FAKE-MEDIA-BYTES" * 64
     )
     async with get_database().session() as session:
@@ -1340,6 +1344,97 @@ def test_remote_source_redirects_strm_to_the_cloud_url(client, tmp_path):
     )
     assert response.status_code == 302
     assert response.headers["location"] == "https://pan.example.com/a.mkv"
+
+
+# ---------------------------------------------------------------------------
+# 内网直链由服务端转发（streaming.strm_needs_relay）
+# ---------------------------------------------------------------------------
+
+_LAN_BYTES = bytes(range(256)) * 64
+
+
+@pytest.fixture
+def lan_drive():
+    """回环地址上的仿网盘：只认 Range，``/missing`` 回 404。"""
+    seen: list[tuple[str, str | None]] = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args) -> None:
+            pass
+
+        def do_GET(self) -> None:  # noqa: N802
+            seen.append((self.path, self.headers.get("Range")))
+            if self.path.startswith("/missing"):
+                self.send_error(404)
+                return
+            match = re.match(r"bytes=(\d+)-(\d*)", self.headers.get("Range") or "")
+            start = int(match.group(1)) if match else 0
+            end = int(match.group(2)) if match and match.group(2) else len(_LAN_BYTES) - 1
+            body = _LAN_BYTES[start : end + 1]
+            self.send_response(206 if match else 200)
+            self.send_header("Content-Type", "video/mp4")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Accept-Ranges", "bytes")
+            if match:
+                self.send_header("Content-Range", f"bytes {start}-{end}/{len(_LAN_BYTES)}")
+            self.end_headers()
+            self.wfile.write(body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield SimpleNamespace(url=f"http://127.0.0.1:{server.server_port}", seen=seen)
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.mark.parametrize(
+    ("url", "relay"),
+    [
+        ("http://127.0.0.1:5244/d/a.mkv", True),
+        ("http://192.168.1.10:5244/d/a.mkv", True),
+        ("http://alist:5244/d/a.mkv", True),
+        ("http://nas.local/d/a.mkv", True),
+        ("http://100.101.102.103/d/a.mkv", True),
+        ("http://[::1]:5244/d/a.mkv", True),
+        ("https://pan.example.com/a.mkv", False),
+        ("https://8.8.8.8/a.mkv", False),
+        ("rtsp://192.168.1.10/live", False),
+    ],
+)
+def test_relay_rule_only_targets_addresses_players_cannot_reach(url, relay):
+    from movieclaw_playback.streaming import strm_needs_relay
+
+    assert strm_needs_relay(url) is relay
+
+
+def test_lan_strm_is_relayed_with_range(client, tmp_path, lan_drive):
+    """回环 / 内网直链不 302（播放器连不上），服务端按 Range 原样转发；上游 404 透传。"""
+    lan = f"{lan_drive.url}/d/a.mp4"
+    file_id = seed(client, tmp_path, container="mp4", strm=True, strm_url=lan)
+    url = start_session(client, file_id)["stream_url"]
+    resp = client.get(url, headers={"Range": "bytes=100-199"}, follow_redirects=False)
+    assert resp.status_code == 206
+    assert resp.content == _LAN_BYTES[100:200]
+    assert resp.headers["content-range"] == f"bytes 100-199/{len(_LAN_BYTES)}"
+    assert lan_drive.seen[-1] == ("/d/a.mp4", "bytes=100-199")
+
+    gone = seed(client, tmp_path, container="mp4", strm=True, strm_url=f"{lan_drive.url}/missing")
+    assert client.get(start_session(client, gone)["stream_url"]).status_code == 404
+
+
+def test_remote_worker_source_relays_lan_strm(client, tmp_path, lan_drive):
+    """回环直链在 Worker 那台机器上不是同一个地址：NAS 转发，不 302。"""
+    lan = f"{lan_drive.url}/d/a.mkv"
+    file_id = seed(client, tmp_path, container="mkv", strm=True, strm_url=lan)
+    grants = _install_remote_session(client, tmp_path, file_id)
+    response = client.get(
+        f"/api/v1/transcode-worker/sessions/{grants['session_id']}/source"
+        f"?token={grants['source']}",
+        headers={"Range": "bytes=0-15"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 206
+    assert response.content == _LAN_BYTES[:16]
 
 
 def test_remote_disc_source_is_an_ffconcat_of_clip_urls(client, tmp_path):

@@ -173,12 +173,14 @@ from movieclaw_playback.keyframes import read_keyframe_index, schedule_backgroun
 from movieclaw_playback.streaming import (
     ClientDisconnected,
     DisconnectAwareFileResponse,
+    RemoteRelayResponse,
     await_unless_disconnected,
     container_mime_type,
     direct_play_byte_patches,
     is_strm,
     register_device_stream,
     resolve_strm_url,
+    strm_needs_relay,
     unregister_device_stream,
 )
 from movieclaw_playback.subtitles import (
@@ -2001,6 +2003,9 @@ async def stream_library_file(
         remote = resolve_strm_url(file.file_path)
         if remote is None:
             raise NotFoundException("网盘直链无效")
+        if strm_needs_relay(remote):
+            # 内网 / 回环 / 容器服务名的直链：播放器多半连不上，服务端按 Range 原样转发
+            return _metered_relay_response(request, grant, file, remote)
         return RedirectResponse(remote, status_code=302)
     path = PathLib(file.file_path)
     media_type = container_mime_type(file.container)
@@ -2035,11 +2040,51 @@ def _metered_file_response(
     """按 Range 出一个磁盘文件，并登记到设备流与活动页（原文件直出与原盘目录直推共用）。"""
     # 播放体验打点的取流计时（playback-qoe.md §5.3）：令牌里带播放编号才计
     probe = qoe.serve_probe(grant.attempt_id)
-    if not grant.device_id or file.media_item_id is None:
-        # 升级前签出的旧地址没有设备标识，不计量；未识别文件没有播放单元可记
+    stream = _register_play_stream(
+        request,
+        grant,
+        file,
+        name=path.name,
+        size_bytes=size_bytes if size_bytes is not None else (file.size_bytes or 0),
+    )
+    if stream is None:
         return DisconnectAwareFileResponse(
             path, media_type=media_type, byte_patches=byte_patches, probe=probe
         )
+    session_stopped, byte_sink, on_close = stream
+    return DisconnectAwareFileResponse(
+        path,
+        media_type=media_type,
+        session_stopped=session_stopped,
+        byte_sink=byte_sink,
+        on_close=on_close,
+        byte_patches=byte_patches,
+        probe=probe,
+    )
+
+
+def _metered_relay_response(request: Request, grant, file: LibraryFile, url: str) -> Response:
+    """转发网盘直链（``strm_needs_relay``），与磁盘直出同一套设备流与活动页登记。"""
+    probe = qoe.serve_probe(grant.attempt_id)
+    stream = _register_play_stream(request, grant, file, name=PathLib(file.file_path).name)
+    session_stopped, byte_sink, on_close = stream if stream is not None else (None, None, None)
+    return RemoteRelayResponse(
+        url,
+        range_header=request.headers.get("range"),
+        session_stopped=session_stopped,
+        byte_sink=byte_sink,
+        on_close=on_close,
+        probe=probe,
+    )
+
+
+def _register_play_stream(
+    request: Request, grant, file: LibraryFile, *, name: str, size_bytes: int = 0
+) -> tuple[asyncio.Event, Callable[[int], None], Callable[[], None]] | None:
+    """登记一条取流：返回（停止信号, 字节计量, 收尾回调）；不计量的取流返回 None。"""
+    if not grant.device_id or file.media_item_id is None:
+        # 升级前签出的旧地址没有设备标识，不计量；未识别文件没有播放单元可记
+        return None
     # 与 Jellyfin 取流同一套登记：按浏览器设备登记这条流，让停止上报能主动
     # 停止读盘（播放器不会因为退出就立刻关闭已建立的 Range 连接）；顺带登记
     # 到活动注册表，活动页据此展示这台浏览器的实时传输速率
@@ -2051,8 +2096,8 @@ def _metered_file_response(
         member_id=grant.member_id,
         unit=(file.media_item_id, file.season_number, file.episode_number),
         file_id=file.id,
-        file_name=path.name,
-        size_bytes=size_bytes if size_bytes is not None else (file.size_bytes or 0),
+        file_name=name,
+        size_bytes=size_bytes,
         client=playback_watch.web_client_info(
             device_id=device_id, user_agent=request.headers.get("user-agent")
         ),
@@ -2062,15 +2107,7 @@ def _metered_file_response(
         unregister_device_stream(device_id, session_stopped)
         activity.unregister_stream(meter)
 
-    return DisconnectAwareFileResponse(
-        path,
-        media_type=media_type,
-        session_stopped=session_stopped,
-        byte_sink=meter.add,
-        on_close=_close,
-        byte_patches=byte_patches,
-        probe=probe,
-    )
+    return session_stopped, meter.add, _close
 
 
 #: 目录直推只放行光盘结构里播放要用的文件（disc-direct-play.md §2.3）。**这是路径穿越的防线**：
