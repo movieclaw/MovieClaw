@@ -156,6 +156,7 @@ export function refreshRelay(relayId: string): Promise<PushChannelsView> {
 
 export type MyDeviceStatus =
   | "ok"
+  | "unsupported_build"
   | "no_channel"
   | "permission_denied"
   | "bad_token"

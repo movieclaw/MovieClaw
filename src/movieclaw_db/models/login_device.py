@@ -71,6 +71,7 @@ class LoginDevice(MemberScopedMixin, TimestampMixin, table=True):
         default=None, description="系统通知权限：authorized / provisional / denied ……"
     )
     push_problem: str | None = Field(
-        default=None, description="推送暴露的问题：bad_token（令牌和环境对不上等）"
+        default=None,
+        description="推送暴露的问题：bad_token（令牌和环境对不上等）、unsupported_build（安装包没有推送权限）",
     )
     push_registered_at: datetime | None = Field(default=None, description="最近一次登记时间")

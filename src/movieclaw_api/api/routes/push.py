@@ -251,6 +251,7 @@ async def register(
             key=payload.key,
             permission=payload.permission,
             client_version=payload.client_version,
+            unsupported_build=payload.unsupported_build,
         )
     )
 

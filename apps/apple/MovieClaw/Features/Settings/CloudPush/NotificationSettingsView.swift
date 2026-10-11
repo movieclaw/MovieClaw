@@ -236,7 +236,9 @@ private struct NotificationSettingsContent: View {
                 EmptyView()
             }
         } footer: {
-            if push.permission == .denied {
+            if push.unsupportedBuild {
+                Text("这个安装包收不到推送：侧载版签名里没有推送权限，系统通知开着也没用。改用 TestFlight 或 App Store 版就能收到。")
+            } else if push.permission == .denied {
                 Text("这台手机在系统设置里关掉了 MovieClaw 的通知，哪台服务器的通知都收不到。")
             }
         }

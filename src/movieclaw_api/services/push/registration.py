@@ -52,6 +52,8 @@ class Registration:
     types: tuple[str, ...] = ()
     key_id: str | None = None
     key: str | None = None
+    #: 安装包签名里没有推送权限（侧载包）：永远拿不到令牌
+    unsupported_build: bool = False
 
 
 def validate(
@@ -63,13 +65,14 @@ def validate(
     types: list[str] | None,
     key_id: str | None,
     key: str | None,
+    unsupported_build: bool = False,
 ) -> Registration:
     """校验 App 交上来的登记；不合规抛 400（说明给开发者看，App 不会展示给用户）。"""
     if permission not in PERMISSIONS:
         raise BadRequestException(f"permission 只能是 {' / '.join(PERMISSIONS)}")
     provided = [v for v in (token, key_id, key) if v]
     if not provided:
-        return Registration(permission=permission)
+        return Registration(permission=permission, unsupported_build=unsupported_build)
     if len(provided) != 3:
         raise BadRequestException("token、key_id、key 三个要么都有，要么都没有")
     assert token and key_id and key
@@ -103,6 +106,7 @@ async def save(session: AsyncSession, device: LoginDevice, reg: Registration) ->
     只上报权限、不带令牌时：权限是关着的（``denied`` / ``not_determined``）就清掉令牌；
     权限开着就保留已有的令牌——App 冷启动时可能先上报权限、稍后才拿到 APNs 令牌，
     这时清掉，中间这段的推送就丢了。令牌真失效了中继会说 ``unregistered``。
+    安装包没有推送权限（侧载包）时清掉令牌并记下 ``unsupported_build``，设备页据此说清楚原因。
     """
     device.push_permission = reg.permission
     device.push_registered_at = utcnow()
@@ -115,8 +119,14 @@ async def save(session: AsyncSession, device: LoginDevice, reg: Registration) ->
         device.push_types = list(reg.types)
         device.push_key_id = reg.key_id
         device.push_key = get_secret_box().encrypt(reg.key or "")
-    elif reg.permission in ("denied", "not_determined"):
+    elif reg.unsupported_build:
         _clear_push_fields(device, keep_permission=True)
+        device.push_problem = "unsupported_build"
+    else:
+        if reg.permission in ("denied", "not_determined"):
+            _clear_push_fields(device, keep_permission=True)
+        elif device.push_problem == "unsupported_build":
+            device.push_problem = None  # 换装了能收推送的包，只是令牌还没到
     session.add(device)
     await session.commit()
     await session.refresh(device)

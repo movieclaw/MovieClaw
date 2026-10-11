@@ -248,7 +248,9 @@ class DevicePushView(BaseModel):
     """App 设备能不能收到推送（docs/design/cloud-push.md §4）。界面只在不是 ok 时提示。"""
 
     status: str = Field(
-        description="ok / permission_denied / no_channel / bad_token / not_registered"
+        description=(
+            "ok / unsupported_build / permission_denied / no_channel / bad_token / not_registered"
+        )
     )
     status_text: str
 

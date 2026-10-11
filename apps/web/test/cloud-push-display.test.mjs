@@ -310,6 +310,8 @@ test("设备页：能收到或不是 App 什么都不写，收不到写原因并
   assert.ok(devicePushNote({ status: "bad_token", status_text: "" }).text.includes("重新登记"));
   assert.equal(devicePushNote({ status: "not_registered", status_text: "" }).tone, "neutral");
   assert.equal(devicePushNote({ status: "no_channel", status_text: "x" }).tone, "warn");
+  assert.equal(devicePushNote({ status: "unsupported_build", status_text: "" }).tone, "warn");
+  assert.ok(devicePushNote({ status: "unsupported_build", status_text: "" }).text.includes("TestFlight"));
   assert.equal(myDeviceTone("ok"), "ok");
 });
 

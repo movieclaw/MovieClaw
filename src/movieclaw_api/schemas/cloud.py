@@ -246,6 +246,10 @@ class PushRegistrationRequest(BaseModel):
     client_version: str | None = Field(
         default=None, max_length=64, description="App 当前版本（登录时记下的会过时，借登记刷新）"
     )
+    unsupported_build: bool = Field(
+        default=False,
+        description="这个安装包签名里没有推送权限、拿不到 APNs 令牌（侧载包），重装商店版才能收到",
+    )
 
 
 class PushRegistrationView(BaseModel):

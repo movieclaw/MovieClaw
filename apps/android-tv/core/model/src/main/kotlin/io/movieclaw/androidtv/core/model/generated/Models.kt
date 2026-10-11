@@ -399,7 +399,7 @@ data class DeviceLoginView(
 @Serializable
 data class DevicePushView(
     /**
-     * ok / permission_denied / no_channel / bad_token / not_registered
+     * ok / unsupported_build / permission_denied / no_channel / bad_token / not_registered
      */
     @SerialName("status") val status: String = "",
     @SerialName("status_text") val statusText: String = "",

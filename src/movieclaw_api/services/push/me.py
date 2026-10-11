@@ -26,7 +26,7 @@ from movieclaw_api.services.push.notify import alert_devices, send_test
 from movieclaw_db.models import LoginDevice
 
 #: 需要本人处理的状态（还没登记的多半是旧版 App，升级后自动登记，不在这里打扰）
-ATTENTION_STATUSES = ("permission_denied", "no_channel", "bad_token")
+ATTENTION_STATUSES = ("unsupported_build", "permission_denied", "no_channel", "bad_token")
 
 #: 测试推送的节流：每人 10 秒一次（防止连点把额度刷光）
 _TEST_INTERVAL_S = 10
@@ -35,6 +35,13 @@ _last_test: dict[int, float] = {}
 
 def device_status(device: LoginDevice, channels: list[Channel]) -> tuple[str, str, str | None]:
     """一台设备能不能收到：(status, 给人看的说明, 走哪个通道)。"""
+    if not device.push_token and device.push_problem == "unsupported_build":
+        # 先于权限：安装包本身收不到，叫人去开系统通知也没用
+        return (
+            "unsupported_build",
+            "这个安装包收不到推送：侧载版没有推送权限，改用 TestFlight 或 App Store 版",
+            None,
+        )
     if device.push_permission == "denied":
         return "permission_denied", "系统通知已关闭，在这台设备的设置里打开", None
     if not device.push_token or not device.push_topic:
@@ -150,6 +157,7 @@ async def register(
     key: str | None,
     permission: str,
     client_version: str | None = None,
+    unsupported_build: bool = False,
 ) -> PushRegistrationView:
     device = await _current_push_device(session, principal)
     # 版本是登录时记下的，App 升级后不重新登录就一直是旧的；每次启动的登记顺手刷新
@@ -163,6 +171,7 @@ async def register(
         types=types,
         key_id=key_id,
         key=key,
+        unsupported_build=unsupported_build,
     )
     device = await registration.save(session, device, reg)
     status, text, channel_name = device_status(device, await channel_registry.load_channels())

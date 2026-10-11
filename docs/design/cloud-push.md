@@ -417,12 +417,15 @@ App 里：
 | `ready_devices` | 我能收到通知的设备数 |
 | `libraries` | 我能看到的媒体库，「媒体库有新片」的选项 |
 | `library_ids` | 「媒体库有新片」关心的库；`null` = 能看到的全部（含以后新建的） |
-| `attention` | 我收不到通知、需要处理的设备（`permission_denied` / `no_channel` / `bad_token`）；空 = 没问题，页面不提示 |
+| `attention` | 我收不到通知、需要处理的设备（`unsupported_build` / `permission_denied` / `no_channel` / `bad_token`）；空 = 没问题，页面不提示 |
 | `muted_items` | 「这部剧不再提醒」静音的片 `[{id, title, year, kind}]`，最近静音的在前；旧服务器没有这个字段（可空，App 照样能解码） |
 
 设备的推送状态挂在设备上：`GET /api/v1/auth/devices` 每台 App 类设备多一个
-`push: {status, status_text}`（`ok` / `permission_denied` / `no_channel` / `bad_token` /
-`not_registered`），其他设备为 `null`。界面只在不是 `ok` 时在设备下面写一行原因。
+`push: {status, status_text}`（`ok` / `unsupported_build` / `permission_denied` / `no_channel` /
+`bad_token` / `not_registered`），其他设备为 `null`。界面只在不是 `ok` 时在设备下面写一行原因。
+`unsupported_build`：App 登记时带了 `unsupported_build: true`——安装包签名里没有推送权限（侧载包，
+APNs 注册报 NSCocoaErrorDomain 3000），系统通知开着也收不到，提示改用 TestFlight / App Store 版；
+排在 `permission_denied` 前面（开了系统通知也没用）。
 
 | 接口 | 说明 |
 | --- | --- |
@@ -455,6 +458,9 @@ App 里：
 - `key` 是 32 字节密钥的 base64url（无填充）；`key_id` 是 11 个 base64url 字符。
 - `client_version`（可选）：App 当前版本，写回设备行的 `client_version`。登录时记下的版本
   在 App 升级后不会变，靠每次启动的登记刷新；不带时保留原值。上报里的 `app_version` 取它。
+- `unsupported_build`（可选，默认 `false`）：安装包签名里没有推送权限、永远拿不到令牌（侧载包）。
+  为 `true` 时不带令牌，服务器清掉已有令牌、记 `push_problem = "unsupported_build"`；之后不带它的
+  登记（换装了商店版）清掉这个标记。
 
 响应 `PushRegistrationView`：`{registered, status, status_text, channel_name}`，
 `status` 同设备的 `push.status`。

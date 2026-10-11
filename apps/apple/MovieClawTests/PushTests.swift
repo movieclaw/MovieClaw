@@ -483,6 +483,31 @@ struct PushRegistrationTests {
         #expect(tokenless.permission == "not_determined")
     }
 
+    /// 侧载包（签名里没有推送权限）：带上 unsupported_build，不带令牌、不生成密钥；平常不发这个字段
+    @Test func unsupportedBuildReportsItself() throws {
+        var keyRequested = false
+        let body = API.PushRegistrationRequest.make(permission: .authorized, apnsToken: "a1b2c3", topic: "t", environment: "production",
+                                                    clientVersion: "0.7.0", unsupportedBuild: true) {
+            keyRequested = true
+            return key
+        }
+        #expect(!keyRequested)
+        #expect(body.token == nil && body.key == nil && body.unsupportedBuild == true)
+        let json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(body)) as? [String: Any]
+        #expect(json?["unsupported_build"] as? Bool == true)
+
+        let normal = API.PushRegistrationRequest.make(permission: .authorized, apnsToken: nil, topic: "t", environment: "production",
+                                                      clientVersion: nil) { key }
+        let normalJSON = try JSONSerialization.jsonObject(with: JSONEncoder().encode(normal)) as? [String: Any]
+        #expect(normalJSON?["unsupported_build"] == nil)
+    }
+
+    @Test func recognizesMissingPushEntitlement() {
+        #expect(PushCenter.isMissingEntitlement(NSError(domain: NSCocoaErrorDomain, code: 3000)), "侧载包：签名里没有 aps-environment")
+        #expect(!PushCenter.isMissingEntitlement(NSError(domain: NSCocoaErrorDomain, code: 3010)), "模拟器")
+        #expect(!PushCenter.isMissingEntitlement(URLError(.notConnectedToInternet)))
+    }
+
     @Test func mapsSystemPermission() {
         #expect(PushPermission(.authorized).rawValue == "authorized")
         #expect(PushPermission(.provisional).rawValue == "provisional")

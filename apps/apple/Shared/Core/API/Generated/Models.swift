@@ -1918,7 +1918,7 @@ nonisolated extension API {
 
     /// App 设备能不能收到推送（docs/design/cloud-push.md §4）。界面只在不是 ok 时提示。
     struct DevicePushView: Codable, Hashable, Sendable {
-        /// ok / permission_denied / no_channel / bad_token / not_registered
+        /// ok / unsupported_build / permission_denied / no_channel / bad_token / not_registered
         var status: String
         var statusText: String
 
@@ -8836,6 +8836,8 @@ nonisolated extension API {
         var permission: String
         /// App 当前版本（登录时记下的会过时，借登记刷新）
         var clientVersion: String?
+        /// 这个安装包签名里没有推送权限、拿不到 APNs 令牌（侧载包），重装商店版才能收到
+        var unsupportedBuild: Bool?
 
         enum CodingKeys: String, CodingKey {
             case token
@@ -8846,6 +8848,7 @@ nonisolated extension API {
             case key
             case permission
             case clientVersion = "client_version"
+            case unsupportedBuild = "unsupported_build"
         }
     }
 

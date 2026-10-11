@@ -650,6 +650,45 @@ def test_registration_refreshes_app_version(client: TestClient, world: World) ->
     assert version() == "0.3.0"
 
 
+def test_sideloaded_build_says_it_cannot_receive(client: TestClient, world: World) -> None:
+    """侧载包签名里没有推送权限、拿不到令牌：设备页说清楚原因，不再说「打开 App 后会自动开启」。"""
+    _connect(client, world)
+    bearer = _app_login(client, _ADMIN, installation="inst-sideload", name="侧载 iPhone")
+
+    def push_state() -> dict[str, str]:
+        listed = _data(client.get("/api/v1/auth/devices"))
+        return next(d for d in listed if d["name"] == "侧载 iPhone")["push"]
+
+    def report(**extra: object) -> dict[str, object]:
+        resp = _as_app(
+            client,
+            bearer,
+            "PUT",
+            "/api/v1/push/me/registration",
+            json={"permission": "authorized", **extra},
+        )
+        assert resp.status_code == 200, resp.text
+        return _data(resp)
+
+    # 旧版 App 不带这个字段：照旧
+    assert report()["status"] == "not_registered"
+    view = report(unsupported_build=True)
+    assert view["registered"] is False and view["status"] == "unsupported_build"
+    assert "侧载" in view["status_text"]
+    assert push_state()["status"] == "unsupported_build"
+    attention = _data(client.get("/api/v1/push/me"))["attention"]
+    assert [a["status"] for a in attention] == ["unsupported_build"]
+    # 系统通知也关着：先说安装包的问题（开了通知也收不到）
+    assert report(permission="denied", unsupported_build=True)["status"] == "unsupported_build"
+
+    # 换装了商店版：令牌还没到时回到「还没开启」，令牌到了就能收到
+    assert report()["status"] == "not_registered"
+    view = report(unsupported_build=True)
+    assert view["status"] == "unsupported_build"
+    _register(client, bearer, token="c3" * 32)
+    assert push_state() == {"status": "ok", "status_text": "能收到"}
+
+
 @pytest.mark.parametrize("kind", ["tvos", "macos", "androidtv"])
 def test_apps_without_push_get_no_push_hint(client: TestClient, world: World, kind: str) -> None:
     """Apple TV、Mac、Android TV 本期不接推送：设备页不挂「还没有开启通知」，也不能登记。"""

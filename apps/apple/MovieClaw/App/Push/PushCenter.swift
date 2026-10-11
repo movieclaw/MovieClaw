@@ -25,6 +25,8 @@ final class PushCenter: NSObject {
     var pendingTap: PushTapTarget?
     /// 每登记完一轮加一：「通知」页据此刷新「我的设备」
     private(set) var registrationRound = 0
+    /// 这个安装包签名里没有推送权限（侧载包）：APNs 明说不给令牌，系统通知开着也收不到
+    private(set) var unsupportedBuild = false
 
     /// APNs 令牌：上次拿到的存在本机，这次启动拿到新的再换
     @ObservationIgnored private var apnsToken: String? = UserDefaults.standard.string(forKey: PushCenter.apnsTokenKey)
@@ -73,6 +75,7 @@ final class PushCenter: NSObject {
     func didFailToRegister(_ error: any Error) {
         Self.log.info("APNs 注册失败：\(error.localizedDescription, privacy: .public)")
         apnsAnswered = true
+        if Self.isMissingEntitlement(error) { unsupportedBuild = true }
         Task { await sync() }
     }
 
@@ -157,7 +160,8 @@ final class PushCenter: NSObject {
         var jobs: [Job] = []
         for login in Self.savedLogins() {
             let body = API.PushRegistrationRequest.make(permission: permission, apnsToken: apnsToken, topic: Self.topic,
-                                                        environment: Self.environment, clientVersion: DeviceInfo.appVersion) {
+                                                        environment: Self.environment, clientVersion: DeviceInfo.appVersion,
+                                                        unsupportedBuild: unsupportedBuild) {
                 store.ensureKey(for: login.info)
             }
             var hasher = Hasher()
@@ -244,6 +248,13 @@ final class PushCenter: NSObject {
             .flatMap { try? Data(contentsOf: $0) }) ?? "production"
         #endif
     }()
+
+    /// APNs 说签名里没有 `aps-environment`（NSCocoaErrorDomain 3000）：侧载工具重签的包都是这样。
+    /// 模拟器是 3010，不算
+    nonisolated static func isMissingEntitlement(_ error: any Error) -> Bool {
+        let error = error as NSError
+        return error.domain == NSCocoaErrorDomain && error.code == 3000
+    }
 
     /// 从描述文件（`embedded.mobileprovision`，CMS 签名包着一份 plist）里读 `aps-environment`
     nonisolated static func apsEnvironment(provisioningProfile data: Data?) -> String? {

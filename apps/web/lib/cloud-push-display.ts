@@ -366,12 +366,14 @@ export function toggleLibrary(
 
 export function myDeviceTone(status: MyDeviceStatus | string): Tone {
   if (status === "ok") return "ok";
-  if (status === "no_channel" || status === "permission_denied") return "warn";
+  if (status === "no_channel" || status === "permission_denied" || status === "unsupported_build")
+    return "warn";
   if (status === "bad_token") return "danger";
   return "neutral";
 }
 
 const DEVICE_PUSH_FALLBACK: Record<string, string> = {
+  unsupported_build: "这个安装包收不到推送：侧载版没有推送权限，改用 TestFlight 或 App Store 版",
   no_channel: "这个版本的 App 没有能用的推送通道",
   permission_denied: "系统通知已关闭，在这台设备的设置里打开",
   bad_token: "推送令牌失效了，打开一次 MovieClaw App 会重新登记",
