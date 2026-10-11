@@ -196,3 +196,64 @@ def test_no_credits_anywhere_gives_up_early() -> None:
     decision, calls = run(lambda t: story_frame(t))
     assert decision.segment is None
     assert len(calls) == 3
+
+
+def run_lead(timeline, lead=2800.0, start=2865.0):
+    calls: list[tuple[float, bool]] = []
+
+    async def observe(t: float, accurate: bool) -> C.Frame:
+        calls.append((t, accurate))
+        return timeline(t)
+
+    return asyncio.run(C.extend_lead(lead, start, observe)), calls
+
+
+def test_dark_lead_before_audio_outro_is_joined() -> None:
+    """铁拳教育：配音名单前的黑底韩文演职员表（识别不出字）是暗画面，整截接上。"""
+    new, calls = run_lead(black_frame)
+    assert new == 2800.0
+    assert len(calls) <= 7
+
+
+def test_lead_stops_at_story_and_bisects_the_boundary() -> None:
+    """前段开头还是剧情的最后几个镜头：只接暗画面那部分，边界二分到约 3 秒。"""
+    credits_start = 2830.0
+    new, _ = run_lead(lambda t: credits_frame(t) if t >= credits_start else story_frame(t))
+    assert credits_start <= new <= credits_start + C.BISECT_PRECISION_S
+
+
+def test_bright_lead_is_not_joined() -> None:
+    """圆桌派节目尾的资料书页：音频首尾相接、跨集重复，但是亮画面的正片，不接。"""
+    new, calls = run_lead(lambda t: story_frame(t))
+    assert new == 2865.0
+    assert len(calls) == 1
+
+
+def test_dark_scene_with_dialogue_subtitles_is_not_joined() -> None:
+    """近黑的画面带对白字幕：还是剧情。"""
+    new, _ = run_lead(lambda t: C.Frame(t, 6.0, [("你明天还来吗", 0.40, 0.88, 0.60, 0.93)]))
+    assert new == 2865.0
+
+
+def test_full_page_credits_brighter_than_near_black_are_joined() -> None:
+    """黑暗荣耀：满屏白字名单平均亮度 10～12，不算近黑，但认得出是黑底演职员表。"""
+    new, _ = run_lead(lambda t: C.Frame(t, 11.0, credits_frame(t).lines))
+    assert new == 2800.0
+
+
+def test_night_scene_darker_than_story_threshold_is_not_joined() -> None:
+    """金粉世家 E37 片尾前的夜戏亮度 18～20：比一般剧情暗，但不是黑底，不接。"""
+    new, _ = run_lead(lambda t: C.Frame(t, 19.0, []))
+    assert new == 2865.0
+
+
+def test_keyframes_landing_inside_audio_outro_are_not_evidence() -> None:
+    """只解关键帧拿到的是请求点之后的帧：落进音频片尾里的不能算前段是暗画面。"""
+    calls: list[tuple[float, bool]] = []
+
+    async def observe(t: float, accurate: bool) -> C.Frame:
+        calls.append((t, accurate))
+        actual = t if accurate else 2866.0
+        return credits_frame(actual) if actual >= 2865.0 else story_frame(actual)
+
+    assert asyncio.run(C.extend_lead(2800.0, 2865.0, observe)) == 2865.0

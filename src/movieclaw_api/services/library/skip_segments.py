@@ -1134,7 +1134,15 @@ async def _refine_episode(
     probe = _FrameProbe(file, engine)
     notes: list[str] = []
     try:
-        decision = await credits_logic.refine_outro(audio, duration, probe.observe)
+        candidate = audio
+        if audio is not None and outro and outro.get("lead_start_ms") is not None:
+            start = await credits_logic.extend_lead(
+                outro["lead_start_ms"] / 1000, audio[0], probe.observe
+            )
+            if start < audio[0]:
+                candidate = (start, audio[1])
+                notes.append(f"片尾起点 {audio[0]:.0f}→{start:.0f}（前段是暗画面）")
+        decision = await credits_logic.refine_outro(candidate, duration, probe.observe)
         if decision.segment != audio:
             notes.append(f"片尾：{decision.reason}")
         segments = [s for s in segments if s.get("type") != "outro"]
@@ -1400,6 +1408,10 @@ async def analyze_season(
         polite=polite,
         notice=notice,
     )
+    # 前段候选只给画面核对用：没核对（缺模型、片太短、出错）就是不接，不落库、不下发
+    for segments in results.values():
+        for segment in segments:
+            segment.pop("lead_start_ms", None)
     now = utcnow()
     async with db.session() as session:
         for f, snapshot in ready:

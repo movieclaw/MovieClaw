@@ -1651,6 +1651,43 @@ def test_frame_check_failure_keeps_audio_result(client, tmp_path, monkeypatch) -
     assert all(any(s["type"] == "outro" for s in states[f].segments) for f in ids["files"])
 
 
+@pytest.mark.parametrize("with_ocr", [True, False])
+def test_outro_lead_is_joined_only_after_frame_check(
+    client, tmp_path, monkeypatch, with_ocr
+) -> None:
+    """片尾前段候选（lead_start_ms）是暗画面才接上；没做画面核对就不接，候选字段不落库。"""
+    ids = call(client, _seed, tmp_path)
+    first = ids["files"][0]
+    real = skip_segments._run_detection
+    lead_ms: list[int] = []
+
+    async def detection_with_lead(episodes):
+        response = await real(episodes)
+        outro = next(s for s in response["results"][str(first)] if s["type"] == "outro")
+        outro["lead_start_ms"] = outro["start_ms"] - 60_000
+        lead_ms.append(outro["lead_start_ms"])
+        return response
+
+    async def black_frame(path, t, accurate, width=960):
+        return np.zeros((54, 96, 3), dtype=np.uint8), t
+
+    class Engine:
+        async def recognize(self, img, corners):
+            return float(img.mean()), [], None
+
+    monkeypatch.setattr(skip_segments, "_run_detection", detection_with_lead)
+    monkeypatch.setattr(skip_segments, "_grab_frame", black_frame)
+    monkeypatch.setattr(skip_segments, "_ocr_engine", lambda: Engine() if with_ocr else None)
+    call(client, skip_segments.analyze_season, ids["show"], 1)
+    states = call(client, _states)
+    assert all("lead_start_ms" not in s for st in states.values() for s in st.segments or [])
+    outro = next(s for s in states[first].segments if s["type"] == "outro")
+    if with_ocr:
+        assert outro["start_ms"] == lead_ms[0]
+    else:
+        assert outro["start_ms"] == lead_ms[0] + 60_000
+
+
 def test_frame_probe_caches_observations(client, tmp_path, monkeypatch) -> None:
     """同一时间点不重复抽帧：关键帧 ±1.5 秒复用，要精确帧时不拿关键帧顶替；片源换了缓存作废。"""
     from types import SimpleNamespace

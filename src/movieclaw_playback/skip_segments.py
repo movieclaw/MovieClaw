@@ -31,6 +31,8 @@
 5. **整理**：首尾相接的段合并（冠名广告 + 发行许可 + 片头一个按钮跳完）；片头窗里
    最长的一段是片头，其余是「其他」；片尾窗只认最后一段（片中每集都响一遍的固定
    配乐场景不当片尾），终点离文件结尾 ≤5 秒的标「到结尾」，客户端直接给「下一集」。
+   片尾前面首尾相接、也跨集重复的一截只作为「前段」候选带出去（``Segment.lead_start``），
+   由服务端看画面决定接不接（设计文档 §2.16）。
 
 子进程入口：``python -m movieclaw_playback.skip_segments``，标准输入一行 JSON，
 标准输出一行 JSON（见 ``_main``）。服务端在独立进程里跑它——一季的比对是纯 Python
@@ -80,8 +82,8 @@ HEAD_ZONE_S = 60.0
 ADJACENT_S = 3.0
 #: 算法版本：改了上面任何规则就加一，服务端据此把旧结果全部重算一遍
 #: （7：候选位移按升序遍历，等长共享段的取舍确定下来；8：服务端按画面演职员表修正片尾；
-#: 9：服务端按画面文字给开头段标广告、片尾后单独标出下集预告）
-ALGO_VERSION = 9
+#: 9：服务端按画面文字给开头段标广告、片尾后单独标出下集预告；10：片尾带出首尾相接的前段候选）
+ALGO_VERSION = 10
 
 _POPCOUNT8 = np.array([bin(i).count("1") for i in range(256)], dtype=np.uint8)
 
@@ -129,15 +131,20 @@ class Segment:
     support: int
     #: 片尾一直放到文件结尾：客户端可以直接给「下一集」
     to_end: bool = False
+    #: 只有片尾有：前面首尾相接、也跨集重复的一截从哪开始（候选，服务端看画面后才接上）
+    lead_start: float | None = None
 
     def as_dict(self) -> dict:
-        return {
+        out = {
             "type": self.kind,
             "start_ms": int(round(self.start * 1000)),
             "end_ms": int(round(self.end * 1000)),
             "support": self.support,
             "to_end": self.to_end,
         }
+        if self.lead_start is not None:
+            out["lead_start_ms"] = int(round(self.lead_start * 1000))
+        return out
 
 
 # ---------------------------------------------------------------------------
@@ -247,6 +254,26 @@ def _overlap(a: tuple[float, float], b: tuple[float, float]) -> float:
     return max(0.0, min(a[1], b[1]) - max(a[0], b[0]))
 
 
+def _last_run(
+    regions: list[tuple[tuple[float, float], float]], lead: bool
+) -> list[tuple[tuple[float, float], float]]:
+    """片尾窗一对集里要的段：时间线上最后一段；``lead`` 为真时连同往前首尾相接
+    （间隔 ≤ MERGE_GAP_S）的段一起要。
+
+    一段片尾在两集之间可能断成两截、各自位移不同：铁拳教育的韩文演职员表与其后的
+    Netflix 配音名单，各集拼接点差 1～2 秒，只留最后一段就丢了前面约 65 秒的演职员表。
+    但紧挨片尾的重复配乐也可能是剧情（圆桌派节目尾的资料书页），所以前段只是候选。
+    """
+    ordered = sorted(regions, key=lambda item: item[0][0])
+    run = ordered[-1:]
+    if lead:
+        for item in reversed(ordered[:-1]):
+            if item[0][1] < run[0][0][0] - MERGE_GAP_S:
+                break
+            run.insert(0, item)
+    return run
+
+
 class _Season:
     """一季的比对上下文：缓存两两比对结果（A 比 B 与 B 比 A 只算一次）。"""
 
@@ -262,8 +289,19 @@ class _Season:
             self._indexes[key] = _value_index(episode.windows[mode].hashes)
         return self._indexes[key]
 
-    def pair(self, a: Episode, b: Episode, mode: str) -> list[tuple[tuple[float, float], float]]:
+    def pair(
+        self, a: Episode, b: Episode, mode: str, lead: bool = False
+    ) -> list[tuple[tuple[float, float], float]]:
         """a 上与 b 共享的段（文件秒数）及对齐质量。"""
+        regions = self._shared(a, b, mode)
+        if mode == "outro":
+            # 片尾先选每对里最后的共享段，再验证跨集共识。不能先淘汰弱匹配再往前找：
+            # 华语剧 A E01 后段未过共识时，会退回 2368–2385 秒的重复配乐剧情并误标片尾。
+            # 两侧分别按自己的时间线选；片头窗仍保留全部段，以识别分开的广告和片头。
+            regions = _last_run(regions, lead)
+        return regions
+
+    def _shared(self, a: Episode, b: Episode, mode: str) -> list[tuple[tuple[float, float], float]]:
         key = (a.file_id, b.file_id, mode)
         if key in self._pairs:
             return self._pairs[key]
@@ -287,12 +325,6 @@ class _Season:
             back = (region[2], region[3], region[0], region[1])
             q_back = _match_quality(wb.hashes, wa.hashes, back)
             theirs.append(((sb + wb.start, eb + wb.start), q_back))
-        if mode == "outro":
-            # 片尾先选每对里最后的共享段，再验证跨集共识。不能先淘汰弱匹配再往前找：
-            # 华语剧 A E01 后段未过共识时，会退回 2368–2385 秒的重复配乐剧情并误标片尾。
-            # 两侧分别按自己的时间线选；片头窗仍保留全部段，以识别分开的广告和片头。
-            mine = sorted(mine, key=lambda item: item[0][0])[-1:]
-            theirs = sorted(theirs, key=lambda item: item[0][0])[-1:]
         self._pairs[key] = mine
         self._pairs[(b.file_id, a.file_id, mode)] = theirs
         return mine
@@ -307,8 +339,10 @@ class _Season:
         picked = numbers[max(0, i - NEIGHBORS) : i] + numbers[i + 1 : i + 1 + NEIGHBORS]
         return [first[n] for n in picked]
 
-    def raw_segments(self, episode: Episode, mode: str) -> list[tuple[float, float, int]]:
-        """episode 上被接受的重复段（起, 止, 支持数），未整理。"""
+    def raw_segments(
+        self, episode: Episode, mode: str, lead: bool = False
+    ) -> list[tuple[float, float, int]]:
+        """episode 上被接受的重复段（起, 止, 支持数），未整理。``lead`` 见 ``_last_run``。"""
         # 不同集号也可能装了同一份音轨。华语剧 J E02/E03 的十分钟开头指纹完全
         # 相同，重复投票会把 E01 的剧情配乐当成“多数集共有”。超过最大可跳长度
         # 的完整窗口才去重：短窗可能正好只覆盖正常片头，不能把真片头的票也合掉。
@@ -323,7 +357,7 @@ class _Season:
                 seen.add(key)
             if item is not episode:
                 partners.append(item)
-        per = [self.pair(episode, q, mode) for q in partners]
+        per = [self.pair(episode, q, mode, lead) for q in partners]
         candidates = sorted({r for regs in per for r, _ in regs}, key=lambda r: -(r[1] - r[0]))
         accepted: list[tuple[float, float, int]] = []
         for r in candidates:
@@ -389,8 +423,13 @@ def label(
     intro: list[tuple[float, float, int]],
     outro: list[tuple[float, float, int]],
     duration: float,
+    outro_lead: list[tuple[float, float, int]] | None = None,
 ) -> list[Segment]:
-    """把两个窗里的重复段整理成最终结果（片头 / 其他 / 片尾）。"""
+    """把两个窗里的重复段整理成最终结果（片头 / 其他 / 片尾）。
+
+    ``outro_lead``：片尾窗连同首尾相接前段的结果。只用来给片尾标出前段候选
+    （``lead_start``），片尾本身仍按 ``outro`` 定。
+    """
     result: list[Segment] = []
     heads = _merge(intro)
     if heads:
@@ -402,7 +441,15 @@ def label(
         s, e, n = tails[-1]
         # 片头窗与片尾窗在短片里可能重叠：片尾段已经算作片头的部分不再重复给
         if not any(_overlap((s, e), (x.start, x.end)) > 0.5 * (e - s) for x in result):
-            result.append(Segment("outro", s, e, n, to_end=duration - e <= TO_END_S))
+            lead = None
+            longer = _merge(outro_lead or [])
+            if longer:
+                ls, le, _ = longer[-1]
+                if ls < s - MERGE_GAP_S and le > s:
+                    lead = ls
+            result.append(
+                Segment("outro", s, e, n, to_end=duration - e <= TO_END_S, lead_start=lead)
+            )
     return sorted(result, key=lambda x: x.start)
 
 
@@ -414,7 +461,10 @@ def detect_season(episodes: Sequence[Episode]) -> dict[int, list[Segment]]:
     season = _Season(episodes)
     for e in season.episodes:
         result[e.file_id] = label(
-            season.raw_segments(e, "intro"), season.raw_segments(e, "outro"), e.duration
+            season.raw_segments(e, "intro"),
+            season.raw_segments(e, "outro"),
+            e.duration,
+            season.raw_segments(e, "outro", lead=True),
         )
     return result
 

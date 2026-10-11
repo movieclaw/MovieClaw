@@ -269,6 +269,30 @@ def test_outro_window_keeps_only_last_segment() -> None:
         assert seg.kind == "outro" and seg.to_end
 
 
+def test_outro_split_at_different_shifts_offers_earlier_part_as_lead() -> None:
+    """片尾在各集拼接点不同（演职员表 + 平台尾巴）：片尾仍只认最后一截，前一截作前段候选。"""
+    rng = np.random.default_rng(11)
+    names, platform = noise(rng, 60), noise(rng, 90)
+    eps = []
+    for n in range(1, 7):
+        e = episode(rng, n, n)
+        tail = e.windows["outro"].hashes
+        gap = frames(0.5 + 0.4 * n)  # 各集接缝差 0.4 秒，两截位移不同
+        a = len(tail) - len(platform) - gap - len(names)
+        tail[a : a + len(names)] = names
+        tail[len(tail) - len(platform) :] = platform
+        eps.append(e)
+    result = K.detect_season(eps)
+    for e in eps:
+        (seg,) = result[e.file_id]
+        w = e.windows["outro"]
+        platform_start = w.start + (len(w.hashes) - len(platform)) * K.HASH_SECONDS
+        assert seg.kind == "outro" and seg.to_end
+        assert abs(seg.start - platform_start) < 3
+        assert seg.lead_start is not None and abs(seg.start - seg.lead_start - 62) < 4
+        assert "lead_start_ms" in seg.as_dict()
+
+
 def test_fingerprint_file_roundtrip() -> None:
     rng = np.random.default_rng(9)
     head, tail = noise(rng, 30), noise(rng, 20)
@@ -443,6 +467,23 @@ def nas_outro_episodes(name: str) -> list[K.Episode]:
             )
             for i, n in enumerate(arrays["numbers"])
         ]
+
+
+def test_real_netflix_credits_before_dubbing_roll_are_lead() -> None:
+    """铁拳教育（2026）S01：韩文演职员表（E01 约 2973 秒起）+ Netflix 配音名单（3038 秒起）。
+
+    两截在各集的拼接点差 1～2 秒，比对成两段；片尾只认后一截（与 v9 一致），前一截作为
+    前段候选交给画面核对。E02 的演职员表配乐与伙伴集都不同，没有前段。
+    """
+    results = K.detect_season(nas_outro_episodes("schooled"))
+    (e01,) = results[1]
+    assert 3036 < e01.start < 3040 and e01.to_end
+    assert e01.lead_start is not None and 2972 < e01.lead_start < 2976
+    for n in (3, 4, 9):
+        (seg,) = results[n]
+        assert seg.lead_start is not None and 50 < seg.start - seg.lead_start < 70
+    (e02,) = results[2]
+    assert e02.lead_start is None
 
 
 def test_real_outro_does_not_fall_back_to_earlier_reused_score() -> None:

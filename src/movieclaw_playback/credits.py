@@ -20,6 +20,8 @@
 
 起点不按演职员表往后挪：片尾曲开头常有几秒没字的动画或空镜（日本动画 A），往后挪就
 少跳了片尾曲；除非起点那一帧有对白字幕，才说明那里还是剧情。
+
+音频片尾前面首尾相接、也跨集重复的一截（``extend_lead``，§2.16）只在画面一直是暗画面时接上。
 """
 
 from __future__ import annotations
@@ -53,6 +55,11 @@ BISECT_PRECISION_S = 3.0
 TAIL_SLACK_S = 25.0
 #: 音频片尾离结尾多近算「放到结尾」（与 skip_segments.TO_END_S 一致）
 TO_END_SLACK_S = 5.0
+#: 片尾往前接前段时的抽帧步长（秒）
+LEAD_STEP_S = 15.0
+#: 前段没有文字证据时要「近黑」才接：黑底演职员表实测 0～8；暗的夜戏 18～31
+#: （金粉世家、黑夜告白）也低于 DARK_LUMA
+LEAD_DARK_LUMA = 10.0
 
 
 @dataclass
@@ -212,6 +219,47 @@ def _credits_run(frames: list[Frame]) -> tuple[int, int] | None:
             best = (i, last)
         i = last + 1
     return best
+
+
+async def extend_lead(lead: float, start: float, observe: Observe) -> float:
+    """音频片尾（从 ``start`` 起）前面首尾相接、也跨集重复的一截（从 ``lead`` 起）接不接：
+    画面一直是暗画面、没有对白字幕才接，返回新的起点；不接返回 ``start``。
+
+    铁拳教育（Netflix 韩剧）的黑底演职员表在配音名单之前，各集拼接点差 1～2 秒，音频只认出
+    后半截，起点晚了约 65 秒。可紧挨片尾、跨集重复的也可能是正片：圆桌派节目尾的资料书页、
+    人生第二次片尾曲配的纪录画面，都是亮画面。韩文名单识别不出字，所以只看亮度：从起点
+    往前每 ``LEAD_STEP_S`` 秒抽一帧，遇到既不近黑（``LEAD_DARK_LUMA``，比 ``DARK_LUMA`` 严，
+    暗的夜戏会混进来）、也不是黑底演职员表（满屏白字把亮度抬到 10～12，黑暗荣耀）的帧，
+    或有对白字幕的帧就停，再二分到约 3 秒精度。
+    """
+
+    def black(frame: Frame) -> bool:
+        return not frame.subtitle and (frame.luma < LEAD_DARK_LUMA or frame.dark_credits)
+
+    good = start
+    bad: float | None = None
+    t = start - 2.0
+    while t > lead:
+        frame = await observe(t, False)
+        if frame is None:
+            bad = t
+            break
+        # 只解关键帧拿到的是请求点之后的帧，可能已落进音频片尾里，不算证据
+        if frame.t < start:
+            if not black(frame):
+                bad = frame.t
+                break
+            good = min(good, frame.t)
+        t -= LEAD_STEP_S
+    if bad is None:
+        # 最后一个抽样点与前段起点之间还没看过：贴着起点取精确帧
+        frame = await observe(lead + 0.5, True)
+        if frame is not None and black(frame):
+            return lead
+        bad = lead + 0.5
+    if good >= start or bad >= good:
+        return start
+    return await _bisect(bad, good, observe, black, find_first=True)
 
 
 async def _check_audio_outro(
