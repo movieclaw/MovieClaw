@@ -475,8 +475,8 @@ struct MediaDetailView: View {
         if tmdbURL != nil || doubanURL != nil {
             HStack(spacing: 16) {
                 Text("相关链接").foregroundStyle(Theme.textFaint)
-                if let tmdbURL { Button("TMDB ↗") { openURL(tmdbURL) } }
-                if let doubanURL { Button("豆瓣 ↗") { openURL(doubanURL) } }
+                if let tmdbURL { Button("TMDB ↗") { Task { await ExternalMediaLink.open(tmdbURL) } } }
+                if let doubanURL { Button("豆瓣 ↗") { Task { await ExternalMediaLink.open(doubanURL) } } }
             }
             .font(.subheadline)
             .foregroundStyle(Theme.textMuted)

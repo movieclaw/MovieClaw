@@ -25,7 +25,6 @@ struct LibraryItemDetailView: View {
     @Environment(\.permissions) private var permissions
     @Environment(Feedback.self) private var feedback
     @Environment(Router.self) private var router
-    @Environment(\.openURL) private var openURL
 
     @State private var detail: API.LibraryItemDetailView?
     @State private var library: API.LibraryView?
@@ -654,10 +653,7 @@ struct LibraryItemDetailView: View {
                 if tmdb > 0 { link("TMDB", "https://www.themoviedb.org/\(detail.kind)/\(tmdb)") }
                 if let imdb = detail.imdbId { link("IMDb", "https://www.imdb.com/title/\(imdb)/") }
                 if let douban = detail.doubanId {
-                    // 手机上优先唤起豆瓣 App（Web useDoubanAppHref 同一口径）
-                    link("豆瓣", douban.allSatisfy(\.isNumber)
-                        ? "https://www.douban.com/doubanapp/dispatch?uri=/movie/\(douban)/&dt_dapp=1"
-                        : "https://movie.douban.com/subject/\(douban)/")
+                    link("豆瓣", "https://movie.douban.com/subject/\(douban)/")
                 }
             }
             .font(.footnote)
@@ -668,7 +664,7 @@ struct LibraryItemDetailView: View {
     }
 
     private func link(_ label: String, _ url: String) -> some View {
-        Button("\(label) ↗") { if let url = URL(string: url) { openURL(url) } }
+        Button("\(label) ↗") { if let url = URL(string: url) { Task { await ExternalMediaLink.open(url) } } }
             .foregroundStyle(Theme.textMuted)
     }
 
