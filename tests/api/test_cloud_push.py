@@ -2458,3 +2458,106 @@ def test_plugin_notifications_go_where_they_were_approved(
     finally:
         client.portal.call(kernel.unmount, "acme-quota")
         plugin_events.forget("acme-quota")
+
+
+def test_out_of_process_plugin_notifies_who_follows_the_media(
+    client: TestClient, world: World
+) -> None:
+    """进程外插件（Go 等）的载荷到宿主是字典：``media:<字段>`` 照样认出是哪部片，
+    推给订阅 / 关注了这部片的人。走网关 events 服务的宿主实现。"""
+    from movieclaw_api.services import plugin_events
+    from movieclaw_api.services.plugin_runtime import EXPORTS
+    from movieclaw_kernel import Entry, plugin
+    from movieclaw_sdk.events import PLUGIN_EVENTS
+
+    events, notifications, _ = plugin_events.parse(
+        "acme-hunt",
+        "版本猎手",
+        events=[{"name": "acme-hunt.found", "title": "找到更好的版本"}],
+        notifications=[
+            {
+                "event": "acme-hunt.found",
+                "title": "《{item.title}》有 {label} 版本了",
+                "audience": "media:item",
+                "open": "media",
+            }
+        ],
+    )
+    plugin_events.declare(
+        plugin_events.Declared(
+            entry_id="acme-hunt",
+            title="版本猎手",
+            events=events,
+            notifications=notifications,
+            members_allowed=True,
+        )
+    )
+    gateway: dict = {}
+
+    @plugin("acme-hunt", title="版本猎手", inject=(PLUGIN_EVENTS,))
+    async def hunt(ctx) -> None:  # type: ignore[no-untyped-def]
+        service = EXPORTS["events"](ctx, ctx.use(PLUGIN_EVENTS))
+        await service.register(
+            [
+                {
+                    "name": "acme-hunt.found",
+                    "title": "找到更好的版本",
+                    "schema": {
+                        "type": "object",
+                        "required": ["item", "label"],
+                        "properties": {
+                            "item": {
+                                "type": "object",
+                                "required": ["id", "kind", "title"],
+                                "properties": {
+                                    "id": {"type": "integer"},
+                                    "kind": {"type": "string"},
+                                    "title": {"type": "string"},
+                                },
+                            },
+                            "label": {"type": "string"},
+                        },
+                    },
+                }
+            ]
+        )
+        gateway["events"] = service
+
+    _connect(client, world)
+    _create_member(client)
+    admin_bearer = _app_login(client, _ADMIN, installation="hunt-admin-1", name="管理员手机")
+    member_bearer = _app_login(client, _MEMBER, installation="hunt-member-1", name="家人手机")
+    _register(client, admin_bearer, token="c3" * 32)
+    _, member_key = _register(client, member_bearer, token="c4" * 32)
+    # 只有家人订阅了这部
+    _, item_id = _seed_subscription(client, kind="tv", title="繁花", creator=1, followers=[])
+    relay = world.relays["push.test"]
+    kernel = client.app.state.kernel
+    try:
+        assert client.portal is not None
+        client.portal.call(kernel.mount, Entry("acme-hunt", hunt))
+        relay.messages.clear()
+
+        def fire(media_id: int) -> None:
+            data = {"item": {"id": media_id, "kind": "tv", "title": "繁花"}, "label": "2160p"}
+
+            async def run() -> None:
+                await gateway["events"].publish("acme-hunt.found", data)
+
+            client.portal.call(run)
+
+        fire(item_id)
+        _wait(lambda: len(relay.messages) >= 1)
+        time.sleep(0.3)
+        assert [m["token"] for m in relay.messages] == ["c4" * 32]  # 只给订阅这部的家人
+        plain = _open(relay.messages[0], member_key)
+        assert plain["title"] == "《繁花》有 2160p 版本了"
+        assert plain["subtitle"] == "来自 版本猎手"
+
+        relay.messages.clear()
+        fire(item_id + 1000)  # 没人订阅的片：谁也不推
+        time.sleep(0.6)
+        assert relay.messages == []
+    finally:
+        client.portal.call(kernel.unmount, "acme-hunt")
+        plugin_events.forget("acme-hunt")

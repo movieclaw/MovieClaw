@@ -24,7 +24,7 @@ def template_rule(item: Any, spec: Any) -> Any:
         group=f"插件 · {item.title}",
         default=spec.default,
         audience=audience,
-        render=_renderer(item, spec),
+        render=_renderer(item, spec, audience),
         admin_only=kind == "admins",
         owner=item.entry_id,
     )
@@ -48,7 +48,7 @@ def fill(template: str, payload: Any) -> str:
     return _FIELD.sub(one, template).strip()
 
 
-def _renderer(item: Any, spec: Any):  # type: ignore[no-untyped-def]
+def _renderer(item: Any, spec: Any, audience: Any):  # type: ignore[no-untyped-def]
     async def render(session: Any, member_id: int, payload: Any) -> Any:
         from movieclaw_api.services.push.audience import library_path
         from movieclaw_api.services.push.engine import media_of
@@ -56,7 +56,7 @@ def _renderer(item: Any, spec: Any):  # type: ignore[no-untyped-def]
 
         open_path = f"/settings/plugins?module={item.entry_id}"
         if spec.open == "media":
-            media = media_of(payload)
+            media = media_of(payload, audience)
             if media is not None:
                 open_path = await library_path(session, member_id, media.id, None) or open_path
         return AlertContent(

@@ -33,6 +33,22 @@ def field_value(payload: Any, path: str) -> Any:
     return value
 
 
+def as_media(value: Any) -> Any:
+    """一个字段值当作「片」：``MediaRef``，或进程外插件传来的 ``{id, kind, title}`` 字典。"""
+    from movieclaw_sdk.events import MediaRef
+
+    if isinstance(value, MediaRef):
+        return value
+    if isinstance(value, dict):
+        try:
+            return MediaRef.model_validate(
+                {k: v for k, v in value.items() if k in MediaRef.model_fields}
+            )
+        except ValueError:
+            return None
+    return None
+
+
 @dataclass(frozen=True)
 class Audience:
     """收件人（宿主解析，规则只声明关系）。
@@ -40,7 +56,7 @@ class Audience:
     - ``admins``：管理员；
     - ``member``：载荷里 ``field`` 指定的成员；
     - ``subscribers``：载荷里 ``field`` 指定的订阅的发起人 + 关注者；
-    - ``media``：订阅或关注了载荷里 ``field``（``MediaRef``）这部片的人。
+    - ``media``：订阅或关注了载荷里 ``field``（``MediaRef`` 或同形字典）这部片的人。
     """
 
     kind: str
@@ -75,8 +91,8 @@ class Audience:
 
             return await subscribers(value)(session)
         if self.kind == "media":
-            item_id = getattr(value, "id", None)
-            return await _media_followers(session, item_id) if isinstance(item_id, int) else set()
+            media = as_media(value)
+            return await _media_followers(session, media.id) if media is not None else set()
         return set()
 
 

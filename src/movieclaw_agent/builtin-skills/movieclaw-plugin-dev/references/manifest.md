@@ -47,7 +47,9 @@ title = "周报生成了"
 event = "media-stats.weekly-report"
 title = "本周看了 {hours} 小时"  # {字段} 换成事件载荷里的值（{media.title} 这样取嵌套字段）
 body = "最常看的是《{top_title}》"
-audience = "admins"            # admins | member:<字段>（载荷里的成员 id）| media:<字段>（订阅或关注了这部片的人）
+audience = "admins"            # admins | member:<字段> | media:<字段>；<字段> 是事件载荷里的字段名（嵌套用 a.b）：
+                               #   member: 那个字段的值是成员 id（整数）；media: 那个字段的值是片 {id, kind, title}
+                               #   （Python 插件用 MediaRef），推给订阅或关注了这部片的人
 level = "active"               # active（响）| passive（安静送达）
 default = true                 # 每个人的开关默认开不开
 open = "plugin"                # 点开去哪：plugin（插件页）| media（载荷里那部片的条目页）

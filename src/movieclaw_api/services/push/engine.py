@@ -81,18 +81,27 @@ def dispatch(name: str, payload: Any) -> None:
             logger.exception("通知规则 %s 处理事件 %s 失败（已忽略）", entry.pref_key, name)
 
 
-def media_of(payload: Any) -> MediaRef | None:
-    """载荷里的条目（第一个 ``MediaRef`` 字段）：有就按收件人做可见性与静音过滤。"""
+def media_of(payload: Any, audience: rules.Audience | None = None) -> MediaRef | None:
+    """载荷里的条目：有就按收件人做可见性与静音过滤。
+
+    收件人是 ``media:<字段>`` 的就是那个字段；否则取第一个 ``MediaRef`` 字段，进程外插件的
+    载荷是字典，``{id, kind, title}`` 同形的也算。
+    """
+    if audience is not None and audience.kind == "media":
+        return rules.as_media(rules.field_value(payload, audience.field or ""))
     for value in vars(payload).values() if hasattr(payload, "__dict__") else ():
         if isinstance(value, MediaRef):
             return value
+    for value in (getattr(payload, "model_extra", None) or {}).values():
+        if (media := rules.as_media(value)) is not None:
+            return media
     return None
 
 
 def _apply(rule: rules.Rule, payload: Any) -> None:
     if rule.when is not None and not rule.when(payload):
         return
-    media = media_of(payload)
+    media = media_of(payload, rule.audience)
 
     async def recipients(session: AsyncSession) -> set[int]:
         return await rule.audience.resolve(session, payload)
