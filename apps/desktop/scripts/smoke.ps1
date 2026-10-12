@@ -125,7 +125,9 @@ public static class MovieClawSmokeWindow {
             $script:app.Refresh()
             if ($script:app.HasExited) { throw "Tauri app exited during startup: $($script:app.ExitCode)" }
             $window = $script:app.MainWindowHandle
-            if ($window -ne [IntPtr]::Zero) { break }
+            # The single-instance plugin creates an auxiliary window before the real UI.
+            if ($window -ne [IntPtr]::Zero -and $script:app.MainWindowTitle -eq 'MovieClaw') { break }
+            $window = [IntPtr]::Zero
             Start-Sleep -Milliseconds 100
         }
         if ($window -eq [IntPtr]::Zero) { throw 'Tauri main window was not created' }
