@@ -99,6 +99,72 @@ def test_same_series_comes_first() -> None:
     assert rank_similar(target, candidates, 10)[0] == 51
 
 
+def test_lead_pair_outranks_supporting_overlap() -> None:
+    """同一个人当主角的片最像：《三个老枪手》的摩根·弗里曼在《黑暗骑士》里是第 7 位，
+    两人同框只算一点；在《遗愿清单》里也是主角，与同导演同分。"""
+    target = SimilarProfile(
+        genres=frozenset({COMEDY}), cast=frozenset({1, 2}), leads=frozenset({1, 2})
+    )
+    candidates = {
+        60: SimilarProfile(genres=frozenset({CRIME}), cast=frozenset({1, 2})),  # 两位都是配角
+        61: SimilarProfile(genres=frozenset({DRAMA}), cast=frozenset({1}), leads=frozenset({1})),
+    }
+    assert rank_similar(target, candidates, 10) == [61, 60]
+
+
+def test_country_and_language_only_count_with_genre() -> None:
+    """同国家同语言要类型对得上才加分：国产科幻片先推外国科幻片，不先推国产剧情片。"""
+    scifi, action = 878, 28
+    target = SimilarProfile(
+        genres=frozenset({scifi, action, DRAMA}), countries=frozenset({"CN"}), language="zh"
+    )
+    candidates = {
+        70: SimilarProfile(genres=frozenset({DRAMA}), countries=frozenset({"CN"}), language="zh"),
+        71: SimilarProfile(
+            genres=frozenset({scifi, action}), countries=frozenset({"US"}), language="en"
+        ),
+    }
+    assert rank_similar(target, candidates, 10) == [71, 70]
+
+
+def test_family_and_adult_titles_are_kept_apart() -> None:
+    """合家欢片不推成人片：同类型时，分级同档的排前，跨两档的扣分垫底。"""
+    target = SimilarProfile(genres=frozenset({COMEDY}), audience=0)
+    candidates = {
+        80: SimilarProfile(genres=frozenset({COMEDY}), audience=2),
+        81: SimilarProfile(genres=frozenset({COMEDY}), audience=0),
+        82: SimilarProfile(genres=frozenset({COMEDY})),  # 未分级：不加不减
+    }
+    assert rank_similar(target, candidates, 10) == [81, 82, 80]
+
+
+def test_rare_studio_counts_more_than_common_one() -> None:
+    """厂牌越少见越说明风格：同是 Blumhouse 比同是环球更像。"""
+    target = SimilarProfile(
+        genres=frozenset({DRAMA}), studios=frozenset({"Blumhouse", "Universal"})
+    )
+    candidates = {
+        90: SimilarProfile(genres=frozenset({DRAMA}), studios=frozenset({"Universal"})),
+        91: SimilarProfile(genres=frozenset({DRAMA}), studios=frozenset({"Blumhouse"})),
+        **{
+            200 + i: SimilarProfile(genres=frozenset({COMEDY}), studios=frozenset({"Universal"}))
+            for i in range(10)
+        },
+    }
+    assert rank_similar(target, candidates, 2) == [91, 90]
+
+
+def test_episode_length_separates_sitcoms_from_dramas() -> None:
+    """二十来分钟一集与一小时一集的剧不是一种看法。"""
+    target = SimilarProfile(genres=frozenset({COMEDY, DRAMA}), episode_minutes=22)
+    candidates = {
+        95: SimilarProfile(genres=frozenset({COMEDY, DRAMA}), episode_minutes=60),
+        96: SimilarProfile(genres=frozenset({COMEDY, DRAMA}), episode_minutes=25),
+        97: SimilarProfile(genres=frozenset({COMEDY, DRAMA})),  # 没有单集时长：不加不减
+    }
+    assert rank_similar(target, candidates, 10) == [96, 97, 95]
+
+
 # ---- 扫描入库 → 路由 ---------------------------------------------------------
 
 
@@ -207,9 +273,9 @@ async def test_similar_route_ranks_library_items(db, tmp_path) -> None:
     async with db.session() as session:
         views = (await list_similar_items(library_id, ids["目标片"], 12, session, _ADMIN)).data
 
-    # 同导演、同主演在前；只同「剧情」的垫底；动画（硬边界）与毫无共同点的喜剧不出现；
-    # 目标片自己不出现
-    assert [v.title for v in views] == ["同导演", "同主演", "只同剧情"]
+    # 同一位主角（第一番对第一番）且类型全对上的排第一，同导演（类型只对上一半）次之；
+    # 只同「剧情」的垫底；动画（硬边界）与毫无共同点的喜剧不出现；目标片自己不出现
+    assert [v.title for v in views] == ["同主演", "同导演", "只同剧情"]
     assert all(v.library_id == library_id for v in views)
 
 
