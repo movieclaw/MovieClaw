@@ -1406,9 +1406,13 @@ async def _record_app_check(view: UpdateCheckView) -> None:
         state.app_pushed_version = view.latest_version
     await save_app_update_state(state)
     if push_version:
-        from movieclaw_api.services.push import events as push_events
+        from movieclaw_api import events
+        from movieclaw_sdk.events import SYSTEM_UPDATE_AVAILABLE, UpdateAvailable
 
-        push_events.new_version(version=view.latest_version, compatible=view.compatible)
+        await events.publish_now(
+            SYSTEM_UPDATE_AVAILABLE,
+            lambda: UpdateAvailable(version=view.latest_version, compatible=view.compatible),
+        )
 
 
 async def _record_model_check(view: ModelUpdateCheckView) -> None:

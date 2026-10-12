@@ -172,9 +172,10 @@ async def _inform_user(session: AsyncSession, *, subscription_id: int, item: Med
     """每个订阅只知会一次。保留已自动处理的记录，不进入待办或点亮红点。"""
     from sqlalchemy.dialects.sqlite import insert
 
-    from movieclaw_api.services.push import events
+    from movieclaw_api import event_refs, events
     from movieclaw_api.services.system_notice import resolve_notices
     from movieclaw_db.models import NoticeSeverity, NoticeStatus, SystemNotice, utcnow
+    from movieclaw_sdk.events import SUBSCRIPTION_IDENTITY_SKIPPED, SubscriptionIdentitySkipped
 
     # 旧版本曾把同一情况写成待确认告警，升级后自动消退。
     await resolve_notices(session, prefix=f"subscription.ambiguous:{subscription_id}:")
@@ -197,8 +198,14 @@ async def _inform_user(session: AsyncSession, *, subscription_id: int, item: Med
         )
         .on_conflict_do_nothing(index_elements=["dedupe_key"])
     )
-    await session.commit()
     if inserted.rowcount:
-        events.identity_skipped(
-            subscription_id=subscription_id, item_id=item.id, title=title, message=message
+        # 第一次跳过才是事件（每个订阅只知会一次，靠上面这行记录去重）
+        media = event_refs.media_ref(item)
+        await events.publish(
+            session,
+            SUBSCRIPTION_IDENTITY_SKIPPED,
+            lambda: SubscriptionIdentitySkipped(subscription_id=subscription_id, media=media)
+            if media is not None
+            else None,
         )
+    await session.commit()

@@ -248,7 +248,10 @@ async def send_test_push(payload: PushTestPayload) -> ApiResponse[dict]:
 
 # IM 推什么已并入「账号 → 通知」（cloud-push.md §5）：IM 账号都归管理员，这两个开关就是
 # 管理员的「开始下载」「入库完成」。新网页、新 App 不再调用，留给已发布的 App。
-_LEGACY_EVENTS = {"push_dispatch": "download_started", "push_imported": "imported"}
+_LEGACY_EVENTS = {
+    "push_dispatch": "subscription.download_started",
+    "push_imported": "subscription.fulfilled",
+}
 
 
 async def _legacy_push_config(session: AsyncSession) -> ChannelPushConfigView:

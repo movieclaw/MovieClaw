@@ -143,7 +143,7 @@ async def _audience(
 ) -> list[int]:
     """这些人里：打开了这个事件（None 不看开关）、没静音这部、看得到这部的。"""
     from movieclaw_api.services.push import preferences
-    from movieclaw_api.services.push.events import _item_visible
+    from movieclaw_api.services.push.audience import item_visible
 
     if event is not None:
         members = await preferences.wants(session, members, event)
@@ -152,13 +152,13 @@ async def _audience(
     for member_id in sorted(members):
         if item_id in muted.get(member_id, set()):
             continue
-        if await _item_visible(session, member_id, item_id):
+        if await item_visible(session, member_id, item_id):
             result.append(member_id)
     return result
 
 
 async def _on_started(event: Started) -> None:
-    from movieclaw_api.services.push.events import subscribers
+    from movieclaw_api.services.push.audience import subscribers
 
     async with get_database().session() as session:
         members = await subscribers(event.subscription_id)(session)
@@ -177,11 +177,11 @@ async def _on_started(event: Started) -> None:
 
 
 async def _on_imported(event: Imported) -> None:
-    from movieclaw_api.services.push.events import subscribers
+    from movieclaw_api.services.push.audience import subscribers
 
     async with get_database().session() as session:
         members = await subscribers(event.subscription_id)(session)
-        audience = await _audience(session, members, event.item_id, "imported")
+        audience = await _audience(session, members, event.item_id, "subscription.fulfilled")
     for member_id in audience:
         _arrive((member_id, event.item_id), list(event.units), loud=True, sub=event.subscription_id)
 
@@ -195,7 +195,7 @@ async def _on_downloaded(event: Downloaded) -> None:
         units = await downloads.units_of(session, done)  # type: ignore[arg-type]
         mine: dict[int, list[Unit]] = {}
         for item_id, item_units in units.items():
-            if await _audience(session, {done.member_id}, item_id, "imported"):  # type: ignore[attr-defined]
+            if await _audience(session, {done.member_id}, item_id, "subscription.fulfilled"):  # type: ignore[attr-defined]
                 fresh = _fresh(done.member_id, item_id, item_units)  # type: ignore[attr-defined]
                 if fresh:
                     mine[item_id] = fresh
@@ -399,9 +399,9 @@ def _send(card: Card, snap: Snapshot) -> None:
 
     member_id = card.member_id
     if snap.phase == "started":
-        event = "download_started"
+        event = "subscription.download_started"
     else:
-        event = "imported" if snap.loud else "library_new"
+        event = "subscription.fulfilled" if snap.loud else "library.items.arrived"
 
     async def build(session: AsyncSession, recipient: int):  # type: ignore[no-untyped-def]
         return await card_content.build(session, recipient, snap)
@@ -449,9 +449,9 @@ def _on_upgraded(event: Upgraded) -> None:
 
 async def _flush_upgrade(subscription_id: int) -> None:
     from movieclaw_api.services.channel_push import tmdb_push_image_url
-    from movieclaw_api.services.push.events import (
-        _display_title,
-        _lazy_image,
+    from movieclaw_api.services.push.audience import (
+        display_title,
+        lazy_image,
         subscribers,
     )
     from movieclaw_api.services.push.notify import AlertContent, notify
@@ -472,8 +472,8 @@ async def _flush_upgrade(subscription_id: int) -> None:
     pairs = set(merging.changes.values())
     # 每集都是同样的升级就写出来；各不相同只说换成了更好的版本
     change = " → ".join(next(iter(pairs))) if len(pairs) == 1 else ""
-    image = _lazy_image(tmdb_push_image_url(item.backdrop_path, item.poster_path))
-    name = _display_title(item.title, item.year)
+    image = lazy_image(tmdb_push_image_url(item.backdrop_path, item.poster_path))
+    name = display_title(item.title, item.year)
 
     async def build(_session: AsyncSession, _member_id: int) -> AlertContent:
         return AlertContent(
@@ -487,4 +487,4 @@ async def _flush_upgrade(subscription_id: int) -> None:
         )
 
     if audience:
-        notify("upgraded", set(audience), build)
+        notify("subscription.upgraded", set(audience), build)

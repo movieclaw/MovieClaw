@@ -237,7 +237,7 @@ def test_install_upgrade_rollback_restart_and_uninstall(data_dir) -> None:
         assert chosen(client) == 1
         assert not (data_dir / "plugins" / "packages" / "acme-pkg" / "2.0.0").exists()
         # 回滚留下一条待处理事项，「去处理」落到插件管理页（网页、App、推送同一套映射）
-        from movieclaw_api.services.push.events import notice_path
+        from movieclaw_api.services.push.alerts import notice_path
 
         notice = open_notice(client)
         assert notice is not None and "缺少配置" in notice.message

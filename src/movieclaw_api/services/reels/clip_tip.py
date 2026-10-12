@@ -2,8 +2,9 @@
 
 片段预切默认关。开关关着时有人刷片、电视放了大图预告，说明这台服务器用得上它。可这件事
 是谁都可能做的（成员、电视），能开开关的只有管理员，所以由服务端替管理员记一次事件
-``reels.played-without-clips``：网页媒体库页据此给管理员出提示卡；第一次记到时再给
-管理员的手机推一条，点开到「设置 → 播放」。开关一打开（哪一端开的都算），提示作废。
+``reels.played-without-clips``：网页媒体库页据此给管理员出提示卡；第一次记到时再发一条
+使用建议（``system.tip.suggested``，通知规则推到管理员的手机），点开到「设置 → 播放」。
+开关一打开（哪一端开的都算），提示作废。
 
 开销：每个进程只在第一次放出片段时写一次库，之后都是同一个事实，直接返回。
 """
@@ -12,10 +13,11 @@ from __future__ import annotations
 
 import logging
 
+from movieclaw_api import events
 from movieclaw_api.services import tips
-from movieclaw_api.services.push import events as push_events
 from movieclaw_api.services.push.dispatcher import spawn
 from movieclaw_db.engine import get_database
+from movieclaw_sdk.events import SYSTEM_TIP_SUGGESTED, TipSuggested
 
 logger = logging.getLogger("movieclaw_api.reels")
 
@@ -50,7 +52,7 @@ async def _record() -> None:
                 return
             event = await tips.donate(session, ADMIN, EVENT_ID)
         if event.count == 1:
-            push_events.reel_clips_suggested()
+            await events.publish_now(SYSTEM_TIP_SUGGESTED, lambda: TipSuggested(tip="reel-clips"))
     except Exception:  # noqa: BLE001 -- 提示不是关键功能，不能影响刷片
         logger.exception("记录片段预切建议失败（已忽略）")
 

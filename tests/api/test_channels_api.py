@@ -218,7 +218,8 @@ def test_weixin_scan_binding_chat_and_push(app_env) -> None:
         assert saved.json()["data"] == {"push_dispatch": True, "push_imported": False}
         mine = client.get("/api/v1/push/me").json()["data"]
         events = {e["key"]: e["enabled"] for e in mine["events"]}
-        assert events["download_started"] is True and events["imported"] is False
+        assert events["subscription.download_started"] is True
+        assert events["subscription.fulfilled"] is False
 
     # 重启后照常：凭据、会话令牌从库里读回，账号自动拉起
     GATEWAY.sent.clear()

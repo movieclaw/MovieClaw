@@ -30,7 +30,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from movieclaw_api.exceptions import BadRequestException
-from movieclaw_api.services.push.events import _lazy_image
+from movieclaw_api.services.push.audience import lazy_image
 from movieclaw_api.services.push.notify import AlertContent, notify
 from movieclaw_api.settings.cloud import ArrivalsProgress
 from movieclaw_db.engine import get_database
@@ -263,7 +263,7 @@ def recipients(library_id: int):  # type: ignore[no-untyped-def]
             ).scalars()
             if m is not None
         }
-        wanting = await preferences.wants(session, members, "library_new")
+        wanting = await preferences.wants(session, members, "library.items.arrived")
         selections = await preferences.library_selections(session, wanting)
         result = set()
         for member_id in wanting:
@@ -297,14 +297,14 @@ def announce_summary(
         return AlertContent(
             title=f"「{library.name}」新增 {len(found)} {unit}",
             body=f"{names}{more}",
-            image=await _lazy_image(_image_url(found[0]))(),
+            image=await lazy_image(_image_url(found[0]))(),
             open=f"/library/{library_id}",
             thread=f"library-{library_id}",
             level="passive",
             relevance=0.3,
         )
 
-    notify("library_new", {member_id}, build)
+    notify("library.items.arrived", {member_id}, build)
 
 
 def _image_url(item: MediaItem) -> str | None:

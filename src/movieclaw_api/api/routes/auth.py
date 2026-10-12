@@ -1215,9 +1215,7 @@ async def revoke_current_device(
     )
     await login_devices.revoke(session, device)
     # 设备自己退出登录：之后同一台登录回来，不给本人的其他设备推「新设备登录」
-    from movieclaw_api.services.push import events as push_events
-
-    await push_events.remember_signed_out(member_id, kind, installation_id)
+    await login_devices.remember_signed_out(member_id, kind, installation_id)
     return ok(None, message=f"已注销「{name}」")
 
 

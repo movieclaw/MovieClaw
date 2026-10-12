@@ -33,7 +33,7 @@ class PushStreamTest {
     }
 
     private fun data(id: Long, title: String, extra: String = "") =
-        """{"id":$id,"event":"imported","title":"$title","body":"正文","deeplink":"/library/3/item/42?season=1&episode=2",""" +
+        """{"id":$id,"event":"subscription.fulfilled","title":"$title","body":"正文","deeplink":"/library/3/item/42?season=1&episode=2",""" +
             """"priority":"passive","collapse":"abcdef0123456789","sent_at":1791674053,"server":{"id":"s","name":"NAS"},""" +
             """"account":{"id":"0","name":"admin"}$extra}"""
 
@@ -52,6 +52,12 @@ class PushStreamTest {
     }
 
     @Test fun `events map to the four local channels`() {
+        assertEquals(Notifier.CH_ARRIVAL, StreamNotifications.channelFor("subscription.fulfilled"))
+        assertEquals(Notifier.CH_ARRIVAL, StreamNotifications.channelFor("library.items.arrived"))
+        assertEquals(Notifier.CH_DOWNLOAD, StreamNotifications.channelFor("subscription.download_started"))
+        assertEquals(Notifier.CH_SUBSCRIPTION, StreamNotifications.channelFor("subscription.identity_skipped"))
+        assertEquals(Notifier.CH_TASK, StreamNotifications.channelFor("acme.quota.exceeded"))
+        // 旧服务端的旧键照样认
         assertEquals(Notifier.CH_ARRIVAL, StreamNotifications.channelFor("imported"))
         assertEquals(Notifier.CH_ARRIVAL, StreamNotifications.channelFor("library_new"))
         assertEquals(Notifier.CH_ARRIVAL, StreamNotifications.channelFor("upgraded"))

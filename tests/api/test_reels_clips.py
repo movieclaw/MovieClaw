@@ -653,12 +653,17 @@ def test_end_to_end_preview_queues_cuts_then_serves_the_clip(clip_client, tmp_pa
 
 @pytest.fixture
 def tip_client(clip_client, monkeypatch):
-    from movieclaw_api.services.push import events as push_events
+    from movieclaw_api import events
     from movieclaw_api.services.reels import clip_tip
 
     clip_tip.reset_state()
     pushed: list[int] = []
-    monkeypatch.setattr(push_events, "reel_clips_suggested", lambda: pushed.append(1))
+
+    async def published(event, build):  # type: ignore[no-untyped-def]
+        if event.name == "system.tip.suggested" and build().tip == "reel-clips":
+            pushed.append(1)
+
+    monkeypatch.setattr(events, "publish_now", published)
     clip_client.pushed = pushed
     yield clip_client
     clip_tip.reset_state()

@@ -55,12 +55,16 @@ object StreamNotifications {
             .getOrNull()
             ?.takeIf { it.id > 0 && it.title.isNotBlank() }
 
-    /** 服务端事件键 → 本机通知渠道（与设置页 4 个渠道同一套） */
+    /**
+     * 服务端通知键 → 本机通知渠道（与设置页 4 个渠道同一套）。通知键是触发它的事件名
+     * （docs/design/domain-events.md §6.1）；旧服务端发的旧键照样认。插件的通知归「任务」。
+     */
     fun channelFor(event: String): String = when (event) {
+        "subscription.fulfilled", "subscription.upgraded", "library.items.arrived",
         "imported", "upgraded", "library_new" -> Notifier.CH_ARRIVAL
-        "download_started" -> Notifier.CH_DOWNLOAD
-        "identity_skipped" -> Notifier.CH_SUBSCRIPTION
-        else -> Notifier.CH_TASK // new_device / system_alert / new_version / usage_tip / test
+        "subscription.download_started", "download_started" -> Notifier.CH_DOWNLOAD
+        "subscription.identity_skipped", "identity_skipped" -> Notifier.CH_SUBSCRIPTION
+        else -> Notifier.CH_TASK // 新设备登录 / 待处理事项 / 新版本 / 使用建议 / 插件 / test
     }
 
     /** 同一个 collapse 用同一个通知 id（新的替换旧的）；没有就按发件箱 id，各占一条 */

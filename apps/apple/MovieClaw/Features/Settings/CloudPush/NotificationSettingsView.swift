@@ -71,7 +71,7 @@ final class NotificationSettingsModel {
     }
 
     /// 「媒体库有新片」的事件键
-    static let libraryEvent = "library_new"
+    static let libraryEvent = "library.items.arrived"
 
     /// 勾 / 取消勾一个库（乐观更新，失败按服务器上的为准）：原来是「全部」就从全部里去掉它；勾到全部都选上回到「全部」
     /// （包括以后新建的库）；一个都不剩 = 关掉「媒体库有新片」并回到「全部」，下次打开就是全勾上（同网页）

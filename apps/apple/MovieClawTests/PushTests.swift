@@ -544,10 +544,10 @@ struct PushLibrarySelectionTests {
         #expect(some?["events"] == nil, "只改选的库时不碰开关")
         // 一个都不剩：关掉事件，同时回到「全部」（下次打开就是全勾上）
         let off = try JSONSerialization.jsonObject(with: JSONEncoder().encode(
-            NotificationSettingsModel.LibrarySelection(ids: nil, events: ["library_new": false]))) as? [String: Any]
+            NotificationSettingsModel.LibrarySelection(ids: nil, events: ["library.items.arrived": false]))) as? [String: Any]
         #expect(off?["library_ids"] is NSNull)
-        #expect((off?["events"] as? [String: Bool]) == ["library_new": false])
-        let omitted = try JSONSerialization.jsonObject(with: JSONEncoder().encode(API.PushPreferencesRequest(events: ["library_new": true]))) as? [String: Any]
+        #expect((off?["events"] as? [String: Bool]) == ["library.items.arrived": false])
+        let omitted = try JSONSerialization.jsonObject(with: JSONEncoder().encode(API.PushPreferencesRequest(events: ["library.items.arrived": true]))) as? [String: Any]
         #expect(omitted?["library_ids"] == nil, "只改开关时不碰选的库")
     }
 }

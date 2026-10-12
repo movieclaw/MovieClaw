@@ -85,17 +85,23 @@ async def authenticate_by_name(request: Request) -> JSONResponse:
         device.last_seen_at = utcnow()
         device.updated_at = utcnow()
         await session.commit()
-    if newcomer:
-        from movieclaw_api.api.client_address import client_address
-        from movieclaw_api.services.push import events as push_events
+    # 设备登录事件（docs/design/domain-events.md §8）：第一次见到这台播放器才算新设备
+    from movieclaw_api import events
+    from movieclaw_api.api.client_address import client_address
+    from movieclaw_sdk.events import ACCOUNT_DEVICE_SIGNED_IN, DeviceSignedIn
 
-        push_events.new_device(
+    await events.publish_now(
+        ACCOUNT_DEVICE_SIGNED_IN,
+        lambda: DeviceSignedIn(
             member_id=member_id,
-            device_ids=frozenset(),
-            name=auth.device or auth.client or "播放器",
+            device_id=None,
+            device_name=auth.device or auth.client or "播放器",
+            kind="player",
             kind_label=auth.client or "第三方播放器",
             ip=client_address(request) or None,
-        )
+            new_device=newcomer,
+        ),
+    )
 
     # 超管与成员都按可浏览集投影 EnabledFolders（超管摘掉自己的库也不在电视端出现）
     visible, pinned = await _enabled_scope(member_id)

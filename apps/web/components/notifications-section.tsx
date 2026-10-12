@@ -44,7 +44,7 @@ import {
 } from "@/lib/cloud-push-display";
 
 /** 「媒体库有新片」的事件键：打开时在它下面选关心哪些库 */
-const LIBRARY_EVENT = "library_new";
+const LIBRARY_EVENT = "library.items.arrived";
 
 export function NotificationsSection() {
   const toast = useToast();

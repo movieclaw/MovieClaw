@@ -222,7 +222,7 @@ async def units_of(session: AsyncSession, done: Finished) -> dict[int, list[tupl
 def announce_summary(done: Finished, item_ids: list[int]) -> None:
     """一次下载里有好几部（合集、「其他」库的一堆视频）：合成「你下载的 N 部已入库」。"""
     from movieclaw_api.services.channel_push import tmdb_push_image_url
-    from movieclaw_api.services.push.events import _lazy_image
+    from movieclaw_api.services.push.audience import lazy_image
     from movieclaw_api.services.push.notify import AlertContent, notify
 
     async def build(session: AsyncSession, member_id: int) -> AlertContent | None:
@@ -233,7 +233,7 @@ def announce_summary(done: Finished, item_ids: list[int]) -> None:
         videos = library is not None and library.kind not in ("movie", "tv")
         names = "、".join(item.title for item in items[:NAMED_IN_SUMMARY])
         more = "等" if len(items) > NAMED_IN_SUMMARY else ""
-        image = _lazy_image(tmdb_push_image_url(items[0].backdrop_path, items[0].poster_path))
+        image = lazy_image(tmdb_push_image_url(items[0].backdrop_path, items[0].poster_path))
         return AlertContent(
             title=f"你下载的 {len(items)} {'个视频' if videos else '部'}已入库",
             body=f"{names}{more}，点开就能看",
@@ -242,4 +242,4 @@ def announce_summary(done: Finished, item_ids: list[int]) -> None:
             thread=f"download-{done.library_id}",
         )
 
-    notify("imported", {done.member_id}, build)
+    notify("subscription.fulfilled", {done.member_id}, build)

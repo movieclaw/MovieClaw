@@ -45,9 +45,12 @@ async def test_ambiguous_candidate_has_no_actions_and_recovers_with_id(db, monke
     _fake_detail(monkeypatch, imdb_id=None)
     _fake_twin_probe(monkeypatch, [_TWIN])
     pushes = []
-    monkeypatch.setattr(
-        "movieclaw_api.services.push.events.identity_skipped", lambda **kw: pushes.append(kw)
-    )
+
+    async def published(session, event, build):  # type: ignore[no-untyped-def]
+        if event.name == "subscription.identity_skipped":
+            pushes.append((event.name, build()))
+
+    monkeypatch.setattr("movieclaw_api.events.publish", published)
     async with db.session() as session:
         sub = await movie(session)
         row = await resource(session, "uncertain", publish_time=utcnow() - timedelta(days=80))
@@ -60,7 +63,8 @@ async def test_ambiguous_candidate_has_no_actions_and_recovers_with_id(db, monke
         assert wanted.selection_state["reason"] == "identity_unconfirmed"
         assert wanted.selection_state["candidate_key"] is None
         assert wanted.next_selection_at is None
-        assert len(pushes) == 1 and "无需你处理" in pushes[0]["message"]
+        [(name, payload)] = pushes
+        assert name == "subscription.identity_skipped" and payload.subscription_id == sub.id
         assert (
             not (await session.execute(select(SystemNotice).where(SystemNotice.status == "active")))
             .scalars()

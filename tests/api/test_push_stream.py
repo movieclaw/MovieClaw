@@ -39,11 +39,11 @@ def client(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
     reset_setting_store()
     reset_secret_box()
     reset_auth_state()
-    from movieclaw_api.services.push import channels, events, me, outbox
+    from movieclaw_api.services.push import channels, engine, me, outbox
 
     channels.reset_runtime()
     me.reset_state()
-    events.reset_state()
+    engine.reset_state()
     monkeypatch.setattr(outbox, "MAX_CONNECTION_S", 1.5)
     monkeypatch.setattr(outbox, "HEARTBEAT_S", 0.4)
     monkeypatch.setattr(outbox, "POLL_S", 0.1)
@@ -53,7 +53,7 @@ def client(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
         c.post(f"{_AUTH}/bootstrap", json=_ADMIN)
         c.post(f"{_AUTH}/login", json=_ADMIN)
         yield c
-    events.reset_state()
+    engine.reset_state()
     reset_setting_store()
     reset_secret_box()
     reset_auth_state()
@@ -110,7 +110,9 @@ def _call(client: TestClient, fn):  # type: ignore[no-untyped-def]
     return client.portal.call(fn)
 
 
-def _notify(client: TestClient, members: set[int], title: str, event: str = "imported") -> None:
+def _notify(
+    client: TestClient, members: set[int], title: str, event: str = "subscription.fulfilled"
+) -> None:
     """在应用的事件循环里推一条（和业务代码一样走 notify）。"""
     from movieclaw_api.services.push.notify import AlertContent, notify
 
@@ -260,18 +262,21 @@ def test_outbox_only_for_stream_devices_and_respects_preferences(client: TestCli
     assert len(device_ids) == 1
     payload = rows[0].payload
     assert payload["title"] == "沙丘" and payload["body"] == "正文"
-    assert payload["event"] == "imported" and payload["deeplink"] == "/library/1/item/2"
+    assert payload["event"] == "subscription.fulfilled"
+    assert payload["deeplink"] == "/library/1/item/2"
     assert payload["priority"] == "passive" and payload["thread"] == "t"
     assert len(payload["collapse"]) == 16  # 和中继同一个 collapse_id
     assert payload["account"]["id"] == "0" and payload["server"]["name"]
 
     # 关掉「入库完成」：不再写
-    _data(client.put("/api/v1/push/me/preferences", json={"events": {"imported": False}}))
+    off = {"events": {"subscription.fulfilled": False}}
+    _data(client.put("/api/v1/push/me/preferences", json=off))
     _notify(client, {0}, "奥本海默")
     time.sleep(0.4)
     assert len(_rows(client)) == 1
     # 别人的事件不写到我的设备
-    _data(client.put("/api/v1/push/me/preferences", json={"events": {"imported": True}}))
+    on = {"events": {"subscription.fulfilled": True}}
+    _data(client.put("/api/v1/push/me/preferences", json=on))
     _notify(client, {12345}, "不是我的")
     time.sleep(0.4)
     assert len(_rows(client)) == 1

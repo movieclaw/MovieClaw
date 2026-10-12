@@ -86,13 +86,15 @@ async def cloud(ctx: Context) -> None:
 
 @plugin("push.hub", title="推送事件中枢", inject=(DB,), provides=(PUSH_HUB,), reloadable=True)
 async def push_hub(ctx: Context) -> None:
-    """推送消息的统一出口：汇集各类通知事件（如新片入库），整理后推送到手机。"""
-    from movieclaw_api.services.push import hub
+    """推送消息的统一出口：按通知规则把系统事件（如新片入库）整理成通知，推到手机和 IM。"""
+    from movieclaw_api.services.push import engine, hub
 
     # 中枢懒启动（第一次 emit 时建队列和消费者），这里只负责关停：
     # 停消费者、取消剧卡的定时（docs/design/cloud-push.md §5.1）
     ctx.effect(hub.stop, label="stop-push-hub")
     ctx.provide(PUSH_HUB, hub)
+    # 通知引擎：有通知规则的事件各挂一个实时监听器（docs/design/domain-events.md §6.1）
+    engine.attach(ctx)
 
 
 @plugin("push.channels-refresh", title="推送通道能力快照", inject=(CLOUD,), reloadable=True)

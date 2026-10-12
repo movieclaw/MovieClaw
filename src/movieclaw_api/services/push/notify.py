@@ -364,9 +364,7 @@ def notify(
             )
             logger.info(
                 "推送「%s」：%s",
-                preferences.EVENTS_BY_KEY[event].title
-                if event in preferences.EVENTS_BY_KEY
-                else event,
+                found.title if (found := preferences.spec(event)) is not None else event,
                 "、".join(f"{o.device_name}={o.result}" for o in outcomes),
             )
         except Exception:  # noqa: BLE001 -- 推送绝不能影响业务主链路

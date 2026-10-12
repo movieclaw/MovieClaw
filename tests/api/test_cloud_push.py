@@ -271,13 +271,13 @@ def world(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
     reset_setting_store()
     reset_secret_box()
     reset_auth_state()
-    from movieclaw_api.services.push import channels, events, me
+    from movieclaw_api.services.push import alerts, channels, engine, me
 
     channels.reset_runtime()
     me.reset_state()
-    events.reset_state()
+    engine.reset_state()
     # 推送的几个等待（攒一攒再发）在测试里缩到零点几秒
-    monkeypatch.setattr(events, "_ALERT_DELAY_S", 0.2)
+    monkeypatch.setattr(alerts, "_ALERT_DELAY_S", 0.2)
     from movieclaw_api.services.push import cards
 
     monkeypatch.setattr(cards, "STARTED_QUIET_S", 0.2)
@@ -289,7 +289,7 @@ def world(tmp_path, monkeypatch):  # type: ignore[no-untyped-def]
     monkeypatch.setattr(cloud_service, "_PAIRING_MIN_INTERVAL_S", 0.05)
     monkeypatch.setattr(cloud_service, "_FIRST_RENEW_DELAY_S", 0.05)
     yield w
-    events.reset_state()
+    engine.reset_state()
     reset_setting_store()
     reset_secret_box()
     reset_auth_state()
@@ -316,6 +316,17 @@ def _in_app(client: TestClient, trigger: Callable[[], None]) -> None:
 
     async def run() -> None:
         trigger()
+
+    assert client.portal is not None
+    client.portal.call(run)
+
+
+def _publish(client: TestClient, event: object, payload: object) -> None:
+    """在应用里发一个系统事件（和业务产生点一样走 events.publish_now）。"""
+    from movieclaw_api import events
+
+    async def run() -> None:
+        await events.publish_now(event, lambda: payload)  # type: ignore[arg-type]
 
     assert client.portal is not None
     client.portal.call(run)
@@ -763,7 +774,8 @@ def test_test_push_counts_unique_phones(
 ) -> None:
     """同一 iPhone 的多条登录登记：页面与实际测试通知都只算一台。"""
     _connect(client, world)
-    _data(client.put("/api/v1/push/me/preferences", json={"events": {"new_device": False}}))
+    prefs = {"events": {"account.device.signed_in": False}}
+    _data(client.put("/api/v1/push/me/preferences", json=prefs))
     token = "a8" * 32
     for i in range(5):
         bearer = _app_login(client, _ADMIN, installation=f"iphone-install-{i}", name="我的 iPhone")
@@ -877,7 +889,7 @@ def test_same_phone_two_accounts_gets_one_push(client: TestClient, world: World)
         return notify.AlertContent(title=f"给 {member_id}")
 
     relay = world.relays["push.test"]
-    _in_app(client, lambda: notify.notify("imported", {0, 1}, build))
+    _in_app(client, lambda: notify.notify("subscription.fulfilled", {0, 1}, build))
     _wait(lambda: len(relay.messages) >= 1)
     time.sleep(0.3)
     assert len(relay.messages) == 1
@@ -892,17 +904,19 @@ def test_preferences_and_member_view(client: TestClient, world: World) -> None:
     _register(client, member_bearer, token="ef" * 32)
     view = _data(_as_app(client, member_bearer, "GET", "/api/v1/push/me"))
     keys = {e["key"] for e in view["events"]}
-    assert "system_alert" not in keys and "imported" in keys and view["is_admin"] is False
+    assert "system.alert.raised" not in keys and "subscription.fulfilled" in keys
+    assert view["is_admin"] is False
     view = _data(
         _as_app(
             client,
             member_bearer,
             "PUT",
             "/api/v1/push/me/preferences",
-            json={"events": {"imported": False, "system_alert": True}},
+            json={"events": {"subscription.fulfilled": False, "system.alert.raised": True}},
         )
     )
-    assert next(e for e in view["events"] if e["key"] == "imported")["enabled"] is False
+    fulfilled = next(e for e in view["events"] if e["key"] == "subscription.fulfilled")
+    assert fulfilled["enabled"] is False
 
     from movieclaw_api.services.push import notify
 
@@ -910,12 +924,28 @@ def test_preferences_and_member_view(client: TestClient, world: World) -> None:
         return notify.AlertContent(title="入库")
 
     relay = world.relays["push.test"]
-    _in_app(client, lambda: notify.notify("imported", {1}, build))  # 关掉了：不发
-    _in_app(client, lambda: notify.notify("download_started", {1}, build))  # 默认关：不发
-    _in_app(client, lambda: notify.notify("new_device", {1}, build))  # 默认开：发
+    _in_app(client, lambda: notify.notify("subscription.fulfilled", {1}, build))  # 关掉了：不发
+    # 默认关：不发
+    _in_app(client, lambda: notify.notify("subscription.download_started", {1}, build))
+    _in_app(client, lambda: notify.notify("account.device.signed_in", {1}, build))  # 默认开：发
     _wait(lambda: len(relay.messages) >= 1)
     time.sleep(0.3)
     assert len(relay.messages) == 1
+
+    # 老 App 还发旧键（imported、library_new…）：按别名改到现在的键上
+    view = _data(
+        _as_app(
+            client,
+            member_bearer,
+            "PUT",
+            "/api/v1/push/me/preferences",
+            json={"events": {"imported": True, "download_started": True}},
+        )
+    )
+    enabled = {e["key"]: e["enabled"] for e in view["events"]}
+    assert enabled["subscription.fulfilled"] is True
+    assert enabled["subscription.download_started"] is True
+    assert "imported" not in enabled
 
 
 def test_unregistered_token_clears_registration(client: TestClient, world: World) -> None:
@@ -1219,7 +1249,7 @@ def test_library_new_arrivals(client: TestClient, world: World) -> None:
             member_bearer,
             "PUT",
             "/api/v1/push/me/preferences",
-            json={"events": {"library_new": True}, "library_ids": [movies_id, fresh_id]},
+            json={"events": {"library.items.arrived": True}, "library_ids": [movies_id, fresh_id]},
         )
     )
     assert view["library_ids"] == [movies_id, fresh_id]
@@ -1421,7 +1451,8 @@ def test_new_version_pushed_once(client: TestClient, world: World) -> None:
     _wait(lambda: len(relay.messages) >= 2)
 
     # 管理员关掉这一项就不推
-    _data(client.put("/api/v1/push/me/preferences", json={"events": {"new_version": False}}))
+    prefs = {"events": {"system.update.available": False}}
+    _data(client.put("/api/v1/push/me/preferences", json=prefs))
     check("0.32.0")
     time.sleep(0.5)
     assert len(relay.messages) == 2
@@ -1429,11 +1460,13 @@ def test_new_version_pushed_once(client: TestClient, world: World) -> None:
     keys = {
         e["key"] for e in _data(_as_app(client, member_bearer, "GET", "/api/v1/push/me"))["events"]
     }
-    assert "new_version" not in keys
+    assert "system.update.available" not in keys
 
 
 def test_reel_clips_suggestion_pushed_to_admin(client: TestClient, world: World) -> None:
-    from movieclaw_api.services.push import events
+    from movieclaw_sdk.events import SYSTEM_TIP_SUGGESTED, TipSuggested
+
+    tip = TipSuggested(tip="reel-clips")
 
     _connect(client, world)
     _create_member(client)
@@ -1444,7 +1477,7 @@ def test_reel_clips_suggestion_pushed_to_admin(client: TestClient, world: World)
     relay = world.relays["push.test"]
     relay.messages.clear()
 
-    _in_app(client, events.reel_clips_suggested)
+    _publish(client, SYSTEM_TIP_SUGGESTED, tip)
     _wait(lambda: len(relay.messages) >= 1)
     time.sleep(0.3)
     assert [m["token"] for m in relay.messages] == ["a7" * 32]  # 只推管理员
@@ -1453,14 +1486,15 @@ def test_reel_clips_suggestion_pushed_to_admin(client: TestClient, world: World)
     assert plain["open"] == "/settings/playback"
 
     # 管理员能关掉「使用建议」，成员看不到这个开关
-    _data(client.put("/api/v1/push/me/preferences", json={"events": {"usage_tip": False}}))
-    _in_app(client, events.reel_clips_suggested)
+    prefs = {"events": {"system.tip.suggested": False}}
+    _data(client.put("/api/v1/push/me/preferences", json=prefs))
+    _publish(client, SYSTEM_TIP_SUGGESTED, tip)
     time.sleep(0.5)
     assert len(relay.messages) == 1
     keys = {
         e["key"] for e in _data(_as_app(client, member_bearer, "GET", "/api/v1/push/me"))["events"]
     }
-    assert "usage_tip" not in keys
+    assert "system.tip.suggested" not in keys
 
 
 def _notify(client: TestClient, members: set[int], title: str) -> None:
@@ -1470,7 +1504,7 @@ def _notify(client: TestClient, members: set[int], title: str) -> None:
     async def build(_session, _member_id: int) -> AlertContent:  # type: ignore[no-untyped-def]
         return AlertContent(title=title)
 
-    _in_app(client, lambda: notify("imported", set(members), build))
+    _in_app(client, lambda: notify("subscription.fulfilled", set(members), build))
 
 
 def _seed_subscription(
@@ -1542,7 +1576,7 @@ def test_manual_download_landing_in_library_folder(client: TestClient, world: Wo
                 bearer,
                 "PUT",
                 "/api/v1/push/me/preferences",
-                json={"events": {"library_new": True}},
+                json={"events": {"library.items.arrived": True}},
             )
         )
     relay = world.relays["push.test"]
@@ -1877,7 +1911,9 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
                 bearer,
                 "PUT",
                 "/api/v1/push/me/preferences",
-                json={"events": {"download_started": True, "upgraded": True}},
+                json={
+                    "events": {"subscription.download_started": True, "subscription.upgraded": True}
+                },
             )
         )
     subscription_id, item_id = _seed_subscription(
@@ -2015,7 +2051,7 @@ def test_library_new_kinds_and_unrecognized_files(client: TestClient, world: Wor
             bearer,
             "PUT",
             "/api/v1/push/me/preferences",
-            json={"events": {"library_new": True}},
+            json={"events": {"library.items.arrived": True}},
         )
     )
     relay = world.relays["push.test"]

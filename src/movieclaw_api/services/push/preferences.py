@@ -1,8 +1,8 @@
-"""App 推送的事件目录与个人偏好（docs/design/cloud-push.md §5）。
+"""通知的个人偏好（docs/design/cloud-push.md §5、domain-events.md §6.1）。
 
 推送按人发，每个人自己管收什么：``push_preference`` 每人一行，只记改过的开关，
-没改过的用这里的默认值。新增事件 = 在 ``PUSH_EVENTS`` 加一行 + 产生点调一次
-``services.push.notify``，偏好页、App 的设置页都按这张表自动渲染。
+没改过的用通知规则的默认值。开关就是通知规则表（rules.py）里的一条条，偏好页、App 的设置页
+都按它自动渲染；新增通知 = 登记一条规则。
 """
 
 from __future__ import annotations
@@ -26,80 +26,43 @@ class PushEvent:
     admin_only: bool = False
 
 
-PUSH_EVENTS: tuple[PushEvent, ...] = (
-    PushEvent(
-        "imported",
-        "入库完成",
-        "你订阅或手动下载的电影、剧集整理进媒体库时",
-        group="我的订阅",
-        default=True,
-    ),
-    PushEvent(
-        "download_started",
-        "开始下载",
-        "你订阅的内容找到资源、交给下载器时",
-        group="我的订阅",
-        default=False,
-    ),
-    PushEvent(
-        "identity_skipped",
-        "已跳过同名资源",
-        "订阅发现无法确认身份的同名资源时知会一次，无需处理",
-        group="我的订阅",
-        default=True,
-    ),
-    PushEvent(
-        "upgraded",
-        "洗版完成",
-        "你订阅的内容换成了更好的版本时",
-        group="我的订阅",
-        default=False,
-    ),
-    PushEvent(
-        "library_new",
-        "媒体库有新片",
-        "你关心的媒体库来了新片或新剧集，不管是谁下载的",
-        group="媒体库",
-        default=False,
-    ),
-    PushEvent(
-        "new_device",
-        "新设备登录",
-        "有新的 App、播放器、命令行或转码器登录了你的账号",
-        group="账号安全",
-        default=True,
-    ),
-    PushEvent(
-        "system_alert",
-        "需要处理的问题",
-        "下载器、站点、导入出错这类需要管理员处理的问题",
-        group="管理员",
-        default=True,
-        admin_only=True,
-    ),
-    PushEvent(
-        "new_version",
-        "有新版本",
-        "MovieClaw 发布了新版本时，每个版本只提醒一次",
-        group="管理员",
-        default=True,
-        admin_only=True,
-    ),
-    PushEvent(
-        "usage_tip",
-        "使用建议",
-        "发现有设置能改善体验时（比如家里有人在用刷片、电视大图预告，建议开启片段预切），每条只提醒一次",
-        group="管理员",
-        default=True,
-        admin_only=True,
-    ),
-)
+#: 旧版偏好键 → 现在的键（老 App 还会发旧键；库里的旧键已由迁移改名）
+LEGACY_KEYS = {
+    "imported": "subscription.fulfilled",
+    "download_started": "subscription.download_started",
+    "identity_skipped": "subscription.identity_skipped",
+    "upgraded": "subscription.upgraded",
+    "library_new": "library.items.arrived",
+    "new_device": "account.device.signed_in",
+    "system_alert": "system.alert.raised",
+    "new_version": "system.update.available",
+    "usage_tip": "system.tip.suggested",
+}
 
-EVENTS_BY_KEY = {event.key: event for event in PUSH_EVENTS}
+
+def push_events() -> list[PushEvent]:
+    """偏好开关（按通知规则表，登记顺序）。"""
+    from movieclaw_api.services.push import rules
+
+    return [
+        PushEvent(
+            key=entry.pref_key,
+            title=entry.title,
+            description=entry.description,
+            group=entry.group,
+            default=entry.default,
+            admin_only=entry.admin_only,
+        )
+        for entry in rules.entries()
+    ]
+
+
+def spec(key: str) -> PushEvent | None:
+    return next((e for e in push_events() if e.key == key), None)
 
 
 def events_for(*, is_admin: bool) -> list[PushEvent]:
-    return [e for e in PUSH_EVENTS if is_admin or not e.admin_only]
+    return [e for e in push_events() if is_admin or not e.admin_only]
 
 
 async def load_overrides(session: AsyncSession, member_id: int) -> dict[str, bool]:
@@ -114,13 +77,13 @@ async def load_overrides(session: AsyncSession, member_id: int) -> dict[str, boo
 async def effective(session: AsyncSession, member_id: int) -> dict[str, bool]:
     """这个人每个事件的开关（默认值 + 改过的）。"""
     overrides = await load_overrides(session, member_id)
-    return {e.key: overrides.get(e.key, e.default) for e in PUSH_EVENTS}
+    return {e.key: overrides.get(e.key, e.default) for e in push_events()}
 
 
 async def wants(session: AsyncSession, member_ids: set[int], event: str) -> set[int]:
     """这些人里打开了这个事件的。"""
-    spec = EVENTS_BY_KEY[event]
-    if not member_ids:
+    found = spec(event)
+    if found is None or not member_ids:
         return set()
     rows = (
         await session.execute(
@@ -131,7 +94,7 @@ async def wants(session: AsyncSession, member_ids: set[int], event: str) -> set[
     return {
         member_id
         for member_id in member_ids
-        if bool(overrides.get(member_id, {}).get(event, spec.default))
+        if bool(overrides.get(member_id, {}).get(event, found.default))
     }
 
 
@@ -187,6 +150,7 @@ async def update(
     ).scalar_one_or_none()
     current = dict(row.events) if row is not None and isinstance(row.events, dict) else {}
     for key, value in changes.items():
+        key = LEGACY_KEYS.get(key, key)
         if key in allowed:
             current[key] = bool(value)
     if row is None:

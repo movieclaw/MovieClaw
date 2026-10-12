@@ -375,7 +375,7 @@ def test_season_pack_is_one_card_that_rings_twice(
             admin_bearer,
             "PUT",
             "/api/v1/push/me/preferences",
-            json={"events": {"download_started": True}},
+            json={"events": {"subscription.download_started": True}},
         )
     )
     show = Show(client, clock)
@@ -653,7 +653,7 @@ def test_im_follows_owner_preferences(
             admin_bearer,
             "PUT",
             "/api/v1/push/me/preferences",
-            json={"events": {"imported": False}},
+            json={"events": {"subscription.fulfilled": False}},
         )
     )
     show = Show(client, clock)
@@ -689,7 +689,7 @@ def test_im_follows_owner_preferences(
             member_bearer,
             "PUT",
             "/api/v1/push/me/preferences",
-            json={"events": {"upgraded": True}},
+            json={"events": {"subscription.upgraded": True}},
         )
     )
     show.call(_in_loop, upgrade, 2)

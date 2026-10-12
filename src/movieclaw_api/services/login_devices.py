@@ -209,20 +209,84 @@ async def issue(
         row.id,
         "超管" if member_id == 0 else f"成员 #{member_id}",
     )
-    # 新设备登录：告诉本人的其他设备（docs/design/cloud-push.md §5）。网页登录太频繁、
-    # 同一台设备重新登录（替换旧凭证，或之前在这台上自己退出过）都不算新设备，不推
-    if kind != "web" and not replaced:
-        from movieclaw_api.services.push import events as push_events
+    # 设备登录（docs/design/domain-events.md §8）：本人的其他设备收「新设备登录」。网页登录太频繁、
+    # 同一台设备重新登录（替换旧凭证，或之前在这台上自己退出过）都不算新设备
+    new_device = (
+        kind != "web"
+        and not replaced
+        and not await returning_device(member_id, kind, installation_id)
+    )
+    from movieclaw_api import events
+    from movieclaw_sdk.events import ACCOUNT_DEVICE_SIGNED_IN, DeviceSignedIn
 
-        if not await push_events.returning_device(member_id, kind, installation_id):
-            push_events.new_device(
-                member_id=member_id,
-                device_ids=frozenset(i for i in (row.id, approver_device_id) if i is not None),
-                name=row.name,
-                kind_label=spec_of(kind).label,
-                ip=ip or None,
-            )
+    await events.publish_now(
+        ACCOUNT_DEVICE_SIGNED_IN,
+        lambda: DeviceSignedIn(
+            member_id=member_id,
+            device_id=row.id,
+            device_name=row.name,
+            kind=kind,
+            kind_label=spec_of(kind).label,
+            ip=ip or None,
+            approver_device_id=approver_device_id,
+            new_device=new_device,
+        ),
+    )
     return plaintext, row
+
+
+#: 自己退出登录的设备记多久：这段时间里同一台登录回来，不算新设备
+_SIGNED_OUT_TTL = timedelta(days=30)
+_SIGNED_OUT_LIMIT = 500
+
+
+def _installation_key(member_id: int, kind: str, installation_id: str) -> str:
+    raw = f"{member_id}:{kind}:{installation_id}".encode()
+    return hashlib.sha256(raw).hexdigest()[:32]
+
+
+async def remember_signed_out(member_id: int, kind: str, installation_id: str | None) -> None:
+    """这台设备自己退出了登录：之后同一台登录回来不算新设备。出错只记日志。"""
+    if not installation_id:
+        return
+    try:
+        from movieclaw_api.settings import get_setting_store
+        from movieclaw_api.settings.cloud import SignedOutDevices
+
+        store = get_setting_store()
+        data = (await store.get(SignedOutDevices)).model_copy(deep=True)
+        now = utcnow()
+        entries = {k: v for k, v in data.entries.items() if now - v < _SIGNED_OUT_TTL}
+        entries[_installation_key(member_id, kind, installation_id)] = now
+        if len(entries) > _SIGNED_OUT_LIMIT:
+            entries = dict(sorted(entries.items(), key=lambda kv: kv[1])[-_SIGNED_OUT_LIMIT:])
+        data.entries = entries
+        await store.set(data)
+    except Exception:  # noqa: BLE001
+        logger.exception("记录退出登录的设备失败（已忽略）")
+
+
+async def returning_device(member_id: int, kind: str, installation_id: str | None) -> bool:
+    """这台设备之前自己退出过、现在登录回来了（用掉这条记录）。出错按「不是」算。"""
+    if not installation_id:
+        return False
+    try:
+        from movieclaw_api.settings import get_setting_store
+        from movieclaw_api.settings.cloud import SignedOutDevices
+
+        store = get_setting_store()
+        data = await store.get(SignedOutDevices)
+        key = _installation_key(member_id, kind, installation_id)
+        at = data.entries.get(key)
+        if at is None or utcnow() - at >= _SIGNED_OUT_TTL:
+            return False
+        data = data.model_copy(deep=True)
+        del data.entries[key]
+        await store.set(data)
+        return True
+    except Exception:  # noqa: BLE001
+        logger.exception("读取退出登录的设备失败（已忽略）")
+        return False
 
 
 def describe_client(user_agent: str | None) -> str:

@@ -35,25 +35,18 @@ OWNER_PACKAGES = ("movieclaw_api/services/push/", "movieclaw_api/services/webhoo
 
 #: 迁移中还没改完的调用点（每期收紧，P5 清空）
 LEGACY = {
-    "movieclaw_api/api/routes/auth.py",
     "movieclaw_api/api/routes/libraries.py",
-    "movieclaw_api/services/app_update.py",
     "movieclaw_api/services/download_progress.py",
     "movieclaw_api/services/library/ingest.py",
     "movieclaw_api/services/library/recycle.py",
     "movieclaw_api/services/library/scan.py",
-    "movieclaw_api/services/login_devices.py",
     "movieclaw_api/services/playback/marks.py",
     "movieclaw_api/services/playback/watch.py",
-    "movieclaw_api/services/reels/clip_tip.py",
     "movieclaw_api/services/subscription/core.py",
     "movieclaw_api/services/subscription/dispatch.py",
-    "movieclaw_api/services/subscription/twins.py",
     "movieclaw_api/services/subscription/upgrade.py",
     "movieclaw_api/services/subscription/wanted_fulfillment.py",
-    "movieclaw_api/services/system_notice.py",
     "movieclaw_jellyfin/routes/library.py",
-    "movieclaw_jellyfin/routes/users.py",
 }
 
 

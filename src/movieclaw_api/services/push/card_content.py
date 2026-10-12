@@ -352,20 +352,20 @@ async def build(
     session: AsyncSession, member_id: int, snap: Snapshot, now: datetime | None = None
 ) -> AlertContent | None:
     """给这个人写这一阶段的剧卡；他看不到这部片返回 None。"""
-    from movieclaw_api.services.push.events import (
-        _display_title,
-        _item_visible,
-        _lazy_image,
-        _library_path,
+    from movieclaw_api.services.push.audience import (
+        display_title,
+        item_visible,
+        lazy_image,
+        library_path,
     )
 
     now = now or utcnow()
-    if not await _item_visible(session, member_id, snap.item_id):
+    if not await item_visible(session, member_id, snap.item_id):
         return None
     item = await session.get(MediaItem, snap.item_id)
     if item is None:
         return None
-    name = _display_title(item.title, item.year)
+    name = display_title(item.title, item.year)
     arrived = sorted(set(snap.arrived))
     movie = item.kind != "tv" or not by_season(arrived or list(snap.started))
     thread = f"item-{snap.item_id}"
@@ -390,8 +390,8 @@ async def build(
     target = None if who.kind == "abandoned" else who.next_unit
     if target is not None and target not in available:
         target = None
-    page = await _library_path(session, member_id, snap.item_id, None)
-    open_path = await _library_path(session, member_id, snap.item_id, target) or page
+    page = await library_path(session, member_id, snap.item_id, None)
+    open_path = await library_path(session, member_id, snap.item_id, target) or page
     if open_path is None and snap.subscription_id:
         open_path = f"/subscriptions/{snap.subscription_id}"
 
@@ -474,7 +474,7 @@ async def build(
     return AlertContent(
         title=title,
         body=body,
-        image=await _lazy_image(image_url)(),
+        image=await lazy_image(image_url)(),
         open=open_path,
         thread=thread,
         level=level,
@@ -522,7 +522,7 @@ async def _started(
     thread: str,
     image_url: str | None,
 ) -> AlertContent:
-    from movieclaw_api.services.push.events import _lazy_image
+    from movieclaw_api.services.push.audience import lazy_image
 
     started = sorted(set(snap.started))
     verb = "开始洗版下载" if snap.upgrade else "开始下载"
@@ -536,7 +536,7 @@ async def _started(
     return AlertContent(
         title=f"{name} {verb}",
         body=body,
-        image=await _lazy_image(image_url)(),
+        image=await lazy_image(image_url)(),
         open=f"/subscriptions/{snap.subscription_id}" if snap.subscription_id else None,
         thread=thread,
         level="passive",
