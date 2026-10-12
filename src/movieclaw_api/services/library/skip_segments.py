@@ -977,6 +977,10 @@ async def _grab_frame(
     args = ["ffmpeg", "-nostdin", "-hide_banner", "-loglevel", "info"]
     if not accurate:
         args += ["-skip_frame", "nokey"]
+    else:
+        # 单线程解码：默认的帧并行会在目标帧之后再多解几帧，只要一帧时全是白算。
+        # NAS 4K HEVC 实测每帧 CPU 4.1 → 1.65 秒（离关键帧 5.7 秒时 14.9 → 10.6），画面逐字节相同
+        args += ["-threads", "1"]
     args += ["-ss", f"{start:.3f}", "-i", path, "-frames:v", "1", "-an", "-sn"]
     args += ["-vf", f"scale={width}:-2,showinfo"]
     args += ["-f", "image2pipe", "-vcodec", "bmp", "-"]

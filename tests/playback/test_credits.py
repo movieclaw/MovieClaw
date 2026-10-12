@@ -486,7 +486,7 @@ def test_credit_run_extension_does_not_scan_when_start_precedes_search_window():
 
 def test_intro_music_continuing_into_story_is_trimmed_after_title_cards():
     async def observe(t, accurate):
-        assert accurate
+        assert accurate or t in (390.71 - 12.5, 390.71 - 6.5)  # 只有初筛取关键帧
         return credits_frame(t) if t < 386 else story_frame(t)
 
     end = asyncio.run(C.trim_intro_end(316.78, 390.71, observe))
@@ -508,6 +508,69 @@ def test_intro_end_without_two_dark_credit_observations_is_kept():
         assert asyncio.run(C.trim_intro_end(316.78, 390.71, observe)) == 390.71
 
 
+# NAS 真实关键帧初筛观测（2026-10-12，生产 FFmpeg + OCR 校正亮度）：
+# (文件, 片头起点, 原终点, [(实际秒, 亮度)])。
+# 前 9 集是线上确实收紧过片头终点（或夹具里需要收紧）的集，后 6 集是随机抽样里亮画面收尾的片头。
+_INTRO_GATE_TITLE_CARDS = [
+    (16280, 453.377, 526.9, [(516.04, 10.9), (522.64, 9.3)]),
+    (16308, 316.782, 390.714, [(380.0, 15.9), (386.0, 37.0)]),
+    (16317, 227.494, 301.302, [(290.0, 15.8), (296.0, 112.6)]),
+    (20314, 109.722, 177.8, [(165.48, 12.6), (174.0, 66.6)]),
+    (20316, 163.345, 229.8, [(219.52, 12.6), (223.6, 11.7)]),
+    (20317, 163.592, 231.8, [(223.24, 11.7), (231.08, 110.0)]),
+    (20318, 74.799, 143.5, [(135.0, 13.6), (144.0, 127.7)]),
+    (20319, 172.385, 240.5, [(230.0, 12.6), (234.08, 11.7)]),
+    (24224, 0.0, 86.8, [(79.04, 38.7), (85.12, 18.5)]),
+]
+_INTRO_GATE_BRIGHT = [
+    (17334, 0.0, 98.329, [(86.68, 202.8), (92.68, 206.2)]),
+    (14748, 0.0, 92.075, [(80.0, 77.8), (90.0, 33.2)]),
+    (13462, 0.0, 53.932, [(42.54, 84.8), (47.55, 145.6)]),
+    (13728, 0.124, 96.1, [(87.72, 174.6), (91.72, 215.4)]),
+    (14013, 0.124, 45.078, [(33.36, 111.6), (40.64, 218.6)]),
+    (17643, 0.0, 99.319, [(88.52, 35.4), (94.52, 39.2)]),
+]
+
+
+def _keyframe_replay(case):
+    _, _, end, observed = case
+    landed = dict(zip((end - 12.5, end - 6.5), observed, strict=True))
+    requests = []
+
+    async def observe(t, accurate):
+        requests.append(accurate)
+        if accurate:
+            return story_frame(t)
+        actual, luma = landed[t]
+        return C.Frame(actual, luma, [])
+
+    return observe, requests
+
+
+@pytest.mark.parametrize("case", _INTRO_GATE_TITLE_CARDS, ids=lambda c: f"intro-gate-{c[0]}")
+def test_real_title_card_intros_pass_keyframe_screen(case):
+    observe, _ = _keyframe_replay(case)
+    assert asyncio.run(C._dark_before_intro_end(case[1], case[2], observe))
+
+
+@pytest.mark.parametrize("case", _INTRO_GATE_BRIGHT, ids=lambda c: f"intro-gate-{c[0]}")
+def test_real_bright_intro_ends_skip_accurate_frames(case):
+    observe, requests = _keyframe_replay(case)
+    assert asyncio.run(C.trim_intro_end(case[1], case[2], observe)) == case[2]
+    assert requests == [False, False]
+
+
+def test_keyframe_screen_defers_when_no_keyframe_lands_inside_intro():
+    """长 GOP：关键帧都落到片头终点之后（或取帧失败），初筛看不出来，必须交给精确帧。"""
+    for landed in (lambda t: story_frame(400.0), lambda t: None):
+
+        async def observe(t, accurate, landed=landed):
+            assert not accurate
+            return landed(t)
+
+        assert asyncio.run(C._dark_before_intro_end(316.78, 390.71, observe))
+
+
 @pytest.mark.parametrize(
     "case",
     json.loads(
@@ -519,7 +582,8 @@ def test_intro_end_without_two_dark_credit_observations_is_kept():
 )
 def test_real_intro_title_cards_end_before_the_first_story_frame(case):
     async def observe(t, accurate):
-        assert accurate
+        if not accurate:
+            return None  # 夹具没录关键帧：初筛看不出来，照常走精确帧判定
         for f in sorted(case["frames"], key=lambda f: abs(f["req"] - t)):
             if f["accurate"] and abs(f["t"] - t) <= 0.3:
                 return C.Frame(f["t"], f["luma"], f["lines"])

@@ -114,6 +114,59 @@ def test_cheap_codecs_are_never_switched() -> None:
     assert skip_segments._cheaper_audio_index(streams, 0, 2700) == 0
 
 
+def test_accurate_frame_decodes_single_threaded_and_lands_on_request(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """精确抽帧单线程解码（省掉帧并行多解的帧），仍从关键帧解到请求点；关键帧模式不受影响。"""
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("需要 ffmpeg 验证真实解码")
+    media = tmp_path / "gop.mp4"
+    # 只有 0 秒一个关键帧；5 秒起整屏变白，精确帧必须解码过去才看得到
+    subprocess.run(
+        [
+            "ffmpeg",
+            "-v",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=black:s=96x54:r=10:d=8",
+            "-vf",
+            "drawbox=color=white:t=fill:enable='gte(t,5)'",
+            "-c:v",
+            "libx264",
+            "-g",
+            "1000",
+            "-sc_threshold",
+            "0",
+            "-pix_fmt",
+            "yuv420p",
+            str(media),
+        ],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
+    calls: list[tuple] = []
+    spawn = asyncio.create_subprocess_exec
+
+    async def record(*args, **kwargs):
+        calls.append(args)
+        return await spawn(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", record)
+    before = asyncio.run(skip_segments._grab_frame(str(media), 4.5, True, width=96))
+    after = asyncio.run(skip_segments._grab_frame(str(media), 5.5, True, width=96))
+    keyframe = asyncio.run(skip_segments._grab_frame(str(media), 5.5, False, width=96))
+    assert before is not None and before[0].mean() < 30 and abs(before[1] - 4.5) < 0.15
+    assert after is not None and after[0].mean() > 200 and abs(after[1] - 5.5) < 0.15
+    assert keyframe is None  # 5.5 秒之后没有关键帧
+    accurate_args, _, keyframe_args = (list(a) for a in calls)
+    assert accurate_args[accurate_args.index("-threads") + 1] == "1"
+    assert accurate_args.index("-threads") < accurate_args.index("-i")
+    assert "-threads" not in keyframe_args
+
+
 _ADMIN = {"username": "admin", "password": "Sup3rSecret!"}
 CAPABILITY = {
     "video": [{"codec": "h264"}],

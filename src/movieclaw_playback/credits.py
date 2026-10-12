@@ -353,8 +353,14 @@ async def trim_intro_end(start: float, end: float, observe: Observe) -> float:
     """音乐延续进正文时，收紧黑底文字片头的终点；无明确文字转场证据就保持。
 
     最后半秒已是明亮非名单画面，且此前有两处连续强黑底名单，才回到最后确认的名单帧。
-    全部取精确帧，不能用后移关键帧把片头内的动画误判为正文。
+    判定全部取精确帧，不能用后移关键帧把片头内的动画误判为正文。
+
+    精确帧在 4K 上要几 CPU 秒，先用两个关键帧初筛（``_dark_before_intro_end``）：片头末段
+    没有暗画面就不可能是黑底文字卡收尾，直接保持。NAS 实测随机 90 集跳过 64 集、精确帧
+    191 → 33；已知需要收紧的 9 集全部放行。
     """
+    if not await _dark_before_intro_end(start, end, observe):
+        return end
     last = await observe(end - 0.5, True)
     if last is None or not last.story or last.credits:
         return end
@@ -381,6 +387,26 @@ async def trim_intro_end(start: float, end: float, observe: Observe) -> float:
         else:
             break
     return end
+
+
+async def _dark_before_intro_end(start: float, end: float, observe: Observe) -> bool:
+    """片头末段可能是黑底文字卡吗：终点前 12.5、6.5 秒各取一个关键帧，落在片头里的有暗画面就是。
+
+    关键帧落在请求点之后、最多晚一个 GOP；一帧都没落进片头（长 GOP、取帧失败）时看不出来，
+    按「可能」处理，交给精确帧判定。
+    """
+    seen = False
+    for offset in (12.5, 6.5):
+        t = end - offset
+        if t <= start:
+            continue
+        frame = await observe(t, False)
+        if frame is None or not start < frame.t < end - 0.5:
+            continue
+        if frame.dark:
+            return True
+        seen = True
+    return not seen
 
 
 async def _check_audio_outro(
