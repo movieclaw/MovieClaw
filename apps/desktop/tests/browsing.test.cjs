@@ -44,6 +44,20 @@ function harness(respond = () => ({ data: [] })) {
   return { A: context.A, API: context.C, Pager: context.Pager, APIError: context.E, calls, context, storage, elements, element, window };
 }
 
+test('playback creation and progress carry a stable per-installation ID across reloads', async () => {
+  const h = harness();
+  await h.API.startPlaybackSession({media_item_id:42});
+  await h.API.reportProgress(42, 'progress', 120000, 240000);
+  const bodies = h.calls.filter(call=>call.command==='proxy_api').map(call=>JSON.parse(call.body));
+  assert.match(bodies[0].device_id, /^desktop-/);
+  assert.equal(bodies[1].device_id, bodies[0].device_id);
+  const reloaded = harness();
+  reloaded.storage.set('mc_playback_device', bodies[0].device_id);
+  assert.equal(reloaded.API.playbackDeviceId(), bodies[0].device_id);
+  assert.notEqual(harness().API.playbackDeviceId(), bodies[0].device_id);
+  assert.equal(bodies[0].member_id, undefined);
+});
+
 test('server configuration comes from the current Rust value and updates image resolution', async () => {
   const h = harness();
   await h.API.init();

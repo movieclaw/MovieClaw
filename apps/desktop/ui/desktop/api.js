@@ -125,9 +125,26 @@ const API = {
     }
   },
 
+  playbackDeviceId() {
+    if (API._playbackDeviceId) return API._playbackDeviceId;
+    const key = 'mc_playback_device';
+    let id = localStorage.getItem(key);
+    if (!/^desktop-[a-z0-9-]{8,56}$/i.test(id || '')) {
+      id = 'desktop-' + (window.crypto?.randomUUID?.() || Date.now().toString(36) + '-' + Math.random().toString(36).slice(2));
+      localStorage.setItem(key, id);
+    }
+    return API._playbackDeviceId = id;
+  },
+
   async request(path, options = {}) {
     const method = (options.method || 'GET').toUpperCase();
     let body = options.body;
+    // Legacy Cookie sessions need the same per-installation identity for stream
+    // creation and progress, or multiple devices collapse to one account session.
+    if (method === 'POST' && ['/playback/sessions', '/playback/progress'].includes(path)
+        && body && typeof body === 'object') {
+      body = { ...body, device_id: body.device_id ?? this.playbackDeviceId() };
+    }
 
     // body 已经是对象则序列化为 JSON
     if (body && typeof body !== 'string') {

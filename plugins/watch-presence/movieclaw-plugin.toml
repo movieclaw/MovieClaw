@@ -1,0 +1,15 @@
+[plugin]
+id = "watch-presence"
+title = "服务器观看动态"
+version = "1.0.0"
+entry = "watch_presence"
+runtime = "inline"
+sdk = "^1.0"
+description = "成员自愿共享指定媒体库的当前播放与最近观看；在现有服务端进程内运行。"
+
+[requires]
+"plugin-data" = "^1.0"
+"plugin-routes" = "^1.0"
+
+[permissions]
+operations = []

@@ -2526,7 +2526,8 @@ button.player-settings-item:focus-visible { outline-offset: -3px; }
   transition: transform 0.2s;
 }
 .settings-toggle input:checked + .toggle-slider {
-  background: var(--accent);
+  background: #548cff;
+  box-shadow: inset 0 0 0 1px #80abff, 0 0 0 1px #548cff26;
 }
 .settings-toggle input:checked + .toggle-slider::before {
   transform: translateX(20px);
@@ -2535,6 +2536,8 @@ button.player-settings-item:focus-visible { outline-offset: -3px; }
   outline: 2px solid var(--focus-ring);
   outline-offset: 4px;
 }
+.settings-toggle:has(input:disabled) { opacity: .45; cursor: default; }
+.settings-toggle input:disabled { cursor: default; }
 .settings-select {
   background: var(--surface-inset);
   color: var(--text);
@@ -2772,6 +2775,7 @@ button.player-settings-item:focus-visible { outline-offset: -3px; }
 }
 .player-dialog-actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 12px;
   justify-content: flex-end;
   margin-top: 6px;
@@ -3036,9 +3040,18 @@ button:disabled { cursor: default; opacity: .4; }
 .account-button { width: 100%; padding: 10px 14px; background: var(--surface-inset); border: 1px solid var(--glass-border); border-radius: 8px; color: var(--text); text-align: left; }
 .account-panel, .episode-grid-dialog, .card-menu { color: var(--text); background: #202126; border: 1px solid var(--glass-border-strong); border-radius: 14px; box-shadow: var(--shadow-window); }
 .account-panel::backdrop, .episode-grid-dialog::backdrop { background: #0008; }
-.account-panel { margin: auto; width: min(520px, calc(100vw - 32px)); padding: 28px; }
+.account-panel { margin: auto; width: min(520px, calc(100vw - 32px)); padding: 28px; max-height: calc(100vh - 32px); overflow-y: auto; }
+.account-panel h2 { padding-right: 32px; margin: 0; font-size: 22px; overflow-wrap: anywhere; }
 .account-panel > p { margin: 8px 0 18px; color: var(--text-secondary); overflow-wrap: anywhere; }
-.account-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 20px; }
+.account-panel .settings-row { gap: 16px; min-height: 56px; padding: 12px 0; }
+.account-panel .settings-row > span { min-width: 0; overflow-wrap: anywhere; }
+.account-panel .settings-account-actions { display: flex; gap: 12px; align-items: center; flex: none; }
+.account-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--glass-border); }
+.account-actions .btn-secondary { width: 100%; min-height: 42px; margin: 0; padding: 10px 12px; border-radius: 10px; font-size: 13px; justify-content: center; text-align: center; }
+.account-actions #panelLogout { color: #ffb5b5; }
+.account-panel .panel-close { display: grid; place-items: center; width: 32px; height: 32px; top: 20px; right: 20px; }
+.account-panel .panel-close svg { width: 20px; height: 20px; }
+@media(max-width:420px) { .account-panel { padding: 20px; }.account-panel .settings-row { gap: 10px; }.account-panel .settings-account-actions { gap: 8px; } }
 .panel-close { position: absolute; top: 12px; right: 14px; width: 28px; height: 28px; border: none; background: transparent; color: var(--text-secondary); font-size: 24px; }
 .card-menu { margin: 0; position: fixed; min-width: 210px; padding: 6px; }
 .card-menu::backdrop { background: transparent; }

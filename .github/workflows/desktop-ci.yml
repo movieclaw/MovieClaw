@@ -4,10 +4,10 @@ on:
   workflow_call:
   workflow_dispatch:
   push:
-    branches: [main, feat/windows-desktop, 'codex/**']
-    paths: ['apps/desktop/**', '.github/workflows/desktop-ci.yml']
+    branches: [main, 'feat/windows-*', 'codex/**']
+    paths: ['apps/desktop/**', 'plugins/watch-presence/**', '.github/workflows/desktop-ci.yml']
   pull_request:
-    paths: ['apps/desktop/**', '.github/workflows/desktop-ci.yml']
+    paths: ['apps/desktop/**', 'plugins/watch-presence/**', '.github/workflows/desktop-ci.yml']
 
 permissions:
   contents: read
@@ -77,6 +77,7 @@ jobs:
           path: |
             apps/desktop/dist/MovieClaw-Desktop-*-Setup-x64.exe
             apps/desktop/dist/MovieClaw-Desktop-*-portable-x64.zip
+            apps/desktop/dist/MovieClaw-Desktop-*-Setup-x64.zip
             apps/desktop/dist/SHA256SUMS.txt
             apps/desktop/dist/release-manifest.json
           if-no-files-found: error

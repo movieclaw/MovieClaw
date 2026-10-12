@@ -406,6 +406,7 @@ async fn fetch(
         }
         let mut req = client
             .request(method.clone(), url.clone())
+            .header(header::USER_AGENT, concat!("MovieClaw-Windows/", env!("CARGO_PKG_VERSION"), " (Windows)"))
             .timeout(Duration::from_secs(timeout));
         if matches!(kind, ResponseKind::Api) {
             req = req.header(header::ACCEPT, "application/json");
@@ -655,7 +656,8 @@ mod tests {
             .lock()
             .unwrap()
             .remove(&url.origin().ascii_serialization());
-        handle.join().unwrap();
+        let request = handle.join().unwrap();
+        assert!(request.to_ascii_lowercase().contains("user-agent: movieclaw-windows/"));
     }
 
     #[tokio::test]

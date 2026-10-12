@@ -2,6 +2,42 @@ const { test, expect } = require('@playwright/test');
 
 const { openDesktop, state, browseLibrary } = require('./helpers.cjs');
 
+test('rejected HDR quality cap recovers through the original playback button at the same position', async ({page,request}) => {
+  await openDesktop(page,request);await browseLibrary(page);
+  await page.locator('#posterGrid .poster-card[data-item-id="3"]').click();await page.locator('#btnPlay').click();
+  await expect.poll(()=>page.evaluate(()=>Player.activeEngine)).toBe('mpv');
+  await page.route('**/api/v1/playback/sessions',async route=>{
+    if (route.request().method()==='POST' && route.request().postDataJSON().max_height > 0) {
+      return route.fulfill({json:{code:0,data:{decision:{outcome:'rejected',reason:'HDR10 需要色调映射，但服务器无可用硬件设备',suggestion:'使用第三方播放器'}}}});
+    }
+    await route.continue();
+  });
+  await page.locator('#btnSettings').click();await page.getByRole('button',{name:'画质',exact:true}).click();
+  await page.locator('[data-player-action="quality"][data-quality="1080"]').click();
+  await expect(page.locator('#playerDialog')).toContainText('1080p 播放依赖服务器');
+  await page.setViewportSize({width:360,height:640});
+  const recovery=page.locator('#playerDialog').getByRole('button',{name:'原画播放',exact:true});
+  const box=await recovery.boundingBox();expect(box.x).toBeGreaterThanOrEqual(0);expect(box.x+box.width).toBeLessThanOrEqual(360);
+  await recovery.click();
+  await expect.poll(()=>page.evaluate(()=>Player.activeEngine)).toBe('mpv');
+  await expect(page.locator('#playerDialog')).toHaveCount(0);
+  const body=(await state(request)).requests.filter(row=>row.path==='/playback/sessions').at(-1).body;
+  expect(body.max_height).toBeUndefined();expect(body.capability.universal).toBe(true);expect(body.capability.hdr_passthrough).toBe(true);
+  expect(body.start_ms).toBe(321000);
+  expect(await page.evaluate(()=>rememberedQuality(3))).toBe(0);
+});
+
+test('manual playback retry reclaims native capability after an automatic browser fallback', async ({page,request}) => {
+  await openDesktop(page,request);await browseLibrary(page);await page.locator('#posterGrid .poster-card[data-item-id="3"]').click();await page.locator('#btnPlay').click();
+  await expect.poll(()=>page.evaluate(()=>Player.activeEngine)).toBe('mpv');
+  const retryPosition=await page.evaluate(()=>{App._retryItem={...Player.context,__forceHtml5:true};App._showPlaybackError('播放失败');return App._retryStartMs;});
+  await expect(page.locator('#playerDialog')).toBeVisible();await page.locator('#playerDialog').getByRole('button',{name:'重试',exact:true}).click();
+  await expect.poll(()=>page.evaluate(()=>Player.activeEngine)).toBe('mpv');
+  await expect.poll(async()=> (await state(request)).requests.filter(row=>row.path==='/playback/sessions').length).toBe(2);
+  const body=(await state(request)).requests.filter(row=>row.path==='/playback/sessions').at(-1).body;
+  expect(body.capability.universal).toBe(true);expect(body.capability.hdr_passthrough).toBe(true);expect(body.start_ms).toBe(retryPosition);
+});
+
 test('search excludes hidden and adult libraries even when an old server ignores the scope', async ({page,request}) => {
   const hit=(id,title,ids,extra={})=>({item:{media_item_id:id,kind:'movie',title,...extra},library_ids:ids,match:{label:'片名匹配'}});
   await openDesktop(page,request,{legacySearchScope:true,searchPeople:true,libraries:[
@@ -153,6 +189,7 @@ test('third-season resume and mpv close report the final file position then rele
   await expect.poll(async () => (await state(request)).requests.some(r => r.path === '/playback/progress' && r.body.event === 'start')).toBe(true);
   const start = (await state(request)).requests.find(r => r.path === '/playback/sessions').body;
   expect(start.season_number).toBe(3); expect(start.episode_number).toBe(2);
+  expect(start.device_id).toMatch(/^desktop-/);
   expect(start.capability.universal).toBe(true);
   await expect(page.locator('#playerTime')).toHaveText('5:21');
   await page.locator('#playerBack').click();
@@ -160,6 +197,7 @@ test('third-season resume and mpv close report the final file position then rele
   await expect.poll(async () => (await state(request)).stopped).toEqual(['session-1']);
   const stop = (await state(request)).requests.find(r => r.path === '/playback/progress' && r.body.event === 'stop');
   expect(stop.body).toMatchObject({ position_ms: 321000, season_number: 3, episode_number: 2 });
+  expect(stop.body.device_id).toBe(start.device_id);
   expect(await page.evaluate(() => window.__fixture.running)).toBe(false);
 });
 
@@ -334,7 +372,7 @@ test('long seasons locate 1051, browse 50-item bands and mark a single episode f
 
 test('native welcome chooses a saved account and keeps device credential material out of the browser', async ({ page, request }) => {
   await openDesktop(page,request,{nativeAuth:true,authenticated:false,savedAccounts:[{username:'alice',nickname:'Alice',authenticated:true},{username:'expired',authenticated:false}]});
-  await expect(page.locator('h2')).toHaveText('选择账号');
+  await expect(page.getByRole('heading',{name:'选择账号',exact:true})).toBeVisible();
   await page.locator('[data-account="alice"]').click(); await expect(page.locator('#heroBanner')).toBeVisible();
   expect(await page.evaluate(()=>App.session.username)).toBe('alice');
   expect((await state(request)).nativeRequests.some(r=>r.command==='native_select_account'&&r.username==='alice')).toBe(true);

@@ -23,6 +23,11 @@ static START: Mutex<()> = Mutex::new(());
 static CONNECTIONS: LazyLock<Arc<Semaphore>> = LazyLock::new(|| Arc::new(Semaphore::new(8)));
 static CLIENT: LazyLock<Client> = LazyLock::new(|| {
     Client::builder()
+        .user_agent(concat!(
+            "MovieClaw-Windows/",
+            env!("CARGO_PKG_VERSION"),
+            " (Windows)"
+        ))
         .connect_timeout(Duration::from_secs(5))
         .read_timeout(Duration::from_secs(30))
         .redirect(reqwest::redirect::Policy::none())
@@ -39,6 +44,12 @@ struct Lease {
     generation: u64,
     expires: Instant,
     cancellation: CancellationToken,
+    resources: Arc<Mutex<PlaylistResources>>,
+}
+#[derive(Default)]
+struct PlaylistResources {
+    indices: HashMap<String, usize>,
+    targets: Vec<Url>,
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -154,6 +165,7 @@ pub fn grant_native(value: &str) -> Result<StreamGrant, String> {
                 generation: captured_generation,
                 expires: Instant::now() + Duration::from_secs(4 * 3600),
                 cancellation: CancellationToken::new(),
+                resources: Arc::new(Mutex::new(PlaylistResources::default())),
             },
         );
         Ok(StreamGrant {
@@ -276,10 +288,7 @@ async fn serve(mut socket: TcpStream) -> Result<(), String> {
     if origin.is_some_and(|value| !trusted_origin(value)) {
         return reply(&mut socket, 403, "Origin not allowed").await;
     }
-    let Some(id) = path
-        .strip_prefix("/media/")
-        .filter(|v| !v.is_empty() && v.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-'))
-    else {
+    let Some((id, resource)) = media_path(path) else {
         return reply(&mut socket, 404, "Unknown media capability").await;
     };
     let lease = {
@@ -292,13 +301,20 @@ async fn serve(mut socket: TcpStream) -> Result<(), String> {
             }
         })
     };
-    let Some(lease) = lease.filter(|v| {
+    let Some(mut lease) = lease.filter(|v| {
         v.generation == native_auth::generation()
             && v.expires > Instant::now()
             && !v.cancellation.is_cancelled()
     }) else {
         return reply(&mut socket, 410, "Media capability expired").await;
     };
+    if let Some(index) = resource {
+        let target = lease.resources.lock().unwrap().targets.get(index).cloned();
+        let Some(target) = target else {
+            return reply(&mut socket, 404, "Unknown playlist resource").await;
+        };
+        lease.target = target;
+    }
     if method == "OPTIONS" {
         let origin = origin
             .map(String::as_str)
@@ -307,6 +323,16 @@ async fn serve(mut socket: TcpStream) -> Result<(), String> {
     }
     let transfer = async {
         let response = upstream(&lease, method, &headers).await?;
+        if method == "GET" && response.status().is_success() && is_playlist(&response) {
+            return pipe_playlist(
+                &mut socket,
+                response,
+                &lease,
+                id,
+                origin.map(String::as_str),
+            )
+            .await;
+        }
         pipe_response(
             &mut socket,
             response,
@@ -316,6 +342,131 @@ async fn serve(mut socket: TcpStream) -> Result<(), String> {
         .await
     };
     tokio::select! {biased;_ = lease.cancellation.cancelled()=>Ok(()),result=transfer=>result}
+}
+fn media_path(path: &str) -> Option<(&str, Option<usize>)> {
+    let rest = path.strip_prefix("/media/")?;
+    let (id, suffix) = rest
+        .split_once('/')
+        .map_or((rest, None), |(id, suffix)| (id, Some(suffix)));
+    if id.is_empty() || !id.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-') {
+        return None;
+    }
+    let resource = match suffix {
+        None => None,
+        Some(suffix) => Some(suffix.strip_prefix("resource/")?.parse::<usize>().ok()?),
+    };
+    Some((id, resource))
+}
+fn is_playlist(response: &reqwest::Response) -> bool {
+    response
+        .url()
+        .path()
+        .to_ascii_lowercase()
+        .ends_with(".m3u8")
+        || response
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .is_some_and(|value| {
+                matches!(
+                    value
+                        .split(';')
+                        .next()
+                        .unwrap_or("")
+                        .trim()
+                        .to_ascii_lowercase()
+                        .as_str(),
+                    "application/vnd.apple.mpegurl"
+                        | "application/x-mpegurl"
+                        | "audio/mpegurl"
+                        | "audio/x-mpegurl"
+                )
+            })
+}
+fn playlist_resource(
+    lease: &Lease,
+    playlist: &Url,
+    id: &str,
+    value: &str,
+) -> Result<String, String> {
+    let target = playlist
+        .join(value)
+        .map_err(|_| "invalid playlist resource")?;
+    connect::validate_http_url(target.as_str())?;
+    if playlist.scheme() == "https" && target.scheme() != "https" {
+        return Err("playlist HTTPS downgrade refused".into());
+    }
+    let mut resources = lease.resources.lock().unwrap();
+    let index = if let Some(index) = resources.indices.get(target.as_str()) {
+        *index
+    } else {
+        if resources.targets.len() >= 65536 {
+            return Err("playlist resource limit".into());
+        }
+        let index = resources.targets.len();
+        resources.indices.insert(target.to_string(), index);
+        resources.targets.push(target);
+        index
+    };
+    Ok(format!("/media/{id}/resource/{index}"))
+}
+fn rewrite_playlist(lease: &Lease, playlist: &Url, id: &str, body: &str) -> Result<String, String> {
+    if !body.trim_start_matches('\u{feff}').starts_with("#EXTM3U") {
+        return Err("invalid HLS playlist".into());
+    }
+    let mut output = String::with_capacity(body.len());
+    for line in body.lines() {
+        if !line.starts_with('#') && !line.trim().is_empty() {
+            output.push_str(&playlist_resource(lease, playlist, id, line.trim())?);
+        } else {
+            let mut rest = line;
+            // URI attributes cover initialization, keys, rendition and iframe playlists.
+            while let Some(offset) = rest.find("URI=\"") {
+                let start = offset + 5;
+                output.push_str(&rest[..start]);
+                let end = rest[start..].find('"').ok_or("invalid playlist URI")? + start;
+                output.push_str(&playlist_resource(lease, playlist, id, &rest[start..end])?);
+                rest = &rest[end..];
+            }
+            output.push_str(rest);
+        }
+        output.push('\n');
+    }
+    Ok(output)
+}
+async fn pipe_playlist(
+    socket: &mut TcpStream,
+    mut response: reqwest::Response,
+    lease: &Lease,
+    id: &str,
+    origin: Option<&str>,
+) -> Result<(), String> {
+    let playlist = response.url().clone();
+    let mut body = Vec::new();
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| "playlist response interrupted")?
+    {
+        if body.len() + chunk.len() > 16 * 1024 * 1024 {
+            return Err("playlist too large".into());
+        }
+        body.extend_from_slice(&chunk);
+    }
+    let body = std::str::from_utf8(&body).map_err(|_| "invalid playlist encoding")?;
+    let output = rewrite_playlist(lease, &playlist, id, body)?;
+    let cors = origin
+        .map(|origin| format!("Access-Control-Allow-Origin: {origin}\r\nVary: Origin\r\n"))
+        .unwrap_or_default();
+    let headers = format!("HTTP/1.1 200 Media\r\nContent-Type: application/vnd.apple.mpegurl\r\nContent-Length: {}\r\nConnection: close\r\nCache-Control: no-store\r\n{cors}\r\n", output.len());
+    socket
+        .write_all(headers.as_bytes())
+        .await
+        .map_err(|_| "local socket closed")?;
+    socket
+        .write_all(output.as_bytes())
+        .await
+        .map_err(|_| "local socket closed".into())
 }
 async fn upstream(
     lease: &Lease,
@@ -456,6 +607,165 @@ async fn pipe_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn playlist_lease(target: &str) -> Lease {
+        let target = Url::parse(target).unwrap();
+        Lease {
+            base: Url::parse(&target.origin().ascii_serialization()).unwrap(),
+            target,
+            identity: None,
+            cookies: api_proxy::CookieSnapshot::default(),
+            generation: generation(),
+            expires: Instant::now() + Duration::from_secs(60),
+            cancellation: CancellationToken::new(),
+            resources: Arc::new(Mutex::new(PlaylistResources::default())),
+        }
+    }
+    #[test]
+    fn hls_resource_urls_are_opaque_bounded_and_reject_unsafe_schemes() {
+        let lease = playlist_lease("https://nas.test/api/session/master.m3u8");
+        let manifest = "#EXTM3U\n#EXT-X-MEDIA:TYPE=AUDIO,URI=\"audio/list.m3u8?token=secret\"\n#EXT-X-MAP:URI=\"init.mp4?token=secret\",BYTERANGE=\"20@0\"\n#EXT-X-KEY:METHOD=AES-128,URI=\"https://cdn.test/key?token=secret\"\nsegment.m4s?token=secret\nsegment.m4s?token=secret\n";
+        let rewritten = rewrite_playlist(&lease, &lease.target, "opaque", manifest).unwrap();
+        assert!(
+            !rewritten.contains("secret")
+                && !rewritten.contains("nas.test")
+                && !rewritten.contains("cdn.test")
+        );
+        assert!(rewritten.contains("URI=\"/media/opaque/resource/1\",BYTERANGE=\"20@0\""));
+        let resources = lease.resources.lock().unwrap();
+        assert_eq!(resources.targets.len(), 4);
+        assert_eq!(
+            resources.targets[0].as_str(),
+            "https://nas.test/api/session/audio/list.m3u8?token=secret"
+        );
+        assert_eq!(
+            resources.targets[3].as_str(),
+            "https://nas.test/api/session/segment.m4s?token=secret"
+        );
+        drop(resources);
+        for value in [
+            "file:///C:/private",
+            "data:text/plain,secret",
+            "http://nas.test/unencrypted",
+            "https://user:password@nas.test/key",
+        ] {
+            assert!(playlist_resource(&lease, &lease.target, "opaque", value).is_err());
+        }
+        assert!(rewrite_playlist(&lease, &lease.target, "opaque", "not HLS").is_err());
+        for path in [
+            "/media/id/resource/../1",
+            "/media/id/resource/1?url=https://evil.test",
+            "/media/id/arbitrary",
+            "/media/id/resource/-1",
+        ] {
+            assert!(media_path(path).is_none());
+        }
+    }
+    #[test]
+    fn native_hls_fetches_nested_playlist_init_key_and_range_then_revokes_all_resources() {
+        native_auth::with_context_read(|| {
+            use std::io::{Read, Write};
+            let upstream_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = upstream_listener.local_addr().unwrap();
+            let handler = std::thread::spawn(move || {
+                for _ in 0..5 {
+                    let (mut socket, _) = upstream_listener.accept().unwrap();
+                    let mut buffer = [0; 8192];
+                    let count = socket.read(&mut buffer).unwrap();
+                    let request = String::from_utf8_lossy(&buffer[..count]);
+                    assert!(request.contains("session=private-cookie"));
+                    let path = request.split_whitespace().nth(1).unwrap();
+                    let (status, content_type, extra, body) = match path {
+                        "/session/master.m3u8" => (200, "application/vnd.apple.mpegurl", "", "#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1\nvideo/list.m3u8?token=secret\n"),
+                        "/session/video/list.m3u8?token=secret" => (200, "application/vnd.apple.mpegurl", "", "#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4?token=secret\"\n#EXT-X-KEY:METHOD=AES-128,URI=\"../key?token=secret\"\n#EXTINF:1,\nsegment.m4s?token=secret\n#EXT-X-ENDLIST\n"),
+                        "/session/video/init.mp4?token=secret" => (200, "video/mp4", "", "init"),
+                        "/session/key?token=secret" => (200, "application/octet-stream", "", "key"),
+                        "/session/video/segment.m4s?token=secret" => {
+                            assert!(request.to_ascii_lowercase().contains("range: bytes=2-5"));
+                            (206, "video/mp4", "Content-Range: bytes 2-5/8\r\n", "cdef")
+                        }
+                        _ => panic!("unexpected HLS path"),
+                    };
+                    write!(socket, "HTTP/1.1 {status} OK\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\n{extra}Connection: close\r\n\r\n{body}", body.len()).unwrap();
+                }
+            });
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            runtime.block_on(async {
+                let local = TcpListener::bind("127.0.0.1:0").await.unwrap();
+                let local_address = local.local_addr().unwrap();
+                let mut lease = playlist_lease(&format!("http://{address}/session/master.m3u8"));
+                lease.cookies = api_proxy::CookieSnapshot::test_cookie(
+                    &lease.base,
+                    "session",
+                    "private-cookie",
+                    "/session",
+                );
+                let id = "hls-test-resource";
+                LEASES.lock().unwrap().insert(id.into(), lease);
+                let serving = tokio::spawn(async move {
+                    for _ in 0..7 {
+                        let (socket, _) = local.accept().await.unwrap();
+                        serve(socket).await.unwrap();
+                    }
+                });
+                let client = Client::new();
+                let root = format!("http://{local_address}/media/{id}");
+                let master = client
+                    .get(&root)
+                    .send()
+                    .await
+                    .unwrap()
+                    .text()
+                    .await
+                    .unwrap();
+                assert!(!master.contains("secret"));
+                let variant = master.lines().find(|line| !line.starts_with('#')).unwrap();
+                let media = client
+                    .get(format!("http://{local_address}{variant}"))
+                    .send()
+                    .await
+                    .unwrap()
+                    .text()
+                    .await
+                    .unwrap();
+                assert!(media.contains(&format!("URI=\"/media/{id}/resource/1\"")));
+                for (index, expected) in [(1, "init"), (2, "key"), (3, "cdef")] {
+                    let mut request = client.get(format!("{root}/resource/{index}"));
+                    if index == 3 {
+                        request = request.header("Range", "bytes=2-5");
+                    }
+                    let response = request.send().await.unwrap();
+                    if index == 3 {
+                        assert_eq!(response.headers()["content-range"], "bytes 2-5/8");
+                    }
+                    assert_eq!(response.text().await.unwrap(), expected);
+                }
+                assert_eq!(
+                    client
+                        .get(format!("{root}/resource/999"))
+                        .send()
+                        .await
+                        .unwrap()
+                        .status(),
+                    404
+                );
+                assert!(release(id));
+                assert_eq!(
+                    client
+                        .get(format!("{root}/resource/1"))
+                        .send()
+                        .await
+                        .unwrap()
+                        .status(),
+                    410
+                );
+                serving.await.unwrap();
+            });
+            handler.join().unwrap();
+        });
+    }
     #[test]
     fn only_desktop_origins_can_read_media_capabilities() {
         assert!(trusted_origin("http://tauri.localhost"));
@@ -489,6 +799,7 @@ mod tests {
             generation: generation(),
             expires: Instant::now() + Duration::from_secs(5),
             cancellation: CancellationToken::new(),
+            resources: Arc::new(Mutex::new(PlaylistResources::default())),
         };
         let response = upstream(
             &lease,
@@ -545,6 +856,7 @@ mod tests {
             generation: generation(),
             expires: Instant::now() + Duration::from_secs(5),
             cancellation: CancellationToken::new(),
+            resources: Arc::new(Mutex::new(PlaylistResources::default())),
         };
         assert_eq!(
             upstream(&lease, "GET", &HashMap::new())
@@ -593,6 +905,7 @@ mod tests {
             generation: generation(),
             expires: Instant::now() + Duration::from_millis(30),
             cancellation: CancellationToken::new(),
+            resources: Arc::new(Mutex::new(PlaylistResources::default())),
         };
         let transfer = lease.clone();
         let mut leases = HashMap::from([("short".into(), lease)]);
@@ -627,6 +940,7 @@ mod tests {
             generation: generation(),
             expires: now - Duration::from_secs(1),
             cancellation: CancellationToken::new(),
+            resources: Arc::new(Mutex::new(PlaylistResources::default())),
         };
         let in_flight = lease.clone();
         let mut leases = HashMap::from([("expired".into(), lease)]);
@@ -646,6 +960,7 @@ mod tests {
                 generation: generation(),
                 expires: now + Duration::from_secs(1),
                 cancellation: CancellationToken::new(),
+                resources: Arc::new(Mutex::new(PlaylistResources::default())),
             };
             assert!(renew_at(&mut lease, now));
             assert!(lease.expires >= now + Duration::from_secs(4 * 3600));

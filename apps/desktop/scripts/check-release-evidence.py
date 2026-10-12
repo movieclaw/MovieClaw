@@ -7,6 +7,7 @@ import os
 import pathlib
 import re
 import sys
+import zipfile
 
 REQUIRED_CHECKS = (
     "embedded_render",
@@ -20,6 +21,41 @@ REQUIRED_CHECKS = (
     "resume_twenty_cycles",
     "windows_macos_performance",
 )
+
+
+def validate_build_artifacts(directory, manifest):
+    if 'buildNumber' not in manifest and 'buildArtifacts' not in manifest:
+        return
+    number = manifest.get('buildNumber', '')
+    if not isinstance(number, str) or not re.fullmatch(r'[1-9][0-9]*\.[1-9][0-9]*', number):
+        raise ValueError('Invalid build number')
+    version = manifest['version']
+    originals = {item['name']: item for item in manifest['files']}
+    artifacts = manifest.get('buildArtifacts', [])
+    names = {f'MovieClaw-Desktop-{version}-build{number}-{suffix}' for suffix in ('Setup-x64.zip', 'portable-x64.zip')}
+    if len(artifacts) != 2 or {item.get('name') for item in artifacts} != names:
+        raise ValueError('Both build-labeled packages are required')
+    for item in artifacts:
+        setup = item['name'].endswith('-Setup-x64.zip')
+        suffix = 'Setup-x64.exe' if setup else 'portable-x64.zip'
+        original_name = f'MovieClaw-Desktop-{version}-{suffix}'
+        local_name = f'MovieClaw-Desktop-{version}({number})-{suffix}'
+        label_suffix = 'Setup-x64.zip' if setup else suffix
+        if item.get('originalName') != original_name or item.get('localName') != local_name or item.get('label') != f'MovieClaw-Desktop-{version}({number})-{label_suffix}':
+            raise ValueError('Build labels do not match the verified originals')
+        path = directory / item['name']
+        if path.stat().st_size != item.get('size') or hashlib.sha256(path.read_bytes()).hexdigest() != item.get('sha256'):
+            raise ValueError('Build-labeled artifact changed')
+        if setup:
+            with zipfile.ZipFile(path) as archive:
+                if archive.namelist() != [local_name] or archive.getinfo(local_name).file_size != originals[original_name]['size']:
+                    raise ValueError('Installer ZIP contains unexpected files')
+                with archive.open(local_name) as stream:
+                    sha = hashlib.file_digest(stream, 'sha256').hexdigest()
+        else:
+            sha = item['sha256']
+        if sha != originals[original_name]['sha256']:
+            raise ValueError('Build-labeled package differs from the tested original')
 
 
 def validate(directory, evidence, revision, version):
@@ -66,6 +102,7 @@ def validate(directory, evidence, revision, version):
             raise ValueError(f"Release artifact changed: {name}")
         if evidence.get("artifact_sha256", {}).get(name) != digest:
             raise ValueError(f"Physical testing did not use this exact artifact: {name}")
+    validate_build_artifacts(directory, manifest)
 
 
 def main():
@@ -135,6 +172,7 @@ def validate_ci_packages(directory, revision, version, notes):
             path.read_bytes()
         ).hexdigest() != item.get("sha256"):
             raise ValueError(f"Release artifact changed: {item['name']}")
+    validate_build_artifacts(directory, manifest)
 
 
 if __name__ == "__main__":

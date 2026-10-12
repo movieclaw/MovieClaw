@@ -292,6 +292,7 @@ async fn request(
     ensure_current(context)?;
     let mut req = CLIENT
         .request(method, format!("{}/api/v1{path}", context.server))
+        .header("User-Agent", concat!("MovieClaw-Windows/", env!("CARGO_PKG_VERSION"), " (Windows)"))
         .header("Accept", "application/json");
     if let Some(token) = token {
         req = req.bearer_auth(token);
@@ -1007,6 +1008,7 @@ mod tests {
             }
             let request = String::from_utf8(bytes).unwrap();
             assert!(request.starts_with("POST /api/v1/auth/device/login "));
+            assert!(request.to_ascii_lowercase().contains("user-agent: movieclaw-windows/"));
             assert!(!request.to_ascii_lowercase().contains("cookie:"));
             assert!(request.contains("\"kind\":\"windows\""));
             let body = r#"{"data":{"token":"private-device-token","session":{"username":"member","nickname":"成员","role":"member"}}}"#;

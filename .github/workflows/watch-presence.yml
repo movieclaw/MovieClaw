@@ -1,0 +1,49 @@
+name: Watch presence plugin contracts
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, 'feat/windows-*', 'codex/**']
+    paths: ['plugins/watch-presence/**', '.github/workflows/watch-presence.yml']
+  pull_request:
+    paths: ['plugins/watch-presence/**', '.github/workflows/watch-presence.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  host-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: movieclaw/MovieClaw
+          ref: 6b3b93305dd854e94ed0a118b08a10e37ce70932
+          path: server-baseline
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: astral-sh/setup-uv@v6
+      - name: Install host test dependencies
+        working-directory: server-baseline
+        run: |
+          uv venv .venv
+          uv pip install -e '.[dev]'
+      - name: Install the distributable in a real authenticated host
+        env:
+          WATCH_PRESENCE_SOURCE: ${{ github.workspace }}/plugins/watch-presence
+          WATCH_PRESENCE_PACKAGE: ${{ github.workspace }}/plugin-dist/MovieClaw-Watch-Presence-1.0.0.mcplugin
+        run: |
+          python plugins/watch-presence/package.py --output "$WATCH_PRESENCE_PACKAGE"
+          cp plugins/watch-presence/tests/test_presence.py server-baseline/tests/api/test_watch_presence_plugin.py
+          cp plugins/watch-presence/tests/test_policy.py server-baseline/tests/api/test_watch_presence_policy.py
+          cd server-baseline
+          uv run --no-project python -m pytest tests/api/test_watch_presence_plugin.py tests/api/test_watch_presence_policy.py --junitxml=../plugin-dist/contract-results.xml
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: watch-presence-${{ github.sha }}
+          path: plugin-dist
+          if-no-files-found: error

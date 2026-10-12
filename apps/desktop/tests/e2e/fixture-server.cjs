@@ -41,6 +41,7 @@ http.createServer(async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
     if (url.pathname === '/__test/reset') { reset(await bodyOf(req) || {}); return json(res, { ok: true }); }
     if (url.pathname === '/__test/state') return json(res, state);
+    if (url.pathname === '/__test/friends') { Object.assign(state, await bodyOf(req)); return json(res, {ok:true}); }
     if (url.pathname === '/__test/image') {
       const imagePath = url.searchParams.get('path');
       state.imageRequests ||= []; state.imageRequests.push(imagePath);
@@ -169,6 +170,7 @@ http.createServer(async (req, res) => {
       return json(res, ok({ username: state.username, role: state.role || 'admin', capabilities: state.capabilities || {} }));
     }
     if (!state.authenticated) return json(res, { message: '需要登录' }, 401);
+    if (state.friends && await require('./friends-fixture.cjs')({route,req,res,state,url,body,json,ok})) return;
     if (state.catalog && await require('./catalog-fixture.cjs')({route,req,res,state,url,body,json,ok})) return;
     if (route === '/auth/me') return json(res, ok({ username: state.username || 'fixture', role: state.role || 'admin', capabilities: state.capabilities || {} }));
     if (route === '/auth/accounts') return json(res, ok([

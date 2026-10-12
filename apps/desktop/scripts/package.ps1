@@ -1,5 +1,7 @@
-param([switch]$SkipBuild, [switch]$InstallSmoke)
+param([switch]$SkipBuild, [switch]$InstallSmoke, [string]$BuildNumber)
 $ErrorActionPreference = 'Stop'
+if (-not $BuildNumber -and $env:GITHUB_RUN_NUMBER -and $env:GITHUB_RUN_ATTEMPT) { $BuildNumber = "$($env:GITHUB_RUN_NUMBER).$($env:GITHUB_RUN_ATTEMPT)" }
+if ($BuildNumber -notmatch '^[1-9][0-9]*\.[1-9][0-9]*$') { throw 'Provide Desktop CI run_number.run_attempt using -BuildNumber' }
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $tauri = Join-Path $root 'src-tauri'
 $dist = Join-Path $root 'dist'
@@ -73,4 +75,6 @@ $releaseManifest = @{
     }
 }
 $releaseManifest | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $dist 'release-manifest.json') -Encoding utf8
+& python (Join-Path $PSScriptRoot 'label-packages.py') --directory $dist --build-number $BuildNumber
+if ($LASTEXITCODE -ne 0) { throw 'Build-labeled packages failed' }
 Write-Host "Verified packages for MovieClaw Desktop $version are in $dist"

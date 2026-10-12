@@ -866,6 +866,8 @@ const Player = {
 
   // Esc 阶梯的第一级：有面板开着就收掉一个，返回是否处理过
   closeAnyPanel() {
+    const friends = document.getElementById('playerFriendsPanel');
+    if (friends && !friends.hidden) { window.DesktopFriends?.close(); return true; }
     for (const [id, hide] of [
       ['playerInfoPanel', () => this.hideInfoPanel()],
       ['playerSettingsPanel', () => this.hideSettings()],
@@ -1597,6 +1599,7 @@ const Player = {
 
   // 两个引擎共用的播放上下文；所有外部时间均为文件时间，只有引擎边界换算。
   adoptSession(title, session, context, engine) {
+    window.DesktopFriends?.refreshButton();
     this.generation += 1;
     this.context = { ...(context || {}), title };
     if (this.context.file_id == null && session.decision?.file_id != null) this.context.file_id = session.decision.file_id;
@@ -1988,6 +1991,7 @@ const Player = {
 
   // 先快照再撤引擎；异步收尾有上限，调用者可等 mpv 停完再装下一部。
   close(options = {}) {
+    window.DesktopFriends?.dispose();
     if (options.invalidate !== false && typeof App !== 'undefined') App._playbackSeq = (App._playbackSeq || 0) + 1;
     if (typeof App !== 'undefined') { App.cancelAutoNext(); clearTimeout(App._networkRetryTimer); App._networkRetryTimer = null; }
     const nativeFullscreenRestore = options.hide !== false ? this.restoreNativeFullscreen() : Promise.resolve();
@@ -2559,7 +2563,7 @@ const Player = {
   },
 
   // 错误对话框：标题 + 一行建议 +「重试 / 关闭」（macOS MacPlayerDialog 的 .error 用法）
-  showPlayerDialog({ title, message, primary, secondary }) {
+  showPlayerDialog({ title, message, primary, secondary, alternative }) {
     this.hidePlayerDialog();
     const card = document.createElement('div');
     card.className = 'player-dialog';
@@ -2583,6 +2587,7 @@ const Player = {
     actions.className = 'player-dialog-actions';
     // 主次顺序同 macOS：次按钮在左、主按钮在右
     if (secondary) actions.appendChild(this._dialogButton(secondary[0], false, secondary[1]));
+    if (alternative) actions.appendChild(this._dialogButton(alternative[0], false, alternative[1]));
     actions.appendChild(this._dialogButton(primary[0], true, primary[1]));
     card.appendChild(actions);
     this._mountDialog(card, primary[1], secondary ? secondary[1] : null);
@@ -2683,7 +2688,7 @@ const Player = {
     const box = (r) => [r.left, r.top, r.width, r.height].map((v) => Math.round(v * scale));
     // 视频始终占满容器，控件只保留网页绘制区域，不改变 mpv 的画幅。
     // opacity 过渡结束后再挖掉隐藏的控件，避免全屏留下上下黑带。
-    const overlays = ['playerTopbar', 'playerCenterBtn', 'playerSpeedBadge', 'playerLoading', 'playerInfoPanel', 'playerSettingsPanel', 'playerSpeedPanel', 'playerSkipBtn', 'playerDialog', 'autoNextCard']
+    const overlays = ['playerTopbar', 'playerFriendsPanel', 'playerCenterBtn', 'playerSpeedBadge', 'playerLoading', 'playerInfoPanel', 'playerSettingsPanel', 'playerSpeedPanel', 'playerSkipBtn', 'playerDialog', 'autoNextCard']
       .map((id) => document.getElementById(id))
       .concat(controls.querySelector('.player-transport'));
     const visibleOverlays = overlays
@@ -2871,7 +2876,7 @@ const Player = {
   },
 
   hideControls() {
-    if (['playerSettingsPanel', 'playerSpeedPanel', 'playerInfoPanel', 'playerDialogOverlay', 'autoNextCard'].some(id => { const el = document.getElementById(id); return el && !el.hidden; }) || this.isSeeking) return;
+    if (['playerFriendsPanel', 'playerSettingsPanel', 'playerSpeedPanel', 'playerInfoPanel', 'playerDialogOverlay', 'autoNextCard'].some(id => { const el = document.getElementById(id); return el && !el.hidden; }) || this.isSeeking) return;
     this.controlsVisible = false;
     const view = document.getElementById('playerView');
     if (view) view.style.cursor = 'none';

@@ -43,3 +43,32 @@ test('explicit CI publication verifies unsigned bytes and rejects missing disclo
   f.manifest.physicalValidated=false; f.manifest.sourceRevision='b'.repeat(40); assert.notEqual(f.run(args).status,0);
   f.manifest.sourceRevision='a'.repeat(40); fs.appendFileSync(path.join(f.directory,f.manifest.files[0].name),'mutated'); assert.notEqual(f.run(args).status,0);
 });
+
+test('build labeling preserves the tested installer, keeps legacy update checksums and rejects archive mutation', t => {
+  const f=fixture(t), manifestPath=path.join(f.directory,'release-manifest.json');
+  fs.writeFileSync(manifestPath,JSON.stringify(f.manifest));
+  const labeling=path.resolve(__dirname,'../scripts/label-packages.py');
+  const python=process.platform==='win32'?'python':'python3';
+  const label=spawnSync(python,[labeling,'--directory',f.directory,'--build-number','61.1'],{encoding:'utf8'});
+  assert.equal(label.status,0,label.stderr);
+  Object.assign(f.manifest,JSON.parse(fs.readFileSync(manifestPath,'utf8')));
+  assert.equal(f.manifest.buildNumber,'61.1');
+  assert.equal(f.manifest.sourceRevision,'a'.repeat(40));
+  const localName='MovieClaw-Desktop-0.2.112(61.1)-Setup-x64.exe';
+  assert.deepEqual(fs.readFileSync(path.join(f.directory,'labeled',localName)),fs.readFileSync(path.join(f.directory,f.manifest.files[0].name)));
+  const sums=fs.readFileSync(path.join(f.directory,'SHA256SUMS.txt'),'utf8');
+  for (const item of [...f.manifest.files,...f.manifest.buildArtifacts]) assert.ok(sums.includes(`${item.sha256}  ${item.name}`));
+  assert.equal(f.run().status,0);
+  fs.appendFileSync(path.join(f.directory,f.manifest.buildArtifacts[0].name),'mutated');
+  assert.notEqual(f.run().status,0);
+});
+
+test('invalid build labels and changed originals cannot create a labeled installer', t => {
+  const f=fixture(t);fs.writeFileSync(path.join(f.directory,'release-manifest.json'),JSON.stringify(f.manifest));
+  const labeling=path.resolve(__dirname,'../scripts/label-packages.py');
+  const run=number=>spawnSync(process.platform==='win32'?'python':'python3',[labeling,'--directory',f.directory,'--build-number',number],{encoding:'utf8'});
+  for (const number of ['0.1','61.0','61','61.1/../../bad','61.1)']) assert.notEqual(run(number).status,0);
+  fs.appendFileSync(path.join(f.directory,f.manifest.files[0].name),'changed');
+  assert.notEqual(run('61.1').status,0);
+  assert.equal(fs.existsSync(path.join(f.directory,'labeled')),false);
+});

@@ -781,6 +781,46 @@ test('retry budget permits one native retry then server fallback and caps repeat
   h.A.onPlaybackNetworkDead('lost'); assert.match(final, /预算已用尽/);
 });
 
+test('manual retry restores native routing while preserving selected tracks, quality and position', () => {
+  const h = harness(); let next;
+  h.A._retryItem = {media_item_id:3, __forceHtml5:true, audio_track:'a:1', subtitle_track:'s:2', __maxHeight:0, attemptId:'failed'};
+  h.A._retryStartMs = 120000;h.A.startPlayback = item => next = item;
+  h.A.retryPlayback();
+  assert.equal(next.__forceHtml5,undefined);assert.equal(next.attemptId,undefined);
+  assert.equal(next.startMs,120000);assert.equal(next.audio_track,'a:1');assert.equal(next.subtitle_track,'s:2');assert.equal(next.__maxHeight,0);
+  assert.equal(h.A._retryItem.__forceHtml5,true);
+});
+
+test('failed capped playback offers explicit original quality recovery and preserves tracks and position', () => {
+  const h = harness(); let dialog, next;
+  h.A._mpvReady = true;
+  h.A._retryItem = item({file_id:81, __maxHeight:1080, __forceHtml5:true,
+    audio_track:'embedded:1', subtitle_track:'embedded:2', startMs:123000});
+  h.P.showPlayerDialog = value => dialog = value;
+  h.A._showPlaybackError('服务器无法转码 HDR10', '使用第三方播放器');
+  assert.match(dialog.message,/1080p.*服务器/);
+  assert.equal(dialog.alternative[0],'原画播放');
+  assert.equal(h.storage.get('mc_quality_memory'),undefined);
+  h.A.startPlayback = value => next = value;
+  dialog.primary[1]();
+  assert.equal(next.__maxHeight,1080);
+  dialog.alternative[1]();
+  assert.equal(next.__maxHeight,0);assert.equal(next.__forceHtml5,undefined);
+  assert.equal(next.file_id,81);assert.equal(next.startMs,123000);
+  assert.equal(next.audio_track,'embedded:1');assert.equal(next.subtitle_track,'embedded:2');
+  assert.deepEqual(JSON.parse(h.storage.get('mc_quality_memory')),{});
+});
+
+test('original recovery is unavailable without native playback, with uncapped quality or forced server disc handling', () => {
+  for (const [native, cap, serverDisc] of [[false,1080,false],[true,0,false],[true,1080,true]]) {
+    const h = harness(); let dialog;
+    h.A._mpvReady = native;h.A._retryItem=item({__maxHeight:cap,__forceServerDisc:serverDisc});
+    h.P.showPlayerDialog=value=>dialog=value;
+    h.A._showPlaybackError('失败','服务器建议');
+    assert.equal(dialog.alternative,null);assert.equal(dialog.message,'服务器建议');
+  }
+});
+
 test('native mouse input uses the same controls and does not toggle pause on a single click', () => {
   const h = harness(); nativeTracks(h); let full = 0;
   h.P.toggleFullscreen = () => full++;
