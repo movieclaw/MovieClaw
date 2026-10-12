@@ -4,9 +4,35 @@ on:
   workflow_dispatch:
   push:
     branches: [main, 'feat/windows-*', 'codex/**']
-    paths: ['plugins/watch-presence/**', '.github/workflows/watch-presence.yml']
+    paths:
+      - 'plugins/watch-presence/**'
+      - '.github/workflows/watch-presence.yml'
+      - 'src/movieclaw_api/plugins/**'
+      - 'src/movieclaw_api/api/deps.py'
+      - 'src/movieclaw_api/services/auth.py'
+      - 'src/movieclaw_api/services/library/access.py'
+      - 'src/movieclaw_api/services/playback_activity.py'
+      - 'src/movieclaw_db/**'
+      - 'src/movieclaw_kernel/**'
+      - 'src/movieclaw_playback/activity.py'
+      - 'src/movieclaw_playback/events.py'
+      - 'pyproject.toml'
+      - 'tests/conftest.py'
   pull_request:
-    paths: ['plugins/watch-presence/**', '.github/workflows/watch-presence.yml']
+    paths:
+      - 'plugins/watch-presence/**'
+      - '.github/workflows/watch-presence.yml'
+      - 'src/movieclaw_api/plugins/**'
+      - 'src/movieclaw_api/api/deps.py'
+      - 'src/movieclaw_api/services/auth.py'
+      - 'src/movieclaw_api/services/library/access.py'
+      - 'src/movieclaw_api/services/playback_activity.py'
+      - 'src/movieclaw_db/**'
+      - 'src/movieclaw_kernel/**'
+      - 'src/movieclaw_playback/activity.py'
+      - 'src/movieclaw_playback/events.py'
+      - 'pyproject.toml'
+      - 'tests/conftest.py'
 
 permissions:
   contents: read
@@ -15,17 +41,31 @@ jobs:
   host-contract:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - host: baseline-0.36
+            ref: 6b3b93305dd854e94ed0a118b08a10e37ce70932
+          - host: current
+            ref: main
+    name: host-contract (${{ matrix.host }})
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with:
           repository: movieclaw/MovieClaw
-          ref: 6b3b93305dd854e94ed0a118b08a10e37ce70932
+          # Upstream PRs test their exact merge candidate; the Windows release
+          # repository tests the current upstream host rather than its older copy.
+          ref: ${{ matrix.host == 'current' && github.repository == 'movieclaw/MovieClaw' && github.sha || matrix.ref }}
           path: server-baseline
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
       - uses: astral-sh/setup-uv@v6
+      - name: Record the tested host source
+        working-directory: server-baseline
+        run: git rev-parse HEAD
       - name: Install host test dependencies
         working-directory: server-baseline
         run: |
@@ -44,6 +84,6 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: watch-presence-${{ github.sha }}
+          name: watch-presence-${{ github.sha }}-${{ matrix.host }}
           path: plugin-dist
           if-no-files-found: error
