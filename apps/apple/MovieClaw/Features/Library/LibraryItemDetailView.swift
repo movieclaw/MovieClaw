@@ -42,6 +42,8 @@ struct LibraryItemDetailView: View {
     @State private var deleteFile: API.LibraryFileView?
     /// 修正识别结果拍板过：关窗时再重拉（同 Web reidentifyDirty）
     @State private var reidentifyDirty = false
+    /// 相似推荐（库内）：按条目拉一次，不随刮削轮询重拉
+    @State private var similar: [API.LibraryItemView] = []
 
     /// 标题区滚出视野后才在导航栏显示片名、恢复顶部的滚动边缘效果（R-6，同发现详情页）：
     /// Hero 全出血到状态栏，返回 / ⋯ 直接浮在剧照上
@@ -113,6 +115,7 @@ struct LibraryItemDetailView: View {
         // 进了详情页多半要播：先把起播要用的连接连好（见 PlaybackPreconnect）
         .task { PlaybackPreconnect.warm(api: api) }
         .task(id: playUnitKey) { await loadResume() }
+        .task(id: itemId) { similar = await LibrarySimilarSection.load(api: api, libraryId: libraryId, itemId: itemId) }
         .onReceive(NotificationCenter.default.publisher(for: .playbackStopReported)) { note in
             guard note.userInfo?["mediaItemId"] as? Int == itemId else { return }
             Task { await loadResume(keepCurrent: true) }
@@ -224,6 +227,9 @@ struct LibraryItemDetailView: View {
                         )
                     }
                     castRow(detail)
+                    if !similar.isEmpty {
+                        LibrarySimilarSection(libraryId: libraryId, items: similar)
+                    }
                     let files = isMovie ? detail.files : (selectedEpisode?.files ?? [])
                     if !files.isEmpty {
                         fileSection(detail, files: files)

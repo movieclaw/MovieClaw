@@ -52,6 +52,8 @@ struct TVItemDetailView: View {
     @State private var watched: API.PlaybackStateView?
     /// 电影所属的作品系列（《哈利·波特》这种）：整个系列按上映顺序，库里没有的也在（置灰）。没有系列为 nil
     @State private var series: API.CollectionSeriesView?
+    /// 相似推荐（只在自己库里挑，见 `TVSimilarRow`）。没有、接口失败、旧服务端没有这个接口都是空，整行不出
+    @State private var similar: [API.LibraryItemView] = []
     @State private var favorite: Bool?
     @State private var marking = false
     /// 列表滚动距离：只给背景层读
@@ -401,6 +403,10 @@ struct TVItemDetailView: View {
                 TVCastRow(people: people, itemId: itemId)
                     .equatable()
             }
+            if !similar.isEmpty {
+                TVSimilarRow(items: similar, libraryId: libraryId)
+                    .equatable()
+            }
             if !otherCollections(detail).isEmpty {
                 collectionsRow(detail)
             }
@@ -740,6 +746,8 @@ struct TVItemDetailView: View {
     // MARK: 加载与动作
 
     private func reload() async {
+        // 相似推荐与详情并行拉：它在下半截最底下，不挡首屏
+        async let similarItems = try? api.uiLibraryItemsSimilar(libraryId: libraryId, mediaItemId: itemId)
         do {
             let fresh = try await api.libraryItemsGet(libraryId: libraryId, mediaItemId: itemId)
             if fresh.kind == "tv", season == nil {
@@ -763,6 +771,7 @@ struct TVItemDetailView: View {
             }
             // 系列读完再出页面：首屏要按有没有系列决定底下露不露
             await loadSeries(fresh)
+            similar = await similarItems ?? []
             detail = fresh
             failed = false
         } catch is CancellationError {
@@ -1078,6 +1087,36 @@ private struct TVSeriesRow: View, Equatable {
             }
         }
         .defaultFocus($focused, series.parts.first { $0.mediaItemId == itemId }?.tmdbId, priority: .userInitiated)
+    }
+}
+
+/// 相似推荐一行（Web / iPhone 同名一行）：只推观看者自己库里有的片，按确认进那一部的详情。
+/// 往下进这一行落在第一张（最像的那部）。焦点由这一行自己管（同 `TVCastRow`）
+private struct TVSimilarRow: View, Equatable {
+    let items: [API.LibraryItemView]
+    let libraryId: Int
+
+    @Environment(\.api) private var api
+    @Environment(TVRouter.self) private var router
+    @FocusState private var focused: Int?
+
+    static func == (lhs: Self, rhs: Self) -> Bool { lhs.items == rhs.items && lhs.libraryId == rhs.libraryId }
+
+    var body: some View {
+        TVShelf(title: "相似推荐") {
+            ForEach(items, id: \.mediaItemId) { item in
+                TVPosterCard(
+                    title: item.title,
+                    subtitle: item.year.map(String.init),
+                    imageURL: api.image(item.posterUrl, width: ImageWidth.tvCard(TVMetrics.posterWidth))
+                ) {
+                    router.push(.item(libraryId: item.libraryId ?? libraryId, itemId: item.mediaItemId))
+                }
+                .focused($focused, equals: item.mediaItemId)
+                .accessibilityIdentifier("tv-similar-\(item.mediaItemId)")
+            }
+        }
+        .defaultFocus($focused, items.first?.mediaItemId, priority: .userInitiated)
     }
 }
 

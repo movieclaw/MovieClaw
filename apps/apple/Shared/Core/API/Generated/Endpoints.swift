@@ -1551,6 +1551,14 @@ nonisolated extension APIClient {
         return try await send("POST", "/libraries/\(libraryId)/items/\(mediaItemId)/share", body: body)
     }
 
+    /// 条目详情页的相似推荐（只在观看者可见的同类型库里挑）
+    /// `GET /libraries/{library_id}/items/{media_item_id}/similar`
+    func uiLibraryItemsSimilar(libraryId: Int, mediaItemId: Int, limit: Int? = nil) async throws -> [API.LibraryItemView] {
+        var query: [URLQueryItem] = []
+        if let limit { query.append(URLQueryItem(name: "limit", value: "\(limit)")) }
+        return try await send("GET", "/libraries/\(libraryId)/items/\(mediaItemId)/similar", query: query)
+    }
+
     /// 预览条目转移：哪些目录/文件搬到目标库的什么位置（只读，不动磁盘）
     /// `GET /libraries/{library_id}/items/{media_item_id}/transfer-preview`
     func libraryItemsPreviewTransfer(libraryId: Int, mediaItemId: Int, targetLibraryId: Int) async throws -> API.TransferPreviewView {
