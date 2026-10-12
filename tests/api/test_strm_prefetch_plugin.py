@@ -3,7 +3,7 @@
 真实应用 + 随带插件：探测打桩（不碰网络），验证调度——
 
 - 启动 / 改设置后补探全部待探条目，跳过的格式不探，任务中心显示插件给的名字；
-- 开始播放让这一季接下来几集插队（优先级高于整库补探）；
+- 开始播放让这一季接下来几集插队：只改整库补探的顺序，不另建任务；没有待探网盘文件的条目什么都不做；
 - 停用取消它的任务、事件不再触发；卸载后回到首播现探；恢复后接着补探。
 """
 
@@ -118,6 +118,34 @@ async def seed(root, episodes: int) -> dict:
         return {"library": library.id, "show": show.id, "files": files}
 
 
+async def _legacy_item_job(media_item_id: int) -> None:
+    from movieclaw_api.services import jobs
+    from movieclaw_db.engine import get_database
+
+    async with get_database().session() as session:
+        await jobs.create_job(
+            session,
+            job_type=f"{ID}:item",
+            input_data={"media_item_id": media_item_id, "season": 1, "limit": 2},
+            origin="plugin",
+        )
+    jobs.wake_job_dispatcher()
+
+
+def start_playback(client: TestClient, show: int, episode: int) -> None:
+    reply = client.post(
+        "/api/v1/playback/progress",
+        json={
+            "media_item_id": show,
+            "season_number": 1,
+            "episode_number": episode,
+            "event": "start",
+            "position_ms": 0,
+        },
+    )
+    assert reply.status_code == 200, reply.text
+
+
 def jobs_of(client: TestClient, job_type: str) -> list[dict]:
     reply = client.get("/api/v1/jobs", params={"job_type": job_type, "limit": 100})
     assert reply.status_code == 200, reply.text
@@ -140,7 +168,7 @@ def test_backfills_pending_files_and_skips_slow_formats(env) -> None:
         )
         assert plugin["tier"] == "official" and plugin["removable"] is True
 
-        client.portal.call(lambda: seed(tmp / "media", 3))
+        ids = client.portal.call(lambda: seed(tmp / "media", 3))
         # 改设置会按新设置重启插件：启动时发现有待探的，排一轮补探
         configure(client, interval_seconds=0.5)
         wait_for(lambda: len(probed) == 3)
@@ -152,47 +180,37 @@ def test_backfills_pending_files_and_skips_slow_formats(env) -> None:
         pending = client.get("/api/v1/library-strm/pending").json()["data"]
         assert [i["container"] for i in pending["items"]] == ["ts"]
 
+        # 探完了（剩下的 ts 不预探）：打开详情、开始播放都不再排任务
+        client.get(f"/api/v1/libraries/{ids['library']}/items/{ids['show']}")
+        start_playback(client, ids["show"], 1)
+        time.sleep(0.5)
+        assert len(jobs_of(client, f"{ID}:backfill")) == 1
+        assert jobs_of(client, f"{ID}:item") == []
+
+        # 升级前排下的旧插队任务：有处理器认领，直接收尾，不卡成「请更新」
+        client.portal.call(lambda: _legacy_item_job(ids["show"]))
+        wait_for(lambda: [j["status"] for j in jobs_of(client, f"{ID}:item")] == ["succeeded"])
+
 
 def test_playback_jumps_the_queue_for_the_next_episodes(env) -> None:
     tmp, probed = env
     app, client = make_client()
     with client:
         ids = client.portal.call(lambda: seed(tmp / "media", 6))
-        # 间隔拉长，整库补探探完第一个就歇着；播第 3 集 → 第 4、5 集插队
-        configure(client, interval_seconds=30)
+        # 整库补探新入库的在前：先探第 6 集，歇一个间隔；这时播第 3 集 → 第 4、5 集插到前面
+        configure(client, interval_seconds=3)
         wait_for(lambda: len(probed) == 1)
-        reply = client.post(
-            "/api/v1/playback/progress",
-            json={
-                "media_item_id": ids["show"],
-                "season_number": 1,
-                "episode_number": 3,
-                "event": "start",
-                "position_ms": 0,
-            },
-        )
-        assert reply.status_code == 200, reply.text
-        # 整库补探还在歇着，插队任务先把下一集探了（再歇一个间隔探第 5 集）
-        wait_for(lambda: len(probed) == 2)
-        assert probed[1] == "https://pan.example.com/e4.mkv"
-        [job] = jobs_of(client, f"{ID}:item")
-        assert job["job_type_label"] == "网盘规格预探（插队）"
-        assert job["input_data"]["after_episode"] == 3 and job["input_data"]["limit"] == 2
+        assert probed[0] == "https://pan.example.com/e6.mkv"
+        # 重复上报、随后打开详情都只记插队请求，不建任务；详情的插队排在播放的下一集后面
+        start_playback(client, ids["show"], 3)
+        start_playback(client, ids["show"], 3)
+        for _ in range(5):
+            client.get(f"/api/v1/libraries/{ids['library']}/items/{ids['show']}")
+        wait_for(lambda: len(probed) == 3)
+        assert probed[1:] == ["https://pan.example.com/e4.mkv", "https://pan.example.com/e5.mkv"]
+        assert jobs_of(client, f"{ID}:item") == []
         [backfill] = jobs_of(client, f"{ID}:backfill")
         assert backfill["status"] == "running"
-        # 重复的播放上报不重复排（去重键）
-        client.post(
-            "/api/v1/playback/progress",
-            json={
-                "media_item_id": ids["show"],
-                "season_number": 1,
-                "episode_number": 3,
-                "event": "start",
-                "position_ms": 0,
-            },
-        )
-        time.sleep(0.3)
-        assert len(jobs_of(client, f"{ID}:item")) == 1
 
 
 def test_disable_uninstall_and_restore(env) -> None:
@@ -212,10 +230,10 @@ def test_disable_uninstall_and_restore(env) -> None:
                 in (["cancelled"], ["cancelling"])
             )
         )
-        # 停用后打开详情不再插队
+        # 停用后打开详情不再插队，也不再排补探
         client.get(f"/api/v1/libraries/{ids['library']}/items/{ids['show']}")
         time.sleep(0.3)
-        assert jobs_of(client, f"{ID}:item") == []
+        assert len(jobs_of(client, f"{ID}:backfill")) == 1
 
         reply = client.delete(f"/api/v1/app/plugins/{ID}/bundled")
         assert reply.status_code == 200, reply.text

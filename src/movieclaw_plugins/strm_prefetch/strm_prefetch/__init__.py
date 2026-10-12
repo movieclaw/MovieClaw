@@ -9,8 +9,9 @@
 - **整库补探**（``strm-prefetch:backfill``，优先级 −10）：每次取一个待探文件（新入库的在前），探完
   歇一个间隔；一轮最长 10 分钟就交还执行位，再排下一轮，直到没有待探的。启动、启用插件、扫描入账了
   新的网盘文件时排上（去重：同时只有一个）。
-- **插队**（``strm-prefetch:item``，优先级 0，先于整库补探被领取）：开始播放 → 这一季接下来几集；
-  收藏 → 整部（有上限）；打开详情 → 前几个。
+- **插队**：只改整库补探的处理顺序，不另建任务。开始播放 → 这一季接下来几集；收藏 → 整部（有上限）；
+  打开详情 → 前几个。插队请求记在插件进程内存里，补探每取下一个文件时先看它；条目没有待探的网盘文件
+  （本地片、已经探完）就什么都不做。
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import dataclass
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -39,7 +41,6 @@ from movieclaw_sdk.jobs import (
     JobCancelled,
     JobRetry,
     RegisteredJobHandler,
-    ResourceRef,
 )
 from movieclaw_sdk.ops import HOST_OPS, OpsError
 
@@ -47,7 +48,8 @@ logger = logging.getLogger("movieclaw_plugins.strm_prefetch")
 
 PLUGIN_ID = "strm-prefetch"
 BACKFILL = f"{PLUGIN_ID}:backfill"
-ITEM = f"{PLUGIN_ID}:item"
+#: 旧版本的插队任务类型：插队已并进整库补探，只为把升级前排下的旧任务收尾
+LEGACY_ITEM = f"{PLUGIN_ID}:item"
 
 #: 整库补探一轮最长占用执行位多久（秒）：到点交还，让别的任务也有机会
 ROUND_SECONDS = 600.0
@@ -55,6 +57,25 @@ ROUND_SECONDS = 600.0
 NEXT_EPISODES = 2
 ON_VIEW = 3
 ON_FAVORITE = 30
+#: 最多记多少个插队请求，更早的丢掉
+JUMP_LIMIT = 20
+#: 插队请求的档：播放的下一集 → 收藏 → 打开详情，同档后到的在前
+ON_PLAYBACK_RANK, ON_FAVORITE_RANK, ON_VIEW_RANK = 0, 1, 2
+
+
+@dataclass
+class _Jump:
+    """一个插队请求：这个条目（这一季、这一集之后）待探的先探，最多 ``remaining`` 个。"""
+
+    media_item_id: int
+    season: int | None
+    after_episode: int | None
+    remaining: int
+    rank: int
+
+    @property
+    def key(self) -> tuple[int, int | None, int | None]:
+        return (self.media_item_id, self.season, self.after_episode)
 
 
 class Config(BaseModel):
@@ -78,6 +99,8 @@ class _Prefetch:
         self.config: Config = ctx.config
         self.jobs = ctx.use(PLUGIN_JOBS).scoped(ctx)
         self.ops: Any = None
+        self.jumps: list[_Jump] = []
+        self.running = False
 
     async def call(self, operation: str, **arguments: Any) -> Any:
         if self.ops is None:
@@ -120,7 +143,7 @@ class _Prefetch:
 
     async def backfill_if_pending(self) -> None:
         try:
-            if (await self.pending(1))["total"]:
+            if (await self.pending(1))["items"]:
                 await self.backfill()
         except Exception:  # noqa: BLE001 -- 启动时查不到就等下一次入账
             logger.exception("查询待探的网盘条目失败")
@@ -132,23 +155,40 @@ class _Prefetch:
         season: int | None = None,
         after_episode: int | None = None,
         limit: int,
-        reason: str,
+        rank: int,
     ) -> None:
-        """插队：这个条目（这一季、这一集之后）待探的先探。"""
-        key = f"item:{media_item_id}:{season}:{after_episode}:{limit}"
-        await self.jobs.create(
-            ITEM,
-            input={
-                "media_item_id": media_item_id,
-                "season": season,
-                "after_episode": after_episode,
-                "limit": limit,
-                "reason": reason,
-            },
-            priority=0,
-            dedupe_key=key,
-            resources=[ResourceRef("media_item", media_item_id, "context")],
-        )
+        """插队：这个条目（这一季、这一集之后）待探的排到整库补探的前面。"""
+        # 补探没在跑：多半是没有待探的了（或一轮刚到点）。这个条目也没有待探的网盘文件
+        # （本地片、已经探完）就什么都不做；有就排一轮补探，它会先探这里
+        if (
+            not self.running
+            and not (await self.pending(1, media_item_id=media_item_id, season=season))["items"]
+        ):
+            return
+        jump = _Jump(media_item_id, season, after_episode, limit, rank)
+        others = [j for j in self.jumps if j.key != jump.key]
+        at = next((i for i, j in enumerate(others) if j.rank >= rank), len(others))
+        self.jumps = [*others[:at], jump, *others[at:]][:JUMP_LIMIT]
+        if not self.running:
+            await self.backfill()
+
+    async def _next_jump(self) -> int | None:
+        """插队请求里下一个待探的文件；请求探够了、或没有待探的了就丢掉它。"""
+        while self.jumps:
+            jump = self.jumps[0]
+            if jump.remaining > 0:
+                page = await self.pending(
+                    200, media_item_id=jump.media_item_id, season=jump.season, order="episode"
+                )
+                for item in page["items"]:
+                    if jump.after_episode is None or (item["season"], item["episode"]) > (
+                        jump.season,
+                        jump.after_episode,
+                    ):
+                        jump.remaining -= 1
+                        return item["file_id"]
+            self.jumps.pop(0)
+        return None
 
     # ------------------------------------------------------------------ 事件
     async def on_files_added(self, event: FilesAdded) -> None:
@@ -162,32 +202,38 @@ class _Prefetch:
                 season=event.unit.season,
                 after_episode=event.unit.episode,
                 limit=NEXT_EPISODES,
-                reason="接下来要播的几集",
+                rank=ON_PLAYBACK_RANK,
             )
 
     async def on_favorite(self, event: ItemFavorite) -> None:
         await self.jump(
-            event.media.id, season=event.season, limit=ON_FAVORITE, reason="收藏的条目"
+            event.media.id, season=event.season, limit=ON_FAVORITE, rank=ON_FAVORITE_RANK
         )
 
     async def on_viewed(self, event: ItemViewed) -> None:
-        await self.jump(
-            event.media.id, season=event.season, limit=ON_VIEW, reason="打开详情的条目"
-        )
+        await self.jump(event.media.id, season=event.season, limit=ON_VIEW, rank=ON_VIEW_RANK)
 
     # ------------------------------------------------------------------ 任务
     async def run_backfill(self, context: Any, data: dict[str, Any]) -> dict[str, Any]:
+        self.running = True
+        try:
+            return await self._backfill_round(context)
+        finally:
+            self.running = False
+
+    async def _backfill_round(self, context: Any) -> dict[str, Any]:
         started = time.monotonic()
-        first = await self.pending(1)
-        total = first["total"]
+        total = (await self.pending(1))["total"]
         done = failed = 0
         last: int | None = None
         while time.monotonic() - started < ROUND_SECONDS:
             await context.raise_if_cancelled()
-            page = first if done == 0 and failed == 0 else await self.pending(1)
-            if not page["items"]:
-                return {"probed": done, "failed": failed, "remaining": 0}
-            file_id = page["items"][0]["file_id"]
+            file_id = await self._next_jump()
+            if file_id is None:
+                page = await self.pending(1)
+                if not page["items"]:
+                    return {"probed": done, "failed": failed, "remaining": 0}
+                file_id = page["items"][0]["file_id"]
             if file_id == last:
                 # 同一个文件还在队首：主程序没记下结论（不该发生），别原地打转
                 raise JobRetry("网盘条目的探测结论没记下来，稍后再试", delay_seconds=300)
@@ -209,35 +255,9 @@ class _Prefetch:
         self.ctx.task(self._next_round(), name="next-round")
         return {"probed": done, "failed": failed, "remaining": "more"}
 
-    async def run_item(self, context: Any, data: dict[str, Any]) -> dict[str, Any]:
-        after = data.get("after_episode")
-        limit = int(data.get("limit") or 1)
-        page = await self.pending(
-            200,
-            media_item_id=data["media_item_id"],
-            season=data.get("season"),
-            order="episode",
-        )
-        targets = [
-            item
-            for item in page["items"]
-            if after is None or (item["season"], item["episode"]) > (data.get("season"), after)
-        ][:limit]
-        done = 0
-        for index, item in enumerate(targets):
-            await context.raise_if_cancelled()
-            if index:
-                await self._pause(context)
-            if await self._probe_quietly(item["file_id"]) in ("probed", "ready"):
-                done += 1
-            await context.update_progress(
-                mode="determinate",
-                phase="probe",
-                message=f"已探 {index + 1} / {len(targets)}",
-                current=index + 1,
-                total=len(targets),
-            )
-        return {"probed": done, "targets": len(targets)}
+    async def run_legacy_item(self, context: Any, data: dict[str, Any]) -> dict[str, Any]:
+        """升级前排下的插队任务：插队已并进整库补探，直接收尾。"""
+        return {"probed": 0, "targets": 0}
 
     async def _probe_quietly(self, file_id: int) -> str:
         try:
@@ -280,8 +300,10 @@ async def strm_prefetch(ctx: Context) -> None:
     )
     ctx.contribute(
         JOB_HANDLERS,
-        ITEM,
-        RegisteredJobHandler(prefetch.run_item, frozenset({1}), title="网盘规格预探（插队）"),
+        LEGACY_ITEM,
+        RegisteredJobHandler(
+            prefetch.run_legacy_item, frozenset({1}), title="网盘规格预探（插队）"
+        ),
     )
     ctx.on(LIBRARY_FILES_ADDED, prefetch.on_files_added, id="files-added")
     ctx.on(PLAYBACK_STARTED, prefetch.on_playback, id="playback")
