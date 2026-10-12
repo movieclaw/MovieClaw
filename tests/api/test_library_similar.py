@@ -99,6 +99,17 @@ def test_same_series_comes_first() -> None:
     assert rank_similar(target, candidates, 10)[0] == 51
 
 
+def test_exclude_series_leaves_series_out() -> None:
+    """客户端另有系列一行时（Apple TV），相似推荐里不再重复同系列的片。"""
+    target = SimilarProfile(genres=frozenset({DRAMA}), series_key="tmdb:1")
+    candidates = {
+        52: SimilarProfile(genres=frozenset({DRAMA}), series_key="tmdb:1"),
+        53: SimilarProfile(genres=frozenset({DRAMA})),
+    }
+    assert rank_similar(target, candidates, 10) == [52, 53]
+    assert rank_similar(target, candidates, 10, exclude_series=True) == [53]
+
+
 def test_lead_pair_outranks_supporting_overlap() -> None:
     """同一个人当主角的片最像：《三个老枪手》的摩根·弗里曼在《黑暗骑士》里是第 7 位，
     两人同框只算一点；在《遗愿清单》里也是主角，与同导演同分。"""
@@ -271,7 +282,9 @@ async def test_similar_route_ranks_library_items(db, tmp_path) -> None:
     library_id, ids = await _scan(db, tmp_path)
 
     async with db.session() as session:
-        views = (await list_similar_items(library_id, ids["目标片"], 12, session, _ADMIN)).data
+        views = (
+            await list_similar_items(library_id, ids["目标片"], 12, False, session, _ADMIN)
+        ).data
 
     # 同一位主角（第一番对第一番）且类型全对上的排第一，同导演（类型只对上一半）次之；
     # 只同「剧情」的垫底；动画（硬边界）与毫无共同点的喜剧不出现；目标片自己不出现

@@ -1553,9 +1553,10 @@ nonisolated extension APIClient {
 
     /// 条目详情页的相似推荐（只在观看者可见的同类型库里挑）
     /// `GET /libraries/{library_id}/items/{media_item_id}/similar`
-    func uiLibraryItemsSimilar(libraryId: Int, mediaItemId: Int, limit: Int? = nil) async throws -> [API.LibraryItemView] {
+    func uiLibraryItemsSimilar(libraryId: Int, mediaItemId: Int, limit: Int? = nil, excludeSeries: Bool? = nil) async throws -> [API.LibraryItemView] {
         var query: [URLQueryItem] = []
         if let limit { query.append(URLQueryItem(name: "limit", value: "\(limit)")) }
+        if let excludeSeries { query.append(URLQueryItem(name: "exclude_series", value: "\(excludeSeries)")) }
         return try await send("GET", "/libraries/\(libraryId)/items/\(mediaItemId)/similar", query: query)
     }
 

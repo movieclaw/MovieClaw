@@ -2877,6 +2877,9 @@ async def list_similar_items(
     library_id: int,
     media_item_id: int,
     limit: Annotated[int, Query(ge=1, le=30, description="最多返回几部")] = 12,
+    exclude_series: Annotated[
+        bool, Query(description="排除同系列的片（客户端另有完整的系列一行时用，如 Apple TV）")
+    ] = False,
     session: AsyncSession = Depends(get_session),
     principal: Principal = Depends(require_login),
 ) -> ApiResponse[list[LibraryItemView]]:
@@ -2898,6 +2901,7 @@ async def list_similar_items(
             member_id=principal.member_id if principal.member_id is not None else 0,
             content_limit=await content_limit_for(session, principal),
             limit=limit,
+            exclude_series=exclude_series,
         )
     )
 

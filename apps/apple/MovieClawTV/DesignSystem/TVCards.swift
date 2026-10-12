@@ -112,6 +112,37 @@ struct TVPosterCard: View {
     }
 }
 
+/// 演职员竖版长卡（同 iPhone 详情页的演职员卡，2026-10-12 用户要求换掉圆头像）：2:3 照片，下面常显姓名与角色。
+/// 焦点效果与海报卡同一套（`.borderless` 放大抬起）；没有照片的人画姓名首字，一格仍是一位演员，不是坏图
+struct TVPersonPortraitCard: View {
+    let name: String
+    let role: String?
+    let imageURL: URL?
+    let action: () -> Void
+
+    /// 比海报（266）小一档：人物是辅助信息，一排比海报多放一两位
+    static let width: CGFloat = 200
+
+    var body: some View {
+        Button(action: action) {
+            TVCardLabel(title: name, subtitle: role, width: Self.width, caption: .always, badge: nil, compactCaption: true) {
+                ZStack {
+                    LinearGradient(colors: [Color(white: 0.3), Color(white: 0.16)], startPoint: .top, endPoint: .bottom)
+                    Text(TVAvatar.initials(name))
+                        .font(.system(size: Self.width * 0.3, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.35))
+                    if let imageURL {
+                        RemoteImage(url: imageURL, placeholderText: "")
+                    }
+                }
+                .frame(width: Self.width, height: Self.width * 1.5)
+            }
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel([name, role].compactMap { $0 }.joined(separator: "，"))
+    }
+}
+
 /// 横版剧照卡（16:9）：「接下来继续」、分集、刚入库。
 /// 给了 `detail`（「第 2 季 第 6 集 · 剩 18 分钟」）时，进度条与这行字收进图片底部的暗带里，
 /// 不再挂在卡片下面；没给时进度条贴图片底边，片名、副标题照旧写在下面
@@ -379,6 +410,8 @@ private struct TVCardLabel<Art: View>: View {
     let badge: String?
     var focusDetail: String?
     var note: TVCardNote?
+    /// 小一号的说明文字（人物卡：译名动辄七八个字，按海报卡的字号一半都要截断）
+    var compactCaption = false
     @ViewBuilder let art: () -> Art
 
     /// 在按钮的标签里读到的是这张卡（按钮）的焦点
@@ -425,11 +458,11 @@ private struct TVCardLabel<Art: View>: View {
             if caption == .always {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
-                        .font(.callout.weight(.medium))
+                        .font(compactCaption ? .system(size: 24, weight: .semibold) : .callout.weight(.medium))
                         .lineLimit(1)
                     if let subtitle {
                         Text(subtitle)
-                            .font(.caption)
+                            .font(compactCaption ? .system(size: 20) : .caption)
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }

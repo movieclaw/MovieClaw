@@ -147,9 +147,17 @@ def _idf_table(profiles: Iterable[SimilarProfile], attr: str) -> dict:
 
 
 def rank_similar(
-    target: SimilarProfile, candidates: dict[int, SimilarProfile], limit: int
+    target: SimilarProfile,
+    candidates: dict[int, SimilarProfile],
+    limit: int,
+    *,
+    exclude_series: bool = False,
 ) -> list[int]:
-    """给候选打分，返回最像的 ``limit`` 个条目 id（不含无共同点的）。"""
+    """给候选打分，返回最像的 ``limit`` 个条目 id（不含无共同点的）。
+
+    ``exclude_series``：同系列的片不进来——客户端另有完整的系列一行时（Apple TV），
+    这一行留给系列之外的片。
+    """
     genre_idf = _idf_table([target, *candidates.values()], "genres")
     studio_idf = _idf_table([target, *candidates.values()], "studios")
     # 只出现在一部片上的厂牌就是最稀有的那一档
@@ -162,6 +170,8 @@ def rank_similar(
             continue
         # 没有系列的片 series_key 是空串，不是 NULL：空对空不算同系列
         same_series = bool(target.series_key) and other.series_key == target.series_key
+        if same_series and exclude_series:
+            continue
         directors = len(target.directors & other.directors)
         shares_cast = not target.cast.isdisjoint(other.cast)
         genre = _idf_jaccard(target.genres, other.genres, genre_idf)
@@ -206,6 +216,7 @@ async def similar_item_ids(
     member_id: int,
     content_limit: ContentLimit | None,
     limit: int,
+    exclude_series: bool = False,
 ) -> list[int]:
     """在 ``library_ids`` 范围内找与该条目最像的片（同类型：电影找电影、剧找剧）。"""
     item = await session.get(MediaItem, media_item_id)
@@ -310,7 +321,7 @@ async def similar_item_ids(
                 cast=frozenset(cast),
                 leads=frozenset(leads),
             )
-    return rank_similar(target, profiles, limit)
+    return rank_similar(target, profiles, limit, exclude_series=exclude_series)
 
 
 async def build_similar_wall(
@@ -321,6 +332,7 @@ async def build_similar_wall(
     member_id: int,
     content_limit: ContentLimit | None,
     limit: int,
+    exclude_series: bool = False,
 ) -> list[LibraryItemView]:
     """相似推荐那一行的海报卡：与首页跨库墙同一份聚合，卡片长得一模一样。"""
     if not library_ids:
@@ -332,6 +344,7 @@ async def build_similar_wall(
         member_id=member_id,
         content_limit=content_limit,
         limit=limit,
+        exclude_series=exclude_series,
     )
     if not ids:
         return []

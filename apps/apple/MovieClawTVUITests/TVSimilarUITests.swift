@@ -4,6 +4,8 @@ import XCTest
 /// （同系列 / 同导演的片互为最像）。对着隔离的测试服务器跑，环境变量经 TEST_RUNNER_ 前缀转交：
 /// - MC_TEST_SERVER / MC_TEST_USERNAME / MC_TEST_PASSWORD；
 /// - MC_TEST_SIMILAR_ROUTE：起点条目「库id-条目id」（如 1-13：《沙丘》）；
+/// - MC_TEST_SIMILAR_SERIES_SIBLING（可选）：起点那部同系列的另一部的条目 id（如 12：《沙丘2》）。
+///   给了就验证它不在相似推荐里（系列一行已经列全），且系列一行排在相似推荐下面；
 /// - MC_SHOT_DIR：截图同时落盘到这个目录。
 final class TVSimilarUITests: XCTestCase {
     @MainActor
@@ -29,6 +31,16 @@ final class TVSimilarUITests: XCTestCase {
         XCTAssertNotEqual(target, "tv-similar-\(origin)", "相似推荐里不该有这一部自己")
         Thread.sleep(forTimeInterval: 2)
         snapshot("appletv-similar-row", directory: env["MC_SHOT_DIR"])
+        if let sibling = env["MC_TEST_SIMILAR_SERIES_SIBLING"], !sibling.isEmpty {
+            XCTAssertFalse(app.element("tv-similar-\(sibling)").exists, "有系列一行时，相似推荐里不该再有同系列的片")
+            // 系列一行在相似推荐下面：往下一行焦点离开相似推荐，落到系列上（这一部标「本片」）
+            XCUIRemote.shared.press(.down)
+            Thread.sleep(forTimeInterval: 1.5)
+            XCTAssertFalse(focusedCard.exists, "相似推荐下面应该还有系列一行")
+            snapshot("appletv-series-row", directory: env["MC_SHOT_DIR"])
+            XCUIRemote.shared.press(.up)
+            moveDown(until: app.element(target))
+        }
 
         XCUIRemote.shared.press(.select)
         // 进了那一部：它的相似推荐里有原来那部，且没有它自己
