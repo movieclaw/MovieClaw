@@ -215,6 +215,12 @@ data class LibraryItemDetailView(
     val totalSizeBytes: Long = 0,
     val seasons: List<Int> = emptyList(),
     val seriesName: String? = null,
+    /** 电影所属系列合集：只在这个库真的生成了那个合集时给（详情页「系列」一行据此拉 `collections/{id}/series`） */
+    val seriesCollectionId: Long? = null,
+    /** 外部词条（详情页底部「相关链接」）：没有就不出那一个 */
+    val tmdbId: Long? = null,
+    val imdbId: String? = null,
+    val doubanId: String? = null,
 )
 
 @Serializable

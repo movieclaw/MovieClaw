@@ -463,6 +463,17 @@ interface McApi {
         @Path("itemId") itemId: Long,
     ): McEnvelope<LibraryItemDetailView>
 
+    /**
+     * 条目详情页的相似推荐：只在当前身份可见的同类型库里挑。
+     * `excludeSeries`：排除同系列的片（详情页另有完整的系列一行时用）
+     */
+    @GET("libraries/{libraryId}/items/{itemId}/similar")
+    suspend fun similarItems(
+        @Path("libraryId") libraryId: Long,
+        @Path("itemId") itemId: Long,
+        @Query("exclude_series") excludeSeries: Boolean? = null,
+    ): McEnvelope<List<LibraryItemView>>
+
     @GET("libraries/{libraryId}/items/{itemId}/episodes")
     suspend fun seasonEpisodes(
         @Path("libraryId") libraryId: Long,
@@ -525,6 +536,12 @@ interface McApi {
     suspend fun collection(
         @Path("collectionId") id: Long,
     ): McEnvelope<io.movieclaw.android.core.model.CollectionView>
+
+    /** 系列合集的「已有 N / 共 M」与缺片名单（详情页「系列」一行） */
+    @GET("collections/{collectionId}/series")
+    suspend fun collectionSeries(
+        @Path("collectionId") id: Long,
+    ): McEnvelope<io.movieclaw.android.core.model.CollectionSeriesView>
 
     /** 合集成员：与单库海报墙同一份聚合，卡片因此长得一模一样（首页合集行也用这个） */
     @GET("collections/{collectionId}/items")

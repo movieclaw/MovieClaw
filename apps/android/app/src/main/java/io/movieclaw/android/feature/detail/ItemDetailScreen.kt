@@ -107,6 +107,11 @@ import io.movieclaw.android.core.designsystem.TextMuted
 import io.movieclaw.android.core.designsystem.Warning
 import io.movieclaw.android.core.model.EpisodeView
 import io.movieclaw.android.core.model.LibraryItemDetailView
+import io.movieclaw.android.core.model.LibraryItemView
+import io.movieclaw.android.core.model.CollectionSeriesView
+import io.movieclaw.android.core.api.McApi
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import io.movieclaw.android.core.model.LibraryFileView
 import io.movieclaw.android.core.model.DeleteFollowUpView
 import io.movieclaw.android.core.model.ItemDeletePreviewView
@@ -168,6 +173,21 @@ class ItemDetailViewModel @Inject constructor(
 
     private val _state = MutableStateFlow<Loadable<Detail>>(Loadable.Loading)
     val state = _state.asStateFlow()
+
+    /**
+     * 详情页下面的「相似推荐」与电影的「作品系列」两行（iOS / Apple TV / Mac / Web 同一套规则）。
+     * 有系列一行时相似推荐排除同系列的片——系列那一行已经按上映顺序列全了。
+     */
+    data class Related(
+        val similar: List<LibraryItemView> = emptyList(),
+        val series: CollectionSeriesView? = null,
+    )
+
+    private val _related = MutableStateFlow(Related())
+    val related = _related.asStateFlow()
+
+    /** 两行只在第一次拿到详情时拉：换字幕、恢复文件后整页重拉详情，推荐不跟着闪 */
+    private var relatedRequested = false
 
     private val _selectedSeason = MutableStateFlow<Int?>(null)
     val selectedSeason = _selectedSeason.asStateFlow()
@@ -483,6 +503,30 @@ class ItemDetailViewModel @Inject constructor(
         return lines.joinToString("\n")
     }
 
+    /**
+     * 相似推荐与系列并行拉：先按「有系列合集」排除同系列；系列一行最后没出来（只有一部、
+     * 或拉不到上游档案——本地 NFO 定的系列就没有）时再拉一次不排除的，否则续集哪儿都看不到。
+     * 推荐是锦上添花：失败、旧服务端没有这个接口，都是那一行不出。
+     */
+    private suspend fun fetchRelated(api: McApi, detail: LibraryItemDetailView): Related = coroutineScope {
+        val seriesId = detail.seriesCollectionId.takeIf { detail.kind != "tv" }
+        suspend fun similar(excludeSeries: Boolean) = runCatching {
+            api.similarItems(libraryId, itemId, excludeSeries = if (excludeSeries) true else null).dataOrThrow()
+        }.getOrDefault(emptyList())
+        val similarItems = async { similar(seriesId != null) }
+        val series = seriesId?.let { id ->
+            runCatching { api.collectionSeries(id).dataOrThrow() }.getOrNull()
+                ?.takeIf { it.available && it.parts.size > 1 }
+        }
+        val items = if (seriesId != null && series == null) {
+            similarItems.cancel()
+            similar(false)
+        } else {
+            similarItems.await()
+        }
+        Related(items, series)
+    }
+
     fun load() {
         viewModelScope.launch {
             _state.value = Loadable.Loading
@@ -496,6 +540,10 @@ class ItemDetailViewModel @Inject constructor(
                 val detail = api.libraryItemDetail(libraryId, itemId).dataOrThrow()
                 val (episodes, anchors) = fetchSeasons(detail)
                 _state.value = Loadable.Ready(Detail(detail, episodes, anchors))
+                if (!relatedRequested) {
+                    relatedRequested = true
+                    launch { _related.value = fetchRelated(api, detail) }
+                }
                 episodesBySeason = episodes
                 anchorsBySeason = anchors
                 // 初始选中：续播那一季的锚点（长剧分段 §3「进详情页」：段锁在它所在的段）。
@@ -760,9 +808,14 @@ fun ItemDetailScreen(
     onOpenLlmSettings: () -> Unit = {},
     /** 「交给 Agent 处理」建好会话后跳会话页 */
     onOpenAgentSession: (String) -> Unit = {},
+    /** 相似推荐 / 系列里库内有的那部 → 它的库内详情（库 id, 条目 id） */
+    onOpenItem: (Long, Long) -> Unit = { _, _ -> },
+    /** 系列里缺的那部 → 发现页的 TMDB 详情（title_ref 形如 tmdb:movie:123），在那里订阅 */
+    onOpenTitle: (String) -> Unit = {},
     vm: ItemDetailViewModel = hiltViewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
+    val related by vm.related.collectAsStateWithLifecycle()
     val selectedSeason by vm.selectedSeason.collectAsStateWithLifecycle()
     /** 选中的单元（季 + 集）：播放键、续播点、已看、版本都以它为准（iOS SelectedEpisode） */
     val selectedUnit by vm.selectedEpisode.collectAsStateWithLifecycle()
@@ -882,6 +935,18 @@ fun ItemDetailScreen(
                     )
                 }
                 CastSection(detail = s.value.item, origin = origin, onOpenPerson = onOpenPerson)
+                // 演职员 → 相似推荐 → 系列（iOS / Apple TV / Mac / Web 同一个顺序）
+                SimilarSection(items = related.similar, libraryId = libraryId, origin = origin, onOpenItem = onOpenItem)
+                related.series?.let { series ->
+                    SeriesSection(
+                        series = series,
+                        libraryId = libraryId,
+                        itemId = itemId,
+                        origin = origin,
+                        onOpenItem = onOpenItem,
+                        onOpenTitle = onOpenTitle,
+                    )
+                }
                 // 文件区（iOS `isMovie ? detail.files : selectedEpisode.files`）：
                 // 电影 = 整条的文件；剧集 = 当前选中那一集的文件（没选中就不显示这一区）
                 val sectionFiles = sectionFilesFor(s.value.item, selectedUnit, s.value.episodes)
@@ -913,6 +978,7 @@ fun ItemDetailScreen(
                         },
                     )
                 }
+                ExternalLinks(s.value.item)
                 Spacer(Modifier.height(32.dp))
             }
         }
@@ -1631,6 +1697,134 @@ private fun CastSection(detail: LibraryItemDetailView, origin: String?, onOpenPe
  * 季选择器用下拉菜单而不是一排 chips：季多的剧（十几季很常见）chip 一行放不下，
  * 而这行不滚动——后排的季就点不到了；下拉菜单是可滚的，且能标「未入库」。
  */
+/** 相似推荐：只推自己库里有的片（同主创、主演、类型相近），点进那一部的库内详情；没有就整行不出 */
+@Composable
+private fun SimilarSection(
+    items: List<LibraryItemView>,
+    libraryId: Long,
+    origin: String?,
+    onOpenItem: (Long, Long) -> Unit,
+) {
+    if (items.isEmpty()) return
+    RelatedRow(title = "相似推荐") {
+        items(items, key = { it.mediaItemId }) { item ->
+            PosterCard(
+                imageUrl = item.posterUrl ?: item.backdropUrl,
+                origin = origin,
+                title = item.title,
+                meta = item.year?.toString(),
+                modifier = Modifier.width(McMetrics.rowCardWidth),
+                onClick = { onOpenItem(item.libraryId ?: libraryId, item.mediaItemId) },
+            )
+        }
+    }
+}
+
+/**
+ * 电影的作品系列（排在相似推荐下面）：整个系列按上映顺序，标题旁写「已有 7 / 共 8」。
+ * 这一部写「本片」；库里有的点进库内详情；缺的那部压暗、写「未入库」，点进 TMDB 详情去订阅
+ * （与网页 / iOS 详情页的系列一行同口径）。
+ */
+@Composable
+private fun SeriesSection(
+    series: CollectionSeriesView,
+    libraryId: Long,
+    itemId: Long,
+    origin: String?,
+    onOpenItem: (Long, Long) -> Unit,
+    onOpenTitle: (String) -> Unit,
+) {
+    RelatedRow(title = series.seriesName ?: "系列", detail = "已有 ${series.ownedCount} / 共 ${series.total}") {
+        items(series.parts, key = { it.tmdbId }) { part ->
+            val owned = part.mediaItemId
+            val year = part.releaseDate?.take(4)
+            val note = when {
+                owned == itemId -> "本片"
+                owned == null -> if (part.subscribed) "追踪中" else "未入库"
+                else -> null
+            }
+            PosterCard(
+                imageUrl = part.posterUrl,
+                origin = origin,
+                title = part.title,
+                meta = listOfNotNull(year, note).joinToString(" · ").ifEmpty { null },
+                modifier = Modifier.width(McMetrics.rowCardWidth).alpha(if (owned == null) 0.45f else 1f),
+                onClick = when {
+                    owned == itemId -> null
+                    owned != null -> ({ onOpenItem(libraryId, owned) })
+                    else -> ({ onOpenTitle("tmdb:movie:${part.tmdbId}") })
+                },
+            )
+        }
+    }
+}
+
+/** 详情页的横排一行：标题（+ 右侧灰字）与演职员同一套排版 */
+@Composable
+private fun RelatedRow(
+    title: String,
+    detail: String? = null,
+    content: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
+) {
+    Column(Modifier.padding(top = 18.dp)) {
+        Row(
+            Modifier.padding(horizontal = McMetrics.pagePadding),
+            verticalAlignment = Alignment.Bottom,
+        ) {
+            Text(title, style = McType.title3, color = TextPrimary, modifier = Modifier.weight(1f, fill = false))
+            detail?.let {
+                Spacer(Modifier.width(10.dp))
+                Text(it, style = McType.sub, color = TextFaint)
+            }
+        }
+        Spacer(Modifier.height(10.dp))
+        LazyRow(
+            contentPadding = PaddingValues(horizontal = McMetrics.pagePadding),
+            horizontalArrangement = Arrangement.spacedBy(McMetrics.rowSpacing),
+            modifier = Modifier.fillMaxWidth(),
+            content = content,
+        )
+    }
+}
+
+/** 页底「相关链接」（与网页 / iOS 详情页一致）：TMDB / IMDb / 豆瓣，有哪个出哪个，在浏览器（或已装的 App）里打开 */
+@Composable
+private fun ExternalLinks(detail: LibraryItemDetailView) {
+    val links = buildList {
+        detail.tmdbId?.takeIf { it > 0 }?.let {
+            add("TMDB ↗" to "https://www.themoviedb.org/${if (detail.kind == "tv") "tv" else "movie"}/$it")
+        }
+        detail.imdbId?.takeIf { it.isNotBlank() }?.let { add("IMDb ↗" to "https://www.imdb.com/title/$it/") }
+        detail.doubanId?.takeIf { it.isNotBlank() }?.let { add("豆瓣 ↗" to "https://movie.douban.com/subject/$it/") }
+    }
+    if (links.isEmpty()) return
+    val ctx = LocalContext.current
+    Row(
+        Modifier.padding(start = McMetrics.pagePadding, end = McMetrics.pagePadding, top = 24.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text("相关链接", style = McType.sub, color = TextFaint)
+        Spacer(Modifier.width(12.dp))
+        links.forEach { (label, url) ->
+            Text(
+                label,
+                style = McType.sub,
+                color = TextMuted,
+                modifier = Modifier
+                    .padding(end = 16.dp)
+                    .clickable {
+                        runCatching {
+                            ctx.startActivity(
+                                android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))
+                                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                        }
+                    },
+            )
+        }
+    }
+}
+
 @Composable
 private fun SeasonSection(
     seasons: List<Int>,

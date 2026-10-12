@@ -497,6 +497,8 @@ fun AppNav() {
                 onOpenLlmSettings = { navController.navigate("settings/LLM") },
                 // 「交给 Agent 处理」建好会话 → 会话页
                 onOpenAgentSession = { id -> navController.navigate("agentConversation/$id") },
+                onOpenItem = { lib, id -> navController.navigate("item/$lib/$id") },
+                onOpenTitle = { ref -> navController.navigate("title?ref=${Uri.encode(ref)}") },
             )
         }
         composable("player") {

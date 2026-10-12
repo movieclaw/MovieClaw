@@ -45,3 +45,28 @@ data class CollectionCover(
     /** 微缩占位图 data URI；缺图时为 null */
     val blur: String? = null,
 )
+
+/** 系列里的一部作品：库里有没有、在追没在追（服务端 `SeriesPartView`） */
+@Serializable
+data class SeriesPartView(
+    val tmdbId: Long,
+    val title: String,
+    val releaseDate: String? = null,
+    val posterUrl: String? = null,
+    /** 库里已有的那条；null = 缺这一部 */
+    val mediaItemId: Long? = null,
+    /** 已经在追（有订阅） */
+    val subscribed: Boolean = false,
+)
+
+/** 系列合集的「已有 N / 共 M」与缺片名单（服务端 `CollectionSeriesView`） */
+@Serializable
+data class CollectionSeriesView(
+    val seriesName: String? = null,
+    val ownedCount: Int = 0,
+    val total: Int = 0,
+    val imageUrl: String? = null,
+    val parts: List<SeriesPartView> = emptyList(),
+    /** 拉到上游档案了吗；false = 没配 TMDB / 网络不通 / 本地系列没有上游档案 */
+    val available: Boolean = false,
+)
