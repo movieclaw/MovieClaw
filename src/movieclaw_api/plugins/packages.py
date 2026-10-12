@@ -142,6 +142,9 @@ class _Permissions(BaseModel):
     network: bool = False
     callbacks: list[str] = Field(default_factory=list, max_length=8)
     """要开放的回调端点名（docs/design/plugin-callbacks.md §4.3）：外部平台能直接调进来的地址。"""
+    events: list[str] = Field(default_factory=list)
+    """要订阅的敏感事件（谁在什么时候看了什么，domain-events.md §6.3）：``playback.*``
+    或具体名字。"""
 
     @field_validator("callbacks")
     @classmethod
@@ -163,6 +166,27 @@ class Manifest(BaseModel):
     plugin: _Plugin
     requires: dict[str, str] = Field(default_factory=dict)
     permissions: _Permissions = Field(default_factory=_Permissions)
+    events: list[dict[str, Any]] = Field(default_factory=list)
+    """插件自己的事件（domain-events.md §7.2）：``{name, title}``，名字以插件 id 开头。"""
+    notifications: list[dict[str, Any]] = Field(default_factory=list)
+    """插件事件对应的通知规则：``{event, title, body, audience, level, default, open}``。"""
+
+    def declarations(self) -> Any:
+        """解析事件 / 通知 / 敏感事件声明；不合规抛 ``DeclarationError``。"""
+        from movieclaw_api.services.plugin_events import parse
+
+        return parse(
+            self.plugin.id,
+            self.plugin.title,
+            events=self.events,
+            notifications=self.notifications,
+            sensitive=self.permissions.events,
+        )
+
+    @property
+    def notifies_members(self) -> bool:
+        _, notifications, _ = self.declarations()
+        return any(n.reaches_members for n in notifications)
 
 
 # ---------------------------------------------------------------------- 校验
@@ -239,6 +263,12 @@ def check_compat(manifest: Manifest, *, reserved: set[str], operations: set[str]
     reason = check_requires(manifest.requires, third_party=True)
     if reason:
         raise PackageError(f"契约不兼容：{reason}")
+    from movieclaw_api.services.plugin_events import DeclarationError
+
+    try:
+        manifest.declarations()
+    except DeclarationError as exc:
+        raise PackageError(f"事件与通知声明不合规：{exc}") from exc
     from movieclaw_api.services.plugin_files import parse_grants
 
     try:
@@ -276,6 +306,14 @@ class Installed:
     """批准的路径授权（``PLUGIN_FILES``）。"""
     callbacks: list[str] = field(default_factory=list)
     """批准开放的回调端点名（``PLUGIN_CALLBACKS``）。"""
+    events: list[dict[str, Any]] = field(default_factory=list)
+    """批准的插件事件声明（清单 ``[[events]]``）。"""
+    notifications: list[dict[str, Any]] = field(default_factory=list)
+    """批准的通知规则（清单 ``[[notifications]]``）。"""
+    sensitive: list[str] = field(default_factory=list)
+    """批准订阅的敏感事件（清单 ``[permissions] events``）。"""
+    members_allowed: bool = False
+    """用户批准了通知到普通成员。"""
     previous: dict[str, Any] | None = None
     """上一版的安装记录（version、title、entry、runtime、operations），回滚用。"""
     bad: list[str] = field(default_factory=list)
@@ -292,6 +330,10 @@ class Installed:
             "operations": list(self.operations),
             "paths": [dict(p) for p in self.paths],
             "callbacks": list(self.callbacks),
+            "events": [dict(e) for e in self.events],
+            "notifications": [dict(n) for n in self.notifications],
+            "sensitive": list(self.sensitive),
+            "members_allowed": self.members_allowed,
         }
 
 
@@ -436,8 +478,36 @@ def _inline(path: Path, package: Installed) -> Plugin:
     raise PackageError(f"模块 {package.entry} 里没有名为 {package.id} 的插件")
 
 
+def declare(package: Installed) -> None:
+    """把用户批准的事件 / 通知 / 敏感事件声明交给插件事件服务（domain-events.md §7）。"""
+    from movieclaw_api.services import plugin_events
+
+    try:
+        events, notifications, sensitive = plugin_events.parse(
+            package.id,
+            package.title,
+            events=package.events,
+            notifications=package.notifications,
+            sensitive=package.sensitive,
+        )
+    except plugin_events.DeclarationError as exc:
+        logger.warning("插件包 %s 的事件声明不合规，按没有声明处理：%s", package.id, exc)
+        events, notifications, sensitive = {}, (), ()
+    plugin_events.declare(
+        plugin_events.Declared(
+            entry_id=package.id,
+            title=package.title,
+            events=events,
+            notifications=notifications,
+            sensitive=sensitive,
+            members_allowed=package.members_allowed,
+        )
+    )
+
+
 def entry_for(settings: object, package: Installed) -> Entry:
     """一个已安装的包 → 内核条目（独立进程或进程内）。出错只影响它自己。"""
+    declare(package)
     path = version_dir(settings, package.id, package.version)
     try:
         if package.runtime == "inline":

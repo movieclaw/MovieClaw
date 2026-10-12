@@ -364,6 +364,21 @@ class OperationDetailView(BaseModel):
     dangerous: bool = Field(description="危险操作（删除、改配置等），批准页标红")
 
 
+class PluginEventView(BaseModel):
+    name: str
+    title: str
+
+
+class PluginNotificationView(BaseModel):
+    event: str
+    title: str = Field(description="标题模板（{字段} 替换成事件里的值）")
+    body: str
+    audience: str = Field(description="admins / member:<字段> / media:<字段>")
+    audience_label: str
+    reaches_members: bool
+    default: bool
+
+
 class PackageRequestView(BaseModel):
     id: str
     title: str
@@ -380,6 +395,18 @@ class PackageRequestView(BaseModel):
         description="要开放的回调端点名：外部平台能不登录直接调进来的地址，批准页单独列出",
     )
     new_callbacks: list[str] = Field(default_factory=list, description="相比当前已安装版本新增的")
+    events: list[PluginEventView] = Field(
+        default_factory=list, description="插件会发出的事件（别的插件、Webhook 能订）"
+    )
+    notifications: list[PluginNotificationView] = Field(
+        default_factory=list, description="插件会发的通知：发给谁、写什么"
+    )
+    sensitive_events: list[str] = Field(
+        default_factory=list, description="要订阅的敏感事件（谁在什么时候看了什么）"
+    )
+    notifies_members: bool = Field(
+        default=False, description="会给普通成员发通知：批准时须单独确认"
+    )
     requires: dict[str, str]
     installed_version: str | None
     replaces_builtin: bool = Field(
@@ -421,6 +448,9 @@ class PackageApprove(BaseModel):
     )
     paths: list[dict[str, str]] = Field(
         default_factory=list, description="批准的路径授权，须与插件申请的完全一致"
+    )
+    allow_member_notifications: bool = Field(
+        default=False, description="插件会给普通成员发通知时，须显式确认"
     )
 
 
@@ -495,6 +525,7 @@ async def approve_package(
             operations=body.operations,
             allow_inline=body.allow_inline,
             paths=body.paths,
+            allow_member_notifications=body.allow_member_notifications,
         )
     except LookupError as exc:
         raise NotFoundException(str(exc)) from exc
@@ -740,7 +771,7 @@ class AddedView(BaseModel):
             "channel / task / ingest / job / site / service（提供的服务）"
             " / background（常驻后台工作）/ delete（删除时的选项）"
             " / other（其他登记）"
-            " / command / trigger / decision"
+            " / command / trigger / decision / event（会发出的事件）/ notification（会发的通知）"
         )
     )
     title: str = Field(description="人话：它给系统加了什么、什么时候被触发、会影响什么")

@@ -200,6 +200,36 @@ def _adds(
         out.append(
             {"kind": "command", "title": command, "detail": "AI 助手和命令行都能调用", "href": None}
         )
+    # 它会发出的事件、会发的通知（domain-events.md §7）
+    from movieclaw_api.services import plugin_events
+
+    declared = plugin_events.declared(entry_id)
+    if declared is not None:
+        audiences = {
+            "admins": "管理员",
+            "member": "事件里的那个成员",
+            "media": "订阅或关注了那部片的人",
+        }
+        for title in declared.events.values():
+            out.append(
+                {
+                    "kind": "event",
+                    "title": f"会发出「{title}」",
+                    "detail": "别的插件、Webhook 能订",
+                    "href": "/settings/webhook",
+                }
+            )
+        for spec in declared.notifications:
+            who = audiences[spec.audience.partition(":")[0]]
+            allowed = declared.members_allowed or not spec.reaches_members
+            out.append(
+                {
+                    "kind": "notification",
+                    "title": f"会发通知：{declared.events.get(spec.event, spec.event)}",
+                    "detail": f"发给{who}" if allowed else f"发给{who}（没有获得批准，不会发）",
+                    "href": "/settings/notifications",
+                }
+            )
     # 什么时候被触发、会影响哪些判断
     for listener in kernel.bus.owned_by(entry_id):
         out.append(_listener_view(listener.event))

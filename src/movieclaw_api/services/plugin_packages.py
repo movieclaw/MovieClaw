@@ -125,10 +125,64 @@ def _view(manifest: pkg.Manifest, current: pkg.Installed | None) -> dict[str, An
         "new_paths": [p for p in paths if p not in approved_paths],
         "callbacks": list(manifest.permissions.callbacks),
         "new_callbacks": [c for c in manifest.permissions.callbacks if c not in approved_callbacks],
+        **_event_view(manifest),
         "requires": manifest.requires,
         "installed_version": current.version if current else None,
         "replaces_builtin": _replaces_builtin(plugin.id),
     }
+
+
+def _event_view(manifest: pkg.Manifest) -> dict[str, Any]:
+    """批准页要给用户看的：会发出的事件、会通知谁通知什么、要订阅的敏感事件。"""
+    try:
+        events, notifications, sensitive = manifest.declarations()
+    except Exception:  # noqa: BLE001 -- 不合规的上传时就拒了，这里兜底
+        return {}
+    audiences = {
+        "admins": "管理员",
+        "member": "事件里的那个成员",
+        "media": "订阅或关注了那部片的人",
+    }
+    return {
+        "events": [{"name": name, "title": title} for name, title in events.items()],
+        "notifications": [
+            {
+                "event": n.event,
+                "title": n.title,
+                "body": n.body,
+                "audience": n.audience,
+                "audience_label": audiences[n.audience.partition(":")[0]],
+                "reaches_members": n.reaches_members,
+                "default": n.default,
+            }
+            for n in notifications
+        ],
+        "sensitive_events": list(sensitive),
+        "notifies_members": any(n.reaches_members for n in notifications),
+    }
+
+
+async def _forget_events(entry_id: str) -> None:
+    """卸载：撤下插件的事件声明，删掉每个人对它的通知开关。"""
+    from movieclaw_api.services import plugin_events
+
+    plugin_events.forget(entry_id)
+    try:
+        from sqlmodel import select
+
+        from movieclaw_db.engine import get_database
+        from movieclaw_db.models import PushPreference
+
+        prefix = f"{entry_id}."
+        async with get_database().session() as session:
+            rows = (await session.execute(select(PushPreference))).scalars().all()
+            for row in rows:
+                if isinstance(row.events, dict) and any(k.startswith(prefix) for k in row.events):
+                    row.events = {k: v for k, v in row.events.items() if not k.startswith(prefix)}
+                    session.add(row)
+            await session.commit()
+    except Exception:  # noqa: BLE001 -- 清理偏好失败不影响卸载
+        logger.warning("清理插件 %s 的通知开关失败", entry_id, exc_info=True)
 
 
 def _replaces_builtin(entry_id: str) -> bool:
@@ -218,6 +272,7 @@ class PackageManager:
         operations: list[str],
         allow_inline: bool,
         paths: list[dict[str, str]] | None = None,
+        allow_member_notifications: bool = False,
     ) -> dict[str, Any]:
         """用户批准：安装并当场挂载；激活失败自动回滚。返回挂载结果。"""
         async with self._lock:
@@ -244,6 +299,8 @@ class PackageManager:
                 raise pkg.PackageError(
                     "这个插件申请在主进程里运行，拥有与主程序相同的系统权限，须单独确认"
                 )
+            if manifest.notifies_members and not allow_member_notifications:
+                raise pkg.PackageError("这个插件会给普通成员发通知，须单独确认")
             # 重新检查一遍：上传之后内置插件 / 本地插件 / 契约可能变了
             pkg.check_compat(
                 manifest,
@@ -266,6 +323,10 @@ class PackageManager:
                 operations=list(requested),
                 paths=requested_paths,
                 callbacks=list(manifest.permissions.callbacks),
+                events=[dict(e) for e in manifest.events],
+                notifications=[dict(n) for n in manifest.notifications],
+                sensitive=list(manifest.permissions.events),
+                members_allowed=manifest.notifies_members,
                 previous=current.snapshot() if current else None,
                 bad=[v for v in (current.bad if current else []) if v != version],
                 installed_at=pkg.now(),
@@ -409,6 +470,7 @@ class PackageManager:
                 # 回调地址随插件一起作废：卸载后外部平台再调进来一律 404
                 await callbacks.revoke_all(entry_id)
             await _restore_bundled(self._kernel, self._settings, entry_id)
+            await _forget_events(entry_id)
             purged = 0
             if purge_data:
                 from movieclaw_api.plugins.keys import PLUGIN_DATA

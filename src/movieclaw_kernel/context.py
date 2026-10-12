@@ -154,6 +154,11 @@ class Context(Generic[C]):
         插件卸载时自动取消。"""
         fiber = self._fiber
         self._guard(event)
+        guard = self._kernel.event_guard
+        if fiber.third_party and guard is not None:
+            reason = guard(fiber.id, event)
+            if reason:
+                raise PermissionError(reason)
         if durable:
             if not event.durable:
                 raise TypeError(f"事件 {event.name} 不能可靠订阅（高频事件或钩子）")

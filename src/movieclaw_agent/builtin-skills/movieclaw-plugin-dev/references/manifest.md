@@ -37,9 +37,24 @@ operations = ["library.list", "subscriptions.get"]       # 宿主操作 id
 paths = [{ path = "staging", mode = "read" }]            # 路径授权，mode = read | rw
 network = true                                           # 需要直连外网（仅声明）
 callbacks = ["push"]                                     # 要开放的回调端点名（外部平台调进来的地址，见 recipes 第 14 节）
+events = ["playback.*"]                                  # 要订阅的敏感事件（谁在什么时候看了什么）：用户单独批准
+
+[[events]]                     # 插件自己会发的事件（recipes 第 17 节）：名字以插件 id 开头
+name = "media-stats.weekly-report"
+title = "周报生成了"
+
+[[notifications]]              # 事件对应的通知：经用户批准后由宿主推到手机和 IM
+event = "media-stats.weekly-report"
+title = "本周看了 {hours} 小时"  # {字段} 换成事件载荷里的值（{media.title} 这样取嵌套字段）
+body = "最常看的是《{top_title}》"
+audience = "admins"            # admins | member:<字段>（载荷里的成员 id）| media:<字段>（订阅或关注了这部片的人）
+level = "active"               # active（响）| passive（安静送达）
+default = true                 # 每个人的开关默认开不开
+open = "plugin"                # 点开去哪：plugin（插件页）| media（载荷里那部片的条目页）
 ```
 
-清单不允许出现未知字段（写错字段名会被拒）。
+清单不允许出现未知字段（写错字段名会被拒）。会通知到普通成员的（`member:` / `media:`）批准时要单独勾选；
+通知上会标「来自 插件名」。
 
 
 **非 Python 插件**（Go、Rust 等，`runtime = "exec"`）：不写 `entry`，改写包里的可执行文件和它支持的平台。

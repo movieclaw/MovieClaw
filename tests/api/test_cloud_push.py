@@ -2214,3 +2214,111 @@ def test_identity_skip_is_one_informational_push_without_actions(
     time.sleep(0.3)
     assert len(relay.messages) == 1
     assert _data(client.get("/api/v1/system/notices")) == []
+
+
+def test_plugin_notifications_go_where_they_were_approved(
+    client: TestClient, world: World
+) -> None:
+    """插件声明的通知（domain-events.md §7）：经同一个通知引擎、按人的开关推到手机，
+    标明来自哪个插件。"""
+    from pydantic import BaseModel, ConfigDict
+
+    from movieclaw_api.services import plugin_events
+    from movieclaw_kernel import Entry, plugin
+    from movieclaw_sdk.events import PLUGIN_EVENTS, plugin_event
+
+    class Quota(BaseModel):
+        model_config = ConfigDict(frozen=True)
+        site: str
+        remaining_gb: float
+        member_id: int
+
+    to_admins = plugin_event("acme-quota.exceeded", Quota, title="站点配额超限")
+    to_member = plugin_event("acme-quota.mine", Quota, title="你的配额")
+    events, notifications, _ = plugin_events.parse(
+        "acme-quota",
+        "配额提醒",
+        events=[
+            {"name": "acme-quota.exceeded", "title": "站点配额超限"},
+            {"name": "acme-quota.mine", "title": "你的配额"},
+        ],
+        notifications=[
+            {"event": "acme-quota.exceeded", "title": "{site} 配额只剩 {remaining_gb} GB"},
+            {
+                "event": "acme-quota.mine",
+                "title": "你在 {site} 的配额快用完了",
+                "audience": "member:member_id",
+            },
+        ],
+    )
+    plugin_events.declare(
+        plugin_events.Declared(
+            entry_id="acme-quota",
+            title="配额提醒",
+            events=events,
+            notifications=notifications,
+            members_allowed=True,
+        )
+    )
+    publisher: dict = {}
+
+    @plugin("acme-quota", title="配额提醒", inject=(PLUGIN_EVENTS,))
+    async def quota(ctx) -> None:  # type: ignore[no-untyped-def]
+        publisher["p"] = await ctx.use(PLUGIN_EVENTS).register(ctx, to_admins, to_member)
+
+    _connect(client, world)
+    _create_member(client)
+    admin_bearer = _app_login(client, _ADMIN, installation="plg-admin-1", name="管理员手机")
+    member_bearer = _app_login(client, _MEMBER, installation="plg-member-1", name="家人手机")
+    _, admin_key = _register(client, admin_bearer, token="c1" * 32)
+    _, member_key = _register(client, member_bearer, token="c2" * 32)
+    relay = world.relays["push.test"]
+    kernel = client.app.state.kernel
+    try:
+        assert client.portal is not None
+        client.portal.call(kernel.mount, Entry("acme-quota", quota))
+        relay.messages.clear()
+
+        def fire(event, member_id: int) -> None:  # type: ignore[no-untyped-def]
+            payload = Quota(site="mteam", remaining_gb=2.0, member_id=member_id)
+
+            async def run() -> None:
+                await publisher["p"].publish(event, payload)
+
+            client.portal.call(run)
+
+        fire(to_admins, 1)
+        _wait(lambda: len(relay.messages) >= 1)
+        time.sleep(0.3)
+        assert [m["token"] for m in relay.messages] == ["c1" * 32]  # 只给管理员
+        plain = _open(relay.messages[0], admin_key)
+        assert plain["title"] == "mteam 配额只剩 2 GB"
+        assert plain["subtitle"] == "来自 配额提醒"  # 插件不能冒充系统通知
+        assert plain["open"] == "/settings/plugins?module=acme-quota"
+
+        relay.messages.clear()
+        fire(to_member, 1)
+        _wait(lambda: len(relay.messages) >= 1)
+        time.sleep(0.3)
+        assert [m["token"] for m in relay.messages] == ["c2" * 32]  # 只给事件里那个成员
+        assert _open(relay.messages[0], member_key)["title"] == "你在 mteam 的配额快用完了"
+
+        # 成员在「账号 → 通知」的插件分组里关掉，就不再收
+        view = _data(_as_app(client, member_bearer, "GET", "/api/v1/push/me"))
+        keys = {e["key"]: e["group"] for e in view["events"]}
+        assert keys["acme-quota.mine"] == "插件 · 配额提醒"
+        assert "acme-quota.exceeded" not in keys  # 只发管理员的，成员看不到开关
+        _as_app(
+            client,
+            member_bearer,
+            "PUT",
+            "/api/v1/push/me/preferences",
+            json={"events": {"acme-quota.mine": False}},
+        )
+        relay.messages.clear()
+        fire(to_member, 1)
+        time.sleep(0.6)
+        assert relay.messages == []
+    finally:
+        client.portal.call(kernel.unmount, "acme-quota")
+        plugin_events.forget("acme-quota")

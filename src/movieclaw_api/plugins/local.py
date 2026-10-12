@@ -9,6 +9,10 @@
       config: { enabled: true }      # 交给插件的配置
       grants: [subscriptions.delete, dl.torrent.delete]   # 批准它调用的宿主操作
       act_as: family                 # 可选：以哪个成员的身份调用（缺省超管）
+      events:                        # 可选：插件自己的事件（domain-events.md §7）
+        - { name: acme.delete-cascade.done, title: 删片联动完成 }
+      notifications:                 # 可选：事件对应的通知（推到手机和 IM）
+        - { event: acme.delete-cascade.done, title: "《{title}》的种子删了", audience: admins }
 
 本地插件在进程内运行，拥有与主程序相同的系统权限——「受信」的意思是用户为它负责。它按第三方
 对待：只能用非内部契约、贡献 id 自动加前缀、宿主操作只拿「声明 ∩ grants」；永远不是关键插件，
@@ -96,6 +100,29 @@ def local_specs(settings: object) -> list[LocalSpec]:
         except ValueError as exc:
             logger.warning("本地插件 %s 的 paths 不合规（%s），已跳过", entry_id, exc)
             continue
+        from movieclaw_api.services import plugin_events
+
+        try:
+            # 插件自己的事件与通知（domain-events.md §7）：本地插件是受信的，写在这里即批准
+            events, notifications, _ = plugin_events.parse(
+                entry_id,
+                str(item.get("title") or entry_id),
+                events=item.get("events"),
+                notifications=item.get("notifications"),
+            )
+        except plugin_events.DeclarationError as exc:
+            logger.warning("本地插件 %s 的事件 / 通知声明不合规（%s），已跳过", entry_id, exc)
+            continue
+        plugin_events.declare(
+            plugin_events.Declared(
+                entry_id=entry_id,
+                title=str(item.get("title") or entry_id),
+                events=events,
+                notifications=notifications,
+                members_allowed=True,
+                trusted=True,
+            )
+        )
         if (
             runtime not in ("inline", "process", "exec")
             or not isinstance(module, str)

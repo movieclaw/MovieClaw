@@ -80,6 +80,21 @@ def replaceable_ids() -> set[str]:
 
 
 def entry(package: Bundled) -> Entry:
+    from movieclaw_api.services import plugin_events
+
+    # 随带插件包是受信的：声明照登记（批准页、插件详情页给人看），订阅敏感事件不另外要求
+    events, notifications, sensitive = package.manifest.declarations()
+    plugin_events.declare(
+        plugin_events.Declared(
+            entry_id=package.id,
+            title=package.manifest.plugin.title,
+            events=events,
+            notifications=notifications,
+            sensitive=sensitive,
+            members_allowed=True,
+            trusted=True,
+        )
+    )
     module = importlib.import_module(package.module)
     for value in vars(module).values():
         if isinstance(value, Plugin) and value.name == package.id:

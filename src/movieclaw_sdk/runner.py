@@ -217,6 +217,35 @@ class _RemotePluginJobs:
         return _RemoteJobs(self._runner)
 
 
+class _RemotePublisher:
+    def __init__(self, api: Any, names: set[str]) -> None:
+        self._api = api
+        self._names = names
+
+    async def publish(self, event: Any, payload: Any) -> None:
+        if event.name not in self._names:
+            raise ValueError(f"事件 {event.name} 没有登记，先 register")
+        await self._api.publish(name=event.name, payload=payload.model_dump(mode="json"))
+
+
+class _RemotePluginEvents:
+    def __init__(self, runner: Runner) -> None:
+        self._api = runner.service("events")
+
+    async def register(self, ctx: Any, *events: Any) -> _RemotePublisher:
+        definitions = [
+            {
+                "name": event.name,
+                "title": getattr(event, "title", event.name),
+                "doc": event.doc,
+                "schema": event.payload.model_json_schema(),
+            }
+            for event in events
+        ]
+        await self._api.register(definitions=definitions)
+        return _RemotePublisher(self._api, {e.name for e in events})
+
+
 class _RemoteHealth:
     def __init__(self, runner: Runner) -> None:
         self._api = runner.service("health")
@@ -526,6 +555,7 @@ _SERVICE_PROXIES: dict[str, Callable[[Runner], Any]] = {
     "plugin-callbacks": _RemoteCallbacks,
     "plugin-files": _RemotePluginFiles,
     "plugin-jobs": _RemotePluginJobs,
+    "plugin-events": _RemotePluginEvents,
 }
 
 

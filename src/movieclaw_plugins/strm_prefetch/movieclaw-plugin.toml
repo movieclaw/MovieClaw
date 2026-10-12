@@ -13,3 +13,5 @@ description = "提前在后台探好网盘（strm）条目的格式与音轨字�
 
 [permissions]
 operations = ["library.strm.list-pending", "library.strm.probe"]
+# 看到下一集、收藏、打开详情时优先探：要订这几个敏感事件（谁在什么时候看了什么）
+events = ["playback.started", "library.item.favorited", "library.item.viewed"]

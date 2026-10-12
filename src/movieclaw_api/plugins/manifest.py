@@ -109,6 +109,7 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         core.database,
         core.registries,
         events.durable_events,
+        events.plugin_events,
         events.host_ops,
         events.plugin_data,
         events.plugin_jobs,

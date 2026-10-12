@@ -197,6 +197,17 @@ export interface OperationDetail {
   dangerous: boolean;
 }
 
+export interface PluginNotification {
+  event: string;
+  /** 标题模板：{字段} 换成事件里的值 */
+  title: string;
+  body: string;
+  audience: string;
+  audience_label: string;
+  reaches_members: boolean;
+  default: boolean;
+}
+
 export interface PackageRequest {
   id: string;
   title: string;
@@ -213,6 +224,14 @@ export interface PackageRequest {
   /** 要开放的回调端点名：外部平台能不登录直接调进来的地址；旧服务端没有这个字段 */
   callbacks?: string[];
   new_callbacks?: string[];
+  /** 插件会发出的事件（别的插件、Webhook 能订）；旧服务端没有这些字段 */
+  events?: { name: string; title: string }[];
+  /** 插件会发的通知：发给谁、写什么 */
+  notifications?: PluginNotification[];
+  /** 要订阅的敏感事件（谁在什么时候看了什么） */
+  sensitive_events?: string[];
+  /** 会给普通成员发通知：批准时须单独确认 */
+  notifies_members?: boolean;
   requires: Record<string, string>;
   installed_version: string | null;
   /** 与随带的内置插件同 id：安装即替换它，卸载后随带版本回来；旧服务端没有这个字段 */
@@ -268,10 +287,12 @@ export async function uploadPackage(file: File): Promise<PackageRequest> {
   ).data;
 }
 
-/** 批准：宿主操作与路径须与插件申请的完全一致（显式同意），进程内运行须 allowInline */
+/** 批准：宿主操作与路径须与插件申请的完全一致（显式同意），进程内运行须 allowInline，
+ * 会给普通成员发通知的须 allowMemberNotifications */
 export async function approvePackage(
   pending: PackageRequest,
   allowInline: boolean,
+  allowMemberNotifications = false,
 ): Promise<PackageResult> {
   return (
     await request<ApiEnvelope<PackageResult>>(
@@ -283,6 +304,7 @@ export async function approvePackage(
           operations: pending.operations,
           paths: pending.paths,
           allow_inline: allowInline,
+          allow_member_notifications: allowMemberNotifications,
         }),
       },
     )
@@ -341,7 +363,7 @@ export async function restoreBundled(id: string): Promise<void> {
 }
 
 export interface PluginAdded {
-  /** channel / task / ingest / job / site / command / trigger / decision */
+  /** channel / task / ingest / job / site / command / trigger / decision / event / notification */
   kind: string;
   title: string;
   detail: string;

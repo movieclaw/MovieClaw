@@ -3834,6 +3834,12 @@
     "stability": "experimental",
     "version": "1.0"
   },
+  "plugin-events": {
+    "doc": "插件自己的事件：登记后发出，别的插件、Webhook 能订；清单声明了通知的经用户批准推成通知",
+    "kind": "service",
+    "stability": "experimental",
+    "version": "1.0"
+  },
   "plugin-files": {
     "doc": "插件文件：按用户批准的路径授权读写文件（进程外插件经描述符传递），交出文件给路由",
     "kind": "service",

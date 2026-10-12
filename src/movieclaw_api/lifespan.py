@@ -30,9 +30,15 @@ def build_lifespan(settings: Settings):
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         from movieclaw_api.plugins import settings_store
         from movieclaw_api.services import host_ops, plugin_gateway, plugin_switches
+        from movieclaw_api.services.plugin_events import sensitive_reason
 
-        # 界面保存的插件设置叠在清单配置上（docs/design/plugin-phase4.md §3）
-        kernel = Kernel(settings=settings, config_overlay=settings_store.overlay(settings))
+        # 界面保存的插件设置叠在清单配置上（docs/design/plugin-phase4.md §3）；
+        # 第三方插件订阅敏感事件须经批准（docs/design/domain-events.md §6.3）
+        kernel = Kernel(
+            settings=settings,
+            config_overlay=settings_store.overlay(settings),
+            event_guard=sensitive_reason,
+        )
         app.state.kernel = kernel
         # 宿主操作要经 ASGI 调本进程应用；内核不认识 FastAPI，由这里绑定
         host_ops.bind_app(app)

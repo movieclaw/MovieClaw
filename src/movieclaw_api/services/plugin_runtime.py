@@ -871,10 +871,12 @@ def _open_services() -> dict[str, ServiceKey[Any]]:
         PLUGIN_HEALTH,
         PLUGIN_ROUTES,
     )
+    from movieclaw_sdk.events import PLUGIN_EVENTS
     from movieclaw_sdk.jobs import PLUGIN_JOBS
 
     return {
         AGENT.name: AGENT,
+        PLUGIN_EVENTS.name: PLUGIN_EVENTS,
         PLUGIN_CALLBACKS.name: PLUGIN_CALLBACKS,
         PLUGIN_JOBS.name: PLUGIN_JOBS,
         PLUGIN_FILES.name: PLUGIN_FILES,
@@ -1230,6 +1232,31 @@ class _Hooks:
         return await self._session.run_next(call, payload if replace else _UNSET)
 
 
+class _Events:
+    """插件自己的事件（``PLUGIN_EVENTS``）：按插件给的定义造宿主侧事件，载荷按 Schema 校验。"""
+
+    def __init__(self, ctx: Context, service: Any) -> None:
+        self._ctx = ctx
+        self._service = service
+        self._events: dict[str, Any] = {}
+        self._publisher: Any = None
+
+    async def register(self, definitions: list[dict[str, Any]]) -> None:
+        from movieclaw_api.services.plugin_events import remote_event
+
+        events = [remote_event(d) for d in definitions]
+        self._publisher = await self._service.register(self._ctx, *events)
+        self._events.update({e.name: e for e in events})
+
+    async def publish(self, name: str, payload: dict[str, Any]) -> None:
+        from movieclaw_api.services.plugin_events import remote_payload
+
+        event = self._events.get(name)
+        if event is None or self._publisher is None:
+            raise ValueError(f"事件 {name} 没有登记，先 register")
+        await self._publisher.publish(event, remote_payload(event, payload))
+
+
 #: 服务名 → 宿主实现（与 movieclaw_sdk.services.SERVICES 一一对应，测试守护签名一致）
 EXPORTS: dict[str, type] = {
     "session": _Session,
@@ -1243,6 +1270,7 @@ EXPORTS: dict[str, type] = {
     "net": _Net,
     "job": _Job,
     "jobs": _Jobs,
+    "events": _Events,
     "channels": _Channels,
     "agent": PluginAgent,
 }
@@ -1290,6 +1318,10 @@ async def _exports(ctx: Context, session: Session, names: tuple[str, ...]) -> di
         exports["data"] = _Data(ctx.use(PLUGIN_DATA).scoped(ctx))
     if PLUGIN_JOBS.name in names:
         exports["jobs"] = _Jobs(ctx.use(PLUGIN_JOBS).scoped(ctx))
+    from movieclaw_sdk.events import PLUGIN_EVENTS
+
+    if PLUGIN_EVENTS.name in names:
+        exports["events"] = _Events(ctx, ctx.use(PLUGIN_EVENTS))
     if PLUGIN_HEALTH.name in names:
         exports["health"] = _Health(ctx.use(PLUGIN_HEALTH).reporter(ctx))
     if PLUGIN_CALLBACKS.name in names:

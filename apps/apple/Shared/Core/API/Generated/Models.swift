@@ -1731,7 +1731,8 @@ nonisolated extension API {
     struct DetailConsumerView: Codable, Hashable, Sendable {
         /// <条目 id>:<监听器 id>
         var consumerId: String
-        var event: String
+        /// 订阅的事件（一个消费者可订阅多个，按产生顺序投递）
+        var events: [String]
         /// 订阅它的插件当前是否在运行
         var active: Bool
         /// 尚未处理的事件数
@@ -1745,7 +1746,7 @@ nonisolated extension API {
 
         enum CodingKeys: String, CodingKey {
             case consumerId = "consumer_id"
-            case event
+            case events
             case active
             case backlog
             case attempts
@@ -7056,12 +7057,15 @@ nonisolated extension API {
         var allowInline: Bool?
         /// 批准的路径授权，须与插件申请的完全一致
         var paths: [[String: String]]?
+        /// 插件会给普通成员发通知时，须显式确认
+        var allowMemberNotifications: Bool?
 
         enum CodingKeys: String, CodingKey {
             case version
             case operations
             case allowInline = "allow_inline"
             case paths
+            case allowMemberNotifications = "allow_member_notifications"
         }
     }
 
@@ -7085,6 +7089,14 @@ nonisolated extension API {
         var callbacks: [String]
         /// 相比当前已安装版本新增的
         var newCallbacks: [String]
+        /// 插件会发出的事件（别的插件、Webhook 能订）
+        var events: [API.PluginEventView]
+        /// 插件会发的通知：发给谁、写什么
+        var notifications: [API.PluginNotificationView]
+        /// 要订阅的敏感事件（谁在什么时候看了什么）
+        var sensitiveEvents: [String]
+        /// 会给普通成员发通知：批准时须单独确认
+        var notifiesMembers: Bool
         var requires: [String: String]
         var installedVersion: String?
         /// 与随带的内置插件同 id：安装即替换它，卸载后随带版本回来
@@ -7103,6 +7115,10 @@ nonisolated extension API {
             case newPaths = "new_paths"
             case callbacks
             case newCallbacks = "new_callbacks"
+            case events
+            case notifications
+            case sensitiveEvents = "sensitive_events"
+            case notifiesMembers = "notifies_members"
             case requires
             case installedVersion = "installed_version"
             case replacesBuiltin = "replaces_builtin"
@@ -8384,6 +8400,38 @@ nonisolated extension API {
             case dataPath = "data_path"
             case children
             case source
+        }
+    }
+
+    struct PluginEventView: Codable, Hashable, Sendable {
+        var name: String
+        var title: String
+
+        enum CodingKeys: String, CodingKey {
+            case name
+            case title
+        }
+    }
+
+    struct PluginNotificationView: Codable, Hashable, Sendable {
+        var event: String
+        /// 标题模板（{字段} 替换成事件里的值）
+        var title: String
+        var body: String
+        /// admins / member:<字段> / media:<字段>
+        var audience: String
+        var audienceLabel: String
+        var reachesMembers: Bool
+        var `default`: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case event
+            case title
+            case body
+            case audience
+            case audienceLabel = "audience_label"
+            case reachesMembers = "reaches_members"
+            case `default`
         }
     }
 

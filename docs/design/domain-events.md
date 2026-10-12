@@ -1,6 +1,6 @@
 # 统一事件：一次产生，处处消费
 
-> 状态：**设计稿**（2026-10-12）。调研基于 main `e3e200c4`。
+> 状态：**已实施**（2026-10-12，分支 `feat/domain-events`，P0～P7 全部完成）。调研基于 main `e3e200c4`。
 >
 > 目标：业务里每件「发生了的事」**只在一处产生、只产生一次**；通知（App + IM）、Webhook、插件、内置的事后动作
 > 都作为订阅方从同一条总线取。新增一个事件只登记一处，所有消费方同时可用；同一件事在通知、Webhook、插件里
@@ -267,7 +267,6 @@ events.publish_now(SYSTEM_UPDATE_AVAILABLE, lambda: UpdateAvailable(...))
 [[events]]
 name = "acme.quota.exceeded"            # 必须以插件 id 开头
 title = "站点配额超限"
-schema = "schemas/quota_exceeded.json"  # JSON Schema；Python SDK 可由 pydantic 模型导出
 
 [[notifications]]
 event = "acme.quota.exceeded"
@@ -279,8 +278,16 @@ default = true
 open = "plugin"                         # 点开去哪：插件页，或载荷里的 media 对应的条目页
 ```
 
-发布：`await ctx.publish(QUOTA_EXCEEDED, payload)`。进程内直接进总线；进程外经插件运行时的 HTTP 端点
-（按插件令牌限定，`plugin-ipc-http.md`），语义同 `publish_now`。
+代码里定义、登记、发出（服务 `PLUGIN_EVENTS`，插件停用时自动撤下）::
+
+    QUOTA_EXCEEDED = plugin_event("acme.quota.exceeded", QuotaExceeded, title="站点配额超限")
+    events = await ctx.use(PLUGIN_EVENTS).register(ctx, QUOTA_EXCEEDED)
+    await events.publish(QUOTA_EXCEEDED, QuotaExceeded(site="mteam", remaining_gb=2.5))
+
+载荷是冻结的 pydantic 模型。进程内插件直接进总线；进程外插件经网关的 `events` 服务（`plugin-ipc-http.md`），
+登记时把载荷的 JSON Schema 交给宿主、宿主按它校验每次发出的载荷。语义同 `publish_now`。登记时宿主核对：
+名字以插件 id 开头、在清单里声明过（本地受信插件写在 `plugins.yaml` 的 `events` / `notifications` 里）。
+通知开关的键就是事件名，分组「插件 · <插件名>」；一个事件最多一条通知。
 
 ### 7.3 发给谁
 
@@ -391,7 +398,10 @@ open = "plugin"                         # 点开去哪：插件页，或载荷�
 4. 事后动作放到 P6，等前面稳定后再做。
 5. 插件自定义事件与通知在本设计里定好结构，实现放 P7；第一版不做频率控制等限制，按需迭代。
 
-## 13. 待定
+## 13. 实施时定下的
 
-- 敏感事件的授权粒度：按域（`playback.*`）还是逐个事件。
-- 声明式模板是否需要最少量的格式化（季集号、时长、文件大小），还是只做字段替换。
+- 敏感事件的授权粒度：两种都行——清单 `[permissions] events` 可写域通配（`playback.*`）或具体名字；批准页原样列出。
+  内置、随带、本地受信插件不另外要求；插件包没声明就订，插件起不来，并说明原因。
+- 声明式模板只做字段替换（`{a.b}`，整数值的浮点去掉 `.0`）；要格式化（季集号、时长）等真有需要再加。
+- 「新片到达」检测仍在 `push.arrivals`（「新片到达通知」开关）里：关掉它，Webhook / 插件也收不到 `library.items.arrived`。
+- 推送剧卡仍只在内存（重启丢合并状态）；通知不跨重启补发。

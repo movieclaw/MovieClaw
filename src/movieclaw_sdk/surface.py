@@ -36,6 +36,7 @@ MODULES = (
     "movieclaw_sdk.events.download",
     "movieclaw_sdk.events.library",
     "movieclaw_sdk.events.playback",
+    "movieclaw_sdk.events.plugin",
     "movieclaw_sdk.events.subscription",
     "movieclaw_sdk.events.system",
     "movieclaw_scheduler",

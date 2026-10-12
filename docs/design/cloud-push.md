@@ -1,5 +1,8 @@
 # MovieClaw Cloud 与 App 推送（实例端）
 
+> **更新**（2026-10-12）：推送改由「通知规则表」从系统事件导出（`domain-events.md` §6.1）：产生点只 `publish` 事件，
+> 偏好开关的键改成触发它的事件名（`imported` → `subscription.fulfilled` 等，旧键按别名接收），插件也能声明自己的通知（§7）。
+
 > 状态：实施中（2026-10，分支 `feat/cloud-push`）。
 >
 > 依据：云端协议 `docs/design/cloud-protocol.md`、推送中继协议

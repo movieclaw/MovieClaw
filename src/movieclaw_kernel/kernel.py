@@ -152,10 +152,13 @@ class Kernel:
         dispose_timeout: float = 10.0,
         slow_apply_warning: float = 2.0,
         config_overlay: Callable[[str], Mapping[str, Any]] | None = None,
+        event_guard: Callable[[str, Event[Any, Any]], str | None] | None = None,
     ) -> None:
         self.settings = settings
         #: 条目 id → 叠在清单配置上的值（宿主的界面设置，docs/design/plugin-phase4.md §3）
         self.config_overlay = config_overlay
+        #: 第三方条目订阅事件前的把关（敏感事件须经批准，domain-events.md §6.3）：返回拒绝原因
+        self.event_guard = event_guard
         self.dispose_timeout = dispose_timeout
         self.slow_apply_warning = slow_apply_warning
         self.bus = EventBus(clock)

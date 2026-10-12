@@ -70,6 +70,7 @@ from movieclaw_sdk.events.playback import (
     PlaybackMarked,
     PlaybackStopped,
 )
+from movieclaw_sdk.events.plugin import PLUGIN_EVENTS, PluginEventsApi, Publisher, plugin_event
 from movieclaw_sdk.events.subscription import (
     SUBSCRIPTION_CREATED,
     SUBSCRIPTION_DELETED,
@@ -97,6 +98,10 @@ from movieclaw_sdk.events.system import (
 )
 
 __all__ = [
+    "PLUGIN_EVENTS",
+    "PluginEventsApi",
+    "Publisher",
+    "plugin_event",
     "ACCOUNT_DEVICE_SIGNED_IN",
     "DOWNLOAD_COMPLETED",
     "DOWNLOAD_IMPORTED",

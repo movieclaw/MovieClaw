@@ -21,6 +21,7 @@ from movieclaw_api.plugins.keys import (
     PLUGIN_ROUTES,
 )
 from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
+from movieclaw_sdk.events import PLUGIN_EVENTS
 from movieclaw_sdk.jobs import JOB_HANDLERS, PLUGIN_JOBS
 
 
@@ -40,6 +41,21 @@ async def durable_events(ctx: Context) -> None:
     ctx.effect(store.close, label="close-durable-events")
     store.start_housekeeping()
     ctx.provide(DURABLE_EVENTS, store)
+
+
+@plugin(
+    "kernel.plugin-events",
+    title="插件事件",
+    provides=(PLUGIN_EVENTS,),
+    disableable=True,
+    reloadable=True,
+)
+async def plugin_events(ctx: Context) -> None:
+    """让插件登记并发出自己的事件：别的插件、Webhook 能订；插件声明了通知、经你批准的，
+    会推到手机和 IM。"""
+    from movieclaw_api.services.plugin_events import PluginEvents
+
+    ctx.provide(PLUGIN_EVENTS, PluginEvents())
 
 
 @plugin(

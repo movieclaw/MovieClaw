@@ -24,20 +24,42 @@ logger = logging.getLogger("movieclaw_api.push.engine")
 
 
 def known_events() -> dict[str, Any]:
-    """能挂监听器的事件：系统事件（插件事件见 §7）。"""
-    from movieclaw_sdk.events import core_events
+    """能挂监听器的事件：系统事件 + 在运行的插件登记的事件（§7）。"""
+    from movieclaw_api.services import plugin_events
 
-    return {event.name: event for event in core_events()}
+    return plugin_events.all_events()
+
+
+#: ``push.hub`` 的内核上下文与已挂的监听：事件名 → 取消函数
+_ctx: Any = None
+_attached: dict[str, Any] = {}
 
 
 def attach(ctx: Any) -> None:
     """给每个有通知规则的事件挂一个实时监听器（``ctx`` 是 ``push.hub`` 的内核上下文）。"""
+    global _ctx
+    _ctx = ctx
+    _attached.clear()
+    ctx.effect(detach, label="detach-notify-engine")
+    refresh()
+
+
+def detach() -> None:
+    global _ctx
+    _ctx = None
+    _attached.clear()
+
+
+def refresh() -> None:
+    """通知规则表或事件目录变了（插件装上 / 停用）：补挂新事件的监听、撤下没有规则了的。"""
+    if _ctx is None:
+        return
     catalog = known_events()
-    for name in sorted(rules.event_names()):
-        event = catalog.get(name)
-        if event is None:
-            continue
-        ctx.on(event, _listener(name), id=f"notify:{name}")
+    wanted = {name for name in rules.event_names() if name in catalog}
+    for name in sorted(set(_attached) - wanted):
+        _attached.pop(name)()
+    for name in sorted(wanted - set(_attached)):
+        _attached[name] = _ctx.on(catalog[name], _listener(name), id=f"notify:{name}")
 
 
 def _listener(name: str):  # type: ignore[no-untyped-def]

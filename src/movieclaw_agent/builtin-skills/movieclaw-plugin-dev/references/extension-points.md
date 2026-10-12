@@ -92,7 +92,8 @@ tests 守着：契约有增删时本文必须同步）。都是实验级；清�
 | `plugin-jobs` | 建自己的后台任务（只能建自己登记的任务类型）：`ctx.use(PLUGIN_JOBS).scoped(ctx).create("<id>:sync", input=…, priority=…, dedupe_key=…)`，同去重键还在进行的直接返回它；优先级高的先领 | `from movieclaw_sdk.jobs import PLUGIN_JOBS` | `recipes.md` 第 7、16 节、`$SRC/movieclaw_plugins/strm_prefetch/` |
 | `plugin-callbacks` | 回调端点：外部平台（企业微信、GitHub、Slack、Telegram……）能直接调进来的地址，请求原样交给插件，**插件自己验签**；清单 `callbacks` 声明端点名 | `from movieclaw_sdk.callbacks import PLUGIN_CALLBACKS` | `recipes.md` 第 14 节 |
 | `agent` | 驱动 AI 助手跑一轮对话：`ask` 同步等结果，`start` 后 `events()` 逐事件流式（可续传）；只看得到自己建的会话。权限串 `agent:none` / `agent:mclaw` / `agent:full`（工具档位，插件包最高 `mclaw`），用户批准才生效 | `from movieclaw_sdk.agent import AGENT` | `recipes.md` 第 15 节、`examples/go-a2a-bridge/` |
-| `kernel/durable-events` | 可靠事件的投递（监听可靠事件时 inject 它） | `from movieclaw_kernel import DURABLE_EVENTS` | `delete_cascade.py` |
+| `kernel/durable-events` | 可靠订阅事件的投递（`durable=True` 订阅时 inject 它） | `from movieclaw_kernel import DURABLE_EVENTS` | `delete_cascade.py` |
+| `plugin-events` | 发插件自己的事件：`plugin_event("<插件 id>.xxx", 载荷模型, title=…)` 定义，`await ctx.use(PLUGIN_EVENTS).register(ctx, EVENT)` 登记，`publisher.publish(EVENT, 载荷)` 发。别的插件、Webhook 能订；清单 `[[notifications]]` 声明了通知、经用户批准的，宿主按规则推到手机和 IM | `from movieclaw_sdk.events import PLUGIN_EVENTS, plugin_event` | `recipes.md` 第 17 节 |
 
 另有 `movieclaw_sdk.net.http_transport("<服务名>")`：连外网按用户的代理设置走（清单写 `network = true`）。
 

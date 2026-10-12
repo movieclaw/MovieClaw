@@ -108,9 +108,9 @@ export function PluginPackagesSection({
     });
   };
 
-  const approve = (item: PackageRequest, allowInline: boolean) =>
+  const approve = (item: PackageRequest, allowInline: boolean, allowMembers: boolean) =>
     run(async () => {
-      const result = await approvePackage(item, allowInline);
+      const result = await approvePackage(item, allowInline, allowMembers);
       setReviewing(null);
       if (result.status === "active") {
         toast.success(`「${item.title}」v${item.version} 已安装并运行`);
@@ -284,7 +284,9 @@ export function PluginPackagesSection({
         item={reviewing}
         busy={busy}
         onClose={() => setReviewing(null)}
-        onApprove={(item, allowInline) => void approve(item, allowInline)}
+        onApprove={(item, allowInline, allowMembers) =>
+          void approve(item, allowInline, allowMembers)
+        }
         onDiscard={(item) =>
           void run(async () => {
             await discardPackage(item.id);
@@ -324,13 +326,18 @@ function ReviewDrawer({
   item: PackageRequest | null;
   busy: boolean;
   onClose: () => void;
-  onApprove: (item: PackageRequest, allowInline: boolean) => void;
+  onApprove: (item: PackageRequest, allowInline: boolean, allowMembers: boolean) => void;
   onDiscard: (item: PackageRequest) => void;
 }) {
   const [allowInline, setAllowInline] = useState(false);
-  useEffect(() => setAllowInline(false), [item]);
+  const [allowMembers, setAllowMembers] = useState(false);
+  useEffect(() => {
+    setAllowInline(false);
+    setAllowMembers(false);
+  }, [item]);
   if (!item) return null;
   const inline = item.runtime === "inline";
+  const notifiesMembers = item.notifies_members === true;
   const upgrade = item.installed_version !== null;
   const newBadge = (
     <span className="ml-2 rounded-full bg-[var(--warn)]/15 px-1.5 text-caption text-[var(--warn)]">
@@ -366,8 +373,8 @@ function ReviewDrawer({
           </button>
           <button
             type="button"
-            disabled={busy || (inline && !allowInline)}
-            onClick={() => onApprove(item, allowInline)}
+            disabled={busy || (inline && !allowInline) || (notifiesMembers && !allowMembers)}
+            onClick={() => onApprove(item, allowInline, allowMembers)}
             className={SETTINGS_PRIMARY_BUTTON_CLASS}
           >
             {busy ? "正在安装…" : "批准并安装"}
@@ -447,6 +454,71 @@ function ReviewDrawer({
                   </li>
                 ))}
               </ul>
+            </dd>
+          </div>
+        )}
+        {(item.notifications?.length ?? 0) > 0 && (
+          <div>
+            <dt className="mb-1.5 font-medium text-[var(--text)]">会发的通知</dt>
+            <dd className="space-y-1.5">
+              <p className="text-[var(--text-muted)]">
+                推到手机和 IM，标明「来自 {item.title}」；每个人能在「账号 → 通知」里自己关掉。
+              </p>
+              <ul className="space-y-1.5">
+                {item.notifications?.map((n) => (
+                  <li key={n.event} className="text-[var(--text)]">
+                    {n.title}
+                    <span
+                      className={
+                        n.reaches_members
+                          ? "ml-2 text-[var(--warn)]"
+                          : "ml-2 text-[var(--text-muted)]"
+                      }
+                    >
+                      发给{n.audience_label}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {notifiesMembers && (
+                <label className="mt-2 flex items-center gap-2 text-[var(--warn)]">
+                  <input
+                    type="checkbox"
+                    checked={allowMembers}
+                    onChange={(event) => setAllowMembers(event.target.checked)}
+                  />
+                  允许它给家里的成员发通知
+                </label>
+              )}
+            </dd>
+          </div>
+        )}
+        {(item.sensitive_events?.length ?? 0) > 0 && (
+          <div>
+            <dt className="mb-1.5 font-medium text-[var(--text)]">要知道的观看动态</dt>
+            <dd className="space-y-1.5">
+              <p className="text-[var(--warn)]">
+                它会知道谁在什么时候看了什么、收藏了什么。
+              </p>
+              <ul className="space-y-1 text-caption text-[var(--text-faint)]">
+                {item.sensitive_events?.map((name) => (
+                  <li key={name}>
+                    <code>{name}</code>
+                  </li>
+                ))}
+              </ul>
+            </dd>
+          </div>
+        )}
+        {(item.events?.length ?? 0) > 0 && (
+          <div>
+            <dt className="mb-1.5 font-medium text-[var(--text)]">会发出的事件</dt>
+            <dd className="space-y-1 text-[var(--text)]">
+              {item.events?.map((e) => (
+                <div key={e.name}>
+                  {e.title} <code className="text-caption text-[var(--text-faint)]">{e.name}</code>
+                </div>
+              ))}
             </dd>
           </div>
         )}

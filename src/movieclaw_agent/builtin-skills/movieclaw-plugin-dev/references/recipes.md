@@ -590,3 +590,54 @@ async def apply(ctx: Context) -> None:
 
 完整示例：`$SRC/movieclaw_plugins/strm_prefetch/`（网盘规格预探：后台补探 + 播放 / 收藏 / 打开详情时插队，
 探测本身调宿主操作 `library.strm.*`）。
+
+## 17. 发自己的事件、给人发通知
+
+插件定义自己的事件，和系统事件进同一个目录：别的插件能订、Webhook 能勾。清单里再写通知规则，用户批准安装后，
+发出的事件由宿主按规则推到手机和 IM（发给谁、按每个人的通知开关过滤、看不到的片不推，都由宿主做）。
+
+```python
+from pydantic import BaseModel, ConfigDict
+
+from movieclaw_sdk import plugin
+from movieclaw_sdk.events import PLUGIN_EVENTS, plugin_event
+
+
+class QuotaExceeded(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    site: str
+    remaining_gb: float
+
+
+QUOTA_EXCEEDED = plugin_event("quota-watch.exceeded", QuotaExceeded, title="站点配额超限")
+
+
+@plugin("quota-watch", title="配额提醒", inject=(PLUGIN_EVENTS,))
+async def apply(ctx) -> None:
+    events = await ctx.use(PLUGIN_EVENTS).register(ctx, QUOTA_EXCEEDED)   # 插件停用时自动撤下
+
+    async def check() -> None:
+        ...
+        await events.publish(QUOTA_EXCEEDED, QuotaExceeded(site="mteam", remaining_gb=2.5))
+
+    ctx.task(check(), name="check")
+```
+
+清单（`manifest.md`）：
+
+```toml
+[[events]]
+name = "quota-watch.exceeded"
+title = "站点配额超限"
+
+[[notifications]]
+event = "quota-watch.exceeded"
+title = "{site} 配额只剩 {remaining_gb} GB"
+audience = "admins"
+```
+
+- 事件名以插件 id 开头、在 `[[events]]` 里声明；载荷是冻结的 pydantic 模型（进程外插件按它的 JSON Schema 校验）。
+- 一个事件最多一条通知；收件人只能是 `admins`、`member:<字段>`（字段值是宿主给过你的成员 id：调用你成员区接口的人、
+  事件载荷里的成员）、`media:<字段>`（订阅或关注了那部片的人）。宿主不提供「列出所有成员」。
+- 用户在「账号 → 通知」的「插件 · <插件名>」分组里逐条开关；插件卸载时这些开关一并删掉。
+

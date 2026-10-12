@@ -21,10 +21,10 @@ JELLYFIN_TYPES: dict[str, str] = {
 
 
 def event_types() -> dict[str, Any]:
-    """能投递的事件：系统事件（插件事件见 domain-events.md §7）。"""
-    from movieclaw_sdk.events import core_events
+    """能投递的事件：系统事件 + 在运行的插件登记的事件（domain-events.md §7）。"""
+    from movieclaw_api.services import plugin_events
 
-    return {event.name: event for event in core_events()}
+    return plugin_events.all_events()
 
 
 #: 旧版事件名 → 现在的名字（老配置里存的）

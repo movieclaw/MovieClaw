@@ -121,6 +121,18 @@ class JobsApi(Protocol):
     ) -> dict[str, Any]: ...
 
 
+class EventsApi(Protocol):
+    """插件自己的事件（``PLUGIN_EVENTS``，docs/design/domain-events.md §7）。
+
+    ``register`` 的每项 ``{name, title, doc, schema}``（``schema`` 是载荷的 JSON Schema），名字须
+    以插件 id 开头、在清单 ``[[events]]`` 里声明过；``publish`` 的载荷按登记的 Schema 校验。
+    """
+
+    async def register(self, definitions: list[dict[str, Any]]) -> None: ...
+
+    async def publish(self, name: str, payload: dict[str, Any]) -> None: ...
+
+
 class ChannelsApi(Protocol):
     """通道驱动回调中枢：收到消息、保存账号状态。"""
 
@@ -168,6 +180,7 @@ SERVICES: dict[str, type] = {
     "net": NetApi,
     "job": JobApi,
     "jobs": JobsApi,
+    "events": EventsApi,
     "channels": ChannelsApi,
     "agent": AgentApi,
 }
