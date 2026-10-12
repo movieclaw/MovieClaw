@@ -20,7 +20,7 @@ import tomllib
 from pathlib import Path
 from typing import Any
 
-from movieclaw_kernel import Delivery, Event, Kernel, Mode
+from movieclaw_kernel import Event, Kernel, Mode
 from movieclaw_kernel.contracts import CATALOG
 
 
@@ -210,7 +210,7 @@ def _adds(
     for name in durable_events:
         event = CATALOG.get(name)
         if isinstance(event, Event):
-            out.append(_listener_view(event))
+            out.append(_listener_view(event, durable=True))
     seen: set[tuple[str, str]] = set()
     unique = []
     for item in out:
@@ -265,10 +265,10 @@ def _event_title(name: str) -> str:
     return (getattr(contract, "doc", "") or name) if contract is not None else name
 
 
-def _listener_view(event: Event[Any, Any]) -> dict:
+def _listener_view(event: Event[Any, Any], *, durable: bool = False) -> dict:
     doc = event.doc or event.name
     if event.mode is Mode.EMIT:
-        if event.delivery is Delivery.DURABLE:
+        if durable:
             return {
                 "kind": "trigger",
                 "title": f"「{doc}」后会自动处理",
@@ -419,7 +419,7 @@ async def plugin_detail(kernel: Kernel, settings: Any, entry_id: str, item: dict
     if store is not None:
         durable = await store.describe()
         consumers = [
-            {**c, "title": _event_title(c["event"])}
+            {**c, "title": "、".join(_event_title(name) for name in c["events"])}
             for c in durable["consumers"]
             if c["consumer_id"].startswith(f"{entry_id}:")
         ]
@@ -440,7 +440,9 @@ async def plugin_detail(kernel: Kernel, settings: Any, entry_id: str, item: dict
         "version": version,
         "network": network,
         "package": package,
-        "adds": _adds(kernel, entry_id, accounts, [c["event"] for c in consumers]),
+        "adds": _adds(
+            kernel, entry_id, accounts, [name for c in consumers for name in c["events"]]
+        ),
         "consumers": consumers,
         "dead_letters": dead_letters,
         "callbacks": await callbacks.overview(entry_id) if callbacks is not None else [],

@@ -18,18 +18,19 @@ import sys
 from movieclaw_kernel import Event, RegistryKey, ServiceKey, Stability
 from movieclaw_sdk.surface import MODULES, _describe
 
-#: 监听器写法（按分发模式）
+#: 监听器写法（按分发模式、能否可靠订阅）
 _HANDLER = {
-    ("emit", "durable"): (
-        "可靠事件：ctx.on(EVENT, handler, id=\"稳定id\")；async def handler(event) -> None。"
-        "至少投递一次，用 ctx.delivery.event_id 去重。须 inject=(DURABLE_EVENTS,)"
+    ("emit", True): (
+        "事件：实时订阅 ctx.on(EVENT, handler)（至多一次，重启即丢）；"
+        "要做副作用就可靠订阅 ctx.on(EVENT, handler, id=\"稳定id\", durable=True)"
+        "（至少一次，用 ctx.delivery.event_id 去重，须 inject=(DURABLE_EVENTS,)）。async def handler(payload) -> None"
     ),
-    ("emit", "live"): "实时通知：ctx.on(EVENT, handler)；async def handler(payload) -> None。至多一次，重启即丢",
-    ("waterfall", "live"): (
+    ("emit", False): "实时事件（高频，只能实时订阅）：ctx.on(EVENT, handler)；async def handler(payload) -> None。至多一次，重启即丢",
+    ("waterfall", False): (
         "决策钩子（洋葱式）：async def handler(payload, next_)：result = await next_()（或 next_(新载荷)），"
         "再返回修改后的结果。不许有副作用"
     ),
-    ("bail", "live"): "决策钩子（第一个说了算）：def/async def handler(payload)：返回结果表示接管，返回 None 表示不管。不许有副作用",
+    ("bail", False): "决策钩子（第一个说了算）：def/async def handler(payload)：返回结果表示接管，返回 None 表示不管。不许有副作用",
 }
 
 
@@ -65,8 +66,8 @@ def listing(contracts: dict[str, tuple[str, str, object]]) -> None:
         info = _describe(contract)  # type: ignore[arg-type]
         kind = kinds.get(info["kind"], info["kind"])
         if info["kind"] == "event":
-            kind = "可靠事件" if info["delivery"] == "durable" else (
-                "通知" if info["mode"] == "emit" else f"钩子·{info['mode']}"
+            kind = "事件" if info["durable"] else (
+                "实时事件" if info["mode"] == "emit" else f"钩子·{info['mode']}"
             )
         print(f"{name}  [{kind} {info['version']}]  {info['doc']}")
         print(f"    from {module} import {var}")
@@ -102,7 +103,7 @@ def show(name: str, contracts: dict[str, tuple[str, str, object]], as_schema: bo
         print("贡献项类型：")
         print(_type_text(getattr(contract, "schema", None), info.get("item"), as_schema))
     else:
-        print("写法：" + _HANDLER.get((info["mode"], info["delivery"]), f"{info['mode']} / {info['delivery']}"))
+        print("写法：" + _HANDLER.get((info["mode"], info["durable"]), info["mode"]))
         print("载荷类型：")
         print(_type_text(getattr(contract, "payload", None), info.get("payload"), as_schema))
         if info.get("result") is not None:

@@ -23,7 +23,6 @@ from movieclaw_db.migrations import run_migrations
 from movieclaw_db.models import DomainEvent, EventConsumer, EventDeadLetter, utcnow
 from movieclaw_kernel import (
     DURABLE_EVENTS,
-    Delivery,
     Event,
     Mode,
     Origin,
@@ -44,14 +43,14 @@ THING = Event(
     "test/thing",
     Mode.EMIT,
     payload=Thing,
-    delivery=Delivery.DURABLE,
+    durable=True,
     stability=Stability.EXPERIMENTAL,
 )
 OTHER = Event(
     "test/other",
     Mode.EMIT,
     payload=Thing,
-    delivery=Delivery.DURABLE,
+    durable=True,
     stability=Stability.EXPERIMENTAL,
 )
 
@@ -75,7 +74,7 @@ async def db(tmp_path, monkeypatch):
 def consumer(name: str, handler: Callable, *, event=THING, listener_id: str = "main"):
     @plugin(name, title=name, inject=(DURABLE_EVENTS,))
     async def apply(ctx) -> None:
-        ctx.on(event, lambda payload: handler(ctx, payload), id=listener_id)
+        ctx.on(event, lambda payload: handler(ctx, payload), id=listener_id, durable=True)
 
     return apply
 
@@ -128,7 +127,7 @@ async def test_nothing_is_written_without_consumers(db) -> None:
 async def test_record_validates_event_and_payload(db) -> None:
     live = Event("test/live", Mode.EMIT, payload=Thing)
     async with db.session() as session:
-        with pytest.raises(TypeError, match="不是可靠事件"):
+        with pytest.raises(TypeError, match="不能可靠投递"):
             await svc.record(session, live, Thing(value=1))
         with pytest.raises(TypeError, match="载荷须是"):
             await svc.record(session, THING, 1)
@@ -365,8 +364,8 @@ async def test_consumers_are_independent(db) -> None:
 async def test_duplicate_listener_id_fails_the_plugin(db) -> None:
     @plugin("acme.dup", title="dup", inject=(DURABLE_EVENTS,))
     async def dup(ctx) -> None:
-        ctx.on(THING, lambda p: None, id="same")
-        ctx.on(OTHER, lambda p: None, id="same")
+        ctx.on(THING, lambda p: None, id="same", durable=True)
+        ctx.on(OTHER, lambda p: None, id="same", durable=True)
 
     async with KernelHarness() as h:
         await start(h, db)

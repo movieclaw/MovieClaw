@@ -9,7 +9,8 @@
 
     @plugin("acme.cascade", inject=(DURABLE_EVENTS,))
     async def apply(ctx):
-        ctx.on(LIBRARY_ITEM_DELETED, handler, id="cascade")   # 稳定 id 决定跨重启的进度
+        # 稳定 id 决定跨重启的进度
+        ctx.on(LIBRARY_ITEM_DELETED, handler, id="cascade", durable=True)
 
 - **零开销**：某个事件名没有任何消费者（``event_consumer`` 行，含暂时停用的插件）时，``record``
   只做一次内存集合查找就返回，不写库。消费者名单每个进程只从库里读一次，之后随订阅更新。
@@ -24,9 +25,9 @@ import asyncio
 import contextlib
 import inspect
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from pydantic import ValidationError
@@ -36,7 +37,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from movieclaw_db.engine import Database
 from movieclaw_db.models import DomainEvent, EventConsumer, EventDeadLetter, utcnow
 from movieclaw_events import new_ulid
-from movieclaw_kernel import Delivery, DeliveryInfo, Event, Origin, current_delivery, current_origin
+from movieclaw_kernel import DeliveryInfo, Event, Origin, current_delivery, current_origin
 from movieclaw_kernel.observe import MAX_CAUSE_DEPTH, current_entry
 
 logger = logging.getLogger("movieclaw_api.durable_events")
@@ -62,14 +63,19 @@ _wakers: set[Callable[[], None]] = set()
 async def _subscribed_names(session: AsyncSession) -> set[str]:
     global _subscribed
     if _subscribed is None:
-        rows = await session.execute(select(EventConsumer.event_name).distinct())
-        _subscribed = set(rows.scalars())
+        rows = await session.execute(select(EventConsumer.event_names))
+        _subscribed = {str(name) for names in rows.scalars() for name in names or ()}
     return _subscribed
 
 
-def _note_subscribed(name: str) -> None:
+def cached_names() -> set[str] | None:
+    """有可靠消费者的事件名（本进程已读过时）；还没读过为 ``None``。"""
+    return _subscribed
+
+
+def _note_subscribed(names: Iterable[str]) -> None:
     if _subscribed is not None:
-        _subscribed.add(name)
+        _subscribed.update(names)
 
 
 def reset_subscribed() -> None:
@@ -106,22 +112,42 @@ def _arm_wake(session: AsyncSession) -> None:
     event.listen(sync, "after_commit", after_commit, once=True)
 
 
+def _naive_utc(value: datetime) -> datetime:
+    """库里的时间一律是不带时区的 UTC。"""
+    if value.tzinfo is None:
+        return value
+    return value.astimezone(UTC).replace(tzinfo=None)
+
+
 async def wanted(session: AsyncSession, evt: Event[Any, Any]) -> bool:
     """有没有插件订阅这个事件；没有就不必拍快照（零开销的前半段）。"""
     return evt.name in await _subscribed_names(session)
 
 
-async def record(session: AsyncSession, evt: Event[Any, Any], payload: Any) -> bool:
-    """在业务会话里写一条可靠事件（不提交）。返回是否写入（没有消费者时不写）。"""
-    if evt.delivery is not Delivery.DURABLE:
-        raise TypeError(f"事件 {evt.name} 不是可靠事件")
+async def record(
+    session: AsyncSession,
+    evt: Event[Any, Any],
+    payload: Any,
+    *,
+    event_id: str | None = None,
+    occurred_at: datetime | None = None,
+    origin: Origin | None = None,
+) -> bool:
+    """在业务会话里写一条可靠事件（不提交）。返回是否写入（没有消费者时不写）。
+
+    ``event_id`` / ``occurred_at`` / ``origin``：同一个事件的实时投递也用这几个值
+    （``movieclaw_api.events.publish``），不传就现生成。
+    """
+    if not evt.durable:
+        raise TypeError(f"事件 {evt.name} 不能可靠投递")
     if not isinstance(payload, evt.payload):
         raise TypeError(
             f"事件 {evt.name} 的载荷须是 {evt.payload.__name__}，收到 {type(payload).__name__}"
         )
     if evt.name not in await _subscribed_names(session):
         return False
-    origin = current_origin.get()
+    if origin is None:
+        origin = current_origin.get()
     if len(origin.chain) >= MAX_CAUSE_DEPTH:
         # 插件之间经事件互相触发成环：不再产生新事件，但不能因此让业务操作失败
         logger.warning(
@@ -133,13 +159,14 @@ async def record(session: AsyncSession, evt: Event[Any, Any], payload: Any) -> b
         return False
     session.add(
         DomainEvent(
-            id=new_ulid(),
+            id=event_id or new_ulid(),
             name=evt.name,
             version=str(evt.version),
             payload=payload.model_dump(mode="json"),
             origin_kind=origin.kind,
             origin_id=origin.id,
             chain=list(origin.chain),
+            **({"occurred_at": _naive_utc(occurred_at)} if occurred_at is not None else {}),
         )
     )
     _arm_wake(session)
@@ -156,11 +183,16 @@ class ReplayError(Exception):
 @dataclass(eq=False)
 class _Consumer:
     consumer_id: str
-    event: Event[Any, Any]
+    events: dict[str, Event[Any, Any]]
+    """订阅的事件，按名字索引；按产生顺序一起投递。"""
     entry_id: str
     handler: Callable[..., Any]
     task: asyncio.Task[None] | None = None
     delivering: bool = field(default=False)
+
+    @property
+    def names(self) -> list[str]:
+        return sorted(self.events)
 
 
 class DurableEvents:
@@ -202,16 +234,23 @@ class DurableEvents:
     # ------------------------------------------------------------------ 订阅
     def subscribe(
         self,
-        event: Event[Any, Any],
+        event: Event[Any, Any] | tuple[Event[Any, Any], ...],
         *,
         entry_id: str,
         listener_id: str,
         handler: Callable[..., Any],
     ) -> Callable[[], Any]:
+        """订阅一个或一组事件；一组时按产生顺序投递给同一个处理函数。"""
         consumer_id = f"{entry_id}:{listener_id}"
         if consumer_id in self._consumers:
             raise ValueError(f"可靠监听器 id 重复：{consumer_id}")
-        consumer = _Consumer(consumer_id, event, entry_id, handler)
+        events = event if isinstance(event, tuple) else (event,)
+        if not events:
+            raise ValueError(f"可靠监听器 {consumer_id} 没有订阅任何事件")
+        for evt in events:
+            if not evt.durable:
+                raise TypeError(f"事件 {evt.name} 不能可靠订阅")
+        consumer = _Consumer(consumer_id, {e.name: e for e in events}, entry_id, handler)
         self._consumers[consumer_id] = consumer
         consumer.task = self._start(self._run(consumer), f"durable-events:{consumer_id}")
 
@@ -233,15 +272,18 @@ class DurableEvents:
                 latest = await session.scalar(select(func.max(DomainEvent.seq)))
                 row = EventConsumer(
                     consumer_id=consumer.consumer_id,
-                    event_name=consumer.event.name,
+                    event_name=consumer.names[0],
+                    event_names=consumer.names,
                     cursor=latest or 0,
                 )
                 session.add(row)
             else:
-                row.event_name = consumer.event.name
+                # 订阅的事件变了（Webhook 地址改了勾选）：新加的事件从现在起投，不补历史
+                row.event_names = consumer.names
+                row.event_name = consumer.names[0]
                 row.last_seen_at = utcnow()
             await session.commit()
-        _note_subscribed(consumer.event.name)
+        _note_subscribed(consumer.names)
 
     async def _run(self, consumer: _Consumer) -> None:
         await self._register(consumer)
@@ -270,7 +312,7 @@ class DurableEvents:
                     await session.execute(
                         select(DomainEvent)
                         .where(
-                            DomainEvent.name == consumer.event.name,
+                            DomainEvent.name.in_(consumer.names),  # type: ignore[attr-defined]
                             DomainEvent.seq > state.cursor,
                         )
                         .order_by(DomainEvent.seq)
@@ -332,8 +374,11 @@ class DurableEvents:
         self, consumer: _Consumer, row: DomainEvent, attempt: int
     ) -> tuple[str | None, bool]:
         """交给监听器一次；返回 (错误, 是否不必重试)。"""
+        evt = consumer.events.get(row.name)
+        if evt is None:
+            return f"消费者没有订阅事件 {row.name}", True
         try:
-            payload = consumer.event.payload.model_validate(row.payload)
+            payload = evt.payload.model_validate(row.payload)
         except ValidationError as exc:
             # 载荷与当前契约对不上，重试也不会好：直接进死信
             return f"载荷校验失败：{exc}", True
@@ -428,12 +473,15 @@ class DurableEvents:
                 backlog = await session.scalar(
                     select(func.count())
                     .select_from(DomainEvent)
-                    .where(DomainEvent.name == row.event_name, DomainEvent.seq > row.cursor)
+                    .where(
+                        DomainEvent.name.in_(list(row.event_names or ())),  # type: ignore[attr-defined]
+                        DomainEvent.seq > row.cursor,
+                    )
                 )
                 items.append(
                     {
                         "consumer_id": row.consumer_id,
-                        "event": row.event_name,
+                        "events": list(row.event_names or ()),
                         "active": row.consumer_id in self._consumers,
                         "backlog": backlog or 0,
                         "attempts": row.attempts,

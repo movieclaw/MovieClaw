@@ -689,7 +689,7 @@ class Kernel:
             info = describe(contract)
             if isinstance(contract, Event):
                 info["mode"] = contract.mode.value
-                info["delivery"] = contract.delivery.value
+                info["durable"] = contract.durable
                 info["listeners"] = [item.label for item in self.bus.listeners(contract)]
                 events.append(info)
             elif isinstance(contract, RegistryKey):

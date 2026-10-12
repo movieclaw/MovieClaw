@@ -98,7 +98,7 @@ def _describe(contract: Contract) -> dict[str, Any]:
     if isinstance(contract, Event):
         item.update(
             mode=contract.mode.value,
-            delivery=contract.delivery.value,
+            durable=contract.durable,
             payload=_schema(contract.payload),
             result=_schema(contract.result),
         )

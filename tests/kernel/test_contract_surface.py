@@ -70,9 +70,8 @@ def test_open_contracts_match_the_snapshot() -> None:
             for part in ("payload", "result", "item")
             for reason in breaking(before.get(part), after.get(part))
         ]
-        if before.get("mode") != after.get("mode") or before.get("delivery") != after.get(
-            "delivery"
-        ):
+        lost_durable = before.get("durable", False) and not after.get("durable", False)
+        if before.get("mode") != after.get("mode") or lost_durable:
             reasons.append("分发模式变了")
         if reasons and new_major == old_major:
             problems.append(f"{name}：破坏性变化须升主版本（{'；'.join(reasons)}）")

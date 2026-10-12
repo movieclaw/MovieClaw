@@ -33,7 +33,6 @@ from typing import Any
 
 from movieclaw_kernel import (
     DURABLE_EVENTS,
-    Delivery,
     DeliveryInfo,
     Event,
     Mode,
@@ -574,19 +573,25 @@ class RemoteContext:
         *,
         id: str | None = None,
         priority: int = 0,
+        durable: bool = False,
     ) -> None:
         if known_events().get(event.name) is not event:
             raise ValueError(f"事件 {event.name} 没有开放给第三方插件")
-        if event.delivery is Delivery.DURABLE:
+        if durable:
+            if not event.durable:
+                raise TypeError(f"事件 {event.name} 不能可靠订阅（高频事件或钩子）")
             if not id:
-                raise ValueError(f"可靠事件 {event.name} 的监听器必须有稳定 id")
+                raise ValueError(f"可靠订阅 {event.name} 的监听器必须有稳定 id")
             if DURABLE_EVENTS.name not in self._inject:
-                raise ValueError(f"订阅可靠事件 {event.name} 须在 inject 里声明 DURABLE_EVENTS")
+                raise ValueError(f"可靠订阅 {event.name} 须在 inject 里声明 DURABLE_EVENTS")
         key = id or f"{event.name}#{len(self._handlers)}"
         if key in self._handlers:
             raise ValueError(f"监听器 id 重复：{key}")
         self._handlers[key] = (event, handler)
-        self._runner.declare("listeners", {"event": event.name, "id": key, "priority": priority})
+        self._runner.declare(
+            "listeners",
+            {"event": event.name, "id": key, "priority": priority, "durable": durable},
+        )
 
     def task(self, coro: Coroutine[Any, Any, Any], *, name: str) -> asyncio.Task[Any]:
         task = asyncio.get_running_loop().create_task(coro, name=f"plugin:{self.entry_id}:{name}")

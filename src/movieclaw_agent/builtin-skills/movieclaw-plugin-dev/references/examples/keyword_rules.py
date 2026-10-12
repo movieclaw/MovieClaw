@@ -97,4 +97,4 @@ async def keyword_rules(ctx: Context[Config]) -> None:
 
     ctx.on(hooks.CANDIDATES_FILTER, filter_candidates)
     ctx.on(hooks.SEARCH_KEYWORDS, more_keywords)
-    ctx.on(SUBSCRIPTION_DELETED, on_deleted, id="cleanup")
+    ctx.on(SUBSCRIPTION_DELETED, on_deleted, id="cleanup", durable=True)

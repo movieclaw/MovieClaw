@@ -18,7 +18,6 @@ from movieclaw_kernel.contracts import RegistryKey, ServiceKey, Stability
 from movieclaw_kernel.events import (
     DURABLE_EVENTS,
     CauseChainTooLong,
-    Delivery,
     DurableEventStore,
     Event,
     Mode,
@@ -54,7 +53,6 @@ __all__ = [
     "CauseChainTooLong",
     "Context",
     "ContributionConflict",
-    "Delivery",
     "DeliveryInfo",
     "DurableEventStore",
     "Entry",

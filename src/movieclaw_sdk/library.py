@@ -1,6 +1,6 @@
 """媒体库与播放的实时事件（docs/design/plugin-strm-prefetch.md §3）。
 
-发完即忘（``Delivery.LIVE``）：插件进程不在、队列满了就丢，漏了不要紧——这些事件只是「现在
+发完即忘（只能实时订阅）：插件进程不在、队列满了就丢，漏了不要紧——这些事件只是「现在
 值得做点什么」的提示，该做的事应当能从数据库里的事实补回来（例如按待探列表补探）::
 
     from movieclaw_sdk import plugin
@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict
 
-from movieclaw_kernel import Delivery, Event, Mode, Stability
+from movieclaw_kernel import Event, Mode, Stability
 
 
 class _Frozen(BaseModel):
@@ -85,7 +85,6 @@ def _event(name: str, payload: type, doc: str) -> Event[object, object]:
         name,
         Mode.EMIT,
         payload=payload,
-        delivery=Delivery.LIVE,
         stability=Stability.EXPERIMENTAL,
         doc=doc,
     )

@@ -23,7 +23,7 @@ from tests.api.test_subscription_pipeline import (
     _service,
 )
 
-from movieclaw_api import hooks
+from movieclaw_api import events, hooks
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.exceptions import ConflictException
 from movieclaw_api.services.subscription.matching import evaluate_and_dispatch
@@ -61,14 +61,14 @@ async def listening(*bindings):
             ctx.on(event, handler)
 
     async with KernelHarness() as h:
-        hooks.bind_bus(h.kernel.bus)
+        events.bind_bus(h.kernel.bus)
         try:
             fiber = await h.mount(apply)
             assert fiber.state.value == "active", fiber.error
             yield h
             await h.unmount(fiber)
         finally:
-            hooks.unbind_bus(h.kernel.bus)
+            events.unbind_bus(h.kernel.bus)
 
 
 async def _show_with_single_and_pack(session):

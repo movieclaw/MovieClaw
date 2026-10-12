@@ -39,7 +39,6 @@ from movieclaw_api.services.plugin_agent import PluginAgent
 from movieclaw_kernel import (
     DURABLE_EVENTS,
     Context,
-    Delivery,
     Mode,
     Plugin,
     ServiceKey,
@@ -818,7 +817,7 @@ def _proxy(session: Session, declaration: dict[str, Any]) -> tuple[Any, Callable
     if event is None:
         raise ValueError(f"事件 {declaration['event']} 不存在或没有开放给第三方插件")
     listener = declaration["id"]
-    timeout = DURABLE_TIMEOUT if event.delivery is Delivery.DURABLE else CALL_TIMEOUT
+    timeout = DURABLE_TIMEOUT if declaration.get("durable") else CALL_TIMEOUT
 
     if event.mode is Mode.WATERFALL:
 
@@ -1367,7 +1366,11 @@ def remote_plugin(
         for declaration in declarations:
             event, handler = _proxy(session, declaration)
             ctx.on(
-                event, handler, id=declaration["id"], priority=int(declaration.get("priority", 0))
+                event,
+                handler,
+                id=declaration["id"],
+                priority=int(declaration.get("priority", 0)),
+                durable=bool(declaration.get("durable")),
             )
         if session.routes:
             from movieclaw_api.plugins.keys import PLUGIN_ROUTES

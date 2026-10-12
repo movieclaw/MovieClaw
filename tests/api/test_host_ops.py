@@ -188,6 +188,7 @@ def test_events_caused_by_a_plugin_call_carry_the_plugin_origin(app_client) -> N
                 EventConsumer(
                     consumer_id="test:status",
                     event_name=domain_events.SUBSCRIPTION_STATUS_CHANGED.name,
+                    event_names=[domain_events.SUBSCRIPTION_STATUS_CHANGED.name],
                 )
             )
             await session.commit()

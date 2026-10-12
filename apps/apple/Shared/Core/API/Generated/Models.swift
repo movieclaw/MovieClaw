@@ -1535,7 +1535,8 @@ nonisolated extension API {
         var provider: String?
         var contributions: [API.ContributionView]?
         var mode: String?
-        var delivery: String?
+        /// 事件能否被可靠订阅
+        var durable: Bool?
         var listeners: [String]?
 
         enum CodingKeys: String, CodingKey {
@@ -1547,7 +1548,7 @@ nonisolated extension API {
             case provider
             case contributions
             case mode
-            case delivery
+            case durable
             case listeners
         }
     }
@@ -3172,7 +3173,8 @@ nonisolated extension API {
     struct DurableConsumerView: Codable, Hashable, Sendable {
         /// <条目 id>:<监听器 id>
         var consumerId: String
-        var event: String
+        /// 订阅的事件（一个消费者可订阅多个，按产生顺序投递）
+        var events: [String]
         /// 订阅它的插件当前是否在运行
         var active: Bool
         /// 尚未处理的事件数
@@ -3184,7 +3186,7 @@ nonisolated extension API {
 
         enum CodingKeys: String, CodingKey {
             case consumerId = "consumer_id"
-            case event
+            case events
             case active
             case backlog
             case attempts

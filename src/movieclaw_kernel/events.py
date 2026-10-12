@@ -29,8 +29,10 @@ from movieclaw_kernel.contracts import Contract, ServiceKey, Stability
 from movieclaw_kernel.observe import (
     MAX_CAUSE_DEPTH,
     Breaker,
+    DeliveryInfo,
     EntryStats,
     Origin,
+    current_delivery,
     current_entry,
     current_origin,
 )
@@ -52,14 +54,6 @@ class Mode(StrEnum):
     BAIL = "bail"
 
 
-class Delivery(StrEnum):
-    LIVE = "live"
-    """内存队列，至多一次，重启即丢。"""
-
-    DURABLE = "durable"
-    """业务事务内写入事件表、提交后投递、至少一次（第二阶段 A 由 ``DURABLE_EVENTS`` 提供）。"""
-
-
 class CauseChainTooLong(RuntimeError):
     """因果链超过上限：插件之间经事件互相触发成环。"""
 
@@ -79,6 +73,10 @@ class Event(Contract, Generic[P, R]):
     """事件契约。
 
     ``payload`` 是载荷类型（必须不可变），``result`` 是 waterfall / bail 的结果类型。
+
+    投递方式由订阅方选（docs/design/domain-events.md §5）：``durable=True`` 的事件既能实时订阅
+    （内存、至多一次），也能可靠订阅（落库、至少一次）；``durable=False`` 的只能实时订阅
+    （高频事件、钩子）。
     """
 
     kind = "event"
@@ -90,7 +88,7 @@ class Event(Contract, Generic[P, R]):
         *,
         payload: type,
         result: type | None = None,
-        delivery: Delivery = Delivery.LIVE,
+        durable: bool = False,
         version: str = "1.0",
         stability: Stability = Stability.INTERNAL,
         doc: str = "",
@@ -102,16 +100,17 @@ class Event(Contract, Generic[P, R]):
             raise TypeError(
                 f"事件 {name} 的载荷类型 {payload.__name__} 必须不可变（冻结 dataclass 等）"
             )
-        if delivery is Delivery.DURABLE and mode is not Mode.EMIT:
+        if durable and mode is not Mode.EMIT:
             raise TypeError(f"事件 {name}：只有 EMIT 事件可以可靠投递")
-        if delivery is Delivery.DURABLE and not callable(getattr(payload, "model_validate", None)):
-            # 可靠事件要落库、重启后还原、将来跨进程：载荷须是冻结的 pydantic 模型
+        if durable and not callable(getattr(payload, "model_validate", None)):
+            # 可靠投递要落库、重启后还原、跨进程：载荷须是冻结的 pydantic 模型
             raise TypeError(f"可靠事件 {name} 的载荷 {payload.__name__} 须是冻结的 pydantic 模型")
         super().__init__(name, version=version, stability=stability, doc=doc)
         self.mode = mode
         self.payload = payload
         self.result = result
-        self.delivery = delivery
+        self.durable = durable
+        """能否被可靠订阅。"""
         self.timeout = timeout
         """单个监听器的时限（秒），不含它调用 ``next`` 后下游的耗时。"""
         self.budget = budget
@@ -120,11 +119,14 @@ class Event(Contract, Generic[P, R]):
 
 
 class DurableEventStore(Protocol):
-    """可靠事件存储（第二阶段 A 实现）：监听器订阅后跨重启续投。"""
+    """可靠事件存储（第二阶段 A 实现）：监听器订阅后跨重启续投。
+
+    一个消费者可以订阅多个事件，按产生顺序收到（Webhook 地址就是这样一个消费者）。
+    """
 
     def subscribe(
         self,
-        event: Event[Any, Any],
+        event: Event[Any, Any] | tuple[Event[Any, Any], ...],
         *,
         entry_id: str,
         listener_id: str,
@@ -149,7 +151,7 @@ class Listener:
     stats: EntryStats
     order: int = field(default_factory=lambda: next(_order))
     breaker: Breaker = field(default_factory=Breaker)
-    queue: asyncio.Queue[tuple[Any, Origin]] | None = None
+    queue: asyncio.Queue[tuple[Any, Origin, DeliveryInfo | None]] | None = None
     drop_logged_at: float = float("-inf")
 
     @property
@@ -187,8 +189,6 @@ class EventBus:
         stats: EntryStats,
         spawn: Spawn,
     ) -> Callable[[], None]:
-        if event.delivery is Delivery.DURABLE:
-            raise TypeError(f"可靠事件 {event.name} 须经 DURABLE_EVENTS 订阅")
         if event.mode is Mode.WATERFALL and not inspect.iscoroutinefunction(handler):
             raise TypeError(f"waterfall 事件 {event.name} 的监听器必须是 async 函数")
         listener = Listener(event, handler, entry_id, listener_id, priority, stats)
@@ -223,7 +223,9 @@ class EventBus:
         self._loop = loop
 
     # ------------------------------------------------------------------ 公共校验
-    def _check(self, event: Event[Any, Any], mode: Mode, payload: Any) -> Origin:
+    def _check(
+        self, event: Event[Any, Any], mode: Mode, payload: Any, origin: Origin | None = None
+    ) -> Origin:
         if event.mode is not mode:
             raise TypeError(
                 f"事件 {event.name} 是 {event.mode.value} 模式，不能用 {mode.value} 分发"
@@ -233,7 +235,8 @@ class EventBus:
                 f"事件 {event.name} 的载荷须是 {event.payload.__name__}，"
                 f"收到 {type(payload).__name__}"
             )
-        origin = current_origin.get()
+        if origin is None:
+            origin = current_origin.get()
         if len(origin.chain) >= MAX_CAUSE_DEPTH:
             raise CauseChainTooLong(
                 f"事件 {event.name} 的因果链已达 {len(origin.chain)} 层：{' → '.join(origin.chain)}"
@@ -277,14 +280,21 @@ class EventBus:
         current_entry.reset(tokens[0])
 
     # ------------------------------------------------------------------ EMIT
-    def emit(self, event: Event[P, Any], payload: P) -> None:
-        if event.delivery is Delivery.DURABLE:
-            raise TypeError(f"可靠事件 {event.name} 须在业务事务内经 DURABLE_EVENTS 写入")
-        origin = self._check(event, Mode.EMIT, payload)
+    def emit(
+        self,
+        event: Event[P, Any],
+        payload: P,
+        *,
+        origin: Origin | None = None,
+        info: DeliveryInfo | None = None,
+    ) -> None:
+        """``origin``：事件产生时的发起方（提交后才发出的事件要用产生时记下的，不是此刻的）；
+        ``info``：信封（事件 id、发生时间），监听器里经 ``current_delivery`` 读到。"""
+        origin = self._check(event, Mode.EMIT, payload, origin)
         for listener in self._listeners.get(event.name, []):
             assert listener.queue is not None
             try:
-                listener.queue.put_nowait((payload, origin))
+                listener.queue.put_nowait((payload, origin, info))
             except asyncio.QueueFull:
                 listener.stats.dropped += 1
                 now = self._clock()
@@ -307,12 +317,13 @@ class EventBus:
     async def _consume(self, listener: Listener) -> None:
         assert listener.queue is not None
         while True:
-            payload, origin = await listener.queue.get()
+            payload, origin, info = await listener.queue.get()
             if not listener.breaker.allow(self._clock()):
                 listener.stats.dropped += 1
                 listener.queue.task_done()
                 continue
             tokens = self._attribute(listener, origin)
+            delivery_token = current_delivery.set(info)
             started = time.perf_counter()
             try:
                 async with asyncio.timeout(listener.event.timeout):
@@ -327,6 +338,7 @@ class EventBus:
                 listener.breaker.success()
                 listener.stats.record_handler((time.perf_counter() - started) * 1000)
             finally:
+                current_delivery.reset(delivery_token)
                 self._release(tokens)
                 listener.queue.task_done()
 

@@ -53,13 +53,13 @@ async def registries(ctx: Context) -> None:
     模块声明目录，命令行工具与单独驱动引擎的测试照常工作。处理器表一变就唤醒执行器，
     运行中挂上的插件贡献的新任务类型能被及时领取。决策钩子（hooks.py）同理：没绑时走默认实现。
     """
-    from movieclaw_api import hooks, pipeline
+    from movieclaw_api import events, pipeline
     from movieclaw_api.services import jobs
     from movieclaw_api.services.library import delete_participants
     from movieclaw_scheduler import SCHEDULED_TASKS, bind_registry
 
-    hooks.bind_bus(ctx.events)
-    ctx.effect(lambda: hooks.unbind_bus(ctx.events), label="unbind-hooks")
+    events.bind_bus(ctx.events)
+    ctx.effect(lambda: events.unbind_bus(ctx.events), label="unbind-events")
     # 流水线槽位的步骤表（pipeline.py）：入库任务按它为插件步骤建下游任务
     ctx.effect(pipeline.bind_steps(ctx.registry(pipeline.INGEST_STEPS)), label="unbind-steps")
     # 下载器适配器（downloader-adapters.md）：下载器类型由官方 / 第三方插件登记

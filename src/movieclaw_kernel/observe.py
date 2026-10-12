@@ -50,10 +50,10 @@ SYSTEM = Origin()
 
 @dataclass(frozen=True)
 class DeliveryInfo:
-    """可靠事件监听器的投递信息（经 ``ctx.delivery`` 读取）。
+    """事件的投递信息（经 ``ctx.delivery`` 读取）：可靠订阅与实时订阅都有。
 
     ``origin`` 是**事件发生时**的发起方：插件据此忽略自己引起的事件。消费方以 ``event_id`` 去重
-    （至少一次投递，重试与重放会重复送达）。
+    （可靠订阅至少一次投递，重试与重放会重复送达）。同一个事件的可靠与实时投递 ``event_id`` 相同。
     """
 
     event_id: str

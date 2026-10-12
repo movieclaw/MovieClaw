@@ -61,7 +61,13 @@ async def subscribe(db, *events) -> None:
     """模拟有插件订阅：登记消费者行（真实订阅时由投递插件写入）。"""
     async with db.session() as session:
         for event in events:
-            session.add(EventConsumer(consumer_id=f"test:{event.name}", event_name=event.name))
+            session.add(
+                EventConsumer(
+                    consumer_id=f"test:{event.name}",
+                    event_name=event.name,
+                    event_names=[event.name],
+                )
+            )
         await session.commit()
     durable_events.reset_subscribed()
 
@@ -394,7 +400,7 @@ def test_plugin_receives_deletion_snapshot_end_to_end(tmp_path, monkeypatch) -> 
         def on_deleted(event: de.LibraryDeleted) -> None:
             received.append(event)
 
-        ctx.on(de.LIBRARY_ITEM_DELETED, on_deleted, id="cascade")
+        ctx.on(de.LIBRARY_ITEM_DELETED, on_deleted, id="cascade", durable=True)
 
     app = create_app()
     admin = Principal(kind="admin", name="tester")
@@ -440,7 +446,7 @@ def test_plugin_receives_deletion_snapshot_end_to_end(tmp_path, monkeypatch) -> 
 def test_domain_events_are_open_to_third_party_plugins(event) -> None:
     # 本地受信插件要能订阅它们：实验级、可靠投递
     assert event.stability.value == "experimental"
-    assert event.delivery.value == "durable"
+    assert event.durable
 
 
 # ---------------------------------------------------------------------- 下载、入库、订阅

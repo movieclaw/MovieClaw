@@ -11,7 +11,7 @@ from collections.abc import Callable, Coroutine
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 
 from movieclaw_kernel.contracts import Contract, RegistryKey, ServiceKey, internal_for_third_party
-from movieclaw_kernel.events import DURABLE_EVENTS, Delivery, Event, EventBus
+from movieclaw_kernel.events import DURABLE_EVENTS, Event, EventBus
 from movieclaw_kernel.observe import DeliveryInfo, Origin, current_delivery, current_origin
 from movieclaw_kernel.plugin import Plugin
 from movieclaw_kernel.registry import Registry, RegistryChange
@@ -70,7 +70,7 @@ class Context(Generic[C]):
 
     @property
     def delivery(self) -> DeliveryInfo | None:
-        """正在处理的可靠事件的投递信息；不在可靠事件监听器里时为 ``None``。"""
+        """正在处理的事件的投递信息（可靠与实时订阅都有）；不在事件监听器里时为 ``None``。"""
         return current_delivery.get()
 
     @property
@@ -145,12 +145,17 @@ class Context(Generic[C]):
         *,
         id: str | None = None,
         priority: int = 0,
+        durable: bool = False,
     ) -> None:
+        """订阅事件。``durable=True``：可靠订阅（落库、至少一次、跨重启续投，须注入
+        ``DURABLE_EVENTS``、须有稳定 ``id``）；默认实时订阅（内存、至多一次）。"""
         fiber = self._fiber
         self._guard(event)
-        if event.delivery is Delivery.DURABLE:
+        if durable:
+            if not event.durable:
+                raise TypeError(f"事件 {event.name} 不能可靠订阅（高频事件或钩子）")
             if not id:
-                raise ValueError(f"可靠事件 {event.name} 的监听器必须有稳定 id")
+                raise ValueError(f"可靠订阅 {event.name} 的监听器必须有稳定 id")
             store = self.use(DURABLE_EVENTS)
             unsubscribe = store.subscribe(event, entry_id=fiber.id, listener_id=id, handler=handler)
             self._kernel._add_disposer(fiber, f"on:{event.name}:{id}", unsubscribe)

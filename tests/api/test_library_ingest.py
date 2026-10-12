@@ -2787,7 +2787,13 @@ async def test_ingest_records_imported_event_for_subscribed_plugins(db, tmp_path
     from movieclaw_db.models import DomainEvent, EventConsumer
 
     async with db.session() as session:
-        session.add(EventConsumer(consumer_id="test:ingest", event_name="library.ingest.imported"))
+        session.add(
+            EventConsumer(
+                consumer_id="test:ingest",
+                event_name="library.ingest.imported",
+                event_names=["library.ingest.imported"],
+            )
+        )
         await session.commit()
     durable_events.reset_subscribed()
     try:

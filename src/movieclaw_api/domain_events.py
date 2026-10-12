@@ -4,7 +4,7 @@
 
     @plugin("acme.cascade", inject=(DURABLE_EVENTS,))
     async def apply(ctx):
-        ctx.on(LIBRARY_ITEM_DELETED, on_deleted, id="cascade")
+        ctx.on(LIBRARY_ITEM_DELETED, on_deleted, id="cascade", durable=True)
 
 载荷是**发生时的快照**：删除类事件里的条目、文件、关联种子在事件投递时多半已经查不到了。
 业务侧经 ``record_*`` 写入；没有插件订阅某个事件时，这里连快照都不拍（一次内存查找就返回）。
@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
-from movieclaw_kernel import Delivery, Event, Mode, Stability
+from movieclaw_kernel import Event, Mode, Stability
 
 if TYPE_CHECKING:
     # 写库辅助只在宿主里用；事件定义要能被进程外插件轻量导入（不带数据库层，约省 70 MB）
@@ -176,7 +176,7 @@ def _event(name: str, payload: type, doc: str, *, version: str = "1.0") -> Event
         Mode.EMIT,
         version=version,
         payload=payload,
-        delivery=Delivery.DURABLE,
+        durable=True,
         stability=Stability.EXPERIMENTAL,
         doc=doc,
     )

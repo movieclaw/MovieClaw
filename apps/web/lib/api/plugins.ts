@@ -351,7 +351,8 @@ export interface PluginAdded {
 
 export interface PluginDurableConsumer {
   consumer_id: string;
-  event: string;
+  /** 订阅的事件（一个消费者可订阅多个，按产生顺序投递） */
+  events: string[];
   /** 事件的人话名字 */
   title: string;
   active: boolean;

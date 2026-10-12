@@ -34,7 +34,7 @@ async def apply(ctx) -> None:
     def pick(query):
         return None
 
-    ctx.on(LIBRARY_INGEST_IMPORTED, on_imported, id="imported")
+    ctx.on(LIBRARY_INGEST_IMPORTED, on_imported, id="imported", durable=True)
     ctx.on(hooks.DOWNLOADER_SELECT, pick)
     router = APIRouter()
 
@@ -111,7 +111,7 @@ def test_detail_translates_what_a_plugin_adds(app_env) -> None:
         assert any(k == "decision" and "下载器" in t for k, t in titles)
         assert [c["endpoint"] for c in data["callbacks"]] == ["push"]
         assert "****" in data["callbacks"][0]["url"]
-        assert [c["event"] for c in data["consumers"]] == ["library.ingest.imported"]
+        assert [c["events"] for c in data["consumers"]] == [["library.ingest.imported"]]
         assert data["data_rows"] == 1
         assert data["disk_bytes"] == 2048
         # 管理接口的固定路径不会被当成插件 id

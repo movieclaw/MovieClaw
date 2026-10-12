@@ -133,7 +133,7 @@ class ContractView(BaseModel):
     provider: str | None = None
     contributions: list[ContributionView] | None = None
     mode: str | None = None
-    delivery: str | None = None
+    durable: bool | None = Field(default=None, description="事件能否被可靠订阅")
     listeners: list[str] | None = None
 
 
@@ -145,7 +145,7 @@ class ContractsView(BaseModel):
 
 class DurableConsumerView(BaseModel):
     consumer_id: str = Field(description="<条目 id>:<监听器 id>")
-    event: str
+    events: list[str] = Field(description="订阅的事件（一个消费者可订阅多个，按产生顺序投递）")
     active: bool = Field(description="订阅它的插件当前是否在运行")
     backlog: int = Field(description="尚未处理的事件数")
     attempts: int = Field(description="当前事件已失败的次数（0 = 正常）")

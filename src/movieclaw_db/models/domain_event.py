@@ -55,7 +55,15 @@ class EventConsumer(SQLModel, table=True):
     __tablename__ = "event_consumer"
 
     consumer_id: str = Field(primary_key=True, description="<条目 id>:<监听器 id>")
-    event_name: str = Field(index=True, description="订阅的事件名")
+    event_name: str = Field(
+        index=True,
+        description="旧列：订阅的第一个事件名（只为回退到旧版本时还能读，新代码看 event_names）",
+    )
+    event_names: list[str] = Field(
+        default_factory=list,
+        sa_column=Column(JSON, nullable=False),
+        description="订阅的事件名（一个消费者可订阅多个，按产生顺序投递）",
+    )
     cursor: int = Field(default=0, description="已处理到的 seq")
     attempts: int = Field(default=0, description="当前事件已失败的次数")
     next_attempt_at: datetime | None = Field(default=None, description="下次重试时间")

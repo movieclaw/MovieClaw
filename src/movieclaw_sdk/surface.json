@@ -6,8 +6,8 @@
     "version": "1.0"
   },
   "dl.downloader.select": {
-    "delivery": "live",
     "doc": "选下载器：按体积 / 站点 / 类型分流（只在没有显式指定时询问；须启用且可用）",
+    "durable": false,
     "kind": "event",
     "mode": "bail",
     "payload": {
@@ -96,8 +96,8 @@
     "version": "1.0"
   },
   "dl.torrent.before-delete": {
-    "delivery": "live",
     "doc": "删种前否决：例如 H&R 未达标不许删（否决后删除返回 409）",
+    "durable": false,
     "kind": "event",
     "mode": "bail",
     "payload": {
@@ -134,8 +134,8 @@
     "version": "1.0"
   },
   "download.completed": {
-    "delivery": "durable",
     "doc": "订阅投递的种子下载完成",
+    "durable": true,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -401,8 +401,8 @@
     "version": "1.0"
   },
   "library.file.deleted": {
-    "delivery": "durable",
     "doc": "条目的部分文件已从磁盘删除",
+    "durable": true,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -723,8 +723,8 @@
     "version": "1.1"
   },
   "library.file.purged": {
-    "delivery": "durable",
     "doc": "回收站里的文件被彻底清除",
+    "durable": true,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -937,8 +937,8 @@
     "version": "1.0"
   },
   "library.file.restored": {
-    "delivery": "durable",
     "doc": "文件从回收站恢复",
+    "durable": true,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -1151,8 +1151,8 @@
     "version": "1.0"
   },
   "library.file.trashed": {
-    "delivery": "durable",
     "doc": "文件进了回收站",
+    "durable": true,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -1365,8 +1365,8 @@
     "version": "1.0"
   },
   "library.files.added": {
-    "delivery": "live",
     "doc": "媒体库新入账了文件（实时）",
+    "durable": false,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -1428,8 +1428,8 @@
     "version": "1.0"
   },
   "library.ingest.imported": {
-    "delivery": "durable",
     "doc": "下载条目整理入库完成",
+    "durable": true,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -1656,8 +1656,8 @@
     "version": "1.0"
   },
   "library.item.deleted": {
-    "delivery": "durable",
     "doc": "条目在某个库里的文件已从磁盘全部删除",
+    "durable": true,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -1978,8 +1978,8 @@
     "version": "1.1"
   },
   "library.item.favorited": {
-    "delivery": "live",
     "doc": "条目收藏状态变化（实时）",
+    "durable": false,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -2028,8 +2028,8 @@
     "version": "1.0"
   },
   "library.item.viewed": {
-    "delivery": "live",
     "doc": "有人打开了条目详情（实时）",
+    "durable": false,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -2078,8 +2078,8 @@
     "version": "1.0"
   },
   "playback.started": {
-    "delivery": "live",
     "doc": "有人开始播放（实时）",
+    "durable": false,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -2201,8 +2201,8 @@
     "version": "1.0"
   },
   "subscription.candidates.filter": {
-    "delivery": "live",
     "doc": "候选淘汰：规则评估之后按插件规则再淘汰（只能淘汰不能添加，淘汰原因写进订阅动态）",
+    "durable": false,
     "kind": "event",
     "mode": "waterfall",
     "payload": {
@@ -2495,8 +2495,8 @@
     "version": "1.0"
   },
   "subscription.candidates.rank": {
-    "delivery": "live",
     "doc": "候选排序：在核心排序的基础上重排（必须是原集合的重排）",
+    "durable": false,
     "kind": "event",
     "mode": "waterfall",
     "payload": {
@@ -2770,8 +2770,8 @@
     "version": "1.0"
   },
   "subscription.created": {
-    "delivery": "durable",
     "doc": "新建了订阅",
+    "durable": true,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -2921,8 +2921,8 @@
     "version": "1.0"
   },
   "subscription.deleted": {
-    "delivery": "durable",
     "doc": "订阅被删除",
+    "durable": true,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -3072,8 +3072,8 @@
     "version": "1.0"
   },
   "subscription.download-started": {
-    "delivery": "durable",
     "doc": "订阅的种子已真实提交下载器",
+    "durable": true,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -3215,8 +3215,8 @@
     "version": "1.0"
   },
   "subscription.fulfilled": {
-    "delivery": "durable",
     "doc": "订阅的季集已由媒体库对账确认入库",
+    "durable": true,
     "kind": "event",
     "mode": "emit",
     "payload": {
@@ -3358,8 +3358,8 @@
     "version": "1.0"
   },
   "subscription.search.keywords": {
-    "delivery": "live",
     "doc": "搜索关键词：在内部推导的关键词基础上追加或替换（核心截到 6 个以内）",
+    "durable": false,
     "kind": "event",
     "mode": "waterfall",
     "payload": {
@@ -3468,8 +3468,8 @@
     "version": "1.0"
   },
   "subscription.status-changed": {
-    "delivery": "durable",
     "doc": "订阅状态变化（追踪中 / 已收齐 / 暂停）",
+    "durable": true,
     "kind": "event",
     "mode": "emit",
     "payload": {
