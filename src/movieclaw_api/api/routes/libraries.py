@@ -205,6 +205,7 @@ from movieclaw_api.services.library.series import (
     series_collection_id_for,
 )
 from movieclaw_api.services.library.showcase import MAX_SHOWCASE_IDS, load_showcase
+from movieclaw_api.services.library.similar import build_similar_wall
 from movieclaw_api.services.library.subtitle_preview import (
     SubtitlePreviewError,
     SubtitleTrackNotFound,
@@ -2860,6 +2861,43 @@ async def list_item_episodes(
             season_number=season_number,
             episodes=[episode_view(e) for e in episodes],
             resume_episode=season_resume_episode(episodes),
+        )
+    )
+
+
+@router.get(
+    "/{library_id}/items/{media_item_id}/similar",
+    response_model=ApiResponse[list[LibraryItemView]],
+    summary="条目详情页的相似推荐（只在观看者可见的同类型库里挑）",
+    operation_id="ui.library.items.similar",
+    dependencies=[Depends(require_library_visible)],
+    openapi_extra={"x-cli-hidden": True},
+)
+async def list_similar_items(
+    library_id: int,
+    media_item_id: int,
+    limit: Annotated[int, Query(ge=1, le=30, description="最多返回几部")] = 12,
+    session: AsyncSession = Depends(get_session),
+    principal: Principal = Depends(require_login),
+) -> ApiResponse[list[LibraryItemView]]:
+    """范围与首页「全部电影/剧集」同一口径（可见、同类型、没被排除出首页的库），
+    再并上当前这个库——儿童库这类被排除出首页的库，进去看片时相似推荐仍从库里出。
+    """
+    await assert_item_visible(session, principal, media_item_id)
+    item = await session.get(MediaItem, media_item_id)
+    if item is None or item.kind not in ("movie", "tv"):
+        return ok([])
+    library_ids = await kind_library_ids(
+        session, item.kind, await visible_library_ids(session, principal)
+    )
+    return ok(
+        await build_similar_wall(
+            session,
+            media_item_id,
+            library_ids=library_ids | {library_id},
+            member_id=principal.member_id if principal.member_id is not None else 0,
+            content_limit=await content_limit_for(session, principal),
+            limit=limit,
         )
     )
 

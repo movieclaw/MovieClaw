@@ -1695,6 +1695,13 @@ export function getLibraryItemDetail(
   );
 }
 
+/** 条目详情页的相似推荐：只在当前身份可见的同类型库里挑，卡片与首页库行同形。 */
+export function listSimilarItems(libraryId: number, mediaItemId: number): Promise<LibraryItem[]> {
+  return unwrap(
+    request<ApiEnvelope<LibraryItem[]>>(`/libraries/${libraryId}/items/${mediaItemId}/similar`),
+  );
+}
+
 /**
  * 读取一条外挂或文本内封字幕，并返回去样式后的时间轴对白。
  *

@@ -16,6 +16,7 @@ import { ArtworkPickerDialog } from "@/components/artwork-picker-dialog";
 import { BrandLoader } from "@/components/brand-loader";
 import { CastRow } from "@/components/cast-row";
 import { ChapterStrip } from "@/components/chapter-strip";
+import { LibrarySimilarRow } from "@/components/library-similar-row";
 import { MediaTrackRows } from "@/components/media-track-rows";
 import { PAGE_NAV_BUTTON_CLASS } from "@/components/page-nav";
 import { useResolvedTheme } from "@/themes/registry";
@@ -1070,6 +1071,9 @@ export function LibraryItemDetailView({
             ]}
           />
         )}
+
+        {/* —— 相似推荐：只在自己库里挑（同系列、同主创、类型相近），没有就整行不出 —— */}
+        <LibrarySimilarRow libraryId={libraryId} mediaItemId={detail.media_item_id} />
 
         {/* 文件区固定收尾：电影列全部版本；剧集只列当前选中集的全部版本。
             两者共用同一套弱化、默认折叠样式，未入库集自然不渲染。 */}

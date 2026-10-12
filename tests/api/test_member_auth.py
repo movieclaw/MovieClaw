@@ -590,6 +590,8 @@ _MEMBER_ALLOWLIST = {
     ("GET", "/api/v1/libraries/{library_id}/items/{media_item_id}"),
     ("GET", "/api/v1/libraries/{library_id}/items/{media_item_id}/artwork"),
     ("GET", "/api/v1/libraries/{library_id}/items/{media_item_id}/episodes"),
+    # 详情页相似推荐：候选按 visible_library_ids 与内容分级收窄（与跨库墙同一口径）
+    ("GET", "/api/v1/libraries/{library_id}/items/{media_item_id}/similar"),
     # 合集是成员的浏览面：列表按三层可见性收口（私有只对本人、库不可见就不下发、
     # 成员条目再过一遍），私有合集与不可见库里的合集一律按 404 拒绝而不是空列表。
     # 写操作（建/改/删）同样开放给成员——那是他自己的合集，household 的合集
