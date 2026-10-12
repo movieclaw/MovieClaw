@@ -15,8 +15,13 @@ from movieclaw_api.schemas.webhook import (
     WebhookConfigView,
     WebhookEndpointView,
 )
-from movieclaw_api.services.webhook import catalog_view, deliver_test, recent_deliveries
-from movieclaw_api.services.webhook.catalog import is_jellyfin_mappable, is_known_event
+from movieclaw_api.services.webhook import catalog_view, deliver_test, recent_deliveries, resync
+from movieclaw_api.services.webhook.catalog import (
+    LEGACY_NAMES,
+    is_jellyfin_mappable,
+    is_known_event,
+    normalize,
+)
 from movieclaw_api.settings import (
     WebhookEndpoint,
     WebhookSetting,
@@ -37,7 +42,7 @@ def _endpoint_view(
         url=endpoint.url,
         format=endpoint.format,
         enabled=endpoint.enabled,
-        events=endpoint.events,
+        events=normalize(endpoint.events),
         template=endpoint.template,
         headers=endpoint.headers,
         egress_scope=endpoint.egress_scope,
@@ -75,6 +80,7 @@ async def save_config(payload: WebhookConfigPayload) -> WebhookConfigView:
     endpoints: list[WebhookEndpoint] = []
     reveal: dict[str, str] = {}
     for item in payload.endpoints:
+        item.events = [LEGACY_NAMES.get(e, e) for e in item.events]
         unknown = [e for e in item.events if not is_known_event(e)]
         if unknown:
             raise BadRequestException(f"未知的订阅事件：{'、'.join(unknown)}")
@@ -115,6 +121,7 @@ async def save_config(payload: WebhookConfigPayload) -> WebhookConfigView:
 
     setting = WebhookSetting(enabled=payload.enabled, endpoints=endpoints)
     await store.set(setting)
+    await resync()  # 勾选的事件、开关变了：调整各地址的订阅
     return _build_view(setting, reveal=reveal)
 
 

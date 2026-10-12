@@ -18,7 +18,6 @@ from sqlalchemy import select
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.auth import reset_auth_state
-from movieclaw_api.services.playback import marks
 from movieclaw_api.settings.store import reset_setting_store
 from movieclaw_db.crypto import reset_secret_box
 from movieclaw_db.engine import get_database
@@ -64,8 +63,22 @@ def client(tmp_path, monkeypatch):
 
 @pytest.fixture
 def emitted(monkeypatch) -> list:
+    """捕获标记 / 收藏产生的系统事件（替换唯一入口 events.publish）。"""
+    import inspect
+    from types import SimpleNamespace
+
+    from movieclaw_api import events
+
     captured: list = []
-    monkeypatch.setattr(marks, "emit_events", captured.extend)
+
+    async def publish(session, event, build):  # type: ignore[no-untyped-def]
+        payload = build()
+        if inspect.isawaitable(payload):
+            payload = await payload
+        if payload is not None:
+            captured.append(SimpleNamespace(event=event.name, data=payload))
+
+    monkeypatch.setattr(events, "publish", publish)
     return captured
 
 
@@ -277,15 +290,15 @@ def test_marks_emit_webhook_events_with_web_client(client, tmp_path, emitted):
     set_marks(client, media_item_id=ids["show"], favorite=True, device_id="browser-a")
     set_marks(client, media_item_id=ids["show"], played=True)
     names = [e.event for e in emitted]
-    assert names.count("item.favorited") == 1
-    assert names.count("playback.marked_played") == 3  # 级联三集逐条发
-    fav = next(e for e in emitted if e.event == "item.favorited")
-    assert fav.data["media"]["type"] == "series"
-    assert fav.data["client"]["name"] == "MovieClaw Web"
+    assert names.count("library.item.favorited") == 1
+    assert names.count("playback.marked_played") == 1  # 级联三集合成一个事件
+    fav = next(e for e in emitted if e.event == "library.item.favorited")
+    assert fav.data.level == "series"
+    assert fav.data.client.name == "MovieClaw Web"
     # 已登录的网页会话：设备标识是这次登录的登录设备（docs/design/login-devices.md §7）
-    assert fav.data["client"]["device_id"].startswith("ld-")
-    batch_ids = {e.batch_id for e in emitted if e.event == "playback.marked_played"}
-    assert len(batch_ids) == 1 and None not in batch_ids
+    assert fav.data.client.device_id.startswith("ld-")
+    marked = next(e for e in emitted if e.event == "playback.marked_played")
+    assert len(marked.data.units) == 3
 
 
 def test_marks_require_a_field_and_a_season_for_episode(client, tmp_path):

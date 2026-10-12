@@ -538,19 +538,23 @@ async def dispatch(
                 .values(grab_title=grab_note, updated_at=grab_ts)
             )
     if not dry_run:
-        # 可靠事件随下面这条抓取动态一起提交（plugin-phase2a.md §4）；模拟投递不是事实，不发
-        from movieclaw_api import domain_events
+        # 「订阅开始下载」随下面这条抓取动态一起提交（domain-events.md §8）：通知（剧卡）、
+        # Webhook、插件都从这一个事件取；模拟投递不是事实，不发
+        from movieclaw_api.services.subscription.events import publish_download_started
 
-        await domain_events.record_subscription_units(
+        await publish_download_started(
             session,
-            domain_events.SUBSCRIPTION_DOWNLOAD_STARTED,
             subscription_id=subscription.id,
             item=item,
             units=[(w.season_number, w.episode_number) for w in all_targets],
-            info_hash=submitted_info_hash,
             site_id=candidate.site_id,
+            torrent_id=candidate.torrent_id,
             torrent_title=candidate.title,
+            info_hash=submitted_info_hash,
+            resolution=candidate.attrs.resolution,
+            spec=spec_text,
             upgrade=bool(upgrade_rows and not claimed),
+            actor_member_id=actor_member_id,
         )
     await repo.add_activity(
         SubscriptionActivity(
@@ -580,36 +584,6 @@ async def dispatch(
         )
     )
     await recompute_subscription_status(session, subscription, item)
-
-    # 通知（App 与 IM）：只投一个事件，按剧合并、写文案都在推送事件中枢里
-    # 做，不占投递链路（docs/design/cloud-push.md §5.1）
-    if not dry_run:
-        from movieclaw_api.services.push import events as push_events
-
-        push_events.download_started(
-            subscription_id=subscription.id,
-            item_id=item.id,
-            units=[(w.season_number, w.episode_number) for w in all_targets],
-            detail=candidate.attrs.resolution or "",
-            upgrade=bool(upgrade_rows and not claimed),
-            # 手动选种：点下载的人自己不用提醒
-            skip_member_id=actor_member_id,
-        )
-        # 事件 Webhook(与通知同点位:种子已真实提交,事件即事实)
-        from movieclaw_api.services.subscription.events import build_download_started_event
-        from movieclaw_api.services.webhook import emit_events
-
-        emit_events(
-            [
-                build_download_started_event(
-                    item,
-                    [(w.season_number, w.episode_number) for w in all_targets],
-                    site_id=candidate.site_id,
-                    torrent_title=candidate.title,
-                    spec=spec_text,
-                )
-            ]
-        )
     return True
 
 

@@ -229,10 +229,15 @@ class Show:
         """订阅投递了一个种子（和 dispatch 一样：工单标已投递，再投「开始下载」事件）。"""
         from sqlmodel import select
 
-        from movieclaw_api.services.push import events as push_events
+        from movieclaw_api import event_refs, events
         from movieclaw_api.services.push import hub
         from movieclaw_db.engine import get_database
-        from movieclaw_db.models import WantedItem, WantedStatus, utcnow
+        from movieclaw_db.models import MediaItem, WantedItem, WantedStatus, utcnow
+        from movieclaw_sdk.events import (
+            SUBSCRIPTION_DOWNLOAD_STARTED,
+            SubscriptionDownloadStarted,
+            TorrentRef,
+        )
 
         wanted = list(episodes)
 
@@ -251,12 +256,15 @@ class Show:
                     row.grabbed_at = utcnow()
                     session.add(row)
                 await session.commit()
-            push_events.download_started(
-                subscription_id=self.subscription_id,
-                item_id=self.item_id,
-                units=[(1, e) for e in wanted],
-                detail="2160p",
-                upgrade=False,
+                media = event_refs.media_ref(await session.get(MediaItem, self.item_id))
+            await events.publish_now(
+                SUBSCRIPTION_DOWNLOAD_STARTED,
+                lambda: SubscriptionDownloadStarted(
+                    subscription_id=self.subscription_id,
+                    media=media,
+                    units=event_refs.units((1, e) for e in wanted),
+                    torrent=TorrentRef(title="种子", resolution="2160p"),
+                ),
             )
             await hub.drain()
 
@@ -668,18 +676,28 @@ def test_im_follows_owner_preferences(
     assert im.sent == [(1, "余红旧事 第 1 季已全部入库\n2 集都能看了，点开从第 1 集开始")]
 
     # 洗版完成默认关：谁的 IM 都不发；家人打开后只发给家人
-    def upgrade(episode: int) -> None:
-        from movieclaw_api.services.push import events as push_events
-
-        push_events.upgraded(
-            subscription_id=show.subscription_id,
-            item_id=show.item_id,
-            unit=(1, episode),
-            old_label="1080p",
-            new_label="2160p",
+    async def upgrade(episode: int) -> None:
+        from movieclaw_api import events
+        from movieclaw_sdk.events import (
+            SUBSCRIPTION_UPGRADED,
+            MediaRef,
+            SubscriptionUpgraded,
+            UnitRef,
         )
 
-    show.call(_in_loop, upgrade, 1)
+        await events.publish_now(
+            SUBSCRIPTION_UPGRADED,
+            lambda: SubscriptionUpgraded(
+                subscription_id=show.subscription_id,
+                media=MediaRef(id=show.item_id, kind="tv", title=TITLE),
+                unit=UnitRef(season=1, episode=episode),
+                old_label="1080p",
+                new_label="2160p",
+            ),
+        )
+        await events.drain()
+
+    show.call(upgrade, 1)
     show.advance(2 * 60)
     time.sleep(0.3)
     assert len(im.sent) == 1
@@ -692,20 +710,12 @@ def test_im_follows_owner_preferences(
             json={"events": {"subscription.upgraded": True}},
         )
     )
-    show.call(_in_loop, upgrade, 2)
+    show.call(upgrade, 2)
     show.advance(2 * 60)
     _wait(lambda: len(im.sent) == 2)
     member_id, text = im.sent[1]
     assert member_id == 1 and text.startswith("洗版完成：余红旧事\n")
     assert text.endswith("1080p → 2160p")
-
-
-async def _in_loop(fn, *args) -> None:  # type: ignore[no-untyped-def]
-    """在应用的事件循环里调（推送事件中枢只在有事件循环时收事件）。"""
-    from movieclaw_api.services.push import hub
-
-    fn(*args)
-    await hub.drain()
 
 
 # ----------------------------------------------------------------------

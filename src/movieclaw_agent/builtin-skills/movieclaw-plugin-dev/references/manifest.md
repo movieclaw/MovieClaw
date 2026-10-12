@@ -29,7 +29,7 @@ sdk = "^1.0"                   # 要求的 movieclaw_sdk 版本区间
 description = "一句话说明"       # 可选，500 字以内；展示在「设置 → 插件」详情页给用户看，写它能做什么，别写文档路径、开发备注
 
 [requires]                     # 用到的契约 = 版本区间；名字见 scripts/contracts.py
-"library.ingest.imported" = "^1.0"
+"library.ingest.completed" = "^1.0"
 "subscription.candidates.filter" = "^1.0"
 
 [permissions]

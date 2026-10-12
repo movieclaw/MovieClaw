@@ -105,9 +105,9 @@ def test_contracts_script_lists_the_whole_surface(tmp_path) -> None:
     assert listing.returncode == 0, listing.stderr
     for name in surface:
         assert f"{name}  [" in listing.stdout, name
-    detail = _run("contracts.py", "library.ingest.imported", cwd=tmp_path)
-    assert "from movieclaw_api.domain_events import LIBRARY_INGEST_IMPORTED" in detail.stdout
-    assert "class IngestImported" in detail.stdout
+    detail = _run("contracts.py", "library.ingest.completed", cwd=tmp_path)
+    assert "from movieclaw_sdk.events import LIBRARY_INGEST_COMPLETED" in detail.stdout
+    assert "class IngestCompleted" in detail.stdout
 
 
 def test_scaffold_refuses_to_write_into_the_source_tree(tmp_path) -> None:
@@ -128,8 +128,8 @@ def test_check_script_accepts_declared_contracts(tmp_path) -> None:
     manifest = tmp_path / "plugins" / "ok-plugin" / "movieclaw-plugin.toml"
     manifest.write_text(
         manifest.read_text("utf-8").replace(
-            '# "library.ingest.imported" = "^1.0"',
-            '"library.ingest.imported" = "^1.0"\n"plugin-routes" = "^1.0"',
+            '# "library.ingest.completed" = "^1.0"',
+            '"library.ingest.completed" = "^1.0"\n"plugin-routes" = "^1.0"',
         ),
         "utf-8",
     )

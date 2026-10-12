@@ -146,9 +146,12 @@ class Context(Generic[C]):
         id: str | None = None,
         priority: int = 0,
         durable: bool = False,
-    ) -> None:
+    ) -> Callable[[], Any]:
         """订阅事件。``durable=True``：可靠订阅（落库、至少一次、跨重启续投，须注入
-        ``DURABLE_EVENTS``、须有稳定 ``id``）；默认实时订阅（内存、至多一次）。"""
+        ``DURABLE_EVENTS``、须有稳定 ``id``）；默认实时订阅（内存、至多一次）。
+
+        返回取消订阅的函数（可靠订阅的是协程函数）：按配置动态增减订阅时用；不调也行，
+        插件卸载时自动取消。"""
         fiber = self._fiber
         self._guard(event)
         if durable:
@@ -159,7 +162,7 @@ class Context(Generic[C]):
             store = self.use(DURABLE_EVENTS)
             unsubscribe = store.subscribe(event, entry_id=fiber.id, listener_id=id, handler=handler)
             self._kernel._add_disposer(fiber, f"on:{event.name}:{id}", unsubscribe)
-            return
+            return unsubscribe
         remove = self._kernel.bus.add(
             event,
             handler,
@@ -170,6 +173,7 @@ class Context(Generic[C]):
             spawn=lambda coro, name: self.task(coro, name=name),
         )
         self._kernel._add_disposer(fiber, f"on:{event.name}:{id or ''}", remove)
+        return remove
 
     # ------------------------------------------------------------------ 生命周期
     def effect(self, disposer: Callable[[], Any], *, label: str = "effect") -> None:

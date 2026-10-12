@@ -458,23 +458,34 @@ class RootPathReconcilePreview:
     disk_files_to_delete: int = 0
 
 
-def emit_files_added(library_id: int, added: list[tuple[int, int | None, int, int, bool]]) -> None:
-    """新入账的文件告诉插件（实时事件 ``library.files.added``，plugin-strm-prefetch.md §3）。"""
+async def emit_files_added(
+    library_id: int, added: list[tuple[int, int | None, int, int, bool]]
+) -> None:
+    """新入账的文件（``library.files.added``，domain-events.md §8）：例如网盘预探插件按它探规格。
+
+    台账行已各自提交，事件不在业务事务里：``publish_now``。
+    """
     if not added:
         return
-    from movieclaw_api import hooks
-    from movieclaw_sdk.library import LIBRARY_FILES_ADDED, AddedFile, FilesAdded
+    from movieclaw_api import event_refs, events
+    from movieclaw_sdk.events import LIBRARY_FILES_ADDED, AddedFile, FilesAdded
 
-    hooks.emit(
-        LIBRARY_FILES_ADDED,
-        lambda: FilesAdded(
-            library_id=library_id,
-            files=tuple(
-                AddedFile(id=i, media_item_id=m, season=s, episode=e, strm=strm)
-                for i, m, s, e, strm in added
-            ),
-        ),
-    )
+    def build() -> FilesAdded:
+        files = []
+        for i, m, s, e, strm in added:
+            unit = event_refs.unit(s, e)
+            files.append(
+                AddedFile(
+                    id=i,
+                    media_item_id=m,
+                    season=unit.season if unit else None,
+                    episode=unit.episode if unit else None,
+                    strm=strm,
+                )
+            )
+        return FilesAdded(library_id=library_id, files=tuple(files))
+
+    await events.publish_now(LIBRARY_FILES_ADDED, build)
 
 
 def scan_summary_payload(summary: ScanSummary) -> dict[str, object]:
@@ -880,7 +891,7 @@ async def scan_library(
         return summary
     finally:
         _scan_tasks.finish(library_id, result=(utcnow(), summary))
-        emit_files_added(library_id, summary.added_files)
+        await emit_files_added(library_id, summary.added_files)
         # 暂缓过文件的扫描要自己安排补扫：写入结束后不会再有事件叫醒我们
         # （手动停止的不自动补扫——用户的意图是"别扫了"）
         if summary.deferred and not summary.cancelled and finished_normally:

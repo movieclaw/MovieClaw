@@ -321,22 +321,30 @@ async def check_once(now: datetime | None = None) -> int:
     async with get_database().session() as session:
         # 直接下进库目录的手动下载：入账完了推「入库完成」给点下载的人（这一轮先推它，
         # 同一集「媒体库有新片」就不会再推给他）
-        push_downloads.announce(await push_downloads.match_scanned(session, now))
+        await push_downloads.announce(await push_downloads.match_scanned(session, now))
         progress = await _progress()
         if progress.started_at is None:
             # 第一次运行：从现在开始算，不回溯已有的库存
             await _save(ArrivalsProgress(started_at=now))
             return 0
         collected = await collect_ready(session, now)
-    from movieclaw_api.services.push.hub import LibraryArrivals, emit
+    # 「媒体库有新片」是系统事件（domain-events.md §8）：通知（剧卡 / 汇总）、Webhook、插件都订它
+    from movieclaw_api import event_refs, events
+    from movieclaw_sdk.events import LIBRARY_ITEMS_ARRIVED, ArrivedItem, ItemsArrived
 
     for batch in collected.batches:
-        emit(
-            LibraryArrivals(
-                library_id=batch.library.id or 0,
-                items=tuple((a.item.id or 0, tuple(a.units)) for a in batch.items),
-            )
+        arrived = tuple(
+            ArrivedItem(media=media, units=event_refs.units(a.units))
+            for a in batch.items
+            if (media := event_refs.media_ref(a.item)) is not None
         )
+        if arrived:
+            await events.publish_now(
+                LIBRARY_ITEMS_ARRIVED,
+                lambda batch=batch, arrived=arrived: ItemsArrived(
+                    library_id=batch.library.id or 0, items=arrived
+                ),
+            )
     if collected.marks != progress.marks or collected.held != progress.held:
         await _save(
             ArrivalsProgress(

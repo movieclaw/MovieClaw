@@ -902,6 +902,18 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                     else:
                         kept_in_place += 1  # 移动失败降级：原地待回收，照常倒计时
             await session.commit()
+            if item is not None:
+                # 「洗版完成」随下面这条动态一起提交（domain-events.md §8）：通知按订阅合并成一条
+                from movieclaw_api.services.subscription.events import publish_upgraded
+
+                await publish_upgraded(
+                    session,
+                    subscription_id=wanted.subscription_id,
+                    item=item,
+                    unit=(wanted.season_number, wanted.episode_number),
+                    old_label=old_label,
+                    new_label=new_label,
+                )
             await repo.add_activity(
                 SubscriptionActivity(
                     subscription_id=wanted.subscription_id,
@@ -928,17 +940,6 @@ async def _verify_upgrades_locked(session: AsyncSession, media_item_id: int) -> 
                     },
                 )
             )
-            if item is not None:
-                # App 推送与 IM 通道：按订阅合并成一条，在推送事件中枢里做（cards.py）
-                from movieclaw_api.services.push import events as push_events
-
-                push_events.upgraded(
-                    subscription_id=wanted.subscription_id,
-                    item_id=media_item_id,
-                    unit=(wanted.season_number, wanted.episode_number),
-                    old_label=old_label,
-                    new_label=new_label,
-                )
             logger.info(
                 "洗版完成：条目 #%s %s %s → %s",
                 media_item_id,

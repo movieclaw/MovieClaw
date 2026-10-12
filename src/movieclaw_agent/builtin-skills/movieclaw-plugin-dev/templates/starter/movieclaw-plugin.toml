@@ -9,7 +9,7 @@ description = "__PLUGIN_DESCRIPTION__"
 
 [requires]
 # 用到的事件 / 钩子 / 注册表写在这里，名字与版本见 scripts/contracts.py，例如：
-# "library.ingest.imported" = "^1.0"
+# "library.ingest.completed" = "^1.0"
 
 [permissions]
 operations = []              # 要调用的宿主操作（与 mclaw 命令一一对应），危险操作必须逐个列出

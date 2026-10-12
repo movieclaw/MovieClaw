@@ -23,6 +23,16 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from movieclaw_sdk import Context, plugin
+from movieclaw_sdk.events import (
+    LIBRARY_FILES_ADDED,
+    LIBRARY_ITEM_FAVORITED,
+    LIBRARY_ITEM_VIEWED,
+    PLAYBACK_STARTED,
+    FilesAdded,
+    ItemFavorite,
+    ItemViewed,
+    Playback,
+)
 from movieclaw_sdk.jobs import (
     JOB_HANDLERS,
     PLUGIN_JOBS,
@@ -30,16 +40,6 @@ from movieclaw_sdk.jobs import (
     JobRetry,
     RegisteredJobHandler,
     ResourceRef,
-)
-from movieclaw_sdk.library import (
-    LIBRARY_FILES_ADDED,
-    LIBRARY_ITEM_FAVORITED,
-    LIBRARY_ITEM_VIEWED,
-    PLAYBACK_STARTED,
-    FilesAdded,
-    ItemFavorited,
-    ItemViewed,
-    PlaybackStarted,
 )
 from movieclaw_sdk.ops import HOST_OPS, OpsError
 
@@ -155,25 +155,24 @@ class _Prefetch:
         if any(f.strm for f in event.files):
             await self.backfill()
 
-    async def on_playback(self, event: PlaybackStarted) -> None:
-        if event.season > 0:
+    async def on_playback(self, event: Playback) -> None:
+        if event.unit is not None and event.unit.season > 0:
             await self.jump(
-                event.media_item_id,
-                season=event.season,
-                after_episode=event.episode,
+                event.media.id,
+                season=event.unit.season,
+                after_episode=event.unit.episode,
                 limit=NEXT_EPISODES,
                 reason="接下来要播的几集",
             )
 
-    async def on_favorite(self, event: ItemFavorited) -> None:
-        if event.favorite:
-            await self.jump(
-                event.media_item_id, season=event.season, limit=ON_FAVORITE, reason="收藏的条目"
-            )
+    async def on_favorite(self, event: ItemFavorite) -> None:
+        await self.jump(
+            event.media.id, season=event.season, limit=ON_FAVORITE, reason="收藏的条目"
+        )
 
     async def on_viewed(self, event: ItemViewed) -> None:
         await self.jump(
-            event.media_item_id, season=event.season, limit=ON_VIEW, reason="打开详情的条目"
+            event.media.id, season=event.season, limit=ON_VIEW, reason="打开详情的条目"
         )
 
     # ------------------------------------------------------------------ 任务

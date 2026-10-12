@@ -65,6 +65,11 @@ def listening(event: Event[Any, Any]) -> bool:
     return _bus is not None and bool(_bus.listeners(event))
 
 
+async def wanted(session: AsyncSession, event: Event[Any, Any]) -> bool:
+    """有没有人订这个事件（实时或可靠）：产生点要先拍快照（删除前）时用它省掉没人要的查询。"""
+    return listening(event) or await _durable_wanted(session, event)
+
+
 async def _durable_wanted(session: AsyncSession, event: Event[Any, Any]) -> bool:
     if not event.durable:
         return False

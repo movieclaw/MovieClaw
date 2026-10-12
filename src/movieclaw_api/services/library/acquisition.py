@@ -145,12 +145,16 @@ class IngestedFacts:
     imported: bool  # 本轮确有新文件入库
 
 
+async def _nothing() -> None:
+    return None
+
+
 @dataclass
 class AfterIngest:
     """获取领域收尾的结果：``owner`` 是发起手动下载的人；``announce`` 在入库结论提交后调用。"""
 
     owner: str | None = None
-    announce: Callable[[], None] = lambda: None
+    announce: Callable[[], Awaitable[None]] = _nothing
 
 
 class AcquisitionBridge(Protocol):

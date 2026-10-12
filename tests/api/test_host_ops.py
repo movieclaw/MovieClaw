@@ -165,7 +165,6 @@ def test_acting_as_member_intersects_member_rights(app_client) -> None:
 
 
 def test_events_caused_by_a_plugin_call_carry_the_plugin_origin(app_client) -> None:
-    from movieclaw_api import domain_events
     from movieclaw_db.models import (
         DomainEvent,
         EventConsumer,
@@ -173,6 +172,7 @@ def test_events_caused_by_a_plugin_call_carry_the_plugin_origin(app_client) -> N
         RuleSet,
         Subscription,
     )
+    from movieclaw_sdk.events import SUBSCRIPTION_STATUS_CHANGED
 
     app, client = app_client
 
@@ -187,8 +187,8 @@ def test_events_caused_by_a_plugin_call_carry_the_plugin_origin(app_client) -> N
             session.add(
                 EventConsumer(
                     consumer_id="test:status",
-                    event_name=domain_events.SUBSCRIPTION_STATUS_CHANGED.name,
-                    event_names=[domain_events.SUBSCRIPTION_STATUS_CHANGED.name],
+                    event_name=SUBSCRIPTION_STATUS_CHANGED.name,
+                    event_names=[SUBSCRIPTION_STATUS_CHANGED.name],
                 )
             )
             await session.commit()

@@ -174,12 +174,12 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 - 清单 `id` = `@plugin` 名字；`entry` 是模块名（`hello.py` 或 `hello/__init__.py` 的 `hello`）。
 - `inject=(...)` **只写服务**（`HOST_OPS`、`PLUGIN_DATA`、`PLUGIN_FILES`、`PLUGIN_ROUTES`、`PLUGIN_HEALTH`、`PLUGIN_JOBS`、
   `AGENT`、`DURABLE_EVENTS`）。插件包代码优先从 SDK 导入（`movieclaw_sdk.ops` 的 `HOST_OPS`、`movieclaw_sdk.jobs`、
-  `movieclaw_sdk.agent` 的 `AGENT`、`movieclaw_sdk.library` 的实时事件）。
+  `movieclaw_sdk.agent` 的 `AGENT`、`movieclaw_sdk.events` 的系统事件）。
   注册表（如 `IM_CHANNELS`、`SCHEDULED_TASKS`）在 `apply` 里 `ctx.contribute`，事件 / 钩子用 `ctx.on`，**都不写进 inject**；
-  用到的事件 / 钩子 / 注册表写进清单 `[requires]`（如 `"library.ingest.imported" = "^1.0"`）；服务写不写进 `[requires]` 都行（写了就锁定版本，如 `"plugin-jobs" = "^1.0"`）；只用服务时 `[requires]` 可以留空。
+  用到的事件 / 钩子 / 注册表写进清单 `[requires]`（如 `"library.ingest.completed" = "^1.0"`）；服务写不写进 `[requires]` 都行（写了就锁定版本，如 `"plugin-jobs" = "^1.0"`）；只用服务时 `[requires]` 可以留空。
 - 要调用的宿主操作同时写进 `@plugin(permissions=...)` 和清单 `permissions.operations`；
   危险操作（`mclaw` 帮助里带 ⚠ 的）必须逐个列出，不能靠 `领域.*` 覆盖。
-- 可靠事件监听器必须有稳定 `id`（`ctx.on(EVENT, fn, id="xxx")`），并且**幂等**（至少投递一次，同一事件可能来两次）：
+- 可靠订阅必须有稳定 `id`（`ctx.on(EVENT, fn, id="xxx", durable=True)`），并且**幂等**（至少投递一次，同一事件可能来两次）：
   按 `ctx.delivery.event_id` 去重（`recipes.md` 第 1 节），或者做的事本身重复执行也没影响
   （删除类：对象已经不在了按成功处理，见 `examples/delete_cascade.py`）。
 - 后台循环用 `ctx.task(coro, name=...)`，循环里捕获异常并记日志后继续，`CancelledError` 要原样抛出。

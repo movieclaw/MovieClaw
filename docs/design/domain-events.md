@@ -87,7 +87,6 @@
   "version": "1.0",
   "occurred_at": "2026-10-12T08:00:00+00:00",
   "origin": {"kind": "member", "id": 3},   // member / admin / plugin / scheduler / system
-  "batch_id": null,                    // 一次动作产生多条时共享（整剧标记已看）
   "data": { … }                        // 各事件的载荷
 }
 ```
@@ -99,11 +98,13 @@ Webhook 只在外面再加 `server`（实例 id、版本）。`origin` 来自现
 - 冻结 pydantic 模型，能导出 JSON Schema（进程外插件、Webhook 文档都用它）。
 - **快照自足**：消费方拿到载荷就能展示，不必回查库。共用引用类型：
   - `MediaRef`：`id`、`kind`、`title`、`original_title`、`year`、`tmdb_id`、`imdb_id`；
-  - `UnitRef`：`season`、`episode`、`episode_title`，电影为 `null`——内部哨兵值（`(0,0)`、`(-1,-1)`）一律不外泄；
+  - `UnitRef`：`season`、`episode`，电影没有单元（列表为空、单个为 `null`）——内部哨兵值（`(0,0)`、`(-1,-1)`）
+    一律不外泄。单集标题这类要多查一次库的不进载荷，需要的消费方（如 Jellyfin 格式）投递时自己补查；
   - `FileRef`、`MemberRef`（id + 显示名）、`ClientRef`（客户端名、设备名、设备 id、版本）。
 - 去掉现在标着「即将移除」的字段（`FileRef.info_hash`、`downloader_id`，`LibraryDeleted.links`），既然不背包袱就不再带。
 - 同一件事只有一个口径，差异做成字段而不是做成两个事件：例如 `subscription.fulfilled` 带 `units`（本次确认入库的全部季集）
-  和 `requested_units`（其中仍在订阅范围内的），推送用后者，Webhook 和插件两者都看得到。
+  和 `requested_units`（其中仍在订阅范围内的），推送用后者，Webhook 和插件两者都看得到；整部 / 整季标记已看是**一个**
+  `playback.marked_played` 事件、带受影响的每一集（不再逐集一条再靠 batch_id 聚合）。
 
 ### 3.4 目录条目
 
@@ -205,13 +206,18 @@ events.publish_now(SYSTEM_UPDATE_AVAILABLE, lambda: UpdateAvailable(...))
 
 ### 6.2 Webhook
 
-- **每个地址一个可靠消费者**（消费者 id = 地址 id）。重试、死信、重放、投递记录都用 outbox 那套，删掉 Webhook 自己的
-  内存重试和投递环形缓冲。高频事件（`playback.progress`）走实时订阅，失败不重试。
-- **报文就是信封**（§3.2）加 `server`，HMAC-SHA256 签名，`X-MovieClaw-Event-Id` 供幂等。
-- **事件勾选**按目录渲染：每个地址可勾选单个事件或整个域（`library.*`），新建地址默认勾选非高频事件。
+- **每个地址一个可靠消费者**（内置插件 `webhook.delivery`，消费者 id `webhook.delivery:<地址 id>`），一个消费者订阅
+  一组事件、按产生顺序投递。重试（退避到半小时）、死信、重放都用 outbox 那套，删掉 Webhook 自己的内存重试；
+  内存里的「最近投递」记录保留给设置页排障。高频事件（`playback.progress`）走实时订阅，失败不重试。
+- 配置保存后按新的勾选调整订阅；地址删了、关了，消费者行一并删，业务侧不再为它写事件。投递插件停着时产生的事件
+  照常写进事件表，恢复后从停下的地方补投。每次投递读当前配置（改密钥不用重新订阅）。
+- **报文就是信封**（§3.2）加 `server`，HMAC-SHA256 签名，`X-MovieClaw-Event`、`X-MovieClaw-Event-Id`（供幂等）。
+- **事件勾选**按目录渲染、按分组全选；新建地址默认勾选非高频事件。老配置里的旧事件名按别名换新。
 - **Jellyfin 兼容格式保留为一种输出格式**：它的价值是让为 Jellyfin Webhook 插件写的下游工具直接可用，这是功能不是包袱；
-  只覆盖播放和用户数据类事件，名字映射留在格式化器里。单集标题等字段已在载荷快照里，格式化不再查库。
-- 现在 `movieclaw_playback/events.py`、`subscription/events.py` 这两份拼载荷的代码删除。
+  只覆盖播放和用户数据类事件，名字映射留在格式化器里。`playback.stopped` 带 `completed`（停止时刚好看完），映射成
+  `PlaybackStop` + `PlayedToCompletion`，所以 `playback.completed` 不再映射、也不用合并去重；级联标记按集各发一条。
+  成员名、单集标题在投递时补查（业务链路之外）。
+- 原来 `movieclaw_playback/events.py`、`subscription/events.py` 这两份拼 Webhook 载荷的代码删除。
 
 ### 6.3 插件
 
@@ -230,8 +236,8 @@ events.publish_now(SYSTEM_UPDATE_AVAILABLE, lambda: UpdateAvailable(...))
 订阅动态、待处理事项继续由业务同步写入，它们不是消费方。改的是写入处：
 
 - `upsert_notice` 新建或复发时 `publish(system.alert.raised)`，消退时 `publish(system.alert.resolved)`，不再直接调推送；
-- `twins.py` 的「同名跳过只知会一次」改走 `subscription.identity_skipped` 事件，不再自己写一行已消退的告警来去重
-  （去重交给通知规则的 `once_per` 键）。
+- `twins.py` 的「同名跳过只知会一次」：那行已消退的告警本身是给用户看的处理记录，照写，并靠它去重；第一次写入时
+  发 `subscription.identity_skipped`，通知由规则推，不再直接调推送。
 
 ## 7. 插件自定义事件与通知
 

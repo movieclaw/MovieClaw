@@ -1,7 +1,7 @@
 """通道与推送插件（plugin-kernel.md §7）。
 
-IM 通道中枢（各通道是随带的插件包，见 src/movieclaw_plugins）、Cloud、推送中枢、新片到达、
-Jellyfin 局域网发现。
+IM 通道中枢（各通道是随带的插件包，见 src/movieclaw_plugins）、Cloud、推送中枢、Webhook 投递、
+新片到达、Jellyfin 局域网发现。
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from movieclaw_api.plugins.keys import (
     IM_CHANNELS,
     PUSH_HUB,
 )
-from movieclaw_kernel import Context, plugin
+from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
 
 
 @plugin(
@@ -95,6 +95,25 @@ async def push_hub(ctx: Context) -> None:
     ctx.provide(PUSH_HUB, hub)
     # 通知引擎：有通知规则的事件各挂一个实时监听器（docs/design/domain-events.md §6.1）
     engine.attach(ctx)
+
+
+@plugin(
+    "webhook.delivery",
+    title="Webhook 投递",
+    inject=(DB, DURABLE_EVENTS),
+    disableable=True,
+    reloadable=True,
+)
+async def webhook_delivery(ctx: Context) -> None:
+    """把系统事件推给「设置 → Webhook」里配置的地址：每个地址按勾选订阅，失败自动重试，重启不丢。"""
+    from movieclaw_api.services.webhook import delivery
+
+    service = delivery.Subscriptions(ctx, ctx.use(DURABLE_EVENTS))
+    # 停用时取消订阅但保留各地址的消费者进度：恢复后从停下的地方补投
+    ctx.effect(service.close, label="unsubscribe-webhook")
+    await service.sync()
+    delivery.bind(service)
+    ctx.effect(lambda: delivery.bind(None), label="unbind-webhook")
 
 
 @plugin("push.channels-refresh", title="推送通道能力快照", inject=(CLOUD,), reloadable=True)

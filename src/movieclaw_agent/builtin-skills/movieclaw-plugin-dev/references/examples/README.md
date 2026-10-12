@@ -48,9 +48,9 @@ CI 里 `tests/api/test_example_plugins*.py` 会把它们装进临时数据目录
 ## 自己写一个
 
 ```python
-from movieclaw_api.domain_events import LIBRARY_INGEST_IMPORTED, IngestImported
 from movieclaw_api.plugins.keys import HOST_OPS
 from movieclaw_kernel import DURABLE_EVENTS, plugin
+from movieclaw_sdk.events import LIBRARY_INGEST_COMPLETED, IngestCompleted
 
 
 @plugin(
@@ -62,14 +62,15 @@ from movieclaw_kernel import DURABLE_EVENTS, plugin
 async def after_import(ctx):
     ops = await ctx.use(HOST_OPS).client(ctx)
 
-    async def on_imported(event: IngestImported) -> None:
-        # 可靠事件至少投递一次：用 ctx.delivery.event_id 去重
+    async def on_imported(event: IngestCompleted) -> None:
+        # 可靠订阅至少投递一次：用 ctx.delivery.event_id 去重
         ctx.logger.info("《%s》入库了 %d 个文件", event.media.title, len(event.files))
 
-    ctx.on(LIBRARY_INGEST_IMPORTED, on_imported, id="after-import")  # 稳定 id 决定跨重启的进度
+    # 可靠订阅：稳定 id 决定跨重启的进度
+    ctx.on(LIBRARY_INGEST_COMPLETED, on_imported, id="after-import", durable=True)
 ```
 
-可订阅的事件见 `src/movieclaw_api/domain_events.py`；可调用的操作就是 `mclaw` 命令行能用的那些（同一份 OpenAPI 目录），
+可订阅的事件见 `src/movieclaw_sdk/events/`；可调用的操作就是 `mclaw` 命令行能用的那些（同一份 OpenAPI 目录），
 操作 id 与命令一一对应，例如 `mclaw subscriptions create` ↔ `subscriptions.create`。
 
 ## 打包与开发循环（第三方插件包）

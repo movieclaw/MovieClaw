@@ -180,12 +180,36 @@ async def match_scanned(session: AsyncSession, now: datetime) -> list[Finished]:
     return finished
 
 
-def announce(items: list[Finished]) -> None:
-    """推「入库完成」给点下载的人：投事件，进这部剧的卡（cards.py）。"""
-    from movieclaw_api.services.push.hub import Downloaded, emit
+async def announce(items: list[Finished]) -> None:
+    """手动下载入库完了：发「手动下载已入库」（``download.imported``，domain-events.md §8）。
+
+    推「入库完成」给点下载的人由通知规则做（进这部剧的卡，cards.py）。
+    """
+    from movieclaw_api import event_refs, events
+    from movieclaw_sdk.events import DOWNLOAD_IMPORTED, DownloadImported, ImportedItem
 
     for done in items:
-        emit(Downloaded(finished=done))
+
+        async def build(done: Finished = done) -> DownloadImported | None:
+            async with get_database().session() as session:
+                units = await units_of(session, done)
+                found = []
+                for item_id, item_units in units.items():
+                    media = event_refs.media_ref(await session.get(MediaItem, item_id))
+                    if media is not None:
+                        found.append(
+                            ImportedItem(media=media, units=event_refs.units(item_units))
+                        )
+            if not found:
+                return None
+            return DownloadImported(
+                member_id=done.member_id,
+                library_id=done.library_id,
+                download_name=done.download_name,
+                items=tuple(found),
+            )
+
+        await events.publish_now(DOWNLOAD_IMPORTED, build)
 
 
 async def units_of(session: AsyncSession, done: Finished) -> dict[int, list[tuple[int, int]]]:
@@ -219,7 +243,7 @@ async def units_of(session: AsyncSession, done: Finished) -> dict[int, list[tupl
     return units
 
 
-def announce_summary(done: Finished, item_ids: list[int]) -> None:
+def announce_summary(member_id: int, library_id: int, item_ids: list[int]) -> None:
     """一次下载里有好几部（合集、「其他」库的一堆视频）：合成「你下载的 N 部已入库」。"""
     from movieclaw_api.services.channel_push import tmdb_push_image_url
     from movieclaw_api.services.push.audience import lazy_image
@@ -229,7 +253,7 @@ def announce_summary(done: Finished, item_ids: list[int]) -> None:
         items = [item for i in item_ids if (item := await session.get(MediaItem, i)) is not None]
         if not items:
             return None
-        library = await session.get(Library, done.library_id)
+        library = await session.get(Library, library_id)
         videos = library is not None and library.kind not in ("movie", "tv")
         names = "、".join(item.title for item in items[:NAMED_IN_SUMMARY])
         more = "等" if len(items) > NAMED_IN_SUMMARY else ""
@@ -238,8 +262,8 @@ def announce_summary(done: Finished, item_ids: list[int]) -> None:
             title=f"你下载的 {len(items)} {'个视频' if videos else '部'}已入库",
             body=f"{names}{more}，点开就能看",
             image=await image(),
-            open=f"/library/{done.library_id}",
-            thread=f"download-{done.library_id}",
+            open=f"/library/{library_id}",
+            thread=f"download-{library_id}",
         )
 
-    notify("subscription.fulfilled", {done.member_id}, build)
+    notify("subscription.fulfilled", {member_id}, build)

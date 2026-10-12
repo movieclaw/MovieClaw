@@ -31,7 +31,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
-from movieclaw_api.domain_events import LIBRARY_FILE_DELETED, LIBRARY_ITEM_DELETED, LibraryDeleted
+from movieclaw_sdk.events import LIBRARY_FILE_DELETED, LIBRARY_ITEM_DELETED, LibraryDeleted
 from movieclaw_api.plugins.keys import HOST_OPS
 from movieclaw_kernel import DURABLE_EVENTS, Context, plugin
 from movieclaw_sdk.ops import OpsError

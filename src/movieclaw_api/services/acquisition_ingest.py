@@ -708,4 +708,7 @@ async def ingested(session: AsyncSession, facts: IngestedFacts) -> AfterIngest:
         logger.exception("对照手动下载的推送对象失败（已忽略）")
     if not finished:
         return AfterIngest(owner=owner)
-    return AfterIngest(owner=owner, announce=lambda: push_downloads.announce(finished))
+    async def announce() -> None:
+        await push_downloads.announce(finished)
+
+    return AfterIngest(owner=owner, announce=announce)

@@ -1,4 +1,4 @@
-"""已看 / 收藏标记的**唯一**落点：观看状态 + webhook 事件。
+"""已看 / 收藏标记的**唯一**落点：观看状态 + 事件。
 
 网页端（``/playback/marks``）与 Jellyfin 协议（``/UserPlayedItems`` /
 ``/UserFavoriteItems``）两条入口都汇到这里，差别只在身份来源与目标的表达
@@ -8,8 +8,8 @@
 1. 目标 → 受影响单元的解析（整剧/整季标记已看要级联到全部集；收藏则落在
    哨兵单元上，绝不污染 S00E00）；
 2. ``playback_state`` 落库（``movieclaw_playback.state`` 的同一套语义）；
-3. webhook 事件（``playback.marked_played`` / ``item.favorited`` …），否则配了
-   推送的用户会发现「在 Infuse 里点心有通知、在网页上点没有」。
+3. 事件（``playback.marked_played`` / ``library.item.favorited`` …，Webhook 与插件都订它），
+   否则会出现「在 Infuse 里点心有通知、在网页上点没有」。
 
 与 ``watch.py``（播放上报）同一思路：协议层只做翻译，落库与事件不允许分叉，
 「在网页上点了心、Infuse 里立刻能看到」因此天然成立——读写的是同一张表。
@@ -23,14 +23,10 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from movieclaw_api.services.webhook import emit_events
+from movieclaw_api.services.playback import events as playback_events
 from movieclaw_db.models import LibraryFile, MediaEpisode, MediaItem
 from movieclaw_playback import state as playback_state
-from movieclaw_playback.events import (
-    ClientInfo,
-    build_favorite_event,
-    build_marked_events,
-)
+from movieclaw_playback.events import ClientInfo
 from movieclaw_playback.state import Unit
 
 
@@ -171,8 +167,8 @@ async def set_played(
     """标记已看 / 取消已看，级联到目标下全部单元；返回是否命中了单元。
 
     已看：``date_played`` 才 +1 播放次数，否则 ``max(count, 1)``；取消：全部
-    清零（对齐 Jellyfin 的 ``ResetPlayedState``，不是减一）。commit 后逐单元
-    发事件，级联的多条共享 batch_id 供下游聚合。
+    清零（对齐 Jellyfin 的 ``ResetPlayedState``，不是减一）。级联到的每一集在同一个
+    事件里，随提交发出。
     """
     units = await resolve_played_units(session, target)
     if not units:
@@ -183,15 +179,10 @@ async def set_played(
         )
     else:
         await playback_state.mark_unplayed(session, units, member_id=member_id)
-    await session.commit()
-    events = await build_marked_events(
-        session,
-        "playback.marked_played" if played else "playback.marked_unplayed",
-        units,
-        member_id=member_id,
-        client=client,
+    await playback_events.publish_marked(
+        session, units, played=played, member_id=member_id, client=client
     )
-    emit_events(events)
+    await session.commit()
     return True
 
 
@@ -203,24 +194,10 @@ async def set_favorite(
     client: ClientInfo,
     favorite: bool,
 ) -> None:
-    """收藏 / 取消收藏；commit 后发 ``item.(un)favorited`` 事件。"""
+    """收藏 / 取消收藏；随提交发 ``library.item.(un)favorited``。"""
     unit = await favorite_unit(session, target)
     await playback_state.set_favorite(session, unit, member_id=member_id, favorite=favorite)
-    await session.commit()
-    event = await build_favorite_event(session, unit, favorite=favorite, client=client)
-    if event is not None:
-        emit_events([event])
-    from movieclaw_api import hooks
-    from movieclaw_sdk.library import LIBRARY_ITEM_FAVORITED, ItemFavorited
-
-    # 插件的实时事件（plugin-strm-prefetch.md §3）；整季 / 整部的哨兵 -1 写成「不限」
-    hooks.emit(
-        LIBRARY_ITEM_FAVORITED,
-        lambda: ItemFavorited(
-            media_item_id=unit[0],
-            season=unit[1] if unit[1] >= 0 else None,
-            episode=unit[2] if unit[2] >= 0 else None,
-            member_id=member_id,
-            favorite=favorite,
-        ),
+    await playback_events.publish_favorite(
+        session, unit, favorite=favorite, member_id=member_id, client=client
     )
+    await session.commit()

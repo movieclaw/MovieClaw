@@ -1,4 +1,4 @@
-"""Jellyfin 客户端的动作也发插件实时事件（docs/design/plugin-strm-prefetch.md §3）。
+"""Jellyfin 客户端的动作也产生系统事件（docs/design/domain-events.md §8）。
 
 客户端取单个条目 / 集 → ``library.item.viewed``（client=jellyfin）；开始播放、收藏走与网页
 共用的 watch / marks 服务，同样发 ``playback.started`` / ``library.item.favorited``。
@@ -11,7 +11,7 @@ import time
 from jellyfin.helpers import jf_login
 from movieclaw_jellyfin.ids import episode_guid, item_guid
 from movieclaw_kernel import Entry, plugin
-from movieclaw_sdk.library import LIBRARY_ITEM_FAVORITED, LIBRARY_ITEM_VIEWED, PLAYBACK_STARTED
+from movieclaw_sdk.events import LIBRARY_ITEM_FAVORITED, LIBRARY_ITEM_VIEWED, PLAYBACK_STARTED
 
 
 def wait_for(predicate, timeout: float = 10.0) -> None:
@@ -42,8 +42,8 @@ def test_jellyfin_clients_emit_view_play_and_favorite(client, seeded) -> None:
     assert client.get(f"/Items/{ep}", params=auth).status_code == 200
     wait_for(lambda: got("library.item.viewed"))
     viewed = got("library.item.viewed")[0]
-    assert (viewed.media_item_id, viewed.season, viewed.episode) == (seeded["show"], 1, 2)
-    assert viewed.client == "jellyfin"
+    assert (viewed.media.id, viewed.season, viewed.episode) == (seeded["show"], 1, 2)
+    assert viewed.client.name == "jellyfin"
 
     assert client.get(f"/Items/{item_guid(seeded['show'])}", params=auth).status_code == 200
     wait_for(lambda: len(got("library.item.viewed")) == 2)
@@ -51,9 +51,9 @@ def test_jellyfin_clients_emit_view_play_and_favorite(client, seeded) -> None:
 
     assert client.post("/Sessions/Playing", params=auth, json={"ItemId": ep}).status_code == 204
     wait_for(lambda: got("playback.started"))
-    assert got("playback.started")[0].episode == 2
+    assert got("playback.started")[0].unit.episode == 2
 
     url = f"/UserFavoriteItems/{item_guid(seeded['show'])}"
     assert client.post(url, params=auth).status_code == 200
     wait_for(lambda: got("library.item.favorited"))
-    assert got("library.item.favorited")[0].favorite is True
+    assert got("library.item.favorited")[0].level == "series"

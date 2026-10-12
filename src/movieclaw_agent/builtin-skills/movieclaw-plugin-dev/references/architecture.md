@@ -10,7 +10,7 @@ MovieClaw 主程序自己就由约 60 个插件拼成（数据库、调度、订
 |---|---|---|
 | 服务 `ServiceKey` | `@plugin(inject=(KEY,))` 声明，`ctx.use(KEY)` 取 | `HOST_OPS`、`PLUGIN_DATA`、`PLUGIN_ROUTES` |
 | 注册表 `RegistryKey` | `ctx.contribute(KEY, "<贡献 id>", 贡献项)` 往里加一项 | `IM_CHANNELS`、`SCHEDULED_TASKS`、`INGEST_STEPS` |
-| 事件 `Event` | `ctx.on(EVENT, handler, id=...)` 监听 | `LIBRARY_INGEST_IMPORTED`、`SUBSCRIPTION_CREATED` |
+| 事件 `Event` | `ctx.on(EVENT, handler)` 实时订阅；`ctx.on(EVENT, handler, id=..., durable=True)` 可靠订阅 | `LIBRARY_INGEST_COMPLETED`、`SUBSCRIPTION_CREATED` |
 | 决策钩子（也是 `Event`，模式为 waterfall / bail） | `ctx.on(HOOK, handler)`，返回值影响主程序的决策 | `SEARCH_KEYWORDS`、`CANDIDATES_FILTER`、`DOWNLOADER_SELECT` |
 
 每个契约有**稳定性**：`internal`（只给内置插件）、`experimental`、`stable`。第三方插件只能用 experimental 以上的，
@@ -125,7 +125,7 @@ async def apply(ctx: Context) -> None:
 
 | 扩展点 | 去读 |
 |---|---|
-| 可靠事件（下载完成、入库、删片、订阅……） | 定义与发出：`$SRC/movieclaw_api/domain_events.py`（`record_*` 函数，grep 函数名找调用处） |
+| 系统事件（下载完成、入库、删片、订阅、播放……） | 定义：`$SRC/movieclaw_sdk/events/`；发出：各域的 `events.py`（`publish_*` 函数，唯一入口 `$SRC/movieclaw_api/events.py`；grep 事件常量名找产生点） |
 | 订阅搜索词、淘汰 / 重排候选 | `$SRC/movieclaw_api/services/subscription/matching.py`（`hooks.waterfall` 调用处）；订阅规则组的内置过滤在 `$SRC/movieclaw_matcher/` |
 | 选下载器 | `$SRC/movieclaw_api/services/torrent_submit.py`（各投递路径构造 `DownloaderQuery` 的地方） |
 | 否决删种 | `$SRC/movieclaw_api/services/download_tasks.py` |

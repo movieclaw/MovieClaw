@@ -1,39 +1,53 @@
 # 扩展点目录：能做什么、做不到什么
 
 插件能用的全部开放契约（与 `scripts/contracts.py` 的输出、`$SRC/movieclaw_sdk/surface.json` 一致，
-tests 守着：契约有增删时本文必须同步）。每个都是「实验级 1.0」：清单 `[requires]` 写 `"<名字>" = "^1.0"`。
+tests 守着：契约有增删时本文必须同步）。都是实验级；清单 `[requires]` 写 `"<名字>" = "^<主版本>.0"`（版本看
+`contracts.py <名字>`）。
 
 写代码前用 `python <本技能>/scripts/contracts.py <名字>` 看载荷 / 结果的真实类型；写法见 `recipes.md` 对应小节。
 
-## 1. 可靠事件：某件事发生后做点什么
+## 1. 系统事件：某件事发生后做点什么
 
-至少投递一次、重启不丢（`inject=(DURABLE_EVENTS,)`，`ctx.on(EVENT, fn, id="稳定id")`，按 `ctx.delivery.event_id` 去重）。
+全部从 `movieclaw_sdk.events` 导入（`from movieclaw_sdk.events import SUBSCRIPTION_FULFILLED, SubscriptionFulfilled`）。
+通知、Webhook、插件订的是同一批事件、同一份载荷（`docs/design/domain-events.md`）。**投递方式由你选**：
 
-| 契约 | 什么时候发生 | 典型用途 | 导入 | 示例 |
-|---|---|---|---|---|
-| `download.completed` | 订阅投递的种子下载完成 | 下载完通知、校验、搬运 | `from movieclaw_api.domain_events import DOWNLOAD_COMPLETED` | — |
-| `library.ingest.imported` | 下载条目整理入库完成（载荷 `imported_names` 是整理前的原始文件名：按命名模板改名后 TC、CAM 这类发布标记通常就没了，按发布名判断的看它） | 入库后通知、同步到别处、记账 | `… import LIBRARY_INGEST_IMPORTED` | — |
-| `library.item.deleted` | 一部作品在某个库里的文件全部删除 | 删片联动：删订阅、删种子 | `… import LIBRARY_ITEM_DELETED` | `delete_cascade.py` |
-| `library.file.deleted` | 部分文件被删（删了几集） | 同上，部分删除 | `… import LIBRARY_FILE_DELETED` | `delete_cascade.py` |
-| `library.file.trashed` / `restored` / `purged` | 文件进回收站 / 恢复 / 彻底清除 | 回收站联动 | `… import LIBRARY_FILE_TRASHED` 等 | — |
-| `subscription.created` / `deleted` | 订阅新建 / 删除 | 给订阅挂规则、清理插件数据 | `… import SUBSCRIPTION_CREATED` 等 | `keyword_rules.py`（删除时清理） |
-| `subscription.download-started` | 订阅的种子真实提交下载器 | 下载开始提醒 | `… import SUBSCRIPTION_DOWNLOAD_STARTED` | — |
-| `subscription.fulfilled` | 订阅的季集已确认入库 | 收齐提醒、外部片单打勾 | `… import SUBSCRIPTION_FULFILLED` | — |
-| `subscription.status-changed` | 追踪中 / 已收齐 / 暂停 | 状态同步 | `… import SUBSCRIPTION_STATUS_CHANGED` | — |
+- **实时订阅** `ctx.on(EVENT, fn)`：发完即忘（插件不在、积压满了就丢），适合「现在值得做点什么」的提示，该做的事要能从
+  库里的事实补回来（例如按待探列表补探）；
+- **可靠订阅** `ctx.on(EVENT, fn, id="稳定id", durable=True)`：至少投递一次、重启不丢，要做副作用（删种、搬运、记账）就用它。
+  须 `inject=(DURABLE_EVENTS,)`，按 `ctx.delivery.event_id` 去重。标「高频」的只能实时订阅。
 
-**「新文件入库后做事」选哪个**：只关心下载后整理入库的、而且必须每次都处理 → 可靠事件 `library.ingest.imported`
-（带原始文件名）；手动扫描、实时监控进库的也要覆盖 → 实时事件 `library.files.added`（只有文件 id，标题、路径用宿主操作查；
-可能漏，要能按库里的事实补做）。两个都要时可以都订阅、用插件数据按文件 id 去重。
+载荷里的条目是 `MediaRef`（`media.id` 是条目 id），季集是 `UnitRef`（电影没有单元：列表为空、单个为 `None`），客户端是
+`ClientRef`。成员 id 0 是超管。
 
-**实时事件**：发完即忘（插件不在、积压满了就丢），不用 inject `DURABLE_EVENTS`。只适合「现在值得做点什么」的提示，
-该做的事要能从数据库里的事实补回来（例如按待探列表补探）。
+| 契约 | 什么时候发生 | 典型用途 | 备注 |
+|---|---|---|---|
+| `subscription.created` / `deleted` | 订阅新建 / 删除 | 给订阅挂规则、清理插件数据 | 示例 `keyword_rules.py`（删除时清理） |
+| `subscription.status_changed` | 追踪中 / 已收齐 / 暂停 | 状态同步 | |
+| `subscription.download_started` | 订阅的种子真实提交下载器 | 下载开始提醒 | 带种子、季集、谁手动选的种 |
+| `subscription.fulfilled` | 订阅的季集经媒体库对账确认入库 | 收齐提醒、外部片单打勾 | `units` 全部入库的，`requested_units` 其中仍在订阅范围内的 |
+| `subscription.upgraded` | 订阅的一集换成了更好的版本 | 洗版记录 | |
+| `subscription.identity_skipped` | 订阅跳过了身份不明的同名资源（每个订阅一次） | 知会 | |
+| `download.completed` | 订阅投递的种子在下载器里下载完成（入库前） | 下载完通知、校验、搬运 | |
+| `download.imported` | 手动下载的内容全部入库 | 通知点下载的人 | |
+| `library.ingest.completed` | 下载条目整理入库完成（载荷 `imported_names` 是整理前的原始文件名：按命名模板改名后 TC、CAM 这类发布标记通常就没了，按发布名判断的看它） | 入库后通知、同步到别处、记账 | |
+| `library.files.added` | 媒体库新入账了文件（扫描一轮发一次，下载入库每个条目一次） | 新文件来了就处理（预探、生成东西） | 示例 `$SRC/movieclaw_plugins/strm_prefetch/` |
+| `library.items.arrived` | 媒体库有新片（不管谁下载、怎么入库；攒几分钟一批） | 新片提醒、同步片单 | |
+| `library.item.deleted` | 一部作品在某个库里的文件全部删除 | 删片联动：删订阅、删种子 | 示例 `delete_cascade.py`；种子按 `files[].id` 调 `dl.file-sources.list` 查 |
+| `library.file.deleted` | 部分文件被删（删了几集） | 同上，部分删除 | 同上 |
+| `library.file.trashed` / `restored` / `purged` | 文件进回收站 / 恢复 / 彻底清除 | 回收站联动 | |
+| `library.item.favorited` / `unfavorited` | 收藏 / 取消收藏（`level`：整部、一季、一集） | 收藏即准备好整部 | 敏感 |
+| `library.item.viewed` | 打开条目详情（网页详情页、播放器取条目） | 用户可能要看了，先准备 | 敏感、高频 |
+| `playback.started` / `stopped` / `completed` | 开始播放 / 停止（`completed` 表示停时刚好看完）/ 看完 | 预取下一集、播放联动、记录 | 敏感 |
+| `playback.progress` | 播放进度（每集最多 30 秒一条） | 同步进度 | 敏感、高频 |
+| `playback.marked_played` / `marked_unplayed` | 标记已看 / 取消（整季标记是一个事件、带每一集） | 同步观看记录 | 敏感 |
+| `account.device.signed_in` | 一台设备登录了账号（`new_device` 表示第一次在这台登录） | 安全审计 | 敏感 |
+| `system.alert.raised` / `resolved` | 待处理事项出现（或复发）/ 自动消退 | 把告警转到别处 | |
+| `system.update.available` | 有新版本（每个版本一次） | | |
+| `system.tip.suggested` | 有使用建议（每条一次） | | |
 
-| 契约 | 什么时候发生 | 典型用途 | 导入 | 示例 |
-|---|---|---|---|---|
-| `library.files.added` | 媒体库新入账了文件（扫描一轮发一次，下载入库每个条目一次） | 新文件来了就处理（预探、生成东西） | `from movieclaw_sdk.library import LIBRARY_FILES_ADDED` | `$SRC/movieclaw_plugins/strm_prefetch/` |
-| `playback.started` | 网页或 Jellyfin 客户端开始播放 | 预取下一集、播放联动 | `… import PLAYBACK_STARTED` | 同上 |
-| `library.item.favorited` | 收藏 / 取消收藏 | 收藏即准备好整部 | `… import LIBRARY_ITEM_FAVORITED` | 同上 |
-| `library.item.viewed` | 打开条目详情（网页详情页、Jellyfin 取条目） | 用户可能要看了，先准备 | `… import LIBRARY_ITEM_VIEWED` | 同上 |
+**「新文件入库后做事」选哪个**：只关心下载后整理入库的、而且必须每次都处理 → 可靠订阅 `library.ingest.completed`
+（带原始文件名）；手动扫描、实时监控进库的也要覆盖 → `library.files.added`（只有文件 id，标题、路径用宿主操作查）；
+只想知道「来了新片」 → `library.items.arrived`。可以都订、用插件数据按文件 id 去重。
 
 ## 2. 决策钩子：改变系统的判断
 

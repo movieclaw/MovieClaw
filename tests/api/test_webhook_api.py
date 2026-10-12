@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 
 from movieclaw_api.core.config import get_settings
-from movieclaw_api.services.webhook import deliveries, dispatcher
+from movieclaw_api.services.webhook import deliveries, delivery
 from movieclaw_db.engine import get_database
 
 BASE = "/api/v1/webhook"
@@ -74,7 +74,7 @@ async def test_create_reveals_secret_once_and_encrypts_at_rest(client: TestClien
 def test_catalog_delivered_with_config(client: TestClient):
     catalog = client.get(BASE).json()["data"]["catalog"]
     events = {entry["event"] for entry in catalog}
-    assert {"playback.started", "item.favorited"} <= events
+    assert {"playback.started", "library.item.favorited"} <= events
     groups = {entry["group"] for entry in catalog}
     assert {"播放", "收藏"} <= groups
 
@@ -185,7 +185,7 @@ def test_send_test_and_deliveries(client: TestClient, monkeypatch):
         return httpx.Response(200)
 
     monkeypatch.setattr(
-        dispatcher,
+        delivery,
         "egress_transport",
         lambda service, **kwargs: httpx.MockTransport(handler),
     )

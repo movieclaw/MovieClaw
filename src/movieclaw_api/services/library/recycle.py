@@ -244,15 +244,10 @@ async def purge_file(session: AsyncSession, file: LibraryFile, *, reason: str = 
 async def _record(
     session: AsyncSession, kind: str, file: LibraryFile, *, reason: str | None = None
 ) -> None:
-    """回收站的进出与清除发可靠事件（plugin-phase2a.md §4），随调用方的提交成立。"""
-    from movieclaw_api import domain_events
+    """回收站的进出与清除发事件（domain-events.md §8），随调用方的提交成立。"""
+    from movieclaw_api.services.library.events import publish_recycled
 
-    event = {
-        "trashed": domain_events.LIBRARY_FILE_TRASHED,
-        "restored": domain_events.LIBRARY_FILE_RESTORED,
-        "purged": domain_events.LIBRARY_FILE_PURGED,
-    }[kind]
-    await domain_events.record_recycled(session, event, file, reason=reason)
+    await publish_recycled(session, kind, file, reason=reason)
 
 
 async def _has_other_files_under(session: AsyncSession, file: LibraryFile, directory: Path) -> bool:

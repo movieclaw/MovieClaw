@@ -16,7 +16,6 @@ from fastapi import BackgroundTasks
 from fastapi.testclient import TestClient
 from sqlmodel import select
 
-from movieclaw_api import domain_events as de
 from movieclaw_api.api.routes.libraries import (
     delete_library_file,
     delete_library_item,
@@ -25,6 +24,7 @@ from movieclaw_api.api.routes.libraries import (
 )
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services import durable_events
+from movieclaw_api.services.library.events import deletion_recorder
 from movieclaw_api.services.library.recycle import recycle_file
 from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
@@ -41,6 +41,7 @@ from movieclaw_db.models import (
     utcnow,
 )
 from movieclaw_db.repositories.library_repo import LibraryRepository
+from movieclaw_sdk import events as sdk_events
 
 
 @pytest_asyncio.fixture
@@ -165,16 +166,16 @@ async def test_no_subscriber_means_no_snapshot_and_no_rows(db, tmp_path) -> None
     seeded = await seed_show(db, tmp_path)
     async with db.session() as session:
         item = await session.get(MediaItem, seeded["item_id"])
-        assert await de.deletion_recorder(session, seeded["library_id"], item, []) is None
+        assert await deletion_recorder(session, seeded["library_id"], item, []) is None
         await delete_library_item(
             seeded["library_id"], seeded["item_id"], BackgroundTasks(), session
         )
     assert await recorded(db) == []
 
 
-async def test_deleting_one_episode_records_file_deleted_with_shared_pack(db, tmp_path) -> None:
+async def test_deleting_one_episode_records_file_deleted(db, tmp_path) -> None:
     seeded = await seed_show(db, tmp_path)
-    await subscribe(db, de.LIBRARY_FILE_DELETED, de.LIBRARY_ITEM_DELETED)
+    await subscribe(db, sdk_events.LIBRARY_FILE_DELETED, sdk_events.LIBRARY_ITEM_DELETED)
     async with db.session() as session:
         await delete_library_file(
             seeded["library_id"],
@@ -188,26 +189,13 @@ async def test_deleting_one_episode_records_file_deleted_with_shared_pack(db, tm
     assert event["whole_item"] is False
     assert event["media"]["title"] == "测试剧集" and event["media"]["tmdb_id"] == 1
     assert [(f["season"], f["episode"]) for f in event["files"]] == [(1, 1)]
-    assert event["files"][0]["info_hash"] == "packhash"
-    assert event["links"]["subscription_id"] == seeded["sub_id"]
-    [torrent] = event["links"]["torrents"]
-    # 季包还供着第二集：插件据此知道不能顺手删种
-    assert torrent == {
-        "info_hash": "packhash",
-        "downloader_id": seeded["downloader_id"],
-        "title": "Test.Show.S01.1080p",
-        "source": "subscription",
-        "site_id": None,
-        "torrent_id": None,
-        "owned_by_movieclaw": True,
-        "hit_and_run": False,
-        "shared": True,
-    }
+    # 只有媒体库自己的事实：种子、订阅由订阅方按文件 id / 条目 id 经宿主操作去查
+    assert "links" not in event and "info_hash" not in event["files"][0]
 
 
 async def test_deleting_whole_item_records_item_deleted(db, tmp_path) -> None:
     seeded = await seed_show(db, tmp_path)
-    await subscribe(db, de.LIBRARY_ITEM_DELETED)
+    await subscribe(db, sdk_events.LIBRARY_ITEM_DELETED)
     async with db.session() as session:
         await delete_library_item(
             seeded["library_id"], seeded["item_id"], BackgroundTasks(), session
@@ -215,8 +203,6 @@ async def test_deleting_whole_item_records_item_deleted(db, tmp_path) -> None:
     [event] = await recorded(db)
     assert event["name"] == "library.item.deleted" and event["whole_item"] is True
     assert sorted(f["id"] for f in event["files"]) == sorted(seeded["file_ids"])
-    [torrent] = event["links"]["torrents"]
-    assert torrent["shared"] is False
     assert not seeded["paths"][0].exists()
 
 
@@ -265,24 +251,6 @@ async def seed_shared_pack(
         }
 
 
-@pytest.mark.parametrize("other_identified", [True, False])
-async def test_torrent_shared_with_other_items_is_marked_shared(
-    db, tmp_path, other_identified
-) -> None:
-    """合集种子还供着别的条目（或没识别的文件）：删了种子会毁掉它们，必须标 shared。"""
-    seeded = await seed_shared_pack(db, tmp_path, other_identified=other_identified)
-    await subscribe(db, de.LIBRARY_ITEM_DELETED)
-    async with db.session() as session:
-        await delete_library_item(
-            seeded["library_id"], seeded["item_id"], BackgroundTasks(), session
-        )
-    [event] = await recorded(db)
-    assert event["whole_item"] is True
-    [torrent] = event["links"]["torrents"]
-    assert torrent["info_hash"] == "d" * 40
-    assert torrent["shared"] is True
-
-
 async def test_relations_list_files_of_other_items_on_the_same_torrent(db, tmp_path) -> None:
     from movieclaw_api.api.routes.download_sources import get_item_relations
     from movieclaw_api.services.download_sources import item_relations
@@ -303,7 +271,7 @@ async def test_failed_disk_delete_records_nothing(db, tmp_path, monkeypatch) -> 
     import movieclaw_api.services.library.items as items_mod
 
     seeded = await seed_show(db, tmp_path)
-    await subscribe(db, de.LIBRARY_FILE_DELETED, de.LIBRARY_ITEM_DELETED)
+    await subscribe(db, sdk_events.LIBRARY_FILE_DELETED, sdk_events.LIBRARY_ITEM_DELETED)
     monkeypatch.setattr(items_mod, "_discard_file_with_sidecars", lambda *a, **k: False)
     async with db.session() as session:
         await delete_library_file(
@@ -319,7 +287,12 @@ async def test_failed_disk_delete_records_nothing(db, tmp_path, monkeypatch) -> 
 # ---------------------------------------------------------------------- 回收站
 async def test_recycle_restore_and_purge_record_events(db, tmp_path) -> None:
     seeded = await seed_show(db, tmp_path)
-    await subscribe(db, de.LIBRARY_FILE_TRASHED, de.LIBRARY_FILE_RESTORED, de.LIBRARY_FILE_PURGED)
+    await subscribe(
+        db,
+        sdk_events.LIBRARY_FILE_TRASHED,
+        sdk_events.LIBRARY_FILE_RESTORED,
+        sdk_events.LIBRARY_FILE_PURGED,
+    )
     file_id = seeded["file_ids"][1]
     trigger = {"kind": "subscription", "id": seeded["sub_id"], "label": "洗版"}
     async with db.session() as session:
@@ -350,7 +323,7 @@ async def test_recycle_restore_and_purge_record_events(db, tmp_path) -> None:
 
 async def test_rolled_back_recycle_leaves_no_event(db, tmp_path) -> None:
     seeded = await seed_show(db, tmp_path)
-    await subscribe(db, de.LIBRARY_FILE_TRASHED)
+    await subscribe(db, sdk_events.LIBRARY_FILE_TRASHED)
     async with db.session() as session:
         row = await session.get(LibraryFile, seeded["file_ids"][0])
         await recycle_file(session, row, reason="manual", trigger={}, note="")
@@ -363,7 +336,7 @@ async def test_subscription_status_and_delete_events(db, tmp_path) -> None:
     from movieclaw_api.services.subscription import SubscriptionService
 
     seeded = await seed_show(db, tmp_path)
-    await subscribe(db, de.SUBSCRIPTION_STATUS_CHANGED, de.SUBSCRIPTION_DELETED)
+    await subscribe(db, sdk_events.SUBSCRIPTION_STATUS_CHANGED, sdk_events.SUBSCRIPTION_DELETED)
     async with db.session() as session:
         service = SubscriptionService(session, None)  # type: ignore[arg-type]
         await service.set_paused(seeded["sub_id"], True)
@@ -371,7 +344,7 @@ async def test_subscription_status_and_delete_events(db, tmp_path) -> None:
         await service.delete_permanently(seeded["sub_id"])
     events = await recorded(db)
     assert [(e["name"], e["previous_status"], e["status"], e["reason"]) for e in events] == [
-        ("subscription.status-changed", "active", "paused", "paused"),
+        ("subscription.status_changed", "active", "paused", "paused"),
         ("subscription.deleted", None, "paused", "deleted"),
     ]
     assert events[1]["media"]["title"] == "测试剧集"
@@ -393,14 +366,14 @@ def test_plugin_receives_deletion_snapshot_end_to_end(tmp_path, monkeypatch) -> 
     get_settings.cache_clear()
     durable_events.reset_state()
 
-    received: list[de.LibraryDeleted] = []
+    received: list[sdk_events.LibraryDeleted] = []
 
     @plugin("test.cascade", title="删片联动（测试）", inject=(DURABLE_EVENTS,))
     async def cascade(ctx) -> None:
-        def on_deleted(event: de.LibraryDeleted) -> None:
+        def on_deleted(event: sdk_events.LibraryDeleted) -> None:
             received.append(event)
 
-        ctx.on(de.LIBRARY_ITEM_DELETED, on_deleted, id="cascade", durable=True)
+        ctx.on(sdk_events.LIBRARY_ITEM_DELETED, on_deleted, id="cascade", durable=True)
 
     app = create_app()
     admin = Principal(kind="admin", name="tester")
@@ -436,17 +409,14 @@ def test_plugin_receives_deletion_snapshot_end_to_end(tmp_path, monkeypatch) -> 
 
     [event] = received
     assert event.whole_item and event.media is not None and event.media.title == "测试剧集"
-    assert event.links.subscription_id == seeded["sub_id"]
-    assert [t.info_hash for t in event.links.torrents] == ["packhash"]
+    assert sorted(f.id for f in event.files) == sorted(seeded["file_ids"])
 
 
-@pytest.mark.parametrize(
-    "event", [e for e in vars(de).values() if isinstance(e, type(de.DOWNLOAD_COMPLETED))]
-)
-def test_domain_events_are_open_to_third_party_plugins(event) -> None:
-    # 本地受信插件要能订阅它们：实验级、可靠投递
+@pytest.mark.parametrize("event", sdk_events.core_events(), ids=lambda e: e.name)
+def test_system_events_are_open_to_third_party_plugins(event) -> None:
+    # 插件要能订阅它们：实验级；除高频事件外都能可靠订阅
     assert event.stability.value == "experimental"
-    assert event.durable
+    assert event.durable is not event.high_frequency
 
 
 # ---------------------------------------------------------------------- 下载、入库、订阅
@@ -456,7 +426,7 @@ async def test_download_completed_is_recorded_once(db, tmp_path, monkeypatch) ->
     from movieclaw_downloader import TorrentStatus
 
     seeded = await seed_show(db, tmp_path)
-    await subscribe(db, de.DOWNLOAD_COMPLETED)
+    await subscribe(db, sdk_events.DOWNLOAD_COMPLETED)
     async with db.session() as session:
         # 心跳只照看名下还有在途工单的投递
         for ep in (1, 2):
@@ -493,7 +463,7 @@ async def test_download_completed_is_recorded_once(db, tmp_path, monkeypatch) ->
     assert event["name"] == "download.completed"
     assert event["subscription_id"] == seeded["sub_id"]
     assert event["info_hash"] == "packhash" and event["downloader_id"] == seeded["downloader_id"]
-    assert [tuple(u) for u in event["units"]] == [(1, 1), (1, 2)]
+    assert [(u["season"], u["episode"]) for u in event["units"]] == [(1, 1), (1, 2)]
     assert event["media"]["title"] == "测试剧集" and event["purpose"] == "download"
 
 
@@ -502,7 +472,7 @@ async def test_fulfilled_units_are_recorded(db, tmp_path) -> None:
     from movieclaw_db.models import WantedItem, WantedStatus
 
     seeded = await seed_show(db, tmp_path)
-    await subscribe(db, de.SUBSCRIPTION_FULFILLED)
+    await subscribe(db, sdk_events.SUBSCRIPTION_FULFILLED)
     async with db.session() as session:
         for ep in (1, 2):
             session.add(
@@ -520,7 +490,8 @@ async def test_fulfilled_units_are_recorded(db, tmp_path) -> None:
     [event] = await recorded(db)
     assert event["name"] == "subscription.fulfilled"
     assert event["subscription_id"] == seeded["sub_id"]
-    assert sorted(tuple(u) for u in event["units"]) == [(1, 1), (1, 2)]
+    assert sorted((u["season"], u["episode"]) for u in event["units"]) == [(1, 1), (1, 2)]
+    assert event["requested_units"] == event["units"]
 
 
 async def test_subscription_created_event(db, monkeypatch) -> None:
@@ -548,7 +519,7 @@ async def test_subscription_created_event(db, monkeypatch) -> None:
         return httpx.Response(404, json={})
 
     tmdb = TmdbClient("0" * 32, transport=httpx.MockTransport(handler))
-    await subscribe(db, de.SUBSCRIPTION_CREATED)
+    await subscribe(db, sdk_events.SUBSCRIPTION_CREATED)
     async with db.session() as session:
         service = SubscriptionService(session, MediaLibraryService(session, tmdb))
         created = await service.create(MediaKind.MOVIE, 100)
@@ -558,4 +529,4 @@ async def test_subscription_created_event(db, monkeypatch) -> None:
     [event] = await recorded(db)
     assert event["name"] == "subscription.created"
     assert event["subscription_id"] == created.id
-    assert event["media"]["title"] == "测试电影" and event["member_id"] is None
+    assert event["media"]["title"] == "测试电影" and event["member_id"] == 0  # 超管

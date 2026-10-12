@@ -27,15 +27,21 @@ import time
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.services.playback import events as playback_events
 from movieclaw_api.services.playback.track_context import unit_files_with_contexts
-from movieclaw_api.services.webhook import emit_events
 from movieclaw_db.models import LibraryFile, MediaItem, PlaybackLog, PlaybackState
 from movieclaw_db.models.base import utcnow
 from movieclaw_playback import activity
 from movieclaw_playback import state as playback_state
-from movieclaw_playback.events import ClientInfo, build_playback_event
+from movieclaw_playback.events import ClientInfo
 from movieclaw_playback.state import Unit
 from movieclaw_playback.streaming import stop_device_streams
+from movieclaw_sdk.events import (
+    PLAYBACK_COMPLETED,
+    PLAYBACK_PROGRESS,
+    PLAYBACK_STARTED,
+    PLAYBACK_STOPPED,
+)
 
 #: 网页播放器在 webhook 与活动页里的客户端名。与 Jellyfin 客户端上报的 name
 #: 同一位置，下游据此区分「这次播放来自哪儿」。
@@ -411,29 +417,12 @@ async def record_start(
         )
     # 起点记续播位置：有续播点就接着播（含看完后重看到一半的），没有就从头
     await _log_start(session, unit, member_id=member_id, client=client, position_ms=row.position_ms)
-    await session.commit()
-    event = await build_playback_event(session, "playback.started", unit, row, client=client)
-    emit_events([event] if event is not None else [])
-    _emit_started(unit, member_id=member_id, client=client, file_id=file_id)
-    return row
-
-
-def _emit_started(unit: Unit, *, member_id: int, client: ClientInfo, file_id: int | None) -> None:
-    """插件的实时事件（plugin-strm-prefetch.md §3）：例如预探下一集。"""
-    from movieclaw_api import hooks
-    from movieclaw_sdk.library import PLAYBACK_STARTED, PlaybackStarted
-
-    hooks.emit(
-        PLAYBACK_STARTED,
-        lambda: PlaybackStarted(
-            media_item_id=unit[0],
-            season=unit[1],
-            episode=unit[2],
-            file_id=file_id,
-            member_id=member_id,
-            client=client.name or None,
-        ),
+    # 「开始播放」随这次提交成立（domain-events.md §8）：Webhook、插件（如网盘预探下一集）都订它
+    await playback_events.publish_playback(
+        session, PLAYBACK_STARTED, unit, row, member_id=member_id, client=client, file_id=file_id
     )
+    await session.commit()
+    return row
 
 
 async def record_progress(
@@ -498,23 +487,25 @@ async def record_progress(
         stopped=stopped,
         completed=newly_played,
     )
-    await session.commit()
-
     # 停止发 stopped；本次刚翻转为已看追加 completed（心跳也可能触发翻转——
-    # 播过 90% 直接关页面就是这条路径）；普通心跳按单元节流发 progress。
+    # 播过 90% 直接关页面就是这条路径）；普通心跳按单元节流发 progress。都随这次提交成立
     emit_progress = not stopped and not newly_played and not _progress_throttled(unit)
-    events = []
-    for name, hit in (
-        ("playback.stopped", stopped),
-        ("playback.completed", newly_played),
-        ("playback.progress", emit_progress),
+    for event, hit in (
+        (PLAYBACK_STOPPED, stopped),
+        (PLAYBACK_COMPLETED, newly_played),
+        (PLAYBACK_PROGRESS, emit_progress),
     ):
-        if not hit:
-            continue
-        event = await build_playback_event(
-            session, name, unit, row, duration_ms=runtime_ms, client=client
-        )
-        if event is not None:
-            events.append(event)
-    emit_events(events)
+        if hit:
+            await playback_events.publish_playback(
+                session,
+                event,
+                unit,
+                row,
+                member_id=member_id,
+                client=client,
+                duration_ms=runtime_ms,
+                file_id=file_id,
+                completed=newly_played,
+            )
+    await session.commit()
     return row

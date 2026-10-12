@@ -2790,8 +2790,8 @@ async def test_ingest_records_imported_event_for_subscribed_plugins(db, tmp_path
         session.add(
             EventConsumer(
                 consumer_id="test:ingest",
-                event_name="library.ingest.imported",
-                event_names=["library.ingest.imported"],
+                event_name="library.ingest.completed",
+                event_names=["library.ingest.completed"],
             )
         )
         await session.commit()
@@ -2810,11 +2810,9 @@ async def test_ingest_records_imported_event_for_subscribed_plugins(db, tmp_path
     finally:
         durable_events.reset_subscribed()
     payload = row.payload
-    assert row.name == "library.ingest.imported"
+    assert row.name == "library.ingest.completed"
     assert payload["media"]["title"] == "测试剧集"
-    assert [(f["season"], f["episode"], f["info_hash"]) for f in payload["files"]] == [
-        (1, 9, "hash-e09")
-    ]
+    assert [(f["season"], f["episode"]) for f in payload["files"]] == [(1, 9)]
     assert payload["info_hashes"] == ["hash-e09"]
     assert payload["staging"] is False and payload["intent_owner"] is None
 

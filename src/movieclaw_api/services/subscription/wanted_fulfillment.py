@@ -100,15 +100,19 @@ async def close_fulfilled_wanted(session: AsyncSession, media_item_id: int) -> i
         subscription = await session.get(Subscription, subscription_id)
         if subscription is None or item is None:
             continue
-        from movieclaw_api import domain_events
+        from movieclaw_api.services.subscription.events import publish_fulfilled
 
-        # 可靠事件随下面这条入库动态一起提交（plugin-phase2a.md §4）
-        await domain_events.record_subscription_units(
+        # 「订阅内容已入库」随下面这条入库动态一起提交（domain-events.md §8）。用户已经从订阅里
+        # 去掉的季集（in_scope 为假）顺带关掉了工单，但不是他在等的：只进 units，不进
+        # requested_units（通知只报后者）
+        await publish_fulfilled(
             session,
-            domain_events.SUBSCRIPTION_FULFILLED,
             subscription_id=subscription_id,
             item=item,
             units=[(w.season_number, w.episode_number) for w in wanted_rows],
+            requested_units=[
+                (w.season_number, w.episode_number) for w in wanted_rows if w.in_scope
+            ],
         )
         await repo.add_activity(
             SubscriptionActivity(
@@ -120,26 +124,6 @@ async def close_fulfilled_wanted(session: AsyncSession, media_item_id: int) -> i
             )
         )
         await recompute_subscription_status(session, subscription, item)
-        # App 推送与 IM 通道：投一个事件，同一部剧的一批合成一张卡（cloud-push.md §5.1）。
-        # 用户已经从订阅里去掉的季集（in_scope 为假）顺带关掉了工单，但不是他在等的，不推
-        wanted_units = [(w.season_number, w.episode_number) for w in wanted_rows if w.in_scope]
-        if wanted_units:
-            from movieclaw_api.services.push import events as push_events
-
-            push_events.imported(
-                subscription_id=subscription_id, item_id=media_item_id, units=wanted_units
-            )
-        # 事件 Webhook(与 IM 推送同点位:入库已由库存对账确认,事件即事实)
-        from movieclaw_api.services.subscription.events import build_fulfilled_event
-        from movieclaw_api.services.webhook import emit_events
-
-        emit_events(
-            [
-                build_fulfilled_event(
-                    item, [(w.season_number, w.episode_number) for w in wanted_rows]
-                )
-            ]
-        )
         # 内容已进库，该订阅在途种子的落点告警（若有）自动熄灭
         from movieclaw_api.services.system_notice import resolve_notices
 

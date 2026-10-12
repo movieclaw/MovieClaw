@@ -18,7 +18,7 @@ from movieclaw_api.services import durable_events
 from movieclaw_api.services.media_probe import MediaSpec
 from movieclaw_api.services.playback import strm_probe
 from movieclaw_kernel import Entry, plugin
-from movieclaw_sdk.library import (
+from movieclaw_sdk.events import (
     LIBRARY_FILES_ADDED,
     LIBRARY_ITEM_FAVORITED,
     LIBRARY_ITEM_VIEWED,
@@ -170,7 +170,7 @@ def test_plugins_hear_scan_play_favorite_and_view(env, monkeypatch) -> None:
         assert reply.status_code == 200, reply.text
         wait_for(lambda: got("library.item.viewed"))
         viewed = got("library.item.viewed")[0]
-        assert viewed.media_item_id == ids["show"] and viewed.client == "web"
+        assert viewed.media.id == ids["show"] and viewed.client.name == "web"
 
         # 开始播放
         reply = client.post(
@@ -187,7 +187,8 @@ def test_plugins_hear_scan_play_favorite_and_view(env, monkeypatch) -> None:
         assert reply.status_code == 200, reply.text
         wait_for(lambda: got("playback.started"))
         started = got("playback.started")[0]
-        assert (started.media_item_id, started.season, started.episode) == (ids["show"], 1, 2)
+        unit = started.unit
+        assert (started.media.id, unit.season, unit.episode) == (ids["show"], 1, 2)
         assert started.file_id == ids["files"][2]
 
         # 收藏整部剧
@@ -197,7 +198,7 @@ def test_plugins_hear_scan_play_favorite_and_view(env, monkeypatch) -> None:
         assert reply.status_code == 200, reply.text
         wait_for(lambda: got("library.item.favorited"))
         fav = got("library.item.favorited")[0]
-        assert fav.media_item_id == ids["show"] and fav.favorite is True
+        assert fav.media.id == ids["show"] and fav.level == "series"
         assert fav.season is None and fav.episode is None
 
         # 扫描入账新的 strm（按文件名识别失败也算入账：未识别的条目为空）

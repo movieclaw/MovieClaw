@@ -24,7 +24,6 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api import domain_events
 from movieclaw_api.api.deps import require_admin, require_login
 from movieclaw_api.api.routes.images import WIDTH_QUERY, requested_width, sized_file
 from movieclaw_api.exceptions import BadRequestException, ConflictException, NotFoundException
@@ -149,6 +148,7 @@ from movieclaw_api.services.library.delete_participants import check_options as 
 from movieclaw_api.services.library.delete_participants import (
     preview_options as preview_delete_options,
 )
+from movieclaw_api.services.library.events import deletion_recorder
 from movieclaw_api.services.library.items import (
     DeleteResult,
     HomeKind,
@@ -2627,17 +2627,15 @@ async def get_library_item(
         user_agent=user_agent,
         context=track_context,
     )
-    # 插件的实时事件（plugin-strm-prefetch.md §3）：例如把网盘条目的前几集先探好
-    from movieclaw_api import hooks
-    from movieclaw_sdk.library import LIBRARY_ITEM_VIEWED, ItemViewed
+    # 「打开条目详情」事件（domain-events.md §8）：例如网盘预探插件把前几集先探好
+    from movieclaw_api.services.playback.events import publish_viewed
+    from movieclaw_playback.events import ClientInfo
 
-    hooks.emit(
-        LIBRARY_ITEM_VIEWED,
-        lambda: ItemViewed(
-            media_item_id=media_item_id,
-            member_id=principal.member_id if principal.member_id is not None else 0,
-            client="web",
-        ),
+    await publish_viewed(
+        session,
+        media_item_id,
+        member_id=principal.member_id if principal.member_id is not None else 0,
+        client=ClientInfo(name="web"),
     )
     # 章节场景图懒触发（docs/design/video-chapters.md §4.5）：有在位文件的图
     # 还没抓齐就后台抓这一个条目，前端按 chapters_pending 轮询几轮把图补上——
@@ -3262,7 +3260,7 @@ async def delete_library_item(
     keys = await _checked_options(
         _delete_request(library_id, item, rows, whole=True), "item", options
     )
-    record_deleted = await domain_events.deletion_recorder(
+    record_deleted = await deletion_recorder(
         session, library_id, item, rows, options=keys
     )
     follow_ups: list[dict[str, str]] = []
@@ -3335,7 +3333,7 @@ async def delete_library_file(
     keys = await _checked_options(
         _delete_request(library_id, item, targets, whole=len(rows) == 1), "file", options
     )
-    record_deleted = await domain_events.deletion_recorder(
+    record_deleted = await deletion_recorder(
         session, library_id, item, rows, options=keys
     )
     follow_ups: list[dict[str, str]] = []

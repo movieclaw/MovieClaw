@@ -1515,12 +1515,12 @@ async def _ingest_entry(
         )
 
     async def record_imported(intent_owner: str | None) -> None:
-        """入库完成的可靠事件（plugin-phase2a.md §4），随入库结论的那次提交成立。"""
+        """「整理入库完成」事件（domain-events.md §8），随入库结论的那次提交成立。"""
         if item is None or item.id is None:
             return
-        from movieclaw_api import domain_events
+        from movieclaw_api.services.library.events import publish_ingest_completed
 
-        await domain_events.record_ingest_imported(
+        await publish_ingest_completed(
             session,
             item=item,
             library_id=dest_library.id if dest_library is not None else None,
@@ -1608,7 +1608,7 @@ async def _ingest_entry(
             unresolved_files=unresolved_files,
             collection_item_ids=collection_item_ids,
         )
-        after.announce()
+        await after.announce()
         if status is IngestStatus.IMPORTED and job_context is not None and imported_files:
             await job_context.update_progress(
                 mode="determinate",
@@ -2368,7 +2368,7 @@ async def _ingest_entry(
         assert dest_library is not None and dest_library.id is not None
         from movieclaw_api.services.library.scan import emit_files_added
 
-        emit_files_added(dest_library.id, added_files)
+        await emit_files_added(dest_library.id, added_files)
         # 监听入库不经过存量扫描；条目文件全部落账后在同一写路径刷新一次
         # 快照，避免首页要等下一轮定时扫描才看到新库存。
         await LibraryRepository(session).refresh_stats([dest_library.id])

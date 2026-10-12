@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -116,6 +117,75 @@ def reset_state() -> None:
 
 
 # ----------------------------------------------------------------------
+# 系统事件 → 剧卡（通知规则的聚合器，engine.py 调；只投进中枢队列，不阻塞）
+# ----------------------------------------------------------------------
+
+
+def _unit_pairs(media: Any, units: Any) -> tuple[Unit, ...]:
+    """事件里的季集 → 剧卡的单元；电影在剧卡里是 (0, 0)。"""
+    pairs = tuple((u.season, u.episode) for u in units)
+    if not pairs and media.kind == "movie":
+        return ((0, 0),)
+    return pairs
+
+
+def on_event(name: str, payload: Any) -> None:
+    if name == "subscription.download_started":
+        hub.emit(
+            Started(
+                subscription_id=payload.subscription_id,
+                item_id=payload.media.id,
+                units=_unit_pairs(payload.media, payload.units),
+                detail=payload.torrent.resolution or "",
+                upgrade=payload.upgrade,
+                skip_member_id=payload.actor_member_id,
+            )
+        )
+    elif name == "subscription.fulfilled":
+        # 只报还在订阅范围里的季集（用户从订阅里去掉的顺带入库了，不是他在等的）
+        units = _unit_pairs(payload.media, payload.requested_units)
+        if units:
+            hub.emit(
+                Imported(
+                    subscription_id=payload.subscription_id,
+                    item_id=payload.media.id,
+                    units=units,
+                )
+            )
+    elif name == "download.imported":
+        hub.emit(
+            Downloaded(
+                member_id=payload.member_id,
+                library_id=payload.library_id,
+                items=tuple(
+                    (i.media.id, tuple((u.season, u.episode) for u in i.units))
+                    for i in payload.items
+                ),
+            )
+        )
+    elif name == "library.items.arrived":
+        hub.emit(
+            LibraryArrivals(
+                library_id=payload.library_id,
+                items=tuple(
+                    (i.media.id, _unit_pairs(i.media, i.units)) for i in payload.items
+                ),
+            )
+        )
+    elif name == "subscription.upgraded":
+        unit = payload.unit
+        hub.emit(
+            Upgraded(
+                subscription_id=payload.subscription_id,
+                item_id=payload.media.id,
+                unit=(unit.season, unit.episode) if unit is not None else (0, 0),
+                old_label=payload.old_label,
+                new_label=payload.new_label,
+            )
+        )
+
+
+# ----------------------------------------------------------------------
 # 事件入口（hub 的消费者调）
 # ----------------------------------------------------------------------
 
@@ -190,24 +260,23 @@ async def _on_downloaded(event: Downloaded) -> None:
     """手动下载入库完了：一部就进这部的卡，一次下了好几部（合集）合成一条汇总。"""
     from movieclaw_api.services.push import downloads
 
-    done = event.finished
+    member_id = event.member_id
     async with get_database().session() as session:
-        units = await downloads.units_of(session, done)  # type: ignore[arg-type]
         mine: dict[int, list[Unit]] = {}
-        for item_id, item_units in units.items():
-            if await _audience(session, {done.member_id}, item_id, "subscription.fulfilled"):  # type: ignore[attr-defined]
-                fresh = _fresh(done.member_id, item_id, item_units)  # type: ignore[attr-defined]
+        for item_id, item_units in event.items:
+            if await _audience(session, {member_id}, item_id, "subscription.fulfilled"):
+                fresh = _fresh(member_id, item_id, list(item_units))
                 if fresh:
                     mine[item_id] = fresh
     if not mine:
         return
     if len(mine) == 1:
         item_id, item_units = next(iter(mine.items()))
-        _arrive((done.member_id, item_id), item_units, loud=True)  # type: ignore[attr-defined]
+        _arrive((member_id, item_id), item_units, loud=True)
         return
     for item_id, item_units in mine.items():
-        _remember(done.member_id, item_id, item_units)  # type: ignore[attr-defined]
-    downloads.announce_summary(done, list(mine))  # type: ignore[arg-type]
+        _remember(member_id, item_id, item_units)
+    downloads.announce_summary(member_id, event.library_id, list(mine))
 
 
 async def _on_library(event: LibraryArrivals) -> None:

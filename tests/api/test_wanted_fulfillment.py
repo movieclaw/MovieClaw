@@ -137,12 +137,17 @@ async def test_inventory_closes_wanted_and_records_activity(db):
 
 
 @pytest.mark.asyncio
-async def test_inventory_emits_fulfilled_webhook(db, monkeypatch):
-    """对账关闭工单时产生 subscription.fulfilled webhook 事件（P3 订阅域接入）。"""
-    import movieclaw_api.services.webhook as webhook_mod
+async def test_inventory_emits_fulfilled_event(db, monkeypatch):
+    """对账关闭工单时产生一个 subscription.fulfilled（通知、Webhook、插件都订它）。"""
+    from movieclaw_api import events
 
     emitted = []
-    monkeypatch.setattr(webhook_mod, "emit_events", emitted.extend)
+
+    async def publish(session, event, build):  # type: ignore[no-untyped-def]
+        if event.name == "subscription.fulfilled":
+            emitted.append(build())
+
+    monkeypatch.setattr(events, "publish", publish)
 
     library_id, item_id, _, _ = await _seed(db)
     async with db.session() as session:
@@ -160,9 +165,10 @@ async def test_inventory_emits_fulfilled_webhook(db, monkeypatch):
         await session.commit()
         assert await close_fulfilled_wanted(session, item_id) == 1
 
-    assert [e.event for e in emitted] == ["subscription.fulfilled"]
-    assert emitted[0].data["media"]["tmdb_id"] == 200
-    assert emitted[0].data["units"] == [[1, 1]]
+    [payload] = emitted
+    assert payload.media.tmdb_id == 200
+    assert [(u.season, u.episode) for u in payload.units] == [(1, 1)]
+    assert payload.requested_units == payload.units
 
 
 @pytest.mark.asyncio

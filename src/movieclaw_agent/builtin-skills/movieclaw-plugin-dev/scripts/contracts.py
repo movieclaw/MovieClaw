@@ -45,7 +45,7 @@ def collect() -> dict[str, tuple[str, str, object]]:
         "movieclaw_sdk.ops",
         "movieclaw_sdk.agent",
         "movieclaw_sdk.jobs",
-        "movieclaw_sdk.library",
+        "movieclaw_sdk.events",
         "movieclaw_sdk.downloaders",
     )
     for module_name in (*sdk, *MODULES):

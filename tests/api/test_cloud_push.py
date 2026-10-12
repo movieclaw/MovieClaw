@@ -1368,14 +1368,16 @@ def test_library_new_arrivals(client: TestClient, world: World) -> None:
 
     subscription_id, item_id = client.portal.call(subscribe_as_member, "我订阅的片")
     client.portal.call(add_files, [(movies_id, "movie", "我订阅的片", (0, 0), FileSource.IMPORTED)])
-    from movieclaw_api.services.push import events as push_events
+    from movieclaw_sdk.events import SUBSCRIPTION_FULFILLED, MediaRef, SubscriptionFulfilled
 
-    _in_app(
+    _publish(
         client,
-        lambda: push_events.imported(
+        SUBSCRIPTION_FULFILLED,
+        SubscriptionFulfilled(
             subscription_id=subscription_id,
-            item_id=item_id,
-            units=[(0, 0)],
+            media=MediaRef(id=item_id, kind="movie", title="我订阅的片"),
+            units=(),
+            requested_units=(),
         ),
     )
     _wait(lambda: len(relay.messages) >= 1)
@@ -1896,7 +1898,17 @@ def test_system_alerts_fold_into_one(client: TestClient, world: World) -> None:
 
 def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, world: World) -> None:
     """一集一集入账的季包、一集一集验证的洗版，各合成一条；手动选种的人自己不收「开始下载」。"""
-    from movieclaw_api.services.push import events as push_events
+    from movieclaw_sdk.events import (
+        SUBSCRIPTION_DOWNLOAD_STARTED,
+        SUBSCRIPTION_FULFILLED,
+        SUBSCRIPTION_UPGRADED,
+        MediaRef,
+        SubscriptionDownloadStarted,
+        SubscriptionFulfilled,
+        SubscriptionUpgraded,
+        TorrentRef,
+        UnitRef,
+    )
 
     _connect(client, world)
     _create_member(client)
@@ -1922,15 +1934,20 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
     relay = world.relays["push.test"]
     relay.messages.clear()
 
+    media = MediaRef(id=item_id, kind="tv", title="漫长的季节")
+
     def imported(episode: int) -> None:
-        push_events.imported(
-            subscription_id=subscription_id,
-            item_id=item_id,
-            units=[(1, episode)],
+        unit = (UnitRef(season=1, episode=episode),)
+        _publish(
+            client,
+            SUBSCRIPTION_FULFILLED,
+            SubscriptionFulfilled(
+                subscription_id=subscription_id, media=media, units=unit, requested_units=unit
+            ),
         )
 
-    _in_app(client, lambda: imported(1))
-    _in_app(client, lambda: imported(2))
+    imported(1)
+    imported(2)
     _wait(lambda: len(relay.messages) >= 1)
     time.sleep(0.6)
     mine = [m for m in relay.messages if m["token"] == "d8" * 32]
@@ -1942,16 +1959,20 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
     relay.messages.clear()
 
     def upgraded(episode: int) -> None:
-        push_events.upgraded(
-            subscription_id=subscription_id,
-            item_id=item_id,
-            unit=(1, episode),
-            old_label="1080p",
-            new_label="2160p",
+        _publish(
+            client,
+            SUBSCRIPTION_UPGRADED,
+            SubscriptionUpgraded(
+                subscription_id=subscription_id,
+                media=media,
+                unit=UnitRef(season=1, episode=episode),
+                old_label="1080p",
+                new_label="2160p",
+            ),
         )
 
-    _in_app(client, lambda: upgraded(1))
-    _in_app(client, lambda: upgraded(2))
+    upgraded(1)
+    upgraded(2)
     _wait(lambda: len(relay.messages) >= 1)
     time.sleep(0.6)
     mine = [m for m in relay.messages if m["token"] == "d8" * 32]
@@ -1962,15 +1983,15 @@ def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, worl
     assert mine[0]["aps"] == {"interruption-level": "passive", "relevance-score": 0.3}
 
     relay.messages.clear()
-    _in_app(
+    _publish(
         client,
-        lambda: push_events.download_started(
+        SUBSCRIPTION_DOWNLOAD_STARTED,
+        SubscriptionDownloadStarted(
             subscription_id=subscription_id,
-            item_id=item_id,
-            units=[(1, 3)],
-            detail="2160p",
-            upgrade=False,
-            skip_member_id=0,  # 管理员自己在订阅页选的种
+            media=media,
+            units=(UnitRef(season=1, episode=3),),
+            torrent=TorrentRef(title="种子", resolution="2160p"),
+            actor_member_id=0,  # 管理员自己在订阅页选的种
         ),
     )
     _wait(lambda: len(relay.messages) >= 1)

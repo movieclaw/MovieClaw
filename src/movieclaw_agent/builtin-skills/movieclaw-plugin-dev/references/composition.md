@@ -8,7 +8,7 @@
 @plugin("all-in-one", title="…", inject=(DURABLE_EVENTS, HOST_OPS, PLUGIN_ROUTES, PLUGIN_DATA))
 async def apply(ctx):
     ctx.on(CANDIDATES_FILTER, my_filter)                         # 钩子
-    ctx.on(LIBRARY_INGEST_IMPORTED, on_imported, id="imported")  # 可靠事件
+    ctx.on(LIBRARY_INGEST_COMPLETED, on_imported, id="imported", durable=True)  # 可靠订阅
     ctx.contribute(IM_CHANNELS, "wecom", WecomDriver())          # 注册表
     ctx.contribute(SCHEDULED_TASKS, "sync", TaskDefinition(…))   # 另一个注册表
     routes.mount(ctx, router)                                    # 接口

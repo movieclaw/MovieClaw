@@ -15,7 +15,7 @@ PLUGIN = """
 from fastapi import APIRouter
 
 from movieclaw_api import hooks
-from movieclaw_api.domain_events import LIBRARY_INGEST_IMPORTED
+from movieclaw_sdk.events import LIBRARY_INGEST_COMPLETED
 from movieclaw_api.plugins.keys import PLUGIN_DATA, PLUGIN_ROUTES
 from movieclaw_kernel import DURABLE_EVENTS
 from movieclaw_sdk import plugin
@@ -34,7 +34,7 @@ async def apply(ctx) -> None:
     def pick(query):
         return None
 
-    ctx.on(LIBRARY_INGEST_IMPORTED, on_imported, id="imported", durable=True)
+    ctx.on(LIBRARY_INGEST_COMPLETED, on_imported, id="imported", durable=True)
     ctx.on(hooks.DOWNLOADER_SELECT, pick)
     router = APIRouter()
 
@@ -107,11 +107,11 @@ def test_detail_translates_what_a_plugin_adds(app_env) -> None:
         assert data["plugin"]["state"] == "active"
         titles = {(a["kind"], a["title"]) for a in data["adds"]}
         assert ("command", "mclaw plugins acme-detail recent") in titles
-        assert ("trigger", "「下载条目整理入库完成」后会自动处理") in titles
+        assert ("trigger", "「一个下载条目整理入库完成」后会自动处理") in titles
         assert any(k == "decision" and "下载器" in t for k, t in titles)
         assert [c["endpoint"] for c in data["callbacks"]] == ["push"]
         assert "****" in data["callbacks"][0]["url"]
-        assert [c["events"] for c in data["consumers"]] == [["library.ingest.imported"]]
+        assert [c["events"] for c in data["consumers"]] == [["library.ingest.completed"]]
         assert data["data_rows"] == 1
         assert data["disk_bytes"] == 2048
         # 管理接口的固定路径不会被当成插件 id

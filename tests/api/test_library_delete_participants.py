@@ -252,10 +252,10 @@ def test_without_options_nothing_changes(client, tmp_path) -> None:
 def test_deletion_event_carries_the_chosen_options(client, tmp_path) -> None:
     from tests.api.test_domain_events import recorded, subscribe
 
-    from movieclaw_api import domain_events as de
+    from movieclaw_sdk.events import LIBRARY_ITEM_DELETED
 
     seeded = seed(client, tmp_path)
-    call(client, subscribe, get_database(), de.LIBRARY_ITEM_DELETED)
+    call(client, subscribe, get_database(), LIBRARY_ITEM_DELETED)
     resp = client.delete(base(seeded), params={"options": "test-participants:ok"})
     assert resp.status_code == 200, resp.text
     [event] = call(client, recorded, get_database(), "library.item.deleted")

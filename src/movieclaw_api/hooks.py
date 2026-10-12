@@ -36,20 +36,11 @@ def _bus() -> EventBus | None:
 
 
 def active(event: Event[Any, Any]) -> bool:
-    """有没有插件在听：没有就不必构造载荷（零开销的前半段）。"""
+    """有没有插件在听：没有就不必构造载荷（零开销的前半段）。
+
+    系统事件（「发生了什么」）不走这里，经 ``movieclaw_api.events.publish`` 产生。"""
     bus = _bus()
     return bus is not None and bool(bus.listeners(event))
-
-
-def emit(event: Event[P, Any], build: Callable[[], P]) -> None:
-    """发一个实时事件（发完即忘）；没有插件在听就连载荷都不构造。"""
-    bus = _bus()
-    if bus is None or not bus.listeners(event):
-        return
-    try:
-        bus.emit(event, build())
-    except Exception:  # noqa: BLE001 -- 通知插件出错不能拖垮业务
-        logger.exception("实时事件 %s 发送失败", event.name)
 
 
 async def waterfall(

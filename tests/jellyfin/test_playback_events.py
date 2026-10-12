@@ -1,34 +1,48 @@
-"""播放/收藏 HTTP 流程的 webhook 事件产生断言（docs/design/webhook.md §1.2）。
+"""播放 / 收藏 HTTP 流程产生的系统事件（docs/design/domain-events.md §8）。
 
-在协议层 emit 边界捕获事件（投递链路本身已由 tests/api/test_webhook_dispatcher.py
-覆盖），验证：事件与 handler 的映射、stopped/completed 双发、级联 batch_id、
-收藏层级翻译、client 信息透传、失败上报不产生事件。
+在唯一入口 ``events.publish`` 处捕获（投递由 tests/api/test_webhook_delivery.py 等覆盖），验证：
+事件与 handler 的映射、stopped/completed 双发、级联标记合成一个事件、收藏层级翻译（哨兵不外泄）、
+client 信息透传、失败上报不产生事件。
 """
 
 from __future__ import annotations
+
+import inspect
 
 import pytest
 from fastapi.testclient import TestClient
 
 from jellyfin.helpers import jf_login
-from movieclaw_api.services.playback import marks, watch
+from movieclaw_api import events
+from movieclaw_api.services.playback import watch
 from movieclaw_jellyfin.ids import episode_guid, item_guid, season_guid
 
 TICKS_PER_MS = 10_000
 RUNTIME_MS = 47 * 60 * 1000  # 播种剧集单集时长
 
 
+class Published:
+    def __init__(self, name: str, payload) -> None:  # type: ignore[no-untyped-def]
+        self.event = name
+        self.data = payload
+
+
 @pytest.fixture
 def emitted(monkeypatch) -> list:
-    """捕获投递的全部事件（替换 emit_events，不走真实投递链路）。
-
-    播放类事件由网页端与 Jellyfin 端共用的 watch 服务发出，标记/收藏类事件
-    由同样共用的 marks 服务发出，两处都要截。
-    """
+    """捕获产生的播放、标记、收藏事件（替换 events.publish，不走总线）。"""
     watch._progress_last_emit.clear()  # progress 节流状态在用例间隔离
     captured: list = []
-    monkeypatch.setattr(watch, "emit_events", captured.extend)
-    monkeypatch.setattr(marks, "emit_events", captured.extend)
+
+    async def publish(session, event, build):  # type: ignore[no-untyped-def]
+        if not event.name.startswith(("playback.", "library.item.fav", "library.item.unfav")):
+            return
+        payload = build()
+        if inspect.isawaitable(payload):
+            payload = await payload
+        if payload is not None:
+            captured.append(Published(event.name, payload))
+
+    monkeypatch.setattr(events, "publish", publish)
     return captured
 
 
@@ -41,15 +55,13 @@ def test_started_event_with_client_info(client, seeded, emitted):
     ep = episode_guid(seeded["show"], 1, 1)
     assert client.post("/Sessions/Playing", params=auth, json={"ItemId": ep}).status_code == 204
     assert [e.event for e in emitted] == ["playback.started"]
-    event = emitted[0]
-    media = event.data["media"]
-    assert media["type"] == "episode"
-    assert media["tmdb_id"] == 1396
-    assert (media["season_number"], media["episode_number"]) == (1, 1)
-    assert event.data["playback"]["play_count"] == 1
+    payload = emitted[0].data
+    assert payload.media.kind == "tv" and payload.media.tmdb_id == 1396
+    assert (payload.unit.season, payload.unit.episode) == (1, 1)
+    assert payload.play_count == 1
     # client 信息来自登录时注册的设备（helpers.AUTH_HEADER）
-    assert event.data["client"]["name"] == "Infuse"
-    assert event.data["client"]["device_name"] == "Apple TV"
+    assert payload.client.name == "Infuse"
+    assert payload.client.device_name == "Apple TV"
 
 
 def test_progress_events_and_throttle(client, seeded, emitted):
@@ -62,7 +74,7 @@ def test_progress_events_and_throttle(client, seeded, emitted):
         json={"ItemId": ep, "PositionTicks": int(RUNTIME_MS * 0.4) * TICKS_PER_MS},
     )
     assert [e.event for e in emitted] == ["playback.progress"]
-    assert emitted[0].data["media"]["episode_title"] == "Pilot"
+    assert emitted[0].data.position_ms == int(RUNTIME_MS * 0.4)
     # 30 秒内再报进度：被节流，不产生事件
     emitted.clear()
     client.post(
@@ -78,8 +90,8 @@ def test_progress_events_and_throttle(client, seeded, emitted):
         json={"ItemId": ep, "PositionTicks": int(RUNTIME_MS * 0.95) * TICKS_PER_MS},
     )
     assert [e.event for e in emitted] == ["playback.completed"]
-    assert emitted[0].data["playback"]["played"] is True
-    assert emitted[0].data["playback"]["duration_ms"] == RUNTIME_MS
+    assert emitted[0].data.played is True
+    assert emitted[0].data.duration_ms == RUNTIME_MS
 
 
 def test_stopped_at_end_emits_stopped_and_completed(client, seeded, emitted):
@@ -91,6 +103,7 @@ def test_stopped_at_end_emits_stopped_and_completed(client, seeded, emitted):
         json={"ItemId": ep, "PositionTicks": int(RUNTIME_MS * 0.95) * TICKS_PER_MS},
     )
     assert [e.event for e in emitted] == ["playback.stopped", "playback.completed"]
+    assert emitted[0].data.completed is True  # 停止时刚好看完
     # 已看状态下再次停止：只发 stopped，不重复 completed
     emitted.clear()
     client.post(
@@ -99,6 +112,7 @@ def test_stopped_at_end_emits_stopped_and_completed(client, seeded, emitted):
         json={"ItemId": ep, "PositionTicks": int(RUNTIME_MS * 0.95) * TICKS_PER_MS},
     )
     assert [e.event for e in emitted] == ["playback.stopped"]
+    assert emitted[0].data.completed is False
 
 
 def test_stopped_failed_emits_nothing(client, seeded, emitted):
@@ -117,23 +131,23 @@ def test_legacy_start_route_emits(client, seeded, emitted):
     movie = item_guid(seeded["movie"])
     assert client.post(f"/PlayingItems/{movie}", params=auth).status_code == 204
     assert [e.event for e in emitted] == ["playback.started"]
-    media = emitted[0].data["media"]
-    assert media["type"] == "movie"
-    assert media["season_number"] is None and media["episode_number"] is None
+    payload = emitted[0].data
+    assert payload.media.kind == "movie"
+    assert payload.unit is None  # 电影的内部单元 (0,0) 不外泄
 
 
-def test_mark_played_cascade_shares_batch_id(client, seeded, emitted):
+def test_mark_played_cascade_is_one_event(client, seeded, emitted):
     auth = _auth(client)
     show = item_guid(seeded["show"])
     assert client.post(f"/UserPlayedItems/{show}", params=auth).status_code == 200
-    # 播种了 3 集 → 级联 3 条事件，共享同一 batch_id
-    assert [e.event for e in emitted] == ["playback.marked_played"] * 3
-    batch_ids = {e.batch_id for e in emitted}
-    assert len(batch_ids) == 1 and None not in batch_ids
+    # 播种了 3 集 → 一个事件，带受影响的 3 集
+    assert [e.event for e in emitted] == ["playback.marked_played"]
+    assert len(emitted[0].data.units) == 3
 
     emitted.clear()
     client.request("DELETE", f"/UserPlayedItems/{show}", params=auth)
-    assert [e.event for e in emitted] == ["playback.marked_unplayed"] * 3
+    assert [e.event for e in emitted] == ["playback.marked_unplayed"]
+    assert len(emitted[0].data.units) == 3
 
 
 def test_favorite_levels_no_sentinel_leak(client, seeded, emitted):
@@ -143,16 +157,12 @@ def test_favorite_levels_no_sentinel_leak(client, seeded, emitted):
 
     client.post(f"/UserFavoriteItems/{season}", params=auth)
     client.post(f"/UserFavoriteItems/{show}", params=auth)
-    assert [e.event for e in emitted] == ["item.favorited", "item.favorited"]
-    season_media = emitted[0].data["media"]
-    assert season_media["type"] == "season"
-    assert season_media["season_number"] == 2
-    assert season_media["episode_number"] is None  # 哨兵 -1 不外泄
-    series_media = emitted[1].data["media"]
-    assert series_media["type"] == "series"
-    assert series_media["season_number"] is None
+    assert [e.event for e in emitted] == ["library.item.favorited"] * 2
+    on_season = emitted[0].data
+    assert (on_season.level, on_season.season, on_season.episode) == ("season", 2, None)
+    on_series = emitted[1].data
+    assert (on_series.level, on_series.season) == ("series", None)  # 哨兵 -1 不外泄
 
     emitted.clear()
     client.request("DELETE", f"/UserFavoriteItems/{show}", params=auth)
-    assert [e.event for e in emitted] == ["item.unfavorited"]
-    assert emitted[0].data["favorite"] is False
+    assert [e.event for e in emitted] == ["library.item.unfavorited"]

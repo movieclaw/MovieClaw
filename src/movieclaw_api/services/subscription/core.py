@@ -25,7 +25,6 @@ from sqlalchemy import and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from movieclaw_api import domain_events
 from movieclaw_api.exceptions import (
     BadRequestException,
     ForbiddenException,
@@ -33,6 +32,7 @@ from movieclaw_api.exceptions import (
 )
 from movieclaw_api.services.media_library import MediaLibraryService
 from movieclaw_api.services.rule_sets import RuleSetService
+from movieclaw_api.services.subscription import events as subscription_events
 from movieclaw_api.services.subscription.cleanup import (
     CleanupPlan,
     build_cleanup_plan,
@@ -74,6 +74,11 @@ from movieclaw_db.repositories import (
     SubscriptionRepository,
 )
 from movieclaw_media.models import MediaKind
+from movieclaw_sdk.events import (
+    SUBSCRIPTION_CREATED,
+    SUBSCRIPTION_DELETED,
+    SUBSCRIPTION_STATUS_CHANGED,
+)
 
 logger = logging.getLogger("movieclaw_api.subscription")
 
@@ -346,9 +351,9 @@ async def recompute_subscription_status(
         return
     previous = subscription.status
     subscription.status = new_status
-    await domain_events.record_subscription(
+    await subscription_events.publish_changed(
         session,
-        domain_events.SUBSCRIPTION_STATUS_CHANGED,
+        SUBSCRIPTION_STATUS_CHANGED,
         subscription,
         previous_status=previous,
         reason="completed" if new_status == SubscriptionStatus.COMPLETED else "reopened",
@@ -546,7 +551,7 @@ class SubscriptionService:
             created_message += f"；{route_note}"
         if rule_note:
             created_message += f"；{rule_note}"
-        await self._record(domain_events.SUBSCRIPTION_CREATED, subscription)
+        await self._record(SUBSCRIPTION_CREATED, subscription)
         await self._log(
             subscription,
             ActivityType.CREATED,
@@ -1032,7 +1037,7 @@ class SubscriptionService:
             subscription.status = SubscriptionStatus.PAUSED
             if previous != subscription.status:
                 await self._record(
-                    domain_events.SUBSCRIPTION_STATUS_CHANGED,
+                    SUBSCRIPTION_STATUS_CHANGED,
                     subscription,
                     previous_status=previous,
                     reason="paused",
@@ -1047,7 +1052,7 @@ class SubscriptionService:
         subscription.status = SubscriptionStatus.ACTIVE
         if previous != subscription.status:
             await self._record(
-                domain_events.SUBSCRIPTION_STATUS_CHANGED,
+                SUBSCRIPTION_STATUS_CHANGED,
                 subscription,
                 previous_status=previous,
                 reason="resumed",
@@ -1119,7 +1124,7 @@ class SubscriptionService:
                 "订阅 #%d 发起人 #%d 退出，转移给成员 #%d", subscription_id, member_id, heir
             )
             return "你已退出；订阅转由其他关注的家人继续追更"
-        await self._record(domain_events.SUBSCRIPTION_DELETED, subscription, reason="unsubscribed")
+        await self._record(SUBSCRIPTION_DELETED, subscription, reason="unsubscribed")
         await self._repo.delete(subscription)
         logger.info("成员 #%d 退出并删除无人关注的订阅 #%d", member_id, subscription_id)
         return "已取消订阅"
@@ -1284,7 +1289,7 @@ class SubscriptionService:
                 if delete_library_files and plan.files:
                     cleaned.append(f"{len(plan.files)} 个媒体库文件")
         await self._record(
-            domain_events.SUBSCRIPTION_DELETED,
+            SUBSCRIPTION_DELETED,
             subscription,
             reason="deleted",
             cleanup_job_id=cleanup_job_id,
@@ -1615,8 +1620,8 @@ class SubscriptionService:
     # ------------------------------------------------------------------
 
     async def _record(self, event, subscription: Subscription, **kwargs) -> None:
-        """订阅生命周期的可靠事件（plugin-phase2a.md §4），随接下来那次保存一起提交。"""
-        await domain_events.record_subscription(self._session, event, subscription, **kwargs)
+        """订阅生命周期事件（domain-events.md §8），随接下来那次保存一起提交。"""
+        await subscription_events.publish_changed(self._session, event, subscription, **kwargs)
 
     async def _log(
         self,

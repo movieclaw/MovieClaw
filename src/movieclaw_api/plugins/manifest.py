@@ -56,6 +56,7 @@ BUILTIN_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
         (
             "channels.",
             "push.",
+            "webhook.",
             "cloud",
             "weixin-channel",
             "telegram-channel",
@@ -147,6 +148,7 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         delivery.channel_hub,
         delivery.cloud,
         delivery.push_hub,
+        delivery.webhook_delivery,
         delivery.push_channels_refresh,
         delivery.push_arrivals,
         delivery.jellyfin_discovery,

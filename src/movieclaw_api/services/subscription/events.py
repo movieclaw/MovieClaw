@@ -1,63 +1,178 @@
-"""订阅域的 webhook 事件装配（docs/design/webhook.md §1.1 预留域的首个接入）。
+"""订阅域的事件产生（docs/design/domain-events.md §4、§8）。
 
-订阅域事件描述的是**已发生的外部动作**（种子已提交下载器 / 库存对账确认
-已入库），不依赖当前事务落库，因此产生点与通知（``services.push.events``）
-相邻调用即可。纯装配、不投递、不查库——所需数据产生点手上都有。
-
-电影订阅的内部 (0,0) 单元不外泄：``units`` 对电影为空列表。
+订阅的每件事在这里拼一次载荷、``publish`` 一次；通知、Webhook、插件都从总线上取。
+电影的内部单元 (0, 0) 不外泄：载荷里电影的季集列表为空。
 """
 
 from __future__ import annotations
 
-from movieclaw_db.models import MediaItem
-from movieclaw_events import OutboundEvent
+from collections.abc import Iterable
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from movieclaw_api import event_refs, events
+from movieclaw_sdk.events import (
+    DOWNLOAD_COMPLETED,
+    SUBSCRIPTION_DOWNLOAD_STARTED,
+    SUBSCRIPTION_FULFILLED,
+    SUBSCRIPTION_UPGRADED,
+    DownloadCompleted,
+    EventType,
+    SubscriptionChanged,
+    SubscriptionDownloadStarted,
+    SubscriptionFulfilled,
+    SubscriptionUpgraded,
+    TorrentRef,
+)
 
 
-def _subscription_media(item: MediaItem) -> dict:
-    return {
-        "item_id": item.id,
-        "type": "movie" if item.kind == "movie" else "series",
-        "tmdb_id": item.tmdb_id,
-        "imdb_id": item.imdb_id,
-        "title": item.title,
-        "original_title": item.original_title,
-        "year": item.year,
-    }
-
-
-def _units_payload(item: MediaItem, units: list[tuple[int, int]]) -> list[list[int]]:
-    if item.kind == "movie":
-        return []
-    return [[season, episode] for season, episode in units]
-
-
-def build_download_started_event(
-    item: MediaItem,
-    units: list[tuple[int, int]],
+async def publish_changed(
+    session: AsyncSession,
+    event: EventType,
+    subscription: Any,
     *,
-    site_id: str,
+    previous_status: Any = None,
+    reason: str | None = None,
+    cleanup_job_id: str | None = None,
+) -> None:
+    """订阅建立 / 删除 / 状态变化（随接下来那次保存一起提交）。"""
+    from movieclaw_db.models import MediaItem
+
+    async def build() -> SubscriptionChanged | None:
+        if subscription.id is None:
+            return None
+        item = await session.get(MediaItem, subscription.media_item_id)
+        return SubscriptionChanged(
+            subscription_id=subscription.id,
+            media=event_refs.media_ref(item),
+            member_id=subscription.created_by_member_id or 0,
+            status=_text(subscription.status),
+            previous_status=_text(previous_status),
+            reason=reason,
+            cleanup_job_id=cleanup_job_id,
+        )
+
+    await events.publish(session, event, build)
+
+
+def _text(value: Any) -> str | None:
+    if value is None:
+        return None
+    return str(getattr(value, "value", value))
+
+
+async def publish_download_started(
+    session: AsyncSession,
+    *,
+    subscription_id: int,
+    item: Any,
+    units: Iterable[tuple[int, int]],
+    site_id: str | None,
+    torrent_id: str | None,
     torrent_title: str,
-    spec: str = "",
-) -> OutboundEvent:
-    """订阅命中并已提交下载器。``spec`` 是人读的规格摘要（分辨率/编码等）。"""
-    return OutboundEvent(
-        event="subscription.download_started",
-        data={
-            "media": _subscription_media(item),
-            "units": _units_payload(item, units),
-            "torrent": {"site_id": site_id, "title": torrent_title, "spec": spec},
-        },
+    info_hash: str | None,
+    resolution: str | None,
+    spec: str,
+    upgrade: bool,
+    actor_member_id: int | None,
+) -> None:
+    """种子已真实提交下载器（模拟投递不调）。"""
+    media = event_refs.media_ref(item)
+    if media is None:
+        return
+    await events.publish(
+        session,
+        SUBSCRIPTION_DOWNLOAD_STARTED,
+        lambda: SubscriptionDownloadStarted(
+            subscription_id=subscription_id,
+            media=media,
+            units=event_refs.units(units),
+            torrent=TorrentRef(
+                site_id=site_id,
+                torrent_id=torrent_id,
+                title=torrent_title,
+                info_hash=info_hash.lower() if info_hash else None,
+                resolution=resolution or None,
+                spec=spec,
+            ),
+            upgrade=upgrade,
+            actor_member_id=actor_member_id,
+        ),
     )
 
 
-def build_fulfilled_event(
-    item: MediaItem, units: list[tuple[int, int]]
-) -> OutboundEvent:
-    """订阅内容经媒体库对账确认已入库。"""
-    return OutboundEvent(
-        event="subscription.fulfilled",
-        data={
-            "media": _subscription_media(item),
-            "units": _units_payload(item, units),
-        },
+async def publish_fulfilled(
+    session: AsyncSession,
+    *,
+    subscription_id: int,
+    item: Any,
+    units: Iterable[tuple[int, int]],
+    requested_units: Iterable[tuple[int, int]],
+) -> None:
+    """订阅的季集经媒体库对账确认入库。"""
+    media = event_refs.media_ref(item)
+    if media is None:
+        return
+    await events.publish(
+        session,
+        SUBSCRIPTION_FULFILLED,
+        lambda: SubscriptionFulfilled(
+            subscription_id=subscription_id,
+            media=media,
+            units=event_refs.units(units),
+            requested_units=event_refs.units(requested_units),
+        ),
     )
+
+
+async def publish_upgraded(
+    session: AsyncSession,
+    *,
+    subscription_id: int,
+    item: Any,
+    unit: tuple[int, int],
+    old_label: str,
+    new_label: str,
+) -> None:
+    """订阅的一集（或电影）换成了更好的版本。"""
+    media = event_refs.media_ref(item)
+    if media is None:
+        return
+    await events.publish(
+        session,
+        SUBSCRIPTION_UPGRADED,
+        lambda: SubscriptionUpgraded(
+            subscription_id=subscription_id,
+            media=media,
+            unit=event_refs.unit(*unit),
+            old_label=old_label,
+            new_label=new_label,
+        ),
+    )
+
+
+async def publish_download_completed(session: AsyncSession, attempt: Any) -> None:
+    """订阅投递的种子在下载器里下载完成（入库之前）。"""
+    from movieclaw_db.models import MediaItem, Subscription
+
+    async def build() -> DownloadCompleted:
+        subscription = await session.get(Subscription, attempt.subscription_id)
+        item = (
+            await session.get(MediaItem, subscription.media_item_id) if subscription else None
+        )
+        return DownloadCompleted(
+            subscription_id=attempt.subscription_id,
+            media=event_refs.media_ref(item),
+            units=event_refs.units(attempt.units or ()),
+            info_hash=attempt.info_hash.lower(),
+            downloader_id=attempt.downloader_id,
+            site_id=attempt.site_id,
+            torrent_id=attempt.torrent_id,
+            title=attempt.torrent_title or None,
+            save_path=attempt.save_path,
+            download_name=attempt.download_name,
+            purpose=attempt.purpose,
+        )
+
+    await events.publish(session, DOWNLOAD_COMPLETED, build)

@@ -24,15 +24,17 @@ def encode(message: dict[str, Any]) -> bytes:
 
 @cache
 def known_events() -> dict[str, Event[Any, Any]]:
-    """进程外插件能订阅的事件：开放给第三方（实验级以上）的钩子与领域事件，按名字索引。"""
-    from movieclaw_api import domain_events, hooks
-    from movieclaw_sdk import library
+    """进程外插件能订阅的事件：开放给第三方（实验级以上）的钩子与系统事件，按名字索引。"""
+    from movieclaw_api import hooks
+    from movieclaw_sdk.events import core_events
 
     found: dict[str, Event[Any, Any]] = {}
-    for module in (hooks, domain_events, library):
+    for module in (hooks,):
         for value in vars(module).values():
             if isinstance(value, Event) and value.stability is not Stability.INTERNAL:
                 found[value.name] = value
+    for event in core_events():
+        found[event.name] = event
     return found
 
 

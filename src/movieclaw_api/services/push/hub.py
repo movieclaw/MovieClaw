@@ -53,9 +53,11 @@ class Imported:
 
 @dataclass(frozen=True)
 class Downloaded:
-    """手动下载的一个种子入库完了（services/push/downloads.py 的 ``Finished``）。"""
+    """手动下载的一个种子入库完了：点下载的人、入了哪个库、各条目的单元。"""
 
-    finished: object
+    member_id: int
+    library_id: int
+    items: tuple[tuple[int, tuple[Unit, ...]], ...]
 
 
 @dataclass(frozen=True)
@@ -153,7 +155,10 @@ async def _run(queue: asyncio.Queue) -> None:
 
 
 async def drain() -> None:
-    """等队列里已有的事件处理完（测试用）。"""
+    """等已发出的系统事件交到这里、队列里已有的事件处理完（测试用）。"""
+    from movieclaw_api import events
+
+    await events.drain()
     if _queue is not None:
         await _queue.join()
 

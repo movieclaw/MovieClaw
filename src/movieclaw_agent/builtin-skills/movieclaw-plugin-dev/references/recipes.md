@@ -9,17 +9,17 @@
 
 **规则：钩子里只做判断，不产生副作用；副作用放进可靠事件监听或宿主操作。**
 
-## 1. 可靠事件监听
+## 1. 可靠订阅事件
 
 ```python
-from movieclaw_api.domain_events import LIBRARY_INGEST_IMPORTED, IngestImported
 from movieclaw_kernel import DURABLE_EVENTS
+from movieclaw_sdk.events import LIBRARY_INGEST_COMPLETED, IngestCompleted
 
 @plugin("after-import", title="入库后通知", inject=(DURABLE_EVENTS, PLUGIN_DATA))
 async def apply(ctx: Context) -> None:
     store = ctx.use(PLUGIN_DATA).scoped(ctx)
 
-    async def on_imported(event: IngestImported) -> None:
+    async def on_imported(event: IngestCompleted) -> None:
         event_id = ctx.delivery.event_id if ctx.delivery else None   # 本次投递的事件 id
         seen = await store.get("seen", default=[])
         if event_id in seen:                          # 至少投递一次：按事件 id 去重
@@ -28,10 +28,11 @@ async def apply(ctx: Context) -> None:
         if event_id:
             await store.set("seen", [event_id, *seen][:500])   # 只留最近的，别每个事件一个键越攒越多
 
-    ctx.on(LIBRARY_INGEST_IMPORTED, on_imported, id="after-import")   # 稳定 id：改了会丢进度
+    # 可靠订阅：稳定 id（改了会丢进度）+ durable=True
+    ctx.on(LIBRARY_INGEST_COMPLETED, on_imported, id="after-import", durable=True)
 ```
 
-清单：`[requires] "library.ingest.imported" = "^1.0"`。
+清单：`[requires] "library.ingest.completed" = "^1.0"`。
 - 监听器抛错 = 这次投递失败，按退避重试；多次失败进**死信**（`mclaw app plugins dead-letters …` 可重放 / 忽略）。
 - 插件自己的操作引起的事件：`ctx.delivery.origin.is_plugin(ctx.entry_id)` 为真，按需跳过以防循环。
 
@@ -556,33 +557,35 @@ async def apply(ctx):
 
 ## 16. 实时事件：用户正要用的先准备好
 
-`movieclaw_sdk.library` 的四个实时事件（新文件入账、开始播放、收藏、打开详情）发完即忘：插件不在、积压满了
-就丢。适合「现在值得提前做点什么」——预取下一集、先准备好要看的条目。**漏了不能出错**：该做的事要能从
-数据库里的事实补回来（定时或启动时按待办补做），事件只负责让相关的先做。
+任何系统事件都能实时订阅（`ctx.on(EVENT, fn)`，不加 `durable`）：发完即忘，插件不在、积压满了就丢。适合
+「现在值得提前做点什么」——预取下一集、先准备好要看的条目。**漏了不能出错**：该做的事要能从数据库里的事实
+补回来（定时或启动时按待办补做），事件只负责让相关的先做。
 
 ```python
-from movieclaw_sdk.library import LIBRARY_FILES_ADDED, PLAYBACK_STARTED, FilesAdded, PlaybackStarted
+from movieclaw_sdk.events import LIBRARY_FILES_ADDED, PLAYBACK_STARTED, FilesAdded, Playback
 
 @plugin("my-prefetch", title="预取", inject=(PLUGIN_JOBS,))
 async def apply(ctx: Context) -> None:
     jobs = ctx.use(PLUGIN_JOBS).scoped(ctx)
 
-    async def on_play(event: PlaybackStarted) -> None:
+    async def on_play(event: Playback) -> None:
+        if event.unit is None:   # 电影没有「下一集」
+            return
         # 插队：只排一个高优先级的小任务，监听器里不做耗时的事
         await jobs.create("my-prefetch:item", priority=0,
-                          input={"media_item_id": event.media_item_id, "after_episode": event.episode},
-                          dedupe_key=f"item:{event.media_item_id}:{event.season}")
+                          input={"media_item_id": event.media.id, "after_episode": event.unit.episode},
+                          dedupe_key=f"item:{event.media.id}:{event.unit.season}")
 
     async def on_added(event: FilesAdded) -> None:
         await jobs.create("my-prefetch:backfill", priority=-10, dedupe_key="backfill")   # 慢慢补
 
-    ctx.on(PLAYBACK_STARTED, on_play, id="play")      # 不用 inject DURABLE_EVENTS（那是可靠事件的）
+    ctx.on(PLAYBACK_STARTED, on_play, id="play")      # 实时订阅：不用 inject DURABLE_EVENTS
     ctx.on(LIBRARY_FILES_ADDED, on_added, id="added")
 ```
 
-- 清单 `[requires]` 写用到的事件，如 `"playback.started" = "^1.0"`。
-- 和可靠事件的分别：可靠事件（第 1 节）随业务提交写库、至少投递一次，适合「发生了就必须处理」的事（删片联动）；
-  实时事件不落库、不重投，适合提示。
+- 清单 `[requires]` 写用到的事件，如 `"playback.started" = "^2.0"`（版本看 `contracts.py`）。
+- 和可靠订阅的分别：可靠订阅（第 1 节）随业务提交写库、至少投递一次，适合「发生了就必须处理」的事（删片联动）；
+  实时订阅不落库、不重投，适合提示。播放、收藏、浏览、账号类是敏感事件（谁在什么时候看了什么）。
 - 载荷是快照、字段少（条目 / 季集 / 文件 id、成员）：要标题等更多信息用宿主操作查。
 
 完整示例：`$SRC/movieclaw_plugins/strm_prefetch/`（网盘规格预探：后台补探 + 播放 / 收藏 / 打开详情时插队，

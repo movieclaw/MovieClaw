@@ -1,10 +1,10 @@
-"""movieclaw_events 信封与 ULID 单测。"""
+"""事件 id（ULID）单测。"""
 
 from __future__ import annotations
 
 import time
 
-from movieclaw_events import OutboundEvent, new_ulid
+from movieclaw_events import new_ulid
 
 _B32 = set("0123456789ABCDEFGHJKMNPQRSTVWXYZ")
 
@@ -27,10 +27,3 @@ def test_ulid_bulk_unique():
     ids = {new_ulid() for _ in range(1000)}
     assert len(ids) == 1000
 
-
-def test_envelope_defaults():
-    event = OutboundEvent(event="playback.started", data={"k": "v"})
-    assert event.event_id
-    assert event.occurred_at.tzinfo is not None
-    assert event.batch_id is None
-    assert event.data == {"k": "v"}

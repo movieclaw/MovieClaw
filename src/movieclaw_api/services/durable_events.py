@@ -264,6 +264,20 @@ class DurableEvents:
 
         return unsubscribe
 
+    async def forget(self, consumer_id: str) -> None:
+        """消费者不再存在（Webhook 地址删了）：删掉它的进度行，业务侧不再为它写事件。"""
+        consumer = self._consumers.pop(consumer_id, None)
+        if consumer is not None and consumer.task is not None and not consumer.task.done():
+            consumer.task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await consumer.task
+        async with self._db.session() as session:
+            await session.execute(
+                delete(EventConsumer).where(EventConsumer.consumer_id == consumer_id)
+            )
+            await session.commit()
+        reset_subscribed()
+
     async def _register(self, consumer: _Consumer) -> None:
         async with self._db.session() as session:
             row = await session.get(EventConsumer, consumer.consumer_id)

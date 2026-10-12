@@ -28,12 +28,16 @@ SNAPSHOT = Path(__file__).with_name("surface.json")
 MODULES = (
     "movieclaw_kernel",
     "movieclaw_api.hooks",
-    "movieclaw_api.domain_events",
     "movieclaw_api.plugins.keys",
     "movieclaw_api.pipeline",
     "movieclaw_api.services.jobs",
     "movieclaw_sdk.jobs",
-    "movieclaw_sdk.library",
+    "movieclaw_sdk.events.account",
+    "movieclaw_sdk.events.download",
+    "movieclaw_sdk.events.library",
+    "movieclaw_sdk.events.playback",
+    "movieclaw_sdk.events.subscription",
+    "movieclaw_sdk.events.system",
     "movieclaw_scheduler",
 )
 

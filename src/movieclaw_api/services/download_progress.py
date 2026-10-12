@@ -619,9 +619,9 @@ async def _observe_attempt(
             attempt.updated_at = now
             session.add(attempt)
             if first_completion:
-                from movieclaw_api import domain_events
+                from movieclaw_api.services.subscription.events import publish_download_completed
 
-                await domain_events.record_download_completed(session, attempt)
+                await publish_download_completed(session, attempt)
             await session.commit()
             pending_trials = list(
                 (
