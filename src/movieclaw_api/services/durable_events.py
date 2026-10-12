@@ -420,13 +420,15 @@ class DurableEvents:
         except TimeoutError:
             return f"处理超时（{HANDLER_TIMEOUT:.0f} 秒）", False
         except Exception as exc:  # noqa: BLE001 -- 监听器出错只影响它自己的进度
+            # 预料之中的失败（如 Webhook 对方暂时不可用，异常带 quiet=True）只记一行，不打堆栈
             logger.warning(
-                "可靠事件 %s（%s）的监听器 %s 第 %d 次处理出错",
+                "可靠事件 %s（%s）的监听器 %s 第 %d 次处理出错%s",
                 row.name,
                 row.id,
                 consumer.consumer_id,
                 attempt,
-                exc_info=exc,
+                f"：{exc}" if getattr(exc, "quiet", False) else "",
+                exc_info=None if getattr(exc, "quiet", False) else exc,
             )
             return f"{type(exc).__name__}: {exc}"[:2000], False
         finally:

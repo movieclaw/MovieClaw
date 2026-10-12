@@ -175,6 +175,12 @@ def test_package_events_and_notifications_from_install_to_uninstall(data_dir) ->
         prefs = client.get("/api/v1/push/me").json()["data"]["events"]
         [mine] = [e for e in prefs if e["key"] == "acme-pkg.quota.exceeded"]
         assert mine["title"] == "站点配额超限" and mine["group"] == "插件 · 配额提醒"
+        # 插件详情页说清它会发什么事件、会给谁发通知
+        detail = client.get("/api/v1/app/plugins/acme-pkg")
+        assert detail.status_code == 200, detail.text
+        adds = {(a["kind"], a["title"], a["detail"]) for a in detail.json()["data"]["adds"]}
+        assert ("event", "会发出「站点配额超限」", "别的插件、Webhook 能订") in adds
+        assert ("notification", "会发通知：站点配额超限", "发给事件里的那个成员") in adds
 
         # 插件发出：宿主订阅方收到同一份载荷（按声明的 Schema 校验过）
         heard: list = []

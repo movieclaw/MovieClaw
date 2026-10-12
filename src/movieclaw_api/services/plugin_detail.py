@@ -260,6 +260,8 @@ def _adds(
         "delete",
         "other",
         "command",
+        "event",
+        "notification",
         "trigger",
         "decision",
     ]

@@ -39,6 +39,9 @@ ENTRY_ID = "webhook.delivery"
 class DeliveryFailed(RuntimeError):
     """目标没收下（网络错误、非 2xx）：交给可靠事件重试。"""
 
+    #: 预料之中的失败：可靠事件只记一行日志，不打堆栈（投递记录里已有原因）
+    quiet = True
+
 
 async def server_info() -> dict:
     """服务器上下文：实例 ID/名称/地址复用 Jellyfin 兼容层身份，版本取应用版本，
