@@ -66,18 +66,20 @@ const GROUPED_STORAGE_KEY = "movieclaw.library.gallery-grouped";
  * 直接在 useState 初始值里读会导致首屏与水合后不一致。
  */
 function useStoredFlag(key: string, fallback: boolean): [boolean, (next: boolean) => void] {
-  const [value, setValue] = useState(fallback);
+  const [storedValue, setStoredValue] = useState({ key, value: fallback });
   useEffect(() => {
+    let value = fallback;
     try {
       const stored = window.localStorage.getItem(key);
-      if (stored !== null) setValue(stored === "1");
+      if (stored !== null) value = stored === "1";
     } catch {
       /* 隐私模式等拿不到 storage：保持默认值 */
     }
-  }, [key]);
+    setStoredValue({ key, value });
+  }, [key, fallback]);
   const update = useCallback(
     (next: boolean) => {
-      setValue(next);
+      setStoredValue({ key, value: next });
       try {
         window.localStorage.setItem(key, next ? "1" : "0");
       } catch {
@@ -86,12 +88,12 @@ function useStoredFlag(key: string, fallback: boolean): [boolean, (next: boolean
     },
     [key],
   );
-  return [value, update];
+  return [storedValue.key === key ? storedValue.value : fallback, update];
 }
 
-/** 读写「图床浏览模式」偏好：进详情再退回来还在图廊 */
-export function useVideoGalleryMode(): [boolean, (next: boolean) => void] {
-  return useStoredFlag(MODE_STORAGE_KEY, false);
+/** 按媒体库记住模式；跨库页面保留自己的偏好，不作为新库的默认值。 */
+export function useVideoGalleryMode(libraryId: number | null = null): [boolean, (next: boolean) => void] {
+  return useStoredFlag(libraryId === null ? MODE_STORAGE_KEY : `${MODE_STORAGE_KEY}:${libraryId}`, false);
 }
 
 /** 读写「按作品分组」偏好：默认分组，关掉就是整库一条瀑布流 */

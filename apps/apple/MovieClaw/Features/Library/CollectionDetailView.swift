@@ -81,7 +81,8 @@ struct CollectionDetailView: View {
 
     private var sortKey: String { "\(sort.sort == "default" ? "" : sort.sort)\(sort.reversed ? ":rev" : "")" }
     private var rows: [API.LibraryItemView] { pager.items ?? [] }
-    private var galleryOn: Bool { gallery.galleryMode && !rows.isEmpty }
+    private var galleryLibraryId: Int? { libraryId ?? collection?.libraryId }
+    private var galleryOn: Bool { gallery.galleryMode(libraryId: galleryLibraryId) && !rows.isEmpty }
     private var homePrefsOwner: String { LibraryHomePrefs.ownerKey(api: api, username: model.session?.username) }
 
     private var homeRow: API.HomeRowPref? { homePrefs.rows?.first { $0.collectionId == collectionId } }
@@ -100,16 +101,6 @@ struct CollectionDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if let collection {
-                if !rows.isEmpty {
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button {
-                            gallery.galleryMode.toggle()
-                        } label: {
-                            Image(systemName: galleryOn ? "square.grid.2x2" : "photo.on.rectangle.angled")
-                        }
-                        .accessibilityLabel(galleryOn ? "回到海报墙" : "图床浏览")
-                    }
-                }
                 ToolbarItem(placement: .topBarTrailing) { menu(collection) }
             }
         }
@@ -353,6 +344,11 @@ struct CollectionDetailView: View {
 
     private func menu(_ collection: API.CollectionView) -> some View {
         Menu {
+            if !rows.isEmpty {
+                Button(galleryOn ? "回到海报墙" : "图床浏览") {
+                    gallery.setGalleryMode(!galleryOn, libraryId: galleryLibraryId)
+                }
+            }
             if galleryOn {
                 GalleryPrefMenuItems()
                 Divider()

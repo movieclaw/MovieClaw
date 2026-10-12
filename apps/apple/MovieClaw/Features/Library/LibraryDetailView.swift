@@ -92,7 +92,7 @@ struct LibraryDetailView: View {
     private var timeline: Bool { library.map { !$0.capabilities.scraped } ?? false }
     private var photoWall: Bool { library.map { !$0.capabilities.playable } ?? false }
     private var probing: Bool { library?.scanning == true && library?.scanProgress?.phase == "probing" }
-    private var galleryOn: Bool { gallery.galleryMode && library?.capabilities.playable == true }
+    private var galleryOn: Bool { gallery.galleryMode(libraryId: libraryId) && library?.capabilities.playable == true }
     private var recentFirst: Bool { sort.sort == "added_at" && !probing }
 
     /// 实际请求的排序档（补探阶段强制按补探序；照片库只认「最近添加」或默认）
@@ -622,7 +622,7 @@ struct LibraryDetailView: View {
                 Divider()
             }
             if library?.capabilities.playable == true, view == .items || galleryOn {
-                Button(galleryOn ? "回到海报墙" : "图床浏览") { gallery.galleryMode.toggle() }
+                Button(galleryOn ? "回到海报墙" : "图床浏览") { gallery.setGalleryMode(!galleryOn, libraryId: libraryId) }
             }
             if view == .collections {
                 // 只要 ⋯ 在、处于合集视图就给（同 Web：showHiddenCollections 只看视图，不看身份）

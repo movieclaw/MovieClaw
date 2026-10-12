@@ -7,7 +7,7 @@ import type { Route } from "next";
 import { CollectionOrderPanel } from "@/components/collection-order-panel";
 import { ShareDialog } from "@/components/share-dialog";
 import { useConfirm, usePrompt, useToast } from "@/components/feedback";
-import { MasonryIcon, MoreIcon, PosterGridIcon } from "@/components/icons";
+import { MoreIcon } from "@/components/icons";
 import { WallSortControl } from "@/components/library-filter-bar";
 import { PAGE_NAV_BUTTON_CLASS, PageNav } from "@/components/page-nav";
 import { usePhotoWallDensity } from "@/components/photo-wall";
@@ -143,7 +143,7 @@ function defaultSortOf(collection: Collection | null): {
  *   - **排序**：同一颗控件、同一套档位（lib/wall-sort.ts），默认档是合集自己的序
  *     （见 defaultSortOf），偏好按合集各记各的——在「诺兰作品」里选的「按评分」
  *     不该把系列合集的上映顺序也排乱；
- *   - **图床浏览**：顶栏那颗键切换海报墙 / 瀑布流，同一套墙与灯箱（video-gallery），
+ *   - **图床浏览**：⋯ 菜单切换海报墙 / 瀑布流，同一套墙与灯箱（video-gallery），
  *     数据换成 /collections/{id}/gallery——与海报墙传同一个 sort，两种形态永远是
  *     同一份名单。形态与看图偏好（分组、密度）与别处共用一份 localStorage。
  */
@@ -314,7 +314,7 @@ export function LibraryCollectionDetailView({
   }, [collectionId, rows.length]);
 
   // —— 图床浏览模式 —— //
-  const [galleryPreferred, setGalleryMode] = useVideoGalleryMode();
+  const [galleryPreferred, setGalleryMode] = useVideoGalleryMode(libraryId ?? collection?.library_id ?? null);
   const [galleryGrouped, setGalleryGrouped] = useVideoGalleryGrouped();
   const [density, setDensity] = usePhotoWallDensity();
   const [galleryGroups, setGalleryGroups] = useState<LibraryGalleryGroup[]>([]);
@@ -594,27 +594,6 @@ export function LibraryCollectionDetailView({
           // 挤成竖排。内置合集不可改，那颗键干脆不出现
           collection ? (
             <>
-              {/* 与收藏页顶栏同一颗键、同一副图标：画的是**点过去会变成的那面墙** */}
-              {rows.length > 0 && (
-                <button
-                  type="button"
-                  title={gallery ? "回到海报墙" : "图床浏览"}
-                  aria-label={gallery ? "回到海报墙" : "图床浏览"}
-                  aria-pressed={gallery}
-                  onClick={() => {
-                    // 两种模式的灯箱翻的不是同一份列表，下标不能沿用
-                    setLightboxIndex(null);
-                    setGalleryMode(!gallery);
-                  }}
-                  className={`${PAGE_NAV_BUTTON_CLASS} ${gallery ? "bg-black/55 text-white" : ""}`}
-                >
-                  {gallery ? (
-                    <PosterGridIcon className="size-[18px] max-md:size-[22px]" />
-                  ) : (
-                    <MasonryIcon className="size-[18px] max-md:size-[22px]" />
-                  )}
-                </button>
-              )}
               <DropdownMenu.Root>
                 <DropdownMenu.Trigger asChild>
                   <button
@@ -632,6 +611,18 @@ export function LibraryCollectionDetailView({
                     collisionPadding={12}
                     className="menu-surface z-50 min-w-[11rem] p-1"
                   >
+                    {rows.length > 0 && (
+                      <DropdownMenu.Item
+                        onSelect={() => {
+                          // 两种模式的灯箱翻的不是同一份列表，下标不能沿用
+                          setLightboxIndex(null);
+                          setGalleryMode(!gallery);
+                        }}
+                        className={MENU_ITEM_CLASS}
+                      >
+                        {gallery ? "回到海报墙" : "图床浏览"}
+                      </DropdownMenu.Item>
+                    )}
                     {/* 看图的两个偏好（按作品分组 / 瀑布流密度）：只在图廊里有意义 */}
                     {gallery && (
                       <>

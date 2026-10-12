@@ -67,29 +67,46 @@ final class GalleryPrefs {
     static let shared = GalleryPrefs()
 
     private static let modeKey = "movieclaw.library.gallery-mode"
+    private static let libraryModesKey = "movieclaw.library.gallery-modes"
     private static let groupedKey = "movieclaw.library.gallery-grouped"
     private static let densityKey = "movieclaw.photo-wall.density"
+    private let defaults: UserDefaults
+    private var libraryModes: [String: Bool] {
+        didSet { defaults.set(libraryModes, forKey: Self.libraryModesKey) }
+    }
 
     /// 是否处于图床浏览模式（⋯ 菜单「图床浏览 / 回到海报墙」）：进详情再退回来还在图廊
     var galleryMode: Bool {
-        didSet { UserDefaults.standard.set(galleryMode, forKey: Self.modeKey) }
+        didSet { defaults.set(galleryMode, forKey: Self.modeKey) }
     }
 
     /// 图床浏览是否按作品分组：默认分组，关掉就是整库一条瀑布流（用户决策 2026-09-07）
     var grouped: Bool {
-        didSet { UserDefaults.standard.set(grouped, forKey: Self.groupedKey) }
+        didSet { defaults.set(grouped, forKey: Self.groupedKey) }
     }
 
     /// 瀑布流密度：图床浏览与照片墙共用，默认标准
     var density: GalleryDensity {
-        didSet { UserDefaults.standard.set(density.rawValue, forKey: Self.densityKey) }
+        didSet { defaults.set(density.rawValue, forKey: Self.densityKey) }
     }
 
-    private init() {
-        let defaults = UserDefaults.standard
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        libraryModes = defaults.dictionary(forKey: Self.libraryModesKey) as? [String: Bool] ?? [:]
         galleryMode = defaults.object(forKey: Self.modeKey) as? Bool ?? false
         grouped = defaults.object(forKey: Self.groupedKey) as? Bool ?? true
         density = defaults.string(forKey: Self.densityKey).flatMap(GalleryDensity.init(rawValue:)) ?? .standard
+    }
+
+    /// 单库与库内合集共用模式，未设置的库默认海报墙；跨库页面保留原来的偏好。
+    func galleryMode(libraryId: Int?) -> Bool {
+        guard let libraryId else { return galleryMode }
+        return libraryModes[String(libraryId)] ?? false
+    }
+
+    func setGalleryMode(_ enabled: Bool, libraryId: Int?) {
+        if let libraryId { libraryModes[String(libraryId)] = enabled }
+        else { galleryMode = enabled }
     }
 }
 

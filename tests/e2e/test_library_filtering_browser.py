@@ -205,6 +205,7 @@ def _bootstrap_and_login(page, base: str) -> None:
     page.goto(f"{base}/")
     page.wait_for_url(lambda u: "/setup" in u or "/login" in u)
     if "/setup" in page.url:
+        page.get_by_role("button", name="开始使用").click()
         page.locator("input[type=text]").fill(ADMIN["username"])
         page.locator("input[type=password]").nth(0).fill(ADMIN["password"])
         page.locator("input[type=password]").nth(1).fill(ADMIN["password"])
@@ -213,6 +214,7 @@ def _bootstrap_and_login(page, base: str) -> None:
     page.goto(f"{base}/login")
     page.wait_for_load_state("networkidle")
     if "/login" in page.url:
+        page.get_by_role("button", name="登录", exact=True).click()
         page.locator("input[type=text]").fill(ADMIN["username"])
         page.locator("input[type=password]").first.fill(ADMIN["password"])
         page.locator("button[type=submit]").click()
@@ -532,6 +534,90 @@ FILTER_BTN = re.compile("^筛选")
 #: 「更多筛选」里那颗 2160p 药丸。条件行里的 ✕ 叫「取消 画质 2160p」，
 #: 前缀正则把两者分开。
 UHD_PILL = re.compile("^2160p")
+
+
+@pytest.mark.parametrize(
+    "viewport", [{"width": 1440, "height": 1000}, {"width": 390, "height": 844}]
+)
+def test_gallery_mode_is_per_library(stack, viewport) -> None:
+    from playwright.sync_api import expect, sync_playwright
+
+    base = stack["base"]
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, **_chromium_kwargs())
+        context = browser.new_context(viewport=viewport, locale="zh-CN")
+        page = context.new_page()
+        page.set_default_timeout(20_000)
+        page.set_default_navigation_timeout(120_000)
+        errors = []
+        page.on("pageerror", lambda error: errors.append(str(error)))
+        _bootstrap_and_login(page, base)
+        movie_lib, ids = _ensure_libraries(page, stack)
+        libraries = page.request.get(f"{base}/api/v1/libraries").json()["data"]
+        show_lib = next(row["id"] for row in libraries if row["name"] == "剧集库")
+        # 升级前的全局图床偏好不能把尚未设置的所有库一起切成图床。
+        page.evaluate("localStorage.setItem('movieclaw.library.gallery-mode', '1')")
+
+        def visit(library_id):
+            page.goto(f"{base}/library/{library_id}")
+            page.wait_for_load_state("networkidle")
+
+        def check_mode(gallery):
+            page.get_by_role("button", name="更多操作").click()
+            action = page.get_by_role("menuitem", name="回到海报墙" if gallery else "图床浏览")
+            expect(action).to_be_visible()
+            page.keyboard.press("Escape")
+            tiles = page.locator("[data-gallery-tile-id]" if gallery else "[data-library-item-id]")
+            expect(tiles.first).to_be_visible()
+
+        def toggle(gallery):
+            page.get_by_role("button", name="更多操作").click()
+            page.get_by_role("menuitem", name="回到海报墙" if gallery else "图床浏览").click()
+            check_mode(not gallery)
+
+        visit(movie_lib)
+        check_mode(False)
+        toggle(False)
+        visit(show_lib)
+        check_mode(False)
+        visit(movie_lib)
+        check_mode(True)
+        page.reload()
+        page.wait_for_load_state("networkidle")
+        check_mode(True)
+
+        # 同一库的合集无论从库内还是跨库合集列表进入，都读所属库的模式。
+        response = page.request.post(f"{base}/api/v1/collections", data={
+            "name": "模式隔离验收", "library_id": movie_lib, "item_ids": [ids["你的名字"]],
+        })
+        assert response.ok, response.text()
+        collection_id = response.json()["data"]["id"]
+        try:
+            for path in (f"/library/{movie_lib}/c/{collection_id}", f"/library/c/{collection_id}"):
+                page.goto(base + path)
+                page.wait_for_load_state("networkidle")
+                expect(page.get_by_role("button", name="回到海报墙")).to_have_count(0)
+                expect(page.get_by_role("button", name="图床浏览")).to_have_count(0)
+                check_mode(True)
+            toggle(True)
+            visit(movie_lib)
+            check_mode(False)
+            visit(show_lib)
+            check_mode(False)
+            toggle(False)
+            visit(movie_lib)
+            check_mode(False)
+            visit(show_lib)
+            page.reload()
+            page.wait_for_load_state("networkidle")
+            check_mode(True)
+            toggle(True)
+            # 收藏等跨库页面仍使用原来的偏好，库内切换不会改写它。
+            assert page.evaluate("localStorage.getItem('movieclaw.library.gallery-mode')") == "1"
+            assert errors == [], errors
+        finally:
+            page.request.delete(f"{base}/api/v1/collections/{collection_id}")
+            browser.close()
 
 
 def test_filtering_and_collections_end_to_end(stack) -> None:  # noqa: PLR0915
