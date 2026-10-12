@@ -4,7 +4,6 @@ import test from "node:test";
 import { initialPlayerState, isBusy, playerReducer } from "../lib/player/machine.ts";
 import {
   formatClock,
-  isInEndCredits,
   planSeek,
   toFileMs,
   toSessionSeconds,
@@ -336,13 +335,6 @@ test("档 0 没有会话，怎么拖都是就地跳", () => {
     planSeek(3_600_000, { startMs: 0, seekableEndSeconds: 60, hasSession: false }),
     { kind: "native", seconds: 3600 },
   );
-});
-
-test("片尾倒计时按剩余秒数而不是百分比", () => {
-  // 3 小时的电影按 5% 算会提前 9 分钟弹倒计时
-  assert.equal(isInEndCredits(10_780_000, 10_800_000), true);
-  assert.equal(isInEndCredits(10_000_000, 10_800_000), false);
-  assert.equal(isInEndCredits(1000, null), false);
 });
 
 test("时间显示是钟表格式，不足一小时不补出零点位", () => {

@@ -83,6 +83,7 @@ enum TVPlayerFocus: Hashable {
     case surface
     case skip
     case upNext
+    case watchCredits
     case qualityOffer
     case panelOption(String)
     case dialog
@@ -158,6 +159,14 @@ private struct TVPlayerContent: View {
         .animation(.easeInOut(duration: 0.25), value: panel)
         .animation(.easeInOut(duration: 0.2), value: controller.notice)
         .onPlayPauseCommand(perform: togglePlay)
+        // 焦点移到「观看片尾」= 要看片尾：立刻停掉倒计时（移回「下一集」也不恢复，卡片只提示）
+        .onChange(of: focus) { _, now in
+            if now == .watchCredits { controller.cancelAutoNext() }
+        }
+        // 片尾放完控制器会重新倒计时：焦点还停在「观看片尾」的话挪回「下一集」，不能焦点在这边、倒计时在那边走
+        .onChange(of: controller.phase) { _, phase in
+            if phase == .ended, focus == .watchCredits { focus = .upNext }
+        }
         // 播放器在放时 App 是系统的「正在播放」应用，遥控器的播放 / 暂停键先交给系统远程命令
         // （NowPlayingBridge 直接暂停控制器），到不了上面的 onPlayPauseCommand，控制层就不出来：
         // 画面停住却没有片名和进度条（2026-10-05 模拟器走查发现）。以「用户暂停了」这个状态为准补上
@@ -174,7 +183,8 @@ private struct TVPlayerContent: View {
             // 改用系统的做法——它们声明「优先默认焦点」，这里请焦点引擎在这个范围里重新挑一次
             try? await Task.sleep(for: .milliseconds(150))
             guard !Task.isCancelled else { return }
-            if contextualFocusTarget != nil || focus == nil || focus == .skip || focus == .upNext || focus == .qualityOffer {
+            if contextualFocusTarget != nil || focus == nil || focus == .skip || focus == .upNext || focus == .watchCredits
+                || focus == .qualityOffer {
                 resetFocus(in: focusScope)
             }
             // 兜底：重挑之后还没落上（与下面「回到画面」那一步挨得太近、主线程一忙先后就会颠倒，实测），
@@ -285,17 +295,19 @@ private struct TVPlayerContent: View {
                     TVSkipButton(segment: segment, action: controller.skipCurrentSegment)
                         .focused($focus, equals: .skip)
                         .prefersDefaultFocus(true, in: focusScope)
-                } else if controller.showsUpNext, let next = controller.nextEpisode {
+                } else if upNextCardVisible, let next = controller.nextEpisode {
                     TVUpNextCard(
                         episode: next,
                         still: controller.scope.api.image(next.stillUrl, width: ImageWidth.tvCard(TVUpNextCard.stillWidth)),
-                        countdown: controller.autoNextArmed ? controller.autoNextProgress : nil
-                    ) {
-                        controller.noteUserActivity()
-                        controller.playNext()
-                    }
-                    .focused($focus, equals: .upNext)
-                    .prefersDefaultFocus(true, in: focusScope)
+                        countdown: controller.autoNextArmed ? controller.autoNextProgress : nil,
+                        play: {
+                            controller.noteUserActivity()
+                            controller.playNext()
+                        },
+                        watchCredits: dismissUpNext,
+                        focus: $focus,
+                        focusScope: focusScope
+                    )
                     // 倒计时的钟：卡片在才走（同 iPhone 版）
                     .task {
                         while !Task.isCancelled {
@@ -329,6 +341,19 @@ private struct TVPlayerContent: View {
         } else if controller.phase == .consent, let decision = controller.pendingDecision {
             TVConsentDialog(decision: decision, grant: controller.grantConsent, cancel: exit)
                 .focused($focus, equals: .dialog)
+        } else if controller.asksStillWatching, let next = controller.nextEpisode {
+            // 连播满上限后放完：停在这里问一句，不再自动接（返回键 = 不看了）
+            TVPlayerDialog(
+                title: "还在看《\(controller.title)》吗？",
+                message: "已经连续自动播放 \(SkipSegments.autoNextMaxStreak) 集。下一集等你确认后再播。",
+                primary: ("继续看第 \(next.episodeNumber) 集", {
+                    controller.noteUserActivity()
+                    controller.playNext()
+                }),
+                secondary: ("不看了", exit),
+                icon: nil
+            )
+            .focused($focus, equals: .dialog)
         }
     }
 
@@ -336,6 +361,12 @@ private struct TVPlayerContent: View {
 
     private var isModal: Bool {
         controller.infoError != nil || controller.phase == .error || controller.phase == .consent
+            || controller.asksStillWatching
+    }
+
+    /// 右下角的「下一集」卡片在不在（「还在看吗」对话框顶替它、换画质建议占着角落时不在）
+    private var upNextCardVisible: Bool {
+        !isModal && controller.qualityOffer == nil && controller.showsUpNext && controller.nextEpisode != nil
     }
 
     /// 暂停遮罩只跟「用户意图」走：缓冲、换流时的程序性暂停不压暗（同 iPhone 版）
@@ -358,7 +389,7 @@ private struct TVPlayerContent: View {
         guard !isModal, panel == nil else { return nil }
         if controller.qualityOffer != nil { return .qualityOffer }
         if controller.skipSegment != nil { return .skip }
-        if controller.showsUpNext, controller.nextEpisode != nil { return .upNext }
+        if upNextCardVisible { return .upNext }
         return nil
     }
 
@@ -380,8 +411,9 @@ private struct TVPlayerContent: View {
     }
 
     private func togglePlay() {
-        controller.noteUserActivity()
+        // 对话框开着时按播放键不算数：否则「还在看吗」会因为连播计数清零被悄悄换成倒计时卡片
         guard !isModal else { return }
+        controller.noteUserActivity()
         controller.togglePlay()
         showChrome()
     }
@@ -481,6 +513,13 @@ private struct TVPlayerContent: View {
         }
     }
 
+    /// 收起「下一集」卡片，接着放片尾（播完时卡片会再出来，见 PlaybackController.nextDismissed）
+    private func dismissUpNext() {
+        controller.noteUserActivity()
+        controller.nextDismissed = true
+        focus = .surface
+    }
+
     /// 返回键：取消拖动 → 收起面板 → 收起下一集卡片 → 退出播放
     private func back() {
         controller.noteUserActivity()
@@ -497,9 +536,9 @@ private struct TVPlayerContent: View {
             focus = .surface
             return
         }
-        if focus == .upNext {
-            controller.nextDismissed = true
-            focus = .surface
+        if upNextCardVisible {
+            // 卡片在时返回键 = 「观看片尾」，不管焦点在哪，免得一按就退出播放
+            dismissUpNext()
             return
         }
         if focus == .qualityOffer {

@@ -144,6 +144,8 @@ struct MacUpNextCard: View {
     let still: URL?
     /// 倒计时进度 0～1；nil = 没在倒计时（只提示，不自动换集）
     let countdown: Double?
+    /// 连播满上限后放完了：不自动接，问一句
+    let stillWatching: Bool
     let play: () -> Void
     let dismiss: () -> Void
 
@@ -163,7 +165,7 @@ struct MacUpNextCard: View {
                         .opacity(hovering ? 1 : 0.85)
                 }
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(countdown == nil ? "下一集" : "即将播放")
+                    Text(stillWatching ? "还在看吗？" : countdown == nil ? "下一集" : "即将播放")
                         .font(.system(size: 11, weight: .semibold))
                         .foregroundStyle(.white.opacity(0.6))
                     Text("第 \(episode.episodeNumber) 集")

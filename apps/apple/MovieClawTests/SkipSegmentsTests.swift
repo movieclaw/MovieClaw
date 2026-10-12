@@ -34,14 +34,18 @@ struct SkipSegmentsTests {
         #expect(SkipSegments.label(SkipSegments.active([midOutro], at: 2_450_000)!) == "跳过片尾")
     }
 
-    @Test func autoNextOnlyCountsDownInDetectedCreditsAndStopsAfterStreak() {
+    @Test func autoNextCountsDownInDetectedCreditsOrAfterEndAndStopsAfterStreak() {
         #expect(SkipSegments.autoNextMs == 8000)
         #expect(!SkipSegments.autoNextArmed([credits], at: 2_549_999, streak: 0))
         #expect(SkipSegments.autoNextArmed([credits], at: 2_560_000, streak: 0))
         #expect(SkipSegments.autoNextArmed([credits], at: 2_560_000, streak: SkipSegments.autoNextMaxStreak - 1))
         #expect(!SkipSegments.autoNextArmed([credits], at: 2_560_000, streak: SkipSegments.autoNextMaxStreak))
         #expect(!SkipSegments.autoNextArmed([midOutro], at: 2_450_000, streak: 0))
+        // 没认出片尾：放的过程中不倒计时，放完才倒计时
         #expect(!SkipSegments.autoNextArmed(nil, at: 2_690_000, streak: 0))
+        #expect(SkipSegments.autoNextArmed(nil, at: 2_700_000, streak: 0, ended: true))
+        #expect(SkipSegments.autoNextArmed([midOutro], at: 2_700_000, streak: 0, ended: true))
+        #expect(!SkipSegments.autoNextArmed(nil, at: 2_700_000, streak: SkipSegments.autoNextMaxStreak, ended: true))
     }
 
     @Test func creditsToEndGoToUpNextCardNotSkipButton() {
@@ -65,15 +69,20 @@ struct SkipSegmentsTests {
         #expect(SkipSegments.active([ad, intro], at: 70_000)?.endMs == 150_000)
     }
 
-    @Test func manualSkipTakesPriorityOverLastFortySecondsCard() {
+    @Test func upNextOnlyInDetectedCreditsOrAfterEnd() {
+        // 没认出片尾不再按「最后 40 秒」提前出卡片，放完才出
+        #expect(!SkipSegments.shouldShowUpNext([], at: 2_690_000))
+        #expect(!SkipSegments.shouldShowUpNext(nil, at: 2_690_000))
+        #expect(SkipSegments.shouldShowUpNext(nil, at: 2_700_000, ended: true))
+        #expect(!SkipSegments.shouldShowUpNext([credits], at: 2_549_999))
+        #expect(SkipSegments.shouldShowUpNext([credits], at: 2_600_000))
+        // 手动跳过段优先；放完了照样出
         for type in ["preview", "ad", "outro", "other"] {
             let value = segment(type, 2_660_000, 2_690_000)
-            #expect(!SkipSegments.shouldShowUpNext([value], at: 2_670_000, durationMs: 2_700_000))
-            #expect(SkipSegments.shouldShowUpNext([value], at: 2_690_000, durationMs: 2_700_000))
-            #expect(SkipSegments.shouldShowUpNext([value], at: 2_700_000, durationMs: 2_700_000, ended: true))
+            #expect(!SkipSegments.shouldShowUpNext([value], at: 2_670_000))
+            #expect(!SkipSegments.shouldShowUpNext([value], at: 2_695_000))
+            #expect(SkipSegments.shouldShowUpNext([value], at: 2_700_000, ended: true))
         }
-        #expect(SkipSegments.shouldShowUpNext([], at: 2_670_000, durationMs: 2_700_000))
-        #expect(SkipSegments.shouldShowUpNext([credits], at: 2_600_000, durationMs: 2_700_000))
     }
 
     @Test func missingSegmentsGiveNothing() {

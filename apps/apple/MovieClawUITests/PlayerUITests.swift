@@ -203,7 +203,7 @@ final class PlayerUITests: XCTestCase {
         XCTAssertTrue(app.descendants(matching: .any)["player-screen"].waitForNonExistence(timeout: 10), "播放器没有关闭")
     }
 
-    /// 剧集片尾 40 秒内出现「即将播放」卡片 → 点「立即播放」→ 换到下一集并开始播放
+    /// 剧集放完（或进了认出的片尾）出现「即将播放」卡片 → 点「立即播放」→ 换到下一集并开始播放
     @MainActor
     func testUpNextPlaysNextEpisode() throws {
         let (show, current, next, durationMs) = try XCTUnwrap(try findEpisodePair(), "服务器上没有找到同季相邻两集都在位的剧集")

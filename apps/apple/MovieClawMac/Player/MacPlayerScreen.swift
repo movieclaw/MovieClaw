@@ -334,6 +334,7 @@ private struct MacPlayerContent: View {
                     episode: next,
                     still: controller.scope.api.image(next.stillUrl, width: ImageWidth.macCard(MacUpNextCard.stillWidth)),
                     countdown: controller.autoNextArmed ? controller.autoNextProgress : nil,
+                    stillWatching: controller.asksStillWatching,
                     play: {
                         controller.noteUserActivity()
                         controller.playNext()

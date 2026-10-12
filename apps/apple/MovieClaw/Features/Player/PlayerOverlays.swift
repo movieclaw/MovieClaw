@@ -213,7 +213,7 @@ struct PlayerConsentView: View {
 ///
 /// 左剧照，右三行「即将播放 · N 秒 / 第 2 集 / 集名（最多两行）」，右上角 ✕ = 不看下一集、继续看片尾，
 /// 底下只有一颗「立即播放」。认出了片尾时这颗按钮本身就是倒计时进度条：白色从左往右填满就自动换集
-/// （`PlaybackController.advanceAutoNext`）；只按最后 40 秒兜底出来的卡片不倒计时，按钮是实心白。
+/// （`PlaybackController.advanceAutoNext`）；不倒计时的时候（连播满上限）按钮是实心白，播完了眉标改问「还在看吗？」。
 /// 横屏（高度紧）不放剧照、卡片收窄，免得碰到画面中央的播放簇；没有剧照也不占位
 struct PlayerUpNextCard: View {
     let code: String
@@ -221,6 +221,8 @@ struct PlayerUpNextCard: View {
     let still: URL?
     /// 倒计时进度 0...1；nil = 不倒计时
     let countdown: Double?
+    /// 连播满上限后放完了：不自动接，问一句
+    let stillWatching: Bool
     let dismiss: () -> Void
     let play: () -> Void
 
@@ -267,6 +269,7 @@ struct PlayerUpNextCard: View {
     }
 
     private var eyebrow: String {
+        if stillWatching { return "还在看吗？" }
         guard let countdown else { return "即将播放" }
         let left = Double(SkipSegments.autoNextMs) * (1 - countdown) / 1000
         return "即将播放 · \(max(1, Int(left.rounded(.up)))) 秒"

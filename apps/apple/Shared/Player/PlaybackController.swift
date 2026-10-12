@@ -142,7 +142,10 @@ final class PlaybackController {
     var diagnosticsOpen = false {
         didSet { restartDiagnosticsPolling() }
     }
+    /// 用户收起了本集的「下一集」卡片（✕ /「观看片尾」/ 返回键）。播完时清掉：放完了照样给卡片接下一集
     var nextDismissed = false
+    /// 用户表示要看片尾（Apple TV 焦点移到「观看片尾」）：本集不再倒计时，卡片只提示。同样播完时清掉
+    private(set) var autoNextCancelled = false
     /// 连续自动播了几集：跨集保留（换集不换控制器），用户点屏幕 / 播放暂停 / 换集等任何操作都清零（`noteUserActivity`），
     /// 到 `SkipSegments.autoNextMaxStreak` 就不再自动播
     private(set) var autoNextStreak = 0
@@ -401,6 +404,7 @@ final class PlaybackController {
         durationMs = nil
         bufferedEndMs = nil
         nextDismissed = false
+        autoNextCancelled = false
         autoNextProgress = 0
         qualitySuggestion = QualitySuggestion()
         dismissQualityOffer()
@@ -499,9 +503,22 @@ final class PlaybackController {
 
     // MARK: - 自动播下一集（Netflix 同款，对照 Web video-player 的 autoNext）
 
-    /// 认出了片尾、卡片在显示、没到连播上限：卡片倒计时，走满自动换集
+    /// 认出了片尾或已播完、卡片在显示、没取消、没到连播上限：卡片倒计时，走满自动换集
     var autoNextArmed: Bool {
-        showsUpNext && SkipSegments.autoNextArmed(session?.segments, at: positionMs, streak: autoNextStreak)
+        showsUpNext && !autoNextCancelled
+            && SkipSegments.autoNextArmed(session?.segments, at: positionMs, streak: autoNextStreak, ended: phase == .ended)
+    }
+
+    /// 连播满上限后放完了：不自动接，问一句「还在看吗」（Apple TV 是全屏对话框，其他端是卡片换文案）
+    var asksStillWatching: Bool {
+        phase == .ended && nextEpisode != nil && autoNextStreak >= SkipSegments.autoNextMaxStreak
+    }
+
+    /// 停掉本集的倒计时，卡片留着只提示
+    func cancelAutoNext() {
+        noteUserActivity()
+        autoNextCancelled = true
+        autoNextProgress = 0
     }
 
     /// 倒计时走一步：卡片显示期间由界面每 0.1 秒调一次（卡片收起，循环随之停）。
@@ -524,14 +541,11 @@ final class PlaybackController {
         if autoNextStreak != 0 { autoNextStreak = 0 }
     }
 
-    /// 片尾 40 秒内（或已播完）显示「即将播放」卡片。
-    /// 服务端认出了一直放到结尾的片尾（docs/design/skip-intro.md）时，进了片尾就提前给，不必等到最后 40 秒，
-    /// 并倒计时自动播下一集（`autoNextArmed`）
+    /// 「即将播放」卡片：服务端认出了一直放到结尾的片尾（docs/design/skip-intro.md）时进了片尾就给，
+    /// 没认出就等播完再给；两种都倒计时自动播下一集（`autoNextArmed`）
     var showsUpNext: Bool {
         guard nextEpisode != nil, !nextDismissed else { return false }
-        return SkipSegments.shouldShowUpNext(
-            session?.segments, at: positionMs, durationMs: durationMs, ended: phase == .ended
-        )
+        return SkipSegments.shouldShowUpNext(session?.segments, at: positionMs, ended: phase == .ended)
     }
 
     // MARK: - 跳过片头 / 片尾
@@ -1144,6 +1158,9 @@ final class PlaybackController {
             }
             phase = .ended
             paused = true
+            // 放完了：之前收起卡片 / 取消倒计时是「想看片尾」，片尾看完了照样接下一集
+            nextDismissed = false
+            autoNextCancelled = false
             record?.event("ended", "播完")
             // 引擎报「播完」不一定真到了片尾（断流也可能报 eof）：离片尾 5 秒内才吸附到片长，
             // 否则按真实位置上报——片长会让服务端直接标「已看」

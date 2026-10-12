@@ -558,6 +558,7 @@ private struct PlayerContent: View {
                             name: next.name.flatMap { $0.isEmpty ? nil : $0 },
                             still: controller.scope.api.image(next.stillUrl, width: ImageWidth.points(PlayerUpNextCard.stillWidth)),
                             countdown: controller.autoNextArmed ? controller.autoNextProgress : nil,
+                            stillWatching: controller.asksStillWatching,
                             dismiss: {
                                 controller.noteUserActivity()
                                 controller.nextDismissed = true
