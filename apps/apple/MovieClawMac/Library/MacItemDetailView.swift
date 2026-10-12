@@ -5,7 +5,7 @@ import SwiftUI
 ///   下面一排按钮：主按钮写明播哪一集、从哪儿接着播（「继续 第 1 季第 3 集 · 12:34」），「从头播放」，
 ///   收藏、标为已看折成圆形玻璃钮；右下角浮「导演 / 主演」两行（同 Apple TV App）；
 /// - **往下**（垫着同一张剧照的模糊版）：选季（一排胶囊）→ 分集横排（剧照、第几集、集名、简介、首播日期，点一下就播）
-///   → 演职员（圆头像，点进影人页）→ 相似推荐 → 电影的作品系列 → 所属合集 → 信息（原名、类型、评分、文件版本），
+///   → 演职员（竖版人物卡，点进影人页）→ 相似推荐 → 电影的作品系列 → 所属合集 → 信息（原名、类型、评分、文件版本），
 ///   相当于 Apple Music 专辑页的曲目表与底部的发行信息。
 ///
 /// 数据与 iPhone、Apple TV 版同一套：`libraryItemsGet` 拿详情（含演职员）、`playbackResume` 拿续播点、
@@ -270,10 +270,10 @@ struct MacItemDetailView: View {
         }
         let people = Self.castPeople(detail)
         if !people.isEmpty {
-            MacShelf(title: "演职员", artHeight: MacMetrics.avatarSize) {
+            MacShelf(title: "演职员", artHeight: MacMetrics.castWidth * 1.5) {
                 ForEach(Array(people.enumerated()), id: \.offset) { _, person in
                     MacPersonCard(name: person.name, role: person.role,
-                                  avatarURL: api.image(person.avatar, width: ImageWidth.points(MacMetrics.avatarSize)),
+                                  avatarURL: api.image(person.avatar, width: ImageWidth.points(MacMetrics.castWidth)),
                                   linked: person.personId != nil) {
                         guard let id = person.personId else { return }
                         router.push(.person(tmdbId: id, name: person.name, avatar: person.avatar, fromItem: itemId))
@@ -847,7 +847,7 @@ private struct MacEpisodeCard: View {
     }
 }
 
-/// 演职员一格：圆头像 + 姓名 + 身份（导演 / 饰 X）。有 TMDB 影人 id 的点进影人页；悬停时头像套一圈亮边
+/// 演职员一格：2:3 竖版照片（同 iPhone / Apple TV，2026-10-12 用户要求换掉圆头像；没照片画姓名首字）+ 姓名 + 身份（导演 / 饰 X）。有 TMDB 影人 id 的点进影人页；悬停时照片套一圈亮边
 struct MacPersonCard: View {
     let name: String
     let role: String?
@@ -858,11 +858,24 @@ struct MacPersonCard: View {
 
     var body: some View {
         Button(action: action) {
-            VStack(spacing: 8) {
-                MacAvatar(url: avatarURL, name: name, size: MacMetrics.avatarSize)
-                    .overlay { Circle().strokeBorder(.white.opacity(hovering && linked ? 0.8 : 0.1), lineWidth: hovering && linked ? 2 : 0.5) }
-                    .shadow(color: .black.opacity(0.3), radius: hovering ? 8 : 3, y: 2)
-                VStack(spacing: 2) {
+            VStack(alignment: .leading, spacing: 8) {
+                ZStack {
+                    LinearGradient(colors: [Color(white: 0.3), Color(white: 0.16)], startPoint: .top, endPoint: .bottom)
+                    Text(MacAvatar.initials(name))
+                        .font(.system(size: MacMetrics.castWidth * 0.3, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.35))
+                    if let avatarURL {
+                        RemoteImage(url: avatarURL, placeholderText: "")
+                    }
+                }
+                .frame(width: MacMetrics.castWidth, height: MacMetrics.castWidth * 1.5)
+                .clipShape(.rect(cornerRadius: MacMetrics.cardCorner))
+                .overlay {
+                    RoundedRectangle(cornerRadius: MacMetrics.cardCorner)
+                        .strokeBorder(.white.opacity(hovering && linked ? 0.8 : 0.1), lineWidth: hovering && linked ? 2 : 0.5)
+                }
+                .shadow(color: .black.opacity(0.3), radius: hovering ? 8 : 3, y: 2)
+                VStack(alignment: .leading, spacing: 2) {
                     Text(name)
                         .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
@@ -872,7 +885,7 @@ struct MacPersonCard: View {
                         .lineLimit(1)
                 }
             }
-            .frame(width: MacMetrics.avatarSize + 24)
+            .frame(width: MacMetrics.castWidth)
             .contentShape(.rect)
         }
         .buttonStyle(MacCardButtonStyle())

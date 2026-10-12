@@ -30,8 +30,8 @@ enum MacMetrics {
     static let cardCorner: CGFloat = 10
     /// 模糊垫底的剧照按这么宽取：模糊之后看不出清晰度
     static let blurredBackdropWidth: CGFloat = 480
-    /// 演职员圆头像
-    static let avatarSize: CGFloat = 92
+    /// 演职员竖版卡的宽（2:3，同 iPhone / Apple TV 的演职员卡）：比海报（168）小一档，人物是辅助信息
+    static let castWidth: CGFloat = 128
 }
 
 extension ImageWidth {
