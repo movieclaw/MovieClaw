@@ -18,13 +18,12 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse, Response
-from movieclaw_api.plugins.keys import PLUGIN_DATA, PLUGIN_ROUTES
-from movieclaw_kernel import plugin
 from pydantic import BaseModel, ConfigDict, Field, StrictBool
 from sqlmodel import select
 
 from movieclaw_api.api.deps import require_interactive
 from movieclaw_api.exceptions import BadRequestException, NotFoundException
+from movieclaw_api.plugins.keys import PLUGIN_DATA, PLUGIN_ROUTES
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import (
     assert_item_visible,
@@ -35,6 +34,7 @@ from movieclaw_api.services.library.access import (
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import Library, LibraryFile, MediaMetadata, Member, PlaybackLog
 from movieclaw_db.models.base import utcnow
+from movieclaw_kernel import plugin
 from movieclaw_playback import activity
 
 PLUGIN_ID = "watch-presence"
@@ -291,7 +291,11 @@ class Presence:
             live = await self.live(db, viewer, owners)
             visible = []
             for owner, info in owners.items():
-                if info["is_self"] and not live[owner] and not await self.history_rows(db, viewer, info):
+                if (
+                    info["is_self"]
+                    and not live[owner]
+                    and not await self.history_rows(db, viewer, info)
+                ):
                     continue
                 visible.append(
                     {
