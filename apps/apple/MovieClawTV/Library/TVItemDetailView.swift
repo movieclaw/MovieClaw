@@ -198,7 +198,7 @@ struct TVItemDetailView: View {
         ScrollView(.vertical) {
             VStack(alignment: .leading, spacing: 0) {
                 // 首屏：Logo 最高 200（与首页同大），文字与按钮贴底排，下沿与首页一样在 y=918。剧集底下露出分集剧照的上沿——
-                // 整屏都是大图的话，用户不知道往下还有东西（2026-10-03 用户指出，同 Apple TV）；电影不露（见 lowerGap）
+                // 整屏都是大图的话，用户不知道往下还有东西（2026-10-03 用户指出，同 Apple TV）；电影露演职员（见 lowerGap）
                 TVScrollGate(scroll: scroll, showsWhenLower: false, threshold: lowerScroll) {
                 TVStageBlock(topInset: topInset, bottom: 918) {
                     TVStageInfo(
@@ -370,9 +370,9 @@ struct TVItemDetailView: View {
     private static let rangeTabsHeight: CGFloat = 76
     /// 首屏下沿（918）到下半截的距离，决定首屏底下露出多少（2026-10-04 用户改定）：
     /// - 剧集露分集剧照的上沿约 60 点，与首页「接下来继续」露出的一样多（此前露 120 多点，嫌太高）；
-    /// - 电影什么都不露（2026-10-12 用户定）：下半截第一行是演职员（系列挪到了相似推荐下面）。整块排到屏幕外
-    ///   （「演职员」标题从约 1100 起），往下按照样滑到下半截
-    private var lowerGap: CGFloat { isMovie ? 164 : 82 }
+    /// - 电影露演职员一行（2026-10-12 用户定）：行标题「演职员」加竖版人物卡的上沿约 60 点，与原先露系列一行同样多。
+    ///   人物卡换成方角竖版之后露一角好看（圆头像时露半截难看，才一度不露），也让人知道往下还有东西
+    private var lowerGap: CGFloat { isMovie ? 20 : 82 }
     /// 滑到下半截的滚动量：下半截静止时从屏幕 y=918 + `lowerGap` 排起，滚到它落在 `lowerScreenTop`
     private var lowerScroll: CGFloat { 918 + lowerGap - lowerScreenTop }
     private var hasSeasonTabs: Bool { !isMovie && (detail?.seasons.count ?? 0) > 1 }

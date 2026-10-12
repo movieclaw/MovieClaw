@@ -145,10 +145,10 @@ object DetailLogic {
     fun seasonLabel(number: Long): String = if (number == 0L) "特别篇" else "第 $number 季"
 
     /**
-     * 首屏下沿（918）到下半截的距离：剧集 82（露分集剧照上沿）；电影 164，什么都不露（2026-10-12 用户定：
-     * 下半截第一行是演职员，系列挪到了相似推荐下面）
+     * 首屏下沿（918）到下半截的距离：剧集 82（露分集剧照上沿）；电影 20，露演职员一行的标题与竖版人物卡上沿约 60 点
+     * （同 Apple TV，2026-10-12 用户定：让人知道往下还有东西）
      */
-    fun lowerGap(isMovie: Boolean): Int = if (isMovie) 164 else 82
+    fun lowerGap(isMovie: Boolean): Int = if (isMovie) 20 else 82
 
     /** 下半截滑上来后第一行在屏幕上的 y：250，有选季、有集段页签各往下让 80 */
     fun lowerScreenTop(hasSeasonTabs: Boolean, hasRangeTabs: Boolean = false): Int =

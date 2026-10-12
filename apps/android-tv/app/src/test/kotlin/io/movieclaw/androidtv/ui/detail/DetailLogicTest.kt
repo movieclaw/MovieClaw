@@ -225,8 +225,8 @@ class DetailLogicTest {
     @Test
     fun lowerGeometry() {
         assertEquals(82, DetailLogic.lowerGap(isMovie = false))
-        // 电影不论有没有系列都不露下半截（系列排在相似推荐下面，第一行是演职员）
-        assertEquals(164, DetailLogic.lowerGap(isMovie = true))
+        // 电影露演职员一行的上沿（竖版人物卡，与原先露系列一行同样多）
+        assertEquals(20, DetailLogic.lowerGap(isMovie = true))
         assertEquals(330, DetailLogic.lowerScreenTop(true))
         assertEquals(250, DetailLogic.lowerScreenTop(false))
         assertEquals(330, DetailLogic.lowerScreenTop(false, hasRangeTabs = true))
