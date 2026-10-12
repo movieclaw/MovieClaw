@@ -42,8 +42,9 @@ struct LibraryItemDetailView: View {
     @State private var deleteFile: API.LibraryFileView?
     /// 修正识别结果拍板过：关窗时再重拉（同 Web reidentifyDirty）
     @State private var reidentifyDirty = false
-    /// 相似推荐（库内）：按条目拉一次，不随刮削轮询重拉
+    /// 相似推荐（库内）与电影的作品系列：详情到手后拉一次，不随刮削轮询重拉（规则见 `ItemRelated`）
     @State private var similar: [API.LibraryItemView] = []
+    @State private var series: API.CollectionSeriesView?
 
     /// 标题区滚出视野后才在导航栏显示片名、恢复顶部的滚动边缘效果（R-6，同发现详情页）：
     /// Hero 全出血到状态栏，返回 / ⋯ 直接浮在剧照上
@@ -115,7 +116,12 @@ struct LibraryItemDetailView: View {
         // 进了详情页多半要播：先把起播要用的连接连好（见 PlaybackPreconnect）
         .task { PlaybackPreconnect.warm(api: api) }
         .task(id: playUnitKey) { await loadResume() }
-        .task(id: itemId) { similar = await LibrarySimilarSection.load(api: api, libraryId: libraryId, itemId: itemId) }
+        .task(id: detail?.mediaItemId) {
+            guard let detail else { return }
+            let rows = await ItemRelated.load(api: api, libraryId: libraryId, detail: detail)
+            similar = rows.similar
+            series = rows.series
+        }
         .onReceive(NotificationCenter.default.publisher(for: .playbackStopReported)) { note in
             guard note.userInfo?["mediaItemId"] as? Int == itemId else { return }
             Task { await loadResume(keepCurrent: true) }
@@ -227,8 +233,12 @@ struct LibraryItemDetailView: View {
                         )
                     }
                     castRow(detail)
+                    // 演职员 → 相似推荐 → 系列（与 Apple TV、Mac、Web 同一个顺序，2026-10-12 用户定）
                     if !similar.isEmpty {
                         LibrarySimilarSection(libraryId: libraryId, items: similar)
+                    }
+                    if let series {
+                        LibrarySeriesSection(series: series, libraryId: libraryId, itemId: itemId)
                     }
                     let files = isMovie ? detail.files : (selectedEpisode?.files ?? [])
                     if !files.isEmpty {

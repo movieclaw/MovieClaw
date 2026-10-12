@@ -991,7 +991,7 @@ function interleaveByRelease(
  * 走全站的订阅弹窗。已经在追的副行写「追踪中」，卡片自己也会把订阅键换成
  * 「管理订阅」，不会让人再订一遍。
  */
-function MissingPartCell({
+export function MissingPartCell({
   part,
   tracked,
 }: {

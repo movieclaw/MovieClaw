@@ -16,7 +16,7 @@ import { ArtworkPickerDialog } from "@/components/artwork-picker-dialog";
 import { BrandLoader } from "@/components/brand-loader";
 import { CastRow } from "@/components/cast-row";
 import { ChapterStrip } from "@/components/chapter-strip";
-import { LibrarySimilarRow } from "@/components/library-similar-row";
+import { LibraryRelatedRows } from "@/components/library-related-rows";
 import { MediaTrackRows } from "@/components/media-track-rows";
 import { PAGE_NAV_BUTTON_CLASS } from "@/components/page-nav";
 import { useResolvedTheme } from "@/themes/registry";
@@ -1072,8 +1072,13 @@ export function LibraryItemDetailView({
           />
         )}
 
-        {/* —— 相似推荐：只在自己库里挑（同系列、同主创、类型相近），没有就整行不出 —— */}
-        <LibrarySimilarRow libraryId={libraryId} mediaItemId={detail.media_item_id} />
+        {/* —— 相似推荐 → 作品系列：相似推荐只在自己库里挑（同主创、类型相近），有系列一行时排除同系列的片；
+            系列一行按上映顺序列全（缺的压暗、可订阅）。没有就整行不出 —— */}
+        <LibraryRelatedRows
+          libraryId={libraryId}
+          mediaItemId={detail.media_item_id}
+          seriesCollectionId={isMovie ? (detail.series_collection_id ?? null) : null}
+        />
 
         {/* 文件区固定收尾：电影列全部版本；剧集只列当前选中集的全部版本。
             两者共用同一套弱化、默认折叠样式，未入库集自然不渲染。 */}

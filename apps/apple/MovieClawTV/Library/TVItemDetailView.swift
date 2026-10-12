@@ -570,18 +570,6 @@ struct TVItemDetailView: View {
         return detail.collections.filter { $0.id != seriesId }
     }
 
-    /// 读电影所属系列的整份清单（TMDB 档案 + 库里有哪几部）。只有一部、或拉不到上游档案（没配 TMDB、网络不通）
-    /// 时不出这一行——只剩自己一部的「系列」没有可看的
-    private func loadSeries(_ detail: API.LibraryItemDetailView) async {
-        guard detail.kind != "tv", let id = detail.seriesCollectionId,
-              let fresh = try? await api.collectionSeriesGet(collectionId: id),
-              fresh.available, fresh.parts.count > 1 else {
-            series = nil
-            return
-        }
-        series = fresh
-    }
-
     /// 下半截分集横排进来时落在哪一集：首屏讲的那一季是首屏那一集，别的季是那一季接着看的那一集（服务端锚点）
     private var seasonEntry: Int? {
         if browseSeason == season, let selectedEpisode { return selectedEpisode.episodeNumber }
@@ -745,12 +733,8 @@ struct TVItemDetailView: View {
     private func reload() async {
         do {
             let fresh = try await api.libraryItemsGet(libraryId: libraryId, mediaItemId: itemId)
-            // 相似推荐与分集、系列并行拉。有系列一行的电影（判据同 `loadSeries`）排除同系列的片：
-            // 系列那一行已经按上映顺序列全了，这一行留给系列之外的片
-            let hasSeriesRow = fresh.kind != "tv" && fresh.seriesCollectionId != nil
-            async let similarItems = try? api.uiLibraryItemsSimilar(
-                libraryId: libraryId, mediaItemId: itemId, excludeSeries: hasSeriesRow ? true : nil
-            )
+            // 相似推荐与系列和分集并行拉（规则见 `ItemRelated`）
+            async let related = ItemRelated.load(api: api, libraryId: libraryId, detail: fresh)
             if fresh.kind == "tv", season == nil {
                 // 在「接下来继续」里的剧打开接着看的那一季（首页大图正讲第 2 季第 6 集，按「详情」进来还是它）；
                 // 别的打开第一个有片源的季——综艺常只收了最新一季（《中餐厅》只有第 10 季），打开第 1 季就是一排缺集、
@@ -770,9 +754,10 @@ struct TVItemDetailView: View {
                     rowEpisode = selectedEpisode?.episodeNumber
                 }
             }
-            // 系列读完再出页面：首屏要按有没有系列决定底下露不露
-            await loadSeries(fresh)
-            similar = await similarItems ?? []
+            // 两行读完再出页面：下半截排版一次定下来，不在眼前跳
+            let rows = await related
+            series = rows.series
+            similar = rows.similar
             detail = fresh
             failed = false
         } catch is CancellationError {

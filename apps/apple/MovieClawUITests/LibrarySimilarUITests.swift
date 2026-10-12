@@ -4,6 +4,8 @@ import XCTest
 /// （同系列 / 同导演的片互为最像）。对着隔离的测试服务器跑，需要：
 /// - MC_TEST_SERVER / MC_TEST_USERNAME / MC_TEST_PASSWORD；
 /// - MC_TEST_SIMILAR_ROUTE：起点条目的站内路径（如 /library/1/item/13：《沙丘》）；
+/// - MC_TEST_SIMILAR_SERIES_SIBLING（可选）：起点那部同系列的另一部的条目 id（如 12：《沙丘2》）。
+///   给了就验证它不在相似推荐里、而在下面的系列一行里；
 /// - MC_SHOT_DIR（可选）：截图同时落盘到这个目录。
 final class LibrarySimilarUITests: XCTestCase {
     @MainActor
@@ -32,12 +34,25 @@ final class LibrarySimilarUITests: XCTestCase {
         XCTAssertFalse(app.buttons["library-similar-\(origin)"].exists, "相似推荐里不该有这一部自己")
         Thread.sleep(forTimeInterval: 2)
         snapshot("iphone-similar-row", directory: env["MC_SHOT_DIR"])
+        if let sibling = env["MC_TEST_SIMILAR_SERIES_SIBLING"], !sibling.isEmpty {
+            XCTAssertFalse(app.buttons["library-similar-\(sibling)"].exists, "有系列一行时，相似推荐里不该再有同系列的片")
+            let seriesCard = app.buttons["library-series-\(sibling)"]
+            XCTAssertTrue(seriesCard.waitForExistence(timeout: 15), "相似推荐下面应该有系列一行")
+            XCTAssertGreaterThan(seriesCard.frame.minY, first.frame.minY, "系列一行应该排在相似推荐下面")
+            scroll(app, toReveal: seriesCard)
+            Thread.sleep(forTimeInterval: 2)
+            snapshot("iphone-series-row", directory: env["MC_SHOT_DIR"])
+            if !first.isHittable { app.swipeDown(velocity: .slow) }
+        }
 
         first.tap()
         // 进了那一部：它的相似推荐里有原来那部（上一页压在导航栈里，层级里可能还在，不拿「没有自己」断言）
         let back = app.buttons["library-similar-\(origin)"]
         XCTAssertTrue(back.waitForExistence(timeout: 30), "进入的那一部的相似推荐里没有原来那部")
-        scroll(app, toReveal: back)
+        // 原来那部可能排在横排靠后、在屏幕右边外面：只纵向滑到这一行，不要求它可点
+        for _ in 0 ..< 10 where back.frame.maxY > app.frame.maxY - 80 {
+            app.swipeUp(velocity: .slow)
+        }
         Thread.sleep(forTimeInterval: 2)
         snapshot("iphone-similar-next", directory: env["MC_SHOT_DIR"])
     }

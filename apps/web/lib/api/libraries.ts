@@ -1695,10 +1695,20 @@ export function getLibraryItemDetail(
   );
 }
 
-/** 条目详情页的相似推荐：只在当前身份可见的同类型库里挑，卡片与首页库行同形。 */
-export function listSimilarItems(libraryId: number, mediaItemId: number): Promise<LibraryItem[]> {
+/**
+ * 条目详情页的相似推荐：只在当前身份可见的同类型库里挑，卡片与首页库行同形。
+ * `excludeSeries`：排除同系列的片（详情页另有完整的系列一行时用）。
+ */
+export function listSimilarItems(
+  libraryId: number,
+  mediaItemId: number,
+  params?: { excludeSeries?: boolean },
+): Promise<LibraryItem[]> {
+  const suffix = params?.excludeSeries ? "?exclude_series=true" : "";
   return unwrap(
-    request<ApiEnvelope<LibraryItem[]>>(`/libraries/${libraryId}/items/${mediaItemId}/similar`),
+    request<ApiEnvelope<LibraryItem[]>>(
+      `/libraries/${libraryId}/items/${mediaItemId}/similar${suffix}`,
+    ),
   );
 }
 
