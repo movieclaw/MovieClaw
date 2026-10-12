@@ -319,7 +319,8 @@ COPY docker/nginx.conf.template /etc/movieclaw/nginx.conf.template
 COPY docker/starting.html /usr/share/movieclaw/starting.html
 # 构建期就校验一次渲染后的配置：模板写错不该等到用户容器起不来才发现
 RUN mkdir -p /run/movieclaw \
-    && sed -e "s|__WEB_PORT__|3000|g" -e "s|__ASSETS_DIR__|/usr/share/movieclaw|g" \
+    && sed -e "s|__WEB_PORT__|3000|g" -e "s|__NEXT_PORT__|3001|g" \
+        -e "s|__ASSETS_DIR__|/usr/share/movieclaw|g" \
         /etc/movieclaw/nginx.conf.template > /run/movieclaw/nginx.conf \
     && nginx -t -c /run/movieclaw/nginx.conf
 

@@ -1,6 +1,6 @@
 # =============================================================================
 # movieclaw 容器内的统一前门（nginx）。entrypoint 启动时把 __WEB_PORT__ /
-# __ASSETS_DIR__ 替换成实际值后渲染到 /run/movieclaw/nginx.conf 再拉起。
+# __NEXT_PORT__ / __ASSETS_DIR__ 替换成实际值后渲染到 /run/movieclaw/nginx.conf 再拉起。
 #
 # 为什么要有这一层（2026-08 NAS 实测）：此前对外端口由 Next 独占，播放器
 # 取流/整文件下载的每个字节都要 Node 反代再转给 uvicorn——每 GB 多烧约
@@ -102,7 +102,7 @@ http {
         keepalive 32;
     }
     upstream movieclaw_web {
-        server 127.0.0.1:3001;
+        server 127.0.0.1:__NEXT_PORT__;
         keepalive 16;
     }
 

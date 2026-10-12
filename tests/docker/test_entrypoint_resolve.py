@@ -182,6 +182,22 @@ def test_web_port_from_env(env_root: Path) -> None:
     assert (out["web_port"], out["web_port_source"]) == ("8096", "env")
 
 
+@pytest.mark.parametrize("value", [None, "", "13001"])
+def test_next_port_from_env(env_root: Path, value: str | None) -> None:
+    env = {} if value is None else {"MOVIECLAW_NEXT_PORT": value}
+    out = _resolve(env_root, MOVIECLAW_WEB_PORT="3005", **env)
+    assert out["next_port"] == (value or "3001")
+    assert out["web_port"] == "3005"
+
+
+@pytest.mark.parametrize("bad", ["abc", "-1", "0", "65536", "99999999999", "13001;exit"])
+def test_invalid_next_port_fails_before_start(env_root: Path, bad: str) -> None:
+    with pytest.raises(subprocess.CalledProcessError) as error:
+        _resolve(env_root, MOVIECLAW_NEXT_PORT=bad)
+    assert "MOVIECLAW_NEXT_PORT" in error.value.stderr
+    assert "非法" in error.value.stderr
+
+
 def test_web_port_file_beats_env(env_root: Path) -> None:
     _write_port_file(env_root, "9123\n")
     out = _resolve(env_root, MOVIECLAW_WEB_PORT="8096")

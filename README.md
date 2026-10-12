@@ -495,9 +495,12 @@ do you actually change the listening port: add `-e MOVIECLAW_WEB_PORT=8096`, or 
 after setup under **Settings → Network** (restarts itself on save).
 
 **Host networking has a further trap**: the container's internal frontend (3001) and
-backend (8000) also bind directly on the host. They're not currently configurable, and
-`MOVIECLAW_WEB_PORT` doesn't reach them. If either port is taken, the container exits at
-startup with `EADDRINUSE: address already in use` in `docker logs`. Host mode also
+backend (8000) also bind directly on the host. `MOVIECLAW_WEB_PORT` only changes nginx's
+public port. If 3001 is taken, set `MOVIECLAW_NEXT_PORT=13001` (or another free port) to
+move the internal frontend; the backend still requires port 8000 to be free. With host
+networking, remove `ports` because port mappings are ignored. This frontend port option
+requires a new Docker image: pull the updated image and recreate the container; an
+in-app update cannot replace the entrypoint or nginx template. Host mode also
 listens on UDP 7359 for Jellyfin LAN discovery, which collides with an existing Jellyfin
 or Emby.
 

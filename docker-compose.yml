@@ -23,8 +23,7 @@ services:
       # 容器内由 nginx 前门监听 3000：页面走 Next，/api/v1 与 Jellyfin 播放接口
       # 直达后端（取流/下载不经 Node，省 CPU）。
       # 左边是宿主端口，改它就能换访问端口（如 "8096:3000"），容器内保持 3000。
-      # 只有 host 网络/裸机等「容器内端口就是宿主端口」的形态才需要动右边——
-      # 那种情况下把右边和下面的 MOVIECLAW_WEB_PORT 一起改，或直接在
+      # host 网络下删除 ports（映射无效），用 MOVIECLAW_WEB_PORT 换对外端口，或在
       # 「设置 → 网络 → 对外端口」里改（改完容器会自动重启生效）。
       - "3000:3000"
       # Jellyfin 兼容层的局域网自动发现（可选）。注意：桥接网络下广播报文
@@ -43,6 +42,9 @@ services:
       - TZ=Asia/Shanghai
       # 容器内监听端口（默认 3000）。改了它，上面 ports 的右侧要一起改：
       # - MOVIECLAW_WEB_PORT=3000
+      # host 网络下若宿主 3001 已被占用，可单独改内部 Next 前端端口（默认 3001）：
+      # - MOVIECLAW_NEXT_PORT=13001
+      # 后端内部端口仍固定为 8000，host 网络下须确保它空闲。
       # 如需覆盖镜像内置的 TMDB Key，取消注释：
       # - TMDB_API_KEY=你自己的key
       # 应用内更新（设置 → 更新与维护）下载 GitHub Release 慢时，可配加速

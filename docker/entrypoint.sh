@@ -9,7 +9,8 @@
 #     重启它都不动，端口永不消失；运行期换口靠 reload）。路由见
 #     docker/nginx.conf.template：/api/v1 与 Jellyfin 命名空间直达后端
 #     （播放器取流/下载不再经过 Node，每 GB 省约 10 个 CPU 秒），其余交给 Next
-#   - 后端监听容器内 127.0.0.1:8000，前端监听容器内 127.0.0.1:3001，都不对外
+#   - 后端监听容器内 127.0.0.1:8000，前端默认监听 127.0.0.1:3001，可经
+#     MOVIECLAW_NEXT_PORT 改内部端口以避开 host 网络下的宿主端口冲突
 #   - Next 自己的 /api/v1 rewrite 仍保留（裸机开发不经 nginx 时用），容器里
 #     只是多一条不会被走到的备胎
 #   - 后端健康后才启动前端；运行中任意进程退出、或完整健康链路持续失败时，
@@ -71,8 +72,12 @@ WEB_STARTUP_TIMEOUT_SECONDS="${MOVIECLAW_WEB_STARTUP_TIMEOUT_SECONDS:-180}"
 HEALTHCHECK_INTERVAL_SECONDS="${MOVIECLAW_HEALTHCHECK_INTERVAL_SECONDS:-10}"
 HEALTHCHECK_FAILURE_THRESHOLD="${MOVIECLAW_HEALTHCHECK_FAILURE_THRESHOLD:-6}"
 SHUTDOWN_GRACE_SECONDS="${MOVIECLAW_SHUTDOWN_GRACE_SECONDS:-20}"
-# Next 在容器内的监听口（只给 nginx 反代用）
-NEXT_PORT=3001
+# Next 在容器内的监听口（只给 nginx 反代用；host 网络下也占用宿主端口）
+NEXT_PORT="${MOVIECLAW_NEXT_PORT:-3001}"
+if [[ ! "$NEXT_PORT" =~ ^[0-9]{1,5}$ ]] || [ "$NEXT_PORT" -lt 1 ] || [ "$NEXT_PORT" -gt 65535 ]; then
+    echo "[entrypoint] MOVIECLAW_NEXT_PORT 非法：${NEXT_PORT}，须为 1–65535 的端口。" >&2
+    exit 1
+fi
 API_HEALTH_URL="http://127.0.0.1:8000/api/v1/health"
 # 前端直连探测：穿过 Next 自己的 /api/v1 rewrite 到后端，验证 Next 进程本身可用
 WEB_HEALTH_URL="http://127.0.0.1:$NEXT_PORT/api/v1/health"
@@ -325,6 +330,7 @@ if [ "${1:-}" = "resolve" ]; then
     echo "cli_bin=$ACTIVE_CLI_BIN"
     echo "web_port=$WEB_PORT"
     echo "web_port_source=$WEB_PORT_SOURCE"
+    echo "next_port=$NEXT_PORT"
     exit 0
 fi
 
@@ -377,7 +383,8 @@ except Exception:
 # 被占）属于镜像/环境问题，原因由 nginx 自己打到 stderr，不做重试。
 render_nginx_config() {
     mkdir -p "$NGINX_RUN_DIR"
-    sed -e "s|__WEB_PORT__|$WEB_PORT|g" -e "s|__ASSETS_DIR__|$NGINX_ASSETS_DIR|g" \
+    sed -e "s|__WEB_PORT__|$WEB_PORT|g" -e "s|__NEXT_PORT__|$NEXT_PORT|g" \
+        -e "s|__ASSETS_DIR__|$NGINX_ASSETS_DIR|g" \
         "$NGINX_TEMPLATE" > "$NGINX_RUN_DIR/nginx.conf"
 }
 
