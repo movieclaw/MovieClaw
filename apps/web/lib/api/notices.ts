@@ -18,7 +18,14 @@ async function unwrap<T>(promise: Promise<ApiEnvelope<T>>): Promise<T> {
 // ---------------------------------------------------------------------------
 
 export type NoticeSeverity = "warning" | "error";
-export type NoticeSource = "subscription" | "ingest" | "downloader" | "site" | "cloud" | "plugin";
+export type NoticeSource =
+  | "subscription"
+  | "ingest"
+  | "downloader"
+  | "site"
+  | "cloud"
+  | "plugin"
+  | "channel";
 
 /** 一条待处理事项 */
 export interface SystemNotice {

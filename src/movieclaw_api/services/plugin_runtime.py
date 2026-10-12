@@ -813,7 +813,12 @@ def _contribution(session: Session, contribution: dict[str, Any]) -> tuple[Any, 
 
 
 def _proxy(session: Session, declaration: dict[str, Any]) -> tuple[Any, Callable[..., Any]]:
-    event = known_events().get(declaration["event"])
+    from movieclaw_api.services import plugin_events
+
+    # 别的插件登记的事件（domain-events.md §7）也能订：运行时目录现查
+    event = known_events().get(declaration["event"]) or plugin_events.catalog().get(
+        declaration["event"]
+    )
     if event is None:
         raise ValueError(f"事件 {declaration['event']} 不存在或没有开放给第三方插件")
     listener = declaration["id"]

@@ -35,10 +35,8 @@ def known_events() -> dict[str, Event[Any, Any]]:
                 found[value.name] = value
     for event in core_events():
         found[event.name] = event
-    # 在运行的插件登记的事件（domain-events.md §7）：别的插件也能订
-    from movieclaw_api.services import plugin_events
-
-    found.update(plugin_events.catalog())
+    # 插件登记的事件是运行时目录（宿主侧另查 plugin_events.catalog）：这里只放静态契约，
+    # 插件进程导入它不能带进数据库层
     return found
 
 
