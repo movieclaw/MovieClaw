@@ -9,10 +9,13 @@ import androidx.compose.runtime.setValue
 import io.movieclaw.androidtv.core.model.generated.CollectionSeriesView
 import io.movieclaw.androidtv.core.model.generated.EpisodeView
 import io.movieclaw.androidtv.core.model.generated.LibraryItemDetailView
+import io.movieclaw.androidtv.core.model.generated.LibraryItemView
 import io.movieclaw.androidtv.core.model.generated.PlaybackMarksRequest
 import io.movieclaw.androidtv.core.model.generated.PlaybackStateView
 import io.movieclaw.androidtv.core.network.generated.McApi
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 
 /**
  * 首页「接下来继续」里这一部讲到第几季第几集（剧集打开时首屏直接讲它）。由首页那边注入；不注入时按片源挑季。
@@ -87,6 +90,9 @@ internal class DetailState(
     /** 电影所属的作品系列；没有、只有一部或拉不到上游档案时为 null */
     var series by mutableStateOf<CollectionSeriesView?>(null)
         private set
+    /** 相似推荐（只在观看者自己库里挑；有系列一行时排除同系列的片）；没有或接口失败为空 */
+    var similar by mutableStateOf<List<LibraryItemView>>(emptyList())
+        private set
     var favorite by mutableStateOf<Boolean?>(null)
         private set
     var marking by mutableStateOf(false)
@@ -128,19 +134,24 @@ internal class DetailState(
             if (detail == null) failed = true
             return
         }
-        if (fresh.kind == "tv" && season == null) {
-            // 在「接下来继续」里的剧打开接着看的那一季那一集；别的打开第一个有片源的季。分集读完再出页面，免得闪一下「没有可播放的分集」
-            val start = DetailLogic.startingSeason(fresh, upNext?.first)
-            if (start != null) {
-                loadEpisodes(start, keepSelection = false, preferred = upNext?.takeIf { it.first == start }?.second)
-                browseSeason = start
-                browseEpisodes = episodes
-                browseResume = stageResume
-                browseScrollRequest++
+        coroutineScope {
+            // 相似推荐、系列与分集并行拉；都读完再出页面，下半截一次排好
+            val related = async { loadRelated(fresh) }
+            if (fresh.kind == "tv" && season == null) {
+                // 在「接下来继续」里的剧打开接着看的那一季那一集；别的打开第一个有片源的季。分集读完再出页面，免得闪一下「没有可播放的分集」
+                val start = DetailLogic.startingSeason(fresh, upNext?.first)
+                if (start != null) {
+                    loadEpisodes(start, keepSelection = false, preferred = upNext?.takeIf { it.first == start }?.second)
+                    browseSeason = start
+                    browseEpisodes = episodes
+                    browseResume = stageResume
+                    browseScrollRequest++
+                }
             }
+            val (items, row) = related.await()
+            similar = items
+            series = row
         }
-        // 系列读完再出页面：首屏要按有没有系列决定底下露不露
-        loadSeries(fresh)
         detail = fresh
         failed = false
     }
@@ -149,15 +160,22 @@ internal class DetailState(
         attempt { api.playbackMarksGet(itemId) }?.let { favorite = it.isFavorite }
     }
 
-    private suspend fun loadSeries(fresh: LibraryItemDetailView) {
-        val id = fresh.seriesCollectionId
-        if (fresh.kind == "tv" || id == null) {
-            series = null
-            return
-        }
-        val result = attempt { api.collectionSeriesGet(id) }
-        series = result?.takeIf { it.available && it.parts.size > 1 }
+    /**
+     * 相似推荐与电影的作品系列（同 Apple `ItemRelated`）：两个请求并行发。电影有系列合集时相似推荐排除同系列的片——
+     * 系列那一行已经按上映顺序列全了；系列一行只在拉得到上游档案、且不止一部时才出（本地 NFO 定的系列没有上游档案），
+     * 最后没出来就再拉一次不排除的相似推荐，否则续集哪儿都看不到
+     */
+    private suspend fun loadRelated(fresh: LibraryItemDetailView): Pair<List<LibraryItemView>, CollectionSeriesView?> = coroutineScope {
+        val seriesId = fresh.seriesCollectionId.takeIf { fresh.kind != "tv" }
+        val items = async { loadSimilar(excludeSeries = seriesId != null) }
+        val row = seriesId?.let { id -> attempt { api.collectionSeriesGet(id) }?.takeIf { it.available && it.parts.size > 1 } }
+        val first = items.await()
+        (if (seriesId != null && row == null) loadSimilar(excludeSeries = false) else first) to row
     }
+
+    /** 没有相似的片、接口失败、旧服务端没有这个接口，一律给空：整行不出 */
+    private suspend fun loadSimilar(excludeSeries: Boolean): List<LibraryItemView> =
+        attempt { api.uiLibraryItemsSimilar(libraryId, itemId, excludeSeries = if (excludeSeries) true else null) }.orEmpty()
 
     /**
      * 读首屏那一季的分集；不保留选择时选指定的那一集，没有就接着看的那一集。

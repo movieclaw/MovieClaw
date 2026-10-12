@@ -35,6 +35,8 @@ const val TV_QUALIFIERS = "w960dp-h540dp-land-television-xhdpi"
 class FakeTransport(private val routes: Map<String, Any>) : ApiTransport {
     /** 收到过的请求路径（按先后） */
     val requested = java.util.Collections.synchronizedList(mutableListOf<String>())
+    /** 收到过的请求（路径 + 查询参数，按先后）：同一路径带不同参数的请求（相似推荐排除 / 不排除同系列）要分开看 */
+    val queries = java.util.Collections.synchronizedList(mutableListOf<Pair<String, List<Pair<String, String>>>>())
 
     @Suppress("UNCHECKED_CAST")
     override suspend fun <T> send(
@@ -42,6 +44,7 @@ class FakeTransport(private val routes: Map<String, Any>) : ApiTransport {
         response: KSerializer<T>, enveloped: Boolean,
     ): T {
         requested += path
+        queries += path to query
         return (routes[path] ?: throw IOException("offline: $method $path")) as T
     }
 }

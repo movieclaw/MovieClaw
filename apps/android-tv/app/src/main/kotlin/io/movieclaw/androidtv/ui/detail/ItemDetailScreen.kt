@@ -60,6 +60,7 @@ import io.movieclaw.androidtv.LocalGraph
 import io.movieclaw.androidtv.LocalSession
 import io.movieclaw.androidtv.core.model.generated.CollectionSeriesView
 import io.movieclaw.androidtv.core.model.generated.LibraryItemDetailView
+import io.movieclaw.androidtv.core.model.generated.LibraryItemView
 import io.movieclaw.androidtv.ui.components.McIcons
 import io.movieclaw.androidtv.ui.components.PosterCard
 import io.movieclaw.androidtv.ui.components.Shelf
@@ -85,7 +86,7 @@ import kotlin.math.max
  * 条目详情（TVItemDetailView）：两截。
  * - 首屏：剧照原图铺满（StageBackdrop fullImage），左下片名 Logo、一行信息 + 片源标签、剧集的「第 N 季 第 M 集 · 名」、三行简介，
  *   下面一排按钮（播放 / 从头播放 / 收藏 / 标为已看），右下角浮导演与两位主演；
- * - 往下按整页吸到下半截：顶上居中片名 + 选季 → 分集横排 → 作品系列（电影）→ 演职员 → 所属合集。
+ * - 往下按整页吸到下半截：顶上居中片名 + 选季 → 分集横排 → 演职员 → 相似推荐 → 作品系列（电影）→ 所属合集。
  * 两截之间不停在半中间（DetailSnapSpec）；从下半截最上面一行再往上回首屏，焦点落主按钮。
  */
 @Composable
@@ -183,7 +184,7 @@ private fun DetailContent(state: DetailState, detail: LibraryItemDetailView, scr
     // 分段的长季（> 50 集）：选季下面一排集段页签，横排仍是整季
     val ranges = remember(state.browseEpisodes) { EpisodeRanges.ranges(state.browseEpisodes) }
     val screenTop = DetailLogic.lowerScreenTop(state.hasSeasonTabs, ranges.isNotEmpty())
-    val gap = DetailLogic.lowerGap(isMovie, series != null)
+    val gap = DetailLogic.lowerGap(isMovie)
     val lowerPx by rememberUpdatedState((918 + gap - screenTop) * ptPx)
 
     val zone = remember { ZoneHolder() }
@@ -251,10 +252,14 @@ private fun DetailContent(state: DetailState, detail: LibraryItemDetailView, scr
     val hasEpisodes = !isMovie && detail.seasons.isNotEmpty()
     val people = remember(detail) { DetailLogic.castPeople(detail) }
     val collections = detail.collections.filter { series == null || it.id != detail.seriesCollectionId }
+    // 分集 → 演职员 → 相似推荐 → 系列（2026-10-12 用户定）：系列部数少、一眼看完，放在相似推荐下面；
+    // 有系列时相似推荐排除了同系列的片，两行不重复
+    val similar = state.similar
     val rowOrder = listOfNotNull(
         "episodes".takeIf { hasEpisodes },
-        "series".takeIf { series != null },
         "cast".takeIf { people.isNotEmpty() },
+        "similar".takeIf { similar.isNotEmpty() },
+        "series".takeIf { series != null },
         "collections".takeIf { collections.isNotEmpty() },
     )
     fun zoneOf(row: String) = if (rowOrder.firstOrNull() == row) DetailZone.Top else DetailZone.Below
@@ -308,6 +313,31 @@ private fun DetailContent(state: DetailState, detail: LibraryItemDetailView, scr
                                 req = { req(it) },
                             )
                         }
+                        if (people.isNotEmpty()) {
+                            Shelf(
+                                "演职员",
+                                Modifier.focusSection { req("person:0") }.focusGroup(),
+                            ) {
+                                itemsIndexed(people) { index, person ->
+                                    PersonPortraitCard(
+                                        person,
+                                        onClick = {
+                                            // 没有 TMDB 影人 id 的（NFO 里只有姓名的导演）没有影人页
+                                            person.personId?.let { router.push(Route.Person(it, person.name, person.avatar, state.itemId)) }
+                                        },
+                                        modifier = Modifier.track("person:$index", zoneOf("cast")).testTag("person:$index"),
+                                    )
+                                }
+                            }
+                        }
+                        if (similar.isNotEmpty()) {
+                            SimilarRow(
+                                similar = similar,
+                                track = { k -> Modifier.track(k, zoneOf("similar")) },
+                                req = { req(it) },
+                                onOpen = { router.push(Route.Item(it.libraryId ?: state.libraryId, it.mediaItemId)) },
+                            )
+                        }
                         if (series != null) {
                             SeriesRow(
                                 series = series,
@@ -317,23 +347,6 @@ private fun DetailContent(state: DetailState, detail: LibraryItemDetailView, scr
                                 onCurrent = ::backToStage,
                                 onOpen = { router.push(Route.Item(state.libraryId, it)) },
                             )
-                        }
-                        if (people.isNotEmpty()) {
-                            Shelf(
-                                "演职员",
-                                Modifier.focusSection { req("person:0") }.focusGroup(),
-                            ) {
-                                itemsIndexed(people) { index, person ->
-                                    PersonCard(
-                                        person,
-                                        onClick = {
-                                            // 没有 TMDB 影人 id 的（NFO 里只有姓名的导演）没有影人页
-                                            person.personId?.let { router.push(Route.Person(it, person.name, person.avatar, state.itemId)) }
-                                        },
-                                        modifier = Modifier.track("person:$index", zoneOf("cast")),
-                                    )
-                                }
-                            }
                         }
                         if (collections.isNotEmpty()) {
                             Column(Modifier.padding(horizontal = McMetrics.Edge), verticalArrangement = Arrangement.spacedBy(20.pt)) {
@@ -683,7 +696,34 @@ private fun EpisodeRow(
     }
 }
 
-/** 作品系列一行（电影）：整个系列按上映顺序，这一部标「本片」、库里没有的置灰标「未入库」 */
+/**
+ * 相似推荐一行（TVSimilarRow）：只推观看者自己库里有的片，按确认进那一部的详情（可能在别的库）。
+ * 往下进这一行落在第一张（最像的那部）
+ */
+@Composable
+private fun SimilarRow(
+    similar: List<LibraryItemView>,
+    track: (String) -> Modifier,
+    req: (String) -> FocusRequester,
+    onOpen: (LibraryItemView) -> Unit,
+) {
+    Shelf("相似推荐", Modifier.focusSection { similar.firstOrNull()?.let { req("similar:${it.mediaItemId}") } }.focusGroup()) {
+        items(similar, key = { it.mediaItemId }) { item ->
+            PosterCard(
+                image = item.posterUrl,
+                title = item.title,
+                subtitle = item.year?.toString(),
+                onClick = { onOpen(item) },
+                modifier = track("similar:${item.mediaItemId}").testTag("similar:${item.mediaItemId}"),
+            )
+        }
+    }
+}
+
+/**
+ * 作品系列一行（电影，排在相似推荐下面）：整个系列按上映顺序，这一部标「本片」（按下回首屏）；
+ * 库里没有的置灰标「未入库」，不能选中（同 Apple TV 的 .disabled）
+ */
 @Composable
 private fun SeriesRow(
     series: CollectionSeriesView,
@@ -711,7 +751,10 @@ private fun SeriesRow(
                     val id = part.mediaItemId
                     if (isCurrent) onCurrent() else if (id != null) onOpen(id)
                 },
-                modifier = track("series:${part.tmdbId}").alpha(if (missing) 0.45f else 1f),
+                modifier = track("series:${part.tmdbId}")
+                    .testTag("series:${part.tmdbId}")
+                    .focusProperties { canFocus = !missing }
+                    .alpha(if (missing) 0.45f else 1f),
             )
         }
     }

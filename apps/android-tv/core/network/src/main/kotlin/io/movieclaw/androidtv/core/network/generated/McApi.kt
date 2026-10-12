@@ -210,6 +210,15 @@ class McApi(private val transport: ApiTransport) {
         return transport.send("GET", "/libraries/${libraryId}/items/${mediaItemId}/episodes", query, null, serializer<SeasonEpisodesView>(), enveloped = true)
     }
 
+    /** 条目详情页的相似推荐（只在观看者可见的同类型库里挑）（`GET /libraries/{library_id}/items/{media_item_id}/similar`） */
+    suspend fun uiLibraryItemsSimilar(libraryId: Long, mediaItemId: Long, limit: Long? = null, excludeSeries: Boolean? = null): List<LibraryItemView> {
+        val query = buildList<Pair<String, String>> {
+            limit?.let { add("limit" to it.toString()) }
+            excludeSeries?.let { add("exclude_series" to it.toString()) }
+        }
+        return transport.send("GET", "/libraries/${libraryId}/items/${mediaItemId}/similar", query, null, serializer<List<LibraryItemView>>(), enveloped = true)
+    }
+
     /** 人物页：库内这个影人的档案与作品（`GET /people/{tmdb_person_id}`） */
     suspend fun peopleShow(tmdbPersonId: Long): PersonView {
         val query = emptyList<Pair<String, String>>()

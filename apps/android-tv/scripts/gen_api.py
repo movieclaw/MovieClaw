@@ -70,6 +70,7 @@ ENDPOINTS = [
     "GET /libraries/{library_id}/facets",
     "GET /libraries/{library_id}/items/{media_item_id}",
     "GET /libraries/{library_id}/items/{media_item_id}/episodes",
+    "GET /libraries/{library_id}/items/{media_item_id}/similar",
     "GET /people/{tmdb_person_id}",
     "GET /playback/resume",
     "GET /playback/marks",

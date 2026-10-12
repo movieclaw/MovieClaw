@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -15,15 +16,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -31,7 +30,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.text.withStyle
@@ -41,7 +39,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import io.movieclaw.androidtv.ui.components.Text
 import io.movieclaw.androidtv.core.model.generated.EpisodeView
-import io.movieclaw.androidtv.ui.components.Avatar
+import io.movieclaw.androidtv.ui.components.initials
 import io.movieclaw.androidtv.ui.components.CardBadge
 import io.movieclaw.androidtv.ui.components.FocusCard
 import io.movieclaw.androidtv.ui.components.McIcons
@@ -222,38 +220,34 @@ private fun StillBand(episode: EpisodeView, runtimeMinutes: Long?, modifier: Mod
 }
 
 /**
- * 演职员一格（TVPersonCard）：圆头像 210 放在 236 宽的框里 + 姓名 + 身份。
- * 获得焦点时只有头像放大 1.12、套 6pt 白边（同「谁在看」），不浮方形底板。
+ * 演职员一格（TVPersonPortraitCard，2026-10-12 换掉圆头像）：宽 200 的 2:3 照片，下面常显姓名（24 半粗）与身份（20 白 60%）。
+ * 焦点效果与海报卡同一套（FocusCard 放大）；没有照片的人在灰色竖向渐变上画姓名首字，一格仍是一位演员，不是坏图
  */
 @Composable
-internal fun PersonCard(person: CastPerson, onClick: () -> Unit, modifier: Modifier = Modifier, onFocus: (Boolean) -> Unit = {}) {
-    var focused by remember { mutableStateOf(false) }
-    Surface(
-        onClick = onClick,
-        modifier = modifier.layerFocus().width(236.pt).onFocusChanged { focused = it.isFocused; onFocus(it.isFocused) },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(0)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
-            contentColor = Color.White,
-            focusedContainerColor = Color.Transparent,
-            focusedContentColor = Color.White,
-            pressedContainerColor = Color.Transparent,
-            pressedContentColor = Color.White,
-        ),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 0.98f),
-        glow = ClickableSurfaceDefaults.glow(),
-    ) {
-        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(14.pt)) {
-            Avatar(person.name, person.avatar, 210, focused = focused)
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.pt)) {
-                Text(person.name, style = McType.size(24, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
-                person.role?.let {
-                    Text(it, style = McType.size(20), color = Color.White.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+internal fun PersonPortraitCard(person: CastPerson, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier.width(PortraitWidth.pt)) {
+        FocusCard(
+            onClick,
+            Modifier.fillMaxWidth().aspectRatio(2f / 3f).semantics { contentDescription = listOfNotNull(person.name, person.role).joinToString("，") },
+        ) {
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0.3f, 0.3f, 0.3f), Color(0.16f, 0.16f, 0.16f)))), contentAlignment = Alignment.Center) {
+                Text(initials(person.name), style = McType.size((PortraitWidth * 0.3f).toInt(), FontWeight.SemiBold), color = Color.White.copy(alpha = 0.35f))
+                if (person.avatar != null) {
+                    RemoteImage(person.avatar, PortraitWidth, Modifier.fillMaxSize(), zoom = McMetrics.FocusZoom, showsPlaceholderBox = false)
                 }
+            }
+        }
+        Column(Modifier.padding(top = McMetrics.CaptionSpacing), verticalArrangement = Arrangement.spacedBy(4.pt)) {
+            Text(person.name, style = McType.size(24, FontWeight.SemiBold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            person.role?.let {
+                Text(it, style = McType.size(20), color = Color.White.copy(alpha = 0.6f), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }
 }
+
+/** 演职员卡宽：比海报（266）小一档，人物是辅助信息，一排比海报多放一两位 */
+private const val PortraitWidth = 200f
 
 /** 首屏右下角的「导演  某某」「主演  某某、某某」：标签白 60%、人名白，24 中粗，投影托字 */
 @Composable
