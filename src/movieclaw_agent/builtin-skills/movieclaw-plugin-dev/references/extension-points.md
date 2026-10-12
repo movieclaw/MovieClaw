@@ -34,6 +34,7 @@ tests 守着：契约有增删时本文必须同步）。都是实验级；清�
 | `library.items.arrived` | 媒体库有新片（不管谁下载、怎么入库；攒几分钟一批） | 新片提醒、同步片单 | |
 | `library.item.deleted` | 一部作品在某个库里的文件全部删除 | 删片联动：删订阅、删种子 | 示例 `delete_cascade.py`；种子按 `files[].id` 调 `dl.file-sources.list` 查 |
 | `library.file.deleted` | 部分文件被删（删了几集） | 同上，部分删除 | 同上 |
+| `library.item.moved` | 条目转移到了另一个库（分错库补救、库内归并），文件随之搬走 | 同步路径、通知下游刷新 | |
 | `library.file.trashed` / `restored` / `purged` | 文件进回收站 / 恢复 / 彻底清除 | 回收站联动 | |
 | `library.item.favorited` / `unfavorited` | 收藏 / 取消收藏（`level`：整部、一季、一集） | 收藏即准备好整部 | 敏感 |
 | `library.item.viewed` | 打开条目详情（网页详情页、播放器取条目） | 用户可能要看了，先准备 | 敏感、高频 |

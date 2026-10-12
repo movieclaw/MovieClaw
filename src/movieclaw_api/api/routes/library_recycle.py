@@ -20,7 +20,7 @@ from datetime import timedelta
 from pathlib import PurePath
 from typing import Annotated, Any
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Query
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import ColumnElement, and_, case, func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -43,7 +43,6 @@ from movieclaw_api.schemas.library import (
 )
 from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.library.recycle import purge_file, restore_file
-from movieclaw_api.services.media_server_notify import notify_media_server_refresh
 from movieclaw_api.services.tmdb_images import item_poster_url, local_media_files
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import FileState, LibraryFile, MediaEpisode, MediaItem, utcnow
@@ -573,17 +572,15 @@ async def purge_trashed_files(
 )
 async def restore_trashed_files(
     payload: TrashedRestorePayload,
-    background_tasks: BackgroundTasks,
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[TrashedBatchResultView]:
     """恢复是可逆动作，不设「按筛选恢复全部」（设计 §2.5）。恢复后文件重新计入在位
-    库存，顺带重算所涉库的统计快照并通知媒体服务器刷新。"""
+    库存，顺带重算所涉库的统计快照（下游媒体服务器刷新由订阅恢复事件的内置插件做）。"""
     if not payload.ids:
         raise BadRequestException("ids 不能为空")
     ids = list(dict.fromkeys(payload.ids))
     done, failed, library_ids = await _run_batch(session, ids, action="restore")
     if done:
         await LibraryRepository(session).refresh_stats(library_ids)
-        background_tasks.add_task(notify_media_server_refresh)
     result = TrashedBatchResultView(done=done, failed=failed)
     return ok(result, message=_summary("恢复", done, len(failed), 0))

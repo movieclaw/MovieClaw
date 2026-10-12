@@ -137,11 +137,6 @@ async def close_fulfilled_wanted(session: AsyncSession, media_item_id: int) -> i
 
     await audit_ingest_specs(session, media_item_id, fulfilled)
     logger.info("库存对账：条目 #%s 关闭了 %d 个工单", media_item_id, len(fulfilled))
-
-    # L4：通知媒体服务器刷新（未配置为 no-op；失败只告警）
-    from movieclaw_api.services.media_server_notify import notify_media_server_refresh
-
-    await notify_media_server_refresh()
     return len(fulfilled)
 
 

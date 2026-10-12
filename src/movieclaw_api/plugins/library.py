@@ -118,3 +118,22 @@ async def skip_segments_recovery(ctx: Context) -> None:
     # 算法升级后旧识别结果须主动重算；后台只排持久化任务，不在启动期间读 NAS。
     # 释放时先取消排队，避免关闭任务执行器和数据库时仍在创建任务
     ctx.task(enqueue_pending_libraries(), name="startup-recovery")
+
+
+@plugin(
+    "library.media-server-refresh",
+    title="通知媒体服务器刷新",
+    disableable=True,
+    reloadable=True,
+)
+async def media_server_refresh(ctx: Context) -> None:
+    """媒体库内容变了（新入账、删除、回收站进出、转移）就通知 Emby / Jellyfin 刷新，
+    一阵子的变化合成一次。"""
+    from movieclaw_api.services import media_server_notify as notify
+
+    if not notify.configured():
+        return  # 没配媒体服务器：不订阅，库变化时什么都不多做
+    refresher = notify.Refresher(lambda coro: ctx.task(coro, name="refresh"))
+    ctx.effect(refresher.close, label="stop-refresher")
+    for event in notify.triggers():
+        ctx.on(event, refresher.poke, id=f"refresh:{event.name}")

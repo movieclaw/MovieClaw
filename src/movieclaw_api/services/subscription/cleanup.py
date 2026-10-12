@@ -38,7 +38,6 @@ from movieclaw_api.exceptions import AppException
 from movieclaw_api.services import jobs
 from movieclaw_api.services.download_tasks import delete_download_task
 from movieclaw_api.services.library.recycle import recycle_file
-from movieclaw_api.services.media_server_notify import notify_media_server_refresh
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import (
     DownloaderClient,
@@ -480,8 +479,6 @@ async def _run_subscription_cleanup_job(
     if library_ids:
         async with db.session() as session:
             await LibraryRepository(session).refresh_stats(library_ids)
-        # 库存统计与下游媒体服务器都要知道这些文件没了；通知未配置时空转
-        await notify_media_server_refresh()
 
     parts: list[str] = []
     if torrents:

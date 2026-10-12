@@ -226,7 +226,6 @@ from movieclaw_api.services.library.transfer import (
 )
 from movieclaw_api.services.media_discover import get_tmdb_client
 from movieclaw_api.services.media_library import MediaLibraryService
-from movieclaw_api.services.media_server_notify import notify_media_server_refresh
 from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
 from movieclaw_api.services.people_images import avatar_url
 from movieclaw_api.services.playback import warmup as playback_warmup
@@ -3274,11 +3273,8 @@ async def delete_library_item(
         ),
     )
 
-    # 通知下游媒体服务器刷新库（未配置时空转；失败只告警不阻断）
-
-    background_tasks.add_task(notify_media_server_refresh)
-    # 条目在所有库都没文件了、也没订阅 → 连同图片资产一并清掉，不留孤儿
-
+    # 条目在所有库都没文件了、也没订阅 → 连同图片资产一并清掉，不留孤儿（下游媒体服务器
+    # 刷新由订阅删除事件的内置插件做）
     background_tasks.add_task(media_scrape.cleanup_orphan_items, [media_item_id])
     # 真正的磁盘回收：文件已 rename 出媒体库，慢 IO 挪到响应之后做
     background_tasks.add_task(purge_staged_deletions, result.pending_purge)
@@ -3347,9 +3343,8 @@ async def delete_library_file(
         ),
     )
 
-    # 与整条目删除同一套善后：通知媒体服务器刷新；条目在所有库都没文件了
-    # 且没订阅时连同图片资产一并清掉；磁盘回收挪到响应之后
-    background_tasks.add_task(notify_media_server_refresh)
+    # 与整条目删除同一套善后：条目在所有库都没文件了且没订阅时连同图片资产一并清掉；
+    # 磁盘回收挪到响应之后（下游媒体服务器刷新由订阅删除事件的内置插件做）
     background_tasks.add_task(media_scrape.cleanup_orphan_items, [media_item_id])
     background_tasks.add_task(purge_staged_deletions, result.pending_purge)
 

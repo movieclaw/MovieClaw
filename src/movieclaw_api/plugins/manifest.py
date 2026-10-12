@@ -154,6 +154,7 @@ BUILTIN_MANIFEST: tuple[Entry, ...] = tuple(
         delivery.jellyfin_discovery,
         scheduling.jobs,
         library.search_index,
+        library.media_server_refresh,
         playback.storage_guard,
         playback.pgs_warm,
         library.skip_segments_recovery,

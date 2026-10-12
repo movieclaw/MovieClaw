@@ -2044,6 +2044,103 @@
     "stability": "experimental",
     "version": "2.0"
   },
+  "library.item.moved": {
+    "doc": "条目转移到了另一个库",
+    "durable": true,
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "files_moved": {
+          "type": "integer"
+        },
+        "from_library_id": {
+          "type": "integer"
+        },
+        "media": {
+          "$ref": "#/$defs/MediaRef"
+        },
+        "to_library_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "media",
+        "from_library_id",
+        "to_library_id",
+        "files_moved"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
   "library.item.unfavorited": {
     "doc": "取消收藏",
     "durable": true,

@@ -90,6 +90,16 @@ class FileRecycled(Frozen):
     trigger_id: str | None = None
 
 
+class ItemMoved(Frozen):
+    """条目转移到了另一个媒体库（分错库的补救、库内归并），文件随之搬走。"""
+
+    media: MediaRef
+    from_library_id: int
+    to_library_id: int
+    files_moved: int
+    """随迁的台账行数。"""
+
+
 class AddedFile(Frozen):
     id: int
     media_item_id: int | None
@@ -178,4 +188,7 @@ LIBRARY_FILE_PURGED = define(
     title="回收站里的文件被彻底清除",
     group="回收站",
     version="2.0",
+)
+LIBRARY_ITEM_MOVED = define(
+    "library.item.moved", ItemMoved, title="条目转移到了另一个库", group="媒体库"
 )

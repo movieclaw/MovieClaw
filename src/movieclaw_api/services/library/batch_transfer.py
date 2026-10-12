@@ -44,7 +44,6 @@ from movieclaw_api.services.library.transfer import (
     _transfer,
     _transfer_tasks,
     build_transfer_plan,
-    notify_media_server,
 )
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import Library, LibraryFile, MediaItem, utcnow
@@ -399,7 +398,6 @@ async def _run_batch_transfer_job(
     if drop_roots and not outcome.failed and not outcome.skipped:
         await _drop_roots(source_id, drop_roots)
 
-    await notify_media_server()
     return {"message": _summary_message(outcome, len(members)), **asdict(outcome)}
 
 
@@ -492,7 +490,6 @@ async def _transfer_one(
             summary,
             context=context,
             checkpoint_id=checkpoint_id,
-            notify_downstream=False,
         )
     except _MoveHalt as exc:
         # 环境性故障：整轮退避重试，已完成的保持已完成。继续试下一个成员
