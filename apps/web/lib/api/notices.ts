@@ -52,6 +52,9 @@ export function noticeHref(notice: SystemNotice): string {
     }
     case "ingest":
       return "/settings/import-watch";
+    // IM 通道账号的凭据失效，通知与 AI 对话断了（重新绑定后自动消退）
+    case "channel":
+      return "/settings/im-push";
     case "downloader":
       return "/settings/downloaders";
     case "site":

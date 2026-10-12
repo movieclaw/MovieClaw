@@ -56,6 +56,10 @@ class PushStreamTest {
         assertEquals(Notifier.CH_ARRIVAL, StreamNotifications.channelFor("library.items.arrived"))
         assertEquals(Notifier.CH_DOWNLOAD, StreamNotifications.channelFor("subscription.download_started"))
         assertEquals(Notifier.CH_SUBSCRIPTION, StreamNotifications.channelFor("subscription.identity_skipped"))
+        assertEquals(Notifier.CH_SUBSCRIPTION, StreamNotifications.channelFor("subscription.completed"))
+        assertEquals(Notifier.CH_SUBSCRIPTION, StreamNotifications.channelFor("subscription.download_stuck"))
+        assertEquals(Notifier.CH_SUBSCRIPTION, StreamNotifications.channelFor("subscription.more_episodes"))
+        assertEquals(Notifier.CH_TASK, StreamNotifications.channelFor("system.alert.resolved"))
         assertEquals(Notifier.CH_TASK, StreamNotifications.channelFor("acme.quota.exceeded"))
         // 旧服务端的旧键照样认
         assertEquals(Notifier.CH_ARRIVAL, StreamNotifications.channelFor("imported"))

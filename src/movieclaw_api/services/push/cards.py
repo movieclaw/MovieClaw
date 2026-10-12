@@ -13,6 +13,10 @@
 
 所以每批最多响两次：「可以先看」和「全部到齐」。
 
+**订阅收齐了**也在这里判断：最后一批入库时卡上已经说了「全部到齐」，同一部剧有开着的卡或
+6 小时内收尾过的卡就不另发；没有（集数下限调低、剧完结等不是入库引起的收齐）才单独说一条，
+用同一个 ``collapse_id``，安静送达。
+
 **三条入库链路共用这张卡**：订阅入库、手动下载入库、「媒体库有新片」。同一个人、同一集只出现
 在一张卡上（收尾后 6 小时内再报同一集的不再推）。只是「媒体库有新片」来的（不是自己订阅、
 下载的）安静送达。
@@ -32,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from movieclaw_api.services.push import card_content, hub
 from movieclaw_api.services.push.card_content import Snapshot
 from movieclaw_api.services.push.hub import (
+    Completed,
     Downloaded,
     Imported,
     LibraryArrivals,
@@ -172,6 +177,20 @@ def on_event(name: str, payload: Any) -> None:
                 ),
             )
         )
+    elif name == "subscription.status_changed":
+        # 只有剧「自然收齐」才说；暂停、恢复、重新出现缺口不说。电影入库时卡上已经说过了
+        media = payload.media
+        if (
+            payload.status == "completed"
+            and payload.reason == "completed"
+            and media is not None
+            and media.kind != "movie"
+        ):
+            hub.emit(
+                Completed(
+                    subscription_id=payload.subscription_id, item_id=media.id, title=media.title
+                )
+            )
     elif name == "subscription.upgraded":
         unit = payload.unit
         hub.emit(
@@ -206,6 +225,8 @@ async def handle(event: object) -> None:
         await _on_library(event)
     elif isinstance(event, Upgraded):
         _on_upgraded(event)
+    elif isinstance(event, Completed):
+        await _on_completed(event)
 
 
 async def _audience(
@@ -254,6 +275,44 @@ async def _on_imported(event: Imported) -> None:
         audience = await _audience(session, members, event.item_id, "subscription.fulfilled")
     for member_id in audience:
         _arrive((member_id, event.item_id), list(event.units), loud=True, sub=event.subscription_id)
+
+
+async def _on_completed(event: Completed) -> None:
+    from movieclaw_api.services.push.audience import library_path, subscribers
+    from movieclaw_api.services.push.notify import AlertContent, notify
+
+    async with get_database().session() as session:
+        members = await subscribers(event.subscription_id)(session)
+        audience = await _audience(session, members, event.item_id, "subscription.completed")
+    for member_id in audience:
+        if _told((member_id, event.item_id)):
+            continue
+
+        async def build(session: AsyncSession, recipient: int) -> AlertContent:
+            page = await library_path(session, recipient, event.item_id, None)
+            return AlertContent(
+                title=f"《{event.title}》订阅已收齐",
+                body="订阅的内容都已入库，没有要等的了。",
+                open=page or f"/subscriptions/{event.subscription_id}",
+                thread=f"subscription:{event.subscription_id}",
+                level="passive",
+            )
+
+        # 和这部剧的卡同一个 collapse：手机上原地替换上一张卡
+        notify(
+            "subscription.completed",
+            {member_id},
+            build,
+            collapse=("card", f"{member_id}:{event.item_id}"),
+        )
+
+
+def _told(key: Key) -> bool:
+    """这个人这部剧有开着的卡，或者 6 小时内收尾过一张（卡上会说 / 已经说了全部到齐）。"""
+    if key in _cards:
+        return True
+    now = hub.now()
+    return any(now - at <= RECENT_S for at in _recent.get(key, {}).values())
 
 
 async def _on_downloaded(event: Downloaded) -> None:

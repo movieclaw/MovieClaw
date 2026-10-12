@@ -34,6 +34,7 @@ def notice_path(source: str, payload: dict) -> str:
         entry_id = payload.get("entry_id")
         return f"/settings/plugins?module={entry_id}" if entry_id else "/settings/plugins"
     return {
+        "channel": "/settings/im-push",
         "ingest": "/settings/import-watch",
         "downloader": "/settings/downloaders",
         "site": "/settings/sites",
@@ -59,6 +60,31 @@ def _alert_family(dedupe_key: str) -> str:
         if dedupe_key.startswith(prefix):
             return prefix + dedupe_key[len(prefix) :].split(":", 1)[0]
     return dedupe_key
+
+
+#: 单独推过、还没消退的问题：键 → 标题（只在内存里，重启后消退就不再补「已恢复」）
+_pushed_alone: dict[str, str] = {}
+
+#: 「问题已恢复」的偏好开关
+RESOLVED_KEY = "system.alert.resolved"
+
+
+def resolved(dedupe_key: str) -> None:
+    """推过的问题消失了：同一条通知原地改成「已恢复」，安静送达。没推过的不说。"""
+    title = _pushed_alone.pop(dedupe_key, None)
+    if title is None:
+        return
+
+    async def build(_session: AsyncSession, _member_id: int) -> AlertContent:
+        return AlertContent(
+            title=f"已恢复：{title}",
+            body="问题已经自动消失，不用处理了。",
+            thread="system",
+            source="server",
+            level="passive",
+        )
+
+    notify(RESOLVED_KEY, {0}, build, collapse=("notice", dedupe_key))
 
 
 def queue(dedupe_key: str) -> None:
@@ -150,6 +176,8 @@ async def _send_alerts() -> None:
             level=level,
         )
         collapse = ("notice", first.dedupe_key)
+        # 单独推过的问题：消退时原地改成「已恢复」（resolved）
+        _pushed_alone[first.dedupe_key] = first.title
     else:
         names = "；".join(r.title for r in due[:3])
         content = AlertContent(
@@ -173,6 +201,7 @@ def reset_state() -> None:
     global _alert_flush
     _alert_pushed_at.clear()
     _alert_queue.clear()
+    _pushed_alone.clear()
     if _alert_flush is not None:
         _alert_flush.cancel()
         _alert_flush = None

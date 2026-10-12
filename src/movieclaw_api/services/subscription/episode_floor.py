@@ -25,6 +25,7 @@ from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from movieclaw_api.services.subscription.events import publish_more_episodes
 from movieclaw_db.models import (
     ActivityType,
     MediaEpisode,
@@ -225,6 +226,16 @@ async def record_episode_overflow(
         _update_evidence(subscription, latest, site=seen, site_title=title)
         session.add(subscription)
         assert subscription.id is not None
+        await publish_more_episodes(
+            session,
+            subscription,
+            item,
+            season=latest,
+            known_count=known_max[latest],
+            hinted_count=seen,
+            source="site",
+            hint_title=title,
+        )
         await repo.add_activity(
             SubscriptionActivity(
                 subscription_id=subscription.id,
@@ -303,6 +314,15 @@ async def refresh_douban_evidence(
     session.add(subscription)
     if count > known_max.get(season_number, 0):
         assert subscription.id is not None
+        await publish_more_episodes(
+            session,
+            subscription,
+            item,
+            season=season_number,
+            known_count=known_max.get(season_number, 0),
+            hinted_count=count,
+            source="douban",
+        )
         await SubscriptionRepository(session).add_activity(
             SubscriptionActivity(
                 subscription_id=subscription.id,

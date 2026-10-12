@@ -28,6 +28,8 @@ class AlertResolved(Frozen):
 
     dedupe_key: str
     source: str
+    title: str
+    """出问题时的标题（「下载器 qb 连不上」）。"""
 
 
 class UpdateAvailable(Frozen):

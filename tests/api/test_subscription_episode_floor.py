@@ -23,7 +23,9 @@ from movieclaw_api.services.subscription.core import ExpectedUnit, expected_unit
 from movieclaw_api.services.subscription.episode_floor import (
     pending_hints,
     record_episode_overflow,
+    refresh_douban_evidence,
     season_episode_max,
+    set_douban_ref,
 )
 from movieclaw_api.services.subscription.matching import evaluate_and_dispatch
 from movieclaw_api.settings.store import init_setting_store, reset_setting_store
@@ -31,6 +33,7 @@ from movieclaw_db.engine import dispose_db, get_database, init_db
 from movieclaw_db.migrations import run_migrations
 from movieclaw_db.models import (
     MediaEpisode,
+    MediaItem,
     SiteTorrent,
     Subscription,
     SubscriptionActivity,
@@ -279,8 +282,21 @@ async def test_floor_completes_after_placeholders_imported(db) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def test_site_evidence_reopens_completed_subscription(db) -> None:
+def _capture_more_episodes(monkeypatch) -> list:  # type: ignore[no-untyped-def]
+    """截下「可能还有更多集」事件（只看产生，推送规则在 test_cloud_push 里验）。"""
+    seen: list = []
+
+    async def published(session, event, build):  # type: ignore[no-untyped-def]
+        if event.name == "subscription.more_episodes":
+            seen.append(build())
+
+    monkeypatch.setattr("movieclaw_api.events.publish", published)
+    return seen
+
+
+async def test_site_evidence_reopens_completed_subscription(db, monkeypatch) -> None:
     """issue 现场：6 集下完订阅已收齐，站点出了第 9 集——要提示，并退回追踪。"""
+    hinted = _capture_more_episodes(monkeypatch)
     async with db.session() as session:
         service = _service(session)
         sub = await service.create(MediaKind.TV, 640, selected_seasons=[1])
@@ -312,6 +328,11 @@ async def test_site_evidence_reopens_completed_subscription(db) -> None:
             )
         ).scalar_one()
         assert "第 9 集" in activity.message and "只录了 6 集" in activity.message
+        assert [(e.season, e.known_count, e.hinted_count, e.source) for e in hinted] == [
+            (1, 6, 9, "site")
+        ]
+        assert hinted[0].hint_title == "Death Row Is Coming S01E09 1080p WEB-DL"
+        assert hinted[0].media.title == "死刑将至"
 
         # 同样的证据再来一次：不重复记活动
         await evaluate_and_dispatch(session, [e09], source="被动匹配")
@@ -325,7 +346,7 @@ async def test_site_evidence_reopens_completed_subscription(db) -> None:
                 )
             ).all()
         )
-        assert count == 1
+        assert count == 1 and len(hinted) == 1
 
         # 忽略：回到收齐；更大的新证据才再提示
         await service.dismiss_episode_hint(sub.id, 1)
@@ -341,6 +362,7 @@ async def test_site_evidence_reopens_completed_subscription(db) -> None:
         assert sub.status == SubscriptionStatus.ACTIVE
         hints = pending_hints(sub, await season_episode_max(session, sub.media_item_id))
         assert [h.suggested for h in hints] == [27]
+        assert [e.hinted_count for e in hinted] == [9, 27]
 
         # 采纳提示 = 设下限：提示消失，占位集进入追踪
         await service.update(sub.id, episode_floors={1: 27})
@@ -348,6 +370,32 @@ async def test_site_evidence_reopens_completed_subscription(db) -> None:
         assert pending_hints(sub, await season_episode_max(session, sub.media_item_id)) == []
         wanted = await _wanted(session, sub.id)
         assert wanted[(1, 27)].status == WantedStatus.WANTED
+
+
+async def test_douban_evidence_announces_more_episodes_once(db, monkeypatch) -> None:
+    """豆瓣说有 12 集、TMDB 只录了 6 集：发一次「可能还有更多集」；豆瓣数没变就不再发。"""
+    hinted = _capture_more_episodes(monkeypatch)
+
+    class _Douban:
+        async def episode_count(self, douban_id: str) -> int:
+            assert douban_id == "35000001"
+            return 12
+
+    monkeypatch.setattr(
+        "movieclaw_api.services.media_discover.get_douban_media_service", lambda: _Douban()
+    )
+    async with db.session() as session:
+        sub = await _service(session).create(MediaKind.TV, 640, selected_seasons=[1])
+        sub = await _subscription(session, sub.id)
+        item = await session.get(MediaItem, sub.media_item_id)
+        set_douban_ref(sub, "35000001", 1)
+        assert await refresh_douban_evidence(session, sub, item) is True
+        await session.commit()
+        assert await refresh_douban_evidence(session, sub, item) is False
+    assert [(e.season, e.known_count, e.hinted_count, e.source) for e in hinted] == [
+        (1, 6, 12, "douban")
+    ]
+    assert hinted[0].subscription_id == sub.id and hinted[0].hint_title is None
 
 
 async def test_dismiss_without_hint_is_rejected(db) -> None:

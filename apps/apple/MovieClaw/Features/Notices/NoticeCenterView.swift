@@ -77,6 +77,7 @@ struct NoticeCenterView: View {
             if let id = notice.payload["subscription_id"]?.intValue { return "/subscriptions/\(id)" }
             return "/subscriptions"
         case "ingest": return "/settings/import-watch"
+        case "channel": return "/settings/im-push"
         case "downloader": return "/settings/downloaders"
         case "site": return "/settings/sites"
         case "cloud": return "/settings/cloud"

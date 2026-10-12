@@ -1896,6 +1896,142 @@ def test_system_alerts_fold_into_one(client: TestClient, world: World) -> None:
     assert relay.messages == []
 
 
+def test_pushed_alert_turns_into_resolved_in_place(client: TestClient, world: World) -> None:
+    """单独推过的问题消退了：同一条通知（同一个 collapse_id）原地改成「已恢复」，安静送达。"""
+    from movieclaw_api.services.system_notice import resolve_notices
+    from movieclaw_db.engine import get_database
+
+    _connect(client, world)
+    bearer = _app_login(client, _ADMIN, installation="resolved-install", name="iPhone")
+    _, key = _register(client, bearer, token="c7" * 32)
+    relay = world.relays["push.test"]
+    relay.messages.clear()
+
+    _raise_notice(client, "downloader:3", source="downloader", title="下载器连不上")
+    _wait(lambda: len(relay.messages) >= 1)
+    raised = relay.messages[0]
+    assert _open(raised, key)["title"] == "下载器连不上"
+
+    async def resolve(key: str) -> None:
+        async with get_database().session() as session:
+            await resolve_notices(session, dedupe_key=key)
+
+    assert client.portal is not None
+    client.portal.call(resolve, "downloader:3")
+    _wait(lambda: len(relay.messages) >= 2)
+    done = relay.messages[1]
+    plain = _open(done, key)
+    assert plain["title"] == "已恢复：下载器连不上" and "sound" not in plain
+    assert done["collapse_id"] == raised["collapse_id"]
+    assert done["aps"]["interruption-level"] == "passive"
+
+    # 关掉「问题已恢复」就只收出问题的那条
+    _data(
+        _as_app(
+            client,
+            bearer,
+            "PUT",
+            "/api/v1/push/me/preferences",
+            json={"events": {"system.alert.resolved": False}},
+        )
+    )
+    relay.messages.clear()
+    _raise_notice(client, "site:z", source="site", title="站点 Z 登录失效")
+    _wait(lambda: len(relay.messages) >= 1)
+    client.portal.call(resolve, "site:z")
+    time.sleep(0.6)
+    assert len(relay.messages) == 1
+
+
+def test_subscription_lifecycle_pushes(client: TestClient, world: World) -> None:
+    """订阅收齐了（剧才说、安静送达）、下载卡住了、可能还有更多集：都推给订阅的人。"""
+    from movieclaw_sdk.events import (
+        SUBSCRIPTION_DOWNLOAD_STUCK,
+        SUBSCRIPTION_MORE_EPISODES,
+        SUBSCRIPTION_STATUS_CHANGED,
+        MediaRef,
+        SubscriptionChanged,
+        SubscriptionDownloadStuck,
+        SubscriptionMoreEpisodes,
+        UnitRef,
+    )
+
+    _connect(client, world)
+    bearer = _app_login(client, _ADMIN, installation="life-install", name="iPhone")
+    _, key = _register(client, bearer, token="c8" * 32)
+    subscription_id, item_id = _seed_subscription(
+        client, kind="tv", title="繁城之下", creator=None, followers=[]
+    )
+    movie_id, movie_item = _seed_subscription(
+        client, kind="movie", title="奥本海默", creator=None, followers=[]
+    )
+    movie = MediaRef(id=movie_item, kind="movie", title="奥本海默")
+    relay = world.relays["push.test"]
+    relay.messages.clear()
+    show = MediaRef(id=item_id, kind="tv", title="繁城之下")
+
+    def status(sid: int, media: MediaRef, new: str, reason: str) -> None:
+        _publish(
+            client,
+            SUBSCRIPTION_STATUS_CHANGED,
+            SubscriptionChanged(
+                subscription_id=sid,
+                media=media,
+                member_id=0,
+                status=new,
+                previous_status="active",
+                reason=reason,
+            ),
+        )
+
+    # 暂停、电影收齐都不说；剧自然收齐才说
+    status(subscription_id, show, "paused", "paused")
+    status(movie_id, movie, "completed", "completed")
+    status(subscription_id, show, "completed", "completed")
+    _wait(lambda: len(relay.messages) >= 1)
+    time.sleep(0.4)
+    assert len(relay.messages) == 1
+    plain = _open(relay.messages[0], key)
+    assert plain["title"] == "《繁城之下》订阅已收齐" and "sound" not in plain
+    assert relay.messages[0]["aps"]["interruption-level"] == "passive"
+
+    relay.messages.clear()
+    _publish(
+        client,
+        SUBSCRIPTION_DOWNLOAD_STUCK,
+        SubscriptionDownloadStuck(
+            subscription_id=subscription_id,
+            media=show,
+            units=(UnitRef(season=1, episode=3),),
+            torrent_title="Fan.Cheng.Zhi.Xia.S01E03.2160p",
+            retry_hours=1,
+        ),
+    )
+    _wait(lambda: len(relay.messages) >= 1)
+    plain = _open(relay.messages[0], key)
+    assert plain["title"] == "《繁城之下》第 1 季第 3 集下载卡住了"
+    assert "约 1 小时后再找" in plain["body"]
+    assert plain["open"] == f"/subscriptions/{subscription_id}"
+
+    relay.messages.clear()
+    _publish(
+        client,
+        SUBSCRIPTION_MORE_EPISODES,
+        SubscriptionMoreEpisodes(
+            subscription_id=subscription_id,
+            media=show,
+            season=1,
+            known_count=6,
+            hinted_count=12,
+            source="douban",
+        ),
+    )
+    _wait(lambda: len(relay.messages) >= 1)
+    plain = _open(relay.messages[0], key)
+    assert plain["title"] == "《繁城之下》第 1 季可能有 12 集"
+    assert plain["body"].startswith("TMDB 只录了 6 集，但豆瓣的集数更多")
+
+
 def test_subscription_pushes_merge_and_skip_the_clicker(client: TestClient, world: World) -> None:
     """一集一集入账的季包、一集一集验证的洗版，各合成一条；手动选种的人自己不收「开始下载」。"""
     from movieclaw_sdk.events import (

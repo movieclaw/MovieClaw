@@ -335,11 +335,13 @@ open = "plugin"                         # 点开去哪：插件页，或载荷�
 
 | 事件 | 产生点 | 通知规则 | 敏感 | 高频 |
 |---|---|---|---|---|
-| `subscription.created` / `deleted` / `status_changed` | `subscription/core.py` | — | | |
+| `subscription.created` / `deleted` / `status_changed` | `subscription/core.py` | 「订阅收齐了」（剧卡聚合：卡上已说全部到齐的不重复，其余安静送达） | | |
 | `subscription.download_started` | `subscription/dispatch.py` | 剧卡（聚合） | | |
 | `subscription.fulfilled` | `wanted_fulfillment.py` | 剧卡（聚合） | | |
 | `subscription.upgraded` | `subscription/upgrade.py` | 洗版合并（聚合） | | |
 | `subscription.identity_skipped` | `subscription/twins.py` | 声明式，每个订阅一次 | | |
+| `subscription.download_stuck`（下载停滞、第一次自动换源落空） | `subscription/replacement.py` | 声明式，每个下载一次 | | |
+| `subscription.more_episodes`（站点 / 豆瓣说本季不止 TMDB 的集数） | `subscription/episode_floor.py` | 声明式，证据变了才发 | | |
 | `download.completed` | `download_progress.py` | — | | |
 | `download.imported`（手动下载的内容全部入库） | `push/downloads.py` 的匹配逻辑挪到获取领域，产出事件 | 剧卡（聚合） | | |
 | `library.ingest.completed` | `library/ingest.py` | — | | |
@@ -353,11 +355,13 @@ open = "plugin"                         # 点开去哪：插件页，或载荷�
 | `playback.progress` | `playback/watch.py` | — | ✓ | ✓ |
 | `playback.marked_played` / `marked_unplayed` | `playback/marks.py` | — | ✓ | |
 | `account.device.signed_in` | `login_devices.py`、Jellyfin 登录 | 声明式（新设备） | ✓ | |
-| `system.alert.raised` / `resolved` | `system_notice.py` | 聚合（攒 90 秒） | | |
+| `system.alert.raised` / `resolved` | `system_notice.py` | 聚合（攒 90 秒）；单独推过的消退时原地改成「已恢复」 | | |
 | `system.update.available` | `app_update.py` | 声明式（管理员） | | |
 | `system.tip.suggested` | `reels/clip_tip.py` | 声明式（管理员） | | |
 
-只有订阅动态里出现、目前没有任何出口的事实（投递失败、换源、等用户确认集数提示等）不在首批，按需再加——加的时候只需登记一处。
+IM 账号凭据失效走待处理事项（`source="channel"`，`channel_hub.py`），重新绑定或解绑后消退，不另设事件。
+
+只有订阅动态里出现、目前没有任何出口的其余事实（投递失败、换源成功等）不在首批，按需再加——加的时候只需登记一处。
 
 ## 9. 分期
 

@@ -24,10 +24,12 @@ from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass, field, replace
 from typing import Any
 
+from movieclaw_api.services.system_notice import resolve_notices, upsert_notice
 from movieclaw_channel.adapter import ChannelContext
 from movieclaw_channel.dispatcher import make_dispatcher
 from movieclaw_channel.manager import ChannelManager
 from movieclaw_db.engine import get_database
+from movieclaw_db.models import NoticeSeverity
 from movieclaw_db.models.channel_account import ChannelAccount, ChannelAccountStatus
 from movieclaw_db.repositories.channel_account_repo import ChannelAccountRepository
 from movieclaw_sdk.channels import (
@@ -167,6 +169,19 @@ class ChannelUnavailable(LookupError):
 
 
 # ---------------------------------------------------------------------- 中枢
+
+
+def _notice_key(channel_id: str, account_id: str) -> str:
+    return f"channel:{channel_id}:{account_id}"
+
+
+async def _resolve_notice(channel_id: str, account_id: str) -> None:
+    """账号重新绑定、或者解绑了：「账号失效」的待处理事项消退。出错只记日志。"""
+    try:
+        async with get_database().session() as session:
+            await resolve_notices(session, dedupe_key=_notice_key(channel_id, account_id))
+    except Exception:  # noqa: BLE001 -- 消退失败不影响绑定 / 解绑
+        logger.warning("消退 IM 账号失效提醒失败", exc_info=True)
 
 
 class ChannelHub:
@@ -402,6 +417,16 @@ class ChannelHub:
                 await ChannelAccountRepository(session).mark_stale(
                     channel_id, account_id, f"{title}凭据已失效，请重新绑定"
                 )
+                # 凭据失效 = IM 通知悄悄断了：进待处理事项（管理员手机也会收到），重新绑定后自动消退
+                await upsert_notice(
+                    session,
+                    dedupe_key=_notice_key(channel_id, account_id),
+                    severity=NoticeSeverity.WARNING,
+                    source="channel",
+                    title=f"{title}账号失效，IM 通知发不出去了",
+                    message=f"{title}的登录凭据已失效，重新绑定后通知和 AI 对话才会恢复。",
+                    payload={"channel_id": channel_id, "account_id": account_id},
+                )
             self._accounts.pop((channel_id, account_id), None)
 
         return handle
@@ -419,7 +444,9 @@ class ChannelHub:
             await self._stop_account(channel_id, account_id)
             await self._revoke_callbacks(channel_id, account_id)
             async with get_database().session() as session:
-                return await ChannelAccountRepository(session).delete(channel_id, account_id)
+                removed = await ChannelAccountRepository(session).delete(channel_id, account_id)
+        await _resolve_notice(channel_id, account_id)
+        return removed
 
     def account_owners(self) -> set[int]:
         """在运行的账号归属于哪些成员（通知的 IM 渠道据此判断谁有 IM 可收）。"""
@@ -534,6 +561,7 @@ class ChannelHub:
         async with self._sync_lock:  # 与 sync 互斥，免得同一账号被拉起两次
             await self._stop_account(channel_id, result.account_id)
             await self._start_account(row)
+        await _resolve_notice(channel_id, result.account_id)
         logger.info("通道账号已绑定 channel=%s account=%s", channel_id, result.account_id)
         return row
 

@@ -20,6 +20,7 @@ from sqlmodel import select
 
 from movieclaw_api import hooks
 from movieclaw_api.services.download_health import landing_brake, record_stalled
+from movieclaw_api.services.subscription.events import publish_download_stuck
 from movieclaw_api.services.subscription.matching import (
     covered_units,
     load_season_titles,
@@ -926,6 +927,11 @@ async def _postpone_after_empty_search(
     if not result.rowcount:
         return
     await session.refresh(attempt)
+    if attempt.search_attempts == 1:
+        # 第一次自动换源落空：告诉订阅的人这一集卡住了（之后照常退避重找，不再重复提醒）
+        await publish_download_stuck(
+            session, attempt, retry_hours=int(delay.total_seconds() // 3600)
+        )
     await SubscriptionRepository(session).add_activity(
         SubscriptionActivity(
             subscription_id=attempt.subscription_id,

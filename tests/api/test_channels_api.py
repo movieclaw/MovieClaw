@@ -55,6 +55,8 @@ class FakeWeixinClient:
                 task.cancel()
         if getter not in done:
             return {"ret": 0, "msgs": [], "get_updates_buf": ""}
+        if getter.result() == "expired":  # 网关说凭据失效了
+            return {"ret": -14, "msgs": []}
         return {"ret": 0, "msgs": [getter.result()], "get_updates_buf": f"buf-{time.time()}"}
 
     async def send_text(self, to_user_id: str, text: str, context_token: str | None) -> None:
@@ -234,6 +236,42 @@ def test_weixin_scan_binding_chat_and_push(app_env) -> None:
         assert removed.status_code == 200
         assert client.get("/api/v1/channels").json()["data"]["accounts"] == []
         assert client.post("/api/v1/channels/im/push-test", json={}).status_code == 400
+
+
+def _scan_bind(client: TestClient) -> None:
+    """微信扫码绑定 bot-1，等收发循环跑起来。"""
+    started = client.post("/api/v1/channels/bindings", json={"channel_id": "weixin"})
+    binding_id = started.json()["data"]["binding_id"]
+    url = f"/api/v1/channels/bindings/{binding_id}"
+    client.post(f"{url}/input", json={"value": "73"})
+    wait(lambda: client.get(url).json()["data"]["status"] == "confirmed")
+    wait(lambda: GATEWAY.inbox is not None)
+
+
+def test_expired_credentials_raise_a_notice_until_rebound(app_env) -> None:
+    """凭据失效：进待处理事项（管理员手机也会收到）；重新扫码绑定后自动消退。"""
+    with make_client() as client:
+
+        def notices() -> list[dict]:
+            return [
+                n
+                for n in client.get("/api/v1/system/notices").json()["data"]
+                if n["source"] == "channel"
+            ]
+
+        _scan_bind(client)
+        assert notices() == []
+        client.portal.call(GATEWAY.inbox.put, "expired")  # type: ignore[union-attr]
+        wait(lambda: len(notices()) == 1)
+        notice = notices()[0]
+        assert notice["title"] == "微信账号失效，IM 通知发不出去了"
+        assert notice["severity"] == "warning"
+        account = client.get("/api/v1/channels").json()["data"]["accounts"][0]
+        assert not account["running"]
+
+        GATEWAY.inbox = None
+        _scan_bind(client)
+        wait(lambda: notices() == [])
 
 
 def test_disabled_channel_plugin_is_reported_not_500(app_env) -> None:

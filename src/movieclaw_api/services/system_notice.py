@@ -119,7 +119,9 @@ async def resolve_notices(
         await events.publish(
             session,
             SYSTEM_ALERT_RESOLVED,
-            lambda row=row: AlertResolved(dedupe_key=row.dedupe_key, source=row.source),
+            lambda row=row: AlertResolved(
+                dedupe_key=row.dedupe_key, source=row.source, title=row.title
+            ),
         )
     await session.commit()
     logger.info("已消退 %d 条待处理告警（%s）", len(rows), dedupe_key or f"{prefix}*")

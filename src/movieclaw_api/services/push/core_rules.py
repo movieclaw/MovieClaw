@@ -1,6 +1,6 @@
 """内置的通知规则（docs/design/domain-events.md §6.1、§8）。
 
-登记顺序就是「账号 → 通知」页上的顺序。剧卡（入库、开始下载、洗版、媒体库有新片）与待处理
+登记顺序就是「账号 → 通知」页上的顺序。剧卡（入库、开始下载、洗版、媒体库有新片、订阅收齐）与待处理
 事项是聚合器：事件交给 cards.py / alerts.py 合并；其余是一个事件一条通知的规则。
 """
 
@@ -26,11 +26,45 @@ def _alert(_name: str, payload: Any) -> None:
     alerts.queue(payload.dedupe_key)
 
 
+def _alert_resolved(_name: str, payload: Any) -> None:
+    from movieclaw_api.services.push import alerts
+
+    alerts.resolved(payload.dedupe_key)
+
+
 # ---------------------------------------------------------------------- 订阅、媒体库
 async def _identity_skipped(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
     return AlertContent(
         title=f"《{p.media.title}》仍在寻找资源",
         body="发现同名影片，部分资源暂时无法确认，已跳过。订阅会继续寻找，无需你处理。",
+        open=f"/subscriptions/{p.subscription_id}",
+        thread=f"subscription:{p.subscription_id}",
+    )
+
+
+async def _stuck(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
+    from movieclaw_api.services.push.labels import units_text
+
+    which = units_text([(u.season, u.episode) for u in p.units])
+    return AlertContent(
+        title=f"《{p.media.title}》{which}下载卡住了",
+        body=(
+            f"下载停滞，自动换源暂时没找到同品质的替代资源，约 {p.retry_hours} 小时后再找；"
+            "也可以在订阅里手动换一个。"
+        ),
+        open=f"/subscriptions/{p.subscription_id}",
+        thread=f"subscription:{p.subscription_id}",
+    )
+
+
+async def _more_episodes(_s: AsyncSession, _member: int, p: Any) -> AlertContent:
+    where = "站点上出现了后面的集" if p.source == "site" else "豆瓣的集数更多"
+    return AlertContent(
+        title=f"《{p.media.title}》第 {p.season} 季可能有 {p.hinted_count} 集",
+        body=(
+            f"TMDB 只录了 {p.known_count} 集，但{where}。在订阅里确认集数后，"
+            "会继续追后面的集。"
+        ),
         open=f"/subscriptions/{p.subscription_id}",
         thread=f"subscription:{p.subscription_id}",
     )
@@ -139,6 +173,41 @@ def register_all() -> None:
     )
     register(
         Aggregator(
+            key="subscription.completed",
+            title="订阅收齐了",
+            description="你订阅的剧全部入库、没有要等的了（剧卡已经说过全部到齐的不再重复）",
+            group="我的订阅",
+            default=True,
+            events=("subscription.status_changed",),
+            handle=_cards,
+        )
+    )
+    register(
+        Rule(
+            event="subscription.download_stuck",
+            title="下载卡住了",
+            description="你订阅的内容下载停滞、自动换源也没找到替代资源时（每个下载只提醒一次）",
+            group="我的订阅",
+            default=True,
+            audience=Audience.subscribers("subscription_id"),
+            render=_stuck,
+            collapse=lambda p: ("stuck", str(p.subscription_id)),
+        )
+    )
+    register(
+        Rule(
+            event="subscription.more_episodes",
+            title="可能还有更多集",
+            description="站点或豆瓣显示这一季比 TMDB 录的集数多，要你确认后才继续追",
+            group="我的订阅",
+            default=True,
+            audience=Audience.subscribers("subscription_id"),
+            render=_more_episodes,
+            collapse=lambda p: ("more-episodes", f"{p.subscription_id}:{p.season}"),
+        )
+    )
+    register(
+        Aggregator(
             key="library.items.arrived",
             title="媒体库有新片",
             description="你关心的媒体库来了新片或新剧集，不管是谁下载的",
@@ -173,6 +242,18 @@ def register_all() -> None:
             admin_only=True,
             events=("system.alert.raised",),
             handle=_alert,
+        )
+    )
+    register(
+        Aggregator(
+            key="system.alert.resolved",
+            title="问题已恢复",
+            description="推过的问题自动消失时，那条通知原地改成「已恢复」（安静送达）",
+            group="管理员",
+            default=True,
+            admin_only=True,
+            events=("system.alert.resolved",),
+            handle=_alert_resolved,
         )
     )
     register(

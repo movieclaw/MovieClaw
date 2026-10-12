@@ -27,6 +27,8 @@ tests 守着：契约有增删时本文必须同步）。都是实验级；清�
 | `subscription.fulfilled` | 订阅的季集经媒体库对账确认入库 | 收齐提醒、外部片单打勾 | `units` 全部入库的，`requested_units` 其中仍在订阅范围内的 |
 | `subscription.upgraded` | 订阅的一集换成了更好的版本 | 洗版记录 | |
 | `subscription.identity_skipped` | 订阅跳过了身份不明的同名资源（每个订阅一次） | 知会 | |
+| `subscription.download_stuck` | 订阅已选中的种子一直下不下来，换源也没搜到（每次卡住一次） | 提醒换源、手动处理 | 带种子名、多少小时后再试 |
+| `subscription.more_episodes` | 订阅收齐后发现可能还有更多集（站点或豆瓣给的集数更多） | 提醒确认集数 | `source` 是 `site` / `douban` |
 | `download.completed` | 订阅投递的种子在下载器里下载完成（入库前） | 下载完通知、校验、搬运 | |
 | `download.imported` | 手动下载的内容全部入库 | 通知点下载的人 | |
 | `library.ingest.completed` | 下载条目整理入库完成（载荷 `imported_names` 是整理前的原始文件名：按命名模板改名后 TC、CAM 这类发布标记通常就没了，按发布名判断的看它） | 入库后通知、同步到别处、记账 | |

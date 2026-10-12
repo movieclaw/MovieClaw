@@ -15,13 +15,17 @@ from movieclaw_api import event_refs, events
 from movieclaw_sdk.events import (
     DOWNLOAD_COMPLETED,
     SUBSCRIPTION_DOWNLOAD_STARTED,
+    SUBSCRIPTION_DOWNLOAD_STUCK,
     SUBSCRIPTION_FULFILLED,
+    SUBSCRIPTION_MORE_EPISODES,
     SUBSCRIPTION_UPGRADED,
     DownloadCompleted,
     EventType,
     SubscriptionChanged,
     SubscriptionDownloadStarted,
+    SubscriptionDownloadStuck,
     SubscriptionFulfilled,
+    SubscriptionMoreEpisodes,
     SubscriptionUpgraded,
     TorrentRef,
 )
@@ -176,3 +180,54 @@ async def publish_download_completed(session: AsyncSession, attempt: Any) -> Non
         )
 
     await events.publish(session, DOWNLOAD_COMPLETED, build)
+
+
+async def publish_download_stuck(session: AsyncSession, attempt: Any, *, retry_hours: int) -> None:
+    """订阅的下载卡住、第一次自动换源落空（每个下载任务只发一次）。"""
+    from movieclaw_db.models import MediaItem, Subscription
+
+    async def build() -> SubscriptionDownloadStuck | None:
+        subscription = await session.get(Subscription, attempt.subscription_id)
+        item = await session.get(MediaItem, subscription.media_item_id) if subscription else None
+        media = event_refs.media_ref(item)
+        if media is None:
+            return None
+        return SubscriptionDownloadStuck(
+            subscription_id=attempt.subscription_id,
+            media=media,
+            units=event_refs.units(attempt.units or ()),
+            torrent_title=attempt.torrent_title or None,
+            retry_hours=retry_hours,
+        )
+
+    await events.publish(session, SUBSCRIPTION_DOWNLOAD_STUCK, build)
+
+
+async def publish_more_episodes(
+    session: AsyncSession,
+    subscription: Any,
+    item: Any,
+    *,
+    season: int,
+    known_count: int,
+    hinted_count: int,
+    source: str,
+    hint_title: str | None = None,
+) -> None:
+    """这一季可能不止 TMDB 录的集数，等用户确认（站点或豆瓣给出了新线索才发）。"""
+    media = event_refs.media_ref(item)
+    if media is None or subscription.id is None:
+        return
+    await events.publish(
+        session,
+        SUBSCRIPTION_MORE_EPISODES,
+        lambda: SubscriptionMoreEpisodes(
+            subscription_id=subscription.id,
+            media=media,
+            season=season,
+            known_count=known_count,
+            hinted_count=hinted_count,
+            source=source,
+            hint_title=hint_title,
+        ),
+    )

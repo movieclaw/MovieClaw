@@ -80,6 +80,15 @@ class Upgraded:
 
 
 @dataclass(frozen=True)
+class Completed:
+    """订阅的剧自然收齐了（没有在路上的、也不会再有新集）。"""
+
+    subscription_id: int
+    item_id: int
+    title: str
+
+
+@dataclass(frozen=True)
 class Tick:
     """定时到了：重新看一眼这张卡（``key`` 见 cards.py）。"""
 

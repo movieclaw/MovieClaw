@@ -75,6 +75,40 @@ class SubscriptionIdentitySkipped(Frozen):
     media: MediaRef
 
 
+class SubscriptionDownloadStuck(Frozen):
+    """订阅的一个下载卡住了（下载器里停滞），自动换源也没找到能替代的资源。
+
+    每个下载任务只在第一次换源落空时发一次；之后照常按退避继续找，找到了就自动换上。
+    """
+
+    subscription_id: int
+    media: MediaRef
+    units: tuple[UnitRef, ...]
+    """卡住的季集；电影为空。"""
+    torrent_title: str | None = None
+    retry_hours: int
+    """大约多少小时后再找一次。"""
+
+
+class SubscriptionMoreEpisodes(Frozen):
+    """发现这一季可能不止 TMDB 录的集数（站点出现了更后面的集，或豆瓣的集数更多），等用户确认。
+
+    订阅在用户确认前按 TMDB 的集数判断是否收齐；确认后才会继续追后面的集。
+    """
+
+    subscription_id: int
+    media: MediaRef
+    season: int
+    known_count: int
+    """TMDB 录的集数。"""
+    hinted_count: int
+    """线索给出的集数。"""
+    source: str
+    """``site``（站点出现了这一集的资源）/ ``douban``（豆瓣集数）。"""
+    hint_title: str | None = None
+    """站点线索的资源标题。"""
+
+
 SUBSCRIPTION_CREATED = define(
     "subscription.created",
     SubscriptionChanged,
@@ -120,4 +154,18 @@ SUBSCRIPTION_IDENTITY_SKIPPED = define(
     title="已跳过同名资源",
     group="订阅",
     doc="订阅发现无法确认身份的同名资源，已自动跳过",
+)
+SUBSCRIPTION_DOWNLOAD_STUCK = define(
+    "subscription.download_stuck",
+    SubscriptionDownloadStuck,
+    title="订阅的下载卡住了",
+    group="订阅",
+    doc="订阅的下载停滞，自动换源也没找到替代资源",
+)
+SUBSCRIPTION_MORE_EPISODES = define(
+    "subscription.more_episodes",
+    SubscriptionMoreEpisodes,
+    title="可能还有更多集",
+    group="订阅",
+    doc="这一季可能不止 TMDB 录的集数，等用户确认后继续追",
 )

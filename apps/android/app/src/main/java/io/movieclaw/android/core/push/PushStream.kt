@@ -63,8 +63,9 @@ object StreamNotifications {
         "subscription.fulfilled", "subscription.upgraded", "library.items.arrived",
         "imported", "upgraded", "library_new" -> Notifier.CH_ARRIVAL
         "subscription.download_started", "download_started" -> Notifier.CH_DOWNLOAD
-        "subscription.identity_skipped", "identity_skipped" -> Notifier.CH_SUBSCRIPTION
-        else -> Notifier.CH_TASK // 新设备登录 / 待处理事项 / 新版本 / 使用建议 / 插件 / test
+        "subscription.identity_skipped", "identity_skipped", "subscription.completed",
+        "subscription.download_stuck", "subscription.more_episodes" -> Notifier.CH_SUBSCRIPTION
+        else -> Notifier.CH_TASK // 新设备登录 / 待处理事项（含已恢复）/ 新版本 / 使用建议 / 插件 / test
     }
 
     /** 同一个 collapse 用同一个通知 id（新的替换旧的）；没有就按发件箱 id，各占一条 */

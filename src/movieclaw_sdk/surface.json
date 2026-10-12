@@ -4943,6 +4943,132 @@
     "stability": "experimental",
     "version": "1.0"
   },
+  "subscription.download_stuck": {
+    "doc": "订阅的下载停滞，自动换源也没找到替代资源",
+    "durable": true,
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        },
+        "UnitRef": {
+          "properties": {
+            "episode": {
+              "type": "integer"
+            },
+            "season": {
+              "type": "integer"
+            }
+          },
+          "required": [
+            "season",
+            "episode"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "media": {
+          "$ref": "#/$defs/MediaRef"
+        },
+        "retry_hours": {
+          "type": "integer"
+        },
+        "subscription_id": {
+          "type": "integer"
+        },
+        "torrent_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "units": {
+          "items": {
+            "$ref": "#/$defs/UnitRef"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "subscription_id",
+        "media",
+        "units",
+        "retry_hours"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
   "subscription.fulfilled": {
     "doc": "订阅的季集经媒体库对账确认入库",
     "durable": true,
@@ -5143,6 +5269,122 @@
       "required": [
         "subscription_id",
         "media"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
+  "subscription.more_episodes": {
+    "doc": "这一季可能不止 TMDB 录的集数，等用户确认后继续追",
+    "durable": true,
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "$defs": {
+        "MediaRef": {
+          "properties": {
+            "id": {
+              "type": "integer"
+            },
+            "imdb_id": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "kind": {
+              "type": "string"
+            },
+            "original_title": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "title": {
+              "type": "string"
+            },
+            "tmdb_id": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title"
+          ],
+          "type": "object"
+        }
+      },
+      "properties": {
+        "hint_title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "hinted_count": {
+          "type": "integer"
+        },
+        "known_count": {
+          "type": "integer"
+        },
+        "media": {
+          "$ref": "#/$defs/MediaRef"
+        },
+        "season": {
+          "type": "integer"
+        },
+        "source": {
+          "type": "string"
+        },
+        "subscription_id": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "subscription_id",
+        "media",
+        "season",
+        "known_count",
+        "hinted_count",
+        "source"
       ],
       "type": "object"
     },
@@ -5579,11 +5821,15 @@
         },
         "source": {
           "type": "string"
+        },
+        "title": {
+          "type": "string"
         }
       },
       "required": [
         "dedupe_key",
-        "source"
+        "source",
+        "title"
       ],
       "type": "object"
     },

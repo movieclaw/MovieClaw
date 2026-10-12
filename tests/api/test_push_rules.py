@@ -37,13 +37,18 @@ def test_preference_switches_follow_the_rule_table() -> None:
         "subscription.download_started",
         "subscription.identity_skipped",
         "subscription.upgraded",
+        "subscription.completed",
+        "subscription.download_stuck",
+        "subscription.more_episodes",
         "library.items.arrived",
         "account.device.signed_in",
         "system.alert.raised",
+        "system.alert.resolved",
         "system.update.available",
         "system.tip.suggested",
     ]
-    # 偏好键就是触发它的事件名：每条都对得上一个系统事件（剧卡的事件在 P2/P4 定义）
+    # 偏好键就是触发它的事件名：每条都对得上一个系统事件（剧卡的事件在 P2/P4 定义；
+    # 「订阅收齐了」是状态变化事件里的一种情形，单独一个开关）
     defined = {e.name for e in core_events()}
     for entry in rules.entries():
         assert entry.pref_key in defined | {
@@ -51,6 +56,7 @@ def test_preference_switches_follow_the_rule_table() -> None:
             "subscription.download_started",
             "subscription.upgraded",
             "library.items.arrived",
+            "subscription.completed",
         }
     member_keys = {e.key for e in preferences.events_for(is_admin=False)}
     assert "system.alert.raised" not in member_keys and "subscription.fulfilled" in member_keys
