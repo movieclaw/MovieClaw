@@ -27,8 +27,8 @@ window.DesktopUpdates = {
   show(info) {
     if (this.busy()) return;
     this.retire(this.active);
-    this.info = { has_update: info?.has_update === true, current_version: this.text(info?.current_version, 128),
-      latest_version: this.text(info?.latest_version, 128), message: this.text(info?.message, 600), release_notes: this.releaseText(info?.release_notes) };
+    this.info = { has_update: info?.has_update === true, current_version: this.text(info?.current_version ?? info?.current, 128),
+      latest_version: this.text(info?.latest_version ?? info?.version, 128), message: this.text(info?.message, 600), release_notes: this.releaseText(info?.release_notes) };
     this.phase = this.info.has_update ? 'available' : 'current';
     this.error = ''; this.download = null; this.progress = null; this.active = null;
     this.render(true);

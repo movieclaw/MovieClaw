@@ -13,6 +13,16 @@ async function screenshot(page, info, name) {
   await info.attach(name,{path:filename,contentType:'image/png'});
 }
 
+test('startup and tray update events supply a downloadable version through legacy field names', async ({page,request}) => {
+  await openDesktop(page,request,{updater:true,updateSameVersion:true});
+  await page.evaluate(()=>window.__fixture.emit('update_available',{version:'desktop-v1.0.0',current:'1.0.0',message:'发现同版本新构建'}));
+  await expect(page.locator('#desktopUpdateDialog')).toBeVisible();
+  await expect(page.locator('.update-versions')).toHaveText('当前 1.0.0 · 最新 1.0.0');
+  await page.locator('#updateDownload').click();
+  await expect(page.locator('#updateInstall')).toBeVisible();
+  expect((await state(request)).updateRequests.find(value=>value.command==='download_update').args).toEqual({version:'desktop-v1.0.0'});
+});
+
 test('a newer build of 1.0.0 is downloadable while current and failed checks stay distinct', async ({page,request}) => {
   await updates(page,request,{updateSameVersion:true});
   await expect(page.locator('#desktopUpdateMessage')).toContainText('1.0.0 的新构建 bbbbbbbb');
