@@ -390,6 +390,30 @@ def native_tonemap_filter(backend: HwBackend) -> str | None:
     return _PROBED_TONEMAP.get(backend.name, backend.tonemap_filter)
 
 
+#: VAAPI 的低功耗编码（Intel VDEnc 定长电路）。Intel 自 11/12 代起主推这条路；issue #763 的
+#: SR-IOV 虚拟核显（12 代，黑群晖跑在虚拟机里）上，默认的普通编码一跑真实片子就让 GPU 挂死
+#: 重置，换低功耗整条链（硬解 → tonemap_vaapi → scale_vaapi → 编码）正常。老核显不支持它，
+#: 所以不写死，由自检确认后回写（``register_encoder_options``）。
+VAAPI_LOW_POWER: tuple[str, ...] = ("-low_power", "1")
+
+#: 后端名 → 经硬件自检确认、要跟在编码器后面的参数。见 ``VAAPI_LOW_POWER``。
+_PROBED_ENCODER_OPTIONS: dict[str, tuple[str, ...]] = {}
+
+
+def register_encoder_options(backend: str, options: tuple[str, ...]) -> None:
+    """自检确认某后端的编码器要加哪些参数（空=不加）。与 ``register_native_tonemap``
+    同理：只由 ``hwprobe`` 写，装配层保持纯函数。"""
+    if options:
+        _PROBED_ENCODER_OPTIONS[backend] = options
+    else:
+        _PROBED_ENCODER_OPTIONS.pop(backend, None)
+
+
+def encoder_options(backend: HwBackend) -> tuple[str, ...]:
+    """该后端这次编码要追加的参数。"""
+    return _PROBED_ENCODER_OPTIONS.get(backend.name, ())
+
+
 def _needs_software_filters(
     plan: PlaybackPlan, backend: HwBackend | None, *, burn: bool
 ) -> bool:
@@ -745,7 +769,7 @@ def _video_args(
     maxrate = maxrate_for_video(plan.video)
     bufsize = f"{float(maxrate[:-1]) * 2:g}M"
     if backend is not None:
-        args += ["-c:v", backend.encoder]
+        args += ["-c:v", backend.encoder, *encoder_options(backend)]
         # iOS 原生 HLS 对 10-bit/High 10 的硬件编码结果兼容性很差，统一锁
         # 到 High profile + 8-bit yuv420p。VideoToolbox 不能在 4K 输出时强制
         # 使用 High@4.1（会以 kVTParameterErr=-12902 拒绝创建编码器），因此

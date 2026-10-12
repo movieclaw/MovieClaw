@@ -18,10 +18,12 @@ from movieclaw_api.services.playback.ffmpeg_args import (
     MAX_GOP_FRAMES,
     NVENC_TONEMAP,
     SEGMENT_SECONDS,
+    VAAPI_LOW_POWER,
     VIDEOTOOLBOX_TONEMAP,
     WorkerVideoCaps,
     build_hls_command,
     effective_hw_backend,
+    register_encoder_options,
     register_native_tonemap,
 )
 from movieclaw_playback.decide import (
@@ -444,6 +446,33 @@ def test_vaapi_uses_native_tonemap_filter():
     vf = pair(argv, "-vf")
     assert vf and vf.startswith("tonemap_vaapi")
     assert "scale_vaapi" in vf
+
+
+def test_vaapi_low_power_is_used_only_after_the_probe_confirms_it():
+    """issue #763：SR-IOV 虚拟核显上普通编码挂 GPU、低功耗正常。低功耗由自检确认后回写，
+    没确认时命令与原来逐字一致（老核显不支持低功耗，不能硬加）。"""
+    hdr = plan(
+        PlaybackTier.HARDWARE_TRANSCODE,
+        video=VideoPlan(action="transcode", codec="h264", height=1080, tone_map=True),
+    )
+    plain = argv_of(hdr, hw_backend="vaapi")
+    assert "-low_power" not in plain
+    register_encoder_options("vaapi", VAAPI_LOW_POWER)
+    try:
+        argv = argv_of(hdr, hw_backend="vaapi")
+    finally:
+        register_encoder_options("vaapi", ())
+    at = argv.index("h264_vaapi")
+    assert argv[at - 1] == "-c:v"
+    assert tuple(argv[at + 1 : at + 3]) == VAAPI_LOW_POWER  # 紧跟编码器，作用于它
+    # 除了这一对参数，其余与普通编码完全相同：色调映射、缩放、码率控制都不变
+    assert argv[: at + 1] + argv[at + 3 :] == plain
+    # 只作用于 VAAPI：其它后端的命令不受影响
+    register_encoder_options("vaapi", VAAPI_LOW_POWER)
+    try:
+        assert "-low_power" not in argv_of(hdr, hw_backend="qsv")
+    finally:
+        register_encoder_options("vaapi", ())
 
 
 def test_nvenc_without_probed_tonemap_uses_software_tonemap_but_keeps_nvdec():

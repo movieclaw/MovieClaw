@@ -14,6 +14,7 @@ from pathlib import Path
 import pytest
 
 from movieclaw_api.services.playback import hwprobe
+from movieclaw_api.services.playback.ffmpeg_args import HW_BACKENDS, encoder_options
 
 
 @pytest.fixture(autouse=True)
@@ -120,12 +121,77 @@ def test_successful_probe_marks_the_backend_available(monkeypatch, tmp_path):
     monkeypatch.setattr(hwprobe.os, "access", lambda *_a: True)
     monkeypatch.setattr(
         hwprobe, "_run_probe",
-        lambda *_a: subprocess.CompletedProcess([], 0, b"", b""),
+        lambda *_a, **_k: subprocess.CompletedProcess([], 0, b"", b""),
     )
     statuses = hwprobe.probe_backends()
     assert status_of(statuses, "vaapi").available is True
     assert "真实编码验证" in status_of(statuses, "vaapi").detail
     assert "vaapi" in hwprobe.available_backends()
+
+
+def _vaapi_ready(monkeypatch, tmp_path):
+    dri = tmp_path / "dri"
+    dri.mkdir()
+    (dri / "renderD128").write_bytes(b"")
+    monkeypatch.setattr(hwprobe.shutil, "which", lambda _n: "/usr/bin/ffmpeg")
+    monkeypatch.setattr(hwprobe, "_list_encoders", lambda: frozenset({"h264_vaapi"}))
+    monkeypatch.setattr(hwprobe, "Path", lambda _p: dri)
+    monkeypatch.setattr(hwprobe.os, "access", lambda *_a: True)
+
+
+def test_vaapi_prefers_low_power_encoding_when_it_works(monkeypatch, tmp_path):
+    """issue #763：先试低功耗编码，跑通就用它，普通编码不再探（普通编码在那台机器上
+    合成画面能过、真实片子挂 GPU，探了也说明不了问题）。低功耗探测要带上真实转码的
+    profile / level / 码率控制——VDEnc 支持的码率控制与普通编码不同。"""
+    _vaapi_ready(monkeypatch, tmp_path)
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 0, b"", b"")
+
+    monkeypatch.setattr(hwprobe.subprocess, "run", fake_run)
+    vaapi = status_of(hwprobe.probe_backends(), "vaapi")
+    assert vaapi.available is True
+    assert "低功耗" in vaapi.detail
+    (argv,) = [a for a in calls if "h264_vaapi" in a]
+    after = argv[argv.index("h264_vaapi") + 1 :]
+    assert after[:2] == ["-low_power", "1"]
+    assert {"-profile:v", "-level:v", "-b:v", "-maxrate", "-bufsize"} <= set(after)
+    assert encoder_options(HW_BACKENDS["vaapi"]) == ("-low_power", "1")
+
+
+def test_vaapi_falls_back_to_normal_encoding_without_low_power(monkeypatch, tmp_path):
+    """老核显不支持低功耗：探不通就退回普通编码，行为与原来一致，命令里不带 -low_power。"""
+    _vaapi_ready(monkeypatch, tmp_path)
+    calls: list[list[str]] = []
+
+    def fake_run(argv, **_kwargs):
+        calls.append(argv)
+        failed = "-low_power" in argv
+        return subprocess.CompletedProcess(
+            argv, 1 if failed else 0, b"", b"low power not supported" if failed else b""
+        )
+
+    monkeypatch.setattr(hwprobe.subprocess, "run", fake_run)
+    vaapi = status_of(hwprobe.probe_backends(), "vaapi")
+    assert vaapi.available is True
+    assert "低功耗" not in vaapi.detail
+    assert [("-low_power" in a) for a in calls if "h264_vaapi" in a] == [True, False]
+    assert encoder_options(HW_BACKENDS["vaapi"]) == ()
+
+
+def test_reprobe_drops_a_stale_low_power_conclusion(monkeypatch, tmp_path):
+    """设置页「重新检测」：上次探到低功耗、这次设备没了，不能留着旧结论。"""
+    _vaapi_ready(monkeypatch, tmp_path)
+    monkeypatch.setattr(
+        hwprobe.subprocess, "run", lambda argv, **_k: subprocess.CompletedProcess(argv, 0, b"", b"")
+    )
+    hwprobe.probe_backends()
+    assert encoder_options(HW_BACKENDS["vaapi"]) == ("-low_power", "1")
+    monkeypatch.setattr(hwprobe, "Path", lambda _p: tmp_path / "gone")
+    assert status_of(hwprobe.probe_backends(force=True), "vaapi").available is False
+    assert encoder_options(HW_BACKENDS["vaapi"]) == ()
 
 
 def test_qsv_probe_initialises_its_device_before_hwupload(monkeypatch, tmp_path):
@@ -163,7 +229,7 @@ def test_probe_timeout_is_reported_not_swallowed(monkeypatch, tmp_path):
     monkeypatch.setattr(hwprobe, "_list_encoders", lambda: frozenset({"h264_vaapi"}))
     monkeypatch.setattr(hwprobe, "Path", lambda _p: dri)
     monkeypatch.setattr(hwprobe.os, "access", lambda *_a: True)
-    monkeypatch.setattr(hwprobe, "_run_probe", lambda *_a: None)
+    monkeypatch.setattr(hwprobe, "_run_probe", lambda *_a, **_k: None)
     assert "超时" in status_of(hwprobe.probe_backends(), "vaapi").detail
 
 

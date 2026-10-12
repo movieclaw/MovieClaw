@@ -31,6 +31,8 @@ from pathlib import Path
 from movieclaw_api.services.playback.ffmpeg_args import (
     HW_BACKENDS,
     NVENC_TONEMAP,
+    VAAPI_LOW_POWER,
+    register_encoder_options,
     register_native_tonemap,
 )
 from movieclaw_api.services.playback.remote_worker import remote_worker_available
@@ -57,6 +59,15 @@ _PROBE_FILTERS: dict[str, list[str]] = {
     "nvenc": ["-vf", "format=yuv420p"],
     "videotoolbox": ["-vf", "format=nv12"],
 }
+
+#: VAAPI 低功耗编码的探测参数：除了 ``-low_power 1``，把真实转码会带的 profile / level /
+#: 码率控制也带上——VDEnc 支持的码率控制模式与普通编码不同，只探「能不能开」会探得通、
+#: 真用时再被码率参数拒掉。数值取 1080p 档的量级，探测源再小也照样走这套参数校验。
+_VAAPI_LOW_POWER_PROBE_ARGS: list[str] = [
+    *VAAPI_LOW_POWER,
+    "-profile:v", "high", "-level:v", "4.1",
+    "-b:v", "0", "-maxrate", "8M", "-bufsize", "16M",
+]  # fmt: skip
 
 #: 需要真跑一遍才敢启用的原生 tone-map 链：``tonemap_cuda`` 是 jellyfin-ffmpeg
 #: 的补丁，上游 ffmpeg 没有；即便滤镜在，老驱动也可能初始化不起来。值是一对：
@@ -163,6 +174,8 @@ def reset_probe_cache() -> None:
     _cache = None
     for name in _NATIVE_TONEMAP_PROBES:
         register_native_tonemap(name, None)
+    for name in HW_BACKENDS:
+        register_encoder_options(name, ())
 
 
 async def probe_backends_async(*, force: bool = False) -> list[HwBackendStatus]:
@@ -201,6 +214,9 @@ def _probe_one(name: str, encoders: frozenset[str]) -> HwBackendStatus:
     def status(available: bool, detail: str) -> HwBackendStatus:
         return HwBackendStatus(name=name, label=label, available=available, detail=detail)
 
+    # 上一次自检的结论作废，本轮探到什么算什么（设置页「重新检测」会走到这里）
+    register_encoder_options(name, ())
+
     if backend.encoder not in encoders:
         # VideoToolbox 只存在于 macOS，Linux 容器里查不到是正常的，别让用户
         # 以为自己漏配了什么。
@@ -214,6 +230,15 @@ def _probe_one(name: str, encoders: frozenset[str]) -> HwBackendStatus:
     if device_problem is not None:
         return status(False, device_problem)
 
+    if name == "vaapi":
+        # 先试低功耗编码，能用就优先用它（理由见 ffmpeg_args.VAAPI_LOW_POWER）；老核显不支持，
+        # 探不通退回下面的普通编码，与原来的行为一致
+        low_power = _run_probe(
+            backend.encoder, _PROBE_FILTERS["vaapi"], encoder_args=_VAAPI_LOW_POWER_PROBE_ARGS
+        )
+        if low_power is not None and low_power.returncode == 0:
+            register_encoder_options(name, VAAPI_LOW_POWER)
+            return status(True, "已通过一秒钟的真实编码验证（低功耗编码），可用于硬件转码。")
     proc = _run_probe(backend.encoder, _PROBE_FILTERS.get(name, []))
     if proc is None:
         return status(False, "硬件编码探测超时——设备可能被占用或驱动无响应。")
@@ -223,13 +248,13 @@ def _probe_one(name: str, encoders: frozenset[str]) -> HwBackendStatus:
 
 
 def _run_probe(
-    encoder: str, filters: list[str]
+    encoder: str, filters: list[str], *, encoder_args: list[str] | None = None
 ) -> subprocess.CompletedProcess[bytes] | None:
     argv = [
         "ffmpeg", "-hide_banner", "-v", "error",
         "-f", "lavfi", "-i", _PROBE_SOURCE,
         *filters,
-        "-c:v", encoder, "-f", "null", "-",
+        "-c:v", encoder, *(encoder_args or []), "-f", "null", "-",
     ]
     try:
         return subprocess.run(argv, capture_output=True, timeout=_PROBE_TIMEOUT)

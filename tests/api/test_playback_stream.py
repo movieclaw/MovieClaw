@@ -2396,3 +2396,24 @@ def test_only_streaming_clients_get_partial_segments():
     assert not routes_playback._consumes_partial_segments(request(chrome))
     assert routes_playback._consumes_partial_segments(request(chrome, b"partial=1"))
     assert not routes_playback._consumes_partial_segments(request(chrome, b"partial=0"))
+
+
+def test_diagnostic_encoder_marks_vaapi_low_power():
+    """诊断面板要看得出 VAAPI 用的是不是低功耗编码：同一块核显两种模式表现可能
+    天差地别（issue #763），排查时第一眼就要知道。"""
+    from movieclaw_api.services.playback.ffmpeg_args import (
+        VAAPI_LOW_POWER,
+        register_encoder_options,
+    )
+    from movieclaw_playback.decide import VideoPlan
+
+    session = SimpleNamespace(
+        plan=SimpleNamespace(video=VideoPlan(action="transcode", codec="h264")),
+        hw_backend="vaapi",
+    )
+    assert routes_playback._diagnostic_encoder(session) == "h264_vaapi"
+    register_encoder_options("vaapi", VAAPI_LOW_POWER)
+    try:
+        assert routes_playback._diagnostic_encoder(session) == "h264_vaapi（低功耗）"
+    finally:
+        register_encoder_options("vaapi", ())

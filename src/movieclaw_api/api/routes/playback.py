@@ -102,7 +102,9 @@ from movieclaw_api.services.playback.ffmpeg_args import (
     HW_BACKENDS,
     INIT_NAME,
     SEGMENT_SECONDS,
+    VAAPI_LOW_POWER,
     effective_hw_backend,
+    encoder_options,
     is_mpegts,
     segment_pattern,
 )
@@ -253,7 +255,9 @@ def _diagnostic_encoder(session: TranscodeSession) -> str | None:
     if session.hw_backend:
         backend = HW_BACKENDS.get(session.hw_backend)
         if backend is not None:
-            return backend.encoder
+            # 低功耗编码要标出来：同一块核显两种模式表现可能天差地别（issue #763）
+            low_power = encoder_options(backend) == VAAPI_LOW_POWER
+            return f"{backend.encoder}（低功耗）" if low_power else backend.encoder
     return "libx264"
 
 

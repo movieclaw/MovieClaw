@@ -595,6 +595,10 @@ IO 安全定值（`limits.py`，2026-08-25 撤下设置页）。
   > 检测到 Intel 核显，但 `/dev/dri/renderD128` 无访问权限。
   > 请在 compose 中加入 `group_add: ["<你的 render 组 GID>"]` 后重启容器。
 - 探测结果缓存，接口带 `refresh=true` 可强制重测。
+- VAAPI 先探**低功耗编码**（`h264_vaapi -low_power 1`，带上真实转码的 profile / level /
+  码率控制），跑通就用它，探不通退回普通编码（2026-10-12，issue #763）。现场是黑群晖
+  虚拟机里的 SR-IOV 虚拟核显（12 代）：普通编码合成画面能过自检，一跑真实片子就让
+  GPU 挂死重置；低功耗整条链正常。诊断面板的编码器名会标「（低功耗）」。
 
 ### 5.3 ffmpeg 与 runtime-version
 
