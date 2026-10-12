@@ -324,8 +324,8 @@ async with httpx.AsyncClient(transport=net.http_transport("me-feed"), timeout=20
 **通知类需求优先做通道插件**：主程序的推送开关（`mclaw channels im push config get`）已经决定推哪些事件
 （入库、开始下载、收齐……），通道插件只管「发到哪」，用户在设置里统一开关。开关对所有通道一起生效：
 用户只想收其中一种时，提醒他其他开着的也会推过来，要不要关由他定。随带通道（如飞书）的清单没写 `network = true`、
-直接用 httpx——它们是受信代码，第三方通道照着写时要补上联网声明、改走 `net.http_transport`。只有要推的事件不在开关里时，
-才监听可靠事件自己发请求。
+直接用 httpx——它们是受信代码，第三方通道照着写时要补上联网声明、改走 `net.http_transport`。要推的事情不在开关里时，
+不要自己监听事件、自己发请求：定义插件事件、在清单写 `[[notifications]]`（第 17 节），宿主按每个人的开关推到手机和 IM。
 
 各平台的协议细节（地址、鉴权、心跳、消息格式）技能里没有：先用 curl 查平台公开文档核对，或请用户提供文档；
 不要凭记忆写协议。
@@ -637,7 +637,23 @@ audience = "admins"
 ```
 
 - 事件名以插件 id 开头、在 `[[events]]` 里声明；载荷是冻结的 pydantic 模型（进程外插件按它的 JSON Schema 校验）。
-- 一个事件最多一条通知；收件人只能是 `admins`、`member:<字段>`（字段值是宿主给过你的成员 id：调用你成员区接口的人、
-  事件载荷里的成员）、`media:<字段>`（订阅或关注了那部片的人）。宿主不提供「列出所有成员」。
+- 一个事件最多一条通知。收件人 `audience` 只有三种写法，`<字段>` 换成**你事件载荷里的字段名**（嵌套用 `a.b`），
+  宿主发事件时去这个字段取值、据此定收件人：
+
+  | 写法 | 那个字段的值 | 推给谁 |
+  |---|---|---|
+  | `admins` | （不取字段） | 管理员 |
+  | `member:member_id` | 成员 id（整数）：宿主给过你的——调用你成员区接口的人、系统事件载荷里的成员 | 这个成员 |
+  | `media:item` | 一部片：Python 插件用 `MediaRef`（`from movieclaw_sdk.events import MediaRef`），进程外插件传 `{"id", "kind", "title"}`，`id` 是媒体库条目 id | 订阅或关注了这部片的人 |
+
+  字段名你自己起，和载荷对得上即可；取不到值（字段名写错、类型不对）就谁也不推，不报错——写完用一次真实发送核对。
+  宿主不提供「列出所有成员」。载荷里有片的，看不到这部片的人一律不推，`open = "media"` 点开去这部片的条目页。
+
+  ```python
+  class BetterVersion(BaseModel):
+      model_config = ConfigDict(frozen=True)
+      item: MediaRef        # 清单写 audience = "media:item"
+      label: str            # 模板里用 {label}、{item.title}
+  ```
 - 用户在「账号 → 通知」的「插件 · <插件名>」分组里逐条开关；插件卸载时这些开关一并删掉。
 
