@@ -106,7 +106,8 @@ docker-image 手动 Run workflow 输入标签即可。本地/离线构建仍可�
 2. 生成更新清单（tag 必须与将要创建的 Release tag 一致，后端会强校验）：
    `./scripts/build-model-manifest.sh <模型目录> torrent-ner-vN`
 3. 创建 tag 为 `torrent-ner-vN` 的 GitHub Release（N 递增），**必须带
-   `--latest=false`**（如 `gh release create torrent-ner-vN --latest=false …`），
+   `--latest=false`**，标题写 `MovieClaw NER Model N`
+   （如 `gh release create torrent-ner-vN --latest=false --title "MovieClaw NER Model N" …`），
    上传三件套 + `manifest.json`（+ 签名时的 `manifest.json.sig`）
 4. 为什么 `--latest=false` 是硬约束：install-cli.sh / install-cli.ps1 从
    `releases/latest/download` 取 mclaw，模型 Release 一旦成为 latest，
