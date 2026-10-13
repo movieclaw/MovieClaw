@@ -5,7 +5,7 @@ description: 发布 movieclaw 新版本。当用户要求发版、发布新版�
 
 # movieclaw 发布规范
 
-本项目有**三种发布类型**，先判定这次要发的是哪种（机制背景见
+本项目有**四种发布类型**，先判定这次要发的是哪种（机制背景见
 `docs/design/in-app-update.md`）：
 
 | 类型 | 什么时候发 | 用户侧感知 |
@@ -13,6 +13,7 @@ description: 发布 movieclaw 新版本。当用户要求发版、发布新版�
 | 应用 Release（`vX.Y.Z` tag） | 前后端代码变了（最常见） | 设置页一键更新，免拉镜像 |
 | 模型 Release（`torrent-ner-vN` tag） | NER 模型重新训练 | 设置页一键更新模型 |
 | Docker 镜像 | 随应用 Release 自动发（release.yml 调用 docker-image.yml 推 Docker Hub） | 仅 runtime bump 时用户必须重拉 |
+| Windows 客户端（`desktop-vX.Y.Z` tag） | `apps/desktop` 变了，独立发布 | 客户端内检查更新 |
 
 ## 一、应用 Release（日常发版）
 
@@ -254,3 +255,24 @@ APK 是必需附件，缺失时 `publish` 不转正；失败后修复并重跑�
 Android TV：`android-tv-apk` 作业构建或沿用 `MovieClaw-AndroidTV.apk` / `.json`，版本独立
 （`apps/android-tv/version.properties`），签名复用上面同一组 Secrets；目前是可选附件。详见
 `docs/design/android-release.md`「Android TV」。
+
+## 十、Windows 客户端（独立 Release）
+
+Windows 客户端（`apps/desktop`）不随服务器 Release 分发，单独发 Release。版本在
+`apps/desktop/src-tauri/Cargo.toml`，安装包由 Desktop CI 构建并上传为工作流产物
+`desktop-packages-<sha>`，发版时把其中全部文件挂到新 Release 上。
+
+- **标题写「MovieClaw for Windows X.Y.Z」**：它只有 Windows 版，不叫 Desktop，免得被当成也含 Mac。
+- **必须带 `--latest=false`**：理由同模型 Release，latest 必须始终是服务器的 `vX.Y.Z`。
+- 未做实体机验收、只凭 CI 发布时，正文须含 `<!-- desktop-release-policy: ci-verified -->`
+  并写明验证范围（`check-release-evidence.py` 校验）。
+
+以下名字已写进用户装好的客户端，**不能改**——改了老客户端就找不到更新：
+
+| 名字 | 依赖方 |
+|------|--------|
+| tag 前缀 `desktop-v` | 更新器 `valid_tag` 只认 `desktop-v` 与 `v`（`updater/verified.rs`） |
+| 安装包名 `MovieClaw-Desktop-{版本}-Setup-x64.exe` / `-portable-x64.zip` | 更新器按文件名匹配附件（`updater.rs`） |
+| productName `MovieClaw Desktop`、identifier `com.movieclaw.desktop` | 安装目录、开始菜单与卸载项，改了可能装出第二份（未实测） |
+
+确要改其中任何一项，须先发一版让更新器同时认新旧两种名字，大部分用户升上去之后再切换。

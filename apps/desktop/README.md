@@ -1,4 +1,4 @@
-# MovieClaw Desktop for Windows
+# MovieClaw for Windows
 
 A Windows x64 client built with Tauri, Rust and WebView2, with bundled mpv playback. It connects to a separately deployed MovieClaw server. The interface is embedded in the executable; the desktop application has an independent version (currently 1.0.4).
 
