@@ -52,6 +52,11 @@ jobs:
                   bash scripts/publish-release-info.sh "$tag"
                   bash scripts/publish-release-body.sh "$tag"
                   ;;
+                windows-v*)
+                  # 与 windows-release.yml 同口径：正文末尾附上 CI 验证范围（含 ci-verified 标记）
+                  cat "$file" apps/desktop/release/ci-verified-scope.md > "$RUNNER_TEMP/notes.md"
+                  gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$RUNNER_TEMP/notes.md"
+                  ;;
                 *) gh release edit "$tag" --repo "$GITHUB_REPOSITORY" --notes-file "$file" ;;
               esac
             else

@@ -134,7 +134,7 @@ Thanks to @someone. Full changes: [vA.B.C → vX.Y.Z](https://github.com/moviecl
 6. **需要用户动手的事：越危险越靠前，每条都能照做**。写清要执行的命令或菜单路径、
    不做会怎样。（Jellyfin 大版本把升级须知放在最顶部的 TL;DR 编号清单，
    Immich 大版本前置 How to update 并给出命令，Telegram 写全菜单路径）
-   需要更新 Docker 镜像 / Mac Worker 放开头提示框；不需要时也写一行 ✅，
+   需要更新 Docker 镜像 / Mac 转码器 / 某个 App 放开头提示框；不需要时也写一行 ✅，
    自托管用户最怕的就是「这次要不要动容器」。
    数据库迁移只在**有迁移时**写回退提示；没有迁移时不写，也不要替用户担保
    「回退不用恢复备份」——兼容性判断出错的代价由用户承担。

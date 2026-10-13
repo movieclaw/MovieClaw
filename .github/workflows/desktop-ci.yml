@@ -7,7 +7,7 @@ on:
     branches: [main, 'feat/windows-*', 'codex/**']
     paths: ['apps/desktop/**', 'plugins/watch-presence/**', '.github/workflows/desktop-ci.yml']
   pull_request:
-    paths: ['apps/desktop/**', 'plugins/watch-presence/**', '.github/workflows/desktop-ci.yml']
+    paths: ['apps/desktop/**', 'plugins/watch-presence/**', '.github/workflows/desktop-ci.yml', '.github/workflows/windows-release.yml']
 
 permissions:
   contents: read

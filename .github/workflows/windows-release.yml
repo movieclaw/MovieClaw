@@ -1,0 +1,118 @@
+# =============================================================================
+# Windows 客户端发版流水线（apps/desktop）
+#
+# 推 windows-vX.Y.Z tag → 核对版本 → 建 draft（MovieClaw for Windows X.Y.Z）→ 调用 Desktop CI
+# 跑完整测试并打包 → 校验安装包就是测试过的那份（check-release-evidence.py，ci-verified）
+# → 上传 → 转正，始终 --latest=false（latest 只能是服务器版本）。
+# 版本号在 apps/desktop/src-tauri/Cargo.toml，与 apps/desktop/package.json 一起改。
+# 正文 = docs/changelog/windows-vX.Y.Z.md（没有就用默认一句）+ apps/desktop/release/ci-verified-scope.md
+# （说明 CI 的验证范围，带 ci-verified 标记）。失败时 Release 停在 draft，修好后重跑本工作流。
+# =============================================================================
+name: windows-release
+
+concurrency:
+  group: windows-release-${{ inputs.tag || github.ref_name }}
+
+on:
+  push:
+    tags: ["windows-v*"]
+  # 远程会话推不了 tag：走 release-kick 点火分支，或到 Actions 手动输入 tag
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的 tag（windows-vX.Y.Z），须与 apps/desktop 的版本一致"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: 核对版本号并创建 draft Release
+        run: |
+          version="${RELEASE_TAG#windows-v}"
+          if [ "$version" = "$RELEASE_TAG" ] || ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag 必须是 windows-vX.Y.Z：$RELEASE_TAG"
+            exit 1
+          fi
+          cargo="$(sed -n 's/^version = "\([^"]*\)"/\1/p' apps/desktop/src-tauri/Cargo.toml | head -1)"
+          npm="$(python3 -c 'import json; print(json.load(open("apps/desktop/package.json"))["version"])')"
+          if [ "$version" != "$cargo" ] || [ "$version" != "$npm" ]; then
+            echo "::error::tag $RELEASE_TAG 与 Cargo.toml（$cargo）/ package.json（$npm）的版本不一致"
+            exit 1
+          fi
+          if [ -f "docs/changelog/$RELEASE_TAG.md" ]; then
+            cp "docs/changelog/$RELEASE_TAG.md" "$RUNNER_TEMP/notes.md"
+          else
+            echo "MovieClaw for Windows $version." > "$RUNNER_TEMP/notes.md"
+          fi
+          cat apps/desktop/release/ci-verified-scope.md >> "$RUNNER_TEMP/notes.md"
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --draft --latest=false \
+              --title "MovieClaw for Windows $version" --notes-file "$RUNNER_TEMP/notes.md"
+          elif [ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = "true" ]; then
+            # 同 release.yml：上一轮失败留下的 draft 还锁着旧提交，校正到本轮
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" \
+              --notes-file "$RUNNER_TEMP/notes.md"
+          else
+            echo "::error::$RELEASE_TAG 已发布；发新版请先递增版本号再打新 tag"
+            exit 1
+          fi
+
+  # 与 PR 检查同一套：单测、浏览器端到端、Rust 测试、打包与安装冒烟，产物 desktop-packages-<sha>
+  build:
+    needs: prepare
+    uses: ./.github/workflows/desktop-ci.yml
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-packages-${{ github.sha }}
+          path: dist
+
+      # 安装包必须就是 CI 测试过的那份、版本与提交都对得上，正文带 ci-verified 声明
+      - name: 校验安装包
+        run: |
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json body --jq .body > notes.md
+          python3 apps/desktop/scripts/check-release-evidence.py --policy ci-verified \
+            --directory dist --revision "$GITHUB_SHA" --version "${RELEASE_TAG#windows-v}" \
+            --notes notes.md
+
+      - name: 上传并发布 Release（不标 latest）
+        run: |
+          version="${RELEASE_TAG#windows-v}"
+          # 带构建号的附件按 release-manifest.json 里的 label 显示（GitHub 资源名不保留括号）
+          labeled=()
+          while IFS=$'\t' read -r name label; do
+            labeled+=("dist/$name#$label")
+          done < <(python3 -c 'import json; [print(a["name"] + "\t" + a["label"]) for a in json.load(open("dist/release-manifest.json"))["buildArtifacts"]]')
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            "dist/MovieClaw-Windows-$version-Setup-x64.exe" \
+            "dist/MovieClaw-Windows-$version-portable-x64.zip" \
+            "${labeled[@]}" dist/SHA256SUMS.txt dist/release-manifest.json
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
+          echo "已发布：https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" | tee -a "$GITHUB_STEP_SUMMARY"

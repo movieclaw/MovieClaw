@@ -28,7 +28,8 @@ Android TV 见下文「Android TV」；当前不预建尚未实现的产品或�
 | `downloads` | 下载元数据、打包脚本或发版工作流的 PR | 清单、签名检查和旧包沿用回归测试 |
 | `release` | `v*` tag 或手动输入 tag | 服务器：创建 draft、构建/复制附件、发布 Docker、终审后转正 |
 | `android-release` | `android-v*` / `androidtv-v*` tag 或手动输入 tag | Android：校验版本、正式签名构建、生成 `downloads.json`、转正（不标 latest） |
-| `apple-release` | `ios-v*` / `tvos-v*` / `macos-v*` / `transcoder-v*` tag | Apple 平台客户端与 Mac 转码器，见发版 skill 第九节 |
+| `apple-release` | `ios-v*` / `tvos-v*` / `macos-v*` / `transcoder-v*` tag | Apple 平台客户端与 Mac 转码器，见发版 skill 第三节 |
+| `windows-release` | `windows-v*` tag | Windows 客户端：调用 Desktop CI 测试打包，校验后发布 |
 | `release-kick` | `release-kick/<tag>` 分支（服务器与各客户端 tag） | 校验版本并触发对应发版工作流，之后删除点火分支 |
 | `docker-image` | `release` 调用或手动 | 多架构镜像及 tag 发布 |
 | `release-notes` | changelog 合入 main | 同步对应 Release 的正文 |

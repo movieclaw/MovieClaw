@@ -1,7 +1,7 @@
 name: downloads
 on:
   pull_request:
-    paths: [scripts/build-download-manifest.py, scripts/publish-download-manifest.sh, scripts/build-release-info.py, scripts/publish-release-info.sh, scripts/build-release-body.py, scripts/publish-release-body.sh, 'docs/changelog/**', scripts/install-cli.sh, scripts/install-cli.ps1, cli/.goreleaser.yaml, 'scripts/tests/**', 'apps/android/scripts/**', 'apps/android-tv/scripts/**', .github/workflows/release.yml, .github/workflows/android-release.yml, .github/workflows/apple-release.yml, .github/workflows/release-notes.yml, .github/workflows/downloads.yml]
+    paths: [scripts/build-download-manifest.py, scripts/publish-download-manifest.sh, scripts/build-release-info.py, scripts/publish-release-info.sh, scripts/build-release-body.py, scripts/publish-release-body.sh, 'docs/changelog/**', scripts/install-cli.sh, scripts/install-cli.ps1, cli/.goreleaser.yaml, 'scripts/tests/**', 'apps/android/scripts/**', 'apps/android-tv/scripts/**', .github/workflows/release.yml, .github/workflows/android-release.yml, .github/workflows/apple-release.yml, .github/workflows/windows-release.yml, .github/workflows/release-notes.yml, .github/workflows/downloads.yml]
 jobs:
   metadata:
     runs-on: ubuntu-latest

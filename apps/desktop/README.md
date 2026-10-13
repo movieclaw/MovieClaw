@@ -48,7 +48,7 @@ Build numbers use the Desktop CI run number and attempt (`run_number.run_attempt
 
 The updater only considers `windows-vX.Y.Z` tags in that channel: it lists them through the Git matching-refs API (server and other client releases share the repository), then reads the highest release at or above the running version, skipping drafts, prereleases and releases without the exact Windows x64 asset (`MovieClaw-Windows-<version>-Setup-x64.exe` or `-portable-x64.zip`). Downloads validate HTTPS hosts, size and published SHA-256 hashes; installation rechecks the cached package and Authenticode. Invalid signatures are rejected, and unsigned installers require explicit confirmation. Releases without verifiable hashes offer a manual release-page path. That page is the Windows release found by the last check (otherwise a search for Windows releases), never the repository's latest release, which belongs to the server. Portable updates use manual replacement. Same-version rebuilds are distinguished using the manifest source revision and timestamp.
 
-This contribution adds CI packaging, without enabling official release publication. Release ownership, signing and publication policy remain maintainer decisions.
+Releases are published by `.github/workflows/windows-release.yml` when a `windows-vX.Y.Z` tag is pushed: it runs this Desktop CI, checks the packages with `scripts/check-release-evidence.py --policy ci-verified`, and appends `release/ci-verified-scope.md` to the notes. Packages are unsigned until a code-signing certificate is configured.
 
 ## Validation boundaries
 
