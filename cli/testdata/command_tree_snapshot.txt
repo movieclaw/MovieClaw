@@ -188,6 +188,7 @@ library update
 llm defaults show
 llm defaults update
 llm models
+llm models discover
 llm presets
 llm providers create
 llm providers delete

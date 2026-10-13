@@ -263,6 +263,7 @@ llm defaults
 llm defaults show
 llm defaults update
 llm models
+llm models discover
 llm presets
 llm providers
 llm providers create
