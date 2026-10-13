@@ -146,7 +146,10 @@ entrypoint 烧在镜像里、无法应用内更新，因此它的逻辑必须**�
 新增 `movieclaw_api/services/app_update.py`：
 
 - **检查**：GitHub API 查最新 Release（直连失败降级到配置的加速镜像），
-  比对当前版本与 `requires_runtime`，返回可更新性 + changelog。
+  比对当前版本与 `requires_runtime`，返回可更新性 + changelog。仓库里还有各客户端
+  单独发的 Release，所以按 tag 找而不拉整页列表：先列出 `v` 前缀的 tag，从最高的
+  正式版往下取 Release（跳过草稿、预发布）；模型同理用 `torrent-ner-v` 前缀。自建反代
+  不认 tag 查询路径时退回 `releases?per_page=100` 列表。
 - **执行**：下载到临时目录 → 逐文件 sha256 校验 → 解包到 `versions/<ver>/` →
   备份 SQLite（见下）→ 原子替换 `current` 链接 → 以 exit 43 触发全量重启。
   解包后、备份前先核对新版本认识数据库当前的迁移位置（解析产物里迁移脚本的
