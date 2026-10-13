@@ -34,8 +34,15 @@ _UNIVERSAL = ClientCapabilityIn(universal=True)
 
 def _source_height(file: LibraryFile) -> int | None:
     resolution = (file.resolution or "").lower()
-    for token, height in (("2160", 2160), ("4k", 2160), ("1440", 1440), ("1080", 1080),
-                          ("720", 720), ("576", 576), ("480", 480)):
+    for token, height in (
+        ("2160", 2160),
+        ("4k", 2160),
+        ("1440", 1440),
+        ("1080", 1080),
+        ("720", 720),
+        ("576", 576),
+        ("480", 480),
+    ):
         if token in resolution:
             return height
     return None
@@ -66,7 +73,10 @@ async def build_manifest(
 
     item = (
         await library_routes.get_library_item(
-            file.library_id, file.media_item_id, principal=principal, session=session,
+            file.library_id,
+            file.media_item_id,
+            principal=principal,
+            session=session,
             user_agent=user_agent,
         )
     ).data
@@ -77,8 +87,11 @@ async def build_manifest(
     if item.kind == "tv":
         season = (
             await library_routes.list_item_episodes(
-                file.library_id, file.media_item_id, season_number=season_number,
-                principal=principal, session=session,
+                file.library_id,
+                file.media_item_id,
+                season_number=season_number,
+                principal=principal,
+                session=session,
             )
         ).data
 
@@ -101,7 +114,8 @@ async def build_manifest(
         season=season,
         chapters=_chapter_marks(file),
         segments=[
-            PlaybackSegmentView(**seg) for seg in await skip_segments.segments_for_file(session, file)
+            PlaybackSegmentView(**seg)
+            for seg in await skip_segments.segments_for_file(session, file)
         ],
         resume_position_ms=state.position_ms if state is not None else None,
     )
@@ -127,7 +141,9 @@ async def build_manifest(
             if sub.kind not in ("vtt", "ass"):
                 continue  # 图形字幕（PGS）：原画档在文件里，转码档一期不带
             fmt = "ass" if sub.kind == "ass" else "srt"
-            url = f"/api/v1/playback/files/{file.id}/subtitles?track={quote(sub.track_ref, safe='')}"
+            url = (
+                f"/api/v1/playback/files/{file.id}/subtitles?track={quote(sub.track_ref, safe='')}"
+            )
             if fmt == "srt":
                 url += "&format=srt"
             view.subtitles.append(
@@ -160,16 +176,16 @@ async def build_manifest(
     for profile, height in exports.PROFILES.items():
         if source_height is not None and height >= source_height:
             continue  # 源本身就不高于这一档：转了只会更大更糊
+        expected = exports.estimate_bytes(profile, duration_s)
+        if file.size_bytes and expected >= file.size_bytes * 0.9:
+            continue  # 源本身码率就低：转出来不比原文件小，没必要
         try:
             await exports.build_plan(file, profile, view.default_audio)
         except exports.ExportUnavailable:
             continue
         view.profiles.append(
             OfflineProfileView(
-                profile=profile,
-                label=profile,
-                height=height,
-                expected_bytes=exports.estimate_bytes(profile, duration_s),
+                profile=profile, label=profile, height=height, expected_bytes=expected
             )
         )
     return view

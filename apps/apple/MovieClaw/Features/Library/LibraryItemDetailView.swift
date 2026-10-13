@@ -84,7 +84,10 @@ struct LibraryItemDetailView: View {
 
     var body: some View {
         Group {
-            if failed {
+            if failed, readOnly || reachability.isOffline, offlineStore.items[itemId] != nil {
+                // 本机存的详情解不开（App 升级改了模型、还没联网刷新）：退回只靠摘要的极简详情
+                OfflineMinimalDetail(itemId: itemId)
+            } else if failed {
                 VStack(spacing: 14) {
                     Text("未能加载该条目").font(.headline).foregroundStyle(Theme.text)
                     Text("条目可能已被删除或重新识别为其他作品，请返回后查看。")

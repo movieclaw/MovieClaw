@@ -30,7 +30,14 @@ from movieclaw_api.services.offline import exports
 from movieclaw_api.settings.store import reset_setting_store
 from movieclaw_db.crypto import reset_secret_box
 from movieclaw_db.engine import get_database
-from movieclaw_db.models import FileSource, FileState, LibraryFile, MediaItem, PlaybackLog, PlaybackState
+from movieclaw_db.models import (
+    FileSource,
+    FileState,
+    LibraryFile,
+    MediaItem,
+    PlaybackLog,
+    PlaybackState,
+)
 from movieclaw_db.repositories.library_repo import LibraryRepository
 
 _API = "/api/v1"
@@ -56,7 +63,9 @@ def client(tmp_path, monkeypatch):
     # 测试机没有显卡：硬件探测一律为空，转码档走软件（用例里按需打开软件转码）
     monkeypatch.setattr("movieclaw_api.services.playback.plan.hardware_available", lambda: False)
     monkeypatch.setattr("movieclaw_api.services.offline.exports.hardware_available", lambda: False)
-    monkeypatch.setattr("movieclaw_api.services.offline.exports.available_local_backends", lambda: ())
+    monkeypatch.setattr(
+        "movieclaw_api.services.offline.exports.available_local_backends", lambda: ()
+    )
     exports.reset_export_manager(tmp_path / "exports")
 
     from movieclaw_api.app import create_app
@@ -78,10 +87,28 @@ _counter = itertools.count(1)
 def _make_video(path: Path, seconds: int = 4) -> None:
     subprocess.run(
         [
-            "ffmpeg", "-nostdin", "-loglevel", "error", "-y",
-            "-f", "lavfi", "-i", f"testsrc2=size=1280x720:rate=24:duration={seconds}",
-            "-f", "lavfi", "-i", f"sine=frequency=440:duration={seconds}",
-            "-c:v", "libx264", "-preset", "ultrafast", "-g", "24", "-c:a", "aac", "-shortest",
+            "ffmpeg",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            f"testsrc2=size=1280x720:rate=24:duration={seconds}",
+            "-f",
+            "lavfi",
+            "-i",
+            f"sine=frequency=440:duration={seconds}",
+            "-c:v",
+            "libx264",
+            "-preset",
+            "ultrafast",
+            "-g",
+            "24",
+            "-c:a",
+            "aac",
+            "-shortest",
             str(path),
         ],
         check=True,
@@ -239,8 +266,18 @@ def test_jellyfin_policy_follows_video_download_switch(client: TestClient) -> No
 # ---------------------------------------------------------------------------
 
 
+def _set_size(client: TestClient, file_id: int, size: int) -> None:
+    async def update(session):
+        row = await session.get(LibraryFile, file_id)
+        row.size_bytes = size
+        await session.commit()
+
+    _run(client, update)
+
+
 def test_manifest_carries_detail_tracks_and_profiles(client: TestClient, tmp_path: Path) -> None:
     library_id, item_id, file_id = seed(client, tmp_path, real=False)
+    _set_size(client, file_id, 4_000_000_000)  # 台账上是一部 4 GB 的 1080p
     _enable_software_transcode(client)
     data = client.get(f"{_API}/offline/manifest", params={"file_id": file_id}).json()["data"]
     # 展示数据与详情接口同一份：离线时原样喂给同一个页面
@@ -256,11 +293,22 @@ def test_manifest_carries_detail_tracks_and_profiles(client: TestClient, tmp_pat
     assert "你好" in body
     # 1080p 源：原画 + 720p + 480p（不给不高于源的 1080p）
     assert [p["profile"] for p in data["profiles"]] == ["original", "720p", "480p"]
-    assert data["profiles"][0]["expected_bytes"] == _file_path(client, file_id).stat().st_size
+    assert data["profiles"][0]["expected_bytes"] == 4_000_000_000
     assert data["profiles"][1]["expected_bytes"] > data["profiles"][2]["expected_bytes"] > 0
 
 
-def test_manifest_without_transcode_offers_original_only(client: TestClient, tmp_path: Path) -> None:
+def test_manifest_skips_tiers_not_smaller_than_original(client: TestClient, tmp_path: Path) -> None:
+    """源本身码率就低（10 分钟 260 MB）：720p 转出来不比原文件小，不提供；480p 仍小得多，提供。"""
+    _lib, _item, file_id = seed(client, tmp_path, real=False)
+    _set_size(client, file_id, 260_000_000)
+    _enable_software_transcode(client)
+    data = client.get(f"{_API}/offline/manifest", params={"file_id": file_id}).json()["data"]
+    assert [p["profile"] for p in data["profiles"]] == ["original", "480p"]
+
+
+def test_manifest_without_transcode_offers_original_only(
+    client: TestClient, tmp_path: Path
+) -> None:
     _lib, _item, file_id = seed(client, tmp_path, real=False)
     data = client.get(f"{_API}/offline/manifest", params={"file_id": file_id}).json()["data"]
     # 没有硬件、软件转码没开：转码档出不了，只剩原画
@@ -300,7 +348,9 @@ def test_manifest_hides_files_outside_member_libraries(client: TestClient, tmp_p
 def _state(client: TestClient, item_id: int) -> PlaybackState | None:
     async def fetch(session):
         return (
-            await session.execute(select(PlaybackState).where(PlaybackState.media_item_id == item_id))
+            await session.execute(
+                select(PlaybackState).where(PlaybackState.media_item_id == item_id)
+            )
         ).scalar_one_or_none()
 
     return _run(client, fetch)
@@ -309,14 +359,19 @@ def _state(client: TestClient, item_id: int) -> PlaybackState | None:
 def _logs(client: TestClient, item_id: int) -> list[PlaybackLog]:
     async def fetch(session):
         return list(
-            (await session.execute(select(PlaybackLog).where(PlaybackLog.media_item_id == item_id)))
-            .scalars()
+            (
+                await session.execute(
+                    select(PlaybackLog).where(PlaybackLog.media_item_id == item_id)
+                )
+            ).scalars()
         )
 
     return _run(client, fetch)
 
 
-def test_viewing_records_are_idempotent_and_keep_real_times(client: TestClient, tmp_path: Path) -> None:
+def test_viewing_records_are_idempotent_and_keep_real_times(
+    client: TestClient, tmp_path: Path
+) -> None:
     _lib, item_id, file_id = seed(client, tmp_path, real=False)
     watched_at = datetime.now(UTC) - timedelta(hours=5)
     record = _viewing(
@@ -334,12 +389,21 @@ def test_viewing_records_are_idempotent_and_keep_real_times(client: TestClient, 
     assert state.position_ms == 240_000 and state.play_count == 1
     [log] = _logs(client, item_id)
     # 观看日志的时间是真实观看时间，不是补传那一刻
-    assert abs((log.started_at - (watched_at - timedelta(minutes=4)).replace(tzinfo=None)).total_seconds()) < 5
+    assert (
+        abs(
+            (
+                log.started_at - (watched_at - timedelta(minutes=4)).replace(tzinfo=None)
+            ).total_seconds()
+        )
+        < 5
+    )
     assert log.ended_at is not None and log.watched_ms == 240_000
     assert log.viewing_id == "v-0000-0001"
 
 
-def test_viewing_older_than_server_state_is_stale_but_logged(client: TestClient, tmp_path: Path) -> None:
+def test_viewing_older_than_server_state_is_stale_but_logged(
+    client: TestClient, tmp_path: Path
+) -> None:
     _lib, item_id, _file = seed(client, tmp_path, real=False)
     # 另一台设备刚刚看到 300 秒
     client.post(f"{_API}/playback/progress", json={"media_item_id": item_id, "event": "start"})
@@ -401,7 +465,9 @@ def test_viewing_clock_skew_is_corrected(client: TestClient, tmp_path: Path) -> 
 
 
 def test_viewing_for_unknown_item_is_rejected(client: TestClient) -> None:
-    assert _send_viewings(client, [_viewing(98765, viewing_id="v-gone-0000")]) == {"v-gone-0000": "rejected"}
+    assert _send_viewings(client, [_viewing(98765, viewing_id="v-gone-0000")]) == {
+        "v-gone-0000": "rejected"
+    }
 
 
 def test_viewing_follows_file_to_its_current_item(client: TestClient, tmp_path: Path) -> None:
@@ -447,9 +513,21 @@ def test_export_produces_playable_file_and_is_reused(client: TestClient, tmp_pat
     out = tmp_path / "check.mp4"
     out.write_bytes(resp.content)
     probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "stream=codec_name,height",
-         "-show_entries", "format=duration", "-of", "default=nw=1", str(out)],
-        capture_output=True, text=True, check=True,
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-show_entries",
+            "stream=codec_name,height",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=nw=1",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
     ).stdout
     assert "height=480" in probe and "codec_name=h264" in probe and "codec_name=aac" in probe
     assert abs(float(probe.split("duration=")[1].split()[0]) - 4.0) < 0.5
@@ -474,9 +552,15 @@ def test_export_tail_streams_while_transcoding(client: TestClient, tmp_path: Pat
     _lib, _item, file_id = seed(client, tmp_path, real=False)
     manager = exports.get_export_manager()
     state = exports.ExportState(
-        export_id="tailtest", file_id=file_id, profile="480p", audio_track=None,
-        status=exports.STATUS_RUNNING, generation=1, expected_bytes=3000,
-        created_at=time.time(), last_access_at=time.time(),
+        export_id="tailtest",
+        file_id=file_id,
+        profile="480p",
+        audio_track=None,
+        status=exports.STATUS_RUNNING,
+        generation=1,
+        expected_bytes=3000,
+        created_at=time.time(),
+        last_access_at=time.time(),
     )
     manager._loaded = True
     manager._states[state.export_id] = state
@@ -507,9 +591,15 @@ def test_export_tail_aborts_when_regenerated(client: TestClient, tmp_path: Path)
     _lib, _item, file_id = seed(client, tmp_path, real=False)
     manager = exports.get_export_manager()
     state = exports.ExportState(
-        export_id="regen", file_id=file_id, profile="480p", audio_track=None,
-        status=exports.STATUS_RUNNING, generation=1, expected_bytes=3000,
-        created_at=time.time(), last_access_at=time.time(),
+        export_id="regen",
+        file_id=file_id,
+        profile="480p",
+        audio_track=None,
+        status=exports.STATUS_RUNNING,
+        generation=1,
+        expected_bytes=3000,
+        created_at=time.time(),
+        last_access_at=time.time(),
     )
     manager._loaded = True
     manager._states[state.export_id] = state
@@ -530,9 +620,15 @@ def test_queued_export_answers_retry_after(client: TestClient, tmp_path: Path) -
     _lib, _item, file_id = seed(client, tmp_path, real=False)
     manager = exports.get_export_manager()
     state = exports.ExportState(
-        export_id="queued", file_id=file_id, profile="480p", audio_track=None,
-        status=exports.STATUS_QUEUED, generation=0, expected_bytes=3000,
-        created_at=time.time(), last_access_at=time.time(),
+        export_id="queued",
+        file_id=file_id,
+        profile="480p",
+        audio_track=None,
+        status=exports.STATUS_QUEUED,
+        generation=0,
+        expected_bytes=3000,
+        created_at=time.time(),
+        last_access_at=time.time(),
     )
     manager._loaded = True
     manager._states[state.export_id] = state

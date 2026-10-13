@@ -334,3 +334,50 @@ enum OfflineUnitStatus {
         }
     }
 }
+
+/// 极简离线详情（docs/design/offline-download.md §3.3）：本机存的详情解不开时，只靠摘要也能播、能删
+struct OfflineMinimalDetail: View {
+    let itemId: Int
+    @State private var store = OfflineStore.shared
+    @Environment(\.api) private var api
+    @Environment(Router.self) private var router
+
+    var body: some View {
+        let units = store.units(ofItem: itemId).filter(\.playable)
+        List {
+            if let item = store.items[itemId] {
+                Section {
+                    HStack(spacing: 14) {
+                        LibraryArtwork(url: api.image(item.posterUrl, width: ImageWidth.points(90)), imageAspect: item.primaryAspect,
+                                       frameAspect: Theme.posterAspect)
+                            .frame(width: 90)
+                            .clipShape(.rect(cornerRadius: 10))
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(item.title).font(.title3.weight(.semibold))
+                            if let year = item.year { Text(String(year)).foregroundStyle(Theme.textMuted) }
+                            Text("iPhone 上的副本").font(.caption).foregroundStyle(Theme.textFaint)
+                        }
+                    }
+                }
+                Section {
+                    ForEach(units) { unit in
+                        HStack {
+                            Button {
+                                router.play(PlayRequest(mediaItemId: itemId, season: unit.isMovie ? nil : unit.season,
+                                                        episode: unit.isMovie ? nil : unit.episode, startSeconds: nil))
+                            } label: {
+                                Label(unit.isMovie ? "播放" : "第 \(unit.season) 季第 \(unit.episode) 集", systemImage: "play.fill")
+                            }
+                            Spacer()
+                            Text(Formatters.bytes(Int(unit.receivedBytes))).font(.caption).foregroundStyle(Theme.textMuted)
+                        }
+                        .swipeActions {
+                            Button("删除", role: .destructive) { OfflineDownloader.shared.delete(fileId: unit.fileId) }
+                        }
+                    }
+                }
+            }
+        }
+        .accessibilityIdentifier("offline-minimal-detail")
+    }
+}

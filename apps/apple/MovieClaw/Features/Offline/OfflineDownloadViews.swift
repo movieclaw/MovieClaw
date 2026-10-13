@@ -70,7 +70,7 @@ struct OfflineDownloadControl: View {
         .buttonStyle(.glass)
         .controlSize(.regular)
         .accessibilityIdentifier("item-download")
-        .accessibilityValue(unit.state.rawValue)
+        .accessibilityValue("\(unit.state.rawValue)|\(unit.profile)")
         .confirmationDialog(unit.state == .done ? "删除这份下载？" : "取消下载？", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button(unit.state == .done ? "删除下载（\(Formatters.bytes(Int(unit.receivedBytes))))" : "取消下载", role: .destructive) {
                 downloader.delete(fileId: unit.fileId)

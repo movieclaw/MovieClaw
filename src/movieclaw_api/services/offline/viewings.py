@@ -115,7 +115,9 @@ async def apply_viewings(
     for record in payload.records:
         located = await _locate(session, principal, record)
         if located is None:
-            results.append(PlaybackViewingResultView(viewing_id=record.viewing_id, status="rejected"))
+            results.append(
+                PlaybackViewingResultView(viewing_id=record.viewing_id, status="rejected")
+            )
             continue
         unit, file_id = located
         status = await _apply_one(
@@ -144,7 +146,9 @@ async def _apply_one(
     runtime_ms = runtime_ms or record.duration_ms
 
     log = (
-        await session.execute(select(PlaybackLog).where(PlaybackLog.viewing_id == record.viewing_id))
+        await session.execute(
+            select(PlaybackLog).where(PlaybackLog.viewing_id == record.viewing_id)
+        )
     ).scalar_one_or_none()
     first_time = log is None
     if log is not None and updated <= log.last_seen_at and (log.ended_at or not record.ended):

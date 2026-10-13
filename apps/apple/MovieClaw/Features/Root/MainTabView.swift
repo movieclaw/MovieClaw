@@ -131,7 +131,8 @@ struct MainTabView: View {
         .tabBarMinimizeBehavior(onReels || quickDraft.editing ? .never : .onScrollDown)
         // 「接着看」条：片段页自己占满底部、AI 会话页底部是输入框（2026-09-30 用户反馈条贴在输入框下面很怪），都不显示；
         // 「我的」根页这个位置是 AI 一行输入框
-        .modifier(ResumeAccessoryModifier(item: resume.visibleItem, enabled: !onReels && !onAgentSession,
+        // 离线时也不显示：它来自服务器，可能指向一部没下载的片（离线首页自有「接着看」行）
+        .modifier(ResumeAccessoryModifier(item: resume.visibleItem, enabled: !onReels && !onAgentSession && !ServerReachability.shared.isOffline,
                                           quickBar: quickBar, onHide: { resume.hide() }))
         // 进主界面、关掉播放器（看过就变了）、回到前台、换账号时重新取最近播放的那一条
         .task(id: "\(router.player == nil)|\(scenePhase == .active)|\(session?.nickname ?? "")|\(api.server.origin)") {
@@ -864,6 +865,7 @@ private struct OfflineShell: ViewModifier {
                 reachability.track(server: api.server)
                 await store.adopt(server: api.server, username: username)
                 if let key = store.key { OfflineViewingUploader.shared.flush(api: api, ownerKey: key) }
+                await store.refreshArchivedMetadataIfNeeded(api: api)
             }
             .onChange(of: reachability.reconnects) {
                 feedback.success("已连上服务器")

@@ -118,10 +118,10 @@ final class OfflineDownloader {
             throw StartError.noSpace(needed: needed, available: available)
         }
         store.ensureOwnerOnDisk()
-        // 换档（比如原画改 720p）：旧的那份连同任务一起去掉
+        // 换档（比如原画改 720p）：旧的那份连同任务一起去掉，条目的展示数据与本机进度留着
         if let existing = store.units[manifest.fileId] {
             cancelTask(fileId: existing.fileId)
-            store.removeUnit(fileId: existing.fileId)
+            store.removeUnit(fileId: existing.fileId, keepItem: true)
         }
         let summary = OfflineItemSummary(
             mediaItemId: manifest.mediaItemId,

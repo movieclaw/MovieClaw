@@ -109,6 +109,9 @@ final class AppModel {
             SessionCache.clearAll()
             PageSnapshots.removeAll()
             TokenVault.clearAll()
+            #if os(iOS)
+            try? FileManager.default.removeItem(at: OfflineDisk.root)
+            #endif
         }
         // 改用设备令牌之前的版本留下的会话 Cookie：不再使用，也不该在本机留着有效凭证
         TokenVault.removeLegacyCookies()

@@ -52,7 +52,9 @@ class OfflineManifestView(BaseModel):
     duration_ms: int | None = None
     item: LibraryItemDetailView
     library: LibraryView
-    season: SeasonEpisodesView | None = Field(default=None, description="剧集：这一集所在季的分集清单")
+    season: SeasonEpisodesView | None = Field(
+        default=None, description="剧集：这一集所在季的分集清单"
+    )
     chapters: list[PlaybackChapterMarkView] = []
     segments: list[PlaybackSegmentView] = []
     audio_tracks: list[AudioTrackView] = []

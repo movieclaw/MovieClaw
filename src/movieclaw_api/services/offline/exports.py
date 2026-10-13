@@ -215,7 +215,11 @@ class ExportManager:
         export_id = export_fingerprint(file, profile, audio_track)
         now = time.time()
         state = self._states.get(export_id)
-        if state is not None and state.status == STATUS_DONE and not self.output_path(state).exists():
+        if (
+            state is not None
+            and state.status == STATUS_DONE
+            and not self.output_path(state).exists()
+        ):
             state = None  # 产物被清掉了（缓存管理清空）：当作没有
         if state is None or state.status == STATUS_FAILED:
             state = ExportState(
@@ -364,7 +368,10 @@ class ExportManager:
             argv = ["nice", "-n", "10", *argv]
         logger.info(
             "离线导出开始：%s（文件 %s，%s，后端 %s）",
-            state.export_id, state.file_id, state.profile, backend or "软件",
+            state.export_id,
+            state.file_id,
+            state.profile,
+            backend or "软件",
         )
         started = time.monotonic()
         process = await asyncio.create_subprocess_exec(
@@ -386,14 +393,18 @@ class ExportManager:
             state.status = STATUS_FAILED
             state.error = (tail[-1] if tail else f"ffmpeg 退出码 {code}")[:500]
             self._save(state)
-            logger.warning("离线导出失败：%s（退出码 %s）：%s", state.export_id, code, "\n".join(tail))
+            logger.warning(
+                "离线导出失败：%s（退出码 %s）：%s", state.export_id, code, "\n".join(tail)
+            )
             return
         state.status = STATUS_DONE
         state.final_bytes = out.stat().st_size
         self._save(state)
         logger.info(
             "离线导出完成：%s，%d MB，用时 %d 秒",
-            state.export_id, state.final_bytes // (1024 * 1024), time.monotonic() - started,
+            state.export_id,
+            state.final_bytes // (1024 * 1024),
+            time.monotonic() - started,
         )
 
     async def shutdown(self) -> None:
@@ -464,9 +475,7 @@ class ExportTailResponse(Response):
         watcher = asyncio.create_task(watch())
         self.manager.reader_enter(self.export_id)
         try:
-            await send(
-                {"type": "http.response.start", "status": 200, "headers": self.raw_headers}
-            )
+            await send({"type": "http.response.start", "status": 200, "headers": self.raw_headers})
             if scope.get("method", "GET").upper() == "HEAD":
                 await send({"type": "http.response.body", "body": b"", "more_body": False})
                 return

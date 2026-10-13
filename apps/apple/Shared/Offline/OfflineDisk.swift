@@ -42,6 +42,14 @@ nonisolated enum OfflineDisk {
     static func imagesDir(_ key: String, _ itemId: Int) -> URL { itemDir(key, itemId).appending(path: "images", directoryHint: .isDirectory) }
     static func viewingsDir(_ key: String) -> URL { ownerDir(key).appending(path: "viewings", directoryHint: .isDirectory) }
 
+    /// 在写盘队列上做一件事并等它做完：与目录里排着的删除、状态写入保持先后（换档时旧单元目录的删除
+    /// 排在前面，新单元的字幕、字体不能被它连带删掉）
+    static func perform<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async { continuation.resume(with: Result { try work() }) }
+        }
+    }
+
     // MARK: 读写
 
     static func write<T: Encodable>(_ value: T, to url: URL) throws {

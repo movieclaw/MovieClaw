@@ -184,7 +184,7 @@ final class OfflineStore {
 
     /// 本机这个条目的副本占了多少空间（存储页）
     func bytes(ofItem itemId: Int) -> Int64 {
-        units(ofItem: itemId).reduce(0) { $0 + ($1.state == .done ? $1.receivedBytes : $1.receivedBytes) }
+        units(ofItem: itemId).reduce(0) { $0 + $1.receivedBytes }
     }
 
     var totalBytes: Int64 { units.values.reduce(0) { $0 + $1.receivedBytes } }
@@ -282,11 +282,12 @@ final class OfflineStore {
         OfflineDisk.queue.async { try? OfflineDisk.write(snapshot, to: OfflineDisk.progressFile(key, itemId)) }
     }
 
-    /// 删一个单元（取消下载、删本机副本）。条目的单元删光了，整个条目目录一起删
-    func removeUnit(fileId: Int) {
+    /// 删一个单元（取消下载、删本机副本）。条目的单元删光了，整个条目目录一起删；
+    /// `keepItem`：换档时只换这个单元，条目的展示数据、图片、本机进度都留着
+    func removeUnit(fileId: Int, keepItem: Bool = false) {
         guard let key, let unit = units.removeValue(forKey: fileId) else { return }
         let itemId = unit.mediaItemId
-        let itemEmpty = !units.values.contains { $0.mediaItemId == itemId }
+        let itemEmpty = !keepItem && !units.values.contains { $0.mediaItemId == itemId }
         if itemEmpty {
             items.removeValue(forKey: itemId)
             progress.removeValue(forKey: itemId)
@@ -301,6 +302,33 @@ final class OfflineStore {
     func removeItem(_ itemId: Int) {
         for unit in units(ofItem: itemId) { OfflineDownloader.shared.cancelTask(fileId: unit.fileId) }
         for unit in units(ofItem: itemId) { removeUnit(fileId: unit.fileId) }
+    }
+
+    /// App 升级后第一次在线：按顺序重拉全部副本的展示数据（§3.3）。生成的接口模型加了必有字段时，
+    /// 旧存档会解码失败，离线前刷一遍才稳；同一个 App 版本只做一次
+    func refreshArchivedMetadataIfNeeded(api: APIClient) async {
+        let version = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "0"
+        let defaultsKey = "movieclaw.offline.metadataVersion.\(key ?? "")"
+        guard key != nil, !items.isEmpty, UserDefaults.standard.string(forKey: defaultsKey) != version else { return }
+        var complete = true
+        for item in items.values {
+            guard !ServerReachability.shared.isOffline else { return }
+            if let detail = try? await api.libraryItemsGet(libraryId: item.libraryId, mediaItemId: item.mediaItemId) {
+                refresh(detail: detail)
+            } else {
+                complete = false
+            }
+            guard item.kind == "tv" else { continue }
+            for season in Set(units(ofItem: item.mediaItemId).map(\.season)) {
+                if let view = try? await api.libraryItemsListEpisodes(libraryId: item.libraryId, mediaItemId: item.mediaItemId, seasonNumber: season) {
+                    refresh(season: view, itemId: item.mediaItemId)
+                } else {
+                    complete = false
+                }
+            }
+        }
+        // 有没拉到的（连不上、条目已删）：下次在线再来
+        if complete { UserDefaults.standard.set(version, forKey: defaultsKey) }
     }
 
     /// 首次下载这个账号的东西：建账号目录

@@ -79,6 +79,8 @@ final class ServerReachability {
     @ObservationIgnored private var backgroundedAt: Date?
     @ObservationIgnored private var pathSatisfied = true
     @ObservationIgnored private var unreachableBackoff = 0
+    /// 最近一次成功（冷启动检查：3 秒内没有任何请求成功才探一下）
+    @ObservationIgnored private var lastSuccessAt = Date.distantPast
 
     private init() {
         NotificationCenter.default.addObserver(forName: .networkPathChanged, object: nil, queue: .main) { [weak self] note in
@@ -97,6 +99,24 @@ final class ServerReachability {
         resetStreak()
         status = pathSatisfied ? .reachable : .unreachable
         if status == .unreachable { evaluateMode(pathDown: true) }
+        launchCheck()
+    }
+
+    /// 冷启动 / 久别回前台：3 秒内页面请求都没成功就主动探一下。黑洞（只超时）时页面请求要 60 秒才报失败，
+    /// 不探的话要等一分多钟才有第一份证据；网络健康时页面请求早已成功，不发这个请求
+    private func launchCheck() {
+        let checkFrom = Date()
+        guard let origin else { return }
+        Task { [weak self] in
+            try? await Task.sleep(for: .seconds(3))
+            guard let self, self.lastSuccessAt < checkFrom, self.origin == origin else { return }
+            _ = try? await Self.probeRequest(origin)
+        }
+    }
+
+    /// 探测请求：`/health`，5 秒超时（几百字节，网慢也够），结果经 `APIClient` 出口旁听回来
+    private static func probeRequest(_ origin: URL) async throws -> API.HealthResponse {
+        try await APIClient(server: ServerAddress(origin: origin)).raw("GET", "/health", timeout: 5)
     }
 
     /// 旁听：`APIClient` 出口每个请求的结果（任意线程）
@@ -113,7 +133,7 @@ final class ServerReachability {
         case .hard, .soft:
             // 回前台之前发出的请求：App 挂起时系统掐断了连接，回来报的错不说明网络坏了
             guard startedAt >= lastForegroundAt else { return }
-            noteFailure(hard: outcome == .hard)
+            noteFailure(hard: outcome == .hard, startedAt: startedAt)
         case .ignored:
             break
         }
@@ -138,6 +158,7 @@ final class ServerReachability {
         lastForegroundAt = Date()
         if let backgroundedAt, Date().timeIntervalSince(backgroundedAt) >= 600 {
             autoWindowUntil = Date().addingTimeInterval(60)
+            launchCheck()
         }
         backgroundedAt = nil
         if status != .reachable { probe(after: 0) }
@@ -156,6 +177,7 @@ final class ServerReachability {
     }
 
     private func markReachable() {
+        lastSuccessAt = Date()
         resetStreak()
         unreachableBackoff = 0
         probeTask?.cancel()
@@ -167,8 +189,8 @@ final class ServerReachability {
         }
     }
 
-    private func noteFailure(hard: Bool) {
-        let conclusive = judge.failure(hard: hard, at: Date())
+    private func noteFailure(hard: Bool, startedAt: Date) {
+        let conclusive = judge.failure(hard: hard, at: Date(), startedAt: startedAt)
         if status == .reachable {
             status = .suspect
             probe(after: 0)
@@ -223,27 +245,28 @@ final class ServerReachability {
         return delay
     }
 
-    /// 存疑时按 立即 / +3 / +10 / +20 秒 探；不可达时按退避探。探测结果经 `APIClient` 出口旁听回来
+    /// 存疑时每次探完隔 2 秒再探（每次最多 5 秒）；不可达时按 30 秒 → 1 → 2 → 5 分钟退避。
+    /// 探测结果经 `APIClient` 出口旁听回来
     private func probe(after delay: Double) {
         guard let origin, pathSatisfied else { return }
         probeTask?.cancel()
         probeTask = Task { [weak self] in
             if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
             guard !Task.isCancelled else { return }
-            var schedule: [Double] = [3, 7, 10]
             while !Task.isCancelled {
                 guard let self, self.status != .reachable else { return }
-                _ = try? await APIClient(server: ServerAddress(origin: origin)).health()
+                _ = try? await Self.probeRequest(origin)
                 guard !Task.isCancelled, self.status != .reachable else { return }
-                let wait: Double = self.status == .suspect && !schedule.isEmpty ? schedule.removeFirst() : self.nextBackoff()
+                let wait: Double = self.status == .suspect ? 2 : self.nextBackoff()
                 try? await Task.sleep(for: .seconds(wait))
             }
         }
     }
 }
 
-/// 判不可达的两条规则（满足其一）：连续两次硬失败、间隔 ≥3 秒；连续三次失败（软的也算）、
-/// 从第一次起 ≥30 秒。中间任何一次成功都要重新建一个（清零）。纯逻辑，单元测试按时刻喂事件
+/// 判不可达的两条规则（满足其一）：连续硬失败至少两次、从第一次起 ≥3 秒；连续三次失败（软的也算）、
+/// 从第一个失败请求**发出**起 ≥30 秒（= 服务器已经 30 秒没回过任何话）。中间任何一次成功都要重新建一个（清零）。
+/// 纯逻辑，单元测试按时刻喂事件
 nonisolated struct ReachabilityJudge: Sendable {
     static let hardGap: TimeInterval = 3
     static let softSpan: TimeInterval = 30
@@ -251,19 +274,23 @@ nonisolated struct ReachabilityJudge: Sendable {
 
     private var streakStart: Date?
     private var streakCount = 0
-    private var hardTimes: [Date] = []
+    /// 这一串连续硬失败从何时开始、有几次（中间夹一次软失败就断）
+    private var hardStart: Date?
+    private var hardCount = 0
 
-    /// 记一次失败，返回这串失败是否已足以判定「连不上」
-    mutating func failure(hard: Bool, at now: Date) -> Bool {
-        if streakStart == nil { streakStart = now }
+    /// 记一次失败，返回这串失败是否已足以判定「连不上」。`startedAt` 是这个请求发出的时刻（不给按失败时刻）
+    mutating func failure(hard: Bool, at now: Date, startedAt: Date? = nil) -> Bool {
+        let sent = min(startedAt ?? now, now)
+        streakStart = min(streakStart ?? sent, sent)
         streakCount += 1
         if hard {
-            hardTimes.append(now)
-            if hardTimes.count > 2 { hardTimes.removeFirst() }
+            if hardStart == nil { hardStart = now }
+            hardCount += 1
         } else {
-            hardTimes = []
+            hardStart = nil
+            hardCount = 0
         }
-        let twoHard = hardTimes.count == 2 && hardTimes[1].timeIntervalSince(hardTimes[0]) >= Self.hardGap
+        let twoHard = hardCount >= 2 && now.timeIntervalSince(hardStart ?? now) >= Self.hardGap
         let long = streakCount >= Self.softCount && now.timeIntervalSince(streakStart ?? now) >= Self.softSpan
         return twoHard || long
     }

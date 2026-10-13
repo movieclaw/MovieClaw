@@ -275,7 +275,10 @@ async def require_direct_download_capability(
 
 
 def can_download_video(principal: Principal) -> bool:
-    """下载影片到设备（docs/design/offline-download.md §9）：管理员恒可；成员看 ``allow_video_download``。"""
+    """下载影片到设备（docs/design/offline-download.md §9）。
+
+    管理员恒可；成员看 ``allow_video_download``。
+    """
     if principal.is_admin:
         return True
     return principal.member is not None and principal.member.allow_video_download

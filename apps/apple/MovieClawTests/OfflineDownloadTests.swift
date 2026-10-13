@@ -29,6 +29,14 @@ struct ReachabilityJudgeTests {
         #expect(judge.failure(hard: false, at: t0 + 31) == true)
     }
 
+    /// 黑洞：一个请求发出后 60 秒才超时——「30 秒」从它发出的时刻算，接着两次探测失败就够了
+    @Test func spanCountsFromWhenTheFirstFailedRequestWasSent() {
+        var judge = ReachabilityJudge()
+        #expect(judge.failure(hard: false, at: t0 + 8, startedAt: t0 + 3) == false)
+        #expect(judge.failure(hard: false, at: t0 + 15, startedAt: t0 + 10) == false)
+        #expect(judge.failure(hard: false, at: t0 + 34, startedAt: t0 + 29) == true, "服务器已经 31 秒没回过话")
+    }
+
     @Test func threeQuickTimeoutsAreNotEnough() {
         var judge = ReachabilityJudge()
         for i in 0 ..< 10 {
@@ -146,5 +154,18 @@ struct OfflineArchiveTests {
         let other = OfflineOwner(instanceId: "def", username: "family", origin: URL(string: "http://192.168.1.10:3000")!)
         #expect(lan.key == domain.key, "同一台服务器换了地址，副本不丢")
         #expect(lan.key != other.key, "同一个地址上换了一台服务器，不串")
+    }
+}
+
+/// 本机续播点与服务端同一套阈值：离线时显示的「继续 / 已看完」和连上之后服务端算的一致
+struct OfflineProgressThresholdTests {
+    @Test func matchesServerThresholds() {
+        let movie = 6 * 60_000
+        #expect(OfflineViewingRecorder.resolve(positionMs: 12_000, runtimeMs: movie, currentlyPlayed: false) == (0, false), "不足 5%")
+        #expect(OfflineViewingRecorder.resolve(positionMs: 60_000, runtimeMs: movie, currentlyPlayed: false) == (60_000, false))
+        #expect(OfflineViewingRecorder.resolve(positionMs: 340_000, runtimeMs: movie, currentlyPlayed: false) == (0, true), "超过 90%")
+        #expect(OfflineViewingRecorder.resolve(positionMs: nil, runtimeMs: movie, currentlyPlayed: false) == (0, true), "播到片尾")
+        #expect(OfflineViewingRecorder.resolve(positionMs: 60_000, runtimeMs: 240_000, currentlyPlayed: false) == (0, true), "短片过了开头就算看完")
+        #expect(OfflineViewingRecorder.resolve(positionMs: 0, runtimeMs: movie, currentlyPlayed: true) == (0, true), "拖回开头：已看不变")
     }
 }

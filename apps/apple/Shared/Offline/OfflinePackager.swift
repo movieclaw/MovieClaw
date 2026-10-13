@@ -17,14 +17,14 @@ struct OfflinePackager {
         let itemId = manifest.mediaItemId
         let key = ownerKey
         let unitDir = OfflineDisk.unitDir(key, itemId, unit.fileId)
-        try await Task.detached { [manifest] in
+        try await OfflineDisk.perform { [manifest] in
             try OfflineDisk.writeAPI(manifest.item, to: OfflineDisk.detailFile(key, itemId))
             try OfflineDisk.writeAPI(manifest.library, to: OfflineDisk.libraryFile(key, itemId))
             if let season = manifest.season {
                 try OfflineDisk.writeAPI(season, to: OfflineDisk.seasonFile(key, itemId, season.seasonNumber))
             }
             try FileManager.default.createDirectory(at: unitDir, withIntermediateDirectories: true)
-        }.value
+        }
 
         // 打包时服务器上的续播点：本机还没有进度时先用它（离线时从这里接着看）
         if let resume = manifest.resumePositionMs, resume > 0,
@@ -75,9 +75,9 @@ struct OfflinePackager {
             videoCodec: original ? file?.videoCodec : "h264",
             container: original ? manifest.container : "mp4"
         )
-        try await Task.detached {
+        try await OfflineDisk.perform {
             try OfflineDisk.write(spec, to: OfflineDisk.playbackFile(key, itemId, unit.fileId))
-        }.value
+        }
 
         await saveImages()
     }
@@ -143,10 +143,10 @@ struct OfflinePackager {
     }
 
     private func write(_ data: Data, to url: URL) async throws {
-        try await Task.detached {
+        try await OfflineDisk.perform {
             try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
             try data.write(to: url, options: .atomic)
-        }.value
+        }
     }
 
     static func safeName(_ raw: String) -> String {

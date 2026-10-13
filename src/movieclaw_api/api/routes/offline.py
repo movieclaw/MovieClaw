@@ -87,7 +87,9 @@ def _range_start(request: Request) -> int:
     return int(start) if start.isdigit() else 0
 
 
-def _register_download(request: Request, principal: Principal, file: LibraryFile, name: str, size: int):
+def _register_download(
+    request: Request, principal: Principal, file: LibraryFile, name: str, size: int
+):
     """登记到活动页「正在下载」（与 Jellyfin 客户端整文件下载同一类活动）。"""
     return activity.register_stream(
         device_id=_client(request, principal).device_id,

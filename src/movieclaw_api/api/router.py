@@ -61,6 +61,8 @@ from movieclaw_api.api.routes.logs import router as logs_router
 from movieclaw_api.api.routes.mcp import router as mcp_router
 from movieclaw_api.api.routes.members import router as members_router
 from movieclaw_api.api.routes.network import router as network_router
+from movieclaw_api.api.routes.offline import router as offline_router
+from movieclaw_api.api.routes.offline import viewings_router as playback_viewings_router
 from movieclaw_api.api.routes.people import router as people_router
 from movieclaw_api.api.routes.playback import router as playback_router
 from movieclaw_api.api.routes.playback import stream_router as playback_stream_router
@@ -82,8 +84,6 @@ from movieclaw_api.api.routes.storage import router as storage_router
 from movieclaw_api.api.routes.subscriptions import router as subscriptions_router
 from movieclaw_api.api.routes.subtitle_gen import router as subtitle_gen_router
 from movieclaw_api.api.routes.system_notices import router as system_notices_router
-from movieclaw_api.api.routes.offline import router as offline_router
-from movieclaw_api.api.routes.offline import viewings_router as playback_viewings_router
 from movieclaw_api.api.routes.tips import router as tips_router
 from movieclaw_api.api.routes.transcode_worker import router as transcode_worker_router
 from movieclaw_api.api.routes.ui import router as ui_router

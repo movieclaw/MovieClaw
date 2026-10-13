@@ -71,15 +71,31 @@ final class OfflineViewingRecorder {
     private func save(send: Bool) {
         lastSave = Date()
         let snapshot = record, key = ownerKey
-        let played = snapshot.completed || (snapshot.durationMs.map { $0 > 0 && Double(snapshot.positionMs) / Double($0) > 0.9 } ?? false)
+        let current = OfflineStore.shared.localProgress(itemId: snapshot.mediaItemId, season: snapshot.season, episode: snapshot.episode)
+        let outcome = Self.resolve(positionMs: snapshot.completed ? nil : snapshot.positionMs, runtimeMs: snapshot.durationMs,
+                                   currentlyPlayed: current?.played ?? false)
         OfflineStore.shared.recordProgress(
             itemId: snapshot.mediaItemId, season: snapshot.season, episode: snapshot.episode,
-            positionMs: played ? 0 : snapshot.positionMs, played: played || (OfflineStore.shared.localProgress(
-                itemId: snapshot.mediaItemId, season: snapshot.season, episode: snapshot.episode)?.played ?? false),
-            durationMs: snapshot.durationMs
+            positionMs: outcome.positionMs, played: outcome.played, durationMs: snapshot.durationMs
         )
         OfflineDisk.queue.async { try? OfflineDisk.write(snapshot, to: OfflineDisk.viewingFile(key, snapshot.viewingId)) }
         if send, let api { OfflineViewingUploader.shared.flush(api: api, ownerKey: key) }
+    }
+}
+
+extension OfflineViewingRecorder {
+    /// 本机续播点与服务端同一套阈值（movieclaw_playback/progress.py `resolve_progress`）：
+    /// 不足 5% 不记续播点、超过 90% 或离结尾 1 秒内算看完、短于 5 分钟的片过了开头就算看完。
+    /// 不同口径的话，离线时显示「继续 0:12」，连上之后服务端却说没看过
+    nonisolated static func resolve(positionMs: Int?, runtimeMs: Int?, currentlyPlayed: Bool) -> (positionMs: Int, played: Bool) {
+        guard let positionMs else { return (0, true) }
+        if positionMs <= 0 { return (0, currentlyPlayed) }
+        guard let runtimeMs, runtimeMs > 0 else { return (0, true) }
+        let pct = Double(positionMs) / Double(runtimeMs) * 100
+        if pct < 5 { return (0, currentlyPlayed) }
+        if pct > 90 || positionMs >= runtimeMs - 1000 { return (0, true) }
+        if runtimeMs < 300_000 { return (0, true) }
+        return (positionMs, currentlyPlayed)
     }
 }
 
