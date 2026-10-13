@@ -162,6 +162,11 @@ final class OfflineReviewReproUITests: XCTestCase {
         for gone in ["搜索资源", "清除观看记录…", "清除观看记录", "加入合集…"] {
             XCTAssertFalse(app.buttons[gone].exists, "菜单里不该再有「\(gone)」")
         }
+        // 「转移到其他库」跟着加入合集、分享；「洗版」排在管理那组末尾
+        let transferY = app.buttons["转移到其他库"].frame.minY, reidentifyY = app.buttons["修正识别"].frame.minY
+        let upgradeY = app.buttons["洗版"].frame.minY, shareY = app.buttons["分享"].frame.minY
+        XCTAssertTrue(shareY < transferY && transferY < reidentifyY && reidentifyY < upgradeY,
+                      "顺序不对：分享 \(shareY) 转移 \(transferY) 修正识别 \(reidentifyY) 洗版 \(upgradeY)")
         snapshot("item-menu")
         app.buttons["下载未看的集"].tap()
 
@@ -189,6 +194,46 @@ final class OfflineReviewReproUITests: XCTestCase {
         app.buttons["下载全部剧集"].tap()
         XCTAssertTrue(app.staticTexts["全部剧集都已下载"].waitForExistence(timeout: 10))
         XCTAssertFalse(original.exists)
+    }
+
+    /// 剧集下载进度画在分集卡上：剧集页没有播放键下方的下载按钮；下载中剧照调灰、中间进度环（点按暂停 / 继续）、
+    /// 底部写状态；下完恢复原色、提示「下载完成」，右上角绿箭头「已下载」
+    @MainActor
+    func testEpisodeCardShowsDownloadProgress() throws {
+        let app = launch(reset: true, route: "/library/2/item/\(showId)")
+        let card = app.buttons["episode-1"]
+        XCTAssertTrue(card.waitForExistence(timeout: 30))
+        XCTAssertFalse(app.buttons["item-download"].exists, "剧集页不该再有播放键下方的下载按钮")
+        card.press(forDuration: 1.2)
+        tapMenuItem(app, "下载这一集")
+        let original = app.buttons["offline-profile-original"]
+        XCTAssertTrue(original.waitForExistence(timeout: 30))
+        // 限速到约 400 KB/s：25 MB 的一集要下一分钟，够看清进度
+        setMode(["mode": "slow", "bps": 400_000])
+        original.tap()
+
+        let ring = app.buttons["episode-1-download"]
+        XCTAssertTrue(ring.waitForExistence(timeout: 30), "下载中剧照上应有进度环")
+        XCTAssertTrue(waitUntil(timeout: 30) { (ring.value as? String)?.hasPrefix("下载中") == true }, "状态：\(String(describing: ring.value))")
+        XCTAssertEqual(ring.label, "暂停下载")
+        XCTAssertFalse(card.label.contains("已下载"))
+        Thread.sleep(forTimeInterval: 4)
+        snapshot("episode-downloading")
+
+        ring.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { (ring.value as? String)?.hasPrefix("已暂停") == true }, "点环应暂停：\(String(describing: ring.value))")
+        XCTAssertEqual(ring.label, "继续下载")
+        snapshot("episode-paused")
+        ring.tap()
+        XCTAssertTrue(waitUntil(timeout: 20) { (ring.value as? String)?.hasPrefix("下载中") == true }, "再点应继续：\(String(describing: ring.value))")
+
+        setMode(["mode": "pass"])
+        XCTAssertTrue(app.staticTexts["下载完成"].waitForExistence(timeout: 120), "下完应提示「下载完成」")
+        snapshot("episode-finished")
+        XCTAssertFalse(ring.exists, "下完进度环应消失")
+        XCTAssertTrue(card.label.contains("已下载"))
+        XCTAssertTrue(waitUntil(timeout: 6) { !app.staticTexts["下载完成"].exists }, "「下载完成」只短暂提示")
+        snapshot("episode-downloaded")
     }
 
     /// 断网冷启动直接起播（通知、站内链接直达播放页）：本机目录还没读完也要放本机副本，不能去连服务器

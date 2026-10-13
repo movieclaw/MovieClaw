@@ -555,7 +555,8 @@ struct LibraryItemDetailView: View {
             .accessibilityLabel(progressText.map { "\(label)，\($0)" } ?? label)
             .accessibilityIdentifier("item-play")
             HStack(spacing: 10) {
-                if let detail, let unit = playUnit {
+                // 下载按钮只给电影；剧集的下载进度画在分集卡上，整批下载在右上角菜单
+                if isMovie, let detail, let unit = playUnit {
                     OfflineDownloadControl(detail: detail, season: unit.season, episode: unit.episode,
                                            files: downloadableFiles)
                 }
@@ -768,8 +769,8 @@ struct LibraryItemDetailView: View {
                 if canShare {
                     Button("分享", systemImage: "square.and.arrow.up") { Task { await openShare() } }
                 }
-                if canUpgrade {
-                    Button("洗版", systemImage: "sparkles") { Task { await upgrade(detail) } }
+                if manage {
+                    Button("转移到其他库", systemImage: "arrow.left.arrow.right") { sheet = .transfer }
                 }
             }
             if manage {
@@ -789,8 +790,13 @@ struct LibraryItemDetailView: View {
                         .disabled(detail.chaptersPending)
                     }
                     if scraped { Button("更换图片", systemImage: "photo") { sheet = .artwork } }
-                    Button("转移到其他库", systemImage: "arrow.left.arrow.right") { sheet = .transfer }
+                    if canUpgrade { upgradeButton(detail) }
                 }
+            } else if canUpgrade {
+                // 能订阅、不能管理库的成员：洗版单独一组
+                Section { upgradeButton(detail) }
+            }
+            if manage {
                 Section {
                     Button("从媒体库删除", systemImage: "trash", role: .destructive) { sheet = .delete }
                 }
@@ -1018,6 +1024,10 @@ struct LibraryItemDetailView: View {
         } catch {
             feedback.error(error)
         }
+    }
+
+    private func upgradeButton(_ detail: API.LibraryItemDetailView) -> some View {
+        Button("洗版", systemImage: "sparkles") { Task { await upgrade(detail) } }
     }
 
     private enum DownloadScope { case selected, unwatched, all }
@@ -1263,8 +1273,8 @@ struct SeasonEpisodesSection: View {
                             ForEach(shown, id: \.episodeNumber) { episode in
                                 EpisodeCard(episode: episode, selected: episode.episodeNumber == selected,
                                             resume: watchedAny && episode.episodeNumber == anchor,
-                                            downloaded: offlineStore.playableUnit(mediaItemId: detail.mediaItemId, season: data.seasonNumber,
-                                                                                  episode: episode.episodeNumber) != nil) {
+                                            download: offlineStore.unit(mediaItemId: detail.mediaItemId, season: data.seasonNumber,
+                                                                        episode: episode.episodeNumber)) {
                                     selected = episode.episodeNumber
                                     report()
                                 }
@@ -1422,16 +1432,24 @@ private struct EpisodeCard: View {
     let selected: Bool
     /// 本季有观看记录时，锚点那张卡左上角标「接着看」
     var resume = false
-    /// 这一集在 iPhone 上有下载（docs/design/offline-download.md §1：分集卡标「已下载」）
-    var downloaded = false
+    /// 这一集在 iPhone 上的下载（docs/design/offline-download.md §1）：下载中剧照调灰、中间进度环（点按暂停 / 继续）、
+    /// 底部写状态；下完恢复原色、右上角绿箭头「已下载」，刚下完时底部短暂提示「下载完成」
+    var download: OfflineUnit?
     var onSelect: () -> Void
     @Environment(\.api) private var api
+    @State private var justFinished = false
+
+    /// 还没下完（含暂停、失败、文件损坏）：剧照调灰
+    private var pending: Bool { download.map { !$0.playable } ?? false }
 
     var body: some View {
         Button(action: onSelect) {
             VStack(alignment: .leading, spacing: 6) {
                 LibraryArtwork(url: api.image(episode.stillUrl, width: ImageWidth.points(200)), frameAspect: 16 / 9,
                                fallbackText: episode.stillUrl == nil ? "\(episode.episodeNumber)" : nil)
+                    .grayscale(pending ? 1 : 0)
+                    .brightness(pending ? -0.28 : 0)
+                    .animation(.easeInOut(duration: 0.4), value: pending)
                     .clipShape(.rect(cornerRadius: 12))
                     .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(selected ? .white.opacity(0.85) : .white.opacity(0.08), lineWidth: selected ? 2 : 1))
                     .overlay(alignment: .topLeading) {
@@ -1444,10 +1462,15 @@ private struct EpisodeCard: View {
                     }
                     .overlay(alignment: .topTrailing) {
                         HStack(spacing: 4) {
-                            if downloaded {
-                                Image(systemName: "arrow.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
-                                    .frame(width: 18, height: 18).background(.black.opacity(0.6), in: .circle)
-                                    .accessibilityLabel("已下载")
+                            if download?.playable == true {
+                                HStack(spacing: 2) {
+                                    Image(systemName: "arrow.down").font(.system(size: 9, weight: .heavy)).foregroundStyle(Theme.success)
+                                        .accessibilityLabel("已下载")
+                                    Text("已下载").font(.caption2.weight(.semibold)).foregroundStyle(.white)
+                                        .accessibilityHidden(true)
+                                }
+                                .padding(.horizontal, 6).frame(height: 18)
+                                .background(.black.opacity(0.6), in: .capsule)
                             }
                             if !episode.owned {
                                 Text("缺").font(.caption2.weight(.semibold)).foregroundStyle(Theme.warning)
@@ -1460,6 +1483,14 @@ private struct EpisodeCard: View {
                             }
                         }
                         .padding(6)
+                    }
+                    .overlay(alignment: .bottomLeading) {
+                        if let download, pending {
+                            badge(Self.status(download), tint: .black.opacity(0.6))
+                        } else if justFinished {
+                            badge("下载完成", tint: Theme.success.opacity(0.9))
+                                .transition(.opacity)
+                        }
                     }
                     .overlay(alignment: .bottom) {
                         // 看完后重看到一半：对勾保留，进度条按这次看到哪画
@@ -1492,6 +1523,75 @@ private struct EpisodeCard: View {
         .accessibilityAddTraits(selected ? .isSelected : [])
         .accessibilityValue(resume ? "接着看" : "")
         .accessibilityIdentifier("episode-\(episode.episodeNumber)")
+        // 进度环叠在卡片外层：它是独立的点按目标，点它暂停 / 继续，点卡片其余位置照常选集
+        .overlay(alignment: .top) {
+            if let download, pending, !download.damaged {
+                progressControl(download)
+                    .frame(width: 200, height: 200 * 9 / 16)
+            }
+        }
+        .onChange(of: download?.playable) { old, new in
+            guard old == false, new == true else { return }
+            withAnimation { justFinished = true }
+            Task {
+                try? await Task.sleep(for: .seconds(2.5))
+                withAnimation { justFinished = false }
+            }
+        }
+    }
+
+    private func badge(_ text: String, tint: Color) -> some View {
+        Text(text).font(.caption2.weight(.semibold)).monospacedDigit().foregroundStyle(.white)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(tint, in: .capsule)
+            .padding(.horizontal, 6).padding(.bottom, 12)
+    }
+
+    /// 剧照上的进度环：环 = 进度，中间的图标 = 点了会怎样（暂停 / 继续 / 重试）；准备中只转圈、不可点
+    @ViewBuilder
+    private func progressControl(_ unit: OfflineUnit) -> some View {
+        let preparing = unit.state == .preparing
+        let icon = switch unit.state {
+        case .paused: "arrow.down"
+        case .failed: "arrow.clockwise"
+        default: "pause.fill"
+        }
+        Button {
+            switch unit.state {
+            case .queued, .downloading: OfflineDownloader.shared.pause(fileId: unit.fileId)
+            case .paused, .failed: OfflineDownloader.shared.resume(fileId: unit.fileId)
+            default: break
+            }
+        } label: {
+            ZStack {
+                Circle().fill(.black.opacity(0.45))
+                ProgressRing(fraction: preparing ? nil : unit.progressFraction).padding(4)
+                if !preparing {
+                    Image(systemName: icon).font(.system(size: 12, weight: .bold)).foregroundStyle(.white)
+                }
+            }
+            .frame(width: 40, height: 40)
+            .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .disabled(preparing)
+        .accessibilityLabel(unit.state == .paused ? "继续下载" : unit.state == .failed ? "重试下载" : "暂停下载")
+        .accessibilityValue(Self.status(unit))
+        .accessibilityIdentifier("episode-\(episode.episodeNumber)-download")
+    }
+
+    /// 剧照底部的一行状态（比通用文案短：卡片只有 200 宽）
+    static func status(_ unit: OfflineUnit) -> String {
+        let percent = unit.expectedBytes > 0 ? " \(Int(unit.progressFraction * 100))%" : ""
+        if unit.damaged { return "文件损坏，长按删除后重下" }
+        return switch unit.state {
+        case .preparing: "准备下载"
+        case .queued: "等待下载"
+        case .downloading: "下载中\(percent)"
+        case .paused: "已暂停\(percent)"
+        case .failed: unit.retryable ? "下载中断，稍后重试" : "下载失败"
+        case .done: "已下载"
+        }
     }
 }
 
