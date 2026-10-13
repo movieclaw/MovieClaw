@@ -1276,6 +1276,14 @@ class TranscodeSessionManager:
         session.error = "远程 Worker 超时未上传播放列表"
         raise SessionStartError(session.error)
 
+    def active_transcodes(self) -> int:
+        """正在转码的实时会话数（离线导出据此让路：实时有空位才开始）。"""
+        return sum(
+            1
+            for s in self._sessions.values()
+            if s.state in ("spawning", "ready") and s.is_transcoding
+        )
+
     def _check_capacity(self, transcoding: bool, max_transcode: int, max_remux: int) -> None:
         """两个独立信号量：转码按 CPU/GPU 算，直通按 IO 算。
 

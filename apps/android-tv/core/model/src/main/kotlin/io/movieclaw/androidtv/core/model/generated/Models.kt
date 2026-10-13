@@ -625,6 +625,7 @@ data class HealthResponse(
     @SerialName("environment") val environment: String = "",
     @SerialName("spec_hash") val specHash: String = "",
     @SerialName("version") val version: String? = null,
+    @SerialName("instance_id") val instanceId: String? = null,
 )
 
 /**
@@ -2285,6 +2286,7 @@ data class SessionCapabilities(
     @SerialName("allow_subscribe") val allowSubscribe: Boolean = false,
     @SerialName("allow_search") val allowSearch: Boolean = false,
     @SerialName("allow_direct_download") val allowDirectDownload: Boolean = false,
+    @SerialName("allow_video_download") val allowVideoDownload: Boolean? = null,
 )
 
 /**

@@ -146,6 +146,13 @@ async def _get_or_create(
     return row
 
 
+async def get_or_create_state(
+    session: AsyncSession, unit: Unit, *, member_id: int
+) -> PlaybackState:
+    """该观看者在该单元上的状态行，没有就建（离线观看记录补传按发生时间自己写字段）。"""
+    return await _get_or_create(session, unit, member_id=member_id)
+
+
 async def record_playback_start(
     session: AsyncSession, unit: Unit, *, member_id: int
 ) -> PlaybackState:

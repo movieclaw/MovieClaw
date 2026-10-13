@@ -264,6 +264,7 @@ function MemberTableRow({
     member.allow_subscribe ? "订阅" : null,
     member.allow_search ? "资源搜索" : null,
     member.allow_direct_download ? "下载" : null,
+    member.allow_video_download ? null : "禁止离线下载",
     // 分级上限直接摆在摘要里：这是"这个号是给谁用的"最要紧的一条信息
     member.content_age_limit !== null ? `${member.content_age_limit}+ 以下` : null,
   ].filter(Boolean);
@@ -490,6 +491,7 @@ function EditMemberDialog({
   const [allowSubscribe, setAllowSubscribe] = useState(member.allow_subscribe);
   const [allowSearch, setAllowSearch] = useState(member.allow_search);
   const [allowDirectDownload, setAllowDirectDownload] = useState(member.allow_direct_download);
+  const [allowVideoDownload, setAllowVideoDownload] = useState(member.allow_video_download);
   const [allLibraries, setAllLibraries] = useState(member.all_libraries);
   const [libraryIds, setLibraryIds] = useState(member.library_ids);
   const [allSites, setAllSites] = useState(member.all_sites);
@@ -510,6 +512,7 @@ function EditMemberDialog({
       allow_subscribe: allowSubscribe,
       allow_search: allowSearch,
       allow_direct_download: allowSearch && allowDirectDownload,
+      allow_video_download: allowVideoDownload,
       all_libraries: allLibraries,
       library_ids: allLibraries ? libraryIds.filter((id) => selectedModeIds.includes(id)) : libraryIds,
       all_sites: allSites,
@@ -576,6 +579,12 @@ function EditMemberDialog({
               checked={allowDirectDownload}
               disabled={!allowSearch}
               onChange={setAllowDirectDownload}
+            />
+            <PermissionToggle
+              label="下载影片到设备"
+              description="把库里已有的片子存到自己的手机、平板离线看（App 离线下载、Infuse 等播放器的下载）"
+              checked={allowVideoDownload}
+              onChange={setAllowVideoDownload}
             />
           </div>
         </div>

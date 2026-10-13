@@ -192,6 +192,8 @@ def test_member_session_view_carries_role_and_capabilities(client: TestClient) -
         "allow_subscribe": True,
         "allow_search": False,
         "allow_direct_download": False,
+        # 下载影片到设备：默认开（member-permissions-v2.md §3.5「家人」预设）
+        "allow_video_download": True,
     }
 
 
@@ -726,6 +728,16 @@ _MEMBER_ALLOWLIST = {
     ("POST", "/api/v1/tips/events/{event_id}"),
     ("POST", "/api/v1/tips/{tip_id}/displays"),
     ("POST", "/api/v1/tips/{tip_id}/invalidate"),
+    # 离线下载（docs/design/offline-download.md）：只碰成员自己可见库里的文件；
+    # 下载类另按「下载影片到设备」开关放行（默认开）
+    ("GET", "/api/v1/offline/manifest"),
+    ("GET", "/api/v1/offline/files/{file_id}/content"),
+    ("POST", "/api/v1/offline/exports"),
+    ("GET", "/api/v1/offline/exports/{export_id}"),
+    ("GET", "/api/v1/offline/exports/{export_id}/content"),
+    ("DELETE", "/api/v1/offline/exports/{export_id}"),
+    # 本机播放的观看记录：只写自己的观看状态与日志（同 /playback/progress）
+    ("POST", "/api/v1/playback/viewings"),
 }
 
 # 路径参数哑值（与 test_auth.py 的匿名守护测试保持一致）
@@ -788,6 +800,8 @@ _PATH_DUMMIES = {
     "{key}": "cache.images",
     # 播放体验记录的播放编号
     "{attempt_id}": "test-attempt",
+    # 离线下载的导出号
+    "{export_id}": "no-such-export",
     # App 推送的自建中继、推送配图的签名
     "{relay_id}": "r_test",
     "{token}": "no-such-image",

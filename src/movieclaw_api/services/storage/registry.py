@@ -261,6 +261,20 @@ DATA_DIRS: tuple[DataDir, ...] = (
         orphans=_orphans_by_id("LibraryFile"),
     ),
     DataDir(
+        key="cache.offline-exports",
+        title="离线下载转码",
+        summary="App 按 1080p / 720p / 480p 下载时转出的整片",
+        description=(
+            "在 iPhone 上选了较小画质下载影片时，服务器先把整片转成对应画质的 MP4，"
+            "手机边转边下。下载完成或 72 小时没人取会自动回收。清空后正在进行的下载会从头重转。"
+        ),
+        default="data/cache/offline-exports",
+        resolve=lambda s: Path(s.offline_exports_dir),
+        group=Group.CACHE,
+        rebuild_cost=RebuildCost.EXPENSIVE,
+        clearable=True,
+    ),
+    DataDir(
         key="cache.reels",
         title="刷片挑点",
         summary="刷片为每个文件挑出的片段位置",

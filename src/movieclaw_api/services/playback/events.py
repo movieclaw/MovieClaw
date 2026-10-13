@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -54,8 +55,12 @@ async def publish_playback(
     duration_ms: int | None = None,
     file_id: int | None = None,
     completed: bool = False,
+    occurred_at: datetime | None = None,
 ) -> None:
-    """开始 / 停止 / 看完 / 进度：``state`` 是这次上报落库后的观看状态行。"""
+    """开始 / 停止 / 看完 / 进度：``state`` 是这次上报落库后的观看状态行。
+
+    ``occurred_at``：离线观看记录补传时用它真正发生的时间（不带时区的 UTC）。
+    """
 
     async def build() -> Any:
         media = event_refs.media_ref(await session.get(MediaItem, unit[0]))
@@ -78,7 +83,7 @@ async def publish_playback(
             fields["completed"] = completed
         return payload_type(**fields)
 
-    await events.publish(session, event, build)
+    await events.publish(session, event, build, occurred_at=occurred_at)
 
 
 async def publish_marked(

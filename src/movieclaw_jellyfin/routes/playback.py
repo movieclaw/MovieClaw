@@ -77,14 +77,14 @@ from movieclaw_api.services.playback.track_context import files_with_contexts, t
 from movieclaw_api.settings import PlaybackPolicySetting
 from movieclaw_api.settings.store import get_setting_store
 from movieclaw_db.engine import get_database
-from movieclaw_db.models import LibraryFile, MediaMetadata
+from movieclaw_db.models import LibraryFile, MediaMetadata, Member
 from movieclaw_jellyfin.catalog import (
     audio_track_for_index,
     index_for_subtitle_track,
     media_source_dto,
     subtitle_track_for_index,
 )
-from movieclaw_jellyfin.errors import bad_request_text, not_found
+from movieclaw_jellyfin.errors import bad_request_text, forbidden, not_found
 from movieclaw_jellyfin.ids import (
     EntityKind,
     EntityRef,
@@ -793,6 +793,15 @@ async def _register_stream(
     return session_stopped, meter.add, _close
 
 
+async def _member_may_download(member_id: int) -> bool:
+    """下载影片到设备的开关（member-permissions-v2.md §3.2）：超管（0）恒可。"""
+    if not member_id:
+        return True
+    async with get_database().session() as session:
+        member = await session.get(Member, member_id)
+    return member is not None and bool(member.allow_video_download)
+
+
 @router.get("/Items/{item_id}/Download")
 @router.head("/Items/{item_id}/Download")
 @router.get("/Items/{item_id}/File")
@@ -818,6 +827,8 @@ async def download_item(
     ref = decode_guid(item_id)
     if ref is None or ref.kind not in (EntityKind.ITEM, EntityKind.EPISODE):
         raise not_found()
+    if not await _member_may_download(identity.device.member_id):
+        raise forbidden()
 
     files = await _files_for_ref(ref, identity.device.member_id)
     selected = _select_source(files, request.query_params.get("mediaSourceId"), item_id)

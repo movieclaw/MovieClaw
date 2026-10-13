@@ -216,6 +216,15 @@ var knownNonGenerated = []string{
 	"tips.events.donate",
 	"tips.displays.record",
 	"tips.invalidate",
+	// 离线下载（docs/design/offline-download.md）：App 后台下载会话与本机播放的协议端点，
+	// 产物是二进制或给本机存档用，CLI 无消费方
+	"offline.manifest",
+	"offline.file.content",
+	"offline.exports.create",
+	"offline.exports.get",
+	"offline.exports.content",
+	"offline.exports.release",
+	"playback.viewings",
 }
 
 // TestNonGeneratedEndpointsAreAllKnown 强制新端点显式表态：进命令树，或登记豁免。

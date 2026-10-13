@@ -496,8 +496,13 @@ def build_hls_command(
     seek_pad_s: float = 0.5,
     protocol_whitelist: str | None = None,
     input_options: Sequence[str] = (),
+    export_path: Path | None = None,
 ) -> TranscodeCommand:
     """把播放计划翻成 ffmpeg 命令。档 0（Direct Play）不该走到这里。
+
+    ``export_path``：离线下载的整片导出（docs/design/offline-download.md §5.3）。输出一整个
+    分片化 MP4 文件写到这里，不限读速；分片化保证文件只往后追加、不回头改写，下载接口
+    可以边写边发。
 
     ``input_format="concat"`` 是原盘多剪辑的输入形态（docs/design/disc-playback.md
     §3.4）：``source_path`` 指向 concat 清单而不是媒体文件，``-f concat -safe 0``
@@ -560,7 +565,7 @@ def build_hls_command(
         argv += ["-fflags", "+genpts"]
     # 读入限速也是输入选项，必须在 -i 之前。只给会话相对制：VOD 模式由会话层
     # 按领先量闭环节流（理由见常量注释）
-    if start_number is None:
+    if start_number is None and export_path is None:
         argv += [
             "-readrate", str(READRATE_COPY if not transcoding_video else READRATE),
             "-readrate_initial_burst", str(READRATE_BURST_SECONDS),
@@ -629,6 +634,10 @@ def build_hls_command(
         and start_number is not None
         and not is_mpegts(plan)
     )
+    if export_path is not None:
+        argv += _export_args()
+        argv.append(str(export_path))
+        return TranscodeCommand(argv=argv, playlist_path=export_path, init_path=export_path)
     if progressive:
         argv += _progressive_args()
     else:
@@ -1003,6 +1012,27 @@ def _progressive_args() -> list[str]:
         "-movflags", "+frag_keyframe+delay_moov+default_base_moof+frag_discont+skip_sidx",
         "-frag_duration", str(PROGRESSIVE_FRAGMENT_US),
         "-method", "PUT",
+        "-y",
+    ]
+
+
+#: 离线导出的片段时长上限（微秒）：文件要从头读到尾，不像边播边送那样要小片段起播快；
+#: 片段大一点，片段头的开销与文件尾部的随机访问索引（mfra）都小
+EXPORT_FRAGMENT_US = 2_000_000
+
+
+def _export_args() -> list[str]:
+    """离线导出：与 ``_progressive_args`` 同一组分片 MP4 参数，写本地文件。
+
+    分片模式下 mp4 muxer 只往后追加（写管道与写文件逐字节相同，2026-10-13 实测），尾部
+    带 mfra 索引，播放器打开本地文件时长与拖动都准确。章节同样去掉（理由同上），章节由
+    离线清单另行下发。
+    """
+    return [
+        "-map_chapters", "-1",
+        "-f", "mp4",
+        "-movflags", "+frag_keyframe+delay_moov+default_base_moof+frag_discont+skip_sidx",
+        "-frag_duration", str(EXPORT_FRAGMENT_US),
         "-y",
     ]
 

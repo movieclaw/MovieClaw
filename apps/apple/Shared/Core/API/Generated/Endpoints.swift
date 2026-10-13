@@ -1848,6 +1848,32 @@ nonisolated extension APIClient {
         return try await send("POST", "/network/test", body: body)
     }
 
+    /// 建或复用一个转码导出（1080p / 720p / 480p）
+    /// `POST /offline/exports`
+    func offlineExportsCreate(body: API.OfflineExportRequest) async throws -> API.OfflineExportView {
+        return try await send("POST", "/offline/exports", body: body)
+    }
+
+    /// 下载完了：通知服务端可以回收导出
+    /// `DELETE /offline/exports/{export_id}`
+    func offlineExportsRelease(exportId: String) async throws -> Void {
+        let _: API.JSONValue? = try await send("DELETE", "/offline/exports/\(exportId)")
+    }
+
+    /// 导出进度
+    /// `GET /offline/exports/{export_id}`
+    func offlineExportsGet(exportId: String) async throws -> API.OfflineExportView {
+        return try await send("GET", "/offline/exports/\(exportId)")
+    }
+
+    /// 离线下载清单：一个播放单元打包所需的一切
+    /// `GET /offline/manifest`
+    func offlineManifest(fileId: Int) async throws -> API.OfflineManifestView {
+        var query: [URLQueryItem] = []
+        query.append(URLQueryItem(name: "file_id", value: "\(fileId)"))
+        return try await send("GET", "/offline/manifest", query: query)
+    }
+
     /// 人物页：库内这个影人的档案与作品
     /// `GET /people/{tmdb_person_id}`
     func peopleShow(tmdbPersonId: Int) async throws -> API.PersonView {
@@ -2097,6 +2123,12 @@ nonisolated extension APIClient {
         return try await send("GET", "/playback/up-next", query: query)
     }
 
+    /// 本机播放的观看记录（含离线补传），按编号幂等合并
+    /// `POST /playback/viewings`
+    func playbackViewings(body: API.PlaybackViewingsRequest) async throws -> API.PlaybackViewingsView {
+        return try await send("POST", "/playback/viewings", body: body)
+    }
+
     /// 推送通道与设备覆盖
     /// `GET /push/channels`
     func pushChannelsList() async throws -> API.PushChannelsView {
@@ -2113,6 +2145,12 @@ nonisolated extension APIClient {
     /// `GET /push/me`
     func pushMeShow() async throws -> API.MyPushView {
         return try await send("GET", "/push/me")
+    }
+
+    /// 确认实时通知已显示（之后重连不再补发）
+    /// `POST /push/me/ack`
+    func pushMeAck(body: API.PushAckRequest) async throws -> API.PushAckView {
+        return try await send("POST", "/push/me/ack", body: body)
     }
 
     /// 恢复一部片的推送
@@ -2959,6 +2997,8 @@ nonisolated extension APIClient {
 // - POST /api/v1/libraries/{library_id}/cover（multipart 表单上传，需手写）
 // - GET /api/v1/libraries/{library_id}/items/{media_item_id}/artwork（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/members/{member_id}/avatar（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/offline/exports/{export_id}/content（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/offline/files/{file_id}/content（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/files/{file_id}/disc/{relative_path}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/files/{file_id}/fonts/{name}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/files/{file_id}/stream（无响应模型：文件流/SSE 等，需手写）
@@ -2969,6 +3009,7 @@ nonisolated extension APIClient {
 // - GET /api/v1/playback/sessions/{session_id}/sub{index}.m3u8（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/playback/sessions/{session_id}/{name}（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/push/images/{token}（无响应模型：文件流/SSE 等，需手写）
+// - GET /api/v1/push/me/stream（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/reels/clips/{file_id}/{start_ms}.mp4（无响应模型：文件流/SSE 等，需手写）
 // - GET /api/v1/search/torrents/stream（无响应模型：文件流/SSE 等，需手写）
 // - POST /api/v1/sessions/attachments（multipart 表单上传，需手写）

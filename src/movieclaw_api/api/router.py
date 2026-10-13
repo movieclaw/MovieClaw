@@ -82,6 +82,8 @@ from movieclaw_api.api.routes.storage import router as storage_router
 from movieclaw_api.api.routes.subscriptions import router as subscriptions_router
 from movieclaw_api.api.routes.subtitle_gen import router as subtitle_gen_router
 from movieclaw_api.api.routes.system_notices import router as system_notices_router
+from movieclaw_api.api.routes.offline import router as offline_router
+from movieclaw_api.api.routes.offline import viewings_router as playback_viewings_router
 from movieclaw_api.api.routes.tips import router as tips_router
 from movieclaw_api.api.routes.transcode_worker import router as transcode_worker_router
 from movieclaw_api.api.routes.ui import router as ui_router
@@ -142,6 +144,10 @@ _MEMBER_ROUTERS = [
     push_member_router,
     # 使用提示（docs/design/tips.md）：每个人自己的事件计数与提示展示/作废记录
     tips_router,
+    # 离线下载（docs/design/offline-download.md）：下载类接口另挂「下载影片到设备」开关；
+    # 观看记录补传只要登录（权限后来被关，已下的片照样能播、记录照样要回来）
+    offline_router,
+    playback_viewings_router,
     # 功能开关（docs/design/plugin-page-tiers.md §6）：各端都要知道哪些功能停用了好隐藏入口；
     # 切换在路由级挂 require_admin
     features_router,

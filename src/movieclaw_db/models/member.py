@@ -42,6 +42,10 @@ class Member(TimestampMixin, table=True):
     allow_direct_download: bool = Field(
         default=False, description="搜索结果一键下载（依赖 allow_search，服务端独立校验）"
     )
+    allow_video_download: bool = Field(
+        default=True,
+        description="把库里的影片下载到自己的设备离线看（App 离线下载、Jellyfin 客户端下载）",
+    )
 
     # ---- 资源白名单模式开关（True=全部可见含未来新建；False=查关联表）----
     all_libraries: bool = Field(default=True, description="库可见性：是否不受白名单限制")

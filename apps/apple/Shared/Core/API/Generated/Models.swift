@@ -149,7 +149,7 @@ nonisolated extension API {
     }
 
     struct AddedView: Codable, Hashable, Sendable {
-        /// channel / task / ingest / job / site / service（提供的服务） / background（常驻后台工作）/ delete（删除时的选项） / other（其他登记） / command / trigger / decision
+        /// channel / task / ingest / job / site / service（提供的服务） / background（常驻后台工作）/ delete（删除时的选项） / other（其他登记） / command / trigger / decision / event（会发出的事件）/ notification（会发的通知）
         var kind: String
         /// 人话：它给系统加了什么、什么时候被触发、会影响什么
         var title: String
@@ -3955,6 +3955,7 @@ nonisolated extension API {
         var environment: String
         var specHash: String
         var version: String?
+        var instanceId: String?
 
         enum CodingKeys: String, CodingKey {
             case status
@@ -3962,6 +3963,7 @@ nonisolated extension API {
             case environment
             case specHash = "spec_hash"
             case version
+            case instanceId = "instance_id"
         }
     }
 
@@ -6364,6 +6366,7 @@ nonisolated extension API {
         var allowSubscribe: Bool?
         var allowSearch: Bool?
         var allowDirectDownload: Bool?
+        var allowVideoDownload: Bool?
         /// True=全部库可见（含未来新建）；False=按 library_ids 白名单
         var allLibraries: Bool?
         /// 可见库白名单（整体覆盖）；仅 all_libraries=False 时生效
@@ -6382,6 +6385,7 @@ nonisolated extension API {
             case allowSubscribe = "allow_subscribe"
             case allowSearch = "allow_search"
             case allowDirectDownload = "allow_direct_download"
+            case allowVideoDownload = "allow_video_download"
             case allLibraries = "all_libraries"
             case libraryIds = "library_ids"
             case allSites = "all_sites"
@@ -6403,6 +6407,7 @@ nonisolated extension API {
         var allowSubscribe: Bool
         var allowSearch: Bool
         var allowDirectDownload: Bool
+        var allowVideoDownload: Bool?
         var allLibraries: Bool
         var libraryIds: [Int]
         var allSites: Bool
@@ -6425,6 +6430,7 @@ nonisolated extension API {
             case allowSubscribe = "allow_subscribe"
             case allowSearch = "allow_search"
             case allowDirectDownload = "allow_direct_download"
+            case allowVideoDownload = "allow_video_download"
             case allLibraries = "all_libraries"
             case libraryIds = "library_ids"
             case allSites = "all_sites"
@@ -6943,6 +6949,146 @@ nonisolated extension API {
 
         enum CodingKeys: String, CodingKey {
             case enabled
+        }
+    }
+
+    struct OfflineExportRequest: Codable, Hashable, Sendable {
+        var fileId: Int
+        var profile: String
+        /// 转码档只带这一条音轨；空=默认轨
+        var audioTrack: String?
+
+        enum CodingKeys: String, CodingKey {
+            case fileId = "file_id"
+            case profile
+            case audioTrack = "audio_track"
+        }
+    }
+
+    struct OfflineExportView: Codable, Hashable, Sendable {
+        var exportId: String
+        /// queued / running / done / failed
+        var status: String
+        var etag: String
+        var expectedBytes: Int
+        var finalBytes: Int?
+        var error: String?
+        /// 排队中的位置（0=下一个）
+        var queuePosition: Int?
+        /// 下载地址（Bearer 设备令牌鉴权）
+        var contentUrl: String
+
+        enum CodingKeys: String, CodingKey {
+            case exportId = "export_id"
+            case status
+            case etag
+            case expectedBytes = "expected_bytes"
+            case finalBytes = "final_bytes"
+            case error
+            case queuePosition = "queue_position"
+            case contentUrl = "content_url"
+        }
+    }
+
+    /// 一个播放单元打包所需的一切：展示数据、播放数据、要下载的文件与可选档位。
+    struct OfflineManifestView: Codable, Hashable, Sendable {
+        var fileId: Int
+        var mediaItemId: Int
+        var libraryId: Int
+        var seasonNumber: Int
+        var episodeNumber: Int
+        /// 原文件容器（原画档存盘扩展名）
+        var container: String?
+        var sizeBytes: Int
+        var durationMs: Int?
+        var item: API.LibraryItemDetailView
+        var library: API.LibraryView
+        /// 剧集：这一集所在季的分集清单
+        var season: API.SeasonEpisodesView?
+        var chapters: [API.PlaybackChapterMarkView]
+        var segments: [API.PlaybackSegmentView]
+        var audioTracks: [API.AudioTrackView]
+        /// 按偏好与轨道记忆选中的音轨
+        var defaultAudio: String?
+        /// 默认字幕轨；None=不开字幕
+        var defaultSubtitle: String?
+        var subtitles: [API.OfflineSubtitleView]
+        /// ASS 字幕要的内嵌字体清单地址（带签名）；没有 ASS 轨为空
+        var fontsUrl: String?
+        /// 这个文件能选的档位；空 = 不能下载，原因见 unavailable_reason
+        var profiles: [API.OfflineProfileView]
+        var unavailableReason: String?
+        /// 打包时服务器上的续播点
+        var resumePositionMs: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case fileId = "file_id"
+            case mediaItemId = "media_item_id"
+            case libraryId = "library_id"
+            case seasonNumber = "season_number"
+            case episodeNumber = "episode_number"
+            case container
+            case sizeBytes = "size_bytes"
+            case durationMs = "duration_ms"
+            case item
+            case library
+            case season
+            case chapters
+            case segments
+            case audioTracks = "audio_tracks"
+            case defaultAudio = "default_audio"
+            case defaultSubtitle = "default_subtitle"
+            case subtitles
+            case fontsUrl = "fonts_url"
+            case profiles
+            case unavailableReason = "unavailable_reason"
+            case resumePositionMs = "resume_position_ms"
+        }
+    }
+
+    /// 这个文件可选的一档下载画质。
+    struct OfflineProfileView: Codable, Hashable, Sendable {
+        /// original / 1080p / 720p / 480p
+        var profile: String
+        /// 给人看的档名（「原画 · 4K HEVC」「720p」）
+        var label: String
+        /// 目标高度；原画为源高度
+        var height: Int?
+        /// 预计大小（原画即原文件大小）
+        var expectedBytes: Int
+
+        enum CodingKeys: String, CodingKey {
+            case profile
+            case label
+            case height
+            case expectedBytes = "expected_bytes"
+        }
+    }
+
+    /// 要随视频一起下载的一条文本字幕（地址带签名，打包时当场取）。
+    struct OfflineSubtitleView: Codable, Hashable, Sendable {
+        var trackRef: String
+        /// 存盘格式：srt / ass / ssa / vtt
+        var format: String
+        var language: String?
+        var title: String?
+        var isDefault: Bool
+        var isForced: Bool
+        var isAi: Bool
+        /// 内封轨抽出来的（原画档不用下，引擎直接读文件里的）
+        var embedded: Bool
+        var url: String
+
+        enum CodingKeys: String, CodingKey {
+            case trackRef = "track_ref"
+            case format
+            case language
+            case title
+            case isDefault = "is_default"
+            case isForced = "is_forced"
+            case isAi = "is_ai"
+            case embedded
+            case url
         }
     }
 
@@ -8312,6 +8458,73 @@ nonisolated extension API {
         }
     }
 
+    /// 一次本机播放（docs/design/offline-download.md §7），时间都是手机时钟。
+    struct PlaybackViewingRecordIn: Codable, Hashable, Sendable {
+        /// 客户端生成的 UUID
+        var viewingId: String
+        var mediaItemId: Int
+        var seasonNumber: Int?
+        var episodeNumber: Int?
+        var fileId: Int?
+        var startedAt: String
+        var updatedAt: String
+        var startPositionMs: Int?
+        var positionMs: Int
+        /// 实际在播的墙钟时长
+        var watchedMs: Int?
+        /// 播到了片尾
+        var completed: Bool?
+        /// 这次播放已结束（之后不会再更新）
+        var ended: Bool?
+        var durationMs: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case viewingId = "viewing_id"
+            case mediaItemId = "media_item_id"
+            case seasonNumber = "season_number"
+            case episodeNumber = "episode_number"
+            case fileId = "file_id"
+            case startedAt = "started_at"
+            case updatedAt = "updated_at"
+            case startPositionMs = "start_position_ms"
+            case positionMs = "position_ms"
+            case watchedMs = "watched_ms"
+            case completed
+            case ended
+            case durationMs = "duration_ms"
+        }
+    }
+
+    struct PlaybackViewingResultView: Codable, Hashable, Sendable {
+        var viewingId: String
+        /// applied=已写入；stale=续播点比服务器旧没改（观看日志照记）；rejected=对不上条目
+        var status: String
+
+        enum CodingKeys: String, CodingKey {
+            case viewingId = "viewing_id"
+            case status
+        }
+    }
+
+    struct PlaybackViewingsRequest: Codable, Hashable, Sendable {
+        /// 发送时的手机时间，服务端据此校正时钟偏差
+        var sentAt: String
+        var records: [API.PlaybackViewingRecordIn]
+
+        enum CodingKeys: String, CodingKey {
+            case sentAt = "sent_at"
+            case records
+        }
+    }
+
+    struct PlaybackViewingsView: Codable, Hashable, Sendable {
+        var results: [API.PlaybackViewingResultView]
+
+        enum CodingKeys: String, CodingKey {
+            case results
+        }
+    }
+
     /// 一段时间内的观看统计（docs/design/activity.md「观看统计」）。
     /// 当前周期与**上一周期**成对返回：没有参照系的数字只是数据，不是洞察。
     /// ``by_day`` 与 ``previous_by_day`` 按天对齐（同为 days+1 行），主图把两条线画在
@@ -8804,6 +9017,24 @@ nonisolated extension API {
             case downloaded
             case imported
             case upgrading
+        }
+    }
+
+    struct PushAckRequest: Codable, Hashable, Sendable {
+        /// 已显示的最后一条实时通知 id（含）
+        var upTo: Int
+
+        enum CodingKeys: String, CodingKey {
+            case upTo = "up_to"
+        }
+    }
+
+    struct PushAckView: Codable, Hashable, Sendable {
+        /// 这次标记为已送达的条数
+        var acked: Int
+
+        enum CodingKeys: String, CodingKey {
+            case acked
         }
     }
 
@@ -10475,11 +10706,13 @@ nonisolated extension API {
         var allowSubscribe: Bool
         var allowSearch: Bool
         var allowDirectDownload: Bool
+        var allowVideoDownload: Bool?
 
         enum CodingKeys: String, CodingKey {
             case allowSubscribe = "allow_subscribe"
             case allowSearch = "allow_search"
             case allowDirectDownload = "allow_direct_download"
+            case allowVideoDownload = "allow_video_download"
         }
     }
 

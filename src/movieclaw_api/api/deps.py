@@ -272,3 +272,19 @@ async def require_direct_download_capability(
     if principal.member is None or not principal.member.allow_direct_download:
         raise ForbiddenException("管理员未对你开放一键下载，请联系管理员开启")
     return principal
+
+
+def can_download_video(principal: Principal) -> bool:
+    """下载影片到设备（docs/design/offline-download.md §9）：管理员恒可；成员看 ``allow_video_download``。"""
+    if principal.is_admin:
+        return True
+    return principal.member is not None and principal.member.allow_video_download
+
+
+async def require_video_download_capability(
+    principal: Principal = Depends(require_login),
+) -> Principal:
+    """离线下载能力依赖：App 离线下载的全部接口都挂它。"""
+    if not can_download_video(principal):
+        raise ForbiddenException("管理员未对你开放下载影片到设备，请联系管理员开启")
+    return principal

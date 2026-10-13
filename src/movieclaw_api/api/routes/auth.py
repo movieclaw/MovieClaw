@@ -138,6 +138,7 @@ def _member_session_view(member: Member) -> SessionView:
             allow_subscribe=member.allow_subscribe,
             allow_search=member.allow_search,
             allow_direct_download=member.allow_direct_download,
+            allow_video_download=member.allow_video_download,
         ),
     )
 
