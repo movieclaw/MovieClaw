@@ -29,7 +29,7 @@ CLIENTS = {
     "transcoder": ("Mac transcoder", "Mac 转码器"),
     "android": ("Android", "Android"),
     "androidtv": ("Android TV", "Android TV"),
-    "desktop": ("Windows", "Windows"),
+    "windows": ("Windows", "Windows"),
 }
 
 

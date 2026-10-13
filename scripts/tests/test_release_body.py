@@ -26,7 +26,7 @@ def releases(*extra):
         release("v0.38.0", "2026-10-20T00:00:00Z"),
         release("ios-v0.7.0"), release("tvos-v0.7.0"), release("macos-v0.7.0"),
         release("transcoder-v0.33.0"), release("android-v0.3.1"), release("androidtv-v0.2.2"),
-        release("desktop-v1.0.4"),
+        release("windows-v0.1.0"),
         *extra,
     ]
 
@@ -51,7 +51,7 @@ class ReleaseBodyTest(unittest.TestCase):
         names = [line.split("**")[1] for line in en.splitlines() if line.startswith("- **")]
         self.assertEqual(names, [
             "iPhone & iPad 0.7.0", "Apple TV 0.7.0", "Mac 0.7.1", "Mac transcoder 0.33.0",
-            "Android 0.3.2", "Android TV 0.2.2", "Windows 1.0.4",
+            "Android 0.3.2", "Android TV 0.2.2", "Windows 0.1.0",
         ])
         self.assertIn(
             f"- **iPhone & iPad 0.7.0**: TestFlight, or the [unsigned IPA]({URL}ios-v0.7.0) "
@@ -73,14 +73,14 @@ class ReleaseBodyTest(unittest.TestCase):
         items = releases(
             release("android-v0.4.0", "2026-10-25T00:00:00Z"),  # 本版之后才发
             release("androidtv-v0.3.0", "2026-10-19T00:00:00Z", prerelease=True),
-            release("desktop-v1.0.5", None, draft=True),
+            release("windows-v0.1.1", None, draft=True),
             release("android-v0.3.10", "2026-10-18T00:00:00Z"),
         )
         body = self.body(items)
         self.assertIn("**Android 0.3.10** (new)", body)
         self.assertNotIn("0.4.0", body)
         self.assertIn("**Android TV 0.2.2**", body)
-        self.assertIn("**Windows 1.0.4**", body)
+        self.assertIn("**Windows 0.1.0**", body)
         # 服务器版本还是草稿时取现在：之后发的客户端也算
         items[1] = release("v0.38.0", None, draft=True)
         self.assertIn("**Android 0.4.0** (new)", self.body(items))

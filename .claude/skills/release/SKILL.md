@@ -13,8 +13,7 @@ description: 发布 movieclaw 新版本。当用户要求发版、发布新版�
 | 应用 Release（`vX.Y.Z` tag） | 前后端代码变了（最常见） | 设置页一键更新，免拉镜像 |
 | 模型 Release（`torrent-ner-vN` tag） | NER 模型重新训练 | 设置页一键更新模型 |
 | Docker 镜像 | 随应用 Release 自动发（release.yml 调用 docker-image.yml 推 Docker Hub） | 仅 runtime bump 时用户必须重拉 |
-| 客户端 Release（`ios-v` / `tvos-v` / `macos-v` / `transcoder-v` / `android-v` / `androidtv-v` 加 `X.Y.Z`） | 某个客户端有变化，各自独立发布（第九节） | 各自渠道更新：TestFlight、下载 zip / APK |
-| Windows 客户端（`desktop-vX.Y.Z` tag） | `apps/desktop` 变了，独立发布 | 客户端内检查更新 |
+| 客户端 Release（`ios-v` / `tvos-v` / `macos-v` / `transcoder-v` / `android-v` / `androidtv-v` / `windows-v` 加 `X.Y.Z`） | 某个客户端有变化，各自独立发布（第九、十节） | 各自渠道更新：TestFlight、下载 zip / APK、Windows 客户端内检查更新 |
 
 ## 一、应用 Release（日常发版）
 
@@ -233,7 +232,7 @@ ffmpeg 版本，发版前按下表逐项过一遍。
 | Mac 转码器 | `transcoder-vX.Y.Z` | `macos/MovieClawTranscoder/Resources/Info.plist` 的 `CFBundleShortVersionString` | `apple-release.yml` | 签名公证 zip + `downloads.json` | MovieClaw Transcoder X.Y.Z |
 | Android 手机/平板 | `android-vX.Y.Z` | `apps/android/version.properties` | `android-release.yml` | APK + JSON + `downloads.json` | MovieClaw for Android X.Y.Z |
 | Android TV | `androidtv-vX.Y.Z` | `apps/android-tv/version.properties` | `android-release.yml` | APK + JSON + `downloads.json` | MovieClaw for Android TV X.Y.Z |
-| Windows | `desktop-vX.Y.Z` | 见第十节 | Desktop CI 产物，手动发 | 安装包 | MovieClaw for Windows X.Y.Z |
+| Windows | `windows-vX.Y.Z` | `apps/desktop/src-tauri/Cargo.toml`（与 `package.json` 同步） | Desktop CI 产物，手动发（第十节） | 安装包 | MovieClaw for Windows X.Y.Z |
 
 发版步骤：
 
@@ -262,21 +261,16 @@ Android 正式构建要求完整原生播放器依赖和固定签名证书，禁
 
 ## 十、Windows 客户端（独立 Release）
 
-Windows 客户端（`apps/desktop`）不随服务器 Release 分发，单独发 Release。版本在
-`apps/desktop/src-tauri/Cargo.toml`，安装包由 Desktop CI 构建并上传为工作流产物
-`desktop-packages-<sha>`，发版时把其中全部文件挂到新 Release 上。
+Windows 客户端（`apps/desktop`）单独发 `windows-vX.Y.Z` Release。版本在
+`apps/desktop/src-tauri/Cargo.toml`，与 `apps/desktop/package.json` 一起改；2026-10 从 0.1.0 重新起步
+（此前的 1.0.x 已作废）。安装包由 Desktop CI 构建并上传为工作流产物 `desktop-packages-<sha>`，发版时把
+其中全部文件挂到新 Release 上。
 
-- **标题写「MovieClaw for Windows X.Y.Z」**：它只有 Windows 版，不叫 Desktop，免得被当成也含 Mac。
-- **必须带 `--latest=false`**：理由同模型 Release，latest 必须始终是服务器的 `vX.Y.Z`。
+- **标题写「MovieClaw for Windows X.Y.Z」**，安装包名 `MovieClaw-Windows-{版本}-Setup-x64.exe` /
+  `-portable-x64.zip`，程序名 `MovieClaw`。
+- **必须带 `--latest=false`**：latest 必须始终是服务器的 `vX.Y.Z`。
 - 未做实体机验收、只凭 CI 发布时，正文须含 `<!-- desktop-release-policy: ci-verified -->`
   并写明验证范围（`check-release-evidence.py` 校验）。
 
-以下名字已写进用户装好的客户端，**不能改**——改了老客户端就找不到更新：
-
-| 名字 | 依赖方 |
-|------|--------|
-| tag 前缀 `desktop-v` | 更新器 `valid_tag` 只认 `desktop-v` 与 `v`（`updater/verified.rs`） |
-| 安装包名 `MovieClaw-Desktop-{版本}-Setup-x64.exe` / `-portable-x64.zip` | 更新器按文件名匹配附件（`updater.rs`） |
-| productName `MovieClaw Desktop`、identifier `com.movieclaw.desktop` | 安装目录、开始菜单与卸载项，改了可能装出第二份（未实测） |
-
-确要改其中任何一项，须先发一版让更新器同时认新旧两种名字，大部分用户升上去之后再切换。
+客户端内的更新器只认 `windows-v` tag 与上面的安装包名（`updater.rs`、`updater/verified.rs`）；改其中任何一项，
+须先发一版让更新器同时认新旧两种名字，大部分用户升上去之后再切换。

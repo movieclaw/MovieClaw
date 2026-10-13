@@ -13,7 +13,7 @@ Obsidian、Vercel、Telegram、flomo、滴答清单、Bear），括号里是出�
 
 - 每个版本只维护一份 `docs/changelog/<tag>.md`：应用用 `vX.Y.Z.md`，模型用
   `torrent-ner-vN.md`，各客户端用与 tag 同名的 `<前缀>-vX.Y.Z.md`（`ios`、`tvos`、`macos`、`transcoder`、
-  `android`、`androidtv`）。
+  `android`、`androidtv`、`windows`）。
   同一份文件同步到同一个 GitHub Release，不按语言另建 Release。
 - 服务器 changelog 不写客户端版本号：正文末尾的「Apps / 客户端」一节由发版流水线
   自动生成。功能需要新版 App 时，在该功能的段落里写明「需要 Android X.Y.Z 或更新版本」这类要求；
