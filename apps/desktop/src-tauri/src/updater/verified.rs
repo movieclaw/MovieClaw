@@ -22,7 +22,7 @@ static HTTP: LazyLock<Client> = LazyLock::new(|| {
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))
         .read_timeout(Duration::from_secs(30))
-        .user_agent("MovieClaw-Desktop")
+        .user_agent("MovieClaw-Windows")
         .build()
         .expect("update client")
 });
@@ -115,10 +115,7 @@ fn error(code: &str, message: &str) -> String {
     json!({"code":code,"message":message}).to_string()
 }
 pub(super) fn valid_tag(tag: &str) -> bool {
-    let Some(version) = tag
-        .strip_prefix("desktop-v")
-        .or_else(|| tag.strip_prefix('v'))
-    else {
+    let Some(version) = tag.strip_prefix(super::TAG_PREFIX) else {
         return false;
     };
     let parts: Vec<_> = version.split('.').collect();
@@ -198,6 +195,9 @@ async fn response(mut url: Url) -> Result<reqwest::Response, String> {
                     .as_str(),
             )?;
             continue;
+        }
+        if result.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err(error("UPDATE_NOT_FOUND", "发布资源不存在"));
         }
         if !result.status().is_success() {
             return Err(error("UPDATE_HTTP", "发布资源暂时不可用，请稍后重试"));
@@ -341,7 +341,7 @@ pub async fn download_update(
         let name_version = format!("{}.{}.{}", numeric.0, numeric.1, numeric.2);
         let mut selected = None;
         for (suffix, format) in [("Setup-x64.exe", "nsis"), ("portable-x64.zip", "portable")] {
-            let name = format!("MovieClaw-Desktop-{name_version}-{suffix}");
+            let name = format!("MovieClaw-Windows-{name_version}-{suffix}");
             if let Some(asset) = assets
                 .iter()
                 .find(|asset| asset["name"].as_str() == Some(name.as_str()))
@@ -795,15 +795,18 @@ mod tests {
     }
     #[test]
     fn release_tags_and_delivery_urls_are_strict() {
-        for v in ["v0.2.112", "desktop-v1.0.0"] {
+        for v in ["windows-v0.2.112", "windows-v1.0.0"] {
             assert!(valid_tag(v));
         }
         for v in [
-            "v0.2.112-beta",
+            "v0.2.112",
+            "desktop-v1.0.0",
+            "android-v0.3.1",
+            "windows-v0.2.112-beta",
             "../tag",
-            "v0.2.112/evil",
-            "v00.2.112",
-            "v0.2.112.1",
+            "windows-v0.2.112/evil",
+            "windows-v00.2.112",
+            "windows-v0.2.112.1",
         ] {
             assert!(!valid_tag(v));
         }
@@ -819,7 +822,7 @@ mod tests {
     }
     #[test]
     fn checksum_requires_unique_exact_filename() {
-        let name = "MovieClaw-Desktop-0.2.112-Setup-x64.exe";
+        let name = "MovieClaw-Windows-0.2.112-Setup-x64.exe";
         let hash = "a".repeat(64);
         assert_eq!(checksum(&format!("{hash}  {name}\n"), name).unwrap(), hash);
         assert!(checksum(&format!("{hash}  ../{name}\n"), name).is_err());

@@ -33,7 +33,7 @@ def validate_build_artifacts(directory, manifest):
     originals = {item["name"]: item for item in manifest["files"]}
     artifacts = manifest.get("buildArtifacts", [])
     names = {
-        f"MovieClaw-Desktop-{version}-build{number}-{suffix}"
+        f"MovieClaw-Windows-{version}-build{number}-{suffix}"
         for suffix in ("Setup-x64.zip", "portable-x64.zip")
     }
     if len(artifacts) != 2 or {item.get("name") for item in artifacts} != names:
@@ -41,13 +41,13 @@ def validate_build_artifacts(directory, manifest):
     for item in artifacts:
         setup = item["name"].endswith("-Setup-x64.zip")
         suffix = "Setup-x64.exe" if setup else "portable-x64.zip"
-        original_name = f"MovieClaw-Desktop-{version}-{suffix}"
-        local_name = f"MovieClaw-Desktop-{version}({number})-{suffix}"
+        original_name = f"MovieClaw-Windows-{version}-{suffix}"
+        local_name = f"MovieClaw-Windows-{version}({number})-{suffix}"
         label_suffix = "Setup-x64.zip" if setup else suffix
         if (
             item.get("originalName") != original_name
             or item.get("localName") != local_name
-            or item.get("label") != f"MovieClaw-Desktop-{version}({number})-{label_suffix}"
+            or item.get("label") != f"MovieClaw-Windows-{version}({number})-{label_suffix}"
         ):
             raise ValueError("Build labels do not match the verified originals")
         path = directory / item["name"]
@@ -100,8 +100,8 @@ def validate(directory, evidence, revision, version):
         if signature.get("status") != "Valid" or not signature.get("thumbprint"):
             raise ValueError(f"Stable {name} requires a real valid Authenticode signature")
     expected_names = {
-        f"MovieClaw-Desktop-{version}-Setup-x64.exe",
-        f"MovieClaw-Desktop-{version}-portable-x64.zip",
+        f"MovieClaw-Windows-{version}-Setup-x64.exe",
+        f"MovieClaw-Windows-{version}-portable-x64.zip",
     }
     files = manifest.get("files", [])
     if {item.get("name") for item in files} != expected_names or len(files) != 2:
@@ -173,8 +173,8 @@ def validate_ci_packages(directory, revision, version, notes):
             raise ValueError(f"Invalid or unknown {name} signature")
     files = manifest.get("files", [])
     expected = {
-        f"MovieClaw-Desktop-{version}-Setup-x64.exe",
-        f"MovieClaw-Desktop-{version}-portable-x64.zip",
+        f"MovieClaw-Windows-{version}-Setup-x64.exe",
+        f"MovieClaw-Windows-{version}-portable-x64.zip",
     }
     if len(files) != 2 or {item.get("name") for item in files} != expected:
         raise ValueError("Both Windows x64 packages are required")

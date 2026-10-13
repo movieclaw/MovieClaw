@@ -2513,7 +2513,7 @@ const App = {
         <div class="settings-card settings-about">
           <div class="settings-product">
           <h3>关于</h3>
-          <p>MovieClaw Desktop</p>
+          <p>MovieClaw for Windows</p>
           <p class="settings-value" id="settingsVersion">正在读取版本…</p>
           </div>
           <div class="settings-actions">

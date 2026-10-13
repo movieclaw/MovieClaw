@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "MovieClaw Desktop",
+  "productName": "MovieClaw",
   "identifier": "com.movieclaw.desktop",
   "build": {
     "frontendDist": "../ui"

@@ -75,9 +75,9 @@ jobs:
         with:
           name: desktop-packages-${{ github.sha }}
           path: |
-            apps/desktop/dist/MovieClaw-Desktop-*-Setup-x64.exe
-            apps/desktop/dist/MovieClaw-Desktop-*-portable-x64.zip
-            apps/desktop/dist/MovieClaw-Desktop-*-Setup-x64.zip
+            apps/desktop/dist/MovieClaw-Windows-*-Setup-x64.exe
+            apps/desktop/dist/MovieClaw-Windows-*-portable-x64.zip
+            apps/desktop/dist/MovieClaw-Windows-*-Setup-x64.zip
             apps/desktop/dist/SHA256SUMS.txt
             apps/desktop/dist/release-manifest.json
           if-no-files-found: error

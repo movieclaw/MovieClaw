@@ -12,7 +12,7 @@ function fixture(t) {
   t.after(() => fs.rmSync(directory, {recursive: true, force: true}));
   const version='0.2.112', revision='a'.repeat(40);
   const files=['Setup-x64.exe','portable-x64.zip'].map((suffix) => {
-    const name=`MovieClaw-Desktop-${version}-${suffix}`, bytes=Buffer.from(`fixture ${suffix}`);
+    const name=`MovieClaw-Windows-${version}-${suffix}`, bytes=Buffer.from(`fixture ${suffix}`);
     fs.writeFileSync(path.join(directory, name),bytes);
     return {name,size:bytes.length,sha256:crypto.createHash('sha256').update(bytes).digest('hex')};
   });
@@ -54,7 +54,7 @@ test('build labeling preserves the tested installer, keeps legacy update checksu
   Object.assign(f.manifest,JSON.parse(fs.readFileSync(manifestPath,'utf8')));
   assert.equal(f.manifest.buildNumber,'61.1');
   assert.equal(f.manifest.sourceRevision,'a'.repeat(40));
-  const localName='MovieClaw-Desktop-0.2.112(61.1)-Setup-x64.exe';
+  const localName='MovieClaw-Windows-0.2.112(61.1)-Setup-x64.exe';
   assert.deepEqual(fs.readFileSync(path.join(f.directory,'labeled',localName)),fs.readFileSync(path.join(f.directory,f.manifest.files[0].name)));
   const sums=fs.readFileSync(path.join(f.directory,'SHA256SUMS.txt'),'utf8');
   for (const item of [...f.manifest.files,...f.manifest.buildArtifacts]) assert.ok(sums.includes(`${item.sha256}  ${item.name}`));

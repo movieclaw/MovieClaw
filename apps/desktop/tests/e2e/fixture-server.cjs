@@ -67,10 +67,10 @@ http.createServer(async (req, res) => {
       state.updateRequests ||= []; state.updateRequests.push({ command, args });
       if (command === 'check_for_updates') {
         if (state.updateCheckFailure) return json(res, { code: 'UPDATE_NETWORK', message: '更新服务暂不可用' }, 503);
-        if (state.updateCurrent) return json(res, {has_update:false,current_version:'1.0.0',latest_version:'desktop-v1.0.0',message:'已是最新版本 (1.0.0)',release_notes:state.updateNotes || ''});
-        if (state.updateSameVersion) return json(res, {has_update:true,current_version:'1.0.0',latest_version:'desktop-v1.0.0',message:'发现 1.0.0 的新构建 bbbbbbbb（当前 aaaaaaaa）',release_notes:'Windows 10/11 x64；安装后输入服务器地址。'});
-        return json(res, { has_update: true, current_version: '0.2.111', latest_version: 'desktop-v0.2.112',
-          message: '发现新版本 desktop-v0.2.112', release_notes: state.updateNotes || '修复播放与账号体验。' });
+        if (state.updateCurrent) return json(res, {has_update:false,current_version:'1.0.0',latest_version:'windows-v1.0.0',message:'已是最新版本 (1.0.0)',release_notes:state.updateNotes || ''});
+        if (state.updateSameVersion) return json(res, {has_update:true,current_version:'1.0.0',latest_version:'windows-v1.0.0',message:'发现 1.0.0 的新构建 bbbbbbbb（当前 aaaaaaaa）',release_notes:'Windows 10/11 x64；安装后输入服务器地址。'});
+        return json(res, { has_update: true, current_version: '0.2.111', latest_version: 'windows-v0.2.112',
+          message: '发现新版本 windows-v0.2.112', release_notes: state.updateNotes || '修复播放与账号体验。' });
       }
       if (command === 'download_update') {
         const entry = state.updateDownloads?.[fixtureDownloadId];

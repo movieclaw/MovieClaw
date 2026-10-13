@@ -1,8 +1,8 @@
 [package]
 name = "movieclaw-desktop"
-version = "1.0.4"
+version = "0.1.0"
 edition = "2021"
-description = "MovieClaw Desktop — Windows 桌面客户端（WebView2 + mpv）"
+description = "MovieClaw for Windows — 桌面客户端（WebView2 + mpv）"
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png", "image-ico"] }

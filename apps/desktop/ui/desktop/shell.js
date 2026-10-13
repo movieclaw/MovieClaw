@@ -142,7 +142,7 @@ window.DesktopUpdates = {
       const message = document.createElement('p'); message.id = 'desktopUpdateMessage'; message.setAttribute('role', 'status'); dialog.append(message);
       if (this.info?.current_version || this.info?.latest_version) {
         const versions = document.createElement('p'); versions.className = 'update-versions';
-        versions.textContent = [this.info.current_version && '当前 ' + this.info.current_version, this.info.latest_version && '最新 ' + this.info.latest_version.replace(/^desktop-v/, '')].filter(Boolean).join(' · '); dialog.append(versions);
+        versions.textContent = [this.info.current_version && '当前 ' + this.info.current_version, this.info.latest_version && '最新 ' + this.info.latest_version.replace(/^windows-v/, '')].filter(Boolean).join(' · '); dialog.append(versions);
       }
       if (this.info?.release_notes && ['available', 'ready', 'current'].includes(this.phase)) {
         const notes = document.createElement('p'); notes.className = 'update-release-notes'; notes.textContent = this.info.release_notes; dialog.append(notes);

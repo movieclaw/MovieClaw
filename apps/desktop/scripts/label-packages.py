@@ -24,7 +24,7 @@ def label_packages(directory, build_number):
         raise ValueError("Invalid package version")
     originals = {item["name"]: item for item in manifest["files"]}
     expected = {
-        f"MovieClaw-Desktop-{version}-{suffix}" for suffix in ["Setup-x64.exe", "portable-x64.zip"]
+        f"MovieClaw-Windows-{version}-{suffix}" for suffix in ["Setup-x64.exe", "portable-x64.zip"]
     }
     if set(originals) != expected:
         raise ValueError("Expected both verified legacy packages")
@@ -44,11 +44,11 @@ def label_packages(directory, build_number):
     labeled.mkdir(exist_ok=True)
     artifacts = []
     for suffix in ["Setup-x64.exe", "portable-x64.zip"]:
-        original = f"MovieClaw-Desktop-{version}-{suffix}"
-        local_name = f"MovieClaw-Desktop-{version}({build_number})-{suffix}"
+        original = f"MovieClaw-Windows-{version}-{suffix}"
+        local_name = f"MovieClaw-Windows-{version}({build_number})-{suffix}"
         shutil.copyfile(directory / original, labeled / local_name)
         asset_suffix = "Setup-x64.zip" if suffix.endswith(".exe") else suffix
-        asset_name = f"MovieClaw-Desktop-{version}-build{build_number}-{asset_suffix}"
+        asset_name = f"MovieClaw-Windows-{version}-build{build_number}-{asset_suffix}"
         asset_path = directory / asset_name
         if suffix.endswith(".exe"):
             # GitHub sanitizes parentheses in asset names; ZIP preserves the exact installer name.
@@ -59,7 +59,7 @@ def label_packages(directory, build_number):
         artifacts.append(
             dict(
                 name=asset_name,
-                label=f"MovieClaw-Desktop-{version}({build_number})-{asset_suffix}",
+                label=f"MovieClaw-Windows-{version}({build_number})-{asset_suffix}",
                 originalName=original,
                 localName=local_name,
                 size=asset_path.stat().st_size,

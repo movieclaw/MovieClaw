@@ -38,14 +38,14 @@ Copy-Item (Join-Path $root '..\..\LICENSE') $portable
 & python (Join-Path $PSScriptRoot 'audit-dependencies.py') --package $portable --output (Join-Path $dist 'dependency-audit.json')
 if ($LASTEXITCODE -ne 0) { throw 'Package requires unbundled runtime DLLs' }
 @"
-MovieClaw Desktop $version (Windows x64)
+MovieClaw for Windows $version (x64)
 Run movieclaw-desktop.exe. UI assets are embedded in the executable.
 mpv and its runtime dependencies/licenses are included in mpv/.
 The portable package requires Microsoft WebView2 Evergreen Runtime.
 The installer includes the offline WebView2 installer and installs it when missing.
 "@ | Set-Content (Join-Path $portable 'README.txt') -Encoding utf8
-$setupName = "MovieClaw-Desktop-$version-Setup-x64.exe"
-$zipName = "MovieClaw-Desktop-$version-portable-x64.zip"
+$setupName = "MovieClaw-Windows-$version-Setup-x64.exe"
+$zipName = "MovieClaw-Windows-$version-portable-x64.zip"
 Copy-Item $installer[0].FullName (Join-Path $dist $setupName) -Force
 Compress-Archive -Path "$portable\*" -DestinationPath (Join-Path $dist $zipName) -Force
 $hashes = @($setupName, $zipName) | ForEach-Object {
@@ -77,4 +77,4 @@ $releaseManifest = @{
 $releaseManifest | ConvertTo-Json -Depth 12 | Set-Content (Join-Path $dist 'release-manifest.json') -Encoding utf8
 & python (Join-Path $PSScriptRoot 'label-packages.py') --directory $dist --build-number $BuildNumber
 if ($LASTEXITCODE -ne 0) { throw 'Build-labeled packages failed' }
-Write-Host "Verified packages for MovieClaw Desktop $version are in $dist"
+Write-Host "Verified packages for MovieClaw for Windows $version are in $dist"

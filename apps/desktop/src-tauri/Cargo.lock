@@ -2220,7 +2220,7 @@ dependencies = [
 
 [[package]]
 name = "movieclaw-desktop"
-version = "1.0.4"
+version = "0.1.0"
 dependencies = [
  "base64 0.22.1",
  "cookie",

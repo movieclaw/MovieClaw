@@ -10,6 +10,10 @@ const GITHUB_REPO: &str = env!("MOVIECLAW_RELEASE_REPOSITORY");
 const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const CURRENT_REVISION: &str = env!("MOVIECLAW_BUILD_REVISION");
 const CURRENT_TIMESTAMP: &str = env!("MOVIECLAW_BUILD_TIMESTAMP");
+/// Windows 版发布的标签前缀，服务器和其他客户端的发布各有自己的前缀。
+const TAG_PREFIX: &str = "windows-v";
+/// 最近一次检查更新找到的 Windows 发布标签，打开发布页时用。
+static LATEST_TAG: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,7 +45,7 @@ async fn release_build(release: &serde_json::Value) -> Result<Option<ReleaseBuil
     let bytes = bytes.strip_prefix(&[0xef, 0xbb, 0xbf]).unwrap_or(&bytes);
     let build: ReleaseBuild = serde_json::from_slice(bytes).map_err(|_| "发布构建信息无效")?;
     if build.source_revision.len() != 40 || !build.source_revision.bytes().all(|byte| byte.is_ascii_hexdigit()) { return Err("发布构建标识无效".into()); }
-    if format!("desktop-v{}", build.version) != tag && format!("v{}", build.version) != tag {
+    if format!("{TAG_PREFIX}{}", build.version) != tag {
         return Err("发布构建版本与标签不一致".into());
     }
     Ok(Some(build))
@@ -63,14 +67,9 @@ pub struct UpdateInfo {
 }
 
 /// 解析版本号字符串为 (major, minor, patch) 比较元组
-/// 支持格式: "0.2.100", "v0.2.100", "desktop-v0.2.100", "desktop-0.2.100"
+/// 支持格式: "0.2.100", "windows-v0.2.100"
 fn parse_version(v: &str) -> (u64, u64, u64) {
-    // 移除所有前缀: "desktop-v", "desktop-", "v"
-    let cleaned = v
-        .trim()
-        .trim_start_matches("desktop-v")
-        .trim_start_matches("desktop-")
-        .trim_start_matches('v');
+    let cleaned = v.trim().trim_start_matches(TAG_PREFIX);
     let parts: Vec<&str> = cleaned.split('.').collect();
     let major = parts.first().and_then(|s| s.parse().ok()).unwrap_or(0);
     let minor = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -87,7 +86,7 @@ fn windows_download_url(release: &serde_json::Value) -> Option<&str> {
     let version = format!("{}.{}.{}", version.0, version.1, version.2);
     let assets = release.get("assets")?.as_array()?;
     for suffix in ["-Setup-x64.exe", "-portable-x64.zip"] {
-        let expected_name = format!("MovieClaw-Desktop-{version}{suffix}");
+        let expected_name = format!("MovieClaw-Windows-{version}{suffix}");
         let expected_url =
             format!("https://github.com/{GITHUB_REPO}/releases/download/{tag}/{expected_name}");
         if let Some(url) = assets.iter().find_map(|asset| {
@@ -101,56 +100,69 @@ fn windows_download_url(release: &serde_json::Value) -> Option<&str> {
     None
 }
 
+/// 本渠道的 Windows 正式版标签，按版本从高到低。只列 windows-v* 引用，
+/// 不翻 Release 列表：同仓库还有服务器和其他客户端的发布，Windows 版可能排不进第一页。
+fn windows_tags(refs: &serde_json::Value) -> Vec<&str> {
+    let mut tags: Vec<&str> = refs
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|item| item.get("ref")?.as_str()?.strip_prefix("refs/tags/"))
+        .filter(|tag| verified::valid_tag(tag))
+        .collect();
+    tags.sort_by_key(|tag| std::cmp::Reverse(parse_version(tag)));
+    tags
+}
+
+fn installable(release: &serde_json::Value) -> bool {
+    release.get("draft").and_then(|v| v.as_bool()) == Some(false)
+        && release.get("prerelease").and_then(|v| v.as_bool()) == Some(false)
+        && windows_download_url(release).is_some()
+}
+
+fn not_found(error: &str) -> bool {
+    serde_json::from_str::<serde_json::Value>(error).is_ok_and(|v| v["code"] == "UPDATE_NOT_FOUND")
+}
+
+/// 不低于当前版本的最新可安装 Windows 发布。打了标签还没发布、草稿、预发布、
+/// 缺 Windows x64 包的跳过，退到下一个较低的标签。
+async fn latest_windows_release() -> Result<Option<serde_json::Value>, String> {
+    let floor = parse_version(CURRENT_VERSION);
+    let url = format!("https://api.github.com/repos/{GITHUB_REPO}/git/matching-refs/tags/{TAG_PREFIX}");
+    let bytes = verified::small(verified::delivery_url(&url)?, 1024 * 1024).await?;
+    let refs: serde_json::Value =
+        serde_json::from_slice(&bytes).map_err(|_| "更新发布信息无效".to_owned())?;
+    for tag in windows_tags(&refs) {
+        if parse_version(tag) < floor {
+            break;
+        }
+        let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases/tags/{tag}");
+        let bytes = match verified::small(verified::delivery_url(&url)?, 1024 * 1024).await {
+            Ok(bytes) => bytes,
+            Err(error) if not_found(&error) => continue,
+            Err(error) => return Err(error),
+        };
+        let release: serde_json::Value =
+            serde_json::from_slice(&bytes).map_err(|_| "更新发布信息无效".to_owned())?;
+        if release.get("tag_name").and_then(|t| t.as_str()) == Some(tag) && installable(&release) {
+            return Ok(Some(release));
+        }
+    }
+    Ok(None)
+}
+
 /// 检查 GitHub Releases 是否有新版本
 #[tauri::command]
 pub async fn check_for_updates() -> Result<UpdateInfo, String> {
-    // 获取所有 releases，找最新的桌面版 release
-    let url = format!("https://api.github.com/repos/{GITHUB_REPO}/releases?per_page=10");
-    let bytes = verified::small(verified::delivery_url(&url)?, 1024 * 1024).await?;
-    let releases: serde_json::Value =
-        serde_json::from_slice(&bytes).map_err(|_| "更新发布信息无效".to_owned())?;
-
     let current_ver = parse_version(CURRENT_VERSION);
-
-    // 找最新的包含 Setup exe 的桌面 release
-    let mut best_release: Option<&serde_json::Value> = None;
-    let mut best_ver = current_ver;
-    let mut has_update = false;
-
-    if let Some(arr) = releases.as_array() {
-        for release in arr {
-            if release
-                .get("draft")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false)
-                || release
-                    .get("prerelease")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-            {
-                continue;
-            }
-            let tag = release
-                .get("tag_name")
-                .and_then(|t| t.as_str())
-                .unwrap_or("");
-            if !verified::valid_tag(tag) {
-                continue;
-            }
-            // 旧版 v* 与新版 desktop-v* 均须有可用的 Windows x64 桌面包。
-            // 跳过尚未上传资源的 release，避免提示无法安装的更新。
-            if windows_download_url(release).is_none() {
-                continue;
-            }
-
-            let ver = parse_version(tag);
-            if ver > best_ver || ver == best_ver && best_release.is_none() {
-                best_ver = ver;
-                best_release = Some(release);
-                has_update = ver > current_ver;
-            }
-        }
+    let best_release = latest_windows_release().await?;
+    let best_release = best_release.as_ref();
+    if let Ok(mut latest) = LATEST_TAG.lock() {
+        *latest = best_release.and_then(|release| Some(release.get("tag_name")?.as_str()?.to_owned()));
     }
+    let mut has_update = best_release
+        .and_then(|release| release.get("tag_name")?.as_str())
+        .is_some_and(|tag| parse_version(tag) > current_ver);
 
     let mut latest_revision = None;
     if !has_update {
@@ -199,20 +211,32 @@ pub async fn check_for_updates() -> Result<UpdateInfo, String> {
     })
 }
 
-/// 在浏览器中打开下载页面
-#[tauri::command]
-pub fn open_download_page() -> Result<bool, String> {
-    let url = format!("https://github.com/{GITHUB_REPO}/releases/latest");
+/// 检查更新找到过 Windows 发布就打开它的页面，否则按标题搜 Windows 发布。
+/// 不用 releases/latest：那是服务器的发布，没有 Windows 安装包。
+fn windows_release_page(tag: Option<&str>) -> String {
+    match tag {
+        Some(tag) => format!("https://github.com/{GITHUB_REPO}/releases/tag/{tag}"),
+        None => format!("https://github.com/{GITHUB_REPO}/releases?q=%22MovieClaw+for+Windows%22&expanded=true"),
+    }
+}
+
+fn open_windows_release_page() -> Result<bool, String> {
+    let tag = LATEST_TAG.lock().ok().and_then(|tag| tag.clone());
+    let url = windows_release_page(tag.as_deref());
     open::that(&url).map_err(|e| format!("打开浏览器失败: {e}"))?;
     Ok(true)
 }
 
-/// 打开指定版本的 release 页面
+/// 在浏览器中打开下载页面
+#[tauri::command]
+pub fn open_download_page() -> Result<bool, String> {
+    open_windows_release_page()
+}
+
+/// 打开最新 Windows 版本的 release 页面
 #[tauri::command]
 pub fn open_release_page() -> Result<bool, String> {
-    let url = format!("https://github.com/{GITHUB_REPO}/releases");
-    open::that(&url).map_err(|e| format!("打开浏览器失败: {e}"))?;
-    Ok(true)
+    open_windows_release_page()
 }
 
 fn truncate_notes(notes: &str) -> String {
@@ -224,10 +248,28 @@ mod tests {
     use super::*;
     #[test]
     fn version_prefixes_and_unicode_notes_are_safe() {
-        assert_eq!(parse_version("desktop-v0.2.111"), (0, 2, 111));
-        assert_eq!(parse_version("v0.2.111"), (0, 2, 111));
+        assert_eq!(parse_version("windows-v0.2.111"), (0, 2, 111));
+        assert_eq!(parse_version("0.2.111"), (0, 2, 111));
         assert_eq!(truncate_notes(&"更".repeat(700)).chars().count(), 500);
         assert_eq!(truncate_notes("short"), "short");
+    }
+
+    #[test]
+    fn discovery_only_considers_windows_tags_from_highest_version() {
+        let refs = serde_json::json!(["windows-v0.2.9", "windows-v0.10.0", "windows-v0.2.10", "windows-v0.3.0-beta", "windows-v01.0.0"]
+            .iter().map(|tag| serde_json::json!({"ref": format!("refs/tags/{tag}")}))
+            .chain([serde_json::json!({"ref": "refs/heads/windows-v9.9.9"}), serde_json::json!({})])
+            .collect::<Vec<_>>());
+        assert_eq!(windows_tags(&refs), ["windows-v0.10.0", "windows-v0.2.10", "windows-v0.2.9"]);
+        assert!(windows_tags(&serde_json::json!({"message": "Not Found"})).is_empty());
+        assert!(not_found(r#"{"code":"UPDATE_NOT_FOUND","message":"x"}"#));
+        assert!(!not_found(r#"{"code":"UPDATE_HTTP","message":"x"}"#));
+    }
+
+    #[test]
+    fn release_page_points_at_windows_releases_not_the_server_latest() {
+        assert_eq!(windows_release_page(Some("windows-v0.1.0")), format!("https://github.com/{GITHUB_REPO}/releases/tag/windows-v0.1.0"));
+        assert!(windows_release_page(None).contains("/releases?q=%22MovieClaw+for+Windows%22"));
     }
 
     #[test]
@@ -247,32 +289,36 @@ mod tests {
 
     #[test]
     fn update_assets_require_usable_windows_x64_packages() {
-        let url = |name: &str| format!("https://github.com/{GITHUB_REPO}/releases/download/desktop-v0.2.112/{name}");
-        let installer = url("MovieClaw-Desktop-0.2.112-Setup-x64.exe");
+        let url = |name: &str| format!("https://github.com/{GITHUB_REPO}/releases/download/windows-v0.2.112/{name}");
+        let installer = url("MovieClaw-Windows-0.2.112-Setup-x64.exe");
         let foreign = if GITHUB_REPO == "another/repository" { "other/repository" } else { "another/repository" };
-        let release = serde_json::json!({"tag_name":"desktop-v0.2.112", "assets": [
+        let release = serde_json::json!({"tag_name":"windows-v0.2.112", "assets": [
             {"name": "server-linux.zip", "browser_download_url": "https://example.test/linux"},
-            {"name": "MovieClaw-Desktop-0.2.112-portable-x64.zip", "browser_download_url": url("MovieClaw-Desktop-0.2.112-portable-x64.zip")},
-            {"name": "MovieClaw-Desktop-0.2.112-Setup-x64.exe", "browser_download_url": installer}
+            {"name": "MovieClaw-Windows-0.2.112-portable-x64.zip", "browser_download_url": url("MovieClaw-Windows-0.2.112-portable-x64.zip")},
+            {"name": "MovieClaw-Windows-0.2.112-Setup-x64.exe", "browser_download_url": installer}
         ]});
         assert_eq!(
             windows_download_url(&release),
             Some(installer.as_str())
         );
+        assert!(installable(&serde_json::json!({"draft": false, "prerelease": false, "tag_name": release["tag_name"], "assets": release["assets"]})));
+        for (draft, prerelease) in [(true, false), (false, true)] {
+            assert!(!installable(&serde_json::json!({"draft": draft, "prerelease": prerelease, "tag_name": release["tag_name"], "assets": release["assets"]})));
+        }
         assert_eq!(
             windows_download_url(&serde_json::json!({"assets": []})),
             None
         );
-        let wrong_arch = serde_json::json!({"tag_name":"desktop-v0.2.112", "assets": [
-            {"name": "MovieClaw-Desktop-0.2.112-Setup-arm64.exe", "browser_download_url": "https://example.test/arm"}
+        let wrong_arch = serde_json::json!({"tag_name":"windows-v0.2.112", "assets": [
+            {"name": "MovieClaw-Windows-0.2.112-Setup-arm64.exe", "browser_download_url": "https://example.test/arm"}
         ]});
         assert_eq!(windows_download_url(&wrong_arch), None);
         for (name, url) in [
             ("Another-App-Setup-x64.exe", url("Another-App-Setup-x64.exe")),
-            ("MovieClaw-Desktop-0.2.112-Setup-x64.exe", format!("https://github.com/{foreign}/releases/download/desktop-v0.2.112/MovieClaw-Desktop-0.2.112-Setup-x64.exe")),
-            ("MovieClaw-Desktop-0.2.111-Setup-x64.exe", url("MovieClaw-Desktop-0.2.111-Setup-x64.exe")),
+            ("MovieClaw-Windows-0.2.112-Setup-x64.exe", format!("https://github.com/{foreign}/releases/download/windows-v0.2.112/MovieClaw-Windows-0.2.112-Setup-x64.exe")),
+            ("MovieClaw-Windows-0.2.111-Setup-x64.exe", url("MovieClaw-Windows-0.2.111-Setup-x64.exe")),
         ] {
-            assert_eq!(windows_download_url(&serde_json::json!({"tag_name":"desktop-v0.2.112", "assets":[{"name":name,"browser_download_url":url}]})), None);
+            assert_eq!(windows_download_url(&serde_json::json!({"tag_name":"windows-v0.2.112", "assets":[{"name":name,"browser_download_url":url}]})), None);
         }
     }
 }
