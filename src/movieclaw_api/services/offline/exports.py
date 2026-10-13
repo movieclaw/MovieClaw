@@ -23,10 +23,13 @@ import hashlib
 import json
 import logging
 import os
+import secrets
 import shutil
+import signal
 import time
 from collections import deque
-from dataclasses import asdict, dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -36,12 +39,12 @@ from starlette.types import Receive, Scope, Send
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.playback import plan as playback_plan
 from movieclaw_api.services.playback.ffmpeg_args import BITRATE_LADDER, build_hls_command
-from movieclaw_api.services.playback.hwprobe import available_local_backends, hardware_available
+from movieclaw_api.services.playback.hwprobe import available_local_backends
 from movieclaw_api.services.playback.limits import auto_transcode_concurrency
 from movieclaw_api.services.playback.track_context import track_contexts
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import LibraryFile
-from movieclaw_playback.decide import PlaybackPlan, plan_capped_transcode
+from movieclaw_playback.decide import PlaybackPlan, PlaybackTier, plan_capped_transcode
 from movieclaw_playback.profile import media_profile_from_file
 from movieclaw_playback.streaming import StrmError, is_strm, parse_strm, strm_source_input
 
@@ -88,10 +91,17 @@ class ExportState:
     error: str | None = None
     created_at: float = 0.0
     last_access_at: float = 0.0
+    #: 每转一次换一个随机串：产物被回收后重建、代号从头数时，ETag 也不会与上一次撞上
+    #: （否则客户端拿旧 ETag 续传，会把两次转码的字节拼在一起）
+    nonce: str = ""
+    #: 正在转的 ffmpeg 进程号：服务异常退出后，下次启动据此收拾残留的进程
+    pid: int | None = None
+    #: 还要这份导出的设备（下完调 DELETE 时只摘掉自己，最后一个摘掉才删）
+    claims: list[str] = field(default_factory=list)
 
     @property
     def etag(self) -> str:
-        return f'"exp-{self.export_id}-{self.generation}"'
+        return f'"exp-{self.export_id}-{self.generation}-{self.nonce}"'
 
 
 def exports_root() -> Path:
@@ -132,6 +142,11 @@ async def build_plan(file: LibraryFile, profile: str, audio_track: str | None) -
         file, context=contexts.get(file.id or 0), preferred_audio=audio_track
     )
     policy = await playback_plan.load_policy()
+    # 导出只在本机执行：「有硬件」要看本机探测通过的后端（合并能力里算上的远程转码器跑不了导出）。
+    # 本机没有就按软件转码规划，软件转码没开则这一档不可用——不能悄悄用 libx264 顶上
+    local = await asyncio.to_thread(available_local_backends)
+    if policy.hardware_available and not local:
+        policy = replace(policy, hardware_available=False)
     plan = plan_capped_transcode(
         media,
         policy,
@@ -143,6 +158,24 @@ async def build_plan(file: LibraryFile, profile: str, audio_track: str | None) -
     )
     if not isinstance(plan, PlaybackPlan):
         raise ExportUnavailable(plan.reason)
+    if plan.tier is PlaybackTier.HARDWARE_TRANSCODE:
+        backend, _remote = playback_plan.select_execution_backend(
+            plan, available=local, local_backends=local, remote_video_available=False
+        )
+        if backend is None:
+            if not policy.software_transcode_enabled:
+                raise ExportUnavailable("本机的硬件编码器处理不了这部片，且软件转码未开启")
+            plan = plan_capped_transcode(
+                media,
+                replace(policy, hardware_available=False),
+                preferred_audio=audio_track,
+                max_height=PROFILES[profile],
+                segment_container="mp4",
+                audio_codecs=frozenset({"aac"}),
+                max_audio_channels=2,
+            )
+            if not isinstance(plan, PlaybackPlan):
+                raise ExportUnavailable(plan.reason)
     return plan
 
 
@@ -193,7 +226,10 @@ class ExportManager:
                 shutil.rmtree(folder, ignore_errors=True)
                 continue
             if state.status in (STATUS_QUEUED, STATUS_RUNNING):
+                # 上次没正常收尾（崩溃、被杀）：残留的 ffmpeg 还在写旧代号的文件，先收拾掉
+                _kill_leftover(state.pid)
                 state.status = STATUS_QUEUED
+                state.pid = None
                 self._save(state)
                 self._queue.append(state.export_id)
             self._states[state.export_id] = state
@@ -207,21 +243,26 @@ class ExportManager:
         return self._states.get(export_id)
 
     async def ensure(
-        self, file: LibraryFile, profile: str, audio_track: str | None, *, duration_s: float | None
+        self,
+        file: LibraryFile,
+        profile: str,
+        audio_track: str | None,
+        *,
+        duration_s: float | None,
+        claimant: str | None = None,
     ) -> ExportState:
-        """建或复用一个导出（幂等）。失败过的再要一次就重转。"""
+        """建或复用一个导出（幂等）。失败过的再要一次就重转。``claimant`` 是要它的设备。"""
         self._load()
         await build_plan(file, profile, audio_track)  # 出不了这一档当场告诉客户端
         export_id = export_fingerprint(file, profile, audio_track)
         now = time.time()
         state = self._states.get(export_id)
-        if (
+        stale = (
             state is not None
             and state.status == STATUS_DONE
             and not self.output_path(state).exists()
-        ):
-            state = None  # 产物被清掉了（缓存管理清空）：当作没有
-        if state is None or state.status == STATUS_FAILED:
+        )  # 产物被清掉了（缓存管理清空）：重转
+        if state is None or stale or state.status == STATUS_FAILED:
             state = ExportState(
                 export_id=export_id,
                 file_id=int(file.id or 0),
@@ -231,9 +272,12 @@ class ExportManager:
                 generation=(state.generation if state else 0),
                 expected_bytes=estimate_bytes(profile, duration_s),
                 created_at=now,
+                claims=state.claims if state else [],
             )
             self._states[export_id] = state
             self._queue.append(export_id)
+        if claimant and claimant not in state.claims:
+            state.claims.append(claimant)
         state.last_access_at = now
         self._save(state)
         self._ensure_worker()
@@ -242,16 +286,29 @@ class ExportManager:
         return state
 
     def touch(self, state: ExportState) -> None:
+        if self._states.get(state.export_id) is not state:
+            return  # 这期间已被回收：不再写回一份孤儿 meta.json
         state.last_access_at = time.time()
         self._save(state)
 
-    def release(self, export_id: str) -> None:
-        """客户端下完了：没人在下、也不在转就当场删。"""
+    def claim(self, export_id: str, claimant: str) -> None:
         state = self.get(export_id)
-        if state is None or state.status in (STATUS_QUEUED, STATUS_RUNNING):
+        if state is not None and claimant not in state.claims:
+            state.claims.append(claimant)
+            self._save(state)
+
+    def release(self, export_id: str, claimant: str | None = None) -> None:
+        """某台设备下完了：摘掉它；没有别的设备还要、没人在下、也不在转，才当场删。"""
+        state = self.get(export_id)
+        if state is None:
+            return
+        if claimant in state.claims:
+            state.claims.remove(claimant)
+            self._save(state)
+        if state.status in (STATUS_QUEUED, STATUS_RUNNING) or state.claims:
             return
         if self._readers.get(export_id):
-            # 别的设备还在下：留给过期回收
+            # 还有连接在读：留给过期回收
             return
         self._drop(export_id)
 
@@ -294,7 +351,8 @@ class ExportManager:
         from movieclaw_api.services.playback.session import get_session_manager
 
         while True:
-            limit = auto_transcode_concurrency(hardware=await asyncio.to_thread(hardware_available))
+            local = await asyncio.to_thread(available_local_backends)
+            limit = auto_transcode_concurrency(hardware=bool(local))
             if get_session_manager().active_transcodes() < limit:
                 return
             await asyncio.sleep(_CAPACITY_POLL_S)
@@ -344,6 +402,7 @@ class ExportManager:
         # 换代号再开转：旧代号的产物删掉，正在读旧产物的连接会发现代号变了而断开
         old = self.output_path(state) if state.generation else None
         state.generation += 1
+        state.nonce = secrets.token_hex(4)
         state.status = STATUS_RUNNING
         state.error = None
         state.final_bytes = None
@@ -381,6 +440,8 @@ class ExportManager:
             start_new_session=True,
         )
         self._process, self._running_id = process, state.export_id
+        state.pid = process.pid
+        self._save(state)
         tail: deque[str] = deque(maxlen=_STDERR_KEEP)
         assert process.stderr is not None
         async for raw in process.stderr:
@@ -389,6 +450,7 @@ class ExportManager:
                 tail.append(line)
         code = await process.wait()
         self._process, self._running_id = None, None
+        state.pid = None
         if code != 0 or not out.exists():
             state.status = STATUS_FAILED
             state.error = (tail[-1] if tail else f"ffmpeg 退出码 {code}")[:500]
@@ -408,13 +470,36 @@ class ExportManager:
         )
 
     async def shutdown(self) -> None:
-        if self._process is not None and self._process.returncode is None:
-            with contextlib.suppress(ProcessLookupError):
-                self._process.kill()
+        """后端退出：ffmpeg 起在独立进程组里，要 killpg 整组（TERM，3 秒后 KILL），否则留下孤儿"""
+        process = self._process
+        if process is not None and process.returncode is None:
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
+            try:
+                await asyncio.wait_for(process.wait(), timeout=3)
+            except TimeoutError:
+                with contextlib.suppress(ProcessLookupError, PermissionError):
+                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
         if self._worker is not None:
             self._worker.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._worker
+
+
+def _kill_leftover(pid: int | None) -> None:
+    """杀掉上次残留的导出 ffmpeg（只认命令行里带离线导出目录的，进程号被复用时不误杀）"""
+    if not pid:
+        return
+    try:
+        cmdline = (
+            Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
+        )
+    except OSError:
+        cmdline = ""
+    if "offline-exports" not in cmdline and "ffmpeg" not in cmdline:
+        return
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        os.killpg(os.getpgid(pid), signal.SIGKILL)
 
 
 _manager: ExportManager | None = None
@@ -444,7 +529,10 @@ class ExportTailResponse(Response):
 
     media_type = "video/mp4"
 
-    def __init__(self, manager: ExportManager, state: ExportState) -> None:
+    def __init__(
+        self, manager: ExportManager, state: ExportState, on_close: Callable[[], None] | None = None
+    ) -> None:
+        self.on_close = on_close
         self.manager = manager
         self.export_id = state.export_id
         self.generation = state.generation
@@ -483,6 +571,8 @@ class ExportTailResponse(Response):
         finally:
             watcher.cancel()
             self.manager.reader_leave(self.export_id)
+            if self.on_close is not None:
+                self.on_close()
 
     async def _stream(self, send: Send, disconnected: asyncio.Event) -> None:
         sent = 0
@@ -509,7 +599,9 @@ class ExportTailResponse(Response):
                     if state.final_bytes is not None and sent >= state.final_bytes:
                         await send({"type": "http.response.body", "body": b"", "more_body": False})
                         return
-                    continue
+                    if state.final_bytes is not None and sent < state.final_bytes:
+                        # 转完了却读不满（文件被替换、截断）：不能当完成，也不空转
+                        raise ExportStreamAborted(f"离线导出 {self.export_id} 产物不完整")
                 await asyncio.sleep(_TAIL_POLL_S)
         finally:
             if handle is not None:

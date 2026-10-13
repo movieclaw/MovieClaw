@@ -185,6 +185,7 @@ def _export_view(manager: exports.ExportManager, state: exports.ExportState) -> 
 )
 async def create_offline_export(
     payload: OfflineExportRequest,
+    request: Request,
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[OfflineExportView]:
@@ -196,6 +197,7 @@ async def create_offline_export(
             payload.profile,
             payload.audio_track,
             duration_s=float(file.duration_seconds) if file.duration_seconds else None,
+            claimant=_client(request, principal).device_id,
         )
     except exports.ExportUnavailable as exc:
         raise BadRequestException(str(exc)) from exc
@@ -258,16 +260,25 @@ async def download_offline_export(
             status_code=422,
             media_type="text/plain; charset=utf-8",
         )
+    path = manager.output_path(state)
+    if state.status == exports.STATUS_DONE and not path.is_file():
+        raise NotFoundException("导出文件已回收")
+    if request.method == "HEAD":
+        # 只问头：不登记到活动页（没有字节要发，登记了也没人收口）
+        if state.status == exports.STATUS_RUNNING:
+            return exports.ExportTailResponse(manager, state)
+        return DisconnectAwareFileResponse(
+            path, media_type="video/mp4", headers={"etag": state.etag}
+        )
     name = f"{export_id}.mp4"
     size = state.final_bytes or state.expected_bytes
     meter = _register_download(request, principal, file, name, size)
     if state.status == exports.STATUS_RUNNING:
-        response = exports.ExportTailResponse(manager, state)
+        response = exports.ExportTailResponse(
+            manager, state, on_close=lambda: activity.unregister_stream(meter)
+        )
         _meter_tail(response, meter)
         return response
-    path = manager.output_path(state)
-    if not path.is_file():
-        raise NotFoundException("导出文件已回收")
     manager.reader_enter(export_id)
 
     def _close() -> None:
@@ -293,10 +304,7 @@ def _meter_tail(response: exports.ExportTailResponse, meter) -> None:
                 meter.add(len(message.get("body") or b""))
             await send(message)
 
-        try:
-            await original(counting_send, disconnected)
-        finally:
-            activity.unregister_stream(meter)
+        await original(counting_send, disconnected)
 
     response._stream = metered  # type: ignore[method-assign]
 
@@ -310,13 +318,15 @@ def _meter_tail(response: exports.ExportTailResponse, meter) -> None:
 )
 async def release_offline_export(
     export_id: str,
+    request: Request,
     principal: Principal = Depends(require_login),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[None]:
     state = exports.get_export_manager().get(export_id)
     if state is not None:
         await _visible_file(session, principal, state.file_id)
-        exports.get_export_manager().release(export_id)
+        # 只摘掉这台设备：家里别的设备还要这份导出时留着
+        exports.get_export_manager().release(export_id, _client(request, principal).device_id)
     return ok(None)
 
 

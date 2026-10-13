@@ -62,7 +62,6 @@ def client(tmp_path, monkeypatch):
     reset_auth_state()
     # 测试机没有显卡：硬件探测一律为空，转码档走软件（用例里按需打开软件转码）
     monkeypatch.setattr("movieclaw_api.services.playback.plan.hardware_available", lambda: False)
-    monkeypatch.setattr("movieclaw_api.services.offline.exports.hardware_available", lambda: False)
     monkeypatch.setattr(
         "movieclaw_api.services.offline.exports.available_local_backends", lambda: ()
     )
@@ -634,3 +633,160 @@ def test_queued_export_answers_retry_after(client: TestClient, tmp_path: Path) -
     manager._states[state.export_id] = state
     resp = client.get(f"{_API}/offline/exports/queued/content")
     assert resp.status_code == 503 and int(resp.headers["retry-after"]) >= 60
+
+
+# ---------------------------------------------------------------------------
+# 回归：代码评审发现的问题（先复现、再修）
+# ---------------------------------------------------------------------------
+
+
+def _fake_state(client, file_id, export_id, *, status, generation=1):
+    manager = exports.get_export_manager()
+    state = exports.ExportState(
+        export_id=export_id,
+        file_id=file_id,
+        profile="480p",
+        audio_track=None,
+        status=status,
+        generation=generation,
+        expected_bytes=3000,
+        created_at=time.time(),
+        last_access_at=time.time(),
+    )
+    manager._loaded = True
+    manager._states[export_id] = state
+    return manager, state
+
+
+def test_head_and_missing_export_do_not_leak_activity_meters(client, tmp_path) -> None:
+    """转码中的 HEAD、转完但文件已不在：活动页不能挂着幽灵下载。"""
+    from movieclaw_playback import activity
+
+    _lib, _item, file_id = seed(client, tmp_path, real=False)
+    manager, running = _fake_state(client, file_id, "headtest", status=exports.STATUS_RUNNING)
+    out = manager.output_path(running)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(b"x" * 100)
+    _fake_state(client, file_id, "gone", status=exports.STATUS_DONE)
+    before = len(activity._meters)
+    for _ in range(3):
+        assert client.head(f"{_API}/offline/exports/headtest/content").status_code == 200
+    assert client.get(f"{_API}/offline/exports/gone/content").status_code == 404
+    assert len(activity._meters) == before
+
+
+@pytest.mark.skipif(not _HAS_FFMPEG, reason="需要 ffmpeg")
+def test_regenerated_export_gets_a_new_etag(client, tmp_path) -> None:
+    """产物被清掉后重转：ETag 不能与上一次相同，否则客户端拿旧 ETag 续传会拼出两次转码的字节。"""
+    _lib, _item, file_id = seed(client, tmp_path, real=True)
+    _enable_software_transcode(client)
+    body = {"file_id": file_id, "profile": "480p"}
+    export = client.post(f"{_API}/offline/exports", json=body).json()["data"]
+    first = _wait_export(client, export["export_id"])
+    assert first["status"] == "done"
+    manager = exports.get_export_manager()
+    manager.output_path(manager.get(export["export_id"])).unlink()  # 缓存管理清空
+    client.post(f"{_API}/offline/exports", json=body)
+    second = _wait_export(client, export["export_id"])
+    assert second["status"] == "done"
+    assert second["etag"] != first["etag"]
+
+
+def test_untrusted_clock_keeps_order_within_a_batch(client, tmp_path) -> None:
+    """手机时钟不可信时整批平移：同一集先看到 20 分钟、后看到 45 分钟，结果应停在 45 分钟。"""
+    _lib, item_id, file_id = seed(client, tmp_path, real=False)
+    far = datetime.now(UTC) - timedelta(days=30)
+    early = _viewing(
+        item_id,
+        viewing_id="v-clock-early",
+        file_id=file_id,
+        started_at=(far - timedelta(minutes=30)).isoformat(),
+        updated_at=(far - timedelta(minutes=10)).isoformat(),
+        position_ms=200_000,
+        watched_ms=60_000,
+    )
+    late = _viewing(
+        item_id,
+        viewing_id="v-clock-late",
+        file_id=file_id,
+        started_at=(far - timedelta(minutes=9)).isoformat(),
+        updated_at=far.isoformat(),
+        position_ms=450_000,
+        watched_ms=60_000,
+    )
+    _send_viewings(client, [early, late], sent_at=far + timedelta(minutes=1))
+    assert _state(client, item_id).position_ms == 450_000
+
+
+def test_resent_viewing_with_untrusted_clock_does_not_override_newer_progress(
+    client, tmp_path
+) -> None:
+    _lib, item_id, file_id = seed(client, tmp_path, real=False)
+    far = datetime.now(UTC) - timedelta(days=30)
+    record = _viewing(
+        item_id,
+        viewing_id="v-clock-resend",
+        file_id=file_id,
+        started_at=(far - timedelta(minutes=5)).isoformat(),
+        updated_at=far.isoformat(),
+        position_ms=100_000,
+        watched_ms=60_000,
+    )
+    _send_viewings(client, [record], sent_at=far)
+    # 之后在电视上看到了 300 秒
+    client.post(f"{_API}/playback/progress", json={"media_item_id": item_id, "event": "start"})
+    client.post(
+        f"{_API}/playback/progress",
+        json={"media_item_id": item_id, "event": "stop", "position_ms": 300_000},
+    )
+    # 确认丢了，手机重发同一份旧记录
+    _send_viewings(client, [record], sent_at=far)
+    assert _state(client, item_id).position_ms == 300_000
+
+
+def test_favorite_after_offline_viewing_does_not_make_it_stale(client, tmp_path) -> None:
+    """落地后先点了收藏（改了状态行的更新时间），飞机上那段比上次播放更晚的进度不能因此被当成旧的。"""
+    _lib, item_id, file_id = seed(client, tmp_path, real=False)
+    client.post(f"{_API}/playback/progress", json={"media_item_id": item_id, "event": "start"})
+    client.post(
+        f"{_API}/playback/progress",
+        json={"media_item_id": item_id, "event": "stop", "position_ms": 60_000},
+    )
+    time.sleep(2)
+    record = _viewing(
+        item_id,
+        viewing_id="v-after-fav",
+        file_id=file_id,
+        started_at=(datetime.now(UTC) - timedelta(seconds=1)).isoformat(),
+        updated_at=(datetime.now(UTC) - timedelta(milliseconds=500)).isoformat(),
+        position_ms=400_000,
+        watched_ms=500,
+    )
+    resp = client.post(f"{_API}/playback/marks", json={"media_item_id": item_id, "favorite": True})
+    assert resp.status_code == 200
+    assert _send_viewings(client, [record]) == {"v-after-fav": "applied"}
+    assert _state(client, item_id).position_ms == 400_000
+
+
+def test_release_keeps_export_another_device_still_needs(client, tmp_path) -> None:
+    """家里两台设备下同一集同一档：一台下完调 DELETE，不能删掉另一台还要的导出。"""
+    _lib, _item, file_id = seed(client, tmp_path, real=False)
+    manager, state = _fake_state(client, file_id, "shared", status=exports.STATUS_DONE)
+    out = manager.output_path(state)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(b"y" * 10)
+    manager.claim("shared", "device-a")
+    manager.claim("shared", "device-b")
+    manager.release("shared", "device-a")
+    assert manager.get("shared") is not None and out.exists()
+    manager.release("shared", "device-b")
+    assert manager.get("shared") is None
+
+
+def test_hardware_plan_without_local_backend_is_unavailable(client, tmp_path, monkeypatch) -> None:
+    """只有远程转码器（或本机后端与滤镜链不兼容）、软件转码没开：不能悄悄用 libx264 软转。"""
+    _lib, _item, file_id = seed(client, tmp_path, real=False)
+    _set_size(client, file_id, 4_000_000_000)
+    monkeypatch.setattr("movieclaw_api.services.playback.plan.hardware_available", lambda: True)
+    resp = client.get(f"{_API}/offline/manifest", params={"file_id": file_id}).json()["data"]
+    assert [p["profile"] for p in resp["profiles"]] == ["original"]

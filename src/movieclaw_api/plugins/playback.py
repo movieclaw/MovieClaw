@@ -88,5 +88,9 @@ async def transcode(ctx: Context) -> None:
     await asyncio.to_thread(sessions.cleanup_orphans)
     sessions.start_reaper()
     ctx.effect(sessions.shutdown, label="shutdown-transcode-sessions")
+    # 离线下载的转码导出（docs/design/offline-download.md §5.3）：同样起在独立进程组，退出前整组杀掉
+    from movieclaw_api.services.offline.exports import get_export_manager
+
+    ctx.effect(get_export_manager().shutdown, label="shutdown-offline-exports")
     # 硬件加速自检放后台：逐个后端真跑一秒编码要几秒，不该拖慢启动，也不能等到首次播放
     ctx.task(_warm_hardware_probe(), name="warm-hwprobe")

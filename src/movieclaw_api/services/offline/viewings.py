@@ -22,15 +22,17 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.exceptions import NotFoundException
 from movieclaw_api.schemas.offline import (
     PlaybackViewingRecordIn,
     PlaybackViewingResultView,
     PlaybackViewingsRequest,
 )
 from movieclaw_api.services.auth import Principal
-from movieclaw_api.services.library.access import visible_library_ids
+from movieclaw_api.services.library.access import assert_item_visible, visible_library_ids
 from movieclaw_api.services.playback import events as playback_events
 from movieclaw_api.services.playback import plan as playback_plan
 from movieclaw_db.models import LibraryFile, MediaItem, PlaybackLog
@@ -61,22 +63,20 @@ def _naive_utc(value: datetime) -> datetime:
 
 
 class _Clock:
-    def __init__(self, sent_at: datetime, now: datetime) -> None:
+    def __init__(self, sent_at: datetime, now: datetime, latest: datetime | None = None) -> None:
         self.now = now
         skew = now - _naive_utc(sent_at)
         self.trusted = abs(skew) <= _MAX_TRUSTED_SKEW
-        self.skew = skew
+        # 时钟不可信时整批一起平移：批里最晚的那条落在「刚刚」，其余保持相对先后
+        # （每条各自平移到「现在」的话，同一集先后两条的新旧就分不出来了）
+        self.skew = skew if self.trusted or latest is None else now - _naive_utc(latest)
 
     def times(self, record: PlaybackViewingRecordIn) -> tuple[datetime, datetime]:
         started = _naive_utc(record.started_at)
         updated = _naive_utc(record.updated_at)
         if updated < started:
             started = updated
-        if self.trusted:
-            started, updated = started + self.skew, updated + self.skew
-        else:
-            # 时钟不可信：保留时长，整条平移到刚刚结束
-            started, updated = self.now - (updated - started), self.now
+        started, updated = started + self.skew, updated + self.skew
         return min(started, self.now), min(updated, self.now)
 
 
@@ -89,7 +89,11 @@ async def _locate(
         if file is not None and file.media_item_id is not None:
             if visible is not None and file.library_id not in visible:
                 return None
+            if not await _item_visible(session, principal, file.media_item_id):
+                return None
             return (file.media_item_id, file.season_number or 0, file.episode_number or 0), file.id
+    if not await _item_visible(session, principal, record.media_item_id):
+        return None
     files = await playback_plan.library_files_for_unit(
         session,
         record.media_item_id,
@@ -102,6 +106,15 @@ async def _locate(
     return (record.media_item_id, record.season_number, record.episode_number), None
 
 
+async def _item_visible(session: AsyncSession, principal: Principal, media_item_id: int) -> bool:
+    """内容分级（儿童档案）同样拦在这里：看不到的条目不接收观看记录"""
+    try:
+        await assert_item_visible(session, principal, media_item_id)
+    except NotFoundException:
+        return False
+    return True
+
+
 async def apply_viewings(
     session: AsyncSession,
     principal: Principal,
@@ -110,7 +123,8 @@ async def apply_viewings(
     client: ClientInfo,
 ) -> list[PlaybackViewingResultView]:
     member_id = principal.member_id if principal.member_id is not None else 0
-    clock = _Clock(payload.sent_at, utcnow())
+    latest = max((r.updated_at for r in payload.records), default=None, key=_naive_utc)
+    clock = _Clock(payload.sent_at, utcnow(), latest)
     results: list[PlaybackViewingResultView] = []
     for record in payload.records:
         located = await _locate(session, principal, record)
@@ -147,35 +161,20 @@ async def _apply_one(
 
     log = (
         await session.execute(
-            select(PlaybackLog).where(PlaybackLog.viewing_id == record.viewing_id)
+            select(PlaybackLog).where(
+                PlaybackLog.viewing_id == record.viewing_id, PlaybackLog.member_id == member_id
+            )
         )
     ).scalar_one_or_none()
     first_time = log is None
-    if log is not None and updated <= log.last_seen_at and (log.ended_at or not record.ended):
-        # 同一份快照重发（上次的确认没收到）：已经合并过，什么都不改
+    if (
+        log is not None
+        and (log.ended_at is not None or not record.ended)
+        and (updated <= log.last_seen_at or log.end_position_ms == record.position_ms)
+    ):
+        # 同一份快照重发（上次的确认没收到）：已经合并过，什么都不改。按内容认，
+        # 不只按时间——手机时钟不可信时每次补传校正出来的时间都不一样
         return "applied"
-
-    row = await playback_state.get_or_create_state(session, unit, member_id=member_id)
-    # 刚建的行（或只收藏过）的 updated_at 是建行那一刻，不能拿它和发生时间比
-    pristine = row.last_played_at is None and not row.played and not row.position_ms
-    newer = pristine or row.updated_at is None or updated > row.updated_at
-    if first_time:
-        # 计数点与实时上报一样放在「开始」：这次播放第一次到达服务器时 +1
-        row.play_count = (row.play_count or 0) + 1
-    newly_played = False
-    if newer:
-        was_played = row.played
-        outcome = resolve_progress(
-            None if record.completed else record.position_ms,
-            runtime_ms,
-            currently_played=row.played,
-        )
-        row.position_ms = outcome.position_ms
-        row.played = outcome.played
-        row.updated_at = updated
-        newly_played = outcome.played and not was_played
-    if row.last_played_at is None or updated > row.last_played_at:
-        row.last_played_at = updated
 
     watched = min(
         record.watched_ms, int((updated - started).total_seconds() * 1000) + _WATCH_SLACK_MS
@@ -199,8 +198,35 @@ async def _apply_one(
             watched_ms=max(watched, 0),
             viewing_id=record.viewing_id,
         )
-        session.add(log)
-    else:
+        try:
+            # 同一条记录的两个请求同时到（上一次还在路上就重发了）：撞唯一键的那个当重复处理
+            async with session.begin_nested():
+                session.add(log)
+        except IntegrityError:
+            return "applied"
+
+    row = await playback_state.get_or_create_state(session, unit, member_id=member_id)
+    # 判新旧比的是「最近播放时间」：收藏、改轨这类操作也会刷新状态行的更新时间，但它们不是进度
+    newer = row.last_played_at is None or updated > row.last_played_at
+    if first_time:
+        # 计数点与实时上报一样放在「开始」：这次播放第一次到达服务器时 +1
+        row.play_count = (row.play_count or 0) + 1
+    newly_played = False
+    if newer:
+        was_played = row.played
+        outcome = resolve_progress(
+            None if record.completed else record.position_ms,
+            runtime_ms,
+            currently_played=row.played,
+        )
+        row.position_ms = outcome.position_ms
+        row.played = outcome.played
+        row.updated_at = updated
+        newly_played = outcome.played and not was_played
+    if row.last_played_at is None or updated > row.last_played_at:
+        row.last_played_at = updated
+
+    if not first_time:
         if updated >= log.last_seen_at:
             log.last_seen_at = updated
             log.end_position_ms = record.position_ms
@@ -230,6 +256,6 @@ async def _apply_one(
             duration_ms=runtime_ms,
             file_id=file_id or record.file_id,
             completed=newly_played,
-            occurred_at=updated,
+            occurred_at=started if event is PLAYBACK_STARTED else updated,
         )
     return "applied" if newer else "stale"
