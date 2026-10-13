@@ -301,15 +301,23 @@ def test_manifest_carries_detail_tracks_and_profiles(client: TestClient, tmp_pat
 def test_manifest_lists_lower_tiers_even_when_not_smaller(
     client: TestClient, tmp_path: Path
 ) -> None:
-    """源本身码率就低（10 分钟 260 MB）：720p 预计不比原文件小，照样列出、带预计大小，
+    """源本身码率就低（10 分钟 150 MB）：720p 预计比原文件还大，照样列出、带预计大小，
     让用户自己选。"""
     _lib, _item, file_id = seed(client, tmp_path, real=False)
-    _set_size(client, file_id, 260_000_000)
+    _set_size(client, file_id, 150_000_000)
     _enable_software_transcode(client)
     data = client.get(f"{_API}/offline/manifest", params={"file_id": file_id}).json()["data"]
     assert [p["profile"] for p in data["profiles"]] == ["original", "720p", "480p"]
-    # 旧规则（预计 ≥ 原文件 90% 就隐藏）会把它藏掉
-    assert data["profiles"][1]["expected_bytes"] >= 260_000_000 * 0.9
+    assert data["profiles"][1]["expected_bytes"] > 150_000_000
+
+
+def test_estimates_use_the_measured_rate_factors() -> None:
+    """预计大小 = 上限 × 实测系数 + 音轨：VideoToolbox 0.55、其它 0.83（标定见常量注释）。"""
+    ten_minutes = 600
+    software_720 = exports.estimate_bytes("720p", ten_minutes, hevc=False, videotoolbox=False)
+    assert software_720 == int((3_000_000 * 0.83 + 256_000) * 600 / 8 * 1.02)
+    mac_720 = exports.estimate_bytes("720p", ten_minutes, hevc=True, videotoolbox=True)
+    assert mac_720 == int((2_000_000 * 0.55 + 256_000) * 600 / 8 * 1.02)
 
 
 def test_manifest_without_transcode_offers_original_only(

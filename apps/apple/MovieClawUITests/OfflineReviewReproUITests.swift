@@ -197,7 +197,12 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertTrue(detail.waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertEqual(detail.label, "第 2～3 集，共 2 集")
         XCTAssertFalse(app.staticTexts["offline-download-note"].exists, "一集都没下过时不用说明")
-        XCTAssertTrue(original.label.contains("共约"), "原画一行应是整批总大小：\(original.label)")
+        XCTAssertTrue(original.label.contains("共 "), "原画一行应是整批总大小：\(original.label)")
+        XCTAssertFalse(original.label.contains("≈"), "原画是文件实际大小，写准数：\(original.label)")
+        let transcoded = app.buttons["offline-profile-480p"]
+        if transcoded.exists {
+            XCTAssertTrue(transcoded.label.contains("共 ≈ "), "转码档是预计大小，带 ≈：\(transcoded.label)")
+        }
         let unwatchedTotal = Self.megabytes(original.label)
         XCTAssertGreaterThan(unwatchedTotal, 40, "两集约 47 MB，不该只是一集的大小：\(original.label)")
         snapshot("profile-sheet-batch")
@@ -243,9 +248,10 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertFalse(original.exists)
     }
 
-    /// 选档行上的「共约 47.1 MB」取出 MB 数
+    /// 选档行上的「共 47.1 MB」「共 ≈ 47.1 MB」取出 MB 数
     private static func megabytes(_ label: String) -> Double {
-        Double(label.components(separatedBy: "约 ").last?.components(separatedBy: " ").first ?? "") ?? 0
+        let size = (label.components(separatedBy: "共 ").last ?? "").replacingOccurrences(of: "≈ ", with: "")
+        return Double(size.components(separatedBy: " ").first ?? "") ?? 0
     }
 
     /// 剧集下载状态画在分集卡的剧照上，样式同首页「正在下载」：底部一条写「下载中 N%」+ 实时速度 + 进度；

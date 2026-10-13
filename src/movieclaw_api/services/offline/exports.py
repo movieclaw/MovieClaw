@@ -157,20 +157,48 @@ def video_bps(profile: str, *, hevc: bool = False) -> int:
     return int(float(ladder[:-1]) * 1_000_000)
 
 
-def estimate_bytes(profile: str, duration_s: float | None, *, hevc: bool | None = None) -> int:
-    """预计大小：视频码率上限 + 音轨码率，乘片长；容器开销约 2%。是上限（实际平均约七成），
-    手机按它留空间不会不够。``hevc`` 为 None 时按现在最可能的执行者猜。"""
+#: 实际平均视频码率 ÷ 码率上限（离线导出的预计大小用）。2026-10-14 标定：16 部真片（低码率 4K 网剧、
+#: 4K 原盘与杜比视界、1080p 网络版与蓝光压制、动画、情景剧）各取两段 60 秒，按导出同款命令转三档，
+#: 222 组。VideoToolbox（只给上限、编码器自己定码率）中位 0.55，按它估的预计 ÷ 实际中位 1.01～1.06、
+#: 八成以上落在 ±25% 内（偏差主要来自画面复杂度，暗场 / 动画能低到上限的一成多，与源码率无关）；
+#: 软件 libx264（CRF + 上限）中位 0.83、全部在 ±25% 内。其它显卡没法实测，按软件的系数估（偏保守）。
+VIDEOTOOLBOX_RATE_FACTOR = 0.55
+OTHER_RATE_FACTOR = 0.83
+
+
+def estimate_bytes(
+    profile: str,
+    duration_s: float | None,
+    *,
+    hevc: bool | None = None,
+    videotoolbox: bool | None = None,
+) -> int:
+    """预计大小（界面上写「≈」）：视频码率上限 × 实测系数 + 音轨码率，乘片长；容器开销约 2%。
+    ``hevc`` / ``videotoolbox`` 为 None 时按现在最可能的执行者猜。"""
     if not duration_s or duration_s <= 0:
         return 0
     if hevc is None:
         hevc = likely_hevc()
-    return int((video_bps(profile, hevc=hevc) + AUDIO_BPS) * duration_s / 8 * 1.02)
+    if videotoolbox is None:
+        videotoolbox = hevc or likely_videotoolbox()
+    factor = VIDEOTOOLBOX_RATE_FACTOR if videotoolbox else OTHER_RATE_FACTOR
+    return int((video_bps(profile, hevc=hevc) * factor + AUDIO_BPS) * duration_s / 8 * 1.02)
 
 
 def likely_hevc() -> bool:
     """现在开转多半出 HEVC：在线的转码器都带 HEVC 编码器（NAS 本机是 Mac 时同理）。"""
     return "videotoolbox" in available_local_backends() or remote_workers_have_encoder(
         "hevc_videotoolbox"
+    )
+
+
+def likely_videotoolbox() -> bool:
+    """现在开转多半由 VideoToolbox 编码：NAS 本机没有别的显卡、而有转码器在线（或本机就是 Mac）。"""
+    local = available_local_backends()
+    if local:
+        return local[0] == "videotoolbox"
+    return remote_worker_available("videotoolbox", strict=False) or remote_worker_busy(
+        "videotoolbox"
     )
 
 
@@ -647,6 +675,7 @@ class ExportManager:
                 state.profile,
                 float(file.duration_seconds),
                 hevc=execution.plan.video.codec == "hevc",
+                videotoolbox=execution.hw_backend == "videotoolbox",
             )
             if expected != state.expected_bytes:
                 state.expected_bytes = expected

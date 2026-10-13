@@ -401,7 +401,9 @@ struct OfflineProfileSheet: View {
                                     .font(.caption).foregroundStyle(Theme.textMuted)
                             }
                             Spacer()
-                            Text("\(batch ? "共" : "")约 \(Formatters.bytes(Int(total)))").monospacedDigit().foregroundStyle(Theme.textMuted)
+                            // 原画是文件实际大小，写准数；转码档是预计，前面带 ≈
+                            Text("\(batch ? "共 " : "")\(Self.isEstimate(profile.profile, files) ? "≈ " : "")\(Formatters.bytes(Int(total)))")
+                                .monospacedDigit().foregroundStyle(Theme.textMuted)
                             Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(Theme.info)
                                 .opacity(profile.profile == selected(first) ? 1 : 0)
                         }
@@ -415,7 +417,7 @@ struct OfflineProfileSheet: View {
                 Text("画质")
             } footer: {
                 if let free, needed(first, files) > free {
-                    Text("空间不够：需要约 \(Formatters.bytes(Int(needed(first, files))))（含预留 2 GB），iPhone 只剩 \(Formatters.bytes(Int(free)))。换个小一点的画质，或先清理空间。")
+                    Text("空间不够：需要 \(Self.isEstimate(selected(first), files) ? "≈ " : "")\(Formatters.bytes(Int(needed(first, files))))（含预留 2 GB），iPhone 只剩 \(Formatters.bytes(Int(free)))。换个小一点的画质，或先清理空间。")
                         .foregroundStyle(Theme.danger)
                 } else {
                     let network = OfflineSettings.allowCellular ? "会使用蜂窝网络下载" : "只在 Wi-Fi 下下载，可在「我的 → 下载与存储」里改"
@@ -447,6 +449,13 @@ struct OfflineProfileSheet: View {
     private static func pick(_ profile: String, in entry: API.OfflineFileProfilesView) -> API.OfflineProfileView? {
         let options = entry.profiles ?? []
         return options.first { $0.profile == profile } ?? options.first
+    }
+
+    /// 整批按这一档的大小里有没有预计值：有一集落在转码档上就是（没有这一档的集退回原画，原画是准数）
+    static func isEstimate(_ profile: String, _ files: [API.OfflineFileProfilesView]) -> Bool {
+        files.contains { entry in
+            entry.unavailableReason == nil && (pick(profile, in: entry)?.profile ?? "original") != "original"
+        }
     }
 
     /// 整批按这一档的总大小

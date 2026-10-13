@@ -156,6 +156,10 @@ final class OfflineDownloadUITests: XCTestCase {
         switchProfile(app, to: nil)
         let profile = app.buttons["offline-profile-480p"]
         XCTAssertTrue(profile.waitForExistence(timeout: 30), "1080p 源应提供 480p")
+        // 原画是文件实际大小（准数）；转码档是预计大小，带 ≈
+        XCTAssertTrue(profile.label.contains("≈ "), profile.label)
+        XCTAssertFalse(app.buttons["offline-profile-original"].label.contains("≈"), app.buttons["offline-profile-original"].label)
+        snapshot("8a-profile-sheet-sizes")
         profile.tap()
         app.buttons["offline-profile-confirm"].tap()
         XCTAssertTrue(waitUntil(timeout: 20) { (control.value as? String)?.hasSuffix("|480p") == true })

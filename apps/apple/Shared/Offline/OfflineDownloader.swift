@@ -98,14 +98,15 @@ final class OfflineDownloader {
 
     enum StartError: LocalizedError {
         case unsupported
-        case noSpace(needed: Int64, available: Int64)
+        /// ``estimated``：需要的大小里含转码档的预计值（原画是精确的文件大小）
+        case noSpace(needed: Int64, available: Int64, estimated: Bool)
         case unavailable(String)
 
         var errorDescription: String? {
             switch self {
             case .unsupported: "这台服务器还不支持下载到 iPhone，请先把服务器升级到最新版本"
-            case let .noSpace(needed, available):
-                "iPhone 空间不足：需要约 \(ByteCountFormatter.string(fromByteCount: needed, countStyle: .file))（含预留 2 GB），只剩 \(ByteCountFormatter.string(fromByteCount: available, countStyle: .file))"
+            case let .noSpace(needed, available, estimated):
+                "iPhone 空间不足：需要 \(estimated ? "≈ " : "")\(ByteCountFormatter.string(fromByteCount: needed, countStyle: .file))（含预留 2 GB），只剩 \(ByteCountFormatter.string(fromByteCount: available, countStyle: .file))"
             case let .unavailable(reason): reason
             }
         }
@@ -121,7 +122,7 @@ final class OfflineDownloader {
         }
         let needed = Int64(profile.expectedBytes) + OfflineSettings.reserveBytes
         if let available = OfflineDisk.availableBytes, available < needed {
-            throw StartError.noSpace(needed: needed, available: available)
+            throw StartError.noSpace(needed: needed, available: available, estimated: profile.profile != "original")
         }
         store.ensureOwnerOnDisk()
         // 换档（比如原画改 720p）：旧的那份连同任务一起去掉，条目的展示数据与本机进度留着
@@ -303,7 +304,7 @@ final class OfflineDownloader {
         }
         let needed = Int64(profile.expectedBytes) + OfflineSettings.reserveBytes
         if let available = OfflineDisk.availableBytes, available < needed {
-            throw StartError.noSpace(needed: needed, available: available)
+            throw StartError.noSpace(needed: needed, available: available, estimated: profile.profile != "original")
         }
         if let existing = store.units[entry.fileId] {
             cancelTask(fileId: existing.fileId)
