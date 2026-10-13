@@ -221,6 +221,10 @@ ffmpeg 版本，发版前按下表逐项过一遍。
 
 ## 九、客户端独立发版
 
+**tag 命名规则**：服务器是主产品，用不带前缀的 `vX.Y.Z`；其余一律「产品前缀-vX.Y.Z」
+（下表），模型用整数 `torrent-ner-vN`。已部署的服务器只认 `v` 与 `torrent-ner-v` 两种前缀找更新，
+这两个前缀不能改；用户看到的是标题（MovieClaw Server / MovieClaw for … / MovieClaw NER Model N）。
+
 所有客户端都不随服务器 Release 分发，各自单独发 Release，**始终 `--latest=false`**（latest 只能是
 服务器版本：install-cli.sh 从 `releases/latest/download` 取 mclaw）。tag 版本必须等于 App 自己的版本，
 同一版本发过就不能再发，发新版先递增版本号。
