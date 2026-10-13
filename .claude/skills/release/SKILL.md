@@ -31,7 +31,9 @@ description: 发布 movieclaw 新版本。当用户要求发版、发布新版�
   `windows-v` 与 `MovieClaw-Windows-*` 安装包名，要改须先发一版同时认新旧名字。
 - **只有服务器 Release 标 latest**：其余一律 `--latest=false`（流水线已带）。install-cli.sh 从
   `releases/latest/download` 取 mclaw，别的 Release 成了 latest 安装立刻 404。
-- **tag 必须等于代码里的版本号**，同一版本发过就不能再发（流水线会拦）。发新版先递增版本号。
+- **tag 必须等于代码里的版本号**，同一版本发过就不能再发（流水线会拦）：代码里的版本已经发过，
+  就先递增再发；还没发过（如 Windows 首发 0.1.0）就直接用它。Android 的 `versionCode` 每次 +1
+  （上限 2100000000）。
 - Apple 三端共用 `MARKETING_VERSION`：同一版本每个平台只能发一次。某个平台要发而它已发过这个版本，
   先递增补丁号，其他平台下次随之用新版本号，跳号无妨。
 
@@ -43,36 +45,49 @@ python3 scripts/release-status.py --ref origin/main
 
 对每个产品列出上次发布的 tag、代码里的版本号、该产品目录下自上次发布改了多少文件（不算 `.md`）和
 最近几条提交，结论是以下之一：「无改动，不用发」「有改动，但版本号还没递增」「有改动，版本号已递增，
-可以发」「从未单独发布」。脚本只给事实，发不发由人定：只改了打包脚本、注释的「有改动」不一定值得发。
+可以发」「从未单独发布」。脚本只给事实，发不发由人定：
+
+- 只改了打包脚本、注释的「有改动」不一定值得发；
+- Apple 三端共用 `apps/apple/Shared` 等目录，改了共用代码三端都会显示有改动；
+- 它只看产品自己的目录：服务器接口变化让某个 App 的行为跟着变，脚本看不出来，盘点 changelog 时要人留意。
 
 ### 先后顺序
 
-- 服务器新功能要配合新版 App：**先发 App 再发服务器**。服务器正文末尾的客户端一节取发布时各 App 的
-  最新 Release，先发 App 它才列得出来；changelog 里写明需要的 App 版本。
-- App 依赖新服务器接口：先发服务器，并上调 App 里的最低服务器版本（iPhone
-  `AppModel.minimumServerVersion`、Android 手机 `SessionRepository` 的 `MIN_SERVER_VERSION`、
-  Android TV `AppModel.MIN_SERVER_VERSION`），老服务器上 App 会在登录前提示先升级服务器。
-- 改了转码器握手协议（`REMOTE_WORKER_PROTOCOL_VERSION` 与转码器 `BuildInfo.protocolVersion` 同步 +1）：
-  旧转码器会被拒绝，先发新转码器，服务器 changelog 开头提示框写明「需要更新 Mac 转码器」。协议没变、
-  只是新能力派给新版转码器（按自报能力派发）时，同样在提示框写明需要的转码器版本。
+一个功能同时要改服务器和 App 时，看 App 在老服务器上能不能降级（缺接口时隐藏功能、照常可用）：
+
+- **能降级（推荐这样写 App）**：先发 App，再发服务器。服务器正文末尾的客户端一节取发布时各 App 的
+  最新 Release，先发 App 才列得出来；服务器 changelog 在该功能里写明「需要 iPhone 0.7.1 或更新版本」。
+- **不能降级**：先发服务器，再发 App，并把 App 的最低服务器版本上调到刚发布的服务器版本（iPhone
+  `apps/apple/Shared/App/AppModel.swift` 的 `minimumServerVersion`、Android 手机
+  `SessionRepository.kt` 的 `MIN_SERVER_VERSION`、Android TV `AppModel.kt` 的 `MIN_SERVER_VERSION`），
+  老服务器上 App 会在登录前提示先升级服务器。这种情况下服务器正文的客户端一节列不出这个 App，
+  changelog 里写明「需要 iPhone 0.7.1，随后发布」。
+- **转码器握手协议**（服务端 `src/movieclaw_api/services/playback/remote_worker.py` 的
+  `REMOTE_WORKER_PROTOCOL_VERSION`，转码器 `BuildInfo.swift` 的 `protocolVersion`，同步 +1）：服务端
+  对不相等的一律拒绝，**旧转码器连不上新服务器，新转码器也连不上旧服务器**。两个紧挨着发，服务器与
+  转码器的 changelog 开头提示框都写明「需要同时更新服务器与 Mac 转码器」。协议没变、只是新能力派给
+  新版转码器（按自报能力派发）时，服务器提示框写明需要的转码器版本。
 
 ## 二、通用发版流程（所有产品）
 
 1. **改版本号 + 写 changelog**（`docs/changelog/<tag>.md`，第四节），同一个 PR 合入 main。
    Android 的 `versionName` 与 `versionCode` 一起递增；Windows 的 Cargo.toml 与 package.json 一起改。
-2. **推 tag**：`git tag <tag> && git push origin <tag>`，构建的就是 tag 所在的提交。
+2. **推 tag**：`git fetch origin main && git tag <tag> origin/main && git push origin <tag>`，构建的就是
+   tag 所在的提交（可以是 main 上任意一个已合入的提交）。
    推不了 tag 的环境（远程会话的 git 凭证只能推分支）走点火通道
-   `git push origin main:refs/heads/release-kick/<tag>`：release-kick.yml 核对 main 上的版本号后
-   触发对应工作流（在 main HEAD 上创建 tag），并删掉点火分支。人工兜底：Actions → 对应工作流 →
-   Run workflow 输入 tag。
+   `git fetch origin main && git push origin origin/main:refs/heads/release-kick/<tag>`：release-kick.yml
+   核对 main 上的版本号后触发对应工作流，并删掉点火分支。点火与 Actions 手动触发都在**触发时的 main
+   HEAD** 上创建 tag，发版 PR 合入后 main 若又进了别的提交，它们也会被带上，介意就用前一种方式。
+   点火支持服务器与所有客户端前缀，不含模型。
 3. **流水线**：核对 tag 与版本号 → 建 draft → 构建 / 签名 / 测试 → 校验产物 → 转正。draft 期间对
    应用内更新、官网、install-cli.sh 都不可见。**任何一步失败 Release 停在 draft，修好后重跑整个
    工作流即可**（上传均带 `--clobber`，可安全重入）。
 4. **验证**：Release 页附件齐全、标题对、正文是 changelog 而不是自动生成的 PR 清单、没有被标成 latest
    （服务器除外）。
 
-changelog 晚于发版合入也没关系：release-notes.yml 会把 `docs/changelog/<tag>.md` 同步成对应
-Release 的正文（服务器顺带重新生成 release.json 与客户端一节，Windows 顺带附上验证范围）。
+推荐 changelog 与版本号同一个 PR 合入；来不及也可以先发后补：发版时没有 changelog 的，正文先用
+GitHub 自动生成的提交清单（Windows 用一句默认说明），changelog 合入后 release-notes.yml 自动同步成
+正文（服务器顺带重新生成 release.json 与客户端一节，Windows 顺带附上验证范围）。
 
 ## 三、各产品要点
 
@@ -105,7 +120,10 @@ Release 的正文（服务器顺带重新生成 release.json 与客户端一节�
   说明的 Release；Mac 版与转码器在 xcode-27 / macos-26 上编译，Developer ID 签名并公证，生成
   `downloads.json` 供官网下载页读取（macOS runner 上复核签名与公证）。
 - 转码器版本只在它自己的 `Info.plist`，不跟服务器走。
-- TestFlight / App Store 的上传与 GitHub Release 互不依赖，见第六节。
+- TestFlight / App Store 的上传与 GitHub Release 互不依赖，见第六节。用户说「发 iPhone / Apple TV /
+  Mac」时，GitHub Release 由流水线完成；要不要同时传 TestFlight 先问一句——上传要用本机的签名与
+  App Store Connect 密钥，远程会话做不了，只能请用户在打包机上跑。Apple TV 的 GitHub Release 只是一条
+  说明，真正给用户的是 TestFlight 上的 `--tv` 构建。
 
 ### Android（`android-v` / `androidtv-v`）
 
@@ -134,8 +152,14 @@ Release 的正文（服务器顺带重新生成 release.json 与客户端一节�
 
 - 文件名与 tag 同名：`docs/changelog/<tag>.md`。英文在前、完整中文在后，中间 `---` + `## 简体中文`。
 - 服务器标题行写 `## vX.Y.Z: 主题`（release.json 按它解析）；客户端写 `## <产品名> X.Y.Z: 主题`，
-  只写这个 App 自己的变化。
-- **服务器 changelog 不写客户端版本号**（客户端一节自动生成）；「需不需要更新某个 App」写在正文里。
+  产品名用 `iPhone and iPad`、`Apple TV`、`Mac`、`Mac transcoder`、`Android`、`Android TV`、`Windows`
+  （中文段对应 iPhone 与 iPad、Mac 转码器等），只写这个 App 自己的变化。
+- 客户端的盘点范围是**同前缀的上一个 tag**到本次（`git log --first-parent android-v0.3.1..HEAD --
+  apps/android`），文末对比链接也用同前缀的 tag（`android-v0.3.1...android-v0.3.2`）。某个客户端
+  第一次单独发版时，以 v0.37.0（最后一个附带客户端的服务器版本）为基线；Windows 首发 0.1.0 没有
+  基线，写成首个正式版本的介绍，不放对比链接。
+- **服务器 changelog 不罗列各 App 的当前版本**（客户端一节自动生成），但功能需要的 App 最低版本、
+  必须更新的 App 要写在正文里。
 
 ## 五、NER 模型（`torrent-ner-vN`）
 
@@ -232,9 +256,9 @@ ffmpeg 版本，发版前按下表逐项过一遍。
 服务器：
 
 - [ ] 版本号三处一致，已跑 `scripts/export-spec.sh`
-- [ ] 需要配合新版 App 的功能，对应 App 已先发布，changelog 写明了所需版本
+- [ ] 需要配合新版 App 的功能：按「先后顺序」一节定好谁先发，changelog 写明了所需 App 版本
 - [ ] 触碰运行时依赖 → `docker/runtime-version` +1
-- [ ] 改了转码器握手协议或新能力只派给新版转码器 → 新转码器已先发，提示框写明
+- [ ] 改了转码器握手协议 → 转码器与服务器紧挨着发，两边提示框都写明要同时更新
 - [ ] 数据库迁移向前兼容（alembic 迁移是单向的，用户回退靠自动备份）
 - [ ] release 工作流全绿、Release 已转正且是 latest，正文末尾的客户端一节版本正确
 - [ ] changelog 已按 `changelog-guide.md` 自检过第一屏（应用内更新界面原文展示）
@@ -243,6 +267,6 @@ ffmpeg 版本，发版前按下表逐项过一遍。
 客户端：
 
 - [ ] `python3 scripts/release-status.py` 看过，版本号已递增
-- [ ] App 依赖新服务器接口 → 最低服务器版本已上调，服务器已先发
+- [ ] App 依赖新服务器接口且不能降级 → 服务器已先发，App 的最低服务器版本已上调到它
 - [ ] 对应工作流全绿，Release 已转正、没有标成 latest，附件齐全
 - [ ] Mac 版 / 转码器 / Android：官网下载页显示了新版本（缓存最多 1 小时）

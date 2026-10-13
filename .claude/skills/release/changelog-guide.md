@@ -27,6 +27,10 @@ Obsidian、Vercel、Telegram、flomo、滴答清单、Bear），括号里是出�
 - 审核时对照两种语言的 Docker / 客户端升级要求、回退提醒、功能范围、数字与链接。
   `release-notes.yml` 只同步描述；调整语言不改标签、版本号、附件或发布状态。
 
+客户端（iPhone、Apple TV、Mac、转码器、Android、Android TV、Windows）各有自己的 changelog，
+规则相同，差别只有：盘点和对比链接用同前缀的上一个 tag（见 SKILL.md 第四节）；读者是这个 App 的
+用户，入口写 App 里的实际菜单路径；只写这个 App 自己的变化，服务器侧的变化留给服务器的 changelog。
+
 ## 一、先盘点，再取舍
 
 1. **盘点（保证不漏）**：`git log --first-parent 上一个正式版tag..HEAD --oneline`
