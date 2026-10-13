@@ -10,6 +10,8 @@ final class OfflineReviewReproUITests: XCTestCase {
     private let username = "admin"
     private let password = "Sup3rSecret!"
     private let movieId = 1
+    /// 台子里那部电影的文件号
+    private let movieFileId = 1
     private let showId = 2
 
     override func setUp() {
@@ -32,10 +34,10 @@ final class OfflineReviewReproUITests: XCTestCase {
         setMode(["mode": "pass", "fail_paths": ["/api/v1/offline/files/"], "fail_status": 503,
                  "retry_after": 15, "fail_times": 1])
         startDownload(app, profile: "original")
-        XCTAssertTrue(waitUntil(timeout: 20) { (control.value as? String)?.hasPrefix("failed") == true },
-                      "先收到 503：\(control.value ?? "")")
-        XCTAssertTrue(waitUntil(timeout: 90) { (control.value as? String) == "done|original" },
-                      "Retry-After 到点后应自己重试并下完：\(control.value ?? "")")
+        XCTAssertTrue(waitUntil(timeout: 20) { movieState(app)?.hasPrefix("failed") == true },
+                      "先收到 503：\(movieState(app) ?? "")")
+        XCTAssertTrue(waitUntil(timeout: 90) { movieState(app) == "done|original" },
+                      "Retry-After 到点后应自己重试并下完：\(movieState(app) ?? "")")
     }
 
     /// 暂停再继续：应接着下完（续传后的大小校验不能误判、不能卡住）
@@ -46,17 +48,17 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertTrue(app.buttons["item-actions"].waitForExistence(timeout: 30))
         setMode(["mode": "slow", "bps": 1_000_000])
         startDownload(app, profile: "original")
-        XCTAssertTrue(waitUntil(timeout: 30) { (control.value as? String)?.hasPrefix("downloading") == true })
+        XCTAssertTrue(waitUntil(timeout: 30) { movieState(app)?.hasPrefix("downloading") == true })
         Thread.sleep(forTimeInterval: 15)
         control.tap()
         tapMenuItem(app, "暂停")
-        XCTAssertTrue(waitUntil(timeout: 10) { (control.value as? String)?.hasPrefix("paused") == true })
+        XCTAssertTrue(waitUntil(timeout: 10) { movieState(app)?.hasPrefix("paused") == true })
         Thread.sleep(forTimeInterval: 3)
         setMode(["mode": "pass"])
         control.tap()
         tapMenuItem(app, "继续下载")
-        XCTAssertTrue(waitUntil(timeout: 120) { (control.value as? String) == "done|original" },
-                      "继续后应下完：\(control.value ?? "")")
+        XCTAssertTrue(waitUntil(timeout: 120) { movieState(app) == "done|original" },
+                      "继续后应下完：\(movieState(app) ?? "")")
         // 续传：继续之后的那个请求应带 Range（从已下的位置接着要），而不是从头重下
         let log = proxyLog().filter { $0.contains("/offline/files/") }
         XCTAssertTrue(log.last?.contains("Range: bytes=") == true && log.last?.contains("bytes=0-") == false,
@@ -305,6 +307,9 @@ final class OfflineReviewReproUITests: XCTestCase {
         snapshot("episode-finished")
         XCTAssertTrue(detailCard.label.contains("已下载"))
         XCTAssertFalse(detailCard.label.contains("下载中"))
+        // 剧集同一套：选中的这集下完后「文件」区多一行本机副本
+        detailCard.tap()
+        XCTAssertTrue(home.buttons["local-file-row-2"].waitForExistence(timeout: 10), "选中的第 1 集下完后，文件区应有本机那一行")
         XCTAssertTrue(waitUntil(timeout: 6) { !home.staticTexts["下载完成"].exists }, "「下载完成」只短暂提示")
     }
 
@@ -446,17 +451,47 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 5) { !app.buttons["取消下载"].exists })
 
         setMode(["mode": "pass"])
-        XCTAssertTrue(waitUntil(timeout: 120) { (bar.value as? String) == "done|original" }, "应下完：\(bar.value ?? "")")
-        XCTAssertTrue(waitUntil(timeout: 5) { bar.label.hasPrefix("已下载 · 原画") }, bar.label)
-        snapshot("movie-downloaded")
+        XCTAssertTrue(waitUntil(timeout: 120) { movieState(app) == "done|original" }, "应下完：\(movieState(app) ?? "")")
+        // 下完：播放键上方的状态条收起；「文件」区多一行本机副本（标「本机」）
+        XCTAssertTrue(waitUntil(timeout: 5) { !bar.exists }, "下完后状态条应收起")
+        let local = app.buttons["local-file-row-\(movieFileId)"]
+        XCTAssertTrue(local.exists)
+        XCTAssertTrue(app.descendants(matching: .any)["local-file-tag"].exists, "本机那一行应标「本机」")
         actions.tap()
         XCTAssertTrue(app.buttons["加入合集"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.buttons["下载"].exists || app.buttons["取消下载"].exists, "下完后菜单里两项都不该有")
         app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
-        // 状态条上管已下完的：改画质 / 删除
-        bar.tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { !app.buttons["加入合集"].exists })
+
+        // 展开：信息与源文件一致，保存位置写本机
+        local.tap()
+        XCTAssertTrue(app.staticTexts["本机（iPhone · MovieClaw 下载）"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.staticTexts["从服务器下载 · 原画"].exists)
+        XCTAssertTrue(app.staticTexts["视频编码"].exists, "原画应照抄源文件的规格")
+        snapshot("movie-local-file-row")
+        // 长按：改下其他画质
+        local.press(forDuration: 1.2)
         XCTAssertTrue(app.buttons["改下其他画质"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.buttons["删除下载"].exists)
+        app.otherElements["PopoverDismissRegion"].firstMatch.exists
+            ? app.otherElements["PopoverDismissRegion"].firstMatch.tap()
+            : app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { !app.buttons["改下其他画质"].exists })
+
+        // 删除：确认气泡从垃圾桶弹出，写明不进回收站、没网就不能播；确认后本机那一行消失，「⋯」里又有「下载」
+        let trash = app.buttons["local-file-delete-\(movieFileId)"]
+        let trashFrame = trash.frame
+        trash.tap()
+        let confirm = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '删除（释放'")).firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(confirm.label.hasSuffix("）"), confirm.label)
+        XCTAssertLessThan(abs(confirm.frame.midY - trashFrame.midY), 300, "确认框应贴着垃圾桶：\(confirm.frame) vs \(trashFrame)")
+        XCTAssertTrue(app.staticTexts.matching(NSPredicate(format: "label CONTAINS '不进回收站' AND label CONTAINS '没网'")).firstMatch.exists,
+                      app.debugDescription)
+        snapshot("movie-local-delete-confirm")
+        confirm.tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { !local.exists }, "删除后本机那一行应消失")
+        actions.tap()
+        XCTAssertTrue(app.buttons["下载"].waitForExistence(timeout: 5), "删了以后菜单里应又有「下载」")
     }
 
     /// 断网冷启动直接起播（通知、站内链接直达播放页）：本机目录还没读完也要放本机副本，不能去连服务器
@@ -617,12 +652,20 @@ final class OfflineReviewReproUITests: XCTestCase {
         item.tap()
     }
 
+    /// 电影在本机的状态：下着看播放键上方的状态条，下完看「文件」区本机那一行（值都是「状态|档位」）
+    @MainActor
+    private func movieState(_ app: XCUIApplication) -> String? {
+        let bar = app.buttons["item-download"]
+        if bar.exists { return bar.value as? String }
+        let local = app.buttons["local-file-row-\(movieFileId)"]
+        return local.exists ? local.value as? String : nil
+    }
+
     @MainActor
     private func ensureMovieDownloaded() {
         let app = launch(reset: false, route: "/library/1/item/\(movieId)")
-        let control = app.buttons["item-download"]
         _ = app.buttons["item-actions"].waitForExistence(timeout: 30)
-        if control.waitForExistence(timeout: 5), (control.value as? String)?.hasPrefix("done") == true {
+        if waitUntil(timeout: 5, { movieState(app)?.hasPrefix("done") == true }) {
             app.terminate()
             return
         }
@@ -630,7 +673,7 @@ final class OfflineReviewReproUITests: XCTestCase {
         let fresh = launch(reset: true, route: "/library/1/item/\(movieId)")
         startDownload(fresh, profile: "original")
         let freshControl = fresh.buttons["item-download"]
-        XCTAssertTrue(waitUntil(timeout: 120) { (freshControl.value as? String) == "done|original" })
+        XCTAssertTrue(waitUntil(timeout: 120) { movieState(fresh) == "done|original" })
         fresh.terminate()
     }
 

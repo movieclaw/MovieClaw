@@ -17,9 +17,10 @@ struct OfflineDownloadControl: View {
     @State private var picking: Int?
     @State private var confirmDelete = false
 
-    /// 只在本机有副本（下载中 / 暂停 / 失败 / 已下载）时出现；开始下载在右上角「⋯」
+    /// 只在下载没完成时出现（下载中 / 暂停 / 失败 / 文件损坏）；下完的副本在「文件」区里（本机那一行），
+    /// 开始下载在右上角「⋯」
     var body: some View {
-        if let unit = store.unit(mediaItemId: detail.mediaItemId, season: season, episode: episode) {
+        if let unit = store.unit(mediaItemId: detail.mediaItemId, season: season, episode: episode), !unit.playable {
             existing(unit)
         }
     }
@@ -52,8 +53,10 @@ struct OfflineDownloadControl: View {
             Button(unit.state == .done ? "删除下载" : "取消下载", systemImage: "trash", role: .destructive) { confirmDelete = true }
         } label: {
             OfflineDownloadStatusBar(unit: unit)
+                .frame(maxWidth: .infinity)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glass)
+        .controlSize(.regular)
         .accessibilityIdentifier("item-download")
         .accessibilityValue("\(unit.state.rawValue)|\(unit.profile)")
         .confirmationDialog(unit.state == .done ? "删除这份下载？" : "取消下载？", isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -70,60 +73,44 @@ struct OfflineDownloadControl: View {
     }
 }
 
-/// 电影详情页播放键下方的下载状态条（与分集卡上的 `OfflineDownloadStrip` 同一套样子）：
-/// 下载中蓝字「下载中 47%」+ 右侧实时速度 + 底边进度；下完一行「已下载 · 原画 · 1.4 GB」，绿箭头
+/// 电影详情页播放键上方的下载状态条（与「收藏」「标为已看」同一种玻璃胶囊按钮，点它出操作菜单）：
+/// 左边进度环、中间「下载中 47%」、右边实时速度；暂停 / 失败 / 损坏换图标与颜色
 struct OfflineDownloadStatusBar: View {
     let unit: OfflineUnit
     @State private var store = OfflineStore.shared
 
     var body: some View {
-        let done = unit.playable
         let warning = unit.state == .failed || unit.damaged
-        let tint = warning ? Theme.warning : done ? Theme.textMuted : Theme.info
+        let tint = warning ? Theme.warning : Theme.info
         let speed = unit.state == .downloading ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
-        let text = done
-            ? "已下载 · \(unit.profileLabel) · \(Formatters.bytes(Int(unit.receivedBytes)))"
-            : unit.state == .failed ? "\(OfflineDownloadStrip.status(unit))，点按重试" : OfflineDownloadStrip.status(unit)
-        VStack(spacing: 0) {
-            HStack(spacing: 8) {
-                icon(done: done, tint: tint)
-                Text(text).lineLimit(1)
-                Spacer(minLength: 6)
-                if let speed {
-                    Text("\(Formatters.bytes(Int(speed)))/s").foregroundStyle(tint.opacity(0.8))
-                }
-                Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Theme.textFaint)
-            }
-            .font(.footnote.weight(.medium))
-            .monospacedDigit()
-            .foregroundStyle(tint)
-            .padding(.horizontal, 12)
-            .frame(height: 36)
-            if !done {
-                GeometryReader { proxy in
-                    Rectangle().fill(tint).frame(width: proxy.size.width * max(0, min(1, unit.progressFraction)))
-                }
-                .frame(height: 2)
+        let text = unit.state == .failed ? "\(OfflineDownloadStrip.status(unit))，点按重试" : OfflineDownloadStrip.status(unit)
+        HStack(spacing: 10) {
+            icon(tint)
+            Text(text).lineLimit(1)
+            Spacer(minLength: 6)
+            if let speed {
+                Text("\(Formatters.bytes(Int(speed)))/s").fontWeight(.regular).foregroundStyle(tint.opacity(0.75))
             }
         }
-        .background(Color.white.opacity(0.06))
-        .clipShape(.rect(cornerRadius: 10))
-        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(done ? Color.white.opacity(0.08) : tint.opacity(0.5), lineWidth: 1))
-        .contentShape(.rect)
+        .font(.subheadline.weight(.semibold))
+        .monospacedDigit()
+        .foregroundStyle(tint)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(speed.map { "\(text)，\(Formatters.bytes(Int($0)))/s" } ?? text)
     }
 
     @ViewBuilder
-    private func icon(done: Bool, tint: Color) -> some View {
-        if done {
-            Image(systemName: unit.damaged ? "exclamationmark.circle.fill" : "arrow.down").fontWeight(.heavy)
-                .foregroundStyle(unit.damaged ? Theme.warning : Theme.success)
-        } else {
-            switch unit.state {
-            case .paused: Image(systemName: "pause.circle.fill")
-            case .failed: Image(systemName: "exclamationmark.circle.fill")
-            default: ProgressView().controlSize(.mini).tint(tint)
+    private func icon(_ tint: Color) -> some View {
+        switch unit.state {
+        case .paused: Image(systemName: "pause.circle.fill")
+        case .failed: Image(systemName: "exclamationmark.circle.fill")
+        default:
+            if unit.damaged {
+                Image(systemName: "exclamationmark.circle.fill")
+            } else {
+                // 同 App Store 的下载环：知道总量画进度，不知道（准备中）转圈
+                ProgressRing(fraction: unit.state == .downloading || unit.state == .queued ? unit.progressFraction : nil, color: tint)
+                    .frame(width: 18, height: 18)
             }
         }
     }
@@ -132,16 +119,17 @@ struct OfflineDownloadStatusBar: View {
 /// 下载进度环：不知道总量时转圈
 struct ProgressRing: View {
     var fraction: Double?
+    var color: Color = .white
 
     var body: some View {
         if let fraction {
             ZStack {
-                Circle().stroke(.white.opacity(0.2), lineWidth: 2.5)
-                Circle().trim(from: 0, to: max(0.02, fraction)).stroke(.white, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                Circle().stroke(color.opacity(0.25), lineWidth: 2.5)
+                Circle().trim(from: 0, to: max(0.02, fraction)).stroke(color, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
                     .rotationEffect(.degrees(-90))
             }
         } else {
-            ProgressView().controlSize(.mini)
+            ProgressView().controlSize(.mini).tint(color)
         }
     }
 }

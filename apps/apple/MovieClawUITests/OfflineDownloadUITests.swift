@@ -14,6 +14,8 @@ final class OfflineDownloadUITests: XCTestCase {
     private var username: String { env["MC_TEST_USERNAME"].flatMap { $0.isEmpty ? nil : $0 } ?? "admin" }
     private var password: String { env["MC_TEST_PASSWORD"].flatMap { $0.isEmpty ? nil : $0 } ?? "Sup3rSecret!" }
     private let movieId = 1
+    /// 台子里那部电影的文件号
+    private let movieFileId = 1
     private let showId = 2
 
     override func setUp() {
@@ -145,12 +147,12 @@ final class OfflineDownloadUITests: XCTestCase {
     func test4TranscodedDownloadContinuesInBackground() throws {
         ensureMovieDownloaded()
         let app = launch(reset: false, route: "/library/1/item/\(movieId)")
-        let control = app.buttons["item-download"]
-        XCTAssertTrue(control.waitForExistence(timeout: 30))
-        if (control.value as? String) == "done|480p" {
+        XCTAssertTrue(app.buttons["item-actions"].waitForExistence(timeout: 30))
+        XCTAssertTrue(waitUntil(timeout: 10) { movieState(app)?.hasPrefix("done") == true }, "应已下好：\(movieState(app) ?? "")")
+        if movieState(app) == "done|480p" {
             // 上一轮已经是 480p：先换回原画，这一轮才真的走一遍「换档 + 边转边下」
             switchProfile(app, to: "original")
-            XCTAssertTrue(waitUntil(timeout: 120) { (control.value as? String) == "done|original" })
+            XCTAssertTrue(waitUntil(timeout: 120) { movieState(app) == "done|original" })
         }
         let resumeBefore = app.buttons["item-play"].label
         switchProfile(app, to: nil)
@@ -162,11 +164,11 @@ final class OfflineDownloadUITests: XCTestCase {
         snapshot("8a-profile-sheet-sizes")
         profile.tap()
         app.buttons["offline-profile-confirm"].tap()
-        XCTAssertTrue(waitUntil(timeout: 20) { (control.value as? String)?.hasSuffix("|480p") == true })
+        XCTAssertTrue(waitUntil(timeout: 20) { movieState(app)?.hasSuffix("|480p") == true })
         XCUIDevice.shared.press(.home)
         Thread.sleep(forTimeInterval: 40)
         app.activate()
-        XCTAssertTrue(waitUntil(timeout: 120) { (control.value as? String) == "done|480p" }, "后台应下完：\(control.value ?? "")")
+        XCTAssertTrue(waitUntil(timeout: 120) { movieState(app) == "done|480p" }, "后台应下完：\(movieState(app) ?? "")")
         snapshot("8-480p-done")
         XCTAssertEqual(app.buttons["item-play"].label, resumeBefore, "换档不丢本机进度：播放键前后一致")
         // 本机的转码档（分片 MP4）能直接播：拖到中间也能接着放
@@ -253,14 +255,17 @@ final class OfflineDownloadUITests: XCTestCase {
         XCTAssertTrue(option.waitForExistence(timeout: 30), "选档 sheet 应列出 \(profile)")
         option.tap()
         app.buttons["offline-profile-confirm"].tap()
-        XCTAssertTrue(waitUntil(timeout: 120) { (control.value as? String) == "done|\(profile)" },
-                      "应下完：\(control.value ?? "")")
+        XCTAssertTrue(waitUntil(timeout: 120) { movieState(app) == "done|\(profile)" },
+                      "应下完：\(movieState(app) ?? "")")
     }
 
     /// 已下载的按钮 → 「改下其他画质」→ 选档（profile 为 nil 时只打开 sheet）
     @MainActor
     private func switchProfile(_ app: XCUIApplication, to profile: String?) {
-        app.buttons["item-download"].tap()
+        // 下完的副本在「文件」区本机那一行：长按 →「改下其他画质」
+        let local = app.buttons["local-file-row-\(movieFileId)"]
+        XCTAssertTrue(local.waitForExistence(timeout: 10), app.debugDescription)
+        local.press(forDuration: 1.2)
         let change = app.buttons["改下其他画质"]
         XCTAssertTrue(change.waitForExistence(timeout: 5))
         change.tap()
@@ -271,12 +276,20 @@ final class OfflineDownloadUITests: XCTestCase {
         app.buttons["offline-profile-confirm"].tap()
     }
 
+    /// 电影在本机的状态：下着看播放键上方的状态条，下完看「文件」区本机那一行（值都是「状态|档位」）
+    @MainActor
+    private func movieState(_ app: XCUIApplication) -> String? {
+        let bar = app.buttons["item-download"]
+        if bar.exists { return bar.value as? String }
+        let local = app.buttons["local-file-row-\(movieFileId)"]
+        return local.exists ? local.value as? String : nil
+    }
+
     @MainActor
     private func ensureMovieDownloaded() {
         let app = launch(reset: false, route: "/library/1/item/\(movieId)")
-        let control = app.buttons["item-download"]
         _ = app.buttons["item-actions"].waitForExistence(timeout: 30)
-        if control.waitForExistence(timeout: 5), (control.value as? String)?.hasPrefix("done") == true {
+        if waitUntil(timeout: 5, { movieState(app)?.hasPrefix("done") == true }) {
             app.terminate()
             return
         }

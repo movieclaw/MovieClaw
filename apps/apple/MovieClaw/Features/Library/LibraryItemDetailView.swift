@@ -691,10 +691,11 @@ struct LibraryItemDetailView: View {
         let inPlace = detail.files.filter { $0.state == "in_place" }
         let duplicateUnits = Dictionary(grouping: inPlace, by: { "\($0.seasonNumber):\($0.episodeNumber)" }).values.filter { $0.count > 1 }.count
         let duplicateLabel: String? = duplicateUnits == 0 ? nil : detail.kind == "tv" ? "\(duplicateUnits) 集有重复" : "\(inPlace.count) 个版本"
+        let localIds = files.map(\.id).filter(offlineStore.doneFileIds.contains)
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
                 Text("文件").font(.subheadline.weight(.medium)).foregroundStyle(Theme.textMuted)
-                Text("\(files.count)").font(.caption).monospacedDigit().foregroundStyle(Theme.textFaint)
+                Text("\(files.count + localIds.count)").font(.caption).monospacedDigit().foregroundStyle(Theme.textFaint)
                 if manage, let duplicateLabel {
                     Button("\(duplicateLabel) · 处理重复") { router.push(.libraryManage(tab: "duplicates", item: itemId)) }
                         .font(.caption)
@@ -702,6 +703,11 @@ struct LibraryItemDetailView: View {
                 }
             }
             VStack(spacing: 0) {
+                // 本机下完的副本排在最前（标「本机」）；只按派生的「下完的文件」集合决定放不放，行自己读进度
+                ForEach(localIds, id: \.self) { id in
+                    OfflineLocalFileRow(fileId: id, source: files.first { $0.id == id }, title: localTitle(detail))
+                    Divider().overlay(Color.white.opacity(0.035))
+                }
                 ForEach(files, id: \.id) { file in
                     LibraryFileRow(
                         file: file,
@@ -718,6 +724,12 @@ struct LibraryItemDetailView: View {
         .padding(.horizontal, Theme.pagePadding)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("item-files")
+    }
+
+    /// 本机副本行「改下其他画质」的面板标题
+    private func localTitle(_ detail: API.LibraryItemDetailView) -> String {
+        guard !isMovie, let selectedEpisode else { return detail.title }
+        return "\(detail.title) 第 \(selectedEpisode.season) 季第 \(selectedEpisode.episode.episodeNumber) 集"
     }
 
     @ViewBuilder
@@ -1834,7 +1846,13 @@ struct LibraryFileRow: View {
             .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(color.opacity(0.3)))
     }
 
-    private var details: some View {
+    struct SpecRow: Hashable {
+        let label: String
+        let value: String
+    }
+
+    /// 片源与画面规格那几行（本机副本的原画行照抄同一份，见 `OfflineLocalFileRow`）
+    static func specRows(_ file: API.LibraryFileView) -> [SpecRow] {
         let picture = [file.resolution.map(LibraryItemDetailView.resolutionLabel), file.hdr].compactMap { $0 }.joined(separator: " · ")
         let codecs = ["hevc": "HEVC", "h264": "H.264", "h265": "HEVC", "av1": "AV1", "vc1": "VC-1", "mpeg2video": "MPEG-2", "vp9": "VP9"]
         let codec = file.videoCodec.map { codecs[$0.lowercased()] ?? $0.uppercased() }
@@ -1844,7 +1862,19 @@ struct LibraryFileRow: View {
             let label = s == "user-lowest" ? "最低档（人工标注）" : s == "Disc" ? "原盘" : s
             return label + (file.mediaSourceManual && s != "user-lowest" ? "（人工标注）" : "")
         }()
-        return Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
+        return [
+            SpecRow(label: "片源", value: source),
+            SpecRow(label: "画面规格", value: picture.isEmpty ? "未能探测（文件不可达或尚未扫描）" : picture),
+            SpecRow(label: "视频编码", value: codec ?? "尚未探测"),
+            SpecRow(label: "色深", value: file.bitDepth.map { "\($0)-bit" } ?? "尚未探测"),
+            SpecRow(label: "帧率", value: frameRate ?? "尚未探测"),
+            SpecRow(label: "色彩空间", value: file.colorSpace ?? "尚未探测"),
+            SpecRow(label: "视频码率", value: file.bitRate.map { String(format: "%.1f Mbps", Double($0) / 1_000_000) } ?? "尚未探测"),
+        ]
+    }
+
+    private var details: some View {
+        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 10) {
             row("保存目录", Self.directory(file.filePath), mono: true)
             row("入库时间", "\(Formatters.dateTime(file.addedAt)) · \(libraryFromNow(file.addedAt))")
             GridRow {
@@ -1860,13 +1890,7 @@ struct LibraryFileRow: View {
                 row("多版本", "你留下的 · \(Formatters.dateTime(kept))（不会再列为重复文件）")
             }
             row("文件尺寸", libraryBytes(file.sizeBytes))
-            row("片源", source)
-            row("画面规格", picture.isEmpty ? "未能探测（文件不可达或尚未扫描）" : picture)
-            row("视频编码", codec ?? "尚未探测")
-            row("色深", file.bitDepth.map { "\($0)-bit" } ?? "尚未探测")
-            row("帧率", frameRate ?? "尚未探测")
-            row("色彩空间", file.colorSpace ?? "尚未探测")
-            row("视频码率", file.bitRate.map { String(format: "%.1f Mbps", Double($0) / 1_000_000) } ?? "尚未探测")
+            ForEach(Self.specRows(file), id: \.self) { item in row(item.label, item.value) }
         }
         .font(.footnote)
         .padding(.horizontal, 14)
