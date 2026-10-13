@@ -68,6 +68,15 @@ if mode == "exit":
 if mode == "hang":
     while True:
         time.sleep(1)
+if mode in ("migrate", "migrate-stall"):
+    # 模拟慢盘首装：逐个迁移，每完成一个按 alembic/env.py 的约定写一次心跳
+    progress = Path(os.environ["MOVIECLAW_MIGRATION_PROGRESS_FILE"])
+    for _ in range(int(os.environ.get("FAKE_API_MIGRATION_STEPS", "6"))):
+        time.sleep(1)
+        progress.write_text(str(int(time.time())), encoding="utf-8")
+    if mode == "migrate-stall":
+        while True:
+            time.sleep(1)
 if mode == "restart-once":
     state = Path(os.environ["FAKE_API_STATE_FILE"])
     if not state.exists():
@@ -523,6 +532,59 @@ def test_api_readiness_timeout_never_starts_web(entrypoint_env: dict[str, str]) 
 
     assert process.returncode == 124
     assert not marker.exists()
+    assert "等待 后端 就绪超过 2s" in output
+
+
+def test_api_keeps_waiting_while_migrations_progress(entrypoint_env: dict[str, str]) -> None:
+    """慢盘首装迁移总耗时超过启动超时，但心跳一直在刷新：不杀后端，迁移跑完照常就绪。"""
+    entrypoint_env["FAKE_API_MODE"] = "migrate"
+    entrypoint_env["FAKE_API_MIGRATION_STEPS"] = "7"
+    entrypoint_env["MOVIECLAW_API_STARTUP_TIMEOUT_SECONDS"] = "3"
+    marker = Path(entrypoint_env["FAKE_WEB_MARKER"])
+    process = _start_entrypoint(entrypoint_env)
+    try:
+        try:
+            _wait_for_file(marker, timeout=15)
+        except AssertionError:
+            pytest.fail(_stop(process))
+        assert process.poll() is None
+        assert _read_count(Path(entrypoint_env["FAKE_API_START_COUNT"])) == 1
+    finally:
+        output = _stop(process)
+    assert "数据库迁移仍在推进，继续等待" in output
+    assert "就绪超过" not in output
+
+
+def test_api_timeout_counts_from_last_migration_progress(entrypoint_env: dict[str, str]) -> None:
+    """迁移推进一阵后卡死：从最后一次心跳起再等满超时才判失败，不会无限等。"""
+    entrypoint_env["FAKE_API_MODE"] = "migrate-stall"
+    entrypoint_env["FAKE_API_MIGRATION_STEPS"] = "4"
+    entrypoint_env["MOVIECLAW_API_STARTUP_TIMEOUT_SECONDS"] = "3"
+    marker = Path(entrypoint_env["FAKE_WEB_MARKER"])
+    started = time.monotonic()
+    process = _start_entrypoint(entrypoint_env)
+    output, _ = process.communicate(timeout=20)
+
+    assert process.returncode == 124
+    assert not marker.exists()
+    # 心跳持续约 4 秒，之后再等满 3 秒无进展才超时
+    assert time.monotonic() - started >= 6
+    assert "数据库迁移仍在推进，继续等待" in output
+    assert "等待 后端 就绪超过 3s" in output
+
+
+def test_stale_migration_progress_is_ignored(entrypoint_env: dict[str, str]) -> None:
+    """上一次启动残留的心跳（哪怕时间戳在未来）不能让本次卡死的后端逃过超时。"""
+    entrypoint_env["FAKE_API_MODE"] = "hang"
+    entrypoint_env["MOVIECLAW_API_STARTUP_TIMEOUT_SECONDS"] = "2"
+    state_dir = Path(entrypoint_env["MOVIECLAW_DATA_DIR"]) / "updates" / "state"
+    progress = state_dir / "migration-progress"
+    progress.parent.mkdir(parents=True, exist_ok=True)
+    progress.write_text(str(int(time.time()) + 3600), encoding="utf-8")
+    process = _start_entrypoint(entrypoint_env)
+    output, _ = process.communicate(timeout=10)
+
+    assert process.returncode == 124
     assert "等待 后端 就绪超过 2s" in output
 
 

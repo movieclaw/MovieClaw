@@ -65,6 +65,12 @@ API_STARTUP_TIMEOUT_SECONDS="${MOVIECLAW_API_STARTUP_TIMEOUT_SECONDS:-300}"
 # 设置页请求重启时应用已运行过，后端应很快恢复；单独使用较短的等待窗口，
 # 失败后直接走完整启动/回退，避免前端长时间处于无后端可用的状态。
 API_RESTART_TIMEOUT_SECONDS="${MOVIECLAW_API_RESTART_TIMEOUT_SECONDS:-60}"
+# 后端每完成一个数据库迁移就往这里写一次时间戳（alembic/env.py）。慢盘首装要跑
+# 上百个迁移，总耗时可能远超上面的启动超时——实测有用户的机器每个迁移 2～10 秒，
+# 300 秒只跑完一半就被杀。等待后端时超时改从「最近一次迁移进展」起算：迁移还在
+# 推进就继续等，超过超时仍无进展才判定卡死。
+MIGRATION_PROGRESS_FILE="$STATE_DIR/migration-progress"
+export MOVIECLAW_MIGRATION_PROGRESS_FILE="$MIGRATION_PROGRESS_FILE"
 # 前端就绪超时同样计为 overlay 启动失败，必须给慢机器留足余量：实测有用户的机器上
 # Next 从拉起到就绪要 67 秒（与后端启动期任务抢 CPU），旧值 60 秒把好版本连续判超时
 # 标成了坏版本。等待期间 nginx 回占位页，多等几十秒没有代价。
@@ -469,7 +475,9 @@ wait_for_health() {
     # 空的 8000 反代到超时。
     local dependency_name="${5:-}"
     local dependency_pid="${6:-}"
-    local started now exit_code
+    # 迁移心跳文件（只有等待后端时传）：超时从最近一次心跳起算，见 MIGRATION_PROGRESS_FILE
+    local progress_file="${7:-}"
+    local started now exit_code last_progress progress extended=0
     started="$(date +%s)"
     WAIT_FAILURE_CODE=1
     WAIT_TIMED_OUT=0
@@ -506,7 +514,24 @@ wait_for_health() {
             return 0
         fi
         now="$(date +%s)"
-        if [ "$(( now - started ))" -ge "$timeout" ]; then
+        last_progress="$started"
+        if [ -n "$progress_file" ] && [ -f "$progress_file" ]; then
+            progress="$(cat "$progress_file" 2>/dev/null || true)"
+            case "$progress" in
+                ''|*[!0-9]*) ;;
+                *)
+                    if [ "$progress" -gt "$last_progress" ]; then
+                        last_progress="$progress"
+                    fi
+                    ;;
+            esac
+        fi
+        if [ "$extended" -eq 0 ] && [ "$(( now - started ))" -ge "$timeout" ] \
+            && [ "$(( now - last_progress ))" -lt "$timeout" ]; then
+            extended=1
+            echo "[entrypoint] $name 已等待 ${timeout}s，数据库迁移仍在推进，继续等待（连续 ${timeout}s 无进展才判定失败）。"
+        fi
+        if [ "$(( now - last_progress ))" -ge "$timeout" ]; then
             WAIT_FAILURE_CODE=124
             WAIT_TIMED_OUT=1
             echo "[entrypoint] 等待 $name 就绪超过 ${timeout}s（${url}），停止本次启动。" >&2
@@ -519,6 +544,9 @@ wait_for_health() {
 start_api() {
     echo "[entrypoint] 启动后端 (FastAPI, 127.0.0.1:8000)……来源：$ACTIVE_SOURCE${ACTIVE_VERSION:+ v$ACTIVE_VERSION}"
     API_START_TS="$(date +%s)"
+    # 清掉上一次启动残留的心跳，免得把旧时间戳当成本次的迁移进展
+    mkdir -p "$STATE_DIR"
+    rm -f "$MIGRATION_PROGRESS_FILE"
     PYTHONPATH="$BACKEND_ROOT/src" APP_PORT=8000 "$PYTHON_BIN" -m movieclaw_api.main &
     API_PID=$!
 }
@@ -618,7 +646,8 @@ terminate_managed_processes() {
 start_current_code() {
     local api_timeout="${1:-$API_STARTUP_TIMEOUT_SECONDS}"
     start_api
-    if ! wait_for_health "后端" "$API_PID" "$API_HEALTH_URL" "$api_timeout"; then
+    if ! wait_for_health "后端" "$API_PID" "$API_HEALTH_URL" "$api_timeout" \
+        "" "" "$MIGRATION_PROGRESS_FILE"; then
         START_FAILURE_CODE="$WAIT_FAILURE_CODE"
         START_FAILURE_UPTIME=$(( $(date +%s) - API_START_TS ))
         START_FAILURE_IS_TIMEOUT="$WAIT_TIMED_OUT"
@@ -654,7 +683,8 @@ start_all() {
 restart_api_keeping_web() {
     stop_health_watchdog
     start_api
-    if ! wait_for_health "后端" "$API_PID" "$API_HEALTH_URL" "$API_RESTART_TIMEOUT_SECONDS"; then
+    if ! wait_for_health "后端" "$API_PID" "$API_HEALTH_URL" "$API_RESTART_TIMEOUT_SECONDS" \
+        "" "" "$MIGRATION_PROGRESS_FILE"; then
         START_FAILURE_CODE="$WAIT_FAILURE_CODE"
         START_FAILURE_UPTIME=$(( $(date +%s) - API_START_TS ))
         START_FAILURE_IS_TIMEOUT="$WAIT_TIMED_OUT"

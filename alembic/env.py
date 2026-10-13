@@ -10,10 +10,13 @@
 
 from __future__ import annotations
 
+import os
+import time
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
-from sqlalchemy import engine_from_config, pool
+from sqlalchemy import Engine, engine_from_config, event, pool
 from sqlmodel import SQLModel
 
 # 导入所有 ORM 模型 —— 触发它们注册到 SQLModel.metadata（autogenerate 必需）
@@ -56,6 +59,49 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
+def _make_sqlite_ddl_transactional(engine: Engine) -> None:
+    """让每个迁移成为真正的原子事务：中途被杀就整体回滚，下次启动从头重跑它。
+
+    pysqlite 默认只在 INSERT/UPDATE/DELETE 前隐式 BEGIN，CREATE/ALTER/DROP 一律
+    自动提交——alembic 名义上「每个迁移一个事务」，实际 DDL 执行一条落盘一条。
+    慢盘首装迁移跑到一半被入口脚本的启动超时杀掉时，就会留下「表已建好、版本号
+    没前进」的半截状态，此后每次启动都在同一句 CREATE TABLE 上报 already exists，
+    容器永久起不来。这里按 SQLAlchemy 文档的做法关掉驱动自己的事务管理，由
+    SQLAlchemy 在 begin 时显式发 BEGIN，DDL 才真正进事务。
+
+    同时与应用连接保持一致用 WAL + synchronous=NORMAL：提交不再逐条 fsync，
+    慢盘上首装上百个迁移的耗时从分钟级降下来；中断时未提交的事务同样整体作废。
+    """
+
+    @event.listens_for(engine, "connect")
+    def _on_connect(dbapi_conn, _connection_record) -> None:  # type: ignore[no-untyped-def]
+        dbapi_conn.isolation_level = None
+        cursor = dbapi_conn.cursor()
+        cursor.execute("PRAGMA journal_mode=WAL;")
+        cursor.execute("PRAGMA synchronous=NORMAL;")
+        cursor.close()
+
+    @event.listens_for(engine, "begin")
+    def _on_begin(conn) -> None:  # type: ignore[no-untyped-def]
+        conn.exec_driver_sql("BEGIN")
+
+
+def _report_progress(**_kwargs) -> None:  # type: ignore[no-untyped-def]
+    """每完成一个迁移写一次心跳（当前时间戳），供入口脚本区分「迁移还在推进」
+    与「真卡死」：慢盘首装要跑上百个迁移，总耗时可能远超启动超时，但只要心跳
+    还在刷新就不该杀进程。只有入口脚本给了路径才写；写失败不影响迁移本身。"""
+    path = os.environ.get("MOVIECLAW_MIGRATION_PROGRESS_FILE")
+    if not path:
+        return
+    try:
+        target = Path(path)
+        tmp = target.with_name(target.name + ".tmp")
+        tmp.write_text(str(int(time.time())), encoding="utf-8")
+        tmp.replace(target)
+    except OSError:
+        pass
+
+
 def run_migrations_online() -> None:
     """在线模式：建立连接并执行迁移。"""
     configuration = config.get_section(config.config_ini_section) or {}
@@ -66,6 +112,7 @@ def run_migrations_online() -> None:
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    _make_sqlite_ddl_transactional(connectable)
 
     with connectable.connect() as connection:
         context.configure(
@@ -73,6 +120,11 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
             # SQLite 不支持大多数 ALTER TABLE，批处理模式会以"建新表+拷贝"方式实现
             render_as_batch=True,
+            # 每个迁移连同版本号推进一起提交：中断只丢当前这一个，已完成的保留，
+            # 慢机反复重启也能逐步推进到 head
+            transactional_ddl=True,
+            transaction_per_migration=True,
+            on_version_apply=_report_progress,
         )
         with context.begin_transaction():
             context.run_migrations()
