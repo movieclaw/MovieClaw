@@ -2,7 +2,7 @@
 
 GitHub 应用 Release 附件 `downloads.json` 是客户端包版本来源，与服务器更新用的 `manifest.json` 分开。Mac App、转码器和 Android 的版本独立，沿用旧包时不得改成服务器 tag 的版本。
 
-`release.yml` 在 draft 转正前，从已经上传的所有 `MovieClaw*-macos-*.zip` 生成清单。`scripts/build-download-manifest.py` 读取 ZIP 内的 Info.plist、主程序 Mach-O，记录产品、版本、构建号、最低 macOS、芯片（arm64 / x86_64 / universal）、文件名、大小和 SHA-256。在 macOS 上验证 Developer ID 签名及 stapled 公证；非 macOS 环境将这两项标为 null（未知）。
+客户端发版工作流在 draft 转正前，从已经上传的 `MovieClaw*-macos-*.zip` / APK 生成清单。`scripts/build-download-manifest.py` 读取 ZIP 内的 Info.plist、主程序 Mach-O，记录产品、版本、构建号、最低 macOS、芯片（arm64 / x86_64 / universal）、文件名、大小和 SHA-256。在 macOS 上验证 Developer ID 签名及 stapled 公证；非 macOS 环境将这两项标为 null（未知）。
 
 Android 的 `MovieClaw-Android-arm64.apk` 也进入此清单，`product` 为 `android`。
 Android runner 使用 `aapt2` / `apksigner` 读取真实 APK，生成同名 `.json`，记录
@@ -11,9 +11,10 @@ Android runner 使用 `aapt2` / `apksigner` 读取真实 APK，生成同名 `.js
 SHA-256 和 JSON 一致。沿用 APK 必须同时沿用 JSON；缺失或不一致会阻止发布。
 Android TV 的 `MovieClaw-AndroidTV.apk` 同一份契约，`product` 为 `androidtv`、`applicationId` 为
 `io.movieclaw.androidtv`；一个包含 64 / 32 位两种 ARM 架构，`arch` 为 `arm`，另有 `abis` 列表。
-Android、Android TV 与 Mac 版 App 独立发版（`android-vX.Y.Z` / `androidtv-vX.Y.Z` / `macos-vX.Y.Z`），
-各自 Release 带一份只含自己一个包的 `downloads.json`；v0.38.0 起服务器 Release 的清单只剩转码器。
-官网按发布时间汇总服务器与各客户端 Release，取每个产品、每种芯片的最新包。
+客户端全部独立发版：Android、Android TV、Mac 版 App、Mac 转码器（`android-v` / `androidtv-v` /
+`macos-v` / `transcoder-v` 加 `X.Y.Z`）各自 Release 带一份只含自己一个包的 `downloads.json`；
+v0.38.0 起服务器 Release 不再有客户端包，也不再生成 `downloads.json`。官网按发布时间汇总服务器与
+各客户端 Release，取每个产品、每种芯片的最新包。iPhone（`ios-v`）的侧载 IPA 不进清单。
 Android 下载入口和工作流见 [Android 发版说明](android-release.md)。
 
 ```json
@@ -37,7 +38,7 @@ Android 下载入口和工作流见 [Android 发版说明](android-release.md)�
 
 Cloud 分页读取正式应用 Release，忽略 draft、预发布和模型 Release。只展示每个产品、每种芯片的最新可用包，校验附件确实存在、大小一致及 GitHub 提供的 SHA-256 一致，再生成固定 tag 的链接。不同芯片可以对应不同版本；不存在的芯片不提供选项。只有签名、公证都为 true 才显示公证提示。
 
-正常发布与补跑 worker-macos / carry-assets（服务器）、mac-release（Mac 版）会自动更新清单。人工补传 ZIP 后也要刷新（在 macOS 上运行可验证签名、公证）：
+正常发布与重跑 apple-release / android-release 会自动更新清单。人工补传 ZIP 后也要刷新（在 macOS 上运行可验证签名、公证）：
 
 ```bash
 bash scripts/publish-download-manifest.sh v0.32.0

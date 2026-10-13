@@ -174,6 +174,8 @@ class DownloadManifestTest(unittest.TestCase):
             self.assertEqual(manifest["release"], "macos-v0.5.0")
             self.assertEqual([p["product"] for p in manifest["packages"]], ["mac"])
             self.assertNotEqual(run("macos-v0.5.1").returncode, 0)
+            # 转码器 Release 不能夹带 Mac 版 App
+            self.assertNotEqual(run("transcoder-v0.5.0").returncode, 0)
 
     def test_android_requires_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:

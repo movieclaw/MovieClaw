@@ -1,5 +1,5 @@
 #!/bin/zsh
-# 打 Mac 版 App 的发行包，单独发 macos-vX.Y.Z GitHub Release（mac-release.yml；本机手工发版同用）。
+# 打 Mac 版 App 的发行包，单独发 macos-vX.Y.Z GitHub Release（apple-release.yml；本机手工发版同用）。
 #
 # 与转码器（macos/MovieClawTranscoder/scripts/package-app.sh）同一套签名与公证约定：
 #   - MOVIECLAW_SIGNING_IDENTITY：「Developer ID Application: …」；不给则 ad-hoc 签名（只能自己机器上用）

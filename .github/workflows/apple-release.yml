@@ -1,0 +1,334 @@
+# =============================================================================
+# Apple 平台客户端发版流水线（iPhone / iPad、Apple TV、Mac 版 App、Mac 转码器）
+#
+# 这些客户端都不随服务器 vX.Y.Z Release 分发，各自单独发、始终 --latest=false
+# （latest 只能是服务器版本）：
+#   - ios-vX.Y.Z        MovieClaw for iPhone and iPad：未签名 IPA，给侧载用户；商店版走 TestFlight
+#   - tvos-vX.Y.Z       MovieClaw for Apple TV：只有更新说明，App 只走 TestFlight
+#   - macos-vX.Y.Z      MovieClaw for Mac：Developer ID 签名并公证的 zip + downloads.json
+#   - transcoder-vX.Y.Z MovieClaw Transcoder：签名公证的 zip + downloads.json
+# tag 版本必须等于 App 自己的版本：前三者是 apps/apple/project.yml 的 MARKETING_VERSION
+# （三端共用，同一版本每个平台只能发一次，已发过就先递增），转码器是
+# macos/MovieClawTranscoder/Resources/Info.plist 的 CFBundleShortVersionString。
+#
+# 两段式（draft → publish）：失败时 Release 停在 draft，修复后重跑本工作流即可。
+# =============================================================================
+name: apple-release
+
+concurrency:
+  group: apple-release-${{ inputs.tag || github.ref_name }}
+
+on:
+  push:
+    tags: ["ios-v*", "tvos-v*", "macos-v*", "transcoder-v*"]
+  # 远程会话推不了 tag：走 release-kick 点火分支，或到 Actions 手动输入 tag
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的 tag（ios-v / tvos-v / macos-v / transcoder-v 加 X.Y.Z），须与 App 版本一致"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      product: ${{ steps.tag.outputs.product }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - id: tag
+        name: 解析 tag 并核对版本号
+        run: |
+          apple="$(sed -n 's/^ *MARKETING_VERSION: *"\([^"]*\)".*/\1/p' apps/apple/project.yml | head -1)"
+          case "$RELEASE_TAG" in
+            ios-v*) product=ios; title="MovieClaw for iPhone and iPad"; actual="$apple" ;;
+            tvos-v*) product=tvos; title="MovieClaw for Apple TV"; actual="$apple" ;;
+            macos-v*) product=macos; title="MovieClaw for Mac"; actual="$apple" ;;
+            transcoder-v*)
+              product=transcoder; title="MovieClaw Transcoder"
+              actual="$(python3 -c 'import plistlib,sys; print(plistlib.load(open(sys.argv[1],"rb"))["CFBundleShortVersionString"])' macos/MovieClawTranscoder/Resources/Info.plist)"
+              ;;
+            *) echo "::error::tag 必须是 ios-v / tvos-v / macos-v / transcoder-v 加 X.Y.Z：$RELEASE_TAG"; exit 1 ;;
+          esac
+          version="${RELEASE_TAG#*-v}"
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::版本号必须是 X.Y.Z：$RELEASE_TAG"
+            exit 1
+          fi
+          if [ "$version" != "$actual" ]; then
+            echo "::error::tag $RELEASE_TAG 与 App 版本 $actual 不一致"
+            exit 1
+          fi
+          echo "product=$product" >> "$GITHUB_OUTPUT"
+          echo "TITLE=$title $version" >> "$GITHUB_ENV"
+
+      - name: 创建 draft Release
+        run: |
+          NOTES_ARGS=(--generate-notes)
+          if [ -f "docs/changelog/$RELEASE_TAG.md" ]; then
+            NOTES_ARGS=(--notes-file "docs/changelog/$RELEASE_TAG.md")
+          fi
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --draft --latest=false \
+              --title "$TITLE" "${NOTES_ARGS[@]}"
+          elif [ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = "true" ]; then
+            # 同 release.yml：上一轮失败留下的 draft 还锁着旧提交，校正到本轮
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
+          else
+            echo "::error::$RELEASE_TAG 已发布；发新版请先递增版本号再打新 tag"
+            exit 1
+          fi
+
+  # 未签名 IPA（docs/design/ios-release.md「侧载」）：与商店版同一份代码，由用户的侧载工具重签。
+  # 不需要任何签名密钥，fork 出去的仓库也能照常产出。
+  ios-ipa:
+    needs: prepare
+    if: needs.prepare.outputs.product == 'ios'
+    # 与 App PR 检查一致：Xcode 27
+    runs-on: xcode-27
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: 准备工具链
+        run: |
+          brew install xcodegen
+          xcodebuild -version
+
+      - name: 编译未签名 IPA
+        run: apps/apple/scripts/build-unsigned-ipa.sh
+
+      - name: 上传到 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            apps/apple/build-ipa/MovieClaw-iOS-unsigned.ipa
+
+  # Mac 版 App（docs/design/macos-app.md）：打包、签名、公证都在 apps/apple/scripts/package-mac-app.sh
+  # （本机手工发版同用）。没配证书（如 fork 出去的仓库）时 ad-hoc 签名，别人下载后首次打开会被系统拦下。
+  mac-app:
+    needs: prepare
+    if: needs.prepare.outputs.product == 'macos'
+    # 与 App PR 检查一致：Xcode 27
+    runs-on: xcode-27
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: 准备工具链
+        run: |
+          brew install xcodegen
+          xcodebuild -version
+
+      # 证书导入临时钥匙串，作业结束即删
+      - name: 准备 Developer ID 签名与公证凭证
+        env:
+          P12: ${{ secrets.MACOS_DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          if [ -z "$P12" ]; then
+            echo "::warning::未配置 MACOS_DEVELOPER_ID_P12，Mac 版沿用 ad-hoc 签名（用户首次打开会被系统拦下）"
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | awk -F'"' '/Developer ID Application/ { print $2; exit }')"
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::MACOS_DEVELOPER_ID_P12 里没有「Developer ID Application」证书（导出的是不是 Apple Development / Distribution？）"
+            exit 1
+          fi
+          echo "MOVIECLAW_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          if [ -n "$API_KEY_P8" ]; then
+            printf '%s\n' "$API_KEY_P8" > "$RUNNER_TEMP/notary-key.p8"
+            {
+              echo "MOVIECLAW_NOTARY_KEY_PATH=$RUNNER_TEMP/notary-key.p8"
+              echo "MOVIECLAW_NOTARY_KEY_ID=$API_KEY_ID"
+              echo "MOVIECLAW_NOTARY_ISSUER=$API_ISSUER_ID"
+            } >> "$GITHUB_ENV"
+          else
+            echo "::warning::已配置签名证书但未配置 APPLE_API_KEY_P8，Mac 版不会公证（用户首次打开仍会被系统拦下）"
+          fi
+
+      - name: 编译、签名、公证并打包
+        run: apps/apple/scripts/package-mac-app.sh
+
+      - name: 清理签名钥匙串与密钥
+        if: always()
+        run: |
+          if [ -n "${SIGNING_KEYCHAIN:-}" ]; then security delete-keychain "$SIGNING_KEYCHAIN" || true; fi
+          rm -f "$RUNNER_TEMP/notary-key.p8"
+
+      - name: 上传到 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            apps/apple/build-macapp/MovieClaw-macos-arm64.zip
+
+  # Mac 转码器（macos/MovieClawTranscoder）：与 Mac 版 App 同一套 Developer ID 签名与公证密钥。
+  transcoder:
+    needs: prepare
+    if: needs.prepare.outputs.product == 'transcoder'
+    # 必须是 Xcode 26 起的工具链：用旧 SDK 构建的 App 在 macOS 26 上不会有液态
+    # 玻璃（系统控件的新外观只对用 macOS 26 SDK 链接的 App 生效），代码里的
+    # 玻璃组件也会被 `#if compiler(>=6.2)` 整段编译掉。App 最低仍支持 macOS 12。
+    runs-on: macos-26
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: 单测
+        run: swift test --package-path macos/MovieClawTranscoder
+
+      # Developer ID 签名 + Apple 公证，用户下载后双击即可打开。所需仓库密钥：
+      #   MACOS_DEVELOPER_ID_P12           「Developer ID Application」证书连私钥导出的 .p12，base64 编码
+      #   MACOS_DEVELOPER_ID_P12_PASSWORD  导出 .p12 时设的密码
+      #   APPLE_API_KEY_P8                 App Store Connect API 密钥 .p8 的文件内容（公证用）
+      #   APPLE_API_KEY_ID / APPLE_API_ISSUER_ID  该密钥的 ID 与 Issuer ID
+      # 没配证书（例如 fork 出去的仓库）时照旧 ad-hoc 签名，发版不受影响。
+      # 证书导入临时钥匙串，作业结束即删；密钥只落在 runner 的临时目录。
+      - name: 准备 Developer ID 签名与公证凭证
+        env:
+          P12: ${{ secrets.MACOS_DEVELOPER_ID_P12 }}
+          P12_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_P12_PASSWORD }}
+          API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          if [ -z "$P12" ]; then
+            echo "::warning::未配置 MACOS_DEVELOPER_ID_P12，转码器沿用 ad-hoc 签名（用户首次打开会被系统拦下）"
+            exit 0
+          fi
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::$KEYCHAIN_PASSWORD"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          printf '%s' "$P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KEYCHAIN" -P "$P12_PASSWORD" \
+            -T /usr/bin/codesign
+          rm -f "$RUNNER_TEMP/developer-id.p12"
+          # 允许 codesign 无交互地使用私钥（CI 里没人点「允许」）
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" \
+            | awk -F'"' '/Developer ID Application/ { print $2; exit }')"
+          if [ -z "$IDENTITY" ]; then
+            echo "::error::MACOS_DEVELOPER_ID_P12 里没有「Developer ID Application」证书（导出的是不是 Apple Development / Distribution？）"
+            exit 1
+          fi
+          echo "MOVIECLAW_SIGNING_IDENTITY=$IDENTITY" >> "$GITHUB_ENV"
+          echo "SIGNING_KEYCHAIN=$KEYCHAIN" >> "$GITHUB_ENV"
+          if [ -n "$API_KEY_P8" ]; then
+            printf '%s\n' "$API_KEY_P8" > "$RUNNER_TEMP/notary-key.p8"
+            {
+              echo "MOVIECLAW_NOTARY_KEY_PATH=$RUNNER_TEMP/notary-key.p8"
+              echo "MOVIECLAW_NOTARY_KEY_ID=$API_KEY_ID"
+              echo "MOVIECLAW_NOTARY_ISSUER=$API_ISSUER_ID"
+            } >> "$GITHUB_ENV"
+          else
+            echo "::warning::已配置签名证书但未配置 APPLE_API_KEY_P8，转码器不会公证（用户首次打开仍会被系统拦下）"
+          fi
+
+      - name: 打包 App（有证书时 Developer ID 签名并公证，版本取 Resources/Info.plist）
+        run: |
+          chmod +x macos/MovieClawTranscoder/scripts/package-app.sh
+          macos/MovieClawTranscoder/scripts/package-app.sh
+
+      - name: 清理签名钥匙串与密钥
+        if: always()
+        run: |
+          if [ -n "${SIGNING_KEYCHAIN:-}" ]; then security delete-keychain "$SIGNING_KEYCHAIN" || true; fi
+          rm -f "$RUNNER_TEMP/notary-key.p8"
+
+      - name: 压缩 App Bundle
+        run: |
+          # 必须用 ditto 而不是 zip：App Bundle 里有符号链接和扩展属性，
+          # 普通 zip 解开后可能无法启动
+          ditto -c -k --keepParent \
+            "macos/MovieClawTranscoder/dist/MovieClaw 转码器.app" \
+            "MovieClawTranscoder-macos-arm64.zip"
+
+      - name: 上传到 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            MovieClawTranscoder-macos-arm64.zip
+
+  publish:
+    needs: [prepare, ios-ipa, mac-app, transcoder]
+    # Apple TV 没有构建作业；其余产品要求对应作业成功
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && !contains(needs.*.result, 'failure') }}
+    # 官网清单从实际 ZIP 读取，macOS runner 还能复核签名和公证
+    runs-on: macos-26
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      PRODUCT: ${{ needs.prepare.outputs.product }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 校验附件并生成官网下载清单
+        run: |
+          case "$PRODUCT" in
+            ios) asset=MovieClaw-iOS-unsigned.ipa ;;
+            macos) asset=MovieClaw-macos-arm64.zip ;;
+            transcoder) asset=MovieClawTranscoder-macos-arm64.zip ;;
+            *) exit 0 ;;
+          esac
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+              --jq '.assets[].name' | grep -qx "$asset"; then
+            echo "::error::缺少 $asset，拒绝转正"
+            exit 1
+          fi
+          # 官网下载页只列 Mac 版与转码器；脚本校验包与 tag 是同一个产品、同一个版本
+          if [ "$PRODUCT" != ios ]; then
+            bash scripts/publish-download-manifest.sh "$RELEASE_TAG"
+          fi
+
+      - name: 发布 Release（不标 latest）
+        run: |
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
+          echo "已发布：https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG" | tee -a "$GITHUB_STEP_SUMMARY"

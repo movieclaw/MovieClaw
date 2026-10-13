@@ -1,5 +1,5 @@
 #!/bin/zsh
-# 打未签名的 IPA，随 GitHub Release 发布，给不走 App Store / TestFlight 的用户侧载：
+# 打未签名的 IPA，单独发 ios-vX.Y.Z GitHub Release，给不走 App Store / TestFlight 的用户侧载：
 # 用户用 AltStore / SideStore / Sideloadly 等工具以自己的 Apple ID 重签后安装
 # （免费 Apple ID 签的包 7 天过期，工具可自动续签；付费开发者账号 1 年）。
 #
@@ -8,7 +8,7 @@
 # 商店版的推送与 App Group 权限只在签名时写进包里，这里不签名，包里一个权限都没有；推送的通知扩展
 # 打包时去掉（见下）。所以和以前一样，免费 Apple ID 也能签，只占 1 个 App ID。
 #
-# 本机与 CI（.github/workflows/release.yml 的 ios-ipa 作业）共用。可选环境变量：
+# 本机与 CI（.github/workflows/apple-release.yml 的 ios-ipa 作业，tag ios-vX.Y.Z）共用。可选环境变量：
 #   MC_BUILD_NUMBER  构建号（默认 UTC 时间 yyyyMMddHHmm）
 #   MC_IPA_OUT       输出目录（默认 build-ipa，已被 git 忽略）
 #   MC_SPM           共享的 Swift 包缓存目录（默认 ~/workspace/.mc-ios-spm，同 build.sh）

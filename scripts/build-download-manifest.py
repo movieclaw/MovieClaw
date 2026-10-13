@@ -132,9 +132,9 @@ def main() -> None:
     parser.add_argument("--tag", required=True)
     parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
-    client = re.fullmatch(r"(android|androidtv|macos)-v(\d+\.\d+\.\d+)", args.tag)
+    client = re.fullmatch(r"(android|androidtv|macos|transcoder)-v(\d+\.\d+\.\d+)", args.tag)
     if not client and not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[\w.-]+)?", args.tag):
-        parser.error("tag 必须是 vX.Y.Z，或 android-v / androidtv-v / macos-v 加 X.Y.Z")
+        parser.error("tag 必须是 vX.Y.Z，或客户端前缀（如 android-v、macos-v）加 X.Y.Z")
     packages = [describe(p) for p in sorted(args.directory.glob("MovieClaw*-macos-*.zip"))]
     packages += [
         describe_android(p) for p in sorted(args.directory.glob("MovieClaw-Android-*.apk"))

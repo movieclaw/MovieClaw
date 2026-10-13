@@ -57,13 +57,14 @@ scripts/release.sh --tv --upload            # Apple TV 版：同一条 App 记�
   - 营销版本号只有一处——`project.yml` 的 `MARKETING_VERSION`（首发 0.1.0），TestFlight、App Store、
     侧载 IPA 都读它；与服务器的 `pyproject.toml` / 发版 tag 无关，也不受「版本号三处一致」约束。
   - iPhone、Apple TV、Mac 三端共用这一个版本号（2026-10-05 定：同一份代码、同一个 Bundle ID，版本号对齐
-    才说得清「0.5.0」是哪套代码；构建号各平台各自递增）。Mac 版单独发的 `macos-vX.Y.Z`
-    Release 同样读它（tag 必须等于它，已发过就先递增补丁号），v0.37.0 及更早随服务器 Release 发。某个平台要单独发紧急修复时只给它提审补丁版本，下一个常规版本再对齐。
+    才说得清「0.5.0」是哪套代码；构建号各平台各自递增）。GitHub 上的
+    `ios-v` / `tvos-v` / `macos-v` Release 的 tag 都必须等于它；同一版本每个平台只能发一次，已发过就先
+    递增补丁号。v0.37.0 及更早，侧载 IPA 与 Mac 版 zip 随服务器 Release 发。某个平台要单独发紧急修复时只给它提审补丁版本，下一个常规版本再对齐。
   - 什么时候改：准备**提审**一个新版本时手动递增（App Store 要求新版本号大于已上架的）；
     同一版本号下反复传 TestFlight 不用改，靠构建号区分。
   - 构建号默认取 UTC 时间 `yyyyMMddHHmm`，天然递增，不用管。
-  - 随服务器 Release 附带的侧载 IPA（及 v0.37.0 前的 Mac 版 zip）是最近一次改动 App 时编的那个包，版本号就是当时的
-    `MARKETING_VERSION`，所以服务器 v0.28.0 里的 IPA 可能是 App 0.1.0，这是正常的。
+  - v0.37.0 及更早随服务器 Release 附带的侧载 IPA 与 Mac 版 zip 是最近一次改动 App 时编的那个包，
+    版本号就是当时的 `MARKETING_VERSION`，所以服务器 v0.28.0 里的 IPA 可能是 App 0.1.0，这是正常的。
 - 产物与日志在 `apps/apple/build-release/`（已被 git 忽略），归档约 5 分钟，DerivedData 约 0.7 GB，
   磁盘紧时打包完可删。
 - 不带 `--upload` 只在本机导出 `.ipa`，用于验证签名；首次导出时自动签名会在账号下创建
@@ -73,10 +74,10 @@ scripts/release.sh --tv --upload            # Apple TV 版：同一条 App 记�
 
 ### 侧载用的未签名 IPA
 
-发版时 release.yml 的 `ios-ipa` 作业在 macOS runner 上跑 `apps/apple/scripts/build-unsigned-ipa.sh`，
-把 `MovieClaw-iOS-unsigned.ipa` 附到 GitHub Release（可选附件，失败不拦转正）。自上一版以来 iPhone 版
-用到的代码（`apps/apple` 除 Apple TV 专属目录与测试）没改动时不重编，由 `carry-assets` 作业直接沿用
-上一个 Release 里的 IPA（判断规则见 `scripts/release-asset-plan.sh`）。Apple TV 版不出侧载包，只走 TestFlight。给不走 App Store /
+iPhone 版单独发 `ios-vX.Y.Z` GitHub Release（tag 等于 `MARKETING_VERSION`）：apple-release.yml 的
+`ios-ipa` 作业在 macOS runner 上跑 `apps/apple/scripts/build-unsigned-ipa.sh`，把
+`MovieClaw-iOS-unsigned.ipa` 附上（v0.37.0 及更早随服务器 Release 发）。Apple TV 版不出侧载包，只走
+TestFlight，它的 `tvos-vX.Y.Z` Release 只放更新说明。给不走 App Store /
 TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple ID 重签安装——免费 Apple ID
 签的包 7 天过期（AltStore / SideStore 可后台自动续签），付费开发者账号 1 年。
 
@@ -84,7 +85,7 @@ TestFlight 的用户：用 AltStore / SideStore / Sideloadly 以自己的 Apple 
 - 打包时去掉通知扩展（`MovieClawNotificationService`）和推送、App Group 的 entitlements，免费
   Apple ID 也能签（只占 1 个 App ID）。代价是侧载版**收不到推送**：免费 Apple ID 本来就没有推送能力，
   官方推送中继也只推商店版的 Bundle ID。App 发现自己没带通知扩展时不请求通知权限、不登记推送。
-- 文件名固定，`releases/latest/download/MovieClaw-iOS-unsigned.ipa` 长期指向最新版。
+- 文件名固定；最新版到 GitHub Releases 里最新的 `ios-vX.Y.Z` 下载（`releases/latest` 是服务器版本，里面没有 IPA）。
 - 附在服务器 Release 上而不单开 iOS Release：应用内更新按 GitHub 的 latest Release 判断服务器新版本，
   单独的 iOS Release 会被当成最新服务器版本，打乱更新检查。App 自己的版本号见 §3。
 - 本机也能打：`apps/apple/scripts/build-unsigned-ipa.sh`，产物在 `apps/apple/build-ipa/`（已被 git 忽略）。
@@ -231,5 +232,5 @@ If anything is unclear, we would be glad to explain on a call.
 
 与 iOS 共用同一个开发者账号，但证书不同：需要在 developer.apple.com → Certificates 新建
 **Developer ID Application** 证书（只有账号持有人能建），导出成 `.p12` 后按
-`.github/workflows/release.yml` worker-macos 作业的注释配置仓库密钥；公证复用 §2 的 API 密钥。
-配好后每次发版的 `MovieClawTranscoder-macos-arm64.zip` 自动签名、公证、钉票据，用户双击即可打开。
+`.github/workflows/apple-release.yml` transcoder 作业的注释配置仓库密钥；公证复用 §2 的 API 密钥。
+配好后每次转码器发版（`transcoder-vX.Y.Z`）的 `MovieClawTranscoder-macos-arm64.zip` 自动签名、公证、钉票据，用户双击即可打开。

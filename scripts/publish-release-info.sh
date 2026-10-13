@@ -9,7 +9,7 @@ repo="${GITHUB_REPOSITORY:-movieclaw/MovieClaw}"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
-# 手动触发的发版在转正时才创建 tag，此前以当前检出的提交为准（与 release-asset-plan.sh 一致）。
+# 手动触发的发版在转正时才创建 tag，此前以当前检出的提交为准（与 publish-release-body.sh 一致）。
 target="$tag"
 git rev-parse -q --verify "refs/tags/$tag" > /dev/null || target=HEAD
 args=(--tag "$tag" --runtime "$(git show "$target:docker/runtime-version")" --releases "$work/releases.jsonl")
