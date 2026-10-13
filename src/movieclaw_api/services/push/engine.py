@@ -119,6 +119,7 @@ def _apply(rule: rules.Rule, payload: Any) -> None:
         exclude_device_ids=(
             rule.exclude_devices(payload) if rule.exclude_devices is not None else frozenset()
         ),
+        to_im=rule.to_im,
     )
 
 

@@ -74,6 +74,84 @@
     "stability": "experimental",
     "version": "1.0"
   },
+  "agent.run.finished": {
+    "doc": "AI 会话的一轮跑完（回答完或出错）",
+    "durable": true,
+    "kind": "event",
+    "mode": "emit",
+    "payload": {
+      "properties": {
+        "answer": {
+          "type": "string"
+        },
+        "elapsed_ms": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "member_id": {
+          "type": "integer"
+        },
+        "session_id": {
+          "type": "string"
+        },
+        "source": {
+          "enum": [
+            "app",
+            "plugin",
+            "channel"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "done",
+            "error"
+          ],
+          "type": "string"
+        },
+        "title": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "member_id",
+        "session_id",
+        "title",
+        "status",
+        "answer",
+        "source"
+      ],
+      "type": "object"
+    },
+    "result": null,
+    "stability": "experimental",
+    "version": "1.0"
+  },
   "dl.downloader.select": {
     "doc": "选下载器：按体积 / 站点 / 类型分流（只在没有显式指定时询问；须启用且可用）",
     "durable": false,

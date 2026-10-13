@@ -28,6 +28,7 @@ from movieclaw_sdk.events._base import (
     define,
 )
 from movieclaw_sdk.events.account import ACCOUNT_DEVICE_SIGNED_IN, DeviceSignedIn
+from movieclaw_sdk.events.agent import AGENT_RUN_FINISHED, RunFinished
 from movieclaw_sdk.events.download import (
     DOWNLOAD_COMPLETED,
     DOWNLOAD_IMPORTED,
@@ -107,6 +108,7 @@ __all__ = [
     "Publisher",
     "plugin_event",
     "ACCOUNT_DEVICE_SIGNED_IN",
+    "AGENT_RUN_FINISHED",
     "DOWNLOAD_COMPLETED",
     "DOWNLOAD_IMPORTED",
     "LIBRARY_FILE_DELETED",
@@ -166,6 +168,7 @@ __all__ = [
     "AlertRaised",
     "AlertResolved",
     "DeviceSignedIn",
+    "RunFinished",
     "SubscriptionIdentitySkipped",
     "TipSuggested",
     "UpdateAvailable",

@@ -429,6 +429,70 @@ async def test_terminal_before_begin_leaves_session_not_running(db) -> None:
     assert recorder._heartbeat_task is None
 
 
+async def test_terminal_publishes_run_finished_with_source(db, monkeypatch) -> None:
+    """一轮跑完（回答完 / 出错）发 agent.run.finished：推送「AI 回复完成」从它来。
+
+    来源决定推不推：App / 网页发起的推；IM 通道（回复本来就在聊天里）、插件代发的
+    标出来交给规则过滤。
+    用户停止 / 停机打断的不发。
+    """
+    from movieclaw_agent.events import AgentDone
+    from movieclaw_api.services import agent_session_recorder
+    from movieclaw_api.services.agent_session_recorder import AgentSessionRecorder
+    from movieclaw_api.services.agent_sessions import get_agent_session_store
+    from movieclaw_db.repositories.agent_session_repo import AgentSessionRepository
+
+    published: list = []
+
+    async def capture(_session, event, build):
+        published.append((event.name, build()))
+
+    monkeypatch.setattr(agent_session_recorder.events, "publish", capture)
+    store = get_agent_session_store()
+
+    async def run(event: AgentEvent, *, owner: str | None = None, source: str = "app"):
+        sid = store.create().session_id
+        async with db.session() as session:
+            await AgentSessionRepository(session).create(sid, title=None, owner=owner)
+        recorder = AgentSessionRecorder(store, sid, entry_count=0, source=source)
+        await recorder.begin("r1")
+        await recorder.record_user_message("最近入库了哪些电影？")
+        await recorder.on_terminal(event)
+        return sid
+
+    done = AgentEvent(
+        type="agent_done",
+        run_id="r1",
+        result=AgentDone(
+            text="## 结果\n\n查到了 **2 个库**：\n\n1. [沙丘](http://x)", elapsed_ms=1234
+        ),
+    )
+    sid = await run(done)
+    [(name, payload)] = published
+    assert name == "agent.run.finished"
+    assert (payload.session_id, payload.status, payload.source) == (sid, "done", "app")
+    assert payload.title == "最近入库了哪些电影？"
+    # 推送正文用回答开头的纯文本：Markdown 记号去掉、压成一行
+    assert payload.answer == "结果 查到了 2 个库： 沙丘"
+    assert payload.elapsed_ms == 1234
+
+    published.clear()
+    await run(AgentEvent(type="agent_error", run_id="r1", error="模型接口超时"))
+    [(_, payload)] = published
+    assert (payload.status, payload.error, payload.answer) == ("error", "模型接口超时", "")
+
+    # IM 通道、插件代发：照发事件，来源标出来（规则只推 App 发起的）
+    published.clear()
+    await run(done, source="channel")
+    await run(done, owner="plugin:wecom")
+    assert [p.source for _, p in published] == ["channel", "plugin"]
+
+    # 用户停止 / 停机打断：不发
+    published.clear()
+    await run(AgentEvent(type="agent_cancelled", run_id="r1"))
+    assert published == []
+
+
 async def test_rebuild_restores_index_from_files(db) -> None:
     """索引丢行/多行都能从文件校准回来（文件是事实源）。"""
     from movieclaw_api.services.agent_session_recorder import rebuild_agent_session_index
@@ -876,3 +940,77 @@ def test_delete_session_removes_file_and_index(client) -> None:
     assert client.get(f"/api/v1/sessions/{session_id}").status_code == 404
     assert not get_agent_session_store().path(session_id).exists()
     assert client.get("/api/v1/sessions").json()["data"] == []
+
+
+def test_chat_view_trims_process_but_keeps_what_the_chat_shows(client) -> None:
+    """view=chat：去掉思考、工具输出只留开头、技能正文换成「…」——条目、顺序、工具调用参数都不变。"""
+    from movieclaw_agent import strip_skill_blocks
+    from movieclaw_api.services.agent_sessions import get_agent_session_store
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.repositories.agent_session_repo import AgentSessionRepository
+    from movieclaw_llm import TextPart, ThinkingPart
+
+    store = get_agent_session_store()
+    sid = store.create().session_id
+    skill = (
+        '<skill name="movieclaw-plugin-dev" location="/skills/plugin-dev/SKILL.md">\n'
+        + "很长的技能正文。" * 800
+        + "\n</skill>\n\n你能开发什么插件"
+    )
+    cards = {"component": "library", "items": [{"library_id": 1}]}
+    store.append(sid, ChatMessage(role="user", content=skill))
+    store.append(
+        sid,
+        ChatMessage(
+            role="assistant",
+            content=[ThinkingPart(text="先想想。" * 300), TextPart(text="我先看看")],
+            tool_calls=[
+                ToolCall(id="c1", name="bash", arguments={"command": "ls"}),
+                ToolCall(id="c2", name="show_media_cards_v1", arguments=cards),
+            ],
+        ),
+    )
+    store.append(
+        sid, ChatMessage(role="tool", content="输出" * 5000, tool_call_id="c1", name="bash")
+    )
+    store.append(
+        sid,
+        ChatMessage(
+            role="tool",
+            content="工具执行失败：" + "原因" * 300,
+            tool_call_id="c2",
+            name="show_media_cards_v1",
+        ),
+    )
+    store.append(sid, ChatMessage(role="assistant", content="可以开发这些插件"))
+
+    async def index() -> None:
+        async with get_database().session() as session:
+            await AgentSessionRepository(session).create(sid, title=None)
+
+    assert client.portal is not None
+    client.portal.call(index)
+
+    full = client.get(f"/api/v1/sessions/{sid}")
+    chat = client.get(f"/api/v1/sessions/{sid}", params={"view": "chat"})
+    assert full.status_code == chat.status_code == 200
+    # 过程占了大半体积，chat 视图小得多
+    assert len(chat.content) * 5 < len(full.content)
+    full_entries = full.json()["data"]["entries"]
+    entries = chat.json()["data"]["entries"]
+    # 条目、顺序、message_id 不变
+    assert [e["message_id"] for e in entries] == [e["message_id"] for e in full_entries]
+    user, assistant, tool_out, tool_failed, answer = (e["message"] for e in entries)
+    # 技能正文换成「…」，技能名照样认得出来，用户自己的话还在
+    names, rest = strip_skill_blocks(user["content"])
+    assert names == ["movieclaw-plugin-dev"] and rest == "你能开发什么插件"
+    assert "很长的技能正文" not in user["content"]
+    # 思考过程去掉、正文与工具调用参数（生成式 UI 卡片要用）保留
+    assert [p["type"] for p in assistant["content"]] == ["text"]
+    assert assistant["tool_calls"][1]["arguments"] == cards
+    # 工具输出只留开头，失败回执的前缀还在（客户端据此不画失败调用的卡片）
+    assert len(tool_out["content"]) == 120
+    assert tool_failed["content"].startswith("工具执行失败：")
+    assert answer["content"] == "可以开发这些插件"
+    # 默认还是完整轨迹
+    assert full_entries[0]["message"]["content"] == skill

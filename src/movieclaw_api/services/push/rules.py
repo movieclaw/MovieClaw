@@ -153,6 +153,10 @@ class Rule:
     """同一个键的新通知替换旧的。"""
     exclude_devices: Callable[[Any], frozenset[int]] | None = None
     """不发给这些设备（刚登录的那台）。"""
+    to_im: bool = True
+    """也发到收件人绑定的 IM（微信、Telegram…）。
+
+    人就在 App 里盯着的事（AI 回复完成）不必再进 IM。"""
     owner: str = "core"
 
     @property

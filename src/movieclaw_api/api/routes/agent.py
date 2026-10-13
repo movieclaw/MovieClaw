@@ -16,6 +16,7 @@ from movieclaw_agent import (
     build_skills_fragment,
     build_system_prompt,
     compact,
+    compact_skill_blocks,
     discover_skills,
     expand_skill_invocations,
 )
@@ -70,7 +71,15 @@ from movieclaw_db.repositories.agent_session_repo import (
     AgentSessionRepository,
     is_running,
 )
-from movieclaw_llm import ChatMessage, LlmError, LlmRouter, ModelSettings
+from movieclaw_llm import (
+    ChatMessage,
+    ContentPart,
+    LlmError,
+    LlmRouter,
+    ModelSettings,
+    TextPart,
+    ThinkingPart,
+)
 
 logger = logging.getLogger("movieclaw_api.agent")
 
@@ -571,10 +580,19 @@ async def list_sessions(
 )
 async def get_session_transcript(
     session_id: str,
+    view: Literal["full", "chat"] = Query(
+        "full",
+        description=(
+            "full = 完整轨迹；chat = 只给聊天界面要的：去掉思考过程，工具输出只留开头，"
+            "技能正文换成「…」（技能名还在），压缩记录不带被替换的历史"
+        ),
+    ),
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[SessionTranscriptView]:
     """一次返回按写入顺序排列的完整 message/compaction 轨迹。
 
+    ``view=chat`` 给不展示处理过程的聊天界面用：过程（工具输出、思考）常占长会话的大半体积，
+    条目与顺序、message_id、工具调用参数（生成式 UI 卡片要用）都不变。
     结果不分页、不截断，长会话响应可能很大。user message 的 ``message_id``
     可作为 ``session.retry`` 的定位参数；compaction 记录不会隐藏更早的原始消息。
     handoff 记录只带来源信息，继承上下文的快照不在此重复下发（见
@@ -587,9 +605,44 @@ async def get_session_transcript(
     return ok(
         SessionTranscriptView(
             session=SessionSummary.from_model(row),
-            entries=[_entry_view(e, include_handoff_snapshot=False) for e in entries],
+            entries=[
+                _entry_view(_chat_view(e) if view == "chat" else e, include_handoff_snapshot=False)
+                for e in entries
+            ],
         )
     )
+
+
+#: chat 视图里工具输出保留的开头字数：失败回执的前缀（「工具执行失败：」）要留着，
+#: 客户端据此不画失败调用的卡片
+CHAT_VIEW_TOOL_OUTPUT_CHARS = 120
+
+
+def _chat_view(
+    entry: SessionMessageEntry | SessionCompactionEntry | SessionHandoffEntry,
+) -> SessionMessageEntry | SessionCompactionEntry | SessionHandoffEntry:
+    """聊天界面用的瘦身轨迹（``view=chat``）。"""
+    if isinstance(entry, SessionCompactionEntry):
+        return entry.model_copy(update={"replacement_history": []})
+    if not isinstance(entry, SessionMessageEntry):
+        return entry
+    message = entry.message
+    if message.role == "tool":
+        head = message.text()[:CHAT_VIEW_TOOL_OUTPUT_CHARS]
+        return entry.model_copy(update={"message": message.model_copy(update={"content": head})})
+    if isinstance(message.content, str):
+        if message.role != "user":
+            return entry
+        content: str | list[ContentPart] = compact_skill_blocks(message.content)
+    else:
+        content = [
+            TextPart(text=compact_skill_blocks(part.text))
+            if isinstance(part, TextPart) and message.role == "user"
+            else part
+            for part in message.content
+            if not isinstance(part, ThinkingPart)
+        ]
+    return entry.model_copy(update={"message": message.model_copy(update={"content": content})})
 
 
 def _entry_view(

@@ -33,6 +33,7 @@ MODULES = (
     "movieclaw_api.services.jobs",
     "movieclaw_sdk.jobs",
     "movieclaw_sdk.events.account",
+    "movieclaw_sdk.events.agent",
     "movieclaw_sdk.events.download",
     "movieclaw_sdk.events.library",
     "movieclaw_sdk.events.playback",

@@ -9,7 +9,9 @@ from pydantic import BaseModel, ConfigDict
 from movieclaw_kernel import Event, Mode, Stability
 
 #: 系统保留的域：插件事件以插件 id 开头，插件 id 不得与这些同名
-CORE_DOMAINS = frozenset({"subscription", "download", "library", "playback", "account", "system"})
+CORE_DOMAINS = frozenset(
+    {"subscription", "download", "library", "playback", "account", "agent", "system"}
+)
 
 
 class Frozen(BaseModel):

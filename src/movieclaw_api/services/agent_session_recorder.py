@@ -4,7 +4,8 @@
 - ``AgentRunner(on_message=...)``——每条定稿消息（assistant / tool）落盘
   并刷新索引（先文件后 DB，见 agent_sessions 模块的写入顺序约定）；
 - ``AgentRunRegistry.start(on_terminal=...)``——运行终态时收尾：停心跳、
-  给未配对的 tool_call 补错误回执、清空运行标记（列表立即显示已结束）。
+  给未配对的 tool_call 补错误回执、清空运行标记（列表立即显示已结束），
+  并发出 ``agent.run.finished``（回答完 / 出错；推送「AI 回复完成」从它来）。
 
 心跳独立于消息追加：长工具执行期间可能几十秒没有新消息，心跳任务保证
 ``last_heartbeat_at`` 持续刷新，前端才能正确区分「还在跑」和「已崩溃」。
@@ -16,9 +17,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
+from typing import Literal
 
 from movieclaw_agent import CompactionResult
 from movieclaw_agent.events import AgentEvent
+from movieclaw_api import events
 from movieclaw_api.services.agent_sessions import (
     PREVIEW_MAX_CHARS,
     AgentSessionStore,
@@ -26,13 +30,28 @@ from movieclaw_api.services.agent_sessions import (
     message_preview,
 )
 from movieclaw_db.engine import get_database
+from movieclaw_db.models.agent_session import AgentSession
 from movieclaw_db.repositories.agent_session_repo import AgentSessionRepository
 from movieclaw_llm import ChatMessage, ChatResponse, ContentPart
+from movieclaw_sdk.events import AGENT_RUN_FINISHED, RunFinished
 
 logger = logging.getLogger("movieclaw_api.agent_session_recorder")
 
 #: 心跳间隔（秒）；超时窗见 repo.HEARTBEAT_TIMEOUT_SECONDS（须大于本值）
 HEARTBEAT_INTERVAL_SECONDS = 10
+
+#: 「AI 回复完成」事件里回答开头的长度（推送正文用；投递时还会按推送体积再截）
+ANSWER_PREVIEW_CHARS = 200
+
+_MD_LINK = re.compile(r"!?\[([^\]]*)\]\([^)]*\)")
+_MD_MARKS = re.compile(r"(^|\s)(#{1,6}|>|[-*+]|\d+\.)\s+|[*_`~|]")
+
+
+def answer_preview(text: str, limit: int = ANSWER_PREVIEW_CHARS) -> str:
+    """回答正文 → 一行纯文本：链接留文字、去掉标题 / 列表 / 引用 / 强调等 Markdown 记号。"""
+    plain = _MD_MARKS.sub(r"\1", _MD_LINK.sub(r"\1", text))
+    plain = " ".join(plain.split())
+    return plain if len(plain) <= limit else plain[: limit - 1] + "…"
 
 
 class AgentSessionRecorder:
@@ -44,9 +63,13 @@ class AgentSessionRecorder:
         session_id: str,
         *,
         entry_count: int,
+        source: Literal["app", "channel"] = "app",
     ) -> None:
         self._store = store
         self._session_id = session_id
+        # 谁发起的这轮：IM 通道里的回复本来就在聊天里，「AI 回复完成」推送据此跳过
+        # （插件代发的看会话 owner）
+        self._source = source
         # 运行开始时会话已有的 entry 数；之后每次落盘递增，避免反复重读文件
         self._entry_count = entry_count
         self._heartbeat_task: asyncio.Task[None] | None = None
@@ -178,12 +201,34 @@ class AgentSessionRecorder:
                         leaf_uuid=entries[-1].uuid if entries else None,
                         entry_count=len(entries),
                     )
+                if event.type in ("agent_done", "agent_error"):
+                    row = await repo.get(self._session_id)
+                    await events.publish(
+                        session, AGENT_RUN_FINISHED, lambda: self._finished(event, row)
+                    )
                 await repo.finish_run(self._session_id)
         logger.info(
             "Agent 会话运行收尾完成 session=%s status=%s 补配对=%d",
             self._session_id,
             event.type,
             sealed,
+        )
+
+    def _finished(self, event: AgentEvent, row: AgentSession | None) -> RunFinished:
+        owner = (row.owner if row else None) or ""
+        source = self._source if self._source == "channel" else (
+            "plugin" if owner.startswith("plugin:") else "app"
+        )
+        done = event.type == "agent_done"
+        return RunFinished(
+            member_id=0,
+            session_id=self._session_id,
+            title=row.title if row else None,
+            status="done" if done else "error",
+            answer=answer_preview(event.result.text) if done and event.result else "",
+            error=None if done else (event.error or "运行失败，原因未知"),
+            elapsed_ms=event.result.elapsed_ms if event.result else None,
+            source=source,
         )
 
     async def _heartbeat_loop(self) -> None:

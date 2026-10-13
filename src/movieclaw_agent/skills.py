@@ -361,6 +361,25 @@ def _sanitize_attribute(value: str) -> str:
     return re.sub(r'["<>&]', "_", cleaned)
 
 
+_SKILL_BLOCK_PARTS_RE = re.compile(
+    r'^(<skill name="[^"]*" location="[^"]*">)\n.*?\n(</skill>)(\n*)', re.S
+)
+
+
+def compact_skill_blocks(text: str) -> str:
+    """把已展开消息开头的技能块正文换成「…」，只留块的首尾标记。
+
+    聊天界面只要技能名（渲染成 chip），技能正文动辄几万字；块的形态不变，
+    ``strip_skill_blocks`` 与前端镜像正则照样认得出来。非展开消息原样返回。
+    """
+    out: list[str] = []
+    rest = text
+    while (m := _SKILL_BLOCK_PARTS_RE.match(rest)) is not None:
+        out.append(f"{m.group(1)}\n…\n{m.group(2)}{m.group(3)}")
+        rest = rest[m.end() :]
+    return "".join(out) + rest
+
+
 def strip_skill_blocks(text: str) -> tuple[list[str], str]:
     """从已展开的消息里拆出 (技能名列表, 剩余用户文本)。
 

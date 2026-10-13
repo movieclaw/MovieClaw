@@ -44,6 +44,7 @@ tests 守着：契约有增删时本文必须同步）。都是实验级；清�
 | `playback.progress` | 播放进度（每集最多 30 秒一条） | 同步进度 | 敏感、高频 |
 | `playback.marked_played` / `marked_unplayed` | 标记已看 / 取消（整季标记是一个事件、带每一集） | 同步观看记录 | 敏感 |
 | `account.device.signed_in` | 一台设备登录了账号（`new_device` 表示第一次在这台登录） | 安全审计 | 敏感 |
+| `agent.run.finished` | AI 会话的一轮跑完（`status`：`done` 回答完 / `error` 出错；用户停止的不算） | 回复完成提醒、记录用量 | 敏感；`source` 是 `app` / `plugin` / `channel`，`answer` 是回答开头的纯文本 |
 | `system.alert.raised` / `resolved` | 待处理事项出现（或复发）/ 自动消退 | 把告警转到别处 | |
 | `system.update.available` | 有新版本（每个版本一次） | | |
 | `system.tip.suggested` | 有使用建议（每条一次） | | |

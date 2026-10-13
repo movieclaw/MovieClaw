@@ -97,7 +97,7 @@ async def run_agent(
     store = get_agent_session_store()
     session_id = await ensure_agent_session(driver, account, msg)
     history = store.build_history(session_id)
-    recorder = AgentSessionRecorder(store, session_id, entry_count=len(history))
+    recorder = AgentSessionRecorder(store, session_id, entry_count=len(history), source="channel")
 
     # 图片入库 + 提醒回执 + 请求水合
     prepared = await prepare_agent_input(

@@ -1499,6 +1499,59 @@ def test_reel_clips_suggestion_pushed_to_admin(client: TestClient, world: World)
     assert "system.tip.suggested" not in keys
 
 
+def test_agent_reply_pushed_to_admin_and_opens_the_session(
+    client: TestClient, world: World
+) -> None:
+    from movieclaw_sdk.events import AGENT_RUN_FINISHED, RunFinished
+
+    def finished(source: str) -> RunFinished:
+        return RunFinished(
+            member_id=0,
+            session_id="abc123",
+            title="最近入库了哪些电影？",
+            status="done",
+            answer="查到了，你的媒体库里一共有 2 个库",
+            elapsed_ms=4200,
+            source=source,
+        )
+
+    _connect(client, world)
+    _create_member(client)
+    admin_bearer = _app_login(client, _ADMIN, installation="agent-admin-1", name="管理员手机")
+    member_bearer = _app_login(client, _MEMBER, installation="agent-member-1", name="家人手机")
+    _, admin_key = _register(client, admin_bearer, token="a8" * 32)
+    _register(client, member_bearer, token="b8" * 32)
+    relay = world.relays["push.test"]
+    relay.messages.clear()
+
+    _publish(client, AGENT_RUN_FINISHED, finished("app"))
+    _wait(lambda: len(relay.messages) >= 1)
+    time.sleep(0.3)
+    assert [m["token"] for m in relay.messages] == ["a8" * 32]  # 会话只有管理员有，只推管理员
+    plain = _open(relay.messages[-1], admin_key)
+    assert plain["title"] == "最近入库了哪些电影？"
+    assert plain["body"] == "查到了，你的媒体库里一共有 2 个库"
+    assert "subtitle" not in plain
+    # 点开直达这个会话
+    assert plain["open"] == "/sessions/abc123"
+
+    # IM 通道里聊的：回复本来就在聊天里，不推
+    _publish(client, AGENT_RUN_FINISHED, finished("channel"))
+    time.sleep(0.5)
+    assert len(relay.messages) == 1
+
+    # 管理员能关掉「AI 回复完成」，成员看不到这个开关
+    prefs = {"events": {"agent.run.finished": False}}
+    _data(client.put("/api/v1/push/me/preferences", json=prefs))
+    _publish(client, AGENT_RUN_FINISHED, finished("app"))
+    time.sleep(0.5)
+    assert len(relay.messages) == 1
+    keys = {
+        e["key"] for e in _data(_as_app(client, member_bearer, "GET", "/api/v1/push/me"))["events"]
+    }
+    assert "agent.run.finished" not in keys
+
+
 def _notify(client: TestClient, members: set[int], title: str) -> None:
     """在应用的事件循环里推一条简单的「入库完成」（只看收件人、偏好和设备）。"""
     from movieclaw_api.services.push.notify import AlertContent, notify
