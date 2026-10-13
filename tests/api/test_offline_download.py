@@ -857,3 +857,39 @@ def test_export_waits_when_the_transcoder_drops_before_it_starts(client, tmp_pat
     time.sleep(0.5)
     state = client.get(f"{_API}/offline/exports/{created.json()['data']['export_id']}").json()
     assert state["data"]["status"] == "queued", state
+
+
+def test_activity_shows_transcode_info_instead_of_export_hash(client, tmp_path) -> None:
+    """活动页「正在下载」：转码导出那一行不显示导出号哈希，换成转码信息；边转边下时进度按
+    已转比例推算的最终大小算（按码率上限估的大小会让进度条停在一半）。"""
+    from movieclaw_playback import activity
+
+    _lib, item_id, file_id = seed(client, tmp_path, real=False)
+    manager, state = _fake_state(client, file_id, "acttest", status=exports.STATUS_RUNNING)
+    state.done_segments, state.total_segments = 50, 100
+    state.codec, state.executor = "hevc", "macmini"
+    state.expected_bytes = 10_000_000
+    out = manager.output_path(state)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(b"x" * 2_000_000)  # 转了一半写出 2 MB → 推算整份约 4 MB
+    meter = activity.register_stream(
+        device_id="ld-1",
+        kind=activity.STREAM_KIND_DOWNLOAD,
+        member_id=0,
+        unit=(item_id, 0, 0),
+        file_id=file_id,
+        file_name="movie.mp4",
+        size_bytes=state.expected_bytes,
+        client=activity.ClientInfo(name="MovieClaw", device_name="iPhone", version="1"),
+        export_id="acttest",
+    )
+    try:
+        meter.add(1_000_000)
+        row = client.get(f"{_API}/playback/activity").json()["data"]["downloads"][0]
+        assert row["file_name"] == "转码 480p HEVC · macmini · 已转 50%"
+        assert row["size_bytes"] == 4_000_000 and row["progress_percent"] == 25
+        state.status, state.final_bytes = exports.STATUS_DONE, 4_100_000
+        row = client.get(f"{_API}/playback/activity").json()["data"]["downloads"][0]
+        assert row["file_name"] == "480p HEVC 转码版" and row["size_bytes"] == 4_100_000
+    finally:
+        activity.unregister_stream(meter)

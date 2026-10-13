@@ -28,6 +28,7 @@ from movieclaw_api.services import auth as auth_service
 from movieclaw_api.services import login_devices
 from movieclaw_api.services.media_scrape import asset_version
 from movieclaw_api.services.network_egress import effective_tmdb_image_base_url
+from movieclaw_api.services.offline.exports import get_export_manager
 from movieclaw_api.services.playback.session import get_session_manager
 
 # 与首页"最近观看"共用同一套时长回退与进度换算口径，避免两处各算各的
@@ -477,6 +478,14 @@ async def media_activity_overview(
         # 不是本接口的服务对象，不为它把读数复杂化。
         position = max(m.position_bytes for m in group)
         size = first.size_bytes
+        file_name = first.file_name
+        if first.export_id is not None:
+            # 离线下载的转码导出：文件名换成转码信息（谁在转、多快、转到哪）；边转边下时大小按
+            # 已转比例推算，按码率上限估的会把进度条压在一半
+            line = get_export_manager().activity_line(first.export_id)
+            if line is not None:
+                file_name, projected = line
+                size = max(projected or size, position)
         download_views.append(
             ActiveFileDownloadView(
                 device_id=first.device_id,
@@ -494,7 +503,7 @@ async def media_activity_overview(
                     if ctx and placement
                     else None
                 ),
-                file_name=first.file_name,
+                file_name=file_name,
                 size_bytes=size,
                 bytes_sent=sum(m.bytes_sent for m in group),
                 rate_bytes_per_second=sum(m.rate_bytes_per_second() for m in group),

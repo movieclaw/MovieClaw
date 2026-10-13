@@ -13,6 +13,7 @@ import asyncio
 import json
 import os
 import subprocess
+import threading
 import time
 from pathlib import Path
 
@@ -166,10 +167,22 @@ def test_export_on_real_transcoder_is_hevc_and_frame_exact(remote_stack, tmp_pat
     created = client.post("/api/v1/offline/exports", json={"file_id": file_id, "profile": "480p"})
     assert created.status_code == 200, created.text
     export = created.json()["data"]
-    # 边转边下：转码进行中就开始取
+    # 边转边下：转码进行中就开始取；同时看活动页那一行是不是转码信息（不是导出号哈希）
     out = tmp_path / "download.mp4"
-    _download(client, export, out)
+    downloading = threading.Thread(target=_download, args=(client, export, out))
+    downloading.start()
+    lines: set[str] = set()
+    while downloading.is_alive():
+        rows = client.get("/api/v1/playback/activity").json()["data"]["downloads"]
+        lines.update(row["file_name"] for row in rows)
+        time.sleep(0.3)
+    downloading.join()
     done = _wait_done(client, export["export_id"])
+    print(f"activity lines: {sorted(lines)}")
+    assert any(
+        line.startswith("转码 480p HEVC · e2e-mac-") and "已转" in line for line in lines
+    ), lines
+    assert not any(export["export_id"] in line for line in lines)
     elapsed = time.monotonic() - started
     assert out.stat().st_size == done["final_bytes"]
     video = _check_file(out, seconds, 480)

@@ -137,6 +137,9 @@ class ExportState:
     #: 已接进文件的分片数 / 总分片数（进度）
     done_segments: int = 0
     total_segments: int = 0
+    #: 这一代由谁转、出什么编码（活动页显示用）：转码器名 / 「NAS 显卡」/「NAS 软件」，hevc / h264
+    executor: str | None = None
+    codec: str | None = None
     #: 还要这份导出的设备（下完调 DELETE 时只摘掉自己，最后一个摘掉才删）
     claims: list[str] = field(default_factory=list)
 
@@ -330,6 +333,8 @@ class ExportManager:
         self._worker: asyncio.Task | None = None
         #: 正在驱动的播放会话
         self._session_id: str | None = None
+        #: 这一轮会话从哪一段、什么时候开始（monotonic），算转码倍速用
+        self._round_start: tuple[int, float] | None = None
         #: 正在被下载的导出（导出号 → 连接数）：回收时跳过
         self._readers: dict[str, int] = {}
 
@@ -480,6 +485,44 @@ class ExportManager:
         else:
             self._readers.pop(export_id, None)
 
+    def activity_line(self, export_id: str) -> tuple[str, int | None] | None:
+        """活动页「正在下载」这一行的转码信息，和据已转比例推算的最终大小（推不出为 None）。
+
+        例：「转码 720p HEVC · macmini · 5.2 倍速 · 已转 24%」「720p HEVC 转码版」。"""
+        state = self.get(export_id)
+        if state is None:
+            return None
+        spec = f"{state.profile} {(state.codec or 'h264').upper()}"
+        if state.status == STATUS_DONE:
+            return f"{spec} 转码版", state.final_bytes
+        if state.status == STATUS_QUEUED:
+            return f"转码 {spec} · 排队中", None
+        if state.status == STATUS_FAILED:
+            return f"转码 {spec} · 失败", None
+        parts = [f"转码 {spec}"]
+        if state.executor:
+            parts.append(state.executor)
+        if self._running_export_id() == export_id and self._round_start is not None:
+            start_index, started = self._round_start
+            elapsed = time.monotonic() - started
+            if elapsed >= 5 and state.done_segments > start_index:
+                speed = (state.done_segments - start_index) * SEGMENT_SECONDS / elapsed
+                parts.append(f"{speed:.1f} 倍速")
+        projected = None
+        if state.total_segments:
+            fraction = state.done_segments / state.total_segments
+            parts.append(f"已转 {int(fraction * 100)}%")
+            if fraction > 0.02:
+                with contextlib.suppress(OSError):
+                    projected = int(self.output_path(state).stat().st_size / fraction)
+        return " · ".join(parts), projected
+
+    def _running_export_id(self) -> str | None:
+        if self._session_id is None:
+            return None
+        live = get_session_manager().get(self._session_id)
+        return live.export_id if live is not None else None
+
     # ---- 转码 ----
 
     def _ensure_worker(self) -> None:
@@ -595,6 +638,11 @@ class ExportManager:
                 await asyncio.sleep(_CAPACITY_POLL_S)
                 continue
             self._session_id = live.id
+            self._round_start = (index, time.monotonic())
+            state.codec = execution.plan.video.codec
+            state.executor = live.remote_worker_id or (
+                "NAS 显卡" if execution.hw_backend else "NAS 软件"
+            )
             expected = estimate_bytes(
                 state.profile,
                 float(file.duration_seconds),
@@ -621,6 +669,7 @@ class ExportManager:
                 continue
             finally:
                 self._session_id = None
+                self._round_start = None
                 await sessions.stop(live.id, reason="离线导出这一轮结束")
             if live.preempted:
                 continue  # 被播放挤掉：不算没进展，等名额空出来接着转

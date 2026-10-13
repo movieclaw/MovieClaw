@@ -90,7 +90,12 @@ def _range_start(request: Request) -> int:
 
 
 def _register_download(
-    request: Request, principal: Principal, file: LibraryFile, name: str, size: int
+    request: Request,
+    principal: Principal,
+    file: LibraryFile,
+    name: str,
+    size: int,
+    export_id: str | None = None,
 ):
     """登记到活动页「正在下载」（与 Jellyfin 客户端整文件下载同一类活动）。"""
     return activity.register_stream(
@@ -103,6 +108,7 @@ def _register_download(
         size_bytes=size,
         client=_client(request, principal),
         start_offset=_range_start(request),
+        export_id=export_id,
     )
 
 
@@ -287,9 +293,11 @@ async def download_offline_export(
         return DisconnectAwareFileResponse(
             path, media_type="video/mp4", headers={"etag": state.etag}
         )
-    name = f"{export_id}.mp4"
+    # 名字给源文件名（导出号是一串哈希，没意义）；活动页会把这一行换成转码信息
     size = state.final_bytes or state.expected_bytes
-    meter = _register_download(request, principal, file, name, size)
+    meter = _register_download(
+        request, principal, file, PathLib(file.file_path).name, size, export_id=export_id
+    )
     if state.status == exports.STATUS_RUNNING:
         response = exports.ExportTailResponse(
             manager, state, on_close=lambda: activity.unregister_stream(meter)
