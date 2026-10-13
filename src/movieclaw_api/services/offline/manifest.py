@@ -179,18 +179,15 @@ async def build_manifest(
 
 
 def _worth_exporting(file: LibraryFile) -> list[str]:
-    """值得转的档位：比源低，且转出来明显比原文件小"""
+    """可选的转码档：比源低的都列。不按体积替用户过滤——源码率低时转出来可能不比原画小，
+    各档都带预计大小，让用户自己选（悄悄少几档比多几个选项更让人困惑）。"""
     source_height = _source_height(file)
-    duration_s = float(file.duration_seconds) if file.duration_seconds else None
-    worth = []
-    for profile, height in exports.PROFILES.items():
-        if source_height is not None and height >= source_height:
-            continue  # 源本身就不高于这一档：转了只会更大更糊
-        expected = exports.estimate_bytes(profile, duration_s)
-        if file.size_bytes and expected >= file.size_bytes * 0.9:
-            continue  # 源本身码率就低：转出来不比原文件小，没必要
-        worth.append(profile)
-    return worth
+    return [
+        profile
+        for profile, height in exports.PROFILES.items()
+        # 源本身就不高于这一档：转了只会更大更糊
+        if source_height is None or height < source_height
+    ]
 
 
 def _profile_views(file: LibraryFile, available: set[str]) -> list[OfflineProfileView]:

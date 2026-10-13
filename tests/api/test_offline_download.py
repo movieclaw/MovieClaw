@@ -298,13 +298,18 @@ def test_manifest_carries_detail_tracks_and_profiles(client: TestClient, tmp_pat
     assert data["profiles"][1]["expected_bytes"] > data["profiles"][2]["expected_bytes"] > 0
 
 
-def test_manifest_skips_tiers_not_smaller_than_original(client: TestClient, tmp_path: Path) -> None:
-    """源本身码率就低（10 分钟 260 MB）：720p 转出来不比原文件小，不提供；480p 仍小得多，提供。"""
+def test_manifest_lists_lower_tiers_even_when_not_smaller(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """源本身码率就低（10 分钟 260 MB）：720p 预计不比原文件小，照样列出、带预计大小，
+    让用户自己选。"""
     _lib, _item, file_id = seed(client, tmp_path, real=False)
     _set_size(client, file_id, 260_000_000)
     _enable_software_transcode(client)
     data = client.get(f"{_API}/offline/manifest", params={"file_id": file_id}).json()["data"]
-    assert [p["profile"] for p in data["profiles"]] == ["original", "480p"]
+    assert [p["profile"] for p in data["profiles"]] == ["original", "720p", "480p"]
+    # 旧规则（预计 ≥ 原文件 90% 就隐藏）会把它藏掉
+    assert data["profiles"][1]["expected_bytes"] >= 260_000_000 * 0.9
 
 
 def test_manifest_without_transcode_offers_original_only(
@@ -331,7 +336,7 @@ def test_profiles_batch_matches_manifest_rules(client: TestClient, tmp_path: Pat
         manifest = client.get(f"{_API}/offline/manifest", params={"file_id": entry["file_id"]})
         assert entry["profiles"] == manifest.json()["data"]["profiles"]
     assert [p["profile"] for p in files[1]["profiles"]] == ["original", "720p", "480p"]
-    assert [p["profile"] for p in files[0]["profiles"]] == ["original", "480p"]
+    assert [p["profile"] for p in files[0]["profiles"]] == ["original", "720p", "480p"]
 
 
 def test_profiles_batch_skips_invisible_files(client: TestClient, tmp_path: Path) -> None:

@@ -78,7 +78,6 @@ async def _seed(
                 library_id=library.id,
                 media_item_id=item.id,
                 file_path=str(path),
-                # 台账上报大一些：清单只列比原文件明显小的档位
                 size_bytes=4_000_000_000,
                 source=FileSource.SCANNED,
                 state=FileState.IN_PLACE,
