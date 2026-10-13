@@ -8,6 +8,8 @@ description: 用户想让 MovieClaw 拥有它现在没有的能力或对接时�
 你要帮用户写一个 MovieClaw 插件，并在这台服务器上把它装起来、验证、必要时卸载。
 插件是一个目录：一份清单 `movieclaw-plugin.toml` + Python 代码，打包成 `.mcplugin`（zip）后安装。
 装上后默认在**独立的低权限进程**里运行，崩溃只伤它自己；装、升级、回滚、卸载都**不用重启**。
+第三方插件和商店元数据（`store.json`）在 <https://github.com/movieclaw/movieclaw-plugins>，写法见该仓库 `example/GUIDE.md`。
+本仓库不收新的第三方插件；`store.json` 不要写进清单（多一个字段上传会被拒），打进 zip 也会被解出后忽略。
 
 本文件是判断、流程与规范，**读完再动手**；第 2 节告诉你动手前还必须读哪份参考（路径以本技能目录为锚）。
 
@@ -95,7 +97,7 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 | 开接口（含给 AI 助手加能力）、读写文件 | `references/recipes.md` 第 5、8、10 节、`templates/starter/`、`references/examples/cloud_strm.py` |
 | 插件需要用户填的配置或凭据（账号、地址、Key） | `references/recipes.md` 第 13 节 |
 | 站点 | `references/recipes.md` 第 12 节、`references/examples/site_pack/` |
-| 一个插件里放好几件事、替换内置的东西 | `references/composition.md`（替换随带通道：把 `$SRC/movieclaw_plugins/<名>/` 复制到 `plugins/channel.<名>/` 再改） |
+| 一个插件里放好几件事、替换内置的东西 | `references/composition.md`（替换随带通道：把 `$SRC/movieclaw_plugins/<名>/` 复制到 `plugins/<同 id>/` 再改，id 不含点） |
 | 写清单、申请权限 | `references/manifest.md` |
 | 用户问「插件是什么、为什么要批准、会不会搞坏」 | `references/explaining-to-users.md` |
 | 装不上、起不来、没反应 | `references/troubleshooting.md` |
@@ -154,7 +156,7 @@ CI 会把它们真实装进应用、跑完用户场景，写法可以照抄。�
 10. **正式安装**（用户要长期使用时）：清单里定好正式 `version`，然后
     `plugin pack plugins/<id>` → `app plugins packages upload --file <生成的 .mcplugin>` →
     `app plugins packages approve <id> --version <版本> --operations-json '<与清单一致>' --paths-json '<与清单一致>' --yes`。
-11. **卸载**：`app plugins packages uninstall <id> --yes`（默认保留插件数据；用户要求清干净才加 `--purge-data`）。卸载后再查一次 `app plugins list`，确认条目已消失；替换内置插件的包卸载后内置版本自动回来。
+11. **卸载**：`app plugins packages uninstall <id> --yes`（默认保留插件数据；用户要求清数据才加 `--purge-data`，它只删 `plugin_data` 里该 id 的行，不删设置文件和私有目录）。卸载后再查一次 `app plugins list`，确认条目已消失；替换内置插件的包卸载后内置版本自动回来。
     回到上一版：`app plugins packages rollback <id> --yes`。
 12. **停用 / 官方插件**：插件包与官方插件（随应用提供的，如通道、下载器、网盘规格预探）都能临时停用：
     `app plugins switch <id> --enabled=false`（启用：`--enabled=true`；布尔参数必须带 `=`），运行中生效、重启后保持，

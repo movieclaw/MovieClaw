@@ -25,7 +25,7 @@ CI 里 `tests/api/test_example_plugins*.py` 会把它们装进临时数据目录
      grants: [subscriptions.delete, dl.torrent.delete]
    ```
 
-3. 重启。设置 → 更新与维护 →「模块」里能看到它，标着「本地插件」。
+3. 重启。设置 → 插件里能看到它，标着「本地插件」。
 
 插件读写文件一律经文件接口（`PLUGIN_FILES`），只能碰 `paths` 里批准过的目录（`docs/design/plugin-phase3.md` §6.2）：
 
@@ -98,7 +98,7 @@ paths = [{ path = "staging", mode = "read" }]
 
 ```bash
 mclaw plugin pack ./group-blocklist          # 打成 group-blocklist-0.1.0.mcplugin
-mclaw plugin dev  ./group-blocklist          # 连到服务器：一改就重新打包、上传、批准、加载
+mclaw plugin dev  ./group-blocklist          # 在服务器上重装：一改就重新打包、上传、批准、加载（不是本地进程连上去）
 mclaw app plugins packages upload --file group-blocklist-0.1.0.mcplugin   # 正式安装
 mclaw app plugins packages approve group-blocklist --version 0.1.0 \
     --operations-json '["search.titles"]' \

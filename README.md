@@ -661,6 +661,10 @@ quality upgrades, Jellyfin compatibility, in-app updates, the CLI… browse by f
 The reasoning behind this README's own structure is in
 [readme-rewrite.md](docs/design/readme-rewrite.md).
 
+Third-party plugins, and the store metadata next to each of them (`store.json`), live in
+[movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins). How to write one is in that
+repo's `example/GUIDE.md`. This server still installs a plugin only by uploading a `.mcplugin` file.
+
 Questions, ideas, bug reports — please
 [open an issue](https://github.com/movieclaw/movieclaw/issues).
 

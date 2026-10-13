@@ -77,7 +77,9 @@ async def apply(ctx: Context) -> None:
   （`from movieclaw_sdk.ops import OpsError`）。
 - 文件：清单 `permissions.paths` 申请目录（绝对路径，或 `staging` / `library` / `library:<id>` 这类别名），
   经 `PLUGIN_FILES` 读写；插件自己的目录 `files.path("plugin", ...)` 总是可读写。
-- 网络：`permissions.network = true` 只是声明给用户看；连外网要走用户的代理设置（`movieclaw_sdk.net.http_transport`）。
+- 网络：`permissions.network = true` 只是声明给用户看，运行时不拦流量；连外网要走用户的代理设置（`movieclaw_sdk.net.http_transport`）。
+- 进程资源：打开文件数收到 1024、禁止 core dump、`nice(10)`。没有内存上限，清单也不能申请 `RLIMIT_AS`。
+- 设置页只画配置模型收成的 JSON Schema，不加载插件包里的 HTML。
 
 ## 6. 数据与状态
 
@@ -99,7 +101,8 @@ async def apply(ctx: Context) -> None:
 |---|---|
 | `$SRC/movieclaw_kernel/` | 内核：`plugin`、`Context`、事件总线、契约与版本、测试工具 `KernelHarness` |
 | `$SRC/movieclaw_sdk/` | 给插件用的 SDK：`plugin` / `Context` 再导出、IM 通道契约 `channels.py`、网络出口 `net.py`、进程外运行器 `runner.py`、契约表面 `surface.json` |
-| `$SRC/movieclaw_plugins/` | 随应用携带的插件包（微信、Telegram、Discord、飞书），与第三方插件包同格式，最好的完整样板 |
+| `$SRC/movieclaw_plugins/` | 随应用携带的插件包（微信、Telegram、Discord、飞书、qBittorrent、Transmission、网盘规格预探），与第三方插件包同格式 |
+| <https://github.com/movieclaw/movieclaw-plugins> | 第三方插件和商店索引。每个插件目录的 `store.json` 只给索引用，见该仓库 `example/GUIDE.md` |
 | `$SRC/movieclaw_api/plugins/` | 主程序的内置插件与插件管理，见下表 |
 | `$SRC/movieclaw_api/services/plugin_*.py`、`host_ops.py` | 插件用到的各服务的实现（看方法签名）；`plugin_runtime.py` 是进程外运行的宿主侧 |
 | 本技能 `references/examples/` | 插件体系的验收插件（删片联动、片单订阅、关键字规则、网盘上传、站点数据包、ntfy 通道），CI 真实运行 |

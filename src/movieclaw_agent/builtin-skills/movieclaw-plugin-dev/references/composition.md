@@ -54,7 +54,7 @@ async def apply(ctx):
 内置插件（`$SRC/movieclaw_api/plugins/` 里的）不能被同 id 的插件包替换，id 是保留的。
 怎么分：`mclaw app plugins list` 里随带插件包（能替换）的 `tier` 是 `official`（`weixin-channel` 等通道和 `channels.hub`），
 内置插件是 `system`；两者的 `source` 都显示 `builtin`，别按 `source` 判断。
-替换随带通道时把 `$SRC/movieclaw_plugins/<名>/` 整个复制到 `plugins/channel.<名>/` 再改：随带包是受信代码，
+替换随带通道时把 `$SRC/movieclaw_plugins/<名>/` 整个复制到 `plugins/<同 id>/`（如 `plugins/weixin-channel/`）再改：随带包是受信代码，
 写法不一定合第三方规范，复制后补上清单的 `network = true`、连外网改走 `net.http_transport`，再跑 `check_plugin.py`。
 
 ## 4. 多个插件之间怎么配合

@@ -552,6 +552,10 @@ Web 控制台 `http://127.0.0.1:3000`，API 文档 `http://127.0.0.1:8000/docs`�
 订阅、洗版、Jellyfin 兼容、应用内更新、CLI……按文件名找感兴趣的主题即可。
 本 README 自身的结构依据见 [readme-rewrite.md](docs/design/readme-rewrite.md)。
 
+第三方插件，以及每个插件旁边的商店元数据（`store.json`），在
+[movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins)。怎么写见该仓库的 `example/GUIDE.md`。
+服务器现在仍然只通过上传 `.mcplugin` 安装插件。
+
 有问题、有建议、发现 Bug，都欢迎开
 [Issue](https://github.com/movieclaw/movieclaw/issues)。
 

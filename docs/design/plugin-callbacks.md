@@ -17,8 +17,8 @@
 消息进来以后交给通道中枢这一步，现有契约已经够用：驱动的 `run(account)` 拿到的 `Account.inbound()` 是开放的。
 缺的只是一个外部平台调得进来的地址。
 
-本稿同时定下插件 id 的新格式：回调地址里要放插件 id，而现在的 id 强制带点（`channel.weixin`），
-放进地址、命令和文件名都不好看，也不是长期该有的样子。
+本稿同时定下插件 id 的新格式：回调地址里要放插件 id。改之前随带通道的 id 强制带点（`channel.weixin`），
+放进地址、命令和文件名都不好看。现行规则见 §3，新上传的插件包不能再带点。
 
 ## 2. 目标与非目标
 
@@ -84,7 +84,7 @@
 |---|---|---|
 | `services/plugin_runtime.py` 的 `net.proxy` | 只回答服务名 = 条目 id 最后一段 | 回答服务名 = 条目 id；带点的旧 id 继续按最后一段（兼容） |
 | `plugins/manifest.py` 的 `BUILTIN_GROUPS` | 按 `channel.` 前缀分组 | 随带插件包按随带清单分组（`bundled_ids()`），不看前缀 |
-| `plugins/packages.py` 的 `_ID` 及错误文案、技能的 `new_plugin.py` | 要求带点 | 新规则；技能骨架、示例、文档里的 id 全部换新格式 |
+| `plugins/packages.py` 的 `_ID` 及错误文案、技能的 `new_plugin.py` | 改之前要求带点 | 已换成 §3.1；新上传带点 id 被拒，已装的旧 id 仍可升级 |
 | mclaw 命令 | `plugins.me.hello.status` → `mclaw plugins me hello status` | `plugins.me-hello.status` → `mclaw plugins me-hello status`（CLI 不用改） |
 
 示例插件 id 同步改，与入口模块名对应：`delete-cascade`、`watchlist-feed`、`keyword-rules`、`cloud-strm`、`site-pack`、`ntfy-channel`；测试里构造插件包用的 id 一并换新格式，

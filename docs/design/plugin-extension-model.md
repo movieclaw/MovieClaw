@@ -69,7 +69,7 @@
 **插件怎么写：**
 
 ```python
-@plugin("acme.delete-cascade", title="删片联动清理")
+@plugin("delete-cascade", title="删片联动清理")
 async def plugin(ctx: Context[Config]) -> None:
     async def on_deleted(event: LibraryItemDeleted) -> None:      # 可靠事件，至少一次
         if event.cause.is_plugin(ctx.entry_id):
@@ -129,7 +129,7 @@ async def plugin(ctx: Context[Config]) -> None:
 3. 插件的任务处理器（贡献到 `JOB_HANDLERS`）负责：断点续传上传（仿 `_transfer_for_job` 的分块 + 旁路状态文件）、
    上报进度、网络错误 `JobRetry`、凭据失效 `JobBlocked`（带「去配置」动作）。
 4. 上传完成后，在媒体库根目录用「临时文件 + 不覆盖改名」写 `.strm`，内容指向插件自己的跳转路由
-   `/api/v1/plugins/acme.cloud/play/<file_id>`；然后调宿主操作触发该目录的增量扫描。
+   `/api/v1/plugins/acme-cloud/play/<file_id>`；然后调宿主操作触发该目录的增量扫描。插件包 id 不含点。
 5. 扫描记账 `.strm`、关闭想要项、订阅完成——这一段完全复用现有流程。
 6. 确认是硬链接时删除暂存副本（不影响做种）。
 
@@ -167,7 +167,7 @@ async def plugin(ctx: Context[Config]) -> None:
   - `subscription.search.keywords`（`waterfall`）：在内部推导的关键词基础上追加或替换；
   - `subscription.candidates.filter`（`waterfall`，按批）：在规则集评估之后，再按插件规则淘汰候选，
     淘汰原因写进订阅动态（与现有 `MATCH_REJECTED` 一致）。
-- 插件规则存在插件自己的存储里，用实体扩展字段挂到订阅上（`subscription.ext["acme.keywords"]`）。
+- 插件规则存在插件自己的存储里，用实体扩展字段挂到订阅上（`subscription.ext["keywords"]`）。
 - 缺口：两个钩子（二 B）；实体扩展字段（二 B）；在订阅详情里编辑插件规则的界面（四，之前用插件配置页代替）。
 
 **B 类：不锚定作品的关键字订阅**。例如「每周综艺 / 体育赛事 / 某字幕组的所有新番，只要标题匹配就下」。
@@ -178,7 +178,7 @@ async def plugin(ctx: Context[Config]) -> None:
   2. 调宿主操作 `search.torrents` 搜索，或读同步下来的新种；
   3. 用插件规则 + 调宿主操作「按规则集评估候选」复用核心匹配器；
   4. 调宿主操作 `dl.submit` 投递，带上**下载意图**（归属 = 本插件、目标媒体库、期望身份）；
-  5. 入库时按意图认领身份，文件来源记为 `plugin:acme.keyword-sub`；
+  5. 入库时按意图认领身份，文件来源记为 `plugin:keyword-sub`；
   6. 订阅可靠事件 `download.completed` / `library.ingest.imported` 更新插件自己的状态。
 - 缺口：
   - 匹配器没有对外操作（「用某规则集评估这批候选」）——二 A 补；
@@ -202,7 +202,7 @@ async def plugin(ctx: Context[Config]) -> None:
 **插件怎么写：**
 
 - **拉模式**：贡献定时任务，或用 `ctx.task` 起一个常驻循环轮询外部系统。
-- **推模式**：贡献一个入站路由 `/api/v1/plugins/acme.trakt/webhook`，外部系统推过来。鉴权用插件签发的
+- **推模式**：贡献一个入站路由 `/api/v1/plugins/acme-trakt/webhook`，外部系统推过来。鉴权用插件签发的
   签名令牌，不用会员令牌。
 - 拿到片名后：调 `discover.search` 解析成作品，再调 `subscriptions.create`。现有接口在豆瓣条目有歧义时
   返回 409 并附候选（`api/routes/subscriptions.py:272`），插件要处理这种情况（取最佳候选，或写待处理事项让人确认）。

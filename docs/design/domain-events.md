@@ -73,7 +73,8 @@
 `library.item.deleted`、`playback.completed`。
 
 - 保留的域：`subscription`、`download`、`library`、`playback`、`account`、`agent`、`system`。
-- 插件事件以**插件 id** 开头：`acme.quota.exceeded`。插件 id 不得与保留的域同名（安装时校验）。
+- 插件事件以**插件 id** 开头：插件 `acme-quota` 的事件是 `acme-quota.exceeded`。插件包 id 本身不含点
+  （`plugin-callbacks.md` §3）；id 不得与保留的域同名（安装时校验）。
 - 内核自己的生命周期事件（`kernel/ready`、插件状态）是内部契约，不进本目录。
 
 ### 3.2 信封
@@ -265,11 +266,11 @@ events.publish_now(SYSTEM_UPDATE_AVAILABLE, lambda: UpdateAvailable(...))
 
 ```toml
 [[events]]
-name = "acme.quota.exceeded"            # 必须以插件 id 开头
+name = "acme-quota.exceeded"            # 必须以插件 id 开头；插件 id 是 acme-quota，不含点
 title = "站点配额超限"
 
 [[notifications]]
-event = "acme.quota.exceeded"
+event = "acme-quota.exceeded"
 title = "{site} 配额超限"
 body = "剩余 {remaining_gb} GB，已暂停该站点的订阅搜索"
 audience = "admins"                     # admins | member:<字段> | media:<字段>，见 §7.3
@@ -280,7 +281,7 @@ open = "plugin"                         # 点开去哪：插件页，或载荷�
 
 代码里定义、登记、发出（服务 `PLUGIN_EVENTS`，插件停用时自动撤下）::
 
-    QUOTA_EXCEEDED = plugin_event("acme.quota.exceeded", QuotaExceeded, title="站点配额超限")
+    QUOTA_EXCEEDED = plugin_event("acme-quota.exceeded", QuotaExceeded, title="站点配额超限")
     events = await ctx.use(PLUGIN_EVENTS).register(ctx, QUOTA_EXCEEDED)
     await events.publish(QUOTA_EXCEEDED, QuotaExceeded(site="mteam", remaining_gb=2.5))
 

@@ -3,6 +3,10 @@
 > 状态：已完成（2026-10-09）。C0～C8 全部合并并在 NAS 验收，结果见 §10。总体模型见 `plugin-extension-model.md`，内核见
 > `plugin-kernel.md`（§3.1 插件分层、§5.3 可跨进程约束、§8 开发体验目标形态），底座见 `plugin-phase2a.md`、
 > `plugin-phase2b.md`。第四阶段（客户端界面扩展）不在本文范围。
+>
+> **与代码对齐（v0.37.0）**：清单与安装以 `src/movieclaw_api/plugins/packages.py` 的 `Manifest` / `check_compat` 为准。
+> 第三方插件和商店元数据（每个插件目录里的 `store.json`；打进 zip 会被解出，服务器不读它）在
+> <https://github.com/movieclaw/movieclaw-plugins>，写法见该仓库 `example/GUIDE.md`。下文已按现行代码改过的条目不再沿用初稿。
 
 ## 0. 目标与验收
 
@@ -17,13 +21,13 @@
 | 事实 | 位置 | 影响 |
 |---|---|---|
 | 实验级以上契约已满足可跨进程约束：方法 async、载荷是冻结模型 / 基本类型，有自动检查 | `plugin-kernel.md` §5.3、`tests/kernel` | 宿主侧可以**通用地**为监听器、钩子生成代理，不必逐个手写 |
-| 插件凭证 `mcpl_` 只存在内存、绑定条目生命周期 | `services/auth.py:813` | 进程外插件沿用：宿主每次拉起进程现签一枚，经环境变量交给子进程，进程退出即作废 |
+| 插件凭证 `mcpl_` 只存在内存、绑定条目生命周期 | `services/auth.py` | 进程外插件沿用：宿主每次拉起进程现签一枚，经 stdin 引导行交给子进程（不进环境变量，同一用户的插件能读彼此的 environ），进程退出即作废 |
 | 宿主操作走 ASGI 进本进程；对进程外插件就是普通 HTTP | `services/host_ops.py` | 进程外直接打 `http://127.0.0.1:<端口>/api/v1`，鉴权、按操作授权、归因全部复用 |
 | 可靠事件是库表 + 每消费者游标 + 重试 + 死信 | `services/durable_events.py` | 宿主侧代理监听器把事件转给进程、等它确认；进程挂了代理抛错 → 原有重试 / 死信语义原样生效 |
 | 钩子单个监听器 2 秒、整链 5 秒超时，超时走默认实现 | `hooks.py` | 进程外钩子多一次往返（本机 WebSocket，毫秒级）；进程卡死 → 超时 → 默认实现，决策不被拖住 |
 | 插件路由挂在宿主路由器、鉴权由宿主注入 | `services/plugin_routes.py` | 进程外插件的路由由宿主反向代理到插件进程（Unix 套接字），鉴权仍在宿主 |
 | 容器以 root 运行；NAS 内核 4.4（没有 landlock，多半不能用非特权用户命名空间）；镜像 Python 3.12 | NAS 实测 | 文件系统隔离只能靠「换 uid + 宿主文件接口」，见 §6、§9 |
-| 本地受信插件已能从 `data/plugins/` 加载单文件或包，按 `plugins.yaml` 显式开启 | `plugins/local.py` | 第三方包的安装目录与之并列；`plugins.yaml` 继续作为「用户批准」的落点 |
+| 本地受信插件已能从 `data/plugins/` 加载单文件或包，按 `plugins.yaml` 显式开启 | `plugins/local.py` | 第三方包的安装目录与之并列；插件包的批准结果在 `data/plugins/packages/state.json`，不写 `plugins.yaml` |
 
 ## 2. 插件包
 
@@ -31,44 +35,54 @@
 acme-group-blocklist-0.1.0.mcplugin      ← zip
 ├── movieclaw-plugin.toml
 ├── group_blocklist/…                    ← 插件代码
-└── vendor/…                             ← 依赖（纯 Python 或 cp312 对应平台的 wheel 解包）
+└── vendor/…                             ← 依赖（作者放进去的纯 Python；打包不校验平台标签）
 ```
 
 ```toml
 [plugin]
-id = "acme.group-blocklist"     # 全局唯一，小写；路由、数据、日志都按它隔离
+id = "acme-group-blocklist"     # 新插件：小写字母开头，字母、数字、连字符，3～40 位，不含点
 title = "发布组黑名单"
 version = "0.1.0"
-entry = "group_blocklist:plugin"
+entry = "group_blocklist"       # 模块名：group_blocklist.py 或 group_blocklist/__init__.py
 runtime = "process"             # 默认；"inline" 需要用户单独批准（等同本地受信插件）
-sdk = ">=1.0,<2"                # movieclaw_sdk 版本区间
+sdk = "^1.0"                    # 只有 ^主.次（^ 可省略）；不接受 >=1.0,<2
 
-[requires]                      # 用到的契约与版本区间（服务、注册表、事件、钩子）
+[requires]                      # 用到的契约与版本区间（同一套 ^主.次）
 "subscription.candidates.filter" = "^1.0"
 
 [permissions]
 operations = ["search.titles", "subscriptions.create"]   # 宿主操作；危险操作必须逐个列出
 paths = [{ path = "staging", mode = "read" }]            # 路径授权，见 §6
-network = true                                           # 是否需要直连外网（仅声明、提示用户）
+network = true                                           # 仅声明，安装页展示；运行时不拦流量
 ```
 
-- **依赖只能随包携带**（`vendor/`），安装时不跑 pip：NAS 外网不稳定、装出来的环境不可复现、pip 本身就是
-  任意代码执行。打包工具负责把依赖解包进去并校验平台标签。
-- 包内不许出现绝对路径软链、`..` 路径、设备文件；单包上限（建议 50 MB）。
+- 新上传的插件包 id 必须匹配 `^[a-z][a-z0-9-]{1,38}[a-z0-9]$`。带点的 id 只留给已经装上的旧包（升级沿用原 id）；
+  内核内置条目（`core.database` 这类）继续带点，与插件包 id 不相交。
+- `sdk` 与 `[requires]` 只接受 `^主.次`（`^` 可省略）= 主版本相同、次版本不低于。`>=1.0,<2` 在 `check_compat` 里直接拒绝。
+  对照的是 `movieclaw_sdk.SDK_VERSION`（现在是 `1.0`），不是应用版本号。
+- **依赖只能随包携带**（`vendor/`，纯 Python，运行时加入 `sys.path`），安装时不跑 pip。打包工具不替作者解包依赖，
+  也不校验 wheel 的平台标签；放错要到加载才失败。
+- 包内不许有软链接（一律拒绝）、`..` 或绝对路径。上限：压缩包 50 MB、解压 200 MB、5000 个文件。
+- `network = true` 没有对应的运行时拦截，只出现在批准界面上。连外网要自己走 `movieclaw_sdk.net.http_transport`。
+- 清单 `extra = "forbid"`：作者、主页、许可证、图标、`store.json` 的字段不能写进 toml。`store.json` 只给
+  [movieclaw-plugins](https://github.com/movieclaw/movieclaw-plugins) 的索引用。
 
 ## 3. 安装、升级、回滚、卸载
 
-目录：`data/plugins/packages/<id>/<version>/`，`data/plugins/packages/<id>/current` 指向当前版本（与应用自身的
-overlay 更新同一套「版本目录 + 原子切链」做法）。
+目录：`data/plugins/packages/<id>/<version>/`（已安装，只留当前版和上一版）、`<version>.pending/`（已上传、等批准）。
+当前版本和批准结果记在 `data/plugins/packages/state.json` 的 `version` 字段与安装记录里，**没有** `current` 符号链接
+（应用自身的 overlay 更新才用「版本目录 + 原子切链」）。
 
-1. **上传 → 校验**：清单字段、id 与版本格式、`sdk` 区间与宿主的 SDK 版本、`requires` 里的契约是否存在且版本兼容
+1. **上传 → 校验**：清单字段、id 与版本格式、`sdk` 的 `^主.次` 是否罩住宿主的 `SDK_VERSION`、`requires` 里的契约是否存在且版本兼容
    （复用内核 `check_requires`）、权限声明是否合法（操作在目录里、路径别名已定义）。不兼容直接拒绝并说明原因。
-2. **展示权限 → 用户批准**：批准结果写进 `plugins.yaml`（`grants`、`paths`、`runtime`），与本地受信插件同一个落点。
-   升级时权限扩大必须重新批准，否则保持旧版本。
-3. **解包 → 切链 → 挂载**：先解到 `<version>.partial` 校验后改名；切 `current`；运行中挂载（二 B 的运行中启停）。
+2. **展示权限 → 用户批准**：批准结果写进 `state.json`，不写用户手写的 `plugins.yaml`（那里只留给本地受信插件）。
+   批准的宿主操作和路径须与申请完全一致。
+3. **解包 → 挂载**：先解到临时目录校验后改名为 `<version>/`；运行中挂载（二 B 的运行中启停）。不切符号链接。
 4. **激活失败自动回滚**：新版本在宽限期内（建议 2 分钟）进入 `FAILED` 或进程反复崩溃 → 切回上一个版本并重新挂载，
    系统通知说明原因；坏版本打标记，不再自动尝试。
-5. **卸载**：释放条目、删版本目录；插件数据（`plugin_data`、签名密钥）默认保留，「连同数据删除」需要单独确认。
+5. **卸载**：释放条目、删版本目录。`plugin_data`（含签名密钥）默认保留；`purge_data` 只删这个 id 在 `plugin_data` 里的行。
+   界面设置文件（`data/plugins/settings/<id>.json`）和私有目录（`data/plugins/data/<id>/`）不在插件包这条卸载路径上删
+   （官方插件卸载才会一起清）。插件改过的系统数据（建过的订阅、删过的文件）也不会被撤销。
 
 接口：`app.plugins.packages.{list,upload,approve,discard,rollback,uninstall}`（管理员；批准、回滚、卸载是危险操作，
 命令行逐次确认），CLI 自动获得 `mclaw app plugins packages …` 命令（上传走 `--file`）；网页入口在 C8。
@@ -87,7 +101,7 @@ C5 实现要点：
 
 ```
 主进程（宿主）                                         插件进程（每个插件一个）
-  RemoteEntry（内核里的普通条目）                         python -I -m movieclaw_sdk.runner
+  RemoteEntry（内核里的普通条目）                         python -s -m movieclaw_sdk.runner
     ├─ 拉起 / 监管子进程（退避重启）                       ├─ 导入 entry，调用 apply(RemoteContext)
     ├─ WebSocket 会话 ◀──────────────────────────────▶  ├─ RemoteContext：on / contribute / use / task / effect
     ├─ 为插件的每个 on / contribute 在真实 ctx 上登记代理  ├─ 宿主操作：直接 HTTP（mcpl_ 令牌）
@@ -136,9 +150,11 @@ C5 实现要点：
 
 ### 4.4 监管
 
-- 拉起：`python -I -m movieclaw_sdk.runner`，工作目录是插件版本目录，`PYTHONPATH` = 包根 + `vendor/`，环境变量只给
-  宿主地址、令牌、条目 id、数据目录（插件专属），**不继承**宿主的环境（主密钥、数据库地址、代理凭据一律不给）。
-- 资源上限：`RLIMIT_AS`（默认 512 MB，可在清单申请、用户批准）、`RLIMIT_NOFILE`、CPU 不设硬限（NAS 上 nice 19）。
+- 拉起：`python -s -m movieclaw_sdk.runner`（非 Python 插件先过 `python -s -m movieclaw_sdk.launch`）。工作目录是插件代码副本，
+  `PYTHONPATH` 指向宿主源码（隔离时是只读副本），`vendor/` 由运行器加入 `sys.path`。子进程只继承 `PATH`、`LANG`、`LC_ALL`、`TZ`、`HOME`、`TMPDIR`，
+  再加 `PYTHONPATH` / `PYTHONUNBUFFERED` / `PYTHONDONTWRITEBYTECODE`。令牌、网关地址、条目 id、配置经 **stdin 一行** 交给插件，不进环境变量。
+- 资源上限（运行器自己往下调，清单里没有可申请的内存字段）：`RLIMIT_NOFILE` 收到 1024、`RLIMIT_CORE` 0、`nice(10)`。
+  **不设** `RLIMIT_AS`。初稿里的「默认 512 MB、可在清单申请」没有实现。
 - 崩溃：指数退避重启（1 s → 2 s → … → 60 s）；10 分钟内崩溃 5 次 → `FAILED`，系统通知，停止重启，等用户处理。
 - 卸载 / 重载：发 `dispose`，5 秒宽限后 `SIGTERM`，再 5 秒 `SIGKILL`；令牌作废、代理全部撤销（内核 effect 自动完成）。
 - 「进程内代码热重载不可靠」在这里不存在：重载 = 重启进程。
@@ -183,8 +199,8 @@ C5 实现要点：
 ### 6.3 进程（宿主是 root 时生效；开发机 / CI 非 root 时跳过并记日志）
 
 - 以非特权 uid 运行（默认 65534 `nobody`，`MOVIECLAW_PLUGIN_UID` 可改），不带附加组；工作目录是运行目录里的插件代码。
-- 资源上限：`RLIMIT_NOFILE` 1024、`RLIMIT_CORE` 0、`nice` 10；内存上限（`RLIMIT_AS`）默认不设（多线程的虚拟地址空间远大于实际占用，
-  设小了会误杀），插件清单可申请、用户批准后再加。
+- 资源上限：`RLIMIT_NOFILE` 1024、`RLIMIT_CORE` 0、`nice` 10。不设内存上限（`RLIMIT_AS`）：多线程的虚拟地址空间远大于实际占用，
+  设小了会误杀；清单也没有内存字段，用户无法批准一个不存在的上限。
 - 环境变量与 C2 一样只给最小集合；不继承任何文件描述符（除协议管道与文件套接字）。
 
 ### 6.4 拆分
@@ -200,7 +216,8 @@ C5 实现要点：
   贡献项结构（去掉标题、描述等文案），`surface.json` 随代码提交；测试比对：结构变了版本没变、或破坏性变化（删契约、删字段、
   改字段类型、新增必填字段）而主版本没升，构建失败。
 - `mclaw plugin pack <目录>`：读清单的 id / version / entry、检查入口模块，打包成 `.mcplugin`（跳过 `__pycache__`、`.git`、
-  隐藏文件、旧包；软链接直接拒绝）。依赖由作者放进 `vendor/`；完整校验以服务器为准。
+  `.venv`、`node_modules`、点开头的目录、`*.pyc`、`*.mcplugin`、`.DS_Store`；软链接直接拒绝）。依赖由作者放进 `vendor/`；
+  完整校验以服务器为准。打包不校验 SDK 区间、契约或平台标签。
 - `mclaw plugin dev <目录>`：开发循环 = 打包（版本加 `-dev.<时间戳>` 后缀）→ 上传 → 按申请批准 → 当场加载；监视目录，
   一改就重来；起不来时服务器自动回到上一版并把原因告诉终端；`--once` 只装一次。
   **与原设想的差别**：不做「本地进程经网络连到服务器」——那要再造一条带凭证的网络传输，而进程外插件在服务器上的运行
@@ -238,9 +255,13 @@ C1 与 C2 互不依赖，可以先做 C1；C3、C4 依赖 C2；C5 依赖 C2；C6
 
 1. **隔离强度：方案 A**。插件进程以独立的非特权 uid 运行，除它自己的数据目录外，文件一律经主进程的文件接口按路径授权访问。
    这是 NAS 内核 4.4 上唯一能真正强制的边界；C6 按此实现。
-2. **依赖只能随包携带**（`vendor/`），安装时不联网、不跑 pip；打包工具负责解包依赖并校验平台标签。
+2. **依赖只能随包携带**（`vendor/`），安装时不联网、不跑 pip。打包工具不替作者解包依赖，也不校验平台标签。
 3. **安装来源只支持手动上传插件包**（管理页或 `mclaw`）；第三阶段不做插件市场 / 远程仓库 / 填网址安装。
-4. **成员区路由暂不开放**：第三阶段进程外 / 第三方插件只能挂管理员区与验签公开区；等成员权限 v2 能表达「插件操作」再开。
+   第三方插件目录和索引元数据（`store.json`）后来放到 <https://github.com/movieclaw/movieclaw-plugins>，
+   服务器安装时仍然只收上传的 `.mcplugin`，不按索引里的 `min_app` 或签名决定能不能装。
+4. **成员区路由已开放**（`plugin-phase2b.md` §8）：`routes.mount(..., zone="member")` 用登录成员鉴权，
+   `admin` / `public` 照旧。从成员区、公开区或回调进来的 Agent 调用不带工具（`plugin-agent.md` §5）。
+   初稿「等成员权限 v2 再开成员区」没有再挡住 `zone="member"`。
 5. **允许第三方包申请进程内运行**（`runtime = "inline"`），但安装时以「拥有与主程序相同的权限」红色警告单独批准，
    与本地受信插件同等对待。
 
@@ -267,4 +288,4 @@ NAS 验收（真实数据、只做可撤销操作，验收后清理并注销验�
 
 实施中发现、已修的坑：uvloop 的子进程接口不支持 `user=`（降权改由运行器自己做）；FastAPI 0.142 的路由版本累加（插件路由宿主须顶层挂）；后台线程生成 OpenAPI 须先快照生效路由；数据目录 0700 使非特权进程读不到 overlay 代码（复制运行目录）；新增测试文件未登记耗时导致 CI 分片失衡。
 
-后续可做（不在第三阶段）：插件配置表单（已在第四阶段实现，见 `plugin-phase4.md` §3）；插件路由的 OpenAPI 参数说明；成员区路由（等成员权限 v2）。
+后续可做（不在第三阶段）：插件配置表单（已在第四阶段实现，见 `plugin-phase4.md` §3，宿主按 Schema 画表单，不加载插件包里的 HTML）；插件路由的 OpenAPI 参数说明。成员区路由已在二 B 开放，见 §9 决策 4。

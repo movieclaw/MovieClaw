@@ -61,7 +61,7 @@
 ### 5.1 注册表 `im-channels`（实验级）
 
 插件往注册表贡献一个 `ChannelDriver`。贡献 id 即通道 id：内置的是 `weixin` / `telegram` / `discord` /
-`feishu`，第三方自动带插件 id 前缀（如 `acme.wecom:wecom`），与现有注册表规则一致。
+`feishu`，第三方自动带插件 id 前缀（如 `acme-wecom:wecom`），与现有注册表规则一致。插件包 id 不含点。
 
 SDK 类型放在 `movieclaw_sdk.channels`（插件只 import 这里）：
 

@@ -13,8 +13,11 @@ plugins/media-stats/
 └── vendor/                    ← 依赖（可选）：纯 Python 包原样放进来，运行时自动加进 sys.path
 ```
 
-打包（`mclaw plugin pack`）跳过 `__pycache__`、`.git`、隐藏文件、`*.pyc`、旧的 `*.mcplugin`；**软链接直接拒绝**。
+打包（`mclaw plugin pack`）跳过 `__pycache__`、`.git`、`.venv`、`node_modules`、点开头的目录、`*.pyc`、旧的 `*.mcplugin`、`.DS_Store`；**软链接直接拒绝**。
 上限：压缩包 50 MB、解包 200 MB、5000 个文件。
+
+作者、主页、许可证、图标不要写进清单（未知字段会被拒）。这些写在插件目录的 `store.json` 里，只给
+<https://github.com/movieclaw/movieclaw-plugins> 的索引用（见该仓库 `example/GUIDE.md`）。打进 `.mcplugin` 会被解出并忽略，服务器不读它。
 
 ## 2. 清单字段
 
@@ -109,7 +112,7 @@ platforms = ["linux/amd64", "linux/arm64"]    # 必填；与服务器平台不�
 | 放弃待批准 | `app plugins packages discard <id> --yes` | |
 | 查看 | `app plugins packages list`、`app plugins list` | 后者是诊断：每个条目的状态、失败原因、启动耗时 |
 | 回滚 | `app plugins packages rollback <id> --yes` | 回到上一版 |
-| 卸载 | `app plugins packages uninstall <id> --yes` | 默认保留插件数据；加 `--purge-data` 连同数据删除 |
+| 卸载 | `app plugins packages uninstall <id> --yes` | 默认保留插件数据；`--purge-data` 只删 `plugin_data` 里该 id 的行，不删设置文件和私有目录 |
 
 同一版本不能重复安装：正式发布时每次改动都要升 `version`（开发循环自动处理）。
 网页「设置 → 插件 → 已安装」也能看到并操作这些插件包。

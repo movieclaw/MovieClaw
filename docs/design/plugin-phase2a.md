@@ -135,7 +135,7 @@
 - **显式开启**：只加载 `data/plugins.yaml` 里写了 `local: true` 的条目；目录里多出来的文件不会被执行。
 
   ```yaml
-  - id: acme.delete-cascade        # 条目 id = 插件名
+  - id: delete-cascade            # 条目 id = 插件名（新插件不用带点的 id；本地插件不强制校验，示例跟插件包同一套）
     local: true
     module: delete_cascade         # 可选，缺省为 id 里最后一段把 - 换成 _
     config: { enabled: true }

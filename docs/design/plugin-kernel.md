@@ -170,7 +170,7 @@ ctx.watch(SCHEDULED_TASKS, on_change)                           # 增删通知�
 | 两个贡献 id 相同 | 后到者失败（报错写明与谁冲突），除非它显式 `override=True` |
 | `override=True` | 形成覆盖栈：新贡献生效、旧贡献被「遮住」；覆盖者卸载后旧贡献自动恢复 |
 | 遍历顺序 | 按 `(priority, 层级, 注册顺序)` 确定，结果可复现 |
-| 第三方贡献的 id | 自动加插件 id 前缀（`acme.blocklist:xxx`），避免撞名；内置贡献保留现有 id（数据库里存着任务 key，不能改） |
+| 第三方贡献的 id | 自动加插件 id 前缀（`acme-blocklist:xxx`），避免撞名；内置贡献保留现有 id（数据库里存着任务 key，不能改）。插件包 id 不含点，见 `plugin-callbacks.md` §3 |
 
 覆盖栈是「替换内置行为」的标准方式：用户的插件覆盖内置的某个下载器适配器，停用插件就自动
 回到内置版本，不需要手动恢复任何东西。
@@ -610,11 +610,12 @@ def build_lifespan(settings: Settings):
 ```toml
 # movieclaw-plugin.toml
 [plugin]
-id = "acme.group-blocklist"
+id = "acme-group-blocklist"   # 小写字母开头，字母、数字、连字符，3～40 位，不含点
 title = "发布组黑名单"
 version = "0.1.0"
-entry = "group_blocklist:plugin"
+entry = "group_blocklist"     # 模块名，不是「模块:对象」
 runtime = "process"            # 默认进程外；"inline" 需要用户单独批准
+sdk = "^1.0"                   # 只有 ^主.次；不接受 >=1.0,<2
 
 [requires]
 "search/results" = "^1.0"
@@ -629,7 +630,7 @@ from pydantic import BaseModel
 class Config(BaseModel, frozen=True):
     groups: tuple[str, ...] = ()
 
-@plugin("acme.group-blocklist", title="发布组黑名单", config=Config)
+@plugin("acme-group-blocklist", title="发布组黑名单", config=Config)
 async def plugin(ctx: Context[Config]) -> None:
     async def drop_blocked(results: SearchResults, next):
         kept = tuple(r for r in results.items if r.group not in ctx.config.groups)
@@ -647,14 +648,18 @@ async def test_drops_blocked_group():
         assert all(item.group != "BAD" for item in out.items)
 ```
 
-开发循环（第三阶段）：`mclaw plugin dev ./group-blocklist` 把本地插件以进程外方式连到正在运行的
-MovieClaw（本机或 NAS），文件一改就重启插件进程——热重载靠重启进程实现，不碰主进程。
+草图里的 `search/results` / `SEARCH_RESULTS` 没有按这个名字落地。订阅候选的淘汰钩子是开放契约
+`subscription.candidates.filter`（见 `movieclaw_sdk` 与插件开发技能的 `keyword_rules.py`）。
+
+开发循环（第三阶段，已落地）：`mclaw plugin dev ./group-blocklist` 在服务器上走正式安装（打包、上传、按申请批准、加载），
+文件一改就重来；不是「本地进程经网络连上去」。新版本起不来时服务器回到上一版。热重载靠重启插件进程实现，不碰主进程。
+现行清单、目录（没有 `current` 符号链接）和权限语义见 `plugin-phase3.md` §2、§3。第三方插件与 `store.json` 在
+<https://github.com/movieclaw/movieclaw-plugins>（`example/GUIDE.md`）。
 
 第一阶段为它准备好的部分：`@plugin`、`Context`、`ctx.on`、waterfall 语义（含不可变载荷、超时、
 异常隔离）、`KernelHarness` 与严格模式、`requires` 版本检查、条目与配置分离。
-留给后续阶段的部分：`movieclaw_sdk` 包（第一阶段的 `movieclaw_kernel` 加上开放的契约）、插件配置
-schema（第二阶段）、`SEARCH_RESULTS` 事件（第二阶段）、打包格式、加载器、进程外运行器、`mclaw plugin`
-命令（第三阶段）。
+当时留给后续阶段、现已落地的部分：`movieclaw_sdk`、插件配置表单（`plugin-phase4.md`）、打包与
+`mclaw plugin`、进程外运行器（`plugin-phase3.md`、`plugin-ipc-http.md`）。没有名为 `SEARCH_RESULTS` 的事件。
 
 ## 9. 启动容错（第一阶段唯一的行为变化）
 
