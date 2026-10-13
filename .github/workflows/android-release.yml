@@ -1,0 +1,202 @@
+# =============================================================================
+# Android 发版流水线（docs/design/android-release.md）
+#
+# Android 手机/平板与 Android TV 是独立客户端，不再随服务器 vX.Y.Z Release 分发：
+#   - android-vX.Y.Z   → MovieClaw for Android，附件 MovieClaw-Android-arm64.apk / .json
+#   - androidtv-vX.Y.Z → MovieClaw for Android TV，附件 MovieClaw-AndroidTV.apk / .json
+# 两者都带 downloads.json（官网下载页读取），tag 版本必须与对应 version.properties 一致。
+#
+# 与服务器发版一样两段式（draft → publish），并且始终 --latest=false：
+# install-cli.sh 与旧文档从 releases/latest/download 取服务器附件，latest 只能是 vX.Y.Z。
+# 任何作业失败时 Release 停在 draft，修复后重跑本工作流即可（上传均带 --clobber）。
+# =============================================================================
+name: android-release
+
+concurrency:
+  group: android-release-${{ inputs.tag || github.ref_name }}
+
+on:
+  push:
+    tags: ["android-v*", "androidtv-v*"]
+  # 远程会话推不了 tag：走 release-kick 点火分支，或到 Actions 手动输入 tag。
+  # 手动通道里 tag 尚不存在，publish 转正时在触发时的提交上创建。
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要发布的 tag（android-vX.Y.Z 或 androidtv-vX.Y.Z），须与 version.properties 一致"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    outputs:
+      product: ${{ steps.tag.outputs.product }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - id: tag
+        name: 解析 tag 并核对版本号
+        run: |
+          case "$RELEASE_TAG" in
+            android-v*) product=android; dir=apps/android; name="Android" ;;
+            androidtv-v*) product=androidtv; dir=apps/android-tv; name="Android TV" ;;
+            *) echo "::error::tag 必须是 android-vX.Y.Z 或 androidtv-vX.Y.Z：$RELEASE_TAG"; exit 1 ;;
+          esac
+          version="${RELEASE_TAG#*-v}"
+          if ! echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::版本号必须是 X.Y.Z：$RELEASE_TAG"
+            exit 1
+          fi
+          actual="$(sed -n 's/^versionName=//p' "$dir/version.properties")"
+          if [ "$version" != "$actual" ]; then
+            echo "::error::tag $RELEASE_TAG 与 $dir/version.properties 的 versionName=$actual 不一致"
+            exit 1
+          fi
+          echo "product=$product" >> "$GITHUB_OUTPUT"
+          echo "TITLE=MovieClaw for $name $version" >> "$GITHUB_ENV"
+
+      - name: 创建 draft Release
+        run: |
+          NOTES_ARGS=(--generate-notes)
+          if [ -f "docs/changelog/$RELEASE_TAG.md" ]; then
+            NOTES_ARGS=(--notes-file "docs/changelog/$RELEASE_TAG.md")
+          fi
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" --draft --latest=false \
+              --title "$TITLE" "${NOTES_ARGS[@]}"
+          elif [ "$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)" = "true" ]; then
+            # 同 release.yml：上一轮失败留下的 draft 还锁着旧提交，校正到本轮
+            gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --target "$GITHUB_SHA"
+          else
+            echo "::error::$RELEASE_TAG 已发布；发新版请递增 version.properties 后打新 tag"
+            exit 1
+          fi
+
+  android-apk:
+    needs: prepare
+    if: needs.prepare.outputs.product == 'android'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: 构建正式签名 Android APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          : "${ANDROID_KEYSTORE_BASE64:?未配置 Android 正式签名密钥}"
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/movieclaw-android.p12"
+          umask 077
+          trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
+          bash apps/android/scripts/package-release.sh
+
+      - name: 验证并上传 Android 附件
+        run: |
+          python3 scripts/build-download-manifest.py --tag "$RELEASE_TAG" \
+            --directory apps/android/build/release
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            apps/android/build/release/MovieClaw-Android-arm64.apk \
+            apps/android/build/release/MovieClaw-Android-arm64.json
+
+  # 正式包必须带 FFmpeg 音频软解（两种 ARM 架构），由打包脚本现编；签名复用手机版密钥。
+  android-tv-apk:
+    needs: prepare
+    if: needs.prepare.outputs.product == 'androidtv'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: 构建正式签名 Android TV APK
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          : "${ANDROID_KEYSTORE_BASE64:?未配置 Android 正式签名密钥}"
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.3.13750724" "cmake;3.22.1" > /dev/null
+          export ANDROID_KEYSTORE_PATH="$RUNNER_TEMP/movieclaw-android-tv.p12"
+          umask 077
+          trap 'rm -f "$ANDROID_KEYSTORE_PATH"' EXIT
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$ANDROID_KEYSTORE_PATH"
+          bash apps/android-tv/scripts/package-release.sh
+
+      - name: 验证并上传 Android TV 附件
+        run: |
+          python3 scripts/build-download-manifest.py --tag "$RELEASE_TAG" \
+            --directory apps/android-tv/build/release
+          gh release upload "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --clobber \
+            apps/android-tv/build/release/MovieClaw-AndroidTV.apk \
+            apps/android-tv/build/release/MovieClaw-AndroidTV.json
+
+  publish:
+    needs: [prepare, android-apk, android-tv-apk]
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && (needs.android-apk.result == 'success' || needs.android-tv-apk.result == 'success') }}
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # 从实际上传的附件重新生成；脚本校验包与 tag 是同一个产品、同一个版本
+      - name: 生成官网下载清单
+        run: bash scripts/publish-download-manifest.sh "$RELEASE_TAG"
+
+      - name: 发布 Release（不标 latest）
+        run: |
+          gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest=false
+          url="https://github.com/$GITHUB_REPOSITORY/releases/tag/$RELEASE_TAG"
+          echo "已发布：$url" | tee -a "$GITHUB_STEP_SUMMARY"

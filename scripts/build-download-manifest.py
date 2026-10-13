@@ -132,8 +132,9 @@ def main() -> None:
     parser.add_argument("--tag", required=True)
     parser.add_argument("--directory", type=Path, required=True)
     args = parser.parse_args()
-    if not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[\w.-]+)?", args.tag):
-        parser.error("tag 必须是应用 Release 的 vX.Y.Z")
+    client = re.fullmatch(r"(android|androidtv|macos)-v(\d+\.\d+\.\d+)", args.tag)
+    if not client and not re.fullmatch(r"v\d+\.\d+\.\d+(?:-[\w.-]+)?", args.tag):
+        parser.error("tag 必须是 vX.Y.Z，或 android-v / androidtv-v / macos-v 加 X.Y.Z")
     packages = [describe(p) for p in sorted(args.directory.glob("MovieClaw*-macos-*.zip"))]
     packages += [
         describe_android(p) for p in sorted(args.directory.glob("MovieClaw-Android-*.apk"))
@@ -142,6 +143,11 @@ def main() -> None:
         describe_android(p, "androidtv", "io.movieclaw.androidtv", "arm")
         for p in sorted(args.directory.glob("MovieClaw-AndroidTV.apk"))
     ]
+    # 客户端独立 Release 只放自己的一个包，且包内版本必须就是 tag 的版本
+    if client:
+        product = {"macos": "mac"}.get(client.group(1), client.group(1))
+        if [(p["product"], p["version"]) for p in packages] != [(product, client.group(2))]:
+            sys.exit(f"{args.tag} 只能包含版本 {client.group(2)} 的 {product} 安装包")
     manifest = {"schema": 1, "release": args.tag, "packages": packages}
     output = args.directory / "downloads.json"
     output.write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n")

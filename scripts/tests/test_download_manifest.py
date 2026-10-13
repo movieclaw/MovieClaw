@@ -133,6 +133,48 @@ class DownloadManifestTest(unittest.TestCase):
                     "androidtv", "io.movieclaw.androidtv", "arm",
                 )
 
+    def test_android_release_holds_only_its_own_tagged_package(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            apk = Path(tmp) / "MovieClaw-Android-arm64.apk"
+            apk.write_bytes(b"APK")
+            entry = {
+                "product": "android", "applicationId": "io.movieclaw.android",
+                "version": "0.3.2", "build": "30000006", "minimumSdk": 26, "arch": "arm64",
+                "asset": apk.name, "signed": True, "certificateSha256": "a" * 64,
+                "size": apk.stat().st_size, "sha256": hashlib.sha256(b"APK").hexdigest(),
+            }
+            apk.with_suffix(".json").write_text(json.dumps(entry))
+
+            def run(tag):
+                return subprocess.run(
+                    [sys.executable, str(SCRIPT), "--directory", tmp, "--tag", tag],
+                    capture_output=True, text=True,
+                )
+
+            self.assertEqual(run("android-v0.3.2").returncode, 0)
+            manifest = json.loads((Path(tmp) / "downloads.json").read_text())
+            self.assertEqual(manifest["release"], "android-v0.3.2")
+            self.assertEqual(manifest["packages"], [entry])
+            for tag in ("android-v0.3.1", "androidtv-v0.3.2", "android-v0.3"):
+                self.assertNotEqual(run(tag).returncode, 0, tag)
+
+    def test_mac_release_holds_only_the_tagged_mac_app(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            self.archive(directory, "MovieClaw-macos-arm64.zip")
+
+            def run(tag):
+                return subprocess.run(
+                    [sys.executable, str(SCRIPT), "--directory", tmp, "--tag", tag],
+                    capture_output=True, text=True,
+                )
+
+            self.assertEqual(run("macos-v0.5.0").returncode, 0)
+            manifest = json.loads((directory / "downloads.json").read_text())
+            self.assertEqual(manifest["release"], "macos-v0.5.0")
+            self.assertEqual([p["product"] for p in manifest["packages"]], ["mac"])
+            self.assertNotEqual(run("macos-v0.5.1").returncode, 0)
+
     def test_android_requires_metadata(self):
         with tempfile.TemporaryDirectory() as tmp:
             apk = Path(tmp) / "MovieClaw-Android-arm64.apk"

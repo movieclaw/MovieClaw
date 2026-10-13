@@ -11,6 +11,9 @@ Android runner 使用 `aapt2` / `apksigner` 读取真实 APK，生成同名 `.js
 SHA-256 和 JSON 一致。沿用 APK 必须同时沿用 JSON；缺失或不一致会阻止发布。
 Android TV 的 `MovieClaw-AndroidTV.apk` 同一份契约，`product` 为 `androidtv`、`applicationId` 为
 `io.movieclaw.androidtv`；一个包含 64 / 32 位两种 ARM 架构，`arch` 为 `arm`，另有 `abis` 列表。
+Android、Android TV 与 Mac 版 App 独立发版（`android-vX.Y.Z` / `androidtv-vX.Y.Z` / `macos-vX.Y.Z`），
+各自 Release 带一份只含自己一个包的 `downloads.json`；v0.38.0 起服务器 Release 的清单只剩转码器。
+官网按发布时间汇总服务器与各客户端 Release，取每个产品、每种芯片的最新包。
 Android 下载入口和工作流见 [Android 发版说明](android-release.md)。
 
 ```json
@@ -34,7 +37,7 @@ Android 下载入口和工作流见 [Android 发版说明](android-release.md)�
 
 Cloud 分页读取正式应用 Release，忽略 draft、预发布和模型 Release。只展示每个产品、每种芯片的最新可用包，校验附件确实存在、大小一致及 GitHub 提供的 SHA-256 一致，再生成固定 tag 的链接。不同芯片可以对应不同版本；不存在的芯片不提供选项。只有签名、公证都为 true 才显示公证提示。
 
-正常发布与补跑 mac-app / worker-macos / carry-assets 会自动更新清单。人工补传 ZIP 后也要刷新（在 macOS 上运行可验证签名、公证）：
+正常发布与补跑 worker-macos / carry-assets（服务器）、mac-release（Mac 版）会自动更新清单。人工补传 ZIP 后也要刷新（在 macOS 上运行可验证签名、公证）：
 
 ```bash
 bash scripts/publish-download-manifest.sh v0.32.0

@@ -9,8 +9,13 @@ Android 手机/平板使用独立发行版本，唯一来源是 `apps/android/ve
 `versionCode` 必须递增且不超过 Android 的 `2100000000` 上限。
 
 服务器继续使用 `vX.Y.Z`，Apple App 继续使用 `apps/apple/project.yml` 中的
-`MARKETING_VERSION`。服务器发版只是 Android APK 的分发入口，不能拿服务器 tag
-冒充 Android 客户端版本。独立客户端各有自己的 applicationId、版本文件和附件名：
+`MARKETING_VERSION`。Android 不再随服务器 Release 分发，而是单独发 `android-vX.Y.Z`
+（TV 为 `androidtv-vX.Y.Z`）Release，tag 版本必须等于 `versionName`。
+v0.37.0 及更早的服务器 Release 里仍附带当时的 APK，作为历史版本保留。
+
+兼容性靠运行时判断：App 登录前读服务器 `/health` 的 `version`，低于
+`MIN_SERVER_VERSION`（手机在 `SessionRepository`，TV 在 `AppModel`）时提示先升级服务器。
+App 开始依赖更新的服务器接口时上调这个值。独立客户端各有自己的 applicationId、版本文件和附件名：
 Android TV 见下文「Android TV」；当前不预建尚未实现的产品或构建变体。
 
 ## 现有工作流分工
@@ -21,33 +26,27 @@ Android TV 见下文「Android TV」；当前不预建尚未实现的产品或�
 | `ios` | PR | iPhone / TV / Mac 编译与测试，按路径运行 |
 | `Android stability` | Android 或发版工作流改动的 PR / main push | 原生生命周期、场景测试、lint、APK，以及临时测试证书的完整 release 打包 |
 | `downloads` | 下载元数据、打包脚本或发版工作流的 PR | 清单、签名检查和旧包沿用回归测试 |
-| `release` | `v*` tag 或手动输入 tag | 创建 draft、构建/复制附件、发布 Docker、终审后转正 |
-| `release-kick` | `release-kick/v*` 分支 | 校验服务器版本并触发 `release`，之后删除点火分支 |
+| `release` | `v*` tag 或手动输入 tag | 服务器：创建 draft、构建/复制附件、发布 Docker、终审后转正 |
+| `android-release` | `android-v*` / `androidtv-v*` tag 或手动输入 tag | Android：校验版本、正式签名构建、生成 `downloads.json`、转正（不标 latest） |
+| `release-kick` | `release-kick/v*`、`release-kick/android-v*`、`release-kick/androidtv-v*` 分支 | 校验版本并触发对应发版工作流，之后删除点火分支 |
 | `docker-image` | `release` 调用或手动 | 多架构镜像及 tag 发布 |
 | `release-notes` | changelog 合入 main | 同步对应 Release 的正文 |
 
 `claude*` 和 `runtime-guard` 分别用于协作自动化、运行时兼容检查，不负责打包发布。
 
-`release` 的作业链：
+`android-release` 的作业链：
 
 ```mermaid
 flowchart TD
-    A[release-artifacts: 更新包与 draft Release] --> B[cli: 六平台 CLI]
-    A --> C[docker-image: 多架构镜像]
-    A --> D[asset-plan: 按改动决定重编或沿用]
-    D --> E[android-apk: 签名 APK 或复制旧包]
-    D --> H[android-tv-apk: TV 签名 APK 或复制旧包]
-    D --> F[worker-macos / ios-ipa / mac-app / carry-assets]
-    B --> G[publish: 校验附件、生成 downloads.json、转正]
-    C --> G
-    E --> G
-    H --> G
-    F --> G
+    A[prepare: 解析 tag、核对 version.properties、建 draft] --> B[android-apk: 手机正式签名 APK]
+    A --> C[android-tv-apk: TV 正式签名 APK]
+    B --> D[publish: 生成 downloads.json、转正且不标 latest]
+    C --> D
 ```
 
-Android APK 是必需附件，构建或沿用失败会阻止 draft 转正。原有 Mac / IPA / Worker
-仍是可选附件，失败会显示红色作业，可重跑补传。Android 无改动时复制旧 APK 和其 JSON，
-版本、签名、SHA-256 均保持旧包真实值；`force_rebuild` 可要求所有客户端附件重编。
+一次只发一个 App：tag 前缀决定跑 `android-apk` 还是 `android-tv-apk`。每个 tag 都重新构建，
+不沿用旧包；同一版本已发布时 `prepare` 直接失败，发新版须递增 `version.properties`。
+`downloads.json` 只能包含与 tag 同产品、同版本的那一个包（`build-download-manifest.py` 校验）。
 
 ## Android 产物与下载地址
 
@@ -56,15 +55,15 @@ Android APK 是必需附件，构建或沿用失败会阻止 draft 转正。原�
 - `MovieClaw-Android-arm64.apk`：可直接安装的正式签名包，包含 Exo、MPV 及原生依赖。
 - `MovieClaw-Android-arm64.json`：由 `aapt2` / `apksigner` 读取 APK 后生成的版本、
   安装版本码、最低 SDK、大小、SHA-256 和签名证书指纹，沿用时与 APK 一起复制。
-- `downloads.json`：汇总实际 Mac、Android 与 Android TV 包信息，便于下载页读取各客户端独立版本。
+- `downloads.json`：本 Release 的包信息，官网下载页从各 Release 汇总每个客户端的最新版本。
 
-最新版固定入口（首个包含 Android 的正式 Release 发布后生效）：
+最新版固定地址：<https://movieclaw.io/download/android.apk>（TV 为
+<https://movieclaw.io/download/androidtv.apk>），官网按各 Release 的 `downloads.json` 跳到最新 APK。
+不要用 `releases/latest/download/...`：latest 永远是服务器 Release，里面已没有 APK。
 
-<https://github.com/movieclaw/MovieClaw/releases/latest/download/MovieClaw-Android-arm64.apk>
+指定版本（将 `X.Y.Z` 换成实际版本）：
 
-指定服务器发行批次（将 `vX.Y.Z` 换成实际 tag）：
-
-`https://github.com/movieclaw/MovieClaw/releases/download/vX.Y.Z/MovieClaw-Android-arm64.apk`
+`https://github.com/movieclaw/MovieClaw/releases/download/android-vX.Y.Z/MovieClaw-Android-arm64.apk`
 
 ## 签名与本地打包
 
@@ -101,10 +100,8 @@ Android TV（`apps/android-tv`，[设计](androidtv-app.md)）是与手机版完
 - **附件**：`MovieClaw-AndroidTV.apk` + 同名 `.json`（`product` 为 `androidtv`）。一个包同时带
   arm64-v8a 与 armeabi-v7a（电视盒子仍有大量 32 位机器），`arch` 记 `arm`，`abis` 列出两种架构；
   最低 Android 6.0（API 23）。打包脚本校验两种架构的 FFmpeg 音频解码与 libass 库都在。
-- **作业**：`android-tv-apk`，按 `apps/android-tv` 与发版工作流的改动重编或沿用。重编时安装
+- **作业**：`android-release` 的 `android-tv-apk`，tag 为 `androidtv-vX.Y.Z`。安装
   NDK / CMake 现编 FFmpeg（`native/ffmpeg/build.sh`，LGPL 共享库），再 `assembleRelease`。
-- **目前是可选附件**：TV 版还在种子用户测试，失败或缺失只在 `publish` 告警，不拦 Release 转正；
-  重跑 `android-tv-apk` 可补传。稳定后再改成必需附件。
 
 本地打包（同样的四个签名环境变量；首次会编 FFmpeg，`NDK` 默认 `$ANDROID_HOME/ndk/27.3.13750724`）：
 
@@ -112,14 +109,17 @@ Android TV（`apps/android-tv`，[设计](androidtv-app.md)）是与手机版完
 bash apps/android-tv/scripts/package-release.sh   # 产物在 apps/android-tv/build/release/
 ```
 
-固定入口：<https://github.com/movieclaw/MovieClaw/releases/latest/download/MovieClaw-AndroidTV.apk>
+最新版：<https://movieclaw.io/download/androidtv.apk>；指定版本：
+`https://github.com/movieclaw/MovieClaw/releases/download/androidtv-vX.Y.Z/MovieClaw-AndroidTV.apk`
 
 ## 发版操作
 
-1. Android / Android TV 有功能/修复变动时，更新各自的 `version.properties`；仅服务器变动时保持不变。
-2. 按现有 release 规范更新服务器版本与 changelog，合入 main，触发 `release`。
-3. 查看 `asset-plan` 和 `android-apk` 的构建/沿用结果；`publish` 检查 APK、JSON 和其他必需附件。
-4. 在 Release 页面下载 APK；`android-apk` 作业摘要也提供本次固定 tag 下载链接。
+1. Android / Android TV 有功能/修复变动时，递增各自 `version.properties` 的 `versionName` 与
+   `versionCode`，写 `docs/changelog/android-vX.Y.Z.md`（或 `androidtv-vX.Y.Z.md`），合入 main。
+2. 推 `android-vX.Y.Z` / `androidtv-vX.Y.Z` tag；远程会话推点火分支
+   `release-kick/android-vX.Y.Z`，或到 Actions → android-release 手动输入 tag。
+3. 看 `publish` 作业：APK、JSON、`downloads.json` 在场，Release 已转正且没有被标成 latest。
+4. 服务器新功能依赖这一版 App 时，先发 Android 再发服务器，服务器正文的「客户端」一节会取到它。
 
 验证命令：`python3 -m unittest discover -s scripts/tests`。完整打包验证运行上面的脚本，
 检查 `aapt2` 包内版本、`apksigner` 签名和 APK → 元数据 → `downloads.json` 链路。

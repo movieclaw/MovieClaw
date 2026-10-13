@@ -7,9 +7,8 @@ MovieClaw 自托管媒体服务器的 Android 原生客户端(Kotlin + Jetpack C
 ## 正式版本与下载
 
 Android 版本由 `version.properties` 独立管理，不跟随服务器或 iPhone 的版本号。
-服务器每次发版都会附带正式签名的 `MovieClaw-Android-arm64.apk`；Android 代码没变化时沿用旧包。
-[最新版 APK](https://github.com/movieclaw/MovieClaw/releases/latest/download/MovieClaw-Android-arm64.apk)
-在首个包含 Android 的正式 Release 发布后生效。当前支持 Android 8.0+、arm64-v8a 手机/平板。
+Android 单独发版（tag `android-vX.Y.Z`），附带正式签名的 `MovieClaw-Android-arm64.apk`。
+最新版：<https://movieclaw.io/download/android.apk>（官网固定地址，跳转到最新 APK）。当前支持 Android 8.0+、arm64-v8a 手机/平板。
 
 正式打包使用 `bash apps/android/scripts/package-release.sh`（在仓库根目录执行），需要固定签名密钥，
 并强制检查完整播放器依赖。版本规则、签名配置和发版作业见

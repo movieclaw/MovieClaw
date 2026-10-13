@@ -370,7 +370,7 @@ HEVC + AC3 MKV）。
 
 ### 10.7 发版（2026-10-08）
 
-GitHub `release` 工作流新增 `android-tv-apk` 作业，产出 `MovieClaw-AndroidTV.apk` + `.json`，进 `downloads.json`（`product: androidtv`）。
+GitHub `android-release` 工作流的 `android-tv-apk` 作业（tag `androidtv-vX.Y.Z`）产出 `MovieClaw-AndroidTV.apk` + `.json`，进 `downloads.json`（`product: androidtv`）。
 版本独立（`version.properties`，首版 `0.1.0 / 1`），签名复用手机版的 `ANDROID_KEYSTORE_*`；目前是可选附件，缺了只告警。
 细节见 [android-release.md](android-release.md)「Android TV」。
 

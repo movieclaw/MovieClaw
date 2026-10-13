@@ -9,8 +9,8 @@
 # `#if DEBUG` 的另一支，留给发版 PR（bump 版本号）按 Release 编，与发版的 ios-ipa 作业同口径，
 # 在 tag 推出去之前拦下。
 #
-# iPhone、Apple TV、Mac 三个作业并行，按改动路径各自决定跑不跑（Mac 版同样随发版出附件，
-# release.yml 的 mac-app 作业，同理要在 PR 阶段按 CI 的 Xcode 编过）。用作业级 if 而不是工作流级 paths
+# iPhone、Apple TV、Mac 三个作业并行，按改动路径各自决定跑不跑（Mac 版由 mac-release.yml
+# 单独发版，同理要在 PR 阶段按 CI 的 Xcode 编过）。用作业级 if 而不是工作流级 paths
 # 过滤（同 ci.yml）：被 if 跳过的作业记为 skipped、视同通过，设为分支保护的必需检查也不会让
 # 没改 App 的 PR 卡在「检查未完成」。路径清单要覆盖各 App 目标真正编到的目录（见 project.yml），
 # 新增跨目录的源码时同步下面的 filters。
@@ -55,6 +55,7 @@ jobs:
               - *release
               - ".github/workflows/ios.yml"
               - ".github/workflows/release.yml"
+              - ".github/workflows/mac-release.yml"
               - "apps/apple/scripts/**"
               - "apps/apple/project.yml"
               - "apps/apple/XcodeConfig/**"
@@ -143,7 +144,7 @@ jobs:
   mac:
     needs: changes
     if: needs.changes.outputs.mac == 'true'
-    # 与 release.yml 的 mac-app 作业同一个 runner 镜像
+    # 与 mac-release.yml 的 mac-app 作业同一个 runner 镜像
     runs-on: xcode-27
     steps:
       - uses: actions/checkout@v4

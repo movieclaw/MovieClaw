@@ -10,7 +10,7 @@ on:
     paths:
       - 'apps/android/**'
       - '.github/workflows/android-stability.yml'
-      - '.github/workflows/release.yml'
+      - '.github/workflows/android-release.yml'
 
 permissions:
   contents: read
@@ -33,7 +33,7 @@ jobs:
             android:
               - 'apps/android/**'
               - '.github/workflows/android-stability.yml'
-              - '.github/workflows/release.yml'
+              - '.github/workflows/android-release.yml'
 
   regression:
     needs: changes

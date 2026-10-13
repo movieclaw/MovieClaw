@@ -12,7 +12,10 @@ Obsidian、Vercel、Telegram、flomo、滴答清单、Bear），括号里是出�
 ## 多语言维护
 
 - 每个版本只维护一份 `docs/changelog/<tag>.md`：应用用 `vX.Y.Z.md`，模型用
-  `torrent-ner-vN.md`。同一份文件同步到同一个 GitHub Release，不按语言另建 Release。
+  `torrent-ner-vN.md`，Android 用 `android-vX.Y.Z.md` / `androidtv-vX.Y.Z.md`，Mac 版用 `macos-vX.Y.Z.md`。
+  同一份文件同步到同一个 GitHub Release，不按语言另建 Release。
+- 服务器 changelog 不写客户端版本号：正文末尾的「Apps / 客户端」一节由发版流水线
+  自动生成。功能需要新版 App 时，在该功能的段落里写明「需要 Android / Mac X.Y.Z 或更新版本」。
 - **英文在前，完整中文在后**，两段之间用 `---` 和 `## 简体中文` 分隔。使用纯 Markdown，
   不用 HTML 折叠区：GitHub 支持折叠，但当前应用内更新日志不解析 HTML。
 - 两种语言讲同一组事实，修改功能、升级要求或已知限制时在同一个 PR 里同步修改两段，

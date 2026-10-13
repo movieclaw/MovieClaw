@@ -9,6 +9,9 @@
 #     → 校验版本号格式并与 main 的 pyproject 比对
 #     → 以 GITHUB_TOKEN 调 release.yml 的 workflow_dispatch（tag=vX.Y.Z）
 #     → 删除点火分支（一次性信使，用完即焚）
+#   独立客户端同理：release-kick/android-vX.Y.Z、release-kick/androidtv-vX.Y.Z 与 main 上
+#   对应 version.properties 比对后触发 android-release.yml；release-kick/macos-vX.Y.Z 与
+#   apps/apple/project.yml 的 MARKETING_VERSION 比对后触发 mac-release.yml。
 #
 # 为什么不递归：GITHUB_TOKEN 触发的事件默认不再引发新工作流（防递归），
 # 但 workflow_dispatch / repository_dispatch 是官方明确的例外——正好是
@@ -21,7 +24,11 @@ name: release-kick
 
 on:
   push:
-    branches: ["release-kick/v*"]
+    branches:
+      - "release-kick/v*"
+      - "release-kick/android-v*"
+      - "release-kick/androidtv-v*"
+      - "release-kick/macos-v*"
 
 permissions:
   contents: write
@@ -40,6 +47,24 @@ jobs:
       - name: 校验 tag 并触发 release 工作流
         run: |
           TAG="${GITHUB_REF_NAME#release-kick/}"
+          case "$TAG" in
+            android-v*|androidtv-v*|macos-v*)
+              case "$TAG" in
+                android-v*) FILE=apps/android/version.properties; WORKFLOW=android-release.yml ;;
+                androidtv-v*) FILE=apps/android-tv/version.properties; WORKFLOW=android-release.yml ;;
+                *) FILE=apps/apple/project.yml; WORKFLOW=mac-release.yml ;;
+              esac
+              VERSION="${TAG#*-v}"
+              ACTUAL=$(sed -n -e 's/^versionName=//p' -e 's/^ *MARKETING_VERSION: *"\([^"]*\)".*/\1/p' "$FILE" | head -1)
+              if ! echo "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || [ "$VERSION" != "$ACTUAL" ]; then
+                echo "::error::tag $TAG 与 main 上 $FILE 的版本 $ACTUAL 不一致"
+                exit 1
+              fi
+              echo "触发 $WORKFLOW（tag=$TAG，将在 main HEAD 上创建 tag）"
+              gh workflow run "$WORKFLOW" --repo "$GITHUB_REPOSITORY" --ref main -f tag="$TAG"
+              exit 0
+              ;;
+          esac
           if ! echo "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$'; then
             echo "::error::点火分支名里的 tag 段不合法：$TAG（应形如 v0.4.0）"
             exit 1

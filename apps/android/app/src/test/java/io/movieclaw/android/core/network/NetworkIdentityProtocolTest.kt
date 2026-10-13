@@ -7,6 +7,7 @@ import io.movieclaw.android.core.session.LibraryHomeSnapshotStore
 import io.movieclaw.android.core.session.SessionCacheCleaner
 import io.movieclaw.android.core.session.SessionRepository
 import io.movieclaw.android.core.session.TokenVault
+import io.movieclaw.android.core.session.serverVersionAtLeast
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
@@ -179,6 +180,24 @@ class NetworkIdentityProtocolTest {
         val payload = json.parseToJsonElement(login.body.readUtf8()).toString()
         assertTrue(payload.contains("installation_id"))
         assertTrue(payload.contains("android"))
+    }
+
+    @Test fun `server older than the minimum version is rejected before login`() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val cleaners = SessionCacheCleaner(context, ImageLoaders(context, vault, client, ShareCookieJar()), LibraryHomeSnapshotStore(context, json))
+        val repository = SessionRepository(context, json, vault, factory, client, cleaners)
+        server.enqueue(MockResponse().setBody("""{"service":"movieclaw","spec_hash":"test","version":"0.32.0"}"""))
+        val error = runCatching { repository.login(server.url("/").toString(), "alice", "password") }.exceptionOrNull()
+        assertEquals("SERVER_TOO_OLD", (error as ApiException).code)
+        assertTrue(error.message.contains("v0.32.0"))
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test fun `server version comparison uses numeric parts`() {
+        assertTrue(serverVersionAtLeast("0.33.0", "0.33.0"))
+        assertTrue(serverVersionAtLeast("0.33.1-dev.20261008", "0.33.0"))
+        assertTrue(serverVersionAtLeast("0.100.0", "0.33.0"))
+        assertFalse(serverVersionAtLeast("0.32.9", "0.33.0"))
     }
 
     private suspend fun staleRevalidation(response: MockResponse) {

@@ -32,6 +32,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import okhttp3.OkHttpClient
@@ -309,6 +310,16 @@ class SessionRepository @Inject constructor(
             if (!isMovieClaw) {
                 throw ApiException("NOT_MOVIECLAW", "不是 MovieClaw 服务器或接口不可用(HTTP ${r.code})")
             }
+            // App 独立发版后，兼容性只能靠运行时判断；v0.30.0 及更早没有 version 字段，交给登录接口的 404 兜底
+            val version = runCatching {
+                (json.parseToJsonElement(body).jsonObject["version"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            }.getOrNull()
+            if (version != null && !serverVersionAtLeast(version, MIN_SERVER_VERSION)) {
+                throw ApiException(
+                    "SERVER_TOO_OLD",
+                    "服务器版本 v$version 太旧,App 需要 v$MIN_SERVER_VERSION 或更新版本。请先在网页「设置 → 更新与维护」里把服务器升级到最新版",
+                )
+            }
             val finalUrl = r.request.url
             val apiBase = finalUrl.toString().removeSuffix("/health").trimEnd('/')
             val isDefaultPort = (finalUrl.scheme == "http" && finalUrl.port == 80) ||
@@ -472,5 +483,20 @@ class SessionRepository @Inject constructor(
 
     private companion object {
         const val KEY_SERVERS = "servers_json"
+        /** 最低服务器版本：首个附带 Android 的服务器版本；App 开始依赖更新的接口时上调 */
+        const val MIN_SERVER_VERSION = "0.33.0"
     }
+}
+
+/** 比较 `0.33.0`、`0.33.1-dev.20261008` 这类版本号的数字部分 */
+internal fun serverVersionAtLeast(version: String, minimum: String): Boolean {
+    fun parts(v: String) = v.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
+    val a = parts(version)
+    val b = parts(minimum)
+    for (i in 0 until maxOf(a.size, b.size)) {
+        val x = a.getOrElse(i) { 0 }
+        val y = b.getOrElse(i) { 0 }
+        if (x != y) return x > y
+    }
+    return true
 }

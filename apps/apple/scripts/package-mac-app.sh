@@ -1,5 +1,5 @@
 #!/bin/zsh
-# 打 Mac 版 App 的发行包，随 GitHub Release 发布（release.yml 的 mac-app 作业；本机手工发版同用）。
+# 打 Mac 版 App 的发行包，单独发 macos-vX.Y.Z GitHub Release（mac-release.yml；本机手工发版同用）。
 #
 # 与转码器（macos/MovieClawTranscoder/scripts/package-app.sh）同一套签名与公证约定：
 #   - MOVIECLAW_SIGNING_IDENTITY：「Developer ID Application: …」；不给则 ad-hoc 签名（只能自己机器上用）
@@ -17,7 +17,7 @@
 #
 # 可选环境变量：MC_BUILD_NUMBER（构建号）、MC_MAC_OUT（输出目录，默认 build-macapp，已被 git 忽略）、
 #   MC_SPM（共享的 Swift 包缓存目录，同 build-unsigned-ipa.sh）
-# 产物：$MC_MAC_OUT/MovieClaw-macos-arm64.zip（文件名固定，Release 的 latest/download 链接长期有效）
+# 产物：$MC_MAC_OUT/MovieClaw-macos-arm64.zip（文件名固定，官网下载清单按它识别）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
