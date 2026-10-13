@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// 我的 → 下载与存储（docs/design/offline-download.md §8）：本机副本占了多少、还剩多少，按条目列出，
-/// 左滑删除、编辑多选删除、「删除已看完的」一键清理；别的账号在这台 iPhone 上的下载也能删；下载设置。
+/// 我的 → 下载与存储（docs/design/offline-download.md §8），分组同系统「iPhone 储存空间」：
+/// 容量条 → 清理建议（有已看完的才出现）→ 已下载（点进条目、左滑 / 长按删除）→ 其他账号 → 下载设置
 struct OfflineStorageView: View {
     @State private var store = OfflineStore.shared
     @Environment(\.api) private var api
@@ -9,8 +9,6 @@ struct OfflineStorageView: View {
     @State private var otherOwners: [(owner: OfflineOwner, bytes: Int64, items: Int)] = []
     @State private var allowCellular = OfflineSettings.allowCellular
     @State private var confirm: Confirm?
-    @State private var selection: Set<Int> = []
-    @Environment(\.editMode) private var editMode
 
     private enum Confirm: Identifiable {
         case items([Int])
@@ -27,36 +25,42 @@ struct OfflineStorageView: View {
 
     var body: some View {
         let items = store.items.values.sorted { $0.addedAt > $1.addedAt }
-        List(selection: $selection) {
+        let watched = watchedUnits
+        List {
             Section {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("已用 \(Formatters.bytes(Int(store.totalBytes)))")
-                        .font(.title3.weight(.semibold)).monospacedDigit()
-                    if let free = OfflineDisk.availableBytes {
-                        Text("iPhone 剩余 \(Formatters.bytes(Int(free)))").font(.footnote).foregroundStyle(Theme.textMuted)
-                    }
-                }
-                .padding(.vertical, 4)
-                .accessibilityIdentifier("offline-storage-summary")
+                StorageUsageBar(downloads: store.totalBytes, free: OfflineDisk.availableBytes, total: OfflineDisk.totalCapacity)
+                    .accessibilityIdentifier("offline-storage-summary")
             }
-            if items.isEmpty {
-                Section {
+            if !watched.isEmpty {
+                Section("建议") {
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.circle.fill").font(.title2).foregroundStyle(Theme.success)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("删除已看完的")
+                            Text("\(watched.count) 个已看完，占用 \(Formatters.bytes(Int(watched.reduce(0) { $0 + $1.receivedBytes }))))")
+                                .font(.caption).foregroundStyle(Theme.textMuted)
+                        }
+                        Spacer(minLength: 8)
+                        Button("删除") { confirm = .watched }
+                            .buttonStyle(.bordered).tint(.red).controlSize(.small)
+                            .accessibilityIdentifier("offline-delete-watched")
+                    }
+                    .padding(.vertical, 2)
+                }
+            }
+            Section("已下载") {
+                if items.isEmpty {
                     Text("还没有下载。在影片详情页点「下载」，没网的时候也能看。")
                         .font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
-            } else {
-                Section("已下载") {
-                    ForEach(items) { item in
-                        row(item).tag(item.mediaItemId)
-                            .swipeActions {
-                                Button("删除", role: .destructive) { confirm = .items([item.mediaItemId]) }
-                            }
+                ForEach(items) { item in
+                    NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId, itemId: item.mediaItemId)) {
+                        row(item)
                     }
-                }
-                Section {
-                    Button("删除已看完的", role: .destructive) { confirm = .watched }
-                        .disabled(watchedUnits.isEmpty)
-                        .accessibilityIdentifier("offline-delete-watched")
+                    .swipeActions { deleteAction { confirm = .items([item.mediaItemId]) } }
+                    .contextMenu {
+                        Button("删除下载", systemImage: "trash", role: .destructive) { confirm = .items([item.mediaItemId]) }
+                    }
                 }
             }
             if !otherOwners.isEmpty {
@@ -71,9 +75,7 @@ struct OfflineStorageView: View {
                             Spacer()
                             Text(Formatters.bytes(Int(entry.bytes))).monospacedDigit().foregroundStyle(Theme.textMuted)
                         }
-                        .swipeActions {
-                            Button("删除", role: .destructive) { confirm = .owner(entry.owner) }
-                        }
+                        .swipeActions { deleteAction { confirm = .owner(entry.owner) } }
                     }
                 } header: {
                     Text("其他账号")
@@ -87,21 +89,13 @@ struct OfflineStorageView: View {
                         OfflineSettings.allowCellular = value
                         OfflineDownloader.shared.applyNetworkSettings()
                     }
+            } header: {
+                Text("下载设置")
             } footer: {
                 Text("关闭时只在 Wi-Fi 下下载。")
             }
         }
         .navigationTitle("下载与存储")
-        .toolbar {
-            if !items.isEmpty {
-                ToolbarItem(placement: .topBarTrailing) { EditButton() }
-                if editMode?.wrappedValue.isEditing == true, !selection.isEmpty {
-                    ToolbarItem(placement: .bottomBar) {
-                        Button("删除所选（\(selection.count)）", role: .destructive) { confirm = .items(Array(selection)) }
-                    }
-                }
-            }
-        }
         .confirmationDialog(confirmTitle, isPresented: Binding(mcGet: { confirm != nil }, set: { if !$0 { confirm = nil } }),
                             titleVisibility: .visible, presenting: confirm) { target in
             Button("删除（释放 \(Formatters.bytes(Int(bytes(of: target)))))", role: .destructive) { perform(target) }
@@ -110,6 +104,11 @@ struct OfflineStorageView: View {
         }
         .task { await loadOtherOwners() }
         .accessibilityIdentifier("offline-storage")
+    }
+
+    /// 左滑删除：不用 role: .destructive（那会让系统先把行做删除动画移走，这里还要等确认框），显式染成系统红
+    private func deleteAction(_ action: @escaping () -> Void) -> some View {
+        Button("删除", systemImage: "trash", action: action).tint(.red)
     }
 
     private func row(_ item: OfflineItemSummary) -> some View {
@@ -171,7 +170,6 @@ struct OfflineStorageView: View {
         switch target {
         case let .items(ids):
             for id in ids { OfflineDownloader.shared.deleteItem(id) }
-            selection = []
         case .watched:
             for unit in watchedUnits { OfflineDownloader.shared.delete(fileId: unit.fileId) }
         case let .owner(owner):
@@ -189,5 +187,54 @@ struct OfflineStorageView: View {
                 return (owner, usage.bytes, usage.items)
             }.filter { $0.1 > 0 }
         }.value
+    }
+}
+
+/// 存储页顶部的容量条（同系统「iPhone 储存空间」）：MovieClaw 下载 / 其他已用 / 剩余
+private struct StorageUsageBar: View {
+    let downloads: Int64
+    let free: Int64?
+    let total: Int64?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .firstTextBaseline) {
+                Text("iPhone").font(.headline)
+                Spacer()
+                if let total, let free {
+                    Text("已用 \(Formatters.bytes(Int(total - free))) / \(Formatters.bytes(Int(total)))")
+                        .font(.subheadline).monospacedDigit().foregroundStyle(Theme.textMuted)
+                }
+            }
+            if let total, total > 0, let free {
+                let other = max(0, total - free - downloads)
+                GeometryReader { proxy in
+                    HStack(spacing: 2) {
+                        Rectangle().fill(Theme.info).frame(width: max(downloads > 0 ? 3 : 0, proxy.size.width * CGFloat(downloads) / CGFloat(total)))
+                        Rectangle().fill(.white.opacity(0.35)).frame(width: proxy.size.width * CGFloat(other) / CGFloat(total))
+                        Rectangle().fill(.white.opacity(0.08))
+                    }
+                    .clipShape(.rect(cornerRadius: 4))
+                }
+                .frame(height: 14)
+                HStack(spacing: 14) {
+                    legend(Theme.info, "MovieClaw 下载 \(Formatters.bytes(Int(downloads)))")
+                    legend(.white.opacity(0.35), "其他")
+                    Spacer(minLength: 0)
+                    Text("剩余 \(Formatters.bytes(Int(free)))").font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted)
+                }
+            } else {
+                Text("MovieClaw 下载 \(Formatters.bytes(Int(downloads)))").font(.subheadline).monospacedDigit()
+            }
+        }
+        .padding(.vertical, 4)
+        .accessibilityElement(children: .combine)
+    }
+
+    private func legend(_ color: Color, _ text: String) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(text).font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted)
+        }
     }
 }

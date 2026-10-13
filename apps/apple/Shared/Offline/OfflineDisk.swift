@@ -98,6 +98,11 @@ nonisolated enum OfflineDisk {
         return values?.volumeAvailableCapacityForImportantUsage
     }
 
+    /// iPhone 的总容量（存储页的容量条）
+    static var totalCapacity: Int64? {
+        (try? root.resourceValues(forKeys: [.volumeTotalCapacityKey]).volumeTotalCapacity).flatMap { $0.map(Int64.init) }
+    }
+
     // MARK: 存档里的几类文件
 
     static func ownerFile(_ key: String) -> URL { ownerDir(key).appending(path: "owner.json") }

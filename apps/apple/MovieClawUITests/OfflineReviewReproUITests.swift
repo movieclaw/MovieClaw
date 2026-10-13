@@ -304,19 +304,59 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertGreaterThan(second, first, "时间应在走（\(first) → \(second)）")
     }
 
-    /// 存储页「编辑」多选后应出现「删除所选」
+    /// 存储页按系统「iPhone 储存空间」分组：容量条 / 建议 / 已下载 / 下载设置；没有「编辑」；
+    /// 左滑出（红色的）删除，取消不删；点一行进到媒体库里的这部片
     @MainActor
-    func testStorageMultiSelectDelete() throws {
+    func testStoragePageLayout() throws {
         ensureMovieDownloaded()
         let app = launch(reset: false, route: "/my/downloads")
-        let edit = app.buttons["编辑"].firstMatch.exists ? app.buttons["编辑"].firstMatch : app.buttons["Edit"].firstMatch
-        XCTAssertTrue(edit.waitForExistence(timeout: 20))
-        edit.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["offline-storage-summary"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.buttons["编辑"].exists || app.buttons["Edit"].exists, "不该再有「编辑」")
+        for header in ["已下载", "下载设置"] {
+            XCTAssertTrue(app.staticTexts[header].exists, "应有「\(header)」分组\n\(app.debugDescription)")
+        }
+        XCTAssertTrue(app.switches["使用蜂窝网络下载"].exists)
+        snapshot("storage-page")
+
         let row = app.cells.containing(.any, identifier: "offline-storage-item-\(movieId)").firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 10))
-        row.tap()
-        let delete = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '删除所选'")).firstMatch
-        XCTAssertTrue(delete.waitForExistence(timeout: 5), "多选后应出现「删除所选」")
+        row.swipeLeft()
+        let delete = app.buttons["删除"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 5), "左滑应出「删除」")
+        snapshot("storage-swipe")
+        delete.tap()
+        let confirmDelete = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '删除（释放'")).firstMatch
+        XCTAssertTrue(confirmDelete.waitForExistence(timeout: 5))
+        let cancel = app.buttons["取消"].firstMatch.exists ? app.buttons["取消"].firstMatch : app.buttons["Cancel"].firstMatch
+        // iOS 26 的确认框以弹出式窗口出现：点窗口外（系统的 PopoverDismissRegion）取消
+        let outside = app.otherElements["PopoverDismissRegion"]
+        if cancel.exists { cancel.tap() } else if outside.exists { outside.tap() } else { app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.8)).tap() }
+        XCTAssertTrue(waitUntil(timeout: 5) { !confirmDelete.exists }, "确认框应关掉\n\(app.debugDescription)")
+        XCTAssertTrue(waitUntil(timeout: 5) { row.exists }, "取消后这一行应还在")
+
+        // 确认框收起动画期间点不中：等它走完；左滑露出的按钮若还开着，第一下点击只是收起
+        let title = app.staticTexts["item-title"]
+        for _ in 0 ..< 3 where !title.exists {
+            Thread.sleep(forTimeInterval: 1)
+            if row.isHittable { row.tap() }
+            _ = title.waitForExistence(timeout: 5)
+        }
+        XCTAssertTrue(title.exists, "点一行应进到媒体库里的这部片")
+
+        // 「建议」：有看完的下载才出现。服务器上标已看 → 详情页在线时把续播状态写回本机 → 回到存储页
+        let backend = Backend(server: backendURL, username: username, password: password)
+        backend.request("POST", "/playback/marks", body: ["media_item_id": movieId, "played": true])
+        defer { backend.request("POST", "/playback/marks", body: ["media_item_id": movieId, "played": false]) }
+        app.terminate()
+        let again = launch(reset: false, route: "/library/1/item/\(movieId)")
+        XCTAssertTrue(again.staticTexts["item-title"].waitForExistence(timeout: 30))
+        Thread.sleep(forTimeInterval: 3)
+        again.buttons["BackButton"].firstMatch.tap()
+        again.terminate()
+        let storage = launch(reset: false, route: "/my/downloads")
+        XCTAssertTrue(storage.buttons["offline-delete-watched"].waitForExistence(timeout: 20), "看完的下载应出现在「建议」里")
+        XCTAssertTrue(storage.staticTexts["建议"].exists)
+        snapshot("storage-suggestion")
     }
 
     // MARK: 工具
