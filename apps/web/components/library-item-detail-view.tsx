@@ -74,6 +74,7 @@ import {
 } from "@/lib/api/playback";
 import { type ShareView, getItemShare } from "@/lib/api/shares";
 import { useSubscribeEntry } from "@/components/subscribe-entry";
+import { LibrarySeriesUpdateCalendar } from "@/components/library-series-update-calendar";
 import { LIBRARY_KIND_LABELS } from "@/lib/media-types";
 import { getDiscoveryReturnPath } from "@/lib/discovery-return-path";
 import { scopeOfMediaKind } from "@/lib/categories";
@@ -1014,6 +1015,10 @@ export function LibraryItemDetailView({
       )}
 
       <div className={`mt-9 space-y-8 max-md:mt-6 max-md:space-y-6 content-inset`}>
+        {/* —— 更新日历（issue #547）：正在追的在播剧，复用订阅更新预测；
+            完结或一周内无排期时组件自身不渲染 —— */}
+        {!isMovie && <LibrarySeriesUpdateCalendar detail={detail} />}
+
         {/* —— 剧集分集区：季选择 + 分集横滚卡 + 选中集的简介/规格/文件 —— */}
         {!isMovie && detail.seasons.length > 0 && (
           <SeasonEpisodesSection
