@@ -6990,6 +6990,29 @@ nonisolated extension API {
         }
     }
 
+    /// 一个文件的可选档位与预计大小：不带展示数据与播放数据，完整清单等真正开始下载时再取。
+    struct OfflineFileProfilesView: Codable, Hashable, Sendable {
+        var fileId: Int
+        var mediaItemId: Int
+        var seasonNumber: Int
+        var episodeNumber: Int
+        /// 原文件容器（原画档存盘扩展名）
+        var container: String?
+        var profiles: [API.OfflineProfileView]?
+        /// 整个文件下不了的原因（原盘等）
+        var unavailableReason: String?
+
+        enum CodingKeys: String, CodingKey {
+            case fileId = "file_id"
+            case mediaItemId = "media_item_id"
+            case seasonNumber = "season_number"
+            case episodeNumber = "episode_number"
+            case container
+            case profiles
+            case unavailableReason = "unavailable_reason"
+        }
+    }
+
     /// 一个播放单元打包所需的一切：展示数据、播放数据、要下载的文件与可选档位。
     struct OfflineManifestView: Codable, Hashable, Sendable {
         var fileId: Int
@@ -7062,6 +7085,24 @@ nonisolated extension API {
             case label
             case height
             case expectedBytes = "expected_bytes"
+        }
+    }
+
+    /// 选档表单一次问一批文件的可选档位（docs/design/offline-download.md §5.2）。
+    struct OfflineProfilesRequest: Codable, Hashable, Sendable {
+        var fileIds: [Int]
+
+        enum CodingKeys: String, CodingKey {
+            case fileIds = "file_ids"
+        }
+    }
+
+    /// 按请求顺序返回；看不到 / 不存在的文件不出现在结果里。
+    struct OfflineProfilesView: Codable, Hashable, Sendable {
+        var files: [API.OfflineFileProfilesView]?
+
+        enum CodingKeys: String, CodingKey {
+            case files
         }
     }
 

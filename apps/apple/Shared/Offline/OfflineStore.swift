@@ -20,6 +20,15 @@ final class OfflineStore {
     private(set) var doneFileIds: Set<Int> = []
     /// 至少有一个能播单元的条目
     private(set) var downloadedItemIds: Set<Int> = []
+    /// 每个条目还没下完的单元（详情页右上角「取消下载」）：只在开始 / 完成 / 删除时变，下载进度不改它——
+    /// 页面读 `units` 的话每次进度刷新都整页重算，开着的菜单被重建，点下去的项落空
+    private(set) var activeByItem: [Int: [ActiveUnit]] = [:]
+
+    struct ActiveUnit: Hashable {
+        let fileId: Int
+        let season: Int
+        let episode: Int
+    }
     /// 这台服务器支持离线下载（有实例号）：没有时下载入口不出现
     private(set) var serverSupported = false
     /// 读完本机存档了（离线首页据此区分「还在读」和「真的没有」）
@@ -143,6 +152,9 @@ final class OfflineStore {
         if done != doneFileIds { doneFileIds = done }
         let itemIds = Set(units.values.filter(\.playable).map(\.mediaItemId))
         if itemIds != downloadedItemIds { downloadedItemIds = itemIds }
+        let active = Dictionary(grouping: units.values.filter(\.isActive)) { $0.mediaItemId }
+            .mapValues { $0.map { ActiveUnit(fileId: $0.fileId, season: $0.season, episode: $0.episode) }.sorted { $0.fileId < $1.fileId } }
+        if active != activeByItem { activeByItem = active }
     }
 
     // MARK: 查询

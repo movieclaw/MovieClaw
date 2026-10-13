@@ -132,10 +132,13 @@ struct OfflineDownloadScope: Identifiable {
     var preferred = false
 }
 
-/// 选档 sheet：列出这个文件可用的档位、各档预计大小、本机剩余空间；记住上次的选择
 /// 下载选档（docs/design/offline-download.md §5）：点一行只是选中（打勾），右上角「下载」才开始——同系统的选择类表单。
-/// 一次下多集时先把每一集的下载信息都取回来，每一档显示整批的总大小，空间不够时说明并禁用「下载」。
-/// 剧集从右上角菜单进来时顶部多一排范围（§8）：切范围时大小跟着变，取过的下载信息不重取
+/// 每一档显示整批的总大小，空间不够时说明并禁用「下载」。剧集从右上角菜单进来时顶部多一排范围（§8）。
+///
+/// 大小来自批量接口 `POST /offline/profiles`：打开时把所有范围的文件一次问完，切范围只是换个算法，不再发请求。
+/// （逐集取完整清单时，43 集要十几秒：每份清单带整部剧详情与整季分集，服务端串行 0.3 秒一份。）
+/// 点「下载」才取第一集的完整清单（存条目的展示数据），其余集先建「准备中」单元，由下载器逐集取清单。
+/// 旧服务器没有批量接口：退回逐集取清单
 struct OfflineProfileSheet: View {
     let title: String
     private let loadScopes: () async throws -> [OfflineDownloadScope]
@@ -155,24 +158,24 @@ struct OfflineProfileSheet: View {
     @Environment(Feedback.self) private var feedback
     @State private var scopes: [OfflineDownloadScope]?
     @State private var scopeId: String?
-    @State private var loaded: [Int: API.OfflineManifestView] = [:]
-    /// 取不到下载信息的文件（批量时其余照下）
-    @State private var failedIds: Set<Int> = []
+    /// 每个文件的可选档位（批量接口；旧服务器由逐集清单换算）
+    @State private var entries: [Int: API.OfflineFileProfilesView] = [:]
+    /// 已经问过的文件（问过却不在 `entries` 里 = 看不到 / 取不到，会跳过）
+    @State private var asked: Set<Int> = []
+    /// 旧服务器逐集取到的完整清单（开始下载时直接用）
+    @State private var manifests: [Int: API.OfflineManifestView] = [:]
+    @State private var legacy = false
     @State private var error: String?
     @State private var startError: String?
     @State private var choice: String?
+    @State private var starting = false
 
     private var fileIds: [Int] { scopes?.first { $0.id == scopeId }?.fileIds ?? [] }
     private var batch: Bool { fileIds.count > 1 }
-    private var attempted: Bool { fileIds.allSatisfy { loaded[$0] != nil || failedIds.contains($0) } }
-    private var missing: Int { fileIds.filter(failedIds.contains).count }
-
-    /// 当前范围的下载信息：每个文件都取过了才算到手
-    private var manifests: [API.OfflineManifestView]? {
-        guard !fileIds.isEmpty, attempted else { return nil }
-        let ordered = fileIds.compactMap { loaded[$0] }
-        return ordered.isEmpty ? nil : ordered
-    }
+    private var ready: Bool { !fileIds.isEmpty && fileIds.allSatisfy(asked.contains) }
+    private var missing: Int { fileIds.filter { entries[$0] == nil }.count }
+    /// 当前范围里取到了的文件（按集的顺序）
+    private var current: [API.OfflineFileProfilesView] { fileIds.compactMap { entries[$0] } }
 
     var body: some View {
         NavigationStack {
@@ -192,10 +195,14 @@ struct OfflineProfileSheet: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("下载") { start() }
-                        .fontWeight(.semibold)
-                        .disabled(!canStart)
-                        .accessibilityIdentifier("offline-profile-confirm")
+                    if starting {
+                        ProgressView()
+                    } else {
+                        Button("下载") { Task { await start() } }
+                            .fontWeight(.semibold)
+                            .disabled(!canStart)
+                            .accessibilityIdentifier("offline-profile-confirm")
+                    }
                 }
             }
         }
@@ -204,11 +211,20 @@ struct OfflineProfileSheet: View {
                 let scopes = try await loadScopes()
                 scopeId = (scopes.first(where: \.preferred) ?? scopes.first)?.id
                 self.scopes = scopes
+                // 所有范围的文件一次问完：切范围不再发请求
+                var all: [Int] = []
+                for scope in scopes { for id in scope.fileIds where !all.contains(id) { all.append(id) } }
+                await loadProfiles(all)
             } catch {
                 self.error = error.localizedDescription
             }
         }
-        .task(id: scopeId) { await load(fileIds) }
+        // 只有旧服务器才按范围逐集取清单。闭包捕获的是这一次的范围：首次渲染时为空直接返回，
+        // 范围定下来后才真正去取（不捕获的话首次那趟会读到刚设好的范围、马上又被取消重发）
+        .task(id: "\(scopeId ?? "")|\(legacy)") { [scopeId, legacy] in
+            guard legacy, let scopeId, let ids = scopes?.first(where: { $0.id == scopeId })?.fileIds else { return }
+            await loadManifests(ids)
+        }
     }
 
     @ViewBuilder
@@ -225,16 +241,16 @@ struct OfflineProfileSheet: View {
                     .accessibilityIdentifier("offline-scope")
                 }
                 if batch {
-                    Text(missing > 0 ? "共 \(fileIds.count - missing) 集（另有 \(missing) 集取不到下载信息，会跳过）" : "共 \(fileIds.count) 集")
+                    Text(ready && missing > 0 ? "共 \(fileIds.count - missing) 集（另有 \(missing) 集取不到下载信息，会跳过）" : "共 \(fileIds.count) 集")
                         .font(.footnote).foregroundStyle(Theme.textMuted)
                 }
                 if let free {
                     Text("iPhone 剩余 \(Formatters.bytes(Int(free)))").font(.footnote).foregroundStyle(Theme.textMuted)
                 }
             }
-            if let manifests, let first = manifests.first {
-                profiles(first, manifests, free: free)
-            } else if attempted {
+            if ready, let first = current.first {
+                profiles(first, current, free: free)
+            } else if ready {
                 Section { Text(error ?? "拿不到下载信息").foregroundStyle(Theme.warning) }
             } else {
                 Section {
@@ -249,13 +265,13 @@ struct OfflineProfileSheet: View {
     }
 
     @ViewBuilder
-    private func profiles(_ first: API.OfflineManifestView, _ manifests: [API.OfflineManifestView], free: Int64?) -> some View {
+    private func profiles(_ first: API.OfflineFileProfilesView, _ files: [API.OfflineFileProfilesView], free: Int64?) -> some View {
         if let reason = first.unavailableReason, !batch {
             Section { Text(reason).foregroundStyle(Theme.warning) }
         } else {
             Section {
-                ForEach(first.profiles, id: \.profile) { profile in
-                    let total = Self.totalBytes(profile.profile, manifests)
+                ForEach(first.profiles ?? [], id: \.profile) { profile in
+                    let total = Self.totalBytes(profile.profile, files)
                     Button { choice = profile.profile } label: {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
@@ -277,8 +293,8 @@ struct OfflineProfileSheet: View {
             } header: {
                 Text("画质")
             } footer: {
-                if let free, needed(first, manifests) > free {
-                    Text("空间不够：需要约 \(Formatters.bytes(Int(needed(first, manifests))))（含预留 2 GB），iPhone 只剩 \(Formatters.bytes(Int(free)))。换个小一点的画质，或先清理空间。")
+                if let free, needed(first, files) > free {
+                    Text("空间不够：需要约 \(Formatters.bytes(Int(needed(first, files))))（含预留 2 GB），iPhone 只剩 \(Formatters.bytes(Int(free)))。换个小一点的画质，或先清理空间。")
                         .foregroundStyle(Theme.danger)
                 } else {
                     Text(OfflineSettings.allowCellular ? "会使用蜂窝网络下载。" : "只在 Wi-Fi 下下载；可在「我的 → 下载与存储」里改。")
@@ -288,39 +304,59 @@ struct OfflineProfileSheet: View {
     }
 
     private var canStart: Bool {
-        guard let manifests, let first = manifests.first else { return false }
+        guard ready, let first = current.first, !starting else { return false }
         if !batch, first.unavailableReason != nil { return false }
-        if let free = OfflineDisk.availableBytes, needed(first, manifests) > free { return false }
+        if let free = OfflineDisk.availableBytes, needed(first, current) > free { return false }
         return true
     }
 
     /// 选中的档位：用户点过的 → 上次用的（这个文件有的话）→ 原画
-    private func selected(_ first: API.OfflineManifestView) -> String {
+    private func selected(_ first: API.OfflineFileProfilesView) -> String {
         if let choice { return choice }
         let last = OfflineSettings.lastProfile
-        return first.profiles.contains { $0.profile == last } ? last ?? "original" : "original"
+        return (first.profiles ?? []).contains { $0.profile == last } ? last ?? "original" : "original"
     }
 
-    private func needed(_ first: API.OfflineManifestView, _ manifests: [API.OfflineManifestView]) -> Int64 {
-        Self.totalBytes(selected(first), manifests) + OfflineSettings.reserveBytes
+    private func needed(_ first: API.OfflineFileProfilesView, _ files: [API.OfflineFileProfilesView]) -> Int64 {
+        Self.totalBytes(selected(first), files) + OfflineSettings.reserveBytes
     }
 
-    /// 整批按这一档的总大小：某一集没有这一档就按它的原画算（开始下载时同样退回原画）
-    static func totalBytes(_ profile: String, _ manifests: [API.OfflineManifestView]) -> Int64 {
-        manifests.reduce(0) { sum, manifest in
-            guard manifest.unavailableReason == nil else { return sum }
-            let chosen = manifest.profiles.first { $0.profile == profile } ?? manifest.profiles.first
-            return sum + Int64(chosen?.expectedBytes ?? 0)
+    /// 某一集按这一档的档位：没有这一档就用它的原画（开始下载时同样退回）
+    private static func pick(_ profile: String, in entry: API.OfflineFileProfilesView) -> API.OfflineProfileView? {
+        let options = entry.profiles ?? []
+        return options.first { $0.profile == profile } ?? options.first
+    }
+
+    /// 整批按这一档的总大小
+    static func totalBytes(_ profile: String, _ files: [API.OfflineFileProfilesView]) -> Int64 {
+        files.reduce(0) { sum, entry in
+            guard entry.unavailableReason == nil else { return sum }
+            return sum + Int64(pick(profile, in: entry)?.expectedBytes ?? 0)
         }
     }
 
-    /// 取每一集的下载信息：并发 6 个，取过的不重取；批量时取不到的集跳过并计数，全都取不到才报错。
-    /// 切范围会取消进行中的请求：被取消的不算取不到
-    private func load(_ ids: [Int]) async {
-        let pending = ids.filter { loaded[$0] == nil && !failedIds.contains($0) }
+    /// 一次问完一批文件的档位（每次最多 500 个）。旧服务器（没有这个接口）改走逐集清单
+    private func loadProfiles(_ ids: [Int]) async {
+        do {
+            for chunk in stride(from: 0, to: ids.count, by: 500).map({ Array(ids[$0 ..< min($0 + 500, ids.count)]) }) {
+                let result = try await api.offlineProfiles(body: .init(fileIds: chunk))
+                for entry in result.files ?? [] { entries[entry.fileId] = entry }
+                asked.formUnion(chunk)
+            }
+        } catch let failure as APIError where failure.status == 404 || failure.status == 405 {
+            legacy = true
+        } catch is CancellationError {
+        } catch {
+            self.error = error.localizedDescription
+            asked.formUnion(ids)
+        }
+    }
+
+    /// 旧服务器：逐集取完整清单（并发 6 个，取过的不重取），换算成档位
+    private func loadManifests(_ ids: [Int]) async {
+        let pending = ids.filter { !asked.contains($0) }
         let api = self.api
         for chunk in stride(from: 0, to: pending.count, by: 6).map({ Array(pending[$0 ..< min($0 + 6, pending.count)]) }) {
-            var failures: [Int: Error] = [:]
             await withTaskGroup(of: (Int, Result<API.OfflineManifestView, Error>).self) { group in
                 for id in chunk {
                     group.addTask {
@@ -329,50 +365,76 @@ struct OfflineProfileSheet: View {
                 }
                 for await (id, result) in group {
                     switch result {
-                    case let .success(manifest): loaded[id] = manifest
-                    case let .failure(failure): failures[id] = failure
+                    case let .success(manifest):
+                        manifests[id] = manifest
+                        entries[id] = API.OfflineFileProfilesView(
+                            fileId: manifest.fileId, mediaItemId: manifest.mediaItemId, seasonNumber: manifest.seasonNumber,
+                            episodeNumber: manifest.episodeNumber, container: manifest.container,
+                            profiles: manifest.profiles, unavailableReason: manifest.unavailableReason
+                        )
+                    case let .failure(failure):
+                        error = failure.localizedDescription
                     }
                 }
             }
+            // 切范围取消的不算取不到：下次切回来再取
             if Task.isCancelled { return }
-            failedIds.formUnion(failures.keys)
-            if let failure = failures.values.first { error = failure.localizedDescription }
+            asked.formUnion(chunk)
         }
     }
 
-    private func start() {
-        guard let manifests, let first = manifests.first else { return }
+    /// 第一集取完整清单开始下载（顺带存条目的展示数据），其余集先建「准备中」单元
+    private func start() async {
+        guard let first = current.first else { return }
         let profile = selected(first)
-        if !batch {
-            guard let chosen = first.profiles.first(where: { $0.profile == profile }) else { return }
-            do {
-                try OfflineDownloader.shared.start(manifest: first, profile: chosen)
-                dismiss()
-            } catch {
-                startError = error.localizedDescription
-            }
+        let files = current.filter { $0.unavailableReason == nil }
+        guard let lead = files.first else {
+            startError = first.unavailableReason ?? "没能开始下载"
             return
         }
-        var started = 0
-        var failures: [String] = []
-        for manifest in manifests {
-            if let reason = manifest.unavailableReason {
-                failures.append(reason)
-                continue
+        starting = true
+        defer { starting = false }
+        let manifest: API.OfflineManifestView
+        do {
+            if let known = manifests[lead.fileId] {
+                manifest = known
+            } else {
+                manifest = try await api.offlineManifest(fileId: lead.fileId)
             }
-            guard let chosen = manifest.profiles.first(where: { $0.profile == profile }) ?? manifest.profiles.first else { continue }
+        } catch {
+            startError = error.localizedDescription
+            return
+        }
+        guard let leadProfile = manifest.profiles.first(where: { $0.profile == profile }) ?? manifest.profiles.first else {
+            startError = manifest.unavailableReason ?? "没能开始下载"
+            return
+        }
+        do {
+            try OfflineDownloader.shared.start(manifest: manifest, profile: leadProfile)
+        } catch {
+            startError = error.localizedDescription
+            return
+        }
+        if !batch {
+            dismiss()
+            return
+        }
+        var started = 1
+        var failures: [String] = []
+        for entry in files.dropFirst() {
+            guard let chosen = Self.pick(profile, in: entry) else { continue }
             do {
-                try OfflineDownloader.shared.start(manifest: manifest, profile: chosen)
+                if let full = manifests[entry.fileId] {
+                    try OfflineDownloader.shared.start(manifest: full, profile: full.profiles.first { $0.profile == chosen.profile } ?? chosen)
+                } else {
+                    try OfflineDownloader.shared.enqueue(entry, profile: chosen)
+                }
                 started += 1
             } catch {
                 failures.append(error.localizedDescription)
             }
         }
-        let skipped = failures.count + missing
-        if started == 0 {
-            startError = failures.first ?? "没能开始下载"
-            return
-        }
+        let skipped = failures.count + missing + (current.count - files.count)
         feedback.success(skipped > 0 ? "已开始下载 \(started) 集，\(skipped) 集没能开始" : "已开始下载 \(started) 集")
         dismiss()
     }
@@ -425,3 +487,4 @@ struct OfflineDeleteMenuButton: View {
         }
     }
 }
+

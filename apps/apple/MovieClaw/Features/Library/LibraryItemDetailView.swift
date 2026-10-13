@@ -31,6 +31,7 @@ struct LibraryItemDetailView: View {
     @State private var failed = false
     @State private var selectedEpisode: SelectedEpisode?
     @State private var downloadingSeries = false
+    @State private var confirmCancelDownloads = false
     @State private var selectedTrackFileId: Int?
     @State private var watched: API.PlaybackStateView?
     @State private var favorite: Bool?
@@ -122,6 +123,14 @@ struct LibraryItemDetailView: View {
             if let detail, !readOnly {
                 ToolbarItem(placement: .topBarTrailing) { actionsMenu(detail) }
             }
+        }
+        .confirmationDialog("取消这部剧正在进行的下载？", isPresented: $confirmCancelDownloads, titleVisibility: .visible) {
+            let active = offlineStore.activeByItem[itemId] ?? []
+            Button("取消 \(active.count) 集的下载", role: .destructive) {
+                for unit in active { OfflineDownloader.shared.delete(fileId: unit.fileId) }
+            }
+        } message: {
+            Text("已下完的集会保留。")
         }
         .sheet(isPresented: $downloadingSeries) {
             if let detail {
@@ -747,7 +756,24 @@ struct LibraryItemDetailView: View {
         let canUpgrade = permissions.canSubscribe && tmdb > 0 && detail.kind != "video" && detail.kind != "photo"
         let canShare = permissions.isAdmin && detail.kind != "photo"
         let canDownload = !isMovie && permissions.canDownloadVideo && offlineStore.serverSupported
+        // 这部剧还在下的集（排队、准备、下载中、暂停、失败）：有才出现「取消下载」，下完自动消失
+        let active = isMovie ? [] : offlineStore.activeByItem[itemId] ?? []
+        let activeSelected = selectedEpisode.flatMap { episode in
+            active.first { $0.season == episode.season && $0.episode == episode.episode.episodeNumber }
+        }
         return Menu {
+            if !active.isEmpty {
+                Section {
+                    if let activeSelected {
+                        Button("取消下载选中的集", systemImage: "xmark.circle") {
+                            OfflineDownloader.shared.delete(fileId: activeSelected.fileId)
+                        }
+                    }
+                    Button("取消全部下载（\(active.count) 集）", systemImage: "xmark.circle", role: .destructive) {
+                        confirmCancelDownloads = true
+                    }
+                }
+            }
             // 常用的三个排成一行（系统 ControlGroup）；管理类收进子菜单，删除单独垫底
             let quick = canDownload || canShare
             if quick {
@@ -1387,7 +1413,6 @@ struct SeasonEpisodesSection: View {
     private func episodeMenu(_ season: Int, _ episode: API.EpisodeView) -> some View {
         let unit = offlineStore.unit(mediaItemId: detail.mediaItemId, season: season, episode: episode.episodeNumber)
         if let unit {
-            Text(OfflineUnitStatus.text(unit))
             if unit.state == .queued || unit.state == .downloading {
                 Button("暂停", systemImage: "pause") { OfflineDownloader.shared.pause(fileId: unit.fileId) }
             }

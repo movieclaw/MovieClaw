@@ -9,11 +9,14 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from movieclaw_api.exceptions import NotFoundException
 from movieclaw_api.schemas.offline import (
+    OfflineFileProfilesView,
     OfflineManifestView,
+    OfflineProfilesView,
     OfflineProfileView,
     OfflineSubtitleView,
 )
@@ -164,28 +167,93 @@ async def build_manifest(
         if any(s.format == "ass" for s in view.subtitles):
             view.fonts_url = f"/api/v1/playback/files/{file.id}/fonts?token={token}"
 
-    view.profiles.append(
-        OfflineProfileView(
-            profile="original",
-            label=_original_label(file),
-            height=_source_height(file),
-            expected_bytes=file.size_bytes or 0,
-        )
-    )
+    available: set[str] = set()
+    for profile in _worth_exporting(file):
+        try:
+            await exports.build_plan(file, profile, view.default_audio)
+        except exports.ExportUnavailable:
+            continue
+        available.add(profile)
+    view.profiles = _profile_views(file, available)
+    return view
+
+
+def _worth_exporting(file: LibraryFile) -> list[str]:
+    """值得转的档位：比源低，且转出来明显比原文件小"""
     source_height = _source_height(file)
+    duration_s = float(file.duration_seconds) if file.duration_seconds else None
+    worth = []
     for profile, height in exports.PROFILES.items():
         if source_height is not None and height >= source_height:
             continue  # 源本身就不高于这一档：转了只会更大更糊
         expected = exports.estimate_bytes(profile, duration_s)
         if file.size_bytes and expected >= file.size_bytes * 0.9:
             continue  # 源本身码率就低：转出来不比原文件小，没必要
-        try:
-            await exports.build_plan(file, profile, view.default_audio)
-        except exports.ExportUnavailable:
-            continue
-        view.profiles.append(
-            OfflineProfileView(
-                profile=profile, label=profile, height=height, expected_bytes=expected
-            )
+        worth.append(profile)
+    return worth
+
+
+def _profile_views(file: LibraryFile, available: set[str]) -> list[OfflineProfileView]:
+    duration_s = float(file.duration_seconds) if file.duration_seconds else None
+    views = [
+        OfflineProfileView(
+            profile="original",
+            label=_original_label(file),
+            height=_source_height(file),
+            expected_bytes=file.size_bytes or 0,
         )
-    return view
+    ]
+    for profile in _worth_exporting(file):
+        if profile in available:
+            views.append(
+                OfflineProfileView(
+                    profile=profile,
+                    label=profile,
+                    height=exports.PROFILES[profile],
+                    expected_bytes=exports.estimate_bytes(profile, duration_s),
+                )
+            )
+    return views
+
+
+async def build_profiles(
+    session: AsyncSession, principal: Principal, file_ids: list[int]
+) -> OfflineProfilesView:
+    """选档表单批量估大小：一批文件的可选档位与预计大小（档位规则与清单同一套）。
+
+    一部剧 40 多集时逐集取清单（每份带整部剧详情与整季分集，服务端串行 0.3 秒一份）要十几秒；
+    这里只读文件行，轨道上下文、播放策略、本机编码后端整批取一次。"""
+    visible = await visible_library_ids(session, principal)
+    rows = await session.execute(select(LibraryFile).where(LibraryFile.id.in_(file_ids)))
+    files = {f.id: f for f in rows.scalars()}
+    seen_items: dict[int, bool] = {}
+    allowed: list[LibraryFile] = []
+    for file_id in dict.fromkeys(file_ids):
+        file = files.get(file_id)
+        if file is None or file.media_item_id is None or file.library_id not in visible:
+            continue
+        if file.media_item_id not in seen_items:
+            try:
+                await assert_item_visible(session, principal, file.media_item_id)
+                seen_items[file.media_item_id] = True
+            except NotFoundException:
+                seen_items[file.media_item_id] = False
+        if seen_items[file.media_item_id]:
+            allowed.append(file)
+    available = await exports.available_profiles([f for f in allowed if _worth_exporting(f)])
+    result: list[OfflineFileProfilesView] = []
+    for file in allowed:
+        entry = OfflineFileProfilesView(
+            file_id=file.id,
+            media_item_id=file.media_item_id,
+            season_number=file.season_number or 0,
+            episode_number=file.episode_number or 0,
+            container=file.container,
+        )
+        if file.is_disc():
+            entry.profiles = []
+            entry.unavailable_reason = "原盘暂不支持下载到设备"
+        else:
+            entry.profiles = _profile_views(file, available.get(file.id or 0, set()))
+        result.append(entry)
+    return OfflineProfilesView(files=result)

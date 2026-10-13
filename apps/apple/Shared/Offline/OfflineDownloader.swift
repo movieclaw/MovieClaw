@@ -196,6 +196,10 @@ final class OfflineDownloader {
             try await OfflinePackager(api: api, ownerKey: owner.key, manifest: manifest, unit: unit).run()
             guard store.key == owner.key, var current = store.units[unit.fileId], current.state == .preparing,
                   current.profile == unit.profile else { return }
+            // 整批下载先建的单元没有剧照：拿到完整清单后补上
+            if current.stillUrl == nil {
+                current.stillUrl = manifest.season?.episodes.first { $0.episodeNumber == manifest.episodeNumber }?.stillUrl
+            }
             if current.profile != "original" {
                 let export = try await api.offlineExportsCreate(body: .init(fileId: unit.fileId, profile: current.profile, audioTrack: manifest.defaultAudio))
                 guard store.key == owner.key, store.units[unit.fileId]?.state == .preparing else { return }
@@ -286,6 +290,39 @@ final class OfflineDownloader {
             pausing.remove(fileId)
             reconcile(reason: "paused")
         }
+    }
+
+    /// 整批下载里除第一集外的各集：只凭选档表单的批量结果先建「准备中」单元（目录里马上有、强退也不丢），
+    /// 完整清单由 `prepare` 逐集去取。条目的展示数据要已由第一集的 `start` 存好
+    func enqueue(_ entry: API.OfflineFileProfilesView, profile: API.OfflineProfileView) throws {
+        guard store.owner != nil, store.serverSupported, store.items[entry.mediaItemId] != nil else { throw StartError.unsupported }
+        if let reason = entry.unavailableReason { throw StartError.unavailable(reason) }
+        if let existing = store.units[entry.fileId], existing.profile == profile.profile,
+           existing.state != .failed, !existing.damaged {
+            return
+        }
+        let needed = Int64(profile.expectedBytes) + OfflineSettings.reserveBytes
+        if let available = OfflineDisk.availableBytes, available < needed {
+            throw StartError.noSpace(needed: needed, available: available)
+        }
+        if let existing = store.units[entry.fileId] {
+            cancelTask(fileId: existing.fileId)
+            store.removeUnit(fileId: existing.fileId, keepItem: true)
+        }
+        store.upsert(OfflineUnit(
+            fileId: entry.fileId,
+            mediaItemId: entry.mediaItemId,
+            season: entry.seasonNumber,
+            episode: entry.episodeNumber,
+            profile: profile.profile,
+            profileLabel: profile.label,
+            state: .preparing,
+            expectedBytes: Int64(profile.expectedBytes),
+            fileExtension: profile.profile == "original" ? Self.fileExtension(entry.container) : "mp4",
+            createdAt: Date()
+        ))
+        OfflineSettings.lastProfile = profile.profile
+        reconcile(reason: "enqueue")
     }
 
     func resume(fileId: Int) {

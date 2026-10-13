@@ -71,6 +71,32 @@ class OfflineManifestView(BaseModel):
     resume_position_ms: int | None = Field(default=None, description="打包时服务器上的续播点")
 
 
+class OfflineProfilesRequest(BaseModel):
+    """选档表单一次问一批文件的可选档位（docs/design/offline-download.md §5.2）。"""
+
+    file_ids: list[int] = Field(min_length=1, max_length=500)
+
+
+class OfflineFileProfilesView(BaseModel):
+    """一个文件的可选档位与预计大小：不带展示数据与播放数据，完整清单等真正开始下载时再取。"""
+
+    file_id: int
+    media_item_id: int
+    season_number: int = 0
+    episode_number: int = 0
+    container: str | None = Field(default=None, description="原文件容器（原画档存盘扩展名）")
+    profiles: list[OfflineProfileView] | None = None
+    unavailable_reason: str | None = Field(
+        default=None, description="整个文件下不了的原因（原盘等）"
+    )
+
+
+class OfflineProfilesView(BaseModel):
+    """按请求顺序返回；看不到 / 不存在的文件不出现在结果里。"""
+
+    files: list[OfflineFileProfilesView] | None = None
+
+
 class OfflineExportRequest(BaseModel):
     file_id: int
     profile: Literal["1080p", "720p", "480p"]

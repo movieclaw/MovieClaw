@@ -20,6 +20,8 @@ from movieclaw_api.schemas.offline import (
     OfflineExportRequest,
     OfflineExportView,
     OfflineManifestView,
+    OfflineProfilesRequest,
+    OfflineProfilesView,
     PlaybackViewingsRequest,
     PlaybackViewingsView,
 )
@@ -27,7 +29,7 @@ from movieclaw_api.schemas.response import ApiResponse, ok
 from movieclaw_api.services.auth import Principal
 from movieclaw_api.services.library.access import assert_item_visible, visible_library_ids
 from movieclaw_api.services.offline import exports, viewings
-from movieclaw_api.services.offline.manifest import build_manifest
+from movieclaw_api.services.offline.manifest import build_manifest, build_profiles
 from movieclaw_api.services.playback import watch as playback_watch
 from movieclaw_db.engine import get_session
 from movieclaw_db.models import LibraryFile
@@ -118,6 +120,21 @@ async def get_offline_manifest(
     user_agent: Annotated[str | None, Header(include_in_schema=False)] = None,
 ) -> ApiResponse[OfflineManifestView]:
     return ok(await build_manifest(session, principal, file_id, user_agent=user_agent))
+
+
+@router.post(
+    "/profiles",
+    response_model=ApiResponse[OfflineProfilesView],
+    summary="一批文件的可选下载档位与预计大小（选档表单批量估大小）",
+    operation_id="offline.profiles",
+    openapi_extra=_HIDDEN,
+)
+async def get_offline_profiles(
+    payload: OfflineProfilesRequest,
+    principal: Principal = Depends(require_login),
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[OfflineProfilesView]:
+    return ok(await build_profiles(session, principal, payload.file_ids))
 
 
 @router.get(

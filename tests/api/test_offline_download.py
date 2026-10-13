@@ -238,8 +238,10 @@ def test_video_download_switch_gates_download_but_not_viewings(
         ("GET", f"/offline/manifest?file_id={file_id}"),
         ("GET", f"/offline/files/{file_id}/content"),
         ("POST", "/offline/exports"),
+        ("POST", "/offline/profiles"),
     ):
-        resp = client.request(method, f"{_API}{path}", json={"file_id": file_id, "profile": "480p"})
+        body = {"file_id": file_id, "profile": "480p", "file_ids": [file_id]}
+        resp = client.request(method, f"{_API}{path}", json=body)
         assert resp.status_code == 403, (path, resp.text)
     # 权限关了，已下的片照样能播：观看记录照收
     assert _send_viewings(client, [_viewing(item_id)]) == {"v-0000-0001": "applied"}
@@ -312,6 +314,48 @@ def test_manifest_without_transcode_offers_original_only(
     data = client.get(f"{_API}/offline/manifest", params={"file_id": file_id}).json()["data"]
     # 没有硬件、软件转码没开：转码档出不了，只剩原画
     assert [p["profile"] for p in data["profiles"]] == ["original"]
+
+
+def test_profiles_batch_matches_manifest_rules(client: TestClient, tmp_path: Path) -> None:
+    """选档表单批量估大小：档位规则与清单同一套，按请求顺序，重复的只算一次"""
+    _lib, _item, big = seed(client, tmp_path, real=False)
+    _lib2, _item2, small = seed(client, tmp_path, real=False)
+    _set_size(client, big, 4_000_000_000)
+    _set_size(client, small, 260_000_000)
+    _enable_software_transcode(client)
+    resp = client.post(f"{_API}/offline/profiles", json={"file_ids": [small, big, small]})
+    assert resp.status_code == 200, resp.text
+    files = resp.json()["data"]["files"]
+    assert [f["file_id"] for f in files] == [small, big]
+    for entry in files:
+        manifest = client.get(f"{_API}/offline/manifest", params={"file_id": entry["file_id"]})
+        assert entry["profiles"] == manifest.json()["data"]["profiles"]
+    assert [p["profile"] for p in files[1]["profiles"]] == ["original", "720p", "480p"]
+    assert [p["profile"] for p in files[0]["profiles"]] == ["original", "480p"]
+
+
+def test_profiles_batch_skips_invisible_files(client: TestClient, tmp_path: Path) -> None:
+    _library, _item, hidden = seed(client, tmp_path, real=False)
+    other_library, _other_item, shown = seed(client, tmp_path, real=False)
+    _login_member(client, all_libraries=False, library_ids=[other_library])
+    files = client.post(f"{_API}/offline/profiles", json={"file_ids": [hidden, shown, 999_999]})
+    assert [f["file_id"] for f in files.json()["data"]["files"]] == [shown]
+
+
+def test_profiles_batch_is_one_quick_request_for_a_season(
+    client: TestClient, tmp_path: Path
+) -> None:
+    """一季 40 集：一次请求、不逐集建清单（真机上逐集取 43 份清单要十几秒）"""
+    ids = [seed(client, tmp_path, real=False)[2] for _ in range(40)]
+    for file_id in ids:
+        _set_size(client, file_id, 4_000_000_000)
+    _enable_software_transcode(client)
+    started = time.perf_counter()
+    resp = client.post(f"{_API}/offline/profiles", json={"file_ids": ids})
+    elapsed = time.perf_counter() - started
+    assert resp.status_code == 200
+    assert len(resp.json()["data"]["files"]) == 40
+    assert elapsed < 2, f"40 个文件用了 {elapsed:.2f}s"
 
 
 def test_original_content_supports_range_resume(client: TestClient, tmp_path: Path) -> None:

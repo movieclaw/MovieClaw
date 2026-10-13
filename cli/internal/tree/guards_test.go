@@ -219,6 +219,7 @@ var knownNonGenerated = []string{
 	// 离线下载（docs/design/offline-download.md）：App 后台下载会话与本机播放的协议端点，
 	// 产物是二进制或给本机存档用，CLI 无消费方
 	"offline.manifest",
+	"offline.profiles",
 	"offline.file.content",
 	"offline.exports.create",
 	"offline.exports.get",

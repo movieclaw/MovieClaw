@@ -286,6 +286,113 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 6) { !home.staticTexts["下载完成"].exists }, "「下载完成」只短暂提示")
     }
 
+    /// 选档表单一次问完所有范围的档位：打开就出、切范围不再请求；完整清单等点「下载」才取，每集只取一次。
+    /// 真机复现：43 集逐集取完整清单要十几秒，切范围还会取消重发
+    @MainActor
+    func testProfileSheetAsksOnceForAllEpisodes() throws {
+        func count(_ needle: String) -> Int { proxyLog().filter { $0.contains(needle) }.count }
+        let app = launch(reset: true, route: "/library/2/item/\(showId)")
+        XCTAssertTrue(app.buttons["item-actions"].waitForExistence(timeout: 30))
+        let profilesBefore = count("POST /api/v1/offline/profiles"), manifestsBefore = count("GET /api/v1/offline/manifest")
+
+        openItemMenu(app, then: "下载")
+        let original = app.buttons["offline-profile-original"]
+        let opened = Date()
+        XCTAssertTrue(original.waitForExistence(timeout: 30))
+        let took = Date().timeIntervalSince(opened)
+        XCTAssertLessThan(took, 3, "画质应马上出来，用了 \(took)s")
+        let scope = app.segmentedControls["offline-scope"]
+        if scope.exists {
+            for button in scope.buttons.allElementsBoundByIndex {
+                button.tap()
+                XCTAssertTrue(original.waitForExistence(timeout: 2), "切到「\(button.label)」应立即有大小")
+            }
+            scope.buttons.allElementsBoundByIndex.last?.tap()  // 停在「全部」
+        }
+        XCTAssertEqual(count("POST /api/v1/offline/profiles") - profilesBefore, 1, "所有范围只问一次：\(proxyLog().suffix(30))")
+        XCTAssertEqual(count("GET /api/v1/offline/manifest") - manifestsBefore, 0, "点「下载」前不取完整清单")
+
+        original.tap()
+        app.buttons["offline-profile-confirm"].tap()
+        let downloaded = app.images.matching(NSPredicate(format: "label == '已下载'"))
+        XCTAssertTrue(waitUntil(timeout: 180) { downloaded.count == 3 }, "三集都应下完：\(downloaded.count)")
+        let manifests = proxyLog().filter { $0.contains("GET /api/v1/offline/manifest") }
+        XCTAssertEqual(manifests.count - manifestsBefore, 3, "每集只取一次完整清单：\(manifests)")
+        XCTAssertEqual(Set(manifests.suffix(3)).count, 3)
+    }
+
+    /// 一部剧在下载时，右上角菜单临时出现「取消下载」：取消选中的集 / 取消全部（确认后，已下完的保留）；
+    /// 分集卡长按菜单只有操作，不再重复写进度
+    @MainActor
+    func testCancelDownloadsFromItemMenu() throws {
+        let app = launch(reset: true, route: "/library/2/item/\(showId)")
+        XCTAssertTrue(app.buttons["item-actions"].waitForExistence(timeout: 30))
+        openItemMenu(app, then: "下载")
+        let original = app.buttons["offline-profile-original"]
+        XCTAssertTrue(original.waitForExistence(timeout: 30))
+        let scope = app.segmentedControls["offline-scope"]
+        if scope.exists { scope.buttons.allElementsBoundByIndex.last?.tap() }
+        setMode(["mode": "slow", "bps": 150_000])
+        original.tap()
+        app.buttons["offline-profile-confirm"].tap()
+        let card1 = app.buttons["episode-1"]
+        XCTAssertTrue(waitUntil(timeout: 30) { card1.label.contains("下载") && !card1.label.contains("已下载") }, card1.label)
+
+        // 长按菜单：只有操作。页面上分集卡的下载条本来就有这些字，菜单打开后不该多出一份
+        let status = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH '下载中' OR label BEGINSWITH '准备下载' OR label BEGINSWITH '等待下载'"))
+        let onCards = status.count
+        card1.press(forDuration: 1.2)
+        XCTAssertTrue(app.buttons["取消下载"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertLessThanOrEqual(status.count, onCards, "长按菜单不该再写进度\n\(app.debugDescription)")
+        snapshot("episode-menu-actions-only")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.08)).tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { !app.buttons["取消下载"].exists })
+
+        // 右上角菜单：取消选中的集
+        card1.tap()
+        app.buttons["item-actions"].tap()
+        XCTAssertTrue(app.buttons["取消下载选中的集"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(app.buttons["取消全部下载（3 集）"].exists, app.debugDescription)
+        snapshot("item-menu-cancel")
+        app.buttons["取消下载选中的集"].tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { !card1.label.contains("下载") }, "第 1 集应不再下载：\(card1.label)")
+
+        // 取消全部（确认后）
+        app.buttons["item-actions"].tap()
+        let all = app.buttons["取消全部下载（2 集）"]
+        XCTAssertTrue(all.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.buttons["取消下载选中的集"].exists, "选中的第 1 集已取消，不该再有这一项")
+        all.tap()
+        let confirm = app.buttons["取消 2 集的下载"]
+        XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
+        confirm.tap()
+        for episode in 2 ... 3 {
+            let card = app.buttons["episode-\(episode)"]
+            XCTAssertTrue(waitUntil(timeout: 10) { !card.label.contains("下载") }, "第 \(episode) 集应不再下载：\(card.label)")
+        }
+        app.buttons["item-actions"].tap()
+        XCTAssertTrue(app.buttons["加入合集"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons.matching(NSPredicate(format: "label BEGINSWITH '取消全部下载'")).firstMatch.exists, "都取消了，「取消下载」应消失")
+        setMode(["mode": "pass"])
+    }
+
+    /// 旧服务器没有批量档位接口（404）：退回逐集取清单，照样能选档、能下
+    @MainActor
+    func testProfileSheetFallsBackWithoutBatchEndpoint() throws {
+        setMode(["mode": "pass", "fail_paths": ["/api/v1/offline/profiles"], "fail_status": 404, "fail_times": -1])
+        defer { setMode(["mode": "pass"]) }
+        let app = launch(reset: true, route: "/library/2/item/\(showId)")
+        XCTAssertTrue(app.buttons["item-actions"].waitForExistence(timeout: 30))
+        openItemMenu(app, then: "下载")
+        let original = app.buttons["offline-profile-original"]
+        XCTAssertTrue(original.waitForExistence(timeout: 30), "批量接口 404 时应退回逐集清单\n\(app.debugDescription)")
+        XCTAssertTrue(proxyLog().contains { $0.contains("fail 404 POST /api/v1/offline/profiles") }, "应先试过批量接口")
+        original.tap()
+        app.buttons["offline-profile-confirm"].tap()
+        let downloaded = app.images.matching(NSPredicate(format: "label == '已下载'"))
+        XCTAssertTrue(waitUntil(timeout: 180) { downloaded.count >= 1 }, "退回逐集清单后也应能下完")
+    }
+
     /// 断网冷启动直接起播（通知、站内链接直达播放页）：本机目录还没读完也要放本机副本，不能去连服务器
     @MainActor
     func testOfflineColdStartDeepLinkPlaysLocalCopy() throws {

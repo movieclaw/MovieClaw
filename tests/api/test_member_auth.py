@@ -731,6 +731,7 @@ _MEMBER_ALLOWLIST = {
     # 离线下载（docs/design/offline-download.md）：只碰成员自己可见库里的文件；
     # 下载类另按「下载影片到设备」开关放行（默认开）
     ("GET", "/api/v1/offline/manifest"),
+    ("POST", "/api/v1/offline/profiles"),
     ("GET", "/api/v1/offline/files/{file_id}/content"),
     ("POST", "/api/v1/offline/exports"),
     ("GET", "/api/v1/offline/exports/{export_id}"),

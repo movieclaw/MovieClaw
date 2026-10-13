@@ -1874,6 +1874,12 @@ nonisolated extension APIClient {
         return try await send("GET", "/offline/manifest", query: query)
     }
 
+    /// 一批文件的可选下载档位与预计大小（选档表单批量估大小）
+    /// `POST /offline/profiles`
+    func offlineProfiles(body: API.OfflineProfilesRequest) async throws -> API.OfflineProfilesView {
+        return try await send("POST", "/offline/profiles", body: body)
+    }
+
     /// 人物页：库内这个影人的档案与作品
     /// `GET /people/{tmdb_person_id}`
     func peopleShow(tmdbPersonId: Int) async throws -> API.PersonView {

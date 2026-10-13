@@ -214,6 +214,11 @@ async def build_plan(file: LibraryFile, profile: str, audio_track: str | None) -
     if file.is_disc():
         raise ExportUnavailable("原盘暂不支持下载到设备")
     media, policy = await _media_and_policy(file, audio_track)
+    return _offerable(media, policy, profile, audio_track)
+
+
+def _offerable(media, policy, profile: str, audio_track: str | None) -> PlaybackPlan:
+    """这一档能不能提供（单个文件的 ``build_plan`` 与选档表单的批量判断同一条规则）"""
     if policy.hardware_busy:
         # 转码器在线、只是名额被播放占满：导出会排队等它，这一档照样提供
         policy = replace(policy, hardware_available=True, hardware_busy=False)
@@ -223,6 +228,28 @@ async def build_plan(file: LibraryFile, profile: str, audio_track: str | None) -
     if not policy.software_transcode_enabled:
         raise ExportUnavailable("没有可用的硬件转码，且软件转码未开启")
     return plan
+
+
+async def available_profiles(files: list[LibraryFile]) -> dict[int, set[str]]:
+    """一批文件各自能提供的档位（选档表单批量估大小）：轨道上下文与播放策略整批只取一次"""
+    candidates = [f for f in files if f.id is not None and not f.is_disc()]
+    if not candidates:
+        return {}
+    async with get_database().session() as session:
+        contexts = await track_contexts(session, candidates)
+    policy = await playback_plan.load_policy()
+    result: dict[int, set[str]] = {}
+    for file in candidates:
+        media = media_profile_from_file(file, context=contexts.get(file.id or 0))
+        offered: set[str] = set()
+        for profile in PROFILES:
+            try:
+                _offerable(media, policy, profile, None)
+            except ExportUnavailable:
+                continue
+            offered.add(profile)
+        result[file.id or 0] = offered
+    return result
 
 
 @dataclass(frozen=True)
