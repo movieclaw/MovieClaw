@@ -95,7 +95,7 @@ struct OfflinePosterCell: View {
         .confirmationDialog(
             "删除「\(item.title)」的下载？", isPresented: $confirmDelete, titleVisibility: .visible
         ) {
-            Button("删除下载（\(Formatters.bytes(Int(store.bytes(ofItem: item.mediaItemId)))))", role: .destructive) {
+            Button("删除下载（\(Formatters.bytes(Int(store.bytes(ofItem: item.mediaItemId))))）", role: .destructive) {
                 OfflineDownloader.shared.deleteItem(item.mediaItemId)
             }
         } message: {

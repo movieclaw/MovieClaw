@@ -1,7 +1,7 @@
 import SwiftUI
 
 /// 我的 → 下载与存储（docs/design/offline-download.md §8），分组同系统「iPhone 储存空间」：
-/// 容量条 → 清理建议（有已看完的才出现）→ 已下载（点进条目、左滑 / 长按删除）→ 其他账号 → 下载设置
+/// 容量条 → 清理建议（有已看完的才出现）→ 已下载（点进条目、左滑 / 长按删除）→ 其他账号；下载设置在右上角菜单
 struct OfflineStorageView: View {
     @State private var store = OfflineStore.shared
     @Environment(\.api) private var api
@@ -37,7 +37,7 @@ struct OfflineStorageView: View {
                         Image(systemName: "checkmark.circle.fill").font(.title2).foregroundStyle(Theme.success)
                         VStack(alignment: .leading, spacing: 2) {
                             Text("删除已看完的")
-                            Text("\(watched.count) 个已看完，占用 \(Formatters.bytes(Int(watched.reduce(0) { $0 + $1.receivedBytes }))))")
+                            Text("\(watched.count) 个已看完，占用 \(Formatters.bytes(Int(watched.reduce(0) { $0 + $1.receivedBytes })))")
                                 .font(.caption).foregroundStyle(Theme.textMuted)
                         }
                         Spacer(minLength: 8)
@@ -83,22 +83,31 @@ struct OfflineStorageView: View {
                     Text("这台 iPhone 上其他账号的下载，重新登录那个账号就能看。")
                 }
             }
-            Section {
-                Toggle("使用蜂窝网络下载", isOn: $allowCellular)
-                    .onChange(of: allowCellular) { _, value in
-                        OfflineSettings.allowCellular = value
-                        OfflineDownloader.shared.applyNetworkSettings()
-                    }
-            } header: {
-                Text("下载设置")
-            } footer: {
-                Text("关闭时只在 Wi-Fi 下下载。")
-            }
         }
         .navigationTitle("下载与存储")
+        .toolbar {
+            // 下载设置只有一项：右上角菜单里直接开关（同「文件」「照片」的显示选项），不单占一个分组
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Section("关闭时只在 Wi-Fi 下下载") {
+                        // 菜单里用系统勾选项：继承 App 全局的 SystemSwitchStyle 滑动开关的话，菜单项会变灰、点不动
+                        Toggle("使用蜂窝网络下载", systemImage: "antenna.radiowaves.left.and.right", isOn: $allowCellular)
+                            .toggleStyle(.automatic)
+                    }
+                } label: {
+                    Image(systemName: "gearshape")
+                }
+                .accessibilityLabel("下载设置")
+                .accessibilityIdentifier("offline-settings")
+            }
+        }
+        .onChange(of: allowCellular) { _, value in
+            OfflineSettings.allowCellular = value
+            OfflineDownloader.shared.applyNetworkSettings()
+        }
         .confirmationDialog(confirmTitle, isPresented: Binding(mcGet: { confirm != nil }, set: { if !$0 { confirm = nil } }),
                             titleVisibility: .visible, presenting: confirm) { target in
-            Button("删除（释放 \(Formatters.bytes(Int(bytes(of: target)))))", role: .destructive) { perform(target) }
+            Button("删除（释放 \(Formatters.bytes(Int(bytes(of: target))))）", role: .destructive) { perform(target) }
         } message: { _ in
             Text("只删 iPhone 上的副本，观看进度会保留。")
         }

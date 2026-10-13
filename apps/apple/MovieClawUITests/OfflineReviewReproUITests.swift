@@ -312,11 +312,35 @@ final class OfflineReviewReproUITests: XCTestCase {
         let app = launch(reset: false, route: "/my/downloads")
         XCTAssertTrue(app.descendants(matching: .any)["offline-storage-summary"].waitForExistence(timeout: 20))
         XCTAssertFalse(app.buttons["编辑"].exists || app.buttons["Edit"].exists, "不该再有「编辑」")
-        for header in ["已下载", "下载设置"] {
-            XCTAssertTrue(app.staticTexts[header].exists, "应有「\(header)」分组\n\(app.debugDescription)")
-        }
-        XCTAssertTrue(app.switches["使用蜂窝网络下载"].exists)
+        XCTAssertTrue(app.staticTexts["已下载"].exists, "应有「已下载」分组\n\(app.debugDescription)")
+        XCTAssertFalse(app.switches["使用蜂窝网络下载"].exists, "下载设置不该再占页面里的分组")
         snapshot("storage-page")
+        // 下载设置在右上角菜单：开关蜂窝下载，再打开菜单状态跟着变
+        let settings = app.buttons["offline-settings"]
+        XCTAssertTrue(settings.exists)
+        settings.tap()
+        let cellular = app.switches["使用蜂窝网络下载"].firstMatch.exists ? app.switches["使用蜂窝网络下载"].firstMatch : app.buttons["使用蜂窝网络下载"].firstMatch
+        XCTAssertTrue(cellular.waitForExistence(timeout: 5), "菜单里应有蜂窝下载开关\n\(app.debugDescription)")
+        snapshot("storage-settings-menu")
+        XCTAssertTrue(cellular.isEnabled, "第一次打开时开关就应可点\n\(app.debugDescription)")
+        // 菜单里的开关是带「已选中」特征的按钮（勾号），不是有 value 的开关
+        let before = cellular.isSelected || (cellular.value as? String) == "1"
+        cellular.tap()
+        func toggleElement() -> XCUIElement {
+            app.switches["使用蜂窝网络下载"].firstMatch.exists ? app.switches["使用蜂窝网络下载"].firstMatch : app.buttons["使用蜂窝网络下载"].firstMatch
+        }
+        // 点完菜单应收起；再打开看状态
+        XCTAssertTrue(waitUntil(timeout: 5) { !toggleElement().exists }, "点了开关菜单应收起")
+        settings.tap()
+        let after = toggleElement()
+        XCTAssertTrue(after.waitForExistence(timeout: 5), app.debugDescription)
+        let now = after.isSelected || (after.value as? String) == "1"
+        XCTAssertNotEqual(now, before, "开关状态应变了：\(before) → \(now)\n\(app.debugDescription)")
+        XCTAssertTrue(after.isEnabled, "再打开时开关应可点")
+        snapshot("storage-settings-menu-on")
+        after.tap()  // 还原
+        XCTAssertTrue(waitUntil(timeout: 5) { !toggleElement().exists })
+
 
         let row = app.cells.containing(.any, identifier: "offline-storage-item-\(movieId)").firstMatch
         XCTAssertTrue(row.waitForExistence(timeout: 10))
@@ -356,6 +380,8 @@ final class OfflineReviewReproUITests: XCTestCase {
         let storage = launch(reset: false, route: "/my/downloads")
         XCTAssertTrue(storage.buttons["offline-delete-watched"].waitForExistence(timeout: 20), "看完的下载应出现在「建议」里")
         XCTAssertTrue(storage.staticTexts["建议"].exists)
+        let stray = storage.staticTexts.matching(NSPredicate(format: "label MATCHES '.*[0-9] ?[KMG]?B\\).*'"))
+        XCTAssertEqual(stray.count, 0, "文案里不该有半角右括号：\(stray.allElementsBoundByIndex.map(\.label))")
         snapshot("storage-suggestion")
     }
 
