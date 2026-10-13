@@ -544,6 +544,11 @@ struct LibraryItemDetailView: View {
             : nil
 
         VStack(alignment: .leading, spacing: 12) {
+            // 电影的下载状态条（在播放键上方）：本机有副本时才出现（开始下载在右上角「⋯」）；剧集的进度画在分集卡上
+            if isMovie, let detail, let unit = playUnit {
+                OfflineDownloadControl(detail: detail, season: unit.season, episode: unit.episode, files: downloadableFiles)
+                    .frame(maxWidth: HeroAction.maxWideLabelWidth)
+            }
             Button { play(start: nil) } label: {
                 Label(label, systemImage: "play.fill")
                     .heroActionLabel()
@@ -556,11 +561,6 @@ struct LibraryItemDetailView: View {
             .foregroundStyle(.black)
             .accessibilityLabel(progressText.map { "\(label)，\($0)" } ?? label)
             .accessibilityIdentifier("item-play")
-            // 电影的下载状态条：本机有副本时才出现（开始下载在右上角「⋯」）；剧集的进度画在分集卡上
-            if isMovie, let detail, let unit = playUnit {
-                OfflineDownloadControl(detail: detail, season: unit.season, episode: unit.episode, files: downloadableFiles)
-                    .frame(maxWidth: HeroAction.maxWideLabelWidth)
-            }
             HStack(spacing: 10) {
                 if !readOnly {
                 Button { Task { await toggleFavorite() } } label: {

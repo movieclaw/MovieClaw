@@ -415,7 +415,7 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 180) { downloaded.count >= 1 }, "退回逐集清单后也应能下完")
     }
 
-    /// 电影与剧集同一套：开始下载在右上角「⋯」；播放键下方只在有本机副本时出现状态条（进度 + 速度，下完「已下载 · 档位 · 大小」）；
+    /// 电影与剧集同一套：开始下载在右上角「⋯」；播放键上方只在有本机副本时出现状态条（进度 + 速度，下完「已下载 · 档位 · 大小」）；
     /// 下载中「⋯」里「下载」换成「取消下载」
     @MainActor
     func testMovieDownloadFromItemMenu() throws {
@@ -429,7 +429,7 @@ final class OfflineReviewReproUITests: XCTestCase {
         startDownload(app, profile: "original")
         XCTAssertTrue(bar.waitForExistence(timeout: 20), "开始下载后应出现状态条")
         XCTAssertTrue(waitUntil(timeout: 30) { bar.label.contains("下载中") && bar.label.contains("/s") }, "状态条：\(bar.label)")
-        XCTAssertTrue(bar.frame.minY > app.buttons["item-play"].frame.maxY, "状态条应在播放键下方")
+        XCTAssertTrue(bar.frame.maxY < app.buttons["item-play"].frame.minY, "状态条应在播放键上方")
         snapshot("movie-downloading")
 
         actions.tap()
