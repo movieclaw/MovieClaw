@@ -24,6 +24,9 @@ final class OfflineStore {
     private(set) var serverSupported = false
     /// 读完本机存档了（离线首页据此区分「还在读」和「真的没有」）
     private(set) var loaded = false
+    /// 正在下载的单元的实时速度（字节 / 秒，平滑过）：只在内存里
+    private(set) var speeds: [Int: Double] = [:]
+    @ObservationIgnored private var speedSamples: [Int: (at: Date, bytes: Int64)] = [:]
 
     @ObservationIgnored private var adoptingKey: String?
 
@@ -263,6 +266,7 @@ final class OfflineStore {
     func upsert(_ unit: OfflineUnit) {
         guard let key else { return }
         units[unit.fileId] = unit
+        if unit.state != .downloading { clearSpeed(unit.fileId) }
         refreshDerived()
         OfflineDisk.queue.async { try? OfflineDisk.write(unit, to: OfflineDisk.unitFile(key, unit.mediaItemId, unit.fileId)) }
     }
@@ -274,6 +278,26 @@ final class OfflineStore {
         if let expected, expected > 0, unit.profile == "original" || unit.expectedBytes == 0 { unit.expectedBytes = expected }
         if unit.state == .queued { unit.state = .downloading }
         units[fileId] = unit
+        sampleSpeed(fileId, received)
+    }
+
+    /// 速度 = 两次进度读数之间的字节差 / 时间差，再做指数平滑（读数约每秒一次，原始值跳得厉害）
+    private func sampleSpeed(_ fileId: Int, _ received: Int64) {
+        let now = Date()
+        guard let last = speedSamples[fileId] else {
+            speedSamples[fileId] = (now, received)
+            return
+        }
+        let elapsed = now.timeIntervalSince(last.at)
+        guard elapsed >= 0.5 else { return }
+        let instant = max(0, Double(received - last.bytes) / elapsed)
+        speeds[fileId] = speeds[fileId].map { $0 * 0.6 + instant * 0.4 } ?? instant
+        speedSamples[fileId] = (now, received)
+    }
+
+    private func clearSpeed(_ fileId: Int) {
+        speedSamples.removeValue(forKey: fileId)
+        if speeds[fileId] != nil { speeds.removeValue(forKey: fileId) }
     }
 
     func upsertSummary(_ summary: OfflineItemSummary) {
@@ -313,6 +337,7 @@ final class OfflineStore {
     /// `keepItem`：换档时只换这个单元，条目的展示数据、图片、本机进度都留着
     func removeUnit(fileId: Int, keepItem: Bool = false) {
         guard let key, let unit = units.removeValue(forKey: fileId) else { return }
+        clearSpeed(fileId)
         let itemId = unit.mediaItemId
         let itemEmpty = !keepItem && !units.values.contains { $0.mediaItemId == itemId }
         if itemEmpty {

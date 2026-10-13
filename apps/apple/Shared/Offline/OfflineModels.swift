@@ -59,6 +59,8 @@ nonisolated struct OfflineUnit: Codable, Sendable, Hashable, Identifiable {
     /// 视频存盘的扩展名（原画按原容器，转码档 mp4）
     var fileExtension: String
     var exportId: String?
+    /// 这一集的剧照（下载中的卡片用；电影为空、用条目的横幅）
+    var stillUrl: String?
     /// 失败原因（给人看的中文）
     var error: String?
     /// 失败能不能自动重试（网络类、5xx、排队中能；无权限、文件没了、空间不足不能）

@@ -153,6 +153,7 @@ final class OfflineDownloader {
             state: .preparing,
             expectedBytes: Int64(profile.expectedBytes),
             fileExtension: profile.profile == "original" ? Self.fileExtension(manifest.container) : "mp4",
+            stillUrl: manifest.season?.episodes.first { $0.episodeNumber == manifest.episodeNumber }?.stillUrl,
             createdAt: Date()
         )
         store.upsert(unit)

@@ -277,10 +277,10 @@ struct OfflineLibraryWall: View {
     }
 }
 
-/// 在线首页的「正在下载」行：有排队 / 下载中 / 失败的单元时才出现，下完自动消失
+/// 在线首页的「正在下载」行：有排队 / 下载中 / 失败的单元时才出现，下完自动消失。
+/// 卡片是这一集的剧照（电影用横幅），状态与详情页分集卡同一条 `OfflineDownloadStrip`
 struct OfflineDownloadingRow: View {
     @State private var store = OfflineStore.shared
-    @Environment(\.api) private var api
 
     var body: some View {
         let active = store.activeUnits
@@ -293,19 +293,7 @@ struct OfflineDownloadingRow: View {
                     LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(active) { unit in
                             if let item = store.items[unit.mediaItemId] {
-                                NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId, itemId: item.mediaItemId,
-                                                                           season: unit.isMovie ? nil : unit.season,
-                                                                           episode: unit.isMovie ? nil : unit.episode)) {
-                                    LibraryPosterCell(
-                                        title: item.title, year: unit.isMovie ? item.year : nil,
-                                        extent: unit.isMovie ? nil : "第 \(unit.season) 季第 \(unit.episode) 集",
-                                        url: api.image(item.posterUrl, width: ImageWidth.points(PhoneCardWidth.homePoster)),
-                                        imageAspect: item.primaryAspect,
-                                        working: OfflineUnitStatus.text(unit)
-                                    )
-                                    .frame(width: PhoneCardWidth.homePoster)
-                                }
-                                .buttonStyle(.plain)
+                                OfflineDownloadingCard(unit: unit, item: item)
                             }
                         }
                     }
@@ -316,6 +304,113 @@ struct OfflineDownloadingRow: View {
             .padding(.top, 24)
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("home-downloading")
+        }
+    }
+}
+
+private struct OfflineDownloadingCard: View {
+    let unit: OfflineUnit
+    let item: OfflineItemSummary
+    @Environment(\.api) private var api
+    /// 早先开始的下载没记剧照：从本机存的这一季里找
+    @State private var archivedStill: String?
+
+    var body: some View {
+        let width = PhoneCardWidth.upNext
+        let still = unit.isMovie ? item.backdropUrl : (unit.stillUrl ?? archivedStill)
+        NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId, itemId: item.mediaItemId,
+                                                   season: unit.isMovie ? nil : unit.season,
+                                                   episode: unit.isMovie ? nil : unit.episode)) {
+            VStack(alignment: .leading, spacing: 0) {
+                LibraryArtwork(url: still.flatMap { api.image($0, width: ImageWidth.points(width)) }
+                    ?? (unit.isMovie ? api.image(item.posterUrl, width: ImageWidth.points(width)) : nil),
+                    imageAspect: still == nil && unit.isMovie ? item.primaryAspect : nil,
+                    frameAspect: 16 / 9,
+                    fallbackText: still == nil && !unit.isMovie ? "\(unit.episode)" : nil)
+                    .clipShape(.rect(cornerRadius: 12))
+                    .overlay { OfflineDownloadStrip(unit: unit, cornerRadius: 12) }
+                Text(item.title)
+                    .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
+                    .padding(.top, 8)
+                Text(unit.isMovie ? item.year.map(String.init) ?? " " : "第 \(unit.season) 季第 \(unit.episode) 集")
+                    .font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted).lineLimit(1)
+            }
+            .frame(width: width)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .task(id: unit.fileId) {
+            guard !unit.isMovie, unit.stillUrl == nil,
+                  let season = await OfflineStore.shared.season(itemId: unit.mediaItemId, season: unit.season) else { return }
+            archivedStill = season.episodes.first { $0.episodeNumber == unit.episode }?.stillUrl
+        }
+    }
+}
+
+/// 剧照上的下载状态（首页「正在下载」与详情页分集卡共用）：蓝描边 + 底部一条——
+/// 左边状态图标、中间「下载中 47%」、右边实时速度，最底下一道进度
+struct OfflineDownloadStrip: View {
+    let unit: OfflineUnit
+    var cornerRadius: CGFloat = Theme.posterRadius
+    @State private var store = OfflineStore.shared
+
+    var body: some View {
+        let tint = unit.state == .failed || unit.damaged ? Theme.warning : Theme.info
+        let speed = unit.state == .downloading ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
+        ZStack(alignment: .bottom) {
+            RoundedRectangle(cornerRadius: cornerRadius).strokeBorder(tint, lineWidth: 2)
+            VStack(spacing: 0) {
+                HStack(spacing: 6) {
+                    icon(tint)
+                    Text(Self.status(unit)).lineLimit(1)
+                    Spacer(minLength: 4)
+                    if let speed {
+                        Text("\(Formatters.bytes(Int(speed)))/s").monospacedDigit().lineLimit(1)
+                            .foregroundStyle(tint.opacity(0.8))
+                            .accessibilityIdentifier("download-speed")
+                    }
+                }
+                .font(.caption2.weight(.medium))
+                .monospacedDigit()
+                .foregroundStyle(tint)
+                .padding(.horizontal, 8).padding(.vertical, 6)
+                GeometryReader { proxy in
+                    Rectangle().fill(tint).frame(width: proxy.size.width * max(0, min(1, unit.progressFraction)))
+                }
+                .frame(height: 2)
+            }
+            .background(Color(red: 7 / 255, green: 12 / 255, blue: 20 / 255).opacity(0.92))
+            .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: cornerRadius, bottomTrailingRadius: cornerRadius))
+        }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(speed.map { "\(Self.status(unit))，\(Formatters.bytes(Int($0)))/s" } ?? Self.status(unit))
+    }
+
+    @ViewBuilder
+    private func icon(_ tint: Color) -> some View {
+        switch unit.state {
+        case .paused: Image(systemName: "pause.circle.fill")
+        case .failed: Image(systemName: "exclamationmark.circle.fill")
+        default:
+            if unit.damaged {
+                Image(systemName: "exclamationmark.circle.fill")
+            } else {
+                ProgressView().controlSize(.mini).tint(tint)
+            }
+        }
+    }
+
+    /// 一行状态（卡片窄，比通用文案短）
+    static func status(_ unit: OfflineUnit) -> String {
+        let percent = unit.expectedBytes > 0 ? " \(Int(unit.progressFraction * 100))%" : ""
+        if unit.damaged { return "文件损坏，请重新下载" }
+        return switch unit.state {
+        case .preparing: "准备下载"
+        case .queued: "等待下载"
+        case .downloading: "下载中\(percent)"
+        case .paused: "已暂停\(percent)"
+        case .failed: unit.retryable ? "下载中断，稍后重试" : "下载失败"
+        case .done: "已下载"
         }
     }
 }
