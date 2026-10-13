@@ -26,7 +26,7 @@ final class OfflineReviewReproUITests: XCTestCase {
     func testDownloadRetriesAfterServerBusyInForeground() throws {
         let app = launch(reset: true, route: "/library/1/item/\(movieId)")
         let control = app.buttons["item-download"]
-        XCTAssertTrue(control.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["item-actions"].waitForExistence(timeout: 30))
         // 过了冷启动的自动离线窗口：不靠「重新连上」来触发重试
         Thread.sleep(forTimeInterval: 65)
         setMode(["mode": "pass", "fail_paths": ["/api/v1/offline/files/"], "fail_status": 503,
@@ -43,7 +43,7 @@ final class OfflineReviewReproUITests: XCTestCase {
     func testPauseThenResumeFinishes() throws {
         let app = launch(reset: true, route: "/library/1/item/\(movieId)")
         let control = app.buttons["item-download"]
-        XCTAssertTrue(control.waitForExistence(timeout: 30))
+        XCTAssertTrue(app.buttons["item-actions"].waitForExistence(timeout: 30))
         setMode(["mode": "slow", "bps": 1_000_000])
         startDownload(app, profile: "original")
         XCTAssertTrue(waitUntil(timeout: 30) { (control.value as? String)?.hasPrefix("downloading") == true })
@@ -415,6 +415,44 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 180) { downloaded.count >= 1 }, "退回逐集清单后也应能下完")
     }
 
+    /// 电影与剧集同一套：开始下载在右上角「⋯」；播放键下方只在有本机副本时出现状态条（进度 + 速度，下完「已下载 · 档位 · 大小」）；
+    /// 下载中「⋯」里「下载」换成「取消下载」
+    @MainActor
+    func testMovieDownloadFromItemMenu() throws {
+        let app = launch(reset: true, route: "/library/1/item/\(movieId)")
+        let actions = app.buttons["item-actions"]
+        XCTAssertTrue(actions.waitForExistence(timeout: 30))
+        let bar = app.buttons["item-download"]
+        XCTAssertFalse(bar.exists, "没下过时播放键下方不该有下载按钮 / 状态条")
+        setMode(["mode": "slow", "bps": 1_500_000])
+        defer { setMode(["mode": "pass"]) }
+        startDownload(app, profile: "original")
+        XCTAssertTrue(bar.waitForExistence(timeout: 20), "开始下载后应出现状态条")
+        XCTAssertTrue(waitUntil(timeout: 30) { bar.label.contains("下载中") && bar.label.contains("/s") }, "状态条：\(bar.label)")
+        XCTAssertTrue(bar.frame.minY > app.buttons["item-play"].frame.maxY, "状态条应在播放键下方")
+        snapshot("movie-downloading")
+
+        actions.tap()
+        XCTAssertTrue(app.buttons["取消下载"].waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.buttons["下载"].exists, "已在下载，菜单里不该再有「下载」")
+        snapshot("movie-menu-downloading")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { !app.buttons["取消下载"].exists })
+
+        setMode(["mode": "pass"])
+        XCTAssertTrue(waitUntil(timeout: 120) { (bar.value as? String) == "done|original" }, "应下完：\(bar.value ?? "")")
+        XCTAssertTrue(waitUntil(timeout: 5) { bar.label.hasPrefix("已下载 · 原画") }, bar.label)
+        snapshot("movie-downloaded")
+        actions.tap()
+        XCTAssertTrue(app.buttons["加入合集"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["下载"].exists || app.buttons["取消下载"].exists, "下完后菜单里两项都不该有")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+        // 状态条上管已下完的：改画质 / 删除
+        bar.tap()
+        XCTAssertTrue(app.buttons["改下其他画质"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["删除下载"].exists)
+    }
+
     /// 断网冷启动直接起播（通知、站内链接直达播放页）：本机目录还没读完也要放本机副本，不能去连服务器
     @MainActor
     func testOfflineColdStartDeepLinkPlaysLocalCopy() throws {
@@ -540,11 +578,10 @@ final class OfflineReviewReproUITests: XCTestCase {
         return app
     }
 
+    /// 电影：右上角「⋯」→「下载」→ 选档 → 确认
     @MainActor
     private func startDownload(_ app: XCUIApplication, profile: String) {
-        let control = app.buttons["item-download"]
-        XCTAssertTrue(control.waitForExistence(timeout: 30))
-        control.tap()
+        openItemMenu(app, then: "下载")
         let option = app.buttons["offline-profile-\(profile)"]
         XCTAssertTrue(option.waitForExistence(timeout: 30))
         option.tap()
@@ -578,7 +615,8 @@ final class OfflineReviewReproUITests: XCTestCase {
     private func ensureMovieDownloaded() {
         let app = launch(reset: false, route: "/library/1/item/\(movieId)")
         let control = app.buttons["item-download"]
-        if control.waitForExistence(timeout: 30), (control.value as? String)?.hasPrefix("done") == true {
+        _ = app.buttons["item-actions"].waitForExistence(timeout: 30)
+        if control.waitForExistence(timeout: 5), (control.value as? String)?.hasPrefix("done") == true {
             app.terminate()
             return
         }

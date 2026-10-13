@@ -17,21 +17,10 @@ struct OfflineDownloadControl: View {
     @State private var picking: Int?
     @State private var confirmDelete = false
 
+    /// 只在本机有副本（下载中 / 暂停 / 失败 / 已下载）时出现；开始下载在右上角「⋯」
     var body: some View {
-        let unit = store.unit(mediaItemId: detail.mediaItemId, season: season, episode: episode)
-        if let unit {
+        if let unit = store.unit(mediaItemId: detail.mediaItemId, season: season, episode: episode) {
             existing(unit)
-        } else if permissions.canDownloadVideo, store.serverSupported, !reachability.isOffline, let file = files.first {
-            Button { picking = file.id } label: {
-                Label("下载", systemImage: "arrow.down.circle").heroActionLabel()
-            }
-            .buttonStyle(.glass)
-            .controlSize(.regular)
-            .accessibilityIdentifier("item-download")
-            .sheet(item: Binding(mcGet: { picking.map(PickTarget.init) }, set: { picking = $0?.id })) { target in
-                OfflineProfileSheet(fileId: target.id, title: title)
-                    .presentationDetents([.medium, .large])
-            }
         }
     }
 
@@ -45,30 +34,26 @@ struct OfflineDownloadControl: View {
     private func existing(_ unit: OfflineUnit) -> some View {
         let downloader = OfflineDownloader.shared
         Menu {
+            // 只有操作：状态、进度、速度都在这条上
             switch unit.state {
             case .done:
-                Text("\(unit.profileLabel) · \(Formatters.bytes(Int(unit.receivedBytes)))")
                 if !reachability.isOffline, permissions.canDownloadVideo, files.contains(where: { $0.id == unit.fileId }) {
                     Button("改下其他画质", systemImage: "arrow.triangle.2.circlepath") { picking = unit.fileId }
                 }
             case .preparing, .queued, .downloading:
-                Text(OfflineUnitStatus.text(unit))
                 if unit.state != .preparing {
                     Button("暂停", systemImage: "pause") { downloader.pause(fileId: unit.fileId) }
                 }
             case .paused:
                 Button("继续下载", systemImage: "play") { downloader.resume(fileId: unit.fileId) }
             case .failed:
-                Text(unit.error ?? "下载失败")
                 Button("重试", systemImage: "arrow.clockwise") { downloader.resume(fileId: unit.fileId) }
             }
-            Divider()
             Button(unit.state == .done ? "删除下载" : "取消下载", systemImage: "trash", role: .destructive) { confirmDelete = true }
         } label: {
-            label(unit).heroActionLabel()
+            OfflineDownloadStatusBar(unit: unit)
         }
-        .buttonStyle(.glass)
-        .controlSize(.regular)
+        .buttonStyle(.plain)
         .accessibilityIdentifier("item-download")
         .accessibilityValue("\(unit.state.rawValue)|\(unit.profile)")
         .confirmationDialog(unit.state == .done ? "删除这份下载？" : "取消下载？", isPresented: $confirmDelete, titleVisibility: .visible) {
@@ -83,24 +68,63 @@ struct OfflineDownloadControl: View {
                 .presentationDetents([.medium, .large])
         }
     }
+}
+
+/// 电影详情页播放键下方的下载状态条（与分集卡上的 `OfflineDownloadStrip` 同一套样子）：
+/// 下载中蓝字「下载中 47%」+ 右侧实时速度 + 底边进度；下完一行「已下载 · 原画 · 1.4 GB」，绿箭头
+struct OfflineDownloadStatusBar: View {
+    let unit: OfflineUnit
+    @State private var store = OfflineStore.shared
+
+    var body: some View {
+        let done = unit.playable
+        let warning = unit.state == .failed || unit.damaged
+        let tint = warning ? Theme.warning : done ? Theme.textMuted : Theme.info
+        let speed = unit.state == .downloading ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
+        let text = done
+            ? "已下载 · \(unit.profileLabel) · \(Formatters.bytes(Int(unit.receivedBytes)))"
+            : unit.state == .failed ? "\(OfflineDownloadStrip.status(unit))，点按重试" : OfflineDownloadStrip.status(unit)
+        VStack(spacing: 0) {
+            HStack(spacing: 8) {
+                icon(done: done, tint: tint)
+                Text(text).lineLimit(1)
+                Spacer(minLength: 6)
+                if let speed {
+                    Text("\(Formatters.bytes(Int(speed)))/s").foregroundStyle(tint.opacity(0.8))
+                }
+                Image(systemName: "chevron.up.chevron.down").font(.caption2.weight(.semibold)).foregroundStyle(Theme.textFaint)
+            }
+            .font(.footnote.weight(.medium))
+            .monospacedDigit()
+            .foregroundStyle(tint)
+            .padding(.horizontal, 12)
+            .frame(height: 36)
+            if !done {
+                GeometryReader { proxy in
+                    Rectangle().fill(tint).frame(width: proxy.size.width * max(0, min(1, unit.progressFraction)))
+                }
+                .frame(height: 2)
+            }
+        }
+        .background(Color.white.opacity(0.06))
+        .clipShape(.rect(cornerRadius: 10))
+        .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(done ? Color.white.opacity(0.08) : tint.opacity(0.5), lineWidth: 1))
+        .contentShape(.rect)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(speed.map { "\(text)，\(Formatters.bytes(Int($0)))/s" } ?? text)
+    }
 
     @ViewBuilder
-    private func label(_ unit: OfflineUnit) -> some View {
-        switch unit.state {
-        case .done:
-            Label("已下载", systemImage: "checkmark.circle.fill")
+    private func icon(done: Bool, tint: Color) -> some View {
+        if done {
+            Image(systemName: unit.damaged ? "exclamationmark.circle.fill" : "arrow.down").fontWeight(.heavy)
                 .foregroundStyle(unit.damaged ? Theme.warning : Theme.success)
-        case .preparing, .queued, .downloading:
-            HStack(spacing: 6) {
-                ProgressRing(fraction: unit.state == .downloading ? unit.progressFraction : nil)
-                    .frame(width: 16, height: 16)
-                Text(unit.state == .downloading && unit.expectedBytes > 0 ? "\(Int(unit.progressFraction * 100))%" : "下载中")
-                    .monospacedDigit()
+        } else {
+            switch unit.state {
+            case .paused: Image(systemName: "pause.circle.fill")
+            case .failed: Image(systemName: "exclamationmark.circle.fill")
+            default: ProgressView().controlSize(.mini).tint(tint)
             }
-        case .paused:
-            Label("已暂停", systemImage: "pause.circle")
-        case .failed:
-            Label("下载失败", systemImage: "exclamationmark.circle").foregroundStyle(Theme.warning)
         }
     }
 }

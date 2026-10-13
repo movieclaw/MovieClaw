@@ -32,6 +32,8 @@ struct LibraryItemDetailView: View {
     @State private var selectedEpisode: SelectedEpisode?
     @State private var downloadingSeries = false
     @State private var confirmCancelDownloads = false
+    /// 电影从右上角「⋯」开始下载：选档的文件
+    @State private var downloadingMovie: Int?
     @State private var selectedTrackFileId: Int?
     @State private var watched: API.PlaybackStateView?
     @State private var favorite: Bool?
@@ -124,6 +126,10 @@ struct LibraryItemDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) { actionsMenu(detail) }
             }
         }
+        .sheet(item: Binding(mcGet: { downloadingMovie.map(MoviePick.init) }, set: { downloadingMovie = $0?.id })) { target in
+            OfflineProfileSheet(fileId: target.id, title: detail?.title ?? "")
+                .presentationDetents([.medium, .large])
+        }
         .sheet(isPresented: $downloadingSeries) {
             if let detail {
                 OfflineProfileSheet(title: detail.title) { try await downloadChoices(detail) }
@@ -210,6 +216,8 @@ struct LibraryItemDetailView: View {
     }
 
     private var isMovie: Bool { detail?.kind != "tv" }
+
+    private struct MoviePick: Identifiable { let id: Int }
 
     /// 当前播放单元：电影恒为 (0, 0)；剧集跟随分集区选中的那一集
     private var playUnit: (season: Int, episode: Int)? {
@@ -548,12 +556,12 @@ struct LibraryItemDetailView: View {
             .foregroundStyle(.black)
             .accessibilityLabel(progressText.map { "\(label)，\($0)" } ?? label)
             .accessibilityIdentifier("item-play")
+            // 电影的下载状态条：本机有副本时才出现（开始下载在右上角「⋯」）；剧集的进度画在分集卡上
+            if isMovie, let detail, let unit = playUnit {
+                OfflineDownloadControl(detail: detail, season: unit.season, episode: unit.episode, files: downloadableFiles)
+                    .frame(maxWidth: HeroAction.maxWideLabelWidth)
+            }
             HStack(spacing: 10) {
-                // 下载按钮只给电影；剧集的下载进度画在分集卡上，整批下载在右上角菜单
-                if isMovie, let detail, let unit = playUnit {
-                    OfflineDownloadControl(detail: detail, season: unit.season, episode: unit.episode,
-                                           files: downloadableFiles)
-                }
                 if !readOnly {
                 Button { Task { await toggleFavorite() } } label: {
                     Label(favorite == true ? "已收藏" : "收藏", systemImage: favorite == true ? "heart.fill" : "heart")
@@ -747,14 +755,23 @@ struct LibraryItemDetailView: View {
         let tmdb = detail.tmdbId ?? 0
         let canUpgrade = permissions.canSubscribe && tmdb > 0 && detail.kind != "video" && detail.kind != "photo"
         let canShare = permissions.isAdmin && detail.kind != "photo"
-        let canDownload = !isMovie && permissions.canDownloadVideo && offlineStore.serverSupported
-        // 这部剧还在下的集（排队、准备、下载中、暂停、失败）：有才出现「取消下载」，下完自动消失
-        let active = isMovie ? [] : offlineStore.activeByItem[itemId] ?? []
+        // 这部剧 / 这部电影还在下的（排队、准备、下载中、暂停、失败）：有才出现「取消下载」，下完自动消失
+        let active = offlineStore.activeByItem[itemId] ?? []
+        // 电影已在本机（下着或下完）就不再给「下载」：状态条上管；只读派生值，进度刷新不重建开着的菜单
+        let movieLocal = isMovie && (!active.isEmpty || offlineStore.downloadedItemIds.contains(itemId))
+        let canDownload = permissions.canDownloadVideo && offlineStore.serverSupported
+            && (isMovie ? !movieLocal && downloadableFiles.first != nil : true)
         let activeSelected = selectedEpisode.flatMap { episode in
             active.first { $0.season == episode.season && $0.episode == episode.episode.episodeNumber }
         }
         return Menu {
-            if !active.isEmpty {
+            if isMovie, let unit = active.first {
+                Section {
+                    Button("取消下载", systemImage: "xmark.circle", role: .destructive) {
+                        OfflineDownloader.shared.delete(fileId: unit.fileId)
+                    }
+                }
+            } else if !active.isEmpty {
                 Section {
                     if let activeSelected {
                         Button("取消下载选中的集", systemImage: "xmark.circle") {
@@ -771,8 +788,14 @@ struct LibraryItemDetailView: View {
             if quick {
                 ControlGroup {
                     if canDownload {
-                        // 剧集的离线下载（docs/design/offline-download.md §8）：范围在下载面板里选；电影用播放键旁的下载按钮
-                        Button("下载", systemImage: "arrow.down.circle") { downloadingSeries = true }
+                        // 离线下载（docs/design/offline-download.md §8）：剧集在下载面板里选范围；电影直接选画质
+                        Button("下载", systemImage: "arrow.down.circle") {
+                            if isMovie {
+                                downloadingMovie = downloadableFiles.first?.id
+                            } else {
+                                downloadingSeries = true
+                            }
+                        }
                     }
                     Button("加入合集", systemImage: "rectangle.stack.badge.plus") { sheet = .addToCollection }
                     if canShare {

@@ -234,12 +234,17 @@ final class OfflineDownloadUITests: XCTestCase {
         return app
     }
 
-    /// 详情页点「下载」→ 选档 → 等下完
+    /// 详情页右上角「⋯」→「下载」→ 选档 → 等下完（电影的下载入口在菜单里，播放键下方只有状态条）
     @MainActor
     private func download(_ app: XCUIApplication, profile: String) {
         let control = app.buttons["item-download"]
-        XCTAssertTrue(control.waitForExistence(timeout: 20), "应有下载按钮")
-        control.tap()
+        let actions = app.buttons["item-actions"]
+        XCTAssertTrue(actions.waitForExistence(timeout: 20))
+        XCTAssertFalse(control.exists, "没下过时不该有下载状态条")
+        actions.tap()
+        let menuDownload = app.buttons["下载"]
+        XCTAssertTrue(menuDownload.waitForExistence(timeout: 5), "菜单里应有「下载」\n\(app.debugDescription)")
+        menuDownload.tap()
         let option = app.buttons["offline-profile-\(profile)"]
         XCTAssertTrue(option.waitForExistence(timeout: 30), "选档 sheet 应列出 \(profile)")
         option.tap()
@@ -266,7 +271,8 @@ final class OfflineDownloadUITests: XCTestCase {
     private func ensureMovieDownloaded() {
         let app = launch(reset: false, route: "/library/1/item/\(movieId)")
         let control = app.buttons["item-download"]
-        if control.waitForExistence(timeout: 30), (control.value as? String)?.hasPrefix("done") == true {
+        _ = app.buttons["item-actions"].waitForExistence(timeout: 30)
+        if control.waitForExistence(timeout: 5), (control.value as? String)?.hasPrefix("done") == true {
             app.terminate()
             return
         }
