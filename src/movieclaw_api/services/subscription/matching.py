@@ -726,6 +726,47 @@ async def _resolve_upgrade(
     return accepted, labels
 
 
+async def rule_search_site_ids(
+    session: AsyncSession, subscription: Subscription
+) -> list[str] | None:
+    """订阅规则组的站点约束 → ``search_all_sites`` 的 ``site_ids``；None=不限。
+
+    白名单 / 黑名单都在这里收敛成一份扇出列表，缺口搜索与死种换源共用，
+    避免换源又搜到规则组明确不要的站（issue #806）。智能模式无站点维度。
+    """
+    from movieclaw_matcher import search_site_ids
+
+    if subscription.selection_mode == "smart":
+        return None
+    rule = await session.get(RuleSet, subscription.rule_set_id)
+    if rule is None:
+        return None
+    try:
+        spec = RuleSetSpec.model_validate(rule.spec or {})
+    except ValueError:
+        return None
+    if not spec.sites and not spec.sites_block:
+        return None
+    if spec.sites and not spec.sites_block:
+        return search_site_ids(spec)
+    # 黑名单（或白∩黑）需要对照当前可用站点做差集
+    from movieclaw_db.models.site_credential import ConfigStatus
+
+    available = list(
+        (
+            await session.execute(
+                select(SiteCredential.site_id).where(
+                    SiteCredential.enabled == True,  # noqa: E712 -- SQL 表达式需用 ==
+                    SiteCredential.status == ConfigStatus.ACTIVE,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return search_site_ids(spec, available)
+
+
 async def drop_protected_sites(
     session: AsyncSession, torrents: list[SiteTorrent]
 ) -> list[SiteTorrent]:

@@ -32,6 +32,7 @@ import {
   type RuleSetSpec,
   type ScopeRule,
 } from "@/lib/api/subscriptions";
+import { listConfiguredSites, listSiteCatalog } from "@/lib/api/sites";
 import { PLATFORM_OPTIONS, platformLabel } from "@/lib/platforms";
 import {
   CODEC_FAMILIES,
@@ -528,6 +529,8 @@ export function specSummary(
     chips.push(`制作组白名单 ${spec.release_groups_allow.length} 个`);
   if (spec.release_groups_block?.length)
     chips.push(`制作组黑名单 ${spec.release_groups_block.length} 个`);
+  if (spec.sites?.length) chips.push(`站点: ${spec.sites.join("/")}`);
+  if (spec.sites_block?.length) chips.push(`排除站点: ${spec.sites_block.join("/")}`);
   return chips;
 }
 
@@ -600,6 +603,12 @@ export function RuleSetEditorDialog({
   const [sizeMax, setSizeMax] = useState(spec.size_max_mb?.toString() ?? "");
   const [groupsAllow, setGroupsAllow] = useState((spec.release_groups_allow ?? []).join(", "));
   const [groupsBlock, setGroupsBlock] = useState((spec.release_groups_block ?? []).join(", "));
+  // 站点白/黑名单：选项来自已配置站点；与流媒体平台同构的三态芯片
+  const [sitesAllow, setSitesAllow] = useState<string[]>(spec.sites ?? []);
+  const [sitesBlock, setSitesBlock] = useState<string[]>(spec.sites_block ?? []);
+  const [configuredSites, setConfiguredSites] = useState<
+    { site_id: string; display_name: string }[]
+  >([]);
   // 洗版目标：""=不洗版（唯一的洗版配置点，docs/design/quality-upgrade.md §8.2）
   const [upgradeSource, setUpgradeSource] = useState<string>(spec.upgrade_source ?? "");
   const [upgradeKeepOld, setUpgradeKeepOld] = useState<boolean>(spec.upgrade_keep_old ?? false);
@@ -611,6 +620,27 @@ export function RuleSetEditorDialog({
   const [ladderOpen, setLadderOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all([listConfiguredSites(), listSiteCatalog()])
+      .then(([configured, catalog]) => {
+        if (cancelled) return;
+        const nameOf = new Map(catalog.map((c) => [c.site_id, c.display_name]));
+        setConfiguredSites(
+          configured.map((s) => ({
+            site_id: s.site_id,
+            display_name: nameOf.get(s.site_id) ?? s.site_id,
+          })),
+        );
+      })
+      .catch(() => {
+        // 站点列表加载失败不挡编辑：仍可用已保存的 site_id 展示
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 编码族之外的原有值（手工经 API 写入的自定义编码）：编辑时不丢
   const codecExtras = useMemo(
@@ -648,6 +678,38 @@ export function RuleSetEditorDialog({
       setPlatformsBlock((prev) => [...prev, value]);
     } else {
       setPlatformsBlock((prev) => prev.filter((v) => v !== value));
+    }
+  };
+
+  const knownSiteIds = useMemo(
+    () => new Set(configuredSites.map((s) => s.site_id)),
+    [configuredSites],
+  );
+  const siteLabel = (siteId: string) =>
+    configuredSites.find((s) => s.site_id === siteId)?.display_name ?? siteId;
+  // 已配置列表之外、但规则里还留着的 site_id（站点删了或尚未刷出列表）
+  const siteExtras = useMemo(
+    () => ({
+      allow: sitesAllow.filter((id) => !knownSiteIds.has(id)),
+      block: sitesBlock.filter((id) => !knownSiteIds.has(id)),
+    }),
+    [sitesAllow, sitesBlock, knownSiteIds],
+  );
+  const siteState = (siteId: string): "off" | "include" | "exclude" =>
+    sitesAllow.includes(siteId)
+      ? "include"
+      : sitesBlock.includes(siteId)
+        ? "exclude"
+        : "off";
+  const cycleSite = (siteId: string) => {
+    const state = siteState(siteId);
+    if (state === "off") {
+      setSitesAllow((prev) => [...prev, siteId]);
+    } else if (state === "include") {
+      setSitesAllow((prev) => prev.filter((v) => v !== siteId));
+      setSitesBlock((prev) => [...prev, siteId]);
+    } else {
+      setSitesBlock((prev) => prev.filter((v) => v !== siteId));
     }
   };
 
@@ -694,6 +756,8 @@ export function RuleSetEditorDialog({
 
   const limitSummary =
     [
+      sitesAllow.length ? `站点 ${sitesAllow.map(siteLabel).join("/")}` : "",
+      sitesBlock.length ? `排除站点 ${sitesBlock.map(siteLabel).join("/")}` : "",
       subLangs.length ? `字幕 ${labelOf(SUB_LANG_OPTIONS, subLangs)}` : "",
       audioLangs.length ? `音轨 ${labelOf(AUDIO_LANG_OPTIONS, audioLangs)}` : "",
       freeOnly ? "仅免费" : "",
@@ -805,6 +869,8 @@ export function RuleSetEditorDialog({
     const block = parseGroups(groupsBlock);
     if (allow.length) next.release_groups_allow = allow;
     if (block.length) next.release_groups_block = block;
+    if (sitesAllow.length) next.sites = sitesAllow;
+    if (sitesBlock.length) next.sites_block = sitesBlock;
     if (upgradeSource) {
       if (mediaSources.length && !mediaSources.includes(upgradeSource)) {
         return { spec: next, error: "洗版目标片源必须在允许的片源范围内" };
@@ -820,8 +886,6 @@ export function RuleSetEditorDialog({
       }
       if (upgradeKeepOld) next.upgrade_keep_old = true;
     }
-    // API 写入的预留字段（站点白名单）编辑时原样保留，不因 UI 保存而丢失
-    if (spec.sites?.length) next.sites = spec.sites;
     return { spec: next, error: null };
   }, [
     resolutions,
@@ -845,9 +909,10 @@ export function RuleSetEditorDialog({
     sizeMax,
     groupsAllow,
     groupsBlock,
+    sitesAllow,
+    sitesBlock,
     cutoffResolution,
     upgradeKeepOld,
-    spec.sites,
   ]);
 
   // 底部回执分两段：硬性筛选走芯片，洗版走阶梯（洗版开着时芯片里不再重复目标）
@@ -1096,6 +1161,40 @@ export function RuleSetEditorDialog({
           </Section>
 
           <Section title="下载与限制" summary={limitSummary}>
+          <Field
+            label="站点"
+            hint="点一下 = 只要，再点 = 排除，第三下取消。设了「只要」后只从这些站搜索与换源；制作组白名单拦不住跨站转载，按站点限制才能真正「只吃某站」"
+          >
+            {configuredSites.length === 0 &&
+            siteExtras.allow.length === 0 &&
+            siteExtras.block.length === 0 ? (
+              <p className="text-caption text-[var(--text-faint)]">
+                还没有已配置的站点。请先在「设置 → 资源站点」接入，再回来限定。
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {configuredSites.map((site) => (
+                  <TriChip
+                    key={site.site_id}
+                    state={siteState(site.site_id)}
+                    onClick={() => cycleSite(site.site_id)}
+                  >
+                    {site.display_name}
+                  </TriChip>
+                ))}
+                {[...siteExtras.allow, ...siteExtras.block].map((siteId) => (
+                  <TriChip
+                    key={siteId}
+                    state={siteState(siteId)}
+                    onClick={() => cycleSite(siteId)}
+                  >
+                    {siteId}
+                  </TriChip>
+                ))}
+              </div>
+            )}
+          </Field>
+
           <Field
             label="字幕语言"
             hint="任一命中即通过；按种子标题声明判断——未声明字幕的资源会被排除，不选 = 不限"

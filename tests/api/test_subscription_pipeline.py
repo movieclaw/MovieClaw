@@ -181,7 +181,7 @@ def _service(session) -> SubscriptionService:
 
 async def _insert_torrent(session, torrent_id: str, title: str, attrs: dict, **kw) -> SiteTorrent:
     row = SiteTorrent(
-        site_id="testsite",
+        site_id=kw.pop("site_id", "testsite"),
         torrent_id=torrent_id,
         title=title,
         subtitle=kw.pop("subtitle", ""),
@@ -405,6 +405,73 @@ async def test_rule_rejection_logged_once_with_reason(db) -> None:
 
         wanted = await _wanted_map(session, sub.id)
         assert all(w.status == WantedStatus.WANTED for w in wanted.values())
+
+
+async def test_site_allowlist_rejects_other_sites(db) -> None:
+    """规则组站点白名单：名单外候选记「站点不在允许范围」，名单内可投递（#806）。"""
+    async with db.session() as session:
+        rule = await RuleSetService(session).create("只要猫站", {"sites": ["pter"]})
+        sub = await _service(session).create(
+            MediaKind.TV, 200, selected_seasons=[1], rule_set_id=rule.id
+        )
+        blocked = await _insert_torrent(
+            session,
+            "cross-site",
+            "Test Show S01 2160p WEB-DL",
+            _S1_PACK_ATTRS,
+            site_id="chdbits",
+            seeders=99,
+            is_free=True,
+        )
+        await evaluate_and_dispatch(session, [blocked], source="被动匹配")
+        rejected = [
+            a for a in await _activities(session, sub.id) if a.type == "match_rejected"
+        ]
+        assert len(rejected) == 1
+        assert rejected[0].payload["reason_code"] == "site_not_allowed"
+        assert "不在允许范围" in rejected[0].message
+
+        allowed = await _insert_torrent(
+            session,
+            "home-site",
+            "Test Show S01 2160p WEB-DL pter",
+            _S1_PACK_ATTRS,
+            site_id="pter",
+            seeders=5,
+            is_free=False,
+        )
+        await evaluate_and_dispatch(session, [allowed], source="被动匹配")
+        grabbed = [a for a in await _activities(session, sub.id) if a.type == "grabbed"]
+        assert len(grabbed) == 1
+        assert grabbed[0].payload["site_id"] == "pter"
+
+
+async def test_zero_seeder_free_does_not_outrank_healthy_seeders(db) -> None:
+    """0 做种免费转载不得压过健康做种的原发种（#806 排序修正）。"""
+    async with db.session() as session:
+        sub = await _service(session).create(MediaKind.TV, 200, selected_seasons=[1])
+        free_dead = await _insert_torrent(
+            session,
+            "free-dead",
+            "Test Show S01 2160p WEB-DL free",
+            _S1_PACK_ATTRS,
+            site_id="chdbits",
+            seeders=0,
+            is_free=True,
+        )
+        paid_healthy = await _insert_torrent(
+            session,
+            "paid-healthy",
+            "Test Show S01 2160p WEB-DL origin",
+            _S1_PACK_ATTRS,
+            site_id="pter",
+            seeders=48,
+            is_free=False,
+        )
+        await evaluate_and_dispatch(session, [free_dead, paid_healthy], source="被动匹配")
+        grabbed = [a for a in await _activities(session, sub.id) if a.type == "grabbed"]
+        assert len(grabbed) == 1
+        assert grabbed[0].payload["torrent_id"] == "paid-healthy"
 
 
 async def test_pack_preferred_over_higher_scored_single(db) -> None:

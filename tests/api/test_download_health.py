@@ -252,7 +252,9 @@ async def test_auto_replacement_brakes_while_landing_group_active(db, monkeypatc
 
     searched: list[str] = []
 
-    async def fake_search(keyword, *, categories=None, exclude_protected=False):
+    async def fake_search(
+        keyword, *, categories=None, site_ids=None, exclude_protected=False
+    ):
         searched.append(keyword)
         return SimpleNamespace(sites=[SimpleNamespace(error=None, site_name="站")], items=[])
 

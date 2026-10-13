@@ -310,8 +310,10 @@ export interface RuleSetSpec {
   upgrade_keep_old?: boolean;
   /** 参与洗版比较的维度及优先级（顺序即位次）；缺省 ["resolution","source"] */
   upgrade_ladder?: string[];
-  /** [预留] 站点白名单；空=全部启用站点 */
+  /** 站点白名单（site_id）；空=全部启用站点。设了后只从名单内站点下载 / 换源 */
   sites?: string[];
+  /** 站点黑名单（site_id）；命中即排除，优先于白名单 */
+  sites_block?: string[];
 }
 
 /**

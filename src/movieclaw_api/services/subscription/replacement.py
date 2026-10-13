@@ -349,6 +349,10 @@ async def run_replacement_search(attempt_id: int, *, force: bool = False) -> boo
                 subscription_id=attempt.subscription_id,
                 purpose="replacement",
             )
+            # 换源也遵守规则组站点名单，避免死种救援又换到明确不要的站（#806）
+            from movieclaw_api.services.subscription.matching import rule_search_site_ids
+
+            site_ids = await rule_search_site_ids(session, subscription)
             # 网络调用前先排一个技术失败兜底，进程中途退出也不会每个 tick 重打站点。
             attempt.status = DownloadAttemptStatus.REPLACEMENT_PENDING
             attempt.last_search_at = now
@@ -371,6 +375,7 @@ async def run_replacement_search(attempt_id: int, *, force: bool = False) -> boo
                 response = await search_all_sites(
                     keyword,
                     categories=_SEARCH_CATEGORIES.get(item_kind),
+                    site_ids=site_ids,
                     # 换源同属订阅链路：受保护站点不参与自动拉种
                     exclude_protected=True,
                 )

@@ -293,6 +293,7 @@ async def _search_one_media(media_id: int, budget: _SearchBudget) -> None:
         return
 
     from movieclaw_api import hooks
+    from movieclaw_api.services.subscription.matching import rule_search_site_ids
 
     # 插件可以追加别名、按字幕组限定（subscription.search.keywords）
     keywords = await hooks.search_keywords(
@@ -316,6 +317,11 @@ async def _search_one_media(media_id: int, budget: _SearchBudget) -> None:
             )
         return
 
+    # 规则组站点白/黑名单：搜索扇出就收窄，避免把名单外站点的种灌进索引后
+    # 再被 evaluate_rules 拒绝（issue #806）。被动匹配仍靠规则层兜底。
+    async with db.session() as session:
+        site_ids = await rule_search_site_ids(session, subscription)
+
     hits_by_key: dict[tuple[str, str], TorrentHit] = {}
     per_keyword: list[tuple[str, int]] = []
     site_errors: list[str] = []
@@ -325,7 +331,10 @@ async def _search_one_media(media_id: int, budget: _SearchBudget) -> None:
         budget.charge()  # 请求发出前先记账：中途抛异常也不让预算回血
         # exclude_protected：受保护站点不参与订阅链路的自动拉种（保护开关语义）
         response = await search_all_sites(
-            keyword, categories=categories, exclude_protected=True
+            keyword,
+            categories=categories,
+            site_ids=site_ids,
+            exclude_protected=True,
         )
         # sites_ok 取各词的**最大值**而非末词的值：末词恰好全站超时，不该把
         # 前面几个词的有效结果一起判成"搜索本身失败"（与换源搜索同口径，

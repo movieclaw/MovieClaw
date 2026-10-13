@@ -5,10 +5,13 @@
   拒绝原因如实说"无法识别"而非假装它不达标；
 - H&R 未知按规则组的显式策略（lenient/strict）处理，绝不静默塌缩成 False。
 
-评分公式第一版内置不暴露权重（已确认决策）：免费 > 做种数（封顶）> 分辨率偏好。
+评分公式第一版内置不暴露权重（已确认决策）：做种数（封顶）与免费加分并重，
+免费不得单独压过健康做种数；其后是分辨率偏好与片源偏好。
 """
 
 from __future__ import annotations
+
+from collections.abc import Iterable
 
 from movieclaw_enrich.vocab import codec_family
 from movieclaw_matcher.decision import MEDIA_SOURCE_TIER_LABEL, media_source_rank
@@ -23,12 +26,35 @@ from movieclaw_matcher.models import (
 # 未配置分辨率偏好时的内置默认（高清优先，权重温和）
 _DEFAULT_RESOLUTION_SCORE = {"2160p": 30, "1080p": 20, "720p": 10}
 
-_FREE_SCORE = 100  # 免费是 PT 场景的第一偏好
+# 免费仍是 PT 场景的加分项，但不得单独压过做种数封顶——否则 0 做种的免费
+# 转载种（+100）会赢过有几十做种的原发种（最高 +50），再触发死种换源绕圈
+# （issue #806）。25 < 50：同等做种时免费仍胜，健康做种足以压过零做种免费种。
+_FREE_SCORE = 25
 _SEEDERS_CAP = 50  # 做种数计分封顶，防止爆种老资源碾压一切偏好
 _RESOLUTION_SCORE_STEP = 30  # 分辨率偏好每档的分值
 # 片源偏好每档的分值，刻意低于分辨率一档：两者都是"版本好坏"的主轴，但分辨率
 # 先于片源（洗版阶梯的缺省位序也是"分辨率 › 片源"，两处口径必须一致）
 _SOURCE_SCORE_STEP = 20
+
+
+def search_site_ids(spec: RuleSetSpec, available: Iterable[str] | None = None) -> list[str] | None:
+    """规则组的站点约束 → 搜索扇出用的 site_ids；None = 不限站点。
+
+    - 只配了白名单：返回白名单（减去黑名单）；
+    - 只配了黑名单：在 ``available`` 上做差集；未提供 available 时返回 None，
+      由 ``evaluate_rules`` 兜底拒绝（被动匹配不走搜索扇出）；
+    - 都没配：None。
+    """
+    blocked = set(spec.sites_block)
+    if spec.sites:
+        allowed = [site_id for site_id in spec.sites if site_id not in blocked]
+        if available is None:
+            return allowed
+        wanted = set(allowed)
+        return [site_id for site_id in available if site_id.casefold() in wanted]
+    if blocked and available is not None:
+        return [site_id for site_id in available if site_id.casefold() not in blocked]
+    return None
 
 
 def _any_lang_match(required: list[str], declared: list[str]) -> bool:
@@ -61,6 +87,17 @@ def evaluate_rules(
             reason_text=None if accepted else "资源不满足智能模式的最低要求，或品质属性无法确认",
         )
     attrs = candidate.attrs
+
+    # 站点：黑名单先判，白名单非空则只收名单内。站点 ID 是候选的硬属性
+    # （TorrentCandidate.site_id），不存在「未知」态——与平台/制作组不同。
+    site_id = candidate.site_id.casefold()
+    if spec.sites_block and site_id in set(spec.sites_block):
+        return _reject("site_blocked", f"站点 {candidate.site_id} 在黑名单中")
+    if spec.sites and site_id not in set(spec.sites):
+        return _reject(
+            "site_not_allowed",
+            f"站点 {candidate.site_id} 不在允许范围（{'/'.join(spec.sites)}）",
+        )
 
     if spec.resolutions:
         allowed = {r.casefold() for r in spec.resolutions}
@@ -208,16 +245,18 @@ def evaluate_rules(
 
 
 def _score(candidate: TorrentCandidate, spec: RuleSetSpec) -> int:
-    """内置评分：免费 > 做种数（封顶） > 分辨率偏好 > 片源偏好。
+    """内置评分：做种数（封顶）与免费加分并重 > 分辨率偏好 > 片源偏好。
 
-    片源只在规则组**显式配了** ``media_sources`` 时参与——没配就是"不限片源"，
-    此时任何内置片源序都是替用户做主张，且会悄悄改变存量规则组的选优结果。
-    这也是它与分辨率的唯一不同（分辨率有内置默认序，因为"高清优先"没有争议）。
+    免费加分刻意低于做种封顶（见 ``_FREE_SCORE``），避免零做种免费转载压过
+    健康原发种。片源只在规则组**显式配了** ``media_sources`` 时参与——没配
+    就是"不限片源"，此时任何内置片源序都是替用户做主张，且会悄悄改变存量
+    规则组的选优结果。这也是它与分辨率的唯一不同（分辨率有内置默认序，
+    因为"高清优先"没有争议）。
     """
     score = 0
+    score += min(candidate.seeders or 0, _SEEDERS_CAP)
     if candidate.is_free is True:
         score += _FREE_SCORE
-    score += min(candidate.seeders or 0, _SEEDERS_CAP)
     resolution = (candidate.attrs.resolution or "").casefold()
     if spec.resolutions:
         ordered = [r.casefold() for r in spec.resolutions]

@@ -161,6 +161,20 @@ def _known_platforms(values: list[str]) -> list[str]:
     return seen
 
 
+def _normalize_site_ids(values: list[str]) -> list[str]:
+    """站点 ID 归一：去空白、统一小写、保序去重。
+
+    与平台词表不同——站点 ID 没有封闭值域（内置站 + 用户自定义站 + 插件站），
+    未知 ID 仍然保留：用户可能先配规则再接入站点，丢弃会让配置「写了却没生效」。
+    """
+    seen: list[str] = []
+    for value in values:
+        canon = value.strip().casefold()
+        if canon and canon not in seen:
+            seen.append(canon)
+    return seen
+
+
 class HdrPolicy(StrEnum):
     """HDR 三态要求（判断整个 HDR 家族：HDR10/HDR10+/HLG/DV/…）。
 
@@ -331,10 +345,22 @@ class RuleSetSpec(BaseModel):
         "缺省 False=旧版本进回收站（library-file-recycle.md §9）",
     )
 
-    # -- 预留（本期不消费，字段先占位保证 spec 向前兼容）--------------------
+    # 站点：与平台/制作组同构的来源维度。转载种会原样保留制作组名，只有按
+    # 站点限制才能表达「只从 A 站下载」（issue #806）。空白名单 = 不限站点。
     sites: list[str] = Field(
-        default_factory=list, description="[预留] 站点白名单；空=全部启用站点"
+        default_factory=list,
+        description="站点白名单（site_id）；空=全部启用站点。设了白名单后只从名单内站点下载",
     )
+    sites_block: list[str] = Field(
+        default_factory=list, description="站点黑名单（site_id）；命中即排除，优先于白名单"
+    )
+
+    @model_validator(mode="after")
+    def _normalize_sites(self) -> RuleSetSpec:
+        """站点 ID 归一：去空白、统一小写、保序去重（读取路径永远宽容）。"""
+        self.sites = _normalize_site_ids(self.sites)
+        self.sites_block = _normalize_site_ids(self.sites_block)
+        return self
 
     @model_validator(mode="after")
     def _normalize_upgrade_ladder(self) -> RuleSetSpec:

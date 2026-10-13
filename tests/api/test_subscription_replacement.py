@@ -152,7 +152,9 @@ async def test_real_search_distinguishes_no_candidate_from_site_failure(db, monk
 
     searched_keywords: list[str] = []
 
-    async def empty_search(keyword, *, categories=None, exclude_protected=False):
+    async def empty_search(
+        keyword, *, categories=None, site_ids=None, exclude_protected=False
+    ):
         searched_keywords.append(keyword)
         return SimpleNamespace(
             sites=[SimpleNamespace(error=None, site_name="测试站")],
@@ -187,7 +189,9 @@ async def test_real_search_distinguishes_no_candidate_from_site_failure(db, monk
         attempt.next_search_at = utcnow()
         await session.commit()
 
-    async def failed_search(keyword, *, categories=None, exclude_protected=False):
+    async def failed_search(
+        keyword, *, categories=None, site_ids=None, exclude_protected=False
+    ):
         return SimpleNamespace(
             sites=[SimpleNamespace(error="连接超时", site_name="故障站")],
             items=[],
@@ -207,6 +211,74 @@ async def test_real_search_distinguishes_no_candidate_from_site_failure(db, monk
     async with db.session() as session:
         assert (await session.get(SubscriptionDownloadAttempt, attempt_id)).search_attempts == 2
     assert len(stuck) == 1
+
+
+@pytest.mark.asyncio
+async def test_replacement_search_honors_rule_site_allowlist(db, monkeypatch) -> None:
+    """死种换源搜索扇出遵守规则组站点白名单，避免换到名单外的站（#806）。"""
+    async with db.session() as session:
+        media = MediaItem(
+            kind="movie",
+            tmdb_id=806,
+            title="站点换源",
+            original_title="Site Scoped",
+            english_title="Site Scoped",
+        )
+        rule = RuleSet(name="只要猫站", spec={"sites": ["pter", "mteam"]})
+        session.add_all([media, rule])
+        await session.flush()
+        subscription = Subscription(
+            media_item_id=media.id, kind="movie", rule_set_id=rule.id
+        )
+        session.add(subscription)
+        await session.flush()
+        session.add(
+            WantedItem(
+                subscription_id=subscription.id,
+                media_item_id=media.id,
+                season_number=0,
+                episode_number=0,
+                status=WantedStatus.GRABBED,
+                info_hash="d" * 40,
+            )
+        )
+        attempt = SubscriptionDownloadAttempt(
+            subscription_id=subscription.id,
+            info_hash="d" * 40,
+            torrent_title="Old.1080p.WEB-DL",
+            units=[[0, 0]],
+            quality={"resolution": "1080p", "media_source": "WEB-DL"},
+            owned_by_movieclaw=True,
+            hit_and_run=False,
+            status=DownloadAttemptStatus.REPLACEMENT_PENDING,
+            last_progress_at=utcnow() - timedelta(minutes=31),
+            next_search_at=utcnow(),
+        )
+        session.add(attempt)
+        await session.commit()
+        attempt_id = attempt.id
+
+    seen_site_ids: list[list[str] | None] = []
+
+    async def scoped_search(
+        keyword, *, categories=None, site_ids=None, exclude_protected=False
+    ):
+        seen_site_ids.append(site_ids)
+        return SimpleNamespace(
+            sites=[SimpleNamespace(error=None, site_name="猫站")],
+            items=[],
+        )
+
+    import movieclaw_api.services.site_search as site_search
+
+    async def published(session, event, build):  # type: ignore[no-untyped-def]
+        return None
+
+    monkeypatch.setattr("movieclaw_api.events.publish", published)
+    monkeypatch.setattr(site_search, "search_all_sites", scoped_search)
+    assert await run_replacement_search(attempt_id, force=True) is False
+    assert seen_site_ids
+    assert all(ids == ["pter", "mteam"] for ids in seen_site_ids)
 
 
 @pytest.mark.asyncio

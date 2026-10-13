@@ -55,7 +55,7 @@ from movieclaw_matcher.models import (
     UpgradeSource,
     UpgradeVerdict,
 )
-from movieclaw_matcher.rules import evaluate_rules
+from movieclaw_matcher.rules import evaluate_rules, search_site_ids
 
 __all__ = [
     "DISC_SOURCE",
@@ -79,6 +79,7 @@ __all__ = [
     "match_identity",
     "normalize_title",
     "evaluate_rules",
+    "search_site_ids",
     "pick_best",
     "build_snapshot",
     "candidate_ladder_rank",

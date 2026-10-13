@@ -15,7 +15,12 @@ def _candidate(**kwargs) -> TorrentCandidate:
     attrs = {k: v for k, v in kwargs.items() if k in attr_fields}
     rest = {k: v for k, v in kwargs.items() if k not in attr_fields}
     return TorrentCandidate(
-        site_id="test", torrent_id="1", title="t", subtitle="", attrs=TorrentAttrs(**attrs), **rest
+        site_id=rest.pop("site_id", "test"),
+        torrent_id=rest.pop("torrent_id", "1"),
+        title=rest.pop("title", "t"),
+        subtitle=rest.pop("subtitle", ""),
+        attrs=TorrentAttrs(**attrs),
+        **rest,
     )
 
 
@@ -97,6 +102,18 @@ def _candidate(**kwargs) -> TorrentCandidate:
             "group_not_allowed",
         ),
         ({}, {"release_groups_allow": ["OurTV"]}, False, "group_unknown"),
+        # 站点白/黑名单（issue #806）：站点 ID 是候选硬属性，无「未知」态
+        ({}, {"sites": ["pter", "mteam"]}, False, "site_not_allowed"),  # 默认 site_id=test
+        ({}, {"sites": ["test", "pter"]}, True, None),
+        ({}, {"sites_block": ["test"]}, False, "site_blocked"),
+        ({}, {"sites_block": ["chdbits"]}, True, None),  # 黑名单不误伤其它站
+        # 黑名单优先于白名单：同站同时在两边 → 按黑名单拒绝
+        (
+            {"site_id": "pter"},
+            {"sites": ["pter"], "sites_block": ["pter"]},
+            False,
+            "site_blocked",
+        ),
         # HDR：空列表=未标注（命名惯例缺席即否定）；hdr 轴判整个家族（含 DV）
         ({"hdr": ["HDR10", "DV"]}, {"hdr": "require"}, True, None),
         ({"hdr": ["DV"]}, {"hdr": "require"}, True, None),  # 纯 DV 也是 HDR 家族
@@ -182,15 +199,32 @@ def test_size_unknown_rejected_when_bounds_set() -> None:
 
 
 # ---------------------------------------------------------------------------
-# 评分：免费 > 做种（封顶） > 分辨率偏好
+# 评分：做种（封顶）与免费加分并重 > 分辨率偏好
 # ---------------------------------------------------------------------------
 
 
-def test_score_free_beats_seeders() -> None:
+def test_score_healthy_seeders_beat_zero_seeder_free() -> None:
+    """0 做种免费转载不得压过健康做种的原发种（issue #806）。"""
     spec = RuleSetSpec()
-    free_few_seeders = evaluate_rules(_candidate(is_free=True, seeders=2), spec)
-    paid_many_seeders = evaluate_rules(_candidate(is_free=False, seeders=500), spec)
-    assert free_few_seeders.score > paid_many_seeders.score  # 做种计分封顶生效
+    free_dead = evaluate_rules(_candidate(is_free=True, seeders=0), spec)
+    paid_healthy = evaluate_rules(_candidate(is_free=False, seeders=48), spec)
+    assert paid_healthy.score > free_dead.score
+
+
+def test_score_free_still_beats_equal_seeders() -> None:
+    """同等做种时免费仍胜——免费是加分项，只是不能单独压过做种封顶。"""
+    spec = RuleSetSpec()
+    free = evaluate_rules(_candidate(is_free=True, seeders=20), spec)
+    paid = evaluate_rules(_candidate(is_free=False, seeders=20), spec)
+    assert free.score > paid.score
+
+
+def test_score_seeders_cap_still_applies() -> None:
+    """做种计分封顶仍在：爆种老资源不能靠做种数碾压一切。"""
+    spec = RuleSetSpec()
+    capped = evaluate_rules(_candidate(is_free=False, seeders=500), spec)
+    at_cap = evaluate_rules(_candidate(is_free=False, seeders=50), spec)
+    assert capped.score == at_cap.score
 
 
 def test_score_resolution_preference_follows_spec_order() -> None:
@@ -383,3 +417,35 @@ def test_hdr_spec_roundtrip_is_stable() -> None:
     assert RuleSetSpec.model_validate(dumped).model_dump(
         exclude_defaults=True, mode="json"
     ) == dumped
+
+
+# ---------------------------------------------------------------------------
+# 站点白/黑名单与搜索扇出（issue #806）
+# ---------------------------------------------------------------------------
+
+
+def test_site_not_allowed_reason_text() -> None:
+    """淘汰原因必须含「不在允许范围」，订阅动态直接可读。"""
+    verdict = evaluate_rules(
+        _candidate(site_id="chdbits"), RuleSetSpec(sites=["pter", "mteam"])
+    )
+    assert not verdict.accepted
+    assert verdict.reason_code == "site_not_allowed"
+    assert "不在允许范围" in (verdict.reason_text or "")
+
+
+def test_search_site_ids_allowlist_and_blocklist() -> None:
+    from movieclaw_matcher import search_site_ids
+
+    assert search_site_ids(RuleSetSpec()) is None
+    assert search_site_ids(RuleSetSpec(sites=["PTer", "mteam"])) == ["pter", "mteam"]
+    assert search_site_ids(RuleSetSpec(sites=["pter"], sites_block=["pter"])) == []
+    # 仅黑名单：无 available 时扇出不收窄（由 evaluate_rules 兜底）
+    assert search_site_ids(RuleSetSpec(sites_block=["chdbits"])) is None
+    assert search_site_ids(
+        RuleSetSpec(sites_block=["chdbits"]), ["pter", "chdbits", "mteam"]
+    ) == ["pter", "mteam"]
+    assert search_site_ids(
+        RuleSetSpec(sites=["pter", "mteam"], sites_block=["mteam"]),
+        ["pter", "chdbits", "mteam"],
+    ) == ["pter"]

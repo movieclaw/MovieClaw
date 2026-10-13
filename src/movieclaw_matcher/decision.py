@@ -395,8 +395,8 @@ def candidate_ladder_rank(
     产生任何额外投递。
 
     用途见 quality-upgrade.md §15.4：洗版候选按档位而非评分选优，否则
-    免费加分（_FREE_SCORE=100）会压过一档分辨率（30），系统可能先抓一个
-    "免费但只高半档"的版本，同一单元付两次下载。
+    评分里的促销/做种加分会压过档位差，系统可能先抓一个"促销划算但只高
+    半档"的版本，同一单元付两次下载。
     """
     return tuple(-1 if rank is None else rank for rank in ladder_vector(attrs, spec))
 
