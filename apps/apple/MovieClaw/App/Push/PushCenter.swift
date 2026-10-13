@@ -23,6 +23,8 @@ final class PushCenter: NSObject {
     private(set) var permission: PushPermission = .notDetermined
     /// 点开了、还没处理完的通知：冷启动时主界面还没出来；要先切账号时，等主界面按新账号重建后接着处理
     var pendingTap: PushTapTarget?
+    /// 正停在哪个 AI 会话页（站内路径 `/sessions/{id}`）：那个会话的「AI 回复完成」推送在前台就不弹了——回答就在眼前
+    var visibleSessionPath: String?
     /// 每登记完一轮加一：「通知」页据此刷新「我的设备」
     private(set) var registrationRound = 0
     /// 这个安装包签名里没有推送权限（侧载包）：APNs 明说不给令牌，系统通知开着也收不到
@@ -290,10 +292,23 @@ final class PushCenter: NSObject {
 // MARK: - 前台展示与点开
 
 extension PushCenter: UNUserNotificationCenterDelegate {
-    /// 在前台也照常横幅、进通知列表、响铃；被动的（进度更新、开始下载这类）只进通知列表，和锁屏时一样不打扰
+    /// 在前台也照常横幅、进通知列表、响铃；被动的（进度更新、开始下载这类）只进通知列表，和锁屏时一样不打扰。
+    /// 例外：推送要打开的正是眼前这个 AI 会话（「AI 回复完成」）——回答已经在屏幕上，什么都不出（2026-10-12 用户要求）。
+    /// 打开哪个页面照点开时的规矩在 App 里重新解密取（PushTapTarget），不信中继填的明文键
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification,
                                             withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        completionHandler(notification.request.content.interruptionLevel == .passive ? [.list] : [.banner, .list, .sound])
+        let passive = notification.request.content.interruptionLevel == .passive
+        let openPath = PushTapTarget(userInfo: notification.request.content.userInfo, store: .shared)?.openPath
+        nonisolated(unsafe) let done = completionHandler
+        Task { @MainActor in
+            done(Self.foregroundOptions(passive: passive, openPath: openPath, visibleSessionPath: PushCenter.shared.visibleSessionPath))
+        }
+    }
+
+    /// 前台怎么展示一条推送（纯函数，单元测试见 PushTests）
+    nonisolated static func foregroundOptions(passive: Bool, openPath: String?, visibleSessionPath: String?) -> UNNotificationPresentationOptions {
+        if let openPath, openPath == visibleSessionPath { return [] }
+        return passive ? [.list] : [.banner, .list, .sound]
     }
 
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,

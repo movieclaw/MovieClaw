@@ -319,9 +319,14 @@ nonisolated struct AgentAttachmentUpload: Decodable, Sendable {
 // MARK: - 手写接口
 
 nonisolated extension APIClient {
-    /// 会话详情（完整轨迹回放）。`GET /sessions/{id}`
+    /// 会话详情（轨迹回放）。`GET /sessions/{id}`
+    ///
+    /// 不显示处理过程时（AgentTranscriptLayout.showsProcess）要 `view=chat`：服务端去掉思考、工具输出只留开头、
+    /// 技能正文换成「…」——过程常占长会话的大半体积（实测 127KB → 24KB），条目与工具调用参数不变。
+    /// 旧服务端不认这个参数，照常回完整轨迹
     func agentTranscript(sessionId: String) async throws -> AgentTranscript {
-        try await send("GET", "/sessions/\(sessionId)")
+        let query = AgentTranscriptLayout.showsProcess ? [] : [URLQueryItem(name: "view", value: "chat")]
+        return try await send("GET", "/sessions/\(sessionId)", query: query)
     }
 
     /// 上传一张图片附件。`POST /sessions/attachments`（multipart，字段名 file）

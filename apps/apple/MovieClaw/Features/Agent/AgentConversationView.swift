@@ -35,10 +35,14 @@ struct AgentConversationView: View {
     @State private var askingConsent = false
     @State private var position = ScrollPosition(edge: .bottom)
     @State private var nearBottom = true
+    /// 手指没在拖、也没在惯性滑（黑屏兜底只在静止时动手，见 `offscreen`）
+    @State private var scrollIdle = true
     /// 进入会话后的贴底期。懒加载列表的内容高度是边渲染边算的：首帧只估出一小段
     /// （真机实测大会话首帧 8645pt，几十毫秒内涨到 35749pt），只在首次布局定位到底部会停在对话中间。
     /// 贴底期内内容再怎么长高都锚在底部；用户一开始拖动或 1.5 秒后结束，之后回到「贴近底部才跟随」的规则
     @State private var pinnedToBottom = true
+    /// 第几次进入贴底期：进入会话是第 0 次；发出新消息（含改写重问）再来一次，见 `pinToLatest`
+    @State private var pinRound = 0
     @State private var kickoff = AgentLoadKickoff()
     /// 输入框晚一拍建：App 这次运行里第一次建输入框很重（模拟器实测 120～280ms，同一次运行里再建只要约 10ms），
     /// 跟着页面一起建会把页面跳转推迟这么久。首帧先放等高占位，跳转画面出去后马上建——此时正在等轨迹，
@@ -100,7 +104,12 @@ struct AgentConversationView: View {
                 await Task.yield()
                 composerReady = true
             }
-            .onDisappear { conversation.detachIfIdle() }
+            // 停在这页时，这个会话的「AI 回复完成」推送不在前台弹出（见 PushCenter.willPresent）
+            .onAppear { PushCenter.shared.visibleSessionPath = "/sessions/\(sessionId)" }
+            .onDisappear {
+                if PushCenter.shared.visibleSessionPath == "/sessions/\(sessionId)" { PushCenter.shared.visibleSessionPath = nil }
+                conversation.detachIfIdle()
+            }
     }
 
     /// 输入区挂在「加载中 / 消息列」的分支之外：跳转首帧后马上建好（加载期间禁用，见 composerReady），
@@ -116,12 +125,17 @@ struct AgentConversationView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .accessibilityIdentifier("agent-load-error")
             } else if !conversation.loaded {
-                Text("正在加载会话…")
-                    .font(.system(size: 16))
-                    .foregroundStyle(Theme.textMuted)
-                    .modifier(AgentPulse(active: true))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .accessibilityIdentifier("agent-loading")
+                // 居中的转圈 + 文字：长会话在 NAS 上要拉一会儿，原先只有一行忽明忽暗的灰字，
+                // 黑底上看着像黑屏（2026-10-13 用户反馈）
+                VStack(spacing: 14) {
+                    ProgressView().controlSize(.large).tint(Theme.textMuted)
+                    Text("正在加载会话…")
+                        .font(.system(size: 15))
+                        .foregroundStyle(Theme.textMuted)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .accessibilityElement(children: .combine)
+                .accessibilityIdentifier("agent-loading")
             } else {
                 transcript
             }
@@ -169,13 +183,23 @@ struct AgentConversationView: View {
         .defaultScrollAnchor(pinnedToBottom ? .bottom : nil, for: .sizeChanges)
         .onScrollPhaseChange { _, phase in
             if phase == .interacting { pinnedToBottom = false }
+            scrollIdle = phase == .idle
         }
-        .task {
-            // 从会话里推进的页面返回时不再跳到底部：只有刚进入会话的贴底期才定位
+        // 黑屏兜底：懒加载的行边排版边改高度，滚动位置可能整个落到内容末尾之后（或开头之前），满屏黑、
+        // 要手动滑一下才回来（2026-10-13 真机：第一次进较长的会话偶尔黑屏）。静止时一旦出现就回到最新
+        .onScrollGeometryChange(for: Bool.self) { geometry in
+            Self.offscreen(visible: geometry.visibleRect, contentHeight: geometry.contentSize.height)
+        } action: { _, offscreen in
+            if offscreen, scrollIdle { position.scrollTo(edge: .bottom) }
+        }
+        .task(id: pinRound) {
+            // 从会话里推进的页面返回时不再跳到底部：只有贴底期（刚进入会话、刚发出消息）才定位
             guard pinnedToBottom else { return }
+            let round = pinRound
             position.scrollTo(edge: .bottom)
             try? await Task.sleep(for: .seconds(1.5))
-            pinnedToBottom = false
+            // 期间又发了一条：新一轮贴底期接着算，不提前结束
+            if round == pinRound { pinnedToBottom = false }
         }
         .scrollDismissesKeyboard(.interactively)
         .scrollEdgeEffectStyle(.hard, for: .bottom)
@@ -189,17 +213,20 @@ struct AgentConversationView: View {
         }
         .overlay(alignment: .bottom) {
             if !nearBottom {
-                // 系统液态玻璃圆形按钮（原先是手画的深色圆 + 描边 + 阴影，与页面其余玻璃控件不是一套）
+                // 液态玻璃圆形按钮（原先是手画的深色圆 + 描边 + 阴影，与页面其余玻璃控件不是一套）。
+                // 与输入框的加号 / 发送键同为 36pt（2026-10-12 用户要求）：系统 .glass 按钮样式会在内容外再加一圈边距，
+                // 量不准，改成自定尺寸 + 玻璃效果
                 Button {
                     withAnimation { position.scrollTo(edge: .bottom) }
                 } label: {
                     Image(systemName: "chevron.down")
-                        .font(.system(size: 15, weight: .semibold))
-                        .frame(width: 26, height: 26)
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: AgentComposer.control, height: AgentComposer.control)
+                        .glassEffect(.regular.interactive(), in: .circle)
+                        .expandedHitArea(horizontal: 4, vertical: 4)
                 }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .controlSize(.large)
+                .buttonStyle(.plain)
+                .foregroundStyle(Theme.text)
                 .transition(.scale(scale: 0.6).combined(with: .opacity))
                 .padding(.bottom, 10)
                 .accessibilityLabel("回到最新消息")
@@ -265,7 +292,7 @@ struct AgentConversationView: View {
         }
         .padding(.horizontal, 12)
         .padding(.top, 8)
-        .padding(.bottom, 8)
+        .modifier(AgentComposerBottomGap())
         .background {
             // 沉浸页纯色底：输入区不透出下方消息（同 Web 贴底输入行）
             Theme.background.ignoresSafeArea(edges: .bottom)
@@ -295,9 +322,8 @@ struct AgentConversationView: View {
         let images = draft.images.map { AgentTurnImage(attachmentId: $0.attachmentId, name: $0.name) }
         guard let target = retryTarget else {
             draft.clear()
-            nearBottom = true
             conversation.send(api: api, input: message, images: images, thinking: wire(thinkingChoice), model: wire(modelChoice))
-            position.scrollTo(edge: .bottom)
+            pinToLatest()
             return
         }
         Task {
@@ -315,12 +341,26 @@ struct AgentConversationView: View {
                 try await conversation.retry(api: api, messageId: target, content: message, thinking: wire(thinkingChoice), model: wire(modelChoice))
                 draft.clear()
                 retryTarget = nil
-                nearBottom = true
-                position.scrollTo(edge: .bottom)
+                pinToLatest()
             } catch {
                 feedback.error(error)
             }
         }
+    }
+
+    /// 视口与内容完全不相交（纯函数，单元测试见 AgentLogicTests）。内容还没出来（高度 0）不算
+    static func offscreen(visible: CGRect, contentHeight: CGFloat) -> Bool {
+        guard contentHeight > 0, visible.height > 0 else { return false }
+        return visible.minY >= contentHeight || visible.maxY <= 0
+    }
+
+    /// 发出新消息后回到最新：重新进入贴底期。翻到很上面时只跳一次到底不够——懒加载的行边排版边长高，
+    /// 估出来的「底」不是真的底，会停在半路，之后流式回答也不再跟随（2026-10-13 用户反馈）。
+    /// 贴底期里内容再怎么长高都锚在底部，用户一拖动就结束
+    private func pinToLatest() {
+        nearBottom = true
+        pinnedToBottom = true
+        pinRound += 1
     }
 
     // MARK: 会话菜单
@@ -426,8 +466,11 @@ struct AgentComposerWarmup: ViewModifier {
     @State private var draft = AgentDraft()
 
     func body(content: Content) -> some View {
+        // 挂在前景（overlay）不挂背景：标签栏按层级顺序找页面的主滚动视图来决定下滑收起，挂在背景时
+        // 这个多行输入框（底层是可滚动的文本视图）排在列表前面先被找到，拆掉后标签栏就再也不收起，
+        // 要等附件开关过一次重新找才好（2026-10-13「我的」页：点过一次输入框后下滑才折叠）
         content
-            .background {
+            .overlay {
                 if showing {
                     AgentComposer(draft: $draft, onSubmit: {})
                         .opacity(0)

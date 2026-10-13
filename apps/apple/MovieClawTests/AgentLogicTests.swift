@@ -30,7 +30,7 @@ struct AgentLogicTests {
         #expect(turns[0].images == [AgentTurnImage(attachmentId: "a1", name: "图.jpg")])
         #expect(turns[0].thinkingLevel == .some("high"))
         #expect(turns[0].interrupted == false)
-        #expect(turns[0].answerText == "答案")
+        #expect(turns[0].segments.contains(.text("答案")))
         guard case let .process(items) = turns[0].segments.first, case let .tool(tool) = items.last else {
             Issue.record("首段应是处理过程块")
             return
@@ -59,7 +59,7 @@ struct AgentLogicTests {
         """#)
         for event in events { AgentTimeline.apply(event, to: &turn) }
         #expect(turn.status == .done)
-        #expect(turn.answerText == "你好世界")
+        #expect(turn.segments.contains(.text("你好世界")))
         #expect(turn.result?.elapsedMs == 1234)
         guard case let .process(items) = turn.segments.first, case let .tool(tool) = items.last else {
             Issue.record("首段应是处理过程块")
@@ -156,6 +156,30 @@ struct AgentLogicTests {
         #expect(AgentMediaCards.parse(name: "show_media_cards_v2", args: args) == nil)
     }
 
+    @Test func subscriptionCardRibbonMarksInLibrary() throws {
+        func sub(kind: String, status: String = "active", followFuture: Bool, imported: Int) throws -> API.SubscriptionView {
+            try decode(#"""
+            {"id":1,"media":{"media_item_id":9,"kind":"\#(kind)","tmdb_id":100,"douban_id":null,"title":"作品","original_title":"Work",
+             "year":2024,"poster_url":null,"status":null},
+             "status":"\#(status)","selected_seasons":[1],"follow_future":\#(followFuture),"rule_set_id":1,"library_id":null,
+             "progress":{"total":10,"wanted":\#(10 - imported),"grabbed":0,"downloaded":0,"imported":\#(imported),"upgrading":0},
+             "season_collection":[],"created_at":"2026-01-01T00:00:00Z","updated_at":"2026-01-01T00:00:00Z"}
+            """#)
+        }
+        let ribbon = AgentMediaCards.subscriptionRibbon
+        // 追更中只到了几集：在库时「已入库」压过「自动续订」，不在库仍是「自动续订」
+        let tracking = try sub(kind: "tv", followFuture: true, imported: 3)
+        #expect(ribbon(tracking, true) == DiscoverRibbon(label: "已入库", tone: .owned))
+        #expect(ribbon(tracking, false) == DiscoverRibbon(label: "自动续订", tone: .subscribed))
+        // 收齐的说法不被覆盖：剧集仍是「已收齐」
+        let completed = try sub(kind: "tv", status: "completed", followFuture: false, imported: 10)
+        #expect(ribbon(completed, true) == DiscoverRibbon(label: "已收齐", tone: .owned))
+        // 还没入库的电影：不在库没有斜标
+        let movie = try sub(kind: "movie", followFuture: false, imported: 0)
+        #expect(ribbon(movie, false) == nil)
+        #expect(ribbon(movie, true) == DiscoverRibbon(label: "已入库", tone: .owned))
+    }
+
     // MARK: 消息列拆行（段落级懒加载，见 AgentTranscriptRows）
 
     private func turn(_ id: String, _ segments: [AgentSegment], status: AgentTurn.Status = .done) -> AgentTurn {
@@ -165,47 +189,145 @@ struct AgentLogicTests {
         return turn
     }
 
-    @Test func transcriptRowsKeepNestedSpacing() {
-        let rows = AgentTranscriptLayout.rows(for: turn("t", [
-            .process([.thinking("想"), .tool(AgentToolCall(id: "c", name: "bash", label: "bash"))]),
-            .text("# 标题\n\n段落一\n\n## 小标题"),
-            .compaction(summary: "摘要", tokensBefore: 9000, tokensAfter: 800),
-        ]))
-        // 提问（与上一轮 32）→ 处理过程（提问到回答 12）→ 标题（段间 10）→ 段落（块间 0.75em）
-        // → 小标题（块间 0.75em + 标题前 0.65em）→ 压缩卡片（段间 10）→ 页脚（段间 10）
-        #expect(rows.map(\.id) == ["t.q", "t.0p", "t.1b0", "t.1b1", "t.1b2", "t.2z", "t.f"])
-        #expect(rows.map(\.spacing) == [32, 12, 10, 12.75, 12.75 + 17 * 0.65, 10, 10])
+    /// 一轮的行，去掉组首的时间行（先核对它：每组一个、标本轮开始时间、与上一轮隔一个轮间距）
+    private func groupRows(_ turn: AgentTurn, showsProcess: Bool = AgentTranscriptLayout.showsProcess) -> [AgentTranscriptRow] {
+        let rows = AgentTranscriptLayout.rows(for: turn, showsProcess: showsProcess)
+        #expect(rows.first == AgentTranscriptRow(id: "\(turn.id).time", content: .time(turn.startedAt), spacing: 28))
+        #expect(rows.dropFirst().allSatisfy { if case .time = $0.content { false } else { true } }, "组内其余气泡不再标时间")
+        return Array(rows.dropFirst())
     }
 
-    @Test func runningTurnRowsCarryCursorAndActiveProcess() {
+    @Test func normalAnswerIsOneWholeBubbleRow() {
+        let text = "# 标题\n\n段落一\n\n## 小标题"
+        let rows = groupRows(turn("t", [
+            .process([.thinking("想"), .tool(AgentToolCall(id: "c", name: "bash", label: "bash"))]),
+            .text(text),
+            .compaction(summary: "摘要", tokensBefore: 9000, tokensAfter: 800),
+        ]), showsProcess: true)
+        // 提问（组时间之下 10）→ 处理过程（提问到回答 12）→ 整个气泡一行（段间 8）→ 压缩卡片（段间 8）；正常跑完不出页脚
+        // 普通长度的正文不拆行：长按时整个气泡一起浮起，不会只压下按到的那一截
+        #expect(rows.map(\.id) == ["t.q", "t.0p", "t.1b0", "t.2z"])
+        #expect(rows.map(\.spacing) == [10, 12, 8, 8])
+        #expect(rows[2].content == .markdown(
+            [.heading(level: 1, text: "标题"), .paragraph("段落一"), .heading(level: 2, text: "小标题")],
+            bubble: .init(first: true, last: true, hug: false, gap: 0, text: text),
+            streaming: false
+        ))
+    }
+
+    @Test func longAnswerSlicesIntoOneBubble() {
+        let long = String(repeating: "长", count: AgentTranscriptLayout.wholeBubbleMaxChars)
+        let text = "# 标题\n\n\(long)\n\n## 小标题"
+        let rows = groupRows(turn("t", [.text(text)]))
+        // 超长正文按块拆行保懒加载：提问在组时间下 10，首截与提问隔回答间距，后续截紧贴（0）
+        #expect(rows.map(\.id) == ["t.q", "t.0b0", "t.0b1", "t.0b2"])
+        #expect(rows.map(\.spacing) == [10, 12, 0, 0])
+        // 三截拼成一个气泡：首截上圆角、末截下圆角，块间距（0.75em，标题前再加 0.65em）画在气泡里；长按任一截复制整段
+        let bubbles: [AgentTranscriptRow.Bubble] = rows.compactMap {
+            if case let .markdown(_, bubble, _) = $0.content { return bubble }
+            return nil
+        }
+        #expect(bubbles == [
+            .init(first: true, last: false, hug: false, gap: 0, text: text),
+            .init(first: false, last: false, hug: false, gap: 12.75, text: text),
+            .init(first: false, last: true, hug: false, gap: 12.75 + 17 * 0.65, text: text),
+        ])
+    }
+
+    @Test func singleBlockAnswerHugsAndStreamingCarriesCursor() {
         let tool = AgentProcessItem.tool(AgentToolCall(id: "c", name: "bash", label: "bash"))
-        // 正文是最后一段：光标紧贴正文（间距 0），前面的处理过程不是进行中
-        let writing = AgentTranscriptLayout.rows(for: turn("r", [.process([tool]), .text("写到一半")], status: .running))
-        #expect(writing.map(\.id) == ["r.q", "r.0p", "r.1b0", "r.1c", "r.f"])
+        // 正文是最后一段：光标长在末块里、不再叠三点气泡，前面的处理过程不是进行中；只有一块的气泡贴合内容宽度
+        let writing = groupRows(turn("r", [.process([tool]), .text("写到一半")], status: .running), showsProcess: true)
+        #expect(writing.map(\.id) == ["r.q", "r.0p", "r.1b0"])
         #expect(writing[1].content == .process(items: [tool], active: false))
-        #expect(writing[3].spacing == 0)
-        // 处理过程是最后一段：它是进行中的，没有光标；正文还没出现时光标直接跟在上一段后面
-        let working = AgentTranscriptLayout.rows(for: turn("w", [.process([tool])], status: .running))
+        #expect(writing[2].content == .markdown([.paragraph("写到一半")], bubble: .init(first: true, last: true, hug: true, gap: 0, text: "写到一半"), streaming: true))
+        // 写完了：同一个气泡，只是不再带光标，下面什么都没有（不出耗时）
+        let done = groupRows(turn("d", [.text("写完了")]))
+        #expect(done.map(\.id) == ["d.q", "d.0b0"])
+        #expect(done[1].content == .markdown([.paragraph("写完了")], bubble: .init(first: true, last: true, hug: true, gap: 0, text: "写完了"), streaming: false))
+        // 思考 / 调工具 / 正文段开了头还没字：末尾是三点气泡（代替原来的进度环 + 秒数）
+        let working = groupRows(turn("w", [.process([tool])], status: .running), showsProcess: true)
+        #expect(working.map(\.id) == ["w.q", "w.0p", "w.t"])
         #expect(working[1].content == .process(items: [tool], active: true))
-        #expect(!working.contains { $0.content == .cursor })
-        let empty = AgentTranscriptLayout.rows(for: turn("e", [.process([tool]), .text("")], status: .running))
-        #expect(empty.map(\.id) == ["e.q", "e.0p", "e.1c", "e.f"])
-        #expect(empty[2].spacing == 10)
+        #expect(working[2].content == .typing && working[2].spacing == 8)
+        let empty = groupRows(turn("e", [.process([tool]), .text("")], status: .running), showsProcess: true)
+        #expect(empty.map(\.id) == ["e.q", "e.0p", "e.t"])
+        // 刚发出、还什么都没有：三点气泡与提问隔一个回答间距
+        let fresh = groupRows(turn("n", [], status: .running))
+        #expect(fresh.map(\.content) == [.question(.init(messageId: "n", input: "问n", images: [])), .typing])
+        #expect(fresh.map(\.spacing) == [10, 12])
     }
 
     @Test func transcriptRowsFollowProcessAndFooterRules() throws {
         let args: AgentJSONObject = try decode(#"{"component":"title","items":[{"title_ref":"tmdb:tv:232766"}]}"#)
         let cards = AgentProcessItem.tool(AgentToolCall(id: "m", name: "show_media_cards_v1", label: "", args: args))
         // 只有卡片绘制调用的处理过程：不出折叠头，卡片组直接常显
-        let rows = AgentTranscriptLayout.rows(for: turn("c", [.process([cards]), .text("看看这些")]))
-        #expect(rows.map(\.id) == ["c.q", "c.0mm", "c.1b0", "c.f"])
-        #expect(rows[1].spacing == 12)
+        let rows = groupRows(turn("c", [.process([cards]), .text("看看这些")]))
+        #expect(rows.map(\.id) == ["c.q", "c.0mm", "c.1b0"])
+        #expect(rows.map(\.spacing) == [10, 12, 8])
         // 以错误收尾：红色提示，不出页脚
         var failed = turn("x", [], status: .error)
         failed.error = "模型报错"
-        #expect(AgentTranscriptLayout.rows(for: failed).map(\.content) == [
+        #expect(groupRows(failed).map(\.content) == [
             .question(.init(messageId: "x", input: "问x", images: [])), .error("模型报错"),
         ])
+    }
+
+    @Test func defaultsHideProcessKeepCardsAndFooterOnlyOnStop() throws {
+        let args: AgentJSONObject = try decode(#"{"component":"title","items":[{"title_ref":"tmdb:tv:232766"}]}"#)
+        let bash = AgentProcessItem.tool(AgentToolCall(id: "c", name: "bash", label: "bash"))
+        let cards = AgentProcessItem.tool(AgentToolCall(id: "m", name: "show_media_cards_v1", label: "", args: args))
+        // 默认不显示处理过程胶囊（思维链 + 工具调用），但工具画出的卡片照常显示
+        #expect(!AgentTranscriptLayout.showsProcess)
+        let rows = groupRows(turn("h", [.process([.thinking("想"), bash, cards]), .text("看看这些")]))
+        #expect(rows.map(\.id) == ["h.q", "h.0mm", "h.1b0"])
+        #expect(rows.map(\.spacing) == [10, 12, 8])
+        // 进行中只有处理过程：提问下面直接是三点气泡
+        let working = groupRows(turn("w", [.process([bash])], status: .running))
+        #expect(working.map(\.id) == ["w.q", "w.t"])
+        // 停止 / 中断才留一行小字，贴近最后一个气泡
+        var stopped = turn("s", [.text("写了一半")])
+        stopped.stopped = true
+        let stoppedRows = groupRows(stopped)
+        #expect(stoppedRows.map(\.id) == ["s.q", "s.0b0", "s.f"])
+        #expect(stoppedRows.last?.spacing == 6)
+    }
+
+    @Test func transcriptOffscreenDetectsViewportPastTheContent() {
+        let screen = CGSize(width: 402, height: 700)
+        // 视口整个落在内容末尾之后（黑屏）/ 开头之前：要拉回来
+        #expect(AgentConversationView.offscreen(visible: CGRect(origin: CGPoint(x: 0, y: 5200), size: screen), contentHeight: 5000))
+        #expect(AgentConversationView.offscreen(visible: CGRect(origin: CGPoint(x: 0, y: -900), size: screen), contentHeight: 5000))
+        // 停在底部、橡皮筋拉过头一点但还压着内容、内容还没出来：都不动
+        #expect(!AgentConversationView.offscreen(visible: CGRect(origin: CGPoint(x: 0, y: 4300), size: screen), contentHeight: 5000))
+        #expect(!AgentConversationView.offscreen(visible: CGRect(origin: CGPoint(x: 0, y: 4900), size: screen), contentHeight: 5000))
+        #expect(!AgentConversationView.offscreen(visible: CGRect(origin: .zero, size: screen), contentHeight: 0))
+    }
+
+    @Test func composerBottomGapTucksIntoHomeIndicatorOnlyWithoutKeyboard() {
+        // 有 Home 指示条（34）、键盘收起：往里收 10，离底边 24
+        #expect(AgentComposerBottomGap.padding(keyboardShown: false, windowBottomInset: 34) == -10)
+        // 键盘弹起：贴着键盘留 8；没有指示条的机型：照旧 8
+        #expect(AgentComposerBottomGap.padding(keyboardShown: true, windowBottomInset: 34) == 8)
+        #expect(AgentComposerBottomGap.padding(keyboardShown: false, windowBottomInset: 0) == 8)
+    }
+
+    @Test func groupTimeShowsClockTodayAndDateOtherwise() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(identifier: "Asia/Shanghai"))
+        let now = try #require(calendar.date(from: DateComponents(year: 2026, month: 10, day: 12, hour: 22, minute: 5)))
+        func at(_ y: Int, _ m: Int, _ d: Int, _ h: Int, _ min: Int) throws -> Date {
+            try #require(calendar.date(from: DateComponents(year: y, month: m, day: d, hour: h, minute: min)))
+        }
+        // 今天：只要时分；跨天：月日 + 时分；跨年再带年份
+        #expect(AgentTimeline.groupTime(try at(2026, 10, 12, 8, 3), now: now, calendar: calendar) == "08:03")
+        #expect(AgentTimeline.groupTime(try at(2026, 10, 11, 23, 59), now: now, calendar: calendar) == "10月11日 23:59")
+        #expect(AgentTimeline.groupTime(try at(2025, 12, 31, 9, 0), now: now, calendar: calendar) == "2025年12月31日 09:00")
+        // 会话列表：今天时分、昨天、今年月日、更早年/月/日
+        #expect(AgentTimeline.listTime(try at(2026, 10, 12, 8, 3), now: now, calendar: calendar) == "08:03")
+        #expect(AgentTimeline.listTime(try at(2026, 10, 11, 23, 59), now: now, calendar: calendar) == "昨天")
+        #expect(AgentTimeline.listTime(try at(2026, 10, 10, 9, 0), now: now, calendar: calendar) == "10月10日")
+        #expect(AgentTimeline.listTime(try at(2025, 12, 31, 9, 0), now: now, calendar: calendar) == "2025/12/31")
     }
 
     @Test func rowCacheReusesUnchangedTurnsAndZeroesFirstSpacing() {
@@ -215,14 +337,18 @@ struct AgentLogicTests {
         let first = cache.rows(turns: [done, second], handoff: nil)
         #expect(first[0].spacing == 0)
         #expect(Set(first.map(\.id)).count == first.count)
-        // 流式追加只改第二轮：第一轮的行原样复用，第二轮多出一个段落
+        // 流式追加只改第二轮：第一轮的行原样复用，第二轮的气泡多出一个段落
         second.segments = [.text("第一段\n\n第二段")]
         let next = cache.rows(turns: [done, second], handoff: nil)
         #expect(Array(next.prefix(3)) == Array(first.prefix(3)))
-        #expect(next.contains { $0.id == "b.0b1" })
-        // 有续接来源时来源卡片在最前，第一轮与它相距一个轮间距
+        #expect(next.last?.content == .markdown(
+            [.paragraph("第一段"), .paragraph("第二段")],
+            bubble: .init(first: true, last: true, hug: false, gap: 0, text: "第一段\n\n第二段"),
+            streaming: true
+        ))
+        // 有续接来源时来源卡片在最前，第一轮（从组时间起）与它相距一个轮间距
         let handed = cache.rows(turns: [second], handoff: (sourceId: "s", sourceTitle: "原会话"))
-        #expect(handed.map(\.id).prefix(2) == ["handoff", "b.q"])
-        #expect(handed[0].spacing == 0 && handed[1].spacing == 32)
+        #expect(handed.map(\.id).prefix(2) == ["handoff", "b.time"])
+        #expect(handed[0].spacing == 0 && handed[1].spacing == 28)
     }
 }

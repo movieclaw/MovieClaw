@@ -90,6 +90,14 @@ enum AgentMediaCards {
         }
     }
 
+    /// 订阅卡斜标：收齐（电影「已入库」/ 剧集「已收齐」）优先；没收齐但库里已有文件（追更中到了几集）
+    /// 打全站同词的「已入库」，压过「自动续订」——追更状态仍由海报底栏的绿点讲
+    static func subscriptionRibbon(_ sub: API.SubscriptionView, inLibrary: Bool) -> DiscoverRibbon? {
+        let base = SubscriptionSummary.ribbon(sub)
+        if base?.tone == .owned || !inLibrary { return base }
+        return DiscoverRibbon(label: "已入库", tone: .owned)
+    }
+
     /// 处理过程块里所有 show_media_cards 调用的卡片组（参数未生成完或调用已失败的不画）
     static func groups(in items: [AgentProcessItem]) -> [(id: String, group: AgentMediaCardGroup)] {
         items.compactMap { item in
@@ -102,7 +110,7 @@ enum AgentMediaCards {
 
 // MARK: - 视图
 
-/// 一组卡片：可选小标题 + 横滚行
+/// 一组卡片：可选小标题 + 横滚行。不套气泡底色——卡片本身就是独立的视觉单元，直接落在黑底上更干净（2026-10-12 用户定）
 struct AgentMediaCardsBlock: View {
     let group: AgentMediaCardGroup
 
@@ -123,6 +131,7 @@ struct AgentMediaCardsBlock: View {
             }
             .scrollClipDisabled()
         }
+        .padding(.vertical, 4)
         .accessibilityIdentifier("agent-media-cards")
     }
 }
@@ -166,33 +175,45 @@ private enum AgentCardState<T> {
     case loading, failed, ready(T)
 }
 
-// MARK: 影片海报卡（与发现页同款：已入库/已订阅斜标，长按菜单里订阅）
+// MARK: 影片海报卡（与发现页同款：已入库/已订阅斜标，长按菜单里订阅；在库时直达媒体库条目）
 
 private struct AgentTitleCard: View {
     let titleRef: String
     @Environment(\.api) private var api
-    @State private var state: AgentCardState<DiscoverPosterItem> = .loading
+    @Environment(Router.self) private var router
+    @State private var state: AgentCardState<(item: DiscoverPosterItem, link: API.MediaLibraryLink?)> = .loading
 
     var body: some View {
         Group {
             switch state {
             case .loading: AgentCardPlaceholder(aspect: 2 / 3, failed: false)
             case .failed: AgentCardPlaceholder(aspect: 2 / 3, failed: true)
-            // 同 Web TitlePosterCardBody：未入库但已订阅时打「已订阅」蓝斜标
-            case let .ready(item): DiscoverPosterCard(item: item, action: .subscribe, showsSubscribedRibbon: true)
+            case let .ready(data):
+                if let link = data.link {
+                    // 已在库：不再给订阅键（换成非交互的「在库」标识，单击直达），点进媒体库里的这部片
+                    DiscoverPosterCard(item: data.item, action: .owned, onOpen: { router.push(link.route) })
+                } else {
+                    // 同 Web TitlePosterCardBody：未入库但已订阅时打「已订阅」蓝斜标
+                    DiscoverPosterCard(item: data.item, action: .subscribe, showsSubscribedRibbon: true)
+                }
             }
         }
         .frame(width: 126)
         .task(id: titleRef) {
             do {
                 let detail = try await api.discoverGetTitleDetails(titleRef: titleRef)
-                state = .ready(DiscoverPosterItem(detail.title))
+                state = .ready((DiscoverPosterItem(detail.title), detail.libraryLinks.first))
             } catch is CancellationError {
             } catch {
                 state = .failed
             }
         }
     }
+}
+
+extension API.MediaLibraryLink {
+    /// 媒体库条目页。一部片在多个库里时服务端已按用户的库顺序排好，取第一个（同详情页库存条）
+    var route: AppRoute { .libraryItem(libraryId: libraryId, itemId: mediaItemId) }
 }
 
 // MARK: 媒体库卡片（封面拼贴 + 库名 + 类型与库存统计）
@@ -473,20 +494,20 @@ private struct AgentPosterFill: View {
     }
 }
 
-// MARK: 订阅卡（订阅墙同款：状态斜标 + 海报底部收录进度，点进订阅详情）
+// MARK: 订阅卡（订阅墙同款：状态斜标 + 海报底部收录进度；已在库点进媒体库条目，否则点进订阅详情）
 
 private struct AgentSubscriptionCard: View {
     let subscriptionId: Int
     @Environment(\.api) private var api
     @Environment(Router.self) private var router
-    @State private var state: AgentCardState<API.SubscriptionView> = .loading
+    @State private var state: AgentCardState<(sub: API.SubscriptionView, link: API.MediaLibraryLink?)> = .loading
 
     var body: some View {
         Group {
             switch state {
             case .loading: AgentCardPlaceholder(aspect: 2 / 3, failed: false)
             case .failed: AgentCardPlaceholder(aspect: 2 / 3, failed: true, failedText: "未找到订阅 #\(subscriptionId)")
-            case let .ready(sub): content(sub)
+            case let .ready(data): content(data.sub, link: data.link)
             }
         }
         .frame(width: 126)
@@ -494,8 +515,11 @@ private struct AgentSubscriptionCard: View {
             do {
                 let detail = try await api.subscriptionsGet(subscriptionId: subscriptionId)
                 // 详情是列表项的超集：按同名字段转成列表项，复用订阅墙的斜标与进度口径
-                let data = try JSONEncoder().encode(detail)
-                state = .ready(try JSONDecoder().decode(API.SubscriptionView.self, from: data))
+                let sub = try JSONDecoder().decode(API.SubscriptionView.self, from: JSONEncoder().encode(detail))
+                // 在库判据与影片卡、详情页库存条同源（在位文件 + 当前成员可见的库）；查不到按不在库处理，卡片照常画
+                let titleRef = "tmdb:\(sub.media.kind):\(sub.media.tmdbId)"
+                let link = try? await api.discoverGetTitleDetails(titleRef: titleRef).libraryLinks.first
+                state = .ready((sub, link))
             } catch is CancellationError {
             } catch {
                 state = .failed
@@ -503,7 +527,7 @@ private struct AgentSubscriptionCard: View {
         }
     }
 
-    private func content(_ sub: API.SubscriptionView) -> some View {
+    private func content(_ sub: API.SubscriptionView, link: API.MediaLibraryLink?) -> some View {
         let meta = SubscriptionSummary.collectionMeta(sub)
         let item = DiscoverPosterItem(
             externalId: String(sub.media.tmdbId),
@@ -511,11 +535,12 @@ private struct AgentSubscriptionCard: View {
             title: sub.media.title,
             year: sub.media.year,
             posterUrl: sub.media.posterUrl,
-            ribbon: SubscriptionSummary.ribbon(sub)
+            ribbon: AgentMediaCards.subscriptionRibbon(sub, inLibrary: link != nil)
         )
-        // 点击进订阅详情（追踪明细 + 活动时间线）而非影片详情；已是订阅，不再给订阅键
+        // 已是订阅，不再给订阅键。已在库（含追更中只到了几集）点进媒体库条目——能直接播，订阅明细从条目页再进；
+        // 还没入库的点进订阅详情（追踪明细 + 活动时间线）
         return DiscoverPosterCard(item: item, action: .none, onOpen: {
-            router.push(.subscription(id: sub.id))
+            router.push(link?.route ?? .subscription(id: sub.id))
         })
         .overlay(alignment: .top) {
             if let meta {

@@ -73,13 +73,6 @@ nonisolated struct AgentTurn: Equatable, Identifiable, Sendable {
     var interrupted = false
 
     var isRunning: Bool { status == .running }
-
-    /// 本轮全部正文（页脚「复制」用）
-    var answerText: String {
-        segments.compactMap { if case let .text(t) = $0 { t } else { nil } }
-            .joined(separator: "\n\n")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }
 
 // MARK: - 段的归约规则
@@ -283,13 +276,47 @@ enum AgentTimeline {
         return parts.isEmpty ? "处理过程" : "已" + parts.joined(separator: "，")
     }
 
-    /// 耗时文案：不足一分钟按秒（终态保留一位小数），超过则「x 分 y 秒」
-    static func duration(_ seconds: Double, precise: Bool) -> String {
-        let s = max(0, seconds)
-        if s < 60 { return precise ? String(format: "%.1fs", s) : "\(Int(s))s" }
-        let minutes = Int(s / 60)
-        return "\(minutes) 分 \(Int(s) - minutes * 60) 秒"
+    // MARK: 组时间
+
+    /// 一组对话顶部的时间：今天只要「时:分」，跨天「月日 时:分」，跨年再带上年份
+    static func groupTime(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
+        let formatter: DateFormatter
+        if calendar.isDate(date, inSameDayAs: now) {
+            formatter = timeOnly
+        } else if calendar.isDate(date, equalTo: now, toGranularity: .year) {
+            formatter = monthDay
+        } else {
+            formatter = yearMonthDay
+        }
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        return formatter.string(from: date)
     }
+
+    /// 会话列表右侧的最近活动时间（仿「信息」）：今天「时:分」，昨天「昨天」，今年「月日」，更早「年/月/日」
+    static func listTime(_ date: Date, now: Date = .now, calendar: Calendar = .current) -> String {
+        if calendar.isDate(date, inSameDayAs: now) { return groupTime(date, now: now, calendar: calendar) }
+        if let yesterday = calendar.date(byAdding: .day, value: -1, to: now), calendar.isDate(date, inSameDayAs: yesterday) {
+            return "昨天"
+        }
+        let formatter = calendar.isDate(date, equalTo: now, toGranularity: .year) ? monthDayOnly : yearMonthDayShort
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        return formatter.string(from: date)
+    }
+
+    private static func formatter(_ format: String) -> DateFormatter {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "zh_CN")
+        f.dateFormat = format
+        return f
+    }
+
+    private static let timeOnly = formatter("HH:mm")
+    private static let monthDay = formatter("M月d日 HH:mm")
+    private static let yearMonthDay = formatter("yyyy年M月d日 HH:mm")
+    private static let monthDayOnly = formatter("M月d日")
+    private static let yearMonthDayShort = formatter("yyyy/M/d")
 }
 
 // MARK: - 工具参数的展示

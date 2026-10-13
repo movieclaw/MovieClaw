@@ -75,12 +75,17 @@ final class AgentUITests: XCTestCase {
         target.tap()
     }
 
-    /// 点气泡的文字区（右下角）：气泡中央可能是图片缩略图，点中会打开灯箱
+    /// 长按气泡呼出原生菜单（复制 / 改写都只在这里）。气泡被顶到顶栏下面时先往回拉
     @MainActor
-    private func tapBubbleText(_ app: XCUIApplication, _ bubble: XCUIElement) {
-        XCTAssertTrue(bubble.waitForExistence(timeout: 15), "找不到提问气泡")
-        XCTAssertTrue(bubble.isHittable, "提问气泡不可点")
-        bubble.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.93)).tap()
+    private func longPressBubble(_ app: XCUIApplication, _ bubble: XCUIElement) {
+        XCTAssertTrue(bubble.waitForExistence(timeout: 15), "找不到气泡")
+        for _ in 0 ..< 10 where bubble.frame.minY < 120 {
+            let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.4))
+            start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.6)))
+        }
+        XCTAssertTrue(bubble.isHittable, "气泡不可点")
+        // 点在右下角的文字区：提问气泡中央可能是图片缩略图
+        bubble.coordinate(withNormalizedOffset: CGVector(dx: 0.85, dy: 0.85)).press(forDuration: 1.0)
     }
 
     /// 把目标轻扫到底部输入区之上（最多 10 次），避免按坐标点到输入框
@@ -138,19 +143,49 @@ final class AgentUITests: XCTestCase {
         let latest = element(app, "agent-scroll-latest")
         XCTAssertTrue(latest.waitForExistence(timeout: 5), "离开底部后应出现「回到最新消息」")
 
-        // 首条提问：点气泡浮现复制键（历史会话不点改写）
+        // 首条提问：长按出菜单（复制 + 改写；历史会话不点改写），气泡下方不常驻任何按钮
         let firstBubble = app.descendants(matching: .any).matching(identifier: "agent-user-bubble").firstMatch
-        tapBubbleText(app, firstBubble)
-        XCTAssertTrue(element(app, "agent-copy-message").waitForExistence(timeout: 5), "点气泡后应浮现复制键")
+        longPressBubble(app, firstBubble)
+        XCTAssertTrue(app.buttons["复制"].waitForExistence(timeout: 5), "长按提问气泡应出现「复制」")
+        XCTAssertTrue(app.buttons["改写这条提问"].exists, "长按提问气泡应出现「改写这条提问」")
+        snapshot("agent-history-question-menu")
+        safeTap(app, app.buttons["复制"], "复制提问")
+        XCTAssertTrue(app.buttons["复制"].waitForNonExistence(timeout: 5), "点复制后菜单应收起")
 
-        // 处理过程折叠块 → 展开 → 展开一次工具调用
-        let toggle = element(app, "agent-process-toggle")
-        safeTap(app, toggle, "处理过程折叠块")
-        let tool = element(app, "agent-tool-row")
-        XCTAssertTrue(tool.waitForExistence(timeout: 5), "展开处理过程后应列出工具调用")
-        scrollAboveComposer(app, tool)
-        safeTap(app, tool, "工具调用行")
-        snapshot("agent-history-tool-expanded")
+        // 回答气泡：长按只有「复制」
+        let answer = app.descendants(matching: .any).matching(identifier: "agent-answer-bubble").firstMatch
+        scrollAboveComposer(app, answer)
+        longPressBubble(app, answer)
+        XCTAssertTrue(app.buttons["复制"].waitForExistence(timeout: 5), "长按回答气泡应出现「复制」")
+        XCTAssertFalse(app.buttons["改写这条提问"].exists, "回答气泡不该有改写")
+        snapshot("agent-history-answer-menu")
+        safeTap(app, app.buttons["复制"], "复制回答")
+        XCTAssertTrue(app.buttons["复制"].waitForNonExistence(timeout: 5), "点复制后菜单应收起")
+
+        // 多段回答（列表 + 引用）：普通长度是一整个气泡，按它的中下部，浮起来的应是整个气泡（看截图）
+        let answers = app.descendants(matching: .any).matching(identifier: "agent-answer-bubble")
+        if answers.count > 1 {
+            let middle = answers.element(boundBy: 1)
+            scrollAboveComposer(app, middle)
+            longPressBubble(app, middle)
+            XCTAssertTrue(app.buttons["复制"].waitForExistence(timeout: 5), "长按多段回答的中间一截应出现「复制」")
+            snapshot("agent-history-answer-menu-multi")
+            safeTap(app, app.buttons["复制"], "复制多段回答")
+            XCTAssertTrue(app.buttons["复制"].waitForNonExistence(timeout: 5), "点复制后菜单应收起")
+        }
+
+        // 处理过程胶囊（AgentTranscriptLayout.showsProcess，目前隐藏）：显示时挑含工具调用的那个 → 展开 → 展开一次工具调用
+        let toggle = app.buttons.matching(identifier: "agent-process-toggle")
+            .matching(NSPredicate(format: "label CONTAINS '命令' OR label CONTAINS '工具'")).firstMatch
+        if toggle.exists {
+            scrollAboveComposer(app, toggle)
+            safeTap(app, toggle, "处理过程折叠块")
+            let tool = element(app, "agent-tool-row")
+            XCTAssertTrue(tool.waitForExistence(timeout: 5), "展开处理过程后应列出工具调用")
+            scrollAboveComposer(app, tool)
+            safeTap(app, tool, "工具调用行")
+            snapshot("agent-history-tool-expanded")
+        }
 
         // 逐屏往下截图（对照网页）
         for i in 0 ..< 6 {
@@ -159,8 +194,174 @@ final class AgentUITests: XCTestCase {
         }
 
         safeTap(app, element(app, "agent-scroll-latest"), "回到最新消息")
-        let copyAnswer = app.descendants(matching: .any).matching(identifier: "agent-copy-answer").element(boundBy: 0)
-        XCTAssertTrue(copyAnswer.waitForExistence(timeout: 10), "轮次页脚缺少「复制」")
+        XCTAssertTrue(element(app, "agent-scroll-latest").waitForNonExistence(timeout: 10), "回到最新消息后按钮应收起")
+    }
+
+    // MARK: 「我的」页的一行输入框（真实发消息，默认跳过）
+
+    /// 「我的」根页：平时标签栏附件是一行输入框（下滑跟着标签栏收起）；点它附件让位、同一位置换上真输入框跟着键盘上去，
+    /// 收键盘落回原位再换回附件——全程只有一个输入框。加号原地弹加号菜单，选的技能落在托盘里；发送 = 新建会话并进入。
+    /// 共发 1 条只读消息，结束后删除本会话。
+    @MainActor
+    func testQuickBarStartsSession() throws {
+        try XCTSkipUnless(env["MC_ALLOW_AGENT_LIVE"] == "1", "会消耗模型额度，需显式设置 MC_ALLOW_AGENT_LIVE=1")
+        let marker = String(UUID().uuidString.prefix(6))
+        let app = launch(route: "/my")
+        let entry = element(app, "agent-quick-entry")
+        let inputs = app.descendants(matching: .any).matching(identifier: "agent-composer-input")
+        XCTAssertTrue(entry.waitForExistence(timeout: 20), "「我的」页标签栏上方应有一行输入框")
+        XCTAssertEqual(inputs.count, 0, "平时只有附件里的入口")
+        XCTAssertFalse(app.buttons["more-new-session"].exists, "有一行输入框后列表里不再放「新会话」")
+        let restY = element(app, "agent-quick-entry-plus").frame.midY
+        snapshot("agent-quick-bar")
+
+        // 点它：附件让位，真输入框跟着键盘上去，屏幕上只有它一个
+        safeTap(app, entry, "一行输入框")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "点输入框应弹出键盘")
+        sleep(1)
+        XCTAssertEqual(inputs.count, 1, "打字时只应有一个输入框")
+        XCTAssertFalse(entry.exists, "打字时附件应让位")
+        let input = inputs.firstMatch
+        XCTAssertLessThan(input.frame.maxY, app.keyboards.firstMatch.frame.minY + 1, "输入框应在键盘之上")
+        snapshot("agent-quick-focused")
+
+        // 往下拖收键盘：落回原位、换回附件，仍只有一个
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.7)))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "往下拖应收起键盘")
+        XCTAssertTrue(entry.waitForExistence(timeout: 5), "收起键盘后应换回附件")
+        XCTAssertEqual(inputs.count, 0, "收起键盘后只剩附件")
+        XCTAssertEqual(element(app, "agent-quick-entry-plus").frame.midY, restY, accuracy: 1, "附件回到原位")
+        snapshot("agent-quick-dismissed")
+
+        // 附件上的加号：原地换上真输入框并弹出加号菜单，选的技能落在托盘里
+        safeTap(app, element(app, "agent-quick-entry-plus"), "一行输入框的加号")
+        XCTAssertTrue(element(app, "agent-plus-menu").waitForExistence(timeout: 10), "加号应原地弹出加号菜单")
+        snapshot("agent-quick-plus-menu")
+        let skill = app.buttons.matching(NSPredicate(format: "label CONTAINS 'skill-creator'")).firstMatch
+        XCTAssertTrue(skill.waitForExistence(timeout: 10), "加号菜单里应列出技能")
+        skill.tap()
+        XCTAssertTrue(app.staticTexts["⚡ skill-creator"].waitForExistence(timeout: 5), "选中的技能应落在托盘里")
+
+        // 打字发送：新建会话并进入
+        XCTAssertTrue(input.waitForExistence(timeout: 5))
+        safeTap(app, input, "输入框")
+        input.typeText("Q\(marker) 只查询，不要做任何修改：我有哪些媒体库")
+        snapshot("agent-quick-typing")
+        safeTap(app, element(app, "agent-send"), "发送键")
+        let agree = element(app, "agent-consent-agree")
+        if agree.waitForExistence(timeout: 1) { safeTap(app, agree, "同意") }
+        let bubble = app.descendants(matching: .any).matching(identifier: "agent-user-bubble").firstMatch
+        XCTAssertTrue(bubble.waitForExistence(timeout: 30), "发送后应进入新会话")
+        let sessionId = try XCTUnwrap(backend.sessionId(containing: marker), "服务端没有找到本用例创建的会话")
+        createdSessionIds.append(sessionId)
+        XCTAssertTrue(app.staticTexts["⚡ skill-creator"].exists, "提问应带着选中的技能")
+        XCTAssertTrue(element(app, "agent-stop").waitForNonExistence(timeout: 300), "五分钟内没有等到本轮完成")
+        XCTAssertTrue(element(app, "agent-group-time").exists, "对话组顶部应有时间")
+        snapshot("agent-quick-session")
+    }
+
+    // MARK: 「我的」页下滑收起标签栏（只读）
+
+    /// 从媒体库点头像页签进「我的」，第一次下滑标签栏就该收起，一行输入框跟着缩进标签栏那一行。
+    /// 回归保护（2026-10-13）：会话输入框的预热挂在背景时，标签栏把它当成主滚动视图，拆掉后就再也不收起，
+    /// 要等附件开关过一次（点一次输入框）才好。会话少到滑不动时跳过
+    @MainActor
+    func testMoreTabBarMinimizesOnFirstScroll() throws {
+        try XCTSkipUnless(backend.sessionCount() >= 10, "会话太少，「我的」页滑不动")
+        let app = launch(route: "/library")
+        // 头像页签在最右（iOS 27 模拟器上按 open-more 标识找不到标签栏按钮，按位置取）
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 20))
+        sleep(2)
+        let buttons = app.tabBars.buttons
+        buttons.element(boundBy: buttons.count - 1).tap()
+        let entry = element(app, "agent-quick-entry")
+        XCTAssertTrue(entry.waitForExistence(timeout: 10), "「我的」页标签栏上方应有一行输入框")
+        sleep(2)  // 让会话输入框的预热建完又拆掉
+        let rest = entry.frame
+        XCTAssertGreaterThan(app.tabBars.buttons.count, 1)
+        app.collectionViews.firstMatch.swipeUp(velocity: .default)
+        sleep(2)
+        XCTAssertEqual(app.tabBars.buttons.count, 1, "第一次下滑标签栏就应收起")
+        XCTAssertGreaterThan(entry.frame.midY, rest.midY, "一行输入框应跟着缩进标签栏那一行")
+        snapshot("agent-quick-minimized")
+    }
+
+    /// 「我的」下面的子页面（服务器设置等）标签栏上方也是 AI 一行输入框，不是「接着看」（2026-10-13 用户要求）；
+    /// 在子页面里点它，同样原地换上跟键盘走的真输入框，收键盘换回附件（不发送）
+    @MainActor
+    func testQuickBarOnMoreSubpages() {
+        let app = launch(route: "/my")
+        let settings = element(app, "more-settings")
+        XCTAssertTrue(settings.waitForExistence(timeout: 20))
+        safeTap(app, settings, "服务器设置")
+        sleep(1)
+        let entry = element(app, "agent-quick-entry")
+        XCTAssertTrue(entry.waitForExistence(timeout: 10), "「我的」子页面标签栏上方应是 AI 一行输入框")
+        XCTAssertFalse(element(app, "resume-accessory").exists, "子页面不该是「接着看」")
+        safeTap(app, entry, "一行输入框")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5), "点输入框应弹出键盘")
+        let input = element(app, "agent-composer-input")
+        XCTAssertTrue(input.exists && !entry.exists, "子页面里打字时也是真输入框接替附件")
+        XCTAssertLessThan(input.frame.maxY, app.keyboards.firstMatch.frame.minY + 1, "输入框应在键盘之上")
+        snapshot("agent-quick-subpage-focused")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.25))
+            .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85)))
+        XCTAssertTrue(app.keyboards.firstMatch.waitForNonExistence(timeout: 5), "往下拖应收起键盘")
+        XCTAssertTrue(entry.waitForExistence(timeout: 5), "收起键盘后应换回附件")
+    }
+
+    // MARK: 翻到上面再发消息：回到最新（真实发消息，默认跳过）
+
+    /// 长对话翻到上面时发出新消息，要跳到最新并跟着回答走（2026-10-13 用户反馈：之前停在原处不动）。
+    /// 先发 3 条撑出几屏，翻到顶，再发第 4 条。共发 4 条只读消息，结束后删除本会话。
+    @MainActor
+    func testSendWhileScrolledUpJumpsToLatest() throws {
+        try XCTSkipUnless(env["MC_ALLOW_AGENT_LIVE"] == "1", "会消耗模型额度，需显式设置 MC_ALLOW_AGENT_LIVE=1")
+        let marker = String(UUID().uuidString.prefix(6))
+        let app = launch(route: "/new")
+        let input = element(app, "agent-composer-input")
+        XCTAssertTrue(input.waitForExistence(timeout: 20))
+
+        func ask(_ index: Int) {
+            safeTap(app, input, "输入框")
+            input.typeText("S\(marker)-\(index) 只查询，不要做任何修改：列出媒体库最近入库的 3 部电影")
+            safeTap(app, element(app, "agent-send"), "发送")
+            let agree = element(app, "agent-consent-agree")
+            if agree.waitForExistence(timeout: 1) { safeTap(app, agree, "同意") }
+        }
+        for index in 1 ... 3 {
+            ask(index)
+            if index == 1 {
+                XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "agent-user-bubble").firstMatch.waitForExistence(timeout: 30))
+                createdSessionIds.append(try XCTUnwrap(backend.sessionId(containing: marker)))
+            }
+            XCTAssertTrue(element(app, "agent-send").waitForExistence(timeout: 300), "第 \(index) 轮没跑完")
+        }
+
+        // 翻到顶：离开了底部（键盘开着时第一个 scrollView 不一定是消息列，按坐标在消息区里拖）
+        for _ in 0 ..< 10 {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)))
+        }
+        let latest = element(app, "agent-scroll-latest")
+        snapshot("agent-scrolled-up-before-send")
+        XCTAssertTrue(latest.waitForExistence(timeout: 5), "翻到上面后应出现「回到最新消息」")
+
+        // 在上面发第 4 条：跳到最新，刚发的提问就在眼前
+        ask(4)
+        XCTAssertTrue(latest.waitForNonExistence(timeout: 5), "发出后应跳到最新（不再显示「回到最新消息」）")
+        let question = app.staticTexts.matching(NSPredicate(format: "label CONTAINS %@", "S\(marker)-4")).firstMatch
+        XCTAssertTrue(question.waitForExistence(timeout: 5))
+        let composerTop = input.frame.minY
+        XCTAssertTrue(question.frame.maxY < composerTop && question.frame.minY > 0, "刚发的提问应在屏幕里、输入框之上")
+        snapshot("agent-scrolled-up-after-send")
+
+        // 回答流式写完后仍停在底部
+        XCTAssertTrue(element(app, "agent-send").waitForExistence(timeout: 300), "第 4 轮没跑完")
+        sleep(1)
+        XCTAssertFalse(latest.exists, "回答写完后应仍停在最新")
+        snapshot("agent-scrolled-up-answer-done")
     }
 
     // MARK: 新任务页的菜单（不发送）
@@ -233,18 +434,25 @@ final class AgentUITests: XCTestCase {
         safeTap(app, input, "输入框")
         input.typeText(question)
         safeTap(app, element(app, "agent-send"), "发送")
+        // 本机第一次发给 AI 前要先同意说明（装过并同意过的模拟器不会再问）
+        let agree = element(app, "agent-consent-agree")
+        if agree.waitForExistence(timeout: 1) { safeTap(app, agree, "同意") }
 
         // 创建会话后替换路由：顶栏不再是「新会话」，出现用户气泡与执行中
         XCTAssertTrue(app.descendants(matching: .any).matching(identifier: "agent-user-bubble").firstMatch.waitForExistence(timeout: 30), "发送后没有进入会话页")
+        // 运行中的三点气泡只在思考 / 调工具时出现（正文流式时换成气泡里的光标），先看界面再去服务端找会话：
+        // 找会话要逐个读会话详情，会话一多就是几十秒，回答快的模型早就跑完了
+        let sawRunning = element(app, "agent-turn-running").waitForExistence(timeout: 20)
+        if sawRunning { snapshot("agent-live-running") }
         let sessionId = try XCTUnwrap(backend.sessionId(containing: marker), "服务端没有找到本用例创建的会话")
         createdSessionIds.append(sessionId)
         print("创建测试会话 \(sessionId)：\(question)")
-        XCTAssertTrue(element(app, "agent-turn-running").waitForExistence(timeout: 20), "运行中应显示进度与实时耗时")
+        XCTAssertTrue(sawRunning, "运行中应显示「正在输入」的三点气泡")
         assertTabBarHidden(app)
-        snapshot("agent-live-running")
 
-        let done = element(app, "agent-copy-answer")
-        XCTAssertTrue(done.waitForExistence(timeout: 300), "五分钟内没有等到本轮完成")
+        // 跑完的轮次底下不再有页脚：以停止键变回发送键为准
+        XCTAssertTrue(element(app, "agent-stop").waitForNonExistence(timeout: 300), "五分钟内没有等到本轮完成")
+        XCTAssertTrue(element(app, "agent-answer-bubble").exists, "跑完应有回答气泡")
         snapshot("agent-live-done")
 
         // 返回键应直接回到进入新任务前的页面（/new 已被替换，不叠两层）
@@ -252,8 +460,8 @@ final class AgentUITests: XCTestCase {
 
         // 改写这条提问 → 替换并重新提问 → 立即停止
         let bubble = app.descendants(matching: .any).matching(identifier: "agent-user-bubble").firstMatch
-        tapBubbleText(app, bubble)
-        safeTap(app, element(app, "agent-edit-message"), "改写这条提问")
+        longPressBubble(app, bubble)
+        safeTap(app, app.buttons["改写这条提问"], "改写这条提问")
         XCTAssertTrue(app.staticTexts["正在改写较早的提问，发送后将替换其后的对话"].waitForExistence(timeout: 5), "改写态横幅缺失")
         safeTap(app, input, "输入框")
         input.typeText("（改写：只列 1 部）")
@@ -266,7 +474,7 @@ final class AgentUITests: XCTestCase {
             snapshot("agent-live-retry-running")
             stop.tap()
             let stopped = element(app, "agent-turn-stopped")
-            XCTAssertTrue(stopped.waitForExistence(timeout: 60) || element(app, "agent-copy-answer").exists, "停止后应显示「已停止」")
+            XCTAssertTrue(stopped.waitForExistence(timeout: 60), "停止后应显示「已停止」")
         }
         snapshot("agent-live-stopped")
 
@@ -317,8 +525,9 @@ private final class AgentBackend {
     }
 
     /// 有 show_media_cards 卡片（优先同时带图片附件）的历史会话
+    /// 只用卡片的会话里挑最长的（只读展示要能翻好几屏；最新的那条可能只有一轮）
     func richSessionId() -> String? {
-        var fallback: String?
+        var fallback: (id: String, entries: Int)?
         for summary in sessions() where summary["running"] as? Bool != true {
             guard let id = summary["id"] as? String,
                   let detail = request("GET", "/sessions/\(id)") as? [String: Any],
@@ -335,10 +544,13 @@ private final class AgentBackend {
                 }
             }
             if cards, image { return id }
-            if cards, fallback == nil { fallback = id }
+            if cards, entries.count > (fallback?.entries ?? 0) { fallback = (id, entries.count) }
         }
-        return fallback
+        return fallback?.id
     }
+
+    /// 会话数（只读）
+    func sessionCount() -> Int { sessions().count }
 
     /// 从源会话派生独立新会话（不触发模型运行），返回新会话 id
     func fork(_ id: String) -> String? {

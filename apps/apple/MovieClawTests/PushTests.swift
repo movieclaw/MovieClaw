@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 import Security
 import Testing
+import UserNotifications
 @testable import MovieClaw
 
 /// App 推送（docs/design/cloud-push.md §9，push-payload.md）：密文格式、密钥与登录对照、明文解析、点开通知
@@ -345,6 +346,15 @@ struct PushPayloadTests {
         #expect(presentation.thread == "http://192.168.1.10:3000")
         #expect(presentation.imageURL == nil && presentation.openPath == nil)
         #expect(PushAlertPresentation(decrypted, logins: [nas, office]).subtitle == "192.168.1.10:3000")
+    }
+
+    @Test func foregroundPushHiddenOnlyForTheSessionOnScreen() {
+        // 停在这个 AI 会话页：它的「AI 回复完成」什么都不出（回答就在眼前）
+        #expect(PushCenter.foregroundOptions(passive: false, openPath: "/sessions/abc", visibleSessionPath: "/sessions/abc") == [])
+        // 别的会话、别的页面：照常横幅 + 列表 + 响铃；被动的只进列表
+        #expect(PushCenter.foregroundOptions(passive: false, openPath: "/sessions/xyz", visibleSessionPath: "/sessions/abc") == [.banner, .list, .sound])
+        #expect(PushCenter.foregroundOptions(passive: false, openPath: "/sessions/abc", visibleSessionPath: nil) == [.banner, .list, .sound])
+        #expect(PushCenter.foregroundOptions(passive: true, openPath: nil, visibleSessionPath: "/sessions/abc") == [.list])
     }
 
     @Test func rejectsOffSiteImagesAndLinks() throws {

@@ -57,6 +57,12 @@ struct AgentComposer: View {
     var disabled = false
     var imageUpload = true
     var autoFocus = false
+    /// 排成一行：加号 · 输入框 · 发送，液态玻璃底（「我的」页打字时接替标签栏附件的输入框，见 AgentQuickInput）
+    var compact = false
+    /// 一出现就弹出加号菜单（从附件上的加号点进来）
+    var opensPlusMenu = false
+    /// 既没在打字、也没在选东西时回调（键盘完全收起后才算，见 checkIdle）：一行输入框据此把位置还给标签栏附件
+    var onIdle: (() -> Void)?
     var modelOptions: [API.LlmModelOptionView] = []
     var modelValue: String?
     var onModelChange: (String?) -> Void = { _ in }
@@ -80,11 +86,26 @@ struct AgentComposer: View {
     @State private var slashActive = false
     /// 技能快选里高亮的那一项（外接键盘上下键移动、回车选中，同 Web Lexical typeahead）
     @State private var slashHighlight = 0
+    /// 选完图片 / 技能后把焦点放回输入框接着打字（取消菜单不放回，算收起）
+    @State private var resumeTyping = false
+    /// 屏幕键盘在不在（外接键盘时没有键盘通知，按焦点判断）
+    @State private var keyboardShowing = false
 
     /// 每条消息的图片上限（与服务端 MAX_ATTACHMENTS_PER_MESSAGE 一致）
     static let maxImages = 4
 
+    // 版式（2026-10-12 按用户给的参考图）：底部按钮一律 36pt 实心圆 / 胶囊，彼此、与边框都隔 8pt；
+    // 外框圆角 = 按钮半径 + 内边距，内外圆角同心，看着才精致
+    static let control: CGFloat = 36
+    static let inset: CGFloat = 8
+    static let radius = control / 2 + inset
+    /// 外框底色：比黑底抬一档；按钮底再抬一档
+    static let fill = Color(white: 0.12)
+    static let controlFill = Color.white.opacity(0.09)
+
     private var canSubmit: Bool { !disabled && !busy && uploading == 0 && !draft.isEmpty }
+    /// 正在选东西：加号 / 模型菜单、相册、拍照、文件、上传中——这时失去焦点不算闲置
+    private var presenting: Bool { showsPlusMenu || showsModelMenu || pickingPhotos || capturingPhoto || importingFiles || uploading > 0 }
     private var showStop: Bool { busy && onStop != nil }
     private var slash: (query: String, range: Range<String.Index>)? {
         disabled ? nil : AgentSkillText.slashQuery(in: draft.text)
@@ -96,41 +117,44 @@ struct AgentComposer: View {
                 slashMenu(query: slash.query)
             }
             tray
-            TextField(placeholder ?? (busy ? "生成中，可先输入下一条…" : "随心输入，描述一个新任务…"), text: $draft.text, axis: .vertical)
-                .font(.system(size: 17))
-                .lineLimit(2 ... 6)
-                .focused($focused)
-                .disabled(disabled)
-                // 外接键盘同 Web：回车发送、Shift+回车换行；技能快选展开时回车选中高亮的技能、上下键移动高亮。
-                // 屏幕键盘的换行键仍是换行、发送靠发送键，符合 iOS 多行输入习惯
-                .onKeyPress(.return, phases: .down) { press in
-                    guard !press.modifiers.contains(.shift) else { return .ignored }
-                    if slashActive, let slash {
-                        let matches = slashMatches(slash.query)
-                        guard !matches.isEmpty else { return .ignored }
-                        pickSlash(matches[min(slashHighlight, matches.count - 1)].name)
-                        return .handled
-                    }
-                    submit()
-                    return .handled
+            if compact {
+                // 一行（「我的」页底部的 AI 输入框，见 AgentQuickInput）：加号 · 输入框 · 发送，模型用上次的选择不占地方
+                HStack(alignment: .bottom, spacing: Self.inset) {
+                    plusButton
+                    inputField
+                        .padding(.vertical, 7)
+                    sendButton
                 }
-                .onKeyPress(keys: [.upArrow, .downArrow], phases: .down) { press in
-                    guard slashActive, let slash else { return .ignored }
-                    let count = slashMatches(slash.query).count
-                    guard count > 0 else { return .ignored }
-                    let step = press.key == .upArrow ? -1 : 1
-                    slashHighlight = (min(slashHighlight, count - 1) + step + count) % count
-                    return .handled
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 14)
-                .padding(.bottom, 4)
-                .accessibilityIdentifier("agent-composer-input")
-            toolRow
+                .padding(Self.inset)
+            } else {
+                inputField
+                    .padding(.horizontal, 14)
+                    .padding(.top, 16)
+                    .padding(.bottom, 14)
+                toolRow
+            }
         }
-        .background(Color.white.opacity(0.05), in: .rect(cornerRadius: 22))
-        .overlay(RoundedRectangle(cornerRadius: 22).strokeBorder(Color.white.opacity(0.07)))
+        .modifier(ComposerSurface(glass: compact))
         .onAppear { if autoFocus, !disabled { focused = true } }
+        .task {
+            guard opensPlusMenu, !disabled else { return }
+            // 等键盘弹起走完再弹，动画途中弹出的气泡会落在旧位置
+            try? await Task.sleep(for: .milliseconds(350))
+            showsPlusMenu = true
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in keyboardShowing = true }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidHideNotification)) { _ in
+            keyboardShowing = false
+            checkIdle()
+        }
+        .onChange(of: focused) { checkIdle() }
+        .onChange(of: presenting) { _, now in
+            if !now, resumeTyping {
+                resumeTyping = false
+                focused = true
+            }
+            checkIdle()
+        }
         .onChange(of: draft.text) { old, text in
             // 屏幕键盘在技能快选展开时按换行：同网页（Lexical typeahead 先吃回车），撤掉这个换行、选中高亮技能，
             // 而不是在查询后面留一个换行（第三轮复核 P2-4）。只认「快选开着、恰好多了一个 \n」这一种编辑
@@ -239,53 +263,67 @@ struct AgentComposer: View {
         }
     }
 
+    // MARK: 输入框
+
+    private var inputField: some View {
+        TextField(placeholder ?? (busy ? "生成中，可先输入下一条…" : "随心输入，描述一个新任务…"), text: $draft.text, axis: .vertical)
+            .font(.system(size: 17))
+            .lineLimit(1 ... 6)
+            .focused($focused)
+            .disabled(disabled)
+            // 外接键盘同 Web：回车发送、Shift+回车换行；技能快选展开时回车选中高亮的技能、上下键移动高亮。
+            // 屏幕键盘的换行键仍是换行、发送靠发送键，符合 iOS 多行输入习惯
+            .onKeyPress(.return, phases: .down) { press in
+                guard !press.modifiers.contains(.shift) else { return .ignored }
+                if slashActive, let slash {
+                    let matches = slashMatches(slash.query)
+                    guard !matches.isEmpty else { return .ignored }
+                    pickSlash(matches[min(slashHighlight, matches.count - 1)].name)
+                    return .handled
+                }
+                submit()
+                return .handled
+            }
+            .onKeyPress(keys: [.upArrow, .downArrow], phases: .down) { press in
+                guard slashActive, let slash else { return .ignored }
+                let count = slashMatches(slash.query).count
+                guard count > 0 else { return .ignored }
+                let step = press.key == .upArrow ? -1 : 1
+                slashHighlight = (min(slashHighlight, count - 1) + step + count) % count
+                return .handled
+            }
+            .accessibilityIdentifier("agent-composer-input")
+    }
+
     // MARK: 工具行
 
     private var toolRow: some View {
-        HStack(spacing: 4) {
-            Button {
-                showsPlusMenu = true
-            } label: {
-                Image(systemName: "plus").font(.system(size: 20)).frame(width: 44, height: 44).contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Theme.textMuted)
-            .disabled(disabled)
-            .accessibilityLabel("添加图片或技能")
-            .accessibilityIdentifier("agent-composer-plus")
-            .popover(isPresented: $showsPlusMenu, arrowEdge: .bottom) {
-                AgentPlusMenu(imageUpload: imageUpload) { source in
-                    showsPlusMenu = false
-                    switch source {
-                    case .library: pickingPhotos = true
-                    case .camera: capturingPhoto = true
-                    case .files: importingFiles = true
-                    }
-                } onPickSkill: { name in
-                    showsPlusMenu = false
-                    addSkill(name)
-                }
-                .presentationCompactAdaptation(.popover)
-            }
+        HStack(spacing: Self.inset) {
+            plusButton
 
             if !modelOptions.isEmpty {
-                let label = AgentCatalog.resolve(modelOptions, ref: modelValue)?.label ?? "模型"
+                let model = AgentCatalog.resolve(modelOptions, ref: modelValue)
+                let label = model?.label ?? "模型"
+                // 显式选了思考档位才跟在模型名后面（灰字），「默认」不占地方
+                let thinking = thinkingValue.flatMap { value in
+                    AgentThinking.stops(model?.thinkingLevels ?? []).contains(value) ? AgentThinking.label(value) : nil
+                }
                 Button {
                     showsModelMenu = true
                 } label: {
-                    HStack(spacing: 4) {
-                        Text(label).lineLimit(1)
-                        Image(systemName: "chevron.down").font(.system(size: 10, weight: .semibold))
+                    HStack(spacing: 6) {
+                        Text(label).lineLimit(1).foregroundStyle(Theme.text)
+                        if let thinking { Text(thinking).foregroundStyle(Theme.textMuted) }
                     }
-                    .font(.system(size: 13))
-                    .padding(.horizontal, 10)
-                    .frame(height: 44)
-                    .contentShape(.rect)
+                    .font(.system(size: 15))
+                    .padding(.horizontal, 14)
+                    .frame(height: Self.control)
+                    .background(Self.controlFill, in: .capsule)
+                    .expandedHitArea(vertical: 4)
                 }
                 .buttonStyle(.plain)
-                .foregroundStyle(Theme.textMuted)
                 .disabled(disabled)
-                .accessibilityLabel("模型与思维链：\(label)")
+                .accessibilityLabel("模型与思维链：\(label)\(thinking.map { "，思考\($0)" } ?? "")")
                 .accessibilityIdentifier("agent-model-menu")
                 .popover(isPresented: $showsModelMenu, arrowEdge: .bottom) {
                     AgentModelMenu(
@@ -302,31 +340,79 @@ struct AgentComposer: View {
                 }
             }
 
-            Spacer(minLength: 8)
+            Spacer(minLength: 0)
 
-            Button {
-                if showStop { onStop?() } else { submit() }
-            } label: {
-                Group {
-                    if showStop {
-                        RoundedRectangle(cornerRadius: 3).frame(width: 11, height: 11)
-                    } else {
-                        Image(systemName: "arrow.right").font(.system(size: 19, weight: .semibold))
-                    }
-                }
-                .frame(width: 44, height: 44)
-                .background(Color.white.opacity(0.1), in: .rect(cornerRadius: 12))
-                .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Theme.text)
-            .opacity(!showStop && !canSubmit ? 0.4 : 1)
-            .disabled(!showStop && !canSubmit)
-            .accessibilityLabel(showStop ? "停止生成" : "发送")
-            .accessibilityIdentifier(showStop ? "agent-stop" : "agent-send")
+            sendButton
         }
-        .padding(.horizontal, 8)
-        .padding(.bottom, 8)
+        .padding([.horizontal, .bottom], Self.inset)
+    }
+
+    private var plusButton: some View {
+        Button {
+            showsPlusMenu = true
+        } label: {
+            Image(systemName: "plus").font(.system(size: 18, weight: .regular))
+                .frame(width: Self.control, height: Self.control)
+                .background(Self.controlFill, in: .circle)
+                // 画 36pt、点 44pt（HIG 最小点按区）
+                .expandedHitArea(horizontal: 4, vertical: 4)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Theme.text)
+        .disabled(disabled)
+        .accessibilityLabel("添加图片或技能")
+        .accessibilityIdentifier("agent-composer-plus")
+        .popover(isPresented: $showsPlusMenu, arrowEdge: .bottom) {
+            AgentPlusMenu(imageUpload: imageUpload) { source in
+                resumeTyping = true
+                showsPlusMenu = false
+                switch source {
+                case .library: pickingPhotos = true
+                case .camera: capturingPhoto = true
+                case .files: importingFiles = true
+                }
+            } onPickSkill: { name in
+                resumeTyping = true
+                showsPlusMenu = false
+                addSkill(name)
+            }
+            .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private var sendButton: some View {
+        // 发送键与用户气泡同色（发出去的东西一个颜色）；不能发时整体压暗
+        Button {
+            if showStop { onStop?() } else { submit() }
+        } label: {
+            Group {
+                if showStop {
+                    RoundedRectangle(cornerRadius: 3).frame(width: 11, height: 11)
+                } else {
+                    Image(systemName: "arrow.up").font(.system(size: 17, weight: .semibold))
+                }
+            }
+            .frame(width: Self.control, height: Self.control)
+            .background(AgentBubbleStyle.userFill, in: .circle)
+            .expandedHitArea(horizontal: 4, vertical: 4)
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(Theme.text)
+        .opacity(!showStop && !canSubmit ? 0.45 : 1)
+        .disabled(!showStop && !canSubmit)
+        .accessibilityLabel(showStop ? "停止生成" : "发送")
+        .accessibilityIdentifier(showStop ? "agent-stop" : "agent-send")
+    }
+
+    /// 闲置 = 没在选东西、没有焦点、屏幕键盘也已完全收起。等键盘收完（didHide）再交还：
+    /// 输入框跟着键盘落到底，落定后原地换回标签栏附件，中途不会同时露出两个
+    private func checkIdle() {
+        guard let onIdle, !presenting, !focused, !keyboardShowing else { return }
+        Task {
+            // 菜单刚关、焦点还没回来的那一瞬两头都空，再看一眼
+            try? await Task.sleep(for: .milliseconds(150))
+            if !presenting, !focused, !keyboardShowing { onIdle() }
+        }
     }
 
     // MARK: 「/」技能快选
@@ -833,5 +919,49 @@ struct AgentThinkingToggle: View {
         }
         .padding(.horizontal, 10)
         .padding(.bottom, 8)
+    }
+}
+
+/// 输入框外壳：页面里是深灰实底 + 细描边；一行版（标签栏附件的接替者）是液态玻璃，与系统附件同款
+private struct ComposerSurface: ViewModifier {
+    let glass: Bool
+
+    func body(content: Content) -> some View {
+        if glass {
+            content.glassEffect(.regular.interactive(), in: .rect(cornerRadius: AgentComposer.radius, style: .continuous))
+        } else {
+            content
+                .background(AgentComposer.fill, in: .rect(cornerRadius: AgentComposer.radius, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: AgentComposer.radius, style: .continuous).strokeBorder(Color.white.opacity(0.09)))
+        }
+    }
+}
+
+/// 会话页 / 新会话页输入区的底部间距：键盘收起时往 Home 指示条那段安全区里收一点（原先「安全区 34 + 8」离屏幕底边
+/// 约 42pt，看着空，2026-10-13 用户反馈），离底边约 24pt、仍在指示条之上；键盘弹起时照旧贴着键盘留 8。
+/// 不量输入区自己的安全区来算（往里收会改变它压着的安全区，来回跳），只看键盘通知 + 窗口底部安全区
+struct AgentComposerBottomGap: ViewModifier {
+    @State private var keyboardShown = false
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.bottom, Self.padding(keyboardShown: keyboardShown, windowBottomInset: Self.windowBottomInset))
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+                withAnimation(.easeOut(duration: 0.25)) { keyboardShown = true }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                withAnimation(.easeOut(duration: 0.25)) { keyboardShown = false }
+            }
+    }
+
+    /// 底部间距（纯函数，单元测试见 AgentLogicTests）：没有 Home 指示条的机型安全区为 0，不往里收
+    static func padding(keyboardShown: Bool, windowBottomInset: CGFloat) -> CGFloat {
+        guard !keyboardShown, windowBottomInset > 0 else { return 8 }
+        return min(8, 24 - windowBottomInset)
+    }
+
+    private static var windowBottomInset: CGFloat {
+        let windows = UIApplication.shared.connectedScenes.compactMap { ($0 as? UIWindowScene)?.keyWindow }
+        return windows.first?.safeAreaInsets.bottom ?? 0
     }
 }

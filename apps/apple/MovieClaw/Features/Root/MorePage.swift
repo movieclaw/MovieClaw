@@ -12,7 +12,7 @@ import SwiftUI
 /// - 服务器设置：App Logo + 标题，下面一行小字写当前服务器地址，说明这些设置改的是哪台服务器。
 ///   试过分组下方的说明文字（footer，悬在卡片外没有一体感）和同一行右侧灰字，用户选了副标题（2026-09-29）。
 ///   「关于 MovieClaw」不占这里的位置（低频，用户认为太重），放在服务器设置页最底部；
-/// - 最近会话（管理员）：首行「新会话」（加号，顶栏的「+」已去掉，这里是发起新会话的入口），下面是 AI 会话，
+/// - 最近会话（管理员）：AI 会话列表；发起新会话走标签栏上方的一行输入框（AgentQuickBar，2026-10-12 起替代原先的「新会话」首行），
 ///   每页 20 条、滑到末尾自动加载下一页（用户决定不要「显示全部 / 收起」，与 Web 的差异）；
 ///   操作走 iOS 列表惯例：左滑出续接 / 重命名 / 删除三个图标按钮，长按出完整菜单（与会话页右上角同图标、同顺序）。
 ///
@@ -25,6 +25,7 @@ struct MorePage: View {
     @Environment(ShellBadges.self) private var badges
     @Environment(\.permissions) private var permissions
     @Environment(\.api) private var api
+    @Environment(AgentQuickDraft.self) private var quick
 
     @State private var sessions: [API.SessionSummary] = []
     @State private var notices: [API.NoticeView] = []
@@ -128,16 +129,10 @@ struct MorePage: View {
             }
 
             if permissions.isAdmin {
+                // 新会话走标签栏上方的一行输入框（AgentQuickBar），原先的「新会话」首行去掉（2026-10-12 用户要求）
                 Section("最近会话") {
-                    MoreRouteRow(routes: [.newSession], tint: Theme.accentStrong) {
-                        Label("新会话", systemImage: "plus").fontWeight(.medium)
-                    }
-                    // 这一组只有首行带图标：分割线默认对齐到图标后的文字，比下面会话行的短一截、像没画全，
-                    // 对齐到行首与下面一致
-                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
-                    .accessibilityIdentifier("more-new-session")
                     if sessions.isEmpty {
-                        Text("还没有会话，点上方的「新会话」开始。")
+                        Text("还没有会话，在下方输入框里问点什么吧。")
                             .font(.caption)
                             .foregroundStyle(Theme.textFaint)
                     }
@@ -155,6 +150,12 @@ struct MorePage: View {
             }
         }
         .appBackground()
+        // AI 一行输入框：平时是标签栏附件（下滑跟着收起）；打字时附件让位，换上跟键盘走的真输入框
+        // （见 AgentQuickBar；往下拖收键盘设在整个「我的」导航栈上，见 MainTabView）
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            // iOS 26.0 没有能按需开关的标签栏附件：输入框常驻在根页（26.1 起打字时的接替者挂在整个「我的」导航栈上，见 MainTabView）
+            if permissions.isAdmin, !Self.accessoryAvailable { AgentQuickInput(quick: quick) }
+        }
         .navigationTitle("我的")
         // 与媒体库、订阅、活动等标签根页同一种左对齐大标题（和右上角的扫码 · 搜索同一行）
         .toolbarTitleDisplayMode(.inlineLarge)
@@ -175,13 +176,28 @@ struct MorePage: View {
     /// 分支（在新会话中继续）/ 铅笔（重命名）/ 垃圾桶（删除）；续接与删除点了先确认、重命名先弹输入框，
     /// 所以不带文字也不怕误触。长按出同样三项的完整菜单（与会话页右上角同图标、同顺序）。
     /// 删除不允许一滑到底直接触发。
+    ///
+    /// 行的样子仿「信息」（2026-10-12 用户要求美化）：标题 + 右侧最近活动时间，运行中时右侧换成「进行中」+ 呼吸点。
+    /// 试过第二行灰字放最近一次提问，用户觉得多余，只留一行。时间已在右侧，不再要箭头
     private func sessionRow(_ item: API.SessionSummary) -> some View {
-        MoreRouteRow(routes: [.session(id: item.id)]) {
-            HStack(spacing: 10) {
+        MoreRouteRow(routes: [.session(id: item.id)], showsChevron: false) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(title(of: item))
+                    .lineLimit(1)
+                Spacer(minLength: 4)
                 if item.running {
-                    MoreRunningDot()
+                    HStack(spacing: 5) {
+                        MoreRunningDot()
+                        Text("进行中")
+                    }
+                    .font(.footnote)
+                    .foregroundStyle(Theme.info)
+                } else if let updated = Formatters.date(item.updatedAt) {
+                    Text(AgentTimeline.listTime(updated))
+                        .font(.footnote)
+                        .monospacedDigit()
+                        .foregroundStyle(Theme.textFaint)
                 }
-                Text(title(of: item)).lineLimit(1)
             }
         }
         .accessibilityIdentifier("more-session-row")
@@ -205,6 +221,11 @@ struct MorePage: View {
         Button("重命名", systemImage: "pencil") { Task { await rename(item) } }
         Divider()
         Button("删除会话", systemImage: "trash", role: .destructive) { Task { await remove(item) } }
+    }
+
+    private static var accessoryAvailable: Bool {
+        if #available(iOS 26.1, *) { return true }
+        return false
     }
 
     private func title(of item: API.SessionSummary) -> String {
@@ -289,7 +310,7 @@ private struct MoreRunningDot: View {
     var body: some View {
         Circle()
             .fill(Theme.info)
-            .frame(width: 6, height: 6)
+            .frame(width: 7, height: 7)
             .opacity(dim ? 0.35 : 1)
             .animation(.easeInOut(duration: 1).repeatForever(autoreverses: true), value: dim)
             .onAppear { dim = true }

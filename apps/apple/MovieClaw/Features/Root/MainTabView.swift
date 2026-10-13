@@ -45,6 +45,8 @@ struct MainTabView: View {
     @State private var switchingAccount = false
     /// 标签栏上方的「接着看」条（见 ResumeAccessory）
     @State private var resume = ResumeBarStore()
+    /// 「我的」页 AI 一行输入框的草稿与打字状态（见 AgentQuickBar）
+    @State private var quickDraft = AgentQuickDraft()
     /// 点开的推送通知（见 openPushTarget）
     @Environment(PushCenter.self) private var push
 
@@ -61,10 +63,17 @@ struct MainTabView: View {
         }
     }
 
+    /// 停在「我的」页签（根页或它下面的设置、个人信息等子页面）：管理员的标签栏附件是 AI 一行输入框（AgentQuickBar），
+    /// 不是「接着看」（2026-10-13 用户要求子页面也一样）。AI 会话页自己有输入框，不算
+    private var onMoreTab: Bool {
+        router.selectedTab == .more && !onAgentSession
+    }
+
     var body: some View {
         let session = model.session
         let permissions = session.map(Permissions.init(session:)) ?? .none
         let api = model.api ?? EnvironmentValues().api
+        let quickBar = onMoreTab && permissions.isAdmin ? quickDraft : nil
 
         TabView(selection: Binding(get: { router.selectedTab }, set: { tab in
             router.selectTab(tab)
@@ -99,6 +108,12 @@ struct MainTabView: View {
             }
             Tab(value: MainTab.more) {
                 TabRoot(tab: .more) { MorePage() }
+                    // 打字时接替附件的真输入框挂在整个「我的」导航栈上：根页和子页面都在附件原来的位置接替；
+                    // 往下拖收键盘（同「信息」）也对整个栈生效，子页面里才收得掉键盘
+                    .scrollDismissesKeyboard(.interactively)
+                    .safeAreaInset(edge: .bottom, spacing: 0) {
+                        if quickDraft.editing, permissions.isAdmin { AgentQuickInput(quick: quickDraft) }
+                    }
             } label: {
                 Label {
                     Text(MainTab.more.title)
@@ -110,11 +125,14 @@ struct MainTabView: View {
             .accessibilityLabel(MainTab.more.title)
             .accessibilityIdentifier("open-more")
         }
-        // 「片段」上下滑动是在换条，不是在往下读：停在它上面时标签栏不收起（docs/design/reels.md）
-        .tabBarMinimizeBehavior(onReels ? .never : .onScrollDown)
-        // 「接着看」条：片段页自己占满底部、AI 会话页底部是输入框（2026-09-30 用户反馈条贴在输入框下面很怪），都不显示
+        // 「片段」上下滑动是在换条，不是在往下读：停在它上面时标签栏不收起（docs/design/reels.md）；
+        // 「我的」页正在用一行输入框打字时也不收：往下拖收键盘会被当成一次下滑把标签栏收起，
+        // 打字的输入框落回展开的位置、附件却换回到收起的那一行，跳一下（见 AgentQuickBar）
+        .tabBarMinimizeBehavior(onReels || quickDraft.editing ? .never : .onScrollDown)
+        // 「接着看」条：片段页自己占满底部、AI 会话页底部是输入框（2026-09-30 用户反馈条贴在输入框下面很怪），都不显示；
+        // 「我的」根页这个位置是 AI 一行输入框
         .modifier(ResumeAccessoryModifier(item: resume.visibleItem, enabled: !onReels && !onAgentSession,
-                                          onHide: { resume.hide() }))
+                                          quickBar: quickBar, onHide: { resume.hide() }))
         // 进主界面、关掉播放器（看过就变了）、回到前台、换账号时重新取最近播放的那一条
         .task(id: "\(router.player == nil)|\(scenePhase == .active)|\(session?.nickname ?? "")|\(api.server.origin)") {
             guard router.player == nil, scenePhase == .active else { return }
@@ -333,6 +351,7 @@ struct MainTabView: View {
         // 预热中切了页签：马上拆掉预热的那份，不和真正要显示的页面抢主线程
         .onChange(of: router.selectedTab) { if !warmupTabs.isEmpty { warmupTabs = [] } }
         .environment(router)
+        .environment(quickDraft)
         .environment(feedback)
         .environment(badges)
         .environment(\.api, api)
@@ -538,7 +557,8 @@ enum TabIcon {
 ///
 /// 页面自己的按钮用 `.toolbar` 追加（发现页的筛选、媒体库的 ⋯ 菜单）。
 /// 外层注入的 `.topBarTrailing` 会排到页面按钮前面，所以放 `.primaryAction`（固定在最右），
-/// 再用固定间隔隔开：页面按钮在左边自成一组，搜索是独立圆钮（媒体库是「▶ ⋯ · 搜索」）。
+/// 再用固定间隔隔开：页面按钮在左边自成一组，搜索是独立圆钮。
+/// 媒体库例外：「▶ ⋯ 搜索」三个合成一组，不加间隔（2026-10-13 用户要求试试）。
 ///
 /// 「我的」页只保留扫码钮：
 /// 扫电视 / 终端上的登录二维码 → 直达独立的批准页（DeviceApprovalView）。
@@ -549,7 +569,7 @@ struct AppTopBar: ViewModifier {
 
     func body(content: Content) -> some View {
         content.toolbar {
-            if tab == .more || searchAccess.canOpenSearch {
+            if tab == .more || (searchAccess.canOpenSearch && tab != .library) {
                 ToolbarSpacer(.fixed, placement: .primaryAction)
             }
             if tab == .more {

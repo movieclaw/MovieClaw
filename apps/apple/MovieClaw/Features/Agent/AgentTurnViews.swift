@@ -4,11 +4,11 @@ import SwiftUI
 // 会话时间线里一轮的各个组成部分（对应 Web `agent-conversation-view.tsx` 的 TurnView 及其子组件）。
 // 消息列按段落级的行懒加载（见 AgentTranscriptRows），这里只提供每一行用到的组件。
 //
-// 呈现取舍（与 Web 一致，刻意做减法）：
-// - 用户消息右侧气泡；Agent 回应整栏正文，不挂头像、不套气泡（ChatGPT / Claude 同款版式）；
-// - 思考与工具调用收进「处理过程」折叠块：进行中显示实时状态，完成后一句话总结；展开后工具调用
+// 呈现取舍（个人助理式的气泡卡片，与 Web 的整栏正文不同）：
+// - 用户消息右侧 logo 蓝紫渐变气泡；Agent 的每段正文是左侧深灰气泡，生成式 UI 卡片组是独立卡片——颜色一眼分清谁说的；
+// - 思考与工具调用收进「处理过程」小胶囊：进行中显示实时状态，完成后一句话总结；展开后工具调用
 //   只列单行摘要，点某一行才展开参数与输出——一轮动辄十几次调用，全量平铺等于没有排版；
-// - 轮次页脚只留耗时（进行中是进度环 + 实时秒数），模型/token 这些排查信息不上屏。
+// - 进行中是三点气泡；跑完不出耗时，只在停止/中断时留一行小字，模型/token 这些排查信息不上屏。
 
 /// 本轮以错误收尾时的红色提示卡片
 struct AgentTurnErrorView: View {
@@ -27,13 +27,125 @@ struct AgentTurnErrorView: View {
     }
 }
 
+// MARK: - 气泡
+
+/// 会话气泡的配色与形状
+enum AgentBubbleStyle {
+    /// 用户（提问气泡、发送键）：取自 logo 渐变中段的蓝 → 紫（#4C9DFF → #9A6BFF 各压深一档，白字对比度 ≥ 4.5:1）。
+    /// 先后否决过系统鲜蓝（暗色里刺眼）与雾蓝 #4B5F82（不好看），2026-10-12 用户要求从 logo 里取色
+    static let userFill = LinearGradient(
+        colors: [Color(red: 0x2F / 255, green: 0x6B / 255, blue: 0xD8 / 255), Color(red: 0x6A / 255, green: 0x4B / 255, blue: 0xD8 / 255)],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+    /// 助手（正文气泡、卡片组）：黑底上抬一档的深灰
+    static let assistantFill = Color(white: 0.14)
+    static let radius: CGFloat = 20
+    static let paddingH: CGFloat = 16
+    static let paddingV: CGFloat = 12
+    /// 助手气泡右侧留白：气泡不贴满整行，左右两侧的归属一眼可辨
+    static let assistantTrailingInset: CGFloat = 24
+
+    static func shape(top: Bool = true, bottom: Bool = true) -> UnevenRoundedRectangle {
+        UnevenRoundedRectangle(
+            topLeadingRadius: top ? radius : 0,
+            bottomLeadingRadius: bottom ? radius : 0,
+            bottomTrailingRadius: bottom ? radius : 0,
+            topTrailingRadius: top ? radius : 0,
+            style: .continuous
+        )
+    }
+}
+
+/// 助手正文气泡的一截（见 AgentTranscriptRow.Bubble）：首截上圆角、末截下圆角，块间距画在底色里；
+/// 长按出原生菜单复制整段正文。超长正文才会拆成多截：长按时预览整个气泡（只在长按时把整段重新排一次版），
+/// 否则浮起来的只是按到的那一截，看着像几个不同的气泡
+struct AgentAnswerBubbleSlice<Content: View>: View {
+    let bubble: AgentTranscriptRow.Bubble
+    @ViewBuilder let content: Content
+    /// 气泡宽度：整气泡预览按它排版，与列表里的气泡同宽
+    @State private var width: CGFloat = 0
+
+    var body: some View {
+        let shape = AgentBubbleStyle.shape(top: bubble.first, bottom: bubble.last)
+        let menu = Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = bubble.text }
+        Group {
+            if bubble.first && bubble.last {
+                sliced.contentShape(.contextMenuPreview, shape).contextMenu { menu }
+            } else {
+                sliced.contextMenu { menu } preview: { AgentAnswerBubblePreview(text: bubble.text, width: width) }
+            }
+        }
+        .accessibilityIdentifier("agent-answer-bubble")
+        .padding(.trailing, AgentBubbleStyle.assistantTrailingInset)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var sliced: some View {
+        content
+            .padding(.top, bubble.first ? AgentBubbleStyle.paddingV : bubble.gap)
+            .padding(.bottom, bubble.last ? AgentBubbleStyle.paddingV : 0)
+            .padding(.horizontal, AgentBubbleStyle.paddingH)
+            .frame(maxWidth: bubble.hug ? nil : .infinity, alignment: .leading)
+            .background(AgentBubbleStyle.assistantFill, in: AgentBubbleStyle.shape(top: bubble.first, bottom: bubble.last))
+            .onGeometryChange(for: CGFloat.self, of: \.size.width) { width = $0 }
+    }
+}
+
+/// 长按多截气泡时的预览：整段正文画成一个完整气泡
+private struct AgentAnswerBubblePreview: View {
+    let text: String
+    let width: CGFloat
+
+    var body: some View {
+        AgentMarkdownBlocks(blocks: AgentMarkdownParser.parse(text), size: AgentTranscriptLayout.textSize)
+            .padding(.horizontal, AgentBubbleStyle.paddingH)
+            .padding(.vertical, AgentBubbleStyle.paddingV)
+            .frame(width: width > 0 ? width : nil)
+            .background(AgentBubbleStyle.assistantFill)
+    }
+}
+
+/// 「正在输入」的三点气泡：本轮进行中、正文没在流式输出时代替原来的进度环 + 秒数（2026-10-12 用户要求）。
+/// 三个点依次亮起、微微上浮，形成从左到右的波（iMessage 同款节奏）
+struct AgentTypingBubble: View {
+    /// 一个波的周期与相邻两点的相位差（秒）
+    private static let period = 1.2
+    private static let stagger = 0.18
+
+    var body: some View {
+        TimelineView(.animation) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 6) {
+                ForEach(0..<3, id: \.self) { i in
+                    let wave = Self.wave(t - Double(i) * Self.stagger)
+                    Circle()
+                        .fill(Theme.text.opacity(0.28 + 0.42 * wave))
+                        .frame(width: 8, height: 8)
+                        .offset(y: -2.5 * wave)
+                }
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+        .background(AgentBubbleStyle.assistantFill, in: .capsule)
+        // 圆点没有可读内容，用一段文字代表整个气泡，旁白读「正在输入」
+        .accessibilityRepresentation { Text("正在输入") }
+        .accessibilityIdentifier("agent-turn-running")
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 0…1：每个周期前半段亮起再落下，后半段静止
+    private static func wave(_ t: Double) -> Double {
+        let phase = (t / period).truncatingRemainder(dividingBy: 1)
+        let p = phase < 0 ? phase + 1 : phase
+        return p < 0.5 ? sin(p * 2 * .pi) : 0
+    }
+}
+
 // MARK: - 用户气泡
 
-/// 用户提问气泡 + 浮现的行内操作（复制 / 改写重问）。
-///
-/// 点一下气泡浮现操作键（同 Web 触屏的 tap-reveal），长按也有同样的系统菜单；
-/// 操作键落在气泡下方、右对齐，样式与回答底部的「复制」一致——两种消息的操作都在消息下方
-/// （原先放在气泡左侧，与回答的复制一左一下，2026-09-27 用户要求统一）。
+/// 用户提问气泡：操作走 iPhone 原生长按菜单（复制 / 改写重问），不做点按浮现、也不在气泡下方常驻按钮（2026-10-12 用户要求）。
 /// `/skill:名字` 渲染成技能 chip，正文只留用户自己的话（复制与改写仍用完整 token 原文）。
 struct AgentUserBubble: View {
     let text: String
@@ -43,47 +155,20 @@ struct AgentUserBubble: View {
     let onEdit: (() -> Void)?
 
     @Environment(\.api) private var api
-    @State private var revealed = false
-    @State private var copied = false
     @State private var lightbox: DiscoverLightboxContent?
 
     var body: some View {
         let parsed = AgentSkillText.parseTokens(text, allow: knownSkills)
-        VStack(alignment: .trailing, spacing: 6) {
-            HStack(spacing: 0) {
-                Spacer(minLength: 40)
-                bubble(parsed)
-                    .onTapGesture { withAnimation(.easeOut(duration: 0.15)) { revealed.toggle() } }
-                    .contextMenu {
-                        Button("复制", systemImage: "doc.on.doc", action: copy)
-                        if let onEdit {
-                            Button("改写这条提问", systemImage: "pencil", action: onEdit)
-                        }
-                    }
-            }
-            if revealed {
-                HStack(spacing: 8) {
+        HStack(spacing: 0) {
+            Spacer(minLength: 40)
+            bubble(parsed)
+                .contentShape(.contextMenuPreview, AgentBubbleStyle.shape())
+                .contextMenu {
+                    Button("复制", systemImage: "doc.on.doc") { UIPasteboard.general.string = text }
                     if let onEdit {
-                        Button {
-                            revealed = false
-                            onEdit()
-                        } label: {
-                            actionLabel("改写", systemImage: "pencil")
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("改写这条提问")
-                        .accessibilityIdentifier("agent-edit-message")
+                        Button("改写这条提问", systemImage: "pencil", action: onEdit)
                     }
-                    Button(action: copy) {
-                        actionLabel(copied ? "已复制" : "复制", systemImage: copied ? "checkmark" : "doc.on.doc")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("agent-copy-message")
                 }
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.textFaint)
-                .transition(.opacity)
-            }
         }
         .fullScreenCover(item: $lightbox) { content in
             DiscoverLightbox(content: content).sheetFeedback()
@@ -97,9 +182,9 @@ struct AgentUserBubble: View {
                     ForEach(parsed.names, id: \.self) { name in
                         Text("⚡ \(name)")
                             .font(.system(size: 13))
-                            .foregroundStyle(Theme.textMuted)
+                            .foregroundStyle(.white.opacity(0.85))
                             .padding(.horizontal, 8).padding(.vertical, 2)
-                            .background(Color.white.opacity(0.08), in: .rect(cornerRadius: 8))
+                            .background(Color.white.opacity(0.18), in: .rect(cornerRadius: 8))
                     }
                 }
             }
@@ -122,34 +207,18 @@ struct AgentUserBubble: View {
             }
             if !parsed.text.isEmpty {
                 Text(parsed.text)
-                    .font(.system(size: 16))
+                    .font(.system(size: AgentTranscriptLayout.textSize))
                     .foregroundStyle(Theme.text)
                     .lineSpacing(5)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
-        .background(Color.white.opacity(0.1), in: .rect(cornerRadius: 18))
-        .contentShape(.rect(cornerRadius: 18))
+        .padding(.horizontal, AgentBubbleStyle.paddingH)
+        .padding(.vertical, AgentBubbleStyle.paddingV)
+        .background(AgentBubbleStyle.userFill, in: AgentBubbleStyle.shape())
+        .contentShape(AgentBubbleStyle.shape())
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-user-bubble")
-    }
-
-    private func copy() {
-        UIPasteboard.general.string = text
-        copied = true
-        Task { try? await Task.sleep(for: .seconds(1.5)); copied = false }
-    }
-
-    /// 与回答底部「复制」（AgentTurnFooter）同一个样子：小图标 + 文字
-    private func actionLabel(_ title: String, systemImage: String) -> some View {
-        HStack(spacing: 3) {
-            Image(systemName: systemImage).font(.system(size: 11))
-            Text(title)
-        }
-        .padding(.horizontal, 4).padding(.vertical, 2)
-        .expandedHitArea(vertical: 10)
     }
 }
 
@@ -187,8 +256,8 @@ struct AgentAttachmentThumb: View {
 
 // MARK: - 处理过程
 
-/// 处理过程折叠块（仿 Claude）：头部进行中显示实时状态、完成后显示一句话总结；
-/// 点击展开思考与工具调用的混合列表（按实际发生顺序）。
+/// 处理过程胶囊：进行中显示实时状态、完成后显示一句话总结，夹在气泡之间但不抢眼；
+/// 点击在下方展开思考与工具调用的混合列表（按实际发生顺序）。
 /// 生成式 UI 的绘制调用不算处理过程（它的产出就是紧随其后的卡片），整块只剩它时连折叠头也不出。
 struct AgentProcessBlock: View {
     let items: [AgentProcessItem]
@@ -210,16 +279,20 @@ struct AgentProcessBlock: View {
                 Button {
                     withAnimation(.easeOut(duration: 0.18)) { open.toggle() }
                 } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "chevron.right")
+                    HStack(spacing: 6) {
+                        Image(systemName: "sparkles")
                             .font(.system(size: 11, weight: .semibold))
-                            .rotationEffect(.degrees(open ? 90 : 0))
                         Text(active ? AgentTimeline.processStatus(visible) : AgentTimeline.processSummary(visible))
-                            .font(.system(size: 14, weight: .medium))
+                            .font(.system(size: 13, weight: .medium))
                             .modifier(AgentPulse(active: active))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .rotationEffect(.degrees(open ? 90 : 0))
                     }
-                    .foregroundStyle(Theme.textFaint)
-                    .expandedHitArea(vertical: 12)
+                    .foregroundStyle(Theme.textMuted)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(Color.white.opacity(0.07), in: .capsule)
+                    .expandedHitArea(vertical: 6)
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("agent-process-toggle")
@@ -240,10 +313,10 @@ struct AgentProcessBlock: View {
                             }
                         }
                     }
-                    .padding(.leading, 12)
-                    .overlay(alignment: .leading) {
-                        Rectangle().fill(Color.white.opacity(0.08)).frame(width: 2)
-                    }
+                    .padding(12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(Color.white.opacity(0.04), in: .rect(cornerRadius: 16, style: .continuous))
+                    .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous).strokeBorder(Theme.line))
                 }
             }
         }
@@ -404,77 +477,35 @@ struct AgentHandoffCard: View {
     }
 }
 
-/// 一轮的收尾行：进行中 = 进度环 + 实时耗时（秒级跳动）；完成 = 已停止/已中断 + 最终耗时 + 复制
+/// 一轮异常收尾时的小字：已停止 / 已中断。正常跑完不出任何东西（耗时 2026-10-12 用户要求去掉）；
+/// 进行中不走这里（是三点气泡，见 AgentTypingBubble）；复制走气泡的长按菜单
 struct AgentTurnFooter: View {
     let turn: AgentTurn
-    @State private var copied = false
 
-    /// 页脚会不会画出东西（与下面 body 的分支一致）；消息列拆行时据此决定要不要给它占一行
+    /// 页脚会不会画出东西；消息列拆行时据此决定要不要给它占一行
     static func hasContent(_ turn: AgentTurn) -> Bool {
-        if turn.status == .error { return false }
-        if turn.isRunning { return true }
-        return turn.result != nil || turn.endedAt != nil || turn.stopped || turn.interrupted || !turn.answerText.isEmpty
+        turn.status == .done && (turn.stopped || turn.interrupted)
     }
 
     var body: some View {
-        if turn.status == .error {
-            EmptyView()
-        } else if turn.isRunning {
-            TimelineView(.periodic(from: .now, by: 1)) { context in
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.mini)
-                    Text(AgentTimeline.duration(context.date.timeIntervalSince(turn.startedAt), precise: false))
-                        .monospacedDigit()
-                }
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.textFaint)
-                .accessibilityElement(children: .combine)
-                .accessibilityLabel("执行中…")
-                .accessibilityIdentifier("agent-turn-running")
-            }
-        } else {
-            // 本轮跑完时有精确耗时；从轨迹回放的历史轮次按消息时间戳估算
-            let duration: String? = turn.result.map { AgentTimeline.duration(Double($0.elapsedMs) / 1000, precise: true) }
-                ?? turn.endedAt.map { AgentTimeline.duration($0.timeIntervalSince(turn.startedAt), precise: false) }
-            let answer = turn.answerText
-            if duration != nil || turn.stopped || turn.interrupted || !answer.isEmpty {
-                HStack(spacing: 8) {
-                    if turn.stopped {
-                        Text("已停止").accessibilityIdentifier("agent-turn-stopped")
-                    } else if turn.interrupted {
-                        Text("已中断").accessibilityIdentifier("agent-turn-interrupted")
-                    }
-                    if let duration { Text(duration).monospacedDigit() }
-                    if !answer.isEmpty {
-                        Button {
-                            UIPasteboard.general.string = answer
-                            copied = true
-                            Task { try? await Task.sleep(for: .seconds(1.5)); copied = false }
-                        } label: {
-                            HStack(spacing: 3) {
-                                Image(systemName: copied ? "checkmark" : "doc.on.doc").font(.system(size: 11))
-                                Text(copied ? "已复制" : "复制")
-                            }
-                            .padding(.horizontal, 4).padding(.vertical, 2)
-                            .expandedHitArea(vertical: 10)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("agent-copy-answer")
-                    }
-                }
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.textFaint)
+        Group {
+            if turn.stopped {
+                Text("已停止").accessibilityIdentifier("agent-turn-stopped")
+            } else if turn.interrupted {
+                Text("已中断").accessibilityIdentifier("agent-turn-interrupted")
             }
         }
+        .font(.system(size: 13))
+        .foregroundStyle(Theme.textFaint)
+        .padding(.leading, 6)
     }
 }
 
 /// 流式光标：正文尾部的呼吸圆点
 struct AgentStreamingCursor: View {
     var body: some View {
-        Circle().fill(Theme.textMuted).frame(width: 12, height: 12)
+        Circle().fill(Theme.textMuted).frame(width: 9, height: 9)
             .modifier(AgentPulse(active: true))
-            .padding(.top, 4)
     }
 }
 

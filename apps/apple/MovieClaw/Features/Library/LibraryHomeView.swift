@@ -37,8 +37,8 @@ struct LibraryHomeView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                header
                 content
+                footer
             }
             .padding(.bottom, 32)
         }
@@ -146,19 +146,23 @@ struct LibraryHomeView: View {
         return 30
     }
 
-    // MARK: 页头
+    // MARK: 页脚
 
-    /// 统计行。「全部合集」的固定入口在右上角 ⋯ 菜单里（「我的媒体库」行标题右侧另有一个顺手入口），
-    /// 那一行被隐藏时不必再往页头挪
-    private var header: some View {
-        Text(failed && libraries == nil ? "暂时无法获取媒体库统计，正在自动重试" : libraryStatsSummary(libraries == nil ? nil : visibleLibraries))
-            .font(.subheadline)
-            .foregroundStyle(Theme.textMuted)
-            .lineLimit(2)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .accessibilityIdentifier("library-stats")
-            .padding(.horizontal, Theme.pagePadding)
-            .padding(.top, 4)
+    /// 统计行（几个库、多少部、占多少空间）：放在页面末尾当页脚，不占开头（2026-10-13 用户要求，原先在页头）。
+    /// 只在库都加载好、至少有一个库时出现——加载中 / 失败时页面里已有对应提示，不再重复。
+    /// 「全部合集」的固定入口在右上角 ⋯ 菜单里（「我的媒体库」行标题右侧另有一个顺手入口）
+    @ViewBuilder
+    private var footer: some View {
+        if let libraries, !libraries.isEmpty {
+            Text(libraryStatsSummary(visibleLibraries))
+                .font(.footnote)
+                .foregroundStyle(Theme.textFaint)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("library-stats")
+                .padding(.horizontal, Theme.pagePadding)
+                .padding(.top, 28)
+        }
     }
 
     @ViewBuilder

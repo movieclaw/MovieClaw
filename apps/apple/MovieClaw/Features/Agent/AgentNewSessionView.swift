@@ -54,7 +54,8 @@ struct AgentNewSessionView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.top, 8)
+                .modifier(AgentComposerBottomGap())
             }
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("新会话")

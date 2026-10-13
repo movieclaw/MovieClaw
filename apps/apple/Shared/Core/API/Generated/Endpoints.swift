@@ -2432,8 +2432,10 @@ nonisolated extension APIClient {
 
     /// 读取会话的完整轨迹
     /// `GET /sessions/{session_id}`
-    func sessionGetTranscript(sessionId: String) async throws -> API.SessionTranscriptView {
-        return try await send("GET", "/sessions/\(sessionId)")
+    func sessionGetTranscript(sessionId: String, view: String? = nil) async throws -> API.SessionTranscriptView {
+        var query: [URLQueryItem] = []
+        if let view { query.append(URLQueryItem(name: "view", value: "\(view)")) }
+        return try await send("GET", "/sessions/\(sessionId)", query: query)
     }
 
     /// 重命名会话

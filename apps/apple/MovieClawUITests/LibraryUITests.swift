@@ -173,9 +173,15 @@ final class LibraryUITests: XCTestCase {
     @MainActor
     func testHomeShowsRowsAndNavigates() {
         let app = launch(route: "/library")
-        XCTAssertTrue(app.staticTexts["library-stats"].waitForExistence(timeout: 20))
-        XCTAssertTrue(app.staticTexts["library-stats"].label.contains("个媒体库"))
+        XCTAssertTrue(app.buttons["library-more"].waitForExistence(timeout: 20))
         snapshot("媒体库首页")
+        // 统计行是页脚（2026-10-13 从页头挪到末尾）：滑到底才建出来
+        let stats = app.staticTexts["library-stats"]
+        for _ in 0 ..< 12 where !stats.exists { app.swipeUp(velocity: .fast) }
+        XCTAssertTrue(stats.waitForExistence(timeout: 5), "页面末尾应有统计行")
+        XCTAssertTrue(stats.label.contains("个媒体库"))
+        snapshot("媒体库首页-页脚")
+        for _ in 0 ..< 12 { app.swipeDown(velocity: .fast) }
         app.buttons["library-more"].tap()
         XCTAssertTrue(app.buttons["library-customize"].waitForExistence(timeout: 5))
         app.buttons["library-customize"].tap()

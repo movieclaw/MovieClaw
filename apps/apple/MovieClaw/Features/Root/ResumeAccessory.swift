@@ -48,17 +48,25 @@ final class ResumeBarStore {
     }
 }
 
-/// 附件的开关：iOS 26.1 起用 `isEnabled` 按需显示；26.0 不挂（见 `ResumeBarStore` 说明）
+/// 附件的开关：iOS 26.1 起用 `isEnabled` 按需显示；26.0 不挂（见 `ResumeBarStore` 说明）。
+/// 附件位只有一个：给了 `quickBar`（「我的」根页）时放 AI 一行输入框，打字时让位给跟键盘走的真输入框（AgentQuickBar）
 struct ResumeAccessoryModifier: ViewModifier {
     let item: API.UpNextItemView?
     let enabled: Bool
+    var quickBar: AgentQuickDraft?
     let onHide: () -> Void
 
     func body(content: Content) -> some View {
         if #available(iOS 26.1, *) {
-            content.tabViewBottomAccessory(isEnabled: enabled && item != nil) {
-                if let item { ResumeBar(item: item, onHide: onHide) }
+            let showsQuick = quickBar.map { !$0.editing } ?? false
+            content.tabViewBottomAccessory(isEnabled: showsQuick || (quickBar == nil && enabled && item != nil)) {
+                if let quickBar {
+                    AgentQuickBar(quick: quickBar)
+                } else if let item {
+                    ResumeBar(item: item, onHide: onHide)
+                }
             }
+            .modifier(AgentQuickConsentModifier(quick: quickBar))
         } else {
             content
         }
