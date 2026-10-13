@@ -91,13 +91,48 @@ def test_off_level_encodes_effort_none():
     assert payload["reasoning"] == {"effort": "none"}
 
 
+def test_astra_off_falls_back_without_sending_unsupported_none():
+    payload = build(
+        make_protocol(),
+        ChatRequest(messages=[], settings=ModelSettings(thinking_level="off")),
+        "gpt-6-astra",
+    )
+    assert "reasoning" not in payload
+    assert payload["include"] == ["reasoning.encrypted_content"]
+
+
+def test_deepseek_borrowed_model_uses_responses_off_encoding():
+    flash = next(m for m in get_preset("deepseek").models if m.id == "deepseek-flash")
+    payload = build(
+        make_protocol("openai_compat", [flash]),
+        ChatRequest(messages=[], settings=ModelSettings(thinking_level="off")),
+        flash.id,
+    )
+    assert payload["reasoning"] == {"effort": "none"}
+    assert "extra_body" not in payload
+
+
+def test_current_reasoning_removes_sampling_unless_explicitly_off():
+    request = ChatRequest(
+        messages=[], settings=ModelSettings(temperature=0.5, top_p=0.9, thinking_level="high")
+    )
+    protocol = make_protocol()
+    payload = build(protocol, request, "gpt-6-luna")
+    assert "temperature" not in payload
+    assert "top_p" not in payload
+    request.settings.thinking_level = "off"
+    payload = build(protocol, request, "gpt-6-luna")
+    assert payload["temperature"] == 0.5
+    assert payload["top_p"] == 0.9
+
+
 def test_level_outside_menu_falls_back_to_default():
-    """luna 菜单不含 max（issue #768 第二条日志）：回落默认，不发 reasoning。"""
+    """Luna 不支持 minimal：回落默认，不伪造该档位。"""
     payload = build(
         make_protocol(),
         ChatRequest(
             messages=[ChatMessage(role="user", content="q")],
-            settings=ModelSettings(thinking_level="max"),
+            settings=ModelSettings(thinking_level="minimal"),
         ),
     )
     assert "reasoning" not in payload

@@ -15,6 +15,7 @@ import logging
 from collections.abc import AsyncIterator
 from typing import Any
 
+from movieclaw_llm.exceptions import LlmRequestError
 from movieclaw_llm.models import (
     ChatMessage,
     ChatRequest,
@@ -23,6 +24,7 @@ from movieclaw_llm.models import (
     FinishReason,
     ImagePart,
     TextPart,
+    ThinkingPart,
     TokenUsage,
 )
 from movieclaw_llm.protocols.openai_base import (
@@ -97,6 +99,12 @@ class OpenAIChatProtocol(OpenAIProtocolBase):
             # assistant 历史消息：正文压成纯文本；tool_calls 用 raw_arguments 保真回传
             text = message.text()
             out["content"] = text or None
+            if self.preset.compat.preserve_thinking and self.preset.compat.thinking_field:
+                thinking = "".join(
+                    part.text for part in message.content if isinstance(part, ThinkingPart)
+                ) if isinstance(message.content, list) else ""
+                if thinking:
+                    out[self.preset.compat.thinking_field] = thinking
             if message.tool_calls:
                 out["tool_calls"] = [
                     {
@@ -114,6 +122,13 @@ class OpenAIChatProtocol(OpenAIProtocolBase):
         return out
 
     def _build_payload(self, request: ChatRequest, model_id: str, *, stream: bool) -> dict:
+        model = self._model_info(model_id)
+        if request.tools and model and model.requires_responses_for_tools:
+            raise LlmRequestError(
+                f"模型「{model_id}」的工具调用需要 Responses API，"
+                "请在模型接入的高级设置中切换 API 协议",
+                provider=self.config.name,
+            )
         payload: dict[str, Any] = {
             "model": model_id,
             "messages": [self._convert_message(m) for m in request.messages],
@@ -151,7 +166,8 @@ class OpenAIChatProtocol(OpenAIProtocolBase):
         ):
             value = getattr(s, key)
             if value is not None:
-                payload[key] = value
+                target = model.max_tokens_parameter if key == "max_tokens" and model else key
+                payload[target] = value
         if s.response_format == "json_object":
             payload["response_format"] = {"type": "json_object"}
         # 思考档位翻译（reasoning_effort / enable_thinking+thinking_budget /
@@ -159,9 +175,27 @@ class OpenAIChatProtocol(OpenAIProtocolBase):
         # 顶层，正是各家兼容端点期望的位置。用户显式 extra_body 同名键优先
         # （逃生舱语义）。
         extra = {
-            **thinking_body_fragment(s.thinking_level, self._model_info(model_id), model_id),
+            **thinking_body_fragment(s.thinking_level, model, model_id),
             **(s.extra_body or {}),
         }
+        if request.tools and model and model.chat_tools_require_no_reasoning:
+            if extra.get("reasoning_effort") not in (None, "none"):
+                raise LlmRequestError(
+                    f"模型「{model_id}」在 Chat Completions 中调用工具必须关闭推理；"
+                    "如需推理，请切换 Responses API",
+                    provider=self.config.name,
+                )
+            extra["reasoning_effort"] = "none"
+        if (
+            model
+            and model.sampling_requires_no_reasoning
+            and extra.get("reasoning_effort") != "none"
+        ):
+            payload.pop("temperature", None)
+            payload.pop("top_p", None)
+        if model and model.fixed_sampling:
+            payload.pop("temperature", None)
+            payload.pop("top_p", None)
         if extra:
             payload["extra_body"] = extra
         if stream:

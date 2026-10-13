@@ -188,9 +188,25 @@ class OpenAIResponsesProtocol(OpenAIProtocolBase):
         # 思考档位：effort 制的 reasoning_effort 改写为 reasoning.effort；
         # 其他方言（budget / toggle）原样并入请求体顶层，交给端点自己认
         extra = thinking_body_fragment(s.thinking_level, self._model_info(model_id), model_id)
+        model = self._model_info(model_id)
+        if (
+            model
+            and model.thinking_control
+            and model.thinking_control.kind == "effort"
+            and model.thinking_control.supports_off
+            and s.thinking_level == "off"
+        ):
+            # effort 模型的 Responses 关闭编码统一为 reasoning.effort=none；
+            # 不能把 DeepSeek Chat 的 thinking.type=disabled 带到这里。
+            extra = {"reasoning_effort": "none"}
         effort = extra.pop("reasoning_effort", None)
         if effort is not None:
             payload["reasoning"] = {"effort": effort}
+        if model and (
+            model.fixed_sampling or (model.sampling_requires_no_reasoning and effort != "none")
+        ):
+            payload.pop("temperature", None)
+            payload.pop("top_p", None)
         if self._is_reasoning_model(model_id):
             payload["include"] = ["reasoning.encrypted_content"]
         extra = {**extra, **(s.extra_body or {})}  # 用户显式 extra_body 优先

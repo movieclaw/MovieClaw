@@ -31,6 +31,55 @@ def make_protocol(provider_type: str = "bailian") -> OpenAIChatProtocol:
     return OpenAIChatProtocol(config, get_preset(provider_type))
 
 
+@pytest.mark.parametrize("model_id", ["gpt-6-astra", "gpt-6.1-sol"])
+def test_current_openai_tool_calls_require_responses(model_id):
+    request = ChatRequest(
+        messages=[ChatMessage(role="user", content="查询电影")],
+        tools=[ToolDefinition(name="search", description="搜索", parameters={})],
+    )
+    with pytest.raises(LlmRequestError, match="Responses API"):
+        make_protocol("openai")._build_payload(request, model_id, stream=False)
+
+
+@pytest.mark.parametrize("model_id", ["gpt-6-sol", "gpt-6-luna"])
+def test_chat_tools_disable_reasoning_and_reject_explicit_effort(model_id):
+    request = ChatRequest(
+        messages=[ChatMessage(role="user", content="查询电影")],
+        tools=[ToolDefinition(name="search", description="搜索", parameters={})],
+        settings=ModelSettings(max_tokens=1024, temperature=0.5),
+    )
+    protocol = make_protocol("openai")
+    payload = protocol._build_payload(request, model_id, stream=False)
+    assert payload["extra_body"]["reasoning_effort"] == "none"
+    assert payload["max_completion_tokens"] == 1024
+    assert "max_tokens" not in payload
+    assert payload["temperature"] == 0.5
+    request.settings.thinking_level = "high"
+    with pytest.raises(LlmRequestError, match="Responses API"):
+        protocol._build_payload(request, model_id, stream=False)
+
+
+@pytest.mark.parametrize("provider", ["deepseek", "kimi"])
+def test_reasoning_history_is_preserved_for_native_tool_calls(provider):
+    message = ChatMessage(
+        role="assistant", content=[ThinkingPart(text="先查影片资料"), TextPart(text="正在查询")],
+        tool_calls=[ToolCall(id="c1", name="search", raw_arguments='{"q":"沙丘"}')],
+    )
+    converted = make_protocol(provider)._convert_message(message)
+    assert converted["reasoning_content"] == "先查影片资料"
+    assert converted["tool_calls"][0]["function"]["arguments"] == '{"q":"沙丘"}'
+
+
+def test_kimi_k3_uses_native_output_field_and_fixed_sampling():
+    payload = make_protocol("kimi")._build_payload(
+        ChatRequest(messages=[], settings=ModelSettings(max_tokens=64, temperature=0.5, top_p=0.8)),
+        "kimi-k3", stream=False,
+    )
+    assert payload["max_completion_tokens"] == 64
+    assert "max_tokens" not in payload
+    assert "temperature" not in payload and "top_p" not in payload
+
+
 # -- 客户端构建 -------------------------------------------------------------
 
 

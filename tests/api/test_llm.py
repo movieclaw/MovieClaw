@@ -4,9 +4,13 @@
 脱敏与落库加密、预设列表、base_url 必填校验，以及对话框模型清单的重复 id
 策略。真实协议实现被替换为假协议，不发真实请求，使状态流转可确定性断言。
 """
+
 from __future__ import annotations
 
+import json
 import sqlite3
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import pytest
 from fastapi.testclient import TestClient
@@ -369,7 +373,10 @@ def test_model_options_bare_ids_when_unique(client) -> None:
     assert sum(o["is_default"] for o in options) == 1
     # 目录里的其它模型也都可选（接入一家即可用它全部模型）
     assert len(options) > 1
-    assert all(o["ref"] == o["model_id"] for o in options)
+    assert all(
+        o["ref"] == (f"百炼/{o['model_id']}" if "/" in o["model_id"] else o["model_id"])
+        for o in options
+    )
 
 
 def test_model_options_qualify_conflicting_ids(client) -> None:
@@ -398,7 +405,12 @@ def test_model_options_qualify_conflicting_ids(client) -> None:
     assert conflicted[0]["is_default"] is True
     assert conflicted[1]["is_default"] is False
     others = [o for o in options if o["model_id"] != "qwen3.7-max"]
-    assert others and all(o["ref"] == o["model_id"] and "（" not in o["label"] for o in others)
+    assert others and all(
+        o["ref"]
+        == (f"{o['provider_name']}/{o['model_id']}" if "/" in o["model_id"] else o["model_id"])
+        and "（" not in o["label"]
+        for o in others
+    )
 
 
 def test_cataloged_provider_rejects_model_outside_catalog(client) -> None:
@@ -478,8 +490,8 @@ def test_custom_model_missing_required_params_rejected(client) -> None:
     assert "上下文长度与最大输出为必填" in r.json()["message"]
 
 
-def test_custom_thinking_model_requires_budget(client) -> None:
-    """自定义模型开思考但没填思考预算 → 400。"""
+def test_custom_budget_control_requires_budget(client) -> None:
+    """预算分段控制没填思考预算 → 400；输出思考内容本身不要求预算参数。"""
     c, _ = client
     r = c.post(
         "/api/v1/llm/providers",
@@ -491,6 +503,7 @@ def test_custom_thinking_model_requires_budget(client) -> None:
                     "context_window": 131072,
                     "max_output_tokens": 8192,
                     "supports_thinking": True,
+                    "thinking_control": {"kind": "budget", "supports_off": True},
                 }
             ],
         },
@@ -697,3 +710,400 @@ def test_defaults_follow_ref_respelling(client) -> None:
     # 删除中转 → 不再冲突，降回裸 id
     assert c.delete(f"/api/v1/llm/providers/{relay['id']}").status_code == 200
     assert c.get("/api/v1/llm/defaults").json()["data"]["agent_model"] == "qwen3.7-plus"
+
+
+def test_discover_draft_does_not_save_provider(client) -> None:
+    c, _ = client
+    response = c.post("/api/v1/llm/models/discover", json=_OPENAI_PAYLOAD)
+    assert response.status_code == 200, response.text
+    assert response.json()["data"] == ["qwen-max", "qwen-plus"]
+    assert _list(c) == []
+    assert "sk-openai" not in response.text
+
+
+def test_discover_stored_key_cannot_be_forwarded_to_changed_endpoint(client) -> None:
+    c, _ = client
+    created = c.post("/api/v1/llm/providers", json=_OPENAI_PAYLOAD).json()["data"]
+    draft = {**_OPENAI_PAYLOAD, "api_key": None, "provider_id": created["id"]}
+    assert c.post("/api/v1/llm/models/discover", json=draft).status_code == 200
+    response = c.post(
+        "/api/v1/llm/models/discover", json={**draft, "base_url": "http://other.local/v1"}
+    )
+    assert response.status_code == 400
+    assert "重新填写 API Key" in response.json()["message"]
+
+
+def test_discover_unsupported_endpoint_keeps_manual_configuration(client) -> None:
+    c, _ = client
+    response = c.post(
+        "/api/v1/llm/models/discover", json={**_OPENAI_PAYLOAD, "api_key": "sk-nolist"}
+    )
+    assert response.status_code == 400
+    assert "手动添加" in response.json()["message"]
+    assert _list(c) == []
+
+
+def test_openai_custom_effort_model_does_not_require_thinking_output_or_budget(client) -> None:
+    c, _ = client
+    response = c.post(
+        "/api/v1/llm/providers",
+        json={
+            **_OPENAI_PAYLOAD,
+            "default_model": "my-finetuned-model",
+            "extra_models": [
+                {
+                    "id": "my-finetuned-model",
+                    "context_window": 131072,
+                    "max_output_tokens": 8192,
+                    "supports_thinking": False,
+                    "thinking_control": {"kind": "effort", "levels": ["low", "high"]},
+                }
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    options = {o["model_id"]: o for o in c.get("/api/v1/llm/models").json()["data"]}
+    assert options["my-finetuned-model"]["thinking_levels"] == ["low", "high"]
+    assert c.get("/api/v1/llm/defaults").json()["data"]["agent_model"] == "my-finetuned-model"
+
+
+def test_chat_configuration_excludes_responses_only_tools_and_limits_effort_menu(client) -> None:
+    c, _ = client
+    draft = {**_OPENAI_PAYLOAD, "api_protocol": "openai_chat"}
+    rejected = c.post("/api/v1/llm/providers", json={**draft, "default_model": "gpt-6.1-sol"})
+    assert rejected.status_code == 400
+    created = c.post("/api/v1/llm/providers", json=draft)
+    assert created.status_code == 200, created.text
+    assert _first(c)["default_model"] == "gpt-6-sol"
+    options = {o["model_id"]: o for o in c.get("/api/v1/llm/models").json()["data"]}
+    assert "gpt-6-astra" not in options
+    assert "gpt-6.1-sol" not in options
+    assert options["gpt-6-luna"]["thinking_levels"] == ["off"]
+
+
+@pytest.mark.parametrize("field", ["context_window", "max_output_tokens", "max_input_tokens"])
+def test_custom_model_token_limits_must_be_positive(client, field) -> None:
+    c, _ = client
+    response = c.post(
+        "/api/v1/llm/providers",
+        json={
+            **_COMPAT_PAYLOAD,
+            "extra_models": [
+                {
+                    "id": "my-local-model",
+                    "context_window": 131072,
+                    "max_output_tokens": 8192,
+                    field: -1,
+                }
+            ],
+        },
+    )
+    assert response.status_code == 422
+
+
+@pytest.fixture
+def model_gateway():
+    """本机上游：实际经过 HTTP 与 OpenAI SDK，不替换协议实现。"""
+    requests = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+
+        def reply(self, data, status=200):
+            body = json.dumps(data).encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_GET(self):
+            requests.append((self.path, None, self.headers.get("Authorization")))
+            self.reply(
+                {
+                    "object": "list",
+                    "data": [
+                        {"id": "gpt-6-luna", "object": "model", "created": 0, "owned_by": "test"},
+                        {
+                            "id": "my-local-model",
+                            "object": "model",
+                            "created": 0,
+                            "owned_by": "test",
+                        },
+                    ],
+                }
+            )
+
+        def do_POST(self):
+            payload = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append((self.path, payload, self.headers.get("Authorization")))
+            if self.path.endswith("/chat/completions"):
+                assistants = [m for m in payload["messages"] if m["role"] == "assistant"]
+                if (
+                    payload["model"].startswith("deepseek")
+                    and payload.get("tools")
+                    and any(not m.get("reasoning_content") for m in assistants)
+                ):
+                    self.reply({"error": {"message": "reasoning_content required"}}, status=400)
+                    return
+                tool_turn = payload.get("tools") and not assistants
+                message = {
+                    "role": "assistant",
+                    "content": "已连接",
+                    "reasoning_content": "已检查用户提供的海报",
+                }
+                if tool_turn:
+                    message["tool_calls"] = [
+                        {
+                            "id": "call_search",
+                            "type": "function",
+                            "function": {"name": "search", "arguments": '{"q":"沙丘"}'},
+                        }
+                    ]
+                self.reply(
+                    {
+                        "id": "chat_test",
+                        "object": "chat.completion",
+                        "created": 0,
+                        "model": payload["model"],
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": message,
+                                "finish_reason": "tool_calls" if tool_turn else "stop",
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
+                    }
+                )
+                return
+            self.reply(
+                {
+                    "id": "resp_test",
+                    "object": "response",
+                    "created_at": 0,
+                    "status": "completed",
+                    "model": payload["model"],
+                    "output": [
+                        {
+                            "id": "msg_test",
+                            "type": "message",
+                            "role": "assistant",
+                            "status": "completed",
+                            "content": [
+                                {"type": "output_text", "text": "已连接", "annotations": []}
+                            ],
+                        }
+                    ],
+                    "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                }
+            )
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/v1", requests
+    finally:
+        server.shutdown()
+        server.server_close()
+        thread.join()
+
+
+def test_discover_save_verify_and_edit_through_real_sdk(client, model_gateway, monkeypatch):
+    """用户查询→选择→保存→测试→编辑沿用密钥，经过真实数据库与 HTTP 上游。"""
+    from movieclaw_llm.protocols.openai_responses import OpenAIResponsesProtocol
+
+    c, _ = client
+    base_url, requests = model_gateway
+    monkeypatch.setitem(PROTOCOLS, "openai_responses", OpenAIResponsesProtocol)
+    draft = {**_OPENAI_PAYLOAD, "base_url": base_url}
+    response = c.post("/api/v1/llm/models/discover", json=draft)
+    assert response.status_code == 200, response.text
+    assert response.json()["data"] == ["gpt-6-luna", "my-local-model"]
+    assert _list(c) == []
+    created = c.post("/api/v1/llm/providers", json={**draft, "default_model": "gpt-6-luna"})
+    assert created.status_code == 200, created.text
+    assert _first(c)["status"] == "active"
+    assert c.get("/api/v1/llm/defaults").json()["data"]["agent_model"] == "gpt-6-luna"
+    assert [r[0] for r in requests] == ["/v1/models", "/v1/responses", "/v1/models"]
+    assert requests[1][1]["model"] == "gpt-6-luna"
+    assert requests[1][1]["max_output_tokens"] == 16
+    assert requests[1][1]["store"] is False
+    assert all(r[2] == "Bearer sk-openai" for r in requests)
+    provider_id = created.json()["data"]["id"]
+    response = c.post(
+        "/api/v1/llm/models/discover",
+        json={
+            **draft,
+            "api_key": None,
+            "provider_id": provider_id,
+        },
+    )
+    assert response.status_code == 200, response.text
+    updated = c.put(
+        f"/api/v1/llm/providers/{provider_id}",
+        json={
+            **draft,
+            "api_key": None,
+            "default_model": "gpt-6-luna",
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    assert _first(c)["default_model"] == "gpt-6-luna"
+    from movieclaw_api.services.llm_config import LlmConfigService, to_domain_config
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository
+    from movieclaw_llm import ChatMessage, ChatRequest, LlmRouter, ModelSettings, ToolDefinition
+
+    async def call_configured_model():
+        async with get_database().session() as session:
+            row = await LlmConfigService(session).get(provider_id)
+            key = LlmProviderRepository(session).decrypted_api_key(row)
+            router = LlmRouter([to_domain_config(row, key)])
+            try:
+                return await router.chat(
+                    ChatRequest(
+                        model="官方/gpt-6.1-sol",
+                        messages=[ChatMessage(role="user", content="查询电影")],
+                        tools=[ToolDefinition(name="search", description="搜索", parameters={})],
+                        settings=ModelSettings(thinking_level="high", temperature=0.5),
+                    )
+                )
+            finally:
+                await router.aclose()
+
+    result = c.portal.call(call_configured_model)
+    assert result.content == "已连接"
+    assert requests[-1][0] == "/v1/responses"
+    payload = requests[-1][1]
+    assert payload["model"] == "gpt-6.1-sol"
+    assert payload["tools"][0]["name"] == "search"
+    assert payload["reasoning"]["effort"] == "high"
+    assert "temperature" not in payload
+
+
+@pytest.mark.parametrize(
+    "provider,model_id,level,vision,reasoning",
+    [
+        ("bailian", "qwen3.8-omni-flash", "off", True, {"reasoning_effort": "none"}),
+        ("deepseek", "deepseek-flash", "high", True, {"reasoning_effort": "high"}),
+        ("deepseek", "deepseek-v4-pro", "off", False, {"thinking": {"type": "disabled"}}),
+        ("kimi", "kimi-k3", "max", True, {"reasoning_effort": "max"}),
+        ("kimi", "kimi-k2.7-code-highspeed", None, True, {}),
+        ("glm", "glm-5.3-flashx", "high", True, {"reasoning_effort": "high"}),
+        ("bailian", "MiniMax/MiniMax-M3", None, True, {}),
+    ],
+)
+def test_provider_vision_and_tool_history_through_real_sdk(
+    client,
+    model_gateway,
+    monkeypatch,
+    tmp_path,
+    provider,
+    model_id,
+    level,
+    vision,
+    reasoning,
+):
+    """配置→图片水合门控→真实 SDK→工具回放→答复，模型规格取实际保存的目录。"""
+    from tests.api.test_agent_hydration import png_bytes
+
+    from movieclaw_api.services.agent_attachments import AgentAttachmentStore, hydrate_images
+    from movieclaw_api.services.llm_config import LlmConfigService, to_domain_config
+    from movieclaw_db.engine import get_database
+    from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository
+    from movieclaw_llm import (
+        ChatMessage,
+        ChatRequest,
+        ImagePart,
+        LlmRouter,
+        ModelSettings,
+        TextPart,
+        ToolDefinition,
+    )
+    from movieclaw_llm.protocols.openai_chat import OpenAIChatProtocol
+
+    c, _ = client
+    gateway_url, upstream = model_gateway
+    monkeypatch.setitem(PROTOCOLS, "openai_chat", OpenAIChatProtocol)
+    created = c.post(
+        "/api/v1/llm/providers",
+        json={
+            "name": "验证",
+            "provider_type": provider,
+            "api_key": "sk-local-test",
+            "base_url": gateway_url,
+            "default_model": model_id,
+        },
+    )
+    assert created.status_code == 200, created.text
+    assert _first(c)["status"] == "active"
+    selected = next(
+        o for o in c.get("/api/v1/llm/models").json()["data"] if o["model_id"] == model_id
+    )
+
+    async def run_scenario():
+        async with get_database().session() as session:
+            row = await LlmConfigService(session).get(created.json()["data"]["id"])
+            key = LlmProviderRepository(session).decrypted_api_key(row)
+            router = LlmRouter([to_domain_config(row, key)])
+            store = AgentAttachmentStore(tmp_path / "attachments")
+            meta = store.save_staging(png_bytes(), "海报.png")
+            [bound] = store.bind("scene", [meta.attachment_id])
+            try:
+                info = router.get_model_info(selected["ref"])
+                assert info.context_window and info.context_window >= 262144
+                messages = await hydrate_images(
+                    [
+                        ChatMessage(
+                            role="user",
+                            content=[
+                                TextPart(text="查询这张海报的电影"),
+                                ImagePart(attachment_id=bound.attachment_id, name="海报.png"),
+                            ],
+                        ),
+                    ],
+                    session_id="scene",
+                    model_info=info,
+                    store=store,
+                )
+                request = ChatRequest(
+                    model=selected["ref"],
+                    messages=messages,
+                    tools=[ToolDefinition(name="search", description="搜索影片", parameters={})],
+                    settings=ModelSettings(max_tokens=64, thinking_level=level, temperature=0.5),
+                )
+                first = await router.chat(request)
+                assert first.tool_calls and first.tool_calls[0].name == "search"
+                request.messages.extend(
+                    [
+                        first.to_message(),
+                        ChatMessage(
+                            role="tool",
+                            tool_call_id=first.tool_calls[0].id,
+                            content="电影是沙丘",
+                        ),
+                    ]
+                )
+                return await router.chat(request)
+            finally:
+                await router.aclose()
+
+    assert c.portal.call(run_scenario).content == "已连接"
+    payload = upstream[-2][1]
+    assert payload["model"] == model_id
+    if vision:
+        assert any(p.get("type") == "image_url" for p in payload["messages"][0]["content"])
+    else:
+        assert "不支持图片输入" in payload["messages"][0]["content"]
+    for field, value in reasoning.items():
+        assert payload[field] == value
+    if provider == "kimi":
+        assert "temperature" not in payload and "top_p" not in payload
+    if model_id == "kimi-k3":
+        assert payload["max_completion_tokens"] == 64 and "max_tokens" not in payload
+    if provider in {"deepseek", "kimi"}:
+        assistant = next(m for m in upstream[-1][1]["messages"] if m["role"] == "assistant")
+        assert assistant["reasoning_content"] == "已检查用户提供的海报"

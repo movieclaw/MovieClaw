@@ -31,9 +31,16 @@ export interface LlmModelInfo {
   context_window: number | null;
   /** 单独的输入上限（百炼公布，OpenAI 不单独公布） */
   max_input_tokens: number | null;
+  max_input_tokens_thinking?: number | null;
   /** 单次响应的输出上限 */
   max_output_tokens: number | null;
+  default_output_tokens?: number | null;
   supports_tools: boolean;
+  requires_responses_for_tools?: boolean;
+  chat_tools_require_no_reasoning?: boolean;
+  max_tokens_parameter?: "max_tokens" | "max_completion_tokens";
+  sampling_requires_no_reasoning?: boolean;
+  fixed_sampling?: boolean;
   /** 是否支持一次响应发起多个工具调用 */
   supports_parallel_tool_calls: boolean;
   /** 是否会输出思考内容（reasoning_content） */
@@ -55,6 +62,7 @@ export interface LlmThinkingControl {
   levels?: string[];
   /** 是否有真关闭协议（菜单出现「关」） */
   supports_off?: boolean;
+  off_body?: Record<string, unknown> | null;
 }
 
 /** 供应商预设（见 schemas.llm.LlmPresetView）：设置页渲染选项用。 */
@@ -88,7 +96,7 @@ export interface LlmProviderConfig {
   user_agent: string | null;
   /** 选用的 API 协议；null 表示跟随预设默认 */
   api_protocol?: LlmApiProtocol | null;
-  /** 连接测试用的模型（目录里第一个，服务端自动填） */
+  /** 连接测试用的模型（可指定，留空时服务端取目录第一项） */
   default_model: string;
   status: LlmProviderStatus;
   /** 是否可用 = 连接测试通过 */
@@ -164,6 +172,16 @@ export function listLlmProviders(init?: RequestInit): Promise<LlmProviderConfig[
 /** 对话框可选的全部模型（跨实例，默认实例在前）。 */
 export function listLlmModels(init?: RequestInit): Promise<LlmModelOption[]> {
   return unwrap(request<ApiEnvelope<LlmModelOption[]>>("/llm/models", init));
+}
+
+/** 查询草稿端点上报的模型 ID；不保存配置，编辑时可沿用同一端点的密钥。 */
+export function discoverLlmModels(
+  payload: LlmProviderPayload & { provider_id?: number },
+): Promise<string[]> {
+  return unwrap(request<ApiEnvelope<string[]>>("/llm/models/discover", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  }));
 }
 
 /** 接入一个实例（保存后后端异步测试连接；第一个实例自动成为默认）。 */

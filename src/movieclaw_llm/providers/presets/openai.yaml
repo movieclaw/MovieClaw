@@ -1,7 +1,10 @@
-# OpenAI 官方。base_url 留空走 SDK 默认（https://api.openai.com/v1）。
-# 目录只维护当前主力模型（GPT-5.6 系列，2026-07-09 发布，截至 2026-09-01
-# 仍为最新一代），数据以官方文档为准（developers.openai.com/api/docs/models，
-# 核实于 2026-09-01）；用户可通过实例配置的 extra_models 补录未收录的模型。
+# OpenAI 官方 API；实例 base_url 留空时使用下方地址。
+# 主力文本/图片模型目录，核实于 2026-10-13：
+# https://developers.openai.com/api/docs/models/gpt-6-astra
+# https://developers.openai.com/api/docs/models/gpt-6.1-sol
+# https://developers.openai.com/api/docs/models/gpt-6-sol
+# https://developers.openai.com/api/docs/models/gpt-6-luna
+# 保留 GPT-5.6 条目，避免现有实例与默认模型引用失效。
 # 仅 Responses API 可用的 gpt-5.6-cyber 暂不收录（切回 Chat Completions 的实例用不了）。
 #
 # 默认走 Responses API：GPT-5.6 在 Chat Completions 上不允许函数工具与非 none
@@ -13,17 +16,71 @@
 # 推理过程只在请求推理摘要时返回，而摘要要求组织完成实名验证（未验证直接
 # 400），协议层不主动请求，故标 false、无思考预算。推理强度可控：
 # reasoning_effort 支持 none/low/medium(默认)/high/xhigh/max（5.6 系不含 API
-# 全集里的 minimal；luna 实测不支持 max，见 issue #768），按 effort 方言声明
+# 全集里的 minimal；Luna 当前官方模型页已明确支持 max），按 effort 方言声明
 # 档位菜单，none 即关闭走 supports_off。
 id: openai
 display_name: OpenAI
 protocol: openai_responses
 selectable_protocols: [openai_responses, openai_chat]
-base_url: null
+base_url: https://api.openai.com/v1
 compat:
   thinking_field: null
   supports_stream_usage: true
 models:
+  # Astra / 6.1 Sol 不支持 none；函数工具必须使用 Responses API。
+  - id: gpt-6-astra
+    context_window: 1050000
+    max_output_tokens: 128000
+    max_tokens_parameter: max_completion_tokens
+    sampling_requires_no_reasoning: true
+    supports_tools: true
+    requires_responses_for_tools: true
+    supports_parallel_tool_calls: true
+    thinking_control:
+      kind: effort
+      levels: [low, medium, high, xhigh, max]
+      supports_off: false
+    modalities: [text, image]
+  - id: gpt-6.1-sol
+    context_window: 1050000
+    max_output_tokens: 128000
+    max_tokens_parameter: max_completion_tokens
+    sampling_requires_no_reasoning: true
+    supports_tools: true
+    requires_responses_for_tools: true
+    supports_parallel_tool_calls: true
+    thinking_control:
+      kind: effort
+      levels: [low, medium, high, xhigh, max]
+      supports_off: false
+    modalities: [text, image]
+  # Sol / Luna 的 Chat Completions 工具调用只允许 reasoning_effort=none。
+  - id: gpt-6-sol
+    context_window: 1050000
+    max_output_tokens: 128000
+    max_tokens_parameter: max_completion_tokens
+    sampling_requires_no_reasoning: true
+    supports_tools: true
+    chat_tools_require_no_reasoning: true
+    supports_parallel_tool_calls: true
+    thinking_control:
+      kind: effort
+      levels: [low, medium, high, xhigh, max]
+      supports_off: true
+    modalities: [text, image]
+  - id: gpt-6-luna
+    context_window: 1050000
+    max_output_tokens: 128000
+    max_tokens_parameter: max_completion_tokens
+    sampling_requires_no_reasoning: true
+    supports_tools: true
+    chat_tools_require_no_reasoning: true
+    supports_parallel_tool_calls: true
+    thinking_control:
+      kind: effort
+      levels: [low, medium, high, xhigh, max]
+      supports_off: true
+    modalities: [text, image]
   # 旗舰：复杂推理与关键任务
   - id: gpt-5.6-sol
     context_window: 1050000
@@ -57,6 +114,6 @@ models:
     supports_thinking: false
     thinking_control:
       kind: effort
-      levels: [low, medium, high, xhigh]
+      levels: [low, medium, high, xhigh, max]
       supports_off: true
     modalities: [text, image]

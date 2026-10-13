@@ -37,7 +37,11 @@ from movieclaw_api.exceptions import (
     ConflictException,
     NotFoundException,
 )
-from movieclaw_api.schemas.llm import LlmDefaultsView, LlmModelOptionView
+from movieclaw_api.schemas.llm import (
+    LlmDefaultsView,
+    LlmModelDiscoveryPayload,
+    LlmModelOptionView,
+)
 from movieclaw_api.settings import LlmDefaultsSetting, get_setting_store
 from movieclaw_db.engine import get_database
 from movieclaw_db.models.llm_provider import LlmProvider
@@ -72,14 +76,16 @@ def to_domain_config(row: LlmProvider, api_key: str) -> LlmProviderConfig:
 
 
 def provider_catalog(row: LlmProvider) -> list[ModelInfo]:
-    """一个实例的可选模型目录：预设目录 + 用户补录，补录按 id 覆盖预设。
-
-    与 LlmRouter._catalog 同口径——清单里出现的模型，路由一定能解析。
-    """
+    """预设目录 + 用户补录（按 id 覆盖），裁掉当前协议无法调用工具的模型。"""
     merged = {m.id: m for m in get_preset(row.provider_type).models}
     extras = [ModelInfo.model_validate(m) for m in row.extra_models or []]
     merged.update({m.id: m for m in extras})
-    return list(merged.values())
+    protocol = row.api_protocol or get_preset(row.provider_type).protocol
+    return [
+        m
+        for m in merged.values()
+        if not (protocol == "openai_chat" and m.requires_responses_for_tools)
+    ]
 
 
 def build_model_options(
@@ -99,6 +105,9 @@ def build_model_options(
             owners[model.id] = owners.get(model.id, 0) + 1
     options: list[LlmModelOptionView] = []
     for row, catalog in catalogs:
+        chat_protocol = (
+            row.api_protocol or get_preset(row.provider_type).protocol
+        ) == "openai_chat"
         for model in catalog:
             ambiguous = owners[model.id] > 1
             # 冲突或 id 含斜杠都要限定（见模块说明）；展示只在冲突时加括号
@@ -112,7 +121,11 @@ def build_model_options(
                     provider_id=row.id or 0,
                     provider_name=row.name,
                     is_default=ref == agent_default,
-                    thinking_levels=model.thinking_levels,
+                    thinking_levels=(
+                        ["off"]
+                        if chat_protocol and model.chat_tools_require_no_reasoning
+                        else model.thinking_levels
+                    ),
                 )
             )
     return options
@@ -276,6 +289,39 @@ class LlmConfigService:
         # 设置页 / 对话框入口，不在热路径；再构建一次只为标记 is_default
         return build_model_options(rows, agent)
 
+    async def discover_models(self, payload: LlmModelDiscoveryPayload) -> list[str]:
+        """只读查询；编辑时仅在类型与地址均未改变时允许沿用已存密钥。"""
+        try:
+            preset = get_preset(payload.provider_type)
+        except LlmError as exc:
+            raise BadRequestException(str(exc)) from exc
+        if preset.requires_base_url and not payload.base_url:
+            raise BadRequestException(f"接入「{preset.display_name}」必须填写 API 端点地址")
+        key = payload.api_key
+        if not key and payload.provider_id:
+            row = await self.get(payload.provider_id)
+            if payload.provider_type != row.provider_type or payload.base_url != row.base_url:
+                raise BadRequestException("更换了供应商类型或 API 端点，请重新填写 API Key")
+            key = self._repo.decrypted_api_key(row)
+        if not key:
+            raise BadRequestException("请填写 API Key")
+        config = LlmProviderConfig(
+            name=payload.name,
+            provider_type=payload.provider_type,
+            api_key=key,
+            base_url=payload.base_url,
+            user_agent=payload.user_agent,
+            timeout_seconds=_TEST_TIMEOUT,
+        )
+        protocol = build_protocol(config, preset)
+        try:
+            info = await protocol.test_connection()
+            return sorted(set(info.models))
+        except LlmError as exc:
+            raise BadRequestException(f"获取模型列表失败：{exc}；可按端点文档手动添加模型") from exc
+        finally:
+            await protocol.close()
+
     # -- AI 设定 -----------------------------------------------------------
 
     async def get_defaults(self) -> LlmDefaultsView:
@@ -323,21 +369,22 @@ class LlmConfigService:
     ) -> None:
         """连接测试模型的严格校验，按供应商类型分两条规则：
 
-        - 有内置目录的供应商（官方渠道）：模型必须在目录内，自定义模型不
-          参与——官方渠道的模型集合以预设目录为准；
-        - 无目录的自定义端点：模型必须在 extra_models 里带完整参数。
+        - 固定官方渠道：模型必须在预设目录内；
+        - OpenAI 与兼容端点：预设外模型必须在 extra_models 里带完整参数。
           其中「借用」自其它预设目录的模型（按 id 识别）参数随目录，
           豁免手填规则——共享窗口类模型（如 Kimi）本就没有独立输出上限。
 
         agent 做上下文预算、思考预算、并发决策都依赖这些参数，
         缺参数会让下游全部退化成瞎猜，所以在入口就拦住。
         """
-        if preset.models:
+        if preset.models and preset.id != "openai":
             if any(m.id == model_id for m in preset.models):
                 return
             raise BadRequestException(
                 f"模型「{model_id}」不在「{preset.display_name}」的模型目录中，请从下拉列表中选择"
             )
+        if any(m.id == model_id for m in preset.models):
+            return
         custom = next((m for m in extra_models if m.id == model_id), None)
         if custom is None:
             raise BadRequestException(
@@ -351,9 +398,13 @@ class LlmConfigService:
             raise BadRequestException(
                 f"自定义模型「{model_id}」缺少必要参数：上下文长度与最大输出为必填"
             )
-        if custom.supports_thinking and not custom.max_thinking_tokens:
+        if (
+            custom.thinking_control
+            and custom.thinking_control.kind == "budget"
+            and not custom.max_thinking_tokens
+        ):
             raise BadRequestException(
-                f"自定义模型「{model_id}」开启了思考模式，必须填写思考预算上限"
+                f"自定义模型「{model_id}」使用预算分段控制，必须填写思考预算上限"
             )
 
     async def _validate(
@@ -387,17 +438,27 @@ class LlmConfigService:
                 f"「{preset.display_name}」不支持协议「{api_protocol}」，"
                 f"可选：{'、'.join(preset.selectable_protocols or [preset.protocol])}"
             )
-        if not preset.models:
-            if not extra_models:
+        if not preset.models or preset.id == "openai":
+            if not preset.models and not extra_models:
                 raise BadRequestException(
                     f"接入「{preset.display_name}」至少要补录一个模型（含上下文长度、最大输出等参数）"
                 )
             for model in extra_models:
                 self._assert_model_configured(preset, extra_models, model.id)
-        test_model = default_model or (
-            preset.models[0].id if preset.models else extra_models[0].id
-        )
+        catalog = [*preset.models, *extra_models]
+        effective_protocol = api_protocol or preset.protocol
+        compatible = [
+            m
+            for m in catalog
+            if not (effective_protocol == "openai_chat" and m.requires_responses_for_tools)
+        ]
+        if not compatible:
+            raise BadRequestException("模型的工具调用需要 Responses API，请切换 API 协议")
+        test_model = default_model or compatible[0].id
         self._assert_model_configured(preset, extra_models, test_model)
+        model = next(m for m in catalog if m.id == test_model)
+        if effective_protocol == "openai_chat" and model.requires_responses_for_tools:
+            raise BadRequestException(f"模型「{test_model}」的工具调用需要 Responses API")
         existing = await self._repo.get_by_name(name)
         if existing is not None and existing.id != exclude_id:
             raise ConflictException(f"实例名「{name}」已被使用，请换一个名字")

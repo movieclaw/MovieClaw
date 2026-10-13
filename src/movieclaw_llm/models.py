@@ -251,7 +251,8 @@ class ThinkingControl(BaseModel):
 
     三种 kind 覆盖已知端点：
     - ``effort``：档位原词直传（请求体 reasoning_effort），levels 声明该模型
-      的原生档位子集 = 用户菜单；off 编码为 reasoning_effort="none"；
+      的原生档位子集 = 用户菜单；off 默认编码 reasoning_effort="none"，
+      关闭开关走另一字段时由 off_body 声明；
     - ``budget``：enable_thinking + thinking_budget，档位按模型
       max_thinking_tokens 比例分段（低 25% / 中 50% / 高 100%）；未声明
       预算上限的模型退化为仅开关；
@@ -265,6 +266,8 @@ class ThinkingControl(BaseModel):
     levels: list[str] = Field(default_factory=list)
     #: 是否存在真正的关闭线协议；true 时菜单多出「关」
     supports_off: bool = False
+    #: effort 与关闭开关走不同字段时的关闭请求体（如 DeepSeek thinking.type）
+    off_body: dict | None = None
 
     @field_validator("levels")
     @classmethod
@@ -283,17 +286,32 @@ class ThinkingControl(BaseModel):
 class ModelInfo(BaseModel):
     """模型目录条目：agent 做上下文预算 / 能力判断的依据。
 
-    token 三元组的语义（None 一律表示官方未单独公布）：
+    token 规格的语义（None 一律表示官方未单独公布）：
     - context_window     输入+输出共享的总上下文；
     - max_input_tokens   单独的输入上限（百炼公布，OpenAI 不单独公布）；
     - max_output_tokens  单次响应的输出上限，agent 设 max_tokens 的依据。
+    - default_output_tokens 默认输出长度，不冒充最大输出上限。
     """
 
     id: str
-    context_window: int | None = None
-    max_input_tokens: int | None = None
-    max_output_tokens: int | None = None
+    context_window: int | None = Field(default=None, gt=0)
+    max_input_tokens: int | None = Field(default=None, gt=0)
+    #: 思考模式下单独公布的输入上限；不与总上下文或非思考输入上限混用
+    max_input_tokens_thinking: int | None = Field(default=None, gt=0)
+    max_output_tokens: int | None = Field(default=None, gt=0)
+    #: 官方默认输出长度，独立于最大输出上限（上限未公布时仍保持 None）
+    default_output_tokens: int | None = Field(default=None, gt=0)
     supports_tools: bool = True
+    #: 函数工具只能通过 Responses 调用（文本对话仍可能支持 Chat Completions）
+    requires_responses_for_tools: bool = False
+    #: Chat Completions 带函数工具时必须显式关闭推理
+    chat_tools_require_no_reasoning: bool = False
+    #: Chat Completions 的输出上限字段（不同兼容端点使用不同名称）
+    max_tokens_parameter: Literal["max_tokens", "max_completion_tokens"] = "max_tokens"
+    #: 有推理时不接受 temperature / top_p
+    sampling_requires_no_reasoning: bool = False
+    #: 上游固定采样参数，省略 temperature/top_p 由模型按模式使用规定值
+    fixed_sampling: bool = False
     #: 是否支持一次响应发起多个工具调用（parallel tool calls）
     supports_parallel_tool_calls: bool = False
     #: 是否会输出思考内容（reasoning_content 或同等字段）
@@ -333,6 +351,8 @@ class ProviderCompat(BaseModel):
 
     #: 响应/流里承载思考内容的字段名（如 reasoning_content），None 表示无
     thinking_field: str | None = None
+    #: 多步工具调用需要原样回传 assistant 推理内容（DeepSeek / Kimi）
+    preserve_thinking: bool = False
     #: 流式请求是否支持 stream_options.include_usage 返回用量
     supports_stream_usage: bool = True
 

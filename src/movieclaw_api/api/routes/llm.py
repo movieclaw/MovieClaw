@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from movieclaw_api.schemas.llm import (
     LlmDefaultsPayload,
     LlmDefaultsView,
+    LlmModelDiscoveryPayload,
     LlmModelOptionView,
     LlmPresetView,
     LlmProviderPayload,
@@ -17,6 +18,20 @@ from movieclaw_db.engine import get_session
 from movieclaw_llm.providers import list_presets
 
 router = APIRouter(prefix="/llm", tags=["llm"])
+
+
+@router.post(
+    "/models/discover",
+    response_model=ApiResponse[list[str]],
+    summary="查询端点上报的模型 ID（不保存配置）",
+    operation_id="llm.models.discover",
+)
+async def discover_llm_models(
+    payload: LlmModelDiscoveryPayload,
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[list[str]]:
+    models = await LlmConfigService(session).discover_models(payload)
+    return ok(models)
 
 
 @router.get(

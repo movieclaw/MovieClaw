@@ -246,3 +246,10 @@ class LlmProviderPayload(BaseModel):
         if any(ch < " " or ch > "~" for ch in value):
             raise ValueError("User-Agent 只能包含可打印的 ASCII 字符（不能含换行或中文）")
         return value
+
+
+class LlmModelDiscoveryPayload(LlmProviderPayload):
+    """查询草稿端点的模型 ID；不保存实例，不要求先填写模型参数。"""
+
+    name: str = "模型查询"
+    provider_id: int | None = Field(default=None, gt=0, description="编辑时沿用密钥的实例 id")
