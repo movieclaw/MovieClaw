@@ -277,77 +277,97 @@ struct OfflineLibraryWall: View {
     }
 }
 
-/// 在线首页的「正在下载」行：有排队 / 下载中 / 失败的单元时才出现，下完自动消失。
-/// 卡片是这一集的剧照（电影用横幅），状态与详情页分集卡同一条 `OfflineDownloadStrip`
+/// 在线首页的「正在下载」提示条：有排队 / 下载中 / 暂停 / 失败的单元时才出现，下完自动消失。
+/// 只汇总（几部、总速度、总进度）；每一集的状态在「下载与存储」的「下载中」里，点一下进去
 struct OfflineDownloadingRow: View {
     @State private var store = OfflineStore.shared
 
     var body: some View {
         let active = store.activeUnits
         if !active.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                LibrarySectionHeader(title: "正在下载") {
-                    NavigationLink(value: AppRoute.offlineStorage) { Text("管理") }
-                }
-                ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 12) {
-                        ForEach(active) { unit in
-                            if let item = store.items[unit.mediaItemId] {
-                                OfflineDownloadingCard(unit: unit, item: item)
-                            }
-                        }
+            let summary = OfflineDownloadSummary(active, speeds: store.speeds)
+            NavigationLink(value: AppRoute.offlineStorage) {
+                HStack(spacing: 12) {
+                    OfflineProgressRing(fraction: summary.fraction, tint: summary.tint, paused: summary.allPaused)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(summary.title).font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text)
+                        Text(summary.detail).font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted).lineLimit(1)
                     }
-                    .padding(.horizontal, Theme.pagePadding)
+                    Spacer(minLength: 8)
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.textFaint)
                 }
-                .scrollClipDisabled()
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(summary.tint.opacity(0.08), in: .rect(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(summary.tint.opacity(0.22)))
+                .contentShape(.rect)
             }
-            .padding(.top, 24)
-            .accessibilityElement(children: .contain)
+            .buttonStyle(.plain)
+            .padding(.horizontal, Theme.pagePadding)
+            .padding(.top, 16)
+            .accessibilityElement(children: .combine)
             .accessibilityIdentifier("home-downloading")
         }
     }
 }
 
-private struct OfflineDownloadingCard: View {
-    let unit: OfflineUnit
-    let item: OfflineItemSummary
-    @Environment(\.api) private var api
-    /// 早先开始的下载没记剧照：从本机存的这一季里找
-    @State private var archivedStill: String?
+/// 进行中的下载汇总成一句话（首页提示条）
+struct OfflineDownloadSummary {
+    let title: String
+    let detail: String
+    /// 已下字节 ÷ 预计总字节（大小都还不知道时为 nil）
+    let fraction: Double?
+    let tint: Color
+    let allPaused: Bool
 
-    var body: some View {
-        let width = PhoneCardWidth.upNext
-        let still = unit.isMovie ? item.backdropUrl : (unit.stillUrl ?? archivedStill)
-        NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId, itemId: item.mediaItemId,
-                                                   season: unit.isMovie ? nil : unit.season,
-                                                   episode: unit.isMovie ? nil : unit.episode)) {
-            VStack(alignment: .leading, spacing: 0) {
-                LibraryArtwork(url: still.flatMap { api.image($0, width: ImageWidth.points(width)) }
-                    ?? (unit.isMovie ? api.image(item.posterUrl, width: ImageWidth.points(width)) : nil),
-                    imageAspect: still == nil && unit.isMovie ? item.primaryAspect : nil,
-                    frameAspect: 16 / 9,
-                    fallbackText: still == nil && !unit.isMovie ? "\(unit.episode)" : nil)
-                    .clipShape(.rect(cornerRadius: 12))
-                    .overlay { OfflineDownloadStrip(unit: unit, cornerRadius: 12) }
-                Text(item.title)
-                    .font(.subheadline.weight(.semibold)).foregroundStyle(Theme.text).lineLimit(1)
-                    .padding(.top, 8)
-                Text(unit.isMovie ? item.year.map(String.init) ?? " " : "第 \(unit.season) 季第 \(unit.episode) 集")
-                    .font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted).lineLimit(1)
-            }
-            .frame(width: width)
-            .contentShape(.rect)
+    init(_ units: [OfflineUnit], speeds: [Int: Double]) {
+        let items = Set(units.map(\.mediaItemId)).count
+        let downloading = units.filter { $0.state == .downloading }
+        let failed = units.filter { $0.state == .failed || $0.damaged }
+        let speed = downloading.reduce(0) { $0 + (speeds[$1.fileId] ?? 0) }
+        let sized = units.filter { $0.expectedBytes > 0 }
+        let expected = sized.reduce(Int64(0)) { $0 + $1.expectedBytes }
+        let received = sized.reduce(Int64(0)) { $0 + min($1.receivedBytes, $1.expectedBytes) }
+        fraction = expected > 0 ? Double(received) / Double(expected) : nil
+        allPaused = units.allSatisfy { $0.state == .paused }
+        tint = !failed.isEmpty && downloading.isEmpty ? Theme.warning : Theme.info
+        title = allPaused ? "\(items) 部已暂停下载" : "\(items) 部正在下载"
+        var parts: [String] = []
+        if speed > 0 {
+            parts.append("\(Formatters.bytes(Int(speed)))/s")
+        } else if !failed.isEmpty, downloading.isEmpty {
+            parts.append("\(failed.count) 个下载中断")
+        } else if !allPaused, downloading.isEmpty {
+            parts.append("等待下载")
         }
-        .buttonStyle(.plain)
-        .task(id: unit.fileId) {
-            guard !unit.isMovie, unit.stillUrl == nil,
-                  let season = await OfflineStore.shared.season(itemId: unit.mediaItemId, season: unit.season) else { return }
-            archivedStill = season.episodes.first { $0.episodeNumber == unit.episode }?.stillUrl
-        }
+        if units.count > items { parts.append("还剩 \(units.count) 个") }
+        if let fraction { parts.append("\(Int(fraction * 100))%") }
+        detail = parts.isEmpty ? "点按查看" : parts.joined(separator: " · ")
     }
 }
 
-/// 剧照上的下载状态（首页「正在下载」与详情页分集卡共用）：蓝描边 + 底部一条——
+/// 总进度环：中间是下载箭头（全暂停时是暂停号）
+struct OfflineProgressRing: View {
+    let fraction: Double?
+    let tint: Color
+    var paused = false
+
+    var body: some View {
+        ZStack {
+            Circle().stroke(tint.opacity(0.2), lineWidth: 3)
+            Circle()
+                .trim(from: 0, to: max(0.02, min(1, fraction ?? 0)))
+                .stroke(tint, style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                .rotationEffect(.degrees(-90))
+                .animation(.easeOut(duration: 0.4), value: fraction)
+            Image(systemName: paused ? "pause.fill" : "arrow.down")
+                .font(.system(size: 13, weight: .bold))
+                .foregroundStyle(tint)
+        }
+        .frame(width: 34, height: 34)
+    }
+}
+
+/// 剧照上的下载状态（详情页分集卡）：蓝描边 + 底部一条——
 /// 左边状态图标、中间「下载中 47%」、右边实时速度，最底下一道进度
 struct OfflineDownloadStrip: View {
     let unit: OfflineUnit
@@ -415,7 +435,7 @@ struct OfflineDownloadStrip: View {
     }
 }
 
-/// 单元状态的一句话（「正在下载」行、存储页、详情页下载按钮共用）
+/// 单元状态的一句话（存储页「下载中」、详情页下载按钮共用）
 enum OfflineUnitStatus {
     static func text(_ unit: OfflineUnit) -> String {
         switch unit.state {

@@ -227,3 +227,41 @@ struct OfflineDownloadChoicesTests {
         #expect(choices.scopes.isEmpty)
     }
 }
+
+/// 首页「正在下载」提示条只汇总：几部、总速度、还剩几个、总进度
+@MainActor
+struct OfflineDownloadSummaryTests {
+    private func unit(_ fileId: Int, item: Int, _ state: OfflineUnit.State, got: Int64 = 0, of: Int64 = 100) -> OfflineUnit {
+        var unit = OfflineUnit(fileId: fileId, mediaItemId: item, season: 1, episode: fileId, profile: "original",
+                               profileLabel: "原画", state: state, expectedBytes: of, fileExtension: "mkv", createdAt: Date())
+        unit.receivedBytes = got
+        return unit
+    }
+
+    @Test func countsTitlesNotEpisodesAndSumsSpeed() {
+        let units = [unit(1, item: 7, .downloading, got: 50), unit(2, item: 7, .queued), unit(3, item: 9, .downloading, got: 100)]
+        let summary = OfflineDownloadSummary(units, speeds: [1: 1_000_000, 3: 500_000])
+        #expect(summary.title == "2 部正在下载")
+        #expect(summary.detail == "\(Formatters.bytes(1_500_000))/s · 还剩 3 个 · 50%")
+        #expect(summary.fraction == 0.5)
+    }
+
+    @Test func allPausedSaysSo() {
+        let summary = OfflineDownloadSummary([unit(1, item: 7, .paused, got: 11)], speeds: [:])
+        #expect(summary.title == "1 部已暂停下载")
+        #expect(summary.detail == "11%")
+        #expect(summary.allPaused)
+    }
+
+    @Test func interruptedOnlyTurnsWarning() {
+        let summary = OfflineDownloadSummary([unit(1, item: 7, .failed, got: 30), unit(2, item: 8, .paused)], speeds: [:])
+        #expect(summary.detail == "1 个下载中断 · 15%")
+        #expect(summary.tint == Theme.warning)
+    }
+
+    @Test func queuedWithoutSizeYet() {
+        let summary = OfflineDownloadSummary([unit(1, item: 7, .preparing, of: 0)], speeds: [:])
+        #expect(summary.detail == "等待下载")
+        #expect(summary.fraction == nil)
+    }
+}

@@ -1,7 +1,8 @@
 import SwiftUI
 
 /// 我的 → 下载与存储（docs/design/offline-download.md §8），分组同系统「iPhone 储存空间」：
-/// 容量条 → 清理建议（有已看完的才出现）→ 已下载（点进条目、左滑 / 长按删除）→ 其他账号；下载设置在右上角菜单
+/// 容量条 → 下载中（有才出现，每一集一行，下完就移到已下载）→ 清理建议（有已看完的才出现）
+/// → 已下载（点进条目、左滑 / 长按删除）→ 其他账号；下载设置在右上角菜单。首页的「正在下载」提示条点进这里
 struct OfflineStorageView: View {
     @State private var store = OfflineStore.shared
     @Environment(\.api) private var api
@@ -24,12 +25,25 @@ struct OfflineStorageView: View {
     }
 
     var body: some View {
-        let items = store.items.values.sorted { $0.addedAt > $1.addedAt }
+        let items = store.downloadedItems
+        let active = store.activeUnits
         let watched = watchedUnits
         List {
             Section {
                 StorageUsageBar(downloads: store.totalBytes, free: OfflineDisk.availableBytes, total: OfflineDisk.totalCapacity)
                     .accessibilityIdentifier("offline-storage-summary")
+            }
+            if !active.isEmpty {
+                Section {
+                    ForEach(active) { unit in
+                        if let item = store.items[unit.mediaItemId] {
+                            OfflineDownloadingStorageRow(unit: unit, item: item)
+                        }
+                    }
+                } header: {
+                    // 标识只挂在标题上：挂在 Section 上会盖掉每一行自己的标识
+                    Text("下载中").accessibilityIdentifier("offline-storage-downloading")
+                }
             }
             if !watched.isEmpty {
                 Section("建议") {
@@ -51,7 +65,7 @@ struct OfflineStorageView: View {
             }
             Section("已下载") {
                 if items.isEmpty {
-                    Text("还没有下载。在影片详情页点「下载」，没网的时候也能看。")
+                    Text(active.isEmpty ? "还没有下载。在影片详情页点「下载」，没网的时候也能看。" : "下完的会出现在这里。")
                         .font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
                 ForEach(items) { item in
@@ -154,7 +168,7 @@ struct OfflineStorageView: View {
         } else if let unit = done.first {
             parts.append(unit.profileLabel)
         }
-        if let first = active.first { parts.append(active.count > 1 ? "\(active.count) 个进行中" : OfflineUnitStatus.text(first)) }
+        if !active.isEmpty { parts.append("还有 \(active.count) 个在下载") }
         return parts.joined(separator: " · ")
     }
 
@@ -202,6 +216,69 @@ struct OfflineStorageView: View {
                 return (owner, usage.bytes, usage.items)
             }.filter { $0.1 > 0 }
         }.value
+    }
+}
+
+/// 「下载中」的一行：小剧照（电影用横幅）+ 片名 + 哪一集 · 档位 + 状态与速度 + 进度。
+/// 点进条目；左滑 / 长按暂停、继续、取消。下完就从这一组消失
+private struct OfflineDownloadingStorageRow: View {
+    let unit: OfflineUnit
+    let item: OfflineItemSummary
+    @State private var store = OfflineStore.shared
+    @Environment(\.api) private var api
+    /// 早先开始的下载没记剧照：从本机存的这一季里找
+    @State private var archivedStill: String?
+
+    var body: some View {
+        let still = unit.isMovie ? item.backdropUrl : (unit.stillUrl ?? archivedStill)
+        let speed = unit.state == .downloading ? store.speeds[unit.fileId].flatMap { $0 > 0 ? $0 : nil } : nil
+        let tint = unit.state == .failed || unit.damaged ? Theme.warning : Theme.info
+        NavigationLink(value: AppRoute.libraryItem(libraryId: item.libraryId, itemId: item.mediaItemId,
+                                                   season: unit.isMovie ? nil : unit.season,
+                                                   episode: unit.isMovie ? nil : unit.episode)) {
+            HStack(spacing: 12) {
+                LibraryArtwork(url: still.flatMap { api.image($0, width: ImageWidth.points(88)) }
+                    ?? (unit.isMovie ? api.image(item.posterUrl, width: ImageWidth.points(88)) : nil),
+                    imageAspect: still == nil && unit.isMovie ? item.primaryAspect : nil,
+                    frameAspect: 16 / 9,
+                    fallbackText: still == nil && !unit.isMovie ? "\(unit.episode)" : nil)
+                    .frame(width: 88)
+                    .clipShape(.rect(cornerRadius: 6))
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title).lineLimit(1)
+                    Text([unit.isMovie ? nil : "第 \(unit.season) 季第 \(unit.episode) 集", unit.profileLabel]
+                        .compactMap { $0 }.joined(separator: " · "))
+                        .font(.caption).foregroundStyle(Theme.textMuted).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(OfflineUnitStatus.text(unit)).foregroundStyle(tint).lineLimit(1)
+                        if let speed {
+                            Text("\(Formatters.bytes(Int(speed)))/s").foregroundStyle(Theme.textMuted)
+                        }
+                    }
+                    .font(.caption).monospacedDigit()
+                    ProgressView(value: max(0, min(1, unit.progressFraction))).tint(tint)
+                }
+            }
+            .padding(.vertical, 2)
+        }
+        .swipeActions { actions }
+        .contextMenu { actions }
+        .accessibilityIdentifier("offline-downloading-\(unit.fileId)")
+        .task(id: unit.fileId) {
+            guard !unit.isMovie, unit.stillUrl == nil,
+                  let season = await OfflineStore.shared.season(itemId: unit.mediaItemId, season: unit.season) else { return }
+            archivedStill = season.episodes.first { $0.episodeNumber == unit.episode }?.stillUrl
+        }
+    }
+
+    @ViewBuilder
+    private var actions: some View {
+        if unit.state == .paused || unit.state == .failed {
+            Button("继续下载", systemImage: "play") { OfflineDownloader.shared.resume(fileId: unit.fileId) }.tint(Theme.info)
+        } else {
+            Button("暂停", systemImage: "pause") { OfflineDownloader.shared.pause(fileId: unit.fileId) }.tint(.gray)
+        }
+        Button("取消下载", systemImage: "xmark") { OfflineDownloader.shared.delete(fileId: unit.fileId) }.tint(.red)
     }
 }
 

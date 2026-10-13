@@ -285,16 +285,19 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertFalse(card.label.contains("/s"), "暂停后不该还有速度：\(card.label)")
         snapshot("episode-paused")
 
-        // 首页「正在下载」：同样的条，卡片是这一集的剧照
+        // 首页「正在下载」：一条汇总提示条（几部、状态），点进「下载与存储」的「下载中」，那里每一集一行
         app.terminate()
         let home = launch(reset: false, route: "/library")
-        let row = home.descendants(matching: .any)["home-downloading"]
-        XCTAssertTrue(row.waitForExistence(timeout: 30), "首页应有「正在下载」")
-        let homeCard = row.buttons.matching(NSPredicate(format: "label CONTAINS '第 1 季第 1 集'")).firstMatch
-        XCTAssertTrue(homeCard.waitForExistence(timeout: 10), row.debugDescription)
-        XCTAssertTrue(homeCard.label.contains("已暂停"), "首页卡片：\(homeCard.label)")
+        let bar = home.buttons["home-downloading"]
+        XCTAssertTrue(bar.waitForExistence(timeout: 30), "首页应有「正在下载」提示条：\(home.debugDescription)")
+        XCTAssertTrue(bar.label.contains("1 部已暂停下载"), "提示条只汇总：\(bar.label)")
         snapshot("home-downloading")
-        homeCard.tap()
+        bar.tap()
+        let storageRow = home.buttons.matching(NSPredicate(format: "identifier BEGINSWITH 'offline-downloading-'")).firstMatch
+        XCTAssertTrue(storageRow.waitForExistence(timeout: 15), "应进到下载与存储的「下载中」：\(home.debugDescription)")
+        XCTAssertTrue(storageRow.label.contains("第 1 季第 1 集") && storageRow.label.contains("已暂停"), storageRow.label)
+        snapshot("storage-downloading")
+        storageRow.tap()
 
         let detailCard = home.buttons["episode-1"]
         XCTAssertTrue(detailCard.waitForExistence(timeout: 30))
@@ -311,6 +314,11 @@ final class OfflineReviewReproUITests: XCTestCase {
         detailCard.tap()
         XCTAssertTrue(home.buttons["local-file-row-2"].waitForExistence(timeout: 10), "选中的第 1 集下完后，文件区应有本机那一行")
         XCTAssertTrue(waitUntil(timeout: 6) { !home.staticTexts["下载完成"].exists }, "「下载完成」只短暂提示")
+        // 下完：「下载中」那一行消失，首页的提示条也没了
+        home.navigationBars.buttons.element(boundBy: 0).tap()
+        XCTAssertTrue(waitUntil(timeout: 10) { !storageRow.exists }, "下完应从「下载中」消失")
+        XCTAssertTrue(home.descendants(matching: .any)["offline-storage-item-\(showId)"].exists, "应出现在「已下载」")
+        snapshot("storage-after-done")
     }
 
     /// 选档表单一次问完所有范围的档位：打开就出、切范围不再请求；完整清单等点「下载」才取，每集只取一次。
