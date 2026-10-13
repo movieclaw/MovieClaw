@@ -783,10 +783,28 @@ def test_release_keeps_export_another_device_still_needs(client, tmp_path) -> No
     assert manager.get("shared") is None
 
 
-def test_hardware_plan_without_local_backend_is_unavailable(client, tmp_path, monkeypatch) -> None:
-    """只有远程转码器（或本机后端与滤镜链不兼容）、软件转码没开：不能悄悄用 libx264 软转。"""
+def test_remote_transcoder_alone_offers_export_profiles(client, tmp_path, monkeypatch) -> None:
+    """NAS 没有显卡、软件转码没开，但 Mac 转码器在线：转码档照样提供（导出交给转码器做）。"""
     _lib, _item, file_id = seed(client, tmp_path, real=False)
     _set_size(client, file_id, 4_000_000_000)
     monkeypatch.setattr("movieclaw_api.services.playback.plan.hardware_available", lambda: True)
     resp = client.get(f"{_API}/offline/manifest", params={"file_id": file_id}).json()["data"]
-    assert [p["profile"] for p in resp["profiles"]] == ["original"]
+    assert [p["profile"] for p in resp["profiles"]] == ["original", "720p", "480p"]
+
+
+def test_export_waits_when_the_transcoder_drops_before_it_starts(client, tmp_path, monkeypatch):
+    """建导出时转码器在线（档位成立）、开转前掉线：排队等它回来，不判失败、不偷偷软转。"""
+    _lib, _item, file_id = seed(client, tmp_path, real=False)
+    _set_size(client, file_id, 4_000_000_000)
+    online = {"value": True}
+    monkeypatch.setattr(
+        "movieclaw_api.services.playback.plan.hardware_available", lambda: online["value"]
+    )
+    monkeypatch.setattr(exports, "_CAPACITY_POLL_S", 0.05)
+    online["value"] = True
+    created = client.post(f"{_API}/offline/exports", json={"file_id": file_id, "profile": "480p"})
+    assert created.status_code == 200, created.text
+    online["value"] = False  # 转码器掉线，软件转码没开
+    time.sleep(0.5)
+    state = client.get(f"{_API}/offline/exports/{created.json()['data']['export_id']}").json()
+    assert state["data"]["status"] == "queued", state

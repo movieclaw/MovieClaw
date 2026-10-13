@@ -5,13 +5,19 @@ App 选了 1080p / 720p / 480p 下载时，服务器把整片转成一个分片�
 点下一整季、锁屏放着」也能下完——先转完再下的话，转完时 App 多半在后台，发不起下载。
 
 形态与片段预切同一路数：进程内单路队列干活，状态落在每个导出自己的目录里
-（``<根>/<导出号>/meta.json``），服务重启后没转完的重新排队、换一个代号从头转。
+（``<根>/<导出号>/meta.json``），服务重启后没转完的重新排队、换一个代号从头转（已转过的
+分片多半还在转码缓存里，不必真重转）。
+
+**转码走播放的会话层**：导出就是一个「只下载、不看」的 VOD 会话，按顺序要分片、拿到就接到
+文件后面。挑执行者（本机硬件 → 在线的 Mac 转码器 → 软件）、远程派单、补片重启都与播放同一套，
+NAS 没有显卡时整片交给转码器做。
 
 - **导出号** = 文件身份（id、大小、修改时间）+ 档位 + 音轨 + 导出格式版本的指纹：
   全家下同一集同一档只转一次；片源换了（洗版）指纹跟着变。
 - **代号**：每转一次加一。ETag 用「导出号 + 代号」，下载中途服务端重转（重启、缓存被清）
   时客户端带旧 ETag 续传，If-Range 对不上，整份重下，不会把两次转码的字节拼在一起。
-- **并发**：全局一次一路；只在实时转码还有空位时开始，开始后不占实时名额、降优先级跑。
+- **并发**：全局一次一路；播放优先——播放要名额而名额被导出占着时，导出的会话被停掉
+  （session.py ``_evict_export_*``），等名额空出来从下一个缺的分片接着转。本机转时降优先级。
 - **回收**：客户端下完调 DELETE；没人取的，最后一次访问 72 小时后回收。
 """
 
@@ -25,7 +31,6 @@ import logging
 import os
 import secrets
 import shutil
-import signal
 import time
 from collections import deque
 from collections.abc import Callable
@@ -38,15 +43,41 @@ from starlette.types import Receive, Scope, Send
 
 from movieclaw_api.core.config import get_settings
 from movieclaw_api.services.playback import plan as playback_plan
-from movieclaw_api.services.playback.ffmpeg_args import BITRATE_LADDER, build_hls_command
-from movieclaw_api.services.playback.hwprobe import available_local_backends
-from movieclaw_api.services.playback.limits import auto_transcode_concurrency
+from movieclaw_api.services.playback.ffmpeg_args import (
+    BITRATE_LADDER,
+    HEVC_BITRATE_LADDER,
+    HW_BACKENDS,
+    INIT_NAME,
+    SEGMENT_SECONDS,
+    segment_type,
+)
+from movieclaw_api.services.playback.hwprobe import available_backends, available_local_backends
+from movieclaw_api.services.playback.limits import (
+    MAX_REMUX_CONCURRENCY,
+    auto_quota_bytes,
+    auto_transcode_concurrency,
+)
+from movieclaw_api.services.playback.remote_config import effective_remote_transcode_config
+from movieclaw_api.services.playback.remote_worker import (
+    remote_worker_available,
+    remote_worker_busy,
+    remote_workers_have_encoder,
+)
+from movieclaw_api.services.playback.session import (
+    DiskQuotaError,
+    SessionLimitError,
+    SessionStartError,
+    TranscodeSession,
+    get_session_manager,
+)
 from movieclaw_api.services.playback.track_context import track_contexts
+from movieclaw_api.settings import PlaybackPolicySetting
+from movieclaw_api.settings.store import get_setting_store
 from movieclaw_db.engine import get_database
 from movieclaw_db.models import LibraryFile
 from movieclaw_playback.decide import PlaybackPlan, PlaybackTier, plan_capped_transcode
+from movieclaw_playback.hls_vod import SegmentPlan, compute_uniform_plan
 from movieclaw_playback.profile import media_profile_from_file
-from movieclaw_playback.streaming import StrmError, is_strm, parse_strm, strm_source_input
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +88,19 @@ EXPORT_FORMAT_VERSION = 1
 #: 转码档的音轨：手机上一条立体声 AAC 足够，多声道只是白占空间
 AUDIO_BPS = 256_000
 RETENTION_S = 72 * 3600
-#: 没有空闲实时名额时多久再看一次
+#: 名额被播放占着、转码器暂时不在时多久再看一次
 _CAPACITY_POLL_S = 5.0
+#: 导出会话不属于任何成员：「同一成员同一文件开新会话」「设备结束播放」都碰不到它
+EXPORT_MEMBER_ID = -1
+#: 连续这么多轮会话一个分片都没推进就判失败（被播放挤掉的轮次不算）
+_MAX_STALLED_ROUNDS = 3
+#: 会话还活着、某一段却这么久都没转出来：换一轮会话再试
+_SEGMENT_STALL_S = 300.0
+#: 每接上这么多段把进度写一次 meta.json
+_PROGRESS_SAVE_EVERY = 10
 #: 边转边下：读到文件尾、转码还在跑时多久再看一次
 _TAIL_POLL_S = 0.25
 _CHUNK = 1024 * 1024
-_STDERR_KEEP = 40
 
 STATUS_QUEUED = "queued"
 STATUS_RUNNING = "running"
@@ -94,8 +132,11 @@ class ExportState:
     #: 每转一次换一个随机串：产物被回收后重建、代号从头数时，ETag 也不会与上一次撞上
     #: （否则客户端拿旧 ETag 续传，会把两次转码的字节拼在一起）
     nonce: str = ""
-    #: 正在转的 ffmpeg 进程号：服务异常退出后，下次启动据此收拾残留的进程
+    #: 旧版（NAS 直接起 ffmpeg）留下的进程号；现在转码归会话层管，只为读得回旧 meta.json
     pid: int | None = None
+    #: 已接进文件的分片数 / 总分片数（进度）
+    done_segments: int = 0
+    total_segments: int = 0
     #: 还要这份导出的设备（下完调 DELETE 时只摘掉自己，最后一个摘掉才删）
     claims: list[str] = field(default_factory=list)
 
@@ -108,16 +149,26 @@ def exports_root() -> Path:
     return Path(get_settings().offline_exports_dir)
 
 
-def video_bps(profile: str) -> int:
-    ladder = BITRATE_LADDER[PROFILES[profile]]
+def video_bps(profile: str, *, hevc: bool = False) -> int:
+    ladder = (HEVC_BITRATE_LADDER if hevc else BITRATE_LADDER)[PROFILES[profile]]
     return int(float(ladder[:-1]) * 1_000_000)
 
 
-def estimate_bytes(profile: str, duration_s: float | None) -> int:
-    """预计大小：视频码率上限 + 音轨码率，乘片长；容器开销约 2%。"""
+def estimate_bytes(profile: str, duration_s: float | None, *, hevc: bool | None = None) -> int:
+    """预计大小：视频码率上限 + 音轨码率，乘片长；容器开销约 2%。是上限（实际平均约七成），
+    手机按它留空间不会不够。``hevc`` 为 None 时按现在最可能的执行者猜。"""
     if not duration_s or duration_s <= 0:
         return 0
-    return int((video_bps(profile) + AUDIO_BPS) * duration_s / 8 * 1.02)
+    if hevc is None:
+        hevc = likely_hevc()
+    return int((video_bps(profile, hevc=hevc) + AUDIO_BPS) * duration_s / 8 * 1.02)
+
+
+def likely_hevc() -> bool:
+    """现在开转多半出 HEVC：在线的转码器都带 HEVC 编码器（NAS 本机是 Mac 时同理）。"""
+    return "videotoolbox" in available_local_backends() or remote_workers_have_encoder(
+        "hevc_videotoolbox"
+    )
 
 
 def export_fingerprint(file: LibraryFile, profile: str, audio_track: str | None) -> str:
@@ -130,23 +181,16 @@ def export_fingerprint(file: LibraryFile, profile: str, audio_track: str | None)
     return hashlib.sha256(raw.encode()).hexdigest()[:24]
 
 
-async def build_plan(file: LibraryFile, profile: str, audio_track: str | None) -> PlaybackPlan:
-    """这一档的转码计划：与 Jellyfin 协议「播放器要求限码率」同一个规划函数。"""
-    if profile not in PROFILES:
-        raise ExportUnavailable(f"不支持的档位：{profile}")
-    if file.is_disc():
-        raise ExportUnavailable("原盘暂不支持下载到设备")
+async def _media_and_policy(file: LibraryFile, audio_track: str | None):
     async with get_database().session() as session:
         contexts = await track_contexts(session, [file])
     media = media_profile_from_file(
         file, context=contexts.get(file.id or 0), preferred_audio=audio_track
     )
-    policy = await playback_plan.load_policy()
-    # 导出只在本机执行：「有硬件」要看本机探测通过的后端（合并能力里算上的远程转码器跑不了导出）。
-    # 本机没有就按软件转码规划，软件转码没开则这一档不可用——不能悄悄用 libx264 顶上
-    local = await asyncio.to_thread(available_local_backends)
-    if policy.hardware_available and not local:
-        policy = replace(policy, hardware_available=False)
+    return media, await playback_plan.load_policy()
+
+
+def _capped(media, policy, profile: str, audio_track: str | None) -> PlaybackPlan:
     plan = plan_capped_transcode(
         media,
         policy,
@@ -158,25 +202,95 @@ async def build_plan(file: LibraryFile, profile: str, audio_track: str | None) -
     )
     if not isinstance(plan, PlaybackPlan):
         raise ExportUnavailable(plan.reason)
-    if plan.tier is PlaybackTier.HARDWARE_TRANSCODE:
-        backend, _remote = playback_plan.select_execution_backend(
-            plan, available=local, local_backends=local, remote_video_available=False
-        )
-        if backend is None:
-            if not policy.software_transcode_enabled:
-                raise ExportUnavailable("本机的硬件编码器处理不了这部片，且软件转码未开启")
-            plan = plan_capped_transcode(
-                media,
-                replace(policy, hardware_available=False),
-                preferred_audio=audio_track,
-                max_height=PROFILES[profile],
-                segment_container="mp4",
-                audio_codecs=frozenset({"aac"}),
-                max_audio_channels=2,
-            )
-            if not isinstance(plan, PlaybackPlan):
-                raise ExportUnavailable(plan.reason)
     return plan
+
+
+async def build_plan(file: LibraryFile, profile: str, audio_track: str | None) -> PlaybackPlan:
+    """这一档能不能出（清单列档位、建导出时当场回答用）：与 Jellyfin 协议「播放器要求限码率」
+    同一个规划函数。硬件算上在线的转码器（播放怎么算这里就怎么算）；真正由谁转在开转时
+    才定（``_execution``）。"""
+    if profile not in PROFILES:
+        raise ExportUnavailable(f"不支持的档位：{profile}")
+    if file.is_disc():
+        raise ExportUnavailable("原盘暂不支持下载到设备")
+    media, policy = await _media_and_policy(file, audio_track)
+    if policy.hardware_busy:
+        # 转码器在线、只是名额被播放占满：导出会排队等它，这一档照样提供
+        policy = replace(policy, hardware_available=True, hardware_busy=False)
+    plan = _capped(media, policy, profile, audio_track)
+    if plan.tier is PlaybackTier.HARDWARE_TRANSCODE:
+        return plan
+    if not policy.software_transcode_enabled:
+        raise ExportUnavailable("没有可用的硬件转码，且软件转码未开启")
+    return plan
+
+
+@dataclass(frozen=True)
+class _Execution:
+    """这一轮导出会话由谁来转。"""
+
+    plan: PlaybackPlan
+    hw_backend: str | None
+    remote: bool
+
+
+async def _execution(
+    file: LibraryFile, profile: str, audio_track: str | None
+) -> _Execution | None:
+    """现在能不能开转、由谁转；None = 还得等（名额被播放占着、转码器暂时不在）。
+
+    选后端与播放同一个函数（``select_execution_backend``）：本机硬件 → 在线的转码器。
+    转码器在线但名额被播放占满时等它，不退到 NAS 软件转码——它几分钟内就会空出来，
+    比 NAS 软转快一个数量级。HDR 没有硬件可用时也等（与播放同一条底线：不让 CPU 做
+    4K 色调映射）；软件转码没开时同理等硬件回来——建导出时（``build_plan``）硬件是在的。"""
+    media, policy = await _media_and_policy(file, audio_track)
+    # 先按「有硬件」规划：硬件这会儿不在（转码器掉线、名额满）是等的理由，不是判失败的理由
+    plan = _capped(
+        media, replace(policy, hardware_available=True, hardware_busy=False), profile, audio_track
+    )
+    local = await asyncio.to_thread(available_local_backends)
+    if plan.tier is PlaybackTier.HARDWARE_TRANSCODE:
+        backends = await asyncio.to_thread(available_backends)
+        backend, remote = playback_plan.select_execution_backend(
+            plan,
+            available=backends,
+            local_backends=local,
+            remote_video_available=remote_worker_available(
+                "videotoolbox", segment_type(plan), strict=True
+            ),
+        )
+        if backend is not None:
+            if not remote and not _local_slot_free(hardware=True):
+                return None
+            if _hevc_capable(backend, remote=remote):
+                plan = replace(plan, video=replace(plan.video, codec="hevc"))
+            return _Execution(plan, backend, remote)
+        if (
+            remote_worker_busy("videotoolbox")
+            or plan.video.tone_map
+            or not policy.software_transcode_enabled
+        ):
+            return None
+        plan = _capped(media, replace(policy, hardware_available=False), profile, audio_track)
+    if not _local_slot_free(hardware=bool(local)):
+        return None
+    return _Execution(plan, None, False)
+
+
+def _hevc_capable(backend: str, *, remote: bool) -> bool:
+    """这个执行者能出 HEVC：同画质体积小三分之一（ffmpeg_args.HEVC_BITRATE_LADDER），手机全系硬解。
+    目前只有 VideoToolbox（Mac 转码器）；NAS 的软件与其它显卡仍出 H.264（libx265 在 NAS 的
+    CPU 上太慢）。"""
+    encoder = HW_BACKENDS[backend].hevc_encoder if backend in HW_BACKENDS else None
+    if encoder is None:
+        return False
+    return remote_workers_have_encoder(encoder, backend) if remote else True
+
+
+def _local_slot_free(*, hardware: bool) -> bool:
+    return get_session_manager().active_transcodes() < auto_transcode_concurrency(
+        hardware=hardware
+    )
 
 
 class ExportManager:
@@ -187,8 +301,8 @@ class ExportManager:
         self._queue: deque[str] = deque()
         self._wake = asyncio.Event()
         self._worker: asyncio.Task | None = None
-        self._process: asyncio.subprocess.Process | None = None
-        self._running_id: str | None = None
+        #: 正在驱动的播放会话
+        self._session_id: str | None = None
         #: 正在被下载的导出（导出号 → 连接数）：回收时跳过
         self._readers: dict[str, int] = {}
 
@@ -226,8 +340,7 @@ class ExportManager:
                 shutil.rmtree(folder, ignore_errors=True)
                 continue
             if state.status in (STATUS_QUEUED, STATUS_RUNNING):
-                # 上次没正常收尾（崩溃、被杀）：残留的 ffmpeg 还在写旧代号的文件，先收拾掉
-                _kill_leftover(state.pid)
+                # 上次没正常收尾（崩溃、被杀）：重新排队（残留的 ffmpeg 由会话层的启动清理收拾）
                 state.status = STATUS_QUEUED
                 state.pid = None
                 self._save(state)
@@ -346,17 +459,6 @@ class ExportManager:
         if self._worker is None or self._worker.done():
             self._worker = asyncio.create_task(self._run(), name="offline-exports")
 
-    async def _wait_capacity(self) -> None:
-        """实时转码满了就等：宁可导出慢，不让播放被拒。"""
-        from movieclaw_api.services.playback.session import get_session_manager
-
-        while True:
-            local = await asyncio.to_thread(available_local_backends)
-            limit = auto_transcode_concurrency(hardware=bool(local))
-            if get_session_manager().active_transcodes() < limit:
-                return
-            await asyncio.sleep(_CAPACITY_POLL_S)
-
     async def _run(self) -> None:
         while True:
             if not self._queue:
@@ -373,92 +475,136 @@ class ExportManager:
             if state is None or state.status != STATUS_QUEUED:
                 continue
             try:
-                await self._wait_capacity()
                 await self._transcode(state)
             except asyncio.CancelledError:
                 raise
             except Exception as exc:  # noqa: BLE001 —— 一份导出出错不能拖垮队列
-                logger.exception("离线导出失败：%s", export_id)
+                if not isinstance(exc, ExportUnavailable):
+                    logger.exception("离线导出失败：%s", export_id)
                 state.status = STATUS_FAILED
                 state.error = str(exc) or exc.__class__.__name__
                 self._save(state)
+                logger.warning("离线导出失败：%s：%s", export_id, state.error)
 
-    async def _transcode(self, state: ExportState) -> None:
-        async with get_database().session() as session:
-            file = await session.get(LibraryFile, state.file_id)
-        if file is None:
-            raise ExportUnavailable("文件已不在媒体库里")
-        plan = await build_plan(file, state.profile, state.audio_track)
-        backends = await asyncio.to_thread(available_local_backends)
-        backend, _remote = playback_plan.select_execution_backend(
-            plan, available=backends, local_backends=backends, remote_video_available=False
-        )
-        source_path, input_options = file.file_path, []
-        if is_strm(file.file_path):
-            try:
-                source_path, input_options = strm_source_input(parse_strm(file.file_path))
-            except StrmError as exc:
-                raise ExportUnavailable(f"strm 用不了：{exc}") from exc
-        # 换代号再开转：旧代号的产物删掉，正在读旧产物的连接会发现代号变了而断开
+    def _new_generation(self, state: ExportState) -> Path:
+        """换代号从头写：旧代号的产物删掉，正在读旧产物的连接会发现代号变了而断开。"""
         old = self.output_path(state) if state.generation else None
         state.generation += 1
         state.nonce = secrets.token_hex(4)
         state.status = STATUS_RUNNING
         state.error = None
         state.final_bytes = None
+        state.done_segments = 0
         out = self.output_path(state)
         out.parent.mkdir(parents=True, exist_ok=True)
         with contextlib.suppress(OSError):
             out.unlink()
+        out.touch()
         self._save(state)
         if old is not None:
             with contextlib.suppress(OSError):
                 old.unlink()
-        command = build_hls_command(
-            plan,
-            source_path=source_path,
-            session_dir=out.parent,
-            hw_backend=backend,
-            input_options=input_options,
-            export_path=out,
-        )
-        argv = list(command.argv)
-        if shutil.which("nice"):
-            argv = ["nice", "-n", "10", *argv]
-        logger.info(
-            "离线导出开始：%s（文件 %s，%s，后端 %s）",
-            state.export_id,
-            state.file_id,
-            state.profile,
-            backend or "软件",
-        )
+        return out
+
+    async def _wait_execution(self, file: LibraryFile, state: ExportState) -> _Execution:
+        while True:
+            execution = await _execution(file, state.profile, state.audio_track)
+            if execution is not None:
+                return execution
+            await asyncio.sleep(_CAPACITY_POLL_S)
+
+    async def _transcode(self, state: ExportState) -> None:
+        """一个「只下载、不看」的播放会话按顺序要分片，NAS 把 init + 分片接成一个 MP4。
+
+        挑执行者、远程转码器派单、补片与断点重启全部走播放的会话层；VOD 分片时间戳是文件
+        绝对时间，同一编码器重转的 init 逐字节相同，所以中途换会话（被播放挤掉、转码器断线、
+        服务端重启）从下一个缺的分片接着转就行。换了编码器 init 对不上，整份重来。
+        """
+        async with get_database().session() as session:
+            file = await session.get(LibraryFile, state.file_id)
+        if file is None:
+            raise ExportUnavailable("文件已不在媒体库里")
+        if not file.duration_seconds:
+            raise ExportUnavailable("片长未知，没法转码导出")
+        segments = compute_uniform_plan(float(file.duration_seconds), target_s=SEGMENT_SECONDS)
+        sessions = get_session_manager()
+        cache = (await get_setting_store().get(PlaybackPolicySetting)).transcode_cache_enabled
+        out: Path | None = None
+        init: bytes | None = None
+        index = 0
+        stalled = 0
         started = time.monotonic()
-        process = await asyncio.create_subprocess_exec(
-            *argv,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.PIPE,
-            start_new_session=True,
-        )
-        self._process, self._running_id = process, state.export_id
-        state.pid = process.pid
-        self._save(state)
-        tail: deque[str] = deque(maxlen=_STDERR_KEEP)
-        assert process.stderr is not None
-        async for raw in process.stderr:
-            line = raw.decode(errors="replace").rstrip()
-            if line:
-                tail.append(line)
-        code = await process.wait()
-        self._process, self._running_id = None, None
-        state.pid = None
-        if code != 0 or not out.exists():
-            state.status = STATUS_FAILED
-            state.error = (tail[-1] if tail else f"ffmpeg 退出码 {code}")[:500]
-            self._save(state)
-            logger.warning(
-                "离线导出失败：%s（退出码 %s）：%s", state.export_id, code, "\n".join(tail)
+        while index < segments.count:
+            execution = await self._wait_execution(file, state)
+            if out is None:
+                # 真开转了才进「转码中」：等名额 / 等转码器回来时仍是排队，内容接口回 503 让手机
+                # 稍后再来，而不是挂一条没有字节的长连接
+                out = self._new_generation(state)
+            try:
+                live = await sessions.start(
+                    execution.plan,
+                    source_path=file.file_path,
+                    member_id=EXPORT_MEMBER_ID,
+                    start_ms=int(segments.boundaries[index] * 1000),
+                    segment_plan=segments,
+                    hw_backend=execution.hw_backend,
+                    max_transcode=auto_transcode_concurrency(hardware=bool(execution.hw_backend)),
+                    max_remux=MAX_REMUX_CONCURRENCY,
+                    quota_bytes=auto_quota_bytes(sessions.cache_root),
+                    use_remote=execution.remote,
+                    remote_base_url=(
+                        effective_remote_transcode_config().base_url if execution.remote else ""
+                    ),
+                    display_name=f"离线下载 · {Path(file.file_path).name}",
+                    device_id=f"offline-export:{state.export_id}",
+                    cache=cache,
+                    export_id=state.export_id,
+                )
+            except (SessionLimitError, SessionStartError, DiskQuotaError) as exc:
+                stalled += 1
+                if stalled >= _MAX_STALLED_ROUNDS:
+                    raise ExportUnavailable(f"转码起不来：{exc}") from exc
+                logger.info("离线导出 %s 开转码会话失败，稍后重试：%s", state.export_id, exc)
+                await asyncio.sleep(_CAPACITY_POLL_S)
+                continue
+            self._session_id = live.id
+            expected = estimate_bytes(
+                state.profile,
+                float(file.duration_seconds),
+                hevc=execution.plan.video.codec == "hevc",
             )
-            return
+            if expected != state.expected_bytes:
+                state.expected_bytes = expected
+                self._save(state)
+            before = index
+            logger.info(
+                "离线导出 %s 从第 %d/%d 段开转（%s）",
+                state.export_id,
+                index,
+                segments.count,
+                "转码器" if execution.remote else (execution.hw_backend or "软件"),
+            )
+            try:
+                index, init = await self._drain(live, segments, index, out, init, state)
+            except _InitMismatch:
+                # 换了编码器（不同的转码器 / 退到本机），init 对不上：整份从头，且不再认领
+                # 混了两种编码器的缓存
+                logger.warning("离线导出 %s 换了编码器，整份从头转", state.export_id)
+                out, init, index, cache = self._new_generation(state), None, 0, False
+                continue
+            finally:
+                self._session_id = None
+                await sessions.stop(live.id, reason="离线导出这一轮结束")
+            if live.preempted:
+                continue  # 被播放挤掉：不算没进展，等名额空出来接着转
+            if index > before:
+                stalled = 0
+                continue
+            stalled += 1
+            if stalled >= _MAX_STALLED_ROUNDS:
+                raise ExportUnavailable(live.error or "转码一直没有进展")
+            await asyncio.sleep(_CAPACITY_POLL_S)
+        assert out is not None
         state.status = STATUS_DONE
         state.final_bytes = out.stat().st_size
         self._save(state)
@@ -469,37 +615,71 @@ class ExportManager:
             time.monotonic() - started,
         )
 
+    async def _drain(
+        self,
+        live: TranscodeSession,
+        segments: SegmentPlan,
+        index: int,
+        out: Path,
+        init: bytes | None,
+        state: ExportState,
+    ) -> tuple[int, bytes | None]:
+        """跟着会话把分片按顺序接到 ``out`` 后面，返回（下一个要的分片号, init）。"""
+        sessions = get_session_manager()
+        idle_since = time.monotonic()
+        while index < segments.count:
+            live.touch()
+            path = await sessions.ensure_segment(live, index)
+            if path is None:
+                if live.state in ("failed", "stopped"):
+                    return index, init
+                if index in live.unreachable_segments:
+                    if index >= segments.count - 2 and index > 0:
+                        # 源比台账短一截（片尾）：转出来的就是全部
+                        logger.info(
+                            "离线导出 %s 片尾第 %d 段产不出来，按源实际长度收尾",
+                            state.export_id,
+                            index,
+                        )
+                        return segments.count, init
+                    live.error = f"第 {index} 段转不出来"
+                    return index, init
+                if time.monotonic() - idle_since > _SEGMENT_STALL_S:
+                    live.error = f"第 {index} 段等了 {_SEGMENT_STALL_S:.0f} 秒还没转出来"
+                    return index, init
+                continue  # 30 秒没等到但会话还活着（远程首片、慢机）：接着等
+            assert isinstance(path, Path)
+            head = await asyncio.to_thread((live.directory / INIT_NAME).read_bytes)
+            if init is None:
+                init = head
+                await asyncio.to_thread(_append, out, [head])
+            elif head != init:
+                raise _InitMismatch
+            await asyncio.to_thread(_append, out, [path.read_bytes()])
+            index += 1
+            idle_since = time.monotonic()
+            state.done_segments = index
+            state.total_segments = segments.count
+            if index % _PROGRESS_SAVE_EVERY == 0:
+                self._save(state)  # 进度落盘（排查与重启后看得见做到哪了）
+        return index, init
+
     async def shutdown(self) -> None:
-        """后端退出：ffmpeg 起在独立进程组里，要 killpg 整组（TERM，3 秒后 KILL），否则留下孤儿"""
-        process = self._process
-        if process is not None and process.returncode is None:
-            with contextlib.suppress(ProcessLookupError, PermissionError):
-                os.killpg(os.getpgid(process.pid), signal.SIGTERM)
-            try:
-                await asyncio.wait_for(process.wait(), timeout=3)
-            except TimeoutError:
-                with contextlib.suppress(ProcessLookupError, PermissionError):
-                    os.killpg(os.getpgid(process.pid), signal.SIGKILL)
+        """后端退出：停掉排队循环；导出会话由播放会话管理器一并收拾。"""
         if self._worker is not None:
             self._worker.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._worker
 
 
-def _kill_leftover(pid: int | None) -> None:
-    """杀掉上次残留的导出 ffmpeg（只认命令行里带离线导出目录的，进程号被复用时不误杀）"""
-    if not pid:
-        return
-    try:
-        cmdline = (
-            Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode(errors="replace")
-        )
-    except OSError:
-        cmdline = ""
-    if "offline-exports" not in cmdline and "ffmpeg" not in cmdline:
-        return
-    with contextlib.suppress(ProcessLookupError, PermissionError):
-        os.killpg(os.getpgid(pid), signal.SIGKILL)
+class _InitMismatch(Exception):
+    """新一轮会话的 init 与已经写进文件的不同：换了编码器，后面的分片接不上。"""
+
+
+def _append(out: Path, chunks: list[bytes]) -> None:
+    with out.open("ab") as handle:
+        for chunk in chunks:
+            handle.write(chunk)
 
 
 _manager: ExportManager | None = None

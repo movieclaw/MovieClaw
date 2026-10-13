@@ -145,6 +145,11 @@ _RECENT_REQUESTS_KEEP = 32
 CACHE_RETENTION_S = 24 * 3600.0
 
 
+def _remote_export(session: TranscodeSession) -> bool:
+    """跑在外置 Worker 上的离线导出：不占本机名额，播放要转码器时由名额登记表让路。"""
+    return session.export_id is not None and session.remote
+
+
 def _dir_size(directory: Path) -> int:
     try:
         return sum(f.stat().st_size for f in directory.rglob("*") if f.is_file())
@@ -433,6 +438,12 @@ class TranscodeSession:
     #: 起会话的浏览器设备标识（web-<成员>-<浏览器>），管理员「结束播放」按它
     #: 找到并停掉这台浏览器的全部会话。
     device_id: str = ""
+    #: 离线下载的转码导出（offline-download.md §5.3）由一个「只下载、不看」的会话驱动：
+    #: 非 None 即导出号。播放要名额时它让路（services/offline/exports.py），本机执行时
+    #: ffmpeg 降优先级跑。
+    export_id: str | None = None
+    #: 被播放挤掉而停的（导出据此知道不是失败，稍后从断点接着转）
+    preempted: bool = False
     #: App 的播放编号（docs/design/playback-qoe.md §2）：会话结束时把摘要交给这次播放的记录
     attempt_id: str | None = None
     #: 首个分片距会话创建的毫秒数（起播最后一公里），交给播放记录用
@@ -920,6 +931,7 @@ class TranscodeSessionManager:
         cache: bool = True,
         source_concat: str | None = None,
         attempt_id: str | None = None,
+        export_id: str | None = None,
     ) -> TranscodeSession:
         """起一个会话。playlist 出现即返回，不等全部分片转完。
 
@@ -940,6 +952,8 @@ class TranscodeSessionManager:
 
         await self.reap()  # 顺手清掉超时的，给新会话腾位置
         transcoding = plan.tier >= PlaybackTier.HARDWARE_TRANSCODE
+        if transcoding and export_id is None:
+            await self._evict_export_for_local(max_transcode)
         self._check_capacity(transcoding, max_transcode, max_remux)
         self._check_disk(quota_bytes)
 
@@ -972,6 +986,7 @@ class TranscodeSessionManager:
             hw_backend=hw_backend,
             remote=use_remote,
             concat_list=source_concat,
+            export_id=export_id,
         )
         if cache and segment_plan is not None:
             self._assign_cache_directory(session)
@@ -1181,6 +1196,7 @@ class TranscodeSessionManager:
         # 先登记 job_id 再做任何可能失败的事：外层 start() 的兜底清理靠
         # session.remote_job_id 找任务，晚一步登记就会漏掉一条清理路径。
         session.remote_job_id = job_id
+        await self._evict_export_for_remote(session)
         # 先占位再拼 URL：得先知道是谁接单，才能用它连上来的地址拼。
         try:
             connection = registry.reserve(
@@ -1192,6 +1208,7 @@ class TranscodeSessionManager:
                 plan=session.plan,
                 source_id=session.file_id,
                 learn_speed=session.segment_plan is not None,
+                preemptible=session.export_id is not None,
             )
         except RemoteWorkerUnavailable as exc:
             session.error = str(exc)
@@ -1276,12 +1293,55 @@ class TranscodeSessionManager:
         session.error = "远程 Worker 超时未上传播放列表"
         raise SessionStartError(session.error)
 
+    async def _preempt(self, victim: TranscodeSession) -> None:
+        victim.preempted = True
+        await self.stop(victim.id, reason="播放要用转码名额，离线导出让路（稍后从断点接着转）")
+
+    async def _evict_export_for_local(self, max_transcode: int) -> None:
+        """本机转码名额满了、其中有离线导出：先停导出，播放优先。"""
+        if self.active_transcodes() < max_transcode:
+            return
+        victim = next(
+            (
+                s
+                for s in self._sessions.values()
+                if s.export_id is not None
+                and not s.remote
+                and s.is_transcoding
+                and s.state in ("spawning", "ready")
+            ),
+            None,
+        )
+        if victim is not None:
+            await self._preempt(victim)
+
+    async def _evict_export_for_remote(self, session: TranscodeSession) -> None:
+        """播放要派远程任务、转码器只剩离线导出占着的名额：停掉那个导出。"""
+        if session.export_id is not None or not any(
+            s.export_id is not None and s.remote for s in self._sessions.values()
+        ):
+            return
+        job_id = get_remote_worker_registry().preemptible_job_for(
+            session.hw_backend or "videotoolbox",
+            segment_type(session.plan),
+            disc=session.concat_list is not None,
+        )
+        if job_id is None:
+            return
+        victim = next(
+            (s for s in self._sessions.values() if s.remote_job_id == job_id), None
+        )
+        if victim is not None:
+            await self._preempt(victim)
+        else:  # 台账不同步的边角：至少把名额还出来
+            get_remote_worker_registry().remove_job(job_id)
+
     def active_transcodes(self) -> int:
-        """正在转码的实时会话数（离线导出据此让路：实时有空位才开始）。"""
+        """占本机转码名额的会话数。外置 Worker 上的离线导出不占（它让路走转码器的名额）。"""
         return sum(
             1
             for s in self._sessions.values()
-            if s.state in ("spawning", "ready") and s.is_transcoding
+            if s.state in ("spawning", "ready") and s.is_transcoding and not _remote_export(s)
         )
 
     def _check_capacity(self, transcoding: bool, max_transcode: int, max_remux: int) -> None:
@@ -1290,7 +1350,11 @@ class TranscodeSessionManager:
         机械盘上两路 4K remux 就能打满随机读，而 CPU 几乎是空的——瓶颈不在
         算力，合成一个上限会误判。
         """
-        active = [s for s in self._sessions.values() if s.state in ("spawning", "ready")]
+        active = [
+            s
+            for s in self._sessions.values()
+            if s.state in ("spawning", "ready") and not _remote_export(s)
+        ]
         if transcoding:
             used = sum(1 for s in active if s.is_transcoding)
             if used >= max_transcode:
@@ -1406,9 +1470,13 @@ class TranscodeSessionManager:
     async def _spawn(self, session: TranscodeSession, command: TranscodeCommand) -> None:
         # 新进程从不挂起态起步：旧进程的挂起原因随它一起消失
         session.pause_reasons.clear()
+        argv = list(command.argv)
+        if session.export_id is not None and shutil.which("nice"):
+            # 离线导出在本机转：让着实时播放（宁可导出慢，不让播放卡）
+            argv = ["nice", "-n", "10", *argv]
         # 契约 1+2：异步子进程 + 独立进程组
         process = await asyncio.create_subprocess_exec(
-            *command.argv,
+            *argv,
             stdout=asyncio.subprocess.DEVNULL,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
@@ -2081,6 +2149,7 @@ class TranscodeSessionManager:
                 # 必须用**接单的这台** Worker 连上来的地址拼（理由见
                 # ``_spawn_remote``）。不能沿用上一轮的地址——seek 完全可能被
                 # 另一台从不同入口连进来的 Worker 接走。
+                await self._evict_export_for_remote(session)
                 connection = registry.reserve(
                     job_id,
                     backend=session.hw_backend or "videotoolbox",
@@ -2090,6 +2159,7 @@ class TranscodeSessionManager:
                     plan=session.plan,
                     source_id=session.file_id,
                     learn_speed=session.segment_plan is not None,
+                    preemptible=session.export_id is not None,
                 )
                 session.progressive = _wants_progressive(session, connection)
                 try:
