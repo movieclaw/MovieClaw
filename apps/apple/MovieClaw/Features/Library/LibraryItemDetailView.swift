@@ -124,10 +124,8 @@ struct LibraryItemDetailView: View {
             }
         }
         .sheet(item: $downloadPick) { target in
-            OfflineProfileSheet(fileId: target.id, title: target.title, onPick: target.batch.count > 1 ? { profile, manifest in
-                OfflineSeasonDownload.start(fileIds: target.batch, profile: profile.profile, first: manifest, api: api, feedback: feedback)
-            } : nil)
-            .presentationDetents([.medium, .large])
+            OfflineProfileSheet(fileIds: target.batch, title: target.title)
+                .presentationDetents([.medium, .large])
         }
         .task { await reload() }
         // 进了详情页多半要播：先把起播要用的连接连好（见 PlaybackPreconnect）

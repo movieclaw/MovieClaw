@@ -123,59 +123,81 @@ struct ProgressRing: View {
 }
 
 /// 选档 sheet：列出这个文件可用的档位、各档预计大小、本机剩余空间；记住上次的选择
+/// 下载选档（docs/design/offline-download.md §5）：点一行只是选中（打勾），右上角「下载」才开始——同系统的选择类表单。
+/// 一次下多集时先把每一集的下载信息都取回来，每一档显示整批的总大小，空间不够时说明并禁用「下载」
 struct OfflineProfileSheet: View {
-    let fileId: Int
+    let fileIds: [Int]
     let title: String
-    /// 一季批量下：选中档位后交给调用方（不在这里开始下载）
-    var onPick: ((API.OfflineProfileView, API.OfflineManifestView) -> Void)?
+
+    init(fileId: Int, title: String) {
+        self.init(fileIds: [fileId], title: title)
+    }
+
+    init(fileIds: [Int], title: String) {
+        self.fileIds = fileIds
+        self.title = title
+    }
 
     @Environment(\.api) private var api
     @Environment(\.dismiss) private var dismiss
-    @State private var manifest: API.OfflineManifestView?
+    @Environment(Feedback.self) private var feedback
+    @State private var manifests: [API.OfflineManifestView]?
+    /// 取不到下载信息的集数（批量时其余照下）
+    @State private var missing = 0
     @State private var error: String?
     @State private var startError: String?
+    @State private var choice: String?
+
+    private var batch: Bool { fileIds.count > 1 }
 
     var body: some View {
         NavigationStack {
             Group {
-                if let manifest {
-                    content(manifest)
+                if let manifests, let first = manifests.first {
+                    content(first, manifests)
                 } else if let error {
                     ContentUnavailableView("拿不到下载信息", systemImage: "exclamationmark.triangle", description: Text(error))
                 } else {
-                    ProgressView("正在读取可下载的画质…").frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ProgressView(batch ? "正在计算 \(fileIds.count) 集的大小" : "正在读取可下载的画质")
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .navigationTitle("下载到 iPhone")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("下载") { start() }
+                        .fontWeight(.semibold)
+                        .disabled(!canStart)
+                        .accessibilityIdentifier("offline-profile-confirm")
+                }
             }
         }
-        .task {
-            do {
-                manifest = try await api.offlineManifest(fileId: fileId)
-            } catch {
-                self.error = error.localizedDescription
-            }
-        }
+        .task { await load() }
     }
 
     @ViewBuilder
-    private func content(_ manifest: API.OfflineManifestView) -> some View {
+    private func content(_ first: API.OfflineManifestView, _ manifests: [API.OfflineManifestView]) -> some View {
+        let free = OfflineDisk.availableBytes
         List {
             Section {
                 Text(title).font(.headline)
-                if let free = OfflineDisk.availableBytes {
+                if batch {
+                    Text(missing > 0 ? "共 \(manifests.count) 集（另有 \(missing) 集取不到下载信息，会跳过）" : "共 \(manifests.count) 集")
+                        .font(.footnote).foregroundStyle(Theme.textMuted)
+                }
+                if let free {
                     Text("iPhone 剩余 \(Formatters.bytes(Int(free)))").font(.footnote).foregroundStyle(Theme.textMuted)
                 }
             }
-            if let reason = manifest.unavailableReason {
+            if let reason = first.unavailableReason, !batch {
                 Section { Text(reason).foregroundStyle(Theme.warning) }
             } else {
                 Section {
-                    ForEach(manifest.profiles, id: \.profile) { profile in
-                        Button { pick(profile, manifest) } label: {
+                    ForEach(first.profiles, id: \.profile) { profile in
+                        let total = Self.totalBytes(profile.profile, manifests)
+                        Button { choice = profile.profile } label: {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(profile.label).foregroundStyle(Theme.text)
@@ -183,18 +205,25 @@ struct OfflineProfileSheet: View {
                                         .font(.caption).foregroundStyle(Theme.textMuted)
                                 }
                                 Spacer()
-                                Text("约 \(Formatters.bytes(profile.expectedBytes))").monospacedDigit().foregroundStyle(Theme.textMuted)
-                                if profile.profile == preferred(manifest) {
-                                    Image(systemName: "checkmark").foregroundStyle(Theme.info)
-                                }
+                                Text("\(batch ? "共" : "")约 \(Formatters.bytes(Int(total)))").monospacedDigit().foregroundStyle(Theme.textMuted)
+                                Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(Theme.info)
+                                    .opacity(profile.profile == selected(first) ? 1 : 0)
                             }
+                            .contentShape(.rect)
                         }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(profile.profile == selected(first) ? .isSelected : [])
                         .accessibilityIdentifier("offline-profile-\(profile.profile)")
                     }
                 } header: {
                     Text("画质")
                 } footer: {
-                    Text(OfflineSettings.allowCellular ? "会使用蜂窝网络下载。" : "只在 Wi-Fi 下下载；可在「我的 → 下载与存储」里改。")
+                    if let free, needed(first, manifests) > free {
+                        Text("空间不够：需要约 \(Formatters.bytes(Int(needed(first, manifests))))（含预留 2 GB），iPhone 只剩 \(Formatters.bytes(Int(free)))。换个小一点的画质，或先清理空间。")
+                            .foregroundStyle(Theme.danger)
+                    } else {
+                        Text(OfflineSettings.allowCellular ? "会使用蜂窝网络下载。" : "只在 Wi-Fi 下下载；可在「我的 → 下载与存储」里改。")
+                    }
                 }
             }
             if let startError {
@@ -203,50 +232,97 @@ struct OfflineProfileSheet: View {
         }
     }
 
-    /// 默认选中上次用的档位（这个文件有的话），否则原画
-    private func preferred(_ manifest: API.OfflineManifestView) -> String {
+    private var canStart: Bool {
+        guard let manifests, let first = manifests.first else { return false }
+        if !batch, first.unavailableReason != nil { return false }
+        if let free = OfflineDisk.availableBytes, needed(first, manifests) > free { return false }
+        return true
+    }
+
+    /// 选中的档位：用户点过的 → 上次用的（这个文件有的话）→ 原画
+    private func selected(_ first: API.OfflineManifestView) -> String {
+        if let choice { return choice }
         let last = OfflineSettings.lastProfile
-        return manifest.profiles.contains { $0.profile == last } ? last ?? "original" : "original"
+        return first.profiles.contains { $0.profile == last } ? last ?? "original" : "original"
     }
 
-    private func pick(_ profile: API.OfflineProfileView, _ manifest: API.OfflineManifestView) {
-        if let onPick {
-            onPick(profile, manifest)
-            dismiss()
-            return
-        }
-        do {
-            try OfflineDownloader.shared.start(manifest: manifest, profile: profile)
-            dismiss()
-        } catch {
-            startError = error.localizedDescription
+    private func needed(_ first: API.OfflineManifestView, _ manifests: [API.OfflineManifestView]) -> Int64 {
+        Self.totalBytes(selected(first), manifests) + OfflineSettings.reserveBytes
+    }
+
+    /// 整批按这一档的总大小：某一集没有这一档就按它的原画算（开始下载时同样退回原画）
+    static func totalBytes(_ profile: String, _ manifests: [API.OfflineManifestView]) -> Int64 {
+        manifests.reduce(0) { sum, manifest in
+            guard manifest.unavailableReason == nil else { return sum }
+            let chosen = manifest.profiles.first { $0.profile == profile } ?? manifest.profiles.first
+            return sum + Int64(chosen?.expectedBytes ?? 0)
         }
     }
-}
 
-/// 一季批量下载：先用第一集的清单选档，其余集按同一档（某集没有这一档就用原画）
-@MainActor
-enum OfflineSeasonDownload {
-    static func start(fileIds: [Int], profile: String, first: API.OfflineManifestView, api: APIClient, feedback: Feedback) {
-        Task {
-            var started = 0
-            var failures: [String] = []
-            for fileId in fileIds {
-                do {
-                    let manifest = fileId == first.fileId ? first : try await api.offlineManifest(fileId: fileId)
-                    guard let chosen = manifest.profiles.first(where: { $0.profile == profile }) ?? manifest.profiles.first else { continue }
-                    try OfflineDownloader.shared.start(manifest: manifest, profile: chosen)
-                    started += 1
-                } catch {
-                    failures.append(error.localizedDescription)
+    /// 取每一集的下载信息：并发 6 个；批量时取不到的集跳过并计数，全都取不到才报错
+    private func load() async {
+        var loaded: [Int: API.OfflineManifestView] = [:]
+        var lastError: Error?
+        let api = self.api
+        for chunk in stride(from: 0, to: fileIds.count, by: 6).map({ Array(fileIds[$0 ..< min($0 + 6, fileIds.count)]) }) {
+            await withTaskGroup(of: (Int, Result<API.OfflineManifestView, Error>).self) { group in
+                for id in chunk {
+                    group.addTask {
+                        do { return (id, .success(try await api.offlineManifest(fileId: id))) } catch { return (id, .failure(error)) }
+                    }
+                }
+                for await (id, result) in group {
+                    switch result {
+                    case let .success(manifest): loaded[id] = manifest
+                    case let .failure(failure): lastError = failure
+                    }
                 }
             }
-            if let failure = failures.first {
-                feedback.error(started > 0 ? "已开始下载 \(started) 集，\(failures.count) 集没能开始：\(failure)" : failure)
-            } else {
-                feedback.success("已开始下载 \(started) 集")
+        }
+        let ordered = fileIds.compactMap { loaded[$0] }
+        guard !ordered.isEmpty else {
+            error = lastError?.localizedDescription ?? "拿不到下载信息"
+            return
+        }
+        missing = fileIds.count - ordered.count
+        manifests = ordered
+    }
+
+    private func start() {
+        guard let manifests, let first = manifests.first else { return }
+        let profile = selected(first)
+        if !batch {
+            guard let chosen = first.profiles.first(where: { $0.profile == profile }) else { return }
+            do {
+                try OfflineDownloader.shared.start(manifest: first, profile: chosen)
+                dismiss()
+            } catch {
+                startError = error.localizedDescription
+            }
+            return
+        }
+        var started = 0
+        var failures: [String] = []
+        for manifest in manifests {
+            if let reason = manifest.unavailableReason {
+                failures.append(reason)
+                continue
+            }
+            guard let chosen = manifest.profiles.first(where: { $0.profile == profile }) ?? manifest.profiles.first else { continue }
+            do {
+                try OfflineDownloader.shared.start(manifest: manifest, profile: chosen)
+                started += 1
+            } catch {
+                failures.append(error.localizedDescription)
             }
         }
+        let skipped = failures.count + missing
+        if started == 0 {
+            startError = failures.first ?? "没能开始下载"
+            return
+        }
+        feedback.success(skipped > 0 ? "已开始下载 \(started) 集，\(skipped) 集没能开始" : "已开始下载 \(started) 集")
+        dismiss()
     }
 }
 

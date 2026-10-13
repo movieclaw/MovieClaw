@@ -157,6 +157,7 @@ final class OfflineDownloadUITests: XCTestCase {
         let profile = app.buttons["offline-profile-480p"]
         XCTAssertTrue(profile.waitForExistence(timeout: 30), "1080p 源应提供 480p")
         profile.tap()
+        app.buttons["offline-profile-confirm"].tap()
         XCTAssertTrue(waitUntil(timeout: 20) { (control.value as? String)?.hasSuffix("|480p") == true })
         XCUIDevice.shared.press(.home)
         Thread.sleep(forTimeInterval: 40)
@@ -195,6 +196,7 @@ final class OfflineDownloadUITests: XCTestCase {
         let original = app.buttons["offline-profile-original"]
         XCTAssertTrue(original.waitForExistence(timeout: 30))
         original.tap()
+        app.buttons["offline-profile-confirm"].tap()
         let downloaded = app.images.matching(NSPredicate(format: "label == '已下载'"))
         XCTAssertTrue(waitUntil(timeout: 180) { downloaded.count >= 3 }, "三集都应下完")
         snapshot("9-season-downloaded")
@@ -240,6 +242,7 @@ final class OfflineDownloadUITests: XCTestCase {
         let option = app.buttons["offline-profile-\(profile)"]
         XCTAssertTrue(option.waitForExistence(timeout: 30), "选档 sheet 应列出 \(profile)")
         option.tap()
+        app.buttons["offline-profile-confirm"].tap()
         XCTAssertTrue(waitUntil(timeout: 120) { (control.value as? String) == "done|\(profile)" },
                       "应下完：\(control.value ?? "")")
     }
@@ -255,6 +258,7 @@ final class OfflineDownloadUITests: XCTestCase {
         let option = app.buttons["offline-profile-\(profile)"]
         XCTAssertTrue(option.waitForExistence(timeout: 30))
         option.tap()
+        app.buttons["offline-profile-confirm"].tap()
     }
 
     @MainActor

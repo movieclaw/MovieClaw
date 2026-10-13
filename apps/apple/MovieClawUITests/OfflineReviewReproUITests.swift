@@ -124,6 +124,7 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertTrue(original.waitForExistence(timeout: 30))
         XCTAssertEqual(downloaded.count, 0, app.debugDescription)
         original.tap()
+        app.buttons["offline-profile-confirm"].tap()
         XCTAssertTrue(waitUntil(timeout: 180) { downloaded.count >= 3 })
         setMode(["mode": "refuse"])
         app.terminate()
@@ -174,7 +175,15 @@ final class OfflineReviewReproUITests: XCTestCase {
         let original = app.buttons["offline-profile-original"]
         XCTAssertTrue(original.waitForExistence(timeout: 30))
         XCTAssertEqual(downloaded.count, 0)
+        // 选档表单：写明共几集、每档是整批的总大小；点一行只是选中，右上角「下载」才开始
+        XCTAssertTrue(app.staticTexts["共 2 集"].waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertTrue(original.label.contains("共约"), "原画一行应是整批总大小：\(original.label)")
+        let total = Double(original.label.components(separatedBy: "共约 ").last?.components(separatedBy: " ").first ?? "") ?? 0
+        XCTAssertGreaterThan(total, 40, "两集约 47 MB，不该只是一集的大小：\(original.label)")
+        snapshot("profile-sheet-batch")
         original.tap()
+        XCTAssertTrue(app.buttons["offline-profile-confirm"].exists, "点一行不该直接开始、关掉表单")
+        app.buttons["offline-profile-confirm"].tap()
         XCTAssertTrue(waitUntil(timeout: 180) { downloaded.count == 2 }, "未看的只有第 2、3 集")
         Thread.sleep(forTimeInterval: 3)
         XCTAssertEqual(downloaded.count, 2, "看过的第 1 集不该被下载")
@@ -185,6 +194,7 @@ final class OfflineReviewReproUITests: XCTestCase {
         openItemMenu(app, then: "下载选中的集")
         XCTAssertTrue(original.waitForExistence(timeout: 30))
         original.tap()
+        app.buttons["offline-profile-confirm"].tap()
         XCTAssertTrue(waitUntil(timeout: 120) { downloaded.count == 3 }, "第 1 集也应下完")
 
         // 都在本机了：「下载选中的集」不可点，「下载全部剧集」提示已下载、不弹选档
@@ -211,6 +221,7 @@ final class OfflineReviewReproUITests: XCTestCase {
         // 限速到约 400 KB/s：25 MB 的一集要下一分钟，够看清进度
         setMode(["mode": "slow", "bps": 400_000])
         original.tap()
+        app.buttons["offline-profile-confirm"].tap()
 
         let ring = app.buttons["episode-1-download"]
         XCTAssertTrue(ring.waitForExistence(timeout: 30), "下载中剧照上应有进度环")
@@ -291,6 +302,7 @@ final class OfflineReviewReproUITests: XCTestCase {
         let option = app.buttons["offline-profile-\(profile)"]
         XCTAssertTrue(option.waitForExistence(timeout: 30))
         option.tap()
+        app.buttons["offline-profile-confirm"].tap()
     }
 
     private func snapshot(_ name: String) {
