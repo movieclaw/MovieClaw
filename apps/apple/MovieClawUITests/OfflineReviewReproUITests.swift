@@ -193,17 +193,20 @@ final class OfflineReviewReproUITests: XCTestCase {
         // 有没看的默认选「未看」；写明共几集、每档是整批的总大小
         XCTAssertTrue(scope.buttons["未看 2 集"].isSelected, app.debugDescription)
         XCTAssertTrue(scope.buttons["全部 3 集"].exists)
-        XCTAssertTrue(app.staticTexts["共 2 集"].waitForExistence(timeout: 10), app.debugDescription)
+        let detail = app.staticTexts["offline-scope-detail"]
+        XCTAssertTrue(detail.waitForExistence(timeout: 10), app.debugDescription)
+        XCTAssertEqual(detail.label, "第 2～3 集，共 2 集")
+        XCTAssertFalse(app.staticTexts["offline-download-note"].exists, "一集都没下过时不用说明")
         XCTAssertTrue(original.label.contains("共约"), "原画一行应是整批总大小：\(original.label)")
         let unwatchedTotal = Self.megabytes(original.label)
         XCTAssertGreaterThan(unwatchedTotal, 40, "两集约 47 MB，不该只是一集的大小：\(original.label)")
         snapshot("profile-sheet-batch")
         // 切到「全部」：集数和大小跟着变；再切回来
         scope.buttons["全部 3 集"].tap()
-        XCTAssertTrue(app.staticTexts["共 3 集"].waitForExistence(timeout: 30), app.debugDescription)
+        XCTAssertTrue(waitUntil(timeout: 10) { detail.label == "第 1～3 集，共 3 集" }, detail.label)
         XCTAssertTrue(waitUntil(timeout: 30) { Self.megabytes(original.label) > unwatchedTotal }, "全部应比未看大：\(original.label)")
         scope.buttons["未看 2 集"].tap()
-        XCTAssertTrue(app.staticTexts["共 2 集"].waitForExistence(timeout: 5))
+        XCTAssertTrue(waitUntil(timeout: 5) { detail.label == "第 2～3 集，共 2 集" }, detail.label)
         original.tap()
         XCTAssertTrue(app.buttons["offline-profile-confirm"].exists, "点一行不该直接开始、关掉表单")
         app.buttons["offline-profile-confirm"].tap()
@@ -212,11 +215,24 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertEqual(downloaded.count, 2, "看过的第 1 集不该被下载")
         XCTAssertFalse(app.buttons["episode-1"].label.contains("已下载"))
 
+        // 选中已下载的第 2 集：说明为什么，范围只剩「剩余 1 集」（没有「接下来」：后面的都下了）
+        app.buttons["episode-2"].tap()
+        openItemMenu(app, then: "下载")
+        XCTAssertTrue(original.waitForExistence(timeout: 30))
+        XCTAssertEqual(app.staticTexts["offline-download-note"].label, "第 2 集已下载 · 已下载 2 集，不会重复下载")
+        XCTAssertFalse(scope.exists, "只有一个范围时不该有分段")
+        XCTAssertEqual(app.staticTexts["offline-scope-only"].label, "剩余 1 集")
+        XCTAssertEqual(app.staticTexts["offline-scope-detail"].label, "第 1 集")
+        snapshot("profile-sheet-selected-downloaded")
+        app.buttons["取消"].firstMatch.tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { !original.exists })
+
         // 选中第 1 集：只剩这一集能下，面板不给范围选择
         app.buttons["episode-1"].tap()
         openItemMenu(app, then: "下载")
         XCTAssertTrue(original.waitForExistence(timeout: 30))
         XCTAssertFalse(scope.exists, "只有一个范围时不该有分段")
+        XCTAssertEqual(app.staticTexts["offline-scope-only"].label, "第 1 集")
         original.tap()
         app.buttons["offline-profile-confirm"].tap()
         XCTAssertTrue(waitUntil(timeout: 120) { downloaded.count == 3 }, "第 1 集也应下完")
@@ -358,6 +374,7 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 10) { !card1.label.contains("下载") }, "第 1 集应不再下载：\(card1.label)")
 
         // 取消全部（确认后）
+        let actions = app.buttons["item-actions"].frame
         app.buttons["item-actions"].tap()
         let all = app.buttons["取消全部下载（2 集）"]
         XCTAssertTrue(all.waitForExistence(timeout: 5), app.debugDescription)
@@ -365,6 +382,11 @@ final class OfflineReviewReproUITests: XCTestCase {
         all.tap()
         let confirm = app.buttons["取消 2 集的下载"]
         XCTAssertTrue(confirm.waitForExistence(timeout: 5), app.debugDescription)
+        // 确认气泡从右上角「⋯」弹出：在屏幕上方、偏右（挂在整页上时浮在页面中间）
+        let window = app.windows.firstMatch.frame
+        XCTAssertLessThan(confirm.frame.minY, window.height * 0.4, "确认框应贴着顶部的「⋯」：\(confirm.frame)")
+        XCTAssertGreaterThan(confirm.frame.maxX, actions.minX - 40, "确认框应靠右、在「⋯」下方：\(confirm.frame) vs \(actions)")
+        snapshot("cancel-confirm-anchored")
         confirm.tap()
         for episode in 2 ... 3 {
             let card = app.buttons["episode-\(episode)"]
@@ -458,6 +480,9 @@ final class OfflineReviewReproUITests: XCTestCase {
         delete.tap()
         let confirmDelete = app.buttons.matching(NSPredicate(format: "label BEGINSWITH '删除（释放'")).firstMatch
         XCTAssertTrue(confirmDelete.waitForExistence(timeout: 5))
+        // 确认气泡从这一行弹出：离这一行不远（挂在整个列表上时浮在页面中间的容量条上）
+        XCTAssertLessThan(abs(confirmDelete.frame.midY - row.frame.midY), 260, "确认框应贴着这一行：\(confirmDelete.frame) vs \(row.frame)")
+        XCTAssertTrue(confirmDelete.label.hasSuffix("）"), "括号要成对：\(confirmDelete.label)")
         let cancel = app.buttons["取消"].firstMatch.exists ? app.buttons["取消"].firstMatch : app.buttons["Cancel"].firstMatch
         // iOS 26 的确认框以弹出式窗口出现：点窗口外（系统的 PopoverDismissRegion）取消
         let outside = app.otherElements["PopoverDismissRegion"]
@@ -487,6 +512,15 @@ final class OfflineReviewReproUITests: XCTestCase {
         let storage = launch(reset: false, route: "/my/downloads")
         XCTAssertTrue(storage.buttons["offline-delete-watched"].waitForExistence(timeout: 20), "看完的下载应出现在「建议」里")
         XCTAssertTrue(storage.staticTexts["建议"].exists)
+        let watchedButton = storage.buttons["offline-delete-watched"]
+        let buttonFrame = watchedButton.frame
+        watchedButton.tap()
+        let confirmWatched = storage.buttons.matching(NSPredicate(format: "label BEGINSWITH '删除（释放'")).firstMatch
+        XCTAssertTrue(confirmWatched.waitForExistence(timeout: 5))
+        XCTAssertLessThan(abs(confirmWatched.frame.midY - buttonFrame.midY), 260, "确认框应贴着「删除」按钮：\(confirmWatched.frame) vs \(buttonFrame)")
+        snapshot("storage-watched-confirm")
+        storage.otherElements["PopoverDismissRegion"].firstMatch.tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { !confirmWatched.exists })
         let stray = storage.staticTexts.matching(NSPredicate(format: "label MATCHES '.*[0-9] ?[KMG]?B\\).*'"))
         XCTAssertEqual(stray.count, 0, "文案里不该有半角右括号：\(stray.allElementsBoundByIndex.map(\.label))")
         snapshot("storage-suggestion")

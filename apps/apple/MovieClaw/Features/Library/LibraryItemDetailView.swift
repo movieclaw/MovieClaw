@@ -124,17 +124,9 @@ struct LibraryItemDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) { actionsMenu(detail) }
             }
         }
-        .confirmationDialog("取消这部剧正在进行的下载？", isPresented: $confirmCancelDownloads, titleVisibility: .visible) {
-            let active = offlineStore.activeByItem[itemId] ?? []
-            Button("取消 \(active.count) 集的下载", role: .destructive) {
-                for unit in active { OfflineDownloader.shared.delete(fileId: unit.fileId) }
-            }
-        } message: {
-            Text("已下完的集会保留。")
-        }
         .sheet(isPresented: $downloadingSeries) {
             if let detail {
-                OfflineProfileSheet(title: detail.title) { try await downloadScopes(detail) }
+                OfflineProfileSheet(title: detail.title) { try await downloadChoices(detail) }
                     .presentationDetents([.medium, .large])
             }
         }
@@ -836,6 +828,15 @@ struct LibraryItemDetailView: View {
         }
         .accessibilityLabel("更多操作")
         .accessibilityIdentifier("item-actions")
+        // 挂在「⋯」上：iOS 26 的确认框以气泡从触发它的按钮弹出（挂在整页上会浮在页面中间、箭头指向标题）
+        .confirmationDialog("取消这部剧正在进行的下载？", isPresented: $confirmCancelDownloads, titleVisibility: .visible) {
+            let active = offlineStore.activeByItem[itemId] ?? []
+            Button("取消 \(active.count) 集的下载", role: .destructive) {
+                for unit in active { OfflineDownloader.shared.delete(fileId: unit.fileId) }
+            }
+        } message: {
+            Text("已下完的集会保留。")
+        }
     }
 
     @ViewBuilder
@@ -1067,31 +1068,20 @@ struct LibraryItemDetailView: View {
 
     /// 右上角菜单「下载」的范围：选中的这一集 / 未看的集 / 全部（docs/design/offline-download.md §8）。
     /// 本机已有的不算；空的范围、和「全部」一样的「未看」不给；有没看的默认选「未看」
-    private func downloadScopes(_ detail: API.LibraryItemDetailView) async throws -> [OfflineDownloadScope] {
-        var unwatched: [Int] = []
-        var all: [Int] = []
+    /// 右上角「下载」的范围：取各季分集与本机状态，规则在 `OfflineDownloadChoices.make`
+    private func downloadChoices(_ detail: API.LibraryItemDetailView) async throws -> OfflineDownloadChoices {
+        var episodes: [OfflineDownloadChoices.Episode] = []
         for season in Set(detail.files.map(\.seasonNumber)).sorted() {
-            let episodes = try await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: itemId, seasonNumber: season).episodes
-            for episode in episodes where episode.owned {
-                guard let file = episode.fileIds.first,
-                      offlineStore.unit(mediaItemId: itemId, season: season, episode: episode.episodeNumber) == nil else { continue }
-                all.append(file)
-                if !episode.played { unwatched.append(file) }
+            let list = try await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: itemId, seasonNumber: season).episodes
+            for episode in list where episode.owned {
+                let unit = offlineStore.unit(mediaItemId: itemId, season: season, episode: episode.episodeNumber)
+                episodes.append(.init(season: season, episode: episode.episodeNumber, file: episode.fileIds.first,
+                                      played: episode.played, local: unit.map { $0.playable ? .done : .active }))
             }
         }
-        var scopes: [OfflineDownloadScope] = []
-        if let file = selectedDownloadFile, let selectedEpisode {
-            let number = selectedEpisode.episode.episodeNumber
-            scopes.append(.init(id: "selected", label: detail.seasons.count > 1 ? "第 \(selectedEpisode.season) 季第 \(number) 集" : "第 \(number) 集",
-                                fileIds: [file]))
-        }
-        if !unwatched.isEmpty, unwatched.count < all.count {
-            scopes.append(.init(id: "unwatched", label: "未看 \(unwatched.count) 集", fileIds: unwatched, preferred: true))
-        }
-        if all.count > (scopes.isEmpty ? 0 : 1) {
-            scopes.append(.init(id: "all", label: "全部 \(all.count) 集", fileIds: all, preferred: unwatched.count == all.count))
-        }
-        return scopes
+        let selected = selectedEpisode.map { (season: $0.season, episode: $0.episode.episodeNumber) }
+        return OfflineDownloadChoices.make(episodes: episodes, selected: selected, selectedFile: selectedDownloadFile,
+                                           multiSeason: detail.seasons.count > 1)
     }
 
     private func restore(_ file: API.LibraryFileView) async {

@@ -44,6 +44,7 @@ struct OfflineStorageView: View {
                         Button("删除") { confirm = .watched }
                             .buttonStyle(.bordered).tint(.red).controlSize(.small)
                             .accessibilityIdentifier("offline-delete-watched")
+                            .modifier(confirmation(.watched))
                     }
                     .padding(.vertical, 2)
                 }
@@ -61,6 +62,7 @@ struct OfflineStorageView: View {
                     .contextMenu {
                         Button("删除下载", systemImage: "trash", role: .destructive) { confirm = .items([item.mediaItemId]) }
                     }
+                    .modifier(confirmation(.items([item.mediaItemId])))
                 }
             }
             if !otherOwners.isEmpty {
@@ -76,6 +78,7 @@ struct OfflineStorageView: View {
                             Text(Formatters.bytes(Int(entry.bytes))).monospacedDigit().foregroundStyle(Theme.textMuted)
                         }
                         .swipeActions { deleteAction { confirm = .owner(entry.owner) } }
+                        .modifier(confirmation(.owner(entry.owner)))
                     }
                 } header: {
                     Text("其他账号")
@@ -105,14 +108,18 @@ struct OfflineStorageView: View {
             OfflineSettings.allowCellular = value
             OfflineDownloader.shared.applyNetworkSettings()
         }
-        .confirmationDialog(confirmTitle, isPresented: Binding(mcGet: { confirm != nil }, set: { if !$0 { confirm = nil } }),
-                            titleVisibility: .visible, presenting: confirm) { target in
-            Button("删除（释放 \(Formatters.bytes(Int(bytes(of: target))))）", role: .destructive) { perform(target) }
-        } message: { _ in
-            Text("只删 iPhone 上的副本，观看进度会保留。")
-        }
         .task { await loadOtherOwners() }
         .accessibilityIdentifier("offline-storage")
+    }
+
+    /// 删除确认挂在触发它的那一行 / 那个按钮上：iOS 26 的确认框以气泡从来源处弹出，挂在整个列表上会浮在页面中间
+    private func confirmation(_ target: Confirm) -> ConfirmDelete {
+        ConfirmDelete(
+            title: title(of: target),
+            action: "删除（释放 \(Formatters.bytes(Int(bytes(of: target))))）",
+            isPresented: Binding(mcGet: { confirm?.id == target.id }, set: { if !$0, confirm?.id == target.id { confirm = nil } }),
+            perform: { perform(target) }
+        )
     }
 
     /// 左滑删除：不用 role: .destructive（那会让系统先把行做删除动画移走，这里还要等确认框），显式染成系统红
@@ -158,12 +165,11 @@ struct OfflineStorageView: View {
         }
     }
 
-    private var confirmTitle: String {
-        switch confirm {
-        case let .items(ids)?: ids.count == 1 ? "删除「\(store.items[ids[0]]?.title ?? "")」的下载？" : "删除 \(ids.count) 部的下载？"
-        case .watched?: "删除 \(watchedUnits.count) 个已看完的下载？"
-        case let .owner(owner)?: "删除「\(owner.username)」在这台 iPhone 上的全部下载？"
-        case nil: ""
+    private func title(of target: Confirm) -> String {
+        switch target {
+        case let .items(ids): ids.count == 1 ? "删除「\(store.items[ids[0]]?.title ?? "")」的下载？" : "删除 \(ids.count) 部的下载？"
+        case .watched: "删除 \(watchedUnits.count) 个已看完的下载？"
+        case let .owner(owner): "删除「\(owner.username)」在这台 iPhone 上的全部下载？"
         }
     }
 
@@ -244,6 +250,22 @@ private struct StorageUsageBar: View {
         HStack(spacing: 5) {
             Circle().fill(color).frame(width: 8, height: 8)
             Text(text).font(.caption).monospacedDigit().foregroundStyle(Theme.textMuted)
+        }
+    }
+}
+
+/// 存储页的删除确认（挂在来源上，见 `OfflineStorageView.confirmation`）
+private struct ConfirmDelete: ViewModifier {
+    let title: String
+    let action: String
+    let isPresented: Binding<Bool>
+    let perform: () -> Void
+
+    func body(content: Content) -> some View {
+        content.confirmationDialog(title, isPresented: isPresented, titleVisibility: .visible) {
+            Button(action, role: .destructive, action: perform)
+        } message: {
+            Text("只删 iPhone 上的副本，观看进度会保留。")
         }
     }
 }

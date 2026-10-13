@@ -169,3 +169,61 @@ struct OfflineProgressThresholdTests {
         #expect(OfflineViewingRecorder.resolve(positionMs: 0, runtimeMs: movie, currentlyPlayed: true) == (0, true), "拖回开头：已看不变")
     }
 }
+
+/// 剧集「下载」面板的范围规则（`OfflineDownloadChoices.make`）
+struct OfflineDownloadChoicesTests {
+    private func episodes(_ count: Int, season: Int = 1, local: [Int: OfflineDownloadChoices.Episode.Local] = [:],
+                          played: Set<Int> = []) -> [OfflineDownloadChoices.Episode] {
+        (1 ... count).map { .init(season: season, episode: $0, file: season * 1000 + $0, played: played.contains($0), local: local[$0]) }
+    }
+
+    @Test func selectedDownloadedOffersNextFiveAndRemaining() {
+        // 真机上的情形：47 集，选中的第 1 集已下载，都没看过——原来只剩「全部」、没有分段
+        let choices = OfflineDownloadChoices.make(episodes: episodes(47, local: [1: .done]), selected: (1, 1), selectedFile: nil,
+                                                  multiSeason: false)
+        #expect(choices.scopes.map(\.label) == ["接下来 5 集", "剩余 46 集"])
+        #expect(choices.scopes.first(where: \.preferred)?.id == "next")
+        #expect(choices.scopes[0].detail == "第 2～6 集，共 5 集")
+        #expect(choices.scopes[1].detail == "第 2～47 集，共 46 集")
+        #expect(choices.note == "第 1 集已下载 · 已下载 1 集，不会重复下载")
+    }
+
+    @Test func freshShowKeepsSelectedUnwatchedAndAll() {
+        let choices = OfflineDownloadChoices.make(episodes: episodes(3, played: [1]), selected: (1, 2), selectedFile: 1002,
+                                                  multiSeason: false)
+        #expect(choices.scopes.map(\.label) == ["第 2 集", "未看 2 集", "全部 3 集"])
+        #expect(choices.scopes.first(where: \.preferred)?.id == "unwatched")
+        #expect(choices.scopes[1].detail == "第 2～3 集，共 2 集")
+        #expect(choices.note == nil)
+    }
+
+    @Test func onlySelectedLeftIsASingleScope() {
+        let choices = OfflineDownloadChoices.make(episodes: episodes(3, local: [2: .done, 3: .active], played: [1]), selected: (1, 1),
+                                                  selectedFile: 1001, multiSeason: false)
+        #expect(choices.scopes.map(\.label) == ["第 1 集"])
+        #expect(choices.note == "已下载 1 集、正在下载 1 集，不会重复下载")
+    }
+
+    @Test func nextThatCoversEverythingLeftIsJustRemaining() {
+        let choices = OfflineDownloadChoices.make(episodes: episodes(4, local: [1: .active]), selected: (1, 1), selectedFile: nil,
+                                                  multiSeason: false)
+        #expect(choices.scopes.map(\.label) == ["剩余 3 集"])
+        #expect(choices.scopes[0].preferred)
+        #expect(choices.note == "第 1 集正在下载 · 正在下载 1 集，不会重复下载")
+    }
+
+    @Test func multiSeasonNamesAndNonContiguousRanges() {
+        let list = episodes(3, season: 1, local: [2: .done]) + episodes(2, season: 2)
+        let choices = OfflineDownloadChoices.make(episodes: list, selected: (1, 2), selectedFile: nil, multiSeason: true)
+        #expect(choices.note?.hasPrefix("第 1 季第 2 集已下载") == true)
+        #expect(choices.scopes.map(\.label) == ["接下来 3 集", "剩余 4 集"])
+        #expect(choices.scopes[0].detail == "第 1 季第 3 集 起，共 3 集")
+        #expect(choices.scopes[1].detail == "第 1 季第 1 集 起，共 4 集")
+    }
+
+    @Test func everythingLocalHasNoScopes() {
+        let choices = OfflineDownloadChoices.make(episodes: episodes(2, local: [1: .done, 2: .done]), selected: (1, 1), selectedFile: nil,
+                                                  multiSeason: false)
+        #expect(choices.scopes.isEmpty)
+    }
+}

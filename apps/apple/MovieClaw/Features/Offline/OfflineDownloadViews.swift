@@ -125,11 +125,89 @@ struct ProgressRing: View {
 /// 剧集下载的一个范围（选中的这一集 / 未看的集 / 全部）：分段选择里一段
 struct OfflineDownloadScope: Identifiable {
     let id: String
-    /// 分段上的字，如「第 3 集」「未看 8 集」
+    /// 分段上的字，如「第 3 集」「接下来 5 集」「未看 8 集」「剩余 40 集」
     let label: String
     let fileIds: [Int]
+    /// 范围下方的说明：「第 4～8 集，共 5 集」
+    var detail: String?
     /// 打开时默认选中
     var preferred = false
+}
+
+/// 剧集右上角「下载」的可选范围，加一句为什么有些集不在里面（「第 3 集已下载 · 已下载 3 集，不会重复下载」）
+struct OfflineDownloadChoices {
+    var scopes: [OfflineDownloadScope]
+    var note: String?
+
+    /// 一集在库的集与它在本机的状态
+    struct Episode {
+        enum Local { case done, active }
+        let season: Int
+        let episode: Int
+        let file: Int?
+        let played: Bool
+        let local: Local?
+    }
+
+    /// 范围规则（docs/design/offline-download.md §8）。候选 = 有文件、手机上还没有的集（下完的、在下的都不算）：
+    /// - 选中的集没下过：「第 N 集」；选中的集已下 / 在下：换成「接下来 5 集」（它之后还没下的 5 集，追剧边看边下）
+    /// - 「未看 N 集」：有没看的、且比剩余的少时才有，有它就默认选它
+    /// - 「全部 N 集」（这部剧一集都没下过）/「剩余 N 集」（下过一些）
+    /// 内容相同的范围只留一个；只剩一个时面板不显示分段。`episodes` 按季、集排好序
+    static func make(
+        episodes: [Episode], selected: (season: Int, episode: Int)?, selectedFile: Int?, multiSeason: Bool, nextCount: Int = 5
+    ) -> OfflineDownloadChoices {
+        func name(_ season: Int, _ episode: Int) -> String { multiSeason ? "第 \(season) 季第 \(episode) 集" : "第 \(episode) 集" }
+        /// 范围下方的说明：哪几集、共几集
+        func describe(_ list: [Episode]) -> String {
+            guard let first = list.first, let last = list.last else { return "" }
+            if list.count == 1 { return name(first.season, first.episode) }
+            if first.season == last.season, last.episode - first.episode + 1 == list.count {
+                return "\(multiSeason ? "第 \(first.season) 季" : "")第 \(first.episode)～\(last.episode) 集，共 \(list.count) 集"
+            }
+            return "\(name(first.season, first.episode)) 起，共 \(list.count) 集"
+        }
+        let candidates = episodes.filter { $0.file != nil && $0.local == nil }
+        let done = episodes.filter { $0.local == .done }.count, active = episodes.filter { $0.local == .active }.count
+        var scopes: [OfflineDownloadScope] = []
+        var notes: [String] = []
+        if let selected, let index = episodes.firstIndex(where: { $0.season == selected.season && $0.episode == selected.episode }) {
+            let current = episodes[index]
+            if let local = current.local {
+                notes.append("\(name(current.season, current.episode))\(local == .done ? "已下载" : "正在下载")")
+                let next = Array(episodes[(index + 1)...].filter { $0.file != nil && $0.local == nil }.prefix(nextCount))
+                if !next.isEmpty, next.count < candidates.count {  // 正好是剩下的全部：只留「剩余」
+                    scopes.append(.init(id: "next", label: "接下来 \(next.count) 集", fileIds: next.compactMap(\.file), detail: describe(next)))
+                }
+            } else if let file = selectedFile ?? current.file {
+                scopes.append(.init(id: "selected", label: name(current.season, current.episode), fileIds: [file],
+                                    detail: name(current.season, current.episode)))
+            }
+        }
+        if done + active > 0 {
+            let parts = [done > 0 ? "已下载 \(done) 集" : nil, active > 0 ? "正在下载 \(active) 集" : nil].compactMap { $0 }
+            notes.append(parts.joined(separator: "、") + "，不会重复下载")
+        }
+        let unwatched = candidates.filter { !$0.played }
+        if !unwatched.isEmpty, unwatched.count < candidates.count {
+            scopes.append(.init(id: "unwatched", label: "未看 \(unwatched.count) 集", fileIds: unwatched.compactMap(\.file),
+                                detail: describe(unwatched), preferred: true))
+        }
+        if !candidates.isEmpty {
+            let label = done + active == 0 ? "全部 \(candidates.count) 集" : "剩余 \(candidates.count) 集"
+            scopes.append(.init(id: "all", label: label, fileIds: candidates.compactMap(\.file), detail: describe(candidates)))
+        }
+        // 内容相同的只留前一个（比如只剩选中的这一集）
+        var seen: Set<[Int]> = []
+        scopes = scopes.filter { seen.insert($0.fileIds).inserted }
+        // 默认：有「未看」选未看；否则「接下来」；剩下的都没看过时选全部 / 剩余；都不是就第一个
+        if !scopes.contains(where: \.preferred) {
+            let fallback = scopes.firstIndex { $0.id == "next" }
+                ?? (unwatched.count == candidates.count ? scopes.firstIndex { $0.id == "all" } : nil)
+            if let fallback { scopes[fallback].preferred = true }
+        }
+        return OfflineDownloadChoices(scopes: scopes, note: notes.isEmpty ? nil : notes.joined(separator: " · "))
+    }
 }
 
 /// 下载选档（docs/design/offline-download.md §5）：点一行只是选中（打勾），右上角「下载」才开始——同系统的选择类表单。
@@ -141,22 +219,27 @@ struct OfflineDownloadScope: Identifiable {
 /// 旧服务器没有批量接口：退回逐集取清单
 struct OfflineProfileSheet: View {
     let title: String
-    private let loadScopes: () async throws -> [OfflineDownloadScope]
+    private let loadChoices: () async throws -> OfflineDownloadChoices
+    /// 剧集按范围下（有「下载范围」分组）；单个文件（电影、分集长按）没有
+    private let ranged: Bool
 
     init(fileId: Int, title: String) {
         self.title = title
-        loadScopes = { [OfflineDownloadScope(id: "file", label: title, fileIds: [fileId])] }
+        ranged = false
+        loadChoices = { OfflineDownloadChoices(scopes: [OfflineDownloadScope(id: "file", label: title, fileIds: [fileId])]) }
     }
 
-    init(title: String, scopes: @escaping () async throws -> [OfflineDownloadScope]) {
+    init(title: String, choices: @escaping () async throws -> OfflineDownloadChoices) {
         self.title = title
-        loadScopes = scopes
+        ranged = true
+        loadChoices = choices
     }
 
     @Environment(\.api) private var api
     @Environment(\.dismiss) private var dismiss
     @Environment(Feedback.self) private var feedback
     @State private var scopes: [OfflineDownloadScope]?
+    @State private var note: String?
     @State private var scopeId: String?
     /// 每个文件的可选档位（批量接口；旧服务器由逐集清单换算）
     @State private var entries: [Int: API.OfflineFileProfilesView] = [:]
@@ -208,7 +291,9 @@ struct OfflineProfileSheet: View {
         }
         .task {
             do {
-                let scopes = try await loadScopes()
+                let choices = try await loadChoices()
+                let scopes = choices.scopes
+                note = choices.note
                 scopeId = (scopes.first(where: \.preferred) ?? scopes.first)?.id
                 self.scopes = scopes
                 // 所有范围的文件一次问完：切范围不再发请求
@@ -230,22 +315,34 @@ struct OfflineProfileSheet: View {
     @ViewBuilder
     private func content(_ scopes: [OfflineDownloadScope]) -> some View {
         let free = OfflineDisk.availableBytes
+        let scope = scopes.first { $0.id == scopeId }
         List {
             Section {
-                Text(title).font(.headline)
-                if scopes.count > 1 {
-                    Picker("下载范围", selection: Binding(mcGet: { scopeId ?? "" }, set: { scopeId = $0; startError = nil })) {
-                        ForEach(scopes) { Text($0.label).tag($0.id) }
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title).font(.headline)
+                    if let note {
+                        Text(note).font(.footnote).foregroundStyle(Theme.textMuted)
+                            .accessibilityIdentifier("offline-download-note")
                     }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("offline-scope")
                 }
-                if batch {
-                    Text(ready && missing > 0 ? "共 \(fileIds.count - missing) 集（另有 \(missing) 集取不到下载信息，会跳过）" : "共 \(fileIds.count) 集")
-                        .font(.footnote).foregroundStyle(Theme.textMuted)
-                }
-                if let free {
-                    Text("iPhone 剩余 \(Formatters.bytes(Int(free)))").font(.footnote).foregroundStyle(Theme.textMuted)
+                .padding(.vertical, 2)
+            }
+            if ranged, let scope {
+                Section("下载范围") {
+                    if scopes.count > 1 {
+                        Picker("下载范围", selection: Binding(mcGet: { scopeId ?? "" }, set: { scopeId = $0; startError = nil })) {
+                            ForEach(scopes) { Text($0.label).tag($0.id) }
+                        }
+                        .pickerStyle(.segmented)
+                        .accessibilityIdentifier("offline-scope")
+                    } else {
+                        Text(scope.label).accessibilityIdentifier("offline-scope-only")
+                    }
+                    if let detail = scope.detail {
+                        let skipped = ready && missing > 0 ? "（其中 \(missing) 集取不到下载信息，会跳过）" : ""
+                        Text(detail + skipped).font(.footnote).foregroundStyle(Theme.textMuted).monospacedDigit()
+                            .accessibilityIdentifier("offline-scope-detail")
+                    }
                 }
             }
             if ready, let first = current.first {
@@ -297,7 +394,8 @@ struct OfflineProfileSheet: View {
                     Text("空间不够：需要约 \(Formatters.bytes(Int(needed(first, files))))（含预留 2 GB），iPhone 只剩 \(Formatters.bytes(Int(free)))。换个小一点的画质，或先清理空间。")
                         .foregroundStyle(Theme.danger)
                 } else {
-                    Text(OfflineSettings.allowCellular ? "会使用蜂窝网络下载。" : "只在 Wi-Fi 下下载；可在「我的 → 下载与存储」里改。")
+                    let network = OfflineSettings.allowCellular ? "会使用蜂窝网络下载" : "只在 Wi-Fi 下下载，可在「我的 → 下载与存储」里改"
+                    Text(free.map { "iPhone 剩余 \(Formatters.bytes(Int($0))) · \(network)" } ?? network)
                 }
             }
         }
