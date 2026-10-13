@@ -373,6 +373,7 @@ struct LibraryInventoryCell: View {
                     Label(action.label, systemImage: action.systemImage)
                 }
             }
+            OfflineDeleteMenuButton(itemId: item.mediaItemId, title: item.title)
         }
         .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { cellWidth = $0 }
         .id(item.mediaItemId)

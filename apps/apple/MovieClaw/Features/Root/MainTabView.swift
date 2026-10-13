@@ -86,21 +86,21 @@ struct MainTabView: View {
             .accessibilityLabel(MainTab.library.title)
             if permissions.canSubscribe {
                 Tab(value: MainTab.subscriptions) {
-                    TabRoot(tab: .subscriptions) { SubscriptionsView() }
+                    TabRoot(tab: .subscriptions) { OfflineGate { SubscriptionsView() } }
                 } label: {
                     iconLabel(.subscriptions)
                 }
                 .accessibilityLabel(MainTab.subscriptions.title)
             }
             Tab(value: MainTab.discover) {
-                TabRoot(tab: .discover) { DiscoverView(kind: "movie") }
+                TabRoot(tab: .discover) { OfflineGate { DiscoverView(kind: "movie") } }
             } label: {
                 iconLabel(.discover)
             }
             .accessibilityLabel(MainTab.discover.title)
             if permissions.isAdmin {
                 Tab(value: MainTab.activity) {
-                    TabRoot(tab: .activity) { ActivityView() }
+                    TabRoot(tab: .activity) { OfflineGate { ActivityView() } }
                 } label: {
                     iconLabel(.activity)
                 }
@@ -212,6 +212,8 @@ struct MainTabView: View {
             }
         }
         .modifier(FeedbackHost(feedback: feedback))
+        // 离线下载（docs/design/offline-download.md）：本机目录、连通性、补传观看记录
+        .modifier(OfflineShell(api: api, username: session?.username, feedback: feedback))
         #if DEBUG
         .task {
             // 开发期：-mcRoute 直接打开某个站内路径（与网页同路由截图对照）
@@ -285,6 +287,12 @@ struct MainTabView: View {
         .onChange(of: scenePhase) { _, phase in
             // 墙位置的「久别回归」判定全站共用一个时刻（各面墙出现时比较，见 LibraryWallRecall）
             LibraryWallRecall.noteScenePhase(phase)
+            if phase == .background { ServerReachability.shared.noteBackground() }
+            if phase == .active {
+                ServerReachability.shared.noteForeground()
+                OfflineDownloader.shared.reconcile(reason: "foreground")
+                if let key = OfflineStore.shared.key { OfflineViewingUploader.shared.flush(api: api, ownerKey: key) }
+            }
             // 回到前台：后台静默重新校验身份与权限（Web AuthGate 每次挂载重取 /auth/me），
             // 管理员顺带刷新待更新快照（Web 窗口获得焦点即刷新）
             guard phase == .active else { return }
@@ -837,5 +845,31 @@ private struct PageWarmup: View {
             .allowsHitTesting(false)
             .accessibilityHidden(true)
         }
+    }
+}
+
+/// 外壳上的离线下载接线（docs/design/offline-download.md）：换账号 / 换服务器时载入本机目录、交给连通性判断；
+/// 自动回到在线时轻提示，并把攒着的下载与观看记录接着发
+private struct OfflineShell: ViewModifier {
+    let api: APIClient
+    let username: String?
+    let feedback: Feedback
+    @State private var reachability = ServerReachability.shared
+    @State private var store = OfflineStore.shared
+
+    func body(content: Content) -> some View {
+        content
+            .task(id: "\(api.server.origin)|\(username ?? "")") {
+                guard let username else { return }
+                reachability.track(server: api.server)
+                await store.adopt(server: api.server, username: username)
+                if let key = store.key { OfflineViewingUploader.shared.flush(api: api, ownerKey: key) }
+            }
+            .onChange(of: reachability.reconnects) {
+                feedback.success("已连上服务器")
+                OfflineDownloader.shared.reconcile(reason: "reconnected")
+                if let key = store.key { OfflineViewingUploader.shared.flush(api: api, ownerKey: key) }
+            }
+            .onChange(of: store.downloadedItemIds) { reachability.catalogChanged() }
     }
 }

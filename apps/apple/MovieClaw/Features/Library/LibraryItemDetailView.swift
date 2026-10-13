@@ -45,6 +45,13 @@ struct LibraryItemDetailView: View {
     /// 相似推荐（库内）与电影的作品系列：详情到手后拉一次，不随刮削轮询重拉（规则见 `ItemRelated`）
     @State private var similar: [API.LibraryItemView] = []
     @State private var series: API.CollectionSeriesView?
+    /// 离线下载（docs/design/offline-download.md §4）：离线模式、或在线请求失败回落本机时，页面只读、
+    /// 只显示本机有的文件与集
+    @State private var reachability = ServerReachability.shared
+    @State private var offlineStore = OfflineStore.shared
+    @State private var localOnly = false
+    /// 在线时服务器说这个条目不在了，但 iPhone 上还有副本
+    @State private var goneOnServer = false
 
     /// 标题区滚出视野后才在导航栏显示片名、恢复顶部的滚动边缘效果（R-6，同发现详情页）：
     /// Hero 全出血到状态栏，返回 / ⋯ 直接浮在剧照上
@@ -108,7 +115,7 @@ struct LibraryItemDetailView: View {
                     .opacity(titleVisible || detail == nil ? 1 : 0)
                     .animation(.easeInOut(duration: 0.2), value: titleVisible)
             }
-            if let detail {
+            if let detail, !readOnly {
                 ToolbarItem(placement: .topBarTrailing) { actionsMenu(detail) }
             }
         }
@@ -116,8 +123,8 @@ struct LibraryItemDetailView: View {
         // 进了详情页多半要播：先把起播要用的连接连好（见 PlaybackPreconnect）
         .task { PlaybackPreconnect.warm(api: api) }
         .task(id: playUnitKey) { await loadResume() }
-        .task(id: detail?.mediaItemId) {
-            guard let detail else { return }
+        .task(id: "\(detail?.mediaItemId ?? 0)|\(readOnly)") {
+            guard let detail, !readOnly else { return }
             let rows = await ItemRelated.load(api: api, libraryId: libraryId, detail: detail)
             similar = rows.similar
             series = rows.series
@@ -127,9 +134,13 @@ struct LibraryItemDetailView: View {
             Task { await loadResume(keepCurrent: true) }
             episodesVersion += 1
         }
-        .task { favorite = (try? await api.playbackMarksGet(mediaItemId: itemId))?.isFavorite }
+        .task(id: readOnly) {
+            guard !readOnly else { return }
+            favorite = (try? await api.playbackMarksGet(mediaItemId: itemId))?.isFavorite
+        }
+        .onChange(of: reachability.isOffline) { Task { await reload() } }
         .polling(every: detail?.scraping == true || kicking ? 2 : 3) {
-            guard let detail else { return }
+            guard let detail, !readOnly else { return }
             let chaptersPolling = detail.chaptersPending && !detail.scraping && chapterPolls < 20
             guard detail.scraping || chaptersPolling else { return }
             if !detail.scraping { chapterPolls += 1 }
@@ -234,17 +245,17 @@ struct LibraryItemDetailView: View {
                     }
                     castRow(detail)
                     // 演职员 → 相似推荐 → 系列（与 Apple TV、Mac、Web 同一个顺序，2026-10-12 用户定）
-                    if !similar.isEmpty {
+                    if !similar.isEmpty, !readOnly {
                         LibrarySimilarSection(libraryId: libraryId, items: similar)
                     }
-                    if let series {
+                    if let series, !readOnly {
                         LibrarySeriesSection(series: series, libraryId: libraryId, itemId: itemId)
                     }
                     let files = isMovie ? detail.files : (selectedEpisode?.files ?? [])
                     if !files.isEmpty {
                         fileSection(detail, files: files)
                     }
-                    externalLinks(detail)
+                    if !readOnly { externalLinks(detail) }
                 }
                 .padding(.top, 28)
                 .padding(.bottom, 48)
@@ -350,6 +361,11 @@ struct LibraryItemDetailView: View {
                         NavigationLink("还有 \(detail.collections.count - 3) 个", value: AppRoute.library(id: libraryId, view: "collections"))
                     }
                 }
+            }
+            if goneOnServer {
+                Text("服务器上已没有这个条目，下面是 iPhone 上的副本，仍可播放与删除。")
+                    .font(.footnote).foregroundStyle(Theme.warning)
+                    .padding(.top, 4)
             }
             MediaTrackSection(files: trackFiles, selectedFileId: $selectedTrackFileId) { await reload() }
                 .padding(.top, 6)
@@ -504,6 +520,11 @@ struct LibraryItemDetailView: View {
             .accessibilityLabel(progressText.map { "\(label)，\($0)" } ?? label)
             .accessibilityIdentifier("item-play")
             HStack(spacing: 10) {
+                if let detail, let unit = playUnit {
+                    OfflineDownloadControl(detail: detail, season: unit.season, episode: unit.episode,
+                                           files: downloadableFiles)
+                }
+                if !readOnly {
                 Button { Task { await toggleFavorite() } } label: {
                     Label(favorite == true ? "已收藏" : "收藏", systemImage: favorite == true ? "heart.fill" : "heart")
                         .heroActionLabel()
@@ -524,6 +545,7 @@ struct LibraryItemDetailView: View {
                 .disabled(marking)
                 .accessibilityLabel(finished ? "标记为未看" : "标记为已看")
                 .accessibilityIdentifier("item-played")
+                }
             }
             if let progressText {
                 VStack(alignment: .leading, spacing: 6) {
@@ -627,7 +649,7 @@ struct LibraryItemDetailView: View {
 
     @ViewBuilder
     private func fileSection(_ detail: API.LibraryItemDetailView, files: [API.LibraryFileView]) -> some View {
-        let manage = permissions.canManageLibraries
+        let manage = permissions.canManageLibraries && !readOnly
         let inPlace = detail.files.filter { $0.state == "in_place" }
         let duplicateUnits = Dictionary(grouping: inPlace, by: { "\($0.seasonNumber):\($0.episodeNumber)" }).values.filter { $0.count > 1 }.count
         let duplicateLabel: String? = duplicateUnits == 0 ? nil : detail.kind == "tv" ? "\(duplicateUnits) 集有重复" : "\(inPlace.count) 个版本"
@@ -767,6 +789,18 @@ struct LibraryItemDetailView: View {
     // MARK: 加载与动作
 
     private func reload() async {
+        // 本机有副本：先用本机数据秒开（同首页快照的做法），在线时再静默拉服务器、写回本机
+        let local = offlineStore.downloadedItemIds.contains(itemId) ? await offlineStore.detail(itemId: itemId) : nil
+        if let local, detail == nil || reachability.isOffline {
+            detail = reachability.isOffline ? offlineStore.offlineDetail(local) : local
+            if library == nil { library = await offlineStore.library(itemId: itemId) }
+            localOnly = reachability.isOffline
+            failed = false
+        }
+        if reachability.isOffline {
+            if local == nil, detail == nil { failed = true }
+            return
+        }
         do {
             async let item = api.libraryItemsGet(libraryId: libraryId, mediaItemId: itemId)
             async let lib = try? api.libraryGet(libraryId: libraryId)
@@ -774,15 +808,48 @@ struct LibraryItemDetailView: View {
             detail = d
             if let l { library = l }
             failed = false
+            localOnly = false
+            goneOnServer = false
             if !d.chaptersPending { chapterPolls = 0 }
+            offlineStore.refresh(detail: d)
         } catch is CancellationError {
         } catch let error as APIError where error.status == 404 {
+            if let local {
+                // 服务器上没了，iPhone 上还有：显示本机副本，仍可播放、删除
+                detail = offlineStore.offlineDetail(local)
+                localOnly = true
+                goneOnServer = true
+                return
+            }
             // 条目已不存在（改挂走了 / 删掉了）：不论页面上有没有旧数据都落到兜底态，别继续显示已不存在的条目
             failed = true
         } catch {
+            if let local {
+                // 连不上服务器：停在本机数据上，只显示本机有的文件与集
+                detail = offlineStore.offlineDetail(local)
+                localOnly = true
+                return
+            }
             // 网络抖动：保留已显示的内容，首次加载才落兜底态
             if detail == nil { failed = true }
         }
+    }
+
+    /// 只读：离线模式，或在线请求失败 / 服务器上已删除、回落本机副本
+    private var readOnly: Bool { reachability.isOffline || localOnly }
+
+    /// 这个单元能下载的文件（选中的版本在前）
+    private var downloadableFiles: [API.LibraryFileView] {
+        let files = availableTrackFiles
+        guard let selected = selectedTrackFile else { return files }
+        return [selected] + files.filter { $0.id != selected.id }
+    }
+
+    /// 本机进度 → 播放键要的观看状态
+    private func localWatched(_ unit: (season: Int, episode: Int)) -> API.PlaybackStateView? {
+        guard let local = offlineStore.localProgress(itemId: itemId, season: unit.season, episode: unit.episode) else { return nil }
+        return API.PlaybackStateView(positionMs: local.positionMs, played: local.played, playCount: local.played ? 1 : 0,
+                                     durationMs: local.durationMs, audioTrack: nil, subtitleTrack: nil, endedByAdmin: false)
     }
 
     /// 删除影片（或删掉最后一个文件连带条目）后离开：落到本库页（同 Web router.replace(/library/{id})）。
@@ -801,7 +868,21 @@ struct LibraryItemDetailView: View {
             return
         }
         if !keepCurrent { watched = nil }
+        if readOnly {
+            watched = localWatched(unit)
+            return
+        }
         let fresh = try? await api.playbackResume(mediaItemId: itemId, seasonNumber: unit.season, episodeNumber: unit.episode)
+        if let fresh, let key = offlineStore.key, offlineStore.downloadedItemIds.contains(itemId),
+           !OfflineViewingUploader.shared.hasPending(ownerKey: key, itemId: itemId, season: unit.season, episode: unit.episode) {
+            // 在线拿到的服务器续播点写进本机（离线时从这里接着看）；本机还有没发出去的观看记录时不覆盖
+            offlineStore.recordProgress(itemId: itemId, season: unit.season, episode: unit.episode,
+                                        positionMs: fresh.positionMs, played: fresh.played, durationMs: fresh.durationMs)
+        }
+        if fresh == nil, let local = localWatched(unit) {
+            watched = local
+            return
+        }
         if fresh != nil || !keepCurrent { watched = fresh }
     }
 
@@ -1006,6 +1087,20 @@ struct SeasonEpisodesSection: View {
     /// 选中集换了要把横排滚到它（换段、宫格里点了一集、锚点变了）
     @State private var scrollRequest = 0
     @State private var showsAll = false
+    /// 离线下载（docs/design/offline-download.md §8）：分集卡长按下载 / 删除，季选择旁「⋯」整季下载 / 删除
+    @Environment(\.permissions) private var permissions
+    @Environment(Feedback.self) private var feedback
+    @State private var reachability = ServerReachability.shared
+    @State private var offlineStore = OfflineStore.shared
+    @State private var pickFile: PickFile?
+    @State private var confirmDeleteSeason = false
+
+    private struct PickFile: Identifiable {
+        let id: Int
+        let title: String
+        /// 整季批量下：其余要下的文件
+        var batch: [Int] = []
+    }
 
     private var ownedSeasons: Set<Int> { Set(detail.files.map(\.seasonNumber)) }
     /// 打开时落在哪一季哪一集：路由指定的 → 首页「接下来继续」里这部剧的那一季（集不取它的，由这一季的锚点定）
@@ -1058,6 +1153,7 @@ struct SeasonEpisodesSection: View {
                 } else {
                     Text(seasonLabel(currentSeason)).font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
+                if let data { seasonDownloadMenu(data) }
                 if let data, !ranges.isEmpty {
                     Spacer(minLength: 0)
                     Button { showsAll = true } label: {
@@ -1099,10 +1195,13 @@ struct SeasonEpisodesSection: View {
                             }
                             ForEach(shown, id: \.episodeNumber) { episode in
                                 EpisodeCard(episode: episode, selected: episode.episodeNumber == selected,
-                                            resume: watchedAny && episode.episodeNumber == anchor) {
+                                            resume: watchedAny && episode.episodeNumber == anchor,
+                                            downloaded: offlineStore.playableUnit(mediaItemId: detail.mediaItemId, season: data.seasonNumber,
+                                                                                  episode: episode.episodeNumber) != nil) {
                                     selected = episode.episodeNumber
                                     report()
                                 }
+                                .contextMenu { episodeMenu(data.seasonNumber, episode) }
                                 .id(episode.episodeNumber)
                             }
                             if let next {
@@ -1136,7 +1235,21 @@ struct SeasonEpisodesSection: View {
                 .padding(.horizontal, Theme.pagePadding).padding(.vertical, 20)
             }
         }
-        .task(id: "\(currentSeason)|\(detail.fileCount)") { await load(reset: true) }
+        .task(id: "\(currentSeason)|\(detail.fileCount)|\(reachability.isOffline)") { await load(reset: true) }
+        .sheet(item: $pickFile) { target in
+            OfflineProfileSheet(fileId: target.id, title: target.title, onPick: target.batch.isEmpty ? nil : { profile, manifest in
+                OfflineSeasonDownload.start(fileIds: target.batch, profile: profile.profile, first: manifest, api: api, feedback: feedback)
+            })
+            .presentationDetents([.medium, .large])
+        }
+        .confirmationDialog("删除第 \(currentSeason) 季的下载？", isPresented: $confirmDeleteSeason, titleVisibility: .visible) {
+            let units = seasonUnits
+            Button("删除 \(units.count) 集（\(Formatters.bytes(Int(units.reduce(0) { $0 + $1.receivedBytes }))))", role: .destructive) {
+                for unit in units { OfflineDownloader.shared.delete(fileId: unit.fileId) }
+            }
+        } message: {
+            Text("只删 iPhone 上的副本，观看进度会保留。")
+        }
         .onChange(of: refreshKey) { Task { await load(reset: false) } }
         // 作容器：标识不盖掉里面季选择、段胶囊、「全部 N 集」各自的标识
         .accessibilityElement(children: .contain)
@@ -1150,8 +1263,22 @@ struct SeasonEpisodesSection: View {
             data = nil
             failed = false
         }
+        // 本机有这一季的存档：离线时只用它；在线请求失败时回落到它（只显示本机有的集）
+        let itemId = detail.mediaItemId
+        let local = offlineStore.downloadedItemIds.contains(itemId) ? await offlineStore.season(itemId: itemId, season: s) : nil
         do {
-            let result = try await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: detail.mediaItemId, seasonNumber: s)
+            if reachability.isOffline {
+                guard let local else { throw CancellationError() }
+                throw OfflineFallback(view: offlineStore.offlineSeason(local, itemId: itemId))
+            }
+            let result: API.SeasonEpisodesView
+            do {
+                result = try await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: itemId, seasonNumber: s)
+                offlineStore.refresh(season: result, itemId: itemId)
+            } catch let error as APIError {
+                guard let local else { throw error }
+                result = offlineStore.offlineSeason(local, itemId: itemId)
+            }
             guard s == currentSeason else { return }
             data = result
             if reset {
@@ -1165,9 +1292,83 @@ struct SeasonEpisodesSection: View {
                 lock(anchor)
             }
             report()
+        } catch let fallback as OfflineFallback {
+            guard s == currentSeason else { return }
+            data = fallback.view
+            if reset {
+                let target = s == entry?.season ? entry?.episode : nil
+                let requested = target.flatMap { t in fallback.view.episodes.first { $0.episodeNumber == t && $0.owned } }
+                lock((requested ?? fallback.view.anchorEpisode)?.episodeNumber)
+            }
+            if season == nil { season = s }
+            report()
         } catch is CancellationError {
+            if reachability.isOffline, reset { failed = true }
         } catch {
             if reset { failed = true }
+        }
+    }
+
+    /// 离线时直接用本机存档（走同一段落点逻辑之外的捷径）
+    private struct OfflineFallback: Error {
+        let view: API.SeasonEpisodesView
+    }
+
+    /// 这一季已有的本机副本
+    private var seasonUnits: [OfflineUnit] {
+        offlineStore.units(ofItem: detail.mediaItemId).filter { $0.season == currentSeason }
+    }
+
+    /// 季选择旁的「⋯」：整季下载（没下的集）/ 删除本季下载
+    @ViewBuilder
+    private func seasonDownloadMenu(_ data: API.SeasonEpisodesView) -> some View {
+        let local = Set(seasonUnits.map(\.episode))
+        let missing = data.episodes.filter { $0.owned && !local.contains($0.episodeNumber) && !$0.fileIds.isEmpty }
+        let canDownload = permissions.canDownloadVideo && offlineStore.serverSupported && !reachability.isOffline && !missing.isEmpty
+        if canDownload || !seasonUnits.isEmpty {
+            Menu {
+                if canDownload {
+                    Button("下载本季未下载的 \(missing.count) 集", systemImage: "arrow.down.circle") {
+                        let files = missing.compactMap(\.fileIds.first)
+                        if let first = files.first {
+                            pickFile = PickFile(id: first, title: "\(detail.title) 第 \(data.seasonNumber) 季（\(files.count) 集）", batch: files)
+                        }
+                    }
+                }
+                if !seasonUnits.isEmpty {
+                    Button("删除本季下载", systemImage: "trash", role: .destructive) { confirmDeleteSeason = true }
+                }
+            } label: {
+                Image(systemName: "ellipsis")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Theme.text)
+                    .frame(width: 32, height: 30)
+                    .glassEffect(.regular.interactive(), in: .capsule)
+            }
+            .accessibilityLabel("本季下载")
+            .accessibilityIdentifier("season-download-menu")
+        }
+    }
+
+    /// 分集卡长按：下载这一集 / 暂停 / 删除下载
+    @ViewBuilder
+    private func episodeMenu(_ season: Int, _ episode: API.EpisodeView) -> some View {
+        let unit = offlineStore.unit(mediaItemId: detail.mediaItemId, season: season, episode: episode.episodeNumber)
+        if let unit {
+            Text(OfflineUnitStatus.text(unit))
+            if unit.state == .queued || unit.state == .downloading {
+                Button("暂停", systemImage: "pause") { OfflineDownloader.shared.pause(fileId: unit.fileId) }
+            }
+            if unit.state == .paused || unit.state == .failed {
+                Button("继续下载", systemImage: "play") { OfflineDownloader.shared.resume(fileId: unit.fileId) }
+            }
+            Button(unit.state == .done ? "删除下载" : "取消下载", systemImage: "trash", role: .destructive) {
+                OfflineDownloader.shared.delete(fileId: unit.fileId)
+            }
+        } else if permissions.canDownloadVideo, offlineStore.serverSupported, !reachability.isOffline, let file = episode.fileIds.first {
+            Button("下载这一集", systemImage: "arrow.down.circle") {
+                pickFile = PickFile(id: file, title: "\(detail.title) 第 \(season) 季第 \(episode.episodeNumber) 集")
+            }
         }
     }
 
@@ -1199,6 +1400,8 @@ private struct EpisodeCard: View {
     let selected: Bool
     /// 本季有观看记录时，锚点那张卡左上角标「接着看」
     var resume = false
+    /// 这一集在 iPhone 上有下载（docs/design/offline-download.md §1：分集卡标「已下载」）
+    var downloaded = false
     var onSelect: () -> Void
     @Environment(\.api) private var api
 
@@ -1219,6 +1422,11 @@ private struct EpisodeCard: View {
                     }
                     .overlay(alignment: .topTrailing) {
                         HStack(spacing: 4) {
+                            if downloaded {
+                                Image(systemName: "arrow.down").font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                                    .frame(width: 18, height: 18).background(.black.opacity(0.6), in: .circle)
+                                    .accessibilityLabel("已下载")
+                            }
                             if !episode.owned {
                                 Text("缺").font(.caption2.weight(.semibold)).foregroundStyle(Theme.warning)
                                     .padding(.horizontal, 5).padding(.vertical, 1)

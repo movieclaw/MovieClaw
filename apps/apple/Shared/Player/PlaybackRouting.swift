@@ -306,6 +306,8 @@ nonisolated final class NetworkCost: @unchecked Sendable {
     private let lock = NSLock()
     private var metered = false
     private var currentInterface = "other"
+    /// 有没有可用的网络通路（飞行模式、Wi-Fi 与蜂窝都没有时为 false）：离线模式据此判定（ServerReachability）
+    private var satisfied = true
 
     private init() {
         monitor.pathUpdateHandler = { [weak self] path in
@@ -320,12 +322,16 @@ nonisolated final class NetworkCost: @unchecked Sendable {
             } else {
                 "other"
             }
+            let up = path.status == .satisfied
             self.lock.lock()
             let changed = now != self.metered
+            let pathChanged = up != self.satisfied
             self.metered = now
             self.currentInterface = interface
+            self.satisfied = up
             self.lock.unlock()
             if changed { NotificationCenter.default.post(name: .networkCostChanged, object: nil) }
+            if pathChanged { NotificationCenter.default.post(name: .networkPathChanged, object: nil, userInfo: ["satisfied": up]) }
         }
         monitor.start(queue: DispatchQueue(label: "movieclaw.network-cost", qos: .utility))
     }
@@ -339,6 +345,11 @@ nonisolated final class NetworkCost: @unchecked Sendable {
         return metered
     }
 
+    var isSatisfied: Bool {
+        lock.lock(); defer { lock.unlock() }
+        return satisfied
+    }
+
     /// 当前网络接口：wifi / cellular / wired / other（播放记录的分组维度，docs/design/playback-qoe.md §3.4）
     var interface: String {
         lock.lock(); defer { lock.unlock() }
@@ -349,6 +360,8 @@ nonisolated final class NetworkCost: @unchecked Sendable {
 extension Notification.Name {
     /// `NetworkCost` 的计费状态变了（Wi-Fi ↔ 蜂窝、开关低数据模式）
     nonisolated static let networkCostChanged = Notification.Name("movieclaw.networkCostChanged")
+    /// 网络通路有无变了（`userInfo["satisfied"]`：开关飞行模式、Wi-Fi 与蜂窝都断开 / 恢复）
+    nonisolated static let networkPathChanged = Notification.Name("movieclaw.networkPathChanged")
 }
 
 /// 播放时的网络环境：画质按它分开记（`QualityMemory`）。

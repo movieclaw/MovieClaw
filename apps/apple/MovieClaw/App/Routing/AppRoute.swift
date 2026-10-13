@@ -71,6 +71,8 @@ enum AppRoute: Hashable {
 
     // MARK: 我的 / 设置
     case my
+    /// /my/downloads：下载与存储（docs/design/offline-download.md §8）
+    case offlineStorage
     case settings
     /// /settings/{section}?…：query 原样透传给分区页（如 /settings/app?tab=storage、
     /// /settings/downloaders?limits=… 的预填与直达），分区页经 `@Environment(\.routeQuery)` 读取
@@ -301,7 +303,7 @@ extension AppRoute {
             guard parts.count >= 2 else { return nil }
             self = .session(id: parts[1])
         case "my":
-            self = .my
+            self = parts.count >= 2 && parts[1] == "downloads" ? .offlineStorage : .my
         case "activate":
             self = .deviceApproval(code: query["code"])
         case "settings":
@@ -332,7 +334,7 @@ extension AppRoute {
         case .libraryHome, .libraryCustomize, .favorites, .allCollections, .collection, .library, .libraryKind, .libraryItem, .libraryManage, .reels: .library
         case .subscriptions, .subscription, .subscriptionWall: .subscriptions
         case .activity, .activityPage: .activity
-        case .my: .more
+        case .my, .offlineStorage: .more
         case .searchHome, .search, .newSession, .session, .settings, .settingsSection, .deviceApproval, .share: nil
         }
     }

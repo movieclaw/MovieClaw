@@ -27,6 +27,9 @@ struct MorePage: View {
     @Environment(\.api) private var api
     @Environment(AgentQuickDraft.self) private var quick
 
+    /// 离线下载（docs/design/offline-download.md §1、§8）：「下载与存储」入口；离线时只留账号卡与它
+    @State private var reachability = ServerReachability.shared
+    @State private var offlineStore = OfflineStore.shared
     @State private var sessions: [API.SessionSummary] = []
     @State private var notices: [API.NoticeView] = []
     /// 还有更早的会话没取回（上一页取满了一整页）
@@ -68,7 +71,31 @@ struct MorePage: View {
                 }
             }
 
-            if permissions.isAdmin, !notices.isEmpty || badges.updateLabel != nil {
+            if permissions.canDownloadVideo || !offlineStore.items.isEmpty {
+                Section {
+                    Button { router.push(.offlineStorage) } label: {
+                        HStack {
+                            Label {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text("下载与存储")
+                                    Text(offlineStore.items.isEmpty ? "下载到 iPhone，没网也能看"
+                                         : "已下载 \(offlineStore.downloadedItemIds.count) 部 · \(Formatters.bytes(Int(offlineStore.totalBytes)))")
+                                        .font(.caption).foregroundStyle(Theme.textMuted)
+                                }
+                            } icon: {
+                                Image(systemName: "arrow.down.circle")
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(Theme.textFaint)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .foregroundStyle(Theme.text)
+                    .accessibilityIdentifier("more-downloads")
+                }
+            }
+
+            if permissions.isAdmin, !reachability.isOffline, !notices.isEmpty || badges.updateLabel != nil {
                 Section {
                     if !notices.isEmpty {
                         NavigationLink {
@@ -101,6 +128,7 @@ struct MorePage: View {
                 }
             }
 
+            if !reachability.isOffline {
             Section {
                 // 这里改的都是服务器上的配置，与 App 本机偏好区分开；成员进去只看得到自己的设备
                 MoreRouteRow(routes: [.settings]) {
@@ -127,8 +155,9 @@ struct MorePage: View {
                 }
                 .accessibilityIdentifier("more-settings")
             }
+            }
 
-            if permissions.isAdmin {
+            if permissions.isAdmin, !reachability.isOffline {
                 // 新会话走标签栏上方的一行输入框（AgentQuickBar），原先的「新会话」首行去掉（2026-10-12 用户要求）
                 Section("最近会话") {
                     if sessions.isEmpty {

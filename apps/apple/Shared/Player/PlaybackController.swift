@@ -218,6 +218,20 @@ final class PlaybackController {
     /// stop 先到、进度后到，服务端会把刚结束的会话「复活」，还多开一行永远不收口的播放日志
     private var reportQueue: Task<Void, Never>?
     private var terminationObserver: NSObjectProtocol?
+    #if os(iOS)
+    /// 正在放的本机副本（docs/design/offline-download.md §6）：有它时不建服务端会话、进度记观看记录
+    private var localUnit: OfflineUnit?
+    private var viewing: OfflineViewingRecorder?
+    #endif
+
+    /// 正在放 iPhone 上的副本
+    var playsLocalCopy: Bool {
+        #if os(iOS)
+        localUnit != nil
+        #else
+        false
+        #endif
+    }
 
     init(request: PlayRequest, api: APIClient, requestedAt: ContinuousClock.Instant? = nil) {
         self.request = request
@@ -353,6 +367,24 @@ final class PlaybackController {
     }
 
     private func loadInfo() async {
+        #if os(iOS)
+        // 离线时条目信息从本机取；在线取不到（连不上）而本机有副本时同样回落，不因此停掉本机播放
+        if scope.shareSlug == nil, let local = OfflineStore.shared.items[request.mediaItemId],
+           ServerReachability.shared.isOffline || OfflineStore.shared.downloadedItemIds.contains(request.mediaItemId) {
+            let localInfo = API.PlaybackItemView(mediaItemId: local.mediaItemId, libraryId: local.libraryId, kind: local.kind,
+                                                 title: local.title, year: local.year, posterUrl: local.posterUrl)
+            if ServerReachability.shared.isOffline {
+                info = localInfo
+                nowPlaying.update(controller: self)
+                await loadEpisodes()
+                return
+            }
+            info = (try? await scope.item(request.mediaItemId)) ?? localInfo
+            nowPlaying.update(controller: self)
+            await loadEpisodes()
+            return
+        }
+        #endif
         do {
             info = try await scope.item(request.mediaItemId)
             nowPlaying.update(controller: self)
@@ -374,6 +406,19 @@ final class PlaybackController {
 
     private func loadEpisodes() async {
         guard unit.isEpisode else { episodes = []; return }
+        #if os(iOS)
+        // 离线（或连不上）：分集取本机存档，「在库」= 本机有，下一集只在本机有的集里找
+        let store = OfflineStore.shared
+        if scope.shareSlug == nil, store.downloadedItemIds.contains(unit.mediaItemId) {
+            if !ServerReachability.shared.isOffline, let remote = try? await scope.episodes(unit.mediaItemId, season: unit.season) {
+                episodes = remote
+            } else if let local = await store.season(itemId: unit.mediaItemId, season: unit.season) {
+                episodes = store.offlineSeason(local, itemId: unit.mediaItemId).episodes
+            }
+            nowPlaying.update(controller: self)
+            return
+        }
+        #endif
         episodes = (try? await scope.episodes(unit.mediaItemId, season: unit.season)) ?? []
         nowPlaying.update(controller: self)
     }
@@ -446,6 +491,15 @@ final class PlaybackController {
     private func leaveUnit() {
         pingTask?.cancel()
         progressTask?.cancel()
+        #if os(iOS)
+        if let viewing {
+            viewing.finish(positionMs: positionMs, completed: phase == .ended)
+            self.viewing = nil
+            reportedStart = false
+            NotificationCenter.default.post(name: .playbackStopReported, object: nil, userInfo: ["mediaItemId": unit.mediaItemId])
+        }
+        localUnit = nil
+        #endif
         if reportedStart {
             reportedStart = false
             let unit = self.unit, position = positionMs, audio = audioMemory, subtitle = subtitleMemory, duration = durationMs
@@ -582,6 +636,16 @@ final class PlaybackController {
         trace.begin()
         startTask?.cancel()
         negotiationTask?.cancel()
+        #if os(iOS)
+        // 这一集（这部电影）在 iPhone 上有下完的副本：直接放本机文件，不建服务端会话（docs/design/offline-download.md §6）
+        if !nativeFailed, scope.shareSlug == nil, clip == nil,
+           let local = OfflineStore.shared.playableUnit(mediaItemId: unit.mediaItemId, season: unit.season, episode: unit.episode),
+           let file = OfflineStore.shared.mediaURL(local), FileManager.default.fileExists(atPath: file.path) {
+            startTask = Task { [weak self] in await self?.startLocal(local, file: file, startMs: startMs, attempt: myAttempt) }
+            return
+        }
+        localUnit = nil
+        #endif
         // 请求内容在这里（主线程）一次算好，网络往返交给独立任务立刻发出、在后台整段跑完：
         // 播放器刚弹出时主线程忙着排版和转场，等主线程空出来再发请求要多排队一两百毫秒
         let inputs = negotiationInputs(startMs: startMs)
@@ -696,9 +760,46 @@ final class PlaybackController {
         }
     }
 
+    #if os(iOS)
+    /// 本机副本起播：按本机存的播放数据拼一个与服务端会话同形的会话，交给同一段装载逻辑
+    private func startLocal(_ local: OfflineUnit, file: URL, startMs: Int?, attempt myAttempt: Int) async {
+        let store = OfflineStore.shared
+        let spec = await store.spec(local)
+        guard myAttempt == attempt, !closed, let dir = store.unitDir(local) else { return }
+        let subtitles = spec?.subtitles ?? []
+        let progress = store.localProgress(itemId: local.mediaItemId, season: local.season, episode: local.episode)
+        let resume = startMs ?? progress.map { $0.played && $0.positionMs == 0 ? 0 : $0.positionMs } ?? 0
+        let decision = API.PlaybackDecisionView(
+            outcome: "plan", tier: 0, fileId: local.fileId, container: spec?.container, video: nil,
+            audio: API.AudioPlanView(action: "copy", trackRef: spec?.defaultAudio, codec: nil, channels: nil, downmix: false),
+            audioTracks: spec?.audioTracks ?? [],
+            subtitles: subtitles.map {
+                API.SubtitlePlanView(trackRef: $0.ref, kind: $0.kind, language: $0.language, isDefault: $0.isDefault,
+                                     isAi: $0.isAi, title: $0.title, isForced: $0.isForced)
+            },
+            degradedFrom: nil, disc: nil, discPlaylist: nil, costHint: nil, canSelfEnable: nil,
+            settingNamespace: nil, settingKey: nil, reason: "播放 iPhone 上的副本", suggestion: nil
+        )
+        let session = API.PlaybackSessionView(
+            decision: decision, sessionId: nil, streamUrl: file.absoluteString, progressiveSegments: false,
+            startMs: resume, timeline: "file",
+            subtitleUrls: subtitles.map { dir.appending(path: "subs/\($0.fileName)").absoluteString },
+            masterUrl: nil, hwBackend: nil,
+            watch: API.PlaybackStateView(positionMs: resume, played: progress?.played ?? false, playCount: 0,
+                                         durationMs: spec?.durationMs, audioTrack: nil, subtitleTrack: nil, endedByAdmin: false),
+            source: API.PlaybackSourceView(container: spec?.container, resolution: spec?.resolution, videoCodec: spec?.videoCodec,
+                                           hdr: nil, bitRate: nil, frameRate: nil, sizeBytes: Int(local.receivedBytes)),
+            chapters: spec?.chapters ?? [], segments: spec?.segments, matroskaCues: nil
+        )
+        localUnit = local
+        record?.event("local", "播放本机副本（\(local.profileLabel)）")
+        await handleSession(session, useNative: true, requestedStartMs: startMs, localFile: file)
+    }
+    #endif
+
     private func handleSession(
         _ session: API.PlaybackSessionView, useNative: Bool, requestedStartMs: Int?,
-        preparedAsset: AVURLAsset? = nil
+        preparedAsset: AVURLAsset? = nil, localFile: URL? = nil
     ) async {
         startupDiag("会话处理开始")
         let decision = session.decision
@@ -750,7 +851,12 @@ final class PlaybackController {
         let noSingleFile = useNative && decision.tier != 0
         // 光盘直推（docs/design/disc-direct-play.md）：自研引擎申报了读光盘，服务端才会带这个标记
         let discKind = useNative ? decision.disc : nil
-        if useNative, !noSingleFile, discKind == "folder" {
+        if let localFile {
+            // 本机副本：文件就在手机上，没有服务端会话
+            url = localFile
+            original = true
+            activeSessionId = nil
+        } else if useNative, !noSingleFile, discKind == "folder" {
             // 原盘目录直推：地址是目录清单，引擎按清单逐个文件取字节，服务端不起任何进程
             url = scope.streamURL(session.streamUrl)
             original = true
@@ -899,7 +1005,15 @@ final class PlaybackController {
             // 自研引擎要在装载前交代：明确要的轨由引擎按序号直接起播，免得首帧后再重载一次
             newEngine.selectInitialAudio(embeddedIndex: initialAudio.index, explicit: initialAudio.explicit)
         }
-        if let native = newEngine as? NativeEngine, original {
+        if let native = newEngine as? NativeEngine, original, localFile != nil {
+            // 本机文件直读，不经片源字节缓存；外挂字幕是本机文件
+            native.storagePlan = NativeStoragePlan.make(
+                freeBytes: NativeStoragePlan.temporaryFreeBytes, bitrateBps: nil, forceMinimal: forceMinimalStorage
+            )
+            sourceProbeURL = nil
+            native.prepareExternalSubtitles(subtitles.options.filter { $0.ref.hasPrefix("external:") }
+                .compactMap { option in URL(string: option.path).map { (ref: option.ref, url: $0, language: option.language) } })
+        } else if let native = newEngine as? NativeEngine, original {
             native.sourceCacheKey = Self.sourceCacheKey(fileId: fileId, size: session.source?.sizeBytes)
             // MKV 精简索引（引擎补丁 P58）：服务端缓存里有就随会话下发，起播时不必再下原索引
             native.matroskaCues = session.matroskaCues.flatMap { cues in
@@ -930,7 +1044,7 @@ final class PlaybackController {
         } else {
             sourceProbeURL = nil
         }
-        if let native = newEngine as? NativeEngine, original {
+        if let native = newEngine as? NativeEngine, original, localFile == nil {
             // 外挂字幕交给引擎画：取服务端的原文件（编码归一成 UTF-8、不转格式），ASS 定位保留，画中画也有字幕
             native.prepareExternalSubtitles(subtitles.options.filter { !$0.path.isEmpty && $0.ref.hasPrefix("external:") }
                 .compactMap { option in scope.streamURL(option.path).map { (ref: option.ref, url: $0, language: option.language) } })
@@ -1014,6 +1128,21 @@ final class PlaybackController {
 
     /// 自研引擎在本机放不了（连引擎自己的软解也不行）：本单元改走服务端 HLS + 系统播放器
     private func nativeFallback(reason: String) {
+        #if os(iOS)
+        if let local = localUnit {
+            // 本机副本放不了：标成损坏；在线时改从服务器放，离线时说明
+            var damaged = local
+            damaged.damaged = true
+            OfflineStore.shared.upsert(damaged)
+            localUnit = nil
+            if ServerReachability.shared.isOffline {
+                fail("iPhone 上的这份副本放不了", suggestion: "文件可能已损坏。连上服务器后删除并重新下载。（\(reason)）", category: "decode")
+                return
+            }
+            request(startMs: positionMs, phase: .degrading)
+            return
+        }
+        #endif
         record?.noteFallback(reason: reason)
         #if DEBUG
         print("[EngineFallback] 自研引擎 → 服务端流：\(reason)")
@@ -1848,6 +1977,14 @@ final class PlaybackController {
 
     /// 报「开始播放」并开始 10 秒一次的进度上报（每个单元一次）
     private func reportStart() {
+        #if os(iOS)
+        if let localUnit {
+            // 本机播放：记观看记录（先落盘，能连上就发），不走实时进度上报
+            reportedStart = true
+            viewing = OfflineViewingRecorder(unit: localUnit, startPositionMs: positionMs, durationMs: durationMs, api: scope.api)
+            return
+        }
+        #endif
         reportedStart = true
         let unit = self.unit, audio = audioMemory, subtitle = subtitleMemory, fileId = reportedFileId
         let scope = self.scope
@@ -1897,6 +2034,12 @@ final class PlaybackController {
 
     private func sendProgress(paused: Bool?) {
         guard reportedStart else { return }
+        #if os(iOS)
+        if let viewing {
+            viewing.checkpoint()
+            return
+        }
+        #endif
         let unit = self.unit, position = positionMs, audio = audioMemory, subtitle = subtitleMemory, duration = durationMs
         let fileId = reportedFileId
         let scope = self.scope
@@ -1919,6 +2062,14 @@ final class PlaybackController {
     private func reportTermination() {
         // 播放记录先落盘（进程马上要退出，发送留给下次启动补发）
         endRecord(terminating: true)
+        #if os(iOS)
+        if let viewing {
+            viewing.finishBeforeTermination(positionMs: positionMs)
+            self.viewing = nil
+            reportedStart = false
+            return
+        }
+        #endif
         guard reportedStart else { return }
         reportedStart = false
         scope.stopBeforeTermination(unit, positionMs: positionMs, durationMs: durationMs, audio: audioMemory, subtitle: subtitleMemory,
@@ -1977,6 +2128,9 @@ final class PlaybackController {
 
     private func tickSecond() {
         guard let engine else { return }
+        #if os(iOS)
+        viewing?.tick(positionMs: positionMs, playing: phase == .playing && !engine.isPaused, durationMs: durationMs)
+        #endif
         let stats = engine.stats()
         speedLabel = Self.formatLoadingSpeed(stats.loadingBps)
         // 带宽估计另记：申报给服务端的 downlink_bps 要的是线路能力，缓冲满了也保持上次实测值
