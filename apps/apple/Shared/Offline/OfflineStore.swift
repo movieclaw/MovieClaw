@@ -40,7 +40,8 @@ final class OfflineStore {
         let origin = server.origin
         let owners = await Task.detached(priority: .userInitiated) { OfflineOwners.scan() }.value
         var instance = OfflineOwners.instanceId(for: origin)
-        var match = instance.flatMap { id in owners.first { $0.instanceId == id && $0.username == username } }
+        // 认得实例号时只按实例号找：同一个地址上换了一台服务器（重装），旧存档不能套到新服务器上
+        var match = instance.map { id in owners.first { $0.instanceId == id && $0.username == username } }
             ?? owners.first { $0.origin == origin && $0.username == username }
         if instance == nil {
             instance = await OfflineOwners.fetchInstanceId(server)
@@ -49,6 +50,10 @@ final class OfflineStore {
             }
         }
         guard adoptingKey == token else { return }
+        if instance == nil, match == nil {
+            // 没问到实例号（冷启动时连不上）、本机也没有存档：下次连上时再来（`readoptIfNeeded`）
+            adoptingKey = nil
+        }
         if var current = match {
             if current.origin != origin {
                 current.origin = origin
@@ -92,6 +97,28 @@ final class OfflineStore {
             loaded = true
             await Task.detached(priority: .utility) { OfflineImages.shared.load(ownerKey: key, itemIds: Array(snapshot.items.keys)) }.value
             OfflineDownloader.shared.reconcile(reason: "adopt")
+        }
+    }
+
+    /// 连上服务器 / 回前台时调：上次没认出服务器（离线冷启动、实例号还不知道）就再认一次；
+    /// 认得的话顺手核对实例号——地址没变、服务器换了（重装）时改认新的
+    func readoptIfNeeded(server: ServerAddress, username: String) async {
+        if owner == nil || !serverSupported {
+            adoptingKey = nil
+            await adopt(server: server, username: username)
+            return
+        }
+        guard let known = owner?.instanceId,
+              let fresh = await OfflineOwners.fetchInstanceId(server), fresh != known else { return }
+        reset()
+        await adopt(server: server, username: username)
+    }
+
+    /// 本机目录读完为止（最多等 `timeout` 秒）：冷启动直达播放、详情页秒开要先知道本机有没有副本
+    func waitUntilLoaded(timeout: Double = 3) async {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !loaded, Date() < deadline {
+            try? await Task.sleep(for: .milliseconds(50))
         }
     }
 

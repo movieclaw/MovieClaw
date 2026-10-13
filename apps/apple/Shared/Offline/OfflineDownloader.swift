@@ -57,6 +57,12 @@ final class OfflineDownloader {
     private var preparing: Int?
     private var reconcileTask: Task<Void, Never>?
     private var reconcileAgain = false
+    /// 正在暂停（取消任务、存续传数据）的单元：对账先跳过它们
+    private var pausing: Set<Int> = []
+    /// 到点重试的定时（前台时；后台靠系统的定时开始）
+    private var retryTimer: Task<Void, Never>?
+
+    static let signedOutMessage = "这个账号在本机的登录已失效，重新登录后会接着下"
 
     /// App 启动时调：重建同名的后台会话，系统据此把上次没交付的事件（后台完成的下载）交给我们
     func activate() {
@@ -79,7 +85,6 @@ final class OfflineDownloader {
             for task in await other.allTasks {
                 guard let tag = OfflineTaskTag(task.taskDescription), tag.owner == key,
                       let download = task as? URLSessionDownloadTask else { continue }
-                delegate.ignoreNextError(fileId: tag.file)
                 let resumeFile = OfflineDisk.resumeDataFile(key, tag.item, tag.file)
                 let data = await download.cancelByProducingResumeData()
                 if let data { try? data.write(to: resumeFile, options: .atomic) }
@@ -110,7 +115,8 @@ final class OfflineDownloader {
     func start(manifest: API.OfflineManifestView, profile: API.OfflineProfileView) throws {
         guard let owner = store.owner, store.serverSupported else { throw StartError.unsupported }
         if let reason = manifest.unavailableReason { throw StartError.unavailable(reason) }
-        if let existing = store.units[manifest.fileId], existing.profile == profile.profile, existing.state != .failed {
+        if let existing = store.units[manifest.fileId], existing.profile == profile.profile,
+           existing.state != .failed, !existing.damaged {
             return
         }
         let needed = Int64(profile.expectedBytes) + OfflineSettings.reserveBytes
@@ -172,22 +178,26 @@ final class OfflineDownloader {
 
     /// 拉齐视频之外的东西：展示数据、字幕、字体、图片；转码档再建导出。都齐了才建视频下载任务
     private func prepare(_ unit: OfflineUnit, manifest given: API.OfflineManifestView?, owner: OfflineOwner) async {
-        guard preparing == nil || preparing == unit.fileId else { return }
+        // 一次只准备一个；同一个单元也不能并发准备（换档时新旧两个打包器会写同一个目录）
+        guard preparing == nil else { return }
         preparing = unit.fileId
         defer {
             preparing = nil
             reconcile(reason: "prepared")
         }
         guard let api = api(for: owner) else {
-            fail(unit.fileId, "这个账号在本机的登录已失效，重新登录后会接着下", retryable: false)
+            fail(unit.fileId, Self.signedOutMessage, retryable: true)
             return
         }
         do {
             let manifest: API.OfflineManifestView = if let given { given } else { try await api.offlineManifest(fileId: unit.fileId) }
+            guard store.key == owner.key else { return }  // 准备途中换了账号：留给它自己的账号下次对账
             try await OfflinePackager(api: api, ownerKey: owner.key, manifest: manifest, unit: unit).run()
-            guard var current = store.units[unit.fileId], current.state == .preparing else { return }
+            guard store.key == owner.key, var current = store.units[unit.fileId], current.state == .preparing,
+                  current.profile == unit.profile else { return }
             if current.profile != "original" {
                 let export = try await api.offlineExportsCreate(body: .init(fileId: unit.fileId, profile: current.profile, audioTrack: manifest.defaultAudio))
+                guard store.key == owner.key, store.units[unit.fileId]?.state == .preparing else { return }
                 current.exportId = export.exportId
                 if export.expectedBytes > 0 { current.expectedBytes = Int64(export.expectedBytes) }
             }
@@ -197,6 +207,7 @@ final class OfflineDownloader {
             createTask(current, owner: owner)
             ServerReachability.shared.catalogChanged()
         } catch let error as APIError {
+            guard store.key == owner.key else { return }
             switch error.status {
             case 400, 422: fail(unit.fileId, error.localizedDescription, retryable: false)
             case 403: fail(unit.fileId, "管理员未对你开放下载影片到设备", retryable: false)
@@ -204,7 +215,11 @@ final class OfflineDownloader {
             default: fail(unit.fileId, error.localizedDescription, retryable: true)
             }
         } catch is CancellationError {
+            // 不是这个任务本身被取消（APIClient 把 URLError.cancelled 也映射成它）：按可重试失败退避，
+            // 不然对账立刻又来准备一次，原地打转
+            if !Task.isCancelled, store.key == owner.key { fail(unit.fileId, "准备下载时被中断", retryable: true) }
         } catch {
+            guard store.key == owner.key else { return }
             fail(unit.fileId, error.localizedDescription, retryable: true)
         }
     }
@@ -223,7 +238,7 @@ final class OfflineDownloader {
         let server = ServerAddress(origin: owner.origin)
         guard let token = TokenVault.token(server: server, username: owner.username),
               let url = contentURL(unit, origin: owner.origin) else {
-            fail(unit.fileId, "这个账号在本机的登录已失效，重新登录后会接着下", retryable: false)
+            fail(unit.fileId, Self.signedOutMessage, retryable: true)
             return
         }
         let resumeFile = OfflineDisk.resumeDataFile(owner.key, unit.mediaItemId, unit.fileId)
@@ -244,7 +259,6 @@ final class OfflineDownloader {
 
     /// 取消某个单元的视频任务（删除、换档）。取消后系统还会回调一次「出错」，按标记忽略
     func cancelTask(fileId: Int) {
-        delegate.ignoreNextError(fileId: fileId)
         for session in sessions {
             session.getAllTasks { tasks in
                 for task in tasks where OfflineTaskTag(task.taskDescription)?.file == fileId { task.cancel() }
@@ -259,16 +273,17 @@ final class OfflineDownloader {
               let key = store.key else { return }
         unit.state = .paused
         store.upsert(unit)
-        delegate.ignoreNextError(fileId: fileId)
         let resumeFile = OfflineDisk.resumeDataFile(key, unit.mediaItemId, fileId)
-        for session in sessions {
-            session.getAllTasks { tasks in
-                for task in tasks where OfflineTaskTag(task.taskDescription)?.file == fileId {
-                    (task as? URLSessionDownloadTask)?.cancel { data in
-                        if let data { OfflineDisk.queue.async { try? data.write(to: resumeFile, options: .atomic) } }
-                    }
+        // 取消、续传数据落盘都是异步的：完成之前「继续」不能建新任务（会从 0 开始、或撞上还没取消完的旧任务）
+        pausing.insert(fileId)
+        Task {
+            for task in await allTasks() where OfflineTaskTag(task.taskDescription)?.file == fileId {
+                if let download = task as? URLSessionDownloadTask, let data = await download.cancelByProducingResumeData() {
+                    try? await OfflineDisk.perform { try data.write(to: resumeFile, options: .atomic) }
                 }
             }
+            pausing.remove(fileId)
+            reconcile(reason: "paused")
         }
     }
 
@@ -311,33 +326,66 @@ final class OfflineDownloader {
     private func reconcileNow() async {
         guard let owner = store.owner, store.loaded else { return }
         let tasks = await allTasks()
+        // 拿任务列表要等一下：这期间换了账号就不对了
+        guard store.key == owner.key else { return }
         var running: [Int: URLSessionTask] = [:]
         for task in tasks {
             guard let tag = OfflineTaskTag(task.taskDescription), tag.owner == owner.key else { continue }
+            guard task.state != .canceling, task.state != .completed else { continue }
+            if pausing.contains(tag.file) { continue }
             if store.units[tag.file] == nil || store.units[tag.file]?.state == .paused {
                 // 单元已删 / 已暂停：任务不该在跑
                 task.cancel()
-            } else if task.state != .canceling, task.state != .completed {
+            } else if running[tag.file] != nil {
+                // 同一个单元有两个任务（两次对账交错）：留一个
+                task.cancel()
+            } else {
                 running[tag.file] = task
             }
         }
         let online = !ServerReachability.shared.isOffline && ServerReachability.shared.status != .unreachable
         let now = Date()
-        for unit in store.units.values.sorted(by: { $0.createdAt < $1.createdAt }) {
+        var nextWake: Date?
+        // 下面都是同步的：用的是此刻的状态，不会拿着过期的快照去建任务
+        for unit in store.units.values.sorted(by: { $0.createdAt < $1.createdAt }) where !pausing.contains(unit.fileId) {
             switch unit.state {
             case .preparing:
-                if online, preparing == nil { await prepare(unit, manifest: nil, owner: owner) }
+                if online, preparing == nil { Task { await prepare(unit, manifest: nil, owner: owner) } }
             case .queued, .downloading:
-                if running[unit.fileId] == nil { createTask(unit, owner: owner) }
+                if running[unit.fileId] == nil {
+                    createTask(unit, owner: owner)
+                }
             case .failed:
-                guard unit.retryable, (unit.nextRetryAt ?? .distantPast) <= now, running[unit.fileId] == nil else { continue }
+                guard unit.retryable, running[unit.fileId] == nil else { continue }
+                if let at = unit.nextRetryAt, at > now {
+                    nextWake = min(nextWake ?? at, at)
+                    continue
+                }
                 var next = unit
                 next.state = unit.profile != "original" && unit.exportId == nil ? .preparing : .queued
                 store.upsert(next)
-                if next.state == .queued { createTask(next, owner: owner) }
+                if next.state == .queued {
+                    createTask(next, owner: owner)
+                } else if online, preparing == nil {
+                    Task { await prepare(next, manifest: nil, owner: owner) }
+                }
             case .paused, .done:
                 break
             }
+        }
+        scheduleRetry(at: nextWake)
+    }
+
+    /// 前台时到点再对一次账（503 的 Retry-After、失败退避）：没有它，失败的下载要等下次回前台才重试
+    private func scheduleRetry(at date: Date?) {
+        retryTimer?.cancel()
+        retryTimer = nil
+        guard let date else { return }
+        let delay = max(1, date.timeIntervalSinceNow + 0.5)
+        retryTimer = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled else { return }
+            self?.reconcile(reason: "retry-timer")
         }
     }
 
@@ -374,7 +422,8 @@ final class OfflineDownloader {
                 unit.nextRetryAt = Date().addingTimeInterval(retryAfter ?? 60)
             }
         case 401:
-            failTag(tag, "这个账号在本机的登录已失效，重新登录后会接着下", retryable: false)
+            // 可重试：重新登录后对账会接着下（退避到最长一小时，不会一直打服务器）
+            failTag(tag, Self.signedOutMessage, retryable: true)
         case 403:
             failTag(tag, "管理员未对你开放下载影片到设备", retryable: false)
         case 404, 410:
@@ -423,11 +472,11 @@ final class OfflineDownloader {
 
     /// 改一个单元：当前账号的走目录（内存 + 写盘），别的账号的（切了账号，它的下载还在后台跑）直接改盘上的文件
     private func updateUnit(_ tag: OfflineTaskTag, _ change: @escaping @Sendable (inout OfflineUnit) -> Void) {
-        if tag.owner == store.key {
-            guard var unit = store.units[tag.file] else { return }
+        if tag.owner == store.key, var unit = store.units[tag.file] {
             change(&unit)
             store.upsert(unit)
         } else {
+            // 别的账号的，或本机目录还没读进来（启动时后台事件先到）：直接改盘上的文件
             let file = OfflineDisk.unitFile(tag.owner, tag.item, tag.file)
             OfflineDisk.queue.async {
                 guard var unit = OfflineDisk.read(OfflineUnit.self, from: file) else { return }
@@ -463,14 +512,10 @@ nonisolated struct OfflineTaskTag: Codable, Sendable, Hashable {
 /// 所以移动在这里同步做，状态再交回主线程
 nonisolated final class OfflineSessionDelegate: NSObject, URLSessionDownloadDelegate, @unchecked Sendable {
     private let lock = NSLock()
-    private var ignored: Set<Int> = []
     private var lastProgress: [Int: Date] = [:]
     /// didFinishDownloading 已处理过的任务（之后的 didCompleteWithError 是 nil，或是 HTTP 错误已处理）
     private var handled: Set<Int> = []
 
-    func ignoreNextError(fileId: Int) {
-        lock.withLock { _ = ignored.insert(fileId) }
-    }
 
     func urlSession(
         _ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64,
@@ -502,23 +547,33 @@ nonisolated final class OfflineSessionDelegate: NSObject, URLSessionDownloadDele
             return
         }
         let unitFile = OfflineDisk.unitFile(tag.owner, tag.item, tag.file)
-        guard let unit = OfflineDisk.read(OfflineUnit.self, from: unitFile) else { return } // 单元已删
         let size = Int64((try? location.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0)
         let expected = downloadTask.countOfBytesExpectedToReceive
-        if expected > 0, size != expected {
+        // 续传（206）时「预期字节」是这一段的长度、落下的却是整个文件，比不了；只核对整段下载
+        if status == 200, expected > 0, size != expected {
             // 有长度却没收全：不当成完成
             Task { @MainActor in OfflineDownloader.shared.failedTransport(tag: tag, error: nil, noSpace: false) }
             return
         }
-        let target = OfflineDisk.unitDir(tag.owner, tag.item, tag.file).appending(path: unit.mediaFileName)
-        do {
-            try? FileManager.default.removeItem(at: target)
-            try FileManager.default.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try FileManager.default.moveItem(at: location, to: target)
-        } catch {
+        // 读单元、挪文件和删除走同一个磁盘队列：不然删到一半挪进来，会在删掉的目录里留下孤儿文件
+        let outcome: Result<Bool, Error> = OfflineDisk.queue.sync {
+            guard let unit = OfflineDisk.read(OfflineUnit.self, from: unitFile) else { return .success(false) } // 单元已删
+            let target = OfflineDisk.unitDir(tag.owner, tag.item, tag.file).appending(path: unit.mediaFileName)
+            return Result {
+                try? FileManager.default.removeItem(at: target)
+                try FileManager.default.moveItem(at: location, to: target)
+                return true
+            }
+        }
+        switch outcome {
+        case .success(false):
+            return
+        case .failure(let error):
             let noSpace = (error as NSError).code == NSFileWriteOutOfSpaceError
             Task { @MainActor in OfflineDownloader.shared.failedTransport(tag: tag, error: nil, noSpace: noSpace) }
             return
+        case .success(true):
+            break
         }
         Task { @MainActor in OfflineDownloader.shared.finished(tag: tag, size: size) }
     }
@@ -528,7 +583,6 @@ nonisolated final class OfflineSessionDelegate: NSObject, URLSessionDownloadDele
         let wasHandled = lock.withLock { handled.remove(task.taskIdentifier) != nil }
         lock.withLock { _ = lastProgress.removeValue(forKey: tag.file) }
         guard let error else { return }
-        let skip = lock.withLock { ignored.remove(tag.file) != nil }
         let nsError = error as NSError
         if let resume = nsError.userInfo[NSURLSessionDownloadTaskResumeData] as? Data {
             // 能续传：留着续传数据，重试时接着下（暂停时由 pause 自己存）
@@ -537,8 +591,8 @@ nonisolated final class OfflineSessionDelegate: NSObject, URLSessionDownloadDele
                 try? resume.write(to: file, options: .atomic)
             }
         }
-        guard !skip, !wasHandled else { return }
         let urlError = error as? URLError
+        guard !wasHandled else { return }
         if urlError?.code == .cancelled,
            (nsError.userInfo[NSURLErrorBackgroundTaskCancelledReasonKey] as? Int) == nil {
             return

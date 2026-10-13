@@ -869,8 +869,12 @@ private struct OfflineShell: ViewModifier {
             }
             .onChange(of: reachability.reconnects) {
                 feedback.success("已连上服务器")
-                OfflineDownloader.shared.reconcile(reason: "reconnected")
-                if let key = store.key { OfflineViewingUploader.shared.flush(api: api, ownerKey: key) }
+                Task {
+                    // 离线冷启动时没认出服务器的，连上后补认（不然下载入口、存档一直不出来）
+                    if let username { await store.readoptIfNeeded(server: api.server, username: username) }
+                    OfflineDownloader.shared.reconcile(reason: "reconnected")
+                    if let key = store.key { OfflineViewingUploader.shared.flush(api: api, ownerKey: key) }
+                }
             }
             .onChange(of: store.downloadedItemIds) { reachability.catalogChanged() }
     }

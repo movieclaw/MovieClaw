@@ -142,6 +142,24 @@ struct LibraryItemDetailView: View {
             favorite = (try? await api.playbackMarksGet(mediaItemId: itemId))?.isFavorite
         }
         .onChange(of: reachability.isOffline) { Task { await reload() } }
+        .onChange(of: offlineStore.doneFileIds) {
+            guard readOnly, offlineStore.loaded else { return }
+            if !offlineStore.downloadedItemIds.contains(itemId) {
+                // 只读页上的本机副本删光了：这页没有能看、能播的了
+                router.pop()
+                return
+            }
+            episodesVersion += 1
+            Task { await reload() }
+        }
+        .task(id: localOnly && !goneOnServer && !reachability.isOffline) {
+            // 在线时请求失败回落了本机副本（一时的 502、超时）：隔一会儿再试，接口好了自己回到在线详情
+            while localOnly, !goneOnServer, !reachability.isOffline {
+                try? await Task.sleep(for: .seconds(10))
+                guard !Task.isCancelled else { return }
+                await reload()
+            }
+        }
         .polling(every: detail?.scraping == true || kicking ? 2 : 3) {
             guard let detail, !readOnly else { return }
             let chaptersPolling = detail.chaptersPending && !detail.scraping && chapterPolls < 20
@@ -792,6 +810,8 @@ struct LibraryItemDetailView: View {
     // MARK: 加载与动作
 
     private func reload() async {
+        // 冷启动直达详情时本机目录可能还没读完：先等它，不然离线时判成「没有副本」
+        await offlineStore.waitUntilLoaded()
         // 本机有副本：先用本机数据秒开（同首页快照的做法），在线时再静默拉服务器、写回本机
         let local = offlineStore.downloadedItemIds.contains(itemId) ? await offlineStore.detail(itemId: itemId) : nil
         if let local, detail == nil || reachability.isOffline {
@@ -1267,6 +1287,7 @@ struct SeasonEpisodesSection: View {
             failed = false
         }
         // 本机有这一季的存档：离线时只用它；在线请求失败时回落到它（只显示本机有的集）
+        await offlineStore.waitUntilLoaded()
         let itemId = detail.mediaItemId
         let local = offlineStore.downloadedItemIds.contains(itemId) ? await offlineStore.season(itemId: itemId, season: s) : nil
         do {

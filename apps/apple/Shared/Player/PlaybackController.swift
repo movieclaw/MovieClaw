@@ -222,6 +222,8 @@ final class PlaybackController {
     /// 正在放的本机副本（docs/design/offline-download.md §6）：有它时不建服务端会话、进度记观看记录
     private var localUnit: OfflineUnit?
     private var viewing: OfflineViewingRecorder?
+    /// 冷启动直达播放时本机目录可能还没读完：第一次起播先等它（只等一次）
+    private var awaitedOfflineStore = false
     #endif
 
     /// 正在放 iPhone 上的副本
@@ -369,6 +371,7 @@ final class PlaybackController {
     private func loadInfo() async {
         #if os(iOS)
         // 离线时条目信息从本机取；在线取不到（连不上）而本机有副本时同样回落，不因此停掉本机播放
+        if scope.shareSlug == nil { await OfflineStore.shared.waitUntilLoaded() }
         if scope.shareSlug == nil, let local = OfflineStore.shared.items[request.mediaItemId],
            ServerReachability.shared.isOffline || OfflineStore.shared.downloadedItemIds.contains(request.mediaItemId) {
             let localInfo = API.PlaybackItemView(mediaItemId: local.mediaItemId, libraryId: local.libraryId, kind: local.kind,
@@ -637,6 +640,16 @@ final class PlaybackController {
         startTask?.cancel()
         negotiationTask?.cancel()
         #if os(iOS)
+        if scope.shareSlug == nil, clip == nil, !OfflineStore.shared.loaded, !awaitedOfflineStore {
+            // 本机目录还没读完就判「没有副本」，离线冷启动直达播放会去连服务器、报错
+            awaitedOfflineStore = true
+            startTask = Task { [weak self] in
+                await OfflineStore.shared.waitUntilLoaded()
+                guard let self, myAttempt == self.attempt, !self.closed else { return }
+                self.request(startMs: startMs, phase: next)
+            }
+            return
+        }
         // 这一集（这部电影）在 iPhone 上有下完的副本：直接放本机文件，不建服务端会话（docs/design/offline-download.md §6）
         if !nativeFailed, scope.shareSlug == nil, clip == nil,
            let local = OfflineStore.shared.playableUnit(mediaItemId: unit.mediaItemId, season: unit.season, episode: unit.episode),
@@ -767,7 +780,14 @@ final class PlaybackController {
         let spec = await store.spec(local)
         guard myAttempt == attempt, !closed, let dir = store.unitDir(local) else { return }
         let subtitles = spec?.subtitles ?? []
-        let progress = store.localProgress(itemId: local.mediaItemId, season: local.season, episode: local.episode)
+        var progress = store.localProgress(itemId: local.mediaItemId, season: local.season, episode: local.episode)
+        if startMs == nil, let fresh = await serverResume(for: local) {
+            // 在线：续播点以服务器为准（别的设备可能看到了更后面）；本机有没发出去的观看记录时仍用本机的
+            progress = OfflineProgress(positionMs: fresh.positionMs, played: fresh.played, durationMs: fresh.durationMs, updatedAt: Date())
+            store.recordProgress(itemId: local.mediaItemId, season: local.season, episode: local.episode,
+                                 positionMs: fresh.positionMs, played: fresh.played, durationMs: fresh.durationMs)
+        }
+        guard myAttempt == attempt, !closed else { return }
         let resume = startMs ?? progress.map { $0.played && $0.positionMs == 0 ? 0 : $0.positionMs } ?? 0
         let decision = API.PlaybackDecisionView(
             outcome: "plan", tier: 0, fileId: local.fileId, container: spec?.container, video: nil,
@@ -794,6 +814,27 @@ final class PlaybackController {
         localUnit = local
         record?.event("local", "播放本机副本（\(local.profileLabel)）")
         await handleSession(session, useNative: true, requestedStartMs: startMs, localFile: file)
+    }
+
+    /// 在线时问一下服务器的续播点（最多等 2 秒，问不到就用本机的）
+    private func serverResume(for local: OfflineUnit) async -> API.PlaybackStateView? {
+        let reachability = ServerReachability.shared
+        guard !reachability.isOffline, reachability.status != .unreachable, let key = OfflineStore.shared.key,
+              !OfflineViewingUploader.shared.hasPending(ownerKey: key, itemId: local.mediaItemId, season: local.season, episode: local.episode)
+        else { return nil }
+        let api = scope.api
+        let season = unit.isEpisode ? local.season : nil, episode = unit.isEpisode ? local.episode : nil
+        let itemId = local.mediaItemId
+        return await withTaskGroup(of: API.PlaybackStateView?.self) { group in
+            group.addTask { try? await api.playbackResume(mediaItemId: itemId, seasonNumber: season, episodeNumber: episode) }
+            group.addTask {
+                try? await Task.sleep(for: .seconds(2))
+                return nil
+            }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
     }
     #endif
 
@@ -1134,6 +1175,12 @@ final class PlaybackController {
             var damaged = local
             damaged.damaged = true
             OfflineStore.shared.upsert(damaged)
+            if let viewing {
+                // 本机这次播放到此为止；改从服务器放的部分走实时上报，不能接着记在本机观看记录里
+                viewing.finish(positionMs: positionMs, completed: false)
+                self.viewing = nil
+                reportedStart = false
+            }
             localUnit = nil
             if ServerReachability.shared.isOffline {
                 fail("iPhone 上的这份副本放不了", suggestion: "文件可能已损坏。连上服务器后删除并重新下载。（\(reason)）", category: "decode")

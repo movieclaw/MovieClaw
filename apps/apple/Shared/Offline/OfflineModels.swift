@@ -159,6 +159,8 @@ nonisolated struct OfflineViewing: Codable, Sendable, Hashable {
     var durationMs: Int?
     /// 有没有还没发出去的更新
     var dirty: Bool
+    /// 记下它的那次启动：上次启动留下、又没结束的，是播放中被强退 / 崩溃，补传前先收尾
+    var launch: String?
 }
 
 /// 离线下载的本机设置

@@ -24,7 +24,8 @@ final class OfflineViewingRecorder {
             viewingId: UUID().uuidString.lowercased(),
             mediaItemId: unit.mediaItemId, season: unit.season, episode: unit.episode, fileId: unit.fileId,
             startedAt: now, updatedAt: now, startPositionMs: startPositionMs, positionMs: startPositionMs,
-            watchedMs: 0, completed: false, ended: false, durationMs: durationMs, dirty: true
+            watchedMs: 0, completed: false, ended: false, durationMs: durationMs, dirty: true,
+            launch: OfflineViewingUploader.launch
         )
     }
 
@@ -103,6 +104,8 @@ extension OfflineViewingRecorder {
 @MainActor
 final class OfflineViewingUploader {
     static let shared = OfflineViewingUploader()
+    /// 这次启动的编号（见 `OfflineViewing.launch`）
+    nonisolated static let launch = UUID().uuidString
 
     private var inFlight = false
     private var again = false
@@ -124,9 +127,20 @@ final class OfflineViewingUploader {
 
     private func send(api: APIClient, ownerKey: String) async {
         let dir = OfflineDisk.viewingsDir(ownerKey)
-        let records = await Task.detached {
-            OfflineDisk.children(dir).compactMap { OfflineDisk.read(OfflineViewing.self, from: $0) }.filter(\.dirty)
-        }.value
+        let launch = Self.launch
+        // 在写盘队列上读：与播放器排着的快照写入保持先后
+        let records = (try? await OfflineDisk.perform {
+            OfflineDisk.children(dir).compactMap { url -> OfflineViewing? in
+                guard var record = OfflineDisk.read(OfflineViewing.self, from: url) else { return nil }
+                if !record.ended, record.launch != launch {
+                    // 上次启动时播放中被强退：这次播放到最后一次落盘的位置就结束了
+                    record.ended = true
+                    record.dirty = true
+                    try? OfflineDisk.write(record, to: url)
+                }
+                return record.dirty ? record : nil
+            }
+        }) ?? []
         guard !records.isEmpty else { return }
         for batch in stride(from: 0, to: records.count, by: 100).map({ Array(records[$0 ..< min($0 + 100, records.count)]) }) {
             let body = API.PlaybackViewingsRequest(
@@ -144,12 +158,17 @@ final class OfflineViewingUploader {
             )
             guard let result = try? await api.playbackViewings(body: body) else { return }
             let acknowledged = Set(result.results.map(\.viewingId))
-            await Task.detached {
+            // 同样在写盘队列上：不然读到旧快照、写回「已发」的同时，播放器的新快照刚好落盘，会被盖掉
+            let newer = (try? await OfflineDisk.perform {
+                var newer = false
                 for record in batch where acknowledged.contains(record.viewingId) {
                     let file = OfflineDisk.viewingFile(ownerKey, record.viewingId)
-                    // 发出去之后又有了新快照（还在播）：留着下次发
                     guard let current = OfflineDisk.read(OfflineViewing.self, from: file) else { continue }
-                    if current.updatedAt > record.updatedAt { continue }
+                    if current != record {
+                        // 发出去之后又有了新快照（还在播）：留着，再发一次
+                        newer = true
+                        continue
+                    }
                     if current.ended {
                         OfflineDisk.remove(file)
                     } else {
@@ -158,7 +177,9 @@ final class OfflineViewingUploader {
                         try? OfflineDisk.write(clean, to: file)
                     }
                 }
-            }.value
+                return newer
+            }) ?? false
+            if newer { again = true }
         }
     }
 
