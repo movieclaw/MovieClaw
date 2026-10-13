@@ -1674,6 +1674,18 @@ nonisolated extension APIClient {
         return try await send("GET", "/library-strm/pending", query: query)
     }
 
+    /// 开始电脑端 ChatGPT 订阅授权
+    /// `POST /llm/chatgpt/authorize`
+    func llmChatgptAuthorize(body: API.ChatGPTAuthorizePayload) async throws -> API.ChatGPTAuthorizeView {
+        return try await send("POST", "/llm/chatgpt/authorize", body: body)
+    }
+
+    /// 完成一次性 ChatGPT 订阅授权
+    /// `POST /llm/chatgpt/complete`
+    func llmChatgptComplete(body: API.ChatGPTCompletePayload) async throws -> API.LlmProviderView {
+        return try await send("POST", "/llm/chatgpt/complete", body: body)
+    }
+
     /// 查看 AI 设定（各用途的默认模型）
     /// `GET /llm/defaults`
     func llmDefaultsShow() async throws -> API.LlmDefaultsView {

@@ -839,6 +839,46 @@ nonisolated extension API {
         }
     }
 
+    struct ChatGPTAuthorizePayload: Codable, Hashable, Sendable {
+        var redirectUri: String
+        var name: String?
+        var appName: String?
+        var providerId: Int?
+
+        enum CodingKeys: String, CodingKey {
+            case redirectUri = "redirect_uri"
+            case name
+            case appName = "app_name"
+            case providerId = "provider_id"
+        }
+    }
+
+    struct ChatGPTAuthorizeView: Codable, Hashable, Sendable {
+        var attemptId: String
+        var state: String
+        var authorizeUrl: String
+
+        enum CodingKeys: String, CodingKey {
+            case attemptId = "attempt_id"
+            case state
+            case authorizeUrl = "authorize_url"
+        }
+    }
+
+    struct ChatGPTCompletePayload: Codable, Hashable, Sendable {
+        var attemptId: String
+        var state: String
+        var code: String
+        var clientId: String?
+
+        enum CodingKeys: String, CodingKey {
+            case attemptId = "attempt_id"
+            case state
+            case code
+            case clientId = "client_id"
+        }
+    }
+
     struct ChannelAccountView: Codable, Hashable, Sendable {
         var channelId: String
         var accountId: String
@@ -5782,6 +5822,8 @@ nonisolated extension API {
         /// 实例名（全局唯一，路由键）
         var name: String
         var providerType: String
+        /// ChatGPT 已连接账号的邮箱（不含令牌）
+        var chatgptAccount: String?
         var baseUrl: String?
         /// 自定义 User-Agent；null 表示用 SDK 默认 UA
         var userAgent: String?
@@ -5806,6 +5848,7 @@ nonisolated extension API {
             case id
             case name
             case providerType = "provider_type"
+            case chatgptAccount = "chatgpt_account"
             case baseUrl = "base_url"
             case userAgent = "user_agent"
             case apiProtocol = "api_protocol"

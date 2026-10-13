@@ -1,0 +1,5 @@
+id: chatgpt
+display_name: ChatGPT 订阅
+protocol: openai_chatgpt
+base_url: https://api.openai.com/v1
+models: []

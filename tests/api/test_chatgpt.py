@@ -1,0 +1,164 @@
+import base64
+import hashlib
+import sqlite3
+from urllib.parse import parse_qs, urlparse
+
+import httpx
+import pytest
+from tests.api.test_llm import _FakeProtocol
+from tests.api.test_llm import client as client
+from tests.llm.unit.test_chatgpt import signed_identity
+
+from movieclaw_api.services import chatgpt_auth
+from movieclaw_llm.chatgpt import PLAN_SCOPE
+from movieclaw_llm.protocols import PROTOCOLS
+
+
+@pytest.mark.parametrize(
+    "redirect",
+    [
+        "https://example.invalid/callback",
+        "http://localhost:1455/auth/callback",
+        "http://127.0.0.1:1455/callback",
+        "http://127.0.0.1:bad/auth/callback",
+    ],
+)
+def test_only_exact_loopback_callbacks_are_accepted(client, redirect):
+    c, _ = client
+    result = c.post("/api/v1/llm/chatgpt/authorize", json={"redirect_uri": redirect})
+    assert result.status_code == 400
+
+
+def test_authorization_code_exchange_and_account_catalog(client, monkeypatch):
+    c, _ = client
+    monkeypatch.setitem(PROTOCOLS, "openai_chatgpt", _FakeProtocol)
+    redirect = "http://127.0.0.1:54321/auth/callback"
+    start = c.post("/api/v1/llm/chatgpt/authorize", json={"redirect_uri": redirect})
+    assert start.status_code == 200
+    flow = start.json()["data"]
+    query = parse_qs(urlparse(flow["authorize_url"]).query)
+    assert query["client_id"] == ["dynamic_agent_client"]
+    assert query["agent_name_hint"] == ["MovieClaw"]
+    token, keys = signed_identity(nonce=query["nonce"][0])
+
+    def handle(request):
+        if request.url.path.endswith("/oauth/token"):
+            form = parse_qs(request.content.decode())
+            assert form["redirect_uri"] == [redirect]
+            assert form["client_id"] == ["oaiapp_test"]
+            challenge = (
+                base64.urlsafe_b64encode(hashlib.sha256(form["code_verifier"][0].encode()).digest())
+                .decode()
+                .rstrip("=")
+            )
+            assert query["code_challenge"] == [challenge]
+            return httpx.Response(
+                200,
+                json={
+                    "access_token": "api-test-access",
+                    "refresh_token": "api-test-refresh",
+                    "id_token": token,
+                    "scope": PLAN_SCOPE,
+                    "expires_in": 3600,
+                },
+            )
+        if request.url.path.endswith("jwks.json"):
+            return httpx.Response(200, json=keys)
+        assert request.headers["authorization"] == "Bearer api-test-access"
+        return httpx.Response(
+            200,
+            json={
+                "models": [
+                    {"slug": "account-model", "visibility": "list"},
+                    {"slug": "hidden-model", "visibility": "hidden"},
+                ]
+            },
+        )
+
+    monkeypatch.setattr(chatgpt_auth, "egress_transport", lambda _: httpx.MockTransport(handle))
+    payload = {
+        "attempt_id": flow["attempt_id"],
+        "state": flow["state"],
+        "code": "test-code",
+        "client_id": "oaiapp_test",
+    }
+    wrong = c.post("/api/v1/llm/chatgpt/complete", json={**payload, "state": "wrong"})
+    assert wrong.status_code == 400
+    result = c.post("/api/v1/llm/chatgpt/complete", json=payload)
+    assert result.status_code == 200, result.text
+    provider = result.json()["data"]
+    assert provider["chatgpt_account"] == "user@example.invalid"
+    assert [m["id"] for m in provider["extra_models"]] == ["account-model"]
+    assert "api-test-access" not in result.text and "api-test-refresh" not in result.text
+    with sqlite3.connect(client[1]) as database:
+        stored = database.execute("SELECT api_key FROM llm_provider").fetchone()[0]
+    assert stored.startswith("enc::") and "api-test-access" not in stored
+    assert c.get("/api/v1/llm/providers").json()["data"][0]["status"] == "active"
+    replay = c.post("/api/v1/llm/chatgpt/complete", json=payload)
+    assert replay.status_code == 400
+    renewed = c.post(
+        "/api/v1/llm/chatgpt/authorize",
+        json={"redirect_uri": redirect, "provider_id": provider["id"]},
+    )
+    returning_query = parse_qs(urlparse(renewed.json()["data"]["authorize_url"]).query)
+    assert returning_query["client_id"] == ["oaiapp_test"]
+    assert returning_query["ext_agent_host_id"] == query["ext_agent_host_id"]
+    assert "agent_name_hint" not in returning_query
+    mismatch = c.post(
+        "/api/v1/llm/chatgpt/complete",
+        json={
+            "attempt_id": renewed.json()["data"]["attempt_id"],
+            "state": renewed.json()["data"]["state"],
+            "code": "other-code",
+            "client_id": "oaiapp_other",
+        },
+    )
+    assert mismatch.status_code == 400
+
+
+def test_delete_clears_local_credentials_and_reports_unconfirmed_revocation(client, monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from tests.llm.unit.test_chatgpt import credentials
+
+    c, _ = client
+    monkeypatch.setitem(PROTOCOLS, "openai_chatgpt", _FakeProtocol)
+    revoke = AsyncMock(return_value=False)
+    monkeypatch.setattr("movieclaw_api.services.llm_config.revoke_credentials", revoke)
+    created = c.post(
+        "/api/v1/llm/providers",
+        json={
+            "name": "ChatGPT delete test",
+            "provider_type": "chatgpt",
+            "api_key": credentials().model_dump_json(),
+            "default_model": "account-model",
+            "extra_models": [
+                {"id": "account-model", "context_window": 32768, "max_output_tokens": 8192}
+            ],
+        },
+    )
+    assert created.status_code == 200
+    deleted = c.delete(f"/api/v1/llm/providers/{created.json()['data']['id']}")
+    assert deleted.status_code == 200 and "远端撤销未确认" in deleted.json()["message"]
+    assert c.get("/api/v1/llm/providers").json()["data"] == []
+    assert revoke.await_count == 1
+
+
+def test_chatgpt_tokens_cannot_be_forwarded_to_custom_endpoint(client):
+    from tests.llm.unit.test_chatgpt import credentials
+
+    c, _ = client
+    result = c.post(
+        "/api/v1/llm/providers",
+        json={
+            "name": "Unsafe",
+            "provider_type": "chatgpt",
+            "api_key": credentials().model_dump_json(),
+            "base_url": "https://example.invalid/v1",
+            "default_model": "account-model",
+            "extra_models": [
+                {"id": "account-model", "context_window": 32768, "max_output_tokens": 8192}
+            ],
+        },
+    )
+    assert result.status_code == 400

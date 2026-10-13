@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, BackgroundTasks, Depends
+from pydantic import Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from movieclaw_api.schemas.base import BaseModel
 from movieclaw_api.schemas.llm import (
     LlmDefaultsPayload,
     LlmDefaultsView,
@@ -13,11 +15,66 @@ from movieclaw_api.schemas.llm import (
     LlmProviderView,
 )
 from movieclaw_api.schemas.response import ApiResponse, ok
+from movieclaw_api.services.chatgpt_auth import complete_sign_in, start_sign_in
 from movieclaw_api.services.llm_config import LlmConfigService, verify_llm_provider
 from movieclaw_db.engine import get_session
 from movieclaw_llm.providers import list_presets
 
 router = APIRouter(prefix="/llm", tags=["llm"])
+
+
+class ChatGPTAuthorizePayload(BaseModel):
+    redirect_uri: str = Field(max_length=200)
+    name: str = Field(default="ChatGPT", min_length=1, max_length=100)
+    app_name: str = Field(default="MovieClaw", min_length=1, max_length=80)
+    provider_id: int | None = None
+
+
+class ChatGPTAuthorizeView(BaseModel):
+    attempt_id: str
+    state: str
+    authorize_url: str
+
+
+class ChatGPTCompletePayload(BaseModel):
+    attempt_id: str = Field(max_length=100)
+    state: str = Field(max_length=100)
+    code: str = Field(min_length=1, max_length=4096)
+    client_id: str | None = Field(default=None, max_length=200)
+
+
+@router.post(
+    "/chatgpt/authorize",
+    response_model=ApiResponse[ChatGPTAuthorizeView],
+    operation_id="llm.chatgpt.authorize",
+    summary="开始电脑端 ChatGPT 订阅授权",
+    openapi_extra={"x-cli-hidden": True, "x-cli-covered-by": "llm chatgpt login"},
+)
+async def authorize_chatgpt(
+    payload: ChatGPTAuthorizePayload,
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[ChatGPTAuthorizeView]:
+    result = await start_sign_in(session, **payload.model_dump())
+    return ok(ChatGPTAuthorizeView(**result))
+
+
+@router.post(
+    "/chatgpt/complete",
+    response_model=ApiResponse[LlmProviderView],
+    operation_id="llm.chatgpt.complete",
+    summary="完成一次性 ChatGPT 订阅授权",
+    openapi_extra={"x-cli-hidden": True, "x-cli-covered-by": "llm chatgpt login"},
+)
+async def finish_chatgpt(
+    payload: ChatGPTCompletePayload,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_session),
+) -> ApiResponse[LlmProviderView]:
+    row = await complete_sign_in(session, **payload.model_dump())
+    service = LlmConfigService(session)
+    row = await service.start_verification(row.id)
+    background_tasks.add_task(verify_llm_provider, row.id)
+    return ok(LlmProviderView.from_model(row), message="ChatGPT 已连接，正在验证模型")
 
 
 @router.post(
@@ -176,9 +233,7 @@ async def update_llm_provider(
         extra_models=payload.extra_models,
         user_agent=payload.user_agent,
         # 请求没带该字段（老客户端）时沿用原值，不能当成「清空」
-        api_protocol=(
-            payload.api_protocol if "api_protocol" in payload.model_fields_set else ...
-        ),
+        api_protocol=(payload.api_protocol if "api_protocol" in payload.model_fields_set else ...),
     )
     row = await service.start_verification(provider_id)
     background_tasks.add_task(verify_llm_provider, provider_id)
@@ -215,5 +270,10 @@ async def delete_llm_provider(
     session: AsyncSession = Depends(get_session),
 ) -> ApiResponse[dict]:
     """AI 设定里指向它的默认模型会自动改指最早剩下的实例；全部删除时清空。"""
-    await LlmConfigService(session).delete(provider_id)
-    return ok({}, message="已删除")
+    revoked = await LlmConfigService(session).delete(provider_id)
+    return ok(
+        {},
+        message="已删除"
+        if revoked
+        else "本地接入已删除；远端撤销未确认，请在 ChatGPT 设置中断开此 App",
+    )

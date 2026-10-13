@@ -16,6 +16,8 @@ import (
 // knownNonGenerated 是唯二允许不生成命令的两类端点：x-cli-hidden（Web 基础
 // 设施，或语义由精选命令承担）与 x-cli-stream（SSE 流，精选层手写接入）。
 var knownNonGenerated = []string{
+	"llm.chatgpt.authorize",
+	"llm.chatgpt.complete",
 	// 会话图片附件：二进制上传/下载是 Web 基础设施，CLI 场景无消费方
 	"session.attachments.upload",
 	"session.attachments.download",

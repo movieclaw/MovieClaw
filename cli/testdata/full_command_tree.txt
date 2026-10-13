@@ -259,6 +259,8 @@ library subtitles generate
 library subtitles preview-generation
 library update
 llm
+llm chatgpt
+llm chatgpt login
 llm defaults
 llm defaults show
 llm defaults update

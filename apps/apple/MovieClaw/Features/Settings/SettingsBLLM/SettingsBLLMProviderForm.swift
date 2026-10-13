@@ -42,13 +42,13 @@ struct SettingsBLLMProviderForm: View {
     @State private var error: String?
     @State private var discarding = false
 
-    init(provider: API.LlmProviderView?, presets: [API.LlmPresetView], takenNames: [String], onSaved: @escaping () -> Void) {
+    init(provider: API.LlmProviderView?, presets: [API.LlmPresetView], takenNames: [String], initialProviderType: String? = nil, onSaved: @escaping () -> Void) {
         self.provider = provider
         self.presets = presets
         self.takenNames = takenNames
         self.onSaved = onSaved
         _name = State(initialValue: provider?.name ?? "")
-        _providerType = State(initialValue: provider?.providerType ?? "bailian")
+        _providerType = State(initialValue: provider?.providerType ?? initialProviderType ?? "bailian")
         _baseUrl = State(initialValue: provider?.baseUrl ?? "")
         _userAgent = State(initialValue: provider?.userAgent ?? "")
         _apiProtocol = State(initialValue: provider?.apiProtocol ?? "")
@@ -111,7 +111,8 @@ struct SettingsBLLMProviderForm: View {
     }
 
     private var dirty: Bool {
-        name != (provider?.name ?? "") || providerType != (provider?.providerType ?? "bailian")
+        if providerType == "chatgpt" { return false }
+        return name != (provider?.name ?? "") || providerType != (provider?.providerType ?? "bailian")
             || baseUrl != (provider?.baseUrl ?? "") || userAgent != (provider?.userAgent ?? "")
             || apiProtocol != (provider?.apiProtocol ?? "")
             || !apiKey.isEmpty || extraModels != (provider?.extraModels ?? [])
@@ -123,9 +124,11 @@ struct SettingsBLLMProviderForm: View {
     var body: some View {
         SubsSheetScaffold(title: provider == nil ? "接入模型供应商" : "编辑供应商", onClose: {
             if dirty { discarding = true } else { dismiss() }
-        }, confirm: SubsSheetConfirm(title: "保存并测试连接", enabled: submitHint == nil,
+        }, confirm: SubsSheetConfirm(title: providerType == "chatgpt" ? "已完成，刷新接入" : "保存并测试连接",
+                                     enabled: providerType == "chatgpt" || submitHint == nil,
                                      busy: busy, identifier: "llm-form-save") {
-            Task { await submit() }
+            if providerType == "chatgpt" { onSaved(); dismiss() }
+            else { Task { await submit() } }
         }) {
                 if let error {
                     SettingsFormSection {
@@ -134,6 +137,9 @@ struct SettingsBLLMProviderForm: View {
                     }
                 }
                 providerSection
+                if providerType == "chatgpt" {
+                    ChatGPTPlanConnectionSection(provider: provider?.providerType == "chatgpt" ? provider : nil)
+                } else {
                 connectionSection
                 catalogSection
                 if isCustomEndpoint && addingCustom {
@@ -146,6 +152,7 @@ struct SettingsBLLMProviderForm: View {
                             .foregroundStyle(Theme.textFaint)
                             .accessibilityIdentifier("llm-form-hint")
                     }
+                }
                 }
         }
         .disabled(busy)
@@ -189,7 +196,7 @@ struct SettingsBLLMProviderForm: View {
         } header: {
             Text("供应商")
         } footer: {
-            Text("保存后系统会自动测试连接。")
+            Text(providerType == "chatgpt" ? "完成官方授权后，回到这里刷新接入。" : "保存后系统会自动测试连接。")
         }
     }
 

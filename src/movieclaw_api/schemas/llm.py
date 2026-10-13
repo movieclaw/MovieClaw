@@ -57,6 +57,9 @@ class LlmProviderView(BaseModel):
     id: int
     name: str = Field(description="实例名（全局唯一，路由键）")
     provider_type: str
+    chatgpt_account: str | None = Field(
+        default=None, description="ChatGPT 已连接账号的邮箱（不含令牌）"
+    )
     base_url: str | None = None
     user_agent: str | None = Field(
         default=None, description="自定义 User-Agent；null 表示用 SDK 默认 UA"
@@ -90,10 +93,17 @@ class LlmProviderView(BaseModel):
     @classmethod
     def from_model(cls, row: LlmProvider) -> LlmProviderView:
         """从 ORM 记录构造脱敏视图。只挑选可公开字段，天然屏蔽密钥密文。"""
+        account = None
+        if row.provider_type == "chatgpt":
+            from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository
+            from movieclaw_llm.chatgpt import ChatGPTCredentials
+
+            account = ChatGPTCredentials.parse(LlmProviderRepository.decrypted_api_key(row)).email
         return cls(
             id=row.id or 0,
             name=row.name,
             provider_type=row.provider_type,
+            chatgpt_account=account,
             base_url=row.base_url,
             user_agent=row.user_agent,
             api_protocol=row.api_protocol,
@@ -140,9 +150,7 @@ class LlmDefaultsView(BaseModel):
         default=None, description="字幕处理默认模型引用（null = 未设置）"
     )
     effective_agent_model: str | None = Field(default=None, description="智能体实际生效的引用")
-    effective_subtitle_model: str | None = Field(
-        default=None, description="字幕处理实际生效的引用"
-    )
+    effective_subtitle_model: str | None = Field(default=None, description="字幕处理实际生效的引用")
 
 
 class LlmDefaultsPayload(BaseModel):

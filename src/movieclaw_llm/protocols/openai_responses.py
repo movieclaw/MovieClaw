@@ -68,6 +68,7 @@ _REPLAY_DROP_KEYS = ("id", "status")
 
 
 class OpenAIResponsesProtocol(OpenAIProtocolBase):
+    require_completed = False
     # -- 请求转换 -----------------------------------------------------------
 
     def _is_reasoning_model(self, model_id: str) -> bool:
@@ -415,6 +416,11 @@ class OpenAIResponsesProtocol(OpenAIProtocolBase):
             yield acc.error_event(str(err))
             return
 
+        if self.require_completed and (
+            final_response is None or getattr(final_response, "status", "") != "completed"
+        ):
+            yield acc.error_event("ChatGPT 响应未完成，请重试（可能已达到订阅额度）")
+            return
         _warn_harmony_residue_in_content("".join(acc.content))
         for index in acc.tool_order:
             tc = acc.finalize_tool(index, self._parse_tool_call)

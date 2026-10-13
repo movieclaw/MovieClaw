@@ -42,12 +42,18 @@ from movieclaw_api.schemas.llm import (
     LlmModelDiscoveryPayload,
     LlmModelOptionView,
 )
+from movieclaw_api.services.chatgpt_auth import (
+    build_server_protocol,
+    revoke_credentials,
+    token_store,
+)
 from movieclaw_api.settings import LlmDefaultsSetting, get_setting_store
 from movieclaw_db.engine import get_database
 from movieclaw_db.models.llm_provider import LlmProvider
 from movieclaw_db.models.site_credential import ConfigStatus
 from movieclaw_db.repositories.llm_provider_repo import LlmProviderRepository
 from movieclaw_llm import ChatMessage, ChatRequest, LlmError, LlmRouter, ModelInfo, ModelSettings
+from movieclaw_llm.chatgpt import RESOURCE, ChatGPTCredentials
 from movieclaw_llm.models import LlmProviderConfig, ProviderPreset
 from movieclaw_llm.protocols import build_protocol
 from movieclaw_llm.providers import get_preset, list_presets
@@ -431,6 +437,8 @@ class LlmConfigService:
             raise BadRequestException(str(exc)) from exc
         if preset.requires_base_url and not base_url:
             raise BadRequestException(f"接入「{preset.display_name}」必须填写 API 端点地址")
+        if provider_type == "chatgpt" and base_url not in (None, RESOURCE):
+            raise BadRequestException("ChatGPT 订阅只能使用官方 Responses API 端点")
         if api_protocol is not None and api_protocol not in (
             preset.selectable_protocols or [preset.protocol]
         ):
@@ -479,6 +487,11 @@ class LlmConfigService:
         """新增实例。状态置 PENDING，等待后台验证。"""
         if not api_key:
             raise BadRequestException("请填写 API Key")
+        if provider_type == "chatgpt":
+            try:
+                ChatGPTCredentials.parse(api_key)
+            except LlmError as exc:
+                raise BadRequestException(str(exc)) from None
         extras = extra_models or []
         test_model = await self._validate(
             name=name,
@@ -525,6 +538,13 @@ class LlmConfigService:
         """
         row = await self.get(provider_id)
         self._assert_not_verifying(row)
+        if row.provider_type == "chatgpt" and provider_type != "chatgpt":
+            raise BadRequestException("请另建 API Key 供应商；ChatGPT 接入请通过删除操作断开")
+        if provider_type == "chatgpt" and api_key:
+            try:
+                ChatGPTCredentials.parse(api_key)
+            except LlmError as exc:
+                raise BadRequestException(str(exc)) from None
         if not api_key and (provider_type != row.provider_type or base_url != row.base_url):
             raise BadRequestException("更换了供应商类型或 API 端点，请重新填写 API Key")
         if api_protocol is ...:
@@ -566,20 +586,30 @@ class LlmConfigService:
         await self._repo.update_status(provider_id, ConfigStatus.VERIFYING)
         return await self.get(provider_id)
 
-    async def delete(self, provider_id: int) -> None:
+    async def delete(self, provider_id: int) -> bool:
         """删除实例；不存在抛 404，正在验证中抛 409。"""
         row = await self.get(provider_id)
         self._assert_not_verifying(row)
         before = build_model_options(await self._repo.list_all())
-        await self._repo.delete(provider_id)
+        revoked = True
+        if row.provider_type == "chatgpt":
+            async with token_store.lock(row.name):
+                await self._session.refresh(row)
+                revoked = await revoke_credentials(
+                    ChatGPTCredentials.parse(self._repo.decrypted_api_key(row))
+                )
+                await self._repo.delete(provider_id)
+        else:
+            await self._repo.delete(provider_id)
         await reconcile_defaults(await self._repo.list_all(), before)
+        return revoked
 
 
 # ---------------------------------------------------------------------------
 # 进程级 LlmRouter 单例：所有 LLM 调用（agent 等）的运行时入口
 # ---------------------------------------------------------------------------
 
-_runtime_router = LlmRouter()
+_runtime_router = LlmRouter(protocol_factory=build_server_protocol)
 
 
 async def acquire_llm_router(session: AsyncSession) -> LlmRouter:
@@ -638,7 +668,7 @@ async def verify_llm_provider(provider_id: int) -> None:
         config = to_domain_config(row, repo.decrypted_api_key(row))
         config.timeout_seconds = _TEST_TIMEOUT
         preset = get_preset(row.provider_type)
-        protocol = build_protocol(config, preset)
+        protocol = build_server_protocol(config, preset)
         try:
             await protocol.chat(
                 ChatRequest(

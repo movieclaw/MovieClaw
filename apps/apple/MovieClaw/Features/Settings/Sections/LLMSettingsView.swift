@@ -7,6 +7,7 @@ struct LLMSettingsView: View {
     private struct SettingsBLLMEditing: Identifiable {
         let id = UUID()
         var provider: API.LlmProviderView?
+        var initialProviderType: String?
     }
 
     @Environment(\.api) private var api
@@ -25,6 +26,14 @@ struct LLMSettingsView: View {
 
     var body: some View {
         Form {
+            if presets.contains(where: { $0.id == "chatgpt" }) {
+                SettingsFormSection {
+                    Button("连接 ChatGPT 订阅", systemImage: "person.crop.circle.badge.checkmark") {
+                        editing = SettingsBLLMEditing(initialProviderType: "chatgpt")
+                    }
+                    .accessibilityIdentifier("llm-connect-chatgpt")
+                }
+            }
             if let error {
                 SettingsFormSection {
                     SettingsBNotice(text: error, tone: .danger)
@@ -91,7 +100,8 @@ struct LLMSettingsView: View {
                 provider: target.provider,
                 presets: presets,
                 // 其它实例已占用的名字：留空按供应商名保存时据此加序号，避免撞唯一名
-                takenNames: (providers ?? []).filter { $0.id != target.provider?.id }.map(\.name)
+                takenNames: (providers ?? []).filter { $0.id != target.provider?.id }.map(\.name),
+                initialProviderType: target.initialProviderType
             ) {
                 Task { await load() }
             }

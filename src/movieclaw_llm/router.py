@@ -34,7 +34,10 @@ logger = logging.getLogger(__name__)
 
 
 class LlmRouter:
-    def __init__(self, providers: list[LlmProviderConfig] | None = None) -> None:
+    def __init__(
+        self, providers: list[LlmProviderConfig] | None = None, *, protocol_factory=build_protocol
+    ) -> None:
+        self._protocol_factory = protocol_factory
         self._providers: list[LlmProviderConfig] = list(providers or [])
         # 实例名 → (配置指纹, 协议客户端)；指纹变了说明配置被改过，需重建
         self._clients: dict[str, tuple[str, BaseLlmProtocol]] = {}
@@ -128,7 +131,7 @@ class LlmRouter:
         if cached and cached[0] == fingerprint:
             return cached[1]
         preset = get_preset(config.provider_type)
-        client = build_protocol(config, preset)
+        client = self._protocol_factory(config, preset)
         self._clients[config.name] = (fingerprint, client)
         return client
 

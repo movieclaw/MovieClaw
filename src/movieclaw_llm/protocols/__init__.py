@@ -4,9 +4,11 @@ from movieclaw_llm.base import BaseLlmProtocol
 from movieclaw_llm.exceptions import LlmRoutingError
 from movieclaw_llm.models import LlmProviderConfig, ProviderPreset
 from movieclaw_llm.protocols.openai_chat import OpenAIChatProtocol
+from movieclaw_llm.protocols.openai_chatgpt import OpenAIChatGPTProtocol
 from movieclaw_llm.protocols.openai_responses import OpenAIResponsesProtocol
 
 PROTOCOLS: dict[str, type[BaseLlmProtocol]] = {
+    "openai_chatgpt": OpenAIChatGPTProtocol,
     "openai_chat": OpenAIChatProtocol,
     "openai_responses": OpenAIResponsesProtocol,
 }

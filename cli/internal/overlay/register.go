@@ -17,4 +17,5 @@ func Register(root *cobra.Command) {
 	root.AddCommand(NewLogsGroup())
 	root.AddCommand(NewJobsGroup())
 	root.AddCommand(NewPluginGroup())
+	root.AddCommand(NewLLMGroup())
 }

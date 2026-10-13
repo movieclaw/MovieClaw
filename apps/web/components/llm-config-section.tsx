@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ErrorBanner } from "@/components/cloud-push-ui";
+import { ChatGPTPlanConnect } from "@/components/chatgpt-plan-connect";
 import { useConfirm } from "@/components/feedback";
 import { PlusIcon, SparkIcon } from "@/components/icons";
 import { useLlmCapability } from "@/components/llm-gate";
@@ -143,7 +144,7 @@ export function LlmConfigSection() {
                 setEditing(null);
                 await afterChange();
               }}
-              onCancel={() => setEditing(null)}
+              onCancel={() => { setEditing(null); void afterChange(); }}
               onError={setError}
             />
           </div>
@@ -631,6 +632,11 @@ function LlmProviderForm({
   // 移动端 16px 字号：iOS 小于 16px 的输入框聚焦会整页放大
   const inputClass = `${SETTINGS_INPUT_CLASS} w-full max-sm:text-[16px]`;
   const labelClass = "mb-1.5 block text-sub font-medium text-[var(--text-muted)]";
+
+  if (providerType === "chatgpt") {
+    return <ChatGPTPlanConnect config={config?.provider_type === "chatgpt" ? config : null}
+      presets={presets} onSelect={setProviderType} onDone={onCancel} />;
+  }
 
   return (
     <fieldset disabled={busy || discovering} className="min-w-0 space-y-6">
@@ -1168,6 +1174,7 @@ function LlmProviderForm({
 
 /** 供应商卡片的副标题：固定端点显示域名，其余说明接入方式。 */
 const PROTOCOL_LABELS: Record<LlmApiProtocol, string> = {
+  openai_chatgpt: "ChatGPT 订阅",
   openai_chat: "Chat Completions",
   openai_responses: "Responses API",
 };

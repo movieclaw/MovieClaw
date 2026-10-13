@@ -14,6 +14,7 @@ async function unwrap<T>(promise: Promise<ApiEnvelope<T>>): Promise<T> {
 
 /** 供应商类型（与后端 movieclaw_llm 预设 id 对应）。 */
 export type LlmProviderType =
+  | "chatgpt"
   | "openai"
   | "bailian"
   | "deepseek"
@@ -83,10 +84,11 @@ export interface LlmPreset {
 }
 
 /** 线协议：Chat Completions / Responses API（GPT-5.6 带工具调思考强度需后者） */
-export type LlmApiProtocol = "openai_chat" | "openai_responses";
+export type LlmApiProtocol = "openai_chat" | "openai_responses" | "openai_chatgpt";
 
 /** 一个已接入的供应商实例（见 schemas.llm.LlmProviderView，脱敏无 API Key）。 */
 export interface LlmProviderConfig {
+  chatgpt_account?: string | null;
   id: number;
   /** 实例名（全局唯一，「实例名/模型id」路由引用的前半段） */
   name: string;
