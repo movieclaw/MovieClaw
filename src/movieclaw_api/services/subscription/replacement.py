@@ -361,6 +361,27 @@ async def run_replacement_search(attempt_id: int, *, force: bool = False) -> boo
             session.add(attempt)
             await session.commit()
 
+        if site_ids is not None and not site_ids:
+            # 白名单被黑名单掏空：[] 在 search_all_sites 等同不限站点，不能下发
+            async with db.session() as session:
+                attempt = await session.get(SubscriptionDownloadAttempt, attempt_id)
+                if attempt is None:
+                    return False
+                now = utcnow()
+                attempt.next_search_at = now + SEARCH_FAILURE_RETRY
+                attempt.updated_at = now
+                session.add(attempt)
+                await session.commit()
+                await SubscriptionRepository(session).add_activity(
+                    SubscriptionActivity(
+                        subscription_id=attempt.subscription_id,
+                        type=ActivityType.REPLACEMENT_SEARCHED,
+                        message="替代源搜索跳过：规则组站点白名单为空（或全被黑名单覆盖）",
+                        payload={"failed": True, "errors": ["rule_sites_empty"]},
+                    )
+                )
+            return False
+
         from movieclaw_api.services.site_search import search_all_sites
         from movieclaw_api.services.subscription.wanted_search import (
             _SEARCH_CATEGORIES,

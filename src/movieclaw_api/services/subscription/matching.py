@@ -747,9 +747,12 @@ async def rule_search_site_ids(
         return None
     if not spec.sites and not spec.sites_block:
         return None
-    if spec.sites and not spec.sites_block:
+    # 有白名单时直接返回白−黑，不要再拿「当前可用站」做交集：可用站为空
+    # （冷启动/测试未接入）时交集会塌成 []，而 search_all_sites 把空列表与
+    # None 同等对待（搜全部），正好把白名单约束弄反。扇出侧会再与活跃站求交。
+    if spec.sites:
         return search_site_ids(spec)
-    # 黑名单（或白∩黑）需要对照当前可用站点做差集
+    # 仅黑名单：对照当前可用站点做差集
     from movieclaw_db.models.site_credential import ConfigStatus
 
     available = list(

@@ -321,6 +321,22 @@ async def _search_one_media(media_id: int, budget: _SearchBudget) -> None:
     # 再被 evaluate_rules 拒绝（issue #806）。被动匹配仍靠规则层兜底。
     async with db.session() as session:
         site_ids = await rule_search_site_ids(session, subscription)
+    if site_ids is not None and not site_ids:
+        # 白名单被黑名单掏空：没有可搜的站。[] 在 search_all_sites 里等同
+        # 不限站点，绝不能原样下发——按"搜索本身失败"短冷却，等用户改规则。
+        logger.warning(
+            "条目 #%s《%s》规则组站点约束结果为空，跳过本轮搜索", media_id, item.title
+        )
+        async with db.session() as session:
+            from movieclaw_api.services.subscription.upgrade import postpone_upgrade_wanted
+
+            await _postpone_open_wanted(
+                session, media_id, delay=SEARCH_FAILURE_RETRY, count_attempt=False
+            )
+            await postpone_upgrade_wanted(
+                session, media_id, delay=SEARCH_FAILURE_RETRY, count_attempt=False
+            )
+        return
 
     hits_by_key: dict[tuple[str, str], TorrentHit] = {}
     per_keyword: list[tuple[str, int]] = []
