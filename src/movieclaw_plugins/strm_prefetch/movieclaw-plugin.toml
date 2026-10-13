@@ -1,7 +1,7 @@
 [plugin]
 id = "strm-prefetch"
 title = "网盘规格预探"
-version = "1.0.0"
+version = "1.0.1"
 entry = "strm_prefetch"
 runtime = "process"
 sdk = "^1.0"
