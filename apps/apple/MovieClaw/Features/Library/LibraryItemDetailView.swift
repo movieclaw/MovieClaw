@@ -12,8 +12,8 @@ import SwiftUI
 ///   关掉播放器、服务端收下「停止」后重拉（`.playbackStopReported`），按钮立即跟上刚才看到的位置；
 /// - 收藏针对整部作品，已看针对当前单元（电影本身 / 选中的那一集），都走 `POST /playback/marks`；
 /// - 刮削进行中每 2 秒、章节图生成中每 3 秒（最多 20 次）重拉详情；
-/// - ⋯ 菜单：搜索资源 / 加入合集 / 分享 / 洗版 / 修正识别 / 刷新元数据 / 重新生成章节 / 更换图片 /
-///   转移到其他库 / 删除影片 / 清除观看记录——对话框各自是独立的 sheet 组件；
+/// - ⋯ 菜单（带图标、分区）：剧集下载（选中的集 / 未看的集 / 全部）/ 加入合集 / 分享 / 洗版 / 修正识别 / 刷新元数据 /
+///   重新生成章节 / 更换图片 / 转移到其他库 / 从媒体库删除——对话框各自是独立的 sheet 组件；
 /// - 页面底色取剧照露出部分底边的颜色，剧照底部渐变进去、整页铺满（同 Apple Music 专辑页，见 `HeroEdgeColor`）。
 struct LibraryItemDetailView: View {
     let libraryId: Int
@@ -30,6 +30,7 @@ struct LibraryItemDetailView: View {
     @State private var library: API.LibraryView?
     @State private var failed = false
     @State private var selectedEpisode: SelectedEpisode?
+    @State private var downloadPick: DownloadPick?
     @State private var selectedTrackFileId: Int?
     @State private var watched: API.PlaybackStateView?
     @State private var favorite: Bool?
@@ -122,6 +123,12 @@ struct LibraryItemDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) { actionsMenu(detail) }
             }
         }
+        .sheet(item: $downloadPick) { target in
+            OfflineProfileSheet(fileId: target.id, title: target.title, onPick: target.batch.count > 1 ? { profile, manifest in
+                OfflineSeasonDownload.start(fileIds: target.batch, profile: profile.profile, first: manifest, api: api, feedback: feedback)
+            } : nil)
+            .presentationDetents([.medium, .large])
+        }
         .task { await reload() }
         // 进了详情页多半要播：先把起播要用的连接连好（见 PlaybackPreconnect）
         .task { PlaybackPreconnect.warm(api: api) }
@@ -202,6 +209,13 @@ struct LibraryItemDetailView: View {
     }
 
     private var isMovie: Bool { detail?.kind != "tv" }
+
+    /// 右上角菜单发起的剧集下载：先选档位，再整批开始
+    private struct DownloadPick: Identifiable {
+        let id: Int
+        let title: String
+        let batch: [Int]
+    }
 
     /// 当前播放单元：电影恒为 (0, 0)；剧集跟随分集区选中的那一集
     private var playUnit: (season: Int, episode: Int)? {
@@ -738,39 +752,49 @@ struct LibraryItemDetailView: View {
         let tmdb = detail.tmdbId ?? 0
         let canUpgrade = permissions.canSubscribe && tmdb > 0 && detail.kind != "video" && detail.kind != "photo"
         let canShare = permissions.isAdmin && detail.kind != "photo"
+        let canDownload = !isMovie && permissions.canDownloadVideo && offlineStore.serverSupported
         return Menu {
-            if permissions.canSearch {
-                Button("搜索资源") {
-                    router.push(.search(.init(q: detail.title, also: SearchScope.titleSearchAlso(detail.englishTitle, detail.originalTitle), scope: SearchScope.ofMediaKind(detail.kind).encoded)))
+            if canDownload {
+                // 剧集的离线下载（docs/design/offline-download.md §8）：电影用播放键旁的下载按钮
+                Section {
+                    Button("下载选中的集", systemImage: "arrow.down.circle") { Task { await download(.selected, detail) } }
+                        .disabled(selectedDownloadFile == nil)
+                    Button("下载未看的集", systemImage: "eye.slash") { Task { await download(.unwatched, detail) } }
+                    Button("下载全部剧集", systemImage: "square.and.arrow.down.on.square") { Task { await download(.all, detail) } }
                 }
             }
-            Button("加入合集…") { sheet = .addToCollection }
-            if canShare {
-                Button("分享…") { Task { await openShare() } }
-            }
-            if canUpgrade {
-                Button("洗版…") { Task { await upgrade(detail) } }
+            Section {
+                Button("加入合集", systemImage: "rectangle.stack.badge.plus") { sheet = .addToCollection }
+                if canShare {
+                    Button("分享", systemImage: "square.and.arrow.up") { Task { await openShare() } }
+                }
+                if canUpgrade {
+                    Button("洗版", systemImage: "sparkles") { Task { await upgrade(detail) } }
+                }
             }
             if manage {
-                Divider()
-                if identifiable { Button("修正识别结果…") { sheet = .reidentify } }
-                Button(scraping
-                    ? (scraped ? "正在刷新元数据…" : readsNfo ? "正在读取 NFO…" : "正在生成封面…")
-                    : (scraped ? "刷新元数据" : readsNfo ? "重新读取 NFO 与封面" : "重新生成封面")) {
-                    Task { await refreshMetadata(detail) }
-                }
-                .disabled(scraping)
-                if library?.extractChapterImages == true {
-                    Button(detail.chaptersPending ? "正在生成章节…" : "重新生成章节") { Task { await regenerateChapters() } }
+                Section {
+                    if identifiable { Button("修正识别", systemImage: "wand.and.stars") { sheet = .reidentify } }
+                    Button(scraping
+                        ? (scraped ? "正在刷新元数据" : readsNfo ? "正在读取 NFO" : "正在生成封面")
+                        : (scraped ? "刷新元数据" : readsNfo ? "重读 NFO 与封面" : "重新生成封面"),
+                        systemImage: "arrow.clockwise") {
+                        Task { await refreshMetadata(detail) }
+                    }
+                    .disabled(scraping)
+                    if library?.extractChapterImages == true {
+                        Button(detail.chaptersPending ? "正在生成章节" : "重新生成章节", systemImage: "list.bullet.rectangle") {
+                            Task { await regenerateChapters() }
+                        }
                         .disabled(detail.chaptersPending)
+                    }
+                    if scraped { Button("更换图片", systemImage: "photo") { sheet = .artwork } }
+                    Button("转移到其他库", systemImage: "arrow.left.arrow.right") { sheet = .transfer }
                 }
-                if scraped { Button("更换图片…") { sheet = .artwork } }
-                Button("转移到其他库…") { sheet = .transfer }
-                Divider()
-                Button("删除影片", role: .destructive) { sheet = .delete }
+                Section {
+                    Button("从媒体库删除", systemImage: "trash", role: .destructive) { sheet = .delete }
+                }
             }
-            if manage || canUpgrade || canShare { Divider() }
-            Button("清除观看记录…") { Task { await clearHistory(detail) } }
         } label: {
             Image(systemName: "ellipsis")
                 .overlay(alignment: .topTrailing) {
@@ -996,18 +1020,42 @@ struct LibraryItemDetailView: View {
         }
     }
 
-    private func clearHistory(_ detail: API.LibraryItemDetailView) async {
-        guard await feedback.confirm("清除《\(detail.title)》的观看记录？",
-                                     message: "续播进度、已看标记和播放次数都会清除，无法恢复。只影响你自己的记录。",
-                                     confirmTitle: "清除", destructive: true) else { return }
+    private enum DownloadScope { case selected, unwatched, all }
+
+    /// 选中的这一集要下的文件（选中的版本在前）；已在本机的不算
+    private var selectedDownloadFile: Int? {
+        guard let selectedEpisode,
+              offlineStore.unit(mediaItemId: itemId, season: selectedEpisode.season, episode: selectedEpisode.episode.episodeNumber) == nil
+        else { return nil }
+        return downloadableFiles.first?.id ?? selectedEpisode.episode.fileIds.first
+    }
+
+    /// 右上角菜单的剧集下载：选中的集 / 未看的集 / 全部。本机已有的跳过；选档后整批开始
+    private func download(_ scope: DownloadScope, _ detail: API.LibraryItemDetailView) async {
+        if scope == .selected {
+            guard let file = selectedDownloadFile, let selectedEpisode else { return }
+            downloadPick = DownloadPick(id: file, title: "\(detail.title) 第 \(selectedEpisode.season) 季第 \(selectedEpisode.episode.episodeNumber) 集", batch: [file])
+            return
+        }
+        var files: [Int] = []
         do {
-            let (_, message) = try await api.libraryClearHistory(scope: "item", mediaItemId: detail.mediaItemId)
-            feedback.success(message)
-            await loadResume()
-            episodesVersion += 1
+            for season in Set(detail.files.map(\.seasonNumber)).sorted() {
+                let episodes = try await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: itemId, seasonNumber: season).episodes
+                for episode in episodes where episode.owned && (scope == .all || !episode.played) {
+                    guard let file = episode.fileIds.first,
+                          offlineStore.unit(mediaItemId: itemId, season: season, episode: episode.episodeNumber) == nil else { continue }
+                    files.append(file)
+                }
+            }
         } catch {
             feedback.error(error)
+            return
         }
+        guard let first = files.first else {
+            feedback.info(scope == .unwatched ? "没看过的集都已下载" : "全部剧集都已下载")
+            return
+        }
+        downloadPick = DownloadPick(id: first, title: "\(detail.title)（\(files.count) 集）", batch: files)
     }
 
     private func restore(_ file: API.LibraryFileView) async {
@@ -1110,19 +1158,16 @@ struct SeasonEpisodesSection: View {
     /// 选中集换了要把横排滚到它（换段、宫格里点了一集、锚点变了）
     @State private var scrollRequest = 0
     @State private var showsAll = false
-    /// 离线下载（docs/design/offline-download.md §8）：分集卡长按下载 / 删除，季选择旁「⋯」整季下载 / 删除
+    /// 离线下载（docs/design/offline-download.md §8）：分集卡长按下载 / 删除（整批下载在右上角菜单）
     @Environment(\.permissions) private var permissions
     @Environment(Feedback.self) private var feedback
     @State private var reachability = ServerReachability.shared
     @State private var offlineStore = OfflineStore.shared
     @State private var pickFile: PickFile?
-    @State private var confirmDeleteSeason = false
 
     private struct PickFile: Identifiable {
         let id: Int
         let title: String
-        /// 整季批量下：其余要下的文件
-        var batch: [Int] = []
     }
 
     private var ownedSeasons: Set<Int> { Set(detail.files.map(\.seasonNumber)) }
@@ -1176,7 +1221,6 @@ struct SeasonEpisodesSection: View {
                 } else {
                     Text(seasonLabel(currentSeason)).font(.subheadline).foregroundStyle(Theme.textMuted)
                 }
-                if let data { seasonDownloadMenu(data) }
                 if let data, !ranges.isEmpty {
                     Spacer(minLength: 0)
                     Button { showsAll = true } label: {
@@ -1260,18 +1304,8 @@ struct SeasonEpisodesSection: View {
         }
         .task(id: "\(currentSeason)|\(detail.fileCount)|\(reachability.isOffline)") { await load(reset: true) }
         .sheet(item: $pickFile) { target in
-            OfflineProfileSheet(fileId: target.id, title: target.title, onPick: target.batch.isEmpty ? nil : { profile, manifest in
-                OfflineSeasonDownload.start(fileIds: target.batch, profile: profile.profile, first: manifest, api: api, feedback: feedback)
-            })
-            .presentationDetents([.medium, .large])
-        }
-        .confirmationDialog("删除第 \(currentSeason) 季的下载？", isPresented: $confirmDeleteSeason, titleVisibility: .visible) {
-            let units = seasonUnits
-            Button("删除 \(units.count) 集（\(Formatters.bytes(Int(units.reduce(0) { $0 + $1.receivedBytes }))))", role: .destructive) {
-                for unit in units { OfflineDownloader.shared.delete(fileId: unit.fileId) }
-            }
-        } message: {
-            Text("只删 iPhone 上的副本，观看进度会保留。")
+            OfflineProfileSheet(fileId: target.id, title: target.title)
+                .presentationDetents([.medium, .large])
         }
         .onChange(of: refreshKey) { Task { await load(reset: false) } }
         // 作容器：标识不盖掉里面季选择、段胶囊、「全部 N 集」各自的标识
@@ -1336,42 +1370,6 @@ struct SeasonEpisodesSection: View {
     /// 离线时直接用本机存档（走同一段落点逻辑之外的捷径）
     private struct OfflineFallback: Error {
         let view: API.SeasonEpisodesView
-    }
-
-    /// 这一季已有的本机副本
-    private var seasonUnits: [OfflineUnit] {
-        offlineStore.units(ofItem: detail.mediaItemId).filter { $0.season == currentSeason }
-    }
-
-    /// 季选择旁的「⋯」：整季下载（没下的集）/ 删除本季下载
-    @ViewBuilder
-    private func seasonDownloadMenu(_ data: API.SeasonEpisodesView) -> some View {
-        let local = Set(seasonUnits.map(\.episode))
-        let missing = data.episodes.filter { $0.owned && !local.contains($0.episodeNumber) && !$0.fileIds.isEmpty }
-        let canDownload = permissions.canDownloadVideo && offlineStore.serverSupported && !reachability.isOffline && !missing.isEmpty
-        if canDownload || !seasonUnits.isEmpty {
-            Menu {
-                if canDownload {
-                    Button("下载本季未下载的 \(missing.count) 集", systemImage: "arrow.down.circle") {
-                        let files = missing.compactMap(\.fileIds.first)
-                        if let first = files.first {
-                            pickFile = PickFile(id: first, title: "\(detail.title) 第 \(data.seasonNumber) 季（\(files.count) 集）", batch: files)
-                        }
-                    }
-                }
-                if !seasonUnits.isEmpty {
-                    Button("删除本季下载", systemImage: "trash", role: .destructive) { confirmDeleteSeason = true }
-                }
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Theme.text)
-                    .frame(width: 32, height: 30)
-                    .glassEffect(.regular.interactive(), in: .capsule)
-            }
-            .accessibilityLabel("本季下载")
-            .accessibilityIdentifier("season-download-menu")
-        }
     }
 
     /// 分集卡长按：下载这一集 / 暂停 / 删除下载

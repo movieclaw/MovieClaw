@@ -113,38 +113,82 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertTrue(waitUntil(timeout: 60) { actions.exists }, "接口恢复后应自己回到在线详情")
     }
 
-    /// 离线时删掉整季下载：页面上不能还显示那几集已下载
+    /// 离线时把一部剧的下载逐集删光：页面上不能还显示那几集已下载、还能点播放
     @MainActor
     func testOfflineSeasonDeleteRefreshesPage() throws {
         let app = launch(reset: true, route: "/library/2/item/\(showId)")
-        let menu = app.buttons["season-download-menu"]
-        XCTAssertTrue(menu.waitForExistence(timeout: 30))
-        menu.tap()
-        tapMenuItem(app, prefix: "下载本季未下载的")
+        // 只数分集卡上的「已下载」角标（图片）；下载前必须是 0（播放键旁的下载按钮也叫「已下载」，不能混进来）
+        let downloaded = app.images.matching(NSPredicate(format: "label == '已下载'"))
+        openItemMenu(app, then: "下载全部剧集")
         let original = app.buttons["offline-profile-original"]
         XCTAssertTrue(original.waitForExistence(timeout: 30))
-        // 只数分集卡上的「已下载」角标（图片）；下载前必须是 0，免得别处同名标签让这一步提前过
-        let downloaded = app.images.matching(NSPredicate(format: "label == '已下载'"))
         XCTAssertEqual(downloaded.count, 0, app.debugDescription)
         original.tap()
         XCTAssertTrue(waitUntil(timeout: 180) { downloaded.count >= 3 })
         setMode(["mode": "refuse"])
         app.terminate()
         let offline = launch(reset: false, route: "/library/2/item/\(showId)")
-        XCTAssertTrue(offline.buttons["season-download-menu"].waitForExistence(timeout: 30))
-        // 冷启动后 6～11 秒才判定离线，期间页面会重排一次，点开的菜单可能被收掉：没出来就再点
-        let deleteSeason = offline.buttons["删除本季下载"]
-        for _ in 0 ..< 3 where !deleteSeason.exists {
-            offline.buttons["season-download-menu"].tap()
-            _ = deleteSeason.waitForExistence(timeout: 3)
+        XCTAssertTrue(offline.buttons["episode-1"].waitForExistence(timeout: 30))
+        // 冷启动后 6～11 秒才判定离线，期间页面会重排一次：等它定下来再长按
+        Thread.sleep(forTimeInterval: 12)
+        for episode in 1 ... 3 {
+            let card = offline.buttons["episode-\(episode)"]
+            XCTAssertTrue(card.waitForExistence(timeout: 10), "第 \(episode) 集应还在")
+            card.press(forDuration: 1.2)
+            tapMenuItem(offline, "删除下载")
         }
-        tapMenuItem(offline, "删除本季下载")
-        let confirm = offline.buttons.matching(NSPredicate(format: "label BEGINSWITH '删除 3 集'")).firstMatch
-        XCTAssertTrue(confirm.waitForExistence(timeout: 5))
-        confirm.tap()
-        let stillDownloaded = offline.descendants(matching: .any).matching(NSPredicate(format: "label == '已下载'"))
+        let stillDownloaded = offline.images.matching(NSPredicate(format: "label == '已下载'"))
         XCTAssertTrue(waitUntil(timeout: 10) { stillDownloaded.count == 0 && !offline.buttons["item-play"].exists },
                       "删完后页面不能还显示已下载的集、还能点播放")
+    }
+
+    /// 右上角菜单的三个下载项：未看的集只下没看过的、选中的集只下这一集、全下完后「全部」提示已下载；
+    /// 菜单里不再有「搜索资源」「清除观看记录」，季选择旁不再有「⋯」
+    @MainActor
+    func testItemMenuDownloadSection() throws {
+        let backend = Backend(server: backendURL, username: username, password: password)
+        backend.request("POST", "/playback/marks", body: ["media_item_id": showId, "season_number": 1, "played": false])
+        backend.request("POST", "/playback/marks", body: ["media_item_id": showId, "season_number": 1, "episode_number": 1, "played": true])
+        defer { backend.request("POST", "/playback/marks", body: ["media_item_id": showId, "season_number": 1, "played": false]) }
+
+        let app = launch(reset: true, route: "/library/2/item/\(showId)")
+        let actions = app.buttons["item-actions"]
+        XCTAssertTrue(actions.waitForExistence(timeout: 30))
+        XCTAssertFalse(app.buttons["season-download-menu"].exists, "季选择旁的「⋯」应已去掉")
+        actions.tap()
+        for label in ["下载选中的集", "下载未看的集", "下载全部剧集", "加入合集", "修正识别", "从媒体库删除"] {
+            XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5), "菜单里应有「\(label)」\n\(app.debugDescription)")
+        }
+        for gone in ["搜索资源", "清除观看记录…", "清除观看记录", "加入合集…"] {
+            XCTAssertFalse(app.buttons[gone].exists, "菜单里不该再有「\(gone)」")
+        }
+        snapshot("item-menu")
+        app.buttons["下载未看的集"].tap()
+
+        let downloaded = app.images.matching(NSPredicate(format: "label == '已下载'"))
+        let original = app.buttons["offline-profile-original"]
+        XCTAssertTrue(original.waitForExistence(timeout: 30))
+        XCTAssertEqual(downloaded.count, 0)
+        original.tap()
+        XCTAssertTrue(waitUntil(timeout: 180) { downloaded.count == 2 }, "未看的只有第 2、3 集")
+        Thread.sleep(forTimeInterval: 3)
+        XCTAssertEqual(downloaded.count, 2, "看过的第 1 集不该被下载")
+        XCTAssertFalse(app.buttons["episode-1"].label.contains("已下载"))
+
+        // 选中第 1 集 → 下载选中的集（单集：选档后直接开始）
+        app.buttons["episode-1"].tap()
+        openItemMenu(app, then: "下载选中的集")
+        XCTAssertTrue(original.waitForExistence(timeout: 30))
+        original.tap()
+        XCTAssertTrue(waitUntil(timeout: 120) { downloaded.count == 3 }, "第 1 集也应下完")
+
+        // 都在本机了：「下载选中的集」不可点，「下载全部剧集」提示已下载、不弹选档
+        actions.tap()
+        XCTAssertTrue(app.buttons["下载选中的集"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["下载选中的集"].isEnabled)
+        app.buttons["下载全部剧集"].tap()
+        XCTAssertTrue(app.staticTexts["全部剧集都已下载"].waitForExistence(timeout: 10))
+        XCTAssertFalse(original.exists)
     }
 
     /// 断网冷启动直接起播（通知、站内链接直达播放页）：本机目录还没读完也要放本机副本，不能去连服务器
@@ -202,6 +246,21 @@ final class OfflineReviewReproUITests: XCTestCase {
         let option = app.buttons["offline-profile-\(profile)"]
         XCTAssertTrue(option.waitForExistence(timeout: 30))
         option.tap()
+    }
+
+    private func snapshot(_ name: String) {
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+
+    @MainActor
+    private func openItemMenu(_ app: XCUIApplication, then label: String) {
+        let actions = app.buttons["item-actions"]
+        XCTAssertTrue(actions.waitForExistence(timeout: 30))
+        actions.tap()
+        tapMenuItem(app, label)
     }
 
     @MainActor
