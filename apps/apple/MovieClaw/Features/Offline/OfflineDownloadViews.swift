@@ -122,44 +122,69 @@ struct ProgressRing: View {
     }
 }
 
+/// 剧集下载的一个范围（选中的这一集 / 未看的集 / 全部）：分段选择里一段
+struct OfflineDownloadScope: Identifiable {
+    let id: String
+    /// 分段上的字，如「第 3 集」「未看 8 集」
+    let label: String
+    let fileIds: [Int]
+    /// 打开时默认选中
+    var preferred = false
+}
+
 /// 选档 sheet：列出这个文件可用的档位、各档预计大小、本机剩余空间；记住上次的选择
 /// 下载选档（docs/design/offline-download.md §5）：点一行只是选中（打勾），右上角「下载」才开始——同系统的选择类表单。
-/// 一次下多集时先把每一集的下载信息都取回来，每一档显示整批的总大小，空间不够时说明并禁用「下载」
+/// 一次下多集时先把每一集的下载信息都取回来，每一档显示整批的总大小，空间不够时说明并禁用「下载」。
+/// 剧集从右上角菜单进来时顶部多一排范围（§8）：切范围时大小跟着变，取过的下载信息不重取
 struct OfflineProfileSheet: View {
-    let fileIds: [Int]
     let title: String
+    private let loadScopes: () async throws -> [OfflineDownloadScope]
 
     init(fileId: Int, title: String) {
-        self.init(fileIds: [fileId], title: title)
+        self.title = title
+        loadScopes = { [OfflineDownloadScope(id: "file", label: title, fileIds: [fileId])] }
     }
 
-    init(fileIds: [Int], title: String) {
-        self.fileIds = fileIds
+    init(title: String, scopes: @escaping () async throws -> [OfflineDownloadScope]) {
         self.title = title
+        loadScopes = scopes
     }
 
     @Environment(\.api) private var api
     @Environment(\.dismiss) private var dismiss
     @Environment(Feedback.self) private var feedback
-    @State private var manifests: [API.OfflineManifestView]?
-    /// 取不到下载信息的集数（批量时其余照下）
-    @State private var missing = 0
+    @State private var scopes: [OfflineDownloadScope]?
+    @State private var scopeId: String?
+    @State private var loaded: [Int: API.OfflineManifestView] = [:]
+    /// 取不到下载信息的文件（批量时其余照下）
+    @State private var failedIds: Set<Int> = []
     @State private var error: String?
     @State private var startError: String?
     @State private var choice: String?
 
+    private var fileIds: [Int] { scopes?.first { $0.id == scopeId }?.fileIds ?? [] }
     private var batch: Bool { fileIds.count > 1 }
+    private var attempted: Bool { fileIds.allSatisfy { loaded[$0] != nil || failedIds.contains($0) } }
+    private var missing: Int { fileIds.filter(failedIds.contains).count }
+
+    /// 当前范围的下载信息：每个文件都取过了才算到手
+    private var manifests: [API.OfflineManifestView]? {
+        guard !fileIds.isEmpty, attempted else { return nil }
+        let ordered = fileIds.compactMap { loaded[$0] }
+        return ordered.isEmpty ? nil : ordered
+    }
 
     var body: some View {
         NavigationStack {
             Group {
-                if let manifests, let first = manifests.first {
-                    content(first, manifests)
+                if let scopes, scopes.isEmpty {
+                    ContentUnavailableView("都已下载", systemImage: "checkmark.circle", description: Text("这部剧能下的集都已在 iPhone 上"))
+                } else if let scopes {
+                    content(scopes)
                 } else if let error {
                     ContentUnavailableView("拿不到下载信息", systemImage: "exclamationmark.triangle", description: Text(error))
                 } else {
-                    ProgressView(batch ? "正在计算 \(fileIds.count) 集的大小" : "正在读取可下载的画质")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    ProgressView("正在读取可下载的集").frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
             .navigationTitle("下载到 iPhone")
@@ -174,60 +199,90 @@ struct OfflineProfileSheet: View {
                 }
             }
         }
-        .task { await load() }
+        .task {
+            do {
+                let scopes = try await loadScopes()
+                scopeId = (scopes.first(where: \.preferred) ?? scopes.first)?.id
+                self.scopes = scopes
+            } catch {
+                self.error = error.localizedDescription
+            }
+        }
+        .task(id: scopeId) { await load(fileIds) }
     }
 
     @ViewBuilder
-    private func content(_ first: API.OfflineManifestView, _ manifests: [API.OfflineManifestView]) -> some View {
+    private func content(_ scopes: [OfflineDownloadScope]) -> some View {
         let free = OfflineDisk.availableBytes
         List {
             Section {
                 Text(title).font(.headline)
+                if scopes.count > 1 {
+                    Picker("下载范围", selection: Binding(mcGet: { scopeId ?? "" }, set: { scopeId = $0; startError = nil })) {
+                        ForEach(scopes) { Text($0.label).tag($0.id) }
+                    }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("offline-scope")
+                }
                 if batch {
-                    Text(missing > 0 ? "共 \(manifests.count) 集（另有 \(missing) 集取不到下载信息，会跳过）" : "共 \(manifests.count) 集")
+                    Text(missing > 0 ? "共 \(fileIds.count - missing) 集（另有 \(missing) 集取不到下载信息，会跳过）" : "共 \(fileIds.count) 集")
                         .font(.footnote).foregroundStyle(Theme.textMuted)
                 }
                 if let free {
                     Text("iPhone 剩余 \(Formatters.bytes(Int(free)))").font(.footnote).foregroundStyle(Theme.textMuted)
                 }
             }
-            if let reason = first.unavailableReason, !batch {
-                Section { Text(reason).foregroundStyle(Theme.warning) }
+            if let manifests, let first = manifests.first {
+                profiles(first, manifests, free: free)
+            } else if attempted {
+                Section { Text(error ?? "拿不到下载信息").foregroundStyle(Theme.warning) }
             } else {
                 Section {
-                    ForEach(first.profiles, id: \.profile) { profile in
-                        let total = Self.totalBytes(profile.profile, manifests)
-                        Button { choice = profile.profile } label: {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(profile.label).foregroundStyle(Theme.text)
-                                    Text(profile.profile == "original" ? "原文件，画质最好" : "服务器转码后下载，边转边下")
-                                        .font(.caption).foregroundStyle(Theme.textMuted)
-                                }
-                                Spacer()
-                                Text("\(batch ? "共" : "")约 \(Formatters.bytes(Int(total)))").monospacedDigit().foregroundStyle(Theme.textMuted)
-                                Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(Theme.info)
-                                    .opacity(profile.profile == selected(first) ? 1 : 0)
-                            }
-                            .contentShape(.rect)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(profile.profile == selected(first) ? .isSelected : [])
-                        .accessibilityIdentifier("offline-profile-\(profile.profile)")
-                    }
-                } header: {
-                    Text("画质")
-                } footer: {
-                    if let free, needed(first, manifests) > free {
-                        Text("空间不够：需要约 \(Formatters.bytes(Int(needed(first, manifests))))（含预留 2 GB），iPhone 只剩 \(Formatters.bytes(Int(free)))。换个小一点的画质，或先清理空间。")
-                            .foregroundStyle(Theme.danger)
-                    } else {
-                        Text(OfflineSettings.allowCellular ? "会使用蜂窝网络下载。" : "只在 Wi-Fi 下下载；可在「我的 → 下载与存储」里改。")
-                    }
+                    ProgressView(batch ? "正在计算 \(fileIds.count) 集的大小" : "正在读取可下载的画质")
+                        .frame(maxWidth: .infinity)
                 }
             }
             if let startError {
                 Section { Text(startError).foregroundStyle(Theme.danger) }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func profiles(_ first: API.OfflineManifestView, _ manifests: [API.OfflineManifestView], free: Int64?) -> some View {
+        if let reason = first.unavailableReason, !batch {
+            Section { Text(reason).foregroundStyle(Theme.warning) }
+        } else {
+            Section {
+                ForEach(first.profiles, id: \.profile) { profile in
+                    let total = Self.totalBytes(profile.profile, manifests)
+                    Button { choice = profile.profile } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(profile.label).foregroundStyle(Theme.text)
+                                Text(profile.profile == "original" ? "原文件，画质最好" : "服务器转码后下载，边转边下")
+                                    .font(.caption).foregroundStyle(Theme.textMuted)
+                            }
+                            Spacer()
+                            Text("\(batch ? "共" : "")约 \(Formatters.bytes(Int(total)))").monospacedDigit().foregroundStyle(Theme.textMuted)
+                            Image(systemName: "checkmark").fontWeight(.semibold).foregroundStyle(Theme.info)
+                                .opacity(profile.profile == selected(first) ? 1 : 0)
+                        }
+                        .contentShape(.rect)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityAddTraits(profile.profile == selected(first) ? .isSelected : [])
+                    .accessibilityIdentifier("offline-profile-\(profile.profile)")
+                }
+            } header: {
+                Text("画质")
+            } footer: {
+                if let free, needed(first, manifests) > free {
+                    Text("空间不够：需要约 \(Formatters.bytes(Int(needed(first, manifests))))（含预留 2 GB），iPhone 只剩 \(Formatters.bytes(Int(free)))。换个小一点的画质，或先清理空间。")
+                        .foregroundStyle(Theme.danger)
+                } else {
+                    Text(OfflineSettings.allowCellular ? "会使用蜂窝网络下载。" : "只在 Wi-Fi 下下载；可在「我的 → 下载与存储」里改。")
+                }
             }
         }
     }
@@ -259,12 +314,13 @@ struct OfflineProfileSheet: View {
         }
     }
 
-    /// 取每一集的下载信息：并发 6 个；批量时取不到的集跳过并计数，全都取不到才报错
-    private func load() async {
-        var loaded: [Int: API.OfflineManifestView] = [:]
-        var lastError: Error?
+    /// 取每一集的下载信息：并发 6 个，取过的不重取；批量时取不到的集跳过并计数，全都取不到才报错。
+    /// 切范围会取消进行中的请求：被取消的不算取不到
+    private func load(_ ids: [Int]) async {
+        let pending = ids.filter { loaded[$0] == nil && !failedIds.contains($0) }
         let api = self.api
-        for chunk in stride(from: 0, to: fileIds.count, by: 6).map({ Array(fileIds[$0 ..< min($0 + 6, fileIds.count)]) }) {
+        for chunk in stride(from: 0, to: pending.count, by: 6).map({ Array(pending[$0 ..< min($0 + 6, pending.count)]) }) {
+            var failures: [Int: Error] = [:]
             await withTaskGroup(of: (Int, Result<API.OfflineManifestView, Error>).self) { group in
                 for id in chunk {
                     group.addTask {
@@ -274,18 +330,14 @@ struct OfflineProfileSheet: View {
                 for await (id, result) in group {
                     switch result {
                     case let .success(manifest): loaded[id] = manifest
-                    case let .failure(failure): lastError = failure
+                    case let .failure(failure): failures[id] = failure
                     }
                 }
             }
+            if Task.isCancelled { return }
+            failedIds.formUnion(failures.keys)
+            if let failure = failures.values.first { error = failure.localizedDescription }
         }
-        let ordered = fileIds.compactMap { loaded[$0] }
-        guard !ordered.isEmpty else {
-            error = lastError?.localizedDescription ?? "拿不到下载信息"
-            return
-        }
-        missing = fileIds.count - ordered.count
-        manifests = ordered
     }
 
     private func start() {

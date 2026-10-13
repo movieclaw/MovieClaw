@@ -119,9 +119,10 @@ final class OfflineReviewReproUITests: XCTestCase {
         let app = launch(reset: true, route: "/library/2/item/\(showId)")
         // 只数分集卡上的「已下载」角标（图片）；下载前必须是 0（播放键旁的下载按钮也叫「已下载」，不能混进来）
         let downloaded = app.images.matching(NSPredicate(format: "label == '已下载'"))
-        openItemMenu(app, then: "下载全部剧集")
+        openItemMenu(app, then: "下载")
         let original = app.buttons["offline-profile-original"]
         XCTAssertTrue(original.waitForExistence(timeout: 30))
+        app.segmentedControls["offline-scope"].buttons["全部 3 集"].tap()
         XCTAssertEqual(downloaded.count, 0, app.debugDescription)
         original.tap()
         app.buttons["offline-profile-confirm"].tap()
@@ -143,8 +144,9 @@ final class OfflineReviewReproUITests: XCTestCase {
                       "删完后页面不能还显示已下载的集、还能点播放")
     }
 
-    /// 右上角菜单的三个下载项：未看的集只下没看过的、选中的集只下这一集、全下完后「全部」提示已下载；
-    /// 菜单里不再有「搜索资源」「清除观看记录」，季选择旁不再有「⋯」
+    /// 右上角菜单：顶部一排「下载 · 加入合集 · 分享」，管理类收进「管理」子菜单，删除垫底；
+    /// 「下载」打开选档面板，顶部分段选范围（第 N 集 / 未看 / 全部），切范围大小跟着变；
+    /// 未看的只下没看过的、选中的集只下这一集、全下完后提示都已下载；季选择旁不再有「⋯」
     @MainActor
     func testItemMenuDownloadSection() throws {
         let backend = Backend(server: backendURL, username: username, password: password)
@@ -157,30 +159,51 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertTrue(actions.waitForExistence(timeout: 30))
         XCTAssertFalse(app.buttons["season-download-menu"].exists, "季选择旁的「⋯」应已去掉")
         actions.tap()
-        for label in ["下载选中的集", "下载未看的集", "下载全部剧集", "加入合集", "修正识别", "从媒体库删除"] {
-            XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5), "菜单里应有「\(label)」\n\(app.debugDescription)")
+        let manage = app.buttons["item-manage"]
+        for label in ["下载", "加入合集", "分享", "item-manage", "从媒体库删除"] {
+            XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5), "菜单顶层应有「\(label)」\n\(app.debugDescription)")
         }
-        for gone in ["搜索资源", "清除观看记录…", "清除观看记录", "加入合集…"] {
-            XCTAssertFalse(app.buttons[gone].exists, "菜单里不该再有「\(gone)」")
+        for gone in ["下载选中的集", "下载未看的集", "下载全部剧集", "修正识别", "洗版", "转移到其他库", "搜索资源", "清除观看记录"] {
+            XCTAssertFalse(app.buttons[gone].exists, "菜单顶层不该有「\(gone)」")
         }
-        // 「转移到其他库」跟着加入合集、分享；「洗版」排在管理那组末尾
-        let transferY = app.buttons["转移到其他库"].frame.minY, reidentifyY = app.buttons["修正识别"].frame.minY
-        let upgradeY = app.buttons["洗版"].frame.minY, shareY = app.buttons["分享"].frame.minY
-        XCTAssertTrue(shareY < transferY && transferY < reidentifyY && reidentifyY < upgradeY,
-                      "顺序不对：分享 \(shareY) 转移 \(transferY) 修正识别 \(reidentifyY) 洗版 \(upgradeY)")
+        // 下载、加入合集、分享排成一行；管理在它们下面、删除垫底
+        let download = app.buttons["下载"].frame, collection = app.buttons["加入合集"].frame, share = app.buttons["分享"].frame
+        XCTAssertEqual(download.midY, share.midY, accuracy: 2, "下载和分享应在同一行")
+        XCTAssertTrue(download.minX < collection.minX && collection.minX < share.minX, "顺序应是 下载 · 加入合集 · 分享")
+        XCTAssertTrue(share.maxY <= manage.frame.minY && manage.frame.maxY <= app.buttons["从媒体库删除"].frame.minY)
         snapshot("item-menu")
-        app.buttons["下载未看的集"].tap()
+        manage.tap()
+        // 刷新元数据在后台刷新时写作「正在刷新元数据」
+        XCTAssertTrue(app.buttons.matching(NSPredicate(format: "label ENDSWITH '刷新元数据'")).firstMatch.waitForExistence(timeout: 5))
+        for label in ["修正识别", "洗版", "转移到其他库"] {
+            XCTAssertTrue(app.buttons[label].waitForExistence(timeout: 5), "管理子菜单里应有「\(label)」\n\(app.debugDescription)")
+        }
+        XCTAssertTrue(app.buttons["修正识别"].frame.minY < app.buttons["洗版"].frame.minY
+                      && app.buttons["洗版"].frame.minY < app.buttons["转移到其他库"].frame.minY)
+        snapshot("item-menu-manage")
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)).tap()
+        XCTAssertTrue(waitUntil(timeout: 5) { !app.buttons["转移到其他库"].exists })
 
+        openItemMenu(app, then: "下载")
         let downloaded = app.images.matching(NSPredicate(format: "label == '已下载'"))
         let original = app.buttons["offline-profile-original"]
+        let scope = app.segmentedControls["offline-scope"]
         XCTAssertTrue(original.waitForExistence(timeout: 30))
         XCTAssertEqual(downloaded.count, 0)
-        // 选档表单：写明共几集、每档是整批的总大小；点一行只是选中，右上角「下载」才开始
+        // 有没看的默认选「未看」；写明共几集、每档是整批的总大小
+        XCTAssertTrue(scope.buttons["未看 2 集"].isSelected, app.debugDescription)
+        XCTAssertTrue(scope.buttons["全部 3 集"].exists)
         XCTAssertTrue(app.staticTexts["共 2 集"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertTrue(original.label.contains("共约"), "原画一行应是整批总大小：\(original.label)")
-        let total = Double(original.label.components(separatedBy: "共约 ").last?.components(separatedBy: " ").first ?? "") ?? 0
-        XCTAssertGreaterThan(total, 40, "两集约 47 MB，不该只是一集的大小：\(original.label)")
+        let unwatchedTotal = Self.megabytes(original.label)
+        XCTAssertGreaterThan(unwatchedTotal, 40, "两集约 47 MB，不该只是一集的大小：\(original.label)")
         snapshot("profile-sheet-batch")
+        // 切到「全部」：集数和大小跟着变；再切回来
+        scope.buttons["全部 3 集"].tap()
+        XCTAssertTrue(app.staticTexts["共 3 集"].waitForExistence(timeout: 30), app.debugDescription)
+        XCTAssertTrue(waitUntil(timeout: 30) { Self.megabytes(original.label) > unwatchedTotal }, "全部应比未看大：\(original.label)")
+        scope.buttons["未看 2 集"].tap()
+        XCTAssertTrue(app.staticTexts["共 2 集"].waitForExistence(timeout: 5))
         original.tap()
         XCTAssertTrue(app.buttons["offline-profile-confirm"].exists, "点一行不该直接开始、关掉表单")
         app.buttons["offline-profile-confirm"].tap()
@@ -189,21 +212,24 @@ final class OfflineReviewReproUITests: XCTestCase {
         XCTAssertEqual(downloaded.count, 2, "看过的第 1 集不该被下载")
         XCTAssertFalse(app.buttons["episode-1"].label.contains("已下载"))
 
-        // 选中第 1 集 → 下载选中的集（单集：选档后直接开始）
+        // 选中第 1 集：只剩这一集能下，面板不给范围选择
         app.buttons["episode-1"].tap()
-        openItemMenu(app, then: "下载选中的集")
+        openItemMenu(app, then: "下载")
         XCTAssertTrue(original.waitForExistence(timeout: 30))
+        XCTAssertFalse(scope.exists, "只有一个范围时不该有分段")
         original.tap()
         app.buttons["offline-profile-confirm"].tap()
         XCTAssertTrue(waitUntil(timeout: 120) { downloaded.count == 3 }, "第 1 集也应下完")
 
-        // 都在本机了：「下载选中的集」不可点，「下载全部剧集」提示已下载、不弹选档
-        actions.tap()
-        XCTAssertTrue(app.buttons["下载选中的集"].waitForExistence(timeout: 5))
-        XCTAssertFalse(app.buttons["下载选中的集"].isEnabled)
-        app.buttons["下载全部剧集"].tap()
-        XCTAssertTrue(app.staticTexts["全部剧集都已下载"].waitForExistence(timeout: 10))
+        // 都在本机了：面板说都已下载，不给选档
+        openItemMenu(app, then: "下载")
+        XCTAssertTrue(app.staticTexts["都已下载"].waitForExistence(timeout: 10), app.debugDescription)
         XCTAssertFalse(original.exists)
+    }
+
+    /// 选档行上的「共约 47.1 MB」取出 MB 数
+    private static func megabytes(_ label: String) -> Double {
+        Double(label.components(separatedBy: "约 ").last?.components(separatedBy: " ").first ?? "") ?? 0
     }
 
     /// 剧集下载状态画在分集卡的剧照上，样式同首页「正在下载」：底部一条写「下载中 N%」+ 实时速度 + 进度；

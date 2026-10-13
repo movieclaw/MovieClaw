@@ -30,7 +30,7 @@ struct LibraryItemDetailView: View {
     @State private var library: API.LibraryView?
     @State private var failed = false
     @State private var selectedEpisode: SelectedEpisode?
-    @State private var downloadPick: DownloadPick?
+    @State private var downloadingSeries = false
     @State private var selectedTrackFileId: Int?
     @State private var watched: API.PlaybackStateView?
     @State private var favorite: Bool?
@@ -123,9 +123,11 @@ struct LibraryItemDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) { actionsMenu(detail) }
             }
         }
-        .sheet(item: $downloadPick) { target in
-            OfflineProfileSheet(fileIds: target.batch, title: target.title)
-                .presentationDetents([.medium, .large])
+        .sheet(isPresented: $downloadingSeries) {
+            if let detail {
+                OfflineProfileSheet(title: detail.title) { try await downloadScopes(detail) }
+                    .presentationDetents([.medium, .large])
+            }
         }
         .task { await reload() }
         // 进了详情页多半要播：先把起播要用的连接连好（见 PlaybackPreconnect）
@@ -207,13 +209,6 @@ struct LibraryItemDetailView: View {
     }
 
     private var isMovie: Bool { detail?.kind != "tv" }
-
-    /// 右上角菜单发起的剧集下载：先选档位，再整批开始
-    private struct DownloadPick: Identifiable {
-        let id: Int
-        let title: String
-        let batch: [Int]
-    }
 
     /// 当前播放单元：电影恒为 (0, 0)；剧集跟随分集区选中的那一集
     private var playUnit: (season: Int, episode: Int)? {
@@ -753,43 +748,51 @@ struct LibraryItemDetailView: View {
         let canShare = permissions.isAdmin && detail.kind != "photo"
         let canDownload = !isMovie && permissions.canDownloadVideo && offlineStore.serverSupported
         return Menu {
-            if canDownload {
-                // 剧集的离线下载（docs/design/offline-download.md §8）：电影用播放键旁的下载按钮
-                Section {
-                    Button("下载选中的集", systemImage: "arrow.down.circle") { Task { await download(.selected, detail) } }
-                        .disabled(selectedDownloadFile == nil)
-                    Button("下载未看的集", systemImage: "eye.slash") { Task { await download(.unwatched, detail) } }
-                    Button("下载全部剧集", systemImage: "square.and.arrow.down.on.square") { Task { await download(.all, detail) } }
+            // 常用的三个排成一行（系统 ControlGroup）；管理类收进子菜单，删除单独垫底
+            let quick = canDownload || canShare
+            if quick {
+                ControlGroup {
+                    if canDownload {
+                        // 剧集的离线下载（docs/design/offline-download.md §8）：范围在下载面板里选；电影用播放键旁的下载按钮
+                        Button("下载", systemImage: "arrow.down.circle") { downloadingSeries = true }
+                    }
+                    Button("加入合集", systemImage: "rectangle.stack.badge.plus") { sheet = .addToCollection }
+                    if canShare {
+                        Button("分享", systemImage: "square.and.arrow.up") { Task { await openShare() } }
+                    }
                 }
-            }
-            Section {
+            } else {
                 Button("加入合集", systemImage: "rectangle.stack.badge.plus") { sheet = .addToCollection }
-                if canShare {
-                    Button("分享", systemImage: "square.and.arrow.up") { Task { await openShare() } }
-                }
-                if manage {
-                    Button("转移到其他库", systemImage: "arrow.left.arrow.right") { sheet = .transfer }
-                }
             }
             if manage {
-                Section {
-                    if identifiable { Button("修正识别", systemImage: "wand.and.stars") { sheet = .reidentify } }
-                    Button(scraping
-                        ? (scraped ? "正在刷新元数据" : readsNfo ? "正在读取 NFO" : "正在生成封面")
-                        : (scraped ? "刷新元数据" : readsNfo ? "重读 NFO 与封面" : "重新生成封面"),
-                        systemImage: "arrow.clockwise") {
-                        Task { await refreshMetadata(detail) }
-                    }
-                    .disabled(scraping)
-                    if library?.extractChapterImages == true {
-                        Button(detail.chaptersPending ? "正在生成章节" : "重新生成章节", systemImage: "list.bullet.rectangle") {
-                            Task { await regenerateChapters() }
+                Menu {
+                    Section {
+                        if identifiable { Button("修正识别", systemImage: "wand.and.stars") { sheet = .reidentify } }
+                        if scraped { Button("更换图片", systemImage: "photo") { sheet = .artwork } }
+                        Button(scraping
+                            ? (scraped ? "正在刷新元数据" : readsNfo ? "正在读取 NFO" : "正在生成封面")
+                            : (scraped ? "刷新元数据" : readsNfo ? "重读 NFO 与封面" : "重新生成封面"),
+                            systemImage: "arrow.clockwise") {
+                            Task { await refreshMetadata(detail) }
                         }
-                        .disabled(detail.chaptersPending)
+                        .disabled(scraping)
+                        if library?.extractChapterImages == true {
+                            Button(detail.chaptersPending ? "正在生成章节" : "重新生成章节", systemImage: "list.bullet.rectangle") {
+                                Task { await regenerateChapters() }
+                            }
+                            .disabled(detail.chaptersPending)
+                        }
                     }
-                    if scraped { Button("更换图片", systemImage: "photo") { sheet = .artwork } }
-                    if canUpgrade { upgradeButton(detail) }
+                    Section {
+                        if canUpgrade { upgradeButton(detail) }
+                        Button("转移到其他库", systemImage: "arrow.left.arrow.right") { sheet = .transfer }
+                    }
+                } label: {
+                    // 后台在刷新时右上角「⋯」带个蓝点，这里写明在忙什么
+                    Label("管理", systemImage: "gearshape")
+                    if scraping { Text(scraped ? "正在刷新元数据" : readsNfo ? "正在读取 NFO" : "正在生成封面") }
                 }
+                .accessibilityIdentifier("item-manage")
             } else if canUpgrade {
                 // 能订阅、不能管理库的成员：洗版单独一组
                 Section { upgradeButton(detail) }
@@ -1028,8 +1031,6 @@ struct LibraryItemDetailView: View {
         Button("洗版", systemImage: "sparkles") { Task { await upgrade(detail) } }
     }
 
-    private enum DownloadScope { case selected, unwatched, all }
-
     /// 选中的这一集要下的文件（选中的版本在前）；已在本机的不算
     private var selectedDownloadFile: Int? {
         guard let selectedEpisode,
@@ -1038,32 +1039,33 @@ struct LibraryItemDetailView: View {
         return downloadableFiles.first?.id ?? selectedEpisode.episode.fileIds.first
     }
 
-    /// 右上角菜单的剧集下载：选中的集 / 未看的集 / 全部。本机已有的跳过；选档后整批开始
-    private func download(_ scope: DownloadScope, _ detail: API.LibraryItemDetailView) async {
-        if scope == .selected {
-            guard let file = selectedDownloadFile, let selectedEpisode else { return }
-            downloadPick = DownloadPick(id: file, title: "\(detail.title) 第 \(selectedEpisode.season) 季第 \(selectedEpisode.episode.episodeNumber) 集", batch: [file])
-            return
-        }
-        var files: [Int] = []
-        do {
-            for season in Set(detail.files.map(\.seasonNumber)).sorted() {
-                let episodes = try await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: itemId, seasonNumber: season).episodes
-                for episode in episodes where episode.owned && (scope == .all || !episode.played) {
-                    guard let file = episode.fileIds.first,
-                          offlineStore.unit(mediaItemId: itemId, season: season, episode: episode.episodeNumber) == nil else { continue }
-                    files.append(file)
-                }
+    /// 右上角菜单「下载」的范围：选中的这一集 / 未看的集 / 全部（docs/design/offline-download.md §8）。
+    /// 本机已有的不算；空的范围、和「全部」一样的「未看」不给；有没看的默认选「未看」
+    private func downloadScopes(_ detail: API.LibraryItemDetailView) async throws -> [OfflineDownloadScope] {
+        var unwatched: [Int] = []
+        var all: [Int] = []
+        for season in Set(detail.files.map(\.seasonNumber)).sorted() {
+            let episodes = try await api.libraryItemsListEpisodes(libraryId: libraryId, mediaItemId: itemId, seasonNumber: season).episodes
+            for episode in episodes where episode.owned {
+                guard let file = episode.fileIds.first,
+                      offlineStore.unit(mediaItemId: itemId, season: season, episode: episode.episodeNumber) == nil else { continue }
+                all.append(file)
+                if !episode.played { unwatched.append(file) }
             }
-        } catch {
-            feedback.error(error)
-            return
         }
-        guard let first = files.first else {
-            feedback.info(scope == .unwatched ? "没看过的集都已下载" : "全部剧集都已下载")
-            return
+        var scopes: [OfflineDownloadScope] = []
+        if let file = selectedDownloadFile, let selectedEpisode {
+            let number = selectedEpisode.episode.episodeNumber
+            scopes.append(.init(id: "selected", label: detail.seasons.count > 1 ? "第 \(selectedEpisode.season) 季第 \(number) 集" : "第 \(number) 集",
+                                fileIds: [file]))
         }
-        downloadPick = DownloadPick(id: first, title: "\(detail.title)（\(files.count) 集）", batch: files)
+        if !unwatched.isEmpty, unwatched.count < all.count {
+            scopes.append(.init(id: "unwatched", label: "未看 \(unwatched.count) 集", fileIds: unwatched, preferred: true))
+        }
+        if all.count > (scopes.isEmpty ? 0 : 1) {
+            scopes.append(.init(id: "all", label: "全部 \(all.count) 集", fileIds: all, preferred: unwatched.count == all.count))
+        }
+        return scopes
     }
 
     private func restore(_ file: API.LibraryFileView) async {
