@@ -528,6 +528,10 @@ export function specSummary(
     chips.push(`制作组白名单 ${spec.release_groups_allow.length} 个`);
   if (spec.release_groups_block?.length)
     chips.push(`制作组黑名单 ${spec.release_groups_block.length} 个`);
+  if (spec.title_include?.length)
+    chips.push(`标题须含 ${spec.title_include.join("/")}`);
+  if (spec.title_exclude?.length)
+    chips.push(`标题排除 ${spec.title_exclude.join("/")}`);
   return chips;
 }
 
@@ -600,6 +604,8 @@ export function RuleSetEditorDialog({
   const [sizeMax, setSizeMax] = useState(spec.size_max_mb?.toString() ?? "");
   const [groupsAllow, setGroupsAllow] = useState((spec.release_groups_allow ?? []).join(", "));
   const [groupsBlock, setGroupsBlock] = useState((spec.release_groups_block ?? []).join(", "));
+  const [titleInclude, setTitleInclude] = useState((spec.title_include ?? []).join("、"));
+  const [titleExclude, setTitleExclude] = useState((spec.title_exclude ?? []).join("、"));
   // 洗版目标：""=不洗版（唯一的洗版配置点，docs/design/quality-upgrade.md §8.2）
   const [upgradeSource, setUpgradeSource] = useState<string>(spec.upgrade_source ?? "");
   const [upgradeKeepOld, setUpgradeKeepOld] = useState<boolean>(spec.upgrade_keep_old ?? false);
@@ -688,6 +694,8 @@ export function RuleSetEditorDialog({
       hdrBlock.length ? `排除 ${hdrBlock.join("/")}` : "",
       groupsAllow.trim() ? `组 ${groupsAllow.trim()}` : "",
       groupsBlock.trim() ? `排除组 ${groupsBlock.trim()}` : "",
+      titleInclude.trim() ? `须含 ${titleInclude.trim()}` : "",
+      titleExclude.trim() ? `排除 ${titleExclude.trim()}` : "",
     ]
       .filter(Boolean)
       .join(" · ") || "未设置";
@@ -805,6 +813,11 @@ export function RuleSetEditorDialog({
     const block = parseGroups(groupsBlock);
     if (allow.length) next.release_groups_allow = allow;
     if (block.length) next.release_groups_block = block;
+    // 标题关键词：与制作组同口径拆分（逗号/顿号/空白）；空 = 不限该轴
+    const includeWords = parseGroups(titleInclude);
+    const excludeWords = parseGroups(titleExclude);
+    if (includeWords.length) next.title_include = includeWords;
+    if (excludeWords.length) next.title_exclude = excludeWords;
     if (upgradeSource) {
       if (mediaSources.length && !mediaSources.includes(upgradeSource)) {
         return { spec: next, error: "洗版目标片源必须在允许的片源范围内" };
@@ -845,6 +858,8 @@ export function RuleSetEditorDialog({
     sizeMax,
     groupsAllow,
     groupsBlock,
+    titleInclude,
+    titleExclude,
     cutoffResolution,
     upgradeKeepOld,
     spec.sites,
@@ -1090,6 +1105,31 @@ export function RuleSetEditorDialog({
               value={groupsBlock}
               onChange={(e) => setGroupsBlock(e.target.value)}
               placeholder="留空不启用"
+              className={`${SETTINGS_INPUT_CLASS} w-full`}
+            />
+          </Field>
+
+          <Field
+            label="标题必须包含"
+            hint="标题或副标题须包含以下任一关键词（逗号/顿号/空格分隔），如综艺写「正片」；留空 = 不限。不符合的候选会进订阅动态并写明原因"
+          >
+            <input
+              type="text"
+              value={titleInclude}
+              onChange={(e) => setTitleInclude(e.target.value)}
+              placeholder="如：正片"
+              className={`${SETTINGS_INPUT_CLASS} w-full`}
+            />
+          </Field>
+          <Field
+            label="标题排除"
+            hint="标题或副标题含任一即淘汰，适合综艺的「纯享、先导、加更」；留空 = 不启用"
+          >
+            <input
+              type="text"
+              value={titleExclude}
+              onChange={(e) => setTitleExclude(e.target.value)}
+              placeholder="如：纯享、先导、加更"
               className={`${SETTINGS_INPUT_CLASS} w-full`}
             />
           </Field>

@@ -62,6 +62,23 @@ def evaluate_rules(
         )
     attrs = candidate.attrs
 
+    # 标题关键词（issue #546）：先于分辨率等属性过滤——综艺变体靠字样区分，
+    # 拒绝原因应优先落到用户配置的关键词上；匹配标题+副标题（与插件示例同口径）
+    haystack = f"{candidate.title} {candidate.subtitle}".casefold()
+    if spec.title_exclude:
+        for word in spec.title_exclude:
+            if word.casefold() in haystack:
+                return _reject(
+                    "title_excluded",
+                    f"标题含排除词「{word}」",
+                )
+    if spec.title_include:
+        if not any(word.casefold() in haystack for word in spec.title_include):
+            return _reject(
+                "title_include_missing",
+                f"标题未包含必须的关键词（{'、'.join(spec.title_include)}）",
+            )
+
     if spec.resolutions:
         allowed = {r.casefold() for r in spec.resolutions}
         if attrs.resolution is None:

@@ -407,6 +407,57 @@ async def test_rule_rejection_logged_once_with_reason(db) -> None:
         assert all(w.status == WantedStatus.WANTED for w in wanted.values())
 
 
+async def test_title_keyword_rejection_logged_in_activity(db) -> None:
+    """标题排除词淘汰候选：订阅动态写明具体关键词（issue #546 综艺变体）。"""
+    async with db.session() as session:
+        rule = await RuleSetService(session).create(
+            "综艺只要正片",
+            {"title_include": ["正片"], "title_exclude": ["纯享", "先导", "加更"]},
+        )
+        # 回读确认规则组持久化了标题关键词（Web 编辑器走同一 CRUD）
+        saved = await RuleSetService(session).get(rule.id)
+        assert saved.spec["title_include"] == ["正片"]
+        assert saved.spec["title_exclude"] == ["纯享", "先导", "加更"]
+
+        sub = await _service(session).create(
+            MediaKind.TV, 200, selected_seasons=[1], rule_set_id=rule.id
+        )
+        excluded = await _insert_torrent(
+            session,
+            "pure",
+            "Test Show S01 纯享版 2160p WEB-DL",
+            _S1_PACK_ATTRS,
+        )
+        missing = await _insert_torrent(
+            session,
+            "teaser",
+            "Test Show S01 抢先看 2160p WEB-DL",
+            _S1_PACK_ATTRS,
+        )
+        accepted = await _insert_torrent(
+            session,
+            "full",
+            "Test Show S01 正片 2160p WEB-DL",
+            _S1_PACK_ATTRS,
+        )
+        await evaluate_and_dispatch(
+            session, [excluded, missing, accepted], source="被动匹配"
+        )
+
+        activities = await _activities(session, sub.id)
+        rejected = [a for a in activities if a.type == "match_rejected"]
+        codes = {a.payload["reason_code"] for a in rejected}
+        assert codes == {"title_excluded", "title_include_missing"}
+        assert any("排除词「纯享」" in a.message for a in rejected)
+        assert any("必须的关键词（正片）" in a.message for a in rejected)
+
+        grabbed = [a for a in activities if a.type == "grabbed"]
+        assert len(grabbed) == 1
+        assert grabbed[0].payload["torrent_id"] == "full"
+        wanted = await _wanted_map(session, sub.id)
+        assert all(w.status == WantedStatus.GRABBED for w in wanted.values())
+
+
 async def test_pack_preferred_over_higher_scored_single(db) -> None:
     """同批出现单集与整季包：整季包优先（已确认决策），单集不再重复投。"""
     async with db.session() as session:

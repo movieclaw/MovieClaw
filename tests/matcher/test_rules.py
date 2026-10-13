@@ -15,7 +15,12 @@ def _candidate(**kwargs) -> TorrentCandidate:
     attrs = {k: v for k, v in kwargs.items() if k in attr_fields}
     rest = {k: v for k, v in kwargs.items() if k not in attr_fields}
     return TorrentCandidate(
-        site_id="test", torrent_id="1", title="t", subtitle="", attrs=TorrentAttrs(**attrs), **rest
+        site_id="test",
+        torrent_id="1",
+        title=rest.pop("title", "t"),
+        subtitle=rest.pop("subtitle", ""),
+        attrs=TorrentAttrs(**attrs),
+        **rest,
     )
 
 
@@ -140,6 +145,72 @@ def _candidate(**kwargs) -> TorrentCandidate:
             False,
             "hit_and_run_unknown",
         ),
+        # 标题关键词（issue #546）：匹配标题+副标题；排除任一命中即拒，必须包含任一即可
+        (
+            {"title": "中餐厅 第十三季 正片 1080p"},
+            {"title_include": ["正片"]},
+            True,
+            None,
+        ),
+        (
+            {"title": "中餐厅 第十三季 纯享版 1080p"},
+            {"title_include": ["正片"]},
+            False,
+            "title_include_missing",
+        ),
+        (
+            {"title": "中餐厅 第十三季", "subtitle": "正片 WEB-DL"},
+            {"title_include": ["正片"]},
+            True,
+            None,
+        ),
+        (
+            {"title": "中餐厅 第十三季 纯享篇"},
+            {"title_exclude": ["纯享", "先导", "加更"]},
+            False,
+            "title_excluded",
+        ),
+        (
+            {"title": "中餐厅 第十三季 先导片"},
+            {"title_exclude": ["纯享", "先导", "加更"]},
+            False,
+            "title_excluded",
+        ),
+        (
+            {"title": "中餐厅 第十三季 正片"},
+            {"title_exclude": ["纯享", "先导", "加更"]},
+            True,
+            None,
+        ),
+        # 必须包含：多个词为「或」——命中任一即可（同义写法）
+        (
+            {"title": "某综艺 完整版 1080p"},
+            {"title_include": ["正片", "完整版"]},
+            True,
+            None,
+        ),
+        (
+            {"title": "某综艺 抢先看"},
+            {"title_include": ["正片", "完整版"]},
+            False,
+            "title_include_missing",
+        ),
+        # 排除优先于必须包含：同时命中时拒绝原因指向排除词
+        (
+            {"title": "某综艺 正片 纯享"},
+            {"title_include": ["正片"], "title_exclude": ["纯享"]},
+            False,
+            "title_excluded",
+        ),
+        # 大小写不敏感（英文排除词）
+        (
+            {"title": "ShowName 1080p TC"},
+            {"title_exclude": ["tc"]},
+            False,
+            "title_excluded",
+        ),
+        # 未配置时任意标题放行
+        ({"title": "随便什么"}, {}, True, None),
     ],
 )
 def test_filter_dimensions(candidate_kwargs, spec_kwargs, expect_accept, expect_code) -> None:
@@ -179,6 +250,32 @@ def test_size_unknown_rejected_when_bounds_set() -> None:
     verdict = evaluate_rules(_candidate(), RuleSetSpec(size_max_mb=2000))
     assert verdict.accepted is False
     assert verdict.reason_code == "size_unknown"
+
+
+def test_title_keyword_reason_text_names_the_word() -> None:
+    """拒绝文案点名具体关键词，方便用户在订阅动态里排查。"""
+    excluded = evaluate_rules(
+        _candidate(title="中餐厅 加更版"),
+        RuleSetSpec(title_exclude=["纯享", "先导", "加更"]),
+    )
+    assert excluded.accepted is False
+    assert excluded.reason_text == "标题含排除词「加更」"
+
+    missing = evaluate_rules(
+        _candidate(title="中餐厅 纯享"),
+        RuleSetSpec(title_include=["正片", "完整版"]),
+    )
+    assert missing.accepted is False
+    assert missing.reason_text == "标题未包含必须的关键词（正片、完整版）"
+
+
+def test_title_keywords_normalize_on_validate() -> None:
+    """写入侧：去空白、丢空串、大小写不敏感去重，保留首次写法。"""
+    spec = RuleSetSpec.model_validate(
+        {"title_include": [" 正片 ", "", "正片", "完整版"], "title_exclude": ["TC", "tc", "  "]}
+    )
+    assert spec.title_include == ["正片", "完整版"]
+    assert spec.title_exclude == ["TC"]
 
 
 # ---------------------------------------------------------------------------

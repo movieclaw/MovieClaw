@@ -161,6 +161,22 @@ def _known_platforms(values: list[str]) -> list[str]:
     return seen
 
 
+def _unique_keywords(values: list[str]) -> list[str]:
+    """标题关键词归一：去首尾空白、丢空串、大小写不敏感去重（保留首次写法）。"""
+    seen: list[str] = []
+    seen_keys: set[str] = set()
+    for value in values:
+        word = value.strip()
+        if not word:
+            continue
+        key = word.casefold()
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        seen.append(word)
+    return seen
+
+
 class HdrPolicy(StrEnum):
     """HDR 三态要求（判断整个 HDR 家族：HDR10/HDR10+/HLG/DV/…）。
 
@@ -307,6 +323,17 @@ class RuleSetSpec(BaseModel):
         default_factory=list,
         description="要求的音轨语言（任一命中即过，如 [\"cmn\"]=要国语）；空=不限",
     )
+    # 标题关键词（issue #546）：综艺常有先导/纯享/加更/正片等变体，分辨率与
+    # 制作组管不到这些字样。匹配范围是标题+副标题（PT 站副标题常写版本标签）。
+    # include = 须含**任一**（同义写法用「或」）；exclude = 含**任一**即拒。
+    title_include: list[str] = Field(
+        default_factory=list,
+        description="标题/副标题须包含的关键词（任一命中即过，如 [\"正片\"]）；空=不限",
+    )
+    title_exclude: list[str] = Field(
+        default_factory=list,
+        description="标题/副标题排除词（含任一即拒，如 [\"纯享\",\"先导\",\"加更\"]）；空=不限",
+    )
 
     # -- 洗版（docs/design/quality-upgrade.md §3.2）--------------------------
     # 两个字段都缺省 = 不洗版。洗版目标 = (cutoff_resolution 或 resolutions
@@ -390,6 +417,13 @@ class RuleSetSpec(BaseModel):
             if key in _MEDIA_SOURCE_TIER_VALUES and key not in seen:
                 seen.append(key)
         self.media_sources = seen
+        return self
+
+    @model_validator(mode="after")
+    def _normalize_title_keywords(self) -> RuleSetSpec:
+        """标题关键词归一：去空白、丢空串、大小写不敏感去重（保留首次写法供拒绝文案）。"""
+        self.title_include = _unique_keywords(self.title_include)
+        self.title_exclude = _unique_keywords(self.title_exclude)
         return self
 
     @model_validator(mode="after")

@@ -283,6 +283,10 @@ export interface RuleSetSpec {
   platforms_block?: string[];
   release_groups_allow?: string[];
   release_groups_block?: string[];
+  /** 标题/副标题须包含的关键词（任一命中即过，如综艺「正片」）；空=不限 */
+  title_include?: string[];
+  /** 标题/副标题排除词（含任一即拒，如「纯享」「先导」「加更」）；空=不限 */
+  title_exclude?: string[];
   /** HDR 白名单兼偏好序（DV/HDR10+/HDR10/HLG/SDR，SDR=未标注）；任一命中即过 */
   hdr_levels?: string[];
   /** HDR 黑名单：资源带其中任一格式即排除 */
