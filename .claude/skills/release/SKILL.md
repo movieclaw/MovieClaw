@@ -10,7 +10,7 @@ description: 发布 movieclaw 新版本。当用户要求发版、发布新版�
 
 | 类型 | 什么时候发 | 用户侧感知 |
 |------|-----------|-----------|
-| 应用 Release（`vX.Y.Z` tag） | 前后端代码变了（最常见） | 设置页一键更新，免拉镜像 |
+| 应用 Release（`vX.Y.Z` tag，标题 MovieClaw Server X.Y.Z） | 前后端代码变了（最常见） | 设置页一键更新，免拉镜像 |
 | 模型 Release（`torrent-ner-vN` tag） | NER 模型重新训练 | 设置页一键更新模型 |
 | Docker 镜像 | 随应用 Release 自动发（release.yml 调用 docker-image.yml 推 Docker Hub） | 仅 runtime bump 时用户必须重拉 |
 | 客户端 Release（`ios-v` / `tvos-v` / `macos-v` / `transcoder-v` / `android-v` / `androidtv-v` / `windows-v` 加 `X.Y.Z`） | 某个客户端有变化，各自独立发布（第九、十节） | 各自渠道更新：TestFlight、下载 zip / APK、Windows 客户端内检查更新 |

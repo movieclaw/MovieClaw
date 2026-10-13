@@ -103,7 +103,7 @@ jobs:
             # 上创建 tag；tag 推送事件里 tag 已存在，此参数被忽略
             gh release create "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" --draft \
-              --title "$RELEASE_TAG" "${NOTES_ARGS[@]}" $PRERELEASE_FLAG
+              --title "MovieClaw Server ${RELEASE_TAG#v}" "${NOTES_ARGS[@]}" $PRERELEASE_FLAG
           else
             # 已存在的 draft 通常是上一轮失败留下的，它还锁着那一轮的
             # target_commitish——转正时 tag 会创建在那个旧提交上，与本轮真正
