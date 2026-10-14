@@ -33,7 +33,6 @@ async def _search(cls, handler, **kwargs):
     return await provider.search(
         "Dune Part Two cast",
         max_results=kwargs.get("max_results", 5),
-        include_content=kwargs.get("include_content", False),
         domain=kwargs.get("domain"),
     )
 
@@ -49,15 +48,13 @@ def _record(calls: list[httpx.Request]):
 def _payload_for(request: httpx.Request) -> dict:
     host = request.url.host
     if host == "api.tavily.com":
-        body = request.read().decode()
-        include = '"include_raw_content": true' in body or '"include_raw_content":true' in body
         return {
             "results": [
                 {
                     "title": "Dune: Part Two",
                     "url": "https://example.com/dune",
                     "content": "Timothée Chalamet stars.",
-                    "raw_content": "Full page about the cast." if include else None,
+                    "raw_content": "Full page about the cast.",
                     "published_date": "2024-03-01T00:00:00Z",
                 },
                 {"title": "skip", "url": ""},
@@ -99,7 +96,7 @@ def _payload_for(request: httpx.Request) -> dict:
 )
 async def test_each_provider_maps_title_url_snippet_and_date(cls, header):
     calls: list[httpx.Request] = []
-    hits = await _search(cls, _record(calls), include_content=True)
+    hits = await _search(cls, _record(calls))
     assert len(hits) == 1
     hit = hits[0]
     assert hit.title.startswith("Dune")
@@ -111,10 +108,9 @@ async def test_each_provider_maps_title_url_snippet_and_date(cls, header):
     request = calls[0]
     assert _KEY not in str(request.url)
     assert _KEY in request.headers[header]
-    if cls is BraveProvider:
-        assert hit.content is None
-    else:
-        assert hit.content == "Full page about the cast."
+    body = request.content
+    assert b'"include_raw_content":true' not in body and b'"include_raw_content": true' not in body
+    assert b'"text"' not in body
 
 
 async def test_domain_is_a_separate_filter_on_each_provider():
@@ -135,7 +131,7 @@ async def test_domain_is_a_separate_filter_on_each_provider():
     assert _KEY not in str(calls[0].url)
 
 
-async def test_tavily_omits_page_text_unless_asked():
+async def test_tavily_never_asks_for_page_text():
     calls: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -154,23 +150,22 @@ async def test_tavily_omits_page_text_unless_asked():
             },
         )
 
-    hits = await _search(TavilyProvider, handler, include_content=False)
-    assert hits[0].content is None
+    hits = await _search(TavilyProvider, handler)
+    assert hits[0].snippet == "snippet"
     body = calls[0].content
     assert b'"include_raw_content":false' in body or b'"include_raw_content": false' in body
 
 
-async def test_exa_requests_text_only_when_asked():
+async def test_exa_asks_for_highlights_not_page_text():
     calls: list[httpx.Request] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(request)
         return httpx.Response(200, json={"results": []})
 
-    await _search(ExaProvider, handler, include_content=False)
+    await _search(ExaProvider, handler)
+    assert b'"highlights"' in calls[0].content
     assert b'"text"' not in calls[0].content
-    await _search(ExaProvider, handler, include_content=True)
-    assert b'"text"' in calls[1].content
 
 
 @pytest.mark.parametrize("cls", [TavilyProvider, ExaProvider, BraveProvider])

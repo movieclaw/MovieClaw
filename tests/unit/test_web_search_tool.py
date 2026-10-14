@@ -21,7 +21,6 @@ _KEY = "super-secret-token-9876"
 class _Fake:
     id = "tavily"
     api_key = _KEY
-    supports_content = True
 
     def __init__(self) -> None:
         self.calls: list[dict] = []
@@ -31,14 +30,12 @@ class _Fake:
         query: str,
         *,
         max_results: int,
-        include_content: bool,
         domain: str | None = None,
     ):
         self.calls.append(
             {
                 "query": query,
                 "max_results": max_results,
-                "include_content": include_content,
                 "domain": domain,
             }
         )
@@ -48,7 +45,6 @@ class _Fake:
                 url="https://example.com/dune",
                 snippet="Timothée Chalamet stars.",
                 date="2024-03-01",
-                content="Full page." if include_content else None,
             )
         ]
 
@@ -80,7 +76,7 @@ def test_tool_description_is_general_web_search_not_media_only():
         for param in tool.definition.parameters["properties"].values():
             assert banned not in param["description"]
     params = tool.definition.parameters["properties"]
-    assert list(params) == ["query", "max_results", "include_content", "domain"]
+    assert list(params) == ["query", "max_results", "domain"]
     assert tool.definition.parameters["required"] == ["query"]
     assert "site:example.com" in params["query"]["description"]
     assert "默认 5" in params["max_results"]["description"]
@@ -97,13 +93,11 @@ def test_web_and_im_paths_load_the_provider_and_none_profile_does_not():
 async def test_tool_formats_a_citation_and_clamps_the_result_count():
     provider = _Fake()
     tool = make_web_search_tool(provider)  # type: ignore[arg-type]
-    text = await tool.handler(
-        {"query": "  沙丘2 主演  ", "max_results": 50, "include_content": True}
-    )
+    text = await tool.handler({"query": "  沙丘2 主演  ", "max_results": 50})
     assert "Dune: Part Two" in text
     assert "https://example.com/dune" in text
     assert "2024-03-01" in text
-    assert "正文摘录" in text
+    assert "正文摘录" not in text
     assert provider.calls[0]["max_results"] == 8
     assert provider.calls[0]["query"] == "沙丘2 主演"
 
@@ -142,7 +136,6 @@ async def test_logs_redact_the_key_and_errors_stay_readable(caplog):
             query: str,
             *,
             max_results: int,
-            include_content: bool,
             domain: str | None = None,
         ):
             raise WebSearchError(f"rejected {_KEY}", kind="auth")
@@ -150,24 +143,3 @@ async def test_logs_redact_the_key_and_errors_stay_readable(caplog):
     broken = make_web_search_tool(_Broken())  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="rejected \\*\\*\\*"):
         await broken.handler({"query": "dune cast"})
-
-
-async def test_brave_style_provider_says_it_has_no_page_text():
-    class _Brave(_Fake):
-        id = "brave"
-        supports_content = False
-
-        async def search(
-            self,
-            query: str,
-            *,
-            max_results: int,
-            include_content: bool,
-            domain: str | None = None,
-        ):
-            return [WebSearchHit(title="Dune", url="https://example.com/dune", snippet="cast")]
-
-    tool = make_web_search_tool(_Brave())  # type: ignore[arg-type]
-    text = await tool.handler({"query": "dune", "include_content": True})
-    assert "没有网页正文" in text
-    assert "正文摘录" not in text

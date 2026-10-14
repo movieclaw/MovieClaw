@@ -9,14 +9,13 @@ from movieclaw_agent.web_search.types import SearchProvider, WebSearchHit
 
 _URL = "https://api.exa.ai/search"
 _SNIPPET = 500
-_CONTENT = 1200
 
 
 class ExaProvider(SearchProvider):
     id = "exa"
     label = "Exa"
     signup_url = "https://exa.ai"
-    note = "返回标题、链接和摘要；需要时可以多带一段网页正文"
+    note = "返回标题、链接和摘要"
     probe_url = _URL
 
     async def search(
@@ -24,17 +23,13 @@ class ExaProvider(SearchProvider):
         query: str,
         *,
         max_results: int,
-        include_content: bool,
         domain: str | None = None,
     ) -> list[WebSearchHit]:
-        contents: dict[str, Any] = {"highlights": {"maxCharacters": _SNIPPET}}
-        if include_content:
-            contents["text"] = {"maxCharacters": _CONTENT}
-        body = {
+        body: dict[str, Any] = {
             "query": query,
             "type": "auto",
             "numResults": max_results,
-            "contents": contents,
+            "contents": {"highlights": {"maxCharacters": _SNIPPET}},
         }
         if domain:
             body["includeDomains"] = [domain]
@@ -45,13 +40,13 @@ class ExaProvider(SearchProvider):
             )
         hits: list[WebSearchHit] = []
         for item in data.get("results") or []:
-            hit = _hit(item, include_content=include_content)
+            hit = _hit(item)
             if hit is not None:
                 hits.append(hit)
         return hits
 
 
-def _hit(item: Any, *, include_content: bool) -> WebSearchHit | None:
+def _hit(item: Any) -> WebSearchHit | None:
     if not isinstance(item, dict):
         return None
     url = str(item.get("url") or "").strip()
@@ -62,14 +57,9 @@ def _hit(item: Any, *, include_content: bool) -> WebSearchHit | None:
         snippet = clip_text(" ".join(str(part) for part in highlights if part), _SNIPPET)
     else:
         snippet = ""
-    text = item.get("text") if include_content else None
-    content = clip_text(text, _CONTENT) if isinstance(text, str) and text.strip() else None
-    if not snippet and isinstance(text, str):
-        snippet = clip_text(text, _SNIPPET)
     return WebSearchHit(
         title=clip_text(str(item.get("title") or ""), 200),
         url=url,
         snippet=snippet,
         date=normalize_date(item.get("publishedDate")),
-        content=content or None,
     )

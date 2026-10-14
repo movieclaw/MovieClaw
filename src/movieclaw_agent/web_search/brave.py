@@ -17,19 +17,16 @@ class BraveProvider(SearchProvider):
     id = "brave"
     label = "Brave Search"
     signup_url = "https://brave.com/search/api/"
-    note = "返回标题、链接和摘要。这个接口不提供网页正文"
+    note = "返回标题、链接和摘要"
     probe_url = _URL
-    supports_content = False
 
     async def search(
         self,
         query: str,
         *,
         max_results: int,
-        include_content: bool,
         domain: str | None = None,
     ) -> list[WebSearchHit]:
-        del include_content  # Brave 的网页搜索没有正文，参数只为对齐另外两家
         headers = {
             "Accept": "application/json",
             "X-Subscription-Token": self.api_key,
@@ -63,5 +60,4 @@ def _hit(item: Any) -> WebSearchHit | None:
         url=url,
         snippet=clip_text(description, _SNIPPET),
         date=normalize_date(item.get("page_age") or item.get("age")),
-        content=None,
     )

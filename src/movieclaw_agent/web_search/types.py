@@ -11,13 +11,12 @@ from movieclaw_agent.web_search.http import TIMEOUT
 
 @dataclass(frozen=True)
 class WebSearchHit:
-    """一条搜索结果。``content`` 只有调用方要求摘录正文、且供应商提供时才有。"""
+    """一条搜索结果：标题、链接、摘要。不取网页正文。"""
 
     title: str
     url: str
     snippet: str = ""
     date: str | None = None
-    content: str | None = None
 
 
 class SearchProvider:
@@ -30,8 +29,6 @@ class SearchProvider:
     signup_url: str
     note: str
     probe_url: str
-    #: False 的供应商（如 Brave）没有网页正文，工具会告诉模型只有摘要
-    supports_content: bool = True
 
     def __init__(self, api_key: str, *, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self.api_key = api_key.strip()
@@ -45,7 +42,6 @@ class SearchProvider:
         query: str,
         *,
         max_results: int,
-        include_content: bool,
         domain: str | None = None,
     ) -> list[WebSearchHit]:
         raise NotImplementedError

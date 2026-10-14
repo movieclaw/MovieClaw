@@ -44,32 +44,18 @@ async def _pace() -> None:
         _last_call = time.monotonic()
 
 
-def format_hits(
-    query: str,
-    hits: list,
-    *,
-    include_content: bool,
-    supports_content: bool,
-) -> str:
+def format_hits(query: str, hits: list) -> str:
     if not hits:
-        text = f"没有找到与「{query}」相关的网页。可以换更具体的关键词再搜一次。"
-    else:
-        lines = [
-            f"互联网搜索「{query}」（{len(hits)} 条）。摘要来自网页，引用时请带上标题和链接。"
-        ]
-        for index, hit in enumerate(hits, 1):
-            lines.append(f"{index}. {hit.title or '（无标题）'}")
-            lines.append(f"   {hit.url}")
-            if hit.date:
-                lines.append(f"   日期：{hit.date}")
-            if hit.snippet:
-                lines.append(f"   {hit.snippet}")
-            if hit.content:
-                lines.append(f"   正文摘录：{hit.content}")
-        text = "\n".join(lines)
-    if include_content and not supports_content:
-        text += "\n（这次只有摘要，没有网页正文。）"
-    return text
+        return f"没有找到与「{query}」相关的网页。可以换更具体的关键词再搜一次。"
+    lines = [f"互联网搜索「{query}」（{len(hits)} 条）。摘要来自网页，引用时请带上标题和链接。"]
+    for index, hit in enumerate(hits, 1):
+        lines.append(f"{index}. {hit.title or '（无标题）'}")
+        lines.append(f"   {hit.url}")
+        if hit.date:
+            lines.append(f"   日期：{hit.date}")
+        if hit.snippet:
+            lines.append(f"   {hit.snippet}")
+    return "\n".join(lines)
 
 
 def make_web_search_tool(provider: SearchProvider) -> AgentTool:
@@ -80,7 +66,6 @@ def make_web_search_tool(provider: SearchProvider) -> AgentTool:
         if len(query) > _MAX_QUERY:
             raise ValueError(f"query 过长（最多 {_MAX_QUERY} 字）。请收成一个明确问题再搜。")
         max_results = _clamp_results(args.get("max_results"))
-        include_content = bool(args.get("include_content"))
         domain = normalize_domain(args.get("domain"))
         await _pace()
         started = time.monotonic()
@@ -88,7 +73,6 @@ def make_web_search_tool(provider: SearchProvider) -> AgentTool:
             hits = await provider.search(
                 query,
                 max_results=max_results,
-                include_content=include_content,
                 domain=domain,
             )
         except WebSearchError as exc:
@@ -103,12 +87,7 @@ def make_web_search_tool(provider: SearchProvider) -> AgentTool:
             int((time.monotonic() - started) * 1000),
             redact(query[:80], provider.api_key),
         )
-        return format_hits(
-            query,
-            hits,
-            include_content=include_content,
-            supports_content=provider.supports_content,
-        )
+        return format_hits(query, hits)
 
     return AgentTool(
         definition=ToolDefinition(
@@ -129,10 +108,6 @@ def make_web_search_tool(provider: SearchProvider) -> AgentTool:
                         "description": (
                             f"最多返回多少条。默认 {_DEFAULT_RESULTS}，范围 1 到 {_MAX_RESULTS}"
                         ),
-                    },
-                    "include_content": {
-                        "type": "boolean",
-                        "description": "是否附上正文摘录。默认否；摘要不够时再打开",
                     },
                     "domain": {
                         "type": "string",

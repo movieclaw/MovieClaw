@@ -126,7 +126,7 @@ async def _probe_key(provider_id: str, key: str) -> dict:
     """最小搜索。任何失败都原样抛出，调用方据此决定要不要落库。"""
     searcher = build_provider(provider_id, key, probe=True)
     try:
-        hits = await searcher.search(_TEST_QUERY, max_results=1, include_content=False)
+        hits = await searcher.search(_TEST_QUERY, max_results=1)
     except WebSearchError as exc:
         if exc.kind == "network":
             raise UpstreamUnreachableException(
