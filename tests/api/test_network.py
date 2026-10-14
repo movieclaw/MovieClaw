@@ -64,7 +64,9 @@ def test_get_config_returns_defaults_and_catalog(client):
     assert data["proxy_mode"] == "env"
     assert sorted(data["proxy_services"]) == ["fanart", "github", "image", "tmdb"]
     service_ids = [item["id"] for item in data["services"]]
-    assert {"tmdb", "image", "fanart", "douban", "llm", "github"} <= set(service_ids)
+    assert {"tmdb", "image", "fanart", "douban", "llm", "github", "web_search"} <= set(service_ids)
+    # 网页搜索出现在目录里，但默认不走代理，用户自己打开
+    assert "web_search" not in data["proxy_services"]
     # 镜像默认值供前端 placeholder 展示
     assert data["mirror_defaults"]["tmdb_api_base_url"].startswith("http")
 

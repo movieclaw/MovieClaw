@@ -147,6 +147,9 @@ struct LiveDecodeTests {
     @Test func llmProvidersList() async throws {
         try await LiveServer.check { try await $0.llmProvidersList() }
     }
+    @Test func llmWebSearchShow() async throws {
+        try await LiveServer.check { try await $0.llmWebSearchShow() }
+    }
     @Test func mcpStatus() async throws {
         try await LiveServer.check { try await $0.mcpStatus() }
     }

@@ -13589,6 +13589,72 @@ nonisolated extension API {
         }
     }
 
+    struct WebSearchConfigView: Codable, Hashable, Sendable {
+        /// 当前供应商 id；未配置为 null
+        var provider: String?
+        /// 是否已保存可用的供应商和密钥
+        var configured: Bool
+        /// 密钥末四位；未配置或过短时为空
+        var keyHint: String
+        var providers: [API.WebSearchProviderOption]
+
+        enum CodingKeys: String, CodingKey {
+            case provider
+            case configured
+            case keyHint = "key_hint"
+            case providers
+        }
+    }
+
+    struct WebSearchProviderOption: Codable, Hashable, Sendable {
+        var id: String
+        var label: String
+        var signupUrl: String
+        var note: String
+
+        enum CodingKeys: String, CodingKey {
+            case id
+            case label
+            case signupUrl = "signup_url"
+            case note
+        }
+    }
+
+    struct WebSearchSavePayload: Codable, Hashable, Sendable {
+        /// tavily / exa / brave
+        var provider: String
+        /// API Key。编辑时留空沿用原密钥；更换供应商时必须重填
+        var apiKey: String?
+
+        enum CodingKeys: String, CodingKey {
+            case provider
+            case apiKey = "api_key"
+        }
+    }
+
+    struct WebSearchTestPayload: Codable, Hashable, Sendable {
+        var provider: String?
+        /// 留空则测试已保存的密钥。本接口不保存
+        var apiKey: String?
+
+        enum CodingKeys: String, CodingKey {
+            case provider
+            case apiKey = "api_key"
+        }
+    }
+
+    struct WebSearchTestView: Codable, Hashable, Sendable {
+        var ok: Bool
+        var message: String
+        var sampleTitle: String?
+
+        enum CodingKeys: String, CodingKey {
+            case ok
+            case message
+            case sampleTitle = "sample_title"
+        }
+    }
+
     struct WebhookConfigPayload: Codable, Hashable, Sendable {
         var enabled: Bool?
         var endpoints: [API.WebhookEndpointPayload]?

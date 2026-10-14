@@ -59,16 +59,13 @@ async def get_status() -> dict:
 
 
 async def save_web_search(*, provider: str, api_key: str | None) -> dict:
-    provider_id = provider.strip().lower()
-    if provider_id not in provider_ids():
-        raise BadRequestException("不支持的搜索供应商")
-    current = await get_setting_store().get(WebSearchSetting)
-    key = (api_key or "").strip()
-    if not key:
-        if current.provider == provider_id and current.api_key:
-            key = current.api_key
-        else:
-            raise BadRequestException("请填写 API Key；更换供应商时需要新的密钥")
+    """先做一次真实搜索，通过了才落库。失败时已保存的密钥保持原样。"""
+    provider_id, key = await _resolve_key(
+        provider,
+        api_key,
+        missing="请填写 API Key；更换供应商时需要新的密钥",
+    )
+    await _probe_key(provider_id, key)
     saved = WebSearchSetting(provider=provider_id, api_key=key)
     await get_setting_store().set(saved)
     logger.info("已保存网页搜索配置 provider=%s hint=%s", provider_id, mask_key(key) or "（过短）")
@@ -92,8 +89,26 @@ async def load_web_search_provider() -> SearchProvider | None:
 
 async def test_web_search(*, provider: str | None, api_key: str | None) -> dict:
     """用一把密钥做一次最小搜索。不保存。失败不覆盖已经保存的配置。"""
+    provider_id, key = await _resolve_key(
+        provider or "",
+        api_key,
+        missing="请先粘贴 API Key",
+        allow_current_provider=True,
+    )
+    return await _probe_key(provider_id, key)
+
+
+async def _resolve_key(
+    provider: str,
+    api_key: str | None,
+    *,
+    missing: str,
+    allow_current_provider: bool = False,
+) -> tuple[str, str]:
     current = await get_setting_store().get(WebSearchSetting)
-    provider_id = (provider or current.provider or "").strip().lower()
+    provider_id = provider.strip().lower()
+    if not provider_id and allow_current_provider:
+        provider_id = current.provider
     if not provider_id:
         raise BadRequestException("请先选择搜索供应商")
     if provider_id not in provider_ids():
@@ -103,7 +118,12 @@ async def test_web_search(*, provider: str | None, api_key: str | None) -> dict:
         if current.provider == provider_id and current.api_key:
             key = current.api_key
         else:
-            raise BadRequestException("请先粘贴 API Key")
+            raise BadRequestException(missing)
+    return provider_id, key
+
+
+async def _probe_key(provider_id: str, key: str) -> dict:
+    """最小搜索。任何失败都原样抛出，调用方据此决定要不要落库。"""
     searcher = build_provider(provider_id, key, probe=True)
     try:
         hits = await searcher.search(_TEST_QUERY, max_results=1, include_content=False)

@@ -80,14 +80,14 @@ async def show_web_search() -> ApiResponse[WebSearchConfigView]:
 @router.put(
     "",
     response_model=ApiResponse[WebSearchConfigView],
-    summary="保存智能体网页搜索的供应商和 API Key",
+    summary="验证并保存智能体网页搜索的供应商和 API Key（验证不过不保存）",
     operation_id="llm.web-search.update",
     openapi_extra=_HIDDEN,
 )
 async def update_web_search(payload: WebSearchSavePayload) -> ApiResponse[WebSearchConfigView]:
-    """保存即生效，下一次对话才会把 web_search 放进工具列表。不强制先测通。"""
+    """先向供应商做一次最小搜索，通过了才保存。失败不改已有密钥。"""
     data = await save_web_search(provider=payload.provider, api_key=payload.api_key)
-    return ok(_view(data), message="网页搜索已保存")
+    return ok(_view(data), message="网页搜索已验证并保存")
 
 
 @router.delete(

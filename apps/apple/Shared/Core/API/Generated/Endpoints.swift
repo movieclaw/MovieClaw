@@ -1740,6 +1740,30 @@ nonisolated extension APIClient {
         return try await send("POST", "/llm/providers/\(providerId)/verify")
     }
 
+    /// 关闭智能体网页搜索并清除已保存的 API Key
+    /// `DELETE /llm/web-search`
+    func llmWebSearchClear() async throws -> API.WebSearchConfigView {
+        return try await send("DELETE", "/llm/web-search")
+    }
+
+    /// 查看智能体网页搜索的接入状态（不含密钥明文）
+    /// `GET /llm/web-search`
+    func llmWebSearchShow() async throws -> API.WebSearchConfigView {
+        return try await send("GET", "/llm/web-search")
+    }
+
+    /// 验证并保存智能体网页搜索的供应商和 API Key（验证不过不保存）
+    /// `PUT /llm/web-search`
+    func llmWebSearchUpdate(body: API.WebSearchSavePayload) async throws -> API.WebSearchConfigView {
+        return try await send("PUT", "/llm/web-search", body: body)
+    }
+
+    /// 测试搜索供应商的 API Key（不保存）
+    /// `POST /llm/web-search/test`
+    func llmWebSearchTest(body: API.WebSearchTestPayload) async throws -> API.WebSearchTestView {
+        return try await send("POST", "/llm/web-search/test", body: body)
+    }
+
     /// 新建 MCP 端点（令牌明文仅本次返回）
     /// `POST /mcp/endpoints`
     func mcpEndpointsCreate(body: API.EndpointCreateRequest) async throws -> API.EndpointCreatedView {

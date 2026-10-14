@@ -37,6 +37,7 @@ BUILTIN_EGRESS_SERVICES: list[dict[str, str]] = [
     },
     {"id": "douban", "label": "豆瓣", "description": "豆瓣榜单与搜索（国内网络通常可直连）"},
     {"id": "llm", "label": "AI 模型", "description": "大语言模型供应商接口"},
+    # 默认不进 proxy_services。海外接口常常要代理，但由用户在「设置 → 网络」里自己打开。
     {
         "id": "web_search",
         "label": "网页搜索",

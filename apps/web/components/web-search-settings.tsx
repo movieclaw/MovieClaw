@@ -3,7 +3,7 @@
 /**
  * 「AI 设定」里的搜索能力接入。
  *
- * 选一家供应商、粘贴 Key、可选地测试，保存后智能体才会拿到 web_search。
+ * 选一家供应商、粘贴 Key、测试连接，通过之后才能保存。没通过的密钥不会写入服务器。
  * 设置页目前没有语言包（界面文案是中文），这里与同一页的其他分区保持一致。
  * 密钥不回显：输入框留空表示不修改已保存的 Key。
  */
@@ -35,6 +35,7 @@ export function WebSearchSettings() {
   const [apiKey, setApiKey] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [verifiedToken, setVerifiedToken] = useState<string | null>(null);
   const [busy, setBusy] = useState<"save" | "test" | "clear" | null>(null);
 
   useEffect(() => {
@@ -48,6 +49,8 @@ export function WebSearchSettings() {
 
   const selected = config?.providers.find((item) => item.id === provider) ?? null;
   const switching = config?.configured === true && provider !== (config.provider ?? "");
+  const token = formToken(provider, apiKey, config);
+  const canSave = token != null && token === verifiedToken;
 
   async function save() {
     if (!provider) {
@@ -66,7 +69,8 @@ export function WebSearchSettings() {
       setConfig(next);
       setProvider(next.provider ?? "");
       setApiKey("");
-      toast.success("网页搜索已保存");
+      setVerifiedToken(null);
+      toast.success("网页搜索已验证并保存");
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -87,9 +91,12 @@ export function WebSearchSettings() {
     setError(null);
     setNotice(null);
     try {
+      const tested = formToken(provider, apiKey, config);
       const result = await testWebSearchConfig(provider, apiKey);
       setNotice(result.message);
+      setVerifiedToken(tested);
     } catch (e) {
+      setVerifiedToken(null);
       setError((e as Error).message);
     } finally {
       setBusy(null);
@@ -112,6 +119,7 @@ export function WebSearchSettings() {
       setConfig(next);
       setProvider("");
       setApiKey("");
+      setVerifiedToken(null);
       toast.success("已关闭网页搜索");
     } catch (e) {
       setError((e as Error).message);
@@ -123,7 +131,7 @@ export function WebSearchSettings() {
   return (
     <SettingsSection
       title="搜索能力接入"
-      description="选一家搜索服务并填入 API Key 后，智能体才能上网查上映信息、演职员、奖项和影评。不配置就不会提供这个工具，对话和现在一样。"
+      description="选一家搜索服务并填入 API Key。先测试连接，通过后才能保存；没通过的密钥不会写入服务器。不配置就不会提供这个工具，对话和现在一样。"
     >
       {config == null ? (
         <div className="h-[104px] animate-pulse rounded-xl bg-white/[0.04]" />
@@ -139,6 +147,7 @@ export function WebSearchSettings() {
               onChange={(e) => {
                 setProvider(e.target.value);
                 setNotice(null);
+                setError(null);
               }}
               className={`${SETTINGS_INPUT_CLASS} w-full`}
             >
@@ -161,12 +170,17 @@ export function WebSearchSettings() {
               value={apiKey}
               disabled={busy != null}
               placeholder={placeholderFor(config, switching)}
-              onChange={(e) => setApiKey(e.target.value)}
+              onChange={(e) => {
+                setApiKey(e.target.value);
+                setNotice(null);
+                setError(null);
+              }}
               className={`${SETTINGS_INPUT_CLASS} w-full font-mono`}
             />
           </label>
           <p className="text-caption leading-5 text-[var(--text-faint)]">
             {statusLine(config, selected)}
+            {token != null && !canSave ? " 请先测试连接，通过后才能保存。" : ""}
           </p>
           {notice && <p className="text-sub leading-5 text-[var(--ok)]">{notice}</p>}
           <div className="flex flex-wrap items-center gap-2">
@@ -180,7 +194,7 @@ export function WebSearchSettings() {
             </button>
             <button
               type="button"
-              disabled={busy != null}
+              disabled={busy != null || !canSave}
               onClick={() => void save()}
               className={SETTINGS_PRIMARY_BUTTON_CLASS}
             >
@@ -218,6 +232,15 @@ function ProviderNote({ option }: { option: WebSearchProviderOption }) {
       </a>
     </p>
   );
+}
+
+/** 一次成功的测试只对这一组供应商和密钥有效。空密钥且供应商未变时，测的是已保存的那把。 */
+function formToken(provider: string, apiKey: string, config: WebSearchConfig | null): string | null {
+  if (!provider) return null;
+  const trimmed = apiKey.trim();
+  if (trimmed) return `${provider}\n${trimmed}`;
+  if (config?.configured && provider === (config.provider ?? "")) return `${provider}\nsaved`;
+  return null;
 }
 
 function placeholderFor(config: WebSearchConfig, switching: boolean): string {

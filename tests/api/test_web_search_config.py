@@ -1,4 +1,4 @@
-"""网页搜索设置：持久化、脱敏、测试连接，以及配好之后才装配工具。"""
+"""网页搜索设置：验证通过才落库、脱敏、测试连接，以及配好之后才装配工具。"""
 
 from __future__ import annotations
 
@@ -27,6 +27,7 @@ def client(tmp_path, monkeypatch):
     reset_setting_store()
     reset_secret_box()
     monkeypatch.setattr("movieclaw_agent.web_search.http.RETRY_DELAY_SECONDS", 0)
+    _install(monkeypatch, _ok)
 
     from movieclaw_api.api.deps import require_login
     from movieclaw_api.app import create_app
@@ -39,6 +40,26 @@ def client(tmp_path, monkeypatch):
     get_settings.cache_clear()
     reset_setting_store()
     reset_secret_box()
+
+
+def _ok(_request: httpx.Request) -> httpx.Response:
+    return httpx.Response(
+        200,
+        json={
+            "results": [
+                {"title": "Inception", "url": "https://example.com/inception", "content": "2010"}
+            ],
+            "web": {
+                "results": [
+                    {
+                        "title": "Inception",
+                        "url": "https://example.com/inception",
+                        "description": "2010",
+                    }
+                ]
+            },
+        },
+    )
 
 
 def _install(monkeypatch, handler):
@@ -180,6 +201,39 @@ def test_rejected_key_is_explained_without_saving(client, monkeypatch):
     assert http.get("/api/v1/llm/web-search").json()["data"]["configured"] is False
 
 
+def test_save_rejects_a_bad_key_and_keeps_the_previous_one(client, monkeypatch):
+    http, db_file = client
+    saved = http.put("/api/v1/llm/web-search", json={"provider": "tavily", "api_key": _KEY})
+    assert saved.status_code == 200, saved.text
+    stored = _stored(db_file)
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401)
+
+    _install(monkeypatch, handler)
+    bad_key = "tvly-wrong-key-9999"
+    response = http.put("/api/v1/llm/web-search", json={"provider": "tavily", "api_key": bad_key})
+    assert response.status_code == 400
+    assert "API Key 无效" in response.json()["message"]
+    assert bad_key not in response.text
+    assert _stored(db_file) == stored
+    assert http.get("/api/v1/llm/web-search").json()["data"]["key_hint"] == "1234"
+
+
+def test_save_network_failure_does_not_create_a_config(client, monkeypatch):
+    http, _db = client
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused")
+
+    _install(monkeypatch, handler)
+    response = http.put("/api/v1/llm/web-search", json={"provider": "tavily", "api_key": _KEY})
+    assert response.status_code == 502
+    assert response.json()["code"] == "UPSTREAM_UNREACHABLE"
+    assert "网页搜索" in response.json()["message"]
+    assert http.get("/api/v1/llm/web-search").json()["data"]["configured"] is False
+
+
 def test_network_failure_points_at_the_proxy_setting(client, monkeypatch):
     http, _db = client
 
@@ -228,7 +282,7 @@ async def test_tool_is_registered_only_after_the_provider_is_saved(db, monkeypat
 
     monkeypatch.setattr(
         "movieclaw_api.services.web_search_config.search_transport",
-        lambda **_kwargs: httpx.MockTransport(lambda _request: httpx.Response(500)),
+        lambda **_kwargs: httpx.MockTransport(_ok),
     )
     assert await load_web_search_provider() is None
     bare = get_agent_tools({})

@@ -5,6 +5,7 @@ import SwiftUI
 /// 与「模型接入」分开：接入回答「怎么连上」，这里回答「智能体 / 字幕处理默认用哪个模型」。
 /// 选项是所有已接入实例的模型清单（`GET /llm/models`）；服务端保证接入过供应商就一定有默认值，
 /// 所以这里显示的永远是真实存的值。一个都没接入时给空态，引导去「模型接入」。
+/// 同页底部是「搜索能力接入」：选供应商、粘贴 Key、测试通过后才能保存。
 /// 抽屉内选择并确认保存（`PUT /llm/defaults`），失败留在抽屉；另一项若已失效不能原样回传，
 /// 传空让服务端按推荐补齐。
 struct AIDefaultsSettingsView: View {
@@ -17,6 +18,7 @@ struct AIDefaultsSettingsView: View {
     @State private var error: String?
     @State private var saving: Purpose?
     @State private var selecting: Purpose?
+    @State private var webSearchReload = 0
 
     enum Purpose: String, CaseIterable, Identifiable {
         var id: String { rawValue }
@@ -56,9 +58,13 @@ struct AIDefaultsSettingsView: View {
                     SettingsFormSection { SettingsLoadingRow() }
                 }
             }
+            WebSearchSettingsSection(reloadID: webSearchReload)
         }
         .settingsBFormStyle()
-        .refreshable { await load() }
+        .refreshable {
+            await load()
+            webSearchReload += 1
+        }
         .sheet(item: $selecting) { purpose in
             if let defaults {
                 AIModelSelectionSheet(title: purpose.label, explanation: purpose.desc,
